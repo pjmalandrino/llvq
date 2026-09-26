@@ -1,0 +1,214 @@
+sphgeom — the radial gap the retracted residual hides
+  source            Gaussian, 20000 evaluation blocks, 4000 train, seed 0xf1b20260922
+  encoder           production TetraShapeGain, 1 gain bit, 2 centroids
+  centroids         0.875003 / 1.106938   (relative to row scale 4.894492)
+  upper level        49.01 % of blocks
+
+THE MAGNITUDE THE FILE STORES, AGAINST THE BLOCK'S OWN NORM
+  ĝ/‖x‖   mean 1.00684   sd 0.09200
+          p1 0.8241   p25 0.9383   p50 0.9999   p75 1.0663   p99 1.2969
+  cos θ   mean 0.96080   sd 0.00756
+  A 0-gain-bit direction code has ĝ/‖x‖ = 1 exactly, sd 0.
+
+THE GAP BETWEEN WHAT IS PROPAGATED AND WHAT IS STORED
+  it is (‖x‖ − ĝ)·u, purely radial, and zero at 0 gain bits
+  energy of the gap / energy of the stored error   0.0872   (per-block mean 0.0792)
+  stored error   ‖x − ĝu‖²  total 40798.3429   per weight 0.084997
+  propagated     ‖x − ‖x‖u‖² total 37550.2907   per weight 0.078230
+  the retracted residual is -7.96 % of the true error energy
+
+THE CONTRAST ARM: SPHERICAL SHAPING, THE BALL CODE (beta* = 0.3500)
+  its magnitude is the ball point's own norm, tied to nothing
+  ‖ŵ‖/‖x‖ mean 0.98069   sd 0.08332
+          p1 0.7663   p25 0.9278   p50 0.9862   p75 1.0388   p99 1.1536
+  zero blocks (the origin is a codeword) 0.00 %
+
+HIST tetra lo=0.5 hi=1.5 n=40 under=0 over=16
+  0.5125 0
+  0.5375 0
+  0.5625 0
+  0.5875 0
+  0.6125 0
+  0.6375 0
+  0.6625 0
+  0.6875 2
+  0.7125 6
+  0.7375 13
+  0.7625 27
+  0.7875 52
+  0.8125 102
+  0.8375 159
+  0.8625 236
+  0.8875 1418
+  0.9125 1893
+  0.9375 1994
+  0.9625 2047
+  0.9875 2056
+  1.0125 1934
+  1.0375 1874
+  1.0625 1827
+  1.0875 1777
+  1.1125 1270
+  1.1375 306
+  1.1625 243
+  1.1875 194
+  1.2125 125
+  1.2375 102
+  1.2625 90
+  1.2875 61
+  1.3125 65
+  1.3375 36
+  1.3625 23
+  1.3875 18
+  1.4125 17
+  1.4375 8
+  1.4625 4
+  1.4875 5
+HIST ball lo=0.5 hi=1.5 n=40 under=0 over=0
+  0.5125 0
+  0.5375 0
+  0.5625 0
+  0.5875 0
+  0.6125 0
+  0.6375 2
+  0.6625 6
+  0.6875 14
+  0.7125 36
+  0.7375 67
+  0.7625 127
+  0.7875 216
+  0.8125 352
+  0.8375 587
+  0.8625 809
+  0.8875 1118
+  0.9125 1482
+  0.9375 1834
+  0.9625 2260
+  0.9875 2454
+  1.0125 2435
+  1.0375 2071
+  1.0625 1691
+  1.0875 1151
+  1.1125 700
+  1.1375 353
+  1.1625 148
+  1.1875 62
+  1.2125 16
+  1.2375 6
+  1.2625 3
+  1.2875 0
+  1.3125 0
+  1.3375 0
+  1.3625 0
+  1.3875 0
+  1.4125 0
+  1.4375 0
+  1.4625 0
+  1.4875 0
+sphgeom — the radial gap the retracted residual hides
+  source            Gaussian, 20000 evaluation blocks, 4000 train, seed 0x309
+  encoder           production TetraShapeGain, 1 gain bit, 2 centroids
+  centroids         0.879980 / 1.110951   (relative to row scale 4.893170)
+  upper level        47.67 % of blocks
+
+THE MAGNITUDE THE FILE STORES, AGAINST THE BLOCK'S OWN NORM
+  ĝ/‖x‖   mean 1.00768   sd 0.09300
+          p1 0.8288   p25 0.9381   p50 1.0009   p75 1.0663   p99 1.2951
+  cos θ   mean 0.96083   sd 0.00754
+  A 0-gain-bit direction code has ĝ/‖x‖ = 1 exactly, sd 0.
+
+THE GAP BETWEEN WHAT IS PROPAGATED AND WHAT IS STORED
+  it is (‖x‖ − ĝ)·u, purely radial, and zero at 0 gain bits
+  energy of the gap / energy of the stored error   0.0874   (per-block mean 0.0799)
+  stored error   ‖x − ĝu‖²  total 40846.7951   per weight 0.085097
+  propagated     ‖x − ‖x‖u‖² total 37567.1313   per weight 0.078265
+  the retracted residual is -8.03 % of the true error energy
+
+THE CONTRAST ARM: SPHERICAL SHAPING, THE BALL CODE (beta* = 0.3450)
+  its magnitude is the ball point's own norm, tied to nothing
+  ‖ŵ‖/‖x‖ mean 0.97438   sd 0.08638
+          p1 0.7576   p25 0.9188   p50 0.9809   p75 1.0355   p99 1.1556
+  zero blocks (the origin is a codeword) 0.00 %
+
+HIST tetra lo=0.5 hi=1.5 n=40 under=0 over=21
+  0.5125 0
+  0.5375 0
+  0.5625 0
+  0.5875 0
+  0.6125 0
+  0.6375 0
+  0.6625 0
+  0.6875 0
+  0.7125 3
+  0.7375 7
+  0.7625 27
+  0.7875 52
+  0.8125 86
+  0.8375 180
+  0.8625 245
+  0.8875 1322
+  0.9125 2012
+  0.9375 2077
+  0.9625 1964
+  0.9875 1957
+  1.0125 1904
+  1.0375 1908
+  1.0625 1869
+  1.0875 1803
+  1.1125 1191
+  1.1375 316
+  1.1625 250
+  1.1875 206
+  1.2125 160
+  1.2375 111
+  1.2625 93
+  1.2875 63
+  1.3125 47
+  1.3375 32
+  1.3625 25
+  1.3875 18
+  1.4125 19
+  1.4375 10
+  1.4625 12
+  1.4875 10
+HIST ball lo=0.5 hi=1.5 n=40 under=0 over=0
+  0.5125 0
+  0.5375 0
+  0.5625 0
+  0.5875 0
+  0.6125 0
+  0.6375 0
+  0.6625 7
+  0.6875 18
+  0.7125 42
+  0.7375 83
+  0.7625 186
+  0.7875 293
+  0.8125 429
+  0.8375 706
+  0.8625 918
+  0.8875 1149
+  0.9125 1606
+  0.9375 1845
+  0.9625 2184
+  0.9875 2397
+  1.0125 2274
+  1.0375 2032
+  1.0625 1527
+  1.0875 1093
+  1.1125 643
+  1.1375 328
+  1.1625 158
+  1.1875 59
+  1.2125 21
+  1.2375 1
+  1.2625 1
+  1.2875 0
+  1.3125 0
+  1.3375 0
+  1.3625 0
+  1.3875 0
+  1.4125 0
+  1.4375 0
+  1.4625 0
+  1.4875 0

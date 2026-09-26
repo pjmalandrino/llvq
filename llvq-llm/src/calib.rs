@@ -376,16 +376,21 @@ pub enum Codebook {
 
 impl Codebook {
     /// Experimental post-shape encoding has no validated reprojection or resume path.
+    ///
+    /// `spherical_feedback` is one variable against `nogs`: it is refused
+    /// beside the other gain policy (`tetrapost`), so a journal line never
+    /// carries two encoder changes at once.
     pub fn validate_encoding_mode(
         &self,
         group_scales: bool,
         design_c: bool,
+        spherical_feedback: bool,
         resuming: bool,
     ) -> Result<(), String> {
         if matches!(self, Self::Tetra { post_shape_gain: true, .. })
-            && (group_scales || design_c || resuming)
+            && (group_scales || design_c || spherical_feedback || resuming)
         {
-            return Err("tetrapost requires nogs, no Design C and no resume; gain-policy provenance must not be mixed".into());
+            return Err("tetrapost requires nogs, no Design C, no spherical feedback and no resume; gain-policy provenance must not be mixed".into());
         }
         Ok(())
     }
@@ -961,7 +966,12 @@ pub fn quantize_model_capturing(
         gain_scale.is_finite() && gain_scale > 0.0,
         "gain_scale = {gain_scale}: the centroid multiplier must be finite and positive"
     );
-    codebook.validate_encoding_mode(cfg.group_scales, cfg.design_c, start != 0)
+    codebook.validate_encoding_mode(
+        cfg.group_scales,
+        cfg.design_c,
+        cfg.spherical_feedback,
+        start != 0,
+    )
         .map_err(anyhow::Error::msg)?;
     anyhow::ensure!(
         (0.0..=1.0).contains(&h_shrink),

@@ -197,6 +197,7 @@ fn correction_is_the_analytic_minimizer() {
         retract: false,
         group_scales: false,
         design_c: false,
+        spherical_feedback: false,
         lambda: 0.0,
         tail: TailPolicy::Reject,
     };
@@ -319,6 +320,7 @@ fn the_propagated_error_is_the_error_the_layer_stores() {
         retract: true,
         group_scales: false,
         design_c: false,
+        spherical_feedback: false,
         lambda: 0.0,
         tail: TailPolicy::Reject,
     };
@@ -430,6 +432,7 @@ fn identity_quantizer_leaves_the_layer_untouched() {
         retract: true,
         group_scales: false,
         design_c: false,
+        spherical_feedback: false,
         lambda: 0.0,
         tail: TailPolicy::Reject,
     };
@@ -466,6 +469,7 @@ fn gptq_beats_round_to_nearest_on_the_proxy() {
             retract: false,
             group_scales: false,
             design_c: false,
+            spherical_feedback: false,
             lambda: 0.0,
             tail: TailPolicy::Reject,
         };
@@ -535,6 +539,7 @@ fn retraction_preserves_every_row_block_norm() {
         retract: true,
         group_scales: false,
         design_c: false,
+        spherical_feedback: false,
         lambda: 0.0,
         tail: TailPolicy::Reject,
     };
@@ -599,6 +604,7 @@ fn group_scales_are_unity_when_the_directions_are_exact() {
         retract: true,
         group_scales: true,
         design_c: false,
+        spherical_feedback: false,
         lambda: 0.0,
         tail: TailPolicy::Reject,
     };
@@ -642,6 +648,7 @@ fn group_scales_strictly_lower_the_proxy() {
                 retract: true,
                 group_scales: gs,
                 design_c: false,
+                spherical_feedback: false,
                 lambda: 0.0,
                 tail: TailPolicy::Reject,
             };
@@ -787,6 +794,7 @@ fn spherical_gptq_beats_feedback_free_leech_on_the_proxy() {
             retract: true,
             group_scales: false,
             design_c: false,
+            spherical_feedback: false,
             lambda: 0.0,
             tail: TailPolicy::Reject,
         };
@@ -840,6 +848,7 @@ fn keep_exact_tail_is_never_snapped_to_the_grid() {
         retract: false,
         group_scales: false,
         design_c: false,
+        spherical_feedback: false,
         lambda: 0.0,
         tail: TailPolicy::KeepExact,
     };
@@ -883,6 +892,7 @@ fn reject_tail_panics() {
         retract: false,
         group_scales: false,
         design_c: false,
+        spherical_feedback: false,
         lambda: 0.0,
         tail: TailPolicy::Reject,
     };
@@ -904,6 +914,7 @@ fn parallel_matches_serial_exactly() {
         retract: true,
         group_scales: true,
         design_c: false,
+        spherical_feedback: false,
         lambda: 1e-3,
         tail: TailPolicy::KeepExact,
     };
@@ -960,6 +971,7 @@ fn group_scale_ridge_is_scale_invariant() {
             retract: true,
             group_scales: true,
             design_c: false,
+            spherical_feedback: false,
             lambda,
             tail: TailPolicy::KeepExact,
         };

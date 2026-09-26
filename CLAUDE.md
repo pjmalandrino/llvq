@@ -78,7 +78,7 @@ cargo run --release -p llvq-bench --bin llvq-bench    # also: encbench, betaswee
 cargo run --release -p llvq-metal --bin thesis        # macOS; also: matvec, decreal, mslcheck, p1v0, rankbench
 cargo run --release -p llvq-cuda --bin planesbench -- <model.llvq>   # Linux + CUDA; also: preflight
 LLVQ_MODEL=Qwen/Qwen3-4B LLVQ_CALIB=c4 LLVQ_ARTIFACT=q4b.llvq cargo run --release -p llvq-llm --features metal,fast-linalg --bin smoke -- 64 2048 12 4096 metal nogs leech1c12 999 rot   # requantize the 4B (4.01 h = 14,447 s on M3 Max, measured, docs/fiche-4b.md §3.4)
-#   positional: n_calib · calib_len · n_eval · eval_ctx · device · gs/nogs · codebook (suffix f = free magnitude, L<n> = cap) · limit · rot
+#   positional: n_calib · calib_len · n_eval · eval_ctx · device · nogs/gs/dc/sph (sph = Spherical GPTQ feedback, same file as nogs) · codebook (suffix f = free magnitude, L<n> = cap) · limit · rot
 LLVQ_MODEL=Qwen/Qwen3-4B cargo run --release -p llvq-llm --bin seal -- q4b.llvq qwen3-4b-llvq.bin   # sealed file expected 1.771 GB (measured, docs/fiche-4b.md)
 cargo run --release -p llvq-llm --features metal --bin mmlu -- <checkpoint|sealed> metal 40   # the dense reconstruction: every published bar
 LLVQ_CONFIG=configs/qwen3-4b-tetra-q5.json cargo run --release -p llvq-llm --features cuda --bin mmlu -- <sealed> cuda 40   # THROUGH the served kernel; the dump says which on its `# arithmetic=` line

@@ -112,6 +112,7 @@ fn run_config(codebook: Codebook, start: usize, limit: usize) -> RunConfig {
             retract: true,
             group_scales: false,
             design_c: false,
+            spherical_feedback: false,
             lambda: 1e-2,
             tail: TailPolicy::KeepExact,
         },
@@ -445,10 +446,21 @@ fn a_shard_of_the_other_map_is_refused_both_ways() {
 #[test]
 fn post_shape_run_round_trips_and_unsupported_modes_are_refused() {
     let post = Codebook::Tetra { gain_bits: 1, post_shape_gain: true };
-    for (group, design, resume) in [(true,false,false),(false,true,false),(false,false,true)] {
-        assert!(post.validate_encoding_mode(group,design,resume).unwrap_err().contains("tetrapost"));
+    for (group, design, spherical, resume) in [
+        (true, false, false, false),
+        (false, true, false, false),
+        (false, false, true, false),
+        (false, false, false, true),
+    ] {
+        assert!(post
+            .validate_encoding_mode(group, design, spherical, resume)
+            .unwrap_err()
+            .contains("tetrapost"));
     }
-    assert!(post.validate_encoding_mode(false,false,false).is_ok());
+    assert!(post.validate_encoding_mode(false, false, false, false).is_ok());
+    // The plain Tetra arm takes the spherical feedback: that is the A/B.
+    let plain = Codebook::Tetra { gain_bits: 1, post_shape_gain: false };
+    assert!(plain.validate_encoding_mode(false, false, true, false).is_ok());
     let dev=Device::Cpu;
     let s=Scratch::new("post");
     let map=VarMap::new();

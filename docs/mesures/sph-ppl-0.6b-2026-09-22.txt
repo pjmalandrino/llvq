@@ -1,0 +1,177 @@
+SPHERICAL GPTQ FEEDBACK ON TETRA, END TO END: IT COSTS 32 % OF PERPLEXITY (2026-09-22)
+======================================================================================
+Prereg: proofs/preregistration-sph-ppl-0.6b-2026-09-22.md, stamped 2026-09-22 11:02Z
+  before the first block. Deviations beside it, in its -ECARTS file.
+Code: HEAD 5d36d52 plus the working-tree patch sha256 36759b409a772c54 (bin.patch in
+  the -brut directory), binary sha256 6f6c3b63... (bin.sha256). Mode `sph` of smoke,
+  GptqConfig::spherical_feedback.
+Cost: $0. 35 min of Mac, two arms, 11:02:34Z to 11:37:35Z. Project total unchanged.
+Operator go: given 2026-09-22 ("go").
+Raw logs: sph-ppl-0.6b-2026-09-22-brut/, kept whole, never summarized before commit.
+Nature: *measured*
+
+THE RESULT
+-----------
+  arm     mode   feedback formed against                 ppl       degradation   b/weight
+  A       nogs   the block on the gain grid (published)  41.8875   x2.148        2.1656
+  B       sph    the block retracted to its exact norm   55.2478   x2.833        2.1656
+
+B is WORSE by 13.3603 of perplexity, +31.89 %.
+
+The signed prediction was B below A by 1 % to 4 %, central -2 %. It is refuted on
+the first pair, in the opposite direction, at eight times the width of its own
+interval. The decision rule of the prereg §4 reads: B above A by 1.0 % or more
+closes the lead and records a fifth case of a local reading composing worse. It
+fires. Seeds 1 and 2 were not run, as §4 requires.
+
+THE DOUBT CLAUSE FIRED, AND IS DISCHARGED
+------------------------------------------
+§5 says a move beyond 8 % means doubting the measurement before the hypothesis.
+The controls of §6:
+1 passes. Effective rate 2.1656 b/weight on both arms.
+2 passes. f32 baseline 19.5038 on both arms, the M1 value.
+3 passes. 196 matrices, 440,401,920 weights on both arms; the logs differ outside
+     the timings on exactly one word, `spherical feedback off` / `on`
+     (diff of the two logs with the per-block progress lines removed).
+4 passes, exactly. Arm A reads 41.8875, the tetrapost journal's arm A of
+     2026-09-15 to the fourth decimal: no encoder drift between 09e0f65 and this
+     patch on this protocol. The 41.8875 is now a replayed value.
+5 passes. Raw logs kept whole.
+One binary, copied out of the checkout before the first run, one script, one
+machine, one generation. The measurement stands; the hypothesis is what falls.
+
+WHAT IT MEANS
+--------------
+The paper's Spherical GPTQ, applied to Tetra as the retraction of the error
+feedback alone (stored block on the gain grid, residual against q.|w|/|q|), is
+not a gain. It is the largest single degradation this protocol has recorded on
+a one-word change: tetrapost cost +4.0 %, design C x1.99 on the full solve, this
+costs +31.9 %.
+
+The named opponent of the prereg §2 won: with a two-level gain code the columns
+after a block must be compensated for the radial error the file actually
+carries. Chasing that error is not the "radial drift" the paper kills; leaving
+it unchased is. What the paper's loop does at 0 gain bits, where the magnitude
+is a free float until the closed-form solve, does not transfer to a coded gain.
+
+The reading that survives is the one ETAT §4 already states: Eq. 17 is a no-op
+under a coded gain, and the shipped loop is the right loop for that gain. The
++1.9 pp the docs carried as "Spherical GPTQ, Table 9, noise / 1.30"
+(tetranu-rowscales-2026-09-19.txt) is not available to this format by this
+route.
+
+WHAT THIS DOES NOT ESTABLISH
+-----------------------------
+- Nothing about a 0-gain-bit codebook under this loop (`leech0c13`, ROADMAP-QUALITY
+  row 3, "measured in the wrong regime"). There the retraction to the exact norm
+  during the loop is the paper's own configuration and the magnitude is not on
+  a two-level grid; that arm was not run and this result does not read on it.
+- Nothing about the share of radial error in the propagated residual; no
+  diagnostic was run. The +31.9 % is the end-to-end fact, its mechanism is not
+  measured here.
+- One model, one seed, one evaluation set, perplexity only. At +31.9 % on a
+  single word the seeds would not change the sign.
+
+This is the fifth case in this file of a local reading composing worse over 28
+layers: design C, group_scales, gptq2, tetrapost, spherical feedback.
+
+================================================================================
+ADDENDUM — THE MECHANISM, MEASURED (2026-09-22, same day, $0)
+--------------------------------------------------------------------------------
+The section above says the mechanism was not measured. It is now, on a Gaussian
+source, by `llvq-bench/examples/sphgeom.rs`. Raw: -brut/sphgeom.txt, two seeds.
+Decisional for nothing: the endpoint is already read.
+
+Write u for the coded direction, t = <x,u> = |x| cos(theta), g^ for the magnitude
+the file stores. The two residuals the loop can be handed are
+
+  published   x - g^.u        radial component  t - g^
+  retracted   x - |x|.u       radial component  t - |x|
+
+and their difference is (|x| - g^).u, purely radial. It is IDENTICALLY ZERO when
+the code stores the block's own norm, which is what a 0-gain-bit direction code
+does by construction. Pinned in the suite: on `LeechDirection` the flag moves the
+layer by <= 1e-12 (`norm_preserving_direction_code_makes_the_flag_inert`).
+
+Under Tetra it is not zero (*measured*, 20,000 Gaussian blocks, two seeds):
+
+  g^/|x|    mean 1.00684   sd 0.09200    p1 0.8241   p50 0.9999   p99 1.2969
+  cos theta mean 0.96080   sd 0.00756
+  gap energy / stored error energy        0.0872
+  the retracted residual carries -7.96 % of the true error energy
+
+Seed 777 replays it: 1.00768 / 0.09300 / 0.0874.
+
+So the bias is small, 0.7 %, and the SPREAD is 9.2 %. What `sph` hides from the
+correction is not a systematic offset a scalar could repair later. It is a
+per-block random quantity of 9.2 %, one per block, 85 blocks a row, never handed
+to anyone. On real compensated blocks the same ratio reads 0.99336 as a mean
+(*measured*, tetrapost-ppl-0.6b-2026-09-15), the other side of 1 and the same
+order; the Gaussian source is what is priced here, not a GPTQ residue.
+
+THE PAPER'S TABLE 9 CANNOT ATTRIBUTE ITS GAP TO THE RETRACTION
+---------------------------------------------------------------
+Read down the Code column of Table 9 as transcribed in `llvq-paper-notes.md`:
+every `GPTQ` row carries the Euclidean search metric and every `Spherical GPTQ`
+row carries the angular one.
+
+  LLVQ [spherical shaping]                GPTQ              (default: euclidean)
+  LLVQ [sph. shaping] (forced ang.)       Spherical GPTQ
+  LLVQ [shape-gain 2 bit] (forced eucl.)  GPTQ
+  LLVQ [shape-gain 2 bit]                 Spherical GPTQ    (default: angular)
+
+The search metric and the correction move together in all six pairs, so the
++1.9 pp this repository has been quoting (34.1 -> 36.0, shape-gain with Input
+rotation) prices BOTH changes, not the retraction alone. Tetra's encoder is
+already the angular one (cos theta 0.9608, measured above), so our `sph` arm
+changed only the second half of that bundle. That is why our arm and their
+column are not the same experiment, and it is a second reason not to expect
+their number here.
+
+This does not say the paper is wrong. It says Table 9 does not isolate what the
+docs read off it. `ROADMAP-QUALITY` row 3 and the "Spherical GPTQ +1.90" line of
+`tetranu-rowscales-2026-09-19.txt` both rest on that reading.
+
+CORRECTION TO THE ADDENDUM, SAME DAY
+-------------------------------------
+Two things the addendum above gets wrong or leaves implicit. Both were found by
+measuring rather than by reasoning, which is why they are here.
+
+**"Radial drift" does not separate the two codes by its spread.** The contrast
+arm was run: spherical shaping, the ball code the paper's 191.90 belongs to,
+beta* = 0.3500 on the same blocks. Its ‖ŵ‖/‖x‖ reads mean 0.98069, sd 0.08332
+(seed 777: 0.97438 / 0.08638) against Tetra's 1.00684 / 0.09200. The ball code's
+radial spread is NOT wider than ours; it is slightly narrower. Any explanation
+of the form "their code drifts and ours does not" is refuted on this source. The
+paper's 191.90 is a no-rotation number and whatever it measures, it is not a
+larger radial spread at a fitted scale on a homogeneous source.
+
+**What actually separates them is WHERE the magnitude is decided.** Algorithm 3
+line 5 reads `W̃_{:,Q} <- (‖W̃‖/‖Q(W̃)‖)·Q(W̃)`: it assigns to the STORED weights.
+The paper's retraction improves the reconstruction by restoring the exact norm,
+and the honest feedback is a consequence of that, not a separate lever. It is
+paid for, in a free float per block (0.67 b/weight) or by deferring the decision
+to the closed-form solve after the loop.
+
+So there are three designs, not two, and `sph` is the third:
+
+  design        stored          propagated against   rate         coherent
+  A, published  ĝ·u             ĝ·u                  48 bits      yes
+  B, Eq. 17     ‖x‖·u           ‖x‖·u                47+16 bits   yes
+  sph           ĝ·u             ‖x‖·u                48 bits      NO
+
+`sph` was an attempt to take B's feedback without B's bill. The result says the
+bill is the lever: there is no feedback benefit to collect separately, because a
+residual is only honest if it describes what is stored. B is design B of
+`docs/archive/retraction-et-gain.md`, and it was already rejected on rate in
+July 2026, not on quality.
+
+FIGURES
+--------
+-brut/fig1-demi-droite.svg   the three designs on one ruler
+-brut/fig2-magnitude.svg     the measured distribution of ĝ/‖x‖
+-brut/fig3-accumulation.svg  what the loop is never told, over a row
+-brut/fig4-table9.svg        Table 9 moves two variables at once
+Generated by -brut/mkfigs.py from sphgeom.txt. Labels are French, light and dark
+palettes, no dependency beyond python3. They are explanatory, not paper figures:
+paper2 builds its own through `paper2/scripts/make_figures.py`, in English.

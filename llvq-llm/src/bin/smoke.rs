@@ -149,6 +149,11 @@ enum Mode {
     /// the end of the layer, then a re-projection onto the gain grid
     /// (`docs/archive/retraction-et-gain.md`).
     DesignC,
+    /// Spherical GPTQ under the coded gain: the error feedback is formed
+    /// against the block retracted to its exact norm, the stored block stays
+    /// on the gain grid (`GptqConfig::spherical_feedback`). Same file, same
+    /// rate, same decoder as `nogs`.
+    Spherical,
 }
 
 impl Mode {
@@ -157,8 +162,9 @@ impl Mode {
             None | Some("nogs") => Ok(Self::NoGs),
             Some("gs") => Ok(Self::Gs),
             Some("dc") => Ok(Self::DesignC),
+            Some("sph") => Ok(Self::Spherical),
             Some(other) => Err(format!(
-                "mode {other:?}: accepted values `nogs` (default), `gs` and `dc`"
+                "mode {other:?}: accepted values `nogs` (default), `gs`, `dc` and `sph`"
             )),
         }
     }
@@ -168,6 +174,7 @@ impl Mode {
             Self::NoGs => "nogs",
             Self::Gs => "gs",
             Self::DesignC => "dc",
+            Self::Spherical => "sph",
         }
     }
 }
@@ -636,6 +643,9 @@ fn main() -> anyhow::Result<()> {
     let mode = Mode::parse(a.get(5).map(String::as_str)).map_err(|e| anyhow::anyhow!(e))?;
     let group_scales = mode == Mode::Gs;
     let design_c = mode == Mode::DesignC;
+    // `sph` touches the feedback only: nothing about the written file changes,
+    // so the codebook's own checks are the same as under `nogs`.
+    let spherical_feedback = mode == Mode::Spherical;
     // Which codebook. `kind` is kept as typed so the result line still shows
     // what was asked for; `codebook` is what will actually run, and the two
     // are printed together.
@@ -785,7 +795,7 @@ fn main() -> anyhow::Result<()> {
     // things, and the artifact it produced would have a hole or an overlap
     // that nothing downstream detects.
     let resume_path = std::env::var("LLVQ_RESUME").ok().filter(|p| !p.is_empty());
-    codebook.validate_encoding_mode(group_scales, design_c, resume_path.is_some())
+    codebook.validate_encoding_mode(group_scales, design_c, spherical_feedback, resume_path.is_some())
         .map_err(anyhow::Error::msg)?;
     if let Some(r) = &resume_path {
         // A resume that writes nothing throws away the copy of the shard it
@@ -874,10 +884,11 @@ fn main() -> anyhow::Result<()> {
         }
     );
     eprintln!(
-        "  mode         {} (group scales {}, design C {})",
+        "  mode         {} (group scales {}, design C {}, spherical feedback {})",
         mode.name(),
         if group_scales { "on" } else { "off" },
-        if design_c { "on" } else { "off" }
+        if design_c { "on" } else { "off" },
+        if spherical_feedback { "on" } else { "off" }
     );
     eprintln!(
         "  blocks       {}",
@@ -1057,6 +1068,7 @@ fn main() -> anyhow::Result<()> {
         retract: true, // Spherical GPTQ
         group_scales,
         design_c,
+        spherical_feedback,
         lambda: 1e-2,
         tail: TailPolicy::KeepExact,
     };
@@ -1073,13 +1085,14 @@ fn main() -> anyhow::Result<()> {
     let per_block = llvq_llm::calib::matrices_per_block();
     eprintln!(
         "quantizing blocks {start}..{} of {} of {repo} — {}, retract {}, \
-         group scales {}, design C {}, input rotation {}…",
+         group scales {}, design C {}, spherical feedback {}, input rotation {}…",
         n_target - 1,
         model.blocks.len(),
         codebook_line(&kind, &codebook),
         if cfg.retract { "on" } else { "off" },
         if group_scales { "on" } else { "off" },
         if design_c { "on" } else { "off" },
+        if spherical_feedback { "on" } else { "off" },
         if rotation_seed.is_some() { "on" } else { "off" }
     );
 
@@ -1752,14 +1765,15 @@ mod tests {
         assert_eq!(arg::<usize>(&a, 0, "n_calib", 16).unwrap(), 64);
     }
 
-    /// `gs` / `nogs` / `dc`, and nothing that merely looks like them.
+    /// `gs` / `nogs` / `dc` / `sph`, and nothing that merely looks like them.
     #[test]
     fn a_misspelled_mode_is_refused() {
         assert_eq!(Mode::parse(None).unwrap(), Mode::NoGs);
         assert_eq!(Mode::parse(Some("nogs")).unwrap(), Mode::NoGs);
         assert_eq!(Mode::parse(Some("gs")).unwrap(), Mode::Gs);
         assert_eq!(Mode::parse(Some("dc")).unwrap(), Mode::DesignC);
-        for bad in ["", "GS", "gsp", "no-gs", "designc", "off"] {
+        assert_eq!(Mode::parse(Some("sph")).unwrap(), Mode::Spherical);
+        for bad in ["", "GS", "gsp", "no-gs", "designc", "off", "spherical", "SPH", "sph "] {
             assert!(Mode::parse(Some(bad)).is_err(), "{bad:?} was accepted");
         }
     }
@@ -1917,7 +1931,7 @@ mod tests {
     /// already fixes for the dtype.
     #[test]
     fn printed_names_parse_back() {
-        for m in [Mode::NoGs, Mode::Gs, Mode::DesignC] {
+        for m in [Mode::NoGs, Mode::Gs, Mode::DesignC, Mode::Spherical] {
             assert_eq!(Mode::parse(Some(m.name())).unwrap(), m);
         }
         for c in [

@@ -1,0 +1,632 @@
+diff --git a/CLAUDE.md b/CLAUDE.md
+index 0d1c2cf..1968015 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -78,7 +78,7 @@ cargo run --release -p llvq-bench --bin llvq-bench    # also: encbench, betaswee
+ cargo run --release -p llvq-metal --bin thesis        # macOS; also: matvec, decreal, mslcheck, p1v0, rankbench
+ cargo run --release -p llvq-cuda --bin planesbench -- <model.llvq>   # Linux + CUDA; also: preflight
+ LLVQ_MODEL=Qwen/Qwen3-4B LLVQ_CALIB=c4 LLVQ_ARTIFACT=q4b.llvq cargo run --release -p llvq-llm --features metal,fast-linalg --bin smoke -- 64 2048 12 4096 metal nogs leech1c12 999 rot   # requantize the 4B (4.01 h = 14,447 s on M3 Max, measured, docs/fiche-4b.md §3.4)
+-#   positional: n_calib · calib_len · n_eval · eval_ctx · device · gs/nogs · codebook (suffix f = free magnitude, L<n> = cap) · limit · rot
++#   positional: n_calib · calib_len · n_eval · eval_ctx · device · nogs/gs/dc/sph (sph = Spherical GPTQ feedback, same file as nogs) · codebook (suffix f = free magnitude, L<n> = cap) · limit · rot
+ LLVQ_MODEL=Qwen/Qwen3-4B cargo run --release -p llvq-llm --bin seal -- q4b.llvq qwen3-4b-llvq.bin   # sealed file expected 1.771 GB (measured, docs/fiche-4b.md)
+ cargo run --release -p llvq-llm --features metal --bin mmlu -- <checkpoint|sealed> metal 40   # the dense reconstruction: every published bar
+ LLVQ_CONFIG=configs/qwen3-4b-tetra-q5.json cargo run --release -p llvq-llm --features cuda --bin mmlu -- <sealed> cuda 40   # THROUGH the served kernel; the dump says which on its `# arithmetic=` line
+diff --git a/llvq-bench/src/bin/e8gptq.rs b/llvq-bench/src/bin/e8gptq.rs
+index f67b64c..8bda2e7 100644
+--- a/llvq-bench/src/bin/e8gptq.rs
++++ b/llvq-bench/src/bin/e8gptq.rs
+@@ -71,6 +71,7 @@ fn main() {
+         retract: true,
+         group_scales: false,
+         design_c: false,
++        spherical_feedback: false,
+         lambda: 1e-2,
+         tail: TailPolicy::KeepExact,
+     };
+diff --git a/llvq-llm/examples/f1recdump.rs b/llvq-llm/examples/f1recdump.rs
+index ed2d35c..8ce49e5 100644
+--- a/llvq-llm/examples/f1recdump.rs
++++ b/llvq-llm/examples/f1recdump.rs
+@@ -255,6 +255,7 @@ fn main() -> anyhow::Result<()> {
+         retract: true,
+         group_scales: false,
+         design_c: false,
++        spherical_feedback: false,
+         lambda: 1e-2,
+         tail: TailPolicy::KeepExact,
+     };
+diff --git a/llvq-llm/src/bin/errmap.rs b/llvq-llm/src/bin/errmap.rs
+index 4a6ecb7..bf8516c 100644
+--- a/llvq-llm/src/bin/errmap.rs
++++ b/llvq-llm/src/bin/errmap.rs
+@@ -302,6 +302,7 @@ fn main() -> anyhow::Result<()> {
+             retract: true,
+             group_scales: false,
+             design_c: false,
++            spherical_feedback: false,
+             lambda: 1e-2,
+             tail: TailPolicy::KeepExact,
+         },
+diff --git a/llvq-llm/src/bin/smoke.rs b/llvq-llm/src/bin/smoke.rs
+index 0fc3a16..a1b5247 100644
+--- a/llvq-llm/src/bin/smoke.rs
++++ b/llvq-llm/src/bin/smoke.rs
+@@ -149,6 +149,11 @@ enum Mode {
+     /// the end of the layer, then a re-projection onto the gain grid
+     /// (`docs/archive/retraction-et-gain.md`).
+     DesignC,
++    /// Spherical GPTQ under the coded gain: the error feedback is formed
++    /// against the block retracted to its exact norm, the stored block stays
++    /// on the gain grid (`GptqConfig::spherical_feedback`). Same file, same
++    /// rate, same decoder as `nogs`.
++    Spherical,
+ }
+ 
+ impl Mode {
+@@ -157,8 +162,9 @@ impl Mode {
+             None | Some("nogs") => Ok(Self::NoGs),
+             Some("gs") => Ok(Self::Gs),
+             Some("dc") => Ok(Self::DesignC),
++            Some("sph") => Ok(Self::Spherical),
+             Some(other) => Err(format!(
+-                "mode {other:?}: accepted values `nogs` (default), `gs` and `dc`"
++                "mode {other:?}: accepted values `nogs` (default), `gs`, `dc` and `sph`"
+             )),
+         }
+     }
+@@ -168,6 +174,7 @@ impl Mode {
+             Self::NoGs => "nogs",
+             Self::Gs => "gs",
+             Self::DesignC => "dc",
++            Self::Spherical => "sph",
+         }
+     }
+ }
+@@ -636,6 +643,9 @@ fn main() -> anyhow::Result<()> {
+     let mode = Mode::parse(a.get(5).map(String::as_str)).map_err(|e| anyhow::anyhow!(e))?;
+     let group_scales = mode == Mode::Gs;
+     let design_c = mode == Mode::DesignC;
++    // `sph` touches the feedback only: nothing about the written file changes,
++    // so the codebook's own checks are the same as under `nogs`.
++    let spherical_feedback = mode == Mode::Spherical;
+     // Which codebook. `kind` is kept as typed so the result line still shows
+     // what was asked for; `codebook` is what will actually run, and the two
+     // are printed together.
+@@ -785,7 +795,7 @@ fn main() -> anyhow::Result<()> {
+     // things, and the artifact it produced would have a hole or an overlap
+     // that nothing downstream detects.
+     let resume_path = std::env::var("LLVQ_RESUME").ok().filter(|p| !p.is_empty());
+-    codebook.validate_encoding_mode(group_scales, design_c, resume_path.is_some())
++    codebook.validate_encoding_mode(group_scales, design_c, spherical_feedback, resume_path.is_some())
+         .map_err(anyhow::Error::msg)?;
+     if let Some(r) = &resume_path {
+         // A resume that writes nothing throws away the copy of the shard it
+@@ -874,10 +884,11 @@ fn main() -> anyhow::Result<()> {
+         }
+     );
+     eprintln!(
+-        "  mode         {} (group scales {}, design C {})",
++        "  mode         {} (group scales {}, design C {}, spherical feedback {})",
+         mode.name(),
+         if group_scales { "on" } else { "off" },
+-        if design_c { "on" } else { "off" }
++        if design_c { "on" } else { "off" },
++        if spherical_feedback { "on" } else { "off" }
+     );
+     eprintln!(
+         "  blocks       {}",
+@@ -1057,6 +1068,7 @@ fn main() -> anyhow::Result<()> {
+         retract: true, // Spherical GPTQ
+         group_scales,
+         design_c,
++        spherical_feedback,
+         lambda: 1e-2,
+         tail: TailPolicy::KeepExact,
+     };
+@@ -1073,13 +1085,14 @@ fn main() -> anyhow::Result<()> {
+     let per_block = llvq_llm::calib::matrices_per_block();
+     eprintln!(
+         "quantizing blocks {start}..{} of {} of {repo} — {}, retract {}, \
+-         group scales {}, design C {}, input rotation {}…",
++         group scales {}, design C {}, spherical feedback {}, input rotation {}…",
+         n_target - 1,
+         model.blocks.len(),
+         codebook_line(&kind, &codebook),
+         if cfg.retract { "on" } else { "off" },
+         if group_scales { "on" } else { "off" },
+         if design_c { "on" } else { "off" },
++        if spherical_feedback { "on" } else { "off" },
+         if rotation_seed.is_some() { "on" } else { "off" }
+     );
+ 
+@@ -1752,14 +1765,15 @@ mod tests {
+         assert_eq!(arg::<usize>(&a, 0, "n_calib", 16).unwrap(), 64);
+     }
+ 
+-    /// `gs` / `nogs` / `dc`, and nothing that merely looks like them.
++    /// `gs` / `nogs` / `dc` / `sph`, and nothing that merely looks like them.
+     #[test]
+     fn a_misspelled_mode_is_refused() {
+         assert_eq!(Mode::parse(None).unwrap(), Mode::NoGs);
+         assert_eq!(Mode::parse(Some("nogs")).unwrap(), Mode::NoGs);
+         assert_eq!(Mode::parse(Some("gs")).unwrap(), Mode::Gs);
+         assert_eq!(Mode::parse(Some("dc")).unwrap(), Mode::DesignC);
+-        for bad in ["", "GS", "gsp", "no-gs", "designc", "off"] {
++        assert_eq!(Mode::parse(Some("sph")).unwrap(), Mode::Spherical);
++        for bad in ["", "GS", "gsp", "no-gs", "designc", "off", "spherical", "SPH", "sph "] {
+             assert!(Mode::parse(Some(bad)).is_err(), "{bad:?} was accepted");
+         }
+     }
+@@ -1917,7 +1931,7 @@ mod tests {
+     /// already fixes for the dtype.
+     #[test]
+     fn printed_names_parse_back() {
+-        for m in [Mode::NoGs, Mode::Gs, Mode::DesignC] {
++        for m in [Mode::NoGs, Mode::Gs, Mode::DesignC, Mode::Spherical] {
+             assert_eq!(Mode::parse(Some(m.name())).unwrap(), m);
+         }
+         for c in [
+diff --git a/llvq-llm/src/calib.rs b/llvq-llm/src/calib.rs
+index 5d64d5a..c163ccc 100644
+--- a/llvq-llm/src/calib.rs
++++ b/llvq-llm/src/calib.rs
+@@ -376,16 +376,21 @@ pub enum Codebook {
+ 
+ impl Codebook {
+     /// Experimental post-shape encoding has no validated reprojection or resume path.
++    ///
++    /// `spherical_feedback` is one variable against `nogs`: it is refused
++    /// beside the other gain policy (`tetrapost`), so a journal line never
++    /// carries two encoder changes at once.
+     pub fn validate_encoding_mode(
+         &self,
+         group_scales: bool,
+         design_c: bool,
++        spherical_feedback: bool,
+         resuming: bool,
+     ) -> Result<(), String> {
+         if matches!(self, Self::Tetra { post_shape_gain: true, .. })
+-            && (group_scales || design_c || resuming)
++            && (group_scales || design_c || spherical_feedback || resuming)
+         {
+-            return Err("tetrapost requires nogs, no Design C and no resume; gain-policy provenance must not be mixed".into());
++            return Err("tetrapost requires nogs, no Design C, no spherical feedback and no resume; gain-policy provenance must not be mixed".into());
+         }
+         Ok(())
+     }
+@@ -961,7 +966,12 @@ pub fn quantize_model_capturing(
+         gain_scale.is_finite() && gain_scale > 0.0,
+         "gain_scale = {gain_scale}: the centroid multiplier must be finite and positive"
+     );
+-    codebook.validate_encoding_mode(cfg.group_scales, cfg.design_c, start != 0)
++    codebook.validate_encoding_mode(
++        cfg.group_scales,
++        cfg.design_c,
++        cfg.spherical_feedback,
++        start != 0,
++    )
+         .map_err(anyhow::Error::msg)?;
+     anyhow::ensure!(
+         (0.0..=1.0).contains(&h_shrink),
+diff --git a/llvq-llm/tests/g5_calibration.rs b/llvq-llm/tests/g5_calibration.rs
+index b9fd62e..e335533 100644
+--- a/llvq-llm/tests/g5_calibration.rs
++++ b/llvq-llm/tests/g5_calibration.rs
+@@ -235,6 +235,7 @@ struct Knobs {
+     codebook: Codebook,
+     group_scales: bool,
+     design_c: bool,
++    spherical_feedback: bool,
+     lambda: f64,
+     rotation_seed: Option<u64>,
+     sequential_block: bool,
+@@ -246,6 +247,7 @@ impl Default for Knobs {
+             codebook: Codebook::Identity,
+             group_scales: false,
+             design_c: false,
++            spherical_feedback: false,
+             lambda: 1e-2,
+             rotation_seed: None,
+             sequential_block: false,
+@@ -267,6 +269,7 @@ fn run(map: &VarMap, dev: &Device, k: Knobs) -> (Report, Vec<f32>) {
+             retract: true,
+             group_scales: k.group_scales,
+             design_c: k.design_c,
++            spherical_feedback: k.spherical_feedback,
+             lambda: k.lambda,
+             tail: TailPolicy::KeepExact,
+         },
+@@ -526,6 +529,7 @@ fn sequential_block_leaves_the_first_activation_alone() {
+             retract: true,
+             group_scales: false,
+             design_c: false,
++            spherical_feedback: false,
+             lambda: 1e-2,
+             tail: TailPolicy::KeepExact,
+         },
+diff --git a/llvq-llm/tests/int4_wiring.rs b/llvq-llm/tests/int4_wiring.rs
+index 4b9321a..a7cd8f1 100644
+--- a/llvq-llm/tests/int4_wiring.rs
++++ b/llvq-llm/tests/int4_wiring.rs
+@@ -490,6 +490,7 @@ fn mixed_run(int4_types: Vec<String>, start: usize, limit: usize) -> llvq_llm::c
+             retract: true,
+             group_scales: false,
+             design_c: false,
++            spherical_feedback: false,
+             lambda: 1e-2,
+             tail: llvq_quant::gptq::TailPolicy::KeepExact,
+         },
+diff --git a/llvq-llm/tests/resume.rs b/llvq-llm/tests/resume.rs
+index 5366bce..b1842a5 100644
+--- a/llvq-llm/tests/resume.rs
++++ b/llvq-llm/tests/resume.rs
+@@ -141,6 +141,7 @@ fn run_config(start: usize, limit: usize, rotation_seed: Option<u64>) -> RunConf
+             retract: true,
+             group_scales: false,
+             design_c: false,
++            spherical_feedback: false,
+             lambda: 1e-2,
+             tail: TailPolicy::KeepExact,
+         },
+diff --git a/llvq-llm/tests/served_config.rs b/llvq-llm/tests/served_config.rs
+index eb72523..5e3f602 100644
+--- a/llvq-llm/tests/served_config.rs
++++ b/llvq-llm/tests/served_config.rs
+@@ -165,6 +165,58 @@ fn the_shipped_config_is_the_served_object() {
+     );
+ }
+ 
++/// The 8B config is the 4B's five values on another object, and nothing more.
++///
++/// No field of a served config is model-specific: the five name a layout, an
++/// embedding mode, a hoist, a fusion mode and a KV store, and the loader reads
++/// every shape from the sealed file (`fused_cuda::load_resolved` parses the
++/// file's own `config.json`). What differs is the note, and the path the run
++/// records on its `# config=` line — which is why the 8B gets a file of its
++/// own rather than borrowing the 4B's, whose path would then name the wrong
++/// object in every 8B dump header.
++///
++/// Mutation: change any one of the 8B file's five values and this fails; the
++/// 4B file is read beside it so the two cannot drift apart in silence.
++#[test]
++fn the_8b_config_is_the_4b_served_values_on_the_8b_object() {
++    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../configs");
++    let read = |name: &str| {
++        let path = dir.join(name);
++        let f = Served::read_file(&path).unwrap_or_else(|e| panic!("{name}: {e}"));
++        (f.clone(), Served::of(f, path).unwrap_or_else(|e| panic!("{name}: {e}")))
++    };
++    let (f4, s4) = read("qwen3-4b-tetra-q5.json");
++    let (f8, s8) = read("qwen3-8b-tetra-q5.json");
++    assert_eq!(
++        (s8.layout, s8.embed, s8.rot_share, s8.fuse, s8.kv),
++        (s4.layout, s4.embed, s4.rot_share, s4.fuse, s4.kv),
++        "the 8B serves the 4B's recipe; a value that moved is a new object, not this file"
++    );
++    let note = f8.note.expect("the 8B config says which object it belongs to");
++    assert!(note.contains("Qwen3-8B"), "{note}");
++    assert!(note.contains("qwen3-8b-dclm"), "{note}");
++    assert_ne!(Some(note), f4.note, "a copied note would print the 4B as this run's object");
++}
++
++/// Every file in `configs/` resolves. A config added without a test of its own
++/// would otherwise reach a card unread: `ops/Dockerfile.cuda` copies the whole
++/// directory and tests one name.
++#[test]
++fn every_shipped_config_resolves() {
++    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../configs");
++    let mut n = 0;
++    for entry in std::fs::read_dir(&dir).expect("configs/") {
++        let path = entry.expect("entry").path();
++        if path.extension().and_then(|e| e.to_str()) != Some("json") {
++            continue;
++        }
++        let f = Served::read_file(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
++        Served::of(f, path.clone()).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
++        n += 1;
++    }
++    assert!(n >= 2, "{n} configs found in {}", dir.display());
++}
++
+ /// A lookup that answers from a fixed table — the environment, without the
+ /// environment. What makes the contradiction branch testable at all.
+ fn env_of<'a>(pairs: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<String> + 'a {
+diff --git a/llvq-llm/tests/tetra_wiring.rs b/llvq-llm/tests/tetra_wiring.rs
+index 8d4063a..5891065 100644
+--- a/llvq-llm/tests/tetra_wiring.rs
++++ b/llvq-llm/tests/tetra_wiring.rs
+@@ -112,6 +112,7 @@ fn run_config(codebook: Codebook, start: usize, limit: usize) -> RunConfig {
+             retract: true,
+             group_scales: false,
+             design_c: false,
++            spherical_feedback: false,
+             lambda: 1e-2,
+             tail: TailPolicy::KeepExact,
+         },
+@@ -445,10 +446,21 @@ fn a_shard_of_the_other_map_is_refused_both_ways() {
+ #[test]
+ fn post_shape_run_round_trips_and_unsupported_modes_are_refused() {
+     let post = Codebook::Tetra { gain_bits: 1, post_shape_gain: true };
+-    for (group, design, resume) in [(true,false,false),(false,true,false),(false,false,true)] {
+-        assert!(post.validate_encoding_mode(group,design,resume).unwrap_err().contains("tetrapost"));
++    for (group, design, spherical, resume) in [
++        (true, false, false, false),
++        (false, true, false, false),
++        (false, false, true, false),
++        (false, false, false, true),
++    ] {
++        assert!(post
++            .validate_encoding_mode(group, design, spherical, resume)
++            .unwrap_err()
++            .contains("tetrapost"));
+     }
+-    assert!(post.validate_encoding_mode(false,false,false).is_ok());
++    assert!(post.validate_encoding_mode(false, false, false, false).is_ok());
++    // The plain Tetra arm takes the spherical feedback: that is the A/B.
++    let plain = Codebook::Tetra { gain_bits: 1, post_shape_gain: false };
++    assert!(plain.validate_encoding_mode(false, false, true, false).is_ok());
+     let dev=Device::Cpu;
+     let s=Scratch::new("post");
+     let map=VarMap::new();
+diff --git a/llvq-quant/src/gptq.rs b/llvq-quant/src/gptq.rs
+index d81c29c..37e0ecb 100644
+--- a/llvq-quant/src/gptq.rs
++++ b/llvq-quant/src/gptq.rs
+@@ -102,6 +102,32 @@ pub struct GptqConfig {
+     /// same algorithm. Off by default: the published path is bit-identical
+     /// with this flag false.
+     pub design_c: bool,
++    /// **Spherical GPTQ under a coded gain**: the paper's retraction applied
++    /// to the *error feedback* only, the stored block left on the gain grid.
++    ///
++    /// Algorithm 3 line 5 keeps every row block on its exact
++    /// pre-quantization norm during the loop, so the residual the Hessian
++    /// correction propagates onto later columns carries angular error only
++    /// (Table 9: 191.90 to 6.90 without rotation, +1.9 pp of MMLU with it,
++    /// `docs/llvq-paper-notes.md`). Under a coded gain the published path
++    /// cannot do that: the block is snapped to a gain level *and* the
++    /// residual is formed against the snapped block, so the radial error of
++    /// a two-level code is chased by the correction as well. That is the
++    /// paper's "Euclidean GPTQ" row.
++    ///
++    /// With this flag the stored block is still what the decoder rebuilds —
++    /// the code, the format and the rate are untouched — but the residual
++    /// `E` is formed against the block retracted to `‖w‖`, i.e.
++    /// `q · ‖w‖/‖q‖`. It is exactly "free-magnitude loop, then snap every
++    /// block to its nearest level" (the columns after a block only ever see
++    /// `E`), which is design C **without** its closed-form solve — the one
++    /// cell the design C refutation of 2026-08-07 did not isolate.
++    ///
++    /// Requires [`Self::retract`]. Mutually exclusive with
++    /// [`Self::design_c`] (whose loop already stores the exact norm) and
++    /// [`Self::group_scales`] (one variable at a time). Off by default: the
++    /// published path is bit-identical with this flag false.
++    pub spherical_feedback: bool,
+     /// Ridge term for that refinement's normal equations, **relative** to
+     /// the mean diagonal of the system (like the Hessian damping).
+     pub lambda: f64,
+@@ -116,6 +142,7 @@ impl Default for GptqConfig {
+             retract: true,
+             group_scales: false,
+             design_c: false,
++            spherical_feedback: false,
+             lambda: 1e-2,
+             tail: TailPolicy::Reject,
+         }
+@@ -217,6 +244,17 @@ pub fn quantize_layer_capturing(
+         "design C is a reading of *Spherical* GPTQ: without the retraction \
+          there is no free-magnitude loop to resolve at the end of the layer"
+     );
++    assert!(
++        !cfg.spherical_feedback || cfg.retract,
++        "spherical_feedback is the retraction applied to the error feedback: \
++         without `retract` there is no pre-quantization norm to retract to"
++    );
++    assert!(
++        !(cfg.spherical_feedback && (cfg.design_c || cfg.group_scales)),
++        "spherical_feedback is one variable: design C already stores the \
++         exact norm during its loop, and group_scales is a second magnitude \
++         mechanism on top of it"
++    );
+     if cfg.group_scales || cfg.design_c {
+         assert!(
+             h.is_some_and(|m| m.len() == d_in * d_in),
+@@ -304,9 +342,29 @@ pub fn quantize_layer_capturing(
+                     }
+                 }
+             }
++            // Spherical feedback: the residual is formed against the block
++            // retracted to its exact norm, `q · ‖w‖/‖q‖`, while the block
++            // stored — and later decoded — stays the one on the gain grid.
++            // Later columns only ever see `e`, so they are compensated for
++            // the angular error alone; the radial error of the level is
++            // left where it is, as the paper's loop leaves it.
++            let fb = if cfg.spherical_feedback {
++                let n = qbuf[..b].iter().map(|a| a * a).sum::<f64>().sqrt();
++                if n > 0.0 {
++                    norm_before / n
++                } else {
++                    1.0
++                }
++            } else {
++                1.0
++            };
+             for k in 0..b {
+                 // Residual against the *compensated* weights (see module doc).
+-                e[i * b + k] = row[s + k] - qbuf[k];
++                e[i * b + k] = if cfg.spherical_feedback {
++                    row[s + k] - qbuf[k] * fb
++                } else {
++                    row[s + k] - qbuf[k]
++                };
+                 row[s + k] = qbuf[k];
+             }
+             if let Some(c) = codes.as_deref_mut() {
+diff --git a/llvq-quant/tests/g5_design_c.rs b/llvq-quant/tests/g5_design_c.rs
+index 01328f1..23ac0e8 100644
+--- a/llvq-quant/tests/g5_design_c.rs
++++ b/llvq-quant/tests/g5_design_c.rs
+@@ -114,6 +114,7 @@ fn cfg_c() -> GptqConfig {
+         retract: true,
+         group_scales: false,
+         design_c: true,
++        spherical_feedback: false,
+         lambda: 1e-2,
+         tail: TailPolicy::KeepExact,
+     }
+@@ -122,6 +123,7 @@ fn cfg_c() -> GptqConfig {
+ fn cfg_default() -> GptqConfig {
+     GptqConfig {
+         design_c: false,
++        spherical_feedback: false,
+         ..cfg_c()
+     }
+ }
+diff --git a/llvq-quant/tests/g5_gptq.rs b/llvq-quant/tests/g5_gptq.rs
+index c50302d..6ab3793 100644
+--- a/llvq-quant/tests/g5_gptq.rs
++++ b/llvq-quant/tests/g5_gptq.rs
+@@ -197,6 +197,7 @@ fn correction_is_the_analytic_minimizer() {
+         retract: false,
+         group_scales: false,
+         design_c: false,
++        spherical_feedback: false,
+         lambda: 0.0,
+         tail: TailPolicy::Reject,
+     };
+@@ -319,6 +320,7 @@ fn the_propagated_error_is_the_error_the_layer_stores() {
+         retract: true,
+         group_scales: false,
+         design_c: false,
++        spherical_feedback: false,
+         lambda: 0.0,
+         tail: TailPolicy::Reject,
+     };
+@@ -430,6 +432,7 @@ fn identity_quantizer_leaves_the_layer_untouched() {
+         retract: true,
+         group_scales: false,
+         design_c: false,
++        spherical_feedback: false,
+         lambda: 0.0,
+         tail: TailPolicy::Reject,
+     };
+@@ -466,6 +469,7 @@ fn gptq_beats_round_to_nearest_on_the_proxy() {
+             retract: false,
+             group_scales: false,
+             design_c: false,
++            spherical_feedback: false,
+             lambda: 0.0,
+             tail: TailPolicy::Reject,
+         };
+@@ -535,6 +539,7 @@ fn retraction_preserves_every_row_block_norm() {
+         retract: true,
+         group_scales: false,
+         design_c: false,
++        spherical_feedback: false,
+         lambda: 0.0,
+         tail: TailPolicy::Reject,
+     };
+@@ -599,6 +604,7 @@ fn group_scales_are_unity_when_the_directions_are_exact() {
+         retract: true,
+         group_scales: true,
+         design_c: false,
++        spherical_feedback: false,
+         lambda: 0.0,
+         tail: TailPolicy::Reject,
+     };
+@@ -642,6 +648,7 @@ fn group_scales_strictly_lower_the_proxy() {
+                 retract: true,
+                 group_scales: gs,
+                 design_c: false,
++                spherical_feedback: false,
+                 lambda: 0.0,
+                 tail: TailPolicy::Reject,
+             };
+@@ -787,6 +794,7 @@ fn spherical_gptq_beats_feedback_free_leech_on_the_proxy() {
+             retract: true,
+             group_scales: false,
+             design_c: false,
++            spherical_feedback: false,
+             lambda: 0.0,
+             tail: TailPolicy::Reject,
+         };
+@@ -840,6 +848,7 @@ fn keep_exact_tail_is_never_snapped_to_the_grid() {
+         retract: false,
+         group_scales: false,
+         design_c: false,
++        spherical_feedback: false,
+         lambda: 0.0,
+         tail: TailPolicy::KeepExact,
+     };
+@@ -883,6 +892,7 @@ fn reject_tail_panics() {
+         retract: false,
+         group_scales: false,
+         design_c: false,
++        spherical_feedback: false,
+         lambda: 0.0,
+         tail: TailPolicy::Reject,
+     };
+@@ -904,6 +914,7 @@ fn parallel_matches_serial_exactly() {
+         retract: true,
+         group_scales: true,
+         design_c: false,
++        spherical_feedback: false,
+         lambda: 1e-3,
+         tail: TailPolicy::KeepExact,
+     };
+@@ -960,6 +971,7 @@ fn group_scale_ridge_is_scale_invariant() {
+             retract: true,
+             group_scales: true,
+             design_c: false,
++            spherical_feedback: false,
+             lambda,
+             tail: TailPolicy::KeepExact,
+         };
+diff --git a/llvq-quant/tests/g5_retraction.rs b/llvq-quant/tests/g5_retraction.rs
+index cfd8fdc..6b8fb6f 100644
+--- a/llvq-quant/tests/g5_retraction.rs
++++ b/llvq-quant/tests/g5_retraction.rs
+@@ -53,6 +53,7 @@ fn cfg(retract: bool) -> GptqConfig {
+         retract,
+         group_scales: false,
+         design_c: false,
++        spherical_feedback: false,
+         lambda: 1e-2,
+         tail: TailPolicy::KeepExact,
+     }
+diff --git a/llvq-quant/tests/g6_artifact.rs b/llvq-quant/tests/g6_artifact.rs
+index 59031ac..079059e 100644
+--- a/llvq-quant/tests/g6_artifact.rs
++++ b/llvq-quant/tests/g6_artifact.rs
+@@ -90,6 +90,7 @@ fn round_trip(d_in: usize, arm: Arm, gain_bits: u32, seed: u64) {
+         retract: true,
+         group_scales: false,
+         design_c: false,
++        spherical_feedback: false,
+         lambda: 1e-2,
+         tail: TailPolicy::KeepExact,
+     };
+@@ -222,6 +223,7 @@ fn both_arms_leave_finite_residuals_on_three_blocks() {
+         retract: true,
+         group_scales: false,
+         design_c: false,
++        spherical_feedback: false,
+         lambda: 1e-2,
+         tail: TailPolicy::KeepExact,
+     };
+@@ -267,6 +269,7 @@ fn parallel_capture_matches_serial_capture() {
+         retract: true,
+         group_scales: false,
+         design_c: false,
++        spherical_feedback: false,
+         lambda: 1e-2,
+         tail: TailPolicy::KeepExact,
+     };
+@@ -330,6 +333,7 @@ fn the_free_magnitude_variant_cannot_round_trip() {
+         retract: true,
+         group_scales: false,
+         design_c: false,
++        spherical_feedback: false,
+         lambda: 1e-2,
+         tail: TailPolicy::KeepExact,
+     };

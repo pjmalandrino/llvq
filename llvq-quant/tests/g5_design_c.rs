@@ -114,6 +114,7 @@ fn cfg_c() -> GptqConfig {
         retract: true,
         group_scales: false,
         design_c: true,
+        spherical_feedback: false,
         lambda: 1e-2,
         tail: TailPolicy::KeepExact,
     }
@@ -122,6 +123,7 @@ fn cfg_c() -> GptqConfig {
 fn cfg_default() -> GptqConfig {
     GptqConfig {
         design_c: false,
+        spherical_feedback: false,
         ..cfg_c()
     }
 }
