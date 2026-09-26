@@ -30,5 +30,11 @@ class JsonlRecorder:
     def step(self, index: int, loss: float, lr: float) -> None:
         self._write({"event": "step", "index": index, "loss": loss, "lr": lr})
 
+    def checkpoint(self, index: int, path: str, gauge: dict | None) -> None:
+        record = {"event": "checkpoint", "index": index, "path": path}
+        if gauge is not None:
+            record["gauge"] = gauge
+        self._write(record)
+
     def closed(self, summary: dict) -> None:
         self._write({"event": "closed", **summary})

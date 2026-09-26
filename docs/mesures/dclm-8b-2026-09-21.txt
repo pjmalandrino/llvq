@@ -1,0 +1,98 @@
+THE PAPER-2 RECIPE AT 8B: ×1.198, WITHIN ONE DRAW OF THE BARE 8B'S ×1.229 (2026-09-21)
+================================================================================
+Job:    none. Mac M3 Max, 13,629 s of encoding (3 h 47), $0. Project total
+        unchanged by this step: at least $176.80 (*computed*, prereg lines 16-19).
+Prereg: proofs/preregistration-dclm-8b-2026-09-21.md, stamped
+        sha256 33a270aec8ddb50b..., four calendars, 17:54, before the oracle.
+        Deviations in the -ECARTS.md beside it.
+Code:   5d36d52; binaries copied to ~/q8b-dclm-2026-09-21/bin, hashes in bin.sha256.
+Data:   docs/mesures/dclm-8b-2026-09-21-brut/ (run.sh, run.log, smoke, seal, ppl,
+        rtbits, oracle, env, swap, .state, objects-ls).
+Objects ~/q8b-dclm-2026-09-21.llvq   1,862,836,458 B  sha256 c00045c7e1d4b19e...
+        ~/qwen3-8b-dclm.bin          4,364,205,777 B  sha256 bcea0d5a7de2fbbf...
+        Byte counts in objects-ls.txt, sha256 in files.sha256.
+Nature: *measured* on the Mac; perplexity f32 at encoding, f16 on the sealed file.
+        The bare 8B row is *measured* in tetra-8b-2026-09-06.txt. R, ratios,
+        percentages and per-segment block rates are *computed*.
+
+THE RESULT
+-----------
+Qwen3-8B, `tetra1`, `v_proj` in int4 g128, calibrated on 131,072 tokens of
+dclm-edu from the prefix, wikitext-2 test, 12 windows of 4,096.
+
+  baseline f32              8.9893   (card f16 reads 8.9899, tetra-8b-2026-09-06.txt:22)
+  encoding, f32            10.7715   R = ×1.1983  (exact-ppl line, smoke.txt:82)
+  sealed file, f16, Metal  10.7686   −0.027 % against the encoding
+
+  bare 8B `Tetra`, 09-06   ×1.2287 Metal f32 at encoding (card f16: 11.0478, ×1.2289),
+                           tetra-8b-2026-09-06.txt:24, 95-96
+
+R falls in row 2 of the decision rule, [×1.168, ×1.293]: within one draw of
+the bare 8B. It sits 2.5 % under it, against the prereg's one-draw σ of 5.2 %.
+The prereg proposes the paid chain; the operator had already given it, with a
+$20 cap for the whole 8B.
+
+Perplexity says nothing about MMLU. At the 4B the same recipe's base file read
+57.95 on the full MMLU, +1.58 pp over the C4 object (*measured*, card f16,
+dclm-4b-2026-09-18.txt:14-17). AWQ read 70.04 at the 4B, on the 2,280-question
+sample (*measured*, card f16, a4-campagne-2026-08-06.txt:14).
+
+THE SIGNED PREDICTIONS
+-----------------------
+  quantity                    predicted                 measured          in?
+  R                           ×1.235 [1.19, 1.29]       ×1.1983           yes, near the bottom
+  segment duration            3 h 35 [3 h 00, 4 h 45]   3 h 47 (13,629 s) yes
+  int4 records                36                        36                yes
+  sealed size                 4,364,205,777 B ± 0.01 %  4,364,205,777 B   to the byte
+  kernel b/w, tail f16 (f32)  2.0944 (2.1393)           2.0944 (2.1393)   yes
+  b/param, tail f16, q8 (f32) 3.0683 (3.1064)           3.0683 (3.1064)   yes
+  smoke peak footprint        40 GB [33, 46]            114.5 GB          NO
+  seal peak footprint         33 GB [28, 42]            40.3 GB           yes
+  sealed f16 against encoding −0.1 % [±1 %]             −0.027 %          yes
+
+The byte count, the kernel rate and the b/param were computed from the writer
+and `rtbits`' own formula after the review of the draft; the first draft had
+all three wrong. The memory prediction missed by a factor of 2.9 (deviation E1).
+
+THE CONTROLS
+-------------
+  1. oracle, Metal, f32: MATCH, max |Δhidden| = 0.000e0.                 PASSED
+  2. kinds Tetra+Int4G128, 36 int4 matrices out of 252.                  PASSED
+  3. verify_artifact: 6,945,767,424 weights identical, bit for bit.     PASSED
+  4. zero points outside Λ₂₄ (the encode guard refuses; none refused).  PASSED
+  5. sealed file opens; both sha256 in files.sha256.                    PASSED
+  6. sealed f16 perplexity finite and within 1 %: −0.027 %.             PASSED
+  7. rtbits read the v5 file (table above).                             RECORDED
+  8. /usr/bin/time -l, both peaks, smoke and seal.                      RECORDED
+
+THE PHASES AND THE MACHINE
+---------------------------
+  quantization   11,541.0 s  84.7 %
+  factorization   1,391.8 s  10.2 %
+  capture           606.3 s   4.4 %
+  write + rest       89.9 s   0.7 %
+  379 s a block on average over the 36, 12 threads under nice 10, on a
+  machine in use.
+
+`smoke`'s peak memory footprint was 114.5 GB for a resident set of 23.2 GB
+(smoke.txt:89, 105). The readings during the run were taken by hand and sit
+in the session log (5e014a47), not in the brut dir (*measured*, unrecorded).
+At 18:23, 24 min in, `top` showed `smoke` at 91G, swap used was 47,417 MiB
+(49.7 GB), and the system-wide compressor held 82.8 GB in 6.3 GB (`vm_stat`
+pages × 16 KiB). At 21:09, after the operator closed apps, `top` showed 60G
+and swap 37,618 MiB (39.4 GB). swap.txt brackets `smoke`: 3,777 MiB before,
+4,229 MiB after.
+
+The s/block column is a running average, elapsed over blocks done
+(smoke.rs:1122-1124). It went from 373 to 379 s. Worked back from its rounding
+and the minutes column: blocks 1-6 ran at 375.0-375.5 s each, blocks 7-24 at
+371.5-373.0 s, blocks 25-36 at 388.5-392.5 s. Blocks 1-6, the swap window,
+ran 0.5 to 1.1 % slower than blocks 7-24. The last third ran 4.2 to 5.7 %
+slower, cause not identified. What `smoke` allocates to reach that footprint
+at 8B is not established.
+
+WHAT THIS DOES NOT ESTABLISH
+-----------------------------
+- No MMLU. The census is the next step, paid, under its own prereg.
+- No separation of corpus, int4 and code drift against the bare 8B.
+- One calibration draw.

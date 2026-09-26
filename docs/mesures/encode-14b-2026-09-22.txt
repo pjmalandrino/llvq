@@ -1,0 +1,137 @@
+THE 14B PAPER-2 OBJECT, ENCODED ON A CARD IN TWO SEGMENTS: R ×1.1709 (2026-09-22)
+================================================================================
+Jobs:   seg1 6ab27f4852d0dbd7f1d7eb6b, rtx-pro-6000 x1, 9,092 s running, $6.95.
+        seg2 6ab2a33251992417dfcd390e, rtx-pro-6000 x1, 10,576 s running, $8.08.
+        export 6ab2d74a52d0dbd7f1d80131, cpu-xl, 1,148 s running, $0.32.
+        14B chain $18.49 after these three; project $205.48 = $202.29 in jobs.csv
+        plus $3.19 of five unregistered jobs (*computed*).
+Prereg: proofs/preregistration-encode-14b-2026-09-22.md, stamped
+        sha256 14a767bda0b28ff5..., before seg1. Deviations in the -ECARTS.md.
+Launcher: ops/jobs/encode-14b.sh, sha256 6f111e38ff636d88...; the export was rerun
+        by ops/jobs/export-14b.sh, sha256 16c4baa4b870f9d1... (deviation E3).
+Image:  Space Pier-Jean/llvq-runner-cuda at af90741654a5b28c (commit b68b590), the
+        rebuild that carries `export` and `rowscale`.
+Model:  Qwen/Qwen3-14B at revision 40c069824f4251a9 (pinned, read back in the job).
+        Calibration dclm-edu at dbad8ad71224482740cd9c9d353591ad, prefix, 64 × 2048.
+Objects qwen3-14b-dclm.llvq  3,439,848,370 B  sha256 23996b98b1f1d16c...
+        qwen3-14b-dclm.bin   6,563,782,117 B  sha256 f8e975b83897e96a...
+        export model.safetensors 29,536,665,800 B sha256 07e82f7c239dec48...
+Data:   docs/mesures/encode-14b-2026-09-22-brut/ (smoke, seal, ppl, export, rtbits,
+        gpu, revisions, sizes, R, sha256); seg1's own smoke is smoke-seg1.txt.
+Nature: perplexity, durations, byte counts and GPU samples *measured*; R, ratios,
+        per-block rates and every bits/param figure *computed*.
+
+THE RESULT
+-----------
+Qwen3-14B, `tetra1`, `v_proj` in int4 g128, calibrated on 131,072 tokens of
+dclm-edu from the prefix, wikitext-2 test, 12 windows of 4,096, f32 on the card.
+
+  baseline f32            7.9809
+  encoding, f32           9.3450   R = ×1.1709   (exact-ppl line, smoke.txt)
+  sealed file, f16        9.3447   −0.003 % against the encoding
+
+R lands at the **bottom of row 2** of the decision rule, [×1.17, ×1.38]: the size
+step without the card term. The prediction's central value, ×1.28, carried the
+card term forward from the 8B; the 14B did not pay it. Nothing here separates the
+size step from the card term, and the prereg forbids reading one as the other.
+
+For the size line, base files before any training, each on its own journal:
+  4B ×1.3281 (Metal) · 8B ×1.1983 (Metal) · 14B ×1.1709 (card).
+The devices differ, so this is a record, not a trend.
+
+THE TWO SEGMENTS
+-----------------
+  segment  blocks   running     s/block   int4      partial ratio
+  seg1     0–19     8,102 s     405       20/140    ×1.0543
+  seg2     20–39    8,092 s     405       40/280    ×1.1709 (the whole model)
+
+seg2 resumed at block 20 from the shard, hidden states recomputed and not
+restored. Both segments read the same baseline, 7.980853145067, to twelve digits:
+the resume did not move the reference. The phase profiles are the same to within
+1 %: quantization 81.2/81.3 %, factorization 12.3/12.2 %, f64 transfer 1.9 %,
+capture 1.8 %, advance 1.6 %, artifact write 1.2 %.
+
+The `smoke` s/block column is a running average, not a per-block rate; it closed
+at 412 s over 40 blocks in seg2 and 405 s over 20 in seg1. The prereg predicted
+573 s [462, 678]: **the card ran 28 % faster than its low end**, on 192 cores and
+an RTX PRO 6000 Blackwell (97,887 MiB, driver 580.178.04). The highest 30 s GPU
+sample was 71,307 MiB in seg1 and 71,339 MiB in seg2, of 97,887.
+
+THE BIT ACCOUNTING (rtbits, Mac, the 8B's binary, sha256 97a56b41ea1e0faf...)
+------------------------------------------------------------------------------
+  240 lattice matrices  13,002,342,400 weights   1.9975 b/weight of stream
+   40 int4 matrices        209,715,200 weights   4.2500 b/weight, side data in
+  tail                      16,384,000 weights, 2,048,000 row scales
+
+  kernel b/weight over 13,212,057,600 projection weights
+    tail f32 (the published accounting)  2.0779
+    tail f16 (the width the card holds)  2.0580
+
+  b/param WHOLE MODEL over 14,768,307,200 parameters
+  tail width          embed f16    embed q8
+  f32                   3.5450       2.7548
+  f16 (served)          3.5272     **2.7371**
+
+2.0580 kernel b/weight is the third size under the product triplet's b_max of
+3.00, and the lowest of the three: 2.140 (4B) · 2.0944 (8B) · 2.0580 (14B).
+The whole-model series is not monotone — 2.7475 · 3.0683 · 2.7371 — and the cause
+is the embedding share (9.67 % · 15.20 % · 10.54 %), not the format.
+
+THE SIGNED PREDICTIONS
+-----------------------
+  quantity                       predicted              measured        in?
+  R                              ×1.28 [1.17, 1.38]     ×1.1709         yes, at the bottom
+  seg1 partial ratio             ×1.13 [1.06, 1.22]     ×1.0543         NO, 0.006 under
+  seg1 billed                    216 min [179, 251]     152 min         NO, 27 under
+  seg2 billed                    250 min [213, 285]     177 min         NO, 36 under
+  s/block column                 573 s [462, 678]       405–412 s       NO, 50 under
+  int4 records                   40 of 280              40 of 280       yes
+  shard                          1,719,924,170 B        1,719,924,170   to the byte
+  .llvq                          3,439,848,370 B        3,439,848,370   to the byte
+  sealed file                    6,563,782,117 B        6,563,782,117   to the byte
+  export model.safetensors       29,536,665,800 B       29,536,665,800  to the byte
+  kernel b/weight f16 (f32)      2.0580 (2.0779)        2.0580 (2.0779) to the ten-thousandth
+  b/param f16, q8 (f32)          2.7371 (2.7548)        2.7371 (2.7548) to the ten-thousandth
+  b/param f16, embed f16         3.5272                 3.5272          to the ten-thousandth
+  GPU, highest 30 s sample       64 GB [60, 80]         71,339 MiB      yes
+  sealed f16 against encoding    −0.1 % [±1 %]          −0.003 %        yes
+  seal host VmHWM                77 GB [60, 95]         62.4 GB         yes
+
+Four byte counts and four bit rates were predicted exactly, from the writer and
+`rtbits`' own formula; every duration prediction was too slow, and by a wide
+margin. The encoder cost model has never been fitted on a Blackwell card.
+
+THE CONTROLS
+-------------
+  1. oracle, CUDA, before each segment: MATCH.                          PASSED
+  2. tetra1 + int4 + resume gate on the 0.6B, on a card, first time.    PASSED
+  3. kinds Tetra+Int4G128, 40 int4 matrices of 280.                     PASSED
+  4. verify_artifact: 13,212,057,600 weights identical, bit for bit.    PASSED
+  5. shard sha256 read back before seg2 resumed from it.                PASSED
+  6. sealed file opens; every sha256 in files.sha256.                   PASSED
+  7. sealed f16 perplexity within 1 % of the encoding: −0.003 %.        PASSED
+  8. export: 443 tensors identical bit for bit, 40 from Int4G128.       PASSED
+  9. rtbits, both tails, both embeddings (table above).                 RECORDED
+ 10. GPU sampled every 30 s; host VmHWM of each binary.                 RECORDED
+
+THE EXPORT WAS LOST ONCE, SILENTLY, AND THAT IS THE LESSON OF THIS RUN
+-----------------------------------------------------------------------
+seg2 wrote the 29.5 GB `model.safetensors` through the bucket mount, ran `sync`
+and read the size back. Both passed. The file was not there afterwards. The
+re-export (`ops/jobs/export-14b.sh`, cpu-xl, $0.32) first proved determinism —
+the same bytes give the same sha256, `07e82f7c…` — then wrote **30 parts of at
+most 1 GB**, and the sum checked on the Mac at 29,536,665,800 B exactly.
+
+A `sync` and a size read-back on the whole file are **not** a write gate on this
+mount. Only the size of each write is. `ops/README.md` already carried a 4 GB
+truncation; this one was 29.5 GB and passed both of the checks that were supposed
+to catch it.
+
+WHAT THIS DOES NOT ESTABLISH
+-----------------------------
+- No MMLU: the census is its own job, under its own prereg.
+- No kernel timing: `planesbench` refuses `d_in` 17,408 (`planesbench.rs:1917`).
+- Nothing about the row scales: the training is its own prereg and its own journal.
+- R against the 4B or the 8B as a size effect: the cards differ and nothing here
+  separates the device term from the size term.
+- `Planes14` 14B as a format verdict: another codebook, another corpus, bf16.

@@ -65,13 +65,24 @@ uv run --project ops/llvqtune -m llvqtune \
 before the first batch.
 
 ```bash
-cd ops/llvqtune && uv run --with pytest --with torch python -m pytest tests -q
+cd ops/llvqtune && uv run --extra torch --with pytest python -m pytest tests -q
 ```
 
-## Not done here
+`--extra torch` brings `transformers` too; without it the tests of `main`
+skip rather than fail.
 
-The write-back. Nothing folds `sigma.json` into a `.llvq` yet.
-`llvq-bench/examples/rhoapply.rs` already multiplies `row_scales` by one
-scalar and its idempotence control at rho = 1 is byte-identical on the served
-mixed file. Generalizing it from a scalar to a per-row vector is the missing
-piece, and it is the only Rust work this module needs.
+`train.sh` is the card entry point. `EXPORT`, `OUT` and `TEACHER` are
+required; `TEACHER` has no default since 2026-09-21, and `main` refuses a
+teacher whose `hidden_size`, depth, width or vocabulary differs from the
+student's before loading a weight. `STEPS` fixes the step count instead of
+`BUDGET / rate`; the six-step probe runs either way and must close with a
+rate and a device-memory gauge. `STAGE` copies the export to local disk
+first, `MAX_TRAIN_SECONDS` and `MAX_FIRST_KL` refuse a run after the probe.
+On cuda the journal records `max_memory_allocated`, `max_memory_reserved`
+and `total_memory` at every checkpoint and in the closing summary.
+
+## The write-back
+
+`llvq-llm/src/bin/rowscale.rs` folds `sigma.json` into a sealed file:
+`rowscale <in.bin> <out.bin> <sigma.json>`. Int4 records pass through, a
+sigma of all ones writes a byte-identical file.

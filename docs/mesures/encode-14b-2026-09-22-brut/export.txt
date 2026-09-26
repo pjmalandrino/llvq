@@ -1,0 +1,26 @@
+reading /scratch/qwen3-14b-dclm.bin — 280 quantized matrices
+    0/280
+   36/280
+   72/280
+  108/280
+  144/280
+  180/280
+  216/280
+  252/280
+  wrote config.json
+  wrote tokenizer.json
+  wrote tokenizer_config.json (minimal)
+verifying /scratch/export/model.safetensors …
+  443 tensors identical bit for bit
+
+
+/scratch/qwen3-14b-dclm.bin → /scratch/export
+  443 tensors, 13.21 B weights dequantized (40 from Int4G128) + 1556 M carried
+  model.safetensors: 29.54 GB (f16)
+
+WARNING: this file is a MEASUREMENT artifact, not a distribution one. It is
+   as large as the model in f16. The compression ratio is /scratch/qwen3-14b-dclm.bin.
+
+Next:
+  mlx_lm.convert --hf-path /scratch/export --mlx-path /scratch/export-mlx
+  mlx_lm.evaluate --model /scratch/export-mlx --tasks mmlu --num-shots 5

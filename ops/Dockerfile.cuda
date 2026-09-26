@@ -63,11 +63,22 @@ RUN cargo build --release --locked -p llvq-llm --features ${FEATURES} \
 #
 # Sans elle, le scellement tourne à 0,03 $/h au lieu de 0,80 sur la plus petite
 # carte — un facteur 27 sur une étape qui n'a rien à calculer.
-RUN cargo build --release --locked -p llvq-llm --bin seal --bin embedq
+#
+# `export` and `rowscale` (2026-09-22, the 14B paper-2 chain) join `seal` on
+# this line for the same reason: both hard-code `Device::Cpu` (export.rs:78;
+# rowscale.rs reads and rewrites records with no device at all), so the `cuda`
+# feature would only tie them to `libcuda.so.1` and keep them off `cpu-xl`.
+# Up to the 8B they ran on the Mac. At 14B the export is a 29.5 GB f16
+# checkpoint whose unpatched peak is ~92 GB of RAM (computed): on the Mac that
+# means an unmerged streaming patch plus a 29.5 GB upload, on the encode
+# card's 256 GB host it means nothing. Same trap as `nullkbench`: a bin named
+# here and not in the runtime `COPY` below does not exist on the target — BOTH
+# lists.
 # `embedq` (2026-09-23) rides the same CPU-only build: it rewrites the carried
 # embedding of a sealed file and never touches a device. It joins the image so
 # a job can requantize the embedding of a file that lives only in a bucket.
 # Same trap as below: BOTH lists.
+RUN cargo build --release --locked -p llvq-llm --bin seal --bin embedq --bin export --bin rowscale
 # The CUDA kernel bench. A separate `cargo build` on purpose: `llvq-cuda`
 # links neither candle nor `faer`, so it costs one small LTO link rather than
 # joining the one that has already been SIGKILLed once. Its kernels are not
@@ -127,6 +138,8 @@ COPY --from=build \
       /src/target/release/chat \
       /src/target/release/seal \
       /src/target/release/embedq \
+      /src/target/release/export \
+      /src/target/release/rowscale \
       /src/target/release/preflight \
       /src/target/release/matvec \
       /src/target/release/rotbench \
@@ -163,6 +176,26 @@ COPY --from=build /src/configs/ /usr/local/share/llvq/configs/
 # failure would then move from this build to a billed job at
 # `served.rs` reading the file.
 RUN test -f /usr/local/share/llvq/configs/qwen3-4b-tetra-q5.json
+# The 8B and 14B paper-2 objects, same reason. The 8B chain ran on an image that
+# predates its file and wrote the config into `/out` from the command line
+# (ops/jobs/served-8b.sh); from this image on, both are in it.
+RUN test -f /usr/local/share/llvq/configs/qwen3-8b-tetra-q5.json \
+ && test -f /usr/local/share/llvq/configs/qwen3-14b-tetra-q5.json
+# `export` and `rowscale` are RUN here, not just tested for presence. This
+# stage runs on the Space builder, which has no GPU and no `libcuda.so.1`, so a
+# binary linked against it fails to load HERE, by name, rather than on `cpu-xl`
+# in a billed job — the `seal` accident of 2026-08-09. Neither has a `--help`: with no
+# argument each prints its own refusal and exits 1, and grepping that refusal
+# proves the binary is the right one, is present, and loads its libraries in
+# this layer.
+#
+# 🚨 Always call `export` by its ABSOLUTE path in a job. `ops/run.py bench`
+# runs the job as `bash -lc`, where `export` is the shell builtin: `export
+# "$F" "$E"` never reaches this binary, prints "not a valid identifier" and
+# exits 1 (checked on the Mac, 2026-09-22). `/usr/local/bin/export`, never
+# `export`, and never `command export`, which still resolves to the builtin.
+RUN /usr/local/bin/export 2>&1 | grep -qF 'give the path to a sealed .llvq model' \
+ && /usr/local/bin/rowscale 2>&1 | grep -qF 'usage: rowscale <in.bin|in.llvq> <out> <sigma.json>'
 ENV HF_HOME=/scratch/hf
 WORKDIR /scratch
 # Space runtime only — a Job always overrides the command.

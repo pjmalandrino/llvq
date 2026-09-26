@@ -7,6 +7,7 @@ from llvqtune.domain.schedule import Constant
 
 from fakes import (
     FakeCorpus,
+    FakeGauge,
     FakeSink,
     FakeModel,
     FakeObjective,
@@ -120,3 +121,41 @@ def test_the_summary_carries_the_rate_a_job_needs_to_size_itself():
     run(**wire(recorder=recorder))
     assert "seconds_per_step" in recorder.summary
     assert recorder.summary["seconds_per_step"] >= 0.0
+
+
+def test_the_summary_carries_the_gauge_when_one_is_bound():
+    """The 8B was sized for its card by computation; the peak must be read."""
+    recorder = FakeRecorder()
+    gauge = FakeGauge()
+    run(**wire(recorder=recorder, gauge=gauge))
+    assert recorder.summary["gauge"] == {"max_memory_allocated": 1000 * gauge.reads}
+
+
+def test_every_checkpoint_reads_the_gauge():
+    recorder = FakeRecorder()
+    gauge = FakeGauge()
+    sink = FakeSink()
+    run(**wire(
+        plan=Plan(steps=6, seed=0, log_every=1, checkpoint_every=2),
+        sink=sink, recorder=recorder, gauge=gauge,
+    ))
+    assert [(i, g) for i, _, g in recorder.checkpoints] == [
+        (2, {"max_memory_allocated": 1000}),
+        (4, {"max_memory_allocated": 2000}),
+    ]
+    assert [p for _, p, _ in recorder.checkpoints] == [
+        "/tmp/fake-1.json", "/tmp/fake-2.json",
+    ]
+    assert gauge.reads == 3  # two checkpoints and the summary
+
+
+def test_without_a_gauge_the_journal_keeps_its_shape():
+    """The 4B journals carry no gauge; a run with none must write the same."""
+    recorder = FakeRecorder()
+    sink = FakeSink()
+    run(**wire(
+        plan=Plan(steps=4, seed=0, log_every=1, checkpoint_every=2),
+        sink=sink, recorder=recorder,
+    ))
+    assert "gauge" not in recorder.summary
+    assert recorder.checkpoints == [(2, "/tmp/fake-1.json", None)]

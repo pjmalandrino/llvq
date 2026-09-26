@@ -1,0 +1,51 @@
+reading /Users/pjmalandrino/qwen3-8b-dclm.bin — 252 quantized matrices
+    0/252
+   36/252
+   72/252
+  108/252
+  144/252
+  180/252
+  216/252
+  wrote config.json
+  wrote tokenizer.json
+  wrote tokenizer_config.json (minimal)
+verifying /Users/pjmalandrino/qwen3-8b-dclm-export/model.safetensors …
+  399 tensors identical bit for bit
+
+
+/Users/pjmalandrino/qwen3-8b-dclm.bin → /Users/pjmalandrino/qwen3-8b-dclm-export
+  399 tensors, 6.95 B weights dequantized (36 from Int4G128) + 1245 M carried
+  model.safetensors: 16.38 GB (f16)
+
+WARNING: this file is a MEASUREMENT artifact, not a distribution one. It is
+   as large as the model in f16. The compression ratio is /Users/pjmalandrino/qwen3-8b-dclm.bin.
+
+Next:
+  mlx_lm.convert --hf-path /Users/pjmalandrino/qwen3-8b-dclm-export --mlx-path /Users/pjmalandrino/qwen3-8b-dclm-export-mlx
+  mlx_lm.evaluate --model /Users/pjmalandrino/qwen3-8b-dclm-export-mlx --tasks mmlu --num-shots 5
+       80.09 real        54.82 user        15.25 sys
+         35553198080  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+             6360378  page reclaims
+                  28  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+               24776  voluntary context switches
+              116664  involuntary context switches
+       1333337750042  instructions retired
+        249920236644  cycles elapsed
+         51211456800  peak memory footprint
+399 tensors, 16381516776 bytes, header 46048: OK
+total 32033848
+drwxr-xr-x    6 pjmalandrino  staff          192 Sep 21 22:44 .
+drwxr-x---+ 201 pjmalandrino  staff         6432 Sep 21 22:43 ..
+-rw-r--r--    1 pjmalandrino  staff          728 Sep 21 22:44 config.json
+-rw-r--r--    1 pjmalandrino  staff  16381516776 Sep 21 22:44 model.safetensors
+-rw-r--r--    1 pjmalandrino  staff     11422654 Sep 21 22:44 tokenizer.json
+-rw-r--r--    1 pjmalandrino  staff           64 Sep 21 22:44 tokenizer_config.json

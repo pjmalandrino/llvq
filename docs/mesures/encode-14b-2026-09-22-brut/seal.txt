@@ -1,0 +1,11 @@
+/out/dclm-14b-2026-09-22/qwen3-14b-dclm.llvq: format v5, 280 quantized matrices, kinds Tetra+Int4G128
+reading Qwen/Qwen3-14B for the tensors the artifact is missing…
+  carrying 163 tensors, 1556249600 weights (3.112 GB at f16)
+
+── /scratch/qwen3-14b-dclm.bin
+   quantized   13212057600 weights → 3.440 GB (2.0828 bits/weight)
+   carried      1556249600 weights → 3.124 GB at f16
+   total          6.564 GB on disk
+   against        29.537 GB in FP16  →  ×4.50
+
+   this file needs no checkpoint, no cache and no network.

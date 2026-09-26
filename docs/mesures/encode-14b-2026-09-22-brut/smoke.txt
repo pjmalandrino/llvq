@@ -1,0 +1,74 @@
+=== configuration ===
+  model        Qwen/Qwen3-14B
+  codebook     tetra1 → Tetra word map, 47 bits of label + 1 gain bit, 3 octads of 8, 2048 rows per class, magnitude on the gain grid, gain selected from source norm, 48 bits/block
+  calibration  dclm-edu, 64 × 2048 = 131072 tokens requested, contiguous prefix from token 0
+  rotation     on (seed 0x110feed)
+  mode         nogs (group scales off, design C off)
+  blocks       40 at most
+  eval         wikitext-2 test, 12 windows × 4096
+  dtype        f32
+  device       Cuda(CudaDevice(DeviceId(1))), 23 encoder threads
+  damping      1e-2 (relative to mean(diag H))
+  h_shrink     1 (H as is, published path)
+  gain_scale   1 (centroids as fitted, published path)
+  artifact     /out/dclm-14b-2026-09-22/qwen3-14b-dclm.llvq
+  resume       /scratch/seg1/qwen3-14b-dclm-seg1.llvq
+=====================
+resume from /scratch/seg1/qwen3-14b-dclm-seg1.llvq: 140 matrices, blocks 0..19 already quantized — quantization restarts at block 20.
+baseline perplexity over 12 windows of 4096…
+  baseline ppl = 7.9809
+tokenizing calibration set (dclm-edu)…
+  bounded read: 825408 chars for 786432 asked, 127 of 776000 rows, 1 of 1 row groups, revision dbad8ad71224482740cd9c9d353591adbf62fe04
+  64 windows of 2048 = 131072 tokens (94 available), contiguous prefix from token 0
+quantizing blocks 20..39 of 40 of Qwen/Qwen3-14B — tetra1 → Tetra word map, 47 bits of label + 1 gain bit, 3 octads of 8, 2048 rows per class, magnitude on the gain grid, gain selected from source norm, 48 bits/block, retract on, group scales off, design C off, input rotation on…
+writing the compressed artifact to /out/dclm-14b-2026-09-22/qwen3-14b-dclm.llvq
+  run state written to /out/dclm-14b-2026-09-22/qwen3-14b-dclm.llvq.state
+  ✓ 140 matrices copied and reloaded (6606028800 weights, 20 blocks) in 160.2 s
+  block  21/40  11 min elapsed  643 s/block  ~204 min left  (estimated end at +3.6 h)
+  block  22/40  17 min elapsed  521 s/block  ~156 min left  (estimated end at +2.9 h)
+  block  23/40  24 min elapsed  481 s/block  ~136 min left  (estimated end at +2.7 h)
+  block  24/40  31 min elapsed  461 s/block  ~123 min left  (estimated end at +2.6 h)
+  block  25/40  37 min elapsed  449 s/block  ~112 min left  (estimated end at +2.5 h)
+  block  26/40  44 min elapsed  441 s/block  ~103 min left  (estimated end at +2.4 h)
+  block  27/40  51 min elapsed  435 s/block  ~94 min left  (estimated end at +2.4 h)
+  block  28/40  57 min elapsed  431 s/block  ~86 min left  (estimated end at +2.4 h)
+  block  29/40  64 min elapsed  428 s/block  ~78 min left  (estimated end at +2.4 h)
+  block  30/40  71 min elapsed  425 s/block  ~71 min left  (estimated end at +2.4 h)
+  block  31/40  77 min elapsed  423 s/block  ~63 min left  (estimated end at +2.3 h)
+  block  32/40  84 min elapsed  421 s/block  ~56 min left  (estimated end at +2.3 h)
+  block  33/40  91 min elapsed  419 s/block  ~49 min left  (estimated end at +2.3 h)
+  block  34/40  97 min elapsed  418 s/block  ~42 min left  (estimated end at +2.3 h)
+  block  35/40  104 min elapsed  417 s/block  ~35 min left  (estimated end at +2.3 h)
+  block  36/40  111 min elapsed  416 s/block  ~28 min left  (estimated end at +2.3 h)
+  block  37/40  118 min elapsed  415 s/block  ~21 min left  (estimated end at +2.3 h)
+  block  38/40  124 min elapsed  414 s/block  ~14 min left  (estimated end at +2.3 h)
+  block  39/40  131 min elapsed  413 s/block  ~7 min left  (estimated end at +2.3 h)
+  block  40/40  137 min elapsed  412 s/block  ~0 min left  (estimated end at +2.3 h)
+artifact: 3.440 GB on disk, payload 2.0854 bits/weight over 13195673600 quantized weights
+  a blend: 209715200 of those weights are int4 g128 at a flat 4.2500 b/weight
+verifying 280 matrices against the evaluated model (v5, kinds Tetra+Int4G128)…
+  ✓ 13212057600 weights identical, bit for bit (at f32)
+quantized 240 matrices, 13002342400 weights on the lattice (2.0202 bits/weight)
+and 40 matrices, 209715200 weights in int4 g128 (4.2500 bits/weight)
+280 matrices in the file, of which 140 matrices resumed from the shard; this segment ran 8092s
+phases:
+  quantization             6534.5s   81.3 %
+  factorization             982.0s   12.2 %
+  f64 transfer              153.7s    1.9 %
+  capture (pass 1)          147.5s    1.8 %
+  advance (pass 2)          124.6s    1.6 %
+  artifact write             95.0s    1.2 %
+
+=== Qwen/Qwen3-14B [tetra1, 40 blocks (20 resumed), rot on, mode nogs, calib dclm-edu/prefix], wikitext-2, ctx 4096, 12 windows ===
+codebook                 = tetra1 → Tetra word map, 47 bits of label + 1 gain bit, 3 octads of 8, 2048 rows per class, magnitude on the gain grid, gain selected from source norm, 48 bits/block
+calibration              = 64 × 2048 = 131072 tokens
+segments                 = resumed at block 20 from /scratch/seg1/qwen3-14b-dclm-seg1.llvq (hidden states recomputed, not restored)
+baseline (f32)       ppl = 7.9809
+LLVQ 2-bit           ppl = 9.3450
+degradation          ×1.171
+exact-ppl  baseline 7.980853145067e0  quantized 9.345010769932e0
+effective rate           = 2.0202 bits/weight
+hessian damping          = 1e-2
+hessian shrink ρ         = 1
+gain centroid scale      = 1
+dtype / device           = f32 / Cuda(CudaDevice(DeviceId(1)))

@@ -1,0 +1,8 @@
+{
+  "layout": "tetra48",
+  "embed": "q8",
+  "rot_share": "1",
+  "fuse": "0",
+  "kv": "f16",
+  "note": "Qwen3-14B, Tetra + 40 v_proj int4 g128, dclm-edu calibration: qwen3-14b-dclm.bin and its row-scale-trained qwen3-14b-dclm-ft.bin. Untied head, so q8 quantizes two tables. fuse is 0 because Tetra carries no segmented kernel, not because fusion was declined."
+}

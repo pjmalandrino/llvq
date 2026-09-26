@@ -1,0 +1,1066 @@
+diff -ruN llvqtune/README.md ../work/llvqtune/README.md
+--- a/ops/llvqtune/README.md	2026-09-19 16:33:47
++++ b/ops/llvqtune/README.md	2026-09-21 22:18:29
+@@ -64,13 +64,24 @@
+ before the first batch.
+ 
+ ```bash
+-cd ops/llvqtune && uv run --with pytest --with torch python -m pytest tests -q
++cd ops/llvqtune && uv run --extra torch --with pytest python -m pytest tests -q
+ ```
+ 
+-## Not done here
++`--extra torch` brings `transformers` too; without it the tests of `main`
++skip rather than fail.
+ 
+-The write-back. Nothing folds `sigma.json` into a `.llvq` yet.
+-`llvq-bench/examples/rhoapply.rs` already multiplies `row_scales` by one
+-scalar and its idempotence control at rho = 1 is byte-identical on the served
+-mixed file. Generalizing it from a scalar to a per-row vector is the missing
+-piece, and it is the only Rust work this module needs.
++`train.sh` is the card entry point. `EXPORT`, `OUT` and `TEACHER` are
++required; `TEACHER` has no default since 2026-09-21, and `main` refuses a
++teacher whose `hidden_size`, depth, width or vocabulary differs from the
++student's before loading a weight. `STEPS` fixes the step count instead of
++`BUDGET / rate`; the six-step probe runs either way and must close with a
++rate and a device-memory gauge. `STAGE` copies the export to local disk
++first, `MAX_TRAIN_SECONDS` and `MAX_FIRST_KL` refuse a run after the probe.
++On cuda the journal records `max_memory_allocated`, `max_memory_reserved`
++and `total_memory` at every checkpoint and in the closing summary.
++
++## The write-back
++
++`llvq-llm/src/bin/rowscale.rs` folds `sigma.json` into a sealed file:
++`rowscale <in.bin> <out.bin> <sigma.json>`. Int4 records pass through, a
++sigma of all ones writes a byte-identical file.
+diff -ruN llvqtune/llvqtune/__main__.py ../work/llvqtune/llvqtune/__main__.py
+--- a/ops/llvqtune/llvqtune/__main__.py	2026-09-19 18:01:06
++++ b/ops/llvqtune/llvqtune/__main__.py	2026-09-21 22:09:59
+@@ -51,7 +51,7 @@
+     args = parse(argv)
+ 
+     import torch
+-    from transformers import AutoModelForCausalLM, AutoTokenizer
++    from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+ 
+     from .adapters.dclm_corpus import DclmCorpus
+     from .adapters.json_sink import JsonSink
+@@ -59,10 +59,24 @@
+     from .adapters.objectives import CrossEntropy, KLDistillation
+     from .adapters.torch_model import TorchModel, TorchTeacher
+     from .adapters.torch_optimizer import Adam
+-    from .domain.loop import Plan, check, run
++    from .domain.loop import Plan, WiringError, check, run
++    from .domain.pairing import check_pairing
+     from .domain.schedule import WarmupCosine
+     from .trainables import build
+ 
++    # Before any weight is read: two config files, a few kB. The 8B student
++    # and a 4B teacher share depth and vocabulary, so a mismatch would train
++    # to the end and write a plausible file.
++    if args.teacher is not None:
++        try:
++            check_pairing(
++                AutoConfig.from_pretrained(args.student).to_dict(),
++                AutoConfig.from_pretrained(args.teacher).to_dict(),
++            )
++        except WiringError as refused:
++            print(f"refused: {refused}", file=sys.stderr)
++            return 2
++
+     widths = {"f32": torch.float32, "f16": torch.float16, "bf16": torch.bfloat16}
+     dtype = (
+         widths[args.dtype]
+@@ -128,6 +142,12 @@
+         print("dry run, nothing was trained", file=sys.stderr)
+         return 0
+ 
++    gauge = None
++    if args.device.startswith("cuda"):
++        from .adapters.cuda_gauge import CudaGauge
++
++        gauge = CudaGauge(args.device)
++
+     sink = JsonSink(args.out)
+     outcome = run(
+         model=model,
+@@ -140,6 +160,7 @@
+         plan=plan,
+         teacher=teacher,
+         sink=sink,
++        gauge=gauge,
+     )
+     path = sink.write(outcome.export, outcome.cost)
+     print(f"wrote {path}", file=sys.stderr)
+diff -ruN llvqtune/llvqtune/adapters/cuda_gauge.py ../work/llvqtune/llvqtune/adapters/cuda_gauge.py
+--- a/ops/llvqtune/llvqtune/adapters/cuda_gauge.py	1970-01-01 01:00:00
++++ b/ops/llvqtune/llvqtune/adapters/cuda_gauge.py	2026-09-21 22:09:48
+@@ -0,0 +1,28 @@
++"""Device memory, read from torch's caching allocator.
++
++`max_memory_allocated` is what the tensors held at their peak;
++`max_memory_reserved` is what the allocator took from the card, fragmentation
++included, and is the figure that decides whether a larger model fits.
++`total_memory` is the card's own, so a journal states its margin without a
++spec sheet.
++"""
++
++from __future__ import annotations
++
++import torch
++
++
++class CudaGauge:
++    def __init__(self, device: str = "cuda") -> None:
++        self._device = torch.device(device)
++        if self._device.type != "cuda":
++            raise ValueError(f"CudaGauge reads a CUDA device, not {device!r}")
++
++    def __call__(self) -> dict[str, int]:
++        return {
++            "max_memory_allocated": int(torch.cuda.max_memory_allocated(self._device)),
++            "max_memory_reserved": int(torch.cuda.max_memory_reserved(self._device)),
++            "total_memory": int(
++                torch.cuda.get_device_properties(self._device).total_memory
++            ),
++        }
+diff -ruN llvqtune/llvqtune/adapters/jsonl_recorder.py ../work/llvqtune/llvqtune/adapters/jsonl_recorder.py
+--- a/ops/llvqtune/llvqtune/adapters/jsonl_recorder.py	2026-09-19 16:29:58
++++ b/ops/llvqtune/llvqtune/adapters/jsonl_recorder.py	2026-09-21 22:09:42
+@@ -30,5 +30,11 @@
+     def step(self, index: int, loss: float, lr: float) -> None:
+         self._write({"event": "step", "index": index, "loss": loss, "lr": lr})
+ 
++    def checkpoint(self, index: int, path: str, gauge: dict | None) -> None:
++        record = {"event": "checkpoint", "index": index, "path": path}
++        if gauge is not None:
++            record["gauge"] = gauge
++        self._write(record)
++
+     def closed(self, summary: dict) -> None:
+         self._write({"event": "closed", **summary})
+diff -ruN llvqtune/llvqtune/domain/loop.py ../work/llvqtune/llvqtune/domain/loop.py
+--- a/ops/llvqtune/llvqtune/domain/loop.py	2026-09-19 18:40:07
++++ b/ops/llvqtune/llvqtune/domain/loop.py	2026-09-21 22:09:42
+@@ -9,7 +9,7 @@
+ 
+ import time
+ from dataclasses import dataclass
+-from typing import Protocol
++from typing import Callable, Protocol
+ 
+ from ..ports.corpus import CorpusPort
+ from ..ports.model import ModelPort
+@@ -26,6 +26,12 @@
+     def at(self, step: int) -> float: ...
+ 
+ 
++Gauge = Callable[[], dict]
++"""Reads the device's memory. Framework-free on this side: a callable
++returning plain data. The 8B was sized for a card by computation only, so
++the peak it actually reaches has to land in the journal."""
++
++
+ @dataclass(frozen=True)
+ class Plan:
+     """Everything a run needs to be replayed from its journal."""
+@@ -140,6 +146,7 @@
+     plan: Plan,
+     teacher: TeacherPort | None = None,
+     sink: SinkPort | None = None,
++    gauge: Gauge | None = None,
+ ) -> Outcome:
+     """Train `trainable` against `objective`. Returns what to write back."""
+     check(
+@@ -197,6 +204,7 @@
+         ):
+             path = sink.write(trainable.export(), cost)
+             recorder.step(done, last, lr)
++            recorder.checkpoint(done, path, gauge() if gauge is not None else None)
+             checkpoints.append(path)
+ 
+     elapsed = time.monotonic() - started
+@@ -204,18 +212,19 @@
+         raise WiringError("the corpus yielded no batch")
+ 
+     payload = trainable.export()
+-    recorder.closed(
+-        {
+-            "steps_run": done,
+-            "first_loss": first,
+-            "last_loss": last,
+-            "losses": losses,
+-            "checkpoints": len(checkpoints),
+-            "seconds": round(elapsed, 3),
+-            "seconds_per_step": round(elapsed / done, 4) if done else 0.0,
+-            "cost": str(cost),
+-        }
+-    )
++    summary = {
++        "steps_run": done,
++        "first_loss": first,
++        "last_loss": last,
++        "losses": losses,
++        "checkpoints": len(checkpoints),
++        "seconds": round(elapsed, 3),
++        "seconds_per_step": round(elapsed / done, 4) if done else 0.0,
++        "cost": str(cost),
++    }
++    if gauge is not None:
++        summary["gauge"] = gauge()
++    recorder.closed(summary)
+     return Outcome(
+         steps_run=done,
+         first_loss=first,
+diff -ruN llvqtune/llvqtune/domain/pairing.py ../work/llvqtune/llvqtune/domain/pairing.py
+--- a/ops/llvqtune/llvqtune/domain/pairing.py	1970-01-01 01:00:00
++++ b/ops/llvqtune/llvqtune/domain/pairing.py	2026-09-21 22:09:23
+@@ -0,0 +1,54 @@
++"""The teacher must be the dense twin of the student, and this checks it.
++
++KL reads nothing but the two output distributions. Qwen3-4B and Qwen3-8B share
++the vocabulary (151,936) and the depth (36 layers), so a 4B teacher bound to an
++8B student produces logits of the same shape, a finite loss and a trained file.
++Nothing downstream would notice. `train.sh` defaulted `TEACHER` to
++`Qwen/Qwen3-4B` until 2026-09-21, which is exactly that run.
++
++So the pairing is refused on the configs, before a single weight is loaded.
++The configs are plain dicts here; reading them is the adapter's job.
++"""
++
++from __future__ import annotations
++
++from typing import Mapping
++
++from .loop import WiringError
++
++ARCH_KEYS = (
++    "model_type",
++    "hidden_size",
++    "num_hidden_layers",
++    "intermediate_size",
++    "num_attention_heads",
++    "num_key_value_heads",
++    "vocab_size",
++)
++"""What makes two checkpoints the same network. `hidden_size` is the one that
++separates the 4B from the 8B: their depth and vocabulary are equal."""
++
++_ABSENT = object()
++
++
++def check_pairing(student: Mapping[str, object], teacher: Mapping[str, object]) -> None:
++    """Refuse a teacher whose architecture differs from the student's.
++
++    A key absent from both configs is skipped; absent from one side only is a
++    difference, because the loader would then fill it with a default.
++    """
++    differ = []
++    for key in ARCH_KEYS:
++        s = student.get(key, _ABSENT)
++        t = teacher.get(key, _ABSENT)
++        if s is _ABSENT and t is _ABSENT:
++            continue
++        if s != t:
++            shown_s = "absent" if s is _ABSENT else repr(s)
++            shown_t = "absent" if t is _ABSENT else repr(t)
++            differ.append(f"{key}: student {shown_s}, teacher {shown_t}")
++    if differ:
++        raise WiringError(
++            "the teacher is not the student's dense twin; "
++            + "; ".join(differ)
++        )
+diff -ruN llvqtune/llvqtune/ports/recorder.py ../work/llvqtune/llvqtune/ports/recorder.py
+--- a/ops/llvqtune/llvqtune/ports/recorder.py	2026-09-19 16:27:58
++++ b/ops/llvqtune/llvqtune/ports/recorder.py	2026-09-21 22:09:42
+@@ -15,4 +15,11 @@
+ 
+     def step(self, index: int, loss: float, lr: float) -> None: ...
+ 
++    def checkpoint(
++        self, index: int, path: str, gauge: dict[str, object] | None
++    ) -> None:
++        """A partial write landed at `path`. `gauge` is the device memory then,
++        or None when no gauge is bound."""
++        ...
++
+     def closed(self, summary: dict[str, object]) -> None: ...
+diff -ruN llvqtune/tests/fakes.py ../work/llvqtune/tests/fakes.py
+--- a/ops/llvqtune/tests/fakes.py	2026-09-19 17:22:06
++++ b/ops/llvqtune/tests/fakes.py	2026-09-21 22:09:42
+@@ -106,6 +106,7 @@
+     def __init__(self) -> None:
+         self.header = None
+         self.steps: list[tuple[int, float, float]] = []
++        self.checkpoints: list[tuple[int, str, object]] = []
+         self.summary = None
+ 
+     def opened(self, header):
+@@ -114,6 +115,9 @@
+     def step(self, index, loss, lr):
+         self.steps.append((index, loss, lr))
+ 
++    def checkpoint(self, index, path, gauge):
++        self.checkpoints.append((index, path, gauge))
++
+     def closed(self, summary):
+         self.summary = summary
+ 
+@@ -125,3 +129,14 @@
+     def write(self, payload, cost):
+         self.writes.append(payload)
+         return f"/tmp/fake-{len(self.writes)}.json"
++
++
++class FakeGauge:
++    """Counts its reads and returns a distinct peak each time."""
++
++    def __init__(self) -> None:
++        self.reads = 0
++
++    def __call__(self):
++        self.reads += 1
++        return {"max_memory_allocated": 1000 * self.reads}
+diff -ruN llvqtune/tests/test_cuda_gauge.py ../work/llvqtune/tests/test_cuda_gauge.py
+--- a/ops/llvqtune/tests/test_cuda_gauge.py	1970-01-01 01:00:00
++++ b/ops/llvqtune/tests/test_cuda_gauge.py	2026-09-21 22:11:18
+@@ -0,0 +1,31 @@
++"""The gauge names what it reads, and reads the three things it names.
++
++No card is needed: the allocator's three functions are replaced by distinct
++constants, so a swapped key or a dropped field fails here, on a Mac.
++"""
++
++import pytest
++
++torch = pytest.importorskip("torch")
++
++from llvqtune.adapters.cuda_gauge import CudaGauge  # noqa: E402
++
++
++class _Props:
++    total_memory = 150_000_000_000
++
++
++def test_it_reads_allocated_reserved_and_total(monkeypatch):
++    monkeypatch.setattr(torch.cuda, "max_memory_allocated", lambda d=None: 74_000_000_000)
++    monkeypatch.setattr(torch.cuda, "max_memory_reserved", lambda d=None: 78_000_000_000)
++    monkeypatch.setattr(torch.cuda, "get_device_properties", lambda d=None: _Props())
++    assert CudaGauge("cuda")() == {
++        "max_memory_allocated": 74_000_000_000,
++        "max_memory_reserved": 78_000_000_000,
++        "total_memory": 150_000_000_000,
++    }
++
++
++def test_it_refuses_a_device_that_is_not_cuda():
++    with pytest.raises(ValueError, match="CUDA"):
++        CudaGauge("cpu")
+diff -ruN llvqtune/tests/test_jsonl_recorder.py ../work/llvqtune/tests/test_jsonl_recorder.py
+--- a/ops/llvqtune/tests/test_jsonl_recorder.py	1970-01-01 01:00:00
++++ b/ops/llvqtune/tests/test_jsonl_recorder.py	2026-09-21 22:21:54
+@@ -0,0 +1,28 @@
++"""The journal line a checkpoint leaves, with and without a gauge."""
++
++import json
++
++from llvqtune.adapters.jsonl_recorder import JsonlRecorder
++
++
++def lines(path):
++    return [json.loads(l) for l in path.read_text().splitlines()]
++
++
++def test_a_checkpoint_line_carries_the_gauge(tmp_path):
++    journal = tmp_path / "j.jsonl"
++    JsonlRecorder(journal, echo=False).checkpoint(
++        200, "/out/sigma.json", {"max_memory_allocated": 74_000_000_000}
++    )
++    (record,) = lines(journal)
++    assert record["event"] == "checkpoint"
++    assert record["index"] == 200
++    assert record["path"] == "/out/sigma.json"
++    assert record["gauge"] == {"max_memory_allocated": 74_000_000_000}
++
++
++def test_without_a_gauge_the_line_has_no_gauge_key(tmp_path):
++    journal = tmp_path / "j.jsonl"
++    JsonlRecorder(journal, echo=False).checkpoint(200, "/out/sigma.json", None)
++    (record,) = lines(journal)
++    assert "gauge" not in record
+diff -ruN llvqtune/tests/test_loop.py ../work/llvqtune/tests/test_loop.py
+--- a/ops/llvqtune/tests/test_loop.py	2026-09-19 18:40:07
++++ b/ops/llvqtune/tests/test_loop.py	2026-09-21 22:11:11
+@@ -7,6 +7,7 @@
+ 
+ from fakes import (
+     FakeCorpus,
++    FakeGauge,
+     FakeSink,
+     FakeModel,
+     FakeObjective,
+@@ -120,3 +121,41 @@
+     run(**wire(recorder=recorder))
+     assert "seconds_per_step" in recorder.summary
+     assert recorder.summary["seconds_per_step"] >= 0.0
++
++
++def test_the_summary_carries_the_gauge_when_one_is_bound():
++    """The 8B was sized for its card by computation; the peak must be read."""
++    recorder = FakeRecorder()
++    gauge = FakeGauge()
++    run(**wire(recorder=recorder, gauge=gauge))
++    assert recorder.summary["gauge"] == {"max_memory_allocated": 1000 * gauge.reads}
++
++
++def test_every_checkpoint_reads_the_gauge():
++    recorder = FakeRecorder()
++    gauge = FakeGauge()
++    sink = FakeSink()
++    run(**wire(
++        plan=Plan(steps=6, seed=0, log_every=1, checkpoint_every=2),
++        sink=sink, recorder=recorder, gauge=gauge,
++    ))
++    assert [(i, g) for i, _, g in recorder.checkpoints] == [
++        (2, {"max_memory_allocated": 1000}),
++        (4, {"max_memory_allocated": 2000}),
++    ]
++    assert [p for _, p, _ in recorder.checkpoints] == [
++        "/tmp/fake-1.json", "/tmp/fake-2.json",
++    ]
++    assert gauge.reads == 3  # two checkpoints and the summary
++
++
++def test_without_a_gauge_the_journal_keeps_its_shape():
++    """The 4B journals carry no gauge; a run with none must write the same."""
++    recorder = FakeRecorder()
++    sink = FakeSink()
++    run(**wire(
++        plan=Plan(steps=4, seed=0, log_every=1, checkpoint_every=2),
++        sink=sink, recorder=recorder,
++    ))
++    assert "gauge" not in recorder.summary
++    assert recorder.checkpoints == [(2, "/tmp/fake-1.json", None)]
+diff -ruN llvqtune/tests/test_main_gauge.py ../work/llvqtune/tests/test_main_gauge.py
+--- a/ops/llvqtune/tests/test_main_gauge.py	1970-01-01 01:00:00
++++ b/ops/llvqtune/tests/test_main_gauge.py	2026-09-21 22:16:03
+@@ -0,0 +1,91 @@
++"""`main` binds the CUDA gauge to the loop when the device is cuda.
++
++Everything a card would supply is replaced: a one-layer Qwen3 on the CPU
++stands in for both checkpoints, the corpus is a fake, and `run` records what
++it was handed and stops. No card, no download, no weight.
++"""
++
++import pytest
++
++torch = pytest.importorskip("torch")
++transformers = pytest.importorskip("transformers")
++
++import llvqtune.adapters.dclm_corpus as dclm_corpus  # noqa: E402
++import llvqtune.domain.loop as loop  # noqa: E402
++import llvqtune.trainables as trainables  # noqa: E402
++from llvqtune.__main__ import main  # noqa: E402
++from llvqtune.adapters.cuda_gauge import CudaGauge  # noqa: E402
++from llvqtune.trainables.row_scales import RowScales  # noqa: E402
++
++from test_main_pairing import _configs, _tf  # noqa: E402
++from test_pairing import QWEN3_8B  # noqa: E402
++
++
++class _Stop(Exception):
++    pass
++
++
++def _tiny():
++    config = transformers.Qwen3Config(
++        vocab_size=32, hidden_size=48, intermediate_size=48,
++        num_hidden_layers=1, num_attention_heads=2, num_key_value_heads=1,
++        head_dim=24,
++    )
++    model = transformers.Qwen3ForCausalLM(config)
++    model.to = lambda *a, **k: model          # stays on the CPU
++    return model
++
++
++class _Loader:
++    @staticmethod
++    def from_pretrained(*a, **k):
++        return _tiny()
++
++
++class _Tokenizer:
++    @staticmethod
++    def from_pretrained(*a, **k):
++        return object()
++
++
++class _Corpus:
++    def __init__(self, *a, **k):
++        self.tokens_per_batch = 8
++
++    def batches(self, count, seed):
++        return iter(())
++
++
++def _wire(monkeypatch):
++    seen = {}
++
++    def fake_run(**kwargs):
++        seen.update(kwargs)
++        raise _Stop
++
++    monkeypatch.setattr(_tf(), "AutoConfig",
++                        _configs({"student": QWEN3_8B, "teacher": QWEN3_8B}))
++    monkeypatch.setattr(_tf(), "AutoModelForCausalLM", _Loader)
++    monkeypatch.setattr(_tf(), "AutoTokenizer", _Tokenizer)
++    monkeypatch.setattr(dclm_corpus, "DclmCorpus", _Corpus)
++    monkeypatch.setattr(trainables, "build", lambda mode, **k: RowScales(k["shapes"]))
++    monkeypatch.setattr(loop, "run", fake_run)
++    return seen
++
++
++def _main(device, tmp_path):
++    with pytest.raises(_Stop):
++        main(["--student", "student", "--teacher", "teacher", "--device", device,
++              "--out", str(tmp_path / "sigma.json")])
++
++
++def test_on_cuda_the_loop_receives_the_cuda_gauge(monkeypatch, tmp_path):
++    seen = _wire(monkeypatch)
++    _main("cuda", tmp_path)
++    assert isinstance(seen["gauge"], CudaGauge)
++
++
++def test_off_cuda_no_gauge_is_bound(monkeypatch, tmp_path):
++    seen = _wire(monkeypatch)
++    _main("cpu", tmp_path)
++    assert seen["gauge"] is None
+diff -ruN llvqtune/tests/test_main_pairing.py ../work/llvqtune/tests/test_main_pairing.py
+--- a/ops/llvqtune/tests/test_main_pairing.py	1970-01-01 01:00:00
++++ b/ops/llvqtune/tests/test_main_pairing.py	2026-09-21 22:16:03
+@@ -0,0 +1,67 @@
++"""`main` checks the pairing before it loads a single weight.
++
++The loaders are replaced: the config loader returns the 8B and 4B configs,
++and the weight loader fails the test if it is ever reached. A `main` that
++loads first and checks later, or never checks, fails here.
++"""
++
++import sys
++
++import pytest
++
++pytest.importorskip("torch")
++pytest.importorskip("transformers")
++
++from llvqtune.__main__ import main  # noqa: E402
++
++from test_pairing import QWEN3_4B, QWEN3_8B  # noqa: E402
++
++
++class _Config:
++    def __init__(self, values):
++        self._values = values
++
++    def to_dict(self):
++        return dict(self._values)
++
++
++def _tf():
++    """The live module. transformers 5.x swaps its `sys.modules` entry the
++    first time a model class is built, so a reference taken at import time
++    can be a stale object that `main` never reads."""
++    return sys.modules["transformers"]
++
++
++def _configs(by_name):
++    class _AutoConfig:
++        @staticmethod
++        def from_pretrained(name, *a, **k):
++            return _Config(by_name[name])
++
++    return _AutoConfig
++
++
++class _NoWeights:
++    @staticmethod
++    def from_pretrained(*a, **k):
++        raise AssertionError("weights were loaded before the pairing was checked")
++
++
++def test_a_mismatched_teacher_is_refused_before_any_weight(monkeypatch, tmp_path, capsys):
++    monkeypatch.setattr(_tf(), "AutoConfig",
++                        _configs({"student": QWEN3_8B, "teacher": QWEN3_4B}))
++    monkeypatch.setattr(_tf(), "AutoModelForCausalLM", _NoWeights)
++    code = main(["--student", "student", "--teacher", "teacher",
++                 "--device", "cpu", "--out", str(tmp_path / "sigma.json")])
++    assert code == 2
++    assert "hidden_size" in capsys.readouterr().err
++
++
++def test_a_matching_teacher_goes_on_to_load_the_student(monkeypatch, tmp_path):
++    """The check does not refuse the twin: the next thing reached is the loader."""
++    monkeypatch.setattr(_tf(), "AutoConfig",
++                        _configs({"student": QWEN3_8B, "teacher": QWEN3_8B}))
++    monkeypatch.setattr(_tf(), "AutoModelForCausalLM", _NoWeights)
++    with pytest.raises(AssertionError, match="weights were loaded"):
++        main(["--student", "student", "--teacher", "teacher",
++              "--device", "cpu", "--out", str(tmp_path / "sigma.json")])
+diff -ruN llvqtune/tests/test_pairing.py ../work/llvqtune/tests/test_pairing.py
+--- a/ops/llvqtune/tests/test_pairing.py	1970-01-01 01:00:00
++++ b/ops/llvqtune/tests/test_pairing.py	2026-09-21 22:11:00
+@@ -0,0 +1,76 @@
++"""The teacher is the student's dense twin, or the run is refused."""
++
++import pytest
++
++from llvqtune.domain.loop import WiringError
++from llvqtune.domain.pairing import ARCH_KEYS, check_pairing
++
++# The two configs as the Hub ships them (Qwen/Qwen3-8B b968826d, Qwen/Qwen3-4B
++# 1cfa9a72). Written out rather than read from a cache, so the test runs
++# anywhere.
++QWEN3_8B = {
++    "model_type": "qwen3",
++    "hidden_size": 4096,
++    "num_hidden_layers": 36,
++    "intermediate_size": 12288,
++    "num_attention_heads": 32,
++    "num_key_value_heads": 8,
++    "vocab_size": 151936,
++    "tie_word_embeddings": False,
++    "torch_dtype": "bfloat16",
++}
++QWEN3_4B = {
++    "model_type": "qwen3",
++    "hidden_size": 2560,
++    "num_hidden_layers": 36,
++    "intermediate_size": 9728,
++    "num_attention_heads": 32,
++    "num_key_value_heads": 8,
++    "vocab_size": 151936,
++    "tie_word_embeddings": True,
++    "torch_dtype": "bfloat16",
++}
++
++
++def test_the_4b_teacher_is_refused_for_the_8b_student():
++    """The default train.sh carried until 2026-09-21."""
++    with pytest.raises(WiringError, match="hidden_size: student 4096, teacher 2560"):
++        check_pairing(QWEN3_8B, QWEN3_4B)
++
++
++def test_the_4b_and_the_8b_share_depth_and_vocabulary():
++    """Why depth alone is not a guard: it would have let the pair through."""
++    assert QWEN3_8B["num_hidden_layers"] == QWEN3_4B["num_hidden_layers"]
++    assert QWEN3_8B["vocab_size"] == QWEN3_4B["vocab_size"]
++
++
++def test_the_twin_is_accepted_whatever_its_storage_dtype():
++    """The export says float16 where the Hub says bfloat16: not architecture."""
++    export = dict(QWEN3_8B, torch_dtype="float16")
++    check_pairing(export, QWEN3_8B)
++
++
++@pytest.mark.parametrize("key", ARCH_KEYS)
++def test_each_architecture_key_is_checked(key):
++    """One case per key, so deleting any key from ARCH_KEYS fails one case."""
++    teacher = dict(QWEN3_8B)
++    teacher[key] = "changed"
++    with pytest.raises(WiringError, match=key):
++        check_pairing(QWEN3_8B, teacher)
++
++
++def test_the_two_keys_the_task_names_are_in_the_list():
++    assert "hidden_size" in ARCH_KEYS
++    assert "num_hidden_layers" in ARCH_KEYS
++
++
++def test_a_key_present_on_one_side_only_is_a_difference():
++    teacher = dict(QWEN3_8B)
++    del teacher["intermediate_size"]
++    with pytest.raises(WiringError, match="intermediate_size: student 12288, teacher absent"):
++        check_pairing(QWEN3_8B, teacher)
++
++
++def test_a_key_absent_on_both_sides_is_skipped():
++    student = {k: v for k, v in QWEN3_8B.items() if k != "num_key_value_heads"}
++    check_pairing(student, dict(student))
+diff -ruN llvqtune/tests/test_train_sh.py ../work/llvqtune/tests/test_train_sh.py
+--- a/ops/llvqtune/tests/test_train_sh.py	1970-01-01 01:00:00
++++ b/ops/llvqtune/tests/test_train_sh.py	2026-09-21 22:12:55
+@@ -0,0 +1,212 @@
++"""train.sh, run for real, with `python -m llvqtune` replaced by a stand-in.
++
++The stand-in records every llvqtune call and writes the probe's `closed`
++record with a rate, a first loss and a gauge chosen by the test. Every other
++`python` call (the parsers, the arithmetic) goes to the real interpreter, so
++the script's own logic is what is under test.
++"""
++
++from __future__ import annotations
++
++import os
++import stat
++import subprocess
++import sys
++from pathlib import Path
++
++import pytest
++
++TRAIN_SH = Path(__file__).resolve().parent.parent / "train.sh"
++
++SHIM = r"""#!/usr/bin/env bash
++if [ "${1:-}" = "-m" ] && [ "${2:-}" = "llvqtune" ]; then
++  printf '%s\n' "$*" >> "$SHIM_LOG"
++  journal=""; prev=""
++  for a in "$@"; do
++    if [ "$prev" = "--journal" ]; then journal="$a"; fi
++    prev="$a"
++  done
++  gauge='{"max_memory_allocated": 74000000000}'
++  if [ -n "${SHIM_NOGAUGE:-}" ]; then gauge=null; fi
++  if [ -n "${SHIM_RATE:-}" ]; then
++    printf '{"event": "closed", "seconds_per_step": %s, "first_loss": %s, "gauge": %s}\n' \
++      "$SHIM_RATE" "${SHIM_KL:-0.3}" "$gauge" >> "$journal"
++  fi
++  exit "${SHIM_EXIT:-0}"
++fi
++exec "$REAL_PYTHON" "$@"
++"""
++
++TRUNCATING_CP = r"""#!/usr/bin/env bash
++# A `cp` that loses the second half of every file, as a bucket read might.
++for last; do :; done
++for src in "$@"; do
++  [ "$src" = "$last" ] && break
++  [ "$src" = "-v" ] && continue
++  n=$(wc -c < "$src")
++  head -c $(( n / 2 )) "$src" > "$last/$(basename "$src")"
++done
++"""
++
++
++def _tool(bin_dir: Path, name: str, body: str) -> None:
++    path = bin_dir / name
++    path.write_text(body)
++    path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
++
++
++def train(tmp_path: Path, extra_tools: dict[str, str] | None = None, **env):
++    bin_dir = tmp_path / "bin"
++    bin_dir.mkdir(parents=True, exist_ok=True)
++    _tool(bin_dir, "python", SHIM)
++    for name, body in (extra_tools or {}).items():
++        _tool(bin_dir, name, body)
++    export = tmp_path / "export"
++    export.mkdir(exist_ok=True)
++    (export / "model.safetensors").write_bytes(b"\x00" * 4096)
++    (export / "config.json").write_text("{}")
++    log = tmp_path / "calls.log"
++    full = {
++        "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
++        "REAL_PYTHON": sys.executable,
++        "SHIM_LOG": str(log),
++        "EXPORT": str(export),
++        "OUT": str(tmp_path / "out"),
++        "TEACHER": "Qwen/Qwen3-8B",
++        "SHIM_RATE": "0.5",
++    }
++    for k, v in env.items():
++        if v is None:
++            full.pop(k, None)
++        else:
++            full[k] = v
++    done = subprocess.run(
++        ["bash", str(TRAIN_SH)], env=full, cwd=tmp_path,
++        capture_output=True, text=True, timeout=60,
++    )
++    calls = log.read_text().splitlines() if log.exists() else []
++    return done, calls
++
++
++def steps_of(call: str) -> int:
++    words = call.split()
++    return int(words[words.index("--steps") + 1])
++
++
++def student_of(call: str) -> str:
++    words = call.split()
++    return words[words.index("--student") + 1]
++
++
++def test_without_steps_the_budget_decides(tmp_path):
++    done, calls = train(tmp_path, BUDGET="100")
++    assert done.returncode == 0, done.stdout + done.stderr
++    assert len(calls) == 2
++    assert steps_of(calls[0]) == 6          # the probe
++    assert steps_of(calls[1]) == 200        # 100 s / 0.5 s
++
++
++def test_steps_bypasses_the_budget(tmp_path):
++    """The 8B must read the 4B's 9,507 steps, whatever its card's rate."""
++    done, calls = train(tmp_path, BUDGET="100", STEPS="9507")
++    assert done.returncode == 0, done.stdout + done.stderr
++    assert steps_of(calls[1]) == 9507
++    assert "BUDGET is not read" in done.stdout
++
++
++def test_a_malformed_steps_is_refused_before_the_probe(tmp_path):
++    for bad in ("abc", "0", "-5", "9507.0"):
++        done, calls = train(tmp_path / bad.replace(".", "_"), STEPS=bad)
++        assert done.returncode == 2, (bad, done.stdout + done.stderr)
++        assert calls == [], bad
++
++
++def test_the_probe_must_close_even_when_steps_is_given(tmp_path):
++    """A probe that died (an OOM, say) left no rate: no training, STEPS or not."""
++    done, calls = train(tmp_path, STEPS="9507", SHIM_RATE="", SHIM_EXIT="1")
++    assert done.returncode == 2
++    assert len(calls) == 1
++    assert "wrote no rate" in done.stdout
++
++
++def test_a_refused_probe_stops_the_run(tmp_path):
++    """Exit 2 is a refused wiring, the teacher pairing among them."""
++    done, calls = train(tmp_path, STEPS="9507", SHIM_EXIT="2")
++    assert done.returncode == 2
++    assert len(calls) == 1
++    assert "refused its wiring" in done.stdout
++
++
++def test_there_is_no_default_teacher(tmp_path):
++    done, calls = train(tmp_path, TEACHER=None)
++    assert done.returncode != 0
++    assert calls == []
++    assert "Qwen/Qwen3-8B" in done.stderr   # the message names an example
++
++
++def test_the_teacher_given_is_the_teacher_passed(tmp_path):
++    done, calls = train(tmp_path, TEACHER="Qwen/Qwen3-8B")
++    assert done.returncode == 0, done.stdout + done.stderr
++    assert all("--teacher Qwen/Qwen3-8B" in c for c in calls)
++
++
++def test_the_projection_over_the_ceiling_is_refused(tmp_path):
++    done, calls = train(tmp_path, STEPS="9507", MAX_TRAIN_SECONDS="1000")
++    assert done.returncode == 3
++    assert len(calls) == 1                  # the probe only
++
++
++def test_the_projection_under_the_ceiling_runs(tmp_path):
++    done, calls = train(tmp_path, STEPS="9507", MAX_TRAIN_SECONDS="8400")
++    assert done.returncode == 0, done.stdout + done.stderr   # 4,753 s projected
++    assert len(calls) == 2
++
++
++def test_a_first_loss_over_the_ceiling_is_refused(tmp_path):
++    done, calls = train(tmp_path, STEPS="9507", SHIM_KL="0.9", MAX_FIRST_KL="0.5")
++    assert done.returncode == 4
++    assert len(calls) == 1
++
++
++def test_a_first_loss_under_the_ceiling_runs(tmp_path):
++    done, calls = train(tmp_path, STEPS="9507", SHIM_KL="0.3", MAX_FIRST_KL="0.5")
++    assert done.returncode == 0, done.stdout + done.stderr
++    assert len(calls) == 2
++
++
++def test_the_probe_gauge_is_printed(tmp_path):
++    done, _ = train(tmp_path)
++    assert '"max_memory_allocated":74000000000' in done.stdout
++
++
++def test_a_probe_without_a_gauge_stops_the_run(tmp_path):
++    """On cuda the gauge is always bound; its absence is a wiring fault."""
++    done, calls = train(tmp_path, STEPS="9507", SHIM_NOGAUGE="1")
++    assert done.returncode == 5
++    assert len(calls) == 1
++
++
++def test_staging_copies_and_trains_from_the_copy(tmp_path):
++    stage = tmp_path / "stage"
++    done, calls = train(tmp_path, STAGE=str(stage))
++    assert done.returncode == 0, done.stdout + done.stderr
++    assert (stage / "model.safetensors").stat().st_size == 4096
++    assert [student_of(c) for c in calls] == [str(stage), str(stage)]
++
++
++def test_without_stage_the_export_is_read_where_it_is(tmp_path):
++    done, calls = train(tmp_path)
++    assert [student_of(c) for c in calls] == [str(tmp_path / "export")] * 2
++
++
++def test_a_truncated_copy_is_refused(tmp_path):
++    done, calls = train(tmp_path, STAGE=str(tmp_path / "stage"),
++                        extra_tools={"cp": TRUNCATING_CP})
++    assert done.returncode != 0
++    assert calls == []
++    assert "staged; refusing" in done.stdout + done.stderr
++
++
++@pytest.mark.skipif(not TRAIN_SH.exists(), reason="train.sh sits beside tests/")
++def test_the_script_parses():
++    assert subprocess.run(["bash", "-n", str(TRAIN_SH)]).returncode == 0
+diff -ruN llvqtune/train.sh ../work/llvqtune/train.sh
+--- a/ops/llvqtune/train.sh	2026-09-19 18:40:26
++++ b/ops/llvqtune/train.sh	2026-09-21 22:12:55
+@@ -4,50 +4,142 @@
+ # Preregistered: proofs/preregistration-tetranu-rowscales-2026-09-19.md
+ # Deviations:    same name, -ECARTS.md
+ #
+-# The step count is NOT passed in. On 2026-09-19 a run was priced from a
+-# cross-entropy measurement and came out three times slower than planned, so
+-# this script measures six steps on the card it actually got and derives the
+-# count from that. The wall budget is the input; the token count is the output.
++# By default the step count is NOT passed in. On 2026-09-19 a run was priced
++# from a cross-entropy measurement and came out three times slower than
++# planned, so this script measures six steps on the card it actually got and
++# derives the count from that. The wall budget is the input; the token count
++# is the output.
++#
++# STEPS overrides that, for a run that must match another run's token count
++# (the 8B against the 4B's 9,507 steps). The probe still runs: it is what
++# reads the rate, the first KL and the peak memory, and a probe that did not
++# close refuses the run whatever STEPS says.
++#
++# Optional guards, all off when unset:
++#   STAGE              copy EXPORT there first and train from the copy. A
++#                      bucket mount is not mmapped: SIGBUS at 14B,
++#                      docs/mesures/campagne-14b-qualite-2026-08-10.txt:5
++#   MAX_TRAIN_SECONDS  refuse when STEPS x the probe's rate exceeds it, rather
++#                      than be killed by the job timeout at step 9,000
++#   MAX_FIRST_KL       refuse when the probe's first loss exceeds it; the
++#                      manual control of the 4B prereg (section 5), automated
+ set -euo pipefail
+ 
+ EXPORT=${EXPORT:?the exported f16 checkpoint}
+ OUT=${OUT:?where sigma and the journal go}
+-TEACHER=${TEACHER:-Qwen/Qwen3-4B}
++# No default. It was Qwen/Qwen3-4B, and an 8B student under a 4B teacher
++# yields logits of the same shape: the run would have gone to the end.
++TEACHER=${TEACHER:?the dense twin of the student, e.g. Qwen/Qwen3-8B}
+ BUDGET=${BUDGET:-7200}          # seconds of training, loading excluded
+ SEQ=${SEQ:-1024}
+ BATCH=${BATCH:-2}
+ LR=${LR:-3e-4}
+ PROBE=${PROBE:-6}
++STEPS_SET=${STEPS:-}
+ 
++# Checked before anything is loaded: a typo must not cost a probe.
++positive_int() {
++  case "$2" in
++    ''|*[!0-9]*) echo "$1=$2 is not a positive integer"; exit 2 ;;
++  esac
++  if [ "$2" -le 0 ]; then echo "$1=$2 is not a positive integer"; exit 2; fi
++}
++[ -z "$STEPS_SET" ] || positive_int STEPS "$STEPS_SET"
++[ -z "${MAX_TRAIN_SECONDS:-}" ] || positive_int MAX_TRAIN_SECONDS "$MAX_TRAIN_SECONDS"
++
+ mkdir -p "$OUT"
++
++if [ -n "${STAGE:-}" ]; then
++  echo "== staging $EXPORT to $STAGE, local disk, before anything mmaps it =="
++  mkdir -p "$STAGE"
++  cp -v "$EXPORT"/* "$STAGE"/
++  python - "$EXPORT" "$STAGE" <<'PY'
++import os, sys
++src, dst = sys.argv[1], sys.argv[2]
++names = sorted(n for n in os.listdir(src) if os.path.isfile(os.path.join(src, n)))
++if not names:
++    sys.exit(f"{src} holds no file")
++for n in names:
++    a = os.path.getsize(os.path.join(src, n))
++    b = os.path.getsize(os.path.join(dst, n))
++    if a != b:
++        sys.exit(f"{n}: {a} bytes on the source, {b} staged; refusing")
++    print(f"  {n}: {b} bytes staged")
++PY
++  EXPORT=$STAGE
++fi
++
+ COMMON=(--student "$EXPORT" --teacher "$TEACHER"
+         --mode row_scales --objective kl
+         --seq-len "$SEQ" --batch-size "$BATCH"
+         --device cuda --dtype bf16 --seed 0)
+ 
+ echo "== probe: $PROBE steps, to read this card's rate =="
++set +e
+ python -m llvqtune "${COMMON[@]}" \
+   --steps "$PROBE" --lr 1e-8 --warmup 1 \
+-  --journal "$OUT/probe.jsonl" --out "$OUT/probe.json" || true
++  --journal "$OUT/probe.jsonl" --out "$OUT/probe.json"
++PROBE_RC=$?
++set -e
++# 1 is the probe's normal exit: six steps at 1e-8 do not improve anything.
++# 2 is a refused wiring, the teacher pairing among them.
++if [ "$PROBE_RC" -eq 2 ]; then
++  echo "the probe refused its wiring (exit 2); nothing is trained"
++  exit 2
++fi
+ 
+-RATE=$(python - "$OUT/probe.jsonl" <<'PY'
++READ=$(python - "$OUT/probe.jsonl" <<'PY'
+ import json, sys
+-rate = None
+-for line in open(sys.argv[1]):
+-    r = json.loads(line)
+-    if r.get("event") == "closed":
+-        rate = r.get("seconds_per_step")
+-print(rate if rate else "")
++closed = None
++try:
++    for line in open(sys.argv[1]):
++        r = json.loads(line)
++        if r.get("event") == "closed":
++            closed = r
++except FileNotFoundError:
++    pass
++if closed and closed.get("seconds_per_step"):
++    print(closed["seconds_per_step"])
++    print(closed.get("first_loss", ""))
++    print(json.dumps(closed.get("gauge"), separators=(",", ":")))
+ PY
+ )
++RATE=$(sed -n 1p <<<"$READ")
++FIRST_KL=$(sed -n 2p <<<"$READ")
++GAUGE=$(sed -n 3p <<<"$READ")
+ if [ -z "$RATE" ]; then
+   echo "the probe wrote no rate; refusing to guess a step count"
+   exit 2
+ fi
++echo "== probe: $RATE s a step, first loss $FIRST_KL, gauge $GAUGE =="
++# The device is cuda, so a probe with no gauge means the wiring dropped it,
++# and the peak memory this run exists to record would be lost for two hours.
++if [ -z "$GAUGE" ] || [ "$GAUGE" = "null" ]; then
++  echo "the probe recorded no device memory; refusing a run that would not either"
++  exit 5
++fi
+ 
+-STEPS=$(python -c "print(max(1, int($BUDGET / $RATE)))")
++if [ -n "${MAX_FIRST_KL:-}" ]; then
++  if python -c "import sys; sys.exit(0 if float('$FIRST_KL') > float('$MAX_FIRST_KL') else 1)"; then
++    echo "first loss $FIRST_KL is above MAX_FIRST_KL=$MAX_FIRST_KL: the export is suspect; nothing is trained"
++    exit 4
++  fi
++fi
++
++if [ -n "$STEPS_SET" ]; then
++  STEPS=$STEPS_SET
++  echo "== STEPS=$STEPS set by the caller; BUDGET is not read =="
++else
++  STEPS=$(python -c "print(max(1, int($BUDGET / $RATE)))")
++fi
+ TOKENS=$(python -c "print($STEPS * $SEQ * $BATCH)")
+-echo "== measured $RATE s a step, so $STEPS steps and $TOKENS tokens in $BUDGET s =="
++PROJECTED=$(python -c "print(int($STEPS * $RATE))")
++echo "== measured $RATE s a step, so $STEPS steps and $TOKENS tokens, ~$PROJECTED s at the probe's rate =="
++
++if [ -n "${MAX_TRAIN_SECONDS:-}" ] && [ "$PROJECTED" -gt "$MAX_TRAIN_SECONDS" ]; then
++  echo "projected $PROJECTED s exceeds MAX_TRAIN_SECONDS=$MAX_TRAIN_SECONDS; refusing rather than dying at the timeout"
++  exit 3
++fi
+ 
+ echo "== training =="
+ date

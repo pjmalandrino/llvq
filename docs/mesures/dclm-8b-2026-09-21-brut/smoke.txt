@@ -1,0 +1,105 @@
+=== configuration ===
+  model        Qwen/Qwen3-8B
+  codebook     tetra1 → Tetra word map, 47 bits of label + 1 gain bit, 3 octads of 8, 2048 rows per class, magnitude on the gain grid, gain selected from source norm, 48 bits/block
+  calibration  dclm-edu, 64 × 2048 = 131072 tokens requested, contiguous prefix from token 0
+  rotation     on (seed 0x110feed)
+  mode         nogs (group scales off, design C off)
+  blocks       999 at most
+  eval         wikitext-2 test, 12 windows × 4096
+  dtype        f32
+  device       Metal(MetalDevice(DeviceId(1))), 12 encoder threads
+  damping      1e-2 (relative to mean(diag H))
+  h_shrink     1 (H as is, published path)
+  gain_scale   1 (centroids as fitted, published path)
+  artifact     /Users/pjmalandrino/q8b-dclm-2026-09-21.llvq
+  resume       (no — start at block 0)
+=====================
+baseline perplexity over 12 windows of 4096…
+  baseline ppl = 8.9893
+tokenizing calibration set (dclm-edu)…
+  bounded read: 825408 chars for 786432 asked, 127 of 776000 rows, 1 of 1 row groups, revision dbad8ad71224482740cd9c9d353591adbf62fe04
+  64 windows of 2048 = 131072 tokens (94 available), contiguous prefix from token 0
+quantizing blocks 0..35 of 36 of Qwen/Qwen3-8B — tetra1 → Tetra word map, 47 bits of label + 1 gain bit, 3 octads of 8, 2048 rows per class, magnitude on the gain grid, gain selected from source norm, 48 bits/block, retract on, group scales off, design C off, input rotation on…
+writing the compressed artifact to /Users/pjmalandrino/q8b-dclm-2026-09-21.llvq
+  run state written to /Users/pjmalandrino/q8b-dclm-2026-09-21.llvq.state
+  block   1/36  6 min elapsed  373 s/block  ~218 min left  (estimated end at +3.7 h)
+  block   2/36  13 min elapsed  376 s/block  ~213 min left  (estimated end at +3.8 h)
+  block   3/36  19 min elapsed  376 s/block  ~207 min left  (estimated end at +3.8 h)
+  block   4/36  25 min elapsed  376 s/block  ~201 min left  (estimated end at +3.8 h)
+  block   5/36  31 min elapsed  376 s/block  ~194 min left  (estimated end at +3.8 h)
+  block   6/36  38 min elapsed  375 s/block  ~188 min left  (estimated end at +3.8 h)
+  block   7/36  44 min elapsed  374 s/block  ~181 min left  (estimated end at +3.7 h)
+  block   8/36  50 min elapsed  374 s/block  ~175 min left  (estimated end at +3.7 h)
+  block   9/36  56 min elapsed  374 s/block  ~168 min left  (estimated end at +3.7 h)
+  block  10/36  62 min elapsed  374 s/block  ~162 min left  (estimated end at +3.7 h)
+  block  11/36  68 min elapsed  374 s/block  ~156 min left  (estimated end at +3.7 h)
+  block  12/36  75 min elapsed  373 s/block  ~149 min left  (estimated end at +3.7 h)
+  block  13/36  81 min elapsed  373 s/block  ~143 min left  (estimated end at +3.7 h)
+  block  14/36  87 min elapsed  373 s/block  ~137 min left  (estimated end at +3.7 h)
+  block  15/36  93 min elapsed  373 s/block  ~131 min left  (estimated end at +3.7 h)
+  block  16/36  100 min elapsed  373 s/block  ~124 min left  (estimated end at +3.7 h)
+  block  17/36  106 min elapsed  373 s/block  ~118 min left  (estimated end at +3.7 h)
+  block  18/36  112 min elapsed  373 s/block  ~112 min left  (estimated end at +3.7 h)
+  block  19/36  118 min elapsed  373 s/block  ~106 min left  (estimated end at +3.7 h)
+  block  20/36  124 min elapsed  373 s/block  ~100 min left  (estimated end at +3.7 h)
+  block  21/36  131 min elapsed  373 s/block  ~93 min left  (estimated end at +3.7 h)
+  block  22/36  137 min elapsed  373 s/block  ~87 min left  (estimated end at +3.7 h)
+  block  23/36  143 min elapsed  373 s/block  ~81 min left  (estimated end at +3.7 h)
+  block  24/36  149 min elapsed  373 s/block  ~75 min left  (estimated end at +3.7 h)
+  block  25/36  156 min elapsed  374 s/block  ~69 min left  (estimated end at +3.7 h)
+  block  26/36  162 min elapsed  374 s/block  ~62 min left  (estimated end at +3.7 h)
+  block  27/36  169 min elapsed  374 s/block  ~56 min left  (estimated end at +3.7 h)
+  block  28/36  175 min elapsed  375 s/block  ~50 min left  (estimated end at +3.8 h)
+  block  29/36  182 min elapsed  376 s/block  ~44 min left  (estimated end at +3.8 h)
+  block  30/36  188 min elapsed  375 s/block  ~38 min left  (estimated end at +3.8 h)
+  block  31/36  194 min elapsed  375 s/block  ~31 min left  (estimated end at +3.8 h)
+  block  32/36  201 min elapsed  376 s/block  ~25 min left  (estimated end at +3.8 h)
+  block  33/36  207 min elapsed  377 s/block  ~19 min left  (estimated end at +3.8 h)
+  block  34/36  214 min elapsed  378 s/block  ~13 min left  (estimated end at +3.8 h)
+  block  35/36  221 min elapsed  378 s/block  ~6 min left  (estimated end at +3.8 h)
+  block  36/36  227 min elapsed  379 s/block  ~0 min left  (estimated end at +3.8 h)
+artifact: 1.863 GB on disk, payload 2.1516 bits/weight over 6926303232 quantized weights
+  a blend: 150994944 of those weights are int4 g128 at a flat 4.2500 b/weight
+verifying 252 matrices against the evaluated model (v5, kinds Tetra+Int4G128)…
+  ✓ 6945767424 weights identical, bit for bit (at f32)
+quantized 216 matrices, 6794772480 weights on the lattice (2.0433 bits/weight)
+and 36 matrices, 150994944 weights in int4 g128 (4.2500 bits/weight)
+252 matrices in the file; this segment ran 13629s
+phases:
+  quantization            11541.0s   84.7 %
+  factorization            1391.8s   10.2 %
+  capture (pass 1)          606.3s    4.4 %
+  artifact write             54.7s    0.4 %
+  f64 transfer               33.7s    0.2 %
+  advance (pass 2)            1.5s    0.0 %
+
+=== Qwen/Qwen3-8B [tetra1, 36 blocks, rot on, mode nogs, calib dclm-edu/prefix], wikitext-2, ctx 4096, 12 windows ===
+codebook                 = tetra1 → Tetra word map, 47 bits of label + 1 gain bit, 3 octads of 8, 2048 rows per class, magnitude on the gain grid, gain selected from source norm, 48 bits/block
+calibration              = 64 × 2048 = 131072 tokens
+baseline (f32)       ppl = 8.9893
+LLVQ 2-bit           ppl = 10.7715
+degradation          ×1.198
+exact-ppl  baseline 8.989291819941e0  quantized 1.077154070502e1
+effective rate           = 2.0433 bits/weight
+hessian damping          = 1e-2
+hessian shrink ρ         = 1
+gain centroid scale      = 1
+dtype / device           = f32 / Metal(MetalDevice(DeviceId(1)))
+    14893.19 real    139921.43 user      1211.05 sys
+         23246684160  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+            33570410  page reclaims
+              821147  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                  15  messages sent
+                  22  messages received
+                   0  signals received
+            13027364  voluntary context switches
+            61185804  involuntary context switches
+    1151818031705956  instructions retired
+     367442815684943  cycles elapsed
+        114525891000  peak memory footprint

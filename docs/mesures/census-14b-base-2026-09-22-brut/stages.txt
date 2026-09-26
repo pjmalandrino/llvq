@@ -1,0 +1,4 @@
+A ok
+smoke ok
+bench FAILED rc=101
+harness ok

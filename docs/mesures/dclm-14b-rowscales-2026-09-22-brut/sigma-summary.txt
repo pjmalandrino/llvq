@@ -1,0 +1,8 @@
+240 matrices (want 240), 2048000 rows (want 2048000)
+sigma mean 0.99921 sd 0.02474 p1 0.9375 p99 1.0583 min 0.5115 max 1.4580 4.4 % beyond 5 %
+  down_proj  sd 0.0229  rows 204800
+  gate_proj  sd 0.0240  rows 696320
+  k_proj     sd 0.0262  rows 40960
+  o_proj     sd 0.0300  rows 204800
+  q_proj     sd 0.0254  rows 204800
+  up_proj    sd 0.0239  rows 696320

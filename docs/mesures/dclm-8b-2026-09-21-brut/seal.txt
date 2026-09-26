@@ -1,0 +1,29 @@
+/Users/pjmalandrino/q8b-dclm-2026-09-21.llvq: format v5, 252 quantized matrices, kinds Tetra+Int4G128
+reading Qwen/Qwen3-8B for the tensors the artifact is missing…
+  carrying 147 tensors, 1244967936 weights (2.490 GB at f16)
+
+── /Users/pjmalandrino/qwen3-8b-dclm.bin
+   quantized    6945767424 weights → 1.863 GB (2.1456 bits/weight)
+   carried      1244967936 weights → 2.501 GB at f16
+   total          4.364 GB on disk
+   against        16.381 GB in FP16  →  ×3.75
+
+   this file needs no checkpoint, no cache and no network.
+       72.19 real        64.58 user         5.30 sys
+         40272347136  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+             3437643  page reclaims
+                   1  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                  15  messages sent
+                  23  messages received
+                   0  signals received
+                1524  voluntary context switches
+                8801  involuntary context switches
+        737140038378  instructions retired
+        252295623448  cycles elapsed
+         40285467496  peak memory footprint
