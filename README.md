@@ -114,8 +114,8 @@ stamped with OpenTimestamps before the first measurement. A stamped file is neve
 *computed* or *estimated*, and a link to its journal. Raw outputs are committed. Speed is published as a median with
 its range, and speeds from two engines are never divided.
 
-As of 2026-09-26: 187 measurement journals and 61 raw-output directories in [`docs/mesures/`](docs/mesures/), 96
-preregistrations with 95 stamps and 51 deviation files in [`proofs/`](proofs/), 57 per-question MMLU dumps, and 209 GPU
+As of 2026-09-26: 187 measurement journals and 61 raw-output directories in [`docs/mesures/`](docs/mesures/), 97
+preregistrations with 96 stamps and 52 deviation files in [`proofs/`](proofs/), 57 per-question MMLU dumps, and 209 GPU
 jobs for $227.62 in [`docs/data/jobs.csv`](docs/data/jobs.csv).
 
 ## Licence
