@@ -134,7 +134,9 @@ Qwen3-4B, 8B and 14B files hold 2.73, 2.70 and 2.73 bits per parameter over
 the whole model. They score 63.37, 69.58 and 75.66 on the full MMLU test set
 and generate 113.8, 95.0 and 57.2 tokens per second with 1.38, 2.76 and
 5.04~GB of weights. That is 4.76, 4.21 and 2.46 MMLU points below 4-bit AWQ,
-which needs 5.3 to 6.0 bits per parameter. At 4B our file scores 23.6 points
+which needs 5.3 to 6.0 bits per parameter. On GSM8K, generated through the
+served kernel, they score 82.49, 88.63 and 92.04, which is 9.63, 4.62 and 3.26
+points below FP16. At 4B our file scores 23.6 points
 above llama.cpp's IQ2\_XXS (2.48 bits per parameter). All measurements use one
 NVIDIA L40S GPU. Code, measurement logs and preregistered predictions are
 public.

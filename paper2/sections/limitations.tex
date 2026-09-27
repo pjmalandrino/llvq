@@ -10,10 +10,15 @@
   gains in Table~\ref{tab:chain} compare fixed files on the same questions, so
   this spread does not affect them. A different draw would start from a
   different file.
-\item \textbf{Quality is scored on the dense reconstruction}, not through the
+\item \textbf{MMLU is scored on the dense reconstruction}, not through the
   kernel. Per-row checks against f64 and the 256-token comparison tie the two
   together. The tokens are identical at 4B and 8B, and first differ at token 78
-  at 14B. We did not also score MMLU through the kernel.
+  at 14B. We did not also score MMLU through the kernel. GSM8K is scored
+  through it.
+\item \textbf{GSM8K is an easy test for these models.} FP16 scores 92 to 95,
+  and the problems have been public since 2021. We did not test Qwen3's
+  reasoning mode, which writes much longer chains, nor a harder math
+  benchmark.
 \item \textbf{No perplexity} is reported for the sealed files.
 \item \textbf{Batch 1 and short context only.} Nothing here measures several
   requests served together, or long prompts.

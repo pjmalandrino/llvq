@@ -35,7 +35,8 @@ with that caveat. Data: echelle-formats.csv.}
 
 \paragraph{Predictions and how they scored.} Before each campaign ran, we
 preregistered a prediction and an interval. A signed value with no unit is in
-MMLU points.
+MMLU points, except in the GSM8K rows. The GSM8K predictions for FP16 and AWQ
+each came with an interval, and every measurement fell inside it.
 
 \begin{table}[H]
 \centering\small\setlength{\tabcolsep}{5pt}
@@ -60,6 +61,14 @@ sealed 4B tok/s, GB & 110 $[95, 125]$, 1.38 & 113.8, 1.38 & yes\\
 sealed 8B tok/s, GB & 100 $[88, 112]$, 2.77 & 95.0, 2.76 & yes\\
 sealed 14B tok/s, GB & 58 $[50, 66]$, 5.04 & 57.2, 5.04 & yes\\
 256 identical tokens & at each size & 4B, 8B; 14B to 78 & no at 14B\\
+GSM8K, FP16 at 4B, 8B, 14B & 90, 92, 94 & 92.12, 93.25, 95.30 & yes, all three\\
+GSM8K, AWQ at 4B, 8B, 14B & 88, 91, 93 & 89.01, 92.95, 95.38 & yes, all three\\
+GSM8K, \Tetra{} 4B & 75 $[67, 83]$ & 82.49 & yes\\
+GSM8K, \Tetra{} 8B & 82 $[75, 88]$ & 88.63 & no, 0.63 over\\
+GSM8K, \Tetra{} 14B & 88 $[83, 92]$ & 92.04 & no, 0.04 over\\
+GSM8K, \Tetra{} minus FP16, 4B & $-15$ $[-23, -8]$ & $-9.63$ & yes\\
+GSM8K, \Tetra{} minus FP16, 8B & $-10$ $[-17, -5]$ & $-4.62$ & no, smaller\\
+GSM8K, \Tetra{} minus FP16, 14B & $-6$ $[-11, -2]$ & $-3.26$ & yes\\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -101,6 +110,10 @@ LLVQ_CONFIG=configs/qwen3-4b-tetra-e4.json cargo run --release \
 LLVQ_MMLU_ALLOC=flat cargo run --release -p llvq-llm \
   --features cuda --bin mmlu -- <file> cuda
 cargo run --release -p llvq-llm --bin mmlupair -- <A> <B> --no-fpc
+# GSM8K through the served kernel, then a paired comparison
+LLVQ_CONFIG=configs/qwen3-4b-tetra-e4.json LLVQ_GSM8K_DUMP=<dump> \
+  cargo run --release -p llvq-llm --features cuda --bin gsm8k -- <file> cuda
+cargo run --release -p llvq-llm --bin gsm8kpair -- <A> <B>
 # bits per parameter over the whole model
 cargo run --release -p llvq-bench --bin rtbits -- <file>
 \end{verbatim}}
@@ -147,6 +160,9 @@ served tok/s and GB of the sealed files & measured & paper-table-09-25\\
 8B choice, $o$ against down & measured & sealed-8b-27-09-24\\
 second training, 4B & measured & sealed-rownorms-09-23\\
 calibration draw moves MMLU by 2.92 & measured, 3 draws & bruit-mmlu-graines-4b-08-25\\
+GSM8K of the sealed files, prompt fingerprint \texttt{bfa9135c} & measured & gsm8k-wave1-09-26, gsm8k-wave2-09-26\\
+GSM8K of FP16 and AWQ, the engine check & measured & paper2-gsm8k.csv; the same logs\\
+GSM8K paired gaps, Table~\ref{tab:gsm8k} & measured & paper2-gsm8k-gaps.csv; the same logs\\
 bare \Tetra{} against \Planes{} & measured & tetra-4b-09-06\\
 \bottomrule
 \end{tabular}}
