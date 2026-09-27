@@ -74,6 +74,7 @@ LLVQ_MODEL=Qwen/Qwen3-4B LLVQ_CALIB=dclm-edu LLVQ_ARTIFACT=q4b.llvq cargo run --
 LLVQ_MODEL=Qwen/Qwen3-4B cargo run --release -p llvq-llm --bin seal -- q4b.llvq qwen3-4b-llvq.bin   # also: export, rowscale, embedq, int4swap
 cargo run --release -p llvq-llm --features metal --bin mmlu -- <checkpoint|sealed> metal 40         # the dense reconstruction
 LLVQ_CONFIG=configs/qwen3-4b-tetra-e4.json cargo run --release -p llvq-llm --features cuda --bin mmlu -- <sealed> cuda 40   # THROUGH the served kernel
+LLVQ_CONFIG=configs/qwen3-4b-tetra-e4.json cargo run --release -p llvq-llm --features cuda --bin gsm8k -- <sealed> cuda   # GSM8K through the kernel; gsm8kpair <a> <b> pairs two dumps
 cargo run --release -p llvq-llm --features cuda --bin fusedrun                                      # the kernel in the model
 LLVQ_DTYPE=f16 cargo run --release -p llvq-llm --features metal --bin ppl -- 4096 12 metal <sealed>
 cargo run --release -p llvq-llm --features metal --bin oracle                                       # forward pass vs candle, on every backend
@@ -109,6 +110,7 @@ be in `UPLOAD_ALLOW` of `ops/run.py`, or the Space dies after 12 minutes. `rankb
 | `LLVQ_RESTORE_F16` / `LLVQ_RESTORE_Q4` | projection types, or `all` | `mmlu`, `ppl`: those types taken from the checkpoint in f16 or int4 g128, the rest as served; setting both refused |
 | `LLVQ_MODEL` | HF repo or local directory | checkpoint; required by `RESTORE_*`, never a default in `mmlu` |
 | `LLVQ_MMLU_ALLOC` | `flat` (default), `proportional`, `proportional=<total>` | `mmlu`: how the budget spreads over the 57 subjects. `mmlupair` refuses two dumps of different plans, so re-barring a published arm costs a full run |
+| `LLVQ_GSM8K_DUMP`, `LLVQ_GSM8K_MAX_NEW`, `LLVQ_GSM8K_THINK` | path; count, default 1024; `0`, `1` | `gsm8k`: one JSON line per problem with the raw completion; the cap on generated tokens; Qwen3's reasoning block, off by default. `gsm8kpair` re-grades every row before pairing, vLLM dumps included |
 | `LLVQ_CALIB_SEED`, `LLVQ_DAMPING`, `LLVQ_H_SHRINK`, `LLVQ_GAIN_SCALE`, `LLVQ_SEQ_BLOCK`, `LLVQ_THREADS` | see `docs/METHODE.md` | `smoke` knobs. Their default is the published path and is bit-identical; any other value of `LLVQ_SEQ_BLOCK` is refused by name. `LLVQ_THREADS` ≈ ncpu−4 on a shared machine |
 | `LLVQ_SEALED_ARTIFACT` | path | `llvq-artifact` archive tests: moves the search for the sealed file |
 | `LLVQ_QTIP_DIR` | directory | upstream QTIP kernel, GPL v3, not redistributed (`docs/qtip-provenance.md`) |

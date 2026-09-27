@@ -1,6 +1,6 @@
 # Roadmap
 
-What comes next, with its gate and its cost. State as of 2026-09-26. Where things stand is in
+What comes next, with its gate and its cost. State as of 2026-09-27. Where things stand is in
 [`ETAT.md`](ETAT.md), the past in [`HISTORIQUE.md`](HISTORIQUE.md), the rules in [`METHODE.md`](METHODE.md). The
 quality axis has its own document, [`ROADMAP-QUALITY.md`](ROADMAP-QUALITY.md), sanctioned 2026-09-06 and ordered by
 feasibility.
@@ -114,6 +114,8 @@ already depends on the card (64 on sm_89, 32 on sm_120). **Cost** about $2 for a
 | `ots upgrade` after each new stamp | stamps sit un-upgraded |
 | the 32B budget, once a gate exists | not launched |
 | document-extraction domain benchmark ([arXiv:2607.08734](https://arxiv.org/abs/2607.08734)) | not done |
+| a harder reasoning test than GSM8K: Qwen3's reasoning mode or GSM-Symbolic, about 3 to 5 $ at 4B | not done |
+| GSM8K in paper 2 and on the model card ([gsm8k-wave2](mesures/gsm8k-wave2-2026-09-26.txt)) | neither carries it |
 
 Rule 1 applies to every row: no run starts or stops, and no structural decision is taken, without an explicit go, with
 the cost announced before and the running total after.
