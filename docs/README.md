@@ -22,7 +22,7 @@ Reference documents, up to date and long:
 | [`inference-cost-reduction-2026.md`](inference-cost-reduction-2026.md) | survey of the field, and candidates to implement |
 | [`llvq-paper-notes.md`](llvq-paper-notes.md) | the source paper, transcribed. Never reopen the PDF |
 | [`qtip-provenance.md`](qtip-provenance.md) | where the bench's QTIP kernel comes from, and why it is not redistributed |
-| [`hf-model-card.md`](hf-model-card.md) | the model card on Hugging Face. It describes the published `Planes14` file |
+| [`hf-model-card.md`](hf-model-card.md) | the model card of the sealed 4B file, MMLU and GSM8K included. Not published: the Hub still holds the `Planes14` file and its August card |
 
 Teaching material, HTML, self-contained: [`cours-comprendre-llvq.html`](cours-comprendre-llvq.html),
 [`cours-tetra.html`](cours-tetra.html), [`cours-layouts-runtime.html`](cours-layouts-runtime.html),

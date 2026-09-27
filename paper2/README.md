@@ -23,7 +23,8 @@ provenance table).
 | bibliography | ACM-Reference-Format | `plainnat`, numeric |
 
 Data in `docs/data/`: `paper2-results.csv` (main table), `paper2-gaps.csv`
-(paired MMLU gaps), `paper2-chain.csv` (the steps and the sealed files),
+(paired MMLU gaps), `paper2-gsm8k.csv` and `paper2-gsm8k-gaps.csv` (GSM8K
+scores and paired gaps, Table 4), `paper2-chain.csv` (the steps and the sealed files),
 `tuile-l40s.csv` (tile sweep), and paper 1's `echelle-formats.csv` and
 `echelle-4b-8b.csv`.
 
@@ -36,10 +37,11 @@ make clean
 
 `\pdfoutput=1` must stay inside the first five lines of `main.tex`.
 
-## State (2026-09-26)
+## State (2026-09-27)
 
 Complete: 16 pages, no error, no overfull box, no undefined reference, and
 `RELEASE=1 make check` passes (no pending cell). The served speeds of the three
-sealed files come from paper-table-2026-09-25.
+sealed files come from paper-table-2026-09-25. GSM8K, scored through the served
+kernel, comes from gsm8k-wave1-2026-09-26 and gsm8k-wave2-2026-09-26 (§6.3).
 
 Writing rule for every revision: short factual sentences, no em dash.

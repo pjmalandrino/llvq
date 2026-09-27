@@ -84,6 +84,17 @@ def check_gaps() -> None:
     need("experiments.tex", body, "paired gap in the main results")
 
 
+def check_gsm8k() -> None:
+    """tab:gsm8k and the GSM8K prose against paper2-gsm8k*.csv."""
+    body = [r["gsm8k"] for r in read_csv("paper2-gsm8k.csv")]
+    for r in read_csv("paper2-gsm8k-gaps.csv"):
+        body.append(r["delta_pp"])
+        if r["pair"] in ("f16_minus_tetra", "awq4_minus_tetra",
+                         "f16dense_minus_f16vllm"):
+            body.append(f"[{r['ci_lo_pp']}, {r['ci_hi_pp']}]")
+    need("experiments.tex", body, "cell or gap of tab:gsm8k")
+
+
 def check_bench() -> None:
     """tab:bench and the appendix table against echelle-formats.csv."""
     rows = {r["layout"]: r for r in read_csv("echelle-formats.csv")}
@@ -111,7 +122,7 @@ def check_shape() -> None:
     throws the rest of the row into the None key, and nothing fails on its
     own. Paper 1 enforces the same rule."""
     for name in ("tuile-l40s.csv", "paper2-results.csv", "paper2-gaps.csv",
-                 "paper2-chain.csv"):
+                 "paper2-chain.csv", "paper2-gsm8k.csv", "paper2-gsm8k-gaps.csv"):
         with open(DATA / name, newline="") as f:
             reader = csv.DictReader(f)
             width = len(reader.fieldnames or [])
@@ -140,6 +151,7 @@ def main() -> None:
     check_main()
     check_chain()
     check_gaps()
+    check_gsm8k()
     check_bench()
     check_tile()
     check_pending()

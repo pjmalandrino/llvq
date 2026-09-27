@@ -12,8 +12,12 @@ files of Qwen3-4B, 8B and 14B at about 2.7 bits per parameter. They score
 63.37, 69.58 and 75.66 on MMLU. That is 4.76, 4.21 and 2.46 points below 4-bit
 AWQ, and the gap shrinks as the model grows. Our files use about half as much
 memory as AWQ. In our engine, on one L40S, they generate 113.8, 95.0 and 57.2
-tokens per second, with 1.38, 2.76 and 5.04~GB of weights.
+tokens per second, with 1.38, 2.76 and 5.04~GB of weights. On GSM8K,
+generated through the served kernel, they score 82.49, 88.63 and 92.04. They
+lose more there than on MMLU at 4B only.
 
 Next, in this order, we would test \texttt{down\_proj} instead of
 \texttt{o\_proj} in int4 at 4B and 14B, as at 8B. Then we would add a second
 calibration draw per size, a model larger than 14B, and a second kind of GPU.
+A harder reasoning test, such as Qwen3's reasoning mode, would show whether
+long chains of generation amplify the loss.

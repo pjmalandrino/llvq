@@ -1,0 +1,11 @@
+model,arm,engine,gsm8k,right,source
+Qwen3-4B,fp16,vLLM 0.26.0,92.12,1215,gsm8k-wave1-2026-09-26 run 5
+Qwen3-4B,fp16,ours dense (FP16 checkpoint),91.51,1207,gsm8k-wave1-2026-09-26 run 4 (engine check)
+Qwen3-4B,awq,vLLM 0.26.0,89.01,1174,gsm8k-wave1-2026-09-26 run 5
+Qwen3-4B,tetra,ours served kernel,82.49,1088,gsm8k-wave1-2026-09-26 run 1
+Qwen3-8B,fp16,vLLM 0.26.0,93.25,1230,gsm8k-wave2-2026-09-26 run 6
+Qwen3-8B,awq,vLLM 0.26.0,92.95,1226,gsm8k-wave2-2026-09-26 run 6
+Qwen3-8B,tetra,ours served kernel,88.63,1169,gsm8k-wave2-2026-09-26 run 2
+Qwen3-14B,fp16,vLLM 0.26.0,95.30,1257,gsm8k-wave2-2026-09-26 run 7
+Qwen3-14B,awq,vLLM 0.26.0,95.38,1258,gsm8k-wave2-2026-09-26 run 7
+Qwen3-14B,tetra,ours served kernel,92.04,1214,gsm8k-wave2-2026-09-26 run 3

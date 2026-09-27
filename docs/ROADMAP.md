@@ -79,8 +79,9 @@ already depends on the card (64 on sm_89, 32 on sm_120). **Cost** about $2 for a
 - Two timestamps no longer attest their file, 2026-08-10 and 08-11, rewritten by the anonymization pass `01fdbe6`. A
   third, `f5-graines-4b-2026-08-19.v1-l4x4.md.ots`, has no `.md` beside it at all. The attested bytes are
   unrecoverable. Nothing repairs this; it is recorded so no reader trusts those three.
-- `docs/hf-model-card.md` carries 5.162 b/param and the card online has not been republished since 2026-08-17. Both
-  describe the `Planes14` object, not the sealed files. Republishing is an operator decision.
+- `docs/hf-model-card.md` describes the sealed 4B file since 2026-09-27. The card online has not been republished since
+  2026-08-17 and still describes the `Planes14` file, the only one hosted. Hosting the sealed file and republishing
+  are operator decisions.
 - The HF bucket has never been inventoried: 69 files, 46.7 GB as of 2026-08-17. An inventory comes before any re-run
   quote (rule 9).
 - `ops/status.py`, which would generate [`ETAT.md`](ETAT.md) from `mesures/`, `jobs.csv` and `otsaudit`, is not
@@ -110,12 +111,11 @@ already depends on the card (64 on sm_89, 32 on sm_120). **Cost** about $2 for a
 | a spend cap for the next campaign | no paid job |
 | publishing the three sealed files, and where | nobody outside can replay an MMLU |
 | next venue for paper 2 | preprint only |
-| republishing the Hugging Face model card on the sealed object | the card keeps describing `Planes14` |
+| hosting `qwen3-4b-sealed.bin` and republishing its card, rewritten in the repository on 2026-09-27 | the Hub keeps the `Planes14` file and card |
 | `ots upgrade` after each new stamp | stamps sit un-upgraded |
 | the 32B budget, once a gate exists | not launched |
 | document-extraction domain benchmark ([arXiv:2607.08734](https://arxiv.org/abs/2607.08734)) | not done |
 | a harder reasoning test than GSM8K: Qwen3's reasoning mode or GSM-Symbolic, about 3 to 5 $ at 4B | not done |
-| GSM8K in paper 2 and on the model card ([gsm8k-wave2](mesures/gsm8k-wave2-2026-09-26.txt)) | neither carries it |
 
 Rule 1 applies to every row: no run starts or stops, and no structural decision is taken, without an explicit go, with
 the cost announced before and the running total after.

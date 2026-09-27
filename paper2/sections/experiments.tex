@@ -20,6 +20,18 @@ each subject (10{,}000 draws). An exact McNemar test uses the questions that
 only one of the two models gets right. This test set cannot separate two
 scores less than about 0.4 points apart.
 
+\paragraph{Reasoning.} MMLU reads one logit per question. To score generated
+reasoning, we add GSM8K~\citep{gsm8k2021}: 1{,}319 grade-school math
+problems, each answered by one integer reached in several steps. The prompt is
+zero-shot, in the model's chat template, with its reasoning block left empty.
+It asks for the answer in a \texttt{\textbackslash{}boxed\{\}}. Decoding is
+greedy and stops at the end of the turn or after 1{,}024 tokens. The answer is
+the last number in the last box, or the last number of the text when no box
+closes. Unlike MMLU, our files are scored through the served kernel. FP16 and
+AWQ generate in vLLM from the same prompt tokens, and one grader scores every
+arm. The gaps are paired, with a 95\,\% normal interval and an exact McNemar
+test.
+
 \paragraph{Speed and memory.} Decode speed is measured on one NVIDIA L40S at
 batch 1, with greedy sampling. Speed is the tokens generated divided by the
 wall-clock time, prompt included. Each speed is the median of five timed
@@ -139,6 +151,50 @@ preregistration, written before measuring, counts a divergence after token 32
 as a near tie between two logits, not a defect. A second check feeds 203
 prompt tokens in one call and in 203 single-token calls. Both give the same
 next token at all three sizes.
+
+\subsection{Reasoning: GSM8K through the served kernel}
+\label{sec:gsm8k}
+
+\begin{table}[t]
+\centering\small\setlength{\tabcolsep}{5pt}
+\begin{tabular}{lrrrll}
+\toprule
+ & FP16 & AWQ & \Tetra{} & FP16 minus \Tetra{} & AWQ minus \Tetra{}\\
+\midrule
+4B & 92.12 & 89.01 & \textbf{82.49} & 9.63 $[7.69, 11.57]$ & 6.52 $[4.39, 8.65]$\\
+8B & 93.25 & 92.95 & \textbf{88.63} & 4.62 $[3.00, 6.25]$ & 4.32 $[2.83, 5.81]$\\
+14B & 95.30 & 95.38 & \textbf{92.04} & 3.26 $[1.93, 4.59]$ & 3.34 $[2.12, 4.55]$\\
+\bottomrule
+\end{tabular}
+\caption{GSM8K on all 1{,}319 test problems, zero-shot, greedy. \Tetra{} is
+generated through the served kernel, FP16 and AWQ in vLLM from the same prompt
+tokens. The gaps are paired, with 95\,\% intervals. Data: paper2-gsm8k.csv,
+paper2-gsm8k-gaps.csv.}
+\label{tab:gsm8k}
+\end{table}
+
+The sealed files score 82.49, 88.63 and 92.04 at 4B, 8B and 14B
+(Table~\ref{tab:gsm8k}). FP16 scores 92.12, 93.25 and 95.30, and AWQ 89.01,
+92.95 and 95.38. Each gap between a sealed file and a baseline is separated
+from zero, with every $p$ below $10^{-5}$. AWQ sits 3.11 points below FP16 at
+4B, then 0.30 and $-0.08$ at 8B and 14B, which this test set cannot separate
+from zero.
+
+At 4B, the sealed file loses 9.63 points to FP16 on GSM8K, against 6.77 on
+MMLU, and the GSM8K interval excludes the MMLU gap. At 8B and 14B it loses
+4.62 and 3.26 points, and the intervals contain the MMLU gaps of 5.48 and
+3.22. So generated reasoning costs more than multiple-choice knowledge at 4B
+only. We had predicted a GSM8K gap near twice the MMLU gap. The measured gaps
+are 1.42, 0.84 and 1.01 times the MMLU gaps, and two of our three prediction
+intervals contain them (Appendix~\ref{app:record}). Counted in errors, the sealed files make
+2.22, 1.68 and 1.69 times as many as FP16 on GSM8K, against 1.23, 1.22 and
+1.15 times on MMLU.
+
+\paragraph{Two engines.} The baselines run in vLLM and our files in our
+engine. To check that the engine does not move a score, we also ran the FP16
+4B checkpoint through our dense path. It scores 91.51 against 92.12 in vLLM,
+$-0.61$ points $[-1.27, 0.06]$, $p=0.12$. On the 50 problems of a pilot, the
+kernel and the dense reconstruction of the 4B file give the same 50 answers.
 
 \subsection{Where the gain comes from}
 \label{sec:chain}
