@@ -1,4 +1,4 @@
-# Project state as of 2026-09-26
+# Project state as of 2026-09-27
 
 ## 1. The project
 
@@ -16,14 +16,16 @@ compiles, in [`paper2/`](../paper2/README.md).
 One layout, one setting, at all three sizes: `tetra48`, `LLVQ_EMBED=q4`, `LLVQ_ROT_SHARE=1`, `LLVQ_FUSE=0`,
 `LLVQ_KV=f16`. The files that carry it are in [`configs/`](../configs/README.md), one per size.
 
-| size | sealed file | b/param | MMLU | tok/s | GB on card |
-|---|---|---|---|---|---|
-| 4B | `qwen3-4b-sealed.bin` | 2.73 | 63.37 | 113.8 | 1.38 |
-| 8B | `qwen3-8b-sealed-B.bin` | 2.70 | 69.58 | 95.0 | 2.76 |
-| 14B | `qwen3-14b-sealed.bin` | 2.73 | 75.66 | 57.2 | 5.04 |
+| size | sealed file | b/param | MMLU | GSM8K | tok/s | GB on card |
+|---|---|---|---|---|---|---|
+| 4B | `qwen3-4b-sealed.bin` | 2.73 | 63.37 | 82.49 | 113.8 | 1.38 |
+| 8B | `qwen3-8b-sealed-B.bin` | 2.70 | 69.58 | 88.63 | 95.0 | 2.76 |
+| 14B | `qwen3-14b-sealed.bin` | 2.73 | 75.66 | 92.04 | 57.2 | 5.04 |
 
 b/param: *computed* by `rtbits` on the file's bytes, whole model, int4 tables included. MMLU: *measured* on all 14,042
-test questions, 5-shot, micro average, question fingerprint `a74a6d62`. Speed and GB: *measured* on one L40S, batch 1,
+test questions, 5-shot, micro average, question fingerprint `a74a6d62`. GSM8K: *measured* through the served
+kernel on all 1,319 test problems, zero-shot, reasoning block empty, greedy, prompt fingerprint `bfa9135c`
+([gsm8k-wave1](mesures/gsm8k-wave1-2026-09-26.txt), [gsm8k-wave2](mesures/gsm8k-wave2-2026-09-26.txt)). Speed and GB: *measured* on one L40S, batch 1,
 256 greedy tokens, median of five rounds
 ([embed-q4-swap](mesures/embed-q4-swap-2026-09-23.txt), [sealed-8b-27](mesures/sealed-8b-27-2026-09-24.txt),
 [sealed-8b-14b](mesures/sealed-8b-14b-2026-09-23.txt), [paper-table](mesures/paper-table-2026-09-25.txt)).
@@ -33,35 +35,42 @@ f64 and a 256-token comparison tie the two: identical tokens at 4B and 8B, first
 census has been read both ways, on 2,280 questions at 4B on the 2026-09-09 object: the kernel scored 55.66 against the
 dense path's 55.52, three discordant questions, McNemar p = 0.25 (*measured*,
 [f1e-census](mesures/f1e-census-2026-09-11.txt)). The b/param above count the int4 tables the kernel reads; the MMLU
-above was read with those tables in f16. Closing that is the first open decision of section 5.
+above was read with those tables in f16. Closing that is the first open decision of section 5. GSM8K is scored
+through the kernel, and on 50 problems the kernel and the dense reconstruction give the same 50 answers.
 
 ## 3. Against the baselines
 
-| size | arm | b/param | MMLU | tok/s | GB |
-|---|---|---|---|---|---|
-| 4B | FP16, vLLM | 16.00 | 70.14 | 83.1 | 8.04 |
-| 4B | AWQ w4g128, vLLM | 5.30 | 68.14 | 200.5 | 2.67 |
-| 4B | IQ2_XXS, llama.cpp | 2.48 | 39.78 | 312.9 | 1.25 |
-| 8B | FP16, vLLM | 16.00 | 75.05 | 46.3 | 16.38 |
-| 8B | AWQ w4g128, vLLM | 5.96 | 73.79 | 123.2 | 6.10 |
-| 14B | FP16, vLLM | 16.00 | 78.88 | 25.8 | 29.54 |
-| 14B | AWQ w4g128, vLLM | 5.40 | 78.12 | 77.8 | 9.98 |
+| size | arm | b/param | MMLU | GSM8K | tok/s | GB |
+|---|---|---|---|---|---|---|
+| 4B | FP16, vLLM | 16.00 | 70.14 | 92.12 | 83.1 | 8.04 |
+| 4B | AWQ w4g128, vLLM | 5.30 | 68.14 | 89.01 | 200.5 | 2.67 |
+| 4B | IQ2_XXS, llama.cpp | 2.48 | 39.78 | not scored | 312.9 | 1.25 |
+| 8B | FP16, vLLM | 16.00 | 75.05 | 93.25 | 46.3 | 16.38 |
+| 8B | AWQ w4g128, vLLM | 5.96 | 73.79 | 92.95 | 123.2 | 6.10 |
+| 14B | FP16, vLLM | 16.00 | 78.88 | 95.30 | 25.8 | 29.54 |
+| 14B | AWQ w4g128, vLLM | 5.40 | 78.12 | 95.38 | 77.8 | 9.98 |
 
 All *measured*, same journals as section 2, plus [census-8b](mesures/census-8b-2026-09-21.txt),
 [census-14b-ref](mesures/census-14b-ref-2026-09-22.txt), [f16-full](mesures/f16-full-2026-09-18.txt),
 [m4-iq2-cuda](mesures/m4-iq2-cuda-2026-08-30.txt). Speeds come from different engines and are never divided across
 them (rule 5).
 
-Paired gaps on the same questions, our file against the arm (*computed*, `docs/data/paper2-gaps.csv`):
+Paired gaps on the same questions, our file against the arm. MMLU *computed*, `docs/data/paper2-gaps.csv`; GSM8K
+*measured* by `gsm8kpair`, same journals as section 2:
 
-| size | below FP16 | below AWQ |
-|---|---|---|
-| 4B | 6.77 [6.05, 7.50] | 4.76 [4.02, 5.49] |
-| 8B | 5.48 [4.83, 6.10] | 4.21 [3.54, 4.86] |
-| 14B | 3.22 [2.69, 3.75] | 2.46 [1.92, 3.00] |
+| size | MMLU below FP16 | MMLU below AWQ | GSM8K below FP16 | GSM8K below AWQ |
+|---|---|---|---|---|
+| 4B | 6.77 [6.05, 7.50] | 4.76 [4.02, 5.49] | 9.63 [7.69, 11.57] | 6.52 [4.39, 8.65] |
+| 8B | 5.48 [4.83, 6.10] | 4.21 [3.54, 4.86] | 4.62 [3.00, 6.25] | 4.32 [2.83, 5.81] |
+| 14B | 3.22 [2.69, 3.75] | 2.46 [1.92, 3.00] | 3.26 [1.93, 4.59] | 3.34 [2.12, 4.55] |
 
 We lose quality and win memory: 45 to 52% of AWQ's bits per parameter. Both gaps shrink as the model grows. At 4B we
 score 23.6 points above IQ2_XXS for 0.25 more bits per parameter.
+
+On GSM8K the loss exceeds the MMLU loss at 4B only. At 8B and 14B the GSM8K interval contains the MMLU gap. The GSM8K
+references run in vLLM and our files in our kernel; the engine gate held at 4B, FP16 reading 91.51 in our dense path
+against 92.12 in vLLM, −0.61 [−1.27, +0.06]. GSM8K saturates, FP16 reading 92 to 95%, and says nothing of Qwen3's
+reasoning mode.
 
 ## 4. Structural facts
 
@@ -117,8 +126,11 @@ encoded after it, and the evaluation harness is intact.
 - **Publishing the sealed files.** The paper gives their SHA-256 and nothing hosts them, so nobody outside can replay
   an MMLU.
 - **The next venue for paper 2.** TACO desk-rejected paper 1 on 2026-08-27 on scope. Default if silent: preprint only.
-- **Spend.** $227.62 over 204 priced jobs (*measured*, `docs/data/jobs.csv`). No cap is in force; one is owed before
-  the next paid job.
+- **A harder reasoning test.** Qwen3's reasoning mode, or GSM-Symbolic's unseen variants, about 3 to 5 $ at 4B
+  (*estimated*). GSM8K cannot separate the 8B and 14B losses from their MMLU losses.
+- **GSM8K in paper 2 and on the model card.** Neither carries it yet.
+- **Spend.** $241.88 over 214 priced jobs (*measured*, `docs/data/jobs.csv`). The two GSM8K waves spent 7.13 $ each
+  under caps of 15.75 and 18.90 $. No cap is in force; one is owed before the next paid job.
 
 ## 6. Closed absent a new idea
 

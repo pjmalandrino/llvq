@@ -12,6 +12,7 @@
 pub mod artifact;
 pub mod artifact2;
 pub mod calib;
+pub mod chatfmt;
 pub mod corpus;
 pub mod device;
 pub mod embedquant;
@@ -22,6 +23,7 @@ pub mod fused;
 pub mod fused_cuda;
 #[cfg(all(target_os = "macos", feature = "metal"))]
 pub mod fused_metal;
+pub mod gsm8k;
 pub mod kvq;
 pub mod loader;
 pub mod model;

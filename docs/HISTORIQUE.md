@@ -611,3 +611,16 @@ The living documents were three weeks behind the object. `ETAT.md` still gave `P
 objects and brought back to the lengths `STYLE.md` sets: ETAT 566 lines to 134, ROADMAP 407 to 117, README 187 to 126,
 CLAUDE 161 to 146. The entries of this file between 2026-09-05 and 09-17 were out of chronological order and are
 reordered.
+
+## 2026-09-26 and 27. A reasoning test: GSM8K through the served kernel
+
+The three sealed files score **82.49, 88.63 and 92.04 on GSM8K** through the served kernel, against 92.12, 93.25 and
+95.30 for FP16 and 89.01, 92.95 and 95.38 for AWQ in vLLM (*measured*,
+[gsm8k-wave1](mesures/gsm8k-wave1-2026-09-26.txt), [gsm8k-wave2](mesures/gsm8k-wave2-2026-09-26.txt)). It is the
+first quality score read on the served object over a whole test split. The paired gap to FP16 is 9.63 points at 4B,
+1.4 times its MMLU gap. At 8B and 14B it is 4.62 and 3.26, and does not differ from the MMLU gap.
+
+A new harness generates and grades through the kernel (`bin/gsm8k`), vLLM generates the references on the same prompt
+ids (`ops/gsm8k_vllm.py`), and one grader scores every arm (`bin/gsm8kpair`). A free Metal pilot priced the campaign
+first ([gsm8k-pilot](mesures/gsm8k-pilot-2026-09-26.txt)). The engine gate held: FP16 reads 91.51 in our dense path
+against 92.12 in vLLM. The campaign cost 14.26 $.

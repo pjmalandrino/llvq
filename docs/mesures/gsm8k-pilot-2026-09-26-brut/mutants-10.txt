@@ -1,0 +1,12 @@
+KILLED  first box instead of last
+KILLED  trailing zeros kept
+KILLED  first number in the box
+KILLED  any answer is right
+KILLED  qhash not checked
+KILLED  sample not sorted
+KILLED  trailer optional
+KILLED  first marker instead of last
+KILLED  unclosed box accepted
+KILLED  frac numerator read
+restored, digest 04410b693367
+survivors: none

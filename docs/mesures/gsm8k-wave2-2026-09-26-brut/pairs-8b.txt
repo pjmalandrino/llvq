@@ -1,0 +1,12 @@
+===== A=gsm8k-8b-f16-vllm B=Tetra 8B
+docs/mesures/gsm8k-wave2-2026-09-26-brut/run6-vllm-8b/gsm8k-8b-f16-vllm.jsonl: 1319 of 1319 rows re-graded
+docs/mesures/gsm8k-wave2-2026-09-26-brut/run2-served-8b/gsm8k-8b-served.jsonl: 0 of 1319 rows re-graded
+  accuracy A = 93.25 %, B = 88.63 %
+  right in A only 92, in B only 31 (9.3 % discordant)
+  A − B = +4.62 pp, 95 % [+3.00 ; +6.25], McNemar exact p = 3.317e-8
+===== A=gsm8k-8b-awq-vllm B=Tetra 8B
+docs/mesures/gsm8k-wave2-2026-09-26-brut/run6-vllm-8b/gsm8k-8b-awq-vllm.jsonl: 1319 of 1319 rows re-graded
+docs/mesures/gsm8k-wave2-2026-09-26-brut/run2-served-8b/gsm8k-8b-served.jsonl: 0 of 1319 rows re-graded
+  accuracy A = 92.95 %, B = 88.63 %
+  right in A only 80, in B only 23 (7.8 % discordant)
+  A − B = +4.32 pp, 95 % [+2.83 ; +5.81], McNemar exact p = 1.462e-8

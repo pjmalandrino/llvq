@@ -1,0 +1,10 @@
+docs/mesures/gsm8k-wave1-2026-09-26-brut/run4-f16dense/gsm8k-4b-f16-dense.jsonl: 0 of 1319 rows re-graded
+docs/mesures/gsm8k-wave1-2026-09-26-brut/run5-vllm/gsm8k-4b-f16-vllm.jsonl: 1319 of 1319 rows re-graded
+    1207/1319 right, mean 298.6 generated tokens, 4 stopped at the cap, tokens bfa9135ce4b55c75
+    1215/1319 right, mean 297.5 generated tokens, 1 stopped at the cap, tokens bfa9135ce4b55c75
+  accuracy A = 91.51 %, B = 92.12 %
+  right in A only 6, in B only 14 (1.5 % discordant)
+  A − B = -0.61 pp, 95 % [-1.27 ; +0.06], McNemar exact p = 1.153e-1
+  accuracy A = 91.51 %, B = 82.49 %
+  right in A only 151, in B only 32 (13.9 % discordant)
+  A − B = +9.02 pp, 95 % [+7.07 ; +10.97], McNemar exact p = 1.100e-19

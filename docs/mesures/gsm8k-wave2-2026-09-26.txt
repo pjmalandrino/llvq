@@ -1,0 +1,98 @@
+GSM8K AT 8B AND 14B: TETRA LOSES 4.62 AND 3.26 POINTS TO FP16, NO MORE THAN ITS MMLU GAP; THE 4B IS THE ONLY SIZE WHERE REASONING LOSES MORE (2026-09-27)
+=====================================================================================================================================
+Prereg:  proofs/preregistration-gsm8k-wave2-2026-09-26.md, sha256 5c2fdbae, timestamped at 20:57 UTC
+         on 2026-09-26 before the first job of the wave.
+Deviations: none of its own; the pyarrow fix of wave 1 (campaign ECARTS E1) is in the vLLM job.
+Code:    commit 53e8167, branch gsm8k-raisonnement. Image: Space Pier-Jean/llvq-runner-cuda at
+         97a2b62a, the image of wave 1.
+Jobs (l40sx1, cost = running seconds x 1.80 $/h):
+         2  Tetra 8B served, 1,319 problems    6ab831ce52d0dbd7f1d97dc8  4,739 s   2.37 $
+         3  Tetra 14B served, 1,319 problems   6ab831dc52d0dbd7f1d97dcf  8,480 s   4.24 $
+         6  vLLM 8B, FP16 then AWQ            6ab831de52d0dbd7f1d97dd1    419 s   0.21 $
+         7  vLLM 14B, FP16 then AWQ           6ab831df6b030d633f69666a    615 s   0.31 $
+         Wave: 7.13 $ against about 7.5 $ announced and an 18.90 $ cap. Campaign, pilot and both
+         waves: 14.26 $. Project total: 241.88 $.
+Nature:  *measured* accuracies and paired gaps; error ratios *computed* from them.
+
+SETUP
+-----
+The protocol of wave 1, unchanged: the 1,319 problems of openai/gsm8k test at commit 740312ad,
+zero-shot, reasoning block pre-filled empty, greedy, max_new 1,024. Tetra: qwen3-8b-sealed-B.bin
+and qwen3-14b-sealed.bin through the served kernel (configs/qwen3-{8b,14b}-tetra-e4.json). FP16
+and AWQ (awq_marlin) in vLLM 0.26.0 at the revisions ops/awq_speed.py pins. One grader.
+
+CONTROLS
+--------
+1. oracle MATCH on runs 2 and 3; object sha256 7bdb9a55 and 61db37fe; config sha256 checked:
+   passes.
+2. All six dumps end on the census fingerprint bfa9135ce4b55c75: passes.
+3. gsm8kpair re-grades 0 rows of the Rust dumps and all rows of the vLLM dumps: passes.
+4. Both AWQ logs read "Using MarlinLinearKernel", all four vLLM arms dtype float16: passes.
+5. The engine gate of wave 1 passed (FP16 dense - FP16 vLLM at 4B: -0.61 [-1.27 ; +0.06],
+   p = 0.115), and the prereg extends it to both sizes: the cross-engine pairs are published,
+   labelled "engines differ".
+
+RESULT
+------
+  size  arm                  right        accuracy   at the cap   mean tokens
+  8B    FP16, vLLM           1230/1319    93.25 %     6           302.7
+  8B    AWQ, vLLM            1226/1319    92.95 %     5           312.9
+  8B    Tetra, kernel        1169/1319    88.63 %     9           282.3
+  14B   FP16, vLLM           1257/1319    95.30 %     1           294.8
+  14B   AWQ, vLLM            1258/1319    95.38 %     0           292.3
+  14B   Tetra, kernel        1214/1319    92.04 %     5           306.5
+
+Paired, 95 % interval without finite-population correction, McNemar exact, with the MMLU gap
+of the same pair (docs/ETAT.md §3, *measured*):
+
+                         GSM8K                          McNemar            MMLU
+  8B   FP16 - Tetra      +4.62 [+3.00 ; +6.25]    92 / 31   p = 3.3e-8     5.48
+  8B   AWQ - Tetra       +4.32 [+2.83 ; +5.81]    80 / 23   p = 1.5e-8     4.21
+  8B   FP16 - AWQ        +0.30 [-0.90 ; +1.51]    35 / 31   p = 0.71       1.27
+  14B  FP16 - Tetra      +3.26 [+1.93 ; +4.59]    62 / 19   p = 1.8e-6     3.22
+  14B  AWQ - Tetra       +3.34 [+2.12 ; +4.55]    56 / 12   p = 6.2e-8     2.46
+  14B  FP16 - AWQ        -0.08 [-0.96 ; +0.80]    17 / 18   p = 1.0        0.75
+
+The three sizes, FP16 minus Tetra (the 4B from gsm8k-wave1-2026-09-26.txt):
+
+  size  GSM8K                     MMLU    Tetra errors / FP16 errors, GSM8K   same, MMLU
+  4B    +9.63 [+7.69 ; +11.57]    6.77    2.22                                1.23
+  8B    +4.62 [+3.00 ; +6.25]     5.48    1.68                                1.22
+  14B   +3.26 [+1.93 ; +4.59]     3.22    1.69                                1.15
+
+AWQ is indistinguishable from FP16 on GSM8K at 8B and 14B, where it sat 1.27 and 0.75 below on
+MMLU; at 4B it sits 3.11 below.
+
+VERDICT, prereg §4, per size
+----------------------------
+8B:  M = 5.48 lies in [3.00 ; 6.25]. "No difference between the two losses at this size."
+14B: M = 3.22 lies in [1.93 ; 4.59]. "No difference between the two losses at this size."
+With wave 1: the GSM8K loss exceeds the MMLU loss at 4B only. In points, the 8B and 14B lose
+on GSM8K what they lose on MMLU. In share of errors, Tetra makes 1.7 to 2.2 times the FP16's
+errors on GSM8K at every size, against 1.15 to 1.23 on MMLU (*computed*); that reading was not
+the prereg's rule and is descriptive.
+
+SIGNED PREDICTIONS
+------------------
+From the pilot prereg, written before any GSM8K token:
+  8B:  FP16 93.25 against 92 [88, 95] inside; AWQ 92.95 against 91 [87, 94] inside;
+       Tetra 88.63 against 82 [75, 88]: WRONG, 0.63 above; Tetra - FP16 -4.62 against
+       -10 [-17, -5]: WRONG, on the favourable side.
+  14B: FP16 95.30 against 94 [91, 96] inside; AWQ 95.38 against 93 [90, 96] inside;
+       Tetra 92.04 against 88 [83, 92]: WRONG, 0.04 above; Tetra - FP16 -3.26 against
+       -6 [-11, -2] inside.
+From the wave 2 prereg, written after the 4B: -7.8 at 8B and -4.6 at 14B, both too pessimistic;
+"the 4B reading should repeat at 8B": wrong; "stay unsettled at 14B": right. One size did not
+make a ratio, and the prediction that leaned on it is the one that failed.
+
+WHAT THIS DOES NOT ESTABLISH
+----------------------------
+- Qwen3's reasoning mode, or a benchmark that is not public since 2021 and saturating: FP16
+  reads 93 to 95 % at these sizes.
+- The absolute Tetra levels beyond one calibration draw per size.
+- Any speed (hard rule 5).
+
+PROVENANCE
+----------
+Raw: docs/mesures/gsm8k-wave2-2026-09-26-brut/ (run2-served-8b/, run3-served-14b/, run6-vllm-8b/,
+     run7-vllm-14b/ with the dumps, the logs and the script; pairs-8b.txt, pairs-14b.txt).

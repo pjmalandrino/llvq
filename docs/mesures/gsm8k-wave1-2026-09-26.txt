@@ -1,0 +1,100 @@
+GSM8K AT 4B: TETRA THROUGH THE SERVED KERNEL READS 82.49 AGAINST 92.12 FOR FP16 AND 89.01 FOR AWQ, A GAP 1.4 TIMES ITS MMLU GAP (2026-09-26)
+==================================================================================================================================
+Prereg:  proofs/preregistration-gsm8k-campaign-2026-09-26.md, sha256 fe8d1a51, timestamped at 18:29 UTC
+         before the smoke. Signed predictions carried from preregistration-gsm8k-pilot-2026-09-26.md
+         (sha256 bfd7d75e, stamped before any GSM8K token).
+Deviations: proofs/preregistration-gsm8k-campaign-2026-09-26-ECARTS.md, E1 (pyarrow missing from
+         the pinned vLLM image, run 5 relaunched).
+Code:    commit 685b32a, branch gsm8k-raisonnement. Image: Space Pier-Jean/llvq-runner-cuda at
+         97a2b62a, built from commit 5333ac8.
+Jobs (l40sx1, cost = running seconds x 1.80 $/h):
+         0  smoke, Tetra 4B served, 50 problems  6ab8145d6b030d633f695d1a    206 s   0.10 $
+         5a vLLM 4B, attempt 1, died at start     6ab81d8052d0dbd7f1d97607     67 s   0.03 $
+         1  Tetra 4B served, 1,319 problems       6ab81d7d52d0dbd7f1d97602  4,251 s   2.13 $
+         5  vLLM 4B, FP16 then AWQ               6ab81e806b030d633f6960ce    319 s   0.16 $
+         4  FP16 4B, our dense path (gate)       6ab81d7e52d0dbd7f1d97605  9,413 s   4.71 $
+         Wave: 7.13 $ against 8.63 $ announced and a 15.75 $ cap. Project total after the wave
+         and the wave-2 jobs finished by then: 237.64 $.
+Nature:  *measured* accuracies and paired gaps; error ratios *computed* from them.
+
+SETUP
+-----
+The 1,319 problems of the openai/gsm8k test split (commit 740312ad), zero-shot, Qwen3 chat
+template, reasoning block pre-filled empty, greedy, max_new 1,024. Tetra: qwen3-4b-sealed.bin
+through the served kernel (configs/qwen3-4b-tetra-e4.json). FP16: Qwen/Qwen3-4B @ 1cfa9a72, in
+vLLM 0.26.0 and in our dense path. AWQ: Qwen/Qwen3-4B-AWQ @ 74d4bd2b, awq_marlin, in vLLM.
+One grader, gsm8kpair, re-grades every row.
+
+THE SMOKE (run 0), prereg §3
+----------------------------
+1. oracle MATCH on the card, object sha256 886391a8, config sha256 098fe49c: passes.
+2. trailer and the pilot's fingerprint 94c7b98876288901: passes.
+3. 40 of 50 right, against a floor of 30: passes.
+4. 1 of 50 at the cap, against a ceiling of 5: passes.
+5. served decode 8.961 ms a token and prefill 3.900 ms a prompt token at GSM8K lengths, so the
+   4B census projects to about 79 min against a ceiling of 120: passes.
+Runs 1, 4 and 5 started without a second go, as the prereg says. Descriptive: the smoke against
+the Metal dense dump of the same file reads 0 discordant problems of 50, 50 identical extracted
+answers and 38 identical completions; where two texts part, they part after 441 characters
+(median).
+
+CONTROLS, prereg §4
+-------------------
+1. oracle MATCH on runs 1 and 4: passes.
+2. All four census dumps end on the census fingerprint bfa9135ce4b55c75: passes.
+3. gsm8kpair re-grades 0 rows of the Rust dumps and all 1,319 of each vLLM dump: passes.
+4. The AWQ log reads "Using MarlinLinearKernel", both vLLM arms dtype float16: passes.
+
+RESULT
+------
+  arm                          right        accuracy   at the cap   mean tokens
+  FP16, vLLM                   1215/1319    92.12 %     1           297.5
+  FP16, our dense path         1207/1319    91.51 %     4           298.6
+  AWQ w4 g128, vLLM (Marlin)   1174/1319    89.01 %     8           297.4
+  Tetra, served kernel         1088/1319    82.49 %     8           316.1
+
+Paired, 95 % interval without finite-population correction, McNemar exact:
+
+  FP16 vLLM - Tetra      +9.63 [+7.69 ; +11.57]   155 / 28    p = 1.6e-22
+  FP16 dense - Tetra     +9.02 [+7.07 ; +10.97]   151 / 32    p = 1.1e-19   same harness
+  AWQ - Tetra            +6.52 [+4.39 ; +8.65]    148 / 62    p = 2.7e-9
+  FP16 vLLM - AWQ        +3.11 [+1.62 ; +4.59]     71 / 30    p = 5.5e-5
+
+Against MMLU on the same files (docs/ETAT.md §3): Tetra sits 6.77 below FP16 and 4.76 below
+AWQ, FP16 sits 2.00 above AWQ. The GSM8K gaps are 1.42, 1.37 and 1.55 times those.
+
+In errors: Tetra misses 17.51 % of the problems, FP16 7.88 %, AWQ 10.99 %. Tetra makes 2.22
+times the FP16's errors on GSM8K and 1.23 times on MMLU (36.63 % against 29.86 %).
+
+THE ENGINE GATE, prereg §5
+--------------------------
+FP16 dense - FP16 vLLM = -0.61 [-1.27 ; +0.06], McNemar 6 / 14, p = 0.115, 1.5 % discordant.
+The criterion is |delta| <= 1.5 pp and p >= 0.05: passes. The cross-engine pairs above are
+published, labelled "engines differ". The same-harness pair agrees with them within 0.6 pp.
+
+VERDICT, prereg §6
+------------------
+G = +9.63 [+7.69 ; +11.57] against M = 6.77: lo > M. "At 4B, reasoning loses more than recall;
+the paper and the card say so."
+
+SIGNED PREDICTIONS
+------------------
+  FP16 92.12 against 90 [86, 94]: inside.       AWQ 89.01 against 88 [84, 92]: inside.
+  Tetra 82.49 against 75 [67, 83]: inside, near the top.
+  Tetra - FP16 -9.63 against -15 [-23, -8]: inside, on the favourable side.
+  Smoke: 40 against 40 [32, 46], 320.4 tokens against 320 [280, 370], 8.96 ms against 9.5
+  [8.8, 11.0]: all inside.
+
+WHAT THIS DOES NOT ESTABLISH
+----------------------------
+- Qwen3's reasoning mode (<think>), where chains run 4 to 6 times longer.
+- A benchmark that is not public since 2021: FP16 at 92 % says GSM8K is easy and likely seen.
+- The absolute Tetra level beyond its calibration draw: at 4B the draw moved MMLU by 2.92 pp.
+  The paired gaps compare fixed files and do not depend on it.
+- Any speed: the vLLM batched rates and our batch-1 timings belong to different stacks and are
+  never divided (hard rule 5).
+
+PROVENANCE
+----------
+Raw: docs/mesures/gsm8k-wave1-2026-09-26-brut/ (smoke/, run1-served/, run4-f16dense/,
+     run5-vllm/ with the dumps, the logs and the script, gate.txt, pairs-provisional.txt).

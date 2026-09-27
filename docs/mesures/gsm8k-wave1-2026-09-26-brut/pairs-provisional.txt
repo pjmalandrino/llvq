@@ -1,0 +1,24 @@
+===== A=run5-vllm/gsm8k-4b-f16-vllm.jsonl  B=run1-served/gsm8k-4b-served.jsonl
+docs/mesures/gsm8k-wave1-2026-09-26-brut/run5-vllm/gsm8k-4b-f16-vllm.jsonl: 1319 of 1319 rows re-graded
+docs/mesures/gsm8k-wave1-2026-09-26-brut/run1-served/gsm8k-4b-served.jsonl: 0 of 1319 rows re-graded
+    1215/1319 right, mean 297.5 generated tokens, 1 stopped at the cap, tokens bfa9135ce4b55c75
+    1088/1319 right, mean 316.1 generated tokens, 8 stopped at the cap, tokens bfa9135ce4b55c75
+  accuracy A = 92.12 %, B = 82.49 %
+  right in A only 155, in B only 28 (13.9 % discordant)
+  A − B = +9.63 pp, 95 % [+7.69 ; +11.57], McNemar exact p = 1.646e-22
+===== A=run5-vllm/gsm8k-4b-awq-vllm.jsonl  B=run1-served/gsm8k-4b-served.jsonl
+docs/mesures/gsm8k-wave1-2026-09-26-brut/run5-vllm/gsm8k-4b-awq-vllm.jsonl: 1319 of 1319 rows re-graded
+docs/mesures/gsm8k-wave1-2026-09-26-brut/run1-served/gsm8k-4b-served.jsonl: 0 of 1319 rows re-graded
+    1174/1319 right, mean 297.4 generated tokens, 8 stopped at the cap, tokens bfa9135ce4b55c75
+    1088/1319 right, mean 316.1 generated tokens, 8 stopped at the cap, tokens bfa9135ce4b55c75
+  accuracy A = 89.01 %, B = 82.49 %
+  right in A only 148, in B only 62 (15.9 % discordant)
+  A − B = +6.52 pp, 95 % [+4.39 ; +8.65], McNemar exact p = 2.709e-9
+===== A=run5-vllm/gsm8k-4b-f16-vllm.jsonl  B=run5-vllm/gsm8k-4b-awq-vllm.jsonl
+docs/mesures/gsm8k-wave1-2026-09-26-brut/run5-vllm/gsm8k-4b-f16-vllm.jsonl: 1319 of 1319 rows re-graded
+docs/mesures/gsm8k-wave1-2026-09-26-brut/run5-vllm/gsm8k-4b-awq-vllm.jsonl: 1319 of 1319 rows re-graded
+    1215/1319 right, mean 297.5 generated tokens, 1 stopped at the cap, tokens bfa9135ce4b55c75
+    1174/1319 right, mean 297.4 generated tokens, 8 stopped at the cap, tokens bfa9135ce4b55c75
+  accuracy A = 92.12 %, B = 89.01 %
+  right in A only 71, in B only 30 (7.7 % discordant)
+  A − B = +3.11 pp, 95 % [+1.62 ; +4.59], McNemar exact p = 5.533e-5

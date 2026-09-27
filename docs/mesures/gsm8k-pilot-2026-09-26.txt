@@ -1,0 +1,86 @@
+GSM8K PILOT ON THE MAC: THE HARNESS HOLDS, ANSWERS RUN 295 AND 323 TOKENS, THE CAMPAIGN PRICES AT ~18 $ (2026-09-26)
+===================================================================================================
+Prereg:  proofs/preregistration-gsm8k-pilot-2026-09-26.md, sha256 bfd7d75e, timestamped at
+         14:56 UTC before the first generated token.
+Deviations: proofs/preregistration-gsm8k-pilot-2026-09-26-ECARTS.md, E1 (arms concurrent from
+         15:05 UTC) and E2 (vLLM script edited after control 4, generation part only).
+Code:    base commit e438ad9 plus the uncommitted files of prereg §8, by sha256.
+Machine: the Mac, Apple M3 Max, 64 GB, Metal, $0. Project total unchanged: $227.62.
+Nature:  *measured* lengths, stops and accuracies; the campaign price is *computed* from them
+         and from the L40S journals, with *estimated* inputs named below.
+
+SETUP
+-----
+Two arms, dense path, f16, batch 1, the same 50 problems of the openai/gsm8k test split
+(commit 740312ad, sample seed 0x65736d386b), zero-shot, reasoning block pre-filled empty,
+greedy, max_new 1,024. A: Qwen/Qwen3-4B @ 1cfa9a72. B: qwen3-4b-sealed.bin, the paper-2 object,
+read as its dense reconstruction (no sealed file runs fused on Metal).
+
+CONTROLS
+--------
+1. oracle on Metal, Qwen3-0.6B, 47 tokens: MATCH, max |dhidden| = 0. Passes.
+2. sha256 of qwen3-4b-sealed.bin: 886391a8c03f66dc..., as configs/README.md. Passes.
+3. Same 50 problems, same qhash problem by problem, same run fingerprint 94c7b98876288901,
+   both trailers present: gsm8kpair accepts the pair and re-grades 0 of 50 rows in each.
+   Passes.
+4. ops/gsm8k_vllm.py (stamped sha256 6196fd2b) rebuilds the 50 prompts: 50/50 identical,
+   run fingerprint identical. Passes. The census fingerprint it prints, bfa9135ce4b55c75,
+   is the same with all six reference tokenizers (FP16 and AWQ, 4B, 8B, 14B).
+5. Hand audit of every wrong row, every row not read from a box, every row at the cap: 14
+   rows, 0 extraction errors. Passes.
+6. Mutation pass on the grading: 12 of 12 mutants killed by a failing test. Passes.
+
+RESULT
+------
+The accuracies are not a result: 50 problems give a binomial SE near 4 to 6 pp.
+
+                          A  FP16 4B      B  sealed 4B, dense
+  right                   46/50 (92 %)    40/50 (80 %)
+  generated tokens, mean  295.2           323.0
+    median / p90 / max    280 / 429 / 556 313 / 416 / 1,024
+  stopped at the cap      0               1 (#660)
+  read from a box         50              49 (the cap row falls back to the last number)
+  prompt tokens, mean     84.8            84.8
+
+Paired: right in A only 6, in B only 0. A - B = +12.0 pp [+2.9 ; +21.1], McNemar exact
+p = 0.031. Four problems are wrong in both (#162, #515, #1042, #1258).
+
+Hand audit. The 4 FP16 errors and the 10 sealed errors are all the model's: a wrong operation
+(an average for a sum, a compound rate for a simple one, a subtraction left out), read
+correctly from the box the model closed. One sealed answer (#660) loops for 1,024 tokens,
+restating a contradiction it created, and its fallback reads "2".
+
+Metal timings, shared with the user's browser and, from 15:05 UTC, with the other arm (E1):
+A 368 ms a generated token, 109 s a problem; B 347 ms, 112 s. Not used anywhere.
+
+SIGNED PREDICTIONS, prereg §6
+-----------------------------
+  FP16 accuracy 92 against 90 [80, 96]: inside.     length 295 against 260 [150, 420]: inside.
+  sealed accuracy 80 against 74 [58, 86]: inside.   length 323 against 290 [160, 500]: inside.
+  cap stops 0 against 0 [0, 1] and 1 against 1 [0, 4]: inside.
+
+VERDICT
+-------
+Prereg §5, last row: "otherwise: the plan is priced on each arm's measured mean length".
+No extraction error, FP16 above 70 %, one cap stop in 50.
+
+The campaign, from ops/gsm8k_plan.py (plan.txt): our three files through the served kernel
+2.52, 2.97 and 4.89 $; the FP16 engine gate on our dense path 5.29 $; FP16 and AWQ in vLLM
+1.83 $. Central 17.51 $, high 19.36 $, for 9.7 to 10.8 card-hours. Measured inputs: the
+lengths above, the served decode of paper-table-2026-09-25, the served prefill of
+f1e-census-2026-09-11. Estimated inputs: the 8B and 14B prefill, a 10 % (high 25 %) decode
+slowdown past 256 tokens of context, the vLLM batched throughput, the fixed minutes a job.
+The 4B lengths are applied to 8B and 14B.
+
+WHAT THIS DOES NOT ESTABLISH
+----------------------------
+- Any accuracy, or any gap between the arms.
+- Anything about the served kernel: both arms are dense reconstructions.
+- The answer lengths at 8B and 14B.
+- The L40S decode past 256 tokens of context, the largest estimated input of the price.
+
+PROVENANCE
+----------
+Dumps:  docs/data/gsm8k-dumps/pilot-4b-f16-metal.jsonl, pilot-4b-sealed-metal.jsonl.
+Raw:    docs/mesures/gsm8k-pilot-2026-09-26-brut/ (oracle, both runs, the pair, control 4,
+        the plan, the clock, the sha256, both mutation passes).

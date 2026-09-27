@@ -355,6 +355,57 @@ pub fn mmlu_split(split: &str) -> anyhow::Result<Vec<MmluItem>> {
     Ok(out)
 }
 
+/// The GSM8K repository. Config `main`, one parquet file a split.
+pub const GSM8K_REPO: &str = "openai/gsm8k";
+
+/// One GSM8K problem: the statement, and the reference solution whose last
+/// line is `#### <number>`.
+#[derive(Clone, Debug)]
+pub struct Gsm8kItem {
+    /// Position in the parquet order of the split. The dataset carries no
+    /// identifier, so this is the only key a per-question dump can be joined
+    /// on across two arms.
+    pub index: usize,
+    pub question: String,
+    /// The whole reference solution, `#### <number>` included. The scored
+    /// value is read by `gsm8k::gold`, not here, so the grading rule lives in
+    /// one place and is tested there.
+    pub answer: String,
+}
+
+/// A split of `openai/gsm8k` (config `main`) in parquet order, with the commit
+/// the bytes came from. `test` holds 1,319 problems.
+///
+/// Columns are read by name, as for MMLU: a silent swap of `question` and
+/// `answer` would still produce a runnable prompt and a meaningless score.
+pub fn gsm8k_split(split: &str) -> anyhow::Result<(Vec<Gsm8kItem>, Option<String>)> {
+    let file = hf_dataset_file(GSM8K_REPO, &format!("main/{split}-00000-of-00001.parquet"))?;
+    let revision = snapshot_revision(&file);
+    let reader = SerializedFileReader::new(std::fs::File::open(&file)?)?;
+    let mut out = Vec::new();
+    for (index, row) in reader.get_row_iter(None)?.enumerate() {
+        let row = row?;
+        let (mut question, mut answer) = (None, None);
+        for (name, field) in row.get_column_iter() {
+            match (name.as_str(), field) {
+                ("question", Field::Str(s)) => question = Some(s.clone()),
+                ("answer", Field::Str(s)) => answer = Some(s.clone()),
+                _ => {}
+            }
+        }
+        let (Some(question), Some(answer)) = (question, answer) else {
+            anyhow::bail!("gsm8k/{split}: row {index} is missing question or answer");
+        };
+        out.push(Gsm8kItem {
+            index,
+            question,
+            answer,
+        });
+    }
+    anyhow::ensure!(!out.is_empty(), "gsm8k/{split} is empty");
+    Ok((out, revision))
+}
+
 /// The WikiText-2 raw test split, prepared the standard way.
 pub fn wikitext2_test() -> anyhow::Result<String> {
     let rows = hf_parquet_text(

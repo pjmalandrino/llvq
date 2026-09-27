@@ -1,0 +1,11 @@
+docs/data/gsm8k-dumps/pilot-4b-f16-metal.jsonl: 0 of 50 rows re-graded
+docs/data/gsm8k-dumps/pilot-4b-sealed-metal.jsonl: 0 of 50 rows re-graded
+A = repo Qwen/Qwen3-4B@1cfa9a7208912126459214e8b04321603b3df60c [reference checkpoint] | reference checkpoint | device metal | dtype f16 | kv f16 | max_new 1024 | reasoning off
+    46/50 right, mean 295.2 generated tokens, 0 stopped at the cap, tokens 94c7b98876288901
+B = /Users/pjmalandrino/q4b-sealed-2026-09-23/qwen3-4b-sealed.bin [LLVQ 2-bit, sealed] | dense reconstruction | device metal | dtype f16 | kv f16 | max_new 1024 | reasoning off
+    40/50 right, mean 323.0 generated tokens, 1 stopped at the cap, tokens 94c7b98876288901
+
+50 problems, same prompts problem by problem
+  accuracy A = 92.00 %, B = 80.00 %
+  right in A only 6, in B only 0 (12.0 % discordant)
+  A − B = +12.00 pp, 95 % [+2.90 ; +21.10], McNemar exact p = 3.125e-2
