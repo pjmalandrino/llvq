@@ -128,7 +128,8 @@ encoded after it, and the evaluation harness is intact.
 - **The next venue for paper 2.** TACO desk-rejected paper 1 on 2026-08-27 on scope. Default if silent: preprint only.
 - **A harder reasoning test.** Qwen3's reasoning mode, or GSM-Symbolic's unseen variants, about 3 to 5 $ at 4B
   (*estimated*). GSM8K cannot separate the 8B and 14B losses from their MMLU losses.
-- **GSM8K in paper 2 and on the model card.** Neither carries it yet.
+- **The model card on the Hub.** The repository's card describes the sealed 4B file with GSM8K since 2026-09-27; the
+  Hub still holds the `Planes14` file and card.
 - **Spend.** $241.88 over 214 priced jobs (*measured*, `docs/data/jobs.csv`). The two GSM8K waves spent 7.13 $ each
   under caps of 15.75 and 18.90 $. No cap is in force; one is owed before the next paid job.
 

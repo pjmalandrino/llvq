@@ -13,298 +13,169 @@ tags:
   - leech-lattice
   - vector-quantization
   - llvq
+  - tetra
 ---
 
 <!--
-  STATUS, reviewed 2026-08-08.
+  STATUS, 2026-09-27.
 
-  This card describes `qwen3-4b-llvq.bin`, the ONLINE artifact: f16 embedding,
-  1.771 GB, sha256 9db213ef…c84b0. The speed and VRAM figures in the
-  Limitations section are measured ON THESE BYTES, CUDA fused path, default
-  Planes14 layout: 48.7 tok/s in 2.96 GB (5.89 b/param).
-  Wrong since 2026-08-31: the single points in this comment (48.7;
-  88.4-88.5) are replaced in the body by the B2 medians (48.3; 87.0), and
-  the SERVED CONFIG v1 frozen that day (+ ROT_SHARE=1 FUSE=1) returns
-  100.6 [99.9-100.7] in 2.57 GB, fusion measured in band at all three sizes.
+  This card describes `qwen3-4b-sealed.bin`, the paper-2 object: 1,418,224,685 B,
+  sha256 886391a8c03f66dc269cc65c3598c6627dbdcd259180aff36604ef10d37371b8.
 
-  `LLVQ_EMBED=q8` (88.4-88.5 tok/s, 2.60 GB, 5.162 b/param) is a LOAD-TIME
-  FLAG applied to the same bytes, not another file, and it is mentioned as
-  such. The quality of that configuration, on the other hand, was measured on
-  `q4b-e8.llvq` (1.406 GB, pre-baked int8 embedding), which is NOT published:
-  bit-identical content verified, different bytes.
-
-  2026-08-17, SETTLED: the published b/param is **5.162**, the `rtbits`
-  verdict on the exact bytes (the journal itself writes "LE CHIFFRE 4B q8 À
-  PUBLIER EST 5,162"). The **5.15** that stood here is the division of the
-  "2.60 GB" shown by `nvidia-smi`, rounded: the real footprint is 2.595 GB.
-  Caveat: the two numbers in that pair have two provenances and **cannot be
-  derived from one another**. Do not divide the 2.60 to recover the b/param.
-
-  THIS CARD IS A PUBLISHED SURFACE. The repository file is up to date; the
-  card ONLINE on the Hub is not, until it is republished. Republishing is a
-  separate outbound action and needs its own go. Until then, the repository
-  and the published object diverge on this figure.
-
-  USER DECISION PENDING, not to be taken by editing this file: should the HF
-  artifact be republished as a pre-baked q8 variant? If so, the headline
-  figures of this card change denominator (1.406 GB) and the sha256 above
-  becomes wrong. Until that is settled, the card stays written against the
-  f16 file actually online.
+  That file is not hosted yet. The card online at Pier-Jean/Qwen3-4B-LLVQ-2bit still
+  describes the August file `qwen3-4b-llvq.bin` (Planes14, 1.771 GB, sha256
+  9db213ef...c84b0), whose card this one replaces in the repository. Uploading the
+  sealed file and replacing the online card are two operator decisions
+  (docs/ROADMAP.md section 5). Until both are taken, this file and the Hub disagree,
+  and the download line below does not work.
 -->
 
-# Qwen3-4B, LLVQ 2-bit
+# Qwen3-4B, LLVQ Tetra, 2.73 bits per parameter
 
-Qwen3-4B quantized to **2.16 bits per weight** with Leech lattice vector
-quantization, from an independent Rust implementation of
-[**arXiv:2603.11021**](https://arxiv.org/abs/2603.11021) (van der Ouderaa,
-van Baalen, Whatmough, Nagel, Qualcomm AI Research, 2026).
+Qwen3-4B stored at **2.73 bits per parameter over the whole model**, embedding
+included, in **one 1.42 GB file** that opens with no checkpoint and no network.
+Most weight matrices are coded on the Leech lattice Λ₂₄ with **Tetra**, a
+codebook the GPU reads as stored: a fused CUDA kernel decodes and multiplies in
+one pass. It follows the method of
+[arXiv:2603.11021](https://arxiv.org/abs/2603.11021) (van der Ouderaa, van
+Baalen, Whatmough, Nagel, 2026), in an independent Rust implementation.
 
-**One file, 1.771 GB, opens with no checkpoint, no cache and no network.**
-
-> **This is a research artifact, not a drop-in model.** Two things to know
-> before downloading. It is not GGUF, AWQ or safetensors: it does not load with
-> `transformers`, `llama.cpp`, vLLM or TGI, and you need the Rust reader linked
-> below. And it loses **14.7 points of MMLU** against its own FP16 baseline
-> (the CUDA campaign figure this card quotes throughout; the earlier Metal run
-> gave 14.3). Reasoning tasks are hit hardest, some falling to chance. See
-> *Quality*.
+> **A research artifact, not a drop-in model.** It is not GGUF, AWQ or
+> safetensors. It does not load in `transformers`, llama.cpp or vLLM, and needs
+> the Rust reader of [github.com/pjmalandrino/llvq](https://github.com/pjmalandrino/llvq).
+> It loses **6.77 MMLU points and 9.63 GSM8K points** to FP16 on the same
+> questions. Every number below comes from one NVIDIA L40S.
 
 ## Numbers
 
-The file was written, read back, and its 3,633,315,840 projection weights
-decode **bit for bit** to the weights that were evaluated.
+| | this file | FP16 | AWQ w4g128 | IQ2_XXS |
+|---|---|---|---|---|
+| bits per parameter, whole model | **2.73** | 16.00 | 5.30 | 2.48 |
+| weight bytes | **1.38 GB** | 8.04 GB | 2.67 GB | 1.25 GB |
+| decode, batch 1, own engine | **113.8 tok/s** (ours) | 83.1 (vLLM) | 200.5 (vLLM) | 312.9 (llama.cpp) |
+| MMLU, 5-shot, 14,042 questions | **63.37** | 70.14 | 68.14 | 39.78 |
+| GSM8K, zero-shot, 1,319 problems | **82.49** | 92.12 | 89.01 | not scored |
 
-| | |
-|---|---|
-| Size | **1.771 GB** against 8.045 GB in FP16 → **×4.54** |
-| Rate | **2.1595 bits/weight** over the 3,633,315,840 projection weights |
-| Rate, whole model | **3.5213 bits/parameter** (the f16 embedding is 9.7% of it) |
-| WikiText-2 perplexity, ctx 4096, f16, **on this file** | **16.9415** (f16 baseline 12.2361, ×1.385) |
+All *measured*. Bits per parameter are counted by `rtbits` on the file's bytes.
+Weight bytes are this file's buffers on the GPU and the other formats' weight
+files. Speeds are medians of five rounds, 256 greedy tokens for this file and
+128 for FP16 and AWQ; IQ2_XXS is the mean of five 128-token repetitions. Each
+format runs in its own engine, and speeds from two engines are never divided
+by one another: vLLM runs FP16 faster than our engine does. The MMLU of AWQ is
+read in our harness on its weights converted to f16.
 
-The lattice code itself runs at **exactly 2.000 bits/weight over the
-3,616,358,400 weights it encodes**: 47 index bits into the Λ₂₄(12) ball plus
-one gain bit, packed into 6 bytes per block of 24 weights. The 980,770,752-byte
-payload is 7,846,166,016 bits: 7,232,716,800 of lattice code, 542,638,080 of
-tail columns kept exact in f32, 70,778,880 of per-row f64 scales (none of the
-1,105,920 is representable in f32, so this is the price of the bit-exact decode
-proof) and 32,256 of gain centroids. That is **8.5% more than the lattice code
-alone**, one payload under two exact denominators: 2.1595 bits/weight over the
-3,633,315,840 projection weights, tail included (`bin/seal`, the figure quoted
-above), or 2.1696 over the 3,616,358,400 the code actually encodes
-(`bin/smoke`, the figure the GitHub README uses).
+Paired on the same questions, 95 % intervals:
 
-Composition: 252 quantized linear projections (0.981 GB) + 146 tensors the
-quantizer does not touch, at f16 (0.778 GB, almost all of it the tied
-embedding) + config and tokenizer (0.011 GB).
-
-### Against published 2-bit methods
-
-All figures without fine-tuning, no error bars on either side.
-
-| Method | Wiki ↓ | bits/weight |
+| | below FP16 | below AWQ |
 |---|---|---|
-| Quip#/E8P12 | 21.15 | 2.000 |
-| QTIP (3INST) | 17.04 | 2.000 |
-| LLVQ, 0 gain bits *(paper)* | 17.05 | 2.000 |
-| **This model** | **16.9617** *(f32, in-memory)* | 2.1595 |
-| LLVQ, 2 gain bits *(paper's best)* | 15.54 | 2.000 |
-
-**Raw perplexities across implementations are not comparable when the baselines
-differ.** Ours is 12.2336 against the paper's 12.41. Normalized as excess
-log-likelihood over each side's own baseline, this model is **3.1% worse than
-QTIP** on the f32 pair, **2.6% worse** on the f16 pair measured on this file,
-and 2.9% worse than the paper's 0-gain-bit configuration, at 8.5% more bits.
-It is at QTIP's level, marginally worse. It is not state of the art, and an
-earlier version of this card said it landed "just under QTIP", which was the
-wrong reading of its own table.
+| MMLU | 6.77 [6.05, 7.50] | 4.76 [4.02, 5.49] |
+| GSM8K | 9.63 [7.69, 11.57] | 6.52 [4.39, 8.65] |
 
 ## Quality
 
-Perplexity says nothing about what a model can still *do*. 5-shot MMLU,
-2,280 questions of the 14,042-question split at a fixed seed, measured **on this
-exact file** through the project's own pipeline:
+**GSM8K is scored through the served kernel**, the path a user runs. The prompt
+is zero-shot, in Qwen3's chat template with the reasoning block left empty, and
+asks for the answer in `\boxed{}`. Decoding is greedy, up to 1,024 tokens. FP16
+and AWQ generate in vLLM from the same prompt tokens, and one grader scores all
+three. To check that the engine does not move a score, the FP16 checkpoint also
+ran through our dense path: 91.51 against 92.12 in vLLM, −0.61 points
+[−1.27, +0.06]. This file makes 17.5 % errors on GSM8K where FP16 makes 7.9 %.
 
-| | FP16 baseline | this model |
-|---|---|---|
-| MMLU (micro), Metal / M3 Max | 70.42 ± 1.28 | 56.09 ± 1.36 |
-| **MMLU (micro), CUDA / L40S**, the campaign figure | **70.32 ± 1.28** | **55.59 ± 1.35** |
+**MMLU is scored on the dense reconstruction**: the same weights decoded to f16
+and run through an ordinary forward pass. The answer is read from the logits of
+the four answer letters, micro-averaged over the full test split. On 50 GSM8K
+problems, the kernel and the dense reconstruction give the same 50 answers.
 
-**−14.33 points on Metal, −14.73 on CUDA; 79.7% and 79.1% retained.** The ±
-is a stratified standard error covering sampling only, 1 σ, not a 95%
-interval, and two of them do not subtract. For a *difference*, the paired test
-below is the right instrument.
+At 4B the model loses more on GSM8K than on MMLU. At 8B and 14B it does not:
+the sibling files lose 4.62 and 3.26 GSM8K points to FP16, against 5.48 and
+3.22 on MMLU.
 
-**The two rows disagree by 0.50 pp on what should be the same file, and we
-do not know why.** The baseline moves by only 0.10 pp across the same backend
-change, so this is five times the drift of its own control. It is not
-verifiable by token fingerprint: the Metal run predates their printing. The
-deltas are consistent either way and no conclusion here depends on the choice,
-but it is an open provenance debt rather than a rounding difference. The
-rest of this card quotes the CUDA row, because that is the one measured
-alongside the AWQ arm on the same card with the same fingerprint.
+| sibling file | bits per parameter | MMLU | GSM8K | decode tok/s | weights |
+|---|---|---|---|---|---|
+| `qwen3-8b-sealed-B.bin` | 2.70 | 69.58 | 88.63 | 95.0 | 2.76 GB |
+| `qwen3-14b-sealed.bin` | 2.73 | 75.66 | 92.04 | 57.2 | 5.04 GB |
 
-The damage is not uniform. Abstract algebra and professional accounting fall to
-10/40, indistinguishable from chance within a ±7 pp per-subject bar; European
-history and international law hold at 33/40.
-**Two-bit quantization damages reasoning far more than recall**, which is why
-the perplexity above looks better than the model behaves. For reference, the
-paper reports a 9.5-point drop on the same benchmark; we lose more, and we do
-not currently know why. The leading untested candidate is calibration volume:
-131,072 tokens against the paper's 6,100 sequences, whose length it does not
-state. (Input-only versus Input + Output incoherence rotation looked like the
-obvious suspect and is not: in the paper's own Table 9, adding the output stage
-moves MMLU by −1.7 to +1.8 points across four configurations, mean ≈ 0.)
+## What is in the file
 
-## Quantization recipe
+| part | how it is stored |
+|---|---|
+| 168 of the 252 projections | Tetra lattice codes: 48 bits per block of 24 weights, one scale per row, a small tail kept exact |
+| `v_proj` of every layer, `o_proj` of every layer, `down_proj` of layers 12 to 23 | int4, groups of 128 |
+| embedding, tied to the output head | int4, groups of 64 |
+| norms and everything the quantizer does not touch | f16 |
+| `config.json`, tokenizer | copied byte for byte from the checkpoint |
 
-**Algorithm 1 of the paper (shape–gain with gain reset) plus an input-side
-incoherence rotation.** Angular search capped to the **Λ₂₄(12) ball**, the
-union of shells 2..12, i.e. the paper's own `norm(Λ₂₄(12))` codebook, 47 index
-bits plus one gain bit, per-row scale in f64, tail columns kept exact.
-Calibration on **C4**, out of domain with respect to WikiText-2, as the
-paper's calibration is (it uses DCLM-edu), 64 windows of 2048 tokens
-(131,072 tokens). 4 h on an M3 Max.
+The codes were fitted with GPTQ-style corrections on 131,072 tokens of
+DCLM-edu. The scale of each weight row was then retrained against the FP16
+model, with the codes frozen. Each step is measured on the full MMLU test set:
 
-This is **not** the paper's Spherical GPTQ. With a finite gain codebook the
-Eq. 17 retraction is a no-op, because the quantizer has already placed the
-block on the nearest level's sphere, and the closed-form group-scale
-refinement of Algorithm 3 is disabled. An earlier version of this card
-described the recipe as using spherical retraction; it does not.
+| step | MMLU |
+|---|---|
+| Tetra codes, int4 `v_proj` | 57.95 |
+| + retrained row scales | 61.11 |
+| + int4 `o_proj` and `down_proj` 12 to 23, 4-bit embedding (this file) | 63.37 |
 
-## How to run it
+## Running it
 
 ```bash
 git clone https://github.com/pjmalandrino/llvq && cd llvq
-```
-```bash
-hf download Pier-Jean/Qwen3-4B-LLVQ-2bit qwen3-4b-llvq.bin --local-dir .
-```
-```bash
-# Apple Silicon
-cargo run --release -p llvq-llm --features metal --bin run -- qwen3-4b-llvq.bin metal 24
-```
-```bash
-# CPU, anywhere
-cargo run --release -p llvq-llm --bin run -- qwen3-4b-llvq.bin cpu 24
-```
-
-The cargo feature and the third argument are separate: asking for `metal`
-without the feature is an error. Nothing else is required, no Hugging Face
-cache, no network. Verified with an empty environment:
-
-```bash
-env -i HOME=/nonexistent PATH=/usr/bin:/bin ./target/release/run qwen3-4b-llvq.bin cpu 14
+hf download Pier-Jean/Qwen3-4B-LLVQ-2bit qwen3-4b-sealed.bin --local-dir .   # once hosted
+# NVIDIA GPU, through the served kernel
+LLVQ_CONFIG=configs/qwen3-4b-tetra-e4.json \
+  cargo run --release -p llvq-llm --features cuda --bin chat -- qwen3-4b-sealed.bin cuda
+# Apple silicon, dense reconstruction (the Metal fused path does not run this file)
+cargo run --release -p llvq-llm --features metal --bin chat -- qwen3-4b-sealed.bin metal
+# GSM8K and MMLU, as measured above
+LLVQ_CONFIG=configs/qwen3-4b-tetra-e4.json LLVQ_GSM8K_DUMP=gsm8k.jsonl \
+  cargo run --release -p llvq-llm --features cuda --bin gsm8k -- qwen3-4b-sealed.bin cuda
+cargo run --release -p llvq-llm --features cuda --bin mmlu -- qwen3-4b-sealed.bin cuda
 ```
 
-**Budget the RAM before you download.** `bin/run` decodes every weight into
-memory, so the resident model is 8.045 GB of f16 regardless of what the file
-costs on disk. Measured peak RSS: **9.79 GB on CPU, 17.41 GB on Metal**. A
-16 GB machine will swap on the Metal path. On these two commands the size win
-is on disk only.
-
-The CUDA runner is the exception. It keeps the weights encoded and holds the
-same model in 2.93 GB of card memory, 2.57 GB in the served configuration v1
-(frozen 2026-08-31: `LLVQ_EMBED=q8 LLVQ_ROT_SHARE=1 LLVQ_FUSE=1`). It needs a
-Linux host with an NVIDIA card:
-
-```bash
-LLVQ_EMBED=q8 LLVQ_ROT_SHARE=1 LLVQ_FUSE=1 \
-cargo run --release -p llvq-llm --features cuda --bin fusedrun -- qwen3-4b-llvq.bin 128
-```
-
-*(The 2.96/2.60 GB pair quoted here until 2026-09-01 were the pre-B2 single
-points; 2.93 and 2.56/2.57 are the B2 host byte counts, and the command above
-is the frozen served configuration.)*
+`configs/qwen3-4b-tetra-e4.json` is the served configuration: the Tetra layout,
+the 4-bit embedding, one rotation per group of projections, an f16 KV cache.
 
 ## Limitations
 
-* **No speedup and no memory win on `bin/run`, whatever the backend.** The
-  portable runner decodes every weight into memory and then does an ordinary
-  matvec, so on CPU and on Metal this file costs 8.045 GB resident and buys
-  only disk. It does have a KV cache (an earlier version of this card said it
-  did not); on an L40S the sealed file generates at 42.7 tok/s through that
-  path.
-* **There is a fused path, and it is CUDA-only.** A fused
-  dequantize + matvec kernel decodes the Leech blocks on the card without ever
-  materializing f16 weights. It is wired into the model and driven by
-  `bin/fusedrun` (Linux + `--features cuda`). On these exact bytes, L40S,
-  128 tokens, default `Planes14` layout: **48.3 tok/s [48.1–48.3] in 2.93 GB
-  of card memory against 43.5 [43.4–43.5] in 8.04 GB** for the dense arm.
-  That is **×1.11 [1.11–1.11] in speed and ÷2.75 in memory**, 5.89 bits/param
-  over the whole model, and the same greedy tokens up to a tie-break at
-  token 89. *(This card carried the single points 48.7/×1.12 until
-  2026-08-31; the B2 medians land within the inter-invocation dispersion.)*
-  Setting `LLVQ_EMBED=q8` quantizes the tied embedding at load and takes the
-  same bytes to **87.0 tok/s [86.8–87.0] in 2.56 GB** (5.162 bits/param,
-  measured on the exact bytes). The **served configuration v1, frozen
-  2026-08-31** (`+ LLVQ_ROT_SHARE=1 LLVQ_FUSE=1`, launch fusion measured in
-  band at all three sizes) reaches **100.6 tok/s [99.9–100.7] in 2.57 GB**;
-  that ×2.00 is mostly a replacement of an output head that recopies 778 MB
-  of vocabulary per token, and **not** the Leech kernel, whose own
-  contribution is the ×1.12. The two are never quoted apart. That copy is on
-  *our* side: our dense arm calls `Tensor::broadcast_matmul`, whose
-  rank-2-rhs path materializes the transposed weight every call. Models built on
-  `candle_nn::Linear`, including candle's own, fold the batch dimensions and
-  never pay it, so this is a trap in the primitive rather than a defect of
-  candle's models ([reported
-  upstream](https://github.com/huggingface/candle/issues/3871)). **On Apple
-  silicon none of this applies**: `llvq-metal` is a benchmark
-  (2.03–2.09× FP16 on the 252 projections, every output row verified against
-  an f64 reference) with no runner behind it. Logs:
-  `docs/mesures/planes14-fusedrun-2026-08-06.txt`,
-  `docs/mesures/phases-2026-08-07.txt`,
-  `docs/mesures/k1-metal-2026-08-05.txt`.
-* **A 4-bit quantization beats this model on capabilities, and that is now
-  measured rather than assumed.** Qwen's own AWQ 4-bit checkpoint, run through
-  this project's harness on the same card with the same questions and the same
-  token fingerprint, scores **70.04 ± 1.25 on MMLU against this file's 55.59 ±
-  1.35**, and ×1.105 perplexity against ×1.384. On a paired, subject-stratified
-  bootstrap over the same 2,280 questions, AWQ − f16 is **+0.27 pp, 95% CI
-  [−1.63; +2.13]**. The interval contains zero, so the two are
-  *indistinguishable under this protocol*, which is not the same as equal.
-  Against this file the same test gives **+14.45 pp, 95% CI [+11.60; +17.27]**,
-  resolved, and by a wide margin. This artifact wins disk size, and, with the
-  fused path and an int8 embedding, card memory: **5.162 bits/param, measured
-  by `rtbits` on the actual bytes, against 5.302 computed for AWQ in its own
-  engine** (measured against computed: AWQ has never been loaded quantized in
-  our harness). It loses quality, by 14 points.
-  Logs: `docs/mesures/a4-campagne-2026-08-06.txt`,
-  `docs/mesures/mmlupair-4b-8b-2026-08-13.txt`.
-* **The format is not portable.** About 1,400 lines of dependency-free Rust
-  (`llvq-artifact`) define the container, of which ~425 are the on-disk format
-  itself, but *decoding* also needs `llvq-search` and `llvq-core` for the
-  Leech index, some 6,500 dependency-free lines in all. A reader in another
-  language is tractable, not trivial, and does not exist yet.
-* **No commonsense-reasoning or task-specific evaluation, and no error bar on
-  *this* perplexity.** A dispersion has since been measured, but on another
-  object: three calibration seeds on a 3-block Qwen3-0.6B run give σ ≈ 0.15
-  perplexity (≈ 0.7%) around ~20.66. That does not transfer to the 16.9415
-  above, a different model, 3 blocks against 36, a different scale, and no σ
-  has ever been measured on the full-model number. The older and cruder
-  observation also stands: ~7% between two configurations that a test proves
-  were the same quantizer, n = 2, cause unresolved.
-* **Determinism is uneven.** The Leech encoder is exactly deterministic and
-  pinned by a test, but the calibration Hessians accumulate `AᵀA` in f32 on the
-  accelerator, so re-running the recipe on another backend does not reproduce
-  these weights.
-* **Evaluated on 12 windows**, not the full 73. The FP32 baseline lands 1.4%
-  under the paper's, so this window subset is slightly easier.
-* **The published quantization command reproduces the method, not these
-  bytes.** The calibration shard and the container format both moved after this
-  file was written.
+- **One GPU.** Every number is on one NVIDIA L40S. On an A100, none of our
+  earlier lattice kernels beat FP16.
+- **Batch 1, short context.** Nothing here measures several requests at once,
+  or prompts longer than about 1,400 tokens.
+- **One calibration draw.** At 4B, three draws moved MMLU by 2.92 points. The
+  paired gaps compare fixed files and do not depend on it; the absolute levels
+  do.
+- **GSM8K is an easy test for this model family.** FP16 scores 92 to 95 %, and
+  the problems have been public since 2021. Qwen3's reasoning mode, which writes
+  much longer chains, is not tested.
+- **The format is read only by this repository's Rust code**, which has no
+  external dependency. A reader in another language does not exist.
+- **Not bit-reproducible across backends.** The calibration accumulates in f32
+  on the accelerator, so encoding again elsewhere gives other codes.
+
+## Citation
+
+- Paper 2, *Tetra: Serving Leech-Lattice Quantized LLMs at 2.7 Bits per
+  Parameter*, in the repository under `paper2/`.
+- Paper 1, the earlier layout: DOI
+  [10.5281/zenodo.22133606](https://doi.org/10.5281/zenodo.22133606).
+- The method: van der Ouderaa et al.,
+  [arXiv:2603.11021](https://arxiv.org/abs/2603.11021).
+
+Measurement logs, preregistrations and the job registry behind every number are
+in the repository: `docs/mesures/gsm8k-wave1-2026-09-26.txt`,
+`docs/mesures/gsm8k-wave2-2026-09-26.txt`, `docs/mesures/paper-table-2026-09-25.txt`,
+`docs/mesures/embed-q4-swap-2026-09-23.txt`.
 
 ## License and attribution
 
-Apache 2.0, inherited from
-[Qwen/Qwen3-4B](https://huggingface.co/Qwen/Qwen3-4B). The `LICENSE` file in
-this repository is Qwen's, carried over unchanged.
+Apache 2.0, inherited from [Qwen/Qwen3-4B](https://huggingface.co/Qwen/Qwen3-4B).
+The `LICENSE` file is Qwen's, carried over unchanged.
 
-**Modification made to the original work:** the 252 linear projection weight
-tensors of every transformer block have been replaced by Leech lattice codes
-(index + gain per 24 weights, with a per-row scale) and are reconstructed at
-load time. All other tensors are the originals, converted to f16. No training,
-no fine-tuning, no architectural change.
+**Modification made to the original work:** the weights of the 252 linear
+projections of every transformer block are replaced by Leech-lattice codes
+(Tetra) or by 4-bit integers, the scale of each row is retrained, and the tied
+embedding is stored in 4 bits. All other tensors are the originals, in f16.
+Only the row scales are trained, never the codes. No architectural change.
 
-The quantization implementation is at
+The quantization code is at
 [github.com/pjmalandrino/llvq](https://github.com/pjmalandrino/llvq)
 (MIT OR Apache-2.0).
