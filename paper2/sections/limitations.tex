@@ -2,41 +2,27 @@
 \label{sec:limitations}
 
 \begin{itemize}
-\item \textbf{One card.} Every number we measured for a table or figure is on
-  one NVIDIA L40S. On an A100, with the same benchmark at tile 128, none of our
-  earlier lattice kernels ran faster than FP16~\citep{llvq1preprint}. We did not run \Tetra{} there. On an sm\_120
-  card, over all 252 matrices of two earlier 4B files, \Tetra{} ran at 0.82 to
-  1.03 times the speed of \Planes{}, depending on the tile. The best tile also
-  depends on the GPU (\S\ref{sec:tile}).
-\item \textbf{One calibration draw.} Every size is encoded from the same first
-  131{,}072 tokens of DCLM-Edu. Encoding the 4B model with the \Planes{}
-  codebook and three draws of calibration text spread MMLU over 5.83 points on
-  a 2{,}280-question sample (standard deviation 2.92). That is more than any
-  gain in Table~\ref{tab:chain}. Those gains compare fixed files on the same
-  questions, so this spread does not affect them. A different draw would start
-  from a different file, and the intervals of our gaps to FP16 and AWQ do not
-  include this spread.
+\item \textbf{One card.} Every number we measured for a table or figure comes
+  from one NVIDIA L40S. On an A100, at tile 128, none of our earlier lattice
+  kernels ran faster than FP16~\citep{llvq1preprint}, and we did not run
+  \Tetra{} there. On an sm\_120 card, over all 252 matrices of two earlier 4B
+  files, \Tetra{} ran at 0.82 to 1.03 times the speed of \Planes{}, depending
+  on the tile (\S\ref{sec:tile}).
+\item \textbf{One calibration draw.} Every size is encoded from the same
+  131{,}072 tokens (\S\ref{sec:setup}). At 4B, three calibration draws with
+  the \Planes{} codebook spread MMLU by more than any gain in
+  Table~\ref{tab:chain} (\S\ref{sec:kept}). Those gains compare fixed files,
+  so the spread does not affect them. The intervals of our gaps to FP16 and
+  AWQ do not include it.
 \item \textbf{MMLU is scored on the dense reconstruction}, not through the
-  kernel. Per-row checks against f64 and the 256-token comparison on one prompt
-  tie the two together. The tokens are identical at 4B and 8B, and first differ at token 78
-  at 14B. We did not also score MMLU through the kernel. GSM8K is scored
-  through it.
+  kernel, while GSM8K is (\S\ref{sec:setup}). The checks of
+  \S\ref{sec:kernel} tie the kernel to the reconstruction, though at 14B the
+  greedy tokens first differ at token 78.
 \item \textbf{GSM8K is an easy test for these models.} FP16 scores 92 to 95,
   and the problems have been public since 2021. We did not test Qwen3's
   thinking mode, which writes much longer chains, nor a harder math
   benchmark.
 \item \textbf{No perplexity} is reported for the sealed files.
-\item \textbf{Batch 1 and short context only.} Nothing here measures several
-  requests served together, or long prompts.
-\item \textbf{The MMLU of the 2-bit methods QTIP, QuIP\# and the original LLVQ
-  is cited.} It comes from other evaluation code and another protocol. Their
-  bit rates are per quantized weight, not over the whole model.
-\item \textbf{The kernel benchmark does not time equal work.} It times 216
-  matrices for \Tetra{} and 252 for every other arm (Table~\ref{tab:bench}).
-\item \textbf{The cost of splitting the search region is measured on blocks},
-  not on a model (\S\ref{sec:kept}). On MMLU, our comparison cannot separate it
-  from the calibration draw and the encoder drift.
-\item \textbf{The int4 split is compared at 8B only.} At 8B and about 2.7 bits
-  per parameter, \texttt{down\_proj} alone scored better than \texttt{o\_proj}
-  plus \texttt{down\_proj}, with fewer bytes. We did not test this at 4B and 14B.
+\item \textbf{Batch 1 and short context only}: one request at a time, and no
+  long prompts.
 \end{itemize}

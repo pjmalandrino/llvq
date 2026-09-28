@@ -652,3 +652,14 @@ The same day, the 24 cited works and the 67 provenance rows were checked against
 publications and files: 55 problems, one dead URL (the CUDA guide), and a dozen attributions
 narrowed to what the cited work says, the chief one that the cited QTIP scores and the timed QTIP
 kernel are two different codes. 20 pages.
+
+## 2026-09-28. Paper 2, from 20 pages to 14
+
+The same paper in 14 pages, with no number changed and three intervals added (FP16 minus AWQ, from paper2-gaps.csv).
+Four readers proposed 212 cuts and four skeptics tried to refute each; five editors applied the kept ones and five
+verifiers checked every diff. The provenance table (2.3 pages) moved to `paper2/PROVENANCE.md` and the commands to
+`paper2/README.md`. The tile figure, the scale figure and panel (a) of Figure 2 went, their values kept in the text.
+The defects paragraph, an erratum about a draft never distributed, the second training and four limitations that
+restated a caveat of the body went too. Each caveat of the audit is stated once. The intro and the conclusion now name
+section 6.4, marked as chosen after measuring. Appendix A and its QTIP row, the full predictions table and Figure 4
+stay.

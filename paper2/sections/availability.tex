@@ -1,30 +1,27 @@
 \section*{Availability}
 
-The code, the measurement logs behind every number, the preregistrations and this
-paper's source are at \url{https://github.com/pjmalandrino/llvq}. They are
-under MIT or Apache-2.0, and the paper under CC BY 4.0.
-Appendix~\ref{app:record} lists the files and the commands that rerun the main
-measurements.
+The code, the measurement logs behind every number, the preregistrations and
+this paper's source are at \url{https://github.com/pjmalandrino/llvq}. They
+are under MIT or Apache-2.0, and the paper under CC BY 4.0. Each number in
+this paper is \emph{measured} (read off a run), \emph{computed} (arithmetic on
+measured quantities) or \emph{cited}. \nolinkurl{paper2/PROVENANCE.md} names the source
+of each.
+\nolinkurl{paper2/README.md} gives the commands that rerun the main
+measurements. A script draws every data figure from a CSV in
+\texttt{docs/data/}, and a second one stops the build if a table no longer
+matches its CSV. The SHA-256 digests of the three sealed files begin with
+\texttt{886391a8} (\nolinkurl{qwen3-4b-sealed.bin}), \texttt{7bdb9a55}
+(\nolinkurl{qwen3-8b-sealed-B.bin}) and \texttt{61db37fe}
+(\nolinkurl{qwen3-14b-sealed.bin}).
 
-The benchmark in Appendix~\ref{app:bench} uses the QTIP kernel. That kernel is
-under GPL~v3, so we do not redistribute it. The benchmark downloads it at a
-fixed commit.
-
-Before each measurement campaign, we wrote its plan in a timestamped file
-called a preregistration. Three results printed here have none. The ten-arm
-benchmark of Appendix~\ref{app:bench} reran the preregistered ten-arm
-benchmark at the tile the preregistered sweep chose. The retention figures of
-\S\ref{sec:kept} were measured on the development machine without one. The
-comparison of \S\ref{sec:sizeup} reuses measured scores and was chosen after
-measuring. A preregistration names the arms (the configurations compared), the
-decision rules and a prediction. These files are never edited afterwards. When
-a campaign departs from its plan, we write the change next to the file.
+The QTIP kernel of Appendix~\ref{app:bench} is under GPL~v3, so we do not
+redistribute it: the benchmark downloads it at a fixed commit.
 
 \section*{Use of generative AI}
 
-Anthropic's Claude, used through the Claude Code command-line tool in 2026,
-drafted and revised the text and drew the figures. It wrote parts of the CUDA
-kernels, the Rust host code and the tests. It recomputed statistics from the
-measurement logs committed to the repository. The author designed the study,
-authorized every measurement, checked each number against its source, and is
-responsible for the whole paper.
+Anthropic's Claude, through the Claude Code command-line tool (2026), drafted
+and revised the text and drew the figures. It wrote parts of the CUDA kernels,
+the Rust host code and the tests. It recomputed statistics from the committed
+measurement logs. The author designed the study, authorized every
+measurement, checked each number against its source, and is responsible for
+the whole paper.

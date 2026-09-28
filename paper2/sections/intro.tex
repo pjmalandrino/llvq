@@ -1,95 +1,71 @@
 \section{Introduction}
 \label{sec:intro}
 
-A 14-billion-parameter model in FP16 (16-bit floats) needs 29.5~GB for its
-weights alone. That is more than a 24~GB consumer GPU holds. At batch 1,
-serving one request at a time, a model reads every weight once for each token.
-So the size of the weights sets both its memory and its speed. Two or three
-bits per parameter let such a model run on local hardware.
+A 14-billion-parameter model needs 29.5~GB for its FP16 weights alone, more
+than a 24~GB consumer GPU holds. At batch 1 a model reads every weight once per
+token, so weight size sets both memory and speed. Two or three bits per
+parameter let such a model run on local hardware.
 
-Vector quantization rounds a group of weights to the nearest point of a fixed
-set, the codebook. \citet{llvq2026} take that set from the Leech lattice
-$\Lambda_{24}$, a regular arrangement of points in 24 dimensions. At two bits
-per weight, their method gives the best quality in their comparison, ahead of
-QuIP\#~\citep{quipsharp2024} and QTIP~\citep{qtip2024}. Each block of 24
-weights becomes one 48-bit code, but the codebook has more than $10^{14}$
-points. Fast 2-bit GPU kernels look each code up in a table of at most
-$2^{16}$ entries~\citep{quipsharp2024,aqlm2024,vptq2024}, or compute its
-weights in a few instructions~\citep{qtip2024}. A table of more than $10^{14}$
-entries cannot be stored. In earlier work~\citep{llvq1preprint} we expanded each
-code at load time into a wider format, which the kernel decodes with shifts
-and masks. It worked, but the kernel read 4.804 bits per weight from GPU
-memory (VRAM) for 2 bits of code, more than the 4.179 of 4-bit AWQ. The
-saving was lost on the GPU (Figure~\ref{fig:gap}).
+\citet{llvq2026} quantize blocks of 24 weights to points of the Leech lattice
+$\Lambda_{24}$. At two bits per weight, their method gives the best quality in
+their comparison, ahead of QuIP\#~\citep{quipsharp2024} and
+QTIP~\citep{qtip2024}. Each block becomes one 48-bit code in a codebook of more
+than $10^{14}$ points, too many for a lookup table (\S\ref{sec:background}).
+In earlier work~\citep{llvq1preprint} we expanded each code at load time into
+a wider format decoded with shifts and masks. The kernel then read 4.804 bits
+per weight from GPU memory (VRAM) for 2 bits of code, more than the 4.179 of
+4-bit AWQ, and the saving was lost (Figure~\ref{fig:gap}).
 
-This paper removes that loss, then builds complete models around the result.
-
-The first part is \Tetra{}, a new codebook on the same lattice. The lattice
-is built from the Golay code, a binary code of length 24. Some of its
-codewords have exactly eight ones, and three of them cover all 24 coordinates.
-Read in those three groups of eight, the code becomes a
-trellis~\citep{forney1988}: a layered graph with 64 nodes at each cut between
-groups, where each codeword is one path. A block is
-then stored as an 8-bit state (the trellis state plus two parity bits), a few
-bits that choose the path and the gain, and three 11-bit indices into one
-16~KiB table. That is still 48 bits. The kernel decodes a block with six table
-loads and two small lookups for its scale, and reads 2.148 bits per weight.
-
-The second part builds complete model files. We start from the lattice codes,
-with the small value matrices of attention stored as 4-bit integers. Qwen3-4B
-then scores about 12 points below FP16 on MMLU, a standard multiple-choice
-test. Three changes close part of that gap without changing a single code. We
-retrain the scale of each weight row to match the FP16 model. We store more of
-the weight matrices (projections) that lose the most as 4-bit integers. We store the embedding tables in 4 bits to make room for them. The
-files stay near 2.7 bits per parameter over the whole model
-(\S\ref{sec:file}).
+This paper removes that loss with \Tetra{}, a new codebook on the same
+lattice, then builds complete models around it. The lattice is built from the
+Golay code, a binary code of length 24. Three of its codewords with eight ones
+cover all 24 coordinates. Read in those three groups of eight, the code is a
+trellis~\citep{forney1988}: a layered graph with 64 nodes at each cut, where
+each codeword is one path. A block is stored as its state, a few bits that
+choose the path and the gain, and three 11-bit indices into one 16~KiB table,
+still 48 bits. The kernel decodes it with six table loads and two small
+lookups, and reads 2.148 bits per weight.
 
 \begin{figure}[t]
 \centering
 \includegraphics{fig_gap.pdf}
 \caption{Bits of code a format carries per weight (hollow marker) and bits its
 kernel reads per weight in VRAM (filled marker). Circles are our formats,
-squares are deployed kernels. The three 2-bit formats carry 2.000 bits of
-code. \Planes{}, our earlier layout, reads $2.40\times$ that because it
-expands its codebook first. \Tetra{} reads $1.07\times$ that. The extra bits
-are the row scales and a small tail of weights kept unquantized, not the
-code. This benchmark stores both in f32. The served kernel reads the tail in
-f16. FP16 is left out: it carries and reads 16.000 bits per weight.
-Data: echelle-formats.csv.}
+squares deployed kernels. \Planes{}, our earlier layout, reads $2.40\times$ its 2.000
+bits of code as it expands its codebook first, and \Tetra{} $1.07\times$.
+\Tetra{}'s extra bits are its row scales and the unquantized tail of each row,
+both in f32 in this benchmark (\S\ref{sec:file}). QTIP reads no row scales or
+tail, and its 2~KiB table is not counted (Appendix~\ref{app:bench}). FP16
+(16.000~\bw{}) is left out. Data: echelle-formats.csv.}
 \label{fig:gap}
 \end{figure}
 
 Our contributions:
 \begin{itemize}
-\item \Tetra{}, a codebook on $\Lambda_{24}$ read through a 64-state trellis
-  of the Golay code and one 16~KiB table. We give the rule this design imposes
-  on which points to keep, and measure what it costs on Gaussian and real
-  weight blocks (\S\ref{sec:tetra}).
-\item A fused kernel that decodes the weights and multiplies them by the
-  input vector in one pass. It reads 2.148 bits per weight, against 4.804 for our earlier
-  layout and 4.179 for 4-bit AWQ~\citep{awq2024} (\S\ref{sec:kernel}).
-\item A recipe for complete files at about 2.7 bits per parameter. We measure
-  each step on Qwen3-4B, 8B and 14B over the full MMLU test set. The
-  confidence intervals are paired: each step and the one before it answer the
-  same questions (\S\ref{sec:model}, \S\ref{sec:chain}).
-\item Quality, speed and memory of our served files against FP16 and AWQ at
-  all three sizes, and against 2-bit formats at 4B (\S\ref{sec:main}). Quality
-  includes GSM8K, generated through the served kernel (\S\ref{sec:gsm8k}).
+\item \Tetra{}, a codebook on $\Lambda_{24}$ read through a Golay trellis and
+  one table, with the rule it imposes on which points to keep and its measured
+  cost (\S\ref{sec:tetra}).
+\item A fused kernel that decodes and multiplies in one pass, reading 2.148
+  bits per weight against 4.804 for our earlier layout and 4.179 for 4-bit
+  AWQ~\citep{awq2024} (\S\ref{sec:kernel}).
+\item A recipe for complete files at about 2.7 bits per parameter that changes
+  no lattice code: retrained row scales, int4 for the projections that lose the
+  most, and 4-bit embedding tables to pay for them. On Qwen3-4B, the lattice
+  file with int4 value matrices scores about 12 MMLU points below FP16, and the
+  recipe closes part of that gap. Each step is measured at 4B, 8B and 14B with
+  paired intervals over the full MMLU test set (\S\ref{sec:model},
+  \S\ref{sec:chain}).
+\item MMLU, GSM8K through the served kernel, speed and memory of our files
+  against FP16 and AWQ at three sizes, and against 2-bit formats at 4B
+  (\S\ref{sec:main}, \S\ref{sec:gsm8k}). With about as much weight memory or
+  less, our 8B and 14B score above AWQ's 4B and 8B on MMLU and tie them on
+  GSM8K (\S\ref{sec:sizeup}, a comparison chosen after measuring).
 \end{itemize}
 
-Our files do not match AWQ on quality. They score 4.76, 4.21 and 2.46 MMLU
-points below it at 4B, 8B and 14B. At 14B the gap is about half the gap at
-4B. They
-use about half its memory: 2.7 bits per parameter against 5.3 to 6.0. In our
-own inference engine, they generate 113.8, 95.0 and 57.2 tokens per second
-at 4B, 8B and 14B. Their weights take 1.38, 2.76 and 5.04~GB. At 4B they score 23.6 points
-above IQ2\_XXS, a 2-bit llama.cpp format, whose 4B file takes 2.48 bits per
-parameter.
-On GSM8K, run through the kernel, they lose 9.63, 4.62 and 3.26 points to
-FP16. In points, that is more than on MMLU at 4B, and this test cannot
-separate the two losses at 8B and 14B. Counted in errors, it is more at every
-size. Every number we measured for a table or figure comes from the same GPU,
-one NVIDIA L40S. For the experiments
-behind the main results, we fixed the plan and our predictions before
-measuring, and we report the predictions that were wrong
-(Appendix~\ref{app:record}).
+Our files do not match AWQ on quality, and at 14B their MMLU gap to AWQ is
+about half the gap at 4B. They use about half its memory: 2.7 bits per
+parameter against 5.3 to 6.0 (\S\ref{sec:main}). On GSM8K, run through the
+kernel, they lose more to FP16 than on MMLU when counted in errors, at every
+size (\S\ref{sec:gsm8k}). For the experiments behind the main results, we fixed
+the plan and our predictions before measuring, and we report the predictions
+that were wrong (Appendix~\ref{app:record}).

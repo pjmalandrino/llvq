@@ -5,8 +5,7 @@ The art direction is paper 1's (`paper/scripts/make_figures.py`), copied rather
 than reinterpreted: Okabe-Ito palette, serif type at 7-8 pt, grey axes without
 top and right spines, a light grid, figures drawn at the 5.5 in text width they
 are printed at. Our arms are circles in the cool colours, blue for the object
-of the paper; deployed kernels are squares in the warm ones. The scale figure
-is paper 1's `fig_scale` with the same three series styles.
+of the paper; deployed kernels are squares in the warm ones.
 
 No number in a figure is typed by hand except the layout constants listed in
 `HARDCODED`, and every CSV row a figure claims to draw is drawn or the script
@@ -14,11 +13,6 @@ fails with the row named.
 
   fig_gap.pdf     bits carried vs bits read in VRAM     echelle-formats.csv
   fig_word.pdf    two records to bit scale, one zoom    (layout constants)
-  fig_tile.pdf    the tile sweep, three arms            tuile-l40s.csv
-  fig_scale.pdf   three sizes, three panels             paper2-gaps.csv,
-                                                         paper2-chain.csv,
-                                                         paper2-results.csv,
-                                                         echelle-4b-8b.csv
 """
 
 import csv
@@ -271,158 +265,11 @@ def fig_word() -> None:
     plt.close(fig)
 
 
-# ---------------------------------------------------------------------------
-# The tile sweep
-# ---------------------------------------------------------------------------
-
-def fig_tile() -> None:
-    """Median ms against the activation tile for three arms, one process per tile:
-    the arm with the larger tables, Planes14 with its 12 KiB class table, and the
-    no-weights control."""
-    rows = read_csv("tuile-l40s.csv")
-    rows.sort(key=lambda r: int(r["tile"]))
-    tiles = [int(r["tile"]) for r in rows]
-    series = [
-        ("planes14_ms", "Planes14, 12 KiB table", SKY, "o", "-"),
-        ("tetra48_ms", "Tetra, 18.4 KiB of tables", BLUE, "o", "-"),
-        ("nullk_ms", "no-weights control", GRAY, "^", ":"),
-    ]
-    fig, ax = plt.subplots(figsize=(TEXTWIDTH_IN * 0.66, 2.15),
-                           layout="constrained")
-    for col, label, color, marker, ls in series:
-        ys = [float(r[col]) for r in rows]
-        ax.plot(tiles, ys, marker + ls, color=color, markersize=4.5,
-                linewidth=1.2, label=label, zorder=3)
-        amp = 100 * (max(ys) / min(ys) - 1)
-        ax.annotate(f"{amp:.1f}%", xy=(tiles[-1], ys[-1]), xytext=(5, 0),
-                    textcoords="offset points", ha="left", va="center",
-                    fontsize=7.5, color=color, annotation_clip=False)
-
-    ax.set_xscale("log", base=2)
-    ax.set_xticks(tiles, [str(t) for t in tiles])
-    ax.set_xlim(27, 165)
-    ax.set_ylim(1.9, 7.4)
-    ax.set_xlabel("activation tile $T$ (blocks per CTA)")
-    ax.set_ylabel("median ms per pass")
-    ax.grid(axis="y", zorder=0)
-    ax.legend(frameon=False, loc="upper left", bbox_to_anchor=(0.0, 1.0),
-              handlelength=1.8, borderaxespad=0.1)
-    fig.savefig(OUT / "fig_tile.pdf")
-    plt.close(fig)
-
-
-# ---------------------------------------------------------------------------
-# Three sizes, three panels (paper 1's fig_scale, same series styles)
-# ---------------------------------------------------------------------------
-
-def fig_scale() -> None:
-    """Against model size: the paired MMLU gaps, whole-model bits per
-    parameter, and decode speed at batch 1, each engine in its own series."""
-    gaps = read_csv("paper2-gaps.csv")
-    chain = read_csv("paper2-chain.csv")
-    results = read_csv("paper2-results.csv")
-    scale = read_csv("echelle-4b-8b.csv")
-
-    sizes = {r["model"]: int(r["params_total"]) / 1e9 for r in scale}
-    models = sorted(sizes, key=sizes.get)
-    xs = [sizes[m] for m in models]
-    short = {m: m.replace("Qwen3-", "") for m in models}
-
-    fig, (a1, a2, a3) = plt.subplots(1, 3, figsize=(TEXTWIDTH_IN, 1.95),
-                                     layout="constrained")
-
-    def line(ax, pts, color, label, marker="o", ls="-"):
-        """pts: (x, y, lo, hi); lo == hi == y draws no bar."""
-        pts = sorted(pts)
-        ax.errorbar([p[0] for p in pts], [p[1] for p in pts],
-                    yerr=[[p[1] - p[2] for p in pts], [p[3] - p[1] for p in pts]],
-                    fmt=marker + ls, color=color, markersize=4, linewidth=1.1,
-                    capsize=2.5, elinewidth=0.9, capthick=0.9, label=label,
-                    zorder=3)
-
-    # (i) MMLU gap in points, paired 95% CI, zero line.
-    done_gap = set()
-    a1.axhline(0, color=GRAY, linewidth=0.7, linestyle=":", zorder=1)
-    for pair, color, label, dx, marker, ls in (
-            ("f16_minus_tetra", BLUE, "FP16 − Tetra", 0, "o", "-"),
-            ("awq4_minus_tetra", VERMILLION, "AWQ − Tetra", 0.18, "s", "--"),
-            ("f16_minus_awq4", GREEN, "FP16 − AWQ", -0.18, "^", ":")):
-        rows = [r for r in gaps if r["pair"] == pair]
-        line(a1, [(sizes[r["model"]] + dx, float(r["delta_pp"]),
-                   float(r["ci_lo_pp"]), float(r["ci_hi_pp"])) for r in rows],
-             color, label, marker, ls)
-        done_gap |= {(r["model"], r["pair"]) for r in rows}
-    a1.set_ylabel("MMLU gap (points)")
-    a1.set_ylim(-1, 9)
-    a1.legend(frameon=False, loc="upper right")
-
-    # (ii) whole-model bits per parameter, served file against AWQ.
-    tetra_bpp = {r["model"]: float(r["bparam"]) for r in chain
-                 if r["stage"] == "sealed"}
-    awq_bpp = {r["model"]: float(r["vram_bits_per_param"]) for r in scale
-               if r["arm"] == "awq4"}
-    line(a2, [(sizes[m], v, v, v) for m, v in tetra_bpp.items()], BLUE,
-         "Tetra, served (ours)")
-    line(a2, [(sizes[m], v, v, v) for m, v in awq_bpp.items()], GREEN,
-         "4-bit AWQ, official", marker="s", ls="--")
-    for m, v in tetra_bpp.items():
-        a2.annotate(f"{v:.2f}", xy=(sizes[m], v), xytext=(0, -9),
-                    textcoords="offset points", ha="center", fontsize=6.5,
-                    color=BLUE)
-    for m, v in awq_bpp.items():
-        a2.annotate(f"{v:.2f}", xy=(sizes[m], v), xytext=(0, 5),
-                    textcoords="offset points", ha="center", fontsize=6.5,
-                    color=GREEN)
-    a2.set_ylabel("b/param, whole model")
-    a2.set_ylim(2.0, 6.9)
-    a2.legend(frameon=False, loc="center right")
-
-    # (iii) decode tokens per second at batch 1, each engine its own series.
-    done_speed = set()
-    pending = {}
-    for arm, engine, color, label, marker, ls in (
-            ("tetra", "ours", BLUE, "Tetra (ours)", "o", "-"),
-            ("awq", "vLLM 0.26.0", GREEN, "AWQ (vLLM)", "s", "--"),
-            ("fp16", "vLLM 0.26.0", GRAY, "FP16 (vLLM)", "^", ":")):
-        rows = [r for r in results if r["arm"] == arm and r["engine"] == engine]
-        have = [r for r in rows if r["toks"]]
-        for r in rows:
-            if not r["toks"]:
-                pending[(r["model"], arm, engine)] = "served run not back yet"
-        if have:
-            line(a3, [(sizes[r["model"]], float(r["toks"]), float(r["toks"]),
-                       float(r["toks"])) for r in have], color, label, marker, ls)
-        done_speed |= {(r["model"], r["arm"], r["engine"]) for r in have}
-    a3.set_ylabel("decode tok/s, batch 1")
-    a3.set_ylim(0, 230)
-    a3.legend(frameon=False, loc="upper right")
-
-    for ax in (a1, a2, a3):
-        ax.set_xticks(xs, [short[m] for m in models])
-        ax.set_xlim(min(xs) - 1.8, max(xs) + 1.8)
-        ax.set_xlabel("model size")
-        ax.grid(axis="y", zorder=0)
-
-    require_plotted("fig_scale", "paper2-gaps.csv",
-                    {(r["model"], r["pair"]) for r in gaps}, done_gap, {})
-    require_plotted(
-        "fig_scale", "paper2-results.csv",
-        {(r["model"], r["arm"], r["engine"]) for r in results}, done_speed,
-        {**pending,
-         **{(r["model"], r["arm"], r["engine"]): "not in the speed panel"
-            for r in results if r["arm"] == "iq2xxs"
-            or (r["arm"] == "fp16" and r["engine"] == "ours dense")}})
-    fig.savefig(OUT / "fig_scale.pdf")
-    plt.close(fig)
-
-
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     fig_gap()
     fig_word()
-    fig_tile()
-    fig_scale()
-    print(f"wrote 4 figures to {OUT}")
+    print(f"wrote 2 figures to {OUT}")
     print("numbers not read from a CSV:")
     for what, where in HARDCODED:
         print(f"  {what}  <-  {where}")

@@ -123,14 +123,14 @@ def check_bench() -> None:
 
 
 def check_tile() -> None:
-    """The tile table next to fig:tile, and the prose, against tuile-l40s.csv."""
+    """The tile sweep in the prose of kernel.tex against tuile-l40s.csv."""
     rows = read_csv("tuile-l40s.csv")
     body = [r[c] for r in rows
             for c in ("tile", "nullk_ms", "planes14_ms", "tetra48_ms")]
     for col in ("nullk_ms", "planes14_ms", "tetra48_ms"):
         ys = [float(r[col]) for r in rows]
         body.append(f"{100 * (max(ys) / min(ys) - 1):.1f}")
-    need("kernel.tex", body, "cell or range of the tile table")
+    need("kernel.tex", body, "value or range of the tile sweep")
 
 
 def check_shape() -> None:
