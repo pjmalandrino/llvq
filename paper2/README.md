@@ -72,12 +72,14 @@ dumps whose fingerprints differ.
 
 ## State (2026-09-28)
 
-Complete: 14 pages, no error, no overfull or underfull box, no undefined
+Complete: 15 pages, no error, no overfull or underfull box, no undefined
 reference, and `RELEASE=1 make check` passes (no pending cell). It was cut from
 20 pages on 2026-09-28 without changing a number: the provenance table moved to
 `PROVENANCE.md`, the commands to Reproduce above, the tile and scale figures
 were dropped with their values kept in the text, and repeated caveats are
-stated once. The served speeds
+stated once. The four review points of the same day ("not separated" for ties,
+the 14B divergence, selection on the MMLU test set, the embedding tables in the
+memory comparison) brought it back to 15. The served speeds
 of the three sealed files come from paper-table-2026-09-25. GSM8K, scored through
 the served kernel, comes from gsm8k-wave1-2026-09-26 and gsm8k-wave2-2026-09-26
 (§6.3). The comparison one size up comes from sizeup-2026-09-28 (§6.4). Every

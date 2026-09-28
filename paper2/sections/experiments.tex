@@ -20,7 +20,9 @@ gives the same answers and logits. Every comparison is paired on the same
 questions, with a 95\,\% interval from a bootstrap that resamples questions
 within each subject (10{,}000 draws) and an exact McNemar test. Our paired
 MMLU intervals are 0.7 to 1.7 points wide, so how small a gap this test
-separates depends on the pair.
+separates depends on the pair. A gap whose interval contains zero is \emph{not
+separated}. We ran no equivalence test, so this does not mean the two scores
+are equal.
 
 \paragraph{Reasoning.} To score generated reasoning, not one logit per
 question, we add all 1{,}319 test problems of GSM8K~\citep{gsm8k2021},
@@ -106,8 +108,12 @@ zero ($z=1.1$). AWQ itself is 2.00 $[1.50, 2.51]$, 1.27 $[0.83, 1.70]$ and
 0.75 $[0.40, 1.12]$ points below FP16.
 
 \paragraph{Memory.} The sealed files need 45 to 52\,\% of AWQ's bits per
-parameter. AWQ keeps its embedding and head in f16. These tables weigh most at
-8B (\S\ref{sec:q4emb}), where AWQ needs the most bits per parameter.
+parameter. Part of that comes from the embedding tables: ours are in 4 bits,
+and AWQ keeps its embedding and head in f16. These tables weigh most at 8B
+(\S\ref{sec:q4emb}), where AWQ needs the most bits per parameter. With AWQ's
+tables in 4 bits like ours, our files would need 64 to 65\,\% of its bits per
+parameter. We computed this from the bytes and did not measure AWQ's quality
+with such tables.
 
 \paragraph{Against other 2-bit formats at 4B.} IQ2\_XXS scores 23.6 points
 below our 4B file for 0.25 fewer bits per parameter. The cited rows come from
@@ -203,11 +209,12 @@ preregistered.
 On MMLU, our 8B scores 1.44 points above AWQ's 4B with 0.10~GB more weights,
 and our 14B 1.87 points above AWQ's 8B with 1.05~GB less, from unrounded bytes
 (both $p<10^{-3}$). That is 25 and 43\,\% of what one size is worth to AWQ. On
-GSM8K the same pairs tie ($p=0.74$ and $0.26$): the reasoning loss of our
-files takes back the gain of the larger model. Against FP16 one size below,
-our files tie on MMLU. On GSM8K our 8B loses to FP16's 4B, and our 14B ties
-FP16's 8B. Our 14B, in 5.04~GB, scores 5.52 MMLU points above FP16's 4B in
-8.04~GB and ties it on GSM8K. We compare no speed here: our 8B decodes 95.0
+GSM8K the same pairs are not separated ($p=0.74$ and $0.26$). Their intervals
+reach down to $-2.14$ and $-2.35$ points, so the larger model's gain does not
+appear on GSM8K. Against FP16 one size below, our files are not separated from
+it on MMLU. On GSM8K our 8B loses to FP16's 4B, and our 14B is not separated
+from FP16's 8B. Our 14B, in 5.04~GB, scores 5.52 MMLU points above FP16's 4B
+in 8.04~GB and is not separated from it on GSM8K. We compare no speed here: our 8B decodes 95.0
 tokens per second in our engine and AWQ's 4B 200.5 in vLLM.
 
 \paragraph{Where the larger model fits.} At 8{,}192 tokens in f16, the KV
@@ -270,3 +277,16 @@ parameter. That is 0.77 points $[0.26, 1.28]$ above int4 on all of
 68.81 at 2.7047 ($p=0.004$). We had predicted the opposite order. The 4B and
 14B files keep \texttt{o\_proj} in int4, and we have not tested the 8B choice
 there.
+
+\paragraph{Selection on the test set.} These choices were made on MMLU test
+questions, with no held-out split. At 8B we kept the better of the two files
+above, under a preregistered rule. At 4B the window of layers 12 to 23 was the
+best of three windows of twelve layers, scored on the full test set with an
+earlier 4B file. The projection types sent to int4 were ranked at 4B on
+samples of 2{,}280 questions. The 14B window follows a rule fixed before
+measuring: the largest centred window that the bytes freed by the tables pay
+for, the idea of the 4B window. So the MMLU scores of our files carry a
+selection bias that we did not measure for the files. For \texttt{o\_proj},
+the one choice checked on questions that did not select it, the gain is
+$+3.12$ points on the 2{,}280 that selected it and $+1.55$ on the other
+11{,}762. GSM8K chose nothing.

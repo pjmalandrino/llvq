@@ -17,7 +17,10 @@
 \item \textbf{MMLU is scored on the dense reconstruction}, not through the
   kernel, while GSM8K is (\S\ref{sec:setup}). The checks of
   \S\ref{sec:kernel} tie the kernel to the reconstruction, though at 14B the
-  greedy tokens first differ at token 78.
+  greedy tokens first differ at token 78, for a cause we did not measure.
+\item \textbf{The int4 choices were made on MMLU test questions}
+  (\S\ref{sec:chain}). Our MMLU scores carry a selection bias that we did not
+  measure for the files. GSM8K is the only benchmark that chose nothing.
 \item \textbf{GSM8K is an easy test for these models.} FP16 scores 92 to 95,
   and the problems have been public since 2021. We did not test Qwen3's
   thinking mode, which writes much longer chains, nor a harder math
