@@ -663,3 +663,15 @@ The defects paragraph, an erratum about a draft never distributed, the second tr
 restated a caveat of the body went too. Each caveat of the audit is stated once. The intro and the conclusion now name
 section 6.4, marked as chosen after measuring. Appendix A and its QTIP row, the full predictions table and Figure 4
 stay.
+
+## 2026-09-28. Paper 2, four review points and a proofreading pass
+
+A reviewer's four points, all taken, and the paper grows back to 15 pages. "Tie" becomes "not separated", defined once:
+no equivalence test was run, and the GSM8K intervals of the one-size-up pairs reach down to -2.14 and -2.35 points. The
+14B divergence at token 78 is reported as an observation: it moves to token 137 with f16 tables, the prefill gate shows
+logit differences up to 1.35 between two paths of the kernel, and the margin at token 78 was never measured. The paper
+now says the int4 choices were made on MMLU test questions, with no held-out split; the one measured case, `o_proj`,
+reads +3.12 on the questions that chose it and +1.55 on the other 11,762 (*measured*,
+[oproj-int4-full](mesures/oproj-int4-full-2026-09-17.txt)). GSM8K chose nothing. With AWQ's tables in 4 bits, our files
+would need 64 to 65 % of its bits per parameter, not about half (*computed*, [sizeup](mesures/sizeup-2026-09-28.txt)).
+A proofreading pass fixed six slips, among them the running header, whose small-caps ligature extracted as "qantized".

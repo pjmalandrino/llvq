@@ -6,7 +6,7 @@ than a 24~GB consumer GPU holds. At batch 1 a model reads every weight once per
 token, so weight size sets both memory and speed. Two or three bits per
 parameter let such a model run on local hardware.
 
-\citet{llvq2026} quantize blocks of 24 weights to points of the Leech lattice
+Van der Ouderaa et al.~\citep{llvq2026} quantize blocks of 24 weights to points of the Leech lattice
 $\Lambda_{24}$. At two bits per weight, their method gives the best quality in
 their comparison, ahead of QuIP\#~\citep{quipsharp2024} and
 QTIP~\citep{qtip2024}. Each block becomes one 48-bit code in a codebook of more
@@ -58,13 +58,15 @@ Our contributions:
 \item MMLU, GSM8K through the served kernel, speed and memory of our files
   against FP16 and AWQ at three sizes, and against 2-bit formats at 4B
   (\S\ref{sec:main}, \S\ref{sec:gsm8k}). With about as much weight memory or
-  less, our 8B and 14B score above AWQ's 4B and 8B on MMLU and tie them on
-  GSM8K (\S\ref{sec:sizeup}, a comparison chosen after measuring).
+  less, our 8B and 14B score above AWQ's 4B and 8B on MMLU and are not
+  separated from them on GSM8K (\S\ref{sec:sizeup}, a comparison chosen after
+  measuring).
 \end{itemize}
 
 Our files do not match AWQ on quality, and at 14B their MMLU gap to AWQ is
-about half the gap at 4B. They use about half its memory: 2.7 bits per
-parameter against 5.3 to 6.0 (\S\ref{sec:main}). On GSM8K, run through the
+about half the gap at 4B. They use about half its memory, 2.7 bits per
+parameter against 5.3 to 6.0, or about 65\,\% of it if AWQ also stored its
+embedding tables in 4 bits (\S\ref{sec:main}). On GSM8K, run through the
 kernel, they lose more to FP16 than on MMLU when counted in errors, at every
 size (\S\ref{sec:gsm8k}). For the experiments behind the main results, we fixed
 the plan and our predictions before measuring, and we report the predictions

@@ -18,7 +18,7 @@ decode by reading them, and both papers tie kernel speed to how well these
 tables fit in the GPU cache. The IQ2 formats of llama.cpp~\citep{llamacpp}
 decode from grids of 256 to 1{,}024 points held in a lookup table.
 
-\paragraph{The Leech lattice.} \citet{llvq2026} quantize the weights in blocks
+\paragraph{The Leech lattice.} Van der Ouderaa et al.~\citep{llvq2026} quantize the weights in blocks
 of 24 on $\Lambda_{24}$, the densest sphere packing in 24
 dimensions~\citep{cohn2017}. Inside a GPTQ-style loop, each block is coded in
 48 bits, 2 per weight, as a lattice direction (the shape) and a length (the

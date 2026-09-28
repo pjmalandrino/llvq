@@ -50,10 +50,15 @@ the CPU, gives the 24 lattice coordinates of each 48-bit word bit for bit
 against an independent Rust decoder. End to end, on one prompt and in one
 process, the kernel and the dense reconstruction of each sealed file generate
 the same 256 greedy tokens at 4B and 8B. At both sizes the text falls into a
-one-sentence loop. At 14B they first differ at token 78. Our preregistration
-counts a first divergence at or after token 32 as a near tie between two
-logits, not a defect. A second check feeds 203 prompt tokens in one call and in
-203 single-token calls: both give the same next token at all three sizes.
+one-sentence loop. At 14B they first differ at token 78, and at token 137 when
+both run with f16 embedding tables. A second check runs 203 prompt tokens
+through the kernel, in one call and in 203 single-token calls. Both give the
+same next token at all three sizes. The two paths still move a logit by up to
+0.095, 1.35 and 0.79 at 4B, 8B and 14B, for logits up to 30.4, 36.6 and 27.5.
+The divergence at token 78 is consistent with a near tie between two logits,
+flipped by differences of this size, but we did not measure the margin there.
+Our preregistration counts a first divergence at or after token 32 as not a
+defect. That rule says nothing about the cause.
 
 \subsection{Bytes and time on the projections}
 \label{sec:bench}
