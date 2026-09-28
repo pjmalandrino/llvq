@@ -174,32 +174,39 @@ Hatching is padding. Both carry 2.000 bits of code per weight.}
 
 \begin{figure}[t]
 \centering
-\begin{tikzpicture}[x=1cm, y=1cm]
-\node[font=\footnotesize\bfseries, anchor=south] at (4.8,2.62)
+\begin{tikzpicture}[x=1cm, y=1cm,
+  load/.style={box, fill=white, minimum width=3.7cm}]
+\node[font=\footnotesize\bfseries] at (5.4,4.55)
   {one block: six loads, one waits for another};
-\node[box, font=\scriptsize, text width=2.7cm] (w) at (4.8,2.1)
-  {the 48-bit word};
-\node[mem, font=\scriptsize, text width=4.2cm, align=left] (L) at (2.4,0.95)
-  {\textbf{trellis tables}, 2{,}304~B\\[1pt]
-   \texttt{prefixes}$[2s_8{+}b_1]$\\
-   \texttt{branches}$[16s_8{+}b_2]$\\
-   \texttt{suffixes}$[2s_{16}{+}b_3]$\\[1pt]
-   \emph{the suffix read waits\\for the branch read}};
-\node[mem, font=\scriptsize, text width=4.2cm, align=left] (R) at (7.2,0.95)
-  {\textbf{rank table}, 16~KiB\\[1pt]
-   \texttt{rows}$[2048r{+}i_1]$\\
-   \texttt{rows}$[\mathrm{mix}(i_2)]$\\
-   \texttt{rows}$[2048r_3{+}i_3]$\\[1pt]
-   \emph{independent: issued together}};
-\node[box, font=\scriptsize, text width=7.2cm] (y) at (4.8,-0.85)
+\node[box, minimum width=3cm] (w) at (5.4,3.95) {the 48-bit word};
+% the trellis tables: the only dependent read is the suffix
+\node (Lt) at (2.5,2.85) {\textbf{trellis tables}, 2{,}304~B};
+\node[load] (P) at (2.5,2.3) {\texttt{prefixes}$[2s_8{+}b_1]$};
+\node[load] (B) at (2.5,1.45) {\texttt{branches}$[16s_8{+}b_2]$};
+\node[load] (S) at (2.5,0.6) {\texttt{suffixes}$[2s_{16}{+}b_3]$};
+\node[align=center, font=\scriptsize\itshape] (Lf) at (2.5,-0.05)
+  {the suffix read waits\\for the branch read};
+\draw[flow] (B) -- node[right]{$s_{16}$} (S);
+% the rank table: three independent reads
+\node (Rt) at (8.3,2.85) {\textbf{rank table}, 16~KiB};
+\node[load] (R1) at (8.3,2.3) {\texttt{rows}$[2048r{+}i_1]$};
+\node[load] (R2) at (8.3,1.45) {\texttt{rows}$[\mathrm{mix}(i_2)]$};
+\node[load] (R3) at (8.3,0.6) {\texttt{rows}$[2048r_3{+}i_3]$};
+\node[align=center, font=\scriptsize\itshape] (Rf) at (8.3,-0.05)
+  {no read waits:\\issued together};
+\begin{scope}[on background layer]
+\node[mem, fit=(Lt)(P)(B)(S)(Lf), inner sep=4pt] (Lbox) {};
+\node[mem, fit=(Rt)(R1)(R2)(R3)(Rf), inner sep=4pt] (Rbox) {};
+\end{scope}
+\node[box, minimum width=9.84cm] (y) at (5.4,-1.45)
   {24 values $y_j$, then $\times\,\mathrm{gain}[g] \times 1/\!\sqrt{16m}$};
-\draw[flow] (w.south west) -- (L.north);
-\draw[flow] (w.south east) -- (R.north);
-\draw[flow] (L.south) -- (y.north west);
-\draw[flow] (R.south) -- (y.north east);
+\draw[flow] (w.south) -- ++(0,-0.2) -| (Lbox.north);
+\draw[flow] (w.south) -- ++(0,-0.2) -| (Rbox.north);
+\draw[flow] (Lbox.south) -- node[right, text height=1.6ex, text depth=0.4ex]{3 pattern bytes} (Lbox.south |- y.north);
+\draw[flow] (Rbox.south) -- node[right, text height=1.6ex, text depth=0.4ex]{3 rank vectors} (Rbox.south |- y.north);
 \end{tikzpicture}
-\caption{The decode. The three trellis lookups each return one Golay pattern
-byte. The prefix and branch reads need only the word. The suffix read waits
+\caption{The decode. The three trellis reads return the Golay pattern bytes of
+the three sections, and the three row reads their rank vectors. The prefix and branch reads need only the word. The suffix read waits
 for the branch read, because its index uses the state $s_{16}$ that the branch
 read returns. The three row reads need only the word, so the kernel issues
 them together. The shell index $m$ is recomputed from the decoded
