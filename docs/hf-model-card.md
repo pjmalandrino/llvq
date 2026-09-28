@@ -75,7 +75,7 @@ Paired on the same questions, 95 % intervals:
 ## Quality
 
 **GSM8K is scored through the served kernel**, the path a user runs. The prompt
-is zero-shot, in Qwen3's chat template with the reasoning block left empty, and
+is zero-shot, in Qwen3's chat template with the thinking block left empty, and
 asks for the answer in `\boxed{}`. Decoding is greedy, up to 1,024 tokens. FP16
 and AWQ generate in vLLM from the same prompt tokens, and one grader scores all
 three. To check that the engine does not move a score, the FP16 checkpoint also
@@ -150,7 +150,7 @@ the 4-bit embedding, one rotation per group of projections, an f16 KV cache.
   (standard deviation 2.92). The gaps to FP16 and AWQ move with the draw like
   the absolute scores, and their intervals leave out this spread.
 - **GSM8K is an easy test for this model family.** FP16 scores 92 to 95 %, and
-  the problems have been public since 2021. Qwen3's reasoning mode, which writes
+  the problems have been public since 2021. Qwen3's thinking mode, which writes
   much longer chains, is not tested.
 - **The format is read only by this repository's Rust code**, which has no
   external dependency. A reader in another language does not exist.

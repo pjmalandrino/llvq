@@ -10,7 +10,8 @@ None of the three changes the decoder or a remaining lattice code.
 \subsection{What a file holds, and how we count it}
 \label{sec:file}
 
-Each layer of Qwen3~\citep{qwen3_2025} has seven projection matrices: $q$, $k$,
+Each layer of the dense Qwen3 models~\citep{qwen3_2025} has seven projection
+matrices: $q$, $k$,
 $v$ and $o$ in attention, and gate, up and down in the feed-forward block. The
 4B and 8B models have 36 layers (252 projections), and the 14B has 40 (280).
 
@@ -38,7 +39,7 @@ Equation~\eqref{eq:recon} multiplies each reconstructed output row by one
 scale, $\sigma_{\mathrm{row}}$, which the encoder sets from the norm of the
 rotated row before quantizing it. We
 retrain only these scales, with the FP16 model as teacher~\citep{hinton2015}.
-On DCLM-edu text~\citep{dclmedu}, a KL loss pulls the quantized model's output
+On DCLM-Edu text~\citep{dclmedu}, a KL loss pulls the quantized model's output
 probabilities toward the teacher's. The lattice codes stay fixed and no bit is
 added: the trained scales replace the old ones in place. At 4B the training
 sees 19.5 million tokens and takes 1.7~h on one L40S GPU. The 8B and 14B runs
@@ -49,8 +50,9 @@ points at 4B, 8B and 14B (\S\ref{sec:chain}).
 \label{sec:int4}
 
 Some projections lose more accuracy than others on the lattice. Every file of
-Table~\ref{tab:chain} stores \texttt{v\_proj} in int4. Under grouped-query attention, several query
-heads share one key and value head, so the $v$ matrices are small. At 4B, in
+Table~\ref{tab:chain} stores \texttt{v\_proj} in int4. Qwen3 uses grouped-query
+attention~\citep{gqa2023}: several query heads share one key and value head,
+so the $v$ matrices are small. At 4B, in
 an earlier encoding calibrated on C4 text, moving them from \Tetra{} to int4
 gained 1.73 MMLU points $[0.87, 2.59]$ on the full test set, for 0.05 bits
 per parameter.
@@ -63,13 +65,14 @@ We call the three files we serve \emph{sealed}. They also store
 \subsection{4-bit embedding tables}
 \label{sec:q4emb}
 
-Qwen3's vocabulary has 151{,}936 entries, so the embedding table is 9.7\,\% of
-the parameters at 4B. At 8B and 14B the output head is a second table of the
+Qwen3's embedding table has 151{,}936 rows, for a vocabulary of 151{,}669
+tokens~\citep{qwen3_2025}. It is 9.7\,\% of the parameters at 4B. At 8B and 14B the output head is a second table of the
 same shape. Together they are 15.2\,\% of the parameters at 8B and 10.5\,\% at
 14B. Before this step, our files stored these tables in f16, and the served
 model quantized them to 8 bits at load. The sealed
-files store them in 4 bits, in groups of 64 with an f16 scale and offset per group, as MLX
-does~\citep{mlx2023}. The GPU dequantizes rows on the fly, when it looks up
+files store them in 4 bits, in groups of 64 with a scale and an offset per
+group, as MLX does~\citep{mlx2023}. Our scales and offsets are f16. MLX keeps
+them in the type of the weights, bf16 for Qwen3. The GPU dequantizes rows on the fly, when it looks up
 input tokens and inside the matrix-vector product of the head. Going from 8 to
 4 bits frees 0.19~GB at 4B, 0.62~GB at 8B and 0.78~GB at 14B. This saving pays
 for the int4 projections: every sealed file needs fewer bits per parameter than

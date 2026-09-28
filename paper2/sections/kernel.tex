@@ -39,8 +39,9 @@ and its dense reconstruction (the file decoded to f16) in 72.9~s.
 kernel with the same thread layout. It copies the whole activation into shared
 memory, dequantizes each weight with its group's scale and offset, and
 accumulates in f32. At 14B, a \texttt{down\_proj} activation takes
-69{,}632~B, more than the 48~KiB a thread block gets by default, so the CPU
-code asks the driver for more. The L40S allows 101{,}376~B. The 4-bit
+69{,}632~B. That is more than the 48~KiB a thread block gets without an
+explicit opt-in, so the CPU code asks the driver for more. The L40S, of
+compute capability 8.9, allows at most 101{,}376~B, or 99~KiB~\citep{cudaguide}. The 4-bit
 embedding tables use two small kernels: one looks up and dequantizes the input
 tokens' rows, the other is the output head's matrix-vector product. The
 activations are rotated online to match the rotated weights. At 4B, a small
@@ -85,9 +86,11 @@ scales. The \Tetra{} arm times the 216 lattice matrices of an early 4B file,
 not its 36 int4 \texttt{v\_proj}, which run on the other kernel. Its time thus
 covers less work than the other columns. The two lattice arms hold the tail in
 f32, as the files store it. The served kernel holds it in f16. The \Tetra{}
-row leaves out 4.1~MB of row padding, 0.009~\bw{}. The AWQ arm is the GEMV kernel of the AWQ
-authors~\citep{awq2024}, ported to our harness, not the Marlin kernel that
-vLLM serves. Appendix~\ref{app:bench} has the ten-arm table. Data:
+row leaves out 4.1~MB of row padding, 0.009~\bw{}. The AWQ arm is the GEMV
+kernel of the AWQ authors~\citep{awq2024}, ported to our harness, not the
+Marlin kernel that vLLM serves. Its row includes the padding of that kernel's
+scale and zero buffers, which hold a multiple of eight groups a row: 10.1~MB,
+0.022~\bw{}. Without it, w4g128 costs 4.156~\bw{}. Appendix~\ref{app:bench} has the ten-arm table. Data:
 echelle-formats.csv.}
 \label{tab:bench}
 \end{table}
@@ -102,17 +105,18 @@ where AWQ reaches 583. Reading half the bytes does not halve the time.
 \subsection{The tile and the L1 cache}
 \label{sec:tile}
 
-On an Ada GPU (sm\_89), each streaming multiprocessor (SM) splits one 128~KB
+On an Ada GPU (sm\_89), each streaming multiprocessor (SM) splits one 128~KiB
 pool of on-chip memory between the L1 cache and shared memory, with at most
-100~KB for shared memory~\citep{cudaguide}. The activation tile lives in shared
+100~KiB for shared memory~\citep{cudaguide}. The activation tile lives in shared
 memory. The decoder tables are ordinary memory reads, cached in L1. So the tile
 size, which changes no output bit and costs no storage, decides how much L1 is
 left for the 18.4~KiB of tables.
 
 Occupancy, the number of thread blocks an SM holds at once, does not change
 with the tile. Both lattice arms launch 256 threads per block at 40 registers
-per thread, so six thread blocks fit at every tile
-($6\times256\times40 = 61{,}440$ of 65{,}536 registers). Shared memory is never
+per thread, so six thread blocks fit at every tile. Six blocks are the
+1{,}536 threads an sm\_89 SM can hold, and they use 61{,}440 of its 65{,}536
+registers~\citep{cudaguide}. Shared memory is never
 the binding limit ($6\times12{,}288 < 102{,}400$~B). Besides the L1 split, the
 tile changes how often each row loops and waits at a barrier, the same for all
 arms.

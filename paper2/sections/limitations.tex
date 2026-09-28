@@ -3,13 +3,13 @@
 
 \begin{itemize}
 \item \textbf{One card.} Every number we measured for a table or figure is on
-  one NVIDIA L40S. On an A100, with the same benchmark at tile 128, none of our earlier lattice
-  kernels ran faster than FP16. We did not run \Tetra{} there. On an sm\_120
+  one NVIDIA L40S. On an A100, with the same benchmark at tile 128, none of our
+  earlier lattice kernels ran faster than FP16~\citep{llvq1preprint}. We did not run \Tetra{} there. On an sm\_120
   card, over all 252 matrices of two earlier 4B files, \Tetra{} ran at 0.82 to
   1.03 times the speed of \Planes{}, depending on the tile. The best tile also
   depends on the GPU (\S\ref{sec:tile}).
 \item \textbf{One calibration draw.} Every size is encoded from the same first
-  131{,}072 tokens of DCLM-edu. Encoding the 4B model with the \Planes{}
+  131{,}072 tokens of DCLM-Edu. Encoding the 4B model with the \Planes{}
   codebook and three draws of calibration text spread MMLU over 5.83 points on
   a 2{,}280-question sample (standard deviation 2.92). That is more than any
   gain in Table~\ref{tab:chain}. Those gains compare fixed files on the same
@@ -23,14 +23,14 @@
   through it.
 \item \textbf{GSM8K is an easy test for these models.} FP16 scores 92 to 95,
   and the problems have been public since 2021. We did not test Qwen3's
-  reasoning mode, which writes much longer chains, nor a harder math
+  thinking mode, which writes much longer chains, nor a harder math
   benchmark.
 \item \textbf{No perplexity} is reported for the sealed files.
 \item \textbf{Batch 1 and short context only.} Nothing here measures several
   requests served together, or long prompts.
 \item \textbf{The MMLU of the 2-bit methods QTIP, QuIP\# and the original LLVQ
   is cited.} It comes from other evaluation code and another protocol. Their
-  bit rates count only the projection matrices.
+  bit rates are per quantized weight, not over the whole model.
 \item \textbf{The kernel benchmark does not time equal work.} It times 216
   matrices for \Tetra{} and 252 for every other arm (Table~\ref{tab:bench}).
 \item \textbf{The cost of splitting the search region is measured on blocks},

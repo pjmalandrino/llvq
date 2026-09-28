@@ -115,7 +115,7 @@ def fig_gap() -> None:
     hardcoded("bits of code carried, 2.000 / 4.000 (fig_gap)",
               "format definitions: 48 bits per 24 weights; 4-bit affine")
     shown = {"AWQ": "AWQ w4g128 (4-bit)", "Planes14": "Planes14 (our earlier layout)",
-             "Tetra48": "Tetra (this paper)", "QTIP": "QTIP (2-bit)"}
+             "Tetra48": "Tetra (this paper)", "QTIP": "QTIP HYB (2-bit)"}
     colors = {"AWQ": ORANGE, "Planes14": SKY, "Tetra48": BLUE,
               "QTIP": VERMILLION}
     markers = {"AWQ": "s", "Planes14": "o", "Tetra48": "o", "QTIP": "s"}

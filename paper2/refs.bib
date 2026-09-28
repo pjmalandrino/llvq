@@ -40,14 +40,16 @@
 %     of 2006. The 1988 year rests on the volume-to-year correspondence for
 %     IEEE Trans. Inf. Theory vol. 34, and the authors' full first names are
 %     expansions of the record's "J.-P." and "M.".
-%   - conway1999sphere: Springer's book page demands authentication, so
-%     edition, publisher and year were never read from a primary source. No
-%     field was added on the strength of a search summary.
+%   - conway1999sphere: publisher, year and series from Crossref (doi
+%     10.1007/978-1-4757-6568-7); "3rd ed.", Springer, 1999 from the ISBN
+%     0-387-98585-9 record on OpenLibrary; series volume 290 from INSPIRE.
+%     Springer's own book page demands authentication and was not read
+%     (checked 2026-09-28, docs/mesures/paper2-audit-2026-09-28.txt).
 % ---------------------------------------------------------------------------
 @article{llvq2026,
   title   = {Leech Lattice Vector Quantization for Efficient {LLM} Compression},
   author  = {van der Ouderaa, Tycho F. A. and van Baalen, Mart and Whatmough, Paul and Nagel, Markus},
-  journal = {arXiv preprint arXiv:2603.11021},
+  journal = {arXiv preprint arXiv:2603.11021v2},
   year    = {2026}
 }
 
@@ -63,8 +65,18 @@
   title     = {{QuIP\#}: Even Better {LLM} Quantization with {Hadamard} Incoherence and Lattice Codebooks},
   author    = {Tseng, Albert and Chee, Jerry and Sun, Qingyao and Kuleshov, Volodymyr and De Sa, Christopher},
   booktitle = {Proceedings of the 41st International Conference on Machine Learning (ICML)},
+  pages     = {48630--48656},
   year      = {2024},
   note      = {arXiv:2402.04396}
+}
+
+@inproceedings{gqa2023,
+  title     = {{GQA}: Training Generalized Multi-Query Transformer Models from Multi-Head Checkpoints},
+  author    = {Ainslie, Joshua and Lee-Thorp, James and de Jong, Michiel and Zemlyanskiy, Yury and Lebron, Federico and Sanghai, Sumit},
+  booktitle = {Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing (EMNLP)},
+  pages     = {4895--4901},
+  year      = {2023},
+  note      = {arXiv:2305.13245}
 }
 
 @inproceedings{quip2023,
@@ -131,6 +143,8 @@
   title     = {Sphere Packings, Lattices and Groups},
   author    = {Conway, John H. and Sloane, Neil J. A.},
   edition   = {3rd},
+  series    = {Grundlehren der mathematischen Wissenschaften},
+  volume    = {290},
   publisher = {Springer},
   year      = {1999}
 }
@@ -342,7 +356,7 @@
   author       = {{ggml-org}},
   year         = {2023},
   howpublished = {\url{https://github.com/ggml-org/llama.cpp}},
-  note         = {Release v0.2.0, accessed 2026-08-22}
+  note         = {Build b10050 for \texttt{llama-imatrix} and \texttt{llama-quantize}, build b10689 for \texttt{llama-bench}, \texttt{full-cuda} image of 2026-09-25 for \texttt{llama-server}}
 }
 
 @misc{nvidia_l40s_datasheet,
@@ -388,8 +402,8 @@
   title        = {{CUDA} {C++} Programming Guide},
   author       = {{NVIDIA Corporation}},
   year         = {2025},
-  howpublished = {\url{https://docs.nvidia.com/cuda/cuda-c-programming-guide/}},
-  note         = {Compute capability 8.9: 128 KB of unified data cache and shared memory per SM, of which at most 100 KB configurable as shared memory}
+  howpublished = {\url{https://docs.nvidia.com/cuda/archive/13.0.0/cuda-c-programming-guide/}},
+  note         = {Version 13.0, last updated 2025-08-20. Compute capability 8.9: 128~KiB of unified data cache and shared memory per SM, at most 100~KiB of it as shared memory; at most 99~KiB per thread block, above 48~KiB only by explicit opt-in; 64~K registers and 1{,}536 threads per SM}
 }
 
 @article{forney1988,
@@ -413,10 +427,11 @@
 }
 
 @misc{dclmedu,
-  title        = {{DCLM-edu}},
+  title        = {{DCLM-Edu}},
   author       = {{HuggingFaceTB}},
   year         = {2025},
-  howpublished = {\url{https://huggingface.co/datasets/HuggingFaceTB/dclm-edu}}
+  howpublished = {\url{https://huggingface.co/datasets/HuggingFaceTB/dclm-edu}},
+  note         = {DCLM filtered with the FineWeb-Edu classifier; used to train SmolLM2-135M and 360M}
 }
 
 @misc{mlx2023,

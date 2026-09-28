@@ -1,0 +1,1360 @@
+[
+ {
+  "group": "leech",
+  "kind": "ref",
+  "found": {
+   "refs": [
+    {
+     "key": "llvq2026",
+     "metadata_verdict": "correct",
+     "metadata_evidence": "arXiv API record https://export.arxiv.org/api/query?id_list=2603.11021 and https://arxiv.org/abs/2603.11021 give the same title, the same four authors in the same order (Tycho F. A. van der Ouderaa, Mart van Baalen, Paul Whatmough, Markus Nagel) and v1 of 11 Mar 2026. v2 is dated 7 Jul 2026. The record has no journal-ref and no DOI beyond 10.48550/arXiv.2603.11021. The rendered entry [23] on page 16 matches main.bbl. The paper also has an ICML 2026 workshop poster (AdaptFM, https://icml.cc/virtual/2026/75287, OpenReview HFk5TQ2ILj). A workshop poster is not an archival venue, so the arXiv form is right. Claims checked against docs/llvq-paper-notes.md (v2): Table 6 Qwen3-4B has 60.7/62.8 for LLVQ shape-gain 0-bit gain, 57.4/59.5 for QTIP and 48.6/52.9 for QuIP#, all correct. The abstract (arXiv API) says LLVQ outperforms 'Quip#, QTIP, and PVQ', which supports the intro sentence. Table 8 names norm(Lambda24(12)) plus 1 gain bit as best (92.14 %, 47+1 bits), and norm(Lambda24(13)) plus 0 gain bits as the 2.00000-bit code. Appendix G adopts the union of shells. Appendix C/Table 7 has a single-shell kernel 'for simplicity'. I recomputed the ball sizes from the theta series: 1.110e14 for shells 2..12 (under 2^47) and 2.810e14 for shells 2..13 (under 2^48). Paper 1 (paper/sections/decoder.tex:8-11) served Lambda24(12) with a 47-bit index plus a gain bit, which matches 'their 47-bit codebook'. Two findings below: a version pin and two wording issues.",
+     "sites_checked": 9
+    },
+    {
+     "key": "cohn2017",
+     "metadata_verdict": "correct",
+     "metadata_evidence": "Annals page https://annals.math.princeton.edu/2017/185-3/p08 and Crossref (https://api.crossref.org/works/10.4007/annals.2017.185.3.8) give the title 'The sphere packing problem in dimension 24' and the authors Cohn, Kumar, Miller, Radchenko, Viazovska in that order. They also give Annals of Mathematics 185(3):1017-1033, 2017, DOI 10.4007/annals.2017.185.3.8. The bib entry and rendered [4] match. The claim 'the densest sphere packing in 24 dimensions' (background.tex:26-27) matches the abstract: the Leech lattice is 'the densest packing of congruent spheres in twenty-four dimensions'.",
+     "sites_checked": 1
+    },
+    {
+     "key": "conway1999sphere",
+     "metadata_verdict": "correct",
+     "metadata_evidence": "Crossref DOI 10.1007/978-1-4757-6568-7 (https://api.crossref.org/works/10.1007/978-1-4757-6568-7) gives 'Sphere Packings, Lattices and Groups', J. H. Conway and N. J. A. Sloane, Springer New York, 1999, series Grundlehren der mathematischen Wissenschaften. OpenLibrary ISBN 0387985859 (https://openlibrary.org/isbn/0387985859) gives '3rd ed.', Springer, 1999. INSPIRE (https://inspirehep.net/literature/2745564) gives series volume 290. Title, authors, edition, publisher and year in the bib and in rendered [5] are all right. So the 'never read from a primary source' soft spot in the refs.bib comment (lines 43-45) can now be closed. G(E8)=0.071682 and G(Lambda24)=0.065771 agree with Agrell and Allen's table (https://arxiv.org/html/2202.09605: 0.071682099 and 0.06577). The ratio 0.071682/0.065771 = 1.08987, which rounds to 1.0899, or 9.0 %. arXiv 2607.10885 cites '[SPLAG, Ch. 2, Table 2.3]' as the table of the best lattice quantizers known, which matches the 'Table 2.3' pinpoint. I could not read Table 2.3 itself because Springer requires a login.",
+     "sites_checked": 2
+    }
+   ],
+   "problems": [
+    {
+     "id": "P1",
+     "key": "conway1999sphere",
+     "file": "paper2/sections/tetra.tex",
+     "line": 255,
+     "quote": "Three separate $E_8$ quantizers ($E_8$ is the best lattice in 8 dimensions) would keep neither.",
+     "problem": "This paragraph is about quantizers, so a reader takes 'best lattice' to mean the best lattice quantizer. E8 is only the best known lattice quantizer in dimension 8. No proof exists, and the cited Table 2.3 lists the best quantizers known. E8 is proven densest only as a packing (Viazovska 2017), and the paper does not cite that. As written, the parenthesis overstates a fact that sits right next to the Conway-Sloane citation.",
+     "evidence": "Agrell and Allen, On the best lattice quantizers (https://arxiv.org/html/2202.09605): 'proofs of optimality are known only in dimensions up to three'. arXiv 2607.10885 (https://arxiv.org/html/2607.10885) cites '[Conway-Sloane, Ch. 2, Table 2.3]' for the best lattice quantizers *known*.",
+     "severity": "should_fix",
+     "fix": "Three separate $E_8$ quantizers would keep neither. $E_8$ is the best known lattice quantizer in 8 dimensions~\\citep[Table~2.3]{conway1999sphere}. The lattice alone is worth $G(E_8)/G(\\Lambda_{24}) = 0.071682/0.065771 = 1.0899$~\\citep[Table~2.3]{conway1999sphere}."
+    },
+    {
+     "id": "P2",
+     "key": "llvq2026",
+     "file": "paper2/sections/experiments.tex",
+     "line": 104,
+     "quote": "$^{c}$Bits per weight, on the projections only. The source gives no rate for the whole model.",
+     "problem": "The paper says LLVQ's 2 b/w counts the projection matrices only. The source as transcribed gives '2 bits/weight' and never says which matrices are quantized, or whether the embedding or the head are. The same unchecked scope appears at experiments.tex:139-140 ('count bits on the projections only') and limitations.tex:32-33 ('Their bit rates count only the projection matrices'). The argument, that the cited rates are not whole-model rates, still holds without the word 'projections'.",
+     "evidence": "docs/llvq-paper-notes.md, Table 6 section: 'Wikitext-2 at 4096 context, the authors' unified pipeline, 2 bits/weight.' The transcription says nothing else about layer scope, and neither does Algorithm 1, which runs over 'each layer' with calibration Hessians. The previous audit (docs/mesures/paper2-audit-2026-09-28-brut/audit-findings.json:916) states 'projections only' without a source.",
+     "severity": "nit",
+     "fix": "experiments.tex:104: \"$^{c}$Bits per quantized weight, as the source gives them. The source gives no rate for the whole model.\" experiments.tex:139-140: \"The cited rows come from another harness and count bits per quantized weight only.\" limitations.tex:32-33: \"Their bit rates count only the quantized matrices.\""
+    },
+    {
+     "id": "P3",
+     "key": "llvq2026",
+     "file": "paper2/sections/background.tex",
+     "line": 25,
+     "quote": "\\citet{llvq2026} quantize the rotated weights in blocks of 24 on $\\Lambda_{24}$, the densest sphere packing in 24 dimensions~\\citep{cohn2017}.",
+     "problem": "The paper makes rotation part of LLVQ's method. One of LLVQ's headline findings is the reverse: their codebook makes a rotation optional. They show a strong PTQ without Hadamard and ablate none, Input and Input+Output rotations. The transcription does not say which setting produced the Table 6 rows the paper cites.",
+     "evidence": "LLVQ abstract (arXiv API, https://export.arxiv.org/api/query?id_list=2603.11021): LLVQ 'reduces sensitivity to Hadamard/rotation preprocessing' and 'enables a strong Hadamard-free PTQ in practice'. docs/llvq-paper-notes.md, Table 9 (Appendix I.2): rows with Hadamard none / Input / Input+Output.",
+     "severity": "nit",
+     "fix": "\\citet{llvq2026} quantize weights in blocks of 24 on $\\Lambda_{24}$, the densest sphere packing in 24 dimensions~\\citep{cohn2017}. Their method works with or without a rotation of the weights first."
+    },
+    {
+     "id": "P4",
+     "key": "llvq2026",
+     "file": "paper2/refs.bib",
+     "line": 47,
+     "quote": "journal = {arXiv preprint arXiv:2603.11021},",
+     "problem": "The paper cites numbered parts of LLVQ: Table 6 (experiments.tex:103, appendix.tex:202), and codebooks whose sizes come from its Table 8. Those were read from v2 of 7 July 2026, but a v1 of 11 March 2026 exists. The entry does not pin the version, so a reader may open another version, where table numbers or values could differ.",
+     "evidence": "arXiv abs page https://arxiv.org/abs/2603.11021: v1 11 Mar 2026, v2 7 Jul 2026. docs/llvq-paper-notes.md header: 'arXiv:2603.11021v2 ... v2 of 7 July 2026'.",
+     "severity": "nit",
+     "fix": "journal = {arXiv preprint arXiv:2603.11021v2},"
+    },
+    {
+     "id": "P5",
+     "key": "conway1999sphere",
+     "file": "paper2/refs.bib",
+     "line": 130,
+     "quote": "@book{conway1999sphere,\n  title     = {Sphere Packings, Lattices and Groups},\n  author    = {Conway, John H. and Sloane, Neil J. A.},\n  edition   = {3rd},\n  publisher = {Springer},\n  year      = {1999}\n}",
+     "problem": "The fields are correct, but the entry leaves out the series and volume that identify this edition. The provenance comment at refs.bib:43-45 still says edition, publisher and year were never read from a primary source. They can now be checked against Crossref and the ISBN record.",
+     "evidence": "Crossref https://api.crossref.org/works/10.1007/978-1-4757-6568-7: Springer New York, 1999, Grundlehren der mathematischen Wissenschaften. OpenLibrary https://openlibrary.org/isbn/0387985859: '3rd ed.', Springer, 1999. INSPIRE https://inspirehep.net/literature/2745564: series volume 290.",
+     "severity": "nit",
+     "fix": "Add the fields  series = {Grundlehren der mathematischen Wissenschaften},  volume = {290},  and replace the comment at refs.bib:43-45 with: \"%   - conway1999sphere: edition, publisher and year checked on Crossref (doi 10.1007/978-1-4757-6568-7) and on the ISBN 0-387-98585-9 record; series volume 290 from INSPIRE.\""
+    },
+    {
+     "id": "P6",
+     "key": "conway1999sphere",
+     "file": "paper2/sections/appendix.tex",
+     "line": 171,
+     "quote": "$G(E_8)/G(\\Lambda_{24})=1.0899$ & cited, computed & Conway and Sloane, Table 2.3\\\\",
+     "problem": "In the provenance table, this cited source is plain text with no citation. The row for LLVQ at appendix.tex:202 uses \\citet{llvq2026}, Table 6. As written, the row does not link to reference [5].",
+     "evidence": "appendix.tex:202 reads '\\citet{llvq2026}, Table 6'; rendered reference [5] is Conway and Sloane (main.pdf p. 15).",
+     "severity": "nit",
+     "fix": "$G(E_8)/G(\\Lambda_{24})=1.0899$ & cited, computed & \\citet{conway1999sphere}, Table 2.3\\\\"
+    }
+   ]
+  },
+  "verification": {
+   "verdicts": [
+    {
+     "id": "P1",
+     "verdict": "confirmed",
+     "severity": "nit",
+     "reason": "The parenthesis sits in a paragraph about quantization error and normalized second moments, so 'best lattice' reads as 'best lattice quantizer'. E8 is only the best lattice quantizer known in dimension 8. Optimality proofs for lattice quantizers stop at dimension 3. Without a qualifier the claim is also false for covering, where A8* beats E8. E8 is proven best only as a packing: Blichfeldt 1935 among lattices, Viazovska 2017 among all packings. I downgrade the severity to nit because it is a parenthesis and no result depends on it. The reader's fix is correct. The only change I would make is to cite Table 2.3 once, at the end.",
+     "evidence": "Agrell and Allen, 'On the best lattice quantizers', IEEE Trans. Inf. Theory 69(12):7650-7658, 2023 (https://arxiv.org/html/2202.09605): 'Yet, proofs of optimality are known only in dimensions up to three.' Their Table I lists E8 as the best known lattice quantizer in dimension 8, G = 0.071682099, and they point to Conway and Sloane p. 61 for the tables of best known NSMs. arXiv 2607.10885 (https://arxiv.org/html/2607.10885): 'the best lattice quantizers known are the dual lattices E6* and E7* [3, Ch. 2, Table 2.3]'. paper2/sections/tetra.tex:255-258 currently cites \\citep{conway1999sphere} with no table number, and appendix.tex:171 names Table 2.3. Arithmetic: 0.071682/0.065771 = 1.08987, which rounds to 1.0899.",
+     "fix": "tetra.tex:255-258: \"Three separate $E_8$ quantizers would keep neither. $E_8$ is the best lattice quantizer known in 8 dimensions. The lattice alone is worth $G(E_8)/G(\\Lambda_{24}) = 0.071682/0.065771 = 1.0899$~\\citep[Table~2.3]{conway1999sphere}.\" Citing the same table after both sentences, as the reader proposed, is also acceptable."
+    },
+    {
+     "id": "P2",
+     "verdict": "confirmed",
+     "severity": "nit",
+     "reason": "The transcription of LLVQ gives '2 bits/weight' and never says which matrices are quantized. It does not say whether the embedding or the output head is included. Algorithm 1 only says 'for each layer l'. No other repository document gives a source for 'projections only'. The prior audit asserts it without a source, and the phrase in format-noyau.md is about this repo's own files. The paper's argument only needs 'not a whole-model rate', and that is supported. The reader's fixes are sound. The limitations sentence is better phrased as per-weight versus whole-model, so that it asserts nothing about which matrices were left out.",
+     "evidence": "docs/llvq-paper-notes.md:83, Table 6 header: 'Wikitext-2 at 4096 context, the authors' unified pipeline, 2 bits/weight.' The only other rate statement in the transcription is the per-column scales at '< 0.001 bit/weight' (line 108). grep for embedding, lm_head, head and projection in the transcription finds no scope statement. Paper sites: experiments.tex:104 '$^{c}$Bits per weight, on the projections only', experiments.tex:139-140 'count bits on the projections only', limitations.tex:32-33 'Their bit rates count only the projection matrices.'",
+     "fix": "experiments.tex:104: \"$^{c}$Bits per quantized weight, as the source gives them. The source gives no rate for the whole model.\" experiments.tex:139-140: \"The cited rows come from another harness and give bits per quantized weight, not per parameter of the whole model.\" limitations.tex:32-33: \"Their bit rates are per quantized weight, not over the whole model.\""
+    },
+    {
+     "id": "P3",
+     "verdict": "partly",
+     "severity": "nit",
+     "reason": "The core holds. The paper says LLVQ quantizes 'the rotated weights', as if a rotation were part of their method. The transcription never says which rotation setting produced the Table 6 rows. The abstract presents lower sensitivity to rotation, and a Hadamard-free PTQ, as findings. The reader overstates two things. First, 'the reverse' is too strong: LLVQ ablates rotations, and an Input Hadamard is often their best Table 9 row. Second, the proposed sentence 'works with or without a rotation' is stronger than the source. In Table 9, shape-gain 2-bit with Spherical GPTQ loses 6.2 MMLU points without a Hadamard (29.8 against 36.0). Euclidean GPTQ without a rotation collapses to 191.90 perplexity. The abstract says the codebook 'reduces sensitivity'. It does not say a rotation is unnecessary. The right fix is to drop 'rotated' and paraphrase the abstract.",
+     "evidence": "arXiv abstract page (https://arxiv.org/abs/2603.11021): 'We find that low-angular-distortion LLVQ reduces sensitivity to Hadamard/rotation preprocessing, and enables a strong Hadamard-free PTQ in practice.' docs/llvq-paper-notes.md, Table 9 (Llama-2 7B, without FT): shape-gain 2 bit, Spherical GPTQ: none 7.27 / 29.8 MMLU, Input 6.90 / 36.0, Input+Output 6.83 / 34.9. Spherical shaping, GPTQ: none 191.90 wiki. The Table 6 header (line 83) names no rotation setting. The paper's own encoder rotating (tetra.tex:19) is a separate, correct statement about this work.",
+     "fix": "background.tex:25-27: \"\\citet{llvq2026} quantize the weights in blocks of 24 on $\\Lambda_{24}$, the densest sphere packing in 24 dimensions~\\citep{cohn2017}. They find that their codebook lowers the need to rotate the weights first.\" Dropping 'rotated' alone is also enough."
+    },
+    {
+     "id": "P4",
+     "verdict": "confirmed",
+     "severity": "nit",
+     "reason": "Two versions exist, and the transcription the paper relies on for Table 6 and the Table 8 codebook sizes is v2. The entry does not pin a version. Nothing is wrong today, since the abstract page serves v2. But the paper cites numbered tables and exact values, so pinning the version is the sound practice. I could not check whether v1 numbers its tables differently, because the rules forbid opening its PDF. The risk the reader describes is therefore a possibility, not a shown difference, which fits a nit.",
+     "evidence": "https://arxiv.org/abs/2603.11021 submission history: '[v1] Wed, 11 Mar 2026 17:48:45 UTC (326 KB)', '[v2] Tue, 7 Jul 2026 12:10:29 UTC (323 KB)'. docs/llvq-paper-notes.md:1-5: 'Reading notes, arXiv:2603.11021v2 ... v2 of 7 July 2026'. paper2/refs.bib: journal = {arXiv preprint arXiv:2603.11021}. main.bbl renders it as 'arXiv preprint arXiv:2603.11021, 2026.'",
+     "fix": "refs.bib, llvq2026: journal = {arXiv preprint arXiv:2603.11021v2},"
+    },
+    {
+     "id": "P5",
+     "verdict": "partly",
+     "severity": "nit",
+     "reason": "All present fields are correct: authors, title, 3rd edition, Springer, 1999. A missing series is not wrong metadata. The claim that series and volume 'identify this edition' is also wrong. Grundlehren volume 290 is the series number shared by all three editions, so the edition field does that job. The provenance comment is stale: edition, publisher and year can now be read from publisher-deposited and catalogue records. It was true that Springer's page needs authentication (link.springer.com answers 303 to idp.springer.com). Adding series and volume is optional and harmless. With plainnat it renders as 'volume 290 of Grundlehren der mathematischen Wissenschaften'. One detail in the proposed comment is wrong. The Crossref record for this DOI carries ISBNs 9781441931344 (print, softcover) and 9781475765687 (electronic). The 0-387-98585-9 record is OpenLibrary's, and the comment should name each source for what it gave.",
+     "evidence": "Crossref https://api.crossref.org/works/10.1007/978-1-4757-6568-7: J. H. Conway and N. J. A. Sloane, Springer New York, 1999, series 'Grundlehren der mathematischen Wissenschaften', ISSN 0072-7830, no volume and no edition number. OpenLibrary https://openlibrary.org/isbn/0387985859.json: edition_name '3rd ed.', publishers ['Springer'], publish_date '1999', publish_places ['New York'], 703 pages. INSPIRE https://inspirehep.net/api/literature/2745564: book series 'Grundlehren der mathematischen Wissenschaften', volume 290, Springer 1999, DOI 10.1007/978-1-4757-6568-7.",
+     "fix": "Optional: add to conway1999sphere\n  series    = {Grundlehren der mathematischen Wissenschaften},\n  volume    = {290},\nReplace refs.bib:43-45 with:\n%   - conway1999sphere: publisher, year and series from Crossref (doi\n%     10.1007/978-1-4757-6568-7); \"3rd ed.\", Springer, 1999 from the ISBN\n%     0-387-98585-9 record on OpenLibrary; series volume 290 from INSPIRE.\n%     Springer's own book page demands authentication and was not read."
+    },
+    {
+     "id": "P6",
+     "verdict": "confirmed",
+     "severity": "nit",
+     "reason": "The provenance table uses \\citet for the LLVQ row, but the Conway and Sloane row is plain text. The Conway and Sloane row therefore carries no reference number and does not link to the bibliography. This is a consistency fix. The reader's replacement matches the style of line 202 and renders as 'Conway and Sloane [n], Table 2.3' under natbib numbers.",
+     "evidence": "paper2/sections/appendix.tex:171: '$G(E_8)/G(\\Lambda_{24})=1.0899$ & cited, computed & Conway and Sloane, Table 2.3\\\\'. appendix.tex:202: 'MMLU of LLVQ, QTIP and QuIP\\# & cited & \\citet{llvq2026}, Table 6\\\\'. main.tex:33 loads natbib with [numbers,sort&compress]. main.bbl carries \\bibitem[Conway and Sloane(1999)]{conway1999sphere}.",
+     "fix": "appendix.tex:171: $G(E_8)/G(\\Lambda_{24})=1.0899$ & cited, computed & \\citet{conway1999sphere}, Table 2.3\\\\"
+    }
+   ]
+  }
+ },
+ {
+  "group": "trellis-vq",
+  "kind": "ref",
+  "found": {
+   "refs": [
+    {
+     "key": "qtip2024",
+     "metadata_verdict": "correct",
+     "metadata_evidence": "arXiv abstract page https://arxiv.org/abs/2406.11235 gives the title 'QTIP: Quantization with Trellises and Incoherence Processing'. Authors in order: Albert Tseng, Qingyao Sun, David Hou, Christopher De Sa. Comment: 'NeurIPS 2024 Spotlight'. NeurIPS record https://proceedings.neurips.cc/paper_files/paper/2024/hash/6de2e84b8da47bb2eb5e2ac96c63d2b0-Abstract-Conference.html (BibTeX at .../6de2e84b8da47bb2eb5e2ac96c63d2b0-Bibtex-Conference.bib) gives volume 37, pages 59597--59620, DOI 10.52202/079017-1904. That BibTeX prints the last author as 'De, Christopher', a proceedings glitch; the bib's 'De Sa' is right. The rendered reference [22] on PDF p.16 matches the bib, and no 2024a/b suffix leaks under numbers mode. Volume and pages are optional here: refs.bib omits them for every NeurIPS entry (quip2023, quarot2024). Claims checked and supported: the 2-bit QTIP kernel reads 2.000 b/w. The source is journal docs/mesures/f2-p3-qtip-banc-2026-08-21.txt: 2.246 ms, 0.91 GB, 2.0000 b/poids, 405 GB/s, billed as d_out*d_in/4 with the 2 KiB LUT excluded (proofs/preregistration-f2-qtip-2026-08-20.md section 3), and it matches docs/data/echelle-formats.csv and Table 7. The intro phrase 'ahead of QuIP# and QTIP' rests on the LLVQ abstract (https://arxiv.org/abs/2603.11021: 'outperforming recent methods such as Quip#, QTIP, and PVQ') and on Table 6 MMLU in docs/llvq-paper-notes.md. Problems are in the claims, not the metadata; see the problems list.",
+     "sites_checked": 10
+    },
+    {
+     "key": "quipsharp2024",
+     "metadata_verdict": "minor_issue",
+     "metadata_evidence": "PMLR page https://proceedings.mlr.press/v235/tseng24a.html gives the title 'QuIP#: Even Better LLM Quantization with Hadamard Incoherence and Lattice Codebooks'. Authors in order: Tseng, Chee, Sun, Kuleshov, De Sa. It is in Proceedings of the 41st International Conference on Machine Learning, PMLR vol. 235, pages 48630--48656, 2024. arXiv https://arxiv.org/abs/2402.04396 (comment 'ICML 2024') has the same title and authors. Title, authors, venue, year and arXiv id in refs.bib are correct, and rendered reference [21] on PDF p.16 matches. The one defect: no pages field, while aqlm2024 and squeezellm2024 from the same ICML 2024 proceedings carry pages in refs.bib. Claim 'QuIP# uses the E8 lattice' is supported: the abstract says 'we introduce a set of hardware-efficient codebooks based on the highly symmetric E_8 lattice'.",
+     "sites_checked": 6
+    },
+    {
+     "key": "quip2023",
+     "metadata_verdict": "correct",
+     "metadata_evidence": "arXiv https://arxiv.org/abs/2307.13304 gives the title 'QuIP: 2-Bit Quantization of Large Language Models With Guarantees'. Authors in order: Jerry Chee, Yaohui Cai, Volodymyr Kuleshov, Christopher De Sa. NeurIPS record https://proceedings.neurips.cc/paper_files/paper/2023/hash/0df38cd13520747e1e64e5b123a78ef8-Abstract-Conference.html (BibTeX .../0df38cd13520747e1e64e5b123a78ef8-Bibtex-Conference.bib) gives Advances in Neural Information Processing Systems 36, pages 4396--4429, DOI 10.52202/075280-0196. refs.bib and rendered reference [2] on PDF p.14 match. Volume and pages are optional, following the file's NeurIPS convention. QuIP's abstract supports citing it for rotation before quantization: 'ensures weight and Hessian incoherence via multiplication by random orthogonal matrices'. The only issue is that the more direct source for the Hadamard form is missing; see the problems list.",
+     "sites_checked": 2
+    }
+   ],
+   "problems": [
+    {
+     "id": "P1",
+     "key": "qtip2024",
+     "file": "paper2/sections/background.tex",
+     "line": 17,
+     "quote": "QTIP~\\citep{qtip2024} uses a trellis whose states index a small hashed table.",
+     "problem": "This sentence describes only one of QTIP's codes, and it gets that code slightly wrong. What gets hashed is the trellis state, not the table. QTIP presents a family of codes. The hybrid code (HYB) hashes the state and indexes a small table. The 1MAD and 3INST codes compute each weight from the state with no table. The QTIP scores this paper cites (57.4 and 59.5) come from 3INST, which reads no table at all.",
+     "evidence": "The QTIP abstract (https://arxiv.org/abs/2406.11235) says 'QTIP introduces a spectrum of lookup-only to computed lookup-free trellis codes'. The HTML version (https://arxiv.org/html/2406.11235v4, section 3.1.2) says HYB 'first performs the hash X<-X^2+X'. The hashed bits then index 'a 2^Q x 2 LUT' (2 KiB at Q=9). The same paper calls 1MAD and 3INST 'pure-computed lookup-free codes'. LLVQ Table 6 (docs/llvq-paper-notes.md lines 92 and 97) labels the cited rows 'QTIP (3INST)'.",
+     "severity": "should_fix",
+     "fix": "QTIP~\\citep{qtip2024} quantizes with a trellis. In its hybrid code, each trellis state is hashed, and the hash indexes a 2~KiB table. Its computed codes, such as 3INST, derive each weight from the state with no table."
+    },
+    {
+     "id": "P2",
+     "key": "qtip2024",
+     "file": "paper2/sections/background.tex",
+     "line": 34,
+     "quote": "report 57.4 and 59.5 for QTIP, and 48.6 and 52.9 for QuIP\\#.",
+     "problem": "The paper uses two different QTIP codes and never says so. The QTIP quality it cites is the 3INST code. The QTIP kernel it times (Figure 1, Table 7) runs the HYB code, which is the only code QTIP's repository ships kernels for. A reader will assume the cited QTIP MMLU and the timed QTIP kernel are the same method. The same gap appears in the Table 4 row 'QTIP, cited' (experiments.tex:79) and in 'the 59.5 of QTIP' (experiments.tex:142). The numbers themselves are transcribed correctly.",
+     "evidence": "LLVQ Table 6 in docs/llvq-paper-notes.md: 'Quip#/E8P12 | no | 21.15 | 48.6', 'QTIP (3INST) | no | 17.04 | 57.4', 'Quip#/E8P12 | yes | 10.52 | 52.9', 'QTIP (3INST) | yes | 9.61 | 59.5'. QTIP README (https://github.com/Cornell-RelaxML/qtip): the codebase contains '2, 3, and 4 bit matrix-vector multiplication kernels for the HYB code with L=16, Q=9, V=2'. The benchmarked kernel's decode matches HYB: 'h = ((s+1)*s), index (h>>6)&0x1FF', LUT '512 half2 = 2 Kio' (proofs/preregistration-f2-qtip-2026-08-20.md).",
+     "severity": "should_fix",
+     "fix": "background.tex: 'In the same two settings they report 57.4 and 59.5 for QTIP with its 3INST code, and 48.6 and 52.9 for QuIP\\# with its E8P codebook.' experiments.tex:79: '\\textcolor{okGray}{QTIP 3INST, cited$^{b}$}'. experiments.tex:142: 'and above the 59.5 of QTIP with its 3INST code.'"
+    },
+    {
+     "id": "P3",
+     "key": "qtip2024",
+     "file": "paper2/sections/appendix.tex",
+     "line": 20,
+     "quote": "QTIP 2-bit~\\citep{qtip2024}$^{*}$ & 252 & 2.246 & 0.91 & 2.000 & 405\\\\",
+     "problem": "The row's numbers are correct. '2.000 bits per weight' holds under the declared accounting: d_out*d_in/4 bytes, with the 2 KiB table left out as a resident constant. But neither the row nor the caption says which QTIP was timed. It was the HYB kernel at a pinned commit, run on pseudo-random codes rather than a QTIP-quantized Qwen3-4B. It ran in QTIP's own launch geometry, and it carries no row scale and no f32 tail, which favors QTIP. The Figure 1 label 'QTIP (2-bit)' (scripts/make_figures.py line 118) leaves out the code as well.",
+     "evidence": "docs/mesures/f2-p3-qtip-banc-2026-08-21.txt section 3: 'QTIP ne porte ni queue f32 ni echelle de ligne f32 (en sa faveur) ; payload pseudo-aleatoire'. Raw output: 'QTIP 2 bits 2.246 ... 0.91 Go ... 2.000 ... 405'. The pinned commit is e90c6688c8dfae326a3a81b5eb032db7c6680ec0. The launch geometry is '<<<128, 1024, 65536>>>' (preregistration section 3). The QTIP README says its kernels are 'for the HYB code with L=16, Q=9, V=2' (https://github.com/Cornell-RelaxML/qtip).",
+     "severity": "nit",
+     "fix": "Row label: 'QTIP 2-bit, HYB code~\\citep{qtip2024}$^{*}$'. Add to the Table 7 caption: 'The QTIP row times the HYB kernel of QTIP's repository ($L=16$, $Q=9$, $V=2$) on pseudo-random codes, in its own launch geometry. Its 2~KiB table is not counted, and it reads no row scales and no tail.' In scripts/make_figures.py, change the label to \"QTIP HYB (2-bit)\"."
+    },
+    {
+     "id": "P4",
+     "key": "quip2023",
+     "file": "paper2/sections/background.tex",
+     "line": 20,
+     "quote": "and QTIP first apply a random rotation that spreads outliers across",
+     "problem": "The citation misses the direct source. The rotation QuIP# and QTIP apply is the randomized Hadamard transform, which QuIP# introduced. QTIP adopts it and credits QuIP#. The sentence cites QuIP, which used random orthogonal matrices, and QuaRot, a separate method, but not QuIP#. Nothing in it is false.",
+     "evidence": "QuIP# abstract (https://arxiv.org/abs/2402.04396): 'QuIP# improves QuIP's (Chee et al., 2023) incoherence processing by using the randomized Hadamard transform'. QTIP (https://arxiv.org/html/2406.11235v4): 'adopt incoherence processing with the random Hadamard transform', credited to QuIP#. QuIP abstract (https://arxiv.org/abs/2307.13304): 'multiplication by random orthogonal matrices'.",
+     "severity": "nit",
+     "fix": "QuIP\\# and QTIP first apply a random Hadamard transform, a rotation that spreads outliers across coordinates~\\citep{quip2023,quipsharp2024,quarot2024}."
+    },
+    {
+     "id": "P5",
+     "key": "quip2023",
+     "file": "paper2/sections/tetra.tex",
+     "line": 20,
+     "quote": "input~\\citep{quip2023,quarot2024} and runs a GPTQ-style loop~\\citep{gptq2023}.",
+     "problem": "The citation here is also incomplete. The encoder's rotation is the randomized Hadamard transform of QuIP#: random signs, a Walsh-Hadamard transform, and a small orthogonal Kronecker factor for odd widths. QuIP# is not cited. The sentence is supported as written, but it points at the less specific sources.",
+     "evidence": "llvq-quant/src/rotation.rs lines 26-32: 'Q = (Q_odd (x) H_m) D ... D a random sign flip, and H_m the Walsh-Hadamard transform scaled to be orthogonal'. QuIP# abstract (https://arxiv.org/abs/2402.04396) introduces 'the randomized Hadamard transform'.",
+     "severity": "nit",
+     "fix": "It rotates the input with a random Hadamard transform~\\citep{quip2023,quipsharp2024,quarot2024} and runs a GPTQ-style loop~\\citep{gptq2023}."
+    },
+    {
+     "id": "P6",
+     "key": "quipsharp2024",
+     "file": "paper2/refs.bib",
+     "line": 62,
+     "quote": "booktitle = {Proceedings of the 41st International Conference on Machine Learning (ICML)},",
+     "problem": "The entry has no pages. The other two ICML 2024 entries in refs.bib (aqlm2024, squeezellm2024) carry pages, so the rendered reference [21] is inconsistent with [6].",
+     "evidence": "https://proceedings.mlr.press/v235/tseng24a.html: 'pages = {48630--48656}', volume 235, PMLR.",
+     "severity": "nit",
+     "fix": "Add to @inproceedings{quipsharp2024,...}: pages     = {48630--48656},"
+    }
+   ]
+  },
+  "verification": {
+   "verdicts": [
+    {
+     "id": "P1",
+     "verdict": "partly",
+     "severity": "nit",
+     "reason": "Part of the report holds. QTIP is a family of codes, and the MMLU scores the paper cites come from 3INST, which uses no table. So the sentence describes a code other than the one behind the cited scores. The charge that the sentence gets HYB wrong is overstated. In HYB the state is hashed and the hash indexes a small table. 'A small hashed table' reads naturally as a hash table, meaning a table reached through a hash of its key. That matches HYB. HYB is also QTIP's main code: it is behind the Llama results with fine-tuning, and it is the only code the shipped kernels run. The next sentence ('Their kernels decode with lookup tables that fit on chip') is therefore right for QTIP. The rating drops to nit, and the fix can be shorter.",
+     "evidence": "QTIP, https://arxiv.org/html/2406.11235v4, section 3.1.2: HYB 'first performs the hash X<-X^2+X to mix the lower order and upper order bits of X. Then, it takes bits ... as an index into a 2^Q x 2 LUT', and 'Q=9 gives a 2KiB codebook, which fits in L1 cache'. Section 3.1.1 calls 1MAD and 3INST 'pure-computed lookup-free codes'. Abstract: 'a spectrum of lookup-only to computed lookup-free trellis codes'. Section 4.2 main results: 'we use the hybrid lookup-computed code with L=16,V=2'. README at https://github.com/Cornell-RelaxML/qtip: kernels 'for the HYB code with L=16, Q=9, V=2'. docs/llvq-paper-notes.md lines 92 and 97: 'QTIP (3INST)'.",
+     "fix": "background.tex:17-18, replace 'QTIP~\\citep{qtip2024} uses a trellis whose states index a small hashed table.' with: 'QTIP~\\citep{qtip2024} uses a trellis. Its hybrid code hashes each state to index a 2~KiB table. Its computed codes, such as 3INST, need no table.'"
+    },
+    {
+     "id": "P2",
+     "verdict": "confirmed",
+     "severity": "should_fix",
+     "reason": "The numbers are transcribed correctly. The source, however, labels them as QTIP's 3INST code, and the paper drops that label everywhere. The paper times a different QTIP code. QTIP's repository ships kernels only for HYB, and the timed kernel is that HYB kernel. A reader will take 'QTIP' in Table 4 and line 142 as the method whose kernel Table 7 and Figure 1 time. It is not the same method. QTIP's own main results also use HYB, so an unlabeled 'QTIP' score suggests HYB. The QuIP# qualifier is optional: only one QuIP# codebook is in play, and background.tex already says QuIP# uses E8. The fix is needed for QTIP only.",
+     "evidence": "docs/llvq-paper-notes.md Table 6: '| QTIP (3INST) | no | 17.04 | 57.4 |', '| QTIP (3INST) | yes | 9.61 | 59.5 |', '| Quip#/E8P12 | no | 21.15 | 48.6 |', '| Quip#/E8P12 | yes | 10.52 | 52.9 |'. QTIP README (https://github.com/Cornell-RelaxML/qtip): '2, 3, and 4 bit matrix-vector multiplication kernels for the HYB code with L=16, Q=9, V=2'. QTIP section 4.2 (https://arxiv.org/html/2406.11235v4): 'we use the hybrid lookup-computed code with L=16,V=2'. The paper uses the bare 'QTIP' at background.tex:34, experiments.tex:79 and experiments.tex:142, and in the Table 7 row of appendix.tex:20.",
+     "fix": "background.tex:33-34: 'In the same two settings they report 57.4 and 59.5 for QTIP with its 3INST code, and 48.6 and 52.9 for QuIP\\#.' experiments.tex:79: ' & \\textcolor{okGray}{QTIP 3INST, cited$^{b}$} & \\textcolor{okGray}{2 b/w$^{c}$} & \\textcolor{okGray}{59.5} & & \\\\'. experiments.tex:141-142: 'It is close to the 62.8 of the original LLVQ with fine-tuning, and above the 59.5 of QTIP with its 3INST code.'"
+    },
+    {
+     "id": "P3",
+     "verdict": "partly",
+     "severity": "nit",
+     "reason": "Every fact checks out. The kernel is QTIP's HYB kernel at the pinned commit. The payload is pseudo-random. The launch geometry is QTIP's own. No f32 tail and no row scale are read, and this favors QTIP. The row's numbers match the journal. This is a disclosure gap, though, not a wrong attribution. The row does not misstate QTIP, and QTIP's repository ships only one kernel, so 'QTIP 2-bit' already names a single object. The label matters only once P2 names 3INST on the quality side, so the two QTIP rows stay distinct. The declared asymmetry is worth a sentence. The Figure 1 caption says that Tetra's extra bits are row scales and the tail, which QTIP's arm does not carry. The proposed caption text can be shorter.",
+     "evidence": "docs/mesures/f2-p3-qtip-banc-2026-08-21.txt lines 88-92: 'QTIP ne porte ni queue f32 ni echelle de ligne f32 (en sa faveur) ; payload pseudo-aleatoire ... QTIP tel que livre, reglage <<<128,1024>>> fige'. Line 119: 'fetched at e90c6688c8dfae326a3a81b5eb032db7c6680ec0'. proofs/preregistration-f2-qtip-2026-08-20.md line 66: 'le codebook (512 half2 = 2 Kio ...) constante residente'. Line 70: '<<<128, 1024, 65536>>>'. README (https://github.com/Cornell-RelaxML/qtip): kernels 'for the HYB code with L=16, Q=9, V=2'. scripts/make_figures.py line 117: '\"QTIP\": \"QTIP (2-bit)\"'.",
+     "fix": "appendix.tex:20 row label: 'QTIP 2-bit, HYB~\\citep{qtip2024}$^{*}$'. Add to the Table 7 caption, after the $^{*}$ sentence: 'It times the HYB kernel of QTIP's repository ($L=16$, $Q=9$, $V=2$) on pseudo-random codes, in its own launch geometry. It reads no row scales and no tail, and its 2~KiB table is not counted.' Optional: in scripts/make_figures.py, change the label to \"QTIP HYB (2-bit)\"."
+    },
+    {
+     "id": "P4",
+     "verdict": "confirmed",
+     "severity": "nit",
+     "reason": "The report is right. QuIP# and QTIP both apply the randomized Hadamard transform. QuIP# introduced it, and QTIP credits QuIP#. QuIP, the only other rotation source cited, used random orthogonal matrices. Nothing in the sentence is false, and QuIP# is cited one sentence earlier, so this is a nit. The proposed fix puts quip2023 behind 'random Hadamard transform', which QuIP did not use. Attaching each citation to its own claim is more exact.",
+     "evidence": "QuIP# abstract (https://arxiv.org/abs/2402.04396): 'QuIP# improves QuIP's incoherence processing by using the randomized Hadamard transform, which is faster and has better theoretical properties.' QTIP (https://arxiv.org/html/2406.11235v4): 'QuIP# introduced IP with the random Hadamard transformation (RHT)'. QuIP abstract (https://arxiv.org/abs/2307.13304): 'multiplication by random orthogonal matrices'.",
+     "fix": "background.tex:19-21: 'QuIP\\# and QTIP first apply a random Hadamard transform~\\citep{quipsharp2024}, a rotation that spreads outliers across coordinates~\\citep{quip2023,quarot2024}.'"
+    },
+    {
+     "id": "P5",
+     "verdict": "partly",
+     "severity": "nit",
+     "reason": "QuIP# is a fitting citation here. The encoder's rotation uses random signs and a Walsh-Hadamard transform, which is the QuIP# construction. The proposed wording overstates this. Our rotation is a pure random Hadamard transform only when the width is a power of two. At 4B the inputs of q, k, v, gate, up (2560 = 5x512) and down (9728 = 19x512) also carry a dense random orthogonal factor from Gram-Schmidt, which is QuIP's kind of matrix. Only o_proj (4096) is a pure Hadamard transform. The exact fix is to add the citation and keep the neutral verb.",
+     "evidence": "llvq-quant/src/rotation.rs lines 26-31: 'Q = (Q_odd (x) H_m) D ... D a random sign flip, and H_m the Walsh-Hadamard transform ... Q_odd is a small dense orthogonal matrix from Gram-Schmidt'. The encoder calls it at llvq-llm/src/calib.rs:865 and 1107 (Rotation::new). docs/fiche-4b.md line 67 gives the shapes: q 4096 x 2560, down 2560 x 9728, o 2560 x 4096. QuIP# abstract (https://arxiv.org/abs/2402.04396): 'using the randomized Hadamard transform'.",
+     "fix": "tetra.tex:19-20: 'It rotates the input~\\citep{quip2023,quipsharp2024,quarot2024} and runs a GPTQ-style loop~\\citep{gptq2023}.'"
+    },
+    {
+     "id": "P6",
+     "verdict": "confirmed",
+     "severity": "nit",
+     "reason": "The PMLR record gives pages 48630-48656. The other two ICML 2024 entries, aqlm2024 and squeezellm2024, carry pages, and the rendered list shows the mismatch. In main.bbl, aqlm2024 prints 'pages 12284--12303' and quipsharp2024 prints no pages. Every other field of the entry matches PMLR: the title, all five authors in order, the venue and the year. The NeurIPS entries (qtip2024, quip2023, quarot2024) uniformly carry no pages, so they are consistent among themselves.",
+     "evidence": "https://proceedings.mlr.press/v235/tseng24a.html BibTeX: 'author = {Tseng, Albert and Chee, Jerry and Sun, Qingyao and Kuleshov, Volodymyr and De Sa, Christopher}', 'booktitle = {Proceedings of the 41st International Conference on Machine Learning}', 'pages = {48630--48656}', 'year = {2024}', 'volume = {235}'. paper2/refs.bib lines 105-112 (aqlm2024, pages 12284--12303) and 305-312 (squeezellm2024, pages 23901--23923). paper2/main.bbl lines 162-169 (quipsharp2024, no pages).",
+     "fix": "In @inproceedings{quipsharp2024,...} of paper2/refs.bib, after the booktitle line, add: '  pages     = {48630--48656},'"
+    }
+   ]
+  }
+ },
+ {
+  "group": "codebook-rot",
+  "kind": "ref",
+  "found": {
+   "refs": [
+    {
+     "key": "aqlm2024",
+     "metadata_verdict": "correct",
+     "metadata_evidence": "PMLR record https://proceedings.mlr.press/v235/egiazarian24a.html gives the same title, the same six authors in the same order (Egiazarian, Panferov, Kuznedelev, Frantar, Babenko, Alistarh), Proceedings of the 41st ICML, PMLR 235, pages 12284--12303, 2024. arXiv abstract page https://arxiv.org/abs/2401.06118 matches the title, the authors and the id, with the comment 'ICML, 2024'. The rendered entry [6] on PDF page 15 matches main.bbl. No problem found.",
+     "sites_checked": 1
+    },
+    {
+     "key": "vptq2024",
+     "metadata_verdict": "correct",
+     "metadata_evidence": "ACL Anthology https://aclanthology.org/2024.emnlp-main.467/ gives the same title, the same eight authors in the same order (Liu, Wen, Wang, Ye, Zhang, Cao, Li, Yang), Proceedings of the 2024 Conference on Empirical Methods in Natural Language Processing, pages 8181--8196, 2024, DOI 10.18653/v1/2024.emnlp-main.467. arXiv https://arxiv.org/abs/2409.17066 matches the id and has the comment 'EMNLP 2024, Main, Poster'. The rendered entry [17] on PDF page 15 matches. Adding doi = {10.18653/v1/2024.emnlp-main.467} is optional.",
+     "sites_checked": 1
+    },
+    {
+     "key": "quarot2024",
+     "metadata_verdict": "correct",
+     "metadata_evidence": "NeurIPS proceedings https://proceedings.neurips.cc/paper_files/paper/2024/hash/b5b939436789f76f08b9d0da5e81af7c-Abstract-Conference.html and its BibTeX file give the same title and the same nine authors in the same order, Cameron 5th. They give Advances in Neural Information Processing Systems 37 (NeurIPS 2024), 2024, and also volume 37, pages 100213--100240 and DOI 10.52202/079017-3180. arXiv https://arxiv.org/abs/2404.00456 matches the id. The entry leaves out volume and pages, as do the other NeurIPS entries in refs.bib (quip2023, qtip2024), so it is house style and not an error. The rendered entry [1] on PDF page 14 matches.",
+     "sites_checked": 2
+    }
+   ],
+   "problems": [
+    {
+     "id": "P1",
+     "key": "aqlm2024,vptq2024",
+     "file": "paper2/sections/background.tex",
+     "line": 19,
+     "quote": "Their kernels decode with lookup tables that fit on chip.",
+     "problem": "The cited works do not support this at the stated strength, and VPTQ partly contradicts it. The paper defines on-chip memory as the 128 KB L1/shared pool of an SM (kernel.tex:9-10, 106). AQLM's headline 2-bit configuration uses one codebook of 2^16 vectors of 8 weights per layer. That is 1 MiB in FP16 (computed), far above that pool. VPTQ reports that its larger codebooks do not fit in the L1 cache and slow its kernel down.",
+     "evidence": "AQLM (https://arxiv.org/html/2401.06118, Sec. 4.4, Appendix on hyperparameters): the 2-bit models use one codebook of size 2^15 or 2^16 with groups of 8. The authors write that multiple smaller codebooks use the GPU cache better. Table 5 shows the 1x16 kernel at x1.20-1.31 over FP16 on an RTX 3090, against x1.57-3.05 for 2x8. VPTQ (https://arxiv.org/html/2409.17066, ablation around Table 11): going from vector length 8 to 12 grows the codebook until it no longer fits in the L1 cache, which lowers inference speed. The v=6, k=4096 setting matches FP16 throughput. Several of its served 2-bit settings (LLaMA2-70B, LLaMA3-8B) use v=12 with two 4096-entry levels.",
+     "severity": "should_fix",
+     "fix": "AQLM and VPTQ~\\citep{aqlm2024,vptq2024} learn their codebooks, with up to $2^{16}$ entries each. Their kernels decode by reading these tables. Both run fastest with small tables: AQLM with two codebooks of 256 entries, VPTQ while its codebook fits in the L1 cache."
+    },
+    {
+     "id": "P2",
+     "key": "quarot2024",
+     "file": "paper2/sections/background.tex",
+     "line": 20,
+     "quote": "QuIP\\# and QTIP first apply a random rotation that spreads outliers across coordinates~\\citep{quip2023,quarot2024}.",
+     "problem": "The sentence credits QuaRot for the rotation that QuIP# and QTIP apply. QuaRot came after QuIP# (arXiv 2404.00456, March 2024, against 2402.04396, February 2024). QuaRot itself credits QuIP with incoherence processing and QuIP# with the randomized Hadamard matrices it uses. The work QuIP# and QTIP take their rotation from is quipsharp2024, which is in refs.bib and not cited here. QuaRot's own contribution is to rotate activations and the KV cache too.",
+     "evidence": "QuaRot (https://arxiv.org/html/2404.00456): Sec. 3.2 says incoherence processing was introduced by Chee et al. (QuIP). Sec. 3.1 says it uses randomized Hadamard matrices following Tseng et al. (QuIP#). Sec. 2 lists QuIP and QuIP# as earlier weight-only methods that applied rotations. The abstract of the NeurIPS page (https://proceedings.neurips.cc/paper_files/paper/2024/hash/b5b939436789f76f08b9d0da5e81af7c-Abstract-Conference.html) describes 4-bit weights, activations and KV cache after rotation. The claim that a rotation spreads outliers is supported. Its attribution to QuIP#/QTIP through QuaRot is the problem.",
+     "severity": "should_fix",
+     "fix": "QuIP\\# and QTIP first apply a random rotation that spreads outliers across coordinates~\\citep{quip2023,quipsharp2024}. QuaRot~\\citep{quarot2024} also rotates the activations, which lets it store weights, activations and KV cache in 4 bits."
+    },
+    {
+     "id": "P3",
+     "key": "quarot2024",
+     "file": "paper2/sections/tetra.tex",
+     "line": 20,
+     "quote": "It rotates the input~\\citep{quip2023,quarot2024} and runs a GPTQ-style loop~\\citep{gptq2023}.",
+     "problem": "The citation supports the claim but leaves out the direct source. The encoder's rotation is a random sign flip followed by a Walsh-Hadamard transform, with a small dense factor for odd widths. That is QuIP#'s randomized Hadamard transform, and QuaRot says it takes that construction from QuIP#. quipsharp2024 should be cited beside the two works already there.",
+     "evidence": "llvq-quant/src/rotation.rs:26-31 builds Q = (Q_odd kron H_m) D, with D a random sign flip and H_m a scaled Walsh-Hadamard transform. QuaRot Sec. 3.1 (https://arxiv.org/html/2404.00456) says it follows Tseng et al. (QuIP#) in using randomized Hadamard matrices. QuaRot Sec. 3.2 credits QuIP with incoherence processing. So quip2023 and quarot2024 are fair, but not complete.",
+     "severity": "nit",
+     "fix": "It rotates the input~\\citep{quip2023,quipsharp2024,quarot2024} and runs a GPTQ-style loop~\\citep{gptq2023}."
+    },
+    {
+     "id": "P4",
+     "key": "aqlm2024,vptq2024",
+     "file": "paper2/sections/intro.tex",
+     "line": 16,
+     "quote": "Fast 2-bit GPU kernels decode with a small lookup table.",
+     "problem": "This describes the kernels of the cited 2-bit methods but carries no citation. It is also broader than they are. QTIP's own abstract describes computed, lookup-free codes; the QTIP variant LLVQ compares against is 3INST (docs/llvq-paper-notes.md, Table 6). AQLM's 2-bit table holds 2^16 vectors (P1), which is small only next to 10^14.",
+     "evidence": "QTIP abstract (https://arxiv.org/abs/2406.11235): a spectrum of codes from lookup-only to computed lookup-free. AQLM (https://arxiv.org/html/2401.06118): 2-bit models use one codebook of 2^15 or 2^16 entries in groups of 8. VPTQ (https://arxiv.org/html/2409.17066, Table 11): codebooks of 256 to 65,536 entries.",
+     "severity": "nit",
+     "fix": "Fast 2-bit GPU kernels read each value from a table of at most $2^{16}$ entries, or compute it from the code~\\citep{quipsharp2024,qtip2024,aqlm2024,vptq2024}. A table of $10^{14}$ points cannot be stored."
+    }
+   ]
+  },
+  "verification": {
+   "verdicts": [
+    {
+     "id": "P1",
+     "verdict": "partly",
+     "severity": "should_fix",
+     "reason": "The core holds. Neither AQLM nor VPTQ says its tables fit on chip, and both report the opposite for their large tables at the L1 level. AQLM's 2-bit kernel reads its codebook straight from global memory and skips L1. Two parts of the report overstate. First, the literal phrase is not contradicted: L2 is also on chip, AQLM's 1x16 kernel reads its table through L2, and the paper describes the 128 KB pool as on-chip memory without restricting the term to it. Second, the proposed fix is wrong. VPTQ's Table 11 shows its smallest codebooks are the slowest, and a 65,536-entry codebook (1 MiB, far above L1) runs faster than FP16. So 'Both run fastest with small tables' and 'VPTQ while its codebook fits in the L1 cache' contradict VPTQ's own data.",
+     "evidence": "AQLM (https://arxiv.org/html/2401.06118), App. C: \"1 codebook size of 2^15 or 2^16, with groups of 8 for 2 bits\"; 3 bits 2x2^12, 4 bits 2x2^15 or 2^16. Sec. 4.4: \"multiple smaller codebooks allow efficient GPU cache utilization, leading to greater speedup\". Table 5 (RTX 3090, gate_proj): Table 1 config (1x16) x1.31/x1.20/x1.20 against 2x8 x1.57/x1.82/x3.05 for 7B/13B/70B. AQLM CUDA source (https://raw.githubusercontent.com/Vahe1994/AQLM/main/inference_lib/src/aqlm/inference_kernels/cuda_kernel.cu): Code1x16MatVec loads the codebook with ld.cg.global and comments \"We bypass the L1 cache\". Code2x8MatVec copies its 2x256 codebooks into shared memory. VPTQ (https://arxiv.org/html/2409.17066), App. C.2: going from vector length 8 to 12 \"results in the codebook not fitting in the L1 cache, thereby reducing the model's inference speed\". Table 11 (LLaMA-2 13B): FP16 30.03 tok/s. v2 k16 18.85, v4 k256 17.06, v6 k4096 32.09, v8 k65536 30.64, v12 k4096/4096 21.34. Largest k anywhere in VPTQ is 65536. Table 8: LLaMA2-70B, LLaMA3-8B and LLaMA3-70B use v=12 with k1=k2=4096. Paper usage: kernel.tex:9-10 and 105-107 call shared memory and the L1/shared pool on-chip, but nowhere exclude L2.",
+     "fix": "AQLM and VPTQ~\\citep{aqlm2024,vptq2024} learn their codebooks, of at most $2^{16}$ entries. Their kernels decode by reading these tables. Both papers tie the kernel's speed to how well the tables fit in the GPU cache."
+    },
+    {
+     "id": "P2",
+     "verdict": "partly",
+     "severity": "should_fix",
+     "reason": "The core holds. The rotation QuIP# and QTIP apply is QuIP#'s randomized Hadamard transform, which builds on QuIP's incoherence processing. QuaRot came later (v1 of March 30, 2024, against February 6, 2024 for QuIP#) and credits both works. QuaRot does support the generic claim that a rotation removes outliers, so the citation is misplaced rather than false. The first sentence of the proposed fix is right. The added QuaRot sentence is not needed, because quarot2024 stays cited in tetra.tex:20. It is also inexact. 'also rotates the activations' does not set QuaRot apart, since QuIP#'s own inference algorithm rotates the input activation online. And QuaRot quantizes activations to 4 bits; it does not store them.",
+     "evidence": "QuaRot (https://arxiv.org/html/2404.00456), Sec. 2: \"Two weight-only quantization methods, QuIP ... and QuIP# ... have previously considered improving quantization by applying rotations.\" Sec. 3.1: \"Following Tseng et al. (2024) we make use of randomized Hadamard matrices where convenient.\" Sec. 3.2: incoherence processing \"was introduced by (Chee et al., 2024)\". QuIP# abstract (https://arxiv.org/abs/2402.04396, v1 February 6, 2024): \"QuIP# improves QuIP's incoherence processing by using the randomized Hadamard transform\". QuIP# (https://arxiv.org/html/2402.04396): \"Incoherence processing is a principled form of outlier suppression\". Algorithm 2 begins y <- Had(S_V \u2299 x). QTIP (https://arxiv.org/html/2406.11235), Sec. 2.1, builds on incoherence processing with QuIP#'s RHT. QuaRot abstract (https://arxiv.org/abs/2404.00456): quantizes \"all weights, activations, and KV cache in 4 bits\".",
+     "fix": "QuIP\\# and QTIP first apply a random rotation that spreads outliers across coordinates~\\citep{quip2023,quipsharp2024}.\n(If QuaRot should stay in this paragraph, add: QuaRot~\\citep{quarot2024} rotates the hidden state too, and quantizes weights, activations and KV cache to 4 bits.)"
+    },
+    {
+     "id": "P3",
+     "verdict": "confirmed",
+     "severity": "nit",
+     "reason": "The encoder's rotation is a random sign flip followed by a scaled Walsh-Hadamard transform, with a small dense factor for odd widths. That is QuIP#'s randomized Hadamard transform. QuaRot says it takes this construction from QuIP#. quip2023 and quarot2024 are fair citations but leave out the direct source. The proposed fix is exact.",
+     "evidence": "llvq-quant/src/rotation.rs:26-31 builds Q = (Q_odd \u2297 H_m) D, with D a random sign flip and H_m the orthogonally scaled Walsh-Hadamard transform. The encoder uses it: llvq-llm/src/calib.rs:1107 calls Rotation::new(n, effective_rotation_seed(...)). QuaRot Sec. 3.1 (https://arxiv.org/html/2404.00456): \"Following Tseng et al. (2024) we make use of randomized Hadamard matrices where convenient.\" QuIP# abstract (https://arxiv.org/abs/2402.04396): \"QuIP# improves QuIP's incoherence processing by using the randomized Hadamard transform\".",
+     "fix": "It rotates the input~\\citep{quip2023,quipsharp2024,quarot2024} and runs a GPTQ-style loop~\\citep{gptq2023}."
+    },
+    {
+     "id": "P4",
+     "verdict": "confirmed",
+     "severity": "nit",
+     "reason": "The sentence describes the kernels of named methods and carries no citation. It is also broader than they are. QTIP offers computed codes that use no lookup table at all, and LLVQ compares against QTIP's 3INST code, which is one of them. AQLM's 2-bit table holds 2^16 vectors. The reader's fix is correct. The version below is sharper in two ways. It cites each branch to the works that use it, so QTIP is not cited for table lookup. It also says 'code' and 'weights' instead of 'value', because these methods look up vectors. One adjacent point, outside this item: background.tex:17 says QTIP's trellis states 'index a small hashed table'. That describes only QTIP's HYB code, not the 3INST variant compared in LLVQ.",
+     "evidence": "QTIP abstract (https://arxiv.org/abs/2406.11235): \"a spectrum of lookup-only to computed lookup-free trellis codes\". QTIP Sec. 3.1.1 (https://arxiv.org/html/2406.11235): 3INST is lookup-free, about 3 ALU instructions a weight. Sec. 3.1.2: HYB uses a 2^Q x 2 LUT, and \"Q=9 gives a 2KiB codebook\". LLVQ Table 6 compares QTIP (3INST): docs/llvq-paper-notes.md:92 and 97. QuIP# (https://arxiv.org/html/2402.04396): E8P has 2^16 entries but only needs lookups into a 2^8-entry table, and \"requires only 1KiB of space\". AQLM App. C (https://arxiv.org/html/2401.06118): 2-bit uses one codebook of 2^15 or 2^16 entries. VPTQ Table 11 (https://arxiv.org/html/2409.17066): codebooks of 16 to 65,536 entries.",
+     "fix": "Fast 2-bit GPU kernels look each code up in a table of at most $2^{16}$ entries~\\citep{quipsharp2024,aqlm2024,vptq2024}, or compute its weights in a few instructions~\\citep{qtip2024}. A table of more than $10^{14}$ entries cannot be stored."
+    }
+   ]
+  }
+ },
+ {
+  "group": "baselines",
+  "kind": "ref",
+  "found": {
+   "refs": [
+    {
+     "key": "gptq2023",
+     "metadata_verdict": "correct",
+     "metadata_evidence": "https://arxiv.org/abs/2210.17323 lists 'GPTQ: Accurate Post-Training Quantization for Generative Pre-trained Transformers', authors Elias Frantar, Saleh Ashkboos, Torsten Hoefler, Dan Alistarh in that order, comments 'ICLR 2023'. BibTeX and rendered ref [8] match: title, author order and spelling, ICLR 2023, arXiv:2210.17323. DBLP and OpenReview blocked the fetch, so the venue rests on the arXiv comments field. Claim check at https://ar5iv.labs.arxiv.org/html/2210.17323: GPTQ quantizes 'all rows in the same order' while 'always updating all not-yet-quantized weights, in order to compensate' for the error, with H = 2XX^T from '128 random 2048 token segments from the C4 dataset'. That supports background.tex:7-9 (one column at a time, error pushed onto unquantized columns, second-order statistics from calibration text). tetra.tex:20 ('runs a GPTQ-style loop') is consistent with docs/llvq-paper-notes.md, where LLVQ's quantizer is GPTQ / Spherical GPTQ.",
+     "sites_checked": 2
+    },
+    {
+     "key": "awq2024",
+     "metadata_verdict": "correct",
+     "metadata_evidence": "MLSys proceedings BibTeX (https://proceedings.mlsys.org/paper_files/paper/2024/file/42a452cbafa9dd64e9ba4aa95cc1ef21-Bibtex-Conference.bib) gives title 'AWQ: Activation-aware Weight Quantization for On-Device LLM Compression and Acceleration', authors Lin, Tang, Tang, Yang, Chen, Wang, Xiao, Dang, Gan, Han in that order, Proceedings of Machine Learning and Systems, volume 6, pages 87--100, 2024. refs.bib and rendered ref [16] match exactly. The arXiv title (https://arxiv.org/abs/2306.00978) drops 'On-Device'. Using the proceedings title is right for an MLSys citation. Claim check at https://arxiv.org/html/2306.00978v5: per-input-channel scale 's = s_X^alpha', with s_X the average activation magnitude, then INT4/INT3 rounding with 'group size of 128 throughout the work'. That supports background.tex:9-11. The Table 2 arm is confirmed in llvq-cuda/kernels/awq_gemv.cu: a port of awq/kernels/csrc/quantization/gemv_cuda.cu from github.com/mit-han-lab/llm-awq (MIT HAN Lab, sha256 pinned). The paper describes this TinyChat GEMV as fusing dequantization with the matrix-vector product, so the kernel.tex:88-89 attribution holds. See the one nit on the 4.179 figure.",
+     "sites_checked": 5
+    },
+    {
+     "key": "marlin2024",
+     "metadata_verdict": "correct",
+     "metadata_evidence": "ISTA research explorer (https://research-explorer.ista.ac.at/record/19877) and ACM DL (https://dl.acm.org/doi/10.1145/3710848.3710871) give 'MARLIN: Mixed-precision auto-regressive parallel inference on Large Language Models', authors Elias Frantar, Roberto L. Castro, Jiale Chen, Torsten Hoefler, Dan Alistarh in that order, Proceedings of the 30th ACM SIGPLAN Annual Symposium on Principles and Practice of Parallel Programming, pages 239-251, 2025, DOI 10.1145/3710848.3710871. arXiv 2408.11743 matches. refs.bib and rendered ref [9] match. The key reads 2024 while the year field is 2025. The key never prints, and natbib renders 'Frantar et al. (2025)', so this is harmless. No doi field is given, in line with refs.bib's stated policy. Claim check at https://arxiv.org/html/2408.11743v1: the published kernel is symmetric INT4 with group size 128, and its related work says 'a version of MARLIN supporting AWQ has been introduced independently in vLLM'. So 'vLLM serves it with the Marlin kernel' (background.tex:11-12) is supported. The measurement logs confirm vLLM resolved awq_marlin (docs/mesures/paper-table-2026-09-25.txt:94, gsm8k-wave1-2026-09-26.txt:25).",
+     "sites_checked": 3
+    }
+   ],
+   "problems": [
+    {
+     "id": "awq-4179-padding",
+     "key": "awq2024",
+     "file": "paper2/sections/intro.tex",
+     "line": 66,
+     "quote": "layout and 4.179 for 4-bit AWQ~\\citep{awq2024} (\\S\\ref{sec:kernel}).",
+     "problem": "The 4.179 bits per weight belongs to the ported GEMV kernel's buffer layout. The AWQ w4g128 format does not have that cost. The format costs 4 bits plus one f16 scale and one 4-bit zero per 128 weights, or 4.156 b/weight. The GEMV kernel pads its zero and scale buffers to a multiple of eight groups per row, which adds 0.023. The citation makes 4.179 read as a property of AWQ. The Table 2 caption says the Tetra row leaves out its row padding but does not say the AWQ row includes padding. The same number appears uncited in intro.tex:20 ('more than the 4.179 of 4-bit AWQ') and in kernel.tex:95.",
+     "evidence": "llvq-cuda/src/bin/planesbench.rs awq_strides() returns (d_in/8, ceil(g/8), ceil(g/8)*8) for the weight, zero and scale strides, and awq_bytes() bills the padded strides. Recomputed on the seven Qwen3-4B projection shapes (36 layers): padded = 4.1786 b/weight and 1.898 GB, matching Table 2's 4.179 and 1.90 GB. Unpadded w4g128 = 4 + 20/128 = 4.15625 b/weight (computed). AWQ paper (https://arxiv.org/html/2306.00978v5): group size 128 throughout. It gives no 4.179 figure.",
+     "severity": "nit",
+     "fix": "intro.tex:64-66: \"It reads 2.148 bits per weight, against 4.804 for our earlier layout and 4.179 for the 4-bit GEMV kernel of AWQ~\\citep{awq2024} (\\S\\ref{sec:kernel}).\" In the Table 2 caption (kernel.tex:88-90), after \"not the Marlin kernel that vLLM serves.\", add: \"Its row counts the kernel's scale and zero buffers, padded to a multiple of eight groups per row. The w4g128 format alone is 4.156~\\bw{} (computed).\" Optionally, intro.tex:20: \"more than the 4.179 of the 4-bit AWQ kernel.\""
+    }
+   ]
+  },
+  "verification": {
+   "verdicts": [
+    {
+     "id": "awq-4179-padding",
+     "verdict": "partly",
+     "severity": "nit",
+     "reason": "The arithmetic holds. 4.179 is the ported GEMV kernel's padded buffer layout. w4g128 with no padding costs 4 + 20/128 = 4.156 b/weight. The Table 2 caption says the Tetra row leaves out its padding (0.009) but never says the AWQ row keeps its own. That asymmetry is real and worth a sentence. The reader overstates the rest. Every sentence that uses 4.179 is about what a kernel reads: 'reads 2.148 bits per weight, against ... 4.179 for 4-bit AWQ' (intro.tex:65-66), 'the kernel read 4.804 ... more than the 4.179 of 4-bit AWQ' (intro.tex:19-20), and the row 'bits per weight in VRAM' in a kernel benchmark. Figure 1 plots AWQ at 4.000 code bits (hollow) and 4.179 read (filled). The padding is also the AWQ authors' own: their released code rounds scales and zeros up to a multiple of eight groups a row. So 4.179 is a true property of AWQ's released GEMV kernel, not a misattribution to the AWQ paper, and the citation needs no change. The reader's 'adds 0.023' is a difference of rounded values. The unrounded gap is 4.1786 - 4.15625 = 0.022. Adding '(computed)' inline in the caption does not match the paper's convention: the paper labels numbers in the appendix record table (appendix.tex:147 onward).",
+     "evidence": "Upstream AWQ code, https://raw.githubusercontent.com/mit-han-lab/llm-awq/main/awq/quantize/qmodule.py: calculate_zeros_width has 'base_width = make_divisible(in_features // group_size, pack_num)' with pack_num=8, and the scales buffer is allocated as '(calculate_zeros_width(in_features, group_size) * pack_num, out_features)'. The ported kernel /Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-cuda/kernels/awq_gemv.cu (port of llm-awq gemv_cuda.cu, sha256 in its header) computes 'sf_w = awq_make_divisible(IC / group_size, AWQ_PACK_FACTOR) * AWQ_PACK_FACTOR' and 'zeros_w = awq_make_divisible(IC / group_size, AWQ_PACK_FACTOR)'. It loops over num_groups_packed, and in the last packed group threads 16-31 read the padded scale entries. /Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-cuda/src/bin/planesbench.rs:1105-1122 awq_strides/awq_bytes bill those padded strides. I recomputed on the seven Qwen3-4B shapes (d_in 2560: 20 groups padded to 24; 4096: 32, no padding; 9728: 76 padded to 80) over 36 layers: padded 4.17857 b/weight and 1.8978 GB, which matches Table 2's 4.179 and 1.90 GB; unpadded 4.15625 b/weight and 1.8876 GB; padding 10.1 MB, 0.022 b/weight (computed). docs/data/echelle-formats.csv row 'AWQ,competitor,4.179,...'. The AWQ paper (https://arxiv.org/abs/2306.00978, MLSys 2024) gives no 4.179 figure, and the paper does not claim it does.",
+     "fix": "Required (caption, kernel.tex:88-90). After 'not the Marlin kernel that vLLM serves.' insert: 'Its row includes the padding of that kernel's scale and zero buffers, which hold a multiple of eight groups a row: 10.1~MB, 0.022~\\bw{}. Without it, w4g128 costs 4.156~\\bw{}.' To keep rule 8, add one row to the record table in appendix.tex, after 'row padding, 4.1~MB & measured & banc-t64-09-20\\\\': 'AWQ padding, 10.1~MB, and w4g128 at 4.156~\\bw{} without it & computed & \\texttt{awq\\_strides} in \\texttt{planesbench}, the 4B shapes\\\\'. Optional (intro.tex:65-66), only for precision; the citation stays as it is: 'It reads 2.148 bits per weight, against 4.804 for our earlier layout and 4.179 for the 4-bit GEMV kernel of AWQ~\\citep{awq2024} (\\S\\ref{sec:kernel}).' Leave intro.tex:20 and kernel.tex:95 unchanged: both already speak of what a kernel reads."
+    }
+   ]
+  }
+ },
+ {
+  "group": "serving",
+  "kind": "ref",
+  "found": {
+   "refs": [
+    {
+     "key": "vllm2023",
+     "metadata_verdict": "correct",
+     "metadata_evidence": "Crossref for DOI 10.1145/3600006.3613165 (https://api.crossref.org/works/10.1145/3600006.3613165): title 'Efficient Memory Management for Large Language Model Serving with PagedAttention', container 'Proceedings of the 29th Symposium on Operating Systems Principles', pages 611-626, 2023 (SOSP '23, Koblenz), authors Woosuk Kwon, Zhuohan Li, Siyuan Zhuang, Ying Sheng, Lianmin Zheng, Cody Hao Yu, Joseph Gonzalez, Hao Zhang, Ion Stoica. arXiv abstract https://arxiv.org/abs/2309.06180 gives the same nine authors in the same order, 'Joseph E. Gonzalez', comment 'SOSP 2023'. refs.bib and main.bbl match on every field. No DOI, but the bib carries no DOI for peer-reviewed entries anywhere else either. The version the paper names exists: https://github.com/vllm-project/vllm/releases/tag/v0.26.0, published 2026-07-27. The journals pin image vllm/vllm-openai:v0.26.0 (docs/mesures/awq-vllm-4b-2026-08-17.txt l.4, paper-table-2026-09-25.txt runs 6-7, gsm8k-wave1/2). They also log 'Using MarlinLinearKernel for AutoAWQMarlinLinearMethod', which supports 'AWQ with the Marlin kernel'. Citing the SOSP paper for the engine, together with marlin2024 for the kernel (background.tex:11-12), is a fair split.",
+     "sites_checked": 8
+    },
+    {
+     "key": "llamacpp",
+     "metadata_verdict": "minor_issue",
+     "metadata_evidence": "Title, owner and year check out against the GitHub API (gh api repos/ggml-org/llama.cpp): description 'LLM inference in C/C++', owner ggml-org, created 2023-03-10T18:58:00Z. The tag in the note exists: https://github.com/ggml-org/llama.cpp/releases/tag/v0.2.0, published 2026-08-21T18:32:48Z, 'Nightly build: b10566'. The paper1 refs.bib comment says the note just records the latest release on the day the entry was written. But the paper measures llama.cpp, and none of its runs used v0.2.0. (1) The IQ2_XXS file was built on the Mac on 2026-08-30 (m3-iq2-metal journal, ops/iq2_metal.sh calls llama-imatrix and llama-quantize from PATH). The machine's only install is Homebrew llama.cpp 10050: 'version: 10050 (b15ca938a)', Cellar dir dated Jul 22. That is https://github.com/ggml-org/llama.cpp/releases/tag/b10050, 2026-07-16. (2) The L40S speed job 6a94a1d445686a1580c19524 (hf jobs logs) ends with 'build: 57291f264 (10689)', which is https://github.com/ggml-org/llama.cpp/releases/tag/b10689, 2026-08-30. (3) The MMLU run 6ab6300c6b030d633f690a5f of 2026-09-25 used the floating ghcr.io/ggml-org/llama.cpp:full-cuda image. Its server.log records no build. The rendered entry (main.bbl l.81-85) matches refs.bib.",
+     "sites_checked": 7
+    },
+    {
+     "key": "mlx2023",
+     "metadata_verdict": "correct",
+     "metadata_evidence": "The MLX README carries its own citation block (gh api repos/ml-explore/mlx/readme; https://github.com/ml-explore/mlx): '@software{mlx2023, author = {Awni Hannun and Jagrit Digani and Angelos Katharopoulos and Ronan Collobert}, title = {{MLX}: Efficient and flexible machine learning on Apple silicon}, ... year = {2023}}'. refs.bib and main.bbl match authors, order, title and year. The bib URL points at the repo (github.com/ml-explore/mlx) rather than the org (github.com/ml-explore), which is more precise. The repo was created 2023-11-28. The sentence citing it is checked separately (problem P4).",
+     "sites_checked": 1
+    }
+   ],
+   "problems": [
+    {
+     "id": "P1",
+     "key": "llamacpp",
+     "file": "paper2/refs.bib",
+     "line": 345,
+     "quote": "note         = {Release v0.2.0, accessed 2026-08-22}",
+     "problem": "The note gives a release that no measurement in the paper used. A reader who wants to reproduce the IQ2_XXS numbers would install v0.2.0 (b10566, 2026-08-21). The file was built with b10050, speed was timed with b10689, and MMLU was scored with the full-cuda image of 2026-09-25. The paper names vLLM's exact version (0.26.0), so the llama.cpp version should be just as exact.",
+     "evidence": "v0.2.0 = nightly b10566, published 2026-08-21 (https://github.com/ggml-org/llama.cpp/releases/tag/v0.2.0). Local install used by ops/iq2_metal.sh: '/opt/homebrew/bin/llama-bench --version' -> 'version: 10050 (b15ca938a)' (https://github.com/ggml-org/llama.cpp/releases/tag/b10050, 2026-07-16), the only version in the Homebrew Cellar, installed 2026-07-22. Speed job 6a94a1d445686a1580c19524: 'hf jobs logs' ends 'build: 57291f264 (10689)' (https://github.com/ggml-org/llama.cpp/releases/tag/b10689, 2026-08-30). MMLU job 6ab6300c6b030d633f690a5f: image ghcr.io/ggml-org/llama.cpp:full-cuda (docs/mesures/paper-table-2026-09-25.txt run 5), and server.log has no build line.",
+     "severity": "should_fix",
+     "fix": "note         = {Build b10050 for \\texttt{llama-imatrix} and \\texttt{llama-quantize}, build b10689 for \\texttt{llama-bench}, image \\texttt{full-cuda} of 2026-09-25 for \\texttt{llama-server}}"
+    },
+    {
+     "id": "P2",
+     "key": "llamacpp",
+     "file": "paper2/sections/background.tex",
+     "line": 21,
+     "quote": "llama.cpp's IQ2\nformats~\\citep{llamacpp} are the 2-bit option most people run on their own\nmachines.",
+     "problem": "The sentence makes a claim about usage ('most people run') that nothing supports. The cited object is a code repository, and it says nothing about how widely IQ2 is used compared with other 2-bit formats. llama.cpp itself ships another 2-bit option, Q2_K. The claim has no source, and 'most' is stronger than any evidence the paper has. Paper 1 described the same formats by what they are, not by how popular they are.",
+     "evidence": "https://github.com/ggml-org/llama.cpp (repo description 'LLM inference in C/C++') makes no usage claim. The IQ2 grids are declared in ggml/src/ggml-common.h at master as iq2xxs_grid 256, iq2xs_grid 512 and iq2s_grid 1024 entries (GGML_TABLE_BEGIN lines 560, 627, 758). Paper 1 (paper/sections/related.tex:15-17) says 'the IQ2_XXS, IQ2_XS and IQ2_S formats of llama.cpp ... use E8-derived grids of 256 to 1,024 points with fused kernels'.",
+     "severity": "should_fix",
+     "fix": "llama.cpp~\\citep{llamacpp} runs models on local machines. Its IQ2 formats decode from grids of 256 to 1{,}024 points held in a lookup table."
+    },
+    {
+     "id": "P3",
+     "key": "llamacpp",
+     "file": "paper2/sections/experiments.tex",
+     "line": 45,
+     "quote": "IQ2\\_XXS runs in llama.cpp's\n\\texttt{llama-bench} on 128 tokens from an empty prompt, as the mean of five\nrepetitions.",
+     "problem": "The llama.cpp tool that produces a Table 3 number has neither a citation nor a version. The vLLM sentence just before it has both ('vLLM 0.26.0~\\citep{vllm2023}'). The rest of the sentence checks out: the job ran '-p 0 -n 128 -r 5' and printed 'tg128 312.85 \u00b1 2.33'.",
+     "evidence": "hf jobs logs 6a94a1d445686a1580c19524: table row 'qwen3 4B IQ2_XXS - 2.0625 bpw ... CUDA ... tg128 312.85 \u00b1 2.33', last line 'build: 57291f264 (10689)'. The command '-p 0 -n 128 -r 5' is recorded from hf jobs inspect in docs/mesures/paper2-audit-2026-09-28-brut/audit-findings.json. Build b10689: https://github.com/ggml-org/llama.cpp/releases/tag/b10689.",
+     "severity": "should_fix",
+     "fix": "IQ2\\_XXS runs in \\texttt{llama-bench} of llama.cpp build b10689~\\citep{llamacpp} on 128 tokens from an empty prompt, as the mean of five repetitions."
+    },
+    {
+     "id": "P4",
+     "key": "mlx2023",
+     "file": "paper2/sections/model.tex",
+     "line": 71,
+     "quote": "files store them in 4 bits, in groups of 64 with an f16 scale and offset per group, as MLX\ndoes~\\citep{mlx2023}.",
+     "problem": "MLX's default affine scheme does match on 4 bits, groups of 64, and one scale and one offset (bias) per group. The dtype does not match. MLX stores the scale and bias in the input's own type, not f16. On Qwen3, whose checkpoint is bf16, MLX's file stores them in BF16. The storage cost is the same (16 bits each, 4.5 bits a weight), but the sentence says MLX uses f16, and it does not.",
+     "evidence": "MLX docs for mlx.core.quantize (https://ml-explore.github.io/mlx/build/html/python/_autosummary/mlx.core.quantize.html): mode 'affine', group size '32, 64*, 128', bits '2, 3, 4*, ...', scale type 'same as input', bias 'yes'. The '*' marks the default. The repo's own MLX file /Users/pjmalandrino/qwen3-4b-mlx-q4/model.safetensors (recipe 'mlx_lm.convert ... -q --q-bits 4 --q-group-size 64', docs/fiche-4b.md:321) has header 'model.embed_tokens.scales BF16 [151936, 40]', 'model.embed_tokens.biases BF16', and config quantization {'group_size': 64, 'bits': 4}. The comment at llvq-llm/src/embedquant.rs:5-7 makes the same f16 attribution.",
+     "severity": "nit",
+     "fix": "The sealed\nfiles store them in 4 bits, in groups of 64 with a scale and an offset per group, as MLX\ndoes~\\citep{mlx2023}. Our scale and offset are f16. MLX keeps them in the model's own type, bf16 for Qwen3."
+    },
+    {
+     "id": "P5",
+     "key": "llamacpp",
+     "file": "paper2/sections/experiments.tex",
+     "line": 55,
+     "quote": "IQ2\\_XXS is built with \\texttt{llama-quantize} and an\nimportance matrix, which tells the quantizer which weights matter most.",
+     "problem": "The sentence names the quantizer but not the tool that builds the importance matrix. In llama.cpp that is a separate program, llama-imatrix, and ops/iq2_metal.sh runs it with '-c 2048' on the C4 file. Without its name, a reader cannot redo the build from the text. The sentence is otherwise accurate: llama.cpp documents the matrix as computed from a text dataset and used at quantization time.",
+     "evidence": "llama.cpp tools/imatrix/README.md (https://github.com/ggml-org/llama.cpp/tree/master/tools/imatrix): 'Compute an importance matrix for a model and given text dataset. Can be used during quantization to enhance the quality of the quantized models.' ops/iq2_metal.sh: 'llama-imatrix -m \"$F16\" -f \"$CALIB\" -o \"$IMAT\" -c 2048 -ngl 99', then 'llama-quantize --imatrix \"$IMAT\" \"$F16\" \"$OUT\" IQ2_XXS'.",
+     "severity": "nit",
+     "fix": "IQ2\\_XXS is built with \\texttt{llama-quantize} and an\nimportance matrix from \\texttt{llama-imatrix}, which tells the quantizer which weights matter most."
+    },
+    {
+     "id": "P6",
+     "key": "llamacpp",
+     "file": "paper2/sections/intro.tex",
+     "line": 82,
+     "quote": "above IQ2\\_XXS, a 2-bit llama.cpp format that uses 2.48 bits per parameter.",
+     "problem": "As written, 2.48 bits reads as the rate of the format. llama.cpp gives IQ2_XXS itself as 2.0625 bits a weight. The 2.48 is the paper's whole-file rate for its own 4B build, embedding included (model.tex:30, appendix.tex:107-110). The number is correct, but the sentence gives it to the wrong object.",
+     "evidence": "llama-bench labels the format 'qwen3 4B IQ2_XXS - 2.0625 bpw' (hf jobs logs 6a94a1d445686a1580c19524). The whole file is 1,246,620,832 bytes, or 2.479 b/param (appendix.tex:109-110; m3-iq2-metal-2026-08-30.txt).",
+     "severity": "nit",
+     "fix": "above IQ2\\_XXS, a 2-bit llama.cpp format, whose 4B file takes 2.48 bits per parameter."
+    }
+   ]
+  },
+  "verification": {
+   "verdicts": [
+    {
+     "id": "P1",
+     "verdict": "confirmed",
+     "severity": "should_fix",
+     "reason": "The note names a release that no measurement used. v0.2.0 is the stable tag over nightly b10566, published 2026-08-21, while the IQ2_XXS file, its speed and its MMLU each came from a different build. A reader who installs v0.2.0 does not get the paper's software. The vLLM version is exact in the text, so this one should be exact too. One caveat: b10050 for the build is inferred, not logged. It is the only llama.cpp in the Homebrew Cellar, installed 2026-07-22, and the only one on PATH. It is not written in the journal m3-iq2-metal-2026-08-30.txt. The MMLU server build was never recorded, so the image tag and its date are the most exact thing the paper can say.",
+     "evidence": "gh api releases/tags/v0.2.0: published 2026-08-21T18:32:48Z, body says 'Nightly build: [b10566]', and the changelog top commit bb4caa754 is the b10566 commit bb4caa7540 (https://github.com/ggml-org/llama.cpp/releases/tag/v0.2.0). b10050 was published 2026-07-16 (https://github.com/ggml-org/llama.cpp/releases/tag/b10050). Locally, 'llama-imatrix --version' and 'llama-server --version' both print 'version: 10050 (b15ca938a)'. /opt/homebrew/Cellar/llama.cpp/ holds only 10050, installed Jul 22, and 'which -a' finds one copy of each tool. Speed job 6a94a1d445686a1580c19524: 'hf jobs logs' ends 'build: 57291f264 (10689)' (b10689, 2026-08-30, https://github.com/ggml-org/llama.cpp/releases/tag/b10689). MMLU job 6ab6300c6b030d633f690a5f: 'hf jobs inspect' shows docker_image ghcr.io/ggml-org/llama.cpp:full-cuda, created 2026-09-25, and the command runs llama-server. docs/mesures/paper-table-2026-09-25-brut/paper-iq2-census-2026-09-25/server.log has no build or version line. The reader's '--version' is attributed to llama-bench, which in fact rejects the flag ('invalid parameter for argument: --version'). The sibling tools give the same 10050, so the finding stands.",
+     "fix": "note         = {Build b10050 for \\texttt{llama-imatrix} and \\texttt{llama-quantize}, build b10689 for \\texttt{llama-bench}, \\texttt{full-cuda} image of 2026-09-25 for \\texttt{llama-server}}"
+    },
+    {
+     "id": "P2",
+     "verdict": "confirmed",
+     "severity": "should_fix",
+     "reason": "'Most people run' is a claim about usage share. The citation cannot support it, because it points at a code repository, and the repository says nothing about adoption. I found no measurement of 2-bit GGUF usage. llama.cpp also ships a second 2-bit family, Q2_K, and web guides treat the two as alternatives, with no usage figures. The sentence seems to come from an unsourced comment in ops/iq2_metal.sh, 'the most widely deployed 2-bit format in the world'. Paper 1 described the same formats by their grids. The reader's replacement is accurate: the grid sizes are 256, 512 and 1,024 in ggml-common.h at master. The README says llama.cpp runs 'locally and in the cloud', so 'runs models on local machines' is true, if not exhaustive.",
+     "evidence": "GitHub repo description: 'LLM inference in C/C++' (https://github.com/ggml-org/llama.cpp). ggml/src/ggml-common.h at master, fetched with gh api: line 560 'GGML_TABLE_BEGIN(uint64_t, iq2xxs_grid, 256)', line 627 'iq2xs_grid, 512', line 758 'iq2s_grid, 1024'. PR #4773 'SOTA 2-bit quants' (ikawrakow, merged 2024-01-08) introduces IQ2_XXS at 2.0625 bpw and makes no usage claim (https://github.com/ggml-org/llama.cpp/pull/4773). paper/sections/related.tex:15-17 describes the formats by their E8-derived grids of 256 to 1,024 points. ops/iq2_metal.sh has the comment '* the most widely deployed 2-bit format in the world;' with no source. A WebSearch for usage share found only guides, such as https://gist.github.com/Artefact2/b5f810600771265fc1e39442288e8ec9 and https://unsloth.ai/docs/basics/unsloth-dynamic-2.0-ggufs, and no adoption statistic.",
+     "fix": "llama.cpp~\\citep{llamacpp} runs models on local machines. Its IQ2 formats decode from grids of 256 to 1{,}024 points held in a lookup table."
+    },
+    {
+     "id": "P3",
+     "verdict": "confirmed",
+     "severity": "should_fix",
+     "reason": "The rest of the sentence is accurate, as the reader says. The job ran '-p 0 -n 128 -r 5', and llama-bench prints the mean and standard deviation of those five repetitions. The build is the real gap. The paper gives vLLM's version in the same paragraph, and a tok/s number depends on the engine build. The missing citation weighs less, since llama.cpp is cited in \u00a72, but vLLM is also cited again at this point, so citing again is consistent. The fix follows the vLLM sentence.",
+     "evidence": "hf jobs inspect 6a94a1d445686a1580c19524: '/app/llama-bench -m /out/qwen3-4b-iq2xxs.gguf -m /out/qwen3-4b-f16.gguf -p 0 -n 128 -r 5 -ngl 99', image ghcr.io/ggml-org/llama.cpp:full-cuda, run 2026-08-30. hf jobs logs: row 'qwen3 4B IQ2_XXS - 2.0625 bpw | 1.16 GiB | 4.02 B | CUDA | 99 | tg128 | 312.85 \u00b1 2.33', last line 'build: 57291f264 (10689)'. gh api tag b10689 resolves to commit 57291f2644af8c9df0dd8d44395881c5bdcf0ecd, published 2026-08-30T04:02:22Z (https://github.com/ggml-org/llama.cpp/releases/tag/b10689). In experiments.tex:44, vLLM is written 'vLLM 0.26.0~\\citep{vllm2023}'.",
+     "fix": "IQ2\\_XXS runs in llama.cpp build b10689~\\citep{llamacpp}, with \\texttt{llama-bench} on 128 tokens from an empty prompt, as the mean of five repetitions."
+    },
+    {
+     "id": "P4",
+     "verdict": "confirmed",
+     "severity": "nit",
+     "reason": "MLX's affine scheme matches ours on bits, group size and the scale-and-offset form, \u0175 = s\u00b7q + \u03b2. The scale type does not match. MLX stores it in the input's own type, not always f16. The MLX file this repo compares against stores BF16 scales and biases. The byte count is the same, 16 bits each, so no number moves. Only 'as MLX does' misattributes the f16. The code comment in llvq-llm/src/embedquant.rs:5-7 makes the same attribution, but it is outside the paper.",
+     "evidence": "MLX docs for mlx.core.quantize (https://ml-explore.github.io/mlx/build/html/python/_autosummary/mlx.core.quantize.html), modes table: 'affine | 32, 64*, 128 | 2, 3, 4*, 5, 6, 8 | same as input | yes', where * marks the default. The formula there is s = (\u03b1 \u2212 \u03b2)/(2^b \u2212 1). The safetensors header of /Users/pjmalandrino/qwen3-4b-mlx-q4/model.safetensors, read locally, shows 'model.embed_tokens.scales BF16 [151936, 40]', 'model.embed_tokens.biases BF16 [151936, 40]' and 'model.layers.0.self_attn.q_proj.scales BF16 [4096, 40]'. Its config.json has quantization {'group_size': 64, 'bits': 4} and torch_dtype bfloat16. embedquant.rs:5-7: 'the exact scheme MLX ships ... scale and bias one f16 each per group'.",
+     "fix": "The sealed\nfiles store them in 4 bits, in groups of 64 with a scale and an offset per group, as MLX\ndoes~\\citep{mlx2023}. Our scales and offsets are f16. MLX stores them in the type of the weights, bf16 for Qwen3."
+    },
+    {
+     "id": "P5",
+     "verdict": "refuted",
+     "severity": "none",
+     "reason": "The sentence is correct, and the reader agrees. It misattributes nothing and cites nothing wrongly, so it falls outside the problem classes of this check (metadata, misattribution, a missing citation). llama.cpp's own documentation connects llama-quantize --imatrix to llama-imatrix, and the paper already gives the corpus and the token count. Naming the tool alone would not make the build reproducible either: the '-c 2048' window is also unstated. This is an optional clarity edit, not a defect.",
+     "evidence": "tools/imatrix/README.md at master: 'Compute an importance matrix for a model and given text dataset. Can be used during quantization to enhance the quality of the quantized models.' (https://github.com/ggml-org/llama.cpp/tree/master/tools/imatrix). ops/iq2_metal.sh runs 'llama-imatrix -m \"$F16\" -f \"$CALIB\" -o \"$IMAT\" -c 2048 -ngl 99', then 'llama-quantize --imatrix \"$IMAT\" \"$F16\" \"$OUT\" IQ2_XXS'. The calibration file holds 131,072 C4 tokens, which matches experiments.tex:56-57.",
+     "fix": "No change needed. Optional: IQ2\\_XXS is built with \\texttt{llama-quantize} and an importance matrix from \\texttt{llama-imatrix}, which tells the quantizer which weights matter most."
+    },
+    {
+     "id": "P6",
+     "verdict": "partly",
+     "severity": "nit",
+     "reason": "The number is right, and the paper uses its declared convention. intro.tex:40 says 'bits per parameter over the whole model' before line 82, and model.tex:26-31 defines the IQ2_XXS rate as the checkpoint size over the parameter count. The paper writes AWQ the same way ('4-bit AWQ, which needs 5.3 to 6.0 bits per parameter'), so a careful reader is not misled. Still, 'a format that uses 2.48' gives the rate to the format when it belongs to this model's file. llama.cpp defines IQ2_XXS itself at 2.0625 bpw. A clarity nit, not an error. The abstract's parenthesis can stay, since the sentence just before it declares whole-model accounting.",
+     "evidence": "hf jobs logs 6a94a1d445686a1580c19524: 'qwen3 4B IQ2_XXS - 2.0625 bpw'. PR #4773 gives 2.0625 bpw for the format (https://github.com/ggml-org/llama.cpp/pull/4773). appendix.tex:109-110: '1{,}246{,}620{,}832 bytes, or 2.479 bits per parameter'. model.tex:30-31: 'For AWQ and IQ2\\_XXS, it is the checkpoint's size in bits over the number of parameters.' intro.tex:40: 'The files stay near 2.7 bits per parameter over the whole model'.",
+     "fix": "above IQ2\\_XXS, a 2-bit llama.cpp format, whose 4B file takes 2.48 bits per parameter."
+    }
+   ]
+  }
+ },
+ {
+  "group": "coding",
+  "kind": "ref",
+  "found": {
+   "refs": [
+    {
+     "key": "forney1988",
+     "metadata_verdict": "correct",
+     "metadata_evidence": "Crossref record for DOI 10.1109/18.21246 (https://api.crossref.org/works/10.1109/18.21246): 'Coset codes. II. Binary lattices and related codes', IEEE Transactions on Information Theory, vol. 34, issue 5, pages 1152-1187, issued 1988-09, author 'G.D. Forney'. Semantic Scholar (DBLP key journals/tit/Forney88a) prints 'G. David Forney'; the Forney patent EP0237186A2 (https://patents.google.com/patent/EP0237186A2/en) names 'George D. Forney, Jr.'. BibTeX 'Forney, Jr., G. David' renders as '[7] G. David Forney, Jr. Coset codes\u2014Part II: Binary lattices and related codes. IEEE Transactions on Information Theory, 34(5):1152\u20131187, 1988.' on page 15 of main.pdf, which is right. Content: the paper's abstract (found via web search, SFU copy of the article) says the trellis diagrams 'lead to efficient maximum likelihood decoding algorithms', and that the cubing construction yields the Golay code and the Leech lattice at length 3\u00b78. Forney's own patent EP0237186A2 (priority 1986-02-11) describes the Golay trellis with 'three sections ... corresponding to the three 8-tuples' and '64 states in all at each such boundary'. I also computed it: for the extended Golay code, a cut after an octad has state dimension 7\u22121 = 6 (64 states) and a cut after a non-octad 8-set has 8\u22120 = 8 (256 states). An octad trio gives 6 and 6. So the 64-state claims (abstract, intro, tetra.tex:44-47, conclusion) and 'no split into three sections of eight has fewer' (tetra.tex:45-46) are true. Cited at background.tex:47 and :49.",
+     "sites_checked": 2
+    },
+    {
+     "key": "vardy1991",
+     "metadata_verdict": "correct",
+     "metadata_evidence": "Crossref search (https://api.crossref.org/works?query.bibliographic=More+efficient+soft+decoding+of+the+Golay+codes+Vardy) returns DOI 10.1109/18.79928: 'More efficient soft decoding of the Golay codes', A. Vardy and Y. Be'ery, IEEE Transactions on Information Theory, vol. 37, issue 3, pages 667-672, 1991-05. IEEE Xplore record: https://ieeexplore.ieee.org/document/79928. The BibTeX entry and rendered [24] ('Alexander Vardy and Yair Be'ery. More efficient soft decoding of the Golay codes. IEEE Transactions on Information Theory, 37(3):667\u2013672, 1991.') match. Content (abstract, via web search on the IEEE record): an ML soft-decision decoder of the (24,12,8) Golay code 'projecting the codewords of the binary Golay code onto the codewords of the (6,3,4) code over GF(4), the hexacode', at most 651 real operations. That is six sections of four, not a trellis in three sections of eight. See P1. Cited at background.tex:49 only.",
+     "sites_checked": 1
+    },
+    {
+     "key": "hinton2015",
+     "metadata_verdict": "correct",
+     "metadata_evidence": "arXiv abstract page https://arxiv.org/abs/1503.02531: 'Distilling the Knowledge in a Neural Network', Geoffrey Hinton, Oriol Vinyals, Jeff Dean, submitted 9 March 2015, comments 'NIPS 2014 Deep Learning Workshop' (non-archival, so citing the arXiv preprint is fine). Rendered [13] on page 15 matches. Claim at model.tex:40-42 (FP16 model as teacher, KL loss pulling the student's output probabilities toward the teacher's) is the teacher-student distillation the paper introduces. Hinton et al. train on the cross-entropy with the teacher's soft targets, which has the same gradient as the KL loss. The citation supports the sentence at its stated strength.",
+     "sites_checked": 1
+    }
+   ],
+   "problems": [
+    {
+     "id": "P1",
+     "key": "vardy1991",
+     "file": "paper2/sections/background.tex",
+     "line": 48,
+     "quote": "Such\nstructure was designed for maximum-likelihood decoding: finding the codeword or\nlattice point most likely to have been sent~\\citep{forney1988,vardy1991}. We use the same structure to give\nevery entry of a quantizer codebook an address.",
+     "problem": "'Such structure' is the three-section trellis of the previous sentence. The sentence cites vardy1991 for it, but Vardy and Be'ery do not use that trellis. Their ML decoder projects the Golay code onto the hexacode: six sections of four coordinates over GF(4). The 2026-09-28 audit meant to cite them 'for decoding, not for the three-section trellis', but 'such structure' still ties them to it. 'Designed for' also goes further than Forney, who says the trellis diagrams display structure and lead to ML decoding algorithms.",
+     "evidence": "Vardy and Be'ery abstract, found by web search on the IEEE record https://ieeexplore.ieee.org/document/79928: the algorithm works by 'projecting the codewords of the binary Golay code onto the codewords of the (6,3,4) code over GF(4), the hexacode'. Forney 1988 abstract, found by web search (SFU copy of the IEEE T-IT 34(5) article): trellis diagrams 'lead to efficient maximum likelihood decoding algorithms'.",
+     "severity": "should_fix",
+     "fix": "Such trellises lead to efficient maximum-likelihood decoding: finding the codeword or lattice point most likely to have been sent~\\citep{forney1988}. \\citet{vardy1991} decode the Golay code by maximum likelihood through another structure, the hexacode. We use the trellis to give every entry of a quantizer codebook an address."
+    },
+    {
+     "id": "P2",
+     "key": "forney1988",
+     "file": "paper2/sections/intro.tex",
+     "line": 26,
+     "quote": "Read in three groups\nof eight coordinates, the code becomes a trellis: a layered graph with 64\nnodes at each cut between groups, where each codeword is one path.",
+     "problem": "This sentence restates Forney's trellis without a citation. It says any three groups of eight coordinates give 64 nodes at each cut. That holds only when the groups are three disjoint octads, as tetra.tex:39-42 specifies. For a generic split, the first cut has 256 states.",
+     "evidence": "I computed it on the extended Golay code (generator g(x)=x^11+x^10+x^6+x^5+x^4+x^2+1 plus parity, 4096 words, minimum weight 8). The state dimension at a cut is the rank of the projection on the past minus the dimension of the subcode supported on the past. For an octad trio this is 6 and 6 (64 states). For all of 2000 random orderings, the first cut is 8 (256 states), since a non-octad 8-set carries no codeword. Forney's patent EP0237186A2 (https://patents.google.com/patent/EP0237186A2/en) gets 64 states from its particular three 8-tuples, the cubing construction, whose sections are octads.",
+     "severity": "should_fix",
+     "fix": "Read as three groups of eight coordinates that each carry a codeword, the code becomes a trellis: a layered graph with 64 nodes at each cut between groups, where each codeword is one path."
+    },
+    {
+     "id": "P3",
+     "key": "forney1988",
+     "file": "paper2/sections/background.tex",
+     "line": 46,
+     "quote": "When its coordinates are cut into three\nsections of eight, this code has a small trellis~\\citep{forney1988}.",
+     "problem": "The sentence attributes to Forney a small trellis for any cut into three sections of eight. Forney's trellis uses a specific split, the three octads of the cubing construction. A generic split gives 256 states at a cut instead of 64, a quarter of the 1024 labels a cut could hold at most.",
+     "evidence": "Same computation as P2: octad trio gives state dimension 6 at both cuts, and a random split gives 8 at the first cut. The Forney 1988 abstract (via web search, SFU copy) builds the Golay code by the cubing construction 'with the use of special bases for 8-space'. The patent EP0237186A2 gives 64 states for that particular split.",
+     "severity": "nit",
+     "fix": "When its coordinates are cut into three octads (codewords of weight eight that share no position), this code has a small trellis~\\citep{forney1988}."
+    }
+   ]
+  },
+  "verification": {
+   "verdicts": [
+    {
+     "id": "P1",
+     "verdict": "confirmed",
+     "severity": "should_fix",
+     "reason": "In background.tex:46-50, 'Such structure' can only mean the three-section trellis of the sentence before it, and the sentence cites vardy1991 for it. Vardy and Be'ery do not use that trellis. They decode by projecting onto the hexacode, a code of length 6 over GF(4). The audit note (docs/mesures/paper2-audit-2026-09-28.txt:96-97) says they are cited 'for decoding, not for the three-section trellis', but the sentence as written still ties them to the trellis. The 'designed for' point is the weaker half. Forney's patent 'Decoding of lattices and codes' does build the trellis for decoding. Still, the cited 1988 paper says the trellis diagrams 'lead to' ML decoding, and 'lead to' is the safer verb. The proposed fix is exact and in the paper's style.",
+     "evidence": "Vardy and Be'ery abstract, IEEE T-IT 37(3):667-672 (https://ieeexplore.ieee.org/document/79928, text via web search): the algorithm 'involves projecting the codewords of the binary Golay code onto the codewords of the (6,3,4) code over GF(4)'. That is the hexacode, not a three-section trellis. Forney 1988 abstract (https://ieeexplore.ieee.org/document/21246/; SFU copy http://www2.ensc.sfu.ca/people/faculty/cavers/ENSC805/readings/34it05-forney-b.pdf, text via web search): trellis diagrams 'display their structure ... and lead to efficient maximum-likelihood decoding algorithms'. Both bib entries match the publisher records (34(5):1152-1187; 37(3):667-672).",
+     "fix": "background.tex:47-50, replace 'Such structure was designed for maximum-likelihood decoding: finding the codeword or lattice point most likely to have been sent~\\citep{forney1988,vardy1991}. We use the same structure to give every entry of a quantizer codebook an address.' with: Such trellises lead to efficient maximum-likelihood decoding: finding the codeword or lattice point most likely to have been sent~\\citep{forney1988}. \\citet{vardy1991} decode the Golay code by maximum likelihood through another structure, the hexacode. We use the trellis to give every entry of a quantizer codebook an address."
+    },
+    {
+     "id": "P2",
+     "verdict": "partly",
+     "severity": "should_fix",
+     "reason": "The core holds, and I reproduced it. On the extended Golay code (4096 words, minimum weight 8, 759 octads), a disjoint octad trio has a 6-bit state at both cuts, so 64 nodes. In 2000 random orderings into three groups of eight, 1999 give 8 bits at both cuts (256 nodes) and one gives (8,6). The algebra agrees. Rank(P_A) is 8 for a non-octad 8-set and 7 for an octad, because the code is self-dual with d=8. So the first cut has 256 states unless the first group is an octad. The intro sentence therefore holds only for the octad split, which tetra.tex:39-42 specifies. The 64-state three-section trellis is Forney's, so a citation here helps too. The proposed wording 'groups ... that each carry a codeword' is unclear to a reader who has not seen the word octad, so I replace it.",
+     "evidence": "Script in the scratchpad (golay.py): octad trio -> state dims (6,6); 2000 random splits -> {(8,8): 1999, (8,6): 1}. Forney's patent EP0237186A2 (https://patents.google.com/patent/EP0237186A2/en) reads the codewords as three 8-tuples through the Turyn construction (a+x, b+x, a+b+x). It gives 64 paths and 8 intermediate states at each 8-tuple boundary. In that construction a=b=x=1 gives (0,0,1), so each section is an octad.",
+     "fix": "intro.tex:26-28, replace 'Read in three groups of eight coordinates, the code becomes a trellis: a layered graph with 64 nodes at each cut between groups, where each codeword is one path.' with: Some of its codewords have exactly eight ones, and three of them cover all 24 coordinates. Read in those three groups of eight, the code becomes a trellis~\\citep{forney1988}: a layered graph with 64 nodes at each cut between groups, where each codeword is one path."
+    },
+    {
+     "id": "P3",
+     "verdict": "partly",
+     "severity": "nit",
+     "reason": "The core holds. Forney's small trellis comes from a specific cut, the cubing/Turyn construction, whose three sections are octads. A generic cut into three sections of eight gives 256 states. One number in the reader's reasoning is wrong. 256 is not 'a quarter of the 1024 labels a cut could hold at most'. A cut with eight coordinates on one side holds at most 2^8 = 256 states. So a generic cut reaches the maximum at the first cut and gives no reduction at all, which makes the paper's sentence more wrong, not less. The proposed fix is right in substance. I keep the octad definition in commas, the way tetra.tex:39 phrases it, and name the 64 states so the cited claim is exact. tetra.tex:39 can then keep its definition as a reminder, or drop it.",
+     "evidence": "Same computation as P2: octad trio (6,6), random cuts (8,8) in 1999 of 2000. The first-cut state dimension is rank(P_A) - dim(C_A), which is at most |A| = 8. Forney 1988 abstract (via web search, SFU copy above): the cubing construction generates the Golay code and the Leech lattice 'with the use of special bases for 8-space'. The patent EP0237186A2 gives 64 paths for its particular three 8-tuples.",
+     "fix": "background.tex:45-47, replace 'When its coordinates are cut into three sections of eight, this code has a small trellis~\\citep{forney1988}.' with: When its coordinates are cut into three octads, codewords with eight ones that share no position, this code has a trellis with 64 states at each cut~\\citep{forney1988}."
+    }
+   ]
+  }
+ },
+ {
+  "group": "data-models",
+  "kind": "ref",
+  "found": {
+   "refs": [
+    {
+     "key": "mmlu2021",
+     "metadata_verdict": "correct",
+     "metadata_evidence": "arXiv abstract page https://arxiv.org/abs/2009.03300: title 'Measuring Massive Multitask Language Understanding', authors Dan Hendrycks, Collin Burns, Steven Basart, Andy Zou, Mantas Mazeika, Dawn Song, Jacob Steinhardt (same order as refs.bib), comments 'ICLR 2021'. ICLR 2021 poster page https://iclr.cc/virtual/2021/poster/2962 and OpenReview PDF https://openreview.net/pdf?id=d7KBjmI3GmQ ('Published as a conference paper at ICLR 2021'). BibTeX and main.bbl (Hendrycks et al. 2021, ICLR, arXiv:2009.03300) match. Content checked on https://ar5iv.labs.arxiv.org/html/2009.03300: 57 tasks, few-shot prompts from a 5-per-subject dev set, answer read from the probabilities of A/B/C/D. Its test set is stated as 14,079 questions (see problem P2). DBLP returned an access-denied page.",
+     "sites_checked": 1
+    },
+    {
+     "key": "gsm8k2021",
+     "metadata_verdict": "correct",
+     "metadata_evidence": "arXiv abstract page https://arxiv.org/abs/2110.14168: title 'Training Verifiers to Solve Math Word Problems', 12 authors in the same order and spelling as refs.bib (Cobbe, Kosaraju, Bavarian, Chen, Jun, Kaiser, Plappert, Tworek, Hilton, Nakano, Hesse, Schulman), v1 27 Oct 2021, no venue. main.bbl renders it as an arXiv preprint, 2021. Claim checked: ar5iv section 2 says '1K test problems' that 'take between 2 and 8 steps to solve'. The released test split has 1,319 rows (datasets-server size API for openai/gsm8k), and I parsed all 1,319 '#### ' final answers from https://datasets-server.huggingface.co/rows?dataset=openai/gsm8k&config=main&split=test: every one is an integer (2 negative). The paper's sentence '1,319 grade-school math problems, each answered by one integer reached in several steps' holds. 'Public since 2021' holds.",
+     "sites_checked": 1
+    },
+    {
+     "key": "qwen3_2025",
+     "metadata_verdict": "correct",
+     "metadata_evidence": "arXiv abstract page https://arxiv.org/abs/2505.09388: title 'Qwen3 Technical Report', v1 14 May 2025. The title page of https://arxiv.org/html/2505.09388v1 reads 'Qwen3 Technical Report / Qwen Team', so author = {{Qwen Team}} is the report's own byline (the arXiv metadata and the BibTeX in https://github.com/QwenLM/Qwen3 list 60 named authors starting with An Yang; either form is acceptable). Facts checked against Table 1 of the report and the HF configs (https://huggingface.co/Qwen/Qwen3-4B|8B|14B/raw/main/config.json): 36/36/40 layers, Q/KV heads 32/8, 32/8, 40/8, head_dim 128, tie embedding Yes/No/No, vocab_size 151,936 in config. From the configs I computed 252/252/280 projections, tables 9.67 %/15.20 %/10.53 % of 4.022B/8.191B/14.768B parameters, KV cache 1.208 GB (4B, 8B) and 1.342 GB (14B) at 8,192 tokens in f16: all match the paper. Qwen3-32B intermediate_size 25,600 gives the 102,400 B figure in f32. Problems P1, P3, P4, P5 and P6 concern sentences, not the entry.",
+     "sites_checked": 2
+    },
+    {
+     "key": "dclmedu",
+     "metadata_verdict": "minor_issue",
+     "metadata_evidence": "Dataset card https://huggingface.co/datasets/HuggingFaceTB/dclm-edu (README at /raw/main/README.md): heading '# DCLM-Edu', 'a filtered version of DCLM dataset using FineWeb-Edu educational quality classifier', CC-BY-4.0, used for SmolLM2-135M and 360M. HF API https://huggingface.co/api/datasets/HuggingFaceTB/dclm-edu: createdAt 2025-03-05, lastModified 2025-03-07, so year 2025 and the URL are correct. Two small gaps: the card spells the name 'DCLM-Edu', not 'DCLM-edu'; and its Citation section asks users to cite the SmolLM2 paper (Ben Allal et al., arXiv:2502.02737), which the entry does not mention. The paper's two uses (model.tex:41, experiments.tex:10) only name the text as a calibration and training corpus, and the card supports that.",
+     "sites_checked": 2
+    }
+   ],
+   "problems": [
+    {
+     "id": "P1",
+     "key": "qwen3_2025",
+     "file": "paper2/sections/model.tex",
+     "line": 66,
+     "quote": "Qwen3's vocabulary has 151{,}936 entries, so the embedding table is 9.7\\,\\% of",
+     "problem": "The cited Qwen3 report gives the vocabulary as 151,669 tokens. 151,936 is the number of rows of the embedding table (config vocab_size, padded to 1,187 x 128). The share 9.7 % is right because it counts rows, but the sentence gives the wrong vocabulary size.",
+     "evidence": "https://arxiv.org/html/2505.09388v1 section 2: 'Qwen3 models utilize Qwen's tokenizer ... with a vocabulary size of 151,669.' https://huggingface.co/Qwen/Qwen3-4B/raw/main/config.json: vocab_size 151936, hidden_size 2560. Computed: 151,936 x 2,560 / 4.022e9 = 9.67 %.",
+     "severity": "should_fix",
+     "fix": "Qwen3's embedding table has 151{,}936 rows, for a vocabulary of 151{,}669 tokens~\\citep{qwen3_2025}. It is 9.7\\,\\% of the parameters at 4B."
+    },
+    {
+     "id": "P2",
+     "key": "mmlu2021",
+     "file": "paper2/sections/experiments.tex",
+     "line": 13,
+     "quote": "The benchmark is MMLU~\\citep{mmlu2021}, 5-shot, on all\n14{,}042 test questions",
+     "problem": "The cited MMLU paper says its test set has 14,079 questions. The released test split has 14,042, and that is what was run. A reader who checks the reference finds a different count.",
+     "evidence": "https://ar5iv.labs.arxiv.org/html/2009.03300: 'We collected 15908 questions in total ... the test set has 14079 questions.' HF datasets-server size API for cais/mmlu, config all: test split 14,042 rows. docs/mesures/f16-full-2026-09-18.txt:14 ran 14,042 questions.",
+     "severity": "nit",
+     "fix": "\\paragraph{Quality.} The benchmark is MMLU~\\citep{mmlu2021}, 5-shot, on all 14{,}042 questions of the released test split, and every question counts the same (micro-average)."
+    },
+    {
+     "id": "P3",
+     "key": "qwen3_2025",
+     "file": "paper2/sections/model.tex",
+     "line": 52,
+     "quote": "Under grouped-query attention, several query\nheads share one key and value head, so the $v$ matrices are small.",
+     "problem": "Grouped-query attention is a named external method used to justify a design choice, and it carries no citation. The Qwen3 report cites it as Ainslie et al. (2023). The claim itself is right: 32/32/40 query heads share 8 key-value heads.",
+     "evidence": "https://arxiv.org/html/2505.09388v1: 'including using Grouped Query Attention (GQA, Ainslie et al., 2023)'; Table 1: Heads (Q/KV) 32/8, 32/8, 40/8. Venue metadata: https://aclanthology.org/2023.emnlp-main.298/ (Ainslie, Lee-Thorp, de Jong, Zemlyanskiy, Lebron, Sanghai; EMNLP 2023, pages 4895-4901, DOI 10.18653/v1/2023.emnlp-main.298). refs.bib has no GQA entry.",
+     "severity": "nit",
+     "fix": "Qwen3 uses grouped-query attention~\\citep{gqa2023}: several query heads share one key and value head, so the $v$ matrices are small.\n\nAdd to refs.bib:\n@inproceedings{gqa2023,\n  title     = {{GQA}: Training Generalized Multi-Query Transformer Models from Multi-Head Checkpoints},\n  author    = {Ainslie, Joshua and Lee-Thorp, James and de Jong, Michiel and Zemlyanskiy, Yury and Lebron, Federico and Sanghai, Sumit},\n  booktitle = {Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing (EMNLP)},\n  pages     = {4895--4901},\n  year      = {2023},\n  doi       = {10.18653/v1/2023.emnlp-main.298}\n}"
+    },
+    {
+     "id": "P4",
+     "key": "qwen3_2025",
+     "file": "paper2/sections/model.tex",
+     "line": 13,
+     "quote": "Each layer of Qwen3~\\citep{qwen3_2025} has seven projection matrices: $q$, $k$,",
+     "problem": "The sentence cites the whole Qwen3 family, but it holds only for the dense models. The report's MoE models (Qwen3-30B-A3B, 235B-A22B) have 128 experts per layer, so they have many more projections than seven. The paper uses dense models only.",
+     "evidence": "https://arxiv.org/html/2505.09388v1: Table 1 'Model architecture of Qwen3 dense models' and Table 2 'Model architecture of Qwen3 MoE models' with '128 / 8' experts (total / activated).",
+     "severity": "nit",
+     "fix": "Each layer of the dense Qwen3 models~\\citep{qwen3_2025} has seven projection matrices: $q$, $k$,"
+    },
+    {
+     "id": "P5",
+     "key": "qwen3_2025",
+     "file": "paper2/sections/experiments.tex",
+     "line": 52,
+     "quote": "\\paragraph{Baselines.} FP16 is Qwen's published checkpoint.",
+     "problem": "Qwen publishes Qwen3-4B, 8B and 14B in bf16, not FP16. The FP16 arm is that checkpoint run in f16. As written, the sentence says Qwen published an FP16 checkpoint.",
+     "evidence": "https://huggingface.co/Qwen/Qwen3-4B/raw/main/config.json (and 8B, 14B): torch_dtype 'bfloat16'. docs/mesures/f16-full-2026-09-18.txt:14 'Qwen3-4B, f16, 14,042 questions 70.14'; docs/mesures/gsm8k-wave1-2026-09-26.txt:46 'both vLLM arms dtype float16'.",
+     "severity": "nit",
+     "fix": "\\paragraph{Baselines.} FP16 is Qwen's published checkpoint, stored in bf16 and run in f16."
+    },
+    {
+     "id": "P6",
+     "key": "qwen3_2025",
+     "file": "paper2/sections/conclusion.tex",
+     "line": 25,
+     "quote": "A harder reasoning test, such as Qwen3's reasoning mode, would show whether",
+     "problem": "Qwen3 calls this feature 'thinking mode', and the empty block its 'thinking block' (non-thinking mode). The paper renames it 'reasoning mode' and 'reasoning block' in three places and cites nothing, so a reader cannot match it to the report or the chat template. The substance is right: the report says an empty thinking block turns thinking off, and that thinking mode is 'for complex, multi-step reasoning'.",
+     "evidence": "https://arxiv.org/abs/2505.09388: 'integration of thinking mode (for complex, multi-step reasoning) and non-thinking mode'. https://arxiv.org/html/2505.09388v1: 'For non-thinking mode samples, we retain an empty thinking block ... allows developers to prevent the model from engaging in thinking behavior by concatenating an empty think block in the chat template.' Same wording at limitations.tex:25-26 and experiments.tex:31.",
+     "severity": "nit",
+     "fix": "conclusion.tex:25: A harder reasoning test, such as Qwen3's thinking mode~\\citep{qwen3_2025}, would show whether long chains of generation amplify the loss.\nlimitations.tex:25-26: We did not test Qwen3's thinking mode, which writes much longer chains, nor a harder math benchmark.\nexperiments.tex:31: zero-shot, in the model's chat template, with its thinking block left empty (Qwen3's non-thinking mode~\\citep{qwen3_2025})."
+    },
+    {
+     "id": "P7",
+     "key": "dclmedu",
+     "file": "paper2/refs.bib",
+     "line": 416,
+     "quote": "title        = {{DCLM-edu}},",
+     "problem": "The dataset card spells the name 'DCLM-Edu', and its Citation section asks users to cite the SmolLM2 paper. The entry has neither, so a reader learns nothing about what the corpus is.",
+     "evidence": "https://huggingface.co/datasets/HuggingFaceTB/dclm-edu/raw/main/README.md: '# DCLM-Edu', 'a filtered version of DCLM dataset using FineWeb-Edu educational quality classifier', and a Citation block for 'SmolLM2: When Smol Goes Big -- Data-Centric Training of a Small Language Model', eprint 2502.02737. HF API: createdAt 2025-03-05, so the year and URL are correct.",
+     "severity": "nit",
+     "fix": "@misc{dclmedu,\n  title        = {{DCLM-Edu}},\n  author       = {{HuggingFaceTB}},\n  year         = {2025},\n  howpublished = {\\url{https://huggingface.co/datasets/HuggingFaceTB/dclm-edu}},\n  note         = {DCLM-Baseline filtered with the FineWeb-Edu classifier; released with SmolLM2, arXiv:2502.02737}\n}"
+    }
+   ]
+  },
+  "verification": {
+   "verdicts": [
+    {
+     "id": "P1",
+     "verdict": "confirmed",
+     "severity": "nit",
+     "reason": "The cited Qwen3 report gives the tokenizer vocabulary as 151,669. 151,936 is the config's vocab_size, which is the number of rows in the padded embedding table. The 9.7 % share is right because it counts rows. I lower the severity to nit: HF's own config calls 151,936 'vocab_size', so the number is a common way to state it and not an invented figure. It still disagrees with the report the section cites at line 13.",
+     "evidence": "https://arxiv.org/html/2505.09388v1 section 2: 'Qwen3 models utilize Qwen's tokenizer ... with a vocabulary size of 151,669.' https://huggingface.co/Qwen/Qwen3-4B/raw/main/config.json: vocab_size 151936, hidden_size 2560, tie_word_embeddings true. tokenizer_config.json added_tokens_decoder runs from id 151643 to 151668, so the tokenizer has 151,669 ids. HF API safetensors total for Qwen3-4B is 4,022,468,096. Computed: 151,936 x 2,560 = 388,956,160, which is 9.67 % of 4,022,468,096. The same count gives 15.20 % at 8B (8,190,735,360) and 10.53 % at 14B (14,768,307,200), matching the text.",
+     "fix": "model.tex:66-67: Qwen3's embedding table has 151{,}936 rows, for a vocabulary of 151{,}669 tokens~\\citep{qwen3_2025}. It is 9.7\\,\\% of the parameters at 4B."
+    },
+    {
+     "id": "P2",
+     "verdict": "partly",
+     "severity": "nit",
+     "reason": "The MMLU paper does give 14,079 test questions. But the paper is not wrong: the released test split has 14,042, that split is what the runs scored, and the sentence does not say the MMLU paper reports 14,042. The reader's wording is an optional clarification, not a correction.",
+     "evidence": "https://ar5iv.labs.arxiv.org/html/2009.03300: 'We collected 15908 questions in total ... the test set has 14079 questions.' https://datasets-server.huggingface.co/size?dataset=cais/mmlu&config=all: test 14042 rows. docs/mesures/f16-full-2026-09-18.txt: 'Qwen3-4B, f16, 14,042 questions 70.14'. The arXiv abstract page (https://arxiv.org/abs/2009.03300) confirms authors, order and 'ICLR 2021', matching refs.bib.",
+     "fix": "Optional. experiments.tex:13-14: \\paragraph{Quality.} The benchmark is MMLU~\\citep{mmlu2021}, 5-shot, on all 14{,}042 questions of its released test split, and every question counts the same (micro-average)."
+    },
+    {
+     "id": "P3",
+     "verdict": "confirmed",
+     "severity": "nit",
+     "reason": "The sentence uses grouped-query attention to justify storing v_proj in int4, and the paper cites nothing for it. The claim itself is right: the Qwen3 report lists 32/8, 32/8 and 40/8 Q/KV heads for the three models, and the config gives 8 KV heads. The reader's metadata matches the ACL Anthology record. The proposed entry has one problem: it carries a doi field, which breaks the convention of refs.bib ('No `doi` field is carried, for consistency with every other entry here'), where conference entries carry note = {arXiv:...}. The corrected entry follows that convention and keeps the ACL spelling 'Lebron' (arXiv spells it 'Lebr\u00f3n').",
+     "evidence": "https://arxiv.org/html/2505.09388v1: 'including using Grouped Query Attention (GQA, Ainslie et al., 2023)'. Table 1 lists Heads (Q/KV) 32/8 for Qwen3-4B and Qwen3-8B and 40/8 for Qwen3-14B. https://aclanthology.org/2023.emnlp-main.298/: Ainslie, Lee-Thorp, de Jong, Zemlyanskiy, Lebron, Sanghai; EMNLP 2023; pages 4895-4901. https://arxiv.org/abs/2305.13245: same title and author order, 'Accepted at EMNLP 2023'. refs.bib has no GQA entry, and its comment near line 217 states the no-doi rule.",
+     "fix": "model.tex:52-53: Qwen3 uses grouped-query attention~\\citep{gqa2023}: several query heads share one key and value head, so the $v$ matrices are small.\n\nrefs.bib:\n@inproceedings{gqa2023,\n  title     = {{GQA}: Training Generalized Multi-Query Transformer Models from Multi-Head Checkpoints},\n  author    = {Ainslie, Joshua and Lee-Thorp, James and de Jong, Michiel and Zemlyanskiy, Yury and Lebron, Federico and Sanghai, Sumit},\n  booktitle = {Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing (EMNLP)},\n  pages     = {4895--4901},\n  year      = {2023},\n  note      = {arXiv:2305.13245}\n}"
+    },
+    {
+     "id": "P4",
+     "verdict": "confirmed",
+     "severity": "nit",
+     "reason": "The report has two families. Its Table 1 covers the dense models; its Table 2 covers the MoE models, which have 128 experts per layer and so far more than seven projections. The paper uses only dense models, 4B, 8B and 14B, and the next sentence narrows the scope. As written, though, the sentence states a false general fact about Qwen3 and cites the whole report for it. 'Dense' is the report's own word.",
+     "evidence": "https://arxiv.org/html/2505.09388v1: 'Table 1: Model architecture of Qwen3 dense models' and 'Table 2: Model architecture of Qwen3 MoE models', with Qwen3-30B-A3B and Qwen3-235B-A22B at 128/8 experts. grep of paper2/sections finds no MoE model used.",
+     "fix": "model.tex:13: Each layer of the dense Qwen3 models~\\citep{qwen3_2025} has seven projection matrices: $q$, $k$,"
+    },
+    {
+     "id": "P5",
+     "verdict": "confirmed",
+     "severity": "nit",
+     "reason": "Qwen publishes all three checkpoints in bf16. Every FP16 arm runs them in f16: the MMLU harness, vLLM for GSM8K and vLLM for speed. The sentence reads as if Qwen published an FP16 checkpoint, and the paper never mentions bf16.",
+     "evidence": "https://huggingface.co/Qwen/Qwen3-4B/raw/main/config.json (and the 8B and 14B configs): torch_dtype 'bfloat16'. HF API safetensors parameters are keyed 'BF16'. ops/awq_speed.py:35 and :340 set dtype float16 for the vLLM speed arm. ops/gsm8k_vllm.py:266 sets dtype float16. docs/mesures/gsm8k-wave1-2026-09-26.txt:43 says 'both vLLM arms dtype float16'. docs/mesures/f16-full-2026-09-18.txt reads 'Qwen3-4B, f16, 14,042 questions'. grep finds no bf16 in paper2/sections.",
+     "fix": "experiments.tex:52: \\paragraph{Baselines.} FP16 is Qwen's published checkpoint, stored in bf16 and run in f16."
+    },
+    {
+     "id": "P6",
+     "verdict": "confirmed",
+     "severity": "nit",
+     "reason": "The Qwen3 report never says 'reasoning mode' or 'reasoning block'. It says 'thinking mode' 78 times and 'thinking block' or 'think block' for the empty block. The substance is right. ops/gsm8k_vllm.py:165-166 appends an empty <think></think> pair, which is exactly the non-thinking mode the report describes. The fixes below restore the report's terms. I also reword the conclusion sentence, because the original calls a mode a 'test'.",
+     "evidence": "Word-bounded regex over https://arxiv.org/html/2505.09388v1: 'reasoning mode' 0 hits, 'thinking mode' 78, 'non-thinking mode' 31. The report says: 'For non-thinking mode samples, we retain an empty thinking block in the assistant's response ... allows developers to prevent the model from engaging in thinking behavior by concatenating an empty think block in the chat template.' Paper lines: conclusion.tex:25, limitations.tex:25-26, experiments.tex:31.",
+     "fix": "conclusion.tex:25-26: A harder test, such as GSM8K in Qwen3's thinking mode~\\citep{qwen3_2025}, would show whether long chains of generation amplify the loss.\nlimitations.tex:25-27: We did not test Qwen3's thinking mode, which writes much longer chains, nor a harder math benchmark.\nexperiments.tex:30-31: The prompt is zero-shot, in the model's chat template, with its thinking block left empty, which is Qwen3's non-thinking mode~\\citep{qwen3_2025}."
+    },
+    {
+     "id": "P7",
+     "verdict": "partly",
+     "severity": "nit",
+     "reason": "The card's heading is 'DCLM-Edu', so the bib title's casing differs from the source. Year, author and URL are right. The rest of the complaint is style, not an error: a @misc entry does not have to describe the corpus. The proposed note also says 'released with SmolLM2', which is loose. The card was created on 2025-03-05, a month after the SmolLM2 preprint (4 Feb 2025). The card says the corpus was used to train SmolLM2-135M and 360M, and the SmolLM2 paper does describe filtering DCLM with the FineWeb-Edu classifier for those models. If the title changes, the four in-text mentions should change too, or the paper will spell the name two ways.",
+     "evidence": "https://huggingface.co/datasets/HuggingFaceTB/dclm-edu/raw/main/README.md: '# DCLM-Edu', 'a filtered version of DCLM dataset using FineWeb-Edu educational quality classifier', 'was used to train SmolLM2-135M and SmolLM2-360M', and a Citation block for arXiv 2502.02737. HF API: createdAt 2025-03-05T09:49:31Z, author HuggingFaceTB. https://arxiv.org/abs/2502.02737: submitted 4 Feb 2025. The SmolLM2 HTML says 'We found that filtering DCLM with the FineWeb-Edu classifier, removing samples with score 0 ... worked best.' Text mentions: model.tex:41, experiments.tex:10, experiments.tex:57, limitations.tex:12.",
+     "fix": "refs.bib:\n@misc{dclmedu,\n  title        = {{DCLM-Edu}},\n  author       = {{HuggingFaceTB}},\n  year         = {2025},\n  howpublished = {\\url{https://huggingface.co/datasets/HuggingFaceTB/dclm-edu}},\n  note         = {DCLM-Baseline filtered with the FineWeb-Edu classifier, used to train SmolLM2-135M and 360M, arXiv:2502.02737}\n}\nIf this is applied, replace 'DCLM-edu' with 'DCLM-Edu' at model.tex:41, experiments.tex:10, experiments.tex:57 and limitations.tex:12."
+    }
+   ]
+  }
+ },
+ {
+  "group": "self-hw",
+  "kind": "ref",
+  "found": {
+   "refs": [
+    {
+     "key": "llvq1preprint",
+     "metadata_verdict": "correct",
+     "metadata_evidence": "Title, author, year and DOI match both the sources and the Zenodo record. paper/main.tex:112 has the same title, and paper/main.tex:116 names the single author Pier-Jean Malandrino. The Zenodo API at https://zenodo.org/api/records/22133607 returns the identical title, creator 'Malandrino, Pier-Jean' (Scub), publication_date 2026-08-27 and resource type preprint. It gives conceptdoi 10.5281/zenodo.22133606 and version DOI 10.5281/zenodo.22133607 (v1, the only version). https://doi.org/10.5281/zenodo.22133606 answers 302 to zenodo.org/doi/10.5281/zenodo.22133606. The bib therefore cites the concept DOI, which resolves to the latest version. The record deliberately leaves the subtitle out of the title field (paper/zenodo-paper.json notes), so leaving it out of the bib is right. main.bbl and PDF p.15 entry [18] render the entry correctly. plainnat's misc drops the `doi` field, so the DOI shows only through `note`, as plain text. All content claims check out against paper 1. Planes14 reads 4.804 b/weight and AWQ 4.179 (paper/sections/layouts.tex:45,50). The record is 112 bits: 9-bit class, gain bit, 24-bit sign mask, three 24-bit planes, 6 bits of padding (decoder.tex; paper2/scripts/make_figures.py:175). The 47-bit index plus one gain bit is unfolded at load time and read with shifts and masks (decoder.tex:28-45). This is LLVQ's norm(\u039b24(12)) + 1 gain bit codebook, docs/llvq-paper-notes.md Table 8. The thread layout matches: warp per row, 8 rows per 256-thread block, tile of 128 blocks = 12,288 B = 96T, two barriers, shuffle butterfly, acc\u00b7r + tail\u00b7x. So does the 40-register, no-local-memory report and the 12 KiB class table (512 \u00d7 24 B).",
+     "sites_checked": 12
+    },
+    {
+     "key": "cudaguide",
+     "metadata_verdict": "wrong",
+     "metadata_evidence": "The URL is dead. GET https://docs.nvidia.com/cuda/cuda-c-programming-guide/ answers HTTP 404 on 2026-09-28, and .../cuda-c-programming-guide/index.html answers 301 to https://docs.nvidia.com/cuda/cuda-programming-guide/index.html. That page is a rewritten guide titled 'CUDA Programming Guide', header v13.4.2, last updated Sep 10, 2026. The entry carries no release number, so author, title and year 2025 fit only an archived release. https://docs.nvidia.com/cuda/archive/13.0.0/cuda-c-programming-guide/ answers 200: title 'CUDA C++ Programming Guide', v13.0, last updated Aug 20, 2025. The paper's hardware claims are all supported, by that archive (section 20.7 for compute capability 8.x, Table 27) and by the current guide's appendix https://docs.nvidia.com/cuda/cuda-programming-guide/05-appendices/compute-capabilities.html (Tables 31 and 32). On 8.9 the unified data cache is 128 KB, and shared memory can be set to 0/8/16/32/64/100 KB. Shared memory tops out at 100 KB per SM (102,400 B) and 99 KB per thread block (101,376 B). A block needs an explicit opt-in to use more than 48 KB. An SM holds 64 K 32-bit registers, 1,536 resident threads and 24 resident blocks. 1 KB of shared memory is reserved for system use. The guide states that its KB means 1,024 bytes.",
+     "sites_checked": 5
+    }
+   ],
+   "problems": [
+    {
+     "id": "P1",
+     "key": "cudaguide",
+     "file": "paper2/refs.bib",
+     "line": 391,
+     "quote": "howpublished = {\\url{https://docs.nvidia.com/cuda/cuda-c-programming-guide/}},",
+     "problem": "The cited URL returns HTTP 404. The document that replaced it is a different, rewritten guide from 2026. The entry names no release, so 'CUDA C++ Programming Guide, 2025' points at no fixed text. PDF reference [19] prints the dead link.",
+     "evidence": "curl GET on 2026-09-28: https://docs.nvidia.com/cuda/cuda-c-programming-guide/ answers 404, and .../index.html answers 301 to https://docs.nvidia.com/cuda/cuda-programming-guide/index.html ('CUDA Programming Guide', v13.4.2, last updated Sep 10, 2026). https://docs.nvidia.com/cuda/archive/13.0.0/cuda-c-programming-guide/ answers 200 ('CUDA C++ Programming Guide', v13.0, last updated Aug 20, 2025). Its section 20.7 and Table 27 hold every number the paper uses: 128 KB unified cache on 8.9, at most 100 KB shared per SM, 99 KB per block, opt-in above 48 KB, 64 K registers, 1,536 threads per SM.",
+     "severity": "must_fix",
+     "fix": "@misc{cudaguide,\n  title        = {{CUDA} {C++} Programming Guide},\n  author       = {{NVIDIA Corporation}},\n  year         = {2025},\n  howpublished = {\\url{https://docs.nvidia.com/cuda/archive/13.0.0/cuda-c-programming-guide/}},\n  note         = {Release 13.0, section 20.7 and Table 27. Compute capability 8.9: 128 KiB of unified data cache and shared memory per SM, at most 100 KiB of it as shared memory, and at most 99 KiB per thread block, above 48 KiB only by explicit opt-in. Accessed 2026-09-28}\n}"
+    },
+    {
+     "id": "P2",
+     "key": "cudaguide",
+     "file": "paper2/sections/kernel.tex",
+     "line": 42,
+     "quote": "69{,}632~B, more than the 48~KiB a thread block gets by default, so the CPU\ncode asks the driver for more. The L40S allows 101{,}376~B.",
+     "problem": "Both limits are correct but carry no citation. They are CUDA facts for compute capability 8.9, and the 14B int4 path, appendix.tex:102 and the 32B argument in conclusion.tex:23-24 ('1,024 B more than the card allows') all rest on them. The only \\citep{cudaguide} sits three paragraphs later, on a different claim.",
+     "evidence": "CUDA C++ Programming Guide Release 13.0 (https://docs.nvidia.com/cuda/archive/13.0.0/cuda-c-programming-guide/). Section 20.7.3 says a kernel needs an explicit opt-in through cudaFuncSetAttribute to use more than 48 KB per block. Table 27 gives 99 KB (= 101,376 B) of shared memory per thread block for 8.9, and 100 KB per SM. The code agrees: llvq-cuda/src/shared.rs:134-135 has L40S_DEFAULT 49_152 and L40S_OPTIN 101_376. 102,400 \u2212 101,376 = 1,024 B, as the conclusion says.",
+     "severity": "should_fix",
+     "fix": "At 14B, a \\texttt{down\\_proj} activation takes 69{,}632~B. That is more than the 48~KiB a thread block gets without an explicit opt-in, so the CPU code asks the driver for more. On sm\\_89, as on the L40S, a block can get at most 101{,}376~B, or 99~KiB~\\citep{cudaguide}."
+    },
+    {
+     "id": "P3",
+     "key": "cudaguide",
+     "file": "paper2/sections/kernel.tex",
+     "line": 105,
+     "quote": "On an Ada GPU (sm\\_89), each streaming multiprocessor (SM) splits one 128~KB\npool of on-chip memory between the L1 cache and shared memory, with at most\n100~KB for shared memory~\\citep{cudaguide}.",
+     "problem": "The claim matches the guide, but the units break the paper's convention. The guide's KB means 1,024 bytes. Paper 2 writes binary sizes as KiB everywhere else (16 KiB table, 18.4 KiB of tables, 48 KiB, 12 KiB) and uses decimal GB. So '100 KB' reads as 100,000 B, while two paragraphs later the same limit is 102,400 B.",
+     "evidence": "The compute-capabilities appendix of the current guide (https://docs.nvidia.com/cuda/cuda-programming-guide/05-appendices/compute-capabilities.html) states that the KB in its tables is 1,024 bytes, a KiB. Its Table 32 lists 8.9 with a 128 KB unified data cache and shared memory sizes up to 100. kernel.tex:116 writes the per-SM limit as 102,400 B.",
+     "severity": "nit",
+     "fix": "On an Ada GPU (sm\\_89), each streaming multiprocessor (SM) splits one 128~KiB pool of on-chip memory between the L1 cache and shared memory, with at most 100~KiB for shared memory~\\citep{cudaguide}."
+    },
+    {
+     "id": "P4",
+     "key": "cudaguide",
+     "file": "paper2/sections/kernel.tex",
+     "line": 114,
+     "quote": "per thread, so six thread blocks fit at every tile\n($6\\times256\\times40 = 61{,}440$ of 65{,}536 registers).",
+     "problem": "The count of six blocks is right, but the parenthesis gives only half the reason, and the hardware numbers have no source. On compute capability 8.9 an SM holds at most 1,536 threads, which is exactly six 256-thread blocks. So the thread limit caps occupancy at six whatever the register count. The register file alone would also allow six.",
+     "evidence": "Release 13.0 Table 27 and the current guide's Table 31 give, for 8.9, 64 K 32-bit registers per SM, 1,536 resident threads per SM and 24 resident blocks per SM. 1,536/256 = 6, and 65,536/(256\u00b740) = 6.4. The shared-memory check (6\u00d712,288 < 102,400 B) still holds with the 1 KB per block the guide reserves for system use: 6\u00d713,312 = 79,872 B.",
+     "severity": "nit",
+     "fix": "Both lattice arms launch 256 threads per block at 40 registers per thread, so six thread blocks fit at every tile. Six blocks are the 1{,}536 threads an sm\\_89 SM can hold, and they use 61{,}440 of its 65{,}536 registers~\\citep{cudaguide}. Shared memory is never the binding limit ($6\\times12{,}288 < 102{,}400$~B)."
+    },
+    {
+     "id": "P5",
+     "key": "llvq1preprint",
+     "file": "paper2/sections/limitations.tex",
+     "line": 6,
+     "quote": "On an A100, with the same benchmark at tile 128, none of our earlier lattice\n  kernels ran faster than FP16.",
+     "problem": "This is a result of paper 1, not of this paper, and it carries no citation. The sentence right before says every number measured for a table or figure is on one L40S, so a reader needs to know where the A100 evidence is published.",
+     "evidence": "paper/sections/layouts.tex:303 states that every lattice arm falls below FP16 on the A100, with Planes14 at 0.79x against FP16. Paper 1's tile is 128 blocks (paper/sections/decoder.tex, 12,288 B). The statement is correct at the stated strength and only lacks the citation.",
+     "severity": "should_fix",
+     "fix": "On an A100, with the same benchmark at tile 128, none of our earlier lattice kernels ran faster than FP16~\\citep{llvq1preprint}."
+    },
+    {
+     "id": "P6",
+     "key": "llvq1preprint",
+     "file": "paper2/sections/appendix.tex",
+     "line": 30,
+     "quote": "$^{*}$This row comes from another process (2026-08-21) and is\nbelow the no-weights control. We keep it with that caveat.",
+     "problem": "The QTIP row is not a measurement of this paper. It is paper 1's published measurement, with identical values, but the caption gives only a date and 'another process'. It should name where the row is published. The five '(ours, earlier)' rows of the same table name paper 1's layouts without citing it either.",
+     "evidence": "paper/sections/layouts.tex:51 gives QTIP 2-bit at 2.000 b/weight, 0.91 GB, 2.246 ms and 405 GB/s, the same four values as paper2 Table 7. paper/sections/appendix-protocol.tex:119 names its journal f2-p3-qtip-banc-2026-08-21. Paper 1's own no-weights control ran 2.306 ms, and paper 1 already reported the trellis kernel below that control.",
+     "severity": "should_fix",
+     "fix": "Caption, replace the last two sentences with: $^{*}$This row is the QTIP measurement of \\citet{llvq1preprint}, from another process (2026-08-21). It is below the no-weights control. We keep it with that caveat. Add after the first sentence of the caption: The rows marked earlier are the layouts of \\citet{llvq1preprint}."
+    },
+    {
+     "id": "P7",
+     "key": "llvq1preprint",
+     "file": "paper2/sections/appendix.tex",
+     "line": 15,
+     "quote": "\\textsc{Golay70} v1 (ours, earlier) & 252 & 8.064 & 1.63 & 3.589 & 202\\\\\n\\textsc{Golay70} v2 (ours, earlier) & 252 & 6.016 & 1.63 & 3.589 & 271\\\\",
+     "problem": "Paper 1 names these two arms Golay70 and 'Golay70, hoisted'. A reader who looks up 'v2' in the cited paper will not find it.",
+     "evidence": "paper/sections/layouts.tex:47-48 lists Golay70 (8.187 ms, 1.34x) and 'Golay70, hoisted' (6.182 ms, 1.78x), both at 3.589 b/weight. docs/data/echelle-formats.csv has Golay70v1 at 1.36x and Golay70v2 at 1.82x. scripts/check_tables.py:115-122 checks the appendix by cell values, not labels, so renaming the rows does not break `make check`.",
+     "severity": "nit",
+     "fix": "\\textsc{Golay70} (ours, earlier) & 252 & 8.064 & 1.63 & 3.589 & 202\\\\\n\\textsc{Golay70}, hoisted (ours, earlier) & 252 & 6.016 & 1.63 & 3.589 & 271\\\\"
+    }
+   ]
+  },
+  "verification": {
+   "verdicts": [
+    {
+     "id": "P1",
+     "verdict": "confirmed",
+     "severity": "must_fix",
+     "reason": "The bib URL is dead. The live replacement is a rewritten guide with a new title. The versioned archive page exists and holds every number the paper uses. The reader's fix is right. I tighten the note: the page labels itself v13.0, not 'Release 13.0'. I use KiB, which matches P3, and add the thread and register limits that P4 cites.",
+     "evidence": "curl on 2026-09-28: https://docs.nvidia.com/cuda/cuda-c-programming-guide/ returns 404. .../cuda-c-programming-guide/index.html returns 301 to https://docs.nvidia.com/cuda/cuda-programming-guide/index.html, titled 'CUDA Programming Guide', v13.4.2, 'Last updated on Sep 10, 2026'. https://docs.nvidia.com/cuda/archive/13.0.0/cuda-c-programming-guide/ returns 200: title 'CUDA C++ Programming Guide', label v13.0, 'Last updated on Aug 20, 2025'. Its section 20.7.1 says of the unified data cache and shared memory: 'a total size of ... 128 KB for devices of compute capabilities 8.6 and 8.9'. Section 20.7.3 says 8.6 and 8.9 'allow up to 99 KB of shared memory' per block. It also says 'Kernels relying on shared memory allocations over 48 KB per block ... require an explicit opt-in'. Table 27, column 8.9, gives 100 KB of shared memory per SM, 99 KB per block, 64 K registers per SM, 1536 resident threads and 24 resident blocks. main.bbl bibitem 19 prints the dead URL.",
+     "fix": "@misc{cudaguide,\n  title        = {{CUDA} {C++} Programming Guide},\n  author       = {{NVIDIA Corporation}},\n  year         = {2025},\n  howpublished = {\\url{https://docs.nvidia.com/cuda/archive/13.0.0/cuda-c-programming-guide/}},\n  note         = {Version 13.0, last updated 2025-08-20. Section 20.7 and Table 27, compute capability 8.9: 128 KiB of unified data cache and shared memory per SM, at most 100 KiB of it as shared memory; at most 99 KiB per thread block, above 48 KiB only by explicit opt-in; 64 K registers and 1{,}536 threads per SM}\n}"
+    },
+    {
+     "id": "P2",
+     "verdict": "confirmed",
+     "severity": "should_fix",
+     "reason": "Both limits are CUDA facts for sm_89 and carry no citation where they appear. The 14B int4 path and the conclusion's 32B argument rest on them: 102,400 minus 101,376 is 1,024 B. The guide is cited only in a later subsection, for a different claim. The reader's fix is right in substance. 'On sm_89, as on the L40S' reads as if the L40S were a different part. The L40S is an sm_89 card, so I reword.",
+     "evidence": "Archive guide v13.0, section 20.7.3: '8.6 and 8.9 allow up to 99 KB of shared memory' per block. The same section: 'allocations over 48 KB per block ... require an explicit opt-in by using cudaFuncSetAttribute()'. Table 27, column 8.9: 99 KB per block, which is 101,376 B. llvq-cuda/src/shared.rs:134-135 has L40S_DEFAULT = 49_152 and L40S_OPTIN = 101_376; the comment calls the opt-in 'sm_89's documented 99 KiB'. 17,408 \u00d7 4 = 69,632 B, the Qwen3-14B intermediate size in f32. conclusion.tex:23-24 relies on the same limit.",
+     "fix": "kernel.tex:41-43: At 14B, a \\texttt{down\\_proj} activation takes 69{,}632~B. That is more than the 48~KiB a thread block gets without an explicit opt-in, so the CPU code asks the driver for more. The L40S, of compute capability 8.9, allows at most 101{,}376~B, or 99~KiB~\\citep{cudaguide}."
+    },
+    {
+     "id": "P3",
+     "verdict": "confirmed",
+     "severity": "nit",
+     "reason": "The claim matches the guide. The unit breaks the paper's own convention. These two lines are the only 'KB' in paper 2; every other binary size is written KiB. The guide's KB is 1,024 bytes, and nine lines later the paper gives the same per-SM limit as 102,400 B.",
+     "evidence": "grep over paper2/sections: 'KB' appears only at kernel.tex:105 and kernel.tex:107. KiB is used at kernel.tex:42, 110, 134 and 135, intro.tex:31 and 61, conclusion.tex:6 and tetra.tex:168. The current guide's compute-capabilities appendix (https://docs.nvidia.com/cuda/cuda-programming-guide/05-appendices/compute-capabilities.html) says: 'the KB and K units used in the following tables correspond to 1024 bytes (i.e., a KiB)'. kernel.tex:116 writes 102,400 B.",
+     "fix": "On an Ada GPU (sm\\_89), each streaming multiprocessor (SM) splits one 128~KiB pool of on-chip memory between the L1 cache and shared memory, with at most 100~KiB for shared memory~\\citep{cudaguide}."
+    },
+    {
+     "id": "P4",
+     "verdict": "partly",
+     "severity": "nit",
+     "reason": "The paper is correct. Registers allow 6.4 blocks, so six fit and a seventh does not. The reader's core point holds: the 1,536-thread limit also caps occupancy at exactly six, and the parenthesis suggests the register file is the only cap. 'No source' is overstated, because cudaguide is cited seven lines earlier in the same subsection. The shared-memory line also stays true with the 1 KiB the driver reserves per block. The reader's fix is acceptable, and I keep it close.",
+     "evidence": "Archive guide v13.0 Table 27, column 8.9: 'Maximum number of resident threads per SM' 1536, 'Number of 32-bit registers per SM' 64 K, resident blocks per SM 24. 1,536 / 256 = 6, and 65,536 / (256 \u00d7 40) = 6.4. Section 20.7.3 says 1 KB is 'reserved for system use'; 6 \u00d7 (12,288 + 1,024) = 79,872 < 102,400. llvq-cuda/src/arms.rs:191 reports 40 registers.",
+     "fix": "kernel.tex:112-115: Occupancy, the number of thread blocks an SM holds at once, does not change with the tile. Both lattice arms launch 256 threads per block at 40 registers per thread, so six thread blocks fit at every tile. Six blocks are the 1{,}536 threads an sm\\_89 SM can hold, and they use 61{,}440 of its 65{,}536 registers~\\citep{cudaguide}. Shared memory is never the binding limit ($6\\times12{,}288 < 102{,}400$~B)."
+    },
+    {
+     "id": "P5",
+     "verdict": "confirmed",
+     "severity": "should_fix",
+     "reason": "This is the only mention of the A100 in paper 2. The sentence before it says every measured number is on one L40S. The A100 result is published in paper 1 and nowhere else, so the sentence needs the citation. Its content matches paper 1 at the stated strength, and paper 1's tile is 128 blocks.",
+     "evidence": "paper/sections/layouts.tex:303-305: '\\textbf{Every lattice arm falls below FP16 on the A100.} \\textsc{Planes14} runs at $0.79\\times$'. layouts.tex:280-284: nine arms were re-run from the same binary on an A100 (sm_80). paper/sections/decoder.tex:76: 'tiles of 128 blocks ($12\\,288$ bytes)'. grep over paper2/sections finds 'A100' only at limitations.tex:6, with no \\cite.",
+     "fix": "On an A100, with the same benchmark at tile 128, none of our earlier lattice kernels ran faster than FP16~\\citep{llvq1preprint}."
+    },
+    {
+     "id": "P6",
+     "verdict": "partly",
+     "severity": "should_fix",
+     "reason": "The core holds. Slot32, Planes12x and Golay70 appear nowhere in paper 2 except this table, so a reader cannot tell what the '(ours, earlier)' rows are. The QTIP row, with identical values, is published in paper 1. 'Not a measurement of this paper' is overstated: the provenance table labels it 'measured' and names its journal, and it is the authors' own measurement reused. The earlier-layout rows are re-timed in this process at tile 64, not copied from paper 1: Planes14 is 4.997 here against 5.103 in paper 1. The added sentence should say so, or a reader will look for these numbers in paper 1.",
+     "evidence": "paper/sections/layouts.tex:51: 'QTIP 2-bit & 2.000 & 0.91 & \\textbf{2.246} & 405', the same four values as paper2 appendix.tex:20. paper/sections/appendix-protocol.tex:119 names f2-p3-qtip-banc-2026-08-21. paper2 appendix.tex:172 labels the row 'measured' with 'QTIP row: f2-p3-qtip-banc-08-21'. grep over paper2/sections finds Slot32, Planes12x and Golay70 only at appendix.tex:12-16. paper/sections/layouts.tex:44-48 gives Planes14 5.103 ms and Golay70 8.187 ms, against 4.997 and 8.064 in paper 2. QTIP 2.246 is below the no-weights control in both papers: 2.306 in paper 1, 2.289 in paper 2.",
+     "fix": "In the caption of the ten-arm table, after 'over seven rounds with the first two dropped.', add: The rows marked earlier are the layouts of \\citet{llvq1preprint}, timed again here. Replace the last two sentences before 'Data:' with: $^{*}$This row is the QTIP measurement of \\citet{llvq1preprint}, from another process (2026-08-21). It is below the no-weights control. We keep it with that caveat."
+    },
+    {
+     "id": "P7",
+     "verdict": "confirmed",
+     "severity": "nit",
+     "reason": "Paper 1 names the two arms 'Golay70' and 'Golay70, hoisted'. 'v1' and 'v2' are internal names from the CSV and the repository, so a reader who follows the citation added in P6 will not find them. Renaming the rows does not break the table check, which matches cell values, not labels.",
+     "evidence": "paper/sections/layouts.tex:47-48: '\\textsc{Golay70} & 3.589 ... 8.187' and '\\textsc{Golay70}, hoisted & 3.589 ... 6.182'. docs/HISTORIQUE.md:105: 'v2 decoder (coset logic hoisted to the block)'. docs/data/echelle-formats.csv has the labels Golay70v1 and Golay70v2. paper2/scripts/check_tables.py check_bench() collects only med_ms and bpw_kernel values for appendix.tex.",
+     "fix": "\\textsc{Golay70} (ours, earlier) & 252 & 8.064 & 1.63 & 3.589 & 202\\\\\n\\textsc{Golay70}, hoisted (ours, earlier) & 252 & 6.016 & 1.63 & 3.589 & 271\\\\"
+    }
+   ]
+  }
+ },
+ {
+  "group": "prov-a",
+  "kind": "prov",
+  "found": {
+   "rows_checked": 15,
+   "ok": [
+    "L162 Planes 4.804 b/w, measured: echelle-formats.csv row Planes14 bpw_kernel 4.804; e2-golay70-bench-2026-08-07.txt line 29 'LLVQ Planes14 ... 4.804'. Printed by the run, so 'measured' fits the paper's definition.",
+    "L163 ball 1.1e14, computed: I recomputed the Leech theta series (E12 - 65520/691 Delta). Shells 2..12 sum to 111,043,117,458,000, under 2^47. This matches docs/format-noyau.md:13. classes_reproduce_theta_series is in llvq-search/src/classes.rs:284 and pins shells 2-5 and N(13), so it validates the enumeration the row names.",
+    "L164 64 states, 1,024 edges: f1a-comptes-2026-09-04.txt, trio result (2^6 = 64 Golay states at both cuts) and correction (1,024 edges / 64 = 16 branches). Labelled 'calcule' there. N0 = 1240 is asserted in planesbench.rs:1725. See the nit on the pointer.",
+    "L165 18,816 B, computed: banc-t64-2026-09-20-brut/banc.txt:27 prints rank table 16384 + prefixes 128 + branches 2048 + suffixes 128 + invnorm 128 = 18,816.",
+    "L166 m<=26, max|y_j|=10, computed: llvq-bench/examples/tetrashell.rs exists. paper2-audit-2026-09-28-brut/tetrashell.txt prints 'max |y_j| = 10', 'max m = n2/16 = 26' (exhaustive, word 0x7994070f3202). Audit new result 1 labels it computed.",
+    "L168 88.80 vs 91.98, 3.2 points, measured: f1-encodeur-blocs-reels-2026-09-05.txt prints gaussien 91.98 / 88.80 and reel 91.87 / 88.68, -3.20 pp, on 20,000 blocks each, same process, F1b gain rule, transformer block 0 of Qwen3-0.6B. 9.2% MSE = 2^(4*0.0318) = 1.092.",
+    "L169 0.6 points, measured: llvq-bench/examples/f1rankbench.rs exists (universal table vs exact per-region codebook, Gaussian blocks). HISTORIQUE 2026-09-05 (line 367): -0.64 pp on 2,000 blocks and -0.61 pp on 4,000, labelled measured.",
+    "L170 0.7292 vs 1.0958 dB: I ran ops/f1a_shaping.py (pure arithmetic, no file IO). It prints 0.7292, 1.0958, loss 0.3666 dB and +8.81%. 'computed, idealised' is right: this is a closed form for balls.",
+    "L171 G ratio: 0.071682/0.065771 = 1.08987, so 1.0899. G(E8) = 929/12960 = 0.0716821. Agrell and Allen (arXiv:2202.09605, Table I) list E8 0.071682099 citing Conway and Sloane and Lambda24 0.06577, and point to NSM tables at '[1, p. 61]'. arXiv:2607.10885 calls the best-lattice-quantizer table '[3, Ch. 2, Table 2.3]'. The pointer 'Table 2.3' is consistent. I did not see the book itself.",
+    "L172 ten-arm benchmark: banc-t64-2026-09-20-brut/banc.txt phase 2/2 gives every value of Table 2 and Appendix A: nullk 2.289/0.07/0.159/32, FP16 10.973/7.27/662, cuBLAS 10.828/672, Slot32 5.732/2.50/5.510/437, Planes14 4.997/2.18/4.804/437, Tetra48 3.424/0.95/2.148/278 on 216 matrices, Planes12x 5.366/368, Golay70 v1 8.064/202, v2 6.016/271, AWQ 3.261/1.90/4.179/583. The QTIP row 2.246/0.91/2.000/405 is in f2-p3-qtip-banc-2026-08-21.txt:78-79. echelle-formats.csv holds all eleven.",
+    "L173 tile sweep: tuile-l40s.csv and tuile-l40s-2026-09-20.txt give nullk 2.272/2.288/2.388, Planes14 5.070/4.995/5.044, Tetra 4.078/3.423/3.553, labelled measured. The ranges 1.5%, 5.1% and 19.1% recompute.",
+    "L174 sealed files: 1,418,224,685 B is in sealed-rownorms-2026-09-23.txt:11. 2,815,098,745 B is in sealed-8b-27-2026-09-24.txt:12. 5,087,000,541 B is in sealed-8b-14b-2026-09-23.txt:12. rtbits 'f16 (served) ... embed q4' reads 2.7320 (sealed-4b-2026-09-23-brut/rtbits-sealed.txt), 2.6953 (sealed-8b-27-brut/rtbits-8b-B.txt) and 2.7305 (sealed-8b-14b-brut/rtbits-14b.txt). The projection splits 168+84, 199+53 and 181+99 match rtbits. Measured bytes and computed rates, as labelled.",
+    "L175 MMLU of the sealed files: 63.37 is in embed-q4-swap-2026-09-23.txt (object one step before sealing, 48 o/down matrices restored int4 g128 at load). 69.58 is in sealed-8b-27-2026-09-24.txt:25, and 75.66 in sealed-8b-14b-2026-09-23.txt. Fingerprint a74a6d6213602979 appears in all three. I recompared metal-smoke/a-sealed-dense.csv with b-restore-dense.csv: 57 of 57 picks are equal and max |dlogit| is 0.",
+    "L176 chain steps: dclm-rowscales-2026-09-20 has 57.95, 61.11, +3.15 and p 1.759e-25 at 2.7475 with q8 tables. census-8b-2026-09-21 has 64.87 at 3.0683 with q8. dclm-8b-rowscales has 68.16, +3.29 [2.78, 3.80] and p 7.2e-38. census-14b-base has 72.53. dclm-14b-rowscales has 74.20, +1.67 [1.27, 2.08] and p 5.0e-16. embed-q4-swap has +2.26 [1.66, 2.87] and p 8.2e-13. sealed-8b-27 has +1.42 [0.93, 1.92] and p 3.2e-8. sealed-8b-14b has +1.46 [0.99, 1.94], p 1.4e-9, 2.7320, and 2.7371 for the 14B base. Table 6 is tab:chain (main.aux). paper2-chain.csv matches every cell."
+   ],
+   "problems": [
+    {
+     "id": "P1",
+     "file": "paper2/sections/appendix.tex",
+     "line": 167,
+     "quote": "about 150 instructions a block, 20 more for gain and norm & computed & \\texttt{llvq\\_f1rank\\_v3.cuh} (default mask), \\texttt{llvq\\_tetra48.cuh}\\\\",
+     "problem": "The named source file does not hold the row's number. The count table in the header of llvq_f1rank_v3.cuh still reads 141 instructions with 54 on the FMA pipe, for the one-prmt mask that is not compiled. The paper says about 150, with about 60 on the FMA pipe (kernel.tex:28). Only the recount in paper2-audit-2026-09-28.txt (new result 4) gives 150 and 60. A reader who follows the pointer finds 141 and 54. The row also leaves out the 'about 380, plus 24 conversions' of kernel.tex:30-31, which comes from the same header.",
+     "evidence": "llvq-cuda/kernels/llvq_f1rank_v3.cuh header: '\u2248 30 + 3 \u00d7 37 = 141 instructions: 54 on the FMA pipe (24 FFMA, 24 FADD, 6 IMAD), ~85 on the ALU pipe ... Against ~380 + 24 I2F'. paper2-audit-2026-09-28.txt:51-56: 'about 150 a block ... not 141 ... default mask is two IMAD and one LOP a quad. So 60 FMA-pipe, about 85 ALU'. I recounted the default mask at 20 FMA-pipe instructions per section times 3, which gives 60. ALU comes to 81 plus up to 6 LOP.AND, and there are 6 loads, so about 150. The gain and norm code in llvq_tetra48.cuh:115-124 (6 XOR, 6 dp4a, shifts and masks, 2 loads, 2 FMUL) comes to about 20. The number is right; the pointer is incomplete.",
+     "severity": "should_fix",
+     "fix": "about 150 instructions a block, 20 more for gain and norm; about 380 for a decoder that converts & computed & \\texttt{llvq\\_f1rank\\_v3.cuh} (default mask), \\texttt{llvq\\_tetra48.cuh}; recount in paper2-audit-09-28 (the header's 141 counts the one-\\texttt{prmt} mask)\\\\    Or, in addition, correct the count table in the llvq_f1rank_v3.cuh header to the default mask."
+    },
+    {
+     "id": "P2",
+     "file": "paper2/sections/appendix.tex",
+     "line": 176,
+     "quote": "steps of Table~\\ref{tab:chain} & measured, computed & paper2-chain.csv; dclm-rowscales-09-20, dclm-8b-rowscales-09-21, dclm-14b-rowscales-09-22, census-8b-09-21, census-14b-base-09-22, embed-q4-swap-09-23, sealed-8b-27-09-24, sealed-8b-14b-09-23\\\\",
+     "problem": "The 4B row-scale interval of Table 6, [+2.56, +3.74], is in paper2-chain.csv and in none of the logs this row names. dclm-rowscales-09-20 prints the gain and the McNemar p but no interval. Its only trace is one line of the audit findings, 're-run with mmlupair', and that rerun's output was not saved. Every other interval of Table 6 is printed in its journal.",
+     "evidence": "grep of '2.56' over dclm-rowscales-2026-09-20.txt, dclm-ft-mmlu-2026-09-20-brut/ and dclm-rowscales-2026-09-19-brut/ finds nothing. dclm-rowscales-2026-09-20.txt:23-25 has 'paired +3.15 pp / McNemar 1,128 won against 685 lost, p = 1.759e-25'. paper2-audit-2026-09-28-brut/audit-findings.json:3276 has '4B +3.15 [+2.56, +3.74] p 1.759e-25 re-run with mmlupair'. The audit's raw folder holds only mmlupair-planes14-tetra-2280.txt and tetrashell.txt. My recompute of docs/data/mmlu-dumps/mmlu-4b-dclm-FULL.csv against mmlu-4b-dclm-ft-FULL.csv gives +3.15, stratified normal interval [2.56, 3.75] and 1,128/685. The value holds; its log is missing.",
+     "severity": "should_fix",
+     "fix": "Run mmlupair on the two committed dumps (local, 0 $; ask the operator first, per hard rule 1) and save its output as docs/mesures/paper2-audit-2026-09-28-brut/mmlupair-4b-rowscales.txt. Then write: steps of Table~\\ref{tab:chain} & measured, computed & paper2-chain.csv; dclm-rowscales-09-20 (4B interval: paper2-audit-09-28, raw output), dclm-8b-rowscales-09-21, dclm-14b-rowscales-09-22, census-8b-09-21, census-14b-base-09-22, embed-q4-swap-09-23, sealed-8b-27-09-24, sealed-8b-14b-09-23\\\\"
+    },
+    {
+     "id": "P3",
+     "file": "paper2/sections/appendix.tex",
+     "line": 164,
+     "quote": "64 states a cut, 1{,}024 edges, $N_0=1240$ & computed & f1a-comptes-09-04; checked at build\\\\",
+     "problem": "f1a-comptes-09-04 holds the 64 states and the 1,024 edges but not N0 = 1240. The shared rank table came a day later. The row's only other source is 'checked at build', which names no file a reader can open.",
+     "evidence": "f1a-comptes-2026-09-04.txt has no occurrence of 1240. banc-t64-2026-09-20-brut/banc.txt:27 has 'N0 = 1240'. llvq-cuda/src/bin/planesbench.rs:1725 asserts table.n0_mixed == 1240. llvq-search/src/tetra/mod.rs:95 has 'pub const N0_MIXED: usize = 1240'.",
+     "severity": "nit",
+     "fix": "64 states a cut, 1{,}024 edges, $N_0=1240$ & computed & f1a-comptes-09-04 (states, edges); $N_0$ printed at every launch, banc-t64-09-20; all three checked at build\\\\"
+    },
+    {
+     "id": "P4",
+     "file": "paper2/sections/appendix.tex",
+     "line": 175,
+     "quote": "the 4B file gives the same answers on 57 of 57 questions, sealed-4b-09-23\\\\",
+     "problem": "sealed-4b-09-23 exists only as a raw folder, with no journal. The row above marks it '(raw output)'; this row does not. The 57-question check is two dumps in metal-smoke/, and the only text that states it is the ECARTS file in proofs/.",
+     "evidence": "docs/mesures/ has sealed-4b-2026-09-23-brut/ and no sealed-4b-2026-09-23.txt. In metal-smoke/a-sealed-dense.csv against b-restore-dense.csv, 57 of 57 picks are equal and max |dlogit| is 0 (recomputed). proofs/preregistration-sealed-4b-2026-09-23-ECARTS.md \u00c91: 'control 1 (the sealed file's dense reconstruction equals the restore arm on 57 questions, on Metal) did run, before stamping, and stands.'",
+     "severity": "nit",
+     "fix": "... the 4B file gives the same answers and logits on 57 of 57 questions, sealed-4b-09-23 (raw output, \\texttt{metal-smoke/})\\\\"
+    }
+   ]
+  },
+  "verification": {
+   "verdicts": [
+    {
+     "id": "P1",
+     "verdict": "partly",
+     "severity": "nit",
+     "reason": "The paper's figures are right, and the file the row names is stale. The count table in the header of llvq_f1rank_v3.cuh counts the one-prmt mask, which is not compiled: 141 instructions, 54 on the FMA pipe. The recount of 150 and 60 is only in paper2-audit-09-28, which the row does not name. Severity is overstated. The row already says '(default mask)'. In the same file, the comment on f1r_v3_bytemask says 'Two IMAD and one LOP per quad' and 'NOT the one-prmt form', so a careful reader can reconcile the two. The reader's recount holds. Per section the default mask costs 4 IMAD + 2 LOP, so 20 FMA-pipe instructions a section and 60 a block. The total is 30 + 3 x 39 = 147, plus up to 6 LOP.AND 0x7777, so about 150. The gain and norm in llvq_tetra48.cuh:115-124 add about 20. Adding 'about 380' is optional: the provenance table does not list every number, but that figure sits in the same header ('~380 + 24 I2F').",
+     "evidence": "llvq-cuda/kernels/llvq_f1rank_v3.cuh:52-67: '2 x (IMAD, PRMT) masks  2 FMA-pipe (IMAD) + 2 ALU' ... '~ 30 + 3 x 37 = 141 instructions: 54 on the FMA pipe (24 FFMA, 24 FADD, 6 IMAD)'. Same file, lines 122 and 136-141: 'Two IMAD and one LOP per quad'. The one-prmt form is under #ifdef LLVQ_F1R_V3_SIGN_PRMT; the default is ((c4 * 0x00204081u) & 0x01010101u) * 0xffu. docs/mesures/paper2-audit-2026-09-28.txt, new result 4: 'about 150 a block ... not 141 ... The header's table counts the one-prmt mask, which is not compiled ... So 60 FMA-pipe, about 85 ALU'. llvq_tetra48.cuh:78-87 and 122-124 hold 6 XOR, 6 dp4a, shift/mask, 2 loads and 2 FMUL. paper2/sections/kernel.tex:27-31 has the 150/60/85/20/380 figures.",
+     "fix": "about 150 instructions a block, 20 more for gain and norm; about 380 plus 24 conversions for a decoder that converts & computed & \\texttt{llvq\\_f1rank\\_v3.cuh} (default mask; its header counts 141 for the one-\\texttt{prmt} mask), \\texttt{llvq\\_tetra48.cuh}; recount in paper2-audit-09-28\\\\   Better still, outside the paper: correct the count table in the llvq_f1rank_v3.cuh header to the default mask (per section, 4 IMAD and 2 LOP for the masks; about 150 in all, 60 on the FMA pipe with 24 FFMA, 24 FADD and 12 IMAD). The row can then keep '(default mask)' and drop the parenthesis."
+    },
+    {
+     "id": "P2",
+     "verdict": "confirmed",
+     "severity": "should_fix",
+     "reason": "The 4B row-scale interval of Table 6, [+2.56, +3.74], has no log. It first entered the repository in paper2-chain.csv and experiments.tex in commit e818071 (2026-09-25), and no mmlupair output came with it. The CSV's source column for that row names dclm-rowscales-2026-09-20. That journal prints +3.15, 1,128/685 and p = 1.759e-25, but no interval. The audit re-ran it and kept only a one-line summary in audit-findings.json. Its raw folder holds only two files. Every other Table 6 interval is printed in the journal the row names. The value holds. My own recompute on the committed dumps gives +3.155, 1,128 won against 685 lost, and a stratified normal interval of [2.564, 3.746] (SE 0.30). One correction to the reader's fix: mmlupair must run with --no-fpc. Without it a census gives a zero-width interval, because the finite population correction shrinks every stratum to a point when n = N (mmlupair.rs:530-545). The arm order must be A = row scales, B = base, since the tool reports A - B.",
+     "evidence": "docs/data/paper2-chain.csv: 'Qwen3-4B,scales,2.7475,61.11,3.15,2.56,3.74,1.8e-25,dclm-rowscales-2026-09-20'. docs/mesures/dclm-rowscales-2026-09-20.txt:20-24 has 'paired +3.15 pp / McNemar 1,128 won against 685 lost, p = 1.759e-25' and no interval. grep for '2.56' and '3.74' over docs/, proofs/ and README finds only audit-findings.json:3276, which reads '4B +3.15 [+2.56, +3.74] p 1.759e-25 re-run with mmlupair'. docs/mesures/paper2-audit-2026-09-28-brut/ holds audit-findings.json, mmlupair-planes14-tetra-2280.txt and tetrashell.txt. git log -S '2.56,3.74' shows only e818071. The other intervals are printed: dclm-8b-rowscales-09-21:35 has 'CI95 [+2.78 ; +3.80]', and 1.66 is in embed-q4-swap-09-23, 0.93 in sealed-8b-27-09-24, 1.27 in dclm-14b-rowscales-09-22, and 0.99 in sealed-8b-14b-09-23.",
+     "fix": "With the operator's go (hard rule 1; local, 0 $), save the missing output: cargo run --release -p llvq-llm --bin mmlupair -- docs/data/mmlu-dumps/mmlu-4b-dclm-ft-FULL.csv docs/data/mmlu-dumps/mmlu-4b-dclm-FULL.csv --no-fpc > docs/mesures/paper2-audit-2026-09-28-brut/mmlupair-4b-rowscales.txt. Then write the row as: steps of Table~\\ref{tab:chain} & measured, computed & paper2-chain.csv; dclm-rowscales-09-20 (4B interval: paper2-audit-09-28, raw output), dclm-8b-rowscales-09-21, dclm-14b-rowscales-09-22, census-8b-09-21, census-14b-base-09-22, embed-q4-swap-09-23, sealed-8b-27-09-24, sealed-8b-14b-09-23\\\\"
+    },
+    {
+     "id": "P3",
+     "verdict": "confirmed",
+     "severity": "nit",
+     "reason": "f1a-comptes-09-04 holds the 64 Golay states a cut under the trio and the 1,024 edges, but it does not hold N0 = 1240. The rank table was built on 2026-09-05, and its journals print the number. 'checked at build' is true. The table builders assert all three counts (llvq-search/src/tetra/trellis.rs:145 and :186; rank.rs:209). But the phrase names no file. The reader's fix points to banc-t64-09-20, which has only raw output. Line 172 of the same table marks that folder '(raw output only)'. A journal that prints N0 exists: f1-rang-plancher-09-05. So the row is better pointed there.",
+     "evidence": "docs/mesures/f1a-comptes-2026-09-04.txt:85 has 'section du milieu : 1 024 ar\u00eates distinctes', and :129-133 has '2^6 = 64 \u00e9tats SOURCES' with '1 024 / 64 = 16 branches par \u00e9tat'. It has no occurrence of 1240. docs/mesures/f1-rang-plancher-2026-09-05.txt:32 has 'tables: rows 16384 B, prefixes 128 B, branches 2048 B, suffixes 128 B, N0 = 1240', and f1-encodeur-prototype-2026-09-05.txt:47 has 'N0 = 1 240'. llvq-search/src/tetra/trellis.rs:33-39 defines GOLAY_STATES = 64 and EDGES = GOLAY_STATES * BRANCHES, and asserts them at :145 and :186. llvq-search/src/tetra/rank.rs:209 has assert_eq!(n0, N0_MIXED, ...), with N0_MIXED = 1240 at mod.rs:95. llvq-cuda/src/bin/planesbench.rs:1724-1729 asserts table.n0_mixed == 1240.",
+     "fix": "64 states a cut, 1{,}024 edges, $N_0=1240$ & computed & f1a-comptes-09-04 (states, edges); f1-rang-plancher-09-05 ($N_0$); all three asserted when \\texttt{llvq-search} builds the tables\\\\"
+    },
+    {
+     "id": "P4",
+     "verdict": "partly",
+     "severity": "nit",
+     "reason": "The core holds. sealed-4b-09-23 is a raw folder with no journal. Row 174 marks it '(raw output)' and this row does not. The two Metal dumps agree: their data rows are byte-identical, so 57 of 57 picks and every logit match. The body text (experiments.tex:17-18) says 'the same answers and logits', and the row says only 'answers'. One part of the evidence is wrong. The ECARTS file is not the only text that states the check. The stamped preregistration itself, section 5 control 1, states it in full: '57 of 57 identical picks and all four logits identical'. The fix can point there as well.",
+     "evidence": "ls docs/mesures shows sealed-4b-2026-09-23-brut/ and no sealed-4b-2026-09-23.txt. diff of the non-comment lines of metal-smoke/a-sealed-dense.csv and b-restore-dense.csv shows them identical (58 lines with the header), with the same fingerprint a948aa47418e7fcf and questions=57. proofs/preregistration-sealed-4b-2026-09-23.md:80-85 has 'Control 1 was run before stamping (*measured*, Metal, 57 questions at limit 1 ...) ... give 57 of 57 identical picks and all four logits identical'. ECARTS \u00c91 has 'Its control 1 ... did run, before stamping, and stands'. paper2/sections/appendix.tex:174 has 'sealed-4b-09-23 (raw output)'.",
+     "fix": "MMLU of the sealed files; at 4B, of the same weights with the int4 matrices rebuilt at load & measured & embed-q4-swap-09-23, sealed-8b-27-09-24, sealed-8b-14b-09-23; question fingerprint \\texttt{a74a6d62}; the 4B file gives the same answers and logits on 57 of 57 questions, sealed-4b-09-23 (raw output, \\texttt{metal-smoke/}), control~1 of its preregistration\\\\"
+    }
+   ]
+  }
+ },
+ {
+  "group": "prov-b",
+  "kind": "prov",
+  "found": {
+   "rows_checked": 52,
+   "ok": [
+    "Scope: 26 provenance rows (from 'int4 v_proj at 4B' to the end), 10 CSVs (the 9 named in captions plus paper2-sizeup-budget.csv), 16 repository paths and the appendix commands. Every journal and CSV named exists and is git-tracked.",
+    "int4 v_proj +1.73 [0.87, 2.59]: tetra-nu-full-2026-09-18 (bare 54.64 against Q5 56.37, C4 encoding). Measured.",
+    "FP16/AWQ MMLU 8B 75.05/73.79 (census-8b-09-21) and 14B 78.88/78.12 (census-14b-ref-09-22), L40S. AWQ-FP16 gaps 1.27 [0.83, 1.70] and 0.75 [0.40, 1.12] match.",
+    "FP16 4B 70.14: f16-full-2026-09-18, l40sx1.",
+    "AWQ 4B 68.14 and IQ2_XXS 39.78: paper-table-2026-09-25 runs 4-5.",
+    "Paired gaps 6.77/5.48/3.22 and 4.76/4.21/2.46 with CIs: paper2-gaps.csv, pairs.txt, sealed-8b-27, sealed-8b-14b.",
+    "vLLM tok/s: 4B 83.09/200.49 from awq-vllm-4b-08-17 (v0.26.0, 2 warm-ups, 5 rounds, 128 tokens, Marlin); 8B 46.31/123.16 and 14B 25.83/77.82 from the paper-table JSONs.",
+    "IQ2_XXS 312.85 tok/s: m4-iq2-cuda-08-30, L40S, GGUF sha 19a8ed49 is the scored file.",
+    "Served 113.8/95.0/57.2 tok/s and 1.38/2.76/5.04 GB, dense arm 43.0/26.4/16.9, f16-table runs 55.0/38.9/27.3 against dense 43.3/26.4/16.9 (x1.27/1.47/1.61): the raw fused-*-256.txt files.",
+    "Load 4.1 s and 72.9 s, 96 rot_launches/token: paper-table 4B raw fused-q4-256.txt.",
+    "8B choice: arm A down 15-20 (68.81, 2.7047), arm B down 10-26 (69.58, 2.6953), B-A +0.77 [0.26, 1.28] p=0.0039, 3.06 file minus B +0.50 [-0.01, 1.01] p=0.063, prediction +0.2 [-0.6, 1.0]. Layer lists confirmed in the int4swap logs.",
+    "Second training: 73 of 145 norms (144 per-layer norms plus the final one, minus 72 q/k norms), KL 0.2622 to about 0.20, +0.02 [-0.31, 0.36] p=0.93 (sealed-rownorms-09-23).",
+    "Calibration draws: range 5.8304, s(n-1) 2.9154 on 2,280 questions, same codebook as the published file. Computed is the right label.",
+    "GSM8K: scores, fingerprint bfa9135ce4b55c75, all six gaps with CIs and p below 1e-5, engine check -0.61 [-1.27, 0.06] p=0.115, same-engine gap 9.02 [7.07, 10.97], ratios 1.42/0.84/1.01, error ratios 2.22/1.69/1.69 against 1.23/1.22/1.15, 50 identical smoke answers (gsm8k-wave1/wave2).",
+    "Size-up: all 8 rows of paper2-sizeup.csv match the 26 raw pair outputs with signs flipped. 25 %/43 % and 0.10/1.05 GB reproduce. Not preregistered.",
+    "Budgets: KV 1,207,959,552 and 1,342,177,280 B, totals 2.59/3.97/6.39 and 3.87/7.31/11.32, AWQ with 4-bit tables 3.31/5.52/9.08 all recompute (sizeup-09-28). Computed is the right label.",
+    "Bare Tetra: 2.11 [-0.95, 5.17] p=0.1077 (mmlupair-planes14-tetra-2280.txt), ppl -4.64 %, drift 87 % of 4,185,600 indices (tetra-4b-09-06 plus ECARTS E3).",
+    "sm_120: 0.82/0.86/1.03 at T=128/64/32, 252 matrices of two 4B files. Planes14 is fastest at 128 and Tetra at 32 (f1d-09-10).",
+    "1,792 served blocks against the Rust decoder, worst relative error 5.31e-8 (tetra48-tuerie-09-08, control 8).",
+    "Row padding 4.1 MB: banc-t64-2026-09-20-brut/banc.txt. 0.009 b/weight = 4.1e6 x 8 / 3.539e9.",
+    "11.4 MB: a read of the tail of ~/q4b-sealed-2026-09-23/qwen3-4b-sealed.bin finds config.json and tokenizer.json in its last 11.42 MB.",
+    "z=1.1: 0.55/sqrt(0.38^2+0.34^2)=1.08, from the mmlupair SEs. This assumes the two gaps are independent, which the paper's wording allows.",
+    "AWQ b/param 5.3023/5.9566/5.4044 from the Hub safetensors bytes (rtbits-14b-08-17); echelle-4b-8b.csv carries 5.302/5.956/5.404.",
+    "Cited 62.8/59.5/52.9 are the fine-tuned rows of Table 6 in llvq-paper-notes.md. The no-FT rows 60.7/57.4/48.6 match background.tex.",
+    "echelle-formats.csv matches Table 2, Appendix A and Figure 1 (2.40x and 1.07x). tuile-l40s.csv matches the Figure 5 caption and the 1.5/5.1/19.1 % ranges.",
+    "paper2-chain.csv matches Tables 1 and 6. paper2-results.csv matches Table 3.",
+    "Paths that exist and hold their claim: docs/mesures/, docs/data/, proofs/, configs/qwen3-4b-tetra-e4.json, ops/f1a_shaping.py (run: 0.7292, 1.0958, 0.3666 dB, +8.81 %), docs/fiche-4b.md, the classes_reproduce_theta_series test in llvq-search, the 2026-09-05 entry of docs/HISTORIQUE.md (-0.64/-0.61 pp), and the GitHub origin.",
+    "Binaries: fusedrun, mmlu (no limit means the full test set), mmlupair (--no-fpc), gsm8k and gsm8kpair are in llvq-llm; rtbits is in llvq-bench. The tab:files int4 lists (4B down 12-23, 8B down 10-26, 14B down 10-28), the 168+84, 199+53 and 181+99 splits, and the three sha256 prefixes all check."
+   ],
+   "problems": [
+    {
+     "id": "P1",
+     "file": "paper2/sections/appendix.tex",
+     "line": 150,
+     "quote": "The script \\texttt{scripts/make\\_figures.py} draws every data figure from a",
+     "problem": "The appendix gives other paths from the repository root (docs/mesures/, ops/, proofs/), but there is no scripts/ directory at the root. The two scripts are in paper2/scripts/. Paper 1 has scripts of the same names in paper/scripts/, so a reader can open the wrong ones.",
+     "evidence": "`ls scripts` at the repository root fails. find returns ./paper/scripts/make_figures.py, ./paper/scripts/check_tables.py, ./paper2/scripts/make_figures.py and ./paper2/scripts/check_tables.py.",
+     "severity": "should_fix",
+     "fix": "2026. The script \\texttt{paper2/scripts/make\\_figures.py} draws every data figure from a\nCSV in \\texttt{docs/data/}. A second script, \\texttt{paper2/scripts/check\\_tables.py},"
+    },
+    {
+     "id": "P2",
+     "file": "paper2/sections/appendix.tex",
+     "line": 201,
+     "quote": "AWQ bits per parameter & computed & echelle-4b-8b.csv; rtbits-planes-8b-08-09, rtbits-14b-08-17\\\\",
+     "problem": "Table 3 and the abstract give IQ2_XXS 2.48 bits per parameter and 1.25 GB. No provenance row covers either number. The appendix paragraph on the corrected rate gives the byte count but no log. The bytes are in m3-iq2-metal-08-30, which the table never names.",
+     "evidence": "m3-iq2-metal-2026-08-30.txt l.31: 'artefact 1 246 620 832 o', l.35: 'b/param mod\u00e8le entier 2,479'. 1,246,620,832 x 8 / 4,022,468,096 = 2.479. m4-iq2-cuda-08-30 and paper-table-09-25 control 5 give the same GGUF sha256, 19a8ed49.",
+     "severity": "should_fix",
+     "fix": "Add after the AWQ row:\nIQ2\\_XXS bits per parameter and GB, from 1{,}246{,}620{,}832~B & computed & m3-iq2-metal-08-30; the same GGUF, sha256 \\texttt{19a8ed49}, in m4-iq2-cuda-08-30 and paper-table-09-25\\\\"
+    },
+    {
+     "id": "P3",
+     "file": "paper2/sections/appendix.tex",
+     "line": 166,
+     "quote": "$m\\le26$, $\\max|y_j|=10$ & computed & \\texttt{examples/tetrashell.rs}, exhaustive; paper2-audit-09-28\\\\",
+     "problem": "Several paths are not written from the repository root. examples/tetrashell.rs (l.166) and examples/f1rankbench.rs (l.169) are in llvq-bench/examples/. There is no root examples/ directory, and llvq-llm and llvq-metal have examples/ directories too. llvq_f1rank_v3.cuh and llvq_tetra48.cuh (l.167) are given with no directory; they are in llvq-cuda/kernels/. The files exist and hold their claims.",
+     "evidence": "find: ./llvq-bench/examples/tetrashell.rs, ./llvq-bench/examples/f1rankbench.rs, ./llvq-cuda/kernels/llvq_f1rank_v3.cuh, ./llvq-cuda/kernels/llvq_tetra48.cuh. `ls examples` at the root fails.",
+     "severity": "nit",
+     "fix": "l.166: ... & computed & \\nolinkurl{llvq-bench/examples/tetrashell.rs}, exhaustive; paper2-audit-09-28\\\\\nl.167: ... & computed & \\nolinkurl{llvq-cuda/kernels/llvq_f1rank_v3.cuh} (default mask), \\nolinkurl{llvq-cuda/kernels/llvq_tetra48.cuh}\\\\\nl.169: ... & measured & \\nolinkurl{llvq-bench/examples/f1rankbench.rs}; \\texttt{docs/HISTORIQUE.md}, 2026-09-05\\\\"
+    },
+    {
+     "id": "P4",
+     "file": "paper2/sections/appendix.tex",
+     "line": 199,
+     "quote": "tokenizer and config in the file, 11.4~MB & measured & \\texttt{docs/fiche-4b.md}\\\\",
+     "problem": "docs/fiche-4b.md measures the blobs of the published Planes14 file qwen3-4b-llvq.bin. Table 1, which this row supports, is about the three sealed Tetra files. The figure holds for them: I found config.json and tokenizer.json in the last 11.42 MB of qwen3-4b-sealed.bin, and the tokenizer is the same across Qwen3 sizes. But the source is another object, and no sealed-file log records this size.",
+     "evidence": "fiche-4b.md \u00a71 is about 'qwen3-4b-llvq.bin' (1,770,527,533 B). \u00a72: 'blobs | 11,423,433 | config.json 726 B, tokenizer.json 11,422,654 B'. awq-vllm-4b-08-17: the Qwen3 tokenizer.json files share sha256 aeb13307.",
+     "severity": "nit",
+     "fix": "tokenizer and config in the file, 11.4~MB & measured & \\texttt{docs/fiche-4b.md}, on the \\Planes{} file; the sealed files carry the same \\texttt{tokenizer.json}, sha256 \\texttt{aeb13307}\\\\"
+    },
+    {
+     "id": "P5",
+     "file": "paper2/sections/appendix.tex",
+     "line": 177,
+     "quote": "int4 \\texttt{v\\_proj} at 4B, $+1.73$ on the full test set & measured & tetra-nu-full-09-18\\\\",
+     "problem": "\u00a74.3 (model.tex l.55) also gives a cost, 'for 0.05 bits per parameter'. The cited journal does not have it, and no row sources it. It is computed from references-comptabilite-09-18: bare 2.6970 against Q5 2.7475, tail f16 (2.7645 against 2.8126 at tail f32).",
+     "evidence": "tetra-nu-full-2026-09-18.txt has 54.64, 56.37 and +1.73 [+0.87; +2.59], but no b/param. references-comptabilite-2026-09-18.txt \u00a73: 'b/param whole model, q8 embed, tail f16 2.6970 2.7475'. The difference is 0.0505.",
+     "severity": "nit",
+     "fix": "int4 \\texttt{v\\_proj} at 4B, $+1.73$ on the full test set, for 0.05 b/param & measured, computed & tetra-nu-full-09-18; references-comptabilite-09-18\\\\"
+    },
+    {
+     "id": "P6",
+     "file": "paper2/sections/appendix.tex",
+     "line": 186,
+     "quote": "8B choice, $o$ against down & measured & sealed-8b-27-09-24\\\\",
+     "problem": "In \u00a76.5, the first 8B candidate is 'all of o_proj, plus down_proj of layers 2 to 33'. Its layer range comes from sealed-8b-14b-09-23, which the row does not name. That journal is the one that built and scored the 3.06 file (70.08, 3.0637). The row also gives b/param (2.7047, 2.6953, 3.06). The journal labels these computed by rtbits, but the row says measured only.",
+     "evidence": "sealed-8b-14b-2026-09-23-brut/int4swap-8b.txt lists down_proj of layers 2 to 33. The sealed-8b-27 journal text gives '3.0637 70.08' but no layer range. Its header says 'Nature: *measured* MMLU; b/param *computed* by rtbits'.",
+     "severity": "nit",
+     "fix": "8B choice, $o$ against down & measured, computed & sealed-8b-27-09-24; the 3.06 file, sealed-8b-14b-09-23\\\\"
+    },
+    {
+     "id": "P7",
+     "file": "paper2/sections/appendix.tex",
+     "line": 190,
+     "quote": "GSM8K of FP16 and AWQ, the engine check, the same-engine gap of 9.02 & measured & paper2-gsm8k.csv; the same logs\\\\",
+     "problem": "The engine-check gap (-0.61 [-1.27, 0.06], p=0.12) is in paper2-gsm8k-gaps.csv, not in paper2-gsm8k.csv, which holds only accuracies. The 9.02 is in neither CSV. It is only in gsm8k-wave1-09-26, which 'the same logs' covers.",
+     "evidence": "paper2-gsm8k.csv has columns model, arm, engine, gsm8k, right, source. paper2-gsm8k-gaps.csv has the row 'Qwen3-4B,f16dense_minus_f16vllm,-0.61,-1.27,0.06,0.12'. gsm8k-wave1: 'FP16 dense - Tetra +9.02 [+7.07 ; +10.97]'.",
+     "severity": "nit",
+     "fix": "GSM8K of FP16 and AWQ, the engine check, the same-engine gap of 9.02 & measured & paper2-gsm8k.csv, paper2-gsm8k-gaps.csv; 9.02 in gsm8k-wave1-09-26\\\\"
+    },
+    {
+     "id": "P8",
+     "file": "paper2/sections/appendix.tex",
+     "line": 183,
+     "quote": "IQ2\\_XXS tok/s & measured & m4-iq2-cuda-08-30\\\\",
+     "problem": "The journal holds the number, 312.85 \u00b1 2.33. It does not hold the protocol that \u00a76.1 states: llama-bench, 128 tokens, empty prompt, mean of five repetitions. The repository keeps that command only in the audit's raw findings, read back with hf jobs inspect.",
+     "evidence": "m4-iq2-cuda-2026-08-30.txt names neither llama-bench nor -p/-n/-r. paper2-audit-2026-09-28-brut/audit-findings.json l.1727: \"hf jobs inspect 6a94a1d4: '-p 0 -n 128 -r 5', output 312.85 +/- 2.33 tg128 (command not archived in the repo)\".",
+     "severity": "nit",
+     "fix": "IQ2\\_XXS tok/s & measured & m4-iq2-cuda-08-30; the \\texttt{llama-bench} command, \\texttt{-p 0 -n 128 -r 5}, in paper2-audit-09-28 (raw output)\\\\"
+    },
+    {
+     "id": "P9",
+     "file": "paper2/sections/appendix.tex",
+     "line": 119,
+     "quote": "Each file has a served configuration in \\nolinkurl{configs/}, named after its",
+     "problem": "configs/ has two files per size, qwen3-<size>-tetra-e4.json and qwen3-<size>-tetra-q5.json. 'Named after its size' does not say which one serves the sealed file. The q5 files serve the earlier C4 Q5 objects with a q8 embedding, so a reader who picks one gets the wrong embedding mode.",
+     "evidence": "ls configs/: qwen3-{4b,8b,14b}-tetra-{e4,q5}.json. configs/README.md maps e4 to qwen3-*-sealed*.bin and q5 to the earlier objects. qwen3-4b-tetra-q5.json has \"embed\": \"q8\".",
+     "severity": "nit",
+     "fix": "Each file has a served configuration in \\nolinkurl{configs/}, named after its\nsize and ending in \\nolinkurl{-tetra-e4.json}; the commands below use the 4B one."
+    },
+    {
+     "id": "P10",
+     "file": "paper2/sections/appendix.tex",
+     "line": 198,
+     "quote": "row padding, 4.1~MB & measured & banc-t64-09-20\\\\",
+     "problem": "banc-t64-2026-09-20 exists only as a -brut/ folder, with no .txt journal. The ten-arm row says 'raw output only', but this row does not, so a reader looks for a journal that is not there.",
+     "evidence": "docs/mesures/ has banc-t64-2026-09-20-brut/banc.txt ('tetra48 also HOLDS 4.1 MB of row landing pad') but no banc-t64-2026-09-20.txt.",
+     "severity": "nit",
+     "fix": "row padding, 4.1~MB & measured & banc-t64-09-20 (raw output only)\\\\"
+    },
+    {
+     "id": "P11",
+     "file": "paper2/sections/appendix.tex",
+     "line": 194,
+     "quote": "bare \\Tetra{} against \\Planes{}, and the encoder drift & measured & tetra-4b-09-06; paired interval in paper2-audit-09-28\\\\",
+     "problem": "\u00a73.5 says re-encoding changes 87 % of '4.2 million indices'. The journal tetra-4b-09-06 gives only the 87 %. The count 4,185,600 and the per-matrix table are in the deviations file beside its preregistration.",
+     "evidence": "tetra-4b-2026-09-06.txt control 8: '87 % des indices diff\u00e8rent (82 \u00e0 91 % selon la matrice)'. proofs/preregistration-tetra-4b-2026-09-06-ECARTS.md \u00c93: '87 % des indices \u2014 3 659 171 sur 4 185 600'.",
+     "severity": "nit",
+     "fix": "bare \\Tetra{} against \\Planes{}, and the encoder drift & measured & tetra-4b-09-06 and its deviation \\'E3 in \\texttt{proofs/}; paired interval in paper2-audit-09-28\\\\"
+    }
+   ]
+  },
+  "verification": {
+   "verdicts": [
+    {
+     "id": "P1",
+     "verdict": "confirmed",
+     "severity": "should_fix",
+     "reason": "The paragraph mixes two bases. docs/mesures/ and docs/data/ are written from the repository root, but scripts/ only exists under paper2/ (and, with the same file names, under paper/ for paper 1). At the root, `ls scripts` fails. The two scripts do read docs/data/ from the root (ROOT / \"docs\" / \"data\"), so the only defect is the missing paper2/ prefix.",
+     "evidence": "`ls scripts` at root: No such file or directory. find: ./paper2/scripts/make_figures.py, ./paper2/scripts/check_tables.py, ./paper/scripts/make_figures.py, ./paper/scripts/check_tables.py. paper2/Makefile runs `python3 scripts/make_figures.py` from paper2/. paper2/scripts/make_figures.py l.38: DATA = ROOT / \"docs\" / \"data\".",
+     "fix": "2026. The script \\texttt{paper2/scripts/make\\_figures.py} draws every data figure from a\nCSV in \\texttt{docs/data/}. A second script, \\texttt{paper2/scripts/check\\_tables.py},\nstops the build if a table no longer matches its CSV."
+    },
+    {
+     "id": "P2",
+     "verdict": "confirmed",
+     "severity": "should_fix",
+     "reason": "Table 1 (tab:main) gives IQ2_XXS 2.48 b/param and 1.25 GB, and the abstract and \\S6.2 repeat the 2.48. No provenance row covers them. Rows 180 and 183 cover only IQ2 MMLU and tok/s, and row 201 covers only AWQ. The byte count is in m3-iq2-metal-08-30, which the table never names. paper-table-09-25 and m4-iq2-cuda-08-30 hold the GGUF sha256 but not its size. The source column of paper2-results.csv names the same two logs, so it does not hold the size either. Small inaccuracy in the report: the abstract gives only 2.48, not 1.25 GB.",
+     "evidence": "m3-iq2-metal-2026-08-30.txt l.31 'artefact 1 246 620 832 o', l.35 'b/param mod\u00e8le entier 2,479'; m3 brut bench.txt '1.16 GiB'. 1,246,620,832 x 8 / 4,022,468,096 = 2.479; / 1e9 = 1.247. m4-iq2-cuda l.11: sha256 19a8ed49..., 'IDENTIQUES entre la machine de dev et le conteneur'. paper-table-09-25 control 5: 'IQ2 GGUF sha256 19a8ed49 on the mount'. grep '1 246|1,246' finds nothing in paper-table or m4. paper2-results.csv row iq2xxs: source 'paper-table-2026-09-25; m4-iq2-cuda-2026-08-30'.",
+     "fix": "Add after the row 'IQ2\\_XXS tok/s':\nIQ2\\_XXS bits per parameter and GB & computed & 1{,}246{,}620{,}832~B in m3-iq2-metal-08-30; the same GGUF, sha256 \\texttt{19a8ed49}, in m4-iq2-cuda-08-30 and paper-table-09-25\\\\"
+    },
+    {
+     "id": "P3",
+     "verdict": "confirmed",
+     "severity": "nit",
+     "reason": "There is no examples/ directory at the root. tetrashell.rs and f1rankbench.rs are in llvq-bench/examples/. llvq-llm/examples and llvq-metal/examples also exist, so the bare path is ambiguous. The two .cuh files are in llvq-cuda/kernels/ and have no directory in the row. The files exist and support their rows. The tetrashell header says it is exhaustive over 2^47 labels, and paper2-audit-09-28 item 1 gives m = 26 and max |y_j| = 10. xurl is loaded (main.tex l.34), so \\nolinkurl breaks inside the 5.2 cm column. The change of 'HISTORIQUE' to docs/HISTORIQUE.md is correct: its 2026-09-05 entry (l.367) cites examples/f1rankbench.rs for the -0.61 to -0.64 pp.",
+     "evidence": "`ls examples` at root fails. find: ./llvq-bench/examples/tetrashell.rs, ./llvq-bench/examples/f1rankbench.rs, ./llvq-cuda/kernels/llvq_f1rank_v3.cuh, ./llvq-cuda/kernels/llvq_tetra48.cuh. ls: llvq-llm/examples/f1recdump.rs, llvq-metal/examples/metalsplit.rs.",
+     "fix": "l.166: $m\\le26$, $\\max|y_j|=10$ & computed & \\nolinkurl{llvq-bench/examples/tetrashell.rs}, exhaustive; paper2-audit-09-28\\\\\nl.167: about 150 instructions a block, 20 more for gain and norm & computed & \\nolinkurl{llvq-cuda/kernels/llvq_f1rank_v3.cuh} (default mask), \\nolinkurl{llvq-cuda/kernels/llvq_tetra48.cuh}\\\\\nl.169: 0.6 points of retention from the cost order & measured & \\nolinkurl{llvq-bench/examples/f1rankbench.rs}; \\texttt{docs/HISTORIQUE.md}, 2026-09-05\\\\"
+    },
+    {
+     "id": "P4",
+     "verdict": "confirmed",
+     "severity": "nit",
+     "reason": "docs/fiche-4b.md measures the blobs of the published Planes14 file qwen3-4b-llvq.bin. Table 2 (tab:files) is about the three sealed Tetra files. The number is right for them. I read the three sealed files: each ends with an 11,422,654-byte tokenizer.json whose sha256 starts aeb13307, after a config of about 0.75 KB, so 11.4 MB holds at all three sizes. But no log records the sealed files' blobs. The fix should also cite the log that records the shared upstream hash.",
+     "evidence": "fiche-4b.md \\S1: 'file qwen3-4b-llvq.bin', 1,770,527,533 B; \\S2: 'blobs | 11,423,433 | config.json 726 B, tokenizer.json 11,422,654 B', and sha256 of tokenizer.json aeb13307... (upstream blob). My read of ~/q4b-sealed-2026-09-23/qwen3-4b-sealed.bin, ~/q8b-14b-sealed-2026-09-23/qwen3-8b-sealed-B.bin and qwen3-14b-sealed.bin: last 11,422,654 B hash to aeb13307 in all three. awq-vllm-4b-2026-08-17.txt l.30: the Qwen3 repos share one tokenizer sha256, aeb13307a71acd8f.",
+     "fix": "tokenizer and config in the file, 11.4~MB & measured & \\texttt{docs/fiche-4b.md}, on the \\Planes{} file; each sealed file ends with the same \\texttt{tokenizer.json}, 11{,}422{,}654~B, sha256 \\texttt{aeb13307}, the Qwen3 blob of awq-vllm-4b-08-17\\\\"
+    },
+    {
+     "id": "P5",
+     "verdict": "confirmed",
+     "severity": "nit",
+     "reason": "model.tex l.55 gives the cost '0.05 bits per parameter'. tetra-nu-full-09-18 has the +1.73 [+0.87, +2.59] but no rate. The rate is the difference of two columns of references-comptabilite-09-18 \\S3. At tail f16, as served, 2.7475 - 2.6970 = 0.0505. At tail f32, 2.8126 - 2.7645 = 0.0481. Both round to 0.05, and no row names that journal. The proposed row is right, but it writes 'b/param' where every other provenance row says 'bits per parameter'.",
+     "evidence": "tetra-nu-full-2026-09-18.txt l.29-30: 'bare Tetra 54.64 against the served Q5 56.37 / paired +1.73 pp CI95 [+0.87 ; +2.59]'; no b/param in the file. references-comptabilite-2026-09-18.txt l.82: 'b/param whole model, q8 embed, tail f16  2.6970  2.7475'.",
+     "fix": "int4 \\texttt{v\\_proj} at 4B, $+1.73$ on the full test set, for 0.05 bits per parameter & measured, computed & tetra-nu-full-09-18; references-comptabilite-09-18\\\\"
+    },
+    {
+     "id": "P6",
+     "verdict": "confirmed",
+     "severity": "nit",
+     "reason": "sealed-8b-27-09-24 holds 70.08, 3.0637, 68.81 at 2.7047, 69.58 at 2.6953, B - A +0.77 [+0.26, +1.28] p = 0.0039, and 3.06 - B +0.50 [-0.01, +1.01] p = 0.063. Its header labels the b/param computed by rtbits. The layer range of the first candidate ('down_proj of layers 2 to 33') is not in that journal. It is only in the sealed-8b-14b-09-23 preregistration and raw output. The row names neither and says 'measured' only.",
+     "evidence": "sealed-8b-27-2026-09-24.txt l.16 'Nature: *measured* MMLU; b/param *computed* by rtbits', l.26 'sealed (3.06) 3.0637 70.08', no layer range. proofs/preregistration-sealed-8b-14b-2026-09-23.md l.20: '`o_proj` (36), `down_proj@2-33` (32 layers)'. sealed-8b-14b-2026-09-23-brut/int4swap-8b.txt: down_proj layers 2..33 plus 36 o_proj, '68 matrices'.",
+     "fix": "8B choice, $o$ against down & measured, computed & sealed-8b-27-09-24; layers of the 3.06 file, sealed-8b-14b-09-23 (raw output)\\\\"
+    },
+    {
+     "id": "P7",
+     "verdict": "partly",
+     "severity": "nit",
+     "reason": "The facts are right. The engine-check gap -0.61 [-1.27, 0.06] p = 0.12 is in paper2-gsm8k-gaps.csv, and 9.02 is in neither CSV. But the row is not wrong: 'the same logs' points to gsm8k-wave1-09-26 and gsm8k-wave2-09-26 of the row above, and gsm8k-wave1 holds both numbers (l.59 and l.71). The proposed fix drops 'the same logs'. That removes the wave2 pointer for the 8B and 14B FP16 and AWQ scores, whose CSV rows cite wave2. Only the gaps CSV needs adding.",
+     "evidence": "paper2-gsm8k.csv columns: model,arm,engine,gsm8k,right,source; row 'Qwen3-4B,fp16,ours dense (FP16 checkpoint),91.51'. paper2-gsm8k-gaps.csv: 'Qwen3-4B,f16dense_minus_f16vllm,-0.61,-1.27,0.06,0.12'. gsm8k-wave1-2026-09-26.txt l.59 'FP16 dense - Tetra +9.02 [+7.07 ; +10.97]', l.71 'FP16 dense - FP16 vLLM = -0.61 [-1.27 ; +0.06] ... p = 0.115'.",
+     "fix": "GSM8K of FP16 and AWQ, the engine check, the same-engine gap of 9.02 & measured & paper2-gsm8k.csv, paper2-gsm8k-gaps.csv; the same logs\\\\"
+    },
+    {
+     "id": "P8",
+     "verdict": "confirmed",
+     "severity": "nit",
+     "reason": "m4-iq2-cuda-08-30 holds 312.85 +/- 2.33 but not the protocol that \\S6.1 states (llama-bench, 128 tokens, empty prompt, mean of five repetitions). No script in ops/ holds the CUDA command. The only llama-bench command in ops/ is the Metal one, with -r 3, not 5. The audit's raw findings are the one place in the repository that records the CUDA flags, read back by hf jobs inspect.",
+     "evidence": "m4-iq2-cuda-2026-08-30.txt: no 'llama-bench', '-p', '-n' or '-r'. grep in ops/: only ops/iq2_metal.sh l.78 'llama-bench ... -p 0 -n 128 -r 3'. paper2-audit-2026-09-28-brut/audit-findings.json: 'hf jobs inspect 6a94a1d4: '-p 0 -n 128 -r 5', output 312.85 +/- 2.33 tg128 (command not archived in the repo)'.",
+     "fix": "IQ2\\_XXS tok/s & measured & m4-iq2-cuda-08-30; the \\texttt{llama-bench} flags, \\texttt{-p 0 -n 128 -r 5}, read back by \\texttt{hf jobs inspect} in paper2-audit-09-28 (raw output)\\\\"
+    },
+    {
+     "id": "P9",
+     "verdict": "confirmed",
+     "severity": "nit",
+     "reason": "configs/ holds two files per size, -tetra-e4.json (the sealed files, embed q4) and -tetra-q5.json (the earlier C4 Q5 and DCLM objects, embed q8). 'Named after its size' does not pick one. The GSM8K command does use the e4 file, but a reader who takes the q5 file runs the wrong embedding mode.",
+     "evidence": "ls configs: qwen3-{4b,8b,14b}-tetra-{e4,q5}.json. configs/qwen3-4b-tetra-e4.json note: 'qwen3-4b-sealed.bin', embed q4. configs/qwen3-4b-tetra-q5.json: embed q8, 'Tetra + 36 v_proj int4 g128, arbitrated 2026-09-08'. configs/README.md maps e4 to the sealed files.",
+     "fix": "Each file has a served configuration in \\nolinkurl{configs/}, named after its\nsize and ending in \\nolinkurl{-tetra-e4.json}; the commands below use the 4B one. On an NVIDIA GPU:"
+    },
+    {
+     "id": "P10",
+     "verdict": "confirmed",
+     "severity": "nit",
+     "reason": "docs/mesures/ has no banc-t64-2026-09-20.txt, only the -brut/ folder with banc.txt, which holds the 4.1 MB. Row 172 already says '(raw output only)' for the same log. Row 165, in the first half of the table, cites banc-t64-09-20 without the note too.",
+     "evidence": "ls docs/mesures | grep banc-t64: 'banc-t64-2026-09-20-brut' only; its content: banc.txt. banc.txt l.105: 'tetra48 also HOLDS 4.1 MB of row landing pad, NOT billed above'.",
+     "fix": "l.198: row padding, 4.1~MB & measured & banc-t64-09-20 (raw output only)\\\\\nand for consistency, l.165: tables, 18{,}816~B & computed & sum of the five sizes printed at every launch; banc-t64-09-20 (raw output only)\\\\"
+    },
+    {
+     "id": "P11",
+     "verdict": "confirmed",
+     "severity": "nit",
+     "reason": "tetra.tex l.271 gives '4.2 million indices'. tetra-4b-09-06 gives only '87 %' (82 to 91 % by matrix). The count 3,659,171 of 4,185,600 is in the deviations file next to the preregistration, and its per-matrix table sums to it exactly. 3,659,171 / 4,185,600 = 87.4 %.",
+     "evidence": "tetra-4b-2026-09-06.txt l.90-91: '87 % des indices diff\u00e8rent (82 \u00e0 91 % selon la matrice)'. proofs/preregistration-tetra-4b-2026-09-06-ECARTS.md l.60: '87 % des indices \u2014 3 659 171 sur 4 185 600, de 82,4 % sur v_proj \u00e0 90,8 % sur down_proj'. The column sums 434,176 + 108,544 + 108,544 + 435,200 + 1,031,168 + 1,031,168 + 1,036,800 = 4,185,600.",
+     "fix": "bare \\Tetra{} against \\Planes{}, and the encoder drift & measured & tetra-4b-09-06, and deviation \\'E3 of its preregistration in \\texttt{proofs/}; paired interval in paper2-audit-09-28\\\\"
+    }
+   ]
+  }
+ }
+]

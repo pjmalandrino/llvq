@@ -13,8 +13,10 @@ $\Lambda_{24}$, a regular arrangement of points in 24 dimensions. At two bits
 per weight, their method gives the best quality in their comparison, ahead of
 QuIP\#~\citep{quipsharp2024} and QTIP~\citep{qtip2024}. Each block of 24
 weights becomes one 48-bit code, but the codebook has more than $10^{14}$
-points. Fast 2-bit GPU kernels decode with a small lookup table. A table that
-large cannot be stored. In earlier work~\citep{llvq1preprint} we expanded each
+points. Fast 2-bit GPU kernels look each code up in a table of at most
+$2^{16}$ entries~\citep{quipsharp2024,aqlm2024,vptq2024}, or compute its
+weights in a few instructions~\citep{qtip2024}. A table of more than $10^{14}$
+entries cannot be stored. In earlier work~\citep{llvq1preprint} we expanded each
 code at load time into a wider format, which the kernel decodes with shifts
 and masks. It worked, but the kernel read 4.804 bits per weight from GPU
 memory (VRAM) for 2 bits of code, more than the 4.179 of 4-bit AWQ. The
@@ -23,9 +25,11 @@ saving was lost on the GPU (Figure~\ref{fig:gap}).
 This paper removes that loss, then builds complete models around the result.
 
 The first part is \Tetra{}, a new codebook on the same lattice. The lattice
-is built from the Golay code, a binary code of length 24. Read in three groups
-of eight coordinates, the code becomes a trellis: a layered graph with 64
-nodes at each cut between groups, where each codeword is one path. A block is
+is built from the Golay code, a binary code of length 24. Some of its
+codewords have exactly eight ones, and three of them cover all 24 coordinates.
+Read in those three groups of eight, the code becomes a
+trellis~\citep{forney1988}: a layered graph with 64 nodes at each cut between
+groups, where each codeword is one path. A block is
 then stored as an 8-bit state (the trellis state plus two parity bits), a few
 bits that choose the path and the gain, and three 11-bit indices into one
 16~KiB table. That is still 48 bits. The kernel decodes a block with six table
@@ -79,7 +83,8 @@ points below it at 4B, 8B and 14B. At 14B the gap is about half the gap at
 use about half its memory: 2.7 bits per parameter against 5.3 to 6.0. In our
 own inference engine, they generate 113.8, 95.0 and 57.2 tokens per second
 at 4B, 8B and 14B. Their weights take 1.38, 2.76 and 5.04~GB. At 4B they score 23.6 points
-above IQ2\_XXS, a 2-bit llama.cpp format that uses 2.48 bits per parameter.
+above IQ2\_XXS, a 2-bit llama.cpp format, whose 4B file takes 2.48 bits per
+parameter.
 On GSM8K, run through the kernel, they lose 9.63, 4.62 and 3.26 points to
 FP16. In points, that is more than on MMLU at 4B, and this test cannot
 separate the two losses at 8B and 14B. Counted in errors, it is more at every

@@ -40,12 +40,12 @@ make clean
 
 ## State (2026-09-28)
 
-Complete: 19 pages, no error, no overfull or underfull box, no undefined
+Complete: 20 pages, no error, no overfull or underfull box, no undefined
 reference, and `RELEASE=1 make check` passes (no pending cell). The served speeds
 of the three sealed files come from paper-table-2026-09-25. GSM8K, scored through
 the served kernel, comes from gsm8k-wave1-2026-09-26 and gsm8k-wave2-2026-09-26
 (§6.3). The comparison one size up comes from sizeup-2026-09-28 (§6.4). Every
-number was audited on 2026-09-28 against its source
+number and every cited source was audited on 2026-09-28
 ([paper2-audit-2026-09-28](../docs/mesures/paper2-audit-2026-09-28.txt)).
 
 Writing rule for every revision: short factual sentences, no em dash.

@@ -1,3 +1,4 @@
+\needspace{24\baselineskip}
 \section{The ten-arm kernel benchmark}
 \label{app:bench}
 
@@ -12,24 +13,28 @@ FP16, cuBLAS & 252 & 10.828 & 7.27 & 16.000 & 672\\
 \textsc{Slot32} (ours, earlier) & 252 & 5.732 & 2.50 & 5.510 & 437\\
 \Planes{} (ours, earlier) & 252 & 4.997 & 2.18 & 4.804 & 437\\
 \textsc{Planes12x} (ours, earlier) & 252 & 5.366 & 1.97 & 4.342 & 368\\
-\textsc{Golay70} v1 (ours, earlier) & 252 & 8.064 & 1.63 & 3.589 & 202\\
-\textsc{Golay70} v2 (ours, earlier) & 252 & 6.016 & 1.63 & 3.589 & 271\\
+\textsc{Golay70} (ours, earlier) & 252 & 8.064 & 1.63 & 3.589 & 202\\
+\textsc{Golay70}, hoisted (ours, earlier) & 252 & 6.016 & 1.63 & 3.589 & 271\\
 \Tetra{} (this paper) & 216 & 3.424 & 0.95 & 2.148 & 278\\
 AWQ w4g128~\citep{awq2024} & 252 & 3.261 & 1.90 & 4.179 & 583\\
 no-weights control & 252 & 2.289 & 0.07 & 0.159 & 32\\
-QTIP 2-bit~\citep{qtip2024}$^{*}$ & 252 & 2.246 & 0.91 & 2.000 & 405\\
+QTIP 2-bit, HYB~\citep{qtip2024}$^{*}$ & 252 & 2.246 & 0.91 & 2.000 & 405\\
 \bottomrule
 \end{tabular}
 \caption{Each row is one kernel timed on the 4B matrix shapes on one L40S,
-over seven rounds with the first two dropped. The first ten rows are the ten
-arms of one process, at tile 64: our kernels copy the activation to shared
+over seven rounds with the first two dropped. The rows marked earlier are the
+layouts of \citet{llvq1preprint}, timed again here. The first ten rows are the
+ten arms of one process, at tile 64: our kernels copy the activation to shared
 memory 64 activation blocks at a time. The no-weights control has the same
 thread layout and reads no block code, only the row scales and the
 unquantized tail of each row. The \Tetra{} arm covers 216 matrices and the others 252, so its
 time is a lower bound for the full set. GB/s divides the bytes read by the
-fastest round. $^{*}$This row comes from another process (2026-08-21) and is
-below the no-weights control. We keep it with that caveat. Data:
-echelle-formats.csv.}
+fastest round. $^{*}$This row is the QTIP measurement of
+\citet{llvq1preprint}, from another process (2026-08-21). It times the HYB
+kernel of QTIP's repository ($L=16$, $Q=9$, $V=2$) on pseudo-random codes, in
+its own launch geometry. It reads no row scales and no tail, and its 2~KiB
+table is not counted. It is below the no-weights control. We keep it with that
+caveat. Data: echelle-formats.csv.}
 \end{table}
 
 \section{Record of predictions, defects and commands}
@@ -117,7 +122,8 @@ first eight hex digits of their SHA-256:
 \item \nolinkurl{qwen3-14b-sealed.bin}, \texttt{61db37fe}.
 \end{itemize}
 Each file has a served configuration in \nolinkurl{configs/}, named after its
-size; the commands below use the 4B one. On an NVIDIA GPU:
+size and ending in \nolinkurl{-tetra-e4.json}; the commands below use the 4B
+one. On an NVIDIA GPU:
 
 {\footnotesize
 \begin{verbatim}
@@ -147,8 +153,9 @@ two pairing programs refuse dumps whose fingerprints differ.
 Each number is \emph{measured} (read off a run), \emph{computed} (arithmetic
 on measured quantities) or \emph{cited}. The logs are files under
 \texttt{docs/mesures/}. The table shortens their names, and all dates are in
-2026. The script \texttt{scripts/make\_figures.py} draws every data figure from a
-CSV in \texttt{docs/data/}. A second script, \texttt{scripts/check\_tables.py},
+2026. The script \texttt{paper2/scripts/make\_figures.py} draws every data figure
+from a CSV in \texttt{docs/data/}. A second script,
+\texttt{paper2/scripts/check\_tables.py},
 stops the build if a table no longer matches its CSV.
 
 {\footnotesize\setlength{\tabcolsep}{4pt}
@@ -161,42 +168,44 @@ claim & nature & source\\
 \endlastfoot
 \Planes{} reads 4.804 \bw{} & measured & echelle-formats.csv; e2-golay70-bench-08-07\\
 ball holds $1.1\cdot10^{14}$ points & computed & shells 2 to 12 of the class enumeration; theta-series test in \texttt{llvq-search}\\
-64 states a cut, 1{,}024 edges, $N_0=1240$ & computed & f1a-comptes-09-04; checked at build\\
-tables, 18{,}816~B & computed & sum of the five sizes printed at every launch; banc-t64-09-20\\
-$m\le26$, $\max|y_j|=10$ & computed & \texttt{examples/tetrashell.rs}, exhaustive; paper2-audit-09-28\\
-about 150 instructions a block, 20 more for gain and norm & computed & \texttt{llvq\_f1rank\_v3.cuh} (default mask), \texttt{llvq\_tetra48.cuh}\\
+64 states a cut, 1{,}024 edges, $N_0=1240$ & computed & f1a-comptes-09-04 (states, edges); f1-rang-plancher-09-05 ($N_0$); all three asserted when \texttt{llvq-search} builds the tables\\
+tables, 18{,}816~B & computed & sum of the five sizes printed at every launch; banc-t64-09-20 (raw output only)\\
+$m\le26$, $\max|y_j|=10$ & computed & \nolinkurl{llvq-bench/examples/tetrashell.rs}, exhaustive; paper2-audit-09-28\\
+about 150 instructions a block, 20 more for gain and norm; about 380 plus 24 conversions for a decoder that converts & computed & \nolinkurl{llvq-cuda/kernels/llvq_f1rank_v3.cuh} (default mask; its header counts 141 for the one-\texttt{prmt} mask), \nolinkurl{llvq-cuda/kernels/llvq_tetra48.cuh}; recount in paper2-audit-09-28\\
 retention, 88.80 against 91.98, and 3.2 points on real blocks & measured & f1-encodeur-blocs-reels-09-05\\
-0.6 points of retention from the cost order & measured & \texttt{examples/f1rankbench.rs}; HISTORIQUE, 2026-09-05\\
+0.6 points of retention from the cost order & measured & \nolinkurl{llvq-bench/examples/f1rankbench.rs}; \texttt{docs/HISTORIQUE.md}, 2026-09-05\\
 shaping, 0.7292 against 1.0958~dB & computed, idealised & \texttt{ops/f1a\_shaping.py}\\
-$G(E_8)/G(\Lambda_{24})=1.0899$ & cited, computed & Conway and Sloane, Table 2.3\\
+$G(E_8)/G(\Lambda_{24})=1.0899$ & cited, computed & \citet{conway1999sphere}, Table 2.3\\
 ten-arm benchmark, Table~\ref{tab:bench} and Appendix~\ref{app:bench} & measured & echelle-formats.csv; banc-t64-09-20 (raw output only); QTIP row: f2-p3-qtip-banc-08-21\\
 tile sweep & measured & tuile-l40s.csv; tuile-l40s-09-20\\
 sealed files: bytes, bits per parameter & measured, computed & \texttt{rtbits}; sealed-4b-09-23 (raw output), sealed-rownorms-09-23, sealed-8b-27-09-24, sealed-8b-14b-09-23\\
-MMLU of the sealed files; at 4B, of the same weights with the int4 matrices rebuilt at load & measured & embed-q4-swap-09-23, sealed-8b-27-09-24, sealed-8b-14b-09-23; question fingerprint \texttt{a74a6d62}; the 4B file gives the same answers on 57 of 57 questions, sealed-4b-09-23\\
-steps of Table~\ref{tab:chain} & measured, computed & paper2-chain.csv; dclm-rowscales-09-20, dclm-8b-rowscales-09-21, dclm-14b-rowscales-09-22, census-8b-09-21, census-14b-base-09-22, embed-q4-swap-09-23, sealed-8b-27-09-24, sealed-8b-14b-09-23\\
-int4 \texttt{v\_proj} at 4B, $+1.73$ on the full test set & measured & tetra-nu-full-09-18\\
+MMLU of the sealed files; at 4B, of the same weights with the int4 matrices rebuilt at load & measured & embed-q4-swap-09-23, sealed-8b-27-09-24, sealed-8b-14b-09-23; question fingerprint \texttt{a74a6d62}; the 4B file gives the same answers and logits on 57 of 57 questions, sealed-4b-09-23 (raw output, \texttt{metal-smoke/}), control~1 of its preregistration\\
+steps of Table~\ref{tab:chain} & measured, computed & paper2-chain.csv; dclm-rowscales-09-20 (4B interval: paper2-audit-09-28, raw output), dclm-8b-rowscales-09-21, dclm-14b-rowscales-09-22, census-8b-09-21, census-14b-base-09-22, embed-q4-swap-09-23, sealed-8b-27-09-24, sealed-8b-14b-09-23\\
+int4 \texttt{v\_proj} at 4B, $+1.73$ on the full test set, for 0.05 bits per parameter & measured, computed & tetra-nu-full-09-18; references-comptabilite-09-18\\
 FP16 and AWQ MMLU, 8B and 14B & measured & census-8b-09-21; census-14b-ref-09-22\\
 FP16 MMLU 4B & measured & f16-full-09-18\\
 AWQ and IQ2\_XXS MMLU 4B & measured & paper-table-09-25\\
 paired gaps, Figure~\ref{fig:scale} & measured & paper2-gaps.csv; the same logs\\
 FP16 and AWQ tok/s in vLLM & measured & awq-vllm-4b-08-17; paper-table-09-25\\
-IQ2\_XXS tok/s & measured & m4-iq2-cuda-08-30\\
+IQ2\_XXS tok/s & measured & m4-iq2-cuda-08-30; the \texttt{llama-bench} flags, \texttt{-p 0 -n 128 -r 5}, read back by \texttt{hf jobs inspect} in paper2-audit-09-28 (raw output)\\
+IQ2\_XXS bits per parameter and GB & computed & 1{,}246{,}620{,}832~B in m3-iq2-metal-08-30; the same GGUF, sha256 \texttt{19a8ed49}, in m4-iq2-cuda-08-30 and paper-table-09-25\\
 f16 dense path tok/s, our engine & measured & paper-table-09-25, dense arm of each served run\\
 served tok/s and GB of the sealed files & measured & paper-table-09-25\\
-8B choice, $o$ against down & measured & sealed-8b-27-09-24\\
+8B choice, $o$ against down & measured, computed & sealed-8b-27-09-24; layers of the 3.06 file, sealed-8b-14b-09-23 (raw output)\\
 second training, 4B & measured & sealed-rownorms-09-23\\
 three calibration draws, \Planes{} 4B, 2{,}280 questions: MMLU range 5.83, s.d.\ 2.92 & computed & bruit-mmlu-graines-4b-08-25\\
 GSM8K of the sealed files, prompt fingerprint \texttt{bfa9135c} & measured & gsm8k-wave1-09-26, gsm8k-wave2-09-26\\
-GSM8K of FP16 and AWQ, the engine check, the same-engine gap of 9.02 & measured & paper2-gsm8k.csv; the same logs\\
+GSM8K of FP16 and AWQ, the engine check, the same-engine gap of 9.02 & measured & paper2-gsm8k.csv, paper2-gsm8k-gaps.csv; the same logs\\
 GSM8K paired gaps, Table~\ref{tab:gsm8k} & measured & paper2-gsm8k-gaps.csv; the same logs\\
 gaps one size apart, Table~\ref{tab:sizeup} & measured & paper2-sizeup.csv; sizeup-09-28; not preregistered\\
 KV cache and memory budgets, \S\ref{sec:sizeup} & computed & paper2-sizeup-budget.csv; sizeup-09-28\\
-bare \Tetra{} against \Planes{}, and the encoder drift & measured & tetra-4b-09-06; paired interval in paper2-audit-09-28\\
+bare \Tetra{} against \Planes{}, and the encoder drift & measured & tetra-4b-09-06, and deviation \'E3 of its preregistration in \texttt{proofs/}; paired interval in paper2-audit-09-28\\
 sm\_120 tile sweep, 0.82 to 1.03 times \Planes{} & measured & f1d-09-10\\
 load times 4.1 and 72.9~s, 96 rotation launches a token & measured & paper-table-09-25\\
 1{,}792 blocks within $10^{-5}$ on sm\_120 & measured & tetra48-tuerie-09-08\\
-row padding, 4.1~MB & measured & banc-t64-09-20\\
-tokenizer and config in the file, 11.4~MB & measured & \texttt{docs/fiche-4b.md}\\
+row padding, 4.1~MB & measured & banc-t64-09-20 (raw output only)\\
+AWQ padding, 10.1~MB, and w4g128 at 4.156~\bw{} without it & computed & \texttt{awq\_strides} in \texttt{planesbench}, the 4B shapes\\
+tokenizer and config in the file, 11.4~MB & measured & \texttt{docs/fiche-4b.md}, on the \Planes{} file; the sealed 4B file ends with the same \texttt{tokenizer.json}, 11{,}422{,}654~B, sha256 \texttt{aeb13307}, which awq-vllm-4b-08-17 finds in every Qwen3 checkpoint\\
 $z=1.1$ for the fall of the AWQ gap from 4B to 8B & computed & standard errors of the paired gaps, the same logs\\
 AWQ bits per parameter & computed & echelle-4b-8b.csv; rtbits-planes-8b-08-09, rtbits-14b-08-17\\
 MMLU of LLVQ, QTIP and QuIP\# & cited & \citet{llvq2026}, Table 6\\

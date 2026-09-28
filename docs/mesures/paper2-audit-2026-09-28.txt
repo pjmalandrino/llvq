@@ -111,8 +111,46 @@ The review of 2026-09-27 raised points that are not number errors: no baseline a
 rate (IQ2_M, IQ3_XXS, EXL3), no perplexity, one calibration draw, batch 1 only. They stay open
 decisions of the operator; the paper states them as limitations.
 
+SOURCES: THE 24 CITED WORKS AND THE PROVENANCE FILES
+----------------------------------------------------
+Eight readers checked the 24 cited works (metadata against arXiv, PMLR, ACL Anthology, Crossref,
+publisher and project pages; 87 citing sentences against what each work says), two readers the
+67 provenance rows, captions and repository paths; one skeptic per group then tried to refute
+each problem. 55 problems: 36 confirmed, 18 partly, 1 refuted; 1 must fix, 14 should fix, 39
+nits. Findings: paper2-audit-2026-09-28-brut/sources-findings.json. Checked again by hand before
+going in: the CUDA URL (404; the v13.0 archive page answers 200, "last updated Aug 20, 2025",
+99 KB per block, 48 KB default), the QuIP# pages at PMLR (48630--48656), the GQA record at the
+ACL Anthology, the DCLM-Edu card, the Homebrew llama.cpp build (10050, the only one installed),
+the tokenizer blob at the end of qwen3-4b-sealed.bin (11,422,654 B, sha256 aeb13307), and the
+4B row-scale interval, rerun with mmlupair (+3.15 [+2.56, +3.74], mmlupair-4b-rowscales.txt).
+
+Metadata: 23 of 24 entries right. The CUDA guide URL was dead; it now points at the v13.0
+archive. QuIP# gains its pages, LLVQ is pinned to v2 (the version the transcription reads),
+Conway and Sloane gain their series, llama.cpp names the builds actually used, not v0.2.0,
+DCLM-Edu takes its own spelling. GQA is added (Ainslie et al., EMNLP 2023).
+Attributions corrected:
+- QTIP: the cited MMLU is its 3INST code, which reads no table; the timed kernel is its HYB code.
+  The paper now names each.
+- The rotation QuIP# and QTIP apply is QuIP#'s random Hadamard transform; QuIP# is now cited
+  for it, and for the encoder's rotation.
+- AQLM and VPTQ: "lookup tables that fit on chip" was stronger than the papers; they tie speed
+  to how well tables of up to 2^16 entries fit in cache.
+- Vardy and Be'ery decode through the hexacode, not the three-octad trellis; Forney's trellis
+  needs the octad split (a generic split has 256 states at the first cut, computed).
+- LLVQ does not require a rotation; its cited bit rates are per quantized weight, with no scope
+  stated, not "projections only".
+- E8 is the best lattice quantizer known in 8 dimensions, not proven best.
+- Qwen3: 151,669 tokens for 151,936 table rows; bf16 checkpoints run in f16; "thinking mode",
+  the report's term, replaces "reasoning mode"; seven projections hold for the dense models.
+- MLX keeps its scales in the weights' type (bf16 for Qwen3), not f16.
+- "IQ2 is the 2-bit option most people run" had no source; replaced by what the formats are.
+- The A100 result and the ten-arm "earlier" rows, including QTIP's row, are paper 1's; cited.
+- AWQ's 4.179 includes 10.1 MB of its GEMV kernel's buffer padding; w4g128 alone is 4.156.
+Provenance: paths now written from the repository root; eleven rows gain the log that holds
+their number; one interval (4B row scales) gets its raw output.
+
 BUILD
 -----
 check_tables green (the new sizeup check kills 6 of 6 mutants), RELEASE=1 make check green,
-19 pages, 0 undefined reference, 0 overfull or underfull box. cargo clippy -p llvq-bench
+20 pages, 0 undefined reference, 0 overfull or underfull box. cargo clippy -p llvq-bench
 --examples: no warning.

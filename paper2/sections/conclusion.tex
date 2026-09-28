@@ -22,5 +22,5 @@ Next, in this order, we would test \texttt{down\_proj} instead of
 calibration draw and a second kind of GPU. Qwen3-32B first needs new kernels
 on the L40S: its widest activation takes 102{,}400~B of shared memory,
 1{,}024~B more than the card allows.
-A harder reasoning test, such as Qwen3's reasoning mode, would show whether
-long chains of generation amplify the loss.
+A harder test, such as GSM8K in Qwen3's thinking mode~\citep{qwen3_2025},
+would show whether long chains of generation amplify the loss.

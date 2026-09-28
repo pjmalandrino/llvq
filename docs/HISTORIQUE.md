@@ -648,3 +648,7 @@ the size-up budgets move by one hundredth once summed from unrounded bytes; and 
 about 150 instructions a block, not 141. The paper now runs to 19 pages. Two fresh readers
 then checked every changed line and caught three more contradictions, among them the tail
 width in the caption of Table 2.
+The same day, the 24 cited works and the 67 provenance rows were checked against their
+publications and files: 55 problems, one dead URL (the CUDA guide), and a dozen attributions
+narrowed to what the cited work says, the chief one that the cited QTIP scores and the timed QTIP
+kernel are two different codes. 20 pages.
