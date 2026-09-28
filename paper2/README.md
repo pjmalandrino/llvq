@@ -24,7 +24,8 @@ provenance table).
 
 Data in `docs/data/`: `paper2-results.csv` (main table), `paper2-gaps.csv`
 (paired MMLU gaps), `paper2-gsm8k.csv` and `paper2-gsm8k-gaps.csv` (GSM8K
-scores and paired gaps, Table 4), `paper2-chain.csv` (the steps and the sealed files),
+scores and paired gaps, Table 4), `paper2-sizeup.csv` and `paper2-sizeup-budget.csv`
+(one size up at the same memory, Table 5, and the memory budgets), `paper2-chain.csv` (the steps and the sealed files),
 `tuile-l40s.csv` (tile sweep), and paper 1's `echelle-formats.csv` and
 `echelle-4b-8b.csv`.
 

@@ -196,6 +196,71 @@ engine. To check that the engine does not move a score, we also ran the FP16
 $-0.61$ points $[-1.27, 0.06]$, $p=0.12$. On the 50 problems of a pilot, the
 kernel and the dense reconstruction of the 4B file give the same 50 answers.
 
+\subsection{One size up at the same memory}
+\label{sec:sizeup}
+
+\begin{table}[t]
+\centering\small\setlength{\tabcolsep}{4pt}
+\begin{tabular}{llrll}
+\toprule
+\Tetra{} & against & weights GB & MMLU & GSM8K\\
+\midrule
+8B & AWQ 4B & 2.76 vs 2.67 & $+1.44$ $[+0.71, +2.19]$ & $-0.38$ $[-2.14, +1.39]$\\
+14B & AWQ 8B & 5.04 vs 6.10 & $+1.87$ $[+1.20, +2.57]$ & $-0.91$ $[-2.35, +0.53]$\\
+8B & FP16 4B & 2.76 vs 8.04 & $-0.56$ $[-1.27, +0.18]$ & $-3.49$ $[-5.18, -1.79]$\\
+14B & FP16 8B & 5.04 vs 16.38 & $+0.61$ $[-0.06, +1.27]$ & $-1.21$ $[-2.64, +0.21]$\\
+14B & FP16 4B & 5.04 vs 8.04 & $+5.52$ $[+4.79, +6.24]$ & $-0.08$ $[-1.54, +1.39]$\\
+\midrule
+\multicolumn{2}{l}{AWQ 8B against AWQ 4B} & 6.10 vs 2.67 & $+5.65$ $[+4.96, +6.37]$ & $+3.94$ $[+2.43, +5.46]$\\
+\multicolumn{2}{l}{AWQ 14B against AWQ 8B} & 9.98 vs 6.10 & $+4.34$ $[+3.67, +5.00]$ & $+2.43$ $[+1.23, +3.63]$\\
+\bottomrule
+\end{tabular}
+\caption{Our file of each size against the models one size below. Each gap is
+the first model minus the second, in points, paired on the same 14{,}042 MMLU
+questions and 1{,}319 GSM8K problems, with 95\,\% intervals. A positive gap
+means the first model scores higher. The last two rows show what one size is
+worth to AWQ. Weights as in Table~\ref{tab:main}. Data: paper2-sizeup.csv.}
+\label{tab:sizeup}
+\end{table}
+
+Tables~\ref{tab:main} and~\ref{tab:gsm8k} compare files of the same size. Our
+aim, though, is to fit a larger model on the same hardware
+(\S\ref{sec:intro}). So we also compare our file of each size with the models
+one size below, which take about as much memory or more. The three Qwen3
+models answer the same questions from the same prompt tokens, so their scores
+pair question by question. This section reuses the scores of
+Tables~\ref{tab:main} and~\ref{tab:gsm8k}, and no model ran for it. We chose
+the comparison after measuring, so it was not preregistered.
+
+On MMLU, our 8B scores 1.44 points above AWQ's 4B with 0.09~GB more weights,
+and our 14B 1.87 points above AWQ's 8B with 1.06~GB less
+(Table~\ref{tab:sizeup}). Both $p$ are below $10^{-3}$
+($1.3\cdot10^{-4}$ and $1.0\cdot10^{-7}$). One size is worth 5.65 and 4.34
+points to AWQ, so our files keep 25 and 43\,\% of it. On GSM8K the same pairs
+tie, $-0.38$ ($p=0.74$) and $-0.91$ ($p=0.26$): the reasoning loss of our
+files takes back the gain of the larger model. Our 14B, AWQ's 8B and FP16's 4B
+all score about 92 on GSM8K. Against FP16 one size below, our files tie on
+MMLU ($p=0.13$ and $0.077$). On GSM8K our 8B loses 3.49 points to FP16's 4B,
+and our 14B ties FP16's 8B ($p=0.12$). Our 14B, in 5.04~GB, scores 5.52 MMLU
+points above FP16's 4B in 8.04~GB and ties it on GSM8K.
+
+\paragraph{Where the larger model fits.} Qwen3-4B and 8B have the same KV
+cache: 36 layers of 8 key-value heads of 128 dimensions, or 1.21~GB at
+8{,}192 tokens in f16. The 14B needs 1.34~GB. Weights plus that cache take
+2.59, 3.97 and 6.38~GB for our 4B, 8B and 14B, and 3.88, 7.31 and 11.32~GB
+for AWQ. These budgets are computed and leave out the CUDA context and the
+activations. From 3.97 to 11.32~GB, our files run a larger model than AWQ.
+That is one size up, or two between 6.38 and 7.31~GB, where our 14B scores
+7.52 MMLU and 3.03 GSM8K points above AWQ's 4B. From 11.32~GB both run the
+14B, and we serve nothing larger. AWQ could store its embedding tables in 4
+bits, as ours do. Its budgets would then be 3.32, 5.52 and 9.08~GB (computed;
+its quality with those tables is not measured). The windows would narrow to
+3.97 to 5.52~GB for our 8B and 6.38 to 9.08~GB for our 14B.
+
+The GSM8K pairs cross the two engines of \S\ref{sec:gsm8k}. We do not compare
+speed here: our 8B decodes 95.0 tokens per second in our engine and AWQ's 4B
+200.5 in vLLM, and we never divide one engine's speed by another's.
+
 \subsection{Where the gain comes from}
 \label{sec:chain}
 

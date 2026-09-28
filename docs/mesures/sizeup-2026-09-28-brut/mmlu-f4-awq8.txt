@@ -1,0 +1,31 @@
+
+========================================================================
+A = Qwen/Qwen3-4B [reference checkpoint]
+    docs/mesures/f16-full-2026-09-18-brut/mmlu-4b-f16-FULL.csv
+    config=none, arithmetic=dense reconstruction, kv=f16
+B = Pier-Jean/qwen3-8b-awq-deq [reference checkpoint]
+    docs/mesures/census-8b-2026-09-21-brut/mmlu-8b-awq-FULL.csv
+    config=none, arithmetic=dense reconstruction, kv=f16
+14042 paired questions, 57 subjects · dtype f16 / f16 · limit census / census
+sampling plan: flat, 100..1534 per subject, 14042 questions / flat, 100..1534 per subject, 14042 questions
+run fingerprint: a74a6d6213602979 / a74a6d6213602979 (identical)
+
+rates (Δ = A − B, in percentage points)
+  stratified micro    A  70.14 %   B  73.79 %   Δ = -3.65 pp   ← the published number
+  unweighted (pooled) A  70.14 %   B  73.79 %   Δ = -3.65 pp   ← what McNemar tests
+
+McNemar exact (unweighted)
+  A✓B✗ = 990   A✗B✓ = 1502   concordant = 11550   (17.7 % of the questions are discordant)
+  p = 9.378e-25   (z normal = -10.26)
+
+paired bootstrap stratified by subject (10000 draws, seed 0xb0075eed, WITHOUT finite population correction)
+  Δ stratified micro = -3.65 pp   CI95 [-4.34 ; -2.95]   SE 0.35 pp
+  unweighted control = -3.65 pp   CI95 [-4.34 ; -2.95]   SE 0.35 pp
+  → the CI excludes zero: the gap is resolved by this protocol.
+
+subjects carrying the gap (contribution to the stratified Δ)
+  moral scenarios                           -8.3 pp × weight  6.4 % = -0.527 pp
+  professional law                          -2.9 pp × weight 10.9 % = -0.320 pp
+  miscellaneous                             -2.8 pp × weight  5.6 % = -0.157 pp
+  prehistory                                -5.6 pp × weight  2.3 % = -0.128 pp
+  high school biology                       -5.5 pp × weight  2.2 % = -0.121 pp

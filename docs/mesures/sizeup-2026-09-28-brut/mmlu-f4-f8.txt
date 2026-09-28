@@ -1,0 +1,31 @@
+
+========================================================================
+A = Qwen/Qwen3-4B [reference checkpoint]
+    docs/mesures/f16-full-2026-09-18-brut/mmlu-4b-f16-FULL.csv
+    config=none, arithmetic=dense reconstruction, kv=f16
+B = Qwen/Qwen3-8B [reference checkpoint]
+    docs/mesures/census-8b-2026-09-21-brut/mmlu-8b-f16-FULL.csv
+    config=none, arithmetic=dense reconstruction, kv=f16
+14042 paired questions, 57 subjects · dtype f16 / f16 · limit census / census
+sampling plan: flat, 100..1534 per subject, 14042 questions / flat, 100..1534 per subject, 14042 questions
+run fingerprint: a74a6d6213602979 / a74a6d6213602979 (identical)
+
+rates (Δ = A − B, in percentage points)
+  stratified micro    A  70.14 %   B  75.05 %   Δ = -4.91 pp   ← the published number
+  unweighted (pooled) A  70.14 %   B  75.05 %   Δ = -4.91 pp   ← what McNemar tests
+
+McNemar exact (unweighted)
+  A✓B✗ = 879   A✗B✓ = 1569   concordant = 11594   (17.4 % of the questions are discordant)
+  p = 1.180e-44   (z normal = -13.95)
+
+paired bootstrap stratified by subject (10000 draws, seed 0xb0075eed, WITHOUT finite population correction)
+  Δ stratified micro = -4.91 pp   CI95 [-5.59 ; -4.22]   SE 0.35 pp
+  unweighted control = -4.91 pp   CI95 [-5.59 ; -4.22]   SE 0.35 pp
+  → the CI excludes zero: the gap is resolved by this protocol.
+
+subjects carrying the gap (contribution to the stratified Δ)
+  moral scenarios                          -12.0 pp × weight  6.4 % = -0.762 pp
+  professional law                          -4.3 pp × weight 10.9 % = -0.470 pp
+  miscellaneous                             -3.7 pp × weight  5.6 % = -0.207 pp
+  nutrition                                 -7.8 pp × weight  2.2 % = -0.171 pp
+  professional psychology                   -3.9 pp × weight  4.4 % = -0.171 pp

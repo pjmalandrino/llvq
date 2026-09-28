@@ -1,0 +1,31 @@
+
+========================================================================
+A = Pier-Jean/qwen3-4b-awq-deq [reference checkpoint]
+    docs/mesures/paper-table-2026-09-25-brut/paper-awq4b-census-2026-09-25/mmlu-4b-awq-FULL.csv
+    config=none, arithmetic=dense reconstruction, kv=f16
+B = /out/sealed-8b27-2026-09-24/qwen3-8b-sealed-B.bin [LLVQ 2-bit, sealed]
+    docs/mesures/sealed-8b-27-2026-09-24-brut/mmlu-B/mmlu-8b-B-sealed-FULL.csv
+    config=none, arithmetic=dense reconstruction, kv=f16
+14042 paired questions, 57 subjects · dtype f16 / f16 · limit census / census
+sampling plan: flat, 100..1534 per subject, 14042 questions / flat, 100..1534 per subject, 14042 questions
+run fingerprint: a74a6d6213602979 / a74a6d6213602979 (identical)
+
+rates (Δ = A − B, in percentage points)
+  stratified micro    A  68.14 %   B  69.58 %   Δ = -1.44 pp   ← the published number
+  unweighted (pooled) A  68.14 %   B  69.58 %   Δ = -1.44 pp   ← what McNemar tests
+
+McNemar exact (unweighted)
+  A✓B✗ = 1281   A✗B✓ = 1483   concordant = 11278   (19.7 % of the questions are discordant)
+  p = 0.0001   (z normal = -3.84)
+
+paired bootstrap stratified by subject (10000 draws, seed 0xb0075eed, WITHOUT finite population correction)
+  Δ stratified micro = -1.44 pp   CI95 [-2.19 ; -0.71]   SE 0.38 pp
+  unweighted control = -1.44 pp   CI95 [-2.19 ; -0.71]   SE 0.38 pp
+  → the CI excludes zero: the gap is resolved by this protocol.
+
+subjects carrying the gap (contribution to the stratified Δ)
+  moral scenarios                           -4.7 pp × weight  6.4 % = -0.299 pp
+  elementary mathematics                    +6.6 pp × weight  2.7 % = +0.178 pp
+  professional law                          -1.5 pp × weight 10.9 % = -0.164 pp
+  human aging                               -9.0 pp × weight  1.6 % = -0.142 pp
+  high school psychology                    -2.6 pp × weight  3.9 % = -0.100 pp

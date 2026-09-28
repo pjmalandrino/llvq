@@ -1,0 +1,11 @@
+docs/mesures/gsm8k-wave1-2026-09-26-brut/run5-vllm/gsm8k-4b-awq-vllm.jsonl: 1319 of 1319 rows re-graded
+docs/mesures/gsm8k-wave2-2026-09-26-brut/run2-served-8b/gsm8k-8b-served.jsonl: 0 of 1319 rows re-graded
+A = Qwen/Qwen3-4B-AWQ@74d4bd2bd4bff9cafc9345221320bffb08b406a3 [vLLM awq_marlin] | vllm awq_marlin | device cuda | dtype f16 | kv vllm | max_new 1024 | reasoning off
+    1174/1319 right, mean 297.4 generated tokens, 8 stopped at the cap, tokens bfa9135ce4b55c75
+B = /out/sealed-8b27-2026-09-24/qwen3-8b-sealed-B.bin [LLVQ 2-bit, SERVED KERNEL, tetra48] | served kernel | device cuda | dtype f16 | kv f16 | max_new 1024 | reasoning off
+    1169/1319 right, mean 282.3 generated tokens, 9 stopped at the cap, tokens bfa9135ce4b55c75
+
+1319 problems, same prompts problem by problem
+  accuracy A = 89.01 %, B = 88.63 %
+  right in A only 73, in B only 68 (10.7 % discordant)
+  A − B = +0.38 pp, 95 % [-1.39 ; +2.14], McNemar exact p = 7.364e-1
