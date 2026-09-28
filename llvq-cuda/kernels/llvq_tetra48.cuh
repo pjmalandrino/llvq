@@ -23,10 +23,11 @@
 //      `reconstruct_shape_gain` returns zeros for it. `1/‖y‖` is a division by
 //      zero there. It is handled by the table's entry 0, not by a branch.
 //
-// **The shell bound is 27**, not a guess: `llvq-bench/examples/tetrashell.rs`
-// sweeps all 4,096 rows of the table against both parities and both residues
-// and reports `max |y_j| = 10`, worst section `Σy² = 144`, hence `n2 ≤ 432`
-// and `m ≤ 27`. So the inverse-norm table is **32 floats, 128 bytes** — small
+// **The shell bound is 26**, not a guess: `llvq-bench/examples/tetrashell.rs`
+// takes the exact maximum over every codeword, both parities, both `r`, both
+// `δ` and every allowed row, and decodes the word that reaches it:
+// `max |y_j| = 10`, `n2 ≤ 416`, `m ≤ 26` (2026-09-28; an earlier sweep gave
+// one residue to a whole section and printed 27, which was not a bound). So the inverse-norm table is **32 floats, 128 bytes** — small
 // enough that it is not a table in any interesting sense, and the whole
 // magnitude costs six `__dp4a` and one load.
 //
@@ -46,7 +47,7 @@
 #include "llvq_f1rank_v3.cuh"
 #endif
 
-// Entries of the inverse-norm table: `m` runs 0..27 on this codebook and 32 is
+// Entries of the inverse-norm table: `m` runs 0..26 on this codebook and 32 is
 // that bound rounded up. The host builder asserts the real maximum rather than
 // trusting this constant, and `tetra48_dot` masks with it so that a corrupt
 // word reads a wrong scale instead of reading off the end of the table.

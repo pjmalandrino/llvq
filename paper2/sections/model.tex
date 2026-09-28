@@ -3,51 +3,59 @@
 
 A served file holds more than lattice codes, the indices that encode each block
 of weights. Below we list what else it holds, then the three changes that
-produce the files we measure. None of them changes a lattice code or the
-decoder.
+produce the files we measure. They start from an encoding that already stores
+\texttt{v\_proj} in int4 (\S\ref{sec:int4}), which fixes the lattice codes.
+None of the three changes the decoder or a remaining lattice code.
 
 \subsection{What a file holds, and how we count it}
 \label{sec:file}
 
-Each layer of Qwen3~\citep{qwen3_2025} has seven projection matrices: $q$, $k$,
+Each layer of the dense Qwen3 models~\citep{qwen3_2025} has seven projection
+matrices: $q$, $k$,
 $v$ and $o$ in attention, and gate, up and down in the feed-forward block. The
 4B and 8B models have 36 layers (252 projections), and the 14B has 40 (280).
 
 Each projection is stored as \Tetra{} blocks or as an int4 record. An int4
 record holds 4-bit weights in groups of 128, with an f16 scale and offset per
 group, read by a separate GPU kernel. A \Tetra{} projection also stores one
-scale per output row. It keeps a small tail exactly, in f16: the weights at the
-end of each row that do not fill a whole block. The RMSNorm weights (the
+scale per output row. It keeps a small tail unquantized: the weights at the
+end of each row that do not fill a whole block. The file stores the tail in
+f32, and the GPU holds it in f16. The RMSNorm weights (the
 per-channel scales of the normalization layers) stay in f16. The embedding
 table is stored separately, and so is the output head at 8B and 14B. At 4B the head reuses the embedding table (a tied head).
 
 We count memory in bits per parameter over the whole model. It is all the
 weight bits the served model keeps, divided by the number of parameters. This
-includes the embedding, the tail, the scales and the int4 records. One tool
-computes it from the file for every object in this paper. We do not count the KV cache (the
+includes the embedding, the tail, the scales and the int4 records. For our
+files, the \texttt{rtbits} tool computes it from the file's records, at the
+widths the GPU holds. For AWQ and IQ2\_XXS, it is the checkpoint's size in bits
+over the number of parameters. We do not count the KV cache (the
 attention memory that grows with the context) or the activations.
 
 \subsection{Training the row scales}
 \label{sec:rowscales}
 
 Equation~\eqref{eq:recon} multiplies each reconstructed output row by one
-scale, $\sigma_{\mathrm{row}}$, which the encoder fits by least squares. We
+scale, $\sigma_{\mathrm{row}}$, which the encoder sets from the norm of the
+rotated row before quantizing it. We
 retrain only these scales, with the FP16 model as teacher~\citep{hinton2015}.
-On DCLM-edu text~\citep{dclmedu}, a KL loss pulls the quantized model's output
+On DCLM-Edu text~\citep{dclmedu}, a KL loss pulls the quantized model's output
 probabilities toward the teacher's. The lattice codes stay fixed and no bit is
 added: the trained scales replace the old ones in place. At 4B the training
 sees 19.5 million tokens and takes 1.7~h on one L40S GPU. The 8B and 14B runs
-take 1.1~h and 2.0~h on one H200. This step alone adds 3.15, 3.29 and 1.67 MMLU
+take 1.1~h and 1.8~h on one H200. This step alone adds 3.15, 3.29 and 1.67 MMLU
 points at 4B, 8B and 14B (\S\ref{sec:chain}).
 
 \subsection{int4 where the lattice loses the most}
 \label{sec:int4}
 
-Some projections lose more accuracy than others on the lattice. Every file
-stores \texttt{v\_proj} in int4. Under grouped-query attention, several query
-heads share one key and value head, so the $v$ matrices are small. At 4B,
-moving them from \Tetra{} to int4 gained 3.47 MMLU points on our
-2{,}280-question sample for 0.05 bits per parameter.
+Some projections lose more accuracy than others on the lattice. Every file of
+Table~\ref{tab:chain} stores \texttt{v\_proj} in int4. Qwen3 uses grouped-query
+attention~\citep{gqa2023}: several query heads share one key and value head,
+so the $v$ matrices are small. At 4B, in
+an earlier encoding calibrated on C4 text, moving them from \Tetra{} to int4
+gained 1.73 MMLU points $[0.87, 2.59]$ on the full test set, for 0.05 bits
+per parameter.
 
 We call the three files we serve \emph{sealed}. They also store
 \texttt{o\_proj} in int4, and \texttt{down\_proj} in a range of middle layers
@@ -57,12 +65,14 @@ We call the three files we serve \emph{sealed}. They also store
 \subsection{4-bit embedding tables}
 \label{sec:q4emb}
 
-Qwen3's vocabulary has 151{,}936 entries, so the embedding table is 9.7\,\% of
-the parameters at 4B. At 8B and 14B the output head is a second table of the
+Qwen3's embedding table has 151{,}936 rows, for a vocabulary of 151{,}669
+tokens~\citep{qwen3_2025}. It is 9.7\,\% of the parameters at 4B. At 8B and 14B the output head is a second table of the
 same shape. Together they are 15.2\,\% of the parameters at 8B and 10.5\,\% at
-14B. Before this step, our files stored these tables in 8 bits. The sealed
-files store them in 4 bits, in groups of 64 with an f16 scale and offset per group, as MLX
-does~\citep{mlx2023}. The GPU dequantizes rows on the fly, when it looks up
+14B. Before this step, our files stored these tables in f16, and the served
+model quantized them to 8 bits at load. The sealed
+files store them in 4 bits, in groups of 64 with a scale and an offset per
+group, as MLX does~\citep{mlx2023}. Our scales and offsets are f16. MLX keeps
+them in the type of the weights, bf16 for Qwen3. The GPU dequantizes rows on the fly, when it looks up
 input tokens and inside the matrix-vector product of the head. Going from 8 to
 4 bits frees 0.19~GB at 4B, 0.62~GB at 8B and 0.78~GB at 14B. This saving pays
 for the int4 projections: every sealed file needs fewer bits per parameter than
@@ -83,7 +93,10 @@ bits per parameter, whole model & 2.7320 & 2.6953 & 2.7305\\
 \end{tabular}
 \caption{The three sealed files. Layers are numbered from 0. ``down 12--23''
 means \texttt{down\_proj} in layers 12 to 23. Bits per parameter count every
-weight byte of the served model, embedding included (\S\ref{sec:file}). Data:
-paper2-chain.csv.}
+weight the served model keeps, at the width the GPU holds it, embedding
+included (\S\ref{sec:file}). The file is larger: it also carries the
+tokenizer and the config (11.4~MB), and stores the tail in f32 and the row
+scales in f64. Data: paper2-chain.csv for bits per parameter; the file sizes
+come from the logs of Appendix~\ref{app:provenance}.}
 \label{tab:files}
 \end{table}

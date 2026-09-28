@@ -17,19 +17,23 @@ $2^{12}$ Golay codewords among the $2^{24}$ bit patterns. Second, one parity
 check ties all 24 coordinates together. A decoder has to respect both.
 
 The encoder uses the shape-gain scheme of \citet{llvq2026}. It rotates the
-input~\citep{quip2023,quarot2024} and runs a GPTQ-style loop~\citep{gptq2023}.
-For each block of 24 rotated weights, it finds the nearest lattice point under
-a length cap and rebuilds the weights as
+input~\citep{quip2023,quipsharp2024,quarot2024} and runs a GPTQ-style
+loop~\citep{gptq2023}.
+For each block of 24 rotated weights, it looks for the lattice point under a
+length cap whose direction is closest to the block, and rebuilds the weights as
 \begin{equation}
 \hat{w}_j = \frac{y_j}{\lVert y\rVert}\,\mathrm{gain}[g]\,\sigma_{\mathrm{row}},
 \qquad \lVert y\rVert=\sqrt{16m},
 \label{eq:recon}
 \end{equation}
 where $m$ is the shell index. The bit $g$ selects the gain, and
-$\sigma_{\mathrm{row}}$ is one f32 scale per output row. We change two things:
+$\sigma_{\mathrm{row}}$ is one scale per output row, stored in f64 and read by
+the kernel in f32. We change two things:
 the region the encoder searches (\S\ref{sec:kept}) and the bits it writes for
 each block. The loop, the rotation, the gain values and the row scales stay as
-they were. The encoder still runs once, offline, on a CPU.
+they were. The \Tetra{} encoder does not search every point. At two trial
+scales, it keeps a few candidates per section and joins the best over the
+trellis. It still runs once, offline, on a CPU.
 
 \subsection{Three octads and a trellis}
 
@@ -39,7 +43,8 @@ coordinates octad by octad. Cutting after coordinates 8 and 16 splits the
 block into three sections of eight coordinates, one per octad. These cuts turn
 the code into a trellis (Figure~\ref{fig:geom}b), a layered graph whose paths
 spell out bit patterns. The node a path crosses at a cut is its state. Each cut
-has 64 states, and no three-way cut of $\mathcal{G}_{24}$ has fewer. The
+has 64 states, and no split of $\mathcal{G}_{24}$ into three sections of eight
+has fewer. The
 trellis has $64\times2\times16\times2 = 4096 = |\mathcal{G}_{24}|$ paths, so
 every codeword is one path and every path is a codeword. We check this count
 when we build the tables.
@@ -57,7 +62,7 @@ when we build the tables.
   \draw[okGray] (\i,2.15) rectangle ++(0.8,0.5);
   \draw[okGray] (\i,1.15) rectangle ++(0.8,0.5);
   \draw[okGray] (\i,0.15) rectangle ++(0.8,0.5);}
-\foreach \i in {0,2,3,4,7,10,12,13,15,17,18,20,23}{
+\foreach \i in {2,3,4,7,10,12,13,15,17,18,19,23}{
   \draw[okGray, fill=okBlue!35] (\i,1.15) rectangle ++(0.8,0.5);}
 \node[font=\scriptsize, anchor=north west] at (0,-0.25)
   {(i)\; $c\in\mathcal{G}_{24}$:\; $2^{12}$ of the $2^{24}$ bit patterns};
@@ -127,7 +132,9 @@ Two properties let a single table serve every section of every block. First,
 let $\mathrm{cost}(\rho)=\sum_j(2\rho_j+1)^2$, a stand-in for squared
 distance. Sorting rank vectors by this cost gives the same order for every $p$
 and every pattern byte. ``Keep the 2{,}048 cheapest'' then means one list
-instead of $4^8$. Second, $\mathrm{cls}(\rho)=\sum_j[\rho_j\in\{1,2\}] \bmod 2$ equals
+instead of 256, one for each parity and each of the 128 pattern bytes a
+section admits. Second,
+$\mathrm{cls}(\rho)=\sum_j[\rho_j\in\{1,2,5,6\}] \bmod 2$ equals
 the parity of $\sum_j k_j$ for every pattern. We sort the table by this
 class, so a row's position gives its parity with no extra field.
 
@@ -145,19 +152,22 @@ Figure~\ref{fig:word} shows the resulting 48-bit word next to the \Planes{}
 record it replaces. Each field can take a power-of-two number of values, so
 any 48-bit value is a legal word and decodes to a point of $\Lambda_{24}$. A
 benchmark can therefore stream random words and check every decode against a
-reference. Figure~\ref{fig:decode} shows the decode: six loads per block,
-three of them in a chain where each load needs the one before.
+reference. Figure~\ref{fig:decode} shows the decode: six loads give the 24
+values, and one of them waits for another. The suffix read needs the state that
+the branch read returns.
 
 \begin{figure}[t]
 \centering
 \includegraphics{fig_word.pdf}
 \caption{The record of our earlier layout and the \Tetra{} word, drawn to the
 same scale in bits, with the word magnified below to label its ten fields.
-\Planes{} is what the 47-bit index becomes after unfolding: a 9-bit class, a
+\Planes{} is what the 47-bit index and its gain bit become after unfolding: a
+9-bit class, a
 gain bit, a sign mask and three bit planes. That is 112 bits per record, one
 record every 14 bytes. \Tetra{} is what the file stores and the kernel reads: 48 bits, one
-word every 6 bytes. Six loads decode it from 18{,}816~B of tables,
-16~KiB of which hold the rank rows. Purple marks trellis state, grey the edge
+word every 6 bytes. Six loads give its 24 values and a seventh gives
+$1/\sqrt{16m}$, from 18{,}816~B of tables, 16~KiB of which hold the rank
+rows. Purple marks the eight bits of state, grey the edge
 choices, blue the row indices into the shared table and red the gain bit.
 Hatching is padding. Both carry 2.000 bits of code per weight.}
 \label{fig:word}
@@ -165,34 +175,42 @@ Hatching is padding. Both carry 2.000 bits of code per weight.}
 
 \begin{figure}[t]
 \centering
-\begin{tikzpicture}[x=1cm, y=1cm]
-\node[font=\footnotesize\bfseries, anchor=south] at (4.8,2.62)
-  {one block: six loads, three of them dependent};
-\node[box, font=\scriptsize, text width=2.7cm] (w) at (4.8,2.1)
-  {the 48-bit word};
-\node[mem, font=\scriptsize, text width=4.2cm, align=left] (L) at (2.4,0.95)
-  {\textbf{trellis chain}, 2\,304~B\\[1pt]
-   \texttt{prefixes}$[2s_8{+}b_1]$\\
-   \texttt{branches}$[16s_8{+}b_2]$\\
-   \texttt{suffixes}$[2s_{16}{+}b_3]$\\[1pt]
-   \emph{chained: each read needs\\the previous one}};
-\node[mem, font=\scriptsize, text width=4.2cm, align=left] (R) at (7.2,0.95)
-  {\textbf{rank table}, 16~KiB\\[1pt]
-   \texttt{rows}$[2048r{+}i_1]$\\
-   \texttt{rows}$[\mathrm{mix}(i_2)]$\\
-   \texttt{rows}$[2048r_3{+}i_3]$\\[1pt]
-   \emph{independent: issued together}};
-\node[box, font=\scriptsize, text width=7.2cm] (y) at (4.8,-0.85)
+\begin{tikzpicture}[x=1cm, y=1cm,
+  load/.style={box, fill=white, minimum width=3.7cm}]
+\node[font=\footnotesize\bfseries] at (5.4,4.55)
+  {one block: six loads, one waits for another};
+\node[box, minimum width=3cm] (w) at (5.4,3.95) {the 48-bit word};
+% the trellis tables: the only dependent read is the suffix
+\node (Lt) at (2.5,2.85) {\textbf{trellis tables}, 2{,}304~B};
+\node[load] (P) at (2.5,2.3) {\texttt{prefixes}$[2s_8{+}b_1]$};
+\node[load] (B) at (2.5,1.45) {\texttt{branches}$[16s_8{+}b_2]$};
+\node[load] (S) at (2.5,0.6) {\texttt{suffixes}$[2s_{16}{+}b_3]$};
+\node[align=center, font=\scriptsize\itshape] (Lf) at (2.5,-0.05)
+  {the suffix read waits\\for the branch read};
+\draw[flow] (B) -- node[right]{$s_{16}$} (S);
+% the rank table: three independent reads
+\node (Rt) at (8.3,2.85) {\textbf{rank table}, 16~KiB};
+\node[load] (R1) at (8.3,2.3) {\texttt{rows}$[2048r{+}i_1]$};
+\node[load] (R2) at (8.3,1.45) {\texttt{rows}$[\mathrm{mix}(i_2)]$};
+\node[load] (R3) at (8.3,0.6) {\texttt{rows}$[2048r_3{+}i_3]$};
+\node[align=center, font=\scriptsize\itshape] (Rf) at (8.3,-0.05)
+  {no read waits:\\issued together};
+\begin{scope}[on background layer]
+\node[mem, fit=(Lt)(P)(B)(S)(Lf), inner sep=4pt] (Lbox) {};
+\node[mem, fit=(Rt)(R1)(R2)(R3)(Rf), inner sep=4pt] (Rbox) {};
+\end{scope}
+\node[box, minimum width=9.84cm] (y) at (5.4,-1.45)
   {24 values $y_j$, then $\times\,\mathrm{gain}[g] \times 1/\!\sqrt{16m}$};
-\draw[flow] (w.south west) -- (L.north);
-\draw[flow] (w.south east) -- (R.north);
-\draw[flow] (L.south) -- (y.north west);
-\draw[flow] (R.south) -- (y.north east);
+\draw[flow] (w.south) -- ++(0,-0.2) -| (Lbox.north);
+\draw[flow] (w.south) -- ++(0,-0.2) -| (Rbox.north);
+\draw[flow] (Lbox.south) -- node[right, text height=1.6ex, text depth=0.4ex]{3 pattern bytes} (Lbox.south |- y.north);
+\draw[flow] (Rbox.south) -- node[right, text height=1.6ex, text depth=0.4ex]{3 rank vectors} (Rbox.south |- y.north);
 \end{tikzpicture}
-\caption{The decode. The three trellis lookups each return one Golay pattern
-byte. They must run in order, because each index depends on the state the
-previous read returned. The three row reads need only the word, so the kernel
-issues them together. The shell index $m$ is recomputed from the decoded
+\caption{The decode. The three trellis reads return the Golay pattern bytes of
+the three sections, and the three row reads their rank vectors. The prefix and branch reads need only the word. The suffix read waits
+for the branch read, because its index uses the state $s_{16}$ that the branch
+read returns. The three row reads need only the word, so the kernel issues
+them together. The shell index $m$ is recomputed from the decoded
 values, not stored. The parity $r_3 = p \oplus r \oplus \delta$ comes from
 Equation~\eqref{eq:xor}.}
 \label{fig:decode}
@@ -202,9 +220,8 @@ The tables take 18{,}816~B in total. The rank table holds 4{,}096 rows, or
 16{,}384~B. The branch table holds 1{,}024 16-bit entries, or 2{,}048~B. The
 prefix and suffix tables take 128~B each. The last table holds 32 floats, the
 values $1/\sqrt{16m}$. Its entry 0 is 0, so the origin, a legal word, decodes
-to zeros with no special case. The bound $m\le27$ comes from trying all
-4{,}096 rows with both parities and both residues, which also gives
-$\max|y_j|=10$.
+to zeros with no special case. Trying every codeword with both parities and
+every allowed row in each section gives $m\le26$ and $\max|y_j|=10$.
 
 \subsection{What the construction costs}
 \label{sec:kept}
@@ -216,32 +233,42 @@ section on its own. The encoder therefore searches a product of three
 24-dimensional ball. This split makes the six-load decode possible, and it is
 the price the format pays.
 
-We estimate this price instead of measuring it. The shaping gain measures how
-much the shape of the searched region lowers the error, compared with a cube.
-Its best value for a product of three 8-dimensional balls is 0.7292~dB,
-against 1.0958~dB for one 24-dimensional ball. The difference, 0.3666~dB, means 8.81\,\% more mean
-squared error for the three balls at our operating point. Our regions are
-cut by rank and by the trellis, so they are neither balls nor continuous.
-These figures are a geometric reference, not the cost of this codebook. We
-measured one related effect. Sorting rank vectors by $\mathrm{cost}(\rho)$
-instead of by exact squared distance loses 0.6 points of retention against an
-exact enumeration of each section. Retention is the bit rate the theoretical
-limit would need to reach our error, as a percentage of the bit rate we use.
+On 20{,}000 Gaussian blocks at 2 bits per weight, in one process and with the
+same gain rule, \Tetra{} keeps 88.80\,\% retention and the \Planes{} codebook
+91.98\,\%. That is 9.2\,\% more mean squared error for \Tetra{}. Retention is
+the bit rate the theoretical limit would need to reach our error, as a
+percentage of the bit rate we use. On
+20{,}000 rotated weight blocks from the first layer of Qwen3-0.6B, the gap is
+the same, 3.2 points. Part of it comes from the table: sorting rank vectors by
+$\mathrm{cost}(\rho)$ instead of by exact squared distance loses 0.6 points of
+retention on Gaussian blocks.
+
+Geometry predicts about as much. The shaping gain measures how much the shape
+of the searched region lowers the error, compared with a cube. Its best value
+for a product of three 8-dimensional balls is 0.7292~dB, against 1.0958~dB for
+one 24-dimensional ball. The difference, 0.3666~dB, means 8.81\,\% more mean
+squared error for the three balls. Our regions are cut by rank and by the
+trellis, so they are neither balls nor continuous.
 
 The construction does keep the lattice. Every decoded point meets both
 constraints of Figure~\ref{fig:geom}. Its pattern bytes form a Golay codeword
 because they come from a trellis path, and Equation~\eqref{eq:xor} gives the
-$\sum k$ parity. Three separate $E_8$ quantizers ($E_8$ is the best lattice
-in 8 dimensions) would keep neither. The
-lattice alone is worth $G(E_8)/G(\Lambda_{24}) = 0.071682/0.065771 =
-1.0899$~\citep{conway1999sphere}. Here $G$ is the normalized second moment,
+$\sum k$ parity. Three separate $E_8$ quantizers would keep neither. $E_8$ is
+the best lattice quantizer known in 8 dimensions. The lattice alone is worth
+$G(E_8)/G(\Lambda_{24}) = 0.071682/0.065771 =
+1.0899$~\citep[Table~2.3]{conway1999sphere}. Here $G$ is the normalized second moment,
 the mean squared error of a lattice used as a quantizer at a fixed density of
 points. By this measure, $E_8$ has 9.0\,\% more mean squared error than
 $\Lambda_{24}$.
 
 On the same model and evaluation code, \Tetra{} alone (without the changes of
-\S\ref{sec:model}) scores 2.10 MMLU points below \Planes{} on a
-2{,}280-question sample of MMLU. Its perplexity is 4.64\,\% lower, which is better.
-Re-encoding one model with three different draws of calibration text moves
-MMLU by 2.92 points. That is more than the gap between the two codebooks, so
-this comparison does not separate the codebook from the calibration draw.
+\S\ref{sec:model}) scores 2.11 MMLU points below \Planes{} on a
+2{,}280-question sample of MMLU, $[-0.95, +5.17]$, $p=0.11$. Its perplexity is
+4.64\,\% lower, which is better. This sample does not separate the two MMLU
+scores.
+Encoding the model with the \Planes{} codebook and three draws of calibration
+text gives MMLU scores up to 5.83 points apart on the same sample, a standard
+deviation of 2.92. The encoding pipeline had also changed in the month between
+the two files. Re-encoding the first layer of the \Planes{} file (4.2 million
+indices) with the newer code changes 87\,\% of them. So this comparison does not separate the codebook from
+the calibration draw or from that drift.

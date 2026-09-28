@@ -624,3 +624,31 @@ A new harness generates and grades through the kernel (`bin/gsm8k`), vLLM genera
 ids (`ops/gsm8k_vllm.py`), and one grader scores every arm (`bin/gsm8kpair`). A free Metal pilot priced the campaign
 first ([gsm8k-pilot](mesures/gsm8k-pilot-2026-09-26.txt)). The engine gate held: FP16 reads 91.51 in our dense path
 against 92.12 in vLLM. The campaign cost 14.26 $.
+
+## 2026-09-28. One size up at the same memory
+
+The review of paper 2 found no comparison at equal memory. The committed dumps answer it for free: one size up, our
+file beats AWQ on MMLU and ties it on GSM8K (*measured*, [sizeup](mesures/sizeup-2026-09-28.txt)). Our 8B scores 1.44
+points above AWQ's 4B and our 14B 1.87 above AWQ's 8B; on GSM8K they tie at −0.38 and −0.91. The reasoning loss takes
+back the larger model. Our 14B in 5.04 GB scores 5.52 MMLU points above FP16's 4B in 8.04 GB and ties it on GSM8K.
+The 4B and 8B share one KV cache, so the step from 4B to 8B costs weights only. Paper 2 carries it as section 6.4 and
+Table 5, marked as not preregistered.
+
+## 2026-09-28. Paper 2, every number audited
+
+1,132 numbers of paper 2 were checked against their CSVs, journals and code, by eight auditors,
+eight skeptics and a blind sample; about a hundred corrections went in, each checked by hand
+against its source (*computed*, [paper2-audit](mesures/paper2-audit-2026-09-28.txt)). The main
+ones: the calibration spread of three draws is a range of 5.83 points, not "2.92", which is its
+standard deviation; the 4B MMLU was scored one step before sealing; the cited LLVQ scores use the
+0-gain-bit codebook; the cost of the Tetra split was measured, not only estimated. Four results
+are new: the shell bound is m <= 26, found by an exhaustive pass that replaces a sweep which was
+not a bound; Tetra against Planes14 on the 2,280 sample is +2.11 [-0.95, +5.17], not separated;
+the size-up budgets move by one hundredth once summed from unrounded bytes; and the decode costs
+about 150 instructions a block, not 141. The paper now runs to 19 pages. Two fresh readers
+then checked every changed line and caught three more contradictions, among them the tail
+width in the caption of Table 2.
+The same day, the 24 cited works and the 67 provenance rows were checked against their
+publications and files: 55 problems, one dead URL (the CUDA guide), and a dozen attributions
+narrowed to what the cited work says, the chief one that the cited QTIP scores and the timed QTIP
+kernel are two different codes. 20 pages.

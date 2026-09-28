@@ -1,0 +1,9 @@
+pair,tetra,other,weights_tetra_gb,weights_other_gb,mmlu_gap_pp,mmlu_ci_lo_pp,mmlu_ci_hi_pp,mmlu_mcnemar_p,gsm8k_gap_pp,gsm8k_ci_lo_pp,gsm8k_ci_hi_pp,gsm8k_mcnemar_p,source
+tetra8_minus_awq4,Tetra 8B,AWQ 4B,2.76,2.67,+1.44,+0.71,+2.19,1.3e-4,-0.38,-2.14,+1.39,0.74,sizeup-2026-09-28
+tetra14_minus_awq8,Tetra 14B,AWQ 8B,5.04,6.10,+1.87,+1.20,+2.57,1.0e-7,-0.91,-2.35,+0.53,0.26,sizeup-2026-09-28
+tetra8_minus_f16_4,Tetra 8B,FP16 4B,2.76,8.04,-0.56,-1.27,+0.18,0.13,-3.49,-5.18,-1.79,7.7e-5,sizeup-2026-09-28
+tetra14_minus_f16_8,Tetra 14B,FP16 8B,5.04,16.38,+0.61,-0.06,+1.27,0.077,-1.21,-2.64,+0.21,0.12,sizeup-2026-09-28
+tetra14_minus_f16_4,Tetra 14B,FP16 4B,5.04,8.04,+5.52,+4.79,+6.24,1.2e-49,-0.08,-1.54,+1.39,1.0,sizeup-2026-09-28
+tetra14_minus_awq4,Tetra 14B,AWQ 4B,5.04,2.67,+7.52,+6.79,+8.28,4.6e-86,+3.03,+1.41,+4.65,3.3e-4,sizeup-2026-09-28
+awq8_minus_awq4,AWQ 8B,AWQ 4B,6.10,2.67,+5.65,+4.96,+6.37,2.0e-53,+3.94,+2.43,+5.46,4.3e-7,sizeup-2026-09-28
+awq14_minus_awq8,AWQ 14B,AWQ 8B,9.98,6.10,+4.34,+3.67,+5.00,6.4e-37,+2.43,+1.23,+3.63,1.0e-4,sizeup-2026-09-28

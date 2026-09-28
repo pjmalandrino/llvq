@@ -1,0 +1,31 @@
+
+========================================================================
+A = /model/qwen3-4b-llvq.bin [LLVQ 2-bit, sealed]
+    docs/data/mmlu-dumps/mmlu-4b-llvq.csv
+    arithmetic unstated (a dump written before 2026-09-11: dense reconstruction)
+B = /out/tetra-4b-2026-09-06/qwen3-4b-tetra.bin [LLVQ 2-bit, sealed]
+    docs/data/mmlu-dumps/mmlu-4b-tetra.csv
+    arithmetic unstated (a dump written before 2026-09-11: dense reconstruction)
+2280 paired questions, 57 subjects · dtype f16 / f16 · limit 40 / 40
+sampling plan: flat (unstated) / flat (unstated)
+run fingerprint: 65dcd53655e8bfa5 / 65dcd53655e8bfa5 (identical)
+
+rates (Δ = A − B, in percentage points)
+  stratified micro    A  55.59 %   B  53.49 %   Δ = +2.11 pp   ← the published number
+  unweighted (pooled) A  57.46 %   B  55.61 %   Δ = +1.84 pp   ← what McNemar tests
+
+McNemar exact (unweighted)
+  A✓B✗ = 346   A✗B✓ = 304   concordant = 1630   (28.5 % of the questions are discordant)
+  p = 0.1077   (z normal = +1.65)
+
+paired bootstrap stratified by subject (10000 draws, seed 0xb0075eed, WITHOUT finite population correction)
+  Δ stratified micro = +2.11 pp   CI95 [-0.95 ; +5.17]   SE 1.55 pp
+  unweighted control = +1.84 pp   CI95 [-0.35 ; +4.04]   SE 1.12 pp
+  → the CI contains zero: the gap is not resolved by this protocol.
+
+subjects carrying the gap (contribution to the stratified Δ)
+  professional law                          +7.5 pp × weight 10.9 % = +0.819 pp
+  professional psychology                  -15.0 pp × weight  4.4 % = -0.654 pp
+  philosophy                               +15.0 pp × weight  2.2 % = +0.332 pp
+  moral disputes                           +12.5 pp × weight  2.5 % = +0.308 pp
+  professional medicine                    +15.0 pp × weight  1.9 % = +0.291 pp

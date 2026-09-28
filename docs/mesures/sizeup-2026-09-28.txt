@@ -1,0 +1,145 @@
+ONE SIZE UP AT THE SAME MEMORY: TETRA BEATS AWQ ONE SIZE BELOW ON MMLU (+1.44 AND +1.87) AND TIES IT ON GSM8K (2026-09-28)
+=========================================================================================================================
+Prereg:  none. This is a re-analysis of dumps already measured and committed; no model ran.
+         It was asked after the 2026-09-27 review of paper 2, which found that the paper never
+         compares files at equal memory. It is post hoc and is labelled so in the paper.
+Code:    commit 727d96b (main), bin/mmlupair and bin/gsm8kpair, built on the Mac.
+Jobs:    none. Cost 0 $. Project total unchanged: 241.88 $.
+Nature:  *measured* paired gaps (the two binaries over committed dumps); memory budgets
+         *computed* from measured weight bytes and the Qwen3 configs.
+
+THE QUESTION
+------------
+The paper compares each sealed file with FP16 and AWQ of the same size, where it loses. Its own
+motivation is to fit a larger model on the same hardware. So the question is: at about the same
+memory, is our file of the next size up better than AWQ of the size below?
+
+INPUTS
+------
+Every dump below ends on its plan's fingerprint: MMLU a74a6d6213602979 (flat census, 14,042
+questions), GSM8K bfa9135ce4b55c75 (1,319 problems). The Qwen3 4B, 8B and 14B tokenizers give
+the same prompt tokens, so dumps of different sizes pair question by question.
+
+  sha256    dump                                                                  score
+  fd070501  sealed-8b-27-2026-09-24-brut/mmlu-B/mmlu-8b-B-sealed-FULL.csv         69.58
+  c7f22c97  sealed-8b-14b-2026-09-23-brut/mmlu-14b/mmlu-14b-sealed-FULL.csv       75.66
+  318e80dc  paper-table-2026-09-25-brut/paper-awq4b-census-2026-09-25/mmlu-4b-awq-FULL.csv  68.14
+  58203261  census-8b-2026-09-21-brut/mmlu-8b-awq-FULL.csv                         73.79
+  923eb083  census-14b-ref-2026-09-22-brut/mmlu-14b-awq-FULL.csv                   78.12
+  f022add7  f16-full-2026-09-18-brut/mmlu-4b-f16-FULL.csv                          70.14
+  49dfd078  census-8b-2026-09-21-brut/mmlu-8b-f16-FULL.csv                         75.05
+  8160277c  census-14b-ref-2026-09-22-brut/mmlu-14b-f16-FULL.csv                   78.88
+  23bbac8b  gsm8k-wave2-2026-09-26-brut/run2-served-8b/gsm8k-8b-served.jsonl       88.63
+  05acf953  gsm8k-wave2-2026-09-26-brut/run3-served-14b/gsm8k-14b-served.jsonl     92.04
+  620799d6  gsm8k-wave1-2026-09-26-brut/run5-vllm/gsm8k-4b-awq-vllm.jsonl          89.01
+  0a45418a  gsm8k-wave2-2026-09-26-brut/run6-vllm-8b/gsm8k-8b-awq-vllm.jsonl       92.95
+  661665eb  gsm8k-wave2-2026-09-26-brut/run7-vllm-14b/gsm8k-14b-awq-vllm.jsonl     95.38
+  fae5412c  gsm8k-wave1-2026-09-26-brut/run5-vllm/gsm8k-4b-f16-vllm.jsonl          92.12
+  83ccb5b2  gsm8k-wave2-2026-09-26-brut/run6-vllm-8b/gsm8k-8b-f16-vllm.jsonl       93.25
+  4120bc39  gsm8k-wave2-2026-09-26-brut/run7-vllm-14b/gsm8k-14b-f16-vllm.jsonl     95.30
+
+All paths are under docs/mesures/. The 4B Tetra dumps are not used: no smaller class was scored.
+
+CONTROLS
+--------
+1. Every score read alone reproduces the published one (paper2-results.csv, paper2-gsm8k.csv):
+   passes, all 16.
+2. mmlupair prints "run fingerprint ... (identical)" and 14,042 paired questions on every pair;
+   gsm8kpair prints "1319 problems, same prompts problem by problem": passes, all 26.
+3. gsm8kpair re-grades 0 rows of the Rust dumps and all 1,319 rows of each vLLM dump, as in the
+   campaign: passes.
+
+COMMANDS
+--------
+  target/release/mmlupair <A.csv> <B.csv> --no-fpc
+  target/release/gsm8kpair <A.jsonl> <B.jsonl>
+The 26 raw outputs are in sizeup-2026-09-28-brut/, named mmlu-<A>-<B>.txt and gsm-<A>-<B>.txt.
+The binaries print A - B; the tables below print Tetra minus the other model, so the signs and
+the interval ends are flipped. McNemar p is recomputed exactly from the discordant counts,
+because mmlupair rounds it to 0.0001.
+
+RESULT: ONE SIZE UP
+-------------------
+Gap = Tetra minus the other model, in points, 95 % interval. MMLU: paired bootstrap stratified by
+subject, 10,000 draws, no finite-population correction. GSM8K: normal interval. Both: McNemar
+exact. Weights: GB on the card for Tetra, file bytes for AWQ and FP16 (paper2-results.csv).
+
+  Tetra  against  weights GB     MMLU                              GSM8K
+  8B     AWQ 4B   2.76 / 2.67    +1.44 [+0.71, +2.19]  p 1.3e-4    -0.38 [-2.14, +1.39]  p 0.74
+  14B    AWQ 8B   5.04 / 6.10    +1.87 [+1.20, +2.57]  p 1.0e-7    -0.91 [-2.35, +0.53]  p 0.26
+  8B     FP16 4B  2.76 / 8.04    -0.56 [-1.27, +0.18]  p 0.13      -3.49 [-5.18, -1.79]  p 7.7e-5
+  14B    FP16 8B  5.04 / 16.38   +0.61 [-0.06, +1.27]  p 0.077     -1.21 [-2.64, +0.21]  p 0.12
+  14B    FP16 4B  5.04 / 8.04    +5.52 [+4.79, +6.24]  p 1.2e-49   -0.08 [-1.54, +1.39]  p 1.0
+  14B    AWQ 4B   5.04 / 2.67    +7.52 [+6.79, +8.28]  p 4.6e-86   +3.03 [+1.41, +4.65]  p 3.3e-4
+
+Discordant counts (the other model right only / Tetra right only), MMLU then GSM8K:
+  8B vs AWQ 4B 1281 / 1483, 73 / 68. 14B vs AWQ 8B 1083 / 1346, 53 / 41.
+  8B vs FP16 4B 1361 / 1282, 89 / 43. 14B vs FP16 8B 1089 / 1174, 54 / 38.
+  14B vs FP16 4B 996 / 1771, 49 / 48. 14B vs AWQ 4B 944 / 2000, 40 / 80.
+
+What one size is worth to the baselines (larger minus smaller, same format):
+  AWQ 8B - AWQ 4B      MMLU +5.65 [+4.96, +6.37]   GSM8K +3.94 [+2.43, +5.46]
+  AWQ 14B - AWQ 8B     MMLU +4.34 [+3.67, +5.00]   GSM8K +2.43 [+1.23, +3.63]
+  FP16 8B - FP16 4B    MMLU +4.91 [+4.22, +5.59]   GSM8K +1.14 [-0.31, +2.58]  p 0.15
+  FP16 14B - FP16 8B   MMLU +3.82 [+3.18, +4.47]   GSM8K +2.05 [+0.82, +3.28]
+And, for the record, FP16 4B - AWQ 8B MMLU -3.65, GSM8K -0.83 (p 0.29); FP16 8B - AWQ 14B
+MMLU -3.07, GSM8K -2.12. The same-size pair AWQ 8B - Tetra 8B reproduces the published
++4.21 [+3.54, +4.86] and +4.32 [+2.83, +5.81].
+
+READING
+-------
+1. MMLU: one size up, our file beats AWQ at both steps, +1.44 then +1.87. Both keep p below
+   10^-3, so both survive a Bonferroni correction over the two tests. It keeps 25 % of what
+   the size step is worth to AWQ at 4B to 8B (1.44 / 5.65) and 43 % at 8B to 14B
+   (1.87 / 4.34), *computed*.
+2. GSM8K: one size up, our file ties AWQ at both steps (-0.38, p 0.74; -0.91, p 0.26). The
+   reasoning loss of Tetra eats the size step. Our 14B, AWQ's 8B and FP16's 4B score 92.04,
+   92.95 and 92.12 on GSM8K.
+3. Against FP16 one size below, our file ties on MMLU at both steps (-0.56, p 0.13; +0.61,
+   p 0.077). On GSM8K it loses at 4B to 8B (-3.49) and ties at 8B to 14B (-1.21, p 0.12).
+4. Our 14B in 5.04 GB beats FP16's 4B in 8.04 GB by 5.52 MMLU points and ties it on GSM8K.
+
+WHERE THE LARGER MODEL FITS (*computed*)
+-----------------------------------------
+KV cache, f16, from each checkpoint's config.json: 2 x layers x kv_heads x head_dim x 2 bytes.
+  4B   36 x 8 x 128   147,456 B/token   1.21 GB at 8,192 tokens
+  8B   36 x 8 x 128   147,456 B/token   1.21 GB at 8,192 tokens
+  14B  40 x 8 x 128   163,840 B/token   1.34 GB at 8,192 tokens
+The 4B and 8B have the same cache: going from 4B to 8B costs weights only.
+
+Weights plus the cache at 8,192 tokens, without the CUDA context and the activations. Sums of
+unrounded bytes (corrected by the number audit of the same day, paper2-audit-2026-09-28: the
+first version added rounded terms and printed 6.38, 3.88 and 3.32). Card bytes rebuilt from the
+logged rates: Tetra 4B 1.377e9, 8B 2.764e9, 14B 5.044e9; AWQ files 2,666,027,672,
+6,098,581,864 and 9,976,690,240 B; KV 1,207,959,552 and 1,342,177,280 B:
+  Tetra  4B 2.59 GB   8B 3.97   14B 6.39
+  AWQ    4B 3.87      8B 7.31   14B 11.32
+  FP16   4B 9.25
+So, by budget:
+  3.97 to 6.39 GB    Tetra 8B against AWQ 4B
+  6.39 to 7.31 GB    Tetra 14B against AWQ 4B (two sizes up)
+  7.31 to 11.32 GB   Tetra 14B against AWQ 8B
+  from 11.32 GB      both 14B, and no Tetra file above 14B is served (docs/format-noyau.md
+                     section 8); AWQ 14B leads by 2.46 MMLU and 3.34 GSM8K there.
+
+If AWQ also stored its embedding tables in 4 bits, g64 with an f16 scale and offset
+(4.5 bits a weight, as ours), its weights would take:
+  4B  2,666,027,672 - 777,912,320 + 218,787,840 B     = 2.11 GB
+  8B  about 6.099e9 - 2,489,319,424 + 700,121,088 B  = 4.31 GB (file from 5.9566 b/param)
+  14B 9,976,690,240 - 3,111,649,280 + 875,151,360 B  = 7.74 GB
+With the cache: 3.31, 5.52 and 9.08 GB. The windows then narrow to 3.97 to 5.52 GB for our 8B
+and 6.39 to 9.08 GB for our 14B. Between 5.52 and 6.39 GB both run the 8B, and ours scores
+4.21 MMLU and 4.32 GSM8K points lower. The quality of AWQ with 4-bit tables is not measured.
+
+CAVEATS
+-------
+- Post hoc. The question came after the review; no prediction was written before.
+- The GSM8K pairs cross two engines: Tetra in ours, AWQ and FP16 in vLLM. The engine check at
+  4B (FP16 dense - FP16 vLLM = -0.61 [-1.27, +0.06], p 0.115) found no separation; if the
+  offset is real, it counts against Tetra.
+- MMLU of the Tetra files is the dense reconstruction of the sealed file, as in the paper.
+- One calibration draw per size (paper, Limitations).
+- Speed is not compared: our 8B decodes 95.0 tok/s in our engine, AWQ 4B 200.5 in vLLM; our
+  14B 57.2, AWQ 8B 123.2. Two engines; the ratio is not formed.
+- Weights compare our GPU buffers with the baselines' files; the budget adds a computed cache
+  and leaves out the CUDA context and activations, which were not measured.

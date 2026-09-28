@@ -1,4 +1,4 @@
-# Project state as of 2026-09-27
+# Project state as of 2026-09-28
 
 ## 1. The project
 
@@ -71,6 +71,13 @@ On GSM8K the loss exceeds the MMLU loss at 4B only. At 8B and 14B the GSM8K inte
 references run in vLLM and our files in our kernel; the engine gate held at 4B, FP16 reading 91.51 in our dense path
 against 92.12 in vLLM, −0.61 [−1.27, +0.06]. GSM8K saturates, FP16 reading 92 to 95%, and says nothing of Qwen3's
 reasoning mode.
+
+One size up, at about the same memory, our file beats AWQ on MMLU and ties it on GSM8K (*measured*, paired over the
+committed dumps, not preregistered, [sizeup-2026-09-28](mesures/sizeup-2026-09-28.txt)). Our 8B against AWQ's 4B:
++1.44 [+0.71, +2.19] MMLU, −0.38 [−2.14, +1.39] GSM8K, 2.76 against 2.67 GB. Our 14B against AWQ's 8B: +1.87
+[+1.20, +2.57] MMLU, −0.91 [−2.35, +0.53] GSM8K, 5.04 against 6.10 GB. Weights plus an 8k f16 KV cache put us one size
+above AWQ from 3.97 to 11.32 GB (*computed*); if AWQ stored its tables in 4 bits too, from 3.97 to 5.52 and from 6.39
+to 9.08 GB.
 
 ## 4. Structural facts
 

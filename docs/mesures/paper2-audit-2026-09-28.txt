@@ -1,0 +1,156 @@
+PAPER 2, NUMBER AUDIT: 1,132 NUMBERS CHECKED, ABOUT 100 CORRECTIONS, AND FOUR NEW RESULTS (2026-09-28)
+=========================================================================================================
+Prereg:  none. An audit of the paper against its own sources; no model ran.
+Code:    branch classe-superieure, from b5c4771 (main 727d96b + section 6.4).
+Jobs:    none. Cost 0 $. Project total unchanged: 241.88 $.
+Nature:  *measured* where a tool was rerun on committed data (mmlupair, tetrashell), *computed*
+         for arithmetic on measured quantities. Raw output in paper2-audit-2026-09-28-brut/.
+
+METHOD
+------
+Eight auditors, one per part of the paper (front matter, sections 2-3, section 4, section 5,
+sections 6.1-6.2, sections 6.3-6.5, appendices, figures and bibliography). Each found the
+source of every number of its part and recomputed every derived one. One skeptic per part then
+tried to refute each finding against the source. An independent reader sampled 62 numbers over
+the whole paper without seeing the others' work. Every correction applied was then checked by
+hand against its source before it went in.
+
+  part             numbers checked   findings   refuted
+  front                 104             17         0
+  sections 2-3          104             19         0
+  section 4              64             10         1
+  section 5              96             19         0
+  sections 6.1-6.2      128             12         0
+  sections 6.3-6.5      198             11         0
+  appendices            204             21         0
+  figures, bib          172             15         0
+  sample, blind          62             16         (all 16 already found by the parts)
+  total               1,132            140
+
+Plus 13 problems the skeptics found that the auditors missed. Many findings repeat one fault
+across places (the calibration spread is quoted in three). All findings, with sources and
+verdicts: paper2-audit-2026-09-28-brut/audit-findings.json.
+
+FOUR NEW RESULTS
+----------------
+1. The shell bound is m <= 26, not 27 (*computed*, llvq-bench/examples/tetrashell.rs, rewritten
+   today; tetrashell.txt). The old sweep gave one residue to all eight coordinates of a section,
+   so it was not a bound: it printed 144 per section, and a mixed pattern byte reaches 152. The
+   new one decomposes over the 4,096 codewords, both p, both r and both delta, takes the
+   per-section maxima over the allowed rows, and decodes the word that reaches the maximum:
+   n2 = 416, word 0x7994070f3202, m = 26, max |y_j| = 10. A million random words stay under it
+   (max 384). The kernel's 32-entry table of 1/sqrt(16m) covers it either way.
+2. Tetra against Planes14 on the 2,280-question sample is +2.11 [-0.95, +5.17], McNemar 346/304,
+   p = 0.11 (*measured*, mmlupair --no-fpc on the committed dumps mmlu-4b-llvq.csv and
+   mmlu-4b-tetra.csv; mmlupair-planes14-tetra-2280.txt). The paper had printed 2.10 without an
+   interval. The sample does not separate the two codebooks, before any question of draw or drift.
+3. The size-up budgets, summed from unrounded bytes, are 6.39 (Tetra 14B), 3.87 (AWQ 4B) and
+   3.31 (AWQ 4B with 4-bit tables), not 6.38, 3.88 and 3.32; the weight differences are 0.10 and
+   1.05 GB, not 0.09 and 1.06 (*computed*; sizeup-2026-09-28 is corrected in place, same day).
+4. The instruction count is about 150 a block for the rank decode and its 24 multiply-adds, not
+   141 (*computed* from llvq_f1rank_v3.cuh). The header's table counts the one-prmt mask, which
+   is not compiled; the default mask is two IMAD and one LOP a quad. So 60 FMA-pipe, about 85
+   ALU (81 plus up to six LOP.AND on variable selectors), six loads. The served
+   llvq_tetra48.cuh adds about 20 for the gain and the norm. The header's own split, 54 + 85,
+   did not add to its 141.
+
+WHAT CHANGED IN THE PAPER, BY KIND
+-----------------------------------
+Wrong labels or wrong objects:
+- "Three draws moved MMLU by 2.92": 2.92 is the standard deviation; the range is 5.83, on the
+  Planes14 codebook and 2,280 questions (bruit-mmlu-graines-4b-2026-08-25). Three places.
+- The 4B MMLU 63.37 was scored on the file one step before sealing, int4 rebuilt at load; the
+  sealed file matches it on 57 of 57 questions (embed-q4-swap-2026-09-23, sealed-4b ECARTS E1).
+- The cited LLVQ 60.7 / 62.8 use the 0-gain-bit, 48-bit ball of 2.8e14 points, not the 47-bit
+  ball with a gain bit that paper 1 served (llvq-paper-notes.md tables 6 and 8).
+- "We estimate this price instead of measuring it": it was measured, 88.80 against 91.98 %
+  retention on 20,000 Gaussian blocks, 3.2 points on 20,000 real blocks of Qwen3-0.6B
+  (f1-encodeur-blocs-reels-2026-09-05).
+- "The best tile depends on the card, not on the format": f1d-2026-09-10 shows Planes14 fastest
+  at 128 and Tetra at 32 on sm_120; there Tetra runs at 0.82 to 1.03 times Planes14.
+- 4B load times 12.1 / 81.8 s were an earlier file; the sealed file loads in 4.1 / 72.9 s.
+- v_proj in int4: +3.47 was the 2,280 sample of an arm restored at load; the full test set
+  reads +1.73 [0.87, 2.59] (tetra-nu-full-2026-09-18).
+- The "15 points below FP16" came from a C4 encoding; the paper now starts from the DCLM base
+  of Table 6, about 12 points.
+- Planes14 reads a 12 KiB class table; "only Tetra reads tables" and the legend "no tables"
+  were wrong. The no-weights control reads the tail and the row scales.
+- The Table 2 AWQ arm is llm-awq's GEMV ported to our harness, not Marlin. Its GB/s divides by
+  the fastest round.
+- 2.148 b/weight bills the tail in f32, as the files store it; the text had claimed f16 for the
+  figure. Only the served kernel holds the tail in f16.
+Arithmetic and rounding: 54 + 85 = 141 (above); 1.68 -> 1.69 (150/89 = 1.685); 14B row-scale
+  loop time 1.8 h, not the 2.0 h job time; "about 92" -> 92.04, 92.95, 92.12.
+Claims narrowed to their evidence: the gap to AWQ shrinks from 4B to 14B, and the 4B-to-8B step
+  is not separated (z = 1.1); "loses more on GSM8K at 4B only" holds in points, while counted in
+  errors it holds at every size; the 256 identical tokens are one prompt that loops; the
+  decoder chain is one dependent load, not three; "no three-way cut" -> "no split into three
+  sections of eight"; cls uses ranks {1,2,5,6}; one list instead of 256, not 4^8; the
+  encoder is a rule, not the nearest point; row scales come from the row norm, not least
+  squares; "every measurement on one L40S" -> every table and figure.
+Additions for completeness: the same-engine GSM8K gap 9.02 [7.07, 10.97]; two preregistered
+  misses and one hit to the prediction table, now captioned Table 8; the 14B stop-rule override;
+  the exception of the ten-arm run to preregistration; the online rotation, 96 launches a token.
+Figures: Figure 2a now shades a Golay codeword (the old pattern had weight 13); Figure 3 labels
+  no longer overflow; Figure 5 legend, axis and caption; Figure 6 labels at two decimals.
+Bibliography: Forney's name parses as G. David Forney, Jr.; Vardy and Be'ery are cited for
+  decoding, not for the three-section trellis.
+Commands: fusedrun needs the spelled-out flags and 256 tokens to reproduce the table; mmlu needs
+  LLVQ_MMLU_DUMP for mmlupair to have an input.
+
+SLIPS IN EARLIER JOURNALS, LEFT AS WRITTEN
+-------------------------------------------
+- gsm8k-wave2-2026-09-26 prints the 8B error ratio as 1.68; the counts give 150/89 = 1.69.
+- tetra-4b-2026-09-06 reads 88.89 against 92.00 retention as +8.5 % MSE; the conversion
+  2^(4 x 0.0311) gives +9.0 %.
+- sizeup-2026-09-28 printed rounded-term sums; corrected in place the same day, with a note.
+
+NOT CHANGED
+-----------
+The review of 2026-09-27 raised points that are not number errors: no baseline at the same
+rate (IQ2_M, IQ3_XXS, EXL3), no perplexity, one calibration draw, batch 1 only. They stay open
+decisions of the operator; the paper states them as limitations.
+
+SOURCES: THE 24 CITED WORKS AND THE PROVENANCE FILES
+----------------------------------------------------
+Eight readers checked the 24 cited works (metadata against arXiv, PMLR, ACL Anthology, Crossref,
+publisher and project pages; 87 citing sentences against what each work says), two readers the
+67 provenance rows, captions and repository paths; one skeptic per group then tried to refute
+each problem. 55 problems: 36 confirmed, 18 partly, 1 refuted; 1 must fix, 14 should fix, 39
+nits. Findings: paper2-audit-2026-09-28-brut/sources-findings.json. Checked again by hand before
+going in: the CUDA URL (404; the v13.0 archive page answers 200, "last updated Aug 20, 2025",
+99 KB per block, 48 KB default), the QuIP# pages at PMLR (48630--48656), the GQA record at the
+ACL Anthology, the DCLM-Edu card, the Homebrew llama.cpp build (10050, the only one installed),
+the tokenizer blob at the end of qwen3-4b-sealed.bin (11,422,654 B, sha256 aeb13307), and the
+4B row-scale interval, rerun with mmlupair (+3.15 [+2.56, +3.74], mmlupair-4b-rowscales.txt).
+
+Metadata: 23 of 24 entries right. The CUDA guide URL was dead; it now points at the v13.0
+archive. QuIP# gains its pages, LLVQ is pinned to v2 (the version the transcription reads),
+Conway and Sloane gain their series, llama.cpp names the builds actually used, not v0.2.0,
+DCLM-Edu takes its own spelling. GQA is added (Ainslie et al., EMNLP 2023).
+Attributions corrected:
+- QTIP: the cited MMLU is its 3INST code, which reads no table; the timed kernel is its HYB code.
+  The paper now names each.
+- The rotation QuIP# and QTIP apply is QuIP#'s random Hadamard transform; QuIP# is now cited
+  for it, and for the encoder's rotation.
+- AQLM and VPTQ: "lookup tables that fit on chip" was stronger than the papers; they tie speed
+  to how well tables of up to 2^16 entries fit in cache.
+- Vardy and Be'ery decode through the hexacode, not the three-octad trellis; Forney's trellis
+  needs the octad split (a generic split has 256 states at the first cut, computed).
+- LLVQ does not require a rotation; its cited bit rates are per quantized weight, with no scope
+  stated, not "projections only".
+- E8 is the best lattice quantizer known in 8 dimensions, not proven best.
+- Qwen3: 151,669 tokens for 151,936 table rows; bf16 checkpoints run in f16; "thinking mode",
+  the report's term, replaces "reasoning mode"; seven projections hold for the dense models.
+- MLX keeps its scales in the weights' type (bf16 for Qwen3), not f16.
+- "IQ2 is the 2-bit option most people run" had no source; replaced by what the formats are.
+- The A100 result and the ten-arm "earlier" rows, including QTIP's row, are paper 1's; cited.
+- AWQ's 4.179 includes 10.1 MB of its GEMV kernel's buffer padding; w4g128 alone is 4.156.
+Provenance: paths now written from the repository root; eleven rows gain the log that holds
+their number; one interval (4B row scales) gets its raw output.
+
+BUILD
+-----
+check_tables green (the new sizeup check kills 6 of 6 mutants), RELEASE=1 make check green,
+20 pages, 0 undefined reference, 0 overfull or underfull box. cargo clippy -p llvq-bench
+--examples: no warning.

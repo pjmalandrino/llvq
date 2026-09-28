@@ -1,0 +1,31 @@
+
+========================================================================
+A = Qwen/Qwen3-4B [reference checkpoint]
+    docs/mesures/f16-full-2026-09-18-brut/mmlu-4b-f16-FULL.csv
+    config=none, arithmetic=dense reconstruction, kv=f16
+B = /out/sealed-8b27-2026-09-24/qwen3-8b-sealed-B.bin [LLVQ 2-bit, sealed]
+    docs/mesures/sealed-8b-27-2026-09-24-brut/mmlu-B/mmlu-8b-B-sealed-FULL.csv
+    config=none, arithmetic=dense reconstruction, kv=f16
+14042 paired questions, 57 subjects · dtype f16 / f16 · limit census / census
+sampling plan: flat, 100..1534 per subject, 14042 questions / flat, 100..1534 per subject, 14042 questions
+run fingerprint: a74a6d6213602979 / a74a6d6213602979 (identical)
+
+rates (Δ = A − B, in percentage points)
+  stratified micro    A  70.14 %   B  69.58 %   Δ = +0.56 pp   ← the published number
+  unweighted (pooled) A  70.14 %   B  69.58 %   Δ = +0.56 pp   ← what McNemar tests
+
+McNemar exact (unweighted)
+  A✓B✗ = 1361   A✗B✓ = 1282   concordant = 11399   (18.8 % of the questions are discordant)
+  p = 0.1292   (z normal = +1.54)
+
+paired bootstrap stratified by subject (10000 draws, seed 0xb0075eed, WITHOUT finite population correction)
+  Δ stratified micro = +0.56 pp   CI95 [-0.18 ; +1.27]   SE 0.37 pp
+  unweighted control = +0.56 pp   CI95 [-0.18 ; +1.27]   SE 0.37 pp
+  → the CI contains zero: the gap is not resolved by this protocol.
+
+subjects carrying the gap (contribution to the stratified Δ)
+  elementary mathematics                    +9.5 pp × weight  2.7 % = +0.256 pp
+  moral scenarios                           -3.0 pp × weight  6.4 % = -0.192 pp
+  abstract algebra                         +21.0 pp × weight  0.7 % = +0.150 pp
+  professional psychology                   +2.6 pp × weight  4.4 % = +0.114 pp
+  high school mathematics                   +4.8 pp × weight  1.9 % = +0.093 pp

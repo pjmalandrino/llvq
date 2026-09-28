@@ -1,0 +1,10 @@
+model,format,weights_gb,kv_8k_gb,total_gb,basis
+Qwen3-4B,tetra,1.38,1.21,2.59,weights measured on the card (paper-table-2026-09-25); KV computed from config.json
+Qwen3-8B,tetra,2.76,1.21,3.97,weights measured on the card (paper-table-2026-09-25); KV computed from config.json
+Qwen3-14B,tetra,5.04,1.34,6.39,weights measured on the card (paper-table-2026-09-25); KV computed from config.json; total from unrounded bytes
+Qwen3-4B,awq,2.67,1.21,3.87,file bytes (paper2-results.csv); KV computed from config.json; total from unrounded bytes
+Qwen3-8B,awq,6.10,1.21,7.31,file bytes (paper2-results.csv); KV computed from config.json
+Qwen3-14B,awq,9.98,1.34,11.32,file bytes (paper2-results.csv); KV computed from config.json
+Qwen3-4B,awq with 4-bit tables,2.11,1.21,3.31,computed: file bytes minus f16 tables plus 4.5-bit tables; quality not measured; total from unrounded bytes
+Qwen3-8B,awq with 4-bit tables,4.31,1.21,5.52,computed: file bytes minus f16 tables plus 4.5-bit tables; quality not measured
+Qwen3-14B,awq with 4-bit tables,7.74,1.34,9.08,computed: file bytes minus f16 tables plus 4.5-bit tables; quality not measured

@@ -95,6 +95,22 @@ def check_gsm8k() -> None:
     need("experiments.tex", body, "cell or gap of tab:gsm8k")
 
 
+def check_sizeup() -> None:
+    """tab:sizeup, its prose and the memory budgets against paper2-sizeup*.csv."""
+    body = []
+    for r in read_csv("paper2-sizeup.csv"):
+        for k in ("mmlu", "gsm8k"):
+            body.append(r[f"{k}_gap_pp"].lstrip("+"))
+            if r["pair"] != "tetra14_minus_awq4":
+                body.append(f"${r[f'{k}_gap_pp']}$ "
+                            f"$[{r[f'{k}_ci_lo_pp']}, {r[f'{k}_ci_hi_pp']}]$")
+        if r["pair"] != "tetra14_minus_awq4":
+            body.append(f"{r['weights_tetra_gb']} vs {r['weights_other_gb']}")
+    for r in read_csv("paper2-sizeup-budget.csv"):
+        body += [r["total_gb"], r["kv_8k_gb"]]
+    need("experiments.tex", body, "cell or budget of tab:sizeup")
+
+
 def check_bench() -> None:
     """tab:bench and the appendix table against echelle-formats.csv."""
     rows = {r["layout"]: r for r in read_csv("echelle-formats.csv")}
@@ -122,7 +138,8 @@ def check_shape() -> None:
     throws the rest of the row into the None key, and nothing fails on its
     own. Paper 1 enforces the same rule."""
     for name in ("tuile-l40s.csv", "paper2-results.csv", "paper2-gaps.csv",
-                 "paper2-chain.csv", "paper2-gsm8k.csv", "paper2-gsm8k-gaps.csv"):
+                 "paper2-chain.csv", "paper2-gsm8k.csv", "paper2-gsm8k-gaps.csv",
+                 "paper2-sizeup.csv", "paper2-sizeup-budget.csv"):
         with open(DATA / name, newline="") as f:
             reader = csv.DictReader(f)
             width = len(reader.fieldnames or [])
@@ -152,6 +169,7 @@ def main() -> None:
     check_chain()
     check_gaps()
     check_gsm8k()
+    check_sizeup()
     check_bench()
     check_tile()
     check_pending()
