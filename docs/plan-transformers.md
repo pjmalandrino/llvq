@@ -1,0 +1,60 @@
+# Plan: loading Tetra files in `transformers`
+
+Goal: a sealed Tetra file loads with `from_pretrained` and generates the same tokens as our engine. Nothing is run
+until the operator gives a go on each stage (rule 1). Stages 0 to 3 cost 0 $ and run on the Mac.
+
+## Why
+
+Nothing but our engine reads a `.llvq` today (`docs/hf-model-card.md`). `bin/export` bridges to `transformers`
+by writing full f16, about 8 GB at 4B: an interchange artifact, never a distribution format. This plan targets
+loading the **compressed** file.
+
+## Facts the plan rests on
+
+Verified on 2026-09-28 in the upstream sources, `main` branch:
+
+- `transformers/quantizers/auto.py` exposes `register_quantizer` and `register_quantization_config`. A method can be
+  plugged in without a PR.
+- In-tree integration is a PR reviewed by the `transformers` maintainers. Their guide requires a pip-installable
+  package, ideally with precompiled kernels.
+- Vector methods are already in tree: `aqlm`, `vptq`, `higgs`, `spqr`.
+- The Kernel Hub (`huggingface/kernels`) requires kernels registered as `torch.ops.<namespace>`. Backends include
+  `cuda` and `metal`. On macOS it requires Metal 4.0 and a deployment target of 26.0.
+
+What we have: the CUDA kernel `llvq-cuda/kernels/llvq_tetra48.cuh`, compiled by NVRTC at launch, the Metal shader
+`llvq-llm/kernels/llvq_tetra48.metal`, and a Python package with torch adapters (`ops/llvqtune`).
+
+## Stages
+
+| stage | content | gate | cost |
+|---|---|---|---|
+| 0 | Map the sealed file to safetensors: codes, gains, row scales, f32 tail, int4 records, rotation seeds, plus `config.json` with a `quantization_config` block | a Python reader rebuilds every tensor bit for bit against `llvq-artifact` on the 4B | 0 $, Mac |
+| 1 | `LlvqQuantizer` registered with `register_quantizer`: swaps `nn.Linear` for a `TetraLinear` that dequantizes in PyTorch, then runs a dense matmul. Rotation, int4 projections and int4 embeddings included | `from_pretrained` loads the 4B. 64 greedy tokens identical to `bin/run` on the dense reconstruction, same prompt | 0 $, Mac, CPU or MPS |
+| 2 | Tetra decode as a torch op on Metal, from the existing shader | the op matches stage 1's dequant bit for bit on every 4B matrix; same 64 tokens | 0 $, Mac |
+| 3 | Kernel Hub packaging for Metal (`kernel-builder`), loaded with `get_kernel` | `kernel-abi-check` green; stage 2's tokens reproduced from the Hub-loaded kernel | 0 $, Mac |
+| 4 | CUDA: the NVRTC source becomes a precompiled torch extension, built by `kernel-builder` | `oracle`-style check against the f64 rows; same tokens as `fusedrun` under `configs/qwen3-4b-tetra-e4.json` | small, one L40S job, to price before the go |
+| 5 | Pip package, model card, 4B file pushed to the Hub in the new layout | a clean environment runs `pip install` then `from_pretrained` and reproduces the tokens | 0 $ |
+| 6 | Upstream PR to `transformers` | accepted or refused by the maintainers; not ours to decide | 0 $ |
+
+## Kill criteria
+
+Written before stage 0, to be timestamped in the prereg:
+
+- Stage 0 fails if a field of the sealed file has no faithful safetensors representation. Document it and stop.
+- Stage 1 fails if the quantizer hook cannot host the per-group rotation without patching the model code. That
+  would close the out-of-tree route; the in-tree PR becomes the only route, and it is reassessed then.
+- Stage 2 fails if the Metal op does not match bit for bit. That is a defect to fix, not a tolerance to widen.
+
+## What this plan does not claim
+
+- No speed number. `transformers` is not a throughput engine, and any tok/s it gives is never divided against our
+  engine or vLLM (rule 5).
+- Batch 1 and the `rot_apply` wall above 14B carry over unchanged (`docs/format-noyau.md` §8).
+- Acceptance of the stage 6 PR is not estimated.
+
+## Open decisions
+
+- The go on stage 0.
+- The safetensors layout: our own naming, or a mapping onto an existing in-tree method's conventions. To decide at
+  stage 0.
+- Whether publishing the three sealed files (`docs/ETAT.md` §5) waits for stage 5.
