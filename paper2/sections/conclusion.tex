@@ -1,26 +1,23 @@
 \section{Conclusion}
 \label{sec:conclusion}
 
-The GPU can read a Leech-lattice code without expanding it. In \Tetra{}, a block
-of weights is read through a 64-state trellis of the Golay code and one
-16~KiB table. The bits read per weight drop from 4.804 to 2.148. In exchange,
-the codebook bounds each third of a block separately instead of the whole
-block.
+The GPU can read a Leech-lattice code without expanding it. With \Tetra{}, a
+block is read through a 64-state trellis of the Golay code and one 16~KiB
+table, and the bits read per weight drop from 4.804 to 2.148. In exchange, the
+codebook bounds each third of a block separately, not the whole block.
 
-Three more changes, which leave the lattice codes untouched, give the sealed
-files of Qwen3-4B, 8B and 14B at about 2.7 bits per parameter. They score
-63.37, 69.58 and 75.66 on MMLU. That is 4.76, 4.21 and 2.46 points below 4-bit
-AWQ. At 14B the gap is about half the gap at 4B. Our files use about half as much
-memory as AWQ. In our engine, on one L40S, they generate 113.8, 95.0 and 57.2
-tokens per second, with 1.38, 2.76 and 5.04~GB of weights. On GSM8K,
-generated through the served kernel, they score 82.49, 88.63 and 92.04. In points, they lose more
-there than on MMLU at 4B, and this test cannot separate the two losses at 8B
-and 14B. Counted in errors, they lose more at every size.
+Three more changes, which leave the lattice codes untouched, give sealed
+Qwen3-4B, 8B and 14B files at about 2.7 bits per parameter, about half the
+memory of 4-bit AWQ. They score 4.76, 4.21 and 2.46 MMLU points below AWQ, and
+generate 113.8, 95.0 and 57.2 tokens per second in our engine on one L40S. On
+GSM8K, generated through the served kernel, they lose more to FP16 than on
+MMLU: in points at 4B only, and counted in errors at every size. With about as
+much weight memory or less, our 8B and 14B score above AWQ's 4B and 8B on MMLU
+and tie them on GSM8K (\S\ref{sec:sizeup}, a comparison chosen after
+measuring).
 
 Next, in this order, we would test \texttt{down\_proj} instead of
-\texttt{o\_proj} in int4 at 4B and 14B, as at 8B. Then we would add a second
-calibration draw and a second kind of GPU. Qwen3-32B first needs new kernels
-on the L40S: its widest activation takes 102{,}400~B of shared memory,
-1{,}024~B more than the card allows.
-A harder test, such as GSM8K in Qwen3's thinking mode~\citep{qwen3_2025},
-would show whether long chains of generation amplify the loss.
+\texttt{o\_proj} in int4 at 4B and 14B, as at 8B, then add a second
+calibration draw and a second kind of GPU. Qwen3-32B first needs new kernels on
+the L40S: its widest activation takes 102{,}400~B of shared memory, 1{,}024~B
+over the card's limit.
