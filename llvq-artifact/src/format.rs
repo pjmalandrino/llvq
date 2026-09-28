@@ -826,29 +826,49 @@ pub struct RawMatrix {
     pub tail: Vec<f64>,
 }
 
-/// Serialize one matrix from its undecoded `(index, gain)` pairs, into a file
-/// of version `version`.
+/// The index and gain widths of a lattice record, in bits.
 ///
-/// This is [`write_matrix`] minus the lattice: a matrix read with
-/// [`read_matrix_raw`] at some version and written back through here at the
-/// same version must produce the same bytes, which is what lets a tool
-/// rewrite a sealed file's raw-tensor section without paying (or trusting) a
-/// decode/re-encode of 150 M blocks. The byte-identity is pinned by
-/// `raw_passthrough_is_byte_identical`, at v4 and at v5.
+/// Public because the widths are a format fact and a reader outside this crate
+/// has no other honest source for them. `llvq_llm::hfpack`, which rewrites a
+/// sealed file into safetensors, asks here rather than recomputing
+/// `LABEL_BITS` and `log2(centroids)` on its own: a packer that disagreed with
+/// the format about a width would produce a file that loads and decodes
+/// plausible, wrong weights.
 ///
-/// The record's kind is `m.kind` — whatever the record was read as, not what
-/// the file's default is: that is the whole of what makes a mixed file
-/// copyable. Its invariants are checked first, so a passthrough is not a
-/// licence to write a record the file's own reader would refuse.
-pub fn write_matrix_raw(w: &mut impl Write, version: u32, m: &RawMatrix) -> Result<u64> {
-    let kind = m.kind;
+/// Refuses an [`CodeKind::Int4G128`] record, which has neither field.
+pub fn code_widths(
+    kind: CodeKind,
+    name: &str,
+    shell_cap: u32,
+    n_centroids: usize,
+) -> Result<(u32, u32)> {
+    Ok((
+        index_width(kind, name, shell_cap)?,
+        gain_width(kind, name, n_centroids)?,
+    ))
+}
+
+/// The code stream of a lattice record: `(index, gain)` pairs packed
+/// [MSB-first](llvq_search::pack), the exact bytes the record stores.
+///
+/// [`write_matrix_raw`] calls this and writes what it returns, so the two
+/// cannot drift: the bytes a packer gets here are the bytes the file holds,
+/// by construction rather than by a comment. `code_stream_is_the_record_bytes`
+/// pins it anyway, because the two could be pulled apart by an edit that looks
+/// local.
+///
+/// The record's invariants are checked here, before a bit is written: an
+/// [`CodeKind::Int4G128`] kind on a lattice type, a block count the dimensions
+/// do not support, a row-scale count that is not `d_out`, an index wider than
+/// its field.
+pub fn code_stream(m: &RawMatrix) -> Result<Vec<u8>> {
     // A `RawMatrix` is a lattice type; one carrying the int4 kind was built by
     // hand. Writing it would put a lattice head over int4 bytes, which is the
     // one shape no reader of this crate can tell from a torn file.
-    if kind == CodeKind::Int4G128 {
+    if m.kind == CodeKind::Int4G128 {
         return Err(Error::NotALatticeRecord {
             name: m.name.clone(),
-            kind,
+            kind: m.kind,
         });
     }
     let nblocks = m.d_in / DIM;
@@ -869,8 +889,40 @@ pub fn write_matrix_raw(w: &mut impl Write, version: u32, m: &RawMatrix) -> Resu
             detail: format!("{} row scales for {} rows", m.row_scales.len(), m.d_out),
         });
     }
-    let ib = index_width(kind, &m.name, m.shell_cap)?;
-    let gb = gain_width(kind, &m.name, m.centroids.len())?;
+    let (ib, gb) = code_widths(m.kind, &m.name, m.shell_cap, m.centroids.len())?;
+    let mut bw = BitWriter::with_capacity(m.indices.len() as u64 * (ib + gb) as u64);
+    for (&idx, &gain) in m.indices.iter().zip(&m.gains) {
+        if idx >= (1u64 << ib) {
+            return Err(Error::IndexTooWide {
+                name: m.name.clone(),
+                index: idx,
+                bits: ib,
+            });
+        }
+        bw.push(idx, ib);
+        bw.push(gain as u64, gb);
+    }
+    Ok(bw.finish())
+}
+
+/// Serialize one matrix from its undecoded `(index, gain)` pairs, into a file
+/// of version `version`.
+///
+/// This is [`write_matrix`] minus the lattice: a matrix read with
+/// [`read_matrix_raw`] at some version and written back through here at the
+/// same version must produce the same bytes, which is what lets a tool
+/// rewrite a sealed file's raw-tensor section without paying (or trusting) a
+/// decode/re-encode of 150 M blocks. The byte-identity is pinned by
+/// `raw_passthrough_is_byte_identical`, at v4 and at v5.
+///
+/// The record's kind is `m.kind` — whatever the record was read as, not what
+/// the file's default is: that is the whole of what makes a mixed file
+/// copyable. Its invariants are checked first, so a passthrough is not a
+/// licence to write a record the file's own reader would refuse.
+pub fn write_matrix_raw(w: &mut impl Write, version: u32, m: &RawMatrix) -> Result<u64> {
+    let kind = m.kind;
+    let (ib, gb) = code_widths(kind, &m.name, m.shell_cap, m.centroids.len())?;
+    let bytes = code_stream(m)?;
 
     put_record_head(
         w,
@@ -886,19 +938,6 @@ pub fn write_matrix_raw(w: &mut impl Write, version: u32, m: &RawMatrix) -> Resu
         &m.tail,
     )?;
 
-    let mut bw = BitWriter::with_capacity(m.indices.len() as u64 * (ib + gb) as u64);
-    for (&idx, &gain) in m.indices.iter().zip(&m.gains) {
-        if idx >= (1u64 << ib) {
-            return Err(Error::IndexTooWide {
-                name: m.name.clone(),
-                index: idx,
-                bits: ib,
-            });
-        }
-        bw.push(idx, ib);
-        bw.push(gain as u64, gb);
-    }
-    let bytes = bw.finish();
     put_u64(w, bytes.len() as u64)?;
     w.write_all(&bytes)?;
     Ok(m.indices.len() as u64 * (ib + gb) as u64
