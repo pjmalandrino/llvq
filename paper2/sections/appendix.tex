@@ -23,40 +23,53 @@ QTIP 2-bit~\citep{qtip2024}$^{*}$ & 252 & 2.246 & 0.91 & 2.000 & 405\\
 \caption{Each row is one kernel timed on the 4B matrix shapes on one L40S,
 over seven rounds with the first two dropped. The first ten rows are the ten
 arms of one process, at tile 64: our kernels copy the activation to shared
-memory 64 activation blocks at a time. The no-weights control has the same thread
-layout and reads no weight byte. The \Tetra{} arm covers 216 matrices and the
-others 252, so the milliseconds do not rank the arms. $^{*}$This row comes from
-another process (2026-08-21) and is below the no-weights control. We keep it
-with that caveat. Data: echelle-formats.csv.}
+memory 64 activation blocks at a time. The no-weights control has the same
+thread layout and reads no block code, only the row scales and the
+unquantized tail of each row. The \Tetra{} arm covers 216 matrices and the others 252, so its
+time is a lower bound for the full set. GB/s divides the bytes read by the
+fastest round. $^{*}$This row comes from another process (2026-08-21) and is
+below the no-weights control. We keep it with that caveat. Data:
+echelle-formats.csv.}
 \end{table}
 
 \section{Record of predictions, defects and commands}
 \label{app:record}
 
 \paragraph{Predictions and how they scored.} Before each campaign ran, we
-preregistered a prediction and an interval. A signed value with no unit is in
+preregistered a prediction and an interval. The exceptions are listed under
+Availability. Table~\ref{tab:predictions} lists a selection; the
+preregistrations in \texttt{proofs/} hold every prediction. A signed value with
+no unit is in
 MMLU points, except in the GSM8K rows. The GSM8K predictions for FP16 and AWQ
 each came with an interval, and every measurement fell inside it.
 
-\begin{table}[H]
+One campaign departed from its preregistration. The 14B row-scale training
+ended with its loss gauge reading ``not improved'', and its preregistration
+said to stop there. We folded the scales anyway, on a decision recorded before
+the result was known. That step is the $+1.67$ of Table~\ref{tab:chain}.
+
+\begin{table}[!t]
 \centering\small\setlength{\tabcolsep}{5pt}
 \begin{tabular}{lrrl}
 \toprule
 quantity & predicted & measured & inside?\\
 \midrule
-\Tetra{} time at tile 64 & 3.77~ms $[3.5, 4.1]$ & 3.423~ms & no, faster\\
-gain from tile 128 to 64 & $+8.3\,\%$ $[0, +15]$ & $+16.1\,\%$ & no, larger\\
+\Tetra{} time at tile 64, tile sweep & 3.77~ms $[3.5, 4.1]$ & 3.423~ms & no, 0.08~ms under\\
+gain from tile 128 to 64 & $+8.3\,\%$ $[0, +15]$ & $+16.1\,\%$ & no, 1.1 over\\
 row-scale training, 4B & $+3.5$ $[+1.5, +4.5]$ & $+3.15$ & yes\\
 row-scale training, 8B & $+2.0$ $[+0.5, +3.5]$ & $+3.29$ & yes\\
 row-scale training, 14B & $+3.2$ $[+1.7, +4.7]$ & $+1.67$ & no, 0.03 under\\
 sealed composition, 4B & $+1.2$ $[+0.2, +2.2]$ & $+2.26$ & no, 0.06 over\\
+sealed composition, 8B, down only & $+0.7$ $[-0.3, +1.7]$ & $+1.42$ & yes\\
 sealed composition, 14B & $+1.0$ $[0, +2.0]$ & $+1.46$ & yes\\
-8B at 2.7, $o$ and down minus down only & $+0.2$ $[-0.6, +1.0]$ & $-0.77$ & no, other sign\\
+8B at 2.7, $o$ and down minus down only & $+0.2$ $[-0.6, +1.0]$ & $-0.77$ & no, 0.17 under\\
 second training, 4B & $+0.8$ $[-0.4, +2.0]$ & $+0.02$ & yes\\
-AWQ 4B, full test set & 69.9 $[69.2, 70.6]$ & 68.14 & no, lower\\
+AWQ 4B, full test set & 69.9 $[69.2, 70.6]$ & 68.14 & no, 1.06 under\\
 IQ2\_XXS 4B, full test set & 39.0 $[37.5, 40.5]$ & 39.78 & yes\\
-AWQ tok/s in vLLM, 8B & 90 $[75, 110]$ & 123.2 & no, faster\\
-AWQ tok/s in vLLM, 14B & 55 $[45, 70]$ & 77.8 & no, faster\\
+FP16 8B, full test set & 77.0 $[75.5, 78.5]$ & 75.05 & no, 0.45 under\\
+14B, \Tetra{} $+$ int4 \texttt{v\_proj}, full test set & 68.3 $[65.3, 71.2]$ & 72.53 & no, 1.33 over\\
+AWQ tok/s in vLLM, 8B & 90 $[75, 110]$ & 123.2 & no, 13.2 over\\
+AWQ tok/s in vLLM, 14B & 55 $[45, 70]$ & 77.8 & no, 7.8 over\\
 sealed 4B tok/s, GB & 110 $[95, 125]$, 1.38 & 113.8, 1.38 & yes\\
 sealed 8B tok/s, GB & 100 $[88, 112]$, 2.77 & 95.0, 2.76 & yes\\
 sealed 14B tok/s, GB & 58 $[50, 66]$, 5.04 & 57.2, 5.04 & yes\\
@@ -67,10 +80,14 @@ GSM8K, \Tetra{} 4B & 75 $[67, 83]$ & 82.49 & yes\\
 GSM8K, \Tetra{} 8B & 82 $[75, 88]$ & 88.63 & no, 0.63 over\\
 GSM8K, \Tetra{} 14B & 88 $[83, 92]$ & 92.04 & no, 0.04 over\\
 GSM8K, \Tetra{} minus FP16, 4B & $-15$ $[-23, -8]$ & $-9.63$ & yes\\
-GSM8K, \Tetra{} minus FP16, 8B & $-10$ $[-17, -5]$ & $-4.62$ & no, smaller\\
+GSM8K, \Tetra{} minus FP16, 8B & $-10$ $[-17, -5]$ & $-4.62$ & no, 0.38 over\\
 GSM8K, \Tetra{} minus FP16, 14B & $-6$ $[-11, -2]$ & $-3.26$ & yes\\
 \bottomrule
 \end{tabular}
+\caption{Preregistered predictions against the measurements. Sources: the
+preregistrations in \texttt{proofs/} and the logs of
+Appendix~\ref{app:provenance}.}
+\label{tab:predictions}
 \end{table}
 
 \paragraph{Defects found by the served runs.} The first served runs of the
@@ -80,7 +97,8 @@ no rotation took a code path that sends all prompt rows to the matrix-vector
 product at once. That is correct for a dense matrix and wrong for the int4
 kernel, which takes one row. A lone int4 \texttt{o\_proj} or
 \texttt{down\_proj} forms such a group. An int4 \texttt{v\_proj} never does,
-since $q$ and $k$ share its group. Second, the int4 kernel was capped at the
+since its group also holds the rotated $q$ and $k$. Second, the int4 kernel was
+capped at the
 default 48~KiB of shared memory. A 14B \texttt{down\_proj} needs more. We
 fixed, tested and type-checked both before the runs behind the speeds in
 Table~\ref{tab:main}. Neither defect affects an MMLU number, because MMLU is
@@ -99,16 +117,17 @@ first eight hex digits of their SHA-256:
 \item \nolinkurl{qwen3-14b-sealed.bin}, \texttt{61db37fe}.
 \end{itemize}
 Each file has a served configuration in \nolinkurl{configs/}, named after its
-size, for example \nolinkurl{qwen3-4b-tetra-e4.json}. On an NVIDIA GPU:
+size; the commands below use the 4B one. On an NVIDIA GPU:
 
 {\footnotesize
 \begin{verbatim}
-# tok/s and GB, through the served kernel
-LLVQ_CONFIG=configs/qwen3-4b-tetra-e4.json cargo run --release \
-  -p llvq-llm --features cuda --bin fusedrun -- <file>
+# tok/s and GB at the served flags, 256 tokens, against the dense arm
+LLVQ_FUSED_LAYOUT=tetra48 LLVQ_ROT_SHARE=1 LLVQ_FUSE=0 LLVQ_KV=f16 \
+  LLVQ_EMBED=q4 cargo run --release -p llvq-llm --features cuda \
+  --bin fusedrun -- <file> 256
 # MMLU on the full test set, then a paired comparison of two dumps
-LLVQ_MMLU_ALLOC=flat cargo run --release -p llvq-llm \
-  --features cuda --bin mmlu -- <file> cuda
+LLVQ_MMLU_ALLOC=flat LLVQ_MMLU_DUMP=<dump> cargo run --release \
+  -p llvq-llm --features cuda --bin mmlu -- <file> cuda
 cargo run --release -p llvq-llm --bin mmlupair -- <A> <B> --no-fpc
 # GSM8K through the served kernel, then a paired comparison
 LLVQ_CONFIG=configs/qwen3-4b-tetra-e4.json LLVQ_GSM8K_DUMP=<dump> \
@@ -118,8 +137,9 @@ cargo run --release -p llvq-llm --bin gsm8kpair -- <A> <B>
 cargo run --release -p llvq-bench --bin rtbits -- <file>
 \end{verbatim}}
 
-\noindent Each program prints a fingerprint of the questions or tokens it
-scored. Two numbers compare only when their fingerprints match.
+\noindent \texttt{mmlu} and \texttt{gsm8k} print a fingerprint of the prompts
+they scored. Two scores compare only when their fingerprints match, and the
+two pairing programs refuse dumps whose fingerprints differ.
 
 \section{Provenance}
 \label{app:provenance}
@@ -127,44 +147,57 @@ scored. Two numbers compare only when their fingerprints match.
 Each number is \emph{measured} (read off a run), \emph{computed} (arithmetic
 on measured quantities) or \emph{cited}. The logs are files under
 \texttt{docs/mesures/}. The table shortens their names, and all dates are in
-2026. The script \texttt{scripts/make\_figures.py} draws every figure from a
+2026. The script \texttt{scripts/make\_figures.py} draws every data figure from a
 CSV in \texttt{docs/data/}. A second script, \texttt{scripts/check\_tables.py},
 stops the build if a table no longer matches its CSV.
 
 {\footnotesize\setlength{\tabcolsep}{4pt}
-\begin{tabular}{p{4.8cm}lp{5.2cm}}
+\begin{longtable}{>{\raggedright\arraybackslash}p{4.8cm}l>{\raggedright\arraybackslash}p{5.2cm}}
 \toprule
 claim & nature & source\\
 \midrule
+\endhead
+\bottomrule
+\endlastfoot
 \Planes{} reads 4.804 \bw{} & measured & echelle-formats.csv; e2-golay70-bench-08-07\\
-ball holds $1.1\cdot10^{14}$ points & computed & theta-series test in \texttt{llvq-core}\\
+ball holds $1.1\cdot10^{14}$ points & computed & shells 2 to 12 of the class enumeration; theta-series test in \texttt{llvq-search}\\
 64 states a cut, 1{,}024 edges, $N_0=1240$ & computed & f1a-comptes-09-04; checked at build\\
-tables, 18{,}816~B & measured & printed at every launch; banc-t64-09-20\\
-$m\le27$, $\max|y_j|=10$ & computed & \texttt{examples/tetrashell.rs}, exhaustive\\
-about 141 instructions a block & computed & \texttt{llvq\_f1rank\_v3.cuh}\\
+tables, 18{,}816~B & computed & sum of the five sizes printed at every launch; banc-t64-09-20\\
+$m\le26$, $\max|y_j|=10$ & computed & \texttt{examples/tetrashell.rs}, exhaustive; paper2-audit-09-28\\
+about 150 instructions a block, 20 more for gain and norm & computed & \texttt{llvq\_f1rank\_v3.cuh} (default mask), \texttt{llvq\_tetra48.cuh}\\
+retention, 88.80 against 91.98, and 3.2 points on real blocks & measured & f1-encodeur-blocs-reels-09-05\\
+0.6 points of retention from the cost order & measured & \texttt{examples/f1rankbench.rs}; HISTORIQUE, 2026-09-05\\
 shaping, 0.7292 against 1.0958~dB & computed, idealised & \texttt{ops/f1a\_shaping.py}\\
-$G(E_8)/G(\Lambda_{24})=1.0899$ & cited & Conway and Sloane, Table 2.3\\
-ten-arm benchmark, Table~\ref{tab:bench} & measured & echelle-formats.csv; banc-t64-09-20\\
+$G(E_8)/G(\Lambda_{24})=1.0899$ & cited, computed & Conway and Sloane, Table 2.3\\
+ten-arm benchmark, Table~\ref{tab:bench} and Appendix~\ref{app:bench} & measured & echelle-formats.csv; banc-t64-09-20 (raw output only); QTIP row: f2-p3-qtip-banc-08-21\\
 tile sweep & measured & tuile-l40s.csv; tuile-l40s-09-20\\
-sealed files: bytes, bits per parameter & measured, computed & \texttt{rtbits}; embed-q4-swap-09-23, sealed-8b-14b-09-23, sealed-8b-27-09-24\\
-MMLU of the sealed files & measured & same logs; question fingerprint \texttt{a74a6d62}\\
-steps of Table~\ref{tab:chain} & measured & paper2-chain.csv; dclm-rowscales-09-20, dclm-8b-rowscales-09-21, dclm-14b-rowscales-09-22, census-8b-09-21, census-14b-base-09-22\\
+sealed files: bytes, bits per parameter & measured, computed & \texttt{rtbits}; sealed-4b-09-23 (raw output), sealed-rownorms-09-23, sealed-8b-27-09-24, sealed-8b-14b-09-23\\
+MMLU of the sealed files; at 4B, of the same weights with the int4 matrices rebuilt at load & measured & embed-q4-swap-09-23, sealed-8b-27-09-24, sealed-8b-14b-09-23; question fingerprint \texttt{a74a6d62}; the 4B file gives the same answers on 57 of 57 questions, sealed-4b-09-23\\
+steps of Table~\ref{tab:chain} & measured, computed & paper2-chain.csv; dclm-rowscales-09-20, dclm-8b-rowscales-09-21, dclm-14b-rowscales-09-22, census-8b-09-21, census-14b-base-09-22, embed-q4-swap-09-23, sealed-8b-27-09-24, sealed-8b-14b-09-23\\
+int4 \texttt{v\_proj} at 4B, $+1.73$ on the full test set & measured & tetra-nu-full-09-18\\
 FP16 and AWQ MMLU, 8B and 14B & measured & census-8b-09-21; census-14b-ref-09-22\\
 FP16 MMLU 4B & measured & f16-full-09-18\\
 AWQ and IQ2\_XXS MMLU 4B & measured & paper-table-09-25\\
 paired gaps, Figure~\ref{fig:scale} & measured & paper2-gaps.csv; the same logs\\
 FP16 and AWQ tok/s in vLLM & measured & awq-vllm-4b-08-17; paper-table-09-25\\
 IQ2\_XXS tok/s & measured & m4-iq2-cuda-08-30\\
-FP16 tok/s, our engine & measured & paper-table-09-25, dense arm of each served run\\
+f16 dense path tok/s, our engine & measured & paper-table-09-25, dense arm of each served run\\
 served tok/s and GB of the sealed files & measured & paper-table-09-25\\
 8B choice, $o$ against down & measured & sealed-8b-27-09-24\\
 second training, 4B & measured & sealed-rownorms-09-23\\
-calibration draw moves MMLU by 2.92 & measured, 3 draws & bruit-mmlu-graines-4b-08-25\\
+three calibration draws, \Planes{} 4B, 2{,}280 questions: MMLU range 5.83, s.d.\ 2.92 & computed & bruit-mmlu-graines-4b-08-25\\
 GSM8K of the sealed files, prompt fingerprint \texttt{bfa9135c} & measured & gsm8k-wave1-09-26, gsm8k-wave2-09-26\\
-GSM8K of FP16 and AWQ, the engine check & measured & paper2-gsm8k.csv; the same logs\\
+GSM8K of FP16 and AWQ, the engine check, the same-engine gap of 9.02 & measured & paper2-gsm8k.csv; the same logs\\
 GSM8K paired gaps, Table~\ref{tab:gsm8k} & measured & paper2-gsm8k-gaps.csv; the same logs\\
 gaps one size apart, Table~\ref{tab:sizeup} & measured & paper2-sizeup.csv; sizeup-09-28; not preregistered\\
 KV cache and memory budgets, \S\ref{sec:sizeup} & computed & paper2-sizeup-budget.csv; sizeup-09-28\\
-bare \Tetra{} against \Planes{} & measured & tetra-4b-09-06\\
-\bottomrule
-\end{tabular}}
+bare \Tetra{} against \Planes{}, and the encoder drift & measured & tetra-4b-09-06; paired interval in paper2-audit-09-28\\
+sm\_120 tile sweep, 0.82 to 1.03 times \Planes{} & measured & f1d-09-10\\
+load times 4.1 and 72.9~s, 96 rotation launches a token & measured & paper-table-09-25\\
+1{,}792 blocks within $10^{-5}$ on sm\_120 & measured & tetra48-tuerie-09-08\\
+row padding, 4.1~MB & measured & banc-t64-09-20\\
+tokenizer and config in the file, 11.4~MB & measured & \texttt{docs/fiche-4b.md}\\
+$z=1.1$ for the fall of the AWQ gap from 4B to 8B & computed & standard errors of the paired gaps, the same logs\\
+AWQ bits per parameter & computed & echelle-4b-8b.csv; rtbits-planes-8b-08-09, rtbits-14b-08-17\\
+MMLU of LLVQ, QTIP and QuIP\# & cited & \citet{llvq2026}, Table 6\\
+\end{longtable}}

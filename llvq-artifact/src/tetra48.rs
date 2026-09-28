@@ -44,10 +44,10 @@ pub const TETRA48_BYTES: usize = 6;
 
 /// Entries of the inverse-norm table the kernel reads.
 ///
-/// `m = ‖y‖²/16` never exceeds 27 on this codebook — swept over all 4,096 rows
-/// against both parities and both residues by `llvq-bench/examples/tetrashell.rs`,
-/// which reports `max |y_j| = 10` and a worst section sum of 144, hence
-/// `n2 ≤ 432`. 32 is that bound rounded up to a power of two, and
+/// `m = ‖y‖²/16` never exceeds 26 on this codebook: the exact maximum over every
+/// codeword, both parities and every allowed row, by
+/// `llvq-bench/examples/tetrashell.rs`, which reports `max |y_j| = 10` and
+/// `n2 ≤ 416`. 32 is that bound rounded up to a power of two, and
 /// `llvq_tetra48.cuh` masks with it so a corrupt word reads a wrong scale
 /// rather than off the end of the table.
 pub const TETRA48_SHELLS: usize = 32;

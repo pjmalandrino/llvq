@@ -56,7 +56,8 @@ Baalen, Whatmough, Nagel, 2026), in an independent Rust implementation.
 | MMLU, 5-shot, 14,042 questions | **63.37** | 70.14 | 68.14 | 39.78 |
 | GSM8K, zero-shot, 1,319 problems | **82.49** | 92.12 | 89.01 | not scored |
 
-All *measured*. Bits per parameter are counted by `rtbits` on the file's bytes.
+All *measured*. Bits per parameter are counted by `rtbits` from the file's records, at
+the widths the GPU holds.
 Weight bytes are this file's buffers on the GPU and the other formats' weight
 files. Speeds are medians of five rounds, 256 greedy tokens for this file and
 128 for FP16 and AWQ; IQ2_XXS is the mean of five 128-token repetitions. Each
@@ -83,12 +84,16 @@ ran through our dense path: 91.51 against 92.12 in vLLM, −0.61 points
 
 **MMLU is scored on the dense reconstruction**: the same weights decoded to f16
 and run through an ordinary forward pass. The answer is read from the logits of
-the four answer letters, micro-averaged over the full test split. On 50 GSM8K
-problems, the kernel and the dense reconstruction give the same 50 answers.
+the four answer letters, micro-averaged over the full test split. The 63.37
+was scored on the file one step before sealing, with the same int4 matrices
+rebuilt at load by the same quantizer; this file gives the same answers and
+logits on 57 of 57 questions. On 50 GSM8K problems, the kernel and the dense
+reconstruction give the same 50 answers.
 
-At 4B the model loses more on GSM8K than on MMLU. At 8B and 14B it does not:
-the sibling files lose 4.62 and 3.26 GSM8K points to FP16, against 5.48 and
-3.22 on MMLU.
+In points, the model loses more on GSM8K than on MMLU at 4B. At 8B and 14B the
+test cannot separate the two losses: the sibling files lose 4.62 and 3.26 GSM8K
+points to FP16, against 5.48 and 3.22 on MMLU. Counted in errors, GSM8K costs
+more at every size.
 
 | sibling file | bits per parameter | MMLU | GSM8K | decode tok/s | weights |
 |---|---|---|---|---|---|
@@ -99,7 +104,7 @@ the sibling files lose 4.62 and 3.26 GSM8K points to FP16, against 5.48 and
 
 | part | how it is stored |
 |---|---|
-| 168 of the 252 projections | Tetra lattice codes: 48 bits per block of 24 weights, one scale per row, a small tail kept exact |
+| 168 of the 252 projections | Tetra lattice codes: 48 bits per block of 24 weights, one scale per row, a small tail kept unquantized |
 | `v_proj` of every layer, `o_proj` of every layer, `down_proj` of layers 12 to 23 | int4, groups of 128 |
 | embedding, tied to the output head | int4, groups of 64 |
 | norms and everything the quantizer does not touch | f16 |
@@ -113,7 +118,7 @@ model, with the codes frozen. Each step is measured on the full MMLU test set:
 |---|---|
 | Tetra codes, int4 `v_proj` | 57.95 |
 | + retrained row scales | 61.11 |
-| + int4 `o_proj` and `down_proj` 12 to 23, 4-bit embedding (this file) | 63.37 |
+| + int4 `o_proj` and `down_proj` 12 to 23, 4-bit embedding (these weights, int4 rebuilt at load) | 63.37 |
 
 ## Running it
 
@@ -140,9 +145,10 @@ the 4-bit embedding, one rotation per group of projections, an f16 KV cache.
   earlier lattice kernels beat FP16.
 - **Batch 1, short context.** Nothing here measures several requests at once,
   or prompts longer than about 1,400 tokens.
-- **One calibration draw.** At 4B, three draws moved MMLU by 2.92 points. The
-  paired gaps compare fixed files and do not depend on it; the absolute levels
-  do.
+- **One calibration draw.** At 4B, three draws of calibration text, encoded
+  with the earlier codebook, spread MMLU over 5.83 points on 2,280 questions
+  (standard deviation 2.92). The gaps to FP16 and AWQ move with the draw like
+  the absolute scores, and their intervals leave out this spread.
 - **GSM8K is an easy test for this model family.** FP16 scores 92 to 95 %, and
   the problems have been public since 2021. Qwen3's reasoning mode, which writes
   much longer chains, is not tested.

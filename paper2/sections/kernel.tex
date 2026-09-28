@@ -9,29 +9,31 @@ One warp (threads that run in lockstep) computes each output row, and a
 block of weights at a time. The activation goes into shared memory, a small
 fast on-chip memory, in tiles of $T$ blocks ($96T$ bytes). Each tile has two
 barriers, where all threads wait. A shuffle reduction sums the lanes' results,
-and a last step adds the exactly kept tail and multiplies by
-$\sigma_{\mathrm{row}}$. What differs is how a block is decoded.
+and a last step multiplies by $\sigma_{\mathrm{row}}$ and adds the unquantized
+tail. What differs is how a block is decoded.
 
-Decoding a block takes six table loads, and three choices make it fast. First,
-each table value is stored as a biased byte, $\mathrm{val}+128$. Placed in the
+Decoding a block takes six table loads and two small lookups, for the gain and
+the norm. Three choices make it fast. First, each coordinate value is held in a
+register table as a biased byte, $\mathrm{val}+128$. Placed in the
 low byte of \texttt{0x4b0000\_\_}, it reads exactly as the float
 $2^{23}+\mathrm{byte}$, and one subtraction gives the value back. A coordinate
 thus costs one byte permute (a byte move inside a register), one add and one
 fused multiply-add, with no integer-to-float conversion. Second, every loop is
 unrolled with constant indices, so no value spills from registers to the slower
-local memory. The compiler reports 40 registers and no local memory, as for
-\Planes{}. Third, the only reads that depend on the data are the six table
-loads, so the lanes never take different paths.
+local memory. The compiler reports 40 registers and no local memory for the
+benchmark kernel, as for \Planes{}. Third, no branch depends on the data, so
+the lanes never take different paths.
 
-Counted from the source, a block costs about 141 instructions: 54 on the FMA
-pipe (the multiply-add unit) and 85 on the ALU pipe (the integer and bit
-unit). A decoder that extracts and converts each coordinate needs about 380,
-plus 24 conversions.
+Counted from the source, the rank decode and the 24 multiply-adds of a block
+take about 150 instructions: about 60 on the FMA pipe (the multiply-add unit),
+about 85 on the ALU pipe (the integer and bit unit) and six loads. The gain and
+the norm add about 20. A decoder that extracts and converts each coordinate
+needs about 380, plus 24 conversions.
 
-The kernel reads the file's 48-bit words as stored, so nothing is rewritten at
-load.
-In the same process, the 4B file loads in 12.1~s and its dense reconstruction
-(the file decoded to f16) in 81.8~s.
+The kernel reads the 48 bits the file stores for each block, and no code is
+expanded. Loading only reorders the bits of each word and pads each row to a
+multiple of 8~bytes. In the same process, the sealed 4B file loads in 4.1~s
+and its dense reconstruction (the file decoded to f16) in 72.9~s.
 
 \paragraph{The rest of a served model.} The int4 projections use a separate
 kernel with the same thread layout. It copies the whole activation into shared
@@ -40,18 +42,23 @@ accumulates in f32. At 14B, a \texttt{down\_proj} activation takes
 69{,}632~B, more than the 48~KiB a thread block gets by default, so the CPU
 code asks the driver for more. The L40S allows 101{,}376~B. The 4-bit
 embedding tables use two small kernels: one looks up and dequantizes the input
-tokens' rows, the other is the output head's matrix-vector product. On a
+tokens' rows, the other is the output head's matrix-vector product. The
+activations are rotated online to match the rotated weights. At 4B, a small
+kernel runs 96 times a token, once per group of projections that share a
+rotation. On a
 prompt, the \Tetra{} kernel takes four tokens per launch, the int4 kernel one
 at a time.
 
-\paragraph{How the kernel is checked.} Before any timing, we recompute all
-1{,}105{,}920 output rows of the 4B model in f64 from the same decoded
-weights. Each must match the kernel's row within
-$10^{-5}\cdot\sum|w\cdot x|$. The worst \Tetra{} row is off by
-$2.1\times10^{-8}\cdot\sum|w\cdot x|$. One level down, we compare the GPU
-decoder's outputs with an independent CPU implementation, on the development
-machine and again on the card. For each 48-bit word, the 24 decoded values
-must match bit for bit. End to end, each served model and its dense reconstruction
+\paragraph{How the kernel is checked.} Before any timing, we recompute every
+output row of the 4B shapes in f64 from the same decoded weights: 1{,}105{,}920
+rows, 1{,}069{,}056 of them for the 216 \Tetra{} matrices. Each must match the
+kernel's row within $10^{-5}\cdot\sum|w\cdot x|$, or $10^{-3}$ for the two
+arms that write f16, AWQ and cuBLAS. The worst \Tetra{} row is off by
+$2.1\times10^{-8}\cdot\sum|w\cdot x|$. One level down, the decoder's CUDA
+source, compiled for the CPU of the development machine, must give the 24
+lattice coordinates of each 48-bit word bit for bit against an independent
+Rust decoder. On an sm\_120 card, the scaled values of 1{,}792 blocks match
+that decoder within a relative $10^{-5}$. End to end, each served model and its dense reconstruction
 generate 256 greedy tokens (always the most likely next one) in the same
 process. We compare the two sequences (\S\ref{sec:main}).
 
@@ -68,24 +75,28 @@ matrices timed & 252 & 252 & 252 & 216 & 252\\
 median ms & 10.973 & 3.261 & 4.997 & 3.424 & 2.289\\
 GB read per pass & 7.27 & 1.90 & 2.18 & 0.95 & 0.07\\
 \bw{} in VRAM & 16.000 & 4.179 & 4.804 & \textbf{2.148} & 0.159\\
-GB/s & 662 & 583 & 437 & 278 & 32\\
+GB/s, fastest round & 662 & 583 & 437 & 278 & 32\\
 \bottomrule
 \end{tabular}
 \caption{Kernel benchmark on the 4B shapes at tile $T=64$: one process, one
 L40S, seven rounds with the first two dropped. ``No weights'' is a kernel with
-the same thread layout that reads no weight byte. The \Tetra{} arm times the
-216 lattice matrices of an early 4B file, not its 36 int4 \texttt{v\_proj},
-which run on the other kernel. Its time thus covers less work than the other
-columns, so bits per weight is the row to compare. Appendix~\ref{app:bench}
-has the ten-arm table. Data: echelle-formats.csv.}
+the same thread layout that reads no block code, only the tail and the row
+scales. The \Tetra{} arm times the 216 lattice matrices of an early 4B file,
+not its 36 int4 \texttt{v\_proj}, which run on the other kernel. Its time thus
+covers less work than the other columns. The two lattice arms hold the tail in
+f32, as the files store it. The served kernel holds it in f16. The \Tetra{}
+row leaves out 4.1~MB of row padding, 0.009~\bw{}. The AWQ arm is the GEMV kernel of the AWQ
+authors~\citep{awq2024}, ported to our harness, not the Marlin kernel that
+vLLM serves. Appendix~\ref{app:bench} has the ten-arm table. Data:
+echelle-formats.csv.}
 \label{tab:bench}
 \end{table}
 
 Per weight, \Tetra{} reads 2.148 bits, against 4.179 for 4-bit AWQ and 4.804
 for \Planes{}, about half the bytes of either (Table~\ref{tab:bench}). The
-milliseconds do not rank the arms (the columns of the table), because the \Tetra{}
-arm covers fewer matrices. The no-weights kernel takes 2.289~ms, against
-3.424~ms for \Tetra{} and 4.997~ms for \Planes{}. \Tetra{} reads its bytes at 278~GB/s,
+\Tetra{} arm covers fewer matrices, so its time is a lower bound for the full
+set. Even so, it is slower than the AWQ arm: 3.424 against 3.261~ms. The
+no-weights kernel takes 2.289~ms, and \Planes{} 4.997~ms. \Tetra{} reads its bytes at 278~GB/s,
 where AWQ reaches 583. Reading half the bytes does not halve the time.
 
 \subsection{The tile and the L1 cache}
@@ -109,8 +120,8 @@ arms.
 \begin{figure}[t]
 \centering
 \includegraphics{fig_tile.pdf}
-\caption{The tile sweep on the served path: median ms over 252 projections,
-one process, one L40S. Each curve is one arm against itself across tiles, and
+\caption{The tile sweep on the arms of Table~\ref{tab:bench}: median ms per
+pass over 252 projections, 216 for \Tetra{}. One process per tile, one L40S. Each curve is one arm against itself across tiles, and
 the percentage is that arm's own range, largest over smallest. At
 $T = 128, 64, 32$: no weights 2.272, 2.288, 2.388~ms; \Planes{} 5.070, 4.995,
 5.044~ms; \Tetra{} 4.078, 3.423, 3.553~ms. Data: tuile-l40s.csv.}
@@ -120,9 +131,11 @@ $T = 128, 64, 32$: no weights 2.272, 2.288, 2.388~ms; \Planes{} 5.070, 4.995,
 Across $T \in \{128, 64, 32\}$, the \Planes{} time varies by 1.5\,\%, the
 no-weights time by 5.1\,\% and the \Tetra{} time by 19.1\,\%
 (Figure~\ref{fig:tile}). The three arms share the thread layout, the activation
-copy and the occupancy. Only the \Tetra{} arm reads tables. We think the
+copy and the occupancy. \Planes{} reads one entry per block from a 12~KiB
+class table. \Tetra{} reads seven from its 18.4~KiB of tables. We think the
 difference comes from pressure on the tables' room in L1, but we have not
 proven it. Our rented platform gives no access to performance counters, so we
 measured no cache hit rate. We set the served tile to $T=64$ on sm\_89. On an
-sm\_120 card the same sweep prefers $T=32$, so the best tile depends on the
-card, not on the format. All other kernel numbers in this paper are at $T=64$.
+sm\_120 card, an earlier sweep on other 4B files puts \Tetra{} fastest at
+$T=32$ and \Planes{} fastest at $T=128$. The best tile depends on the card and
+on the kernel. All other kernel numbers in this paper are at $T=64$.

@@ -633,3 +633,18 @@ points above AWQ's 4B and our 14B 1.87 above AWQ's 8B; on GSM8K they tie at −0
 back the larger model. Our 14B in 5.04 GB scores 5.52 MMLU points above FP16's 4B in 8.04 GB and ties it on GSM8K.
 The 4B and 8B share one KV cache, so the step from 4B to 8B costs weights only. Paper 2 carries it as section 6.4 and
 Table 5, marked as not preregistered.
+
+## 2026-09-28. Paper 2, every number audited
+
+1,132 numbers of paper 2 were checked against their CSVs, journals and code, by eight auditors,
+eight skeptics and a blind sample; about a hundred corrections went in, each checked by hand
+against its source (*computed*, [paper2-audit](mesures/paper2-audit-2026-09-28.txt)). The main
+ones: the calibration spread of three draws is a range of 5.83 points, not "2.92", which is its
+standard deviation; the 4B MMLU was scored one step before sealing; the cited LLVQ scores use the
+0-gain-bit codebook; the cost of the Tetra split was measured, not only estimated. Four results
+are new: the shell bound is m <= 26, found by an exhaustive pass that replaces a sweep which was
+not a bound; Tetra against Planes14 on the 2,280 sample is +2.11 [-0.95, +5.17], not separated;
+the size-up budgets move by one hundredth once summed from unrounded bytes; and the decode costs
+about 150 instructions a block, not 141. The paper now runs to 19 pages. Two fresh readers
+then checked every changed line and caught three more contradictions, among them the tail
+width in the caption of Table 2.

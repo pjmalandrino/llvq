@@ -1,0 +1,11 @@
+rows              = 4096
+CLASS_ROWS        = 2048, N0_MIXED = 1240
+max |y_j|         = 10
+max n2, exhaustive = 416, reached by word 0x7994070f3202
+max m = n2/16     = 26
+1,000,000 random words: max n2 384, none above
+
+trio -> natural, 24 entries:
+     0,  1,  2,  3,  4,  7, 10, 12,  6, 11, 13, 14,
+    16, 17, 18, 19,  5,  8,  9, 15, 20, 21, 22, 23,
+   

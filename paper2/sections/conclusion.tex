@@ -1,7 +1,7 @@
 \section{Conclusion}
 \label{sec:conclusion}
 
-The GPU can read a Leech-lattice code as it is stored. In \Tetra{}, a block
+The GPU can read a Leech-lattice code without expanding it. In \Tetra{}, a block
 of weights is read through a 64-state trellis of the Golay code and one
 16~KiB table. The bits read per weight drop from 4.804 to 2.148. In exchange,
 the codebook bounds each third of a block separately instead of the whole
@@ -10,14 +10,17 @@ block.
 Three more changes, which leave the lattice codes untouched, give the sealed
 files of Qwen3-4B, 8B and 14B at about 2.7 bits per parameter. They score
 63.37, 69.58 and 75.66 on MMLU. That is 4.76, 4.21 and 2.46 points below 4-bit
-AWQ, and the gap shrinks as the model grows. Our files use about half as much
+AWQ. At 14B the gap is about half the gap at 4B. Our files use about half as much
 memory as AWQ. In our engine, on one L40S, they generate 113.8, 95.0 and 57.2
 tokens per second, with 1.38, 2.76 and 5.04~GB of weights. On GSM8K,
-generated through the served kernel, they score 82.49, 88.63 and 92.04. They
-lose more there than on MMLU at 4B only.
+generated through the served kernel, they score 82.49, 88.63 and 92.04. In points, they lose more
+there than on MMLU at 4B, and this test cannot separate the two losses at 8B
+and 14B. Counted in errors, they lose more at every size.
 
 Next, in this order, we would test \texttt{down\_proj} instead of
 \texttt{o\_proj} in int4 at 4B and 14B, as at 8B. Then we would add a second
-calibration draw per size, a model larger than 14B, and a second kind of GPU.
+calibration draw and a second kind of GPU. Qwen3-32B first needs new kernels
+on the L40S: its widest activation takes 102{,}400~B of shared memory,
+1{,}024~B more than the card allows.
 A harder reasoning test, such as Qwen3's reasoning mode, would show whether
 long chains of generation amplify the loss.
