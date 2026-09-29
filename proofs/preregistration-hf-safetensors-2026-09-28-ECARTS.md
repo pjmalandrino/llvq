@@ -4,7 +4,7 @@ The prereg is `proofs/preregistration-hf-safetensors-2026-09-28.md`, sha256
 `cce6728c34d7ba7a`, timestamped before the conversion and never edited. The journal is
 `docs/mesures/hf-safetensors-4b-2026-09-28.txt`.
 
-Three departures, all found while writing the code, none after seeing a result.
+Four departures, all found while writing the code, none after seeing a result.
 
 ## 1. Control 4 cannot hold for `config.json`, and was split
 
@@ -48,3 +48,17 @@ directory inside [1.40 ; 1.45], 96 rotations against "about 100".
 
 Nothing in the decision rule of §7 reads this number, so the verdict is unaffected. Whether the
 block is compacted, or the record table moves to a side file, is an open decision for stage 1.
+
+## 4. Two checks added beyond §6
+
+§6 lists six controls. Two more are run, both because they cover a failure the six do not:
+
+- **Every rotation reference resolves**, and every rotation table is used by a record. No digest
+  covers this. A record pointing at a key with no table hashes correctly and reconstructs its
+  weights in the wrong basis, which is the one failure of this layout that produces plausible
+  output. A dangling key is refused before any digest, checked with a mutant.
+- **The writer is reproducible.** Two runs on the same input write four byte-identical files.
+  Added because stage 5 would publish this file, and a SHA-256 in a journal is worth less if it
+  describes one invocation rather than the code.
+
+Neither weakens a control of §6, and both are named in the journal.
