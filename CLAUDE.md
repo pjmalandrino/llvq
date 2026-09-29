@@ -72,6 +72,7 @@ cargo run --release -p llvq-cuda --bin planesbench -- <model.llvq>   # Linux + C
 LLVQ_MODEL=Qwen/Qwen3-4B LLVQ_CALIB=dclm-edu LLVQ_ARTIFACT=q4b.llvq cargo run --release -p llvq-llm --features metal,fast-linalg --bin smoke -- 64 2048 12 4096 metal nogs leech1c12 999 rot
 #   positional: n_calib · calib_len · n_eval · eval_ctx · device · nogs/gs/dc/sph · codebook (suffix f = free magnitude, L<n> = cap) · limit · rot
 LLVQ_MODEL=Qwen/Qwen3-4B cargo run --release -p llvq-llm --bin seal -- q4b.llvq qwen3-4b-llvq.bin   # also: export, rowscale, embedq, int4swap
+cargo run --release -p llvq-llm --bin hfpack -- <sealed> out_dir/ && uv run ops/llvq_hf_check.py out_dir/  # the sealed file as safetensors, still compressed, and its bit-for-bit gate
 cargo run --release -p llvq-llm --features metal --bin mmlu -- <checkpoint|sealed> metal 40         # the dense reconstruction
 LLVQ_CONFIG=configs/qwen3-4b-tetra-e4.json cargo run --release -p llvq-llm --features cuda --bin mmlu -- <sealed> cuda 40   # THROUGH the served kernel
 LLVQ_CONFIG=configs/qwen3-4b-tetra-e4.json cargo run --release -p llvq-llm --features cuda --bin gsm8k -- <sealed> cuda   # GSM8K through the kernel; gsm8kpair <a> <b> pairs two dumps

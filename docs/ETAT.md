@@ -131,7 +131,9 @@ encoded after it, and the evaluation harness is intact.
 - **A second kind of GPU.** Every number is on one L40S. On an A100 none of our earlier lattice kernels beat FP16.
 - **A model above 14B**, which needs the `rot_apply` wall lifted first.
 - **Publishing the sealed files.** The paper gives their SHA-256 and nothing hosts them, so nobody outside can replay
-  an MMLU.
+  an MMLU. The 4B now has a safetensors image that stays compressed, 1.422 GB, verified field by field (*measured*,
+  [hf-safetensors-4b](mesures/hf-safetensors-4b-2026-09-28.txt)). Nothing loads it through `from_pretrained` yet;
+  [plan-transformers](plan-transformers.md) has the stages and their gates.
 - **The next venue for paper 2.** TACO desk-rejected paper 1 on 2026-08-27 on scope. Default if silent: preprint only.
 - **A harder reasoning test.** Qwen3's reasoning mode, or GSM-Symbolic's unseen variants, about 3 to 5 $ at 4B
   (*estimated*). GSM8K cannot separate the 8B and 14B losses from their MMLU losses.

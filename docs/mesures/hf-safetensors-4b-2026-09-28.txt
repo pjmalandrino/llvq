@@ -1,0 +1,110 @@
+THE SEALED 4B HAS A FAITHFUL SAFETENSORS IMAGE: 1602 FIELDS, 1.422 GB (2026-09-28)
+================================================================================
+Prereg: proofs/preregistration-hf-safetensors-2026-09-28.md, stamped sha256
+        cce6728c34d7ba7a..., before the conversion.
+Deviations: proofs/preregistration-hf-safetensors-2026-09-28-ECARTS.md
+Code:   commit 9999692 plus the packer of this lot. Mac, 0 $, no job.
+Nature: *measured*, identity of bytes. b/param *computed* elsewhere and unchanged.
+
+SETUP
+-----
+Object: ~/q4b-sealed-2026-09-23/qwen3-4b-sealed.bin, 1,418,224,685 B, sha256
+        886391a8c03f66dc..., format v5, kinds Tetra+Int4G128.
+Written: ~/q4b-hf-2026-09-28/ by `hfpack`, 48 s wall on the Mac.
+Gate:   `uv run ops/llvq_hf_check.py`, 4.4 s, which reads the safetensors and
+        the config only, and shares no code with the writer.
+
+CONTROLS
+--------
+1. The writer's own round trip through disk, every tensor as bit patterns: passes.
+2. 252 records, 168 Tetra and 84 Int4G128: obtained exactly, passes.
+3. 3,633,315,840 projection weights and 389,152,256 carried: obtained, passes.
+4. tokenizer.json byte for byte, config.json key for key: passes (see ECARTS §1).
+5. A Ball record refused by name, nothing written: passes, on a synthetic file
+   (llvq-llm/tests/hfpack.rs).
+6. cargo clippy --all-targets silent, cargo test green in the fast loop: passes,
+   178 suites, 957 tests, 0 failed, 81 ignored (the release-only ones).
+7. Not preregistered, added because stage 5 would publish this file: two runs on
+   the same input write four byte-identical files, so the writer is reproducible
+   and the hashes below are a fact about the code, not about one invocation.
+
+RESULT
+------
+  1602 fields rebuilt bit for bit by the independent reader, every digest matched.
+
+  168 Tetra records    codes, indices, gains, row_scales, centroids, tail
+   84 Int4G128 records qweight, scales, biases
+   96 rotation tables  signs, small (72 at n=2560, 24 at n=9728)
+  146 raw tensors      145 norms f16, 1 embedding int4 g64
+    2 blobs            tokenizer.json verbatim, config.json key for key
+
+  field count: 168*5 + 168 tails + 84*3 + 96*2 + 145 + 1*3 + 2 = 1602.
+
+  model.safetensors  1,410,332,048 B, sha256 a28348cafa82d23d...
+  config.json          131,296 B, sha256 a64c2bca2e3cbb41...
+  llvq-digest.json     161,775 B, sha256 55f54bc703568af7...
+  tokenizer.json    11,422,654 B, sha256 aeb13307a71acd8f..., the sealed blob verbatim
+  directory          1,422 MB against the sealed file's 1,418 MB, +0.3 %
+
+  Two runs, two directories, four files each: every hash identical. `safetensors`
+  orders its tensors by descending dtype alignment and then by name, so the
+  HashMap the writer hands it does not reach the bytes.
+
+THE GATE BITES, CHECKED THREE WAYS
+----------------------------------
+A gate that has never failed has not been read. Three mutants, each caught:
+
+  one bit flipped in a codes tensor of the 4B, in place   MISMATCH on
+      model.layers.17.mlp.gate_proj.weight.codes, exit 1; restored, green again
+  the reader's word assembly reversed to little-endian    MISMATCH on
+      model.layers.0.self_attn.q_proj.weight.indices, exit 1
+  one bit flipped in a rotation table                     MISMATCH on the
+      orthogonality of small, before any digest
+  a record pointed at a rotation key with no table        MISMATCH before any
+      digest. That is the one failure of this layout which would otherwise
+      reconstruct plausible weights in the wrong basis
+
+The f16 fields caught a real defect on the way: the reader first CAST f16 to u16
+instead of reading its bytes, so a scale of 0.001 hashed as a zero. It failed on
+the first int4 record and the cast is now refused by dtype.
+
+VERDICT
+-------
+Row 1 of the decision rule: "every digest agrees and every control passes: stage
+0 passes. Stage 1 is proposed to the operator with its own prereg."
+
+The kill criterion of the plan did not fire. No field of the sealed file lacks a
+faithful safetensors dtype. The one field that is not a tensor is the rotation
+seed, a u64, which candle cannot hold and which config.json carries as a decimal
+string beside the tables it generates.
+
+SIGNED PREDICTIONS, SCORED
+--------------------------
+  no dtype failure, the seed escapes to config.json   HELD
+  directory in [1.40 ; 1.45] GB                       HELD at 1.422
+  about 100 rotations if one per group of projections  HELD at 96
+  quantization_config in [20 ; 60] KB                 MISSED, 131.3 KB
+
+The miss is 2.2 times the top of the interval. The cause is pretty printing: one
+key per line over 252 records, 146 raw entries and 96 rotations costs about 500 B
+a record where the estimate assumed a compact 150 B. Nothing in the kill criteria
+reads this number, and it is an open decision for stage 1.
+
+WHAT THIS DOES NOT ESTABLISH
+----------------------------
+Nothing about tokens. No forward pass ran, no perplexity, no MMLU.
+Nothing about speed, here or at any stage of this plan.
+Nothing about the 8B and the 14B, which are the same format and were not converted.
+Nothing about `transformers` itself: no quantizer is registered yet, and nothing
+  has loaded this directory through from_pretrained.
+Nothing about the Leech decode. The indices are carried, not decoded: this lot
+  moves bytes and checks them, and the weights are stage 1's business.
+
+PROVENANCE
+----------
+Writer: llvq-llm/src/hfpack.rs, bin llvq-llm/src/bin/hfpack.rs.
+Digest: llvq-llm/src/digest.rs, streaming SHA-256, pinned on the published vectors.
+Reader: ops/llvq_hf_check.py.
+Tests:  llvq-llm/tests/hfpack.rs (3), llvq-artifact/tests/g6_format.rs
+        (code_stream_is_the_record_bytes), llvq-llm/src/digest.rs (3 unit).
+Output: ~/q4b-hf-2026-09-28/, not committed, 1.42 GB.

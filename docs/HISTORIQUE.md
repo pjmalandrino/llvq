@@ -675,3 +675,17 @@ reads +3.12 on the questions that chose it and +1.55 on the other 11,762 (*measu
 [oproj-int4-full](mesures/oproj-int4-full-2026-09-17.txt)). GSM8K chose nothing. With AWQ's tables in 4 bits, our files
 would need 64 to 65 % of its bits per parameter, not about half (*computed*, [sizeup](mesures/sizeup-2026-09-28.txt)).
 A proofreading pass fixed six slips, among them the running header, whose small-caps ligature extracted as "qantized".
+
+## 2026-09-28. Stage 0 of the transformers plan: the sealed 4B as safetensors
+
+The served 4B has a faithful safetensors image, 1602 fields rebuilt bit for bit by an independent Python reader
+(*measured*, [hf-safetensors-4b](mesures/hf-safetensors-4b-2026-09-28.txt)). The directory is 1.422 GB against the
+sealed file's 1.418, so the object stays compressed: `bin/export` writes 8 GB of f16 and is an interchange artifact,
+this one is a distribution candidate. Three format decisions were taken before the code and recorded in the prereg: our
+own tensor naming, the disk's bytes as the code payload rather than the served `tetra48` layout, and the rotation
+carried as its two tables rather than its seed. `code_stream` and `code_widths` are now public in `llvq-artifact`, and
+`write_matrix_raw` calls them, so a packer cannot disagree with the format about a width or a byte order. The gate was
+read three ways, one mutant each, all caught; the f16 fields caught a real defect first, the reader casting f16 to u16
+instead of reading its bytes, which hashed a scale of 0.001 as a zero. One signed prediction missed: the
+`quantization_config` block is 131 KB against a predicted 20 to 60, from pretty printing. Nothing loads the directory
+through `from_pretrained` yet, which is stage 1.

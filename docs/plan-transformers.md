@@ -52,9 +52,19 @@ Written before stage 0, to be timestamped in the prereg:
 - Batch 1 and the `rot_apply` wall above 14B carry over unchanged (`docs/format-noyau.md` §8).
 - Acceptance of the stage 6 PR is not estimated.
 
+## Where it stands
+
+Stage 0 passed on 2026-09-28: 1602 fields of the served 4B rebuilt bit for bit by an independent reader, 1.422 GB of
+directory against 1.418 of sealed file (*measured*, `docs/mesures/hf-safetensors-4b-2026-09-28.txt`, prereg
+`proofs/preregistration-hf-safetensors-2026-09-28.md`). Its kill criterion did not fire. The three format decisions
+were taken by the operator before the code and are recorded in that prereg §3: our own tensor naming, the disk's bytes
+as the code payload, the rotation carried as its two tables.
+
+Stages 1 to 6 have not started. Each needs its own go.
+
 ## Open decisions
 
-- The go on stage 0.
-- The safetensors layout: our own naming, or a mapping onto an existing in-tree method's conventions. To decide at
-  stage 0.
+- The go on stage 1.
+- Whether `quantization_config` stays pretty printed at 131 KB, or the record table moves to a side file the quantizer
+  reads. Measured at stage 0, decided at stage 1.
 - Whether publishing the three sealed files (`docs/ETAT.md` §5) waits for stage 5.
