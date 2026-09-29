@@ -921,8 +921,11 @@ pub fn code_stream(m: &RawMatrix) -> Result<Vec<u8>> {
 /// licence to write a record the file's own reader would refuse.
 pub fn write_matrix_raw(w: &mut impl Write, version: u32, m: &RawMatrix) -> Result<u64> {
     let kind = m.kind;
-    let (ib, gb) = code_widths(kind, &m.name, m.shell_cap, m.centroids.len())?;
+    // `code_stream` first, because it is the one that refuses an int4 kind by
+    // name. `code_widths` would refuse it too, as a record with no index width,
+    // and `an_int4_record_is_refused_by_every_lattice_entry` demands the name.
     let bytes = code_stream(m)?;
+    let (ib, gb) = code_widths(kind, &m.name, m.shell_cap, m.centroids.len())?;
 
     put_record_head(
         w,
