@@ -62,6 +62,30 @@ as the code payload, the rotation carried as its two tables.
 
 Stages 1 to 6 have not started. Each needs its own go.
 
+## Where the code lives
+
+The Python side is developed here, in a top-level `llvq-hf/`, and extracted at stage 5. Decided by the operator on
+2026-09-29.
+
+Three facts settle it. `hfpack` reads a `.llvq` through `llvq-artifact` and `llvq-quant`, so it is a workspace crate's
+binary and cannot move. A pip-shaped Python package inside this repository is already the practice, `ops/llvqtune`
+carries its own `pyproject.toml`, `uv.lock` and tests. The lab rules are bound to this repository: preregs in `proofs/`
+with their `.ots` anchors, journals in `docs/mesures/`, and every stage below carries a gate, so developing stages 1 to
+4 elsewhere would separate the audit trail from the code it attests.
+
+`llvq-hf/` is self-contained from the first commit: its own `pyproject.toml`, its own tests, and a fixture of a few
+hundred kilobytes so no test needs the 1.4 GB object. Extraction is then `git subtree split -P llvq-hf`, which keeps the
+history, and the wheel of stage 5 is published from the repository that comes out. What is published before that is the
+kernels, which the Kernel Hub takes as Hub repositories, and they are outputs rather than homes.
+
+A fork of `transformers` is not a home either. The in-tree guide of stage 6 requires the pip package to exist first, so
+the fork is downstream of it. The repository's own precedent for an upstream contribution is
+`docs/upstream/candle-broadcast-matmul/`, an issue, a patch and a reproduction, with no fork.
+
+`ops/llvq_hf_check.py` holds the 48-bit unpacking that stage 1 needs. It moves into the package at stage 1 and the
+script keeps its name as a thin caller, so the unpacking never exists twice. The provenance line of the stage 0 journal
+is updated at the same time.
+
 ## Open decisions
 
 - The go on stage 1.
