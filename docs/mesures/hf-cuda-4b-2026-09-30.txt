@@ -1,0 +1,58 @@
+THE PACKED 4B THROUGH THE FUSED KERNEL ON CUDA (2026-09-30, IN PROGRESS)
+================================================================================
+Prereg: proofs/preregistration-hf-cuda-2026-09-30.md, stamped sha256
+        3956cb95..., before the first launch.
+Deviations: proofs/preregistration-hf-cuda-2026-09-30-ECARTS.md
+Code:   branch hf-safetensors. Estimated $0.45, hard cap $1.20 (the 40 minute
+        timeout at l40sx1's $1.80 an hour). Operator cap on the wave: $5.
+Nature: *measured* where a number appears; the first three rows measured nothing
+        but a build failure.
+
+SETUP
+-----
+Object: ~/q4b-hf-2026-09-28/, the packed 4B, uploaded to the bucket
+        Pier-Jean/jobs-artifacts/hf-cuda-4b-2026-09-30/.
+Arms:   1 the build, 2 the arithmetic per row, 3 the 64 tokens against
+        /out/run-tokens-f32.json, 4 the resident bytes. Arm 1 first so a
+        failure names the thing that failed.
+Script: ops/hf_cuda_check.py, checked on the target against its own sha256
+        1aa7e9a0..., so the image cannot run a script we did not send.
+
+THE FOUR LAUNCHES
+-----------------
+1  6abcfa554c46ef1987036332  15:23 UTC  2 min  $0.06  ARM 1 FAILED
+   nvcc refuses -std=c++17: torch's headers carry
+   "#error C++20 or later compatible compiler is required to use PyTorch".
+   The same error had been diagnosed and fixed on Metal two hours earlier and
+   rewritten here. VRAM 0.002 GB, the GPU saw nothing.
+
+2  6abd2e15404719ba376139bb  15:43 UTC  2 min  $0.06  ARM 1 FAILED
+   Include order. F1rTables and f1r_load undefined: llvq_tetra48.cuh reads
+   symbols the two f1rank headers declare, and the binding included only the
+   first. Now pinned by the test the_cuda_binding_includes_the_served_list,
+   which holds the include list against planes_source_names(FusedLayout::Tetra48).
+
+3  6abd3123fbc85ba68235bbbf  15:56 UTC  2 min  $0.06  ARM 1 FAILED
+   TETRA48_ORDER undefined in device code. NVRTC compiles the whole unit as
+   device code and never noticed; nvcc splits host from device and refuses a
+   file-scope static constexpr array read at a runtime index from a kernel.
+   Fixed in the served header by __device__ static constexpr, with the reason
+   in a comment beside it.
+
+4  6abd3428fbc85ba68235bcd4  16:09 UTC  SCHEDULING at 19:56 UTC, $0 billed
+   "Waiting for requested hardware to become available", 3 h 47 in the queue.
+   Not an error and not billed: billing starts at RUNNING. For scale, the
+   longest queue in the registry before today is 70 min (6ab81d7e, 2026-09-26),
+   and launches 2 and 3 got a card in 6 min and 5 s.
+
+SPENT
+-----
+$0.18 on three two minute builds, against the $1.20 cap of the prereg and the
+$5 the operator set on the wave. Nothing measured yet: arm 1 has never passed.
+
+WHAT THE THREE FAILURES COST AND BOUGHT
+---------------------------------------
+$0.18 and 35 minutes. Each one failed in 2 minutes and named its cause, which is
+what arm 1 is for. Two of the three are now held by a test on the Mac, at 0 $:
+the include list, and the served header's __device__. The first one, C++17, was
+a fact I already had in hand from the Metal path and failed to carry over.

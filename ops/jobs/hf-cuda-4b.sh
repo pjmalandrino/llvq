@@ -22,6 +22,12 @@ DIR=hf-cuda-4b-2026-09-30${RETRY:+-r$RETRY}
 O=/out/$DIR
 IMAGE=nvidia/cuda:12.4.1-devel-ubuntu22.04
 TIMEOUT=${TIMEOUT:-40m}
+# l4x1 by default since 2026-09-30: sm_89 like the l40sx1, so the extension builds the same
+# code, 24 GB against a 2.8 GB object, and a pool that is not empty. `run.py bench` refuses
+# any card outside BENCH_FLAVORS because a *ratio* measured elsewhere is not comparable; the
+# four arms here are a build, a per-row identity, 64 tokens and a byte count, so they are
+# card-independent, and --any-flavor carries the duty to name the card in every figure.
+FLAVOR=${FLAVOR:-l4x1}
 NEW=${NEW:-64}
 DRY=${DRY_RUN:-0}
 REF=/tmp/run-tokens-f32.json
@@ -86,7 +92,7 @@ fi
 
 uv run ops/run.py bench \
   --image "$IMAGE" \
-  --flavor l40sx1 --timeout "$TIMEOUT" \
+  --flavor "$FLAVOR" $([ "$FLAVOR" = l40sx1 ] || echo --any-flavor) --timeout "$TIMEOUT" \
   --bucket "$BUCKET" --out-mount /out \
   --name "hf-cuda-4b${RETRY:+-r$RETRY}" \
   "$PRE" "$BODY"
