@@ -180,6 +180,25 @@ fn a_sealed_file_packs_into_a_described_directory() {
             "no {field} digest"
         );
     }
+
+    // The Python package tests read this same object. `LLVQ_HF_FIXTURE=<dir>`
+    // writes it there, so the fixture is by construction the directory this test
+    // asserts on, and not a copy free to drift from it. A test binary runs with
+    // the crate as its working directory, so the path is one level up:
+    //
+    //   LLVQ_HF_FIXTURE=../llvq-hf/tests/fixtures/tiny \
+    //       cargo test -p llvq-llm --test hfpack
+    if let Ok(dest) = std::env::var("LLVQ_HF_FIXTURE") {
+        let dest = std::path::PathBuf::from(dest);
+        std::fs::create_dir_all(&dest).expect("fixture directory");
+        for e in std::fs::read_dir(&out).expect("read out") {
+            let e = e.expect("entry");
+            std::fs::copy(e.path(), dest.join(e.file_name())).expect("copy");
+        }
+        let digest = dest.join(llvq_llm::hfpack::DENSE_DIGEST_FILE);
+        llvq_llm::hfpack::dense_digest(&src, &digest).expect("dense digest");
+        eprintln!("fixture written to {}", dest.display());
+    }
 }
 
 /// The codes tensor holds the bytes the record holds, and they unpack MSB-first
