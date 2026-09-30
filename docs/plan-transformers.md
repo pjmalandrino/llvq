@@ -31,7 +31,9 @@ What we have: the CUDA kernel `llvq-cuda/kernels/llvq_tetra48.cuh`, compiled by 
 | 0 | Map the sealed file to safetensors: codes, gains, row scales, f32 tail, int4 records, rotation seeds, plus `config.json` with a `quantization_config` block | a Python reader rebuilds every tensor bit for bit against `llvq-artifact` on the 4B | 0 $, Mac |
 | 1 | `LlvqQuantizer` registered with `register_quantizer`: swaps `nn.Linear` for a `TetraLinear` that dequantizes in PyTorch, then runs a dense matmul. Rotation, int4 projections and int4 embeddings included | passed 2026-09-30: 253 weight digests against `decode_matrix`, and 64 greedy ids per prompt identical to `bin/run` | 0 $, Mac, CPU |
 | 2 | Tetra decode as a torch op on Metal, from the existing shader | passed 2026-09-30: every one of the 118,665,216 blocks of the 4B decodes to the same point as the numpy path | 0 $, Mac |
-| 2 bis | the fused matvec as a torch op, after the int4 staging fix | equality against a host reference in the kernel's own order, and the same tokens | 0 $, Mac, not started |
+| M1 | the fused Tetra matvec as a torch op, the weights resident compressed, the rotation in the forward pass | the same 64 greedy ids as stage 1 on the four prompts, and the resident memory measured | 0 $, Mac |
+| M2 | the int4 staging fix, then the int4 matvec as a torch op | bit-identical to the current kernel where it already runs, `d_in` ≤ 8,192, then the same ids | 0 $, Mac |
+| M3 | the quantized embedding resident, through `emb_q4_gather_metal` | the same ids | 0 $, Mac |
 | 3 | Kernel Hub packaging for Metal (`kernel-builder`), loaded with `get_kernel` | `kernel-abi-check` green; stage 2's tokens reproduced from the Hub-loaded kernel | 0 $, Mac |
 | 4 | CUDA: the NVRTC source becomes a precompiled torch extension, built by `kernel-builder` | `oracle`-style check against the f64 rows; same tokens as `fusedrun` under `configs/qwen3-4b-tetra-e4.json` | small, one L40S job, to price before the go |
 | 5 | Pip package, model card, 4B file pushed to the Hub in the new layout | a clean environment runs `pip install` then `from_pretrained` and reproduces the tokens | 0 $ |
@@ -87,12 +89,42 @@ correct Metal implementation could match stage 1 bit for bit. What stays exactly
 integer part, the decode, and that is what stage 2 became. The operator took that decision on
 2026-09-30.
 
-Stage 2 bis carries what was cut: the fused matvec. It is blocked on a wall of its own, which is
-written here because nothing else in the living documents carried it. `MetalRuntime::upload_int4`
-stages `d_in · 4` bytes against a 32 KB threadgroup limit, so the Metal fused path refuses all three
-sealed files at load, their int4 `down_proj` being `d_in` 9,728 at the 4B, 12,288 at the 8B and
-17,408 at the 14B. The fix, tiling the staging by slices of 256 columns so each lane's accumulation
-order is preserved, is designed and not written.
+## What Metal needs, and what each lot buys
+
+Stages M1 to M3 replace what the plan called stage 2 bis. The compression is on **disk** today: a
+loaded model is dense, 8.05 GB at f16 on the 4B against 1.42 GB of file. What makes it exist in
+memory is the fused matvec, which multiplies without ever writing the matrix. Every shader it needs
+is already in this repository, `tv_tetra48_metal`, `tv_q4_metal`, `rot_apply_metal` and
+`emb_q4_gather_metal`; what is missing is the wiring and one fix.
+
+Four facts decide the shape of the work, all read in the code on 2026-09-30.
+
+- **The int4 matvec is the blocker.** 84 of the 4B's 252 records are `Int4G128`, 21 % of the weights.
+  `tv_q4_metal` stages the whole activation with no tile, `d_in · 4` bytes against a 32 KB
+  threadgroup limit, so it refuses `down_proj` at `d_in` 9,728. The fix is to tile the staging by
+  slices of 256 columns, which preserves each lane's accumulation order and therefore the
+  arithmetic. Nothing in the living documents carried this wall before.
+- **The rotation moves into the forward pass.** The weights stay in the rotated basis, so the
+  activation must be rotated before each matvec. Stage 1 dissolved that question by un-rotating at
+  load; that is no longer available, since un-rotating means materializing.
+- **The kernel is not bit-identical to the dense path, by construction.** It reads the tail as
+  `half` and the row scales as `float`, where the file stores f32 and f64. Its gate is therefore the
+  one the repository already uses for it: per-row against f64 within a tolerance, and identical
+  tokens.
+- **There is no batch.** `tv_tetra48_metal` takes one activation vector, and `transformers` calls
+  `forward` with `[B, T, d_in]`. A prefill of T tokens is T dispatches per projection.
+
+Resident weight memory on the 4B, *computed*:
+
+| arm | resident |
+|---|---|
+| dense f16, what stage 1 gives | 8.05 GB |
+| M1, the 79 % Tetra compressed, int4 and embedding dense | 3.1 GB |
+| M1 + M2 | 1.93 GB |
+| M1 + M2 + M3 | 1.37 GB |
+
+M1 is indivisible: the rotation, the matvec and the residency have no meaning apart, since removing
+the materialization is the whole point.
 
 Stages 3 to 6 have not started. Each needs its own go.
 
@@ -123,5 +155,5 @@ is updated at the same time.
 ## Open decisions
 
 - The go on stage 3, the Kernel Hub packaging, which needs the op of stage 2 and nothing more.
-- The go on stage 2 bis, which needs the int4 staging fix first.
+- The go on M2, which needs the int4 staging fix, a change to a served shader.
 - Whether publishing the three sealed files (`docs/ETAT.md` §5) waits for stage 5.
