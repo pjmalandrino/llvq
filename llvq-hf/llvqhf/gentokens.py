@@ -11,6 +11,7 @@ hide a tokenizer difference, and the comparison is about the model.
 from __future__ import annotations
 
 import argparse
+import os
 import json
 import sys
 import time
@@ -118,6 +119,10 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--device", default="cpu")
     ap.add_argument("--dump", default=None)
     a = ap.parse_args(argv[1:])
+
+    # The fused arm is armed inside `from_pretrained`, before this file moves the
+    # model anywhere, so the quantizer cannot see the device by looking. Say it.
+    os.environ.setdefault("LLVQ_HF_DEVICE", a.device)
 
     t0 = time.time()
     tok = AutoTokenizer.from_pretrained(a.directory)

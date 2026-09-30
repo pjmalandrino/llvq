@@ -199,12 +199,17 @@ class LlvqQuantizer(HfQuantizer):
 
         tile = int(os.environ.get("LLVQ_HF_TILE", "64"))
         q4_tile = int(os.environ.get("LLVQ_HF_Q4_TILE", "2048"))
+        device = _target_device(model)
+        if device == "cpu":
+            raise RuntimeError(
+                "LLVQ_HF_FUSED=1 needs a GPU: the matvec is a Metal or CUDA kernel. "
+                "Unset it for the dense path, or set LLVQ_HF_DEVICE to the accelerator"
+            )
         built: dict[tuple[str, str], Rotation] = {}
         dtype = self.dtype or self.update_dtype(None)
         self.armed = {"fused": 0, "dense_for_want_of_a_kernel": 0}
         for name, module in list(model.named_modules()):
             if isinstance(module, Int4Linear):
-                device = _module_device(module, name)
                 if Int4FusedLinear.supports(device):
                     _set_module(model, name,
                                 Int4FusedLinear.from_loaded(module, q4_tile, device))
@@ -215,7 +220,6 @@ class LlvqQuantizer(HfQuantizer):
                 continue
             if not isinstance(module, TetraLinear):
                 continue
-            device = _module_device(module, name)
             key = module.desc.get("rotation")
             if key and (key, device) not in built:
                 signs, small = rotations[key]
@@ -246,16 +250,31 @@ class LlvqQuantizer(HfQuantizer):
         return False
 
 
-def _module_device(module, name: str) -> str:
-    """The device a loaded record is already on, as a type string.
+def _target_device(model) -> str:
+    """Where the kernel will run, which is not where the weights are yet.
 
-    `_arm_fused` used to hard-code "mps". Reading it from the buffers keeps the
-    kernel on whatever device `transformers` put the weights, and a record with no
-    buffer at all is a bug worth naming rather than defaulting.
+    `_arm_fused` runs inside `from_pretrained`, BEFORE the caller's own
+    `model.to(device)`, so the records are still on the CPU at that point and
+    reading their placement gives "cpu" every time. That is the trap this
+    function exists for: a first version read the buffers, concluded "cpu", and
+    sent the 84 int4 records of the 4B down the dense path on a Mac, turning a
+    measured 2.750 GB back into 4.675 with nothing failing.
+
+    So the device is an intention, not an observation. `LLVQ_HF_DEVICE` states
+    it, `llvqhf.gentokens` sets it from its own `--device`, and failing both it
+    is whatever accelerator exists.
     """
-    for t in list(module.buffers()) + list(module.parameters()):
-        return t.device.type
-    raise RuntimeError(f"{name} carries no buffer, so its device cannot be read")
+    want = os.environ.get("LLVQ_HF_DEVICE")
+    if want:
+        return want
+    for t in list(model.parameters())[:1] + list(model.buffers())[:1]:
+        if t.device.type != "cpu":
+            return t.device.type
+    if torch.cuda.is_available():
+        return "cuda"
+    if torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
 
 
 def _set_module(model, name: str, new: torch.nn.Module) -> None:
