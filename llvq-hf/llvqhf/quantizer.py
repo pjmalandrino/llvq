@@ -27,6 +27,8 @@ is made at this stage.
 
 from __future__ import annotations
 
+import os
+
 import torch
 from transformers.quantizers import HfQuantizer
 from transformers.quantizers.auto import register_quantization_config, register_quantizer
@@ -151,15 +153,65 @@ class LlvqQuantizer(HfQuantizer):
         return out
 
     def _process_model_after_weight_loading(self, model, **kwargs):
-        """Turn the codes into dense weights and free the buffers."""
+        """Either materialize the weights, or arm the kernel on them.
+
+        `LLVQ_HF_FUSED=1` keeps the Tetra records compressed on the device and puts
+        the served matvec in the forward pass (M1 of `docs/plan-transformers.md`).
+        Unset, every record is dequantized into a dense weight, which is what stage
+        1 measured. An unknown value is refused rather than treated as off: a typo
+        would silently publish the wrong arm.
+        """
+        want = os.environ.get("LLVQ_HF_FUSED", "0")
+        if want not in ("0", "1"):
+            raise ValueError(f"LLVQ_HF_FUSED={want!r} is neither 0 nor 1")
+        fused = want == "1"
         rotations = model.llvq.tables() if hasattr(model, "llvq") else {}
         dtype = self.dtype or self.update_dtype(None)
-        for module in model.modules():
-            if isinstance(module, (TetraLinear, Int4Linear)):
-                module.materialize(self.tables, rotations, dtype)
+        if fused:
+            self._arm_fused(model, rotations)
+        else:
+            for module in model.modules():
+                if isinstance(module, (TetraLinear, Int4Linear)):
+                    module.materialize(self.tables, rotations, dtype)
         if hasattr(model, "llvq"):
             del model.llvq
         return model
+
+    def _arm_fused(self, model, rotations: dict):
+        """Swap each Tetra record for its resident form, int4 left dense.
+
+        The int4 records stay materialized: their kernel stages the whole activation
+        against a 32 KB threadgroup limit and refuses `d_in` above 8,192, which every
+        sealed file's `down_proj` exceeds. That is M2 and it needs a served shader
+        changed, so it is not smuggled in here.
+        """
+        from .fused import FusedTetraLinear, Rotation
+
+        device = "mps"
+        tile = int(os.environ.get("LLVQ_HF_TILE", "64"))
+        built: dict[str, Rotation] = {}
+        dtype = self.dtype or self.update_dtype(None)
+        for name, module in list(model.named_modules()):
+            if isinstance(module, Int4Linear):
+                module.materialize(self.tables, rotations, dtype)
+                continue
+            if not isinstance(module, TetraLinear):
+                continue
+            key = module.desc.get("rotation")
+            if key and key not in built:
+                signs, small = rotations[key]
+                built[key] = Rotation(signs, small, device)
+            _set_module(
+                model, name,
+                FusedTetraLinear.from_loaded(module, built.get(key), tile, device),
+            )
+
+    def resident_bytes(self, model) -> int:
+        """Device bytes the armed projections hold, measured and not computed."""
+        from .fused import FusedTetraLinear
+
+        return sum(m.resident_bytes() for m in model.modules()
+                   if isinstance(m, FusedTetraLinear))
 
     def _process_model_after_loading(self, model, **kwargs):
         return model

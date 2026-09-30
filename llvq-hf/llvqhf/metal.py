@@ -85,7 +85,32 @@ def _extension():
     )
 
 
-@lru_cache(maxsize=1)
+@lru_cache(maxsize=4)
+def tiled_source(tile: int) -> str:
+    """The shader with `LLVQ_TILE_BLOCKS` defined, as `llvq_llm::fused_metal` compiles it.
+
+    One number, passed once: the same `tile` sizes the threadgroup buffer on the
+    host side, so the define and the allocation cannot disagree.
+    """
+    if tile <= 0:
+        raise ValueError(f"the tile must be positive, got {tile}")
+    return f"#define LLVQ_TILE_BLOCKS {tile}u\n{shader_source()}"
+
+
+@lru_cache(maxsize=2)
+def invnorm_on(device: str) -> "torch.Tensor":
+    """`1/sqrt(16m)` in f32, 32 entries, `invnorm[0] = 0`, on the device."""
+    from .fused import invnorm_table
+
+    return torch.from_numpy(invnorm_table()).to(device)
+
+
+def shared_tables(device: str):
+    """The four decoder tables as byte blobs, loaded once per device."""
+    return _tables_on_device(device)
+
+
+@lru_cache(maxsize=4)
 def _tables_on_device(device: str):
     """The four decoder tables as byte blobs on the device, loaded once.
 

@@ -49,6 +49,40 @@ def generate(model, ids: list[int], n_new: int, device: str) -> list[int]:
     return out
 
 
+def report_memory(model, device: str) -> dict:
+    """What the loaded model holds, measured rather than computed.
+
+    Three numbers, because they answer different questions: the parameters torch
+    knows about, the device bytes the armed projections hold, and what the MPS
+    allocator has actually taken. A model whose weights are compressed on the
+    device has few parameters and a large allocation, so neither number alone says
+    whether the compression is real.
+    """
+    params = sum(p.numel() * p.element_size() for p in model.parameters())
+    params += sum(b.numel() * b.element_size() for b in model.buffers())
+    out = {"parameters_and_buffers": params}
+    lines = [f"parameters and buffers {params / 1e9:.3f} GB"]
+    resident = 0
+    try:
+        from .fused import FusedTetraLinear
+
+        resident = sum(m.resident_bytes() for m in model.modules()
+                       if isinstance(m, FusedTetraLinear))
+    except Exception:  # noqa: BLE001  the fused arm is optional
+        resident = 0
+    if resident:
+        out["fused_resident"] = resident
+        lines.append(f"fused projections resident {resident / 1e9:.3f} GB")
+    if device == "mps":
+        import torch as _t
+
+        out["mps_allocated"] = int(_t.mps.current_allocated_memory())
+        out["mps_driver"] = int(_t.mps.driver_allocated_memory())
+        lines.append(f"mps allocated {out['mps_allocated'] / 1e9:.3f} GB, "
+                     f"driver {out['mps_driver'] / 1e9:.3f} GB")
+    return {"bytes": out, "lines": lines}
+
+
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="llvqhf.gentokens")
     ap.add_argument("directory")
@@ -76,9 +110,13 @@ def main(argv: list[str]) -> int:
                          + "\n".join(f"  {k}: {v[:5]}" for k, v in keys.items()))
     print(f"loaded in {time.time() - t0:.1f} s, dtype {a.dtype}, device {a.device}, "
           f"no missing and no unexpected key", flush=True)
+    memory = report_memory(model, a.device)
+    for line in memory["lines"]:
+        print(f"  {line}", flush=True)
 
     result = {"directory": str(Path(a.directory)), "dtype": a.dtype, "device": a.device,
-              "n_new": a.new, "loading_info": {k: len(v) for k, v in info.items()}, "prompts": []}
+              "n_new": a.new, "loading_info": {k: len(v) for k, v in info.items()},
+              "memory": memory["bytes"], "prompts": []}
     for p in PROMPTS:
         ids = tok(p, add_special_tokens=False)["input_ids"]
         t = time.time()
