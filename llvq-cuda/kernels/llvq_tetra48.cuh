@@ -59,7 +59,15 @@
 // address computed at compile time, not a gather. Derived from
 // `llvq_search::tetra::Tetra::order()` and asserted against it host-side —
 // a permutation that drifts from the encoder is a wrong model, not a slow one.
-static constexpr unsigned char TETRA48_ORDER[24] = {
+// `__device__` and not only `static constexpr`: NVRTC compiles this unit as
+// device code throughout and does not mind, but `nvcc` splits host from device
+// and rejects a file-scope host array read at a runtime index, which is what
+// `xb[TETRA48_ORDER[4u * i + j]]` is before the loops unroll. Adding the
+// qualifier is a storage decision and changes no arithmetic; it is what lets the
+// served unit compile ahead of time into a torch extension (stage 4 of
+// `docs/plan-transformers.md`). Paid on 2026-09-30: two errors, 0.06 $, the third
+// build attempt of that stage.
+__device__ static constexpr unsigned char TETRA48_ORDER[24] = {
     0,  1,  2,  3,  4,  7,  10, 12, 6,  11, 13, 14,
     16, 17, 18, 19, 5,  8,  9,  15, 20, 21, 22, 23,
 };
