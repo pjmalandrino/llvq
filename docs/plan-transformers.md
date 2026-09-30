@@ -35,7 +35,7 @@ What we have: the CUDA kernel `llvq-cuda/kernels/llvq_tetra48.cuh`, compiled by 
 | M2 | the int4 staging fix, then the int4 matvec as a torch op | passed 2026-09-30: bit-identical to the served kernel at all three tiles, 256 ids of 256, all 252 projections resident, 2.750 GB allocated | 0 $, Mac |
 | M3 | the quantized embedding resident, through `emb_q4_gather_metal` | the same ids | 0 $, Mac |
 | 3 | Kernel Hub packaging for Metal (`kernel-builder`), loaded with `get_kernel` | `kernel-abi-check` green; stage 2's tokens reproduced from the Hub-loaded kernel | 0 $, Mac |
-| 4 | CUDA: the NVRTC source becomes a precompiled torch extension | the per-row check against the dense reference, then the same ids as `bin/run` on the same card | launched 2026-09-30, **$0.18 spent on three two-minute build failures**, running on an `l4x1` at ~$0.25 estimated under a $0.53 cap |
+| 4 | CUDA: the NVRTC source becomes a precompiled torch extension | **passed 2026-09-30**: built by `nvcc` in 51.8 s, per-row 3.4 to 3.7e-04 on three shapes, 256 ids of 256, 168 of 252 projections fused | **$0.30 over seven launches** on `l40sx1` then `l4x1` |
 | 5 | Pip package, model card, 4B file pushed to the Hub in the new layout | a clean environment runs `pip install` then `from_pretrained` and reproduces the tokens | 0 $ |
 | 6 | Upstream PR to `transformers` | accepted or refused by the maintainers; not ours to decide | 0 $ |
 
@@ -223,7 +223,29 @@ the shader and the served function after it, so a mutation "in the tiled kernel"
 partitioning on its name lands on both, the reference moves with the subject, and all three mutants
 read as survived. `llvqhf/checkq4guards.py` now closes the region at the next entry point.
 
-Stages 3 to 6 have not started. Each needs its own go.
+**Stage 4 passed on 2026-09-30** (*measured*, `docs/mesures/hf-cuda-4b-2026-09-30.txt`, prereg
+`proofs/preregistration-hf-cuda-2026-09-30.md`, deviations beside it). The three unknowns the prereg
+named are all answered yes. `nvcc` compiles `llvq_tetra48.cuh` outside NVRTC and keeps the
+arithmetic: per-row 3.74e-04, 3.41e-04 and 3.53e-04 relative on `k_proj`, `down_proj` and
+`gate_proj`, against a 1e-2 bar, and **identical digit for digit on two different L4 instances**. The
+buffer binding holds, and `rot_apply` works on a card, since every Tetra record of the 4B carries a
+rotation and the 256 greedy ids are exact.
+
+**The token identity crossed two machines and two output dtypes.** The served CUDA kernel writes f16
+where the Metal one writes f32, and the reference was `bin/run` in f32 on a CPU. The ids matched
+anyway. That is a result about this object, not a licence to compare dumps across machines in
+general.
+
+**It is the CUDA equivalent of M1, not of M2.** 168 projections fused and 84 dense, because
+`csrc/tetra_cuda.cu` binds `tv_tetra48` alone. `tv_q4_h.cu` already serves `d_in` 9,728 on CUDA, so
+there is no wall there as there was on Metal; there is simply no torch op. Binding it is named work,
+not a discovery. The count is printed by `report_memory` so no reader assumes 252.
+
+Cost: **$0.30 over seven launches**. $0.12 bought the answer. Of the other $0.18, two of the three
+build failures are now held by tests on the Mac at 0 $, and the third was a fact already in hand from
+the Metal path.
+
+Stages 3, 5 and 6 have not started. Each needs its own go.
 
 ## Where the code lives
 
