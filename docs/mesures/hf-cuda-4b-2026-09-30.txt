@@ -45,10 +45,26 @@ THE FOUR LAUNCHES
    longest queue in the registry before today is 70 min (6ab81d7e, 2026-09-26),
    and launches 2 and 3 got a card in 6 min and 5 s.
 
+5  6abd6a7dfbc85ba68235caa9  20:01 UTC  l4x1, 1 min  $0.01  DIED BEFORE ARM 1
+   The card came in 8 minutes instead of 3 h 47, which is what the flavour
+   change was for: NVIDIA L4, 23,034 MiB, driver 580.178.04, nvcc 12.4.
+   Then `pip install torch` failed in 63 s on an assertion inside pip's own
+   resolver, "assert len(weights) == expected_node_count". Ubuntu 22.04 ships
+   pip 22.0.2 and the 2026 wheel set is past it.
+
+   THE DIAGNOSIS WAS DESTROYED BY MY OWN SCRIPT. pip's output went through
+   `tail -2`, so the two lines that reached the log were the bottom of a
+   traceback whose cause had already been discarded. The fix is two things: pip
+   is upgraded before anything else, and the whole output of both pip calls goes
+   to `$O/pip-bootstrap.txt` and `$O/pip.txt` in the bucket, with 40 lines
+   echoed on failure. A build step whose failure is not readable is a step that
+   costs a launch to learn nothing.
+
 SPENT
 -----
-$0.18 on three two minute builds, against the $1.20 cap of the prereg and the
-$5 the operator set on the wave. Nothing measured yet: arm 1 has never passed.
+$0.19: three two minute builds on l40sx1 at $0.06 each, and one minute on the
+l4x1. Against the $5 the operator set on the wave. Nothing measured yet: arm 1
+has never passed.
 
 WHAT THE THREE FAILURES COST AND BOUGHT
 ---------------------------------------

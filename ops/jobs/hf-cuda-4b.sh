@@ -69,7 +69,17 @@ nvcc --version | tail -2 | tee "$O/nvcc.txt"
 df -h /tmp | tee "$O/disk.txt"
 # The base image is CUDA and nothing else: python, pip, then torch.
 apt-get update -qq && apt-get install -y -qq python3-pip python3-dev git >/dev/null
-pip install --quiet --no-input torch transformers safetensors numpy ninja 2>&1 | tail -2
+# Ubuntu 22.04 ships pip 22.0.2, which asserted inside its own resolver on the
+# 2026 wheel set (`assert len(weights) == expected_node_count`) and took the job
+# with it. Upgrade first, and keep the WHOLE output in the bucket: the previous
+# launch piped pip through `tail -2` and the two lines that survived were the
+# bottom of a traceback whose cause had been thrown away.
+python3 -m pip install --quiet --no-input --upgrade pip setuptools wheel > "$O/pip-bootstrap.txt" 2>&1 \
+  || { echo '== pip bootstrap failed ==' ; tail -40 "$O/pip-bootstrap.txt" ; exit 1 ; }
+python3 -m pip --version | tee "$O/pipversion.txt"
+python3 -m pip install --no-input torch transformers safetensors numpy ninja > "$O/pip.txt" 2>&1 \
+  || { echo '== pip install failed, last 40 lines ==' ; tail -40 "$O/pip.txt" ; exit 1 ; }
+tail -2 "$O/pip.txt"
 python3 -c "import torch, transformers; print('torch', torch.__version__, 'transformers', transformers.__version__)" \
   | tee "$O/versions.txt"
 # The sources, in the repository's shape, and the script checked against its own digest.
