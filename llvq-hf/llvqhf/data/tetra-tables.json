@@ -1,0 +1,62 @@
+{
+  "class_rows": 2048,
+  "dim": 24,
+  "fields": [
+    {
+      "lo": 0,
+      "name": "p",
+      "width": 1
+    },
+    {
+      "lo": 1,
+      "name": "r",
+      "width": 1
+    },
+    {
+      "lo": 2,
+      "name": "s8",
+      "width": 6
+    },
+    {
+      "lo": 8,
+      "name": "b1",
+      "width": 1
+    },
+    {
+      "lo": 9,
+      "name": "i1",
+      "width": 11
+    },
+    {
+      "lo": 20,
+      "name": "b2",
+      "width": 4
+    },
+    {
+      "lo": 24,
+      "name": "i2",
+      "width": 11
+    },
+    {
+      "lo": 35,
+      "name": "b3",
+      "width": 1
+    },
+    {
+      "lo": 36,
+      "name": "i3",
+      "width": 11
+    },
+    {
+      "lo": 47,
+      "name": "gain",
+      "width": 1
+    }
+  ],
+  "label_bits": 47,
+  "n0_mixed": 1240,
+  "note": "dumped by llvq-llm/src/bin/tetratables.rs from llvq_search::tetra; the .llvq header's tetra fingerprint must equal the one above",
+  "section": 8,
+  "tetra_fingerprint": "9c3060086c7a13e6",
+  "word_bits": 48
+}

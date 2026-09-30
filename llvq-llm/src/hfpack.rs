@@ -565,3 +565,186 @@ pub fn bit_digest(t: &Tensor) -> anyhow::Result<String> {
     }
     Ok(h.finish())
 }
+
+// ---------------------------------------------------------------------------
+// The dense reference of stage 1
+// ---------------------------------------------------------------------------
+
+/// Name of the file [`dense_digest`] writes.
+pub const DENSE_DIGEST_FILE: &str = "llvq-dense-digest.json";
+
+/// What one dense digest run covered.
+#[derive(Debug)]
+pub struct DenseSummary {
+    pub records: u32,
+    pub quantized_tensors: u32,
+    pub weights: usize,
+}
+
+/// One SHA-256 per record of the **dequantized f32 weights**, in the natural
+/// basis, plus one per group-affine raw tensor.
+///
+/// This is the reference gate A of stage 1 compares against
+/// (`proofs/preregistration-hf-quantizer-2026-09-30.md` §5). It is
+/// [`llvq_artifact::decode_matrix`] and nothing else: the artifact's own
+/// decoder, which rebuilds in f64, restores the tail, un-rotates and only then
+/// narrows. A Python reader that agrees with this file has rebuilt our weights,
+/// and a reader that agrees only to a tolerance has not.
+///
+/// The f16 raw tensors are not digested here. Stage 0 already compared their
+/// bit patterns, and widening f16 to f32 is exact.
+pub fn dense_digest(src: &Path, out: &Path) -> anyhow::Result<DenseSummary> {
+    let f = std::fs::File::open(src)?;
+    let mut r = std::io::BufReader::with_capacity(1 << 20, f);
+    let head = llvq_artifact::read_header(&mut r)?;
+    anyhow::ensure!(
+        head.is_self_contained(),
+        "{} is a projections-only artifact",
+        src.display()
+    );
+    let cbs = llvq_artifact::Codebooks::new();
+    let mut records: Map<String, Value> = Map::new();
+    let mut weights = 0usize;
+    for i in 0..head.matrices {
+        let (name, w) = match llvq_artifact::read_record(&mut r, head.version)? {
+            Record::Lattice(raw) => {
+                let m = llvq_artifact::decode_raw(raw, &cbs)?;
+                let w = llvq_artifact::decode_matrix(&m);
+                (m.name, w)
+            }
+            Record::Int4(m) => {
+                let w = m.to_f32();
+                (m.name, w)
+            }
+        };
+        weights += w.len();
+        records.insert(name, json!(sha256_f32(&w)));
+        if i % 36 == 0 {
+            eprintln!("  record {i:>3}/{}", head.matrices);
+        }
+    }
+
+    let n_raw = read_u32(&mut r)?;
+    let mut raw: Map<String, Value> = Map::new();
+    for _ in 0..n_raw {
+        let t = llvq_artifact::read_raw(&mut r, head.version)?;
+        if matches!(t.data, RawData::Quant(_)) {
+            let w = t.to_f32();
+            weights += w.len();
+            raw.insert(t.name.clone(), json!(sha256_f32(&w)));
+        }
+    }
+    let quantized_tensors = raw.len() as u32;
+
+    let digest = json!({
+        "artifact": {
+            "file": src.file_name().map(|n| n.to_string_lossy().to_string()),
+            "sha256": sha256_file(src)?,
+            "version": head.version,
+        },
+        "convention": "sha256 over the dequantized f32 values, little-endian, row-major",
+        "reference": "llvq_artifact::decode_matrix, and RawTensor::to_f32 for a quantized raw tensor",
+        "records": Value::Object(records.clone()),
+        "raw": Value::Object(raw),
+    });
+    std::fs::write(out, serde_json::to_vec_pretty(&digest)?)?;
+    Ok(DenseSummary {
+        records: head.matrices,
+        quantized_tensors,
+        weights,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// The universal decode tables
+// ---------------------------------------------------------------------------
+
+/// The Tetra map as data, for a reader that does not run Rust.
+///
+/// The map is a property of the codebook and not of a model, which is why the
+/// `.llvq` header carries a fingerprint and no table
+/// ([`llvq_artifact::tetra_fingerprint`]). So these tables ship with the Python
+/// package rather than with every published model, and the package refuses a
+/// file whose fingerprint is not the one they were dumped under.
+///
+/// Everything here comes from [`llvq_search::tetra`]'s own accessors. Nothing is
+/// recomputed, so there is no second derivation to keep in step.
+pub fn tetra_tables(out: &Path) -> anyhow::Result<(String, usize)> {
+    use llvq_search::tetra::{self, Tetra};
+    let t = Tetra::new();
+    let device = Device::Cpu;
+    let mut tensors: HashMap<String, Tensor> = HashMap::new();
+
+    let order: Vec<u8> = t.order().iter().map(|&v| v as u8).collect();
+    tensors.insert("order".into(), Tensor::from_vec(order, DIM, &device)?);
+
+    let flat = |t: &[[u8; 2]; 64]| -> Vec<u8> { t.iter().flatten().copied().collect() };
+    tensors.insert(
+        "prefixes".into(),
+        Tensor::from_vec(flat(t.prefixes()), (64, 2), &device)?,
+    );
+    tensors.insert(
+        "suffixes".into(),
+        Tensor::from_vec(flat(t.suffixes()), (64, 2), &device)?,
+    );
+    let (mut c2, mut s16) = (Vec::new(), Vec::new());
+    for state in t.branches() {
+        for &(byte, next) in state {
+            c2.push(byte);
+            s16.push(next);
+        }
+    }
+    tensors.insert(
+        "branch_c2".into(),
+        Tensor::from_vec(c2, (64, tetra::BRANCHES), &device)?,
+    );
+    tensors.insert(
+        "branch_s16".into(),
+        Tensor::from_vec(s16, (64, tetra::BRANCHES), &device)?,
+    );
+    tensors.insert(
+        "rows".into(),
+        Tensor::from_vec(t.rows().to_vec(), tetra::ROWS, &device)?,
+    );
+    // `val(o, rho)`: the rho-th value of o + 4Z, outward from zero.
+    let values: Vec<i64> = (0..4)
+        .flat_map(|o| (0..8).map(move |rho| tetra::val(o, rho) as i64))
+        .collect();
+    tensors.insert("values".into(), Tensor::from_vec(values, (4, 8), &device)?);
+
+    let n = tensors.len();
+    candle_core::safetensors::save(&tensors, out)?;
+
+    // The constants a reader needs beside the arrays, and the fingerprint that
+    // says which map they are.
+    let fingerprint = format!("{:016x}", llvq_artifact::tetra_fingerprint());
+    let meta = json!({
+        "tetra_fingerprint": fingerprint,
+        "label_bits": tetra::LABEL_BITS,
+        "word_bits": tetra::WORD_BITS,
+        "class_rows": tetra::CLASS_ROWS,
+        "n0_mixed": tetra::N0_MIXED,
+        "section": tetra::SECTION,
+        "dim": DIM,
+        "fields": tetra::LAYOUT.iter().map(|(n, (lo, w))| json!({"name": n, "lo": lo, "width": w}))
+            .collect::<Vec<_>>(),
+        "note": "dumped by llvq-llm/src/bin/tetratables.rs from llvq_search::tetra; \
+                 the .llvq header's tetra fingerprint must equal the one above",
+    });
+    let json_path = out.with_extension("json");
+    std::fs::write(&json_path, serde_json::to_vec_pretty(&meta)?)?;
+    Ok((fingerprint, n))
+}
+
+/// SHA-256 over f32 values, little-endian.
+fn sha256_f32(v: &[f32]) -> String {
+    let mut h = Sha256::new();
+    for chunk in v.chunks(1 << 16) {
+        let mut bytes = Vec::with_capacity(chunk.len() * 4);
+        for x in chunk {
+            bytes.extend_from_slice(&x.to_bits().to_le_bytes());
+        }
+        h.update(&bytes);
+    }
+    h.finish()
+}
