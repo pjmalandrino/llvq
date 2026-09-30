@@ -60,11 +60,45 @@ THE FOUR LAUNCHES
    echoed on failure. A build step whose failure is not readable is a step that
    costs a launch to learn nothing.
 
+6  6abd6e14fbc85ba68235cb7f  20:16 UTC  l4x1, 3 min  $0.04  ARMS 1 AND 2 PASS
+   pip upgraded itself from 22.0.2 to 26.2.1 and installed torch without a
+   murmur, so the diagnosis of launch 5 was right.
+
+   Env on the card: torch 2.14.1+cu130, transformers 5.18.0, NVIDIA L4, nvcc
+   12.4. Note the mismatch: a cu130 wheel against a 12.4 toolchain. It did not
+   block the build, which is worth writing down because it was the thing most
+   likely to.
+
+   ARM 1, THE BUILD: nvcc compiled llvqhf/csrc/tetra_cuda.cu, which #includes the
+   SERVED tv_tetra48_h.cu rather than a copy of it, in 51.8 s. Five launches to
+   get here.
+
+   ARM 2, THE ARITHMETIC PER ROW, against the dense reconstruction of the same
+   record, layer 0, bar 1e-2:
+
+     k_proj     1024 by 2560  tail 16  max|d| 1.811e-03  relative 3.74e-04
+     down_proj  2560 by 9728  tail  8  max|d| 3.636e-03  relative 3.41e-04
+     gate_proj  9728 by 2560  tail 16  max|d| 1.929e-03  relative 3.53e-04
+
+   All three pass. So the served CUDA kernel keeps its arithmetic when nvcc
+   compiles it instead of NVRTC, which was the first of the three unknowns the
+   prereg named. The three residues sit around 3.5e-04, two orders under the bar
+   and consistent with an f16 output: this arm is f16 out on CUDA against f64
+   reference, where the Metal arm was f32 out and read 2.6e-05.
+
+   ARM 3, THE TOKENS: failed on a defect already fixed on the Mac an hour
+   earlier. _arm_fused read the device from the module's buffers, which are still
+   on the CPU when it runs, and dispatched the Metal op: "this op runs on Metal,
+   and no MPS device is available". The fix, commit 051126f, makes the device an
+   intention and lets `gentokens` state it.
+
 SPENT
 -----
-$0.19: three two minute builds on l40sx1 at $0.06 each, and one minute on the
-l4x1. Against the $5 the operator set on the wave. Nothing measured yet: arm 1
-has never passed.
+$0.23: three two minute builds on l40sx1 at $0.06 each, one minute and three
+minutes on the l4x1. Against the $5 the operator set on the wave.
+
+Two of the four arms are now measured on a card: the build, and the arithmetic
+per row. The tokens and the memory are not.
 
 WHAT THE THREE FAILURES COST AND BOUGHT
 ---------------------------------------
