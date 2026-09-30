@@ -30,7 +30,8 @@ What we have: the CUDA kernel `llvq-cuda/kernels/llvq_tetra48.cuh`, compiled by 
 |---|---|---|---|
 | 0 | Map the sealed file to safetensors: codes, gains, row scales, f32 tail, int4 records, rotation seeds, plus `config.json` with a `quantization_config` block | a Python reader rebuilds every tensor bit for bit against `llvq-artifact` on the 4B | 0 $, Mac |
 | 1 | `LlvqQuantizer` registered with `register_quantizer`: swaps `nn.Linear` for a `TetraLinear` that dequantizes in PyTorch, then runs a dense matmul. Rotation, int4 projections and int4 embeddings included | passed 2026-09-30: 253 weight digests against `decode_matrix`, and 64 greedy ids per prompt identical to `bin/run` | 0 $, Mac, CPU |
-| 2 | Tetra decode as a torch op on Metal, from the existing shader | the op matches stage 1's dequant bit for bit on every 4B matrix; same 64 tokens | 0 $, Mac |
+| 2 | Tetra decode as a torch op on Metal, from the existing shader | passed 2026-09-30: every one of the 118,665,216 blocks of the 4B decodes to the same point as the numpy path | 0 $, Mac |
+| 2 bis | the fused matvec as a torch op, after the int4 staging fix | equality against a host reference in the kernel's own order, and the same tokens | 0 $, Mac, not started |
 | 3 | Kernel Hub packaging for Metal (`kernel-builder`), loaded with `get_kernel` | `kernel-abi-check` green; stage 2's tokens reproduced from the Hub-loaded kernel | 0 $, Mac |
 | 4 | CUDA: the NVRTC source becomes a precompiled torch extension, built by `kernel-builder` | `oracle`-style check against the f64 rows; same tokens as `fusedrun` under `configs/qwen3-4b-tetra-e4.json` | small, one L40S job, to price before the go |
 | 5 | Pip package, model card, 4B file pushed to the Hub in the new layout | a clean environment runs `pip install` then `from_pretrained` and reproduces the tokens | 0 $ |
@@ -44,6 +45,9 @@ Written before stage 0, to be timestamped in the prereg:
 - Stage 1 fails if the quantizer hook cannot host the per-group rotation without patching the model code. That
   would close the out-of-tree route; the in-tree PR becomes the only route, and it is reassessed then.
 - Stage 2 fails if the Metal op does not match bit for bit. That is a defect to fix, not a tolerance to widen.
+  Read again on 2026-09-30: the clause holds for the decode, which is integer and was gated exactly. It could not
+  apply to the f64 chain, which Metal cannot run at all, and that is why the stage was narrowed rather than the
+  tolerance widened.
 
 ## What this plan does not claim
 
@@ -71,7 +75,26 @@ un-rotation into the dequantization removes the rotation from the forward pass, 
 host it. The real question, a kernel that reads rotated weights and rotates the activation, belongs
 to stage 2 on Metal and stage 4 on CUDA.
 
-Stages 2 to 6 have not started. Each needs its own go.
+Stage 2 passed on 2026-09-30 (*measured*, `docs/mesures/hf-metal-decode-4b-2026-09-30.txt`, prereg
+`proofs/preregistration-hf-metal-decode-2026-09-30.md`). The served shader decodes the 4B under
+PyTorch: 118,665,216 blocks, 2,847,965,184 coordinates, every point identical to the numpy decode,
+in 38.4 s. No MSL was written, the shader's own `tetra48_probe` entry point is the op.
+
+Its gate is not the one the plan wrote, and the prereg says why instead of widening it. Stage 1's
+dequantization is an f64 chain by the format's design and **Metal has no f64**, which
+`llvq-llm/kernels/llvq_rot.metal` already records by computing `1/sqrt(m)` on the host. So no
+correct Metal implementation could match stage 1 bit for bit. What stays exactly gateable is the
+integer part, the decode, and that is what stage 2 became. The operator took that decision on
+2026-09-30.
+
+Stage 2 bis carries what was cut: the fused matvec. It is blocked on a wall of its own, which is
+written here because nothing else in the living documents carried it. `MetalRuntime::upload_int4`
+stages `d_in · 4` bytes against a 32 KB threadgroup limit, so the Metal fused path refuses all three
+sealed files at load, their int4 `down_proj` being `d_in` 9,728 at the 4B, 12,288 at the 8B and
+17,408 at the 14B. The fix, tiling the staging by slices of 256 columns so each lane's accumulation
+order is preserved, is designed and not written.
+
+Stages 3 to 6 have not started. Each needs its own go.
 
 ## Where the code lives
 
@@ -99,5 +122,6 @@ is updated at the same time.
 
 ## Open decisions
 
-- The go on stage 2.
+- The go on stage 3, the Kernel Hub packaging, which needs the op of stage 2 and nothing more.
+- The go on stage 2 bis, which needs the int4 staging fix first.
 - Whether publishing the three sealed files (`docs/ETAT.md` §5) waits for stage 5.

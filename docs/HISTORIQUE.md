@@ -707,3 +707,18 @@ lets the f64 row scales survive a load at f16. Replacing the `nn.Embedding` brok
 `lm_head`, since `tie_weights` runs before the quantizer's post-load hook, so the quantized
 embedding goes through the conversion pipeline instead, three keys to one parameter. The Python
 side lives in `llvq-hf/` and is extracted at stage 5.
+
+## 2026-09-30. Stage 2: the served shader decodes the 4B under PyTorch
+
+`torch.ops.llvq.tetra_decode` dispatches `tetra48_probe`, the shader's own decoder entry point, and
+every one of the 118,665,216 blocks of the packed 4B decodes to the point the numpy path gives:
+2,847,965,184 coordinates, exact, in 38.4 s (*measured*,
+[hf-metal-decode-4b](mesures/hf-metal-decode-4b-2026-09-30.txt)). No MSL was written for it. The two
+sides of that gate were already pinned to `llvq_search::tetra` before the stage began, one by
+`llvq-metal/tests/tetra48_matches_rust.rs` and the other by stage 1's control 2, so the gate closes a
+triangle. The plan's gate for this stage was unachievable and was narrowed rather than widened:
+stage 1's dequantization is an f64 chain and Metal has no f64. The fused matvec moved to a stage 2
+bis, blocked on `upload_int4` staging `d_in · 4` bytes against a 32 KB threadgroup limit, which
+refuses all three sealed files on the Metal fused path. One defect was found and fixed on the first
+dispatch: the transcode from the disk stream to the served layout is not a byte reversal, because the
+gain bit moves from bit 0 of the disk value to bit 47 of the Tetra word.

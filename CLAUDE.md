@@ -79,6 +79,7 @@ LLVQ_MODEL=Qwen/Qwen3-4B cargo run --release -p llvq-llm --bin seal -- q4b.llvq 
 cargo run --release -p llvq-llm --bin hfpack -- <sealed> out_dir/ && uv run ops/llvq_hf_check.py out_dir/  # the sealed file as safetensors, still compressed, and its bit-for-bit gate
 cargo run --release -p llvq-llm --bin hfdense -- <sealed> out_dir/llvq-dense-digest.json  # also: tetratables, tetravectors
 cd llvq-hf && uv run --group dev pytest && uv run python -m llvqhf.checkdense out_dir/   # the transformers reader, and its gate
+cd llvq-hf && uv run --group dev python -m llvqhf.checkdecode out_dir/   # the served shader as a torch op on Metal, every block
 cargo run --release -p llvq-llm --features metal --bin mmlu -- <checkpoint|sealed> metal 40         # the dense reconstruction
 LLVQ_CONFIG=configs/qwen3-4b-tetra-e4.json cargo run --release -p llvq-llm --features cuda --bin mmlu -- <sealed> cuda 40   # THROUGH the served kernel
 LLVQ_CONFIG=configs/qwen3-4b-tetra-e4.json cargo run --release -p llvq-llm --features cuda --bin gsm8k -- <sealed> cuda   # GSM8K through the kernel; gsm8kpair <a> <b> pairs two dumps
