@@ -201,6 +201,42 @@ fn a_sealed_file_packs_into_a_described_directory() {
     }
 }
 
+/// The shader the Python package ships is the one this repository serves.
+///
+/// `llvq-hf` carries a copy of `kernels/llvq_tetra48.metal` so it can still build
+/// its Metal op after the extraction of stage 5, and `bin/tetratables` records the
+/// copy's sha256 beside the tables. Two copies of a shader is one too many unless
+/// something compares them, and a drifted copy would decode plausible wrong
+/// points. The Python side refuses a copy whose digest moved; this refuses one
+/// whose bytes moved, in the fast loop, where a `tetratables` nobody re-ran is
+/// what would go unnoticed.
+#[test]
+fn the_shipped_shader_is_the_repositorys() {
+    // A test binary runs with the crate as its working directory.
+    let served = std::path::Path::new("kernels/llvq_tetra48.metal");
+    let shipped = std::path::Path::new("../llvq-hf/llvqhf/data/llvq_tetra48.metal");
+    let tables = std::path::Path::new("../llvq-hf/llvqhf/data/tetra-tables.json");
+    for p in [served, shipped, tables] {
+        assert!(p.exists(), "{} is missing; re-run bin/tetratables", p.display());
+    }
+    let a = std::fs::read(served).expect("read the served shader");
+    let b = std::fs::read(shipped).expect("read the shipped shader");
+    assert_eq!(
+        a, b,
+        "the shipped shader differs from kernels/llvq_tetra48.metal: re-run \
+         `cargo run --release -p llvq-llm --bin tetratables -- \
+         llvq-hf/llvqhf/data/tetra-tables.safetensors`"
+    );
+    let meta: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(tables).expect("read")).expect("parse");
+    assert_eq!(
+        meta["shader"]["sha256"].as_str(),
+        Some(llvq_llm::hfpack::sha256_bytes(&a).as_str()),
+        "the digest recorded beside the tables is not this shader's"
+    );
+    assert_eq!(meta["shader"]["entry"], "tetra48_probe");
+}
+
 /// The codes tensor holds the bytes the record holds, and they unpack MSB-first
 /// to the indices the artifact reads back.
 ///

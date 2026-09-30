@@ -57,6 +57,12 @@
   "n0_mixed": 1240,
   "note": "dumped by llvq-llm/src/bin/tetratables.rs from llvq_search::tetra; the .llvq header's tetra fingerprint must equal the one above",
   "section": 8,
+  "shader": {
+    "entry": "tetra48_probe",
+    "file": "llvq_tetra48.metal",
+    "note": "one thread a block, no tile, no reduction: the decoder judged on its own",
+    "sha256": "96232baa67c57992818a8d368bf427a04bea608017f55f69a99ba5dde2ab3e4c"
+  },
   "tetra_fingerprint": "9c3060086c7a13e6",
   "word_bits": 48
 }

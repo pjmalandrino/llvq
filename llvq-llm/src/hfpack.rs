@@ -696,7 +696,19 @@ pub fn tetra_tables(out: &Path) -> anyhow::Result<(String, usize)> {
     }
     tensors.insert(
         "branch_c2".into(),
-        Tensor::from_vec(c2, (64, tetra::BRANCHES), &device)?,
+        Tensor::from_vec(c2.clone(), (64, tetra::BRANCHES), &device)?,
+    );
+    // The shader's own layout: one u16 per edge, `byte | s16 << 8`
+    // (`F1rTables::branches` in `llvq-llm/kernels/llvq_tetra48.metal`). Written
+    // here and not repacked in Python, so the layout has one owner.
+    let branches_u16: Vec<u32> = c2
+        .iter()
+        .zip(&s16)
+        .map(|(&byte, &next)| byte as u32 | ((next as u32) << 8))
+        .collect();
+    tensors.insert(
+        "branches_u16".into(),
+        Tensor::from_vec(branches_u16, (64, tetra::BRANCHES), &device)?,
     );
     tensors.insert(
         "branch_s16".into(),
@@ -712,14 +724,40 @@ pub fn tetra_tables(out: &Path) -> anyhow::Result<(String, usize)> {
         .collect();
     tensors.insert("values".into(), Tensor::from_vec(values, (4, 8), &device)?);
 
+    // Flat, as the shader binds them: [s8][b1] and [s16][b3], 128 bytes each.
+    tensors.insert(
+        "prefixes_flat".into(),
+        Tensor::from_vec(flat(t.prefixes()), 128, &device)?,
+    );
+    tensors.insert(
+        "suffixes_flat".into(),
+        Tensor::from_vec(flat(t.suffixes()), 128, &device)?,
+    );
+
     let n = tensors.len();
     candle_core::safetensors::save(&tensors, out)?;
+
+    // The served shader, copied beside the tables with its digest. One MSL
+    // source in the repository, and a copy the package can ship after the
+    // extraction of stage 5; `the_shipped_shader_is_the_repositorys` compares
+    // them in the fast loop.
+    let shader_src = Path::new(env!("CARGO_MANIFEST_DIR")).join("kernels/llvq_tetra48.metal");
+    let shader = std::fs::read(&shader_src)?;
+    let shader_sha = sha256_hex(&shader);
+    let shader_out = out.with_file_name("llvq_tetra48.metal");
+    std::fs::write(&shader_out, &shader)?;
 
     // The constants a reader needs beside the arrays, and the fingerprint that
     // says which map they are.
     let fingerprint = format!("{:016x}", llvq_artifact::tetra_fingerprint());
     let meta = json!({
         "tetra_fingerprint": fingerprint,
+        "shader": {
+            "file": "llvq_tetra48.metal",
+            "sha256": shader_sha,
+            "entry": "tetra48_probe",
+            "note": "one thread a block, no tile, no reduction: the decoder judged on its own",
+        },
         "label_bits": tetra::LABEL_BITS,
         "word_bits": tetra::WORD_BITS,
         "class_rows": tetra::CLASS_ROWS,
@@ -734,6 +772,14 @@ pub fn tetra_tables(out: &Path) -> anyhow::Result<(String, usize)> {
     let json_path = out.with_extension("json");
     std::fs::write(&json_path, serde_json::to_vec_pretty(&meta)?)?;
     Ok((fingerprint, n))
+}
+
+/// SHA-256 of a byte slice, lowercase hex.
+///
+/// Public for `the_shipped_shader_is_the_repositorys`, which compares the digest
+/// recorded beside the tables against the shader's own bytes.
+pub fn sha256_bytes(data: &[u8]) -> String {
+    sha256_hex(data)
 }
 
 /// SHA-256 over f32 values, little-endian.
