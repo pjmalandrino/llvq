@@ -113,8 +113,11 @@ def _extension_cuda():
         name="llvqhf_cuda",
         sources=[str(CSRC_CUDA)],
         extra_include_paths=[str(kernels)],
-        extra_cflags=["-std=c++17"],
-        extra_cuda_cflags=["-std=c++17", f"-DTILE_BLOCKS={tile}u", "--fmad=true"],
+        # C++20 on both, for the reason the Metal arm already met and this one
+        # repeated anyway: torch's headers use `requires` clauses and refuse to
+        # parse under c++17, with `#error C++20 or later compatible compiler`.
+        extra_cflags=["-std=c++20"],
+        extra_cuda_cflags=["-std=c++20", f"-DTILE_BLOCKS={tile}u", "--fmad=true"],
         is_python_module=False,
         verbose=False,
     )

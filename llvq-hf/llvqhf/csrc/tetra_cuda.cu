@@ -18,6 +18,7 @@
 // same breath.
 
 #include <torch/extension.h>
+#include <c10/cuda/CUDAException.h>
 #include <c10/cuda/CUDAStream.h>
 
 #include "tv_tetra48_h.cu"
