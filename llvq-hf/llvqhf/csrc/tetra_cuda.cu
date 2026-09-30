@@ -21,6 +21,18 @@
 #include <c10/cuda/CUDAException.h>
 #include <c10/cuda/CUDAStream.h>
 
+// The served translation unit, in the order `llvq_llm::fused::planes_source_names`
+// gives for `Tetra48` and not in any other: `tv_tetra48_h.cu` uses `F1rTables` and
+// `f1r_load`, which `llvq_f1rank.cuh` defines, and its own `#ifndef` guards do not
+// reach for that one. Including it alone cost $0.06 and twelve
+// `identifier "F1rTables" is undefined`.
+//
+// `the_cuda_binding_includes_the_served_list` holds this list against the Rust
+// one, so the two cannot drift. `TILE_BLOCKS` arrives as a compile flag, which
+// `matvec.cu` `#error`s without.
+#include "../../../llvq-cuda/kernels/llvq_f1rank.cuh"
+#include "../../../llvq-cuda/kernels/llvq_f1rank_v3.cuh"
+#include "../../../llvq-cuda/kernels/llvq_tetra48.cuh"
 #include "tv_tetra48_h.cu"
 
 static torch::Tensor
