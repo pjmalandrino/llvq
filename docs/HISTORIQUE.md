@@ -722,3 +722,19 @@ bis, blocked on `upload_int4` staging `d_in · 4` bytes against a 32 KB threadgr
 refuses all three sealed files on the Metal fused path. One defect was found and fixed on the first
 dispatch: the transcode from the disk stream to the served layout is not a byte reversal, because the
 gain bit moves from bit 0 of the disk value to bit 47 of the Tetra word.
+
+## 2026-09-30. M1: the 4B answers with its Tetra weights never materialized
+
+`tv_tetra48_metal`, the served shader, runs in a `transformers` forward pass: 256 greedy ids of 256
+against `bin/run`, the 168 Tetra projections resident in 0.749 GB against 11.4 dense, 5.436 GB
+allocated on the device against 16.1 computed for the dense arm, and the load down from 153.7 s to
+6.5 because the fused path never dequantizes (*measured*,
+[hf-metal-m1-4b](mesures/hf-metal-m1-4b-2026-09-30.txt)). What remains dense is the 21 % of int4
+records, whose Metal kernel is blocked by a 32 KB staging limit, and the embedding. The rotation runs
+in torch f32 rather than through `rot_apply_metal`, at 0.15 ms of the 0.25 a matvec costs.
+
+The lot's real finding is about the method. Dropping the tail costs 8.79 % of the output on `k_proj`
+and 3.53 % on `down_proj`, per row, and the token gate misses it over eight ids on all four prompts
+and over all 64 on two of them. Stages 0 to 2 and M1 all gated on token identity; the per-row check
+finds that same defect in 20 seconds with a 3,400-fold margin. Whether it becomes a gate is an open
+decision.

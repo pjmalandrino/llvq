@@ -31,13 +31,54 @@ What we have: the CUDA kernel `llvq-cuda/kernels/llvq_tetra48.cuh`, compiled by 
 | 0 | Map the sealed file to safetensors: codes, gains, row scales, f32 tail, int4 records, rotation seeds, plus `config.json` with a `quantization_config` block | a Python reader rebuilds every tensor bit for bit against `llvq-artifact` on the 4B | 0 $, Mac |
 | 1 | `LlvqQuantizer` registered with `register_quantizer`: swaps `nn.Linear` for a `TetraLinear` that dequantizes in PyTorch, then runs a dense matmul. Rotation, int4 projections and int4 embeddings included | passed 2026-09-30: 253 weight digests against `decode_matrix`, and 64 greedy ids per prompt identical to `bin/run` | 0 $, Mac, CPU |
 | 2 | Tetra decode as a torch op on Metal, from the existing shader | passed 2026-09-30: every one of the 118,665,216 blocks of the 4B decodes to the same point as the numpy path | 0 $, Mac |
-| M1 | the fused Tetra matvec as a torch op, the weights resident compressed, the rotation in the forward pass | the same 64 greedy ids as stage 1 on the four prompts, and the resident memory measured | 0 $, Mac |
+| M1 | the fused Tetra matvec as a torch op, the weights resident compressed, the rotation in the forward pass | passed 2026-09-30: 256 ids of 256, the 168 Tetra projections resident in 0.749 GB, loaded in 6.5 s | 0 $, Mac |
 | M2 | the int4 staging fix, then the int4 matvec as a torch op | bit-identical to the current kernel where it already runs, `d_in` ≤ 8,192, then the same ids | 0 $, Mac |
 | M3 | the quantized embedding resident, through `emb_q4_gather_metal` | the same ids | 0 $, Mac |
 | 3 | Kernel Hub packaging for Metal (`kernel-builder`), loaded with `get_kernel` | `kernel-abi-check` green; stage 2's tokens reproduced from the Hub-loaded kernel | 0 $, Mac |
-| 4 | CUDA: the NVRTC source becomes a precompiled torch extension, built by `kernel-builder` | `oracle`-style check against the f64 rows; same tokens as `fusedrun` under `configs/qwen3-4b-tetra-e4.json` | small, one L40S job, to price before the go |
+| 4 | CUDA: the NVRTC source becomes a precompiled torch extension | the per-row check against the dense reference, then the same ids as `bin/run` on the same card | one L40S job, **$0.45 estimated, cap $1.20**, proposed below and not launched |
 | 5 | Pip package, model card, 4B file pushed to the Hub in the new layout | a clean environment runs `pip install` then `from_pretrained` and reproduces the tokens | 0 $ |
 | 6 | Upstream PR to `transformers` | accepted or refused by the maintainers; not ours to decide | 0 $ |
+
+## The CUDA test job, proposed and not launched
+
+One job, because the registry shows 30 to 70 minutes of queue per job and the run itself is minutes:
+batching the whole question into one launch is what the queue makes rational.
+
+**What it would answer.** Whether the served CUDA kernel can be reached from `torch` as a
+precompiled extension and give the same tokens. Three unknowns, all of them local to the card: that
+`nvcc` compiling `llvq-cuda/kernels/llvq_tetra48.cuh` outside NVRTC keeps the arithmetic, that the
+buffer binding holds, and that the int4 and `rot_apply` arms work there. CUDA's wall is not Metal's:
+`tv_q4_h.cu` serves the 4B's `down_proj` at `d_in` 9,728 today, so M2's blocker does not exist on
+that side.
+
+**The arms, in order, so a failure is diagnosable.**
+
+1. Build the extension with `nvcc` in the job. A build failure costs two minutes and answers the
+   question on its own.
+2. The per-row check on one matrix of each shape, against the dense reconstruction, exactly as the
+   Metal arm was checked before any token was generated.
+3. 64 greedy ids on the four prompts of `bin/run`, and `bin/run` itself on the same file on the same
+   card in the same job, so the reference is local and no number crosses a machine.
+4. The resident memory, measured.
+
+**What has to exist first**, and none of it needs a card:
+
+- `hfpack` in the CUDA image: the `cargo build --bin` list of `ops/Dockerfile.cuda`, its runtime
+  `COPY`, and `UPLOAD_ALLOW` in `ops/run.py`. That third list is the one that has bitten four times.
+- `llvq-hf/` and `llvq-cuda/kernels/` in `UPLOAD_ALLOW`.
+- `torch` and `transformers` in the job, which the image does not carry. The launcher pip installs
+  them, about three minutes and $0.09.
+- A CUDA binding beside the Metal one, `llvq-hf/llvqhf/csrc/tetra_cuda.cu`, which is the same shape
+  of file: no arithmetic, one `#include` of the served header.
+
+**The estimate.** l40sx1 at $1.80 an hour. Build five minutes, `hfpack` two, pip three, the load and
+the four prompts five: **15 minutes billed, $0.45**. The cap is **$1.20**, which is 40 minutes, and
+the job is killed rather than allowed past it. For scale, the registry's last six jobs on this flavor
+billed 5 to 157 minutes for $0.16 to $4.71.
+
+**What it cannot answer.** Nothing about throughput: the per-token dispatch of this path is not the
+served engine's, and no tok/s from it is divided against anything (rule 5). Nothing about the 8B and
+the 14B. Nothing about a second kind of card.
 
 ## Kill criteria
 
@@ -126,6 +167,19 @@ Resident weight memory on the 4B, *computed*:
 M1 is indivisible: the rotation, the matvec and the residency have no meaning apart, since removing
 the materialization is the whole point.
 
+**M1 passed on 2026-09-30** (*measured*, `docs/mesures/hf-metal-m1-4b-2026-09-30.txt`, prereg
+`proofs/preregistration-hf-metal-m1-2026-09-30.md`). The 4B answers with its Tetra weights never
+materialized: 256 greedy ids of 256 against `bin/run`, the 168 Tetra projections resident in 0.749 GB
+against 11.4 dense, 5.436 GB allocated on the device against 16.1 computed dense, and the load down
+from 153.7 s to 6.5 because nothing is dequantized any more.
+
+**What M1 found is bigger than M1.** Dropping the tail entirely costs 8.79 % of the output on
+`k_proj` and 3.53 % on `down_proj`, measured per row. The token gate misses that defect over eight
+ids on all four prompts and over all 64 on two of them; it catches it at token 13 on the best one.
+Stages 1, 2 and M1 all took token identity as their gate, and this is the first measurement of what
+that gate cannot see. The per-row check against the dense reconstruction finds the same defect in 20
+seconds with a 3,400-fold margin.
+
 Stages 3 to 6 have not started. Each needs its own go.
 
 ## Where the code lives
@@ -156,4 +210,9 @@ is updated at the same time.
 
 - The go on stage 3, the Kernel Hub packaging, which needs the op of stage 2 and nothing more.
 - The go on M2, which needs the int4 staging fix, a change to a served shader.
+- **Whether the per-row check becomes a gate**, on one matrix of each shape, with token identity kept
+  beside it. M1 measured that four prompts and 64 greedy ids cannot see a 3 to 9 % per-row error,
+  while the per-row check sees it in 20 s with a 3,400-fold margin. This changes what a gate is in
+  this plan, so it is the operator's.
+- The go on the CUDA test job above, $0.45 estimated under a $1.20 cap.
 - Whether publishing the three sealed files (`docs/ETAT.md` §5) waits for stage 5.
