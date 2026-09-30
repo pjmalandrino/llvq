@@ -689,3 +689,21 @@ read three ways, one mutant each, all caught; the f16 fields caught a real defec
 instead of reading its bytes, which hashed a scale of 0.001 as a zero. One signed prediction missed: the
 `quantization_config` block is 131 KB against a predicted 20 to 60, from pretty printing. Nothing loads the directory
 through `from_pretrained` yet, which is stage 1.
+
+## 2026-09-30. Stage 1: transformers reads the packed 4B and answers
+
+`from_pretrained` on the packed directory gives the weights the artifact defines and the tokens our
+engine gives: 253 of 253 dequantized weight digests identical to `decode_matrix`, and 256 of 256
+greedy ids identical to `bin/run` over four prompts, f32 on the CPU on both sides (*measured*,
+[hf-quantizer-4b](mesures/hf-quantizer-4b-2026-09-30.txt)). No missing key and no unexpected key.
+The Leech decode is ported to numpy over the tables `bin/tetratables` dumps from
+`llvq_search::tetra`, 19 KB shipped with the package rather than with every model, because the map
+belongs to the codebook. Bit-exactness was predicted and held on the first run, including the one
+place named as the risk: the `k` by `k` mix, accumulated term by term rather than through a matrix
+product, which a library would be free to reassociate. Two facts about `transformers` 5.17 shaped
+the code: `create_quantized_param` no longer exists, so a quantizer replaces its modules and the
+ordinary loader fills them, and that loader keeps the dtype of an existing buffer, which is what
+lets the f64 row scales survive a load at f16. Replacing the `nn.Embedding` broke the tie to
+`lm_head`, since `tie_weights` runs before the quantizer's post-load hook, so the quantized
+embedding goes through the conversion pipeline instead, three keys to one parameter. The Python
+side lives in `llvq-hf/` and is extracted at stage 5.

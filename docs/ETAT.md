@@ -132,8 +132,10 @@ encoded after it, and the evaluation harness is intact.
 - **A model above 14B**, which needs the `rot_apply` wall lifted first.
 - **Publishing the sealed files.** The paper gives their SHA-256 and nothing hosts them, so nobody outside can replay
   an MMLU. The 4B now has a safetensors image that stays compressed, 1.422 GB, verified field by field (*measured*,
-  [hf-safetensors-4b](mesures/hf-safetensors-4b-2026-09-28.txt)). Nothing loads it through `from_pretrained` yet;
-  [plan-transformers](plan-transformers.md) has the stages and their gates.
+  [hf-safetensors-4b](mesures/hf-safetensors-4b-2026-09-28.txt)), and `transformers` loads it and answers with the
+  tokens `bin/run` gives (*measured*, [hf-quantizer-4b](mesures/hf-quantizer-4b-2026-09-30.txt)).
+  [plan-transformers](plan-transformers.md) has the remaining stages and their gates: nothing is on the Hub, and no
+  kernel reads the compressed form outside our engine.
 - **The next venue for paper 2.** TACO desk-rejected paper 1 on 2026-08-27 on scope. Default if silent: preprint only.
 - **A harder reasoning test.** Qwen3's reasoning mode, or GSM-Symbolic's unseen variants, about 3 to 5 $ at 4B
   (*estimated*). GSM8K cannot separate the 8B and 14B losses from their MMLU losses.

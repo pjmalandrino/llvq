@@ -29,7 +29,7 @@ What we have: the CUDA kernel `llvq-cuda/kernels/llvq_tetra48.cuh`, compiled by 
 | stage | content | gate | cost |
 |---|---|---|---|
 | 0 | Map the sealed file to safetensors: codes, gains, row scales, f32 tail, int4 records, rotation seeds, plus `config.json` with a `quantization_config` block | a Python reader rebuilds every tensor bit for bit against `llvq-artifact` on the 4B | 0 $, Mac |
-| 1 | `LlvqQuantizer` registered with `register_quantizer`: swaps `nn.Linear` for a `TetraLinear` that dequantizes in PyTorch, then runs a dense matmul. Rotation, int4 projections and int4 embeddings included | `from_pretrained` loads the 4B. 64 greedy tokens identical to `bin/run` on the dense reconstruction, same prompt | 0 $, Mac, CPU or MPS |
+| 1 | `LlvqQuantizer` registered with `register_quantizer`: swaps `nn.Linear` for a `TetraLinear` that dequantizes in PyTorch, then runs a dense matmul. Rotation, int4 projections and int4 embeddings included | passed 2026-09-30: 253 weight digests against `decode_matrix`, and 64 greedy ids per prompt identical to `bin/run` | 0 $, Mac, CPU |
 | 2 | Tetra decode as a torch op on Metal, from the existing shader | the op matches stage 1's dequant bit for bit on every 4B matrix; same 64 tokens | 0 $, Mac |
 | 3 | Kernel Hub packaging for Metal (`kernel-builder`), loaded with `get_kernel` | `kernel-abi-check` green; stage 2's tokens reproduced from the Hub-loaded kernel | 0 $, Mac |
 | 4 | CUDA: the NVRTC source becomes a precompiled torch extension, built by `kernel-builder` | `oracle`-style check against the f64 rows; same tokens as `fusedrun` under `configs/qwen3-4b-tetra-e4.json` | small, one L40S job, to price before the go |
@@ -60,7 +60,18 @@ directory against 1.418 of sealed file (*measured*, `docs/mesures/hf-safetensors
 were taken by the operator before the code and are recorded in that prereg §3: our own tensor naming, the disk's bytes
 as the code payload, the rotation carried as its two tables.
 
-Stages 1 to 6 have not started. Each needs its own go.
+Stage 1 passed on 2026-09-30, both gates (*measured*, `docs/mesures/hf-quantizer-4b-2026-09-30.txt`,
+prereg `proofs/preregistration-hf-quantizer-2026-09-30.md`). 253 of 253 dequantized weight digests
+identical to `llvq_artifact::decode_matrix`, and 256 of 256 greedy token ids identical to `bin/run`
+over the four prompts, f32 on the CPU on both sides. `from_pretrained` reports no missing and no
+unexpected key. The Python side is `llvq-hf/`.
+
+Its kill criterion could not fire, and the prereg says so rather than claiming a pass: folding the
+un-rotation into the dequantization removes the rotation from the forward pass, so no hook has to
+host it. The real question, a kernel that reads rotated weights and rotates the activation, belongs
+to stage 2 on Metal and stage 4 on CUDA.
+
+Stages 2 to 6 have not started. Each needs its own go.
 
 ## Where the code lives
 
@@ -88,7 +99,5 @@ is updated at the same time.
 
 ## Open decisions
 
-- The go on stage 1.
-- Whether `quantization_config` stays pretty printed at 131 KB, or the record table moves to a side file the quantizer
-  reads. Measured at stage 0, decided at stage 1.
+- The go on stage 2.
 - Whether publishing the three sealed files (`docs/ETAT.md` §5) waits for stage 5.
