@@ -178,34 +178,53 @@ class LlvqQuantizer(HfQuantizer):
         return model
 
     def _arm_fused(self, model, rotations: dict):
-        """Swap each Tetra record for its resident form, int4 left dense.
+        """Swap each record for its resident form, on the device it is already on.
 
         The int4 records go through `tv_q4_metal_tiled`, added beside the served
         `tv_q4_metal` rather than replacing it, and bit-identical to it wherever both
         run. `LLVQ_HF_Q4_TILE` sets the slice, 2,048 columns by default, and a value
         that is not a multiple of 256 is refused by the binding rather than rounded.
+
+        The device is read from the module's own buffers and is not assumed. It used
+        to be the string "mps", which made every non-Apple caller fail inside `.to()`
+        on a device that does not exist there.
+
+        Where a kind has no kernel for that device it is materialized dense instead,
+        and the count is kept so the memory report can say what it measured. Today
+        that is the int4 records on a card: `csrc/tetra_cuda.cu` binds `tv_tetra48`
+        and nothing else. A silent fallback would let a run be published as fused
+        when a third of its projections are dense.
         """
         from .fused import FusedTetraLinear, Int4FusedLinear, Rotation
 
-        device = "mps"
         tile = int(os.environ.get("LLVQ_HF_TILE", "64"))
         q4_tile = int(os.environ.get("LLVQ_HF_Q4_TILE", "2048"))
-        built: dict[str, Rotation] = {}
+        built: dict[tuple[str, str], Rotation] = {}
         dtype = self.dtype or self.update_dtype(None)
+        self.armed = {"fused": 0, "dense_for_want_of_a_kernel": 0}
         for name, module in list(model.named_modules()):
             if isinstance(module, Int4Linear):
-                _set_module(model, name, Int4FusedLinear.from_loaded(module, q4_tile, device))
+                device = _module_device(module, name)
+                if Int4FusedLinear.supports(device):
+                    _set_module(model, name,
+                                Int4FusedLinear.from_loaded(module, q4_tile, device))
+                    self.armed["fused"] += 1
+                else:
+                    module.materialize(self.tables, rotations, dtype)
+                    self.armed["dense_for_want_of_a_kernel"] += 1
                 continue
             if not isinstance(module, TetraLinear):
                 continue
+            device = _module_device(module, name)
             key = module.desc.get("rotation")
-            if key and key not in built:
+            if key and (key, device) not in built:
                 signs, small = rotations[key]
-                built[key] = Rotation(signs, small, device)
+                built[(key, device)] = Rotation(signs, small, device)
             _set_module(
                 model, name,
-                FusedTetraLinear.from_loaded(module, built.get(key), tile, device),
+                FusedTetraLinear.from_loaded(module, built.get((key, device)), tile, device),
             )
+            self.armed["fused"] += 1
 
     def resident_bytes(self, model) -> int:
         """Device bytes the armed projections hold, measured and not computed."""
@@ -225,6 +244,18 @@ class LlvqQuantizer(HfQuantizer):
     def is_serializable(self, safe_serialization=None) -> bool:
         """`save_pretrained` would write the dense weights, not our format."""
         return False
+
+
+def _module_device(module, name: str) -> str:
+    """The device a loaded record is already on, as a type string.
+
+    `_arm_fused` used to hard-code "mps". Reading it from the buffers keeps the
+    kernel on whatever device `transformers` put the weights, and a record with no
+    buffer at all is a bug worth naming rather than defaulting.
+    """
+    for t in list(module.buffers()) + list(module.parameters()):
+        return t.device.type
+    raise RuntimeError(f"{name} carries no buffer, so its device cannot be read")
 
 
 def _set_module(model, name: str, new: torch.nn.Module) -> None:

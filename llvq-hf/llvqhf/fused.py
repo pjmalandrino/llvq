@@ -232,8 +232,25 @@ class Int4FusedLinear(LlvqLinear):
         self._wq = self._scales = self._biases = None
         self._tile = 0
 
+    @staticmethod
+    def supports(device: str) -> bool:
+        """Whether an int4 matvec exists for this device.
+
+        Metal only, today. `csrc/tetra_cuda.cu` binds `tv_tetra48` and nothing
+        else, so on a card the int4 records have no kernel to go to and the
+        caller must materialize them instead. Saying so here rather than
+        dispatching `llvq::tv_q4` on a CUDA tensor is the difference between a
+        named limit and a crash inside an operator.
+        """
+        return device == "mps"
+
     @classmethod
     def from_loaded(cls, loaded, tile_cols: int, device: str):
+        if not cls.supports(device):
+            raise RuntimeError(
+                f"no int4 matvec for {device}: only Metal has one, "
+                "and csrc/tetra_cuda.cu binds tv_tetra48 alone"
+            )
         metal.extension_for(device)
         d = loaded.desc
         out = cls(d, loaded.bias.detach() if loaded.bias is not None else None)

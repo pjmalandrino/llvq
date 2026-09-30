@@ -73,6 +73,24 @@ def report_memory(model, device: str) -> dict:
     if resident:
         out["fused_resident"] = resident
         lines.append(f"fused projections resident {resident / 1e9:.3f} GB")
+    # How many projections are actually fused, because a kind with no kernel for
+    # this device is materialized dense instead. Without the count a run reads as
+    # fused while a third of its matrices are not.
+    try:
+        from .fused import FusedTetraLinear, Int4FusedLinear
+        from .modules import Int4Linear, TetraLinear
+
+        fused_n = sum(1 for m in model.modules()
+                      if isinstance(m, (FusedTetraLinear, Int4FusedLinear)))
+        dense_n = sum(1 for m in model.modules()
+                      if isinstance(m, (TetraLinear, Int4Linear))
+                      and not isinstance(m, (FusedTetraLinear, Int4FusedLinear)))
+        if fused_n or dense_n:
+            out["projections_fused"] = fused_n
+            out["projections_dense"] = dense_n
+            lines.append(f"projections {fused_n} fused, {dense_n} dense")
+    except Exception:  # noqa: BLE001  the fused arm is optional
+        pass
     if device == "mps":
         import torch as _t
 
@@ -80,6 +98,15 @@ def report_memory(model, device: str) -> dict:
         out["mps_driver"] = int(_t.mps.driver_allocated_memory())
         lines.append(f"mps allocated {out['mps_allocated'] / 1e9:.3f} GB, "
                      f"driver {out['mps_driver'] / 1e9:.3f} GB")
+    if device == "cuda":
+        import torch as _t
+
+        out["cuda_allocated"] = int(_t.cuda.memory_allocated())
+        out["cuda_max_allocated"] = int(_t.cuda.max_memory_allocated())
+        out["cuda_reserved"] = int(_t.cuda.memory_reserved())
+        lines.append(f"cuda allocated {out['cuda_allocated'] / 1e9:.3f} GB, "
+                     f"peak {out['cuda_max_allocated'] / 1e9:.3f} GB, "
+                     f"reserved {out['cuda_reserved'] / 1e9:.3f} GB")
     return {"bytes": out, "lines": lines}
 
 
