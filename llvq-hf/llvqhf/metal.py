@@ -46,24 +46,32 @@ CSRC = Path(__file__).parent / "csrc" / "tetra_decode.mm"
 CSRC_CUDA = Path(__file__).parent / "csrc" / "tetra_cuda.cu"
 
 
-def shader_source() -> str:
-    """The MSL the op compiles, with its digest checked against the tables file.
+def shader_source(name: str = "llvq_tetra48.metal") -> str:
+    """One of the shipped shaders, with its digest checked against the tables file.
 
-    The shader ships as a copy of the repository's. Checking it here means a copy
-    that drifted is refused at the first dispatch rather than decoding plausible
-    wrong points.
+    The shaders ship as copies of the repository's. Checking here means a copy
+    that drifted is refused at the first dispatch rather than computing plausible
+    wrong numbers.
     """
     import hashlib
 
-    want = json.loads(CONSTANTS.read_text())["shader"]
-    raw = SHADER.read_bytes()
+    shaders = json.loads(CONSTANTS.read_text())["shaders"]
+    if name not in shaders:
+        raise KeyError(f"{name} is not one of the shipped shaders, {sorted(shaders)}")
+    raw = (DATA / name).read_bytes()
     got = hashlib.sha256(raw).hexdigest()
-    if got != want["sha256"]:
+    if got != shaders[name]["sha256"]:
         raise ValueError(
-            f"{SHADER.name} is not the shader the tables were dumped with:\n"
-            f"  recorded {want['sha256']}\n  shipped  {got}"
+            f"{name} is not the shader the tables were dumped with:\n"
+            f"  recorded {shaders[name]['sha256']}\n  shipped  {got}"
         )
     return raw.decode()
+
+
+@lru_cache(maxsize=1)
+def q4_source() -> str:
+    """The int4 shader, which needs no define: its group size is in the file."""
+    return shader_source("tv_q4_h.metal")
 
 
 def extension_for(device: str):

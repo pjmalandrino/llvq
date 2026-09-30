@@ -210,3 +210,62 @@ class FusedTetraLinear(LlvqLinear):
         if self.bias is not None:
             y = y + self.bias
         return y.to(x.dtype)
+
+
+class Int4FusedLinear(LlvqLinear):
+    """One `Int4G128` record, resident as the kernel reads it.
+
+    The served `tv_q4_metal` stages the whole activation and stops at 8,192
+    columns on a 32 KB device, which every sealed file's `down_proj` exceeds. So
+    this dispatches `tv_q4_metal_tiled`, added beside it and bit-identical wherever
+    both run: a tile of a multiple of 256 columns is a multiple of 32 words, so
+    each lane walks the same words in the same order.
+
+    The three buffers are the file's own bytes. `qweight` and the two f16 tables go
+    to the device as byte blobs, because the kernel reads them as `uint*` and
+    `ushort*` and the layout is decided in `llvq_llm::hfpack`, not here.
+    """
+
+    def __init__(self, desc: dict, bias: torch.Tensor | None = None):
+        super().__init__(desc["d_out"], desc["d_in"], bias)
+        self.desc = desc
+        self._wq = self._scales = self._biases = None
+        self._tile = 0
+
+    @classmethod
+    def from_loaded(cls, loaded, tile_cols: int, device: str):
+        metal.extension_for(device)
+        d = loaded.desc
+        out = cls(d, loaded.bias.detach() if loaded.bias is not None else None)
+        def blob(t: torch.Tensor) -> torch.Tensor:
+            return torch.from_numpy(
+                np.ascontiguousarray(t.detach().cpu().numpy()).view(np.uint8).reshape(-1).copy()
+            ).to(device)
+        out._wq = blob(loaded.qweight)
+        out._scales = blob(loaded.scales)
+        out._biases = blob(loaded.biases)
+        out._tile = tile_cols
+        return out
+
+    def resident_bytes(self) -> int:
+        return sum(t.numel() * t.element_size()
+                   for t in (self._wq, self._scales, self._biases))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self._wq is None:
+            raise RuntimeError("this int4 projection was never armed")
+        d = self.desc
+        shape = x.shape
+        flat = x.reshape(-1, d["d_in"]).to(torch.float32).contiguous()
+        src = metal.q4_source()
+        out = [
+            torch.ops.llvq.tv_q4(
+                self._wq, self._scales, self._biases, flat[i],
+                d["d_out"], d["d_in"], d["groups_per_row"], self._tile, src,
+            )
+            for i in range(flat.shape[0])
+        ]
+        y = torch.stack(out).reshape(*shape[:-1], d["d_out"])
+        if self.bias is not None:
+            y = y + self.bias
+        return y.to(x.dtype)

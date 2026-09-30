@@ -64,10 +64,10 @@ def report_memory(model, device: str) -> dict:
     lines = [f"parameters and buffers {params / 1e9:.3f} GB"]
     resident = 0
     try:
-        from .fused import FusedTetraLinear
+        from .fused import FusedTetraLinear, Int4FusedLinear
 
         resident = sum(m.resident_bytes() for m in model.modules()
-                       if isinstance(m, FusedTetraLinear))
+                       if isinstance(m, (FusedTetraLinear, Int4FusedLinear)))
     except Exception:  # noqa: BLE001  the fused arm is optional
         resident = 0
     if resident:

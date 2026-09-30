@@ -741,23 +741,35 @@ pub fn tetra_tables(out: &Path) -> anyhow::Result<(String, usize)> {
     // source in the repository, and a copy the package can ship after the
     // extraction of stage 5; `the_shipped_shader_is_the_repositorys` compares
     // them in the fast loop.
-    let shader_src = Path::new(env!("CARGO_MANIFEST_DIR")).join("kernels/llvq_tetra48.metal");
-    let shader = std::fs::read(&shader_src)?;
-    let shader_sha = sha256_hex(&shader);
-    let shader_out = out.with_file_name("llvq_tetra48.metal");
-    std::fs::write(&shader_out, &shader)?;
+    let kernels = Path::new(env!("CARGO_MANIFEST_DIR")).join("kernels");
+    let mut shaders = Map::new();
+    for (file, entry, note) in [
+        (
+            "llvq_tetra48.metal",
+            "tetra48_probe, tv_tetra48_metal",
+            "the decoder judged on its own, and the served Tetra matvec",
+        ),
+        (
+            "tv_q4_h.metal",
+            "tv_q4_metal, tv_q4_metal_tiled",
+            "the served int4 matvec, and the tiled variant beside it for a d_in past 8192",
+        ),
+    ] {
+        let bytes = std::fs::read(kernels.join(file))?;
+        let sha = sha256_hex(&bytes);
+        std::fs::write(out.with_file_name(file), &bytes)?;
+        shaders.insert(
+            file.to_string(),
+            json!({"sha256": sha, "entries": entry, "note": note}),
+        );
+    }
 
     // The constants a reader needs beside the arrays, and the fingerprint that
     // says which map they are.
     let fingerprint = format!("{:016x}", llvq_artifact::tetra_fingerprint());
     let meta = json!({
         "tetra_fingerprint": fingerprint,
-        "shader": {
-            "file": "llvq_tetra48.metal",
-            "sha256": shader_sha,
-            "entry": "tetra48_probe",
-            "note": "one thread a block, no tile, no reduction: the decoder judged on its own",
-        },
+        "shaders": Value::Object(shaders.clone()),
         "label_bits": tetra::LABEL_BITS,
         "word_bits": tetra::WORD_BITS,
         "class_rows": tetra::CLASS_ROWS,

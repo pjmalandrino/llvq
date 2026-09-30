@@ -197,6 +197,78 @@ tv_tetra48(const torch::Tensor &words, const torch::Tensor &rows,
     return y;
 }
 
+// The int4 g128 matvec, both entry points: the served one and the tiled one.
+//
+// Two ops and not one with a flag, because the gate is that they agree: a flag
+// would let a caller think it had compared them when it had run one twice.
+//
+// `tile_cols` a multiple of 256 is the whole of the tiled kernel's bit-identity
+// argument, so it is refused here rather than rounded up. Rounding would change
+// the arithmetic of a served number silently.
+static torch::Tensor
+tv_q4(const torch::Tensor &wq, const torch::Tensor &scales, const torch::Tensor &biases,
+      const torch::Tensor &x, int64_t d_out, int64_t d_in, int64_t gpr, int64_t tile_cols,
+      const std::string &source) {
+    const bool tiled = tile_cols > 0;
+    TORCH_CHECK(d_in % 8 == 0,
+                "d_in ", d_in, " is not a multiple of 8. Eight nibbles a word is what makes a "
+                "row start on a word, and without it every row after the first reads at a "
+                "shifted nibble");
+    TORCH_CHECK(d_out % 8 == 0, "d_out ", d_out, " is not a multiple of 8");
+    const int64_t staged = tiled ? tile_cols : d_in;
+    TORCH_CHECK(staged * 4 <= 32768,
+                "staging ", staged, " columns wants ", staged * 4,
+                " B of threadgroup memory against 32768. That is the wall the tiled entry "
+                "point exists for");
+    if (tiled) {
+        TORCH_CHECK(tile_cols % 256 == 0,
+                    "tile_cols ", tile_cols, " is not a multiple of 256. A tile of tile_cols/8 "
+                    "words must be a multiple of 32 or the lanes interleave differently and the "
+                    "sum is a different f32");
+    }
+    for (const auto &t : {wq, scales, biases}) {
+        TORCH_CHECK(t.dtype() == torch::kUInt8 && t.is_contiguous() && t.device().is_mps(),
+                    "the packed weights and the scale pairs are contiguous byte blobs on mps");
+    }
+    TORCH_CHECK(x.dtype() == torch::kFloat32 && x.is_contiguous() && x.device().is_mps(),
+                "x is contiguous f32 on mps");
+    TORCH_CHECK(x.numel() == d_in, "x holds ", x.numel(), " values for d_in ", d_in);
+    TORCH_CHECK(wq.numel() == d_out * d_in / 2,
+                "the packed weights hold ", wq.numel(), " bytes for ", d_out, " by ", d_in);
+    TORCH_CHECK(scales.numel() == d_out * gpr * 2 && biases.numel() == scales.numel(),
+                "one f16 scale and one f16 bias a group, ", d_out * gpr, " groups");
+
+    torch::Tensor y = torch::empty({d_out}, x.options());
+    id<MTLComputePipelineState> state =
+        pipeline_for(source, tiled ? "tv_q4_metal_tiled" : "tv_q4_metal");
+    dispatch_queue_t queue = torch::mps::get_dispatch_queue();
+    dispatch_sync(queue, ^() {
+        id<MTLCommandBuffer> buffer = torch::mps::get_command_buffer();
+        TORCH_CHECK(buffer != nil, "no MPS command buffer");
+        id<MTLComputeCommandEncoder> encoder = [buffer computeCommandEncoder];
+        [encoder setComputePipelineState:state];
+        uint32_t din = static_cast<uint32_t>(d_in);
+        uint32_t groups = static_cast<uint32_t>(gpr);
+        uint32_t tile = static_cast<uint32_t>(tile_cols);
+        [encoder setBuffer:mtl(wq) offset:offset_of(wq) atIndex:0];
+        [encoder setBuffer:mtl(scales) offset:offset_of(scales) atIndex:1];
+        [encoder setBuffer:mtl(biases) offset:offset_of(biases) atIndex:2];
+        [encoder setBuffer:mtl(x) offset:offset_of(x) atIndex:3];
+        [encoder setBuffer:mtl(y) offset:offset_of(y) atIndex:4];
+        [encoder setBytes:&din length:sizeof(din) atIndex:5];
+        [encoder setBytes:&groups length:sizeof(groups) atIndex:6];
+        if (tiled) {
+            [encoder setBytes:&tile length:sizeof(tile) atIndex:7];
+        }
+        [encoder setThreadgroupMemoryLength:static_cast<NSUInteger>(staged * 4) atIndex:0];
+        [encoder dispatchThreads:MTLSizeMake(static_cast<NSUInteger>(d_out) * 32, 1, 1)
+          threadsPerThreadgroup:MTLSizeMake(256, 1, 1)];
+        [encoder endEncoding];
+        torch::mps::commit();
+    });
+    return y;
+}
+
 TORCH_LIBRARY(llvq, m) {
     m.def("tetra_decode(Tensor words, Tensor rows, Tensor prefixes, Tensor branches, "
           "Tensor suffixes, int d_out, int nblocks, int row_stride_u32, str source) "
@@ -205,9 +277,14 @@ TORCH_LIBRARY(llvq, m) {
           "Tensor suffixes, Tensor gscale, Tensor invnorm, Tensor rscale, Tensor tail, "
           "Tensor x, int d_out, int nblocks, int tail_w, int row_stride_u32, int tile, "
           "str source) -> Tensor");
+    // `tile_cols` of 0 selects the served entry point, which stages the whole
+    // activation; anything else selects the tiled one.
+    m.def("tv_q4(Tensor wq, Tensor scales, Tensor biases, Tensor x, int d_out, int d_in, "
+          "int gpr, int tile_cols, str source) -> Tensor");
 }
 
 TORCH_LIBRARY_IMPL(llvq, MPS, m) {
     m.impl("tetra_decode", &tetra_decode);
     m.impl("tv_tetra48", &tv_tetra48);
+    m.impl("tv_q4", &tv_q4);
 }

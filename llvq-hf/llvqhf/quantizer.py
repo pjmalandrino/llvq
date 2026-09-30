@@ -180,20 +180,21 @@ class LlvqQuantizer(HfQuantizer):
     def _arm_fused(self, model, rotations: dict):
         """Swap each Tetra record for its resident form, int4 left dense.
 
-        The int4 records stay materialized: their kernel stages the whole activation
-        against a 32 KB threadgroup limit and refuses `d_in` above 8,192, which every
-        sealed file's `down_proj` exceeds. That is M2 and it needs a served shader
-        changed, so it is not smuggled in here.
+        The int4 records go through `tv_q4_metal_tiled`, added beside the served
+        `tv_q4_metal` rather than replacing it, and bit-identical to it wherever both
+        run. `LLVQ_HF_Q4_TILE` sets the slice, 2,048 columns by default, and a value
+        that is not a multiple of 256 is refused by the binding rather than rounded.
         """
-        from .fused import FusedTetraLinear, Rotation
+        from .fused import FusedTetraLinear, Int4FusedLinear, Rotation
 
         device = "mps"
         tile = int(os.environ.get("LLVQ_HF_TILE", "64"))
+        q4_tile = int(os.environ.get("LLVQ_HF_Q4_TILE", "2048"))
         built: dict[str, Rotation] = {}
         dtype = self.dtype or self.update_dtype(None)
         for name, module in list(model.named_modules()):
             if isinstance(module, Int4Linear):
-                module.materialize(self.tables, rotations, dtype)
+                _set_module(model, name, Int4FusedLinear.from_loaded(module, q4_tile, device))
                 continue
             if not isinstance(module, TetraLinear):
                 continue

@@ -213,28 +213,36 @@ fn a_sealed_file_packs_into_a_described_directory() {
 #[test]
 fn the_shipped_shader_is_the_repositorys() {
     // A test binary runs with the crate as its working directory.
-    let served = std::path::Path::new("kernels/llvq_tetra48.metal");
-    let shipped = std::path::Path::new("../llvq-hf/llvqhf/data/llvq_tetra48.metal");
     let tables = std::path::Path::new("../llvq-hf/llvqhf/data/tetra-tables.json");
-    for p in [served, shipped, tables] {
-        assert!(p.exists(), "{} is missing; re-run bin/tetratables", p.display());
-    }
-    let a = std::fs::read(served).expect("read the served shader");
-    let b = std::fs::read(shipped).expect("read the shipped shader");
-    assert_eq!(
-        a, b,
-        "the shipped shader differs from kernels/llvq_tetra48.metal: re-run \
-         `cargo run --release -p llvq-llm --bin tetratables -- \
-         llvq-hf/llvqhf/data/tetra-tables.safetensors`"
-    );
+    assert!(tables.exists(), "{} is missing; re-run bin/tetratables", tables.display());
     let meta: serde_json::Value =
         serde_json::from_slice(&std::fs::read(tables).expect("read")).expect("parse");
-    assert_eq!(
-        meta["shader"]["sha256"].as_str(),
-        Some(llvq_llm::hfpack::sha256_bytes(&a).as_str()),
-        "the digest recorded beside the tables is not this shader's"
-    );
-    assert_eq!(meta["shader"]["entry"], "tetra48_probe");
+    let shaders = meta["shaders"].as_object().expect("a shader table");
+    assert_eq!(shaders.len(), 2, "two shaders travel with the package");
+    for (file, recorded) in shaders {
+        let served = std::path::Path::new("kernels").join(file);
+        let shipped = std::path::Path::new("../llvq-hf/llvqhf/data").join(file);
+        for p in [&served, &shipped] {
+            assert!(p.exists(), "{} is missing; re-run bin/tetratables", p.display());
+        }
+        let a = std::fs::read(&served).expect("read the served shader");
+        let b = std::fs::read(&shipped).expect("read the shipped shader");
+        assert_eq!(
+            a, b,
+            "the shipped {file} differs from kernels/{file}: re-run \
+             `cargo run --release -p llvq-llm --bin tetratables -- \
+             llvq-hf/llvqhf/data/tetra-tables.safetensors`"
+        );
+        assert_eq!(
+            recorded["sha256"].as_str(),
+            Some(llvq_llm::hfpack::sha256_bytes(&a).as_str()),
+            "the digest recorded beside the tables is not {file}'s"
+        );
+    }
+    assert!(shaders["tv_q4_h.metal"]["entries"]
+        .as_str()
+        .expect("entries")
+        .contains("tv_q4_metal_tiled"));
 }
 
 /// The codes tensor holds the bytes the record holds, and they unpack MSB-first

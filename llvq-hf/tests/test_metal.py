@@ -64,14 +64,23 @@ def test_the_shipped_shader_is_the_one_the_tables_record():
 
 
 def test_a_drifted_shader_copy_is_refused(tmp_path, monkeypatch):
-    """The copy is checked before every compile, not trusted because it shipped."""
+    """Each copy is checked before every compile, not trusted because it shipped."""
     import llvqhf.metal as metal
 
-    bad = tmp_path / "llvq_tetra48.metal"
-    bad.write_bytes(metal.SHADER.read_bytes() + b"\n// drift\n")
-    monkeypatch.setattr(metal, "SHADER", bad)
-    with pytest.raises(ValueError, match="not the shader the tables were dumped with"):
-        metal.shader_source()
+    for name in ("llvq_tetra48.metal", "tv_q4_h.metal"):
+        drifted = tmp_path / name
+        drifted.write_bytes((metal.DATA / name).read_bytes() + b"\n// drift\n")
+        monkeypatch.setattr(metal, "DATA", tmp_path)
+        with pytest.raises(ValueError, match="not the shader the tables were dumped with"):
+            metal.shader_source(name)
+        monkeypatch.undo()
+
+
+def test_an_unknown_shader_is_refused():
+    from llvqhf import metal
+
+    with pytest.raises(KeyError, match="not one of the shipped shaders"):
+        metal.shader_source("tv_planes_h.metal")
 
 
 def test_the_stride_covers_the_last_blocks_read_window():
