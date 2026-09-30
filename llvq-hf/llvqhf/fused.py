@@ -47,6 +47,10 @@ from .modules import LlvqLinear
 
 TETRA48_SHELLS = 32
 
+# Threads a block on CUDA, so `threads / 32` rows a block, as
+# `llvq_llm::fused_cuda::launch_tetra48` launches it.
+CUDA_THREADS = 256
+
 
 def invnorm_table() -> np.ndarray:
     """`1/sqrt(16m)` in f32, `invnorm[0] = 0`, computed in f64 and narrowed once.
@@ -126,10 +130,10 @@ class FusedTetraLinear(LlvqLinear):
         """
         from .tetra import split_stream
 
-        # Loading the extension is what registers `torch.ops.llvq`, and it is
+        # Loading the extension is what registers the op namespace, and it is
         # cached: a module that arms without it would fail at its first forward
         # with a missing attribute rather than here.
-        metal._extension()
+        metal.extension_for(device)
         d = loaded.desc
         n = d["d_out"] * d["nblocks"]
         codes = loaded.codes.detach().cpu().numpy()
@@ -178,16 +182,30 @@ class FusedTetraLinear(LlvqLinear):
             flat = self.rotation(flat)
         flat = flat.contiguous()
         # One dispatch a token: the kernel takes a vector, and a batched fallback
-        # would need the weight materialized.
-        out = [
-            torch.ops.llvq.tv_tetra48(
-                self._words, *metal.shared_tables(x.device.type),
-                self._gscale, metal.invnorm_on(x.device.type), self._rscale, self._tail,
-                flat[i], d["d_out"], d["nblocks"], d["tail_cols"],
-                metal.stride_u32(d["nblocks"]), self._tile, metal.tiled_source(self._tile),
-            )
-            for i in range(flat.shape[0])
-        ]
+        # would need the weight materialized. CUDA carries a four-row prefill
+        # kernel, `tv_tetra48_rows_h`, which Metal does not; using it is a lot of
+        # its own and it is not what this arm is for.
+        dev = x.device.type
+        tables = metal.shared_tables(dev)
+        invnorm = metal.invnorm_on(dev)
+        stride = metal.stride_u32(d["nblocks"])
+        out = []
+        for i in range(flat.shape[0]):
+            if dev == "cuda":
+                # The served CUDA kernel writes f16, where the Metal one writes
+                # f32. Widening here keeps the module's contract one dtype.
+                y_i = torch.ops.llvq_cuda.tv_tetra48(
+                    self._words, *tables, self._gscale, invnorm, self._rscale,
+                    self._tail, flat[i], d["d_out"], d["nblocks"], d["tail_cols"],
+                    stride, self._tile, CUDA_THREADS,
+                ).to(torch.float32)
+            else:
+                y_i = torch.ops.llvq.tv_tetra48(
+                    self._words, *tables, self._gscale, invnorm, self._rscale,
+                    self._tail, flat[i], d["d_out"], d["nblocks"], d["tail_cols"],
+                    stride, self._tile, metal.tiled_source(self._tile),
+                )
+            out.append(y_i)
         y = torch.stack(out).reshape(*shape[:-1], d["d_out"])
         if self.bias is not None:
             y = y + self.bias

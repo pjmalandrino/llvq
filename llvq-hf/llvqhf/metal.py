@@ -32,6 +32,7 @@ file records.
 from __future__ import annotations
 
 import json
+import os
 from functools import lru_cache
 from pathlib import Path
 
@@ -42,6 +43,7 @@ DATA = Path(__file__).parent / "data"
 SHADER = DATA / "llvq_tetra48.metal"
 CONSTANTS = DATA / "tetra-tables.json"
 CSRC = Path(__file__).parent / "csrc" / "tetra_decode.mm"
+CSRC_CUDA = Path(__file__).parent / "csrc" / "tetra_cuda.cu"
 
 
 def shader_source() -> str:
@@ -62,6 +64,52 @@ def shader_source() -> str:
             f"  recorded {want['sha256']}\n  shipped  {got}"
         )
     return raw.decode()
+
+
+def extension_for(device: str):
+    """The extension that registers the op namespace of `device`.
+
+    Metal and CUDA are two files and two namespaces, `torch.ops.llvq` and
+    `torch.ops.llvq_cuda`, because they are two kernels with two signatures: the
+    CUDA one writes f16 and takes its tile through a compile flag where Metal
+    takes the source. One name for both would have hidden that.
+    """
+    if device == "cuda":
+        return _extension_cuda()
+    return _extension()
+
+
+@lru_cache(maxsize=1)
+def _extension_cuda():
+    """Compile `csrc/tetra_cuda.cu` against the served kernel, with nvcc.
+
+    The include path is the repository's `llvq-llm/kernels`, and that file's own
+    `#include "../../llvq-cuda/kernels/..."` resolve from there, so the tree has
+    to be the repository's shape. `TILE_BLOCKS` is the kernel's define, not
+    Metal's `LLVQ_TILE_BLOCKS`, and the shared bytes the caller passes have to
+    match it.
+    """
+    from torch.utils.cpp_extension import load
+
+    if not torch.cuda.is_available():
+        raise RuntimeError("this op runs on CUDA, and no device is available")
+    root = Path(os.environ.get("LLVQ_REPO", Path(__file__).resolve().parents[2]))
+    kernels = root / "llvq-llm" / "kernels"
+    if not (kernels / "tv_tetra48_h.cu").exists():
+        raise FileNotFoundError(
+            f"{kernels / 'tv_tetra48_h.cu'} is missing. Set LLVQ_REPO to the repository "
+            "root: the served kernel is included from it rather than copied"
+        )
+    tile = int(os.environ.get("LLVQ_HF_TILE", "64"))
+    return load(
+        name="llvqhf_cuda",
+        sources=[str(CSRC_CUDA)],
+        extra_include_paths=[str(kernels)],
+        extra_cflags=["-std=c++17"],
+        extra_cuda_cflags=["-std=c++17", f"-DTILE_BLOCKS={tile}u", "--fmad=true"],
+        is_python_module=False,
+        verbose=False,
+    )
 
 
 @lru_cache(maxsize=1)
