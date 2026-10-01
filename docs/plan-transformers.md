@@ -36,7 +36,7 @@ What we have: the CUDA kernel `llvq-cuda/kernels/llvq_tetra48.cuh`, compiled by 
 | M3 | the quantized embedding resident, through `emb_q4_gather_metal` | the same ids | 0 $, Mac |
 | 3 | Kernel Hub packaging for Metal (`kernel-builder`), loaded with `get_kernel` | `kernel-abi-check` green; stage 2's tokens reproduced from the Hub-loaded kernel | 0 $, Mac |
 | 4 | CUDA: the NVRTC source becomes a precompiled torch extension | **passed 2026-09-30**: built by `nvcc` in 51.8 s, per-row 3.4 to 3.7e-04 on three shapes, 256 ids of 256, 168 of 252 projections fused | **$0.30 over seven launches** on `l40sx1` then `l4x1` |
-| 5 | Pip package, model card, 4B file pushed to the Hub in the new layout | a clean environment runs `pip install` then `from_pretrained` and reproduces the tokens | 0 $ |
+| 5 | Pip package, model card, 4B file pushed to the Hub in the new layout | **the local half passed 2026-10-01**: a clean venv installs the package and reproduces 256 ids of 256 with no compiler, on transformers 5.18.0. The Hub push and the card are not done | 0 $ |
 | 6 | Upstream PR to `transformers` | accepted or refused by the maintainers; not ours to decide | 0 $ |
 
 ## The CUDA test job, launched
@@ -246,6 +246,28 @@ build failures are now held by tests on the Mac at 0 $, and the third was a fact
 the Metal path.
 
 Stages 3, 5 and 6 have not started. Each needs its own go.
+
+**The cleanroom half of stage 5 passed on 2026-10-01** (*measured*,
+`docs/mesures/hf-cleanroom-4b-2026-10-01.txt`). A fresh venv, `pip install ./llvq-hf torch
+transformers`, and the packed 4B gives the same 256 greedy ids as `bin/run` on the sealed file it
+came from. No `ninja`, no `accelerate`, no compiler: **the dense path builds nothing**, so a reviewer
+without a GPU can load the model and generate. It also held on transformers 5.18.0, against the
+5.17.0 of every earlier measurement here.
+
+**It found the defect that mattered most, and found it in the first minute.** `import llvqhf`
+registered nothing: `__init__.py` imported `tetra` and `reader` and never `quantizer`. Our tests and
+journals are sound because every script of the package imports `.quantizer` by hand, which is exactly
+why four stages passed over it. And the failure is soft: transformers warns "Unknown quantization
+type, got llvq ... we will skip the quantization", loads the model as dense, then raises about a
+corrupted checkpoint fifty lines later. A reviewer would have concluded our file was broken. Fixed,
+and held by `tests/test_registration.py` in a fresh interpreter, with the mutant posted and caught.
+
+**Two things stage 5 still needs**, and both are decisions rather than puzzles. Nothing is on the Hub:
+`Pier-Jean/Qwen3-4B-LLVQ-2bit` is public, at zero downloads, and still holds `q4b-e8.llvq` and the
+1.77 GB `.bin`. And the 4 KB fixture is not a loadable model, its config describing a hidden_size of
+96 against records of 4 by 88, so the package has no small object anyone can load end to end and the
+suite cannot cover `from_pretrained` without the 1.4 GB file. For an in-tree PR a maintainer asks for
+that first. Fixing it is Rust work in the fixture writer.
 
 ## Where the code lives
 

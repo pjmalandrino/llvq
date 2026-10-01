@@ -1,0 +1,114 @@
+WHAT A STRANGER GETS: PIP INSTALL, THEN FROM_PRETRAINED (2026-10-01)
+================================================================================
+Prereg: NONE, and that is a deviation from rule 2 worth naming rather than
+        dressing up. This started as a packaging smoke test, found a defect, and
+        only then produced a gate result. The token identity it ends on is not a
+        new claim: it is the gate of
+        proofs/preregistration-hf-quantizer-2026-09-30.md, which stage 1 already
+        preregistered and passed, replicated in a different environment. What is
+        new here is the environment, not the criterion. No prereg has been
+        written after the fact and none has been stamped.
+Code:   commit 051126f for the measured arm, plus the fix below. Mac, 0 $, no job.
+Nature: *measured*, tokens and the presence or absence of a package.
+
+WHY ASK THIS AT ALL
+-------------------
+Stage 5's gate is "a clean environment runs pip install then from_pretrained and
+reproduces the tokens", and stage 6's in-tree guide requires the package to exist.
+Every measurement of stages 0 to 4 ran from the working tree through our own
+scripts. So nobody had ever asked what a stranger gets.
+
+SETUP
+-----
+  uv venv /tmp/cleanroom --python 3.12
+  VIRTUAL_ENV=/tmp/cleanroom uv pip install ./llvq-hf torch transformers
+
+  python 3.12.2, torch 2.14.1, transformers 5.18.0
+  ninja present: False
+  accelerate present: False
+  llvqhf from /tmp/cleanroom/lib/python3.12/site-packages/llvqhf
+
+Note the versions: transformers 5.18.0 against the 5.17.0 of every earlier
+measurement here, and no ninja, so nothing can compile a kernel. The script
+refuses to run if `llvqhf.__file__` is not under site-packages, because importing
+the working tree would answer a different question.
+
+WHAT IT FOUND, BEFORE IT MEASURED ANYTHING
+------------------------------------------
+`import llvqhf` REGISTERED NOTHING. `__init__.py` imported `tetra` and `reader`
+and never `quantizer`, so `register_quantizer` never ran. Our 41 tests and our
+six journals are all sound because every script of this package imports
+`.quantizer` by hand: `gentokens.py` line 23 carries the comment "(registers
+llvq)". Four stages of measurement passed over this.
+
+The failure is SOFT, which is the worse half. transformers does not raise:
+
+  [transformers] Unknown quantization type, got llvq - supported types are:
+  [...]. Hence, we will skip the quantization.
+
+It then loads the model as if it were dense, reports every record as UNEXPECTED
+and every dense weight as MISSING, and raises fifty lines later:
+
+  RuntimeError: You set `ignore_mismatched_sizes` to `False`, thus raising an
+  error.
+
+A reviewer seeing that would conclude the checkpoint is broken, and would have no
+reason to think otherwise.
+
+Fixed in `llvqhf/__init__.py`: the package imports `.quantizer`, guarded by
+`ImportError` because transformers and torch are an optional extra and
+`PackedModel` must stay readable with numpy and safetensors alone.
+`tests/test_registration.py` holds it, in a FRESH interpreter by subprocess,
+since in ours an earlier test has already imported the module and the question
+cannot be asked. Mutant posted and caught: registration removed, 1 site asserted,
+the test falls; restored, it passes. 41 tests green.
+
+THE GATE
+--------
+The packed 4B, `~/q4b-hf-2026-09-28/`, loaded by the installed package on the
+dense CPU path, against `bin/run` on the sealed file it was packed from,
+`~/q4b-sealed-2026-09-23/qwen3-4b-sealed.bin`, sha256 886391a8c03f66dc, the
+digest the stage 1 journal names. The reference dump of 2026-09-30 had been swept
+from /tmp and was regenerated with LLVQ_DTYPE=f32 LLVQ_RUN_DUMP, 5,691 bytes, the
+same size as the copy kept in the bucket.
+
+  a: /tmp/run-tokens-f32.json        dtype f32  n_new 64
+  b: /tmp/cleanroom-tokens.json      dtype f32  n_new 64
+    same 64 ids  'The capital of France is'
+    same 64 ids  'In 1969, the first humans landed on'
+    same 64 ids  'def fibonacci(n) ...'
+    same 64 ids  'Water boils at a temperature of'
+  4 prompts, every id identical
+
+256 of 256. Generation ran at about 38 s a prompt in the cleanroom against 161 s
+in `bin/run`'s own f32 CPU path, and those two numbers are NOT compared: different
+engines, different dtypes inside, one machine under its own load. No speed is
+claimed here at any point.
+
+THE SECOND GAP, NOT CLOSED
+--------------------------
+The 4 KB fixture is not a loadable model. Its config.json describes a Qwen3 of
+hidden_size 96 while its records are 4 by 88, so `from_pretrained` refuses by
+name: "model.layers.0.self_attn.q_proj is 4096 by 96, the record is 4 by 88". It
+was written for unit tests that read tensors directly and it does that job.
+
+The consequence is that the package has NO small object anyone can load end to
+end. A reviewer must fetch 1.4 GB to see it work, and the test suite cannot cover
+`from_pretrained` at all without that file. For an in-tree PR this is the kind of
+thing a maintainer asks for first. Fixing it means changing the Rust fixture
+writer, and it is not done.
+
+WHAT THIS DOES NOT ESTABLISH
+----------------------------
+Nothing about the Hub: the directory came from the local disk, and the Hub still
+holds the old `q4b-e8.llvq` and `qwen3-4b-llvq.bin` under
+`Pier-Jean/Qwen3-4B-LLVQ-2bit`, at zero downloads.
+
+Nothing about the fused arms. No ninja in the cleanroom, so the Metal and CUDA
+kernels were never built there. Stage 3 is what makes those installable.
+
+Nothing about quality. Four prompts and 64 greedy ids, the gate M1 measured to be
+blind to an 8.79 % per-row error.
+
+Nothing about `pip install llvq-hf` from an index, since the install was from a
+path. The name is not taken anywhere.

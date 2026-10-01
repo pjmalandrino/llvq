@@ -26,3 +26,22 @@ from .tetra import TetraTables
 from .reader import PackedModel
 
 __all__ = ["TetraTables", "PackedModel"]
+
+# Importing this package registers the method with `transformers`, so
+# `AutoModelForCausalLM.from_pretrained` on a packed directory works after
+# `import llvqhf` and nothing else. That is how an out-of-tree quantizer is
+# reached, and it was missing until 2026-10-01: every entry point of this
+# package imported `.quantizer` by hand, so four stages of measurements passed
+# while a plain `import llvqhf` registered nothing. Worse, the failure is soft.
+# `transformers` only warns, "Unknown quantization type, got llvq ... we will
+# skip the quantization", then raises about a corrupted checkpoint fifty lines
+# later. `tests/test_registration.py` holds it from a fresh interpreter.
+#
+# Guarded, because `transformers` and `torch` are an optional extra: reading a
+# packed file with `PackedModel` needs numpy and safetensors alone.
+try:
+    from . import quantizer as _quantizer  # noqa: F401
+except ImportError:  # pragma: no cover - exercised by the extra-less install
+    _quantizer = None
+else:
+    __all__.append("quantizer")
