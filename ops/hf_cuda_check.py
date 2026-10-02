@@ -4,7 +4,7 @@
 
 Four arms, in this order, so a failure says which thing failed:
 
-1. **the build**, `nvcc` over `llvqhf/csrc/tetra_cuda.cu`, which includes the
+1. **the build**, `nvcc` over `llvq_tetra/csrc/tetra_cuda.cu`, which includes the
    served `tv_tetra48_h.cu` rather than a copy of it. A build failure costs two
    minutes and answers the question on its own.
 2. **the arithmetic**, per row, against the dense reconstruction of the same
@@ -34,9 +34,9 @@ import torch
 
 def per_row(model_dir: Path, shapes=("self_attn.k_proj", "mlp.down_proj", "mlp.gate_proj")) -> int:
     """Arm 2: the kernel against the dense reconstruction, one matrix a shape."""
-    from llvqhf.fused import FusedTetraLinear, Rotation
-    from llvqhf.modules import TetraLinear
-    from llvqhf.reader import PackedModel
+    from llvq_tetra.fused import FusedTetraLinear, Rotation
+    from llvq_tetra.modules import TetraLinear
+    from llvq_tetra.reader import PackedModel
 
     rng = np.random.default_rng(0xA1)
     bad = 0
@@ -88,7 +88,7 @@ def main(argv: list[str]) -> int:
 
     print("== arm 1, the build ==", flush=True)
     t = time.time()
-    from llvqhf import metal
+    from llvq_tetra import metal
 
     metal.extension_for("cuda")
     print(f"  built in {time.time() - t:.1f} s", flush=True)
@@ -100,14 +100,14 @@ def main(argv: list[str]) -> int:
         return 1
 
     print("== arm 3, the tokens ==", flush=True)
-    from llvqhf import gentokens
+    from llvq_tetra import gentokens
 
     dump = a.dump or "/tmp/hf-cuda-tokens.json"
     rc = gentokens.main(["gentokens", a.model, "--new", str(a.new), "--dtype", "f32",
                          "--device", "cuda", "--dump", dump])
     if rc:
         return rc
-    from llvqhf import comparetokens
+    from llvq_tetra import comparetokens
 
     return comparetokens.main(["comparetokens", a.ref, dump])
 

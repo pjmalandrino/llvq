@@ -65,10 +65,10 @@ that side.
 
 - `hfpack` in the CUDA image: the `cargo build --bin` list of `ops/Dockerfile.cuda`, its runtime
   `COPY`, and `UPLOAD_ALLOW` in `ops/run.py`. That third list is the one that has bitten four times.
-- `llvq-hf/` and `llvq-cuda/kernels/` in `UPLOAD_ALLOW`.
+- `llvq-tetra/` and `llvq-cuda/kernels/` in `UPLOAD_ALLOW`.
 - `torch` and `transformers` in the job, which the image does not carry. The launcher pip installs
   them, about three minutes and $0.09.
-- A CUDA binding beside the Metal one, `llvq-hf/llvqhf/csrc/tetra_cuda.cu`, which is the same shape
+- A CUDA binding beside the Metal one, `llvq-tetra/llvq_tetra/csrc/tetra_cuda.cu`, which is the same shape
   of file: no arithmetic, one `#include` of the served header.
 
 **The estimate.** l40sx1 at $1.80 an hour. Build five minutes, `hfpack` two, pip three, the load and
@@ -127,7 +127,7 @@ Stage 1 passed on 2026-09-30, both gates (*measured*, `docs/mesures/hf-quantizer
 prereg `proofs/preregistration-hf-quantizer-2026-09-30.md`). 253 of 253 dequantized weight digests
 identical to `llvq_artifact::decode_matrix`, and 256 of 256 greedy token ids identical to `bin/run`
 over the four prompts, f32 on the CPU on both sides. `from_pretrained` reports no missing and no
-unexpected key. The Python side is `llvq-hf/`.
+unexpected key. The Python side is `llvq-tetra/`.
 
 Its kill criterion could not fire, and the prereg says so rather than claiming a pass: folding the
 un-rotation into the dequantization removes the rotation from the forward pass, so no hook has to
@@ -221,7 +221,7 @@ other in both directions, which is machine contention and not a kernel.
 One control nearly went void, and the assertion is what caught it: `tv_q4_metal_tiled` comes first in
 the shader and the served function after it, so a mutation "in the tiled kernel" obtained by
 partitioning on its name lands on both, the reference moves with the subject, and all three mutants
-read as survived. `llvqhf/checkq4guards.py` now closes the region at the next entry point.
+read as survived. `llvq_tetra/checkq4guards.py` now closes the region at the next entry point.
 
 **Stage 4 passed on 2026-09-30** (*measured*, `docs/mesures/hf-cuda-4b-2026-09-30.txt`, prereg
 `proofs/preregistration-hf-cuda-2026-09-30.md`, deviations beside it). The three unknowns the prereg
@@ -248,13 +248,13 @@ the Metal path.
 Stages 3, 5 and 6 have not started. Each needs its own go.
 
 **The cleanroom half of stage 5 passed on 2026-10-01** (*measured*,
-`docs/mesures/hf-cleanroom-4b-2026-10-01.txt`). A fresh venv, `pip install ./llvq-hf torch
+`docs/mesures/hf-cleanroom-4b-2026-10-01.txt`). A fresh venv, `pip install ./llvq-tetra torch
 transformers`, and the packed 4B gives the same 256 greedy ids as `bin/run` on the sealed file it
 came from. No `ninja`, no `accelerate`, no compiler: **the dense path builds nothing**, so a reviewer
 without a GPU can load the model and generate. It also held on transformers 5.18.0, against the
 5.17.0 of every earlier measurement here.
 
-**It found the defect that mattered most, and found it in the first minute.** `import llvqhf`
+**It found the defect that mattered most, and found it in the first minute.** `import llvq_tetra`
 registered nothing: `__init__.py` imported `tetra` and `reader` and never `quantizer`. Our tests and
 journals are sound because every script of the package imports `.quantizer` by hand, which is exactly
 why four stages passed over it. And the failure is soft: transformers warns "Unknown quantization
@@ -275,7 +275,7 @@ tails. int4 sits on `down_proj` alone because the helper takes `gpr = d_in / 128
 so a width that is not a whole number of groups would lose its last one, and 256 is while 136 is not.
 
 **A forward pass that runs proves nothing here, and that is measured.** The first version of
-`test_load.py` left `import llvqhf` out and, run alone, loaded the fixture with the method
+`test_load.py` left `import llvq_tetra` out and, run alone, loaded the fixture with the method
 unregistered: `transformers` skipped the quantization, reinitialized every dense weight it found
 MISSING, and the forward pass still passed on random numbers. Three of the five tests passed. The gate
 is `missing_keys` and `unexpected_keys`, and the mutant that removes the import fails exactly those
@@ -287,7 +287,7 @@ two.
 
 ## Where the code lives
 
-The Python side is developed here, in a top-level `llvq-hf/`, and extracted at stage 5. Decided by the operator on
+The Python side is developed here, in a top-level `llvq-tetra/`, and extracted at stage 5. Decided by the operator on
 2026-09-29.
 
 Three facts settle it. `hfpack` reads a `.llvq` through `llvq-artifact` and `llvq-quant`, so it is a workspace crate's
@@ -296,8 +296,8 @@ carries its own `pyproject.toml`, `uv.lock` and tests. The lab rules are bound t
 with their `.ots` anchors, journals in `docs/mesures/`, and every stage below carries a gate, so developing stages 1 to
 4 elsewhere would separate the audit trail from the code it attests.
 
-`llvq-hf/` is self-contained from the first commit: its own `pyproject.toml`, its own tests, and a fixture of a few
-hundred kilobytes so no test needs the 1.4 GB object. Extraction is then `git subtree split -P llvq-hf`, which keeps the
+`llvq-tetra/` is self-contained from the first commit: its own `pyproject.toml`, its own tests, and a fixture of a few
+hundred kilobytes so no test needs the 1.4 GB object. Extraction is then `git subtree split -P llvq-tetra`, which keeps the
 history, and the wheel of stage 5 is published from the repository that comes out. What is published before that is the
 kernels, which the Kernel Hub takes as Hub repositories, and they are outputs rather than homes.
 
@@ -370,7 +370,7 @@ that is a thing to know rather than to assume.
   while the per-row check sees it in 20 s with a 3,400-fold margin. This changes what a gate is in
   this plan, so it is the operator's.
 - The go on M3, the quantized embedding, which is the last 1.558 GB and takes 2.750 GB to about 1.4.
-- **PyPI.** The names `llvq-hf`, `llvq` and `llvqhf` are free (*measured*, HTTP 404 on each). Until
+- **PyPI.** The names `llvq-tetra`, `llvq` and `llvq_tetra` are free (*measured*, HTTP 404 on each). Until
   one is taken, the model card's install line points at a git URL, which is honest and looks
   unfinished. The first upload is irreversible: a version number is never reusable, and a release is
   yanked rather than deleted. `pyproject.toml` carries no licence, readme, url or classifier yet, and

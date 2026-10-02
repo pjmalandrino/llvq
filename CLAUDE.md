@@ -44,7 +44,7 @@ Eight crates, members of `Cargo.toml`.
 | `llvq-cuda` | NVIDIA fused kernel compiled by NVRTC, benchmarks | `cudarc`, `cfg(target_os = "linux")` | allowed |
 | `llvq-llm` | forward pass, corpora, perplexity, MMLU, fused path in the model | `candle`, `tokenizers`, `hf-hub`, `parquet` | allowed |
 
-Beside the crates, `llvq-hf/` is a Python package: it reads a packed model in `transformers` and is
+Beside the crates, `llvq-tetra/` is a Python package: it reads a packed model in `transformers` and is
 extracted to its own repository at stage 5 of `docs/plan-transformers.md`. `ops/llvqtune` is the
 other Python package, which trains the free parameters an artifact already holds.
 
@@ -78,11 +78,11 @@ LLVQ_MODEL=Qwen/Qwen3-4B LLVQ_CALIB=dclm-edu LLVQ_ARTIFACT=q4b.llvq cargo run --
 LLVQ_MODEL=Qwen/Qwen3-4B cargo run --release -p llvq-llm --bin seal -- q4b.llvq qwen3-4b-llvq.bin   # also: export, rowscale, embedq, int4swap
 cargo run --release -p llvq-llm --bin hfpack -- <sealed> out_dir/ && uv run ops/llvq_hf_check.py out_dir/  # the sealed file as safetensors, still compressed, and its bit-for-bit gate
 cargo run --release -p llvq-llm --bin hfdense -- <sealed> out_dir/llvq-dense-digest.json  # also: tetratables, tetravectors
-cd llvq-hf && uv run --group dev pytest && uv run python -m llvqhf.checkdense out_dir/   # the transformers reader, and its gate
-LLVQ_HF_MINI_FIXTURE=../llvq-hf/tests/fixtures/mini cargo test -p llvq-llm --test hfpack  # rewrites the 148 KB one-layer Qwen3 the from_pretrained tests load
-cd llvq-hf && uv run --group dev python -m llvqhf.checkdecode out_dir/   # the served shader as a torch op on Metal, every block
-cd llvq-hf && uv run --group dev python -m llvqhf.checkq4 out_dir/ && uv run --group dev python -m llvqhf.checkq4guards out_dir/  # the tiled int4 kernel against the served one, then its refusals and its mutants
-uv venv /tmp/cleanroom --python 3.12 && VIRTUAL_ENV=/tmp/cleanroom uv pip install ./llvq-hf torch transformers && /tmp/cleanroom/bin/python ops/hf_cleanroom_check.py llvq-hf/tests/fixtures/mini out_dir/ /tmp/run-tokens-f32.json  # what a stranger gets: pip install, then from_pretrained, with no repository and no compiler
+cd llvq-tetra && uv run --group dev pytest && uv run python -m llvq_tetra.checkdense out_dir/   # the transformers reader, and its gate
+LLVQ_HF_MINI_FIXTURE=../llvq-tetra/tests/fixtures/mini cargo test -p llvq-llm --test hfpack  # rewrites the 148 KB one-layer Qwen3 the from_pretrained tests load
+cd llvq-tetra && uv run --group dev python -m llvq_tetra.checkdecode out_dir/   # the served shader as a torch op on Metal, every block
+cd llvq-tetra && uv run --group dev python -m llvq_tetra.checkq4 out_dir/ && uv run --group dev python -m llvq_tetra.checkq4guards out_dir/  # the tiled int4 kernel against the served one, then its refusals and its mutants
+uv venv /tmp/cleanroom --python 3.12 && VIRTUAL_ENV=/tmp/cleanroom uv pip install ./llvq-tetra torch transformers && /tmp/cleanroom/bin/python ops/hf_cleanroom_check.py llvq-tetra/tests/fixtures/mini out_dir/ /tmp/run-tokens-f32.json  # what a stranger gets: pip install, then from_pretrained, with no repository and no compiler
 cargo run --release -p llvq-llm --features metal --bin mmlu -- <checkpoint|sealed> metal 40         # the dense reconstruction
 LLVQ_CONFIG=configs/qwen3-4b-tetra-e4.json cargo run --release -p llvq-llm --features cuda --bin mmlu -- <sealed> cuda 40   # THROUGH the served kernel
 LLVQ_CONFIG=configs/qwen3-4b-tetra-e4.json cargo run --release -p llvq-llm --features cuda --bin gsm8k -- <sealed> cuda   # GSM8K through the kernel; gsm8kpair <a> <b> pairs two dumps

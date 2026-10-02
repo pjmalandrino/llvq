@@ -24,7 +24,7 @@ fn main() -> anyhow::Result<()> {
     let out: PathBuf = a
         .get(1)
         .cloned()
-        .unwrap_or_else(|| "llvq-hf".into())
+        .unwrap_or_else(|| "llvq-tetra".into())
         .into();
 
     eprintln!("reading {} …", src.display());

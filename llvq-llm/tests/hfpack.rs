@@ -11,6 +11,7 @@
 //! 2026-09-19.
 
 use candle_core::Device;
+use std::path::PathBuf;
 use llvq_artifact::{
     ArtifactWriter, Blob, CodeKind, Int4Matrix, KindSet, QuantData, QuantizedMatrix, RawData,
     RawTensor, INT4G128_BITS, INT4G128_GROUP, TETRA_SHELL_CAP, VERSION,
@@ -186,7 +187,7 @@ fn a_sealed_file_packs_into_a_described_directory() {
     // asserts on, and not a copy free to drift from it. A test binary runs with
     // the crate as its working directory, so the path is one level up:
     //
-    //   LLVQ_HF_FIXTURE=../llvq-hf/tests/fixtures/tiny \
+    //   LLVQ_HF_FIXTURE=../llvq-tetra/tests/fixtures/tiny \
     //       cargo test -p llvq-llm --test hfpack
     if let Ok(dest) = std::env::var("LLVQ_HF_FIXTURE") {
         let dest = std::path::PathBuf::from(dest);
@@ -203,35 +204,61 @@ fn a_sealed_file_packs_into_a_described_directory() {
 
 /// The shader the Python package ships is the one this repository serves.
 ///
-/// `llvq-hf` carries a copy of `kernels/llvq_tetra48.metal` so it can still build
+/// `llvq-tetra` carries a copy of `kernels/llvq_tetra48.metal` so it can still build
 /// its Metal op after the extraction of stage 5, and `bin/tetratables` records the
 /// copy's sha256 beside the tables. Two copies of a shader is one too many unless
 /// something compares them, and a drifted copy would decode plausible wrong
 /// points. The Python side refuses a copy whose digest moved; this refuses one
 /// whose bytes moved, in the fast loop, where a `tetratables` nobody re-ran is
 /// what would go unnoticed.
-#[test]
-fn the_shipped_shader_is_the_repositorys() {
-    // A test binary runs with the crate as its working directory.
-    let tables = std::path::Path::new("../llvq-hf/llvqhf/data/tetra-tables.json");
+/// Read the table the package ships beside the tables. A test binary runs with
+/// the crate as its working directory, so the package is one level up.
+fn shipped_table() -> serde_json::Map<String, serde_json::Value> {
+    let tables = std::path::Path::new("../llvq-tetra/llvq_tetra/data/tetra-tables.json");
     assert!(tables.exists(), "{} is missing; re-run bin/tetratables", tables.display());
     let meta: serde_json::Value =
         serde_json::from_slice(&std::fs::read(tables).expect("read")).expect("parse");
-    let shaders = meta["shaders"].as_object().expect("a shader table");
-    assert_eq!(shaders.len(), 2, "two shaders travel with the package");
-    for (file, recorded) in shaders {
-        let served = std::path::Path::new("kernels").join(file);
-        let shipped = std::path::Path::new("../llvq-hf/llvqhf/data").join(file);
+    meta["shaders"].as_object().expect("a shader table").clone()
+}
+
+/// Where the package keeps a shipped source, and where the repository serves it.
+///
+/// The Metal shaders go flat beside the tables. The CUDA sources keep the
+/// repository's two-level shape, so the entry carries its own relative `path`.
+fn shipped_and_served(file: &str, entry: &serde_json::Value) -> (PathBuf, PathBuf) {
+    let data = std::path::Path::new("../llvq-tetra/llvq_tetra/data");
+    match entry["path"].as_str() {
+        None => (data.join(file), std::path::Path::new("kernels").join(file)),
+        Some(rel) => {
+            let under = rel.strip_prefix("kernels/").expect("a kernels/ prefix");
+            (data.join(rel), std::path::Path::new("..").join(under))
+        }
+    }
+}
+
+#[test]
+fn the_shipped_shader_is_the_repositorys() {
+    let shaders = shipped_table();
+    assert_eq!(shaders.len(), 8, "two Metal shaders and six CUDA sources travel");
+    let backends = shaders
+        .values()
+        .filter(|e| e["backend"] == "cuda")
+        .count();
+    assert_eq!(backends, 6, "the CUDA include closure is six files");
+
+    for (file, recorded) in &shaders {
+        let (shipped, served) = shipped_and_served(file, recorded);
         for p in [&served, &shipped] {
             assert!(p.exists(), "{} is missing; re-run bin/tetratables", p.display());
         }
-        let a = std::fs::read(&served).expect("read the served shader");
-        let b = std::fs::read(&shipped).expect("read the shipped shader");
+        let a = std::fs::read(&served).expect("read the served source");
+        let b = std::fs::read(&shipped).expect("read the shipped copy");
         assert_eq!(
             a, b,
-            "the shipped {file} differs from kernels/{file}: re-run \
+            "the shipped {file} differs from {}: re-run \
              `cargo run --release -p llvq-llm --bin tetratables -- \
-             llvq-hf/llvqhf/data/tetra-tables.safetensors`"
+             llvq-tetra/llvq_tetra/data/tetra-tables.safetensors`",
+            served.display()
         );
         assert_eq!(
             recorded["sha256"].as_str(),
@@ -243,6 +270,88 @@ fn the_shipped_shader_is_the_repositorys() {
         .as_str()
         .expect("entries")
         .contains("tv_q4_metal_tiled"));
+}
+
+/// Every `#include "..."` of a shipped CUDA source resolves inside the package.
+///
+/// The list of six is written by hand in `hfpack::tetra_tables`, and a hand
+/// written closure goes stale the first time someone adds an include upstream.
+/// The wheel would then carry a CUDA arm that cannot compile, and nothing on a
+/// Mac would notice, because nvcc never runs here. So recompute the closure from
+/// the bytes rather than trust the list: follow every quoted include from
+/// `tetra_cuda.cu` and require each target to be a file the package ships.
+#[test]
+fn the_shipped_cuda_closure_is_complete() {
+    let shaders = shipped_table();
+    let data = std::path::Path::new("../llvq-tetra/llvq_tetra/data");
+    let glue = std::path::Path::new("../llvq-tetra/llvq_tetra/csrc/tetra_cuda.cu");
+    assert!(glue.exists(), "{} is missing", glue.display());
+
+    let mut seen: std::collections::BTreeSet<PathBuf> = std::collections::BTreeSet::new();
+    let mut queue = vec![glue.to_path_buf()];
+    while let Some(file) = queue.pop() {
+        let text = std::fs::read_to_string(&file)
+            .unwrap_or_else(|e| panic!("read {}: {e}", file.display()));
+        let dir = file.parent().expect("a parent").to_path_buf();
+        for line in text.lines() {
+            let line = line.trim_start();
+            // Only quoted includes: the angled ones are torch's and CUDA's.
+            let Some(rest) = line.strip_prefix("#include \"") else { continue };
+            let Some(name) = rest.split('"').next() else { continue };
+            let target = normalize(&dir.join(name));
+            assert!(
+                target.exists(),
+                "{} includes {name}, which the package does not ship. Add it to the \
+                 list in `hfpack::tetra_tables` and re-run bin/tetratables",
+                file.display()
+            );
+            if seen.insert(target.clone()) {
+                queue.push(target);
+            }
+        }
+    }
+
+    // Every file reached is one the table attests, and every file attested for
+    // CUDA is reached. Neither direction alone is enough: the first would let a
+    // stale entry sit in the table forever, the second an unattested file ship.
+    let reached: std::collections::BTreeSet<String> = seen
+        .iter()
+        .map(|p| p.file_name().expect("a name").to_string_lossy().into_owned())
+        .collect();
+    let attested: std::collections::BTreeSet<String> = shaders
+        .iter()
+        .filter(|(_, e)| e["backend"] == "cuda")
+        .map(|(f, _)| f.clone())
+        .collect();
+    assert_eq!(reached, attested, "the reached closure and the attested list differ");
+    for p in &seen {
+        assert!(
+            p.starts_with(data),
+            "{} is included from outside the package's data directory",
+            p.display()
+        );
+    }
+}
+
+/// Resolve `..` segments without touching the filesystem, which `canonicalize`
+/// would, and which would turn a missing file into an error instead of a `false`.
+fn normalize(p: &std::path::Path) -> PathBuf {
+    let mut out: Vec<std::ffi::OsString> = Vec::new();
+    for c in p.components() {
+        match c {
+            // A leading `..` has nothing to pop and must survive, or the path
+            // silently reroots at the working directory. That cost one red test.
+            std::path::Component::ParentDir => match out.last() {
+                Some(last) if last != ".." => {
+                    out.pop();
+                }
+                _ => out.push("..".into()),
+            },
+            std::path::Component::CurDir => {}
+            other => out.push(other.as_os_str().to_owned()),
+        }
+    }
+    out.iter().collect()
 }
 
 /// The codes tensor holds the bytes the record holds, and they unpack MSB-first
@@ -336,7 +445,7 @@ fn tempdir(tag: &str) -> std::path::PathBuf {
 // config that says `hidden_size` 96. That is deliberate and it tests the packer
 // field by field, so its shapes are not touched here. But it means
 // `from_pretrained` refuses it, and until 2026-10-02 no test in either language
-// loaded a model at all. The registration defect of `llvqhf/__init__.py` lived in
+// loaded a model at all. The registration defect of `llvq_tetra/__init__.py` lived in
 // exactly that hole.
 //
 // So this is a second object, beside the first. Every dimension below is forced
@@ -472,7 +581,7 @@ fn sealed_mini(dir: &std::path::Path) -> std::path::PathBuf {
 /// `LLVQ_HF_MINI_FIXTURE=<dir>` writes it where the Python suite reads it, so the
 /// committed bytes are by construction the ones this test asserts on:
 ///
-///   LLVQ_HF_MINI_FIXTURE=../llvq-hf/tests/fixtures/mini \
+///   LLVQ_HF_MINI_FIXTURE=../llvq-tetra/tests/fixtures/mini \
 ///       cargo test -p llvq-llm --test hfpack
 #[test]
 fn the_mini_fixture_describes_a_whole_qwen3_layer() {

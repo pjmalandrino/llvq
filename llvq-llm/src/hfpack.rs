@@ -741,8 +741,16 @@ pub fn tetra_tables(out: &Path) -> anyhow::Result<(String, usize)> {
     // source in the repository, and a copy the package can ship after the
     // extraction of stage 5; `the_shipped_shader_is_the_repositorys` compares
     // them in the fast loop.
-    let kernels = Path::new(env!("CARGO_MANIFEST_DIR")).join("kernels");
+    let llm = Path::new(env!("CARGO_MANIFEST_DIR")).join("kernels");
+    let cuda = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("no workspace root above llvq-llm"))?
+        .join("llvq-cuda")
+        .join("kernels");
     let mut shaders = Map::new();
+
+    // The Metal shaders go flat beside the tables: the Python side reads them as
+    // strings and hands them to the Metal compiler, so no include resolves.
     for (file, entry, note) in [
         (
             "llvq_tetra48.metal",
@@ -755,12 +763,47 @@ pub fn tetra_tables(out: &Path) -> anyhow::Result<(String, usize)> {
             "the served int4 matvec, and the tiled variant beside it for a d_in past 8192",
         ),
     ] {
-        let bytes = std::fs::read(kernels.join(file))?;
+        let bytes = std::fs::read(llm.join(file))?;
         let sha = sha256_hex(&bytes);
         std::fs::write(out.with_file_name(file), &bytes)?;
         shaders.insert(
             file.to_string(),
-            json!({"sha256": sha, "entries": entry, "note": note}),
+            json!({"sha256": sha, "entries": entry, "note": note, "backend": "metal"}),
+        );
+    }
+
+    // The CUDA sources keep the repository's two-level shape under `kernels/`,
+    // because `tv_tetra48_h.cu` includes `../../llvq-cuda/kernels/...` and that
+    // path has to resolve. Copying them flat and rewriting their includes would
+    // make the shipped bytes differ from the served ones, and then the digest
+    // beside the tables would attest a file nobody serves. Six files and not
+    // four: the closure of the include graph, which
+    // `the_shipped_cuda_closure_is_complete` recomputes rather than trusts.
+    for (crate_dir, dir, file, note) in [
+        ("llvq-llm", &llm, "tv_tetra48_h.cu", "the served Tetra matvec launcher"),
+        ("llvq-cuda", &cuda, "matvec.cu", "the dense matvec it shares"),
+        ("llvq-cuda", &cuda, "llvq_tetra48.cuh", "the Tetra decoder"),
+        ("llvq-cuda", &cuda, "llvq_f1rank.cuh", "the F1 rank decoder"),
+        ("llvq-cuda", &cuda, "llvq_f1rank_v3.cuh", "its v3 tables"),
+        ("llvq-cuda", &cuda, "llvq_slot.cuh", "the slot layout it reads"),
+    ] {
+        let bytes = std::fs::read(dir.join(file))?;
+        let sha = sha256_hex(&bytes);
+        let dest = out
+            .with_file_name("kernels")
+            .join(crate_dir)
+            .join("kernels")
+            .join(file);
+        std::fs::create_dir_all(dest.parent().expect("a parent"))?;
+        std::fs::write(&dest, &bytes)?;
+        shaders.insert(
+            file.to_string(),
+            json!({
+                "sha256": sha,
+                "note": note,
+                "backend": "cuda",
+                "path": format!("kernels/{crate_dir}/kernels/{file}"),
+            }),
         );
     }
 

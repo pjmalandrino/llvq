@@ -161,7 +161,7 @@ the 4-bit embedding, one rotation per group of projections, an f16 KV cache.
   the problems have been public since 2021. Qwen3's thinking mode, which writes
   much longer chains, is not tested.
 - **Two readers, and only one writer.** This repository's Rust code reads and
-  writes the format with no external dependency; `llvq-hf` reads it in Python
+  writes the format with no external dependency; `llvq-tetra` reads it in Python
   for `transformers`. Nothing writes it outside Rust, and `save_pretrained`
   does not round-trip.
 - **Not bit-reproducible across backends.** The calibration accumulates in f32

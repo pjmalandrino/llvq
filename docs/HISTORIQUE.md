@@ -738,3 +738,41 @@ and 3.53 % on `down_proj`, per row, and the token gate misses it over eight ids 
 and over all 64 on two of them. Stages 0 to 2 and M1 all gated on token identity; the per-row check
 finds that same defect in 20 seconds with a 3,400-fold margin. Whether it becomes a gate is an open
 decision.
+
+## 2026-10-01 to 10-02. The 4B published, and the package named
+
+The out-of-tree route is complete and verifiable by a stranger. Two public repositories,
+[Qwen3-4B-LLVQ-Tetra](https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-Tetra) for the safetensors that
+stay compressed and [Qwen3-4B-LLVQ-Tetra-sealed](https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-Tetra-sealed)
+for the single file the Rust engine reads. **The Hub computed the sealed file's SHA-256 itself and it
+is paper 2's**, `886391a8c03f66dc`: until 2026-10-02 that digest named a file on one laptop, so nobody
+outside could check it. The published repository loads unauthenticated from an empty cache, 252
+records replaced, no key missing or unexpected (*measured*,
+[hf-cleanroom-4b](mesures/hf-cleanroom-4b-2026-10-01.txt)).
+
+**Three defects found by asking what a stranger gets, not by reading the code.** `import llvqhf`
+registered nothing, and failed soft: `transformers` warned "Unknown quantization type, got llvq ...
+we will skip the quantization", loaded the file as dense and raised fifty lines later about a
+corrupted checkpoint. Four stages of measurement had passed over it, because every script of the
+package imported `.quantizer` by hand. `hfpack` writes a 64 byte `tokenizer_config.json`, a stub,
+where the real one is 9,732 bytes and carries the chat template, so the repository as packed would
+have shipped a tokenizer where `apply_chat_template` fails. And the wheel carried no CUDA source at
+all: `_extension_cuda` looked for the repository two directories up, which under `site-packages` is
+nonsense, so a pip user had no CUDA arm.
+
+**A loadable fixture, and the fixture is the lesson.** No test in either language had ever called
+`from_pretrained`; `fixtures/tiny` describes nothing on purpose and the real object is 1.4 GB.
+`fixtures/mini` is a coherent one-layer Qwen3 of 148 KB whose every dimension is forced: 136 = 17 x 8
+so the rotation's odd part is real where a power of two gives the trivial 1 by 1, two different
+non-empty tails at 16 and 8, int4 only where `d_in` is a whole number of groups. The first version of
+its test left `import llvqhf` out and, run alone, **passed its forward pass on random numbers** with
+three tests of five green. A forward pass that runs proves nothing; the gate is `missing_keys` and
+`unexpected_keys`.
+
+**The package is `llvq-tetra` from 2026-10-02**, directory and module and distribution name, against
+`llvq-hf` and `llvqhf` before. Preregistrations, journals and archived documents keep the old paths:
+they are dated records and rule 2 forbids editing a stamped file. The six CUDA sources now ship
+beside the two Metal shaders, in the repository's two-level shape so that `tv_tetra48_h.cu`'s own
+relative includes resolve, and `the_shipped_cuda_closure_is_complete` recomputes the include closure
+from the bytes rather than trusting the hand written list. Stage 4 had passed on a card for $0.30
+over seven launches, five of which bought three build errors and one a queue of 3 h 47.

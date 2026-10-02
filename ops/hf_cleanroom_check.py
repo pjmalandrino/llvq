@@ -2,16 +2,16 @@
 """Stage 5's gate, minus the Hub: a clean environment installs the package and loads.
 
     uv venv /tmp/cleanroom --python 3.12
-    VIRTUAL_ENV=/tmp/cleanroom uv pip install ./llvq-hf torch transformers
+    VIRTUAL_ENV=/tmp/cleanroom uv pip install ./llvq-tetra torch transformers
     /tmp/cleanroom/bin/python ops/hf_cleanroom_check.py \
-        llvq-hf/tests/fixtures/mini <packed dir> <bin/run dump>
+        llvq-tetra/tests/fixtures/mini <packed dir> <bin/run dump>
 
 The interpreter must be the clean one and not the repository's: the first thing
 this file does is refuse to run from anywhere but `site-packages`. That guard is
-the whole point. Running it under `uv run` inside `llvq-hf/` would import the
+the whole point. Running it under `uv run` inside `llvq-tetra/` would import the
 working tree, and the question asked here is precisely what a stranger gets.
 
-Nothing here imports from the repository. The point is that `pip install llvq-hf`
+Nothing here imports from the repository. The point is that `pip install llvq-tetra`
 and nothing else is enough to read a Tetra file, which is what a reviewer will
 try first and what the in-tree guide of stage 6 requires.
 
@@ -35,7 +35,7 @@ import torch
 import transformers
 from transformers import AutoConfig, AutoModelForCausalLM
 
-import llvqhf  # noqa: F401  registers the quantizer and its config
+import llvq_tetra  # noqa: F401  registers the quantizer and its config
 
 QUANT_MODULES = ("TetraLinear", "Int4Linear", "FusedTetraLinear", "Int4FusedLinear")
 
@@ -80,9 +80,9 @@ def main(argv: list[str]) -> int:
           f"transformers {transformers.__version__}")
     for name in ("ninja", "accelerate"):
         print(f"  {name} present: {importlib.util.find_spec(name) is not None}")
-    print(f"llvqhf from {Path(llvqhf.__file__).parent}")
-    if "site-packages" not in str(Path(llvqhf.__file__)):
-        print("REFUSED: llvqhf is not the installed copy, the test is void",
+    print(f"llvq_tetra from {Path(llvq_tetra.__file__).parent}")
+    if "site-packages" not in str(Path(llvq_tetra.__file__)):
+        print("REFUSED: llvq_tetra is not the installed copy, the test is void",
               file=sys.stderr)
         return 2
 
@@ -92,7 +92,7 @@ def main(argv: list[str]) -> int:
         return rc
 
     print("\n== the 4B, dense on the CPU, against bin/run ==")
-    from llvqhf import comparetokens, gentokens
+    from llvq_tetra import comparetokens, gentokens
 
     dump = "/tmp/cleanroom-tokens.json"
     rc = gentokens.main(["gentokens", argv[2], "--new", "64", "--dtype", "f32",

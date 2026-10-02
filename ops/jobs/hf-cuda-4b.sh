@@ -35,14 +35,14 @@ REF=/tmp/run-tokens-f32.json
 if [ "${1:-}" = upload ]; then
   # The sources, in the repository's own shape: `tv_tetra48_h.cu` includes
   # `../../llvq-cuda/kernels/...`, so the tree matters and a flat copy would not build.
-  TAR=$(mktemp -d)/llvq-hf-src.tgz
+  TAR=$(mktemp -d)/llvq-tetra-src.tgz
   tar czf "$TAR" \
     --exclude '.venv' --exclude '__pycache__' --exclude '*.pyc' \
-    llvq-hf/llvqhf llvq-hf/pyproject.toml \
+    llvq-tetra/llvq_tetra llvq-tetra/pyproject.toml \
     llvq-llm/kernels llvq-cuda/kernels \
     ops/hf_cuda_check.py
   echo "sources $(du -h "$TAR" | cut -f1)"
-  hf buckets cp "$TAR" "hf://buckets/$BUCKET/$DIR/llvq-hf-src.tgz"
+  hf buckets cp "$TAR" "hf://buckets/$BUCKET/$DIR/llvq-tetra-src.tgz"
   test -f "$REF" || { echo "refused: $REF missing, run bin/run with LLVQ_RUN_DUMP first" >&2; exit 1; }
   hf buckets cp "$REF" "hf://buckets/$BUCKET/$DIR/run-tokens-f32.json"
   hf buckets ls "hf://buckets/$BUCKET/$DIR/"
@@ -51,7 +51,7 @@ fi
 
 if [ "$DRY" != 1 ]; then
   { test -f "$PREREG" && test -f "$PREREG.ots"; } || { echo "refused: $PREREG(.ots) missing" >&2; exit 1; }
-  for f in llvq-hf-src.tgz run-tokens-f32.json; do
+  for f in llvq-tetra-src.tgz run-tokens-f32.json; do
     hf buckets ls "hf://buckets/$BUCKET/$DIR/" | grep -q "$f" \
       || { echo "refused: run 'upload' first, $f is not in the bucket" >&2; exit 1; }
   done
@@ -83,10 +83,10 @@ tail -2 "$O/pip.txt"
 python3 -c "import torch, transformers; print('torch', torch.__version__, 'transformers', transformers.__version__)" \
   | tee "$O/versions.txt"
 # The sources, in the repository's shape, and the script checked against its own digest.
-mkdir -p /tmp/src && tar xzf "$O/llvq-hf-src.tgz" -C /tmp/src
+mkdir -p /tmp/src && tar xzf "$O/llvq-tetra-src.tgz" -C /tmp/src
 test "$(sha256sum /tmp/src/ops/hf_cuda_check.py | cut -d' ' -f1)" = "$SSHA"
 export LLVQ_REPO=/tmp/src
-export PYTHONPATH=/tmp/src/llvq-hf
+export PYTHONPATH=/tmp/src/llvq-tetra
 python3 /tmp/src/ops/hf_cuda_check.py \
   --model "$O/model" --ref "$O/run-tokens-f32.json" --new "$NEW" \
   --dump "$O/cuda-tokens.json" 2>&1 | tee "$O/check.txt"

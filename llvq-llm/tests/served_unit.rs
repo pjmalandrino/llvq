@@ -215,9 +215,9 @@ fn every_unit_carries_both_rotation_entry_points() {
 /// kernel directory on the include path a missing entry is resolved from disk
 /// and the parse succeeds — five such mutations exited 0. Here the texts are
 /// concatenated and no path is given, so an unsatisfied guard fires the
-/// The CUDA binding of `llvq-hf` includes the served list, in order.
+/// The CUDA binding of `llvq-tetra` includes the served list, in order.
 ///
-/// `llvq-hf/llvqhf/csrc/tetra_cuda.cu` is compiled by `nvcc` in a job, never here,
+/// `llvq-tetra/llvq_tetra/csrc/tetra_cuda.cu` is compiled by `nvcc` in a job, never here,
 /// so nothing in the fast loop parsed it. What the fast loop CAN check is the one
 /// thing that went wrong twice: its include list. `tv_tetra48_h.cu` alone leaves
 /// `F1rTables` and `f1r_load` undefined, because its own guards do not reach for
@@ -227,7 +227,7 @@ fn every_unit_carries_both_rotation_entry_points() {
 /// against it, so a fifth source added there fails here rather than on a card.
 #[test]
 fn the_cuda_binding_includes_the_served_list() {
-    let path = std::path::Path::new("../llvq-hf/llvqhf/csrc/tetra_cuda.cu");
+    let path = std::path::Path::new("../llvq-tetra/llvq_tetra/csrc/tetra_cuda.cu");
     assert!(path.exists(), "{} is missing", path.display());
     let src = std::fs::read_to_string(path).expect("read the binding");
     let included: Vec<String> = src
