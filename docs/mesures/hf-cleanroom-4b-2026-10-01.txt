@@ -141,11 +141,35 @@ end. A reviewer must fetch 1.4 GB to see it work, and the test suite cannot cove
 thing a maintainer asks for first. Fixing it means changing the Rust fixture
 writer, and it is not done.
 
+THROUGH THE PUBLIC PATH, 2026-10-02
+-----------------------------------
+The two repositories went up on 2026-10-02 and the check was run again against
+the repository NAME rather than a directory, with HF_HOME on an empty cache:
+
+  HF_HOME=/tmp/hf-fresh /tmp/cleanroom/bin/python ops/hf_cleanroom_check.py \
+      Pier-Jean/Qwen3-4B-LLVQ-Tetra
+
+  Warning: You are sending unauthenticated requests to the HF Hub.
+  python 3.12.2, torch 2.14.1, transformers 5.18.0
+    ninja present: False
+    accelerate present: False
+  loaded, 252 records replaced, no key missing or unexpected, 4022468096 parameters
+  forward ok, logits (1, 4, 151936), range [-14.319 ; 18.806]
+
+The warning is the point: UNAUTHENTICATED, so the download took the public path a
+stranger takes, from an empty cache, with no compiler present. And the logit range
+is the same to the third decimal as the staged local directory gave before the
+upload, so the Hub round-trip returned the same bytes.
+
+The Hub also computed the sealed file's SHA-256 itself, server side:
+886391a8c03f66dc269cc65c3598c6627dbdcd259180aff36604ef10d37371b8, which is the
+digest paper 2 publishes. Before 2026-10-02 that digest named a file on one
+laptop, so nobody outside could check it.
+
 WHAT THIS DOES NOT ESTABLISH
 ----------------------------
-Nothing about the Hub: the directory came from the local disk, and the Hub still
-holds the old `q4b-e8.llvq` and `qwen3-4b-llvq.bin` under
-`Pier-Jean/Qwen3-4B-LLVQ-2bit`, at zero downloads.
+Nothing about PyPI. The install was from a path, then from git. `pip install
+llvq-hf` does not resolve: the name is free and unclaimed.
 
 Nothing about the fused arms. No ninja in the cleanroom, so the Metal and CUDA
 kernels were never built there. Stage 3 is what makes those installable.
