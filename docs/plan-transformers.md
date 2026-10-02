@@ -262,12 +262,28 @@ type, got llvq ... we will skip the quantization", loads the model as dense, the
 corrupted checkpoint fifty lines later. A reviewer would have concluded our file was broken. Fixed,
 and held by `tests/test_registration.py` in a fresh interpreter, with the mutant posted and caught.
 
-**Two things stage 5 still needs**, and both are decisions rather than puzzles. Nothing is on the Hub:
+**The loadable fixture was added on 2026-10-02.** `tests/fixtures/mini` is a coherent one-layer Qwen3
+of **148 KB**, written by `the_mini_fixture_describes_a_whole_qwen3_layer` in
+`llvq-llm/tests/hfpack.rs`, and `tests/test_load.py` calls `from_pretrained` on it. No test in either
+language loaded a model before that, which is the hole the registration defect lived in. The `tiny`
+fixture is untouched: it tests the packer field by field and its shapes are asserted by name.
+
+Every dimension of `mini` is forced by something. **136 = 17 x 8**, so the rotation's odd part is 17
+and `Q_odd` is a real matrix, where a power-of-two width gives the trivial 1 by 1; `o_proj` then takes
+`d_in` 128 and covers that case too. **136 = 5x24 + 16 and 128 = 5x24 + 8**, two different non-empty
+tails. int4 sits on `down_proj` alone because the helper takes `gpr = d_in / 128` by integer division,
+so a width that is not a whole number of groups would lose its last one, and 256 is while 136 is not.
+
+**A forward pass that runs proves nothing here, and that is measured.** The first version of
+`test_load.py` left `import llvqhf` out and, run alone, loaded the fixture with the method
+unregistered: `transformers` skipped the quantization, reinitialized every dense weight it found
+MISSING, and the forward pass still passed on random numbers. Three of the five tests passed. The gate
+is `missing_keys` and `unexpected_keys`, and the mutant that removes the import fails exactly those
+two.
+
+**What stage 5 still needs is a decision, not a puzzle.** Nothing is on the Hub:
 `Pier-Jean/Qwen3-4B-LLVQ-2bit` is public, at zero downloads, and still holds `q4b-e8.llvq` and the
-1.77 GB `.bin`. And the 4 KB fixture is not a loadable model, its config describing a hidden_size of
-96 against records of 4 by 88, so the package has no small object anyone can load end to end and the
-suite cannot cover `from_pretrained` without the 1.4 GB file. For an in-tree PR a maintainer asks for
-that first. Fixing it is Rust work in the fixture writer.
+1.77 GB `.bin`.
 
 ## Where the code lives
 

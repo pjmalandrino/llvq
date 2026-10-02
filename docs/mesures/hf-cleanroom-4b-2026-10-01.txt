@@ -85,8 +85,51 @@ in `bin/run`'s own f32 CPU path, and those two numbers are NOT compared: differe
 engines, different dtypes inside, one machine under its own load. No speed is
 claimed here at any point.
 
-THE SECOND GAP, NOT CLOSED
---------------------------
+THE SECOND GAP, CLOSED ON 2026-10-02
+------------------------------------
+`tests/fixtures/mini` is a coherent one-layer Qwen3 of 148 KB, written by
+`the_mini_fixture_describes_a_whole_qwen3_layer` in `llvq-llm/tests/hfpack.rs`,
+and `tests/test_load.py` calls `from_pretrained` on it. 46 tests pass, 41 before.
+The `tiny` fixture below is untouched: its shapes are asserted by name in the
+packer test and read by five Python test files, and it does its own job.
+
+  hidden_size 136, head_dim 32, 4 q heads, 2 kv heads, intermediate 256, vocab 64
+  q_proj     128 by 136  tetra      5 blocks, tail 16, rotation odd part 17
+  k_proj      64 by 136  tetra
+  v_proj      64 by 136  tetra
+  o_proj     136 by 128  tetra      5 blocks, tail 8, rotation odd part 1
+  gate_proj  256 by 136  tetra
+  up_proj    256 by 136  tetra
+  down_proj  136 by 256  int4 g128  2 whole groups
+  embedding   64 by 136  int4 g64   2 groups and a partial third
+  5 norms     136, 136, 32, 32, 136  f16
+
+Not one of those numbers is free. 136 = 17 x 8, so the rotation
+`Q = (Q_odd (x) H_m) D` has an odd part of 17 and `Q_odd` is a real matrix; a
+power-of-two width gives the trivial 1 by 1, which `o_proj` at `d_in` 128 then
+covers, so both paths run. 136 = 5x24 + 16 and 128 = 5x24 + 8, so two different
+non-empty tails. int4 sits on `down_proj` alone because the test helper takes
+`gpr = d_in / 128` by integer division and 136 is not a whole number of groups;
+the FORMAT itself carries a partial group, which the embedding at group 64 proves,
+since 136 is two groups and a third of 8 columns.
+
+A FORWARD PASS THAT RUNS PROVES NOTHING, AND THIS IS MEASURED. The first version
+of `test_load.py` left `import llvqhf` out of the module level. Run alone, it
+loaded the fixture with the method unregistered: transformers skipped the
+quantization, reinitialized every dense weight it reported MISSING, and the
+forward pass passed on random numbers. Three of the five tests passed, including
+the shapes and the forward. The gate is `missing_keys` and `unexpected_keys`.
+
+Mutant posted and caught: the module-level import removed, 1 site asserted, two
+of the five tests fall and the other three do not. Dropping a norm from the
+fixture is caught upstream instead, by the packer test's `raw_tensors == 6`.
+
+What the fixture cannot say: the weights are random, so no logit value means
+anything, and nothing here asserts on one. It covers the dense CPU path only; the
+Metal and CUDA arms need a GPU and are not in any test.
+
+THE GAP AS IT WAS, 2026-10-01
+-----------------------------
 The 4 KB fixture is not a loadable model. Its config.json describes a Qwen3 of
 hidden_size 96 while its records are 4 by 88, so `from_pretrained` refuses by
 name: "model.layers.0.self_attn.q_proj is 4096 by 96, the record is 4 by 88". It

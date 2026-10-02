@@ -1,0 +1,132 @@
+{
+  "artifact": {
+    "file": "mini.llvq",
+    "kinds": "Tetra+Int4G128",
+    "matrices": 7,
+    "sha256": "451d8a0e21f91ce93b75102f743be0c60025cb3a8a87144e6348afee307c7fa0",
+    "version": 5
+  },
+  "blobs": {
+    "config.json": {
+      "sha256": "b65c98df5e6391e283be15e7bd165f73d3f8722c321d1c9a46b3151429629f54",
+      "written_verbatim": false
+    },
+    "tokenizer.json": {
+      "sha256": "a035f5a3ba377297ad5ac761a465d1bb61f25cdf336fad6c11a9024d690728f6",
+      "written_verbatim": true
+    }
+  },
+  "config_base": {
+    "attention_bias": false,
+    "head_dim": 32,
+    "hidden_act": "silu",
+    "hidden_size": 136,
+    "intermediate_size": 256,
+    "max_position_embeddings": 128,
+    "model_type": "qwen3",
+    "num_attention_heads": 4,
+    "num_hidden_layers": 1,
+    "num_key_value_heads": 2,
+    "rms_norm_eps": 1e-6,
+    "rope_theta": 10000.0,
+    "tie_word_embeddings": true,
+    "vocab_size": 64
+  },
+  "convention": "sha256 over little-endian bit patterns, in the order the field stores them",
+  "counts": {
+    "carried_weights": 9176,
+    "int4": 1,
+    "lattice": 6,
+    "quantized_weights": 156672,
+    "raw_tensors": 6,
+    "rotations": 2,
+    "tensors": 39
+  },
+  "raw": {
+    "model.embed_tokens.weight": {
+      "biases": "19eeb16aa543ebeac9126343975ea8e59a9ab9ebea9819b6eb680661a5970e24",
+      "qweight": "2d970be4d4dbe4380826599c586cb467399c8cba3e348b33b0a5e7c3d5b81faf",
+      "scales": "cbb70f9672179b2c6d9e1e0e5bd190aa22ef2ca8ace9194d1332136b53f4e8e5"
+    },
+    "model.layers.0.input_layernorm.weight": {
+      "values": "6017be62cebac70e86e8aa3f4143c5e44807ce3be1ea36963e0bdaffb25bc3de"
+    },
+    "model.layers.0.post_attention_layernorm.weight": {
+      "values": "6017be62cebac70e86e8aa3f4143c5e44807ce3be1ea36963e0bdaffb25bc3de"
+    },
+    "model.layers.0.self_attn.k_norm.weight": {
+      "values": "cf291829a08fd433380a44efecde63fd60567375039ae9f57691587afbdef276"
+    },
+    "model.layers.0.self_attn.q_norm.weight": {
+      "values": "cf291829a08fd433380a44efecde63fd60567375039ae9f57691587afbdef276"
+    },
+    "model.norm.weight": {
+      "values": "6017be62cebac70e86e8aa3f4143c5e44807ce3be1ea36963e0bdaffb25bc3de"
+    }
+  },
+  "records": {
+    "model.layers.0.mlp.down_proj.weight": {
+      "biases": "d1fb427bde65b7a152a5e4b64bd2c23c08bf10f6400dba32396b632dd943d230",
+      "qweight": "25f5de5bd18e9a962ad9975fc5a1e269c949641efdd513b2ffb57b0f9f1f0a48",
+      "scales": "bbe63e15b14b3d70ea6c15df0ed744adbbe999a227bd2c252a26aa98f1f7997e"
+    },
+    "model.layers.0.mlp.gate_proj.weight": {
+      "centroids": "891117ee8aaa4ddb1848b258369a93e859575328e350b80b3d5a4fce34957bd8",
+      "codes": "827caeb01f710078a5f3959f1bc81162501897720af35b4a413f6c5dc419b03e",
+      "gains": "49a7616bc5bc85ebabda6c93aa1b50c0ef4211d7a950ce1e9ba2193f0885713d",
+      "indices": "ab35f66807e6881baad29da3931a18ee413d69c45c176ba9be5c52df5d5c1ac7",
+      "row_scales": "2f41223a9ee43969b361f979cb59442cc887cd316c79d6226d3d2d92e686d145",
+      "tail": "c2c7054acce0f1754cc901a27de7aeee5694385b2e39a0444cb6c98a84fb0a94"
+    },
+    "model.layers.0.mlp.up_proj.weight": {
+      "centroids": "891117ee8aaa4ddb1848b258369a93e859575328e350b80b3d5a4fce34957bd8",
+      "codes": "c43ed58b67d5b039328d88485f1d2ebdfbe316b3c6f97d47d7ac0090ad9f8147",
+      "gains": "ca0e3289a25a4c214940aeec240b860e6e25026bbcb0f2391f9b371058ea9138",
+      "indices": "def28a283273a239d68009201f245f19707415d3f5803217c52440de09c8af5f",
+      "row_scales": "5b3ec220eff12c130ef2129ba199e7a5401b0e033e850889bba5d661de89a725",
+      "tail": "3c51667540448422d0bfd89305c602089a0d540b62e9362983520fba19d8d8e7"
+    },
+    "model.layers.0.self_attn.k_proj.weight": {
+      "centroids": "891117ee8aaa4ddb1848b258369a93e859575328e350b80b3d5a4fce34957bd8",
+      "codes": "254384891125e636c9ca595b68b7107b041a677c5ec014c759fd884442a6f72b",
+      "gains": "f6f3eca3b04f2ffd3cfc44dcfddea41ac8a875ae6cd61f3e39f92015fe387882",
+      "indices": "adaddef44410d9f8dbaaf055b2d85bd3f2ed6bdca1e9dce9b55a710a78613ec8",
+      "row_scales": "73e755682073906ba24294426f440a795c32807b0959bbb6a2b7637b19adc855",
+      "tail": "7ef69deef20f1b9d37390e1a702a9efdb0e9751f479e75076beaea169c7eea97"
+    },
+    "model.layers.0.self_attn.o_proj.weight": {
+      "centroids": "891117ee8aaa4ddb1848b258369a93e859575328e350b80b3d5a4fce34957bd8",
+      "codes": "610bd7a75898000e84fb74658080909308e27137be95e770d2159441122a51eb",
+      "gains": "4e76b895f0a16ffb317fcfdd4f4ff32af49d813cffcfc14fb9988d6ad4b34b4a",
+      "indices": "60a5ac28b601326b369c5476add66ba314e44b64ef7471a4dc89d4a020583e15",
+      "row_scales": "3d030276bc255ab4c272d6bb3abef8de13a5678524cec48b668e3788695e46be",
+      "tail": "824bcd8e21726b0ab334b50f2a7594eef1115a502c0b82dd4660e7fffadd7964"
+    },
+    "model.layers.0.self_attn.q_proj.weight": {
+      "centroids": "891117ee8aaa4ddb1848b258369a93e859575328e350b80b3d5a4fce34957bd8",
+      "codes": "677bddf338638150b312ef1577e6d25656856db4e3fc3be3dc79809c6f169228",
+      "gains": "66d2fd82f72b263b2d17a1b947d5a9832fe94c7bf64c2f10cf1c6e588ffca50d",
+      "indices": "df47d3181ada54c8c33498495d766585a595e19f99cb2ef5bccafc7889f21f84",
+      "row_scales": "6443f1976f3321dc3177d7d84ab83c265792fd795395384ce90f3712e79915d8",
+      "tail": "7b4e34ab7e9e34f98d4ce5b70e43ddb146547ae674728df09f4de338eaf5e6a1"
+    },
+    "model.layers.0.self_attn.v_proj.weight": {
+      "centroids": "891117ee8aaa4ddb1848b258369a93e859575328e350b80b3d5a4fce34957bd8",
+      "codes": "821ba90e181b38c75f614055f510ca10ab5bed4254ccf6a139c1ec7d10d45c6e",
+      "gains": "3ec83c6ba9bbb7318c1cd2a2b62edb45e904a0f837f61bd4fc580bfd2e77e720",
+      "indices": "3594eb0bfcbae3cf04e58360950a02fd5e773e90a9be3aa240b1f6dfe4b4ad95",
+      "row_scales": "ac65d432e89774ab6f1e42bd5a95823243afca71662a854db9202f383a869609",
+      "tail": "44f0fd1c0ec8207e8c6efefba959e40d7552ba8f6edf0755b72bc8d591042e31"
+    }
+  },
+  "rotations": {
+    "128_0000000000005eed": {
+      "signs": "2ce2c7d03a3c7ce282b06628c3ab68918eee89ee49b29d2508c2153d9d605d1d",
+      "small": "6c3c396ed6b5c36dcae172271f462051b1266b851e92df3deea8ac65478fd712"
+    },
+    "136_0000000000005eed": {
+      "signs": "45288a6fb800081a994bffbf21397442d2e01aa1854e26b0bff1af039794320a",
+      "small": "5265e5099bd393f11cbe546e2ab32b19d449f73c2773e093bcbad5d60989cf8c"
+    }
+  }
+}

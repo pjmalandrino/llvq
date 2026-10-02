@@ -1,0 +1,21 @@
+{
+  "artifact": {
+    "file": "mini.llvq",
+    "sha256": "451d8a0e21f91ce93b75102f743be0c60025cb3a8a87144e6348afee307c7fa0",
+    "version": 5
+  },
+  "convention": "sha256 over the dequantized f32 values, little-endian, row-major",
+  "raw": {
+    "model.embed_tokens.weight": "3cd562b50b7bac5e749f6c36adbe3693e989cd033414e3d4baadb7d89b829689"
+  },
+  "records": {
+    "model.layers.0.mlp.down_proj.weight": "da0fca5636954d4544daa4173d069fe44a842783e96d186574d122dfb12fc73f",
+    "model.layers.0.mlp.gate_proj.weight": "5440a1e26dfb863f0c50d73ae05fbe771a44115444a784b7a47490713e030f02",
+    "model.layers.0.mlp.up_proj.weight": "684bdd39952e23dc902bfbfe3d0089cb2cfca61d44fd35279b65788a5e8f7bea",
+    "model.layers.0.self_attn.k_proj.weight": "14ca1d674879d6fc008f346a5bf3c6a966db88011f71e6012f836c4f82328050",
+    "model.layers.0.self_attn.o_proj.weight": "58de37f9cfd1926070126516e10c65673b26b1f7229c39ab23552c253efc417c",
+    "model.layers.0.self_attn.q_proj.weight": "53115b412f3b61f242a2c9b3b0bf06e272dff914b948313d4414f4841cfcdb20",
+    "model.layers.0.self_attn.v_proj.weight": "c6b5df7ef203e306cb0db8a2ceadf6903b8cc33db115956d4ac5ac97d6b98b5e"
+  },
+  "reference": "llvq_artifact::decode_matrix, and RawTensor::to_f32 for a quantized raw tensor"
+}

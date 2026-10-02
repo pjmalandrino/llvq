@@ -1,0 +1,185 @@
+{
+  "attention_bias": false,
+  "head_dim": 32,
+  "hidden_act": "silu",
+  "hidden_size": 136,
+  "intermediate_size": 256,
+  "max_position_embeddings": 128,
+  "model_type": "qwen3",
+  "num_attention_heads": 4,
+  "num_hidden_layers": 1,
+  "num_key_value_heads": 2,
+  "quantization_config": {
+    "artifact_kinds": "Tetra+Int4G128",
+    "artifact_sha256": "451d8a0e21f91ce93b75102f743be0c60025cb3a8a87144e6348afee307c7fa0",
+    "artifact_version": 5,
+    "block_dim": 24,
+    "code_order": "msb_first_dense",
+    "codebook_fingerprint": "338f420f11866319",
+    "llvq_layout_version": 1,
+    "quant_method": "llvq",
+    "raw": {
+      "model.embed_tokens.weight": {
+        "bits": 4,
+        "dims": [
+          64,
+          136
+        ],
+        "encoding": "quant",
+        "group": 64,
+        "groups_per_row": 3,
+        "prefix": "model.embed_tokens",
+        "rows": 64
+      },
+      "model.layers.0.input_layernorm.weight": {
+        "dims": [
+          136
+        ],
+        "encoding": "f16",
+        "tensor": "model.layers.0.input_layernorm.weight"
+      },
+      "model.layers.0.post_attention_layernorm.weight": {
+        "dims": [
+          136
+        ],
+        "encoding": "f16",
+        "tensor": "model.layers.0.post_attention_layernorm.weight"
+      },
+      "model.layers.0.self_attn.k_norm.weight": {
+        "dims": [
+          32
+        ],
+        "encoding": "f16",
+        "tensor": "model.layers.0.self_attn.k_norm.weight"
+      },
+      "model.layers.0.self_attn.q_norm.weight": {
+        "dims": [
+          32
+        ],
+        "encoding": "f16",
+        "tensor": "model.layers.0.self_attn.q_norm.weight"
+      },
+      "model.norm.weight": {
+        "dims": [
+          136
+        ],
+        "encoding": "f16",
+        "tensor": "model.norm.weight"
+      }
+    },
+    "records": {
+      "model.layers.0.mlp.down_proj.weight": {
+        "bits": 4,
+        "d_in": 256,
+        "d_out": 136,
+        "group": 128,
+        "groups_per_row": 2,
+        "kind": "int4g128",
+        "prefix": "model.layers.0.mlp.down_proj"
+      },
+      "model.layers.0.mlp.gate_proj.weight": {
+        "code_bytes": 7680,
+        "d_in": 136,
+        "d_out": 256,
+        "gain_bits": 1,
+        "index_bits": 47,
+        "kind": "tetra",
+        "n_centroids": 2,
+        "nblocks": 5,
+        "prefix": "model.layers.0.mlp.gate_proj",
+        "rotation": "136_0000000000005eed",
+        "shell_cap": 12,
+        "tail_cols": 16
+      },
+      "model.layers.0.mlp.up_proj.weight": {
+        "code_bytes": 7680,
+        "d_in": 136,
+        "d_out": 256,
+        "gain_bits": 1,
+        "index_bits": 47,
+        "kind": "tetra",
+        "n_centroids": 2,
+        "nblocks": 5,
+        "prefix": "model.layers.0.mlp.up_proj",
+        "rotation": "136_0000000000005eed",
+        "shell_cap": 12,
+        "tail_cols": 16
+      },
+      "model.layers.0.self_attn.k_proj.weight": {
+        "code_bytes": 1920,
+        "d_in": 136,
+        "d_out": 64,
+        "gain_bits": 1,
+        "index_bits": 47,
+        "kind": "tetra",
+        "n_centroids": 2,
+        "nblocks": 5,
+        "prefix": "model.layers.0.self_attn.k_proj",
+        "rotation": "136_0000000000005eed",
+        "shell_cap": 12,
+        "tail_cols": 16
+      },
+      "model.layers.0.self_attn.o_proj.weight": {
+        "code_bytes": 4080,
+        "d_in": 128,
+        "d_out": 136,
+        "gain_bits": 1,
+        "index_bits": 47,
+        "kind": "tetra",
+        "n_centroids": 2,
+        "nblocks": 5,
+        "prefix": "model.layers.0.self_attn.o_proj",
+        "rotation": "128_0000000000005eed",
+        "shell_cap": 12,
+        "tail_cols": 8
+      },
+      "model.layers.0.self_attn.q_proj.weight": {
+        "code_bytes": 3840,
+        "d_in": 136,
+        "d_out": 128,
+        "gain_bits": 1,
+        "index_bits": 47,
+        "kind": "tetra",
+        "n_centroids": 2,
+        "nblocks": 5,
+        "prefix": "model.layers.0.self_attn.q_proj",
+        "rotation": "136_0000000000005eed",
+        "shell_cap": 12,
+        "tail_cols": 16
+      },
+      "model.layers.0.self_attn.v_proj.weight": {
+        "code_bytes": 1920,
+        "d_in": 136,
+        "d_out": 64,
+        "gain_bits": 1,
+        "index_bits": 47,
+        "kind": "tetra",
+        "n_centroids": 2,
+        "nblocks": 5,
+        "prefix": "model.layers.0.self_attn.v_proj",
+        "rotation": "136_0000000000005eed",
+        "shell_cap": 12,
+        "tail_cols": 16
+      }
+    },
+    "rotations": {
+      "128_0000000000005eed": {
+        "n": 128,
+        "odd": 1,
+        "pow2": 128,
+        "seed": "24301"
+      },
+      "136_0000000000005eed": {
+        "n": 136,
+        "odd": 17,
+        "pow2": 8,
+        "seed": "24301"
+      }
+    },
+    "tetra_fingerprint": "9c3060086c7a13e6"
+  },
+  "rms_norm_eps": 1e-6,
+  "rope_theta": 10000.0,
+  "tie_word_embeddings": true,
+  "vocab_size": 64
+}

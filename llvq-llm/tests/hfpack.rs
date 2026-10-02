@@ -328,3 +328,200 @@ fn tempdir(tag: &str) -> std::path::PathBuf {
     std::fs::create_dir_all(&d).expect("temp dir");
     d
 }
+
+// ---------------------------------------------------------------------------
+// The mini fixture: a coherent Qwen3, small enough to commit, real enough to load.
+//
+// `sealed_file` above describes nothing: a 4 by 88 Tetra record beside a base
+// config that says `hidden_size` 96. That is deliberate and it tests the packer
+// field by field, so its shapes are not touched here. But it means
+// `from_pretrained` refuses it, and until 2026-10-02 no test in either language
+// loaded a model at all. The registration defect of `llvqhf/__init__.py` lived in
+// exactly that hole.
+//
+// So this is a second object, beside the first. Every dimension below is forced
+// by something:
+//
+//   * 136 = 17 x 8. The rotation is `Q = (Q_odd (x) H_m) D` with `m` the largest
+//     power of two dividing `n`, so a power-of-two `n` gives a 1 by 1 `Q_odd` and
+//     the trivial rotation. At 136 the odd part is 17 and `Q_odd` is a real
+//     matrix. `o_proj` then takes `d_in` 128, where it is trivial. Both paths.
+//   * 136 = 5*24 + 16 and 128 = 5*24 + 8, so two different non-empty tails. The
+//     tail is the f32 part M1 found visible per row and invisible to the tokens.
+//   * int4 sits on `down_proj` and nowhere else, because `int4_matrix` takes
+//     `gpr = d_in / 128` by integer division and a `d_in` that is not a multiple
+//     of 128 would silently drop its last partial group. 256 is, 136 is not. That
+//     is also where the sealed 4B puts its int4.
+//
+// The weights are random, so the logits mean nothing. What the Python side can
+// assert on it is what a fixture can say: it loads, every projection is replaced,
+// and a forward pass gives finite numbers of the right shape.
+
+const MINI_HIDDEN: usize = 17 * 8;
+const MINI_INTER: usize = 256;
+const MINI_HEAD_DIM: usize = 32;
+const MINI_Q_HEADS: usize = 4;
+const MINI_KV_HEADS: usize = 2;
+const MINI_VOCAB: usize = 64;
+/// The embedding is group 64, and 136 is 2 whole groups plus a partial third.
+const MINI_EMBED_GROUPS: usize = MINI_HIDDEN.div_ceil(64);
+
+/// `config.json` for the mini fixture: a Qwen3 that describes its own records.
+fn mini_blobs() -> Vec<Blob> {
+    let config = format!(
+        r#"{{"model_type": "qwen3", "hidden_size": {h}, "num_hidden_layers": 1,
+             "num_attention_heads": {q}, "num_key_value_heads": {kv}, "head_dim": {hd},
+             "intermediate_size": {i}, "vocab_size": {v}, "rms_norm_eps": 1e-06,
+             "tie_word_embeddings": true, "max_position_embeddings": 128,
+             "rope_theta": 10000.0, "attention_bias": false, "hidden_act": "silu"}}"#,
+        h = MINI_HIDDEN,
+        q = MINI_Q_HEADS,
+        kv = MINI_KV_HEADS,
+        hd = MINI_HEAD_DIM,
+        i = MINI_INTER,
+        v = MINI_VOCAB,
+    );
+    vec![
+        Blob { name: "config.json".into(), bytes: config.into_bytes() },
+        Blob {
+            name: "tokenizer.json".into(),
+            bytes: br#"{"version": "1.0", "model": {"type": "BPE"}}"#.to_vec(),
+        },
+    ]
+}
+
+fn f16_tensor(name: &str, n: usize) -> RawTensor {
+    RawTensor {
+        name: name.into(),
+        dims: vec![n],
+        data: RawData::F16((0..n).map(|_| half::f16::from_f64(1.0).to_bits()).collect()),
+    }
+}
+
+/// A sealed file that is a whole one-layer Qwen3. Returns its path inside `dir`.
+fn sealed_mini(dir: &std::path::Path) -> std::path::PathBuf {
+    let mut rng = SplitMix64::new(0x11_17);
+    let path = dir.join("mini.llvq");
+    let f = std::fs::File::create(&path).expect("create");
+    let mut w = ArtifactWriter::with_kinds(
+        std::io::BufWriter::new(f),
+        VERSION,
+        7,
+        CodeKind::Tetra,
+        KindSet::of(CodeKind::Tetra).with(CodeKind::Int4G128),
+    )
+    .expect("header");
+
+    let q_out = MINI_Q_HEADS * MINI_HEAD_DIM;
+    let kv_out = MINI_KV_HEADS * MINI_HEAD_DIM;
+    // Six Tetra projections, in the order a layer reads them. `o_proj` is the one
+    // whose `d_in` is a power of two, so it carries the trivial `Q_odd`.
+    for (name, d_out, d_in) in [
+        ("self_attn.q_proj", q_out, MINI_HIDDEN),
+        ("self_attn.k_proj", kv_out, MINI_HIDDEN),
+        ("self_attn.v_proj", kv_out, MINI_HIDDEN),
+        ("self_attn.o_proj", MINI_HIDDEN, q_out),
+        ("mlp.gate_proj", MINI_INTER, MINI_HIDDEN),
+        ("mlp.up_proj", MINI_INTER, MINI_HIDDEN),
+    ] {
+        let full = format!("model.layers.0.{name}.weight");
+        let m = tetra_matrix(&full, d_out, d_in, &mut rng);
+        w.push_kind(&m, CodeKind::Tetra).expect("push tetra");
+    }
+    let down = int4_matrix("model.layers.0.mlp.down_proj.weight", MINI_HIDDEN, MINI_INTER, &mut rng);
+    w.push_int4(&down).expect("push int4");
+
+    let embed = RawTensor {
+        name: "model.embed_tokens.weight".into(),
+        dims: vec![MINI_VOCAB, MINI_HIDDEN],
+        data: RawData::Quant(QuantData {
+            bits: 4,
+            group: 64,
+            packed: (0..MINI_VOCAB * MINI_HIDDEN / 2).map(|_| rng.next() as u8).collect(),
+            // Ceiling and not floor: 136 is two whole groups of 64 and a partial
+            // third, and the format carries a scale for it. Only the
+            // `int4_matrix` helper above floors, which is why int4 projections
+            // here take a `d_in` that is a whole number of groups.
+            scales: (0..MINI_VOCAB * MINI_EMBED_GROUPS)
+                .map(|_| half::f16::from_f64(1e-3 + rng.next_f64()).to_bits())
+                .collect(),
+            biases: (0..MINI_VOCAB * MINI_EMBED_GROUPS)
+                .map(|_| half::f16::from_f64(rng.next_gaussian()).to_bits())
+                .collect(),
+        }),
+    };
+    // Every norm the architecture asks for. A missing one is not a soft warning:
+    // `from_pretrained` reports it MISSING and reinitializes it, which would make
+    // the forward pass pass while measuring nothing.
+    let norms = [
+        f16_tensor("model.layers.0.input_layernorm.weight", MINI_HIDDEN),
+        f16_tensor("model.layers.0.post_attention_layernorm.weight", MINI_HIDDEN),
+        f16_tensor("model.layers.0.self_attn.q_norm.weight", MINI_HEAD_DIM),
+        f16_tensor("model.layers.0.self_attn.k_norm.weight", MINI_HEAD_DIM),
+        f16_tensor("model.norm.weight", MINI_HIDDEN),
+    ];
+    let mut raw = vec![embed];
+    raw.extend(norms);
+    w.seal(&raw, &mini_blobs()).expect("seal");
+    path
+}
+
+/// The mini fixture is a model: the config describes the records, and nothing is
+/// missing.
+///
+/// `LLVQ_HF_MINI_FIXTURE=<dir>` writes it where the Python suite reads it, so the
+/// committed bytes are by construction the ones this test asserts on:
+///
+///   LLVQ_HF_MINI_FIXTURE=../llvq-hf/tests/fixtures/mini \
+///       cargo test -p llvq-llm --test hfpack
+#[test]
+fn the_mini_fixture_describes_a_whole_qwen3_layer() {
+    let dir = tempdir("hfpack-mini");
+    let src = sealed_mini(&dir);
+    let out = dir.join("hf");
+    let s = hfpack::pack(&src, &out).expect("pack");
+
+    assert_eq!((s.records, s.lattice, s.int4), (7, 6, 1));
+    assert_eq!(s.raw_tensors, 6, "the embedding and five norms");
+    // Two rotations and not one: `d_in` 136 for five projections, 128 for o_proj.
+    assert_eq!(s.rotations, 2, "the odd part differs between 136 and 128");
+
+    let written: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(out.join("config.json")).expect("config")).unwrap();
+    let qc = &written["quantization_config"];
+    assert_eq!(written["hidden_size"], MINI_HIDDEN);
+    assert_eq!(written["head_dim"], MINI_HEAD_DIM);
+
+    // The config and the records agree, which is the whole difference with the
+    // other fixture. Each projection's `d_in` is what the architecture implies.
+    let q_out = MINI_Q_HEADS * MINI_HEAD_DIM;
+    for (name, d_out, d_in) in [
+        ("self_attn.q_proj", q_out, MINI_HIDDEN),
+        ("self_attn.k_proj", MINI_KV_HEADS * MINI_HEAD_DIM, MINI_HIDDEN),
+        ("self_attn.o_proj", MINI_HIDDEN, q_out),
+        ("mlp.down_proj", MINI_HIDDEN, MINI_INTER),
+    ] {
+        let r = &qc["records"][format!("model.layers.0.{name}.weight")];
+        assert_eq!(r["d_out"].as_u64(), Some(d_out as u64), "{name} d_out");
+        assert_eq!(r["d_in"].as_u64(), Some(d_in as u64), "{name} d_in");
+    }
+    // Both tails are non-empty, and they differ.
+    assert_eq!(qc["records"]["model.layers.0.self_attn.q_proj.weight"]["tail_cols"], 16);
+    assert_eq!(qc["records"]["model.layers.0.self_attn.o_proj.weight"]["tail_cols"], 8);
+    // int4 only where `d_in` is a whole number of groups.
+    let down = &qc["records"]["model.layers.0.mlp.down_proj.weight"];
+    assert_eq!(down["kind"], "int4g128");
+    assert_eq!(down["groups_per_row"].as_u64(), Some((MINI_INTER / INT4G128_GROUP) as u64));
+
+    if let Ok(dest) = std::env::var("LLVQ_HF_MINI_FIXTURE") {
+        let dest = std::path::PathBuf::from(dest);
+        std::fs::create_dir_all(&dest).expect("fixture directory");
+        for e in std::fs::read_dir(&out).expect("read out") {
+            let e = e.expect("entry");
+            std::fs::copy(e.path(), dest.join(e.file_name())).expect("copy");
+        }
+        let digest = dest.join(llvq_llm::hfpack::DENSE_DIGEST_FILE);
+        llvq_llm::hfpack::dense_digest(&src, &digest).expect("dense digest");
+        eprintln!("mini fixture written to {}", dest.display());
+    }
+}
