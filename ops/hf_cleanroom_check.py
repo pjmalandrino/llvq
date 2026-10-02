@@ -1,9 +1,10 @@
+#!/usr/bin/env python3
 """Stage 5's gate, minus the Hub: a clean environment installs the package and loads.
 
     uv venv /tmp/cleanroom --python 3.12
     VIRTUAL_ENV=/tmp/cleanroom uv pip install ./llvq-hf torch transformers
     /tmp/cleanroom/bin/python ops/hf_cleanroom_check.py \
-        llvq-hf/tests/fixtures/tiny <packed dir> <bin/run dump>
+        llvq-hf/tests/fixtures/mini <packed dir> <bin/run dump>
 
 The interpreter must be the clean one and not the repository's: the first thing
 this file does is refuse to run from anywhere but `site-packages`. That guard is
@@ -14,48 +15,69 @@ Nothing here imports from the repository. The point is that `pip install llvq-hf
 and nothing else is enough to read a Tetra file, which is what a reviewer will
 try first and what the in-tree guide of stage 6 requires.
 
-Two levels. The fixture, 4 KB, which proves the install, the registration and a
-forward pass with no GPU, no ninja and no compiler. Then the real 4B on the dense
-CPU path against the 256 ids of `bin/run`, which is the gate itself.
+Two levels. The 148 KB `fixtures/mini`, which proves the install, the
+registration and a forward pass with no GPU, no ninja and no compiler, and which
+a reviewer can run without fetching anything. Then the real 4B on the dense CPU
+path against the 256 ids of `bin/run`, which is the gate itself.
+
+Give it `fixtures/tiny` and it fails by name, "q_proj is 4096 by 96, the record
+is 4 by 88": that object describes nothing on purpose and is for the packer tests.
+Pointing this script at it is how the gap was found on 2026-10-01.
 """
 
 from __future__ import annotations
 
+import importlib.util
 import sys
 from pathlib import Path
 
 import torch
+import transformers
 from transformers import AutoConfig, AutoModelForCausalLM
 
 import llvqhf  # noqa: F401  registers the quantizer and its config
+
+QUANT_MODULES = ("TetraLinear", "Int4Linear", "FusedTetraLinear", "Int4FusedLinear")
 
 
 def fixture(d: Path) -> int:
     cfg = AutoConfig.from_pretrained(d)
     print(f"  config read, model_type {cfg.model_type}, "
           f"quant_method {cfg.quantization_config['quant_method']}")
-    model = AutoModelForCausalLM.from_pretrained(d, dtype=torch.float32)
-    n_lin = sum(1 for m in model.modules() if type(m).__name__ in
-                ("TetraLinear", "Int4Linear", "FusedTetraLinear", "Int4FusedLinear"))
-    print(f"  loaded, {n_lin} records replaced, "
+    model, info = AutoModelForCausalLM.from_pretrained(
+        d, dtype=torch.float32, output_loading_info=True
+    )
+    # The lists, not the absence of an exception. With the method unregistered
+    # `transformers` only warns, reinitializes every dense weight it reports
+    # MISSING, and the forward pass below then passes on random numbers.
+    for key in ("missing_keys", "unexpected_keys", "mismatched_keys"):
+        if info[key]:
+            print(f"REFUSED: {key} is not empty: {sorted(info[key])}", file=sys.stderr)
+            return 1
+    n_lin = sum(1 for m in model.modules() if type(m).__name__ in QUANT_MODULES)
+    if n_lin == 0:
+        print("REFUSED: no record was replaced, the method did not run", file=sys.stderr)
+        return 1
+    print(f"  loaded, {n_lin} records replaced, no key missing or unexpected, "
           f"{sum(p.numel() for p in model.parameters())} parameters")
     ids = torch.tensor([[1, 2, 3, 4]])
     with torch.no_grad():
         out = model(ids).logits
-    assert out.shape[:2] == (1, 4), out.shape
-    assert torch.isfinite(out).all(), "the logits are not finite"
+    if out.shape[:2] != (1, 4) or not torch.isfinite(out).all():
+        print(f"REFUSED: logits {tuple(out.shape)}, finite "
+              f"{bool(torch.isfinite(out).all())}", file=sys.stderr)
+        return 1
     print(f"  forward ok, logits {tuple(out.shape)}, "
           f"range [{out.min():.3f} ; {out.max():.3f}]")
     return 0
 
 
 def main(argv: list[str]) -> int:
-    print(f"python {sys.version.split()[0]}, torch {torch.__version__}")
-    import transformers
-
-    print(f"transformers {transformers.__version__}")
-    import importlib.util
-
+    if len(argv) < 2:
+        print(__doc__, file=sys.stderr)
+        return 2
+    print(f"python {sys.version.split()[0]}, torch {torch.__version__}, "
+          f"transformers {transformers.__version__}")
     for name in ("ninja", "accelerate"):
         print(f"  {name} present: {importlib.util.find_spec(name) is not None}")
     print(f"llvqhf from {Path(llvqhf.__file__).parent}")
@@ -65,18 +87,9 @@ def main(argv: list[str]) -> int:
         return 2
 
     print("\n== the fixture ==")
-    try:
-        fixture(Path(argv[1]))
-    except ValueError as e:
-        # The fixture is written for unit tests that read tensors directly, and
-        # its config does not describe its own records: a Qwen3 of hidden_size 96
-        # against a 4 by 88 q_proj. So it is not a `from_pretrained` target, and
-        # the package has no small object a reviewer can load end to end. That
-        # gap is named, not papered over. Reaching THIS error is itself the proof
-        # the registration now happens: the quantizer ran and checked a shape.
-        print(f"  KNOWN GAP, the fixture is not a loadable model: {e}")
-    if len(argv) < 4:
-        return 0
+    rc = fixture(Path(argv[1]))
+    if rc or len(argv) < 4:
+        return rc
 
     print("\n== the 4B, dense on the CPU, against bin/run ==")
     from llvqhf import comparetokens, gentokens
