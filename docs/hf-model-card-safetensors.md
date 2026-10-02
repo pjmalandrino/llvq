@@ -27,35 +27,28 @@ tags:
   - vector-quantization
 ---
 
-# Qwen3-4B, LLVQ Tetra, 2.73 bits per parameter, loadable in `transformers`
+# Qwen3-4B at 2.73 bits per parameter
 
-Qwen3-4B stored at **2.73 bits per parameter over the whole model**, embedding
-included, in **1.41 GB of safetensors that stay compressed in memory**. Most
-weight matrices are coded on the Leech lattice Λ₂₄ with **Tetra**, a codebook a
-GPU reads as stored: a fused kernel decodes and multiplies in one pass. It
-follows the method of
-[arXiv:2603.11021](https://arxiv.org/abs/2603.11021) (van der Ouderaa, van
-Baalen, Whatmough, Nagel, 2026), in an independent Rust implementation.
+Qwen3-4B in 1.4 GB instead of 8, embedding included, and it stays compressed in
+memory if you want it to.
 
-This repository is the form `transformers` reads. The same object as a single
-file for the Rust engine is at
-[Pier-Jean/Qwen3-4B-LLVQ-Tetra-sealed](https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-Tetra-sealed),
-and both carry the artifact digest `886391a8c03f66dc`, so they are verifiably
-the same weights.
+Most weight matrices are stored on the Leech lattice Λ₂₄ with Tetra: 48 bits for
+a block of 24 weights, one scale per row. A kernel can decode and multiply in one
+pass, so the weights never have to be written out in full.
 
-> **A research artifact, not a drop-in model.** It needs the `llvq-tetra` reader
-> below, which is not on PyPI yet. It loses **6.77 MMLU points and 9.63 GSM8K
-> points** to FP16 on the same questions. `save_pretrained` does not round-trip.
-> Qwen3 is the only architecture tried.
+This is the form `transformers` reads. The same weights as a single file for the
+Rust engine are at
+[Qwen3-4B-LLVQ-Tetra-sealed](https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-Tetra-sealed),
+and both carry the digest `886391a8c03f66dc`, so you can check they match.
 
-## Loading it
+## Using it
 
 ```bash
-pip install git+https://github.com/pjmalandrino/llvq.git#subdirectory=llvq-tetra
+pip install llvq-tetra
 ```
 
 ```python
-import llvq_tetra  # registers the method; without this import transformers skips it
+import llvq_tetra  # this import registers the method
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 name = "Pier-Jean/Qwen3-4B-LLVQ-Tetra"
@@ -63,140 +56,113 @@ tok = AutoTokenizer.from_pretrained(name)
 model = AutoModelForCausalLM.from_pretrained(name, dtype="float32")
 
 ids = tok("The capital of France is", return_tensors="pt")
-print(tok.decode(model.generate(**ids, max_new_tokens=16, do_sample=False)[0]))
+print(tok.decode(model.generate(**ids, max_new_tokens=16)[0]))
 ```
 
-**The `import llvq_tetra` is load-bearing.** Without it `transformers` only warns,
-"Unknown quantization type, got llvq ... we will skip the quantization", then
-loads the file as if it were dense and fails on keys it cannot find.
+The `import llvq_tetra` matters. Without it `transformers` prints a warning,
+loads the file as if it were not quantized, and fails on keys it cannot find. The
+warning is easy to miss, so check that line first if loading goes wrong.
 
-Two arms. Unset, every record is **dequantized into a dense weight at load**:
-8.05 GB in f16, no kernel, no compiler, and it runs on a CPU.
+By default the weights are decoded into dense tensors as the model loads. That
+needs no GPU and no compiler, and gives you 8 GB in f16. Set `LLVQ_HF_FUSED=1`
+and they stay compressed: on Apple silicon the loaded model holds 2.75 GB with
+all 252 projections compressed, on NVIDIA 168 of them, the rest falling back to
+dense because the CUDA side has the lattice kernel and not yet the 4-bit one. The
+fused path compiles a kernel on first use, so it wants `ninja` and a compiler.
 
-```bash
-LLVQ_HF_FUSED=1   # the weights stay compressed and a fused kernel runs the matvec
-```
-
-With `LLVQ_HF_FUSED=1` on Apple silicon, all 252 projections stay compressed and
-the loaded model holds **2.750 GB** on the device against 16.1 GB computed for
-the dense f32 arm (*measured*). On CUDA, 168 of the 252 are fused and the 84 int4
-records fall back to dense, because the CUDA binding carries the Tetra matvec and
-not the int4 one yet; `llvq_tetra` prints the count rather than letting you assume.
-The kernels compile at import, so that arm needs `ninja` and a compiler. The
-dense arm needs neither.
-
-## Numbers
+## How good it is
 
 | | this file | FP16 | AWQ w4g128 | IQ2_XXS |
 |---|---|---|---|---|
 | bits per parameter, whole model | **2.73** | 16.00 | 5.30 | 2.48 |
 | weight bytes | **1.38 GB** | 8.04 GB | 2.67 GB | 1.25 GB |
-| decode, batch 1, own engine | **113.8 tok/s** (ours) | 83.1 (vLLM) | 200.5 (vLLM) | 312.9 (llama.cpp) |
 | MMLU, 5-shot, 14,042 questions | **63.37** | 70.14 | 68.14 | 39.78 |
 | GSM8K, zero-shot, 1,319 problems | **82.49** | 92.12 | 89.01 | not scored |
+| decode, batch 1, own engine | **113.8 tok/s** (ours) | 83.1 (vLLM) | 200.5 (vLLM) | 312.9 (llama.cpp) |
 
-All *measured*, and **none of them through this loader**. They are the Rust
-engine's, on one NVIDIA L40S, and they are what the sealed file scores. What is
-measured through this loader is token identity: 256 greedy tokens over four
-prompts, identical to the engine's, on the CPU, on Metal with every projection
-compressed, and on an NVIDIA L4. A quality table measured here does not exist
-yet, and the limitation is listed below rather than hidden.
+Paired on the same questions, with 95 % intervals, it is 6.77 MMLU points
+[6.05, 7.50] and 9.63 GSM8K points [7.69, 11.57] below FP16. Against AWQ, 4.76
+[4.02, 5.49] and 6.52 [4.39, 8.65].
 
-Paired on the same questions, 95 % intervals:
-
-| | below FP16 | below AWQ |
-|---|---|---|
-| MMLU | 6.77 [6.05, 7.50] | 4.76 [4.02, 5.49] |
-| GSM8K | 9.63 [7.69, 11.57] | 6.52 [4.39, 8.65] |
-
-Speeds from two engines are never divided by one another: vLLM runs FP16 faster
-than our engine does. The MMLU of AWQ is read in our harness on its weights
-converted to f16.
+Two things to read carefully. **None of those scores was measured through this
+loader.** They are the Rust engine's, on one NVIDIA L40S, and they describe the
+same weights. What is measured here is that this loader produces the same tokens
+as that engine: 256 greedy tokens over four prompts, on CPU, on Metal with every
+projection compressed, and on an NVIDIA L4. And the speeds come from four
+different engines, so dividing one by another would say nothing: vLLM runs FP16
+faster than our engine does.
 
 ## What is in the file
 
-| part | how it is stored |
+| part | stored as |
 |---|---|
-| 168 of the 252 projections | Tetra lattice codes: 48 bits per block of 24 weights, one scale per row, a small tail kept unquantized |
-| `v_proj` and `o_proj` of every layer, `down_proj` of layers 12 to 23 | int4, groups of 128 |
-| embedding, tied to the output head | int4, groups of 64 |
-| norms and everything the quantizer does not touch | f16 |
+| 168 of the 252 projections | Tetra lattice codes, 48 bits per block of 24 weights, one scale per row, a short tail left alone |
+| `v_proj` and `o_proj` everywhere, `down_proj` of layers 12 to 23 | 4-bit integers, groups of 128 |
+| embedding, tied to the output head | 4-bit integers, groups of 64 |
+| norms and the rest | f16, untouched |
 
-`config.json` carries a `quantization_config` block with one descriptor per
-record: kind, shape, block count, tail width, which rotation table it uses.
-`llvq-digest.json` holds a SHA-256 per field of the sealed file, and
-`llvq-dense-digest.json` one per reconstructed matrix, so a reader can check
-itself against the Rust decoder field by field rather than trusting it.
+`config.json` describes every record: kind, shape, block count, tail width, which
+rotation table it uses. `llvq-digest.json` holds a SHA-256 per field and
+`llvq-dense-digest.json` one per rebuilt matrix, so you can check the decoder
+against the Rust one rather than trust it. `python -m llvq_tetra.checkdense <dir>`
+does exactly that, 253 records on this model.
 
-The codes were fitted with GPTQ-style corrections on 131,072 tokens of
-DCLM-edu. The scale of each weight row was then retrained against the FP16
-model, with the codes frozen.
+The codes were fitted with GPTQ-style corrections on 131,072 tokens of DCLM-edu,
+then the scale of each row was retrained against the FP16 model with the codes
+frozen.
 
 `tokenizer_config.json`, `vocab.json`, `merges.txt` and `generation_config.json`
-are copied verbatim from
-[Qwen/Qwen3-4B](https://huggingface.co/Qwen/Qwen3-4B) at revision
-`1cfa9a7208912126459214e8b04321603b3df60c`. The packer does not carry them, so
-without this copy the tokenizer would load with no chat template.
+are copied as they are from [Qwen/Qwen3-4B](https://huggingface.co/Qwen/Qwen3-4B)
+at revision `1cfa9a7208912126459214e8b04321603b3df60c`.
 
 ## Limitations
 
-- **No quality number measured through this loader.** The MMLU and GSM8K above
-  are the Rust engine's. This path is held to token identity against it, and
-  that gate is known to be weak: a defect worth 8.79 % of a matrix row left 64
-  greedy tokens untouched on two prompts of four.
-- **One architecture.** `Qwen3ForCausalLM`. The code routes by record name and
-  is not coupled to Qwen3, but nothing else has been tried.
-- **`save_pretrained` does not round-trip.** `is_serializable()` returns false:
-  saving would write dense weights, not this format. Writing the format needs
-  the encoder, which is Rust.
-- **The fused arms compile at import.** No precompiled kernel is published yet,
-  so `LLVQ_HF_FUSED=1` needs `ninja` and Xcode command line tools, or `nvcc`.
-- **int4 is not fused on CUDA.** 168 of 252 projections there, against 252 on
-  Metal.
-- **No batching in the fused arms.** The matvec takes one activation vector, so
-  a prefill of T tokens is T dispatches per projection.
-- **One GPU for every published speed.** One NVIDIA L40S. On an A100, none of
-  our earlier lattice kernels beat FP16.
-- **One calibration draw.** At 4B, three draws of calibration text spread MMLU
-  over 5.83 points on 2,280 questions (standard deviation 2.92). The intervals
-  above leave out that spread.
-- **GSM8K is an easy test for this model family.** FP16 scores 92 to 95 %, and
-  the problems have been public since 2021.
-- **Not bit-reproducible across backends.** Calibration accumulates in f32 on
-  the accelerator, so encoding again elsewhere gives other codes.
+- No quality number measured through this loader. It is held to token identity
+  against the Rust engine, and that is a weak test: a defect worth 8.79 % of a
+  matrix row once left 64 greedy tokens untouched on two prompts out of four.
+- Only Qwen3 has been tried.
+- `save_pretrained` does not work. Writing the format needs the encoder, which is
+  Rust.
+- The fused path compiles a kernel on first use. No precompiled kernel is
+  published yet.
+- On NVIDIA, 168 of 252 projections are fused, against 252 on Metal.
+- The fused kernels take one activation vector at a time, so a long prompt costs
+  one dispatch per token per projection.
+- Every published speed is from one NVIDIA L40S. On an A100, none of our earlier
+  lattice kernels beat FP16.
+- One calibration draw. At 4B, three draws spread MMLU over 5.83 points on 2,280
+  questions, and the intervals above do not include that spread.
+- GSM8K is easy for this family. FP16 scores 92 to 95 %, and the problems have
+  been public since 2021.
+- Encoding is not reproducible across backends: calibration accumulates in f32 on
+  the accelerator, so the same text on another machine gives other codes.
 
-## Citation
+## Credit and citation
 
-- Paper 2, *Tetra: Serving Leech-Lattice Quantized LLMs at 2.7 Bits per
-  Parameter*, in the repository under `paper2/`.
-- Paper 1, the earlier layout: DOI
-  [10.5281/zenodo.22133606](https://doi.org/10.5281/zenodo.22133606).
-- The method: van der Ouderaa et al.,
-  [arXiv:2603.11021](https://arxiv.org/abs/2603.11021).
+The method is [arXiv:2603.11021](https://arxiv.org/abs/2603.11021), van der
+Ouderaa, van Baalen, Whatmough and Nagel, 2026. This is an independent
+implementation in Rust, with [llvq-tetra](https://pypi.org/project/llvq-tetra/)
+as its Python reader.
 
-Measurement logs, preregistrations and the job registry behind every number are
-in [github.com/pjmalandrino/llvq](https://github.com/pjmalandrino/llvq):
-`docs/mesures/gsm8k-wave1-2026-09-26.txt`,
-`docs/mesures/gsm8k-wave2-2026-09-26.txt`,
-`docs/mesures/paper-table-2026-09-25.txt`,
-`docs/mesures/embed-q4-swap-2026-09-23.txt`, and for this loader
-`docs/mesures/hf-safetensors-4b-2026-09-28.txt`,
-`docs/mesures/hf-quantizer-4b-2026-09-30.txt`,
-`docs/mesures/hf-metal-m2-4b-2026-09-30.txt`,
-`docs/mesures/hf-cuda-4b-2026-09-30.txt`,
-`docs/mesures/hf-cleanroom-4b-2026-10-01.txt`.
+Paper 2, *Tetra: Serving Leech-Lattice Quantized LLMs at 2.7 Bits per Parameter*,
+is in the repository under `paper2/`. Paper 1 is at DOI
+[10.5281/zenodo.22133606](https://doi.org/10.5281/zenodo.22133606).
 
-## License and attribution
+The measurement logs and preregistrations behind every number above are in
+[github.com/pjmalandrino/llvq](https://github.com/pjmalandrino/llvq), under
+`docs/mesures/` and `proofs/`.
+
+## License
 
 Apache 2.0, inherited from [Qwen/Qwen3-4B](https://huggingface.co/Qwen/Qwen3-4B).
-The `LICENSE` file is Qwen's, carried over unchanged.
+The `LICENSE` file is Qwen's, unchanged.
 
-**Modification made to the original work:** the weights of the 252 linear
-projections of every transformer block are replaced by Leech-lattice codes
-(Tetra) or by 4-bit integers, the scale of each row is retrained, and the tied
-embedding is stored in 4 bits. All other tensors are the originals, in f16.
-Only the row scales are trained, never the codes. No architectural change.
+What was changed: the weights of the 252 linear projections in every transformer
+block are replaced by Leech-lattice codes or by 4-bit integers, the scale of each
+row is retrained, and the tied embedding is stored in 4 bits. Everything else is
+the original, in f16. Only the row scales are trained, never the codes. No
+architectural change.
 
 The quantization code is at
-[github.com/pjmalandrino/llvq](https://github.com/pjmalandrino/llvq)
-(MIT OR Apache-2.0).
+[github.com/pjmalandrino/llvq](https://github.com/pjmalandrino/llvq), MIT or
+Apache-2.0.

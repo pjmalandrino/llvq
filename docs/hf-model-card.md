@@ -33,26 +33,24 @@ tags:
   - tetra
 ---
 
-# Qwen3-4B, LLVQ Tetra, 2.73 bits per parameter
+# Qwen3-4B at 2.73 bits per parameter, one file
 
-Qwen3-4B stored at **2.73 bits per parameter over the whole model**, embedding
-included, in **one 1.42 GB file** that opens with no checkpoint and no network.
-Most weight matrices are coded on the Leech lattice Λ₂₄ with **Tetra**, a
-codebook the GPU reads as stored: a fused CUDA kernel decodes and multiplies in
-one pass. It follows the method of
-[arXiv:2603.11021](https://arxiv.org/abs/2603.11021) (van der Ouderaa, van
-Baalen, Whatmough, Nagel, 2026), in an independent Rust implementation.
+Qwen3-4B in a single 1.42 GB file that opens with no checkpoint and no network,
+embedding included. Most weight matrices are stored on the Leech lattice Λ₂₄ with
+Tetra: 48 bits for a block of 24 weights, one scale per row. A fused CUDA kernel
+decodes and multiplies in one pass, so the weights are never written out in full.
 
-> **A research artifact, not a drop-in model.** This file is read by the Rust
-> engine of [github.com/pjmalandrino/llvq](https://github.com/pjmalandrino/llvq).
-> It is not GGUF, AWQ, llama.cpp or vLLM. For `transformers`, the same weights are
-> published as safetensors at
-> [Pier-Jean/Qwen3-4B-LLVQ-Tetra](https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-Tetra),
-> which stays compressed in memory and carries this file's artifact digest.
-> It loses **6.77 MMLU points and 9.63 GSM8K points** to FP16 on the same
-> questions. Every number below comes from one NVIDIA L40S.
+**This file is read by the Rust engine, not by `transformers`.** If you want
+`transformers`, take
+[Qwen3-4B-LLVQ-Tetra](https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-Tetra)
+instead: same weights, as safetensors, and it carries this file's digest so you
+can check. This one is here because paper 2 publishes its SHA-256 and anyone
+replaying our measurements needs the bytes.
 
-## Numbers
+It is worse than FP16 by a measured amount: 6.77 MMLU points and 9.63 GSM8K
+points on the same questions. Every number below comes from one NVIDIA L40S.
+
+## How good it is
 
 | | this file | FP16 | AWQ w4g128 | IQ2_XXS |
 |---|---|---|---|---|
@@ -62,25 +60,21 @@ Baalen, Whatmough, Nagel, 2026), in an independent Rust implementation.
 | MMLU, 5-shot, 14,042 questions | **63.37** | 70.14 | 68.14 | 39.78 |
 | GSM8K, zero-shot, 1,319 problems | **82.49** | 92.12 | 89.01 | not scored |
 
-All *measured*. Bits per parameter are counted by `rtbits` from the file's records, at
-the widths the GPU holds.
-Weight bytes are this file's buffers on the GPU and the other formats' weight
-files. Speeds are medians of five rounds, 256 greedy tokens for this file and
-128 for FP16 and AWQ; IQ2_XXS is the mean of five 128-token repetitions. Each
-format runs in its own engine, and speeds from two engines are never divided
-by one another: vLLM runs FP16 faster than our engine does. The MMLU of AWQ is
-read in our harness on its weights converted to f16.
+Paired on the same questions, with 95 % intervals, it is 6.77 MMLU points
+[6.05, 7.50] and 9.63 GSM8K points [7.69, 11.57] below FP16. Against AWQ, 4.76
+[4.02, 5.49] and 6.52 [4.39, 8.65].
 
-Paired on the same questions, 95 % intervals:
+How the numbers were taken. Bits per parameter are counted by `rtbits` from the
+file's records, at the widths the GPU holds. Weight bytes are this file's buffers
+on the GPU and the other formats' weight files. Speeds are medians of five
+rounds, 256 greedy tokens for this file and 128 for FP16 and AWQ, and IQ2_XXS is
+the mean of five 128-token runs. Each format runs in its own engine, so dividing
+one speed by another would say nothing: vLLM runs FP16 faster than our engine
+does. AWQ's MMLU is read in our harness on its weights converted to f16.
 
-| | below FP16 | below AWQ |
-|---|---|---|
-| MMLU | 6.77 [6.05, 7.50] | 4.76 [4.02, 5.49] |
-| GSM8K | 9.63 [7.69, 11.57] | 6.52 [4.39, 8.65] |
+## How the two scores were taken
 
-## Quality
-
-**GSM8K is scored through the served kernel**, the path a user runs. The prompt
+GSM8K is scored through the kernel, which is the path you would actually run. The prompt
 is zero-shot, in Qwen3's chat template with the thinking block left empty, and
 asks for the answer in `\boxed{}`. Decoding is greedy, up to 1,024 tokens. FP16
 and AWQ generate in vLLM from the same prompt tokens, and one grader scores all
@@ -88,23 +82,27 @@ three. To check that the engine does not move a score, the FP16 checkpoint also
 ran through our dense path: 91.51 against 92.12 in vLLM, −0.61 points
 [−1.27, +0.06]. This file makes 17.5 % errors on GSM8K where FP16 makes 7.9 %.
 
-**MMLU is scored on the dense reconstruction**: the same weights decoded to f16
-and run through an ordinary forward pass. The answer is read from the logits of
-the four answer letters, micro-averaged over the full test split. The 63.37
-was scored on the file one step before sealing, with the same int4 matrices
-rebuilt at load by the same quantizer; this file gives the same answers and
-logits on 57 of 57 questions. On 50 GSM8K problems, the kernel and the dense
-reconstruction give the same 50 answers.
+MMLU is scored on the dense reconstruction instead: the same weights decoded to
+f16 and run through an ordinary forward pass. The answer is read from the logits
+of the four answer letters, micro-averaged over the full test split. The 63.37
+was scored on the file one step before sealing, with the same 4-bit matrices
+rebuilt at load by the same quantizer. This file gives the same answers and the
+same logits on 57 of 57 spot-checked questions, and on 50 GSM8K problems the
+kernel and the dense reconstruction agree on all 50.
 
-In points, the model loses more on GSM8K than on MMLU at 4B. At 8B and 14B the
-test cannot separate the two losses: the sibling files lose 4.62 and 3.26 GSM8K
-points to FP16, against 5.48 and 3.22 on MMLU. Counted in errors, GSM8K costs
-more at every size.
+At 4B the model loses more points on GSM8K than on MMLU. At 8B and 14B the test
+cannot tell the two losses apart: those files lose 4.62 and 3.26 GSM8K points to
+FP16, against 5.48 and 3.22 on MMLU. Counted in errors rather than points, GSM8K
+costs more at every size.
 
 | sibling file | bits per parameter | MMLU | GSM8K | decode tok/s | weights |
 |---|---|---|---|---|---|
 | `qwen3-8b-sealed-B.bin` | 2.70 | 69.58 | 88.63 | 95.0 | 2.76 GB |
 | `qwen3-14b-sealed.bin` | 2.73 | 75.66 | 92.04 | 57.2 | 5.04 GB |
+
+Those two are not hosted. They were sealed on one machine and deleted in a disk
+cleanup, so only their digests survive, `7bdb9a55` and `61db37fe`. Rebuilding
+them is possible and free, and has not been done.
 
 ## What is in the file
 
@@ -134,9 +132,9 @@ hf download Pier-Jean/Qwen3-4B-LLVQ-Tetra-sealed qwen3-4b-sealed.bin --local-dir
 # NVIDIA GPU, through the served kernel
 LLVQ_CONFIG=configs/qwen3-4b-tetra-e4.json \
   cargo run --release -p llvq-llm --features cuda --bin chat -- qwen3-4b-sealed.bin cuda
-# Apple silicon, dense reconstruction (the Rust Metal fused path still refuses
-#   this file: tv_q4_metal stops at d_in 8192 and down_proj is 9728. The Python
-#   reader lifts that, and holds all 252 projections compressed in 2.750 GB)
+# Apple silicon, dense reconstruction. The Rust Metal fused path still refuses
+# this file, because tv_q4_metal stops at d_in 8192 and down_proj is 9728. The
+# Python reader does not have that limit: see the safetensors repository.
 cargo run --release -p llvq-llm --features metal --bin chat -- qwen3-4b-sealed.bin metal
 # GSM8K and MMLU, as measured above
 LLVQ_CONFIG=configs/qwen3-4b-tetra-e4.json LLVQ_GSM8K_DUMP=gsm8k.jsonl \
@@ -144,8 +142,10 @@ LLVQ_CONFIG=configs/qwen3-4b-tetra-e4.json LLVQ_GSM8K_DUMP=gsm8k.jsonl \
 cargo run --release -p llvq-llm --features cuda --bin mmlu -- qwen3-4b-sealed.bin cuda
 ```
 
-`configs/qwen3-4b-tetra-e4.json` is the served configuration: the Tetra layout,
-the 4-bit embedding, one rotation per group of projections, an f16 KV cache.
+`qwen3-4b-tetra-e4.json`, in this repository, is the configuration the numbers
+above were taken under: the Tetra layout, the 4-bit embedding, one rotation per
+group of projections, an f16 KV cache. Running without it gives you a bench
+rather than the served path.
 
 ## Limitations
 
