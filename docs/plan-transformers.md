@@ -36,7 +36,7 @@ What we have: the CUDA kernel `llvq-cuda/kernels/llvq_tetra48.cuh`, compiled by 
 | M3 | the quantized embedding resident, through `emb_q4_gather_metal` | the same ids | 0 $, Mac |
 | 3 | Kernel Hub packaging for Metal (`kernel-builder`), loaded with `get_kernel` | `kernel-abi-check` green; stage 2's tokens reproduced from the Hub-loaded kernel | 0 $, Mac |
 | 4 | CUDA: the NVRTC source becomes a precompiled torch extension | **passed 2026-09-30**: built by `nvcc` in 51.8 s, per-row 3.4 to 3.7e-04 on three shapes, 256 ids of 256, 168 of 252 projections fused | **$0.30 over seven launches** on `l40sx1` then `l4x1` |
-| 5 | Pip package, model card, 4B file pushed to the Hub in the new layout | **the local half passed 2026-10-01**: a clean venv installs the package and reproduces 256 ids of 256 with no compiler, on transformers 5.18.0. The Hub push and the card are not done | 0 $ |
+| 5 | Pip package, model card, 4B file pushed to the Hub in the new layout | **the Hub half done 2026-10-02**, two public repositories, the Hub's own sha256 of the sealed file equal to the paper's. The cleanroom half passed 2026-10-01. **PyPI is not done** | 0 $ |
 | 6 | Upstream PR to `transformers` | accepted or refused by the maintainers; not ours to decide | 0 $ |
 
 ## The CUDA test job, launched
@@ -309,6 +309,59 @@ the fork is downstream of it. The repository's own precedent for an upstream con
 script keeps its name as a thin caller, so the unpacking never exists twice. The provenance line of the stage 0 journal
 is updated at the same time.
 
+## What is hosted, since 2026-10-02
+
+Two public repositories, one object, and a digest that ties them.
+
+| repository | holds | bytes |
+|---|---|---|
+| [Qwen3-4B-LLVQ-Tetra](https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-Tetra) | safetensors that stay compressed, `transformers` reads it | 1,410,332,048 |
+| [Qwen3-4B-LLVQ-Tetra-sealed](https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-Tetra-sealed) | `qwen3-4b-sealed.bin`, the Rust engine reads it | 1,418,224,685 |
+
+**The Hub computed the sealed file's sha256 itself, server side, and it is the
+paper's**: `886391a8c03f66dc269cc65c3598c6627dbdcd259180aff36604ef10d37371b8`. So
+a reader can now verify paper 2's digest without trusting us, which was the point
+of publishing at all. Before this, that digest named a file that existed on one
+laptop.
+
+The safetensors repository carries `llvq-digest.json`, a SHA-256 per field of the
+sealed file, and `llvq-dense-digest.json`, one per reconstructed matrix. The gate
+rebuilt **1,602 fields bit for bit** against the Rust decoder before the upload
+(*measured*). The two repositories are therefore the same weights, checkable.
+
+**A publication defect was caught in staging.** `hfpack` writes a 64 byte
+`tokenizer_config.json`, a stub. The real one is 9,732 bytes and carries the chat
+template, so the repository as packed would have given a tokenizer where
+`apply_chat_template` fails. `tokenizer_config.json`, `vocab.json`, `merges.txt`
+and `generation_config.json` are copied verbatim from `Qwen/Qwen3-4B` at revision
+`1cfa9a7208912126459214e8b04321603b3df60c`, and the card says so. Carrying them in
+the sealed file instead would change what `seal` writes, which is format work and
+is not done.
+
+**The two cards are one file.** `docs/hf-model-card.md` is the sealed
+repository's card byte for byte below its STATUS comment, because this repository
+already had two cards drift apart between 2026-09-27 and 2026-10-02. Edit there,
+then re-upload.
+
+**The old repository is untouched.** `Pier-Jean/Qwen3-4B-LLVQ-2bit` still holds
+the August `Planes14` objects at zero downloads, and `docs/fiche-4b.md` remains
+their provenance register.
+
+## What is not hosted
+
+The 8B and 14B sealed files, whose digests paper 2 also publishes, `7bdb9a55` and
+`61db37fe`. **They no longer exist**: they were sealed locally on 2026-09-23 and
+deleted in a disk cleanup. Their inputs survive in the bucket,
+`qwen3-8b-dclm-ft.bin` and `qwen3-14b-dclm-ft.bin`, and the chain that made them
+is in the journals, `int4swap` then `embedq`, locally and at 0 $. Re-sealing needs
+those two files back, about 11 GB, plus the Qwen3-8B and Qwen3-14B checkpoints,
+about 45 GB, which the cache no longer holds.
+
+Re-sealing is worth more than a file. If the digests come back equal, the sealing
+chain is deterministic and the paper's three digests are third-party verifiable.
+If they do not, paper 2 publishes digests of objects nobody can recreate, and
+that is a thing to know rather than to assume.
+
 ## Open decisions
 
 - The go on stage 3, the Kernel Hub packaging, which needs the op of stage 2 and nothing more.
@@ -317,4 +370,16 @@ is updated at the same time.
   while the per-row check sees it in 20 s with a 3,400-fold margin. This changes what a gate is in
   this plan, so it is the operator's.
 - The go on M3, the quantized embedding, which is the last 1.558 GB and takes 2.750 GB to about 1.4.
-- Whether publishing the three sealed files (`docs/ETAT.md` §5) waits for stage 5.
+- **PyPI.** The names `llvq-hf`, `llvq` and `llvqhf` are free (*measured*, HTTP 404 on each). Until
+  one is taken, the model card's install line points at a git URL, which is honest and looks
+  unfinished. The first upload is irreversible: a version number is never reusable, and a release is
+  yanked rather than deleted. `pyproject.toml` carries no licence, readme, url or classifier yet, and
+  TestPyPI exists to rehearse without burning a number.
+- **Re-sealing the 8B and the 14B**, 0 $ and local, about 56 GB of downloads and several hours, to
+  publish them and to find out whether the paper's digests are reproducible.
+- **Where the audit trail of this branch lives.** `hf-safetensors` is not to be merged into `main`,
+  by operator decision of 2026-09-30, and the code leaves for its own repository at stage 5. But the
+  branch also carries eight journals, seven preregistration deviation files and **eleven rows of
+  `docs/data/jobs.csv`**, including the $0.30 of stage 4. Those belong to the lab, not to the Python
+  package. Either they come back to `main` in a commit that carries no code, or `main` loses the
+  record that those jobs ran and that money was spent.

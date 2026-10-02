@@ -1,3 +1,20 @@
+<!--
+  STATUS, 2026-10-02.
+
+  THIS FILE IS THE CARD OF Pier-Jean/Qwen3-4B-LLVQ-Tetra-sealed, byte for byte
+  below this comment. Edit here, then re-upload; two cards that drift is the
+  defect this repository already had once, between 2026-09-27 and 2026-10-02.
+
+  It describes `qwen3-4b-sealed.bin`, the paper-2 object: 1,418,224,685 B,
+  sha256 886391a8c03f66dc269cc65c3598c6627dbdcd259180aff36604ef10d37371b8.
+
+  The safetensors sibling, Pier-Jean/Qwen3-4B-LLVQ-Tetra, carries its own card,
+  staged from this repository as well. The August file `qwen3-4b-llvq.bin`
+  (Planes14, sha256 9db213ef...c84b0) stays where it is, under
+  Pier-Jean/Qwen3-4B-LLVQ-2bit, which is not touched; docs/fiche-4b.md is its
+  provenance register.
+-->
+
 ---
 license: apache-2.0
 base_model: Qwen/Qwen3-4B
@@ -16,20 +33,6 @@ tags:
   - tetra
 ---
 
-<!--
-  STATUS, 2026-09-27.
-
-  This card describes `qwen3-4b-sealed.bin`, the paper-2 object: 1,418,224,685 B,
-  sha256 886391a8c03f66dc269cc65c3598c6627dbdcd259180aff36604ef10d37371b8.
-
-  That file is not hosted yet. The card online at Pier-Jean/Qwen3-4B-LLVQ-2bit still
-  describes the August file `qwen3-4b-llvq.bin` (Planes14, 1.771 GB, sha256
-  9db213ef...c84b0), whose card this one replaces in the repository. Uploading the
-  sealed file and replacing the online card are two operator decisions
-  (docs/ROADMAP.md section 5). Until both are taken, this file and the Hub disagree,
-  and the download line below does not work.
--->
-
 # Qwen3-4B, LLVQ Tetra, 2.73 bits per parameter
 
 Qwen3-4B stored at **2.73 bits per parameter over the whole model**, embedding
@@ -40,9 +43,12 @@ one pass. It follows the method of
 [arXiv:2603.11021](https://arxiv.org/abs/2603.11021) (van der Ouderaa, van
 Baalen, Whatmough, Nagel, 2026), in an independent Rust implementation.
 
-> **A research artifact, not a drop-in model.** It is not GGUF, AWQ or
-> safetensors. It does not load in `transformers`, llama.cpp or vLLM, and needs
-> the Rust reader of [github.com/pjmalandrino/llvq](https://github.com/pjmalandrino/llvq).
+> **A research artifact, not a drop-in model.** This file is read by the Rust
+> engine of [github.com/pjmalandrino/llvq](https://github.com/pjmalandrino/llvq).
+> It is not GGUF, AWQ, llama.cpp or vLLM. For `transformers`, the same weights are
+> published as safetensors at
+> [Pier-Jean/Qwen3-4B-LLVQ-Tetra](https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-Tetra),
+> which stays compressed in memory and carries this file's artifact digest.
 > It loses **6.77 MMLU points and 9.63 GSM8K points** to FP16 on the same
 > questions. Every number below comes from one NVIDIA L40S.
 
@@ -124,11 +130,13 @@ model, with the codes frozen. Each step is measured on the full MMLU test set:
 
 ```bash
 git clone https://github.com/pjmalandrino/llvq && cd llvq
-hf download Pier-Jean/Qwen3-4B-LLVQ-2bit qwen3-4b-sealed.bin --local-dir .   # once hosted
+hf download Pier-Jean/Qwen3-4B-LLVQ-Tetra-sealed qwen3-4b-sealed.bin --local-dir .
 # NVIDIA GPU, through the served kernel
 LLVQ_CONFIG=configs/qwen3-4b-tetra-e4.json \
   cargo run --release -p llvq-llm --features cuda --bin chat -- qwen3-4b-sealed.bin cuda
-# Apple silicon, dense reconstruction (the Metal fused path does not run this file)
+# Apple silicon, dense reconstruction (the Rust Metal fused path still refuses
+#   this file: tv_q4_metal stops at d_in 8192 and down_proj is 9728. The Python
+#   reader lifts that, and holds all 252 projections compressed in 2.750 GB)
 cargo run --release -p llvq-llm --features metal --bin chat -- qwen3-4b-sealed.bin metal
 # GSM8K and MMLU, as measured above
 LLVQ_CONFIG=configs/qwen3-4b-tetra-e4.json LLVQ_GSM8K_DUMP=gsm8k.jsonl \
@@ -152,10 +160,22 @@ the 4-bit embedding, one rotation per group of projections, an f16 KV cache.
 - **GSM8K is an easy test for this model family.** FP16 scores 92 to 95 %, and
   the problems have been public since 2021. Qwen3's thinking mode, which writes
   much longer chains, is not tested.
-- **The format is read only by this repository's Rust code**, which has no
-  external dependency. A reader in another language does not exist.
+- **Two readers, and only one writer.** This repository's Rust code reads and
+  writes the format with no external dependency; `llvq-hf` reads it in Python
+  for `transformers`. Nothing writes it outside Rust, and `save_pretrained`
+  does not round-trip.
 - **Not bit-reproducible across backends.** The calibration accumulates in f32
   on the accelerator, so encoding again elsewhere gives other codes.
+
+## The same weights for `transformers`
+
+[Pier-Jean/Qwen3-4B-LLVQ-Tetra](https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-Tetra)
+holds the same weights as safetensors that stay compressed, with a
+`quantization_config` block describing every record. Its `llvq-digest.json`
+records the artifact digest `886391a8c03f66dc` of THIS file, and a bit-for-bit
+check rebuilds its 1,602 fields against the Rust decoder (*measured*,
+`docs/mesures/hf-safetensors-4b-2026-09-28.txt`). Loading it gives the same 256
+greedy tokens this file gives, on a CPU, on Metal and on an NVIDIA L4.
 
 ## Citation
 

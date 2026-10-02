@@ -130,19 +130,28 @@ encoded after it, and the evaluation harness is intact.
   the gains we report.
 - **A second kind of GPU.** Every number is on one L40S. On an A100 none of our earlier lattice kernels beat FP16.
 - **A model above 14B**, which needs the `rot_apply` wall lifted first.
-- **Publishing the sealed files.** The paper gives their SHA-256 and nothing hosts them, so nobody outside can replay
-  an MMLU. The 4B now has a safetensors image that stays compressed, 1.422 GB, verified field by field (*measured*,
-  [hf-safetensors-4b](mesures/hf-safetensors-4b-2026-09-28.txt)), and `transformers` loads it and answers with the
-  tokens `bin/run` gives (*measured*, [hf-quantizer-4b](mesures/hf-quantizer-4b-2026-09-30.txt)).
-  [plan-transformers](plan-transformers.md) has the remaining stages and their gates: nothing is on the Hub, and no
-  kernel reads the compressed form outside our engine.
+- **Publishing the sealed files.** The 4B is published since 2026-10-02, in two public repositories:
+  [Qwen3-4B-LLVQ-Tetra](https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-Tetra), safetensors that stay compressed and
+  that `transformers` reads, and
+  [Qwen3-4B-LLVQ-Tetra-sealed](https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-Tetra-sealed), the single file the Rust
+  engine reads. The Hub computed the sealed file's SHA-256 itself and it is the paper's,
+  `886391a8c03f66dc`, so a reader verifies that digest without trusting us. **The 8B and the 14B are still
+  unhosted, and their files no longer exist**: sealed locally on 2026-09-23 and deleted in a disk cleanup. Their
+  inputs survive in the bucket and the chain is in the journals, so re-sealing is local and free, and it would say
+  whether the paper's other two digests are reproducible.
+  [plan-transformers](plan-transformers.md) has the remaining stages: PyPI is not done, and no precompiled kernel is
+  published, so the fused arms compile at import.
 - **The next venue for paper 2.** TACO desk-rejected paper 1 on 2026-08-27 on scope. Default if silent: preprint only.
 - **A harder reasoning test.** Qwen3's reasoning mode, or GSM-Symbolic's unseen variants, about 3 to 5 $ at 4B
   (*estimated*). GSM8K cannot separate the 8B and 14B losses from their MMLU losses.
-- **The model card on the Hub.** The repository's card describes the sealed 4B file with GSM8K since 2026-09-27; the
-  Hub still holds the `Planes14` file and card.
-- **Spend.** $241.88 over 214 priced jobs (*measured*, `docs/data/jobs.csv`). The two GSM8K waves spent 7.13 $ each
-  under caps of 15.75 and 18.90 $. No cap is in force; one is owed before the next paid job.
+- **The model card on the Hub.** Settled for the 4B. `docs/hf-model-card.md` IS the sealed repository's card, byte
+  for byte below its STATUS comment, because two cards drifted apart between 2026-09-27 and 2026-10-02; edit there,
+  then re-upload. `Pier-Jean/Qwen3-4B-LLVQ-2bit` is untouched and still holds the August `Planes14` objects at zero
+  downloads, with [fiche-4b](fiche-4b.md) as their provenance register.
+- **Spend.** $242.18 over 220 priced jobs (*measured*, `docs/data/jobs.csv`). The two GSM8K waves spent 7.13 $ each
+  under caps of 15.75 and 18.90 $. The operator set a $5 cap on the `transformers` wave on 2026-09-30, of which
+  stage 4 spent $0.30 over seven launches. Six of those rows live only on the branch `hf-safetensors`, which is not
+  to be merged, so the registry and `main` disagree until that is settled.
 
 ## 6. Closed absent a new idea
 
