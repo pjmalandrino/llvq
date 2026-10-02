@@ -166,6 +166,43 @@ The Hub also computed the sealed file's SHA-256 itself, server side:
 digest paper 2 publishes. Before 2026-10-02 that digest named a file on one
 laptop, so nobody outside could check it.
 
+THE BUILT WHEEL, NOT THE DIRECTORY, 2026-10-02
+----------------------------------------------
+The package was renamed to `llvq-tetra` and the check was run a third time, this
+time against the WHEEL rather than a path, installed into a venv that had nothing
+else:
+
+  uv venv /tmp/wheeltest --python 3.12
+  uv pip install llvq-tetra/dist/llvq_tetra-0.1.0-py3-none-any.whl torch transformers
+  HF_HOME=/tmp/hf-fresh2 /tmp/wheeltest/bin/python ops/hf_cleanroom_check.py \
+      Pier-Jean/Qwen3-4B-LLVQ-Tetra
+
+  llvq_tetra from /tmp/wheeltest/lib/python3.12/site-packages/llvq_tetra
+  loaded, 252 records replaced, no key missing or unexpected, 4022468096 parameters
+  forward ok, logits (1, 4, 151936), range [-14.319 ; 18.806]
+
+Same logit range as the local directory and as the Hub download before the
+rename. So the artifact that would go to PyPI is the one that works, which is not
+the same statement as "the repository works".
+
+The wheel carries 32 entries: the two Metal shaders, the SIX CUDA sources, the
+tables, both licences. Before 2026-10-02 it carried no CUDA source at all and
+`_extension_cuda` looked for the repository two directories above the module,
+which under `site-packages` is nonsense. A pip user had no CUDA arm and nothing
+said so.
+
+THE CARDS BROKE WITHIN THE HOUR
+-------------------------------
+The two repositories went up at 16:20 with an install line reading
+`#subdirectory=llvq-hf` and `import llvqhf`. The rename landed at 17:30 and both
+lines became false, on a published object, while the cards lived in a staging
+directory outside the repository. Fixed and re-uploaded, and both cards now live
+in `docs/` where the rename would have caught them:
+`docs/hf-model-card.md` for the sealed repository and
+`docs/hf-model-card-safetensors.md` for the other, each byte for byte the
+published README below its STATUS comment. Verified by downloading both READMEs
+back with `force_download` and grepping for the old names: neither carries one.
+
 WHAT THIS DOES NOT ESTABLISH
 ----------------------------
 Nothing about PyPI. The install was from a path, then from git. `pip install
