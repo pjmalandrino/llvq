@@ -59,9 +59,26 @@ ids = tok("The capital of France is", return_tensors="pt")
 print(tok.decode(model.generate(**ids, max_new_tokens=16)[0]))
 ```
 
-The `import llvq_tetra` matters. Without it `transformers` prints a warning,
-loads the file as if it were not quantized, and fails on keys it cannot find. The
-warning is easy to miss, so check that line first if loading goes wrong.
+**The `import llvq_tetra` matters, and more than it looks.** Without it
+`transformers` prints a warning, loads the file as if it were not quantized,
+reinitializes the 254 weights it then finds missing, and runs. It does not raise.
+The logits look ordinary and the model is random. If you are benchmarking this
+file, check that line before you trust a score.
+
+`trust_remote_code=True` works too: the repository carries a small file that does
+the import for you. It is there for tools you do not control, and it is the second
+best option, because remote code is a thing you should be reluctant to run.
+
+```python
+model = AutoModelForCausalLM.from_pretrained(name, dtype="float32",
+                                             trust_remote_code=True)
+```
+
+What neither option fixes: a caller that passes nothing and imports nothing still
+gets the random model. `transformers` picks the model class from `model_type` and
+never looks at the repository's own code, so the repository cannot refuse. The
+only real fix is for the method to live in `transformers` itself, which is not
+our decision to make.
 
 By default the weights are decoded into dense tensors as the model loads. That
 needs no GPU and no compiler, and gives you 8 GB in f16. Set `LLVQ_HF_FUSED=1`

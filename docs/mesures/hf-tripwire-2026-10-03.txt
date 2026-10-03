@@ -85,6 +85,28 @@ The third layout means the published `config.json` no longer says
 - Two files of remote code travel with every published model, and remote code is
   a thing readers are right to distrust.
 
+WHAT WAS APPLIED, AND WHAT IT BOUGHT
+------------------------------------
+Operator decision of 2026-10-03: add `auto_map`, leave `model_type` alone.
+
+`ops/hf_publish_prep.py` adds to a packed directory the three things publishing
+needs and packing should not carry: the four real tokenizer files from the base
+checkpoint at a pinned revision, a 1,409 byte `modeling_llvq.py` whose import
+registers the method, and `auto_map` pointing at it. `hfpack` keeps writing the
+sealed file's own config plus a quantization block, so the packed directory stays
+checkable field for field against the sealed file and the publication step is a
+separate, scripted thing.
+
+Measured on the published repository, downloaded from the Hub with an empty cache:
+
+  bare   LOADED 0 records, keys clean False  -> A RANDOM MODEL
+  flag   LOADED 252 records, keys clean True -> correct
+
+`trust_remote_code=True` went from giving a random model to giving the right one.
+The bare case did not move and was not expected to. The card now says all three
+things: that the import matters, that the flag is the second best option, and
+that neither fixes a caller who does neither.
+
 WHAT THIS DOES NOT SAY
 ----------------------
 Nothing about whether the in-tree route fixes it. It does, trivially: a method in
