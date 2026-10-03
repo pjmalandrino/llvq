@@ -362,6 +362,32 @@ chain is deterministic and the paper's three digests are third-party verifiable.
 If they do not, paper 2 publishes digests of objects nobody can recreate, and
 that is a thing to know rather than to assume.
 
+## The trap in the published object, 2026-10-03
+
+**A published LLVQ model loads as a randomly initialized model, silently.**
+`transformers` has no entry-point discovery for quantizers, so the method is
+registered by `import llvq_tetra` and by nothing else. A caller that imports
+`transformers` alone gets the warning "Unknown quantization type, got llvq ...
+we will skip the quantization", 254 missing keys reinitialized at Qwen3's own
+std, and a forward pass whose logits look ordinary (*measured*,
+`docs/mesures/hf-tripwire-2026-10-03.txt`).
+
+It nearly caught us. The next step planned here was a quality figure through
+`lm_eval`, which does not import our package. The number would have been noise.
+
+**`auto_map` does not close it**, tried on `AutoConfig` and on
+`AutoModelForCausalLM`: with `model_type: "qwen3"` in the file, `transformers`
+resolves a class from the type and never consults the map. An unresolvable
+`model_type` does close it, with a refusal naming the custom code, and that costs
+the `qwen3` type string, a `trust_remote_code=True` for anyone without the
+package, format work in `hfpack`, and two files of remote code in every published
+model. `ops/hf_tripwire_probe.py` reruns the table in seconds.
+
+**This is the first technical argument for the stage 6 PR.** A method in
+`transformers` needs no import, so the trap does not exist in tree. Until now the
+case for the PR was discoverability, which is why it kept losing to the
+out-of-tree route that already works.
+
 ## Open decisions
 
 - The go on stage 3, the Kernel Hub packaging, which needs the op of stage 2 and nothing more.
@@ -370,6 +396,9 @@ that is a thing to know rather than to assume.
   while the per-row check sees it in 20 s with a 3,400-fold margin. This changes what a gate is in
   this plan, so it is the operator's.
 - The go on M3, the quantized embedding, which is the last 1.558 GB and takes 2.750 GB to about 1.4.
+- **What to do about the silent trap above.** Leave it and document it, add `auto_map` for the
+  `trust_remote_code` path alone, change `model_type` and close it, or go in tree. It changes a
+  published object, so it is the operator's.
 - **PyPI.** The names `llvq-tetra`, `llvq` and `llvq_tetra` are free (*measured*, HTTP 404 on each). Until
   one is taken, the model card's install line points at a git URL, which is honest and looks
   unfinished. The first upload is irreversible: a version number is never reusable, and a release is
