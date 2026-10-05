@@ -16,9 +16,12 @@ $\mathbb{Z}^{24}$: $c$ is one of the $2^{12}$ codewords among the $2^{24}$ bit
 patterns, and one parity check ties all 24 coordinates. A decoder has to
 respect both.
 
-The encoder uses the shape-gain scheme of \citet{llvq2026}. It rotates the
-input~\citep{quip2023,quipsharp2024,quarot2024} and runs a GPTQ-style
-loop~\citep{gptq2023}.
+The encoder uses the shape-gain scheme of \citet{llvq2026}. It applies
+incoherence processing, a random rotation of the
+input~\citep{quip2023,quipsharp2024,quarot2024}, and runs a GPTQ-style
+loop~\citep{gptq2023}. That rotation is part of every file we serve, one per
+group of projections, and the kernel undoes it online (\S\ref{sec:kernel}); it
+is not a lever we left unpulled.
 For each block of 24 rotated weights, it looks for the lattice point under a
 length cap whose direction is closest to the block, and rebuilds the weights as
 \begin{equation}
