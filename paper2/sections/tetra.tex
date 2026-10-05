@@ -189,6 +189,91 @@ the origin, a legal word, decodes to zeros with no special case. Trying every
 codeword with both parities and every allowed row in each section gives
 $m\le26$ and $\max|y_j|=10$.
 
+Figure~\ref{fig:pseudo} is the decode as code, and Table~\ref{tab:fields}
+gathers every field and every constant it names. Together they are what an
+implementer needs that the figures above do not give: the bit positions, the
+six table addresses, and the one permutation that makes a wrong answer instead
+of a crash.
+
+\begin{figure}[t]
+\small
+\begin{verbatim}
+decode(lo, hi16, rows, prefixes, branches, suffixes):
+  p  =  lo        & 1        # shared parity
+  r  = (lo >>  1) & 1        # k-parity of section 1
+  s8 = (lo >>  2) & 63       # trellis state at the first cut
+  b1 = (lo >>  8) & 1        # prefix edge
+  i1 = (lo >>  9) & 2047     # row index, section 1
+  b2 = (lo >> 20) & 15       # branch edge
+  i2 = ((lo >> 24) | ((hi16 & 7) << 8)) & 2047
+  b3 = (hi16 >> 3) & 1       # suffix edge
+  i3 = (hi16 >> 4) & 2047    # row index, section 3
+  g  = (hi16 >> 15) & 1      # gain
+
+  c1  = prefixes[2*s8 + b1]        # three pattern bytes
+  br  = branches[16*s8 + b2]
+  c2  = br & 255
+  s16 = (br >> 8) & 63             # the one dependent read
+  c3  = suffixes[2*s16 + b3]
+
+  row1 = rows[2048*r + i1]         # three rank vectors,
+  mid  = i2 < 1240                 #   issued together
+  row2 = rows[mid ? i2 : 808 + i2]
+  r3   = p ^ r ^ (mid ? 0 : 1)     # Equation (3), no stored bit
+  row3 = rows[2048*r3 + i3]
+
+  for k in 0..23:                  # y comes out in trio order
+    s, j = k / 8, k % 8
+    o    = p + 2 * bit(c[s], j)
+    y[k] = val(o, rank(row[s], j))
+
+  m = dot(y, y) / 16               # shell index, from y itself
+  return y * gain[g] * inv_norm[m] * sigma_row
+\end{verbatim}
+\caption{Decoding one 48-bit word, given as a 32-bit low half \texttt{lo} and
+a 16-bit high half \texttt{hi16}. \texttt{val} and \texttt{rank} are the
+closed forms of \S\ref{sec:state}. The dot product that consumes \texttt{y}
+must read the activation at \texttt{ORDER[k]}, not at \texttt{k}: the 24
+values arrive in trio order, and dotting them against a natural-order
+activation is a silent wrong answer.}
+\label{fig:pseudo}
+\end{figure}
+
+\begin{table}[t]
+\centering
+\small
+\caption{Every field of the word, and every constant the decode names. The
+bits sum to 48 and each field spans a power-of-two range, which is why any
+48-bit value is a legal word.}
+\label{tab:fields}
+\begin{tabular}{@{}llr l@{}}
+\toprule
+field & bits & width & what it selects \\
+\midrule
+$p$      & 0     & 1  & the shared parity \\
+$r$      & 1     & 1  & the $k$-parity of section 1 \\
+$s_8$    & 2--7  & 6  & the trellis state at the first cut \\
+$b_1$    & 8     & 1  & the prefix edge \\
+$i_1$    & 9--19 & 11 & the row of section 1 \\
+$b_2$    & 20--23& 4  & the branch edge \\
+$i_2$    & 24--34& 11 & the row of section 2 \\
+$b_3$    & 35    & 1  & the suffix edge \\
+$i_3$    & 36--46& 11 & the row of section 3 \\
+$g$      & 47    & 1  & the gain level \\
+\midrule
+\multicolumn{4}{@{}l}{\textit{constants}} \\
+\texttt{rows}     & \multicolumn{2}{l}{$4{,}096\times$u32} & 16{,}384~B, 2{,}048 rows a class \\
+$N_0$             & \multicolumn{2}{l}{1{,}240}            & class-0 rows of the middle list \\
+\texttt{branches} & \multicolumn{2}{l}{$1{,}024\times$u16} & 2{,}048~B, byte $\mid$ next state \\
+\texttt{prefixes} & \multicolumn{2}{l}{$128\times$u8}      & 128~B \\
+\texttt{suffixes} & \multicolumn{2}{l}{$128\times$u8}      & 128~B \\
+\texttt{inv\_norm}& \multicolumn{2}{l}{$32\times$f32}      & 128~B, $1/\sqrt{16m}$, $m\le26$ \\
+\midrule
+total             & \multicolumn{2}{l}{}                   & 18{,}816~B \\
+\bottomrule
+\end{tabular}
+\end{table}
+
 \subsection{What the construction costs}
 \label{sec:kept}
 
