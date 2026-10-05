@@ -166,9 +166,9 @@ Lines 1, 2 and 3 were retained on 2026-10-04. The rest is unordered and unfunded
 
 | # | item | cost | running total | dev | state |
 |---|---|---|---|---|---|
-| 1 | Bundle A: N7, N8, N9, the QuaRot cross-reference | $0 | $0 | 3 days | retained, N7 and N8 done |
-| 2 | Perplexity of the three sealed files | $3 | $3 | none | retained, cap owed |
-| 3 | Equal work in the kernel bench, 216 to 252 | $1 | $4 | 1 to 2 days | retained, cap owed |
+| 1 | Bundle A: N7, N8, N9, the QuaRot cross-reference | $0 | $0 | 3 days | N7 and N8 done; N9 and the QuaRot line not written |
+| 2 | Perplexity of the three sealed files | $3 | $3 | none | **done for $0.33**, [ppl-scelles](mesures/ppl-scelles-2026-10-04.txt) |
+| 3 | Equal work in the kernel bench, 216 to 252 | $1 | $4 | 1 to 2 days | the `d_in` 17408 refusal is lifted; the int4 arm is not written |
 | 4 | AWQ and FP16 with a 4-bit embedding | $6.54 | $10.54 | half a day | not retained |
 | 5 | A second kind of GPU | $2 | $12.54 | none | not retained |
 | 6 | MMLU through the kernel, mixed route | $20 | $32.54 | 1 day | not retained |
@@ -181,6 +181,42 @@ exceeds the project's entire spend to date.
 
 Perplexity is the best buy on the list. Three dollars, no code, and it is the number a quantization paper is read
 for. `sealed::load` already serves `ppl`, so the three files read as they are on the dense path.
+
+## 4 bis. Where to resume, state of 2026-10-05
+
+Spent: **$0.33** of the $9 cap, so $8.67 left. The ledger reads $242.21 over 215 priced jobs.
+Branch `retours-relecture-ia`, seven commits, not pushed.
+
+Three things are open, in this order.
+
+**The device-clean cost of sealing, deviation É2 of the perplexity prereg.** The Metal route is
+abandoned: `hf buckets cp` has no timeout and no resume, it stalled three times out of four
+between 430 and 851 MB, and killing it restarts that file from zero. The 4B came down whole and
+sits in `~/scelles-2026-10-04/qwen3-4b-sealed.bin`, sha256 `886391a8`, so that size is ready for
+a Metal run; the 8B and the 14B are not worth the lottery.
+
+The better route costs about **$0.25** and transfers nothing: read the two **trained bases** on a
+card, `dclm-ft-2026-09-19/qwen3-4b-dclm-ft.bin` (1.79 GB) and
+`dclm-8b-ft-2026-09-21/qwen3-8b-dclm-ft.bin` (4.36 GB), both already in the bucket. That gives the
+device effect paired on a quantized file at 8B, since the Metal base's twelve per-window NLLs are
+on disk, and the cost of sealing device-clean at 4B and 8B. It needs a deviation on
+`preregistration-ppl-metal-2026-10-04.md`, which measured nothing, and a new prereg.
+
+**The int4 arm of the bench.** Design settled, not written: a new arm `tetra48q4` rather than a
+redefinition of `tetra48`, because redefining would take the arm from 216 to 252 matrices under
+the same name and make the published 4.078, 3.423 and 3.553 ms incomparable to everything that
+cites them. `tv_q4_h.cu` enters the bench by a cross-crate `include_str!` at the end of the NVRTC
+unit, since `llvq-cuda` cannot depend on `llvq-llm` and appending is the only placement that moves
+no published arm's fragment.
+
+**The living documents and the paper.** `ETAT.md` §5, `ROADMAP.md` §2.4 and
+`paper2/sections/limitations.tex` still say no sealed file has a perplexity. One question is the
+operator's: the three numbers weaken the paper's position rather than strengthen it, because
+perplexity names the 4B our best object against AWQ and MMLU names the 14B.
+
+Two smaller debts found on the way. `llvq-llm/src/fused.rs:698` says `tv_q4_h.cu` "has never run
+on a GPU", which `jobs.csv` contradicts since 2026-09-25. And `hratio`'s 4B dump had sat
+unjournalled since 2026-09-18; it now has one.
 
 ## 5. Decisions owed
 
