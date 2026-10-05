@@ -225,12 +225,56 @@ device effect paired on a quantized file at 8B, since the Metal base's twelve pe
 on disk, and the cost of sealing device-clean at 4B and 8B. It needs a deviation on
 `preregistration-ppl-metal-2026-10-04.md`, which measured nothing, and a new prereg.
 
-**The int4 arm of the bench.** Design settled, not written: a new arm `tetra48q4` rather than a
-redefinition of `tetra48`, because redefining would take the arm from 216 to 252 matrices under
-the same name and make the published 4.078, 3.423 and 3.553 ms incomparable to everything that
-cites them. `tv_q4_h.cu` enters the bench by a cross-crate `include_str!` at the end of the NVRTC
-unit, since `llvq-cuda` cannot depend on `llvq-llm` and appending is the only placement that moves
-no published arm's fragment.
+**The int4 arm of the bench, which is the only thing that answers the GB/s complaint.** The bytes
+over 252 matrices are arithmetic and are in section 4 ter below. The **time** is not: it needs the
+file's int4 records timed through `tv_q4_h`, and that has never been measured.
+
+Done and committed: the registry. `tetra48q4` is arm 18, with a third state, `DEFAULT_OFF`, so a
+bare `planesbench` dispatches exactly what it dispatched before. It is a second arm and not a fix
+to `tetra48`, because redefining would take the arm from 216 matrices to 252 under the same name
+and make the published 4.078, 3.423 and 3.553 ms incomparable to everything that cites them.
+
+In the working tree, type-checking, one dead-code warning until its consumer lands: `Int4Src` and
+the record loop that keeps the int4 records instead of counting and dropping them.
+
+What is left, in order: the device buffers and the f64 reference, the launch helper, the dispatch
+closure, the verification wiring, and two report columns. Four traps found while reading, and each
+is the kind that costs a billed job:
+
+1. **`tv_q4_h` stages the whole activation in shared memory.** At `d_in` 17,408 that asks 69,632
+   bytes against the 49,152 a card gives by default, and this is the second defect of the
+   2026-09-25 job (`data/jobs.csv`). `llvq_cuda::Gpu::func_dynamic_shared` already handles the
+   three cases including the refusal, and the attribute must be set **once at the maximum over the
+   file's int4 matrices**, never per launch inside a timed round.
+2. **A row must be a whole number of u32 words.** The kernel reads the stream through a `u32*`, 8
+   weights a word, so `d_in % 8 != 0` makes every row after the first read at a shifted phase.
+   Asserted at read.
+3. **The output is binary16**, like the AWQ arm's, not the f32 buffer the lattice arms write.
+4. **The int4 count is the file's and never a constant**: 36 on the bench file, 84 on the served
+   one. A hardcoded 36 would be right today and wrong on the object we ship.
+
+`tv_q4_h.cu` enters the bench by a cross-crate `include_str!` at the **end** of the NVRTC unit,
+since `llvq-cuda` cannot depend on `llvq-llm` and appending is the only placement that moves no
+published arm's fragment.
+
+## 4 ter. The bytes over all 252 matrices, which need no run
+
+Same denominator for every arm, the 4B's 3,633,315,840 projection weights.
+
+| arm | b/weight | GB a pass | /AWQ | /`Planes14` | source |
+|---|---|---|---|---|---|
+| FP16 | 16.000 | 7.27 | 3.829 | 3.331 | *measured*, paper Table 1 |
+| AWQ w4g128 | 4.179 | 1.90 | 1.000 | 0.870 | *measured*, Table 1 |
+| `Planes14` | 4.804 | 2.18 | 1.150 | 1.000 | *measured*, Table 1 |
+| `Tetra` format alone, 216 matrices | 2.148 | 0.98 | 0.514 | 0.447 | *measured*, Table 1 |
+| **the served file, 252, tail f32** | **2.6065** | 1.18 | **0.624** | 0.543 | *measured*, `rtbits` 2026-10-05 |
+| **the served file, 252, tail f16 on the card** | **2.5420** | 1.15 | **0.608** | 0.529 | *measured*, `rtbits` 2026-10-05 |
+
+So the object we ship reads **61% of AWQ's bits, not 51%**. The 2.148 the paper gives in five
+places, the abstract included, is the `Tetra` format alone over the 216 matrices its arm covers,
+and 21.2% of the served file's weights are int4 at 4.250 b/weight. Nothing published is wrong; a
+number was missing, and its absence is what let the review compress our rate to "an effective 2
+bits per weight".
 
 **The living documents and the paper.** `ETAT.md` §5, `ROADMAP.md` §2.4 and
 `paper2/sections/limitations.tex` still say no sealed file has a perplexity. One question is the
