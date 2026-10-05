@@ -139,17 +139,40 @@ winner picked 17 of its 36 matrices. This reading tested type medians only.
 
 Verified 2026-10-04 for $0. None of the four is in paper 2's 24 references.
 
-| work | venue | id | code | why it matters here |
-|---|---|---|---|---|
-| GLVQ, grouped lattice VQ | NeurIPS 2025 | [arXiv:2510.20984](https://arxiv.org/abs/2510.20984) | [xzhang9308/GLVQ](https://github.com/xzhang9308/GLVQ) | learned per-group lattices plus companding, claims lower perplexity than QTIP and QuIP# at 2 b/w at similar throughput |
-| LiftQuant | ICML 2026 | [arXiv:2606.04050](https://arxiv.org/abs/2606.04050) | not checked | fractional bit widths such as 2.4 b/w with standard kernels, so it competes on the served-bits axis |
-| KronQ | COLM 2026 | [arXiv:2607.07964](https://arxiv.org/abs/2607.07964) | not checked | Kronecker-factored Hessian; uses the gradient covariance for mixed-precision allocation, which is the problem N7 just failed to solve |
-| Qronos | ICLR 2026 | [arXiv:2505.11695](https://arxiv.org/abs/2505.11695) | not checked | corrects the error accumulated by previously quantized layers, which is ROADMAP-QUALITY row C, our own intra-block sequencing defect, in published form |
+Checked against each arXiv abstract page on 2026-10-05, and GLVQ against its body. The venue column is the
+authors' own `comments` field, except Qronos, where no source we could load carries one.
 
-**GLVQ is the finding.** It is a learned lattice at 2 bits with throughput claims, published before our submission,
-and we do not cite it. Positioning against it is writing, so $0 and about half a day, and it is owed whatever we
-decide about benchmarking. Our distinct claim is served VRAM bits per weight at a fixed codebook, which no learned
-codebook gives for free, and that claim has to be made explicitly rather than by omission.
+| work | venue, as the arXiv comments field states it | id | code |
+|---|---|---|---|
+| GLVQ, grouped lattice VQ | NeurIPS 2025 Poster | [arXiv:2510.20984](https://arxiv.org/abs/2510.20984), 2025-10-23, rev 2026-01-26 | [xzhang9308/GLVQ](https://github.com/xzhang9308/GLVQ) |
+| LiftQuant | ICML 2026 Spotlight | [arXiv:2606.04050](https://arxiv.org/abs/2606.04050), 2026-06-02, rev 2026-06-29 | not checked |
+| KronQ | COLM 2026 | [arXiv:2607.07964](https://arxiv.org/abs/2607.07964), 2026-07-08, rev 2026-08-08 | not checked |
+| Qronos | **none stated**, v3 of 2026-02-17 carries no venue line | [arXiv:2505.11695](https://arxiv.org/abs/2505.11695), 2025-05-16 | not checked |
+
+What each one actually claims, verbatim where it bears on us:
+
+- **GLVQ** gives each group of weights "a customized lattice codebook, defined by a learnable generation matrix",
+  uses Babai rounding to get through the non-differentiable search, and after training "decoding reduces to a simple
+  matrix-vector multiplication". Its body beats both lattice baselines in perplexity at 2 bits: on Llama 2-70B,
+  Wikitext-2, GLVQ-32D reads 3.36 against QTIP's 3.78 and QuIP\#'s 3.91. **And it is slower than QTIP, not
+  comparable**: 2-bit Llama 2-7B on one RTX 4090, 82.0 tok/s at 521~GB/s against QTIP's 105.2 at 628, which the
+  paper itself calls "a moderate decrease in speed".
+- **LiftQuant** projects "a simple 1-bit lattice from a higher-dimensional lifted space", so the bit width is the
+  ratio of the two dimensions and tunes "quasi-continuous", and its decode "relies solely on linear transformations
+  and 1-bit uniform quantizers".
+- **KronQ** introduces the gradient covariance under a Kronecker-factored Hessian, and does two things with it:
+  "bidirectional incoherence processing, extending the existing input-side random rotation to the output dimension",
+  and "a new sensitivity metric for inter-layer mixed-precision allocation". The second is the problem N7 just
+  failed to solve. The first is a lead this repository buried, output-side rotation.
+- **Qronos** corrects "errors resulting from quantizing previous layers" on top of weight and activation error,
+  and is compatible with Hadamard incoherence processing. It is evaluated on Llama 3.
+
+**GLVQ is the finding, on the quality axis and not the speed one.** A learned lattice beats QTIP and QuIP\# in
+perplexity at 2 bits, published a year before our submission, and we do not cite it. Our claim is a different one
+and the paper has to say so rather than leave it to the reader: we fix the codebook and cut the bits the kernel
+reads per weight, where GLVQ learns a codebook per group and pays speed for quality, 82.0 tok/s against QTIP's 105.2
+on its own card. Positioning is writing, $0 and about half a day, and it is owed whatever we decide about
+benchmarking.
 
 Benchmarking them is a different budget. QTIP end to end on Qwen3 needs their quantization pipeline, since the
 released QTIP models are not Qwen3: about $30 to $60 at 4B plus 3 to 5 days of dev (*estimated*). GLVQ has released
