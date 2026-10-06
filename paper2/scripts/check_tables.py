@@ -57,6 +57,28 @@ def check_main() -> None:
         NOTES.append(f"tab:main: {len(pending)} rows pending ({', '.join(pending)})")
 
 
+def check_ppl() -> None:
+    """The ppl column of tab:main against paper2-ppl.csv, each value next to
+    its row's MMLU so a value cannot match in the wrong row, and the cost of
+    sealing in section 5.5 against paper2-ppl-sealing.csv."""
+    mmlu = {(r["model"], r["arm"]): r["mmlu"] for r in read_csv("paper2-results.csv")
+            if r["engine"] != "ours dense"}
+    body = []
+    for r in read_csv("paper2-ppl.csv"):
+        m = mmlu[(r["model"], r["arm"])]
+        if r["arm"] == "tetra":
+            body.append(f"\\textbf{{{m}}} & \\textbf{{{r['ppl']}}}")
+        else:
+            body.append(f"{m} & {r['ppl']}")
+    need("experiments.tex", body, "ppl cell of tab:main")
+    body = []
+    for r in read_csv("paper2-ppl-sealing.csv"):
+        sign = "" if r["cost_pct"].startswith("-") else "+"
+        body += [f"{r['base_ppl']}", f"{r['sealed_ppl']}",
+                 f"${sign}{r['cost_pct']}\\,\\%$ $[{r['ci_lo_pct']}, {r['ci_hi_pct']}]$"]
+    need("experiments.tex", body, "cost of sealing in perplexity")
+
+
 def check_chain() -> None:
     """tab:chain and tab:files against paper2-chain.csv."""
     body = []
@@ -139,7 +161,8 @@ def check_shape() -> None:
     own. Paper 1 enforces the same rule."""
     for name in ("tuile-l40s.csv", "paper2-results.csv", "paper2-gaps.csv",
                  "paper2-chain.csv", "paper2-gsm8k.csv", "paper2-gsm8k-gaps.csv",
-                 "paper2-sizeup.csv", "paper2-sizeup-budget.csv"):
+                 "paper2-sizeup.csv", "paper2-sizeup-budget.csv",
+                 "paper2-ppl.csv", "paper2-ppl-sealing.csv"):
         with open(DATA / name, newline="") as f:
             reader = csv.DictReader(f)
             width = len(reader.fieldnames or [])
@@ -166,6 +189,7 @@ def check_pending() -> None:
 def main() -> None:
     check_shape()
     check_main()
+    check_ppl()
     check_chain()
     check_gaps()
     check_gsm8k()

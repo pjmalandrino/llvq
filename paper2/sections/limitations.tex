@@ -3,7 +3,8 @@
 
 \begin{itemize}
 \item \textbf{One card.} Every number we measured for a table or figure comes
-  from one NVIDIA L40S. On an A100, at tile 128, none of our earlier lattice
+  from one NVIDIA L40S, except the FP16 and AWQ perplexities of the 4B, read
+  on an Apple GPU. On an A100, at tile 128, none of our earlier lattice
   kernels ran faster than FP16~\citep{llvq1preprint}, and we did not run
   \Tetra{} there. On an sm\_120 card, over all 252 matrices of two earlier 4B
   files, \Tetra{} ran at 0.82 to 1.03 times the speed of \Planes{}, depending
@@ -20,12 +21,12 @@
   greedy tokens first differ at token 78, for a cause we did not measure.
 \item \textbf{The int4 choices were made on MMLU test questions}
   (\S\ref{sec:chain}). Our MMLU scores carry a selection bias that we did not
-  measure for the files. GSM8K is the only benchmark that chose nothing.
+  measure for the files. GSM8K and perplexity chose nothing, and perplexity
+  rises over the step that made those choices at 4B and 8B.
 \item \textbf{GSM8K is an easy test for these models.} FP16 scores 92 to 95,
   and the problems have been public since 2021. We did not test Qwen3's
   thinking mode, which writes much longer chains, nor a harder math
   benchmark.
-\item \textbf{No perplexity} is reported for the sealed files.
 \item \textbf{Batch 1 and short context only}: one request at a time, and no
   long prompts.
 \end{itemize}
