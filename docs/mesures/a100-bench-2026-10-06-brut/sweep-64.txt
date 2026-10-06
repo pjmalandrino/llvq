@@ -1,0 +1,73 @@
+LLVQ_BENCH_ARMS selection:
+  phase 1/1: planes14,fp16,nullk,tetra48
+tile 64 (⚠️ LLVQ_TILE_BLOCKS overrides the served policy)
+NVRTC source: 189387 bytes, sha256 664b916aaa901d795687210c5494c332344d8f3739e569199bd3f73cb3abd94b
+
+NVIDIA A100-SXM4-80GB: 108 SM, L2 41.9 MB (read), 49152 B of shared memory per block
+  tv_slot     32 registers, 0 local bytes, sm_80
+  tv_slot_seg  32 registers, 0 local bytes, sm_80
+  tv_f16      40 registers, 0 local bytes, sm_80
+  tv_planes   32 registers, 0 local bytes, sm_80
+  tv_planes_seg  32 registers, 0 local bytes, sm_80
+  tv_planes12x  32 registers, 0 local bytes, sm_80
+  tv_golay70  32 registers, 0 local bytes, sm_80
+  tv_golay70_v1  32 registers, 0 local bytes, sm_80
+  awq_gemv_g128  32 registers, 0 local bytes, sm_80
+  tv_e1v      78 registers, 0 local bytes, sm_80
+  tv_nullk    31 registers, 0 local bytes, sm_80
+  tv_f1r_v3g  38 registers, 0 local bytes, sm_80
+  tv_planes_pad  32 registers, 0 local bytes, sm_80
+  tv_planes_mr2  56 registers, 0 local bytes, sm_80
+  tv_planes_mr4  64 registers, 0 local bytes, sm_80
+  tv_planes_mr2p  56 registers, 0 local bytes, sm_80
+  tv_planes_pers  40 registers, 0 local bytes, sm_80
+  tv_planes_sk  32 registers, 0 local bytes, sm_80
+  tv_planes_persall  56 registers, 0 local bytes, sm_80
+tetra48: rank table 16384 B, prefixes 128 B, branches 2048 B, suffixes 128 B, invnorm 128 B, N0 = 1240
+  /out/tetra-4b-2026-09-06/qwen3-4b-tetra.bin — 252 matrices: 252 Tetra, 0 int4 g128 (counted, not timed)
+
+Build: Slot32 transcode (reference, always), Tetra48 (SECOND FILE — its own reference, decoded back out of the packed words), Planes14, exact-reconstruction proofs of the arms that were built…
+  /out/ball-ref-2026-09-20/qwen3-4b-llvq.bin — 252 matrices
+  tetra48: 252 of 252 matrices matched by name, from 252 Tetra records
+  d_y: 9728 f32, the table and nothing else (section A4 has its own)
+  252 matrices, 3.63 G weights, in 188 s, block-by-block proofs of the arms that were built
+
+Verifying every row against the f64 reference…
+  1105920 rows, threshold 1e-5 (AWQ, cublasf16: 1e-3, binary16 output) — worst errors planes14 2.2e-8, fp16 3.0e-8, nullk -inf, tetra48 2.0e-8 ·Σ|w·x|
+
+ONE TOKEN — 252 matrices, one stream, 4 arms interleaved
+  7 rounds, 2 discarded; the ratios are formed ROUND BY ROUND
+  --------------------------------------------------------------------------------
+  format                   min ms   med ms   max ms  GB read b/weight GB/s(min)
+  tile 64 (⚠️ LLVQ_TILE_BLOCKS overrides the served policy)
+  floor (nullk)             3.958    3.960    3.964     0.07    0.159       18
+  FP16 (128 bits)           7.129    7.144    7.151     7.27   16.000     1019
+  LLVQ Planes14             8.674    8.676    8.682     2.18    4.804      252
+  LLVQ Tetra48              6.351    6.361    6.366     0.98    2.150      154
+  --------------------------------------------------------------------------------
+  tetra48 also HOLDS 4.2 MB of row landing pad, NOT billed above — the convention
+  the slot arm's 20-byte pad and the planes arm's 4-byte pad already follow.
+  Real VRAM, not a rate: `stride_u32` rounds each row to eight bytes so the last
+  block's six-byte window cannot fault.
+  floor (nullk)    vs FP16     : 1.80× [1.80–1.81]
+  LLVQ Planes14    vs FP16     : 0.82× [0.82–0.82]
+  LLVQ Tetra48     vs FP16     : 1.12× [1.12–1.13]
+  tetra48    vs planes14  : 1.36× [1.36–1.37]  (>1 = Tetra faster; DIFFERENT FILES, same 252 matrices — a layout ratio)
+
+  source: TWO FILES — ball: /out/ball-ref-2026-09-20/qwen3-4b-llvq.bin (252 records); tetra: /out/tetra-4b-2026-09-06/qwen3-4b-tetra.bin (252 Tetra + 0 int4 g128). The arms do not all read the same bytes
+  976 MB distinct per pass on the lightest arm (LLVQ Tetra48), which is 23.3× the L2 read.
+  Under 1× we would be measuring the cache and not the DRAM — the trap that
+  made every LLVQ measurement before 2026-07-31 optimistic.
+
+  With the unquantized f16 lm_head (389 M weights, 0.76 ms at the measured FP16
+  throughput, added to the LLVQ arms): floor (nullk) 1.67×, LLVQ Planes14 0.84×, LLVQ Tetra48 1.11×.
+  Norms, activations, attention and rotation are measured neither here nor there.
+  tetra48 vs planes14, WITH THE F16 HEAD : 1.32× [1.32–1.33]  (the lm_head added to BOTH arms, round by round)
+  tetra48 vs planes14, FLOOR REMOVED : 1.96× [1.96–1.97]  (nullk subtracted from BOTH, round by round — the F1 journals' "same head")
+
+  WARNING: NEVER compare this line by line with the Metal figure, and never
+  subtract it from a bin/matvec run: other rounds, other NVRTC translation unit.
+  Every arm against its own f64 reference; the ratios form round by round,
+  inside one process.
+
+  section A4 (fusion) SKIPPED: it requires slot32 AND planes14 in the LLVQ_BENCH_ARMS selection
