@@ -17,8 +17,8 @@ register table as a biased byte, $\mathrm{val}+128$. Placed in the low byte of
 \texttt{0x4b0000\_\_}, it reads exactly as the float $2^{23}+\mathrm{byte}$,
 and one subtraction gives the value back. A coordinate thus costs one byte
 permute, one add and one fused multiply-add, with no integer-to-float
-conversion. Second, every loop is unrolled with constant indices: the compiler
-reports 40 registers and no spill to local memory for the benchmark kernel, as
+conversion. Second, every loop is unrolled with constant indices, and the
+compiler reports 40 registers and no spill to local memory for the benchmark kernel, as
 for \Planes{}. Third, no branch depends on the data, so lanes never diverge.
 
 Counted from the source, a block's rank decode and 24 multiply-adds take about
@@ -34,7 +34,7 @@ and its dense reconstruction (the file decoded to f16) in 72.9~s.
 \paragraph{The rest of a served model.} The int4 projections use a separate
 kernel with the same thread layout. It dequantizes each weight with its group's
 scale and offset and accumulates in f32. It stages the whole activation in
-shared memory: a 14B \texttt{down\_proj} needs 69{,}632~B, more than the
+shared memory. A 14B \texttt{down\_proj} needs 69{,}632~B, more than the
 48~KiB default, so the host opts in to that amount, under the L40S limit of
 101{,}376~B~\citep{cudaguide}. Two small kernels serve the 4-bit embedding
 tables, and a third rotates the activations online, 96 times a token at 4B,
@@ -59,7 +59,7 @@ same next token at all three sizes. The two paths still move a logit by up to
 The divergence at token 78 is consistent with a near tie between two logits,
 flipped by differences of this size, but we did not measure the margin there.
 Our preregistration counts a first divergence at or after token 32 as not a
-defect. That rule says nothing about the cause.
+defect.
 
 \subsection{Bytes and time on the projections}
 \label{sec:bench}
@@ -97,7 +97,7 @@ bytes does not halve the time.
 \paragraph{The activation tile.}\label{sec:tile} The tile $T$ changes no output
 bit and costs no storage. On an Ada GPU (sm\_89), it sets how much of each
 SM's 128~KiB pool of L1 and shared memory is left to cache the decoder
-tables~\citep{cudaguide}. Occupancy does not move: six 256-thread blocks fit at
+tables~\citep{cudaguide}. Occupancy does not move. Six 256-thread blocks fit at
 every tile, filling the 1{,}536 threads an SM holds, and shared memory never
 binds. At $T = 128$, 64 and 32, one process per tile on one L40S, the median
 pass takes 2.281, 2.291 and 2.392~ms with no weights, 5.068, 5.011 and
@@ -106,7 +106,7 @@ tuile-l40s.csv). Each arm's range, largest over smallest, is 4.9, 1.1 and
 17.6\,\%. The three arms share the thread layout, the activation copy, the
 barriers and the occupancy. \Planes{} reads one entry per block from a 12~KiB
 table, \Tetra{} seven from 18.4~KiB. We attribute \Tetra{}'s larger range to
-pressure on L1 but have not proven it: our rented platform exposes no
+pressure on L1 but have not proven it, because our rented platform exposes no
 performance counters. We serve $T=64$ on sm\_89. On an sm\_120 card, an
 earlier sweep over the same 252 matrices puts \Tetra{} fastest at $T=32$ and
 \Planes{} at $T=128$, with \Tetra{} at 0.82 to 1.03 times the speed of

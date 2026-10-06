@@ -5,7 +5,7 @@ The GPU can read a Leech-lattice code without expanding it, if the codebook
 bounds each third of a block separately. Three more changes, which leave the
 lattice codes untouched, make complete Qwen3 files at about 2.7 bits per
 parameter. They stay below 4-bit AWQ on MMLU and GSM8K, and perplexity ranks
-them differently. Their speed gain depends on the card: on an A100, where
+them differently. Their speed gain depends on the card. On an A100, where
 cuBLAS reads f16 weights faster than our kernel reads \Tetra{}, it comes only
 from the 4-bit tables.
 

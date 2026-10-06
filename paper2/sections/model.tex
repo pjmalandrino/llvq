@@ -22,8 +22,8 @@ whole block, in f32 in the file and f16 on the GPU. The RMSNorm weights stay in
 f16. The embedding table is stored separately, and so is the output head at 8B
 and 14B. At 4B the head is tied to the embedding.
 
-We count memory in bits per parameter over the whole model: all the weight
-bits the served model keeps, embedding, tail, scales and int4 records included,
+We count memory in bits per parameter over the whole model. That is all the
+weight bits the served model keeps, embedding, tail, scales and int4 records included,
 over the number of parameters. For our files, the \texttt{rtbits} tool
 computes it from the file's records, at the widths the GPU holds. For AWQ and
 IQ2\_XXS, it is the checkpoint's size in bits over the number of parameters.
@@ -65,7 +65,7 @@ sealed files store them in 4 bits like the int4 projections, but in groups of
 64 as MLX does~\citep{mlx2023}. The GPU dequantizes rows on the
 fly, for the input tokens and inside the head's matrix-vector product. Going
 from 8 to 4 bits frees 0.19, 0.62 and 0.78~GB at 4B, 8B and 14B. This saving
-pays for the int4 projections: every sealed file needs fewer bits per parameter
+pays for the int4 projections, and every sealed file needs fewer bits per parameter
 than the file it was built from (\S\ref{sec:chain}).
 
 \begin{table}[t]
@@ -83,7 +83,7 @@ bits per parameter, whole model & 2.7320 & 2.6953 & 2.7305\\
 \end{tabular}
 \caption{The three sealed files. Layers are numbered from 0: ``down 12--23''
 means \texttt{down\_proj} in layers 12 to 23. Bits per parameter are counted as
-in \S\ref{sec:file}. The file is larger: it also carries the tokenizer and the
+in \S\ref{sec:file}. The file is larger because it also carries the tokenizer and the
 config (11.4~MB), and stores the tail in f32 and the row scales in f64. Data:
 paper2-chain.csv; the sealing logs (\texttt{rtbits} and \texttt{int4swap}
 outputs) for the splits, the windows and the file sizes.}

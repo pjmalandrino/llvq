@@ -119,12 +119,12 @@ zero ($z=1.1$). AWQ itself is 2.00 $[1.50, 2.51]$, 1.27 $[0.83, 1.70]$ and
 5.8\,\% above FP16 at 4B, 8B and 14B (Table~\ref{tab:main}). Against AWQ, the
 4B reads 6.9\,\% below it, and the 8B and 14B 3.0 and 1.9\,\% above it. All
 six gaps are separated from zero, paired over the 12 windows (data:
-paper2-ppl.csv). So the two metrics disagree: perplexity puts our 4B ahead of
-AWQ and MMLU behind it, and the gap to AWQ is smallest at 4B in perplexity but
-at 14B on MMLU. AWQ's own perplexity is 10.5\,\% above FP16's at 4B.
+paper2-ppl.csv). So the two metrics disagree. Perplexity puts our 4B ahead of
+AWQ and MMLU puts it behind, and the gap to AWQ is smallest at 4B in perplexity
+but at 14B on MMLU. AWQ's own perplexity is 10.5\,\% above FP16's at 4B.
 
 \paragraph{Memory.} The sealed files need 45 to 52\,\% of AWQ's bits per
-parameter. Part of that comes from the embedding tables: ours are in 4 bits,
+parameter. Part of that comes from the embedding tables. Ours are in 4 bits,
 and AWQ keeps its embedding and head in f16. These tables weigh most at 8B
 (\S\ref{sec:q4emb}), where AWQ needs the most bits per parameter. With AWQ's
 tables in 4 bits like ours, our files would need 64 to 65\,\% of its bits per
@@ -134,8 +134,8 @@ with such tables.
 \paragraph{Against other 2-bit formats at 4B.} IQ2\_XXS scores 23.6 points
 below our 4B file for 0.25 fewer bits per parameter. The cited rows come from
 another harness and count bits per quantized weight, so they place our 63.37
-only roughly, without ranking it: close to the 62.8 of the original LLVQ with
-fine-tuning, and above the 59.5 of QTIP with its 3INST code.
+only roughly, without ranking it. It is close to the 62.8 of the original
+LLVQ with fine-tuning, and above the 59.5 of QTIP with its 3INST code.
 
 \paragraph{Speed.} In our engine, the sealed files decode faster than their
 dense reconstruction, run in the same process (Table~\ref{tab:main}). A large
@@ -144,8 +144,8 @@ in f16 on both sides, the sealed files decode 55.0, 38.9 and 27.3 tokens per
 second against 43.3, 26.4 and 16.9 for the dense arm of the same runs, or
 1.27, 1.47 and 1.61
 times, from unrounded medians. We do not divide the vLLM speeds of
-Table~\ref{tab:main} by ours: vLLM runs FP16 faster than our dense path does,
-so a ratio across engines would mix the format with the engine.
+Table~\ref{tab:main} by ours. vLLM runs FP16 faster than our dense path does,
+so such a ratio would mix the format with the engine.
 
 \subsection{Reasoning: GSM8K through the served kernel}
 \label{sec:gsm8k}
@@ -229,8 +229,9 @@ separated ($p=0.74$ and $0.26$), so the gain of the larger model does not show
 there. Against FP16 one size below, our files are not separated on MMLU. On
 GSM8K our 8B loses to FP16's 4B, and our 14B is not separated from FP16's 8B.
 Our 14B also scores above FP16's 4B on MMLU with less memory, and is not
-separated from it on GSM8K. We compare no speed here: the engines differ, and
-AWQ's 4B in vLLM decodes faster than our 8B in ours (Table~\ref{tab:main}).
+separated from it on GSM8K. We compare no speed here, since the engines
+differ. AWQ's 4B in vLLM decodes faster than our 8B in ours
+(Table~\ref{tab:main}).
 
 \paragraph{Where the larger model fits.} At 8{,}192 tokens in f16, the KV
 cache takes 1.21~GB for Qwen3-4B and 8B, which share its shape, and 1.34~GB
@@ -307,14 +308,14 @@ above, under a preregistered rule. At 4B the window of layers 12 to 23 was the
 best of three windows of twelve layers, scored on the full test set with an
 earlier 4B file. The projection types sent to int4 were ranked at 4B on
 samples of 2{,}280 questions. The 14B window follows a rule fixed before
-measuring: the largest centred window that the bytes freed by the tables pay
-for, the idea of the 4B window. So the MMLU scores of our files carry a
+measuring. It is the largest centred window that the bytes freed by the
+tables pay for, as at 4B. So the MMLU scores of our files carry a
 selection bias that we did not measure. For \texttt{o\_proj},
 the one choice checked on questions that did not select it, the gain is
 $+3.12$ points on the 2{,}280 that selected it and $+1.55$ on the other
 11{,}762. GSM8K and perplexity chose nothing. We also tried a criterion that reads no
-benchmark: per matrix, the Hessian-weighted error of \Tetra{} over that of
-int4. On an earlier 4B file it did not rank six of the seven projection types
+benchmark, the ratio of the Hessian-weighted errors of \Tetra{} and int4 per
+matrix. On an earlier 4B file it did not rank six of the seven projection types
 (\texttt{v\_proj} was already int4) as MMLU does (Spearman $\rho = 0.54$,
 $p = 0.30$, an exploratory reading), so it chose nothing here.
 

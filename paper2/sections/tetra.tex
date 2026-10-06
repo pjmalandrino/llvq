@@ -29,11 +29,12 @@ length cap whose direction is closest to the block, and rebuilds the weights as
 where $m$ is the shell index, $g$ selects the gain, and $\sigma_{\mathrm{row}}$
 is one scale per output row, stored in f64 and read by the kernel in f32. We
 change only the region the encoder searches (\S\ref{sec:kept}) and the bits it
-writes for each block. The \Tetra{} search is not exhaustive: at two trial
+writes for each block. The \Tetra{} search is not exhaustive. At two trial
 scales, the encoder keeps a few candidates per section and joins the best over
 the trellis. It runs once, offline, on a CPU.
 
 \subsection{Three octads and a trellis}
+\label{sec:octads}
 
 An octad is a Golay codeword with exactly eight ones. We fix three octads that
 share no position and together cover all 24 coordinates, with supports
@@ -134,8 +135,8 @@ shows the decode.
 \caption{The \Planes{} record of our earlier layout and the \Tetra{} word,
 drawn to the same scale in bits, with the word magnified below to label its
 ten fields. \Planes{} unfolds the 47-bit index and its gain bit into 112 bits,
-one record every 14 bytes. \Tetra{} is what the file stores and the kernel
-reads: 48 bits, one word every 6 bytes. Purple marks the eight bits of state,
+one record every 14 bytes. The file stores the \Tetra{} word and the kernel
+reads it unchanged, 48 bits, one word every 6 bytes. Purple marks the eight bits of state,
 grey the edge choices, blue the row indices into the shared table and red the
 gain bit. Hatching is padding.}
 \label{fig:word}
@@ -231,7 +232,7 @@ decode(lo, hi16, rows, prefixes, branches, suffixes,
 its high 16 bits \texttt{hi16}. \texttt{rank(row, j)} is bits $4j$ to $4j+3$
 of the row, and \texttt{val(o, rank)} is the value at that rank in the list
 of \S\ref{sec:state}. The 24 values come out octad by octad
-(\S\ref{sec:tetra}), so the dot product must pair \texttt{y[k]} with the
+(\S\ref{sec:octads}), so the dot product must pair \texttt{y[k]} with the
 activation of the same coordinate. Pairing it with the activation at
 \texttt{k} gives a wrong result and no error.}
 \label{fig:pseudo}
@@ -257,7 +258,7 @@ $b_3$    & 35    & 1  & the suffix edge \\
 $i_3$    & 36--46& 11 & the row of section 3 \\
 $g$      & 47    & 1  & the gain level \\
 \midrule
-\multicolumn{4}{@{}l}{\textit{constants}} \\
+\multicolumn{4}{@{}l}{\textit{tables and constants}} \\
 \texttt{rows}     & \multicolumn{2}{l}{$4{,}096\times$u32} & 16{,}384~B, 2{,}048 rows a class \\
 $N_0$             & \multicolumn{2}{l}{1{,}240}            & class-0 rows of the middle list \\
 \texttt{branches} & \multicolumn{2}{l}{$1{,}024\times$u16} & 2{,}048~B, byte $\mid$ next state \\
@@ -277,12 +278,12 @@ total             & \multicolumn{2}{l}{}                   & 18{,}816~B \\
 Keeping the 2{,}048 cheapest rank vectors bounds each section on its own, so
 the encoder searches a product of three 8-dimensional regions where \Planes{}
 searched one 24-dimensional ball. This split makes the six-load decode
-possible, and it is the price the format pays.
+possible, and it costs quality.
 
 Retention is the bit rate the theoretical limit would need to reach our error,
 as a percentage of the rate we use. On 20{,}000 Gaussian blocks at 2 bits per
 weight, in one process and with the same gain rule, \Tetra{} reaches
-88.80\,\% retention and the \Planes{} codebook 91.98\,\%: \Tetra{} has
+88.80\,\% retention and the \Planes{} codebook 91.98\,\%, so \Tetra{} has
 9.2\,\% more mean squared error. On 20{,}000 rotated weight blocks of
 Qwen3-0.6B's first layer, the gap is the same, 3.2 points. Sorting rank
 vectors by $\mathrm{cost}(\rho)$ instead of exact squared distance accounts
@@ -295,9 +296,9 @@ ball. The 0.3666~dB difference means 8.81\,\% more mean squared error for the
 product. Our regions, cut by rank and by the trellis, are neither balls nor
 continuous.
 
-Every decoded point still lies in $\Lambda_{24}$: its pattern bytes form a
-Golay codeword, since they follow a trellis path, and
-Equation~\eqref{eq:xor} gives the $\sum k$ parity. Three separate quantizers
+Every decoded point still lies in $\Lambda_{24}$. Its pattern bytes follow a
+trellis path, so they form a Golay codeword, and Equation~\eqref{eq:xor} gives
+the $\sum k$ parity. Three separate quantizers
 on $E_8$, the best lattice quantizer known in 8 dimensions, would keep neither
 constraint. At the same density of points, the $E_8$ lattice has 9.0\,\% more mean
 squared error than $\Lambda_{24}$: $G(E_8)/G(\Lambda_{24}) = 0.071682/0.065771
@@ -310,5 +311,5 @@ scores 2.11 MMLU points below \Planes{} on a 2{,}280-question sample,
 $[-0.95, +5.17]$, $p=0.11$, with 4.64\,\% lower perplexity. Each file comes
 from one calibration draw, and three draws of the \Planes{} encoding spread
 MMLU over 5.83 points on this sample, a standard deviation of 2.92. A month of
-encoder changes also separates the two files: re-encoding the first layer of
+encoder changes also separates the two files. Re-encoding the first layer of
 the \Planes{} file with the newer code changes 87\,\% of its indices.

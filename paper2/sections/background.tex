@@ -18,7 +18,7 @@ benchmark instead (\S\ref{sec:chain}).
 \paragraph{Two-bit vector quantization.} Below three bits, the strong methods
 encode several weights at once, as a choice from a codebook.
 QuIP\#~\citep{quipsharp2024} uses the $E_8$ lattice. QTIP~\citep{qtip2024}
-uses a trellis: its hybrid code hashes each state to index a 2~KiB table, and
+uses a trellis. Its hybrid code hashes each state to index a 2~KiB table, and
 its computed codes, such as 3INST, need no table. AQLM and
 VPTQ~\citep{aqlm2024,vptq2024} learn codebooks of at most $2^{16}$ entries and
 decode by reading them, and both papers tie kernel speed to how well these
