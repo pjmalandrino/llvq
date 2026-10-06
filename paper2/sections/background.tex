@@ -34,11 +34,10 @@ projects a 1-bit lattice from a higher-dimensional space, which makes its bit
 width nearly continuous. Both learn the codebook to gain quality. We keep the
 codebook of \citet{llvq2026} and change how the GPU reads it.
 
-\paragraph{The Leech lattice.} Van der Ouderaa et al.~\citep{llvq2026} quantize the weights in blocks
-of 24 on $\Lambda_{24}$, the densest sphere packing in 24
-dimensions~\citep{cohn2017}. Inside a GPTQ-style loop, each block is coded in
-48 bits, 2 per weight, as a lattice direction (the shape) and a length (the
-gain). Their best codebook on Gaussian data spends 47 bits on one of
+\paragraph{The Leech lattice.} $\Lambda_{24}$ is the densest sphere packing
+in 24 dimensions~\citep{cohn2017}. Inside a GPTQ-style loop,
+\citet{llvq2026} code each block as a lattice direction (the shape) and a
+length (the gain). Their best codebook on Gaussian data spends 47 bits on one of
 $1.1\times10^{14}$ lattice points inside a ball and one bit on the gain. The
 model results we cite spend all 48 bits on a larger ball of
 $2.8\times10^{14}$ points. On Qwen3-4B they report 60.7 on MMLU without
@@ -49,5 +48,4 @@ several shells.
 \paragraph{Our earlier kernel.} In \citet{llvq1preprint} we served their
 47-bit codebook with its gain bit. At load time, each code was unfolded into a
 112-bit \Planes{} record: a class, a gain bit, a sign mask and three bit planes
-(Figure~\ref{fig:word}). A fused kernel reads these records at 4.804 bits per
-weight. This paper replaces that layout.
+(Figure~\ref{fig:word}).

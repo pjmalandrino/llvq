@@ -1,28 +1,16 @@
 \section{Conclusion}
 \label{sec:conclusion}
 
-The GPU can read a Leech-lattice code without expanding it. With \Tetra{}, a
-block is read through a 64-state trellis of the Golay code and one 16~KiB
-table, and the bits read per weight drop from 4.804 to 2.150. In exchange, the
-codebook bounds each third of a block separately, not the whole block.
-
-Three more changes, which leave the lattice codes untouched, give sealed
-Qwen3-4B, 8B and 14B files at about 2.7 bits per parameter, about half the
-memory of 4-bit AWQ, or about 65\,\% of it if AWQ also stored its embedding
-tables in 4 bits. They score 4.76, 4.21 and 2.46 MMLU points below AWQ, and
-generate 113.8, 95.0 and 57.2 tokens per second in our engine on one L40S.
-Perplexity ranks them differently against AWQ and rises over our last step
-at 4B and 8B. On
-GSM8K, generated through the served kernel, they lose more to FP16 than on
-MMLU: separated in points at 4B only, and counted in errors at every size. With about as
-much weight memory or less, our 8B and 14B score above AWQ's 4B and 8B on MMLU
-and are not separated from them on GSM8K (\S\ref{sec:sizeup}, a comparison
-chosen after measuring).
+The GPU can read a Leech-lattice code without expanding it, if the codebook
+bounds each third of a block separately. Three more changes, which leave the
+lattice codes untouched, make complete Qwen3 files at about 2.7 bits per
+parameter. They stay below 4-bit AWQ on MMLU and GSM8K, and perplexity ranks
+them differently. Their speed gain depends on the card: on an A100, where
+cuBLAS reads f16 weights faster than our kernel reads \Tetra{}, it comes only
+from the 4-bit tables.
 
 Next, in this order, we would test \texttt{down\_proj} instead of
-\texttt{o\_proj} in int4 at 4B and 14B, as at 8B, then add a second
-calibration draw, and measure the served path on a consumer GPU: on an A100,
-where cuBLAS reads f16 weights faster than our kernel reads \Tetra{}, the
-served files decode slower than FP16 in vLLM. Qwen3-32B first needs new kernels on
-the L40S: its widest activation takes 102{,}400~B of shared memory, 1{,}024~B
-over the card's limit.
+\texttt{o\_proj} in int4 at 4B and 14B, as at 8B, add a second calibration
+draw, and measure the served path on a consumer GPU. Qwen3-32B first needs new
+kernels on the L40S: its widest activation takes 102{,}400~B of shared memory,
+1{,}024~B over the card's limit.

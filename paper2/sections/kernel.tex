@@ -90,10 +90,9 @@ Appendix~\ref{app:bench}. Data: echelle-formats.csv.}
 \label{tab:bench}
 \end{table}
 
-Per weight, \Tetra{} reads 2.150 bits, about half the 4.179 of 4-bit AWQ and
-the 4.804 of \Planes{} (Table~\ref{tab:bench}). Its time is still above AWQ's:
-3.734 against 3.263~ms. \Tetra{} reads its bytes at 262~GB/s, where AWQ
-reaches 582. Reading half the bytes does not halve the time.
+Per weight, \Tetra{} reads about half the bits of 4-bit AWQ and of \Planes{},
+yet its time is still above AWQ's (Table~\ref{tab:bench}). Reading half the
+bytes does not halve the time.
 
 \paragraph{The activation tile.}\label{sec:tile} The tile $T$ changes no output
 bit and costs no storage. On an Ada GPU (sm\_89), it sets how much of each

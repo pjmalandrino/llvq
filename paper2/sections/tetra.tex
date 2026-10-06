@@ -19,10 +19,7 @@ respect both.
 The encoder uses the shape-gain scheme of \citet{llvq2026}. It applies the
 input-side rotation of incoherence
 processing~\citep{quip2023,quipsharp2024,quarot2024}, and runs a GPTQ-style
-loop~\citep{gptq2023}. That rotation is part of every file we serve, one per
-group of projections, and the kernel undoes it online (\S\ref{sec:kernel}); it
-is not a lever we left unpulled.
-For each block of 24 rotated weights, it looks for the lattice point under a
+loop~\citep{gptq2023}. For each block of 24 rotated weights, it looks for the lattice point under a
 length cap whose direction is closest to the block, and rebuilds the weights as
 \begin{equation}
 \hat{w}_j = \frac{y_j}{\lVert y\rVert}\,\mathrm{gain}[g]\,\sigma_{\mathrm{row}},
@@ -127,10 +124,9 @@ Equation~\eqref{eq:xor} needs.
 
 Figure~\ref{fig:word} shows the resulting 48-bit word next to the \Planes{}
 record it replaces. Each field can take a power-of-two number of values, so
-any 48-bit value is a legal word and decodes to a point of $\Lambda_{24}$. A
-benchmark can therefore stream random words and check every decode against a
-reference. Figure~\ref{fig:decode} shows the decode: six loads give the 24
-values, and only one waits for another.
+any 48-bit value is a legal word. A benchmark can therefore stream random
+words and check every decode against a reference. Figure~\ref{fig:decode}
+shows the decode.
 
 \begin{figure}[t]
 \centering
@@ -186,9 +182,8 @@ Equation~\eqref{eq:xor}.}
 \label{fig:decode}
 \end{figure}
 
-The tables take 18{,}816~B: 16{,}384~B of rank rows, 2{,}304~B of trellis
-tables, and 32 floats holding $1/\sqrt{16m}$. The entry for $m=0$ is 0, so
-the origin, a legal word, decodes to zeros with no special case. Trying every
+The entry of \texttt{inv\_norm} for $m=0$ is 0, so the origin, a legal word,
+decodes to zeros with no special case. Trying every
 codeword with both parities and every allowed row in each section gives
 $m\le26$ and $\max|y_j|=10$.
 
@@ -268,7 +263,7 @@ $N_0$             & \multicolumn{2}{l}{1{,}240}            & class-0 rows of the
 \texttt{branches} & \multicolumn{2}{l}{$1{,}024\times$u16} & 2{,}048~B, byte $\mid$ next state \\
 \texttt{prefixes} & \multicolumn{2}{l}{$128\times$u8}      & 128~B \\
 \texttt{suffixes} & \multicolumn{2}{l}{$128\times$u8}      & 128~B \\
-\texttt{inv\_norm}& \multicolumn{2}{l}{$32\times$f32}      & 128~B, $1/\sqrt{16m}$, $m\le26$ \\
+\texttt{inv\_norm}& \multicolumn{2}{l}{$32\times$f32}      & 128~B, $1/\sqrt{16m}$ \\
 \midrule
 total             & \multicolumn{2}{l}{}                   & 18{,}816~B \\
 \bottomrule

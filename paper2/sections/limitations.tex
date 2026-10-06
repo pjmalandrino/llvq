@@ -2,20 +2,18 @@
 \label{sec:limitations}
 
 \begin{itemize}
-\item \textbf{Two data-center GPUs.} We measured speed on one NVIDIA L40S
-  and, in \S\ref{sec:a100}, one A100, and never on a consumer GPU, the
-  hardware this work targets.
-\item \textbf{One calibration draw.} Every size is encoded from the same
-  131{,}072 tokens (\S\ref{sec:setup}). At 4B, three calibration draws with
-  the \Planes{} codebook spread MMLU by more than any gain in
-  Table~\ref{tab:chain} (\S\ref{sec:kept}). Those gains compare fixed files,
-  so the spread does not affect them. The intervals of our gaps to FP16 and
-  AWQ do not include it.
+\item \textbf{Two data-center GPUs.} We measured speed on one NVIDIA L40S and
+  one A100 (\S\ref{sec:a100}), never on a consumer GPU, the hardware this work
+  targets.
+\item \textbf{One calibration draw.} Every size is encoded from one draw of
+  calibration text (\S\ref{sec:setup}). At 4B, with the earlier codebook, the
+  spread across three draws exceeds every gain of Table~\ref{tab:chain}
+  (\S\ref{sec:kept}). Those gains compare fixed files, but our gaps to FP16
+  and AWQ do not include that spread.
 \item \textbf{MMLU and perplexity are scored on the dense reconstruction},
   not through the kernel (\S\ref{sec:setup}).
-\item \textbf{The int4 choices were made on MMLU test questions}
-  (\S\ref{sec:chain}). Our MMLU scores carry a selection bias that we did not
-  measure for the files. GSM8K and perplexity chose nothing (\S\ref{sec:chain}).
+\item \textbf{Selection on the test set.} Our int4 choices used MMLU test
+  questions (\S\ref{sec:chain}).
 \item \textbf{GSM8K is an easy test for these models.} FP16 scores 92 to 95,
   and the problems have been public since 2021. We did not test Qwen3's
   thinking mode, which writes much longer chains, nor a harder math
