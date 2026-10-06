@@ -77,14 +77,8 @@ pub const ARM_NAMES: [&str; N_ARMS] = [
     // 48-bit words through `llvq_artifact::tetra48`, row-strided, and names no
     // class at all.
     "tetra48",
-    // The same decode plus the file's int4 records, so the arm covers EVERY
-    // projection of the model instead of the lattice ones. Registered last for
-    // the rule above, and separate from `tetra48` rather than replacing it:
-    // the published 3.424 ms is a 216-matrix number, and redefining the arm
-    // under its own name would make every figure that cites it incomparable.
-    "tetra48q4",
 ];
-pub const N_ARMS: usize = 19;
+pub const N_ARMS: usize = 18;
 
 pub const SLOT32: usize = 0;
 pub const PLANES14: usize = 1;
@@ -128,23 +122,6 @@ pub const QTIP: usize = 16;
 /// said so; this arm feeds it the words of an actual artifact, which is the
 /// difference between a decode's speed and a format's.
 pub const TETRA48: usize = 17;
-
-/// `tetra48` plus the int4 records of the same file, through the **served**
-/// int4 kernel `tv_q4_h`.
-///
-/// Why it is a second arm and not a fix to the first. `tetra48` times the
-/// lattice records only, 216 of the 4B's 252 matrices on the bench file, and
-/// the paper publishes its 3.424 ms with that count in the table. An arm that
-/// silently grew to 252 under the same name would make that figure, and every
-/// ratio formed on it, incomparable to anything measured after the change.
-/// This arm answers the other question: what the whole model costs in one
-/// pass, which is the only form in which a time may be divided by FP16's, by
-/// AWQ's or by `Planes14`'s.
-///
-/// The int4 count is the **file's**, never a constant: the bench file carries
-/// 36 int4 `v_proj` at 4B, and the served file carries 84 (36 `v_proj`, 36
-/// `o_proj`, 12 `down_proj`), 21.2 % of the weights.
-pub const TETRA48Q4: usize = 18;
 
 /// The six arms of the 2026-08-10 job — phase 1 of P4 §2.4, which reproduces
 /// the published run.
@@ -215,12 +192,6 @@ pub const HAS_KERNEL: [bool; N_ARMS] = [
     // bytes, and ran on both an L40S and a Blackwell on 2026-09-08/09
     // (`docs/mesures/tetra48-tuerie-2026-09-08.txt`, `tile-sweep-2026-09-09.txt`).
     true,
-    // tetra48q4. The decode half is `tetra48`'s, already device-compiled; the
-    // int4 half is `tv_q4_h.cu`, which the served path has run on a card since
-    // the fixes of 2026-09-25 (`docs/data/jobs.csv`). What this arm adds is
-    // neither kernel but the dispatch that walks a file's two record kinds in
-    // one pass.
-    true,
 ];
 
 /// Arms whose kernel exists but **not in this repository**, and which are
@@ -242,23 +213,6 @@ pub const HAS_KERNEL: [bool; N_ARMS] = [
 pub const FETCHED_AT_RUNTIME: [bool; N_ARMS] = {
     let mut f = [false; N_ARMS];
     f[QTIP] = true;
-    f
-};
-
-/// Arms whose kernel is here and dispatchable, and which a **bare**
-/// `planesbench` must still not select.
-///
-/// The third state the two above cannot express, and the reason is the one
-/// this module opens with: the resident streams during a phase are that
-/// phase's arms' and nothing else, so an arm added to the bare set changes
-/// what every other arm in that set measures. `HAS_KERNEL` means both "there
-/// is a kernel" and "a bare run dispatches it", and `tetra48q4` is the first
-/// arm for which those two answers differ. It is selectable by name, it is
-/// never in [`ArmSet::runnable`], and a bare run on any machine dispatches
-/// exactly what it dispatched before this arm existed.
-pub const DEFAULT_OFF: [bool; N_ARMS] = {
-    let mut f = [false; N_ARMS];
-    f[TETRA48Q4] = true;
     f
 };
 
@@ -300,14 +254,13 @@ pub const DISPLAY_NAMES: [&str; N_ARMS] = [
     "LLVQ E1v",
     "QTIP 2 bits",
     "LLVQ Tetra48",
-    "LLVQ Tetra48 + int4",
 ];
 
 /// The order a table PRINTS its rows in — cosmetic, and deliberately not the
 /// dispatch order: the witness first, v2 under v1, the competitor last.
 ///
 /// Its length is its own, not [`N_ARMS`]: an arm with no kernel has no row.
-pub const DISPLAY_ORDER: [usize; 13] = [
+pub const DISPLAY_ORDER: [usize; 12] = [
     // The floor first: it is the quantity every other row is read against, and
     // putting it at the top saves the reader from hunting for it. cublasf16
     // sits right under our own witness, so the two rows every published ×
@@ -316,8 +269,7 @@ pub const DISPLAY_ORDER: [usize; 13] = [
     // against. It is added here in the same commit that registers it — the
     // defect the note below records cost a job its declared deliverable, and
     // it cost it silently.
-    NULLK, FP16, CUBLASF16, SLOT32, PLANES14, TETRA48, TETRA48Q4, PLANES12X, GOLAY70V1, GOLAY70V2,
-    E1V, AWQ,
+    NULLK, FP16, CUBLASF16, SLOT32, PLANES14, TETRA48, PLANES12X, GOLAY70V1, GOLAY70V2, E1V, AWQ,
     // 🚨 The two competitors at the end of the table, together. QTIP got here
     // on 2026-08-20 and its absence was a SILENT defect of a particular kind:
     // everything `planesbench` prints iterates over this table, so the bench
@@ -353,7 +305,7 @@ impl ArmSet {
     pub fn runnable() -> Self {
         let mut s = ArmSet::empty();
         for (a, &ok) in HAS_KERNEL.iter().enumerate() {
-            if ok && !DEFAULT_OFF[a] {
+            if ok {
                 s.insert(a);
             }
         }
@@ -545,9 +497,7 @@ mod tests {
         // launch a missing kernel on a rented card.
         let phases = parse_phases(None).unwrap();
         assert_eq!(phases, vec![ArmSet::runnable()]);
-        // Minus the default-off arms, a third state added with `tetra48q4`:
-        // selectable by name, never in a bare run.
-        assert_eq!(phases[0].len(), bare_count());
+        assert_eq!(phases[0].len(), HAS_KERNEL.iter().filter(|&&k| k).count());
     }
 
     #[test]
@@ -647,28 +597,6 @@ mod tests {
         assert_eq!(sorted.len(), N_ARMS, "an arm name is registered twice");
     }
 
-    /// What a bare `planesbench` dispatches: a kernel is here and the arm is
-    /// not default-off. Three tests read it, so it is written once.
-    fn bare_count() -> usize {
-        (0..N_ARMS).filter(|&a| HAS_KERNEL[a] && !DEFAULT_OFF[a]).count()
-    }
-
-    /// An arm that is default-off is selectable by name and absent from a bare
-    /// run. Both halves matter: the first makes it usable at all, the second is
-    /// what keeps a bare run dispatching what it dispatched before it existed.
-    #[test]
-    fn a_default_off_arm_is_selectable_and_not_bare() {
-        assert!(is_selectable(TETRA48Q4), "tetra48q4 must be nameable");
-        assert!(
-            !ArmSet::runnable().has(TETRA48Q4),
-            "a bare planesbench must not dispatch tetra48q4"
-        );
-        assert!(ArmSet::all().has(TETRA48Q4), "it is still registered");
-        // And the bare set is exactly the kernels minus the default-off ones,
-        // so adding another default-off arm cannot widen it by accident.
-        assert_eq!(ArmSet::runnable().len(), bare_count());
-    }
-
     /// The six of the published run keep indices 0..5 and `golay70v2` keeps 6.
     /// P4 §2.3: an added arm never reorders the dispatch of the arms that
     /// produced a published table.
@@ -731,7 +659,10 @@ mod tests {
     #[test]
     fn an_arm_without_a_kernel_is_registered_but_not_runnable() {
         assert_eq!(parse_phases(None).unwrap(), vec![ArmSet::runnable()]);
-        assert_eq!(ArmSet::runnable().len(), bare_count());
+        assert_eq!(
+            ArmSet::runnable().len(),
+            HAS_KERNEL.iter().filter(|&&k| k).count()
+        );
         // Every arm of the published run and of the control phase must have a
         // kernel, or the campaign those two phases reproduce could not run.
         for &a in PHASE1.iter().chain(&PHASE2) {
@@ -788,8 +719,8 @@ mod tests {
         for (a, &ok) in HAS_KERNEL.iter().enumerate() {
             assert_eq!(
                 ArmSet::runnable().has(a),
-                ok && !DEFAULT_OFF[a],
-                "{}: the runnable set does not follow its flags",
+                ok,
+                "{}: the runnable set does not follow its flag",
                 ARM_NAMES[a]
             );
         }
@@ -802,8 +733,7 @@ mod tests {
             "the hole is gone: this test would lose its subject"
         );
         let flags: Vec<bool> = (0..N_ARMS).map(|a| ArmSet::runnable().has(a)).collect();
-        let want: Vec<bool> = (0..N_ARMS).map(|a| HAS_KERNEL[a] && !DEFAULT_OFF[a]).collect();
-        assert_eq!(flags, want);
+        assert_eq!(flags, HAS_KERNEL.to_vec());
     }
 
     /// The two display tables, checked where a Mac can check them.
