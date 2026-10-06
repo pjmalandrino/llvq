@@ -675,3 +675,30 @@ reads +3.12 on the questions that chose it and +1.55 on the other 11,762 (*measu
 [oproj-int4-full](mesures/oproj-int4-full-2026-09-17.txt)). GSM8K chose nothing. With AWQ's tables in 4 bits, our files
 would need 64 to 65 % of its bits per parameter, not about half (*computed*, [sizeup](mesures/sizeup-2026-09-28.txt)).
 A proofreading pass fixed six slips, among them the running header, whose small-caps ligature extracted as "qantized".
+
+## 2026-10-04 to 10-06. Review campaign, paper 2 version 2, release v0.0.2
+
+An automated review of paper 2 contested no number. Answering it in full was priced at about $285. The operator
+funded $9, and the campaign spent $4.57 (*measured*, `docs/data/jobs.csv`).
+
+The three sealed files got a perplexity, 12.58, 9.71 and 8.44, all read on the L40S. The 4B FP16 and AWQ references
+had been labelled as Apple-GPU readings; both were L40S readings of 2026-08-06, so no ratio crosses devices. The last
+build step raises perplexity at 4B and 8B while it gains MMLU. On a quantized 8B file, Metal and the L40S agree to
+0.01 % (*measured*, [ppl-bases-carte](mesures/ppl-bases-carte-2026-10-05.txt)).
+
+The kernel bench moved from 216 to 252 matrices for `Tetra`, on the bare encode. Its time went from 3.424 to 3.734 ms,
+its rate from 2.148 to 2.150 b/weight, and its tile gain from 128 to 64 on sm_89 from +16.1 % to +17.6 % (`Planes14`:
+1.5 % to 1.1 %). A mixed int4 arm was written for the purpose, then dropped on the operator's instruction.
+
+On an A100, `Tetra` beats our FP16 kernel 1.11× but not cuBLAS 1.14×, and the served files decode below FP16 in vLLM
+(*measured*, [a100](mesures/a100-2026-10-06.txt)). The prediction that `Tetra` would lose to FP16 there was wrong
+against our own FP16 kernel.
+
+The 8B and 14B files went public on the Hub beside the 4B. The 4B card had said the two were deleted in a disk
+cleanup, but they had sat in the job bucket all along. A first publish of the sm80 Space uploaded a local virtualenv,
+19,618 files, and the Hub's secret scanner flagged numpy's own test names in it. The folder was removed, and `publish`
+now refuses a perimeter over 1,000 files.
+
+A second number audit of the paper found seven errors, none in a table
+([paper2-audit](mesures/paper2-audit-2026-10-06.txt)), before a redundancy pass and a style pass. Merged into `main`
+as `344499d` and released as `v0.0.2`, with the paper as a PDF.

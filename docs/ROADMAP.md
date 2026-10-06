@@ -1,16 +1,16 @@
 # Roadmap
 
-What comes next, with its gate and its cost. State as of 2026-09-27. Where things stand is in
+What comes next, with its gate and its cost. State as of 2026-10-06. Where things stand is in
 [`ETAT.md`](ETAT.md), the past in [`HISTORIQUE.md`](HISTORIQUE.md), the rules in [`METHODE.md`](METHODE.md). The
 quality axis has its own document, [`ROADMAP-QUALITY.md`](ROADMAP-QUALITY.md), sanctioned 2026-09-06 and ordered by
 feasibility.
 
 ## 1. Starting point
 
-Three Qwen3 files are sealed and served at about 2.7 b/param, and paper 2 is written on them
-([`ETAT.md`](ETAT.md) §2). They score 4.76, 4.21 and 2.46 MMLU points below 4-bit AWQ for 45 to 52% of its bits per
-parameter, and the gap shrinks with size. What comes next is not another format. It is closing the gaps the paper
-itself lists, in the order below.
+Three Qwen3 files are sealed, served and public on the Hugging Face Hub at about 2.7 b/param, and version 2 of paper 2
+is released on them with `v0.0.2` ([`ETAT.md`](ETAT.md) §2). They score 4.76, 4.21 and 2.46 MMLU points below 4-bit
+AWQ for 45 to 52% of its bits per parameter, and the gap shrinks with size. What comes next closes the gaps that the
+paper lists, in the order below.
 
 Every A/B at 0.6B follows the Design C gate: 28 blocks, same seed, then three seeds. Any experiment that recalibrates
 is read against 5.2% of perplexity and 2.92 pp of MMLU. An A/B at constant file is read against 0.43 pp and 0.12%
@@ -31,31 +31,17 @@ scored 55.66 against the dense path's 55.52, three discordant questions out of 2
 
 Code comes before the run: `ppl` does not read `LLVQ_CONFIG`, so no perplexity can be scored through the kernel today.
 
-### 2.2 Time equal work in the kernel bench
-
-**Gate.** `planesbench` times the same 252 matrices for every arm. **Cost** $0 for the code, about $1 for the run.
-
-Today it times 216 matrices for `Tetra` and 252 for every other arm: the int4 `v_proj` are counted and not timed. Every
-× formed on those passes compares unequal work, which is why paper 2 carries it as a limitation instead of a ratio.
-`planesbench` also refuses `d_in` 17408, the 14B `down_proj` (*measured*, census-14b-base, `planesbench.rs:1917`).
-
-### 2.3 `down_proj` instead of `o_proj` in int4, at 4B and 14B
+### 2.2 `down_proj` instead of `o_proj` in int4, at 4B and 14B
 
 **Gate.** The paired gain against the shipped file clears 0.43 pp. **Cost** about $2 a size, no encoding.
 
 At 8B, `down_proj` of layers 10 to 26 alone scored 0.77 points better [0.26, 1.28] than `o_proj` plus `down_proj`, with
 fewer bytes, against our own signed prediction (*measured*, [sealed-8b-27](mesures/sealed-8b-27-2026-09-24.txt)). The
-4B and 14B files still spend their int4 budget the old way, and nothing says 8B's answer is theirs.
+4B and 14B files still spend their int4 budget the old way, and nothing says 8B's answer is theirs. The 4B carries
+`o_proj` for a budget reason: all of `down_proj` would take it to 3.2286 b/param, over b_max = 3.00, where `o_proj`
+fits at 2.9599 (*measured*, [q5-alloc-int4](mesures/q5-alloc-int4-2026-09-16.txt)).
 
-### 2.4 Perplexity for the three sealed files
-
-**Gate.** None: this is a number the paper does not have. **Cost** about $1 a size.
-
-The 14B chain measured 8.4622 against AWQ's 8.2858 on the trained base before sealing (*measured*,
-[dclm-14b-rowscales](mesures/dclm-14b-rowscales-2026-09-22.txt)). No sealed file has a perplexity of its own, and a
-quantization paper is read for that number.
-
-### 2.5 A second calibration draw per size
+### 2.3 A second calibration draw per size
 
 **Gate.** The three absolute levels move by less than the 2.92 pp the draw carries at 4B. **Cost** a full encode a
 size, plus the row-scale training on top of it. The 14B encode cost $15.35 on `rtx-pro-6000`, the re-export included,
@@ -65,10 +51,12 @@ ran on the Mac and are not billed.
 Each level is one draw. The chain gains of [`ETAT.md`](ETAT.md) §4 compare fixed files on the same questions and do not
 depend on it, so this is about the levels, not the gains.
 
-### 2.6 A second kind of GPU
+### 2.4 A consumer GPU
 
-**Gate.** Formulate it before the run. On an A100 none of our earlier lattice kernels beat FP16, and the best tile
-already depends on the card (64 on sm_89, 32 on sm_120). **Cost** about $2 for a served decode at three sizes.
+**Gate.** Formulate it before the run. On the A100 the served files lost to FP16 in vLLM, because cuBLAS reads f16
+faster there than our kernel reads `Tetra` (*measured*, [a100](mesures/a100-2026-10-06.txt)). Local hardware is GDDR
+like the L40S, with less compute. **Cost** under the A100 run's $3.04 (*estimated*). A 24 GB card cannot hold the 14B
+FP16 reference.
 
 ## 3. Debt and hygiene
 
@@ -79,9 +67,10 @@ already depends on the card (64 on sm_89, 32 on sm_120). **Cost** about $2 for a
 - Two timestamps no longer attest their file, 2026-08-10 and 08-11, rewritten by the anonymization pass `01fdbe6`. A
   third, `f5-graines-4b-2026-08-19.v1-l4x4.md.ots`, has no `.md` beside it at all. The attested bytes are
   unrecoverable. Nothing repairs this; it is recorded so no reader trusts those three.
-- `docs/hf-model-card.md` describes the sealed 4B file since 2026-09-27. The card online has not been republished since
-  2026-08-17 and still describes the `Planes14` file, the only one hosted. Hosting the sealed file and republishing
-  are operator decisions.
+- Nine preregistrations have no `.ots` beside them: 2026-08-13, `p2`, `p3` and `p4` of 08-14, `e1v-cuda` of 08-15,
+  `awq-vllm` and `fusedrun14b` of 08-17, `variance-calibration` of 08-26 and `gain-mr-4b` of 09-16.
+- Two code comments still give the old shell bound: `llvq-llm/src/fused.rs:652` ("m <= 27") and
+  `llvq-cuda/kernels/llvq_tetra48.cuh:76-77` ("n2 <= 432"). The bound is 26 and 416.
 - The HF bucket has never been inventoried: 69 files, 46.7 GB as of 2026-08-17. An inventory comes before any re-run
   quote (rule 9).
 - `ops/status.py`, which would generate [`ETAT.md`](ETAT.md) from `mesures/`, `jobs.csv` and `otsaudit`, is not
@@ -109,9 +98,7 @@ already depends on the card (64 on sm_89, 32 on sm_120). **Cost** about $2 for a
 |---|---|
 | which route for the served census, $20 or $70 | neither, the tables stay unscored |
 | a spend cap for the next campaign | no paid job |
-| publishing the three sealed files, and where | nobody outside can replay an MMLU |
 | next venue for paper 2 | preprint only |
-| hosting `qwen3-4b-sealed.bin` and republishing its card, rewritten in the repository on 2026-09-27 | the Hub keeps the `Planes14` file and card |
 | `ots upgrade` after each new stamp | stamps sit un-upgraded |
 | the 32B budget, once a gate exists | not launched |
 | document-extraction domain benchmark ([arXiv:2607.08734](https://arxiv.org/abs/2607.08734)) | not done |

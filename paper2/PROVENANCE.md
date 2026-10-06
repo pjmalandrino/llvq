@@ -51,7 +51,7 @@ log. The CSVs are in `docs/data/`. `paper2/scripts/make_figures.py` draws every 
 | ratios of perplexity to FP16 and AWQ, 2.8 to 8.0 % and −6.9 to +3.0 %, each separated from zero | computed | paper2-ppl.csv: paired t over the 12 per-window losses of the raw outputs above and ppl-scelles-10-04-brut |
 | cost of the last step in perplexity, +2.1 / +1.4 / −0.2 %, paired t over 12 windows | measured | paper2-ppl-sealing.csv; ppl-bases-carte-10-05 (4B, 8B), ppl-scelles-10-04 (14B) |
 | Hessian-weighted error ratio against MMLU over six types, ρ = 0.54, p = 0.30 | measured, exploratory | hratio-4b-09-18; MMLU deltas from q5-alloc-int4-09-16 |
-| GLVQ, LiftQuant, KronQ, Qronos: what each reports | cited | their arXiv pages, read 2026-10-05 and 2026-10-06; `docs/retours-relecture-2026-10-04.md` N8 |
+| GLVQ, LiftQuant, KronQ, Qronos: what each reports | cited | their arXiv pages, read 2026-10-05 and 2026-10-06; `docs/archive/retours-relecture-2026-10-04.md` N8 |
 | the Leech ball of 2.8·10¹⁴ points | computed | theta series, `llvq-core/src/leech.rs` |
 | Qwen3-32B's widest activation, 102,400 B, 1,024 B over the limit | computed | `docs/format-noyau.md` section 8; fusedrun-14b-08-17 |
 | the decode as code and the field table, section 3.4 | computed | `llvq-cuda/kernels/llvq_f1rank.cuh` (bit layout), `llvq_f1rank_v3.cuh` (shifts, masks, addresses), `llvq-search/src/tetra/rank.rs` (ranks, tie-break), `llvq-search/src/tetra/mod.rs` (the three octads), `llvq-llm/src/fused.rs` (the zero entry for m = 0) |
