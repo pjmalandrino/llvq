@@ -363,7 +363,7 @@ Our dense path runs its projections through cuBLAS, so on this card our
 files gain nothing on them. With f16 tables on both sides, as in
 \S\ref{sec:main}, the served files decode at 0.92, 0.91 and 0.95 times the speed of the dense
 arm of the same runs (50.1, 37.4 and 25.1 tokens per second), where they ran
-faster on the L40S (\S\ref{sec:main}). Their lead with 4-bit tables comes
+faster on the L40S. Their lead with 4-bit tables comes
 from the tables alone, and they stay below FP16 in vLLM at every size. Memory
 and quality do not depend on the card. The greedy tokens match the dense path for all 256 at 4B
 and 8B and first differ at token 78 at 14B, as on the L40S.

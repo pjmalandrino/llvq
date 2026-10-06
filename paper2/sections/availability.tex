@@ -4,19 +4,21 @@ The code, the measurement logs behind every number, the preregistrations and
 this paper's source are at \url{https://github.com/pjmalandrino/llvq}. They
 are under MIT or Apache-2.0, and the paper under CC BY 4.0. Each number in
 this paper is \emph{measured} (read off a run), \emph{computed} (arithmetic on
-measured quantities) or \emph{cited}. \nolinkurl{paper2/PROVENANCE.md} names the source
-of each.
-\nolinkurl{paper2/README.md} gives the commands that rerun the main
-measurements. A script draws every data figure from a CSV in
-\texttt{docs/data/}, and a second one stops the build if a table no longer
-matches its CSV. The SHA-256 digests of the three sealed files begin with
-\texttt{886391a8} (\nolinkurl{qwen3-4b-sealed.bin}), \texttt{7bdb9a55}
-(\nolinkurl{qwen3-8b-sealed-B.bin}) and \texttt{61db37fe}
-(\nolinkurl{qwen3-14b-sealed.bin}). The three files are on the Hugging Face
-Hub, each with its digest:
-\url{https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-Tetra-sealed},
-\url{https://huggingface.co/Pier-Jean/Qwen3-8B-LLVQ-Tetra-sealed} and
-\url{https://huggingface.co/Pier-Jean/Qwen3-14B-LLVQ-Tetra-sealed}.
+measured quantities) or \emph{cited}. \mbox{\nolinkurl{paper2/PROVENANCE.md}}
+names the source of each, and \mbox{\nolinkurl{paper2/README.md}} gives the
+commands that rerun the main measurements. A script draws every data figure
+from a CSV in \texttt{docs/data/}, and a second one stops the build if a table
+no longer matches its CSV.
+
+The three sealed files are on the Hugging Face Hub, with these SHA-256 digests:
+\begin{itemize}
+\item \nolinkurl{qwen3-4b-sealed.bin}, \texttt{886391a8}\ldots\\
+  \url{https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-Tetra-sealed}
+\item \nolinkurl{qwen3-8b-sealed-B.bin}, \texttt{7bdb9a55}\ldots\\
+  \url{https://huggingface.co/Pier-Jean/Qwen3-8B-LLVQ-Tetra-sealed}
+\item \nolinkurl{qwen3-14b-sealed.bin}, \texttt{61db37fe}\ldots\\
+  \url{https://huggingface.co/Pier-Jean/Qwen3-14B-LLVQ-Tetra-sealed}
+\end{itemize}
 
 The QTIP kernel of Appendix~\ref{app:bench} is under GPL~v3, so we do not
 redistribute it. The benchmark downloads it at a fixed commit.
