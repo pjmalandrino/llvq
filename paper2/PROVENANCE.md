@@ -47,12 +47,16 @@ log. The CSVs are in `docs/data/`. `paper2/scripts/make_figures.py` draws every 
 | three calibration draws, Planes14 4B, 2,280 questions: MMLU range 5.83, s.d. 2.92 | computed | bruit-mmlu-graines-4b-08-25 |
 | GSM8K of the sealed files, prompt fingerprint `bfa9135c` | measured | gsm8k-wave1-09-26, gsm8k-wave2-09-26 |
 | perplexity of the sealed files, WikiText-2 test, 12 windows of 4,096, f16, token fingerprint `3f1baca9033bf251` | measured | paper2-ppl.csv; ppl-scelles-10-04 (raw output) |
-| perplexity of FP16 and AWQ: 4B on an Apple GPU, 8B and 14B on the L40S | measured | paper2-ppl.csv; `docs/fiche-4b.md` (4B), campagne-8b-qualite-08-08 (8B), dclm-14b-rowscales-09-22 (14B) |
-| ratios of perplexity to FP16 and AWQ, 2.8 to 8.0 % and −6.9 to +3.0 % | computed | paper2-ppl.csv, from the row above |
-| same perplexity on the Apple GPU and the L40S, paired, +0.000 % [−0.009, +0.010] | measured | ppl-bases-carte-10-05, the 8B trained base on both devices |
+| perplexity of FP16 and AWQ, all on the L40S | measured | paper2-ppl.csv; a4-campagne-4b-ppl-BRUT-08-06 (4B), campagne-8b-qualite-08-08 (8B), campagne-14b-qualite-08-10 (14B) |
+| ratios of perplexity to FP16 and AWQ, 2.8 to 8.0 % and −6.9 to +3.0 %, each separated from zero | computed | paper2-ppl.csv: paired t over the 12 per-window losses of the raw outputs above and ppl-scelles-10-04-brut |
 | cost of the last step in perplexity, +2.1 / +1.4 / −0.2 %, paired t over 12 windows | measured | paper2-ppl-sealing.csv; ppl-bases-carte-10-05 (4B, 8B), ppl-scelles-10-04 (14B) |
 | Hessian-weighted error ratio against MMLU over six types, ρ = 0.54, p = 0.30 | measured, exploratory | hratio-4b-09-18; MMLU deltas from q5-alloc-int4-09-16 |
 | GLVQ, LiftQuant, KronQ, Qronos: what each reports | cited | their arXiv pages, read 2026-10-05 and 2026-10-06; `docs/retours-relecture-2026-10-04.md` N8 |
+| the Leech ball of 2.8·10¹⁴ points | computed | theta series, `llvq-core/src/leech.rs` |
+| Qwen3-32B's widest activation, 102,400 B, 1,024 B over the limit | computed | `docs/format-noyau.md` section 8; fusedrun-14b-08-17 |
+| the decode as code and the field table, section 3.4 | computed | `llvq-cuda/kernels/llvq_f1rank.cuh` (bit layout), `llvq_f1rank_v3.cuh` (shifts, masks, addresses), `llvq-search/src/tetra/rank.rs` (ranks, tie-break), `llvq-search/src/tetra/mod.rs` (the three octads), `llvq-llm/src/fused.rs` (the zero entry for m = 0) |
+| L40S at 0.86 TB/s, A100-SXM4-80GB at about 2.0 TB/s | cited | NVIDIA's L40S specifications and A100 datasheet, refs.bib |
+| the three files on the Hugging Face Hub | measured | LFS SHA-256 read from the Hub on 2026-10-06; 4B uploaded from the Mac on 2026-10-02 (Hub commit 565082a9), 8B and 14B by job 6ac4c283 on 2026-10-06 (docs/data/jobs.csv) |
 | GSM8K of FP16 and AWQ, the engine check, the same-engine gap of 9.02 | measured | paper2-gsm8k.csv, paper2-gsm8k-gaps.csv; the logs of the row above |
 | GSM8K paired gaps, section 6.3 | measured | paper2-gsm8k-gaps.csv; the same logs |
 | gaps one size apart, section 6.4 | measured | paper2-sizeup.csv; sizeup-09-28; not preregistered |

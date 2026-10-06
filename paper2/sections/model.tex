@@ -51,9 +51,9 @@ int4 gained 1.73 MMLU points $[0.87, 2.59]$ on the full test set, for 0.05
 bits per parameter.
 
 The three files we serve, which we call \emph{sealed}, also store
-\texttt{o\_proj} in int4, and \texttt{down\_proj} in a range of middle layers
-(Table~\ref{tab:files}). At 8B only \texttt{down\_proj} is added, and
-\S\ref{sec:chain} explains why.
+\texttt{down\_proj} in int4 in a range of middle layers, and the 4B and 14B
+files \texttt{o\_proj} as well (Table~\ref{tab:files}). \S\ref{sec:chain}
+explains why the 8B does not.
 
 \subsection{4-bit embedding tables}
 \label{sec:q4emb}
@@ -86,6 +86,7 @@ bits per parameter, whole model & 2.7320 & 2.6953 & 2.7305\\
 means \texttt{down\_proj} in layers 12 to 23. Bits per parameter are counted as
 in \S\ref{sec:file}. The file is larger: it also carries the tokenizer and the
 config (11.4~MB), and stores the tail in f32 and the row scales in f64. Data:
-paper2-chain.csv, and the sealing logs for file sizes.}
+paper2-chain.csv; the sealing logs (\texttt{rtbits} and \texttt{int4swap}
+outputs) for the splits, the windows and the file sizes.}
 \label{tab:files}
 \end{table}

@@ -34,6 +34,12 @@
 % identifier read on its arXiv abstract page (v1 of 27 Oct 2021, no journal
 % reference listed).
 %
+% Changed on 2026-10-06: nvidia_l40s_datasheet and nvidia_a100_datasheet carried
+% no URL and repeated the author in howpublished. They now point at NVIDIA's
+% L40S specification page (Ada, 48 GB GDDR6, 864 GB/s; the old datasheet link
+% redirects there) and at the A100 datasheet PDF, revision r4, dated 2021 (80 GB
+% SXM: HBM2e, 2,039 GB/s). Checked against both pages on 2026-10-06.
+%
 % Added on 2026-10-06: glvq2025, liftquant2026, kronq2026 and qronos2025.
 % Titles, author lists and their order, arXiv identifiers and versions read
 % from the arXiv API on 2026-10-06. Their venues are the authors' own arXiv
@@ -366,19 +372,20 @@
 }
 
 @misc{nvidia_l40s_datasheet,
-  title        = {{NVIDIA L40S} datasheet},
+  title        = {{NVIDIA L40S} {GPU}: specifications},
   author       = {{NVIDIA Corporation}},
   year         = {2023},
-  howpublished = {NVIDIA Corporation},
-  note         = {Accessed 2026-08-22}
+  howpublished = {\url{https://www.nvidia.com/en-us/data-center/l40s/}},
+  note         = {Accessed 2026-10-06}
 }
 
 @misc{nvidia_a100_datasheet,
   title        = {{NVIDIA A100} {Tensor Core} {GPU} datasheet},
   author       = {{NVIDIA Corporation}},
-  year         = {2020},
-  howpublished = {NVIDIA Corporation},
-  note         = {Accessed 2026-08-22}
+  year         = {2021},
+  howpublished = {\url{https://www.nvidia.com/content/dam/en-zz/Solutions/Data-Center/a100/pdf/nvidia-a100-datasheet-us-nvidia-1758950-r4-web.pdf}},
+  note         = {Accessed 2026-10-06}
+}
 }
 
 % ---------------------------------------------------------------------------

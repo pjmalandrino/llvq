@@ -14,7 +14,7 @@ generate 113.8, 95.0 and 57.2 tokens per second in our engine on one L40S.
 Perplexity ranks them differently against AWQ and rises over our last step
 at 4B and 8B. On
 GSM8K, generated through the served kernel, they lose more to FP16 than on
-MMLU: in points at 4B only, and counted in errors at every size. With about as
+MMLU: separated in points at 4B only, and counted in errors at every size. With about as
 much weight memory or less, our 8B and 14B score above AWQ's 4B and 8B on MMLU
 and are not separated from them on GSM8K (\S\ref{sec:sizeup}, a comparison
 chosen after measuring).
@@ -23,6 +23,6 @@ Next, in this order, we would test \texttt{down\_proj} instead of
 \texttt{o\_proj} in int4 at 4B and 14B, as at 8B, then add a second
 calibration draw, and measure the served path on a consumer GPU: on an A100,
 where cuBLAS reads f16 weights faster than our kernel reads \Tetra{}, the
-served files lose their speed advantage. Qwen3-32B first needs new kernels on
+served files decode slower than FP16 in vLLM. Qwen3-32B first needs new kernels on
 the L40S: its widest activation takes 102{,}400~B of shared memory, 1{,}024~B
 over the card's limit.

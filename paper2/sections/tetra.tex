@@ -16,9 +16,9 @@ $\mathbb{Z}^{24}$: $c$ is one of the $2^{12}$ codewords among the $2^{24}$ bit
 patterns, and one parity check ties all 24 coordinates. A decoder has to
 respect both.
 
-The encoder uses the shape-gain scheme of \citet{llvq2026}. It applies
-incoherence processing, a random rotation of the
-input~\citep{quip2023,quipsharp2024,quarot2024}, and runs a GPTQ-style
+The encoder uses the shape-gain scheme of \citet{llvq2026}. It applies the
+input-side rotation of incoherence
+processing~\citep{quip2023,quipsharp2024,quarot2024}, and runs a GPTQ-style
 loop~\citep{gptq2023}. That rotation is part of every file we serve, one per
 group of projections, and the kernel undoes it online (\S\ref{sec:kernel}); it
 is not a lever we left unpulled.
@@ -39,8 +39,10 @@ the trellis. It runs once, offline, on a CPU.
 \subsection{Three octads and a trellis}
 
 An octad is a Golay codeword with exactly eight ones. We fix three octads that
-share no position, which together cover all 24 coordinates, and read the
-coordinates octad by octad. Cutting after coordinates 8 and 16 splits the block
+share no position and together cover all 24 coordinates, with supports
+\texttt{0x00149f}, \texttt{0x0f6840} and \texttt{0xf08320} (bit $i$ is
+coordinate $i$), and read the coordinates octad by octad, each in increasing
+order. Cutting after coordinates 8 and 16 splits the block
 into three sections, one per octad. These cuts turn the code into the trellis
 of \citet{forney1988}, a layered graph whose paths spell out bit patterns
 (Figure~\ref{fig:geom}). The node a path crosses at a cut is its state. Each
@@ -97,16 +99,17 @@ so the parity constraint of Equation~\eqref{eq:leech} costs one XOR and no bits.
 A section's pattern byte is the eight bits of $c$ that fall in it. Once $p$
 and this byte are known, coordinate $j$ can only take the values
 $o_j + 4\mathbb{Z}$, with $o_j = p + 2c_j$. We store its \emph{rank}, its
-position in that list counted outward from zero, instead of its value: for
-$o=0$ the values are $0, +4, -4, +8, \dots$ and for $o=1$ they are
-$+1, -3, +5, \dots$. A section is then a rank vector
-$\rho \in \{0,\dots,7\}^8$, four bits per rank, which fits in one 32-bit table
-row.
+position in that list counted outward from zero, positive first on a tie,
+instead of its value. For $o = 0, 1, 2, 3$ the lists start $0, +4, -4$;
+$+1, -3, +5$; $+2, -2, +6$; and $-1, +3, -5$. A section is then a rank vector
+$\rho \in \{0,\dots,7\}^8$, which fits in one 32-bit table row, rank $j$ in
+bits $4j$ to $4j+3$.
 
 Two properties let a single table serve every section of every block. First,
 sorting rank vectors by $\mathrm{cost}(\rho)=\sum_j(2\rho_j+1)^2$, a stand-in
 for squared distance, gives the same order for every $p$ and every pattern
-byte. ``Keep the 2{,}048 cheapest'' then means one list instead of 256, one
+byte. ``Keep the 2{,}048 cheapest'', ties broken by $\rho$ in lexicographic
+order, then means one list instead of 256, one
 for each parity and each of the 128 pattern bytes a section admits. Second,
 $\mathrm{cls}(\rho)=\sum_j[\rho_j\in\{1,2,5,6\}] \bmod 2$ equals the parity
 of $\sum_j k_j$ for every pattern. We sort the table by this class, so a row's
@@ -189,16 +192,14 @@ the origin, a legal word, decodes to zeros with no special case. Trying every
 codeword with both parities and every allowed row in each section gives
 $m\le26$ and $\max|y_j|=10$.
 
-Figure~\ref{fig:pseudo} is the decode as code, and Table~\ref{tab:fields}
-gathers every field and every constant it names. Together they are what an
-implementer needs that the figures above do not give: the bit positions, the
-six table addresses, and the one permutation that makes a wrong answer instead
-of a crash.
+Figure~\ref{fig:pseudo} gives the decode as code, and Table~\ref{tab:fields}
+the fields of the word and the tables it reads.
 
 \begin{figure}[t]
 \small
 \begin{verbatim}
-decode(lo, hi16, rows, prefixes, branches, suffixes):
+decode(lo, hi16, rows, prefixes, branches, suffixes,
+       inv_norm, gain, sigma_row):
   p  =  lo        & 1        # shared parity
   r  = (lo >>  1) & 1        # k-parity of section 1
   s8 = (lo >>  2) & 63       # trellis state at the first cut
@@ -213,8 +214,8 @@ decode(lo, hi16, rows, prefixes, branches, suffixes):
   c1  = prefixes[2*s8 + b1]        # three pattern bytes
   br  = branches[16*s8 + b2]
   c2  = br & 255
-  s16 = (br >> 8) & 63             # the one dependent read
-  c3  = suffixes[2*s16 + b3]
+  s16 = (br >> 8) & 63
+  c3  = suffixes[2*s16 + b3]       # the one dependent read
 
   row1 = rows[2048*r + i1]         # three rank vectors,
   mid  = i2 < 1240                 #   issued together
@@ -222,29 +223,29 @@ decode(lo, hi16, rows, prefixes, branches, suffixes):
   r3   = p ^ r ^ (mid ? 0 : 1)     # Equation (3), no stored bit
   row3 = rows[2048*r3 + i3]
 
-  for k in 0..23:                  # y comes out in trio order
-    s, j = k / 8, k % 8
+  c, row = (c1, c2, c3), (row1, row2, row3)
+  for k in range(24):              # y comes out in octad order
+    s, j = k // 8, k % 8
     o    = p + 2 * bit(c[s], j)
     y[k] = val(o, rank(row[s], j))
 
   m = dot(y, y) / 16               # shell index, from y itself
   return y * gain[g] * inv_norm[m] * sigma_row
 \end{verbatim}
-\caption{Decoding one 48-bit word, given as a 32-bit low half \texttt{lo} and
-a 16-bit high half \texttt{hi16}. \texttt{val} and \texttt{rank} are the
-closed forms of \S\ref{sec:state}. The dot product that consumes \texttt{y}
-must read the activation at \texttt{ORDER[k]}, not at \texttt{k}: the 24
-values arrive in trio order, and dotting them against a natural-order
-activation is a silent wrong answer.}
+\caption{Decoding one 48-bit word, given as its low 32 bits \texttt{lo} and
+its high 16 bits \texttt{hi16}. \texttt{rank(row, j)} is bits $4j$ to $4j+3$
+of the row, and \texttt{val(o, rank)} is the value at that rank in the list
+of \S\ref{sec:state}. The 24 values come out octad by octad
+(\S\ref{sec:tetra}), so the dot product must pair \texttt{y[k]} with the
+activation of the same coordinate. Pairing it with the activation at
+\texttt{k} gives a wrong result and no error.}
 \label{fig:pseudo}
 \end{figure}
 
 \begin{table}[t]
 \centering
 \small
-\caption{Every field of the word, and every constant the decode names. The
-bits sum to 48 and each field spans a power-of-two range, which is why any
-48-bit value is a legal word.}
+\caption{The fields of the 48-bit word, and the tables the decode reads.}
 \label{tab:fields}
 \begin{tabular}{@{}llr l@{}}
 \toprule

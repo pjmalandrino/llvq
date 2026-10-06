@@ -1,8 +1,8 @@
 \section{Introduction}
 \label{sec:intro}
 
-A 14-billion-parameter model needs 29.5~GB for its FP16 weights alone, more
-than a 24~GB consumer GPU holds. At batch 1 a model reads every weight once per
+Qwen3-14B needs 29.5~GB for its FP16 weights alone, more than a 24~GB
+consumer GPU holds. At batch 1 a model reads every weight once per
 token, so weight size sets both memory and speed. Two or three bits per
 parameter let such a model run on local hardware.
 

@@ -7,11 +7,11 @@ columns not yet quantized, using second-order statistics from calibration text.
 AWQ~\citep{awq2024} rescales input channels by activation size before rounding
 to 4 bits. With groups of 128 weights it is the usual 4-bit baseline, which
 vLLM serves with the Marlin kernel~\citep{vllm2023,marlin2024}. Two recent
-methods improve on GPTQ's loop. Qronos~\citep{qronos2025} also corrects the
-error that quantizing the previous layers leaves in a layer's inputs.
+methods improve on GPTQ. Qronos~\citep{qronos2025} also corrects the error
+that quantizing the previous layers leaves in a layer's inputs.
 KronQ~\citep{kronq2026} models the Hessian with Kronecker factors that include
-gradient information, rotates each matrix on its output side as well as its
-input side, and allocates precision across layers from a sensitivity measure.
+gradient information, uses the output-side factor in its incoherence
+processing, and allocates precision across layers from a sensitivity measure.
 Our encoder does none of this, and our int4 choices were measured on a
 benchmark instead (\S\ref{sec:chain}).
 
@@ -25,10 +25,11 @@ decode by reading them, and both papers tie kernel speed to how well these
 tables fit in the GPU cache. The IQ2 formats of llama.cpp~\citep{llamacpp}
 decode from grids of 256 to 1{,}024 points held in a lookup table.
 GLVQ~\citep{glvq2025} learns a lattice for each group of weights, through a
-learned generator matrix, and decodes it with a matrix-vector product. At
-2 bits it reports a lower WikiText-2 perplexity than QTIP and QuIP\# on
-Llama~2-70B, and a lower decode speed than QTIP on Llama~2-7B, 82.0 against
-105.2 tokens per second on one RTX 4090. LiftQuant~\citep{liftquant2026}
+learned generator matrix, and decodes it with a matrix-vector product and an
+element-wise inverse $\mu$-law. At 2 bits it reports a lower WikiText-2
+perplexity than QTIP and QuIP\# on Llama~2-70B. Its 32-dimensional variant
+decodes Llama~2-7B at 82.0 tokens per second on one RTX 4090, against 105.2
+for QTIP. LiftQuant~\citep{liftquant2026}
 projects a 1-bit lattice from a higher-dimensional space, which makes its bit
 width nearly continuous. Both learn the codebook to gain quality. We keep the
 codebook of \citet{llvq2026} and change how the GPU reads it.

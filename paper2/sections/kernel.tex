@@ -42,12 +42,13 @@ once per group of projections that share a rotation.
 
 \paragraph{How the kernel is checked.} Before any timing, we recompute in f64,
 from the same decoded weights, every output row of the 4B shapes in every
-benchmark arm: 1{,}105{,}920 rows.
+benchmark arm that reads weights: 1{,}105{,}920 rows per arm.
 Each must match the kernel's row within $10^{-5}\cdot\sum|w\cdot x|$, or
 $10^{-3}$ for AWQ and cuBLAS, which write f16. The worst \Tetra{} row is off by
 $2.0\times10^{-8}\cdot\sum|w\cdot x|$. The decoder's CUDA source, compiled for
-the CPU, gives the 24 lattice coordinates of each 48-bit word bit for bit
-against an independent Rust decoder. End to end, on one prompt and in one
+the CPU, gives the same 24 lattice coordinates as an independent Rust decoder,
+bit for bit, on 4{,}000 test words: the origin and the all-ones word, each
+with and without the gain bit, and random words. End to end, on one prompt and in one
 process, the kernel and the dense reconstruction of each sealed file generate
 the same 256 greedy tokens at 4B and 8B. At both sizes the text falls into a
 one-sentence loop. At 14B they first differ at token 78, and at token 137 when
@@ -108,5 +109,7 @@ barriers and the occupancy. \Planes{} reads one entry per block from a 12~KiB
 table, \Tetra{} seven from 18.4~KiB. We attribute \Tetra{}'s larger range to
 pressure on L1 but have not proven it: our rented platform exposes no
 performance counters. We serve $T=64$ on sm\_89. On an sm\_120 card, an
-earlier sweep on other 4B files puts \Tetra{} fastest at $T=32$ and \Planes{}
-at $T=128$. On an A100 (\S\ref{sec:a100}), \Tetra{} is fastest at $T=128$.
+earlier sweep over the same 252 matrices puts \Tetra{} fastest at $T=32$ and
+\Planes{} at $T=128$, with \Tetra{} at 0.82 to 1.03 times the speed of
+\Planes{} depending on the tile. On an A100 (\S\ref{sec:a100}), \Tetra{} is
+fastest at $T=128$.

@@ -6,7 +6,7 @@
 \centering\small\setlength{\tabcolsep}{5pt}
 \begin{tabular}{lrrrr}
 \toprule
-arm & median ms & GB read & \bw{} & GB/s\\
+arm & median ms & GB read & \bw{} & GB/s, fastest round\\
 \midrule
 FP16, our control & 11.022 & 7.27 & 16.000 & 660\\
 FP16, cuBLAS & 10.839 & 7.27 & 16.000 & 671\\
@@ -35,23 +35,31 @@ control. Data: echelle-formats.csv.}
 \section{Record of predictions}
 \label{app:record}
 
-\paragraph{Predictions and how they scored.} Before each measurement campaign,
-we wrote a timestamped preregistration naming the arms (the configurations
-compared), the decision rules and a prediction. These files are never edited,
-and a departure from the plan is written next to its file. Three results in
-this paper have no preregistration. The retention figures of
-\S\ref{sec:kept} were measured on the development machine. The comparison of
-\S\ref{sec:sizeup} was chosen after measuring. The Hessian reading of
-\S\ref{sec:chain} is exploratory. Table~\ref{tab:predictions}
-lists a selection of the predictions; the preregistrations in
-\texttt{proofs/} hold all of them. A signed value with no unit is in MMLU
-points, except in the GSM8K rows. The GSM8K predictions for FP16 and AWQ each
-came with an interval, and every measurement fell inside it.
+\paragraph{Predictions and how they scored.} From 2026-08-10 on, before each
+measurement campaign, we wrote a timestamped preregistration naming the arms
+(the configurations compared), the decision rules and a prediction. These
+files are never edited, and a departure from the plan is written next to its
+file. The FP16 and AWQ perplexities come from earlier runs, with no
+preregistration. Five later results have none either: the retention figures of
+\S\ref{sec:kept}, measured on the development machine; the comparison of
+\S\ref{sec:sizeup}, chosen after measuring; the Hessian reading of
+\S\ref{sec:chain}, which is exploratory; the paired cost of sealing at 14B in
+\S\ref{sec:chain}, a reading chosen after the run; and the IQ2\_XXS speed of
+Table~\ref{tab:main}. Table~\ref{tab:predictions} lists a selection of the
+predictions; the preregistrations in \texttt{proofs/} hold all of them. A
+signed value with no unit is in MMLU points, except in the GSM8K rows. Rows
+that list several values give the point predictions; their intervals are in
+the preregistrations, and every listed value fell inside its interval.
 
-One campaign departed from its preregistration. The 14B row-scale training
-ended with its loss gauge reading ``not improved'', where its preregistration
-said to stop. We folded the scales anyway, on a decision recorded before the
-result was known. That step is the $+1.67$ of Table~\ref{tab:chain}.
+Several campaigns departed from their preregistration, and two of them
+overrode a decision rule. The 14B row-scale training ended with its loss gauge
+reading ``not improved'', where its preregistration said to stop. We folded
+the scales anyway, on a decision recorded before the result was known. That
+step is the $+1.67$ of Table~\ref{tab:chain}. The perplexity campaign said
+that a sealed file below its trained base voids the run, and the 14B read
+8.4440 against 8.4622. We published it anyway, after the run, because the
+paired interval contains zero (\S\ref{sec:chain}). The other departures
+changed how a run was launched, not what it measured.
 
 \begin{table}[!t]
 \centering\small\setlength{\tabcolsep}{3pt}

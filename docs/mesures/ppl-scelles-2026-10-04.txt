@@ -100,3 +100,16 @@ Bases paired or rejected: dclm-14b-rowscales-2026-09-22-brut/ppl-ft-f16.txt
   (Cuda), dclm-8b-rowscales-2026-09-21-brut/ppl-ft-f16.txt (Metal).
 VRAM over the job: peak 42.118 GB, mean 11.541, p50 9.950, p95 30.622, 565
   samples over 640 s. The peak is the 14B dense reconstruction on a 46 GB card.
+
+CORRECTION, 2026-10-06
+----------------------
+The 4B references were not read on Metal. FP16 and AWQ 4B were both read on an
+L40S on 2026-08-06, f16, same windows and token fingerprint:
+a4-campagne-4b-ppl-BRUT-2026-08-06.txt, FP16 12.2369 and AWQ 13.5207. The
+12.2361 quoted above is a Metal reading of the same checkpoint. With 12.2369
+the 4B ratios are unchanged at one decimal (+2.8 % to FP16, -6.9 % to AWQ),
+and no 4B ratio crosses devices. Paired over the 12 windows (t, 11 df):
+  4B   +2.83 % [+0.29, +5.43] to FP16   -6.93 % [-9.92, -3.85] to AWQ
+  8B   +7.97 % [+6.09, +9.88]           +3.03 % [+1.42, +4.65]
+  14B  +5.79 % [+4.53, +7.06]           +1.91 % [+0.86, +2.97]
+Every interval excludes zero. Found by the number audit of paper 2.
