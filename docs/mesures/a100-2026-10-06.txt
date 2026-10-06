@@ -1,4 +1,4 @@
-ON AN A100 THE TETRA KERNEL BEATS FP16, AND THE SERVED FILES DO NOT BEAT OUR OWN DENSE PATH (2026-10-06)
+ON AN A100 TETRA BEATS OUR FP16 KERNEL BUT NOT cuBLAS, AND THE SERVED FILES DO NOT BEAT OUR DENSE PATH (2026-10-06)
 =========================================================================================================
 Prereg: proofs/preregistration-a100-2026-10-06.md, sha256 add482d7, timestamped
         before the first job. Deviations: the -ECARTS.md beside it, two
@@ -32,9 +32,12 @@ arm reads the bare Tetra encode, 252 lattice records and no int4.
   tetra48 vs planes14: 1.40x [1.40-1.40], 1.36x with the f16 head added to both.
   252 of 252 matched by name; worst Tetra row 2.0e-8 of sum|w.x|.
 
-Tetra is the first lattice arm faster than FP16 on this card. Every earlier
-layout stays under it, as F4 (2026-08-19) and A4 (2026-08-31) found: Planes14
-0.79x again. AWQ stays 1.65 times faster than Tetra in time, from the medians,
+Tetra is the first lattice arm faster than our FP16 kernel on this card.
+Every earlier layout stays under it, as F4 (2026-08-19) and A4 (2026-08-31)
+found: Planes14 0.79x again. cuBLAS reads the same f16 weights faster still,
+6.050 ms, 1.14x, and our dense path runs its projections through cuBLAS
+(candle's matmul). Corrected 2026-10-06: the first version of this journal
+said "faster than FP16" without naming which FP16. AWQ stays 1.65 times faster than Tetra in time, from the medians,
 and the floor alone, 4.070 ms, is above AWQ's 3.777 with its weights.
 
 The four arms F4 timed reproduce within 1 %: FP16 6.899 against 6.915, AWQ
@@ -96,7 +99,8 @@ PREDICTIONS
   Planes14 bench, ms                8.74 [8.5, 9.0]     8.700      yes
   nullk bench, ms                   4.11 [4.0, 4.2]     4.070      yes
   Tetra bench, ms                   7.5 [6.5, 9.0]      6.224      NO, 0.28 under
-  Tetra slower than FP16            point prediction    1.11x faster   NO
+  Tetra slower than FP16            point prediction    1.11x faster than our FP16,
+                                                        0.97x cuBLAS    NO / yes
   Tetra range over the sweep        6 % [2, 15]         5.4 %      yes
   ours 4B / 8B / 14B tok/s          75 / 60 / 37        74.2 / 57.9 / 39.0   yes x3
   vLLM FP16 4B / 8B / 14B           165 / 95 / 55       145.6 / 91.8 / 52.7  yes x3
@@ -113,8 +117,8 @@ computed and not a published ratio).
 
 WHAT THIS ESTABLISHES
 ---------------------
-On a second architecture, the kernel claim holds in direction and shrinks in
-size: Tetra reads 2.150 b/weight and beats FP16 1.11x, against 3.20x on the
+On a second architecture, the kernel claim shrinks: Tetra reads 2.150
+b/weight and beats our FP16 kernel 1.11x but not cuBLAS (1.14x), against 3.20x on the
 L40S at the served tile (216 matrices; the 252-matrix L40S rerun is pending).
 It does not beat AWQ on either card. The end-to-end claim does not transfer:
 the served files beat our own dense path only through the 4-bit tables, and

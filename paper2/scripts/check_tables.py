@@ -84,7 +84,7 @@ def check_a100() -> None:
     one run of cells, and each decode row as its three sizes in order."""
     rows = {r["layout"]: r for r in read_csv("a100-bench.csv")}
     body = []
-    for k in ("FP16", "AWQ", "Planes14", "Tetra48", "nullk"):
+    for k in ("FP16", "cuBLASf16", "AWQ", "Planes14", "Tetra48", "nullk"):
         r = rows[k]
         cells = [r["med_ms"], r["bpw_kernel"], r["gbps"], f"{r['ratio_vs_fp16']}$\\times$"]
         if k == "Tetra48":

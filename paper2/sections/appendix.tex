@@ -88,6 +88,9 @@ GSM8K, \Tetra{} 14B & 88 $[83, 92]$ & 92.04 & no, 0.04 over\\
 GSM8K, \Tetra{} minus FP16, 4B & $-15$ $[-23, -8]$ & $-9.63$ & yes\\
 GSM8K, \Tetra{} minus FP16, 8B & $-10$ $[-17, -5]$ & $-4.62$ & no, 0.38 over\\
 GSM8K, \Tetra{} minus FP16, 14B & $-6$ $[-11, -2]$ & $-3.26$ & yes\\
+perplexity, sealed 4B, 8B, 14B & 12.51, 9.72, 8.59 & 12.58, 9.71, 8.44 & yes, all three\\
+A100, \Tetra{} kernel time & 7.5~ms $[6.5, 9.0]$ & 6.224~ms & no, 0.28~ms under\\
+A100, sealed files tok/s & 75, 60, 37 & 74.2, 57.9, 39.0 & yes, all three\\
 \bottomrule
 \end{tabular}
 \caption{Preregistered predictions against the measurements. Sources: the

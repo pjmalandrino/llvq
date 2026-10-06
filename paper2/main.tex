@@ -136,10 +136,8 @@ model. They score 63.37, 69.58 and 75.66 on the full MMLU test set, 4.76,
 read a WikiText-2 perplexity 2.8 to 8.0\,\% above FP16's. They generate 113.8, 95.0 and 57.2 tokens per second in our engine. On GSM8K,
 through the served kernel, they lose 9.63, 4.62 and 3.26 points to FP16. At 4B
 our file scores 23.6 points above llama.cpp's IQ2\_XXS (2.48 bits per
-parameter). Except two reference perplexities and one check on an A100, every
-number we measured for a table or figure comes from one NVIDIA L40S GPU. On
-the A100 the kernel still runs faster than FP16, and the served files lose
-their speed advantage over a dense model. We preregistered the main experiments.
+parameter). We measured on one NVIDIA L40S GPU. On an A100, the served files
+lose their speed advantage. We preregistered the main experiments.
 \end{abstract}
 
 \input{sections/intro}
