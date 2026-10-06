@@ -205,57 +205,23 @@ exceeds the project's entire spend to date.
 Perplexity is the best buy on the list. Three dollars, no code, and it is the number a quantization paper is read
 for. `sealed::load` already serves `ppl`, so the three files read as they are on the dense path.
 
-## 4 bis. Where to resume, state of 2026-10-05
+## 4 bis. Where to resume, state of 2026-10-06
 
-Spent: **$0.33** of the $9 cap, so $8.67 left. The ledger reads $242.21 over 215 priced jobs.
-Branch `retours-relecture-ia`, seven commits, not pushed.
+Spent before `banc-252`: **$0.50** of the $9 cap, two jobs. Branch `retours-relecture-ia`, not
+pushed.
 
-Three things are open, in this order.
+**The device-clean cost of sealing is done** (2026-10-05, $0.17,
+[ppl-bases-carte](mesures/ppl-bases-carte-2026-10-05.txt)). The device effect is null to 0.01 %,
+and the last build step costs +2.1 % of perplexity at 4B and +1.4 % at 8B, not separated at 14B.
+Paper 2 carries both since f0b3f71, with the four related works of N8.
 
-**The device-clean cost of sealing, deviation É2 of the perplexity prereg.** The Metal route is
-abandoned: `hf buckets cp` has no timeout and no resume, it stalled three times out of four
-between 430 and 851 MB, and killing it restarts that file from zero. The 4B came down whole and
-sits in `~/scelles-2026-10-04/qwen3-4b-sealed.bin`, sha256 `886391a8`, so that size is ready for
-a Metal run; the 8B and the 14B are not worth the lottery.
-
-The better route costs about **$0.25** and transfers nothing: read the two **trained bases** on a
-card, `dclm-ft-2026-09-19/qwen3-4b-dclm-ft.bin` (1.79 GB) and
-`dclm-8b-ft-2026-09-21/qwen3-8b-dclm-ft.bin` (4.36 GB), both already in the bucket. That gives the
-device effect paired on a quantized file at 8B, since the Metal base's twelve per-window NLLs are
-on disk, and the cost of sealing device-clean at 4B and 8B. It needs a deviation on
-`preregistration-ppl-metal-2026-10-04.md`, which measured nothing, and a new prereg.
-
-**The int4 arm of the bench, which is the only thing that answers the GB/s complaint.** The bytes
-over 252 matrices are arithmetic and are in section 4 ter below. The **time** is not: it needs the
-file's int4 records timed through `tv_q4_h`, and that has never been measured.
-
-Done and committed: the registry. `tetra48q4` is arm 18, with a third state, `DEFAULT_OFF`, so a
-bare `planesbench` dispatches exactly what it dispatched before. It is a second arm and not a fix
-to `tetra48`, because redefining would take the arm from 216 matrices to 252 under the same name
-and make the published 4.078, 3.423 and 3.553 ms incomparable to everything that cites them.
-
-In the working tree, type-checking, one dead-code warning until its consumer lands: `Int4Src` and
-the record loop that keeps the int4 records instead of counting and dropping them.
-
-What is left, in order: the device buffers and the f64 reference, the launch helper, the dispatch
-closure, the verification wiring, and two report columns. Four traps found while reading, and each
-is the kind that costs a billed job:
-
-1. **`tv_q4_h` stages the whole activation in shared memory.** At `d_in` 17,408 that asks 69,632
-   bytes against the 49,152 a card gives by default, and this is the second defect of the
-   2026-09-25 job (`data/jobs.csv`). `llvq_cuda::Gpu::func_dynamic_shared` already handles the
-   three cases including the refusal, and the attribute must be set **once at the maximum over the
-   file's int4 matrices**, never per launch inside a timed round.
-2. **A row must be a whole number of u32 words.** The kernel reads the stream through a `u32*`, 8
-   weights a word, so `d_in % 8 != 0` makes every row after the first read at a shifted phase.
-   Asserted at read.
-3. **The output is binary16**, like the AWQ arm's, not the f32 buffer the lattice arms write.
-4. **The int4 count is the file's and never a constant**: 36 on the bench file, 84 on the served
-   one. A hardcoded 36 would be right today and wrong on the object we ship.
-
-`tv_q4_h.cu` enters the bench by a cross-crate `include_str!` at the **end** of the NVRTC unit,
-since `llvq-cuda` cannot depend on `llvq-llm` and appending is the only placement that moves no
-published arm's fragment.
+**Equal work in the kernel bench, by another route (2026-10-06).** The int4 arm described here
+on 2026-10-05 is abandoned on the operator's instruction: "252 matrices everywhere", with no mixed
+arm. Its registry commit is reverted (7802f3f) and the unfinished `Int4Src` reader is stashed. The
+bench instead times the existing `tetra48` arm on the bare `Tetra` encode,
+`tetra-4b-2026-09-06/qwen3-4b-tetra.bin`, which holds 252 lattice records and no int4. Every arm
+then times the same 252 matrices, and the four traps listed on 2026-10-05 no longer apply.
+Preregistered in `proofs/preregistration-banc-252-2026-10-06.md`, job `banc-252`.
 
 ## 4 ter. The bytes over all 252 matrices, which need no run
 
