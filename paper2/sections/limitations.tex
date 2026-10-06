@@ -2,11 +2,11 @@
 \label{sec:limitations}
 
 \begin{itemize}
-\item \textbf{One card.} Every number we measured for a table or figure comes
-  from one NVIDIA L40S, except the FP16 and AWQ perplexities of the 4B, read
-  on an Apple GPU. On an A100, at tile 128, none of our earlier lattice
-  kernels ran faster than FP16~\citep{llvq1preprint}, and we did not run
-  \Tetra{} there. On an sm\_120 card, over all 252 matrices of two earlier 4B
+\item \textbf{Two cards.} Every number we measured for a table or figure comes from one NVIDIA L40S, except the FP16 and AWQ
+  perplexities of the 4B, read on an Apple GPU, and Table~\ref{tab:a100}, on
+  one A100. On the A100 the kernel still beats FP16, but the served files do
+  not beat our own dense path with equal tables (\S\ref{sec:a100}). We ran no
+  consumer GPU, the hardware this work targets. On an sm\_120 card, over all 252 matrices of two earlier 4B
   files, \Tetra{} ran at 0.82 to 1.03 times the speed of \Planes{}, depending
   on the tile (\S\ref{sec:tile}).
 \item \textbf{One calibration draw.} Every size is encoded from the same

@@ -21,6 +21,7 @@ chosen after measuring).
 
 Next, in this order, we would test \texttt{down\_proj} instead of
 \texttt{o\_proj} in int4 at 4B and 14B, as at 8B, then add a second
-calibration draw and a second kind of GPU. Qwen3-32B first needs new kernels on
+calibration draw, and measure the served path on a consumer GPU. On an A100
+the kernel kept a lead over FP16 that the rest of our engine lost. Qwen3-32B first needs new kernels on
 the L40S: its widest activation takes 102{,}400~B of shared memory, 1{,}024~B
 over the card's limit.

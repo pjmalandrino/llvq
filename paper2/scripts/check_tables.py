@@ -79,6 +79,24 @@ def check_ppl() -> None:
     need("experiments.tex", body, "cost of sealing in perplexity")
 
 
+def check_a100() -> None:
+    """tab:a100 against a100-bench.csv and a100-served.csv: each kernel row as
+    one run of cells, and each decode row as its three sizes in order."""
+    rows = {r["layout"]: r for r in read_csv("a100-bench.csv")}
+    body = []
+    for k in ("FP16", "AWQ", "Planes14", "Tetra48", "nullk"):
+        r = rows[k]
+        cells = [r["med_ms"], r["bpw_kernel"], r["gbps"], f"{r['ratio_vs_fp16']}$\\times$"]
+        if k == "Tetra48":
+            cells = [f"\\textbf{{{c}}}" for c in cells]
+        body.append(" & ".join(cells))
+    served: dict[str, list[str]] = {}
+    for r in read_csv("a100-served.csv"):
+        served.setdefault(r["arm"], []).append(r["toks"])
+    body += [" & ".join(v) + " & \\\\" for v in served.values()]
+    need("experiments.tex", body, "cell of tab:a100")
+
+
 def check_chain() -> None:
     """tab:chain and tab:files against paper2-chain.csv."""
     body = []
@@ -162,7 +180,8 @@ def check_shape() -> None:
     for name in ("tuile-l40s.csv", "paper2-results.csv", "paper2-gaps.csv",
                  "paper2-chain.csv", "paper2-gsm8k.csv", "paper2-gsm8k-gaps.csv",
                  "paper2-sizeup.csv", "paper2-sizeup-budget.csv",
-                 "paper2-ppl.csv", "paper2-ppl-sealing.csv"):
+                 "paper2-ppl.csv", "paper2-ppl-sealing.csv",
+                 "a100-bench.csv", "a100-served.csv"):
         with open(DATA / name, newline="") as f:
             reader = csv.DictReader(f)
             width = len(reader.fieldnames or [])
@@ -190,6 +209,7 @@ def main() -> None:
     check_shape()
     check_main()
     check_ppl()
+    check_a100()
     check_chain()
     check_gaps()
     check_gsm8k()

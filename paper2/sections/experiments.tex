@@ -326,3 +326,53 @@ benchmark: per matrix, the Hessian-weighted error of \Tetra{} over that of
 int4. On an earlier 4B file it did not rank the six projection types as
 MMLU does (Spearman $\rho = 0.54$, $p = 0.30$, an exploratory reading of six
 points), so it chose nothing here.
+
+\subsection{A second architecture}
+\label{sec:a100}
+
+\begin{table}[t]
+\centering\small\setlength{\tabcolsep}{5pt}
+\begin{tabular}{lrrrr}
+\toprule
+ & median ms & \bw{} in VRAM & GB/s, fastest round & against FP16\\
+\midrule
+FP16 & 6.899 & 16.000 & 1054 & 1.00$\times$\\
+AWQ w4g128 & 3.777 & 4.179 & 503 & 1.83$\times$\\
+\Planes{} & 8.700 & 4.804 & 251 & 0.79$\times$\\
+\textbf{\Tetra{}} & \textbf{6.224} & \textbf{2.150} & \textbf{157} & \textbf{1.11$\times$}\\
+no weights & 4.070 & 0.159 & 18 & 1.69$\times$\\
+\midrule
+\textit{decode, tokens per second} & 4B & 8B & 14B & \\
+\Tetra{}, our engine & 74.2 & 57.9 & 39.0 & \\
+\Tetra{}, f16 tables, our engine & 45.9 & 34.2 & 23.7 & \\
+f16 dense path, our engine & 51.1 & 37.4 & 25.1 & \\
+FP16, vLLM & 145.6 & 91.8 & 52.7 & \\
+AWQ w4g128, vLLM & 240.2 & 188.5 & 131.7 & \\
+\bottomrule
+\end{tabular}
+\caption{The kernel benchmark and the served files on one NVIDIA A100-SXM4
+(sm\_80, HBM2e), with the protocols of Table~\ref{tab:bench} and
+Table~\ref{tab:main}. All five kernel arms time the same 252 matrices in one
+process, at tile 128, and the ratios are formed round by round. The \Tetra{}
+arm reads a 4B file with no int4 projection. Nothing here is divided by a
+figure of the L40S. Data: a100-bench.csv, a100-served.csv.}
+\label{tab:a100}
+\end{table}
+
+The L40S is an Ada GPU with GDDR6 memory at 0.86~TB/s. To test a card where
+reading fewer bytes matters less, we ran the kernel benchmark and the three
+sealed files on an A100, an Ampere GPU (sm\_80) with HBM2e at about 2.0~TB/s
+(Table~\ref{tab:a100}). We predicted that \Tetra{} would be slower than FP16
+there, as every earlier lattice layout is~\citep{llvq1preprint}, and it is
+not: over all 252 matrices it runs 1.11 times FP16's speed, where \Planes{}
+runs 0.79 times. It stays 1.65 times slower than AWQ, whose time is below that
+of our kernel with no weights. The best of three tiles is 128 here, and
+\Tetra{}'s range over the three is 5.4\,\%.
+
+The kernel's gain does not reach the served files. With the embedding and
+head in f16 on both sides, they decode at 0.92, 0.91 and 0.95 times the speed
+of our own dense path, where they ran 1.27 to 1.61 times faster on the L40S.
+Their speed over the dense path comes from the 4-bit tables alone, and in our
+engine they decode below FP16 in vLLM at every size. Memory and quality do not
+depend on the card. The greedy tokens match the dense path for all 256 at 4B
+and 8B and first differ at token 78 at 14B, as on the L40S.

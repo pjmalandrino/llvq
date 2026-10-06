@@ -22,6 +22,10 @@ log. The CSVs are in `docs/data/`. `paper2/scripts/make_figures.py` draws every 
 | G(E₈)/G(Λ₂₄) = 1.0899 | cited, computed | Conway and Sloane 1999, Table 2.3 |
 | ten-arm benchmark: the kernel benchmark table of section 5.2, and Appendix A | measured | echelle-formats.csv; banc-t64-09-20 (raw output only); QTIP row: f2-p3-qtip-banc-08-21 |
 | tile sweep, section 5.2 (the activation tile) | measured | tuile-l40s.csv; tuile-l40s-09-20 |
+| A100: kernel benchmark over 252 matrices, Table 8 and section 6.6 | measured | a100-bench.csv; a100-10-06, raw output a100-bench-2026-10-06-brut |
+| A100: tile sweep, Tetra 6.183 / 6.361 / 6.517 ms, range 5.4 % | measured | a100-10-06 (sweep-128, -64, -32 in the raw output) |
+| A100: decode of the sealed files, our dense path, same-head 0.92 / 0.91 / 0.95 | measured | a100-served.csv; a100-10-06, raw output a100-served-2026-10-06-brut |
+| A100: FP16 and AWQ in vLLM | measured | a100-served.csv; a100-10-06, raw output a100-vllm-2026-10-06-brut |
 | sealed files, table of section 4: bytes, bits per parameter | measured, computed | `rtbits`; sealed-4b-09-23 (raw output), sealed-rownorms-09-23, sealed-8b-27-09-24, sealed-8b-14b-09-23 |
 | MMLU of the sealed files; at 4B, of the same weights with the int4 matrices rebuilt at load | measured | embed-q4-swap-09-23, sealed-8b-27-09-24, sealed-8b-14b-09-23; question fingerprint `a74a6d62`; the 4B file gives the same answers and logits on 57 of 57 questions, sealed-4b-09-23 (raw output, `metal-smoke/`), control 1 of its preregistration |
 | steps of the build, table of section 6.5 | measured, computed | paper2-chain.csv; dclm-rowscales-09-20 (4B interval: paper2-audit-09-28, raw output), dclm-8b-rowscales-09-21, dclm-14b-rowscales-09-22, census-8b-09-21, census-14b-base-09-22, embed-q4-swap-09-23, sealed-8b-27-09-24, sealed-8b-14b-09-23 |
