@@ -42,10 +42,10 @@ once per group of projections that share a rotation.
 
 \paragraph{How the kernel is checked.} Before any timing, we recompute in f64,
 from the same decoded weights, every output row of the 4B shapes in every
-benchmark arm: 1{,}105{,}920 rows, 1{,}069{,}056 for the 216 \Tetra{} matrices.
+benchmark arm: 1{,}105{,}920 rows.
 Each must match the kernel's row within $10^{-5}\cdot\sum|w\cdot x|$, or
 $10^{-3}$ for AWQ and cuBLAS, which write f16. The worst \Tetra{} row is off by
-$2.1\times10^{-8}\cdot\sum|w\cdot x|$. The decoder's CUDA source, compiled for
+$2.0\times10^{-8}\cdot\sum|w\cdot x|$. The decoder's CUDA source, compiled for
 the CPU, gives the 24 lattice coordinates of each 48-bit word bit for bit
 against an independent Rust decoder. End to end, on one prompt and in one
 process, the kernel and the dense reconstruction of each sealed file generate
@@ -69,20 +69,19 @@ defect. That rule says nothing about the cause.
 \toprule
  & FP16 & AWQ w4g128 & \Planes{} & \Tetra{} & no weights\\
 \midrule
-matrices timed & 252 & 252 & 252 & 216 & 252\\
-median ms & 10.973 & 3.261 & 4.997 & 3.424 & 2.289\\
-GB read per pass & 7.27 & 1.90 & 2.18 & 0.95 & 0.07\\
-\bw{} in VRAM & 16.000 & 4.179 & 4.804 & \textbf{2.148} & 0.159\\
-GB/s, fastest round & 662 & 583 & 437 & 278 & 32\\
+median ms & 11.022 & 3.263 & 5.004 & 3.734 & 2.294\\
+GB read per pass & 7.27 & 1.90 & 2.18 & 0.98 & 0.07\\
+\bw{} in VRAM & 16.000 & 4.179 & 4.804 & \textbf{2.150} & 0.159\\
+GB/s, fastest round & 660 & 582 & 436 & 262 & 32\\
 \bottomrule
 \end{tabular}
 \caption{Kernel benchmark on the 4B shapes at tile $T=64$: one process, one
-L40S, seven rounds with the first two dropped. ``No weights'' has the same
-thread layout and reads no block code, only the tail and the row scales. The
-\Tetra{} arm times the 216 lattice matrices of an early 4B file. Its 36 int4
-\texttt{v\_proj} run on the other kernel. The lattice arms hold the tail in
-f32, as the files store it, where the served kernel uses f16. The \Tetra{} row
-leaves out 4.1~MB of row padding, 0.009~\bw{}. The AWQ arm is its authors' GEMV
+L40S, seven rounds with the first two dropped. Every arm times the same 252
+matrices, and the \Tetra{} arm reads a 4B file with no int4 projection. ``No
+weights'' has the same thread layout and reads no block code, only the tail
+and the row scales. The lattice arms hold the tail in f32, as the files store
+it, where the served kernel uses f16. The \Tetra{} row leaves out 4.2~MB of
+row padding, 0.009~\bw{}. The AWQ arm is its authors' GEMV
 kernel~\citep{awq2024} ported to our harness, not the Marlin kernel that vLLM
 serves. Its row includes 10.1~MB of padding in that kernel's scale and zero
 buffers, 0.022~\bw{}. Without it, w4g128 costs 4.156~\bw{}. Ten arms:
@@ -90,11 +89,10 @@ Appendix~\ref{app:bench}. Data: echelle-formats.csv.}
 \label{tab:bench}
 \end{table}
 
-Per weight, \Tetra{} reads 2.148 bits, about half the 4.179 of 4-bit AWQ and
-the 4.804 of \Planes{} (Table~\ref{tab:bench}). The \Tetra{} time, a lower
-bound since its arm covers fewer matrices, is still above AWQ's: 3.424 against
-3.261~ms. \Tetra{} reads its bytes at 278~GB/s, where AWQ reaches 583. Reading
-half the bytes does not halve the time.
+Per weight, \Tetra{} reads 2.150 bits, about half the 4.179 of 4-bit AWQ and
+the 4.804 of \Planes{} (Table~\ref{tab:bench}). Its time is still above AWQ's:
+3.734 against 3.263~ms. \Tetra{} reads its bytes at 262~GB/s, where AWQ
+reaches 582. Reading half the bytes does not halve the time.
 
 \paragraph{The activation tile.}\label{sec:tile} The tile $T$ changes no output
 bit and costs no storage. On an Ada GPU (sm\_89), it sets how much of each
@@ -102,10 +100,10 @@ SM's 128~KiB pool of L1 and shared memory is left to cache the decoder
 tables~\citep{cudaguide}. Occupancy does not move: six 256-thread blocks fit at
 every tile, filling the 1{,}536 threads an SM holds, and shared memory never
 binds. At $T = 128$, 64 and 32, one process per tile on one L40S, the median
-pass takes 2.272, 2.288 and 2.388~ms with no weights, 5.070, 4.995 and 5.044~ms for
-\Planes{}, and 4.078, 3.423 and 3.553~ms for \Tetra{} on its 216 matrices
-(data: tuile-l40s.csv). Each arm's range, largest over smallest, is 5.1, 1.5
-and 19.1\,\%. The three arms share the thread layout, the activation copy, the
+pass takes 2.281, 2.291 and 2.392~ms with no weights, 5.068, 5.011 and
+5.047~ms for \Planes{}, and 4.353, 3.701 and 3.841~ms for \Tetra{} (data:
+tuile-l40s.csv). Each arm's range, largest over smallest, is 4.9, 1.1 and
+17.6\,\%. The three arms share the thread layout, the activation copy, the
 barriers and the occupancy. \Planes{} reads one entry per block from a 12~KiB
 table, \Tetra{} seven from 18.4~KiB. We attribute \Tetra{}'s larger range to
 pressure on L1 but have not proven it: our rented platform exposes no

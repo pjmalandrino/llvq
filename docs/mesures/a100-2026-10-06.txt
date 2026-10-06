@@ -118,8 +118,8 @@ computed and not a published ratio).
 WHAT THIS ESTABLISHES
 ---------------------
 On a second architecture, the kernel claim shrinks: Tetra reads 2.150
-b/weight and beats our FP16 kernel 1.11x but not cuBLAS (1.14x), against 3.20x on the
-L40S at the served tile (216 matrices; the 252-matrix L40S rerun is pending).
+b/weight and beats our FP16 kernel 1.11x but not cuBLAS (1.14x), against 2.95x on the
+L40S at the served tile over the same 252 matrices (banc-252-2026-10-06).
 It does not beat AWQ on either card. The end-to-end claim does not transfer:
 the served files beat our own dense path only through the 4-bit tables, and
 stay under vLLM's FP16. Memory and quality do not depend on the card.

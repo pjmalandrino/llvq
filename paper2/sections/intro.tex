@@ -24,7 +24,7 @@ trellis~\citep{forney1988}: a layered graph with 64 nodes at each cut, where
 each codeword is one path. A block is stored as its state, a few bits that
 choose the path and the gain, and three 11-bit indices into one 16~KiB table,
 still 48 bits. The kernel decodes it with six table loads and two small
-lookups, and reads 2.148 bits per weight.
+lookups, and reads 2.150 bits per weight.
 
 \begin{figure}[t]
 \centering
@@ -45,7 +45,7 @@ Our contributions:
 \item \Tetra{}, a codebook on $\Lambda_{24}$ read through a Golay trellis and
   one table, with the rule it imposes on which points to keep and its measured
   cost (\S\ref{sec:tetra}).
-\item A fused kernel that decodes and multiplies in one pass, reading 2.148
+\item A fused kernel that decodes and multiplies in one pass, reading 2.150
   bits per weight against 4.804 for our earlier layout and 4.179 for 4-bit
   AWQ~\citep{awq2024} (\S\ref{sec:kernel}).
 \item A recipe for complete files at about 2.7 bits per parameter that changes

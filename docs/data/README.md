@@ -7,10 +7,9 @@ nothing is smoothed.
 Two columns are derived, and the net recomputes both.
 
 1. `echelle-formats.csv::pct_byte_bound` exists in no journal. It is
-   `round(gbps / 661 × 100)`, where 661 GB/s is the FP16 arm of the same run.
-   It gives the fraction of its byte bound that a kernel turns into time. It is
-   stable under the choice of round: recomputed on the **medians** rather than
-   on the benchmark minima, it yields the same integers (100/65/65/54/30/40/88).
+   `round(gbps / 660 × 100)`, where 660 GB/s is the FP16 arm of the same run
+   (banc-252-2026-10-06). It gives the fraction of its byte bound that a kernel
+   turns into time.
 2. `echelle-4b-8b.csv::vram_margin_vs_awq_pct` (−2.6 / −10.6 / −5.5) is
    `round((llvq2 / awq4 − 1) × 100, 1)` over the two `vram_bits_per_param` of
    the same size. No journal writes it in that form. It is the margin the prose
@@ -29,7 +28,8 @@ comma**, and `check_tables.py::check_csv_shape` enforces it.
 | file | contents | source |
 |---|---|---|
 | `campagne-finale.csv` | the 4 arms × 5 factors table (disk, VRAM, speed, ppl, MMLU) | a4-campagne + campagne-finale-bras4 |
-| `echelle-formats.csv` | the **10 arms** on the benchmark (b/weight **kernel**, ms, GB/s, % of the byte bound, ratio vs FP16 with range) | **f2-p3-qtip-banc-2026-08-21 (phase 2)**, re-sourced on 2026-08-21 from the 10-arm run. Adding the QTIP row to the seven-arm file it came from (`golay70-v2-sept-bras`) would have put rounds from two processes side by side, which the paper's methodology forbids, so the **whole** table was re-measured with every arm present. The incumbents reproduce within the spread (`Planes14` ×2.15 on both runs, `Golay70` v2 ×1.77 then ×1.78) |
+| `echelle-formats.csv` | the **10 arms** on the benchmark (b/weight **kernel**, ms, GB/s, % of the byte bound, ratio vs FP16 with range), every arm on the same 252 matrices | [banc-252-2026-10-06](../mesures/banc-252-2026-10-06.txt), ten arms in one process, `Tetra` on the bare encode. The QTIP row stays from f2-p3-qtip-banc-2026-08-21, another process, as the paper says. Earlier versions of this file came from 2026-08-21 and 2026-09-20; the second timed `Tetra` on 216 matrices |
+| `tuile-l40s.csv` | the tile sweep on the L40S, 128 / 64 / 32, one process per tile: nullk, `Planes14`, `Tetra` on 252 matrices, and R = (Tetra − nullk) / (Planes14 − nullk) from the medians | [banc-252-2026-10-06](../mesures/banc-252-2026-10-06.txt); the 216-matrix version came from tuile-l40s-2026-09-20 |
 | `phases.csv` | the per-phase time of a token, 4 profiles (fenced: attribution, not a total) | phases-2026-08-07 |
 | `progression.csv` | the arc of the week: VRAM/throughput/b-param at each step | mini, a1, planes14-fusedrun, nuit |
 | `echelle-4b-8b.csv` | the model scale, 3 arms × 3 sizes (ppl, ratio, MMLU micro, **b/param whole model**) | a4-campagne + campagne-finale-bras4 (4B), campagne-8b-qualite (8B), campagne-14b-qualite (14B); `params_total` and the `vram_*` columns come from elsewhere: rtbits-planes-8b (4B, 8B) and rtbits-14b-2026-08-17 (14B) |

@@ -13,15 +13,15 @@ log. The CSVs are in `docs/data/`. `paper2/scripts/make_figures.py` draws every 
 | Planes14 reads 4.804 b/weight | measured | echelle-formats.csv; e2-golay70-bench-08-07 |
 | ball holds 1.1·10¹⁴ points | computed | shells 2 to 12 of the class enumeration; theta-series test in `llvq-search` |
 | 64 states a cut, 1,024 edges, N₀ = 1240 | computed | f1a-comptes-09-04 (states, edges); f1-rang-plancher-09-05 (N₀); all three asserted when `llvq-search` builds the tables |
-| tables, 18,816 B | computed | sum of the five sizes printed at every launch; banc-t64-09-20 (raw output only) |
+| tables, 18,816 B | computed | sum of the five sizes printed at every launch; banc-252-10-06 (raw output) |
 | m ≤ 26, max \|y_j\| = 10 | computed | `llvq-bench/examples/tetrashell.rs`, exhaustive; paper2-audit-09-28 |
 | about 150 instructions a block, 20 more for gain and norm; about 380 plus 24 conversions for a decoder that converts | computed | `llvq-cuda/kernels/llvq_f1rank_v3.cuh` (default mask; its header counts 141 for the one-`prmt` mask), `llvq-cuda/kernels/llvq_tetra48.cuh`; recount in paper2-audit-09-28 |
 | retention, 88.80 against 91.98, and 3.2 points on real blocks | measured | f1-encodeur-blocs-reels-09-05 |
 | 0.6 points of retention from the cost order | measured | `llvq-bench/examples/f1rankbench.rs`; `docs/HISTORIQUE.md`, 2026-09-05 |
 | shaping, 0.7292 against 1.0958 dB | computed, idealized | `ops/f1a_shaping.py` |
 | G(E₈)/G(Λ₂₄) = 1.0899 | cited, computed | Conway and Sloane 1999, Table 2.3 |
-| ten-arm benchmark: the kernel benchmark table of section 5.2, and Appendix A | measured | echelle-formats.csv; banc-t64-09-20 (raw output only); QTIP row: f2-p3-qtip-banc-08-21 |
-| tile sweep, section 5.2 (the activation tile) | measured | tuile-l40s.csv; tuile-l40s-09-20 |
+| ten-arm benchmark: the kernel benchmark table of section 5.2, and Appendix A, every arm on the same 252 matrices | measured | echelle-formats.csv; banc-252-10-06 (raw output); QTIP row: f2-p3-qtip-banc-08-21 |
+| tile sweep, section 5.2 (the activation tile) | measured | tuile-l40s.csv; banc-252-10-06 (sweep-128, -64, -32 in the raw output) |
 | A100: kernel benchmark over 252 matrices, cuBLAS row included, Table 8 and section 6.6 | measured | a100-bench.csv; a100-10-06, raw output a100-bench-2026-10-06-brut |
 | A100: tile sweep, Tetra 6.183 / 6.361 / 6.517 ms, range 5.4 % | measured | a100-10-06 (sweep-128, -64, -32 in the raw output) |
 | A100: decode of the sealed files, our dense path, same-head 0.92 / 0.91 / 0.95 | measured | a100-served.csv; a100-10-06, raw output a100-served-2026-10-06-brut |
@@ -61,7 +61,7 @@ log. The CSVs are in `docs/data/`. `paper2/scripts/make_figures.py` draws every 
 | bare Tetra against Planes14, and the encoder drift | measured | tetra-4b-09-06, and deviation É3 of its preregistration in `proofs/`; paired interval in paper2-audit-09-28 |
 | sm_120 tile sweep, 0.82 to 1.03 times Planes14, in Limitations | measured | f1d-09-10 |
 | load times 4.1 and 72.9 s, 96 rotation launches a token | measured | paper-table-09-25 |
-| row padding, 4.1 MB | measured | banc-t64-09-20 (raw output only) |
+| row padding, 4.2 MB | measured | banc-252-10-06 (raw output) |
 | AWQ padding, 10.1 MB, and w4g128 at 4.156 b/weight without it | computed | `awq_strides` in `planesbench`, the 4B shapes |
 | tokenizer and config in the file, 11.4 MB | measured | `docs/fiche-4b.md`, on the Planes14 file; the sealed 4B file ends with the same `tokenizer.json`, 11,422,654 B, sha256 `aeb13307`, which awq-vllm-4b-08-17 finds in every Qwen3 checkpoint |
 | z = 1.1 for the fall of the AWQ gap from 4B to 8B | computed | standard errors of the paired MMLU gaps, from the logs of the paired-gaps row |

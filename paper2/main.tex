@@ -127,7 +127,7 @@ from GPU memory for 2 bits of code. We present \Tetra{}, a new codebook on the
 same lattice. A 24-weight block still takes 48 bits, most of which index a
 64-state trellis of the Golay code and one shared 16~KiB table. The kernel
 decodes a block with six table loads and two small lookups inside the
-matrix-vector product, and reads 2.148 bits per weight. For full models, we
+matrix-vector product, and reads 2.150 bits per weight. For full models, we
 retrain one scale per matrix row, store the matrices that lose the most as
 4-bit integers, and pay for them with 4-bit embedding tables. Our Qwen3-4B,
 8B and 14B files hold 2.73, 2.70 and 2.73 bits per parameter over the whole
