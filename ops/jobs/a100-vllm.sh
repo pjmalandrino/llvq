@@ -74,7 +74,7 @@ fi
 
 uv run ops/run.py bench \
   --image "$IMAGE" \
-  --flavor a100-large --any-flavor --timeout 35m \
+  --flavor a100-large --any-flavor --kernels-cap 80 --timeout 35m \
   --bucket "$BUCKET" --out-mount /out \
   --name "a100-vllm" \
   "$PRE" "$BODY"

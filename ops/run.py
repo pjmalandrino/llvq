@@ -1058,6 +1058,17 @@ def cmd_bench(args) -> int:
     from huggingface_hub import run_job, Volume
 
     ok, why = cap_ok(args.flavor)
+    if args.kernels_cap is not None:
+        # The per-family guard `MIN_COMPUTE_CAP` asks for, stated by the
+        # operator per job rather than inferred: the compute capability this
+        # job's kernels target. An `llvq-cuda` binary under
+        # `LLVQ_NVRTC_ARCH=compute_80`, the sm80 image, and an image that is
+        # not ours (vLLM) each have one, and none is this repo's 89.
+        card = FLAVORS.get(args.flavor, {}).get("cap")
+        ok = card is None or card >= args.kernels_cap
+        why = (f"sm_{card} against kernels declared for sm_{args.kernels_cap} "
+               f"(--kernels-cap, not the standard image's sm_{MIN_COMPUTE_CAP})")
+        print(f"compute cap: {why}")
     if not ok:
         print(f"refused, {args.flavor}: {why}")
         return 2
@@ -1576,6 +1587,11 @@ def main() -> int:
     b.add_argument("cmd", nargs="+", help="shell lines, run under set -euo pipefail")
     b.add_argument("--image", required=True)
     b.add_argument("--flavor", default="l40sx1")
+    b.add_argument("--kernels-cap", type=int, default=None, metavar="N",
+                   help="the compute capability this job's kernels target, when it "
+                        "is not the standard image's: 80 for an llvq-cuda binary "
+                        "under LLVQ_NVRTC_ARCH=compute_80, for the sm80 image, or "
+                        "for vLLM on an A100. Name it in the prereg or its ECARTS")
     b.add_argument("--any-flavor", action="store_true",
                    help="override the whitelist, to be declared in every published figure")
     # No default. The docstring of `cmd_bench` has said "mandatory and has no

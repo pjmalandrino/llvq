@@ -161,7 +161,7 @@ fi
 
 uv run ops/run.py bench \
   --image "hf.co/spaces/$SPACE" \
-  --flavor a100-large --any-flavor --timeout "$TIMEOUT" \
+  --flavor a100-large --any-flavor --kernels-cap 80 --timeout "$TIMEOUT" \
   --bucket "$BUCKET" --out-mount /out \
   --name "a100-$PART" \
   "$PRE" "$BODY"
