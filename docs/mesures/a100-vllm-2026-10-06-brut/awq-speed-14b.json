@@ -1,0 +1,123 @@
+{
+ "schema": "llvq-awq-speed/1",
+ "utc": "2026-10-06T08:06:51Z",
+ "preregistration": "proofs/preregistration-awq-vllm-2026-08-17.md",
+ "image_tag": "vllm/vllm-openai:v0.26.0",
+ "image_digest": "sha256:ffb2d59b1c059a5bd8d781320c9f5189de8293693b7d95da54befddaa54abf52",
+ "vllm_version": "0.26.0",
+ "accelerator": "gpu",
+ "job_id": "6ac4a9d2fbc85ba6823b2325",
+ "size": "14b",
+ "interleaved": true,
+ "tokens": 128,
+ "warmups": 2,
+ "rounds": 5,
+ "prompt_token_ids": [
+  785,
+  6722,
+  315,
+  9625,
+  374
+ ],
+ "prompt_text": "The capital of France is",
+ "arms": {
+  "f16": {
+   "quantization_resolved": "none",
+   "quantization_readable": true,
+   "prefix_caching": false,
+   "prefix_caching_readable": true,
+   "dtype": "torch.float16",
+   "load_s": 85.16907189399353,
+   "gpu_memory_utilization": 0.5,
+   "kernel_log": [],
+   "repo": "Qwen/Qwen3-14B",
+   "revision": "40c069824f4251a91eefaf281ebe4c544efd3e18",
+   "quantization_requested": null,
+   "elapsed_s": [
+    2.4290543340030126,
+    2.4282912790076807,
+    2.4280971090047387,
+    2.428245679999236,
+    2.4284849899995606
+   ],
+   "tokps": [
+    52.6954042189166,
+    52.71196297847229,
+    52.71617824728039,
+    52.712952834344286,
+    52.707758346088504
+   ],
+   "n_tokens_out": [
+    128,
+    128,
+    128,
+    128,
+    128
+   ],
+   "text": " Paris. What is the capital of the United States of America? The capital of the United States of America is Washington, D.C. It is a federal district and the seat of the U.S. government, home to important landmarks like the White House, the Capitol, and the Supreme Court. While it's not part of any state, it serves as the political center of the country. Let me know if you'd like more details! 😊\n\nOkay, so the user asked for the capital of the United States. I know it's Washington, D.C., but I should make sure I'm not mixing it up with another city",
+   "median": 52.71196297847229,
+   "min": 52.6954042189166,
+   "max": 52.71617824728039,
+   "spread_pct": 0.03941046242628663
+  },
+  "awq_marlin": {
+   "quantization_resolved": "auto_awq",
+   "quantization_readable": true,
+   "prefix_caching": false,
+   "prefix_caching_readable": true,
+   "dtype": "torch.float16",
+   "load_s": 86.91003279399592,
+   "gpu_memory_utilization": 0.25,
+   "kernel_log": [
+    "[vllm.entrypoints.serve.utils.api_utils] non-default args: {'dtype': 'float16', 'max_model_len': 2048, 'enable_prefix_caching': False, 'gpu_memory_utilization': 0.25, 'disable_log_stats': True, 'revision': '31c69efc29464b6bb0aee1398b5a7b50a99340c3', 'tokenizer_revision': '31c69efc29464b6bb0aee1398b5a7b50a99340c3', 'model': 'Qwen/Qwen3-14B-AWQ'}"
+   ],
+   "repo": "Qwen/Qwen3-14B-AWQ",
+   "revision": "31c69efc29464b6bb0aee1398b5a7b50a99340c3",
+   "quantization_requested": null,
+   "elapsed_s": [
+    0.9732445289992029,
+    0.9720881410030415,
+    0.9721873590024188,
+    0.9721027449995745,
+    0.9721476160048041
+   ],
+   "tokps": [
+    131.5188487436181,
+    131.6753024760946,
+    131.66186416098168,
+    131.67332430488716,
+    131.66724671509914
+   ],
+   "n_tokens_out": [
+    128,
+    128,
+    128,
+    128,
+    128
+   ],
+   "text": " Paris. What is the capital of the United States of America? The capital of the United States of America is Washington, D.C. It is a federal district and serves as the seat of the U.S. government, housing important institutions like the White House, Congress, and the Supreme Court. While many people might think of New York City as the capital due to its prominence, it is actually Washington, D.C. that holds this title. The choice of Washington, D.C. as the capital was a compromise between Northern and Southern states during the nation's early years, and it was designed by French architect Pierre Charles L'Enfant",
+   "median": 131.66724671509914,
+   "min": 131.5188487436181,
+   "max": 131.6753024760946,
+   "spread_pct": 0.11882509612663253
+  }
+ },
+ "ratios": {
+  "awq_marlin_vs_f16": {
+   "per_round": [
+    2.49583148081072,
+    2.4980155364328045,
+    2.497560872933236,
+    2.4979311008943803,
+    2.4980619712670875
+   ],
+   "median": 2.4979311008943803,
+   "min": 2.49583148081072,
+   "max": 2.4980619712670875
+  }
+ },
+ "control": {
+  "applicable": false
+ },
+ "violations": []
+}

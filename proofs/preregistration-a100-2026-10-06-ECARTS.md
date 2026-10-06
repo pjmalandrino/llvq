@@ -28,3 +28,7 @@ names as Lob keys; no key of ours was in it. The folder was deleted from the Spa
 `c9b72043`), and `44a18d3` excludes it and refuses any perimeter over 1,000 files. The republished
 Space holds 363 files, as the canonical one does. Its sha, after the build, is written in the
 journal before the served job launches.
+
+Written before the served job launched: the sm80 Space finished its build at sha
+`7903f89dea63dc10fec1fd430ba5445d1be71363`. Its `COMMIT` file names `44a18d3`, a clean perimeter,
+and `CUDA_COMPUTE_CAP` rewritten to 80; it holds 363 files.
