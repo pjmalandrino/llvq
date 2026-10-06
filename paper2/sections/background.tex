@@ -6,23 +6,38 @@ quantizes a matrix one column at a time and pushes each rounding error onto the
 columns not yet quantized, using second-order statistics from calibration text.
 AWQ~\citep{awq2024} rescales input channels by activation size before rounding
 to 4 bits. With groups of 128 weights it is the usual 4-bit baseline, which
-vLLM serves with the Marlin kernel~\citep{vllm2023,marlin2024}.
+vLLM serves with the Marlin kernel~\citep{vllm2023,marlin2024}. Two recent
+methods improve on GPTQ. Qronos~\citep{qronos2025} also corrects the error
+that quantizing the previous layers leaves in a layer's inputs.
+KronQ~\citep{kronq2026} models the Hessian with Kronecker factors that include
+gradient information, uses the output-side factor in its incoherence
+processing, and allocates precision across layers from a sensitivity measure.
+Our encoder does none of this, and our int4 choices were measured on a
+benchmark instead (\S\ref{sec:chain}).
 
 \paragraph{Two-bit vector quantization.} Below three bits, the strong methods
 encode several weights at once, as a choice from a codebook.
 QuIP\#~\citep{quipsharp2024} uses the $E_8$ lattice. QTIP~\citep{qtip2024}
-uses a trellis: its hybrid code hashes each state to index a 2~KiB table, and
+uses a trellis. Its hybrid code hashes each state to index a 2~KiB table, and
 its computed codes, such as 3INST, need no table. AQLM and
 VPTQ~\citep{aqlm2024,vptq2024} learn codebooks of at most $2^{16}$ entries and
 decode by reading them, and both papers tie kernel speed to how well these
 tables fit in the GPU cache. The IQ2 formats of llama.cpp~\citep{llamacpp}
 decode from grids of 256 to 1{,}024 points held in a lookup table.
+GLVQ~\citep{glvq2025} learns a lattice for each group of weights, through a
+learned generator matrix, and decodes it with a matrix-vector product and an
+element-wise inverse $\mu$-law. At 2 bits it reports a lower WikiText-2
+perplexity than QTIP and QuIP\# on Llama~2-70B. Its 32-dimensional variant
+decodes Llama~2-7B at 82.0 tokens per second on one RTX 4090, against 105.2
+for QTIP. LiftQuant~\citep{liftquant2026}
+projects a 1-bit lattice from a higher-dimensional space, which makes its bit
+width nearly continuous. Both learn the codebook to gain quality. We keep the
+codebook of \citet{llvq2026} and change how the GPU reads it.
 
-\paragraph{The Leech lattice.} Van der Ouderaa et al.~\citep{llvq2026} quantize the weights in blocks
-of 24 on $\Lambda_{24}$, the densest sphere packing in 24
-dimensions~\citep{cohn2017}. Inside a GPTQ-style loop, each block is coded in
-48 bits, 2 per weight, as a lattice direction (the shape) and a length (the
-gain). Their best codebook on Gaussian data spends 47 bits on one of
+\paragraph{The Leech lattice.} $\Lambda_{24}$ is the densest sphere packing
+in 24 dimensions~\citep{cohn2017}. Inside a GPTQ-style loop,
+\citet{llvq2026} code each block as a lattice direction (the shape) and a
+length (the gain). Their best codebook on Gaussian data spends 47 bits on one of
 $1.1\times10^{14}$ lattice points inside a ball and one bit on the gain. The
 model results we cite spend all 48 bits on a larger ball of
 $2.8\times10^{14}$ points. On Qwen3-4B they report 60.7 on MMLU without
@@ -33,5 +48,4 @@ several shells.
 \paragraph{Our earlier kernel.} In \citet{llvq1preprint} we served their
 47-bit codebook with its gain bit. At load time, each code was unfolded into a
 112-bit \Planes{} record: a class, a gain bit, a sign mask and three bit planes
-(Figure~\ref{fig:word}). A fused kernel reads these records at 4.804 bits per
-weight. This paper replaces that layout.
+(Figure~\ref{fig:word}).

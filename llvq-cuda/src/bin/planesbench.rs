@@ -1790,7 +1790,16 @@ mod linux {
         };
 
         let mut rng = SplitMix64::new(0x6_D07);
-        let x: Vec<f32> = (0..16384).map(|_| rng.next_gaussian() as f32).collect();
+        // 16,384 until 2026-10-04, which refused the 14B `down_proj` at
+        // `d_in` 17,408 and made the 14B unbenchable (census-14b-base).
+        //
+        // Extending is the one edit here that cannot move a published number.
+        // `SplitMix64` is sequential, so the first 16,384 draws are the same
+        // values they have always been, and a matrix reads `x[0..d_in]`: every
+        // arm at every `d_in` <= 16,384 sees a bit-identical activation.
+        // Reseeding or shortening would not have that property.
+        const XLEN: usize = 20480;
+        let x: Vec<f32> = (0..XLEN).map(|_| rng.next_gaussian() as f32).collect();
         let d_x = cuda.up_f32(&x)?;
         // The activation as the AWQ kernel reads it: binary16, by float4 of
         // eight. The LLVQ and FP16 arms read the f32. That is a format
@@ -1914,7 +1923,13 @@ mod linux {
             let nblocks = d_in / DIM;
             let tail_w = d_in % DIM;
             assert_eq!(d_out % 8, 0, "{}: CUDA launches whole blocks", s.name);
-            assert!(d_in <= x.len(), "{}: d_in {d_in} overruns the activation", s.name);
+            assert!(
+                d_in <= x.len(),
+                "{}: d_in {d_in} overruns the activation of {} floats. Raise XLEN above \
+                 and relaunch: extending the draw leaves every shorter matrix bit-identical",
+                s.name,
+                x.len()
+            );
             // The Slot32 host transcode is NOT conditional: it is the exact
             // content every LLVQ arm is proved against, and the reference
             // loop below decodes it row by row. What the selection spares is

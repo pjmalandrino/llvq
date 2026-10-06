@@ -1,0 +1,71 @@
+TETRA ON ALL 252 MATRICES: 3.734 MS AT THE SERVED TILE, AND EVERY ARM NOW TIMES THE SAME WORK (2026-10-06)
+==========================================================================================================
+Prereg: proofs/preregistration-banc-252-2026-10-06.md, sha256 d7272a8a,
+        timestamped before the run. Deviations: none.
+Job:    6ac4a16efbc85ba6823b1f07, l40sx1, 2068 s billed, $1.03 against $1.05
+        announced, after about 1 h 30 in the queue.
+Image:  97a2b62a (commit 5333ac8). Card: NVIDIA L40S, 8.9, driver 580.178.04.
+Nature: *measured*; ratios formed round by round by planesbench.
+
+WHAT CHANGED
+------------
+One file. The Tetra arm reads tetra-4b-2026-09-06/qwen3-4b-tetra.bin (sha256
+0adb7cfd), the bare encode with 252 lattice records and no int4, where the
+published table read a file whose 36 v_proj were int4 and skipped. Every arm
+now times the same 252 matrices.
+
+THE TEN-ARM TABLE, TILE 64 (served on sm_89), ONE PROCESS
+---------------------------------------------------------
+  arm              med ms   GB/pass  b/weight  GB/s(min)  vs FP16
+  floor (nullk)     2.294     0.07     0.159       32     4.80x
+  FP16             11.022     7.27    16.000      660     1.00x
+  FP16 cuBLAS      10.839     7.27    16.000      671     1.02x
+  Slot32            5.737     2.50     5.510      437     1.92x
+  Planes14          5.004     2.18     4.804      436     2.20x
+  **Tetra48**     **3.734**   0.98     2.150      262   **2.95x [2.95-2.95]**
+  Planes12x         5.385     1.97     4.342      366     2.05x
+  Golay70 v1        8.124     1.63     3.589      201     1.36x
+  Golay70 v2        6.060     1.63     3.589      269     1.82x
+  AWQ w4g128        3.263     1.90     4.179      582     3.38x
+
+  tetra48 vs planes14: 1.34x [1.34-1.34], same 252 matrices.
+  252 of 252 matched by name; worst Tetra row 2.0e-8 of sum|w.x|.
+  4.2 MB of row padding held and not billed, 0.009 b/weight.
+
+The published arms move by under 0.5 %: FP16 11.022 against 10.973, AWQ 3.263
+against 3.261, Planes14 5.004 against 4.997, nullk 2.294 against 2.289.
+
+Tetra on 252 matrices is 3.734 ms, where the 216-matrix arm read 3.424. AWQ is
+faster in time, 3.263 ms, by 1.144 from the medians, for 1.94 times Tetra's
+bits per weight.
+
+THE TILE SWEEP, ONE PROCESS PER TILE
+------------------------------------
+  tile    nullk    FP16     Planes14   Tetra48   R = (T-n)/(P-n), from medians
+  128     2.281   11.050     5.068     4.353     0.7435
+   64     2.291   10.985     5.011     3.701     0.5184
+   32     2.392   10.914     5.047     3.841     0.5458
+
+Ranges, largest over smallest: nullk 4.9 %, Planes14 1.1 %, Tetra 17.6 %.
+64 stays the best tile for Tetra on sm_89, as on 216 matrices (19.1 %).
+
+PREDICTIONS
+-----------
+  quantity                          predicted            measured   inside?
+  Tetra, ten-arm table, tile 64     3.72 [3.60, 3.85]    3.734      yes
+  Tetra b/weight                    2.150 [2.149, 2.151] 2.150      yes
+  Tetra GB a pass                   0.98 [0.97, 0.99]    0.98       yes
+  Tetra time over AWQ's             1.14 [1.10, 1.18]    1.144      yes
+  sweep 128 / 64 / 32, ms           4.36 / 3.72 / 3.86   4.353 / 3.701 / 3.841   yes x3
+  Tetra range over the sweep        17 % [12, 22]        17.6 %     yes
+  published arms within 2 %         yes                  under 0.5 %  yes
+
+F1d's 3.717 at tile 64 on this file (2026-09-10, another process, older image)
+reproduces to 0.5 %.
+
+PROVENANCE
+----------
+Bucket: hf://buckets/Pier-Jean/jobs-artifacts/banc-252-2026-10-06/, copied
+into docs/mesures/banc-252-2026-10-06-brut/ with the job log.
+Replaces, in docs/data/: echelle-formats.csv (whole, QTIP row kept from
+f2-p3-qtip-banc-2026-08-21 as before) and tuile-l40s.csv.

@@ -22,8 +22,8 @@ whole block, in f32 in the file and f16 on the GPU. The RMSNorm weights stay in
 f16. The embedding table is stored separately, and so is the output head at 8B
 and 14B. At 4B the head is tied to the embedding.
 
-We count memory in bits per parameter over the whole model: all the weight
-bits the served model keeps, embedding, tail, scales and int4 records included,
+We count memory in bits per parameter over the whole model. That is all the
+weight bits the served model keeps, embedding, tail, scales and int4 records included,
 over the number of parameters. For our files, the \texttt{rtbits} tool
 computes it from the file's records, at the widths the GPU holds. For AWQ and
 IQ2\_XXS, it is the checkpoint's size in bits over the number of parameters.
@@ -35,11 +35,10 @@ The KV cache and the activations are not counted.
 The encoder sets each row scale $\sigma_{\mathrm{row}}$ of
 Equation~\eqref{eq:recon} from the norm of the rotated row. We retrain only
 these scales, with the FP16 model as teacher~\citep{hinton2015} and a KL loss
-on the output probabilities over DCLM-Edu text~\citep{dclmedu}. The lattice
-codes stay fixed, and the trained scales replace the old ones in place, so no
-bit is added. At 4B the training sees 19.5 million tokens and takes 1.7~h on
-one L40S. The 8B and 14B runs take 1.1~h and 1.8~h on one H200. This step
-alone adds 3.15, 3.29 and 1.67 MMLU points (\S\ref{sec:chain}).
+on the output probabilities over DCLM-Edu text~\citep{dclmedu}. The trained
+scales replace the old ones in place, so no bit is added. At 4B the training
+sees 19.5 million tokens and takes 1.7~h on one L40S. The 8B and 14B runs take
+1.1~h and 1.8~h on one H200.
 
 \subsection{int4 where the lattice loses the most}
 \label{sec:int4}
@@ -51,9 +50,9 @@ int4 gained 1.73 MMLU points $[0.87, 2.59]$ on the full test set, for 0.05
 bits per parameter.
 
 The three files we serve, which we call \emph{sealed}, also store
-\texttt{o\_proj} in int4, and \texttt{down\_proj} in a range of middle layers
-(Table~\ref{tab:files}). At 8B only \texttt{down\_proj} is added, and
-\S\ref{sec:chain} explains why.
+\texttt{down\_proj} in int4 in a range of middle layers, and the 4B and 14B
+files \texttt{o\_proj} as well (Table~\ref{tab:files}). \S\ref{sec:chain}
+explains why the 8B does not.
 
 \subsection{4-bit embedding tables}
 \label{sec:q4emb}
@@ -62,11 +61,11 @@ Qwen3's embedding table has 151{,}936 rows and is 9.7\,\% of the parameters at
 4B. At 8B and 14B the output head is a second table of the same shape, and the
 two hold 15.2\,\% and 10.5\,\% of the parameters. Before this step our files
 stored them in f16, and the served model quantized them to 8 bits at load. The
-sealed files store them in 4 bits, in groups of 64 as MLX does~\citep{mlx2023},
-with an f16 scale and offset per group. The GPU dequantizes rows on the
+sealed files store them in 4 bits like the int4 projections, but in groups of
+64 as MLX does~\citep{mlx2023}. The GPU dequantizes rows on the
 fly, for the input tokens and inside the head's matrix-vector product. Going
 from 8 to 4 bits frees 0.19, 0.62 and 0.78~GB at 4B, 8B and 14B. This saving
-pays for the int4 projections: every sealed file needs fewer bits per parameter
+pays for the int4 projections, and every sealed file needs fewer bits per parameter
 than the file it was built from (\S\ref{sec:chain}).
 
 \begin{table}[t]
@@ -84,8 +83,9 @@ bits per parameter, whole model & 2.7320 & 2.6953 & 2.7305\\
 \end{tabular}
 \caption{The three sealed files. Layers are numbered from 0: ``down 12--23''
 means \texttt{down\_proj} in layers 12 to 23. Bits per parameter are counted as
-in \S\ref{sec:file}. The file is larger: it also carries the tokenizer and the
+in \S\ref{sec:file}. The file is larger because it also carries the tokenizer and the
 config (11.4~MB), and stores the tail in f32 and the row scales in f64. Data:
-paper2-chain.csv, and the sealing logs for file sizes.}
+paper2-chain.csv; the sealing logs (\texttt{rtbits} and \texttt{int4swap}
+outputs) for the splits, the windows and the file sizes.}
 \label{tab:files}
 \end{table}

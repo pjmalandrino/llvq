@@ -1,0 +1,98 @@
+NVIDIA L40S, 8.9, 46068 MiB, 580.178.04
+9db213ef9fa9d7d7000789a8a529ce9459ce9ba6002ef5a72fd5a1c05c1c84b0  /out/ball-ref-2026-09-20/qwen3-4b-llvq.bin
+0adb7cfd02ed74022b639bdaee27f9440fa1083d2d81b80096b7ae5679866ce5  /out/tetra-4b-2026-09-06/qwen3-4b-tetra.bin
+== the ten arms at the served tile, phase 2 adds tetra48 ==
+Tue Oct  6 08:55:12 UTC 2026
+  phases 1→2 golay70v1  med    8.105 →    8.124 ms (+0.23%), vs FP16 1.359 → 1.356 (-0.19%)
+  phases 1→2 fp16       med   11.015 →   11.022 ms (+0.06%)
+  phases 1→2 awq        med    3.260 →    3.263 ms (+0.09%), vs FP16 3.379 → 3.377 (-0.07%)
+  phases 1→2 golay70v2  med    6.049 →    6.060 ms (+0.20%), vs FP16 1.822 → 1.818 (-0.26%)
+  phases 1→2 cublasf16  med   10.836 →   10.839 ms (+0.03%), vs FP16 1.016 → 1.017 (+0.01%)
+  phases 1→2 nullk      med    2.292 →    2.294 ms (+0.07%), vs FP16 4.805 → 4.802 (-0.06%)
+  Δ_contrôle (max |Δ| of the ratios vs FP16) = 0.26%; max intra-run half-range = 0.23% (planes14); R = 0.26%
+
+  fusion: 72 groups (180 matrices → 72), transcoded in 79 s
+
+  Fusion (A4) — output against the unfused matrices
+  bit-exact against the unfused arms: 72 groups on Slot32 and Planes14, 0 on Tetra48
+  Tetra fusion not requested (LLVQ_SEG_TETRA unset): `tv_tetra48_seg` is compiled and not exercised here
+  72 groups, 921600 rows — identical BIT FOR BIT, on Slot32 AND on Planes14
+
+  Cost — 7 rounds, 2 discarded, FOUR arms interleaved, medians
+  ------------------------------------------------------------------------------
+  Slot32, separate matrices              5.779 ms   252 launches
+  Slot32, q+k+v and gate+up fused        4.999 ms   144 launches
+  Planes14, separate matrices            5.066 ms   252 launches
+  Planes14, q+k+v and gate+up fused      4.495 ms   144 launches
+  ------------------------------------------------------------------------------
+  Tetra48 fusion: not timed (LLVQ_SEG_TETRA unset)
+  gain Slot32   : 0.784 ms [0.774–0.801]  (13.6%)
+  gain Planes14 : 0.563 ms [0.556–0.573]  (11.1%)
+  Planes14 / Slot32 on the gain: 0.73× [0.70–0.73]
+  WARNING: ratio of two DIFFERENCES. Its spread is that of the two numerators
+  combined, hence far wider than that of the ratios in the table above. Read it
+  as an order of magnitude, never to two decimals. The two "gain" lines are the
+  ones that carry the result.
+  landmark: 108 fewer launches × 3.63 µs measured (a3-graph-2026-08-06)
+  = 0.392 ms, independent of the layout. What exceeds that is occupancy.
+  bytes read — Slot32   : 2.506 GB fused against 2.502 separate (+0.15%)
+  bytes read — Planes14 : 2.185 GB fused against 2.182 separate (+0.17%)
+  Slot32's STREAM can move: its stride is the widest record of a group of 32,
+  and the concatenation regroups at segment boundaries. Planes14's cannot — 14
+  bytes per block, no bases table. What BOTH pay is `gs_off`, one u32 a fused
+  row naming that row's centroid pair: 3.7 MB over the 72 groups, and it is the
+  only byte fusion adds. It was missing from this ledger until 2026-09-10, which
+  printed +0.00% and called that a verification (tests/planes_segment_matches_unfused.rs).
+  Any gain BEYOND this would be a confounder, not a bonus.
+
+  WARNING: THIS BLOCK PRODUCES NO RATIO AGAINST FP16, and authorizes
+  none: the FP16 arm suffers the same underfill on k/v and would gain from
+  the fusion too. Only the two LLVQ → LLVQ DELTAS above are measured.
+Tue Oct  6 09:21:33 UTC 2026
+== sweep, tile 128 ==
+Tue Oct  6 09:21:33 UTC 2026
+tile 128 (⚠️ LLVQ_TILE_BLOCKS overrides the served policy)
+Build: Slot32 transcode (reference, always), Tetra48 (SECOND FILE — its own reference, decoded back out of the packed words), Planes14, exact-reconstruction proofs of the arms that were built…
+  tile 128 (⚠️ LLVQ_TILE_BLOCKS overrides the served policy)
+  floor (nullk)             2.277    2.281    2.281     0.07    0.159       32
+  LLVQ Planes14             5.058    5.068    5.078     2.18    4.804      431
+  LLVQ Tetra48              4.352    4.353    4.356     0.98    2.150      224
+  floor (nullk)    vs FP16     : 4.85× [4.84–4.85]
+  LLVQ Planes14    vs FP16     : 2.18× [2.18–2.18]
+  LLVQ Tetra48     vs FP16     : 2.54× [2.54–2.54]
+  976 MB distinct per pass on the lightest arm (LLVQ Tetra48), which is 9.7× the L2 read.
+  throughput, added to the LLVQ arms): floor (nullk) 3.53×, LLVQ Planes14 1.96×, LLVQ Tetra48 2.21×.
+== sweep, tile 64 ==
+Tue Oct  6 09:24:06 UTC 2026
+tile 64 (⚠️ LLVQ_TILE_BLOCKS overrides the served policy)
+Build: Slot32 transcode (reference, always), Tetra48 (SECOND FILE — its own reference, decoded back out of the packed words), Planes14, exact-reconstruction proofs of the arms that were built…
+  tile 64 (⚠️ LLVQ_TILE_BLOCKS overrides the served policy)
+  floor (nullk)             2.288    2.291    2.293     0.07    0.159       32
+  LLVQ Planes14             5.000    5.011    5.013     2.18    4.804      436
+  LLVQ Tetra48              3.698    3.701    3.704     0.98    2.150      264
+  floor (nullk)    vs FP16     : 4.80× [4.79–4.80]
+  LLVQ Planes14    vs FP16     : 2.19× [2.19–2.20]
+  LLVQ Tetra48     vs FP16     : 2.97× [2.96–2.97]
+  976 MB distinct per pass on the lightest arm (LLVQ Tetra48), which is 9.7× the L2 read.
+  throughput, added to the LLVQ arms): floor (nullk) 3.51×, LLVQ Planes14 1.97×, LLVQ Tetra48 2.49×.
+== sweep, tile 32 ==
+Tue Oct  6 09:26:38 UTC 2026
+tile 32 (⚠️ LLVQ_TILE_BLOCKS overrides the served policy)
+Build: Slot32 transcode (reference, always), Tetra48 (SECOND FILE — its own reference, decoded back out of the packed words), Planes14, exact-reconstruction proofs of the arms that were built…
+  tile 32 (⚠️ LLVQ_TILE_BLOCKS overrides the served policy)
+  floor (nullk)             2.392    2.392    2.397     0.07    0.159       30
+  LLVQ Planes14             5.040    5.047    5.050     2.18    4.804      433
+  LLVQ Tetra48              3.840    3.841    3.841     0.98    2.150      254
+  floor (nullk)    vs FP16     : 4.56× [4.55–4.56]
+  LLVQ Planes14    vs FP16     : 2.16× [2.16–2.17]
+  LLVQ Tetra48     vs FP16     : 2.84× [2.84–2.84]
+  976 MB distinct per pass on the lightest arm (LLVQ Tetra48), which is 9.7× the L2 read.
+  throughput, added to the LLVQ arms): floor (nullk) 3.39×, LLVQ Planes14 1.94×, LLVQ Tetra48 2.41×.
+Tue Oct  6 09:29:12 UTC 2026
+== raw kept ==
+  189 /out/banc-252-2026-10-06/banc.txt
+    1 /out/banc-252-2026-10-06/gpu.txt
+   73 /out/banc-252-2026-10-06/sweep-128.txt
+   73 /out/banc-252-2026-10-06/sweep-32.txt
+   73 /out/banc-252-2026-10-06/sweep-64.txt
+  409 total

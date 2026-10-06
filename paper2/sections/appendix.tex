@@ -4,24 +4,24 @@
 
 \begin{table}[H]
 \centering\small\setlength{\tabcolsep}{5pt}
-\begin{tabular}{lrrrrr}
+\begin{tabular}{lrrrr}
 \toprule
-arm & matrices & median ms & GB read & \bw{} & GB/s\\
+arm & median ms & GB read & \bw{} & GB/s, fastest round\\
 \midrule
-FP16, our control & 252 & 10.973 & 7.27 & 16.000 & 662\\
-FP16, cuBLAS & 252 & 10.828 & 7.27 & 16.000 & 672\\
-\textsc{Slot32} (ours, earlier) & 252 & 5.732 & 2.50 & 5.510 & 437\\
-\Planes{} (ours, earlier) & 252 & 4.997 & 2.18 & 4.804 & 437\\
-\textsc{Planes12x} (ours, earlier) & 252 & 5.366 & 1.97 & 4.342 & 368\\
-\textsc{Golay70} (ours, earlier) & 252 & 8.064 & 1.63 & 3.589 & 202\\
-\textsc{Golay70}, hoisted (ours, earlier) & 252 & 6.016 & 1.63 & 3.589 & 271\\
-\Tetra{} (this paper) & 216 & 3.424 & 0.95 & 2.148 & 278\\
-AWQ w4g128~\citep{awq2024} & 252 & 3.261 & 1.90 & 4.179 & 583\\
-no-weights control & 252 & 2.289 & 0.07 & 0.159 & 32\\
-QTIP 2-bit, HYB~\citep{qtip2024}$^{*}$ & 252 & 2.246 & 0.91 & 2.000 & 405\\
+FP16, our control & 11.022 & 7.27 & 16.000 & 660\\
+FP16, cuBLAS & 10.839 & 7.27 & 16.000 & 671\\
+\textsc{Slot32} (ours, earlier) & 5.737 & 2.50 & 5.510 & 437\\
+\Planes{} (ours, earlier) & 5.004 & 2.18 & 4.804 & 436\\
+\textsc{Planes12x} (ours, earlier) & 5.385 & 1.97 & 4.342 & 366\\
+\textsc{Golay70} (ours, earlier) & 8.124 & 1.63 & 3.589 & 201\\
+\textsc{Golay70}, hoisted (ours, earlier) & 6.060 & 1.63 & 3.589 & 269\\
+\Tetra{} (this paper) & 3.734 & 0.98 & 2.150 & 262\\
+AWQ w4g128~\citep{awq2024} & 3.263 & 1.90 & 4.179 & 582\\
+no-weights control & 2.294 & 0.07 & 0.159 & 32\\
+QTIP 2-bit, HYB~\citep{qtip2024}$^{*}$ & 2.246 & 0.91 & 2.000 & 405\\
 \bottomrule
 \end{tabular}
-\caption{Each row is one kernel timed on the 4B matrix shapes on one L40S.
+\caption{Each row is one kernel timed on the 252 matrices of the 4B on one L40S.
 The first ten rows are the five arms of Table~\ref{tab:bench} and five more,
 timed in the same process at tile 64 with the same protocol. The rows marked
 ``earlier'' are the layouts of \citet{llvq1preprint}, timed again here.
@@ -35,33 +35,40 @@ control. Data: echelle-formats.csv.}
 \section{Record of predictions}
 \label{app:record}
 
-\paragraph{Predictions and how they scored.} Before each measurement campaign,
-we wrote a timestamped preregistration naming the arms (the configurations
-compared), the decision rules and a prediction. These files are never edited,
-and a departure from the plan is written next to its file. Three results in
-this paper have no preregistration. The ten-arm benchmark behind
-Table~\ref{tab:bench} and Appendix~\ref{app:bench} reran the preregistered one
-at the tile the preregistered sweep chose. The retention figures of
-\S\ref{sec:kept} were measured on the development machine. The comparison of
-\S\ref{sec:sizeup} was chosen after measuring. Table~\ref{tab:predictions}
-lists a selection of the predictions; the preregistrations in
-\texttt{proofs/} hold all of them. A signed value with no unit is in MMLU
-points, except in the GSM8K rows. The GSM8K predictions for FP16 and AWQ each
-came with an interval, and every measurement fell inside it.
+\paragraph{Predictions and how they scored.} From 2026-08-10 on, before each
+measurement campaign, we wrote a timestamped preregistration naming the arms
+(the configurations compared), the decision rules and a prediction. These
+files are never edited, and a departure from the plan is written next to its
+file. The FP16 and AWQ perplexities come from earlier runs, with no
+preregistration. Five later results have none either: the retention figures of
+\S\ref{sec:kept}, measured on the development machine; the comparison of
+\S\ref{sec:sizeup}, chosen after measuring; the Hessian reading of
+\S\ref{sec:chain}, which is exploratory; the paired cost of sealing at 14B in
+\S\ref{sec:chain}, a reading chosen after the run; and the IQ2\_XXS speed of
+Table~\ref{tab:main}. Table~\ref{tab:predictions} lists a selection of the
+predictions; the preregistrations in \texttt{proofs/} hold all of them. A
+signed value with no unit is in MMLU points, except in the GSM8K rows. Rows
+that list several values give the point predictions; their intervals are in
+the preregistrations, and every listed value fell inside its interval.
 
-One campaign departed from its preregistration. The 14B row-scale training
-ended with its loss gauge reading ``not improved'', where its preregistration
-said to stop. We folded the scales anyway, on a decision recorded before the
-result was known. That step is the $+1.67$ of Table~\ref{tab:chain}.
+Several campaigns departed from their preregistration, and two of them
+overrode a decision rule. The 14B row-scale training ended with its loss gauge
+reading ``not improved'', where its preregistration said to stop. We folded
+the scales anyway, on a decision recorded before the result was known. That
+step is the $+1.67$ of Table~\ref{tab:chain}. The perplexity campaign said
+that a sealed file below its trained base voids the run, and the 14B read
+8.4440 against 8.4622. We published it anyway, after the run, because the
+paired interval contains zero (\S\ref{sec:chain}). The other departures
+changed how a run was launched, not what it measured.
 
 \begin{table}[!t]
-\centering\small\setlength{\tabcolsep}{3.5pt}
+\centering\small\setlength{\tabcolsep}{3pt}
 \begin{tabular}{lrrl}
 \toprule
 quantity & predicted & measured & inside?\\
 \midrule
-\Tetra{} time at tile 64, tile sweep & 3.77~ms $[3.5, 4.1]$ & 3.423~ms & no, 0.08~ms under\\
-gain from tile 128 to 64 & $+8.3\,\%$ $[0, +15]$ & $+16.1\,\%$ & no, 1.1 over\\
+\Tetra{} time, 252 matrices, tile 64 & 3.72~ms $[3.60, 3.85]$ & 3.734~ms & yes\\
+\Tetra{} ms at tiles 128, 64, 32 & 4.36, 3.72, 3.86 & 4.35, 3.70, 3.84 & yes, all three\\
 row-scale training, 4B & $+3.5$ $[+1.5, +4.5]$ & $+3.15$ & yes\\
 row-scale training, 8B & $+2.0$ $[+0.5, +3.5]$ & $+3.29$ & yes\\
 row-scale training, 14B & $+3.2$ $[+1.7, +4.7]$ & $+1.67$ & no, 0.03 under\\
@@ -88,6 +95,9 @@ GSM8K, \Tetra{} 14B & 88 $[83, 92]$ & 92.04 & no, 0.04 over\\
 GSM8K, \Tetra{} minus FP16, 4B & $-15$ $[-23, -8]$ & $-9.63$ & yes\\
 GSM8K, \Tetra{} minus FP16, 8B & $-10$ $[-17, -5]$ & $-4.62$ & no, 0.38 over\\
 GSM8K, \Tetra{} minus FP16, 14B & $-6$ $[-11, -2]$ & $-3.26$ & yes\\
+perplexity, sealed 4B, 8B, 14B & 12.51, 9.72, 8.59 & 12.58, 9.71, 8.44 & yes, all three\\
+A100, \Tetra{} kernel time & 7.5~ms $[6.5, 9.0]$ & 6.224~ms & no, 0.28~ms under\\
+A100, sealed files tok/s & 75, 60, 37 & 74.2, 57.9, 39.0 & yes, all three\\
 \bottomrule
 \end{tabular}
 \caption{Preregistered predictions against the measurements. Sources: the

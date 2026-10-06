@@ -1,0 +1,4 @@
+model,base_ppl,sealed_ppl,cost_pct,ci_lo_pct,ci_hi_pct,windows_worse,source
+Qwen3-4B,12.33,12.58,2.1,1.5,2.6,12,ppl-bases-carte-2026-10-05
+Qwen3-8B,9.57,9.71,1.4,1.1,1.7,12,ppl-bases-carte-2026-10-05
+Qwen3-14B,8.46,8.44,-0.2,-0.9,0.5,4,ppl-scelles-2026-10-04

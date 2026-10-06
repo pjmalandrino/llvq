@@ -1,16 +1,16 @@
 \section{Introduction}
 \label{sec:intro}
 
-A 14-billion-parameter model needs 29.5~GB for its FP16 weights alone, more
-than a 24~GB consumer GPU holds. At batch 1 a model reads every weight once per
+Qwen3-14B needs 29.5~GB for its FP16 weights alone, more than a 24~GB
+consumer GPU holds. At batch 1 a model reads every weight once per
 token, so weight size sets both memory and speed. Two or three bits per
 parameter let such a model run on local hardware.
 
 Van der Ouderaa et al.~\citep{llvq2026} quantize blocks of 24 weights to points of the Leech lattice
 $\Lambda_{24}$. At two bits per weight, their method gives the best quality in
 their comparison, ahead of QuIP\#~\citep{quipsharp2024} and
-QTIP~\citep{qtip2024}. Each block becomes one 48-bit code in a codebook of more
-than $10^{14}$ points, too many for a lookup table (\S\ref{sec:background}).
+QTIP~\citep{qtip2024}. Each block becomes one 48-bit code, and the codebook is
+far too large to store (\S\ref{sec:background}).
 In earlier work~\citep{llvq1preprint} we expanded each code at load time into
 a wider format decoded with shifts and masks. The kernel then read 4.804 bits
 per weight from GPU memory (VRAM) for 2 bits of code, more than the 4.179 of
@@ -23,8 +23,7 @@ cover all 24 coordinates. Read in those three groups of eight, the code is a
 trellis~\citep{forney1988}: a layered graph with 64 nodes at each cut, where
 each codeword is one path. A block is stored as its state, a few bits that
 choose the path and the gain, and three 11-bit indices into one 16~KiB table,
-still 48 bits. The kernel decodes it with six table loads and two small
-lookups, and reads 2.148 bits per weight.
+still 48 bits. The kernel reads 2.150 bits per weight.
 
 \begin{figure}[t]
 \centering
@@ -34,20 +33,19 @@ kernel reads per weight in VRAM (filled marker). Circles are our formats,
 squares deployed kernels. \Planes{}, our earlier layout, reads $2.40\times$ its 2.000
 bits of code as it expands its codebook first, and \Tetra{} $1.07\times$.
 \Tetra{}'s extra bits are its row scales and the unquantized tail of each row,
-both in f32 in this benchmark (\S\ref{sec:file}). QTIP reads no row scales or
-tail, and its 2~KiB table is not counted (Appendix~\ref{app:bench}). FP16
+both in f32 in this benchmark (\S\ref{sec:file}). QTIP's marker counts its
+codes alone (Appendix~\ref{app:bench}). FP16
 (16.000~\bw{}) is left out. Data: echelle-formats.csv.}
 \label{fig:gap}
 \end{figure}
 
 Our contributions:
 \begin{itemize}
-\item \Tetra{}, a codebook on $\Lambda_{24}$ read through a Golay trellis and
-  one table, with the rule it imposes on which points to keep and its measured
-  cost (\S\ref{sec:tetra}).
-\item A fused kernel that decodes and multiplies in one pass, reading 2.148
-  bits per weight against 4.804 for our earlier layout and 4.179 for 4-bit
-  AWQ~\citep{awq2024} (\S\ref{sec:kernel}).
+\item \Tetra{}, the rule it imposes on which lattice points to keep, and the
+  measured cost of that rule (\S\ref{sec:tetra}).
+\item A fused kernel that decodes and multiplies in one pass, timed against
+  FP16, AWQ~\citep{awq2024} and our earlier layout on the same 252 matrices,
+  on two GPUs (\S\ref{sec:kernel}, \S\ref{sec:a100}).
 \item A recipe for complete files at about 2.7 bits per parameter that changes
   no lattice code: retrained row scales, int4 for the projections that lose the
   most, and 4-bit embedding tables to pay for them. On Qwen3-4B, the lattice
@@ -55,18 +53,17 @@ Our contributions:
   recipe closes part of that gap. Each step is measured at 4B, 8B and 14B with
   paired intervals over the full MMLU test set (\S\ref{sec:model},
   \S\ref{sec:chain}).
-\item MMLU, GSM8K through the served kernel, speed and memory of our files
+\item MMLU, perplexity, GSM8K through the served kernel, speed and memory of our files
   against FP16 and AWQ at three sizes, and against 2-bit formats at 4B
   (\S\ref{sec:main}, \S\ref{sec:gsm8k}). With about as much weight memory or
   less, our 8B and 14B score above AWQ's 4B and 8B on MMLU and are not
-  separated from them on GSM8K (\S\ref{sec:sizeup}, a comparison chosen after
-  measuring).
+  separated from them on GSM8K (\S\ref{sec:sizeup}).
 \end{itemize}
 
-Our files do not match AWQ on quality, and at 14B their MMLU gap to AWQ is
-about half the gap at 4B. They use about half its memory, 2.7 bits per
-parameter against 5.3 to 6.0, or about 65\,\% of it if AWQ also stored its
-embedding tables in 4 bits (\S\ref{sec:main}). On GSM8K, run through the
+Our files do not match AWQ on MMLU or GSM8K, and at 14B their MMLU gap to AWQ
+is about half the gap at 4B. They use about half of AWQ's bits per parameter,
+or about 65\,\% if AWQ also stored its embedding tables in 4 bits
+(\S\ref{sec:main}). On GSM8K, run through the
 kernel, they lose more to FP16 than on MMLU when counted in errors, at every
 size (\S\ref{sec:gsm8k}). For the experiments behind the main results, we fixed
 the plan and our predictions before measuring, and we report the predictions

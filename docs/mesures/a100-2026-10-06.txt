@@ -1,0 +1,141 @@
+ON AN A100 TETRA BEATS OUR FP16 KERNEL BUT NOT cuBLAS, AND THE SERVED FILES DO NOT BEAT OUR DENSE PATH (2026-10-06)
+=========================================================================================================
+Prereg: proofs/preregistration-a100-2026-10-06.md, sha256 add482d7, timestamped
+        before the first job. Deviations: the -ECARTS.md beside it, two
+        (the launcher override, the sm80 image's commit and a bad first publish).
+Card:   NVIDIA A100-SXM4-80GB, compute 8.0, driver 580.178.04, every job.
+Jobs:   a100-bench   6ac4a9cf404719ba3765d14b  1631 s  $1.13  image 97a2b62a (commit 5333ac8)
+        a100-served  6ac4adc2fbc85ba6823b24c0  2156 s  $1.50  image 7903f89d (sm80, commit 44a18d3)
+        a100-vllm    6ac4a9d2fbc85ba6823b2325   590 s  $0.41  vllm/vllm-openai:v0.26.0
+        Total $3.04 against $3.35 announced, at the $2.50/h the launcher uses.
+Nature: *measured*; ratios printed by planesbench and fusedrun are formed by
+        those tools as stated beside each; nothing here divides across cards
+        or across engines.
+
+THE KERNEL BENCH, 252 MATRICES, ONE PROCESS, TILE 128 (sm_80 FALLBACK)
+-----------------------------------------------------------------------
+Ten arms, 7 rounds with 2 discarded, ratios formed round by round. The Tetra
+arm reads the bare Tetra encode, 252 lattice records and no int4.
+
+  arm              med ms   GB/pass  b/weight  GB/s(min)  vs FP16
+  floor (nullk)     4.070     0.07     0.159       18     1.69x
+  FP16              6.899     7.27    16.000     1054     1.00x
+  FP16 cuBLAS       6.050     7.27    16.000     1205     1.14x
+  Slot32            9.345     2.50     5.510      268     0.74x
+  Planes14          8.700     2.18     4.804      251     0.79x
+  **Tetra48**     **6.224**   0.98     2.150      157   **1.11x [1.11-1.11]**
+  Planes12x         9.396     1.97     4.342      210     0.73x
+  Golay70 v1       15.717     1.63     3.589      104     0.44x
+  Golay70 v2       11.111     1.63     3.589      147     0.62x
+  AWQ w4g128        3.777     1.90     4.179      503     1.83x
+
+  tetra48 vs planes14: 1.40x [1.40-1.40], 1.36x with the f16 head added to both.
+  252 of 252 matched by name; worst Tetra row 2.0e-8 of sum|w.x|.
+
+Tetra is the first lattice arm faster than our FP16 kernel on this card.
+Every earlier layout stays under it, as F4 (2026-08-19) and A4 (2026-08-31)
+found: Planes14 0.79x again. cuBLAS reads the same f16 weights faster still,
+6.050 ms, 1.14x, and our dense path runs its projections through cuBLAS
+(candle's matmul). Corrected 2026-10-06: the first version of this journal
+said "faster than FP16" without naming which FP16. AWQ stays 1.65 times faster than Tetra in time, from the medians,
+and the floor alone, 4.070 ms, is above AWQ's 3.777 with its weights.
+
+The four arms F4 timed reproduce within 1 %: FP16 6.899 against 6.915, AWQ
+3.777 against 3.793, Planes14 8.700 against 8.742, nullk 4.070 against 4.107.
+
+THE TILE SWEEP, ONE PROCESS PER TILE
+------------------------------------
+  tile    nullk    FP16    Planes14   Tetra48   Tetra vs FP16
+  128     4.032    6.908    8.673     6.183     1.12x
+   64     3.960    7.144    8.676     6.361     1.12x
+   32     4.098    6.939    8.645     6.517     1.07x
+
+Tetra is fastest at 128 here, where the L40S put it at 64. Its range over the
+three tiles is 5.4 %, against 19.1 % on the L40S over its 216-matrix arm.
+Planes14 moves 0.4 %. An Ampere SM has 192 KiB of L1 and shared memory where
+an Ada SM has 128, so a 128-block tile leaves the decoder table more cache
+here. That reading is consistent with the paper's mechanism and proves it no
+more than the L40S did: no counters were read.
+
+THE THREE SEALED FILES, OUR ENGINE, 256 TOKENS, 5 ROUNDS
+---------------------------------------------------------
+  size   q4 tables (served)        x dense       f16 tables (same head)    x dense
+  4B      74.2 tok/s  1.38 GB      x1.45         45.9 tok/s  1.94 GB       x0.92 [0.91-0.92]
+  8B      57.9        2.76         x1.55         34.2        4.55          x0.91 [0.91-0.92]
+  14B     39.0        5.04         x1.55         23.7        7.28          x0.95 [0.95-0.95]
+  dense f16, same process: 51.1 / 37.4 / 25.1 tok/s in 8.04 / 16.38 / 29.54 GB
+
+  The x columns are fusedrun's own quotients of medians, rounds not interleaved.
+  Gates: oracle MATCH (max |dhidden| 0); the three published sha256; the
+  prefill argmax equal to the dense one at every size. 256 tokens identical to
+  the dense arm at 4B and 8B; first divergence at token 78 at 14B, with q4 AND
+  with f16 tables (on the L40S: 78 and 137).
+
+With equal tables, the served files run 5 to 9 % SLOWER than our own dense f16
+path on this card. On the L40S the same arm ran 1.27 to 1.61 times FASTER. The
+whole speed advantage on the A100 comes from the 4-bit tables. The kernel bench
+says the projections alone gain 1.11x over FP16; the served path adds the int4
+records (84 at 4B), the online rotation and the per-token launches, and on a
+card whose floor is 1.69x FP16's time those costs outweigh the gain.
+
+FP16 AND AWQ IN vLLM, SAME CARD
+-------------------------------
+  size   FP16 tok/s   AWQ marlin tok/s   AWQ/FP16, round by round
+  4B       145.56          240.18         x1.650 [1.649-1.651]
+  8B        91.77          188.50         x2.054 [2.054-2.055]
+  14B       52.71          131.67         x2.498 [2.496-2.498]
+  Both arms interleaved in one process at every size (80 GB holds them),
+  where the L40S had to split the 14B.
+
+Our files run below vLLM's FP16 at every size on this card: 74.2 against
+145.6 at 4B. On the L40S our 4B ran above vLLM's FP16, 113.8 against 83.1.
+No ratio is formed across the two engines (hard rule 5).
+
+PREDICTIONS
+-----------
+  quantity                          predicted           measured   inside?
+  FP16 bench, ms                    6.92 [6.7, 7.1]     6.899      yes
+  AWQ bench, ms                     3.79 [3.7, 3.9]     3.777      yes
+  Planes14 bench, ms                8.74 [8.5, 9.0]     8.700      yes
+  nullk bench, ms                   4.11 [4.0, 4.2]     4.070      yes
+  Tetra bench, ms                   7.5 [6.5, 9.0]      6.224      NO, 0.28 under
+  Tetra slower than FP16            point prediction    1.11x faster than our FP16,
+                                                        0.97x cuBLAS    NO / yes
+  Tetra range over the sweep        6 % [2, 15]         5.4 %      yes
+  ours 4B / 8B / 14B tok/s          75 / 60 / 37        74.2 / 57.9 / 39.0   yes x3
+  vLLM FP16 4B / 8B / 14B           165 / 95 / 55       145.6 / 91.8 / 52.7  yes x3
+  vLLM AWQ 4B / 8B / 14B            240 / 165 / 115     240.2 / 188.5 / 131.7  yes x3
+  ours below vLLM FP16, every size  point prediction    yes        yes
+  same-head ratio at 4B             0.9 [0.6, 1.2]      0.92       yes
+
+The one miss is the one that matters for the paper: the Tetra kernel was
+predicted to lose to FP16 here, extrapolated from F4's floor and Planes14 by a
+single card ratio, and it wins. The extrapolation assumed Tetra scales like
+Planes14 from the L40S to the A100; Planes14 slows 1.71x, Tetra 1.42x (from the
+tile-128 medians, 4.355 on the L40S in F1d to 6.183 here, two processes,
+computed and not a published ratio).
+
+WHAT THIS ESTABLISHES
+---------------------
+On a second architecture, the kernel claim shrinks: Tetra reads 2.150
+b/weight and beats our FP16 kernel 1.11x but not cuBLAS (1.14x), against 2.95x on the
+L40S at the served tile over the same 252 matrices (banc-252-2026-10-06).
+It does not beat AWQ on either card. The end-to-end claim does not transfer:
+the served files beat our own dense path only through the 4-bit tables, and
+stay under vLLM's FP16. Memory and quality do not depend on the card.
+
+WHAT THIS DOES NOT ESTABLISH
+----------------------------
+No tuned tile for sm_80: 128 is the fallback, and it happened to be the best
+of three here.
+No counters: the L1 reading stays a reading.
+Nothing on a GDDR consumer card of another architecture.
+
+PROVENANCE
+----------
+Bucket: hf://buckets/Pier-Jean/jobs-artifacts/a100-bench-2026-10-06/,
+  a100-served-2026-10-06/, a100-vllm-2026-10-06/. Copied into
+  docs/mesures/a100-{bench,served,vllm}-2026-10-06-brut/, with each job's log.
+sm80 image: Space Pier-Jean/llvq-runner-cuda-sm80 at 7903f89d, COMMIT file
+  44a18d3, CUDA_COMPUTE_CAP rewritten to 80, 363 files.
+NVRTC: target compute_80 printed on every kernel line.
