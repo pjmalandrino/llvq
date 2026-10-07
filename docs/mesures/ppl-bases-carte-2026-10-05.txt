@@ -1,0 +1,100 @@
+METAL AND CUDA GIVE THE SAME PERPLEXITY TO FOUR DECIMALS, AND SEALING COSTS 2.1 % AT 4B (2026-10-05)
+=====================================================================================================
+Prereg: proofs/preregistration-ppl-bases-carte-2026-10-05.md, sha256 f1abf54c,
+        timestamped before launch.
+Deviations: proofs/preregistration-ppl-bases-carte-2026-10-05-ECARTS.md, one.
+Code: image 97a2b62a6d0c8911dcd8e4d26a40461f0196ccc9, built from commit 5333ac8.
+      Job script ops/jobs/ppl-bases-carte.sh at commit 5de125f.
+Job: 6ac355cf404719ba376533cb, l40sx1, 6 min, $0.17.
+Nature: *measured* for the two perplexities and the three paired intervals;
+        the ratios are *computed*.
+
+SETUP
+-----
+The two trained bases of the row-scale campaigns, read from their bucket
+copies. `LLVQ_DTYPE=f16 ppl 4096 12 cuda <file>`, wikitext-2 test, dense
+reconstruction, `LLVQ_CONFIG` unset. It exists to remove a device cross: those
+two bases had been read on Metal and their sealed files on a card, so the
+difference between them mixed sealing with a change of arithmetic.
+
+CONTROLS
+--------
+1. oracle on Qwen3-0.6B, cuda: MATCH.                                   passes
+2. bytes on the mount: 1,794,564,765 and 4,364,205,777.                 passes
+3. sha256 f8c1c903b753fe34... and 783cef6700e0efa9..., which separate
+   the trained files from their untrained twins of identical size.      passes
+4. dtype f16, context 4096, 12 windows on both lines.                   passes
+5. token fingerprint 3f1baca9033bf251 on both.                          passes
+
+RESULT
+------
+  arm                        ppl       prediction
+  4B trained base, card   12.3264   12.33 [12.26, 12.40]   in
+  8B trained base, card    9.5725    9.57 [9.52,  9.62]    in
+
+THE DEVICE DOES NOT MOVE A QUANTIZED FILE'S PERPLEXITY
+-------------------------------------------------------
+The 8B base reads 9.5725 on Metal and 9.5725 on an L40S. Paired over the same
+twelve windows:
+
+  paired mean dNLL, card minus Metal    +0.000003 nats
+  CI95, paired t over 12 windows        [-0.000091, +0.000097]
+  as a perplexity ratio                 [-0.009 %, +0.010 %]
+  windows worse                         7 of 12
+
+That is ten times inside the +-0.12 % bar this repository reads a constant-file
+perplexity against. The only device comparison on record before today was
+8.9893 on the Mac in f32 against 8.9899 on the card in f16, an f16 model that
+conflated the device with the dtype. Every cross-device perplexity in the file
+stands, including the 4B's ratios to f16 and AWQ in ppl-scelles-2026-10-04.
+
+WHAT SEALING COSTS, DEVICE-CLEAN AND PAIRED
+--------------------------------------------
+Both arms on a card, same twelve windows, same token stream:
+
+  size   base -> sealed      ratio      CI95 of the ratio        windows worse
+  4B    12.3264 -> 12.5834   +2.084 %   [+1.546 %, +2.625 %]     12 of 12
+  8B     9.5725 ->  9.7062   +1.396 %   [+1.059 %, +1.734 %]     12 of 12
+  14B     8.4622 ->  8.4440  -0.215 %   [-0.878 %, +0.452 %]     4 of 12
+
+The 14B row is ppl-scelles-2026-10-04's, where both arms were already on a
+card. The cost excludes zero at 4B and 8B and falls with size, to unresolved
+and centred below zero at 14B.
+
+It is the cost of **sealing**, not of the embedding. Sealing wrote the
+embedding as int4 g64 **and** moved matrices into int4: the 4B went from 36
+int4 records to 84, the 8B from 36 to 53. Nothing here attributes between the
+two. See the ECARTS file.
+
+VERDICT
+-------
+Row 1 of the decision rule, with ten times its margin: the device effect is
+inside +-0.12 %, so the published cross-device comparisons stay as they are.
+Row 3 on the intervals: the cost of sealing excludes zero at 4B and 8B. Its
+causal clause is struck by É1.
+
+É2 of preregistration-ppl-scelles-2026-10-04 is closed. The cost of sealing
+is now measured device-clean at three sizes out of three, resolved at two.
+
+WHAT THIS DOES NOT ESTABLISH
+----------------------------
+No attribution between the int4 embedding and the int4 reallocation. One
+`LLVQ_EMBED` arm on an unchanged sealed file would separate them and has not
+been run.
+Nothing about the device on a **sealed** file. The device effect is measured on
+a base, which carries no int4 embedding and fewer int4 records.
+Nothing through the served kernel. `ppl` does not read `LLVQ_CONFIG`.
+Nothing about MMLU. These are perplexities, and this file holds seven cases
+where the two metrics disagree.
+
+PROVENANCE
+----------
+Bucket: hf://buckets/Pier-Jean/jobs-artifacts/ppl-bases-carte-2026-10-05/
+  results.txt, ppl-4b-base.txt, ppl-8b-base.txt, files.sha256,
+  oracle-cuda.txt, gpu.txt (NVIDIA L40S, 46068 MiB, driver 580.178.04).
+Copied into docs/mesures/ppl-bases-carte-2026-10-05-brut/.
+Paired against: ppl-scelles-2026-10-04-brut/ppl-4b.txt and ppl-8b.txt (sealed,
+  card) and dclm-8b-rowscales-2026-09-21-brut/ppl-ft-f16.txt (base, Metal).
+VRAM over the job: peak 24.934 GB, mean 7.660, p50 6.014, p95 19.814, 288
+  samples over 340 s.
+Abandoned route: proofs/preregistration-ppl-metal-2026-10-04-ECARTS.md.

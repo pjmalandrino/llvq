@@ -1,0 +1,115 @@
+THE THREE SEALED FILES HAVE A PERPLEXITY, AND THE 4B BEATS AWQ ON IT (2026-10-04)
+==================================================================================
+Prereg: proofs/preregistration-ppl-scelles-2026-10-04.md, sha256 e4fa1e5d,
+        timestamped before launch.
+Deviations: proofs/preregistration-ppl-scelles-2026-10-04-ECARTS.md, two.
+Code: image 97a2b62a6d0c8911dcd8e4d26a40461f0196ccc9, built from commit 5333ac8.
+      Job script ops/jobs/ppl-scelles.sh at commit 98e2ff9.
+Job: 6ac2b234fbc85ba6823a1fdb, l40sx1, 11 min, $0.33.
+Nature: *measured* for the three perplexities; the ratios are *computed*; the
+        f16 and AWQ references are *measured* and carried from the journals
+        named beside each.
+
+SETUP
+-----
+The three objects ETAT.md section 2 serves, read from their bucket copies.
+`LLVQ_DTYPE=f16 ppl 4096 12 cuda <file>`, wikitext-2 test, non-overlapping
+windows, dense reconstruction. `LLVQ_CONFIG` unset, so this is the arithmetic
+the published MMLU was read with, at the dtype MMLU uses.
+
+CONTROLS
+--------
+1. oracle on Qwen3-0.6B, cuda: max |dhidden| = 0.000e0, MATCH.          passes
+2. bytes on the mount: 1,418,224,685 / 2,815,098,745 / 5,087,000,541.   passes
+3. sha256 against the digests paper2 publishes: 886391a8c03f66dc...,
+   7bdb9a5503518081..., 61db37fe7ce8e6a5...                             passes
+4. dtype f16 and context 4096 on all three lines.                       passes
+5. token fingerprint 3f1baca9033bf251 on all three, 299,078 tokens,
+   12 windows of 4096.                                                  passes
+
+RESULT
+------
+  size  file                       ppl      /f16     /AWQ     prediction
+  4B    qwen3-4b-sealed.bin    12.5834    1.0284   0.9307   12.51 [12.2, 13.0]  in
+  8B    qwen3-8b-sealed-B.bin   9.7062    1.0797   1.0303    9.72 [9.4, 10.2]   in
+  14B   qwen3-14b-sealed.bin    8.4440    1.0579   1.0191    8.59 [8.4, 9.0]    in
+
+References, all carried: f16 12.2361 (Metal, fiche-4b), 8.9899 and 7.9820 (on
+the card, campagne-8b-qualite-2026-08-08, dclm-14b-rowscales-2026-09-22). AWQ
+13.5207 (fiche-4b), 9.4211 (campagne-8b-qualite-2026-08-08), 8.2858
+(dclm-14b-rowscales-2026-09-22). The 4B's f16 and AWQ references were read on
+Metal, this run on a card, so the 4B's two ratios cross devices.
+
+THE 4B WINS ON PERPLEXITY AND LOSES ON MMLU, AND THE ORDER REVERSES
+--------------------------------------------------------------------
+Against AWQ w4g128 at the same size:
+
+  size   perplexity against AWQ   MMLU against AWQ
+  4B            -6.93 %              -4.76 pp
+  8B            +3.03 %              -4.21 pp
+  14B           +1.91 %              -2.46 pp
+
+The 4B reads 12.58 where AWQ reads 13.52, so it is the better model on
+wikitext-2 while scoring 4.76 MMLU points below it. The two metrics also order
+the three sizes differently: perplexity names the 4B our best object relative
+to AWQ, MMLU names the 14B. This repository already holds six dissociations
+between the two; this is the seventh, and the first where the sign of the gap
+to a baseline differs between the metrics.
+
+THE COST OF SEALING IS MEASURED AT ONE SIZE AND IS NOT RESOLVED THERE
+----------------------------------------------------------------------
+Only the 14B's trained base was read on a card, so only it pairs window by
+window with this run (see the ECARTS file):
+
+  paired mean dNLL, sealed minus base   -0.002151 nats
+  CI95, paired t over 12 windows        [-0.008815, +0.004512]
+  as a perplexity ratio                 [-0.878 %, +0.452 %]
+  windows worse                         4 of 12
+
+The interval contains zero. Writing the embedding as int4 g64 costs the 14B
+nothing this measurement can resolve, against the +1.52 % predicted from the
+4B `Planes14` measurement.
+
+VERDICT
+-------
+Row 1 of the decision rule: the three numbers enter the experiments table and
+the "no perplexity" line of paper2/sections/limitations.tex is struck. Row 3
+fired on the 14B's point estimate and the ECARTS file shows why it should not
+have.
+
+WHAT THIS DOES NOT ESTABLISH
+----------------------------
+Nothing about the cost of sealing at 4B and 8B: their bases were read on Metal
+and do not pair with this run.
+Nothing through the served kernel. `ppl` does not read `LLVQ_CONFIG`, so this
+is the dense reconstruction, exactly as the published MMLU is.
+Nothing about perplexity as a gate. The 4B's own journal of 2026-09-20 showed
+perplexity repaired to 0.74 % of f16 while MMLU stayed nine points down, and
+this run adds a case rather than removing one.
+No interval on the three published numbers themselves. Each is one run of one
+file on one card; the per-window NLLs are on disk for anyone who wants to pair
+two arms.
+
+PROVENANCE
+----------
+Bucket: hf://buckets/Pier-Jean/jobs-artifacts/ppl-scelles-2026-10-04/
+  results.txt, ppl-4b.txt, ppl-8b.txt, ppl-14b.txt, files.sha256,
+  oracle-cuda.txt, gpu.txt (NVIDIA L40S, 46068 MiB, driver 580.178.04).
+Copied into docs/mesures/ppl-scelles-2026-10-04-brut/.
+Bases paired or rejected: dclm-14b-rowscales-2026-09-22-brut/ppl-ft-f16.txt
+  (Cuda), dclm-8b-rowscales-2026-09-21-brut/ppl-ft-f16.txt (Metal).
+VRAM over the job: peak 42.118 GB, mean 11.541, p50 9.950, p95 30.622, 565
+  samples over 640 s. The peak is the 14B dense reconstruction on a 46 GB card.
+
+CORRECTION, 2026-10-06
+----------------------
+The 4B references were not read on Metal. FP16 and AWQ 4B were both read on an
+L40S on 2026-08-06, f16, same windows and token fingerprint:
+a4-campagne-4b-ppl-BRUT-2026-08-06.txt, FP16 12.2369 and AWQ 13.5207. The
+12.2361 quoted above is a Metal reading of the same checkpoint. With 12.2369
+the 4B ratios are unchanged at one decimal (+2.8 % to FP16, -6.9 % to AWQ),
+and no 4B ratio crosses devices. Paired over the 12 windows (t, 11 df):
+  4B   +2.83 % [+0.29, +5.43] to FP16   -6.93 % [-9.92, -3.85] to AWQ
+  8B   +7.97 % [+6.09, +9.88]           +3.03 % [+1.42, +4.65]
+  14B  +5.79 % [+4.53, +7.06]           +1.91 % [+0.86, +2.97]
+Every interval excludes zero. Found by the number audit of paper 2.

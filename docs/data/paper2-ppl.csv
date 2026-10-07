@@ -1,0 +1,10 @@
+model,arm,ppl,vs_fp16_pct,vs_fp16_ci_lo,vs_fp16_ci_hi,vs_awq_pct,vs_awq_ci_lo,vs_awq_ci_hi,device,source
+Qwen3-4B,fp16,12.24,,,,,,,L40S,a4-campagne-4b-ppl-BRUT-2026-08-06 (12.2369)
+Qwen3-4B,awq,13.52,10.5,,,,,,L40S,a4-campagne-4b-ppl-BRUT-2026-08-06 (13.5207)
+Qwen3-4B,tetra,12.58,2.8,0.29,5.43,-6.9,-9.92,-3.85,L40S,ppl-scelles-2026-10-04; intervals paired t over 12 windows
+Qwen3-8B,fp16,8.99,,,,,,,L40S,campagne-8b-qualite-2026-08-08
+Qwen3-8B,awq,9.42,4.8,,,,,,L40S,campagne-8b-qualite-2026-08-08
+Qwen3-8B,tetra,9.71,8.0,6.09,9.88,3.0,1.42,4.65,L40S,ppl-scelles-2026-10-04; intervals paired t over 12 windows
+Qwen3-14B,fp16,7.98,,,,,,,L40S,campagne-14b-qualite-2026-08-10
+Qwen3-14B,awq,8.29,3.8,,,,,,L40S,campagne-14b-qualite-2026-08-10
+Qwen3-14B,tetra,8.44,5.8,4.53,7.06,1.9,0.86,2.97,L40S,ppl-scelles-2026-10-04; intervals paired t over 12 windows

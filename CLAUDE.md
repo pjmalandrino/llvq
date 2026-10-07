@@ -10,9 +10,9 @@ per weight. We implement the LLVQ paper in Rust, vector quantization on the Leec
 ([arXiv:2603.11021](https://arxiv.org/abs/2603.11021)). The engineering contribution is the multi-shell fused kernel:
 dequantization and matvec in a single CUDA kernel.
 
-Three Qwen3 files are sealed and served at about 2.7 b/param, 4B, 8B and 14B, and paper 2 is written on them
-(`paper2/`). The `Tetra` format reads 2.148 kernel b/weight against 4.804 for `Planes14`, which is what put it under
-the product triplet's b_max of 3.00. **No model above 14B is served**: the `rot_apply` wall of `docs/format-noyau.md`
+Three Qwen3 files are sealed and served at about 2.7 b/param, 4B, 8B and 14B, and are public on the Hugging Face Hub.
+Paper 2 is written on them (`paper2/`), and its version 2 is attached to release `v0.0.2`. The `Tetra` format reads
+2.150 kernel b/weight against 4.804 for `Planes14`, which is what put it under the product triplet's b_max of 3.00. **No model above 14B is served**: the `rot_apply` wall of `docs/format-noyau.md`
 §8 closes that path whatever the format, and the 32B has never been encoded.
 
 ## Where to resume
@@ -113,7 +113,7 @@ be in `UPLOAD_ALLOW` of `ops/run.py`, or the Space dies after 12 minutes. `rankb
 | `LLVQ_KV` | `f16` (default), `q8` | int8 KV cache, shipped, not the default (short context only) |
 | `LLVQ_ROT_SHARE` | `0`, `1` | one rotation per group of projections; served = `1` |
 | `LLVQ_FUSE` | `0`, `1` | q+k+v and gate+up fusion; served = `0` under `Tetra48`, which carries no segmented kernel; `FUSE=1` with `ROT_SHARE=0` refused |
-| `LLVQ_TILE_BLOCKS` | unset (default), `auto`, power of two in 32..=512 | blocks of the activation one CTA stages in shared memory. Unset reads the measured row for the card, 64 on sm_89 and 32 on sm_120, and falls back to 128 where no row exists. Zero bits, bit-identical output, worth +16.1% to Tetra from tile 128 to 64 on sm_89, where `Planes14` swings 1.5% across the whole sweep. Every figure published before 2026-09-20 was measured at 128 |
+| `LLVQ_TILE_BLOCKS` | unset (default), `auto`, power of two in 32..=512 | blocks of the activation one CTA stages in shared memory. Unset reads the measured row for the card, 64 on sm_89 and 32 on sm_120, and falls back to 128 where no row exists. Zero bits, bit-identical output, worth +17.6% to Tetra from tile 128 to 64 on sm_89, where `Planes14` moves 1.1% across the whole sweep. On the A100 (sm_80, no row) 128 is the best of three. Every figure published before 2026-09-20 was measured at 128 |
 | `LLVQ_NVRTC_ARCH` | `compute_NN`, default `compute_89` | NVRTC target; `compute_80` for A100; any other form refused |
 | `LLVQ_DTYPE` | `f32` (`ppl` default), `f16` | evaluation dtype; comparing ppl or MMLU requires the same on both sides |
 | `LLVQ_CALIB` | `wikitext2` (default), `c4`, `dclm-edu`, `wikitext2-test` | `smoke`: calibration corpus; `dclm-edu` is the paper's own set and the one the sealed files use |

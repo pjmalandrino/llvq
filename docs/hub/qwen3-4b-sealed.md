@@ -1,20 +1,3 @@
-<!--
-  STATUS, 2026-10-02.
-
-  THIS FILE IS THE CARD OF Pier-Jean/Qwen3-4B-LLVQ-Tetra-sealed, byte for byte
-  below this comment. Edit here, then re-upload; two cards that drift is the
-  defect this repository already had once, between 2026-09-27 and 2026-10-02.
-
-  It describes `qwen3-4b-sealed.bin`, the paper-2 object: 1,418,224,685 B,
-  sha256 886391a8c03f66dc269cc65c3598c6627dbdcd259180aff36604ef10d37371b8.
-
-  The safetensors sibling, Pier-Jean/Qwen3-4B-LLVQ-Tetra, carries its own card,
-  staged from this repository as well. The August file `qwen3-4b-llvq.bin`
-  (Planes14, sha256 9db213ef...c84b0) stays where it is, under
-  Pier-Jean/Qwen3-4B-LLVQ-2bit, which is not touched; docs/fiche-4b.md is its
-  provenance register.
--->
-
 ---
 license: apache-2.0
 base_model: Qwen/Qwen3-4B
@@ -48,7 +31,7 @@ can check. This one is here because paper 2 publishes its SHA-256 and anyone
 replaying our measurements needs the bytes.
 
 It is worse than FP16 by a measured amount: 6.77 MMLU points and 9.63 GSM8K
-points on the same questions. Every number below comes from one NVIDIA L40S.
+points on the same questions. The numbers below come from one NVIDIA L40S.
 
 ## How good it is
 
@@ -59,6 +42,7 @@ points on the same questions. Every number below comes from one NVIDIA L40S.
 | decode, batch 1, own engine | **113.8 tok/s** (ours) | 83.1 (vLLM) | 200.5 (vLLM) | 312.9 (llama.cpp) |
 | MMLU, 5-shot, 14,042 questions | **63.37** | 70.14 | 68.14 | 39.78 |
 | GSM8K, zero-shot, 1,319 problems | **82.49** | 92.12 | 89.01 | not scored |
+| WikiText-2 perplexity | **12.58** | 12.24 | 13.52 | not scored |
 
 Paired on the same questions, with 95 % intervals, it is 6.77 MMLU points
 [6.05, 7.50] and 9.63 GSM8K points [7.69, 11.57] below FP16. Against AWQ, 4.76
@@ -100,9 +84,11 @@ costs more at every size.
 | `qwen3-8b-sealed-B.bin` | 2.70 | 69.58 | 88.63 | 95.0 | 2.76 GB |
 | `qwen3-14b-sealed.bin` | 2.73 | 75.66 | 92.04 | 57.2 | 5.04 GB |
 
-Those two are not hosted. They were sealed on one machine and deleted in a disk
-cleanup, so only their digests survive, `7bdb9a55` and `61db37fe`. Rebuilding
-them is possible and free, and has not been done.
+Both are hosted, with the SHA-256 the paper publishes:
+[Qwen3-8B-LLVQ-Tetra-sealed](https://huggingface.co/Pier-Jean/Qwen3-8B-LLVQ-Tetra-sealed)
+(`7bdb9a55`) and
+[Qwen3-14B-LLVQ-Tetra-sealed](https://huggingface.co/Pier-Jean/Qwen3-14B-LLVQ-Tetra-sealed)
+(`61db37fe`).
 
 ## What is in the file
 
@@ -149,8 +135,13 @@ rather than the served path.
 
 ## Limitations
 
-- **One GPU.** Every number is on one NVIDIA L40S. On an A100, none of our
-  earlier lattice kernels beat FP16.
+- **Two GPUs.** The numbers above come from one NVIDIA L40S. On one NVIDIA A100,
+  this file decodes 74.2 tok/s, below FP16 in vLLM (145.6), and with the
+  embedding in f16 it is slower than our own dense f16 path. No consumer GPU was
+  tested.
+- **Choices made on MMLU test questions.** Which matrices went to int4 was chosen
+  on MMLU, so the MMLU score carries a selection bias that was not measured.
+  GSM8K and perplexity chose nothing.
 - **Batch 1, short context.** Nothing here measures several requests at once,
   or prompts longer than about 1,400 tokens.
 - **One calibration draw.** At 4B, three draws of calibration text, encoded

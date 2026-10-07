@@ -1,0 +1,16 @@
+model,arm,engine,toks,source
+Qwen3-4B,tetra-q4,ours,74.2,a100-2026-10-06
+Qwen3-4B,tetra-f16tables,ours,45.9,a100-2026-10-06
+Qwen3-4B,dense,ours,51.1,a100-2026-10-06
+Qwen3-4B,fp16,vLLM 0.26.0,145.6,a100-2026-10-06
+Qwen3-4B,awq,vLLM 0.26.0,240.2,a100-2026-10-06
+Qwen3-8B,tetra-q4,ours,57.9,a100-2026-10-06
+Qwen3-8B,tetra-f16tables,ours,34.2,a100-2026-10-06
+Qwen3-8B,dense,ours,37.4,a100-2026-10-06
+Qwen3-8B,fp16,vLLM 0.26.0,91.8,a100-2026-10-06
+Qwen3-8B,awq,vLLM 0.26.0,188.5,a100-2026-10-06
+Qwen3-14B,tetra-q4,ours,39.0,a100-2026-10-06
+Qwen3-14B,tetra-f16tables,ours,23.7,a100-2026-10-06
+Qwen3-14B,dense,ours,25.1,a100-2026-10-06
+Qwen3-14B,fp16,vLLM 0.26.0,52.7,a100-2026-10-06
+Qwen3-14B,awq,vLLM 0.26.0,131.7,a100-2026-10-06

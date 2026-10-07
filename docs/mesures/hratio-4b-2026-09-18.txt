@@ -1,0 +1,77 @@
+THE HESSIAN RATIO DOES NOT PREDICT WHERE int4 BUYS MMLU (2026-09-18, read 2026-10-04)
+=====================================================================================
+Prereg: none. The dump of 2026-09-18 was not preregistered and this reading is
+exploratory. It kills a hypothesis; it establishes no gain.
+Deviations: none to record, since no protocol was stamped.
+Code: `llvq-llm/src/bin/hratio.rs`. Job: none, Mac, 0 min, $0.00.
+
+SETUP
+-----
+Object: `hratio` on the served q5 4B, 216 Tetra matrices, natural basis, f32
+device arithmetic, wikitext2, 16,384 tokens. Written 2026-09-18, never read.
+Single question: does the per-matrix ratio tr(dW_tetra H dW_tetra') /
+tr(dW_int4 H dW_int4') rank the six projection types the way MMLU ranks them?
+Reference: the six measured int4 arms of q5-alloc-int4-2026-09-16.txt, same
+4B, same served q5 file, stratified deltas.
+
+CONTROLS
+--------
+1. 216 rows, 36 per type, six types: obtained, passes.
+2. `v_proj` absent, because the served file already carries it int4: passes.
+3. Ratio direction, high means int4 buys more: checked on block 0 q_proj,
+   1.541e-1 over 4.857e-2 gives 3.172, passes.
+
+RESULT
+------
+  type         ratio med   sum|dE|   |dE|/weight   MMLU dd   b/param   pp per b
+  down_proj         4.95   1028.95     1.148e-06     +3.79    0.4641       8.17
+  up_proj           4.55   6385.66     7.123e-06     +1.88    0.4641       4.05
+  gate_proj         4.14   5781.39     6.449e-06     +0.97    0.4641       2.09
+  o_proj            3.54    923.08     2.445e-06     +2.77    0.1954      14.18
+  q_proj            2.37   5119.42     1.356e-05     +1.81    0.1954       9.26
+  k_proj            1.90    807.08     8.552e-06     +1.30    0.0489      26.58
+
+Spearman over the six types, exact two-sided permutation p over 720 orders:
+
+  ratio median vs MMLU delta              rho = +0.5429   p = 0.297
+  ratio median vs MMLU per b/param        rho = -0.7143   p = 0.136
+  |dE| per weight vs MMLU delta           rho = -0.6000   p = 0.242
+  |dE| per weight vs MMLU per b/param     rho = +0.2571   p = 0.658
+
+Within-type spread of the ratio, down_proj: 0.0087 to 7.4051 over 36 matrices.
+
+VERDICT
+-------
+The tool's own gate fails. Its header requires the ratios to reproduce the
+three measured MMLU gains before they count as anything, and no variant of the
+statistic reproduces the ranking of the six measured arms. The best agreement
+is +0.54 against the raw delta, unresolved at p = 0.297, and it turns negative
+against gain per b/param, the quantity an int4 budget actually spends.
+
+This is the seventh case in the repository where a better local proxy ranks
+against the model. The six earlier ones are listed in ROADMAP-QUALITY.
+
+Two facts survive the failure. Both the proxy and MMLU put `down_proj` first,
+4.95 and +3.79. And `o_proj` is in the served 4B file for a budget reason, not
+a ranking error: `down_proj` whole costs +0.4641 b/param and takes the model to
+3.2286, over b_max of 3.00, where `o_proj` at +0.1954 fits at 2.9599
+(q5-alloc-int4-2026-09-16.txt).
+
+WHAT THIS DOES NOT ESTABLISH
+----------------------------
+Six types is six points. Neither rho resolves, and the negative one no more
+than the positive.
+Nothing about per-matrix selection. The within-type spread is a factor of 850
+on down_proj, the 8B winner selected 17 of 36 down_proj matrices, and this
+reading tested type medians only.
+Nothing about the sealed objects. The dump is on a q5 file, calibrated on
+wikitext2 at 16,384 tokens, where the sealed files use dclm-edu.
+No gain. No arm was run and no MMLU was read here.
+
+PROVENANCE
+----------
+Raw dump: docs/mesures/hratio-4b-2026-09-18-brut/ratios.tsv, 218 lines,
+written 2026-09-18 13:37 from /Users/pjmalandrino/qwen3-4b-tetra-q5.bin.
+MMLU reference: docs/mesures/q5-alloc-int4-2026-09-16.txt, job
+6aaa9d1ff76d6a098a710dbf, rtx-pro-6000, 68 min, $3.12.
+8B per-layer result: docs/mesures/sealed-8b-27-2026-09-24.txt.

@@ -1,0 +1,78 @@
+PAPER 2, SECOND NUMBER AUDIT: ABOUT 1,310 NUMBERS, 7 ERRORS, NONE IN A TABLE (2026-10-06)
+=========================================================================================
+Prereg:  none. An audit of the paper against its own sources; no model ran.
+Code:    branch retours-relecture-ia at dd6270b.
+Jobs:    none. Cost 0 $.
+Nature:  *measured* where a log was re-read, *computed* where a figure was recomputed.
+
+METHOD
+------
+Seven read-only auditors, as on 2026-09-28: six on the numbers, one part each (front matter;
+section 3; sections 4 and 5; sections 6.1 to 6.3; sections 6.4 to 6.6; appendices and figure
+captions), and one on the sources added since 2026-09-28, which read the cited works on arXiv
+and NVIDIA's pages. Every finding was checked by hand against its source before a correction
+went in. The six perplexity intervals were recomputed from the raw per-window losses and agree
+with the auditor's to the second decimal.
+
+  part              numbers checked   errors   minor   check
+  front                  ~190            0        8       1
+  section 3              ~210            1        6       0
+  sections 4-5           ~165            2        3       0
+  sections 6.1-6.3       ~200            1        5       0
+  sections 6.4-6.6       ~245            1        4       1
+  appendices, figures    ~300            2        2       0
+  sources                  —             0        9       0
+
+No table cell and no figure was wrong.
+
+THE SEVEN ERRORS, ALL CORRECTED
+-------------------------------
+1. Section 3.4 claimed the pseudocode and the field table gave an implementer everything; the
+   output permutation, the three octads and the nibble order were missing. The claim is gone,
+   and the octads (0x00149f, 0x0f6840, 0xf08320), the reading order, the four rank lists and
+   the tie-break are now stated.
+2. Section 5 said the CUDA decoder matches the Rust one on each 48-bit word. The test covers
+   4,000 words: the origin and the all-ones word, each with and without the gain bit, and
+   random words (llvq-cuda/tests/tetra48_matches_rust.rs).
+3. Section 5.2 placed the sm_120 sweep on "other 4B files". Its Tetra file is the one of the
+   bench since 2026-10-06; the sentence now says "the same 252 matrices".
+4. The 4B FP16 and AWQ perplexities were labelled as read on an Apple GPU. Both were read on an
+   L40S on 2026-08-06 (a4-campagne-4b-ppl-BRUT-2026-08-06.txt: 12.2369 and 13.5207). Every
+   perplexity of the paper is now an L40S reading, and the Apple-GPU exception and its device
+   check are gone. The 4B ratios do not move at one decimal.
+5. Table 8's caption counted five kernel arms; it has six since the cuBLAS row.
+6. Appendix B said one campaign departed from its preregistration. Several did, and the
+   perplexity campaign also overrode a decision rule after the result was known (the 14B
+   below its base, published on the paired interval). Both overrides are now named.
+7. Appendix B listed three results without a preregistration. The FP16 and AWQ perplexities
+   come from runs before 2026-08-10, and two more results had none: the paired cost of
+   sealing at 14B and the IQ2_XXS speed.
+
+THE MINOR ONES, ALL CORRECTED EXCEPT WHERE SAID
+-----------------------------------------------
+Sources: the rotation is the input side of incoherence processing; KronQ's novelty is its
+output-side factor, not a two-sided rotation; "improve on GPTQ"; GLVQ's 82.0 tok/s is its
+32-dimensional variant and its decode adds an inverse mu-law; the two NVIDIA figures are now
+cited, with fixed bib entries; the card is the A100-SXM4-80GB; WikiText-2 is the raw variant;
+the 8B and 14B Hub repositories are cited.
+Numbers: the 0.55-point fall is 0.56 (78/14,042); the paired MMLU intervals are 0.7 to 1.7
+wide on the full test set; 43.3 and 50.1 are the dense arms of the f16-table runs, now said;
+"the served path decodes slower" holds at equal tables, now said; "six of the seven
+projection types"; the A100 best-tile sentence now sits in section 5.2 only; the 50-problem
+pilot crosses devices, now said; the appendix GB/s column is "fastest round"; the 8B stores
+no o_proj; the file table names its logs; the predictions table says where the omitted
+intervals are; the abstract and the conclusion name what the A100 loses; Qwen3-14B, not "a
+14-billion-parameter model"; the conclusion says "separated" for the GSM8K-MMLU comparison.
+Rule 7: every speed median of Tables 4 and 8 has a five-round range within 1.41 % of its value
+(the 4B served file, 112.7 to 114.3), now stated in section 6.1.
+New: the six perplexity gaps carry paired t intervals in paper2-ppl.csv, all excluding zero.
+Kept: the 2.59 GB budget of the 4B. The card bytes rebuild to 2.5850 to 2.5855 GB, which rounds
+to 2.59; the journal's own rounded input (1.377e9) gives 2.58. No source holds the exact bytes.
+Not in the paper: two stale code comments, llvq-llm/src/fused.rs:652 ("m <= 27") and
+llvq-cuda/kernels/llvq_tetra48.cuh:76-77 ("n2 <= 432"); the bound is 26 and 416.
+
+PROVENANCE
+----------
+Auditor reports are not kept as files; every finding above names its source in the paper's
+PROVENANCE.md or in the journals it cites. Corrections: the commits of 2026-10-06 that follow
+dd6270b.

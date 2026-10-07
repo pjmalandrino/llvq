@@ -1,0 +1,101 @@
+NVIDIA A100-SXM4-80GB, 8.0, 580.178.04, 81920 MiB
+vllm 0.26.0
+Filesystem      Size  Used Avail Use% Mounted on
+overlay         6.9T  1.2T  5.7T  17% /
+== 4b: f16 and awq_marlin, interleaved ==
+Tue Oct  6 07:57:23 UTC 2026
+THROUGHPUTS, median and range over the kept rounds
+==============================================================================
+  arm            med tok/s       min       max    spread
+  f16               145.56    145.51    145.59     0.06%
+  awq_marlin        240.18    240.07    240.21     0.06%
+
+==============================================================================
+WITHIN-STACK RATIOS, formed ROUND BY ROUND, inside vLLM only
+==============================================================================
+  awq_marlin / f16: ×1.650 [1.649–1.651]   (median of 5 ratios formed round by round)
+
+  WARNING: DO NOT DIVIDE THESE RATIOS BY OURS.
+     The in-house same-head ratio, ×1.12 at 4B (48.7/43.6) and
+     ×1.30 at 8B (34.4/26.5), is a QUOTIENT OF TWO SINGLE POINTS,
+     measured in candle, not in vLLM. The gap between the two stacks
+     is dominated by the engine, not by the weight decoder (§4 i).
+
+JSON written: /out/a100-vllm-2026-10-06/awq-speed-4b.json
+
+==============================================================================
+OK, every guard green
+==============================================================================
+(EngineCore pid=495) INFO 10-06 08:00:19 [core.py:1313] [shutdown] EngineCore: trigger received signal=SIGTERM
+(EngineCore pid=495) INFO 10-06 08:00:19 [core.py:1432] [shutdown] EngineCore: start mode=abort timeout=0s
+(EngineCore pid=495) INFO 10-06 08:00:19 [core.py:1463] [shutdown] EngineCore: request processing complete; starting resource teardown
+(EngineCore pid=495) INFO 10-06 08:00:19 [core.py:1326] [shutdown] EngineCore: exiting busy loop
+(EngineCore pid=1286) INFO 10-06 08:00:23 [core.py:1313] [shutdown] EngineCore: trigger received signal=SIGTERM
+(EngineCore pid=1286) INFO 10-06 08:00:23 [core.py:1432] [shutdown] EngineCore: start mode=abort timeout=0s
+(EngineCore pid=1286) INFO 10-06 08:00:23 [core.py:1463] [shutdown] EngineCore: request processing complete; starting resource teardown
+(EngineCore pid=1286) INFO 10-06 08:00:23 [core.py:1326] [shutdown] EngineCore: exiting busy loop
+== 8b: f16 and awq_marlin, interleaved ==
+Tue Oct  6 08:00:29 UTC 2026
+THROUGHPUTS, median and range over the kept rounds
+==============================================================================
+  arm            med tok/s       min       max    spread
+  f16                91.77     91.73     91.78     0.05%
+  awq_marlin        188.50    188.42    188.58     0.09%
+
+==============================================================================
+WITHIN-STACK RATIOS, formed ROUND BY ROUND, inside vLLM only
+==============================================================================
+  awq_marlin / f16: ×2.054 [2.054–2.055]   (median of 5 ratios formed round by round)
+
+  WARNING: DO NOT DIVIDE THESE RATIOS BY OURS.
+     The in-house same-head ratio, ×1.12 at 4B (48.7/43.6) and
+     ×1.30 at 8B (34.4/26.5), is a QUOTIENT OF TWO SINGLE POINTS,
+     measured in candle, not in vLLM. The gap between the two stacks
+     is dominated by the engine, not by the weight decoder (§4 i).
+
+JSON written: /out/a100-vllm-2026-10-06/awq-speed-8b.json
+
+==============================================================================
+OK, every guard green
+==============================================================================
+(EngineCore pid=2092) INFO 10-06 08:03:20 [core.py:1313] [shutdown] EngineCore: trigger received signal=SIGTERM
+(EngineCore pid=2092) INFO 10-06 08:03:20 [core.py:1432] [shutdown] EngineCore: start mode=abort timeout=0s
+(EngineCore pid=2092) INFO 10-06 08:03:20 [core.py:1463] [shutdown] EngineCore: request processing complete; starting resource teardown
+(EngineCore pid=2092) INFO 10-06 08:03:20 [core.py:1326] [shutdown] EngineCore: exiting busy loop
+(EngineCore pid=2723) INFO 10-06 08:03:21 [core.py:1313] [shutdown] EngineCore: trigger received signal=SIGTERM
+(EngineCore pid=2723) INFO 10-06 08:03:21 [core.py:1432] [shutdown] EngineCore: start mode=abort timeout=0s
+(EngineCore pid=2723) INFO 10-06 08:03:21 [core.py:1463] [shutdown] EngineCore: request processing complete; starting resource teardown
+(EngineCore pid=2723) INFO 10-06 08:03:21 [core.py:1326] [shutdown] EngineCore: exiting busy loop
+== 14b: f16 and awq_marlin, interleaved ==
+Tue Oct  6 08:03:27 UTC 2026
+THROUGHPUTS, median and range over the kept rounds
+==============================================================================
+  arm            med tok/s       min       max    spread
+  f16                52.71     52.70     52.72     0.04%
+  awq_marlin        131.67    131.52    131.68     0.12%
+
+==============================================================================
+WITHIN-STACK RATIOS, formed ROUND BY ROUND, inside vLLM only
+==============================================================================
+  awq_marlin / f16: ×2.498 [2.496–2.498]   (median of 5 ratios formed round by round)
+
+  WARNING: DO NOT DIVIDE THESE RATIOS BY OURS.
+     The in-house same-head ratio, ×1.12 at 4B (48.7/43.6) and
+     ×1.30 at 8B (34.4/26.5), is a QUOTIENT OF TWO SINGLE POINTS,
+     measured in candle, not in vLLM. The gap between the two stacks
+     is dominated by the engine, not by the weight decoder (§4 i).
+
+JSON written: /out/a100-vllm-2026-10-06/awq-speed-14b.json
+
+==============================================================================
+OK, every guard green
+==============================================================================
+(EngineCore pid=3543) INFO 10-06 08:06:51 [core.py:1313] [shutdown] EngineCore: trigger received signal=SIGTERM
+(EngineCore pid=3543) INFO 10-06 08:06:51 [core.py:1432] [shutdown] EngineCore: start mode=abort timeout=0s
+(EngineCore pid=3543) INFO 10-06 08:06:51 [core.py:1463] [shutdown] EngineCore: request processing complete; starting resource teardown
+(EngineCore pid=3543) INFO 10-06 08:06:51 [core.py:1326] [shutdown] EngineCore: exiting busy loop
+(EngineCore pid=4208) INFO 10-06 08:06:52 [core.py:1313] [shutdown] EngineCore: trigger received signal=SIGTERM
+(EngineCore pid=4208) INFO 10-06 08:06:52 [core.py:1432] [shutdown] EngineCore: start mode=abort timeout=0s
+(EngineCore pid=4208) INFO 10-06 08:06:52 [core.py:1463] [shutdown] EngineCore: request processing complete; starting resource teardown
+(EngineCore pid=4208) INFO 10-06 08:06:52 [core.py:1326] [shutdown] EngineCore: exiting busy loop
+Tue Oct  6 08:06:58 UTC 2026

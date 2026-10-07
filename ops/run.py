@@ -756,7 +756,16 @@ UPLOAD_ALLOW = (
     # two-lists trap bit (rust-toolchain.toml, fetch-qtip.sh, and now this).
     "configs/**",
 )
-UPLOAD_IGNORE = ("**/target/**", "**/*.log")
+# `llvq-*/**` also matches `llvq-tetra/`, a Python package that no recipe
+# builds, with a 750 MB virtualenv inside. On 2026-10-06 a publish pushed its
+# 19,618 files into the sm80 Space before the Hub's 20,000-file limit refused
+# the last commit, and the Hub's secret scanner flagged numpy's own test names
+# as keys. Nothing the build needs lives under any of these.
+UPLOAD_IGNORE = ("**/target/**", "**/*.log", "llvq-tetra/**", "**/.venv/**",
+                 "**/__pycache__/**", "**/.pytest_cache/**")
+# The canonical Space holds about 360 files. A perimeter far above that is a
+# pattern matching something it should not, and is refused before any upload.
+UPLOAD_MAX_FILES = 1000
 
 
 def dirty_in_upload_perimeter(dirty_files, recipe: str) -> list[str]:
@@ -868,6 +877,20 @@ def cmd_publish(args) -> int:
               "Commit, or pass `--allow-dirty`, and the COMMIT file will then say the tree\n"
               "was dirty rather than let anyone believe otherwise.", file=sys.stderr)
         return 1
+
+    from huggingface_hub.utils import filter_repo_objects
+    walked = [str(q.relative_to(args.root)) for q in args.root.rglob("*") if q.is_file()]
+    perimeter = list(filter_repo_objects(walked, allow_patterns=list(UPLOAD_ALLOW),
+                                         ignore_patterns=list(UPLOAD_IGNORE)))
+    if len(perimeter) > UPLOAD_MAX_FILES:
+        tops: dict[str, int] = {}
+        for f in perimeter:
+            tops[f.split("/")[0]] = tops.get(f.split("/")[0], 0) + 1
+        print(f"refused: the upload perimeter holds {len(perimeter)} files, over "
+              f"{UPLOAD_MAX_FILES}: {sorted(tops.items(), key=lambda t: -t[1])[:5]}",
+              file=sys.stderr)
+        return 1
+    print(f"perimeter: {len(perimeter)} files")
 
     repo_id = args.space
     create_repo(repo_id, repo_type="space", space_sdk="docker",
@@ -1035,6 +1058,17 @@ def cmd_bench(args) -> int:
     from huggingface_hub import run_job, Volume
 
     ok, why = cap_ok(args.flavor)
+    if args.kernels_cap is not None:
+        # The per-family guard `MIN_COMPUTE_CAP` asks for, stated by the
+        # operator per job rather than inferred: the compute capability this
+        # job's kernels target. An `llvq-cuda` binary under
+        # `LLVQ_NVRTC_ARCH=compute_80`, the sm80 image, and an image that is
+        # not ours (vLLM) each have one, and none is this repo's 89.
+        card = FLAVORS.get(args.flavor, {}).get("cap")
+        ok = card is None or card >= args.kernels_cap
+        why = (f"sm_{card} against kernels declared for sm_{args.kernels_cap} "
+               f"(--kernels-cap, not the standard image's sm_{MIN_COMPUTE_CAP})")
+        print(f"compute cap: {why}")
     if not ok:
         print(f"refused, {args.flavor}: {why}")
         return 2
@@ -1553,6 +1587,11 @@ def main() -> int:
     b.add_argument("cmd", nargs="+", help="shell lines, run under set -euo pipefail")
     b.add_argument("--image", required=True)
     b.add_argument("--flavor", default="l40sx1")
+    b.add_argument("--kernels-cap", type=int, default=None, metavar="N",
+                   help="the compute capability this job's kernels target, when it "
+                        "is not the standard image's: 80 for an llvq-cuda binary "
+                        "under LLVQ_NVRTC_ARCH=compute_80, for the sm80 image, or "
+                        "for vLLM on an A100. Name it in the prereg or its ECARTS")
     b.add_argument("--any-flavor", action="store_true",
                    help="override the whitelist, to be declared in every published figure")
     # No default. The docstring of `cmd_bench` has said "mandatory and has no

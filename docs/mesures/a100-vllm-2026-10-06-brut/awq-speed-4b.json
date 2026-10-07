@@ -1,0 +1,129 @@
+{
+ "schema": "llvq-awq-speed/1",
+ "utc": "2026-10-06T08:00:19Z",
+ "preregistration": "proofs/preregistration-awq-vllm-2026-08-17.md",
+ "image_tag": "vllm/vllm-openai:v0.26.0",
+ "image_digest": "sha256:ffb2d59b1c059a5bd8d781320c9f5189de8293693b7d95da54befddaa54abf52",
+ "vllm_version": "0.26.0",
+ "accelerator": "gpu",
+ "job_id": "6ac4a9d2fbc85ba6823b2325",
+ "size": "4b",
+ "interleaved": true,
+ "tokens": 128,
+ "warmups": 2,
+ "rounds": 5,
+ "prompt_token_ids": [
+  785,
+  6722,
+  315,
+  9625,
+  374
+ ],
+ "prompt_text": "The capital of France is",
+ "arms": {
+  "f16": {
+   "quantization_resolved": "none",
+   "quantization_readable": true,
+   "prefix_caching": false,
+   "prefix_caching_readable": true,
+   "dtype": "torch.float16",
+   "load_s": 87.61621681299584,
+   "gpu_memory_utilization": 0.2,
+   "kernel_log": [],
+   "repo": "Qwen/Qwen3-4B",
+   "revision": "1cfa9a7208912126459214e8b04321603b3df60c",
+   "quantization_requested": null,
+   "elapsed_s": [
+    0.8793438129941933,
+    0.8796803630102659,
+    0.8791754650010262,
+    0.8795255069999257,
+    0.8793320650001988
+   ],
+   "tokps": [
+    145.5630870525557,
+    145.50739721185096,
+    145.59096004783368,
+    145.53301636084421,
+    145.565031794867
+   ],
+   "n_tokens_out": [
+    128,
+    128,
+    128,
+    128,
+    128
+   ],
+   "text": " Paris. The capital of Germany is Berlin. The capital of Italy is Rome. The capital of Spain is Madrid. The capital of Portugal is Lisbon. The capital of Greece is Athens. The capital of Belgium is Brussels. The capital of Netherlands is Amsterdam. The capital of Luxembourg is Luxembourg. The capital of Switzerland is Bern. The capital of Austria is Vienna. The capital of Czech Republic is Prague. The capital of Poland is Warsaw. The capital of Hungary is Budapest. The capital of Romania is Bucharest. The capital of Bulgaria is Sofia. The capital of Serbia is Belgrade. The capital of Croatia is Zagreb. The capital of",
+   "median": 145.5630870525557,
+   "min": 145.50739721185096,
+   "max": 145.59096004783368,
+   "spread_pct": 0.05740661157629054
+  },
+  "awq_marlin": {
+   "quantization_resolved": "auto_awq",
+   "quantization_readable": true,
+   "prefix_caching": false,
+   "prefix_caching_readable": true,
+   "dtype": "torch.float16",
+   "load_s": 68.27789766699425,
+   "gpu_memory_utilization": 0.1,
+   "kernel_log": [
+    "[vllm.entrypoints.serve.utils.api_utils] non-default args: {'dtype': 'float16', 'max_model_len': 2048, 'enable_prefix_caching': False, 'gpu_memory_utilization': 0.1, 'disable_log_stats': True, 'revision': '74d4bd2bd4bff9cafc9345221320bffb08b406a3', 'tokenizer_revision': '74d4bd2bd4bff9cafc9345221320bffb08b406a3', 'model': 'Qwen/Qwen3-4B-AWQ'}"
+   ],
+   "repo": "Qwen/Qwen3-4B-AWQ",
+   "revision": "74d4bd2bd4bff9cafc9345221320bffb08b406a3",
+   "quantization_requested": null,
+   "elapsed_s": [
+    0.5328672100004042,
+    0.5328584740054794,
+    0.5330968259950168,
+    0.5329374769935384,
+    0.5331749869947089
+   ],
+   "tokps": [
+    240.20993898255236,
+    240.21387712543685,
+    240.1064755189454,
+    240.17826766863297,
+    240.07127701448275
+   ],
+   "n_tokens_out": [
+    128,
+    128,
+    128,
+    128,
+    128
+   ],
+   "text": " Paris. The capital of Germany is Berlin. The capital of Italy is Rome. The capital of Spain is Madrid. The capital of Portugal is Lisbon. The capital of Belgium is Brussels. The capital of the Netherlands is Amsterdam. The capital of Luxembourg is Luxembourg. The capital of Austria is Vienna. The capital of Switzerland is Bern. The capital of Greece is Athens. The capital of Cyprus is Nicosia. The capital of Malta is Valletta. The capital of Ireland is Dublin. The capital of the UK is London. The capital of the USA is Washington, D.C. The capital of Canada is Ottawa. The capital of Australia",
+   "median": 240.17826766863297,
+   "min": 240.07127701448275,
+   "max": 240.21387712543685,
+   "spread_pct": 0.05937261199287499
+  }
+ },
+ "ratios": {
+  "awq_marlin_vs_f16": {
+   "per_round": [
+    1.650211903625157,
+    1.6508705517953726,
+    1.649185330188487,
+    1.6503352550126429,
+    1.6492372794092178
+   ],
+   "median": 1.650211903625157,
+   "min": 1.649185330188487,
+   "max": 1.6508705517953726
+  }
+ },
+ "control": {
+  "applicable": true,
+  "first_token_id": 12095,
+  "first_token_text": " Paris",
+  "expected_id": 12095,
+  "expected_text": " Paris",
+  "common_prefix_chars": 8,
+  "ref_chars": 85
+ },
+ "violations": []
+}

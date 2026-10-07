@@ -1,0 +1,19 @@
+device: Cuda(CudaDevice(DeviceId(1))), context 4096, dtype f16
+sealed /out/sealed-8b27-2026-09-24/qwen3-8b-sealed-B.bin: 252 quantized matrices, 2.815 GB on disk
+loading corpus wikitext2…
+299078 tokens → 12 windows of 4096 (fingerprint 3f1baca9033bf251)
+  window   1/12  nll 2.271119982  n 4095  running ppl    9.690  (1.2s)
+  window   2/12  nll 2.613568138  n 4095  running ppl   11.500  (2.4s)
+  window   3/12  nll 2.004165236  n 4095  running ppl    9.937  (3.6s)
+  window   4/12  nll 1.812029843  n 4095  running ppl    8.804  (4.8s)
+  window   5/12  nll 2.363722194  n 4095  running ppl    9.142  (6.0s)
+  window   6/12  nll 2.281816144  n 4095  running ppl    9.248  (7.2s)
+  window   7/12  nll 2.348585594  n 4095  running ppl    9.413  (8.4s)
+  window   8/12  nll 2.360079222  n 4095  running ppl    9.553  (9.6s)
+  window   9/12  nll 2.493425195  n 4095  running ppl    9.808  (10.7s)
+  window  10/12  nll 2.012746585  n 4095  running ppl    9.546  (11.9s)
+  window  11/12  nll 2.411425900  n 4095  running ppl    9.682  (13.1s)
+  window  12/12  nll 2.300436651  n 4095  running ppl    9.706  (14.3s)
+
+/out/sealed-8b27-2026-09-24/qwen3-8b-sealed-B.bin [LLVQ 2-bit, sealed] — wikitext2, ctx 4096, 12 windows, dtype f16, kv f16, tokens 3f1baca9033bf251
+ppl = 9.7062

@@ -6,7 +6,8 @@ background, the Tetra codebook, from codebook to served file, kernel,
 experiments, limitations, conclusion, then two appendices (the ten-arm
 kernel benchmark and the record of predictions). `PROVENANCE.md` gives the
 nature and the source of every claim, and the commands that rerun the main
-measurements are under [Reproduce](#reproduce).
+measurements are under [Reproduce](#reproduce). Version 2, of 2026-10-06, is attached as a PDF to release
+[`v0.0.2`](https://github.com/pjmalandrino/llvq/releases/tag/v0.0.2).
 
 ## Layout and art direction
 

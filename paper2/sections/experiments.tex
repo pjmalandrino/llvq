@@ -16,13 +16,20 @@ dense reconstruction in an ordinary forward pass. The kernel computes with the
 same decoded weights, and the checks of \S\ref{sec:kernel} tie the two. At 4B,
 we scored the file one step before sealing, with the same int4 matrices
 rebuilt at load by the same quantizer. On 57 questions, the sealed 4B file
-gives the same answers and logits. Every comparison is paired on the same
-questions, with a 95\,\% interval from a bootstrap that resamples questions
-within each subject (10{,}000 draws) and an exact McNemar test. Our paired
-MMLU intervals are 0.7 to 1.7 points wide, so how small a gap this test
-separates depends on the pair. A gap whose interval contains zero is \emph{not
+gives the same answers and logits. Our gaps to FP16 and AWQ, and between our
+own files, are paired on the same questions, with a 95\,\% interval from a
+bootstrap that resamples questions within each subject (10{,}000 draws) and an
+exact McNemar test. On the full test set these intervals are 0.7 to 1.7 points
+wide, so how small a gap this test separates depends on the pair. A gap whose interval contains zero is \emph{not
 separated}. We ran no equivalence test, so this does not mean the two scores
 are equal.
+
+\paragraph{Perplexity.} We also read each file's perplexity on the raw test
+split of WikiText-2~\citep{wikitext2016}, over 12 non-overlapping windows of
+4{,}096 tokens, on the dense reconstruction in f16, as for MMLU, on the L40S.
+Each value is one run. Two files read on the same windows give per-window
+losses that pair, and we give such pairs a 95\,\% $t$ interval over the 12
+windows.
 
 \paragraph{Reasoning.} To score generated reasoning, not one logit per
 question, we add all 1{,}319 test problems of GSM8K~\citep{gsm8k2021},
@@ -40,7 +47,8 @@ batch 1 with greedy sampling, as tokens generated over wall-clock time, prompt
 included. Our files run in our engine at the served settings and generate 256
 tokens. FP16 and AWQ run in vLLM 0.26.0~\citep{vllm2023}, AWQ with the Marlin
 kernel, and generate 128. Both engines report the median of five timed rounds,
-after one warm-up round in ours and two in vLLM. IQ2\_XXS runs in llama.cpp
+after one warm-up round in ours and two in vLLM, and the five rounds of every
+median lie within 1.5\,\% of each other. IQ2\_XXS runs in llama.cpp
 build b10689~\citep{llamacpp}, with \texttt{llama-bench} on 128 tokens from an
 empty prompt, as the mean of five repetitions. Memory counts only weight bytes
 (\S\ref{sec:file}): GPU buffers for our files, weight files for the others.
@@ -58,44 +66,44 @@ run them.
 \label{sec:main}
 
 \begin{table}[t]
-\centering\small\setlength{\tabcolsep}{5pt}
-\begin{tabular}{llrrrr}
+\centering\small\setlength{\tabcolsep}{4pt}
+\begin{tabular}{llrrrrr}
 \toprule
- & format and engine & b/param & MMLU & decode tok/s & weights GB\\
+ & format and engine & b/param & MMLU & ppl & decode tok/s & weights GB\\
 \midrule
 \multirow{8}{*}{4B}
- & FP16, vLLM & 16.00 & 70.14 & 83.1 & 8.04\\
- & f16 dense path, our engine$^{a}$ & 16.00 & & 43.0 & 8.04\\
- & AWQ w4g128, vLLM & 5.30 & 68.14 & 200.5 & 2.67\\
- & IQ2\_XXS, llama.cpp & 2.48 & 39.78 & 312.9 & 1.25\\
- & \textbf{\Tetra{}, our engine} & \textbf{2.73} & \textbf{63.37} & \textbf{113.8} & \textbf{1.38}\\
- & \textcolor{okGray}{LLVQ, cited$^{b}$} & \textcolor{okGray}{2 b/w$^{c}$} & \textcolor{okGray}{62.8} & & \\
- & \textcolor{okGray}{QTIP 3INST, cited$^{b}$} & \textcolor{okGray}{2 b/w$^{c}$} & \textcolor{okGray}{59.5} & & \\
- & \textcolor{okGray}{QuIP\#, cited$^{b}$} & \textcolor{okGray}{2 b/w$^{c}$} & \textcolor{okGray}{52.9} & & \\
+ & FP16, vLLM & 16.00 & 70.14 & 12.24 & 83.1 & 8.04\\
+ & f16 dense path, our engine$^{a}$ & 16.00 & & & 43.0 & 8.04\\
+ & AWQ w4g128, vLLM & 5.30 & 68.14 & 13.52 & 200.5 & 2.67\\
+ & IQ2\_XXS, llama.cpp & 2.48 & 39.78 & & 312.9 & 1.25\\
+ & \textbf{\Tetra{}, our engine} & \textbf{2.73} & \textbf{63.37} & \textbf{12.58} & \textbf{113.8} & \textbf{1.38}\\
+ & \textcolor{okGray}{LLVQ, cited$^{b}$} & \textcolor{okGray}{2 b/w$^{c}$} & \textcolor{okGray}{62.8} & & & \\
+ & \textcolor{okGray}{QTIP 3INST, cited$^{b}$} & \textcolor{okGray}{2 b/w$^{c}$} & \textcolor{okGray}{59.5} & & & \\
+ & \textcolor{okGray}{QuIP\#, cited$^{b}$} & \textcolor{okGray}{2 b/w$^{c}$} & \textcolor{okGray}{52.9} & & & \\
 \midrule
 \multirow{4}{*}{8B}
- & FP16, vLLM & 16.00 & 75.05 & 46.3 & 16.38\\
- & f16 dense path, our engine$^{a}$ & 16.00 & & 26.4 & 16.38\\
- & AWQ w4g128, vLLM & 5.96 & 73.79 & 123.2 & 6.10\\
- & \textbf{\Tetra{}, our engine} & \textbf{2.70} & \textbf{69.58} & \textbf{95.0} & \textbf{2.76}\\
+ & FP16, vLLM & 16.00 & 75.05 & 8.99 & 46.3 & 16.38\\
+ & f16 dense path, our engine$^{a}$ & 16.00 & & & 26.4 & 16.38\\
+ & AWQ w4g128, vLLM & 5.96 & 73.79 & 9.42 & 123.2 & 6.10\\
+ & \textbf{\Tetra{}, our engine} & \textbf{2.70} & \textbf{69.58} & \textbf{9.71} & \textbf{95.0} & \textbf{2.76}\\
 \midrule
 \multirow{4}{*}{14B}
- & FP16, vLLM & 16.00 & 78.88 & 25.8 & 29.54\\
- & f16 dense path, our engine$^{a}$ & 16.00 & & 16.9 & 29.54\\
- & AWQ w4g128, vLLM & 5.40 & 78.12 & 77.8 & 9.98\\
- & \textbf{\Tetra{}, our engine} & \textbf{2.73} & \textbf{75.66} & \textbf{57.2} & \textbf{5.04}\\
+ & FP16, vLLM & 16.00 & 78.88 & 7.98 & 25.8 & 29.54\\
+ & f16 dense path, our engine$^{a}$ & 16.00 & & & 16.9 & 29.54\\
+ & AWQ w4g128, vLLM & 5.40 & 78.12 & 8.29 & 77.8 & 9.98\\
+ & \textbf{\Tetra{}, our engine} & \textbf{2.73} & \textbf{75.66} & \textbf{8.44} & \textbf{57.2} & \textbf{5.04}\\
 \bottomrule
 \end{tabular}
-\caption{Quality, speed and memory at three sizes, on one L40S. MMLU uses all
-14{,}042 test questions, and FP16 and AWQ are scored in our harness. The engine
-named in each row times the speed, and speeds are never divided across
-engines. For our files, weights GB are the buffers on the card, row padding
-included. $^{a}$The sealed file decoded to f16 and run as an ordinary model,
+\caption{Quality, speed and memory at three sizes, on one L40S, with the
+protocols of \S\ref{sec:setup}; ppl is the WikiText-2 perplexity. The engine
+named in each row times the speed. For our files, weights GB are the buffers
+on the card, row padding included. $^{a}$The sealed file decoded to f16 and run as an ordinary model,
 in the same process as the kernel. Its speed is that of any f16 model of this
 size in our engine, which copies the output head at every token. This row has
 no MMLU of its own. $^{b}$Fine-tuned rows of Table~6 of \citet{llvq2026}, from
 their harness and MMLU protocol. $^{c}$Bits per quantized weight, as the source
-gives them. It gives no rate for the whole model. Data: paper2-results.csv.}
+gives them. It gives no rate for the whole model. Data: paper2-results.csv,
+paper2-ppl.csv.}
 \label{tab:main}
 \end{table}
 
@@ -103,12 +111,20 @@ gives them. It gives no rate for the whole model. Data: paper2-results.csv.}
 files sit below FP16 by 6.77 points $[6.05, 7.50]$, 5.48 $[4.83, 6.10]$ and
 3.22 $[2.69, 3.75]$ at 4B, 8B and 14B, and below AWQ by 4.76 $[4.02, 5.49]$,
 4.21 $[3.54, 4.86]$ and 2.46 $[1.92, 3.00]$. Both gaps shrink from 4B to 14B,
-but the 0.55-point fall of the gap to AWQ from 4B to 8B is not separated from
+but the 0.56-point fall of the gap to AWQ from 4B to 8B is not separated from
 zero ($z=1.1$). AWQ itself is 2.00 $[1.50, 2.51]$, 1.27 $[0.83, 1.70]$ and
 0.75 $[0.40, 1.12]$ points below FP16.
 
+\paragraph{Perplexity.} On WikiText-2 the sealed files read 2.8, 8.0 and
+5.8\,\% above FP16 at 4B, 8B and 14B (Table~\ref{tab:main}). Against AWQ, the
+4B reads 6.9\,\% below it, and the 8B and 14B 3.0 and 1.9\,\% above it. All
+six gaps are separated from zero, paired over the 12 windows (data:
+paper2-ppl.csv). So the two metrics disagree. Perplexity puts our 4B ahead of
+AWQ and MMLU puts it behind, and the gap to AWQ is smallest at 4B in perplexity
+but at 14B on MMLU. AWQ's own perplexity is 10.5\,\% above FP16's at 4B.
+
 \paragraph{Memory.} The sealed files need 45 to 52\,\% of AWQ's bits per
-parameter. Part of that comes from the embedding tables: ours are in 4 bits,
+parameter. Part of that comes from the embedding tables. Ours are in 4 bits,
 and AWQ keeps its embedding and head in f16. These tables weigh most at 8B
 (\S\ref{sec:q4emb}), where AWQ needs the most bits per parameter. With AWQ's
 tables in 4 bits like ours, our files would need 64 to 65\,\% of its bits per
@@ -118,17 +134,18 @@ with such tables.
 \paragraph{Against other 2-bit formats at 4B.} IQ2\_XXS scores 23.6 points
 below our 4B file for 0.25 fewer bits per parameter. The cited rows come from
 another harness and count bits per quantized weight, so they place our 63.37
-only roughly, without ranking it: close to the 62.8 of the original LLVQ with
-fine-tuning, and above the 59.5 of QTIP with its 3INST code.
+only roughly, without ranking it. It is close to the 62.8 of the original
+LLVQ with fine-tuning, and above the 59.5 of QTIP with its 3INST code.
 
 \paragraph{Speed.} In our engine, the sealed files decode faster than their
 dense reconstruction, run in the same process (Table~\ref{tab:main}). A large
 part of this gap comes from the 4-bit output head. With the embedding and head
 in f16 on both sides, the sealed files decode 55.0, 38.9 and 27.3 tokens per
-second against 43.3, 26.4 and 16.9 for the dense arm, or 1.27, 1.47 and 1.61
+second against 43.3, 26.4 and 16.9 for the dense arm of the same runs, or
+1.27, 1.47 and 1.61
 times, from unrounded medians. We do not divide the vLLM speeds of
-Table~\ref{tab:main} by ours: vLLM runs FP16 faster than our dense path does,
-so a ratio across engines would mix the format with the engine.
+Table~\ref{tab:main} by ours. vLLM runs FP16 faster than our dense path does,
+so such a ratio would mix the format with the engine.
 
 \subsection{Reasoning: GSM8K through the served kernel}
 \label{sec:gsm8k}
@@ -144,9 +161,8 @@ so a ratio across engines would mix the format with the engine.
 14B & 95.30 & 95.38 & \textbf{92.04} & 3.26 $[1.93, 4.59]$ & 3.34 $[2.12, 4.55]$\\
 \bottomrule
 \end{tabular}
-\caption{GSM8K on all 1{,}319 test problems (\S\ref{sec:setup}). \Tetra{} runs
-through the served kernel, FP16 and AWQ in vLLM. The gaps are paired, with
-95\,\% intervals. Data: paper2-gsm8k.csv, paper2-gsm8k-gaps.csv.}
+\caption{GSM8K, with the protocol of \S\ref{sec:setup}. The gaps are paired,
+with 95\,\% intervals. Data: paper2-gsm8k.csv, paper2-gsm8k-gaps.csv.}
 \label{tab:gsm8k}
 \end{table}
 
@@ -167,8 +183,8 @@ ran the FP16 4B
 checkpoint through our dense path: 91.51 against 92.12 in vLLM, $-0.61$ points
 $[-1.27, 0.06]$, $p=0.12$. Against this same-engine FP16, the 4B file loses
 9.02 points $[7.07, 10.97]$, against 9.63 across engines. On the 50 problems of
-a pilot, the kernel and the dense reconstruction of the 4B file give the same
-50 answers.
+a pilot, the kernel on the L40S and the dense reconstruction on an Apple GPU
+give the same 50 answers for the 4B file.
 
 \subsection{One size up for about as much memory}
 \label{sec:sizeup}
@@ -190,9 +206,9 @@ a pilot, the kernel and the dense reconstruction of the 4B file give the same
 \bottomrule
 \end{tabular}
 \caption{Our 8B and 14B files against the models one size below, and our 14B
-against FP16's 4B: the first model minus the second, in points, paired on
-14{,}042 MMLU questions and 1{,}319 GSM8K problems, with 95\,\% intervals. The
-GSM8K pairs cross the two engines of \S\ref{sec:gsm8k}. The last two rows show
+against FP16's 4B: the first model minus the second, in points, paired, with
+95\,\% intervals. The GSM8K pairs cross the two engines of
+\S\ref{sec:gsm8k}. The last two rows show
 what one size is worth to AWQ. Weights as in Table~\ref{tab:main}. Data:
 paper2-sizeup.csv.}
 \label{tab:sizeup}
@@ -206,16 +222,16 @@ and~\ref{tab:gsm8k} pair question by question, and no model ran for this
 section. We chose this comparison after measuring, so it was not
 preregistered.
 
-On MMLU, our 8B scores 1.44 points above AWQ's 4B with 0.10~GB more weights,
-and our 14B 1.87 points above AWQ's 8B with 1.05~GB less, from unrounded bytes
-(both $p<10^{-3}$). That is 25 and 43\,\% of what one size is worth to AWQ. On
-GSM8K the same pairs are not separated ($p=0.74$ and $0.26$). Their intervals
-reach down to $-2.14$ and $-2.35$ points, so the larger model's gain does not
-appear on GSM8K. Against FP16 one size below, our files are not separated from
-it on MMLU. On GSM8K our 8B loses to FP16's 4B, and our 14B is not separated
-from FP16's 8B. Our 14B, in 5.04~GB, scores 5.52 MMLU points above FP16's 4B
-in 8.04~GB and is not separated from it on GSM8K. We compare no speed here: our 8B decodes 95.0
-tokens per second in our engine and AWQ's 4B 200.5 in vLLM.
+On MMLU, our 8B and 14B score above AWQ's 4B and 8B (both $p<10^{-3}$), with
+0.10~GB more and 1.05~GB less weights, from unrounded bytes. That is 25 and
+43\,\% of what one size is worth to AWQ. On GSM8K the same pairs are not
+separated ($p=0.74$ and $0.26$), so the gain of the larger model does not show
+there. Against FP16 one size below, our files are not separated on MMLU. On
+GSM8K our 8B loses to FP16's 4B, and our 14B is not separated from FP16's 8B.
+Our 14B also scores above FP16's 4B on MMLU with less memory, and is not
+separated from it on GSM8K. We compare no speed here, since the engines
+differ. AWQ's 4B in vLLM decodes faster than our 8B in ours
+(Table~\ref{tab:main}).
 
 \paragraph{Where the larger model fits.} At 8{,}192 tokens in f16, the KV
 cache takes 1.21~GB for Qwen3-4B and 8B, which share its shape, and 1.34~GB
@@ -263,18 +279,26 @@ rows were scored with f16 tables, so the last gain also includes the cost of
 \label{tab:chain}
 \end{table}
 
-Both steps gain at every size, and this test set separates all six gains from
-zero, with every $p$ below $10^{-7}$ (Table~\ref{tab:chain}). The row scales
-add no byte, and the last step makes every file smaller.
+Both steps gain at every size, and all six gains are separated from zero
+(Table~\ref{tab:chain}).
 
-\paragraph{Which projections get the int4 bytes.} At 8B the embedding and the
-output head hold 15.2\,\% of the parameters, so at about 2.7 bits per
-parameter int4 gets fewer projections than at 4B and 14B
-(Table~\ref{tab:files}). With int4 on \texttt{down\_proj} of layers 10 to 26
-and not on \texttt{o\_proj}, our 8B file scores 69.58 at 2.6953 bits per
-parameter. That is 0.77 points $[0.26, 1.28]$ above int4 on all of
-\texttt{o\_proj} plus \texttt{down\_proj} of layers 15 to 20, which scores
-68.81 at 2.7047 ($p=0.004$). We had predicted the opposite order. The 4B and
+\paragraph{Perplexity does not follow the last step.} The last step, int4
+projections and 4-bit tables, raises the perplexity of the 4B and the 8B, on
+the windows of \S\ref{sec:setup}. It goes from 12.33
+to 12.58 at 4B, $+2.1\,\%$ $[1.5, 2.6]$, and from 9.57 to 9.71 at 8B,
+$+1.4\,\%$ $[1.1, 1.7]$, worse on all 12 windows at both sizes. At 14B it goes
+from 8.46 to 8.44, $-0.2\,\%$ $[-0.9, 0.5]$, not separated. So the step gains
+MMLU at every size and costs perplexity at the two smaller ones. We did not
+measure which half of the step costs perplexity, the 4-bit tables or the
+projections moved to int4. Data: paper2-ppl-sealing.csv.
+
+\paragraph{Which projections get the int4 bytes.} At 8B the embedding tables
+take the largest share of the parameters (\S\ref{sec:q4emb}), so at about 2.7
+bits per parameter int4 gets fewer projections than at 4B and 14B
+(Table~\ref{tab:files}). Our 8B file, with int4 on \texttt{down\_proj} of
+layers 10 to 26 and not on \texttt{o\_proj}, scores 0.77 points $[0.26, 1.28]$
+above int4 on all of \texttt{o\_proj} plus \texttt{down\_proj} of layers 15
+to 20, which scores 68.81 at 2.7047 bits per parameter ($p=0.004$). We had predicted the opposite order. The 4B and
 14B files keep \texttt{o\_proj} in int4, and we have not tested the 8B choice
 there.
 
@@ -284,9 +308,62 @@ above, under a preregistered rule. At 4B the window of layers 12 to 23 was the
 best of three windows of twelve layers, scored on the full test set with an
 earlier 4B file. The projection types sent to int4 were ranked at 4B on
 samples of 2{,}280 questions. The 14B window follows a rule fixed before
-measuring: the largest centred window that the bytes freed by the tables pay
-for, the idea of the 4B window. So the MMLU scores of our files carry a
-selection bias that we did not measure for the files. For \texttt{o\_proj},
+measuring. It is the largest centred window that the bytes freed by the
+tables pay for, as at 4B. So the MMLU scores of our files carry a
+selection bias that we did not measure. For \texttt{o\_proj},
 the one choice checked on questions that did not select it, the gain is
 $+3.12$ points on the 2{,}280 that selected it and $+1.55$ on the other
-11{,}762. GSM8K chose nothing.
+11{,}762. GSM8K and perplexity chose nothing. We also tried a criterion that reads no
+benchmark, the ratio of the Hessian-weighted errors of \Tetra{} and int4 per
+matrix. On an earlier 4B file it did not rank six of the seven projection types
+(\texttt{v\_proj} was already int4) as MMLU does (Spearman $\rho = 0.54$,
+$p = 0.30$, an exploratory reading), so it chose nothing here.
+
+\subsection{A second architecture}
+\label{sec:a100}
+
+\begin{table}[t]
+\centering\small\setlength{\tabcolsep}{5pt}
+\begin{tabular}{lrrrr}
+\toprule
+ & median ms & \bw{} in VRAM & GB/s, fastest round & against FP16\\
+\midrule
+FP16 & 6.899 & 16.000 & 1054 & 1.00$\times$\\
+FP16, cuBLAS & 6.050 & 16.000 & 1205 & 1.14$\times$\\
+AWQ w4g128 & 3.777 & 4.179 & 503 & 1.83$\times$\\
+\Planes{} & 8.700 & 4.804 & 251 & 0.79$\times$\\
+\textbf{\Tetra{}} & \textbf{6.224} & \textbf{2.150} & \textbf{157} & \textbf{1.11$\times$}\\
+no weights & 4.070 & 0.159 & 18 & 1.69$\times$\\
+\midrule
+\textit{decode, tokens per second} & 4B & 8B & 14B & \\
+\Tetra{}, our engine & 74.2 & 57.9 & 39.0 & \\
+\Tetra{}, f16 tables, our engine & 45.9 & 34.2 & 23.7 & \\
+f16 dense path, our engine & 51.1 & 37.4 & 25.1 & \\
+FP16, vLLM & 145.6 & 91.8 & 52.7 & \\
+AWQ w4g128, vLLM & 240.2 & 188.5 & 131.7 & \\
+\bottomrule
+\end{tabular}
+\caption{The kernel benchmark and the served files on one NVIDIA
+A100-SXM4-80GB (sm\_80, HBM2e), with the protocols of Table~\ref{tab:bench}
+and Table~\ref{tab:main}. All six kernel arms time the same 252 matrices in
+one process, at tile 128, and the ratios are formed round by round. Data:
+a100-bench.csv, a100-served.csv.}
+\label{tab:a100}
+\end{table}
+
+The L40S is an Ada GPU with GDDR6 memory at
+0.86~TB/s~\citep{nvidia_l40s_datasheet}. To test a card where reading fewer
+bytes matters less, we ran the kernel benchmark and the three sealed files on
+an A100-SXM4-80GB, an Ampere GPU (sm\_80) with HBM2e at about
+2.0~TB/s~\citep{nvidia_a100_datasheet} (Table~\ref{tab:a100}). On this card
+\Tetra{} runs faster than our FP16 kernel, where \Planes{} runs slower, but
+cuBLAS reads the same f16 weights faster still, and AWQ stays well ahead.
+
+Our dense path runs its projections through cuBLAS, so on this card our
+files gain nothing on them. With f16 tables on both sides, as in
+\S\ref{sec:main}, the served files decode at 0.92, 0.91 and 0.95 times the speed of the dense
+arm of the same runs (50.1, 37.4 and 25.1 tokens per second), where they ran
+faster on the L40S. Their lead with 4-bit tables comes
+from the tables alone, and they stay below FP16 in vLLM at every size. Memory
+and quality do not depend on the card. The greedy tokens match the dense path for all 256 at 4B
+and 8B and first differ at token 78 at 14B, as on the L40S.
