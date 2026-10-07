@@ -52,3 +52,52 @@ def test_the_reader_alone_needs_no_transformers():
     """)
     assert r.returncode == 0, f"stdout {r.stdout!r} stderr {r.stderr[-2000:]!r}"
     assert "reader only" in r.stdout
+
+
+def test_an_in_tree_method_is_left_in_place():
+    """The day `transformers` carries "llvq" itself, this import must not raise.
+
+    `register_quantizer` raises on a name already held, and a version on PyPI
+    cannot be changed afterwards, so the guard has to be in the first upload.
+    """
+    r = run("""
+        from transformers.quantizers import HfQuantizer
+        from transformers.quantizers.auto import (
+            AUTO_QUANTIZER_MAPPING, AUTO_QUANTIZATION_CONFIG_MAPPING,
+            register_quantization_config, register_quantizer,
+        )
+        from transformers.utils.quantization_config import QuantizationConfigMixin
+
+        @register_quantization_config("llvq")
+        class InTreeConfig(QuantizationConfigMixin):
+            pass
+
+        @register_quantizer("llvq")
+        class InTreeQuantizer(HfQuantizer):
+            pass
+
+        import llvq_tetra
+        assert AUTO_QUANTIZATION_CONFIG_MAPPING["llvq"] is InTreeConfig
+        assert AUTO_QUANTIZER_MAPPING["llvq"] is InTreeQuantizer
+        print("left in place")
+    """)
+    assert r.returncode == 0, f"stdout {r.stdout!r} stderr {r.stderr[-2000:]!r}"
+    assert "left in place" in r.stdout
+
+
+def test_a_transformers_too_old_raises_instead_of_registering_nothing():
+    """A missing submodule is an incompatible `transformers`, not an absent one.
+
+    Swallowed, it would leave "llvq" unregistered and `from_pretrained` would
+    load a random model without raising. `transformers.core_model_loading`
+    does not exist before 5.x, which is the realistic way to get here.
+    """
+    r = run("""
+        import sys
+        sys.modules["transformers.core_model_loading"] = None  # an import of it now raises
+        import llvq_tetra
+        print("imported")
+    """)
+    assert r.returncode != 0, f"the import succeeded: stdout {r.stdout!r}"
+    assert "imported" not in r.stdout
+    assert "core_model_loading" in r.stderr, r.stderr[-2000:]

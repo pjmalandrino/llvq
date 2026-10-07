@@ -269,10 +269,6 @@ dependencies = [
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "numpy", version = "2.5.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "safetensors" },
-]
-
-[package.optional-dependencies]
-torch = [
     { name = "torch" },
     { name = "transformers" },
 ]
@@ -281,25 +277,20 @@ torch = [
 dev = [
     { name = "ninja" },
     { name = "pytest" },
-    { name = "torch" },
-    { name = "transformers" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "numpy", specifier = ">=2.0" },
     { name = "safetensors", specifier = ">=0.4" },
-    { name = "torch", marker = "extra == 'torch'", specifier = ">=2.5" },
-    { name = "transformers", marker = "extra == 'torch'", specifier = ">=5.0" },
+    { name = "torch", specifier = ">=2.14" },
+    { name = "transformers", specifier = ">=5.17" },
 ]
-provides-extras = ["torch"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "ninja", specifier = ">=1.11" },
     { name = "pytest", specifier = ">=8" },
-    { name = "torch", specifier = ">=2.5" },
-    { name = "transformers", specifier = ">=5.0" },
 ]
 
 [[package]]

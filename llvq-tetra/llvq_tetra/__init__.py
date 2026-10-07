@@ -22,6 +22,8 @@ Bit-exactness against the Rust decoder is a gate, not an aspiration:
 digests `bin/hfdense` writes from `decode_matrix` itself.
 """
 
+import importlib.util
+
 from .tetra import TetraTables
 from .reader import PackedModel
 
@@ -37,11 +39,19 @@ __all__ = ["TetraTables", "PackedModel"]
 # skip the quantization", then raises about a corrupted checkpoint fifty lines
 # later. `tests/test_registration.py` holds it from a fresh interpreter.
 #
-# Guarded, because `transformers` and `torch` are an optional extra: reading a
-# packed file with `PackedModel` needs numpy and safetensors alone.
+# Guarded for one case only: `torch` or `transformers` not installed at all,
+# which a `--no-deps` install can produce, and where `PackedModel` still reads a
+# file with numpy and safetensors. Any other import failure raises. A
+# `transformers` too old for this package fails here on a missing submodule,
+# `transformers.core_model_loading`, and swallowing that would leave the method
+# unregistered, so `from_pretrained` would load a random model without a word:
+# the trap of 2026-10-03, reopened by a version.
 try:
     from . import quantizer as _quantizer  # noqa: F401
-except ImportError:  # pragma: no cover - exercised by the extra-less install
+except ModuleNotFoundError as e:
+    _root = (e.name or "").partition(".")[0]
+    if _root not in ("torch", "transformers") or importlib.util.find_spec(_root) is not None:
+        raise
     _quantizer = None
 else:
     __all__.append("quantizer")

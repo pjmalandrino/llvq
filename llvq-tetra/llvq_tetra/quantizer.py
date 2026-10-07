@@ -31,7 +31,12 @@ import os
 
 import torch
 from transformers.quantizers import HfQuantizer
-from transformers.quantizers.auto import register_quantization_config, register_quantizer
+from transformers.quantizers.auto import (
+    AUTO_QUANTIZATION_CONFIG_MAPPING,
+    AUTO_QUANTIZER_MAPPING,
+    register_quantization_config,
+    register_quantizer,
+)
 from transformers.utils.quantization_config import QuantizationConfigMixin
 
 from transformers.core_model_loading import WeightConverter
@@ -43,7 +48,6 @@ from .tetra import TetraTables
 QUANT_METHOD = "llvq"
 
 
-@register_quantization_config(QUANT_METHOD)
 class LlvqConfig(QuantizationConfigMixin):
     """The `quantization_config` block `hfpack` writes, as an object.
 
@@ -73,7 +77,6 @@ class LlvqConfig(QuantizationConfigMixin):
             raise ValueError("the quantization_config carries no record table")
 
 
-@register_quantizer(QUANT_METHOD)
 class LlvqQuantizer(HfQuantizer):
     """Loads a packed LLVQ directory. Cannot quantize: the encoder is offline."""
 
@@ -280,3 +283,16 @@ def _target_device(model) -> str:
 def _set_module(model, name: str, new: torch.nn.Module) -> None:
     parent, _, leaf = name.rpartition(".")
     setattr(model.get_submodule(parent) if parent else model, leaf, new)
+
+
+# Registered only under a free name. `register_quantization_config` and
+# `register_quantizer` raise on a name `transformers` already holds
+# (`quantizers/auto.py`), and the day this method is in tree it holds "llvq". A
+# version on PyPI cannot be changed afterwards, so an unconditional registration
+# would make `import llvq_tetra` fail on every later `transformers` that carries
+# the method. Leaving the in-tree classes in place is the right outcome: they
+# are the ones that version of `transformers` was tested with.
+if QUANT_METHOD not in AUTO_QUANTIZATION_CONFIG_MAPPING:
+    register_quantization_config(QUANT_METHOD)(LlvqConfig)
+if QUANT_METHOD not in AUTO_QUANTIZER_MAPPING:
+    register_quantizer(QUANT_METHOD)(LlvqQuantizer)

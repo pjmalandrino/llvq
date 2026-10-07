@@ -32,12 +32,17 @@ classifiers = [
 # The reader alone is numpy and safetensors. `PackedModel` opens a packed
 # directory and rebuilds a matrix without torch, which is what lets a checker
 # verify the format without an accelerator.
-dependencies = ["numpy>=2.0", "safetensors>=0.4"]
-
-[project.optional-dependencies]
-# What `transformers` needs: the quantizer registers itself on import, so these
-# are the extra a model loader wants, not the extra the format wants.
-torch = ["torch>=2.5", "transformers>=5.0"]
+# torch and transformers are required, not an extra: the package exists to load
+# a model in `transformers`, and the model card's one line is
+# `pip install llvq-tetra`. The floors are the versions measured, torch 2.14.1
+# and transformers 5.17.0 and 5.18.0; torch 2.5.1 is known to break against
+# transformers 5.x, which calls `torch.accelerator`.
+dependencies = [
+    "numpy>=2.0",
+    "safetensors>=0.4",
+    "torch>=2.14",
+    "transformers>=5.17",
+]
 
 [project.urls]
 Homepage = "https://github.com/pjmalandrino/llvq"
@@ -49,7 +54,7 @@ Issues = "https://github.com/pjmalandrino/llvq/issues"
 [dependency-groups]
 # `ninja` is what `torch.utils.cpp_extension.load` shells out to for the Metal
 # and CUDA ops. A user who never sets LLVQ_HF_FUSED=1 does not need it.
-dev = ["pytest>=8", "torch>=2.5", "transformers>=5.0", "ninja>=1.11"]
+dev = ["pytest>=8", "ninja>=1.11"]
 
 [build-system]
 requires = ["hatchling"]
