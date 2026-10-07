@@ -3,7 +3,7 @@
 <!--
 Draft, not posted. It goes out together with the PR. Before posting:
 - put the PR number in "Your contribution", and check the PR does what that paragraph says;
-- run the snippet once, exactly as written;
+- the snippet ran as written on 2026-10-07 (docs/mesures/hf-snippet-2026-10-07.txt);
 - re-read each number against its journal in docs/mesures/.
 Once posted, this file becomes the verbatim archive of the body and is not edited again,
 as ../candle-broadcast-matmul/ISSUE.md is.

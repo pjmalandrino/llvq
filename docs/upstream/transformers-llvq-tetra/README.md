@@ -24,8 +24,9 @@ rewritten on 2026-10-07, shorter, for a PR beside it.
       (`docs/mesures/hf-pypi-0.1.0-2026-10-07.txt`).
 - [ ] **The PR is ready.** The operator decided on 2026-10-07 that the issue and
       the PR go out together. The draft carries `PR #____` until then.
-- [ ] **Run the snippet once, exactly as written.** It is the model card's, and
-      every check so far went through `gentokens`, not through it.
+- [x] **Run the snippet once, exactly as written.** Done on 2026-10-07 from a
+      clean `pip install llvq-tetra`: exit 0, no warning, "The capital of France is
+      Paris." (`docs/mesures/hf-snippet-2026-10-07.txt`).
 - [x] **A reader has to be able to try it in one command.** True for the dense
       path, which needs no GPU and no compiler. Not for the fused path, which
       compiles a kernel at import, and the draft says so.

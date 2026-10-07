@@ -1,0 +1,38 @@
+THE ISSUE'S SNIPPET, RUN AS WRITTEN (2026-10-07)
+================================================
+Prereg: none. This is a smoke run of a public code sample, not a measurement question: it answers whether the
+        snippet of docs/upstream/transformers-llvq-tetra/ISSUE.md runs, and prints what it prints.
+Code: ISSUE.md at commit f9909a9, the python block extracted verbatim by a script. Mac M3 Max, 0 $, no job.
+Nature: *measured*: exit status, output, wall time of this one run.
+
+SETUP
+-----
+The environment of docs/mesures/hf-pypi-0.1.0-2026-10-07.txt: an empty Python 3.12.11 environment where
+`uv pip install llvq-tetra==0.1.0` from PyPI pulled torch 2.14.1 and transformers 5.19.0. HF_TOKEN unset, OMP_NUM_THREADS=12,
+nice 10. HF_HOME is the cache the TestPyPI arms filled, so the 4B was not downloaded again.
+
+THE SNIPPET
+-----------
+  # pip install llvq-tetra
+  import llvq_tetra  # registers "llvq"
+  from transformers import AutoModelForCausalLM, AutoTokenizer
+  
+  name = "Pier-Jean/Qwen3-4B-LLVQ-Tetra"
+  tok = AutoTokenizer.from_pretrained(name)
+  model = AutoModelForCausalLM.from_pretrained(name, dtype="float32")
+  ids = tok("The capital of France is", return_tensors="pt")
+  print(tok.decode(model.generate(**ids, max_new_tokens=16)[0]))
+
+RESULT
+------
+Exit 0, no warning printed. Output, verbatim:
+
+  The capital of France is Paris. The capital of France is Paris. The capital of France is Paris.
+
+Wall time 2 min 16 s, the dense load included. `generate` follows Qwen3's own generation_config, which samples, so
+another run may print other words.
+
+WHAT THIS DOES NOT ESTABLISH
+----------------------------
+- Token identity: that is the TestPyPI journal's gate, through gentokens, greedy.
+- The snippet on CUDA or on a GPU at all: it runs on the CPU as written.
