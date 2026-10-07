@@ -5,9 +5,9 @@ until the operator gives a go on each stage (rule 1). Stages 0 to 3 cost 0 $ and
 
 ## Why
 
-Nothing but our engine reads a `.llvq` today (`docs/hf-model-card.md`). `bin/export` bridges to `transformers`
-by writing full f16, about 8 GB at 4B: an interchange artifact, never a distribution format. This plan targets
-loading the **compressed** file.
+When this plan started, nothing but our engine read a `.llvq`. `bin/export` bridges to `transformers` by writing
+full f16, about 8 GB at 4B: an interchange artifact, never a distribution format. This plan targets loading the
+**compressed** file.
 
 ## Facts the plan rests on
 
@@ -37,7 +37,7 @@ What we have: the CUDA kernel `llvq-cuda/kernels/llvq_tetra48.cuh`, compiled by 
 | 3 | Kernel Hub packaging for Metal (`kernel-builder`), loaded with `get_kernel` | `kernel-abi-check` green; stage 2's tokens reproduced from the Hub-loaded kernel | 0 $, Mac |
 | 4 | CUDA: the NVRTC source becomes a precompiled torch extension | **passed 2026-09-30**: built by `nvcc` in 51.8 s, per-row 3.4 to 3.7e-04 on three shapes, 256 ids of 256, 168 of 252 projections fused | **$0.30 over seven launches** on `l40sx1` then `l4x1` |
 | 5 | Pip package, model card, 4B file pushed to the Hub in the new layout | **the Hub half done 2026-10-02**, two public repositories, the Hub's own sha256 of the sealed file equal to the paper's. The cleanroom half passed 2026-10-01. **PyPI is not done** | 0 $ |
-| 6 | Upstream PR to `transformers` | accepted or refused by the maintainers; not ours to decide | 0 $ |
+| 6 | Upstream issue and PR to `transformers`, posted together once PyPI holds 0.1.0 (operator, 2026-10-07) | accepted or refused by the maintainers; not ours to decide | 0 $ |
 
 ## The CUDA test job, launched
 
@@ -281,29 +281,25 @@ MISSING, and the forward pass still passed on random numbers. Three of the five 
 is `missing_keys` and `unexpected_keys`, and the mutant that removes the import fails exactly those
 two.
 
-**What stage 5 still needs is a decision, not a puzzle.** Nothing is on the Hub:
-`Pier-Jean/Qwen3-4B-LLVQ-2bit` is public, at zero downloads, and still holds `q4b-e8.llvq` and the
-1.77 GB `.bin`.
+Stage 5's Hub half was done on 2026-10-02, below. What it still needs is PyPI.
 
 ## Where the code lives
 
-The Python side is developed here, in a top-level `llvq-tetra/`, and extracted at stage 5. Decided by the operator on
-2026-09-29.
+**In this repository, merged into `main`.** Decided by the operator on 2026-10-07. `llvq-tetra/` stays a package of the
+repository, as `ops/llvqtune` is, and the wheel is published from it. This replaces the decisions of 2026-09-29 and
+2026-09-30, which kept the branch off `main` and extracted the package at stage 5.
 
-Three facts settle it. `hfpack` reads a `.llvq` through `llvq-artifact` and `llvq-quant`, so it is a workspace crate's
-binary and cannot move. A pip-shaped Python package inside this repository is already the practice, `ops/llvqtune`
-carries its own `pyproject.toml`, `uv.lock` and tests. The lab rules are bound to this repository: preregs in `proofs/`
-with their `.ots` anchors, journals in `docs/mesures/`, and every stage below carries a gate, so developing stages 1 to
-4 elsewhere would separate the audit trail from the code it attests.
+Three facts of 2026-10-02 decided it. The wheel ships a copy of the served kernels, made by `bin/tetratables` and held
+by `the_shipped_cuda_closure_is_complete`, a Rust test. The `mini` fixture is written by a Rust test,
+`the_mini_fixture_describes_a_whole_qwen3_layer`. And `hfpack`, which makes the published object, reads a `.llvq`
+through `llvq-artifact` and `llvq-quant`, so it cannot leave the workspace. Two repositories would have to keep those
+copies aligned by hand, and this repository has already had two cards drift apart.
 
-`llvq-tetra/` is self-contained from the first commit: its own `pyproject.toml`, its own tests, and a fixture of a few
-hundred kilobytes so no test needs the 1.4 GB object. Extraction is then `git subtree split -P llvq-tetra`, which keeps the
-history, and the wheel of stage 5 is published from the repository that comes out. What is published before that is the
-kernels, which the Kernel Hub takes as Hub repositories, and they are outputs rather than homes.
-
-A fork of `transformers` is not a home either. The in-tree guide of stage 6 requires the pip package to exist first, so
-the fork is downstream of it. The repository's own precedent for an upstream contribution is
-`docs/upstream/candle-broadcast-matmul/`, an issue, a patch and a reproduction, with no fork.
+What goes to `transformers` in tree is the glue alone: the config class, the quantizer, the module replacement, the
+tests and the documentation. The package stays ours and becomes an optional dependency. That is how `aqlm`, `vptq`,
+`spqr` and `higgs` are integrated: in `transformers` 5.18.0 each imports its own package, `aqlm`, `vptq`, `spqr_quant`
+and `flute` (read in the installed sources on 2026-10-07). The fork of `transformers` that carries the PR is downstream
+of the package, never its home.
 
 `ops/llvq_hf_check.py` holds the 48-bit unpacking that stage 1 needs. It moves into the package at stage 1 and the
 script keeps its name as a thin caller, so the unpacking never exists twice. The provenance line of the stage 0 journal
@@ -338,10 +334,11 @@ and `generation_config.json` are copied verbatim from `Qwen/Qwen3-4B` at revisio
 the sealed file instead would change what `seal` writes, which is format work and
 is not done.
 
-**The two cards are one file.** `docs/hf-model-card.md` is the sealed
-repository's card byte for byte below its STATUS comment, because this repository
-already had two cards drift apart between 2026-09-27 and 2026-10-02. Edit there,
-then re-upload.
+**The cards live in `docs/hub/`.** `qwen3-4b-sealed.md` and
+`qwen3-4b-safetensors.md` are the two READMEs byte for byte, front matter first,
+because this repository already had two cards drift apart between 2026-09-27 and
+2026-10-02. Edit there, then re-upload. The safetensors card matched the Hub on
+2026-10-07, 7,681 bytes identical (*measured*).
 
 **The old repository is untouched.** `Pier-Jean/Qwen3-4B-LLVQ-2bit` still holds
 the August `Planes14` objects at zero downloads, and `docs/fiche-4b.md` remains
@@ -349,18 +346,14 @@ their provenance register.
 
 ## What is not hosted
 
-The 8B and 14B sealed files, whose digests paper 2 also publishes, `7bdb9a55` and
-`61db37fe`. **They no longer exist**: they were sealed locally on 2026-09-23 and
-deleted in a disk cleanup. Their inputs survive in the bucket,
-`qwen3-8b-dclm-ft.bin` and `qwen3-14b-dclm-ft.bin`, and the chain that made them
-is in the journals, `int4swap` then `embedq`, locally and at 0 $. Re-sealing needs
-those two files back, about 11 GB, plus the Qwen3-8B and Qwen3-14B checkpoints,
-about 45 GB, which the cache no longer holds.
+The 8B and the 14B as safetensors. Their sealed files are public since 2026-10-06,
+`Pier-Jean/Qwen3-8B-LLVQ-Tetra-sealed` and `Pier-Jean/Qwen3-14B-LLVQ-Tetra-sealed`,
+with the digests paper 2 publishes, `7bdb9a55` and `61db37fe`. They had sat in the
+job bucket all along; this plan said on 2026-10-02 that a disk cleanup had deleted
+them, which was wrong. `hfpack` has run on the 4B alone.
 
-Re-sealing is worth more than a file. If the digests come back equal, the sealing
-chain is deterministic and the paper's three digests are third-party verifiable.
-If they do not, paper 2 publishes digests of objects nobody can recreate, and
-that is a thing to know rather than to assume.
+Whether the sealing chain is deterministic stays unknown: no file was sealed twice
+and its digests compared.
 
 ## The trap in the published object, 2026-10-03
 
@@ -388,27 +381,24 @@ model. `ops/hf_tripwire_probe.py` reruns the table in seconds.
 case for the PR was discoverability, which is why it kept losing to the
 out-of-tree route that already works.
 
+**Decided on 2026-10-03: `auto_map` added, `model_type` kept.**
+`trust_remote_code=True` now loads the model, and its shim raises an `ImportError`
+naming the package when the package is missing. A caller who imports nothing and
+passes nothing still gets the random model, and the safetensors card says so.
+
 ## Open decisions
 
+- **PyPI 0.1.0.** The name is `llvq-tetra` (operator, 2026-10-07), free on PyPI on 2026-10-06 (*measured*, HTTP 404).
+  The first upload is irreversible: a version number is never reusable, and a release is yanked rather than deleted.
+  TestPyPI comes first, and the upload is the operator's hand.
+- **The issue and the PR, posted together** once PyPI holds 0.1.0 (operator, 2026-10-07). The draft in
+  `docs/upstream/transformers-llvq-tetra/` asks whether the method is wanted before the code is written, so it is
+  rewritten for a PR beside it. The PR needs a fork of `transformers`.
 - The go on stage 3, the Kernel Hub packaging, which needs the op of stage 2 and nothing more.
 - **Whether the per-row check becomes a gate**, on one matrix of each shape, with token identity kept
   beside it. M1 measured that four prompts and 64 greedy ids cannot see a 3 to 9 % per-row error,
   while the per-row check sees it in 20 s with a 3,400-fold margin. This changes what a gate is in
   this plan, so it is the operator's.
 - The go on M3, the quantized embedding, which is the last 1.558 GB and takes 2.750 GB to about 1.4.
-- **What to do about the silent trap above.** Leave it and document it, add `auto_map` for the
-  `trust_remote_code` path alone, change `model_type` and close it, or go in tree. It changes a
-  published object, so it is the operator's.
-- **PyPI.** The names `llvq-tetra`, `llvq` and `llvq_tetra` are free (*measured*, HTTP 404 on each). Until
-  one is taken, the model card's install line points at a git URL, which is honest and looks
-  unfinished. The first upload is irreversible: a version number is never reusable, and a release is
-  yanked rather than deleted. `pyproject.toml` carries no licence, readme, url or classifier yet, and
-  TestPyPI exists to rehearse without burning a number.
-- **Re-sealing the 8B and the 14B**, 0 $ and local, about 56 GB of downloads and several hours, to
-  publish them and to find out whether the paper's digests are reproducible.
-- **Where the audit trail of this branch lives.** `hf-safetensors` is not to be merged into `main`,
-  by operator decision of 2026-09-30, and the code leaves for its own repository at stage 5. But the
-  branch also carries eight journals, seven preregistration deviation files and **eleven rows of
-  `docs/data/jobs.csv`**, including the $0.30 of stage 4. Those belong to the lab, not to the Python
-  package. Either they come back to `main` in a commit that carries no code, or `main` loses the
-  record that those jobs ran and that money was spent.
+- **The int4 matvec on CUDA.** `csrc/tetra_cuda.cu` binds `tv_tetra48` alone, so 168 of 252 projections are fused on a
+  card. Binding `tv_q4_h.cu` needs a card, about $0.25 on `l4x1` (*estimated*, from stage 4).

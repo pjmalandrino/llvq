@@ -739,6 +739,22 @@ and over all 64 on two of them. Stages 0 to 2 and M1 all gated on token identity
 finds that same defect in 20 seconds with a 3,400-fold margin. Whether it becomes a gate is an open
 decision.
 
+## 2026-09-30. M2 and stage 4: no projection dense on Metal, the served CUDA kernel from torch
+
+The 4B holds no projection dense on Metal any more. `tv_q4_metal_tiled` sits beside the served `tv_q4_metal` and gives
+the same f32 values at tiles 256, 2,048 and 8,192 wherever the served kernel runs. The model gives the same 256 ids of
+256, and the device allocation falls from 5.436 GB to 2.750, with all 252 projections resident in 1.158 GB
+(*measured*, [hf-metal-m2-4b](mesures/hf-metal-m2-4b-2026-09-30.txt)). The four signed predictions held. One control
+nearly went void: a mutation located by the kernel's name landed on both kernels, so the reference moved with the
+subject. `checkq4guards.py` now closes the region at the next entry point.
+
+On CUDA, `nvcc` compiles the served `llvq_tetra48.cuh` outside NVRTC and keeps its arithmetic: per-row 3.74e-04,
+3.41e-04 and 3.53e-04 relative on three shapes against a 1e-2 bar, identical on two L4 instances, and 256 greedy ids
+of 256 against `bin/run` (*measured*, [hf-cuda-4b](mesures/hf-cuda-4b-2026-09-30.txt)). The served header gained one
+qualifier, `__device__` on `TETRA48_ORDER`, which changes no arithmetic. 168 of 252 projections are fused there,
+because no torch op binds the int4 kernel. Seven launches cost $0.30, and two of the three build errors they found
+are now held by tests on the Mac.
+
 ## 2026-10-01 to 10-02. The 4B published, and the package named
 
 The out-of-tree route is complete and verifiable by a stranger. Two public repositories,
@@ -777,6 +793,22 @@ relative includes resolve, and `the_shipped_cuda_closure_is_complete` recomputes
 from the bytes rather than trusting the hand written list. Stage 4 had passed on a card for $0.30
 over seven launches, five of which bought three build errors and one a queue of 3 h 47.
 
+## 2026-10-03 and 04. A published model that loads as random, and a conversation
+
+A caller that imports `transformers` alone gets the published 4B as a randomly initialized model, with no exception:
+254 missing keys reinitialized at Qwen3's own std of 0.0200, 1,119 unexpected, and logits in an ordinary range
+(*measured*, [hf-tripwire](mesures/hf-tripwire-2026-10-03.txt)). `transformers` registers quantization methods by
+import, never by entry point. The next step planned was a quality figure through `lm_eval`, which does not import our
+package, so it would have scored noise. `auto_map` cannot close the trap while `model_type` is `qwen3`. The operator
+decided on 2026-10-03 to add it and keep the type: `trust_remote_code=True` now loads the model, verified from the Hub
+with an empty cache, and a caller who passes nothing still gets the random model, as the card says.
+
+`llvq_tetra.chat` talks to the 4B. On two prompts beside the FP16 checkpoint, greedy, FP16 answered visibly better
+(an impression, [hf-chat-4b](mesures/hf-chat-4b-2026-10-04.txt)). The dense arm loads in 151.6 s against 4.5 for
+FP16, because it rebuilds 252 matrices before the first token; the fused arm loads in 7.7 s and generates more slowly.
+The upstream issue for `transformers` was drafted on 2026-10-04 and not posted
+([`upstream/transformers-llvq-tetra/`](upstream/transformers-llvq-tetra/)).
+
 ## 2026-10-04 to 10-06. Review campaign, paper 2 version 2, release v0.0.2
 
 An automated review of paper 2 contested no number. Answering it in full was priced at about $285. The operator
@@ -803,3 +835,15 @@ now refuses a perimeter over 1,000 files.
 A second number audit of the paper found seven errors, none in a table
 ([paper2-audit](mesures/paper2-audit-2026-10-06.txt)), before a redundancy pass and a style pass. Merged into `main`
 as `344499d` and released as `v0.0.2`, with the paper as a PDF.
+
+## 2026-10-07. The transformers route comes to `main`
+
+The operator decided to merge `hf-safetensors` into `main`, and `llvq-tetra/` stays a package of this repository. That
+reverses the decision of 2026-09-30 to keep the branch off `main` and extract the package. Three facts of 2026-10-02
+made extraction a source of drift: the wheel ships a copy of the served kernels made by `bin/tetratables`, the `mini`
+fixture is written by a Rust test, and `hfpack`, which makes the published object, cannot leave the workspace. Only the
+glue would go to `transformers` in tree, the way `aqlm`, `vptq`, `spqr` and `higgs` keep their own packages.
+
+The registry gains the six stage 4 rows `main` lacked, $0.30: $246.75 over 227 priced jobs. The safetensors card moves
+to `docs/hub/qwen3-4b-safetensors.md`, byte for byte the Hub's README. The upstream issue and its PR go out together,
+once PyPI holds 0.1.0.

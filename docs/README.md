@@ -10,6 +10,7 @@ Where to resume, in this order. Each document stands on its own at its level.
 | [`HISTORIQUE.md`](HISTORIQUE.md) | the chronological thread, one entry per period | append at the bottom, the past is not rewritten |
 | [`METHODE.md`](METHODE.md) | the lab rules: prereg, numbers, noise, tests, machines | yes, when a rule changes |
 | [`STYLE.md`](STYLE.md) | how we write here, with the target length of each document | yes |
+| [`plan-transformers.md`](plan-transformers.md) | loading a Tetra file in `transformers`: stages, gates, open decisions | yes |
 | [`templates/`](templates/) | templates: experiment, prereg, journal, deviations | yes |
 
 Reference documents, up to date and long:
@@ -22,7 +23,9 @@ Reference documents, up to date and long:
 | [`inference-cost-reduction-2026.md`](inference-cost-reduction-2026.md) | survey of the field, and candidates to implement |
 | [`llvq-paper-notes.md`](llvq-paper-notes.md) | the source paper, transcribed. Never reopen the PDF |
 | [`qtip-provenance.md`](qtip-provenance.md) | where the bench's QTIP kernel comes from, and why it is not redistributed |
-| [`hub/`](hub/) | the cards of the three sealed files, as published on the Hugging Face Hub |
+| [`hub/`](hub/) | the cards of the three sealed files and of the 4B safetensors, as published on the Hugging Face Hub |
+| [`upstream/`](upstream/) | contributions to other projects: the `candle` issue, the `transformers` proposal |
+| [`ROADMAP-27B.md`](ROADMAP-27B.md), [`ROADMAP-27B-DEV.md`](ROADMAP-27B-DEV.md) | a plan for Qwen3.8-27B, written 2026-09-28, not adopted |
 
 Teaching material, HTML, self-contained: [`cours-comprendre-llvq.html`](cours-comprendre-llvq.html),
 [`cours-tetra.html`](cours-tetra.html), [`cours-layouts-runtime.html`](cours-layouts-runtime.html),
@@ -37,8 +40,8 @@ Frozen, never edited:
 | [`archive/`](archive/) | period documents: plans, handovers, audits, drafts, and the dated working documents. They may contain claims that have since been refuted |
 | [`../proofs/`](../proofs/) | the timestamped preregs and their deviations |
 
-On 2026-09-26 every dated working document moved from `docs/` into [`archive/`](archive/), which left the fourteen
-documents above. A path of the form `docs/<name>-<date>.md` cited in an older journal or preregistration, neither of
+On 2026-09-26 every dated working document moved from `docs/` into [`archive/`](archive/), which left fourteen
+documents. A path of the form `docs/<name>-<date>.md` cited in an older journal or preregistration, neither of
 which is edited, now resolves under `docs/archive/`. The same rule moved the review campaign of 2026-10-04,
 `retours-relecture-2026-10-04.md`, into `archive/` on 2026-10-06.
 

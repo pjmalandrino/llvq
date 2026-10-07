@@ -44,9 +44,10 @@ Eight crates, members of `Cargo.toml`.
 | `llvq-cuda` | NVIDIA fused kernel compiled by NVRTC, benchmarks | `cudarc`, `cfg(target_os = "linux")` | allowed |
 | `llvq-llm` | forward pass, corpora, perplexity, MMLU, fused path in the model | `candle`, `tokenizers`, `hf-hub`, `parquet` | allowed |
 
-Beside the crates, `llvq-tetra/` is a Python package: it reads a packed model in `transformers` and is
-extracted to its own repository at stage 5 of `docs/plan-transformers.md`. `ops/llvqtune` is the
-other Python package, which trains the free parameters an artifact already holds.
+Beside the crates, `llvq-tetra/` is a Python package: it reads a packed model in `transformers`, and it is the
+distribution `llvq-tetra`. It stays in this repository (operator, 2026-10-07): its wheel ships a copy of the served
+kernels that `bin/tetratables` makes, and `hfpack` writes what it reads. `docs/plan-transformers.md` carries its stages.
+`ops/llvqtune` is the other Python package, which trains the free parameters an artifact already holds.
 
 `unsafe` is allowed only at hardware boundaries: mmap, kernel launch, reading a device buffer. Caveat:
 `#![forbid(unsafe_code)]` in a `lib.rs` does not cover integration tests, which are separate crates; closing that hole

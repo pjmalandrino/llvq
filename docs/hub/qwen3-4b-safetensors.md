@@ -1,14 +1,3 @@
-<!--
-  STATUS, 2026-10-02.
-
-  THIS FILE IS THE CARD OF Pier-Jean/Qwen3-4B-LLVQ-Tetra, byte for byte below
-  this comment. Edit here, then re-upload. Its sibling is
-  docs/hf-model-card.md, the card of -Tetra-sealed. Both lived outside the
-  repository for an hour on 2026-10-02 and the rename to llvq-tetra broke the
-  install line of this one within that hour, which is why neither lives outside
-  any more.
--->
-
 ---
 license: apache-2.0
 base_model: Qwen/Qwen3-4B

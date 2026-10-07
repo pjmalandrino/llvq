@@ -1,6 +1,6 @@
 # Roadmap
 
-What comes next, with its gate and its cost. State as of 2026-10-06. Where things stand is in
+What comes next, with its gate and its cost. State as of 2026-10-07. Where things stand is in
 [`ETAT.md`](ETAT.md), the past in [`HISTORIQUE.md`](HISTORIQUE.md), the rules in [`METHODE.md`](METHODE.md). The
 quality axis has its own document, [`ROADMAP-QUALITY.md`](ROADMAP-QUALITY.md), sanctioned 2026-09-06 and ordered by
 feasibility.
@@ -58,6 +58,14 @@ faster there than our kernel reads `Tetra` (*measured*, [a100](mesures/a100-2026
 like the L40S, with less compute. **Cost** under the A100 run's $3.04 (*estimated*). A 24 GB card cannot hold the 14B
 FP16 reference.
 
+### 2.5 `transformers`: PyPI, then upstream
+
+**Gate.** `llvq-tetra` 0.1.0, installed from TestPyPI into an empty environment, loads the published 4B with no missing
+and no unexpected key and gives the same greedy tokens as `bin/run`. **Cost** 0 $.
+
+The stages and their open decisions are in [`plan-transformers.md`](plan-transformers.md). The upload to PyPI is
+irreversible and is the operator's hand. The upstream issue and its PR go out together once PyPI holds 0.1.0.
+
 ## 3. Debt and hygiene
 
 - `[workspace.lints.rust] unsafe_code = "forbid"` and `[lints] workspace = true` on the five core crates.
@@ -97,6 +105,7 @@ FP16 reference.
 | decision | default if silent |
 |---|---|
 | which route for the served census, $20 or $70 | neither, the tables stay unscored |
+| the PyPI upload of `llvq-tetra` 0.1.0, once TestPyPI passes | not uploaded |
 | a spend cap for the next campaign | no paid job |
 | next venue for paper 2 | preprint only |
 | `ots upgrade` after each new stamp | stamps sit un-upgraded |
