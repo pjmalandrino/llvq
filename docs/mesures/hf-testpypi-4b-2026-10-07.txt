@@ -1,0 +1,78 @@
+LLVQ-TETRA 0.1.0 THROUGH TESTPYPI: WHAT A STRANGER GETS FROM AN INDEX (2026-10-07)
+==================================================================================
+Prereg: proofs/preregistration-hf-testpypi-2026-10-07.md, sha256 b6f9c8a6, timestamped before the upload.
+Deviations: proofs/preregistration-hf-testpypi-2026-10-07-ECARTS.md, É1: a second arm on transformers 5.19.0.
+Code: distributions built at commit 1c64ecb, llvq-tetra/ unchanged since; checks run from main e81a054.
+        Mac M3 Max, 0 $, no job.
+Nature: *measured*: digests, install logs, key lists, token ids.
+
+SETUP
+-----
+`llvq_tetra-0.1.0-py3-none-any.whl` and `llvq_tetra-0.1.0.tar.gz` uploaded to TestPyPI by `uv publish`, the token
+read from a local `.env` that git ignores. Each arm is an empty Python 3.12 environment: torch and transformers from
+PyPI, then `llvq-tetra==0.1.0` alone from TestPyPI with `--no-deps --no-cache`. `ops/hf_cleanroom_check.py` loads
+`fixtures/mini`, then `Pier-Jean/Qwen3-4B-LLVQ-Tetra` from the Hub into an empty `HF_HOME` with `HF_TOKEN` unset,
+dense f32 on the CPU, and compares 64 greedy ids on each of the four prompts of `bin/run` with `bin/run` itself.
+
+Reference: `bin/run`, `LLVQ_DTYPE=f32`, cpu, 64 new tokens, on `~/q4b-sealed-2026-09-23/qwen3-4b-sealed.bin`, sha256
+886391a8c03f66dc..., run from e81a054 between 14:42 and 14:54. `run.rs` is unchanged since fc7bee8, the commit
+of the stage 1 reference.
+
+CONTROLS
+--------
+1. Served sha256 equal to the local files: passes.
+     llvq_tetra-0.1.0-py3-none-any.whl  served 04c25b1dfb4778b1  local 04c25b1dfb4778b1  equal=True  112934 B
+     llvq_tetra-0.1.0.tar.gz            served 5be7aee67532202f  local 5be7aee67532202f  equal=True  226381 B
+2. `uv pip check`: "All installed packages are compatible", 35 packages, in both arms. Passes.
+3. A dry run of `pip install llvq-tetra` in a second empty environment resolves the dependencies from PyPI on its
+   own: `+ llvq-tetra==0.1.0`, `+ torch==2.14.1`, `+ transformers==5.19.0`. Passes. This is what showed that
+   5.19.0 exists, uploaded 2026-10-06 16:38 UTC, which the prereg had not seen: deviation É1.
+4. `llvq_tetra` imported from the environment's `site-packages`, both arms. Passes.
+5. `fixtures/mini`: "loaded, 7 records replaced, no key missing or unexpected", both arms. Passes.
+6. Unauthenticated, empty cache: arm A printed "You are sending unauthenticated requests to the HF Hub" and filled
+   an empty `HF_HOME` with 1.3 GB. Arm B reused that cache, as É1 states. Passes.
+
+TestPyPI accepted `Metadata-Version: 2.5`, written by hatchling 1.32.4: the flaw named in the prediction did not fire.
+
+RESULT
+------
+| arm | torch | transformers | ninja | 4B keys missing / unexpected | ids equal to bin/run |
+|---|---|---|---|---|---|
+| A, the prereg | 2.14.1 | 5.18.0 | absent | none / none | 256 of 256 |
+| B, É1 | 2.14.1 | 5.19.0 | absent | none / none | 256 of 256 |
+
+Both arms: 252 projections dense and 0 fused, since nothing can compile without ninja; parameters and buffers
+16.090 GB at f32. The comparison, verbatim, identical in both arms:
+
+  same 64 ids  'The capital of France is'
+  same 64 ids  'In 1969, the first humans landed on'
+  same 64 ids  'def fibonacci(n):\n    if n < 2:\n        return n\n    return'
+  same 64 ids  'Water boils at a temperature of'
+  4 prompts, every id identical
+
+Load and generation times are printed in the raw logs and are not a number of this prereg (section 5).
+
+VERDICT
+-------
+Prereg section 6, row 3: "controls green, 256 ids of 256 equal | the TestPyPI half passes; the PyPI upload of 0.1.0
+goes to the operator". É1, arm B: 256 ids of 256 and no missing or unexpected key, so no upper bound on
+`transformers`.
+
+The signed prediction held: 256 of 256, and TestPyPI took the upload.
+
+WHAT THIS DOES NOT ESTABLISH
+----------------------------
+- Anything about PyPI itself. It is another index, with the same bytes.
+- The fused arms. Nothing compiles in an environment without ninja, so the Metal and CUDA ops were not built here.
+  They were gated in M1, M2 and stage 4, from the working tree.
+- A transformers after 5.19.0, or a torch other than 2.14.1.
+- Quality. Four prompts and token identity, the gate M1 showed blind to a 3 to 9 % per-row error.
+- Speed. None.
+
+PROVENANCE
+----------
+TestPyPI: https://test.pypi.org/project/llvq-tetra/0.1.0/, JSON with the served digests read 2026-10-07.
+Raw outputs in docs/mesures/hf-testpypi-4b-2026-10-07-brut/: testpypi-upload.log, testpypi-0.1.0.json,
+testpypi-env.log and testpypi-env-B.log (installs and pip check), testpypi-check-A.log and testpypi-check-B.log,
+run-ref.log and run-tokens-f32.json (the reference), cleanroom-tokens-A.json and cleanroom-tokens-B.json. None
+carries a token.

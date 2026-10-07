@@ -866,3 +866,10 @@ from this machine: `real_rows_match_the_sealed_q8_file`, `transcode_of_the_seale
 the same host driver into one fixed path while another one ran it. The driver is now built once per test binary, and
 `golay70_decoder_matches_rust.rs`, which had the same pattern with two callers, got the same fix. The fix passed five
 runs at 16 threads. The old behaviour also passed five runs on an idle machine, so the race cannot be forced here.
+
+`llvq-tetra` 0.1.0 went to TestPyPI, the token read from a local `.env` that git ignores. TestPyPI serves the bytes
+that were built, and installed from it into an empty environment, with nothing compiled, the package loads the
+published 4B and gives the 256 ids of `bin/run` (*measured*, [hf-testpypi](mesures/hf-testpypi-4b-2026-10-07.txt)).
+The check found a version the prereg had not seen: transformers 5.19.0, out the evening before, is what
+`pip install llvq-tetra` resolves. It ran as a second arm, written beside the prereg before any load, and gave the
+same 256 ids, so 0.1.0 needs no upper bound.

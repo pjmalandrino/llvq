@@ -60,8 +60,9 @@ FP16 reference.
 
 ### 2.5 `transformers`: PyPI, then upstream
 
-**Gate.** `llvq-tetra` 0.1.0, installed from TestPyPI into an empty environment, loads the published 4B with no missing
-and no unexpected key and gives the same greedy tokens as `bin/run`. **Cost** 0 $.
+**Gate, passed on 2026-10-07.** `llvq-tetra` 0.1.0, installed from TestPyPI into an empty environment, loads the
+published 4B with no missing and no unexpected key and gives the same 256 greedy ids as `bin/run`, on transformers
+5.18.0 and 5.19.0 (*measured*, [hf-testpypi](mesures/hf-testpypi-4b-2026-10-07.txt)). **Cost** 0 $.
 
 The stages and their open decisions are in [`plan-transformers.md`](plan-transformers.md). The upload to PyPI is
 irreversible and is the operator's hand. The upstream issue and its PR go out together once PyPI holds 0.1.0.
@@ -105,7 +106,7 @@ irreversible and is the operator's hand. The upstream issue and its PR go out to
 | decision | default if silent |
 |---|---|
 | which route for the served census, $20 or $70 | neither, the tables stay unscored |
-| the PyPI upload of `llvq-tetra` 0.1.0, once TestPyPI passes | not uploaded |
+| the PyPI upload of `llvq-tetra` 0.1.0; TestPyPI passed on 2026-10-07 | not uploaded |
 | a spend cap for the next campaign | no paid job |
 | next venue for paper 2 | preprint only |
 | `ots upgrade` after each new stamp | stamps sit un-upgraded |

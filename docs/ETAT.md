@@ -134,7 +134,8 @@ the bar is the paired interval, 0.43 pp in MMLU and 0.12% in perplexity (*measur
   [Qwen3-4B-LLVQ-Tetra](https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-Tetra), read by the Python package `llvq-tetra/`.
   It gives the same 256 greedy tokens as our engine on a CPU, on Metal and on an L4 (*measured*,
   [plan-transformers](plan-transformers.md)). The package is not on PyPI yet, so the card's install line fails today.
-  Next, by operator decision of 2026-10-07: TestPyPI, then PyPI 0.1.0, then the upstream issue and PR together.
+  TestPyPI passed on 2026-10-07 ([hf-testpypi](mesures/hf-testpypi-4b-2026-10-07.txt)). Next, on the operator's
+  go: PyPI 0.1.0, then the upstream issue and PR together.
 - **Spend.** $246.75 over 227 priced jobs (*measured*, `docs/data/jobs.csv`). The review campaign of 2026-10-04 to
   10-06 spent $4.57 under a $9 cap, and the `transformers` wave of 2026-09-30 spent $0.30 under a $5 cap. No cap is
   in force; one is owed before the next paid job.

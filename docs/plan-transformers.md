@@ -36,7 +36,7 @@ What we have: the CUDA kernel `llvq-cuda/kernels/llvq_tetra48.cuh`, compiled by 
 | M3 | the quantized embedding resident, through `emb_q4_gather_metal` | the same ids | 0 $, Mac |
 | 3 | Kernel Hub packaging for Metal (`kernel-builder`), loaded with `get_kernel` | `kernel-abi-check` green; stage 2's tokens reproduced from the Hub-loaded kernel | 0 $, Mac |
 | 4 | CUDA: the NVRTC source becomes a precompiled torch extension | **passed 2026-09-30**: built by `nvcc` in 51.8 s, per-row 3.4 to 3.7e-04 on three shapes, 256 ids of 256, 168 of 252 projections fused | **$0.30 over seven launches** on `l40sx1` then `l4x1` |
-| 5 | Pip package, model card, 4B file pushed to the Hub in the new layout | **the Hub half done 2026-10-02**, two public repositories, the Hub's own sha256 of the sealed file equal to the paper's. The cleanroom half passed 2026-10-01. **PyPI is not done**; five defects of the package were fixed for 0.1.0 on 2026-10-07 | 0 $ |
+| 5 | Pip package, model card, 4B file pushed to the Hub in the new layout | **the Hub half done 2026-10-02**, two public repositories, the Hub's own sha256 of the sealed file equal to the paper's. The cleanroom half passed 2026-10-01. **PyPI is not done**; five defects of the package were fixed for 0.1.0 on 2026-10-07, and the TestPyPI half passed that day: the served bytes are the local ones, and 256 ids of 256 from an empty environment on transformers 5.18.0 and 5.19.0 | 0 $ |
 | 6 | Upstream issue and PR to `transformers`, posted together once PyPI holds 0.1.0 (operator, 2026-10-07) | accepted or refused by the maintainers; not ours to decide | 0 $ |
 
 ## The CUDA test job, launched
@@ -390,8 +390,8 @@ passes nothing still gets the random model, and the safetensors card says so.
 
 - **PyPI 0.1.0.** The name is `llvq-tetra` (operator, 2026-10-07), free on PyPI on 2026-10-06 (*measured*, HTTP 404).
   The first upload is irreversible: a version number is never reusable, and a release is yanked rather than deleted.
-  TestPyPI comes first, and the upload is the operator's hand. Five defects of the package were fixed for it on
-  2026-10-07, listed in `HISTORIQUE.md`.
+  Five defects of the package were fixed for it on 2026-10-07, listed in `HISTORIQUE.md`. TestPyPI passed the same
+  day (*measured*, `docs/mesures/hf-testpypi-4b-2026-10-07.txt`). The upload to PyPI waits for the operator's go.
 - **The issue and the PR, posted together** once PyPI holds 0.1.0 (operator, 2026-10-07). The draft in
   `docs/upstream/transformers-llvq-tetra/` asks whether the method is wanted before the code is written, so it is
   rewritten for a PR beside it. The PR needs a fork of `transformers`.

@@ -1,0 +1,9 @@
+Using Python 3.12.11 environment at: /private/tmp/claude-501/-Users-pjmalandrino-Documents-Pro-workspace-poc-llvq/b3c91fbc-674b-4c71-937a-f26683d60af8/scratchpad/venv-testpypi
+Resolved 1 package in 249ms
+Prepared 1 package in 534ms
+Installed 1 package in 2ms
+ + llvq-tetra==0.1.0
+--- pip check:
+Using Python 3.12.11 environment at: /private/tmp/claude-501/-Users-pjmalandrino-Documents-Pro-workspace-poc-llvq/b3c91fbc-674b-4c71-937a-f26683d60af8/scratchpad/venv-testpypi
+Checked 35 packages in 0.90ms
+All installed packages are compatible
