@@ -848,7 +848,7 @@ The registry gains the six stage 4 rows `main` lacked, $0.30: $246.75 over 227 p
 to `docs/hub/qwen3-4b-safetensors.md`, byte for byte the Hub's README. The upstream issue and its PR go out together,
 once PyPI holds 0.1.0.
 
-Four defects of the package were fixed before the first upload, because a version on PyPI cannot be changed. The
+Five defects of the package were fixed before the first upload, because a version on PyPI cannot be changed. The
 import registered "llvq" unconditionally while `transformers` raises on a name it already holds, so 0.1.0 would have
 failed to import on the first `transformers` that carries the method in tree. The import guard swallowed any
 `ImportError`, so a `transformers` too old for the package, one without `transformers.core_model_loading`, left the
@@ -856,4 +856,5 @@ method unregistered and `from_pretrained` loading a random model in silence. `to
 extra, while the card's install line is `pip install llvq-tetra` alone. And the floors, `torch>=2.5` and
 `transformers>=5.0`, admitted torch 2.5.1, which breaks against transformers 5.x; they are now the versions measured,
 2.14 and 5.17. Two tests were added, 48 pass, and three mutants, one per decision of the guard, were each caught by
-exactly one test.
+exactly one test. The fifth came from `twine check --strict` on the built wheel: two project URL labels held a comma,
+which core metadata reads as the separator between label and URL.
