@@ -106,7 +106,16 @@ fn class_rec_table(fd: &FastDecoder) -> Vec<u32> {
     tab
 }
 
+/// Compiled once per test binary, then shared: two tests call this and the
+/// harness runs them in parallel, so recompiling into one fixed path let one
+/// exec the probe while the other's `clang++` rewrote it. The same race failed
+/// three tests of `rotation_matches_rust.rs` on 2026-10-07.
 fn compile_probe() -> std::path::PathBuf {
+    static PROBE: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+    PROBE.get_or_init(build_probe).clone()
+}
+
+fn build_probe() -> std::path::PathBuf {
     let out = std::env::temp_dir().join("llvq_host_golay70");
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
     let st = Command::new("clang++")

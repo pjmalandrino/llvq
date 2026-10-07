@@ -858,3 +858,11 @@ extra, while the card's install line is `pip install llvq-tetra` alone. And the 
 2.14 and 5.17. Two tests were added, 48 pass, and three mutants, one per decision of the guard, were each caught by
 exactly one test. The fifth came from `twine check --strict` on the built wheel: two project URL labels held a comma,
 which core metadata reads as the separator between label and URL.
+
+The full suite ran twice. The first pass stopped at the first failing binary, so the second ran without fail-fast:
+180 suites, 1,036 tests passed and 6 failed (*measured*). Three read the August archive `~/qwen3-4b-llvq.bin`, absent
+from this machine: `real_rows_match_the_sealed_q8_file`, `transcode_of_the_sealed_model_matches_planes14` and
+`rotation_keys_partition_the_sites`. The operator deleted them. Three CUDA rotation tests raced: four tests compiled
+the same host driver into one fixed path while another one ran it. The driver is now built once per test binary, and
+`golay70_decoder_matches_rust.rs`, which had the same pattern with two callers, got the same fix. The fix passed five
+runs at 16 threads. The old behaviour also passed five runs on an idle machine, so the race cannot be forced here.

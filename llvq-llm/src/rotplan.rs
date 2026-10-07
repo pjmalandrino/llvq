@@ -169,9 +169,10 @@ pub struct RotSite {
 ///    different activations look interchangeable.
 ///
 /// Both directions matter and a check of one alone passes on a file the other
-/// breaks. Verified on the two sealed artifacts by
-/// `tests/rotplan.rs::rotation_keys_partition_the_sites`: 252 matrices, 144
-/// sites, consumer histogram `{3: 36, 2: 36, 1: 72}`.
+/// breaks. Verified on the two August sealed artifacts by
+/// `rotation_keys_partition_the_sites`: 252 matrices, 144 sites, consumer
+/// histogram `{3: 36, 2: 36, 1: 72}`. That test was deleted on 2026-10-07 with
+/// the archives it read, so `load` refusing a broken partition is what remains.
 pub fn rotation_sites(m: &[FusedMatrix]) -> Result<Vec<RotSite>, String> {
     // Insertion order, so the error messages and the returned list follow the
     // file rather than a hash seed.
