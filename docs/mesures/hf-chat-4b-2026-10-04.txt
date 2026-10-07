@@ -1,0 +1,70 @@
+READING THE ANSWERS, SIDE BY SIDE WITH FP16 (2026-10-04)
+================================================================================
+Prereg: none, and this is not a measurement. Two prompts read by eye against the
+        FP16 checkpoint. It is an impression, labelled as one, and no number
+        below should be quoted as a result.
+Code:   commit b165f79, llvq_tetra.chat. Mac, M3 Max, 0 $, no job.
+        f16 dense on mps, greedy (temperature 0), Qwen3's thinking mode off,
+        260 token cap.
+Nature: *measured* for the timings, an IMPRESSION for the quality.
+
+WHY NOT A SCORE
+---------------
+The operator asked for a model you can switch on and talk to, not an MMLU. The
+reason holds: 63.37 against 70.14 says the gap exists, it does not say what it
+costs you. Two answers read next to the FP16 ones say more about that, and say it
+in ten minutes.
+
+THE TWO PROMPTS, BOTH IN FRENCH
+-------------------------------
+1. "Explique en trois phrases ce qu'est une table de hachage, a quelqu'un qui
+   debute."
+
+   FP16: three sentences, as asked. Correct, and it names the property that
+   matters, access in constant time.
+
+   Tetra: four sentences, so the instruction was not followed. Content correct
+   but vaguer, "recherches rapides" where FP16 says "temps constant", and one
+   odd phrase, "les tables de mots".
+
+2. "J'ai une liste de 10 millions d'entiers en Python et je veux les 100 plus
+   grands. Quelle approche, et pourquoi pas un sort complet ?"
+
+   FP16: leads with `heapq.nlargest(k, lst)`, which is the right answer, with
+   code that runs.
+
+   Tetra: leads with the full sort instead, the thing the question asked it to
+   argue against, and its code is wrong: `liste_trier[-100]` returns one element
+   where `[-100:]` returns a hundred. One spelling error, "propies" for
+   "propres".
+
+WHAT THIS LOOKS LIKE
+--------------------
+On these two prompts the FP16 answer is better, visibly, and the way it is better
+is more useful than the 6.77 MMLU points: the losses show up as INSTRUCTION
+FOLLOWING and as leading with the wrong approach, not as incoherence. The Tetra
+answers are fluent, in the right language, on topic, and would pass unnoticed if
+nobody held the FP16 one beside them.
+
+Two prompts, one seed, greedy. This is not evidence of a rate and nothing here
+licenses "Tetra follows instructions less well". It is a reason to look, and the
+thing worth looking at next is instruction following rather than knowledge.
+
+THE TIMINGS, AND A REAL USABILITY PROBLEM
+-----------------------------------------
+                          load        generation
+  Tetra, f16 dense        151.6 s     35 to 37 tok/s
+  FP16 checkpoint           4.5 s     35 to 38 tok/s
+
+Generation is the same, which it should be: both are dense f16 matmuls on the
+same device, and the Tetra arm has decoded its weights by then.
+
+**The load is 34 times longer**, and that is the finding. The dense arm rebuilds
+252 matrices in Python at load, in f64 then narrowed, which is two and a half
+minutes before the first token. The fused arm loads in 7.7 s because it decodes
+nothing, and then generates far slower because its kernel takes one activation
+vector at a time. So today there is no arm that is quick to start AND quick to
+talk, and a user has to pick which one hurts less.
+
+Those two numbers are this machine under its own load. They are not divided by
+anything and they are not a benchmark.

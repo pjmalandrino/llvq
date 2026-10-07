@@ -676,6 +676,139 @@ reads +3.12 on the questions that chose it and +1.55 on the other 11,762 (*measu
 would need 64 to 65 % of its bits per parameter, not about half (*computed*, [sizeup](mesures/sizeup-2026-09-28.txt)).
 A proofreading pass fixed six slips, among them the running header, whose small-caps ligature extracted as "qantized".
 
+## 2026-09-28. Stage 0 of the transformers plan: the sealed 4B as safetensors
+
+The served 4B has a faithful safetensors image, 1602 fields rebuilt bit for bit by an independent Python reader
+(*measured*, [hf-safetensors-4b](mesures/hf-safetensors-4b-2026-09-28.txt)). The directory is 1.422 GB against the
+sealed file's 1.418, so the object stays compressed: `bin/export` writes 8 GB of f16 and is an interchange artifact,
+this one is a distribution candidate. Three format decisions were taken before the code and recorded in the prereg: our
+own tensor naming, the disk's bytes as the code payload rather than the served `tetra48` layout, and the rotation
+carried as its two tables rather than its seed. `code_stream` and `code_widths` are now public in `llvq-artifact`, and
+`write_matrix_raw` calls them, so a packer cannot disagree with the format about a width or a byte order. The gate was
+read three ways, one mutant each, all caught; the f16 fields caught a real defect first, the reader casting f16 to u16
+instead of reading its bytes, which hashed a scale of 0.001 as a zero. One signed prediction missed: the
+`quantization_config` block is 131 KB against a predicted 20 to 60, from pretty printing. Nothing loads the directory
+through `from_pretrained` yet, which is stage 1.
+
+## 2026-09-30. Stage 1: transformers reads the packed 4B and answers
+
+`from_pretrained` on the packed directory gives the weights the artifact defines and the tokens our
+engine gives: 253 of 253 dequantized weight digests identical to `decode_matrix`, and 256 of 256
+greedy ids identical to `bin/run` over four prompts, f32 on the CPU on both sides (*measured*,
+[hf-quantizer-4b](mesures/hf-quantizer-4b-2026-09-30.txt)). No missing key and no unexpected key.
+The Leech decode is ported to numpy over the tables `bin/tetratables` dumps from
+`llvq_search::tetra`, 19 KB shipped with the package rather than with every model, because the map
+belongs to the codebook. Bit-exactness was predicted and held on the first run, including the one
+place named as the risk: the `k` by `k` mix, accumulated term by term rather than through a matrix
+product, which a library would be free to reassociate. Two facts about `transformers` 5.17 shaped
+the code: `create_quantized_param` no longer exists, so a quantizer replaces its modules and the
+ordinary loader fills them, and that loader keeps the dtype of an existing buffer, which is what
+lets the f64 row scales survive a load at f16. Replacing the `nn.Embedding` broke the tie to
+`lm_head`, since `tie_weights` runs before the quantizer's post-load hook, so the quantized
+embedding goes through the conversion pipeline instead, three keys to one parameter. The Python
+side lives in `llvq-hf/` and is extracted at stage 5.
+
+## 2026-09-30. Stage 2: the served shader decodes the 4B under PyTorch
+
+`torch.ops.llvq.tetra_decode` dispatches `tetra48_probe`, the shader's own decoder entry point, and
+every one of the 118,665,216 blocks of the packed 4B decodes to the point the numpy path gives:
+2,847,965,184 coordinates, exact, in 38.4 s (*measured*,
+[hf-metal-decode-4b](mesures/hf-metal-decode-4b-2026-09-30.txt)). No MSL was written for it. The two
+sides of that gate were already pinned to `llvq_search::tetra` before the stage began, one by
+`llvq-metal/tests/tetra48_matches_rust.rs` and the other by stage 1's control 2, so the gate closes a
+triangle. The plan's gate for this stage was unachievable and was narrowed rather than widened:
+stage 1's dequantization is an f64 chain and Metal has no f64. The fused matvec moved to a stage 2
+bis, blocked on `upload_int4` staging `d_in · 4` bytes against a 32 KB threadgroup limit, which
+refuses all three sealed files on the Metal fused path. One defect was found and fixed on the first
+dispatch: the transcode from the disk stream to the served layout is not a byte reversal, because the
+gain bit moves from bit 0 of the disk value to bit 47 of the Tetra word.
+
+## 2026-09-30. M1: the 4B answers with its Tetra weights never materialized
+
+`tv_tetra48_metal`, the served shader, runs in a `transformers` forward pass: 256 greedy ids of 256
+against `bin/run`, the 168 Tetra projections resident in 0.749 GB against 11.4 dense, 5.436 GB
+allocated on the device against 16.1 computed for the dense arm, and the load down from 153.7 s to
+6.5 because the fused path never dequantizes (*measured*,
+[hf-metal-m1-4b](mesures/hf-metal-m1-4b-2026-09-30.txt)). What remains dense is the 21 % of int4
+records, whose Metal kernel is blocked by a 32 KB staging limit, and the embedding. The rotation runs
+in torch f32 rather than through `rot_apply_metal`, at 0.15 ms of the 0.25 a matvec costs.
+
+The lot's real finding is about the method. Dropping the tail costs 8.79 % of the output on `k_proj`
+and 3.53 % on `down_proj`, per row, and the token gate misses it over eight ids on all four prompts
+and over all 64 on two of them. Stages 0 to 2 and M1 all gated on token identity; the per-row check
+finds that same defect in 20 seconds with a 3,400-fold margin. Whether it becomes a gate is an open
+decision.
+
+## 2026-09-30. M2 and stage 4: no projection dense on Metal, the served CUDA kernel from torch
+
+The 4B holds no projection dense on Metal any more. `tv_q4_metal_tiled` sits beside the served `tv_q4_metal` and gives
+the same f32 values at tiles 256, 2,048 and 8,192 wherever the served kernel runs. The model gives the same 256 ids of
+256, and the device allocation falls from 5.436 GB to 2.750, with all 252 projections resident in 1.158 GB
+(*measured*, [hf-metal-m2-4b](mesures/hf-metal-m2-4b-2026-09-30.txt)). The four signed predictions held. One control
+nearly went void: a mutation located by the kernel's name landed on both kernels, so the reference moved with the
+subject. `checkq4guards.py` now closes the region at the next entry point.
+
+On CUDA, `nvcc` compiles the served `llvq_tetra48.cuh` outside NVRTC and keeps its arithmetic: per-row 3.74e-04,
+3.41e-04 and 3.53e-04 relative on three shapes against a 1e-2 bar, identical on two L4 instances, and 256 greedy ids
+of 256 against `bin/run` (*measured*, [hf-cuda-4b](mesures/hf-cuda-4b-2026-09-30.txt)). The served header gained one
+qualifier, `__device__` on `TETRA48_ORDER`, which changes no arithmetic. 168 of 252 projections are fused there,
+because no torch op binds the int4 kernel. Seven launches cost $0.30, and two of the three build errors they found
+are now held by tests on the Mac.
+
+## 2026-10-01 to 10-02. The 4B published, and the package named
+
+The out-of-tree route is complete and verifiable by a stranger. Two public repositories,
+[Qwen3-4B-LLVQ-Tetra](https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-Tetra) for the safetensors that
+stay compressed and [Qwen3-4B-LLVQ-Tetra-sealed](https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-Tetra-sealed)
+for the single file the Rust engine reads. **The Hub computed the sealed file's SHA-256 itself and it
+is paper 2's**, `886391a8c03f66dc`: until 2026-10-02 that digest named a file on one laptop, so nobody
+outside could check it. The published repository loads unauthenticated from an empty cache, 252
+records replaced, no key missing or unexpected (*measured*,
+[hf-cleanroom-4b](mesures/hf-cleanroom-4b-2026-10-01.txt)).
+
+**Three defects found by asking what a stranger gets, not by reading the code.** `import llvqhf`
+registered nothing, and failed soft: `transformers` warned "Unknown quantization type, got llvq ...
+we will skip the quantization", loaded the file as dense and raised fifty lines later about a
+corrupted checkpoint. Four stages of measurement had passed over it, because every script of the
+package imported `.quantizer` by hand. `hfpack` writes a 64 byte `tokenizer_config.json`, a stub,
+where the real one is 9,732 bytes and carries the chat template, so the repository as packed would
+have shipped a tokenizer where `apply_chat_template` fails. And the wheel carried no CUDA source at
+all: `_extension_cuda` looked for the repository two directories up, which under `site-packages` is
+nonsense, so a pip user had no CUDA arm.
+
+**A loadable fixture, and the fixture is the lesson.** No test in either language had ever called
+`from_pretrained`; `fixtures/tiny` describes nothing on purpose and the real object is 1.4 GB.
+`fixtures/mini` is a coherent one-layer Qwen3 of 148 KB whose every dimension is forced: 136 = 17 x 8
+so the rotation's odd part is real where a power of two gives the trivial 1 by 1, two different
+non-empty tails at 16 and 8, int4 only where `d_in` is a whole number of groups. The first version of
+its test left `import llvqhf` out and, run alone, **passed its forward pass on random numbers** with
+three tests of five green. A forward pass that runs proves nothing; the gate is `missing_keys` and
+`unexpected_keys`.
+
+**The package is `llvq-tetra` from 2026-10-02**, directory and module and distribution name, against
+`llvq-hf` and `llvqhf` before. Preregistrations, journals and archived documents keep the old paths:
+they are dated records and rule 2 forbids editing a stamped file. The six CUDA sources now ship
+beside the two Metal shaders, in the repository's two-level shape so that `tv_tetra48_h.cu`'s own
+relative includes resolve, and `the_shipped_cuda_closure_is_complete` recomputes the include closure
+from the bytes rather than trusting the hand written list. Stage 4 had passed on a card for $0.30
+over seven launches, five of which bought three build errors and one a queue of 3 h 47.
+
+## 2026-10-03 and 04. A published model that loads as random, and a conversation
+
+A caller that imports `transformers` alone gets the published 4B as a randomly initialized model, with no exception:
+254 missing keys reinitialized at Qwen3's own std of 0.0200, 1,119 unexpected, and logits in an ordinary range
+(*measured*, [hf-tripwire](mesures/hf-tripwire-2026-10-03.txt)). `transformers` registers quantization methods by
+import, never by entry point. The next step planned was a quality figure through `lm_eval`, which does not import our
+package, so it would have scored noise. `auto_map` cannot close the trap while `model_type` is `qwen3`. The operator
+decided on 2026-10-03 to add it and keep the type: `trust_remote_code=True` now loads the model, verified from the Hub
+with an empty cache, and a caller who passes nothing still gets the random model, as the card says.
+
+`llvq_tetra.chat` talks to the 4B. On two prompts beside the FP16 checkpoint, greedy, FP16 answered visibly better
+(an impression, [hf-chat-4b](mesures/hf-chat-4b-2026-10-04.txt)). The dense arm loads in 151.6 s against 4.5 for
+FP16, because it rebuilds 252 matrices before the first token; the fused arm loads in 7.7 s and generates more slowly.
+The upstream issue for `transformers` was drafted on 2026-10-04 and not posted
+([`upstream/transformers-llvq-tetra/`](upstream/transformers-llvq-tetra/)).
+
 ## 2026-10-04 to 10-06. Review campaign, paper 2 version 2, release v0.0.2
 
 An automated review of paper 2 contested no number. Answering it in full was priced at about $285. The operator
@@ -702,3 +835,34 @@ now refuses a perimeter over 1,000 files.
 A second number audit of the paper found seven errors, none in a table
 ([paper2-audit](mesures/paper2-audit-2026-10-06.txt)), before a redundancy pass and a style pass. Merged into `main`
 as `344499d` and released as `v0.0.2`, with the paper as a PDF.
+
+## 2026-10-07. The transformers route comes to `main`
+
+The operator decided to merge `hf-safetensors` into `main`, and `llvq-tetra/` stays a package of this repository. That
+reverses the decision of 2026-09-30 to keep the branch off `main` and extract the package. Three facts of 2026-10-02
+made extraction a source of drift: the wheel ships a copy of the served kernels made by `bin/tetratables`, the `mini`
+fixture is written by a Rust test, and `hfpack`, which makes the published object, cannot leave the workspace. Only the
+glue would go to `transformers` in tree, the way `aqlm`, `vptq`, `spqr` and `higgs` keep their own packages.
+
+The registry gains the six stage 4 rows `main` lacked, $0.30: $246.75 over 227 priced jobs. The safetensors card moves
+to `docs/hub/qwen3-4b-safetensors.md`, byte for byte the Hub's README. The upstream issue and its PR go out together,
+once PyPI holds 0.1.0.
+
+Five defects of the package were fixed before the first upload, because a version on PyPI cannot be changed. The
+import registered "llvq" unconditionally while `transformers` raises on a name it already holds, so 0.1.0 would have
+failed to import on the first `transformers` that carries the method in tree. The import guard swallowed any
+`ImportError`, so a `transformers` too old for the package, one without `transformers.core_model_loading`, left the
+method unregistered and `from_pretrained` loading a random model in silence. `torch` and `transformers` were an optional
+extra, while the card's install line is `pip install llvq-tetra` alone. And the floors, `torch>=2.5` and
+`transformers>=5.0`, admitted torch 2.5.1, which breaks against transformers 5.x; they are now the versions measured,
+2.14 and 5.17. Two tests were added, 48 pass, and three mutants, one per decision of the guard, were each caught by
+exactly one test. The fifth came from `twine check --strict` on the built wheel: two project URL labels held a comma,
+which core metadata reads as the separator between label and URL.
+
+The full suite ran twice. The first pass stopped at the first failing binary, so the second ran without fail-fast:
+180 suites, 1,036 tests passed and 6 failed (*measured*). Three read the August archive `~/qwen3-4b-llvq.bin`, absent
+from this machine: `real_rows_match_the_sealed_q8_file`, `transcode_of_the_sealed_model_matches_planes14` and
+`rotation_keys_partition_the_sites`. The operator deleted them. Three CUDA rotation tests raced: four tests compiled
+the same host driver into one fixed path while another one ran it. The driver is now built once per test binary, and
+`golay70_decoder_matches_rust.rs`, which had the same pattern with two callers, got the same fix. The fix passed five
+runs at 16 threads. The old behaviour also passed five runs on an idle machine, so the race cannot be forced here.

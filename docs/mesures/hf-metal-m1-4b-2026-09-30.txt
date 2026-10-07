@@ -1,0 +1,119 @@
+M1: THE 4B ANSWERS WITH ITS TETRA WEIGHTS NEVER MATERIALIZED (2026-09-30)
+================================================================================
+Prereg: proofs/preregistration-hf-metal-m1-2026-09-30.md, stamped sha256
+        37d69af37538d7b9..., before the first matvec.
+Deviations: proofs/preregistration-hf-metal-m1-2026-09-30-ECARTS.md
+Code:   commit cc49f25. Mac, M-series GPU, 0 $, no job.
+Env:    transformers 5.17.0, torch 2.14.0, macOS 25.6.
+Nature: *measured*, tokens and bytes. The b/param of the file are unchanged.
+
+SETUP
+-----
+Object: ~/q4b-hf-2026-09-28/, packed at commit 0c4197f from qwen3-4b-sealed.bin.
+Arm:    LLVQ_HF_FUSED=1, f32, device mps. The 168 Tetra records resident as the
+        kernel reads them, dispatched through tv_tetra48_metal, the served shader.
+        The 84 int4 records and the embedding stay dense: their kernels are M2 and M3.
+Ref:    /tmp/run-tokens-f32.json, bin/run on the sealed file, f32 on the CPU, which
+        stage 1 already tied to transformers' dense arm (256 of 256).
+
+THE GATE
+--------
+  4 prompts, 64 greedy ids each, 256 of 256 identical to bin/run.
+
+The fused arm runs on the GPU and the reference on the CPU, so the device did not
+change the tokens either, and no separate device arm was needed.
+
+WHAT IT BUYS, MEASURED
+----------------------
+                                   dense f32, stage 1      fused M1
+  load                             153.7 s                 6.5 s
+  mps allocated                    not measured, 16.1 GB   5.436 GB
+                                   computed
+  the 168 Tetra projections        11.4 GB computed        0.749 GB measured
+  parameters and buffers           16.1 GB                 4.641 GB
+
+The load collapses because the fused path never dequantizes: it transcodes the
+stream to the served layout and uploads. The 5.436 GB that remain are mostly what
+is NOT fused yet, 3.1 GB of int4 and 1.56 GB of embedding, both at f32 because the
+arm runs at f32.
+
+Per-row agreement with the dense reconstruction, one matrix of each shape, random
+activation, no ratio formed against anything:
+
+  k_proj     d_out 1024  d_in 2560  tail 16   max|Δ| 1.263e-4   2.61e-5 relative
+  down_proj  d_out 2560  d_in 9728  tail  8   max|Δ| 9.359e-5   8.79e-6 relative
+  gate_proj  d_out 9728  d_in 2560  tail 16   max|Δ| 6.495e-5   1.19e-5 relative
+
+CONTROLS
+--------
+1. Resident memory measured and not computed: above, three numbers because they
+   answer different questions.
+2. Refused by name and tested: d_out not a multiple of 8, a stream of the wrong
+   length, a tail in f32 where the kernel binds half, a tile of zero.
+3. Mutants, three, all caught by the full gate. See the next section: one of them
+   is what this lot really found.
+4. pytest 38 green, 7 of them on the fused arm. The served shader is untouched by
+   this lot, which git confirms, so the_shipped_shader_is_the_repositorys stands as
+   it ran at commit 0ea902d.
+5. Stage 2's gate still passes on the same directory: 118,665,216 blocks, exact.
+
+THE MUTANT THAT MATTERS: THE TOKEN GATE IS THIN
+-----------------------------------------------
+  the row scales dropped     caught, all 4 prompts moved within 8 ids
+  the rotation skipped       caught, all 4 prompts moved within 8 ids
+  the tail dropped           SURVIVED 8 ids on all 4 prompts.
+                             At 64 ids: caught on 2 prompts of 4, diverging at
+                             token 13 and at token 21; the other two are identical
+                             over all 64.
+
+That mutant is not void, and it was checked rather than argued: with the tail
+zeroed the per-row error against the dense reconstruction goes from 2.61e-5 to
+8.79e-2 on k_proj and from 8.79e-6 to 3.53e-2 on down_proj. The kernel reads the
+tail, and dropping it costs 8.79 % and 3.53 % of the output.
+
+So a 3 to 9 % per-row error crosses four easy prompts for 13 tokens, and crosses
+two of them entirely. The per-row check finds the same defect in 20 s with a
+3,400-fold margin. Stages 1, 2 and M1 all took token identity as their gate; this
+is the first measurement of what that gate cannot see, and it is a fact about the
+method, not about this lot.
+
+WALL TIMES, WITH NO RATIO FORMED
+--------------------------------
+  the matvec on gate_proj          0.25 ms, of which 0.15 is the rotation in torch
+  generation, 64 ids               72.6 to 141.4 s a prompt, uncached path
+  load                             6.5 s
+
+One dispatch a token a projection, and the loop re-feeds the whole sequence at each
+step. Nothing about throughput is claimed at any stage of this plan (rule 5).
+
+SIGNED PREDICTIONS, SCORED
+--------------------------
+  the tokens match on all four prompts                 HELD, 256 of 256
+  resident memory in [2.8 ; 3.4] GB                    MISSED, 5.436 measured. The
+                                                       interval was computed with int4
+                                                       and embedding at f16 and the arm
+                                                       ran at f32. The fused component
+                                                       itself landed at 0.749 GB against
+                                                       0.74 computed
+  the per-row difference under 1e-2 relative           HELD at 2.61e-5. The second half
+                                                       of that prediction, that the f16
+                                                       tail dominates the residue, was
+                                                       NOT measured and is not claimed
+  the prefill is slow and no number is published       HELD
+
+WHAT M1 DOES NOT ESTABLISH
+--------------------------
+Nothing about the int4 records or the embedding, both still dense. M2 and M3.
+Nothing about speed or memory of the served engine: this path dispatches per token
+  and is not that engine.
+Nothing about CUDA, which is planned and needs a paid job and its own go.
+Nothing about the 8B and the 14B.
+Nothing about quality: no MMLU, no perplexity, no GSM8K. Token identity is an
+  identity check and not a score.
+
+PROVENANCE
+----------
+Op:     llvq-hf/llvqhf/csrc/tetra_decode.mm, entry tv_tetra48_metal.
+Arm:    llvq-hf/llvqhf/fused.py, wired in llvqhf/quantizer.py under LLVQ_HF_FUSED.
+Dumps:  /tmp/hf-tokens-fused.json against /tmp/run-tokens-f32.json, compared by
+        llvqhf.comparetokens. Not committed.

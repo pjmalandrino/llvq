@@ -1,0 +1,148 @@
+# Qwen3.5 architecture recon for the 27B plan, 2026-09-28
+
+Read-only reads of the Hugging Face Hub (API, config.json, model.safetensors.index.json, safetensors
+headers and GGUF headers by HTTP range). No weights downloaded, no job launched, $0.
+
+## 1. Official Qwen3.8 repositories (api/models?author=Qwen&search=Qwen3.8)
+  Qwen/Qwen3.8-27B 2026-08-05
+  Qwen/Qwen3.8-27B-FP8 2026-08-13
+  Qwen/Qwen3.8-2.4T-A95B 2026-08-08
+  Qwen/Qwen3.8-2.4T-A95B-FP8 2026-08-08
+  Qwen/Qwen3.8-Flash-Next 2026-08-24 (model_type qwen4_exp, 180 G params, license other)
+  Qwen/Qwen3.8-Flash-Next-FP8 2026-08-24
+
+## 2. Revisions and parameter splits (computed from safetensors headers)
+  Qwen3.8-27B@1d4bf0f2: checkpoint 27,781,427,952; text 26,895,998,464; vision 460,730,096; MTP 424,699,392
+      tables 2,542,796,800 = 9.45% of text; quantizable matrices 400 = 24,326,963,200 weights; in_proj_a/b 96 = 23,592,960
+  Qwen3.5-9B@c2022362: checkpoint 9,653,104,368; text 8,953,803,264; vision 456,010,480; MTP 243,290,624
+      tables 2,034,237,440 = 22.72% of text; quantizable matrices 200 = 6,912,212,992 weights; in_proj_a/b 48 = 6,291,456
+  Qwen3.5-0.8B@2fc06364: checkpoint 873,438,784; text 752,393,024; vision 100,592,896; MTP 20,452,864
+      tables 254,279,680 = 33.80% of text; quantizable matrices 150 = 497,025,024 weights; in_proj_a/b 36 = 589,824
+  Qwen3.5-4B@851bf6e8 (4B-Base@1001bb4d, same 4,659,865,088 checkpoint parameters): config only (hidden 2560, layers 32, V/K heads 32/16, KV heads 4, tie True)
+  Qwen3.5-2B@15852e8c: config only (hidden 2048, layers 24, V/K heads 16/16, KV heads 2, tie True)
+
+## 3. Config and tensor-name identity
+  text_config keys differing, 3.8-27B vs 3.6-27B: none
+  text_config keys differing, 3.8-27B vs 3.5-27B: ['bos_token_id', 'mlp_only_layers', 'output_gate_type', 'partial_rotary_factor', 'tie_word_embeddings']
+  tensor-name patterns, 3.8-27B vs Qwen3.6-27B: only in 3.8 []; only in Qwen3.6-27B []
+  tensor-name patterns, 3.8-27B vs Qwen3.5-27B: only in 3.8 []; only in Qwen3.5-27B []
+  tensor-name patterns, 3.8-27B vs Qwen3.5-9B: only in 3.8 []; only in Qwen3.5-9B []
+  tensor-name patterns, 3.8-27B vs Qwen3.5-0.8B: only in 3.8 ['lm_head.weight']; only in Qwen3.5-0.8B []
+  tensor count: 1,199 in the 3.8-27B, 3.6-27B and 3.5-27B indexes; 775 in the 9B; 488 in the 0.8B
+  parameter totals (api/models): 3.8-27B, 3.6-27B and 3.5-27B all 27,781,427,952
+  3.5 beds store A_log and linear_attn.norm in F32; 3.6 and 3.8 in BF16 (safetensors headers)
+  output_gate_type 'swish' in 3.6/3.8 text_config, absent in 3.5; not read by transformers main modeling_qwen3_5.py
+  (sigmoid on the attention gate at line 818, SiLU in Qwen3_5RMSNormGated at lines 217-234)
+
+## 4. The 3.8 weights are new (range reads of three tensors)
+  layers.0.linear_attn.A_log [48]: 12/48 BF16 words differ from 3.6-27B
+  layers.0.input_layernorm.weight [5120]: 5102/5120 differ
+  layers.10.mlp.down_proj.weight, first 32,768 values: 32,687 differ (99.75%)
+
+## 5. GGUF header reads (ops script below), b/param over text tensors, MTP tensors removed
+  ISTA 27B GSQ-RCO IQ2_S     blocks 64 nextn 0 file 9,259,510,912 B text params 26,895,998,464 b/param text 2.751 file/text 2.754 tables 0.322
+  ISTA 27B GSQ-RCO IQ2_XS    blocks 64 nextn 0 file 8,422,841,472 B text params 26,895,998,464 b/param text 2.502 file/text 2.505 tables 0.284
+  bartowski 27B IQ2_XS       blocks 65 nextn 1 file 9,088,526,048 B text params 26,895,998,464 b/param text 2.629 file/text 2.703 tables 0.422
+  bartowski 27B IQ2_S        blocks 65 nextn 1 file 9,684,043,488 B text params 26,895,998,464 b/param text 2.806 file/text 2.880 tables 0.422
+  unsloth 27B UD-IQ2_XXS     blocks 64 nextn 0 file 7,266,070,528 B text params 26,895,998,464 b/param text 2.158 file/text 2.161 tables 0.287
+  unsloth 27B UD-Q2_K_XL     blocks 65 nextn 1 file 9,828,981,664 B text params 26,895,998,464 b/param text 2.816 file/text 2.924 tables 0.337
+  unsloth 27B Q8_0           blocks 65 nextn 1 file 29,047,086,048 B text params 26,895,998,464 b/param text 8.502 file/text 8.640 tables 0.804
+  unsloth 9B UD-IQ2_XXS      blocks 32 nextn 0 file 3,190,613,216 B text params 8,953,803,264 b/param text 2.841 file/text 2.851 tables 1.015
+  unsloth 9B UD-Q2_K_XL      blocks 32 nextn 0 file 4,121,781,472 B text params 8,953,803,264 b/param text 3.673 file/text 3.683 tables 1.257
+  unsloth 9B Q8_0            blocks 32 nextn 0 file 9,527,502,048 B text params 8,953,803,264 b/param text 8.503 file/text 8.513 tables 1.931
+  unsloth 4B UD-IQ2_XXS      blocks 32 nextn 0 file 1,520,217,248 B text params 4,205,751,296 b/param text 2.871 file/text 2.892 tables 0.831
+  ISTA 4B GSQ Q2_K_XL        blocks 32 nextn 0 file 1,940,825,248 B text params 4,205,751,296 b/param text 3.671 file/text 3.692 tables 0.992
+
+Revisions: ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF@d562806d, bartowski/Qwen3.8-27B-GGUF@0c92138c,
+unsloth/Qwen3.8-27B-GGUF@4ca72078, unsloth/Qwen3.5-9B-GGUF@3885219b, unsloth/Qwen3.5-4B-GGUF@e87f1764,
+ISTA-DASLab/Qwen3.5-4B-GGUF-GSQ@3fd6825d.
+
+  ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF@d562806d card: wikitext2 perplexity BF16 7.05, GSQ-RCO IQ2_S 7.39.
+
+## 6. Mac state
+  df -h ~: 12 GiB free of 926 GiB; ~/.cache/huggingface 58 GB; 52.6 GB of .llvq and .bin in the home directory
+  llama-server version 10050 (b15ca938a), /opt/homebrew/bin
+
+## 7. 4-bit checkpoint size
+  RedHatAI/Qwen3.8-27B-INT4@91bd022d: safetensors files sum to 19,452,788,048 B (api tree, recursive)
+
+## 8. Script used for section 5
+```python
+import struct, subprocess, json, sys, re, math
+def rng(url, a, b):
+    return subprocess.run(["curl","-s","-L","--max-time","120","-r",f"{a}-{b}",url],capture_output=True).stdout
+def size(url):
+    out=subprocess.run(["curl","-s","-L","-I","--max-time","60",url],capture_output=True,text=True).stdout
+    sizes=[int(m) for m in re.findall(r"(?i)content-length:\s*(\d+)",out)]
+    return sizes[-1]
+class R:
+    def __init__(s,b): s.b=b; s.p=0
+    def take(s,n):
+        if s.p+n>len(s.b): raise EOFError
+        v=s.b[s.p:s.p+n]; s.p+=n; return v
+    def u32(s): return struct.unpack("<I",s.take(4))[0]
+    def u64(s): return struct.unpack("<Q",s.take(8))[0]
+    def str(s): n=s.u64(); return s.take(n).decode("utf-8","replace")
+SC={0:1,1:1,2:2,3:2,4:4,5:4,6:4,7:1,10:8,11:8,12:8}
+FMT={0:"<B",1:"<b",2:"<H",3:"<h",4:"<I",5:"<i",6:"<f",7:"<?",10:"<Q",11:"<q",12:"<d"}
+def val(r,t):
+    if t==8: return r.str()
+    if t==9:
+        et=r.u32(); n=r.u64()
+        if et==8:
+            for _ in range(n): r.str()
+            return f"<array str {n}>"
+        r.take(SC[et]*n); return f"<array {et} {n}>"
+    return struct.unpack(FMT[t],r.take(SC[t]))[0]
+def parse(url, chunk=48<<20):
+    buf=rng(url,0,chunk-1)
+    r=R(buf)
+    assert r.take(4)==b"GGUF"; ver=r.u32(); nt=r.u64(); nkv=r.u64()
+    kv={}
+    for _ in range(nkv):
+        k=r.str(); t=r.u32(); kv[k]=val(r,t)
+    tens=[]
+    for _ in range(nt):
+        name=r.str(); nd=r.u32(); dims=[r.u64() for _ in range(nd)]; typ=r.u32(); off=r.u64()
+        tens.append((name,dims,typ,off))
+    align=kv.get("general.alignment",32)
+    data_start=(r.p+align-1)//align*align
+    return kv,tens,data_start
+files={
+ "ISTA 27B GSQ-RCO IQ2_S":"https://huggingface.co/ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF/resolve/d562806d/Qwen3.8-27B-GSQ-RCO-IQ2_S.gguf",
+ "ISTA 27B GSQ-RCO IQ2_XS":"https://huggingface.co/ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF/resolve/d562806d/Qwen3.8-27B-GSQ-RCO-IQ2_XS.gguf",
+ "bartowski 27B IQ2_XS":"https://huggingface.co/bartowski/Qwen3.8-27B-GGUF/resolve/0c92138c/Qwen3.8-27B-IQ2_XS.gguf",
+ "bartowski 27B IQ2_S":"https://huggingface.co/bartowski/Qwen3.8-27B-GGUF/resolve/0c92138c/Qwen3.8-27B-IQ2_S.gguf",
+ "unsloth 27B UD-IQ2_XXS":"https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/4ca72078/Qwen3.8-27B-UD-IQ2_XXS.gguf",
+ "unsloth 27B UD-Q2_K_XL":"https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/4ca72078/Qwen3.8-27B-UD-Q2_K_XL.gguf",
+ "unsloth 27B Q8_0":"https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/4ca72078/Qwen3.8-27B-Q8_0.gguf",
+ "unsloth 9B UD-IQ2_XXS":"https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/3885219b/Qwen3.5-9B-UD-IQ2_XXS.gguf",
+ "unsloth 9B UD-Q2_K_XL":"https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/3885219b/Qwen3.5-9B-UD-Q2_K_XL.gguf",
+ "unsloth 9B Q8_0":"https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/3885219b/Qwen3.5-9B-Q8_0.gguf",
+ "unsloth 4B UD-IQ2_XXS":"https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/e87f1764/Qwen3.5-4B-UD-IQ2_XXS.gguf",
+ "ISTA 4B GSQ Q2_K_XL":"https://huggingface.co/ISTA-DASLab/Qwen3.5-4B-GGUF-GSQ/resolve/3fd6825d/Qwen3.5-4B-Q2_K_XL.gguf",
+}
+rows=[]
+for label,url in files.items():
+    kv,tens,ds=parse(url); fs=size(url)
+    arch=kv.get("general.architecture")
+    bc=kv.get(f"{arch}.block_count"); nx=kv.get(f"{arch}.nextn_predict_layers",0) or 0
+    ts=sorted(tens,key=lambda t:t[3])
+    total_data=fs-ds
+    bytes_={}
+    for i,t in enumerate(ts):
+        nxt=ts[i+1][3] if i+1<len(ts) else total_data
+        bytes_[t[0]]=nxt-t[3]
+    def is_mtp(n):
+        m=re.match(r"blk\.(\d+)\.",n)
+        return (m and nx and int(m.group(1))>=bc-nx) or "nextn" in n
+    el_text=sum(math.prod(t[1]) for t in tens if not is_mtp(t[0]))
+    el_mtp=sum(math.prod(t[1]) for t in tens if is_mtp(t[0]))
+    b_text=sum(bytes_[t[0]] for t in tens if not is_mtp(t[0]))
+    b_mtp=sum(bytes_[t[0]] for t in tens if is_mtp(t[0]))
+    emb=[t for t in tens if t[0] in ("token_embd.weight","output.weight")]
+    b_emb=sum(bytes_[t[0]] for t in emb)
+    rows.append(dict(label=label,arch=arch,blocks=bc,nextn=nx,file_bytes=fs,tensors=len(tens),text_params=el_text,mtp_params=el_mtp,text_bytes=b_text,mtp_bytes=b_mtp,bpp_text=8*b_text/el_text,bpp_file_over_text=8*fs/el_text,tables_bpp_share=8*b_emb/el_text))
+    print(f"{label:26s} arch={arch} blocks={bc} nextn={nx} file={fs/1e9:.3f}GB text_params={el_text:,} mtp_params={el_mtp:,} b/param(text tensors)={8*b_text/el_text:.3f} file/text={8*fs/el_text:.3f} tables_part={8*b_emb/el_text:.3f}", flush=True)
+json.dump(rows,open("gguf_rates.json","w"),indent=1)
+```

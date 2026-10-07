@@ -25,7 +25,10 @@ arxiv: all
 	cp sections/*.tex arxiv/sections/
 	cp figures/*.pdf arxiv/figures/
 	cp main.bbl arxiv/
-	cd arxiv && tar czf ../arxiv-tetra.tar.gz .
+	# macOS tar otherwise adds a binary ._x.tex beside every source and the
+	# files' extended attributes; ustar and COPYFILE_DISABLE keep both out.
+	cd arxiv && COPYFILE_DISABLE=1 tar --format=ustar --no-xattrs \
+		-czf ../arxiv-tetra.tar.gz main.tex main.bbl sections figures
 	@echo "wrote arxiv-tetra.tar.gz"
 
 clean:

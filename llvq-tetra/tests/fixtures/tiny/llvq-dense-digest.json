@@ -1,0 +1,16 @@
+{
+  "artifact": {
+    "file": "tiny.llvq",
+    "sha256": "71a0259d11571210ceb4ea1aec0221645e1084acffb52d0e8f23458d82bc2b93",
+    "version": 5
+  },
+  "convention": "sha256 over the dequantized f32 values, little-endian, row-major",
+  "raw": {
+    "model.embed_tokens.weight": "bee1d03205a1767d27d4aa5a63a13e550589aab851e61e846c4d501becb511b2"
+  },
+  "records": {
+    "model.layers.0.self_attn.q_proj.weight": "d624305d4579ee6ca47b7db8d36c9f477652c67d9b297cdf72da26a70055a233",
+    "model.layers.0.self_attn.v_proj.weight": "84694710b45d5d4d668f270331c4ff3e794b9cd9dc428a184a2ff895e748fef2"
+  },
+  "reference": "llvq_artifact::decode_matrix, and RawTensor::to_f32 for a quantized raw tensor"
+}

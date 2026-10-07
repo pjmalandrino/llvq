@@ -44,6 +44,11 @@ Eight crates, members of `Cargo.toml`.
 | `llvq-cuda` | NVIDIA fused kernel compiled by NVRTC, benchmarks | `cudarc`, `cfg(target_os = "linux")` | allowed |
 | `llvq-llm` | forward pass, corpora, perplexity, MMLU, fused path in the model | `candle`, `tokenizers`, `hf-hub`, `parquet` | allowed |
 
+Beside the crates, `llvq-tetra/` is a Python package: it reads a packed model in `transformers`, and it is the
+distribution `llvq-tetra`. It stays in this repository (operator, 2026-10-07): its wheel ships a copy of the served
+kernels that `bin/tetratables` makes, and `hfpack` writes what it reads. `docs/plan-transformers.md` carries its stages.
+`ops/llvqtune` is the other Python package, which trains the free parameters an artifact already holds.
+
 `unsafe` is allowed only at hardware boundaries: mmap, kernel launch, reading a device buffer. Caveat:
 `#![forbid(unsafe_code)]` in a `lib.rs` does not cover integration tests, which are separate crates; closing that hole
 needs `[workspace.lints]`, and that operator decision is pending. Without `--features fast-linalg` the factorization is
@@ -72,6 +77,15 @@ cargo run --release -p llvq-cuda --bin planesbench -- <model.llvq>   # Linux + C
 LLVQ_MODEL=Qwen/Qwen3-4B LLVQ_CALIB=dclm-edu LLVQ_ARTIFACT=q4b.llvq cargo run --release -p llvq-llm --features metal,fast-linalg --bin smoke -- 64 2048 12 4096 metal nogs leech1c12 999 rot
 #   positional: n_calib · calib_len · n_eval · eval_ctx · device · nogs/gs/dc/sph · codebook (suffix f = free magnitude, L<n> = cap) · limit · rot
 LLVQ_MODEL=Qwen/Qwen3-4B cargo run --release -p llvq-llm --bin seal -- q4b.llvq qwen3-4b-llvq.bin   # also: export, rowscale, embedq, int4swap
+cargo run --release -p llvq-llm --bin hfpack -- <sealed> out_dir/ && uv run ops/llvq_hf_check.py out_dir/  # the sealed file as safetensors, still compressed, and its bit-for-bit gate
+cargo run --release -p llvq-llm --bin hfdense -- <sealed> out_dir/llvq-dense-digest.json  # also: tetratables, tetravectors
+cd llvq-tetra && uv run --group dev pytest && uv run python -m llvq_tetra.checkdense out_dir/   # the transformers reader, and its gate
+LLVQ_HF_MINI_FIXTURE=../llvq-tetra/tests/fixtures/mini cargo test -p llvq-llm --test hfpack  # rewrites the 148 KB one-layer Qwen3 the from_pretrained tests load
+cd llvq-tetra && uv run --group dev python -m llvq_tetra.checkdecode out_dir/   # the served shader as a torch op on Metal, every block
+cd llvq-tetra && uv run --group dev python -m llvq_tetra.checkq4 out_dir/ && uv run --group dev python -m llvq_tetra.checkq4guards out_dir/  # the tiled int4 kernel against the served one, then its refusals and its mutants
+uv venv /tmp/cleanroom --python 3.12 && VIRTUAL_ENV=/tmp/cleanroom uv pip install ./llvq-tetra torch transformers && /tmp/cleanroom/bin/python ops/hf_cleanroom_check.py llvq-tetra/tests/fixtures/mini out_dir/ /tmp/run-tokens-f32.json  # what a stranger gets: pip install, then from_pretrained, with no repository and no compiler
+uv run --with huggingface_hub ops/hf_publish_prep.py out_dir/ --revision <sha>   # what publishing needs and packing does not: the real tokenizer, the shim, auto_map
+<a python with llvq-tetra installed> ops/hf_tripwire_probe.py llvq-tetra/tests/fixtures/mini  # whether a published model can refuse instead of loading a random one
 cargo run --release -p llvq-llm --features metal --bin mmlu -- <checkpoint|sealed> metal 40         # the dense reconstruction
 LLVQ_CONFIG=configs/qwen3-4b-tetra-e4.json cargo run --release -p llvq-llm --features cuda --bin mmlu -- <sealed> cuda 40   # THROUGH the served kernel
 LLVQ_CONFIG=configs/qwen3-4b-tetra-e4.json cargo run --release -p llvq-llm --features cuda --bin gsm8k -- <sealed> cuda   # GSM8K through the kernel; gsm8kpair <a> <b> pairs two dumps

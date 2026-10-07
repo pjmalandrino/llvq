@@ -1,4 +1,4 @@
-# Project state as of 2026-10-06
+# Project state as of 2026-10-07
 
 ## 1. The project
 
@@ -130,8 +130,14 @@ the bar is the paired interval, 0.43 pp in MMLU and 0.12% in perplexity (*measur
 - **The next venue for paper 2.** TACO desk-rejected paper 1 on 2026-08-27 on scope. Version 2 sits in release
   `v0.0.2`, and no archive (arXiv, Zenodo) holds it yet. Default if silent: preprint only.
 - **A harder reasoning test**, Qwen3's reasoning mode or GSM-Symbolic, about 3 to 5 $ at 4B (*estimated*).
-- **Spend.** $246.45 over 221 priced jobs (*measured*, `docs/data/jobs.csv`). The review campaign of 2026-10-04 to
-  10-06 spent $4.57 under a $9 cap. No cap is in force; one is owed before the next paid job.
+- **Loading in `transformers`.** The 4B is also published as safetensors that stay compressed,
+  [Qwen3-4B-LLVQ-Tetra](https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-Tetra), read by the Python package `llvq-tetra/`.
+  It gives the same 256 greedy tokens as our engine on a CPU, on Metal and on an L4 (*measured*,
+  [plan-transformers](plan-transformers.md)). The package is not on PyPI yet, so the card's install line fails today.
+  Next, by operator decision of 2026-10-07: TestPyPI, then PyPI 0.1.0, then the upstream issue and PR together.
+- **Spend.** $246.75 over 227 priced jobs (*measured*, `docs/data/jobs.csv`). The review campaign of 2026-10-04 to
+  10-06 spent $4.57 under a $9 cap, and the `transformers` wave of 2026-09-30 spent $0.30 under a $5 cap. No cap is
+  in force; one is owed before the next paid job.
 
 ## 6. Closed absent a new idea
 

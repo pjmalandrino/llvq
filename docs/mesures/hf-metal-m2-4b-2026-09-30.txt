@@ -1,0 +1,139 @@
+M2: THE 4B HOLDS NO PROJECTION DENSE ON METAL (2026-09-30)
+================================================================================
+Prereg: proofs/preregistration-hf-metal-m2-2026-09-30.md, stamped sha256
+        ee73b31a50583d7e..., before the first dispatch of the new kernel.
+Deviations: proofs/preregistration-hf-metal-m2-2026-09-30-ECARTS.md
+Code:   commit ed6b052 for the shader, 70dc277 at the write-up. Mac, M-series
+        GPU, 0 $, no job.
+Env:    transformers 5.17.0, torch 2.14.0, macOS 25.6.
+Nature: *measured*, tokens and bytes. The b/param of the file are unchanged:
+        nothing here re-encodes anything.
+
+SETUP
+-----
+Object: ~/q4b-hf-2026-09-28/, packed at commit 0c4197f from qwen3-4b-sealed.bin.
+Arm:    LLVQ_HF_FUSED=1, f32, device mps. All 252 projections resident as their
+        kernels read them: 168 Tetra through tv_tetra48_metal, 84 int4 through
+        the new tv_q4_metal_tiled. The embedding stays dense, which is M3.
+Ref:    /tmp/run-tokens-f32.json, bin/run on the sealed file, f32 on the CPU.
+New:    tv_q4_metal_tiled, added beside the served tv_q4_metal in
+        llvq-llm/kernels/tv_q4_h.metal. git diff against the version before it:
+        81 insertions, 0 deletions, so the served function's own bytes did not
+        move (control 5).
+
+WHY A SECOND KERNEL AT ALL
+--------------------------
+tv_q4_metal stages the whole activation in threadgroup memory, d_in x 4 bytes
+against the 32,768 an M-series offers, so it refuses d_in above 8,192. Every
+sealed file's down_proj is above it: 9,728 at the 4B, 12,288 at the 8B, 17,408
+at the 14B. M1 left the 84 int4 records materialized, which was 3.1 GB of the
+5.436 the loaded model allocated.
+
+THE GATE
+--------
+Bit-identical to the served kernel where the served kernel runs
+(python -m llvqhf.checkq4):
+
+  84 int4 records, 3 distinct shapes
+    layers.0.self_attn.v_proj  1024 by 2560: identical at tiles 256, 2048, 8192
+    layers.0.self_attn.o_proj  2560 by 4096: identical at tiles 256, 2048, 8192
+    layers.12.mlp.down_proj    2560 by 9728: past the served wall, against the
+                                             dense reconstruction 2.90e-07
+                                             relative, passes
+    6 comparisons identical, 1 shape checked against the dense reconstruction
+
+Equality of every f32, not a tolerance. The two kernels are the same terms in the
+same order, which is the claim of the prereg's section 3: a tile of a multiple of
+256 columns is a multiple of 32 words, so lane l walks l, l+32, l+64 ... within
+each tile, and the concatenation over tiles is the sequence the untiled kernel
+walks. Nothing about that is empirical.
+
+Then the model, the same four prompts and the same 64 greedy ids each
+(python -m llvqhf.comparetokens):
+
+  4 prompts, every id identical  -> 256 of 256
+
+MEMORY
+------
+                         dense f32      M1 (Tetra)    M2 (Tetra + int4)
+  ids vs bin/run          reference      256/256       256/256
+  mps allocated          16.1 computed    5.436 GB      2.750 GB
+  mps driver                    -         5.604 GB      3.104 GB
+  parameters and buffers        -         4.641 GB      1.558 GB
+  projections resident          -         0.749 GB      1.158 GB for all 252
+  load                    153.7 s         6.5 s         7.7 s
+
+The 1.558 GB of parameters and buffers is the f32 embedding and nothing else:
+every projection has left the parameter list. 16.1 GB is *computed*, not
+measured; the dense f32 arm does not fit and killed the machine twice.
+
+THE CONTROLS, AND ONE OF THEM MATTERED
+--------------------------------------
+Refusals, controls 1 and 2, each firing by name
+(python -m llvqhf.checkq4guards):
+
+  tile 128  -> "tile_cols 128 is not a multiple of 256. A tile of tile_cols/8
+                words must be a multiple of 32 or the lanes interleave ..."
+  tile 300  -> same refusal
+  d_in 2555 -> "d_in 2555 is not a multiple of 8. Eight nibbles a word is what
+                makes a row start on a word ..."
+  tile 16384-> "staging 16384 columns wants 65536 B of threadgroup memory
+                against 32768. That is the wall the tiled entry point exists for"
+
+Mutants, control 4, on o_proj 2560 by 4096, caught at 3 of 3 tiles each:
+
+  the group index shifted by one       row 0  -2.13041 vs -1.91389
+  the nibble order reversed            row 0  -2.13041 vs  0.485418
+  the lane stride moved off 32         row 0  -2.13041 vs -2.70310
+
+The mutant writer nearly produced a void mutant, and the assertion is what
+stopped it. tv_q4_metal_tiled comes FIRST in the shader and the served
+tv_q4_metal after it, so replacing a line "in the tiled kernel" by partitioning
+on its name hits BOTH functions. The reference would have moved with the subject
+and all three mutants would have read as survived. The site count assertion fired
+at 2 sites instead of 1, and the region is now closed at the next entry point,
+with an assertion that the served kernel is not inside it. This is the fourth
+time the rule of docs/METHODE.md on counting sites has paid for itself.
+
+Control 6, nothing upstream moved: checkdecode 168 records, 118,665,216 blocks,
+every point identical to the numpy decode, 38.4 s. checkdense 253 digests
+identical to llvq_artifact::decode_matrix, 176.7 s. The suite, 39 passed.
+
+THE SIGNED PREDICTIONS, SCORED
+------------------------------
+  exact agreement at all three tiles     HELD, 6 of 6 comparisons
+  resident memory to about 2.9 GB,
+    interval [2.6 ; 3.1], point 2.75     HELD at 2.750, the point to 3 digits
+  the 256 ids unchanged                  HELD, 256 of 256
+  per-row residue under 1e-3             HELD at 2.90e-07
+
+Four for four, the first clean sheet on this branch, and the memory point
+estimate landed exactly: 5.436 - 3.1 + 0.41 = 2.75 against 2.750 measured. The
+arithmetic of the prediction was a subtraction of things already measured, which
+is why it is not luck. It is also not a hard prediction to make, and the score
+should be read next to the six earlier misses, not instead of them.
+
+WHAT M2 DOES NOT ESTABLISH
+--------------------------
+NO SPEED, AT ANY STAGE. The per-prompt wall times in the run log are 62.2, 80.3,
+149.4 and 255.0 s against M1's 141.4, 111.2, 96.9 and 72.6 s for the same four
+prompts. Those swings are machine contention, not a kernel, and the two runs are
+not comparable to each other. Nobody may read a regression or a gain out of
+them. A throughput figure needs a quiet machine and its own prereg.
+
+Nothing about the embedding, which is still 1.558 GB dense. That is M3.
+
+Nothing about the served Rust path, untouched, which still refuses d_in above
+8,192 in MetalRuntime::upload_int4. The Metal wall of the served engine is not
+lifted by this, only the torch path's.
+
+Nothing about the 8B and the 14B, whose down_proj are 12,288 and 17,408 and
+would exercise more tiles. The argument of section 3 does not depend on the
+width, but it has not been run there.
+
+Nothing about quality. The 256 ids are four prompts of 64 greedy tokens. The
+tail mutant of M1 survived 8 ids on all four prompts while the per-row error went
+from 2.61e-5 to 8.79e-2, so this gate is known to be weak against a small
+arithmetic drift. Here it is backed by bit-equality on the two shapes the served
+kernel can take, which is much stronger, and by 2.90e-07 on the third. Whether
+the per-row check becomes a gate in its own right is an open operator decision.

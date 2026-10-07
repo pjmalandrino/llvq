@@ -49,7 +49,16 @@ const CASES: [(usize, u64); 8] = [
     (12288, 0x8),   // m=4096, k=3   — Qwen3-8B intermediate
 ];
 
+/// Compiled once per test binary, then shared. Four tests call this and the
+/// harness runs them in parallel: when each recompiled into the same fixed
+/// path, one could exec the driver while another's `clang++` rewrote it, and
+/// three tests failed "driver failed on n=24" on 2026-10-07.
 fn build_driver() -> std::path::PathBuf {
+    static DRIVER: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+    DRIVER.get_or_init(compile_driver).clone()
+}
+
+fn compile_driver() -> std::path::PathBuf {
     let out = std::env::temp_dir().join("llvq_host_rotate");
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
     let st = Command::new("clang++")

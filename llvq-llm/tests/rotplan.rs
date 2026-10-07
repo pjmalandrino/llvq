@@ -28,9 +28,8 @@ use llvq_llm::fused::{
 use llvq_llm::model::{row_cap, Act, MAX_PREFILL_ROWS, MAX_ROWS};
 use llvq_cuda::tile::PREFILL_ROWS;
 use llvq_llm::rotplan::{
-    act_of_suffix, check_key, check_rotation_partition, drive_rows, matvec_launches_per_token,
-    rot_launches_per_token,
-    rotation_sites, RotShare, RotSite,
+    check_key, check_rotation_partition, drive_rows, matvec_launches_per_token,
+    rot_launches_per_token, rotation_sites, RotShare,
 };
 use llvq_quant::rotation::Rotation;
 use llvq_search::fastdec::FastDecoder;
@@ -194,8 +193,8 @@ fn the_key_partition_is_not_the_width_partition() {
 }
 
 /// The consumer histogram the whole lot rests on: 3 sites of three consumers,
-/// 1 of two... per layer. Stated here on the synthetic model so that T1's
-/// assertion on the real files is a comparison, not a discovery.
+/// 1 of two... per layer. Stated here on the synthetic model; since
+/// 2026-10-07 nothing in this suite checks it on a real file.
 #[test]
 fn a_block_has_four_activation_sites() {
     let sites = rotation_sites(&model_4b_shaped(1, 1)).expect("partition");
@@ -781,128 +780,4 @@ fn the_load_path_runs_the_partition_gate() {
     assert!(e.contains("self_attn.k_proj"), "{e}");
 
     let _ = std::fs::remove_dir_all(&dir);
-}
-
-// ---------------------------------------------------------------------------
-// T1 — the real files
-// ---------------------------------------------------------------------------
-
-/// Where a sealed artifact lives, or a loud failure naming it.
-///
-/// `#[ignore]`d rather than skipped: the form this replaces —
-/// `eprintln!("SKIP"); return;` — reports `ok` on every machine without the
-/// file, which is a statement about the filesystem dressed up as a statement
-/// about the artifact. See `llvq-artifact/tests/common/mod.rs`, whose contract
-/// this restates for a second crate rather than sharing (the two crates have no
-/// common test crate, and a third copy of the message would be a third chance
-/// to drift).
-fn sealed(env: &str, default: &str) -> std::path::PathBuf {
-    let p = match (std::env::var_os(env), std::env::var_os("HOME")) {
-        (Some(p), _) => std::path::PathBuf::from(p),
-        (None, Some(h)) => std::path::Path::new(&h).join(default),
-        (None, None) => panic!("neither ${env} nor $HOME: no path to try"),
-    };
-    assert!(
-        p.exists(),
-        "the sealed artifact is not on this machine: {}\n\n\
-         This sweep checks on the REAL file that the rotation seeds partition the \
-         activation sites, the premise of lot A4. It is #[ignore] so it never \
-         runs by accident; being here means it was asked for by name or with \
-         --include-ignored, so it fails instead of printing SKIP and returning `ok`.\n\n    \
-         {env}=/path/to/the.llvq \\\n        cargo test --release -p llvq-llm -- --include-ignored",
-        p.display()
-    );
-    p
-}
-
-/// The rotation keys and names of a sealed artifact, without transcoding it.
-///
-/// `fused::load` would answer the same question and cost 142 s of transcoding
-/// (much more under `Planes12x`, which re-encodes every 5-level block). What
-/// T1 is about is the *file's* keys, and those are in the matrix headers.
-fn matrices_of(path: &std::path::Path) -> Vec<FusedMatrix> {
-    let f = std::fs::File::open(path).expect("open");
-    let mut r = std::io::BufReader::with_capacity(1 << 20, f);
-    let head = llvq_artifact::read_header(&mut r).expect("header");
-    assert!(
-        head.is_self_contained(),
-        "{}: projections-only artifact, not a sealed model",
-        path.display()
-    );
-    (0..head.matrices)
-        .map(|_| {
-            let m = llvq_artifact::read_matrix_raw(&mut r, head.version).expect("matrix");
-            let rotation = m.rotation_seed.map(|s| (m.d_in, s));
-            let mut fm = matrix(0, "self_attn.q_proj", m.d_in, rotation);
-            fm.name = m.name;
-            fm.d_out = m.d_out;
-            fm
-        })
-        .collect()
-}
-
-/// **T1.** On the published artifacts themselves: the rotation keys partition
-/// the activation sites, exactly.
-///
-/// This is the premise the whole lot rests on, and it is a property of the
-/// *files*, not of the code — so no amount of source review establishes it. It
-/// would fall to a future run whose seeds collided, or to a one-character
-/// change in `calib::effective_rotation_seed` (`<< 32` → `<< 16` would fold
-/// layer 1's `Attn` onto layer 0's `MlpOut`), and the design would become
-/// unfounded without a line of this lot changing.
-#[test]
-#[ignore = "reads a multi-gigabyte sealed artifact, absent from the repository"]
-fn rotation_keys_partition_the_sites() {
-    for (env, default, layers) in [
-        ("LLVQ_SEALED_4B", "qwen3-4b-llvq.bin", 36usize),
-        ("LLVQ_SEALED_8B", "qwen3-8b-llvq.bin", 36),
-    ] {
-        let path = sealed(env, default);
-        let m = matrices_of(&path);
-        let sites: Vec<RotSite> = rotation_sites(&m)
-            .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
-
-        assert_eq!(m.len(), layers * 7, "{}: projections", path.display());
-        assert_eq!(sites.len(), layers * 4, "{}: sites", path.display());
-
-        let mut hist: HashMap<usize, usize> = HashMap::new();
-        for s in &sites {
-            *hist.entry(s.consumers).or_default() += 1;
-        }
-        assert_eq!(hist.get(&3), Some(&layers), "{}: q/k/v", path.display());
-        assert_eq!(hist.get(&2), Some(&layers), "{}: gate/up", path.display());
-        assert_eq!(
-            hist.get(&1),
-            Some(&(2 * layers)),
-            "{}: o_proj and down_proj",
-            path.display()
-        );
-
-        // Every activation of every block is present, and every suffix mapped.
-        for layer in 0..layers {
-            for act in Act::ALL {
-                assert!(
-                    sites.iter().any(|s| s.layer == layer && s.act == act),
-                    "{}: {act:?} of layer {layer} missing",
-                    path.display()
-                );
-            }
-        }
-        for fm in &m {
-            let (_, suffix) = llvq_artifact::split_name(&fm.name).expect("name");
-            assert!(
-                act_of_suffix(&suffix).is_some(),
-                "{}: unknown suffix {suffix}",
-                path.display()
-            );
-        }
-
-        println!(
-            "{}: {} matrices → {} sites, histogram {:?}",
-            path.display(),
-            m.len(),
-            sites.len(),
-            hist
-        );
-    }
 }

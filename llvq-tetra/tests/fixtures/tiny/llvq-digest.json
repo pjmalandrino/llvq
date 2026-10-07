@@ -1,0 +1,67 @@
+{
+  "artifact": {
+    "file": "tiny.llvq",
+    "kinds": "Tetra+Int4G128",
+    "matrices": 2,
+    "sha256": "71a0259d11571210ceb4ea1aec0221645e1084acffb52d0e8f23458d82bc2b93",
+    "version": 5
+  },
+  "blobs": {
+    "config.json": {
+      "sha256": "f3b12e56c45f757093b3c3664bce5dd4a2235d190b40182ccf354b78d9cd3d1a",
+      "written_verbatim": false
+    },
+    "tokenizer.json": {
+      "sha256": "a035f5a3ba377297ad5ac761a465d1bb61f25cdf336fad6c11a9024d690728f6",
+      "written_verbatim": true
+    }
+  },
+  "config_base": {
+    "hidden_size": 96,
+    "model_type": "qwen3",
+    "num_hidden_layers": 1,
+    "rms_norm_eps": 1e-6,
+    "tie_word_embeddings": true
+  },
+  "convention": "sha256 over little-endian bit patterns, in the order the field stores them",
+  "counts": {
+    "carried_weights": 520,
+    "int4": 1,
+    "lattice": 1,
+    "quantized_weights": 1120,
+    "raw_tensors": 2,
+    "rotations": 1,
+    "tensors": 13
+  },
+  "raw": {
+    "model.embed_tokens.weight": {
+      "biases": "ba1f18c13fe7fae3f665ae1647bc732d81a9aace1a109a4afea9dd3bd99994ea",
+      "qweight": "39c5077abb6d86eb7966c261ca51ba8dda3aae37c0147e23ba8948eebdb448ca",
+      "scales": "2b79a6749c741d2283f5d7471a5ca55d3798d42806217e1945bd786d2ac8ba2e"
+    },
+    "model.layers.0.input_layernorm.weight": {
+      "values": "af1e69ff94e0798b1b2ae446eff5053742a586f2ff2b735b4a3ceb36769e0f65"
+    }
+  },
+  "records": {
+    "model.layers.0.self_attn.q_proj.weight": {
+      "centroids": "891117ee8aaa4ddb1848b258369a93e859575328e350b80b3d5a4fce34957bd8",
+      "codes": "f7310168fd920bd70251bd6bbbd0176cd77fe792fe6cb66088e59b9be64375bd",
+      "gains": "9044e071b24d8617d70a708d1f102636829a5de458c88b41bdc59e2681ba83e0",
+      "indices": "3e1b0f8576a409b91af9adf86175cda834b4d41ddb99659ac9ff6d272f241f31",
+      "row_scales": "5ead29df19376dac273beb8eb920af5c614552fda01cf726a0eb4204b384596c",
+      "tail": "a6c36b7453a7b514cbb3f956334e38eda7145912cc366d9ac954ad7b798dcac1"
+    },
+    "model.layers.0.self_attn.v_proj.weight": {
+      "biases": "8d768ec307abba7926074dba9f41c9958a80e3903a58c89ef501e12230f86d1a",
+      "qweight": "d78d4df6ce877106aae66bac093a457d1047eac8b13ea7a170b935d80ee1c2bb",
+      "scales": "1203f593ac872d830afe7f61bebd9ee5969d9b404653e03ffef6a63eff3e1904"
+    }
+  },
+  "rotations": {
+    "88_0000000000005eed": {
+      "signs": "a65cd8b9f00c1fa5c64674ca38de4eb2158f8c79aa097429b48a6005216f1b73",
+      "small": "4a0ec9677e5a0adb80b1eeb0b0238891aa7ff43a902c7990682a32fce70bb1b3"
+    }
+  }
+}

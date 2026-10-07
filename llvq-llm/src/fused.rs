@@ -2193,8 +2193,9 @@ impl Transcoder {
 ///
 /// ⚠️ `Planes12x` is a different order of magnitude and it is not a defect:
 /// it runs one exact lattice search per 5-level block on top of the same
-/// work. Measured on this machine (M3 Max, 12 performance cores), see
-/// `tests/fused_planes12x.rs::transcode_of_the_sealed_model_matches_planes14`.
+/// work. Measured on this machine (M3 Max, 12 performance cores) by
+/// `transcode_of_the_sealed_model_matches_planes14`, a sweep deleted on
+/// 2026-10-07 together with the August archive it read.
 pub fn load(path: &str, layout: FusedLayout) -> Result<FusedModel, String> {
     load_with(path, layout, FuseMode::Off)
 }

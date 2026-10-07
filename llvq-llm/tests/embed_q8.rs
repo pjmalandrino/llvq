@@ -11,10 +11,7 @@
 //!  2. the kernels' dequant — `q8_deq`, the exact text NVRTC compiles,
 //!     executed on the CPU through the clang++ harness — reproduces
 //!     `RawTensor::to_f32` bit for bit, and the gather's f16 store reproduces
-//!     `f16::from_f32` of it bit for bit;
-//!  3. when the sealed artifacts are on disk, sampled real rows quantized by
-//!     the load path match the bytes `bin/embedq` actually wrote into
-//!     `~/q4b-e8.llvq` — the file lot B scored.
+//!     `f16::from_f32` of it bit for bit.
 //!
 //! What only the card can validate: NVRTC compilation of the two kernels,
 //! spill (asserted at runtime startup), and throughput.
@@ -297,114 +294,6 @@ fn the_kernel_dequant_decides_what_the_reference_decides() {
         worst = worst.max((dot[row] as f64 - want).abs() / scale.max(1e-12));
     }
     assert!(worst < 1e-6, "worst dot error {worst:.2e}·Σ|w·x|");
-}
-
-/// Read every carried tensor of a sealed artifact, skipping the matrices.
-fn read_raws(path: &std::path::Path) -> Option<Vec<RawTensor>> {
-    let f = std::fs::File::open(path).ok()?;
-    let mut r = std::io::BufReader::with_capacity(1 << 20, f);
-    let head = llvq_artifact::read_header(&mut r).ok()?;
-    if !head.is_self_contained() {
-        return None;
-    }
-    for _ in 0..head.matrices {
-        llvq_artifact::read_matrix_raw(&mut r, head.version).ok()?;
-    }
-    let mut b = [0u8; 4];
-    std::io::Read::read_exact(&mut r, &mut b).ok()?;
-    let n = u32::from_le_bytes(b);
-    let mut raws = Vec::with_capacity(n as usize);
-    for _ in 0..n {
-        raws.push(llvq_artifact::read_raw(&mut r, head.version).ok()?);
-    }
-    Some(raws)
-}
-
-/// Sampled real rows: the load path applied to the f16 embedding of the
-/// published 4B must reproduce, byte for byte, what `bin/embedq` wrote into
-/// the artifact lot B scored. Row-independent by construction (groups never
-/// cross rows), so a sample proves what a full pass would.
-///
-/// Needs two ~1 GB artifacts that are not in the repository, so it is
-/// `#[ignore]`d unconditionally and fails loudly when asked for by name.
-///
-/// It used to be `cfg_attr(debug_assertions, ignore)` with an
-/// `eprintln!("… skipped"); return;` inside — which means it *ran* in release
-/// and reported `ok` on every machine without the files. That is the defect
-/// CLAUDE.md §5 is about, and it sat inside the suite CI runs: a green that
-/// described the filesystem, not the format. `llvq-artifact` had the same
-/// pattern in three files; this one was missed because it lives in another
-/// crate.
-#[test]
-#[ignore = "reads ~/qwen3-4b-llvq.bin and ~/q4b-e8.llvq, two ~1 GB artifacts absent from the repo"]
-fn real_rows_match_the_sealed_q8_file() {
-    const HOWTO: &str = "\
-This test compares the embedding of the sealed 4B artifact against its int8
-variant, row by row. It is #[ignore]d, so being here means it was asked for by
-name or with --include-ignored — it therefore fails rather than printing SKIP
-and reporting `ok`.
-
-Both files are produced locally: see README.md for the `bin/smoke` invocation
-that writes the sealed artifact, and `bin/embedq` for the int8 variant. To
-leave it out deliberately, drop --include-ignored: it is then reported as
-`ignored`, which is a declaration rather than a silent pass.";
-
-    let home = std::env::var("HOME")
-        .unwrap_or_else(|_| panic!("$HOME is not set, so there is no path to try.\n\n{HOWTO}"));
-    let home = std::path::PathBuf::from(home);
-    let (src, e8) = (home.join("qwen3-4b-llvq.bin"), home.join("q4b-e8.llvq"));
-    for p in [&src, &e8] {
-        assert!(
-            p.exists(),
-            "artifact not on this machine: {}\n\n{HOWTO}",
-            p.display()
-        );
-    }
-    let find = |raws: Vec<RawTensor>| {
-        raws.into_iter().find(|t| t.name == "model.embed_tokens.weight")
-    };
-    let src_emb = find(read_raws(&src).expect("readable source")).expect("embedding in source");
-    let e8_emb = find(read_raws(&e8).expect("readable e8")).expect("embedding in e8");
-    let RawData::F16(f16_data) = &src_emb.data else {
-        panic!("source embedding is not f16")
-    };
-    let (vocab, d) = (src_emb.dims[0], src_emb.dims[1]);
-    assert_eq!(e8_emb.dims, src_emb.dims, "the two artifacts disagree on dims");
-    let (e8p, e8s, e8b) = as_quant(&e8_emb);
-    let gpr = d.div_ceil(64);
-
-    // 64 rows spread across the vocabulary, plus both ends.
-    let mut rows: Vec<usize> = (0..64).map(|i| i * (vocab - 1) / 63).collect();
-    rows.push(0);
-    rows.push(vocab - 1);
-    let sample: Vec<u16> = rows
-        .iter()
-        .flat_map(|&r| f16_data[r * d..(r + 1) * d].iter().copied())
-        .collect();
-    let sub = RawTensor {
-        name: src_emb.name.clone(),
-        dims: vec![rows.len(), d],
-        data: RawData::F16(sample),
-    };
-    let q = embed_q8(sub).expect("load-path quantization");
-    let (qp, qs, qb) = as_quant(&q);
-    for (i, &r) in rows.iter().enumerate() {
-        assert_eq!(
-            &qp[i * d..(i + 1) * d],
-            &e8p[r * d..(r + 1) * d],
-            "row {r}: packed bytes differ from the sealed q8 file"
-        );
-        assert_eq!(
-            &qs[i * gpr..(i + 1) * gpr],
-            &e8s[r * gpr..(r + 1) * gpr],
-            "row {r}: scales differ"
-        );
-        assert_eq!(
-            &qb[i * gpr..(i + 1) * gpr],
-            &e8b[r * gpr..(r + 1) * gpr],
-            "row {r}: biases differ"
-        );
-    }
 }
 
 // ---------------------------------------------------------------------------

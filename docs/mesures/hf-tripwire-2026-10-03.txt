@@ -1,0 +1,121 @@
+A PUBLISHED LLVQ MODEL LOADS AS A RANDOM MODEL, SILENTLY (2026-10-03)
+================================================================================
+Prereg: none. This is not a measurement of the object, it is a probe of what
+        `transformers` does with it, and the answer is a yes or no rather than a
+        number. `ops/hf_tripwire_probe.py` reruns the whole table.
+Code:   commit 6f80b0d, package llvq-tetra 0.1.0 installed as a wheel.
+        Mac, 0 $, no job. transformers 5.18.0, torch 2.14.1.
+Nature: *measured*, as a behaviour.
+
+THE DEFECT
+----------
+`transformers` has NO entry-point discovery for quantization methods.
+`quantizers/auto.py` carries no such mechanism, and the only `entry_points` in
+the whole installed package is in `integrations/nvfp4.py`, unrelated. So the
+method is registered by `import llvq_tetra` and by nothing else.
+
+A tool that imports only `transformers` therefore reads `quant_method: "llvq"`,
+prints
+
+  Unknown quantization type, got llvq - supported types are [...]. Hence, we
+  will skip the quantization.
+
+and carries on. On the PUBLISHED 4B, `Pier-Jean/Qwen3-4B-LLVQ-Tetra`, loaded in a
+fresh venv from the Hub with no import of ours:
+
+  DID NOT RAISE
+    missing 254, unexpected 1119
+    q_proj weight: finite True, std 0.0200, nonzero 10485760/10485760
+    forward ran, logits (1, 4, 151936), range [-13.52 ; 13.68]
+
+Every weight was reinitialized, std 0.0200 being Qwen3's own init, and the
+forward pass produced logits in a perfectly ordinary range. A benchmark harness
+would score a randomly initialized Qwen3-4B, get about chance on MMLU, and
+publish that as this file's number. Nothing in the output says otherwise except
+a warning among dozens of lines.
+
+This was nearly our own mistake. The next step planned was a quality figure
+through a standard harness, `lm_eval --model hf --model_args
+pretrained=Pier-Jean/Qwen3-4B-LLVQ-Tetra`. `lm_eval` does not import our
+package. The number would have been noise and it would have been published.
+
+CAN THE REPOSITORY REFUSE INSTEAD?
+----------------------------------
+Three layouts, three ways of loading, on `fixtures/mini` so the loop is seconds.
+`bare` is a caller that imports `transformers` alone, `flag` adds
+`trust_remote_code=True`, `imported` adds `import llvq_tetra`.
+
+  layout                              bare              flag      imported
+  ----------------------------------  ----------------  --------  ----------
+  as published                        RANDOM MODEL      RANDOM    correct
+  auto_map on the model               RANDOM MODEL      correct   correct
+  auto_map and an unknown model_type  REFUSED           correct   REFUSED
+
+Read the `bare` column; it is the only one a third-party tool takes.
+
+**`auto_map` alone does not close it.** Tried on `AutoConfig` and on
+`AutoModelForCausalLM`, separately and together. With `model_type: "qwen3"` in
+the file, `transformers` resolves a model class from the type and never consults
+`auto_map`, so the bare case still loads garbage. What `auto_map` does buy is a
+working `trust_remote_code=True` path that self-registers, where today that flag
+changes nothing.
+
+**An unresolvable `model_type` does close it**, loudly:
+
+  REFUSED ValueError: The repository ... contains custom code which must be
+  executed to correctly load the model.
+
+The `imported` cell of that row is REFUSED too, because `llvq_tetra` does not
+register a `llvq_qwen3` model type. That is a package change, not a wall.
+
+WHAT IT WOULD COST
+------------------
+The third layout means the published `config.json` no longer says
+`model_type: "qwen3"`. Consequences, none of them hypothetical:
+
+- Anything keying on that string sees something else, including the Hub's own
+  model-type facet.
+- A user without our package must pass `trust_remote_code=True`, a flag many
+  people and some policies refuse.
+- `hfpack` would have to write `auto_map` and the type, so the packed
+  `config.json` would stop being the sealed file's own config blob plus a
+  quantization block. That is format work, and the sealed `.bin` carries the
+  original blob, so the two would differ on purpose and the difference would need
+  stating.
+- Two files of remote code travel with every published model, and remote code is
+  a thing readers are right to distrust.
+
+WHAT WAS APPLIED, AND WHAT IT BOUGHT
+------------------------------------
+Operator decision of 2026-10-03: add `auto_map`, leave `model_type` alone.
+
+`ops/hf_publish_prep.py` adds to a packed directory the three things publishing
+needs and packing should not carry: the four real tokenizer files from the base
+checkpoint at a pinned revision, a 1,409 byte `modeling_llvq.py` whose import
+registers the method, and `auto_map` pointing at it. `hfpack` keeps writing the
+sealed file's own config plus a quantization block, so the packed directory stays
+checkable field for field against the sealed file and the publication step is a
+separate, scripted thing.
+
+Measured on the published repository, downloaded from the Hub with an empty cache:
+
+  bare   LOADED 0 records, keys clean False  -> A RANDOM MODEL
+  flag   LOADED 252 records, keys clean True -> correct
+
+`trust_remote_code=True` went from giving a random model to giving the right one.
+The bare case did not move and was not expected to. The card now says all three
+things: that the import matters, that the flag is the second best option, and
+that neither fixes a caller who does neither.
+
+WHAT THIS DOES NOT SAY
+----------------------
+Nothing about whether the in-tree route fixes it. It does, trivially: a method in
+`transformers` needs no import. That is now a technical argument for the stage 6
+PR rather than a discoverability one, and it is the first such argument this plan
+has had.
+
+Nothing about `vLLM`, `llama.cpp` or any other engine, none of which read this
+format at all, so there is no silent failure to have.
+
+Nothing about the sealed repository, which carries a `.bin` nothing but our Rust
+engine opens. It cannot be mis-loaded because it cannot be loaded.

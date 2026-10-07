@@ -1,0 +1,95 @@
+TRANSFORMERS READS THE PACKED 4B AND ANSWERS: 253 DIGESTS AND 256 IDS (2026-09-30)
+================================================================================
+Prereg: proofs/preregistration-hf-quantizer-2026-09-30.md, stamped sha256
+        fbbf4b64317bce93..., before the first load.
+Deviations: proofs/preregistration-hf-quantizer-2026-09-30-ECARTS.md
+Code:   commits 9999692 (format), cea3cd0 and fc7bee8 (this lot). Mac, 0 $, no job.
+Env:    transformers 5.17.0, torch 2.14.0, numpy 2.x, resolved by uv on 2026-09-30.
+Nature: *measured*, identity of bytes and of tokens.
+
+SETUP
+-----
+Input:  ~/q4b-hf-2026-09-28/, packed by hfpack from
+        ~/q4b-sealed-2026-09-23/qwen3-4b-sealed.bin (sha256 886391a8c03f66dc...).
+        model.safetensors sha256 a28348cafa82d23d..., 252 records, 96 rotations.
+Gate A: bin/hfdense writes one sha256 per record of the f32 weights
+        llvq_artifact::decode_matrix gives; llvqhf.checkdense rebuilds every one
+        from the safetensors alone.
+Gate B: from_pretrained on the directory, against bin/run on the sealed file,
+        f32 on the CPU on both sides, the same four prompts, no special tokens.
+
+THE TWO GATES
+-------------
+  gate A   253 of 253 digests identical, in 166.7 s
+             252 records (168 Tetra, 84 Int4G128) plus the int4 embedding
+  gate B   4 prompts, 64 greedy ids each, 256 of 256 identical
+             from_pretrained reports no missing and no unexpected key
+
+Exactness and not closeness. Every step is reproduced operation by operation: the
+reconstruction is one multiply, one division and one multiply per coordinate, the
+Walsh-Hadamard transform is a butterfly of single adds in a fixed pairing, and the
+k by k mix accumulates over t from zero rather than through a matrix product.
+
+CONTROLS
+--------
+1. A foreign Tetra fingerprint is refused before an index is read: passes
+   (llvq-hf/tests/test_quantizer.py, and the reader's own check).
+2. 100,000 labels drawn at seed 0xfe0001, decoded in Rust and in Python: 0 differ.
+   100,000 distinct points, norm²/16 from 4 to 24, max |coordinate| 10, which is
+   the codebook's own maximum. The origin word decodes to the origin.
+3. Mutants. Four on gate A, each caught on the first record: sections swapped in
+   the decode, the mix transposed, the gain bit ignored, the butterfly's stages
+   reversed. One on gate B, caught at token 0 of all four prompts: gate_proj's
+   weight and up_proj's exchanged after materialization, so the MLP computes
+   act(up(x))·gate(x) instead of act(gate(x))·up(x).
+   A first gate B mutant, the two descriptors swapped in the record table, changed
+   nothing and proved nothing. It is recorded because what it found is a property
+   of the design: a module's buffers are named relative to its own path, so the
+   file's keys decide which module gets which weights and the record table cannot
+   misroute them. The descriptors of gate_proj and up_proj are identical at every
+   layer of the 4B, so swapping them is a no-op.
+4. cargo clippy --all-targets silent, cargo test green in the fast loop
+   (181 suites, 957 tests, 0 failed, 81 ignored), pytest 24 green.
+5. The stage 0 gate still passes on the same directory: 1602 fields, unchanged.
+
+WALL TIMES, WITH NO RATIO FORMED
+--------------------------------
+Reported because they decide whether the loader is usable at the later stages, and
+divided by nothing: two engines are never divided against each other (rule 5).
+
+  from_pretrained, f32, CPU        153.7 s, the dequantization of 119 M blocks included
+  llvqhf.checkdense               166.7 s for 253 records
+  generation, transformers        36.6 to 39.2 s per prompt, 64 ids, uncached path
+  generation, bin/run             137.2 to 148.6 s per prompt, 64 ids, f32 CPU
+
+SIGNED PREDICTIONS, SCORED
+--------------------------
+  gate A exact, 253 of 253                              HELD, first run
+  gate B on all four prompts                            HELD, 256 ids
+  the dequantization in [30 s ; 5 min]                   HELD at 166.7 s
+  the loaded model dense, 16 GB at f32                  *computed*; 9.5 GB was read
+                                                        mid-materialization, no peak
+                                                        RSS was measured
+
+The first was the one at risk. Its stated failure mode was the k by k mix, the one
+place a library could reassociate a sum; accumulating term by term over t held it.
+
+WHAT THIS DOES NOT ESTABLISH
+----------------------------
+Nothing about memory at inference: the model is dense once loaded, by decision.
+Nothing about speed, here or at any stage of this plan.
+Nothing about the rotation under a kernel, which is stages 2 and 4. Stage 1 folds
+  the un-rotation into the dequantization, so the forward pass never rotates.
+Nothing about the 8B and the 14B, same format, not loaded here.
+Nothing about quality. No MMLU, no perplexity, no GSM8K.
+Nothing about save_pretrained: is_serializable returns false, by design.
+
+PROVENANCE
+----------
+Package: llvq-hf/, developed here and extracted at stage 5.
+Rust:    llvq-llm/src/hfpack.rs (dense_digest, tetra_tables), bins hfdense,
+         tetratables, tetravectors, and LLVQ_RUN_DUMP in bin/run.
+Dumps:   /tmp/run-tokens-f32.json and /tmp/hf-tokens-f32.json, compared by
+         llvqhf.comparetokens. Not committed.
+Tables:  llvq-hf/llvqhf/data/tetra-tables.safetensors, 19 KB, Tetra fingerprint
+         9c3060086c7a13e6, which is the one the file's header carries.

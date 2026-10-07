@@ -445,6 +445,88 @@ fn raw_passthrough_is_byte_identical() {
     assert_eq!(original, copied, "passthrough must not change a single byte");
 }
 
+/// `code_stream` returns the bytes the record stores, and nothing beside them.
+///
+/// `llvq_llm::hfpack` writes those bytes into a safetensors tensor, so a
+/// disagreement here would ship a distribution file whose codes are packed in
+/// an order no reader of this repository uses. The record's serialization ends
+/// with its code length and its code bytes, which is what this compares
+/// against: the widths, the MSB-first order and the final zero pad all have to
+/// match for the tail to line up.
+#[test]
+fn code_stream_is_the_record_bytes() {
+    let ix = Indexer::new();
+    let tetra = Tetra::new();
+    let mut rng = SplitMix64::new(0x6_F007);
+    // A Tetra record, 48 bits a block and therefore byte aligned, and a Ball
+    // record at cap 13 with a tail, whose 50-bit blocks are not.
+    let mats = [
+        (
+            CodeKind::Tetra,
+            synthetic_tetra(
+                &tetra,
+                &mut rng,
+                "model.layers.0.mlp.up_proj.weight",
+                5,
+                3 * DIM,
+                Some(11),
+            ),
+        ),
+        (
+            CodeKind::Ball,
+            synthetic(
+                &ix,
+                &mut rng,
+                "model.layers.0.self_attn.k_proj.weight",
+                3,
+                2 * DIM + 7,
+                13,
+                2,
+                None,
+            ),
+        ),
+    ];
+    for (kind, m) in mats {
+        let mut record: Vec<u8> = Vec::new();
+        {
+            let mut w = ArtifactWriter::with_kinds(
+                &mut record,
+                FIRST_KINDED_VERSION,
+                1,
+                kind,
+                KindSet::of(kind),
+            )
+            .expect("header");
+            w.push_kind(&m, kind).expect("write");
+            w.finish().expect("flush");
+        }
+        let mut r = std::io::Cursor::new(&record);
+        let head = llvq_artifact::read_header(&mut r).expect("header");
+        let raw = llvq_artifact::read_matrix_raw(&mut r, head.version).expect("read raw");
+        assert_eq!(raw.kind, kind);
+
+        let bytes = llvq_artifact::code_stream(&raw).expect("code stream");
+        let (ib, gb) =
+            llvq_artifact::code_widths(raw.kind, &raw.name, raw.shell_cap, raw.centroids.len())
+                .expect("widths");
+        let nblocks = raw.d_out * (raw.d_in / DIM);
+        assert_eq!(
+            bytes.len(),
+            (nblocks * (ib + gb) as usize).div_ceil(8),
+            "{kind}: the stream is dense, one final pad byte at most"
+        );
+        let mut want = (bytes.len() as u64).to_le_bytes().to_vec();
+        want.extend_from_slice(&bytes);
+        // `finish` closes the file with an empty raw-tensor and blob count,
+        // eight zero bytes, so the code stream ends eight bytes from the end.
+        let end = record.len() - 8;
+        assert!(
+            record[..end].ends_with(&want),
+            "{kind}: the record does not end with the length and bytes code_stream returned"
+        );
+    }
+}
+
 /// The file published on Hugging Face is `LVQ2`; the writer now emits `LVQ3`.
 /// Backward compatibility is therefore **load-bearing**: 1.77 GB of published
 /// artifact depend on `read_raw` still understanding an untagged record, and

@@ -215,6 +215,39 @@ fn every_unit_carries_both_rotation_entry_points() {
 /// kernel directory on the include path a missing entry is resolved from disk
 /// and the parse succeeds — five such mutations exited 0. Here the texts are
 /// concatenated and no path is given, so an unsatisfied guard fires the
+/// The CUDA binding of `llvq-tetra` includes the served list, in order.
+///
+/// `llvq-tetra/llvq_tetra/csrc/tetra_cuda.cu` is compiled by `nvcc` in a job, never here,
+/// so nothing in the fast loop parsed it. What the fast loop CAN check is the one
+/// thing that went wrong twice: its include list. `tv_tetra48_h.cu` alone leaves
+/// `F1rTables` and `f1r_load` undefined, because its own guards do not reach for
+/// `llvq_f1rank.cuh`, and the first reader of that mistake was a rented card.
+///
+/// The list has one owner, `planes_source_names(Tetra48)`. This holds the binding
+/// against it, so a fifth source added there fails here rather than on a card.
+#[test]
+fn the_cuda_binding_includes_the_served_list() {
+    let path = std::path::Path::new("../llvq-tetra/llvq_tetra/csrc/tetra_cuda.cu");
+    assert!(path.exists(), "{} is missing", path.display());
+    let src = std::fs::read_to_string(path).expect("read the binding");
+    let included: Vec<String> = src
+        .lines()
+        .filter_map(|l| l.trim().strip_prefix("#include \""))
+        .filter_map(|l| l.strip_suffix('"'))
+        .filter(|l| l.ends_with(".cuh") || l.ends_with(".cu"))
+        .map(|l| l.rsplit('/').next().expect("a file name").to_string())
+        .collect();
+    let want: Vec<String> = planes_source_names(FusedLayout::Tetra48)
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    assert_eq!(
+        included, want,
+        "the binding includes {included:?} where the served unit is {want:?}; the order is the \
+         contract and the list has one owner"
+    );
+}
+
 /// `#include` and clang++ cannot find the file, exactly as NVRTC cannot.
 ///
 /// A leaf source breaks nothing at parse time and loses its entry point

@@ -15,6 +15,7 @@ pub mod calib;
 pub mod chatfmt;
 pub mod corpus;
 pub mod device;
+pub mod digest;
 pub mod embedquant;
 pub mod errmodel;
 pub mod eval;
@@ -24,6 +25,7 @@ pub mod fused_cuda;
 #[cfg(all(target_os = "macos", feature = "metal"))]
 pub mod fused_metal;
 pub mod gsm8k;
+pub mod hfpack;
 pub mod kvq;
 pub mod loader;
 pub mod model;

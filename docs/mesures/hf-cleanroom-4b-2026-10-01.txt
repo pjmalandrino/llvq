@@ -1,0 +1,218 @@
+WHAT A STRANGER GETS: PIP INSTALL, THEN FROM_PRETRAINED (2026-10-01)
+================================================================================
+Prereg: NONE, and that is a deviation from rule 2 worth naming rather than
+        dressing up. This started as a packaging smoke test, found a defect, and
+        only then produced a gate result. The token identity it ends on is not a
+        new claim: it is the gate of
+        proofs/preregistration-hf-quantizer-2026-09-30.md, which stage 1 already
+        preregistered and passed, replicated in a different environment. What is
+        new here is the environment, not the criterion. No prereg has been
+        written after the fact and none has been stamped.
+Code:   commit 051126f for the measured arm, plus the fix below. Mac, 0 $, no job.
+Nature: *measured*, tokens and the presence or absence of a package.
+
+WHY ASK THIS AT ALL
+-------------------
+Stage 5's gate is "a clean environment runs pip install then from_pretrained and
+reproduces the tokens", and stage 6's in-tree guide requires the package to exist.
+Every measurement of stages 0 to 4 ran from the working tree through our own
+scripts. So nobody had ever asked what a stranger gets.
+
+SETUP
+-----
+  uv venv /tmp/cleanroom --python 3.12
+  VIRTUAL_ENV=/tmp/cleanroom uv pip install ./llvq-hf torch transformers
+
+  python 3.12.2, torch 2.14.1, transformers 5.18.0
+  ninja present: False
+  accelerate present: False
+  llvqhf from /tmp/cleanroom/lib/python3.12/site-packages/llvqhf
+
+Note the versions: transformers 5.18.0 against the 5.17.0 of every earlier
+measurement here, and no ninja, so nothing can compile a kernel. The script
+refuses to run if `llvqhf.__file__` is not under site-packages, because importing
+the working tree would answer a different question.
+
+WHAT IT FOUND, BEFORE IT MEASURED ANYTHING
+------------------------------------------
+`import llvqhf` REGISTERED NOTHING. `__init__.py` imported `tetra` and `reader`
+and never `quantizer`, so `register_quantizer` never ran. Our 41 tests and our
+six journals are all sound because every script of this package imports
+`.quantizer` by hand: `gentokens.py` line 23 carries the comment "(registers
+llvq)". Four stages of measurement passed over this.
+
+The failure is SOFT, which is the worse half. transformers does not raise:
+
+  [transformers] Unknown quantization type, got llvq - supported types are:
+  [...]. Hence, we will skip the quantization.
+
+It then loads the model as if it were dense, reports every record as UNEXPECTED
+and every dense weight as MISSING, and raises fifty lines later:
+
+  RuntimeError: You set `ignore_mismatched_sizes` to `False`, thus raising an
+  error.
+
+A reviewer seeing that would conclude the checkpoint is broken, and would have no
+reason to think otherwise.
+
+Fixed in `llvqhf/__init__.py`: the package imports `.quantizer`, guarded by
+`ImportError` because transformers and torch are an optional extra and
+`PackedModel` must stay readable with numpy and safetensors alone.
+`tests/test_registration.py` holds it, in a FRESH interpreter by subprocess,
+since in ours an earlier test has already imported the module and the question
+cannot be asked. Mutant posted and caught: registration removed, 1 site asserted,
+the test falls; restored, it passes. 41 tests green.
+
+THE GATE
+--------
+The packed 4B, `~/q4b-hf-2026-09-28/`, loaded by the installed package on the
+dense CPU path, against `bin/run` on the sealed file it was packed from,
+`~/q4b-sealed-2026-09-23/qwen3-4b-sealed.bin`, sha256 886391a8c03f66dc, the
+digest the stage 1 journal names. The reference dump of 2026-09-30 had been swept
+from /tmp and was regenerated with LLVQ_DTYPE=f32 LLVQ_RUN_DUMP, 5,691 bytes, the
+same size as the copy kept in the bucket.
+
+  a: /tmp/run-tokens-f32.json        dtype f32  n_new 64
+  b: /tmp/cleanroom-tokens.json      dtype f32  n_new 64
+    same 64 ids  'The capital of France is'
+    same 64 ids  'In 1969, the first humans landed on'
+    same 64 ids  'def fibonacci(n) ...'
+    same 64 ids  'Water boils at a temperature of'
+  4 prompts, every id identical
+
+256 of 256. Generation ran at about 38 s a prompt in the cleanroom against 161 s
+in `bin/run`'s own f32 CPU path, and those two numbers are NOT compared: different
+engines, different dtypes inside, one machine under its own load. No speed is
+claimed here at any point.
+
+THE SECOND GAP, CLOSED ON 2026-10-02
+------------------------------------
+`tests/fixtures/mini` is a coherent one-layer Qwen3 of 148 KB, written by
+`the_mini_fixture_describes_a_whole_qwen3_layer` in `llvq-llm/tests/hfpack.rs`,
+and `tests/test_load.py` calls `from_pretrained` on it. 46 tests pass, 41 before.
+The `tiny` fixture below is untouched: its shapes are asserted by name in the
+packer test and read by five Python test files, and it does its own job.
+
+  hidden_size 136, head_dim 32, 4 q heads, 2 kv heads, intermediate 256, vocab 64
+  q_proj     128 by 136  tetra      5 blocks, tail 16, rotation odd part 17
+  k_proj      64 by 136  tetra
+  v_proj      64 by 136  tetra
+  o_proj     136 by 128  tetra      5 blocks, tail 8, rotation odd part 1
+  gate_proj  256 by 136  tetra
+  up_proj    256 by 136  tetra
+  down_proj  136 by 256  int4 g128  2 whole groups
+  embedding   64 by 136  int4 g64   2 groups and a partial third
+  5 norms     136, 136, 32, 32, 136  f16
+
+Not one of those numbers is free. 136 = 17 x 8, so the rotation
+`Q = (Q_odd (x) H_m) D` has an odd part of 17 and `Q_odd` is a real matrix; a
+power-of-two width gives the trivial 1 by 1, which `o_proj` at `d_in` 128 then
+covers, so both paths run. 136 = 5x24 + 16 and 128 = 5x24 + 8, so two different
+non-empty tails. int4 sits on `down_proj` alone because the test helper takes
+`gpr = d_in / 128` by integer division and 136 is not a whole number of groups;
+the FORMAT itself carries a partial group, which the embedding at group 64 proves,
+since 136 is two groups and a third of 8 columns.
+
+A FORWARD PASS THAT RUNS PROVES NOTHING, AND THIS IS MEASURED. The first version
+of `test_load.py` left `import llvqhf` out of the module level. Run alone, it
+loaded the fixture with the method unregistered: transformers skipped the
+quantization, reinitialized every dense weight it reported MISSING, and the
+forward pass passed on random numbers. Three of the five tests passed, including
+the shapes and the forward. The gate is `missing_keys` and `unexpected_keys`.
+
+Mutant posted and caught: the module-level import removed, 1 site asserted, two
+of the five tests fall and the other three do not. Dropping a norm from the
+fixture is caught upstream instead, by the packer test's `raw_tensors == 6`.
+
+What the fixture cannot say: the weights are random, so no logit value means
+anything, and nothing here asserts on one. It covers the dense CPU path only; the
+Metal and CUDA arms need a GPU and are not in any test.
+
+THE GAP AS IT WAS, 2026-10-01
+-----------------------------
+The 4 KB fixture is not a loadable model. Its config.json describes a Qwen3 of
+hidden_size 96 while its records are 4 by 88, so `from_pretrained` refuses by
+name: "model.layers.0.self_attn.q_proj is 4096 by 96, the record is 4 by 88". It
+was written for unit tests that read tensors directly and it does that job.
+
+The consequence is that the package has NO small object anyone can load end to
+end. A reviewer must fetch 1.4 GB to see it work, and the test suite cannot cover
+`from_pretrained` at all without that file. For an in-tree PR this is the kind of
+thing a maintainer asks for first. Fixing it means changing the Rust fixture
+writer, and it is not done.
+
+THROUGH THE PUBLIC PATH, 2026-10-02
+-----------------------------------
+The two repositories went up on 2026-10-02 and the check was run again against
+the repository NAME rather than a directory, with HF_HOME on an empty cache:
+
+  HF_HOME=/tmp/hf-fresh /tmp/cleanroom/bin/python ops/hf_cleanroom_check.py \
+      Pier-Jean/Qwen3-4B-LLVQ-Tetra
+
+  Warning: You are sending unauthenticated requests to the HF Hub.
+  python 3.12.2, torch 2.14.1, transformers 5.18.0
+    ninja present: False
+    accelerate present: False
+  loaded, 252 records replaced, no key missing or unexpected, 4022468096 parameters
+  forward ok, logits (1, 4, 151936), range [-14.319 ; 18.806]
+
+The warning is the point: UNAUTHENTICATED, so the download took the public path a
+stranger takes, from an empty cache, with no compiler present. And the logit range
+is the same to the third decimal as the staged local directory gave before the
+upload, so the Hub round-trip returned the same bytes.
+
+The Hub also computed the sealed file's SHA-256 itself, server side:
+886391a8c03f66dc269cc65c3598c6627dbdcd259180aff36604ef10d37371b8, which is the
+digest paper 2 publishes. Before 2026-10-02 that digest named a file on one
+laptop, so nobody outside could check it.
+
+THE BUILT WHEEL, NOT THE DIRECTORY, 2026-10-02
+----------------------------------------------
+The package was renamed to `llvq-tetra` and the check was run a third time, this
+time against the WHEEL rather than a path, installed into a venv that had nothing
+else:
+
+  uv venv /tmp/wheeltest --python 3.12
+  uv pip install llvq-tetra/dist/llvq_tetra-0.1.0-py3-none-any.whl torch transformers
+  HF_HOME=/tmp/hf-fresh2 /tmp/wheeltest/bin/python ops/hf_cleanroom_check.py \
+      Pier-Jean/Qwen3-4B-LLVQ-Tetra
+
+  llvq_tetra from /tmp/wheeltest/lib/python3.12/site-packages/llvq_tetra
+  loaded, 252 records replaced, no key missing or unexpected, 4022468096 parameters
+  forward ok, logits (1, 4, 151936), range [-14.319 ; 18.806]
+
+Same logit range as the local directory and as the Hub download before the
+rename. So the artifact that would go to PyPI is the one that works, which is not
+the same statement as "the repository works".
+
+The wheel carries 32 entries: the two Metal shaders, the SIX CUDA sources, the
+tables, both licences. Before 2026-10-02 it carried no CUDA source at all and
+`_extension_cuda` looked for the repository two directories above the module,
+which under `site-packages` is nonsense. A pip user had no CUDA arm and nothing
+said so.
+
+THE CARDS BROKE WITHIN THE HOUR
+-------------------------------
+The two repositories went up at 16:20 with an install line reading
+`#subdirectory=llvq-hf` and `import llvqhf`. The rename landed at 17:30 and both
+lines became false, on a published object, while the cards lived in a staging
+directory outside the repository. Fixed and re-uploaded, and both cards now live
+in `docs/` where the rename would have caught them:
+`docs/hf-model-card.md` for the sealed repository and
+`docs/hf-model-card-safetensors.md` for the other, each byte for byte the
+published README below its STATUS comment. Verified by downloading both READMEs
+back with `force_download` and grepping for the old names: neither carries one.
+
+WHAT THIS DOES NOT ESTABLISH
+----------------------------
+Nothing about PyPI. The install was from a path, then from git. `pip install
+llvq-hf` does not resolve: the name is free and unclaimed.
+
+Nothing about the fused arms. No ninja in the cleanroom, so the Metal and CUDA
+kernels were never built there. Stage 3 is what makes those installable.
+
+Nothing about quality. Four prompts and 64 greedy ids, the gate M1 measured to be
+blind to an 8.79 % per-row error.
+
+Nothing about `pip install llvq-hf` from an index, since the install was from a
+path. The name is not taken anywhere.

@@ -1,0 +1,112 @@
+{
+  "class_rows": 2048,
+  "dim": 24,
+  "fields": [
+    {
+      "lo": 0,
+      "name": "p",
+      "width": 1
+    },
+    {
+      "lo": 1,
+      "name": "r",
+      "width": 1
+    },
+    {
+      "lo": 2,
+      "name": "s8",
+      "width": 6
+    },
+    {
+      "lo": 8,
+      "name": "b1",
+      "width": 1
+    },
+    {
+      "lo": 9,
+      "name": "i1",
+      "width": 11
+    },
+    {
+      "lo": 20,
+      "name": "b2",
+      "width": 4
+    },
+    {
+      "lo": 24,
+      "name": "i2",
+      "width": 11
+    },
+    {
+      "lo": 35,
+      "name": "b3",
+      "width": 1
+    },
+    {
+      "lo": 36,
+      "name": "i3",
+      "width": 11
+    },
+    {
+      "lo": 47,
+      "name": "gain",
+      "width": 1
+    }
+  ],
+  "label_bits": 47,
+  "n0_mixed": 1240,
+  "note": "dumped by llvq-llm/src/bin/tetratables.rs from llvq_search::tetra; the .llvq header's tetra fingerprint must equal the one above",
+  "section": 8,
+  "shaders": {
+    "llvq_f1rank.cuh": {
+      "backend": "cuda",
+      "note": "the F1 rank decoder",
+      "path": "kernels/llvq-cuda/kernels/llvq_f1rank.cuh",
+      "sha256": "79491340900a94769cbca62816235722d7d2e7389c24fae435db12a51043043b"
+    },
+    "llvq_f1rank_v3.cuh": {
+      "backend": "cuda",
+      "note": "its v3 tables",
+      "path": "kernels/llvq-cuda/kernels/llvq_f1rank_v3.cuh",
+      "sha256": "47491a4b34173d5dd94e0f9099c9f93c7e9c3b1907ce623f57aecf78342b7485"
+    },
+    "llvq_slot.cuh": {
+      "backend": "cuda",
+      "note": "the slot layout it reads",
+      "path": "kernels/llvq-cuda/kernels/llvq_slot.cuh",
+      "sha256": "004b30f88cc4096430d486202a9d53f370b34a3433f1757a72c0be8bea1c1ebc"
+    },
+    "llvq_tetra48.cuh": {
+      "backend": "cuda",
+      "note": "the Tetra decoder",
+      "path": "kernels/llvq-cuda/kernels/llvq_tetra48.cuh",
+      "sha256": "1d5e8c20a4086cdf9793673a54520c0134dc6621c84c7a5e9824fe60061787ab"
+    },
+    "llvq_tetra48.metal": {
+      "backend": "metal",
+      "entries": "tetra48_probe, tv_tetra48_metal",
+      "note": "the decoder judged on its own, and the served Tetra matvec",
+      "sha256": "96232baa67c57992818a8d368bf427a04bea608017f55f69a99ba5dde2ab3e4c"
+    },
+    "matvec.cu": {
+      "backend": "cuda",
+      "note": "the dense matvec it shares",
+      "path": "kernels/llvq-cuda/kernels/matvec.cu",
+      "sha256": "0cb2589254df8c7873ec1507124251ce1b11c27956a8ec6037e9bb852babc1ae"
+    },
+    "tv_q4_h.metal": {
+      "backend": "metal",
+      "entries": "tv_q4_metal, tv_q4_metal_tiled",
+      "note": "the served int4 matvec, and the tiled variant beside it for a d_in past 8192",
+      "sha256": "c7ef0c693344afce68d8aef6f5f145b2652823ee98af24b5c7a86f85eb31fb77"
+    },
+    "tv_tetra48_h.cu": {
+      "backend": "cuda",
+      "note": "the served Tetra matvec launcher",
+      "path": "kernels/llvq-llm/kernels/tv_tetra48_h.cu",
+      "sha256": "24e23a6277b9fce85a26cab38ef7d027241d4b88636d0fa1c7782ffe4ebdfc4d"
+    }
+  },
+  "tetra_fingerprint": "9c3060086c7a13e6",
+  "word_bits": 48
+}

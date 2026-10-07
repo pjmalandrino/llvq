@@ -11,6 +11,7 @@ MacBook Pro Mac15,8, M3 Max, 16 CPU cores, 40 GPU cores, 68,719,476,736 bytes (*
 | field | value | label, source |
 |---|---|---|
 | name | `Pier-Jean/Qwen3-4B-LLVQ-2bit`, file `qwen3-4b-llvq.bin` | HF repo at commit `f00daa7bc1dd12a720304a4483f2219d10f15c96` |
+| superseded by | `Pier-Jean/Qwen3-4B-LLVQ-Tetra` and `-Tetra-sealed`, published 2026-10-02 | this file stays the register of the August `Planes14` object, which is untouched in its own repository |
 | size | 1,770,527,533 B (1.771 GB) | *measured*, `shasum`; HF `content-length` identical (2026-08-03) |
 | sha256 | `9db213ef9fa9d7d7000789a8a529ce9459ce9ba6002ef5a72fd5a1c05c1c84b0` | *measured*, identical to the HF `x-linked-etag` |
 | magic | `LVQ2`, three sections, parses to the exact byte | *measured* |

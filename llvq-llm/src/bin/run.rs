@@ -6,6 +6,11 @@
 //! cache's only real gate: a cache bug produces fluent, plausible, different
 //! text, which no threshold can catch.
 //!
+//! Set `LLVQ_RUN_DUMP=<path>` to write the generated ids as JSON. Added for
+//! gate B of `docs/plan-transformers.md` stage 1, which compares this binary's
+//! tokens against `transformers`' on the same file: a decoded string can hide a
+//! tokenizer difference, and that comparison is about the model.
+//!
 //! Usage:
 //!   `cargo run --release -p llvq-llm --features metal --bin run -- model.llvq [device] [n_new]`
 //!
@@ -50,6 +55,9 @@ fn main() -> anyhow::Result<()> {
     // Only meaningful over a preallocated store; `generate_stepped` refuses
     // otherwise, by name.
     let stepped = std::env::var("LLVQ_STEPPED").ok().as_deref() == Some("1");
+
+    let dump = std::env::var("LLVQ_RUN_DUMP").ok();
+    let mut dumped: Vec<serde_json::Value> = Vec::new();
 
     let mut s = llvq_llm::sealed::load(&path, dtype, &device, kv_mode)?;
     s.model.set_kv_store(kv_store);
@@ -99,6 +107,14 @@ fn main() -> anyhow::Result<()> {
             "── {p:?}\n   →{text}\n   {n_new} tokens in {secs:.2} s — {:.1} tok/s",
             n_new as f64 / secs
         );
+        if dump.is_some() {
+            dumped.push(serde_json::json!({
+                "prompt": p,
+                "input_ids": ids,
+                "output_ids": out,
+                "text": text,
+            }));
+        }
 
         // The cache's only honest gate.
         //
@@ -130,6 +146,17 @@ fn main() -> anyhow::Result<()> {
                 slow / secs
             );
         }
+    }
+    if let Some(path) = dump {
+        let out = serde_json::json!({
+            "model": a.first(),
+            "device": format!("{device:?}"),
+            "dtype": llvq_llm::eval::dtype_name(dtype),
+            "n_new": n_new,
+            "prompts": dumped,
+        });
+        std::fs::write(&path, serde_json::to_vec_pretty(&out)?)?;
+        println!("\ndumped {} prompts to {path}", dumped.len());
     }
     Ok(())
 }

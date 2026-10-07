@@ -1,0 +1,170 @@
+THE PACKED 4B THROUGH THE FUSED KERNEL ON CUDA (2026-09-30)
+================================================================================
+Prereg: proofs/preregistration-hf-cuda-2026-09-30.md, stamped sha256
+        3956cb95..., before the first launch.
+Deviations: proofs/preregistration-hf-cuda-2026-09-30-ECARTS.md
+Code:   branch hf-safetensors. Estimated $0.45, hard cap $1.20 (the 40 minute
+        timeout at l40sx1's $1.80 an hour). Operator cap on the wave: $5.
+Nature: *measured* where a number appears; the first three rows measured nothing
+        but a build failure.
+
+SETUP
+-----
+Object: ~/q4b-hf-2026-09-28/, the packed 4B, uploaded to the bucket
+        Pier-Jean/jobs-artifacts/hf-cuda-4b-2026-09-30/.
+Arms:   1 the build, 2 the arithmetic per row, 3 the 64 tokens against
+        /out/run-tokens-f32.json, 4 the resident bytes. Arm 1 first so a
+        failure names the thing that failed.
+Script: ops/hf_cuda_check.py, checked on the target against its own sha256
+        1aa7e9a0..., so the image cannot run a script we did not send.
+
+THE FOUR LAUNCHES
+-----------------
+1  6abcfa554c46ef1987036332  15:23 UTC  2 min  $0.06  ARM 1 FAILED
+   nvcc refuses -std=c++17: torch's headers carry
+   "#error C++20 or later compatible compiler is required to use PyTorch".
+   The same error had been diagnosed and fixed on Metal two hours earlier and
+   rewritten here. VRAM 0.002 GB, the GPU saw nothing.
+
+2  6abd2e15404719ba376139bb  15:43 UTC  2 min  $0.06  ARM 1 FAILED
+   Include order. F1rTables and f1r_load undefined: llvq_tetra48.cuh reads
+   symbols the two f1rank headers declare, and the binding included only the
+   first. Now pinned by the test the_cuda_binding_includes_the_served_list,
+   which holds the include list against planes_source_names(FusedLayout::Tetra48).
+
+3  6abd3123fbc85ba68235bbbf  15:56 UTC  2 min  $0.06  ARM 1 FAILED
+   TETRA48_ORDER undefined in device code. NVRTC compiles the whole unit as
+   device code and never noticed; nvcc splits host from device and refuses a
+   file-scope static constexpr array read at a runtime index from a kernel.
+   Fixed in the served header by __device__ static constexpr, with the reason
+   in a comment beside it.
+
+4  6abd3428fbc85ba68235bcd4  16:09 UTC  SCHEDULING at 19:56 UTC, $0 billed
+   "Waiting for requested hardware to become available", 3 h 47 in the queue.
+   Not an error and not billed: billing starts at RUNNING. For scale, the
+   longest queue in the registry before today is 70 min (6ab81d7e, 2026-09-26),
+   and launches 2 and 3 got a card in 6 min and 5 s.
+
+5  6abd6a7dfbc85ba68235caa9  20:01 UTC  l4x1, 1 min  $0.01  DIED BEFORE ARM 1
+   The card came in 8 minutes instead of 3 h 47, which is what the flavour
+   change was for: NVIDIA L4, 23,034 MiB, driver 580.178.04, nvcc 12.4.
+   Then `pip install torch` failed in 63 s on an assertion inside pip's own
+   resolver, "assert len(weights) == expected_node_count". Ubuntu 22.04 ships
+   pip 22.0.2 and the 2026 wheel set is past it.
+
+   THE DIAGNOSIS WAS DESTROYED BY MY OWN SCRIPT. pip's output went through
+   `tail -2`, so the two lines that reached the log were the bottom of a
+   traceback whose cause had already been discarded. The fix is two things: pip
+   is upgraded before anything else, and the whole output of both pip calls goes
+   to `$O/pip-bootstrap.txt` and `$O/pip.txt` in the bucket, with 40 lines
+   echoed on failure. A build step whose failure is not readable is a step that
+   costs a launch to learn nothing.
+
+6  6abd6e14fbc85ba68235cb7f  20:16 UTC  l4x1, 3 min  $0.04  ARMS 1 AND 2 PASS
+   pip upgraded itself from 22.0.2 to 26.2.1 and installed torch without a
+   murmur, so the diagnosis of launch 5 was right.
+
+   Env on the card: torch 2.14.1+cu130, transformers 5.18.0, NVIDIA L4, nvcc
+   12.4. Note the mismatch: a cu130 wheel against a 12.4 toolchain. It did not
+   block the build, which is worth writing down because it was the thing most
+   likely to.
+
+   ARM 1, THE BUILD: nvcc compiled llvqhf/csrc/tetra_cuda.cu, which #includes the
+   SERVED tv_tetra48_h.cu rather than a copy of it, in 51.8 s. Five launches to
+   get here.
+
+   ARM 2, THE ARITHMETIC PER ROW, against the dense reconstruction of the same
+   record, layer 0, bar 1e-2:
+
+     k_proj     1024 by 2560  tail 16  max|d| 1.811e-03  relative 3.74e-04
+     down_proj  2560 by 9728  tail  8  max|d| 3.636e-03  relative 3.41e-04
+     gate_proj  9728 by 2560  tail 16  max|d| 1.929e-03  relative 3.53e-04
+
+   All three pass. So the served CUDA kernel keeps its arithmetic when nvcc
+   compiles it instead of NVRTC, which was the first of the three unknowns the
+   prereg named. The three residues sit around 3.5e-04, two orders under the bar
+   and consistent with an f16 output: this arm is f16 out on CUDA against f64
+   reference, where the Metal arm was f32 out and read 2.6e-05.
+
+   ARM 3, THE TOKENS: failed on a defect already fixed on the Mac an hour
+   earlier. _arm_fused read the device from the module's buffers, which are still
+   on the CPU when it runs, and dispatched the Metal op: "this op runs on Metal,
+   and no MPS device is available". The fix, commit 051126f, makes the device an
+   intention and lets `gentokens` state it.
+
+7  6abd6f8ffbc85ba68235cbea  20:22 UTC  l4x1, 5 min  $0.07  ALL FOUR ARMS PASS
+   torch 2.14.1+cu130, transformers 5.18.0, NVIDIA L4, nvcc 12.4.
+
+   ARM 1: built in 51.8 s. The same 51.8 s as launch 6, on a different instance.
+
+   ARM 2: the three residues came back IDENTICAL to launch 6, digit for digit,
+   1.811e-03 / 3.636e-03 / 1.929e-03 and 3.74e-04 / 3.41e-04 / 3.53e-04 relative.
+   Two L4 instances, the same arithmetic. That is what a kernel should do and it
+   was not asked for.
+
+   ARM 3, THE TOKENS: 256 greedy ids of 256, every one identical to the f32 dump
+   `bin/run` produced on the Mac.
+
+     same 64 ids  'The capital of France is'
+     same 64 ids  'In 1969, the first humans landed on'
+     same 64 ids  'def fibonacci(n) ...'
+     same 64 ids  'Water boils at a temperature of'
+     4 prompts, every id identical
+
+   This crosses two machines AND two output dtypes: the served CUDA kernel writes
+   f16 where the Metal one writes f32, and the reference was produced in f32 on a
+   CPU. The identity held anyway, at a per-row residue of 3.5e-04. The prereg said
+   what a cross-machine reference costs; here it cost nothing, and that is a
+   result about this object rather than a general licence.
+
+   ARM 4, THE MEMORY, on the loaded model:
+
+     parameters and buffers        4.641 GB
+     fused projections resident    0.749 GB
+     projections                   168 fused, 84 dense
+     cuda allocated                5.420 GB, peak 5.420, reserved 5.488
+
+   This is the CUDA equivalent of M1 and NOT of M2. The 84 int4 records are dense
+   because `csrc/tetra_cuda.cu` binds `tv_tetra48` alone, and the count says so
+   rather than leaving a reader to assume 252. The 0.749 GB resident is the same
+   figure to the byte as Metal's M1, which it should be: the same bytes of the
+   same file. The Metal arm allocated 5.436 GB against this 5.420. Two devices,
+   two numbers, no ratio between them.
+
+WHAT STAGE 4 ESTABLISHED
+------------------------
+The three unknowns the prereg named are answered, all yes:
+
+- `nvcc` compiling `llvq_tetra48.cuh` outside NVRTC keeps the arithmetic. Arm 2,
+  three shapes, two orders under the bar, reproduced on two instances.
+- The buffer binding holds. Arms 3 and 4 ran a whole model through it.
+- The `rot_apply` arm works on a card. Every Tetra record of the 4B carries a
+  rotation and the ids are exact.
+
+The int4 arm does NOT work there, and the prereg's own text expected it to. That
+is the one thing stage 4 refutes about its own plan: CUDA's int4 wall does not
+exist in `tv_q4_h.cu`, which serves `d_in` 9,728 today, but nothing binds it as a
+torch op. Binding it is a named piece of work, not a discovery.
+
+SPENT
+-----
+$0.30 for stage 4, against the $1.20 cap of the prereg, the $0.53 the l4x1 cap
+became, and the $5 the operator set on the wave. Seven launches:
+
+  1-3  l40sx1  2 min each  $0.18  three build failures, three different causes
+  4    l40sx1  queued 3 h 47, canceled, $0
+  5    l4x1    1 min       $0.01  pip 22.0.2 broke on torch
+  6    l4x1    3 min       $0.04  arms 1 and 2 passed, arm 3 hit a stale source
+  7    l4x1    5 min       $0.07  all four arms passed
+
+$0.12 of the $0.30 bought the answer. The other $0.18 bought three build errors,
+two of which are now held by tests on the Mac at 0 $, and one of which I already
+had in hand from the Metal path and failed to carry over. The title of the first
+attempt at anything is not "the cost of the answer".
+
+WHAT THE THREE FAILURES COST AND BOUGHT
+---------------------------------------
+$0.18 and 35 minutes. Each one failed in 2 minutes and named its cause, which is
+what arm 1 is for. Two of the three are now held by a test on the Mac, at 0 $:
+the include list, and the served header's __device__. The first one, C++17, was
+a fact I already had in hand from the Metal path and failed to carry over.

@@ -1,0 +1,97 @@
+THE SERVED SHADER DECODES THE 4B UNDER PYTORCH: 118,665,216 BLOCKS, EXACT (2026-09-30)
+================================================================================
+Prereg: proofs/preregistration-hf-metal-decode-2026-09-30.md, stamped sha256
+        9d89e8bb971c3ec2..., before the first dispatch.
+Deviations: proofs/preregistration-hf-metal-decode-2026-09-30-ECARTS.md
+Code:   commit 0ea902d and this lot. Mac, 0 $, no job. M-series GPU, MPS.
+Env:    transformers 5.17.0, torch 2.14.0, Apple clang 21.0.0, macOS 25.6.
+Nature: *measured*, identity of integers.
+
+SETUP
+-----
+Object: ~/q4b-hf-2026-09-28/, packed at commit 0c4197f, model.safetensors sha256
+        a28348cafa82d23d.... 168 Tetra records.
+Op:     torch.ops.llvq.tetra_decode, an ObjC++ extension that compiles
+        llvq-llm/kernels/llvq_tetra48.metal and dispatches its own decoder entry
+        point, tetra48_probe. No MSL was written for this stage.
+Gate:   llvqhf.checkdecode, the op against the numpy decode of stage 1, every
+        block, exact.
+
+THE GATE
+--------
+  118,665,216 blocks, 2,847,965,184 coordinates, every point identical, in 38.4 s.
+
+Both sides were already pinned to llvq_search::tetra before this ran: the shader by
+llvq-metal/tests/tetra48_matches_rust.rs, the numpy decode by control 2 of stage 1
+(100,000 labels, 0 differences). So the gate closes a triangle, and a failure would
+have named which side moved.
+
+CONTROLS
+--------
+1. The shipped shader is the repository's, by bytes and by the digest recorded
+   beside the tables: passes, in the fast loop
+   (the_shipped_shader_is_the_repositorys), and the Python side refuses a drifted
+   copy before every compile (test_a_drifted_shader_copy_is_refused).
+2. A label above 47 bits and a stream whose length is not 6·nblocks are refused by
+   name: passes (two tests).
+3. Mutants, three, each caught on the fixture, 12 blocks of 12 wrong:
+   the rows table rotated by one entry, prefixes and suffixes swapped at bind
+   time, the word written big-endian instead of little-endian.
+4. cargo clippy --all-targets silent, cargo test green in the fast loop (181 suites,
+   958 tests, 0 failed, 81 ignored), pytest 31 green.
+5. Stage 1's gate A still passes on the same directory: 253 of 253, in 176.7 s.
+   Gate B is not re-derived. Nothing in its path changed in this lot: the diff
+   touches the Metal op, the table dump and the tests, and the 256 ids of
+   2026-09-30 stand on the code that produced them.
+
+WHAT THE TRANSCODE COST, BECAUSE IT IS THE PART THAT WAS WRONG
+--------------------------------------------------------------
+The disk stream and the served layout are not each other's byte order. Read
+big-endian, the six bytes of a block give `label << 1 | gain`; the Tetra word is
+`label | gain << 47` and the shader reads it little-endian at bit offset 48·j of
+its row. So the gain bit crosses the word, and a byte reversal is not the
+transcode. The first version was a byte reversal: 12 blocks of 12 wrong on the
+fixture, caught on the first dispatch. A tolerance would have hidden nothing here,
+since the values are integers, which is the whole reason this gate is exact.
+
+WALL TIMES, WITH NO RATIO FORMED
+--------------------------------
+Reported because they decide whether the op is usable at stage 3, and divided by
+nothing. On the largest record of the 4B, 1,036,800 blocks:
+
+  numpy decode                     0.31 s
+  the op, end to end               0.10 s   transcode, dispatch and readback
+  the comparison                   0.00 s
+  the whole model, both sides      38.4 s
+  the extension, cold cache        6.3 s    torch's own import included
+
+SIGNED PREDICTIONS, SCORED
+--------------------------
+  the gate exact on all 118,665,216 blocks              HELD, after the transcode
+                                                        defect was found and fixed
+  the MPS decode of the model under 60 s                HELD at 38.4 s for both sides
+  the numpy comparison dominates the wall time          MISSED. The comparison costs
+                                                        nothing. What dominates is the
+                                                        numpy DECODE, 0.31 s against
+                                                        the op's 0.10 on the largest
+                                                        record
+  the extension compiles in under 3 minutes             HELD at 6.3 s
+  no memory and no speed number comes out of this stage HELD, none is claimed
+
+WHAT THIS DOES NOT ESTABLISH
+----------------------------
+Nothing about the fused matvec, which is stage 2 bis, nor about the int4 staging
+  wall that refuses all three sealed files on the Metal fused path.
+Nothing about tokens: the op does not touch the forward pass.
+Nothing about speed or memory. The 0.10 s above is not divided by anything and the
+  dequantization still runs in f64 on the CPU.
+Nothing about CUDA, where the wall and the reference are different.
+Nothing about the Kernel Hub packaging, which is stage 3.
+
+PROVENANCE
+----------
+Op:      llvq-hf/llvqhf/csrc/tetra_decode.mm, llvq-hf/llvqhf/metal.py.
+Gate:    llvq-hf/llvqhf/checkdecode.py. Tests: llvq-hf/tests/test_metal.py.
+Tables:  llvq-hf/llvqhf/data/, 24 KB of tables and a 59 KB copy of the shader,
+         sha256 96232baa67c57992..., entry point tetra48_probe.
+Dump:    cargo run --release -p llvq-llm --bin tetratables.
