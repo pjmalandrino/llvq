@@ -48,8 +48,8 @@ dependencies = [
 Homepage = "https://github.com/pjmalandrino/llvq"
 Repository = "https://github.com/pjmalandrino/llvq"
 Issues = "https://github.com/pjmalandrino/llvq/issues"
-"Model, safetensors" = "https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-Tetra"
-"Model, sealed" = "https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-Tetra-sealed"
+"Model (safetensors)" = "https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-Tetra"
+"Model (sealed)" = "https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-Tetra-sealed"
 
 [dependency-groups]
 # `ninja` is what `torch.utils.cpp_extension.load` shells out to for the Metal
