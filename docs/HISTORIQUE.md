@@ -873,3 +873,8 @@ published 4B and gives the 256 ids of `bin/run` (*measured*, [hf-testpypi](mesur
 The check found a version the prereg had not seen: transformers 5.19.0, out the evening before, is what
 `pip install llvq-tetra` resolves. It ran as a second arm, written beside the prereg before any load, and gave the
 same 256 ids, so 0.1.0 needs no upper bound.
+
+On the operator's go, the same bytes went to PyPI. PyPI serves the digests TestPyPI served, and
+`pip install llvq-tetra` in an empty environment pulls torch 2.14.1 and transformers 5.19.0 and loads the fixture with
+no missing or unexpected key (*measured*, [hf-pypi](mesures/hf-pypi-0.1.0-2026-10-07.txt)). The install line of
+both Hub cards, and of the shim's `ImportError`, had promised that package since 2026-10-02: it is true now.

@@ -25,11 +25,11 @@ writing before the ten steps are taken.
 
 ## What has to be true before it is posted
 
-- [ ] **`pip install llvq-tetra` has to work.** The snippet in the issue begins
-      with that line. The package is built and tested but not on PyPI, and a
-      proposal to adopt a method whose package cannot be installed invites one
-      answer. Either upload it or change the line to the git URL, and the git URL
-      is the weaker of the two.
+- [x] **`pip install llvq-tetra` has to work.** Done on 2026-10-07: 0.1.0 is on
+      PyPI, and an empty environment installs it and loads a model
+      (`docs/mesures/hf-pypi-0.1.0-2026-10-07.txt`).
+- [ ] **The PR is ready.** The operator decided on 2026-10-07 that the issue and
+      the PR go out together, so the draft below is rewritten to point at it.
 - [ ] **A reader has to be able to try it in one command.** That holds today for
       the dense path, which needs no GPU and no compiler. It does not hold for the
       fused path, which compiles a kernel at import.

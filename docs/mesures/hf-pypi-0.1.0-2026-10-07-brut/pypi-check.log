@@ -1,0 +1,10 @@
+python 3.12.11, torch 2.14.1, transformers 5.19.0
+  ninja present: False
+  accelerate present: False
+llvq_tetra from /private/tmp/claude-501/-Users-pjmalandrino-Documents-Pro-workspace-poc-llvq/b3c91fbc-674b-4c71-937a-f26683d60af8/scratchpad/venv-pypi/lib/python3.12/site-packages/llvq_tetra
+
+== the fixture ==
+  config read, model_type qwen3, quant_method llvq
+Loading weights:   0%|          | 0/37 [00:00<?, ?it/s]Loading weights: 100%|██████████| 37/37 [00:00<00:00, 21337.72it/s]
+  loaded, 7 records replaced, no key missing or unexpected, 165848 parameters
+  forward ok, logits (1, 4, 64), range [-903.278 ; -37.650]

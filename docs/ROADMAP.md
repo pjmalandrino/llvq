@@ -58,14 +58,16 @@ faster there than our kernel reads `Tetra` (*measured*, [a100](mesures/a100-2026
 like the L40S, with less compute. **Cost** under the A100 run's $3.04 (*estimated*). A 24 GB card cannot hold the 14B
 FP16 reference.
 
-### 2.5 `transformers`: PyPI, then upstream
+### 2.5 `transformers`: upstream
 
-**Gate, passed on 2026-10-07.** `llvq-tetra` 0.1.0, installed from TestPyPI into an empty environment, loads the
-published 4B with no missing and no unexpected key and gives the same 256 greedy ids as `bin/run`, on transformers
-5.18.0 and 5.19.0 (*measured*, [hf-testpypi](mesures/hf-testpypi-4b-2026-10-07.txt)). **Cost** 0 $.
+**Gate.** The maintainers of `transformers` accept or refuse the method in tree, which is not ours to decide.
+**Cost** 0 $.
 
-The stages and their open decisions are in [`plan-transformers.md`](plan-transformers.md). The upload to PyPI is
-irreversible and is the operator's hand. The upstream issue and its PR go out together once PyPI holds 0.1.0.
+`llvq-tetra` 0.1.0 is on PyPI since 2026-10-07 (*measured*, [hf-pypi](mesures/hf-pypi-0.1.0-2026-10-07.txt)), after
+TestPyPI gave the 256 ids of `bin/run` from an empty environment on transformers 5.18.0 and 5.19.0
+([hf-testpypi](mesures/hf-testpypi-4b-2026-10-07.txt)). What remains is the issue and the PR, posted together. The PR
+needs a fork of `transformers`, and the issue draft in `upstream/transformers-llvq-tetra/` is rewritten to go with it.
+The stages and their open decisions are in [`plan-transformers.md`](plan-transformers.md).
 
 ## 3. Debt and hygiene
 
@@ -106,7 +108,7 @@ irreversible and is the operator's hand. The upstream issue and its PR go out to
 | decision | default if silent |
 |---|---|
 | which route for the served census, $20 or $70 | neither, the tables stay unscored |
-| the PyPI upload of `llvq-tetra` 0.1.0; TestPyPI passed on 2026-10-07 | not uploaded |
+| the upstream issue and PR to `transformers`, posted together | not posted |
 | a spend cap for the next campaign | no paid job |
 | next venue for paper 2 | preprint only |
 | `ots upgrade` after each new stamp | stamps sit un-upgraded |

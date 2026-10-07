@@ -1,0 +1,50 @@
+LLVQ-TETRA 0.1.0 ON PYPI (2026-10-07)
+=====================================
+Prereg: proofs/preregistration-hf-testpypi-2026-10-07.md. Its row 3 sent the upload to the operator, who gave the go
+        on 2026-10-07. This journal records the upload and its checks, not a new measurement question.
+Deviations: none beyond É1 of that prereg.
+Code: distributions built at commit 1c64ecb, the bytes TestPyPI already served. Mac M3 Max, 0 $, no job.
+Nature: *measured*: digests, install log, key lists.
+
+SETUP
+-----
+`uv publish` of `llvq_tetra-0.1.0-py3-none-any.whl` and `llvq_tetra-0.1.0.tar.gz` to https://upload.pypi.org/legacy/,
+the token read from the local `.env` that git ignores, never displayed. Then an empty Python 3.12 environment,
+`uv pip install llvq-tetra==0.1.0` from PyPI alone, and `ops/hf_cleanroom_check.py` on `fixtures/mini` only.
+
+CONTROLS
+--------
+1. Before the upload, https://pypi.org/pypi/llvq-tetra/json answered HTTP 404: the name was free. Passes.
+2. Served sha256 equal to the local files, and to TestPyPI's: passes.
+     llvq_tetra-0.1.0-py3-none-any.whl  served 04c25b1dfb4778b1  local 04c25b1dfb4778b1  equal=True  112934 B
+     llvq_tetra-0.1.0.tar.gz            served 5be7aee67532202f  local 5be7aee67532202f  equal=True  226381 B
+3. Metadata as declared: license Apache-2.0 OR MIT, requires_python >=3.11, requires_dist numpy>=2.0,
+   safetensors>=0.4, torch>=2.14, transformers>=5.17, five project URLs. Passes.
+
+RESULT
+------
+`pip install llvq-tetra==0.1.0` in an empty environment resolves 35 packages on its own:
+  + llvq-tetra==0.1.0  + numpy==2.5.3  + safetensors==0.8.0  + torch==2.14.1  + transformers==5.19.0
+`uv pip check`: "All installed packages are compatible".
+The installed package, with no ninja and no accelerate, loads the fixture:
+  config read, model_type qwen3, quant_method llvq
+  loaded, 7 records replaced, no key missing or unexpected, 165848 parameters
+  forward ok, logits (1, 4, 64), range [-903.278 ; -37.650]
+The same logit range as both TestPyPI arms.
+
+VERDICT
+-------
+`llvq-tetra` 0.1.0 is on PyPI with the bytes that passed TestPyPI, and `pip install llvq-tetra` is enough to load a
+Tetra model in `transformers`. The install line of both Hub cards and of the shim's ImportError is now true.
+
+WHAT THIS DOES NOT ESTABLISH
+----------------------------
+- The 4B from this install. The bytes are those of the TestPyPI arms, which gave 256 ids of 256 on the 4B, and the
+  fixture was enough to show the install and the registration. The 4B was not reloaded.
+- The fused arms, as in the TestPyPI journal: nothing compiles without ninja.
+
+PROVENANCE
+----------
+PyPI: https://pypi.org/project/llvq-tetra/0.1.0/, JSON with the served digests read 2026-10-07.
+Raw outputs in docs/mesures/hf-pypi-0.1.0-2026-10-07-brut/: pypi-upload.log, pypi-0.1.0.json, pypi-env.log,
+pypi-check.log. None carries a token.

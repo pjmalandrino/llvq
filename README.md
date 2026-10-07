@@ -52,7 +52,8 @@ configuration. A different hash is a different file.
 | Qwen3-8B | [Pier-Jean/Qwen3-8B-LLVQ-Tetra-sealed](https://huggingface.co/Pier-Jean/Qwen3-8B-LLVQ-Tetra-sealed) | `qwen3-8b-sealed-B.bin` | `7bdb9a55…` |
 | Qwen3-14B | [Pier-Jean/Qwen3-14B-LLVQ-Tetra-sealed](https://huggingface.co/Pier-Jean/Qwen3-14B-LLVQ-Tetra-sealed) | `qwen3-14b-sealed.bin` | `61db37fe…` |
 
-The container is this repository's own: not GGUF, not AWQ, not safetensors, and no other runtime reads it.
+The sealed container is this repository's own: not GGUF, not AWQ, not safetensors, and no other runtime reads it.
+The 4B also exists as safetensors that `transformers` reads, below.
 
 ```bash
 git clone https://github.com/pjmalandrino/llvq && cd llvq
@@ -71,6 +72,30 @@ LLVQ_DTYPE=f16 cargo run --release -p llvq-llm --features cuda --bin ppl -- 4096
 
 cargo test                                 # fast loop, minutes
 ```
+
+### In `transformers`
+
+The 4B is also published as safetensors that stay compressed,
+[Pier-Jean/Qwen3-4B-LLVQ-Tetra](https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-Tetra), with the same artifact digest.
+Its reader is the package [`llvq-tetra`](https://pypi.org/project/llvq-tetra/), built from [`llvq-tetra/`](llvq-tetra/).
+
+```bash
+pip install llvq-tetra
+```
+
+```python
+import llvq_tetra  # registers the method; without it, transformers loads a random model and does not raise
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+name = "Pier-Jean/Qwen3-4B-LLVQ-Tetra"
+tok = AutoTokenizer.from_pretrained(name)
+model = AutoModelForCausalLM.from_pretrained(name, dtype="float32")
+```
+
+Installed from an index into an empty environment, it gives the same 256 greedy tokens as `bin/run` on the sealed
+file (*measured*, [`hf-testpypi`](docs/mesures/hf-testpypi-4b-2026-10-07.txt)). Loaded this way the weights are
+rebuilt dense. The fused Metal and CUDA paths keep them compressed in memory, and they compile at import, which needs
+`ninja`: [`docs/plan-transformers.md`](docs/plan-transformers.md).
 
 The earlier `Planes14` object of release `v0.0.1` stays at
 [Pier-Jean/Qwen3-4B-LLVQ-2bit](https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-2bit), `qwen3-4b-llvq.bin`, sha256
@@ -100,6 +125,9 @@ longer reproduces the `Planes14` bytes of 2026-08. One block replayed on 2026-09
 | `llvq-metal` | macOS GPU micro-benches and the rank decoders | `metal` |
 | `llvq-cuda` | the fused kernel, layouts, benches, Linux only | `cudarc` |
 | `llvq-llm` | model loading, forward pass, calibration, perplexity, MMLU, served path | `candle` |
+
+Beside the crates, [`llvq-tetra/`](llvq-tetra/) is the Python package that reads a packed model in `transformers`,
+published on PyPI as `llvq-tetra`.
 
 `unsafe` appears only at hardware boundaries (mmap, kernel launch, device reads) in the last three crates.
 
