@@ -42,7 +42,7 @@ import numpy as np
 import torch
 from torch import nn
 
-from . import metal
+from . import metal, mps
 from .modules import LlvqLinear
 
 TETRA48_SHELLS = 32
@@ -130,10 +130,12 @@ class FusedTetraLinear(LlvqLinear):
         """
         from .tetra import split_stream
 
-        # Loading the extension is what registers the op namespace, and it is
-        # cached: a module that arms without it would fail at its first forward
-        # with a missing attribute rather than here.
-        metal.extension_for(device)
+        # On CUDA, loading the extension is what registers the op namespace, and it
+        # is cached: a module that arms without it would fail at its first forward
+        # with a missing attribute rather than here. Metal needs no extension: the
+        # kernels compile through `torch.mps.compile_shader` (`mps.py`).
+        if device == "cuda":
+            metal.extension_for(device)
         d = loaded.desc
         n = d["d_out"] * d["nblocks"]
         codes = loaded.codes.detach().cpu().numpy()
@@ -177,6 +179,18 @@ class FusedTetraLinear(LlvqLinear):
             raise RuntimeError("this projection was never armed with its device buffers")
         d = self.desc
         shape = x.shape
+        if x.device.type == "mps":
+            # The rotation kernel keeps its last result, so q, k and v, and gate and up,
+            # rotate their shared activation once.
+            if self.rotation is not None:
+                flat = self.rotation(x)
+            else:
+                flat = x.reshape(-1, d["d_in"]).to(torch.float32)
+            y = mps.tetra_matvec(self._words, self._gscale, self._rscale, self._tail, flat, d, self._tile)
+            y = y.reshape(*shape[:-1], d["d_out"])
+            if self.bias is not None:
+                y = y + self.bias
+            return y.to(x.dtype)
         flat = x.reshape(-1, d["d_in"]).to(torch.float32)
         if self.rotation is not None:
             flat = self.rotation(flat)
@@ -251,7 +265,6 @@ class Int4FusedLinear(LlvqLinear):
                 f"no int4 matvec for {device}: only Metal has one, "
                 "and csrc/tetra_cuda.cu binds tv_tetra48 alone"
             )
-        metal.extension_for(device)
         d = loaded.desc
         out = cls(d, loaded.bias.detach() if loaded.bias is not None else None)
         def blob(t: torch.Tensor) -> torch.Tensor:
@@ -274,6 +287,12 @@ class Int4FusedLinear(LlvqLinear):
         d = self.desc
         shape = x.shape
         flat = x.reshape(-1, d["d_in"]).to(torch.float32).contiguous()
+        if x.device.type == "mps":
+            y = mps.q4_matvec(self._wq, self._scales, self._biases, flat, d, self._tile)
+            y = y.reshape(*shape[:-1], d["d_out"])
+            if self.bias is not None:
+                y = y + self.bias
+            return y.to(x.dtype)
         src = metal.q4_source()
         out = [
             torch.ops.llvq.tv_q4(

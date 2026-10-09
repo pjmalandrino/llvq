@@ -58,6 +58,12 @@
   "note": "dumped by llvq-llm/src/bin/tetratables.rs from llvq_search::tetra; the .llvq header's tetra fingerprint must equal the one above",
   "section": 8,
   "shaders": {
+    "emb_q4.metal": {
+      "backend": "metal",
+      "entries": "emb_q4_gather_metal, tv_emb_q4_metal",
+      "note": "the 4-bit vocabulary: the input rows, and the tied output layer that reads the same table",
+      "sha256": "3fa4642958cca57b85aea6de17f64d8ddd4a2b7143f5341b41a89456bcbb2619"
+    },
     "llvq_f1rank.cuh": {
       "backend": "cuda",
       "note": "the F1 rank decoder",
@@ -69,6 +75,12 @@
       "note": "its v3 tables",
       "path": "kernels/llvq-cuda/kernels/llvq_f1rank_v3.cuh",
       "sha256": "47491a4b34173d5dd94e0f9099c9f93c7e9c3b1907ce623f57aecf78342b7485"
+    },
+    "llvq_rot.metal": {
+      "backend": "metal",
+      "entries": "rot_apply_metal, rot_apply_rows_metal",
+      "note": "the rotation the lattice codes were written under, applied to the activation",
+      "sha256": "4d08e4cff30f09aa431f25b40774bb4dfa52e84fba01b99313360c3506796212"
     },
     "llvq_slot.cuh": {
       "backend": "cuda",
