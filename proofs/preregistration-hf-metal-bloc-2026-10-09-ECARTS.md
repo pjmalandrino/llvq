@@ -32,3 +32,16 @@ The decision rule of section 7 says a failed gate stops its arm. This deviation 
 rebuilt: an input is recognized by the tensor object itself, through a weak reference, and its version counter, and
 the kept rotation is dropped once every projection that shares it has read it. G-T runs again on the fixed arm, and
 its mutant after it. Both runs, the failed one and the next, go into the journal.
+
+## É4. The fp16 arm crashed when loaded onto the device, and the measurement runs again
+
+Measured on 2026-10-09, first run of section 6, 18:26 to 18:34: v0 and v1 completed five rounds each, and the fp16
+arm died in all five, exit 139, a segmentation fault in the first second of `from_pretrained(..., device_map="mps")`,
+at "Loading weights 0/398". `faulthandler` could not print a stack before the process died. Loaded on the CPU and moved
+with `.to("mps")`, the same checkpoint loads, 8.112 GB on the device in 4.1 s.
+
+Change: the fp16 arm loads on the CPU and moves to `mps`, which is what the two LLVQ arms do internally, since their
+quantizer loads on the CPU and moves the model at the end. Prefill and decode are timed on the device as before. The
+whole section 6 runs a second time, all three arms, five rounds, the order rotated, so that fp16 is interleaved like
+the others. The second run is the one the verdict reads. The first run's ten rows of v0 and v1 are kept in the journal
+beside it.

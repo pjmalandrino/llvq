@@ -52,7 +52,12 @@ def main(argv: list[str]) -> int:
     dtype_t = {"float32": torch.float32, "float16": torch.float16}[dtype]
     t0 = time.perf_counter()
     tok = AutoTokenizer.from_pretrained(name if arm != "fp16" else "Qwen/Qwen3-4B")
-    model = AutoModelForCausalLM.from_pretrained(name, dtype=dtype_t, device_map=dmap)
+    if arm == "fp16":
+        # Loaded onto the device by transformers, this checkpoint crashes the process (ECARTS É4); on the CPU and
+        # moved, it loads. The LLVQ arms take the same route inside their quantizer.
+        model = AutoModelForCausalLM.from_pretrained(name, dtype=dtype_t).to(dmap)
+    else:
+        model = AutoModelForCausalLM.from_pretrained(name, dtype=dtype_t, device_map=dmap)
     sync()
     load = time.perf_counter() - t0
     dev = next(model.parameters()).device
