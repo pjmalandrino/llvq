@@ -209,11 +209,17 @@
   <div class="eyebrow">LLVQ · format Tetra · mini-cours</div>
   <h1>Tetra, de Leech à la VRAM</h1>
   <p class="lede">Comment 24 poids d'un LLM deviennent 48 bits sur un réseau de dimension 24, et comment ces 48 bits se relisent dans un noyau CUDA sans jamais se déplier.</p>
-  <p class="meta">Rédigé le 2026-09-18. Chiffres du format datés du 2026-09-06, chiffres de carte des 2026-09-10 et 2026-09-11, L40S. Chaque nombre porte son étiquette et son journal.</p>
+  <p class="meta">Rédigé le 2026-09-18, mis à jour le 2026-10-16 sur l'état du 2026-10-07 de <code>docs/ETAT.md</code>. Chiffres du format datés du 2026-09-06. Chiffres de l'objet scellé et servi du 2026-09-23 au 2026-10-06, sur L40S et A100. Chaque nombre porte son étiquette et son journal.</p>
 </header>
 
 <div class="callout">
   <p><strong>Le fil en une phrase.</strong> La version v1 code un bloc de 24 poids par le rang du point dans une boule de <span class="num">1,1 · 10¹⁴</span> points, ce qui est optimal en bits et indécodable dans un noyau, donc le runtime le déplie à 14 octets par bloc. Tetra choisit un autre ensemble de points du même réseau, de sorte que les 47 bits se découpent en un mot lisible directement : <strong>6 octets en VRAM au lieu de 14</strong>, sans dépliage.</p>
+</div>
+
+<div class="callout">
+  <p><strong>Où en est l'objet.</strong> Trois Qwen3 sont scellés et servis à environ 2,7 b/param : 4B, 8B et 14B. Les trois fichiers sont publics sur le Hub Hugging Face, sous <code>Pier-Jean/Qwen3-{4B,8B,14B}-LLVQ-Tetra-sealed</code> : <a href="https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-Tetra-sealed">4B</a>, <a href="https://huggingface.co/Pier-Jean/Qwen3-8B-LLVQ-Tetra-sealed">8B</a>, <a href="https://huggingface.co/Pier-Jean/Qwen3-14B-LLVQ-Tetra-sealed">14B</a>.</p>
+  <p>Le papier 2, <em>Tetra: Serving Leech-Lattice Quantized LLMs at 2.7 Bits per Parameter</em>, est dans <code>paper2/</code>. Sa version 2 est jointe à la release <code>v0.0.2</code> du 2026-10-06.</p>
+  <p>Le paquet Python <code>llvq-tetra</code> charge le 4B dans <code>transformers</code>, depuis des safetensors qui restent compressés (<a href="https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-Tetra"><code>Pier-Jean/Qwen3-4B-LLVQ-Tetra</code></a>). Il rend les mêmes 256 jetons gloutons que notre moteur sur CPU, sur Metal et sur une L4 <span class="prov">mesuré</span>. La version 0.1.0 est sur PyPI depuis le 2026-10-07. Les étapes et leurs journaux sont dans <code>docs/plan-transformers.md</code>.</p>
 </div>
 
 <h2><span class="secnum">1</span>Ce qu'un bloc doit porter</h2>
@@ -646,7 +652,7 @@ o = 3 :  −1,  +3,  −5,  +7,  −9, +11, −13, +15</div>
 
     <line class="dg-rule" x1="8" y1="112" x2="692" y2="112"/>
 
-    <text class="dg-k" x="8" y="136">Qwen3-4B, octets sur carte, embedding q8</text>
+    <text class="dg-k" x="8" y="136">Qwen3-4B, octets sur carte</text>
 
     <text class="dg-t" x="8" y="166">dense f16</text>
     <rect class="dg-bar-dense" x="120" y="152" width="520" height="20" rx="3"/>
@@ -654,19 +660,19 @@ o = 3 :  −1,  +3,  −5,  +7,  −9, +11, −13, +15</div>
 
     <text class="dg-t" x="8" y="200">Planes14</text>
     <rect class="dg-bar-p14" x="120" y="186" width="166" height="20" rx="3"/>
-    <text class="dg-m" x="296" y="201">2,56 Go</text>
+    <text class="dg-m" x="296" y="201">2,56 Go, embedding q8</text>
 
     <text class="dg-t" x="8" y="234">Tetra pur</text>
     <rect class="dg-bar-tetra" x="120" y="220" width="88" height="20" rx="3"/>
-    <text class="dg-m" x="218" y="235">1,36 Go</text>
+    <text class="dg-m" x="218" y="235">1,36 Go, embedding q8</text>
 
-    <text class="dg-t" x="8" y="268">Tetra servi</text>
-    <rect class="dg-bar-tetra" x="120" y="254" width="90" height="20" rx="3"/>
-    <text class="dg-m" x="220" y="269">1,39 Go, avec 36 v_proj en int4</text>
+    <text class="dg-t" x="8" y="268">Tetra scellé</text>
+    <rect class="dg-bar-tetra" x="120" y="254" width="89" height="20" rx="3"/>
+    <text class="dg-m" x="219" y="269">1,38 Go, embedding q4, 84 projections int4</text>
 
   </svg>
   </div>
-  <figcaption>Les quatre barres sont mesurées sur L40S, au même compteur d'octets hôte ; les 0,41 Go de tenseurs portés (embedding q8, normes) sont communs aux trois bras quantifiés. Le rapport des octets par bloc est 14/6 = 2,33 ; le rapport des comptabilités noyau est 4,804 / 2,1498 = 2,235, l'écart venant de la queue f32 et des échelles de ligne, communes aux deux. Sur le modèle entier le rapport retombe à 1,87, parce que l'embedding ne se quantifie pas par le réseau.</figcaption>
+  <figcaption>Les quatre barres sont mesurées sur L40S. Les trois premières datent du 2026-09-10 (<code>f1e0-2026-09-10</code>), et les deux bras quantifiés y portent les mêmes 0,41 Go de tenseurs, embedding q8 et normes. La quatrième est le fichier scellé servi, mesuré le 2026-09-25 (<code>paper-table-2026-09-25</code>) : 1,16 Go de projections et 0,22 Go portés, embedding en int4 g64. Le rapport des octets par bloc est 14/6 = 2,33 ; le rapport des comptabilités noyau est 4,804 / 2,1498 = 2,235, l'écart venant de la queue f32 et des échelles de ligne, communes aux deux. Sur le modèle entier le rapport retombe à 1,87, parce que l'embedding ne se quantifie pas par le réseau.</figcaption>
 </figure>
 
 <div class="callout">
@@ -680,29 +686,31 @@ o = 3 :  −1,  +3,  −5,  +7,  −9, +11, −13, +15</div>
     <tr><td>charge utile</td><td>bits d'enregistrement / poids quantifiés</td><td class="n">2,0000</td><td class="n">4,6667</td></tr>
     <tr><td>noyau</td><td>+ queue f32 + échelles de ligne f32</td><td class="n">2,1498</td><td class="n">4,8040</td></tr>
     <tr><td>inférence</td><td>même chose, queue en binary16</td><td class="n">2,084</td><td class="n">4,729</td></tr>
-    <tr class="hl"><td>modèle entier</td><td>octets sur carte / tous les paramètres, embedding compris</td><td class="n">2,7645</td><td class="n">5,1619</td></tr>
+    <tr class="hl"><td>modèle entier</td><td>octets sur carte / tous les paramètres, embedding q8 compris</td><td class="n">2,7645</td><td class="n">5,1619</td></tr>
   </tbody>
 </table>
 </div>
 
-<p>La ligne qui se compare à un concurrent est la dernière, et c'est une règle du dépôt, pas une préférence. L'objet servi, qui porte 36 <code>v_proj</code> en int4 g128 à côté des 216 matrices Tetra, s'y lit à <span class="num">2,8138</span> b/param <span class="prov">calculé</span>.</p>
+<p>La ligne qui se compare à un concurrent est la dernière, et c'est une règle du dépôt, pas une préférence. Le fichier scellé et servi n'est pas du Tetra pur. Il porte 84 projections en int4 g128 à côté de 168 matrices Tetra : <code>v_proj</code>, <code>o_proj</code>, et <code>down_proj</code> des couches 12 à 23. Son embedding est en int4 g64 (<code>LLVQ_EMBED=q4</code>). Il se lit à <span class="num">2,7320</span> b/param sur le modèle entier, tables int4 comprises <span class="prov">calculé</span> (<code>rtbits</code>, <code>sealed-4b-2026-09-23-brut/rtbits-sealed.txt</code>).</p>
 
 <h2><span class="secnum">7</span>Ce que ça donne, mesuré</h2>
 
-<p>Le noyau servi <code>tv_tetra48_h</code> tourne dans le modèle depuis le 2026-09-10. Les chiffres ci-dessous sont ceux de la L40S, quatre travaux, 0,43 $ en tout <span class="prov">mesuré</span>.</p>
+<p>Le fichier scellé 4B décode <strong>113,8 tok/s dans 1,38 Go</strong> sur une L40S <span class="prov">mesuré</span> (<code>paper-table-2026-09-25</code>). C'est la médiane de cinq tours, en lot 1, sur 256 jetons gloutons, à la tuile 64 servie sur sm_89. Le réglage servi est <code>ROT_SHARE=1</code> sans fusion de projections, car Tetra n'a pas de noyau segmenté. Le noyau servi <code>tv_tetra48_h</code> tourne dans le modèle depuis le 2026-09-10.</p>
 
 <div class="tbl-scroll">
 <table>
-  <thead><tr><th>bras</th><th class="n">tok/s [plage]</th><th class="n">Go carte</th><th>conditions</th></tr></thead>
+  <thead><tr><th>bras, Qwen3-4B</th><th class="n">tok/s [plage]</th><th class="n">Go carte</th><th>conditions</th></tr></thead>
   <tbody>
-    <tr><td>dense f16</td><td class="n">43,0 [43,0–43,0]</td><td class="n">8,04</td><td>même processus, la référence</td></tr>
-    <tr><td>Planes14, fichier publié</td><td class="n">100,6 [99,9–100,7]</td><td class="n">2,57</td><td>configuration servie v1, avec fusion de projections. Autre travail, autre processus</td></tr>
-    <tr class="hl"><td>Tetra, objet servi</td><td class="n">100,8 [100,4–100,8]</td><td class="n">1,39</td><td>ROT_SHARE=1, sans fusion : Tetra n'a pas de noyau segmenté</td></tr>
+    <tr><td>dense f16</td><td class="n">43,0 [42,9–43,0]</td><td class="n">8,04</td><td>même processus, la référence</td></tr>
+    <tr><td>Tetra scellé, tables f16</td><td class="n">55,0 [54,9–55,1]</td><td class="n">1,94</td><td>même tête que le bras dense</td></tr>
+    <tr class="hl"><td>Tetra scellé, tables q4</td><td class="n">113,8 [112,7–114,3]</td><td class="n">1,38</td><td>la configuration servie</td></tr>
   </tbody>
 </table>
 </div>
 
-<p><strong>Même vitesse, 1,85 fois moins de mémoire</strong>, et sans la fusion de projections dont la barre publiée bénéficiait. Contre le bras dense de son propre processus, l'objet servi rend <span class="num">×2,35</span> [×2,34–×2,35] de vitesse et <span class="num">÷5,81</span> de mémoire. Un travail plus tardif, avec la rotation par lots, lit <span class="num">101,5</span> tok/s dans les mêmes 1,39 Go. Sur 256 jetons en décodage glouton, la sortie est <strong>identique au bras dense, sans un seul écart</strong>.</p>
+<p>Contre le bras dense de son propre processus, le fichier scellé rend <span class="num">×2,65</span> [×2,62–×2,66] de vitesse <span class="prov">calculé</span>. La tête q4 en porte une grande part : à tête égale, tables f16 des deux côtés, le rapport retombe à <span class="num">×1,27</span>. Sur 256 jetons en décodage glouton, la sortie est <strong>identique au bras dense, sans un seul écart</strong>.</p>
+
+<p>Dans vLLM 0.26.0, sur la même carte, FP16 décode à 83,1 tok/s et AWQ w4g128 à 200,5 tok/s, pour un fichier de 2,67 Go <span class="prov">mesuré</span> (<code>awq-vllm-4b-2026-08-17</code>, <code>paper-table-2026-09-25</code>). C'est un autre moteur, qui compte le prefill sur 128 jetons. Ses chiffres se lisent à côté des nôtres et ne se divisent pas par eux.</p>
 
 <h3>Le format, à protocole égal</h3>
 
@@ -724,26 +732,49 @@ o = 3 :  −1,  +3,  −5,  +7,  −9, +11, −13, +15</div>
 
 <h3>Le noyau lui-même, recensé le 2026-09-11</h3>
 
-<p>Deux bras sur le <em>même</em> fichier servi et les mêmes 2 280 questions, seule l'arithmétique différant : <strong>la reconstruction dense lit 55,52 et le noyau servi 55,66</strong>. L'écart apparié est de <span class="num">−0,14 pp</span>, IC95 [−0,31 ; −0,01], sur <strong>3 questions discordantes sur 2 280</strong>, soit 0,1 % <span class="prov">mesuré</span>. Le critère d'arrêt préenregistré était 1,44 pp. C'est la première mesure MMLU d'un noyau CUDA du dépôt, et elle est d'accord avec sa référence ; les trois écarts sont des égalités départagées en f16.</p>
+<p>Deux bras sur le <em>même</em> fichier, l'objet servi du 2026-09-09, et les mêmes 2 280 questions, seule l'arithmétique différant : <strong>la reconstruction dense lit 55,52 et le noyau servi 55,66</strong>. L'écart apparié est de <span class="num">−0,14 pp</span>, IC95 [−0,31 ; −0,01], sur <strong>3 questions discordantes sur 2 280</strong>, soit 0,1 % <span class="prov">mesuré</span> (<code>f1e-census-2026-09-11</code>). Le critère d'arrêt préenregistré était 1,44 pp. C'est la première mesure MMLU d'un noyau CUDA du dépôt, et elle est d'accord avec sa référence ; les trois écarts sont des égalités départagées en f16. Elle reste la seule à travers le noyau : les scores MMLU qui suivent sont notés par reconstruction dense.</p>
 
-<p>Le même jour, le split complet, <span class="num">14 042</span> questions et donc plus aucune erreur d'échantillonnage : <strong>56,37 micro, 58,42 macro</strong>. L'échantillon de 2 280 sous-estimait de 0,85 pp tout en restant dans sa propre barre, ce qu'un plancher de bruit de ±1,4 pp ne peut pas montrer.</p>
+<h3>La qualité des fichiers scellés</h3>
 
-<div class="callout warn">
-  <p><strong>Face au papier, le déficit n'a plus d'excuse de bruit.</strong> Table 6 du papier sur ce modèle : FP16 70,2, LLVQ 60,7, QTIP 57,4. Notre f16 lit 70,32, donc le protocole n'est pas en cause. Nous lisons 56,37, soit <span class="num">4,3 pp</span> sous l'implémentation LLVQ du papier et <span class="num">1,0 pp</span> sous QTIP. Ce 56,37 est un score absolu, comparable au papier et à rien d'autre du dépôt tant que f16 et <code>Planes14</code> ne sont pas rejoués au complet : son empreinte de plan diffère de celle des dix-neuf dumps à 40 questions par sujet, et l'appariement les refuse.</p>
+<p>Le fichier scellé 4B lit <strong>63,37</strong> au MMLU, sur les 14 042 questions du split de test, en 5 exemples, moyenne micro <span class="prov">mesuré</span> (<code>embed-q4-swap-2026-09-23</code>). Sur les mêmes questions, FP16 lit 70,14 et AWQ w4g128 lit 68,14 (<code>f16-full-2026-09-18</code>, <code>paper-table-2026-09-25</code>).</p>
+
+<div class="tbl-scroll">
+<table>
+  <thead><tr><th>Qwen3-4B</th><th class="n">b/param</th><th class="n">MMLU</th><th class="n">au-dessus du scellé, pp [IC95]</th></tr></thead>
+  <tbody>
+    <tr><td>FP16</td><td class="n">16,00</td><td class="n">70,14</td><td class="n">6,77 [6,05 ; 7,50]</td></tr>
+    <tr><td>AWQ w4g128</td><td class="n">5,30</td><td class="n">68,14</td><td class="n">4,76 [4,02 ; 5,49]</td></tr>
+    <tr class="hl"><td>Tetra scellé</td><td class="n">2,73</td><td class="n">63,37</td><td class="n"></td></tr>
+  </tbody>
+</table>
 </div>
+<p class="meta">Écarts appariés sur les 14 042 questions, micro stratifié <span class="prov">calculé</span> (<code>paper-table-2026-09-25</code>, <code>pairs.txt</code>).</p>
 
-<p>Le 56,95 cité lors de l'arbitrage du 2026-09-08 est un <em>autre objet</em> : le fichier Tetra pur avec <code>v_proj</code> restauré en int4 au chargement, noté par reconstruction dense. Le fichier mixte livré n'avait alors été noté sur aucun bras.</p>
+<p>Le 8B et le 14B sont scellés et servis de la même façon. L'écart à FP16 se resserre avec la taille, de 6,77 à 5,48 puis 3,22 pp <span class="prov">calculé</span> (<code>docs/data/paper2-gaps.csv</code>).</p>
 
-<p>Le triplet produit en vigueur (contexte 8k, marge de 5 Go, unité de 32 Gio) laisse 27,93 Go aux poids, soit <span class="num">b_max = 3,00</span> b/poids noyau. <code>Planes14</code> dépasse cette barre de 60 %. <strong>Tetra est le premier format du dépôt à passer</strong>, à 2,1498, soit 28 % sous la barre, ce qui déplace la classe admissible de 43,3 milliards de paramètres à 81 à 101 milliards et met un 70B dans 19,5 Go <span class="prov">calculé</span>.</p>
+<div class="tbl-scroll">
+<table>
+  <thead><tr><th>fichier scellé</th><th class="n">b/param</th><th class="n">MMLU</th><th class="n">FP16</th><th class="n">tok/s</th><th class="n">Go carte</th></tr></thead>
+  <tbody>
+    <tr><td>Qwen3-4B</td><td class="n">2,73</td><td class="n">63,37</td><td class="n">70,14</td><td class="n">113,8</td><td class="n">1,38</td></tr>
+    <tr><td>Qwen3-8B</td><td class="n">2,70</td><td class="n">69,58</td><td class="n">75,05</td><td class="n">95,0</td><td class="n">2,76</td></tr>
+    <tr><td>Qwen3-14B</td><td class="n">2,73</td><td class="n">75,66</td><td class="n">78,88</td><td class="n">57,2</td><td class="n">5,04</td></tr>
+  </tbody>
+</table>
+</div>
+<p class="meta">b/param <span class="prov">calculé</span> par <code>rtbits</code>, tables int4 comprises. MMLU <span class="prov">mesuré</span> par reconstruction dense (<code>embed-q4-swap-2026-09-23</code>, <code>sealed-8b-27-2026-09-24</code>, <code>sealed-8b-14b-2026-09-23</code>) ; FP16 <span class="prov">mesuré</span> sur les mêmes questions (<code>docs/data/paper2-results.csv</code>). Vitesse et Go <span class="prov">mesuré</span> sur L40S, notre moteur (<code>paper-table-2026-09-25</code>).</p>
+
+<p>Les échelles de ligne entraînées rapportent <strong>+3,15, +3,29 et +1,67 pp de MMLU pour zéro bit</strong> au 4B, au 8B et au 14B <span class="prov">mesuré</span> (<code>dclm-rowscales-2026-09-20</code>, <code>dclm-8b-rowscales-2026-09-21</code>, <code>dclm-14b-rowscales-2026-09-22</code>). Le gain se divise par deux du 8B au 14B.</p>
+
+<p>Le triplet produit en vigueur (contexte 8k, marge de 5 Go, unité de 32 Gio) laisse 27,93 Go aux poids, soit <span class="num">b_max = 3,00</span> b/poids noyau. <code>Planes14</code> dépasse cette barre de 60 %. <strong>Tetra est le premier format du dépôt à passer</strong>, à 2,1498, soit 28 % sous la barre, ce qui déplace la classe admissible de 43,3 milliards de paramètres à 81 à 101 milliards et met un 70B dans 19,5 Go <span class="prov">calculé</span>. Le fichier scellé 4B, avec ses 84 projections int4, lit 2,6065 b/poids noyau et reste sous la barre (<code>rtbits-sealed.txt</code>).</p>
 
 <h2><span class="secnum">8</span>Ce qui n'est pas établi</h2>
 
 <ul>
-  <li><strong>Le déficit de qualité face au papier est ouvert, et c'est le vrai chantier.</strong> 4,3 pp sous l'implémentation LLVQ du papier sur 14 042 questions, sans barre d'échantillonnage où se cacher. Le dictionnaire est disculpé : le codebook du papier, encodé ici, lit 19,6093 de perplexité contre 16,1569 pour Tetra au même débit. Ce qui reste : un volume de calibration environ 95 fois le nôtre, le corpus, la rotation.</li>
-  <li><strong>Le 56,37 ne se compare à rien d'autre du dépôt</strong> tant que f16 et <code>Planes14</code> ne sont pas rejoués sur le split complet, ce qui coûte 1,86 $ pour les deux <span class="prov">calculé</span>.</li>
-  <li><strong>La qualité se retourne au 8B</strong> : perplexité 0,73 % pire que le format servi et MMLU inférieur de 3,91 pp, un écart résolu alors que celui du 4B ne l'est pas. Ce banc a tourné sans préenregistration et ne décide rien.</li>
-  <li><strong>Le rapport Tetra / Planes14 dans le modèle n'est pas formé.</strong> Les deux chiffres viennent de deux processus, et la règle du dépôt interdit d'en faire un quotient. Ils se lisent côte à côte.</li>
-  <li><strong>Le × dépend de la carte.</strong> Sur le banc, Tetra est ×1,17 sur L40S au pas de tuile servi et ×0,82 sur RTX PRO 6000, même configuration, verdicts opposés ; à tuile 32 la Blackwell remonte à 1,03×, un intervalle qui contient 1. La mémoire, elle, ne dépend pas de la carte.</li>
+  <li><strong>MMLU et perplexité ne passent pas par le noyau.</strong> Ils sont notés par reconstruction dense, avec des tables f16, alors que les b/param comptent des tables int4. Le seul MMLU à travers le noyau est le recensement du 2026-09-11, sur un objet antérieur. Le refaire coûterait environ 20 $ par la voie mixte, 70 $ pour le recensement complet aux trois tailles <span class="prov">estimé</span> (<code>docs/ROADMAP.md</code> §2.1).</li>
+  <li><strong>Chaque taille repose sur un seul tirage de calibration.</strong> Au 4B, le tirage porte un écart-type de 2,92 pp de MMLU sur trois runs complets <span class="prov">mesuré</span> (<code>bruit-mmlu-graines-4b-2026-08-25</code>). Il bouge plus que plusieurs gains de la chaîne.</li>
+  <li><strong>Le gain de vitesse est un résultat L40S.</strong> Sur le banc des 252 projections du 4B, à la tuile 64, Tetra fait une passe en 3,734 ms, contre 5,004 pour <code>Planes14</code> et 3,263 pour AWQ <span class="prov">mesuré</span> (<code>banc-252-2026-10-06</code>). La tuile 64 vaut +17,6 % à Tetra sur sm_89, pour zéro bit, quand <code>Planes14</code> bouge de 1,1 %. Dans le modèle, aucun rapport Tetra / <code>Planes14</code> n'est formé.</li>
+  <li><strong>Sur une A100, Tetra ne bat pas cuBLAS.</strong> Il passe devant notre noyau FP16 (×1,11), mais cuBLAS lit les mêmes poids f16 à ×1,14 de ce noyau <span class="prov">mesuré</span> (<code>a100-2026-10-06</code>). À tête égale, tables f16, les trois fichiers servis y décodent à ×0,92, ×0,91 et ×0,95 de notre chemin dense. Aucune carte grand public n'est mesurée, alors que le matériel local est la cible du projet.</li>
   <li><strong>Le mur de <code>rot_apply</code> ferme le chemin servi au-delà du 14B</strong>, quel que soit le format : la rotation est un noyau à bloc unique qui met toute l'activation en mémoire partagée, et le 32B demande 102 400 octets contre 101 376 disponibles en opt-in. Il manque 1 024 octets, la réserve du pilote.</li>
   <li><strong>Le dépôt ne reproduit plus son propre artefact publié</strong> depuis un changement de volume de calibration du 2026-08-26. Le −4,64 % de perplexité tient donc le format et une dérive d'encodeur ensemble, et rien ici ne les sépare. Un témoin réencodé aujourd'hui coûterait 4 h de Mac et 0 $.</li>
 </ul>
@@ -756,8 +787,9 @@ o = 3 :  −1,  +3,  −5,  +7,  −9, +11, −13, +15</div>
     <li><code>llvq-artifact/src/tetra48.rs</code> : les deux conventions, l'espacement des lignes et le pad</li>
     <li><code>llvq-cuda/kernels/{llvq_f1rank_v3,llvq_tetra48}.cuh</code> : le décodage servi, avec ses comptes d'instructions en tête de fichier</li>
     <li><code>docs/format-noyau.md</code> : les comptabilités, le plancher <code>nullk</code>, le mur de mémoire partagée, les pièges de mesure</li>
-    <li><code>docs/mesures/{tetra-4b-2026-09-06,f1d-2026-09-10,f1e0-2026-09-10,f1e-census-2026-09-11}.txt</code> : les journaux dont sortent tous les nombres de ce cours</li>
-    <li><code>docs/ETAT.md</code> §5 sexies à §5 nonies pour le format. Attention : <code>ETAT.md</code> ne porte pas encore le recensement du 2026-09-11, et la règle du dépôt donne alors raison au journal</li>
+    <li><code>docs/mesures/{tetra-4b-2026-09-06,f1d-2026-09-10,f1e0-2026-09-10,f1e-census-2026-09-11}.txt</code> : les journaux du format et de son premier passage dans le modèle</li>
+    <li><code>docs/mesures/{embed-q4-swap-2026-09-23,sealed-8b-14b-2026-09-23,sealed-8b-27-2026-09-24,paper-table-2026-09-25,banc-252-2026-10-06,a100-2026-10-06}.txt</code> : les journaux des fichiers scellés ; chaque autre nombre cite le sien dans le texte</li>
+    <li><code>docs/ETAT.md</code> §2 à §4 : la configuration servie, les bras de comparaison et les faits de structure, à l'état du 2026-10-07</li>
   </ul>
   <p>Article de référence : van der Ouderaa, van Baalen, Whatmough, Nagel, <em>LLVQ</em>, <a href="https://arxiv.org/abs/2603.11021">arXiv:2603.11021</a>, transcrit dans <code>docs/llvq-paper-notes.md</code>.</p>
 </footer>
