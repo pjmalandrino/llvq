@@ -1,56 +1,43 @@
 # Upstream proposal: LLVQ Tetra in `transformers`
 
-**Nothing is posted.** [`ISSUE.md`](ISSUE.md) is a draft of the body, 102 lines,
-and it stays editable until the day it is posted. On that day it becomes a
-verbatim archive and stops being edited, which is the convention
-[`../candle-broadcast-matmul/`](../candle-broadcast-matmul) already follows: the
-point of the archive is that it matches what was posted.
+Nothing is posted yet. [`ISSUE.md`](ISSUE.md) is the draft of the issue body, 103 lines. It can be edited until the
+day it is posted. From then on it is an exact copy of what was posted and is not edited again, as in
+[`../candle-broadcast-matmul/`](../candle-broadcast-matmul).
 
-## Why the issue and the PR go together
+## Why the issue and the PR go out together
 
-The two upstream documents disagree. `docs/source/en/quantization/contribute.md`
-lists ten code steps for a new quantization method and never mentions an issue
-(read 2026-10-04). `CONTRIBUTING.md` asks for an issue before a new feature,
-with the motivation, the detail, a code snippet and the paper.
+The two upstream guides disagree. `docs/source/en/quantization/contribute.md` lists ten code steps for a new
+quantization method and does not mention an issue (read 2026-10-04). `CONTRIBUTING.md` asks for an issue before any
+new feature, with the motivation, the details, a code snippet and the paper.
 
-The operator decided on 2026-10-07 to post both at once: the issue says why, the
-PR shows the code. The draft of 2026-10-04 asked first and built after; it was
-rewritten on 2026-10-07, shorter, for a PR beside it.
+The operator decided on 2026-10-07 to post both at once. The issue gives the reasons and links the PR.
 
-## What has to be true before it is posted
+## Before posting
 
-- [x] **`pip install llvq-tetra` has to work.** Done on 2026-10-07: 0.1.0 is on
-      PyPI, and an empty environment installs it and loads a model
-      (`docs/mesures/hf-pypi-0.1.0-2026-10-07.txt`).
-- [ ] **The PR is ready.** The operator decided on 2026-10-07 that the issue and
-      the PR go out together. The draft carries `PR #____` until then.
-- [x] **Run the snippet once, exactly as written.** Done on 2026-10-07 from a
-      clean `pip install llvq-tetra`: exit 0, no warning, "The capital of France is
-      Paris." (`docs/mesures/hf-snippet-2026-10-07.txt`).
-- [x] **A reader has to be able to try it in one command.** True for the dense
-      path, which needs no GPU and no compiler. Not for the fused path, which
-      compiles a kernel at import, and the draft says so.
-- [ ] Re-read every number against its journal. Each one in the draft has one,
-      and a number in an issue is a number in public.
+- [x] `pip install llvq-tetra` works. 0.1.0 has been on PyPI since 2026-10-07, and a clean environment installs it
+      and loads a model (`docs/mesures/hf-pypi-0.1.0-2026-10-07.txt`).
+- [ ] The PR is ready. The draft still says `PR #____`.
+- [x] The snippet runs exactly as written. Checked on 2026-10-07 after a clean `pip install llvq-tetra`: exit 0, no
+      warning, "The capital of France is Paris." (`docs/mesures/hf-snippet-2026-10-07.txt`).
+- [x] Someone can try it with one command. True for the default dense path, which needs no GPU and no compiler. Not
+      true for the fused path, which compiles a kernel at import, and the draft says so.
+- [x] Every number in the draft is checked against its journal. Done on 2026-10-20. Three statements were wrong and
+      are fixed: FP16 and AWQ on GSM8K were scored in vLLM, not in our engine; the dense load takes two to three
+      minutes, not two and a half to five; the Metal runs used torch 2.14.0 as well as 2.14.1.
+- [ ] If 0.2.0 ships before the post, rewrite the Metal line of "What is missing". It describes 0.1.0.
 
-## What is deliberately in the draft
+## What the draft says on purpose
 
-**The silent-load problem, stated as their problem.** `transformers` discovers
-quantization methods by import and not by entry point, so a published model in
-any out-of-tree format loads as a randomly initialized model without raising.
-That is measured (`docs/mesures/hf-tripwire-2026-10-03.txt`), it is not specific
-to this method, and it is the strongest argument for being in tree. If the answer
-is no, the draft asks for an entry point for out-of-tree quantizers or an error on
-an unknown `quant_method`. Either fixes it for every method, not only this one.
+It presents the random-model problem as a `transformers` problem. `transformers` finds quantization methods by import,
+not by entry point. So a model published in any out-of-tree format loads as a random model, without raising. This is
+measured (`docs/mesures/hf-tripwire-2026-10-03.txt`) and is not specific to LLVQ. It is the best argument for going in
+tree. If the answer is no, the draft asks for an entry point for out-of-tree quantizers, or an error on an unknown
+`quant_method`. Either would fix it for every method.
 
-**Everything that is not done.** Six items, named, with the weakness of our own
-gate among them. A maintainer finds those out in ten minutes; hearing them from us
-first costs nothing and buys the only thing that matters in a review, which is
-being believed on the rest.
+It lists what is not done, six items, including the weakness of our own token check. A maintainer would find them in
+ten minutes. Saying them first makes the rest easier to believe.
 
-## What a refusal would mean
+## If the answer is no
 
-The out-of-tree route already works and is published, so a no costs us
-discoverability and the silent-load fix, not the feature. Paper 1 was
-desk-rejected by TACO on scope with no technical objection, so the house position
-on external gatekeepers is already written: the artifact stands on its own.
+The out-of-tree route already works and is published. A refusal costs us discoverability and the random-model fix,
+not the feature itself.

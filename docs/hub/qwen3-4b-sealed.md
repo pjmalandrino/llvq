@@ -23,15 +23,14 @@ embedding included. Most weight matrices are stored on the Leech lattice Λ₂�
 Tetra: 48 bits for a block of 24 weights, one scale per row. A fused CUDA kernel
 decodes and multiplies in one pass, so the weights are never written out in full.
 
-**This file is read by the Rust engine, not by `transformers`.** If you want
-`transformers`, take
-[Qwen3-4B-LLVQ-Tetra](https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-Tetra)
-instead: same weights, as safetensors, and it carries this file's digest so you
-can check. This one is here because paper 2 publishes its SHA-256 and anyone
-replaying our measurements needs the bytes.
+This file is for the Rust engine, not for `transformers`. For `transformers`,
+use [Qwen3-4B-LLVQ-Tetra](https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-Tetra)
+instead: the same weights as safetensors, with this file's digest so you can
+check. This file is here because paper 2 publishes its SHA-256, and anyone
+replaying our measurements needs these exact bytes.
 
-It is worse than FP16 by a measured amount: 6.77 MMLU points and 9.63 GSM8K
-points on the same questions. The numbers below come from one NVIDIA L40S.
+It scores below FP16: 6.77 MMLU points and 9.63 GSM8K points lower on the same
+questions. The numbers below come from one NVIDIA L40S.
 
 ## How good it is
 
@@ -163,7 +162,7 @@ rather than the served path.
 [Pier-Jean/Qwen3-4B-LLVQ-Tetra](https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-Tetra)
 holds the same weights as safetensors that stay compressed, with a
 `quantization_config` block describing every record. Its `llvq-digest.json`
-records the artifact digest `886391a8c03f66dc` of THIS file, and a bit-for-bit
+records the artifact digest `886391a8c03f66dc` of this file, and a bit-for-bit
 check rebuilds its 1,602 fields against the Rust decoder (*measured*,
 `docs/mesures/hf-safetensors-4b-2026-09-28.txt`). Loading it gives the same 256
 greedy tokens this file gives, on a CPU, on Metal and on an NVIDIA L4.
@@ -188,7 +187,7 @@ Apache 2.0, inherited from [Qwen/Qwen3-4B](https://huggingface.co/Qwen/Qwen3-4B)
 The `LICENSE` file is Qwen's, carried over unchanged.
 
 **Modification made to the original work:** the weights of the 252 linear
-projections of every transformer block are replaced by Leech-lattice codes
+projections of the transformer blocks are replaced by Leech-lattice codes
 (Tetra) or by 4-bit integers, the scale of each row is retrained, and the tied
 embedding is stored in 4 bits. All other tensors are the originals, in f16.
 Only the row scales are trained, never the codes. No architectural change.
