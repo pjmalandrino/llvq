@@ -433,6 +433,9 @@ pub struct FusedRuntime {
     /// what makes a mixed file possible — so the layout could not answer this
     /// question even in principle.
     f_int4: Option<CudaFunction>,
+    /// `tv_q4_hh`, the same matvec reading an f16 activation. Present exactly
+    /// when `f_int4` is: both entry points live in `tv_q4_h.cu`.
+    f_int4_half: Option<CudaFunction>,
     rotations: HashMap<RotKey, RotBuffers>,
     /// The embedding kernels, `(gather, lm_head matvec)` — present exactly
     /// when the runtime was built with a quantized [`EmbedMode`], which is when
@@ -600,6 +603,7 @@ impl FusedRuntime {
         // source is in the unit, which here is exactly when `int4` is `Some`.
         if int4.is_some() {
             spill_checked.push(crate::fused::INT4_KERNEL_NAME);
+            spill_checked.push(crate::fused::INT4_HALF_KERNEL_NAME);
         }
         // Keyed on the same answer the lookup uses. It carries one accumulator
         // a row on top of the one-row kernel's 40 registers, so a spill here
@@ -636,15 +640,20 @@ impl FusedRuntime {
         // stages 69,632 B, past the 48 KiB default, so the opt-in is posed on
         // the function here, as for `rot_apply`. Under the default,
         // `func_dynamic_shared` is `func` and nothing changes.
-        let f_int4 = match int4.is_some() {
+        let (f_int4, f_int4_half) = match int4.is_some() {
             true => {
+                // Both entry points stage `d_in` f32, whatever `x` arrives as.
                 let bytes = crate::fused::int4_shared_bytes(model.int4.iter().map(|q| q.d_in));
-                Some(
-                    cuda.func_dynamic_shared(crate::fused::INT4_KERNEL_NAME, bytes as u32)
-                        .map_err(candle_core::Error::msg)?,
+                let f = |name: &str| {
+                    cuda.func_dynamic_shared(name, bytes as u32)
+                        .map_err(candle_core::Error::msg)
+                };
+                (
+                    Some(f(crate::fused::INT4_KERNEL_NAME)?),
+                    Some(f(crate::fused::INT4_HALF_KERNEL_NAME)?),
                 )
             }
-            false => None,
+            false => (None, None),
         };
         // Looked up only when both the layout and the caller allow it: the
         // `Some` is the authorisation, so `forward_rotated_seg` has nothing to
@@ -805,6 +814,9 @@ impl FusedRuntime {
         for q in &model.int4 {
             int4_projs.push(upload_int4(&cuda, q, int4_limit)?);
         }
+        if let (Some(fa), Some(fb), Some(p)) = (&f_int4, &f_int4_half, int4_projs.first()) {
+            check_int4_half_parity(&cuda, fa, fb, p).map_err(candle_core::Error::msg)?;
+        }
 
         Ok((
             Self {
@@ -820,6 +832,7 @@ impl FusedRuntime {
                 prefill,
                 f_matvec_rows,
                 f_int4,
+                f_int4_half,
                 g70_tabs,
                 rotations,
                 f_emb,
@@ -907,14 +920,13 @@ impl FusedRuntime {
     /// basis — there is no rotated form, and asking for one would be asking for
     /// a basis the weights were never quantized in.
     ///
-    /// The one conversion in this file: `tv_q4_h` takes `x` in f32, "as in
-    /// every projection kernel of this family", while the model carries f16.
-    /// The rotated arms get their f32 for free because `rot_apply` produces it;
-    /// this arm has no rotation to produce it, so it widens here. Not hidden in
-    /// the kernel: the reference this path is checked against —
-    /// `RawTensor::to_f32` — is f32 arithmetic, and narrowing the activation
-    /// first would make the served row disagree with the row the file decodes
-    /// to, which is the whole correctness test.
+    /// The kernel accumulates against `x` in f32, "as in every projection
+    /// kernel of this family", while the model carries f16. An f16 activation
+    /// goes to `tv_q4_hh`, which widens it while staging: exact, so the same
+    /// floats as a cast, and one launch fewer a call (84 a token on the sealed
+    /// 4B). Any other dtype is widened here and goes to `tv_q4_h`. Neither
+    /// narrows the activation: the reference this path is checked against,
+    /// `RawTensor::to_f32`, is f32 arithmetic.
     pub fn forward_int4(
         &self,
         proj: &FusedInt4Proj,
@@ -926,13 +938,24 @@ impl FusedRuntime {
             *d.last_mut().expect("rank >= 1") = proj.d_out;
             Shape::from(d)
         };
-        let xf = x.to_dtype(candle_core::DType::F32)?.contiguous()?;
+        // The kernel reads from the base pointer. The cast always handed it a
+        // fresh tensor at offset zero; a row the prefill narrows out of a
+        // block is still at an offset, so that case keeps the cast and
+        // `tv_q4_h`, as before. A decode step's activation is fresh already.
+        // (`Tensor::copy` would not do: it keeps the layout, offset included.)
+        let c = x.contiguous()?;
+        let via_f32 = INT4_VIA_F32.load(std::sync::atomic::Ordering::Relaxed);
+        let (xs, half) = match (c.dtype(), c.layout().start_offset()) {
+            (DType::F16, 0) if !via_f32 => (c, true),
+            _ => (c.to_dtype(DType::F32)?.contiguous()?, false),
+        };
         let op = FusedInt4Op {
             rt: self,
             proj,
             out_shape,
+            half,
         };
-        xf.apply_op1_no_bwd(&op)
+        xs.apply_op1_no_bwd(&op)
     }
 
     /// Whether this runtime's layout carries a kernel that takes several rows.
@@ -1688,6 +1711,9 @@ struct FusedInt4Op<'a> {
     rt: &'a FusedRuntime,
     proj: &'a FusedInt4Proj,
     out_shape: Shape,
+    /// The activation is f16 and goes to `tv_q4_hh`; otherwise f32 and
+    /// `tv_q4_h`. Set by [`FusedRuntime::forward_int4`], which made it so.
+    half: bool,
 }
 
 impl candle_core::CustomOp1 for FusedInt4Op<'_> {
@@ -1708,7 +1734,6 @@ impl candle_core::CustomOp1 for FusedInt4Op<'_> {
         storage: &CudaStorage,
         layout: &Layout,
     ) -> candle_core::Result<(CudaStorage, Shape)> {
-        let x = storage.as_cuda_slice::<f32>()?;
         // A range, not an offset and a length — `FusedOp` records what taking
         // the second field for a length costs, and it costs the same here.
         let (start, end) = layout
@@ -1731,16 +1756,26 @@ impl candle_core::CustomOp1 for FusedInt4Op<'_> {
                 self.proj.name
             );
         }
-        let f = self.rt.f_int4.as_ref().ok_or_else(|| {
+        let missing = || {
             candle_core::Error::msg(
                 "an int4 projection on a runtime built without `tv_q4_h`: its source \
                  is appended only when the file carried an int4 record",
             )
-        })?;
+        };
         let mut y = unsafe { self.rt.device.cuda_stream().alloc::<f16>(self.proj.d_out) }
             .map_err(|e| candle_core::Error::msg(format!("alloc y: {e}")))?;
-        launch_q4_h(&self.rt.cuda, f, self.proj, x, &mut y, THREADS)
-            .map_err(candle_core::Error::msg)?;
+        // `as_cuda_slice` refuses a storage of the other dtype, so a `half`
+        // flag that lied would fail here by name rather than read wrong bytes.
+        let launched = if self.half {
+            let f = self.rt.f_int4_half.as_ref().ok_or_else(missing)?;
+            let x = storage.as_cuda_slice::<f16>()?;
+            launch_q4_h(&self.rt.cuda, f, self.proj, x, &mut y, THREADS)
+        } else {
+            let f = self.rt.f_int4.as_ref().ok_or_else(missing)?;
+            let x = storage.as_cuda_slice::<f32>()?;
+            launch_q4_h(&self.rt.cuda, f, self.proj, x, &mut y, THREADS)
+        };
+        launched.map_err(candle_core::Error::msg)?;
         Ok((
             CudaStorage::wrap_cuda_slice(y, self.rt.device.clone()),
             self.out_shape.clone(),
@@ -2165,16 +2200,80 @@ fn upload_int4(
     })
 }
 
-/// `tv_q4_h(wq, scales, biases, x, y, d_in, gpr)` — the served int4 matvec.
+/// Measurement only, `false` everywhere else: send every int4 activation
+/// through the f32 cast and `tv_q4_h`, the path before `tv_q4_hh` existed.
+/// Process-wide because the projections hold the runtime behind an `Arc` that
+/// no binary sees. `bin/fusedrun`'s `LLVQ_TRIM_AB` flips it between rounds to
+/// time the launch the f16 entry point saves; nothing else writes it.
+static INT4_VIA_F32: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Set [`INT4_VIA_F32`]. The output does not move either way, which the load
+/// checks on the card with [`check_int4_half_parity`].
+pub fn set_int4_via_f32(on: bool) {
+    INT4_VIA_F32.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// `tv_q4_hh` against `tv_q4_h` on one real record, on the card, at load.
+///
+/// The f16 entry point exists only to save a cast launch, so its one claim is
+/// that it returns `tv_q4_h`'s bits for the f32 widening of the same input.
+/// No host test can run a warp kernel, so the claim is checked here, before
+/// any token: a pseudo-random activation over several binades, both signs
+/// and exact zeros, given to `tv_q4_hh` as f16 and to `tv_q4_h` as its exact
+/// f32 widening. Any differing row stops the load and names the record.
+fn check_int4_half_parity(
+    cuda: &llvq_cuda::gpu::Cuda,
+    f_f32: &CudaFunction,
+    f_f16: &CudaFunction,
+    p: &FusedInt4Proj,
+) -> Result<(), String> {
+    let mut state = 0x9e37_79b9_7f4a_7c15u64;
+    let xh: Vec<u16> = (0..p.d_in)
+        .map(|i| {
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            let u = (state >> 40) as f32 / (1u64 << 24) as f32 - 0.5;
+            let v = if i % 17 == 0 { 0.0 } else { u * (1u32 << (i % 7)) as f32 };
+            f16::from_f32(v).to_bits()
+        })
+        .collect();
+    let xf: Vec<f32> = xh.iter().map(|&b| f16::from_bits(b).to_f32()).collect();
+    let dxh = cuda.up_u16(&xh)?;
+    let dxf = cuda.up_f32(&xf)?;
+    let mut ya = cuda.up_u16(&vec![0u16; p.d_out])?;
+    let mut yb = cuda.up_u16(&vec![0xffffu16; p.d_out])?;
+    launch_q4_h(cuda, f_f32, p, &dxf, &mut ya, THREADS)?;
+    launch_q4_h(cuda, f_f16, p, &dxh, &mut yb, THREADS)?;
+    let (a, b) = (cuda.down_u16(&ya)?, cuda.down_u16(&yb)?);
+    if let Some(r) = (0..p.d_out).find(|&r| a[r] != b[r]) {
+        return Err(format!(
+            "{}: tv_q4_hh disagrees with tv_q4_h at row {r} ({:#06x} against {:#06x}); \
+             the f16 entry point is not the same matvec",
+            p.name, b[r], a[r]
+        ));
+    }
+    println!(
+        "int4: tv_q4_hh equals tv_q4_h bit for bit on {} ({} rows, d_in {})",
+        p.name, p.d_out, p.d_in
+    );
+    Ok(())
+}
+
+/// `tv_q4_h(wq, scales, biases, x, y, d_in, gpr)` — the served int4 matvec,
+/// or `tv_q4_hh` with the same arguments and `x` in f16; `f` decides which.
 ///
 /// One warp a row and 256-thread blocks, like every projection kernel here,
 /// and NO tile: the activation is staged whole, so `shared` comes off the
 /// projection rather than off `Tile`.
-fn launch_q4_h<T: candle_core::cuda_backend::cudarc::driver::DeviceRepr>(
+fn launch_q4_h<
+    X: candle_core::cuda_backend::cudarc::driver::DeviceRepr,
+    T: candle_core::cuda_backend::cudarc::driver::DeviceRepr,
+>(
     cuda: &llvq_cuda::gpu::Cuda,
     f: &CudaFunction,
     p: &FusedInt4Proj,
-    x: &CudaSlice<f32>,
+    x: &CudaSlice<X>,
     y: &mut CudaSlice<T>,
     threads: u32,
 ) -> Result<(), String> {
@@ -2717,6 +2816,31 @@ pub fn load_resolved(
              line up with what `sealed::load` narrows to the same dtype). Another dtype \
              would not make the model more accurate, it would make a comparison wrong."
         );
+    }
+
+    // cudarc creates two CUDA events with every allocation and waits on and
+    // destroys them at every free, for ordering across streams (cudarc 0.19.8,
+    // `CudaStream::alloc`, `Drop for CudaSlice`). The served path allocates
+    // every op output fresh, about 1,450 a token on the sealed 4B, and runs
+    // on ONE stream, candle's, where the driver orders work by issue: those
+    // events order nothing and cost host time on every token. Turned off on
+    // the served door only, before the first upload (cudarc skips the events
+    // for slices created after the call), and only while the context holds a
+    // single stream. The bench door keeps cudarc's default, so the measured
+    // arms of `docs/mesures/` keep their protocol. Nothing on the device
+    // changes, so no output can.
+    if source.is_some() {
+        let stream = device.as_cuda_device()?.cuda_stream();
+        let ctx = stream.context();
+        if ctx.is_in_multi_stream_mode() {
+            println!("cudarc event tracking: kept on, the context holds several streams");
+        } else {
+            // Safe because one stream orders every access by issue; anything
+            // that later creates a second stream on this context must revisit
+            // it, as `llvq_cuda::gpu::Cuda::new_on_fresh_stream` says.
+            unsafe { ctx.disable_event_tracking() };
+            println!("cudarc event tracking: off (one stream, ordered by issue)");
+        }
     }
 
     // The layout and the embedding mode arrive resolved and are printed next

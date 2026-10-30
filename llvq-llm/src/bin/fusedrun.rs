@@ -34,9 +34,9 @@
 //! overhead — but the memory difference is the whole thesis: 8.04 GB of f16
 //! against the encoded projections plus a full-precision embedding.
 
-#[cfg(all(target_os = "linux", feature = "cuda"))]
+// Unconditional since `run_trim_ab` and `run_context_sweep`, which the Mac
+// type-checks, use them too.
 use std::time::Instant;
-#[cfg(all(target_os = "linux", feature = "cuda"))]
 use llvq_llm::model::NoCapture;
 
 #[cfg(all(target_os = "linux", feature = "cuda"))]
@@ -125,6 +125,192 @@ fn first_divergence(a: &[u32], b: &[u32]) -> Result<Option<usize>, String> {
     Ok(a.iter().zip(b).position(|(x, y)| x != y))
 }
 
+/// The arms of `LLVQ_TRIM_AB`: the trimmed decode step, each of its three
+/// trims undone alone, and all three undone at once.
+///
+/// The three trims of 2026-10-30 are the all-zero decode mask skipped, the
+/// int4 activation read in f16 by `tv_q4_hh` instead of cast for `tv_q4_h`,
+/// and cudarc's per-allocation events turned off. Each is bit-identical by
+/// design, so every arm must return the same tokens. Each single-trim arm
+/// moves one mechanism against `trimmed` (the `check_fuse` rule); `untrimmed`
+/// is the path the published numbers were measured on.
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TrimArm {
+    Trimmed,
+    Mask,
+    Cast,
+    Events,
+    Untrimmed,
+}
+
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+impl TrimArm {
+    const ALL: [TrimArm; 5] =
+        [TrimArm::Trimmed, TrimArm::Mask, TrimArm::Cast, TrimArm::Events, TrimArm::Untrimmed];
+
+    fn name(self) -> &'static str {
+        match self {
+            TrimArm::Trimmed => "trimmed",
+            TrimArm::Mask => "+mask",
+            TrimArm::Cast => "+cast",
+            TrimArm::Events => "+events",
+            TrimArm::Untrimmed => "untrimmed",
+        }
+    }
+
+    /// Builds and adds the all-zero decode mask again.
+    fn mask(self) -> bool {
+        matches!(self, TrimArm::Mask | TrimArm::Untrimmed)
+    }
+
+    /// Casts the int4 activation to f32 for `tv_q4_h` again.
+    fn cast(self) -> bool {
+        matches!(self, TrimArm::Cast | TrimArm::Untrimmed)
+    }
+
+    /// Turns cudarc's per-allocation events back on.
+    fn events(self) -> bool {
+        matches!(self, TrimArm::Events | TrimArm::Untrimmed)
+    }
+}
+
+/// `LLVQ_TRIM_AB`: one model, every arm in every round, same order, two
+/// rounds discarded then [`ROUNDS_TIMED`]; each ratio formed round by round
+/// against `trimmed`. `set` puts the model and the runtime in an arm's state.
+/// Any token that differs between two arms or two rounds stops the run before
+/// a number is printed: the trims claim bit identity, and a speed measured on
+/// arms that disagree is not a speed of the same thing.
+///
+/// Out of the cfg-gated body so the Mac type-checks it.
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+fn run_trim_ab(
+    model: &mut llvq_llm::model::Qwen3,
+    ids: &[u32],
+    n_new: usize,
+    mut set: impl FnMut(&mut llvq_llm::model::Qwen3, TrimArm) -> anyhow::Result<()>,
+) -> anyhow::Result<()> {
+    const WARMUP: usize = 2;
+    let mut reference: Option<Vec<u32>> = None;
+    let mut rates: Vec<Vec<f64>> = vec![Vec::new(); TrimArm::ALL.len()];
+    for round in 0..WARMUP + ROUNDS_TIMED {
+        for (k, arm) in TrimArm::ALL.into_iter().enumerate() {
+            set(model, arm)?;
+            let t = Instant::now();
+            let out = model.generate(ids, n_new, &mut NoCapture)?;
+            let rate = n_new as f64 / t.elapsed().as_secs_f64();
+            match &reference {
+                None => reference = Some(out),
+                Some(r) => {
+                    if let Some(i) = first_divergence(r, &out).map_err(|e| anyhow::anyhow!("{e}"))? {
+                        anyhow::bail!(
+                            "round {round}, arm {}: divergence at token {i}. The trims are \
+                             bit-identical by design, and arms that disagree void the run",
+                            arm.name()
+                        );
+                    }
+                }
+            }
+            if round >= WARMUP {
+                rates[k].push(rate);
+            }
+        }
+    }
+    set(model, TrimArm::Trimmed)?;
+    let n_tokens = reference.map_or(0, |r| r.len());
+    println!(
+        "\n{} arms × {ROUNDS_TIMED} interleaved rounds after {WARMUP} discarded, \
+         {n_tokens} identical tokens in every arm and round",
+        TrimArm::ALL.len()
+    );
+    println!("  arm         tok/s [range]           trimmed / arm, round by round");
+    for (k, arm) in TrimArm::ALL.into_iter().enumerate() {
+        let (m, lo, hi) = rate_stats(&rates[k]);
+        if k == 0 {
+            println!("  {:<10}  {m:6.1} [{lo:.1}–{hi:.1}]", arm.name());
+            continue;
+        }
+        let ratios: Vec<f64> = rates[0].iter().zip(&rates[k]).map(|(a, b)| a / b).collect();
+        let (mr, lr, hr) = rate_stats(&ratios);
+        println!(
+            "  {:<10}  {m:6.1} [{lo:.1}–{hi:.1}]    {mr:.4} [{lr:.4}–{hr:.4}]",
+            arm.name()
+        );
+    }
+    Ok(())
+}
+
+/// The prompt lengths of `LLVQ_CONTEXTS`, comma-separated, each above zero.
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+fn parse_contexts(v: &str) -> Result<Vec<usize>, String> {
+    let lengths = v
+        .split(',')
+        .map(|s| s.trim().parse::<usize>())
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("LLVQ_CONTEXTS={v:?}: {e}"))?;
+    if lengths.is_empty() || lengths.contains(&0) {
+        return Err(format!("LLVQ_CONTEXTS={v:?}: every prompt length must be above zero"));
+    }
+    Ok(lengths)
+}
+
+/// `LLVQ_CONTEXTS`: for each prompt length, the time to the first token and
+/// the decode speed after it, one discarded generation then
+/// [`ROUNDS_TIMED`], tokens identical across rounds. The prompt repeats
+/// `seed` to length, as `LLVQ_PREFILL_TOKENS` does: no kernel branches on
+/// the ids. The published tok/s divides the whole generation, prompt
+/// included, by the new tokens; at a 5-token prompt the two readings agree,
+/// at 8,192 they do not, which is why this one splits the clock.
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+fn run_context_sweep(
+    model: &llvq_llm::model::Qwen3,
+    seed: &[u32],
+    lengths: &[usize],
+    n_new: usize,
+) -> anyhow::Result<()> {
+    if n_new < 2 || seed.is_empty() {
+        anyhow::bail!(
+            "LLVQ_CONTEXTS needs a seed prompt and at least 2 new tokens: the decode is \
+             timed after the first one ({n_new} asked)"
+        );
+    }
+    let chunk = llvq_llm::model::MAX_PREFILL_ROWS;
+    println!(
+        "context sweep: {n_new} new tokens after each prompt, the prompt in chunks of \
+         {chunk}, 1 discarded + {ROUNDS_TIMED} rounds"
+    );
+    println!("  prompt    to first token, s       decode tok/s [range]      ms a decode token");
+    for &n in lengths {
+        let ids: Vec<u32> = (0..n).map(|i| seed[i % seed.len()]).collect();
+        let (mut first, mut rate) = (Vec::new(), Vec::new());
+        let mut reference: Option<Vec<u32>> = None;
+        for round in 0..=ROUNDS_TIMED {
+            let g = model.generate_timed(&ids, n_new, chunk)?;
+            match &reference {
+                None => reference = Some(g.tokens),
+                Some(r) => {
+                    if let Some(i) =
+                        first_divergence(r, &g.tokens).map_err(|e| anyhow::anyhow!("{e}"))?
+                    {
+                        anyhow::bail!("prompt {n}, round {round}: divergence at token {i}");
+                    }
+                }
+            }
+            if round > 0 {
+                first.push(g.prompt_s);
+                rate.push((n_new - 1) as f64 / g.decode_s);
+            }
+        }
+        let (fm, fl, fh) = rate_stats(&first);
+        let (rm, rl, rh) = rate_stats(&rate);
+        println!(
+            "  {n:>6}    {fm:7.2} [{fl:.2}–{fh:.2}]    {rm:7.1} [{rl:.1}–{rh:.1}]    {:7.2}",
+            1000.0 / rm
+        );
+    }
+    Ok(())
+}
+
 /// The per-phase table of one arm's fenced pass. Additive diagnostics: this
 /// runs *after* the arm's published measurement and prints below it, so the
 /// published lines stay byte-identical.
@@ -181,11 +367,13 @@ fn main() -> anyhow::Result<()> {
         // binary into a bench of one thing, and a bench needs its arms named
         // by variables — that is what `LLVQ_CONFIG` exists to replace. Refused
         // by name rather than silently dropped, which is what happened before
-        // the audit of 2026-09-11 found it. `LLVQ_PREFILL_TOKENS` is the one
-        // exception, handled below: it is the served path's own gate.
+        // the audit of 2026-09-11 found it. `LLVQ_PREFILL_TOKENS` and
+        // `LLVQ_CONTEXTS` are the two exceptions, handled below: they time the
+        // served object as served, and change only the prompt it is given.
         if served.is_some() {
             for var in ["LLVQ_GRAPH_AB", "LLVQ_GRAPH_DIAG", "LLVQ_KV_AB", "LLVQ_FUSE_AB",
-                        "LLVQ_TIME_PHASES", "LLVQ_KV_PREALLOC", "LLVQ_SEG_ARMS"] {
+                        "LLVQ_TIME_PHASES", "LLVQ_KV_PREALLOC", "LLVQ_SEG_ARMS",
+                        "LLVQ_TRIM_AB"] {
                 if let Ok(v) = std::env::var(var) {
                     anyhow::bail!(
                         "{var}={v:?} beside LLVQ_CONFIG: that is a measurement mode, and the \
@@ -215,6 +403,106 @@ fn main() -> anyhow::Result<()> {
         // eagerly, or replayed from the captured graph. Correctness gate
         // first (identical tokens everywhere), numbers second, round by round.
         // Phase prereg 802006c5 (frozen thresholds).
+        // ---- LLVQ_CONTEXTS: the served speed at the product's context ----
+        //
+        // Every published tok/s was measured after a 5-token prompt, so at
+        // most 261 positions of cache; the product promises 8,192. This times,
+        // for each prompt length named, the first token and the decode after
+        // it (`run_context_sweep`). Through the served door when there is a
+        // config, like `LLVQ_PREFILL_TOKENS`, so the object timed is the
+        // object served. On the `Cat` store only: a preallocated window would
+        // bound the prompt.
+        if let Ok(v) = std::env::var("LLVQ_CONTEXTS") {
+            let lengths = parse_contexts(&v).map_err(|e| anyhow::anyhow!("{e}"))?;
+            for other in ["LLVQ_TRIM_AB", "LLVQ_PREFILL_TOKENS"] {
+                if std::env::var(other).is_ok() {
+                    anyhow::bail!("LLVQ_CONTEXTS runs alone, and {other} is set beside it");
+                }
+            }
+            if !matches!(kv_store, llvq_llm::kvq::KvStore::Cat) {
+                anyhow::bail!("LLVQ_CONTEXTS times the Cat store: unset LLVQ_KV_PREALLOC");
+            }
+            let t = Instant::now();
+            let f = match &served {
+                Some(cfg) => {
+                    println!("{}", cfg.provenance());
+                    llvq_llm::fused_cuda::load_resolved(
+                        &path, &device, dtype, cfg.layout, cfg.embed, cfg.rot_share, cfg.fuse,
+                        cfg.kv, Some("LLVQ_CONFIG"),
+                    )?
+                }
+                None => {
+                    let fuse =
+                        llvq_llm::fused::FuseMode::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
+                    llvq_llm::fused_cuda::load_with(&path, &device, dtype, fuse)?
+                }
+            };
+            println!(
+                "layout {}, loaded in {:.1} s",
+                f.layout.name(),
+                t.elapsed().as_secs_f64()
+            );
+            let seed = f
+                .tokenizer
+                .encode(PROMPT, false)
+                .map_err(|e| anyhow::anyhow!("{e}"))?
+                .get_ids()
+                .to_vec();
+            run_context_sweep(&f.model, &seed, &lengths, n_new)?;
+            return Ok(());
+        }
+
+        // ---- LLVQ_TRIM_AB: what the three trims of 2026-10-30 save ----
+        //
+        // A MEASUREMENT MODE on the bench door, refused beside LLVQ_CONFIG: the
+        // served flags are spelled out on the command line. ONE model, every arm
+        // in every round (`run_trim_ab`). The events arm flips cudarc's tracking
+        // between rounds, which is safe only on one stream, so that is checked.
+        if std::env::var("LLVQ_TRIM_AB").ok().as_deref() == Some("1") {
+            if !matches!(kv_store, llvq_llm::kvq::KvStore::Cat) {
+                anyhow::bail!("LLVQ_TRIM_AB times the served decode step, on the Cat store: \
+                               unset LLVQ_KV_PREALLOC");
+            }
+            let fuse = llvq_llm::fused::FuseMode::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
+            let t = Instant::now();
+            let mut f = llvq_llm::fused_cuda::load_with(&path, &device, dtype, fuse)?;
+            println!(
+                "loaded in {:.1} s. trim A/B: {} arms, one model, interleaved rounds",
+                t.elapsed().as_secs_f64(),
+                TrimArm::ALL.len()
+            );
+            println!(
+                "LLVQ_ROT_SHARE={}, {} rot_launches/token · LLVQ_FUSE={}, {} matvec_launches/token",
+                f.rot_share.name(), f.rot_launches, f.fuse.name(), f.matvec_launches
+            );
+            let ctx = device.as_cuda_device()?.cuda_stream().context().clone();
+            if ctx.is_in_multi_stream_mode() {
+                anyhow::bail!("LLVQ_TRIM_AB: the context holds several streams, and the \
+                               events arm is only safe on one");
+            }
+            let ids = f
+                .tokenizer
+                .encode(PROMPT, false)
+                .map_err(|e| anyhow::anyhow!("{e}"))?
+                .get_ids()
+                .to_vec();
+            run_trim_ab(&mut f.model, &ids, n_new, |m, arm| {
+                m.set_decode_mask(arm.mask());
+                llvq_llm::fused_cuda::set_int4_via_f32(arm.cast());
+                // Safe: one stream, checked above, orders every access by issue,
+                // so slices created under either setting are freed in order.
+                unsafe {
+                    if arm.events() {
+                        ctx.enable_event_tracking();
+                    } else {
+                        ctx.disable_event_tracking();
+                    }
+                }
+                Ok(())
+            })?;
+            return Ok(());
+        }
+
         // ---- LLVQ_PREFILL_TOKENS: what a prompt costs through the kernel ----
         //
         // A MEASUREMENT MODE, never a served config — the `LLVQ_TIME_PHASES`

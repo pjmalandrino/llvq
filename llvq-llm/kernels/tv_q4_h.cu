@@ -77,25 +77,18 @@ __device__ __forceinline__ float q4_deq(u32 q, u32 sbits, u32 bbits)
                      h2f((unsigned short)bbits));
 }
 
-// y[row] = f16(Σ_c deq(W[row,c]) · x[c]), one warp per row.
-//
-// `gpr` is ceil(d_in / 128), the number of scale/bias pairs per row; it is
-// passed rather than recomputed so the host and the device cannot disagree
-// about the rounding up.
-extern "C" __global__ void tv_q4_h(const u32* __restrict__ wq,
-                                   const unsigned short* __restrict__ scales,
-                                   const unsigned short* __restrict__ biases,
-                                   const float* __restrict__ x,
-                                   unsigned short* __restrict__ y,
-                                   u32 d_in,
-                                   u32 gpr)
+// The matvec once the activation sits in shared memory as f32. Both entry
+// points below stage `x`, then run this: one body, so the two cannot drift.
+__device__ __forceinline__ void q4_staged_dot(const u32* __restrict__ wq,
+                                              const unsigned short* __restrict__ scales,
+                                              const unsigned short* __restrict__ biases,
+                                              const float* xs,
+                                              unsigned short* __restrict__ y,
+                                              u32 d_in,
+                                              u32 gpr)
 {
-    extern __shared__ float xs[];
     u32 lane = threadIdx.x & 31u;
     u32 row  = (blockIdx.x * blockDim.x + threadIdx.x) >> 5;
-    for (u32 i = threadIdx.x; i < d_in; i += blockDim.x) xs[i] = x[i];
-    __syncthreads();
-
     u32 nwords = d_in >> 3;
     u32 w0 = row * nwords;
     u32 s0 = row * gpr;
@@ -114,4 +107,43 @@ extern "C" __global__ void tv_q4_h(const u32* __restrict__ wq,
     }
     acc = warp_sum(acc);
     if (lane == 0) y[row] = f2h(acc);
+}
+
+// y[row] = f16(Σ_c deq(W[row,c]) · x[c]), one warp per row, `x` in f32.
+//
+// `gpr` is ceil(d_in / 128), the number of scale/bias pairs per row; it is
+// passed rather than recomputed so the host and the device cannot disagree
+// about the rounding up.
+extern "C" __global__ void tv_q4_h(const u32* __restrict__ wq,
+                                   const unsigned short* __restrict__ scales,
+                                   const unsigned short* __restrict__ biases,
+                                   const float* __restrict__ x,
+                                   unsigned short* __restrict__ y,
+                                   u32 d_in,
+                                   u32 gpr)
+{
+    extern __shared__ float xs[];
+    for (u32 i = threadIdx.x; i < d_in; i += blockDim.x) xs[i] = x[i];
+    __syncthreads();
+    q4_staged_dot(wq, scales, biases, xs, y, d_in, gpr);
+}
+
+// The same matvec with `x` in f16, widened while it is staged.
+//
+// The model carries f16, so `tv_q4_h` cost a separate cast launch per call:
+// 84 a token on the sealed 4B. Widening f16 to f32 is exact, so `xs` holds
+// the very floats that cast produced and the output is bit for bit
+// `tv_q4_h`'s. The host checks that on the card at load, on a real record.
+extern "C" __global__ void tv_q4_hh(const u32* __restrict__ wq,
+                                    const unsigned short* __restrict__ scales,
+                                    const unsigned short* __restrict__ biases,
+                                    const unsigned short* __restrict__ x,
+                                    unsigned short* __restrict__ y,
+                                    u32 d_in,
+                                    u32 gpr)
+{
+    extern __shared__ float xs[];
+    for (u32 i = threadIdx.x; i < d_in; i += blockDim.x) xs[i] = h2f(x[i]);
+    __syncthreads();
+    q4_staged_dot(wq, scales, biases, xs, y, d_in, gpr);
 }

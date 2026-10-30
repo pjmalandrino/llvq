@@ -129,9 +129,10 @@ be in `UPLOAD_ALLOW` of `ops/run.py`, or the Space dies after 12 minutes. `rankb
 | `LLVQ_SEALED_ARTIFACT` | path | `llvq-artifact` archive tests: moves the search for the sealed file |
 | `LLVQ_QTIP_DIR` | directory | upstream QTIP kernel, GPL v3, not redistributed (`docs/qtip-provenance.md`) |
 
-`LLVQ_KV_PREALLOC`, `LLVQ_GRAPH_AB`, `LLVQ_SEG_ARMS`, `LLVQ_TIME_PHASES`, `LLVQ_TIME_EVENTS`, `LLVQ_BENCH_ARMS` and
-`LLVQ_PREFILL_TOKENS` are measurement modes, never a served config. Every one is refused by name beside `LLVQ_CONFIG`,
-except `LLVQ_PREFILL_TOKENS`, which is the served path's own gate.
+`LLVQ_KV_PREALLOC`, `LLVQ_GRAPH_AB`, `LLVQ_SEG_ARMS`, `LLVQ_TIME_PHASES`, `LLVQ_TIME_EVENTS`, `LLVQ_BENCH_ARMS`,
+`LLVQ_TRIM_AB`, `LLVQ_PREFILL_TOKENS` and `LLVQ_CONTEXTS` are measurement modes, never a served config. Every one is
+refused by name beside `LLVQ_CONFIG`, except `LLVQ_PREFILL_TOKENS` and `LLVQ_CONTEXTS` (prompt lengths, comma-separated:
+time to the first token and decode speed after it), which time the served object with a longer prompt.
 
 ## Hard rules
 

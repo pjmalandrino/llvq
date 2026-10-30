@@ -1376,17 +1376,23 @@ impl Block {
         cap: &mut dyn Capture,
     ) -> Result<Tensor> {
         let mut fresh = KvCache::new(self.kv);
-        self.forward_cached(x, rotary, mask, RopeAt::Offset(0), &mut fresh, idx, cap)
+        self.forward_cached(x, rotary, Some(mask), RopeAt::Offset(0), &mut fresh, idx, cap)
     }
 
     /// Forward over `l` new positions starting at absolute position `offset`,
     /// attending over everything in `cache` plus what this call adds.
+    ///
+    /// `mask` is `None` only where every entry of it would be zero: one new
+    /// position on the `Cat` store, which sees the whole history and nothing
+    /// in its future. Adding a zero leaves every score bit for bit what it
+    /// was (a `-0.0` becomes `+0.0`, which softmax cannot tell apart), so
+    /// skipping the add changes no output and saves 36 launches a token.
     #[allow(clippy::too_many_arguments)]
     pub fn forward_cached(
         &self,
         x: &Tensor,
         rotary: &Rotary,
-        mask: &Tensor,
+        mask: Option<&Tensor>,
         rope: RopeAt,
         cache: &mut KvCache,
         idx: usize,
@@ -1458,7 +1464,11 @@ impl Block {
         };
 
         let scale = 1.0 / (self.head_dim as f64).sqrt();
-        let scores = (q.matmul(&k.transpose(2, 3)?)? * scale)?.broadcast_add(mask)?;
+        let scores = (q.matmul(&k.transpose(2, 3)?)? * scale)?;
+        let scores = match mask {
+            Some(m) => scores.broadcast_add(m)?,
+            None => scores,
+        };
         let ctx = candle_nn::ops::softmax_last_dim(&scores)?.matmul(&v)?;
         let ctx = ctx
             .transpose(1, 2)?
@@ -1487,6 +1497,11 @@ pub struct Qwen3 {
     /// [`Self::set_kv_store`]. The A/B guard is the printed arm line, which
     /// must name the store: an unwired arm prints `cat` and is visible.
     kv_store: crate::kvq::KvStore,
+    /// Measurement only, `false` everywhere else: build and add the all-zero
+    /// mask of a `Cat` decode step, as every decode step did before
+    /// [`Self::step_mask`] learned to skip it. `bin/fusedrun`'s
+    /// `LLVQ_TRIM_AB` sets it on one arm to time what the skip saves.
+    decode_mask: bool,
     embed: Embed,
     pub blocks: Vec<Block>,
     norm: RmsNorm,
@@ -1559,6 +1574,7 @@ impl Qwen3 {
             cfg: cfg.clone(),
             kv,
             kv_store: crate::kvq::KvStore::Cat,
+            decode_mask: false,
             embed,
             blocks,
             norm: candle_nn::rms_norm(cfg.hidden_size, cfg.rms_norm_eps, vb.pp("model.norm"))?,
@@ -1605,6 +1621,18 @@ impl Qwen3 {
         build_causal_mask(b, l, offset, w, self.dtype, &self.device)
     }
 
+    /// The mask a cached forward of `l` new positions needs, or `None` when it
+    /// would be all zeros: one position on the `Cat` store. That is every
+    /// decode step of the served path, and building it cost a host vector, an
+    /// upload and a cast a token, then one add a layer, for no effect.
+    fn step_mask(&self, b: usize, l: usize, offset: usize) -> Result<Option<Tensor>> {
+        match self.kv_store {
+            crate::kvq::KvStore::Cat if l == 1 && !self.decode_mask => Ok(None),
+            crate::kvq::KvStore::Cat => self.causal_mask_offset(b, l, offset).map(Some),
+            crate::kvq::KvStore::Prealloc(w) => self.causal_mask_width(b, l, offset, w).map(Some),
+        }
+    }
+
     /// One `KvCache` per block, empty.
     pub fn fresh_caches(&self) -> Vec<KvCache> {
         (0..self.blocks.len())
@@ -1626,6 +1654,14 @@ impl Qwen3 {
         self.kv_store
     }
 
+    /// Measurement only: make every `Cat` decode step build and add its
+    /// all-zero mask again, the behaviour before 2026-10-30. The output does
+    /// not move (adding zero changes no score), only the time does, which is
+    /// what `LLVQ_TRIM_AB` measures. No served path calls it.
+    pub fn set_decode_mask(&mut self, on: bool) {
+        self.decode_mask = on;
+    }
+
     /// Hidden states for `l` new positions, attending over `caches`.
     pub fn hidden_cached(
         &self,
@@ -1639,13 +1675,10 @@ impl Qwen3 {
         // mask is too: the causal condition `j <= offset + i` already −infs
         // every position past the valid prefix, which is what makes the
         // zero-filled tail of the buffers exactly inert.
-        let mask = match self.kv_store {
-            crate::kvq::KvStore::Cat => self.causal_mask_offset(b, l, offset)?,
-            crate::kvq::KvStore::Prealloc(w) => self.causal_mask_width(b, l, offset, w)?,
-        };
+        let mask = self.step_mask(b, l, offset)?;
         let mut h = self.embed.forward(input)?;
         for (i, blk) in self.blocks.iter().enumerate() {
-            h = blk.forward_cached(&h, &self.rotary, &mask, RopeAt::Offset(offset), &mut caches[i], i, cap)?;
+            h = blk.forward_cached(&h, &self.rotary, mask.as_ref(), RopeAt::Offset(offset), &mut caches[i], i, cap)?;
         }
         self.norm.forward(&h)
     }
@@ -1764,7 +1797,7 @@ impl Qwen3 {
             h = blk.forward_cached(
                 &h,
                 &self.rotary,
-                &st.mask,
+                Some(&st.mask),
                 RopeAt::Tables { cos: &st.cos, sin: &st.sin },
                 &mut caches[i],
                 i,
@@ -1865,6 +1898,57 @@ impl Qwen3 {
         }
     }
 
+    /// [`Self::generate`] with its clock split in two, for a prompt of any
+    /// length: the time to the first token, and the decode after it.
+    ///
+    /// The prompt goes through in chunks of at most `chunk` positions, each
+    /// attending over the cache the earlier ones filled. The fused prefill
+    /// takes at most [`MAX_PREFILL_ROWS`] rows a call, and the product's
+    /// context is 8,192. With `tokens.len() <= chunk` this is `generate`, call
+    /// for call. Every step ends on the host read of its token, so both clocks
+    /// stop on finished device work.
+    pub fn generate_timed(
+        &self,
+        tokens: &[u32],
+        max_new: usize,
+        chunk: usize,
+    ) -> Result<TimedGeneration> {
+        if tokens.is_empty() || max_new == 0 || chunk == 0 {
+            candle_core::bail!(
+                "generate_timed: {} prompt tokens, {max_new} new, chunks of {chunk}: \
+                 there is nothing to time",
+                tokens.len()
+            );
+        }
+        let mut caches = self.fresh_caches();
+        let t0 = std::time::Instant::now();
+        let mut offset = 0;
+        let mut h = None;
+        for part in tokens.chunks(chunk) {
+            let input = Tensor::from_slice(part, (1, part.len()), &self.device)?;
+            h = Some(self.hidden_cached(&input, offset, &mut caches, &mut NoCapture)?);
+            offset += part.len();
+        }
+        let h = h.expect("the prompt is not empty");
+        let mut next = self.logits_last(&h)?.i((0, 0))?.argmax(D::Minus1)?.to_scalar::<u32>()?;
+        let prompt_s = t0.elapsed().as_secs_f64();
+        let t1 = std::time::Instant::now();
+        let mut out = Vec::with_capacity(max_new);
+        out.push(next);
+        while out.len() < max_new {
+            let input = Tensor::from_slice(&[next], (1, 1), &self.device)?;
+            let h = self.hidden_cached(&input, offset, &mut caches, &mut NoCapture)?;
+            next = self.logits_last(&h)?.i((0, 0))?.argmax(D::Minus1)?.to_scalar::<u32>()?;
+            out.push(next);
+            offset += 1;
+        }
+        Ok(TimedGeneration {
+            tokens: out,
+            prompt_s,
+            decode_s: t1.elapsed().as_secs_f64(),
+        })
+    }
+
     /// The pre-cache path: re-run the whole prefix at every step.
     ///
     /// Quadratic, and kept on purpose. It is the only independent answer to
@@ -1943,10 +2027,10 @@ impl Qwen3 {
             report.embed_ms.push(t.elapsed().as_secs_f64() * 1e3);
 
             let t = std::time::Instant::now();
-            let mask = self.causal_mask_offset(1, 1, offset)?;
+            let mask = self.step_mask(1, 1, offset)?;
             let mut hh = e;
             for (i, blk) in self.blocks.iter().enumerate() {
-                hh = blk.forward_cached(&hh, &self.rotary, &mask, RopeAt::Offset(offset), &mut caches[i], i, &mut NoCapture)?;
+                hh = blk.forward_cached(&hh, &self.rotary, mask.as_ref(), RopeAt::Offset(offset), &mut caches[i], i, &mut NoCapture)?;
             }
             h = self.norm.forward(&hh)?;
             fence(&self.device, &mut report.fences)?;
@@ -1978,6 +2062,15 @@ impl Qwen3 {
     }
 }
 
+
+/// One greedy generation from [`Qwen3::generate_timed`], with its two clocks.
+pub struct TimedGeneration {
+    pub tokens: Vec<u32>,
+    /// From the first prompt token sent to the first new token read back.
+    pub prompt_s: f64,
+    /// The `tokens.len() - 1` decode steps after the first new token.
+    pub decode_s: f64,
+}
 
 /// The stable buffers of the stepped (capturable) decode path — every
 /// per-token variation of a decode step, converted into the CONTENT of a
@@ -2281,7 +2374,93 @@ mod tests {
     /// for free — not on a billed card.
     #[test]
     fn stepped_decode_matches_generate_on_all_stores() {
-        use crate::kvq::{KvMode, KvStore};
+        use crate::kvq::KvStore;
+        let mut model = tiny_model(DType::F32);
+        let prompt = [3u32, 17, 42, 7];
+        let n_new = 8;
+        let cat = {
+            model.set_kv_store(KvStore::Cat);
+            model.generate(&prompt, n_new, &mut NoCapture).expect("cat")
+        };
+        let pre = {
+            model.set_kv_store(KvStore::Prealloc(32));
+            model.generate(&prompt, n_new, &mut NoCapture).expect("prealloc")
+        };
+        let stepped = {
+            model.set_kv_store(KvStore::Prealloc(32));
+            model.generate_stepped(&prompt, n_new).expect("stepped")
+        };
+        assert_eq!(cat, pre, "cat against eager prealloc");
+        assert_eq!(pre, stepped, "eager prealloc against stepped (incomplete StepState?)");
+    }
+
+    /// A decode step on the `Cat` store skips its mask, which is all zeros.
+    /// This replays each step twice from the same cache state, once through
+    /// `hidden_cached` (no mask) and once with the zero mask added explicitly
+    /// as before, and requires the hidden states to agree bit for bit.
+    #[test]
+    fn a_decode_step_without_its_zero_mask_is_bit_identical() {
+        for dtype in [DType::F32, DType::F16] {
+            let model = tiny_model(dtype);
+            let dev = Device::Cpu;
+            let prompt = [3u32, 17, 42, 7];
+            let input = Tensor::from_slice(&prompt, (1, prompt.len()), &dev).unwrap();
+            let mut a = model.fresh_caches();
+            let mut b = model.fresh_caches();
+            model.hidden_cached(&input, 0, &mut a, &mut NoCapture).unwrap();
+            model.hidden_cached(&input, 0, &mut b, &mut NoCapture).unwrap();
+            for (offset, tok) in (prompt.len()..).zip([5u32, 60, 11, 90, 2, 33, 71, 8]) {
+                assert!(
+                    model.step_mask(1, 1, offset).unwrap().is_none(),
+                    "the decode step must take the unmasked path, or this test certifies nothing"
+                );
+                let x = Tensor::from_slice(&[tok], (1, 1), &dev).unwrap();
+                let ha = model.hidden_cached(&x, offset, &mut a, &mut NoCapture).unwrap();
+                let mask = model.causal_mask_offset(1, 1, offset).unwrap();
+                let mut hb = model.embed.forward(&x).unwrap();
+                for (i, blk) in model.blocks.iter().enumerate() {
+                    hb = blk
+                        .forward_cached(&hb, &model.rotary, Some(&mask), RopeAt::Offset(offset), &mut b[i], i, &mut NoCapture)
+                        .unwrap();
+                }
+                let hb = model.norm.forward(&hb).unwrap();
+                let bits = |t: &Tensor| -> Vec<u32> {
+                    t.flatten_all()
+                        .unwrap()
+                        .to_dtype(DType::F32)
+                        .unwrap()
+                        .to_vec1::<f32>()
+                        .unwrap()
+                        .iter()
+                        .map(|v| v.to_bits())
+                        .collect()
+                };
+                assert_eq!(bits(&ha), bits(&hb), "{dtype:?}, step at offset {offset}");
+            }
+        }
+    }
+
+    /// `generate_timed` decodes what `generate` decodes, whole or in chunks,
+    /// and the measurement switch of the decode mask moves no token either.
+    #[test]
+    fn a_timed_generation_returns_the_tokens_of_generate() {
+        let mut model = tiny_model(DType::F32);
+        let prompt: Vec<u32> = (0..13u32).map(|i| (i * 7 + 3) % 97).collect();
+        let want = model.generate(&prompt, 9, &mut NoCapture).unwrap();
+        let whole = model.generate_timed(&prompt, 9, MAX_PREFILL_ROWS).unwrap();
+        assert_eq!(whole.tokens, want, "one chunk is generate, call for call");
+        let chunked = model.generate_timed(&prompt, 9, 4).unwrap();
+        assert_eq!(chunked.tokens, want, "a prompt in chunks of 4 decodes the same tokens");
+        assert!(whole.prompt_s > 0.0 && whole.decode_s > 0.0);
+        model.set_decode_mask(true);
+        let masked = model.generate_timed(&prompt, 9, MAX_PREFILL_ROWS).unwrap();
+        assert_eq!(masked.tokens, want, "the zero mask, added again, moves no token");
+        assert!(model.step_mask(1, 1, 20).unwrap().is_some(), "the switch must reach step_mask");
+    }
+
+    /// A two-layer Qwen3 with deterministic pseudo-random weights, on the CPU.
+    fn tiny_model(dtype: DType) -> Qwen3 {
+        use crate::kvq::KvMode;
         use candle_nn::VarBuilder;
         let dev = Device::Cpu;
         let cfg = Config {
@@ -2303,8 +2482,8 @@ mod tests {
             hidden_act: candle_nn::Activation::Silu,
         };
         let varmap = candle_nn::VarMap::new();
-        let vb = VarBuilder::from_varmap(&varmap, DType::F32, &dev);
-        let mut model = Qwen3::new(&cfg, vb, KvMode::F16).expect("model");
+        let vb = VarBuilder::from_varmap(&varmap, dtype, &dev);
+        let model = Qwen3::new(&cfg, vb, KvMode::F16).expect("model");
         // Deterministic pseudo-random weights — zeros would make every path
         // agree trivially and certify nothing.
         let mut state = 0x9e3779b97f4a7c15u64;
@@ -2316,24 +2495,11 @@ mod tests {
                     ((state >> 33) as f32 / (1u64 << 31) as f32 - 1.0) * 0.1
                 })
                 .collect();
-            let t = Tensor::from_vec(vals, var.shape(), &dev).expect("rand");
+            let t = Tensor::from_vec(vals, var.shape(), &dev)
+                .and_then(|t| t.to_dtype(dtype))
+                .expect("rand");
             var.set(&t).expect("set");
         }
-        let prompt = [3u32, 17, 42, 7];
-        let n_new = 8;
-        let cat = {
-            model.set_kv_store(KvStore::Cat);
-            model.generate(&prompt, n_new, &mut NoCapture).expect("cat")
-        };
-        let pre = {
-            model.set_kv_store(KvStore::Prealloc(32));
-            model.generate(&prompt, n_new, &mut NoCapture).expect("prealloc")
-        };
-        let stepped = {
-            model.set_kv_store(KvStore::Prealloc(32));
-            model.generate_stepped(&prompt, n_new).expect("stepped")
-        };
-        assert_eq!(cat, pre, "cat against eager prealloc");
-        assert_eq!(pre, stepped, "eager prealloc against stepped (incomplete StepState?)");
+        model
     }
 }

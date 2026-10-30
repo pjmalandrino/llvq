@@ -716,6 +716,12 @@ pub fn load_int4_sources() -> Result<(String, Option<String>), String> {
 /// The `extern "C"` entry point [`load_int4_sources`] defines.
 pub const INT4_KERNEL_NAME: &str = "tv_q4_h";
 
+/// The same matvec with an f16 activation, widened in the kernel while it is
+/// staged: the served path's model carries f16, and this entry point saves the
+/// separate cast launch [`INT4_KERNEL_NAME`] needs. Same shared request, same
+/// output bits; the runtime checks the second claim on the card at load.
+pub const INT4_HALF_KERNEL_NAME: &str = "tv_q4_hh";
+
 /// The dynamic shared memory [`INT4_KERNEL_NAME`] asks for over a model's int4
 /// records: the widest activation, staged whole in f32; `0` when there is none.
 ///

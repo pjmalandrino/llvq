@@ -170,7 +170,7 @@ fn every_layout_s_translation_unit_parses() {
 fn the_served_unit_carries_the_kernels_the_runtime_looks_up() {
     let e = entry_points(&assembled(FusedLayout::Tetra48, &served_names()));
     for want in
-        ["rot_apply", "rot_apply_rows", "tv_tetra48_h", "tv_tetra48_rows_h", "tv_q4_h"]
+        ["rot_apply", "rot_apply_rows", "tv_tetra48_h", "tv_tetra48_rows_h", "tv_q4_h", "tv_q4_hh"]
     {
         assert!(e.contains(&want.to_string()), "the served unit defines no `{want}`: {e:?}");
     }
