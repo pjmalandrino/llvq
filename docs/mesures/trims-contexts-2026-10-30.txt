@@ -1,0 +1,94 @@
+THREE TRIMS GIVE THE 4B +7.2 % FOR ZERO BITS AND THE SAME TOKENS; AT 8,192 OF CONTEXT THE SERVED DECODE FALLS TO 33.2 TOK/S AND THE FIRST TOKEN TAKES 34.9 S (2026-10-30)
+=====================================================================================================================================================================
+Prereg: proofs/preregistration-trims-contexts-2026-10-30.md, sha256 0a7f43c6, stamped and committed
+        (17ad2ce) before the run. Deviations: none.
+Job:    6ae4a538c78863f9c62e8272, l40sx1, ran 14:39:52 to 14:51:32 UTC, 700 s, $0.35 against $0.60
+        announced and a $2 cap, after 30 min in the queue.
+Image:  Space sha b7a1ff99, built from commit 17ad2ce (branch debit-trims) in 16.5 min, no warning.
+        It is the first compiler of fused_cuda.rs's changes, which do not build on the Mac.
+Card:   NVIDIA L40S, 8.9, 46068 MiB, driver 580.178.04.
+Object: sealed-4b-2026-09-23/qwen3-4b-sealed.bin, sha256 886391a8; config qwen3-4b-tetra-e4.json,
+        sha256 098fe49c.
+Nature: *measured*; ratios formed round by round by fusedrun; slopes and shares *computed* below.
+Raw:    docs/mesures/trims-contexts-2026-10-30-brut/ (bucket copy plus the job log).
+
+GATES, ALL PASSED
+-----------------
+  1. image built; oracle on Qwen3-0.6B: MATCH, max |dhidden| = 0
+  2. object and config at their sha256 on the mount
+  3. "int4: tv_q4_hh equals tv_q4_h bit for bit on model.layers.0.self_attn.v_proj.weight
+     (1024 rows, d_in 2560)" at all three loads, checked on the card
+  4. step 2: 256 tokens identical to the dense arm, and the decoded line hashes to 8784ffc4,
+     the line of paper-table run 1
+  5. step 3: 256 identical tokens in every arm and round
+  6. step 4: cudarc event tracking off; every prompt length returned the same tokens six times
+  7. tile 64 in every step; no LLVQ_* in the job environment
+
+THE TRIM A/B, one model, 5 arms x 5 rounds after 2 discarded, 256 tokens after a 5-token prompt
+------------------------------------------------------------------------------------------------
+  arm         tok/s [range]           trimmed / arm, round by round
+  trimmed      122.4 [122.3–122.4]
+  +mask        119.0 [118.7–119.2]    1.0283 [1.0265–1.0308]
+  +cast        119.6 [119.2–119.7]    1.0230 [1.0221–1.0263]
+  +events      121.0 [120.7–121.3]    1.0115 [1.0080–1.0143]
+  untrimmed    114.2 [113.6–115.2]    1.0716 [1.0628–1.0766]
+
+The untrimmed arm is the path every published number ran: 114.2 here, 113.8 [112.7–114.3] in
+paper-table run 1 (another job, reported side by side, not divided). The three single trims
+multiply to 1.064; the bundle reads 1.072 (*computed*).
+
+THE CONTEXT SWEEP, served door, 256 new tokens, 1 discarded + 5 rounds, prompt in chunks of 4,096
+-------------------------------------------------------------------------------------------------
+  prompt    to first token, s       decode tok/s [range]      ms a decode token
+       5       0.03 [0.03–0.03]      122.5 [122.3–122.5]       8.16
+    2048       8.15 [8.14–8.16]       82.7 [82.6–82.7]      12.09
+    4096      16.91 [16.85–17.01]       61.4 [61.4–61.5]      16.27
+    8192      34.86 [34.79–34.86]       33.2 [33.2–33.2]      30.11
+
+*Computed* from the medians:
+  extra ms a decode token per thousand positions: 1.92 (5 to 2,048), 2.04 (to 4,096),
+    3.38 (to 8,192). The slope steepens past 4,096.
+  share of the decode token spent above the 5-token step: 32.5 % at 2,048, 49.8 % at 4,096,
+    72.9 % at 8,192.
+  prompt cost: 3.98, 4.13 and 4.26 ms a prompt token at 2,048, 4,096 and 8,192.
+
+STEP 2, the published arm replayed (mask and cast trims on, events on: the bench door)
+---------------------------------------------------------------------------------------
+  fused 120.5 tok/s [119.0–120.5], dense 43.3 [43.3–43.3], 1.38 GB on the card, 256 tokens
+  identical to the dense arm and to paper-table run 1. Against 113.8 in that run: a cross-job
+  reading, not a ratio (rule 7).
+
+THE PREDICTIONS
+---------------
+  quantity                                   predicted          measured   inside?
+  step 2 fused tok/s                         117 [110, 124]     120.5      yes
+  trimmed / +mask                            1.02 [1.005, 1.04] 1.0283     yes
+  trimmed / +cast                            1.03 [1.01, 1.05]  1.0230     yes
+  trimmed / +events                          1.04 [1.00, 1.12]  1.0115     yes
+  trimmed / untrimmed                        1.09 [1.03, 1.20]  1.0716     yes
+  decode tok/s at 5                          120 [110, 130]     122.5      yes
+  decode tok/s at 2,048                      60 [40, 85]        82.7       yes
+  decode tok/s at 4,096                      42 [28, 60]        61.4       NO, faster
+  decode tok/s at 8,192                      27 [15, 42]        33.2       yes
+  first token at 2,048, s                    10 [6, 16]         8.15       yes
+  first token at 8,192, s                    45 [25, 90]        34.86      yes
+
+The 4,096 miss is on the fast side: the per-thousand slope assumed 3.4 ms throughout, and
+the copies cost about 2 ms per thousand positions up to 4,096. Past that the measured slope
+is 3.38, as predicted.
+
+THE DECISION RULES (prereg section 6)
+-------------------------------------
+  Each trim's whole range is above 1.000: the three trims stay, and their gains are published
+  as measured.
+  Decode at 8,192, 33.2 tok/s, is below half the decode at 5 tokens, 61.25 (*computed*): by the
+  prereg's reading, the KV path (GQA attention, preallocated unexpanded cache) is the first
+  lever. That orders the next steps for the operator; it decides nothing by itself.
+
+WHAT THIS DOES NOT ESTABLISH
+----------------------------
+  - Where the rest of the 1,410 launches spend their time: no kernel timeline (no nsys in the image).
+  - Anything at 8B or 14B, on another card, or on Metal.
+  - Quality: the trims are bit-identical by gates 4 and 5, and the sweep scores nothing.
+  - Why the slope steepens past 4,096. One reading, not tested: the expanded K and V of a layer
+    stop fitting in the L40S's 96 MB of L2 (64 MB a tensor at 8,192 positions).
