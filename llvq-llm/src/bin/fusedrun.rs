@@ -986,7 +986,7 @@ fn main() -> anyhow::Result<()> {
             use llvq_llm::kvq::KvStore;
             let w = match kv_store {
                 KvStore::Prealloc(w) => w,
-                KvStore::Cat => anyhow::bail!(
+                KvStore::Cat | KvStore::Grow(_) => anyhow::bail!(
                     "LLVQ_GRAPH_AB=1 requires LLVQ_KV_PREALLOC=<window>: fixed shapes \
                      are what make the step capturable"
                 ),
@@ -1257,7 +1257,7 @@ fn main() -> anyhow::Result<()> {
             use llvq_llm::kvq::KvStore;
             let w = match kv_store {
                 KvStore::Prealloc(w) => w,
-                KvStore::Cat => anyhow::bail!(
+                KvStore::Cat | KvStore::Grow(_) => anyhow::bail!(
                     "LLVQ_KV_AB=1 requires LLVQ_KV_PREALLOC=<window>: the A/B compares \
                      cat to the prealloc store, it needs the window"
                 ),
