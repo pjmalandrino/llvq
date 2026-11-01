@@ -254,10 +254,10 @@ pub struct KvCache {
     /// its baked offset is exactly what a CUDA graph cannot replay, which is
     /// why this field exists.
     write_idx: Option<Tensor>,
-    /// How the history grows — [`KvStore::Cat`] (shipped) or a preallocated
-    /// window. Under `Prealloc`, `k`/`v` hold the FULL fixed buffers and
-    /// `len` counts the valid positions; under `Cat` they hold exactly the
-    /// history and `len` is unused.
+    /// How the history grows — [`KvStore::Cat`] (shipped), a preallocated
+    /// window, or chunks grown on demand. Under `Prealloc` and `Grow`, `k`/`v`
+    /// hold the FULL buffers and `len` counts the valid positions; under `Cat`
+    /// they hold exactly the history and `len` is unused.
     store: crate::kvq::KvStore,
     len: usize,
 }
@@ -302,8 +302,10 @@ impl KvCache {
                 crate::kvq::quantize_dequantize(v)?,
             ),
         };
-        if let crate::kvq::KvStore::Prealloc(w) = self.store {
-            return self.append_prealloc(w, &k, &v);
+        match self.store {
+            crate::kvq::KvStore::Prealloc(w) => return self.append_prealloc(w, &k, &v),
+            crate::kvq::KvStore::Grow(chunk) => return self.append_grow(chunk, &k, &v),
+            crate::kvq::KvStore::Cat => {}
         }
         let k = match &self.k {
             None => k,
@@ -378,6 +380,72 @@ impl KvCache {
         Ok((kb.clone(), vb.clone()))
     }
 
+    /// The `Grow` arm of [`Self::append`]: write in place, return views of
+    /// the valid prefix.
+    ///
+    /// The buffers hold a whole number of `chunk` positions. When the new
+    /// positions do not fit, both are reallocated to the next multiple and
+    /// the valid prefix is copied once; at every other step the only write is
+    /// the `l` new positions. What goes out are `narrow` views, whose batch
+    /// stride is the capacity: the matmuls of grouped attention read them
+    /// where they are (candle passes the stride to cuBLAS, Metal and the CPU
+    /// gemm). Expanded attention accepts them too, and pays the strided copy
+    /// of `repeat_kv`; that pairing is correct and never served.
+    fn append_grow(&mut self, chunk: usize, k: &Tensor, v: &Tensor) -> Result<(Tensor, Tensor)> {
+        if chunk == 0 {
+            candle_core::bail!("KvCache grow: a chunk of zero positions never fits anything");
+        }
+        let l = k.dim(2)?;
+        let need = self.len + l;
+        let cap = match &self.k {
+            Some(b) => b.dim(2)?,
+            None => 0,
+        };
+        if need > cap {
+            let cap = need.div_ceil(chunk) * chunk;
+            self.k = Some(grown(self.k.as_ref(), k, self.len, cap)?);
+            self.v = Some(grown(self.v.as_ref(), v, self.len, cap)?);
+        }
+        let (kb, vb) = (self.k.as_ref().unwrap(), self.v.as_ref().unwrap());
+        kb.slice_set(&k.contiguous()?, 2, self.len)?;
+        vb.slice_set(&v.contiguous()?, 2, self.len)?;
+        self.len = need;
+        Ok((kb.narrow(2, 0, need)?, vb.narrow(2, 0, need)?))
+    }
+
+    /// Keep the first `len` positions and forget the rest: the next append
+    /// writes at `len`. A measurement uses it to decode several times after
+    /// one prefill. Under `Cat` the kept history is copied out; the other
+    /// stores only move their count, since the positions past it are either
+    /// masked (`Prealloc`) or outside the view (`Grow`).
+    pub fn truncate(&mut self, len: usize) -> Result<()> {
+        let have = match self.store {
+            crate::kvq::KvStore::Cat => match &self.k {
+                Some(k) => k.dim(2)?,
+                None => 0,
+            },
+            crate::kvq::KvStore::Prealloc(_) | crate::kvq::KvStore::Grow(_) => self.len,
+        };
+        if len > have {
+            candle_core::bail!("KvCache truncate: {len} positions asked, {have} held");
+        }
+        match self.store {
+            crate::kvq::KvStore::Cat if len == 0 => {
+                self.k = None;
+                self.v = None;
+            }
+            crate::kvq::KvStore::Cat => {
+                if let (Some(k), Some(v)) = (&self.k, &self.v) {
+                    let (k, v) = (k.narrow(2, 0, len)?.contiguous()?, v.narrow(2, 0, len)?.contiguous()?);
+                    self.k = Some(k);
+                    self.v = Some(v);
+                }
+            }
+            crate::kvq::KvStore::Prealloc(_) | crate::kvq::KvStore::Grow(_) => self.len = len,
+        }
+        Ok(())
+    }
+
     /// Arm the capturable write path — see the `write_idx` field. The stepped
     /// driver calls this AFTER the prefill (whose multi-position write stays
     /// on `slice_set`), with clones of one shared index tensor.
@@ -397,6 +465,111 @@ impl KvCache {
     pub fn store(&self) -> crate::kvq::KvStore {
         self.store
     }
+}
+
+/// A `Grow` buffer of `cap` positions, shaped like `like` on every other
+/// axis, holding the first `len` positions of `old` and zeros after them.
+fn grown(old: Option<&Tensor>, like: &Tensor, len: usize, cap: usize) -> Result<Tensor> {
+    let (b, heads, _, hd) = like.dims4()?;
+    let fresh = Tensor::zeros((b, heads, cap, hd), like.dtype(), like.device())?;
+    if let Some(old) = old.filter(|_| len > 0) {
+        fresh.slice_set(&old.narrow(2, 0, len)?.contiguous()?, 2, 0)?;
+    }
+    Ok(fresh)
+}
+
+/// An attention form that reads the cached heads unexpanded: `q`, `k`, `v`,
+/// the mask (or `None` where it would be all zeros), the score scale.
+type AttnFn = fn(&Tensor, &Tensor, &Tensor, Option<&Tensor>, f64) -> Result<Tensor>;
+
+/// `q` as `[b, n_kv, groups, l, hd]`, with the shapes it is read against.
+///
+/// Query head `h` reads key head `h / groups`, the convention of `repeat_kv`,
+/// so the `groups` query heads of one key head are contiguous in `q`.
+fn group_view(q: &Tensor, k: &Tensor) -> Result<(Tensor, usize, usize)> {
+    let (b, n_heads, l, hd) = q.dims4()?;
+    let n_kv = k.dim(1)?;
+    if n_kv == 0 || n_heads % n_kv != 0 {
+        candle_core::bail!("attention: {n_heads} query heads over {n_kv} key heads");
+    }
+    let groups = n_heads / n_kv;
+    Ok((q.contiguous()?.reshape((b, n_kv, groups, l, hd))?, n_kv, groups))
+}
+
+/// Attention of `q`, `[b, n_heads, l, hd]`, over `k` and `v` holding the
+/// `n_kv` heads the cache stores, `[b, n_kv, L, hd]`, one matmul per position
+/// in the group, without expanding them.
+///
+/// Position `r` of every group is the `[b, n_kv, l, hd]` view `q5[.., .., r]`,
+/// whose batch stride skips the other positions: the matmul multiplies it by
+/// the stored key head with the shape the expanded form uses for one query
+/// head, and the CPU gemm and cuBLAS read the stride rather than copy. The
+/// scores are stacked back in query-head order before the scale, the mask and
+/// the softmax, each of which works row by row. On the CPU this is bit for
+/// bit the expanded form (`attention_forms_agree`); on another backend it is
+/// as long as its matmul rounds a batch element the same way whatever the
+/// batch count.
+fn shared_attention(
+    q: &Tensor,
+    k: &Tensor,
+    v: &Tensor,
+    mask: Option<&Tensor>,
+    scale: f64,
+) -> Result<Tensor> {
+    let (b, n_heads, l, hd) = q.dims4()?;
+    let (q5, _, groups) = group_view(q, k)?;
+    let kt = k.transpose(2, 3)?;
+    let scores = (0..groups)
+        .map(|r| q5.i((.., .., r))?.matmul(&kt))
+        .collect::<Result<Vec<_>>>()?;
+    let scores = (Tensor::stack(&scores, 2)? * scale)?;
+    let scores = match mask {
+        Some(m) => scores.broadcast_add(&m.unsqueeze(2)?)?,
+        None => scores,
+    };
+    let p = candle_nn::ops::softmax_last_dim(&scores)?;
+    let ctx = (0..groups)
+        .map(|r| p.i((.., .., r))?.matmul(v))
+        .collect::<Result<Vec<_>>>()?;
+    Tensor::stack(&ctx, 2)?.reshape((b, n_heads, l, hd))
+}
+
+/// Attention of `q`, `[b, n_heads, l, hd]`, over `k` and `v` holding the
+/// `n_kv` heads the cache stores, `[b, n_kv, L, hd]`, one matmul per key head,
+/// without expanding them.
+///
+/// Query head `h` reads key head `h / groups`, the convention of `repeat_kv`,
+/// so the `groups` query heads of one key head are contiguous in `q`. Viewed
+/// as `[b, n_kv, groups·l, hd]`, they become the rows of one matrix that
+/// multiplies its key head once: no copy of the history, and on Qwen3-4B a
+/// quarter of the bytes `repeat_kv` makes the expanded matmuls read. The rows
+/// are ordered (query head in the group, position), so the `[l, L]` causal
+/// mask applies to each of the `groups` blocks of rows, through a
+/// 5-dimensional view. Each score is the same dot product as in the expanded
+/// form; whether a backend rounds it the same way at the new matmul shape is
+/// a measurement, not a property of this function.
+fn grouped_attention(
+    q: &Tensor,
+    k: &Tensor,
+    v: &Tensor,
+    mask: Option<&Tensor>,
+    scale: f64,
+) -> Result<Tensor> {
+    let (b, n_heads, l, hd) = q.dims4()?;
+    let kv_len = k.dim(2)?;
+    let (q5, n_kv, groups) = group_view(q, k)?;
+    let q = q5.reshape((b, n_kv, groups * l, hd))?;
+    let scores = (q.matmul(&k.transpose(2, 3)?)? * scale)?;
+    let scores = match mask {
+        Some(m) => scores
+            .reshape((b, n_kv, groups, l, kv_len))?
+            .broadcast_add(&m.unsqueeze(2)?)?
+            .reshape((b, n_kv, groups * l, kv_len))?,
+        None => scores,
+    };
+    candle_nn::ops::softmax_last_dim(&scores)?
+        .matmul(v)?
+        .reshape((b, n_heads, l, hd))
 }
 
 /// One transformer block, with its seven projections reachable by name.
@@ -1232,6 +1405,12 @@ pub struct Block {
     /// `LLVQ_ROT_SHARE` and calls [`Qwen3::set_rot_share`] explicitly, on the
     /// one path where it means something.
     rot_share: RotShare,
+    /// How attention reads the cached heads; [`AttnHeads::Expanded`] unless
+    /// [`Qwen3::set_attn_heads`] says otherwise, for the same reason as
+    /// `rot_share`.
+    ///
+    /// [`AttnHeads::Expanded`]: crate::kvq::AttnHeads::Expanded
+    attn_heads: crate::kvq::AttnHeads,
 }
 
 /// Take the supplied projection, or build the dense one.
@@ -1306,6 +1485,7 @@ impl Block {
             n_kv: nkv,
             head_dim: hd,
             rot_share: RotShare::Off,
+            attn_heads: crate::kvq::AttnHeads::Expanded,
         })
     }
 
@@ -1316,6 +1496,11 @@ impl Block {
 
     pub fn rot_share(&self) -> RotShare {
         self.rot_share
+    }
+
+    /// How this block's attention reads the cached heads.
+    pub fn set_attn_heads(&mut self, heads: crate::kvq::AttnHeads) {
+        self.attn_heads = heads;
     }
 
     /// Read-only view of a projection, by checkpoint name.
@@ -1439,9 +1624,20 @@ impl Block {
             RopeAt::Offset(o) => rotary.apply(&q, &k, o)?,
             RopeAt::Tables { cos, sin } => Rotary::apply_tables(&q, &k, cos, sin)?,
         };
+        let scale = 1.0 / (self.head_dim as f64).sqrt();
+        let unexpanded = match self.attn_heads {
+            crate::kvq::AttnHeads::Expanded => None,
+            crate::kvq::AttnHeads::Shared => Some(shared_attention as AttnFn),
+            crate::kvq::AttnHeads::Grouped => Some(grouped_attention as AttnFn),
+        };
+        if let Some(attend) = unexpanded {
+            let (k, v) = cache.append(&k, &v)?;
+            let ctx = attend(&q, &k, &v, mask, scale)?;
+            return self.finish(x, ctx, idx, cap);
+        }
         let groups = self.n_heads / self.n_kv;
         let (k, v) = match cache.store() {
-            crate::kvq::KvStore::Cat => {
+            crate::kvq::KvStore::Cat | crate::kvq::KvStore::Grow(_) => {
                 let (k, v) = cache.append(&k, &v)?;
                 (
                     candle_transformers::utils::repeat_kv(k, groups)?.contiguous()?,
@@ -1463,13 +1659,19 @@ impl Block {
             }
         };
 
-        let scale = 1.0 / (self.head_dim as f64).sqrt();
         let scores = (q.matmul(&k.transpose(2, 3)?)? * scale)?;
         let scores = match mask {
             Some(m) => scores.broadcast_add(m)?,
             None => scores,
         };
         let ctx = candle_nn::ops::softmax_last_dim(&scores)?.matmul(&v)?;
+        self.finish(x, ctx, idx, cap)
+    }
+
+    /// Everything after the attention weights: `o_proj`, the residual, the
+    /// MLP. `ctx` is `[b, n_heads, l, hd]`, whichever form computed it.
+    fn finish(&self, x: &Tensor, ctx: Tensor, idx: usize, cap: &mut dyn Capture) -> Result<Tensor> {
+        let (b, l, _) = x.dims3()?;
         let ctx = ctx
             .transpose(1, 2)?
             .reshape((b, l, self.n_heads * self.head_dim))?;
@@ -1497,6 +1699,10 @@ pub struct Qwen3 {
     /// [`Self::set_kv_store`]. The A/B guard is the printed arm line, which
     /// must name the store: an unwired arm prints `cat` and is visible.
     kv_store: crate::kvq::KvStore,
+    /// How every block's attention reads the cached heads, kept here as well
+    /// so the stepped path can size its write index. Set through
+    /// [`Self::set_attn_heads`] only.
+    attn_heads: crate::kvq::AttnHeads,
     /// Measurement only, `false` everywhere else: build and add the all-zero
     /// mask of a `Cat` decode step, as every decode step did before
     /// [`Self::step_mask`] learned to skip it. `bin/fusedrun`'s
@@ -1574,6 +1780,7 @@ impl Qwen3 {
             cfg: cfg.clone(),
             kv,
             kv_store: crate::kvq::KvStore::Cat,
+            attn_heads: crate::kvq::AttnHeads::Expanded,
             decode_mask: false,
             embed,
             blocks,
@@ -1625,11 +1832,15 @@ impl Qwen3 {
     /// would be all zeros: one position on the `Cat` store. That is every
     /// decode step of the served path, and building it cost a host vector, an
     /// upload and a cast a token, then one add a layer, for no effect.
+    ///
+    /// `Grow` hands attention exactly the history, as `Cat` does, so it takes
+    /// the same masks.
     fn step_mask(&self, b: usize, l: usize, offset: usize) -> Result<Option<Tensor>> {
+        use crate::kvq::KvStore;
         match self.kv_store {
-            crate::kvq::KvStore::Cat if l == 1 && !self.decode_mask => Ok(None),
-            crate::kvq::KvStore::Cat => self.causal_mask_offset(b, l, offset).map(Some),
-            crate::kvq::KvStore::Prealloc(w) => self.causal_mask_width(b, l, offset, w).map(Some),
+            KvStore::Cat | KvStore::Grow(_) if l == 1 && !self.decode_mask => Ok(None),
+            KvStore::Cat | KvStore::Grow(_) => self.causal_mask_offset(b, l, offset).map(Some),
+            KvStore::Prealloc(w) => self.causal_mask_width(b, l, offset, w).map(Some),
         }
     }
 
@@ -1652,6 +1863,21 @@ impl Qwen3 {
 
     pub fn kv_store(&self) -> crate::kvq::KvStore {
         self.kv_store
+    }
+
+    /// Name how attention reads the cached heads, in every block. Same rule
+    /// as [`Self::set_kv_store`]: a binary that sets it prints
+    /// [`crate::kvq::AttnHeads::label`] on its arm line. Unset, every block
+    /// keeps the expanded form every published number ran.
+    pub fn set_attn_heads(&mut self, heads: crate::kvq::AttnHeads) {
+        self.attn_heads = heads;
+        for b in &mut self.blocks {
+            b.set_attn_heads(heads);
+        }
+    }
+
+    pub fn attn_heads(&self) -> crate::kvq::AttnHeads {
+        self.attn_heads
     }
 
     /// Measurement only: make every `Cat` decode step build and add its
@@ -1738,10 +1964,19 @@ impl Qwen3 {
     pub fn step_state(&self, caches: &mut [KvCache]) -> Result<StepState> {
         let w = match self.kv_store {
             crate::kvq::KvStore::Prealloc(w) => w,
-            crate::kvq::KvStore::Cat => candle_core::bail!(
+            crate::kvq::KvStore::Cat | crate::kvq::KvStore::Grow(_) => candle_core::bail!(
                 "the stepped path requires a preallocated store (LLVQ_KV_PREALLOC): \
                  its fixed shapes are what make it capturable"
             ),
+        };
+        // `scatter_set` wants its index shaped like the step it writes: the
+        // expanded step carries every query head, the grouped one the key
+        // heads only.
+        let heads = match self.attn_heads {
+            crate::kvq::AttnHeads::Expanded => {
+                self.cfg.num_key_value_heads * (self.cfg.num_attention_heads / self.cfg.num_key_value_heads)
+            }
+            crate::kvq::AttnHeads::Shared | crate::kvq::AttnHeads::Grouped => self.cfg.num_key_value_heads,
         };
         let (cos, sin) = self.rotary.step_tables()?;
         let st = StepState {
@@ -1749,11 +1984,7 @@ impl Qwen3 {
             mask: Tensor::zeros((1, 1, 1, w), self.dtype, &self.device)?,
             cos,
             sin,
-            pos_idx: Tensor::zeros(
-                (1, self.cfg.num_key_value_heads * (self.cfg.num_attention_heads / self.cfg.num_key_value_heads), 1, self.cfg.head_dim),
-                DType::U32,
-                &self.device,
-            )?,
+            pos_idx: Tensor::zeros((1, heads, 1, self.cfg.head_dim), DType::U32, &self.device)?,
             w,
         };
         for c in caches.iter_mut() {
@@ -1922,31 +2153,61 @@ impl Qwen3 {
         }
         let mut caches = self.fresh_caches();
         let t0 = std::time::Instant::now();
-        let mut offset = 0;
-        let mut h = None;
-        for part in tokens.chunks(chunk) {
-            let input = Tensor::from_slice(part, (1, part.len()), &self.device)?;
-            h = Some(self.hidden_cached(&input, offset, &mut caches, &mut NoCapture)?);
-            offset += part.len();
-        }
-        let h = h.expect("the prompt is not empty");
-        let mut next = self.logits_last(&h)?.i((0, 0))?.argmax(D::Minus1)?.to_scalar::<u32>()?;
+        let first = argmax_last(&self.prefill_chunked(tokens, chunk, &mut caches)?)?;
         let prompt_s = t0.elapsed().as_secs_f64();
         let t1 = std::time::Instant::now();
-        let mut out = Vec::with_capacity(max_new);
-        out.push(next);
-        while out.len() < max_new {
-            let input = Tensor::from_slice(&[next], (1, 1), &self.device)?;
-            let h = self.hidden_cached(&input, offset, &mut caches, &mut NoCapture)?;
-            next = self.logits_last(&h)?.i((0, 0))?.argmax(D::Minus1)?.to_scalar::<u32>()?;
-            out.push(next);
-            offset += 1;
-        }
+        let out = self.decode_greedy(first, tokens.len(), max_new, &mut caches)?;
         Ok(TimedGeneration {
             tokens: out,
             prompt_s,
             decode_s: t1.elapsed().as_secs_f64(),
         })
+    }
+
+    /// The prompt through `caches` in chunks of at most `chunk` positions,
+    /// each attending over what the earlier ones filled, and the f32 logits
+    /// of its last position, `[1, 1, vocab]`.
+    pub fn prefill_chunked(&self, tokens: &[u32], chunk: usize, caches: &mut [KvCache]) -> Result<Tensor> {
+        if tokens.is_empty() || chunk == 0 {
+            candle_core::bail!("prefill_chunked: {} tokens in chunks of {chunk}", tokens.len());
+        }
+        let mut offset = 0;
+        let mut h = None;
+        for part in tokens.chunks(chunk) {
+            let input = Tensor::from_slice(part, (1, part.len()), &self.device)?;
+            h = Some(self.hidden_cached(&input, offset, caches, &mut NoCapture)?);
+            offset += part.len();
+        }
+        self.logits_last(&h.expect("the prompt is not empty"))
+    }
+
+    /// One decode step: `token` at absolute position `offset`, appended to
+    /// `caches`, and the f32 logits it yields, `[1, 1, vocab]`.
+    pub fn step_logits(&self, token: u32, offset: usize, caches: &mut [KvCache]) -> Result<Tensor> {
+        let input = Tensor::from_slice(&[token], (1, 1), &self.device)?;
+        let h = self.hidden_cached(&input, offset, caches, &mut NoCapture)?;
+        self.logits_last(&h)
+    }
+
+    /// Greedy decode from `first`, already chosen and fed at position
+    /// `offset`, until `max_new` tokens counting `first`. Each step ends on
+    /// the host read of its token.
+    pub fn decode_greedy(
+        &self,
+        first: u32,
+        offset: usize,
+        max_new: usize,
+        caches: &mut [KvCache],
+    ) -> Result<Vec<u32>> {
+        let mut out = Vec::with_capacity(max_new.max(1));
+        let (mut next, mut offset) = (first, offset);
+        out.push(next);
+        while out.len() < max_new {
+            next = argmax_last(&self.step_logits(next, offset, caches)?)?;
+            out.push(next);
+            offset += 1;
+        }
+        Ok(out)
     }
 
     /// The pre-cache path: re-run the whole prefix at every step.
@@ -2062,6 +2323,11 @@ impl Qwen3 {
     }
 }
 
+
+/// The greedy token of `[1, 1, vocab]` logits, read back to the host.
+pub fn argmax_last(logits: &Tensor) -> Result<u32> {
+    logits.i((0, 0))?.argmax(D::Minus1)?.to_scalar::<u32>()
+}
 
 /// One greedy generation from [`Qwen3::generate_timed`], with its two clocks.
 pub struct TimedGeneration {
@@ -2392,6 +2658,163 @@ mod tests {
         };
         assert_eq!(cat, pre, "cat against eager prealloc");
         assert_eq!(pre, stepped, "eager prealloc against stepped (incomplete StepState?)");
+        // The unexpanded forms write `n_kv` heads, so the write index must
+        // be sized for them: a wrong shape refuses inside `scatter_set`.
+        model.set_kv_store(KvStore::Prealloc(32));
+        for heads in [crate::kvq::AttnHeads::Shared, crate::kvq::AttnHeads::Grouped] {
+            model.set_attn_heads(heads);
+            let eager = model.generate(&prompt, n_new, &mut NoCapture).expect("eager, unexpanded");
+            let s = model.generate_stepped(&prompt, n_new).expect("stepped, unexpanded");
+            assert_eq!(eager, s, "stepped under {}", heads.label());
+        }
+    }
+
+    /// The f32 logits of a chunked prefill, then of one decode step per
+    /// token of `feed`. Feeding fixed tokens rather than each arm's own
+    /// greedy choice compares every arm on the same inputs: a near tie that
+    /// one rounding flips would otherwise send two arms down different texts.
+    fn logit_trace(m: &Qwen3, prompt: &[u32], chunk: usize, feed: &[u32]) -> Vec<Vec<f32>> {
+        let mut c = m.fresh_caches();
+        let mut out = vec![m.prefill_chunked(prompt, chunk, &mut c).unwrap()];
+        for (offset, &t) in (prompt.len()..).zip(feed) {
+            out.push(m.step_logits(t, offset, &mut c).unwrap());
+        }
+        out.iter().map(|l| l.flatten_all().unwrap().to_vec1::<f32>().unwrap()).collect()
+    }
+
+    fn max_abs_diff(a: &[Vec<f32>], b: &[Vec<f32>]) -> f32 {
+        a.iter().flatten().zip(b.iter().flatten()).map(|(x, y)| (x - y).abs()).fold(0.0, f32::max)
+    }
+
+    fn same_bits(a: &[Vec<f32>], b: &[Vec<f32>]) -> bool {
+        a.len() == b.len()
+            && a.iter().zip(b).all(|(x, y)| {
+                x.len() == y.len() && x.iter().zip(y).all(|(p, q)| p.to_bits() == q.to_bits())
+            })
+    }
+
+    /// The three attention forms over the stores that hand attention exactly
+    /// the history. Against `Cat` with expanded heads, every published path:
+    /// the `Grow` store alone and the `Shared` form are bit for bit, in the
+    /// chunked prefill (a masked chunk at an offset), in 20 decode steps and
+    /// in the uncached full-window forward; `Grouped` changes the matmul
+    /// shape, and is held to a bound on the logits instead, about ten times
+    /// the largest difference measured on 2026-11-01. It is not held to the
+    /// same greedy text: on this random model, whose logits tie often, one
+    /// rounding difference flipped a token at the ninth step.
+    /// Two head layouts: 4 over 2, and 8 over 2, groups of 4 as in Qwen3-4B,
+    /// where a group and a key head no longer have the same count.
+    #[test]
+    fn attention_forms_agree() {
+        use crate::kvq::{AttnHeads, KvStore};
+        for (dtype, bound, n_heads) in
+            [(DType::F32, 6e-7f32, 4), (DType::F16, 4e-3, 4), (DType::F32, 6e-7, 8), (DType::F16, 4e-3, 8)]
+        {
+            let mut m = tiny_model_heads(dtype, n_heads, 2);
+            let prompt = [3u32, 17, 42, 7, 9, 11];
+            let window = Tensor::from_slice(&[5u32, 60, 11, 90, 2, 33, 71, 8, 13], (1, 9), &Device::Cpu).unwrap();
+            let full = |m: &Qwen3| {
+                vec![m.logits(&window, &mut NoCapture).unwrap().flatten_all().unwrap().to_dtype(DType::F32).unwrap().to_vec1::<f32>().unwrap()]
+            };
+            let feed = [5u32, 60, 11, 90, 2, 33, 71, 8, 13, 44, 1, 96, 27, 64, 38, 19, 80, 6, 52, 23];
+            let reference = (logit_trace(&m, &prompt, 4, &feed), full(&m));
+            for (store, heads, exact) in [
+                (KvStore::Grow(4), AttnHeads::Expanded, true),
+                (KvStore::Cat, AttnHeads::Shared, true),
+                (KvStore::Grow(4), AttnHeads::Shared, true),
+                (KvStore::Grow(1), AttnHeads::Shared, true),
+                (KvStore::Cat, AttnHeads::Grouped, false),
+                (KvStore::Grow(4), AttnHeads::Grouped, false),
+            ] {
+                m.set_kv_store(store);
+                m.set_attn_heads(heads);
+                let arm = format!("{dtype:?} {n_heads}/2 {} {}", store.label(), heads.label());
+                let got = (logit_trace(&m, &prompt, 4, &feed), full(&m));
+                if exact {
+                    assert!(same_bits(&reference.0, &got.0), "{arm}: cached logits not bit for bit");
+                    assert!(same_bits(&reference.1, &got.1), "{arm}: full-window logits not bit for bit");
+                } else {
+                    let d = max_abs_diff(&reference.0, &got.0).max(max_abs_diff(&reference.1, &got.1));
+                    println!("{arm}: max |dlogit| {d:e}");
+                    assert!(d <= bound, "{arm}: max |dlogit| {d:e} above {bound:e}");
+                    assert!(d > 0.0, "{arm}: bit for bit, so this arm is not testing the grouped matmul");
+                }
+            }
+        }
+    }
+
+    /// At every append, across chunk boundaries and appends wider than a
+    /// chunk, the `Grow` store hands attention the very history `Cat` does,
+    /// in buffers sized to a whole number of chunks.
+    #[test]
+    fn grow_store_holds_what_cat_holds() {
+        use crate::kvq::{KvMode, KvStore};
+        let dev = Device::Cpu;
+        let mut cat = KvCache::with_store(KvMode::F16, KvStore::Cat);
+        let mut grow = KvCache::with_store(KvMode::F16, KvStore::Grow(4));
+        let mut seed = 1u32;
+        for l in [5usize, 1, 1, 3, 1, 1, 1, 1, 9, 1, 2] {
+            let mut step = || {
+                let n = 2 * l * 3;
+                let v: Vec<f32> = (0..n)
+                    .map(|_| {
+                        seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+                        (seed >> 8) as f32 / (1u32 << 24) as f32
+                    })
+                    .collect();
+                Tensor::from_vec(v, (1, 2, l, 3), &dev).unwrap()
+            };
+            let (k, v) = (step(), step());
+            let (ck, cv) = cat.append(&k, &v).unwrap();
+            let (gk, gv) = grow.append(&k, &v).unwrap();
+            for (c, g) in [(ck, gk), (cv, gv)] {
+                assert_eq!(c.dims(), g.dims());
+                let flat = |t: &Tensor| t.flatten_all().unwrap().to_vec1::<f32>().unwrap();
+                assert_eq!(flat(&c), flat(&g), "after an append of {l}");
+            }
+            let cap = grow.k.as_ref().unwrap().dim(2).unwrap();
+            assert!(cap.is_multiple_of(4) && cap >= grow.len && cap < grow.len + 4, "capacity {cap} for {}", grow.len);
+        }
+        let mut zero = KvCache::with_store(KvMode::F16, KvStore::Grow(0));
+        let k = Tensor::zeros((1, 2, 1, 3), DType::F32, &dev).unwrap();
+        assert!(format!("{}", zero.append(&k, &k).unwrap_err()).contains("chunk"));
+    }
+
+    /// Decoding again after a truncation to the prompt gives the logits of
+    /// the first decode, bit for bit, on every store: `LLVQ_GQA_AB` times
+    /// several decodes after one prefill on the strength of this.
+    #[test]
+    fn a_truncated_cache_decodes_like_a_fresh_one() {
+        use crate::kvq::{AttnHeads, KvStore};
+        let mut m = tiny_model(DType::F32);
+        let prompt = [3u32, 17, 42, 7, 9, 11];
+        for (store, heads) in [
+            (KvStore::Cat, AttnHeads::Expanded),
+            (KvStore::Grow(4), AttnHeads::Grouped),
+            (KvStore::Prealloc(32), AttnHeads::Expanded),
+        ] {
+            m.set_kv_store(store);
+            m.set_attn_heads(heads);
+            let mut c = m.fresh_caches();
+            let first = argmax_last(&m.prefill_chunked(&prompt, 4, &mut c).unwrap()).unwrap();
+            let decode = |c: &mut [KvCache]| -> Vec<Vec<f32>> {
+                let mut next = first;
+                (prompt.len()..prompt.len() + 7)
+                    .map(|offset| {
+                        let l = m.step_logits(next, offset, c).unwrap();
+                        next = argmax_last(&l).unwrap();
+                        l.flatten_all().unwrap().to_vec1::<f32>().unwrap()
+                    })
+                    .collect()
+            };
+            let a = decode(&mut c);
+            for cache in c.iter_mut() {
+                cache.truncate(prompt.len()).unwrap();
+            }
+            let b = decode(&mut c);
+            assert!(same_bits(&a, &b), "{}: a truncated cache decodes differently", store.label());
+            assert!(c[0].truncate(prompt.len() + 100).is_err(), "{}: truncating up must refuse", store.label());
+        }
     }
 
     /// A decode step on the `Cat` store skips its mask, which is all zeros.
@@ -2460,6 +2883,11 @@ mod tests {
 
     /// A two-layer Qwen3 with deterministic pseudo-random weights, on the CPU.
     fn tiny_model(dtype: DType) -> Qwen3 {
+        tiny_model_heads(dtype, 4, 2)
+    }
+
+    /// The tiny model with `n_heads` query heads over `n_kv` key heads.
+    fn tiny_model_heads(dtype: DType, n_heads: usize, n_kv: usize) -> Qwen3 {
         use crate::kvq::KvMode;
         use candle_nn::VarBuilder;
         let dev = Device::Cpu;
@@ -2468,10 +2896,10 @@ mod tests {
             hidden_size: 64,
             intermediate_size: 128,
             num_hidden_layers: 2,
-            num_attention_heads: 4,
+            num_attention_heads: n_heads,
             head_dim: 16,
             attention_bias: false,
-            num_key_value_heads: 2,
+            num_key_value_heads: n_kv,
             max_position_embeddings: 64,
             sliding_window: None,
             max_window_layers: 0,
@@ -2485,9 +2913,14 @@ mod tests {
         let vb = VarBuilder::from_varmap(&varmap, dtype, &dev);
         let model = Qwen3::new(&cfg, vb, KvMode::F16).expect("model");
         // Deterministic pseudo-random weights — zeros would make every path
-        // agree trivially and certify nothing.
+        // agree trivially and certify nothing. The variables are walked in
+        // name order: the map's own order changes from one process to the
+        // next, and with it every weight.
         let mut state = 0x9e3779b97f4a7c15u64;
-        for (_, var) in varmap.data().lock().unwrap().iter() {
+        let data = varmap.data().lock().unwrap();
+        let mut vars: Vec<_> = data.iter().collect();
+        vars.sort_by(|a, b| a.0.cmp(b.0));
+        for (_, var) in vars {
             let n = var.elem_count();
             let vals: Vec<f32> = (0..n)
                 .map(|_| {
@@ -2503,3 +2936,4 @@ mod tests {
         model
     }
 }
+

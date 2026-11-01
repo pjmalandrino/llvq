@@ -357,11 +357,13 @@ mod tests {
         }
         assert_eq!(KvStore::Cat.label(), "cat");
         assert_eq!(KvStore::Prealloc(256).label(), "prealloc(256)");
+        assert_eq!(KvStore::Grow(256).label(), "grow(256)");
+        assert_eq!(AttnHeads::default(), AttnHeads::Expanded);
     }
 }
 
-/// How the KV cache GROWS: by concatenation (shipped) or into a buffer
-/// preallocated to a fixed window.
+/// How the KV cache GROWS: by concatenation (shipped), into a buffer
+/// preallocated to a fixed window, or into a buffer grown by whole chunks.
 ///
 /// Resolved once, from `LLVQ_KV_PREALLOC`, by the binaries — `model.rs` reads
 /// no environment variable — and printed on the arm line of every A/B, so an
@@ -380,6 +382,13 @@ pub enum KvStore {
     Cat,
     /// Fixed buffers of this many positions, written in place per step.
     Prealloc(usize),
+    /// Buffers grown by whole chunks of this many positions, written in place
+    /// per step; attention reads a view of the valid prefix. The history is
+    /// copied only when a chunk fills, not at every step as under `Cat`, and
+    /// no window is promised in advance. Paired with
+    /// [`AttnHeads::Grouped`], a decode step reads each cached byte once and
+    /// copies none. Set by `bin/fusedrun`'s `LLVQ_GQA_AB` only, so far.
+    Grow(usize),
 }
 
 impl KvStore {
@@ -411,8 +420,51 @@ impl KvStore {
         match self {
             Self::Cat => "cat".to_string(),
             Self::Prealloc(w) => format!("prealloc({w})"),
+            Self::Grow(c) => format!("grow({c})"),
         }
     }
 
+}
+
+/// The chunk a `Grow` store is sized by when a binary picks it, in positions.
+///
+/// A trade between two small costs, *computed* on Qwen3-4B in f16 (147 KB a
+/// position over 36 layers): at most 255 positions held and unused, 37 MB;
+/// and one copy of the history every 256 tokens, which at 8,192 positions is
+/// 32 positions' worth of copying a token against 8,192 read by attention.
+pub const GROW_CHUNK: usize = 256;
+
+/// How attention reads the `n_kv` key and value heads the cache stores.
+///
+/// `Expanded` is the shipped form: `repeat_kv` copies each head to the
+/// `n_heads / n_kv` query heads that read it, the whole history at every step
+/// on the `Cat` store. The two other forms read the stored heads where they
+/// are, and copy no history:
+///
+/// - `Shared` runs one matmul per position in the group, each of the
+///   expanded form's shape, so each score is computed exactly as before. It
+///   reads every key head `n_heads / n_kv` times, as the expanded matmul
+///   does, and launches more kernels than it.
+/// - `Grouped` stacks the query heads of one key head as rows of one matrix,
+///   one matmul per key head, which reads each cached byte once. The matmul
+///   shape differs from the expanded one, so its rounding may too: on the CPU
+///   a decode step moves the logits by about one unit in the last place.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum AttnHeads {
+    #[default]
+    Expanded,
+    Shared,
+    Grouped,
+}
+
+impl AttnHeads {
+    /// What the arm line prints.
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Expanded => "expanded",
+            Self::Shared => "shared",
+            Self::Grouped => "grouped",
+        }
+    }
 }
 

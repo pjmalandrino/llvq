@@ -243,15 +243,196 @@ fn run_trim_ab(
 /// The prompt lengths of `LLVQ_CONTEXTS`, comma-separated, each above zero.
 #[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
 fn parse_contexts(v: &str) -> Result<Vec<usize>, String> {
+    parse_lengths("LLVQ_CONTEXTS", v)
+}
+
+/// Prompt lengths, comma-separated, each above zero, read from `var`.
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+fn parse_lengths(var: &str, v: &str) -> Result<Vec<usize>, String> {
     let lengths = v
         .split(',')
         .map(|s| s.trim().parse::<usize>())
         .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| format!("LLVQ_CONTEXTS={v:?}: {e}"))?;
+        .map_err(|e| format!("{var}={v:?}: {e}"))?;
     if lengths.is_empty() || lengths.contains(&0) {
-        return Err(format!("LLVQ_CONTEXTS={v:?}: every prompt length must be above zero"));
+        return Err(format!("{var}={v:?}: every prompt length must be above zero"));
     }
     Ok(lengths)
+}
+
+/// The arms of `LLVQ_GQA_AB`: the published attention (`Cat` store, expanded
+/// heads), and the two forms that read the cached heads unexpanded from a
+/// store grown in place by [`llvq_llm::kvq::GROW_CHUNK`] positions.
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum GqaArm {
+    Published,
+    Shared,
+    Grouped,
+}
+
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+impl GqaArm {
+    const ALL: [GqaArm; 3] = [GqaArm::Published, GqaArm::Shared, GqaArm::Grouped];
+
+    fn store(self) -> llvq_llm::kvq::KvStore {
+        match self {
+            GqaArm::Published => llvq_llm::kvq::KvStore::Cat,
+            GqaArm::Shared | GqaArm::Grouped => {
+                llvq_llm::kvq::KvStore::Grow(llvq_llm::kvq::GROW_CHUNK)
+            }
+        }
+    }
+
+    fn heads(self) -> llvq_llm::kvq::AttnHeads {
+        match self {
+            GqaArm::Published => llvq_llm::kvq::AttnHeads::Expanded,
+            GqaArm::Shared => llvq_llm::kvq::AttnHeads::Shared,
+            GqaArm::Grouped => llvq_llm::kvq::AttnHeads::Grouped,
+        }
+    }
+
+    /// What every line of the table prints: the store and the form, as set.
+    fn name(self) -> String {
+        format!("{}+{}", self.store().label(), self.heads().label())
+    }
+
+    fn apply(self, m: &mut llvq_llm::model::Qwen3) {
+        m.set_kv_store(self.store());
+        m.set_attn_heads(self.heads());
+    }
+}
+
+/// "bit for bit" when two logit vectors agree in every bit, else their
+/// largest absolute difference.
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+fn logit_agreement(a: &[f32], b: &[f32]) -> String {
+    if a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.to_bits() == y.to_bits()) {
+        return "bit for bit".to_string();
+    }
+    let d = a.iter().zip(b).map(|(x, y)| (x - y).abs()).fold(0f32, f32::max);
+    format!("max |dlogit| {d:.3e}")
+}
+
+/// What one arm's prefill leaves for its decode rounds.
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+struct Prefilled {
+    caches: Vec<llvq_llm::model::KvCache>,
+    first: u32,
+    prompt_logits: Vec<f32>,
+    step_logits: Vec<f32>,
+}
+
+/// `LLVQ_GQA_AB`: for each prompt length, one prefill per arm, outside every
+/// clock, then one discarded and [`ROUNDS_TIMED`] greedy decodes of `n_new`
+/// tokens from it, every arm in every round, each cache truncated back to the
+/// prompt before each decode (`a_truncated_cache_decodes_like_a_fresh_one`).
+/// The decode speed is `(n_new − 1) / t`, the reading of `LLVQ_CONTEXTS`.
+///
+/// Two outcomes are printed, never gated: whether each unexpanded arm's logits
+/// are the published arm's bit for bit (the prompt's last position, then the
+/// first decode step), and whether its text is. Within one arm, a text that
+/// changes between rounds stops the run: that is a speed of two things.
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+fn run_gqa_ab(
+    model: &mut llvq_llm::model::Qwen3,
+    seed: &[u32],
+    lengths: &[usize],
+    n_new: usize,
+) -> anyhow::Result<()> {
+    if n_new < 2 || seed.is_empty() {
+        anyhow::bail!(
+            "LLVQ_GQA_AB needs a seed prompt and at least 2 new tokens: the decode is timed \
+             after the first one ({n_new} asked)"
+        );
+    }
+    let chunk = llvq_llm::model::MAX_PREFILL_ROWS;
+    let reference = GqaArm::Published.name();
+    println!(
+        "GQA A/B: {} arms, {n_new} new tokens after each prompt, the prompt in chunks of {chunk}; \
+         one prefill an arm, then 1 discarded + {ROUNDS_TIMED} decodes from it, every arm in \
+         every round",
+        GqaArm::ALL.len()
+    );
+    for &n in lengths {
+        let ids: Vec<u32> = (0..n).map(|i| seed[i % seed.len()]).collect();
+        let mut arms = Vec::with_capacity(GqaArm::ALL.len());
+        for arm in GqaArm::ALL {
+            arm.apply(model);
+            let mut caches = model.fresh_caches();
+            let lp = model.prefill_chunked(&ids, chunk, &mut caches)?;
+            let first = llvq_llm::model::argmax_last(&lp)?;
+            let ls = model.step_logits(first, n, &mut caches)?;
+            arms.push(Prefilled {
+                caches,
+                first,
+                prompt_logits: lp.flatten_all()?.to_vec1::<f32>()?,
+                step_logits: ls.flatten_all()?.to_vec1::<f32>()?,
+            });
+        }
+        println!("\nprompt {n}");
+        for (k, arm) in GqaArm::ALL.into_iter().enumerate().skip(1) {
+            println!(
+                "  {:<18}  logits against {reference}: prompt {}, first decode step {}",
+                arm.name(),
+                logit_agreement(&arms[0].prompt_logits, &arms[k].prompt_logits),
+                logit_agreement(&arms[0].step_logits, &arms[k].step_logits)
+            );
+        }
+        let mut rates: Vec<Vec<f64>> = vec![Vec::new(); GqaArm::ALL.len()];
+        let mut texts: Vec<Option<Vec<u32>>> = vec![None; GqaArm::ALL.len()];
+        for round in 0..=ROUNDS_TIMED {
+            for (k, arm) in GqaArm::ALL.into_iter().enumerate() {
+                arm.apply(model);
+                let p = &mut arms[k];
+                for c in p.caches.iter_mut() {
+                    c.truncate(n)?;
+                }
+                let t = Instant::now();
+                let out = model.decode_greedy(p.first, n, n_new, &mut p.caches)?;
+                let rate = (n_new - 1) as f64 / t.elapsed().as_secs_f64();
+                match &texts[k] {
+                    None => texts[k] = Some(out),
+                    Some(r) => {
+                        if let Some(i) = first_divergence(r, &out).map_err(|e| anyhow::anyhow!("{e}"))? {
+                            anyhow::bail!(
+                                "prompt {n}, arm {}, round {round}: divergence at token {i}. \
+                                 An arm must repeat its own text, or its speed is not the speed \
+                                 of one thing",
+                                arm.name()
+                            );
+                        }
+                    }
+                }
+                if round > 0 {
+                    rates[k].push(rate);
+                }
+            }
+        }
+        println!("  arm                 decode tok/s [range]     arm / {reference}, round by round    text");
+        let base = texts[0].clone().unwrap_or_default();
+        for (k, arm) in GqaArm::ALL.into_iter().enumerate() {
+            let (m, lo, hi) = rate_stats(&rates[k]);
+            if k == 0 {
+                println!("  {:<18}  {m:7.1} [{lo:.1}–{hi:.1}]", arm.name());
+                continue;
+            }
+            let ratios: Vec<f64> = rates[k].iter().zip(&rates[0]).map(|(a, b)| a / b).collect();
+            let (mr, lr, hr) = rate_stats(&ratios);
+            let text = match first_divergence(&base, texts[k].as_deref().unwrap_or_default())
+                .map_err(|e| anyhow::anyhow!("{e}"))?
+            {
+                None => format!("{} tokens identical", base.len()),
+                Some(i) => format!("differs from token {i}"),
+            };
+            println!(
+                "  {:<18}  {m:7.1} [{lo:.1}–{hi:.1}]    {mr:.4} [{lr:.4}–{hr:.4}]          {text}",
+                arm.name()
+            );
+        }
+    }
+    GqaArm::Published.apply(model);
+    Ok(())
 }
 
 /// `LLVQ_CONTEXTS`: for each prompt length, the time to the first token and
@@ -373,7 +554,7 @@ fn main() -> anyhow::Result<()> {
         if served.is_some() {
             for var in ["LLVQ_GRAPH_AB", "LLVQ_GRAPH_DIAG", "LLVQ_KV_AB", "LLVQ_FUSE_AB",
                         "LLVQ_TIME_PHASES", "LLVQ_KV_PREALLOC", "LLVQ_SEG_ARMS",
-                        "LLVQ_TRIM_AB"] {
+                        "LLVQ_TRIM_AB", "LLVQ_GQA_AB"] {
                 if let Ok(v) = std::env::var(var) {
                     anyhow::bail!(
                         "{var}={v:?} beside LLVQ_CONFIG: that is a measurement mode, and the \
@@ -403,6 +584,55 @@ fn main() -> anyhow::Result<()> {
         // eagerly, or replayed from the captured graph. Correctness gate
         // first (identical tokens everywhere), numbers second, round by round.
         // Phase prereg 802006c5 (frozen thresholds).
+        // ---- LLVQ_GQA_AB: attention over the cached heads, unexpanded ----
+        //
+        // A MEASUREMENT MODE on the bench door, refused beside LLVQ_CONFIG: the
+        // served flags are spelled out on the command line. The value is the
+        // list of prompt lengths. ONE model, three arms (`run_gqa_ab`), with the
+        // three trims of 2026-10-30 in force: cudarc's events go off here as on
+        // the served door, which is safe on one stream only, so that is checked.
+        if let Ok(v) = std::env::var("LLVQ_GQA_AB") {
+            let lengths = parse_lengths("LLVQ_GQA_AB", &v).map_err(|e| anyhow::anyhow!("{e}"))?;
+            for other in ["LLVQ_CONTEXTS", "LLVQ_TRIM_AB", "LLVQ_PREFILL_TOKENS"] {
+                if std::env::var(other).is_ok() {
+                    anyhow::bail!("LLVQ_GQA_AB runs alone, and {other} is set beside it");
+                }
+            }
+            if !matches!(kv_store, llvq_llm::kvq::KvStore::Cat) {
+                anyhow::bail!("LLVQ_GQA_AB sets the store of each arm: unset LLVQ_KV_PREALLOC");
+            }
+            let fuse = llvq_llm::fused::FuseMode::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
+            let t = Instant::now();
+            let mut f = llvq_llm::fused_cuda::load_with(&path, &device, dtype, fuse)?;
+            println!(
+                "loaded in {:.1} s. GQA A/B: {} arms, one model, interleaved rounds",
+                t.elapsed().as_secs_f64(),
+                GqaArm::ALL.len()
+            );
+            println!(
+                "LLVQ_ROT_SHARE={}, {} rot_launches/token · LLVQ_FUSE={}, {} matvec_launches/token",
+                f.rot_share.name(), f.rot_launches, f.fuse.name(), f.matvec_launches
+            );
+            let ctx = device.as_cuda_device()?.cuda_stream().context().clone();
+            if ctx.is_in_multi_stream_mode() {
+                anyhow::bail!("LLVQ_GQA_AB: the context holds several streams, and turning \
+                               cudarc's events off is only safe on one");
+            }
+            // Safe: one stream, checked above, orders every access by issue.
+            unsafe {
+                ctx.disable_event_tracking();
+            }
+            println!("cudarc event tracking: off (one stream, ordered by issue)");
+            let seed = f
+                .tokenizer
+                .encode(PROMPT, false)
+                .map_err(|e| anyhow::anyhow!("{e}"))?
+                .get_ids()
+                .to_vec();
+            run_gqa_ab(&mut f.model, &seed, &lengths, n_new)?;
+            return Ok(());
+        }
+
         // ---- LLVQ_CONTEXTS: the served speed at the product's context ----
         //
         // Every published tok/s was measured after a 5-token prompt, so at
