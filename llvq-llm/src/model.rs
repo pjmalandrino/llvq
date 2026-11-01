@@ -478,6 +478,26 @@ fn grown(old: Option<&Tensor>, like: &Tensor, len: usize, cap: usize) -> Result<
     Ok(fresh)
 }
 
+/// `t` with its last two axes row-major, as the CUDA and Metal matmuls require
+/// of each batch element, whatever its batch stride.
+///
+/// A view of a `Grow` buffer is already so and passes as it is: copying it
+/// would be the history copy the store exists to avoid. The first append of a
+/// `Cat` cache hands back the projection output as transposed, rows of one head
+/// interleaved with the others; that one is copied. The CPU gemm accepts both,
+/// which is why the CPU tests did not see it and the card did (deviation É1 of
+/// the GQA perplexity prereg).
+fn rows_contiguous(t: &Tensor) -> Result<Tensor> {
+    let (dims, stride) = (t.dims(), t.stride());
+    let n = dims.len();
+    let row_major = n >= 2 && stride[n - 1] == 1 && (stride[n - 2] == dims[n - 1] || dims[n - 2] == 1);
+    if row_major {
+        Ok(t.clone())
+    } else {
+        t.contiguous()
+    }
+}
+
 /// An attention form that reads the cached heads unexpanded: `q`, `k`, `v`,
 /// the mask (or `None` where it would be all zeros), the score scale.
 type AttnFn = fn(&Tensor, &Tensor, &Tensor, Option<&Tensor>, f64) -> Result<Tensor>;
@@ -1632,6 +1652,7 @@ impl Block {
         };
         if let Some(attend) = unexpanded {
             let (k, v) = cache.append(&k, &v)?;
+            let (k, v) = (rows_contiguous(&k)?, rows_contiguous(&v)?);
             let ctx = attend(&q, &k, &v, mask, scale)?;
             return self.finish(x, ctx, idx, cap);
         }
@@ -2802,6 +2823,26 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// What the unexpanded forms hand their matmuls: the transposed output of
+    /// a projection is laid out again, rows row-major; a strided view of a
+    /// `Grow` buffer keeps its storage and strides, so no history is copied.
+    #[test]
+    fn rows_contiguous_copies_only_what_a_matmul_refuses() {
+        let dev = Device::Cpu;
+        let x = Tensor::arange(0f32, 24.0, &dev).unwrap().reshape((1, 4, 2, 3)).unwrap();
+        let t = x.transpose(1, 2).unwrap();
+        assert_eq!(t.stride(), &[24, 3, 6, 1]);
+        let r = rows_contiguous(&t).unwrap();
+        assert_eq!(r.stride(), &[24, 12, 3, 1]);
+        let flat = |t: &Tensor| t.flatten_all().unwrap().to_vec1::<f32>().unwrap();
+        assert_eq!(flat(&r), flat(&t));
+        let buf = Tensor::arange(0f32, 48.0, &dev).unwrap().reshape((1, 2, 8, 3)).unwrap();
+        let view = buf.narrow(2, 0, 5).unwrap();
+        let r = rows_contiguous(&view).unwrap();
+        assert_eq!(r.stride(), &[48, 24, 3, 1], "a Grow view must not be copied");
+        assert_eq!(flat(&r), flat(&view));
     }
 
     /// The teacher-forced decode scores the next true token, as the prefill
