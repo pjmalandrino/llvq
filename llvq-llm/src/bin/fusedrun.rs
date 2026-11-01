@@ -492,6 +492,128 @@ fn run_context_sweep(
     Ok(())
 }
 
+/// Two-sided 95 % Student quantile for `df` degrees of freedom, from the
+/// table for 1 to 30 and the normal value beyond.
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+fn t95(df: usize) -> f64 {
+    const T: [f64; 30] = [
+        12.706, 4.303, 3.182, 2.776, 2.571, 2.447, 2.365, 2.306, 2.262, 2.228, 2.201, 2.179, 2.160,
+        2.145, 2.131, 2.120, 2.110, 2.101, 2.093, 2.086, 2.080, 2.074, 2.069, 2.064, 2.060, 2.056,
+        2.052, 2.048, 2.045, 2.042,
+    ];
+    match df {
+        0 => f64::NAN,
+        1..=30 => T[df - 1],
+        _ => 1.96,
+    }
+}
+
+/// Per-window differences of mean NLL, `b − a`, as `ppl_b / ppl_a − 1` in %:
+/// the median-free point `exp(mean) − 1` and its paired 95 % t interval.
+/// Every window scores the same number of tokens, so `exp(mean d)` is the
+/// ratio of the two perplexities exactly.
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+fn paired_ppl_pct(a: &[f64], b: &[f64]) -> (f64, f64, f64) {
+    let d: Vec<f64> = a.iter().zip(b).map(|(x, y)| y - x).collect();
+    let n = d.len() as f64;
+    let m = d.iter().sum::<f64>() / n;
+    let sd = (d.iter().map(|x| (x - m).powi(2)).sum::<f64>() / (n - 1.0)).sqrt();
+    let h = t95(d.len().saturating_sub(1)) * sd / n.sqrt();
+    let pct = |x: f64| x.exp_m1() * 100.0;
+    (pct(m), pct(m - h), pct(m + h))
+}
+
+/// `LLVQ_GQA_PPL`: WikiText-2 perplexity of the published attention and of
+/// the grouped form, on the same windows, by two paths. The prefill path is
+/// [`llvq_llm::model::Qwen3::window_nll`], the whole window in one forward.
+/// The decode path is [`llvq_llm::model::Qwen3::decode_nll_paired`], the
+/// window fed one true token at a time through each arm's cache, the two arms
+/// in lockstep. The windows are the sampling unit: each difference is paired
+/// window by window. The published arm's two paths must agree to rounding,
+/// which checks the harness, not the forms.
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+fn run_gqa_ppl(
+    model: &mut llvq_llm::model::Qwen3,
+    ids: &[u32],
+    ctx: usize,
+    windows: usize,
+) -> anyhow::Result<()> {
+    let nwin = (ids.len() / ctx).min(windows);
+    if nwin < 2 || ctx < 2 {
+        anyhow::bail!(
+            "LLVQ_GQA_PPL needs two windows of two tokens at least: {} tokens, ctx {ctx}, {windows} asked",
+            ids.len()
+        );
+    }
+    let fingerprint = llvq_llm::eval::token_fingerprint(&ids[..nwin * ctx]);
+    let arms = [GqaArm::Published, GqaArm::Grouped];
+    println!(
+        "GQA perplexity: wikitext2, {nwin} windows of {ctx} (tokens {fingerprint:016x}), {} against {}, \
+         prefill path then decode path in lockstep",
+        arms[1].name(),
+        arms[0].name()
+    );
+    let mut pre: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
+    let mut dec: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
+    let (mut agree, mut steps, mut max_d) = (0usize, 0usize, 0f32);
+    let t0 = Instant::now();
+    for w in 0..nwin {
+        let win = &ids[w * ctx..(w + 1) * ctx];
+        for (k, arm) in arms.into_iter().enumerate() {
+            arm.apply(model);
+            let (n, c) = model.window_nll(win, &mut NoCapture)?;
+            pre[k].push(n / c as f64);
+        }
+        let d = model.decode_nll_paired(
+            win,
+            [(arms[0].store(), arms[0].heads()), (arms[1].store(), arms[1].heads())],
+        )?;
+        for (v, nll) in dec.iter_mut().zip(d.nll) {
+            v.push(nll / d.count as f64);
+        }
+        agree += d.top1_agree;
+        steps += d.count;
+        max_d = max_d.max(d.max_dlogit);
+        println!(
+            "  window {:>3}/{nwin}  prefill nll {:.9} {:.9}  decode nll {:.9} {:.9}  top-1 {}/{}  \
+             max |dlogit| {:.3e}  ({:.0} s)",
+            w + 1,
+            pre[0][w],
+            pre[1][w],
+            dec[0][w],
+            dec[1][w],
+            d.top1_agree,
+            d.count,
+            d.max_dlogit,
+            t0.elapsed().as_secs_f64()
+        );
+    }
+    arms[0].apply(model);
+    let ppl = |v: &[f64]| (v.iter().sum::<f64>() / v.len() as f64).exp();
+    println!(
+        "\n  path      ppl {:<16}  ppl {:<18}  grouped / published − 1, paired 95 % t interval over {nwin} windows",
+        arms[0].name(),
+        arms[1].name()
+    );
+    for (name, v) in [("prefill", &pre), ("decode", &dec)] {
+        let (m, lo, hi) = paired_ppl_pct(&v[0], &v[1]);
+        println!(
+            "  {name:<8}  {:<20.4}  {:<22.4}  {m:+.4} % [{lo:+.4} ; {hi:+.4}]",
+            ppl(&v[0]),
+            ppl(&v[1])
+        );
+    }
+    println!(
+        "  harness: decode over prefill on the published arm, ppl ratio {:.5}",
+        ppl(&dec[0]) / ppl(&pre[0])
+    );
+    println!(
+        "  decode top-1 agreement {agree}/{steps} steps ({:.3} %), max |dlogit| {max_d:.3e}",
+        100.0 * agree as f64 / steps as f64
+    );
+    Ok(())
+}
+
 /// The per-phase table of one arm's fenced pass. Additive diagnostics: this
 /// runs *after* the arm's published measurement and prints below it, so the
 /// published lines stay byte-identical.
@@ -554,7 +676,7 @@ fn main() -> anyhow::Result<()> {
         if served.is_some() {
             for var in ["LLVQ_GRAPH_AB", "LLVQ_GRAPH_DIAG", "LLVQ_KV_AB", "LLVQ_FUSE_AB",
                         "LLVQ_TIME_PHASES", "LLVQ_KV_PREALLOC", "LLVQ_SEG_ARMS",
-                        "LLVQ_TRIM_AB", "LLVQ_GQA_AB"] {
+                        "LLVQ_TRIM_AB", "LLVQ_GQA_AB", "LLVQ_GQA_PPL"] {
                 if let Ok(v) = std::env::var(var) {
                     anyhow::bail!(
                         "{var}={v:?} beside LLVQ_CONFIG: that is a measurement mode, and the \
@@ -584,6 +706,65 @@ fn main() -> anyhow::Result<()> {
         // eagerly, or replayed from the captured graph. Correctness gate
         // first (identical tokens everywhere), numbers second, round by round.
         // Phase prereg 802006c5 (frozen thresholds).
+        // ---- LLVQ_GQA_PPL: the grouped form's perplexity, prefill and decode ----
+        //
+        // A MEASUREMENT MODE on the bench door, refused beside LLVQ_CONFIG, the
+        // served flags spelled out on the command line. The value is
+        // `<ctx>,<windows>`. ONE model, two arms (`run_gqa_ppl`), the three trims
+        // in force as in LLVQ_GQA_AB. The window goes through the prefill in one
+        // call, so it is bounded by the fused prefill's rows.
+        if let Ok(v) = std::env::var("LLVQ_GQA_PPL") {
+            let spec = parse_lengths("LLVQ_GQA_PPL", &v).map_err(|e| anyhow::anyhow!("{e}"))?;
+            let (ctx_len, windows) = match spec.as_slice() {
+                &[c, w] => (c, w),
+                _ => anyhow::bail!("LLVQ_GQA_PPL={v:?}: expected <ctx>,<windows>"),
+            };
+            if ctx_len > llvq_llm::model::MAX_PREFILL_ROWS {
+                anyhow::bail!(
+                    "LLVQ_GQA_PPL: a window of {ctx_len} exceeds the fused prefill's {} rows",
+                    llvq_llm::model::MAX_PREFILL_ROWS
+                );
+            }
+            for other in ["LLVQ_GQA_AB", "LLVQ_CONTEXTS", "LLVQ_TRIM_AB", "LLVQ_PREFILL_TOKENS"] {
+                if std::env::var(other).is_ok() {
+                    anyhow::bail!("LLVQ_GQA_PPL runs alone, and {other} is set beside it");
+                }
+            }
+            if !matches!(kv_store, llvq_llm::kvq::KvStore::Cat) {
+                anyhow::bail!("LLVQ_GQA_PPL sets the store of each arm: unset LLVQ_KV_PREALLOC");
+            }
+            let fuse = llvq_llm::fused::FuseMode::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
+            let t = Instant::now();
+            let mut f = llvq_llm::fused_cuda::load_with(&path, &device, dtype, fuse)?;
+            println!(
+                "loaded in {:.1} s. GQA perplexity: 2 arms, one model",
+                t.elapsed().as_secs_f64()
+            );
+            println!(
+                "LLVQ_ROT_SHARE={}, {} rot_launches/token · LLVQ_FUSE={}, {} matvec_launches/token",
+                f.rot_share.name(), f.rot_launches, f.fuse.name(), f.matvec_launches
+            );
+            let ctx = device.as_cuda_device()?.cuda_stream().context().clone();
+            if ctx.is_in_multi_stream_mode() {
+                anyhow::bail!("LLVQ_GQA_PPL: the context holds several streams, and turning \
+                               cudarc's events off is only safe on one");
+            }
+            // Safe: one stream, checked above, orders every access by issue.
+            unsafe {
+                ctx.disable_event_tracking();
+            }
+            println!("cudarc event tracking: off (one stream, ordered by issue)");
+            let text = llvq_llm::corpus::wikitext2_test()?;
+            let ids = f
+                .tokenizer
+                .encode(text.as_str(), false)
+                .map_err(|e| anyhow::anyhow!("{e}"))?
+                .get_ids()
+                .to_vec();
+            run_gqa_ppl(&mut f.model, &ids, ctx_len, windows)?;
+            return Ok(());
+        }
+
         // ---- LLVQ_GQA_AB: attention over the cached heads, unexpanded ----
         //
         // A MEASUREMENT MODE on the bench door, refused beside LLVQ_CONFIG: the
@@ -1657,7 +1838,7 @@ fn main() -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{first_divergence, rate_stats};
+    use super::{first_divergence, paired_ppl_pct, rate_stats, t95};
 
     #[test]
     fn median_is_the_middle_rate_odd_and_even() {
@@ -1682,5 +1863,25 @@ mod tests {
         let e = first_divergence(&[1, 2, 3], &[1, 2]).expect_err("unequal lengths");
         assert!(e.contains('3') && e.contains('2'), "{e}");
         assert_eq!(first_divergence(&[], &[]), Ok(None));
+    }
+
+    /// The paired perplexity interval: zero for identical arms, the exact
+    /// ratio for a constant shift, and the t(1) half-width worked by hand for
+    /// two windows that disagree.
+    #[test]
+    fn paired_ppl_interval() {
+        let a = [2.0, 2.1, 2.2, 2.3];
+        assert_eq!(paired_ppl_pct(&a, &a), (0.0, 0.0, 0.0));
+        let b: Vec<f64> = a.iter().map(|x| x + 0.01).collect();
+        let (m, lo, hi) = paired_ppl_pct(&a, &b);
+        let want = 0.01f64.exp_m1() * 100.0;
+        assert!((m - want).abs() < 1e-9 && (lo - want).abs() < 1e-9 && (hi - want).abs() < 1e-9);
+        // d = [0, 0.02]: mean 0.01, sd 0.02 / sqrt(2), half-width 12.706 * 0.01 = 0.12706.
+        let (m, lo, hi) = paired_ppl_pct(&[1.0, 1.0], &[1.0, 1.02]);
+        assert!((m - want).abs() < 1e-9, "{m}");
+        assert!((lo - (0.01f64 - 0.12706).exp_m1() * 100.0).abs() < 1e-6, "{lo}");
+        assert!((hi - (0.01f64 + 0.12706).exp_m1() * 100.0).abs() < 1e-6, "{hi}");
+        assert_eq!((t95(11), t95(30), t95(31)), (2.201, 2.042, 1.96));
+        assert!(t95(0).is_nan());
     }
 }

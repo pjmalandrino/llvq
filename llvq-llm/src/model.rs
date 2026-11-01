@@ -2210,6 +2210,47 @@ impl Qwen3 {
         Ok(out)
     }
 
+    /// One window scored token by token through the cache, under two
+    /// attention arms at once (a store and a form each), in lockstep.
+    ///
+    /// Measurement only. Each step feeds the same true token to both arms,
+    /// one cache set per arm, and scores the next true token: teacher forcing
+    /// on the decode path, where [`Self::window_nll`] scores the prefill path.
+    /// Running the arms side by side lets every step compare their logits,
+    /// which two separate passes could not do without storing them. The model
+    /// is left in the second arm's state; the caller sets what it needs next.
+    pub fn decode_nll_paired(
+        &mut self,
+        tokens: &[u32],
+        arms: [(crate::kvq::KvStore, crate::kvq::AttnHeads); 2],
+    ) -> Result<PairedDecode> {
+        if tokens.len() < 2 {
+            candle_core::bail!("decode_nll_paired: a window must hold at least two tokens");
+        }
+        let (n, kv) = (self.blocks.len(), self.kv);
+        let mut caches: [Vec<KvCache>; 2] =
+            arms.map(|(store, _)| (0..n).map(|_| KvCache::with_store(kv, store)).collect());
+        let mut out = PairedDecode { nll: [0.0; 2], count: 0, top1_agree: 0, max_dlogit: 0.0 };
+        for (offset, pair) in tokens.windows(2).enumerate() {
+            let (input, target) = (pair[0], pair[1]);
+            let mut logits = Vec::with_capacity(2);
+            for (k, &(store, heads)) in arms.iter().enumerate() {
+                self.set_kv_store(store);
+                self.set_attn_heads(heads);
+                let l = self.step_logits(input, offset, &mut caches[k])?;
+                out.nll[k] -= logp_of(&l, target)?;
+                logits.push(l);
+            }
+            if argmax_last(&logits[0])? == argmax_last(&logits[1])? {
+                out.top1_agree += 1;
+            }
+            let d = (&logits[0] - &logits[1])?.abs()?.max_all()?.to_scalar::<f32>()?;
+            out.max_dlogit = out.max_dlogit.max(d);
+            out.count += 1;
+        }
+        Ok(out)
+    }
+
     /// The pre-cache path: re-run the whole prefix at every step.
     ///
     /// Quadratic, and kept on purpose. It is the only independent answer to
@@ -2327,6 +2368,26 @@ impl Qwen3 {
 /// The greedy token of `[1, 1, vocab]` logits, read back to the host.
 pub fn argmax_last(logits: &Tensor) -> Result<u32> {
     logits.i((0, 0))?.argmax(D::Minus1)?.to_scalar::<u32>()
+}
+
+/// The log-probability of `target` under `[1, 1, vocab]` f32 logits.
+pub fn logp_of(logits: &Tensor, target: u32) -> Result<f64> {
+    let logp = candle_nn::ops::log_softmax(&logits.i((0, 0))?, D::Minus1)?;
+    Ok(logp.i(target as usize)?.to_scalar::<f32>()? as f64)
+}
+
+/// What [`Qwen3::decode_nll_paired`] returns for one window.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PairedDecode {
+    /// Summed negative log-likelihood of each arm, in nats.
+    pub nll: [f64; 2],
+    /// Predictions scored, the window length minus one.
+    pub count: usize,
+    /// Steps where both arms put the same token on top.
+    pub top1_agree: usize,
+    /// The largest absolute difference between the two arms' logits, over
+    /// every vocabulary entry of every step.
+    pub max_dlogit: f32,
 }
 
 /// One greedy generation from [`Qwen3::generate_timed`], with its two clocks.
@@ -2741,6 +2802,35 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// The teacher-forced decode scores the next true token, as the prefill
+    /// does: on one arm twice it agrees with itself bit for bit and with
+    /// [`Qwen3::window_nll`] to rounding. Against the grouped form it moves by
+    /// rounding only, and against the shared form not at all on the CPU.
+    #[test]
+    fn paired_decode_scores_what_the_window_scores() {
+        use crate::kvq::{AttnHeads, KvStore};
+        let mut m = tiny_model_heads(DType::F32, 8, 2);
+        let tokens = [5u32, 60, 11, 90, 2, 33, 71, 8, 13, 44, 1, 96, 27, 64, 38, 19];
+        let published = (KvStore::Cat, AttnHeads::Expanded);
+        let same = m.decode_nll_paired(&tokens, [published, published]).unwrap();
+        assert_eq!(same.count, tokens.len() - 1);
+        assert_eq!(same.nll[0].to_bits(), same.nll[1].to_bits());
+        assert_eq!((same.top1_agree, same.max_dlogit), (same.count, 0.0));
+        m.set_kv_store(KvStore::Cat);
+        m.set_attn_heads(AttnHeads::Expanded);
+        let (window, n) = m.window_nll(&tokens, &mut NoCapture).unwrap();
+        assert_eq!(n, same.count);
+        let rel = (same.nll[0] / window - 1.0).abs();
+        assert!(rel < 1e-5, "decode against prefill: relative {rel:e}");
+        let shared = m.decode_nll_paired(&tokens, [published, (KvStore::Grow(4), AttnHeads::Shared)]).unwrap();
+        assert_eq!(shared.nll[0].to_bits(), shared.nll[1].to_bits());
+        assert_eq!(shared.max_dlogit, 0.0);
+        let grouped = m.decode_nll_paired(&tokens, [published, (KvStore::Grow(4), AttnHeads::Grouped)]).unwrap();
+        assert!(grouped.max_dlogit > 0.0 && grouped.max_dlogit < 6e-7, "{grouped:?}");
+        assert!((grouped.nll[1] / grouped.nll[0] - 1.0).abs() < 1e-6, "{grouped:?}");
+        assert!(m.decode_nll_paired(&tokens[..1], [published, published]).is_err());
     }
 
     /// At every append, across chunk boundaries and appends wider than a
