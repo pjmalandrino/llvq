@@ -18,7 +18,11 @@ One layout, one setting, at all three sizes: `tetra48`, `LLVQ_EMBED=q4`, `LLVQ_R
 `LLVQ_KV=f16`. The files that carry it are in [`configs/`](../configs/README.md), one per size. Since 2026-11-02 a
 config also names the attention form, in an optional `attention` field: absent means `expanded`, the form every score
 below was measured on. **The 4B is served under `qwen3-4b-tetra-e4-grouped.json`** since 2026-11-02, the operator's
-decision; the 8B and the 14B stay expanded, where the grouped form has never run.
+decision; the 8B and the 14B stay expanded, where the grouped form has never run. That configuration is published
+with the same bytes at
+[Qwen3-4B-LLVQ-Tetra-served](https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-Tetra-served) (commit `159afed4`, file
+digest `886391a8` read back from the Hub), whose card moves. The three repositories paper 2 cites, and the
+safetensors one, are frozen and were verified unchanged after that upload.
 
 | size | sealed file | b/param | MMLU | GSM8K | ppl | tok/s | GB on card |
 |---|---|---|---|---|---|---|---|
