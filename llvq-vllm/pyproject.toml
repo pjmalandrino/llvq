@@ -1,0 +1,46 @@
+[project]
+name = "llvq-vllm"
+version = "0.0.1"
+description = "Serve a Tetra-quantized LLVQ model in vLLM, still compressed on the card (prototype)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0 OR MIT"
+license-files = ["LICENSE-APACHE", "LICENSE-MIT"]
+authors = [{ name = "Pier-Jean Malandrino" }]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Programming Language :: Python :: 3 :: Only",
+  "Environment :: GPU :: NVIDIA CUDA",
+  "Operating System :: POSIX :: Linux",
+]
+# No dependency is declared, on purpose. The package runs inside the pinned vLLM
+# image, which ships torch 2.11.0, and `llvq-tetra` declares torch>=2.14 for its
+# `transformers` path. A resolver asked for `llvq-tetra` would replace the
+# image's torch and break every compiled kernel vLLM carries. The install line
+# is `pip install --no-deps ./llvq-tetra ./llvq-vllm`, and the imports fail by
+# name when a piece is missing.
+dependencies = []
+
+[project.entry-points."vllm.general_plugins"]
+llvq = "llvq_vllm:register"
+
+[project.urls]
+Repository = "https://github.com/pjmalandrino/llvq"
+
+[dependency-groups]
+# The Mac test environment: the reader, the tables and the CPU references.
+# vLLM is not in it; it installs on Linux with CUDA only.
+dev = ["pytest>=8", "llvq-tetra"]
+
+[tool.uv.sources]
+llvq-tetra = { path = "../llvq-tetra", editable = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["llvq_vllm"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
