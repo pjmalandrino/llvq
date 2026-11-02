@@ -47,7 +47,9 @@ Eight crates, members of `Cargo.toml`.
 Beside the crates, `llvq-tetra/` is a Python package: it reads a packed model in `transformers`, and it is the
 distribution `llvq-tetra`. It stays in this repository (operator, 2026-10-07): its wheel ships a copy of the served
 kernels that `bin/tetratables` makes, and `hfpack` writes what it reads. `docs/plan-transformers.md` carries its stages.
-`ops/llvqtune` is the other Python package, which trains the free parameters an artifact already holds.
+`ops/llvqtune` is the other Python package, which trains the free parameters an artifact already holds. `llvq-vllm/` is
+a prototype that serves a packed model in vLLM 0.26.0 through the CUDA ops of `llvq-tetra`; it has never run on a card
+(`docs/plan-vllm.md`).
 
 `unsafe` is allowed only at hardware boundaries: mmap, kernel launch, reading a device buffer. Caveat:
 `#![forbid(unsafe_code)]` in a `lib.rs` does not cover integration tests, which are separate crates; closing that hole
@@ -80,6 +82,7 @@ LLVQ_MODEL=Qwen/Qwen3-4B cargo run --release -p llvq-llm --bin seal -- q4b.llvq 
 cargo run --release -p llvq-llm --bin hfpack -- <sealed> out_dir/ && uv run ops/llvq_hf_check.py out_dir/  # the sealed file as safetensors, still compressed, and its bit-for-bit gate
 cargo run --release -p llvq-llm --bin hfdense -- <sealed> out_dir/llvq-dense-digest.json  # also: tetratables, tetravectors
 cd llvq-tetra && uv run --group dev pytest && uv run python -m llvq_tetra.checkdense out_dir/   # the transformers reader, and its gate
+cd llvq-vllm && uv run --group dev pytest   # the vLLM plugin: plan, buffers, loaders, every layer on CPU references
 LLVQ_HF_MINI_FIXTURE=../llvq-tetra/tests/fixtures/mini cargo test -p llvq-llm --test hfpack  # rewrites the 148 KB one-layer Qwen3 the from_pretrained tests load
 cd llvq-tetra && uv run --group dev python -m llvq_tetra.checkdecode out_dir/   # the served shader as a torch op on Metal, every block
 cd llvq-tetra && uv run --group dev python -m llvq_tetra.checkq4 out_dir/ && uv run --group dev python -m llvq_tetra.checkq4guards out_dir/  # the tiled int4 kernel against the served one, then its refusals and its mutants

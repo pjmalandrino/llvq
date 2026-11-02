@@ -11,6 +11,7 @@ Where to resume, in this order. Each document stands on its own at its level.
 | [`METHODE.md`](METHODE.md) | the lab rules: prereg, numbers, noise, tests, machines | yes, when a rule changes |
 | [`STYLE.md`](STYLE.md) | how we write here, with the target length of each document | yes |
 | [`plan-transformers.md`](plan-transformers.md) | loading a Tetra file in `transformers`: stages, gates, open decisions | yes |
+| [`plan-vllm.md`](plan-vllm.md) | serving a Tetra file in vLLM: the API at the pinned version, the design, open decisions | yes |
 | [`templates/`](templates/) | templates: experiment, prereg, journal, deviations | yes |
 
 Reference documents, up to date and long:
