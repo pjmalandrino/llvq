@@ -225,6 +225,13 @@ fn every_unit_carries_both_rotation_entry_points() {
 ///
 /// The list has one owner, `planes_source_names(Tetra48)`. This holds the binding
 /// against it, so a fifth source added there fails here rather than on a card.
+///
+/// After the Tetra list come the three leaves the served unit appends for the
+/// sealed files: `tv_q4_h.cu` for the int4 records, `emb_q4.cu` for the int4
+/// vocabulary under `LLVQ_EMBED=q4`, and `rotate.cu`, which `BASE` above carries
+/// first in the NVRTC unit. In the binding it comes last because nvcc resolves
+/// its own `#include "llvq_rot.cuh"` from disk, and the Tetra unit must already
+/// have defined `u32`, `h2f` and `warp_sum` for the two int4 leaves.
 #[test]
 fn the_cuda_binding_includes_the_served_list() {
     let path = std::path::Path::new("../llvq-tetra/llvq_tetra/csrc/tetra_cuda.cu");
@@ -239,6 +246,8 @@ fn the_cuda_binding_includes_the_served_list() {
         .collect();
     let want: Vec<String> = planes_source_names(FusedLayout::Tetra48)
         .iter()
+        .copied()
+        .chain(["tv_q4_h.cu", "emb_q4.cu", "rotate.cu"])
         .map(|s| s.to_string())
         .collect();
     assert_eq!(

@@ -45,10 +45,11 @@ CONSTANTS = DATA / "tetra-tables.json"
 CSRC = Path(__file__).parent / "csrc" / "tetra_decode.mm"
 CSRC_CUDA = Path(__file__).parent / "csrc" / "tetra_cuda.cu"
 # The served CUDA sources, as `bin/tetratables` ships them: the closure of the
-# include graph, six files, in the repository's two-level shape so that
+# include graph, ten files, in the repository's two-level shape so that
 # `tv_tetra48_h.cu`'s own relative includes resolve. `tetra_cuda.cu` reaches
 # them by relative path, so this list exists only to fail by name when a wheel
-# was built without them.
+# was built without them. `tests/test_cuda_sources.py` holds it against the
+# table `bin/tetratables` writes.
 CUDA_SOURCES = (
     DATA / "kernels" / "llvq-llm" / "kernels" / "tv_tetra48_h.cu",
     DATA / "kernels" / "llvq-cuda" / "kernels" / "matvec.cu",
@@ -56,6 +57,10 @@ CUDA_SOURCES = (
     DATA / "kernels" / "llvq-cuda" / "kernels" / "llvq_f1rank.cuh",
     DATA / "kernels" / "llvq-cuda" / "kernels" / "llvq_f1rank_v3.cuh",
     DATA / "kernels" / "llvq-cuda" / "kernels" / "llvq_slot.cuh",
+    DATA / "kernels" / "llvq-llm" / "kernels" / "tv_q4_h.cu",
+    DATA / "kernels" / "llvq-llm" / "kernels" / "emb_q4.cu",
+    DATA / "kernels" / "llvq-cuda" / "kernels" / "rotate.cu",
+    DATA / "kernels" / "llvq-cuda" / "kernels" / "llvq_rot.cuh",
 )
 
 
@@ -85,6 +90,36 @@ def shader_source(name: str = "llvq_tetra48.metal") -> str:
 def q4_source() -> str:
     """The int4 shader, which needs no define: its group size is in the file."""
     return shader_source("tv_q4_h.metal")
+
+
+def verify_cuda_sources() -> None:
+    """Refuse a CUDA source that is missing or whose bytes moved, before nvcc runs.
+
+    The Metal shaders are checked against their digests at the first dispatch,
+    and the CUDA sources were not: a copy that drifted from the repository's
+    would have compiled and served plausible wrong numbers. The table is the one
+    `bin/tetratables` writes beside the decode tables.
+    """
+    import hashlib
+
+    missing = [p.name for p in CUDA_SOURCES if not p.exists()]
+    if missing:
+        raise FileNotFoundError(
+            f"the shipped CUDA sources are incomplete, missing {missing}. Re-run "
+            "`cargo run --release -p llvq-llm --bin tetratables -- "
+            "llvq-tetra/llvq_tetra/data/tetra-tables.safetensors`"
+        )
+    shaders = json.loads(CONSTANTS.read_text())["shaders"]
+    for p in CUDA_SOURCES:
+        recorded = shaders.get(p.name, {})
+        if recorded.get("backend") != "cuda":
+            raise KeyError(f"{p.name} is shipped but the tables file does not attest it")
+        got = hashlib.sha256(p.read_bytes()).hexdigest()
+        if got != recorded["sha256"]:
+            raise ValueError(
+                f"{p.name} is not the source the tables were dumped with:\n"
+                f"  recorded {recorded['sha256']}\n  shipped  {got}"
+            )
 
 
 def extension_for(device: str):
@@ -119,13 +154,7 @@ def _extension_cuda():
 
     if not torch.cuda.is_available():
         raise RuntimeError("this op runs on CUDA, and no device is available")
-    missing = [p.name for p in CUDA_SOURCES if not p.exists()]
-    if missing:
-        raise FileNotFoundError(
-            f"the shipped CUDA sources are incomplete, missing {missing}. Re-run "
-            "`cargo run --release -p llvq-llm --bin tetratables -- "
-            "llvq-tetra/llvq_tetra/data/tetra-tables.safetensors`"
-        )
+    verify_cuda_sources()
     tile = int(os.environ.get("LLVQ_HF_TILE", "64"))
     return load(
         name="llvq_tetra_cuda",

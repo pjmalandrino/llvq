@@ -58,6 +58,12 @@
   "note": "dumped by llvq-llm/src/bin/tetratables.rs from llvq_search::tetra; the .llvq header's tetra fingerprint must equal the one above",
   "section": 8,
   "shaders": {
+    "emb_q4.cu": {
+      "backend": "cuda",
+      "note": "the int4 g64 vocabulary: the gather and the tied head",
+      "path": "kernels/llvq-llm/kernels/emb_q4.cu",
+      "sha256": "6fa065275caf06d4fd2f7a8553c587c5c66c4c919634fa19546375def736deaf"
+    },
     "llvq_f1rank.cuh": {
       "backend": "cuda",
       "note": "the F1 rank decoder",
@@ -69,6 +75,12 @@
       "note": "its v3 tables",
       "path": "kernels/llvq-cuda/kernels/llvq_f1rank_v3.cuh",
       "sha256": "47491a4b34173d5dd94e0f9099c9f93c7e9c3b1907ce623f57aecf78342b7485"
+    },
+    "llvq_rot.cuh": {
+      "backend": "cuda",
+      "note": "its phases",
+      "path": "kernels/llvq-cuda/kernels/llvq_rot.cuh",
+      "sha256": "5dc8144a423aea32c1f324e10b1e45f5a7c9e21b047db8ffbd8cd90b2c03c9a4"
     },
     "llvq_slot.cuh": {
       "backend": "cuda",
@@ -93,6 +105,18 @@
       "note": "the dense matvec it shares",
       "path": "kernels/llvq-cuda/kernels/matvec.cu",
       "sha256": "0cb2589254df8c7873ec1507124251ce1b11c27956a8ec6037e9bb852babc1ae"
+    },
+    "rotate.cu": {
+      "backend": "cuda",
+      "note": "the rotation applied to the activation",
+      "path": "kernels/llvq-cuda/kernels/rotate.cu",
+      "sha256": "7db59917fdcb6e51a0b18197b83b23b794fef3e0d3d5c0f7e7eefa9f4a75353a"
+    },
+    "tv_q4_h.cu": {
+      "backend": "cuda",
+      "note": "the served int4 g128 matvec",
+      "path": "kernels/llvq-llm/kernels/tv_q4_h.cu",
+      "sha256": "cb17ec4ae485742433ab2909d4dfa5a980237c88ede2d6148a1d9ef37f646f1b"
     },
     "tv_q4_h.metal": {
       "backend": "metal",

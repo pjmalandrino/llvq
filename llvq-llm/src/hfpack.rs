@@ -776,9 +776,11 @@ pub fn tetra_tables(out: &Path) -> anyhow::Result<(String, usize)> {
     // because `tv_tetra48_h.cu` includes `../../llvq-cuda/kernels/...` and that
     // path has to resolve. Copying them flat and rewriting their includes would
     // make the shipped bytes differ from the served ones, and then the digest
-    // beside the tables would attest a file nobody serves. Six files and not
-    // four: the closure of the include graph, which
-    // `the_shipped_cuda_closure_is_complete` recomputes rather than trusts.
+    // beside the tables would attest a file nobody serves. Ten files: the
+    // closure of the include graph of `csrc/tetra_cuda.cu`, which
+    // `the_shipped_cuda_closure_is_complete` recomputes rather than trusts. The
+    // last four are the int4 matvec, the int4 vocabulary and the rotation, so
+    // that a reader outside Rust serves the sealed file with nothing widened.
     for (crate_dir, dir, file, note) in [
         ("llvq-llm", &llm, "tv_tetra48_h.cu", "the served Tetra matvec launcher"),
         ("llvq-cuda", &cuda, "matvec.cu", "the dense matvec it shares"),
@@ -786,6 +788,10 @@ pub fn tetra_tables(out: &Path) -> anyhow::Result<(String, usize)> {
         ("llvq-cuda", &cuda, "llvq_f1rank.cuh", "the F1 rank decoder"),
         ("llvq-cuda", &cuda, "llvq_f1rank_v3.cuh", "its v3 tables"),
         ("llvq-cuda", &cuda, "llvq_slot.cuh", "the slot layout it reads"),
+        ("llvq-llm", &llm, "tv_q4_h.cu", "the served int4 g128 matvec"),
+        ("llvq-llm", &llm, "emb_q4.cu", "the int4 g64 vocabulary: the gather and the tied head"),
+        ("llvq-cuda", &cuda, "rotate.cu", "the rotation applied to the activation"),
+        ("llvq-cuda", &cuda, "llvq_rot.cuh", "its phases"),
     ] {
         let bytes = std::fs::read(dir.join(file))?;
         let sha = sha256_hex(&bytes);

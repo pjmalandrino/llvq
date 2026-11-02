@@ -239,12 +239,12 @@ fn shipped_and_served(file: &str, entry: &serde_json::Value) -> (PathBuf, PathBu
 #[test]
 fn the_shipped_shader_is_the_repositorys() {
     let shaders = shipped_table();
-    assert_eq!(shaders.len(), 8, "two Metal shaders and six CUDA sources travel");
+    assert_eq!(shaders.len(), 12, "two Metal shaders and ten CUDA sources travel");
     let backends = shaders
         .values()
         .filter(|e| e["backend"] == "cuda")
         .count();
-    assert_eq!(backends, 6, "the CUDA include closure is six files");
+    assert_eq!(backends, 10, "the CUDA include closure is ten files");
 
     for (file, recorded) in &shaders {
         let (shipped, served) = shipped_and_served(file, recorded);
@@ -274,7 +274,7 @@ fn the_shipped_shader_is_the_repositorys() {
 
 /// Every `#include "..."` of a shipped CUDA source resolves inside the package.
 ///
-/// The list of six is written by hand in `hfpack::tetra_tables`, and a hand
+/// The list of ten is written by hand in `hfpack::tetra_tables`, and a hand
 /// written closure goes stale the first time someone adds an include upstream.
 /// The wheel would then carry a CUDA arm that cannot compile, and nothing on a
 /// Mac would notice, because nvcc never runs here. So recompute the closure from
