@@ -1,4 +1,4 @@
-# Project state as of 2026-10-07
+# Project state as of 2026-11-02
 
 ## 1. The project
 
@@ -15,11 +15,13 @@ its version 2 is attached to release `v0.0.2` of 2026-10-06.
 ## 2. Served configuration
 
 One layout, one setting, at all three sizes: `tetra48`, `LLVQ_EMBED=q4`, `LLVQ_ROT_SHARE=1`, `LLVQ_FUSE=0`,
-`LLVQ_KV=f16`. The files that carry it are in [`configs/`](../configs/README.md), one per size.
+`LLVQ_KV=f16`. The files that carry it are in [`configs/`](../configs/README.md), one per size. Since 2026-11-02 a
+config also names the attention form, in an optional `attention` field: absent means `expanded`, the form every number
+below was measured on, and the three served files use it.
 
 | size | sealed file | b/param | MMLU | GSM8K | ppl | tok/s | GB on card |
 |---|---|---|---|---|---|---|---|
-| 4B | `qwen3-4b-sealed.bin` | 2.73 | 63.37 | 82.49 | 12.58 | 113.8 | 1.38 |
+| 4B | `qwen3-4b-sealed.bin` | 2.73 | 63.37 | 82.49 | 12.58 | 122.4 | 1.38 |
 | 8B | `qwen3-8b-sealed-B.bin` | 2.70 | 69.58 | 88.63 | 9.71 | 95.0 | 2.76 |
 | 14B | `qwen3-14b-sealed.bin` | 2.73 | 75.66 | 92.04 | 8.44 | 57.2 | 5.04 |
 
@@ -30,7 +32,14 @@ b/param: *computed* by `rtbits`, whole model, int4 tables included. MMLU: *measu
 ([gsm8k-wave1](mesures/gsm8k-wave1-2026-09-26.txt), [gsm8k-wave2](mesures/gsm8k-wave2-2026-09-26.txt)). Perplexity:
 *measured* on the raw WikiText-2 test split, 12 windows of 4,096, f16
 ([ppl-scelles](mesures/ppl-scelles-2026-10-04.txt)). Speed and GB: *measured* on one L40S, batch 1, 256 greedy
-tokens, median of five rounds ([paper-table](mesures/paper-table-2026-09-25.txt)).
+tokens after a 5-token prompt, median of five rounds ([paper-table](mesures/paper-table-2026-09-25.txt)).
+
+**The 4B's 122.4 is the trimmed step, the other two are not.** Three trims of 2026-10-30 give the 4B
+122.4 tok/s [122.3-122.4] against 114.2 [113.6-115.2] on the path every earlier figure ran, same tokens, zero bits:
+the causal mask is not rebuilt when it is all zero in decode, the int4 kernel reads f16 instead of a converted f32,
+and cudarc's event tracking is off on the one served stream (*measured*,
+[trims-contexts](mesures/trims-contexts-2026-10-30.txt)). The three multiply to 1.064 and the bundle reads 1.072. The
+8B and the 14B have not been re-timed since, so 95.0 and 57.2 remain pre-trim numbers.
 
 **MMLU and perplexity are scored on the dense reconstruction, not through the kernel.** Per-row checks against f64 and
 a 256-token comparison tie the two: identical tokens at 4B and 8B, first difference at token 78 at 14B. One 4B census
@@ -110,6 +119,25 @@ The `nullk` floor belongs to our launch geometry, not to the card: 2.306 ms for 
 weight, where QTIP finishes the same projections in 2.246 ms (*measured*,
 [f2-p3-qtip-banc](mesures/f2-p3-qtip-banc-2026-08-21.txt)). The comparable quantity across stacks is GB/s, never ×.
 
+**Throughput falls with the context, and the cache is why.** The served 4B decodes at 122.5 tok/s after a 5-token
+prompt, 82.7 at 2,048, 61.4 at 4,096 and 33.2 at 8,192, the product's context, where the first token takes 34.9 s
+(*measured*, [trims-contexts](mesures/trims-contexts-2026-10-30.txt)). At 8,192 positions, 72.9 % of a decode token is
+spent above what the 5-token step costs (*computed*). The served path concatenates the whole history at every step and
+then copies each key and value head to its four query heads, so it reads about 17 GB of cache a token at 8,192 against
+1.38 GB of weights (*computed*).
+
+**Attention over the cached heads, with no copy, is measured and servable.** Stacking the query heads of one key head
+as rows of one matmul decodes the 4B at 134.4 tok/s after a 5-token prompt and 77.5 at 8,192, against 121.9 and 33.1
+for the shipped form, with the same 256 tokens at all four lengths (*measured*,
+[gqa-ab](mesures/gqa-ab-2026-11-01.txt)). It is not bit for bit on the card past 5 tokens: cuBLAS rounds a batch of 8
+key heads differently from 32 expanded ones, up to 6.6e-2 on a logit. **This is the one served choice licensed by a
+tolerance rather than by identity**, the operator's decision of 2026-11-01: paired WikiText-2 perplexity through the
+kernel reads +0.0000 % by prefill, bit for bit, and +0.0095 % [-0.0048 ; +0.0238] by decode, inside the 0.12 % band
+below, with 99.788 % top-1 agreement over 49,140 steps (*measured*, [gqa-ppl](mesures/gqa-ppl-2026-11-01.txt)). A few
+isolated decode steps move one logit by up to 13.13, which no reading explains yet and which was not a criterion. The
+form ships in `configs/qwen3-4b-tetra-e4-grouped.json` and nowhere else: the 8B, the 14B and Metal have never run it,
+and Metal refuses it by name.
+
 **Noise.** The calibration draw carries a standard deviation of 2.92 pp of MMLU and 5.2% of perplexity at 4B over
 three full runs (*measured*, [bruit-mmlu](mesures/bruit-mmlu-graines-4b-2026-08-25.txt),
 [f5-graines](mesures/f5-graines-4b-2026-08-19.txt)). Every size is calibrated on one draw. For an A/B at constant file
@@ -136,9 +164,14 @@ the bar is the paired interval, 0.43 pp in MMLU and 0.12% in perplexity (*measur
   [plan-transformers](plan-transformers.md)). `llvq-tetra` 0.1.0 is on PyPI since 2026-10-07, the bytes that passed
   TestPyPI ([hf-pypi](mesures/hf-pypi-0.1.0-2026-10-07.txt)), so `pip install llvq-tetra` loads it. Next, on the
   operator's go: the upstream issue and PR, together.
-- **Spend.** $246.75 over 227 priced jobs (*measured*, `docs/data/jobs.csv`). The review campaign of 2026-10-04 to
+- **Spend.** $248.30 over 236 rows of the registry, 206 of them priced (*measured*, `docs/data/jobs.csv`). The
+  throughput wave of 2026-10-30 to 11-01 spent $1.55 under a $2 cap per job, the review campaign of 2026-10-04 to
   10-06 spent $4.57 under a $9 cap, and the `transformers` wave of 2026-09-30 spent $0.30 under a $5 cap. No cap is
   in force; one is owed before the next paid job.
+- **How the grouped attention reaches a served run.** The form is servable by config since 2026-11-02 and no run has
+  gone through that door: the reference decoded line that gate 4 of every job checks, `8784ffc4` for the expanded
+  form, is unverified under the grouped one. The A/B returned the same 256 tokens at a 5-token prompt, so it probably
+  holds, and only a card can say. One job, about $0.3 (*estimated*).
 
 ## 6. Closed absent a new idea
 

@@ -878,3 +878,54 @@ On the operator's go, the same bytes went to PyPI. PyPI serves the digests TestP
 `pip install llvq-tetra` in an empty environment pulls torch 2.14.1 and transformers 5.19.0 and loads the fixture with
 no missing or unexpected key (*measured*, [hf-pypi](mesures/hf-pypi-0.1.0-2026-10-07.txt)). The install line of
 both Hub cards, and of the shim's `ImportError`, had promised that package since 2026-10-02: it is true now.
+
+## 2026-10-30 to 11-02. The decode step trimmed, attention ungrouped from `repeat_kv`, and a field to serve it
+
+Three jobs on the L40S, $1.55, all on the sealed 4B and its config. They answer the two cheapest questions a throughput
+audit of 2026-10-29 raised: what the served step wastes on work it does not need, and what the KV cache costs at the
+context the product promises.
+
+**The trims.** Three removals, each bit for bit, give the 4B 122.4 tok/s [122.3-122.4] against 114.2 [113.6-115.2],
+the path every published figure ran: the causal mask is not rebuilt when it is all zero in decode, `tv_q4_h` reads f16
+where 84 conversions to f32 preceded it, and cudarc's event tracking is off on a stream that is alone (*measured*,
+[trims-contexts](mesures/trims-contexts-2026-10-30.txt)). Singly they read 1.0283, 1.0230 and 1.0115; together 1.0716,
+against 1.064 for their product. The same job measured the served decode at four prompt lengths for the first time:
+122.5, 82.7, 61.4 and 33.2 tok/s at 5, 2,048, 4,096 and 8,192, with the first token at 0.03, 8.15, 16.91 and 34.86 s.
+At 8,192 the cache takes 72.9 % of a decode token, which is what designated it as the next lever.
+
+**Attention over the cached heads.** The shipped path concatenates the history every step and then copies each key and
+value head to its four query heads, twice: `repeat_kv` in candle 0.9.2 is a `cat` of four copies. Two forms that copy
+nothing were measured against it on a `Grow(256)` store, which grows by whole chunks and is written in place. The
+grouped form, which stacks the query heads of one key head as rows of one matmul, reads 134.4 tok/s at a 5-token prompt
+and 77.5 at 8,192, against 121.9 and 33.1, and returns the same 256 tokens at all four lengths (*measured*,
+[gqa-ab](mesures/gqa-ab-2026-11-01.txt)). The shared form, which keeps the expanded matmul's shape, is slower
+everywhere and was dropped.
+
+**Neither unexpanded form is bit for bit on the card, and that changed a gate.** The shared form was bit for bit on the
+Mac's CPU and is not on the L40S: cuBLAS rounds a batch of 8 key heads differently from 32 expanded ones, up to
+6.6e-2 on a logit. Per-head shapes do not fix it. Both forms therefore fell under decision T8 of the audit, and the
+operator took it as "tolerance plus control": a bounded tolerance replaces identity at the bit, provided a quality
+control passes first. The control ran on WikiText-2 through the served kernel, 12 windows of 4,096, paired window by
+window: +0.0000 % by prefill, bit for bit, and +0.0095 % [-0.0048 ; +0.0238] by decode, both inside the 0.12 % band of
+[`ETAT.md`](ETAT.md) §4, with 99.788 % top-1 agreement over 49,140 steps (*measured*,
+[gqa-ppl](mesures/gqa-ppl-2026-11-01.txt)). One prediction missed and is reported beside the decision, not inside it:
+a few isolated decode steps move one logit by up to 13.13, where [0.04, 0.5] was predicted. Nothing explains it yet,
+and the comparison that would read it, the published path against itself across its two paths, has not been run.
+
+**Two traps.** The first grouped prefill failed on the card and not on the Mac, for $0.09: the first append to a `Cat`
+cache returns the value projection as a transposed view, which candle's CUDA matmul refuses and its CPU gemm accepts
+(`rows_contiguous`, commit `2f8bdd3`). A green test on a Mac proves nothing about a layout on a card. The second is
+older and cost nothing this time: any new `KvStore` variant breaks the exhaustive matches of `fusedrun`'s A2 modes, and
+the CUDA half of `llvq-llm` has no compiler on this machine, so the image build is where it shows, 17 minutes later.
+
+**How it is served.** The operator chose a field of the served config over an engine default, on 2026-11-02. An
+optional `attention` field names the form; absent means `expanded`, so the six configs that predate it keep their
+logits and their digests, and `qwen3-4b-tetra-e4.json` still reads `098fe49c`, the digest the jobs check. A seventh
+file, `configs/qwen3-4b-tetra-e4-grouped.json`, is the same object with `"attention": "grouped"`. The store is read
+from the form and never written beside it, so no config can name a pair no measurement ran. `shared` is refused by
+name. `grouped` is refused by name on Metal, where it has never been measured. `Served::apply` is the one place the
+pair reaches a model, and the three served doors call it; `bin/gsm8k` applied `LLVQ_KV_PREALLOC` to its served arm
+until then and now refuses that variable beside `LLVQ_CONFIG`.
+
+No run has gone through the new door yet, so the reference decoded line gate 4 checks is unverified under the grouped
+form.

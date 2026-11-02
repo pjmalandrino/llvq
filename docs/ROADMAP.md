@@ -1,6 +1,6 @@
 # Roadmap
 
-What comes next, with its gate and its cost. State as of 2026-10-07. Where things stand is in
+What comes next, with its gate and its cost. State as of 2026-11-02. Where things stand is in
 [`ETAT.md`](ETAT.md), the past in [`HISTORIQUE.md`](HISTORIQUE.md), the rules in [`METHODE.md`](METHODE.md). The
 quality axis has its own document, [`ROADMAP-QUALITY.md`](ROADMAP-QUALITY.md), sanctioned 2026-09-06 and ordered by
 feasibility.
@@ -94,8 +94,11 @@ The stages and their open decisions are in [`plan-transformers.md`](plan-transfo
   (layer, expert) cells, one dead expert, measured on gpt-oss-20b as a floor (*measured*,
   [moe-routing](mesures/moe-routing-gptoss20b-2026-08-12.txt)). About $1.4 to open, about $69 to serve (*estimated*).
 - **q8 KV cache at long context.** Quality green at short context, interval containing zero (*measured*,
-  [kvq8-4b](mesures/kvq8-4b-2026-08-15.txt)). Long-context throughput is unmeasured. Reopening needs a benchmark with
-  a resident model.
+  [kvq8-4b](mesures/kvq8-4b-2026-08-15.txt)). Long-context throughput is no longer the hole: the served 4B reads
+  33.2 tok/s at 8,192 of context and 77.5 under the grouped attention ([`ETAT.md`](ETAT.md) §4). What is left for this
+  row is the mode itself. `KvMode::Q8` quantizes and then keeps the reconstructed f16, so it saves neither memory nor
+  bandwidth, and the b_max accounting of the product triplet subtracts a q8 cache at 8k, 0.64 GB, where the engine
+  stores 1.21. A real int8 store, read in place by a decode attention kernel, closes both at once.
 - **Batch above 1, and prefill.** Batch 1 accepted since 2026-08-18, edge regime. The optimal format depends on the
   batch, so this reopens the layout if prefill is ever served.
 - **The 32B point.** About $62 and 11.4 h on `rtx-pro-6000x2` (*estimated*). The served path is walled there by the
@@ -115,6 +118,9 @@ The stages and their open decisions are in [`plan-transformers.md`](plan-transfo
 | the 32B budget, once a gate exists | not launched |
 | document-extraction domain benchmark ([arXiv:2607.08734](https://arxiv.org/abs/2607.08734)) | not done |
 | a harder reasoning test than GSM8K: Qwen3's reasoning mode or GSM-Symbolic, about 3 to 5 $ at 4B | not done |
+| the job that exercises `configs/qwen3-4b-tetra-e4-grouped.json` through the served door and fixes gate 4's reference line, about $0.3 | the form stays servable and unserved |
+| whether the 8B and the 14B get the grouped form, which needs their own A/B and perplexity control | expanded at those two sizes |
+| whether the grouped form is measured on Metal, where it is refused by name | refused, and the Mac serves the expanded form |
 
 Rule 1 applies to every row: no run starts or stops, and no structural decision is taken, without an explicit go, with
 the cost announced before and the running total after.
