@@ -360,6 +360,41 @@ mod tests {
         assert_eq!(KvStore::Grow(256).label(), "grow(256)");
         assert_eq!(AttnHeads::default(), AttnHeads::Expanded);
     }
+
+    /// The `attention` field's contract, which is NOT the variables': an
+    /// absent field means the published form, and an empty one is refused.
+    #[test]
+    fn attn_heads_parse_contract() {
+        assert_eq!(AttnHeads::parse(None).unwrap(), AttnHeads::Expanded);
+        assert_eq!(AttnHeads::parse(Some("expanded")).unwrap(), AttnHeads::Expanded);
+        assert_eq!(AttnHeads::parse(Some("grouped")).unwrap(), AttnHeads::Grouped);
+
+        // Empty is refused, and so is whitespace: "  " trimmed is "", and a
+        // field nobody wrote must not read as a value.
+        for empty in ["", "   "] {
+            let e = AttnHeads::parse(Some(empty)).expect_err("an empty field");
+            assert!(e.contains("empty"), "{e}");
+        }
+        // Shared is refused BY NAME, with the reason, not as a typo.
+        let e = AttnHeads::parse(Some("shared")).expect_err("shared is not served");
+        assert!(e.contains("gqa-ab-2026-11-01"), "the refusal cites its journal: {e}");
+        // And a typo is a typo, never a default.
+        for bad in ["Grouped", "group", "gqa", "cat"] {
+            let e = AttnHeads::parse(Some(bad)).expect_err(bad);
+            assert!(e.contains(bad), "the message must name the value: {e}");
+        }
+    }
+
+    /// The store rides the form. A `Grouped` config on a `Cat` store would
+    /// measure neither arm of the A/B that licensed it.
+    #[test]
+    fn the_store_rides_the_attention_form() {
+        assert_eq!(AttnHeads::Expanded.store(), KvStore::Cat);
+        assert_eq!(AttnHeads::Grouped.store(), KvStore::Grow(GROW_CHUNK));
+        assert_eq!(AttnHeads::Shared.store(), KvStore::Grow(GROW_CHUNK));
+        // The chunk the A/B of 2026-11-01 ran, named once.
+        assert_eq!(GROW_CHUNK, 256);
+    }
 }
 
 /// How the KV cache GROWS: by concatenation (shipped), into a buffer
@@ -464,6 +499,61 @@ impl AttnHeads {
             Self::Expanded => "expanded",
             Self::Shared => "shared",
             Self::Grouped => "grouped",
+        }
+    }
+
+    /// Parse the served config's `attention` field. No environment variable
+    /// carries this one: the form belongs to the object, so it is a field or
+    /// it is nothing.
+    ///
+    /// `None` — the field absent — is the ONE default this vocabulary allows,
+    /// and it is honest where the five required fields' defaults were not:
+    /// `Expanded` is the form every published number ran, so the six configs
+    /// written before this field existed keep serving exactly what they
+    /// served, down to the logits. An EMPTY field is refused like any other,
+    /// for the reason `served.rs` gives: a value nobody wrote must not read as
+    /// a value.
+    ///
+    /// `Shared` is refused by name. It is slower than `Grouped` at every
+    /// length measured and it is not bit for bit on the card either
+    /// (`docs/mesures/gqa-ab-2026-11-01.txt`), so nothing is served under it;
+    /// it stays reachable from the A/B modes of `bin/fusedrun`, which is where
+    /// those two facts were established.
+    pub fn parse(v: Option<&str>) -> std::result::Result<Self, String> {
+        match v {
+            None => Ok(Self::Expanded),
+            Some("expanded") => Ok(Self::Expanded),
+            Some("grouped") => Ok(Self::Grouped),
+            Some(s) if s.trim().is_empty() => Err(
+                "attention is empty. Write \"expanded\" or \"grouped\", or delete the \
+                 field — absent means \"expanded\", the published form."
+                    .to_string(),
+            ),
+            Some("shared") => Err(
+                "attention \"shared\" is not a served form: it is slower than \"grouped\" \
+                 at every length measured and not bit for bit on the card either \
+                 (gqa-ab-2026-11-01). It exists in the A/B modes of bin/fusedrun only."
+                    .to_string(),
+            ),
+            Some(other) => Err(format!(
+                "attention {other:?}: accepted values \"expanded\" (the published form, \
+                 also what an absent field means) or \"grouped\""
+            )),
+        }
+    }
+
+    /// The cache growth store this form needs.
+    ///
+    /// Not a free choice beside the form, which is why it is read from the
+    /// form rather than written beside it: `Expanded` copies the whole history
+    /// every step and has always run on `Cat`, and the two unexpanded forms
+    /// exist to read the history where it lies, which `Cat` cannot offer
+    /// because its buffer moves at every step. A config that could name the
+    /// two separately could name a pair no measurement ever ran.
+    pub fn store(&self) -> KvStore {
+        match self {
+            Self::Expanded => KvStore::Cat,
+            Self::Shared | Self::Grouped => KvStore::Grow(GROW_CHUNK),
         }
     }
 }

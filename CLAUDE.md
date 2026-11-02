@@ -108,7 +108,7 @@ be in `UPLOAD_ALLOW` of `ops/run.py`, or the Space dies after 12 minutes. `rankb
 
 | variable | values | effect |
 |---|---|---|
-| `LLVQ_CONFIG` | path to a served config (`configs/*.json`) | **the served object, as a file.** Puts `fusedrun` on a one-arm path with no dense reference and `mmlu` on the **kernel** instead of a dense reconstruction. No built-in served default: unset, both binaries are the benches they have always been. A variable that contradicts the file is refused, not outvoted |
+| `LLVQ_CONFIG` | path to a served config (`configs/*.json`) | **the served object, as a file.** Puts `fusedrun` on a one-arm path with no dense reference and `mmlu` on the **kernel** instead of a dense reconstruction. No built-in served default: unset, both binaries are the benches they have always been. A variable that contradicts the file is refused, not outvoted. The file also names the attention form, in an optional `attention` field: absent means `expanded`, the form every published number ran, and `grouped` reads the cached heads with no `repeat_kv` copy (134.4 tok/s at a 5-token prompt and 77.5 at 8,192 against 121.9 and 33.1, *measured*, `gqa-ab-2026-11-01`). `grouped` is not bit for bit and is served under the +-0.12 % tolerance of `docs/ETAT.md` §4, not under identity; it is refused by name on Metal, where it has never been measured. `shared` is refused outright. `configs/qwen3-4b-tetra-e4-grouped.json` is the only file that carries it |
 | `LLVQ_FUSED_LAYOUT` | `planes14` (default), `planes12x`, `slot32`, `golay70`, `tetra48` | VRAM layout of the fused kernel; any other value refused |
 | `LLVQ_EMBED` | `f16` (default), `q8`, `q4` | embedding quantized at load, or read as the file stores it; `q4` in the three served configs, whose files carry it int4 g64 |
 | `LLVQ_KV` | `f16` (default), `q8` | int8 KV cache, shipped, not the default (short context only) |
@@ -137,7 +137,7 @@ a longer prompt.
 `LLVQ_GQA_AB` takes the same lengths and times the published attention against the two forms that read the cached
 heads without `repeat_kv` (`kvq::AttnHeads`, `KvStore::Grow`). `LLVQ_GQA_PPL=<ctx>,<windows>` scores the grouped form
 against the published one on WikiText-2, by the prefill path and by a teacher-forced decode path, paired window by
-window. The served path keeps the expanded form until a measured decision says otherwise.
+window. Both runs are done: the grouped form passed the tolerance on 2026-11-01, and it is served by the `attention` field of a config, never by a variable. The six configs that predate the field, and so every published number, stay on the expanded form.
 
 ## Hard rules
 

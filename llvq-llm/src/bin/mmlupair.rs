@@ -151,7 +151,7 @@ impl Dump {
                         "limit" => limit = v.to_string(),
                         "alloc" => alloc = v.to_string(),
                         "config" | "arithmetic" | "layout" | "embed" | "rot_share" | "fuse"
-                        | "kv" => served.push((k.to_string(), v.to_string())),
+                        | "kv" | "attention" => served.push((k.to_string(), v.to_string())),
                         _ => {}
                     }
                 }

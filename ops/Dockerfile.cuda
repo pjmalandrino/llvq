@@ -183,6 +183,11 @@ RUN test -f /usr/local/share/llvq/configs/qwen3-4b-tetra-q5.json
 # (ops/jobs/served-8b.sh); from this image on, both are in it.
 RUN test -f /usr/local/share/llvq/configs/qwen3-8b-tetra-q5.json \
  && test -f /usr/local/share/llvq/configs/qwen3-14b-tetra-q5.json
+# The 4B paper-2 object and its grouped twin, the pair a run names to compare
+# the two attention forms on one file. Same reason again: a missing config is a
+# build failure here and a billed failure there.
+RUN test -f /usr/local/share/llvq/configs/qwen3-4b-tetra-e4.json \
+ && test -f /usr/local/share/llvq/configs/qwen3-4b-tetra-e4-grouped.json
 # `export` and `rowscale` are RUN here, not just tested for presence. This
 # stage runs on the Space builder, which has no GPU and no `libcuda.so.1`, so a
 # binary linked against it fails to load HERE, by name, rather than on `cpu-xl`

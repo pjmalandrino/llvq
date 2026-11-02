@@ -115,6 +115,20 @@ fn main() -> anyhow::Result<()> {
     let kv_mode = llvq_llm::kvq::KvMode::from_env().map_err(anyhow::Error::msg)?;
     let kv_store = llvq_llm::kvq::KvStore::from_env().map_err(anyhow::Error::msg)?;
     let served = llvq_llm::served::Served::from_env().map_err(anyhow::Error::msg)?;
+    // The store is the config's business on the served path, and the config
+    // reads it from the attention form. A variable beside it would be two
+    // answers to one question, which is what `served.rs` refuses everywhere
+    // else: `bin/fusedrun` has refused this one by name since 2026-09-11, and
+    // this binary applied it to the served arm until 2026-11-02.
+    if served.is_some() {
+        if let Ok(v) = std::env::var("LLVQ_KV_PREALLOC") {
+            anyhow::bail!(
+                "LLVQ_KV_PREALLOC={v:?} beside LLVQ_CONFIG: the served config names the \
+                 cache store, through its attention form. Unset it, or unset LLVQ_CONFIG \
+                 and score the dense reconstruction."
+            );
+        }
+    }
 
     // ---- the model ----
     let t_load = Instant::now();
@@ -167,15 +181,23 @@ fn main() -> anyhow::Result<()> {
             "reference checkpoint",
         )
     };
-    model.set_kv_store(kv_store);
+    // Served: the config decides the store and the attention form, in one
+    // place for the three binaries. Bench: the store comes from the variable.
+    match &served {
+        Some(cfg) => cfg.apply(&mut model, &device).map_err(anyhow::Error::msg)?,
+        None => model.set_kv_store(kv_store),
+    }
     let load_s = t_load.elapsed().as_secs_f64();
     let kv_name = match &served {
         Some(cfg) => cfg.kv.name(),
         None => kv_mode.name(),
     };
     eprintln!(
-        "model: {label}\ndevice: {device:?}, dtype {}, kv {kv_name}, loaded in {load_s:.1} s",
-        llvq_llm::eval::dtype_name(dtype)
+        "model: {label}\ndevice: {device:?}, dtype {}, kv {kv_name}, attention {} on {}, \
+         loaded in {load_s:.1} s",
+        llvq_llm::eval::dtype_name(dtype),
+        model.attn_heads().label(),
+        model.kv_store().label(),
     );
 
     let marks = Marks::resolve(&tok)?;

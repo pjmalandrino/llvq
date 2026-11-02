@@ -834,7 +834,7 @@ fn main() -> anyhow::Result<()> {
                 anyhow::bail!("LLVQ_CONTEXTS times the Cat store: unset LLVQ_KV_PREALLOC");
             }
             let t = Instant::now();
-            let f = match &served {
+            let mut f = match &served {
                 Some(cfg) => {
                     println!("{}", cfg.provenance());
                     llvq_llm::fused_cuda::load_resolved(
@@ -848,9 +848,18 @@ fn main() -> anyhow::Result<()> {
                     llvq_llm::fused_cuda::load_with(&path, &device, dtype, fuse)?
                 }
             };
+            // The served attention form rides this mode too, for the reason
+            // the loader choice above rides it: the object timed at 8,192 must
+            // be the object served, not the form the model defaults to while a
+            // provenance line names another.
+            if let Some(cfg) = &served {
+                cfg.apply(&mut f.model, &device).map_err(|e| anyhow::anyhow!("{e}"))?;
+            }
             println!(
-                "layout {}, loaded in {:.1} s",
+                "layout {}, attention {} on {}, loaded in {:.1} s",
                 f.layout.name(),
+                f.model.attn_heads().label(),
+                f.model.kv_store().label(),
                 t.elapsed().as_secs_f64()
             );
             let seed = f
@@ -957,7 +966,12 @@ fn main() -> anyhow::Result<()> {
                     llvq_llm::fused_cuda::load_with(&path, &device, dtype, fuse)?
                 }
             };
-            f.model.set_kv_store(kv_store);
+            // Served: the config decides the store and the form. Bench: the
+            // store comes from the variable, as it always did.
+            match &served {
+                Some(cfg) => cfg.apply(&mut f.model, &device).map_err(|e| anyhow::anyhow!("{e}"))?,
+                None => f.model.set_kv_store(kv_store),
+            }
             let load = t.elapsed().as_secs_f64();
             // The ids do not matter for a timing — the kernel has no
             // data-dependent branch — so the prompt is repeated to length
@@ -969,7 +983,12 @@ fn main() -> anyhow::Result<()> {
                 .get_ids()
                 .to_vec();
             let ids: Vec<u32> = (0..n).map(|i| seed[i % seed.len()]).collect();
-            println!("prefill: {n} tokens, layout {}, loaded in {load:.1} s", f.layout.name());
+            println!(
+                "prefill: {n} tokens, layout {}, attention {} on {}, loaded in {load:.1} s",
+                f.layout.name(),
+                f.model.attn_heads().label(),
+                f.model.kv_store().label(),
+            );
             let mut ms: Vec<f64> = Vec::new();
             // Six passes, the first discarded: the first on CUDA pays kernel
             // selection, allocator growth and the clock ramp.
@@ -1112,7 +1131,7 @@ fn main() -> anyhow::Result<()> {
         if let Some(cfg) = &served {
             println!("{}", cfg.provenance());
             let t = Instant::now();
-            let f = llvq_llm::fused_cuda::load_resolved(
+            let mut f = llvq_llm::fused_cuda::load_resolved(
                 &path,
                 &device,
                 dtype,
@@ -1123,6 +1142,9 @@ fn main() -> anyhow::Result<()> {
                 cfg.kv,
                 Some("LLVQ_CONFIG"),
             )?;
+            // The attention form and its store, from the file and from
+            // nowhere else. The provenance line above already named them.
+            cfg.apply(&mut f.model, &device).map_err(|e| anyhow::anyhow!("{e}"))?;
             let load_s = t.elapsed().as_secs_f64();
             let ids = f
                 .tokenizer

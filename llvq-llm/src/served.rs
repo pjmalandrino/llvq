@@ -29,7 +29,12 @@
 //! ## What it refuses
 //!
 //! * an unknown key — a typo in `"embeding"` must not read as "the default";
-//! * a missing key — there are no defaults here, that is the point;
+//! * a missing key, among the five required ones — there are no defaults
+//!   here, that is the point. `attention` is the one exception, added on
+//!   2026-11-02: it is optional because its absence means the form every
+//!   published number ran, so the six configs that predate it keep serving
+//!   the same logits. A present-but-empty `attention` is refused like any
+//!   other empty field;
 //! * an empty string — `parse` reads `Some("")` as the default, which is the
 //!   one way a file could still silently mean `planes14`;
 //! * an environment variable that DISAGREES with the file. Not a precedence
@@ -54,7 +59,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::fused::{EmbedMode, FuseMode, FusedLayout};
-use crate::kvq::KvMode;
+use crate::kvq::{AttnHeads, KvMode, KvStore};
 use crate::rotplan::RotShare;
 
 /// The file on disk. Strings, because the vocabulary belongs to the parsers.
@@ -66,6 +71,14 @@ pub struct ServedFile {
     pub rot_share: String,
     pub fuse: String,
     pub kv: String,
+    /// How attention reads the cached heads. The one OPTIONAL field that
+    /// changes what runs, and optional on purpose: absent means `expanded`,
+    /// the form every published number ran, so the six configs written before
+    /// this field existed serve the same logits they always served. See
+    /// [`crate::kvq::AttnHeads::parse`] for why that default is honest where
+    /// the five required fields' defaults were not.
+    #[serde(default)]
+    pub attention: Option<String>,
     /// Free text, carried so a config can say what object it belongs to. Read
     /// by nothing and printed with the rest.
     #[serde(default)]
@@ -80,6 +93,11 @@ pub struct Served {
     pub rot_share: RotShare,
     pub fuse: FuseMode,
     pub kv: KvMode,
+    /// How attention reads the cached heads.
+    pub attention: AttnHeads,
+    /// The cache growth store, read from `attention` and never written beside
+    /// it ([`AttnHeads::store`]).
+    pub store: KvStore,
     pub path: PathBuf,
     pub note: Option<String>,
 }
@@ -197,12 +215,18 @@ impl Served {
 
     /// The file's strings through the parsers. Pure: no environment, no disk.
     pub fn of(f: ServedFile, path: PathBuf) -> Result<Self, String> {
+        // `attention` goes through its own parse and NOT through `field`: it
+        // is the one optional field, so `None` is a value here (`expanded`)
+        // and the empty string is refused inside the parse instead.
+        let attention = AttnHeads::parse(f.attention.as_deref())?;
         Ok(Self {
             layout: FusedLayout::parse(field("layout", &f.layout)?)?,
             embed: EmbedMode::parse(field("embed", &f.embed)?)?,
             rot_share: RotShare::parse(field("rot_share", &f.rot_share)?)?,
             fuse: FuseMode::parse(field("fuse", &f.fuse)?)?,
             kv: KvMode::parse(field("kv", &f.kv)?)?,
+            attention,
+            store: attention.store(),
             path,
             note: f.note,
         })
@@ -222,14 +246,63 @@ impl Served {
             None => String::new(),
         };
         format!(
-            "served config: {} (layout {}, embed {}, rot_share {}, fuse {}, kv {}){note}",
+            "served config: {} (layout {}, embed {}, rot_share {}, fuse {}, kv {}, \
+             attention {} on {}){note}",
             self.path.display(),
             self.layout.name(),
             self.embed.name(),
             self.rot_share.name(),
             self.fuse.name(),
             self.kv.name(),
+            self.attention.label(),
+            self.store.label(),
         )
+    }
+
+    /// The served attention form against the device it would run on.
+    ///
+    /// `Grouped` is measured on one card, the L40S, through three runs of
+    /// 2026-10-30 and 2026-11-01. On Metal it has never run: no throughput, no
+    /// perplexity, and no comparison of what Metal's own matmuls round to. The
+    /// form is backend-independent code in `model.rs`, which is exactly why a
+    /// silent acceptance would be easy and wrong — it would serve on the Mac a
+    /// form whose tolerance gate was passed on an NVIDIA card.
+    ///
+    /// So: refused by name, with the measurement that would lift the refusal.
+    /// `metal` is handed in rather than read from a device so the refusal is
+    /// testable on a machine that has no Metal device, and so this function
+    /// stays pure like the rest of this module.
+    pub fn check_device(&self, metal: bool) -> Result<(), String> {
+        match (self.attention, metal) {
+            (AttnHeads::Expanded, _) | (_, false) => Ok(()),
+            (form, true) => Err(format!(
+                "{}: attention {:?} on Metal. That form has never been measured on \
+                 Metal — no throughput, no perplexity, and no reading of what Metal \
+                 rounds to — and the +-0.12 % tolerance it passed was measured on an \
+                 L40S (gqa-ppl-2026-11-01). Serve this object with the expanded form, \
+                 or measure the grouped one on Metal first.",
+                self.path.display(),
+                form.label(),
+            )),
+        }
+    }
+
+    /// Put a loaded model on what this config says: the store, then the form.
+    ///
+    /// The one place the pair is applied, called by the served door of
+    /// `bin/fusedrun`, `bin/mmlu` and `bin/gsm8k`. Three copies would be three
+    /// chances for one binary to serve `grouped` while another serves
+    /// `expanded` on the same file, which is the defect class
+    /// [`Served`] exists to close.
+    pub fn apply(
+        &self,
+        model: &mut crate::model::Qwen3,
+        device: &candle_core::Device,
+    ) -> Result<(), String> {
+        self.check_device(device.is_metal())?;
+        model.set_kv_store(self.store);
+        model.set_attn_heads(self.attention);
+        Ok(())
     }
 }
 

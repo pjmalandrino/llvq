@@ -3012,6 +3012,50 @@ mod tests {
         assert!(model.step_mask(1, 1, 20).unwrap().is_some(), "the switch must reach step_mask");
     }
 
+    /// 🚨 The served config's pair reaches the model, BOTH halves of it.
+    ///
+    /// `served::Served::apply` is the one place `bin/fusedrun`, `bin/mmlu` and
+    /// `bin/gsm8k` set the store and the form, and a half-wired apply is the
+    /// defect that would not show: a `Grouped` form on a `Cat` store decodes
+    /// the same tokens, slowly, and an `Expanded` form on a `Grow` store
+    /// decodes them too. Only the getters tell them apart, so they are
+    /// asserted, and then the pair is made to decode so the config cannot name
+    /// a combination that falls over.
+    #[test]
+    fn a_served_config_sets_the_store_and_the_attention_form() {
+        use crate::kvq::{AttnHeads, KvStore, GROW_CHUNK};
+        let file = |attention: Option<&str>| crate::served::ServedFile {
+            layout: "tetra48".into(),
+            embed: "q4".into(),
+            rot_share: "1".into(),
+            fuse: "0".into(),
+            kv: "f16".into(),
+            attention: attention.map(str::to_string),
+            note: None,
+        };
+        let resolve = |attention: Option<&str>| {
+            crate::served::Served::of(file(attention), std::path::PathBuf::from("t.json"))
+                .expect("resolves")
+        };
+
+        let mut m = tiny_model(DType::F32);
+        assert_eq!(m.attn_heads(), AttnHeads::Expanded, "the model's default");
+        assert_eq!(m.kv_store(), KvStore::Cat);
+        let prompt: Vec<u32> = (0..9u32).map(|i| (i * 11 + 5) % 97).collect();
+        let want = m.generate(&prompt, 7, &mut NoCapture).unwrap();
+
+        // A config that says nothing leaves the published path in place.
+        resolve(None).apply(&mut m, &Device::Cpu).expect("expanded applies");
+        assert_eq!((m.attn_heads(), m.kv_store()), (AttnHeads::Expanded, KvStore::Cat));
+
+        // A config that says `grouped` moves both halves, and the pair decodes.
+        resolve(Some("grouped")).apply(&mut m, &Device::Cpu).expect("grouped applies");
+        assert_eq!(m.attn_heads(), AttnHeads::Grouped, "the form");
+        assert_eq!(m.kv_store(), KvStore::Grow(GROW_CHUNK), "and the store with it");
+        let got = m.generate(&prompt, 7, &mut NoCapture).unwrap();
+        assert_eq!(got, want, "on the CPU in f32 the two forms agree token for token");
+    }
+
     /// A two-layer Qwen3 with deterministic pseudo-random weights, on the CPU.
     fn tiny_model(dtype: DType) -> Qwen3 {
         tiny_model_heads(dtype, 4, 2)

@@ -9,7 +9,7 @@
 //! billed job to discover.
 
 use llvq_llm::fused::{EmbedMode, FuseMode, FusedLayout};
-use llvq_llm::kvq::KvMode;
+use llvq_llm::kvq::{AttnHeads, KvMode, KvStore, GROW_CHUNK};
 use llvq_llm::rotplan::RotShare;
 use llvq_llm::served::{check_env, Served, ServedFile, BELOW_THE_DOOR};
 use std::path::PathBuf;
@@ -21,6 +21,7 @@ fn served() -> ServedFile {
         rot_share: "1".into(),
         fuse: "0".into(),
         kv: "f16".into(),
+        attention: None,
         note: Some("Qwen3-4B, Tetra + 36 v_proj int4 g128".into()),
     }
 }
@@ -364,4 +365,139 @@ fn the_q4_config_is_the_4b_served_values_with_a_q4_embedding() {
         (q5.layout, q5.rot_share, q5.fuse, q5.kv),
         "only the embedding may differ from the 4B served object"
     );
+}
+
+// ---------------------------------------------------------------------------
+// The `attention` field, added 2026-11-02 with the grouped form.
+// ---------------------------------------------------------------------------
+
+/// 🚨 A config written before the field existed must serve what it served.
+///
+/// This is the whole reason the field is optional and the reason the operator
+/// chose a field over an engine default: `expanded` is the form every
+/// published number ran, so the six files that predate 2026-11-02 keep their
+/// logits, and only a file that SAYS `grouped` changes path.
+#[test]
+fn an_absent_attention_field_is_the_published_form() {
+    // In the struct.
+    let s = of(served()).expect("the field is optional");
+    assert_eq!(s.attention, AttnHeads::Expanded);
+    assert_eq!(s.store, KvStore::Cat);
+
+    // In a file that does not carry the key at all.
+    let text = r#"{"layout":"tetra48","embed":"q4","rot_share":"1","fuse":"0","kv":"f16"}"#;
+    let f: ServedFile = serde_json::from_str(text).expect("five keys are enough");
+    assert_eq!(f.attention, None);
+    let r = Served::of(f, PathBuf::from("old.json")).expect("resolves");
+    assert_eq!((r.attention, r.store), (AttnHeads::Expanded, KvStore::Cat));
+
+    // And on disk: every shipped config except the grouped one is expanded.
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../configs");
+    let mut expanded = 0;
+    for entry in std::fs::read_dir(&dir).expect("configs/") {
+        let path = entry.expect("entry").path();
+        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+            continue;
+        }
+        let name = path.file_name().expect("name").to_string_lossy().to_string();
+        let f = Served::read_file(&path).expect("parses");
+        let r = Served::of(f, path.clone()).expect("resolves");
+        match name.contains("grouped") {
+            true => assert_eq!(r.attention, AttnHeads::Grouped, "{name}"),
+            false => {
+                assert_eq!(r.attention, AttnHeads::Expanded, "{name} must not have moved");
+                assert_eq!(r.store, KvStore::Cat, "{name}");
+                expanded += 1;
+            }
+        }
+    }
+    assert!(expanded >= 6, "{expanded} configs predate the field, 6 expected");
+}
+
+/// The grouped config is the e4 object and nothing else about it moved.
+///
+/// It names the SAME file, the same layout, embedding, hoist, fusion and KV
+/// mode: the only difference between the two is how attention reads the cache,
+/// which is what makes a pair of runs under them an A/B of one thing.
+#[test]
+fn the_grouped_config_is_the_e4_object_with_the_grouped_attention() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../configs");
+    let read = |name: &str| {
+        let path = dir.join(name);
+        let f = Served::read_file(&path).unwrap_or_else(|e| panic!("{name}: {e}"));
+        Served::of(f, path).unwrap_or_else(|e| panic!("{name}: {e}"))
+    };
+    let e4 = read("qwen3-4b-tetra-e4.json");
+    let g = read("qwen3-4b-tetra-e4-grouped.json");
+
+    assert_eq!(g.attention, AttnHeads::Grouped);
+    assert_eq!(g.store, KvStore::Grow(GROW_CHUNK), "the store rides the form");
+    assert_eq!(e4.attention, AttnHeads::Expanded, "the published 4B config did not move");
+    assert_eq!(
+        (g.layout, g.embed, g.rot_share, g.fuse, g.kv),
+        (e4.layout, e4.embed, e4.rot_share, e4.fuse, e4.kv),
+        "only the attention form may differ from the e4 object"
+    );
+    // The provenance names the form, so no log can be silent about which one
+    // produced its number.
+    let line = g.provenance();
+    assert!(line.contains("attention grouped on grow(256)"), "{line}");
+    assert!(e4.provenance().contains("attention expanded on cat"), "{}", e4.provenance());
+}
+
+/// An `attention` nobody can serve is refused, and never read as the default.
+#[test]
+fn an_attention_the_file_cannot_serve_is_refused() {
+    // Empty, and whitespace, like every other field of this file.
+    for empty in ["", "   "] {
+        let mut f = served();
+        f.attention = Some(empty.into());
+        let e = match of(f) {
+            Err(e) => e,
+            Ok(_) => panic!("an empty attention must be refused, not read as expanded"),
+        };
+        assert!(e.contains("attention"), "the message must name the field: {e}");
+        assert!(e.contains("empty"), "and say what is wrong with it: {e}");
+    }
+    // `shared` is refused BY NAME: it is slower than grouped everywhere and
+    // not bit for bit either, so no object is served under it.
+    let mut f = served();
+    f.attention = Some("shared".into());
+    let e = of(f).expect_err("shared is not a served form");
+    assert!(e.contains("gqa-ab-2026-11-01"), "the refusal cites its journal: {e}");
+    // And a typo stays a typo.
+    for bad in ["Grouped", "gqa", "grouped ", "unexpanded"] {
+        let mut f = served();
+        f.attention = Some(bad.into());
+        assert!(of(f).is_err(), "{bad:?} must be refused");
+    }
+}
+
+/// 🚨 The grouped form has never run on Metal, so a Metal build refuses it.
+///
+/// The form is backend-independent code in `model.rs`, which is exactly what
+/// makes a silent acceptance easy: the Mac would serve a form whose tolerance
+/// gate was passed on an L40S, with no throughput, no perplexity and no
+/// reading of Metal's own rounding. The predicate is handed in, so this runs
+/// on a machine with no Metal device.
+#[test]
+fn the_grouped_form_is_refused_on_metal_and_named_in_the_refusal() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../configs");
+    let path = dir.join("qwen3-4b-tetra-e4-grouped.json");
+    let g = Served::of(Served::read_file(&path).expect("parses"), path).expect("resolves");
+
+    let e = g.check_device(true).expect_err("grouped on Metal is refused");
+    assert!(e.contains("Metal"), "{e}");
+    assert!(e.contains("grouped"), "the message names the form: {e}");
+    assert!(e.contains("gqa-ppl-2026-11-01"), "and the measurement that would lift it: {e}");
+    assert!(
+        e.contains("qwen3-4b-tetra-e4-grouped.json"),
+        "and which config asked for it: {e}"
+    );
+    g.check_device(false).expect("grouped on a card is what was measured");
+
+    // The expanded form is the Mac's served path and stays accepted.
+    let s = of(served()).expect("resolves");
+    s.check_device(true).expect("expanded on Metal is the published path");
+    s.check_device(false).expect("expanded on a card too");
 }
