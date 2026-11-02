@@ -936,6 +936,13 @@ config inherits the reference line `8784ffc4` and gate 4 does not change. The ex
 door measure one object. All fourteen predictions landed. The prefill is untouched, 35.02 s to the first token at
 8,192 against 34.84, and it is now the largest single item of a long-context answer.
 
-Which file the 4B serves stays the operator's: the grouped config is faster everywhere measured, and the expanded one
-is what paper 2 and the Hub cards describe. A switch would owe MMLU and GSM8K through the kernel under the new form,
-which nothing has scored.
+**The 4B now serves the grouped configuration**, decided the same day, and the publication perimeter was split to
+allow it. Paper 2 cites three Hub repositories by URL and three file digests, and nothing else: those three cards and
+the safetensors one are frozen, and a new repository, `Qwen3-4B-LLVQ-Tetra-served`, carries the same bytes under a
+card that is rewritten whenever a measurement replaces a figure. The weights are identical, digest `886391a8`; what
+moves is the configuration the kernel reads.
+
+The switch took on a debt, written into ETAT §2 beside the number: the 4B's 133.3 tok/s is the grouped form, while
+its 63.37 MMLU and 82.49 GSM8K are the expanded form's, and no task score has ever run under the grouped one. Its
+whole licence is the paired perplexity inside ±0.12 %. Settling it costs about $2 for GSM8K through the kernel and
+about $20 for an MMLU census.

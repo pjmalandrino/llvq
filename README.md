@@ -13,7 +13,7 @@ Three Qwen3 models, sealed at about 2.7 bits per parameter, one served configura
 
 | model | b/param | MMLU | WikiText-2 ppl | tok/s | GB of weights |
 |---|---|---|---|---|---|
-| Qwen3-4B | 2.73 | 63.37 | 12.58 | 122.4 | 1.38 |
+| Qwen3-4B | 2.73 | 63.37 | 12.58 | 133.3 | 1.38 |
 | Qwen3-8B | 2.70 | 69.58 | 9.71 | 95.0 | 2.76 |
 | Qwen3-14B | 2.73 | 75.66 | 8.44 | 57.2 | 5.04 |
 
@@ -22,11 +22,15 @@ Perplexity is read the same way, on the raw WikiText-2 test split. Speed is batc
 five rounds. Bits per parameter count the whole model, tables
 included. Every cell is *measured*; the journals are in [`docs/ETAT.md`](docs/ETAT.md) §2.
 
-The 4B's speed is the step as trimmed on 2026-10-30: three removals that change no output bit are worth 1.072, from
-114.2 tok/s to 122.4. The 8B and the 14B have not been re-timed since, so their figures predate the trims. Paper 2
-and the Hub cards report 113.8 for the 4B, measured before them. Throughput falls with the context, which the table
-does not show: the same file reads 33.2 tok/s at 8,192 positions, and 77.5 under the grouped attention of
-[`docs/ETAT.md`](docs/ETAT.md) §4.
+The 4B's row mixes two served configurations, which is worth stating plainly. Its 133.3 tok/s is the grouped
+attention, served since 2026-11-02; its MMLU and perplexity were measured under the expanded form, and no task score
+has run under the grouped one, which is licensed by a paired perplexity inside ±0.12 % and by nothing else
+([`docs/ETAT.md`](docs/ETAT.md) §4). The same file under the expanded configuration reads 121.5 tok/s. The 8B and the
+14B are expanded throughout and have not been re-timed since three bit-identical trims of 2026-10-30, worth 1.072 at
+4B. Paper 2 and the three cited Hub cards report 113.8 for the 4B, measured before all of this, and they do not move.
+
+Throughput falls with the context, which the table does not show: at 8,192 tokens of prompt the 4B decodes at 77.5
+tok/s under the grouped form and 33.2 under the expanded one, and the first token takes 35 s either way.
 
 Against 4-bit AWQ, on the same questions, our files score 4.76, 4.21 and 2.46 points lower, and use 45 to 52% of its
 bits per parameter. Both gaps shrink as the model grows. At 4B we score 23.6 points above llama.cpp's IQ2_XXS for 0.25
@@ -145,7 +149,10 @@ published on PyPI as `llvq-tetra`.
 - [`docs/METHODE.md`](docs/METHODE.md): the lab rules. [`docs/STYLE.md`](docs/STYLE.md): how these documents are written.
 - [`docs/fiche-4b.md`](docs/fiche-4b.md): every number on the published file, with its provenance.
 - [`docs/format-noyau.md`](docs/format-noyau.md): the VRAM layouts and the measurement traps.
-- [`docs/hub/`](docs/hub/): the cards of the three files on the Hugging Face Hub.
+- [`docs/hub/`](docs/hub/): the cards of the files on the Hugging Face Hub. The three `-sealed` cards and the
+  safetensors one are byte for byte what the Hub serves and do not move: paper 2 publishes the digests of the
+  three sealed files. `qwen3-4b-served.md` is the moving card, rewritten whenever a measurement replaces one of
+  its figures.
 - [`paper2/`](paper2/README.md): the second paper. [`ARTIFACT-EVALUATION.md`](ARTIFACT-EVALUATION.md): reviewer instructions.
 
 ## Method
