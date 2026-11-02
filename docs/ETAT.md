@@ -39,7 +39,10 @@ tokens after a 5-token prompt, median of five rounds ([paper-table](mesures/pape
 the causal mask is not rebuilt when it is all zero in decode, the int4 kernel reads f16 instead of a converted f32,
 and cudarc's event tracking is off on the one served stream (*measured*,
 [trims-contexts](mesures/trims-contexts-2026-10-30.txt)). The three multiply to 1.064 and the bundle reads 1.072. The
-8B and the 14B have not been re-timed since, so 95.0 and 57.2 remain pre-trim numbers.
+8B and the 14B have not been re-timed since, so 95.0 and 57.2 remain pre-trim numbers. Through the served
+door, the config file rather than the flags, the same 4B file reads 121.5 tok/s [121.1-121.6] for the same
+quantity, and 122.5 with the prefill excluded (*measured*,
+[served-grouped](mesures/served-grouped-2026-11-02.txt)).
 
 **MMLU and perplexity are scored on the dense reconstruction, not through the kernel.** Per-row checks against f64 and
 a 256-token comparison tie the two: identical tokens at 4B and 8B, first difference at token 78 at 14B. One 4B census
@@ -138,6 +141,13 @@ isolated decode steps move one logit by up to 13.13, which no reading explains y
 form ships in `configs/qwen3-4b-tetra-e4-grouped.json` and nowhere else: the 8B, the 14B and Metal have never run it,
 and Metal refuses it by name.
 
+**Through the served door it reads 133.3 tok/s against 121.5, and 77.5 against 33.2 at 8,192, with the same 256-token
+text under both configs** (*measured*, [served-grouped](mesures/served-grouped-2026-11-02.txt)). The two texts are the
+same bytes, so the grouped config inherits the expanded form's reference line `8784ffc4` and gate 4 of a later job is
+unchanged. The prefill does not pay for the form: 35.02 s to the first token at 8,192 against 34.84. Under the grouped
+form the cache is no longer the majority of a decode token at 8,192, 42.4 % against 72.9 % (*computed*), which is what
+leaves the prefill and the launch count as the next two walls.
+
 **Noise.** The calibration draw carries a standard deviation of 2.92 pp of MMLU and 5.2% of perplexity at 4B over
 three full runs (*measured*, [bruit-mmlu](mesures/bruit-mmlu-graines-4b-2026-08-25.txt),
 [f5-graines](mesures/f5-graines-4b-2026-08-19.txt)). Every size is calibrated on one draw. For an A/B at constant file
@@ -164,14 +174,14 @@ the bar is the paired interval, 0.43 pp in MMLU and 0.12% in perplexity (*measur
   [plan-transformers](plan-transformers.md)). `llvq-tetra` 0.1.0 is on PyPI since 2026-10-07, the bytes that passed
   TestPyPI ([hf-pypi](mesures/hf-pypi-0.1.0-2026-10-07.txt)), so `pip install llvq-tetra` loads it. Next, on the
   operator's go: the upstream issue and PR, together.
-- **Spend.** $248.30 over 236 rows of the registry, 206 of them priced (*measured*, `docs/data/jobs.csv`). The
-  throughput wave of 2026-10-30 to 11-01 spent $1.55 under a $2 cap per job, the review campaign of 2026-10-04 to
+- **Spend.** $248.84 over 237 rows of the registry, 207 of them priced (*measured*, `docs/data/jobs.csv`). The
+  throughput campaign of 2026-10-30 to 11-02 spent $2.09 over five jobs, each of its three waves under its own $2 cap, the review campaign of 2026-10-04 to
   10-06 spent $4.57 under a $9 cap, and the `transformers` wave of 2026-09-30 spent $0.30 under a $5 cap. No cap is
   in force; one is owed before the next paid job.
-- **How the grouped attention reaches a served run.** The form is servable by config since 2026-11-02 and no run has
-  gone through that door: the reference decoded line that gate 4 of every job checks, `8784ffc4` for the expanded
-  form, is unverified under the grouped one. The A/B returned the same 256 tokens at a 5-token prompt, so it probably
-  holds, and only a card can say. One job, about $0.3 (*estimated*).
+- **Which file is the 4B's served object.** `configs/qwen3-4b-tetra-e4-grouped.json` is faster at every length
+  measured and returns the same text at a 5-token prompt, and `configs/qwen3-4b-tetra-e4.json` is the object paper 2
+  and the Hub cards describe. Nothing published moves until the operator says so. What a switch would owe: MMLU and
+  GSM8K through the served kernel under the grouped form, which no run has scored.
 
 ## 6. Closed absent a new idea
 

@@ -927,5 +927,15 @@ name. `grouped` is refused by name on Metal, where it has never been measured. `
 pair reaches a model, and the three served doors call it; `bin/gsm8k` applied `LLVQ_KV_PREALLOC` to its served arm
 until then and now refuses that variable beside `LLVQ_CONFIG`.
 
-No run has gone through the new door yet, so the reference decoded line gate 4 checks is unverified under the grouped
-form.
+**The door, measured.** A fifth job, $0.54 against $0.87 announced, ran the served door under each config and then
+the context sweep beside each. The grouped config reads 133.3 tok/s against 121.5 after a 5-token prompt, and by the
+sweep 134.5, 113.8, 98.0 and 77.5 against 122.5, 82.7, 61.4 and 33.2 at 5, 2,048, 4,096 and 8,192 (*measured*,
+[served-grouped](mesures/served-grouped-2026-11-02.txt)). The two 256-token texts are the same bytes, so the grouped
+config inherits the reference line `8784ffc4` and gate 4 does not change. The expanded arm reproduced the sweep of
+2026-10-30 to every printed digit, in another job and another image, which is what says the served door and the bench
+door measure one object. All fourteen predictions landed. The prefill is untouched, 35.02 s to the first token at
+8,192 against 34.84, and it is now the largest single item of a long-context answer.
+
+Which file the 4B serves stays the operator's: the grouped config is faster everywhere measured, and the expanded one
+is what paper 2 and the Hub cards describe. A switch would owe MMLU and GSM8K through the kernel under the new form,
+which nothing has scored.

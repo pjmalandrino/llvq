@@ -821,8 +821,10 @@ fn main() -> anyhow::Result<()> {
         // for each prompt length named, the first token and the decode after
         // it (`run_context_sweep`). Through the served door when there is a
         // config, like `LLVQ_PREFILL_TOKENS`, so the object timed is the
-        // object served. On the `Cat` store only: a preallocated window would
-        // bound the prompt.
+        // object served, down to its attention form. A PREALLOCATED window is
+        // refused, because a fixed window would bound the prompt this mode
+        // exists to lengthen; the store a served config asks for is not
+        // refused, and `Grow` promises no window.
         if let Ok(v) = std::env::var("LLVQ_CONTEXTS") {
             let lengths = parse_contexts(&v).map_err(|e| anyhow::anyhow!("{e}"))?;
             for other in ["LLVQ_TRIM_AB", "LLVQ_PREFILL_TOKENS"] {
@@ -831,7 +833,11 @@ fn main() -> anyhow::Result<()> {
                 }
             }
             if !matches!(kv_store, llvq_llm::kvq::KvStore::Cat) {
-                anyhow::bail!("LLVQ_CONTEXTS times the Cat store: unset LLVQ_KV_PREALLOC");
+                anyhow::bail!(
+                    "LLVQ_CONTEXTS with a preallocated window: the window would bound the \
+                     prompt this mode exists to lengthen. Unset LLVQ_KV_PREALLOC. A served \
+                     config's own store is applied below and is not this check's business."
+                );
             }
             let t = Instant::now();
             let mut f = match &served {

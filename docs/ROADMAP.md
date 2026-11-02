@@ -118,7 +118,7 @@ The stages and their open decisions are in [`plan-transformers.md`](plan-transfo
 | the 32B budget, once a gate exists | not launched |
 | document-extraction domain benchmark ([arXiv:2607.08734](https://arxiv.org/abs/2607.08734)) | not done |
 | a harder reasoning test than GSM8K: Qwen3's reasoning mode or GSM-Symbolic, about 3 to 5 $ at 4B | not done |
-| the job that exercises `configs/qwen3-4b-tetra-e4-grouped.json` through the served door and fixes gate 4's reference line, about $0.3 | the form stays servable and unserved |
+| which file is the 4B's served object, now that the grouped config is faster at every length and returns the same text | the expanded config, which paper 2 and the Hub cards describe |
 | whether the 8B and the 14B get the grouped form, which needs their own A/B and perplexity control | expanded at those two sizes |
 | whether the grouped form is measured on Metal, where it is refused by name | refused, and the Mac serves the expanded form |
 
