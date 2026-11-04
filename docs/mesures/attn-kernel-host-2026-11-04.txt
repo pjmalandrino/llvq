@@ -109,8 +109,9 @@ layout, C3 no barrier after a chunk, C4 single-split path at two splits, C5b acc
 split, C6 fma in the chunked merge: 6 killed. The whole earlier kernel set rerun: all killed but K5 (equivalent,
 as before); K2 and K4 targeted the replaced fold and no longer apply, C1 and C6 take their place.
 
-Expected, *estimated* from the same attribution: per launch about 31 / 37 / 50 us at 2,048 / 4,096 / 8,192
-(eta about 0.31 / 0.52 / 0.78), if the serial fold was the excess. The 5-token loss in the served 4B (+15 us a
+Expected, *estimated* from the same attribution (0.38 us per (split, head) removed, 1.5 to 3 us of chunked
+fold added): per launch about 32 / 32 / 50 us at 2,048 / 4,096 / 8,192, eta about 0.31 / 0.60 / 0.77, if the
+serial fold was the excess. The 5-token loss in the served 4B (+15 us a
 layer against the grouped form) is NOT explained by the fold, which held one split there; the single-split path
 saves its fence, atomic and reload, a few us a layer. What is left of that loss needs the card: the next bench
 adds L = 256 (one split, the fixed cost alone).
