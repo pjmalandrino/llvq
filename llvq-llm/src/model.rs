@@ -2784,14 +2784,20 @@ mod tests {
     /// the largest difference measured on 2026-11-01. It is not held to the
     /// same greedy text: on this random model, whose logits tie often, one
     /// rounding difference flipped a token at the ninth step.
-    /// Two head layouts: 4 over 2, and 8 over 2, groups of 4 as in Qwen3-4B,
-    /// where a group and a key head no longer have the same count.
+    /// Three head layouts: 4 over 2; 8 over 2, groups of 4 as in Qwen3-4B,
+    /// where a group and a key head no longer have the same count; and 10
+    /// over 2, groups of 5 as in Qwen3-14B (40 over 8), an odd group size.
     #[test]
     fn attention_forms_agree() {
         use crate::kvq::{AttnHeads, KvStore};
-        for (dtype, bound, n_heads) in
-            [(DType::F32, 6e-7f32, 4), (DType::F16, 4e-3, 4), (DType::F32, 6e-7, 8), (DType::F16, 4e-3, 8)]
-        {
+        for (dtype, bound, n_heads) in [
+            (DType::F32, 6e-7f32, 4),
+            (DType::F16, 4e-3, 4),
+            (DType::F32, 6e-7, 8),
+            (DType::F16, 4e-3, 8),
+            (DType::F32, 6e-7, 10),
+            (DType::F16, 4e-3, 10),
+        ] {
             let mut m = tiny_model_heads(dtype, n_heads, 2);
             let prompt = [3u32, 17, 42, 7, 9, 11];
             let window = Tensor::from_slice(&[5u32, 60, 11, 90, 2, 33, 71, 8, 13], (1, 9), &Device::Cpu).unwrap();
