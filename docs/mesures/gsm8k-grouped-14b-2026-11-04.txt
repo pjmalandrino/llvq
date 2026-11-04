@@ -1,0 +1,20 @@
+The 14B under the grouped config: GSM8K through the kernel, 2026-11-04
+
+Result: the grouped config scores 91.96 % on GSM8K (1,213 of 1,319) against 92.04 % for the expanded census of
+2026-09-26, paired difference -0.08 pp [-0.22 ; +0.07], McNemar exact p = 1.000, 1 discordant problem, for expanded
+(*measured*). Rule G1 of the prereg: the grouped config's GSM8K is settled at 14B.
+
+Job      : 6aeb90fac78863f9c632ebb9 (lot 1), l40sx1, 8,000 s running, $4.00 (*computed* at $1.80/h).
+Image    : Space sha 142216fc72326a98b94316a7f6cd2e989f0efc50 (integration/lot1 at 02ec809).
+Prereg   : proofs/preregistration-gsm8k-grouped-size-2026-11-04.md, sha256 c4b57327..., OpenTimestamps stamped before.
+Object   : sealed 14B, sha256 61db37fe...; configs qwen3-14b-tetra-e4.json and qwen3-14b-tetra-e4-grouped.json.
+Reference: docs/mesures/gsm8k-wave2-2026-09-26-brut/run3-served-14b/gsm8k-14b-served.jsonl (expanded census).
+Raw      : gsm8k-grouped-14b-2026-11-04-brut/ (replay and census dumps and logs, gsm8kpair.txt).
+
+Gates (passed, *measured*): oracle MATCH; object and configs at their sha256; gate 4, the expanded replay of the
+pilot's 50 problems writes the census rows at the same indices (46 of 50 right); gate 5, the census ends on
+fingerprint bfa9135ce4b55c75; gsm8kpair re-graded 0 rows of either dump.
+
+Grouped census (*measured*): 91.96 % (1,213/1,319) +- 0.75; the expanded census read 1,214/1,319. Timings in the log.
+
+Rule reading: G1. The grouped config's GSM8K score, 91.96 %, is proposed for ETAT section 2 beside the expanded one.
