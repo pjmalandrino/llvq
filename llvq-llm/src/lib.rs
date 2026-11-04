@@ -11,6 +11,7 @@
 
 pub mod artifact;
 pub mod artifact2;
+pub mod argmax_key;
 pub mod calib;
 pub mod chatfmt;
 pub mod corpus;
@@ -22,6 +23,8 @@ pub mod eval;
 pub mod fused;
 #[cfg(all(target_os = "linux", feature = "cuda"))]
 pub mod fused_cuda;
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+pub mod gesture_cuda;
 #[cfg(all(target_os = "macos", feature = "metal"))]
 pub mod fused_metal;
 pub mod gsm8k;
