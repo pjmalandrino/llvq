@@ -71,10 +71,21 @@ Branch  : claude/quizzical-kowalevski-38c5fc, on 5255470.
    fusedrun tests::gqa_ppl_spec: the kernel mode refuses a window of 1,281 and accepts 1,282.
 
 Mutants (rule 10), each checked to apply at exactly one site, on the committed file, restored by git checkout
-   MUTANTS
+   dispatch   T1 kernel iff p > from (one past), T2 the whole call by its last row, T3 the whole call by its first
+              row, T4 no threshold, T5 mask rows taken from the wrong end, T6 the two parts joined in reverse, T7
+              the block's threshold initialised at 0, T8 the constant at 1,279, T9 the f16 check removed
+   harness    S1 the split step counted below, S2 differing steps below never counted, S3 arm 0's tail nll
+              credited to both, S4 the tail count never incremented; P1 a window of 1,281 accepted
+   14 killed, 0 survived. T8 dies first on assert_eq!(KERNEL_FROM, 1280), a pin; the provenance check of
+   the_kernel_form_attends_through_the_replay kills it too. T1 and T4 die in the model test at the real constant
+   as well as in the call test.
 
 Lint (*measured*)
-   LINT
+   cargo test (fast loop, whole workspace): 184 result lines, 999 passed, 0 failed, 78 ignored; then llvq-llm lib
+   and bin fusedrun again after the last edits: 148 and 4 passed.
+   cargo clippy --all-targets: 0 warnings.
+   CUDARC_CUDA_VERSION=12040 cargo clippy --target x86_64-unknown-linux-gnu -p llvq-cuda --all-targets: 0
+   warnings. run_gqa_ppl and run_context_sweep compile on the Mac; the CUDA-gated call sites did not change.
 
 Not established: anything on the card. Sweep (a) and the T8 control (b) read it.
 Cost: $0.
