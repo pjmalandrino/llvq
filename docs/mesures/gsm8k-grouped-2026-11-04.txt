@@ -1,0 +1,46 @@
+The 4B under the grouped config: GSM8K through the kernel and the MMLU door, 2026-11-04
+
+Result: the grouped config scores 81.96 % on GSM8K (1,081 of 1,319) against 82.49 % for the expanded config of run 1,
+paired difference -0.53 pp [-1.07 ; +0.00], McNemar exact p = 0.092, 13 discordant problems, 3 for grouped and 10
+for expanded (*measured*). Rule G1 of the prereg: |delta| <= 1.5 pp and p >= 0.05, so the GSM8K half of the debt ETAT
+section 5 names is settled at 4B, and the 8B control may go forward. The discordance leans against the grouped form,
+10 to 3; it is not separated at this sample size. On the 57-question MMLU door both configs pick the same answers and
+write byte-identical rows, logits included (*measured*): rule M1.
+
+Job      : 6aeb10410e0338d1bb7fb756, l40sx1, 4,044 s running, $2.02 (*computed* at $1.80/h).
+Image    : Space sha f77f803eab81bc286225df6ca5a235eb08b66862 (built from f808856; same GSM8K and MMLU sources as
+           06e1602). Script: ops/jobs/gsm8k-grouped.sh.
+Prereg   : proofs/preregistration-gsm8k-grouped-2026-11-04.md, sha256 286a8fb1..., OpenTimestamps stamped before.
+Object   : sealed 4B, 1,418,224,685 B, sha256 886391a8...; configs qwen3-4b-tetra-e4.json (098fe49c...) and
+           qwen3-4b-tetra-e4-grouped.json (2455fe85...).
+Raw      : gsm8k-grouped-2026-11-04-brut/ (dumps, logs, gsm8kpair.txt, mmlupair.txt, files.sha256).
+
+Gates (all passed, *measured*): oracle MATCH; object and both configs at their sha256 on the mount; every log's
+served-config line names its attention form, tile 64 and int4 parity; gate 4, the expanded replay of run 0's 50
+problems, digests to 8300f75e..., run 0's own digest, so today's image writes run 0's rows and run 1 stands as the
+expanded arm; gate 5, census trailer on fingerprint bfa9135ce4b55c75; gate 6, both MMLU dumps end on the same plan;
+gate 7, gsm8kpair re-graded 0 rows of either dump.
+
+GSM8K, grouped config, 1,319 problems (*measured*):
+  accuracy 81.96 % (1,081/1,319) +- 1.06 binomial SE; 8 stopped at the cap; 316.9 generated tokens on average
+  decode 7.460 ms a token (134.0 tok/s), prefill 3.854 ms a prompt token, 3,569 s in all
+gsm8kpair grouped (A) against run 1 expanded (B), same prompts problem by problem:
+  A 81.96 %, B 82.49 %; right in A only 3, in B only 10; A - B = -0.53 pp, 95 % [-1.07 ; +0.00]; p = 0.0923
+The replay of 50 problems under the expanded config scored 40 of 50, as run 0 did.
+
+MMLU door, 57 questions, one a subject (*measured*): 60.21 % micro under each config; mmlupair 0 discordant, delta
++0.00; the 58 data lines of the two dumps, header line included, are identical bytes. The 4B's five-shot prompts sit
+under 4,096 tokens, and the grouped prefill reproduced the expanded one bit for bit on these prompts.
+
+Signed predictions: GSM8K accuracy 82.5 [81.0, 84.0], inside; paired difference +0.0 [-1.0, +1.0], inside at -0.53;
+discordant 25 [8, 70], inside at 13; p >= 0.05, met; stops 8 [3, 15], met; decode 7.7 ms [7.3, 8.3], inside at
+7.46; replay 50 of 50, met; MMLU picks 57 of 57, met; MMLU rows identical bytes, predicted "no at even odds", missed:
+they are identical.
+
+Rule reading (prereg section 7): G1 and M1. The grouped arm's GSM8K score, 81.96 %, is proposed for ETAT section 2
+beside the expanded one; the operator decides how the cards word it. The R1 proposals of the 8B control may go
+forward (launched the same day, job 6aeb209e). 63.37 MMLU stays a dense-reconstruction score with f16 tables, and the
+census through the kernel stays the open decision of ETAT section 5.
+
+Not established: MMLU as a score under the grouped config beyond 57 questions; any size but 4B; why the 13 problems
+flip; whether the 10-to-3 lean is real, which a second census on another sample could not settle at this size either.

@@ -1,0 +1,97 @@
+served config: /out/gsm8k-4b-grouped-2026-11-04/qwen3-4b-tetra-e4.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention expanded on cat) — Qwen3-4B paper-2 object, sealed 2026-09-23: Tetra with dclm-edu calibration and trained row scales, v_proj + o_proj + down_proj@12-23 as int4 g128 records, the tied embedding stored int4 g64 in the file (qwen3-4b-sealed.bin). fuse is 0 because Tetra carries no segmented kernel, not because fusion was declined.
+cudarc event tracking: off (one stream, ordered by issue)
+shared rotation: 1 (LLVQ_CONFIG), 96 rot_launches/token for 252 projections
+projection fusion: 0 (LLVQ_CONFIG), 252 matvec_launches/token for 252 projections (0 groups + 168 lone + 84 int4)
+fused layout: tetra48 (LLVQ_CONFIG), projections 1.16 GB on the card, 2.550 b/weight (INFERENCE accounting: KeepExact tail in binary16; the bench bills its own in f32)
+NVRTC source: 101625 bytes, sha256 6193094310bc18acdb0a0c554807ff45f6df09c1f6ab49e0577032874f107812 (11 parts), tile 64 (served: measured optimum for sm_89), prefill 4x128 (served pair), 49152 B staged of 49152, target compute_89
+int4: tv_q4_hh equals tv_q4_h bit for bit on model.layers.0.self_attn.v_proj.weight (1024 rows, d_in 2560)
+embedding: q4 g64 (LLVQ_CONFIG), 1 table (model.embed_tokens.weight, lm_head tied on it), 218.8 MB on the card (int4 194.5 + scales/biases 24.3)
+total expected on the card: 1.38 GB (projections 1.16 + carried 0.22)
+model: /out/sealed-4b-2026-09-23/qwen3-4b-sealed.bin [LLVQ 2-bit, SERVED KERNEL, tetra48, attention expanded]
+device: Cuda(CudaDevice(DeviceId(1))), dtype f16
+loading MMLU…
+14042 questions, 57 subjects, 285 dev examples
+
+allocation: flat, 1 per subject, 57 questions
+dumping per-question results to /out/gsm8k-4b-grouped-2026-11-04/mmlu-4b-expanded-door.csv
+  abstract algebra                           0/1       0.0 %   (micro  0.00 %, 1s)
+  anatomy                                    1/1     100.0 %   (micro 57.45 %, 3s)
+  astronomy                                  0/1       0.0 %   (micro 34.88 %, 5s)
+  business ethics                            1/1     100.0 %   (micro 48.25 %, 7s)
+  clinical knowledge                         1/1     100.0 %   (micro 66.49 %, 8s)
+  college biology                            0/1       0.0 %   (micro 55.80 %, 10s)
+  college chemistry                          0/1       0.0 %   (micro 50.20 %, 12s)
+  college computer science                   1/1     100.0 %   (micro 54.74 %, 15s)
+  college mathematics                        1/1     100.0 %   (micro 58.53 %, 17s)
+  college medicine                           1/1     100.0 %   (micro 63.77 %, 19s)
+  college physics                            0/1       0.0 %   (micro 59.35 %, 21s)
+  computer security                          1/1     100.0 %   (micro 61.94 %, 23s)
+  conceptual physics                         1/1     100.0 %   (micro 66.89 %, 24s)
+  econometrics                               1/1     100.0 %   (micro 68.85 %, 26s)
+  electrical engineering                     1/1     100.0 %   (micro 71.04 %, 28s)
+  elementary mathematics                     1/1     100.0 %   (micro 75.52 %, 30s)
+  formal logic                               0/1       0.0 %   (micro 71.82 %, 32s)
+  global facts                               1/1     100.0 %   (micro 72.87 %, 33s)
+  high school biology                        1/1     100.0 %   (micro 75.70 %, 35s)
+  high school chemistry                      1/1     100.0 %   (micro 77.25 %, 37s)
+  high school computer science               1/1     100.0 %   (micro 77.94 %, 40s)
+  high school european history               0/1       0.0 %   (micro 74.21 %, 51s)
+  high school geography                      1/1     100.0 %   (micro 75.61 %, 52s)
+  high school government and politics        1/1     100.0 %   (micro 76.84 %, 54s)
+  high school macroeconomics                 1/1     100.0 %   (micro 78.97 %, 55s)
+  high school mathematics                    0/1       0.0 %   (micro 74.23 %, 57s)
+  high school microeconomics                 1/1     100.0 %   (micro 75.53 %, 59s)
+  high school physics                        1/1     100.0 %   (micro 76.28 %, 61s)
+  high school psychology                     1/1     100.0 %   (micro 78.66 %, 63s)
+  high school statistics                     1/1     100.0 %   (micro 79.48 %, 66s)
+  high school us history                     1/1     100.0 %   (micro 80.19 %, 75s)
+  high school world history                  1/1     100.0 %   (micro 80.97 %, 80s)
+  human aging                                1/1     100.0 %   (micro 81.64 %, 81s)
+  human sexuality                            0/1       0.0 %   (micro 79.98 %, 82s)
+  international law                          0/1       0.0 %   (micro 78.50 %, 84s)
+  jurisprudence                              0/1       0.0 %   (micro 77.23 %, 86s)
+  logical fallacies                          1/1     100.0 %   (micro 77.78 %, 87s)
+  machine learning                           0/1       0.0 %   (micro 76.52 %, 90s)
+  management                                 1/1     100.0 %   (micro 76.87 %, 91s)
+  marketing                                  0/1       0.0 %   (micro 74.40 %, 93s)
+  medical genetics                           1/1     100.0 %   (micro 74.74 %, 94s)
+  miscellaneous                              1/1     100.0 %   (micro 77.16 %, 95s)
+  moral disputes                             1/1     100.0 %   (micro 78.09 %, 97s)
+  moral scenarios                            0/1       0.0 %   (micro 70.66 %, 99s)
+  nutrition                                  1/1     100.0 %   (micro 71.59 %, 102s)
+  philosophy                                 0/1       0.0 %   (micro 69.37 %, 103s)
+  prehistory                                 0/1       0.0 %   (micro 67.19 %, 105s)
+  professional accounting                    0/1       0.0 %   (micro 65.41 %, 108s)
+  professional law                           0/1       0.0 %   (micro 57.16 %, 114s)
+  professional medicine                      1/1     100.0 %   (micro 58.10 %, 119s)
+  professional psychology                    1/1     100.0 %   (micro 60.07 %, 121s)
+  public relations                           0/1       0.0 %   (micro 59.56 %, 123s)
+  security studies                           1/1     100.0 %   (micro 60.30 %, 127s)
+  sociology                                  1/1     100.0 %   (micro 60.89 %, 128s)
+  us foreign policy                          0/1       0.0 %   (micro 60.45 %, 130s)
+  virology                                   0/1       0.0 %   (micro 59.72 %, 131s)
+  world religions                            1/1     100.0 %   (micro 60.21 %, 132s)
+
+/out/sealed-4b-2026-09-23/qwen3-4b-sealed.bin [LLVQ 2-bit, SERVED KERNEL, tetra48, attention expanded]
+MMLU 5-shot — 57 questions scored out of 14042, 57 subjects, dtype f16, tokens a948aa47418e7fcf
+  --------------------------------------------------------
+  best:
+    anatomy                                  100.0 %
+    business ethics                          100.0 %
+    clinical knowledge                       100.0 %
+  worst:
+    virology                                   0.0 %
+    us foreign policy                          0.0 %
+    public relations                           0.0 %
+  --------------------------------------------------------
+  MMLU (micro, = paper) = 60.21 % ± 0.00  [kv f16]
+  MMLU (macro, per subject) = 63.16 %
+  sample: 57/14042 questions, 0.4 %, allocation flat, 1 per subject, 57 questions
+  ± is the sampling error alone
+
+  Dump written. Two arms are compared on the dumps, not on these two
+  lines: `cargo run --release -p llvq-llm --bin mmlupair -- <a> <b>`.
+
+  Paper reference points (Qwen3-4B, Table 6): FP16 70.2 · LLVQ 60.7 · QTIP 57.4.
+  If FP16 does not land near 70, the protocol is what needs fixing,
+  not the model.
