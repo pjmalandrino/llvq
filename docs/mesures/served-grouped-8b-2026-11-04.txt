@@ -1,0 +1,44 @@
+The 8B under the grouped config: served door, context sweep and light MMLU, 2026-11-04
+
+Result: under the grouped config the sealed 8B picks the same answer on all 285 MMLU questions as under the expanded
+config, 65.55 % micro both, paired delta +0.00 pp, 0 discordant (*measured*). Rule M1: the T8 the operator granted at
+8B on condition of this check stands, and the grouped config is proposed as the 8B's served config. The served door
+decodes 105.8 tok/s [105.7-105.9] against 98.3 [98.2-98.4] for the expanded config, same 256-token text, and the
+sweep reads 106.9 / 93.1 / 82.1 / 67.1 tok/s at 5 / 2,048 / 4,096 / 8,192 (*measured*).
+
+Job      : 6aeb2c760e0338d1bb7fd6d5, l40sx1, 2,504 s running, $1.25 (*computed* at $1.80/h).
+Image    : Space sha ef658736a8eb3e9e6fa0a4cf22ecbc486d8bc78f (llvq-llm sources of 06e1602).
+Prereg   : proofs/preregistration-served-grouped-8b-2026-11-04.md, sha256 f5b8d2c4..., OpenTimestamps stamped before.
+Object   : sealed 8B, 2,815,098,745 B, sha256 7bdb9a55...; configs qwen3-8b-tetra-e4.json (6f0d489f...) and
+           qwen3-8b-tetra-e4-grouped.json (418d2d00...), which differ in the attention field only.
+Raw      : served-grouped-8b-2026-11-04-brut/ (door logs, decoded lines, sweep, MMLU dumps and logs, mmlupair.txt).
+
+Gates (all passed, *measured*): oracle MATCH; object and both configs at their sha256; every log names its form, tile
+64 and int4 parity; the door logs print the q4 g64 embedding on 2 tables; four sweep lines; both MMLU dumps end on the
+same plan of 285 questions.
+
+Served door, 256 tokens, 5 rounds (*measured*):
+  expanded  98.3 tok/s [98.2-98.4], 2.76 GB on the card, loaded in 8.1 s
+  grouped  105.8 tok/s [105.7-105.9], 2.76 GB on the card, loaded in 7.8 s
+  decoded texts: equal (lines.sha256)
+The two doors ran in one process each, one after the other; their speeds are read side by side, not divided.
+
+Context sweep, grouped config, 256 new tokens (*measured*):
+  prompt   to first token, s    decode tok/s [range]    ms a decode token
+       5    0.03 [0.03-0.03]    106.9 [106.8-106.9]     9.36
+    2048   11.15 [11.14-11.16]   93.1 [92.8-93.3]      10.75
+    4096   22.93 [22.89-23.02]   82.1 [82.0-82.2]      12.18
+    8192   46.88 [46.87-46.91]   67.1 [66.9-67.2]      14.91
+The expanded form's bench-door speeds of the same day: 98.9 / 70.1 / 53.8 / 31.0 (gqa-8b-2026-11-04.txt).
+
+MMLU five-shot, flat, 5 questions a subject, 285 (*measured*):
+  expanded 65.55 % micro, grouped 65.55 % micro; mmlupair: 0 discordant, delta +0.00 pp, p = 1.0
+  data rows identical bytes: 281 of 285; largest logit difference over the four letters 0.03125 (*computed*)
+
+Signed predictions: door 104 [98, 110], met at 105.8; sweep at 8,192 66 [60, 70], met at 67.1; texts equal, met;
+identical picks 283 [278, 285], met at 285; delta 0.0 [-0.7, +0.7], met; rows not all identical, met (4 differ).
+
+Rule reading (prereg section 6): M1. The T8 at 8B stands. Proposed: the grouped config becomes the 8B's served
+config. GSM8K at 8B under it (about $2.2, *estimated*) is owed before it is quoted beside a GSM8K score.
+
+Not established: MMLU at 8B under the grouped form beyond 285 questions; the 14B; Metal; any card but the L40S.

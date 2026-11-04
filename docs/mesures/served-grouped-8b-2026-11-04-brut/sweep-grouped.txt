@@ -1,0 +1,18 @@
+Cuda(CudaDevice(DeviceId(1))), dtype F16, 256 tokens
+
+served config: /out/served-grouped-8b-2026-11-04/qwen3-8b-tetra-e4-grouped.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention grouped on grow(256)) — The qwen3-8b-tetra-e4 object (qwen3-8b-sealed-B.bin, sha256 7bdb9a55), served with the grouped attention: the cached key and value heads are read where they lie, on a Grow(256) store, with no repeat_kv copy. Decodes the 8B at 106.4 tok/s after a 5-token prompt and 66.9 at 8,192 of context against 98.9 and 31.0 for the expanded form (measured, gqa-8b-2026-11-04). Not bit for bit on the card past 5 tokens: licensed by the tolerance of ETAT section 4, granted at 8B by the operator on 2026-11-04 on condition of a light MMLU check, paired WikiText-2 perplexity +0.0000 % by prefill and -0.0048 % [-0.0117 ; +0.0021] by decode against a band of +-0.12 % (measured, gqa-8b-2026-11-04). Measured on the L40S only; Metal refuses this form by name.
+cudarc event tracking: off (one stream, ordered by issue)
+shared rotation: 1 (LLVQ_CONFIG), 127 rot_launches/token for 252 projections
+projection fusion: 0 (LLVQ_CONFIG), 252 matvec_launches/token for 252 projections (0 groups + 199 lone + 53 int4)
+fused layout: tetra48 (LLVQ_CONFIG), projections 2.06 GB on the card, 2.377 b/weight (INFERENCE accounting: KeepExact tail in binary16; the bench bills its own in f32)
+NVRTC source: 101625 bytes, sha256 6193094310bc18acdb0a0c554807ff45f6df09c1f6ab49e0577032874f107812 (11 parts), tile 64 (served: measured optimum for sm_89), prefill 4x128 (served pair), 49152 B staged of 49152, target compute_89
+int4: tv_q4_hh equals tv_q4_h bit for bit on model.layers.0.self_attn.v_proj.weight (1024 rows, d_in 4096)
+embedding: q4 g64 (LLVQ_CONFIG), 2 tables (model.embed_tokens.weight + lm_head.weight), 700.1 MB on the card (int4 622.3 + scales/biases 77.8)
+total expected on the card: 2.76 GB (projections 2.06 + carried 0.70)
+layout tetra48, attention grouped on grow(256), loaded in 7.7 s
+context sweep: 256 new tokens after each prompt, the prompt in chunks of 4096, 1 discarded + 5 rounds
+  prompt    to first token, s       decode tok/s [range]      ms a decode token
+       5       0.03 [0.03–0.03]      106.9 [106.8–106.9]       9.36
+    2048      11.15 [11.14–11.16]       93.1 [92.8–93.3]      10.75
+    4096      22.93 [22.89–23.02]       82.1 [82.0–82.2]      12.18
+    8192      46.88 [46.87–46.91]       67.1 [66.9–67.2]      14.91
