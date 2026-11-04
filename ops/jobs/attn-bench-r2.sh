@@ -6,6 +6,7 @@
 #
 #   DRY_RUN=1 bash ops/jobs/attn-bench-r2.sh             prints and parses the job script
 #   IMAGE_SHA=<space sha> bash ops/jobs/attn-bench-r2.sh  launches, after the operator's go
+#   IMAGE_SHA=<sha> EMIT=<file> bash ops/jobs/attn-bench-r2.sh  writes the job script for ops/jobs/lot1.sh
 #
 # Steps: oracle (hard rule 10); `attnbench 256,2048,4096,8192`; then LLVQ_CONTEXTS=5,256,2048,4096,8192 beside
 # two configs that differ in the attention field only, the kernel one written by the job from this
@@ -118,6 +119,14 @@ for arm in kernel grouped; do
 done
 echo '== raw kept ==' ; ls -la "$O" ; wc -l "$O"/*.txt
 JOB
+
+# EMIT=<file>: write the job script to <file> and launch nothing. ops/jobs/lot1.sh runs it as one part
+# of a lot job on one card. Every check above has run, a launch's included unless DRY_RUN=1.
+if [ -n "${EMIT:-}" ]; then
+  printf 'set -euo pipefail\n%s\n%s\n' "$PRE" "$BODY" > "$EMIT"
+  bash -n "$EMIT" && echo "EMIT: job script written to $EMIT; nothing launched" >&2
+  exit 0
+fi
 
 if [ "$DRY" = 1 ]; then
   JOBSCRIPT="set -euo pipefail

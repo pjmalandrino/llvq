@@ -3,11 +3,19 @@
 **Written on 2026-11-04. NOT STAMPED, NOT LAUNCHED.** It is stamped with OpenTimestamps before the first measurement,
 and renamed to the day of the stamp if that day is later. Operator go: "ok pour les 3" on 2026-11-04, in the audit
 session, for this run, the attention kernel and the 32B walls, with a worst case of $0.60 for this one. Cost: about
-**$0.35** on l40sx1 (*estimated*, §8); timeout 20 min, so **$0.60** at worst (*computed*). Cap: $0.60, the operator's. Registry before it: $256.88 over 248 rows (*measured*, `docs/data/jobs.csv`).
+**$0.35** on l40sx1 (*estimated*, §8); timeout 20 min, so **$0.60** at worst (*computed*). Cap: $0.60, the operator's. Registry before it: $261.35 over 251 rows (*measured*, `docs/data/jobs.csv`, 2026-11-04).
 
-**Base commit:** `e3a6fde42083`, which carries the code of §2; this file is committed on top of it. **Space sha:** to
-fill when the image that carries `LLVQ_GESTURE_AB` is published. The job script is `ops/jobs/gesture-ab.sh`; it refuses
-to launch without this file and its `.ots`.
+**Base commit:** `02ec809323eb`, branch `integration/lot1`, which merges the code of §2 (`e3a6fde`, branch tip
+`ccbb3c3`) with the attention branch (tip `5255470`) and the 32B wall branch (tip `78285a5`); this file is committed on
+top of it. **Space sha:** `142216fc72326a98b94316a7f6cd2e989f0efc50`, built from `02ec809`. The job script is
+`ops/jobs/gesture-ab.sh`; it refuses to launch without this file and its `.ots`. It runs as the first part of the lot
+job `lot1-4b` (`ops/jobs/lot1.sh`), §3.
+
+The merge adds to the image, beside §2's code: the attention form `kernel` (a `Block` branch taken only under that form;
+the expanded and grouped dispatch unchanged), the bench `attnbench`, the `LLVQ_GQA_PPL` kernel mode, the wide rotation
+`rot_apply_dev` and the f16-staged int4 matvec `tv_q4_hs` in units of their own, and the int4 load path's per-entry
+sizes in `fused_cuda.rs` (`git diff e3a6fde 02ec809`). None is selected by this run's flags or config. Gates 4 and 5 are
+what checks that the default path did not move under them.
 
 Draft: `docs/archive/debit-vague5-2026-11-02/prereg-gestures-1.md`. §11 lists what changed from it.
 
@@ -69,7 +77,10 @@ Not established: the kernel has never run on a card. The load check and the card
 
 ## 3. What runs
 
-One image built from the base commit. One job, l40sx1, the sealed 4B (`sealed-4b-2026-09-23/qwen3-4b-sealed.bin`,
+One image built from the base commit. One job, l40sx1: the lot job `lot1-4b`, in which this run is the first of four
+parts, each its own bash process under its own ceiling (18 min for this one), the 32B wall check, the attention bench
+r2 and the attention T8 control after it. The job script below is the one `ops/jobs/gesture-ab.sh` writes, run as it
+stands. It reads the sealed 4B (`sealed-4b-2026-09-23/qwen3-4b-sealed.bin`,
 sha256 `886391a8…`), the config `qwen3-4b-tetra-e4-grouped.json` (`2455fe85…`), written by the job from its launch
 command and checked by sha256.
 
@@ -213,6 +224,10 @@ about 2 s, about 70 s; the E clock, 5 × 2 arms × 65 tokens, about 6 s; the spu
 about 12 s. Step 4 in all about 2.5 min. In all about 12 min, **$0.35**. Anchor: `trims-contexts-4b`, 700 s and $0.35 for
 a five-arm A/B plus a context sweep (*measured*, `docs/data/jobs.csv`). Timeout 20 min, **$0.60** at worst
 (*computed*), the operator's cap; the slowest comparable job, `served-grouped-4b`, billed 18 min. The image build on the Space is free, and its publish needs the operator's go as much as the job does.
+
+Inside the lot job the container start and the image pull are paid once for four parts, so this run's share is its
+steps alone, about 9 min with its oracle, **$0.27** (*estimated*). Its in-job ceiling is 18 min, **$0.54** (*computed*),
+under the cap of $0.60. The lot job's own timeout and total are in `ops/jobs/lot1.sh`.
 
 ## 9. What this run does not establish
 

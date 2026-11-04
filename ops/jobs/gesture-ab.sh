@@ -5,6 +5,7 @@
 #
 #   DRY_RUN=1 bash ops/jobs/gesture-ab.sh                 prints and parses the job script, $0
 #   IMAGE_SHA=<space sha> bash ops/jobs/gesture-ab.sh      launches, after the operator's go
+#   IMAGE_SHA=<sha> EMIT=<file> bash ops/jobs/gesture-ab.sh  writes the job script for ops/jobs/lot1.sh
 #
 # The sealed 4B only. Four steps in one job: oracle; the bench door replayed (decoded line checked by
 # sha256 against paper-table run 1), which checks that the default path did not move; the served door
@@ -136,12 +137,20 @@ test "$(grep -cE '^  m[1-9] .*: [0-9] edit\(s\), each found once; killed, ' "$A"
 grep -qE '^P3 kernel time, us a launch ' "$A"
 grep -qE '^P4 host time behind a 5 ms spin, ms ' "$A"
 grep -qF '5 arms × 5 interleaved rounds after 2 discarded, 256 identical tokens in every arm and round' "$A"
-test "$(grep -cE '^ +[a-z-]+ / [a-z0-9]+ +[0-9.]+ \[' "$A")" = 5
+test "$(grep -cE '^ +[a-z0-9-]+ / [a-z0-9]+ +[0-9.]+ \[' "$A")" = 5
 grep -qE '^clock E, ms a decode step ' "$A"
 grep -qE '^clock H/D: [0-9]+ of 315 spun steps valid' "$A"
 echo 'gate 6: the A/B printed every line its prereg names'
 echo '== raw kept ==' ; ls -la "$O" ; wc -l "$O"/*.txt
 JOB
+
+# EMIT=<file>: write the job script to <file> and launch nothing. ops/jobs/lot1.sh runs it as one part
+# of a lot job on one card. Every check above has run, a launch's included unless DRY_RUN=1.
+if [ -n "${EMIT:-}" ]; then
+  printf 'set -euo pipefail\n%s\n%s\n' "$PRE" "$BODY" > "$EMIT"
+  bash -n "$EMIT" && echo "EMIT: job script written to $EMIT; nothing launched" >&2
+  exit 0
+fi
 
 if [ "$DRY" = 1 ]; then
   JOBSCRIPT="set -euo pipefail
