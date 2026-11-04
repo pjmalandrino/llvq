@@ -1,28 +1,35 @@
-# Preregistration. The persistent Tetra pass in route P's geometry: stream rate, layout, prefetch, the exposed cost of a dependent wait, and bit identity against the served kernel (step L2 of the persistent lead)
+# Preregistration. The persistent Tetra pass in route P's geometry: stream rate, what bounds it, layout, prefetch, the exposed cost of a dependent wait, and bit identity against the served kernel (step L2 of the persistent lead)
 
 **NOT STAMPED. NOT LAUNCHED.** Written on 2026-11-04 on branch `claude/serene-bohr-1edf69`, from the draft
-`docs/archive/debit-vague5-2026-11-02/prereg-persistent-1.md`, once the code it describes existed. To be re-anchored on
-step L1's measurements (§6), then timestamped before the first measurement and never edited; a departure goes to
-`preregistration-pers-l2-2026-11-04-ECARTS.md`.
+`docs/archive/debit-vague5-2026-11-02/prereg-persistent-1.md`, once the code it describes existed. Re-anchored on
+2026-11-05 on step L1's measurements (`docs/mesures/pers-l1-2026-11-04.txt`) and on the reading of L1's SASS
+(`docs/mesures/pers-sass-2026-11-05.txt`), which added three arms (§2) and rules I and J (§7). To be timestamped before
+the first measurement and never edited; a departure goes to `preregistration-pers-l2-2026-11-04-ECARTS.md`.
 
-Operator go: not given. Cost: about **$0.30** on l40sx1 (*estimated*, §8). Timeout 90 min (METHODE §6), so **$2.70**
-at worst. Cap: the **$3** asked with `preregistration-pers-l1-2026-11-04.md`, shared by the two jobs. Spent before it:
-$261.35 over 246 priced rows on 2026-11-04 (*computed*), plus step L1.
+Operator go: not given. Cost: about **$0.33** on l40sx1 (*estimated*, §8). Timeout 90 min (METHODE §6), so **$2.70**
+at worst. Cap: the **$3** asked with `preregistration-pers-l1-2026-11-04.md`, shared by the two jobs, of which step L1
+spent $0.22 (*computed*, job 6aebb21c). Spent before L1: $261.35 over 246 priced rows on 2026-11-04 (*computed*).
 
 ## 0. Three preconditions, before the stamp
 
-1. **Step L1 has run**, and its rule B is not in its lower branch, or the operator chooses this run anyway. L1's
-   `tetra48seg`, `tpersall`, barrier latency and SASS re-anchor §6 before the stamp.
+1. **Step L1 has run** (2026-11-04, job 6aebb21c): B_pa 410 GB/s [408-410] lies between 377 and 545, rule B's middle
+   branch, so this run is the operator's choice. L1's `tetra48seg`, `tpersall`, barrier latency and SASS re-anchored §6
+   on 2026-11-05.
 2. **Decision 8: the operator lifts four settings frozen on 2026-08-05.** Requested here, not assumed. None is an
    ETAT §6 row, so a go under rule 1 lifts them and rule 3 does not apply. This run needs all four:
    - CTAs of 512 threads and more ("512 threads/bloc rejeté", `audit-perf-noyau-cuda-2026-08-05.md:152`): every arm runs
      768 threads, `pt28_512` 512, `pt28_1024` 1,024;
    - the decoder tables in shared memory ("table en shared (régression)", `spec-lot-a-2026-08-05.md:131`, and
-     `audit-perf-noyau-cuda-2026-08-05.md:151`): every MODE 3 arm copies 18,816 B of tables once a launch;
+     `audit-perf-noyau-cuda-2026-08-05.md:151`): every MODE 3 arm and `pdec_smem` copy 18,816 B of tables once a
+     launch. The refuted setting was Slot32's 24.6 KB table copied by every CTA of a normal grid, which on Tetra's
+     252 launches would be 138,240 copies a token, 2.6 GB of L2 reads against 0.98 GB of weights (*computed*); a
+     persistent launch makes 142 copies, 2.7 MB;
    - bank padding of the staged activation ("bancs/padding (réfuté)", `spec-lot-a-2026-08-05.md:131`): `psmem_s25`
-     and the trio-28 arms. Padding was measured twice in normal grids and bought nothing there
+     and the trio-28 arms, `pl1_t28` included. Padding was measured twice in normal grids and bought nothing there
      (`attribution-cuda-2026-08-05.txt:59-66`, `a3-occupation-banc-2026-09-01.txt:33`); it is reopened only as a
-     question of the persistent geometry, with a prior of no effect since the PTX shows six 128-bit loads a block;
+     question of the persistent geometry. The PTX shows six 128-bit loads a block, but at stride 24 each meets a
+     two-way bank conflict in every quarter-warp (lanes l and l + 4 start in the same bank group), 40.5 to 47.1
+     wavefronts a warp-iteration against 21.0 to 23.5 at stride 28 (*computed*, `tetragather`);
    - the decoder frozen until its SASS is read (`spec-lot-a-2026-08-05.md:132`): step L1's cubin dump meets the
      condition; lifting it stays the operator's call.
    The request, in one line for the operator: *lift the four settings above for the persistent bench arms of
@@ -37,6 +44,12 @@ all-CTA wait, arrival skew included (U2). Its exactness rests on a third: whethe
 kernel's row bit for bit on the card (U3). Step L1 anchors all three at today's occupancy. This run measures them in
 route P's geometry, against the served unit's own `tv_tetra48_h` and against A4's fused geometry in the same rounds.
 
+Step L1 adds a fourth quantity. The one-launch pass streams at 410 GB/s, and 4E needs about 490 to reach 300 tok/s
+(*computed*, rule H of L1). The card's SASS and the file's words give one account of the 410 with no fitted parameter:
+the L1/shared data pipe, at one wavefront per distinct 128-byte line, would need 2.20 to 2.52 ms for tpersall's loads,
+which took 2.394 ms (*estimated*, `docs/mesures/pers-sass-2026-11-05.txt`). Three tables read through L1 at random
+indices, 83 to 96 lines a warp-iteration, carry most of it. The three added arms test that account (U4).
+
 It is a measurement. No rule of §7 adopts or kills anything; route P's gate is end to end (step L3).
 
 **Secondary quantities only**: the persistent pass times, B_T, h_exp and h_marg, the prologue cost, row identity.
@@ -46,14 +59,17 @@ It is a measurement. No rule of §7 adopts or kills anything; route P's gate is 
 Off by default. `LLVQ_PERS_ARMS=<arms>` in `planesbench` (`llvq-cuda/src/persbench.rs`), refused unless
 `LLVQ_SEG_TETRA=1` and tetra48 are set; a chained arm is refused without `psmem_t28` in the same rounds.
 
-- Twelve arms (`kernels/tetra48_pers.cu`), each its own symbol over one template body, `__launch_bounds__(T, 1)`, one
+- Fifteen arms (`kernels/tetra48_pers.cu`), each its own symbol over one template body, `__launch_bounds__(T, 1)`, one
   CTA a SM, launched cooperatively after the occupancy check, in their own NVRTC module:
 
   | arm | what it is |
   |---|---|
   | `pnull` | staging, claiming, `warp_sum`, stores; no word read |
   | `pword` | every word read and XOR-folded; no decode |
+  | `pdec_l1` | `pl1`'s decode without the dot: the 24 values built and XOR-folded as bits, the shell and both scales read; no activation read, no FMA |
+  | `pdec_smem` | `pdec_l1` with the tables in shared |
   | `pl1` | full decode, tables read in place through L1, stride 24 |
+  | `pl1_t28` | `pl1` at trio stride 28: the activation reads without bank conflict, the tables still through L1 |
   | `psmem` | tables in shared, stride 24, natural order |
   | `psmem_s25` | `psmem` at stride 25: scalar loads with no conflict |
   | `psmem_t28` | trio-order staging at stride 28, six explicit `float4` loads a block |
@@ -76,10 +92,15 @@ Off by default. `LLVQ_PERS_ARMS=<arms>` in `planesbench` (`llvq-cuda/src/persben
 - **Prologue checks** (`pchain_wp`): CTA 0's 72 normed vectors against `pers_ref_rmsnorm` (candle's `rmsnorm`
   transcribed in candle's own shape, same `rsqrtf`), its 96 rotated vectors against the served unit's `rot_apply`.
 
+- **Decode-arm check**: `pdec_l1` and `pdec_smem` fold the same values, so their rows must be equal; a difference says the
+  shared copy of the tables is not the global one, and voids `pdec_smem` (gate 9).
+
 Host checks at $0: every arm on a two-layer schedule at the real widths, three launches and three CTAs, gives the served
 rows bit for bit on y and on the f32 value before `f2h`, ends with the barrier counter where the ledger says, and
 `pchain_wp`'s prologues equal candle's tree and `rot_apply`; one arm at 768 threads on a full layer
-(`pers_matches_served.rs`). NVRTC 12.4 with the devel ptxas: no spill; 64 to 79 registers at 768 threads.
+(`pers_matches_served.rs`). `pdec_l1` and `pdec_smem` give equal rows, and a branch table swapped in the shared copy makes them differ. NVRTC 12.4
+with the devel ptxas: no spill; 64 to 73 registers at 768 threads for the decode arms with a dot, 47 and 55 for the two
+decode arms without.
 
 ## 3. What runs
 
@@ -88,9 +109,9 @@ size then sha256: `ball-ref-2026-09-20/qwen3-4b-llvq.bin` and `tetra-4b-2026-09-
 
 1. **Oracle** on Qwen3-0.6B (rule 10).
 2. **The bench**, one process: `LLVQ_TILE_BLOCKS=64 LLVQ_BENCH_ARMS=slot32,planes14,fp16,nullk,tetra48
-   LLVQ_SEG_TETRA=1 LLVQ_PERS_ARMS=pnull,pword,pl1,psmem,psmem_s25,psmem_t28,psmem_t28_u2,pt28_512,pt28_1024,pchain_w,pchain_w2,pchain_wp
+   LLVQ_SEG_TETRA=1 LLVQ_PERS_ARMS=pnull,pword,pdec_l1,pdec_smem,pl1,pl1_t28,psmem,psmem_s25,psmem_t28,psmem_t28_u2,pt28_512,pt28_1024,pchain_w,pchain_w2,pchain_wp
    LLVQ_DUMP_CUBIN=<out>/cubin planesbench <ball> <tetra>`. 7 rounds, 2 discarded; every arm in every round in
-   registration order: the five table arms, A4's six, then `tetra48h` and the twelve arms.
+   registration order: the five table arms, A4's six, then `tetra48h` and the fifteen arms.
 
 ## 4. Gates
 
@@ -109,12 +130,16 @@ Each invalidates one arm, never the job:
 6. Any row left at 0xFFFF after the identity launch: rows were skipped.
 7. `pchain_wp`, if a normed or rotated vector differs from its reference.
 8. A launch that aborts on the watchdog, a grid that fails the occupancy check, or a kernel reporting local memory.
-   `pnull` and `pword` owe no identity, only every row written.
+   `pnull`, `pword`, `pdec_l1` and `pdec_smem` owe no identity, only every row written.
+9. `pdec_smem`, if its rows differ from `pdec_l1`'s.
 
 ## 5. Outcomes reported, never gated
 
 - Every arm's median ms and range, and its ratio to `tetra48h`, round by round.
-- B_T = 0.9467 GB / t for the decode arms, 0.9083 GB / t for `pword` (*computed* bytes).
+- B_T = 0.9467 GB / t for the arms with a dot, 0.9083 GB / t for `pword`, `pdec_l1` and `pdec_smem`, which read no tail
+  and no row scale (*computed* bytes).
+- The attribution of rule I, round by round: `pl1_t28` / `pl1`, `psmem` / `pl1`, `pdec_l1` − `pword`,
+  `pdec_smem` − `pword`, `pl1` − `pdec_l1`.
 - h_exp = (t(`pchain_w`) − t(`psmem_t28`)) / 145; h_marg = (t(`pchain_w2`) − t(`pchain_w`)) / 145; the skew share
   h_exp − h_marg. Round by round. 145 counts every grid-wide sync, the 48 counter waits included, since every CTA
   signals every waited site in the bench (the draft's divisor 97 overstated h by 1.49).
@@ -126,33 +151,48 @@ Each invalidates one arm, never the job:
 
 H1: in one launch with one CTA a SM, the Tetra pass runs under half of `tetra48h`'s 252-launch time. H2: a grid-wide
 wait exposes less than a launch on sm_89. H3: persistent rows are the served kernel's bit for bit. H4: in the persistent
-geometry, the staging layout and a register prefetch each move the pass by 5 % or more.
+geometry, the staging layout and a register prefetch each move the pass by 5 % or more. H5: with the tables read
+through L1, the pass is bound by the L1/shared data pipe at about one wavefront per distinct 128-byte line; with the
+tables in shared memory it is not, and the pass falls toward the DRAM floor.
 
-*Estimated*, to re-anchor on L1 before the stamp; derived intervals from `ops/pers_intervals.py`, every lower bound
-above the floor of its bytes at 864 GB/s.
+*Estimated*, re-anchored on 2026-11-05: measured inputs from L1, the arms' floors from `ops/pers_lsu_model.py`, derived
+intervals from `ops/pers_intervals.py`, every lower bound above the floor of its bytes at 864 GB/s.
 
 | quantity | point | interval |
 |---|---|---|
 | table and A4 | as L1 measured | ±1.5 % |
-| `tetra48h`, ms | **3.75** | [3.55, 4.05] |
+| `tetra48h`, ms | **3.79** | [3.70, 3.90] |
 | `pnull`, ms | **0.30** | [0.15, 0.60] |
-| `pword`, ms | **1.40** | [1.22, 1.75] (floor 1.051) |
-| `pl1` / `psmem` / `psmem_s25` / `psmem_t28`, ms | **2.10 / 1.95 / 1.90 / 1.80** | each [1.45, 3.20] (floor 1.096) |
-| `psmem_s25`, `psmem_t28` against `psmem` | **0.98** | [0.93, 1.02] |
+| `pword`, ms | **1.35** | [1.10, 1.75] (floor 1.051) |
+| `pdec_l1`, ms | **1.60** | [1.35, 1.95] (LSU floor 1.37-1.57) |
+| `pdec_smem`, ms | **1.35** | [1.10, 1.80] |
+| `pl1`, ms | **2.35** | [2.05, 2.80] (LSU floor 2.11-2.42) |
+| `pl1_t28`, ms | **2.00** | [1.75, 2.50] (LSU floor 1.80-2.06) |
+| `psmem`, ms | **1.45** | [1.15, 2.10] (floor 1.096) |
+| `psmem_s25`, `psmem_t28`, ms | **1.40** | [1.12, 2.00] |
+| `pl1_t28` / `pl1` | **0.85** | [0.78, 0.95] |
+| `psmem` / `pl1` | **0.62** | [0.45, 0.85] |
+| `psmem_s25`, `psmem_t28` against `psmem` | **0.96** | [0.85, 1.02] |
 | `psmem_t28_u2` / `psmem_t28` | **0.95** | [0.85, 1.02] |
 | `pt28_512` / `psmem_t28` | **1.10** | [0.95, 1.30] |
 | `pt28_1024` / `psmem_t28` | **0.97** | [0.85, 1.10], or a spill |
-| h_exp, µs | **2.0** | [1.0, 4.0] |
-| h_marg, µs | **1.3** | [0.6, 2.5] |
+| h_exp, µs | **1.2** | [0.8, 3.0] |
+| h_marg, µs | **0.8** | [0.6, 1.5] |
 | prologue cost, ms | **0.15** | [0.08, 0.35] |
-| `pchain_w`, ms | **2.09** | [1.60, 3.28] (derived) |
-| `pchain_wp`, ms | **2.24** | [1.68, 3.63] (derived) |
-| Q | **0.75** | [0.51, 1.29] (derived; the draft's 0.50 was under what its components allow) |
+| `pchain_w`, ms | **1.57** | [1.24, 2.44] (derived) |
+| `pchain_wp`, ms | **1.72** | [1.32, 2.79] (derived) |
+| Q | **0.57** | [0.42, 0.96] (derived) |
 | identity, every owed arm | **identical** | |
 
-Reasoning: as the draft's (§6 of `prereg-persistent-1.md`), with two changes. The layout arms' prior moved to no
-effect: the PTX shows six 128-bit loads a block at stride 24, so the 358 GB/s scalar cap does not exist at NVVM level
-(`ptx-probe-2026-11-04.txt`). And the derived quantities are computed from their components' intervals.
+Reasoning. tpersall's loads, counted on the sealed 4B's words and priced at one wavefront a cycle a SM, need 2.20 to
+2.52 ms of the L1/shared pipe; the pass took 2.394 ms, while its issue floor is 0.92 to 1.06 ms and its DRAM floor
+1.13 ms (*computed*, `docs/mesures/pers-sass-2026-11-05.txt`). `pl1` keeps those loads at 24 warps a SM and should land
+near tpersall. `pl1_t28` removes the activation's two-way bank conflicts, about 19 of 139 wavefronts a warp-iteration,
+and moves only if the pipe binds. Tables in shared cut the table loads from 83-96 wavefronts to 16-18, so the `psmem`
+family falls under the issue and DRAM floors, near 1.1 ms; the points sit above the floors by L1's own margin over its
+LSU floor and by the 77 % of peak FP16 streams at on this card (662 GB/s, L1's bench). The layout prior changed:
+under tables in shared, stride 24 costs 69 wavefronts against 48 at stride 28, which matters only if `psmem` is not
+already at the DRAM floor. h_exp is anchored on L1's barrier, 0.786 µs at 142 x 768.
 
 ## 7. Decision rules
 
@@ -175,12 +215,24 @@ The readings inform the operator, who chooses the route. None closes a lead. Eac
   if `pt28_512`'s is, 512; otherwise 768.
 - **E, skew.** If h_exp − h_marg ≥ 1.0 µs, skew dominates the wait: route P balances slices by measured row time and
   keeps fine counters. Otherwise slices stay balanced by rows.
+- **I, what bounds the stream (H5).** I1: if `pl1_t28` / `pl1` has its whole range at or below 0.92 and `psmem` / `pl1`
+  its whole range at or below 0.80, the L1/shared pipe binds the pass with tables through L1, and route P and 4E carry
+  the tables in shared memory and a conflict-free staging. I2: if `pl1_t28` / `pl1` is at or above 0.97 over its whole
+  range and `psmem` / `pl1` at or above 0.90, the line-rate model is refuted: the 410 GB/s is latency or issue, and the
+  next arms are prefetch depth and occupancy (`psmem_t28_u2`, `pt28_1024`), never the tables. Otherwise both terms
+  share the time: the attribution of §5 is reported and the operator chooses. In every branch `pdec_l1` − `pword` and
+  `pdec_smem` − `pword` price the table loads and the decode arithmetic, and `pl1` − `pdec_l1` the dot.
+- **J, the 300 target.** Rule H of L1 is recomputed with B_T of the fastest valid decode arm without waits, and h_exp
+  in place of the barrier (`ops/pers_projection.py --bpa <B_T> --bar <h_exp>` with L1's launch, cooperative and drain
+  inputs). If 4E's whole range is at or above 300 tok/s, the persistent path reaches the target on these inputs and 4E's
+  first card reading carries that arm's settings. If its upper end is under 300, the binding term is named. Otherwise
+  the target sits inside the range and only 4E's end-to-end reading decides.
 - **G.** A miss is reported as a miss, with the term it refutes. No threshold moves after the clock.
 
 ## 8. Cost
 
-*Estimated* on l40sx1 at $1.80/h. Container and pull 3 min, oracle 1-2 min, the bench about 6 min (L1's process 1
-plus the served unit's compile, 13 identity launches and their checks): about 10 min, **$0.30**. Timeout 90 min:
+*Estimated* on l40sx1 at $1.80/h. Container and pull 3 min, oracle 1-2 min, the bench about 7 min (L1's process 1
+plus the served unit's compile, 16 identity launches and their checks): about 11 min, **$0.33**. Timeout 90 min:
 **$2.70** at worst.
 
 ## 9. What this run does not establish

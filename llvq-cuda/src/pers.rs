@@ -29,7 +29,9 @@ pub struct PersArm {
     pub name: &'static str,
     pub symbol: &'static str,
     /// 0 staging and reduction, 1 word stream, 2 decode with the tables read
-    /// in place through L1, 3 decode with the tables copied to shared memory.
+    /// in place through L1, 3 decode with the tables copied to shared memory,
+    /// 4 and 5 the decode of 2 and 3 without the dot (values XOR-folded, no
+    /// activation read, no FMA).
     pub mode: u8,
     pub threads: u32,
     /// Floats between two staged blocks: 24 (as today), 25, 28.
@@ -48,7 +50,12 @@ pub struct PersArm {
 impl PersArm {
     /// Decode arms owe the served kernel's rows bit for bit.
     pub const fn owes_identity(&self) -> bool {
-        self.mode >= 2
+        self.mode == 2 || self.mode == 3
+    }
+
+    /// The tables sit in shared memory, copied once a launch.
+    pub const fn tables_in_shared(&self) -> bool {
+        self.mode == 3 || self.mode == 5
     }
 }
 
@@ -63,7 +70,10 @@ const fn arm(name: &'static str, symbol: &'static str, mode: u8, threads: u32, s
 pub const PERS_ARMS: [PersArm; N_PERS_ARMS] = [
     arm("pnull", "tv_pers_null", 0, 768, 28, true),
     arm("pword", "tv_pers_word", 1, 768, 28, true),
+    arm("pdec_l1", "tv_pers_dec_l1", 4, 768, 28, true),
+    arm("pdec_smem", "tv_pers_dec_smem", 5, 768, 28, true),
     arm("pl1", "tv_pers_l1", 2, 768, 24, false),
+    arm("pl1_t28", "tv_pers_l1_t28", 2, 768, 28, true),
     arm("psmem", "tv_pers_smem", 3, 768, 24, false),
     arm("psmem_s25", "tv_pers_smem_s25", 3, 768, 25, false),
     arm("psmem_t28", "tv_pers_smem_t28", 3, 768, 28, true),
@@ -74,7 +84,7 @@ pub const PERS_ARMS: [PersArm; N_PERS_ARMS] = [
     PersArm { waits: 2, ..arm("pchain_w2", "tv_pers_chain_w2", 3, 768, 28, true) },
     PersArm { waits: 1, prologue: true, ..arm("pchain_wp", "tv_pers_chain_wp", 3, 768, 28, true) },
 ];
-pub const N_PERS_ARMS: usize = 12;
+pub const N_PERS_ARMS: usize = 15;
 
 /// The arm whose body `pchain_w`, `pchain_w2` and `pchain_wp` share, so their
 /// differences are the waits and the prologues and nothing else.
@@ -410,7 +420,7 @@ pub const SMEM_HEADER: u32 = 256;
 /// widest staging (d_in = 9,728: 405 blocks and a tail of 8), or the widest
 /// prologue vector, whichever is larger.
 pub fn shared_bytes(a: &PersArm) -> u32 {
-    let tables = if a.mode == 3 { TABLE_BYTES } else { 0 };
+    let tables = if a.tables_in_shared() { TABLE_BYTES } else { 0 };
     let staging = (405 * a.stride + 8) * 4;
     let prologue = if a.prologue { 9728 * 4 } else { 0 };
     (SMEM_HEADER + tables + staging.max(prologue)).div_ceil(16) * 16
@@ -730,7 +740,7 @@ pub fn med_range(v: &[f64]) -> (f64, f64, f64) {
 // ---------------------------------------------------------------------------
 
 /// The persistent module: L1's `tv_tetra48_persall` and microbenchmarks,
-/// L2's twelve arms, the L2 prologue reference, and route P's segment.
+/// L2's fifteen arms, the L2 prologue reference, and route P's segment.
 /// Its own module, so neither the bench unit nor the served unit moves.
 pub const PERS_UNIT_PARTS: [(&str, &str); 13] = [
     ("llvq_slot.cuh", include_str!("../kernels/llvq_slot.cuh")),
@@ -1437,6 +1447,16 @@ mod tests {
         }
     }
 
+    /// The L2 job script runs every registered arm, in an order the parser
+    /// accepts: an arm added here and forgotten there would not run.
+    #[test]
+    fn the_l2_job_runs_every_arm() {
+        let script = include_str!("../../ops/jobs/pers-l2.sh");
+        let line = script.lines().find(|l| l.starts_with("ARMS=")).expect("an ARMS= line");
+        let got = parse_pers_arms(Some(line.trim_start_matches("ARMS="))).unwrap();
+        assert_eq!(got, (0..N_PERS_ARMS).collect::<Vec<_>>());
+    }
+
     #[test]
     fn the_parser_keeps_its_contract() {
         assert_eq!(parse_pers_arms(None).unwrap(), Vec::<usize>::new());
@@ -1445,7 +1465,7 @@ mod tests {
         assert!(parse_pers_arms(Some("pnull,pnull")).is_err());
         assert!(parse_pers_arms(Some("nope")).is_err());
         assert!(parse_pers_arms(Some("pchain_w")).is_err());
-        assert_eq!(parse_pers_arms(Some("pchain_w, psmem_t28 ,pnull")).unwrap(), vec![0, 5, 9]);
+        assert_eq!(parse_pers_arms(Some("pchain_w, psmem_t28 ,pnull")).unwrap(), vec![0, 8, 12]);
     }
 
     #[test]

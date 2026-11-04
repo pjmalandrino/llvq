@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Step L2 of the persistent-kernel lead: the twelve persistent Tetra arms in route P's geometry (one CTA
+# Step L2 of the persistent-kernel lead: the fifteen persistent Tetra arms in route P's geometry (one CTA
 # a SM), against the served unit's tv_tetra48_h and A4's fused Tetra geometry in the same rounds.
 # Preregistered: proofs/preregistration-pers-l2-2026-11-04.md, to stamp before this. It runs only after
 # step L1 and the operator's decision 8 (the four settings frozen on 2026-08-05, prereg §0).
@@ -8,9 +8,10 @@
 #   IMAGE_SHA=<space sha> bash ops/jobs/pers-l2.sh      launches, after the operator's go
 #
 # One job, l40sx1, one planesbench process on the two banc-252 files: five table arms (control), A4
-# with the Tetra fusion, tetra48h and the twelve arms, every arm checked before it is timed.
+# with the Tetra fusion, tetra48h and the fifteen arms, every arm checked before it is timed. Three of them
+# (pdec_l1, pdec_smem, pl1_t28) read what bounds the stream at 410 GB/s (docs/mesures/pers-sass-2026-11-05.txt).
 #
-# Cost, estimated (l40sx1 $1.80/h): about 10 min, $0.30. Timeout 90m (five table arms, METHODE §6):
+# Cost, estimated (l40sx1 $1.80/h): about 11 min, $0.33. Timeout 90m (five table arms, METHODE §6):
 # $2.70 at worst.
 set -euo pipefail
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
@@ -49,7 +50,7 @@ if [ "$DRY" != 1 ]; then
   echo "two bucket copies verified by size; image $NOW"
 fi
 
-ARMS=pnull,pword,pl1,psmem,psmem_s25,psmem_t28,psmem_t28_u2,pt28_512,pt28_1024,pchain_w,pchain_w2,pchain_wp
+ARMS=pnull,pword,pdec_l1,pdec_smem,pl1,pl1_t28,psmem,psmem_s25,psmem_t28,psmem_t28_u2,pt28_512,pt28_1024,pchain_w,pchain_w2,pchain_wp
 PRE=$(printf 'O=%q\nB=%q\nF=%q\nBB=%q\nFB=%q\nFSHA8=%q\nSERVED_SHA=%q\nARMS=%q' \
   "$O" "/out/${BALL%%:*}" "/out/${TETRA%%:*}" "${BALL##*:}" "${TETRA##*:}" "$TETRA_SHA8" "$SERVED_SHA" "$ARMS")
 

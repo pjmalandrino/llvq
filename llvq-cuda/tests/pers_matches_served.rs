@@ -852,6 +852,24 @@ fn the_claiming_race_is_closed() {
     assert!(caught, "the claiming race never showed: the test has no teeth");
 }
 
+/// The two decode arms fold the same values, one reading the tables through
+/// L1, the other from its shared copy: their rows are equal, and a copy that
+/// swaps two branch entries makes them differ (the card-side check of
+/// persbench.rs rests on this).
+#[test]
+fn the_decode_arms_read_one_table() {
+    let sites = short_schedule(24);
+    let pos = |n: &str| pers::PERS_ARMS.iter().position(|a| a.name == n).unwrap();
+    let (l1, sm, word) = (pos("pdec_l1"), pos("pdec_smem"), pos("pword"));
+    let rows = |bin: &Path, arm: usize| parse_bench(&run(bin, &bench_cmd(arm, 3, 64, 1, 0xdec0, &sites).0), &sites).y;
+    let a = rows(persistent(), l1);
+    assert!(a.iter().all(|&v| v != pers::POISON_H), "pdec_l1 left a row unwritten");
+    assert!(a == rows(persistent(), sm), "pdec_smem's rows differ from pdec_l1's");
+    assert!(a != rows(persistent(), word), "the decode arms fold nothing beyond the words");
+    let b = mutant("dec_tables", "llvq-cuda/kernels/tetra48_pers.cu", "t_br[i] = A->br[i];", "t_br[i] = A->br[i ^ 1u];");
+    assert!(a != rows(&b, sm), "a swapped branch table survived: the test has no teeth");
+}
+
 /// One arm at its real block size and a full layer's rows: the template at
 /// 768 threads, every row of every site of one layer.
 #[test]

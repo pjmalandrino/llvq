@@ -116,12 +116,19 @@
     A.hidden = hidden; A.inter = inter; A.m_h = m_h; A.k_h = k_h; A.m_i = m_i; A.k_i = k_i;
     A.inv_h = inv_h; A.inv_i = inv_i; A.eps = eps;
     typedef void (*ArmFn)(const PersArgs*, const PersLaunch);
-    const ArmFn fns[12] = {tv_pers_null, tv_pers_word, tv_pers_l1, tv_pers_smem, tv_pers_smem_s25,
-                           tv_pers_smem_t28, tv_pers_smem_t28_u2, tv_pers_t28_512, tv_pers_t28_1024,
+    // pers.rs::PERS_ARMS order; pers_matches_served.rs checks the count.
+    const ArmFn fns[15] = {tv_pers_null, tv_pers_word, tv_pers_dec_l1, tv_pers_dec_smem, tv_pers_l1,
+                           tv_pers_l1_t28, tv_pers_smem, tv_pers_smem_s25, tv_pers_smem_t28,
+                           tv_pers_smem_t28_u2, tv_pers_t28_512, tv_pers_t28_1024,
                            tv_pers_chain_w, tv_pers_chain_w2, tv_pers_chain_wp};
-    const u32 strides[12] = {28, 28, 24, 24, 25, 28, 28, 28, 28, 28, 28, 28};
-    const u32 modes[12] = {0, 1, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3};
-    const size_t smem_bytes = PERS_SMEM_HEADER + (modes[arm_i] == 3 ? 18816 : 0) +
+    const u32 strides[15] = {28, 28, 28, 28, 24, 28, 24, 25, 28, 28, 28, 28, 28, 28, 28};
+    const u32 modes[15] = {0, 1, 4, 5, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3};
+    if (arm_i >= 15) {
+        std::fprintf(stderr, "host_pers: arm index %u out of range\n", arm_i);
+        std::exit(2);
+    }
+    const bool shared_tables = modes[arm_i] == 3 || modes[arm_i] == 5;
+    const size_t smem_bytes = PERS_SMEM_HEADER + (shared_tables ? 18816 : 0) +
                               std::max<size_t>((size_t)(405 * strides[arm_i] + 8) * 4, 9728 * 4);
     for (u32 L = 0; L < n_launches; ++L) {
         std::fill(y_all.begin(), y_all.end(), (unsigned short)0xFFFFu);

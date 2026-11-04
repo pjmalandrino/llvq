@@ -1,7 +1,7 @@
 //! The persistent sections of `planesbench` (Linux, CUDA): step L1 (the
 //! one-launch Tetra pass `tpersall`, the barrier and launch microbenchmarks,
 //! the driver cubins) and step L2 (the served `tv_tetra48_h` reference and
-//! the twelve persistent arms). Preregs: `proofs/preregistration-pers-l1-*`
+//! the fifteen persistent arms). Preregs: `proofs/preregistration-pers-l1-*`
 //! and `-l2-*`. Portable half and its tests: [`crate::pers`].
 //!
 //! Everything here is off unless a variable asks for it, and nothing here
@@ -638,6 +638,7 @@ impl<'a> Section<'a> {
         let want_rot_h = rot_of(&want_norm, h, &sg_h, &sm_h, m_h, k_h, inv_h)?;
         let want_rot_i = rot_of(&resid, i, &sg_i, &sm_i, m_i, k_i, inv_i)?;
 
+        let mut dec_rows: Option<(&str, Vec<u16>)> = None;
         for &a in &self.flags.arms.clone() {
             let arm = &pers::PERS_ARMS[a];
             let shared = pers::shared_bytes(arm);
@@ -703,6 +704,21 @@ impl<'a> Section<'a> {
                 if unwritten > 0 {
                     println!("    INVALIDATED: {unwritten} rows never written (gate 6)");
                     valid = false;
+                }
+                // The two decode arms fold the same values: equal rows say the
+                // shared copy of the tables is the global one, on the card.
+                if arm.mode >= 4 {
+                    match dec_rows.take() {
+                        None => dec_rows = Some((arm.name, got.clone())),
+                        Some((other, rows)) => {
+                            if rows == got {
+                                println!("    rows equal {other}'s bit for bit (the shared tables are the global ones)");
+                            } else {
+                                println!("    INVALIDATED: rows differ from {other}'s: the shared tables are not the global ones");
+                                valid = false;
+                            }
+                        }
+                    }
                 }
                 if arm.owes_identity() {
                     println!(
@@ -809,7 +825,8 @@ impl<'a> Section<'a> {
                     continue;
                 }
                 let (r, rl, rh) = pers::med_range(&ratio(&a.series, &l2.ref_series));
-                let bytes = if arm.mode == 1 { pers::bare_file_bytes().0 } else { pers::bare_file_bytes().1 };
+                // pword and the decode arms read the words (and tables), never a tail or a row scale.
+                let bytes = if arm.owes_identity() || arm.mode == 0 { pers::bare_file_bytes().1 } else { pers::bare_file_bytes().0 };
                 let bt: Vec<f64> = a.series.iter().map(|t| bytes as f64 / t / 1e9).collect();
                 let (b, bl, bh) = pers::med_range(&bt);
                 println!("  {:<13} {}  x{r:.3} [{rl:.3}-{rh:.3}] of tetra48h  {b:.0} GB/s [{bl:.0}-{bh:.0}]", arm.name, ms(&a.series));

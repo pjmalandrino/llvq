@@ -13,7 +13,10 @@
 //   arm            symbol                 MODE THREADS STRIDE TRIO PREFETCH WAITS PROLOGUE
 //   pnull          tv_pers_null            0    768     28    yes    no      0      no
 //   pword          tv_pers_word            1    768     28    yes    no      0      no
+//   pdec_l1        tv_pers_dec_l1          4    768     28    yes    no      0      no
+//   pdec_smem      tv_pers_dec_smem        5    768     28    yes    no      0      no
 //   pl1            tv_pers_l1              2    768     24    no     no      0      no
+//   pl1_t28        tv_pers_l1_t28          2    768     28    yes    no      0      no
 //   psmem          tv_pers_smem            3    768     24    no     no      0      no
 //   psmem_s25      tv_pers_smem_s25        3    768     25    no     no      0      no
 //   psmem_t28      tv_pers_smem_t28        3    768     28    yes    no      0      no
@@ -26,7 +29,10 @@
 //
 // MODE: 0 staging and reduction only, 1 every word read and XOR-folded, 2 full
 // decode with the tables read in place (L1), 3 full decode with the tables
-// copied to shared memory once a launch. WAITS: 0 none; 1 the served 4B
+// copied to shared memory once a launch, 4 and 5 the decode of modes 2 and 3
+// without the dot: the 24 values built and XOR-folded as bits, the shell and
+// both scales read, no activation read and no FMA (the decode arms of
+// docs/mesures/pers-sass-2026-11-05.txt). WAITS: 0 none; 1 the served 4B
 // schedule (95 barrier ordinals, 48 counter waits every CTA's signal turns
 // into grid-wide waits, 2 trailing barriers: 145 grid-wide syncs); 2 the same
 // with one more grid barrier after each sync.
@@ -155,7 +161,7 @@ __device__ __forceinline__ void pers_body(const PersArgs* __restrict__ A, const 
     F1rTables tab;
     const float* invnorm;
     float* xs;
-    if (MODE == 3) {
+    if (MODE == 3 || MODE == 5) {
         u32* t_rows = reinterpret_cast<u32*>(base + PERS_SMEM_HEADER);
         unsigned char* t_pref = reinterpret_cast<unsigned char*>(t_rows + 4096);
         unsigned short* t_br = reinterpret_cast<unsigned short*>(t_pref + 128);
@@ -238,6 +244,28 @@ __device__ __forceinline__ void pers_body(const PersArgs* __restrict__ A, const 
 #pragma unroll
                 for (int m = 16; m > 0; m >>= 1) a ^= __shfl_xor_sync(0xffffffffu, a, m);
                 if (lane == 0u) A->y_all[yrow] = (unsigned short)((a ^ (a >> 16)) & 0x7fffu);
+            } else if (MODE >= 4) {
+                // tetra48_dot's decode with its dot replaced by an XOR of the
+                // values' bits: same loads, same table chain, same float
+                // construction, same shell and scales.
+                const u32* wrow = words + r * st.stride_u32;
+                u32 a = 0u;
+                for (u32 j = lane; j < nblocks; j += 32u) {
+                    u32 lo, hi16;
+                    f1r_load(wrow, j, lo, hi16);
+                    u32 q[6];
+                    f1r_v3_quads(lo, hi16, tab, q);
+#pragma unroll
+                    for (u32 i = 0; i < 6u; ++i) {
+#pragma unroll
+                        for (u32 k = 0; k < 4u; ++k) a ^= __float_as_uint(f1r_v3_float(q[i], k));
+                    }
+                    const u32 m = (tetra48_n2(q) >> 4) & (TETRA48_SHELLS - 1u);
+                    a ^= __float_as_uint(gs[(hi16 >> 15) & 1u] * invnorm[m]);
+                }
+#pragma unroll
+                for (int m = 16; m > 0; m >>= 1) a ^= __shfl_xor_sync(0xffffffffu, a, m);
+                if (lane == 0u) A->y_all[yrow] = (unsigned short)((a ^ (a >> 16)) & 0x7fffu);
             } else {
                 const float acc = pers_tetra_row<STRIDE, TRIO, PREFETCH>(words + r * st.stride_u32, tab, gs, invnorm,
                                                                          xs, nblocks, lane);
@@ -269,7 +297,10 @@ __device__ __forceinline__ void pers_body(const PersArgs* __restrict__ A, const 
 // One line an arm; pers.rs::tests::the_table_is_the_kernel_text reads them.
 PERS_ARM(tv_pers_null, 768u, 0, 28u, true, false, 0, false)
 PERS_ARM(tv_pers_word, 768u, 1, 28u, true, false, 0, false)
+PERS_ARM(tv_pers_dec_l1, 768u, 4, 28u, true, false, 0, false)
+PERS_ARM(tv_pers_dec_smem, 768u, 5, 28u, true, false, 0, false)
 PERS_ARM(tv_pers_l1, 768u, 2, 24u, false, false, 0, false)
+PERS_ARM(tv_pers_l1_t28, 768u, 2, 28u, true, false, 0, false)
 PERS_ARM(tv_pers_smem, 768u, 3, 24u, false, false, 0, false)
 PERS_ARM(tv_pers_smem_s25, 768u, 3, 25u, false, false, 0, false)
 PERS_ARM(tv_pers_smem_t28, 768u, 3, 28u, true, false, 0, false)

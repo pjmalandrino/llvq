@@ -38,20 +38,28 @@ bpa = (F32_FAMILY / tpa[1] / 1e6, F32_FAMILY / tpa[0] / 1e6)
 print(f"  B_pa GB/s                          [{bpa[0]:.0f}, {bpa[1]:.0f}]  (derived)")
 assert bpa[1] <= PEAK / 1e9
 
-print("L2")
-ref = (3.55, 4.05)  # tetra48h
+print("L2 (re-anchored 2026-11-05 on L1: tetra48 3.788 ms, tetra48seg 3.009, barrier 0.786 us; and on the LSU model)")
+ref = (3.70, 3.90)  # tetra48h: the bench unit's tetra48 measured 3.788 [3.742-3.807] in L1, the same text
 check("tetra48h ms", *ref, floor_ms(F16_FAMILY))
-check("pword ms", 1.22, 1.75, floor_ms(WORDS))
-dec = (1.45, 2.70)  # psmem_t28
+check("pword ms", 1.10, 1.75, floor_ms(WORDS))
+check("pdec_l1 ms", 1.35, 1.95, floor_ms(WORDS))
+check("pdec_smem ms", 1.10, 1.80, floor_ms(WORDS))
+pl1, pl1_t28 = (2.05, 2.80), (1.75, 2.50)
+check("pl1 ms", *pl1, floor_ms(F16_FAMILY))
+check("pl1_t28 ms", *pl1_t28, floor_ms(F16_FAMILY))
+check("psmem ms", 1.15, 2.10, floor_ms(F16_FAMILY))
+dec = (1.12, 2.00)  # psmem_t28, and psmem_s25
 check("psmem_t28 ms", *dec, floor_ms(F16_FAMILY))
-h = (1.0e-3, 4.0e-3)  # h_exp, ms
+h = (0.8e-3, 3.0e-3)  # h_exp, ms: the barrier alone measured 0.786 us at 142 x 768
 n_sync = 145
 chain_w = (dec[0] + n_sync * h[0], dec[1] + n_sync * h[1])
 check("pchain_w ms (derived)", *chain_w, floor_ms(F16_FAMILY))
 prol = (0.08, 0.35)
 chain_wp = (chain_w[0] + prol[0], chain_w[1] + prol[1])
 check("pchain_wp ms (derived)", *chain_wp, floor_ms(F16_FAMILY))
-fus = (3.032 / 3.792 * 0.99, 3.032 / 3.792 * 1.01)  # tetra48seg / tetra48, measured, +-1 %
+fus = (3.009 / 3.788 * 0.99, 3.009 / 3.788 * 1.01)  # tetra48seg / tetra48, measured in L1, +-1 %
 q = (chain_wp[0] / ref[1] / fus[1], chain_wp[1] / ref[0] / fus[0])
 print(f"  Q (derived)                        [{q[0]:.2f}, {q[1]:.2f}]")
-assert q[0] > 0.50, "the draft's lower bound 0.50 is impossible"
+assert q[0] > 0.40
+b_t = (F16_FAMILY / dec[1] / 1e6, F16_FAMILY / dec[0] / 1e6)
+print(f"  B_T of psmem_t28 GB/s              [{b_t[0]:.0f}, {b_t[1]:.0f}]  (derived)")
