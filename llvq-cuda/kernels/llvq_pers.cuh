@@ -598,4 +598,401 @@ __device__ __forceinline__ u32 pers_head_argmax(const u32* wq, const unsigned sh
     return ((0x3FFFFFu - (u32)(k & 0x3FFFFFu)) << 10) | (__brev(br) >> 22);
 }
 
+// ---------------------------------------------------------------------------
+// 9. 4E's per-layer phases around attention (persistent.md §3.9). Each writes
+//    what the served path writes, bit for bit, and is reused by the token
+//    loop: the embedding row, then ln1 + the q/k rotation + the q, k and v
+//    rows, then (after attention) the o rows and the residual.
+// ---------------------------------------------------------------------------
+
+// emb_q4_gather's row (emb_q4.cu): column c of token `tok`'s int4 g64 row,
+// rounded to binary16. Writes dst[c] for c in [lo, hi), any thread mapping.
+__device__ __forceinline__ void pers_embed(const u32* wq, const unsigned short* scales, const unsigned short* biases,
+                                           u32 tok, u32 d, u32 gpr, unsigned short* dst, u32 lo, u32 hi)
+{
+    const u32 w0 = tok * (d >> 3), s0 = tok * gpr;
+    for (u32 c = lo + threadIdx.x; c < hi; c += blockDim.x) {
+        const u32 q = (wq[w0 + (c >> 3)] >> ((c & 7u) * 4u)) & 0xfu;
+        const u32 g = s0 + (c >> 6);
+        dst[c] = f2h(pers_q4_deq(q, scales[g], biases[g]));
+    }
+}
+
+// One Tetra row of a projection whose staged input is `xs` (natural, stride
+// 24), through the epilogue, as a binary16.
+__device__ __forceinline__ unsigned short pers_tetra_out(const u32* words, u32 stride_u32, u32 nblocks, u32 tail_w,
+                                                         const float* rscale, const unsigned short* tail,
+                                                         const float* gscale, const F1rTables& tab,
+                                                         const float* invnorm, const float* xs, u32 r, u32 lane)
+{
+    const float acc = pers_tetra_row<24u, false, false>(words + r * stride_u32, tab, gscale, invnorm, xs, nblocks, lane);
+    return f2h(pers_epilogue(acc, rscale[r], tail + r * tail_w, xs + nblocks * 24u, tail_w));
+}
+
+// The q/k/v phase on one CTA. `xr` holds ln1(x) rotated (q and k read it),
+// `xn` ln1(x) widened in the natural basis (the int4 v reads it), both f32 in
+// shared memory. Rows [lo, hi) of the concatenation q | k | v are this CTA's;
+// q and k are Tetra under one rotation, v int4 g128, as at the 4B and 14B.
+struct Pers4eQkv {
+    const u32* qw; const float* qrs; const unsigned short* qtl; const float* qgs; u32 q_stride, q_dout;
+    const u32* kw; const float* krs; const unsigned short* ktl; const float* kgs; u32 k_stride, k_dout;
+    const u32* vw; const unsigned short* vsc; const unsigned short* vbi; u32 v_dout, v_gpr;
+    u32 nblocks, tail_w, d_in;
+    unsigned short *q, *k, *v;  // outputs, binary16
+};
+
+__device__ __forceinline__ void pers_4e_qkv_rows(const Pers4eQkv& P, const F1rTables& tab, const float* invnorm,
+                                                 const float* xr, const float* xn, u32 lo, u32 hi)
+{
+    const u32 lane = threadIdx.x & 31u;
+    pers_claim_reset(lo);
+    for (;;) {
+        const u32 r = pers_claim(lane, 1u);
+        if (r >= hi) break;
+        if (r < P.q_dout) {
+            const unsigned short y = pers_tetra_out(P.qw, P.q_stride, P.nblocks, P.tail_w, P.qrs, P.qtl, P.qgs, tab,
+                                                    invnorm, xr, r, lane);
+            if (lane == 0u) P.q[r] = y;
+        } else if (r < P.q_dout + P.k_dout) {
+            const u32 rk = r - P.q_dout;
+            const unsigned short y = pers_tetra_out(P.kw, P.k_stride, P.nblocks, P.tail_w, P.krs, P.ktl, P.kgs, tab,
+                                                    invnorm, xr, rk, lane);
+            if (lane == 0u) P.k[rk] = y;
+        } else {
+            const u32 rv = r - P.q_dout - P.k_dout;
+            const float acc = pers_q4_row(P.vw, P.vsc, P.vbi, xn, rv, P.d_in, P.v_gpr, lane);
+            if (lane == 0u) P.v[rv] = f2h(acc);
+        }
+    }
+    __syncthreads();
+}
+
+// The o phase: int4 g128 rows over the attention output `ctx` (binary16,
+// widened into `cs`), then out[r] = x[r] + o[r] as badd_f16 does.
+__device__ __forceinline__ void pers_4e_o_int4(const u32* ow, const unsigned short* osc, const unsigned short* obi,
+                                               u32 gpr, const unsigned short* ctx, float* cs, u32 d_ctx,
+                                               const unsigned short* x, unsigned short* out, u32 lo, u32 hi)
+{
+    __syncthreads();
+    for (u32 i = threadIdx.x; i < d_ctx; i += blockDim.x) cs[i] = h2f(__ldcg(ctx + i));
+    const u32 lane = threadIdx.x & 31u;
+    pers_claim_reset(lo);
+    for (;;) {
+        const u32 r = pers_claim(lane, 1u);
+        if (r >= hi) break;
+        const float acc = pers_q4_row(ow, osc, obi, cs, r, d_ctx, gpr, lane);
+        if (lane == 0u) out[r] = exact_hadd(__ldcg(x + r), f2h(acc));
+    }
+    __syncthreads();
+}
+
+// ---------------------------------------------------------------------------
+// 10. 4E's attention phase: one decode row, the canonical arithmetic of
+//     llvq-cuda/src/attn_ref.rs (and of attn_dec.cu, proven equal to it by
+//     the attention lead), re-mapped onto the persistent grid. The bits of a
+//     row depend on its length alone: 8-position tiles aligned to absolute
+//     positions, 64-position units, 256-position splits, units merged into
+//     their split left to right, splits into the row left to right, every
+//     float operation an explicit RN intrinsic. The mapping is ours: phase 1
+//     gives each (query head, unit) to one warp (both half-warps compute the
+//     same job, so every shuffle is a full-warp one) and writes the unit's
+//     state (m, d, a[128]) to global scratch; after a grid barrier, phase 2
+//     gives each query head to one warp, which folds the states in order.
+//     Under T8: identity is owed to the "kernel" attention form, not to
+//     candle's cuBLAS path.
+// ---------------------------------------------------------------------------
+#define PERS_HD 128u
+#define PERS_TT 8u
+#define PERS_UNIT 64u
+#define PERS_SPLIT 256u
+#define PERS_PSTRIDE 130u
+#define PERS_NEG_INF __int_as_float((int)0xff800000u)
+
+// attn_ref.rs::ex2_fixed / attn_dec.cu::attn_ex2, the fixed polynomial.
+__device__ __forceinline__ float pers_ex2(float x)
+{
+    if (x != x) return x;
+    if (!(x > -126.0f)) return 0.0f;
+    const float fl = floorf(x);
+    const float f = __fsub_rn(x, fl);
+    float p = __uint_as_float(0x39665cf6u);
+    p = __fmaf_rn(p, f, __uint_as_float(0x3aa228dbu));
+    p = __fmaf_rn(p, f, __uint_as_float(0x3c1eab8fu));
+    p = __fmaf_rn(p, f, __uint_as_float(0x3d634139u));
+    p = __fmaf_rn(p, f, __uint_as_float(0x3e75feb3u));
+    p = __fmaf_rn(p, f, __uint_as_float(0x3f317217u));
+    p = __fmaf_rn(p, f, 1.0f);
+    const int e = (int)fl;
+    return __int_as_float((int)((unsigned)__float_as_int(p) + ((unsigned)e << 23)));
+}
+
+// One (query head, unit) state: lane l & 15 owns dims 8(l&15)..+7. q is
+// widened in `qf` (this lane's 8 dims). Returns m and d on every lane; the
+// accumulators in `a`.
+__device__ __forceinline__ void pers_attn_unit(const float qf[8], const unsigned short* kc, const unsigned short* vc,
+                                               u32 u0, u32 l, float c, float& m, float& d, float a[8], u32 lane)
+{
+    const u32 dl = (lane & 15u) * 8u;
+    m = PERS_NEG_INF;
+    d = 0.0f;
+#pragma unroll
+    for (u32 i = 0; i < 8u; ++i) a[i] = 0.0f;
+    for (u32 p0 = u0; p0 < u0 + PERS_UNIT && p0 < l; p0 += PERS_TT) {
+        const u32 nv = l - p0 < PERS_TT ? l - p0 : PERS_TT;
+        float sc[PERS_TT];
+        for (u32 j = 0; j < nv; ++j) {
+            const unsigned short* kr = kc + (unsigned long long)(p0 + j) * PERS_HD + dl;
+            float t = 0.0f;
+#pragma unroll
+            for (u32 i = 0; i < 8u; ++i) t = __fmaf_rn(qf[i], h2f(kr[i]), t);
+#pragma unroll
+            for (int off = 8; off > 0; off >>= 1) t = __fadd_rn(t, __shfl_xor_sync(0xffffffffu, t, off));
+            sc[j] = __fmul_rn(t, c);
+        }
+        float mt = sc[0];
+        for (u32 j = 1; j < nv; ++j) mt = fmaxf(mt, sc[j]);
+        float m_new, carry;
+        if (m == PERS_NEG_INF) {
+            m_new = mt;
+            carry = 0.0f;
+        } else {
+            m_new = fmaxf(m, mt);
+            carry = pers_ex2(__fsub_rn(m, m_new));
+        }
+        float pj[PERS_TT];
+        float ts = 0.0f;
+        for (u32 j = 0; j < nv; ++j) {
+            pj[j] = pers_ex2(__fsub_rn(sc[j], m_new));
+            ts = __fadd_rn(ts, pj[j]);
+        }
+        d = __fadd_rn(__fmul_rn(d, carry), ts);
+#pragma unroll
+        for (u32 i = 0; i < 8u; ++i) {
+            float acc = __fmul_rn(a[i], carry);
+            for (u32 j = 0; j < nv; ++j)
+                acc = __fmaf_rn(pj[j], h2f(vc[(unsigned long long)(p0 + j) * PERS_HD + dl + i]), acc);
+            a[i] = acc;
+        }
+        m = m_new;
+    }
+}
+
+// attn_ref.rs::st_merge, on this lane's 8 dims.
+__device__ __forceinline__ void pers_attn_merge(float& am, float& ad, float aa[8], float bm, float bd, const float ba[8])
+{
+    if (bm == PERS_NEG_INF) return;
+    if (am == PERS_NEG_INF) {
+        am = bm;
+        ad = bd;
+#pragma unroll
+        for (u32 i = 0; i < 8u; ++i) aa[i] = ba[i];
+        return;
+    }
+    const float m = fmaxf(am, bm);
+    const float fa = pers_ex2(__fsub_rn(am, m)), fb = pers_ex2(__fsub_rn(bm, m));
+    ad = __fadd_rn(__fmul_rn(ad, fa), __fmul_rn(bd, fb));
+#pragma unroll
+    for (u32 i = 0; i < 8u; ++i) aa[i] = __fadd_rn(__fmul_rn(aa[i], fa), __fmul_rn(ba[i], fb));
+    am = m;
+}
+
+// The phase. q: [n_heads][128] binary16 after norm and RoPE; kc, vc:
+// [n_kv][cap][128] holding positions 0..l-1 (the new one appended); scratch:
+// [n_heads][ceil(l / 64)][PSTRIDE] floats; out: [n_heads][128] binary16.
+// Returns false when the barrier between the phases aborted. `dbg_state`,
+// nullable: [n_heads][PSTRIDE], each head's (a, m, d) before the division.
+__device__ __forceinline__ bool pers_attention(const unsigned short* q, const unsigned short* kc,
+                                               const unsigned short* vc, u32 n_heads, u32 groups, u32 cap, u32 l,
+                                               float c, float* scratch, unsigned short* out, u32* bar, u32 bar_target,
+                                               u32* abort_flag, float* dbg_state)
+{
+    const u32 lane = threadIdx.x & 31u;
+    const u32 nwarps = blockDim.x >> 5;
+    const u32 gwarp = blockIdx.x * nwarps + (threadIdx.x >> 5);
+    const u32 total = gridDim.x * nwarps;
+    const u32 nunits = (l + PERS_UNIT - 1u) / PERS_UNIT;
+    const u32 dl = (lane & 15u) * 8u;
+    for (u32 job = gwarp; job < n_heads * nunits; job += total) {
+        const u32 hq = job / nunits, u = job - hq * nunits;
+        const u32 h = hq / groups;
+        float qf[8], a[8], m, d;
+#pragma unroll
+        for (u32 i = 0; i < 8u; ++i) qf[i] = h2f(__ldcg(q + hq * PERS_HD + dl + i));
+        pers_attn_unit(qf, kc + (unsigned long long)h * cap * PERS_HD, vc + (unsigned long long)h * cap * PERS_HD,
+                       u * PERS_UNIT, l, c, m, d, a, lane);
+        float* st = scratch + ((unsigned long long)hq * nunits + u) * PERS_PSTRIDE;
+        if (lane < 16u) {
+#pragma unroll
+            for (u32 i = 0; i < 8u; ++i) st[dl + i] = a[i];
+        }
+        if (lane == 0u) {
+            st[PERS_HD] = m;
+            st[PERS_HD + 1u] = d;
+        }
+    }
+    if (!pers_grid_wait(bar, bar_target, abort_flag)) return false;
+    for (u32 hq = gwarp; hq < n_heads; hq += total) {
+        float tm = PERS_NEG_INF, td = 0.0f, ta[8];
+#pragma unroll
+        for (u32 i = 0; i < 8u; ++i) ta[i] = 0.0f;
+        for (u32 s0 = 0; s0 < nunits; s0 += PERS_SPLIT / PERS_UNIT) {
+            float sm = PERS_NEG_INF, sd = 0.0f, sa[8];
+#pragma unroll
+            for (u32 i = 0; i < 8u; ++i) sa[i] = 0.0f;
+            for (u32 u = s0; u < s0 + PERS_SPLIT / PERS_UNIT && u < nunits; ++u) {
+                const float* st = scratch + ((unsigned long long)hq * nunits + u) * PERS_PSTRIDE;
+                float ba[8];
+#pragma unroll
+                for (u32 i = 0; i < 8u; ++i) ba[i] = __ldcg(st + dl + i);
+                pers_attn_merge(sm, sd, sa, __ldcg(st + PERS_HD), __ldcg(st + PERS_HD + 1u), ba);
+            }
+            pers_attn_merge(tm, td, ta, sm, sd, sa);
+        }
+        if (lane < 16u) {
+#pragma unroll
+            for (u32 i = 0; i < 8u; ++i) out[hq * PERS_HD + dl + i] = f2h(__fdiv_rn(ta[i], td));
+        }
+        // nullable: the f32 state before the division, for the host test (a
+        // binary16 output hides a reordered merge most of the time)
+        if (dbg_state && lane < 16u) {
+#pragma unroll
+            for (u32 i = 0; i < 8u; ++i) dbg_state[hq * PERS_PSTRIDE + dl + i] = ta[i];
+            if (lane == 0u) {
+                dbg_state[hq * PERS_PSTRIDE + PERS_HD] = tm;
+                dbg_state[hq * PERS_PSTRIDE + PERS_HD + 1u] = td;
+            }
+        }
+    }
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// 11. 4E's q/k-norm, RoPE and KV append, one decode row at position `pos`.
+//     candle runs, per head of 128: rmsnorm_f16 with its 32-thread block
+//     (exact_rms_scale with ncols = 128), then rotary_emb::rope (reduce.cu
+//     rope, non-interleaved): o1 = a*c - b*s, o2 = a*s + b*c on the pair
+//     (i, i + 64), in __half operators. Those compile to mul.f16 and sub.f16
+//     or add.f16, which the driver's ptxas may fuse into fma.rn.f16, either
+//     product. FORM picks one: 0 none fused, 1 the first product fused, 2 the
+//     second. Which one candle's card code is can only be read on the card:
+//     route P's load-time check runs candle's rope and keeps the form that
+//     matches, or keeps candle's launch. A fused form rounds once from the
+//     exact value: the 22-bit product is exact in f64, and so is its sum with
+//     a binary16 term (an in-range product and the term span at most 41 bits,
+//     under f64's 53), so one rounding of the f64 sum to binary16 is the
+//     single rounding fma.rn.f16 makes. TwoSum's error is kept as a guard, and
+//     the host test shows it is always zero on binary16 inputs.
+// ---------------------------------------------------------------------------
+
+// RN to binary16 of the exact value s + err, |err| below half an ulp of s in
+// f64 (TwoSum's guarantee): err only matters when s sits on a binary16 tie.
+__device__ __forceinline__ unsigned short pers_f64_to_f16(double s, double err)
+{
+    const unsigned long long b = (unsigned long long)__double_as_longlong(s);
+    const u32 sign = (u32)(b >> 48) & 0x8000u;
+    const int e = (int)((b >> 52) & 0x7ffu);
+    const unsigned long long m = b & 0xFFFFFFFFFFFFFull;
+    if (e == 0x7ff) return (unsigned short)(sign | 0x7c00u | (m ? 0x200u : 0u));
+    if (e == 0) return (unsigned short)sign;  // f64 subnormal: far below the least binary16
+    const unsigned long long sig = m | (1ull << 52);
+    int e16 = e - 1023 + 15;
+    if (e16 >= 31) return (unsigned short)(sign | 0x7c00u);
+    const int shift = e16 <= 0 ? 1051 - e : 42;
+    if (shift >= 64) return (unsigned short)sign;
+    unsigned long long q = sig >> shift;
+    const unsigned long long rem = sig & ((1ull << shift) - 1ull), half = 1ull << (shift - 1);
+    // the exact value is larger in magnitude than s when err has s's sign
+    const bool beyond = err != 0.0 && ((err > 0.0) == (s > 0.0));
+    if (rem > half || (rem == half && (beyond || (err == 0.0 && (q & 1ull))))) ++q;
+    if (e16 <= 0) return (unsigned short)(sign | (u32)q);  // q = 0x400 is the least normal, encoded alike
+    if (q == 0x800ull) {
+        q = 0x400ull;
+        if (++e16 >= 31) return (unsigned short)(sign | 0x7c00u);
+    }
+    return (unsigned short)(sign | ((u32)e16 << 10) | (u32)(q & 0x3ffull));
+}
+
+// fma.rn.f16(±a·b, c): one rounding of the exact value.
+__device__ __forceinline__ unsigned short pers_f16_fma_exact(unsigned short a, unsigned short b, unsigned short c,
+                                                             bool neg_ab)
+{
+    const double x = (neg_ab ? -1.0 : 1.0) * ((double)h2f(a) * (double)h2f(b));  // exact: 22 bits
+    const double y = (double)h2f(c);
+    const double s = x + y;
+    const double bb = s - x;
+    const double err = (x - (s - bb)) + (y - bb);  // TwoSum: s + err == x + y exactly
+    return pers_f64_to_f16(s, err);
+}
+
+template <int FORM>
+__device__ __forceinline__ void pers_rope_pair(unsigned short a, unsigned short b, unsigned short c, unsigned short s,
+                                               unsigned short* o1, unsigned short* o2)
+{
+    const unsigned short ac = exact_hmul(a, c), bs = exact_hmul(b, s), as = exact_hmul(a, s), bc = exact_hmul(b, c);
+    if (FORM == 0) {
+        *o1 = f2h(__fsub_rn(h2f(ac), h2f(bs)));
+        *o2 = exact_hadd(as, bc);
+    } else if (FORM == 1) {
+        *o1 = pers_f16_fma_exact(a, c, (unsigned short)(bs ^ 0x8000u), false);
+        *o2 = pers_f16_fma_exact(a, s, bc, false);
+    } else {
+        *o1 = pers_f16_fma_exact(b, s, ac, true);
+        *o2 = pers_f16_fma_exact(b, c, as, false);
+    }
+}
+
+// One head of 128 in place-free form: src (binary16, this head's raw row),
+// alpha (the norm's 128 weights), cos/sin (64 entries at this position), dst.
+// One warp; candle's 32-thread tree for the norm.
+template <int FORM>
+__device__ __forceinline__ void pers_head_norm_rope(const unsigned short* src, const unsigned short* alpha,
+                                                    const unsigned short* cosr, const unsigned short* sinr, float eps,
+                                                    unsigned short* dst, u32 lane)
+{
+    float tmp = 0.0f;
+    for (u32 col = lane; col < 128u; col += 32u) {
+        const float xi = h2f(__ldcg(src + col));
+        tmp = __fmaf_rn(xi, xi, tmp);
+    }
+#pragma unroll
+    for (int mask = 16; mask > 0; mask >>= 1) tmp = __fadd_rn(tmp, __shfl_xor_sync(0xffffffffu, tmp, mask));
+    const float scale = rsqrtf(__fadd_rn(__fdiv_rn(tmp, 128.0f), eps));
+    for (u32 i = lane; i < 64u; i += 32u) {
+        const unsigned short a = exact_rms_apply(scale, __ldcg(src + i), alpha[i]);
+        const unsigned short b = exact_rms_apply(scale, __ldcg(src + i + 64u), alpha[i + 64u]);
+        unsigned short o1, o2;
+        pers_rope_pair<FORM>(a, b, cosr[i], sinr[i], &o1, &o2);
+        dst[i] = o1;
+        dst[i + 64u] = o2;
+    }
+}
+
+// The phase: q heads normed and roped into q_out; k heads normed and roped
+// into the K cache at `pos`; v copied into the V cache at `pos`. One warp a
+// head, grid-strided. q_raw [n_heads][128], k_raw and v_raw [n_kv][128].
+template <int FORM>
+__device__ __forceinline__ void pers_4e_norm_rope_append(const unsigned short* q_raw, const unsigned short* k_raw,
+                                                         const unsigned short* v_raw, const unsigned short* q_alpha,
+                                                         const unsigned short* k_alpha, const unsigned short* cosr,
+                                                         const unsigned short* sinr, float eps, u32 n_heads, u32 n_kv,
+                                                         u32 cap, u32 pos, unsigned short* q_out, unsigned short* kc,
+                                                         unsigned short* vc)
+{
+    const u32 lane = threadIdx.x & 31u;
+    const u32 nwarps = blockDim.x >> 5;
+    const u32 total = gridDim.x * nwarps;
+    for (u32 w = blockIdx.x * nwarps + (threadIdx.x >> 5); w < n_heads + 2u * n_kv; w += total) {
+        if (w < n_heads) {
+            pers_head_norm_rope<FORM>(q_raw + w * 128u, q_alpha, cosr, sinr, eps, q_out + w * 128u, lane);
+        } else if (w < n_heads + n_kv) {
+            const u32 h = w - n_heads;
+            pers_head_norm_rope<FORM>(k_raw + h * 128u, k_alpha, cosr, sinr, eps,
+                                      kc + ((unsigned long long)h * cap + pos) * 128u, lane);
+        } else {
+            const u32 h = w - n_heads - n_kv;
+            for (u32 i = lane; i < 128u; i += 32u) vc[((unsigned long long)h * cap + pos) * 128u + i] = __ldcg(v_raw + h * 128u + i);
+        }
+    }
+}
+
 #endif  // LLVQ_PERS_CUH

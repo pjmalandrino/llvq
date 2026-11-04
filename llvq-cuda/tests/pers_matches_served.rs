@@ -322,7 +322,7 @@ fn norm_mutants_are_killed() {
     let want: Vec<Vec<u8>> = cmds.iter().map(|c| run(served(), c)).collect();
     let f = "llvq-cuda/kernels/llvq_pers.cuh";
     let cases = [
-        ("norm_butterfly_up", "for (int mask = 16; mask > 0; mask >>= 1) tmp = __fadd_rn(tmp, __shfl_xor_sync(0xffffffffu, tmp, mask));", "for (int mask = 1; mask < 32; mask <<= 1) tmp = __fadd_rn(tmp, __shfl_xor_sync(0xffffffffu, tmp, mask));"),
+        ("norm_butterfly_up", "for (int mask = 16; mask > 0; mask >>= 1) tmp = __fadd_rn(tmp, __shfl_xor_sync(0xffffffffu, tmp, mask));\n        if (lane == 0u) s_sum[vw] = tmp;", "for (int mask = 1; mask < 32; mask <<= 1) tmp = __fadd_rn(tmp, __shfl_xor_sync(0xffffffffu, tmp, mask));\n        if (lane == 0u) s_sum[vw] = tmp;"),
         ("norm_block_768", "const u32 block = ncols < 1024u ? 32u : 1024u;", "const u32 block = ncols < 1024u ? 32u : 768u;"),
         ("norm_block_switch", "const u32 block = ncols < 1024u ? 32u : 1024u;", "const u32 block = ncols < 128u ? 32u : 1024u;"),
         ("norm_mean_mul", "const float mean = __fdiv_rn(tot, (float)ncols);", "const float mean = __fmul_rn(tot, 1.0f / (float)ncols);"),
@@ -495,6 +495,164 @@ fn the_4e_head_phase_is_the_served_argmax() {
     assert!(run_mutant(&b, &cmd) != Some(want.clone()), "the W4 barrier is not load-bearing");
     let b = mutant("head_key_index", "llvq-cuda/kernels/llvq_pers.cuh", "return ((0x3FFFFFu - (u32)(k & 0x3FFFFFu)) << 10) | (__brev(br) >> 22);", "return ((0x3FFFFFu - (u32)(k & 0x3FFFFFu)) << 10) | br;");
     assert!(run_mutant(&b, &cmd) != Some(want), "the key's bit reversal on the way back survived");
+}
+
+/// 4E's embedding, q/k/v and o phases equal the served chain bit for bit:
+/// emb_q4_gather; ln1, rot_apply, tv_tetra48_h (as NVVM compiled it) and
+/// tv_q4_hh on the unrotated ln1 output; tv_q4_hh then the residual add.
+#[test]
+fn the_4e_layer_phases_are_the_served_chain() {
+    let f = "llvq-cuda/kernels/llvq_pers.cuh";
+    for (tok, grid) in [(0u32, 3u32), (517, 4), (1023, 5)] {
+        let cmd = Cmd::new(b'E').u32(1024).u32(2560).u32(tok).u32(grid).u64(0xe3b).0;
+        assert!(run(served(), &cmd) == run(persistent(), &cmd), "embedding, token {tok}, grid {grid}");
+    }
+    let r = rot(2560, 41);
+    let qkv = |grid: u32, threads: u32, seed: u64| {
+        Cmd::new(b'V').u32(grid).u32(threads).u64(seed).u32(r.m).u32(r.k).f32(r.inv).u32s(&r.signs).f32s(&r.small).0
+    };
+    for (grid, threads, seed) in [(3u32, 96u32, 1u64), (4, 64, 2)] {
+        assert!(run(served(), &qkv(grid, threads, seed)) == run(persistent(), &qkv(grid, threads, seed)), "q/k/v, grid {grid}");
+    }
+    for (grid, threads) in [(3u32, 96u32), (5, 64)] {
+        let cmd = Cmd::new(b'W').u32(grid).u32(threads).u64(7).0;
+        assert!(run(served(), &cmd) == run(persistent(), &cmd), "o, grid {grid}");
+    }
+    // mutants
+    let e = Cmd::new(b'E').u32(1024).u32(2560).u32(517).u32(3).u64(0xe3b).0;
+    let b = mutant("embed_group", f, "const u32 g = s0 + (c >> 6);\n        dst[c]", "const u32 g = s0 + (c >> 7);\n        dst[c]");
+    assert!(run_mutant(&b, &e) != Some(run(served(), &e)), "the embedding's g64 group survived as g128");
+    let v = qkv(3, 96, 1);
+    let want = run(served(), &v);
+    let b = mutant("v_reads_rotated", f, "pers_q4_row(P.vw, P.vsc, P.vbi, xn,", "pers_q4_row(P.vw, P.vsc, P.vbi, ((void)xn, xr),");
+    assert!(run_mutant(&b, &v) != Some(want.clone()), "v reading the rotated input survived");
+    let b = mutant("k_offset", f, "const u32 rk = r - P.q_dout;", "const u32 rk = r - P.q_dout + 1u;");
+    assert!(run_mutant(&b, &v) != Some(want), "a k row offset survived");
+    let w = Cmd::new(b'W').u32(3).u32(96).u64(7).0;
+    let b = mutant("o_residual", f, "out[r] = exact_hadd(__ldcg(x + r), f2h(acc));", "out[r] = f2h(__fadd_rn(h2f(__ldcg(x + r)), acc));");
+    assert!(run_mutant(&b, &w) != Some(run(served(), &w)), "the o residual's binary16 rounding of o survived");
+}
+
+fn attn_cmd(n_kv: u32, groups: u32, cap: u32, l: u32, grid: u32, threads: u32, seed: u64) -> (Vec<u8>, Vec<u16>, Vec<u32>) {
+    use llvq_cuda::attn_ref;
+    let nh = (n_kv * groups) as usize;
+    let q = attn_ref::fill(nh * 128, seed, 2.0);
+    let mut k = attn_ref::fill(n_kv as usize * cap as usize * 128, seed + 1, 1.0);
+    let v = attn_ref::fill(n_kv as usize * cap as usize * 128, seed + 2, 1.0);
+    // a planted run of equal keys, so ties of the tile maximum are exercised
+    for p in 0..3usize {
+        let (a, b) = (p * 128, (p + 9) * 128);
+        if b + 128 <= k.len() / n_kv as usize {
+            let row: Vec<u16> = k[a..a + 128].to_vec();
+            k[b..b + 128].copy_from_slice(&row);
+        }
+    }
+    let c = attn_ref::score_scale(128);
+    let kv = attn_ref::Kv { k: &k, v: &v, cap: cap as usize };
+    let want = attn_ref::attend(&q, &kv, n_kv as usize, groups as usize, l as usize - 1, 1, c, attn_ref::UNIT_SERVED);
+    // the f32 state of each head before the division, built the reference's
+    // way: units into splits, splits into the row
+    let mut state = Vec::with_capacity(nh * 130);
+    for hq in 0..nh {
+        let mut qf = [0f32; 128];
+        for (i, x) in qf.iter_mut().enumerate() {
+            *x = attn_ref::h2f(q[hq * 128 + i]);
+        }
+        let mut total = attn_ref::St::empty();
+        for s in 0..(l as usize).div_ceil(attn_ref::SPLIT) {
+            attn_ref::st_merge(&mut total, &attn_ref::split_state(&qf, &kv, hq / groups as usize, s, l as usize, c, attn_ref::UNIT_SERVED));
+        }
+        state.extend(total.a.iter().map(|x| x.to_bits()));
+        state.push(total.m.to_bits());
+        state.push(total.d.to_bits());
+    }
+    let mut cmd = Cmd::new(b'X').u32(n_kv).u32(groups).u32(cap).u32(l).u32(grid).u32(threads).f32(c).0;
+    for x in q.iter().chain(&k).chain(&v) {
+        cmd.extend(x.to_le_bytes());
+    }
+    (cmd, want, state)
+}
+
+/// 4E's attention phase on the persistent grid equals attn_ref.rs (and so
+/// attn_dec.cu) bit for bit: lengths inside one tile, at unit and split
+/// boundaries, across several splits; groups of 4 (4B, 8B) and 5 (14B);
+/// grids of 2 to 5 CTAs; one barrier between its two phases.
+#[test]
+fn the_4e_attention_phase_is_attn_ref() {
+    for &(n_kv, groups, cap, l) in &[(2u32, 4u32, 64u32, 1u32), (2, 4, 64, 5), (2, 4, 128, 64), (2, 4, 128, 65), (2, 5, 512, 256), (2, 5, 512, 257), (1, 4, 1408, 1300)] {
+        for &(grid, threads) in &[(3u32, 64u32), (5, 96)] {
+            let (cmd, want, state) = attn_cmd(n_kv, groups, cap, l, grid, threads, 0xa77 + l as u64);
+            let got = run(persistent(), &cmd);
+            let n = want.len() * 2;
+            assert_eq!(u16s(&got[..n]), want, "n_kv {n_kv}, groups {groups}, l {l}, grid {grid}x{threads}");
+            let t = u32s(&got[n..n + 8]);
+            assert_eq!((t[0], t[1]), (grid, 0), "one barrier, no abort");
+            assert_eq!(u32s(&got[n + 8..]), state, "the f32 state before the division, l {l}");
+        }
+    }
+    let f = "llvq-cuda/kernels/llvq_pers.cuh";
+    let (cmd, want, state) = attn_cmd(1, 4, 1408, 1300, 3, 64, 0xa77);
+    let mut want: Vec<u8> = want.iter().flat_map(|x| x.to_le_bytes()).collect();
+    want.extend([3u32, 0].iter().flat_map(|x| x.to_le_bytes()));
+    want.extend(state.iter().flat_map(|x| x.to_le_bytes()));
+    let cases = [
+        ("attn_flat_merge", "pers_attn_merge(sm, sd, sa, __ldcg(st + PERS_HD), __ldcg(st + PERS_HD + 1u), ba);", "pers_attn_merge(tm, td, ta, __ldcg(st + PERS_HD), __ldcg(st + PERS_HD + 1u), ba);"),
+        ("attn_carry_fused", "d = __fadd_rn(__fmul_rn(d, carry), ts);", "d = __fmaf_rn(d, carry, ts);"),
+        ("attn_tile", "#define PERS_TT 8u", "#define PERS_TT 16u"),
+        ("attn_no_barrier", "    if (!pers_grid_wait(bar, bar_target, abort_flag)) return false;\n    for (u32 hq = gwarp;", "    (void)bar; (void)bar_target; (void)abort_flag;\n    for (u32 hq = gwarp;"),
+        ("attn_scale", "sc[j] = __fmul_rn(t, c);", "sc[j] = __fmul_rn(t, __fmul_rn(c, 0.5f));"),
+    ];
+    for (tag, from, to) in cases {
+        let b = mutant(tag, f, from, to);
+        assert!(run_mutant(&b, &cmd) != Some(want.clone()), "attention mutant {tag} survived");
+    }
+}
+
+/// The fused binary16 FMA of RoPE's candidate forms rounds once from the exact
+/// value: against an exact integer reference on 20,000 random finite triples
+/// and on planted ties decided by the third term's sign or by evenness.
+#[test]
+fn the_fused_f16_fma_rounds_once() {
+    let cmd = Cmd::new(b'F').u32(20_000).u64(0xf16).0;
+    let (want, got) = (run(served(), &cmd), run(persistent(), &cmd));
+    assert!(want == got, "the f64 + TwoSum emulation differs from the exact reference");
+    let tail: Vec<u16> = u16s(&want)[20_000..20_005].to_vec();
+    assert_eq!(tail, vec![0x3e02, 0x3e02, 0x3e01, 0x3e02, 0x3e01], "the planted ties: even, up, down, up, down");
+    // An EQUIVALENT mutant, checked as such: for binary16 inputs the f64 sum is
+    // exact (an in-range product and the third term span at most 41 bits), so
+    // TwoSum's error is always zero and the tie rule never reads it.
+    let b = mutant("tie_ignores_err", "llvq-cuda/kernels/llvq_pers.cuh", "(rem == half && (beyond || (err == 0.0 && (q & 1ull))))", "(rem == half && ((void)beyond, (q & 1ull)))");
+    assert!(run_mutant(&b, &cmd) == Some(want.clone()), "dropping the TwoSum error changed a result: the exactness argument is wrong");
+    let b = mutant("f16_round_down", "llvq-cuda/kernels/llvq_pers.cuh", "if (rem > half || (rem == half && (beyond", "if (rem > half + half || (rem == half && (beyond");
+    assert!(run_mutant(&b, &cmd) != Some(want), "a wrong rounding of the f64 value survived");
+}
+
+/// 4E's q/k-norm, RoPE and KV append, the three candidate forms, against the
+/// served replay (candle's 32-thread norm tree, rope's pairing at i and i +
+/// 64, the exact reference for the fused forms): q out, the K and V caches
+/// written at `pos` only.
+#[test]
+fn the_4e_norm_rope_append_phase() {
+    let z = |form: u32, pos: u32, grid: u32| Cmd::new(b'Z').u32(form).u32(8).u32(2).u32(16).u32(pos).u32(grid).u32(64).u64(0x20 + pos as u64).0;
+    for form in 0..3u32 {
+        for (pos, grid) in [(0u32, 2u32), (7, 3), (15, 4)] {
+            assert!(run(served(), &z(form, pos, grid)) == run(persistent(), &z(form, pos, grid)), "form {form}, pos {pos}");
+        }
+    }
+    let differ = run(served(), &z(0, 7, 3)) != run(served(), &z(1, 7, 3)) || run(served(), &z(0, 7, 3)) != run(served(), &z(2, 7, 3));
+    assert!(differ, "the three forms never differ: the load-time choice would read nothing");
+    let f = "llvq-cuda/kernels/llvq_pers.cuh";
+    let cmd = z(1, 7, 3);
+    let want = run(served(), &cmd);
+    for (tag, from, to) in [
+        ("rope_pair", "const unsigned short b = exact_rms_apply(scale, __ldcg(src + i + 64u), alpha[i + 64u]);", "const unsigned short b = exact_rms_apply(scale, __ldcg(src + i + 63u), alpha[i + 64u]);"),
+        ("rope_form_swap", "        *o1 = pers_f16_fma_exact(a, c, (unsigned short)(bs ^ 0x8000u), false);", "        *o1 = pers_f16_fma_exact(b, s, ac, true);"),
+        ("kv_pos", "kc + ((unsigned long long)h * cap + pos) * 128u, lane);", "kc + ((unsigned long long)h * cap + pos + 1u) * 128u, lane);"),
+        ("qk_norm_tree", "for (int mask = 16; mask > 0; mask >>= 1) tmp = __fadd_rn(tmp, __shfl_xor_sync(0xffffffffu, tmp, mask));\n    const float scale = rsqrtf", "for (int mask = 1; mask < 32; mask <<= 1) tmp = __fadd_rn(tmp, __shfl_xor_sync(0xffffffffu, tmp, mask));\n    const float scale = rsqrtf"),
+    ] {
+        let b = mutant(tag, f, from, to);
+        assert!(run_mutant(&b, &cmd) != Some(want.clone()), "norm/rope mutant {tag} survived");
+    }
 }
 
 // ---- the L2 bench arms ------------------------------------------------------
