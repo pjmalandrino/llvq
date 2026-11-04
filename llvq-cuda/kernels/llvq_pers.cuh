@@ -686,4 +686,184 @@ __device__ __forceinline__ void pers_4e_o_int4(const u32* ow, const unsigned sho
     __syncthreads();
 }
 
+// ---------------------------------------------------------------------------
+// 10. 4E's attention phase: one decode row, the canonical arithmetic of
+//     llvq-cuda/src/attn_ref.rs (and of attn_dec.cu, proven equal to it by
+//     the attention lead), re-mapped onto the persistent grid. The bits of a
+//     row depend on its length alone: 8-position tiles aligned to absolute
+//     positions, 64-position units, 256-position splits, units merged into
+//     their split left to right, splits into the row left to right, every
+//     float operation an explicit RN intrinsic. The mapping is ours: phase 1
+//     gives each (query head, unit) to one warp (both half-warps compute the
+//     same job, so every shuffle is a full-warp one) and writes the unit's
+//     state (m, d, a[128]) to global scratch; after a grid barrier, phase 2
+//     gives each query head to one warp, which folds the states in order.
+//     Under T8: identity is owed to the "kernel" attention form, not to
+//     candle's cuBLAS path.
+// ---------------------------------------------------------------------------
+#define PERS_HD 128u
+#define PERS_TT 8u
+#define PERS_UNIT 64u
+#define PERS_SPLIT 256u
+#define PERS_PSTRIDE 130u
+#define PERS_NEG_INF __int_as_float((int)0xff800000u)
+
+// attn_ref.rs::ex2_fixed / attn_dec.cu::attn_ex2, the fixed polynomial.
+__device__ __forceinline__ float pers_ex2(float x)
+{
+    if (x != x) return x;
+    if (!(x > -126.0f)) return 0.0f;
+    const float fl = floorf(x);
+    const float f = __fsub_rn(x, fl);
+    float p = __uint_as_float(0x39665cf6u);
+    p = __fmaf_rn(p, f, __uint_as_float(0x3aa228dbu));
+    p = __fmaf_rn(p, f, __uint_as_float(0x3c1eab8fu));
+    p = __fmaf_rn(p, f, __uint_as_float(0x3d634139u));
+    p = __fmaf_rn(p, f, __uint_as_float(0x3e75feb3u));
+    p = __fmaf_rn(p, f, __uint_as_float(0x3f317217u));
+    p = __fmaf_rn(p, f, 1.0f);
+    const int e = (int)fl;
+    return __int_as_float((int)((unsigned)__float_as_int(p) + ((unsigned)e << 23)));
+}
+
+// One (query head, unit) state: lane l & 15 owns dims 8(l&15)..+7. q is
+// widened in `qf` (this lane's 8 dims). Returns m and d on every lane; the
+// accumulators in `a`.
+__device__ __forceinline__ void pers_attn_unit(const float qf[8], const unsigned short* kc, const unsigned short* vc,
+                                               u32 u0, u32 l, float c, float& m, float& d, float a[8], u32 lane)
+{
+    const u32 dl = (lane & 15u) * 8u;
+    m = PERS_NEG_INF;
+    d = 0.0f;
+#pragma unroll
+    for (u32 i = 0; i < 8u; ++i) a[i] = 0.0f;
+    for (u32 p0 = u0; p0 < u0 + PERS_UNIT && p0 < l; p0 += PERS_TT) {
+        const u32 nv = l - p0 < PERS_TT ? l - p0 : PERS_TT;
+        float sc[PERS_TT];
+        for (u32 j = 0; j < nv; ++j) {
+            const unsigned short* kr = kc + (unsigned long long)(p0 + j) * PERS_HD + dl;
+            float t = 0.0f;
+#pragma unroll
+            for (u32 i = 0; i < 8u; ++i) t = __fmaf_rn(qf[i], h2f(kr[i]), t);
+#pragma unroll
+            for (int off = 8; off > 0; off >>= 1) t = __fadd_rn(t, __shfl_xor_sync(0xffffffffu, t, off));
+            sc[j] = __fmul_rn(t, c);
+        }
+        float mt = sc[0];
+        for (u32 j = 1; j < nv; ++j) mt = fmaxf(mt, sc[j]);
+        float m_new, carry;
+        if (m == PERS_NEG_INF) {
+            m_new = mt;
+            carry = 0.0f;
+        } else {
+            m_new = fmaxf(m, mt);
+            carry = pers_ex2(__fsub_rn(m, m_new));
+        }
+        float pj[PERS_TT];
+        float ts = 0.0f;
+        for (u32 j = 0; j < nv; ++j) {
+            pj[j] = pers_ex2(__fsub_rn(sc[j], m_new));
+            ts = __fadd_rn(ts, pj[j]);
+        }
+        d = __fadd_rn(__fmul_rn(d, carry), ts);
+#pragma unroll
+        for (u32 i = 0; i < 8u; ++i) {
+            float acc = __fmul_rn(a[i], carry);
+            for (u32 j = 0; j < nv; ++j)
+                acc = __fmaf_rn(pj[j], h2f(vc[(unsigned long long)(p0 + j) * PERS_HD + dl + i]), acc);
+            a[i] = acc;
+        }
+        m = m_new;
+    }
+}
+
+// attn_ref.rs::st_merge, on this lane's 8 dims.
+__device__ __forceinline__ void pers_attn_merge(float& am, float& ad, float aa[8], float bm, float bd, const float ba[8])
+{
+    if (bm == PERS_NEG_INF) return;
+    if (am == PERS_NEG_INF) {
+        am = bm;
+        ad = bd;
+#pragma unroll
+        for (u32 i = 0; i < 8u; ++i) aa[i] = ba[i];
+        return;
+    }
+    const float m = fmaxf(am, bm);
+    const float fa = pers_ex2(__fsub_rn(am, m)), fb = pers_ex2(__fsub_rn(bm, m));
+    ad = __fadd_rn(__fmul_rn(ad, fa), __fmul_rn(bd, fb));
+#pragma unroll
+    for (u32 i = 0; i < 8u; ++i) aa[i] = __fadd_rn(__fmul_rn(aa[i], fa), __fmul_rn(ba[i], fb));
+    am = m;
+}
+
+// The phase. q: [n_heads][128] binary16 after norm and RoPE; kc, vc:
+// [n_kv][cap][128] holding positions 0..l-1 (the new one appended); scratch:
+// [n_heads][ceil(l / 64)][PSTRIDE] floats; out: [n_heads][128] binary16.
+// Returns false when the barrier between the phases aborted. `dbg_state`,
+// nullable: [n_heads][PSTRIDE], each head's (a, m, d) before the division.
+__device__ __forceinline__ bool pers_attention(const unsigned short* q, const unsigned short* kc,
+                                               const unsigned short* vc, u32 n_heads, u32 groups, u32 cap, u32 l,
+                                               float c, float* scratch, unsigned short* out, u32* bar, u32 bar_target,
+                                               u32* abort_flag, float* dbg_state)
+{
+    const u32 lane = threadIdx.x & 31u;
+    const u32 nwarps = blockDim.x >> 5;
+    const u32 gwarp = blockIdx.x * nwarps + (threadIdx.x >> 5);
+    const u32 total = gridDim.x * nwarps;
+    const u32 nunits = (l + PERS_UNIT - 1u) / PERS_UNIT;
+    const u32 dl = (lane & 15u) * 8u;
+    for (u32 job = gwarp; job < n_heads * nunits; job += total) {
+        const u32 hq = job / nunits, u = job - hq * nunits;
+        const u32 h = hq / groups;
+        float qf[8], a[8], m, d;
+#pragma unroll
+        for (u32 i = 0; i < 8u; ++i) qf[i] = h2f(__ldcg(q + hq * PERS_HD + dl + i));
+        pers_attn_unit(qf, kc + (unsigned long long)h * cap * PERS_HD, vc + (unsigned long long)h * cap * PERS_HD,
+                       u * PERS_UNIT, l, c, m, d, a, lane);
+        float* st = scratch + ((unsigned long long)hq * nunits + u) * PERS_PSTRIDE;
+        if (lane < 16u) {
+#pragma unroll
+            for (u32 i = 0; i < 8u; ++i) st[dl + i] = a[i];
+        }
+        if (lane == 0u) {
+            st[PERS_HD] = m;
+            st[PERS_HD + 1u] = d;
+        }
+    }
+    if (!pers_grid_wait(bar, bar_target, abort_flag)) return false;
+    for (u32 hq = gwarp; hq < n_heads; hq += total) {
+        float tm = PERS_NEG_INF, td = 0.0f, ta[8];
+#pragma unroll
+        for (u32 i = 0; i < 8u; ++i) ta[i] = 0.0f;
+        for (u32 s0 = 0; s0 < nunits; s0 += PERS_SPLIT / PERS_UNIT) {
+            float sm = PERS_NEG_INF, sd = 0.0f, sa[8];
+#pragma unroll
+            for (u32 i = 0; i < 8u; ++i) sa[i] = 0.0f;
+            for (u32 u = s0; u < s0 + PERS_SPLIT / PERS_UNIT && u < nunits; ++u) {
+                const float* st = scratch + ((unsigned long long)hq * nunits + u) * PERS_PSTRIDE;
+                float ba[8];
+#pragma unroll
+                for (u32 i = 0; i < 8u; ++i) ba[i] = __ldcg(st + dl + i);
+                pers_attn_merge(sm, sd, sa, __ldcg(st + PERS_HD), __ldcg(st + PERS_HD + 1u), ba);
+            }
+            pers_attn_merge(tm, td, ta, sm, sd, sa);
+        }
+        if (lane < 16u) {
+#pragma unroll
+            for (u32 i = 0; i < 8u; ++i) out[hq * PERS_HD + dl + i] = f2h(__fdiv_rn(ta[i], td));
+        }
+        // nullable: the f32 state before the division, for the host test (a
+        // binary16 output hides a reordered merge most of the time)
+        if (dbg_state && lane < 16u) {
+#pragma unroll
+            for (u32 i = 0; i < 8u; ++i) dbg_state[hq * PERS_PSTRIDE + dl + i] = ta[i];
+            if (lane == 0u) {
+                dbg_state[hq * PERS_PSTRIDE + PERS_HD] = tm;
+                dbg_state[hq * PERS_PSTRIDE + PERS_HD + 1u] = td;
+            }
+        }
+    }
+    return true;
+}
+
 #endif  // LLVQ_PERS_CUH

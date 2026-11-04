@@ -533,6 +533,81 @@ fn the_4e_layer_phases_are_the_served_chain() {
     assert!(run_mutant(&b, &w) != Some(run(served(), &w)), "the o residual's binary16 rounding of o survived");
 }
 
+fn attn_cmd(n_kv: u32, groups: u32, cap: u32, l: u32, grid: u32, threads: u32, seed: u64) -> (Vec<u8>, Vec<u16>, Vec<u32>) {
+    use llvq_cuda::attn_ref;
+    let nh = (n_kv * groups) as usize;
+    let q = attn_ref::fill(nh * 128, seed, 2.0);
+    let mut k = attn_ref::fill(n_kv as usize * cap as usize * 128, seed + 1, 1.0);
+    let v = attn_ref::fill(n_kv as usize * cap as usize * 128, seed + 2, 1.0);
+    // a planted run of equal keys, so ties of the tile maximum are exercised
+    for p in 0..3usize {
+        let (a, b) = (p * 128, (p + 9) * 128);
+        if b + 128 <= k.len() / n_kv as usize {
+            let row: Vec<u16> = k[a..a + 128].to_vec();
+            k[b..b + 128].copy_from_slice(&row);
+        }
+    }
+    let c = attn_ref::score_scale(128);
+    let kv = attn_ref::Kv { k: &k, v: &v, cap: cap as usize };
+    let want = attn_ref::attend(&q, &kv, n_kv as usize, groups as usize, l as usize - 1, 1, c, attn_ref::UNIT_SERVED);
+    // the f32 state of each head before the division, built the reference's
+    // way: units into splits, splits into the row
+    let mut state = Vec::with_capacity(nh * 130);
+    for hq in 0..nh {
+        let mut qf = [0f32; 128];
+        for (i, x) in qf.iter_mut().enumerate() {
+            *x = attn_ref::h2f(q[hq * 128 + i]);
+        }
+        let mut total = attn_ref::St::empty();
+        for s in 0..(l as usize).div_ceil(attn_ref::SPLIT) {
+            attn_ref::st_merge(&mut total, &attn_ref::split_state(&qf, &kv, hq / groups as usize, s, l as usize, c, attn_ref::UNIT_SERVED));
+        }
+        state.extend(total.a.iter().map(|x| x.to_bits()));
+        state.push(total.m.to_bits());
+        state.push(total.d.to_bits());
+    }
+    let mut cmd = Cmd::new(b'X').u32(n_kv).u32(groups).u32(cap).u32(l).u32(grid).u32(threads).f32(c).0;
+    for x in q.iter().chain(&k).chain(&v) {
+        cmd.extend(x.to_le_bytes());
+    }
+    (cmd, want, state)
+}
+
+/// 4E's attention phase on the persistent grid equals attn_ref.rs (and so
+/// attn_dec.cu) bit for bit: lengths inside one tile, at unit and split
+/// boundaries, across several splits; groups of 4 (4B, 8B) and 5 (14B);
+/// grids of 2 to 5 CTAs; one barrier between its two phases.
+#[test]
+fn the_4e_attention_phase_is_attn_ref() {
+    for &(n_kv, groups, cap, l) in &[(2u32, 4u32, 64u32, 1u32), (2, 4, 64, 5), (2, 4, 128, 64), (2, 4, 128, 65), (2, 5, 512, 256), (2, 5, 512, 257), (1, 4, 1408, 1300)] {
+        for &(grid, threads) in &[(3u32, 64u32), (5, 96)] {
+            let (cmd, want, state) = attn_cmd(n_kv, groups, cap, l, grid, threads, 0xa77 + l as u64);
+            let got = run(persistent(), &cmd);
+            let n = want.len() * 2;
+            assert_eq!(u16s(&got[..n]), want, "n_kv {n_kv}, groups {groups}, l {l}, grid {grid}x{threads}");
+            let t = u32s(&got[n..n + 8]);
+            assert_eq!((t[0], t[1]), (grid, 0), "one barrier, no abort");
+            assert_eq!(u32s(&got[n + 8..]), state, "the f32 state before the division, l {l}");
+        }
+    }
+    let f = "llvq-cuda/kernels/llvq_pers.cuh";
+    let (cmd, want, state) = attn_cmd(1, 4, 1408, 1300, 3, 64, 0xa77);
+    let mut want: Vec<u8> = want.iter().flat_map(|x| x.to_le_bytes()).collect();
+    want.extend([3u32, 0].iter().flat_map(|x| x.to_le_bytes()));
+    want.extend(state.iter().flat_map(|x| x.to_le_bytes()));
+    let cases = [
+        ("attn_flat_merge", "pers_attn_merge(sm, sd, sa, __ldcg(st + PERS_HD), __ldcg(st + PERS_HD + 1u), ba);", "pers_attn_merge(tm, td, ta, __ldcg(st + PERS_HD), __ldcg(st + PERS_HD + 1u), ba);"),
+        ("attn_carry_fused", "d = __fadd_rn(__fmul_rn(d, carry), ts);", "d = __fmaf_rn(d, carry, ts);"),
+        ("attn_tile", "#define PERS_TT 8u", "#define PERS_TT 16u"),
+        ("attn_no_barrier", "    if (!pers_grid_wait(bar, bar_target, abort_flag)) return false;\n    for (u32 hq = gwarp;", "    (void)bar; (void)bar_target; (void)abort_flag;\n    for (u32 hq = gwarp;"),
+        ("attn_scale", "sc[j] = __fmul_rn(t, c);", "sc[j] = __fmul_rn(t, __fmul_rn(c, 0.5f));"),
+    ];
+    for (tag, from, to) in cases {
+        let b = mutant(tag, f, from, to);
+        assert!(run_mutant(&b, &cmd) != Some(want.clone()), "attention mutant {tag} survived");
+    }
+}
+
 // ---- the L2 bench arms ------------------------------------------------------
 
 /// The served pattern on two layers (a Tetra down, then an int4-pattern one)

@@ -74,6 +74,7 @@ static Dim3 blockDim;
 // fused on the card.
 __attribute__((noinline, unused)) static float __fmul_rn(float a, float b) { return a * b; }
 __attribute__((noinline, unused)) static float __fadd_rn(float a, float b) { return a + b; }
+__attribute__((noinline, unused)) static float __fsub_rn(float a, float b) { return a - b; }
 __attribute__((noinline, unused)) static float __fdiv_rn(float a, float b) { return a / b; }
 static inline float __fmaf_rn(float a, float b, float c) { return std::fma(a, b, c); }
 // Not the card's rsqrt.approx.f32. Both sides of every host comparison call

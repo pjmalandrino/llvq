@@ -672,6 +672,37 @@ int main() {
         });
 #endif
         wr(out);
+    } else if (tag == 'X') {
+        // ATTENTION (4E): one decode row of length l over a cache of `cap`.
+        // in: n_kv, groups, cap, l, grid, threads, f32 c, u16 q[n_heads*128],
+        // u16 k[n_kv*cap*128], u16 v[same]. out: u16 out[n_heads*128], u32
+        // bar, abort. The reference is attn_ref.rs, on the Rust side.
+        const u32 n_kv = rd1<u32>(), groups = rd1<u32>(), cap = rd1<u32>(), l = rd1<u32>(), grid = rd1<u32>(),
+                  threads = rd1<u32>();
+        const float c = rd1<float>();
+        const u32 nh = n_kv * groups;
+        const auto q = rd<unsigned short>((size_t)nh * 128);
+        const auto kc = rd<unsigned short>((size_t)n_kv * cap * 128);
+        const auto vc = rd<unsigned short>((size_t)n_kv * cap * 128);
+        std::vector<unsigned short> out((size_t)nh * 128, 0xFFFFu);
+        std::vector<u32> tail(2, 0u);
+        std::vector<float> state((size_t)nh * 130u, 0.0f);
+#if PERS_SIDE == 1
+        const u32 nunits = (l + 63u) / 64u;
+        std::vector<float> scratch((size_t)nh * nunits * 130u, 0.0f);
+        std::vector<u32> bar(1, 0u), ab(1, 0u);
+        hostgrid::launch_coop(grid, threads, PERS_SMEM_HEADER, 0x5eedu + l, [&] {
+            pers_attention(q.data(), kc.data(), vc.data(), nh, groups, cap, l, c, scratch.data(), out.data(), bar.data(),
+                           gridDim.x, ab.data(), state.data());
+        });
+        tail[0] = bar[0];
+        tail[1] = ab[0];
+#else
+        (void)grid; (void)threads; (void)c; (void)l;
+#endif
+        wr(out);
+        wr(tail);
+        wr(state);
     } else if (tag == 'L') {
         // LAYOUT of the structs the host mirrors (pers.rs): sizes and offsets.
         std::vector<u32> o;
