@@ -677,6 +677,14 @@ pub fn grid_waits_4e(m: &ModelShape) -> u32 {
     entry + w3 + 1
 }
 
+/// Grid barriers one token of `pers_4e.cu` passes: the embedding, seven a
+/// layer (q/k/v, norm/RoPE/append, attention's own, after attention, o, the
+/// MLP's own, after the MLP), the head's W4. The host advances `bar_base` by
+/// this times the grid for every token the launch produced.
+pub fn n_bar_4e(layers: u32) -> u32 {
+    2 + 7 * layers
+}
+
 /// One route-P step-A launch: the MLP segment of one layer, from `ln2` to the
 /// residual add after down_proj. Its grid-wide waits inside the launch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -714,7 +722,7 @@ pub fn med_range(v: &[f64]) -> (f64, f64, f64) {
 /// The persistent module: L1's `tv_tetra48_persall` and microbenchmarks,
 /// L2's twelve arms, the L2 prologue reference, and route P's segment.
 /// Its own module, so neither the bench unit nor the served unit moves.
-pub const PERS_UNIT_PARTS: [(&str, &str); 12] = [
+pub const PERS_UNIT_PARTS: [(&str, &str); 13] = [
     ("llvq_slot.cuh", include_str!("../kernels/llvq_slot.cuh")),
     ("matvec.cu", include_str!("../kernels/matvec.cu")),
     ("llvq_f1rank.cuh", include_str!("../kernels/llvq_f1rank.cuh")),
@@ -727,6 +735,7 @@ pub const PERS_UNIT_PARTS: [(&str, &str); 12] = [
     ("tetra48_persall.cu", include_str!("../kernels/tetra48_persall.cu")),
     ("pers_ref.cu", include_str!("../kernels/pers_ref.cu")),
     ("pers_segment.cu", include_str!("../kernels/pers_segment.cu")),
+    ("pers_4e.cu", include_str!("../kernels/pers_4e.cu")),
 ];
 
 /// The persistent module's text for a tile (`tile::Tile::define()`).
@@ -1369,6 +1378,10 @@ mod tests {
         assert!(pos("llvq_tetra48.cuh") < pos("tetra48_persall.cu"));
         assert!(pos("llvq_rot.cuh") < pos("llvq_pers.cuh"));
         assert!(pos("llvq_pers.cuh") < pos("pers_segment.cu"));
+        assert!(pos("pers_segment.cu") < pos("pers_4e.cu"));
+        for sym in ["pers_4e_tokens_f0", "pers_4e_tokens_f1", "pers_4e_tokens_f2"] {
+            assert!(t.contains(sym), "{sym}");
+        }
     }
 
     #[test]

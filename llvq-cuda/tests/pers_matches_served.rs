@@ -588,6 +588,8 @@ fn the_4e_attention_phase_is_attn_ref() {
             let t = u32s(&got[n..n + 8]);
             assert_eq!((t[0], t[1]), (grid, 0), "one barrier, no abort");
             assert_eq!(u32s(&got[n + 8..]), state, "the f32 state before the division, l {l}");
+            let port = run(served(), &cmd);
+            assert_eq!(u16s(&port[..n]), want, "the C++ port of attn_ref (the 4E test's reference), l {l}");
         }
     }
     let f = "llvq-cuda/kernels/llvq_pers.cuh";
@@ -652,6 +654,58 @@ fn the_4e_norm_rope_append_phase() {
     ] {
         let b = mutant(tag, f, from, to);
         assert!(run_mutant(&b, &cmd) != Some(want.clone()), "norm/rope mutant {tag} survived");
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn g_cmd(form: u32, grid: u32, threads: u32, n: u32, pos0: u32, cap: u32, tok0: u32, eos: u32, seed: u64) -> Vec<u8> {
+    let mut c = Cmd::new(b'G').u32(form).u32(grid).u32(threads).u32(n).u32(pos0).u32(cap).u32(tok0).u32(eos).u32(1024).u64(seed);
+    for (w, s) in [(2560usize, 51u64), (2560, 52), (9728, 53)] {
+        let r = rot(w, s);
+        c = c.u32(r.m).u32(r.k).f32(r.inv).u32s(&r.signs).f32s(&r.small);
+    }
+    c.0
+}
+
+/// 4E's token loop: N tokens in one cooperative launch equal the served chain
+/// run token by token (embedding, two layers of q/k/v, norm/RoPE/append,
+/// attention, o, MLP with a Tetra then an int4 down, final norm, head,
+/// argmax): the tokens, both layers' KV caches, the final residual. Each
+/// RoPE form; an end-of-sequence stops the loop on every CTA; the barrier
+/// counter ends at (tokens made) x (2 + 7 x layers) x grid.
+#[test]
+fn the_4e_token_loop_is_the_served_chain() {
+    let n = 3u32;
+    let split = |b: &[u8]| -> (Vec<u32>, Vec<u8>, Vec<u32>) {
+        let ring = u32s(&b[..4 * n as usize]);
+        let tail = u32s(&b[b.len() - 8..]);
+        (ring, b[4 * n as usize..b.len() - 8].to_vec(), tail)
+    };
+    for (form, grid, threads) in [(0u32, 3u32, 128u32), (2, 4, 96)] {
+        let cmd = g_cmd(form, grid, threads, n, 5, 16, 7, u32::MAX, 0x4e00 + form as u64);
+        let (want_ring, want_state, _) = split(&run(served(), &cmd));
+        let (ring, state, tail) = split(&run(persistent(), &cmd));
+        assert!(want_ring.iter().all(|&t| t < 1024), "the served run made {n} tokens: {want_ring:?}");
+        assert_eq!(ring, want_ring, "form {form}, grid {grid}: tokens");
+        assert!(state == want_state, "form {form}, grid {grid}: residual or KV caches differ");
+        assert_eq!(tail, vec![n * llvq_cuda::pers::n_bar_4e(2) * grid, 0], "barrier count and abort");
+        // an end-of-sequence at the second token stops every CTA after it
+        let cmd = g_cmd(form, grid, threads, n, 5, 16, 7, want_ring[1], 0x4e00 + form as u64);
+        let (ring, _, tail) = split(&run(persistent(), &cmd));
+        assert_eq!(ring, vec![want_ring[0], want_ring[1], u32::MAX], "EOS");
+        assert_eq!(tail[0], 2 * llvq_cuda::pers::n_bar_4e(2) * grid, "two tokens' barriers");
+    }
+    let f = "llvq-cuda/kernels/pers_4e.cu";
+    let cmd = g_cmd(0, 3, 128, n, 5, 16, 7, u32::MAX, 0x4e00);
+    let want = run(served(), &cmd)[..4 * n as usize].to_vec();
+    for (tag, from, to) in [
+        ("4e_pos", "const u32 pos = L.pos0 + t;", "const u32 pos = L.pos0 + t + (t > 0u ? 1u : 0u);"),
+        ("4e_ping_pong", "const SegLaunch S{A->x_b, A->x_a,", "const SegLaunch S{A->x_a, A->x_a,"),
+        ("4e_attn_len", "A->cap, pos + 1u, A->c,", "A->cap, pos, A->c,"),
+    ] {
+        let b = mutant(tag, f, from, to);
+        let got = run_mutant(&b, &cmd).map(|o| o[..4 * n as usize].to_vec());
+        assert!(got != Some(want.clone()), "4E mutant {tag} survived");
     }
 }
 

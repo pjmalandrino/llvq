@@ -63,6 +63,7 @@ static inline unsigned short served_capture_f2h(float v) {
 #include "../kernels/llvq_pers.cuh"
 #include "../kernels/tetra48_pers.cu"
 #include "../kernels/pers_segment.cu"
+#include "../kernels/pers_4e.cu"
 #include "../kernels/tetra48_persall.cu"
 #include "../../llvq-llm/kernels/tok_argmax.cu"
 #endif
@@ -290,6 +291,81 @@ static void ref_rope_pair(int form, unsigned short a, unsigned short b, unsigned
     }
 }
 
+// attn_ref.rs, ported line for line (an independent text from the persistent
+// phase; tests/pers_matches_served.rs holds it against the Rust original).
+static float ref_ex2(float x) {
+    if (x != x) return x;
+    if (x <= -126.0f) return 0.0f;
+    const float fl = std::floor(x);
+    const float f = __fsub_rn(x, fl);
+    const unsigned cb[6] = {0x3f317217u, 0x3e75feb3u, 0x3d634139u, 0x3c1eab8fu, 0x3aa228dbu, 0x39665cf6u};
+    float p = __uint_as_float(cb[5]);
+    for (int i = 4; i >= 0; --i) p = std::fma(p, f, __uint_as_float(cb[i]));
+    p = std::fma(p, f, 1.0f);
+    const int e = (int)fl;
+    return __uint_as_float(__float_as_uint(p) + ((unsigned)e << 23));
+}
+struct RefSt { float m, d, a[128]; };
+static void ref_st_empty(RefSt& s) { s.m = -INFINITY; s.d = 0.0f; for (float& v : s.a) v = 0.0f; }
+static void ref_st_merge(RefSt& a, const RefSt& b) {
+    if (b.m == -INFINITY) return;
+    if (a.m == -INFINITY) { a = b; return; }
+    const float m = std::max(a.m, b.m), fa = ref_ex2(__fsub_rn(a.m, m)), fb = ref_ex2(__fsub_rn(b.m, m));
+    a.d = __fadd_rn(__fmul_rn(a.d, fa), __fmul_rn(b.d, fb));
+    for (int i = 0; i < 128; ++i) a.a[i] = __fadd_rn(__fmul_rn(a.a[i], fa), __fmul_rn(b.a[i], fb));
+    a.m = m;
+}
+static void ref_attn_row(const unsigned short* q16, const unsigned short* kc, const unsigned short* vc, u32 l, float c,
+                         unsigned short* out) {
+    float q[128];
+    for (int i = 0; i < 128; ++i) q[i] = h2f(q16[i]);
+    RefSt total;
+    ref_st_empty(total);
+    for (u32 s0 = 0; s0 < l; s0 += 256) {
+        RefSt split;
+        ref_st_empty(split);
+        for (u32 u0 = s0; u0 < s0 + 256 && u0 < l; u0 += 64) {
+            RefSt st;
+            ref_st_empty(st);
+            for (u32 p0 = u0; p0 < u0 + 64 && p0 < l; p0 += 8) {
+                const u32 nv = std::min<u32>(8, l - p0);
+                float sc[8];
+                for (u32 j = 0; j < nv; ++j) {
+                    float x[16];
+                    for (int ln = 0; ln < 16; ++ln) {
+                        float t = 0.0f;
+                        for (int i = 0; i < 8; ++i) t = std::fma(q[ln * 8 + i], h2f(kc[(p0 + j) * 128 + ln * 8 + i]), t);
+                        x[ln] = t;
+                    }
+                    for (int off : {8, 4, 2, 1}) {
+                        float y[16];
+                        for (int ln = 0; ln < 16; ++ln) y[ln] = __fadd_rn(x[ln], x[ln ^ off]);
+                        for (int ln = 0; ln < 16; ++ln) x[ln] = y[ln];
+                    }
+                    sc[j] = __fmul_rn(x[0], c);
+                }
+                float mt = sc[0];
+                for (u32 j = 1; j < nv; ++j) mt = std::max(mt, sc[j]);
+                float m_new, carry;
+                if (st.m == -INFINITY) { m_new = mt; carry = 0.0f; }
+                else { m_new = std::max(st.m, mt); carry = ref_ex2(__fsub_rn(st.m, m_new)); }
+                float pj[8], ts = 0.0f;
+                for (u32 j = 0; j < nv; ++j) { pj[j] = ref_ex2(__fsub_rn(sc[j], m_new)); ts = __fadd_rn(ts, pj[j]); }
+                st.d = __fadd_rn(__fmul_rn(st.d, carry), ts);
+                for (int i = 0; i < 128; ++i) {
+                    float a = __fmul_rn(st.a[i], carry);
+                    for (u32 j = 0; j < nv; ++j) a = std::fma(pj[j], h2f(vc[(p0 + j) * 128 + i]), a);
+                    st.a[i] = a;
+                }
+                st.m = m_new;
+            }
+            ref_st_merge(split, st);
+        }
+        ref_st_merge(total, split);
+    }
+    for (int i = 0; i < 128; ++i) out[i] = f2h(__fdiv_rn(total.a[i], total.d));
+}
+
 // candle-kernels 0.9.2 reduce.cu:187-228, one row, BLOCK virtual threads,
 // replayed in candle's order. VARIANT 0: `tmp += xi * xi` contracted to an
 // fma; 1: not.
@@ -515,6 +591,8 @@ int main() {
 #include "host_pers_bench.inc"
     } else if (tag == 'S') {
 #include "host_pers_segment.inc"
+    } else if (tag == 'G') {
+#include "host_pers_4e.inc"
     } else if (tag == 'A') {
         // PERSALL: sites = a fused group of two parts (16 + 24 rows, d_in
         // 2560, two centroid pairs through gs_off) and a single (16 rows,
@@ -759,7 +837,10 @@ int main() {
         tail[0] = bar[0];
         tail[1] = ab[0];
 #else
-        (void)grid; (void)threads; (void)c; (void)l;
+        (void)grid; (void)threads;
+        for (u32 hq = 0; hq < nh; ++hq)
+            ref_attn_row(q.data() + hq * 128, kc.data() + (size_t)(hq / groups) * cap * 128,
+                         vc.data() + (size_t)(hq / groups) * cap * 128, l, c, out.data() + hq * 128);
 #endif
         wr(out);
         wr(tail);

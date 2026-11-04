@@ -4,7 +4,7 @@ Prereg: none. Host replays at $0, step L0 of docs/archive/debit-vague5-2026-11-0
 Cost:   $0, no card. clang++ on the dev Mac (arm64), NVRTC 12.4.127 in nvidia/cuda:12.4.1-devel-ubuntu22.04.
 Code:   branch claude/serene-bohr-1edf69. llvq-cuda/kernels/{llvq_pers.cuh, tetra48_pers.cu, tetra48_persall.cu,
         pers_segment.cu, pers_ref.cu}; llvq-cuda/src/{pers.rs, persbench.rs}; llvq-llm/src/persist_cuda.rs.
-Tests:  llvq-cuda/tests/pers_matches_served.rs (23 tests), llvq-cuda/src/pers.rs (26 unit tests),
+Tests:  llvq-cuda/tests/pers_matches_served.rs (24 tests), llvq-cuda/src/pers.rs (26 unit tests),
         llvq-llm/tests/served_unit_copy.rs (1), llvq-llm/src/boundary.rs (10).
 Nature: every equality below is *measured* on the host: the kernel text executed by clang++, compared byte for byte.
         Nothing here ran on a card.
@@ -54,6 +54,11 @@ RESULTS
                     (none fused, first product fused, second fused), K and V written at `pos` only: equal to the
                     served replay; the fused binary16 FMA equal to an exact integer reference on 20,000 random
                     triples and planted ties.
+  4E token loop     pers_4e.cu, N tokens in one cooperative launch, two layers at the 4B's widths (a Tetra down,
+                    then an int4 down), 32/8 heads, a cache prefilled to position 5: the tokens, both layers' K
+                    and V caches and the final residual equal the served chain run token by token, RoPE forms 0
+                    and 2, grids 3 and 4; an end-of-sequence stops every CTA; the barrier counter ends at tokens x
+                    (2 + 7 x layers) x grid. The C++ port of attn_ref.rs the reference uses equals the Rust one.
   struct layouts    PersArgs, PersLaunch, PersSite, SegTetra, SegArgs, SegLaunch: every offset of the kernels'
                     structs equals the Rust mirror's.
   served unit       pers.rs::served_unit_text = 101,625 bytes, sha256 6193094310bc..., and equal to the served
@@ -79,6 +84,7 @@ MUTANTS (each applied to a copy with an exactly-once count, each killed by an as
   norm/RoPE 5   the pair offset, the fused product swapped, K written at pos + 1, the norm tree reversed, a
                 wrong f64-to-binary16 rounding (and one EQUIVALENT, checked: TwoSum's error, always zero on
                 binary16 inputs, since an in-range product plus a binary16 term spans at most 41 bits)
+  4E loop   3   the position of later tokens, the residual ping-pong, the attention length
   schedule  9   the validator's refusals (pers.rs unit tests)
 
 FINDINGS
@@ -108,6 +114,8 @@ WHAT THIS DOES NOT ESTABLISH
 ----------------------------
   - Anything on a card: SASS, timing, memory ordering between real SMs, the driver's ptxas, cooperative launch.
   - candle's real SiLU table and rsqrt instruction: both sides call the same stand-ins on the host.
-  - 4E's token loop (the phases composed in one kernel, N tokens a launch): not written. RoPE's form is the card's
-    to pick: the host can only pin each candidate's arithmetic.
+  - 4E on a card, and its runtime in the model (building its arguments from the served runtime, the Grow
+    cache's raw pointers): not written. RoPE's form is the card's to pick.
+  - NVRTC with the devel ptxas: pers_4e_tokens at 768 threads spills 36 B (80 registers); at 512, 119 registers
+    and no spill (indicative).
   - persist_cuda.rs and the two fusedrun modes run nowhere on the Mac; they type-check for Linux only.

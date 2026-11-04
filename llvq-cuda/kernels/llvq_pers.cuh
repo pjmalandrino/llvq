@@ -744,7 +744,7 @@ __device__ __forceinline__ void pers_attn_unit(const float qf[8], const unsigned
             const unsigned short* kr = kc + (unsigned long long)(p0 + j) * PERS_HD + dl;
             float t = 0.0f;
 #pragma unroll
-            for (u32 i = 0; i < 8u; ++i) t = __fmaf_rn(qf[i], h2f(kr[i]), t);
+            for (u32 i = 0; i < 8u; ++i) t = __fmaf_rn(qf[i], h2f(__ldcg(kr + i)), t);  // written this launch
 #pragma unroll
             for (int off = 8; off > 0; off >>= 1) t = __fadd_rn(t, __shfl_xor_sync(0xffffffffu, t, off));
             sc[j] = __fmul_rn(t, c);
@@ -770,7 +770,7 @@ __device__ __forceinline__ void pers_attn_unit(const float qf[8], const unsigned
         for (u32 i = 0; i < 8u; ++i) {
             float acc = __fmul_rn(a[i], carry);
             for (u32 j = 0; j < nv; ++j)
-                acc = __fmaf_rn(pj[j], h2f(vc[(unsigned long long)(p0 + j) * PERS_HD + dl + i]), acc);
+                acc = __fmaf_rn(pj[j], h2f(__ldcg(vc + (unsigned long long)(p0 + j) * PERS_HD + dl + i)), acc);
             a[i] = acc;
         }
         m = m_new;

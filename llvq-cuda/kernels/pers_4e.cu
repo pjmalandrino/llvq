@@ -1,0 +1,185 @@
+// pers_4e.cu: 4E, the whole decode token in one cooperative launch, N tokens
+// a launch (persistent.md §3.9). It chains the phases of llvq_pers.cuh, each
+// proven bit for bit on the host against the served chain
+// (tests/pers_matches_served.rs): the embedding, then per layer the q/k/v
+// rows, q/k-norm + RoPE + the KV append, attention (attn_ref.rs's arithmetic,
+// under T8), the o rows and the residual, the MLP segment (route P step A),
+// then the final norm, the head and the argmax, and the next token.
+//
+// Waits: one grid barrier at every phase boundary, 2 + 7 x layers a token
+// (pers.rs::n_bar_4e). That is more than the design's 97 at 4B, whose finer
+// counters are an optimization the first card reading informs, never a
+// correctness requirement. Every CTA runs the same phase list and arrives at
+// every barrier, so the count is the same on every CTA.
+//
+// Scope of this version: the 4B and 14B shapes (v and o int4, q and k Tetra
+// under one rotation, a Tetra or int4 down per layer, groups of 4 or 5); an
+// 8B Tetra o is refused by the host. RoPE's form is a template parameter
+// (pers_rope_pair): the card's load-time check picks it against candle.
+//
+// Composition: the persistent module (pers.rs::PERS_UNIT_PARTS), after
+// pers_segment.cu, whose SegArgs it embeds.
+
+#ifndef LLVQ_PERS_CUH
+#include "llvq_pers.cuh"
+#endif
+
+struct Pers4eLayer {
+    const unsigned short* ln1;          // [hidden]
+    const u32* signs_a;                 // the q/k rotation
+    const float* small_a;
+    u32 m_a, k_a;
+    float inv_a;
+    u32 pad0;
+    Pers4eQkv qkv;                      // q, k Tetra; v int4; outputs: the shared q/k/v scratch
+    const unsigned short* q_norm;       // [128]
+    const unsigned short* k_norm;       // [128]
+    unsigned short* kc;                 // [n_kv][cap][128]
+    unsigned short* vc;
+    const u32* ow;                      // int4 g128 o: [hidden][n_heads*128]
+    const unsigned short* osc;
+    const unsigned short* obi;
+    u32 o_gpr, tetra_down;              // tetra_down: this layer's MLP takes the Tetra down branch
+    SegArgs mlp;                        // the layer's MLP segment, step A's own struct
+};
+
+struct Pers4eArgs {
+    const Pers4eLayer* layers;
+    const u32* emb_w;                   // tied int4 g64 table, [vocab][hidden]
+    const unsigned short* emb_s;
+    const unsigned short* emb_b;
+    const unsigned short* final_norm;   // [hidden]
+    const unsigned short* cosr;         // [max_pos][64]
+    const unsigned short* sinr;
+    unsigned short* x_a;                // residual ping-pong, [hidden]
+    unsigned short* x_b;
+    unsigned short* q_out;              // [n_heads][128] after norm and RoPE
+    unsigned short* ctx;                // [n_heads][128]
+    float* attn_scratch;                // [n_heads][ceil(cap / 64)][130]
+    u32* bar;
+    u32* abort_flag;
+    unsigned long long* slots;          // [2] argmax keys, alternated by position parity; zero at install
+    u32* nan_flag;
+    const u32* rows;                    // decoder tables
+    const unsigned char* pref;
+    const unsigned short* br;
+    const unsigned char* suf;
+    const float* invnorm;
+    u32 n_layers, vocab, hidden, emb_gpr;
+    u32 n_heads, n_kv, groups, cap;
+    float eps, c;                       // c: 1/sqrt(128) x log2(e), attn_ref::score_scale
+};
+
+struct Pers4eLaunch {
+    u32 bar_base;                       // arrivals before this launch (pers.rs::Ledger)
+    u32 pos0;                           // the position of the first token of this launch
+    u32 n_tokens;
+    u32 tok0;                           // the token this launch starts from
+    u32 eos;
+    u32 pad;
+    u32* ring;                          // [n_tokens] the tokens produced; the host reads it after the launch
+};
+
+template <int FORM>
+__device__ __forceinline__ void pers_4e_body(const Pers4eArgs* __restrict__ A, const Pers4eLaunch L)
+{
+    unsigned char* base = PERS_SMEM_BASE();
+    u32* t_rows = reinterpret_cast<u32*>(base + PERS_SMEM_HEADER);
+    unsigned char* t_pref = reinterpret_cast<unsigned char*>(t_rows + 4096);
+    unsigned short* t_br = reinterpret_cast<unsigned short*>(t_pref + 128);
+    unsigned char* t_suf = reinterpret_cast<unsigned char*>(t_br + 1024);
+    float* t_inv = reinterpret_cast<float*>(t_suf + 128);
+    float* v = t_inv + 32;  // max(inter, 2 x hidden) floats
+    for (u32 i = threadIdx.x; i < 4096u; i += blockDim.x) t_rows[i] = A->rows[i];
+    for (u32 i = threadIdx.x; i < 128u; i += blockDim.x) {
+        t_pref[i] = A->pref[i];
+        t_suf[i] = A->suf[i];
+    }
+    for (u32 i = threadIdx.x; i < 1024u; i += blockDim.x) t_br[i] = A->br[i];
+    for (u32 i = threadIdx.x; i < 32u; i += blockDim.x) t_inv[i] = A->invnorm[i];
+    __syncthreads();
+    const F1rTables tab{t_rows, t_pref, t_br, t_suf};
+    const u32 H = A->hidden, G = gridDim.x, c0 = blockIdx.x;
+    const u32 nqkv = A->n_heads * 128u + 2u * A->n_kv * 128u;
+    u32 nb = 0u;  // barriers passed in this launch
+#define PERS_BAR() (L.bar_base + (++nb) * G)
+#define PERS_WAIT()                                                  \
+    do {                                                             \
+        if (!pers_grid_wait(A->bar, PERS_BAR(), A->abort_flag)) return; \
+    } while (0)
+    u32 tok = L.tok0;
+    for (u32 t = 0; t < L.n_tokens; ++t) {
+        const u32 pos = L.pos0 + t;
+        // embedding: this CTA's slice of the residual
+        pers_embed(A->emb_w, A->emb_s, A->emb_b, tok, H, A->emb_gpr, A->x_a, H * c0 / G, H * (c0 + 1u) / G);
+        PERS_WAIT();
+        for (u32 l = 0; l < A->n_layers; ++l) {
+            const Pers4eLayer& Y = A->layers[l];
+            // ln1, the q/k rotation, the q/k/v rows
+            float* xr = v;
+            float* xn = v + H;
+            const float sc = exact_rms_scale<0>(A->x_a, H, A->eps);
+            for (u32 i = threadIdx.x; i < H; i += blockDim.x) {
+                const float hv = h2f(exact_rms_apply(sc, __ldcg(A->x_a + i), Y.ln1[i]));
+                xn[i] = hv;
+                xr[i] = ((Y.signs_a[i >> 5] >> (i & 31u)) & 1u) ? -hv : hv;
+            }
+            pers_rot_finish(xr, Y.small_a, H, Y.m_a, Y.k_a, Y.inv_a);
+            pers_4e_qkv_rows(Y.qkv, tab, t_inv, xr, xn, nqkv * c0 / G, nqkv * (c0 + 1u) / G);
+            PERS_WAIT();
+            pers_4e_norm_rope_append<FORM>(Y.qkv.q, Y.qkv.k, Y.qkv.v, Y.q_norm, Y.k_norm, A->cosr + pos * 64u,
+                                           A->sinr + pos * 64u, A->eps, A->n_heads, A->n_kv, A->cap, pos, A->q_out,
+                                           Y.kc, Y.vc);
+            PERS_WAIT();
+            if (!pers_attention(A->q_out, Y.kc, Y.vc, A->n_heads, A->groups, A->cap, pos + 1u, A->c,
+                                A->attn_scratch, A->ctx, A->bar, PERS_BAR(), A->abort_flag, nullptr))
+                return;
+            PERS_WAIT();
+            pers_4e_o_int4(Y.ow, Y.osc, Y.obi, Y.o_gpr, A->ctx, v, A->n_heads * 128u, A->x_a, A->x_b, H * c0 / G,
+                           H * (c0 + 1u) / G);
+            PERS_WAIT();
+            // the MLP segment: its own barrier is the next ordinal
+            const SegLaunch S{A->x_b, A->x_a, L.bar_base + nb * G, 0u};
+            ++nb;
+            if (Y.tetra_down) pers_segment_body<0, true>(&Y.mlp, S);
+            else pers_segment_body<0, false>(&Y.mlp, S);
+            PERS_WAIT();
+        }
+        // the final norm, the head, the argmax (its own barrier is W4)
+        const float sc = exact_rms_scale<0>(A->x_a, H, A->eps);
+        for (u32 i = threadIdx.x; i < H; i += blockDim.x) v[i] = h2f(exact_rms_apply(sc, __ldcg(A->x_a + i), A->final_norm[i]));
+        __syncthreads();
+        const u32 next = pers_head_argmax(A->emb_w, A->emb_s, A->emb_b, v, H, A->emb_gpr, A->vocab * c0 / G,
+                                          A->vocab * (c0 + 1u) / G, A->slots + (pos & 1u), A->nan_flag, A->bar,
+                                          PERS_BAR(), A->abort_flag, nullptr);
+        if (next == 0xffffffffu) return;  // a NaN logit or an abort: the host reads the flags
+        if (c0 == 0u && threadIdx.x == 0u) {
+            L.ring[t] = next;
+            // the next position's slot, by parity of the position so it holds
+            // across launches; this one is still being read
+            A->slots[(pos + 1u) & 1u] = 0ull;
+        }
+        tok = next;
+        if (tok == L.eos) return;
+    }
+#undef PERS_WAIT
+#undef PERS_BAR
+}
+
+// One symbol a (RoPE form, block size). 768 threads spill 36 B under the
+// devel ptxas (ops/nvrtc-check.sh, indicative); 512 threads leave 128
+// registers. The runtime takes the 768-thread symbol only where the card's
+// loaded module reports no local memory.
+#define PERS_4E(sym, FORM_, THREADS_)                                                                    \
+    extern "C" __global__ void __launch_bounds__(THREADS_, 1) sym(const Pers4eArgs* __restrict__ A,      \
+                                                                   const Pers4eLaunch L)                 \
+    {                                                                                                    \
+        pers_4e_body<FORM_>(A, L);                                                                       \
+    }
+
+PERS_4E(pers_4e_tokens_f0, 0, 768)
+PERS_4E(pers_4e_tokens_f1, 1, 768)
+PERS_4E(pers_4e_tokens_f2, 2, 768)
+PERS_4E(pers_4e_tokens_f0_t512, 0, 512)
+PERS_4E(pers_4e_tokens_f1_t512, 1, 512)
+PERS_4E(pers_4e_tokens_f2_t512, 2, 512)
