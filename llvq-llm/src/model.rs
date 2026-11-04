@@ -1533,9 +1533,14 @@ impl Block {
         );
         let a = vb.pp("self_attn");
         let m = vb.pp("mlp");
-        // The same tensor candle_nn::rms_norm would fetch (`weight`, hidden),
+        // The same tensor candle_nn::rms_norm fetches (`weight`, hidden, the same
+        // hint, so a VarMap-built test model gets ones as before),
         // kept beside the norm: route P's segment reads it in place.
-        let ln2_w = vb.pp("post_attention_layernorm").get(cfg.hidden_size, "weight")?;
+        let ln2_w = vb.pp("post_attention_layernorm").get_with_hints(
+            cfg.hidden_size,
+            "weight",
+            candle_nn::Init::Const(1.0),
+        )?;
         Ok(Self {
             kv,
             q_proj: pick(take, idx, "self_attn.q_proj", || {
