@@ -434,6 +434,22 @@ fn the_struct_mirrors_match_the_kernel_layouts() {
     assert_eq!(f32::from_le_bytes(img[224..228].try_into().unwrap()), 1e-6);
 }
 
+/// The L1 one-launch pass walks its work list onto the right rows: a fused
+/// group (two parts, two centroid pairs) and a single matrix, on grids
+/// smaller and larger than the 7 work groups, equal to `tv_tetra48_seg` on
+/// each site, bit for bit.
+#[test]
+fn persall_is_the_fused_kernel_site_by_site() {
+    for grid in [1u32, 3, 7, 12] {
+        let cmd = Cmd::new(b'A').u32(grid).u64(0xa11).0;
+        assert!(run(served(), &cmd) == run(persistent(), &cmd), "grid {grid}");
+    }
+    let cmd = Cmd::new(b'A').u32(3).u64(0xa11).0;
+    let want = run(served(), &cmd);
+    let b = mutant("persall_scan", "llvq-cuda/kernels/tetra48_persall.cu", "w >= (u32)(sites[(si + 1u) * LLVQ_TOCC_SITE_WORDS + 7u] & 0xffffffffull)) ++si;", "w > (u32)(sites[(si + 1u) * LLVQ_TOCC_SITE_WORDS + 7u] & 0xffffffffull)) ++si;");
+    assert!(run(&b, &cmd) != want, "an off-by-one site scan survived");
+}
+
 // ---- the L2 bench arms ------------------------------------------------------
 
 /// The served pattern on two layers (a Tetra down, then an int4-pattern one)

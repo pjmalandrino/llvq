@@ -44,6 +44,7 @@
 #include "../kernels/llvq_rot.cuh"
 #if PERS_SIDE == 0
 #include "../kernels/rotate.cu"
+#include "../kernels/tetra48_seg.cu"
 // The served kernels write `f2h(<f32 value>)`. A binary16 output hides most
 // association changes (a 1-ulp f32 move survives the narrowing about once in
 // 8,192 rows), so the served side records the f32 argument, row by row,
@@ -61,6 +62,7 @@ static inline unsigned short served_capture_f2h(float v) {
 #include "../kernels/llvq_pers.cuh"
 #include "../kernels/tetra48_pers.cu"
 #include "../kernels/pers_segment.cu"
+#include "../kernels/tetra48_persall.cu"
 #include "../../llvq-llm/kernels/tok_argmax.cu"
 #endif
 
@@ -451,6 +453,61 @@ int main() {
 #include "host_pers_bench.inc"
     } else if (tag == 'S') {
 #include "host_pers_segment.inc"
+    } else if (tag == 'A') {
+        // PERSALL: sites = a fused group of two parts (16 + 24 rows, d_in
+        // 2560, two centroid pairs through gs_off) and a single (16 rows,
+        // d_in 9728). Served side: tv_tetra48_seg per site; persistent side:
+        // tv_tetra48_persall over both, CTAs one at a time (no wait inside).
+        const u32 grid = rd1<u32>();
+        const uint64_t seed = rd1<uint64_t>();
+        struct S { TMat m; std::vector<float> gs; std::vector<u32> off; std::vector<float> tail; };
+        std::vector<S> sites;
+        {
+            TMat a = tmat(16, 2560, seed + 1), b = tmat(24, 2560, seed + 2);
+            S g{a, {a.gscale[0], a.gscale[1], b.gscale[0], b.gscale[1]}, {}, {}};
+            g.m.d_out = 40;
+            g.m.words.insert(g.m.words.end(), b.words.begin(), b.words.end());
+            g.m.rscale.insert(g.m.rscale.end(), b.rscale.begin(), b.rscale.end());
+            g.m.tail.insert(g.m.tail.end(), b.tail.begin(), b.tail.end());
+            for (u32 r = 0; r < 40; ++r) g.off.push_back(r < 16 ? 0u : 2u);
+            sites.push_back(g);
+            TMat c = tmat(16, 9728, seed + 3);
+            sites.push_back(S{c, c.gscale, std::vector<u32>(16, 0u), {}});
+        }
+        for (auto& st : sites) for (auto t : st.m.tail) st.tail.push_back(h2f(t));
+        const auto x = act(9728, seed + 4);
+        std::vector<float> y(56, 0.0f);
+        const F1rTables t = tables();
+#if PERS_SIDE == 0
+        (void)grid;
+        u32 at = 0;
+        for (auto& st : sites) {
+            hostgrid::launch_seq(st.m.d_out / 8, 256, [&] {
+                tv_tetra48_seg(st.m.words.data(), st.m.stride, t.rows, t.prefixes, t.branches, t.suffixes, st.gs.data(),
+                               st.off.data(), g_inv.data(), st.m.rscale.data(), st.tail.data(), x.data(), y.data() + at,
+                               st.m.nblocks, st.m.tail_w);
+            });
+            at += st.m.d_out;
+        }
+#else
+        std::vector<unsigned long long> words;
+        u32 g0 = 0, at = 0;
+        for (auto& st : sites) {
+            const unsigned long long w[8] = {
+                (unsigned long long)(uintptr_t)st.m.words.data(), (unsigned long long)(uintptr_t)st.gs.data(),
+                (unsigned long long)(uintptr_t)st.off.data(), (unsigned long long)(uintptr_t)st.m.rscale.data(),
+                (unsigned long long)(uintptr_t)st.tail.data(), (unsigned long long)(uintptr_t)(y.data() + at),
+                (unsigned long long)st.m.nblocks | (unsigned long long)st.m.tail_w << 16 | (unsigned long long)st.m.stride << 32,
+                (unsigned long long)g0 | (unsigned long long)(st.m.d_out / 8) << 32};
+            words.insert(words.end(), w, w + 8);
+            g0 += st.m.d_out / 8;
+            at += st.m.d_out;
+        }
+        hostgrid::launch_seq(grid, 256, [&] {
+            tv_tetra48_persall(words.data(), 2u, t.rows, t.prefixes, t.branches, t.suffixes, g_inv.data(), x.data(), g0);
+        });
+#endif
+        wr(y);
     } else if (tag == 'L') {
         // LAYOUT of the structs the host mirrors (pers.rs): sizes and offsets.
         std::vector<u32> o;
