@@ -735,6 +735,136 @@ pub fn int4_shared_bytes(d_ins: impl IntoIterator<Item = usize>) -> usize {
     d_ins.into_iter().map(|d| d * 4).max().unwrap_or(0)
 }
 
+/// The int4 entry point that stages its activation as f16 bits, `d_in * 2`
+/// bytes, for records whose f32 staging passes the card's ceiling (an int4
+/// `down_proj` of Qwen3-32B, d_in 25,600, on a 99 KiB card). Same bits as
+/// [`INT4_HALF_KERNEL_NAME`]; it takes an f16 activation and an `x_off`.
+pub const INT4_WIDE_KERNEL_NAME: &str = "tv_q4_hs";
+
+/// `tv_q4_wide.cu`, the unit that defines [`INT4_WIDE_KERNEL_NAME`].
+///
+/// A unit of its own, compiled only when some record is F16-staged
+/// (`llvq_cuda::wide::int4_staging`), so the served unit's text and printed
+/// sha256 do not move. Composition: `llvq_slot.cuh`, `matvec.cu`, `tv_q4_h.cu`
+/// (whose `q4_deq` it calls), then this file; [`int4_wide_unit_names`].
+pub const Q4_WIDE_CU_EMBED: &str = include_str!("../kernels/tv_q4_wide.cu");
+
+/// The wide int4 unit, in the order NVRTC must see it. The first two come
+/// from `llvq_cuda::embedded_source`, the last two from this crate.
+pub fn int4_wide_unit_names() -> [&'static str; 4] {
+    ["llvq_slot.cuh", "matvec.cu", "tv_q4_h.cu", "tv_q4_wide.cu"]
+}
+
+/// The wide int4 sources `tv_q4_h.cu` then `tv_q4_wide.cu`, honouring
+/// `LLVQ_KERNEL_DIR` on [`load_int4_sources`]'s all-or-nothing terms.
+pub fn load_int4_wide_sources() -> Result<([String; 2], Option<String>), String> {
+    match std::env::var("LLVQ_KERNEL_DIR") {
+        Err(_) => Ok(([Q4_H_CU_EMBED.to_string(), Q4_WIDE_CU_EMBED.to_string()], None)),
+        Ok(dir) => {
+            let read = |n: &str| {
+                std::fs::read_to_string(std::path::Path::new(&dir).join(n))
+                    .map_err(|e| format!("LLVQ_KERNEL_DIR={dir}: {n}: {e}"))
+            };
+            Ok(([read("tv_q4_h.cu")?, read("tv_q4_wide.cu")?], Some(dir)))
+        }
+    }
+}
+
+/// A synthetic int4 g128 record and an f16 activation, drawn from `seed`.
+///
+/// The same bytes on the Mac and on a card: the host test
+/// (`tests/proj_q4_wide.rs`) runs `tv_q4_hs` and `tv_q4_hh` on them and writes
+/// the sha256 of the output to `tests/fixtures/q4-wide-hashes.txt`, and
+/// `fusedrun`'s `LLVQ_INT4_WIDE_CHECK` runs the kernels on the card and
+/// compares. Nibbles uniform, scales in about [2^-9, 2^-5], biases of both
+/// signs, the activation over seven binades with exact zeros, as in the load
+/// check `check_int4_half_parity`.
+pub fn int4_synthetic(d_out: usize, d_in: usize, seed: u64) -> (FusedInt4, Vec<u16>) {
+    let group = llvq_artifact::INT4G128_GROUP;
+    let gpr = d_in.div_ceil(group);
+    let mut state = seed ^ 0x9e37_79b9_7f4a_7c15;
+    let mut next = move || {
+        state = state
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        (state >> 33) as u32
+    };
+    let packed: Vec<u8> = (0..d_out * d_in / 2).map(|_| (next() & 0xff) as u8).collect();
+    let unit = |v: u32| (v & 0xff_ffff) as f32 / (1u32 << 24) as f32;
+    let scales: Vec<u16> = (0..d_out * gpr)
+        .map(|_| half::f16::from_f32(0.002 + 0.03 * unit(next())).to_bits())
+        .collect();
+    let biases: Vec<u16> = (0..d_out * gpr)
+        .map(|_| half::f16::from_f32(0.2 * (unit(next()) - 0.5)).to_bits())
+        .collect();
+    let x: Vec<u16> = (0..d_in)
+        .map(|i| {
+            let u = unit(next()) - 0.5;
+            let v = if i % 17 == 0 { 0.0 } else { u * (1u32 << (i % 7)) as f32 };
+            half::f16::from_f32(v).to_bits()
+        })
+        .collect();
+    let bytes = (packed.len() + 2 * (scales.len() + biases.len())) as u64;
+    let rec = FusedInt4 {
+        name: format!("synthetic.int4.{d_out}x{d_in}.{seed:#x}"),
+        d_out,
+        d_in,
+        group,
+        packed,
+        scales,
+        biases,
+        bytes,
+    };
+    (rec, x)
+}
+
+/// The synthetic records whose `tv_q4_hs` output the card compares against
+/// the host's: `(d_out, d_in, seed, x_off)`. 25,344 is the widest d_in whose
+/// f32 staging fits 101,376 B, so `tv_q4_hh` runs beside it on a 99 KiB card;
+/// 25,600 is the Qwen3-32B `down_proj`, where only `tv_q4_hs` runs there.
+pub const INT4_WIDE_CARD_CASES: [(usize, usize, u64, usize); 3] = [
+    (256, 25_344, 0x41, 0),
+    (256, 25_600, 0x42, 0),
+    (256, 25_600, 0x43, 37),
+];
+
+/// `<d_out> <d_in> <seed hex> <x_off> <sha256 of the f16 output, LE>`, one
+/// line per [`INT4_WIDE_CARD_CASES`] entry, written by the host test. Compiled
+/// in, because the card image holds no repository tree.
+pub const INT4_WIDE_FIXTURE: &str = include_str!("../tests/fixtures/q4-wide-hashes.txt");
+
+/// `(d_out, d_in, seed, x_off)` to the output sha256.
+pub type Int4WideFixture = std::collections::BTreeMap<(usize, usize, u64, usize), String>;
+
+/// [`INT4_WIDE_FIXTURE`], parsed: `(d_out, d_in, seed, x_off)` to the hash.
+/// Refuses a malformed line or a duplicate case by line number.
+pub fn parse_int4_wide_fixture(text: &str) -> Result<Int4WideFixture, String> {
+    let mut m = std::collections::BTreeMap::new();
+    for (i, line) in text.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let f: Vec<&str> = line.split_whitespace().collect();
+        if f.len() != 5 {
+            return Err(format!("fixture line {}: {} fields, expected 5", i + 1, f.len()));
+        }
+        let num = |k: usize| -> Result<usize, String> {
+            f[k].parse().map_err(|e| format!("fixture line {}: field {}: {e}", i + 1, k + 1))
+        };
+        let seed = u64::from_str_radix(f[2].trim_start_matches("0x"), 16)
+            .map_err(|e| format!("fixture line {}: seed: {e}", i + 1))?;
+        if f[4].len() != 64 || !f[4].bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err(format!("fixture line {}: {:?} is not a sha256", i + 1, f[4]));
+        }
+        let key = (num(0)?, num(1)?, seed, num(3)?);
+        if m.insert(key, f[4].to_string()).is_some() {
+            return Err(format!("fixture line {}: {key:?} twice", i + 1));
+        }
+    }
+    Ok(m)
+}
+
 /// The q4 embedding source, `emb_q4.cu`, appended under [`EmbedMode::Q4`].
 ///
 /// Here rather than in `fused_cuda.rs` for [`load_int4_sources`]'s reason: the
@@ -2493,6 +2623,84 @@ mod tests {
             assert_eq!(plan(got, def, optin), Some(fit), "{bytes} B");
         }
         assert_eq!(int4_shared_bytes([]), 0, "no int4 record, no request");
+    }
+
+    /// The served 4B, 8B and 14B pick exactly today's kernels and today's
+    /// sizes, on every card this repository has served from, after the 32B
+    /// wall lift (`llvq_cuda::wide`).
+    ///
+    /// Per model: every rotation width (hidden, `o_proj` input, intermediate)
+    /// stays on `rot_apply`, and the opt-in posed on it, the widest SHARED
+    /// rotation, is the widest rotation, as before. The int4 entry points get
+    /// one F32 size equal to `int4_shared_bytes` over all records, the old
+    /// size, and nothing is staged in f16, so the wide unit is never
+    /// compiled. The 32B moves on 99 KiB cards only, and only its 25,600.
+    #[test]
+    fn the_served_models_keep_todays_kernels_after_the_wall_lift() {
+        use llvq_cuda::shared::rot_bytes;
+        use llvq_cuda::wide::{int4_entry_bytes, rot_kernel, Int4EntryBytes, RotKernel};
+        // (default, opt-in): L40S and RTX 5090 / RTX PRO 6000 (99 KiB, the
+        // L40S figure measured), A100 measured, H200 from the CUDA guide.
+        let cards = [(49_152, 101_376), (49_152, 166_912), (49_152, 232_448)];
+        // (hidden, o_proj d_in, intermediate) of Qwen3-4B, 8B, 14B; the int4
+        // sets of the e4 configs are v, o and down, so the same three widths.
+        let served = [(2_560, 4_096, 9_728), (4_096, 4_096, 12_288), (5_120, 5_120, 17_408)];
+        for (def, optin) in cards {
+            for (h, o, i) in served {
+                let widths = [h, o, i];
+                for n in widths {
+                    assert!(
+                        matches!(rot_kernel(n, def, optin), RotKernel::Shared(_)),
+                        "{n} left rot_apply on ({def}, {optin})"
+                    );
+                }
+                let shared_widest = widths
+                    .iter()
+                    .filter(|&&n| rot_kernel(n, def, optin) != RotKernel::Device)
+                    .map(|&n| rot_bytes(n))
+                    .max();
+                assert_eq!(shared_widest, widths.iter().map(|&n| rot_bytes(n)).max());
+                let e = int4_entry_bytes(widths, def, optin).unwrap();
+                assert_eq!(
+                    e,
+                    Int4EntryBytes { f32: Some(int4_shared_bytes(widths)), f16: None },
+                    "{h}/{o}/{i} on ({def}, {optin})"
+                );
+            }
+        }
+        // The 32B: 25,600 moves on the 99 KiB card, and nothing else does.
+        let (def, optin) = cards[0];
+        assert_eq!(rot_kernel(25_600, def, optin), RotKernel::Device);
+        assert!(matches!(rot_kernel(5_120, def, optin), RotKernel::Shared(_)));
+        assert!(matches!(rot_kernel(8_192, def, optin), RotKernel::Shared(_)));
+        let e = int4_entry_bytes([5_120, 8_192, 25_600], def, optin).unwrap();
+        assert_eq!(e, Int4EntryBytes { f32: Some(32_768), f16: Some(51_200) });
+        // On the larger cards the 32B needs no lift at all.
+        for &(d, o) in &cards[1..] {
+            assert!(matches!(rot_kernel(25_600, d, o), RotKernel::Shared(_)));
+            assert_eq!(int4_entry_bytes([5_120, 8_192, 25_600], d, o).unwrap().f16, None);
+        }
+    }
+
+    /// The synthetic int4 record is shaped as the uploader expects: `d_in`
+    /// a multiple of 8, `d_out` of 8, and the three arrays at their sizes.
+    #[test]
+    fn the_synthetic_int4_record_has_the_record_shape() {
+        for (d_out, d_in, seed, _) in INT4_WIDE_CARD_CASES {
+            let (r, x) = int4_synthetic(d_out, d_in, seed);
+            assert_eq!(r.group, 128);
+            assert_eq!(r.packed.len(), d_out * d_in / 2);
+            assert_eq!(r.scales.len(), d_out * d_in.div_ceil(128));
+            assert_eq!(r.biases.len(), r.scales.len());
+            assert_eq!(x.len(), d_in);
+            assert!(d_in.is_multiple_of(8) && d_out.is_multiple_of(8));
+        }
+        let m = parse_int4_wide_fixture(INT4_WIDE_FIXTURE).expect("the compiled-in fixture parses");
+        assert_eq!(m.len(), INT4_WIDE_CARD_CASES.len());
+        let h = "a".repeat(64);
+        assert!(parse_int4_wide_fixture("256 25600 0x42 0\n").is_err());
+        assert!(parse_int4_wide_fixture(&format!("256 25600 0x42 0 {h}\n256 25600 0x42 0 {h}\n")).is_err());
+        assert!(parse_int4_wide_fixture("256 25600 0x42 0 xyz\n").is_err());
     }
 
     /// The int4 bytes are counted, and they are counted where the weights are.

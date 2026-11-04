@@ -793,6 +793,100 @@ impl Cuda {
         Ok(())
     }
 
+    /// [`Self::launch_rot`] for `rot_apply_dev` (`kernels/rotate_wide.cu`):
+    /// the same transform staged in `scratch`, device memory, with **zero**
+    /// bytes of dynamic shared memory. For widths `crate::shared::rot_plan`
+    /// refuses; `crate::wide::rot_kernel` decides.
+    ///
+    /// `scratch` must hold `crate::wide::rot_scratch_floats(1, n, m, k)`
+    /// floats and be a buffer of its own: checked here, once a call, since the
+    /// kernel has no bound to check against.
+    #[allow(clippy::too_many_arguments)]
+    pub fn launch_rot_dev<T: cudarc::driver::DeviceRepr>(
+        &self,
+        f: &CudaFunction,
+        xin: &CudaSlice<T>,
+        signbits: &CudaSlice<u32>,
+        small: &CudaSlice<f32>,
+        xout: &mut CudaSlice<f32>,
+        scratch: &mut CudaSlice<f32>,
+        n: u32,
+        m: u32,
+        k: u32,
+        inv: f32,
+        x_off: u32,
+        threads: u32,
+    ) -> Result<(), String> {
+        let want = crate::wide::rot_scratch_floats(1, n as usize, m as usize, k as usize);
+        if scratch.len() < want {
+            return Err(format!(
+                "rot_apply_dev: width {n} needs {want} floats of scratch, it holds {}",
+                scratch.len()
+            ));
+        }
+        let cfg = LaunchConfig {
+            grid_dim: (1, 1, 1),
+            block_dim: (threads, 1, 1),
+            shared_mem_bytes: 0,
+        };
+        let mut b = self.stream.launch_builder(f);
+        b.arg(xin).arg(signbits).arg(small).arg(xout).arg(scratch).arg(&n).arg(&m).arg(&k)
+            .arg(&inv).arg(&x_off);
+        unsafe { b.launch(cfg) }.map_err(|e| format!("rot_apply_dev: {e}"))?;
+        Ok(())
+    }
+
+    /// [`Self::launch_rot_rows`] for `rot_apply_rows_dev`: one row a block,
+    /// row `r` staged at `scratch + r * n`, zero dynamic shared memory.
+    #[allow(clippy::too_many_arguments)]
+    pub fn launch_rot_rows_dev<T: cudarc::driver::DeviceRepr>(
+        &self,
+        f: &CudaFunction,
+        xin: &CudaSlice<T>,
+        signbits: &CudaSlice<u32>,
+        small: &CudaSlice<f32>,
+        xout: &mut CudaSlice<f32>,
+        scratch: &mut CudaSlice<f32>,
+        n: u32,
+        m: u32,
+        k: u32,
+        inv: f32,
+        x_off: u32,
+        row_stride: u32,
+        n_rows: u32,
+        threads: u32,
+    ) -> Result<(), String> {
+        if n_rows == 0 {
+            return Err("rot_apply_rows_dev: zero rows".to_string());
+        }
+        let want = (n as usize) * (n_rows as usize);
+        if xout.len() < want {
+            return Err(format!(
+                "rot_apply_rows_dev: {n_rows} rows of {n} need {want} floats, the output holds {}",
+                xout.len()
+            ));
+        }
+        let need =
+            crate::wide::rot_scratch_floats(n_rows as usize, n as usize, m as usize, k as usize);
+        if scratch.len() < need {
+            return Err(format!(
+                "rot_apply_rows_dev: {n_rows} rows of {n} need {need} floats of scratch, it \
+                 holds {}",
+                scratch.len()
+            ));
+        }
+        let cfg = LaunchConfig {
+            grid_dim: (n_rows, 1, 1),
+            block_dim: (threads, 1, 1),
+            shared_mem_bytes: 0,
+        };
+        let mut b = self.stream.launch_builder(f);
+        b.arg(xin).arg(signbits).arg(small).arg(xout).arg(scratch).arg(&n).arg(&m).arg(&k)
+            .arg(&inv).arg(&x_off).arg(&row_stride);
+        unsafe { b.launch(cfg) }.map_err(|e| format!("rot_apply_rows_dev: {e}"))?;
+        Ok(())
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn launch_f16(
         &self,

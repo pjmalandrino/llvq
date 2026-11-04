@@ -358,10 +358,27 @@ per-SM budget, not per block). The opt-in is set through
 launch. The guard compares against both bounds and names the one that is
 crossed (`llvq_cuda::shared`, portable, tested on Mac). The first 14B job
 failed cleanly on the earlier guard: exit 1 after 488 s, $0.24, no tokens.
-The 32B stays refused by 1,024 bytes, the driver's reserve; a guard that
-let it through would produce silent corruption. Two ways out are named,
-neither designed: an f16 staging (51,200 bytes, ~14.6 stages of
-half-precision accumulation) or a split into two kernels.
+`rot_apply` stays refused at 25,600 by 1,024 bytes, the driver's reserve; a
+guard that let it through would produce silent corruption.
+
+Two kernels lift the wall bit for bit, in code since 2026-11-04 and never run
+on a card. `rot_apply_dev` (`llvq-cuda/kernels/rotate_wide.cu`) runs the same
+helpers of `llvq_rot.cuh` in the same order on a device scratch, as the Metal
+port does. `tv_q4_hs` (`llvq-llm/kernels/tv_q4_wide.cu`) stages the int4
+activation as f16 bits, 51,200 B at 25,600, past the default, so it takes its
+own opt-in. Each is selected only where today's kernel is refused
+(`llvq_cuda::wide`), and each lives in a translation unit of its own, so the
+served 4B, 8B and 14B keep their kernels and their printed sha256. On the
+host both equal the kernel they replace, byte for byte, at every width up to
+31,744 (*computed*, `tests/rotation_matches_rust.rs`, `tests/proj_q4_wide.rs`).
+The card identity job is `docs/archive/debit-vague5-2026-11-02/prereg-bigmodel-2.md`.
+
+The wall exists only on 99 KiB cards (sm_86, sm_89, sm_120). The A100 offers
+166,912 B after opt-in and passes 25,600 with today's kernels. 25,600 is
+1,024 × 25, so the mix holds k = 25 under `LLVQ_ROT_KMAX`; the comment in
+`llvq_rot.cuh` that calls it 512 × 50 is wrong, and the file stays
+byte-identical because it is part of the served unit. An f16 staging of the
+rotation itself is not exact: it rounds every butterfly stage.
 
 This wall is the same under every layout and outside the `nullk` floor,
 which times 252 projections with the rotation excluded.

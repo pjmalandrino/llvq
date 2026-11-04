@@ -84,6 +84,26 @@ struct RotBuffers {
     inv: f32,
     /// One block, so the only knob is the thread count.
     threads: u32,
+    /// `rot_apply` wherever it runs on this card; `rot_apply_dev`
+    /// (`rotate_wide.cu`) only where `llvq_cuda::shared::rot_plan` refuses
+    /// the width. Decided once, at upload, by `llvq_cuda::wide::rot_kernel`.
+    kernel: llvq_cuda::wide::RotKernel,
+}
+
+/// The functions of the wide unit (`llvq_rot.cuh` + `rotate_wide.cu`,
+/// `tv_q4_h.cu` + `tv_q4_wide.cu`), compiled as a second module on the
+/// runtime's stream only when some width needs them. Each `Some` is the
+/// authorisation, the `f_int4` pattern: no launch can reach a function the
+/// unit never carried.
+struct WideFns {
+    /// `rot_apply_dev` and `rot_apply_rows_dev`: present when some rotation
+    /// is `RotKernel::Device`.
+    rot: Option<(CudaFunction, CudaFunction)>,
+    /// `tv_q4_hs`, opted in at the widest F16-staged record: present when
+    /// some int4 record is `Int4Staging::F16`.
+    int4: Option<CudaFunction>,
+    /// The module the functions were loaded from, kept alive with them.
+    _module: llvq_cuda::gpu::Cuda,
 }
 
 /// A matrix's payload on the device, mirroring [`HostStream`] variant for
@@ -182,10 +202,13 @@ pub struct FusedInt4Proj {
     wq: CudaSlice<u32>,
     scales: CudaSlice<u16>,
     biases: CudaSlice<u16>,
-    /// The whole activation staged in shared, `d_in · 4` — this kernel does
-    /// NOT tile, because its `d_in` is a hidden size. Held here so the launch
-    /// and the load-time check against the device limit are one number.
+    /// The whole activation staged in shared: `d_in · 4` under F32 staging,
+    /// `d_in · 2` under F16 (`tv_q4_hs`). Held here so the launch and the
+    /// load-time check against the device limit are one number.
     shared: u32,
+    /// F32 (`tv_q4_h` / `tv_q4_hh`, today's kernels) wherever the f32 staging
+    /// fits the card; F16 (`tv_q4_hs`) only past it.
+    staging: llvq_cuda::wide::Int4Staging,
     pub bytes: u64,
 }
 
@@ -436,6 +459,11 @@ pub struct FusedRuntime {
     /// `tv_q4_hh`, the same matvec reading an f16 activation. Present exactly
     /// when `f_int4` is: both entry points live in `tv_q4_h.cu`.
     f_int4_half: Option<CudaFunction>,
+    /// The kernels for widths past the card's shared-memory ceiling, from a
+    /// translation unit of their own. `None` for every model whose widths all
+    /// fit, which is every served model: their unit, its printed sha256 and
+    /// their kernels do not move.
+    wide: Option<WideFns>,
     rotations: HashMap<RotKey, RotBuffers>,
     /// The embedding kernels, `(gather, lm_head matvec)` — present exactly
     /// when the runtime was built with a quantized [`EmbedMode`], which is when
@@ -563,6 +591,25 @@ impl FusedRuntime {
         );
         let cuda = llvq_cuda::gpu::Cuda::on_stream(stream, &src).map_err(candle_core::Error::msg)?;
 
+        // Both shared-memory bounds of the card, read once, before anything is
+        // sized against them: the int4 entry points below and the rotation
+        // further down.
+        let dev_report = cuda.device().map_err(candle_core::Error::msg)?;
+        let (shared_def, shared_optin) = (
+            dev_report.shared_per_block as usize,
+            dev_report.shared_per_block_optin as usize,
+        );
+        // One size per int4 entry point: `tv_q4_h` / `tv_q4_hh` over the
+        // F32-staged records, `tv_q4_hs` over the F16-staged ones. On every
+        // served model no record is F16-staged, and the F32 size is the one
+        // `fused::int4_shared_bytes` gave over all records, so nothing moves.
+        let int4_entry = llvq_cuda::wide::int4_entry_bytes(
+            model.int4.iter().map(|q| q.d_in),
+            shared_def,
+            shared_optin,
+        )
+        .map_err(candle_core::Error::msg)?;
+
         // The register report is a contract, not a diagnostic: the block
         // decoders keep their accumulators and `rot_mix` a KMAX-wide column
         // in registers, and a spill costs occupancy without changing a
@@ -642,8 +689,9 @@ impl FusedRuntime {
         // `func_dynamic_shared` is `func` and nothing changes.
         let (f_int4, f_int4_half) = match int4.is_some() {
             true => {
-                // Both entry points stage `d_in` f32, whatever `x` arrives as.
-                let bytes = crate::fused::int4_shared_bytes(model.int4.iter().map(|q| q.d_in));
+                // Both entry points stage `d_in` f32, whatever `x` arrives as,
+                // and are sized over the records that stage in f32.
+                let bytes = int4_entry.f32.unwrap_or(0);
                 let f = |name: &str| {
                     cuda.func_dynamic_shared(name, bytes as u32)
                         .map_err(candle_core::Error::msg)
@@ -726,7 +774,6 @@ impl FusedRuntime {
             _ => None,
         };
 
-        let dev_report = cuda.device().map_err(candle_core::Error::msg)?;
         // The DEFAULT allowance, and it stays the default on purpose: this
         // bound belongs to `tv_q8_h`, which stages `d` floats and is launched
         // through `func`, with no opt-in. Widening it here would loosen a
@@ -755,19 +802,20 @@ impl FusedRuntime {
         // available on request). Both bounds now, from `llvq_cuda::shared`,
         // which is where this arithmetic is testable: this file compiles
         // nowhere but inside an image build.
-        for t in model.rotations.values() {
-            llvq_cuda::shared::rot_plan(
-                t.n,
-                dev_report.shared_per_block as usize,
-                dev_report.shared_per_block_optin as usize,
-            )
-            .map_err(candle_core::Error::msg)?;
-        }
-        // Posed on the function, once, for the widest rotation this model has
-        // — before any launch, and never per token.
+        //
+        // A width `rot_plan` accepts keeps `rot_apply`; a width it refuses
+        // (25,600 on a 99 KiB card) goes to `rot_apply_dev`, which stages in
+        // device memory and returns the same bits. `wide::rot_kernel` is that
+        // rule, and its tests pin every served width on `rot_apply`.
+        let rot_kernel = |n: usize| llvq_cuda::wide::rot_kernel(n, shared_def, shared_optin);
+        // Posed on the function, once, for the widest rotation this model
+        // stages in SHARED memory — before any launch, and never per token.
+        // Every served model stages all of its rotations there, so this is
+        // the widest rotation, as before.
         let rot_bytes = model
             .rotations
             .values()
+            .filter(|t| rot_kernel(t.n) != llvq_cuda::wide::RotKernel::Device)
             .map(|t| llvq_cuda::shared::rot_bytes(t.n))
             .max()
             .unwrap_or(0);
@@ -781,9 +829,95 @@ impl FusedRuntime {
             .func_dynamic_shared("rot_apply_rows", rot_bytes as u32)
             .map_err(candle_core::Error::msg)?;
 
+        // The wide unit: compiled only when a width needs it, as a module of
+        // its own on the same stream, so the served unit above is untouched.
+        let mut device_widths: Vec<usize> = model
+            .rotations
+            .values()
+            .filter(|t| rot_kernel(t.n) == llvq_cuda::wide::RotKernel::Device)
+            .map(|t| t.n)
+            .collect();
+        device_widths.sort_unstable();
+        device_widths.dedup();
+        let wide = match (device_widths.is_empty(), int4_entry.f16) {
+            (true, None) => None,
+            (_, f16_bytes) => {
+                let mut names = vec!["llvq_slot.cuh", "matvec.cu"];
+                if !device_widths.is_empty() {
+                    names.extend(["llvq_rot.cuh", "rotate_wide.cu"]);
+                }
+                let base = llvq_cuda::load_sources_many(&names).map_err(candle_core::Error::msg)?;
+                let int4w = match f16_bytes {
+                    Some(_) => Some(
+                        crate::fused::load_int4_wide_sources().map_err(candle_core::Error::msg)?,
+                    ),
+                    None => None,
+                };
+                let mut wparts: Vec<&str> = std::iter::once(defines.as_str())
+                    .chain(base.parts.iter().map(String::as_str))
+                    .collect();
+                if let Some((ss, _)) = &int4w {
+                    wparts.extend(ss.iter().map(String::as_str));
+                }
+                for d in base.overridden_from.iter().chain(int4w.iter().flat_map(|(_, d)| d)) {
+                    eprintln!("WARNING: wide unit SOURCES OVERRIDDEN from {d}");
+                }
+                let wsrc = llvq_cuda::gpu::KernelSource::new(&wparts);
+                let f16_records = model
+                    .int4
+                    .iter()
+                    .filter(|q| {
+                        llvq_cuda::wide::int4_staging(q.d_in, shared_def, shared_optin)
+                            == Some(llvq_cuda::wide::Int4Staging::F16)
+                    })
+                    .count();
+                println!(
+                    "NVRTC wide unit: {} bytes, sha256 {} ({} parts): rot_apply_dev for widths \
+                     {device_widths:?}, tv_q4_hs for {f16_records} int4 record(s); the card \
+                     offers {shared_def} B by default and {shared_optin} after opt-in",
+                    wsrc.text.len(),
+                    wsrc.sha256,
+                    wparts.len(),
+                );
+                let wcuda = llvq_cuda::gpu::Cuda::on_stream(dev.cuda_stream(), &wsrc)
+                    .map_err(candle_core::Error::msg)?;
+                let mut checked: Vec<&str> = Vec::new();
+                if !device_widths.is_empty() {
+                    checked.extend(["rot_apply_dev", "rot_apply_rows_dev"]);
+                }
+                if f16_bytes.is_some() {
+                    checked.push(crate::fused::INT4_WIDE_KERNEL_NAME);
+                }
+                for name in checked {
+                    let r = wcuda.report(name).map_err(candle_core::Error::msg)?;
+                    if r.local_bytes != 0 {
+                        candle_core::bail!("{name}: {} bytes of spill", r.local_bytes);
+                    }
+                }
+                let rot = match device_widths.is_empty() {
+                    true => None,
+                    false => Some((
+                        wcuda.func("rot_apply_dev").map_err(candle_core::Error::msg)?,
+                        wcuda.func("rot_apply_rows_dev").map_err(candle_core::Error::msg)?,
+                    )),
+                };
+                // Its own opt-in, at the widest F16-staged record: 51,200 B at
+                // 25,600 is past the 49,152 B default.
+                let int4 = match f16_bytes {
+                    Some(b) => Some(
+                        wcuda
+                            .func_dynamic_shared(crate::fused::INT4_WIDE_KERNEL_NAME, b as u32)
+                            .map_err(candle_core::Error::msg)?,
+                    ),
+                    None => None,
+                };
+                Some(WideFns { rot, int4, _module: wcuda })
+            }
+        };
+
         let mut rotations = HashMap::new();
         for (&key, t) in &model.rotations {
-            rotations.insert(key, upload_rotation(&cuda, t)?);
+            rotations.insert(key, upload_rotation(&cuda, t, rot_kernel(t.n))?);
         }
 
         // Over the groups as well: under fusion most of the model's activations
@@ -805,17 +939,32 @@ impl FusedRuntime {
             seg_projs.push(upload_group(&cuda, g, model.layout)?);
         }
         // `tv_q4_h` was loaded with its opt-in above, so its bound is the
-        // ceiling, not the default `tv_q8_h` keeps in `shared_limit`.
-        let int4_limit = llvq_cuda::shared::ceiling(
-            dev_report.shared_per_block as usize,
-            dev_report.shared_per_block_optin as usize,
-        );
+        // ceiling, not the default `tv_q8_h` keeps in `shared_limit`. Each
+        // record gets its staging here, F32 wherever it fits.
         let mut int4_projs = Vec::with_capacity(model.int4.len());
         for q in &model.int4 {
-            int4_projs.push(upload_int4(&cuda, q, int4_limit)?);
+            int4_projs.push(upload_int4(&cuda, q, shared_def, shared_optin)?);
         }
-        if let (Some(fa), Some(fb), Some(p)) = (&f_int4, &f_int4_half, int4_projs.first()) {
+        // On the first F32-staged record, which on every served model is the
+        // first record.
+        let first_f32 =
+            int4_projs.iter().find(|p| p.staging == llvq_cuda::wide::Int4Staging::F32);
+        if let (Some(fa), Some(fb), Some(p)) = (&f_int4, &f_int4_half, first_f32) {
             check_int4_half_parity(&cuda, fa, fb, p).map_err(candle_core::Error::msg)?;
+        }
+        // A model with an F16-staged record: `tv_q4_hs` against `tv_q4_hh`,
+        // bytes of every row, on a record where both fit. Never reached by a
+        // served model.
+        if let Some(hs) = wide.as_ref().and_then(|w| w.int4.as_ref()) {
+            match (&f_int4_half, first_f32) {
+                (Some(hh), Some(p)) => {
+                    check_int4_wide_parity(&cuda, hh, hs, p).map_err(candle_core::Error::msg)?
+                }
+                _ => println!(
+                    "int4: no F32-staged record to hold tv_q4_hs against tv_q4_hh at load; \
+                     LLVQ_INT4_WIDE_CHECK holds it against the host on synthetic records"
+                ),
+            }
         }
 
         Ok((
@@ -833,6 +982,7 @@ impl FusedRuntime {
                 f_matvec_rows,
                 f_int4,
                 f_int4_half,
+                wide,
                 g70_tabs,
                 rotations,
                 f_emb,
@@ -845,6 +995,200 @@ impl FusedRuntime {
             seg_projs,
             int4_projs,
         ))
+    }
+
+    /// One rotation, through the kernel its upload chose: `rot_apply` exactly
+    /// as before wherever it runs on this card, `rot_apply_dev` on a scratch
+    /// of its own where it does not. The scratch is allocated per call, like
+    /// the output beside it, so no two launches share one.
+    fn launch_rotation(
+        &self,
+        rot: &RotBuffers,
+        all: &CudaSlice<f16>,
+        xr: &mut CudaSlice<f32>,
+        start: u32,
+    ) -> candle_core::Result<()> {
+        match rot.kernel {
+            llvq_cuda::wide::RotKernel::Shared(_) => self.cuda.launch_rot(
+                &self.f_rot, all, &rot.signbits, &rot.small, xr, rot.n, rot.m, rot.k, rot.inv,
+                start, rot.threads,
+            ),
+            llvq_cuda::wide::RotKernel::Device => {
+                let (f, _) = self.wide_rot(rot.n)?;
+                let len = llvq_cuda::wide::rot_scratch_floats(
+                    1,
+                    rot.n as usize,
+                    rot.m as usize,
+                    rot.k as usize,
+                );
+                let mut scratch = unsafe { self.device.cuda_stream().alloc::<f32>(len) }
+                    .map_err(|e| candle_core::Error::msg(format!("alloc rot scratch: {e}")))?;
+                self.cuda.launch_rot_dev(
+                    f, all, &rot.signbits, &rot.small, xr, &mut scratch, rot.n, rot.m, rot.k,
+                    rot.inv, start, rot.threads,
+                )
+            }
+        }
+        .map_err(candle_core::Error::msg)
+    }
+
+    /// [`Self::launch_rotation`] for `n_rows` rows, one launch.
+    fn launch_rotation_rows(
+        &self,
+        rot: &RotBuffers,
+        all: &CudaSlice<f16>,
+        xr: &mut CudaSlice<f32>,
+        start: u32,
+        row_stride: u32,
+        n_rows: u32,
+    ) -> candle_core::Result<()> {
+        match rot.kernel {
+            llvq_cuda::wide::RotKernel::Shared(_) => self.cuda.launch_rot_rows(
+                &self.f_rot_rows, all, &rot.signbits, &rot.small, xr, rot.n, rot.m, rot.k,
+                rot.inv, start, row_stride, n_rows, rot.threads,
+            ),
+            llvq_cuda::wide::RotKernel::Device => {
+                let (_, f) = self.wide_rot(rot.n)?;
+                let len = llvq_cuda::wide::rot_scratch_floats(
+                    n_rows as usize,
+                    rot.n as usize,
+                    rot.m as usize,
+                    rot.k as usize,
+                );
+                let mut scratch = unsafe { self.device.cuda_stream().alloc::<f32>(len) }
+                    .map_err(|e| candle_core::Error::msg(format!("alloc rot scratch: {e}")))?;
+                self.cuda.launch_rot_rows_dev(
+                    f, all, &rot.signbits, &rot.small, xr, &mut scratch, rot.n, rot.m, rot.k,
+                    rot.inv, start, row_stride, n_rows, rot.threads,
+                )
+            }
+        }
+        .map_err(candle_core::Error::msg)
+    }
+
+    /// The device-staged rotation pair, or a refusal that names the width:
+    /// a `Device` rotation on a runtime whose wide unit has no rotation is a
+    /// loader bug, never a fallback.
+    fn wide_rot(&self, n: u32) -> candle_core::Result<&(CudaFunction, CudaFunction)> {
+        self.wide.as_ref().and_then(|w| w.rot.as_ref()).ok_or_else(|| {
+            candle_core::Error::msg(format!(
+                "rotation of width {n} is device-staged, and the runtime carries no \
+                 rot_apply_dev: the wide unit is compiled only for the widths the load saw"
+            ))
+        })
+    }
+
+    /// `LLVQ_INT4_WIDE_CHECK`: the f16-staged int4 kernel against `tv_q4_hh`
+    /// and against the host, bytes of every row, on this card.
+    ///
+    /// Compiles the wide int4 unit as a module of its own, whatever the model
+    /// needs, then:
+    ///   1. on the model's first F32-staged record, `tv_q4_hs` against the
+    ///      runtime's own `tv_q4_hh`;
+    ///   2. on each synthetic record of `fused::INT4_WIDE_CARD_CASES`,
+    ///      `tv_q4_hs`'s output sha256 against the host's
+    ///      (`fused::INT4_WIDE_FIXTURE`), and `tv_q4_hh` beside it wherever its
+    ///      f32 staging fits the card (25,344 on a 99 KiB card, not 25,600).
+    ///
+    /// Every comparison is printed; any difference is an error, after all of
+    /// them ran. No token is timed.
+    fn int4_wide_check(&self, projs: &[FusedInt4Proj]) -> Result<(), String> {
+        let dev = self.cuda.device()?;
+        let (def, optin) = (dev.shared_per_block as usize, dev.shared_per_block_optin as usize);
+        let base = llvq_cuda::load_sources_many(&["llvq_slot.cuh", "matvec.cu"])?;
+        let (int4w, overridden) = crate::fused::load_int4_wide_sources()?;
+        let defines = format!("{}{}", self.tile.define(), self.prefill.defines());
+        let parts: Vec<&str> = std::iter::once(defines.as_str())
+            .chain(base.parts.iter().map(String::as_str))
+            .chain(int4w.iter().map(String::as_str))
+            .collect();
+        for d in base.overridden_from.iter().chain(overridden.iter()) {
+            println!("  WARNING: wide int4 SOURCES OVERRIDDEN from {d}");
+        }
+        let src = llvq_cuda::gpu::KernelSource::new(&parts);
+        println!(
+            "LLVQ_INT4_WIDE_CHECK: wide int4 unit {} bytes, sha256 {}; the card offers {def} B by \
+             default and {optin} after opt-in; fixture sha256 {}",
+            src.text.len(),
+            src.sha256,
+            llvq_cuda::sha256::sha256_hex(crate::fused::INT4_WIDE_FIXTURE.as_bytes())
+        );
+        let cuda = llvq_cuda::gpu::Cuda::on_stream(self.device.cuda_stream(), &src)?;
+        let name = crate::fused::INT4_WIDE_KERNEL_NAME;
+        let rep = cuda.report(name)?;
+        println!("  {name}: {} registers, {} local B", rep.num_regs, rep.local_bytes);
+        if rep.local_bytes != 0 {
+            return Err(format!("{name}: {} bytes of spill", rep.local_bytes));
+        }
+        let mut failures: Vec<String> = Vec::new();
+        let le = |v: &[u16]| -> Vec<u8> { v.iter().flat_map(|x| x.to_le_bytes()).collect() };
+
+        // 1. The model's first F32-staged record.
+        let first = projs.iter().find(|p| p.staging == llvq_cuda::wide::Int4Staging::F32);
+        match (first, self.f_int4_half.as_ref()) {
+            (Some(p), Some(hh)) => {
+                let hs = cuda.func_dynamic_shared(name, (p.d_in * 2) as u32)?;
+                if let Err(e) = check_int4_wide_parity(&cuda, hh, &hs, p) {
+                    println!("  {e}");
+                    failures.push(e);
+                }
+            }
+            _ => println!("  no F32-staged int4 record in this model: step 1 skipped"),
+        }
+
+        // 2. The synthetic records, against the host.
+        let fixture = crate::fused::parse_int4_wide_fixture(crate::fused::INT4_WIDE_FIXTURE)?;
+        for (d_out, d_in, seed, x_off) in crate::fused::INT4_WIDE_CARD_CASES {
+            let want = fixture
+                .get(&(d_out, d_in, seed, x_off))
+                .ok_or_else(|| format!("no fixture line for {d_out}x{d_in} {seed:#x} {x_off}"))?;
+            let (rec, x) = crate::fused::int4_synthetic(d_out, d_in, seed);
+            let p = upload_int4(&cuda, &rec, def, optin).map_err(|e| e.to_string())?;
+            let mut xb = vec![0x3c00u16; x_off];
+            xb.extend(&x);
+            let dx = cuda.up_u16(&xb)?;
+            let hs = cuda.func_dynamic_shared(name, (d_in * 2) as u32)?;
+            let mut y = cuda.up_u16(&vec![0xffffu16; d_out])?;
+            launch_q4_hs(&cuda, &hs, &p, &dx, &mut y, x_off as u32, THREADS)?;
+            let got = cuda.down_u16(&y)?;
+            let h = llvq_cuda::sha256::sha256_hex(&le(&got));
+            let hs_ok = &h == want;
+            let mut line = format!(
+                "  {d_out}x{d_in} seed {seed:#x} x_off {x_off}: tv_q4_hs sha256 {} the host's",
+                if hs_ok { "EQUALS" } else { "DIFFERS FROM" }
+            );
+            if !hs_ok {
+                failures.push(format!("{d_out}x{d_in} {seed:#x} {x_off}: tv_q4_hs {h} != {want}"));
+            }
+            let f32_fits = llvq_cuda::wide::Int4Staging::F32.bytes(d_in)
+                <= llvq_cuda::shared::ceiling(def, optin);
+            if f32_fits && x_off == 0 {
+                let hh = cuda.func_dynamic_shared(
+                    crate::fused::INT4_HALF_KERNEL_NAME,
+                    (d_in * 4) as u32,
+                )?;
+                let mut y2 = cuda.up_u16(&vec![0u16; d_out])?;
+                launch_q4_h(&cuda, &hh, &p, &dx, &mut y2, THREADS)?;
+                let hh_out = cuda.down_u16(&y2)?;
+                let same = hh_out == got;
+                line.push_str(&format!(
+                    "; tv_q4_hh {} it",
+                    if same { "equals" } else { "DIFFERS FROM" }
+                ));
+                if !same {
+                    failures.push(format!("{d_out}x{d_in} {seed:#x}: tv_q4_hh != tv_q4_hs"));
+                }
+            } else {
+                line.push_str("; tv_q4_hh not run (its f32 staging does not fit, or x_off)");
+            }
+            println!("{line}");
+        }
+        if failures.is_empty() {
+            println!("LLVQ_INT4_WIDE_CHECK: every comparison equal");
+            Ok(())
+        } else {
+            Err(format!("LLVQ_INT4_WIDE_CHECK: {} failure(s): {}", failures.len(), failures.join("; ")))
+        }
     }
 
     /// The widest activation any projection takes.
@@ -945,6 +1289,23 @@ impl FusedRuntime {
         // (`Tensor::copy` would not do: it keeps the layout, offset included.)
         let c = x.contiguous()?;
         let via_f32 = INT4_VIA_F32.load(std::sync::atomic::Ordering::Relaxed);
+        // A record staged in f16 (`tv_q4_hs`, past the card's ceiling for the
+        // f32 staging) takes its f16 activation where it lies, offset
+        // included. An f32 activation cannot reach it: narrowing would change
+        // the arithmetic, and `tv_q4_h` does not fit this card at this width.
+        if proj.staging == llvq_cuda::wide::Int4Staging::F16 {
+            if c.dtype() != DType::F16 || via_f32 {
+                candle_core::bail!(
+                    "{}: an f32 activation at an int4 record staged in f16 (d_in {}). Narrowing \
+                     it would change the arithmetic, and tv_q4_h's f32 staging does not fit \
+                     this card at this width",
+                    proj.name,
+                    proj.d_in
+                );
+            }
+            let op = FusedInt4Op { rt: self, proj, out_shape, path: Int4Path::Wide };
+            return c.apply_op1_no_bwd(&op);
+        }
         let (xs, half) = match (c.dtype(), c.layout().start_offset()) {
             (DType::F16, 0) if !via_f32 => (c, true),
             _ => (c.to_dtype(DType::F32)?.contiguous()?, false),
@@ -953,7 +1314,7 @@ impl FusedRuntime {
             rt: self,
             proj,
             out_shape,
-            half,
+            path: if half { Int4Path::Half } else { Int4Path::F32 },
         };
         xs.apply_op1_no_bwd(&op)
     }
@@ -1418,27 +1779,17 @@ impl candle_core::CustomOp1 for RotRowsOp<'_> {
         };
         let mut xr = unsafe { self.rt.device.cuda_stream().alloc::<f32>(want) }
             .map_err(|e| candle_core::Error::msg(format!("alloc rot rows: {e}")))?;
-        self.rt
-            .cuda
-            .launch_rot_rows(
-                &self.rt.f_rot_rows,
-                all,
-                &rot.signbits,
-                &rot.small,
-                &mut xr,
-                rot.n,
-                rot.m,
-                rot.k,
-                rot.inv,
-                start as u32,
-                // The input rows are `d_in` apart, which is `rot.n` today and
-                // is not the same statement: `rot.n` describes the transform,
-                // `d_in` describes the buffer.
-                self.proj.d_in as u32,
-                self.n_rows as u32,
-                rot.threads,
-            )
-            .map_err(candle_core::Error::msg)?;
+        self.rt.launch_rotation_rows(
+            rot,
+            all,
+            &mut xr,
+            start as u32,
+            // The input rows are `d_in` apart, which is `rot.n` today and
+            // is not the same statement: `rot.n` describes the transform,
+            // `d_in` describes the buffer.
+            self.proj.d_in as u32,
+            self.n_rows as u32,
+        )?;
         Ok((
             CudaStorage::wrap_cuda_slice(xr, self.rt.device.clone()),
             Shape::from(vec![self.n_rows, self.proj.d_in]),
@@ -1488,13 +1839,7 @@ impl candle_core::CustomOp1 for RotOp<'_> {
         };
         let mut xr = unsafe { self.rt.device.cuda_stream().alloc::<f32>(self.proj.d_in) }
             .map_err(|e| candle_core::Error::msg(format!("alloc rot: {e}")))?;
-        self.rt
-            .cuda
-            .launch_rot(
-                &self.rt.f_rot, all, &rot.signbits, &rot.small, &mut xr, rot.n, rot.m, rot.k,
-                rot.inv, start as u32, rot.threads,
-            )
-            .map_err(candle_core::Error::msg)?;
+        self.rt.launch_rotation(rot, all, &mut xr, start as u32)?;
         Ok((
             CudaStorage::wrap_cuda_slice(xr, self.rt.device.clone()),
             Shape::from(vec![1, self.proj.d_in]),
@@ -1711,9 +2056,21 @@ struct FusedInt4Op<'a> {
     rt: &'a FusedRuntime,
     proj: &'a FusedInt4Proj,
     out_shape: Shape,
-    /// The activation is f16 and goes to `tv_q4_hh`; otherwise f32 and
-    /// `tv_q4_h`. Set by [`FusedRuntime::forward_int4`], which made it so.
-    half: bool,
+    /// Which entry point, and so which activation dtype. Set by
+    /// [`FusedRuntime::forward_int4`], which made it so.
+    path: Int4Path,
+}
+
+/// The three int4 entry points, by what they read.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Int4Path {
+    /// `tv_q4_h`: an f32 activation at offset zero, staged in f32.
+    F32,
+    /// `tv_q4_hh`: an f16 activation at offset zero, widened into f32 staging.
+    Half,
+    /// `tv_q4_hs`: an f16 activation at any offset, staged as f16 bits. Only
+    /// for records whose f32 staging passes the card's ceiling.
+    Wide,
 }
 
 impl candle_core::CustomOp1 for FusedInt4Op<'_> {
@@ -1747,10 +2104,10 @@ impl candle_core::CustomOp1 for FusedInt4Op<'_> {
                 self.proj.d_in
             );
         }
-        // The kernel indexes `x` from the base pointer and takes no offset, so
-        // a nonzero start would read the wrong slice and return finite,
-        // plausible, wrong numbers.
-        if start != 0 {
+        // `tv_q4_h` and `tv_q4_hh` index `x` from the base pointer and take
+        // no offset, so a nonzero start would read the wrong slice and return
+        // finite, plausible, wrong numbers. `tv_q4_hs` takes the offset.
+        if start != 0 && self.path != Int4Path::Wide {
             candle_core::bail!(
                 "{}: activation at offset {start}, and the kernel reads from the base",
                 self.proj.name
@@ -1766,14 +2123,27 @@ impl candle_core::CustomOp1 for FusedInt4Op<'_> {
             .map_err(|e| candle_core::Error::msg(format!("alloc y: {e}")))?;
         // `as_cuda_slice` refuses a storage of the other dtype, so a `half`
         // flag that lied would fail here by name rather than read wrong bytes.
-        let launched = if self.half {
-            let f = self.rt.f_int4_half.as_ref().ok_or_else(missing)?;
-            let x = storage.as_cuda_slice::<f16>()?;
-            launch_q4_h(&self.rt.cuda, f, self.proj, x, &mut y, THREADS)
-        } else {
-            let f = self.rt.f_int4.as_ref().ok_or_else(missing)?;
-            let x = storage.as_cuda_slice::<f32>()?;
-            launch_q4_h(&self.rt.cuda, f, self.proj, x, &mut y, THREADS)
+        let launched = match self.path {
+            Int4Path::Half => {
+                let f = self.rt.f_int4_half.as_ref().ok_or_else(missing)?;
+                let x = storage.as_cuda_slice::<f16>()?;
+                launch_q4_h(&self.rt.cuda, f, self.proj, x, &mut y, THREADS)
+            }
+            Int4Path::F32 => {
+                let f = self.rt.f_int4.as_ref().ok_or_else(missing)?;
+                let x = storage.as_cuda_slice::<f32>()?;
+                launch_q4_h(&self.rt.cuda, f, self.proj, x, &mut y, THREADS)
+            }
+            Int4Path::Wide => {
+                let f = self.rt.wide.as_ref().and_then(|w| w.int4.as_ref()).ok_or_else(|| {
+                    candle_core::Error::msg(format!(
+                        "{}: staged in f16, and the runtime carries no tv_q4_hs",
+                        self.proj.name
+                    ))
+                })?;
+                let x = storage.as_cuda_slice::<f16>()?;
+                launch_q4_hs(&self.rt.cuda, f, self.proj, x, &mut y, start as u32, THREADS)
+            }
         };
         launched.map_err(candle_core::Error::msg)?;
         Ok((
@@ -1935,13 +2305,7 @@ impl candle_core::CustomOp1 for RotSegOp<'_> {
         };
         let mut xr = unsafe { self.rt.device.cuda_stream().alloc::<f32>(self.group.d_in) }
             .map_err(|e| candle_core::Error::msg(format!("alloc rot: {e}")))?;
-        self.rt
-            .cuda
-            .launch_rot(
-                &self.rt.f_rot, all, &rot.signbits, &rot.small, &mut xr, rot.n, rot.m, rot.k,
-                rot.inv, start as u32, rot.threads,
-            )
-            .map_err(candle_core::Error::msg)?;
+        self.rt.launch_rotation(rot, all, &mut xr, start as u32)?;
         Ok((
             CudaStorage::wrap_cuda_slice(xr, self.rt.device.clone()),
             Shape::from(vec![1, self.group.d_in]),
@@ -2047,6 +2411,7 @@ impl candle_core::CustomOp1 for FusedSegOp<'_> {
 fn upload_rotation(
     cuda: &llvq_cuda::gpu::Cuda,
     t: &RotationTables,
+    kernel: llvq_cuda::wide::RotKernel,
 ) -> candle_core::Result<RotBuffers> {
     Ok(RotBuffers {
         signbits: cuda.up_u32(&t.signbits).map_err(candle_core::Error::msg)?,
@@ -2058,6 +2423,7 @@ fn upload_rotation(
         // The widest block the driver allows, clamped to a warp at the bottom
         // so a narrow width still fills one.
         threads: (t.n as u32).next_power_of_two().clamp(32, 1024),
+        kernel,
     })
 }
 
@@ -2116,7 +2482,8 @@ fn launch_planes_h<T: candle_core::cuda_backend::cudarc::driver::DeviceRepr>(
 fn upload_int4(
     cuda: &llvq_cuda::gpu::Cuda,
     q: &crate::fused::FusedInt4,
-    shared_limit: usize,
+    shared_def: usize,
+    shared_optin: usize,
 ) -> candle_core::Result<FusedInt4Proj> {
     // The four the kernel names, each because the arithmetic below it breaks
     // silently otherwise rather than faulting.
@@ -2160,10 +2527,13 @@ fn upload_int4(
         );
     }
     // The whole activation, not a tile, and `d_in` can be the intermediate
-    // width (an int4 `down_proj`). Checked against the ceiling the caller
-    // passes, which is the opt-in one `f_int4` was loaded with
-    // (`fused::int4_shared_bytes`).
-    let shared = q.d_in * 4;
+    // width (an int4 `down_proj`). F32 staging wherever it fits the card's
+    // ceiling, which is the opt-in one the entry points were loaded with
+    // (`llvq_cuda::wide::int4_entry_bytes`); F16 (`tv_q4_hs`) only past it.
+    let shared_limit = llvq_cuda::shared::ceiling(shared_def, shared_optin);
+    let staging = llvq_cuda::wide::int4_staging(q.d_in, shared_def, shared_optin)
+        .unwrap_or(llvq_cuda::wide::Int4Staging::F16);
+    let shared = staging.bytes(q.d_in);
     if shared > shared_limit {
         candle_core::bail!(
             "{}: staging {} values needs {shared} B of shared, the card allows {shared_limit}",
@@ -2196,6 +2566,7 @@ fn upload_int4(
         scales: cuda.up_u16(&q.scales).map_err(candle_core::Error::msg)?,
         biases: cuda.up_u16(&q.biases).map_err(candle_core::Error::msg)?,
         shared: shared as u32,
+        staging,
         bytes: q.bytes,
     })
 }
@@ -2227,17 +2598,7 @@ fn check_int4_half_parity(
     f_f16: &CudaFunction,
     p: &FusedInt4Proj,
 ) -> Result<(), String> {
-    let mut state = 0x9e37_79b9_7f4a_7c15u64;
-    let xh: Vec<u16> = (0..p.d_in)
-        .map(|i| {
-            state = state
-                .wrapping_mul(6_364_136_223_846_793_005)
-                .wrapping_add(1_442_695_040_888_963_407);
-            let u = (state >> 40) as f32 / (1u64 << 24) as f32 - 0.5;
-            let v = if i % 17 == 0 { 0.0 } else { u * (1u32 << (i % 7)) as f32 };
-            f16::from_f32(v).to_bits()
-        })
-        .collect();
+    let xh = parity_activation(p.d_in);
     let xf: Vec<f32> = xh.iter().map(|&b| f16::from_bits(b).to_f32()).collect();
     let dxh = cuda.up_u16(&xh)?;
     let dxf = cuda.up_f32(&xf)?;
@@ -2257,6 +2618,103 @@ fn check_int4_half_parity(
         "int4: tv_q4_hh equals tv_q4_h bit for bit on {} ({} rows, d_in {})",
         p.name, p.d_out, p.d_in
     );
+    Ok(())
+}
+
+/// The activation the load-time int4 checks feed every entry point: a
+/// pseudo-random draw over several binades, both signs and exact zeros, as f16
+/// bits. One function, so the two checks below read the same vector.
+fn parity_activation(d_in: usize) -> Vec<u16> {
+    let mut state = 0x9e37_79b9_7f4a_7c15u64;
+    (0..d_in)
+        .map(|i| {
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            let u = (state >> 40) as f32 / (1u64 << 24) as f32 - 0.5;
+            let v = if i % 17 == 0 { 0.0 } else { u * (1u32 << (i % 7)) as f32 };
+            f16::from_f32(v).to_bits()
+        })
+        .collect()
+}
+
+/// `tv_q4_hs` against `tv_q4_hh` on one real record, on the card, at load.
+///
+/// Reached only by a model with an F16-staged record (none is served). The
+/// record is an F32-staged one, where both kernels fit: `tv_q4_hh` with the
+/// record's own `d_in * 4`, `tv_q4_hs` with `d_in * 2`. Any differing row
+/// stops the load and names the record.
+fn check_int4_wide_parity(
+    cuda: &llvq_cuda::gpu::Cuda,
+    f_hh: &CudaFunction,
+    f_hs: &CudaFunction,
+    p: &FusedInt4Proj,
+) -> Result<(), String> {
+    let xh = parity_activation(p.d_in);
+    let dxh = cuda.up_u16(&xh)?;
+    let mut ya = cuda.up_u16(&vec![0u16; p.d_out])?;
+    let mut yb = cuda.up_u16(&vec![0xffffu16; p.d_out])?;
+    launch_q4_h(cuda, f_hh, p, &dxh, &mut ya, THREADS)?;
+    launch_q4_hs(cuda, f_hs, p, &dxh, &mut yb, 0, THREADS)?;
+    let (a, b) = (cuda.down_u16(&ya)?, cuda.down_u16(&yb)?);
+    if let Some(r) = (0..p.d_out).find(|&r| a[r] != b[r]) {
+        return Err(format!(
+            "{}: tv_q4_hs disagrees with tv_q4_hh at row {r} ({:#06x} against {:#06x}); \
+             the f16-staged entry point is not the same matvec",
+            p.name, b[r], a[r]
+        ));
+    }
+    println!(
+        "int4: tv_q4_hs equals tv_q4_hh bit for bit on {} ({} rows, d_in {})",
+        p.name, p.d_out, p.d_in
+    );
+    Ok(())
+}
+
+/// Measurement only, `false` everywhere else: run [`FusedRuntime::int4_wide_check`]
+/// right after the load. `bin/fusedrun` sets it under `LLVQ_INT4_WIDE_CHECK=1`,
+/// a measurement mode refused beside `LLVQ_CONFIG`.
+static INT4_WIDE_CHECK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Set [`INT4_WIDE_CHECK`].
+pub fn set_int4_wide_check(on: bool) {
+    INT4_WIDE_CHECK.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// `tv_q4_hs(wq, scales, biases, x, y, d_in, gpr, x_off)`: the int4 matvec
+/// with its activation staged as f16 bits, `d_in * 2` bytes of dynamic shared
+/// memory whatever the record's own staging, `x` read from `x_off` elements.
+/// Same grid as [`launch_q4_h`].
+fn launch_q4_hs<
+    X: candle_core::cuda_backend::cudarc::driver::DeviceRepr,
+    T: candle_core::cuda_backend::cudarc::driver::DeviceRepr,
+>(
+    cuda: &llvq_cuda::gpu::Cuda,
+    f: &CudaFunction,
+    p: &FusedInt4Proj,
+    x: &CudaSlice<X>,
+    y: &mut CudaSlice<T>,
+    x_off: u32,
+    threads: u32,
+) -> Result<(), String> {
+    let d_out = p.d_out as u32;
+    assert_eq!(d_out % (threads / 32), 0, "rows must fill whole blocks");
+    let d_in = p.d_in as u32;
+    let cfg = LaunchConfig {
+        grid_dim: (d_out * 32 / threads, 1, 1),
+        block_dim: (threads, 1, 1),
+        shared_mem_bytes: llvq_cuda::wide::Int4Staging::F16.bytes(p.d_in) as u32,
+    };
+    let mut b = cuda.stream().launch_builder(f);
+    b.arg(&p.wq)
+        .arg(&p.scales)
+        .arg(&p.biases)
+        .arg(x)
+        .arg(y)
+        .arg(&d_in)
+        .arg(&p.gpr)
+        .arg(&x_off);
+    unsafe { b.launch(cfg) }.map_err(|e| format!("tv_q4_hs: {e}"))?;
     Ok(())
 }
 
@@ -2918,6 +3376,12 @@ pub fn load_resolved(
     };
 
     let (rt, projs, seg_projs, int4_projs) = FusedRuntime::new(&model, device, emode, fuse)?;
+    if INT4_WIDE_CHECK.load(std::sync::atomic::Ordering::Relaxed) {
+        if source.is_some() {
+            candle_core::bail!("LLVQ_INT4_WIDE_CHECK is a measurement mode: not on the served door");
+        }
+        rt.int4_wide_check(&int4_projs).map_err(candle_core::Error::msg)?;
+    }
     let rt = Arc::new(rt);
 
     // Index every uploaded projection by the pair `Block::new_with` asks for —

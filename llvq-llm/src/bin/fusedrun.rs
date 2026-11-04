@@ -676,7 +676,8 @@ fn main() -> anyhow::Result<()> {
         if served.is_some() {
             for var in ["LLVQ_GRAPH_AB", "LLVQ_GRAPH_DIAG", "LLVQ_KV_AB", "LLVQ_FUSE_AB",
                         "LLVQ_TIME_PHASES", "LLVQ_KV_PREALLOC", "LLVQ_SEG_ARMS",
-                        "LLVQ_TRIM_AB", "LLVQ_GQA_AB", "LLVQ_GQA_PPL"] {
+                        "LLVQ_TRIM_AB", "LLVQ_GQA_AB", "LLVQ_GQA_PPL",
+                        "LLVQ_INT4_WIDE_CHECK"] {
                 if let Ok(v) = std::env::var(var) {
                     anyhow::bail!(
                         "{var}={v:?} beside LLVQ_CONFIG: that is a measurement mode, and the \
@@ -706,6 +707,39 @@ fn main() -> anyhow::Result<()> {
         // eagerly, or replayed from the captured graph. Correctness gate
         // first (identical tokens everywhere), numbers second, round by round.
         // Phase prereg 802006c5 (frozen thresholds).
+        // ---- LLVQ_INT4_WIDE_CHECK: the f16-staged int4 kernel, bytes ----
+        //
+        // A MEASUREMENT MODE on the bench door, refused beside LLVQ_CONFIG
+        // (above) and beside every other mode. One load, then
+        // `FusedRuntime::int4_wide_check`: `tv_q4_hs` against `tv_q4_hh` on the
+        // model's first int4 record, and against the host's sha256 on the
+        // synthetic records of `fused::INT4_WIDE_CARD_CASES`
+        // (`prereg-bigmodel-2`, step 4). No token is decoded or timed. The
+        // check runs inside the load and fails it on any difference.
+        if std::env::var("LLVQ_INT4_WIDE_CHECK").ok().as_deref() == Some("1") {
+            for other in ["LLVQ_GQA_AB", "LLVQ_GQA_PPL", "LLVQ_CONTEXTS", "LLVQ_TRIM_AB",
+                          "LLVQ_PREFILL_TOKENS", "LLVQ_GRAPH_AB", "LLVQ_KV_AB", "LLVQ_FUSE_AB",
+                          "LLVQ_TIME_PHASES", "LLVQ_SEG_ARMS"] {
+                if std::env::var(other).is_ok() {
+                    anyhow::bail!("LLVQ_INT4_WIDE_CHECK runs alone, and {other} is set beside it");
+                }
+            }
+            let fuse = llvq_llm::fused::FuseMode::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
+            llvq_llm::fused_cuda::set_int4_wide_check(true);
+            let t = Instant::now();
+            let loaded = llvq_llm::fused_cuda::load_with(&path, &device, dtype, fuse);
+            llvq_llm::fused_cuda::set_int4_wide_check(false);
+            let _f = loaded?;
+            println!(
+                "LLVQ_INT4_WIDE_CHECK: load and checks in {:.1} s; no token decoded",
+                t.elapsed().as_secs_f64()
+            );
+            return Ok(());
+        }
+        if let Ok(v) = std::env::var("LLVQ_INT4_WIDE_CHECK") {
+            anyhow::bail!("LLVQ_INT4_WIDE_CHECK={v:?}: the only value is 1");
+        }
+
         // ---- LLVQ_GQA_PPL: the grouped form's perplexity, prefill and decode ----
         //
         // A MEASUREMENT MODE on the bench door, refused beside LLVQ_CONFIG, the

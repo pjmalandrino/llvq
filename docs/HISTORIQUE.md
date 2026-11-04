@@ -950,3 +950,13 @@ The switch took on a debt, written into ETAT §2 beside the number: the 4B's 133
 its 63.37 MMLU and 82.49 GSM8K are the expanded form's, and no task score has ever run under the grouped one. Its
 whole licence is the paired perplexity inside ±0.12 %. Settling it costs about $2 for GSM8K through the kernel and
 about $20 for an MMLU census.
+
+## 2026-11-04: the 32B shared-memory wall, lifted in code
+
+`docs/format-noyau.md` §8 said two ways out of the `rot_apply` wall were named and neither designed: an f16 staging of
+the rotation, or a split into two kernels. Neither was taken. The rotation now stages in device memory where the
+card refuses its shared staging (`rot_apply_dev`), and the int4 matvec stages its activation as f16 bits there
+(`tv_q4_hs`). Both are byte-identical to the kernels they replace on the host at every width up to 31,744, and both
+are selected only where those kernels are refused, so no served object moves. The f16 staging of the rotation was
+dropped because it rounds every stage. No card has run either kernel yet; the identity job is drafted, not stamped.
+
