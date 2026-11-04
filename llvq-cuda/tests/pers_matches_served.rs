@@ -497,6 +497,42 @@ fn the_4e_head_phase_is_the_served_argmax() {
     assert!(run_mutant(&b, &cmd) != Some(want), "the key's bit reversal on the way back survived");
 }
 
+/// 4E's embedding, q/k/v and o phases equal the served chain bit for bit:
+/// emb_q4_gather; ln1, rot_apply, tv_tetra48_h (as NVVM compiled it) and
+/// tv_q4_hh on the unrotated ln1 output; tv_q4_hh then the residual add.
+#[test]
+fn the_4e_layer_phases_are_the_served_chain() {
+    let f = "llvq-cuda/kernels/llvq_pers.cuh";
+    for (tok, grid) in [(0u32, 3u32), (517, 4), (1023, 5)] {
+        let cmd = Cmd::new(b'E').u32(1024).u32(2560).u32(tok).u32(grid).u64(0xe3b).0;
+        assert!(run(served(), &cmd) == run(persistent(), &cmd), "embedding, token {tok}, grid {grid}");
+    }
+    let r = rot(2560, 41);
+    let qkv = |grid: u32, threads: u32, seed: u64| {
+        Cmd::new(b'V').u32(grid).u32(threads).u64(seed).u32(r.m).u32(r.k).f32(r.inv).u32s(&r.signs).f32s(&r.small).0
+    };
+    for (grid, threads, seed) in [(3u32, 96u32, 1u64), (4, 64, 2)] {
+        assert!(run(served(), &qkv(grid, threads, seed)) == run(persistent(), &qkv(grid, threads, seed)), "q/k/v, grid {grid}");
+    }
+    for (grid, threads) in [(3u32, 96u32), (5, 64)] {
+        let cmd = Cmd::new(b'W').u32(grid).u32(threads).u64(7).0;
+        assert!(run(served(), &cmd) == run(persistent(), &cmd), "o, grid {grid}");
+    }
+    // mutants
+    let e = Cmd::new(b'E').u32(1024).u32(2560).u32(517).u32(3).u64(0xe3b).0;
+    let b = mutant("embed_group", f, "const u32 g = s0 + (c >> 6);\n        dst[c]", "const u32 g = s0 + (c >> 7);\n        dst[c]");
+    assert!(run_mutant(&b, &e) != Some(run(served(), &e)), "the embedding's g64 group survived as g128");
+    let v = qkv(3, 96, 1);
+    let want = run(served(), &v);
+    let b = mutant("v_reads_rotated", f, "pers_q4_row(P.vw, P.vsc, P.vbi, xn,", "pers_q4_row(P.vw, P.vsc, P.vbi, ((void)xn, xr),");
+    assert!(run_mutant(&b, &v) != Some(want.clone()), "v reading the rotated input survived");
+    let b = mutant("k_offset", f, "const u32 rk = r - P.q_dout;", "const u32 rk = r - P.q_dout + 1u;");
+    assert!(run_mutant(&b, &v) != Some(want), "a k row offset survived");
+    let w = Cmd::new(b'W').u32(3).u32(96).u64(7).0;
+    let b = mutant("o_residual", f, "out[r] = exact_hadd(__ldcg(x + r), f2h(acc));", "out[r] = f2h(__fadd_rn(h2f(__ldcg(x + r)), acc));");
+    assert!(run_mutant(&b, &w) != Some(run(served(), &w)), "the o residual's binary16 rounding of o survived");
+}
+
 // ---- the L2 bench arms ------------------------------------------------------
 
 /// The served pattern on two layers (a Tetra down, then an int4-pattern one)

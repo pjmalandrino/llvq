@@ -598,4 +598,92 @@ __device__ __forceinline__ u32 pers_head_argmax(const u32* wq, const unsigned sh
     return ((0x3FFFFFu - (u32)(k & 0x3FFFFFu)) << 10) | (__brev(br) >> 22);
 }
 
+// ---------------------------------------------------------------------------
+// 9. 4E's per-layer phases around attention (persistent.md §3.9). Each writes
+//    what the served path writes, bit for bit, and is reused by the token
+//    loop: the embedding row, then ln1 + the q/k rotation + the q, k and v
+//    rows, then (after attention) the o rows and the residual.
+// ---------------------------------------------------------------------------
+
+// emb_q4_gather's row (emb_q4.cu): column c of token `tok`'s int4 g64 row,
+// rounded to binary16. Writes dst[c] for c in [lo, hi), any thread mapping.
+__device__ __forceinline__ void pers_embed(const u32* wq, const unsigned short* scales, const unsigned short* biases,
+                                           u32 tok, u32 d, u32 gpr, unsigned short* dst, u32 lo, u32 hi)
+{
+    const u32 w0 = tok * (d >> 3), s0 = tok * gpr;
+    for (u32 c = lo + threadIdx.x; c < hi; c += blockDim.x) {
+        const u32 q = (wq[w0 + (c >> 3)] >> ((c & 7u) * 4u)) & 0xfu;
+        const u32 g = s0 + (c >> 6);
+        dst[c] = f2h(pers_q4_deq(q, scales[g], biases[g]));
+    }
+}
+
+// One Tetra row of a projection whose staged input is `xs` (natural, stride
+// 24), through the epilogue, as a binary16.
+__device__ __forceinline__ unsigned short pers_tetra_out(const u32* words, u32 stride_u32, u32 nblocks, u32 tail_w,
+                                                         const float* rscale, const unsigned short* tail,
+                                                         const float* gscale, const F1rTables& tab,
+                                                         const float* invnorm, const float* xs, u32 r, u32 lane)
+{
+    const float acc = pers_tetra_row<24u, false, false>(words + r * stride_u32, tab, gscale, invnorm, xs, nblocks, lane);
+    return f2h(pers_epilogue(acc, rscale[r], tail + r * tail_w, xs + nblocks * 24u, tail_w));
+}
+
+// The q/k/v phase on one CTA. `xr` holds ln1(x) rotated (q and k read it),
+// `xn` ln1(x) widened in the natural basis (the int4 v reads it), both f32 in
+// shared memory. Rows [lo, hi) of the concatenation q | k | v are this CTA's;
+// q and k are Tetra under one rotation, v int4 g128, as at the 4B and 14B.
+struct Pers4eQkv {
+    const u32* qw; const float* qrs; const unsigned short* qtl; const float* qgs; u32 q_stride, q_dout;
+    const u32* kw; const float* krs; const unsigned short* ktl; const float* kgs; u32 k_stride, k_dout;
+    const u32* vw; const unsigned short* vsc; const unsigned short* vbi; u32 v_dout, v_gpr;
+    u32 nblocks, tail_w, d_in;
+    unsigned short *q, *k, *v;  // outputs, binary16
+};
+
+__device__ __forceinline__ void pers_4e_qkv_rows(const Pers4eQkv& P, const F1rTables& tab, const float* invnorm,
+                                                 const float* xr, const float* xn, u32 lo, u32 hi)
+{
+    const u32 lane = threadIdx.x & 31u;
+    pers_claim_reset(lo);
+    for (;;) {
+        const u32 r = pers_claim(lane, 1u);
+        if (r >= hi) break;
+        if (r < P.q_dout) {
+            const unsigned short y = pers_tetra_out(P.qw, P.q_stride, P.nblocks, P.tail_w, P.qrs, P.qtl, P.qgs, tab,
+                                                    invnorm, xr, r, lane);
+            if (lane == 0u) P.q[r] = y;
+        } else if (r < P.q_dout + P.k_dout) {
+            const u32 rk = r - P.q_dout;
+            const unsigned short y = pers_tetra_out(P.kw, P.k_stride, P.nblocks, P.tail_w, P.krs, P.ktl, P.kgs, tab,
+                                                    invnorm, xr, rk, lane);
+            if (lane == 0u) P.k[rk] = y;
+        } else {
+            const u32 rv = r - P.q_dout - P.k_dout;
+            const float acc = pers_q4_row(P.vw, P.vsc, P.vbi, xn, rv, P.d_in, P.v_gpr, lane);
+            if (lane == 0u) P.v[rv] = f2h(acc);
+        }
+    }
+    __syncthreads();
+}
+
+// The o phase: int4 g128 rows over the attention output `ctx` (binary16,
+// widened into `cs`), then out[r] = x[r] + o[r] as badd_f16 does.
+__device__ __forceinline__ void pers_4e_o_int4(const u32* ow, const unsigned short* osc, const unsigned short* obi,
+                                               u32 gpr, const unsigned short* ctx, float* cs, u32 d_ctx,
+                                               const unsigned short* x, unsigned short* out, u32 lo, u32 hi)
+{
+    __syncthreads();
+    for (u32 i = threadIdx.x; i < d_ctx; i += blockDim.x) cs[i] = h2f(__ldcg(ctx + i));
+    const u32 lane = threadIdx.x & 31u;
+    pers_claim_reset(lo);
+    for (;;) {
+        const u32 r = pers_claim(lane, 1u);
+        if (r >= hi) break;
+        const float acc = pers_q4_row(ow, osc, obi, cs, r, d_ctx, gpr, lane);
+        if (lane == 0u) out[r] = exact_hadd(__ldcg(x + r), f2h(acc));
+    }
+    __syncthreads();
+}
+
 #endif  // LLVQ_PERS_CUH
