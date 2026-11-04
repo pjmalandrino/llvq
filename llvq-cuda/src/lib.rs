@@ -52,6 +52,11 @@ pub mod shared;
 // a log line, so the arithmetic is tested where tests are free.
 pub mod occ;
 
+// Portable for the reason `occ` is: the persistent kernels' site list, slice
+// tables, barrier ledger and row judge. A grid one barrier short deadlocks on
+// a rented card, and a counter epoch one off reads stale rows without a hang.
+pub mod pers;
+
 // Portable because it can be: the QTIP comparison arm's host codec names no
 // crate at all — not even `llvq-core` — so unlike the other `*_host.rs` files
 // it is a module rather than an `include!`, and its tests run on the

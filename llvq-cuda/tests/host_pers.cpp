@@ -1,0 +1,473 @@
+// Drives the persistent kernels and the served kernels they must equal, on
+// the CPU, through host_grid.h. Built twice from this one file:
+//
+//   -DPERS_SIDE=0  the SERVED side: tv_tetra48_h, tv_q4_hh, rot_apply, a
+//                  line-by-line replay of candle's rmsnorm tree, and a replay
+//                  of tv_tetra48_h (`served_model`) whose three contractible
+//                  sites can be fused or not. Compiled with
+//                  -ffp-contract=off, so the served TEXT runs exactly as
+//                  written. The replay with nothing fused must equal that text
+//                  bit for bit (command 'U'), which proves it has the served
+//                  lane order, tiling and reduction; the replay with the three
+//                  fusions NVVM made in the served unit's PTX
+//                  (docs/mesures/ptx-probe-2026-11-04.txt §2) is the reference
+//                  the persistent side is held to. Host clang cannot stand in
+//                  for NVVM there: with -ffp-contract=fast it fuses the
+//                  epilogue but not `acc += t * invnorm` (measured on the dev
+//                  Mac, 2026-11-04: 9 of 16 rows matched the fused model).
+//   -DPERS_SIDE=1  the PERSISTENT side: llvq_pers.cuh, tetra48_pers.cu and
+//                  pers_segment.cu, also with -ffp-contract=off. Their
+//                  arithmetic is spelled with explicit intrinsics.
+//
+// tests/pers_matches_served.rs runs both on the same command and compares the
+// outputs byte for byte. Fixtures are generated here from a seed, by bit
+// construction only (no float multiply or add), so both builds generate the
+// same bytes whatever their contraction.
+//
+// stdin : u32 rows[4096], u8 pref[128], u16 br[1024], u8 suf[128], f32 invnorm[32]
+//         then one command (u32 tag, then its arguments)
+// stdout: the command's outputs, little-endian.
+
+#ifndef PERS_SIDE
+#error "build with -DPERS_SIDE=0 (served) or 1 (persistent)"
+#endif
+
+#include "host_grid.h"
+
+#define PERS_SPIN_LIMIT (1u << 14)
+#define TILE_BLOCKS 64u
+#include "../kernels/llvq_slot.cuh"
+#include "../kernels/matvec.cu"
+#include "../kernels/llvq_f1rank.cuh"
+#include "../kernels/llvq_f1rank_v3.cuh"
+#include "../kernels/llvq_tetra48.cuh"
+#include "../kernels/llvq_rot.cuh"
+#if PERS_SIDE == 0
+#include "../kernels/rotate.cu"
+// The served kernels write `f2h(<f32 value>)`. A binary16 output hides most
+// association changes (a 1-ulp f32 move survives the narrowing about once in
+// 8,192 rows), so the served side records the f32 argument, row by row,
+// without touching the expression: the macro only renames the call.
+static float* g_capture = nullptr;
+static inline unsigned short served_capture_f2h(float v) {
+    if (g_capture) g_capture[(blockIdx.x * blockDim.x + threadIdx.x) >> 5] = v;
+    return f2h(v);
+}
+#define f2h(v) served_capture_f2h(v)
+#include "../../llvq-llm/kernels/tv_tetra48_h.cu"
+#include "../../llvq-llm/kernels/tv_q4_h.cu"
+#undef f2h
+#else
+#include "../kernels/llvq_pers.cuh"
+#include "../kernels/tetra48_pers.cu"
+#include "../kernels/pers_segment.cu"
+#include "../../llvq-llm/kernels/tok_argmax.cu"
+#endif
+
+#include <algorithm>
+#include <cstdio>
+#include <cstdlib>
+#include <vector>
+
+// The served kernels' `extern __shared__` arrays, one CTA at a time.
+float xs[32768];
+float s[32768];
+
+// ---- I/O -------------------------------------------------------------------
+template <typename T>
+static std::vector<T> rd(size_t n) {
+    std::vector<T> v(n);
+    if (n && std::fread(v.data(), sizeof(T), n, stdin) != n) {
+        std::fprintf(stderr, "host_pers: truncated fixture\n");
+        std::exit(2);
+    }
+    return v;
+}
+template <typename T>
+static T rd1() {
+    return rd<T>(1)[0];
+}
+template <typename T>
+static void wr(const std::vector<T>& v) {
+    std::fwrite(v.data(), sizeof(T), v.size(), stdout);
+}
+
+// ---- fixtures, by bit construction ---------------------------------------
+struct Rng {
+    uint64_t s;
+    explicit Rng(uint64_t seed) : s(seed * 0x9E3779B97F4A7C15ull + 0x1234567ull) {}
+    uint64_t next() {
+        s ^= s >> 12;
+        s ^= s << 25;
+        s ^= s >> 27;
+        return s * 0x2545F4914F6CDD1Dull;
+    }
+    // binary16 with exponent field in [lo, hi], random sign and mantissa
+    unsigned short h16(unsigned lo, unsigned hi) {
+        uint64_t r = next();
+        unsigned e = lo + (unsigned)((r >> 20) % (hi - lo + 1));
+        return (unsigned short)(((r >> 40) & 1u) << 15 | e << 10 | (r & 0x3ffu));
+    }
+    // binary32 with exponent field in [lo, hi]
+    float f32(unsigned lo, unsigned hi, bool sign) {
+        uint64_t r = next();
+        unsigned e = lo + (unsigned)((r >> 32) % (hi - lo + 1));
+        unsigned b = (sign ? (unsigned)((r >> 60) & 1u) << 31 : 0u) | e << 23 | (unsigned)(r & 0x7fffffu);
+        return __uint_as_float(b);
+    }
+};
+
+static std::vector<u32> g_rows;
+static std::vector<unsigned char> g_pref, g_suf;
+static std::vector<unsigned short> g_br;
+static std::vector<float> g_inv;
+
+static F1rTables tables() { return F1rTables{g_rows.data(), g_pref.data(), g_br.data(), g_suf.data()}; }
+
+// One Tetra matrix of the served stream, generated from a seed.
+struct TMat {
+    u32 d_out, nblocks, tail_w, stride;
+    std::vector<u32> words;
+    std::vector<float> rscale, gscale;
+    std::vector<unsigned short> tail;
+};
+static TMat tmat(u32 d_out, u32 d_in, uint64_t seed) {
+    Rng r(seed);
+    TMat m;
+    m.d_out = d_out;
+    m.nblocks = d_in / 24;
+    m.tail_w = d_in % 24;
+    m.stride = (6 * m.nblocks + 7) / 8 * 2;
+    m.words.resize((size_t)d_out * m.stride);
+    for (auto& w : m.words) w = (u32)r.next();
+    m.rscale.resize(d_out);
+    for (auto& v : m.rscale) v = r.f32(119, 123, false);
+    m.gscale = {r.f32(126, 126, false), r.f32(127, 127, false)};
+    m.tail.resize((size_t)d_out * m.tail_w);
+    for (auto& v : m.tail) v = r.h16(7, 12);
+    return m;
+}
+// The f32 activation a Tetra row reads: the rotated vector, full binary32
+// precision. Widened binary16 values would hide site 2: a binary16 tail times
+// a binary16 value is exact, so its contraction could not show.
+static std::vector<float> act(u32 n, uint64_t seed) {
+    Rng r(seed);
+    std::vector<float> x(n);
+    for (auto& v : x) v = r.f32(122, 128, true);
+    return x;
+}
+static std::vector<unsigned short> act_h(u32 n, uint64_t seed, unsigned lo = 11, unsigned hi = 16) {
+    Rng r(seed);
+    std::vector<unsigned short> x(n);
+    for (auto& v : x) v = r.h16(lo, hi);
+    return x;
+}
+
+// ---- served side -----------------------------------------------------------
+#if PERS_SIDE == 0
+static std::vector<unsigned short> served_tetra(const TMat& m, const std::vector<float>& x, float* f32_out = nullptr) {
+    std::vector<unsigned short> y(m.d_out);
+    const F1rTables t = tables();
+    g_capture = f32_out;
+    hostgrid::launch_seq(m.d_out / 8, 256, [&] {
+        tv_tetra48_h(m.words.data(), m.stride, t.rows, t.prefixes, t.branches, t.suffixes, m.gscale.data(),
+                     g_inv.data(), m.rscale.data(), m.tail.data(), x.data(), y.data(), m.nblocks, m.tail_w);
+    });
+    g_capture = nullptr;
+    return y;
+}
+
+// tv_tetra48_h, replayed: lane l adds blocks l, l+32, ... (the tile of 64 is
+// a multiple of 32, so the order runs straight across tiles), the 24-term
+// chain of tetra48_dot, then the xor butterfly, the f16 tail, the epilogue.
+// `fused` makes the three contractible sites single roundings, as the served
+// unit's PTX has them; unfused, each is a rounded product and a rounded sum,
+// as the source reads without contraction.
+static std::vector<unsigned short> served_model(const TMat& m, const std::vector<float>& x, float* f32_out, bool fused) {
+    const F1rTables t = tables();
+    std::vector<unsigned short> y(m.d_out);
+    for (u32 row = 0; row < m.d_out; ++row) {
+        const u32* wrow = m.words.data() + (size_t)row * m.stride;
+        float lanes[32];
+        for (u32 l = 0; l < 32; ++l) {
+            float acc = 0.0f;
+            for (u32 j = l; j < m.nblocks; j += 32u) {
+                u32 lo, hi16, q[6];
+                f1r_load(wrow, j, lo, hi16);
+                f1r_v3_quads(lo, hi16, t, q);
+                float ab = 0.0f;
+                for (u32 i = 0; i < 6u; ++i)
+                    for (u32 k = 0; k < 4u; ++k) ab = __fmaf_rn(f1r_v3_float(q[i], k), x[j * 24u + TETRA48_ORDER[4u * i + k]], ab);
+                const u32 mm = (tetra48_n2(q) >> 4) & (TETRA48_SHELLS - 1u);
+                const float tt = __fmul_rn(ab, m.gscale[(hi16 >> 15) & 1u]);
+                acc = fused ? __fmaf_rn(tt, g_inv[mm], acc) : __fadd_rn(acc, __fmul_rn(tt, g_inv[mm]));
+            }
+            lanes[l] = acc;
+        }
+        for (int k = 16; k > 0; k >>= 1) {
+            float n[32];
+            for (u32 l = 0; l < 32; ++l) n[l] = __fadd_rn(lanes[l], lanes[l ^ (u32)k]);
+            for (u32 l = 0; l < 32; ++l) lanes[l] = n[l];
+        }
+        float tv = 0.0f;
+        for (u32 i = 0; i < m.tail_w; ++i) {
+            const float h = h2f(m.tail[(size_t)row * m.tail_w + i]), xi = x[m.nblocks * 24u + i];
+            tv = fused ? __fmaf_rn(h, xi, tv) : __fadd_rn(tv, __fmul_rn(h, xi));
+        }
+        const float v = fused ? __fmaf_rn(lanes[0], m.rscale[row], tv) : __fadd_rn(__fmul_rn(lanes[0], m.rscale[row]), tv);
+        if (f32_out) f32_out[row] = v;
+        y[row] = f2h(v);
+    }
+    return y;
+}
+
+// The reference every comparison uses: the served kernel as NVVM compiled it.
+static std::vector<unsigned short> served_ref(const TMat& m, const std::vector<float>& x, float* f32_out = nullptr) {
+    return served_model(m, x, f32_out, true);
+}
+
+// candle-kernels 0.9.2 reduce.cu:187-228, one row, BLOCK virtual threads,
+// replayed in candle's order. VARIANT 0: `tmp += xi * xi` contracted to an
+// fma; 1: not.
+static float candle_rms_scale(const unsigned short* x, u32 ncols, float eps, int variant) {
+    const u32 block = ncols < 1024u ? 32u : 1024u;
+    std::vector<float> tmp(block, 0.0f);
+    for (u32 t = 0; t < block; ++t)
+        for (u32 col = t; col < ncols; col += block) {
+            const float xi = h2f(x[col]);
+            tmp[t] = variant == 0 ? std::fma(xi, xi, tmp[t]) : __fadd_rn(tmp[t], __fmul_rn(xi, xi));
+        }
+    auto butterfly = [](std::vector<float>& v, u32 base) {
+        for (int mask = 16; mask > 0; mask >>= 1) {
+            float nv[32];
+            for (u32 l = 0; l < 32; ++l) nv[l] = __fadd_rn(v[base + l], v[base + (l ^ (u32)mask)]);
+            for (u32 l = 0; l < 32; ++l) v[base + l] = nv[l];
+        }
+    };
+    for (u32 w = 0; w < block / 32; ++w) butterfly(tmp, w * 32);
+    float total;
+    if (block > 32u) {
+        std::vector<float> s_sum(32);
+        for (u32 w = 0; w < 32; ++w) s_sum[w] = tmp[w * 32];  // lane 0 of each warp
+        butterfly(s_sum, 0);
+        total = s_sum[0];
+    } else {
+        total = tmp[0];
+    }
+    const float mean = __fdiv_rn(total, (float)ncols);
+    return rsqrtf(__fadd_rn(mean, eps));
+}
+#endif
+
+// ---- persistent side: test kernels over the header's functions ------------
+#if PERS_SIDE == 1
+template <u32 STRIDE, bool TRIO, bool PREFETCH>
+static void pers_rows(const TMat& m, const std::vector<float>& x, std::vector<unsigned short>& y,
+                      std::vector<float>& dbg, unsigned grid, unsigned threads, uint64_t seed) {
+    const F1rTables t = tables();
+    const u32 n = m.nblocks * STRIDE + m.tail_w;
+    hostgrid::launch_coop(grid, threads, PERS_SMEM_HEADER + 4 * n + 16, seed, [&] {
+        float* xsp = reinterpret_cast<float*>(PERS_SMEM_BASE() + PERS_SMEM_HEADER);
+        pers_stage_f32<STRIDE, TRIO>(x.data(), xsp, m.nblocks, m.tail_w);
+        const u32 lo = (u32)((uint64_t)m.d_out * blockIdx.x / gridDim.x);
+        const u32 hi = (u32)((uint64_t)m.d_out * (blockIdx.x + 1) / gridDim.x);
+        pers_claim_reset(lo);
+        const u32 lane = threadIdx.x & 31u;
+        for (;;) {
+            const u32 r = pers_claim(lane, 1u);
+            if (r >= hi) break;
+            const float acc = pers_tetra_row<STRIDE, TRIO, PREFETCH>(m.words.data() + (size_t)r * m.stride, t,
+                                                                     m.gscale.data(), g_inv.data(), xsp, m.nblocks,
+                                                                     lane);
+            if (lane == 0u) {
+                const float v = pers_epilogue(acc, m.rscale[r], m.tail.data() + (size_t)r * m.tail_w,
+                                              xsp + m.nblocks * STRIDE, m.tail_w);
+                dbg[r] = v;
+                y[r] = f2h(v);
+            }
+        }
+        __syncthreads();
+    });
+}
+#endif
+
+int main() {
+    g_rows = rd<u32>(4096);
+    g_pref = rd<unsigned char>(128);
+    g_br = rd<unsigned short>(1024);
+    g_suf = rd<unsigned char>(128);
+    g_inv = rd<float>(32);
+    const u32 tag = rd1<u32>();
+
+    if (tag == 'R') {
+        // ROTATION: n, m, k, inv, threads, seed; then u32 signs[n/32], f32 small[KMAX*KMAX]
+        const u32 n = rd1<u32>(), m = rd1<u32>(), k = rd1<u32>();
+        const float inv = rd1<float>();
+        const u32 threads = rd1<u32>();
+        const uint64_t seed = rd1<uint64_t>();
+        const auto signs = rd<u32>(n / 32);
+        const auto small = rd<float>(LLVQ_ROT_KMAX * LLVQ_ROT_KMAX);
+        // the whole binary16 range: inputs that span a few binades add
+        // exactly inside a lane, and stage order could not show
+        const auto xin = act_h(n, seed, 1, 29);
+        std::vector<float> out(n);
+#if PERS_SIDE == 0
+        hostgrid::launch_seq(1, threads, [&] {
+            rot_apply(xin.data(), signs.data(), small.data(), out.data(), n, m, k, inv, 0u);
+        });
+#else
+        hostgrid::launch_coop(1, threads, PERS_SMEM_HEADER + 4 * n, seed, [&] {
+            float* sp = reinterpret_cast<float*>(PERS_SMEM_BASE() + PERS_SMEM_HEADER);
+            pers_rot_load(xin.data(), signs.data(), sp, n);
+            pers_rot_finish(sp, small.data(), n, m, k, inv);
+            for (u32 i = threadIdx.x; i < n; i += blockDim.x) out[i] = sp[i];
+        });
+#endif
+        wr(out);
+    } else if (tag == 'M') {
+        // MIX on a given vector: m, k, inv, then f32 s[k*m], f32 small[KMAX*KMAX]
+        const u32 m = rd1<u32>(), k = rd1<u32>();
+        const float inv = rd1<float>();
+        auto sv = rd<float>((size_t)k * m);
+        const auto small = rd<float>(LLVQ_ROT_KMAX * LLVQ_ROT_KMAX);
+        std::vector<float> out((size_t)k * m);
+#if PERS_SIDE == 0
+        hostgrid::launch_seq(1, 32, [&] { rot_mix(sv.data(), small.data(), out.data(), m, k, inv, threadIdx.x, 32u); });
+#else
+        hostgrid::launch_coop(1, 32, PERS_SMEM_HEADER, 0, [&] {
+            for (u32 j = threadIdx.x; j < m; j += 32u) pers_mix_column(sv.data(), small.data(), m, k, inv, j);
+        });
+        out = sv;
+#endif
+        wr(out);
+    } else if (tag == 'N') {
+        // NORM: ncols, eps, variant, threads, seed
+        const u32 ncols = rd1<u32>();
+        const float eps = rd1<float>();
+        const u32 variant = rd1<u32>(), threads = rd1<u32>();
+        const uint64_t seed = rd1<uint64_t>();
+        const auto x = act_h(ncols, seed, 10, 17);
+        const auto alpha = act_h(ncols, seed + 1, 13, 16);
+        std::vector<unsigned short> y(ncols);
+        std::vector<float> scale(1);
+#if PERS_SIDE == 0
+        (void)threads;
+        scale[0] = candle_rms_scale(x.data(), ncols, eps, (int)variant);
+        for (u32 i = 0; i < ncols; ++i) y[i] = f2h(__fmul_rn(__fmul_rn(scale[0], h2f(x[i])), h2f(alpha[i])));
+#else
+        hostgrid::launch_coop(1, threads, PERS_SMEM_HEADER, seed, [&] {
+            const float sc = variant == 0 ? exact_rms_scale<0>(x.data(), ncols, eps)
+                                          : exact_rms_scale<1>(x.data(), ncols, eps);
+            for (u32 i = threadIdx.x; i < ncols; i += blockDim.x) y[i] = exact_rms_apply(sc, x[i], alpha[i]);
+            if (threadIdx.x == 0) scale[0] = sc;
+        });
+#endif
+        wr(y);
+        wr(scale);
+    } else if (tag == 'T') {
+        // TETRA ROWS: d_out, d_in, variant (0 natural/24, 1 natural/25, 2 trio/28, 3 trio/28 prefetch),
+        // grid, threads, seed
+        const u32 d_out = rd1<u32>(), d_in = rd1<u32>(), variant = rd1<u32>(), grid = rd1<u32>(),
+                  threads = rd1<u32>();
+        const uint64_t seed = rd1<uint64_t>();
+        const TMat m = tmat(d_out, d_in, seed);
+        const auto x = act(d_in, seed + 7);
+        std::vector<unsigned short> y(d_out, 0xFFFFu);
+        std::vector<float> dbg(d_out, 0.0f);
+#if PERS_SIDE == 0
+        (void)variant;
+        (void)grid;
+        (void)threads;
+        y = served_ref(m, x, dbg.data());
+#else
+        switch (variant) {
+        case 0: pers_rows<24u, false, false>(m, x, y, dbg, grid, threads, seed); break;
+        case 1: pers_rows<25u, false, false>(m, x, y, dbg, grid, threads, seed); break;
+        case 2: pers_rows<28u, true, false>(m, x, y, dbg, grid, threads, seed); break;
+        default: pers_rows<28u, true, true>(m, x, y, dbg, grid, threads, seed); break;
+        }
+#endif
+        wr(y);
+        wr(dbg);
+    } else if (tag == 'U') {
+        // The replay with nothing fused against the served text, and the
+        // replay fused: y and f32 of each, in that order. d_out, d_in, seed.
+        const u32 d_out = rd1<u32>(), d_in = rd1<u32>();
+        const uint64_t seed = rd1<uint64_t>();
+        const TMat m = tmat(d_out, d_in, seed);
+        const auto x = act(d_in, seed + 7);
+        std::vector<float> f_text(d_out), f_off(d_out), f_on(d_out);
+#if PERS_SIDE == 0
+        const auto y_text = served_tetra(m, x, f_text.data());
+        const auto y_off = served_model(m, x, f_off.data(), false);
+        const auto y_on = served_model(m, x, f_on.data(), true);
+#else
+        std::vector<unsigned short> y_text(d_out), y_off(d_out), y_on(d_out);
+#endif
+        wr(y_text); wr(f_text); wr(y_off); wr(f_off); wr(y_on); wr(f_on);
+    } else if (tag == 'Q') {
+        // INT4 ROWS: d_out, d_in, grid, threads, seed
+        const u32 d_out = rd1<u32>(), d_in = rd1<u32>(), grid = rd1<u32>(), threads = rd1<u32>();
+        const uint64_t seed = rd1<uint64_t>();
+        Rng r(seed);
+        const u32 gpr = d_in / 128u;
+        std::vector<u32> wq((size_t)d_out * d_in / 8);
+        for (auto& w : wq) w = (u32)r.next();
+        std::vector<unsigned short> sc((size_t)d_out * gpr), bi((size_t)d_out * gpr);
+        for (auto& v : sc) v = r.h16(6, 10);
+        for (auto& v : bi) v = r.h16(8, 12);
+        const auto xh = act_h(d_in, seed + 3);
+        std::vector<unsigned short> y(d_out, 0xFFFFu);
+        std::vector<float> dbg(d_out, 0.0f);
+#if PERS_SIDE == 0
+        (void)grid;
+        (void)threads;
+        g_capture = dbg.data();
+        hostgrid::launch_seq(d_out / 8, 256, [&] { tv_q4_hh(wq.data(), sc.data(), bi.data(), xh.data(), y.data(), d_in, gpr); });
+        g_capture = nullptr;
+#else
+        hostgrid::launch_coop(grid, threads, PERS_SMEM_HEADER + 4 * d_in, seed, [&] {
+            float* xsp = reinterpret_cast<float*>(PERS_SMEM_BASE() + PERS_SMEM_HEADER);
+            for (u32 i = threadIdx.x; i < d_in; i += blockDim.x) xsp[i] = h2f(xh[i]);
+            const u32 lo = (u32)((uint64_t)d_out * blockIdx.x / gridDim.x);
+            const u32 hi = (u32)((uint64_t)d_out * (blockIdx.x + 1) / gridDim.x);
+            pers_claim_reset(lo);
+            const u32 lane = threadIdx.x & 31u;
+            for (;;) {
+                const u32 row = pers_claim(lane, 1u);
+                if (row >= hi) break;
+                const float acc = pers_q4_row(wq.data(), sc.data(), bi.data(), xsp, row, d_in, gpr, lane);
+                if (lane == 0u) {
+                    dbg[row] = acc;
+                    y[row] = f2h(acc);
+                }
+            }
+            __syncthreads();
+        });
+#endif
+        wr(y);
+        wr(dbg);
+    } else if (tag == 'B') {
+#include "host_pers_bench.inc"
+    } else if (tag == 'S') {
+#include "host_pers_segment.inc"
+    } else if (tag == 'K') {
+        // KEY: the persistent key against tok_argmax.cu's, every binary16
+        // pattern at a spread of indices. Writes the number of mismatches.
+        std::vector<u32> bad(1, 0u);
+#if PERS_SIDE == 1
+        const u32 idx[] = {0u, 1u, 2u, 511u, 512u, 1023u, 1024u, 1025u, 4096u + 7u, 151935u, 151936u - 1024u, 77777u};
+        for (u32 b = 0; b < 65536u; ++b)
+            for (u32 i : idx) {
+                if (pers_tie_key(b, i) != tie_key(b, i)) ++bad[0];
+                if (pers_is_nan16(b) != is_nan16(b)) ++bad[0];
+            }
+#endif
+        wr(bad);
+    } else {
+        std::fprintf(stderr, "host_pers: unknown command %u\n", tag);
+        return 2;
+    }
+    std::fprintf(stderr, "host_pers: %llu fiber switches\n", hostgrid::switches);
+    return 0;
+}
