@@ -1,0 +1,42 @@
+The grouped attention on the sealed 8B, 2026-11-04
+
+Result: on the sealed 8B, the grouped form keeps WikiText-2 perplexity inside the 4B's +-0.12 % band by both paths,
++0.0000 % [+0.0000 ; +0.0000] by prefill and -0.0048 % [-0.0117 ; +0.0021] by decode, and decodes faster at every
+length: x1.076 after a 5-token prompt, x1.338 at 2,048, x1.518 at 4,096, x2.156 at 8,192, from 31.0 to 66.9 tok/s
+(*measured*, ratios formed round by round). Rule R1 of the prereg: the extension of the T8 grant to the 8B is
+proposed to the operator, who decides.
+
+Job      : 6aeb209ec78863f9c6327d2b, l40sx1, 2,622 s running, $1.31 (*computed* at $1.80/h).
+Image    : Space sha ef658736a8eb3e9e6fa0a4cf22ecbc486d8bc78f; its llvq-llm sources are those of 06e1602.
+Prereg   : proofs/preregistration-gqa-8b-2026-11-04.md, sha256 0649a7e0..., OpenTimestamps stamped before; launched
+           after the 4B GSM8K grouped run read G1 (gsm8k-grouped-2026-11-04.txt).
+Object   : sealed 8B, sealed-8b27-2026-09-24/qwen3-8b-sealed-B.bin, 2,815,098,745 B, sha256 7bdb9a55...; config
+           qwen3-8b-tetra-e4.json (6f0d489f...), the paper-table run 2 config, set through its bench variables.
+Raw      : gqa-8b-2026-11-04-brut/ (published-q4-256.txt, gqa-ab-256.txt, gqa-ppl.txt, oracle, files.sha256).
+
+Gates (all passed, *measured*): oracle MATCH; object and config at their sha256; the published arm replayed, 256
+tokens identical to the dense arm and the decoded line identical to paper-table run 2, so the 2026-10-30 trims hold
+on the 8B's untied head; four lengths, three arms, logit and speed lines complete; decode over prefill on the
+published arm, ppl ratio 1.00001.
+
+Speed, LLVQ_GQA_AB, 256 new tokens, 1 discarded and 5 kept decodes an arm, every arm in every round (*measured*):
+  prompt   cat+expanded        grow(256)+shared             grow(256)+grouped            text
+     5     98.9 [98.6-99.0]    96.6  x0.9775 [0.9751-0.9783]  106.4 x1.0758 [1.0751-1.0770]  identical
+  2048     70.1 [70.0-70.1]    83.7  x1.1943 [1.1942-1.1946]   93.7 x1.3382 [1.3376-1.3387]  identical
+  4096     53.8 [53.7-53.9]    72.9  x1.3547 [1.3529-1.3578]   81.8 x1.5184 [1.5160-1.5253]  identical
+  8192     31.0 [31.0-31.0]    54.6  x1.7641 [1.7601-1.7642]   66.9 x2.1563 [2.1517-2.1595]  identical
+Signed predictions 1.08 / 1.32 / 1.51 / 2.18: all four inside their intervals.
+
+Perplexity, LLVQ_GQA_PPL=4096,12, WikiText-2, tokens 3f1baca9033bf251 (*measured*):
+  path      cat+expanded   grow(256)+grouped   grouped / published - 1, paired 95 % t interval over 12 windows
+  prefill   9.7066         9.7066              +0.0000 % [+0.0000 ; +0.0000]
+  decode    9.7067         9.7063              -0.0048 % [-0.0117 ; +0.0021]
+  decode top-1 agreement 49,050 of 49,140 steps (99.817 %), max |dlogit| 5.417
+
+Rule reading (prereg section 7): R1. Both intervals inside +-0.12 %, and the grouped / published range above 1.000 at
+all four lengths. Proposed: extend the T8 grant to the 8B. On the operator's yes, a config
+configs/qwen3-8b-tetra-e4-grouped.json and a served-door sweep under its own prereg; GSM8K through the kernel under
+that config (about $2.2, *estimated*) is owed before the config is quoted beside a task score.
+
+Not established: the 8B's GSM8K or MMLU under the grouped form; the 14B; Metal, which refuses the form; any card but
+the L40S.

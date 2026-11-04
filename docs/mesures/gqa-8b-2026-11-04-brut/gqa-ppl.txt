@@ -1,0 +1,31 @@
+Cuda(CudaDevice(DeviceId(1))), dtype F16, 32 tokens
+
+shared rotation: 1 (LLVQ_ROT_SHARE), 127 rot_launches/token for 252 projections
+projection fusion: 0 (LLVQ_FUSE), 252 matvec_launches/token for 252 projections (0 groups + 199 lone + 53 int4)
+fused layout: tetra48 (LLVQ_FUSED_LAYOUT), projections 2.06 GB on the card, 2.377 b/weight (INFERENCE accounting: KeepExact tail in binary16; the bench bills its own in f32)
+NVRTC source: 101625 bytes, sha256 6193094310bc18acdb0a0c554807ff45f6df09c1f6ab49e0577032874f107812 (11 parts), tile 64 (served: measured optimum for sm_89), prefill 4x128 (served pair), 49152 B staged of 49152, target compute_89
+int4: tv_q4_hh equals tv_q4_h bit for bit on model.layers.0.self_attn.v_proj.weight (1024 rows, d_in 4096)
+embedding: q4 g64 (LLVQ_EMBED), 2 tables (model.embed_tokens.weight + lm_head.weight), 700.1 MB on the card (int4 622.3 + scales/biases 77.8)
+total expected on the card: 2.76 GB (projections 2.06 + carried 0.70)
+loaded in 7.7 s. GQA perplexity: 2 arms, one model
+LLVQ_ROT_SHARE=1, 127 rot_launches/token · LLVQ_FUSE=0, 252 matvec_launches/token
+cudarc event tracking: off (one stream, ordered by issue)
+GQA perplexity: wikitext2, 12 windows of 4096 (tokens 3f1baca9033bf251), grow(256)+grouped against cat+expanded, prefill path then decode path in lockstep
+  window   1/12  prefill nll 2.271165532 2.271165532  decode nll 2.271168530 2.271079244  top-1 4084/4095  max |dlogit| 2.562e0  (154 s)
+  window   2/12  prefill nll 2.613544051 2.613544051  decode nll 2.613587746 2.613694470  top-1 4085/4095  max |dlogit| 8.345e-1  (308 s)
+  window   3/12  prefill nll 2.004020480 2.004020480  decode nll 2.004060587 2.004161805  top-1 4087/4095  max |dlogit| 1.312e0  (461 s)
+  window   4/12  prefill nll 1.812097570 1.812097570  decode nll 1.812143949 1.812076568  top-1 4089/4095  max |dlogit| 8.320e-1  (614 s)
+  window   5/12  prefill nll 2.363612494 2.363612494  decode nll 2.363646786 2.363520702  top-1 4085/4095  max |dlogit| 5.781e-1  (767 s)
+  window   6/12  prefill nll 2.281799928 2.281799928  decode nll 2.281841114 2.281840716  top-1 4085/4095  max |dlogit| 5.417e0  (921 s)
+  window   7/12  prefill nll 2.348730826 2.348730826  decode nll 2.348649199 2.348514301  top-1 4082/4095  max |dlogit| 1.438e0  (1074 s)
+  window   8/12  prefill nll 2.360090430 2.360090430  decode nll 2.360052235 2.360168421  top-1 4092/4095  max |dlogit| 4.492e-1  (1228 s)
+  window   9/12  prefill nll 2.493613114 2.493613114  decode nll 2.493592001 2.493487660  top-1 4089/4095  max |dlogit| 8.281e-1  (1382 s)
+  window  10/12  prefill nll 2.012838637 2.012838637  decode nll 2.012969950 2.012823098  top-1 4093/4095  max |dlogit| 4.987e0  (1535 s)
+  window  11/12  prefill nll 2.411675824 2.411675824  decode nll 2.411643532 2.411438673  top-1 4090/4095  max |dlogit| 9.746e-1  (1689 s)
+  window  12/12  prefill nll 2.300470753 2.300470753  decode nll 2.300478617 2.300454411  top-1 4089/4095  max |dlogit| 1.176e0  (1843 s)
+
+  path      ppl cat+expanded      ppl grow(256)+grouped   grouped / published − 1, paired 95 % t interval over 12 windows
+  prefill   9.7066                9.7066                  +0.0000 % [+0.0000 ; +0.0000]
+  decode    9.7067                9.7063                  -0.0048 % [-0.0117 ; +0.0021]
+  harness: decode over prefill on the published arm, ppl ratio 1.00001
+  decode top-1 agreement 49050/49140 steps (99.817 %), max |dlogit| 5.417e0
