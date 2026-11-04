@@ -4,6 +4,7 @@
 #
 #   DRY_RUN=1 bash ops/jobs/bigmodel-identity.sh                prints and parses the job script
 #   IMAGE_SHA=<space sha> bash ops/jobs/bigmodel-identity.sh    launches, after the operator's go
+#   IMAGE_SHA=<sha> EMIT=<file> bash ops/jobs/bigmodel-identity.sh  writes the job script for ops/jobs/lot1.sh
 #
 # Three steps in one job: oracle; rotbench (K0 and R0, 14 widths, hashes against the compiled-in fixture, rows
 # twins, 5 interleaved rounds); fusedrun with LLVQ_INT4_WIDE_CHECK=1 on the sealed 4B (tv_q4_hs against tv_q4_hh on
@@ -93,6 +94,14 @@ echo 'gates 3 and 7 hold'
 echo "== outcomes: rotbench exit $RB, int4 check exit $FR (0 = every comparison equal) =="
 echo '== raw kept ==' ; ls -la "$O" ; wc -l "$O"/*.txt
 JOB
+
+# EMIT=<file>: write the job script to <file> and launch nothing. ops/jobs/lot1.sh runs it as one part
+# of a lot job on one card. Every check above has run, a launch's included unless DRY_RUN=1.
+if [ -n "${EMIT:-}" ]; then
+  printf 'set -euo pipefail\n%s\n%s\n' "$PRE" "$BODY" > "$EMIT"
+  bash -n "$EMIT" && echo "EMIT: job script written to $EMIT; nothing launched" >&2
+  exit 0
+fi
 
 if [ "$DRY" = 1 ]; then
   JOBSCRIPT="set -euo pipefail
