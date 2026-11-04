@@ -1,0 +1,81 @@
+F16 ALONE MOVES THE SEALED 4B BY +0.022 % [-0.035 ; +0.080] ON METAL: INSIDE +-0.12 %, NOT INSIDE +-0.02 %, SO RULE B: THE INJECTION CONTROL DECIDES AS WRITTEN (2026-11-04)
+====================================================================================================================================================================
+Prereg: proofs/preregistration-s1-f32-metal-2026-11-04.md, sha256 d26d02bb, stamped with `ots stamp`
+        at 11:02:35Z, before the oracle (11:02:52Z) and both arms. Not committed.
+Deviations: two, in proofs/preregistration-s1-f32-metal-2026-11-04-ECARTS.md. É1: the shared
+        worktree moved to fa5e739 during the build; no source linked into the binaries differs from
+        06e1602. É2: the pairing script is a scratch file, checked on a published pair first.
+Cost:   $0. Apple M3 Max, macOS 26.6.2, under nice 10. Oracle 36 s, arm F32 178.6 s of windows,
+        arm F16 219.3 s; 8 min 21 s wall in all. Project total unchanged: $248.84.
+Object: ~/q4b-sealed-2026-09-23/qwen3-4b-sealed.bin, sha256 886391a8c03f66dc... (full digest in
+        env.txt), the published one.
+Binary: ppl sha256 5f3ff087c2dab878..., the same file for both arms; oracle 3b41a1da...
+Nature: *measured* for the two perplexities and the window NLLs; the paired intervals, ratios and
+        counts are *computed* from the printed window NLLs.
+Raw:    docs/mesures/s1-f32-metal-2026-11-04-brut/ (env.txt, oracle-metal.txt, ppl-f32.txt,
+        ppl-f16.txt with stderr, pair.py, pair.txt, pair-selfcheck.txt, files.sha256).
+
+GATES, ALL PASSED
+-----------------
+  1. oracle, Qwen3-4B on Metal, f32, 47 tokens: max |dhidden| = 0, MATCH.
+  2. sealed file sha256 886391a8..., equal to ppl-scelles-2026-10-04-brut/files.sha256.
+  3. both arms: fingerprint 3f1baca9033bf251, 12 window lines with n 4095, header dtype f32 and
+     dtype f16 respectively, device Metal.
+  4. no LLVQ_* in the parent environment; LLVQ_DTYPE=f16 on arm F16 only; LLVQ_THREADS=12, read by
+     no binary run here.
+  5. one ppl binary for both arms, by sha256.
+  6. card file ppl-scelles-2026-10-04-brut/ppl-4b.txt, sha256 af8d3213..., recorded in env.txt
+     before the pairing.
+
+RESULT
+------
+  arm                         ppl
+  Metal f32 (F32)            12.5783
+  Metal f16 (F16)            12.5811
+  card f16, 2026-10-04       12.5834   (L40S, ppl-scelles-2026-10-04; not rerun)
+
+  pair                                 mean dNLL      CI95, paired t, 12 windows   as ppl ratio                     worse
+  F16 minus F32, Metal (primary)       +0.000225      [-0.000353, +0.000802]       +0.0225 % [-0.0353, +0.0803] %   6 of 12
+  card f16 minus Metal f16 (second.)   +0.000181      [-0.000231, +0.000592]       +0.0181 % [-0.0231, +0.0592] %   7 of 12
+
+  Largest per-window difference: +0.00189 nats (window 7) on the primary pair, +0.00186 (window 6)
+  on the secondary. Per-window sd 0.00091 and 0.00065 nats.
+
+THE PREDICTIONS
+---------------
+  quantity                                    predicted                 measured     inside?
+  Metal f32 ppl                               12.58 [12.55, 12.62]      12.5783      yes
+  Metal f16 ppl                               12.58 [12.55, 12.62]      12.5811      yes
+  F16 over F32 - 1, paired, point             +0.005 % [-0.02, +0.03]   +0.0225 %    yes
+  windows worse under f16                     7 [4, 10]                 6            yes
+  paired interval inside [-0.02 %, +0.02 %]   yes                       no           NO
+  secondary, card over Metal f16 - 1, point   +0.000 % [-0.02, +0.02]   +0.0181 %    yes
+
+The miss is the width, not the centre. The point sits inside its predicted interval; the paired
+interval is 0.116 % wide, three times the 0.04 % of the +-0.02 % band it was predicted to fit. The
+prediction leaned on the 8B's device pair, whose interval was 0.019 % wide. On the 4B the
+per-window scatter is larger: the device pair at f16 alone is 0.082 % wide here, four times the
+8B's.
+
+THE DECISION RULE (prereg §6)
+-----------------------------
+  V: no gate failed.
+  A: the interval [-0.0353 %, +0.0803 %] does not lie inside [-0.02 %, +0.02 %]. Not met.
+  B: it lies inside [-0.12 %, +0.12 %]. Met.
+
+Rule B: the injection control (prereg-brick-1, step S3) decides as written, and the f16 effect is
+journaled beside U1. The noise-power dominance argument is not upgraded to a confirmation: f16
+everywhere is not resolved from zero on this object, but its interval is wide enough that a smaller
+perturbation is not shown to be negligible at the +-0.02 % scale either.
+
+Side reading, reported and not gated: the device effect at f16 on the 4B, [-0.023 %, +0.059 %],
+is as wide as the dtype effect. Every published 4B perplexity is f16 on a card; f16 against f32 and
+Metal against the card both move it by a few hundredths of a percent and neither is resolved.
+
+WHAT THIS DOES NOT ESTABLISH
+----------------------------
+  - The int16 effect itself: S3 measures it.
+  - Which of f16 weights, f16 arithmetic or the f16 KV cache carries the difference: LLVQ_DTYPE
+    moves all three, and the KV cache follows the model dtype (kvq.rs:44-46).
+  - Anything through the kernel, at 8B or 14B, or on another file.
+  - Whether a rerun of the same arm on Metal is bit for bit: each arm ran once.

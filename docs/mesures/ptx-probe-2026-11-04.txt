@@ -1,0 +1,93 @@
+THE SERVED TETRA DECODE KERNEL READS ITS STAGED ACTIVATION AS SIX ld.shared.v4.f32 A BLOCK, AND NVVM EMITS fma.rn.f32 AT ALL THREE CONTRACTIBLE SITES: NO BARE mul/add PAIR IS LEFT TO THE DRIVER (2026-11-04)
+=================================================================================================================================================================================================
+Prereg: none. A deterministic read of compiler output (persistent.md §5, step L1a).
+Cost:   $0, no card. Docker Desktop on the Mac, image python:3.12-slim linux/amd64
+        (sha256:414a3989...), pip nvidia-cuda-nvrtc-cu12==12.4.127, under emulation. 8 s wall for
+        install plus two compiles.
+Tool:   wave5-deep/code/persistent/ptx_probe.py, the 2026-11-02 draft, read in full and run unchanged
+        (sha256 bb063bab...), with LD_LIBRARY_PATH set to the wheel's lib directory so NVRTC finds
+        its builtins library. Options: --gpu-architecture=compute_89 only, as gpu.rs:270-275 passes
+        through cudarc; NVRTC's default --fmad=true.
+Source: worktree at commit 06e1602.
+Nature: every count and opcode below is *measured* (read off the PTX). Nothing here is SASS.
+Raw:    docs/mesures/ptx-probe-2026-11-04-brut/ (probe log, served.ptx, bench.ptx, the two served
+        Tetra entries cut out, the probe script, files.sha256).
+
+GATES
+-----
+  1. The probe assembled the served unit and it hashed to the digest the served door prints:
+     101,625 bytes, sha256 6193094310bc18acdb0a0c554807ff45f6df09c1f6ab49e0577032874f107812
+     (gqa-ppl-2026-11-01-brut/gqa-ppl.txt:6, "11 parts", target compute_89).      passes
+  2. The compiler banner reads "Cuda compilation tools, release 12.4, V12.4.127", the NVRTC of
+     nvidia/cuda:12.4.1, the image base (ops/Dockerfile.cuda:21, :100).            passes
+  3. Every target entry was found by its unmangled name (extern "C").               passes
+
+RAW PROBE OUTPUT
+----------------
+served unit: 101625 bytes, sha256 6193094310bc18acdb0a0c554807ff45f6df09c1f6ab49e0577032874f107812
+served: 12 entries
+  tv_tetra48_h: ld.shared.f32 0, ld.shared.v2.f32 0, ld.shared.v4.f32 6, fma.rn.f32 31, mul.f32 1, mul.rn.f32 0, add.f32 29, add.rn.f32 0, cvt.rn.f16.f32 1, shfl.sync.bfly.b32 5
+    epilogue float ops: add.f32 fma.rn.f32 fma.rn.f32 fma.rn.f32 fma.rn.f32 fma.rn.f32 fma.rn.f32
+  tv_tetra48_rows_h: ld.shared.f32 3, ld.shared.v2.f32 3, ld.shared.v4.f32 22, fma.rn.f32 136, mul.f32 4, mul.rn.f32 0, add.f32 64, add.rn.f32 0, cvt.rn.f16.f32 8, shfl.sync.bfly.b32 40
+    epilogue float ops: add.f32 fma.rn.f32
+bench: 7 entries
+  tv_f1r_v3g: ld.shared.f32 0, ld.shared.v2.f32 0, ld.shared.v4.f32 6, fma.rn.f32 31, mul.f32 1, mul.rn.f32 0, add.f32 29, add.rn.f32 0, cvt.rn.f16.f32 0, shfl.sync.bfly.b32 5
+    epilogue float ops: add.f32 fma.rn.f32 fma.rn.f32 fma.rn.f32 fma.rn.f32 fma.rn.f32 fma.rn.f32
+  tv_tetra48_seg: ld.shared.f32 0, ld.shared.v2.f32 0, ld.shared.v4.f32 6, fma.rn.f32 31, mul.f32 1, mul.rn.f32 0, add.f32 29, add.rn.f32 0, cvt.rn.f16.f32 0, shfl.sync.bfly.b32 5
+    epilogue float ops: add.f32 fma.rn.f32 fma.rn.f32 fma.rn.f32 fma.rn.f32 fma.rn.f32 fma.rn.f32
+
+1. LOAD WIDTHS OF THE STAGED READS
+---------------------------------
+  - tv_tetra48_h, the served decode kernel: per block, six `ld.shared.v4.f32` at [xs_b + 0, 16,
+    32, 48, 64, 80] (tv_tetra48_h.ptx lines 258-347 of the cut). No scalar shared load. `xs` is
+    declared `.extern .shared .align 16`, and a block is 96 bytes, so the alignment is provable.
+  - The loads are grouped by address and issued ahead of their uses; the 24 fma.rn.f32 consume the
+    lanes in TETRA48_ORDER (0,1,2,3,4,7,10,12,...). Use order did not prevent vectorization, as
+    persistent.md §3.8 expected after review finding 10.
+  - tv_f1r_v3g and tv_tetra48_seg (bench unit): the same six v4 loads.
+  - tv_tetra48_rows_h, the served prefill kernel (4 rows): rows 0, 1 and 3 get six v4 each. Row 2,
+    at +24576 bytes, was split by the vectorizer into v4, f32, f32, v2, v2, v2, v4, v4, v4, plus one
+    redundant scalar reload of element 15: 9 shared load instructions for that row instead of 6.
+    That is a prefill kernel and not the persistent design's decode stream; it is reported, not read.
+
+  Rule outcome (persistent.md §5, L1a row): "Six v4 loads: the stride arms stay as controls with a
+  null prior." At NVVM level the 358 GB/s scalar-load cap of §3.8 does not apply to the decode
+  kernel. The 2-way quarter-warp conflict of the v4 case remains (48 wavefronts a warp and block,
+  *computed* in §3.8, not re-derived here). Whether ptxas keeps LDS.128 is the card's SASS (L1).
+
+2. THE THREE CONTRACTIBLE SITES
+-------------------------------
+  site                                         source                         PTX in tv_tetra48_h
+  acc += t*iv, t = acc_b*gscale                llvq_tetra48.cuh:132, caller   mul.f32 t = acc_b*gscale (389), then
+                                                                              fma.rn.f32 acc = t*invnorm + acc (395)
+  tail loop tv += h2f(tail)*x                  matvec.cu:337                  fma.rn.f32, unrolled x4 (467-494)
+                                                                              plus remainder (519)
+  epilogue acc*rscale + tv                     tv_tetra48_h.cu:87             fma.rn.f32 (531), then cvt.rn.f16.f32
+
+  - All three are fused into fma.rn.f32 by NVVM. The PTX holds no bare mul.f32 + add.f32 pair:
+    the only mul.f32 is t = acc_b*gscale, whose consumer is the multiplicand of the site-1 fma, and
+    the 29 add.f32 are 24 decode adds of the constant 0fCB000080 (bit-pattern to float) and 5
+    butterfly adds of warp_sum, none fed by a multiply.
+  - The 24 inner products are explicit __fmaf_rn in source and fma.rn.f32 in PTX.
+  - tv_tetra48_rows_h: the same pattern per row. Site 1 is mul.f32 t = gscale*a then fma.rn.f32
+    acc = invnorm*t + acc (lines 470-573 of the cut); every epilogue is fma.rn.f32 before
+    cvt.rn.f16.f32. NVVM also emits a tail-free specialization, fma.rn.f32(a, rscale, +0.0); it
+    rounds as a*rscale + 0.0f does, sign of zero included.
+  - tv_f1r_v3g and tv_tetra48_seg: 31 fma.rn.f32, 1 mul.f32, 29 add.f32, the same profile as the
+    served decode kernel.
+
+  Rule outcome (L1a row): "fma.rn at a site: spell __fmaf_rn." All three sites take that branch.
+  A persistent Tetra row that writes __fmaf_rn(__fmul_rn(acc_b, gscale), invnorm, acc) for site 1,
+  __fmaf_rn in the tail loop and __fmaf_rn(acc, rscale, tv) for the epilogue reproduces this PTX's
+  arithmetic by construction. The "a bare pair: the card decides" branch does not occur.
+
+WHAT THIS DOES NOT ESTABLISH
+----------------------------
+  - The card's SASS. The card JIT-compiles this PTX with driver 580.178.04's ptxas, not the 12.4
+    devel one. ptxas keeps an fma.rn.f32 as an FFMA, so the arithmetic result is settled; whether
+    the six v4 loads stay LDS.128 is not, and that is L1's cubin dump.
+  - sm_120 or compute_80 (A100): only compute_89 was compiled.
+  - The bench unit was assembled by the probe's own recipe, which carries fewer kernels than the
+    real bench unit; its digest is not checked. A kernel's PTX is not expected to depend on its
+    neighbours, which is an assumption, not a check.
+  - Bank conflicts or any time: no card ran.
