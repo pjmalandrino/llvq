@@ -1045,6 +1045,121 @@ fn spun_clock(
     Ok(())
 }
 
+/// `LLVQ_BOUNDARY_AB`: one model, every arm in every round, same order, two
+/// rounds discarded then [`ROUNDS_TIMED`], the `run_trim_ab` protocol. `set`
+/// puts the model and the runtime in an arm's state. Any token that differs
+/// between two arms or two rounds stops the run before a number is printed:
+/// every arm adds boundaries and no arithmetic. So does an arm whose counted
+/// boundaries fall outside what its table row allows, or move between
+/// rounds: an arm that added nothing would otherwise time as a free boundary.
+///
+/// `t = elapsed / n_new`, and the cost of one added boundary is
+/// `(t_arm - t_served) / boundaries a token`, formed round by round
+/// (`llvq_llm::boundary::per_boundary_us`).
+///
+/// Out of the cfg-gated body so the Mac type-checks it.
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+fn run_boundary_ab(
+    model: &mut llvq_llm::model::Qwen3,
+    ids: &[u32],
+    n_new: usize,
+    mut set: impl FnMut(&mut llvq_llm::model::Qwen3, llvq_llm::boundary::BoundaryArm) -> anyhow::Result<()>,
+) -> anyhow::Result<()> {
+    use llvq_llm::boundary::{
+        counted_bounds, derived_series, median_range, per_boundary_us, take_added, BoundaryArm,
+        DERIVED,
+    };
+    const WARMUP: usize = 2;
+    let arms = BoundaryArm::ALL;
+    let mut reference: Option<Vec<u32>> = None;
+    let mut secs: Vec<Vec<f64>> = vec![Vec::new(); arms.len()];
+    let mut counted: Vec<Option<u64>> = vec![None; arms.len()];
+    for round in 0..WARMUP + ROUNDS_TIMED {
+        for (k, arm) in arms.into_iter().enumerate() {
+            set(model, arm)?;
+            take_added();
+            let t = Instant::now();
+            let out = model.generate(ids, n_new, &mut NoCapture)?;
+            let s = t.elapsed().as_secs_f64();
+            let added = take_added();
+            match &reference {
+                None => reference = Some(out),
+                Some(r) => {
+                    if let Some(i) = first_divergence(r, &out).map_err(|e| anyhow::anyhow!("{e}"))? {
+                        anyhow::bail!(
+                            "round {round}, arm {}: divergence at token {i}. Every arm adds \
+                             boundaries and no arithmetic, and arms that disagree void the run",
+                            arm.name()
+                        );
+                    }
+                }
+            }
+            let (lo, hi) = counted_bounds(arm, n_new, ids.len());
+            if added < lo || added > hi {
+                anyhow::bail!(
+                    "round {round}, arm {}: {added} boundaries added in a generate, outside \
+                     [{lo}, {hi}] for {} a decode step. The arm is not wired as its row says, \
+                     and the run is void",
+                    arm.name(),
+                    arm.boundaries_per_token()
+                );
+            }
+            match counted[k] {
+                None => counted[k] = Some(added),
+                Some(c) if c != added => anyhow::bail!(
+                    "round {round}, arm {}: {added} boundaries added, {c} in round 0. The run is void",
+                    arm.name()
+                ),
+                Some(_) => {}
+            }
+            if round >= WARMUP {
+                secs[k].push(s / n_new as f64);
+            }
+        }
+    }
+    set(model, BoundaryArm::Served)?;
+    let n_tokens = reference.map_or(0, |r| r.len());
+    println!(
+        "\n{} arms × {ROUNDS_TIMED} interleaved rounds after {WARMUP} discarded, {n_tokens} \
+         identical tokens in every arm and round",
+        arms.len()
+    );
+    println!(
+        "  t = elapsed / {n_new}; us per added boundary = (t_arm - t_served) / boundaries a \
+         token, round by round"
+    );
+    println!("  arm             a token  a generate   tok/s [range]          us per added boundary [range]");
+    let mut per: Vec<Vec<f64>> = vec![Vec::new(); arms.len()];
+    for (k, arm) in arms.into_iter().enumerate() {
+        let rates: Vec<f64> = secs[k].iter().map(|t| 1.0 / t).collect();
+        let (m, lo, hi) = median_range(&rates);
+        let nb = arm.boundaries_per_token();
+        let c = counted[k].unwrap_or(0);
+        if nb == 0 {
+            println!("  {:<14}  {nb:>7}  {c:>10}   {m:6.1} [{lo:.1}–{hi:.1}]", arm.name());
+            continue;
+        }
+        per[k] = per_boundary_us(&secs[0], &secs[k], nb).map_err(|e| anyhow::anyhow!("{e}"))?;
+        let (pm, pl, ph) = median_range(&per[k]);
+        println!(
+            "  {:<14}  {nb:>7}  {c:>10}   {m:6.1} [{lo:.1}–{hi:.1}]   {pm:7.3} [{pl:.3}–{ph:.3}]",
+            arm.name()
+        );
+    }
+    println!("\nderived classes, us per boundary, round by round (printed, never gated)");
+    for (name, a, b) in DERIVED {
+        let d = derived_series(&per, a, b).map_err(|e| anyhow::anyhow!("{e}"))?;
+        let (m, lo, hi) = median_range(&d);
+        let note = if name == "linearity" { "   (0 when linear)" } else { "" };
+        println!(
+            "  {name:<10} = {:<14} - {:<10}  {m:7.3} [{lo:.3}–{hi:.3}]{note}",
+            a.name(),
+            b.name()
+        );
+    }
+    Ok(())
+}
+
 /// The per-phase table of one arm's fenced pass. Additive diagnostics: this
 /// runs *after* the arm's published measurement and prints below it, so the
 /// published lines stay byte-identical.
@@ -1108,7 +1223,7 @@ fn main() -> anyhow::Result<()> {
             for var in ["LLVQ_GRAPH_AB", "LLVQ_GRAPH_DIAG", "LLVQ_KV_AB", "LLVQ_FUSE_AB",
                         "LLVQ_TIME_PHASES", "LLVQ_KV_PREALLOC", "LLVQ_SEG_ARMS",
                         "LLVQ_TRIM_AB", "LLVQ_GQA_AB", "LLVQ_GQA_PPL",
-                        "LLVQ_INT4_WIDE_CHECK", "LLVQ_GESTURE_AB"] {
+                        "LLVQ_INT4_WIDE_CHECK", "LLVQ_GESTURE_AB", "LLVQ_BOUNDARY_AB"] {
                 if let Ok(v) = std::env::var(var) {
                     anyhow::bail!(
                         "{var}={v:?} beside LLVQ_CONFIG: that is a measurement mode, and the \
@@ -1150,7 +1265,8 @@ fn main() -> anyhow::Result<()> {
         if std::env::var("LLVQ_INT4_WIDE_CHECK").ok().as_deref() == Some("1") {
             for other in ["LLVQ_GQA_AB", "LLVQ_GQA_PPL", "LLVQ_CONTEXTS", "LLVQ_TRIM_AB",
                           "LLVQ_PREFILL_TOKENS", "LLVQ_GRAPH_AB", "LLVQ_KV_AB", "LLVQ_FUSE_AB",
-                          "LLVQ_TIME_PHASES", "LLVQ_SEG_ARMS", "LLVQ_GESTURE_AB"] {
+                          "LLVQ_TIME_PHASES", "LLVQ_SEG_ARMS", "LLVQ_GESTURE_AB",
+                          "LLVQ_BOUNDARY_AB"] {
                 if std::env::var(other).is_ok() {
                     anyhow::bail!("LLVQ_INT4_WIDE_CHECK runs alone, and {other} is set beside it");
                 }
@@ -1188,7 +1304,7 @@ fn main() -> anyhow::Result<()> {
             for other in ["LLVQ_GQA_AB", "LLVQ_GQA_PPL", "LLVQ_CONTEXTS", "LLVQ_TRIM_AB",
                           "LLVQ_PREFILL_TOKENS", "LLVQ_GRAPH_AB", "LLVQ_GRAPH_DIAG", "LLVQ_KV_AB",
                           "LLVQ_FUSE_AB", "LLVQ_TIME_PHASES", "LLVQ_SEG_ARMS", "LLVQ_KERNEL_DIR",
-                          "LLVQ_INT4_WIDE_CHECK"] {
+                          "LLVQ_INT4_WIDE_CHECK", "LLVQ_BOUNDARY_AB"] {
                 if let Ok(o) = std::env::var(other) {
                     anyhow::bail!("LLVQ_GESTURE_AB runs alone, and {other}={o:?} is set beside it");
                 }
@@ -1248,6 +1364,113 @@ fn main() -> anyhow::Result<()> {
             return Ok(());
         }
 
+        // ---- LLVQ_BOUNDARY_AB: what one added kernel boundary costs ----
+        //
+        // A MEASUREMENT MODE on the bench door, refused beside LLVQ_CONFIG, the
+        // served flags spelled out on the command line: process 2b of
+        // prereg-persistent-0. ONE model in the served 4B state (Grow(256) +
+        // grouped, events off before the load), eight arms that each add kernel
+        // boundaries and no arithmetic (`llvq_llm::boundary`), every arm in
+        // every round (`run_boundary_ab`). The empty kernels come from their own
+        // module on candle's stream, so the served unit and its `NVRTC source:`
+        // line do not move. `LLVQ_KERNEL_DIR` is refused for that line's sake.
+        if let Ok(v) = std::env::var("LLVQ_BOUNDARY_AB") {
+            use llvq_llm::boundary::BoundaryArm;
+            if v != "1" {
+                anyhow::bail!("LLVQ_BOUNDARY_AB={v:?}: the only value is 1");
+            }
+            for other in ["LLVQ_GQA_AB", "LLVQ_GQA_PPL", "LLVQ_CONTEXTS", "LLVQ_TRIM_AB",
+                          "LLVQ_PREFILL_TOKENS", "LLVQ_GRAPH_AB", "LLVQ_GRAPH_DIAG", "LLVQ_KV_AB",
+                          "LLVQ_FUSE_AB", "LLVQ_TIME_PHASES", "LLVQ_SEG_ARMS", "LLVQ_KERNEL_DIR",
+                          "LLVQ_INT4_WIDE_CHECK", "LLVQ_GESTURE_AB"] {
+                if let Ok(o) = std::env::var(other) {
+                    anyhow::bail!("LLVQ_BOUNDARY_AB runs alone, and {other}={o:?} is set beside it");
+                }
+            }
+            if !matches!(kv_store, llvq_llm::kvq::KvStore::Cat) {
+                anyhow::bail!("LLVQ_BOUNDARY_AB sets the served store itself: unset LLVQ_KV_PREALLOC");
+            }
+            if n_new < 2 {
+                anyhow::bail!("LLVQ_BOUNDARY_AB: {n_new} tokens, and its cost is read on decode steps");
+            }
+            // Both refused before the transcode. The splits are Tetra launches,
+            // and a fused gate+up would never reach them.
+            let layout = llvq_llm::fused::FusedLayout::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
+            if layout != llvq_llm::fused::FusedLayout::Tetra48 {
+                anyhow::bail!(
+                    "LLVQ_BOUNDARY_AB: layout {}, and its split arms are tv_tetra48_h launches. \
+                     Set LLVQ_FUSED_LAYOUT=tetra48",
+                    layout.name()
+                );
+            }
+            let fuse = llvq_llm::fused::FuseMode::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
+            if fuse != llvq_llm::fused::FuseMode::Off {
+                anyhow::bail!("LLVQ_BOUNDARY_AB: LLVQ_FUSE={}, and the served 4B runs 0", fuse.name());
+            }
+            // Events off BEFORE the load, as `LLVQ_GESTURE_AB` and the served
+            // door do: cudarc records a read event at every use of a slice
+            // created while tracking was on, whatever the flag says at the use.
+            let ctx = device.as_cuda_device()?.cuda_stream().context().clone();
+            if ctx.is_in_multi_stream_mode() {
+                anyhow::bail!("LLVQ_BOUNDARY_AB: the context holds several streams, and turning \
+                               cudarc's events off is only safe on one");
+            }
+            // Safe: one stream, checked above, orders every access by issue.
+            unsafe {
+                ctx.disable_event_tracking();
+            }
+            println!("cudarc event tracking: off (one stream, ordered by issue)");
+            let t = Instant::now();
+            let mut f = llvq_llm::fused_cuda::load_with(&path, &device, dtype, fuse)?;
+            let sha = llvq_llm::fused_cuda::install_boundary_probe(&device)?;
+            if ctx.is_in_multi_stream_mode() {
+                anyhow::bail!("LLVQ_BOUNDARY_AB: a second stream appeared at the load, with \
+                               cudarc's events off");
+            }
+            println!("llvq_empty: own NVRTC module on candle's stream, source sha256 {sha}");
+            println!(
+                "loaded in {:.1} s. boundary A/B: {} arms, one model, interleaved rounds",
+                t.elapsed().as_secs_f64(),
+                BoundaryArm::ALL.len()
+            );
+            println!(
+                "LLVQ_ROT_SHARE={}, {} rot_launches/token · LLVQ_FUSE={}, {} matvec_launches/token",
+                f.rot_share.name(), f.rot_launches, f.fuse.name(), f.matvec_launches
+            );
+            let c = f.model.config();
+            llvq_llm::boundary::check_4b_shape(c.num_hidden_layers, c.hidden_size, c.intermediate_size)
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+            GqaArm::Grouped.apply(&mut f.model);
+            println!("attention {} on {}", f.model.attn_heads().label(), f.model.kv_store().label());
+            println!(
+                "layout {}, {} layers, gate_proj {} rows, down_proj {} rows",
+                f.layout.name(),
+                llvq_llm::boundary::LAYERS_4B,
+                llvq_llm::boundary::GATE_D_OUT_4B,
+                llvq_llm::boundary::DOWN_D_OUT_4B
+            );
+            let ids = f
+                .tokenizer
+                .encode(PROMPT, false)
+                .map_err(|e| anyhow::anyhow!("{e}"))?
+                .get_ids()
+                .to_vec();
+            let ran = run_boundary_ab(&mut f.model, &ids, n_new, |m, arm| {
+                llvq_llm::fused_cuda::set_boundary_arm(arm);
+                m.set_candle_probe(arm.candle_probe())?;
+                Ok(())
+            });
+            // Back to the served state whatever the run returned.
+            llvq_llm::fused_cuda::set_boundary_arm(BoundaryArm::Served);
+            f.model.set_candle_probe(false)?;
+            ran?;
+            if ctx.is_in_multi_stream_mode() {
+                anyhow::bail!("LLVQ_BOUNDARY_AB: a second stream appeared during the run, with \
+                               cudarc's events off: the numbers above are void");
+            }
+            return Ok(());
+        }
+
         // ---- LLVQ_GQA_PPL: the grouped form's perplexity, prefill and decode ----
         //
         // A MEASUREMENT MODE on the bench door, refused beside LLVQ_CONFIG, the
@@ -1260,7 +1483,8 @@ fn main() -> anyhow::Result<()> {
         // the prefill in one call, so it is bounded by the fused prefill's rows.
         if let Ok(v) = std::env::var("LLVQ_GQA_PPL") {
             let spec = parse_gqa_ppl(&v).map_err(|e| anyhow::anyhow!("{e}"))?;
-            for other in ["LLVQ_GQA_AB", "LLVQ_CONTEXTS", "LLVQ_TRIM_AB", "LLVQ_PREFILL_TOKENS"] {
+            for other in ["LLVQ_GQA_AB", "LLVQ_CONTEXTS", "LLVQ_TRIM_AB", "LLVQ_PREFILL_TOKENS",
+                          "LLVQ_BOUNDARY_AB"] {
                 if std::env::var(other).is_ok() {
                     anyhow::bail!("LLVQ_GQA_PPL runs alone, and {other} is set beside it");
                 }
@@ -1316,7 +1540,7 @@ fn main() -> anyhow::Result<()> {
         // the served door, which is safe on one stream only, so that is checked.
         if let Ok(v) = std::env::var("LLVQ_GQA_AB") {
             let lengths = parse_lengths("LLVQ_GQA_AB", &v).map_err(|e| anyhow::anyhow!("{e}"))?;
-            for other in ["LLVQ_CONTEXTS", "LLVQ_TRIM_AB", "LLVQ_PREFILL_TOKENS"] {
+            for other in ["LLVQ_CONTEXTS", "LLVQ_TRIM_AB", "LLVQ_PREFILL_TOKENS", "LLVQ_BOUNDARY_AB"] {
                 if std::env::var(other).is_ok() {
                     anyhow::bail!("LLVQ_GQA_AB runs alone, and {other} is set beside it");
                 }
@@ -1369,7 +1593,7 @@ fn main() -> anyhow::Result<()> {
         // refused, and `Grow` promises no window.
         if let Ok(v) = std::env::var("LLVQ_CONTEXTS") {
             let lengths = parse_contexts(&v).map_err(|e| anyhow::anyhow!("{e}"))?;
-            for other in ["LLVQ_TRIM_AB", "LLVQ_PREFILL_TOKENS"] {
+            for other in ["LLVQ_TRIM_AB", "LLVQ_PREFILL_TOKENS", "LLVQ_BOUNDARY_AB"] {
                 if std::env::var(other).is_ok() {
                     anyhow::bail!("LLVQ_CONTEXTS runs alone, and {other} is set beside it");
                 }

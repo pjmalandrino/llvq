@@ -1795,6 +1795,11 @@ pub struct Qwen3 {
     /// [`Self::step_mask`] learned to skip it. `bin/fusedrun`'s
     /// `LLVQ_TRIM_AB` sets it on one arm to time what the skip saves.
     decode_mask: bool,
+    /// Measurement only, `None` everywhere else: a 1-element f16 tensor
+    /// that [`Self::hidden_cached`] runs one candle affine on after each
+    /// layer, the `candle-tiny` arm of `bin/fusedrun`'s `LLVQ_BOUNDARY_AB`.
+    /// The result is dropped, so no output moves.
+    candle_probe: Option<Tensor>,
     embed: Embed,
     pub blocks: Vec<Block>,
     norm: RmsNorm,
@@ -1869,6 +1874,7 @@ impl Qwen3 {
             kv_store: crate::kvq::KvStore::Cat,
             attn_heads: crate::kvq::AttnHeads::Expanded,
             decode_mask: false,
+            candle_probe: None,
             embed,
             blocks,
             norm: candle_nn::rms_norm(cfg.hidden_size, cfg.rms_norm_eps, vb.pp("model.norm"))?,
@@ -1990,6 +1996,18 @@ impl Qwen3 {
         self.decode_mask = on;
     }
 
+    /// Measurement only: one candle affine on a 1-element f16 tensor after
+    /// each layer of [`Self::hidden_cached`], counted in `crate::boundary`.
+    /// `LLVQ_BOUNDARY_AB` sets it on its `candle-tiny` arm. No served path
+    /// calls it.
+    pub fn set_candle_probe(&mut self, on: bool) -> Result<()> {
+        self.candle_probe = match on {
+            true => Some(Tensor::zeros(1, DType::F16, &self.device)?),
+            false => None,
+        };
+        Ok(())
+    }
+
     /// Hidden states for `l` new positions, attending over `caches`.
     pub fn hidden_cached(
         &self,
@@ -2007,6 +2025,10 @@ impl Qwen3 {
         let mut h = self.embed.forward(input)?;
         for (i, blk) in self.blocks.iter().enumerate() {
             h = blk.forward_cached(&h, &self.rotary, mask.as_ref(), RopeAt::Offset(offset), &mut caches[i], i, cap)?;
+            if let Some(p) = &self.candle_probe {
+                p.affine(2.0, 1.0)?;
+                crate::boundary::note_added(1);
+            }
         }
         self.norm.forward(&h)
     }

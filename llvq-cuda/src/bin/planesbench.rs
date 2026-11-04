@@ -590,6 +590,12 @@ mod linux {
 
     /// The four rank-table buffers the F1 decoder walks, plus the two
     /// constants the served Tetra decode adds. Uploaded once for the run.
+    /// A device pointer as the persistent sections take it.
+    fn dptr<T>(s: &cudarc::driver::CudaSlice<T>, cuda: &Cuda) -> u64 {
+        use cudarc::driver::DevicePtr;
+        s.device_ptr(cuda.stream()).0
+    }
+
     struct TetraTabs {
         rows: cudarc::driver::CudaSlice<u32>,
         prefixes: cudarc::driver::CudaSlice<u32>,
@@ -1405,6 +1411,19 @@ mod linux {
                 ))
             }
         };
+        // The persistent sections (llvq_cuda::persbench): L1's one-launch
+        // Tetra pass and microbenchmarks, L2's arms, the driver cubins. Off
+        // unless asked; read here, before anything is built, like A3's arms.
+        let pers_flags = llvq_cuda::persbench::Flags::from_env(seg_tetra, union.has(arms::TETRA48))?;
+        if pers_flags.any() || pers_flags.dump_cubin.is_some() {
+            println!(
+                "Persistent sections: LLVQ_TETRA_OCC={} LLVQ_PERS_MICRO={} LLVQ_PERS_ARMS={} LLVQ_DUMP_CUBIN={}",
+                u8::from(pers_flags.tetra_occ),
+                u8::from(pers_flags.micro),
+                pers_flags.arms.iter().map(|&a| llvq_cuda::pers::PERS_ARMS[a].name).collect::<Vec<_>>().join(","),
+                pers_flags.dump_cubin.as_ref().map_or("unset".to_string(), |d| d.display().to_string())
+            );
+        }
         let (awqcu, awq_overridden) = load_awq_source()?;
         let (gv1cu, golay_v1_overridden) = load_golay_v1_source()?;
         // P1c. Same loader as the base pair, so `LLVQ_KERNEL_DIR` overrides it
@@ -4526,6 +4545,139 @@ mod linux {
             // denominator moves. They are timed in the SAME rounds, because a
             // delta of two minima from rounds that never coexisted is the
             // mistake this file documents.
+            // ---- the persistent sections (L1, L2): built after A4's proof,
+            // timed in A4's rounds, the A3 grammar's same-round reference ----
+            // The codec outlives the section, whose f64 references borrow it.
+            let codec = (pers_flags.tetra_occ || !pers_flags.arms.is_empty()).then(llvq_search::tetra::Tetra::new);
+            let mut pers_sec = None;
+            if pers_flags.any() || pers_flags.dump_cubin.is_some() {
+                let mut sec = llvq_cuda::persbench::Section::new(pers_flags.clone(), &cuda, &src.text, &tile.define())?;
+                sec.micro()?;
+                let tt = tetra_tabs.as_ref().expect("tetra48 tables not uploaded");
+                let tables = llvq_cuda::persbench::Tables {
+                    rows: dptr(&tt.rows, &cuda),
+                    pref: dptr(&tt.prefixes, &cuda),
+                    br: dptr(&tt.branches, &cuda),
+                    suf: dptr(&tt.suffixes, &cuda),
+                    invnorm: dptr(&tt.invnorm, &cuda),
+                };
+                let xp = dptr(&d_x, &cuda);
+                // The f64 value of row r of one Tetra matrix, from the second
+                // file's own records: a row that misses its owed equality is
+                // judged against it.
+                let f64_of = |name: &str| {
+                    let src = &tetra[name];
+                    let x = &x;
+                    let codec = codec.as_ref().expect("built when a Tetra section is on");
+                    move |r: usize| {
+                        let tail: Vec<f64> = (0..src.d_in % DIM).map(|i| src.tail[r * (src.d_in % DIM) + i] as f64).collect();
+                        llvq_cuda::pers::tetra_row_f64(
+                            src.d_in / DIM,
+                            |j| src.blocks.decode_block(codec, r, j),
+                            src.centroids,
+                            src.rscale[r],
+                            &tail,
+                            x,
+                        )
+                    }
+                };
+                if pers_flags.tetra_occ {
+                    let zeros = cuda.up_u32(&vec![0u32; max_dout.max(19456)])?;
+                    let mut sites = Vec::new();
+                    for fm in &fused {
+                        let Some(t) = fm.tetra.as_ref() else { continue };
+                        run_tetra48_seg(fm, &mut d_y)?;
+                        cuda.sync()?;
+                        let reference = cuda.down_f32(&d_y)?[..fm.d_out].to_vec();
+                        let parts: Vec<(String, usize)> = fm.parts.iter().map(|&pi| (mats[pi].name.clone(), mats[pi].d_out)).collect();
+                        let rows_of: Vec<_> = parts.iter().map(|(n, d)| (Box::new(f64_of(n)) as Box<dyn Fn(usize) -> (f64, f64)>, *d)).collect();
+                        sites.push(llvq_cuda::persbench::PersallSite {
+                            name: fm.name.clone(),
+                            words: dptr(&t.words, &cuda),
+                            gscale: dptr(&t.gscale, &cuda),
+                            gs_off: dptr(&t.gs_off, &cuda),
+                            rscale: dptr(&t.rscale, &cuda),
+                            tail: dptr(&t.tail, &cuda),
+                            d_out: fm.d_out as u32,
+                            nblocks: fm.nblocks as u32,
+                            tail_w: fm.tail_w as u32,
+                            stride_u32: fm.tstride,
+                            reference,
+                            f64_row: Box::new(move |mut r: usize| {
+                                for (f, d) in &rows_of {
+                                    if r < *d {
+                                        return f(r);
+                                    }
+                                    r -= d;
+                                }
+                                unreachable!("row past the group")
+                            }),
+                        });
+                    }
+                    for (i, m) in mats.iter().enumerate() {
+                        if fused.iter().any(|f| f.parts.contains(&i) && f.tetra.is_some()) {
+                            continue;
+                        }
+                        let Some(a) = m.tetra.as_ref() else { continue };
+                        run_tetra48(m, &mut d_y)?;
+                        cuda.sync()?;
+                        let reference = cuda.down_f32(&d_y)?[..m.d_out].to_vec();
+                        sites.push(llvq_cuda::persbench::PersallSite {
+                            name: m.name.clone(),
+                            words: dptr(a.words.dev(), &cuda),
+                            gscale: dptr(&a.gscale, &cuda),
+                            gs_off: dptr(&zeros, &cuda),
+                            rscale: dptr(&a.rscale, &cuda),
+                            tail: dptr(&a.tail, &cuda),
+                            d_out: m.d_out as u32,
+                            nblocks: m.nblocks as u32,
+                            tail_w: m.tail_w as u32,
+                            stride_u32: a.stride_u32,
+                            reference,
+                            f64_row: Box::new(f64_of(&m.name)),
+                        });
+                    }
+                    sec.persall_setup(sites, tables, xp, shared)?;
+                    std::mem::forget(zeros); // read by every timed launch; freed with the process
+                }
+                if !pers_flags.arms.is_empty() {
+                    let mut sites = Vec::new();
+                    for st in llvq_cuda::pers::served_4b_schedule() {
+                        let proj = match st.proj {
+                            llvq_cuda::pers::Proj::Q => "self_attn.q_proj",
+                            llvq_cuda::pers::Proj::K => "self_attn.k_proj",
+                            llvq_cuda::pers::Proj::V => "self_attn.v_proj",
+                            llvq_cuda::pers::Proj::O => "self_attn.o_proj",
+                            llvq_cuda::pers::Proj::Gate => "mlp.gate_proj",
+                            llvq_cuda::pers::Proj::Up => "mlp.up_proj",
+                            llvq_cuda::pers::Proj::Down => "mlp.down_proj",
+                        };
+                        let name = format!("model.layers.{}.{proj}.weight", st.layer);
+                        let m = mats
+                            .iter()
+                            .find(|m| m.name == name)
+                            .ok_or_else(|| format!("LLVQ_PERS_ARMS: no matrix {name} in the bench"))?;
+                        let a = m.tetra.as_ref().ok_or_else(|| format!("LLVQ_PERS_ARMS: {name} has no Tetra stream"))?;
+                        let src = &tetra[&name];
+                        sites.push(llvq_cuda::persbench::L2Site {
+                            name: name.clone(),
+                            words: dptr(a.words.dev(), &cuda),
+                            gscale: dptr(&a.gscale, &cuda),
+                            rscale: dptr(&a.rscale, &cuda),
+                            // The file's binary16 tail, widened to f32 by the
+                            // reader and narrowed back here: exact both ways.
+                            tail_f16: src.tail.iter().map(|&v| llvq_cuda::f16_bits(v)).collect(),
+                            d_out: m.d_out as u32,
+                            d_in: m.d_in as u32,
+                            stride_u32: a.stride_u32,
+                            f64_row: Box::new(f64_of(&name)),
+                        });
+                    }
+                    sec.l2_setup(sites, tables, xp, x.len(), &tile.define())?;
+                }
+                pers_sec = Some((sec, tables, xp));
+            }
+
             let mut tf: [Vec<f64>; 6] = [
                 Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(),
             ];
@@ -4626,6 +4778,12 @@ mod linux {
                         tn[k].push(t);
                     }
                 }
+                if let Some((sec, tables, xp)) = pers_sec.as_mut() {
+                    sec.time_round(rep >= WARMUP, *tables, *xp)?;
+                }
+            }
+            if let Some((sec, _, _)) = &pers_sec {
+                sec.report(&tf[4], &tf[5]);
             }
             let [ts, tss, tp, tps, tt, tts] = tf;
             // The reference series of the A3 arms, round by round, kept before

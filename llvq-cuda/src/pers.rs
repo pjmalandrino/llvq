@@ -636,6 +636,214 @@ pub fn step_a_plan(m: &ModelShape) -> Vec<SegmentPlan> {
     (0..m.layers).map(|l| SegmentPlan { barriers: 1, tetra_down: m.tetra_down(l) }).collect()
 }
 
+/// Median and range of a series: the report's one statistic (rule 7: a
+/// ratio is formed round by round first, then summarised).
+pub fn med_range(v: &[f64]) -> (f64, f64, f64) {
+    if v.is_empty() {
+        return (f64::NAN, f64::NAN, f64::NAN);
+    }
+    let mut s = v.to_vec();
+    s.sort_by(|a, b| a.total_cmp(b));
+    let n = s.len();
+    let med = if n % 2 == 1 { s[n / 2] } else { 0.5 * (s[n / 2 - 1] + s[n / 2]) };
+    (med, s[0], s[n - 1])
+}
+
+// ---------------------------------------------------------------------------
+// The NVRTC units, embedded so the Mac can hash and compose what the card
+// compiles. Parts are joined by "\n" exactly as `gpu::KernelSource::new` does.
+// ---------------------------------------------------------------------------
+
+/// The persistent module: L1's `tv_tetra48_persall` and microbenchmarks,
+/// L2's twelve arms, the L2 prologue reference, and route P's segment.
+/// Its own module, so neither the bench unit nor the served unit moves.
+pub const PERS_UNIT_PARTS: [(&str, &str); 12] = [
+    ("llvq_slot.cuh", include_str!("../kernels/llvq_slot.cuh")),
+    ("matvec.cu", include_str!("../kernels/matvec.cu")),
+    ("llvq_f1rank.cuh", include_str!("../kernels/llvq_f1rank.cuh")),
+    ("llvq_f1rank_v3.cuh", include_str!("../kernels/llvq_f1rank_v3.cuh")),
+    ("llvq_tetra48.cuh", include_str!("../kernels/llvq_tetra48.cuh")),
+    ("llvq_rot.cuh", include_str!("../kernels/llvq_rot.cuh")),
+    ("rotate.cu", include_str!("../kernels/rotate.cu")),
+    ("llvq_pers.cuh", include_str!("../kernels/llvq_pers.cuh")),
+    ("tetra48_pers.cu", include_str!("../kernels/tetra48_pers.cu")),
+    ("tetra48_persall.cu", include_str!("../kernels/tetra48_persall.cu")),
+    ("pers_ref.cu", include_str!("../kernels/pers_ref.cu")),
+    ("pers_segment.cu", include_str!("../kernels/pers_segment.cu")),
+];
+
+/// The persistent module's text for a tile (`tile::Tile::define()`).
+pub fn pers_unit_text(tile_define: &str) -> String {
+    std::iter::once(tile_define).chain(PERS_UNIT_PARTS.iter().map(|p| p.1)).collect::<Vec<_>>().join("\n")
+}
+
+/// The served unit of the 4B, in the order `fused_cuda.rs` assembles it for
+/// a Tetra48 file with int4 records and `LLVQ_EMBED=q4`: the defines, then
+/// these ten parts. The L2 bench compiles it as its own module so its
+/// `tv_tetra48_h` is the served kernel's text, and prints its digest; the job
+/// compares that digest with the served door's.
+pub const SERVED_UNIT_PARTS: [(&str, &str); 10] = [
+    ("llvq_slot.cuh", include_str!("../kernels/llvq_slot.cuh")),
+    ("matvec.cu", include_str!("../kernels/matvec.cu")),
+    ("llvq_rot.cuh", include_str!("../kernels/llvq_rot.cuh")),
+    ("rotate.cu", include_str!("../kernels/rotate.cu")),
+    ("llvq_f1rank.cuh", include_str!("../kernels/llvq_f1rank.cuh")),
+    ("llvq_f1rank_v3.cuh", include_str!("../kernels/llvq_f1rank_v3.cuh")),
+    ("llvq_tetra48.cuh", include_str!("../kernels/llvq_tetra48.cuh")),
+    ("tv_tetra48_h.cu", include_str!("../../llvq-llm/kernels/tv_tetra48_h.cu")),
+    ("emb_q4.cu", include_str!("../../llvq-llm/kernels/emb_q4.cu")),
+    ("tv_q4_h.cu", include_str!("../../llvq-llm/kernels/tv_q4_h.cu")),
+];
+
+/// The served unit's text for its defines (`tile.define()` then
+/// `Prefill::defines()`).
+pub fn served_unit_text(defines: &str) -> String {
+    std::iter::once(defines).chain(SERVED_UNIT_PARTS.iter().map(|p| p.1)).collect::<Vec<_>>().join("\n")
+}
+
+/// The served unit's defines at the served tile of the L40S and the default
+/// prefill: what every published 4B number since 2026-09-20 compiled.
+pub const SERVED_DEFINES_SM89: &str = "#define TILE_BLOCKS 64u\n#define TETRA48_ROWS 4u\n#define TETRA48_TILE 128u\n";
+
+// ---------------------------------------------------------------------------
+// The device structs, mirrored byte for byte. `tests/pers_matches_served.rs`
+// compiles the kernels' own struct definitions and checks every offset.
+// ---------------------------------------------------------------------------
+
+/// Pointers of `PersArgs`, in declaration order.
+pub const PERS_ARGS_PTRS: [&str; 22] = [
+    "sites", "rows", "pref", "br", "suf", "invnorm", "gscale", "rscale", "tail", "x", "y_all", "slice_lo",
+    "slice_hi", "bar", "cnts", "abort_flag", "resid", "alpha", "signs_h", "signs_i", "small_h", "small_i",
+];
+/// `sizeof(PersArgs)`.
+pub const PERS_ARGS_BYTES: usize = 232;
+
+/// The host image of `PersArgs`.
+#[derive(Clone, Debug, Default)]
+pub struct PersArgsHost {
+    pub ptrs: [u64; 22],
+    pub nsites: u32,
+    pub hidden: u32,
+    pub inter: u32,
+    pub m_h: u32,
+    pub k_h: u32,
+    pub m_i: u32,
+    pub k_i: u32,
+    pub inv_h: f32,
+    pub inv_i: f32,
+    pub eps: f32,
+}
+
+impl PersArgsHost {
+    pub fn bytes(&self) -> Vec<u8> {
+        let mut b = Vec::with_capacity(PERS_ARGS_BYTES);
+        for p in self.ptrs {
+            b.extend(p.to_le_bytes());
+        }
+        for v in [self.nsites, self.hidden, self.inter, self.m_h, self.k_h, self.m_i, self.k_i, 0, 0, 0] {
+            b.extend(v.to_le_bytes());
+        }
+        for v in [self.inv_h, self.inv_i, self.eps] {
+            b.extend(v.to_le_bytes());
+        }
+        b.resize(PERS_ARGS_BYTES, 0);
+        b
+    }
+}
+
+/// `PersLaunch`, passed by value: 40 bytes, 8-aligned.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PersLaunch {
+    pub bar_base: u32,
+    pub epoch: u32,
+    pub cnt_offset: u32,
+    pub pad: u32,
+    pub dbg: u64,
+    pub dbg_norm: u64,
+    pub dbg_rot: u64,
+}
+
+/// `sizeof(PersLaunch)`.
+pub const PERS_LAUNCH_BYTES: usize = 40;
+
+/// Rows a `tv_tetra48_persall` work group covers: one per warp of its
+/// 256-thread CTA, as `tv_tetra48_seg` lays its rows.
+pub const PERSALL_GROUP_ROWS: u32 = 8;
+
+/// The first group of every site and the total, sites in launch order.
+pub fn persall_groups(d_outs: &[u32]) -> (Vec<u32>, u32) {
+    let mut g0 = Vec::with_capacity(d_outs.len());
+    let mut at = 0u32;
+    for &d in d_outs {
+        assert!(d.is_multiple_of(PERSALL_GROUP_ROWS), "d_out {d} is not a whole number of 8-row groups");
+        g0.push(at);
+        at += d / PERSALL_GROUP_ROWS;
+    }
+    (g0, at)
+}
+
+/// One `tv_tetra48_persall` site, as the kernel unpacks it.
+#[allow(clippy::too_many_arguments)]
+pub fn persall_site_words(
+    words: u64,
+    gscale: u64,
+    gs_off: u64,
+    rscale: u64,
+    tail: u64,
+    y: u64,
+    nblocks: u32,
+    tail_w: u32,
+    stride_u32: u32,
+    group0: u32,
+    ngroups: u32,
+) -> [u64; 8] {
+    assert!(nblocks < 1 << 16 && tail_w < 1 << 16);
+    [
+        words,
+        gscale,
+        gs_off,
+        rscale,
+        tail,
+        y,
+        u64::from(nblocks) | (u64::from(tail_w) << 16) | (u64::from(stride_u32) << 32),
+        u64::from(group0) | (u64::from(ngroups) << 32),
+    ]
+}
+
+/// The f64 value of one Tetra row against `x`, and its `Σ|w·x|`: the
+/// reference a row that missed the owed equality is judged against.
+/// `block(j)` returns the lattice point and the gain bit of block j.
+pub fn tetra_row_f64(
+    nblocks: usize,
+    block: impl Fn(usize) -> ([i32; 24], u32),
+    centroids: [f32; 2],
+    rscale: f32,
+    tail: &[f64],
+    x: &[f32],
+) -> (f64, f64) {
+    let (mut acc, mut mag) = (0.0f64, 0.0f64);
+    for j in 0..nblocks {
+        let (y, g) = block(j);
+        let n2: i64 = y.iter().map(|&v| (v as i64) * (v as i64)).sum();
+        if n2 == 0 {
+            continue;
+        }
+        let scale = centroids[g as usize] as f64 / ((n2 as f64).sqrt());
+        for k in 0..24 {
+            let w = y[k] as f64 * scale * rscale as f64;
+            acc += w * x[24 * j + k] as f64;
+            mag += (w * x[24 * j + k] as f64).abs();
+        }
+    }
+    for (i, &t) in tail.iter().enumerate() {
+        let v = t * x[24 * nblocks + i] as f64;
+        acc += v;
+        mag += v.abs();
+    }
+    (acc, mag)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -958,5 +1166,74 @@ mod tests {
         assert_eq!(step_a_plan(&ModelShape::Q4B).iter().filter(|p| p.tetra_down).count(), 24);
         assert_eq!(step_a_plan(&ModelShape::Q8B).iter().filter(|p| p.tetra_down).count(), 19);
         assert_eq!(step_a_plan(&ModelShape::Q14B).iter().filter(|p| p.tetra_down).count(), 21);
+    }
+
+    #[test]
+    fn the_served_unit_is_the_published_one() {
+        let t = served_unit_text(SERVED_DEFINES_SM89);
+        assert_eq!(t.len(), 101_625);
+        assert_eq!(
+            crate::sha256::sha256_hex(t.as_bytes()),
+            "6193094310bc18acdb0a0c554807ff45f6df09c1f6ab49e0577032874f107812",
+            "the served unit moved: the L2 reference would not be the served kernel"
+        );
+    }
+
+    #[test]
+    fn the_pers_unit_carries_every_symbol() {
+        let t = pers_unit_text("#define TILE_BLOCKS 64u\n");
+        for a in PERS_ARMS.iter() {
+            assert!(t.contains(&format!("PERS_ARM({},", a.symbol)), "{}", a.symbol);
+        }
+        for sym in ["tv_tetra48_persall", "tv_pers_bar", "tv_pers_ring", "tv_pers_empty", "pers_ref_rmsnorm", "pers_seg_tetra_v0", "pers_seg_q4_v0"] {
+            assert!(t.contains(sym), "{sym}");
+        }
+        // composition: every part's guard is defined by an earlier part
+        let pos = |n: &str| PERS_UNIT_PARTS.iter().position(|p| p.0 == n).unwrap();
+        assert!(pos("matvec.cu") < pos("llvq_pers.cuh"));
+        assert!(pos("llvq_tetra48.cuh") < pos("tetra48_persall.cu"));
+        assert!(pos("llvq_rot.cuh") < pos("llvq_pers.cuh"));
+        assert!(pos("llvq_pers.cuh") < pos("pers_segment.cu"));
+    }
+
+    #[test]
+    fn persall_sites_pack_as_the_kernel_unpacks() {
+        let w = persall_site_words(1, 2, 3, 4, 5, 6, 405, 8, 1216, 1234, 320);
+        assert_eq!(w[6] & 0xffff, 405);
+        assert_eq!((w[6] >> 16) & 0xffff, 8);
+        assert_eq!(w[6] >> 32, 1216);
+        assert_eq!(w[7] & 0xffff_ffff, 1234);
+        assert_eq!(w[7] >> 32, 320);
+        let cu = include_str!("../kernels/tetra48_persall.cu");
+        assert!(cu.contains("#define LLVQ_TOCC_SITE_WORDS 8u"));
+        let (g0, total) = persall_groups(&[6144, 2560, 19456, 2560]);
+        assert_eq!(g0, vec![0, 768, 1088, 3520]);
+        assert_eq!(total, 3840);
+    }
+
+    #[test]
+    fn args_images_have_the_struct_sizes() {
+        assert_eq!(PersArgsHost::default().bytes().len(), PERS_ARGS_BYTES);
+        assert_eq!(std::mem::size_of::<PersLaunch>(), PERS_LAUNCH_BYTES);
+        // the offsets themselves: tests/pers_matches_served.rs compiles the
+        // kernels' struct definitions and checks every one
+    }
+
+    #[test]
+    fn med_range_is_the_middle() {
+        assert_eq!(med_range(&[3.0, 1.0, 2.0]), (2.0, 1.0, 3.0));
+        assert_eq!(med_range(&[4.0, 1.0, 2.0, 3.0]), (2.5, 1.0, 4.0));
+        assert!(med_range(&[]).0.is_nan());
+    }
+
+    #[test]
+    fn the_f64_row_reference() {
+        // one block, y = e_0 * 4 (n2 = 16), gain 0 centroid 2: w_0 = 2 * 4 / 4 = 2
+        let mut y = [0i32; 24];
+        y[0] = 4;
+        let x: Vec<f32> = (0..26).map(|i| i as f32 + 1.0).collect();
+        let (v, m) = tetra_row_f64(1, |_| (y, 0), [2.0, 3.0], 0.5, &[0.25, -1.0], &x);
+        assert_eq!(v, 2.0 * 0.5 * 1.0 + 0.25 * 25.0 - 26.0);
+        assert_eq!(m, 1.0 + 6.25 + 26.0);
     }
 }

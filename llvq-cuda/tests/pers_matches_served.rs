@@ -412,6 +412,28 @@ fn the_argmax_key_is_tok_argmax_key() {
     assert_ne!(u32s(&run(&b, &cmd)), vec![0], "the bit reversal of the key survived");
 }
 
+/// The host mirrors of the device structs (`pers.rs`) against the kernels'
+/// own definitions: a field one word off would read a wrong pointer on the
+/// card, with no error.
+#[test]
+fn the_struct_mirrors_match_the_kernel_layouts() {
+    let o = u32s(&run(persistent(), &Cmd::new(b'L').0));
+    let mut want = vec![pers::PERS_ARGS_BYTES as u32];
+    want.extend((0..pers::PERS_ARGS_PTRS.len() as u32).map(|i| 8 * i));
+    // nsites, hidden, inter, m_h, k_h, m_i, k_i, then (3 pads) inv_h, inv_i, eps
+    want.extend([176, 180, 184, 188, 192, 196, 200, 216, 220, 224]);
+    want.push(pers::PERS_LAUNCH_BYTES as u32);
+    want.extend([0, 4, 8, 16, 24, 32]);
+    want.push(4 * pers::SITE_U32 as u32);
+    assert_eq!(o, want);
+    // the Rust image puts the same values at the same offsets
+    let img = pers::PersArgsHost { ptrs: std::array::from_fn(|i| 0x1000 + i as u64), nsites: 7, inv_h: 0.5, eps: 1e-6, ..Default::default() }.bytes();
+    assert_eq!(u64::from_le_bytes(img[8 * 21..8 * 22].try_into().unwrap()), 0x1000 + 21);
+    assert_eq!(u32::from_le_bytes(img[176..180].try_into().unwrap()), 7);
+    assert_eq!(f32::from_le_bytes(img[216..220].try_into().unwrap()), 0.5);
+    assert_eq!(f32::from_le_bytes(img[224..228].try_into().unwrap()), 1e-6);
+}
+
 // ---- the L2 bench arms ------------------------------------------------------
 
 /// The served pattern on two layers (a Tetra down, then an int4-pattern one)

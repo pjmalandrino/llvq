@@ -106,6 +106,7 @@
     A.gscale = gs.data(); A.rscale = rs.data(); A.tail = tl.data();
     A.x = x.data();
     A.y_all = y_all.data();
+    PersLaunch PL{};
     A.slice_lo = lo.data(); A.slice_hi = hi.data();
     A.bar = bar.data(); A.cnts = cnts.data(); A.abort_flag = abort_flag.data();
     A.resid = resid.data(); A.alpha = alpha.data();
@@ -114,7 +115,7 @@
     A.nsites = nsites;
     A.hidden = hidden; A.inter = inter; A.m_h = m_h; A.k_h = k_h; A.m_i = m_i; A.k_i = k_i;
     A.inv_h = inv_h; A.inv_i = inv_i; A.eps = eps;
-    typedef void (*ArmFn)(const PersArgs*);
+    typedef void (*ArmFn)(const PersArgs*, const PersLaunch);
     const ArmFn fns[12] = {tv_pers_null, tv_pers_word, tv_pers_l1, tv_pers_smem, tv_pers_smem_s25,
                            tv_pers_smem_t28, tv_pers_smem_t28_u2, tv_pers_t28_512, tv_pers_t28_1024,
                            tv_pers_chain_w, tv_pers_chain_w2, tv_pers_chain_wp};
@@ -125,13 +126,13 @@
     for (u32 L = 0; L < n_launches; ++L) {
         std::fill(y_all.begin(), y_all.end(), (unsigned short)0xFFFFu);
         const bool last = L + 1 == n_launches;
-        A.dbg = last ? dbg.data() : nullptr;
-        A.dbg_norm = last ? norm_out.data() : nullptr;
-        A.dbg_rot = last ? rot_out.data() : nullptr;
-        A.bar_base = ledger[L * 3 + 0];
-        A.epoch = ledger[L * 3 + 1];
-        A.cnt_offset = ledger[L * 3 + 2];
-        hostgrid::launch_coop(grid, threads, smem_bytes, seed + L, [&] { fns[arm_i](&A); });
+        PL.dbg = last ? dbg.data() : nullptr;
+        PL.dbg_norm = last ? norm_out.data() : nullptr;
+        PL.dbg_rot = last ? rot_out.data() : nullptr;
+        PL.bar_base = ledger[L * 3 + 0];
+        PL.epoch = ledger[L * 3 + 1];
+        PL.cnt_offset = ledger[L * 3 + 2];
+        hostgrid::launch_coop(grid, threads, smem_bytes, seed + L, [&] { fns[arm_i](&A, PL); });
     }
     out_tail[0] = bar[0];
     out_tail[1] = abort_flag[0];

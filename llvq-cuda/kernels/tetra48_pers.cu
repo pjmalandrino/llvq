@@ -56,7 +56,9 @@ struct PersSite {
                              // bits 8-31: layer
 };
 
-// One device struct; its address is every arm's only argument.
+// Uploaded once; its address is every arm's first argument. Pointers first,
+// then 4-byte fields, so the host mirror (persbench.rs) packs it without
+// padding rules: 22 pointers, 10 u32, 3 f32: 228 bytes, 232 with the tail pad.
 struct PersArgs {
     const PersSite* sites;
     const u32* rows;                       // decoder tables, global copies
@@ -69,35 +71,44 @@ struct PersArgs {
     const unsigned short* const* tail;     // per site, d_out * tail_w binary16
     const float* x;                        // the bench activation, f32, width >= 9728
     unsigned short* y_all;                 // every site's rows; poisoned before an identity launch
-    float* dbg;                            // nullable: the f32 value before f2h, identity launch only
     const u32* slice_lo;                   // [nsites * grid], pers.rs::slice_tables
     const u32* slice_hi;
     u32* bar;                              // monotonic barrier counter, life of the runtime
-    u32* cnts;                             // counters; this arm's region starts at cnt_offset
+    u32* cnts;                             // counters; each arm's region from PersLaunch
     u32* abort_flag;
     // prologue inputs (pchain_wp): a fixed binary16 residual, RMSNorm weights,
     // the two rotations' sign bitmaps and padded odd blocks
-    const unsigned short* resid;           // width >= 9728
+    const unsigned short* resid;           // width >= inter
     const unsigned short* alpha;           // width hidden
     const u32* signs_h;
     const u32* signs_i;
     const float* small_h;                  // KMAX x KMAX, +0.0f padded
     const float* small_i;
-    unsigned short* dbg_norm;              // nullable: CTA 0's normed vectors, [n_norm][hidden]
-    float* dbg_rot;                        // nullable: CTA 0's rotated vectors, [n_prol][inter]
     u32 nsites;
-    u32 bar_base;                          // arrivals before this launch (pers.rs::Ledger)
-    u32 epoch;                             // this arm's earlier signalling launches
-    u32 cnt_offset;                        // this arm's counter region
     u32 hidden, inter;                     // prologue widths
     u32 m_h, k_h, m_i, k_i;                // their rotation plans (pers.rs::rot_mk)
+    u32 pad0, pad1, pad2;
     float inv_h, inv_i;                    // 1/sqrt(m) as the host passes rot_apply
     float eps;
 };
 
-__device__ __forceinline__ bool pers_bench_barrier(const PersArgs* A, u32& nbar)
+// What changes from one launch to the next, passed by value so a timed launch
+// needs no copy: the barrier and counter state (pers.rs::Ledger) and the
+// identity launch's debug outputs (null on timed launches, so the timed code
+// and the checked code are one symbol). 40 bytes.
+struct PersLaunch {
+    u32 bar_base;                          // arrivals before this launch
+    u32 epoch;                             // this arm's earlier signalling launches
+    u32 cnt_offset;                        // this arm's counter region
+    u32 pad;
+    float* dbg;                            // the f32 value before f2h, [rows]
+    unsigned short* dbg_norm;              // CTA 0's normed vectors, [n_norm][hidden]
+    float* dbg_rot;                        // CTA 0's rotated vectors, [n_prol][inter]
+};
+
+__device__ __forceinline__ bool pers_bench_barrier(const PersArgs* A, const PersLaunch& L, u32& nbar)
 {
-    const u32 t = A->bar_base + (nbar + 1u) * gridDim.x;
+    const u32 t = L.bar_base + (nbar + 1u) * gridDim.x;
     nbar += 1u;
     return pers_grid_wait(A->bar, t, A->abort_flag);
 }
@@ -107,7 +118,7 @@ __device__ __forceinline__ bool pers_bench_barrier(const PersArgs* A, u32& nbar)
 // place in `s`; the staging that follows overwrites it, so the rows still
 // read the bench `x` and still owe identity. CTA 0 copies its vectors out
 // when the debug pointers are set (identity launch only).
-__device__ void pers_bench_prologue(const PersArgs* A, u32 kind, u32 slot, u32 norm_slot, float* s)
+__device__ void pers_bench_prologue(const PersArgs* A, const PersLaunch& L, u32 kind, u32 slot, u32 norm_slot, float* s)
 {
     const bool norm = kind == 1u;
     const u32 n = norm ? A->hidden : A->inter;
@@ -121,7 +132,7 @@ __device__ void pers_bench_prologue(const PersArgs* A, u32 kind, u32 slot, u32 n
         const float scale = exact_rms_scale<0>(A->resid, n, A->eps);
         for (u32 i = threadIdx.x; i < n; i += blockDim.x) {
             const unsigned short h = exact_rms_apply(scale, __ldcg(A->resid + i), A->alpha[i]);
-            if (A->dbg_norm && blockIdx.x == 0u) A->dbg_norm[norm_slot * n + i] = h;
+            if (L.dbg_norm && blockIdx.x == 0u) L.dbg_norm[norm_slot * n + i] = h;
             const float v = h2f(h);
             s[i] = ((signs[i >> 5] >> (i & 31u)) & 1u) ? -v : v;
         }
@@ -129,12 +140,12 @@ __device__ void pers_bench_prologue(const PersArgs* A, u32 kind, u32 slot, u32 n
         pers_rot_load(A->resid, signs, s, n);
     }
     pers_rot_finish(s, small, n, m, k, inv);
-    if (A->dbg_rot && blockIdx.x == 0u)
-        for (u32 i = threadIdx.x; i < n; i += blockDim.x) A->dbg_rot[slot * A->inter + i] = s[i];
+    if (L.dbg_rot && blockIdx.x == 0u)
+        for (u32 i = threadIdx.x; i < n; i += blockDim.x) L.dbg_rot[slot * A->inter + i] = s[i];
 }
 
 template <int MODE, u32 THREADS, u32 STRIDE, bool TRIO, bool PREFETCH, int WAITS, bool PROLOGUE>
-__device__ __forceinline__ void pers_body(const PersArgs* __restrict__ A)
+__device__ __forceinline__ void pers_body(const PersArgs* __restrict__ A, const PersLaunch L)
 {
     unsigned char* base = PERS_SMEM_BASE();
     const u32 lane = threadIdx.x & 31u;
@@ -171,18 +182,18 @@ __device__ __forceinline__ void pers_body(const PersArgs* __restrict__ A)
     u32 nprol = 0u, nnorm = 0u;
     u32 staged_din = 0xffffffffu;
     u32 staged_layer = 0xffffffffu;
-    const u32 cnt_target = (A->epoch + 1u) * gridDim.x;
-    u32* cnts = A->cnts + A->cnt_offset;
+    const u32 cnt_target = (L.epoch + 1u) * gridDim.x;
+    u32* cnts = A->cnts + L.cnt_offset;
     for (u32 s = 0; s < A->nsites; ++s) {
         const PersSite st = A->sites[s];
         if (WAITS >= 1) {
             const u32 kind = st.wait & 3u, producer = st.wait >> 2;
             if (kind == 1u) {
-                if (!pers_bench_barrier(A, nbar)) return;
-                if (WAITS == 2 && !pers_bench_barrier(A, nbar)) return;
+                if (!pers_bench_barrier(A, L, nbar)) return;
+                if (WAITS == 2 && !pers_bench_barrier(A, L, nbar)) return;
             } else if (kind == 2u) {
                 if (!pers_wait_count(cnts + producer, cnt_target, A->abort_flag)) return;
-                if (WAITS == 2 && !pers_bench_barrier(A, nbar)) return;
+                if (WAITS == 2 && !pers_bench_barrier(A, L, nbar)) return;
             }
         }
         const u32 nblocks = st.nb_tw & 0xffffu, tail_w = st.nb_tw >> 16;
@@ -193,7 +204,7 @@ __device__ __forceinline__ void pers_body(const PersArgs* __restrict__ A)
         if (d_in != staged_din || layer != staged_layer) {
             const u32 pk = (st.flags >> 1) & 3u;
             if (PROLOGUE && pk != 0u) {
-                pers_bench_prologue(A, pk, nprol, nnorm, xs);
+                pers_bench_prologue(A, L, pk, nprol, nnorm, xs);
                 nprol += 1u;
                 nnorm += pk == 1u ? 1u : 0u;
             }
@@ -232,7 +243,7 @@ __device__ __forceinline__ void pers_body(const PersArgs* __restrict__ A)
                                                                          xs, nblocks, lane);
                 if (lane == 0u) {
                     const float v = pers_epilogue(acc, rs[r], tl + r * tail_w, xs + nblocks * STRIDE, tail_w);
-                    if (A->dbg) A->dbg[yrow] = v;
+                    if (L.dbg) L.dbg[yrow] = v;
                     A->y_all[yrow] = f2h(v);
                 }
             }
@@ -242,16 +253,17 @@ __device__ __forceinline__ void pers_body(const PersArgs* __restrict__ A)
     }
     if (WAITS >= 1) {  // the final norm's W1 and the argmax combine (W4) of the served schedule
         for (u32 t = 0; t < 2u; ++t) {
-            if (!pers_bench_barrier(A, nbar)) return;
-            if (WAITS == 2 && !pers_bench_barrier(A, nbar)) return;
+            if (!pers_bench_barrier(A, L, nbar)) return;
+            if (WAITS == 2 && !pers_bench_barrier(A, L, nbar)) return;
         }
     }
 }
 
-#define PERS_ARM(sym, threads, MODE_, STRIDE_, TRIO_, PF_, WAITS_, PROL_)                        \
-    extern "C" __global__ void __launch_bounds__(threads, 1) sym(const PersArgs* __restrict__ A) \
-    {                                                                                             \
-        pers_body<MODE_, threads, STRIDE_, TRIO_, PF_, WAITS_, PROL_>(A);                        \
+#define PERS_ARM(sym, threads, MODE_, STRIDE_, TRIO_, PF_, WAITS_, PROL_)                         \
+    extern "C" __global__ void __launch_bounds__(threads, 1) sym(const PersArgs* __restrict__ A,  \
+                                                                 const PersLaunch L)               \
+    {                                                                                              \
+        pers_body<MODE_, threads, STRIDE_, TRIO_, PF_, WAITS_, PROL_>(A, L);                      \
     }
 
 // One line an arm; pers.rs::tests::the_table_is_the_kernel_text reads them.

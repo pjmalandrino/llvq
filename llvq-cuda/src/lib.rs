@@ -57,6 +57,10 @@ pub mod occ;
 // a rented card, and a counter epoch one off reads stale rows without a hang.
 pub mod pers;
 
+// The persistent sections of planesbench, Linux only like `gpu`.
+#[cfg(target_os = "linux")]
+pub mod persbench;
+
 // Portable because it can be: the QTIP comparison arm's host codec names no
 // crate at all — not even `llvq-core` — so unlike the other `*_host.rs` files
 // it is a module rather than an `include!`, and its tests run on the
