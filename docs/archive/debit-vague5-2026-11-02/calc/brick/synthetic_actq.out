@@ -1,0 +1,121 @@
+numpy 2.2.6, seed 20261102, 2000 vectors per case, slice 384
+
+gauss    n= 2544
+  f16   rel rms  p50 2.077e-04  p99 2.160e-04  max 2.186e-04
+  i16s  rel rms  p50 3.540e-05  p99 4.400e-05  max 5.436e-05
+  i16u  rel rms  p50 3.540e-05  p99 4.400e-05  max 5.436e-05
+  i16v  rel rms  p50 3.540e-05  p99 7.196e-05  max 7.346e-05
+  i24s  rel rms  p50 1.428e-07  p99 1.753e-07  max 2.127e-07
+  i8v   rel rms  p50 8.265e-03  p99 1.038e-02  max 1.140e-02
+  (i16s/f16)^2 noise-power share  p50 0.029  p99 0.047  max 0.069
+  exponent spread across slices    p50 0  p99 1  max 1   cap binds in 0.0 % of vectors
+  i16s over i16u, p50 1.0000  max 1.0000
+  slice amax/rms  p50 3.19  p99 4.54  max 6.05
+
+gauss    n= 9720
+  f16   rel rms  p50 2.077e-04  p99 2.121e-04  max 2.147e-04
+  i16s  rel rms  p50 3.572e-05  p99 4.087e-05  max 4.508e-05
+  i16u  rel rms  p50 3.572e-05  p99 4.087e-05  max 4.508e-05
+  i16v  rel rms  p50 3.572e-05  p99 7.177e-05  max 7.240e-05
+  i24s  rel rms  p50 1.441e-07  p99 1.634e-07  max 1.781e-07
+  i8v   rel rms  p50 9.025e-03  p99 1.118e-02  max 1.207e-02
+  (i16s/f16)^2 noise-power share  p50 0.030  p99 0.039  max 0.049
+  exponent spread across slices    p50 0  p99 1  max 2   cap binds in 0.0 % of vectors
+  i16s over i16u, p50 1.0000  max 1.0000
+  slice amax/rms  p50 3.13  p99 5.38  max 8.36
+
+t4       n= 2544
+  f16   rel rms  p50 2.070e-04  p99 2.308e-04  max 2.716e-04
+  i16s  rel rms  p50 7.560e-05  p99 1.474e-04  max 2.420e-04
+  i16u  rel rms  p50 7.560e-05  p99 1.474e-04  max 2.386e-04
+  i16v  rel rms  p50 1.016e-04  p99 3.458e-04  max 5.927e-04
+  i24s  rel rms  p50 2.972e-07  p99 5.788e-07  max 9.688e-07
+  i8v   rel rms  p50 1.931e-02  p99 5.076e-02  max 8.436e-02
+  (i16s/f16)^2 noise-power share  p50 0.132  p99 0.449  max 2.336
+  exponent spread across slices    p50 1  p99 3  max 4   cap binds in 0.1 % of vectors
+  i16s over i16u, p50 1.0000  max 1.0141
+  slice amax/rms  p50 5.42  p99 12.32  max 18.68
+
+t4       n= 9720
+  f16   rel rms  p50 2.070e-04  p99 2.200e-04  max 2.324e-04
+  i16s  rel rms  p50 7.945e-05  p99 1.132e-04  max 1.754e-04
+  i16u  rel rms  p50 7.945e-05  p99 1.132e-04  max 1.625e-04
+  i16v  rel rms  p50 1.946e-04  p99 3.905e-04  max 7.268e-04
+  i24s  rel rms  p50 3.123e-07  p99 4.393e-07  max 6.903e-07
+  i8v   rel rms  p50 2.697e-02  p99 7.241e-02  max 1.212e-01
+  (i16s/f16)^2 noise-power share  p50 0.147  p99 0.302  max 0.889
+  exponent spread across slices    p50 2  p99 3  max 5   cap binds in 0.9 % of vectors
+  i16s over i16u, p50 1.0000  max 1.0799
+  slice amax/rms  p50 5.38  p99 12.45  max 18.87
+
+t3       n= 2544
+  f16   rel rms  p50 2.062e-04  p99 2.525e-04  max 3.235e-04
+  i16s  rel rms  p50 9.785e-05  p99 2.122e-04  max 3.222e-04
+  i16u  rel rms  p50 9.785e-05  p99 2.093e-04  max 3.128e-04
+  i16v  rel rms  p50 1.650e-04  p99 5.062e-04  max 7.662e-04
+  i24s  rel rms  p50 3.829e-07  p99 8.204e-07  max 1.141e-06
+  i8v   rel rms  p50 2.706e-02  p99 7.847e-02  max 1.058e-01
+  (i16s/f16)^2 noise-power share  p50 0.225  p99 1.178  max 2.012
+  exponent spread across slices    p50 2  p99 4  max 5   cap binds in 2.2 % of vectors
+  i16s over i16u, p50 1.0000  max 1.0354
+  slice amax/rms  p50 6.58  p99 16.09  max 19.31
+
+t3       n= 9720
+  f16   rel rms  p50 2.066e-04  p99 2.413e-04  max 3.298e-04
+  i16s  rel rms  p50 1.054e-04  p99 1.746e-04  max 3.359e-04
+  i16u  rel rms  p50 1.054e-04  p99 1.727e-04  max 2.938e-04
+  i16v  rel rms  p50 1.748e-04  p99 6.542e-04  max 1.451e-03
+  i24s  rel rms  p50 4.129e-07  p99 7.064e-07  max 1.349e-06
+  i8v   rel rms  p50 4.170e-02  p99 1.313e-01  max 1.883e-01
+  (i16s/f16)^2 noise-power share  p50 0.259  p99 0.775  max 8.783
+  exponent spread across slices    p50 2  p99 5  max 6   cap binds in 9.9 % of vectors
+  i16s over i16u, p50 1.0000  max 1.1684
+  slice amax/rms  p50 6.56  p99 15.81  max 19.55
+
+spike50  n= 2544
+  f16   rel rms  p50 1.823e-04  p99 2.616e-04  max 2.681e-04
+  i16s  rel rms  p50 3.722e-05  p99 4.474e-05  max 5.061e-05
+  i16u  rel rms  p50 3.722e-05  p99 4.474e-05  max 5.061e-05
+  i16v  rel rms  p50 4.984e-05  p99 5.174e-05  max 5.312e-05
+  i24s  rel rms  p50 1.497e-07  p99 1.788e-07  max 1.982e-07
+  i8v   rel rms  p50 7.610e-03  p99 9.348e-03  max 1.062e-02
+  (i16s/f16)^2 noise-power share  p50 0.040  p99 0.083  max 0.100
+  exponent spread across slices    p50 1  p99 1  max 1   cap binds in 0.0 % of vectors
+  i16s over i16u, p50 1.0000  max 1.0000
+  slice amax/rms  p50 2.91  p99 4.30  max 5.55
+
+spike50  n= 9720
+  f16   rel rms  p50 1.866e-04  p99 2.658e-04  max 2.703e-04
+  i16s  rel rms  p50 3.642e-05  p99 4.103e-05  max 4.229e-05
+  i16u  rel rms  p50 3.642e-05  p99 4.103e-05  max 4.229e-05
+  i16v  rel rms  p50 4.985e-05  p99 5.085e-05  max 5.152e-05
+  i24s  rel rms  p50 1.465e-07  p99 1.639e-07  max 1.684e-07
+  i8v   rel rms  p50 8.546e-03  p99 1.056e-02  max 1.187e-02
+  (i16s/f16)^2 noise-power share  p50 0.038  p99 0.070  max 0.083
+  exponent spread across slices    p50 1  p99 1  max 2   cap binds in 0.0 % of vectors
+  i16s over i16u, p50 1.0000  max 1.0000
+  slice amax/rms  p50 2.90  p99 5.06  max 7.77
+
+spike90  n= 2544
+  f16   rel rms  p50 2.031e-04  p99 3.936e-04  max 4.045e-04
+  i16s  rel rms  p50 2.273e-05  p99 3.075e-05  max 3.200e-05
+  i16u  rel rms  p50 2.273e-05  p99 3.075e-05  max 3.200e-05
+  i16v  rel rms  p50 2.302e-05  p99 4.601e-05  max 4.746e-05
+  i24s  rel rms  p50 9.608e-08  p99 1.253e-07  max 1.299e-07
+  i8v   rel rms  p50 5.718e-03  p99 7.043e-03  max 7.738e-03
+  (i16s/f16)^2 noise-power share  p50 0.014  p99 0.175  max 0.215
+  exponent spread across slices    p50 1  p99 2  max 2   cap binds in 0.0 % of vectors
+  i16s over i16u, p50 1.0000  max 1.0000
+  slice amax/rms  p50 2.18  p99 3.93  max 5.24
+
+spike90  n= 9720
+  f16   rel rms  p50 1.995e-04  p99 4.022e-04  max 4.093e-04
+  i16s  rel rms  p50 2.481e-05  p99 2.799e-05  max 2.986e-05
+  i16u  rel rms  p50 2.481e-05  p99 2.799e-05  max 2.986e-05
+  i16v  rel rms  p50 4.457e-05  p99 4.544e-05  max 4.614e-05
+  i24s  rel rms  p50 1.033e-07  p99 1.149e-07  max 1.224e-07
+  i8v   rel rms  p50 6.805e-03  p99 8.860e-03  max 9.857e-03
+  (i16s/f16)^2 noise-power share  p50 0.015  p99 0.150  max 0.176
+  exponent spread across slices    p50 2  p99 2  max 2   cap binds in 0.0 % of vectors
+  i16s over i16u, p50 1.0000  max 1.0000
+  slice amax/rms  p50 2.24  p99 4.39  max 7.10
