@@ -1,0 +1,10 @@
+inputs: B_pa 410 GB/s, barrier 0.79 us, launch 1.15 us, cooperative +0.80 us, drain 3.97 us
+  upper: B_T 410 GB/s, h 0.79 us
+    route P  4.302 ms = stream 3.358 + fixed 0.943 -> 232 tok/s
+    4E       3.877 ms = stream 3.358 + fixed 0.519 -> 258 tok/s
+  lower: B_T 348 GB/s, h 1.18 us
+    route P  4.932 ms = stream 3.951 + fixed 0.981 -> 203 tok/s
+    4E       4.508 ms = stream 3.951 + fixed 0.557 -> 222 tok/s
+route P [203, 232] tok/s, 4E [222, 258] tok/s (estimated); target 300, IQ2_XXS on this card 312.85 (measured)
+rule H: route P's upper end is under 250: route P stands only as a step toward 4E
+rule H: 4E's upper end is under 300: the persistent path does not reach the target on these inputs; the binding term is the larger of stream and fixed above

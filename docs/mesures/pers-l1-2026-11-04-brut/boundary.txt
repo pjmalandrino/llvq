@@ -1,0 +1,33 @@
+Cuda(CudaDevice(DeviceId(1))), dtype F16, 256 tokens
+
+cudarc event tracking: off (one stream, ordered by issue)
+shared rotation: 1 (LLVQ_ROT_SHARE), 96 rot_launches/token for 252 projections
+projection fusion: 0 (LLVQ_FUSE), 252 matvec_launches/token for 252 projections (0 groups + 168 lone + 84 int4)
+fused layout: tetra48 (LLVQ_FUSED_LAYOUT), projections 1.16 GB on the card, 2.550 b/weight (INFERENCE accounting: KeepExact tail in binary16; the bench bills its own in f32)
+NVRTC source: 101625 bytes, sha256 6193094310bc18acdb0a0c554807ff45f6df09c1f6ab49e0577032874f107812 (11 parts), tile 64 (served: measured optimum for sm_89), prefill 4x128 (served pair), 49152 B staged of 49152, target compute_89
+int4: tv_q4_hh equals tv_q4_h bit for bit on model.layers.0.self_attn.v_proj.weight (1024 rows, d_in 2560)
+embedding: q4 g64 (LLVQ_EMBED), 1 table (model.embed_tokens.weight, lm_head tied on it), 218.8 MB on the card (int4 194.5 + scales/biases 24.3)
+total expected on the card: 1.38 GB (projections 1.16 + carried 0.22)
+llvq_empty: own NVRTC module on candle's stream, source sha256 522f17bcbac28d0261ceed790027174e69128069b9b7fcfdd890d7ec0414fe7c
+loaded in 4.3 s. boundary A/B: 8 arms, one model, interleaved rounds
+LLVQ_ROT_SHARE=1, 96 rot_launches/token · LLVQ_FUSE=0, 252 matvec_launches/token
+attention grouped on grow(256)
+layout tetra48, 36 layers, gate_proj 9728 rows, down_proj 2560 rows
+
+8 arms × 5 interleaved rounds after 2 discarded, 256 identical tokens in every arm and round
+  t = elapsed / 256; us per added boundary = (t_arm - t_served) / boundaries a token, round by round
+  arm             a token  a generate   tok/s [range]          us per added boundary [range]
+  served                0           0    134.0 [133.8–134.1]
+  split@wave           36        9216    130.7 [130.6–130.7]     5.256 [5.037–5.385]
+  split@half           36        9216    130.3 [130.2–130.3]     5.924 [5.481–5.965]
+  split-down           24        6144    126.9 [126.8–127.0]    17.269 [16.693–17.672]
+  empty x1             36        9264    133.2 [133.0–133.3]     1.152 [0.810–1.550]
+  empty x4            144       37056    131.2 [131.0–131.2]     1.093 [1.020–1.202]
+  emptygrid x1         36        9264    132.7 [132.7–132.9]     1.734 [1.581–2.132]
+  candle-tiny x1       36        9216    132.7 [132.6–132.8]     2.033 [1.623–2.196]
+
+derived classes, us per boundary, round by round (printed, never gated)
+  drain+ramp = split@wave     - empty x1      3.971 [3.706–4.239]
+  underfill  = split@half     - split@wave    0.540 [0.436–0.889]
+  dispatch   = emptygrid x1   - empty x1      0.718 [0.184–0.873]
+  linearity  = empty x4       - empty x1     -0.084 [-0.423–0.210]   (0 when linear)

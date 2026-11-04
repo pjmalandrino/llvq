@@ -1,0 +1,134 @@
+LLVQ_BENCH_ARMS selection:
+  phase 1/1: slot32,planes14,fp16,tetra48
+tile 64 (⚠️ LLVQ_TILE_BLOCKS overrides the served policy)
+Persistent sections: LLVQ_TETRA_OCC=1 LLVQ_PERS_MICRO=1 LLVQ_PERS_ARMS= LLVQ_DUMP_CUBIN=/out/pers-l1-2026-11-04/cubin
+NVRTC source: 190100 bytes, sha256 87b1943d66af604a345bd8beb9b0767b7ae694f1bca001feeee23da12e0fedc7
+
+NVIDIA L40S: 142 SM, L2 100.7 MB (read), 49152 B of shared memory per block
+  tv_slot     40 registers, 0 local bytes, sm_89
+  tv_slot_seg  40 registers, 0 local bytes, sm_89
+  tv_f16      42 registers, 0 local bytes, sm_89
+  tv_planes   40 registers, 0 local bytes, sm_89
+  tv_planes_seg  40 registers, 0 local bytes, sm_89
+  tv_planes12x  40 registers, 0 local bytes, sm_89
+  tv_golay70  40 registers, 0 local bytes, sm_89
+  tv_golay70_v1  40 registers, 0 local bytes, sm_89
+  awq_gemv_g128  32 registers, 0 local bytes, sm_89
+  tv_e1v      79 registers, 0 local bytes, sm_89
+  tv_nullk    31 registers, 0 local bytes, sm_89
+  tv_f1r_v3g  40 registers, 0 local bytes, sm_89
+  tv_planes_pad  40 registers, 0 local bytes, sm_89
+  tv_planes_mr2  48 registers, 0 local bytes, sm_89
+  tv_planes_mr4  64 registers, 0 local bytes, sm_89
+  tv_planes_mr2p  48 registers, 0 local bytes, sm_89
+  tv_planes_pers  40 registers, 0 local bytes, sm_89
+  tv_planes_sk  40 registers, 0 local bytes, sm_89
+  tv_planes_persall  48 registers, 0 local bytes, sm_89
+tetra48: rank table 16384 B, prefixes 128 B, branches 2048 B, suffixes 128 B, invnorm 128 B, N0 = 1240
+  /out/tetra-4b-2026-09-06/qwen3-4b-tetra.bin — 252 matrices: 252 Tetra, 0 int4 g128 (counted, not timed)
+
+Build: Slot32 transcode (reference, always), Tetra48 (SECOND FILE — its own reference, decoded back out of the packed words), Planes14, exact-reconstruction proofs of the arms that were built…
+  /out/ball-ref-2026-09-20/qwen3-4b-llvq.bin — 252 matrices
+  tetra48: 252 of 252 matrices matched by name, from 252 Tetra records
+  d_y: 9728 f32, the table and nothing else (section A4 has its own)
+  252 matrices, 3.63 G weights, in 150 s, block-by-block proofs of the arms that were built
+
+Verifying every row against the f64 reference…
+  1105920 rows, threshold 1e-5 (AWQ, cublasf16: 1e-3, binary16 output) — worst errors slot32 2.2e-8, planes14 2.2e-8, fp16 3.0e-8, tetra48 2.0e-8 ·Σ|w·x|
+
+ONE TOKEN — 252 matrices, one stream, 4 arms interleaved
+  7 rounds, 2 discarded; the ratios are formed ROUND BY ROUND
+  --------------------------------------------------------------------------------
+  format                   min ms   med ms   max ms  GB read b/weight GB/s(min)
+  tile 64 (⚠️ LLVQ_TILE_BLOCKS overrides the served policy)
+  FP16 (128 bits)          10.973   10.979   10.981     7.27   16.000      662
+  LLVQ Slot32               5.707    5.713    5.731     2.50    5.510      438
+  LLVQ Planes14             4.978    4.981    4.991     2.18    4.804      438
+  LLVQ Tetra48              3.687    3.692    3.703     0.98    2.150      265
+  --------------------------------------------------------------------------------
+  tetra48 also HOLDS 4.2 MB of row landing pad, NOT billed above — the convention
+  the slot arm's 20-byte pad and the planes arm's 4-byte pad already follow.
+  Real VRAM, not a rate: `stride_u32` rounds each row to eight bytes so the last
+  block's six-byte window cannot fault.
+  LLVQ Slot32      vs FP16     : 1.92× [1.91–1.92]
+  LLVQ Planes14    vs FP16     : 2.20× [2.20–2.21]
+  LLVQ Tetra48     vs FP16     : 2.97× [2.97–2.98]
+  planes14   vs slot32    : 1.15× [1.14–1.15]  (>1 = Planes14 faster, same content decoded)
+  tetra48    vs planes14  : 1.35× [1.34–1.35]  (>1 = Tetra faster; DIFFERENT FILES, same 252 matrices — a layout ratio)
+
+  source: TWO FILES — ball: /out/ball-ref-2026-09-20/qwen3-4b-llvq.bin (252 records); tetra: /out/tetra-4b-2026-09-06/qwen3-4b-tetra.bin (252 Tetra + 0 int4 g128). The arms do not all read the same bytes
+  976 MB distinct per pass on the lightest arm (LLVQ Tetra48), which is 9.7× the L2 read.
+  Under 1× we would be measuring the cache and not the DRAM — the trap that
+  made every LLVQ measurement before 2026-07-31 optimistic.
+
+  With the unquantized f16 lm_head (389 M weights, 1.18 ms at the measured FP16
+  throughput, added to the LLVQ arms): LLVQ Slot32 1.77×, LLVQ Planes14 1.97×, LLVQ Tetra48 2.50×.
+  Norms, activations, attention and rotation are measured neither here nor there.
+  tetra48 vs planes14, WITH THE F16 HEAD : 1.27× [1.26–1.27]  (the lm_head added to BOTH arms, round by round)
+
+  WARNING: NEVER compare this line by line with the Metal figure, and never
+  subtract it from a bin/matvec run: other rounds, other NVRTC translation unit.
+  Every arm against its own f64 reference; the ratios form round by round,
+  inside one process.
+
+  fusion: 72 groups (180 matrices → 72), transcoded in 82 s
+
+  Fusion (A4) — output against the unfused matrices
+  bit-exact against the unfused arms: 72 groups on Slot32 and Planes14, 72 on Tetra48
+  72 groups, 921600 rows — identical BIT FOR BIT, on Slot32 AND on Planes14
+
+  Persistent module: 155843 bytes, sha256 41f342f08fcaf2887f3bdfbacfc5e312d1110cd3e9e61f4ce93363724bfeced8
+  cubin bench: 386304 bytes, sha256 a53a5e1da09d9a7255cc6b0df9b2e520f9a6dc341a422aa1f00d0842644c04b2 (driver JIT of a 190100-byte unit, sha256 87b1943d66af604a345bd8beb9b0767b7ae694f1bca001feeee23da12e0fedc7)
+  cubin persistent: 652880 bytes, sha256 10b8032c21aa875d18d8045eb0016892fc795bf4a3ec2f7a0b4ec04cc0ff87f4 (driver JIT of a 155843-byte unit, sha256 41f342f08fcaf2887f3bdfbacfc5e312d1110cd3e9e61f4ce93363724bfeced8)
+
+  Microbenchmarks (L1): 10000 hops a launch, 7 launches, 2 discarded, median [range]
+  barrier  142 x 768          0.786 us a barrier [0.785-0.786]
+  barrier  284 x 512          1.129 us a barrier [1.128-1.130]
+  barrier  852 x 256          3.052 us a barrier [3.048-3.054]
+  ring of 16 CTAs             1.024 us a hop [1.024-1.024]
+  empty 142x768, normal         1.749 us a launch [1.738-1.791]
+  empty 142x768, cooperative    1.951 us a launch [1.943-1.971]
+
+  One-launch Tetra pass (L1, tpersall): 144 sites, 1105920 rows, 138240 groups of 8, grid 568 (4 a SM x 142), 56 registers, 0 B local
+  tpersall: 1105920 rows identical BIT FOR BIT to the A4 kernels
+
+  One-launch Tetra pass (L1), rounds interleaved with A4:
+  tetra48 (252 launches)   3.788 ms [3.742-3.807]
+  tetra48seg (144)         3.009 ms [2.983-3.030]
+  tpersall (1)             2.394 ms [2.390-2.403]
+  one-launch gain over tetra48seg, round by round: 20.5 % [19.8-20.8]
+  B_pa = 0.9806 GB / t: 410 GB/s [408-410]
+
+  Cost — 7 rounds, 2 discarded, FOUR arms interleaved, medians
+  ------------------------------------------------------------------------------
+  Slot32, separate matrices              5.785 ms   252 launches
+  Slot32, q+k+v and gate+up fused        5.001 ms   144 launches
+  Planes14, separate matrices            5.057 ms   252 launches
+  Planes14, q+k+v and gate+up fused      4.516 ms   144 launches
+  ------------------------------------------------------------------------------
+  Tetra48, separate matrices             3.788 ms
+  Tetra48, q+k and gate+up fused         3.009 ms
+  gain Tetra48  : 0.768 ms [0.759–0.783]  (20.3%)
+  bytes read — Tetra48  : 0.984 GB fused against 0.976 separate (+0.76%)
+  gain Slot32   : 0.783 ms [0.775–0.794]  (13.5%)
+  gain Planes14 : 0.551 ms [0.541–0.571]  (10.9%)
+  Planes14 / Slot32 on the gain: 0.70× [0.69–0.74]
+  WARNING: ratio of two DIFFERENCES. Its spread is that of the two numerators
+  combined, hence far wider than that of the ratios in the table above. Read it
+  as an order of magnitude, never to two decimals. The two "gain" lines are the
+  ones that carry the result.
+  landmark: 108 fewer launches × 3.63 µs measured (a3-graph-2026-08-06)
+  = 0.392 ms, independent of the layout. What exceeds that is occupancy.
+  bytes read — Slot32   : 2.506 GB fused against 2.502 separate (+0.15%)
+  bytes read — Planes14 : 2.185 GB fused against 2.182 separate (+0.17%)
+  Slot32's STREAM can move: its stride is the widest record of a group of 32,
+  and the concatenation regroups at segment boundaries. Planes14's cannot — 14
+  bytes per block, no bases table. What BOTH pay is `gs_off`, one u32 a fused
+  row naming that row's centroid pair: 3.7 MB over the 72 groups, and it is the
+  only byte fusion adds. It was missing from this ledger until 2026-09-10, which
+  printed +0.00% and called that a verification (tests/planes_segment_matches_unfused.rs).
+  Any gain BEYOND this would be a confounder, not a bonus.
+
+  WARNING: THIS BLOCK PRODUCES NO RATIO AGAINST FP16, and authorizes
+  none: the FP16 arm suffers the same underfill on k/v and would gain from
+  the fusion too. Only the two LLVQ → LLVQ DELTAS above are measured.
