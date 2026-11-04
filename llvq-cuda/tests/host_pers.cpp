@@ -939,6 +939,16 @@ int main() {
         OFF(SegArgs, eps); OFF(SegArgs, gpr);
         o.push_back((u32)sizeof(SegLaunch));
         OFF(SegLaunch, x); OFF(SegLaunch, out); OFF(SegLaunch, bar_base);
+        o.push_back((u32)sizeof(Pers4eQkv));
+        OFF(Pers4eQkv, kw); OFF(Pers4eQkv, k_stride); OFF(Pers4eQkv, vw); OFF(Pers4eQkv, v_dout); OFF(Pers4eQkv, nblocks);
+        OFF(Pers4eQkv, d_in); OFF(Pers4eQkv, q); OFF(Pers4eQkv, v);
+        o.push_back((u32)sizeof(Pers4eLayer));
+        OFF(Pers4eLayer, m_a); OFF(Pers4eLayer, inv_a); OFF(Pers4eLayer, qkv); OFF(Pers4eLayer, q_norm); OFF(Pers4eLayer, obi);
+        OFF(Pers4eLayer, o_gpr); OFF(Pers4eLayer, tetra_down); OFF(Pers4eLayer, mlp);
+        o.push_back((u32)sizeof(Pers4eArgs));
+        OFF(Pers4eArgs, invnorm); OFF(Pers4eArgs, n_layers); OFF(Pers4eArgs, cap); OFF(Pers4eArgs, eps); OFF(Pers4eArgs, c);
+        o.push_back((u32)sizeof(Pers4eLaunch));
+        OFF(Pers4eLaunch, eos); OFF(Pers4eLaunch, ring);
 #undef OFF
 #endif
         wr(o);

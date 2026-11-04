@@ -685,6 +685,16 @@ pub fn n_bar_4e(layers: u32) -> u32 {
     2 + 7 * layers
 }
 
+/// After a 4E launch: the tokens it made (the ring up to its first unwritten
+/// slot, at most `n`), and the barrier base of the next launch. A launch that
+/// stopped on an end-of-sequence passed the barriers of the tokens it made
+/// and no others.
+pub fn p4e_after_launch(ring: &[u32], n: u32, bar_base: u32, layers: u32, grid: u32) -> (Vec<u32>, u32) {
+    let made: Vec<u32> = ring.iter().copied().take(n as usize).take_while(|&t| t != u32::MAX).collect();
+    let next = bar_base.wrapping_add((made.len() as u32).wrapping_mul(n_bar_4e(layers)).wrapping_mul(grid));
+    (made, next)
+}
+
 /// One route-P step-A launch: the MLP segment of one layer, from `ln2` to the
 /// residual add after down_proj. Its grid-wide waits inside the launch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -932,6 +942,171 @@ pub struct SegLaunch {
     pub out: u64,
     pub bar_base: u32,
     pub pad: u32,
+}
+
+// ---- 4E (`kernels/pers_4e.cu`): Pers4eQkv, Pers4eLayer, Pers4eArgs, Pers4eLaunch ----
+
+/// `sizeof(Pers4eQkv)`, `sizeof(Pers4eLayer)`, `sizeof(Pers4eArgs)`,
+/// `sizeof(Pers4eLaunch)`; the offsets below are checked against the kernel's
+/// own definitions by `tests/pers_matches_served.rs`.
+pub const P4E_QKV_BYTES: usize = 152;
+pub const P4E_LAYER_BYTES: usize = 592;
+pub const P4E_ARGS_BYTES: usize = 208;
+pub const P4E_LAUNCH_BYTES: usize = 32;
+/// Where `qkv` and `mlp` sit in a `Pers4eLayer`.
+pub const P4E_LAYER_QKV: usize = 40;
+pub const P4E_LAYER_MLP: usize = 256;
+
+/// The q, k (Tetra) and v (int4) projections of one layer, and the scratch
+/// they write.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct P4eQkvHost {
+    pub q: SegTetraHost,
+    pub k: SegTetraHost,
+    pub vw: u64,
+    pub vsc: u64,
+    pub vbi: u64,
+    pub v_dout: u32,
+    pub v_gpr: u32,
+    pub d_in: u32,
+    pub out_q: u64,
+    pub out_k: u64,
+    pub out_v: u64,
+}
+
+/// One layer of 4E.
+#[derive(Clone, Debug, Default)]
+pub struct P4eLayerHost {
+    pub ln1: u64,
+    pub signs_a: u64,
+    pub small_a: u64,
+    pub m_a: u32,
+    pub k_a: u32,
+    pub inv_a: f32,
+    pub qkv: P4eQkvHost,
+    pub q_norm: u64,
+    pub k_norm: u64,
+    pub kc: u64,
+    pub vc: u64,
+    pub ow: u64,
+    pub osc: u64,
+    pub obi: u64,
+    pub o_gpr: u32,
+    pub tetra_down: bool,
+    pub mlp: SegArgsHost,
+}
+
+fn put64(b: &mut [u8], at: usize, v: u64) {
+    b[at..at + 8].copy_from_slice(&v.to_le_bytes());
+}
+fn put32(b: &mut [u8], at: usize, v: u32) {
+    b[at..at + 4].copy_from_slice(&v.to_le_bytes());
+}
+
+impl P4eLayerHost {
+    pub fn bytes(&self) -> Vec<u8> {
+        let mut b = vec![0u8; P4E_LAYER_BYTES];
+        put64(&mut b, 0, self.ln1);
+        put64(&mut b, 8, self.signs_a);
+        put64(&mut b, 16, self.small_a);
+        put32(&mut b, 24, self.m_a);
+        put32(&mut b, 28, self.k_a);
+        put32(&mut b, 32, self.inv_a.to_bits());
+        let q = P4E_LAYER_QKV;
+        let t = &self.qkv;
+        for (i, p) in [t.q.words, t.q.rscale, t.q.tail, t.q.gscale].into_iter().enumerate() {
+            put64(&mut b, q + 8 * i, p);
+        }
+        put32(&mut b, q + 32, t.q.stride_u32);
+        put32(&mut b, q + 36, t.q.d_out);
+        for (i, p) in [t.k.words, t.k.rscale, t.k.tail, t.k.gscale].into_iter().enumerate() {
+            put64(&mut b, q + 40 + 8 * i, p);
+        }
+        put32(&mut b, q + 72, t.k.stride_u32);
+        put32(&mut b, q + 76, t.k.d_out);
+        put64(&mut b, q + 80, t.vw);
+        put64(&mut b, q + 88, t.vsc);
+        put64(&mut b, q + 96, t.vbi);
+        put32(&mut b, q + 104, t.v_dout);
+        put32(&mut b, q + 108, t.v_gpr);
+        put32(&mut b, q + 112, t.q.nblocks);
+        put32(&mut b, q + 116, t.q.tail_w);
+        put32(&mut b, q + 120, t.d_in);
+        put64(&mut b, q + 128, t.out_q);
+        put64(&mut b, q + 136, t.out_k);
+        put64(&mut b, q + 144, t.out_v);
+        let o = q + P4E_QKV_BYTES;
+        for (i, p) in [self.q_norm, self.k_norm, self.kc, self.vc, self.ow, self.osc, self.obi].into_iter().enumerate() {
+            put64(&mut b, o + 8 * i, p);
+        }
+        put32(&mut b, o + 56, self.o_gpr);
+        put32(&mut b, o + 60, u32::from(self.tetra_down));
+        b[P4E_LAYER_MLP..P4E_LAYER_MLP + SEG_ARGS_BYTES].copy_from_slice(&self.mlp.bytes());
+        b
+    }
+}
+
+/// The launch-wide constants of 4E: 21 pointers, then 8 u32 and 2 f32.
+#[derive(Clone, Debug, Default)]
+pub struct P4eArgsHost {
+    /// layers, emb_w, emb_s, emb_b, final_norm, cosr, sinr, x_a, x_b, q_out,
+    /// ctx, attn_scratch, bar, abort_flag, slots, nan_flag, rows, pref, br,
+    /// suf, invnorm
+    pub ptrs: [u64; 21],
+    pub n_layers: u32,
+    pub vocab: u32,
+    pub hidden: u32,
+    pub emb_gpr: u32,
+    pub n_heads: u32,
+    pub n_kv: u32,
+    pub groups: u32,
+    pub cap: u32,
+    pub eps: f32,
+    pub c: f32,
+}
+
+impl P4eArgsHost {
+    pub fn bytes(&self) -> Vec<u8> {
+        let mut b = vec![0u8; P4E_ARGS_BYTES];
+        for (i, p) in self.ptrs.into_iter().enumerate() {
+            put64(&mut b, 8 * i, p);
+        }
+        for (i, v) in [self.n_layers, self.vocab, self.hidden, self.emb_gpr, self.n_heads, self.n_kv, self.groups, self.cap]
+            .into_iter()
+            .enumerate()
+        {
+            put32(&mut b, 168 + 4 * i, v);
+        }
+        put32(&mut b, 200, self.eps.to_bits());
+        put32(&mut b, 204, self.c.to_bits());
+        b
+    }
+}
+
+/// `Pers4eLaunch`, passed by value.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct P4eLaunch {
+    pub bar_base: u32,
+    pub pos0: u32,
+    pub n_tokens: u32,
+    pub tok0: u32,
+    pub eos: u32,
+    pub pad: u32,
+    pub ring: u64,
+}
+
+/// The token kernel's symbol for a RoPE form and a block size.
+pub fn p4e_symbol(form: u32, threads: u32) -> Result<&'static str, String> {
+    Ok(match (form, threads) {
+        (0, 768) => "pers_4e_tokens_f0",
+        (1, 768) => "pers_4e_tokens_f1",
+        (2, 768) => "pers_4e_tokens_f2",
+        (0, 512) => "pers_4e_tokens_f0_t512",
+        (1, 512) => "pers_4e_tokens_f1_t512",
+        (2, 512) => "pers_4e_tokens_f2_t512",
+        _ => return Err(format!("4E: no kernel for RoPE form {form} at {threads} threads")),
+    })
 }
 
 /// Rows a `tv_tetra48_persall` work group covers: one per warp of its
@@ -1338,6 +1513,32 @@ mod tests {
             for (k, (p, w)) in s.iter().enumerate() {
                 let free = matches!(p, Phase4E::Embed | Phase4E::Qkv(0));
                 assert_eq!(*w == Wait4E::None, free, "phase {k}: {p:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_4e_launch_bookkeeping() {
+        assert_eq!(n_bar_4e(36), 254);
+        let (made, next) = p4e_after_launch(&[5, 9, 2, u32::MAX], 4, 10, 36, 142);
+        assert_eq!(made, vec![5, 9, 2]);
+        assert_eq!(next, 10 + 3 * 254 * 142);
+        // stopped on EOS after one token: one token's barriers
+        let (made, next) = p4e_after_launch(&[7, u32::MAX, u32::MAX], 3, 0, 2, 3);
+        assert_eq!((made, next), (vec![7], 16 * 3));
+        // a full ring past n is not read
+        let (made, _) = p4e_after_launch(&[1, 2, 3], 2, 0, 1, 1);
+        assert_eq!(made, vec![1, 2]);
+        // across the wrap
+        let (_, next) = p4e_after_launch(&[1], 1, u32::MAX - 1, 1, 1);
+        assert_eq!(next, 7);
+        assert_eq!(p4e_symbol(1, 512).unwrap(), "pers_4e_tokens_f1_t512");
+        assert!(p4e_symbol(3, 768).is_err() && p4e_symbol(0, 1024).is_err());
+        // the symbols the table names are the kernel's
+        let cu = include_str!("../kernels/pers_4e.cu");
+        for f in 0..3u32 {
+            for t in [768u32, 512] {
+                assert!(cu.contains(&format!("PERS_4E({}, {f}, {t})", p4e_symbol(f, t).unwrap())), "{f} {t}");
             }
         }
     }

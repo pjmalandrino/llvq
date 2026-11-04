@@ -493,6 +493,53 @@ impl KvCache {
     /// Arm the capturable write path — see the `write_idx` field. The stepped
     /// driver calls this AFTER the prefill (whose multi-position write stays
     /// on `slice_set`), with clones of one shared index tensor.
+    /// Positions held.
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    /// The `Grow` store's two buffers, `(1, n_kv, cap, head_dim)`, once a
+    /// first append made them. 4E reads and writes them in place.
+    pub fn grow_buffers(&self) -> Option<(&Tensor, &Tensor)> {
+        match (self.store, &self.k, &self.v) {
+            (crate::kvq::KvStore::Grow(_), Some(k), Some(v)) => Some((k, v)),
+            _ => None,
+        }
+    }
+
+    /// Grow the `Grow` buffers to hold `need` positions, by the store's own
+    /// chunk rule, keeping the positions held. 4E calls it before a launch
+    /// writes positions past the capacity.
+    pub fn reserve(&mut self, need: usize) -> Result<()> {
+        let crate::kvq::KvStore::Grow(chunk) = self.store else {
+            candle_core::bail!("KvCache reserve: only the Grow store is written in place");
+        };
+        let (Some(k), Some(v)) = (self.k.as_ref(), self.v.as_ref()) else {
+            candle_core::bail!("KvCache reserve: no buffer before a first append");
+        };
+        if need > k.dim(2)? {
+            let cap = need.div_ceil(chunk) * chunk;
+            let (nk, nv) = (grown(Some(k), k, self.len, cap)?, grown(Some(v), v, self.len, cap)?);
+            self.k = Some(nk);
+            self.v = Some(nv);
+        }
+        Ok(())
+    }
+
+    /// After 4E wrote positions `len..n` into the buffers in place.
+    pub fn set_len(&mut self, n: usize) -> Result<()> {
+        let cap = self.grow_buffers().map(|(k, _)| k.dim(2)).transpose()?.unwrap_or(0);
+        if n > cap {
+            candle_core::bail!("KvCache set_len: {n} positions, the buffers hold {cap}");
+        }
+        self.len = n;
+        Ok(())
+    }
+
     pub fn set_write_index(&mut self, idx: Tensor) {
         self.write_idx = Some(idx);
     }
@@ -1527,6 +1574,10 @@ pub struct Block {
     /// [`Qwen3::set_attn_kernel`]; `None` everywhere else, and a `Kernel`
     /// block without one refuses to run rather than fall back.
     attn_kernel: Option<std::sync::Arc<dyn crate::device::AttnKernel>>,
+    /// The norms' weights, the same tensors the norms hold.
+    ln1_w: Tensor,
+    q_norm_w: Tensor,
+    k_norm_w: Tensor,
     /// ln2's weight and epsilon, the same tensor the norm holds.
     ln2_w: Tensor,
     ln2_eps: f64,
@@ -1580,6 +1631,11 @@ impl Block {
         // The same tensor candle_nn::rms_norm fetches (`weight`, hidden, the same
         // hint, so a VarMap-built test model gets ones as before),
         // kept beside the norm: route P's segment reads it in place.
+        // The norms keep their weights beside them, fetched with candle_nn::rms_norm's
+        // own hint: 4E (persist4e_cuda.rs) reads them in place.
+        let q_norm_w = a.pp("q_norm").get_with_hints(hd, "weight", candle_nn::Init::Const(1.0))?;
+        let k_norm_w = a.pp("k_norm").get_with_hints(hd, "weight", candle_nn::Init::Const(1.0))?;
+        let ln1_w = vb.pp("input_layernorm").get_with_hints(cfg.hidden_size, "weight", candle_nn::Init::Const(1.0))?;
         let ln2_w = vb.pp("post_attention_layernorm").get_with_hints(
             cfg.hidden_size,
             "weight",
@@ -1608,9 +1664,12 @@ impl Block {
             down_proj: pick(take, idx, "mlp.down_proj", || {
                 candle_nn::linear_no_bias(cfg.intermediate_size, cfg.hidden_size, m.pp("down_proj"))
             })?,
-            q_norm: candle_nn::rms_norm(hd, cfg.rms_norm_eps, a.pp("q_norm"))?,
-            k_norm: candle_nn::rms_norm(hd, cfg.rms_norm_eps, a.pp("k_norm"))?,
-            ln1: candle_nn::rms_norm(cfg.hidden_size, cfg.rms_norm_eps, vb.pp("input_layernorm"))?,
+            q_norm: candle_nn::RmsNorm::new(q_norm_w.clone(), cfg.rms_norm_eps),
+            k_norm: candle_nn::RmsNorm::new(k_norm_w.clone(), cfg.rms_norm_eps),
+            ln1: candle_nn::RmsNorm::new(ln1_w.clone(), cfg.rms_norm_eps),
+            q_norm_w,
+            k_norm_w,
+            ln1_w,
             ln2: candle_nn::RmsNorm::new(ln2_w.clone(), cfg.rms_norm_eps),
             ln2_w,
             ln2_eps: cfg.rms_norm_eps,
@@ -1879,6 +1938,12 @@ impl Block {
         (&self.ln2_w, self.ln2_eps, self.act, &self.gate_proj, &self.up_proj, &self.down_proj)
     }
 
+    /// What 4E reads from this block's attention half: ln1, q-norm and
+    /// k-norm weights, and the q, k, v, o projections.
+    pub fn attn_parts(&self) -> (&Tensor, &Tensor, &Tensor, &Proj, &Proj, &Proj, &Proj) {
+        (&self.ln1_w, &self.q_norm_w, &self.k_norm_w, &self.q_proj, &self.k_proj, &self.v_proj, &self.o_proj)
+    }
+
     /// Install or remove route P's MLP segment on this block.
     pub fn set_pers_mlp(&mut self, seg: Option<std::sync::Arc<dyn MlpSegment>>) {
         self.pers_mlp = seg;
@@ -1913,6 +1978,8 @@ pub struct Qwen3 {
     embed: Embed,
     pub blocks: Vec<Block>,
     norm: RmsNorm,
+    /// The final norm's weight, the tensor the norm holds (4E reads it).
+    norm_w: Tensor,
     /// `lm_head`; Qwen3-0.6B and -4B tie it to the embedding matrix.
     head: Head,
     rotary: Rotary,
@@ -1978,6 +2045,7 @@ impl Qwen3 {
         let blocks = (0..cfg.num_hidden_layers)
             .map(|i| Block::new_with(cfg, vb_l.pp(i), i, take, kv))
             .collect::<Result<Vec<_>>>()?;
+        let norm_w = vb.pp("model.norm").get_with_hints(cfg.hidden_size, "weight", candle_nn::Init::Const(1.0))?;
         Ok(Self {
             cfg: cfg.clone(),
             kv,
@@ -1987,7 +2055,8 @@ impl Qwen3 {
             candle_probe: None,
             embed,
             blocks,
-            norm: candle_nn::rms_norm(cfg.hidden_size, cfg.rms_norm_eps, vb.pp("model.norm"))?,
+            norm: candle_nn::RmsNorm::new(norm_w.clone(), cfg.rms_norm_eps),
+            norm_w,
             head,
             rotary: Rotary::new(vb.dtype(), cfg, vb.device())?,
             device: vb.device().clone(),
@@ -2096,6 +2165,33 @@ impl Qwen3 {
     /// [`crate::kvq::KERNEL_FROM`], outside the host tests.
     pub fn kernel_from(&self) -> usize {
         self.blocks.first().map_or(crate::kvq::KERNEL_FROM, |b| b.kernel_from)
+    }
+
+    /// MEASUREMENT ONLY (`bin/fusedrun`'s `LLVQ_PERS_4E`): send every decode
+    /// row of the `Kernel` form to its kernel, so the eager path's attention
+    /// is attn_ref.rs's at every position, the arithmetic 4E owes its bits
+    /// to. No served path calls it; the served threshold stays the constant.
+    pub fn set_kernel_from_for_measurement(&mut self, from: usize) {
+        for b in &mut self.blocks {
+            b.kernel_from = from;
+        }
+    }
+
+    /// What 4E reads beside the blocks: the final norm's weight, the
+    /// embedding and the head tables, and the rotary tables (cos, sin),
+    /// `(max_positions, head_dim / 2)` in the model dtype.
+    pub fn pers_4e_parts(&self) -> (&Tensor, &Embed, &Head, &Tensor, &Tensor) {
+        (&self.norm_w, &self.embed, &self.head, &self.rotary.cos, &self.rotary.sin)
+    }
+
+    /// `generate`'s first step: the prompt through the eager path into
+    /// `caches`, then the argmax of the last position's logits.
+    pub fn prefill_next(&self, tokens: &[u32], caches: &mut [KvCache]) -> Result<u32> {
+        let input = Tensor::from_slice(tokens, (1, tokens.len()), &self.device)?;
+        let h = self.hidden_cached(&input, 0, caches, &mut NoCapture)?;
+        let l = h.dim(1)?;
+        let logits = self.head.project(&h.narrow(1, l - 1, 1)?)?.to_dtype(DType::F32)?;
+        logits.i((0, 0))?.argmax(D::Minus1)?.to_scalar::<u32>()
     }
 
     /// Lower the threshold so a host test reaches the kernel in a short
@@ -2854,6 +2950,32 @@ pub fn build_causal_mask(
 
 #[cfg(test)]
 mod tests {
+    /// 4E's cache API on the Grow store: reserve keeps every held position
+    /// and rounds the capacity up to the chunk; set_len refuses past it.
+    #[test]
+    fn grow_reserve_keeps_the_positions() {
+        let dev = Device::Cpu;
+        let mut c = KvCache::with_store(KvMode::F16, crate::kvq::KvStore::Grow(4));
+        let k = Tensor::arange(0f32, 2.0 * 3.0 * 8.0, &dev).unwrap().reshape((1, 2, 3, 8)).unwrap();
+        let v = (k.clone() * 2.0).unwrap();
+        c.append(&k, &v).unwrap();
+        assert_eq!(c.len(), 3);
+        assert_eq!(c.grow_buffers().unwrap().0.dim(2).unwrap(), 4);
+        c.reserve(9).unwrap();
+        let (kb, vb) = c.grow_buffers().unwrap();
+        assert_eq!(kb.dim(2).unwrap(), 12, "rounded up to the chunk");
+        let held: Vec<f32> = kb.narrow(2, 0, 3).unwrap().flatten_all().unwrap().to_vec1().unwrap();
+        assert_eq!(held, k.flatten_all().unwrap().to_vec1::<f32>().unwrap());
+        let vh: Vec<f32> = vb.narrow(2, 0, 3).unwrap().flatten_all().unwrap().to_vec1().unwrap();
+        assert_eq!(vh, v.flatten_all().unwrap().to_vec1::<f32>().unwrap());
+        assert_eq!(c.len(), 3, "reserve moves no length");
+        c.set_len(10).unwrap();
+        assert_eq!(c.len(), 10);
+        assert!(c.set_len(13).is_err());
+        let mut cat = KvCache::new(KvMode::F16);
+        assert!(cat.reserve(4).is_err(), "only the Grow store is written in place");
+    }
+
     use super::*;
 
     fn dense(d_out: usize, d_in: usize) -> Proj {

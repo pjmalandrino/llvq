@@ -21,6 +21,8 @@ use std::time::Instant;
 unsafe impl DeviceRepr for PersLaunch {}
 // SAFETY: the same for route P's per-call struct (`kernels/pers_segment.cu`).
 unsafe impl DeviceRepr for pers::SegLaunch {}
+// SAFETY: the same for 4E's per-launch struct (`kernels/pers_4e.cu`).
+unsafe impl DeviceRepr for pers::P4eLaunch {}
 
 /// What the environment asks of the persistent sections.
 #[derive(Clone, Debug, Default)]

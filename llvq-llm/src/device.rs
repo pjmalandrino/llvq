@@ -175,6 +175,12 @@ pub trait QuantEmbedTable: Send + Sync {
     fn gather(&self, ids: &Tensor) -> Result<Tensor>;
     /// `h . W^T`, logits from hidden states.
     fn project(&self, h: &Tensor) -> Result<Tensor>;
+
+    /// The concrete table, for a runtime that reads its device buffers (4E,
+    /// `persist4e_cuda.rs`). `None` unless the backend says otherwise.
+    fn as_any(&self) -> Option<&dyn std::any::Any> {
+        None
+    }
 }
 
 /// Decode and verify attention over the cached heads, one call a layer.

@@ -1126,6 +1126,84 @@ fn spun_clock(
 ///
 /// Out of the cfg-gated body so the Mac type-checks it.
 #[cfg(all(target_os = "linux", feature = "cuda"))]
+/// `LLVQ_PERS_4E` at one prompt length: the reference tokens of the eager
+/// path (kernel form, threshold 0), 4E's after the same prefill (identical or
+/// void), the served grouped door's beside (a T8 reading), then 2 + 5
+/// interleaved rounds of the decode, eager against 4E.
+fn run_pers_4e(
+    model: &mut llvq_llm::model::Qwen3,
+    rt: &mut llvq_llm::persist4e_cuda::Runtime4e,
+    prompt: &[u32],
+    n_new: usize,
+) -> anyhow::Result<()> {
+    use llvq_llm::boundary::median_range;
+    const WARMUP: usize = 2;
+    let kernel_form = |m: &mut llvq_llm::model::Qwen3| {
+        GqaArm::Kernel.apply(m);
+        m.set_kernel_from_for_measurement(0);
+    };
+    // The served door's form, for the T8 reading only.
+    GqaArm::Grouped.apply(model);
+    model.set_kernel_from_for_measurement(llvq_llm::kvq::KERNEL_FROM);
+    let served = model.generate(prompt, n_new, &mut NoCapture)?;
+    kernel_form(model);
+    println!("\n  context {}: attention {} on {}, every decode row on the kernel", prompt.len(), model.attn_heads().label(), model.kv_store().label());
+    // One eager decode and one 4E decode: tokens, and decode seconds.
+    let eager = |m: &mut llvq_llm::model::Qwen3| -> anyhow::Result<(Vec<u32>, f64)> {
+        let mut caches = m.fresh_caches();
+        let first = m.prefill_next(prompt, &mut caches)?;
+        let t = Instant::now();
+        let mut out = vec![first];
+        let mut offset = prompt.len();
+        while out.len() < n_new {
+            let logits = m.step_logits(*out.last().expect("one token"), offset, &mut caches)?;
+            out.push(logits.to_dtype(candle_core::DType::F32)?.flatten_all()?.argmax(0)?.to_scalar::<u32>()?);
+            offset += 1;
+        }
+        Ok((out, t.elapsed().as_secs_f64()))
+    };
+    let pers = |m: &mut llvq_llm::model::Qwen3, rt: &mut llvq_llm::persist4e_cuda::Runtime4e| -> anyhow::Result<(Vec<u32>, f64)> {
+        let mut caches = m.fresh_caches();
+        let first = m.prefill_next(prompt, &mut caches)?;
+        rt.sync()?;
+        let t = Instant::now();
+        let mut out = vec![first];
+        out.extend(rt.decode(&mut caches, prompt.len(), first, (n_new - 1) as u32, u32::MAX)?);
+        Ok((out, t.elapsed().as_secs_f64()))
+    };
+    let (want, _) = eager(model)?;
+    let (got, _) = pers(model, rt)?;
+    if let Some(i) = first_divergence(&want, &got).map_err(|e| anyhow::anyhow!("{e}"))? {
+        anyhow::bail!("context {}: 4E diverges from the eager path at token {i}; 4E owes its bits, the run is void", prompt.len());
+    }
+    println!("  4E tokens equal the eager path's: {} of {}", got.len(), want.len());
+    match first_divergence(&served, &want).map_err(|e| anyhow::anyhow!("{e}"))? {
+        None => println!("  served grouped door: the same {} tokens", served.len()),
+        Some(i) => println!("  served grouped door: diverges at token {i} (T8 reading, not a gate)"),
+    }
+    let mut rate: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
+    for round in 0..WARMUP + ROUNDS_TIMED {
+        let (a, ta) = eager(model)?;
+        let (b, tb) = pers(model, rt)?;
+        if a != want || b != want {
+            anyhow::bail!("round {round}: a decode moved its tokens; the run is void");
+        }
+        if round >= WARMUP {
+            rate[0].push((n_new - 1) as f64 / ta);
+            rate[1].push((n_new - 1) as f64 / tb);
+        }
+    }
+    for (k, name) in ["eager (kernel form)", "4E"].iter().enumerate() {
+        let (m, lo, hi) = median_range(&rate[k]);
+        println!("  {name:<20} {m:7.1} tok/s [{lo:.1}-{hi:.1}]");
+    }
+    let ratio: Vec<f64> = rate[1].iter().zip(&rate[0]).map(|(a, b)| a / b).collect();
+    let (m, lo, hi) = median_range(&ratio);
+    println!("  4E / eager, round by round: x{m:.3} [{lo:.3}-{hi:.3}]");
+    Ok(())
+}
+
+#[cfg(all(target_os = "linux", feature = "cuda"))]
 /// `LLVQ_PERS_SEGMENT`: one model, the eager MLP and route P's segment in
 /// every round, same order, two rounds discarded, then [`ROUNDS_TIMED`].
 /// Identical tokens or the run is void; tok/s per arm, and the ratio formed
@@ -1342,7 +1420,7 @@ fn main() -> anyhow::Result<()> {
             for var in ["LLVQ_GRAPH_AB", "LLVQ_GRAPH_DIAG", "LLVQ_KV_AB", "LLVQ_FUSE_AB",
                         "LLVQ_TIME_PHASES", "LLVQ_KV_PREALLOC", "LLVQ_SEG_ARMS",
                         "LLVQ_TRIM_AB", "LLVQ_GQA_AB", "LLVQ_GQA_PPL",
-                        "LLVQ_INT4_WIDE_CHECK", "LLVQ_GESTURE_AB", "LLVQ_BOUNDARY_AB", "LLVQ_PERS_SEGMENT"] {
+                        "LLVQ_INT4_WIDE_CHECK", "LLVQ_GESTURE_AB", "LLVQ_BOUNDARY_AB", "LLVQ_PERS_SEGMENT", "LLVQ_PERS_4E"] {
                 if let Ok(v) = std::env::var(var) {
                     anyhow::bail!(
                         "{var}={v:?} beside LLVQ_CONFIG: that is a measurement mode, and the \
@@ -1385,7 +1463,7 @@ fn main() -> anyhow::Result<()> {
             for other in ["LLVQ_GQA_AB", "LLVQ_GQA_PPL", "LLVQ_CONTEXTS", "LLVQ_TRIM_AB",
                           "LLVQ_PREFILL_TOKENS", "LLVQ_GRAPH_AB", "LLVQ_KV_AB", "LLVQ_FUSE_AB",
                           "LLVQ_TIME_PHASES", "LLVQ_SEG_ARMS", "LLVQ_GESTURE_AB",
-                          "LLVQ_BOUNDARY_AB", "LLVQ_PERS_SEGMENT"] {
+                          "LLVQ_BOUNDARY_AB", "LLVQ_PERS_SEGMENT", "LLVQ_PERS_4E"] {
                 if std::env::var(other).is_ok() {
                     anyhow::bail!("LLVQ_INT4_WIDE_CHECK runs alone, and {other} is set beside it");
                 }
@@ -1423,7 +1501,7 @@ fn main() -> anyhow::Result<()> {
             for other in ["LLVQ_GQA_AB", "LLVQ_GQA_PPL", "LLVQ_CONTEXTS", "LLVQ_TRIM_AB",
                           "LLVQ_PREFILL_TOKENS", "LLVQ_GRAPH_AB", "LLVQ_GRAPH_DIAG", "LLVQ_KV_AB",
                           "LLVQ_FUSE_AB", "LLVQ_TIME_PHASES", "LLVQ_SEG_ARMS", "LLVQ_KERNEL_DIR",
-                          "LLVQ_INT4_WIDE_CHECK", "LLVQ_BOUNDARY_AB", "LLVQ_PERS_SEGMENT"] {
+                          "LLVQ_INT4_WIDE_CHECK", "LLVQ_BOUNDARY_AB", "LLVQ_PERS_SEGMENT", "LLVQ_PERS_4E"] {
                 if let Ok(o) = std::env::var(other) {
                     anyhow::bail!("LLVQ_GESTURE_AB runs alone, and {other}={o:?} is set beside it");
                 }
@@ -1590,6 +1668,77 @@ fn main() -> anyhow::Result<()> {
             return Ok(());
         }
 
+        // ---- LLVQ_PERS_4E: the whole token in one launch, against the eager path ----
+        //
+        // A MEASUREMENT MODE on the bench door, refused beside LLVQ_CONFIG and
+        // every other mode, the served flags spelled out on the command line.
+        // ONE model on Grow(256) with the "kernel" attention form and every
+        // decode row sent to the kernel (threshold 0, measurement only), so the
+        // eager path's attention is attn_ref.rs's arithmetic, the one 4E owes
+        // its bits to. Per context (5 and 8,192 prompt tokens): the eager path
+        // makes the reference tokens; 4E (llvq_llm::persist4e_cuda), after the
+        // same eager prefill, must make the same ones, or the run is void. The
+        // served grouped door's tokens are printed beside, as a T8 reading.
+        // Then 2 + 5 interleaved rounds of the decode, eager against 4E,
+        // tok/s and the ratio round by round. Value: the tokens a run, 1 to 256.
+        if let Ok(v) = std::env::var("LLVQ_PERS_4E") {
+            let n_new: usize = v.parse().map_err(|_| anyhow::anyhow!("LLVQ_PERS_4E={v:?}: a token count, 2 to 256"))?;
+            if !(2..=256).contains(&n_new) {
+                anyhow::bail!("LLVQ_PERS_4E={n_new}: 2 to 256 tokens a run");
+            }
+            for other in ["LLVQ_GQA_AB", "LLVQ_GQA_PPL", "LLVQ_CONTEXTS", "LLVQ_TRIM_AB",
+                          "LLVQ_PREFILL_TOKENS", "LLVQ_GRAPH_AB", "LLVQ_GRAPH_DIAG", "LLVQ_KV_AB",
+                          "LLVQ_FUSE_AB", "LLVQ_TIME_PHASES", "LLVQ_SEG_ARMS", "LLVQ_KERNEL_DIR",
+                          "LLVQ_INT4_WIDE_CHECK", "LLVQ_GESTURE_AB", "LLVQ_BOUNDARY_AB", "LLVQ_PERS_SEGMENT"] {
+                if let Ok(o) = std::env::var(other) {
+                    anyhow::bail!("LLVQ_PERS_4E runs alone, and {other}={o:?} is set beside it");
+                }
+            }
+            if !matches!(kv_store, llvq_llm::kvq::KvStore::Cat) {
+                anyhow::bail!("LLVQ_PERS_4E sets the store itself: unset LLVQ_KV_PREALLOC");
+            }
+            let layout = llvq_llm::fused::FusedLayout::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
+            if layout != llvq_llm::fused::FusedLayout::Tetra48 {
+                anyhow::bail!("LLVQ_PERS_4E: layout {}, and 4E reads Tetra48 streams", layout.name());
+            }
+            let fuse = llvq_llm::fused::FuseMode::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
+            if fuse != llvq_llm::fused::FuseMode::Off {
+                anyhow::bail!("LLVQ_PERS_4E: LLVQ_FUSE={}, and the served 4B runs 0", fuse.name());
+            }
+            let ctx = device.as_cuda_device()?.cuda_stream().context().clone();
+            if ctx.is_in_multi_stream_mode() {
+                anyhow::bail!("LLVQ_PERS_4E: the context holds several streams, and turning \
+                               cudarc's events off is only safe on one");
+            }
+            // Safe: one stream, checked above, orders every access by issue.
+            unsafe {
+                ctx.disable_event_tracking();
+            }
+            println!("cudarc event tracking: off (one stream, ordered by issue)");
+            let t = Instant::now();
+            let mut f = llvq_llm::fused_cuda::load_with(&path, &device, dtype, fuse)?;
+            let (n_kv, groups, hd) = f.model.attn_geometry();
+            let k = llvq_llm::attn::kernel_for(&device, n_kv, groups, hd).map_err(|e| anyhow::anyhow!("{e}"))?;
+            f.model.set_attn_kernel(Some(k));
+            let mut rt = llvq_llm::persist4e_cuda::install(&f.model, &device, n_new as u32)?;
+            for line in &rt.lines {
+                println!("{line}");
+            }
+            if ctx.is_in_multi_stream_mode() {
+                anyhow::bail!("LLVQ_PERS_4E: a second stream appeared at the load, with events off");
+            }
+            println!("loaded and checked in {:.1} s", t.elapsed().as_secs_f64());
+            let base = f.tokenizer.encode(PROMPT, false).map_err(|e| anyhow::anyhow!("{e}"))?.get_ids().to_vec();
+            for len in [base.len(), 8192] {
+                let prompt: Vec<u32> = base.iter().copied().cycle().take(len).collect();
+                run_pers_4e(&mut f.model, &mut rt, &prompt, n_new)?;
+            }
+            if ctx.is_in_multi_stream_mode() {
+                anyhow::bail!("LLVQ_PERS_4E: a second stream appeared during the run: the numbers above are void");
+            }
+            return Ok(());
+        }
+
         // ---- LLVQ_PERS_SEGMENT: route P, step A, against the eager MLP ----
         //
         // A MEASUREMENT MODE on the bench door, refused beside LLVQ_CONFIG, the
@@ -1607,7 +1756,7 @@ fn main() -> anyhow::Result<()> {
             for other in ["LLVQ_GQA_AB", "LLVQ_GQA_PPL", "LLVQ_CONTEXTS", "LLVQ_TRIM_AB",
                           "LLVQ_PREFILL_TOKENS", "LLVQ_GRAPH_AB", "LLVQ_GRAPH_DIAG", "LLVQ_KV_AB",
                           "LLVQ_FUSE_AB", "LLVQ_TIME_PHASES", "LLVQ_SEG_ARMS", "LLVQ_KERNEL_DIR",
-                          "LLVQ_INT4_WIDE_CHECK", "LLVQ_GESTURE_AB", "LLVQ_BOUNDARY_AB", "LLVQ_PERS_SEGMENT"] {
+                          "LLVQ_INT4_WIDE_CHECK", "LLVQ_GESTURE_AB", "LLVQ_BOUNDARY_AB", "LLVQ_PERS_SEGMENT", "LLVQ_PERS_4E"] {
                 if let Ok(o) = std::env::var(other) {
                     anyhow::bail!("LLVQ_PERS_SEGMENT runs alone, and {other}={o:?} is set beside it");
                 }
@@ -1675,7 +1824,7 @@ fn main() -> anyhow::Result<()> {
         if let Ok(v) = std::env::var("LLVQ_GQA_PPL") {
             let spec = parse_gqa_ppl(&v).map_err(|e| anyhow::anyhow!("{e}"))?;
             for other in ["LLVQ_GQA_AB", "LLVQ_CONTEXTS", "LLVQ_TRIM_AB", "LLVQ_PREFILL_TOKENS",
-                          "LLVQ_BOUNDARY_AB", "LLVQ_PERS_SEGMENT"] {
+                          "LLVQ_BOUNDARY_AB", "LLVQ_PERS_SEGMENT", "LLVQ_PERS_4E"] {
                 if std::env::var(other).is_ok() {
                     anyhow::bail!("LLVQ_GQA_PPL runs alone, and {other} is set beside it");
                 }
@@ -1731,7 +1880,7 @@ fn main() -> anyhow::Result<()> {
         // the served door, which is safe on one stream only, so that is checked.
         if let Ok(v) = std::env::var("LLVQ_GQA_AB") {
             let lengths = parse_lengths("LLVQ_GQA_AB", &v).map_err(|e| anyhow::anyhow!("{e}"))?;
-            for other in ["LLVQ_CONTEXTS", "LLVQ_TRIM_AB", "LLVQ_PREFILL_TOKENS", "LLVQ_BOUNDARY_AB", "LLVQ_PERS_SEGMENT"] {
+            for other in ["LLVQ_CONTEXTS", "LLVQ_TRIM_AB", "LLVQ_PREFILL_TOKENS", "LLVQ_BOUNDARY_AB", "LLVQ_PERS_SEGMENT", "LLVQ_PERS_4E"] {
                 if std::env::var(other).is_ok() {
                     anyhow::bail!("LLVQ_GQA_AB runs alone, and {other} is set beside it");
                 }
@@ -1784,7 +1933,7 @@ fn main() -> anyhow::Result<()> {
         // refused, and `Grow` promises no window.
         if let Ok(v) = std::env::var("LLVQ_CONTEXTS") {
             let lengths = parse_contexts(&v).map_err(|e| anyhow::anyhow!("{e}"))?;
-            for other in ["LLVQ_TRIM_AB", "LLVQ_PREFILL_TOKENS", "LLVQ_BOUNDARY_AB", "LLVQ_PERS_SEGMENT"] {
+            for other in ["LLVQ_TRIM_AB", "LLVQ_PREFILL_TOKENS", "LLVQ_BOUNDARY_AB", "LLVQ_PERS_SEGMENT", "LLVQ_PERS_4E"] {
                 if std::env::var(other).is_ok() {
                     anyhow::bail!("LLVQ_CONTEXTS runs alone, and {other} is set beside it");
                 }

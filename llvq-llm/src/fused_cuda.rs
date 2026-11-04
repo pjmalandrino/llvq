@@ -533,6 +533,42 @@ impl crate::device::QuantEmbedTable for CudaEmbed {
     fn project(&self, h: &Tensor) -> candle_core::Result<Tensor> {
         self.rt.lm_head(&self.q, h)
     }
+    fn as_any(&self) -> Option<&dyn std::any::Any> {
+        Some(self)
+    }
+}
+
+/// The int4 g64 table's device buffers, for 4E's embedding and head phases.
+#[derive(Clone, Copy, Debug)]
+pub struct EmbedView {
+    pub words: u64,
+    pub scales: u64,
+    pub biases: u64,
+    pub vocab: u32,
+    pub d: u32,
+    pub gpr: u32,
+}
+
+impl CudaEmbed {
+    pub fn runtime(&self) -> &std::sync::Arc<FusedRuntime> {
+        &self.rt
+    }
+    /// `None` unless the table is the int4 g64 one (`LLVQ_EMBED=q4`, the three
+    /// served configs): the q8 table is another format.
+    pub fn q4_view(&self) -> Option<EmbedView> {
+        if self.rt.emode != EmbedMode::Q4 || self.q.gpr as usize * crate::fused::EMBED_GROUP != self.q.d {
+            return None;
+        }
+        let st = self.rt.device.cuda_stream();
+        Some(EmbedView {
+            words: dev_addr(&self.q.words, &st),
+            scales: dev_addr(&self.q.scales, &st),
+            biases: dev_addr(&self.q.biases, &st),
+            vocab: self.q.vocab as u32,
+            d: self.q.d as u32,
+            gpr: self.q.gpr,
+        })
+    }
 }
 
 /// The module, the shared tables, and the device everything lives on.

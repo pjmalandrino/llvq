@@ -183,3 +183,27 @@ PERS_4E(pers_4e_tokens_f2, 2, 768)
 PERS_4E(pers_4e_tokens_f0_t512, 0, 512)
 PERS_4E(pers_4e_tokens_f1_t512, 1, 512)
 PERS_4E(pers_4e_tokens_f2_t512, 2, 512)
+
+// The RoPE load check (persist4e_cuda.rs): each form applied to n quads
+// (a, b, cos, sin) the host took from candle's own rope call on the card,
+// whose outputs it compares bit for bit. The form that matches is the one
+// the token loop runs; none matching keeps 4E off.
+template <int FORM>
+__device__ __forceinline__ void pers_rope_probe_body(const unsigned short* a, const unsigned short* b,
+                                                     const unsigned short* c, const unsigned short* s,
+                                                     unsigned short* o1, unsigned short* o2, u32 n)
+{
+    for (u32 i = blockIdx.x * blockDim.x + threadIdx.x; i < n; i += gridDim.x * blockDim.x)
+        pers_rope_pair<FORM>(a[i], b[i], c[i], s[i], o1 + i, o2 + i);
+}
+
+#define PERS_ROPE_PROBE(sym, FORM_)                                                                      \
+    extern "C" __global__ void sym(const unsigned short* a, const unsigned short* b, const unsigned short* c, \
+                                   const unsigned short* s, unsigned short* o1, unsigned short* o2, u32 n)   \
+    {                                                                                                    \
+        pers_rope_probe_body<FORM_>(a, b, c, s, o1, o2, n);                                              \
+    }
+
+PERS_ROPE_PROBE(pers_rope_probe_f0, 0)
+PERS_ROPE_PROBE(pers_rope_probe_f1, 1)
+PERS_ROPE_PROBE(pers_rope_probe_f2, 2)
