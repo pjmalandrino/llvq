@@ -1,0 +1,16 @@
+Cuda(CudaDevice(DeviceId(1))), dtype F16, 256 tokens
+
+served config: /out/served-grouped-14b-2026-11-04/qwen3-14b-tetra-e4.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention expanded on cat) — Qwen3-14B paper-2 object, sealed 2026-09-23: Tetra with dclm-edu calibration and trained row scales, v_proj + o_proj + down_proj@10-28 as int4 g128 records, both untied tables stored int4 g64 in the file (qwen3-14b-sealed.bin). fuse is 0 because Tetra carries no segmented kernel, not because fusion was declined.
+cudarc event tracking: off (one stream, ordered by issue)
+shared rotation: 1 (LLVQ_CONFIG), 101 rot_launches/token for 280 projections
+projection fusion: 0 (LLVQ_CONFIG), 280 matvec_launches/token for 280 projections (0 groups + 181 lone + 99 int4)
+fused layout: tetra48 (LLVQ_CONFIG), projections 4.17 GB on the card, 2.524 b/weight (INFERENCE accounting: KeepExact tail in binary16; the bench bills its own in f32)
+NVRTC source: 101625 bytes, sha256 6193094310bc18acdb0a0c554807ff45f6df09c1f6ab49e0577032874f107812 (11 parts), tile 64 (served: measured optimum for sm_89), prefill 4x128 (served pair), 49152 B staged of 49152, target compute_89
+int4: tv_q4_hh equals tv_q4_h bit for bit on model.layers.0.self_attn.v_proj.weight (1024 rows, d_in 5120)
+embedding: q4 g64 (LLVQ_CONFIG), 2 tables (model.embed_tokens.weight + lm_head.weight), 875.2 MB on the card (int4 777.9 + scales/biases 97.2)
+total expected on the card: 5.04 GB (projections 4.17 + carried 0.88)
+served : loaded in   18.2 s,   58.6 tok/s [58.5–58.7, 5 rounds], 5.04 GB on the card
+   Paris. The capital of Italy is Rome. The capital of Spain is Madrid. The capital of Germany is Berlin. The capital of Japan is Tokyo. The capital of Canada is Ottawa. The capital of Australia is Canberra. The capital of Brazil is Brasília. The capital of Russia is Moscow. The capital of China is Beijing. The capital of India is New Delhi. The capital of South Korea is Seoul. The capital of Mexico is Mexico City. The capital of Egypt is Cairo. The capital of South Africa is Pretoria. The capital of Thailand is Bangkok. The capital of Indonesia is Jakarta. The capital of Turkey is Ankara. The capital of Greece is Athens. The capital of Portugal is Lisbon. The capital of Sweden is Stockholm. The capital of Norway is Oslo. The capital of Finland is Helsinki. The capital of Denmark is Copenhagen. The capital of Netherlands is Amsterdam. The capital of Belgium is Brussels. The capital of Switzerland is Bern. The capital of Austria is Vienna. The capital of Hungary is Budapest. The capital of Poland is Warsaw. The capital of Czech Republic is Prague. The capital of Slovakia is Bratislava. The capital of Slovenia is Ljubljana. The capital of Croatia is Zagreb. The capital of Serbia is Belgrade.
+
+  No dense arm on this path, so no ratio and no token comparison. Both are the bench's
+  business: unset LLVQ_CONFIG and it runs, on this same file.

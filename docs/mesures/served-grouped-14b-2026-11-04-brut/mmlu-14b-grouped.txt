@@ -1,0 +1,97 @@
+served config: /out/served-grouped-14b-2026-11-04/qwen3-14b-tetra-e4-grouped.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention grouped on grow(256)) — The qwen3-14b-tetra-e4 object (qwen3-14b-sealed.bin, sha256 61db37fe), served with the grouped attention: the cached key and value heads are read where they lie, on a Grow(256) store, with no repeat_kv copy, in groups of 5. Decodes the 14B at 63.1 tok/s after a 5-token prompt and 45.3 at 8,192 of context against 59.2 and 21.2 for the expanded form (measured, gqa-14b-2026-11-04). Not bit for bit on the card past 5 tokens: licensed by the tolerance of ETAT section 4, granted at 14B by the operator on 2026-11-04 on condition of a light MMLU check, paired WikiText-2 perplexity +0.0000 % by prefill and +0.0023 % [-0.0062 ; +0.0109] by decode against a band of +-0.12 % (measured, gqa-14b-2026-11-04). Measured on the L40S only; Metal refuses this form by name.
+cudarc event tracking: off (one stream, ordered by issue)
+shared rotation: 1 (LLVQ_CONFIG), 101 rot_launches/token for 280 projections
+projection fusion: 0 (LLVQ_CONFIG), 280 matvec_launches/token for 280 projections (0 groups + 181 lone + 99 int4)
+fused layout: tetra48 (LLVQ_CONFIG), projections 4.17 GB on the card, 2.524 b/weight (INFERENCE accounting: KeepExact tail in binary16; the bench bills its own in f32)
+NVRTC source: 101625 bytes, sha256 6193094310bc18acdb0a0c554807ff45f6df09c1f6ab49e0577032874f107812 (11 parts), tile 64 (served: measured optimum for sm_89), prefill 4x128 (served pair), 49152 B staged of 49152, target compute_89
+int4: tv_q4_hh equals tv_q4_h bit for bit on model.layers.0.self_attn.v_proj.weight (1024 rows, d_in 5120)
+embedding: q4 g64 (LLVQ_CONFIG), 2 tables (model.embed_tokens.weight + lm_head.weight), 875.2 MB on the card (int4 777.9 + scales/biases 97.2)
+total expected on the card: 5.04 GB (projections 4.17 + carried 0.88)
+model: /out/sealed-14b-2026-09-23/qwen3-14b-sealed.bin [LLVQ 2-bit, SERVED KERNEL, tetra48, attention grouped]
+device: Cuda(CudaDevice(DeviceId(1))), dtype f16
+loading MMLU…
+14042 questions, 57 subjects, 285 dev examples
+
+allocation: flat, 5 per subject, 285 questions
+dumping per-question results to /out/served-grouped-14b-2026-11-04/mmlu-14b-grouped.csv
+  abstract algebra                           3/5      60.0 %   (micro 60.00 %, 18s)
+  anatomy                                    4/5      80.0 %   (micro 71.49 %, 34s)
+  astronomy                                  5/5     100.0 %   (micro 82.69 %, 61s)
+  business ethics                            4/5      80.0 %   (micro 82.14 %, 89s)
+  clinical knowledge                         3/5      60.0 %   (micro 74.34 %, 108s)
+  college biology                            4/5      80.0 %   (micro 75.25 %, 132s)
+  college chemistry                          0/5       0.0 %   (micro 67.69 %, 159s)
+  college computer science                   3/5      60.0 %   (micro 66.99 %, 199s)
+  college mathematics                        2/5      40.0 %   (micro 64.73 %, 230s)
+  college medicine                           3/5      60.0 %   (micro 64.13 %, 253s)
+  college physics                            4/5      80.0 %   (micro 65.23 %, 277s)
+  computer security                          4/5      80.0 %   (micro 66.17 %, 296s)
+  conceptual physics                         3/5      60.0 %   (micro 65.37 %, 310s)
+  econometrics                               4/5      80.0 %   (micro 66.24 %, 341s)
+  electrical engineering                     4/5      80.0 %   (micro 67.21 %, 363s)
+  elementary mathematics                     3/5      60.0 %   (micro 66.09 %, 390s)
+  formal logic                               4/5      80.0 %   (micro 66.77 %, 419s)
+  global facts                               2/5      40.0 %   (micro 65.77 %, 439s)
+  high school biology                        5/5     100.0 %   (micro 69.33 %, 463s)
+  high school chemistry                      3/5      60.0 %   (micro 68.74 %, 486s)
+  high school computer science               5/5     100.0 %   (micro 69.69 %, 529s)
+  high school european history               3/5      60.0 %   (micro 69.23 %, 664s)
+  high school geography                      5/5     100.0 %   (micro 70.90 %, 681s)
+  high school government and politics        5/5     100.0 %   (micro 72.36 %, 703s)
+  high school macroeconomics                 5/5     100.0 %   (micro 74.91 %, 721s)
+  high school mathematics                    1/5      20.0 %   (micro 71.61 %, 748s)
+  high school microeconomics                 4/5      80.0 %   (micro 72.04 %, 767s)
+  high school physics                        4/5      80.0 %   (micro 72.28 %, 794s)
+  high school psychology                     5/5     100.0 %   (micro 75.06 %, 818s)
+  high school statistics                     5/5     100.0 %   (micro 76.02 %, 857s)
+  high school us history                     4/5      80.0 %   (micro 76.16 %, 969s)
+  high school world history                  4/5      80.0 %   (micro 76.30 %, 1039s)
+  human aging                                5/5     100.0 %   (micro 77.14 %, 1053s)
+  human sexuality                            5/5     100.0 %   (micro 77.61 %, 1069s)
+  international law                          3/5      60.0 %   (micro 77.28 %, 1100s)
+  jurisprudence                              4/5      80.0 %   (micro 77.33 %, 1118s)
+  logical fallacies                          5/5     100.0 %   (micro 77.87 %, 1141s)
+  machine learning                           3/5      60.0 %   (micro 77.58 %, 1174s)
+  management                                 4/5      80.0 %   (micro 77.61 %, 1187s)
+  marketing                                  4/5      80.0 %   (micro 77.69 %, 1206s)
+  medical genetics                           4/5      80.0 %   (micro 77.72 %, 1221s)
+  miscellaneous                              4/5      80.0 %   (micro 77.94 %, 1235s)
+  moral disputes                             4/5      80.0 %   (micro 78.02 %, 1258s)
+  moral scenarios                            3/5      60.0 %   (micro 76.31 %, 1290s)
+  nutrition                                  4/5      80.0 %   (micro 76.43 %, 1317s)
+  philosophy                                 3/5      60.0 %   (micro 75.92 %, 1333s)
+  prehistory                                 4/5      80.0 %   (micro 76.04 %, 1357s)
+  professional accounting                    2/5      40.0 %   (micro 75.09 %, 1395s)
+  professional law                           3/5      60.0 %   (micro 73.19 %, 1478s)
+  professional medicine                      4/5      80.0 %   (micro 73.33 %, 1534s)
+  professional psychology                    4/5      80.0 %   (micro 73.65 %, 1561s)
+  public relations                           2/5      40.0 %   (micro 73.37 %, 1581s)
+  security studies                           5/5     100.0 %   (micro 73.85 %, 1637s)
+  sociology                                  4/5      80.0 %   (micro 73.94 %, 1657s)
+  us foreign policy                          4/5      80.0 %   (micro 73.99 %, 1677s)
+  virology                                   4/5      80.0 %   (micro 74.06 %, 1693s)
+  world religions                            4/5      80.0 %   (micro 74.13 %, 1706s)
+
+/out/sealed-14b-2026-09-23/qwen3-14b-sealed.bin [LLVQ 2-bit, SERVED KERNEL, tetra48, attention grouped]
+MMLU 5-shot — 285 questions scored out of 14042, 57 subjects, dtype f16, tokens ef389049ec30ab01
+  --------------------------------------------------------
+  best:
+    astronomy                                100.0 %
+    high school biology                      100.0 %
+    high school computer science             100.0 %
+  worst:
+    college chemistry                          0.0 %
+    high school mathematics                   20.0 %
+    public relations                          40.0 %
+  --------------------------------------------------------
+  MMLU (micro, = paper) = 74.13 % ± 3.91  [kv f16]
+  MMLU (macro, per subject) = 74.39 %
+  sample: 285/14042 questions, 2.0 %, allocation flat, 5 per subject, 285 questions
+  ± is the sampling error alone
+
+  Dump written. Two arms are compared on the dumps, not on these two
+  lines: `cargo run --release -p llvq-llm --bin mmlupair -- <a> <b>`.
+
+  Paper reference points (Qwen3-4B, Table 6): FP16 70.2 · LLVQ 60.7 · QTIP 57.4.
+  If FP16 does not land near 70, the protocol is what needs fixing,
+  not the model.
