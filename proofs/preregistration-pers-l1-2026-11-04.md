@@ -1,11 +1,12 @@
 # Preregistration. A one-launch Tetra pass at today's occupancy, the cost of a grid barrier on sm_89, and the value of a kernel boundary in the served 4B (step L1 of the persistent lead)
 
-**NOT STAMPED. NOT LAUNCHED.** Written on 2026-11-04 on branch `claude/serene-bohr-1edf69`, from the draft
-`docs/archive/debit-vague5-2026-11-02/prereg-persistent-0.md`, once the code it describes existed. To be timestamped
-(OpenTimestamps) before the first measurement, then never edited; a departure goes to
-`preregistration-pers-l1-2026-11-04-ECARTS.md`.
+**Written on 2026-11-04, committed and TIMESTAMPED BEFORE the run**, on branch `claude/serene-bohr-1edf69`, from the
+draft `docs/archive/debit-vague5-2026-11-02/prereg-persistent-0.md`, once the code it describes existed. Never edited
+after the stamp; a departure goes to `preregistration-pers-l1-2026-11-04-ECARTS.md`.
 
-Operator go: not given. Cost: about **$0.36** on l40sx1 (*estimated*, §8). Timeout 90 min (METHODE §6: a `planesbench`
+Operator go: given in chat on 2026-11-04 to PREPARE this step (this stamp, then the Space rebuild from the commit that
+carries this file). The go to LAUNCH and the cap are not given yet; the job script refuses without this file's `.ots`
+and runs only on the operator's launch. Cost: about **$0.36** on l40sx1 (*estimated*, §8). Timeout 90 min (METHODE §6: a `planesbench`
 with five arms or more), so **$2.70** at worst. Cap asked: **$3** for this step and step L2
 (`preregistration-pers-l2-2026-11-04.md`) together, whose expected costs sum to $0.66 (*estimated*); if this job runs
 into its timeout, L2 does not launch without a new go. Spent before it: **$261.35** over the 246 priced rows of
