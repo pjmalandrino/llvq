@@ -1,0 +1,9 @@
+{
+  "layout": "tetra48",
+  "embed": "q4",
+  "rot_share": "1",
+  "fuse": "0",
+  "kv": "f16",
+  "attention": "grouped",
+  "note": "The qwen3-8b-tetra-e4 object (qwen3-8b-sealed-B.bin, sha256 7bdb9a55), served with the grouped attention: the cached key and value heads are read where they lie, on a Grow(256) store, with no repeat_kv copy. Decodes the 8B at 106.4 tok/s after a 5-token prompt and 66.9 at 8,192 of context against 98.9 and 31.0 for the expanded form (measured, gqa-8b-2026-11-04). Not bit for bit on the card past 5 tokens: licensed by the tolerance of ETAT section 4, granted at 8B by the operator on 2026-11-04 on condition of a light MMLU check, paired WikiText-2 perplexity +0.0000 % by prefill and -0.0048 % [-0.0117 ; +0.0021] by decode against a band of +-0.12 % (measured, gqa-8b-2026-11-04). Measured on the L40S only; Metal refuses this form by name."
+}
