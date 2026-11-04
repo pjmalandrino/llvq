@@ -474,6 +474,31 @@ impl KvStore {
 /// 32 positions' worth of copying a token against 8,192 read by attention.
 pub const GROW_CHUNK: usize = 256;
 
+/// The first position the `Kernel` form sends to the attention kernel. A row
+/// at position `p` (the cache held `p` positions before it was written) goes
+/// to the kernel iff `p >= KERNEL_FROM`, and to the grouped path otherwise.
+/// The rule reads the position only, so the output is the same function of
+/// it on every card and in every call shape: a verify call that straddles the
+/// threshold is split by row.
+///
+/// 1,280, from the served 4B on the L40S (*computed* from
+/// `docs/mesures/lot1-4b-2026-11-04.txt`, attention r2, *measured*): a decode
+/// token costs the grouped form 7.58 / 8.73 ms at 256 / 2,048 positions,
+/// linear in the position at 0.64 us each (five lengths, 5 to 8,192, all
+/// within 0.64-0.69); it costs the kernel 8.14 / 8.26 ms there. If the
+/// kernel's cost does not fall as the position grows, it is at least 8.14 ms
+/// and at most 8.30 ms (the slow end of its 2,048 range) in between, so the
+/// two forms cross between 1,130 and 1,380 positions; the straight line
+/// through the two ratios puts it at 1,240. 1,024 lies below that bracket,
+/// where the grouped form is the faster one (8.07 ms against at least 8.14).
+/// 1,280 is the multiple of the 256-position split nearest the line's
+/// crossing, inside the bracket and above it rather than below: a threshold
+/// set too high costs a little speed over a few positions (under 1.2 % per
+/// token at any position of the bracket), one set too low costs the same
+/// speed AND hands more positions to arithmetic that is not the grouped
+/// form's. A constant of the form: no variable moves it.
+pub const KERNEL_FROM: usize = 1280;
+
 /// How attention reads the `n_kv` key and value heads the cache stores.
 ///
 /// `Expanded` is the shipped form: `repeat_kv` copies each head to the
@@ -489,12 +514,14 @@ pub const GROW_CHUNK: usize = 256;
 ///   one matmul per key head, which reads each cached byte once. The matmul
 ///   shape differs from the expanded one, so its rounding may too: on the CPU
 ///   a decode step moves the logits by about one unit in the last place.
-/// - `Kernel` sends decode and verify rows (up to 8 a call, batch 1) to the
-///   split-KV decode-attention kernel, `crate::attn`: one launch a layer, an
-///   f32 online softmax with explicit rounding. Every other call (a prefill
-///   chunk, a batch) takes the grouped path, which writes the same cache
-///   bytes. It is NOT bit for bit with `Grouped` on the rows it takes: its
-///   licence is a T8 decision of the operator's, not granted.
+/// - `Kernel` sends decode and verify rows (up to 8 a call, batch 1) at
+///   position [`KERNEL_FROM`] or later to the split-KV decode-attention
+///   kernel, `crate::attn`: one launch a layer, an f32 online softmax with
+///   explicit rounding. Every other row (a position below the threshold, a
+///   prefill chunk, a batch) takes the grouped path, which writes the same
+///   cache bytes. Below the threshold a decode step is the grouped form's,
+///   bit for bit. It is NOT bit for bit with `Grouped` on the rows the kernel
+///   takes: its licence is a T8 decision of the operator's, not granted.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum AttnHeads {
     #[default]

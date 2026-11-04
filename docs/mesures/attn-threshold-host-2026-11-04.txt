@@ -1,0 +1,80 @@
+The attention kernel's context threshold, on the host, 2026-11-04
+
+Result: the "kernel" attention form now sends a decode or verify row to the kernel only from position 1,280 on
+(llvq_llm::kvq::KERNEL_FROM, a constant of the form); every row below takes the grouped path and is the grouped
+form's, bit for bit (*measured* on the CPU replay). A call that straddles 1,280 is split by row, so a row's path
+depends on its position alone. Nothing ran on a card; $0 spent. The configs that said "kernel" in the two attention
+benches (d74ea29a..., r1 job 6aeb53b2 and r2 job 6aeb90e3) ran with no threshold: the served line now names it,
+"attention kernel from position 1280 on grow(256)", so their logs cannot be read as this form.
+
+Machine : the dev Mac (arm64), cargo 1.95, nice 10, -j 4.
+Branch  : claude/quizzical-kowalevski-38c5fc, on 5255470.
+
+1. The threshold, *computed* from the served 4B on the L40S (attention r2, job 6aeb90e3, *measured*,
+   docs/mesures/lot1-4b-2026-11-04.txt on integration/lot1). ms a decode token = 1,000 / median tok/s.
+     prompt   kernel ms   grouped ms   grouped slope to the next length, us a position
+          5     7.868       7.402        0.693
+        256     8.137       7.576        0.642
+       2048     8.264       8.726        0.691
+       4096     8.475      10.142        0.666
+       8192     9.597      12.870
+   The grouped form is linear in the position, 0.64 to 0.69 us each over the whole range. The kernel is flat from 256
+   to 2,048 (0.07 us a position): its fixed cost dominates there.
+   - Bracket. If the kernel's cost does not fall as the position grows, it lies between 8.137 ms (its 256 median) and
+     8.299 ms (the slow end of its 2,048 range, 120.5 tok/s) at any position in between. The grouped line,
+     7.576 + 0.642 us x (L - 256), crosses those two values at L = 1,130 and L = 1,382. The forms cross in [1,130,
+     1,382].
+   - Point. The two straight lines (grouped and kernel, 256 to 2,048) cross at 1,239.
+   - 1,024 is excluded: the grouped form costs 8.069 ms there, under the kernel's floor of 8.137.
+   - 1,280 = 5 splits of 256, the multiple of the split nearest 1,239, inside the bracket. The error is asymmetric,
+     so the threshold sits on the high side: one too high costs speed only, at most 1.2 % a token at 1,280 if the
+     true crossing is 1,130; one too low costs speed (at most 0.8 % a token at 1,280 if the crossing is 1,382) AND
+     gives more positions to arithmetic that is not the grouped form's.
+   - Caveat. Between 256 and 2,048 nothing was measured: the bracket rests on the kernel's cost not falling with the
+     position (more positions, never less work) and on the grouped form's linearity (five lengths). The kernel at
+     256 takes the one-split path (no partials, no ticket); at 512 and above it folds splits, so its cost may step up
+     past 256, which moves the crossing down, never up. Sweep (a) reads the kernel from 1,280 directly.
+
+2. What the code does
+   llvq-llm/src/kvq.rs          KERNEL_FROM = 1280, with the derivation above.
+   llvq-llm/src/model.rs        kernel_rows(): rows at positions max(from, n - l) .. n go to the kernel, the rows
+                                below to grouped_attention over the history they see (k, v and the mask narrowed),
+                                then the two parts are joined in row order. A call wholly below is one grouped call,
+                                wholly past is one kernel call. Block::kernel_from = KERNEL_FROM; only cfg(test)
+                                writes it. A decode or verify call under the kernel form in any dtype but f16 is
+                                refused at once, below the threshold too, instead of at position 1,280.
+                                Qwen3::kernel_from(); decode_nll_split(tokens, arms, split): the steps below `split`
+                                compared bit for bit (below_differ), the steps from it scored apart (tail_nll,
+                                tail_count, tail_top1_agree). decode_nll_paired = split 0, unchanged.
+   llvq-llm/src/served.rs       the served line names the threshold.
+   llvq-llm/src/bin/fusedrun.rs LLVQ_GQA_PPL kernel mode: refuses a window that does not reach position 1,281;
+                                stops on any step below 1,280 that differs between the arms (a wiring defect);
+                                prints, per window, the nll from 1,280 beside the whole window's, and in the summary
+                                the paired interval over positions 1,280 and later beside the whole-window one.
+                                LLVQ_CONTEXTS prints, below its table, the tokens each prompt produced, with their
+                                fingerprint: two configs' sweeps compare token for token after the job.
+
+3. Proven on the host (*measured*, cargo test, 2026-11-04)
+   model::tests::a_call_is_split_at_the_threshold_by_position: a call of 8 rows over 20 positions, at thresholds 0,
+     12, 13, 15, 19, 20 and 64: every row at the threshold or past it equals that row through the kernel alone, bit
+     for bit; every row below differs from it and is within 2e-3 of the grouped call; a call wholly below is the
+     grouped call, bit for bit. A decode step at threshold n - 1 is the kernel's, at threshold n the grouped form's.
+   model::tests::the_served_threshold_is_position_1280: a 2-layer Qwen3, 8 heads over 2, head dim 128, f16, CPU
+     replay; a prefill of 1,270 positions, then 20 decode steps under the grouped and the kernel forms: positions
+     1,270 to 1,279 bit for bit, positions 1,280 to 1,289 each different, within 5e-3.
+   model::tests::the_kernel_form_attends_through_the_replay: at the served threshold, a window of 23 positions is
+     the grouped form's bit for bit; lowered to 0, the earlier checks hold; the served door keeps 1,280 and prints
+     it; an f32 model is refused at its first decode step.
+   model::tests::the_kernel_arm_runs_in_the_paired_decode: threshold 8 on a window of 20: 0 steps below differ, 11
+     scored past it, the whole nll difference lies past it; a split of 12 counts the 4 kernel steps 8-11 as
+     differing; split 0 equals decode_nll_paired.
+   fusedrun tests::gqa_ppl_spec: the kernel mode refuses a window of 1,281 and accepts 1,282.
+
+Mutants (rule 10), each checked to apply at exactly one site, on the committed file, restored by git checkout
+   MUTANTS
+
+Lint (*measured*)
+   LINT
+
+Not established: anything on the card. Sweep (a) and the T8 control (b) read it.
+Cost: $0.
