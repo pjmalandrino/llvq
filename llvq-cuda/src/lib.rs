@@ -66,6 +66,17 @@ pub mod qtip_host;
 // the policy are all tested here, where tests are free.
 pub mod tile;
 
+// Portable, and the reference rather than a helper: the canonical arithmetic
+// of the split-KV decode-attention kernel, replayed on the CPU. The kernel is
+// checked against it bit for bit on the Mac (`tests/attn_dec_matches_rust.rs`
+// executes the kernel text) and on the card at load (`attn`). `llvq-llm`
+// includes the same file for its CPU fake of the kernel.
+pub mod attn_ref;
+
+// The launcher of that kernel and its load-time check, Linux only like `gpu`.
+#[cfg(target_os = "linux")]
+pub mod attn;
+
 /// f32 → binary16 bits, round to nearest even.
 ///
 /// Portable on purpose, unlike everything else in this file: the rotation
@@ -176,6 +187,9 @@ pub const MATVEC_CU: &str = include_str!("../kernels/matvec.cu");
 pub const FLOOR_CUH: &str = include_str!("../kernels/llvq_floor.cuh");
 pub const ROT_CUH: &str = include_str!("../kernels/llvq_rot.cuh");
 pub const ROTATE_CU: &str = include_str!("../kernels/rotate.cu");
+/// The split-KV decode-attention kernel: its own translation unit, which
+/// includes nothing and is concatenated with nothing.
+pub const ATTN_DEC_CU: &str = include_str!("../kernels/attn_dec.cu");
 pub const E1V_CUH: &str = include_str!("../kernels/llvq_e1v.cuh");
 pub const E1V_CU: &str = include_str!("../kernels/e1v.cu");
 pub const NULLK_CU: &str = include_str!("../kernels/nullk.cu");
@@ -307,6 +321,7 @@ pub fn embedded_source(name: &str) -> Result<&'static str, String> {
         "planes.cu" => Ok(PLANES_CU),
         "llvq_rot.cuh" => Ok(ROT_CUH),
         "rotate.cu" => Ok(ROTATE_CU),
+        "attn_dec.cu" => Ok(ATTN_DEC_CU),
         other => Err(format!("no embedded copy of {other}")),
     }
 }
