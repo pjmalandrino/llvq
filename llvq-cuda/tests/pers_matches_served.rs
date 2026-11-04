@@ -322,7 +322,7 @@ fn norm_mutants_are_killed() {
     let want: Vec<Vec<u8>> = cmds.iter().map(|c| run(served(), c)).collect();
     let f = "llvq-cuda/kernels/llvq_pers.cuh";
     let cases = [
-        ("norm_butterfly_up", "for (int mask = 16; mask > 0; mask >>= 1) tmp = __fadd_rn(tmp, __shfl_xor_sync(0xffffffffu, tmp, mask));", "for (int mask = 1; mask < 32; mask <<= 1) tmp = __fadd_rn(tmp, __shfl_xor_sync(0xffffffffu, tmp, mask));"),
+        ("norm_butterfly_up", "for (int mask = 16; mask > 0; mask >>= 1) tmp = __fadd_rn(tmp, __shfl_xor_sync(0xffffffffu, tmp, mask));\n        if (lane == 0u) s_sum[vw] = tmp;", "for (int mask = 1; mask < 32; mask <<= 1) tmp = __fadd_rn(tmp, __shfl_xor_sync(0xffffffffu, tmp, mask));\n        if (lane == 0u) s_sum[vw] = tmp;"),
         ("norm_block_768", "const u32 block = ncols < 1024u ? 32u : 1024u;", "const u32 block = ncols < 1024u ? 32u : 768u;"),
         ("norm_block_switch", "const u32 block = ncols < 1024u ? 32u : 1024u;", "const u32 block = ncols < 128u ? 32u : 1024u;"),
         ("norm_mean_mul", "const float mean = __fdiv_rn(tot, (float)ncols);", "const float mean = __fmul_rn(tot, 1.0f / (float)ncols);"),
@@ -605,6 +605,53 @@ fn the_4e_attention_phase_is_attn_ref() {
     for (tag, from, to) in cases {
         let b = mutant(tag, f, from, to);
         assert!(run_mutant(&b, &cmd) != Some(want.clone()), "attention mutant {tag} survived");
+    }
+}
+
+/// The fused binary16 FMA of RoPE's candidate forms rounds once from the exact
+/// value: against an exact integer reference on 20,000 random finite triples
+/// and on planted ties decided by the third term's sign or by evenness.
+#[test]
+fn the_fused_f16_fma_rounds_once() {
+    let cmd = Cmd::new(b'F').u32(20_000).u64(0xf16).0;
+    let (want, got) = (run(served(), &cmd), run(persistent(), &cmd));
+    assert!(want == got, "the f64 + TwoSum emulation differs from the exact reference");
+    let tail: Vec<u16> = u16s(&want)[20_000..20_005].to_vec();
+    assert_eq!(tail, vec![0x3e02, 0x3e02, 0x3e01, 0x3e02, 0x3e01], "the planted ties: even, up, down, up, down");
+    // An EQUIVALENT mutant, checked as such: for binary16 inputs the f64 sum is
+    // exact (an in-range product and the third term span at most 41 bits), so
+    // TwoSum's error is always zero and the tie rule never reads it.
+    let b = mutant("tie_ignores_err", "llvq-cuda/kernels/llvq_pers.cuh", "(rem == half && (beyond || (err == 0.0 && (q & 1ull))))", "(rem == half && ((void)beyond, (q & 1ull)))");
+    assert!(run_mutant(&b, &cmd) == Some(want.clone()), "dropping the TwoSum error changed a result: the exactness argument is wrong");
+    let b = mutant("f16_round_down", "llvq-cuda/kernels/llvq_pers.cuh", "if (rem > half || (rem == half && (beyond", "if (rem > half + half || (rem == half && (beyond");
+    assert!(run_mutant(&b, &cmd) != Some(want), "a wrong rounding of the f64 value survived");
+}
+
+/// 4E's q/k-norm, RoPE and KV append, the three candidate forms, against the
+/// served replay (candle's 32-thread norm tree, rope's pairing at i and i +
+/// 64, the exact reference for the fused forms): q out, the K and V caches
+/// written at `pos` only.
+#[test]
+fn the_4e_norm_rope_append_phase() {
+    let z = |form: u32, pos: u32, grid: u32| Cmd::new(b'Z').u32(form).u32(8).u32(2).u32(16).u32(pos).u32(grid).u32(64).u64(0x20 + pos as u64).0;
+    for form in 0..3u32 {
+        for (pos, grid) in [(0u32, 2u32), (7, 3), (15, 4)] {
+            assert!(run(served(), &z(form, pos, grid)) == run(persistent(), &z(form, pos, grid)), "form {form}, pos {pos}");
+        }
+    }
+    let differ = run(served(), &z(0, 7, 3)) != run(served(), &z(1, 7, 3)) || run(served(), &z(0, 7, 3)) != run(served(), &z(2, 7, 3));
+    assert!(differ, "the three forms never differ: the load-time choice would read nothing");
+    let f = "llvq-cuda/kernels/llvq_pers.cuh";
+    let cmd = z(1, 7, 3);
+    let want = run(served(), &cmd);
+    for (tag, from, to) in [
+        ("rope_pair", "const unsigned short b = exact_rms_apply(scale, __ldcg(src + i + 64u), alpha[i + 64u]);", "const unsigned short b = exact_rms_apply(scale, __ldcg(src + i + 63u), alpha[i + 64u]);"),
+        ("rope_form_swap", "        *o1 = pers_f16_fma_exact(a, c, (unsigned short)(bs ^ 0x8000u), false);", "        *o1 = pers_f16_fma_exact(b, s, ac, true);"),
+        ("kv_pos", "kc + ((unsigned long long)h * cap + pos) * 128u, lane);", "kc + ((unsigned long long)h * cap + pos + 1u) * 128u, lane);"),
+        ("qk_norm_tree", "for (int mask = 16; mask > 0; mask >>= 1) tmp = __fadd_rn(tmp, __shfl_xor_sync(0xffffffffu, tmp, mask));\n    const float scale = rsqrtf", "for (int mask = 1; mask < 32; mask <<= 1) tmp = __fadd_rn(tmp, __shfl_xor_sync(0xffffffffu, tmp, mask));\n    const float scale = rsqrtf"),
+    ] {
+        let b = mutant(tag, f, from, to);
+        assert!(run_mutant(&b, &cmd) != Some(want.clone()), "norm/rope mutant {tag} survived");
     }
 }
 

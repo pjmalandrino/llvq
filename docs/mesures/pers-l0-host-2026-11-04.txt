@@ -4,7 +4,7 @@ Prereg: none. Host replays at $0, step L0 of docs/archive/debit-vague5-2026-11-0
 Cost:   $0, no card. clang++ on the dev Mac (arm64), NVRTC 12.4.127 in nvidia/cuda:12.4.1-devel-ubuntu22.04.
 Code:   branch claude/serene-bohr-1edf69. llvq-cuda/kernels/{llvq_pers.cuh, tetra48_pers.cu, tetra48_persall.cu,
         pers_segment.cu, pers_ref.cu}; llvq-cuda/src/{pers.rs, persbench.rs}; llvq-llm/src/persist_cuda.rs.
-Tests:  llvq-cuda/tests/pers_matches_served.rs (20 tests), llvq-cuda/src/pers.rs (26 unit tests),
+Tests:  llvq-cuda/tests/pers_matches_served.rs (23 tests), llvq-cuda/src/pers.rs (26 unit tests),
         llvq-llm/tests/served_unit_copy.rs (1), llvq-llm/src/boundary.rs (10).
 Nature: every equality below is *measured* on the host: the kernel text executed by clang++, compared byte for byte.
         Nothing here ran on a card.
@@ -46,6 +46,14 @@ RESULTS
   4E layer phases   the embedding row (3 tokens, grids 3 to 5) equals emb_q4_gather; ln1 + the shared q/k rotation +
                     q (4,096) and k (1,024) Tetra rows + v (1,024) int4 rows on the unrotated ln1 output equal the
                     served chain; int4 o (2,560 x 4,096) + the residual equals tv_q4_hh then badd.
+  4E attention      re-mapped onto the persistent grid (a warp per head and 64-position unit, a barrier, a warp
+                    per head folding units into splits and splits into the row): equal to attn_ref::attend on the
+                    binary16 output and on the f32 state before the division, lengths 1 to 1,300, groups of 4
+                    and 5, grids of 2 to 5.
+  4E norm/RoPE/KV   candle's 32-thread norm tree per head, rope's pairs (i, i + 64), the three candidate forms
+                    (none fused, first product fused, second fused), K and V written at `pos` only: equal to the
+                    served replay; the fused binary16 FMA equal to an exact integer reference on 20,000 random
+                    triples and planted ties.
   struct layouts    PersArgs, PersLaunch, PersSite, SegTetra, SegArgs, SegLaunch: every offset of the kernels'
                     structs equals the Rust mirror's.
   served unit       pers.rs::served_unit_text = 101,625 bytes, sha256 6193094310bc..., and equal to the served
@@ -66,6 +74,11 @@ MUTANTS (each applied to a copy with an exactly-once count, each killed by an as
   head      2   no W4 barrier, the key's bit reversal on the way back
   4E layer  4   the embedding's g64 group read as g128, v reading the rotated input, a k row offset, the o
                 residual without o's binary16 rounding
+  attention 5   units merged straight into the row (survives the binary16 output, dies on the f32 state), the
+                carry fused, a 16-position tile, no barrier between the phases, a halved scale
+  norm/RoPE 5   the pair offset, the fused product swapped, K written at pos + 1, the norm tree reversed, a
+                wrong f64-to-binary16 rounding (and one EQUIVALENT, checked: TwoSum's error, always zero on
+                binary16 inputs, since an in-range product plus a binary16 term spans at most 41 bits)
   schedule  9   the validator's refusals (pers.rs unit tests)
 
 FINDINGS
@@ -95,5 +108,6 @@ WHAT THIS DOES NOT ESTABLISH
 ----------------------------
   - Anything on a card: SASS, timing, memory ordering between real SMs, the driver's ptxas, cooperative launch.
   - candle's real SiLU table and rsqrt instruction: both sides call the same stand-ins on the host.
-  - 4E's attention, RoPE, KV append and token loop: not written (q/k-norm is the block-32 tree, already tested).
+  - 4E's token loop (the phases composed in one kernel, N tokens a launch): not written. RoPE's form is the card's
+    to pick: the host can only pin each candidate's arithmetic.
   - persist_cuda.rs and the two fusedrun modes run nowhere on the Mac; they type-check for Linux only.

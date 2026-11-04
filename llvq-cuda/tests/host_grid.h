@@ -86,6 +86,7 @@ static inline int __clz(unsigned x) { return x ? __builtin_clz(x) : 32; }
 static inline int __ffs(int x) { return __builtin_ffs(x); }
 static inline unsigned __brev(unsigned x) { return __builtin_bitreverse32(x); }
 static inline int __float_as_int(float f) { int i; std::memcpy(&i, &f, 4); return i; }
+static inline long long __double_as_longlong(double d) { long long i; std::memcpy(&i, &d, 8); return i; }
 static inline float __int_as_float(int i) { float f; std::memcpy(&f, &i, 4); return f; }
 static inline unsigned __float_as_uint(float f) { unsigned i; std::memcpy(&i, &f, 4); return i; }
 static inline float __uint_as_float(unsigned i) { float f; std::memcpy(&f, &i, 4); return f; }

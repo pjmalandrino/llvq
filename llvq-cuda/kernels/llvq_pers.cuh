@@ -866,4 +866,133 @@ __device__ __forceinline__ bool pers_attention(const unsigned short* q, const un
     return true;
 }
 
+// ---------------------------------------------------------------------------
+// 11. 4E's q/k-norm, RoPE and KV append, one decode row at position `pos`.
+//     candle runs, per head of 128: rmsnorm_f16 with its 32-thread block
+//     (exact_rms_scale with ncols = 128), then rotary_emb::rope (reduce.cu
+//     rope, non-interleaved): o1 = a*c - b*s, o2 = a*s + b*c on the pair
+//     (i, i + 64), in __half operators. Those compile to mul.f16 and sub.f16
+//     or add.f16, which the driver's ptxas may fuse into fma.rn.f16, either
+//     product. FORM picks one: 0 none fused, 1 the first product fused, 2 the
+//     second. Which one candle's card code is can only be read on the card:
+//     route P's load-time check runs candle's rope and keeps the form that
+//     matches, or keeps candle's launch. A fused form rounds once from the
+//     exact value: the 22-bit product is exact in f64, and so is its sum with
+//     a binary16 term (an in-range product and the term span at most 41 bits,
+//     under f64's 53), so one rounding of the f64 sum to binary16 is the
+//     single rounding fma.rn.f16 makes. TwoSum's error is kept as a guard, and
+//     the host test shows it is always zero on binary16 inputs.
+// ---------------------------------------------------------------------------
+
+// RN to binary16 of the exact value s + err, |err| below half an ulp of s in
+// f64 (TwoSum's guarantee): err only matters when s sits on a binary16 tie.
+__device__ __forceinline__ unsigned short pers_f64_to_f16(double s, double err)
+{
+    const unsigned long long b = (unsigned long long)__double_as_longlong(s);
+    const u32 sign = (u32)(b >> 48) & 0x8000u;
+    const int e = (int)((b >> 52) & 0x7ffu);
+    const unsigned long long m = b & 0xFFFFFFFFFFFFFull;
+    if (e == 0x7ff) return (unsigned short)(sign | 0x7c00u | (m ? 0x200u : 0u));
+    if (e == 0) return (unsigned short)sign;  // f64 subnormal: far below the least binary16
+    const unsigned long long sig = m | (1ull << 52);
+    int e16 = e - 1023 + 15;
+    if (e16 >= 31) return (unsigned short)(sign | 0x7c00u);
+    const int shift = e16 <= 0 ? 1051 - e : 42;
+    if (shift >= 64) return (unsigned short)sign;
+    unsigned long long q = sig >> shift;
+    const unsigned long long rem = sig & ((1ull << shift) - 1ull), half = 1ull << (shift - 1);
+    // the exact value is larger in magnitude than s when err has s's sign
+    const bool beyond = err != 0.0 && ((err > 0.0) == (s > 0.0));
+    if (rem > half || (rem == half && (beyond || (err == 0.0 && (q & 1ull))))) ++q;
+    if (e16 <= 0) return (unsigned short)(sign | (u32)q);  // q = 0x400 is the least normal, encoded alike
+    if (q == 0x800ull) {
+        q = 0x400ull;
+        if (++e16 >= 31) return (unsigned short)(sign | 0x7c00u);
+    }
+    return (unsigned short)(sign | ((u32)e16 << 10) | (u32)(q & 0x3ffull));
+}
+
+// fma.rn.f16(±a·b, c): one rounding of the exact value.
+__device__ __forceinline__ unsigned short pers_f16_fma_exact(unsigned short a, unsigned short b, unsigned short c,
+                                                             bool neg_ab)
+{
+    const double x = (neg_ab ? -1.0 : 1.0) * ((double)h2f(a) * (double)h2f(b));  // exact: 22 bits
+    const double y = (double)h2f(c);
+    const double s = x + y;
+    const double bb = s - x;
+    const double err = (x - (s - bb)) + (y - bb);  // TwoSum: s + err == x + y exactly
+    return pers_f64_to_f16(s, err);
+}
+
+template <int FORM>
+__device__ __forceinline__ void pers_rope_pair(unsigned short a, unsigned short b, unsigned short c, unsigned short s,
+                                               unsigned short* o1, unsigned short* o2)
+{
+    const unsigned short ac = exact_hmul(a, c), bs = exact_hmul(b, s), as = exact_hmul(a, s), bc = exact_hmul(b, c);
+    if (FORM == 0) {
+        *o1 = f2h(__fsub_rn(h2f(ac), h2f(bs)));
+        *o2 = exact_hadd(as, bc);
+    } else if (FORM == 1) {
+        *o1 = pers_f16_fma_exact(a, c, (unsigned short)(bs ^ 0x8000u), false);
+        *o2 = pers_f16_fma_exact(a, s, bc, false);
+    } else {
+        *o1 = pers_f16_fma_exact(b, s, ac, true);
+        *o2 = pers_f16_fma_exact(b, c, as, false);
+    }
+}
+
+// One head of 128 in place-free form: src (binary16, this head's raw row),
+// alpha (the norm's 128 weights), cos/sin (64 entries at this position), dst.
+// One warp; candle's 32-thread tree for the norm.
+template <int FORM>
+__device__ __forceinline__ void pers_head_norm_rope(const unsigned short* src, const unsigned short* alpha,
+                                                    const unsigned short* cosr, const unsigned short* sinr, float eps,
+                                                    unsigned short* dst, u32 lane)
+{
+    float tmp = 0.0f;
+    for (u32 col = lane; col < 128u; col += 32u) {
+        const float xi = h2f(__ldcg(src + col));
+        tmp = __fmaf_rn(xi, xi, tmp);
+    }
+#pragma unroll
+    for (int mask = 16; mask > 0; mask >>= 1) tmp = __fadd_rn(tmp, __shfl_xor_sync(0xffffffffu, tmp, mask));
+    const float scale = rsqrtf(__fadd_rn(__fdiv_rn(tmp, 128.0f), eps));
+    for (u32 i = lane; i < 64u; i += 32u) {
+        const unsigned short a = exact_rms_apply(scale, __ldcg(src + i), alpha[i]);
+        const unsigned short b = exact_rms_apply(scale, __ldcg(src + i + 64u), alpha[i + 64u]);
+        unsigned short o1, o2;
+        pers_rope_pair<FORM>(a, b, cosr[i], sinr[i], &o1, &o2);
+        dst[i] = o1;
+        dst[i + 64u] = o2;
+    }
+}
+
+// The phase: q heads normed and roped into q_out; k heads normed and roped
+// into the K cache at `pos`; v copied into the V cache at `pos`. One warp a
+// head, grid-strided. q_raw [n_heads][128], k_raw and v_raw [n_kv][128].
+template <int FORM>
+__device__ __forceinline__ void pers_4e_norm_rope_append(const unsigned short* q_raw, const unsigned short* k_raw,
+                                                         const unsigned short* v_raw, const unsigned short* q_alpha,
+                                                         const unsigned short* k_alpha, const unsigned short* cosr,
+                                                         const unsigned short* sinr, float eps, u32 n_heads, u32 n_kv,
+                                                         u32 cap, u32 pos, unsigned short* q_out, unsigned short* kc,
+                                                         unsigned short* vc)
+{
+    const u32 lane = threadIdx.x & 31u;
+    const u32 nwarps = blockDim.x >> 5;
+    const u32 total = gridDim.x * nwarps;
+    for (u32 w = blockIdx.x * nwarps + (threadIdx.x >> 5); w < n_heads + 2u * n_kv; w += total) {
+        if (w < n_heads) {
+            pers_head_norm_rope<FORM>(q_raw + w * 128u, q_alpha, cosr, sinr, eps, q_out + w * 128u, lane);
+        } else if (w < n_heads + n_kv) {
+            const u32 h = w - n_heads;
+            pers_head_norm_rope<FORM>(k_raw + h * 128u, k_alpha, cosr, sinr, eps,
+                                      kc + ((unsigned long long)h * cap + pos) * 128u, lane);
+        } else {
+            const u32 h = w - n_heads - n_kv;
+            for (u32 i = lane; i < 128u; i += 32u) vc[((unsigned long long)h * cap + pos) * 128u + i] = __ldcg(v_raw + h * 128u + i);
+        }
+    }
+}
+
 #endif  // LLVQ_PERS_CUH

@@ -229,6 +229,67 @@ static std::vector<unsigned short> served_ref(const TMat& m, const std::vector<f
     return served_model(m, x, f32_out, true);
 }
 
+// fma.rn.f16(±a·b, c) by exact integer arithmetic: an independent reference
+// for the persistent side's f64 + TwoSum emulation.
+static void f16_parts(unsigned short h, long long& mant, int& ex) {
+    const int e = (h >> 10) & 0x1f;
+    const long long m = h & 0x3ff;
+    mant = e ? (m | 0x400) : m;
+    ex = e ? e - 25 : -24;
+    if (h & 0x8000) mant = -mant;
+}
+static unsigned short ref_f16_fma(unsigned short a, unsigned short b, unsigned short c, bool neg_ab) {
+    long long ma, mb, mc;
+    int ea, eb, ec;
+    f16_parts(a, ma, ea);
+    f16_parts(b, mb, eb);
+    f16_parts(c, mc, ec);
+    __int128 P = (__int128)ma * mb * (neg_ab ? -1 : 1);
+    int ep = ea + eb;
+    __int128 C = mc;
+    int E = ep < ec ? ep : ec;
+    P <<= (ep - E);
+    C <<= (ec - E);
+    __int128 N = P + C;
+    if (N == 0) return 0;  // an exact zero of a sum rounds to +0
+    const unsigned short sign = N < 0 ? 0x8000 : 0;
+    unsigned __int128 A = N < 0 ? (unsigned __int128)(-N) : (unsigned __int128)N;
+    int L = 0;
+    for (unsigned __int128 t = A; t; t >>= 1) ++L;
+    const int u = L - 1 + E;  // unbiased exponent of the leading bit
+    if (u > 15) return sign | 0x7c00;
+    int shift = u >= -14 ? L - 11 : -24 - E;
+    unsigned __int128 q;
+    if (shift <= 0) {
+        q = A << (-shift);
+    } else {
+        q = A >> shift;
+        const unsigned __int128 rem = A & ((((unsigned __int128)1) << shift) - 1), half = ((unsigned __int128)1) << (shift - 1);
+        if (rem > half || (rem == half && (q & 1))) ++q;
+    }
+    if (u < -14) return sign | (unsigned short)q;  // subnormal, or the least normal after a carry
+    int e16 = u + 15;
+    if (q == 0x800) { q = 0x400; ++e16; }
+    if (e16 >= 31) return sign | 0x7c00;
+    return sign | (unsigned short)(e16 << 10) | (unsigned short)(q & 0x3ff);
+}
+
+static void ref_rope_pair(int form, unsigned short a, unsigned short b, unsigned short c, unsigned short s,
+                          unsigned short* o1, unsigned short* o2) {
+    auto hm = [](unsigned short x, unsigned short y) { return f2h(__fmul_rn(h2f(x), h2f(y))); };
+    const unsigned short ac = hm(a, c), bs = hm(b, s), as = hm(a, s), bc = hm(b, c);
+    if (form == 0) {
+        *o1 = f2h(__fsub_rn(h2f(ac), h2f(bs)));
+        *o2 = f2h(__fadd_rn(h2f(as), h2f(bc)));
+    } else if (form == 1) {
+        *o1 = ref_f16_fma(a, c, bs ^ 0x8000, false);
+        *o2 = ref_f16_fma(a, s, bc, false);
+    } else {
+        *o1 = ref_f16_fma(b, s, ac, true);
+        *o2 = ref_f16_fma(b, c, as, false);
+    }
+}
+
 // candle-kernels 0.9.2 reduce.cu:187-228, one row, BLOCK virtual threads,
 // replayed in candle's order. VARIANT 0: `tmp += xi * xi` contracted to an
 // fma; 1: not.
@@ -703,6 +764,70 @@ int main() {
         wr(out);
         wr(tail);
         wr(state);
+    } else if (tag == 'F') {
+        // FUSED f16 FMA: n random triples (all finite patterns) and the
+        // planted ties. out: u16[n + ties] per sign, neg then pos.
+        const u32 n = rd1<u32>();
+        const uint64_t seed = rd1<uint64_t>();
+        Rng r(seed);
+        std::vector<unsigned short> A, B, C;
+        for (u32 i = 0; i < n; ++i) {
+            auto fin = [&] { unsigned short h; do { h = (unsigned short)r.next(); } while ((h & 0x7c00u) == 0x7c00u); return h; };
+            A.push_back(fin()); B.push_back(fin()); C.push_back(fin());
+        }
+        // 1.5 x (1 + 2^-10) = 1.5 + 2^-10 + 2^-11: a binary16 tie, decided by
+        // the third term's sign or, at zero, by evenness
+        for (unsigned short cc : {(unsigned short)0x0000u, (unsigned short)0x0001u, (unsigned short)0x8001u, (unsigned short)0x0400u, (unsigned short)0x8400u}) {
+            A.push_back(0x3e00u); B.push_back(0x3c01u); C.push_back(cc);
+        }
+        std::vector<unsigned short> out;
+        for (int neg = 0; neg < 2; ++neg)
+            for (size_t i = 0; i < A.size(); ++i) {
+#if PERS_SIDE == 0
+                out.push_back(ref_f16_fma(A[i], B[i], C[i], neg != 0));
+#else
+                out.push_back(pers_f16_fma_exact(A[i], B[i], C[i], neg != 0));
+#endif
+            }
+        wr(out);
+    } else if (tag == 'Z') {
+        // Q/K-NORM, ROPE, KV APPEND (4E). in: form, n_heads, n_kv, cap, pos,
+        // grid, threads, seed. out: u16 q_out[n_heads*128], kc, vc [n_kv*cap*128].
+        const u32 form = rd1<u32>(), nh = rd1<u32>(), nkv = rd1<u32>(), cap = rd1<u32>(), pos = rd1<u32>(),
+                  grid = rd1<u32>(), threads = rd1<u32>();
+        const uint64_t seed = rd1<uint64_t>();
+        const auto qr = act_h(nh * 128, seed + 1, 8, 17);
+        const auto kr = act_h(nkv * 128, seed + 2, 8, 17);
+        const auto vr = act_h(nkv * 128, seed + 3, 8, 17);
+        const auto qa = act_h(128, seed + 4, 13, 16), ka = act_h(128, seed + 5, 13, 16);
+        const auto co = act_h(64, seed + 6, 4, 14), si = act_h(64, seed + 7, 4, 14);
+        std::vector<unsigned short> qo(nh * 128, 0xFFFFu), kc((size_t)nkv * cap * 128, 0xAAAAu), vc((size_t)nkv * cap * 128, 0xAAAAu);
+        const float eps = 1e-6f;
+#if PERS_SIDE == 0
+        (void)grid; (void)threads;
+        auto head = [&](const unsigned short* src, const unsigned short* al, unsigned short* dst) {
+            const float sc = candle_rms_scale(src, 128, eps, 0);
+            for (u32 i = 0; i < 64; ++i) {
+                const unsigned short a = f2h(__fmul_rn(__fmul_rn(sc, h2f(src[i])), h2f(al[i])));
+                const unsigned short b = f2h(__fmul_rn(__fmul_rn(sc, h2f(src[i + 64])), h2f(al[i + 64])));
+                ref_rope_pair((int)form, a, b, co[i], si[i], dst + i, dst + i + 64);
+            }
+        };
+        for (u32 h = 0; h < nh; ++h) head(qr.data() + h * 128, qa.data(), qo.data() + h * 128);
+        for (u32 h = 0; h < nkv; ++h) {
+            head(kr.data() + h * 128, ka.data(), kc.data() + ((size_t)h * cap + pos) * 128);
+            for (u32 i = 0; i < 128; ++i) vc[((size_t)h * cap + pos) * 128 + i] = vr[h * 128 + i];
+        }
+#else
+        hostgrid::launch_coop(grid, threads, PERS_SMEM_HEADER, seed, [&] {
+            if (form == 0) pers_4e_norm_rope_append<0>(qr.data(), kr.data(), vr.data(), qa.data(), ka.data(), co.data(), si.data(), eps, nh, nkv, cap, pos, qo.data(), kc.data(), vc.data());
+            else if (form == 1) pers_4e_norm_rope_append<1>(qr.data(), kr.data(), vr.data(), qa.data(), ka.data(), co.data(), si.data(), eps, nh, nkv, cap, pos, qo.data(), kc.data(), vc.data());
+            else pers_4e_norm_rope_append<2>(qr.data(), kr.data(), vr.data(), qa.data(), ka.data(), co.data(), si.data(), eps, nh, nkv, cap, pos, qo.data(), kc.data(), vc.data());
+        });
+#endif
+        wr(qo);
+        wr(kc);
+        wr(vc);
     } else if (tag == 'L') {
         // LAYOUT of the structs the host mirrors (pers.rs): sizes and offsets.
         std::vector<u32> o;
