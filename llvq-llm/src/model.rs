@@ -3316,6 +3316,33 @@ mod tests {
         assert!(e.contains("head dim 16"), "{e}");
     }
 
+    /// The T8 harness of the kernel form, on the CPU replay: the decode path
+    /// pairs the grouped and the kernel arms in lockstep and scores both, and
+    /// the prefill path of the two arms is the same forward (no call of more
+    /// than 8 rows reaches the kernel), bit for bit.
+    #[test]
+    fn the_kernel_arm_runs_in_the_paired_decode() {
+        use crate::kvq::{AttnHeads, KvStore, GROW_CHUNK};
+        let mut m = tiny_model_hd(DType::F16, 8, 2, 128);
+        m.set_attn_kernel(Some(crate::attn::kernel_for(&Device::Cpu, 2, 4, 128).expect("CPU kernel")));
+        let win = [3u32, 17, 42, 7, 9, 11, 5, 60, 11, 90, 2, 33, 71, 8, 13, 44, 1, 96, 27, 64];
+        let g = (KvStore::Grow(GROW_CHUNK), AttnHeads::Grouped);
+        let k = (KvStore::Grow(GROW_CHUNK), AttnHeads::Kernel);
+        let d = m.decode_nll_paired(&win, [g, k]).expect("paired decode");
+        assert_eq!(d.count, win.len() - 1);
+        assert!(d.max_dlogit > 0.0, "bit for bit: the kernel did not run");
+        assert!(d.max_dlogit <= 5e-3, "max |dlogit| {:e}", d.max_dlogit);
+        let rel = (d.nll[1] - d.nll[0]).abs() / d.nll[0];
+        assert!(rel < 1e-3, "nll {} against {}", d.nll[1], d.nll[0]);
+        let mut pre = |heads| {
+            m.set_kv_store(KvStore::Grow(GROW_CHUNK));
+            m.set_attn_heads(heads);
+            m.window_nll(&win, &mut NoCapture).unwrap().0
+        };
+        let (a, b) = (pre(AttnHeads::Grouped), pre(AttnHeads::Kernel));
+        assert_eq!(a.to_bits(), b.to_bits(), "the prefill path differs between the two arms");
+    }
+
     /// A two-layer Qwen3 with deterministic pseudo-random weights, on the CPU.
     /// The CPU stand-in of the key kernel: candle's own argmax on the host
     /// device, written into the ring. It pins the plumbing of the `Key` and
