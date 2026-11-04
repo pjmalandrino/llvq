@@ -36,11 +36,12 @@
 use std::collections::HashMap;
 
 use candle_core::cuda_backend::cudarc::driver::{
-    CudaFunction, CudaSlice, LaunchConfig, PushKernelArg,
+    CudaFunction, CudaSlice, CudaView, CudaViewMut, LaunchConfig, PushKernelArg,
 };
 use candle_core::{CudaStorage, DType, Device, Layout, Shape, Tensor};
 use half::f16;
 
+use crate::boundary::BoundaryArm;
 use crate::fused::{
     load_planes_sources, matvec_kernel_name, seg_kernel_name, EmbedMode, FuseMode, FusedGroup,
     FusedLayout, FusedMatrix, FusedModel, HostStream, RotKey, RotationTables, EMBED_GROUP,
@@ -322,6 +323,9 @@ impl crate::device::LatticeProj for CudaLattice {
     fn matvec_rows(&self, xr: &Tensor, n_rows: usize) -> candle_core::Result<Tensor> {
         self.rt.forward_rotated_rows(&self.proj, xr, n_rows)
     }
+    fn as_any(&self) -> Option<&dyn std::any::Any> {
+        Some(self)
+    }
 }
 
 /// One projection served as affine int4 g128 on a card.
@@ -342,6 +346,143 @@ impl crate::device::Int4Proj for CudaInt4 {
     }
     fn matvec(&self, x: &Tensor, out_dims: &[usize]) -> candle_core::Result<Tensor> {
         self.rt.forward_int4(&self.proj, x, out_dims)
+    }
+    fn as_any(&self) -> Option<&dyn std::any::Any> {
+        Some(self)
+    }
+}
+
+// ---- route P, step A: read-only device views for `persist_cuda.rs` ----
+//
+// Raw device addresses of what the runtime already holds, so the persistent
+// segment reads the very buffers the eager path reads: the same words, row
+// scales, tails, gains, rotations and tables. Nothing here allocates or
+// writes; the views are valid while the runtime and its projections live,
+// which the model guarantees by holding both.
+
+fn dev_addr<T>(s: &CudaSlice<T>, stream: &candle_core::cuda_backend::cudarc::driver::CudaStream) -> u64 {
+    use candle_core::cuda_backend::cudarc::driver::DevicePtr;
+    s.device_ptr(stream).0
+}
+
+/// One Tetra48 projection.
+#[derive(Clone, Copy, Debug)]
+pub struct TetraView {
+    pub words: u64,
+    pub stride_u32: u32,
+    pub nblocks: u32,
+    pub tail_w: u32,
+    pub d_out: u32,
+    pub d_in: u32,
+    pub rscale: u64,
+    /// binary16, `d_out * tail_w`
+    pub tail: u64,
+    pub gscale: u64,
+    pub rotation: Option<RotKey>,
+}
+
+/// One rotation, as `rot_apply` takes it.
+#[derive(Clone, Copy, Debug)]
+pub struct RotView {
+    pub signbits: u64,
+    pub small: u64,
+    pub n: u32,
+    pub m: u32,
+    pub k: u32,
+    pub inv: f32,
+}
+
+/// One int4 g128 projection.
+#[derive(Clone, Copy, Debug)]
+pub struct Int4View {
+    pub wq: u64,
+    pub scales: u64,
+    pub biases: u64,
+    pub gpr: u32,
+    pub d_out: u32,
+    pub d_in: u32,
+}
+
+/// The Tetra decoder tables.
+#[derive(Clone, Copy, Debug)]
+pub struct TableView {
+    pub rows: u64,
+    pub pref: u64,
+    pub br: u64,
+    pub suf: u64,
+    pub invnorm: u64,
+}
+
+impl CudaLattice {
+    pub fn runtime(&self) -> &std::sync::Arc<FusedRuntime> {
+        &self.rt
+    }
+    /// `None` unless the projection is a Tetra48 stream.
+    pub fn tetra_view(&self) -> Option<TetraView> {
+        let st = self.rt.device.cuda_stream();
+        let DeviceStream::Tetra48 { words, stride_u32 } = &self.proj.stream else {
+            return None;
+        };
+        Some(TetraView {
+            words: dev_addr(words, &st),
+            stride_u32: *stride_u32,
+            nblocks: self.proj.nblocks,
+            tail_w: self.proj.tail_w,
+            d_out: self.proj.d_out as u32,
+            d_in: self.proj.d_in as u32,
+            rscale: dev_addr(&self.proj.rscale, &st),
+            tail: dev_addr(&self.proj.tail, &st),
+            gscale: dev_addr(&self.proj.gscale, &st),
+            rotation: self.proj.rotation,
+        })
+    }
+}
+
+impl CudaInt4 {
+    pub fn runtime(&self) -> &std::sync::Arc<FusedRuntime> {
+        &self.rt
+    }
+    pub fn int4_view(&self) -> Int4View {
+        let st = self.rt.device.cuda_stream();
+        Int4View {
+            wq: dev_addr(&self.proj.wq, &st),
+            scales: dev_addr(&self.proj.scales, &st),
+            biases: dev_addr(&self.proj.biases, &st),
+            gpr: self.proj.gpr,
+            d_out: self.proj.d_out as u32,
+            d_in: self.proj.d_in as u32,
+        }
+    }
+}
+
+impl FusedRuntime {
+    pub fn rot_view(&self, key: &RotKey) -> Option<RotView> {
+        let st = self.device.cuda_stream();
+        self.rotations.get(key).map(|r| RotView {
+            signbits: dev_addr(&r.signbits, &st),
+            small: dev_addr(&r.small, &st),
+            n: r.n,
+            m: r.m,
+            k: r.k,
+            inv: r.inv,
+        })
+    }
+    pub fn table_view(&self) -> Option<TableView> {
+        let st = self.device.cuda_stream();
+        self.tetra_tabs.as_ref().map(|t| TableView {
+            rows: dev_addr(&t.rows, &st),
+            pref: dev_addr(&t.prefixes, &st),
+            br: dev_addr(&t.branches, &st),
+            suf: dev_addr(&t.suffixes, &st),
+            invnorm: dev_addr(&t.invnorm, &st),
+        })
+    }
+    /// The `#define` this runtime's unit compiled its tile with.
+    pub fn tile_define(&self) -> String {
+        self.tile.define()
+    }
+    pub fn cuda_device(&self) -> &candle_core::CudaDevice {
+        &self.device
     }
 }
 
@@ -1917,6 +2058,10 @@ impl candle_core::CustomOp1 for FusedOp<'_> {
         let mut y = unsafe { self.rt.device.cuda_stream().alloc::<f16>(self.proj.d_out) }
             .map_err(|e| candle_core::Error::msg(format!("alloc y: {e}")))?;
         let shared = self.rt.tile.shared_bytes();
+        // `LLVQ_BOUNDARY_AB` only: `Served` everywhere else, and then neither
+        // the split nor the probe below is reached.
+        let arm = boundary_arm()?;
+        let split = boundary_split(arm, self.proj)?;
 
         // One arm per layout. The Planes14 arm has no bases to pass — the
         // variant carries none — and the Slot32 arm is the exact call that
@@ -1949,24 +2094,48 @@ impl candle_core::CustomOp1 for FusedOp<'_> {
                          for another layout",
                     )
                 })?;
-                launch_tetra48_h(
-                    &self.rt.cuda,
-                    &self.rt.f_matvec,
-                    words,
-                    *stride_u32,
-                    t,
-                    &self.proj.gscale,
-                    &self.proj.rscale,
-                    &self.proj.tail,
-                    xr,
-                    &mut y,
-                    self.proj.nblocks,
-                    self.proj.tail_w,
-                    self.proj.d_out as u32,
-                    THREADS,
-                    shared,
-                )
-                .map_err(candle_core::Error::msg)?
+                match split {
+                    None => launch_tetra48_h(
+                        &self.rt.cuda,
+                        &self.rt.f_matvec,
+                        words,
+                        *stride_u32,
+                        t,
+                        &self.proj.gscale,
+                        &self.proj.rscale,
+                        &self.proj.tail,
+                        xr,
+                        &mut y,
+                        self.proj.nblocks,
+                        self.proj.tail_w,
+                        self.proj.d_out as u32,
+                        THREADS,
+                        shared,
+                    )
+                    .map_err(candle_core::Error::msg)?,
+                    Some(at) => {
+                        launch_tetra48_h_split(
+                            &self.rt.cuda,
+                            &self.rt.f_matvec,
+                            words,
+                            *stride_u32,
+                            t,
+                            &self.proj.gscale,
+                            &self.proj.rscale,
+                            &self.proj.tail,
+                            xr,
+                            &mut y,
+                            self.proj.nblocks,
+                            self.proj.tail_w,
+                            self.proj.d_out,
+                            at,
+                            THREADS,
+                            shared,
+                        )
+                        .map_err(candle_core::Error::msg)?;
+                        crate::boundary::note_added(1);
+                    }
+                }
             }
             DeviceStream::Planes14 { words } => launch_planes_h(
                 &self.rt.cuda,
@@ -2038,6 +2207,9 @@ impl candle_core::CustomOp1 for FusedOp<'_> {
                 )
                 .map_err(candle_core::Error::msg)?
             }
+        }
+        if arm != BoundaryArm::Served {
+            launch_boundary_probe(self.rt, arm, &self.proj.name)?;
         }
 
         Ok((
@@ -2146,6 +2318,12 @@ impl candle_core::CustomOp1 for FusedInt4Op<'_> {
             }
         };
         launched.map_err(candle_core::Error::msg)?;
+        // `LLVQ_BOUNDARY_AB` only: the 12 int4 `down_proj` of the sealed 4B
+        // take their probe here, the 24 Tetra ones in `FusedOp`.
+        let arm = boundary_arm()?;
+        if arm != BoundaryArm::Served {
+            launch_boundary_probe(self.rt, arm, &self.proj.name)?;
+        }
         Ok((
             CudaStorage::wrap_cuda_slice(y, self.rt.device.clone()),
             self.out_shape.clone(),
@@ -2584,6 +2762,95 @@ pub fn set_int4_via_f32(on: bool) {
     INT4_VIA_F32.store(on, std::sync::atomic::Ordering::Relaxed);
 }
 
+/// Measurement only, `Served` everywhere else: the arm of `bin/fusedrun`'s
+/// `LLVQ_BOUNDARY_AB` (`crate::boundary`). Process-wide for the reason
+/// [`INT4_VIA_F32`] is: the projections hold the runtime behind an `Arc`
+/// that no binary sees. Every arm returns the served bits.
+static BOUNDARY_ARM: std::sync::atomic::AtomicU8 =
+    std::sync::atomic::AtomicU8::new(BoundaryArm::Served as u8);
+
+/// Set [`BOUNDARY_ARM`]. `bin/fusedrun` sets it back to `Served` after the
+/// mode.
+pub fn set_boundary_arm(a: BoundaryArm) {
+    BOUNDARY_ARM.store(a as u8, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn boundary_arm() -> candle_core::Result<BoundaryArm> {
+    let v = BOUNDARY_ARM.load(std::sync::atomic::Ordering::Relaxed);
+    BoundaryArm::from_u8(v)
+        .ok_or_else(|| candle_core::Error::msg(format!("boundary arm flag {v}: no such arm")))
+}
+
+/// The row where the current arm splits `proj`, checked against the 8-row
+/// grid and `d_out`, or `None`. A split asked of a stream that is not
+/// `Tetra48` is refused: the view launcher exists for that kernel only.
+fn boundary_split(arm: BoundaryArm, proj: &FusedProj) -> candle_core::Result<Option<u32>> {
+    if arm == BoundaryArm::Served {
+        return Ok(None);
+    }
+    let Some(at) = arm.split_at(&proj.name) else {
+        return Ok(None);
+    };
+    crate::boundary::check_split(at, proj.d_out)
+        .map_err(|e| candle_core::Error::msg(format!("{}: {e}", proj.name)))?;
+    if !matches!(proj.stream, DeviceStream::Tetra48 { .. }) {
+        candle_core::bail!(
+            "{}: arm {} splits Tetra48 launches only, and this stream is another layout",
+            proj.name,
+            arm.name()
+        );
+    }
+    Ok(Some(at))
+}
+
+/// `llvq_empty`, from its own NVRTC module. Set once, by
+/// [`install_boundary_probe`], and only under `LLVQ_BOUNDARY_AB`.
+static EMPTY_PROBE: std::sync::OnceLock<CudaFunction> = std::sync::OnceLock::new();
+
+/// Compile [`crate::boundary::EMPTY_SRC`] as its own module on candle's
+/// stream and keep its entry point for the empty arms. Its own module, so the
+/// served unit keeps its bytes and the `NVRTC source:` line its sha256. On
+/// candle's stream and never a fresh one, so the context keeps one stream and
+/// cudarc's events can stay off. Returns the module's source sha256.
+pub fn install_boundary_probe(device: &Device) -> candle_core::Result<String> {
+    let stream = device.as_cuda_device()?.cuda_stream();
+    let src = llvq_cuda::gpu::KernelSource::new(&[crate::boundary::EMPTY_SRC]);
+    let cuda = llvq_cuda::gpu::Cuda::on_stream(stream, &src).map_err(candle_core::Error::msg)?;
+    let f = cuda.func(crate::boundary::EMPTY_FN).map_err(candle_core::Error::msg)?;
+    EMPTY_PROBE
+        .set(f)
+        .map_err(|_| candle_core::Error::msg("llvq_empty: installed once a process"))?;
+    Ok(src.sha256)
+}
+
+/// The empty launches the current arm adds after the projection `name`, on
+/// the runtime's stream, counted in `crate::boundary`.
+fn launch_boundary_probe(rt: &FusedRuntime, arm: BoundaryArm, name: &str) -> candle_core::Result<()> {
+    let Some((n, grid)) = arm.probe_after(name) else {
+        return Ok(());
+    };
+    let f = EMPTY_PROBE.get().ok_or_else(|| {
+        candle_core::Error::msg(format!(
+            "arm {} with no empty module: install_boundary_probe was not called",
+            arm.name()
+        ))
+    })?;
+    let cfg = LaunchConfig {
+        grid_dim: (grid, 1, 1),
+        block_dim: (crate::boundary::EMPTY_THREADS, 1, 1),
+        shared_mem_bytes: 0,
+    };
+    let z = 0u32;
+    for _ in 0..n {
+        let mut b = rt.cuda.stream().launch_builder(f);
+        b.arg(&z);
+        unsafe { b.launch(cfg) }
+            .map_err(|e| candle_core::Error::msg(format!("llvq_empty: {e}")))?;
+    }
+    crate::boundary::note_added(n as u64);
+    Ok(())
+}
+
 /// `tv_q4_hh` against `tv_q4_h` on one real record, on the card, at load.
 ///
 /// The f16 entry point exists only to save a cast launch, so its one claim is
@@ -2868,6 +3135,110 @@ fn launch_tetra48_h<T: candle_core::cuda_backend::cudarc::driver::DeviceRepr>(
         .arg(&nblocks)
         .arg(&tail_w);
     unsafe { b.launch(cfg) }.map_err(|e| format!("tv_tetra48_h: {e}"))?;
+    Ok(())
+}
+
+/// [`launch_tetra48_h`] as two launches, rows `[0, at)` then `[at, d_out)`.
+/// `LLVQ_BOUNDARY_AB` only.
+///
+/// Bit-identical by construction. The kernel derives `row` from the grid,
+/// reads `words + row * stride`, `rscale[row]` and `tail + row * tail_w`, and
+/// writes `y[row]`. The second launch gets each of those pointers advanced by
+/// `at` rows, so its local row `r` is the served row `at + r`, with the same
+/// arithmetic. `x`, `gscale` and the tables are shared and passed whole.
+#[allow(clippy::too_many_arguments)]
+fn launch_tetra48_h_split<T: candle_core::cuda_backend::cudarc::driver::DeviceRepr>(
+    cuda: &llvq_cuda::gpu::Cuda,
+    f: &CudaFunction,
+    words: &CudaSlice<u32>,
+    stride_u32: u32,
+    t: &TetraTabs,
+    gscale: &CudaSlice<f32>,
+    rscale: &CudaSlice<f32>,
+    tail: &CudaSlice<u16>,
+    x: &CudaSlice<f32>,
+    y: &mut CudaSlice<T>,
+    nblocks: u32,
+    tail_w: u32,
+    d_out: usize,
+    at: u32,
+    threads: u32,
+    shared: u32,
+) -> Result<(), String> {
+    let ranges = crate::boundary::split_ranges(at, d_out)?;
+    let (s, tw) = (stride_u32 as usize, tail_w as usize);
+    if words.len() < d_out * s || rscale.len() < d_out || (tw > 0 && tail.len() < d_out * tw) {
+        return Err(format!(
+            "tv_tetra48_h split: buffers of {} words, {} row scales, {} tail values for {d_out} rows",
+            words.len(),
+            rscale.len(),
+            tail.len()
+        ));
+    }
+    let (y0, y1) = y
+        .try_split_at_mut(at as usize)
+        .ok_or_else(|| format!("tv_tetra48_h split: y of {d_out} rows split at {at}"))?;
+    for ((first, rows), mut yv) in ranges.into_iter().zip([y0, y1]) {
+        let r0 = first as usize;
+        // Open-ended: the kernel reads a pointer, never a length, so the view
+        // only moves the base, exactly `r0` rows.
+        let w = words.slice(r0 * s..);
+        let rs = rscale.slice(r0..);
+        // `tail_w == 0`: the one-element dummy, which the kernel never reads,
+        // passed whole as the served launch passes it.
+        let tl = if tw == 0 { tail.as_view() } else { tail.slice(r0 * tw..) };
+        launch_tetra48_h_view(
+            cuda, f, &w, stride_u32, t, gscale, &rs, &tl, x, &mut yv, nblocks, tail_w, rows,
+            threads, shared,
+        )?;
+    }
+    Ok(())
+}
+
+/// [`launch_tetra48_h`] over views: the kernel's fourteen arguments in the
+/// same order, `rows` rows from the views' base. `LLVQ_BOUNDARY_AB` only.
+#[allow(clippy::too_many_arguments)]
+fn launch_tetra48_h_view<T>(
+    cuda: &llvq_cuda::gpu::Cuda,
+    f: &CudaFunction,
+    words: &CudaView<'_, u32>,
+    stride_u32: u32,
+    t: &TetraTabs,
+    gscale: &CudaSlice<f32>,
+    rscale: &CudaView<'_, f32>,
+    tail: &CudaView<'_, u16>,
+    x: &CudaSlice<f32>,
+    y: &mut CudaViewMut<'_, T>,
+    nblocks: u32,
+    tail_w: u32,
+    rows: u32,
+    threads: u32,
+    shared: u32,
+) -> Result<(), String> {
+    if !rows.is_multiple_of(threads / 32) {
+        return Err(format!("tv_tetra48_h split: {rows} rows do not fill whole blocks"));
+    }
+    let cfg = LaunchConfig {
+        grid_dim: (rows * 32 / threads, 1, 1),
+        block_dim: (threads, 1, 1),
+        shared_mem_bytes: shared,
+    };
+    let mut b = cuda.stream().launch_builder(f);
+    b.arg(words)
+        .arg(&stride_u32)
+        .arg(&t.rows)
+        .arg(&t.prefixes)
+        .arg(&t.branches)
+        .arg(&t.suffixes)
+        .arg(gscale)
+        .arg(&t.invnorm)
+        .arg(rscale)
+        .arg(tail)
+        .arg(x)
+        .arg(y)
+        .arg(&nblocks)
+        .arg(&tail_w);
+    unsafe { b.launch(cfg) }.map_err(|e| format!("tv_tetra48_h split: {e}"))?;
     Ok(())
 }
 

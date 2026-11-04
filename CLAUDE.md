@@ -130,10 +130,13 @@ be in `UPLOAD_ALLOW` of `ops/run.py`, or the Space dies after 12 minutes. `rankb
 | `LLVQ_QTIP_DIR` | directory | upstream QTIP kernel, GPL v3, not redistributed (`docs/qtip-provenance.md`) |
 
 `LLVQ_KV_PREALLOC`, `LLVQ_GRAPH_AB`, `LLVQ_SEG_ARMS`, `LLVQ_TIME_PHASES`, `LLVQ_TIME_EVENTS`, `LLVQ_BENCH_ARMS`,
-`LLVQ_TRIM_AB`, `LLVQ_GQA_AB`, `LLVQ_GQA_PPL`, `LLVQ_PREFILL_TOKENS` and `LLVQ_CONTEXTS` are measurement modes, never a
-served config. Every one is refused by name beside `LLVQ_CONFIG`, except `LLVQ_PREFILL_TOKENS` and `LLVQ_CONTEXTS`
-(prompt lengths, comma-separated: time to the first token and decode speed after it), which time the served object with
-a longer prompt.
+`LLVQ_TRIM_AB`, `LLVQ_GQA_AB`, `LLVQ_GQA_PPL`, `LLVQ_BOUNDARY_AB`, `LLVQ_PERS_SEGMENT`, `LLVQ_PREFILL_TOKENS` and
+`LLVQ_CONTEXTS` are measurement modes, never a served config. Every one is refused by name beside `LLVQ_CONFIG`, except
+`LLVQ_PREFILL_TOKENS` and `LLVQ_CONTEXTS` (prompt lengths, comma-separated: time to the first token and decode speed
+after it), which time the served object with a longer prompt.
+`planesbench` reads four more: `LLVQ_TETRA_OCC=1` and `LLVQ_PERS_ARMS=<arms>` (the persistent Tetra arms, steps L1
+and L2, both requiring `LLVQ_SEG_TETRA=1` and tetra48), `LLVQ_PERS_MICRO=1` (barrier and launch microbenchmarks) and
+`LLVQ_DUMP_CUBIN=<dir>` (the driver's cubins); `llvq-cuda/src/pers.rs` holds their registry.
 `LLVQ_GQA_AB` takes the same lengths and times the published attention against the two forms that read the cached
 heads without `repeat_kv` (`kvq::AttnHeads`, `KvStore::Grow`). `LLVQ_GQA_PPL=<ctx>,<windows>` scores the grouped form
 against the published one on WikiText-2, by the prefill path and by a teacher-forced decode path, paired window by

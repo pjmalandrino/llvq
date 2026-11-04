@@ -15,6 +15,7 @@ pub mod argmax_key;
 pub mod attn;
 #[cfg(all(target_os = "linux", feature = "cuda"))]
 pub mod attn_cuda;
+pub mod boundary;
 pub mod calib;
 pub mod chatfmt;
 pub mod corpus;
@@ -35,6 +36,8 @@ pub mod hfpack;
 pub mod kvq;
 pub mod loader;
 pub mod model;
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+pub mod persist_cuda;
 pub mod rotplan;
 pub mod sealed;
 pub mod served;

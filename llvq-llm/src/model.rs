@@ -85,6 +85,13 @@ impl Act {
 pub trait Capture {
     /// `x` is `(batch, seq, width)`; rows are samples for `AᵀA`.
     fn on_activation(&mut self, layer: usize, act: Act, x: &Tensor) -> Result<()>;
+    /// Whether this capture reads activations at all. A block replaces its
+    /// eager MLP ops by route P's segment only when it does not, since the
+    /// segment exposes no intermediate. True unless an implementation says
+    /// otherwise.
+    fn wants_activations(&self) -> bool {
+        true
+    }
 }
 
 /// The do-nothing capture, for plain inference.
@@ -93,6 +100,9 @@ pub struct NoCapture;
 impl Capture for NoCapture {
     fn on_activation(&mut self, _: usize, _: Act, _: &Tensor) -> Result<()> {
         Ok(())
+    }
+    fn wants_activations(&self) -> bool {
+        false
     }
 }
 
@@ -640,6 +650,15 @@ fn grouped_attention(
 /// on a device projection rather than returning something plausible, because
 /// every caller of it is a quantization path and quantizing an already
 /// quantized model is a bug, not a use case.
+/// Route P, step A (`docs/archive/debit-vague5-2026-11-02/persistent.md`
+/// §3.1): the MLP half of one decode row in one cooperative launch, from
+/// ln2's input to the residual after down_proj. An implementation owes the
+/// eager ops' bits and is checked against [`Block::mlp_eager`] at install.
+pub trait MlpSegment: Send + Sync {
+    /// `x`: the residual entering ln2, one row. Returns `x + mlp(ln2(x))`.
+    fn forward(&self, x: &Tensor) -> Result<Tensor>;
+}
+
 pub enum Proj {
     Dense(Linear),
     /// One projection whose weights stay encoded, read by a device kernel.
@@ -1469,6 +1488,13 @@ pub struct Block {
     /// [`Qwen3::set_attn_kernel`]; `None` everywhere else, and a `Kernel`
     /// block without one refuses to run rather than fall back.
     attn_kernel: Option<std::sync::Arc<dyn crate::device::AttnKernel>>,
+    /// ln2's weight and epsilon, the same tensor the norm holds.
+    ln2_w: Tensor,
+    ln2_eps: f64,
+    /// Route P, step A: the MLP half of a one-row decode step in one launch,
+    /// installed by `persist_cuda::install` behind a measurement mode; `None`
+    /// everywhere else, and then `finish` runs the eager ops as always.
+    pers_mlp: Option<std::sync::Arc<dyn MlpSegment>>,
 }
 
 /// Take the supplied projection, or build the dense one.
@@ -1507,6 +1533,14 @@ impl Block {
         );
         let a = vb.pp("self_attn");
         let m = vb.pp("mlp");
+        // The same tensor candle_nn::rms_norm fetches (`weight`, hidden, the same
+        // hint, so a VarMap-built test model gets ones as before),
+        // kept beside the norm: route P's segment reads it in place.
+        let ln2_w = vb.pp("post_attention_layernorm").get_with_hints(
+            cfg.hidden_size,
+            "weight",
+            candle_nn::Init::Const(1.0),
+        )?;
         Ok(Self {
             kv,
             q_proj: pick(take, idx, "self_attn.q_proj", || {
@@ -1533,11 +1567,9 @@ impl Block {
             q_norm: candle_nn::rms_norm(hd, cfg.rms_norm_eps, a.pp("q_norm"))?,
             k_norm: candle_nn::rms_norm(hd, cfg.rms_norm_eps, a.pp("k_norm"))?,
             ln1: candle_nn::rms_norm(cfg.hidden_size, cfg.rms_norm_eps, vb.pp("input_layernorm"))?,
-            ln2: candle_nn::rms_norm(
-                cfg.hidden_size,
-                cfg.rms_norm_eps,
-                vb.pp("post_attention_layernorm"),
-            )?,
+            ln2: candle_nn::RmsNorm::new(ln2_w.clone(), cfg.rms_norm_eps),
+            ln2_w,
+            ln2_eps: cfg.rms_norm_eps,
             act: cfg.hidden_act,
             n_heads: nh,
             n_kv: nkv,
@@ -1545,6 +1577,7 @@ impl Block {
             rot_share: RotShare::Off,
             attn_heads: crate::kvq::AttnHeads::Expanded,
             attn_kernel: None,
+            pers_mlp: None,
         })
     }
 
@@ -1764,14 +1797,39 @@ impl Block {
             .reshape((b, l, self.n_heads * self.head_dim))?;
         cap.on_activation(idx, Act::AttnOut, &ctx)?;
         let x = (x + self.o_proj.forward(&ctx)?)?;
+        // Route P, step A: one decode row, nothing to capture.
+        if let (Some(seg), 1, 1, false) = (&self.pers_mlp, b, l, cap.wants_activations()) {
+            return seg.forward(&x);
+        }
+        self.mlp_residual(&x, idx, cap)
+    }
 
-        let h = self.ln2.forward(&x)?;
+    /// `x + down(act(gate(ln2 x)) * up(ln2 x))`, the eager ops: the half of
+    /// `finish` route P's segment replaces, and its load-time reference.
+    fn mlp_residual(&self, x: &Tensor, idx: usize, cap: &mut dyn Capture) -> Result<Tensor> {
+        let h = self.ln2.forward(x)?;
         cap.on_activation(idx, Act::Mlp, &h)?;
         // The second shared activation: gate and up both read `h`.
         let gu = group_forward(&[&self.gate_proj, &self.up_proj], &h, self.rot_share)?;
         let gated = gu[0].apply(&self.act)?.mul(&gu[1])?;
         cap.on_activation(idx, Act::MlpOut, &gated)?;
         x + self.down_proj.forward(&gated)?
+    }
+
+    /// The eager MLP half on one row, no capture: route P's load check.
+    pub fn mlp_eager(&self, x: &Tensor) -> Result<Tensor> {
+        self.mlp_residual(x, 0, &mut NoCapture)
+    }
+
+    /// What route P's segment reads from this block: ln2's weight and
+    /// epsilon, the activation, and the three MLP projections.
+    pub fn mlp_parts(&self) -> (&Tensor, f64, Activation, &Proj, &Proj, &Proj) {
+        (&self.ln2_w, self.ln2_eps, self.act, &self.gate_proj, &self.up_proj, &self.down_proj)
+    }
+
+    /// Install or remove route P's MLP segment on this block.
+    pub fn set_pers_mlp(&mut self, seg: Option<std::sync::Arc<dyn MlpSegment>>) {
+        self.pers_mlp = seg;
     }
 }
 
@@ -1795,6 +1853,11 @@ pub struct Qwen3 {
     /// [`Self::step_mask`] learned to skip it. `bin/fusedrun`'s
     /// `LLVQ_TRIM_AB` sets it on one arm to time what the skip saves.
     decode_mask: bool,
+    /// Measurement only, `None` everywhere else: a 1-element f16 tensor
+    /// that [`Self::hidden_cached`] runs one candle affine on after each
+    /// layer, the `candle-tiny` arm of `bin/fusedrun`'s `LLVQ_BOUNDARY_AB`.
+    /// The result is dropped, so no output moves.
+    candle_probe: Option<Tensor>,
     embed: Embed,
     pub blocks: Vec<Block>,
     norm: RmsNorm,
@@ -1869,6 +1932,7 @@ impl Qwen3 {
             kv_store: crate::kvq::KvStore::Cat,
             attn_heads: crate::kvq::AttnHeads::Expanded,
             decode_mask: false,
+            candle_probe: None,
             embed,
             blocks,
             norm: candle_nn::rms_norm(cfg.hidden_size, cfg.rms_norm_eps, vb.pp("model.norm"))?,
@@ -1990,6 +2054,18 @@ impl Qwen3 {
         self.decode_mask = on;
     }
 
+    /// Measurement only: one candle affine on a 1-element f16 tensor after
+    /// each layer of [`Self::hidden_cached`], counted in `crate::boundary`.
+    /// `LLVQ_BOUNDARY_AB` sets it on its `candle-tiny` arm. No served path
+    /// calls it.
+    pub fn set_candle_probe(&mut self, on: bool) -> Result<()> {
+        self.candle_probe = match on {
+            true => Some(Tensor::zeros(1, DType::F16, &self.device)?),
+            false => None,
+        };
+        Ok(())
+    }
+
     /// Hidden states for `l` new positions, attending over `caches`.
     pub fn hidden_cached(
         &self,
@@ -2007,6 +2083,10 @@ impl Qwen3 {
         let mut h = self.embed.forward(input)?;
         for (i, blk) in self.blocks.iter().enumerate() {
             h = blk.forward_cached(&h, &self.rotary, mask.as_ref(), RopeAt::Offset(offset), &mut caches[i], i, cap)?;
+            if let Some(p) = &self.candle_probe {
+                p.affine(2.0, 1.0)?;
+                crate::boundary::note_added(1);
+            }
         }
         self.norm.forward(&h)
     }
