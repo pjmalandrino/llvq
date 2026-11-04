@@ -1,0 +1,3 @@
+/usr/local/cuda/bin/nvcc
+Cuda compilation tools, release 13.0, V13.0.88
+Build cuda_13.0.r13.0/compiler.36424714_0

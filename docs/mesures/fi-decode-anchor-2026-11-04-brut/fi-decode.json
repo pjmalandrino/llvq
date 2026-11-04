@@ -1,0 +1,380 @@
+{
+ "info": {
+  "device": "NVIDIA L40S",
+  "sms": 142,
+  "torch": "2.11.0+cu130",
+  "torch_cuda": "13.0",
+  "flashinfer": "0.6.14",
+  "bw_peak": 864000000000.0,
+  "layers": 36,
+  "kv_heads": 8,
+  "head_dim": 128,
+  "g": 4,
+  "warmup": 2,
+  "rounds": 7,
+  "reps": 10,
+  "seed": 20261104
+ },
+ "results": {
+  "P-L2048": {
+   "arm": "P",
+   "tensor_cores": false,
+   "L": 2048,
+   "bytes": 301989888,
+   "round_ms": [
+    0.5255520045757294,
+    0.52537602186203,
+    0.5248479843139648,
+    0.525056004524231,
+    0.5251359939575195,
+    0.5250239968299866,
+    0.5252479910850525
+   ],
+   "first_call_s": 0.01,
+   "rel_err": 0.00036377282231114805,
+   "timing": "graph",
+   "kernels_one_pass": {
+    "void flashinfer::SingleDecodeWithKVCacheKernel<(flashinfer::PosEncodingMode)0, 2u, 1u, 8u, 16u, 4u, 2u, flashinfer::DefaultAttention<false, false, false, false>, Params>(Params)": {
+     "us": 485.89,
+     "calls": 36
+    },
+    "void flashinfer::MergeStatesLargeNumIndexSetsKernel<8u, 16u, 8u, 4u, __half, __half>(__half*, float*, __half*, float*, unsigned int, unsigned int)": {
+     "us": 53.6,
+     "calls": 36
+    }
+   },
+   "kernel_sum_us": 539.49,
+   "read_ms_by_round": [
+    0.5255520045757294,
+    0.52537602186203,
+    0.5248479843139648,
+    0.525056004524231,
+    0.5251359939575195,
+    0.5250239968299866,
+    0.5252479910850525
+   ],
+   "median_ms": 0.5251359939575195,
+   "range_ms": [
+    0.5248479843139648,
+    0.5255520045757294
+   ],
+   "eta_median": 0.6655901278052708,
+   "eta_range": [
+    0.6650632673649491,
+    0.6659553695156172
+   ],
+   "eta_kernel_only": 0.647881023435714
+  },
+  "T4-L2048": {
+   "arm": "T4",
+   "tensor_cores": true,
+   "L": 2048,
+   "bytes": 301989888,
+   "round_ms": [
+    0.5698079764842987,
+    0.5701119899749756,
+    0.5700479745864868,
+    0.5700160264968872,
+    0.5701279938220978,
+    0.570000022649765,
+    0.57014399766922
+   ],
+   "first_call_s": 0.01,
+   "rel_err": 0.0004196979571133852,
+   "timing": "graph",
+   "kernels_one_pass": {
+    "void flashinfer::SinglePrefillWithKVCacheKernel<flashinfer::KernelTraits<(flashinfer::MaskMode)0, 16u, 1u, 1u, 8u, 8u, 1u, 4u, (flashinfer::PosEncodingMode)0, __half, __half, __half, float, int, flashinfer::DefaultAttention<false, false, false, false> >, Params>(Params)": {
+     "us": 525.86,
+     "calls": 36
+    },
+    "void flashinfer::MergeStatesLargeNumIndexSetsKernel<8u, 16u, 8u, 4u, __half, __half>(__half*, float*, __half*, float*, unsigned int, unsigned int)": {
+     "us": 53.44,
+     "calls": 36
+    }
+   },
+   "kernel_sum_us": 579.3,
+   "read_ms_by_round": [
+    0.5698079764842987,
+    0.5701119899749756,
+    0.5700479745864868,
+    0.5700160264968872,
+    0.5701279938220978,
+    0.570000022649765,
+    0.57014399766922
+   ],
+   "median_ms": 0.5700479745864868,
+   "range_ms": [
+    0.5698079764842987,
+    0.57014399766922
+   ],
+   "eta_median": 0.6131507327727623,
+   "eta_range": [
+    0.61304746653865,
+    0.6134089864622396
+   ],
+   "eta_kernel_only": 0.6033580758386559
+  },
+  "P-L4096": {
+   "arm": "P",
+   "tensor_cores": false,
+   "L": 4096,
+   "bytes": 603979776,
+   "round_ms": [
+    0.9175679981708527,
+    0.9174240231513977,
+    0.9173599779605865,
+    0.9171519875526428,
+    0.9173280000686646,
+    0.9173440039157867,
+    0.9174720048904419
+   ],
+   "first_call_s": 0.0,
+   "rel_err": 0.0003759195387829095,
+   "timing": "graph",
+   "kernels_one_pass": {
+    "void flashinfer::SingleDecodeWithKVCacheKernel<(flashinfer::PosEncodingMode)0, 2u, 1u, 8u, 16u, 4u, 2u, flashinfer::DefaultAttention<false, false, false, false>, Params>(Params)": {
+     "us": 866.03,
+     "calls": 36
+    },
+    "void flashinfer::MergeStatesLargeNumIndexSetsKernel<8u, 16u, 8u, 4u, __half, __half>(__half*, float*, __half*, float*, unsigned int, unsigned int)": {
+     "us": 57.66,
+     "calls": 36
+    }
+   },
+   "kernel_sum_us": 923.69,
+   "read_ms_by_round": [
+    0.9175679981708527,
+    0.9174240231513977,
+    0.9173599779605865,
+    0.9171519875526428,
+    0.9173280000686646,
+    0.9173440039157867,
+    0.9174720048904419
+   ],
+   "median_ms": 0.9173599779605865,
+   "range_ms": [
+    0.9171519875526428,
+    0.9175679981708527
+   ],
+   "eta_median": 0.7620243780644861,
+   "eta_range": [
+    0.7618516208719196,
+    0.7621971888563808
+   ],
+   "eta_kernel_only": 0.7568022460637949
+  },
+  "T4-L4096": {
+   "arm": "T4",
+   "tensor_cores": true,
+   "L": 4096,
+   "bytes": 603979776,
+   "round_ms": [
+    0.9736479818820953,
+    0.9734240174293518,
+    0.9735360145568848,
+    0.9738560020923615,
+    0.9736479818820953,
+    0.9734559953212738,
+    0.9734399914741516
+   ],
+   "first_call_s": 0.0,
+   "rel_err": 0.0004056165344081819,
+   "timing": "graph",
+   "kernels_one_pass": {
+    "void flashinfer::SinglePrefillWithKVCacheKernel<flashinfer::KernelTraits<(flashinfer::MaskMode)0, 16u, 1u, 1u, 8u, 8u, 1u, 4u, (flashinfer::PosEncodingMode)0, __half, __half, __half, float, int, flashinfer::DefaultAttention<false, false, false, false> >, Params>(Params)": {
+     "us": 924.63,
+     "calls": 36
+    },
+    "void flashinfer::MergeStatesLargeNumIndexSetsKernel<8u, 16u, 8u, 4u, __half, __half>(__half*, float*, __half*, float*, unsigned int, unsigned int)": {
+     "us": 57.63,
+     "calls": 36
+    }
+   },
+   "kernel_sum_us": 982.26,
+   "read_ms_by_round": [
+    0.9736479818820953,
+    0.9734240174293518,
+    0.9735360145568848,
+    0.9738560020923615,
+    0.9736479818820953,
+    0.9734559953212738,
+    0.9734399914741516
+   ],
+   "median_ms": 0.9735360145568848,
+   "range_ms": [
+    0.9734240174293518,
+    0.9738560020923615
+   ],
+   "eta_median": 0.7180532165364699,
+   "eta_range": [
+    0.7178172801366254,
+    0.7181358320218368
+   ],
+   "eta_kernel_only": 0.7116757952748425
+  },
+  "P-L8192": {
+   "arm": "P",
+   "tensor_cores": false,
+   "L": 8192,
+   "bytes": 1207959552,
+   "round_ms": [
+    1.7265439629554749,
+    1.726912021636963,
+    1.7266879677772522,
+    1.726688027381897,
+    1.7266559600830078,
+    1.7268159985542297,
+    1.7268320322036743
+   ],
+   "first_call_s": 0.0,
+   "rel_err": 0.0003892591630574316,
+   "timing": "graph",
+   "kernels_one_pass": {
+    "void flashinfer::SingleDecodeWithKVCacheKernel<(flashinfer::PosEncodingMode)0, 2u, 1u, 8u, 16u, 4u, 2u, flashinfer::DefaultAttention<false, false, false, false>, Params>(Params)": {
+     "us": 1669.48,
+     "calls": 36
+    },
+    "void flashinfer::MergeStatesLargeNumIndexSetsKernel<8u, 16u, 8u, 4u, __half, __half>(__half*, float*, __half*, float*, unsigned int, unsigned int)": {
+     "us": 65.09,
+     "calls": 36
+    }
+   },
+   "kernel_sum_us": 1734.57,
+   "read_ms_by_round": [
+    1.7265439629554749,
+    1.726912021636963,
+    1.7266879677772522,
+    1.726688027381897,
+    1.7266559600830078,
+    1.7268159985542297,
+    1.7268320322036743
+   ],
+   "median_ms": 1.726688027381897,
+   "range_ms": [
+    1.7265439629554749,
+    1.726912021636963
+   ],
+   "eta_median": 0.8097011800407364,
+   "eta_range": [
+    0.8095961553432551,
+    0.8097687422566883
+   ],
+   "eta_kernel_only": 0.80602185748245
+  },
+  "T4-L8192": {
+   "arm": "T4",
+   "tensor_cores": true,
+   "L": 8192,
+   "bytes": 1207959552,
+   "round_ms": [
+    1.8154560327529907,
+    1.8156480193138123,
+    1.8159199953079224,
+    1.8158400058746338,
+    1.815663993358612,
+    1.8154239654541016,
+    1.8150559663772583
+   ],
+   "first_call_s": 0.0,
+   "rel_err": 0.0005186334019526839,
+   "timing": "graph",
+   "kernels_one_pass": {
+    "void flashinfer::SinglePrefillWithKVCacheKernel<flashinfer::KernelTraits<(flashinfer::MaskMode)0, 16u, 1u, 1u, 8u, 8u, 1u, 4u, (flashinfer::PosEncodingMode)0, __half, __half, __half, float, int, flashinfer::DefaultAttention<false, false, false, false> >, Params>(Params)": {
+     "us": 1758.17,
+     "calls": 36
+    },
+    "void flashinfer::MergeStatesLargeNumIndexSetsKernel<8u, 16u, 8u, 4u, __half, __half>(__half*, float*, __half*, float*, unsigned int, unsigned int)": {
+     "us": 64.93,
+     "calls": 36
+    }
+   },
+   "kernel_sum_us": 1823.1,
+   "read_ms_by_round": [
+    1.8154560327529907,
+    1.8156480193138123,
+    1.8159199953079224,
+    1.8158400058746338,
+    1.815663993358612,
+    1.8154239654541016,
+    1.8150559663772583
+   ],
+   "median_ms": 1.8156480193138123,
+   "range_ms": [
+    1.8150559663772583,
+    1.8159199953079224
+   ],
+   "eta_median": 0.7700288373413464,
+   "eta_range": [
+    0.7699135077238134,
+    0.7702800129760511
+   ],
+   "eta_kernel_only": 0.7668813193644525
+  }
+ },
+ "derived": {
+  "A8": {
+   "median": 0.8097011800407364,
+   "range": [
+    0.8095961553432551,
+    0.8097687422566883
+   ],
+   "by_round": [
+    0.8097687422566883,
+    0.8095961553432551,
+    0.8097012079913286,
+    0.8097011800407364,
+    0.809716217738084,
+    0.8096411745686213,
+    0.8096336570437395
+   ]
+  },
+  "F": {
+   "median": 0.822004195080315,
+   "range": [
+    0.8213002461808177,
+    0.8224705149788404
+   ],
+   "by_round": [
+    0.8213002461808177,
+    0.8217504938255776,
+    0.8224705149788404,
+    0.8221446914727223,
+    0.822004195080315,
+    0.8222557487755212,
+    0.8219127257566471
+   ]
+  },
+  "Rtc": {
+   "median": 0.9510249390822823,
+   "range": [
+    0.9508612561339526,
+    0.9513932706165124
+   ],
+   "by_round": [
+    0.9510249390822823,
+    0.9511270925130162,
+    0.9508612561339526,
+    0.9509031752773862,
+    0.950977695431985,
+    0.9511915846733312,
+    0.9513932706165124
+   ]
+  },
+  "S_P": {
+   "median": 0.8726613903958161,
+   "range": [
+    0.8724755495139764,
+    0.8730916078860599
+   ],
+   "by_round": [
+    0.8730916078860599,
+    0.8726962822557255,
+    0.8724755495139764,
+    0.8726265446108241,
+    0.8727079279267552,
+    0.8725103832406772,
+    0.8726613903958161
+   ]
+  }
+ }
+}
