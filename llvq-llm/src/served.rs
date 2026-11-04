@@ -245,16 +245,21 @@ impl Served {
             Some(n) => format!(" — {n}"),
             None => String::new(),
         };
+        // The kernel form names its threshold: the benches of 2026-11-04 ran
+        // a "kernel" with none, and their lines must not read as this one.
+        let attention = match self.attention {
+            AttnHeads::Kernel => format!("kernel from position {}", crate::kvq::KERNEL_FROM),
+            other => other.label().to_string(),
+        };
         format!(
             "served config: {} (layout {}, embed {}, rot_share {}, fuse {}, kv {}, \
-             attention {} on {}){note}",
+             attention {attention} on {}){note}",
             self.path.display(),
             self.layout.name(),
             self.embed.name(),
             self.rot_share.name(),
             self.fuse.name(),
             self.kv.name(),
-            self.attention.label(),
             self.store.label(),
         )
     }

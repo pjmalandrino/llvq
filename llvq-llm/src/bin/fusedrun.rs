@@ -305,6 +305,17 @@ fn parse_gqa_ppl(v: &str) -> Result<GqaPplSpec, String> {
             llvq_llm::model::MAX_PREFILL_ROWS
         ));
     }
+    // The kernel form sends a position to its kernel from KERNEL_FROM on: a
+    // window must reach past it, or the mode scores the grouped form twice.
+    let from = llvq_llm::kvq::KERNEL_FROM;
+    if spec.kernel && spec.ctx <= from + 1 {
+        return Err(format!(
+            "LLVQ_GQA_PPL: a window of {} never reaches the kernel, which takes positions {from} \
+             and later; ask {} tokens at least",
+            spec.ctx,
+            from + 2
+        ));
+    }
     Ok(spec)
 }
 
@@ -515,6 +526,7 @@ fn run_context_sweep(
          {chunk}, 1 discarded + {ROUNDS_TIMED} rounds"
     );
     println!("  prompt    to first token, s       decode tok/s [range]      ms a decode token");
+    let mut generated = Vec::with_capacity(lengths.len());
     for &n in lengths {
         let ids: Vec<u32> = (0..n).map(|i| seed[i % seed.len()]).collect();
         let (mut first, mut rate) = (Vec::new(), Vec::new());
@@ -541,6 +553,19 @@ fn run_context_sweep(
         println!(
             "  {n:>6}    {fm:7.2} [{fl:.2}–{fh:.2}]    {rm:7.1} [{rl:.1}–{rh:.1}]    {:7.2}",
             1000.0 / rm
+        );
+        generated.push((n, reference.unwrap_or_default()));
+    }
+    // The tokens each prompt produced, below the table, so two configs'
+    // sweeps can be compared token for token after the job: the attention
+    // kernel's form must equal the grouped form's wherever every decoded
+    // position lies below its threshold.
+    for (n, t) in &generated {
+        let ids: Vec<String> = t.iter().map(u32::to_string).collect();
+        println!(
+            "  tokens after {n}: {:016x} {}",
+            llvq_llm::eval::token_fingerprint(t),
+            ids.join(",")
         );
     }
     Ok(())
@@ -622,6 +647,15 @@ fn run_gqa_ppl(
             arms[0].name(),
             prefill_windows
         );
+        println!(
+            "  the kernel form takes positions {} and later: positions 0..{} checked bit for bit \
+             against the grouped arm, positions {}..{} scored apart ({} a window)",
+            model.kernel_from(),
+            model.kernel_from(),
+            model.kernel_from(),
+            ctx - 1,
+            ctx - 1 - model.kernel_from()
+        );
     } else {
         println!(
             "GQA perplexity: wikitext2, {nwin} windows of {ctx} (tokens {fingerprint:016x}), {} against {}, \
@@ -632,7 +666,12 @@ fn run_gqa_ppl(
     }
     let mut pre: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
     let mut dec: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
+    let mut tail: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
     let (mut agree, mut steps, mut max_d) = (0usize, 0usize, 0f32);
+    let (mut tail_agree, mut tail_steps) = (0usize, 0usize);
+    // The kernel arm is the grouped form's below its threshold: those steps
+    // are checked bit for bit and scored apart from the ones past it.
+    let split = if spec.kernel { model.kernel_from() } else { 0 };
     let t0 = Instant::now();
     for w in 0..nwin {
         let win = &span[w * ctx..(w + 1) * ctx];
@@ -655,24 +694,41 @@ fn run_gqa_ppl(
                 println!("  window {:>3}: prefill path bit for bit between the two arms", w + 1);
             }
         }
-        let d = model.decode_nll_paired(
+        let d = model.decode_nll_split(
             win,
             [(arms[0].store(), arms[0].heads()), (arms[1].store(), arms[1].heads())],
+            split,
         )?;
         for (v, nll) in dec.iter_mut().zip(d.nll) {
             v.push(nll / d.count as f64);
         }
+        for (v, nll) in tail.iter_mut().zip(d.tail_nll) {
+            v.push(nll / d.tail_count as f64);
+        }
         agree += d.top1_agree;
         steps += d.count;
+        tail_agree += d.tail_top1_agree;
+        tail_steps += d.tail_count;
         max_d = max_d.max(d.max_dlogit);
         if spec.kernel {
+            if d.below_differ > 0 {
+                anyhow::bail!(
+                    "window {}: {} of the {split} steps below position {split} differ between the \
+                     two arms; the kernel form is the grouped form's there, so this is a wiring defect",
+                    w + 1,
+                    d.below_differ
+                );
+            }
             println!(
-                "  window {:>3}/{nwin}  decode nll {:.9} {:.9}  top-1 {}/{}  max |dlogit| {:.3e}  ({:.0} s)",
+                "  window {:>3}/{nwin}  positions < {split}: bit for bit  decode nll {:.9} {:.9}  \
+                 from {split}: nll {:.9} {:.9}  top-1 {}/{}  max |dlogit| {:.3e}  ({:.0} s)",
                 w + 1,
                 dec[0][w],
                 dec[1][w],
-                d.top1_agree,
-                d.count,
+                tail[0][w],
+                tail[1][w],
+                d.tail_top1_agree,
+                d.tail_count,
                 d.max_dlogit,
                 t0.elapsed().as_secs_f64()
             );
@@ -702,9 +758,20 @@ fn run_gqa_ppl(
             arms[1].name()
         );
         println!("  decode    {:<20.4}  {:<22.4}  {m:+.4} % [{lo:+.4} ; {hi:+.4}]", ppl(&dec[0]), ppl(&dec[1]));
+        let (m, lo, hi) = paired_ppl_pct(&tail[0], &tail[1]);
+        println!(
+            "  from {split:<4} {:<20.4}  {:<22.4}  {m:+.4} % [{lo:+.4} ; {hi:+.4}]  (positions the kernel takes)",
+            ppl(&tail[0]),
+            ppl(&tail[1])
+        );
         println!(
             "  decode top-1 agreement {agree}/{steps} steps ({:.3} %), max |dlogit| {max_d:.3e}",
             100.0 * agree as f64 / steps as f64
+        );
+        println!(
+            "  from {split}: top-1 agreement {tail_agree}/{tail_steps} steps ({:.3} %); below {split}: \
+             bit for bit in all {nwin} windows",
+            100.0 * tail_agree as f64 / tail_steps as f64
         );
         return Ok(());
     }
@@ -2775,6 +2842,13 @@ mod tests {
         );
         // Above one prefill call: refused for the first form only.
         assert!(parse_gqa_ppl("8192,6").unwrap_err().contains("4096 rows"));
+        // The kernel mode needs a window that reaches past the threshold:
+        // position KERNEL_FROM must be an input with a target after it.
+        let from = llvq_llm::kvq::KERNEL_FROM;
+        let at = |ctx: usize| parse_gqa_ppl(&format!("{ctx},12,0,kernel"));
+        assert!(at(from + 1).unwrap_err().contains("never reaches the kernel"));
+        assert_eq!(at(from + 2).unwrap().ctx, from + 2);
+        assert!(parse_gqa_ppl("1024,12").is_ok(), "the first form has no threshold");
         for bad in ["4096", "4096,12,60", "4096,12,60,grouped", "4096,1", "1,12", "4096,x", "4096,12,60,kernel,1"] {
             assert!(parse_gqa_ppl(bad).is_err(), "{bad} must be refused");
         }

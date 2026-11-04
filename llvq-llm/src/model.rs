@@ -636,6 +636,45 @@ fn grouped_attention(
         .reshape((b, n_heads, l, hd))
 }
 
+/// The `Kernel` form's dispatch of one call of `l` rows, batch 1, over a
+/// cache of `n` positions that already holds them (rows at `n - l .. n`).
+/// Rows at position `from` or later go to `kern`; the rows below take
+/// [`grouped_attention`] over the history they see, with their rows of
+/// `mask`. A call on one side of `from` is one launch of one path; a call
+/// that straddles it is split, so a row's path depends on its position and
+/// on nothing else.
+fn kernel_rows(
+    kern: &dyn crate::device::AttnKernel,
+    q: &Tensor,
+    k: &Tensor,
+    v: &Tensor,
+    mask: Option<&Tensor>,
+    scale: f64,
+    from: usize,
+) -> Result<Tensor> {
+    let (l, n) = (q.dim(2)?, k.dim(2)?);
+    // Rows at `from` or later: positions max(from, n - l) .. n.
+    let tail = n.saturating_sub(from.max(n - l));
+    let head = l - tail;
+    if tail == 0 {
+        return grouped_attention(q, &rows_contiguous(k)?, &rows_contiguous(v)?, mask, scale);
+    }
+    if head == 0 {
+        return kern.attend(&q.contiguous()?, k, v);
+    }
+    let seen = n - tail;
+    let mask = mask.map(|m| m.narrow(2, 0, head)?.narrow(3, 0, seen)).transpose()?;
+    let low = grouped_attention(
+        &q.narrow(2, 0, head)?,
+        &rows_contiguous(&k.narrow(2, 0, seen)?)?,
+        &rows_contiguous(&v.narrow(2, 0, seen)?)?,
+        mask.as_ref(),
+        scale,
+    )?;
+    let high = kern.attend(&q.narrow(2, head, tail)?.contiguous()?, k, v)?;
+    Tensor::cat(&[&low, &high], 2)
+}
+
 /// One transformer block, with its seven projections reachable by name.
 /// A projection: dense weights, or a device kernel reading encoded ones.
 ///
@@ -1495,6 +1534,11 @@ pub struct Block {
     /// installed by `persist_cuda::install` behind a measurement mode; `None`
     /// everywhere else, and then `finish` runs the eager ops as always.
     pers_mlp: Option<std::sync::Arc<dyn MlpSegment>>,
+    /// The first position the `Kernel` form sends to its kernel:
+    /// [`crate::kvq::KERNEL_FROM`]. A field only so the host tests can reach
+    /// the kernel in a window of a few dozen positions; nothing outside
+    /// `cfg(test)` writes it.
+    kernel_from: usize,
 }
 
 /// Take the supplied projection, or build the dense one.
@@ -1578,6 +1622,7 @@ impl Block {
             attn_heads: crate::kvq::AttnHeads::Expanded,
             attn_kernel: None,
             pers_mlp: None,
+            kernel_from: crate::kvq::KERNEL_FROM,
         })
     }
 
@@ -1731,12 +1776,19 @@ impl Block {
             })?;
             let grow = matches!(cache.store(), crate::kvq::KvStore::Grow(_));
             let (k, v) = cache.append(&k, &v)?;
-            // Decode and verify rows go to the kernel. A prefill chunk, a
-            // batch, or the scratch `Cat` cache of a full-window forward take
-            // the grouped path; the cache bytes are the same either way, since
-            // `append` wrote them before the branch.
+            // Decode and verify rows at `kernel_from` or later go to the
+            // kernel. A row below it, a prefill chunk, a batch, or the scratch
+            // `Cat` cache of a full-window forward take the grouped path; the
+            // cache bytes are the same either way, since `append` wrote them
+            // before the branch.
             let ctx = if b == 1 && l <= kern.max_rows() && grow {
-                kern.attend(&q.contiguous()?, &k, &v)?
+                if q.dtype() != DType::F16 {
+                    candle_core::bail!(
+                        "attention \"kernel\" decodes in f16 only, and this model runs {:?}",
+                        q.dtype()
+                    );
+                }
+                kernel_rows(kern.as_ref(), &q, &k, &v, mask, scale, self.kernel_from)?
             } else {
                 grouped_attention(&q, &rows_contiguous(&k)?, &rows_contiguous(&v)?, mask, scale)?
             };
@@ -2037,6 +2089,21 @@ impl Qwen3 {
     pub fn set_attn_kernel(&mut self, k: Option<std::sync::Arc<dyn crate::device::AttnKernel>>) {
         for b in &mut self.blocks {
             b.set_attn_kernel(k.clone());
+        }
+    }
+
+    /// The first position the `Kernel` form sends to its kernel:
+    /// [`crate::kvq::KERNEL_FROM`], outside the host tests.
+    pub fn kernel_from(&self) -> usize {
+        self.blocks.first().map_or(crate::kvq::KERNEL_FROM, |b| b.kernel_from)
+    }
+
+    /// Lower the threshold so a host test reaches the kernel in a short
+    /// window. Test builds only: the served threshold is a constant.
+    #[cfg(test)]
+    fn set_kernel_from(&mut self, from: usize) {
+        for b in &mut self.blocks {
+            b.kernel_from = from;
         }
     }
 
@@ -2518,29 +2585,67 @@ impl Qwen3 {
         tokens: &[u32],
         arms: [(crate::kvq::KvStore, crate::kvq::AttnHeads); 2],
     ) -> Result<PairedDecode> {
+        self.decode_nll_split(tokens, arms, 0)
+    }
+
+    /// [`Self::decode_nll_paired`], with the steps split at position `split`.
+    /// A step at position `p` (the input token's; the cache held `p`
+    /// positions before it) below `split` has its two arms' logits compared
+    /// bit for bit and counted in [`PairedDecode::below_differ`] when they
+    /// differ; a step at `split` or later is also scored in the `tail_*`
+    /// fields. `split` 0 makes the tail the whole window.
+    pub fn decode_nll_split(
+        &mut self,
+        tokens: &[u32],
+        arms: [(crate::kvq::KvStore, crate::kvq::AttnHeads); 2],
+        split: usize,
+    ) -> Result<PairedDecode> {
         if tokens.len() < 2 {
             candle_core::bail!("decode_nll_paired: a window must hold at least two tokens");
         }
         let (n, kv) = (self.blocks.len(), self.kv);
         let mut caches: [Vec<KvCache>; 2] =
             arms.map(|(store, _)| (0..n).map(|_| KvCache::with_store(kv, store)).collect());
-        let mut out = PairedDecode { nll: [0.0; 2], count: 0, top1_agree: 0, max_dlogit: 0.0 };
+        let mut out = PairedDecode {
+            nll: [0.0; 2],
+            count: 0,
+            top1_agree: 0,
+            max_dlogit: 0.0,
+            below_differ: 0,
+            tail_nll: [0.0; 2],
+            tail_count: 0,
+            tail_top1_agree: 0,
+        };
         for (offset, pair) in tokens.windows(2).enumerate() {
             let (input, target) = (pair[0], pair[1]);
             let mut logits = Vec::with_capacity(2);
+            let mut logp = [0.0; 2];
             for (k, &(store, heads)) in arms.iter().enumerate() {
                 self.set_kv_store(store);
                 self.set_attn_heads(heads);
                 let l = self.step_logits(input, offset, &mut caches[k])?;
-                out.nll[k] -= logp_of(&l, target)?;
+                logp[k] = logp_of(&l, target)?;
+                out.nll[k] -= logp[k];
                 logits.push(l);
             }
-            if argmax_last(&logits[0])? == argmax_last(&logits[1])? {
-                out.top1_agree += 1;
-            }
+            let agree = argmax_last(&logits[0])? == argmax_last(&logits[1])?;
+            out.top1_agree += usize::from(agree);
             let d = (&logits[0] - &logits[1])?.abs()?.max_all()?.to_scalar::<f32>()?;
             out.max_dlogit = out.max_dlogit.max(d);
             out.count += 1;
+            if offset < split {
+                let bits = |l: &Tensor| -> Result<Vec<u32>> {
+                    Ok(l.flatten_all()?.to_vec1::<f32>()?.into_iter().map(f32::to_bits).collect())
+                };
+                if bits(&logits[0])? != bits(&logits[1])? {
+                    out.below_differ += 1;
+                }
+            } else {
+                out.tail_nll[0] -= logp[0];
+                out.tail_nll[1] -= logp[1];
+                out.tail_count += 1;
+                out.tail_top1_agree += usize::from(agree);
+            }
         }
         Ok(out)
     }
@@ -2682,6 +2787,14 @@ pub struct PairedDecode {
     /// The largest absolute difference between the two arms' logits, over
     /// every vocabulary entry of every step.
     pub max_dlogit: f32,
+    /// Steps below the split whose two logit vectors differ in any bit.
+    pub below_differ: usize,
+    /// [`Self::nll`] over the steps at the split or later.
+    pub tail_nll: [f64; 2],
+    /// Steps at the split or later.
+    pub tail_count: usize,
+    /// [`Self::top1_agree`] over the steps at the split or later.
+    pub tail_top1_agree: usize,
 }
 
 /// One greedy generation from [`Qwen3::generate_timed`], with its two clocks.
@@ -3359,6 +3472,12 @@ mod tests {
         assert!(e.to_string().contains("no kernel installed"), "{e}");
 
         m.set_attn_kernel(Some(crate::attn::kernel_for(&Device::Cpu, 2, 4, 128).expect("CPU kernel")));
+        // At the served threshold no position of this window reaches the
+        // kernel: every step is the grouped form's, bit for bit.
+        assert_eq!(m.kernel_from(), crate::kvq::KERNEL_FROM);
+        assert!(same_bits(&logit_trace(&m, &prompt, 16, &feed), &grouped_long), "below the threshold");
+        assert!(same_bits(&logit_trace(&m, &prompt, 4, &feed), &grouped_short), "below the threshold");
+        m.set_kernel_from(0);
         let long = logit_trace(&m, &prompt, 16, &feed);
         assert!(
             same_bits(&grouped_long[..1], &long[..1]),
@@ -3388,8 +3507,19 @@ mod tests {
         served.apply(&mut m, &Device::Cpu).expect("kernel applies on the CPU");
         assert_eq!(m.attn_heads(), AttnHeads::Kernel);
         assert_eq!(m.kv_store(), KvStore::Grow(GROW_CHUNK));
+        assert_eq!(m.kernel_from(), crate::kvq::KERNEL_FROM, "the door keeps the form's threshold");
+        assert!(served.provenance().contains("attention kernel from position 1280 on grow(256)"));
+        m.set_kernel_from(0);
         assert_eq!(logit_trace(&m, &prompt, 4, &feed), short, "the door's kernel is the same arithmetic");
         assert!(served.check_device(true).expect_err("Metal").contains("CUDA only"));
+        // f32 is refused at the first decode step, far below the threshold;
+        // a prefill chunk takes the grouped path in any dtype.
+        let mut wide = tiny_model_hd(DType::F32, 8, 2, 128);
+        served.apply(&mut wide, &Device::Cpu).expect("kernel applies on the CPU");
+        let mut c = wide.fresh_caches();
+        wide.prefill_chunked(&prompt, 16, &mut c).expect("an 11-row chunk is grouped");
+        let e = wide.step_logits(feed[0], prompt.len(), &mut c).expect_err("f32 decode");
+        assert!(e.to_string().contains("f16 only"), "{e}");
         // A head dimension the kernel does not compile is refused at the door.
         let mut small = tiny_model(DType::F16);
         let e = served.apply(&mut small, &Device::Cpu).expect_err("head dim 16");
@@ -3405,15 +3535,31 @@ mod tests {
         use crate::kvq::{AttnHeads, KvStore, GROW_CHUNK};
         let mut m = tiny_model_hd(DType::F16, 8, 2, 128);
         m.set_attn_kernel(Some(crate::attn::kernel_for(&Device::Cpu, 2, 4, 128).expect("CPU kernel")));
+        m.set_kernel_from(8);
         let win = [3u32, 17, 42, 7, 9, 11, 5, 60, 11, 90, 2, 33, 71, 8, 13, 44, 1, 96, 27, 64];
         let g = (KvStore::Grow(GROW_CHUNK), AttnHeads::Grouped);
         let k = (KvStore::Grow(GROW_CHUNK), AttnHeads::Kernel);
-        let d = m.decode_nll_paired(&win, [g, k]).expect("paired decode");
+        let d = m.decode_nll_split(&win, [g, k], m.kernel_from()).expect("paired decode");
         assert_eq!(d.count, win.len() - 1);
+        assert_eq!(d.below_differ, 0, "positions 0..8 are the grouped form's, bit for bit");
+        assert_eq!(d.tail_count, win.len() - 1 - 8, "positions 8..19 scored past the split");
+        assert!(d.tail_top1_agree <= d.tail_count && d.top1_agree <= d.count);
         assert!(d.max_dlogit > 0.0, "bit for bit: the kernel did not run");
         assert!(d.max_dlogit <= 5e-3, "max |dlogit| {:e}", d.max_dlogit);
         let rel = (d.nll[1] - d.nll[0]).abs() / d.nll[0];
         assert!(rel < 1e-3, "nll {} against {}", d.nll[1], d.nll[0]);
+        let tail = (d.tail_nll[1] - d.tail_nll[0]).abs() / d.tail_nll[0];
+        assert!(tail > 0.0 && tail < 1e-3, "tail nll {} against {}", d.tail_nll[1], d.tail_nll[0]);
+        // The whole difference lies past the split: below it the arms agree.
+        assert_eq!((d.nll[1] - d.tail_nll[1]).to_bits(), (d.nll[0] - d.tail_nll[0]).to_bits());
+        // A split past the threshold sees the kernel's steps, each one.
+        let late = m.decode_nll_split(&win, [g, k], 12).expect("paired decode");
+        assert_eq!(late.below_differ, 4, "positions 8, 9, 10 and 11 are the kernel's");
+        assert_eq!(late.tail_count, win.len() - 1 - 12);
+        // Split 0 is the unsplit call.
+        let whole = m.decode_nll_split(&win, [g, k], 0).expect("paired decode");
+        assert_eq!(whole, m.decode_nll_paired(&win, [g, k]).expect("paired decode"));
+        assert_eq!((whole.tail_nll, whole.tail_count, whole.below_differ), (whole.nll, whole.count, 0));
         let mut pre = |heads| {
             m.set_kv_store(KvStore::Grow(GROW_CHUNK));
             m.set_attn_heads(heads);
@@ -3421,6 +3567,121 @@ mod tests {
         };
         let (a, b) = (pre(AttnHeads::Grouped), pre(AttnHeads::Kernel));
         assert_eq!(a.to_bits(), b.to_bits(), "the prefill path differs between the two arms");
+    }
+
+    /// The `Kernel` form's dispatch of one call, on the CPU replay. A row at
+    /// the threshold or past it returns the kernel's bits for that row alone,
+    /// whatever call carried it (the kernel's rows are invariant); a row
+    /// below it is the grouped path's over the history it sees, and not the
+    /// kernel's. Every way a call can sit against the threshold: below, at
+    /// its first row, straddling it at each row, past it.
+    #[test]
+    fn a_call_is_split_at_the_threshold_by_position() {
+        use crate::attn::canon;
+        let kern = crate::attn::kernel_for(&Device::Cpu, 2, 4, 128).expect("CPU kernel");
+        let t = |shape: (usize, usize, usize, usize), seed: u64| {
+            let n = shape.0 * shape.1 * shape.2 * shape.3;
+            let v: Vec<half::f16> =
+                canon::fill(n, seed, 2.0).into_iter().map(half::f16::from_bits).collect();
+            Tensor::from_vec(v, shape, &Device::Cpu).expect("tensor")
+        };
+        let (l, n) = (8usize, 20usize);
+        let q = t((1, 8, l, 128), 11);
+        let (k, v) = (t((1, 2, n, 128), 12), t((1, 2, n, 128), 13));
+        let mask = build_causal_mask(1, l, n - l, n, DType::F16, &Device::Cpu).expect("mask");
+        let scale = 1.0 / 128f64.sqrt();
+        let rows = |x: &Tensor| -> Vec<Vec<u16>> {
+            (0..l)
+                .map(|r| {
+                    let v = x.narrow(2, r, 1).unwrap().flatten_all().unwrap().to_vec1::<half::f16>().unwrap();
+                    v.into_iter().map(half::f16::to_bits).collect()
+                })
+                .collect()
+        };
+        // Each row through the kernel alone, over the history it sees.
+        let alone: Vec<Vec<u16>> = (0..l)
+            .map(|r| {
+                let seen = n - l + r + 1;
+                let o = kern
+                    .attend(
+                        &q.narrow(2, r, 1).unwrap().contiguous().unwrap(),
+                        &k.narrow(2, 0, seen).unwrap(),
+                        &v.narrow(2, 0, seen).unwrap(),
+                    )
+                    .unwrap();
+                rows(&o.broadcast_as((1, 8, l, 128)).unwrap().contiguous().unwrap())[0].clone()
+            })
+            .collect();
+        let grouped = grouped_attention(&q, &rows_contiguous(&k).unwrap(), &rows_contiguous(&v).unwrap(), Some(&mask), scale)
+            .expect("grouped");
+        let grouped_rows = rows(&grouped);
+        let h2f = |b: u16| half::f16::from_bits(b).to_f32();
+        // Thresholds from all-grouped (20) to all-kernel (12 and below).
+        for from in [0usize, 12, 13, 15, 19, 20, 64] {
+            let got = rows(&kernel_rows(kern.as_ref(), &q, &k, &v, Some(&mask), scale, from).expect("dispatch"));
+            for r in 0..l {
+                let pos = n - l + r;
+                if pos >= from {
+                    assert_eq!(got[r], alone[r], "from {from}: position {pos} is the kernel's, as alone");
+                } else {
+                    assert_ne!(got[r], alone[r], "from {from}: position {pos} reached the kernel");
+                    let d = got[r].iter().zip(&grouped_rows[r]).map(|(a, b)| (h2f(*a) - h2f(*b)).abs()).fold(0.0, f32::max);
+                    assert!(d <= 2e-3, "from {from}: position {pos} is not the grouped path's ({d:e})");
+                }
+            }
+            if from >= n {
+                assert_eq!(got, grouped_rows, "a call wholly below the threshold is one grouped call");
+            }
+        }
+        // A decode step, no mask: one row on each side.
+        let one = q.narrow(2, l - 1, 1).unwrap();
+        let at = rows(&kernel_rows(kern.as_ref(), &one, &k, &v, None, scale, n - 1).unwrap().broadcast_as((1, 8, l, 128)).unwrap().contiguous().unwrap());
+        assert_eq!(at[0], alone[l - 1], "position n - 1 at threshold n - 1 is the kernel's");
+        let below = kernel_rows(kern.as_ref(), &one, &k, &v, None, scale, n).unwrap();
+        let g1 = grouped_attention(&one, &rows_contiguous(&k).unwrap(), &rows_contiguous(&v).unwrap(), None, scale).unwrap();
+        let bits = |x: &Tensor| x.flatten_all().unwrap().to_vec1::<half::f16>().unwrap();
+        assert_eq!(bits(&below), bits(&g1), "position n - 1 at threshold n is the grouped form's decode step");
+    }
+
+    /// The served threshold itself, in a model: a prefill of 1,270 positions
+    /// (grouped, a chunk of more than 8 rows), then decode steps from 1,270
+    /// to 1,289 under the grouped and the kernel forms. Below 1,280 every
+    /// step is bit for bit; from 1,280 on, every step differs, within the
+    /// bound of the replay test. A threshold one position off, or none, or
+    /// read from anything but the position, fails here.
+    #[test]
+    fn the_served_threshold_is_position_1280() {
+        use crate::kvq::{AttnHeads, KvStore, GROW_CHUNK, KERNEL_FROM};
+        assert_eq!(KERNEL_FROM, 1280);
+        let mut m = tiny_model_long(DType::F16, 8, 2, 128, 1300);
+        m.set_attn_kernel(Some(crate::attn::kernel_for(&Device::Cpu, 2, 4, 128).expect("CPU kernel")));
+        let mut s = 0x2545f4914f6cdd1du64;
+        let mut next = || {
+            s ^= s << 13;
+            s ^= s >> 7;
+            s ^= s << 17;
+            (s % 97) as u32
+        };
+        let prompt: Vec<u32> = (0..1270).map(|_| next()).collect();
+        let feed: Vec<u32> = (0..20).map(|_| next()).collect();
+        m.set_kv_store(KvStore::Grow(GROW_CHUNK));
+        let mut trace = |heads| {
+            m.set_attn_heads(heads);
+            logit_trace(&m, &prompt, 512, &feed)
+        };
+        let (g, k) = (trace(AttnHeads::Grouped), trace(AttnHeads::Kernel));
+        assert!(same_bits(&g[..1], &k[..1]), "the prefill takes the grouped path");
+        for (i, (a, b)) in g[1..].iter().zip(&k[1..]).enumerate() {
+            let pos = prompt.len() + i;
+            let same = same_bits(std::slice::from_ref(a), std::slice::from_ref(b));
+            if pos < KERNEL_FROM {
+                assert!(same, "position {pos}: below the threshold, the grouped form's bits");
+            } else {
+                assert!(!same, "position {pos}: past the threshold, and the kernel did not run");
+                let d = max_abs_diff(std::slice::from_ref(a), std::slice::from_ref(b));
+                assert!(d <= 5e-3, "position {pos}: max |dlogit| {d:e}");
+            }
+        }
     }
 
     /// A two-layer Qwen3 with deterministic pseudo-random weights, on the CPU.
@@ -3573,6 +3834,11 @@ mod tests {
     /// The tiny model at a head dimension of its own: the attention kernel
     /// compiles 128, Qwen3's, and refuses anything else.
     fn tiny_model_hd(dtype: DType, n_heads: usize, n_kv: usize, head_dim: usize) -> Qwen3 {
+        tiny_model_long(dtype, n_heads, n_kv, head_dim, 64)
+    }
+
+    /// The tiny model with RoPE tables for `max_pos` positions.
+    fn tiny_model_long(dtype: DType, n_heads: usize, n_kv: usize, head_dim: usize, max_pos: usize) -> Qwen3 {
         use crate::kvq::KvMode;
         use candle_nn::VarBuilder;
         let dev = Device::Cpu;
@@ -3585,7 +3851,7 @@ mod tests {
             head_dim,
             attention_bias: false,
             num_key_value_heads: n_kv,
-            max_position_embeddings: 64,
+            max_position_embeddings: max_pos,
             sliding_window: None,
             max_window_layers: 0,
             tie_word_embeddings: true,
