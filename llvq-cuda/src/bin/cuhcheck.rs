@@ -73,7 +73,7 @@ static inline float __shfl_down_sync(unsigned, float v, int, int = 32) { return 
 /// The `.cu` files carry `#ifndef` guards that pull their dependencies from
 /// disk. `planes.cu` says so in its own header, *"and only resolve from disk
 /// under a host clang++ syntax check"*. They need no list of their own.
-const UNITS: [(&str, &[&str], &str); 30] = [
+const UNITS: [(&str, &[&str], &str); 31] = [
     ("llvq_slot.cuh", &["llvq_slot.cuh"], "Slot32, the fallback layout"),
     ("llvq_planes.cuh", &["llvq_planes.cuh"], "Planes14, the served layout"),
     ("llvq_planes12.cuh", &["llvq_planes12.cuh"], "Planes12x, the sparse overlay"),
@@ -439,7 +439,7 @@ fn check_include_guards(dir: &std::path::Path) -> usize {
 /// `include_str!` of the layouts they candidate, which is why the list is
 /// explicit rather than "all of `UNITS`". A unit that ships neither way builds
 /// an image, ships a binary, and dies on the card.
-const TABLE_SHIPPED: [&str; 23] = [
+const TABLE_SHIPPED: [&str; 24] = [
     "llvq_slot.cuh",
     "preflight.cu",
     "matvec.cu",
