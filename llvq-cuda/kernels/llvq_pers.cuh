@@ -533,4 +533,69 @@ __device__ __forceinline__ bool pers_is_nan16(u32 b)
     return (b & 0x7C00u) == 0x7C00u && (b & 0x03FFu) != 0u;
 }
 
+// ---------------------------------------------------------------------------
+// 8. 4E's head phase: the tied int4 g64 head rows (tv_emb_q4_h's row, with the
+//    row as a parameter), each row's argmax key, the CTA's maximum through a
+//    shared 64-bit slot, one global atomicMax, the W4 barrier, then the token
+//    every CTA reads back. The served path writes binary16 logits with
+//    tv_emb_q4_h, casts and argmaxes them with candle; the key reproduces
+//    candle's order on binary16 values (tok_argmax.cu, argmax_key.rs), and
+//    the maximum of unique keys does not depend on the merge order, so the
+//    token is the served token. A NaN logit raises the flag and the caller
+//    falls back, as tok_argmax does.
+// ---------------------------------------------------------------------------
+#define PERS_HDR_KEY 4u  // u32 4..5 of the header: the CTA's 64-bit maximum
+
+__device__ __forceinline__ float pers_q4g64_row(const u32* wq, const unsigned short* scales,
+                                                const unsigned short* biases, const float* xs, u32 row, u32 d,
+                                                u32 gpr, u32 lane)
+{
+    const u32 nwords = d >> 3;
+    const u32 w0 = row * nwords;
+    const u32 s0 = row * gpr;
+    float acc = 0.0f;
+    for (u32 wi = lane; wi < nwords; wi += 32u) {
+        const u32 p = wq[w0 + wi];
+        const u32 c = wi << 3;
+        const u32 sb = scales[s0 + (c >> 6)];
+        const u32 bb = biases[s0 + (c >> 6)];
+#pragma unroll
+        for (u32 k = 0; k < 8u; ++k) acc = __fmaf_rn(pers_q4_deq((p >> (4u * k)) & 0xfu, sb, bb), xs[c + k], acc);
+    }
+    return warp_sum(acc);
+}
+
+// Rows [lo, hi) of the head on this CTA, `xs` the staged f32 hidden vector.
+// Returns the token on every thread of every CTA once the W4 barrier is
+// passed, or 0xffffffff when a NaN logit was seen or the wait aborted.
+__device__ __forceinline__ u32 pers_head_argmax(const u32* wq, const unsigned short* scales,
+                                                const unsigned short* biases, const float* xs, u32 d, u32 gpr,
+                                                u32 lo, u32 hi, unsigned long long* slot, u32* nan_flag, u32* bar,
+                                                u32 bar_target, u32* abort_flag, unsigned short* logits)
+{
+    u32* hdr = pers_hdr();
+    unsigned long long* cta_max = reinterpret_cast<unsigned long long*>(hdr + PERS_HDR_KEY);
+    const u32 lane = threadIdx.x & 31u;
+    if (threadIdx.x == 0u) *cta_max = 0ull;
+    pers_claim_reset(lo);
+    for (;;) {
+        const u32 r = pers_claim(lane, 1u);
+        if (r >= hi) break;
+        const float acc = pers_q4g64_row(wq, scales, biases, xs, r, d, gpr, lane);
+        if (lane == 0u) {
+            const unsigned short h = f2h(acc);
+            if (logits) logits[r] = h;
+            if (pers_is_nan16(h)) atomicExch(nan_flag, 1u);
+            else atomicMax(cta_max, pers_tie_key(h, r));
+        }
+    }
+    __syncthreads();
+    if (threadIdx.x == 0u) atomicMax(slot, *cta_max);
+    if (!pers_grid_wait(bar, bar_target, abort_flag)) return 0xffffffffu;
+    if (pers_ld_acquire(nan_flag) != 0u) return 0xffffffffu;
+    const unsigned long long k = __ldcg(slot);
+    const u32 br = 1023u - (u32)((k >> 22) & 0x3FFu);
+    return ((0x3FFFFFu - (u32)(k & 0x3FFFFFu)) << 10) | (__brev(br) >> 22);
+}
+
 #endif  // LLVQ_PERS_CUH

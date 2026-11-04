@@ -101,6 +101,13 @@ pub trait LatticeProj: Send + Sync {
             self.rows_per_launch()
         )
     }
+
+    /// The concrete projection, for a runtime that reaches its own device
+    /// buffers (route P's segment, `persist_cuda.rs`). `None` unless the
+    /// backend says otherwise; nothing on a served path calls it.
+    fn as_any(&self) -> Option<&dyn std::any::Any> {
+        None
+    }
 }
 
 /// One projection served as affine int4 g128, `v_proj` in the mixed file.
@@ -120,6 +127,13 @@ pub trait Int4Proj: Send + Sync {
     /// true if `prepare` ever stops being the identity here. Do not merge
     /// this with [`LatticeProj::matvec`] into one activation-agnostic method.
     fn matvec(&self, x: &Tensor, out_dims: &[usize]) -> Result<Tensor>;
+
+    /// The concrete projection, for a runtime that reaches its own device
+    /// buffers (route P's segment, `persist_cuda.rs`). `None` unless the
+    /// backend says otherwise; nothing on a served path calls it.
+    fn as_any(&self) -> Option<&dyn std::any::Any> {
+        None
+    }
 }
 
 /// The row-concatenation of the projections that share one activation: one

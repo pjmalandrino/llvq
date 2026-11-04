@@ -46,14 +46,14 @@ struct SegTetra {
     u32 stride_u32, nblocks, tail_w, d_out;
 };
 
+// One layer's constants, uploaded once (persist_cuda.rs). Pointers first,
+// then 4-byte fields: 27 pointers (3 SegTetra of 4 each inside), 360 bytes.
 struct SegArgs {
-    const unsigned short* x;       // the residual entering ln2, binary16 [hidden]
-    const unsigned short* alpha;   // ln2 weights
+    const unsigned short* alpha;   // ln2 weights, binary16 [hidden]
     const u32* signs_h;            // gate/up rotation
     const float* small_h;          // KMAX x KMAX, +0.0f padded
     const unsigned short* silu;    // 65,536 entries, candle's usilu_f16 of every pattern
     unsigned short* act;           // [inter] the gated activation, global scratch
-    unsigned short* out;           // [hidden] x + down(act)
     SegTetra gate, up, down;       // down used when the kernel is the Tetra one
     const u32* signs_i;            // down rotation (Tetra down)
     const float* small_i;
@@ -69,18 +69,27 @@ struct SegArgs {
     const u32* slice_dn;           // [2 * grid]: the same for the down rows
     u32* bar;
     u32* abort_flag;
-    u32 bar_base;                  // pers.rs::Ledger, one barrier a launch
     u32 hidden, inter;
     u32 m_h, k_h, m_i, k_i;
     float inv_h, inv_i, eps;
     u32 gpr;                       // int4 groups per row
 };
 
+// What changes with every call, passed by value: the two residual tensors
+// candle allocated for this step, and the barrier counter's base
+// (pers.rs::Ledger, one barrier a launch). 24 bytes.
+struct SegLaunch {
+    const unsigned short* x;       // the residual entering ln2, binary16 [hidden]
+    unsigned short* out;           // [hidden] x + down(act)
+    u32 bar_base;
+    u32 pad;
+};
+
 // Smem: 256-B header | tables 18,816 B | one vector of max(hidden, inter)
 // floats, the rotation buffer and the staging at once (natural stride 24, the
 // served layout: the rotated vector IS the staged vector).
 template <int NORMV, bool TETRA_DOWN>
-__device__ __forceinline__ void pers_segment_body(const SegArgs* __restrict__ A)
+__device__ __forceinline__ void pers_segment_body(const SegArgs* __restrict__ A, const SegLaunch L)
 {
     unsigned char* base = PERS_SMEM_BASE();
     u32* t_rows = reinterpret_cast<u32*>(base + PERS_SMEM_HEADER);
@@ -101,9 +110,9 @@ __device__ __forceinline__ void pers_segment_body(const SegArgs* __restrict__ A)
     const u32 H = A->hidden, I = A->inter;
 
     // 1. ln2 and the gate/up rotation, in this CTA's shared memory.
-    const float scale = exact_rms_scale<NORMV>(A->x, H, A->eps);
+    const float scale = exact_rms_scale<NORMV>(L.x, H, A->eps);
     for (u32 i = threadIdx.x; i < H; i += blockDim.x) {
-        const float h = h2f(exact_rms_apply(scale, __ldcg(A->x + i), A->alpha[i]));
+        const float h = h2f(exact_rms_apply(scale, __ldcg(L.x + i), A->alpha[i]));
         v[i] = ((A->signs_h[i >> 5] >> (i & 31u)) & 1u) ? -h : h;
     }
     pers_rot_finish(v, A->small_h, H, A->m_h, A->k_h, A->inv_h);
@@ -129,7 +138,7 @@ __device__ __forceinline__ void pers_segment_body(const SegArgs* __restrict__ A)
     }
 
     // 3. every row of the activation is written.
-    if (!pers_grid_wait(A->bar, A->bar_base + gridDim.x, A->abort_flag)) return;
+    if (!pers_grid_wait(A->bar, L.bar_base + gridDim.x, A->abort_flag)) return;
 
     // 4. down, then the residual.
     if (TETRA_DOWN) {
@@ -155,15 +164,15 @@ __device__ __forceinline__ void pers_segment_body(const SegArgs* __restrict__ A)
             const float y = TETRA_DOWN ? pers_epilogue(acc, A->down.rscale[r], A->down.tail + r * A->down.tail_w,
                                                        v + A->down.nblocks * 24u, A->down.tail_w)
                                        : acc;
-            A->out[r] = exact_hadd(A->x[r], f2h(y));
+            L.out[r] = exact_hadd(__ldcg(L.x + r), f2h(y));
         }
     }
 }
 
-#define PERS_SEG(sym, NORMV_, TD_)                                                              \
-    extern "C" __global__ void __launch_bounds__(768, 1) sym(const SegArgs* __restrict__ A)  \
-    {                                                                                          \
-        pers_segment_body<NORMV_, TD_>(A);                                                     \
+#define PERS_SEG(sym, NORMV_, TD_)                                                                   \
+    extern "C" __global__ void __launch_bounds__(768, 1) sym(const SegArgs* __restrict__ A, const SegLaunch L) \
+    {                                                                                               \
+        pers_segment_body<NORMV_, TD_>(A, L);                                                       \
     }
 
 PERS_SEG(pers_seg_tetra_v0, 0, true)

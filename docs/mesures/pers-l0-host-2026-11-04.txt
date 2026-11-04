@@ -1,0 +1,94 @@
+THE PERSISTENT KERNELS' TEXT EQUALS THE SERVED TEXT BIT FOR BIT ON THE MAC: TETRA ROWS IN THREE LAYOUTS, INT4 ROWS, THE ROTATION AT SIX WIDTHS, CANDLE'S NORM TREE, THE ARGMAX KEY, THE TWELVE L2 ARMS, ROUTE P'S MLP SEGMENT AND 4E'S HEAD PHASE (2026-11-04)
+=================================================================================================================================================================================================================================================================
+Prereg: none. Host replays at $0, step L0 of docs/archive/debit-vague5-2026-11-02/persistent.md §5.
+Cost:   $0, no card. clang++ on the dev Mac (arm64), NVRTC 12.4.127 in nvidia/cuda:12.4.1-devel-ubuntu22.04.
+Code:   branch claude/serene-bohr-1edf69. llvq-cuda/kernels/{llvq_pers.cuh, tetra48_pers.cu, tetra48_persall.cu,
+        pers_segment.cu, pers_ref.cu}; llvq-cuda/src/{pers.rs, persbench.rs}; llvq-llm/src/persist_cuda.rs.
+Tests:  llvq-cuda/tests/pers_matches_served.rs (19 tests), llvq-cuda/src/pers.rs (26 unit tests),
+        llvq-llm/tests/served_unit_copy.rs (1), llvq-llm/src/boundary.rs (10).
+Nature: every equality below is *measured* on the host: the kernel text executed by clang++, compared byte for byte.
+        Nothing here ran on a card.
+
+METHOD
+------
+  - tests/host_grid.h runs a whole cooperative grid on the host: every thread of every CTA a fiber of one
+    scheduler, 32-lane warps, real barriers and shuffles, per-CTA shared buffers, spin-waits that yield, and a
+    seeded scheduler that leaves runnable fibers out of a pass so warps drift apart.
+  - tests/host_pers.cpp is built twice, both without contraction. The served side runs the served text
+    (tv_tetra48_h, tv_q4_hh, tv_emb_q4_h, rot_apply, tv_tetra48_seg) and a replay of tv_tetra48_h whose three
+    contractible sites can be fused. The unfused replay equals the served text bit for bit on y and on the f32
+    value before f2h (4 shapes); the fused replay, with the three fusions the served unit's PTX shows
+    (ptx-probe-2026-11-04.txt §2), is the reference. The fused and unfused replays differ on some rows: the sites
+    are exercised.
+  - Fixtures are built by bit construction, so both builds see the same bytes.
+
+RESULTS
+-------
+  Tetra rows        4 shapes x 4 layouts (natural/24, natural/25, trio/28, trio/28 with prefetch) x 2 grids:
+                    y and the f32 value before f2h identical to the fused replay.
+  int4 rows         3 shapes: identical to tv_q4_hh.
+  rotation          widths 2,560 / 9,728 / 4,096 / 12,288 / 5,120 / 17,408 (m = 512, 4,096, 1,024), 64 and
+                    256 threads: identical to rot_apply. A column whose last term underflows to -0 comes out +0
+                    as rot_apply's padding makes it.
+  RMSNorm           6 widths (block 1,024 and block 32), 64 to 768 threads: identical to the replay of candle's
+                    tree, both spellings of `tmp += xi * xi`.
+  argmax key        every binary16 pattern at 12 indices: identical to tok_argmax.cu's key.
+  L1 persall        a two-part fused group and a single, grids 1 to 12: identical to tv_tetra48_seg site by site.
+  L2 arms           all twelve on two layers of the served pattern at the real widths, three launches, three
+                    CTAs: owed arms identical to tv_tetra48_h (y and f32), no row unwritten, the barrier counter
+                    where pers.rs::Ledger puts it, no abort; pchain_wp's 72-norm and rotation prologues equal
+                    candle's tree and rot_apply. pchain_wp at 768 threads on a full layer: identical.
+  route P step A    the MLP segment in one launch against the eager chain (norm, rot_apply, gate, up, SiLU table,
+                    mul, rot_apply or none, down, add), Tetra and int4 down, both norm spellings, grids 2 to 5,
+                    a barrier base across the 2^32 wrap: identical, one barrier, no abort.
+  4E head           vocab 3,072 and 4,104 at d = 256, ties planted, grids 3 and 5: logits identical to
+                    tv_emb_q4_h, and every CTA reads back the served argmax after its W4 barrier.
+  struct layouts    PersArgs, PersLaunch, PersSite, SegTetra, SegArgs, SegLaunch: every offset of the kernels'
+                    structs equals the Rust mirror's.
+  served unit       pers.rs::served_unit_text = 101,625 bytes, sha256 6193094310bc..., and equal to the served
+                    door's assembly from llvq-llm's loaders (served_unit_copy.rs).
+
+MUTANTS (each applied to a copy with an exactly-once count, each killed by an assertion or a failed process)
+----------------------------------------------------------------------------------------------------------
+  rotation  7   in-lane stage order, upper-lane sign, shuffle order, shared stage start, k = 1 scale, sign bit,
+                the + 0.0f of the mix
+  norm      6   butterfly order, block 768, block switch at 128, mean by reciprocal, apply order, a rounded square
+  Tetra     7   site 1 unfused, site 1 reassociated, site 2 unfused, site 3 unfused, trio component, inverse
+                order, lane order
+  int4      2   group index, lane order (and one EQUIVALENT mutant, checked as such: the fused dequantization)
+  key       2   the -0 fold, the bit reversal
+  race      1   the draft's text: cursor reset with no barrier before it nor at the end of the site
+  segment   4   no barrier, barrier target, residual order, SiLU operand
+  persall   1   the work-list scan off by one
+  head      2   no W4 barrier, the key's bit reversal on the way back
+  schedule  9   the validator's refusals (pers.rs unit tests)
+
+FINDINGS
+--------
+  1. Host clang does not stand in for NVVM. With -ffp-contract=fast it fuses the epilogue and leaves
+     `acc += t * invnorm` alone: 9 of 16 rows matched the fused model. So the served reference is a replay
+     proven equal to the served text when unfused, with the PTX's fusions applied.
+  2. Two candle-side contractions cannot change a bit on binary16 inputs: `tmp += xi * xi` in rmsnorm (an 11-bit
+     square is exact in binary32) and the int4 dequantization (an 11-bit scale times a 4-bit code). The load-time
+     choice between the two rmsnorm spellings, which the design carried, is moot.
+  3. A binary16 activation hides site 2: a binary16 tail times a binary16 value is exact. The rows read the rotated
+     f32 vector, so the fixtures draw f32 activations.
+  4. The draft's chained arms shared one counter array and took their own launch count as the epoch: the second
+     chained arm's counter waits were met before its rows existed. Each arm now owns a region and an epoch.
+  5. The draft's boundary A/B matched names with ends_with("gate_proj"); every record name ends in .weight, so no
+     arm would have split anything.
+  6. Comparing binary16 outputs alone is weak: a 1-ulp move of the f32 value survives the narrowing about once in
+     8,192 rows. The host and the L2 identity check compare the f32 value before f2h as well.
+
+NVRTC 12.4 (ops/nvrtc-check.sh, devel ptxas for sm_89, indicative: the card's driver ptxas decides)
+--------------------------------------------------------------------------------------------------
+  The persistent module (132,214 bytes, 13 parts) compiles for compute_89. No kernel spills. Registers:
+  L2 arms 64 to 73 at 768 threads (cap 80), 64 at 1,024 (cap 64); tv_tetra48_persall 56; the step-A segment 80
+  (Tetra down, at the cap of 768 threads) and 67 (int4 down).
+
+WHAT THIS DOES NOT ESTABLISH
+----------------------------
+  - Anything on a card: SASS, timing, memory ordering between real SMs, the driver's ptxas, cooperative launch.
+  - candle's real SiLU table and rsqrt instruction: both sides call the same stand-ins on the host.
+  - 4E's attention, RoPE, KV append, q/k-norm and token loop: not written.
+  - persist_cuda.rs and the two fusedrun modes run nowhere on the Mac; they type-check for Linux only.

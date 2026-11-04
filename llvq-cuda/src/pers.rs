@@ -620,6 +620,63 @@ pub fn waits_4e(m: &ModelShape) -> u32 {
     w1 + w2 + wo + w3 + 1
 }
 
+/// One phase of 4E's token, in launch order (`persistent.md` §3.9).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Phase4E {
+    /// Every CTA dequantizes the token's embedding row (`emb_q4_gather`'s
+    /// arithmetic), no wait: the row is a function of the token only.
+    Embed,
+    /// ln1, the q/k rotation, the q and k rows, the v rows (int4, unrotated).
+    Qkv(u32),
+    /// q/k-norm, RoPE, the KV append, attention: our split-KV kernel, under
+    /// a T8 the operator has not granted. Waits on q/k/v by counters.
+    Attention(u32),
+    /// The o rows and the residual. A Tetra o rotates the whole attention
+    /// output first (W_o); an int4 o waits on the attention counters.
+    O(u32),
+    /// ln2 to the residual after down: route P step A's segment body.
+    Mlp(u32),
+    /// The final norm, then the head rows and the argmax key, then W4.
+    Head,
+}
+
+/// What a 4E phase waits for before it starts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Wait4E {
+    None,
+    /// A grid barrier: the phase reads a whole vector other CTAs wrote.
+    Grid,
+    /// Counters with fewer contributors (q/k/v to attention to an int4 o).
+    Counter,
+}
+
+/// 4E's phases and their waits for one token. The grid barriers inside the
+/// phases (W3 in an MLP segment with a Tetra down, W4 after the head) are
+/// counted by [`grid_waits_4e`] beside the entry waits listed here.
+pub fn schedule_4e(m: &ModelShape) -> Vec<(Phase4E, Wait4E)> {
+    let mut v = vec![(Phase4E::Embed, Wait4E::None)];
+    for l in 0..m.layers {
+        // W1: ln1 reads the whole residual; layer 0 reads the embedding,
+        // which every CTA computed itself.
+        v.push((Phase4E::Qkv(l), if l == 0 { Wait4E::None } else { Wait4E::Grid }));
+        v.push((Phase4E::Attention(l), Wait4E::Counter));
+        v.push((Phase4E::O(l), if m.o_int4 { Wait4E::Counter } else { Wait4E::Grid }));
+        // W2: ln2 reads the whole residual after o
+        v.push((Phase4E::Mlp(l), Wait4E::Grid));
+    }
+    // the final W1: the final norm reads the whole residual
+    v.push((Phase4E::Head, Wait4E::Grid));
+    v
+}
+
+/// Grid-wide waits of one 4E token: the entry barriers of [`schedule_4e`],
+/// plus W3 inside every MLP phase with a Tetra down, plus W4 after the head.
+pub fn grid_waits_4e(m: &ModelShape) -> u32 {
+    let entry = schedule_4e(m).iter().filter(|(_, w)| *w == Wait4E::Grid).count() as u32;
+    let w3 = (0..m.layers).filter(|&l| m.tetra_down(l)).count() as u32;
+    entry + w3 + 1
+}
+
 /// One route-P step-A launch: the MLP segment of one layer, from `ln2` to the
 /// residual add after down_proj. Its grid-wide waits inside the launch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -766,6 +823,107 @@ pub struct PersLaunch {
 
 /// `sizeof(PersLaunch)`.
 pub const PERS_LAUNCH_BYTES: usize = 40;
+
+/// One Tetra projection of a segment, as `SegTetra` holds it: 48 bytes.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SegTetraHost {
+    pub words: u64,
+    pub rscale: u64,
+    pub tail: u64,
+    pub gscale: u64,
+    pub stride_u32: u32,
+    pub nblocks: u32,
+    pub tail_w: u32,
+    pub d_out: u32,
+}
+
+impl SegTetraHost {
+    fn put(&self, b: &mut Vec<u8>) {
+        for p in [self.words, self.rscale, self.tail, self.gscale] {
+            b.extend(p.to_le_bytes());
+        }
+        for v in [self.stride_u32, self.nblocks, self.tail_w, self.d_out] {
+            b.extend(v.to_le_bytes());
+        }
+    }
+}
+
+/// `sizeof(SegArgs)` and `sizeof(SegLaunch)`.
+pub const SEG_ARGS_BYTES: usize = 336;
+pub const SEG_LAUNCH_BYTES: usize = 24;
+
+/// The host image of one layer's `SegArgs` (`kernels/pers_segment.cu`).
+#[derive(Clone, Debug, Default)]
+pub struct SegArgsHost {
+    pub alpha: u64,
+    pub signs_h: u64,
+    pub small_h: u64,
+    pub silu: u64,
+    pub act: u64,
+    pub gate: SegTetraHost,
+    pub up: SegTetraHost,
+    pub down: SegTetraHost,
+    pub signs_i: u64,
+    pub small_i: u64,
+    pub q4w: u64,
+    pub q4s: u64,
+    pub q4b: u64,
+    pub tables: [u64; 5],
+    pub slice_gu: u64,
+    pub slice_dn: u64,
+    pub bar: u64,
+    pub abort_flag: u64,
+    pub hidden: u32,
+    pub inter: u32,
+    pub m_h: u32,
+    pub k_h: u32,
+    pub m_i: u32,
+    pub k_i: u32,
+    pub inv_h: f32,
+    pub inv_i: f32,
+    pub eps: f32,
+    pub gpr: u32,
+}
+
+impl SegArgsHost {
+    pub fn bytes(&self) -> Vec<u8> {
+        let mut b = Vec::with_capacity(SEG_ARGS_BYTES);
+        for p in [self.alpha, self.signs_h, self.small_h, self.silu, self.act] {
+            b.extend(p.to_le_bytes());
+        }
+        self.gate.put(&mut b);
+        self.up.put(&mut b);
+        self.down.put(&mut b);
+        for p in [self.signs_i, self.small_i, self.q4w, self.q4s, self.q4b] {
+            b.extend(p.to_le_bytes());
+        }
+        for p in self.tables {
+            b.extend(p.to_le_bytes());
+        }
+        for p in [self.slice_gu, self.slice_dn, self.bar, self.abort_flag] {
+            b.extend(p.to_le_bytes());
+        }
+        for v in [self.hidden, self.inter, self.m_h, self.k_h, self.m_i, self.k_i] {
+            b.extend(v.to_le_bytes());
+        }
+        for v in [self.inv_h, self.inv_i, self.eps] {
+            b.extend(v.to_le_bytes());
+        }
+        b.extend(self.gpr.to_le_bytes());
+        b.resize(SEG_ARGS_BYTES, 0);
+        b
+    }
+}
+
+/// `SegLaunch`, passed by value.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SegLaunch {
+    pub x: u64,
+    pub out: u64,
+    pub bar_base: u32,
+    pub pad: u32,
+}
 
 /// Rows a `tv_tetra48_persall` work group covers: one per warp of its
 /// 256-thread CTA, as `tv_tetra48_seg` lays its rows.
@@ -1156,6 +1314,23 @@ mod tests {
         assert_eq!(rot_mk(17408).unwrap(), (1024, 17));
         assert!(rot_mk(25600).is_ok());
         assert!(rot_mk(24 * 100).is_err());
+    }
+
+    #[test]
+    fn the_4e_schedule_has_the_design_counts() {
+        for m in [ModelShape::Q4B, ModelShape::Q8B, ModelShape::Q14B] {
+            assert_eq!(grid_waits_4e(&m), waits_4e(&m), "{m:?}");
+            let s = schedule_4e(&m);
+            assert_eq!(s.len() as u32, 2 + 4 * m.layers);
+            assert_eq!(s.first(), Some(&(Phase4E::Embed, Wait4E::None)));
+            assert_eq!(s.last(), Some(&(Phase4E::Head, Wait4E::Grid)));
+            // every phase but the embedding and layer 0's q/k/v reads what
+            // other CTAs wrote, and waits for it
+            for (k, (p, w)) in s.iter().enumerate() {
+                let free = matches!(p, Phase4E::Embed | Phase4E::Qkv(0));
+                assert_eq!(*w == Wait4E::None, free, "phase {k}: {p:?}");
+            }
+        }
     }
 
     #[test]

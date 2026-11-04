@@ -323,6 +323,9 @@ impl crate::device::LatticeProj for CudaLattice {
     fn matvec_rows(&self, xr: &Tensor, n_rows: usize) -> candle_core::Result<Tensor> {
         self.rt.forward_rotated_rows(&self.proj, xr, n_rows)
     }
+    fn as_any(&self) -> Option<&dyn std::any::Any> {
+        Some(self)
+    }
 }
 
 /// One projection served as affine int4 g128 on a card.
@@ -343,6 +346,143 @@ impl crate::device::Int4Proj for CudaInt4 {
     }
     fn matvec(&self, x: &Tensor, out_dims: &[usize]) -> candle_core::Result<Tensor> {
         self.rt.forward_int4(&self.proj, x, out_dims)
+    }
+    fn as_any(&self) -> Option<&dyn std::any::Any> {
+        Some(self)
+    }
+}
+
+// ---- route P, step A: read-only device views for `persist_cuda.rs` ----
+//
+// Raw device addresses of what the runtime already holds, so the persistent
+// segment reads the very buffers the eager path reads: the same words, row
+// scales, tails, gains, rotations and tables. Nothing here allocates or
+// writes; the views are valid while the runtime and its projections live,
+// which the model guarantees by holding both.
+
+fn dev_addr<T>(s: &CudaSlice<T>, stream: &candle_core::cuda_backend::cudarc::driver::CudaStream) -> u64 {
+    use candle_core::cuda_backend::cudarc::driver::DevicePtr;
+    s.device_ptr(stream).0
+}
+
+/// One Tetra48 projection.
+#[derive(Clone, Copy, Debug)]
+pub struct TetraView {
+    pub words: u64,
+    pub stride_u32: u32,
+    pub nblocks: u32,
+    pub tail_w: u32,
+    pub d_out: u32,
+    pub d_in: u32,
+    pub rscale: u64,
+    /// binary16, `d_out * tail_w`
+    pub tail: u64,
+    pub gscale: u64,
+    pub rotation: Option<RotKey>,
+}
+
+/// One rotation, as `rot_apply` takes it.
+#[derive(Clone, Copy, Debug)]
+pub struct RotView {
+    pub signbits: u64,
+    pub small: u64,
+    pub n: u32,
+    pub m: u32,
+    pub k: u32,
+    pub inv: f32,
+}
+
+/// One int4 g128 projection.
+#[derive(Clone, Copy, Debug)]
+pub struct Int4View {
+    pub wq: u64,
+    pub scales: u64,
+    pub biases: u64,
+    pub gpr: u32,
+    pub d_out: u32,
+    pub d_in: u32,
+}
+
+/// The Tetra decoder tables.
+#[derive(Clone, Copy, Debug)]
+pub struct TableView {
+    pub rows: u64,
+    pub pref: u64,
+    pub br: u64,
+    pub suf: u64,
+    pub invnorm: u64,
+}
+
+impl CudaLattice {
+    pub fn runtime(&self) -> &std::sync::Arc<FusedRuntime> {
+        &self.rt
+    }
+    /// `None` unless the projection is a Tetra48 stream.
+    pub fn tetra_view(&self) -> Option<TetraView> {
+        let st = self.rt.device.cuda_stream();
+        let DeviceStream::Tetra48 { words, stride_u32 } = &self.proj.stream else {
+            return None;
+        };
+        Some(TetraView {
+            words: dev_addr(words, &st),
+            stride_u32: *stride_u32,
+            nblocks: self.proj.nblocks,
+            tail_w: self.proj.tail_w,
+            d_out: self.proj.d_out as u32,
+            d_in: self.proj.d_in as u32,
+            rscale: dev_addr(&self.proj.rscale, &st),
+            tail: dev_addr(&self.proj.tail, &st),
+            gscale: dev_addr(&self.proj.gscale, &st),
+            rotation: self.proj.rotation,
+        })
+    }
+}
+
+impl CudaInt4 {
+    pub fn runtime(&self) -> &std::sync::Arc<FusedRuntime> {
+        &self.rt
+    }
+    pub fn int4_view(&self) -> Int4View {
+        let st = self.rt.device.cuda_stream();
+        Int4View {
+            wq: dev_addr(&self.proj.wq, &st),
+            scales: dev_addr(&self.proj.scales, &st),
+            biases: dev_addr(&self.proj.biases, &st),
+            gpr: self.proj.gpr,
+            d_out: self.proj.d_out as u32,
+            d_in: self.proj.d_in as u32,
+        }
+    }
+}
+
+impl FusedRuntime {
+    pub fn rot_view(&self, key: &RotKey) -> Option<RotView> {
+        let st = self.device.cuda_stream();
+        self.rotations.get(key).map(|r| RotView {
+            signbits: dev_addr(&r.signbits, &st),
+            small: dev_addr(&r.small, &st),
+            n: r.n,
+            m: r.m,
+            k: r.k,
+            inv: r.inv,
+        })
+    }
+    pub fn table_view(&self) -> Option<TableView> {
+        let st = self.device.cuda_stream();
+        self.tetra_tabs.as_ref().map(|t| TableView {
+            rows: dev_addr(&t.rows, &st),
+            pref: dev_addr(&t.prefixes, &st),
+            br: dev_addr(&t.branches, &st),
+            suf: dev_addr(&t.suffixes, &st),
+            invnorm: dev_addr(&t.invnorm, &st),
+        })
+    }
+    /// The `#define` this runtime's unit compiled its tile with.
+    pub fn tile_define(&self) -> String {
+        self.tile.define()
+    }
+    pub fn cuda_device(&self) -> &candle_core::CudaDevice {
+        &self.device
     }
 }
 

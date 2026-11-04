@@ -62,21 +62,22 @@
         return SegTetra{m.words.data(), m.rscale.data(), m.tail.data(), m.gscale.data(), m.stride, m.nblocks, m.tail_w, m.d_out};
     };
     SegArgs A{};
-    A.x = x.data(); A.alpha = alpha.data();
+    A.alpha = alpha.data();
     A.signs_h = signs_h.data(); A.small_h = small_h.data();
-    A.silu = silu.data(); A.act = act.data(); A.out = out.data();
+    A.silu = silu.data(); A.act = act.data();
     A.gate = seg(gate); A.up = seg(up); A.down = seg(down);
     A.signs_i = signs_i.data(); A.small_i = small_i.data();
     A.q4w = q4w.data(); A.q4s = q4s.data(); A.q4b = q4b.data();
     A.rows = t.rows; A.pref = t.prefixes; A.br = t.branches; A.suf = t.suffixes; A.invnorm = g_inv.data();
     A.slice_gu = slice_gu.data(); A.slice_dn = slice_dn.data();
-    A.bar = bar.data(); A.abort_flag = abort_flag.data(); A.bar_base = bar_base;
+    A.bar = bar.data(); A.abort_flag = abort_flag.data();
+    const SegLaunch L{x.data(), out.data(), bar_base, 0u};
     A.hidden = H; A.inter = I; A.m_h = m_h; A.k_h = k_h; A.m_i = m_i; A.k_i = k_i;
     A.inv_h = inv_h; A.inv_i = inv_i; A.eps = eps; A.gpr = gpr;
-    typedef void (*SegFn)(const SegArgs*);
+    typedef void (*SegFn)(const SegArgs*, const SegLaunch);
     const SegFn fn = tetra_down ? (normv ? pers_seg_tetra_v1 : pers_seg_tetra_v0) : (normv ? pers_seg_q4_v1 : pers_seg_q4_v0);
     const size_t smem_bytes = PERS_SMEM_HEADER + 18816 + 4 * (size_t)std::max(H, I);
-    hostgrid::launch_coop(grid, threads, smem_bytes, seed, [&] { fn(&A); });
+    hostgrid::launch_coop(grid, threads, smem_bytes, seed, [&] { fn(&A, L); });
     tail_out[0] = bar[0];
     tail_out[1] = abort_flag[0];
 #endif

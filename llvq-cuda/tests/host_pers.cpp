@@ -57,6 +57,7 @@ static inline unsigned short served_capture_f2h(float v) {
 #define f2h(v) served_capture_f2h(v)
 #include "../../llvq-llm/kernels/tv_tetra48_h.cu"
 #include "../../llvq-llm/kernels/tv_q4_h.cu"
+#include "../../llvq-llm/kernels/emb_q4.cu"
 #undef f2h
 #else
 #include "../kernels/llvq_pers.cuh"
@@ -508,6 +509,61 @@ int main() {
         });
 #endif
         wr(y);
+    } else if (tag == 'H') {
+        // HEAD + ARGMAX (4E): vocab rows of an int4 g64 table, d columns.
+        // Served: tv_emb_q4_h's binary16 logits, then the argmax by the key of
+        // tok_argmax.cu (candle's order). Persistent: pers_head_argmax on a
+        // cooperative grid. Writes the token, then every logit. in: vocab, d,
+        // grid, threads, plant (0: none, 1: a tie planted at the maximum),
+        // seed.
+        const u32 vocab = rd1<u32>(), d = rd1<u32>(), grid = rd1<u32>(), threads = rd1<u32>(), plant = rd1<u32>();
+        const uint64_t seed = rd1<uint64_t>();
+        Rng r(seed);
+        const u32 gpr = d / 64u;
+        std::vector<u32> wq((size_t)vocab * d / 8);
+        for (auto& w : wq) w = (u32)r.next();
+        std::vector<unsigned short> sc((size_t)vocab * gpr), bi((size_t)vocab * gpr);
+        for (auto& v : sc) v = r.h16(6, 9);
+        for (auto& v : bi) v = r.h16(7, 10);
+        if (plant) {
+            // rows 3, 1027 and vocab - 5 get row 0's weights: equal logits
+            for (u32 t : {3u, 1027u, vocab - 5u}) {
+                for (u32 w = 0; w < d / 8; ++w) wq[(size_t)t * d / 8 + w] = wq[w];
+                for (u32 g = 0; g < gpr; ++g) { sc[(size_t)t * gpr + g] = sc[g]; bi[(size_t)t * gpr + g] = bi[g]; }
+            }
+        }
+        const auto xh = act_h(d, seed + 5, 10, 15);
+        std::vector<unsigned short> logits(vocab, 0xFFFFu);
+        std::vector<u32> token(1, 0xFFFFFFFFu);
+#if PERS_SIDE == 0
+        (void)grid; (void)threads;
+        hostgrid::launch_seq(vocab / 8, 256, [&] { tv_emb_q4_h(wq.data(), sc.data(), bi.data(), xh.data(), logits.data(), d, gpr, 0u, 0u); });
+        // the key of tok_argmax.cu, written out here: ord16, bitrev10, the lap
+        unsigned long long best = 0ull;
+        for (u32 i = 0; i < vocab; ++i) {
+            u32 b = logits[i];
+            if (b == 0x8000u) b = 0u;
+            const u32 ord = (b & 0x8000u) ? ((~b) & 0xFFFFu) : (b | 0x8000u);
+            const unsigned long long k = ((unsigned long long)ord << 32) | ((unsigned long long)(1023u - (__brev(i & 1023u) >> 22)) << 22) | (0x3FFFFFu - (i >> 10));
+            if (k > best) { best = k; token[0] = i; }
+        }
+#else
+        std::vector<unsigned long long> slot(1, 0ull);
+        std::vector<u32> nan(1, 0u), bar(1, 0u), ab(1, 0u), toks(grid, 0u);
+        hostgrid::launch_coop(grid, threads, PERS_SMEM_HEADER + 4 * d + 16, seed, [&] {
+            float* xsp = reinterpret_cast<float*>(PERS_SMEM_BASE() + PERS_SMEM_HEADER);
+            for (u32 i = threadIdx.x; i < d; i += blockDim.x) xsp[i] = h2f(xh[i]);
+            __syncthreads();
+            const u32 lo = (u32)((uint64_t)vocab * blockIdx.x / gridDim.x), hi = (u32)((uint64_t)vocab * (blockIdx.x + 1) / gridDim.x);
+            const u32 t = pers_head_argmax(wq.data(), sc.data(), bi.data(), xsp, d, gpr, lo, hi, slot.data(), nan.data(),
+                                           bar.data(), gridDim.x, ab.data(), logits.data());
+            if (threadIdx.x == 0u) toks[blockIdx.x] = t;
+        });
+        for (u32 c = 1; c < grid; ++c) if (toks[c] != toks[0]) toks[0] = 0xFFFFFFFEu;  // CTAs disagree
+        token[0] = toks[0];
+#endif
+        wr(token);
+        wr(logits);
     } else if (tag == 'L') {
         // LAYOUT of the structs the host mirrors (pers.rs): sizes and offsets.
         std::vector<u32> o;
@@ -525,6 +581,19 @@ int main() {
         OFF(PersLaunch, bar_base); OFF(PersLaunch, epoch); OFF(PersLaunch, cnt_offset); OFF(PersLaunch, dbg);
         OFF(PersLaunch, dbg_norm); OFF(PersLaunch, dbg_rot);
         o.push_back((u32)sizeof(PersSite));
+        o.push_back((u32)sizeof(SegTetra));
+        OFF(SegTetra, words); OFF(SegTetra, rscale); OFF(SegTetra, tail); OFF(SegTetra, gscale);
+        OFF(SegTetra, stride_u32); OFF(SegTetra, nblocks); OFF(SegTetra, tail_w); OFF(SegTetra, d_out);
+        o.push_back((u32)sizeof(SegArgs));
+        OFF(SegArgs, alpha); OFF(SegArgs, signs_h); OFF(SegArgs, small_h); OFF(SegArgs, silu); OFF(SegArgs, act);
+        OFF(SegArgs, gate); OFF(SegArgs, up); OFF(SegArgs, down); OFF(SegArgs, signs_i); OFF(SegArgs, small_i);
+        OFF(SegArgs, q4w); OFF(SegArgs, q4s); OFF(SegArgs, q4b); OFF(SegArgs, rows); OFF(SegArgs, pref);
+        OFF(SegArgs, br); OFF(SegArgs, suf); OFF(SegArgs, invnorm); OFF(SegArgs, slice_gu); OFF(SegArgs, slice_dn);
+        OFF(SegArgs, bar); OFF(SegArgs, abort_flag); OFF(SegArgs, hidden); OFF(SegArgs, inter); OFF(SegArgs, m_h);
+        OFF(SegArgs, k_h); OFF(SegArgs, m_i); OFF(SegArgs, k_i); OFF(SegArgs, inv_h); OFF(SegArgs, inv_i);
+        OFF(SegArgs, eps); OFF(SegArgs, gpr);
+        o.push_back((u32)sizeof(SegLaunch));
+        OFF(SegLaunch, x); OFF(SegLaunch, out); OFF(SegLaunch, bar_base);
 #undef OFF
 #endif
         wr(o);

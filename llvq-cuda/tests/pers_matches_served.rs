@@ -139,6 +139,17 @@ fn run(bin: &Path, cmd: &[u8]) -> Vec<u8> {
     out.stdout
 }
 
+/// A mutant's output, or `None` when the process failed: a crash or an abort
+/// kills the mutant as surely as a wrong byte does.
+fn run_mutant(bin: &Path, cmd: &[u8]) -> Option<Vec<u8>> {
+    let mut child = Command::new(bin).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+    let mut input = header().clone();
+    input.extend_from_slice(cmd);
+    let _ = child.stdin.take().unwrap().write_all(&input);
+    let out = child.wait_with_output().unwrap();
+    out.status.success().then_some(out.stdout)
+}
+
 struct Cmd(Vec<u8>);
 impl Cmd {
     fn new(tag: u8) -> Self {
@@ -425,7 +436,21 @@ fn the_struct_mirrors_match_the_kernel_layouts() {
     want.push(pers::PERS_LAUNCH_BYTES as u32);
     want.extend([0, 4, 8, 16, 24, 32]);
     want.push(4 * pers::SITE_U32 as u32);
+    want.push(48);
+    want.extend([0, 8, 16, 24, 32, 36, 40, 44]);
+    want.push(pers::SEG_ARGS_BYTES as u32);
+    want.extend([0, 8, 16, 24, 32, 40, 88, 136, 184, 192, 200, 208, 216, 224, 232, 240, 248, 256, 264, 272, 280, 288]);
+    want.extend([296, 300, 304, 308, 312, 316, 320, 324, 328, 332]);
+    want.push(pers::SEG_LAUNCH_BYTES as u32);
+    want.extend([0, 8, 16]);
     assert_eq!(o, want);
+    assert_eq!(std::mem::size_of::<pers::SegLaunch>(), pers::SEG_LAUNCH_BYTES);
+    let seg = pers::SegArgsHost { act: 5, gpr: 76, eps: 1e-6, down: pers::SegTetraHost { d_out: 2560, ..Default::default() }, ..Default::default() }.bytes();
+    assert_eq!(seg.len(), pers::SEG_ARGS_BYTES);
+    assert_eq!(u64::from_le_bytes(seg[32..40].try_into().unwrap()), 5);
+    assert_eq!(u32::from_le_bytes(seg[136 + 44..136 + 48].try_into().unwrap()), 2560);
+    assert_eq!(f32::from_le_bytes(seg[328..332].try_into().unwrap()), 1e-6);
+    assert_eq!(u32::from_le_bytes(seg[332..336].try_into().unwrap()), 76);
     // the Rust image puts the same values at the same offsets
     let img = pers::PersArgsHost { ptrs: std::array::from_fn(|i| 0x1000 + i as u64), nsites: 7, inv_h: 0.5, eps: 1e-6, ..Default::default() }.bytes();
     assert_eq!(u64::from_le_bytes(img[8 * 21..8 * 22].try_into().unwrap()), 0x1000 + 21);
@@ -447,7 +472,29 @@ fn persall_is_the_fused_kernel_site_by_site() {
     let cmd = Cmd::new(b'A').u32(3).u64(0xa11).0;
     let want = run(served(), &cmd);
     let b = mutant("persall_scan", "llvq-cuda/kernels/tetra48_persall.cu", "w >= (u32)(sites[(si + 1u) * LLVQ_TOCC_SITE_WORDS + 7u] & 0xffffffffull)) ++si;", "w > (u32)(sites[(si + 1u) * LLVQ_TOCC_SITE_WORDS + 7u] & 0xffffffffull)) ++si;");
-    assert!(run(&b, &cmd) != want, "an off-by-one site scan survived");
+    assert!(run_mutant(&b, &cmd) != Some(want), "an off-by-one site scan survived");
+}
+
+/// 4E's head phase: the persistent head rows are the served tv_emb_q4_h
+/// logits bit for bit, and the token every CTA reads back after its W4
+/// barrier is the served argmax (candle's tie order), planted ties included,
+/// on grids that split the vocabulary differently.
+#[test]
+fn the_4e_head_phase_is_the_served_argmax() {
+    for (vocab, plant) in [(3072u32, 0u32), (3072, 1), (4104, 1)] {
+        for (grid, threads) in [(3u32, 64u32), (5, 96)] {
+            let cmd = Cmd::new(b'H').u32(vocab).u32(256).u32(grid).u32(threads).u32(plant).u64(0x4e + vocab as u64).0;
+            let (want, got) = (run(served(), &cmd), run(persistent(), &cmd));
+            assert!(u32s(&want[..4])[0] < vocab);
+            assert!(want == got, "vocab {vocab}, plant {plant}, grid {grid}x{threads}: token or logits differ");
+        }
+    }
+    let cmd = Cmd::new(b'H').u32(3072).u32(256).u32(3).u32(64).u32(1).u64(0x4e + 3072).0;
+    let want = run(served(), &cmd);
+    let b = mutant("head_no_w4", "llvq-cuda/kernels/llvq_pers.cuh", "    if (!pers_grid_wait(bar, bar_target, abort_flag)) return 0xffffffffu;\n    if (pers_ld_acquire(nan_flag)", "    (void)bar; (void)bar_target; (void)abort_flag;\n    if (pers_ld_acquire(nan_flag)");
+    assert!(run_mutant(&b, &cmd) != Some(want.clone()), "the W4 barrier is not load-bearing");
+    let b = mutant("head_key_index", "llvq-cuda/kernels/llvq_pers.cuh", "return ((0x3FFFFFu - (u32)(k & 0x3FFFFFu)) << 10) | (__brev(br) >> 22);", "return ((0x3FFFFFu - (u32)(k & 0x3FFFFFu)) << 10) | br;");
+    assert!(run_mutant(&b, &cmd) != Some(want), "the key's bit reversal on the way back survived");
 }
 
 // ---- the L2 bench arms ------------------------------------------------------
@@ -654,9 +701,9 @@ fn step_a_mutants_are_killed() {
     let want_q4 = run(served(), &cmd_q4);
     let f = "llvq-cuda/kernels/pers_segment.cu";
     let cases = [
-        ("seg_no_barrier", "if (!pers_grid_wait(A->bar, A->bar_base + gridDim.x, A->abort_flag)) return;", "(void)0;"),
-        ("seg_barrier_target", "if (!pers_grid_wait(A->bar, A->bar_base + gridDim.x, A->abort_flag)) return;", "if (!pers_grid_wait(A->bar, A->bar_base + gridDim.x + 1u, A->abort_flag)) return;"),
-        ("seg_residual_order", "A->out[r] = exact_hadd(A->x[r], f2h(y));", "A->out[r] = f2h(__fadd_rn(h2f(A->x[r]), y));"),
+        ("seg_no_barrier", "if (!pers_grid_wait(A->bar, L.bar_base + gridDim.x, A->abort_flag)) return;", "(void)0;"),
+        ("seg_barrier_target", "if (!pers_grid_wait(A->bar, L.bar_base + gridDim.x, A->abort_flag)) return;", "if (!pers_grid_wait(A->bar, L.bar_base + gridDim.x + 1u, A->abort_flag)) return;"),
+        ("seg_residual_order", "L.out[r] = exact_hadd(__ldcg(L.x + r), f2h(y));", "L.out[r] = f2h(__fadd_rn(h2f(__ldcg(L.x + r)), y));"),
         ("seg_silu_operand", "A->act[r] = exact_silu_mul(A->silu, g, u);", "A->act[r] = exact_silu_mul(A->silu, u, g);"),
     ];
     for (tag, from, to) in cases {

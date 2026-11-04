@@ -19,6 +19,8 @@ use std::time::Instant;
 // SAFETY: `PersLaunch` is `#[repr(C)]`, plain integers, and its layout is the
 // kernel's (`tests/pers_matches_served.rs::the_struct_mirrors_match_the_kernel_layouts`).
 unsafe impl DeviceRepr for PersLaunch {}
+// SAFETY: the same for route P's per-call struct (`kernels/pers_segment.cu`).
+unsafe impl DeviceRepr for pers::SegLaunch {}
 
 /// What the environment asks of the persistent sections.
 #[derive(Clone, Debug, Default)]
