@@ -1148,31 +1148,37 @@ fn run_pers_4e(
     let served = model.generate(prompt, n_new, &mut NoCapture)?;
     kernel_form(model);
     println!("\n  context {}: attention {} on {}, every decode row on the kernel", prompt.len(), model.attn_heads().label(), model.kv_store().label());
-    // One eager decode and one 4E decode: tokens, and decode seconds.
-    let eager = |m: &mut llvq_llm::model::Qwen3| -> anyhow::Result<(Vec<u32>, f64)> {
-        let mut caches = m.fresh_caches();
-        let first = m.prefill_next(prompt, &mut caches)?;
+    // One prefill for the context; every run truncates the caches back to
+    // the prompt (a Grow store's truncate moves only its length) and writes
+    // the positions after it again, eager or 4E.
+    let mut caches = model.fresh_caches();
+    let first = model.prefill_next(prompt, &mut caches)?;
+    let eager = |m: &mut llvq_llm::model::Qwen3, caches: &mut Vec<llvq_llm::model::KvCache>| -> anyhow::Result<(Vec<u32>, f64)> {
+        for c in caches.iter_mut() {
+            c.truncate(prompt.len())?;
+        }
         let t = Instant::now();
         let mut out = vec![first];
         let mut offset = prompt.len();
         while out.len() < n_new {
-            let logits = m.step_logits(*out.last().expect("one token"), offset, &mut caches)?;
+            let logits = m.step_logits(*out.last().expect("one token"), offset, caches)?;
             out.push(logits.to_dtype(candle_core::DType::F32)?.flatten_all()?.argmax(0)?.to_scalar::<u32>()?);
             offset += 1;
         }
         Ok((out, t.elapsed().as_secs_f64()))
     };
-    let pers = |m: &mut llvq_llm::model::Qwen3, rt: &mut llvq_llm::persist4e_cuda::Runtime4e| -> anyhow::Result<(Vec<u32>, f64)> {
-        let mut caches = m.fresh_caches();
-        let first = m.prefill_next(prompt, &mut caches)?;
+    let pers = |rt: &mut llvq_llm::persist4e_cuda::Runtime4e, caches: &mut Vec<llvq_llm::model::KvCache>| -> anyhow::Result<(Vec<u32>, f64)> {
+        for c in caches.iter_mut() {
+            c.truncate(prompt.len())?;
+        }
         rt.sync()?;
         let t = Instant::now();
         let mut out = vec![first];
-        out.extend(rt.decode(&mut caches, prompt.len(), first, (n_new - 1) as u32, u32::MAX)?);
+        out.extend(rt.decode(caches, prompt.len(), first, (n_new - 1) as u32, u32::MAX)?);
         Ok((out, t.elapsed().as_secs_f64()))
     };
-    let (want, _) = eager(model)?;
-    let (got, _) = pers(model, rt)?;
+    let (want, _) = eager(model, &mut caches)?;
+    let (got, _) = pers(rt, &mut caches)?;
     if let Some(i) = first_divergence(&want, &got).map_err(|e| anyhow::anyhow!("{e}"))? {
         anyhow::bail!("context {}: 4E diverges from the eager path at token {i}; 4E owes its bits, the run is void", prompt.len());
     }
@@ -1183,8 +1189,8 @@ fn run_pers_4e(
     }
     let mut rate: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
     for round in 0..WARMUP + ROUNDS_TIMED {
-        let (a, ta) = eager(model)?;
-        let (b, tb) = pers(model, rt)?;
+        let (a, ta) = eager(model, &mut caches)?;
+        let (b, tb) = pers(rt, &mut caches)?;
         if a != want || b != want {
             anyhow::bail!("round {round}: a decode moved its tokens; the run is void");
         }
