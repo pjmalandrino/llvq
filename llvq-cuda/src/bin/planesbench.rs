@@ -2781,16 +2781,33 @@ mod linux {
             tail: cudarc::driver::CudaSlice<f32>,
             slot_bytes: u64,
             planes_bytes: u64,
-            /// The Tetra stream of the same concatenation, present only when
+            /// The Tetra stream of the same group, present only when
             /// `tetra48` is in the selection. `Option` and not a sentinel: a
             /// group whose members are not all Tetra has no such stream, and
             /// an empty `CudaSlice` would launch and read garbage.
-            twords: Option<cudarc::driver::CudaSlice<u32>>,
+            ///
+            /// It carries its own scales, like `TetraArm`. The `gscale`,
+            /// `rscale` and `tail` above belong to the FIRST file; until
+            /// 2026-11-04 the Tetra launch read them, on a stream transcoded
+            /// from the first file's indices, and was compared against the
+            /// second file's separate launches.
+            tetra: Option<FusedTetra>,
             tstride: u32,
             tetra_bytes: u64,
             /// Indices into `mats` of the matrices this one replaces, in row
             /// order — the fused output must equal their outputs concatenated.
             parts: Vec<usize>,
+        }
+
+        /// The Tetra half of a fused group: the SECOND file's words, centroid
+        /// pairs, `gs_off`, row scales and tail, concatenated by
+        /// `seg_concat_tetra48` from the same members in the same order.
+        struct FusedTetra {
+            words: cudarc::driver::CudaSlice<u32>,
+            gscale: cudarc::driver::CudaSlice<f32>,
+            gs_off: cudarc::driver::CudaSlice<u32>,
+            rscale: cudarc::driver::CudaSlice<f32>,
+            tail: cudarc::driver::CudaSlice<f32>,
         }
 
         // 🕳️ **The fusion arm (A4) is built AFTER the five-arm table, and no
@@ -3059,13 +3076,13 @@ mod linux {
         // because `v_proj` is int4.
         let run_tetra48_seg =
             |fm: &FusedMat, y: &mut cudarc::driver::CudaSlice<f32>| -> Result<bool, String> {
-                let Some(w) = fm.twords.as_ref() else {
+                let Some(t) = fm.tetra.as_ref() else {
                     return Ok(false);
                 };
                 launch_tetra48_seg(
-                    &cuda, &f_tetra48_seg, w, fm.tstride,
+                    &cuda, &f_tetra48_seg, &t.words, fm.tstride,
                     tetra_tabs.as_ref().expect("tetra48 tables not uploaded"),
-                    &fm.gscale, &fm.gs_off, &fm.rscale, &fm.tail, &d_x, y,
+                    &t.gscale, &t.gs_off, &t.rscale, &t.tail, &d_x, y,
                     fm.nblocks as u32, fm.tail_w as u32, fm.d_out as u32, THREADS, shared,
                 )?;
                 Ok(true)
@@ -3941,48 +3958,66 @@ mod linux {
                     .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
                     .collect();
 
-                // The Tetra stream of the same concatenation. It costs no
-                // transcoding step of its own: `transcode_tetra48` takes the
-                // indices and gains `seg_concat` already produced, and rows
-                // sharing `d_in` share `row_stride_u32`, so concatenating by
-                // rows is concatenating the word arrays.
+                // The Tetra stream of the same group, built from the SECOND
+                // file. `seg` above is the FIRST file's concatenation: other
+                // indices, other centroids, other row scales, other tail. The
+                // separate Tetra launches read `tetra[name]`, so the fused one
+                // must read the same members, concatenated in the same order
+                // with the same `gs_off` rule. Until 2026-11-04 this block
+                // transcoded `seg.indices` and launched on `seg`'s scales: the
+                // check below then compared two different matrices, and failed
+                // at row 0 on 2026-09-20.
+                //
+                // It costs no transcoding step of its own: each member is
+                // already a row-strided stream, and rows sharing `d_in` share
+                // `row_stride_u32`, so concatenating by rows is concatenating
+                // the word arrays.
                 //
                 // Only built when the arm is selected. A group is skipped when
                 // any member is missing from `tetra`, which is what the served
                 // object's int4 `v_proj` does to a q+k+v group: the pair that
                 // survives is q+k, and gate+up.
-                let (twords, tstride, tetra_bytes) = match seg_tetra
+                let (ftetra, tstride, tetra_bytes) = match seg_tetra
                     && union.has(arms::TETRA48)
                     && idx.iter().all(|&i| tetra.contains_key(&srcs[i].name))
                 {
                     false => (None, 0u32, 0u64),
                     true => {
-                        let tb = llvq_artifact::tetra48::transcode_tetra48(
-                            &seg.indices, &seg.gains, seg.d_out, seg.nblocks,
-                        )
-                        .map_err(|e| e.to_string())?;
-                        // `data` is bytes; the kernel reads u32. Same
-                        // conversion and same assertion as the unfused arm,
-                        // because a stream that is not a whole number of row
-                        // strides would read every row after the first at a
-                        // shifted phase.
-                        let twords: Vec<u32> = tb
-                            .data
-                            .chunks_exact(4)
-                            .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                        let tp: Vec<SegTetraPart<'_>> = idx
+                            .iter()
+                            .map(|&i| {
+                                let t = &tetra[&srcs[i].name];
+                                SegTetraPart {
+                                    d_out: t.d_out,
+                                    d_in: t.d_in,
+                                    blocks: &t.blocks,
+                                    centroids: t.centroids,
+                                    rscale: &t.rscale,
+                                    tail: &t.tail,
+                                }
+                            })
                             .collect();
-                        assert_eq!(
-                            twords.len(),
-                            seg.d_out * tb.stride_u32,
-                            "{key}: the fused Tetra stream is not a whole number of row strides"
-                        );
+                        // The fused output is cut by the FIRST file's row
+                        // counts (`mats[pi].d_out` below), so `seg` is passed
+                        // for its boundaries only, and they are asserted.
+                        // Proved on the Mac by
+                        // `tests/tetra48_segment_matches_unfused.rs`.
+                        let ts = seg_tetra48_group(key, &seg, &tp);
                         // The same ledger the two ball arms keep, with the same
                         // `gs_off` line: it is the only byte fusion ADDS.
-                        let bytes = tb.data.len() as u64
-                            + (seg.d_out * seg.tail_w) as u64 * 4
-                            + seg.d_out as u64 * 4
-                            + seg.d_out as u64 * 4;
-                        (Some(cuda.up_u32(&twords)?), tb.stride_u32 as u32, bytes)
+                        let bytes = ts.words.len() as u64 * 4
+                            + (ts.d_out * ts.tail_w) as u64 * 4
+                            + ts.d_out as u64 * 4
+                            + ts.d_out as u64 * 4;
+                        let ft = FusedTetra {
+                            words: cuda.up_u32(&ts.words)?,
+                            gscale: cuda.up_f32(&ts.centroids)?,
+                            gs_off: cuda.up_u32(&ts.gs_off)?,
+                            rscale: cuda.up_f32(&ts.rscale)?,
+                            tail: cuda
+                                .up_f32(if ts.tail.is_empty() { &[0.0f32] } else { &ts.tail })?,
+                        };
+                        (Some(ft), ts.stride_u32 as u32, bytes)
                     }
                 };
 
@@ -4001,7 +4036,7 @@ mod linux {
                         .up_f32(if seg.tail.is_empty() { &[0.0f32] } else { &seg.tail })?,
                     slot_bytes,
                     planes_bytes,
-                    twords,
+                    tetra: ftetra,
                     tstride,
                     tetra_bytes,
                     parts: idx.clone(),
@@ -4503,7 +4538,7 @@ mod linux {
                     // they would measure the same launches twice and print a
                     // delta of zero, which reads as "the fusion is worth
                     // nothing" rather than "the fusion did not run".
-                    if arm >= 4 && !fused.iter().any(|f| f.twords.is_some()) {
+                    if arm >= 4 && !fused.iter().any(|f| f.tetra.is_some()) {
                         continue;
                     }
                     let tin = Instant::now();
