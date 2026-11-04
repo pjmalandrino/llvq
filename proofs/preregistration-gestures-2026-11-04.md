@@ -1,9 +1,9 @@
 # Preregistration. Three bit-exact gestures at the token boundary of the decode loop, one mechanism an arm, with direct probes and the host clocks (2026-11-04)
 
 **Written on 2026-11-04. NOT STAMPED, NOT LAUNCHED.** It is stamped with OpenTimestamps before the first measurement,
-and renamed to the day of the stamp if that day is later. Operator go: none yet. Cost: about **$0.35** on l40sx1
-(*estimated*, §8); timeout 45 min, so **$1.35** at worst (*computed*). Cap: the operator's, to be written here before
-the stamp. Registry before it: $256.88 over 248 rows (*measured*, `docs/data/jobs.csv`).
+and renamed to the day of the stamp if that day is later. Operator go: "ok pour les 3" on 2026-11-04, in the audit
+session, for this run, the attention kernel and the 32B walls, with a worst case of $0.60 for this one. Cost: about
+**$0.35** on l40sx1 (*estimated*, §8); timeout 20 min, so **$0.60** at worst (*computed*). Cap: $0.60, the operator's. Registry before it: $256.88 over 248 rows (*measured*, `docs/data/jobs.csv`).
 
 **Base commit:** `e3a6fde42083`, which carries the code of §2; this file is committed on top of it. **Space sha:** to
 fill when the image that carries `LLVQ_GESTURE_AB` is published. The job script is `ops/jobs/gesture-ab.sh`; it refuses
@@ -211,8 +211,8 @@ launches, about 859 allocations and frees and 507 kernel lookups, at 2-6 µs an 
 compiles and 10 × 41 calls with 12.5 MB uploaded each time, about 10 s; P3 and P4 about 1 s; five arms × seven rounds ×
 about 2 s, about 70 s; the E clock, 5 × 2 arms × 65 tokens, about 6 s; the spun loop, 315 steps × (6 × 5 ms + 7.5 ms),
 about 12 s. Step 4 in all about 2.5 min. In all about 12 min, **$0.35**. Anchor: `trims-contexts-4b`, 700 s and $0.35 for
-a five-arm A/B plus a context sweep (*measured*, `docs/data/jobs.csv`). Timeout 45 min, **$1.35** at worst
-(*computed*). The image build on the Space is free, and its publish needs the operator's go as much as the job does.
+a five-arm A/B plus a context sweep (*measured*, `docs/data/jobs.csv`). Timeout 20 min, **$0.60** at worst
+(*computed*), the operator's cap; the slowest comparable job, `served-grouped-4b`, billed 18 min. The image build on the Space is free, and its publish needs the operator's go as much as the job does.
 
 ## 9. What this run does not establish
 

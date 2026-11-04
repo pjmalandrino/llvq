@@ -11,7 +11,7 @@
 # under the grouped config, whose whole decoded text must hash to the text it served on 2026-11-02;
 # then LLVQ_GESTURE_AB on the served flags.
 #
-# Cost, estimated (l40sx1 $1.80/h): about 12 min, $0.35. Ceiling 45m, $1.35.
+# Cost, estimated (l40sx1 $1.80/h): about 12 min, $0.35. Ceiling 20m, $0.60, the operator's cap.
 set -euo pipefail
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$REPO"
@@ -19,7 +19,7 @@ cd "$REPO"
 OBJ_DIR=sealed-4b-2026-09-23
 NAME=qwen3-4b-sealed.bin
 LOCAL=$HOME/q4b-sealed-2026-09-23/$NAME
-TIMEOUT=45m
+TIMEOUT=20m
 TABLES='1 table (model.embed_tokens.weight, lm_head tied on it)'
 PREREG=proofs/preregistration-gestures-2026-11-04.md
 BUCKET=Pier-Jean/jobs-artifacts
