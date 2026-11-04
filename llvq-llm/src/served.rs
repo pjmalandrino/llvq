@@ -275,6 +275,12 @@ impl Served {
     pub fn check_device(&self, metal: bool) -> Result<(), String> {
         match (self.attention, metal) {
             (AttnHeads::Expanded, _) | (_, false) => Ok(()),
+            (AttnHeads::Kernel, true) => Err(format!(
+                "{}: attention \"kernel\" on Metal. The split-KV decode-attention kernel is \
+                 CUDA only (llvq-cuda/kernels/attn_dec.cu); no Metal kernel exists. Serve this \
+                 object with the expanded form on Metal.",
+                self.path.display(),
+            )),
             (form, true) => Err(format!(
                 "{}: attention {:?} on Metal. That form has never been measured on \
                  Metal — no throughput, no perplexity, and no reading of what Metal \
@@ -302,6 +308,17 @@ impl Served {
         self.check_device(device.is_metal())?;
         model.set_kv_store(self.store);
         model.set_attn_heads(self.attention);
+        // The kernel form is the one form that needs a device object: built
+        // here, once, and on CUDA checked against the CPU replay bit for bit
+        // before the first token (`crate::attn::kernel_for`).
+        let kernel = match self.attention {
+            AttnHeads::Kernel => {
+                let (n_kv, groups, hd) = model.attn_geometry();
+                Some(crate::attn::kernel_for(device, n_kv, groups, hd)?)
+            }
+            AttnHeads::Expanded | AttnHeads::Shared | AttnHeads::Grouped => None,
+        };
+        model.set_attn_kernel(kernel);
         Ok(())
     }
 }

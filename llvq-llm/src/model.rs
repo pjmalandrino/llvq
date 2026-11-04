@@ -1431,6 +1431,10 @@ pub struct Block {
     ///
     /// [`AttnHeads::Expanded`]: crate::kvq::AttnHeads::Expanded
     attn_heads: crate::kvq::AttnHeads,
+    /// The decode-attention kernel the `Kernel` form calls, installed by
+    /// [`Qwen3::set_attn_kernel`]; `None` everywhere else, and a `Kernel`
+    /// block without one refuses to run rather than fall back.
+    attn_kernel: Option<std::sync::Arc<dyn crate::device::AttnKernel>>,
 }
 
 /// Take the supplied projection, or build the dense one.
@@ -1506,6 +1510,7 @@ impl Block {
             head_dim: hd,
             rot_share: RotShare::Off,
             attn_heads: crate::kvq::AttnHeads::Expanded,
+            attn_kernel: None,
         })
     }
 
@@ -1521,6 +1526,11 @@ impl Block {
     /// How this block's attention reads the cached heads.
     pub fn set_attn_heads(&mut self, heads: crate::kvq::AttnHeads) {
         self.attn_heads = heads;
+    }
+
+    /// The kernel the `Kernel` form calls.
+    pub fn set_attn_kernel(&mut self, k: Option<std::sync::Arc<dyn crate::device::AttnKernel>>) {
+        self.attn_kernel = k;
     }
 
     /// Read-only view of a projection, by checkpoint name.
@@ -1645,10 +1655,32 @@ impl Block {
             RopeAt::Tables { cos, sin } => Rotary::apply_tables(&q, &k, cos, sin)?,
         };
         let scale = 1.0 / (self.head_dim as f64).sqrt();
+        if self.attn_heads == crate::kvq::AttnHeads::Kernel {
+            let kern = self.attn_kernel.as_ref().ok_or_else(|| {
+                candle_core::Error::msg(
+                    "attention \"kernel\" with no kernel installed: Served::apply installs it, \
+                     and a block never falls back on its own",
+                )
+            })?;
+            let grow = matches!(cache.store(), crate::kvq::KvStore::Grow(_));
+            let (k, v) = cache.append(&k, &v)?;
+            // Decode and verify rows go to the kernel. A prefill chunk, a
+            // batch, or the scratch `Cat` cache of a full-window forward take
+            // the grouped path; the cache bytes are the same either way, since
+            // `append` wrote them before the branch.
+            let ctx = if b == 1 && l <= kern.max_rows() && grow {
+                kern.attend(&q.contiguous()?, &k, &v)?
+            } else {
+                grouped_attention(&q, &rows_contiguous(&k)?, &rows_contiguous(&v)?, mask, scale)?
+            };
+            return self.finish(x, ctx, idx, cap);
+        }
         let unexpanded = match self.attn_heads {
             crate::kvq::AttnHeads::Expanded => None,
             crate::kvq::AttnHeads::Shared => Some(shared_attention as AttnFn),
-            crate::kvq::AttnHeads::Grouped => Some(grouped_attention as AttnFn),
+            crate::kvq::AttnHeads::Grouped | crate::kvq::AttnHeads::Kernel => {
+                Some(grouped_attention as AttnFn)
+            }
         };
         if let Some(attend) = unexpanded {
             let (k, v) = cache.append(&k, &v)?;
@@ -1901,6 +1933,21 @@ impl Qwen3 {
         self.attn_heads
     }
 
+    /// Install the decode-attention kernel in every block (`None` removes
+    /// it). The `Kernel` form refuses to run without one; the other forms
+    /// never call it.
+    pub fn set_attn_kernel(&mut self, k: Option<std::sync::Arc<dyn crate::device::AttnKernel>>) {
+        for b in &mut self.blocks {
+            b.set_attn_kernel(k.clone());
+        }
+    }
+
+    /// `(n_kv, query heads per KV head, head_dim)`: what a kernel is sized by.
+    pub fn attn_geometry(&self) -> (usize, usize, usize) {
+        let n_kv = self.cfg.num_key_value_heads;
+        (n_kv, self.cfg.num_attention_heads / n_kv, self.cfg.head_dim)
+    }
+
     /// Measurement only: make every `Cat` decode step build and add its
     /// all-zero mask again, the behaviour before 2026-10-30. The output does
     /// not move (adding zero changes no score), only the time does, which is
@@ -1997,7 +2044,9 @@ impl Qwen3 {
             crate::kvq::AttnHeads::Expanded => {
                 self.cfg.num_key_value_heads * (self.cfg.num_attention_heads / self.cfg.num_key_value_heads)
             }
-            crate::kvq::AttnHeads::Shared | crate::kvq::AttnHeads::Grouped => self.cfg.num_key_value_heads,
+            crate::kvq::AttnHeads::Shared | crate::kvq::AttnHeads::Grouped | crate::kvq::AttnHeads::Kernel => {
+                self.cfg.num_key_value_heads
+            }
         };
         let (cos, sin) = self.rotary.step_tables()?;
         let st = StepState {
@@ -3056,6 +3105,67 @@ mod tests {
         assert_eq!(got, want, "on the CPU in f32 the two forms agree token for token");
     }
 
+    /// The `kernel` form on the CPU, where its kernel is the canonical replay
+    /// the card is checked against. Against the grouped form on the same
+    /// `Grow` store: a prefill chunk of more than 8 rows takes the grouped
+    /// path and is bit for bit; chunks and decode steps of 8 rows or fewer go
+    /// through the kernel, whose f32 softmax differs from the grouped f16
+    /// one, and are held to a bound, about ten times the largest difference
+    /// measured on 2026-11-04, and to differing at all.
+    #[test]
+    fn the_kernel_form_attends_through_the_replay() {
+        use crate::kvq::{AttnHeads, KvStore, GROW_CHUNK};
+        let mut m = tiny_model_hd(DType::F16, 8, 2, 128);
+        let prompt = [3u32, 17, 42, 7, 9, 11, 5, 60, 11, 90, 2];
+        let feed = [5u32, 60, 11, 90, 2, 33, 71, 8, 13, 44, 1, 96];
+        m.set_kv_store(KvStore::Grow(GROW_CHUNK));
+        m.set_attn_heads(AttnHeads::Grouped);
+        let grouped_long = logit_trace(&m, &prompt, 16, &feed);
+        let grouped_short = logit_trace(&m, &prompt, 4, &feed);
+
+        m.set_attn_heads(AttnHeads::Kernel);
+        let mut c = m.fresh_caches();
+        let e = m.prefill_chunked(&prompt, 4, &mut c).expect_err("no kernel installed");
+        assert!(e.to_string().contains("no kernel installed"), "{e}");
+
+        m.set_attn_kernel(Some(crate::attn::kernel_for(&Device::Cpu, 2, 4, 128).expect("CPU kernel")));
+        let long = logit_trace(&m, &prompt, 16, &feed);
+        assert!(
+            same_bits(&grouped_long[..1], &long[..1]),
+            "a chunk of 11 rows takes the grouped path: its logits are the grouped form's"
+        );
+        let d_decode = max_abs_diff(&grouped_long[1..], &long[1..]);
+        let short = logit_trace(&m, &prompt, 4, &feed);
+        let d_short = max_abs_diff(&grouped_short, &short);
+        println!("kernel against grouped: decode max |dlogit| {d_decode:e}, chunks of 4 {d_short:e}");
+        for (what, d) in [("decode", d_decode), ("chunks of 4", d_short)] {
+            assert!(d > 0.0, "{what}: bit for bit with grouped, so the kernel did not run");
+            assert!(d <= 5e-3, "{what}: max |dlogit| {d:e}");
+        }
+
+        // The served door installs it: the form, the store and the kernel.
+        let mut m = tiny_model_hd(DType::F16, 8, 2, 128);
+        let f = crate::served::ServedFile {
+            layout: "tetra48".into(),
+            embed: "q4".into(),
+            rot_share: "1".into(),
+            fuse: "0".into(),
+            kv: "f16".into(),
+            attention: Some("kernel".into()),
+            note: None,
+        };
+        let served = crate::served::Served::of(f, "kernel.json".into()).expect("kernel parses");
+        served.apply(&mut m, &Device::Cpu).expect("kernel applies on the CPU");
+        assert_eq!(m.attn_heads(), AttnHeads::Kernel);
+        assert_eq!(m.kv_store(), KvStore::Grow(GROW_CHUNK));
+        assert_eq!(logit_trace(&m, &prompt, 4, &feed), short, "the door's kernel is the same arithmetic");
+        assert!(served.check_device(true).expect_err("Metal").contains("CUDA only"));
+        // A head dimension the kernel does not compile is refused at the door.
+        let mut small = tiny_model(DType::F16);
+        let e = served.apply(&mut small, &Device::Cpu).expect_err("head dim 16");
+        assert!(e.contains("head dim 16"), "{e}");
+    }
+
     /// A two-layer Qwen3 with deterministic pseudo-random weights, on the CPU.
     fn tiny_model(dtype: DType) -> Qwen3 {
         tiny_model_heads(dtype, 4, 2)
@@ -3063,6 +3173,12 @@ mod tests {
 
     /// The tiny model with `n_heads` query heads over `n_kv` key heads.
     fn tiny_model_heads(dtype: DType, n_heads: usize, n_kv: usize) -> Qwen3 {
+        tiny_model_hd(dtype, n_heads, n_kv, 16)
+    }
+
+    /// The tiny model at a head dimension of its own: the attention kernel
+    /// compiles 128, Qwen3's, and refuses anything else.
+    fn tiny_model_hd(dtype: DType, n_heads: usize, n_kv: usize, head_dim: usize) -> Qwen3 {
         use crate::kvq::KvMode;
         use candle_nn::VarBuilder;
         let dev = Device::Cpu;
@@ -3072,7 +3188,7 @@ mod tests {
             intermediate_size: 128,
             num_hidden_layers: 2,
             num_attention_heads: n_heads,
-            head_dim: 16,
+            head_dim,
             attention_bias: false,
             num_key_value_heads: n_kv,
             max_position_embeddings: 64,

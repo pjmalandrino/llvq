@@ -1,0 +1,88 @@
+Split-KV decode-attention kernel, on the host, 2026-11-04
+
+Result: the kernel text executes on the Mac with 128 cooperating threads a CTA and returns the CPU replay's bits
+on 124 launches (*measured*). Of 22 mutants, 21 die and 1 is equivalent. Nothing ran on a card; $0 spent. The
+card's identity, registers, spills and speed are open, and the kernel-only bench that measures them is
+preregistered, NOT stamped and NOT launched (proofs/preregistration-attn-bench-2026-11-04.md).
+
+Machine : the dev Mac (arm64), clang++ from the Xcode toolchain, cargo 1.95, nice 10, -j 4.
+Branch  : claude/quizzical-kowalevski-38c5fc, from validation/vague1 (030747b).
+
+What exists
+  llvq-cuda/src/attn_ref.rs        the canonical arithmetic in Rust: 16 lanes x 8 dims, fma chains from +0, the
+                                   xor tree 8-4-2-1, c = 0x3e0293ee, tiles of 8, units of 64 (served) or 32,
+                                   splits of 256 at absolute positions, left folds, f16 of acc / d, exp2 by a
+                                   minimax degree-6 polynomial with p(0) = 1.
+  llvq-cuda/kernels/attn_dec.cu    one self-contained NVRTC unit, entry points attn_dec_g{4,5}_u{64,32}; one CTA
+                                   per (split, KV head), 8 groups of 16 lanes, one ticket per CTA (occ_sk).
+  llvq-cuda/tests/host_cta.h       a CTA on the host: one fiber per thread (20-instruction arm64 switch,
+                                   ucontext elsewhere), real barriers, 16-lane shuffles that refuse a wrong mask
+                                   or width, tickets, CTAs in a permuted order, a divergent barrier aborts.
+  llvq-cuda/src/attn.rs            the launcher and AttnDec::self_check, the load-time check (Linux).
+  llvq-cuda/src/bin/attnbench.rs   the kernel-only bench (Linux), in both lists of ops/Dockerfile.cuda.
+  llvq-llm/src/attn.rs             the replay by include!, CpuAttn (the CPU fake), kernel_for(device).
+  llvq-llm/src/attn_cuda.rs        the candle adapter, CustomOp3 over q and the Grow views (Linux + cuda).
+  llvq-llm: AttnHeads::Kernel      "kernel" in the config's attention field; store Grow(256); Metal refused by
+                                   name; rows > 8, batch > 1 and the scratch Cat cache take the grouped path,
+                                   which writes the same cache bytes. No config file uses it; absent still means
+                                   "expanded", so the published configs keep their bytes.
+  ops/jobs/attn-bench.sh           the job of the bench prereg; DRY_RUN=1 parses.
+
+Proven on the host (*measured*, cargo test, 2026-11-04)
+  llvq-cuda/tests/attn_dec_matches_rust.rs, the kernel text against the replay, bit for bit:
+    64 launches   rows ending at 1, 7, 8, 9, 63, 64, 65, 255, 256, 257, 520; verify calls of 3 and 8 rows
+                  at 1-8, 253-260, 255-257, 518-525; G 4 and 5; unit 64 and 32; eager grid
+    40 launches   grids one split wider than the capacity in three CTA orders; fresh rows written by the kernel
+                  into a cache that holds inf there; both units
+    18 launches   the k = 8 rows of a verify call against 8 decode calls, on the kernel itself
+     2 launches   under -fsanitize=undefined -fno-sanitize-recover=all, plus a 20,000-point exp2 sweep
+    every call: caches after the call as expected, tickets back at zero, no position past the rows read (they
+    hold inf)
+    attn_ex2 (kernel text) = ex2_fixed (replay) on 200,012 inputs, NaN, +-0, -126 and -inf included
+  llvq-cuda/tests/attn_ref_props.rs, the replay alone:
+    within 4e-6 of an f64 softmax attention, relative to sum p|v| / sum p, at 12 lengths up to 4,096, both
+    units, two query scales; its f16 output is the f16 of its f32 state
+    rows invariant: 13 positions x k = 1..8
+    splits absolute at L = 257, 300, 511
+    h2f exact on all 65,536 halves; f2h = f16_bits on every half, midpoint and neighbour
+    ex2_fixed within 1.18 ulp of 2^x on [-126, 0] (400,000 points), 1 at +-0, 0 at -126 and -inf, never
+    subnormal; c rounded once
+  llvq-llm/tests/attn_kernel.rs: CpuAttn = the replay; the include! copy = llvq-cuda's own on the same inputs;
+    h2f and f2h = the half crate's (all halves, 2 million f32); f32, 9 rows, 7 heads over 2, head dim 64 and
+    batch 2 refused by name
+  llvq-llm model::tests::the_kernel_form_attends_through_the_replay, a 2-layer Qwen3, 8 heads over 2, head
+    dim 128, f16, CPU: an 11-row prefill chunk takes the grouped path, bit for bit; decode steps and 4-row
+    chunks go through the kernel, max |dlogit| 4.88e-4 against the grouped form (bound 5e-3); no kernel
+    installed is refused by name; the served door installs form, store and kernel; Metal and head dim 16
+    refused
+  bin/cuhcheck parses attn_dec.cu; embedded_source carries it
+
+Mutants (rule 10), each checked to apply at exactly one site, restored by git checkout
+  kernel text   K1 tree 1-2-4-8, K2 splits folded in reverse, K3 units folded in reverse, K4 fma in the split
+                merge, K6 tile sum right to left, K7 exp2 masks NaN, K8 only active CTAs draw a ticket, K9 no
+                barrier before the unit states overwrite the stage, K10 ticket never reset, K11 an exp2
+                coefficient one ulp off, K12 fresh K rows not written, K13 carry from the wrong side, K14 staged
+                unit offset at 64 for unit 32, K15 tile max misses its last position, K5b no zero-fill AND masked
+                positions multiplied, K16 signed shift in exp2 (UBSan): 16 killed
+  replay        R1 splits relative to the row end, R2 fma in st_merge, R3 tree 1-2-4-8, R4 exp2 masks NaN, R5 f2h
+                truncates its ties: 5 killed
+  equivalent    K5 masked positions multiplied, alone: positions past the row are zero-filled at staging, so
+                the j < nv guard is a second fence and p = 0 x v = 0 changes no bit. K5b removes both fences
+                and dies on the inf the fixtures hold there.
+
+Lint (*measured*)
+  cargo clippy --all-targets: 0 warnings.
+  CUDARC_CUDA_VERSION=12040 cargo clippy --target x86_64-unknown-linux-gnu -p llvq-cuda --all-targets: 0
+  warnings (attn.rs and attnbench.rs type-check for Linux).
+  llvq-llm/src/attn_cuda.rs compiles only in an image build, like fused_cuda.rs: unchecked here.
+
+Needs the card
+  NVRTC's reading of the text; the inline PTX cvt.f32.f16 and cvt.rn.f16.f32 (the host uses _Float16);
+  memory ordering between concurrent CTAs (the host runs one at a time); registers and spills (the served
+  path refuses a spill); the load-time check AttnDec::self_check, which compares the card against the replay
+  at every load; eta_k, r_k and the unit size: proofs/preregistration-attn-bench-2026-11-04.md.
+  Then the in-situ A/B (prereg-attention-2, to finalize after the freeze), then the T8 control: paired
+  perplexity within +-0.12 % at 4,096 and 8,192 and a task check. The kernel is not bit for bit with the
+  grouped form on the rows it takes; serving it is the operator's T8 decision, not granted.
+
+Cost: $0. Registry unchanged: 248 rows, $256.88 (5 unpriced).

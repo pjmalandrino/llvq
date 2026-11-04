@@ -23,27 +23,34 @@ use std::sync::OnceLock;
 
 use llvq_cuda::attn_ref::{self, Kv, HD, SPLIT};
 
+fn build(tag: &str, extra: &[&str]) -> std::path::PathBuf {
+    let out = std::env::temp_dir().join(format!("llvq_host_attn_dec_{tag}_{}", std::process::id()));
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
+    let st = Command::new("clang++")
+        .args(["-std=c++17", "-O2", "-ffp-contract=off", "-Wall", "-Wextra", "-Werror", "-pthread"])
+        .args(extra)
+        .arg(dir.join("host_attn_dec.cpp"))
+        .arg("-o")
+        .arg(&out)
+        .status()
+        .expect("clang++ must be on PATH: the attention kernel text is checked by it (rule 10)");
+    assert!(st.success(), "attn_dec.cu does not compile as host C++ through host_cta.h ({tag})");
+    out
+}
+
 /// Build the probe once for the whole test binary: cargo runs these tests as
 /// threads of one process, and each build writes the same file otherwise.
 fn probe() -> &'static std::path::Path {
     static EXE: OnceLock<std::path::PathBuf> = OnceLock::new();
-    EXE.get_or_init(|| {
-        let out = std::env::temp_dir().join(format!("llvq_host_attn_dec_{}", std::process::id()));
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
-        let st = Command::new("clang++")
-            .args(["-std=c++17", "-O2", "-ffp-contract=off", "-Wall", "-Wextra", "-Werror", "-pthread"])
-            .arg(dir.join("host_attn_dec.cpp"))
-            .arg("-o")
-            .arg(&out)
-            .status()
-            .expect("clang++ must be on PATH: the attention kernel text is checked by it (rule 10)");
-        assert!(st.success(), "attn_dec.cu does not compile as host C++ through host_cta.h");
-        out
-    })
+    EXE.get_or_init(|| build("o2", &[]))
 }
 
 fn run(input: &[u8]) -> Vec<u8> {
-    let mut ch = Command::new(probe())
+    run_with(probe(), input)
+}
+
+fn run_with(exe: &std::path::Path, input: &[u8]) -> Vec<u8> {
+    let mut ch = Command::new(exe)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -413,5 +420,32 @@ fn the_kernel_exp2_is_the_replay_exp2() {
         } else {
             assert_eq!(y.to_bits(), want.to_bits(), "ex2({x:e}) kernel {y:e} replay {want:e}");
         }
+    }
+}
+
+/// The same text under UBSan, aborting on the first report: a signed left
+/// shift of a negative exponent in `attn_ex2` computes the right bits on
+/// every machine this repository uses and is still undefined in C++17, so no
+/// value test can see it. One sweep of exp2 and launches of both unit sizes.
+#[test]
+fn the_kernel_text_has_no_undefined_behaviour() {
+    let exe = build("ubsan", &["-fsanitize=undefined", "-fno-sanitize-recover=all"]);
+    let xs: Vec<f32> = (0..20_000).map(|i| -130.0 * i as f32 / 20_000.0).collect();
+    let mut v = Vec::new();
+    u32s(&mut v, &[1, xs.len() as u32]);
+    for x in &xs {
+        v.extend_from_slice(&x.to_le_bytes());
+    }
+    let got = run_with(&exe, &v);
+    assert_eq!(got.len(), 4 * xs.len());
+    let c = attn_ref::score_scale(HD);
+    for (g, unit) in [(4, 64), (5, 32)] {
+        let l = launch(g, unit, 300, 8, true, true, 9);
+        let f = fixture(&l, 1);
+        let input = encode(&l, c, &f.q, &f.kc, &f.vc, Some((&f.kn, &f.vn)));
+        let out = decode(&l, &run_with(&exe, &input));
+        let (kc, vc) = expected_cache(&l, &f);
+        let want = attn_ref::attend(&f.q, &Kv { k: &kc, v: &vc, cap: l.cap }, l.n_kv, g, l.pos0, l.k, c, unit);
+        assert_eq!(out.out, want, "G={g} unit={unit} under UBSan");
     }
 }
