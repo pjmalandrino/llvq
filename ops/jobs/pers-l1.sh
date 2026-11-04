@@ -12,17 +12,20 @@
 # tpersall runs 256-thread CTAs at today's occupancy, tables in L1, stride 24.
 #
 # Cost, estimated (l40sx1 $1.80/h, the median of the priced jobs of 5 min or more): about 12 min,
-# $0.36 (seg-tetra-2026-11-04 ran the same bench in 270 s with four arms). Timeout 90m, because METHODE
-# §6 asks it of any planesbench with five arms or more: $2.70 at worst.
+# $0.36 (seg-tetra-2026-11-04 ran the same four-arm bench in 270 s). Timeout 30m: $0.90 at worst.
+# Four table arms, not the prereg's five: deviation E1
+# (proofs/preregistration-pers-l1-2026-11-04-ECARTS.md) drops nullk, so METHODE §6's 90-minute rule for
+# planesbench with five arms or more does not apply.
 set -euo pipefail
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$REPO"
 
 PREREG=proofs/preregistration-pers-l1-2026-11-04.md
+ECARTS=proofs/preregistration-pers-l1-2026-11-04-ECARTS.md
 IMAGE_SHA=${IMAGE_SHA:-}
 BUCKET=Pier-Jean/jobs-artifacts
 O=/out/pers-l1-2026-11-04${RETRY:+-r$RETRY}
-TIMEOUT=90m
+TIMEOUT=30m
 DRY=${DRY_RUN:-0}
 
 BALL="ball-ref-2026-09-20/qwen3-4b-llvq.bin:1770527533"
@@ -41,6 +44,7 @@ SERVED_SHA=6193094310bc18acdb0a0c554807ff45f6df09c1f6ab49e0577032874f107812
 
 if [ "$DRY" != 1 ]; then
   { test -f "$PREREG" && test -f "$PREREG.ots"; } || { echo "refused: $PREREG(.ots) missing" >&2; exit 1; }
+  test -f "$ECARTS" || { echo "refused: $ECARTS missing (the job runs four arms under E1)" >&2; exit 1; }
   for row in "$BALL" "$TETRA" "$SEALED"; do
     path=${row%%:*}; bytes=${row##*:}
     DIR=${path%/*}; NAME=${path##*/}
@@ -82,7 +86,7 @@ grep -q 'MATCH' "$O/oracle.txt"
 echo '== process 1: the bench =='
 date -u
 rc=0
-LLVQ_TILE_BLOCKS=64 LLVQ_BENCH_ARMS=slot32,planes14,fp16,nullk,tetra48 \
+LLVQ_TILE_BLOCKS=64 LLVQ_BENCH_ARMS=slot32,planes14,fp16,tetra48 \
 LLVQ_SEG_TETRA=1 LLVQ_TETRA_OCC=1 LLVQ_PERS_MICRO=1 LLVQ_DUMP_CUBIN="$O/cubin" \
   planesbench "$B" "$F" > "$O/bench.txt" 2>&1 || rc=$?
 date -u
