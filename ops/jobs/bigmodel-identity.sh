@@ -12,7 +12,7 @@
 # Identity failures are outcomes, not gates (prereg §4-5): each binary prints every comparison, and the job keeps
 # going after a mismatch so the raw output of both steps is kept. The gates are checked by grep below.
 #
-# Cost, estimated (l40sx1 $1.80/h): 10-13 min, $0.30-0.39. Ceiling 30m, $0.90.
+# Cost, estimated (l40sx1 $1.80/h): 10-13 min, $0.30-0.39. Ceiling 20m, $0.60.
 set -euo pipefail
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$REPO"
@@ -20,7 +20,7 @@ cd "$REPO"
 OBJ_DIR=sealed-4b-2026-09-23
 NAME=qwen3-4b-sealed.bin
 LOCAL=$HOME/q4b-sealed-2026-09-23/$NAME
-TIMEOUT=30m
+TIMEOUT=20m
 PREREG=proofs/preregistration-bigmodel-2-2026-11-04.md
 BUCKET=Pier-Jean/jobs-artifacts
 # RETRY=2 names a relaunch after a failed attempt left its directory behind.

@@ -1,11 +1,12 @@
 # Preregistration. The 32B wall lift on the L40S: `rot_apply_dev` and `tv_q4_hs` return the host's bytes
 
-**Not stamped, not launched.** Written on 2026-11-04 from the draft `docs/archive/debit-vague5-2026-11-02/prereg-bigmodel-2.md`,
-narrowed to the wall lift (§8 says what changed). It must be committed and TIMESTAMPED (`ots stamp`) before the
-first measurement, and the Space image rebuilt from the commit that carries it; both need the operator's go.
-Cost: **$0.30-0.39** on l40sx1 (*estimated*, §9), timeout 30 min, so $0.90 at worst. Cap proposed: **$1**, which
-covers one retry. Spent before it: $256.88 over 248 rows of the registry (*computed*, `docs/data/jobs.csv`,
-2026-11-04).
+**Written, committed and TIMESTAMPED on 2026-11-04, BEFORE the run.** Written from the draft
+`docs/archive/debit-vague5-2026-11-02/prereg-bigmodel-2.md`, narrowed to the wall lift (§8 says what changed).
+Operator go given on 2026-11-04 for three card runs, this one third ("ok pour les 3", relayed by the session that
+ordered the work). The Space image is rebuilt from the commit that carries this file, after the two runs that go
+first. Cost: **$0.30-0.39** on l40sx1 (*estimated*, §9). Timeout 20 min, so **$0.60** at worst (*computed*). No retry
+without a new go. Spent before it: $260.89 over 250 rows of the registry (*computed*, `docs/data/jobs.csv`,
+2026-11-04), before the two runs that precede this one.
 
 ## 1. Why this run exists
 
@@ -26,14 +27,18 @@ Otherwise no job.
 
 - R0 and its rows twin in a unit of their own (`llvq_rot.cuh` then `rotate_wide.cu`), and `tv_q4_hs` in a unit of its
   own (`llvq_slot.cuh`, `matvec.cu`, `tv_q4_h.cu`, `tv_q4_wide.cu`). `llvq_rot.cuh`, `rotate.cu`, `tv_q4_h.cu` and
-  `llvq_rot.metal` are byte-identical to `validation/vague1` (030747b), so the served unit's printed sha256 does not
-  move.
+  `llvq_rot.metal` are byte-identical to `validation/vague1` (030747b, and a87f40a, merged in), so the served unit's
+  printed sha256 does not move.
+- The Linux half of `llvq-llm` (`--features cuda`, `fused_cuda.rs`, `fusedrun`) passes `cargo clippy --all-targets`
+  for `x86_64-unknown-linux-gnu` with zero warnings, checked on the Mac by `ops/check-linux-on-mac.sh` (a stub
+  `nvcc` writes empty PTX for candle's build script). A type error planted in `fused_cuda.rs`, then in `fusedrun.rs`,
+  failed that check.
 - `llvq_cuda::wide`: `rot_kernel` answers `Device` exactly where `shared::rot_plan` refuses; `int4_staging` and
   `int4_entry_bytes` give each int4 entry point its own size. Tests pin the served 4B, 8B and 14B on today's kernels
   and sizes on L40S, A100 and H200 bounds (`fused::tests::the_served_models_keep_todays_kernels_after_the_wall_lift`).
 - `llvq-cuda/tests/fixtures/rot-hashes.txt`: per card width, the sha256 of the input bytes (f16 activation, sign
-  words, KMAX × KMAX padded `small`, `inv`) and of `rot_apply`'s output on the host. `llvq-llm/tests/fixtures/q4-wide-hashes.txt`:
-  the sha256 of `tv_q4_hs`'s output on three synthetic records. Both compiled in with `include_str!`, because the
+  words, KMAX × KMAX padded `small`, `inv`) and of `rot_apply`'s output on the host.
+  `llvq-llm/tests/fixtures/q4-wide-hashes.txt`: the sha256 of `tv_q4_hs`'s output on three synthetic records. Both compiled in with `include_str!`, because the
   runtime image holds binaries, `fetch-qtip.sh` and `configs/` only; a missing file fails the free image build. Both
   sit under `llvq-*/**`, in `UPLOAD_ALLOW`. No binary is added, so neither list of `ops/Dockerfile.cuda` moves.
 - `rotbench` extended, and `fusedrun` gains the measurement mode `LLVQ_INT4_WIDE_CHECK=1`, refused beside
@@ -144,8 +149,9 @@ near 1. At 31,744 the mix runs k = 31 of its 32 terms on 1,024 columns, against 
 
 *Estimated* on l40sx1 at $1.80/h: container and image pull 3 min, oracle 2 min, `rotbench` 2-4 min (2 kernels at 14
 widths, 5 × 220 launches each, under 2 s of GPU in all, plus 3 module loads), `fusedrun` step 4 3-4 min with the 4B's
-load. With the job's setup that makes 10-13 min, **$0.30-0.39**. Timeout 30 min, **$0.90** at worst. Anchor:
-`gqa-ab-4b`, 10 billed min, $0.29. The Space rebuild from the commit is free and comes first.
+load. With the job's setup that makes 10-13 min, **$0.30-0.39**. Timeout 20 min, **$0.60** at worst, which leaves
+7 min over the high estimate. A timeout is an outcome: the raw output kept so far is read, and a relaunch needs a new
+go. Anchor: `gqa-ab-4b`, 10 billed min, $0.29. The Space rebuild from the commit is free and comes first.
 
 ## 10. What this run does not establish
 
