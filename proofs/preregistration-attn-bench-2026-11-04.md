@@ -1,10 +1,11 @@
-# Preregistration. The split-KV attention kernel alone: identity, read rate, verify cost, unit size
+# Preregistration. The split-KV attention kernel: alone (identity, read rate, verify cost, unit size), then in the served 4B
 
-**Finalized on 2026-11-04. NOT TIMESTAMPED, operator go to launch NOT GIVEN.** Stamp it with OpenTimestamps
-before the first measurement (rule 2); after the stamp this file is never edited, a deviation goes beside it in
-`proofs/preregistration-attn-bench-2026-11-04-ECARTS.md`. Cost: **$0.18 to $0.24** a run on l40sx1, *estimated*
-in §8, timeout 25 min, so $0.75 at worst. Cap asked: **$1**, which covers a second run after one bit-neutral
-revision through `LLVQ_KERNEL_DIR`. Spent before it: $256.88 over 248 rows of the registry, 5 rows unpriced
+**Finalized on 2026-11-04, timestamped with OpenTimestamps before the first measurement (rule 2).** After the
+stamp this file is never edited; a deviation goes beside it in
+`proofs/preregistration-attn-bench-2026-11-04-ECARTS.md`. Operator go: given on 2026-11-04, relayed by the
+session of the throughput audit with the operator's words ("go", in reply to a card measurement of about $1 to $2
+for three sessions), for this run under a worst case of $1.00. Cost: **about $0.63**, *estimated* in §8, timeout
+33 min, so **$0.99 at worst**. No second run is covered by this go. Spent before it: $256.88 over 248 rows of the registry, 5 rows unpriced
 (*computed* from `docs/data/jobs.csv` on 2026-11-04).
 
 It descends from the draft `docs/archive/debit-vague5-2026-11-02/prereg-attention-2a.md`. What changed from that
@@ -65,7 +66,8 @@ spills and speed.
 ## 3. What runs
 
 One image built from the commit that carries this file and `bin/attnbench` (in both lists of
-`ops/Dockerfile.cuda`). One job, l40sx1: `ops/jobs/attn-bench.sh`. No artifact is loaded.
+`ops/Dockerfile.cuda`). One job, l40sx1: `ops/jobs/attn-bench.sh`. Steps 1 and 2 load no artifact; step 3 loads
+the sealed 4B (`sealed-4b-2026-09-23/qwen3-4b-sealed.bin`, sha256 checked against the Mac's copy).
 
 1. **Oracle** on Qwen3-0.6B, rule 10.
 2. **`attnbench 2048,4096,8192`**, which prints in order:
@@ -84,8 +86,20 @@ One image built from the commit that carries this file and `bin/attnbench` (in b
       - **V-32**: unit 32, a different canonical arithmetic with its own replay (`attn_dec_g4_u32`,
         `attn_dec_g5_u32`).
 
+3. **In the served 4B**, the served door's one measurement mode: `LLVQ_CONFIG=<c> LLVQ_CONTEXTS=5,2048,4096,8192
+   fusedrun <sealed 4B> 256`, two arms one after the other, the kernel arm first:
+   - **kernel**: `configs/qwen3-4b-tetra-e4-grouped.json` with `"attention": "kernel"` and its note replaced,
+     written by the job from the launch command and checked by sha256; it is NOT a file of `configs/` and
+     changes no served default. Its load prints the kernel's provenance, register report and load-time
+     identity check (§2) before any token;
+   - **grouped**: `configs/qwen3-4b-tetra-e4-grouped.json` as served, at its bytes, the same-job baseline.
+   Each prints, per prompt length, the time to the first token and the decode tok/s after it, median and range
+   over 5 timed rounds after 1 discarded, tokens identical across rounds. Prompts of more than 8 rows prefill
+   through the grouped path in both arms (4,096-row chunks), so the two arms differ in decode attention only.
+
 Derived, *computed*: η_k(L) = sets x 4,096 x L / (t x 864 GB/s); r_k(L) = t(k) / t(1); both formed round by
-round, medians with ranges (rule 7).
+round, medians with ranges (rule 7). In step 3 the two arms run in sequence, not interleaved, so their speed
+ratio is given as the interval [min kernel / max grouped, max kernel / min grouped] beside the two medians.
 
 ## 4. Gates, each one voids the run
 
@@ -94,6 +108,10 @@ round, medians with ranges (rule 7).
 3. The identity lines and the timing table (48 rows) are printed in full.
 4. No `LLVQ_*` variable is in the job environment, except `LLVQ_KERNEL_DIR` on an iteration, whose source sha256
    the source line prints.
+5. Step 3: each arm's load prints its served config line (`attention kernel on grow(256)`, `attention grouped
+   on grow(256)`), the int4 parity line and the served tile; the kernel arm prints the load-time identity line;
+   each sweep prints four lengths. A kernel arm that fails to load voids step 3 only, and the grouped arm is
+   then not run.
 
 ## 5. Signed predictions
 
@@ -109,6 +127,8 @@ round, medians with ranges (rule 7).
 | r_8(2,048), V-64, G = 4 | **2.5** | [1.2, 6.0] |
 | η_k(8,192) at G = 5 over G = 4, V-64 | **0.90** | [0.70, 1.05] |
 | t(V-32) / t(V-64) at 2,048, k = 1, G = 4 | **0.95** | [0.75, 1.15] |
+| step 3, kernel arm, decode tok/s at 5 / 2,048 / 4,096 / 8,192 | **136 / 125 / 117 / 104** | [128, 142] / [108, 134] / [95, 128] / [80, 116] |
+| step 3, grouped arm, the same | **134.5 / 113.8 / 98.0 / 77.5** | each within ±2 % (`served-grouped-2026-11-02`) |
 
 Reasoning, *estimated*. FlashInfer reached 0.810 at 8,192 with 16 lanes of 8 dims, splits of at least 256 and
 cp.async staging. Ours stages with plain 16-byte loads one step ahead in registers, computes each exp2 in all 16
@@ -144,6 +164,9 @@ Readings for the build, evaluated in this order. None is a gate, none pronounces
 6. **The 14B's cores.** η_k(8,192) at G = 5 over G = 4, chosen variant, at least 0.85: the 14B plans CUDA cores.
    Below 0.85: the 14B's choice goes to its own in-situ step, with this ratio and the FlashInfer tensor-core arms
    as input. Otherwise: no 14B figure is read.
+7. **In the served 4B (step 3).** Informative only: the speed gate of the lead is the in-situ A/B of
+   `prereg-attention-2`, interleaved, after the freeze. The tok/s of both arms go to the operator as measured;
+   no served default changes, and no T8 starts, on this run.
 
 ## 7. Deviations
 
@@ -151,17 +174,16 @@ Any departure from this file after the stamp goes in `proofs/preregistration-att
 
 ## 8. Cost
 
-*Estimated* on l40sx1 at $1.80/h. Container and image pull 3 min, oracle 2 min. Identity: 4 load-time checks
-(18 cases each, replays in parallel threads) and 48 bench cases whose replays reach 8 rows x 40 heads x 8,192
-positions, about 0.3 s each on the host side; seconds of card. Timing: 48 configurations x 9 rounds of passes of
-1 to 10 ms, under 5 s. Uploads: 40 x 2 sets of 16.8 MB. In all 6 to 8 min, **$0.18 to $0.24**. Anchor:
-`fi-decode-anchor` ran 69 s of card for $0.03 after 713 s of queue, unbilled (`docs/data/jobs.csv`). Timeout
-25 min, **$0.75** at worst.
+*Estimated* on l40sx1 at $1.80/h. Container and image pull 3 min, oracle 2 min. Bench: identity (4 load-time
+checks, 48 cases whose replays reach 8 rows x 40 heads x 8,192 positions, about 0.3 s each on the host) and
+timing (48 configurations x 9 rounds of passes of 1 to 10 ms), about 2 min. Step 3: one sweep of four lengths
+took 7.1 min per arm in `served-grouped-2026-11-02` (job log, 07:47:34 to 07:54:41), two arms 14 min. In all
+about 21 min, **$0.63**. Timeout 33 min, **$0.99** at worst, under the $1.00 of the go.
 
 ## 9. What this run does not establish
 
-- The decode step in the model: candle's launches around the kernel, the cache append, the q and k norms and
-  RoPE. The in-situ A/B measures them.
+- The kernel's speed against the grouped form round by round: step 3 runs the arms in sequence. The
+  interleaved in-situ A/B (`prereg-attention-2`) measures that.
 - Quality. The kernel is not bit for bit with the grouped form (cuBLAS's order, and today's f16 softmax); its
   licence is a T8 control: paired perplexity within ±0.12 % at 4,096 and 8,192 and a task check, the operator's
   decision, prepared and never granted here.
@@ -179,3 +201,4 @@ positions, about 0.3 s each on the host side; seconds of card. Timing: 48 config
 | prologue parity probe, step 5 | dropped | §9 |
 | predictions | recentred | the first version re-stages the tiles for each verify row and runs the allreduce tree; §5 |
 | rule 2 (mapping choice) | rule 2 (spills) | one mapping is built |
+| kernel only | plus a served-door sweep of the 4B, two arms (step 3) | the operator asked for tok/s beside η, under the same $1.00 |
