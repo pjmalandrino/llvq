@@ -1,0 +1,9 @@
+{
+  "layout": "tetra48",
+  "embed": "q4",
+  "rot_share": "1",
+  "fuse": "0",
+  "kv": "f16",
+  "attention": "grouped",
+  "note": "The qwen3-14b-tetra-e4 object (qwen3-14b-sealed.bin, sha256 61db37fe), served with the grouped attention: the cached key and value heads are read where they lie, on a Grow(256) store, with no repeat_kv copy, in groups of 5. Decodes the 14B at 63.1 tok/s after a 5-token prompt and 45.3 at 8,192 of context against 59.2 and 21.2 for the expanded form (measured, gqa-14b-2026-11-04). Not bit for bit on the card past 5 tokens: licensed by the tolerance of ETAT section 4, granted at 14B by the operator on 2026-11-04 on condition of a light MMLU check, paired WikiText-2 perplexity +0.0000 % by prefill and +0.0023 % [-0.0062 ; +0.0109] by decode against a band of +-0.12 % (measured, gqa-14b-2026-11-04). Measured on the L40S only; Metal refuses this form by name."
+}
