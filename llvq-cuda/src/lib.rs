@@ -66,6 +66,16 @@ pub mod qtip_host;
 // the policy are all tested here, where tests are free.
 pub mod tile;
 
+// Portable for the reason `shared` is: which kernel a width gets once
+// `rot_apply` or the int4 matvec no longer fits one block, and the fixture the
+// card's rotation is compared against. The rule it encodes, a width keeps
+// today's kernel whenever today's kernel runs it, is what keeps the served
+// objects where they are, so it is tested where tests are free.
+pub mod wide;
+
+// Portable so the Mac host test and the card hash with the same code.
+pub mod sha256;
+
 /// f32 → binary16 bits, round to nearest even.
 ///
 /// Portable on purpose, unlike everything else in this file: the rotation
@@ -176,6 +186,10 @@ pub const MATVEC_CU: &str = include_str!("../kernels/matvec.cu");
 pub const FLOOR_CUH: &str = include_str!("../kernels/llvq_floor.cuh");
 pub const ROT_CUH: &str = include_str!("../kernels/llvq_rot.cuh");
 pub const ROTATE_CU: &str = include_str!("../kernels/rotate.cu");
+/// `rot_apply_dev`, the rotation staged in device memory, for widths whose
+/// staging passes the card's shared-memory ceiling. A unit of its own,
+/// `llvq_rot.cuh` then this file, so the served unit's text does not move.
+pub const ROTATE_WIDE_CU: &str = include_str!("../kernels/rotate_wide.cu");
 pub const E1V_CUH: &str = include_str!("../kernels/llvq_e1v.cuh");
 pub const E1V_CU: &str = include_str!("../kernels/e1v.cu");
 pub const NULLK_CU: &str = include_str!("../kernels/nullk.cu");
@@ -307,6 +321,7 @@ pub fn embedded_source(name: &str) -> Result<&'static str, String> {
         "planes.cu" => Ok(PLANES_CU),
         "llvq_rot.cuh" => Ok(ROT_CUH),
         "rotate.cu" => Ok(ROTATE_CU),
+        "rotate_wide.cu" => Ok(ROTATE_WIDE_CU),
         other => Err(format!("no embedded copy of {other}")),
     }
 }
