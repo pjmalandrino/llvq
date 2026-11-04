@@ -409,7 +409,7 @@ fn int4_rows_are_the_served_rows() {
     assert!(run(&b, &cmd) == want, "the fused dequantization differs: the exactness argument is wrong");
     let b = mutant("q4_group", "llvq-cuda/kernels/llvq_pers.cuh", "const u32 g = s0 + (c >> 7);", "const u32 g = s0 + (c >> 6) / 2u + (wi & 1u);");
     assert!(run(&b, &cmd) != want, "a wrong group index survived");
-    let b = mutant("q4_lane_order", "llvq-cuda/kernels/llvq_pers.cuh", "for (u32 wi = lane; wi < nwords; wi += 32u) {\n        const u32 p = wq[w0 + wi];", "for (u32 wi = nwords - 1u - lane; wi < nwords; wi -= 32u) {\n        const u32 p = wq[w0 + wi];");
+    let b = mutant("q4_lane_order", "llvq-cuda/kernels/llvq_pers.cuh", "for (u32 wi = lane; wi < nwords; wi += 32u) {\n        const u32 p = wq[w0 + wi];\n        const u32 c = wi << 3;\n        const u32 g", "for (u32 wi = nwords - 1u - lane; wi < nwords; wi -= 32u) {\n        const u32 p = wq[w0 + wi];\n        const u32 c = wi << 3;\n        const u32 g");
     assert!(run(&b, &cmd) != want, "a reversed int4 lane order survived");
 }
 
