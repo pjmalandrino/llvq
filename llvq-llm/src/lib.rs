@@ -12,6 +12,9 @@
 pub mod artifact;
 pub mod artifact2;
 pub mod argmax_key;
+pub mod attn;
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+pub mod attn_cuda;
 pub mod calib;
 pub mod chatfmt;
 pub mod corpus;

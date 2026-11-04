@@ -95,6 +95,11 @@ const UNITS: [(&str, &[&str], &str); 30] = [
         &["llvq_rot.cuh", "rotate_wide.cu"],
         "the rotation staged in device memory, past the shared ceiling (its own unit)",
     ),
+    (
+        "attn_dec.cu",
+        &["attn_dec.cu"],
+        "split-KV decode attention: its own unit, includes nothing",
+    ),
     ("e1v.cu", &["e1v.cu"], "the fused matvec, E1v row-aligned (P1c)"),
     ("nullk.cu", &["nullk.cu"], "the floor: same pass, no weight read (P4)"),
     (
@@ -445,6 +450,7 @@ const TABLE_SHIPPED: [&str; 23] = [
     "llvq_rot.cuh",
     "rotate.cu",
     "rotate_wide.cu",
+    "attn_dec.cu",
     "f1floor.cu",
     "llvq_f1rank.cuh",
     "f1rank.cu",

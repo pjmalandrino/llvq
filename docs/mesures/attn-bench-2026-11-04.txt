@@ -1,0 +1,90 @@
+Split-KV decode-attention kernel on the L40S, 2026-11-04
+
+Result: the card returns the CPU replay's bits on every call checked, for all four entry points (*measured*).
+In the served 4B, the kernel decodes at 95.8 tok/s at 8,192 positions against 78.0 for the grouped form in the
+same job, x1.23 [1.225-1.229], and at 126.8 against 136.2 after a 5-token prompt, x0.93 [0.930-0.932]
+(*measured*). Alone, it reads the cache at eta 0.406 of 864 GB/s at 8,192, half of FlashInfer's 0.810 on the same
+card (*measured*, rule 5: both against this card's 864 GB/s). A verify call of 8 rows costs 6.3 decode calls.
+
+Job      : 6aeb53b2c78863f9c632ac21, l40sx1, 15.5 min running (15:54:32 to 16:10:01 UTC), $0.46 (*computed* at
+           $1.80/h on running time). Estimated $0.63, ceiling $0.99. Operator go of 2026-11-04 (relayed "go", then
+           "Yes, launch it" in this session).
+Prereg   : proofs/preregistration-attn-bench-2026-11-04.md, sha256 32ab7884..., OpenTimestamps stamped and committed
+           (d269f6b) before the launch.
+Image    : Space Pier-Jean/llvq-runner-cuda at 9c5e935dba6e7aeb2df44b4dac250d0c9a96869a, built from d269f6b
+           (branch claude/quizzical-kowalevski-38c5fc).
+Card     : NVIDIA L40S, sm 8.9, 46,068 MiB, driver 580.178.04, 2,520 MHz. Oracle: MATCH, max |dhidden| 0.
+Kernel   : attn_dec.cu embedded, sha256 4091cbfa..., compute_89.
+Object   : qwen3-4b-sealed.bin, 1,418,224,685 B, sha256 886391a8... on the mount = the Mac's copy. Configs written
+           by the job: kernel d74ea29a... (measurement only, not in configs/), grouped 2455fe85... (the served file).
+Raw      : attn-bench-2026-11-04-brut/ (attnbench.txt, sweep-kernel.txt, sweep-grouped.txt, job.log, ...).
+
+1. Registers and identity (*measured*)
+  entry point        registers  spill  static shared  identity
+  attn_dec_g4_u64    161        0 B    16,384 B       pass: 103 load-check calls + 12 (L, k) x 2 grids + verify rows
+  attn_dec_g5_u64    189        0 B    16,384 B       pass, same
+  attn_dec_g4_u32    255        24 B   32,768 B       pass, same
+  attn_dec_g5_u32    255        112 B  32,768 B       pass, same
+  The served path's own load in step 3 printed the same 103-call check, in 1.2 s.
+
+2. The kernel alone: one pass = 36 eager launches (G = 4, 4B geometry) or 40 (G = 5, 14B geometry), 8 KV heads,
+   cold L2. Median [min-max] over 7 rounds (*measured*); eta and r_k formed round by round (*computed*).
+  variant  L      t(k=1) ms                eta_k(k=1)             r_2     r_4     r_8
+  g4_u64   2048   1.5220 [1.5181-1.5254]   0.230 [0.229-0.230]    1.898   3.699   7.312
+  g4_u64   4096   1.9614 [1.9602-1.9667]   0.356 [0.355-0.357]    1.899   3.705   7.318
+  g4_u64   8192   3.4450 [3.4422-3.4556]   0.406 [0.405-0.406]    1.756   3.265   6.287
+  g4_u32   2048   1.7370 [1.7341-1.7400]   0.201 [0.201-0.202]    1.842   3.529   6.907
+  g4_u32   8192   3.8204 [3.8151-3.8234]   0.366 [0.366-0.366]    1.716   3.158   6.037
+  g5_u64   2048   2.2536 [2.2504-2.2556]   0.172 [0.172-0.173]    1.928   3.790   7.516
+  g5_u64   8192   4.3731 [4.3629-4.3881]   0.355 [0.354-0.356]    1.864   3.594   7.078
+  g5_u32   8192   5.0818 [5.0804-5.0940]   0.306 [0.305-0.306]    1.771   3.313   6.389
+  Full table: attn-bench-2026-11-04-brut/attnbench.txt (48 rows).
+  A pass at 2,048 costs 1.52 ms, 42 us a launch, against 0.53 ms for FlashInfer's whole pass at the same length
+  (fi-decode-anchor-2026-11-04, *measured*): the kernel's fixed cost per layer dominates short contexts.
+
+3. In the served 4B: LLVQ_CONTEXTS=5,2048,4096,8192 beside each config, 256 new tokens, 1 discarded + 5 rounds,
+   the two arms one after the other (*measured*).
+  prompt   to first token s      kernel tok/s           grouped tok/s          kernel/grouped [min/max, max/min]
+  5        0.02 / 0.02           126.8 [126.7-126.8]    136.2 [136.1-136.2]    [0.930, 0.932]
+  2048     8.12 / 8.15           118.6 [118.5-118.7]    115.2 [115.2-115.2]    [1.029, 1.030]
+  4096     16.90 / 16.91         112.7 [112.3-112.9]    98.9 [98.7-99.0]       [1.134, 1.144]
+  8192     34.76 / 34.85         95.8 [95.7-95.9]       78.0 [78.0-78.1]       [1.225, 1.229]
+  ms a decode token: kernel 7.89 / 8.43 / 8.88 / 10.44, grouped 7.34 / 8.68 / 10.11 / 12.81.
+  The grouped arm reproduces served-grouped-2026-11-02 (134.5 / 113.8 / 98.0 / 77.5) within +0.6 to +1.3 %.
+  Prompts above 8 rows prefill through the grouped path in both arms: same time to the first token.
+
+Predictions of the prereg (section 5), against the measurement
+  identity pass: pass. Spill V-64: 0 at G 4 and 5, inside.
+  registers V-64 G=4: 110 [80, 168] -> 161, inside. V-32 G=5: 180 [120, 255] -> 255 with 112 B of spill, at the bound.
+  eta_k(8,192) V-64 G=4: 0.62 [0.35, 0.85] -> 0.406, inside. eta_k(2,048): 0.45 [0.20, 0.75] -> 0.230, inside.
+  r_8(8,192): 2.2 [1.2, 4.5] -> 6.29, OUTSIDE. r_8(2,048): 2.5 [1.2, 6.0] -> 7.31, OUTSIDE.
+  eta G=5 over G=4 at 8,192: 0.90 [0.70, 1.05] -> 0.874 (*computed* from medians), inside.
+  t(V-32)/t(V-64) at 2,048: 0.95 [0.75, 1.15] -> 1.141, inside.
+  kernel arm tok/s: 136 [128, 142] -> 126.8, OUTSIDE (below); 125 [108, 134] -> 118.6, 117 [95, 128] -> 112.7,
+  104 [80, 116] -> 95.8, inside. Grouped arm within +-2 %: inside at all four.
+
+Rule reading (prereg section 6)
+  1. Identity: every variant passes. Nothing excluded on this ground.
+  2. Spills: V-64 has none at G 4 and 5; the served path loads it. V-32 spills at both G.
+  3. Unit size: V-32 is 14.1 % slower at 2,048 and spills: UNIT = 64. Proposal: freeze the canonical constants
+     (TT 8, UNIT 64, SPLIT 256, the 8-4-2-1 tree, the exp2 coefficients of attn_ref.rs) in one commit before
+     prereg-attention-2 is stamped.
+  4. Read rate: eta_k(8,192) = 0.406 >= 0.40, by 0.006: the in-situ A/B may proceed. The margin is thin, and the
+     5-token loss (x0.93) sits under the lead's stop line (5-token median < 0.97, attention.md section 5, V4b).
+     Proposal, the decision being the operator's: one bit-neutral revision of the fixed cost and of the memory
+     pipeline through LLVQ_KERNEL_DIR before the A/B is stamped.
+  5. Verify: r_8(8,192) = 6.29 > 1.5. The speculation lead's slope is recomputed with the measured r_k, and a
+     mapping that stages each tile once for all rows of a verify call is built before the speculation floor is
+     costed.
+  6. 14B: 0.874 >= 0.85: the 14B plans CUDA cores.
+  7. Served 4B: informative. No served default changed, no T8 started.
+
+Not established
+  Why the kernel reaches half of FlashInfer's rate, and why its short-context cost is 42 us a launch: no
+  profiler ran. Candidates, *estimated*: the 16-lane polynomial exp2 and shuffle tree in every lane, two
+  barriers a step with one step of loads in flight, the per-CTA unit fold and the last CTA's serial split fold;
+  in the model, the q copy and the two cache writes candle still launches. Speed against the grouped form round
+  by round (the arms ran in sequence). Quality: the kernel is not bit for bit with the grouped form; its licence
+  is the operator's T8 decision, not granted. The 8B and 14B in situ.
+
+Spent: $0.46. Registry: 249 rows, $257.34, 5 unpriced (*computed*, docs/data/jobs.csv on this branch).

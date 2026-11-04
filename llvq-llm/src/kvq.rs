@@ -368,6 +368,8 @@ mod tests {
         assert_eq!(AttnHeads::parse(None).unwrap(), AttnHeads::Expanded);
         assert_eq!(AttnHeads::parse(Some("expanded")).unwrap(), AttnHeads::Expanded);
         assert_eq!(AttnHeads::parse(Some("grouped")).unwrap(), AttnHeads::Grouped);
+        assert_eq!(AttnHeads::parse(Some("kernel")).unwrap(), AttnHeads::Kernel);
+        assert_eq!(AttnHeads::Kernel.label(), "kernel");
 
         // Empty is refused, and so is whitespace: "  " trimmed is "", and a
         // field nobody wrote must not read as a value.
@@ -392,6 +394,9 @@ mod tests {
         assert_eq!(AttnHeads::Expanded.store(), KvStore::Cat);
         assert_eq!(AttnHeads::Grouped.store(), KvStore::Grow(GROW_CHUNK));
         assert_eq!(AttnHeads::Shared.store(), KvStore::Grow(GROW_CHUNK));
+        assert_eq!(AttnHeads::Kernel.store(), KvStore::Grow(GROW_CHUNK));
+        // The kernel stages whole splits: the chunk must be a multiple of one.
+        assert_eq!(GROW_CHUNK % crate::attn::canon::SPLIT, 0);
         // The chunk the A/B of 2026-11-01 ran, named once.
         assert_eq!(GROW_CHUNK, 256);
     }
@@ -484,12 +489,19 @@ pub const GROW_CHUNK: usize = 256;
 ///   one matmul per key head, which reads each cached byte once. The matmul
 ///   shape differs from the expanded one, so its rounding may too: on the CPU
 ///   a decode step moves the logits by about one unit in the last place.
+/// - `Kernel` sends decode and verify rows (up to 8 a call, batch 1) to the
+///   split-KV decode-attention kernel, `crate::attn`: one launch a layer, an
+///   f32 online softmax with explicit rounding. Every other call (a prefill
+///   chunk, a batch) takes the grouped path, which writes the same cache
+///   bytes. It is NOT bit for bit with `Grouped` on the rows it takes: its
+///   licence is a T8 decision of the operator's, not granted.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum AttnHeads {
     #[default]
     Expanded,
     Shared,
     Grouped,
+    Kernel,
 }
 
 impl AttnHeads {
@@ -499,6 +511,7 @@ impl AttnHeads {
             Self::Expanded => "expanded",
             Self::Shared => "shared",
             Self::Grouped => "grouped",
+            Self::Kernel => "kernel",
         }
     }
 
@@ -524,9 +537,10 @@ impl AttnHeads {
             None => Ok(Self::Expanded),
             Some("expanded") => Ok(Self::Expanded),
             Some("grouped") => Ok(Self::Grouped),
+            Some("kernel") => Ok(Self::Kernel),
             Some(s) if s.trim().is_empty() => Err(
-                "attention is empty. Write \"expanded\" or \"grouped\", or delete the \
-                 field — absent means \"expanded\", the published form."
+                "attention is empty. Write \"expanded\", \"grouped\" or \"kernel\", or \
+                 delete the field — absent means \"expanded\", the published form."
                     .to_string(),
             ),
             Some("shared") => Err(
@@ -537,7 +551,7 @@ impl AttnHeads {
             ),
             Some(other) => Err(format!(
                 "attention {other:?}: accepted values \"expanded\" (the published form, \
-                 also what an absent field means) or \"grouped\""
+                 also what an absent field means), \"grouped\" or \"kernel\""
             )),
         }
     }
@@ -553,7 +567,9 @@ impl AttnHeads {
     pub fn store(&self) -> KvStore {
         match self {
             Self::Expanded => KvStore::Cat,
-            Self::Shared | Self::Grouped => KvStore::Grow(GROW_CHUNK),
+            // `Kernel` reads the `Grow` buffers in place: whole splits of 256
+            // positions, which a capacity in whole chunks of 256 guarantees.
+            Self::Shared | Self::Grouped | Self::Kernel => KvStore::Grow(GROW_CHUNK),
         }
     }
 }
