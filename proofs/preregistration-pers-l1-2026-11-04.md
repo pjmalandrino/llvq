@@ -34,6 +34,14 @@ Two of the draft's questions are already answered and leave this run: the PTX pr
 358 GB/s scalar cap at NVVM level) and the Tetra fusion check (*measured*, `seg-tetra-2026-11-04.txt`: 72 of 72 groups
 bit for bit, fusion gain 0.763 ms [0.748-0.767]). The fusion is now this run's reference geometry, not its question.
 
+**The target this run must speak to** (operator, 2026-11-04): the sealed 4B at 300 tok/s or more after a short
+prompt on the L40S, the bar of a credible 2-bit format. llama.cpp IQ2_XXS reaches 312.85 tok/s on the 4B on this card
+(*measured*, job m4-iq2-cuda-debit, 2026-08-30); no ratio is formed across stacks (rule 5). Route P alone is estimated
+at 221-298 tok/s, 4E at 339-394 (persistent.md §1): route P is a step toward 4E, and everything built here is reused
+by 4E (the row, rotation, norm, head and argmax functions of `llvq_pers.cuh`, the barrier, the ledger, the schedule).
+So this first card reading must say early whether route P's trajectory clears 250 tok/s, and whether 4E's clears 300
+(rule H).
+
 It is a measurement. No rule of §7 adopts or kills anything; a kill stays the operator's (METHODE §1).
 
 **Primary quantity**, on the served object: the decode time one added kernel boundary costs inside the served 4B, per
@@ -130,6 +138,10 @@ Each invalidates one arm, never the job:
   x1; underfill = split@half − split@wave; dispatch = emptygrid x1 − empty x1; linearity of empty x4 against x1.
 - The cubins and their sha256, each kernel's registers. Their SASS is read off the card afterwards (rule F).
 - The table, as a coherence check only: the bench unit is unchanged, the process is not the published one.
+- **The projection of rule H**: `python3 -I ops/pers_projection.py --bpa <B_pa> --bar <142 x 768 barrier> --launch
+  <empty x1> --coop <cooperative minus normal> --drain <drain and ramp>`, its output pasted in the journal: route P and
+  4E in tok/s, each a range (B_T from 0.85 B_pa to B_pa, the wait from the barrier to 1.5 times it), *estimated*.
+  With this file's predicted inputs it gives route P [208, 235] and 4E [260, 304] tok/s (a dry run, *estimated*).
 
 ## 6. Hypotheses and signed predictions
 
@@ -191,6 +203,13 @@ The readings inform the operator. None closes a lead. Each rule ends with an oth
   become its main question. Otherwise they stay controls with a prior of no effect. Separately, an FFMA at each of the
   three sites confirms the persistent kernel's spelling; a split FMUL + FADD at a site means the driver's ptxas
   differs from NVVM's PTX there, and the persistent kernel is re-spelled before L2.
+- **H, the target.** From the projection of §5. If route P's upper end is under 250 tok/s, route P is put to the
+  operator as a step toward 4E only, and L2 is reordered to read what 4E needs first (`pchain_w`'s h and the best
+  stream rate). If its whole range clears 250, route P's step A A/B (L3) is proposed after L2. Otherwise both stand.
+  Separately: if 4E's upper end is under 300 tok/s, the persistent path does not reach the operator's target on these
+  inputs, and the reading names the binding term (the stream needs about 490 GB/s or more (1.377 GB in 2.83 ms) at 0.5 ms
+  of fixed cost, *computed*; or the fixed term). If 4E's whole range clears 300, 4E is the route to plan. Otherwise
+  4E's range straddles 300 and L2's B_T decides.
 - **G.** A prediction that misses is reported as a miss, with the model term it refutes. No threshold moves after the
   clock.
 
