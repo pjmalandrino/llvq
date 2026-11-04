@@ -137,7 +137,7 @@ test "$(grep -cE '^  m[1-9] .*: [0-9] edit\(s\), each found once; killed, ' "$A"
 grep -qE '^P3 kernel time, us a launch ' "$A"
 grep -qE '^P4 host time behind a 5 ms spin, ms ' "$A"
 grep -qF '5 arms × 5 interleaved rounds after 2 discarded, 256 identical tokens in every arm and round' "$A"
-test "$(grep -cE '^ +[a-z-]+ / [a-z0-9]+ +[0-9.]+ \[' "$A")" = 5
+test "$(grep -cE '^ +[a-z0-9-]+ / [a-z0-9]+ +[0-9.]+ \[' "$A")" = 5
 grep -qE '^clock E, ms a decode step ' "$A"
 grep -qE '^clock H/D: [0-9]+ of 315 spun steps valid' "$A"
 echo 'gate 6: the A/B printed every line its prereg names'

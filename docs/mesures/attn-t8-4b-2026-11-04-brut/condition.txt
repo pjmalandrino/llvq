@@ -1,0 +1,9 @@
+  prompt   kernel tok/s [range]     grouped tok/s [range]    medians k/g   in situ [min k/max g, max k/min g]
+       5    127.1 [127.1-127.2]    135.1 [135.0-135.2]   0.9408        [0.9401, 0.9422]
+     256    122.9 [122.9-123.0]    132.0 [131.9-132.0]   0.9311        [0.9311, 0.9325]
+    2048    121.0 [120.5-121.7]    114.6 [114.3-114.8]   1.0558        [1.0497, 1.0647]
+    4096    118.0 [117.8-118.1]     98.6 [98.4-98.7]   1.1968        [1.1935, 1.2002]
+    8192    104.2 [104.1-104.5]     77.7 [77.5-77.8]   1.3411        [1.3380, 1.3484]
+stop line, 5 tokens: medians kernel/grouped 0.9408, < 0.97
+stop line, 8,192: upper end of the in-situ range 1.3484, >= 1.00
+T8 condition: not met (the lead stop line)

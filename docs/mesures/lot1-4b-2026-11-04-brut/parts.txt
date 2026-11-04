@@ -1,0 +1,4 @@
+PART gestures: exit 1
+PART bigmodel: exit 0
+PART attn-r2: exit 0
+PART attn-t8: exit 0

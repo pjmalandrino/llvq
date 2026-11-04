@@ -1,0 +1,90 @@
+NVRTC source: 22932 bytes, sha256 0d4b1ee62ffca22c63d3345992615de2b8094450253cbb934840e6af2e8e4ea7
+fixture: 14 lines, sha256 bfbd39f871ccaa912fa6b7ce95114da5dccd6b3d345b6552b8b02ce996dd91d4
+
+NVIDIA L40S: 142 SM, 49152 B of shared memory per block by default, 101376 after opt-in
+  rot_apply             47 registers, 0 local B, sm_89, 1024 max threads
+  rot_apply_rows        47 registers, 0 local B, sm_89, 1024 max threads
+  rot_apply_dev         48 registers, 0 local B, sm_89, 1024 max threads
+  rot_apply_rows_dev    48 registers, 0 local B, sm_89, 1024 max threads
+  handle A: rot_apply, no attribute; handle B: rot_apply opted in at 69632 B;
+  handle C: rot_apply, its own module opted in at n * 4 B; rot_apply_dev: 0 B
+
+Verification: input sha256, output sha256 against the host, then f64 and norm
+  shape                                             n     m   k  arm             bytes  rows        rel      coord
+  ----------------------------------------------------------------------------------------------------------------
+  Qwen3-4B hidden, k=5                           2560   512   5  rot_apply/A     equal equal   6.620e-8   4.258e-7
+  Qwen3-4B hidden, k=5                           2560   512   5  rot_apply_dev   equal equal   6.620e-8   4.258e-7
+  Qwen3-4B o_proj, k=1, no mix                   4096  4096   1  rot_apply/A     equal equal   4.994e-8   3.415e-7
+  Qwen3-4B o_proj, k=1, no mix                   4096  4096   1  rot_apply_dev   equal equal   4.994e-8   3.415e-7
+  Qwen3-14B/32B hidden, k=5, m=1,024             5120  1024   5  rot_apply/A     equal equal   5.954e-8   5.758e-7
+  Qwen3-14B/32B hidden, k=5, m=1,024             5120  1024   5  rot_apply/B     equal equal   5.954e-8   5.758e-7
+  Qwen3-14B/32B hidden, k=5, m=1,024             5120  1024   5  rot_apply_dev   equal equal   5.954e-8   5.758e-7
+  Qwen3.8-27B o_proj input, k=3, m=2,048         6144  2048   3  rot_apply/A     equal equal   7.409e-8   3.686e-7
+  Qwen3.8-27B o_proj input, k=3, m=2,048         6144  2048   3  rot_apply_dev   equal equal   7.409e-8   3.686e-7
+  Qwen3-32B o_proj input, k=1                    8192  8192   1  rot_apply/A     equal equal   6.548e-8   3.899e-7
+  Qwen3-32B o_proj input, k=1                    8192  8192   1  rot_apply_dev   equal equal   6.548e-8   3.899e-7
+  Qwen3-4B down_proj, k=19                       9728   512  19  rot_apply/A     equal equal   9.523e-8   6.234e-7
+  Qwen3-4B down_proj, k=19                       9728   512  19  rot_apply_dev   equal equal   9.523e-8   6.234e-7
+  Qwen3-8B down_proj, k=3, on the default bound  12288  4096   3  rot_apply/A     equal equal   6.775e-8   3.996e-7
+  Qwen3-8B down_proj, k=3, on the default bound  12288  4096   3  rot_apply_dev   equal equal   6.775e-8   3.996e-7
+  Qwen3-14B down_proj, k=17, opt-in             17408  1024  17  rot_apply/B     equal equal   8.790e-8   6.723e-7
+  Qwen3-14B down_proj, k=17, opt-in             17408  1024  17  rot_apply_dev   equal equal   8.790e-8   6.723e-7
+  Qwen3-32B down_proj, k=25: past the 99 KiB opt-in  25600  1024  25  rot_apply_dev   equal equal   1.033e-7   6.703e-7
+  widest odd factor, k=31                       31744  1024  31  rot_apply_dev   equal equal   1.135e-7   9.684e-7
+  Qwen3-0.6B intermediate                        3072  1024   3  rot_apply/A     equal equal   6.733e-8   3.384e-7
+  Qwen3-0.6B intermediate                        3072  1024   3  rot_apply_dev   equal equal   6.733e-8   3.384e-7
+  narrow, k=1                                    1024  1024   1  rot_apply/A     equal equal   4.351e-8   2.659e-7
+  narrow, k=1                                    1024  1024   1  rot_apply_dev   equal equal   4.351e-8   2.659e-7
+  small                                            96    32   3  rot_apply/A     equal equal   4.267e-8   1.351e-7
+  small                                            96    32   3  rot_apply_dev   equal equal   4.267e-8   1.351e-7
+  one Leech block                                  24     8   3  rot_apply/A     equal equal   4.557e-8   1.351e-7
+  one Leech block                                  24     8   3  rot_apply_dev   equal equal   4.557e-8   1.351e-7
+
+Cost: 5 rounds of 200 chained launches, 20 discarded, order rotated
+  WARNING: one launch at a time, on an empty stream. Isolated latency, not in-situ time.
+        n  arm             median µs  [min-max]           
+  --------------------------------------------------------
+     2560  rot_apply/A          7.82  [7.81-7.83]
+     2560  rot_apply_dev        8.39  [8.38-8.40]
+     4096  rot_apply/A          6.72  [6.72-6.79]
+     4096  rot_apply_dev        7.54  [7.53-7.55]
+     5120  rot_apply/A         11.77  [11.77-11.78]
+     5120  rot_apply/B         11.77  [11.77-11.78]
+     5120  rot_apply_dev       12.50  [12.50-12.50]
+     6144  rot_apply/A         14.38  [14.37-14.38]
+     6144  rot_apply_dev       15.43  [15.42-15.44]
+     8192  rot_apply/A         10.47  [10.47-10.48]
+     8192  rot_apply_dev       11.99  [11.98-12.00]
+     9728  rot_apply/A         18.40  [18.40-18.41]
+     9728  rot_apply_dev       21.12  [21.11-21.13]
+    12288  rot_apply/A         26.13  [26.11-26.13]
+    12288  rot_apply_dev       28.05  [28.04-28.06]
+    17408  rot_apply/B         29.78  [29.78-29.82]
+    17408  rot_apply_dev       32.00  [32.00-32.02]
+    25600  rot_apply_dev       45.43  [45.41-45.43]
+    31744  rot_apply_dev       62.30  [62.26-62.33]
+     3072  rot_apply/A          8.79  [8.79-8.80]
+     3072  rot_apply_dev        9.20  [9.19-9.20]
+     1024  rot_apply/A          3.45  [3.45-3.53]
+     1024  rot_apply_dev        3.70  [3.69-3.71]
+       96  rot_apply/A          3.44  [3.44-3.48]
+       96  rot_apply_dev        3.56  [3.54-3.56]
+       24  rot_apply/A          3.19  [3.17-3.23]
+       24  rot_apply_dev        3.33  [3.32-3.33]
+
+R0 / K0, formed round by round, then median [min-max]
+     2560  R0/rot_apply/A  1.073 [1.071-1.075]
+     4096  R0/rot_apply/A  1.121 [1.110-1.123]
+     5120  R0/rot_apply/A  1.062 [1.062-1.062]
+     6144  R0/rot_apply/A  1.073 [1.073-1.074]
+     8192  R0/rot_apply/A  1.146 [1.144-1.146]
+     9728  R0/rot_apply/A  1.148 [1.147-1.148]
+    12288  R0/rot_apply/A  1.074 [1.073-1.075]
+    17408  R0/rot_apply/B  1.074 [1.074-1.075]
+     3072  R0/rot_apply/A  1.046 [1.045-1.047]
+     1024  R0/rot_apply/A  1.071 [1.046-1.073]
+       96  R0/rot_apply/A  1.032 [1.024-1.036]
+       24  R0/rot_apply/A  1.043 [1.030-1.047]
+
+every output and every rows twin equals the host's bytes
+rotbench exit 0
