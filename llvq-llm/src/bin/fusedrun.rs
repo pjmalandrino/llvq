@@ -260,6 +260,54 @@ fn parse_lengths(var: &str, v: &str) -> Result<Vec<usize>, String> {
     Ok(lengths)
 }
 
+/// The value of `LLVQ_GQA_PPL`: `<ctx>,<windows>` scores the grouped form
+/// against the published one from window 0, as every control so far did;
+/// `<ctx>,<windows>,<first>,kernel` scores the kernel form against the grouped
+/// one (the served form) from window index `<first>`, so that a T8 control
+/// takes windows no earlier control scored.
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+#[derive(Debug, PartialEq, Eq)]
+struct GqaPplSpec {
+    ctx: usize,
+    windows: usize,
+    first: usize,
+    kernel: bool,
+}
+
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+fn parse_gqa_ppl(v: &str) -> Result<GqaPplSpec, String> {
+    let parts: Vec<&str> = v.split(',').map(str::trim).collect();
+    let (nums, kernel) = match parts.as_slice() {
+        [c, w] => (vec![*c, *w], false),
+        [c, w, f, "kernel"] => (vec![*c, *w, *f], true),
+        _ => {
+            return Err(format!(
+                "LLVQ_GQA_PPL={v:?}: expected <ctx>,<windows> (grouped against published, from \
+                 window 0) or <ctx>,<windows>,<first>,kernel (kernel against grouped)"
+            ))
+        }
+    };
+    let n = nums
+        .iter()
+        .map(|s| s.parse::<usize>().map_err(|e| format!("LLVQ_GQA_PPL={v:?}: {s:?}: {e}")))
+        .collect::<Result<Vec<_>, _>>()?;
+    let spec = GqaPplSpec { ctx: n[0], windows: n[1], first: n.get(2).copied().unwrap_or(0), kernel };
+    if spec.ctx < 2 || spec.windows < 2 {
+        return Err(format!("LLVQ_GQA_PPL={v:?}: two windows of two tokens at least"));
+    }
+    // The published-against-grouped mode scores the prefill path of every
+    // window in one forward, bounded by the fused prefill's rows. The kernel
+    // mode scores that path on its first window only, and only when it fits.
+    if !spec.kernel && spec.ctx > llvq_llm::model::MAX_PREFILL_ROWS {
+        return Err(format!(
+            "LLVQ_GQA_PPL: a window of {} exceeds the fused prefill's {} rows",
+            spec.ctx,
+            llvq_llm::model::MAX_PREFILL_ROWS
+        ));
+    }
+    Ok(spec)
+}
+
 /// The arms of `LLVQ_GQA_AB`: the published attention (`Cat` store, expanded
 /// heads), and the two forms that read the cached heads unexpanded from a
 /// store grown in place by [`llvq_llm::kvq::GROW_CHUNK`] positions.
@@ -269,6 +317,11 @@ enum GqaArm {
     Published,
     Shared,
     Grouped,
+    /// Decode and verify rows through the split-KV attention kernel
+    /// (`llvq_llm::attn`), longer calls through the grouped path. Not in
+    /// [`GqaArm::ALL`]: only `LLVQ_GQA_PPL`'s kernel mode runs it, which
+    /// installs the kernel first.
+    Kernel,
 }
 
 #[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
@@ -278,7 +331,7 @@ impl GqaArm {
     fn store(self) -> llvq_llm::kvq::KvStore {
         match self {
             GqaArm::Published => llvq_llm::kvq::KvStore::Cat,
-            GqaArm::Shared | GqaArm::Grouped => {
+            GqaArm::Shared | GqaArm::Grouped | GqaArm::Kernel => {
                 llvq_llm::kvq::KvStore::Grow(llvq_llm::kvq::GROW_CHUNK)
             }
         }
@@ -289,6 +342,7 @@ impl GqaArm {
             GqaArm::Published => llvq_llm::kvq::AttnHeads::Expanded,
             GqaArm::Shared => llvq_llm::kvq::AttnHeads::Shared,
             GqaArm::Grouped => llvq_llm::kvq::AttnHeads::Grouped,
+            GqaArm::Kernel => llvq_llm::kvq::AttnHeads::Kernel,
         }
     }
 
@@ -535,34 +589,71 @@ fn paired_ppl_pct(a: &[f64], b: &[f64]) -> (f64, f64, f64) {
 fn run_gqa_ppl(
     model: &mut llvq_llm::model::Qwen3,
     ids: &[u32],
-    ctx: usize,
-    windows: usize,
+    spec: &GqaPplSpec,
 ) -> anyhow::Result<()> {
-    let nwin = (ids.len() / ctx).min(windows);
+    let (ctx, windows, first) = (spec.ctx, spec.windows, spec.first);
+    let nwin = (ids.len() / ctx).saturating_sub(first).min(windows);
     if nwin < 2 || ctx < 2 {
         anyhow::bail!(
             "LLVQ_GQA_PPL needs two windows of two tokens at least: {} tokens, ctx {ctx}, {windows} asked",
             ids.len()
         );
     }
-    let fingerprint = llvq_llm::eval::token_fingerprint(&ids[..nwin * ctx]);
-    let arms = [GqaArm::Published, GqaArm::Grouped];
-    println!(
-        "GQA perplexity: wikitext2, {nwin} windows of {ctx} (tokens {fingerprint:016x}), {} against {}, \
-         prefill path then decode path in lockstep",
-        arms[1].name(),
-        arms[0].name()
-    );
+    let span = &ids[first * ctx..(first + nwin) * ctx];
+    let fingerprint = llvq_llm::eval::token_fingerprint(span);
+    let arms = match spec.kernel {
+        false => [GqaArm::Published, GqaArm::Grouped],
+        true => [GqaArm::Grouped, GqaArm::Kernel],
+    };
+    // The kernel takes no call of more than 8 rows, so its prefill path IS
+    // the grouped arm's: checked bit for bit on the first window when that
+    // window fits one prefill call, never scored for the interval.
+    let prefill_windows = match (spec.kernel, ctx <= llvq_llm::model::MAX_PREFILL_ROWS) {
+        (false, _) => nwin,
+        (true, true) => 1,
+        (true, false) => 0,
+    };
+    if spec.kernel {
+        println!(
+            "GQA perplexity: wikitext2, {nwin} windows of {ctx} from window {first} (tokens \
+             {fingerprint:016x}), {} against {}, decode path in lockstep; prefill path on {} window(s), \
+             checked bit for bit",
+            arms[1].name(),
+            arms[0].name(),
+            prefill_windows
+        );
+    } else {
+        println!(
+            "GQA perplexity: wikitext2, {nwin} windows of {ctx} (tokens {fingerprint:016x}), {} against {}, \
+             prefill path then decode path in lockstep",
+            arms[1].name(),
+            arms[0].name()
+        );
+    }
     let mut pre: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
     let mut dec: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
     let (mut agree, mut steps, mut max_d) = (0usize, 0usize, 0f32);
     let t0 = Instant::now();
     for w in 0..nwin {
-        let win = &ids[w * ctx..(w + 1) * ctx];
-        for (k, arm) in arms.into_iter().enumerate() {
-            arm.apply(model);
-            let (n, c) = model.window_nll(win, &mut NoCapture)?;
-            pre[k].push(n / c as f64);
+        let win = &span[w * ctx..(w + 1) * ctx];
+        if w < prefill_windows {
+            for (k, arm) in arms.into_iter().enumerate() {
+                arm.apply(model);
+                let (n, c) = model.window_nll(win, &mut NoCapture)?;
+                pre[k].push(n / c as f64);
+            }
+            if spec.kernel {
+                if pre[0][w].to_bits() != pre[1][w].to_bits() {
+                    anyhow::bail!(
+                        "window {}: the kernel arm's prefill path is not the grouped arm's ({:.12} against \
+                         {:.12}); it never reaches the kernel, so this is a wiring defect",
+                        w + 1,
+                        pre[1][w],
+                        pre[0][w]
+                    );
+                }
+                println!("  window {:>3}: prefill path bit for bit between the two arms", w + 1);
+            }
         }
         let d = model.decode_nll_paired(
             win,
@@ -574,21 +665,49 @@ fn run_gqa_ppl(
         agree += d.top1_agree;
         steps += d.count;
         max_d = max_d.max(d.max_dlogit);
-        println!(
-            "  window {:>3}/{nwin}  prefill nll {:.9} {:.9}  decode nll {:.9} {:.9}  top-1 {}/{}  \
-             max |dlogit| {:.3e}  ({:.0} s)",
-            w + 1,
-            pre[0][w],
-            pre[1][w],
-            dec[0][w],
-            dec[1][w],
-            d.top1_agree,
-            d.count,
-            d.max_dlogit,
-            t0.elapsed().as_secs_f64()
-        );
+        if spec.kernel {
+            println!(
+                "  window {:>3}/{nwin}  decode nll {:.9} {:.9}  top-1 {}/{}  max |dlogit| {:.3e}  ({:.0} s)",
+                w + 1,
+                dec[0][w],
+                dec[1][w],
+                d.top1_agree,
+                d.count,
+                d.max_dlogit,
+                t0.elapsed().as_secs_f64()
+            );
+        } else {
+            println!(
+                "  window {:>3}/{nwin}  prefill nll {:.9} {:.9}  decode nll {:.9} {:.9}  top-1 {}/{}  \
+                 max |dlogit| {:.3e}  ({:.0} s)",
+                w + 1,
+                pre[0][w],
+                pre[1][w],
+                dec[0][w],
+                dec[1][w],
+                d.top1_agree,
+                d.count,
+                d.max_dlogit,
+                t0.elapsed().as_secs_f64()
+            );
+        }
     }
     arms[0].apply(model);
+    if spec.kernel {
+        let ppl = |v: &[f64]| (v.iter().sum::<f64>() / v.len() as f64).exp();
+        let (m, lo, hi) = paired_ppl_pct(&dec[0], &dec[1]);
+        println!(
+            "\n  path      ppl {:<16}  ppl {:<18}  kernel / grouped − 1, paired 95 % t interval over {nwin} windows",
+            arms[0].name(),
+            arms[1].name()
+        );
+        println!("  decode    {:<20.4}  {:<22.4}  {m:+.4} % [{lo:+.4} ; {hi:+.4}]", ppl(&dec[0]), ppl(&dec[1]));
+        println!(
+            "  decode top-1 agreement {agree}/{steps} steps ({:.3} %), max |dlogit| {max_d:.3e}",
+            100.0 * agree as f64 / steps as f64
+        );
+        return Ok(());
+    }
     let ppl = |v: &[f64]| (v.iter().sum::<f64>() / v.len() as f64).exp();
     println!(
         "\n  path      ppl {:<16}  ppl {:<18}  grouped / published − 1, paired 95 % t interval over {nwin} windows",
@@ -710,21 +829,14 @@ fn main() -> anyhow::Result<()> {
         //
         // A MEASUREMENT MODE on the bench door, refused beside LLVQ_CONFIG, the
         // served flags spelled out on the command line. The value is
-        // `<ctx>,<windows>`. ONE model, two arms (`run_gqa_ppl`), the three trims
-        // in force as in LLVQ_GQA_AB. The window goes through the prefill in one
-        // call, so it is bounded by the fused prefill's rows.
+        // `<ctx>,<windows>` (grouped against published) or
+        // `<ctx>,<windows>,<first>,kernel` (kernel against grouped, from window
+        // `<first>`, the kernel installed and checked on the card first): see
+        // `parse_gqa_ppl`. ONE model, two arms (`run_gqa_ppl`), the three trims
+        // in force as in LLVQ_GQA_AB. The first form puts every window through
+        // the prefill in one call, so it is bounded by the fused prefill's rows.
         if let Ok(v) = std::env::var("LLVQ_GQA_PPL") {
-            let spec = parse_lengths("LLVQ_GQA_PPL", &v).map_err(|e| anyhow::anyhow!("{e}"))?;
-            let (ctx_len, windows) = match spec.as_slice() {
-                &[c, w] => (c, w),
-                _ => anyhow::bail!("LLVQ_GQA_PPL={v:?}: expected <ctx>,<windows>"),
-            };
-            if ctx_len > llvq_llm::model::MAX_PREFILL_ROWS {
-                anyhow::bail!(
-                    "LLVQ_GQA_PPL: a window of {ctx_len} exceeds the fused prefill's {} rows",
-                    llvq_llm::model::MAX_PREFILL_ROWS
-                );
-            }
+            let spec = parse_gqa_ppl(&v).map_err(|e| anyhow::anyhow!("{e}"))?;
             for other in ["LLVQ_GQA_AB", "LLVQ_CONTEXTS", "LLVQ_TRIM_AB", "LLVQ_PREFILL_TOKENS"] {
                 if std::env::var(other).is_ok() {
                     anyhow::bail!("LLVQ_GQA_PPL runs alone, and {other} is set beside it");
@@ -761,7 +873,14 @@ fn main() -> anyhow::Result<()> {
                 .map_err(|e| anyhow::anyhow!("{e}"))?
                 .get_ids()
                 .to_vec();
-            run_gqa_ppl(&mut f.model, &ids, ctx_len, windows)?;
+            if spec.kernel {
+                // Built, reported and checked against the CPU replay on the
+                // card before the first window, as the served door does.
+                let (n_kv, groups, hd) = f.model.attn_geometry();
+                let k = llvq_llm::attn::kernel_for(&device, n_kv, groups, hd).map_err(|e| anyhow::anyhow!("{e}"))?;
+                f.model.set_attn_kernel(Some(k));
+            }
+            run_gqa_ppl(&mut f.model, &ids, &spec)?;
             return Ok(());
         }
 
@@ -1866,7 +1985,33 @@ fn main() -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{first_divergence, paired_ppl_pct, rate_stats, t95};
+    use super::{first_divergence, paired_ppl_pct, parse_gqa_ppl, rate_stats, t95, GqaArm, GqaPplSpec};
+
+    /// The two forms of `LLVQ_GQA_PPL`, and what each refuses.
+    #[test]
+    fn gqa_ppl_spec() {
+        assert_eq!(
+            parse_gqa_ppl("4096,12").unwrap(),
+            GqaPplSpec { ctx: 4096, windows: 12, first: 0, kernel: false }
+        );
+        assert_eq!(
+            parse_gqa_ppl("8192,6,6,kernel").unwrap(),
+            GqaPplSpec { ctx: 8192, windows: 6, first: 6, kernel: true }
+        );
+        assert_eq!(
+            parse_gqa_ppl(" 4096 , 12 , 60 , kernel ").unwrap(),
+            GqaPplSpec { ctx: 4096, windows: 12, first: 60, kernel: true }
+        );
+        // Above one prefill call: refused for the first form only.
+        assert!(parse_gqa_ppl("8192,6").unwrap_err().contains("4096 rows"));
+        for bad in ["4096", "4096,12,60", "4096,12,60,grouped", "4096,1", "1,12", "4096,x", "4096,12,60,kernel,1"] {
+            assert!(parse_gqa_ppl(bad).is_err(), "{bad} must be refused");
+        }
+        // The kernel arm reads the Grow store, and is not one of LLVQ_GQA_AB's arms.
+        assert_eq!(GqaArm::Kernel.store(), llvq_llm::kvq::KvStore::Grow(llvq_llm::kvq::GROW_CHUNK));
+        assert_eq!(GqaArm::Kernel.name(), "grow(256)+kernel");
+        assert!(!GqaArm::ALL.contains(&GqaArm::Kernel));
+    }
 
     #[test]
     fn median_is_the_middle_rate_odd_and_even() {
