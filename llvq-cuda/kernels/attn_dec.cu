@@ -40,7 +40,8 @@
 // folded in order by the whole CTA, and the split state goes to a partials
 // buffer. Every launched CTA draws one ticket on its KV head's counter, early
 // exits included; the last one folds the splits of every row in order, writes
-// the f16 output and resets the counter. That is planes_occ.cu's occ_sk
+// the f16 output and resets the counter, loading each chunk of 8 splits in
+// one round trip before folding it. That is planes_occ.cu's occ_sk
 // pattern: fence, barrier, atomic, barrier-plus-OR, acquire fence, volatile
 // reads, self-reset. A grid wider than the work stays correct.
 //
@@ -236,6 +237,7 @@ __device__ __forceinline__ void attn_dec_body(
     const int lmax = pos0 + k;
     const int base = s * ATTN_SPLIT;
     const long long head_base = (long long)h * cap;
+    const bool single = gridDim.x == 1u;
 
     if (base < lmax) {
         if (k_new != 0) {
@@ -363,8 +365,12 @@ __device__ __forceinline__ void attn_dec_body(
                 }
             }
             __syncthreads();
+            // Heads unrolled so their merge chains interleave; per head the
+            // units are still folded in ascending order.
+#pragma unroll
             for (int g = 0; g < G; ++g) {
                 float sm = ATTN_NEG_INF, sd = 0.0f, sa = 0.0f;
+#pragma unroll
                 for (int uu = 0; uu < UPS; ++uu) {
                     const float bm = ust[uu][g][ATTN_HD];
                     float mm = 0.0f, fa = 0.0f, fb = 0.0f;
@@ -379,16 +385,27 @@ __device__ __forceinline__ void attn_dec_body(
                         sm = mm;
                     }
                 }
-                float* P = part + ((((long long)h * s_stride + s) * ATTN_KMAX + r) * G + g) * ATTN_PSTRIDE;
-                P[t] = sa;
-                if (t == 0) {
-                    P[ATTN_HD] = sm;
-                    P[ATTN_HD + 1] = sd;
+                if (single) {
+                    // The only split of every row: the combine would copy this
+                    // state into an empty one and divide, so divide here.
+                    out[(((long long)(h * G + g)) * k + r) * ATTN_HD + t] = attn_f2h(rn_div(sa, sd));
+                } else {
+                    float* P = part + ((((long long)h * s_stride + s) * ATTN_KMAX + r) * G + g) * ATTN_PSTRIDE;
+                    P[t] = sa;
+                    if (t == 0) {
+                        P[ATTN_HD] = sm;
+                        P[ATTN_HD + 1] = sd;
+                    }
                 }
             }
             __syncthreads();  // ust is reused by the next row
         }
     }
+    // A grid of one split (every row at most 256 positions, the eager grid of
+    // a short context) has nothing to combine: no partials, no fence, no
+    // ticket, and the counter stays at zero. Bit for bit what the combine
+    // would write, since folding one split into an empty state is a copy.
+    if (single) return;
 
     // One ticket per launched CTA, active or not (occ_sk).
     __threadfence();
@@ -399,29 +416,79 @@ __device__ __forceinline__ void attn_dec_body(
     if (!last) return;
     __threadfence();  // acquire: the reads below follow the ticket we drew
 
+    // The split fold, chunk by chunk. Every load of a chunk (CH splits x G
+    // heads: the maxima and sums into shared memory, this thread's
+    // accumulators into registers) is issued before any is used, so a chunk
+    // costs one L2 round trip instead of two per (split, head): the first
+    // version folded through dependent loads, and that serial chain was
+    // about half of a launch at 8,192 positions (attn-bench-2026-11-04, 0.4 us
+    // a split and a head). The fold itself is unchanged: per head, the splits
+    // in ascending order, the same operations, hence the same bits.
+    constexpr int CH = 8;
+    static_assert(2 * CH * G <= ATTN_THREADS, "one thread a maximum or a sum of the chunk");
+    float* cmd = reinterpret_cast<float*>(smem);  // [CH][G][2]: m, d
     for (int r = 0; r < k; ++r) {
         const int lr = pos0 + r + 1;
         const int ns = (lr + ATTN_SPLIT - 1) / ATTN_SPLIT;
+        float am[G], ad[G], aa[G];
+#pragma unroll
         for (int g = 0; g < G; ++g) {
-            float am = ATTN_NEG_INF, ad = 0.0f, aa = 0.0f;
-            for (int ss = 0; ss < ns; ++ss) {
-                const volatile float* P =
-                    part + ((((long long)h * s_stride + ss) * ATTN_KMAX + r) * G + g) * ATTN_PSTRIDE;
-                const float bm = P[ATTN_HD];
-                float mm = 0.0f, fa = 0.0f, fb = 0.0f;
-                const int how = attn_merge_coef(am, bm, &mm, &fa, &fb);
-                if (how == 1) {
-                    am = bm;
-                    ad = P[ATTN_HD + 1];
-                    aa = P[t];
-                } else if (how == 2) {
-                    ad = rn_add(rn_mul(ad, fa), rn_mul(P[ATTN_HD + 1], fb));
-                    aa = rn_add(rn_mul(aa, fa), rn_mul(P[t], fb));
-                    am = mm;
+            am[g] = ATTN_NEG_INF;
+            ad[g] = 0.0f;
+            aa[g] = 0.0f;
+        }
+        for (int c0 = 0; c0 < ns; c0 += CH) {
+            if (t < 2 * CH * G) {
+                const int ss = c0 + t / (2 * G);
+                const int g = (t >> 1) % G;
+                float v = 0.0f;
+                if (ss < ns) {
+                    const volatile float* P =
+                        part + ((((long long)h * s_stride + ss) * ATTN_KMAX + r) * G + g) * ATTN_PSTRIDE;
+                    v = P[ATTN_HD + (t & 1)];
+                }
+                cmd[t] = v;
+            }
+            float pa[CH][G];
+#pragma unroll
+            for (int j = 0; j < CH; ++j) {
+#pragma unroll
+                for (int g = 0; g < G; ++g) {
+                    pa[j][g] = 0.0f;
+                    if (c0 + j < ns) {
+                        const volatile float* P =
+                            part + ((((long long)h * s_stride + c0 + j) * ATTN_KMAX + r) * G + g) * ATTN_PSTRIDE;
+                        pa[j][g] = P[t];
+                    }
                 }
             }
-            out[(((long long)(h * G + g)) * k + r) * ATTN_HD + t] = attn_f2h(rn_div(aa, ad));
+            __syncthreads();  // the chunk's maxima and sums are in shared memory
+#pragma unroll
+            for (int g = 0; g < G; ++g) {
+#pragma unroll
+                for (int j = 0; j < CH; ++j) {
+                    if (c0 + j < ns) {
+                        const float bm = cmd[(j * G + g) * 2];
+                        const float bd = cmd[(j * G + g) * 2 + 1];
+                        float mm = 0.0f, fa = 0.0f, fb = 0.0f;
+                        const int how = attn_merge_coef(am[g], bm, &mm, &fa, &fb);
+                        if (how == 1) {
+                            am[g] = bm;
+                            ad[g] = bd;
+                            aa[g] = pa[j][g];
+                        } else if (how == 2) {
+                            ad[g] = rn_add(rn_mul(ad[g], fa), rn_mul(bd, fb));
+                            aa[g] = rn_add(rn_mul(aa[g], fa), rn_mul(pa[j][g], fb));
+                            am[g] = mm;
+                        }
+                    }
+                }
+            }
+            __syncthreads();  // the next chunk overwrites cmd
         }
+#pragma unroll
+        for (int g = 0; g < G; ++g)
+            out[(((long long)(h * G + g)) * k + r) * ATTN_HD + t] = attn_f2h(rn_div(aa[g], ad[g]));
     }
     if (t == 0) ticket[h] = 0u;  // self-reset; the next launch is ordered after this one
 }

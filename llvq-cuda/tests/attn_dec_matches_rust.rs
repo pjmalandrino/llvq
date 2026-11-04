@@ -449,3 +449,18 @@ fn the_kernel_text_has_no_undefined_behaviour() {
         assert_eq!(out.out, want, "G={g} unit={unit} under UBSan");
     }
 }
+
+/// The split fold loads its partials in chunks of 8 splits: rows of exactly
+/// 8, then 9, 10 and 17 splits, a verify call straddling 2,304, a wide grid
+/// and a permuted finishing order, both group sizes.
+#[test]
+fn the_split_fold_crosses_its_chunks() {
+    let mut ls = Vec::new();
+    for g in [4, 5] {
+        ls.push(launch(g, 64, 2047, 1, false, false, 0));
+        ls.push(launch(g, 64, 2048, 1, false, false, 0));
+        ls.push(launch(g, 64, 2300, 8, true, false, 5));
+        ls.push(launch(g, 64, 4100, 3, false, true, 0));
+    }
+    check_all(&ls);
+}

@@ -86,3 +86,31 @@ Needs the card
   grouped form on the rows it takes; serving it is the operator's T8 decision, not granted.
 
 Cost: $0. Registry unchanged: 248 rows, $256.88 (5 unpriced).
+
+Revision of the fixed cost, 2026-11-04, after attn-bench-2026-11-04 (operator: "ok pour le cout fixe")
+
+Why. On the card a launch cost 42.3 / 54.5 / 95.7 us at 2,048 / 4,096 / 8,192 (G = 4), and 56.3 / 71.4 / 109.3 at
+G = 5: above the DRAM floor by about 0.4 to 1.0 us per (split, head) (*computed* from attn-bench-2026-11-04). The
+term that scales with splits x heads is the last CTA's split fold, which read each (split, head) through
+dependent volatile loads: two L2 round trips each, in series. A hypothesis from the timings, not a profile.
+
+What changed in attn_dec.cu, all bit-neutral:
+  - the split fold loads a chunk of 8 splits at once (maxima and sums into shared memory, the thread's
+    accumulators into registers), then folds it: one round trip a chunk instead of two per (split, head). Per
+    head the splits are still folded in ascending order with the same operations;
+  - a grid of one split (every row at most 256 positions) writes its output directly: no partials, no fence,
+    no ticket; folding one split into an empty state is a copy, so the bits are the same;
+  - the in-CTA unit fold is unrolled over heads, so their merge chains interleave.
+
+Proven on the host (*measured*): the kernel text equals the replay bit for bit on every earlier launch plus 8
+that cross the chunk boundary (rows of 8, 9, 10 and 17 splits, a verify call straddling 2,304, a wide grid in a
+permuted order, fresh rows); UBSan clean. Mutants: C1 chunk folded in reverse, C2 maxima read in the wrong
+layout, C3 no barrier after a chunk, C4 single-split path at two splits, C5b accumulators of the chunk's first
+split, C6 fma in the chunked merge: 6 killed. The whole earlier kernel set rerun: all killed but K5 (equivalent,
+as before); K2 and K4 targeted the replaced fold and no longer apply, C1 and C6 take their place.
+
+Expected, *estimated* from the same attribution: per launch about 31 / 37 / 50 us at 2,048 / 4,096 / 8,192
+(eta about 0.31 / 0.52 / 0.78), if the serial fold was the excess. The 5-token loss in the served 4B (+15 us a
+layer against the grouped form) is NOT explained by the fold, which held one split there; the single-split path
+saves its fence, atomic and reload, a few us a layer. What is left of that loss needs the card: the next bench
+adds L = 256 (one split, the fixed cost alone).
