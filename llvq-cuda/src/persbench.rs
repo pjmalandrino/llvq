@@ -177,6 +177,8 @@ pub struct Tables {
 }
 
 struct Persall<'a> {
+    name: &'static str,
+    sym: &'static str,
     f: CudaFunction,
     table: CudaSlice<u64>,
     y: CudaSlice<f32>,
@@ -229,7 +231,7 @@ pub struct Section<'a> {
     flags: Flags,
     module: Cuda,
     sm: u32,
-    persall: Option<Persall<'a>>,
+    persall: Vec<Persall<'a>>,
     l2: Option<L2<'a>>,
 }
 
@@ -246,7 +248,7 @@ impl<'a> Section<'a> {
             dump_cubin(dir, "bench", bench_text)?;
             dump_cubin(dir, "persistent", &src.text)?;
         }
-        Ok(Section { flags, module, sm, persall: None, l2: None })
+        Ok(Section { flags, module, sm, persall: Vec::new(), l2: None })
     }
 
     /// Step L1: the barrier, ring and launch microbenchmarks. Each is one
@@ -347,8 +349,10 @@ impl<'a> Section<'a> {
         Ok(())
     }
 
-    /// Step L1: build `tv_tetra48_persall` over the fused sites, then check
-    /// every row against the A4 kernel's row on the same site.
+    /// Step L1: build `tv_tetra48_persall` and its variants
+    /// ([`pers::PERSALL_VARIANTS`]) over the fused sites, then check every
+    /// row of each against the A4 kernel's row on the same site. A variant
+    /// that spills or moves a row is reported and never timed.
     pub fn persall_setup(&mut self, sites: Vec<PersallSite<'a>>, tables: Tables, x: u64, tile_bytes: u32) -> Result<(), String> {
         if !self.flags.tetra_occ {
             return Ok(());
@@ -356,84 +360,94 @@ impl<'a> Section<'a> {
         let d_outs: Vec<u32> = sites.iter().map(|s| s.d_out).collect();
         let (g0, total_groups) = pers::persall_groups(&d_outs);
         let rows: usize = d_outs.iter().map(|&d| d as usize).sum();
-        let y = self.module.zeros_f32(rows)?;
-        let ybase = ptr(&y, &self.module);
-        let mut words = Vec::with_capacity(sites.len() * 8);
-        let mut at = 0u64;
-        for (k, s) in sites.iter().enumerate() {
-            words.extend(pers::persall_site_words(
-                s.words, s.gscale, s.gs_off, s.rscale, s.tail, ybase + 4 * at, s.nblocks, s.tail_w, s.stride_u32,
-                g0[k], s.d_out / pers::PERSALL_GROUP_ROWS,
-            ));
-            at += s.d_out as u64;
-        }
-        let table = self.module.up_u64(&words)?;
-        let f = self.module.func_dynamic_shared("tv_tetra48_persall", tile_bytes)?;
-        let rep = self.module.report("tv_tetra48_persall")?;
-        let occ = f
-            .occupancy_max_active_blocks_per_multiprocessor(256, tile_bytes as usize, None)
-            .map_err(|e| format!("occupancy: {e}"))?;
-        let grid = total_groups.min(occ * self.sm).max(1);
-        println!(
-            "\n  One-launch Tetra pass (L1, tpersall): {} sites, {rows} rows, {total_groups} groups of 8, grid {grid} \
-             ({occ} a SM x {}), {} registers, {} B local",
-            sites.len(),
-            self.sm,
-            rep.num_regs,
-            rep.local_bytes
-        );
-        let mut p = Persall {
-            f,
-            table,
-            y,
-            grid,
-            shared: tile_bytes,
-            total_groups,
-            nsites: sites.len() as u32,
-            valid: rep.local_bytes == 0,
-            series: Vec::new(),
-            _sites: std::marker::PhantomData,
-        };
-        if !p.valid {
-            println!("  tpersall: SPILLS {} B, not timed (gate 8)", rep.local_bytes);
-        } else {
-            self.persall_launch(&mut p, tables, x)?;
-            self.module.sync()?;
-            let all = self.module.down_f32(&p.y)?;
-            let (mut same, mut moved, mut worst, mut at) = (0usize, 0usize, 0.0f64, 0usize);
-            for s in &sites {
-                for r in 0..s.d_out as usize {
-                    let (got, want) = (all[at + r], s.reference[r]);
-                    if got.to_bits() == want.to_bits() {
-                        same += 1;
-                        continue;
-                    }
-                    let (v, mag) = (s.f64_row)(r);
-                    let err = (got as f64 - v).abs() / mag.max(1.0);
-                    worst = worst.max(err);
-                    if err <= pers::F32_TOL {
-                        moved += 1;
-                        if moved == 1 {
-                            println!("  first moved row: {} row {r}: {got:e} against {want:e}, f64 error {err:.1e}", s.name);
+        for &(name, sym, ts) in pers::PERSALL_VARIANTS.iter() {
+            let y = self.module.zeros_f32(rows)?;
+            let ybase = ptr(&y, &self.module);
+            let mut words = Vec::with_capacity(sites.len() * 8);
+            let mut at = 0u64;
+            for (k, s) in sites.iter().enumerate() {
+                words.extend(pers::persall_site_words(
+                    s.words, s.gscale, s.gs_off, s.rscale, s.tail, ybase + 4 * at, s.nblocks, s.tail_w, s.stride_u32,
+                    g0[k], s.d_out / pers::PERSALL_GROUP_ROWS,
+                ));
+                at += s.d_out as u64;
+            }
+            let table = self.module.up_u64(&words)?;
+            let shared = tile_bytes + if ts { pers::TABLE_BYTES } else { 0 };
+            let f = self.module.func_dynamic_shared(sym, shared)?;
+            let rep = self.module.report(sym)?;
+            let occ = f
+                .occupancy_max_active_blocks_per_multiprocessor(256, shared as usize, None)
+                .map_err(|e| format!("occupancy: {e}"))?;
+            let grid = total_groups.min(occ * self.sm).max(1);
+            println!(
+                "\n  One-launch Tetra pass (L1, {name}): {} sites, {rows} rows, {total_groups} groups of 8, grid {grid} \
+                 ({occ} a SM x {}), {} registers, {} B local, {shared} B shared",
+                sites.len(),
+                self.sm,
+                rep.num_regs,
+                rep.local_bytes
+            );
+            let mut p = Persall {
+                name,
+                sym,
+                f,
+                table,
+                y,
+                grid,
+                shared,
+                total_groups,
+                nsites: sites.len() as u32,
+                valid: rep.local_bytes == 0 && occ >= 1,
+                series: Vec::new(),
+                _sites: std::marker::PhantomData,
+            };
+            if !p.valid {
+                println!("  {name}: SPILLS {} B or does not fit ({occ} a SM), not timed (gate 8)", rep.local_bytes);
+            } else {
+                self.persall_launch(&mut p, tables, x)?;
+                self.module.sync()?;
+                let all = self.module.down_f32(&p.y)?;
+                let (mut same, mut moved, mut worst, mut at) = (0usize, 0usize, 0.0f64, 0usize);
+                for s in &sites {
+                    for r in 0..s.d_out as usize {
+                        let (got, want) = (all[at + r], s.reference[r]);
+                        if got.to_bits() == want.to_bits() {
+                            same += 1;
+                            continue;
                         }
-                    } else {
-                        p.valid = false;
-                        println!("  tpersall INVALIDATED: {} row {r}: {got:e} against {want:e}, f64 error {err:.1e}", s.name);
+                        let (v, mag) = (s.f64_row)(r);
+                        let err = (got as f64 - v).abs() / mag.max(1.0);
+                        worst = worst.max(err);
+                        if err <= pers::F32_TOL {
+                            moved += 1;
+                            if moved == 1 {
+                                println!("  {name}: first moved row: {} row {r}: {got:e} against {want:e}, f64 error {err:.1e}", s.name);
+                            }
+                        } else {
+                            p.valid = false;
+                            println!("  {name} INVALIDATED: {} row {r}: {got:e} against {want:e}, f64 error {err:.1e}", s.name);
+                            break;
+                        }
+                    }
+                    at += s.d_out as usize;
+                    if !p.valid {
                         break;
                     }
                 }
-                at += s.d_out as usize;
-                if !p.valid {
-                    break;
+                // A variant owes the bits: a moved association is not timed
+                // either (the base kernel keeps L1's reading, which allowed it).
+                if moved > 0 && name != "tpersall" {
+                    p.valid = false;
                 }
+                println!(
+                    "  {name}: {same} rows identical BIT FOR BIT to the A4 kernels{}{}",
+                    if moved > 0 { format!(", {moved} with a moved association (worst {worst:.1e})") } else { String::new() },
+                    if p.valid { "" } else { "; INVALIDATED, not timed" }
+                );
             }
-            println!(
-                "  tpersall: {same} rows identical BIT FOR BIT to the A4 kernels{}{}",
-                if moved > 0 { format!(", {moved} with a moved association (worst {worst:.1e})") } else { String::new() },
-                if p.valid { "" } else { "; INVALIDATED, not timed" }
-            );
+            self.persall.push(p);
         }
-        self.persall = Some(p);
         Ok(())
     }
 
@@ -443,7 +457,7 @@ impl<'a> Section<'a> {
         b.arg(&p.table).arg(&p.nsites).arg(&t.rows).arg(&t.pref).arg(&t.br).arg(&t.suf).arg(&t.invnorm).arg(&x).arg(&p.total_groups);
         // SAFETY: the arguments are the kernel's; every pointer in the site
         // table points into a live allocation of the bench.
-        unsafe { b.launch(cfg) }.map_err(|e| format!("tv_tetra48_persall: {e}"))?;
+        unsafe { b.launch(cfg) }.map_err(|e| format!("{}: {e}", p.sym))?;
         Ok(())
     }
 
@@ -753,17 +767,16 @@ impl<'a> Section<'a> {
 
     /// One round: every valid section arm once, timed around launch and sync.
     pub fn time_round(&mut self, timed: bool, tables: Tables, x: u64) -> Result<(), String> {
-        if let Some(mut p) = self.persall.take() {
-            if p.valid {
-                let t0 = Instant::now();
-                self.persall_launch(&mut p, tables, x)?;
-                self.module.sync()?;
-                if timed {
-                    p.series.push(t0.elapsed().as_secs_f64());
-                }
+        let mut all = std::mem::take(&mut self.persall);
+        for p in all.iter_mut().filter(|p| p.valid) {
+            let t0 = Instant::now();
+            self.persall_launch(p, tables, x)?;
+            self.module.sync()?;
+            if timed {
+                p.series.push(t0.elapsed().as_secs_f64());
             }
-            self.persall = Some(p);
         }
+        self.persall = all;
         if let Some(mut l2) = self.l2.take() {
             let t0 = Instant::now();
             l2_ref_pass(&l2, &self.module)?;
@@ -798,20 +811,28 @@ impl<'a> Section<'a> {
             format!("{:.3} ms [{:.3}-{:.3}]", 1e3 * m, 1e3 * lo, 1e3 * hi)
         };
         let ratio = |a: &[f64], b: &[f64]| -> Vec<f64> { a.iter().zip(b).map(|(x, y)| x / y).collect() };
-        if let Some(p) = &self.persall {
-            println!("\n  One-launch Tetra pass (L1), rounds interleaved with A4:");
-            if !p.valid || p.series.is_empty() {
-                println!("  tpersall: not timed");
-            } else {
-                println!("  tetra48 (252 launches)   {}", ms(t48));
-                println!("  tetra48seg (144)         {}", ms(tseg));
-                println!("  tpersall (1)             {}", ms(&p.series));
-                let gain: Vec<f64> = tseg.iter().zip(&p.series).map(|(s, t)| 100.0 * (s - t) / s).collect();
-                let (g, gl, gh) = pers::med_range(&gain);
+        if !self.persall.is_empty() {
+            println!("\n  One-launch Tetra pass (L1) and its variants, rounds interleaved with A4:");
+            println!("  tetra48 (252 launches)   {}", ms(t48));
+            println!("  tetra48seg (144)         {}", ms(tseg));
+            let base = self.persall.first().filter(|p| p.valid && !p.series.is_empty()).map(|p| p.series.clone());
+            for p in &self.persall {
+                if !p.valid || p.series.is_empty() {
+                    println!("  {:<18} not timed", p.name);
+                    continue;
+                }
                 let bpa: Vec<f64> = p.series.iter().map(|t| pers::bare_file_bytes().2 as f64 / t / 1e9).collect();
                 let (b, bl, bh) = pers::med_range(&bpa);
-                println!("  one-launch gain over tetra48seg, round by round: {g:.1} % [{gl:.1}-{gh:.1}]");
-                println!("  B_pa = 0.9806 GB / t: {b:.0} GB/s [{bl:.0}-{bh:.0}]");
+                println!("  {:<18} {}  B_pa = 0.9806 GB / t: {b:.0} GB/s [{bl:.0}-{bh:.0}]", p.name, ms(&p.series));
+                if p.name == "tpersall" {
+                    let gain: Vec<f64> = tseg.iter().zip(&p.series).map(|(s, t)| 100.0 * (s - t) / s).collect();
+                    let (g, gl, gh) = pers::med_range(&gain);
+                    println!("  {:<18} one-launch gain over tetra48seg, round by round: {g:.1} % [{gl:.1}-{gh:.1}]", "");
+                } else if let Some(bs) = &base {
+                    let r: Vec<f64> = bs.iter().zip(&p.series).map(|(b, t)| b / t).collect();
+                    let (m, lo, hi) = pers::med_range(&r);
+                    println!("  {:<18} speed over tpersall, round by round: x{m:.3} [{lo:.3}-{hi:.3}]", "");
+                }
             }
         }
         if let Some(l2) = &self.l2 {

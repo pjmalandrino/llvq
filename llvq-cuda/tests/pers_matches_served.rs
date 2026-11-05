@@ -409,8 +409,14 @@ fn int4_rows_are_the_served_rows() {
     assert!(run(&b, &cmd) == want, "the fused dequantization differs: the exactness argument is wrong");
     let b = mutant("q4_group", "llvq-cuda/kernels/llvq_pers.cuh", "const u32 g = s0 + (c >> 7);", "const u32 g = s0 + (c >> 6) / 2u + (wi & 1u);");
     assert!(run(&b, &cmd) != want, "a wrong group index survived");
-    let b = mutant("q4_lane_order", "llvq-cuda/kernels/llvq_pers.cuh", "for (u32 wi = lane; wi < nwords; wi += 32u) {\n        const u32 p = wq[w0 + wi];\n        const u32 c = wi << 3;\n        const u32 g", "for (u32 wi = nwords - 1u - lane; wi < nwords; wi -= 32u) {\n        const u32 p = wq[w0 + wi];\n        const u32 c = wi << 3;\n        const u32 g");
+    let b = mutant("q4_lane_order", "llvq-cuda/kernels/llvq_pers.cuh", "for (u32 wi = lane; wi < nwords; wi += 32u) {\n            const u32 p = wq[w0 + wi];\n            const u32 c = wi << 3;\n            const u32 g", "for (u32 wi = nwords - 1u - lane; wi < nwords; wi -= 32u) {\n            const u32 p = wq[w0 + wi];\n            const u32 c = wi << 3;\n            const u32 g");
     assert!(run(&b, &cmd) != want, "a reversed int4 lane order survived");
+    // the PREFETCH form (odd rows of the command): its next word's group, and
+    // the hand-over of the word in flight
+    let b = mutant("q4_pf_group", "llvq-cuda/kernels/llvq_pers.cuh", "sb2 = scales[s0 + ((wi + 32u) >> 4)];", "sb2 = scales[s0 + ((wi + 32u) >> 5)];");
+    assert!(run(&b, &cmd) != want, "a wrong group of the prefetched word survived");
+    let b = mutant("q4_pf_stale", "llvq-cuda/kernels/llvq_pers.cuh", "            p = p2;\n            sb = sb2;", "            (void)p2;\n            sb = sb2;");
+    assert!(run(&b, &cmd) != want, "a prefetched word never handed over survived");
 }
 
 #[test]
@@ -448,7 +454,8 @@ fn the_struct_mirrors_match_the_kernel_layouts() {
     want.push(pers::P4E_LAYER_BYTES as u32);
     want.extend([24, 32, pers::P4E_LAYER_QKV as u32, 192, 240, 248, 252, pers::P4E_LAYER_MLP as u32]);
     want.push(pers::P4E_ARGS_BYTES as u32);
-    want.extend([160, 168, 196, 200, 204]);
+    // invnorm, attn_ticket, n_layers, cap, eps, c
+    want.extend([160, 168, 176, 204, 208, 212]);
     want.push(pers::P4E_LAUNCH_BYTES as u32);
     want.extend([16, 24, 32]);
     assert_eq!(o, want);
@@ -459,9 +466,13 @@ fn the_struct_mirrors_match_the_kernel_layouts() {
     assert_eq!(u32::from_le_bytes(lay[252..256].try_into().unwrap()), 1);
     assert_eq!(u32::from_le_bytes(lay[40 + 120..40 + 124].try_into().unwrap()), 2560);
     assert_eq!(u64::from_le_bytes(lay[40 + 144..40 + 152].try_into().unwrap()), 9);
-    let args = pers::P4eArgsHost { cap: 8448, c: 0.25, ..Default::default() }.bytes();
-    assert_eq!(u32::from_le_bytes(args[196..200].try_into().unwrap()), 8448);
-    assert_eq!(f32::from_le_bytes(args[204..208].try_into().unwrap()), 0.25);
+    let mut ptrs = [0u64; 22];
+    ptrs[21] = 0x7e;
+    let args = pers::P4eArgsHost { ptrs, cap: 8448, c: 0.25, ..Default::default() }.bytes();
+    assert_eq!(args.len(), pers::P4E_ARGS_BYTES);
+    assert_eq!(u64::from_le_bytes(args[168..176].try_into().unwrap()), 0x7e);
+    assert_eq!(u32::from_le_bytes(args[204..208].try_into().unwrap()), 8448);
+    assert_eq!(f32::from_le_bytes(args[212..216].try_into().unwrap()), 0.25);
     assert_eq!(std::mem::size_of::<pers::SegLaunch>(), pers::SEG_LAUNCH_BYTES);
     let seg = pers::SegArgsHost { act: 5, gpr: 76, eps: 1e-6, down: pers::SegTetraHost { d_out: 2560, ..Default::default() }, ..Default::default() }.bytes();
     assert_eq!(seg.len(), pers::SEG_ARGS_BYTES);
@@ -483,14 +494,30 @@ fn the_struct_mirrors_match_the_kernel_layouts() {
 /// each site, bit for bit.
 #[test]
 fn persall_is_the_fused_kernel_site_by_site() {
-    for grid in [1u32, 3, 7, 12] {
-        let cmd = Cmd::new(b'A').u32(grid).u64(0xa11).0;
-        assert!(run(served(), &cmd) == run(persistent(), &cmd), "grid {grid}");
+    // L1's kernel (variant 0) and its four variants (pers::PERSALL_VARIANTS)
+    for variant in 0..pers::PERSALL_VARIANTS.len() as u32 {
+        for grid in [1u32, 3, 7, 12] {
+            let cmd = Cmd::new(b'A').u32(grid).u64(0xa11).u32(variant).0;
+            assert!(run(served(), &cmd) == run(persistent(), &cmd), "variant {variant}, grid {grid}");
+        }
     }
-    let cmd = Cmd::new(b'A').u32(3).u64(0xa11).0;
+    let cmd = Cmd::new(b'A').u32(3).u64(0xa11).u32(0).0;
     let want = run(served(), &cmd);
-    let b = mutant("persall_scan", "llvq-cuda/kernels/tetra48_persall.cu", "w >= (u32)(sites[(si + 1u) * LLVQ_TOCC_SITE_WORDS + 7u] & 0xffffffffull)) ++si;", "w > (u32)(sites[(si + 1u) * LLVQ_TOCC_SITE_WORDS + 7u] & 0xffffffffull)) ++si;");
+    let b = mutant("persall_scan", "llvq-cuda/kernels/tetra48_persall.cu", "uniform too.\n        while (si + 1u < nsites && w >= (u32)(sites[(si + 1u) * LLVQ_TOCC_SITE_WORDS + 7u] & 0xffffffffull)) ++si;", "uniform too.\n        while (si + 1u < nsites && w > (u32)(sites[(si + 1u) * LLVQ_TOCC_SITE_WORDS + 7u] & 0xffffffffull)) ++si;");
     assert!(run_mutant(&b, &cmd) != Some(want), "an off-by-one site scan survived");
+    // the variants' own loop: the prefetched words handed over, the tables
+    // read from where they were staged
+    let cmd = Cmd::new(b'A').u32(3).u64(0xa11).u32(3).0;
+    let want = run(served(), &cmd);
+    let f = "llvq-cuda/kernels/tetra48_persall.cu";
+    for (tag, from, to) in [
+        ("persall_pf_stale", "                    lo = lo2;\n                    hi16 = hi2;", "                    lo = lo2;\n                    (void)hi2;"),
+        ("persall_ts_unstaged", "for (u32 i = threadIdx.x; i < 1024u; i += blockDim.x) s_br[i] = branches[i];", "for (u32 i = threadIdx.x; i < 1024u; i += blockDim.x) s_br[i] = branches[i ^ 1u];"),
+        ("persall_pf_tile_restart", "        for (u32 t = 0; t < ntiles; ++t) {\n            const u32 jlo = t * TILE_BLOCKS;\n            const u32 jhi = jlo + TILE_BLOCKS < nblocks ? jlo + TILE_BLOCKS : nblocks;\n            const u32 n = (jhi - jlo) * LLVQ_DIM;\n            __syncthreads();\n            for (u32 i = threadIdx.x; i < n; i += blockDim.x) xs[i] = x[jlo * LLVQ_DIM + i];\n            __syncthreads();\n            for (; j < jhi;", "        for (u32 t = 0; t < ntiles; ++t) {\n            const u32 jlo = t * TILE_BLOCKS;\n            const u32 jhi = jlo + TILE_BLOCKS < nblocks ? jlo + TILE_BLOCKS : nblocks;\n            const u32 n = (jhi - jlo) * LLVQ_DIM;\n            __syncthreads();\n            for (u32 i = threadIdx.x; i < n; i += blockDim.x) xs[i] = x[jlo * LLVQ_DIM + i];\n            __syncthreads();\n            for (j = jlo + lane + (t > 0u ? 32u : 0u); j < jhi;"),
+    ] {
+        let b = mutant(tag, f, from, to);
+        assert!(run_mutant(&b, &cmd) != Some(want.clone()), "persall mutant {tag} survived");
+    }
 }
 
 /// 4E's head phase: the persistent head rows are the served tv_emb_q4_h
@@ -542,7 +569,7 @@ fn the_4e_layer_phases_are_the_served_chain() {
     assert!(run_mutant(&b, &e) != Some(run(served(), &e)), "the embedding's g64 group survived as g128");
     let v = qkv(3, 96, 1);
     let want = run(served(), &v);
-    let b = mutant("v_reads_rotated", f, "pers_q4_row(P.vw, P.vsc, P.vbi, xn,", "pers_q4_row(P.vw, P.vsc, P.vbi, ((void)xn, xr),");
+    let b = mutant("v_reads_rotated", f, "pers_q4_row<PF>(P.vw, P.vsc, P.vbi, xn,", "pers_q4_row<PF>(P.vw, P.vsc, P.vbi, ((void)xn, xr),");
     assert!(run_mutant(&b, &v) != Some(want.clone()), "v reading the rotated input survived");
     let b = mutant("k_offset", f, "const u32 rk = r - P.q_dout;", "const u32 rk = r - P.q_dout + 1u;");
     assert!(run_mutant(&b, &v) != Some(want), "a k row offset survived");
@@ -594,38 +621,53 @@ fn attn_cmd(n_kv: u32, groups: u32, cap: u32, l: u32, grid: u32, threads: u32, s
 /// 4E's attention phase on the persistent grid equals attn_ref.rs (and so
 /// attn_dec.cu) bit for bit: lengths inside one tile, at unit and split
 /// boundaries, across several splits; groups of 4 (4B, 8B) and 5 (14B);
-/// grids of 2 to 5 CTAs; one barrier between its two phases.
+/// grids of 1 to 5 CTAs, of 2 to 16 warps (the 16-warp CTA holds every task
+/// at once, smaller ones walk them); the split fold through the tickets,
+/// which it leaves at zero.
 #[test]
 fn the_4e_attention_phase_is_attn_ref() {
-    for &(n_kv, groups, cap, l) in &[(2u32, 4u32, 64u32, 1u32), (2, 4, 64, 5), (2, 4, 128, 64), (2, 4, 128, 65), (2, 5, 512, 256), (2, 5, 512, 257), (1, 4, 1408, 1300)] {
-        for &(grid, threads) in &[(3u32, 64u32), (5, 96)] {
+    let lens = [(2u32, 4u32, 64u32, 1u32), (2, 4, 64, 5), (2, 4, 128, 64), (2, 4, 128, 65), (2, 5, 512, 256), (2, 5, 512, 257), (1, 4, 1408, 1300), (3, 5, 2304, 2049)];
+    for &(n_kv, groups, cap, l) in &lens {
+        for &(grid, threads) in &[(3u32, 64u32), (5, 96), (1, 512)] {
             let (cmd, want, state) = attn_cmd(n_kv, groups, cap, l, grid, threads, 0xa77 + l as u64);
             let got = run(persistent(), &cmd);
             let n = want.len() * 2;
             assert_eq!(u16s(&got[..n]), want, "n_kv {n_kv}, groups {groups}, l {l}, grid {grid}x{threads}");
             let t = u32s(&got[n..n + 8]);
-            assert_eq!((t[0], t[1]), (grid, 0), "one barrier, no abort");
+            assert_eq!((t[0], t[1]), (0, 0), "every ticket back at zero");
             assert_eq!(u32s(&got[n + 8..]), state, "the f32 state before the division, l {l}");
             let port = run(served(), &cmd);
             assert_eq!(u16s(&port[..n]), want, "the C++ port of attn_ref (the 4E test's reference), l {l}");
         }
     }
     let f = "llvq-cuda/kernels/llvq_pers.cuh";
-    let (cmd, want, state) = attn_cmd(1, 4, 1408, 1300, 3, 64, 0xa77);
-    let mut want: Vec<u8> = want.iter().flat_map(|x| x.to_le_bytes()).collect();
-    want.extend([3u32, 0].iter().flat_map(|x| x.to_le_bytes()));
-    want.extend(state.iter().flat_map(|x| x.to_le_bytes()));
+    let wanted = |n_kv: u32, groups: u32, cap: u32, l: u32| {
+        let (cmd, want, state) = attn_cmd(n_kv, groups, cap, l, 3, 64, 0xa77);
+        let mut w: Vec<u8> = want.iter().flat_map(|x| x.to_le_bytes()).collect();
+        w.extend([0u32, 0].iter().flat_map(|x| x.to_le_bytes()));
+        w.extend(state.iter().flat_map(|x| x.to_le_bytes()));
+        (cmd, w)
+    };
+    let (cmd, want) = wanted(1, 4, 1408, 1300);
     let cases = [
-        ("attn_flat_merge", "pers_attn_merge(sm, sd, sa, __ldcg(st + PERS_HD), __ldcg(st + PERS_HD + 1u), ba);", "pers_attn_merge(tm, td, ta, __ldcg(st + PERS_HD), __ldcg(st + PERS_HD + 1u), ba);"),
-        ("attn_carry_fused", "d = __fadd_rn(__fmul_rn(d, carry), ts);", "d = __fmaf_rn(d, carry, ts);"),
+        ("attn_unit_order", "for (u32 uu = 0; uu < PERS_UPS; ++uu) {\n                const float* row", "for (u32 uu = PERS_UPS; uu-- > 0u;) {\n                const float* row"),
+        ("attn_carry_fused", "const float dn = __fadd_rn(__fmul_rn(d, carry), ts);", "const float dn = __fmaf_rn(d, carry, ts);"),
         ("attn_tile", "#define PERS_TT 8u", "#define PERS_TT 16u"),
-        ("attn_no_barrier", "    if (!pers_grid_wait(bar, bar_target, abort_flag)) return false;\n    for (u32 hq = gwarp;", "    (void)bar; (void)bar_target; (void)abort_flag;\n    for (u32 hq = gwarp;"),
+        ("attn_no_fold", "atomicAdd(ticket + h, 1u) == ns - 1u ? 1u : 0u;", "atomicAdd(ticket + h, 1u) == ns ? 1u : 0u;"),
+        ("attn_no_reset", "if (threadIdx.x == 0u) ticket[h] = 0u;", "(void)0;"),
+        ("attn_stage_pos", "const u32 p = base + (pl / PERS_TT) * PERS_UNIT + st * PERS_TT + (pl % PERS_TT);", "const u32 p = base + (pl / PERS_TT) * PERS_UNIT + st * PERS_TT + ((pl + 1u) % PERS_TT);"),
         ("attn_scale", "sc[j] = __fmul_rn(t, c);", "sc[j] = __fmul_rn(t, __fmul_rn(c, 0.5f));"),
+        ("attn_no_syncwarp", "    __syncwarp();  // memory order: every lane's reads of the row precede lane 0's rewrite of m and d\n", ""),
+        ("attn_split_chunk", "pers_attn_merge1(am, ad, aa, cmd[(j * groups + g) * 2u], cmd[(j * groups + g) * 2u + 1u], ba[j]);", "pers_attn_merge1(am, ad, aa, cmd[(j * groups + g) * 2u], cmd[(j * groups + g) * 2u + 1u], ba[(j + 1u) % PERS_ATTN_CH]);"),
     ];
     for (tag, from, to) in cases {
         let b = mutant(tag, f, from, to);
         assert!(run_mutant(&b, &cmd) != Some(want.clone()), "attention mutant {tag} survived");
     }
+    // groups of 5: the half-warp past the last head must keep nothing
+    let (cmd, want) = wanted(2, 5, 512, 257);
+    let b = mutant("attn_spare_half_writes", f, "    if (own) {\n#pragma unroll\n        for (u32 i = 0; i < 8u; ++i) row[dl + i] = a[i];", "    if (true) {\n#pragma unroll\n        for (u32 i = 0; i < 8u; ++i) row[dl + i] = a[i];");
+    assert!(run_mutant(&b, &cmd) != Some(want), "attention mutant attn_spare_half_writes survived");
 }
 
 /// The fused binary16 FMA of RoPE's candidate forms rounds once from the exact
@@ -665,7 +707,7 @@ fn the_4e_norm_rope_append_phase() {
     let cmd = z(1, 7, 3);
     let want = run(served(), &cmd);
     for (tag, from, to) in [
-        ("rope_pair", "const unsigned short b = exact_rms_apply(scale, __ldcg(src + i + 64u), alpha[i + 64u]);", "const unsigned short b = exact_rms_apply(scale, __ldcg(src + i + 63u), alpha[i + 64u]);"),
+        ("rope_pair", "const unsigned short b = exact_rms_apply(scale, hx[j + 2u], alpha[i + 64u]);", "const unsigned short b = exact_rms_apply(scale, hx[j ^ 1u], alpha[i + 64u]);"),
         ("rope_form_swap", "        *o1 = pers_f16_fma_exact(a, c, (unsigned short)(bs ^ 0x8000u), false);", "        *o1 = pers_f16_fma_exact(b, s, ac, true);"),
         ("kv_pos", "kc + ((unsigned long long)h * cap + pos) * 128u, lane);", "kc + ((unsigned long long)h * cap + pos + 1u) * 128u, lane);"),
         ("qk_norm_tree", "for (int mask = 16; mask > 0; mask >>= 1) tmp = __fadd_rn(tmp, __shfl_xor_sync(0xffffffffu, tmp, mask));\n    const float scale = rsqrtf", "for (int mask = 1; mask < 32; mask <<= 1) tmp = __fadd_rn(tmp, __shfl_xor_sync(0xffffffffu, tmp, mask));\n    const float scale = rsqrtf"),
@@ -683,13 +725,15 @@ fn g_cmd(form: u32, grid: u32, threads: u32, n: u32, pos0: u32, cap: u32, tok0: 
 /// Several launches through the same state, each `(pos0, n, tok0)`, the way
 /// `Runtime4e::decode` is called launch after launch.
 fn g_cmd_runs(form: u32, grid: u32, threads: u32, runs: &[(u32, u32, u32)], cap: u32, eos: u32, seed: u64) -> Vec<u8> {
-    g_cmd_stamped(form, grid, threads, runs, cap, eos, seed, false)
+    g_cmd_variant(form, grid, threads, runs, cap, eos, seed, 0)
 }
 
-/// [`g_cmd_runs`], the persistent side on the phase-stamp symbols when
-/// `stamp`: its output then carries the stamps after the usual tail.
+/// [`g_cmd_runs`] on one variant of the persistent side: 0 the 768-thread
+/// token symbols (rows without prefetch), 1 the 512-thread stamp symbols,
+/// 2 the 512-thread token symbols (rows with prefetch), 3 the 768-thread
+/// stamp symbols. A stamp variant's output carries the stamps after the tail.
 #[allow(clippy::too_many_arguments)]
-fn g_cmd_stamped(form: u32, grid: u32, threads: u32, runs: &[(u32, u32, u32)], cap: u32, eos: u32, seed: u64, stamp: bool) -> Vec<u8> {
+fn g_cmd_variant(form: u32, grid: u32, threads: u32, runs: &[(u32, u32, u32)], cap: u32, eos: u32, seed: u64, variant: u32) -> Vec<u8> {
     let (pos0, n, tok0) = runs[0];
     let mut c = Cmd::new(b'G').u32(form).u32(grid).u32(threads).u32(n).u32(pos0).u32(cap).u32(tok0).u32(eos).u32(1024).u64(seed);
     for (w, s) in [(2560usize, 51u64), (2560, 52), (9728, 53)] {
@@ -700,15 +744,17 @@ fn g_cmd_stamped(form: u32, grid: u32, threads: u32, runs: &[(u32, u32, u32)], c
     for &(p, k, t) in &runs[1..] {
         c = c.u32(p).u32(k).u32(t);
     }
-    c.u32(stamp as u32).0
+    c.u32(variant).0
 }
 
 /// 4E's token loop: N tokens in one cooperative launch equal the served chain
 /// run token by token (embedding, two layers of q/k/v, norm/RoPE/append,
 /// attention, o, MLP with a Tetra then an int4 down, final norm, head,
 /// argmax): the tokens, both layers' KV caches, the final residual. Each
-/// RoPE form; an end-of-sequence stops the loop on every CTA; the barrier
-/// counter ends at (tokens made) x (2 + 7 x layers) x grid.
+/// RoPE form, both row variants (768 threads without the rows' prefetch, 512
+/// with it); an end-of-sequence stops the loop on every CTA; the barrier
+/// counter ends at (tokens made) x (2 + 6 x layers) x grid; positions past
+/// 256 take attention's split fold, whose tickets end at zero.
 #[test]
 fn the_4e_token_loop_is_the_served_chain() {
     let n = 3u32;
@@ -717,8 +763,8 @@ fn the_4e_token_loop_is_the_served_chain() {
         let tail = u32s(&b[b.len() - 8..]);
         (ring, b[4 * n as usize..b.len() - 8].to_vec(), tail)
     };
-    for (form, grid, threads) in [(0u32, 3u32, 128u32), (2, 4, 96)] {
-        let cmd = g_cmd(form, grid, threads, n, 5, 16, 7, u32::MAX, 0x4e00 + form as u64);
+    for (form, grid, threads, variant) in [(0u32, 3u32, 128u32, 0u32), (2, 4, 96, 2)] {
+        let cmd = g_cmd_variant(form, grid, threads, &[(5, n, 7)], 16, u32::MAX, 0x4e00 + form as u64, variant);
         let (want_ring, want_state, _) = split(&run(served(), &cmd));
         let (ring, state, tail) = split(&run(persistent(), &cmd));
         assert!(want_ring.iter().all(|&t| t < 1024), "the served run made {n} tokens: {want_ring:?}");
@@ -726,10 +772,18 @@ fn the_4e_token_loop_is_the_served_chain() {
         assert!(state == want_state, "form {form}, grid {grid}: residual or KV caches differ");
         assert_eq!(tail, vec![n * llvq_cuda::pers::n_bar_4e(2) * grid, 0], "barrier count and abort");
         // an end-of-sequence at the second token stops every CTA after it
-        let cmd = g_cmd(form, grid, threads, n, 5, 16, 7, want_ring[1], 0x4e00 + form as u64);
+        let cmd = g_cmd_variant(form, grid, threads, &[(5, n, 7)], 16, want_ring[1], 0x4e00 + form as u64, variant);
         let (ring, _, tail) = split(&run(persistent(), &cmd));
         assert_eq!(ring, vec![want_ring[0], want_ring[1], u32::MAX], "EOS");
         assert_eq!(tail[0], 2 * llvq_cuda::pers::n_bar_4e(2) * grid, "two tokens' barriers");
+    }
+    // Past 256 positions: two splits, the tickets' fold, both variants.
+    for (variant, threads) in [(2u32, 128u32), (0, 64)] {
+        let cmd = g_cmd_variant(1, 3, threads, &[(270, 2, 7)], 288, u32::MAX, 0x4e30, variant);
+        let want = run(served(), &cmd);
+        let got = run(persistent(), &cmd);
+        assert!(got[..got.len() - 8] == want[..want.len() - 8], "positions 270-271, variant {variant}: tokens, residual or caches");
+        assert_eq!(u32s(&got[got.len() - 8..]), vec![2 * llvq_cuda::pers::n_bar_4e(2) * 3, 0], "barriers, abort and tickets");
     }
     let f = "llvq-cuda/kernels/pers_4e.cu";
     let cmd = g_cmd(0, 3, 128, n, 5, 16, 7, u32::MAX, 0x4e00);
@@ -792,9 +846,9 @@ fn the_4e_phase_stamps_keep_the_tokens_and_bracket_the_waits() {
     let runs = [(5u32, 3u32, 7u32), (8, 2, 9)];
     let made: usize = runs.iter().map(|r| r.1 as usize).sum();
     let ev = p4e_events(2) as usize;
-    for (form, grid, threads, seed) in [(0u32, 3u32, 128u32, 0x4e20u64), (1, 4, 96, 0x4e21)] {
+    for (form, grid, threads, seed, variant) in [(0u32, 3u32, 128u32, 0x4e20u64, 1u32), (1, 4, 96, 0x4e21, 3)] {
         let plain = run(persistent(), &g_cmd_runs(form, grid, threads, &runs, 16, u32::MAX, seed));
-        let cmd = g_cmd_stamped(form, grid, threads, &runs, 16, u32::MAX, seed, true);
+        let cmd = g_cmd_variant(form, grid, threads, &runs, 16, u32::MAX, seed, variant);
         let want = run(served(), &cmd);
         assert!(want[..want.len() - 8] == plain[..plain.len() - 8], "form {form}, grid {grid}: the token symbols are the served chain");
         let got = run(persistent(), &cmd);
@@ -813,7 +867,7 @@ fn the_4e_phase_stamps_keep_the_tokens_and_bracket_the_waits() {
     }
     // Teeth. A release left unstamped, and an arrival stamped after the wait
     // instead of before it: the report refuses both.
-    let cmd = g_cmd_stamped(1, 4, 96, &runs, 16, u32::MAX, 0x4e21, true);
+    let cmd = g_cmd_variant(1, 4, 96, &runs, 16, u32::MAX, 0x4e21, 1);
     let plain_len = run(persistent(), &g_cmd_runs(1, 4, 96, &runs, 16, u32::MAX, 0x4e21)).len();
     let first_launch = |o: &[u8]| -> Vec<u64> {
         o[plain_len..plain_len + 8 * 3 * ev * 4].chunks(8).map(|b| u64::from_le_bytes(b.try_into().unwrap())).collect()

@@ -576,7 +576,9 @@ int main() {
             for (;;) {
                 const u32 row = pers_claim(lane, 1u);
                 if (row >= hi) break;
-                const float acc = pers_q4_row(wq.data(), sc.data(), bi.data(), xsp, row, d_in, gpr, lane);
+                // even rows the plain loop, odd rows the PREFETCH one (4E's)
+                const float acc = (row & 1u) ? pers_q4_row<true>(wq.data(), sc.data(), bi.data(), xsp, row, d_in, gpr, lane)
+                                             : pers_q4_row<false>(wq.data(), sc.data(), bi.data(), xsp, row, d_in, gpr, lane);
                 if (lane == 0u) {
                     dbg[row] = acc;
                     y[row] = f2h(acc);
@@ -600,6 +602,7 @@ int main() {
         // tv_tetra48_persall over both, CTAs one at a time (no wait inside).
         const u32 grid = rd1<u32>();
         const uint64_t seed = rd1<uint64_t>();
+        const u32 variant = rd1<u32>();  // pers::PERSALL_VARIANTS; the served side ignores it
         struct S { TMat m; std::vector<float> gs; std::vector<u32> off; std::vector<float> tail; };
         std::vector<S> sites;
         {
@@ -620,6 +623,7 @@ int main() {
         const F1rTables t = tables();
 #if PERS_SIDE == 0
         (void)grid;
+        (void)variant;
         u32 at = 0;
         for (auto& st : sites) {
             hostgrid::launch_seq(st.m.d_out / 8, 256, [&] {
@@ -643,8 +647,13 @@ int main() {
             g0 += st.m.d_out / 8;
             at += st.m.d_out;
         }
+        typedef void (*Fn)(const unsigned long long*, u32, const u32*, const unsigned char*, const unsigned short*,
+                           const unsigned char*, const float*, const float*, u32);
+        const Fn fns[5] = {tv_tetra48_persall, tv_tetra48_persall_pf, tv_tetra48_persall_ts, tv_tetra48_persall_ts_pf,
+                           tv_tetra48_persall_ts_pf_l2};
+        if (variant >= 5u) { std::fprintf(stderr, "host_pers: persall variant %u\n", variant); return 2; }
         hostgrid::launch_seq(grid, 256, [&] {
-            tv_tetra48_persall(words.data(), 2u, t.rows, t.prefixes, t.branches, t.suffixes, g_inv.data(), x.data(), g0);
+            fns[variant](words.data(), 2u, t.rows, t.prefixes, t.branches, t.suffixes, g_inv.data(), x.data(), g0);
         });
 #endif
         wr(y);
@@ -815,7 +824,9 @@ int main() {
         // ATTENTION (4E): one decode row of length l over a cache of `cap`.
         // in: n_kv, groups, cap, l, grid, threads, f32 c, u16 q[n_heads*128],
         // u16 k[n_kv*cap*128], u16 v[same]. out: u16 out[n_heads*128], u32
-        // bar, abort. The reference is attn_ref.rs, on the Rust side.
+        // the tickets' sum after the phase (zero: the folds reset them), 0,
+        // then f32 state[n_heads*130]. The reference is attn_ref.rs, on the
+        // Rust side.
         const u32 n_kv = rd1<u32>(), groups = rd1<u32>(), cap = rd1<u32>(), l = rd1<u32>(), grid = rd1<u32>(),
                   threads = rd1<u32>();
         const float c = rd1<float>();
@@ -827,15 +838,13 @@ int main() {
         std::vector<u32> tail(2, 0u);
         std::vector<float> state((size_t)nh * 130u, 0.0f);
 #if PERS_SIDE == 1
-        const u32 nunits = (l + 63u) / 64u;
-        std::vector<float> scratch((size_t)nh * nunits * 130u, 0.0f);
-        std::vector<u32> bar(1, 0u), ab(1, 0u);
-        hostgrid::launch_coop(grid, threads, PERS_SMEM_HEADER, 0x5eedu + l, [&] {
-            pers_attention(q.data(), kc.data(), vc.data(), nh, groups, cap, l, c, scratch.data(), out.data(), bar.data(),
-                           gridDim.x, ab.data(), state.data());
+        std::vector<float> part((size_t)n_kv * ((cap + 255u) / 256u) * groups * 130u, 0.0f);
+        std::vector<u32> ticket(n_kv, 0u);
+        hostgrid::launch_coop(grid, threads, PERS_SMEM_HEADER + PERS_ATTN_SMEM(groups), 0x5eedu + l, [&] {
+            pers_attention<2u>(q.data(), kc.data(), vc.data(), nh, groups, cap, l, c, part.data(), ticket.data(), out.data(),
+                           PERS_SMEM_BASE() + PERS_SMEM_HEADER, state.data());
         });
-        tail[0] = bar[0];
-        tail[1] = ab[0];
+        for (u32 t : ticket) tail[0] += t;
 #else
         (void)grid; (void)threads;
         for (u32 hq = 0; hq < nh; ++hq)
@@ -946,7 +955,8 @@ int main() {
         OFF(Pers4eLayer, m_a); OFF(Pers4eLayer, inv_a); OFF(Pers4eLayer, qkv); OFF(Pers4eLayer, q_norm); OFF(Pers4eLayer, obi);
         OFF(Pers4eLayer, o_gpr); OFF(Pers4eLayer, tetra_down); OFF(Pers4eLayer, mlp);
         o.push_back((u32)sizeof(Pers4eArgs));
-        OFF(Pers4eArgs, invnorm); OFF(Pers4eArgs, n_layers); OFF(Pers4eArgs, cap); OFF(Pers4eArgs, eps); OFF(Pers4eArgs, c);
+        OFF(Pers4eArgs, invnorm); OFF(Pers4eArgs, attn_ticket); OFF(Pers4eArgs, n_layers); OFF(Pers4eArgs, cap);
+        OFF(Pers4eArgs, eps); OFF(Pers4eArgs, c);
         o.push_back((u32)sizeof(Pers4eLaunch));
         OFF(Pers4eLaunch, eos); OFF(Pers4eLaunch, ring); OFF(Pers4eLaunch, stamps);
 #undef OFF

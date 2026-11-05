@@ -7,6 +7,16 @@
 //! "kernel" form computes it (`attn_ref.rs`). So on the card, with every
 //! decode row of the eager path sent to the attention kernel
 //! (`Qwen3::set_kernel_from_for_measurement(0)`), 4E owes that path's tokens.
+//! The served 4B config (`configs/qwen3-4b-tetra-e4-kernel-from1280.json`)
+//! sends a decode row to the kernel from position 1,280 only, and runs
+//! candle's grouped arithmetic below it (cuBLAS matmuls, candle's softmax),
+//! whose bits no hand kernel reproduces. So 4E keeps the served bits, inside
+//! the operator's T8, only from position [`crate::kvq::KERNEL_FROM`]: the
+//! runtime refuses a launch that starts below it. A measurement may lower the
+//! threshold to 0 ([`Runtime4e::set_kernel_from_for_measurement`]) against an
+//! eager path with every row on the kernel, the form the first readings ran:
+//! that form has no T8 and is never served.
+//!
 //! What only the card can decide is RoPE: candle's `rope` is `__half`
 //! arithmetic the driver's ptxas may fuse, so [`install`] runs candle's rope
 //! on the card and keeps the form (pers_rope_pair) that matches it, or
@@ -57,6 +67,9 @@ pub struct Runtime4e {
     _held64: Vec<CudaSlice<u64>>,
     /// The (cap, K, V addresses) the uploaded images carry.
     kv_seen: Vec<(usize, u64, u64)>,
+    /// The first position a launch may start at: the served threshold, or 0
+    /// for a measurement against the kernel on every row.
+    kernel_from: usize,
     pub lines: Vec<String>,
 }
 
@@ -116,7 +129,10 @@ fn rope_forms(cuda: &llvq_cuda::gpu::Cuda, cos: &Tensor, sin: &Tensor, device: &
 
 /// Build 4E for `model`, check RoPE against candle on the card, and pick the
 /// block size whose kernel does not spill. `max_tokens` bounds one launch.
-pub fn install(model: &Qwen3, device: &Device, max_tokens: u32) -> anyhow::Result<Runtime4e> {
+/// `threads`: `None` takes 768 where the card's module does not spill, else
+/// 512; `Some(n)` takes n (512 or 768) or refuses, for a measurement that
+/// times both geometries.
+pub fn install(model: &Qwen3, device: &Device, max_tokens: u32, threads: Option<u32>) -> anyhow::Result<Runtime4e> {
     let dev = device.as_cuda_device()?;
     let stream = dev.cuda_stream();
     let mut lines = Vec::new();
@@ -147,9 +163,13 @@ pub fn install(model: &Qwen3, device: &Device, max_tokens: u32) -> anyhow::Resul
     lines.push(format!("4E: RoPE forms equal to candle's rope on this card: {forms:?}; running form {form}"));
 
     // The block size: 768 where the card's module does not spill, else 512.
-    let smem = (pers::SMEM_HEADER + pers::TABLE_BYTES + 4 * inter.max(2 * hidden)).div_ceil(16) * 16;
+    let smem = pers::p4e_smem_bytes(hidden, inter, groups as u32);
     let mut chosen = None;
-    for threads in [768u32, 512] {
+    let sizes: Vec<u32> = match threads {
+        None => vec![768, 512],
+        Some(n) => vec![n],
+    };
+    for threads in sizes {
         let sym = pers::p4e_symbol(form, threads).map_err(anyhow::Error::msg)?;
         let f = cuda.func_dynamic_shared(sym, smem).map_err(anyhow::Error::msg)?;
         let r = cuda.report(sym).map_err(anyhow::Error::msg)?;
@@ -162,9 +182,11 @@ pub fn install(model: &Qwen3, device: &Device, max_tokens: u32) -> anyhow::Resul
             break;
         }
     }
-    let (f, threads) = chosen.ok_or_else(|| anyhow::anyhow!("4E: every block size spills or fails its occupancy"))?;
-    // The stamp symbol of the chosen geometry: compiled at 512 threads only,
-    // and kept only where it loads as the token symbol did (no spill, one a SM).
+    let (f, threads) = chosen.ok_or_else(|| anyhow::anyhow!("4E: every block size asked for spills or fails its occupancy"))?;
+    // The stamp symbol of the chosen geometry, kept where one CTA a SM fits.
+    // It may hold local memory where the token symbol does not (768 threads
+    // under the devel ptxas): its launch runs outside the timed rounds, and
+    // its token time is printed beside the timed one.
     let f_stamp = match pers::p4e_stamp_symbol(form, threads) {
         Ok(sym) => {
             let fs = cuda.func_dynamic_shared(sym, smem).map_err(anyhow::Error::msg)?;
@@ -172,8 +194,8 @@ pub fn install(model: &Qwen3, device: &Device, max_tokens: u32) -> anyhow::Resul
             let occ = fs
                 .occupancy_max_active_blocks_per_multiprocessor(threads, smem as usize, None)
                 .map_err(|e| anyhow::anyhow!("occupancy: {e}"))?;
-            lines.push(format!("4E: {sym}: {} registers, {} B local, {occ} resident a SM (phase stamps)", r.num_regs, r.local_bytes));
-            (r.local_bytes == 0 && occ >= 1).then_some(fs)
+            lines.push(format!("4E: {sym}: {} registers, {} B local, {occ} resident a SM (phase stamps, outside the timed rounds)", r.num_regs, r.local_bytes));
+            (occ >= 1).then_some(fs)
         }
         Err(e) => {
             lines.push(e);
@@ -214,7 +236,9 @@ pub fn install(model: &Qwen3, device: &Device, max_tokens: u32) -> anyhow::Resul
     let (q_raw, k_raw, v_raw) = (e(cuda.zeros_u16(n_heads * 128))?, e(cuda.zeros_u16(n_kv * 128))?, e(cuda.zeros_u16(n_kv * 128))?);
     let (q_out, ctx) = (e(cuda.zeros_u16(n_heads * 128))?, e(cuda.zeros_u16(n_heads * 128))?);
     let (x_a, x_b) = (e(cuda.zeros_u16(hidden as usize))?, e(cuda.zeros_u16(hidden as usize))?);
-    let scratch = cuda.zeros_f32(n_heads * MAX_CAP.div_ceil(64) * 130).map_err(anyhow::Error::msg)?;
+    // The split states: [n_kv][ceil(cap / 256)][groups][130] floats at most.
+    let scratch = cuda.zeros_f32(n_heads * MAX_CAP.div_ceil(256) * 130).map_err(anyhow::Error::msg)?;
+    let ticket = cuda.up_u32(&vec![0u32; n_kv]).map_err(anyhow::Error::msg)?;
     let bar = cuda.up_u32(&[0]).map_err(anyhow::Error::msg)?;
     let abort = cuda.up_u32(&[0]).map_err(anyhow::Error::msg)?;
     let nan = cuda.up_u32(&[0]).map_err(anyhow::Error::msg)?;
@@ -315,6 +339,7 @@ pub fn install(model: &Qwen3, device: &Device, max_tokens: u32) -> anyhow::Resul
             tables.br,
             tables.suf,
             tables.invnorm,
+            a32(&ticket),
         ],
         n_layers: model.blocks.len() as u32,
         vocab: emb.vocab,
@@ -351,10 +376,11 @@ pub fn install(model: &Qwen3, device: &Device, max_tokens: u32) -> anyhow::Resul
         bar_base: 0,
         n_layers,
         _held16: vec![silu, act, q_raw, k_raw, v_raw, q_out, ctx, x_a, x_b],
-        _held32: vec![d_gu, d_dn],
+        _held32: vec![d_gu, d_dn, ticket],
         _heldf: vec![scratch],
         _held64: vec![slots],
         kv_seen: Vec::new(),
+        kernel_from: crate::kvq::KERNEL_FROM,
         lines,
     })
 }
@@ -365,6 +391,20 @@ impl Runtime4e {
     /// made; the caches hold `pos0 + made` positions after.
     pub fn decode(&mut self, caches: &mut [KvCache], pos0: usize, tok: u32, n: u32, eos: u32) -> anyhow::Result<Vec<u32>> {
         Ok(self.launch(caches, pos0, tok, n, eos, false)?.0)
+    }
+
+    /// The first position a launch may start at.
+    pub fn kernel_from(&self) -> usize {
+        self.kernel_from
+    }
+
+    /// Lower (or restore) the threshold, for a measurement only: below
+    /// [`crate::kvq::KERNEL_FROM`] 4E's tokens are the kernel form's, which
+    /// the served config does not run there and no T8 covers. The eager side
+    /// of such a measurement must run the same form
+    /// (`Qwen3::set_kernel_from_for_measurement`).
+    pub fn set_kernel_from_for_measurement(&mut self, from: usize) {
+        self.kernel_from = from;
     }
 
     /// Does this runtime carry the phase-stamp symbol?
@@ -393,6 +433,13 @@ impl Runtime4e {
         }
         if caches.len() != self.layers_host.len() {
             anyhow::bail!("4E: {} caches for {} layers", caches.len(), self.layers_host.len());
+        }
+        if pos0 < self.kernel_from {
+            anyhow::bail!(
+                "4E: a launch at position {pos0}, below the kernel threshold {}: the served config runs the grouped \
+                 arithmetic there (cuBLAS), which 4E does not compute; decode those positions on the eager path",
+                self.kernel_from
+            );
         }
         let stream = self.cuda.stream().clone();
         // Grow every cache to hold the launch; the images carry the

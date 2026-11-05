@@ -1127,30 +1127,52 @@ fn spun_clock(
 /// Out of the cfg-gated body so the Mac type-checks it.
 #[cfg(all(target_os = "linux", feature = "cuda"))]
 /// `LLVQ_PERS_4E` at one prompt length: the reference tokens of the eager
-/// path (kernel form, threshold 0), 4E's after the same prefill (identical or
-/// void), the served grouped door's beside (a T8 reading), then 2 + 5
-/// interleaved rounds of the decode, eager against 4E.
+/// path, each 4E geometry's after the same prefill (identical or void), the
+/// served door's beside, then 2 + 5 interleaved rounds of the decode, eager
+/// and every geometry in each round, then one stamped launch a geometry.
 fn run_pers_4e(
     model: &mut llvq_llm::model::Qwen3,
-    rt: &mut llvq_llm::persist4e_cuda::Runtime4e,
+    rts: &mut [llvq_llm::persist4e_cuda::Runtime4e],
     prompt: &[u32],
     n_new: usize,
 ) -> anyhow::Result<()> {
     use llvq_llm::boundary::median_range;
     const WARMUP: usize = 2;
+    // The form 4E and the eager side run. From KERNEL_FROM on, the served
+    // config itself (the kernel from position 1,280, operator T8): every
+    // decode row of a prompt that long is past the threshold. Below it, the
+    // served config runs candle's grouped arithmetic, which 4E does not
+    // compute: both sides then run the kernel on every row, a measurement
+    // form with no T8, as the first three readings did.
+    let from = llvq_llm::kvq::KERNEL_FROM;
+    let served_form = prompt.len() >= from;
+    let eager_from = if served_form { from } else { 0 };
+    for rt in rts.iter_mut() {
+        rt.set_kernel_from_for_measurement(eager_from);
+    }
     let kernel_form = |m: &mut llvq_llm::model::Qwen3| {
         GqaArm::Kernel.apply(m);
-        m.set_kernel_from_for_measurement(0);
+        m.set_kernel_from_for_measurement(eager_from);
     };
-    // The served door's form, for the T8 reading only.
-    GqaArm::Grouped.apply(model);
-    model.set_kernel_from_for_measurement(llvq_llm::kvq::KERNEL_FROM);
+    // The served door: the served 4B config (kernel from 1,280).
+    GqaArm::Kernel.apply(model);
+    model.set_kernel_from_for_measurement(from);
     // In chunks of MAX_PREFILL_ROWS, the context sweep's way: an 8,192-token
     // prompt in one call is refused by the fused prefill (run 2 of the 4E
     // reading stopped there). At or under one chunk this is `generate`.
     let served = model.generate_timed(prompt, n_new, llvq_llm::model::MAX_PREFILL_ROWS)?.tokens;
     kernel_form(model);
-    println!("\n  context {}: attention {} on {}, every decode row on the kernel", prompt.len(), model.attn_heads().label(), model.kv_store().label());
+    println!(
+        "\n  context {}: attention {} on {}, {}",
+        prompt.len(),
+        model.attn_heads().label(),
+        model.kv_store().label(),
+        if served_form {
+            format!("the served config: every decode row at or past position {from}, inside the T8")
+        } else {
+            format!("measurement form: every decode row on the kernel (no T8; the served config runs the grouped path below {from})")
+        }
+    );
     // One prefill for the context (chunked, `prefill_next`); every run truncates the caches back to
     // the prompt (a Grow store's truncate moves only its length) and writes
     // the positions after it again, eager or 4E.
@@ -1181,38 +1203,57 @@ fn run_pers_4e(
         Ok((out, t.elapsed().as_secs_f64()))
     };
     let (want, _) = eager(model, &mut caches)?;
-    let (got, _) = pers(rt, &mut caches)?;
-    if let Some(i) = first_divergence(&want, &got).map_err(|e| anyhow::anyhow!("{e}"))? {
-        anyhow::bail!("context {}: 4E diverges from the eager path at token {i}; 4E owes its bits, the run is void", prompt.len());
+    for rt in rts.iter_mut() {
+        let (got, _) = pers(rt, &mut caches)?;
+        if let Some(i) = first_divergence(&want, &got).map_err(|e| anyhow::anyhow!("{e}"))? {
+            anyhow::bail!("context {}: 4E at {} threads diverges from the eager path at token {i}; 4E owes its bits, the run is void", prompt.len(), rt.threads);
+        }
+        println!("  4E at {} threads: tokens equal the eager path's, {} of {}", rt.threads, got.len(), want.len());
     }
-    println!("  4E tokens equal the eager path's: {} of {}", got.len(), want.len());
     match first_divergence(&served, &want).map_err(|e| anyhow::anyhow!("{e}"))? {
-        None => println!("  served grouped door: the same {} tokens", served.len()),
-        Some(i) => println!("  served grouped door: diverges at token {i} (T8 reading, not a gate)"),
+        None => println!("  served door (kernel from {from}): the same {} tokens", served.len()),
+        Some(i) if served_form => anyhow::bail!("context {}: the served door diverges from the eager served config at token {i}; the run is void", prompt.len()),
+        Some(i) => println!("  served door (kernel from {from}): diverges at token {i} (the measurement form's T8 reading, not a gate)"),
     }
-    let mut rate: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
+    let mut rate: Vec<Vec<f64>> = vec![Vec::new(); 1 + rts.len()];
     for round in 0..WARMUP + ROUNDS_TIMED {
         let (a, ta) = eager(model, &mut caches)?;
-        let (b, tb) = pers(rt, &mut caches)?;
-        if a != want || b != want {
-            anyhow::bail!("round {round}: a decode moved its tokens; the run is void");
+        if a != want {
+            anyhow::bail!("round {round}: the eager decode moved its tokens; the run is void");
         }
         if round >= WARMUP {
             rate[0].push((n_new - 1) as f64 / ta);
-            rate[1].push((n_new - 1) as f64 / tb);
+        }
+        for (k, rt) in rts.iter_mut().enumerate() {
+            let (b, tb) = pers(rt, &mut caches)?;
+            if b != want {
+                anyhow::bail!("round {round}: 4E at {} threads moved its tokens; the run is void", rt.threads);
+            }
+            if round >= WARMUP {
+                rate[1 + k].push((n_new - 1) as f64 / tb);
+            }
         }
     }
-    for (k, name) in ["eager (kernel form)", "4E"].iter().enumerate() {
-        let (m, lo, hi) = median_range(&rate[k]);
-        println!("  {name:<20} {m:7.1} tok/s [{lo:.1}-{hi:.1}]");
+    let eager_name = if served_form { "eager (served config)" } else { "eager (kernel form)" };
+    let (m, lo, hi) = median_range(&rate[0]);
+    println!("  {eager_name:<22} {m:7.1} tok/s [{lo:.1}-{hi:.1}]");
+    for (k, rt) in rts.iter().enumerate() {
+        let (m, lo, hi) = median_range(&rate[1 + k]);
+        let name = format!("4E {} threads", rt.threads);
+        println!("  {name:<22} {m:7.1} tok/s [{lo:.1}-{hi:.1}]");
+        let ratio: Vec<f64> = rate[1 + k].iter().zip(&rate[0]).map(|(a, b)| a / b).collect();
+        let (m, lo, hi) = median_range(&ratio);
+        println!("  {:<22} 4E / eager, round by round: x{m:.3} [{lo:.3}-{hi:.3}]", "");
     }
-    let ratio: Vec<f64> = rate[1].iter().zip(&rate[0]).map(|(a, b)| a / b).collect();
-    let (m, lo, hi) = median_range(&ratio);
-    println!("  4E / eager, round by round: x{m:.3} [{lo:.3}-{hi:.3}]");
-    // One more launch, on the phase-stamp symbol, after the timed rounds and
-    // outside them: where the token's time goes, phase by phase and CTA by
-    // CTA (pers.rs::p4e_phase_report). The same tokens, or its stamps are void.
-    if rt.can_stamp() {
+    // One more launch a geometry, on the phase-stamp symbol, after the timed
+    // rounds and outside them: where the token's time goes, phase by phase
+    // and CTA by CTA (pers.rs::p4e_phase_report). The same tokens, or its
+    // stamps are void.
+    for (k, rt) in rts.iter_mut().enumerate() {
+        if !rt.can_stamp() {
+            println!("  phase stamps: no stamp symbol at {} threads", rt.threads);
+            continue;
+        }
         for c in caches.iter_mut() {
             c.truncate(prompt.len())?;
         }
@@ -1220,17 +1261,19 @@ fn run_pers_4e(
         let mut got = vec![first];
         got.extend(&made);
         if got != want {
-            anyhow::bail!("context {}: the stamped launch moved its tokens; its stamps are void", prompt.len());
+            anyhow::bail!("context {}: the stamped launch at {} threads moved its tokens; its stamps are void", prompt.len(), rt.threads);
         }
         let (layers, grid) = rt.stamp_shape();
         let r = llvq_cuda::pers::p4e_phase_report(&stamps, made.len() as u32, layers, grid).map_err(anyhow::Error::msg)?;
+        println!("  phase stamps, 4E at {} threads:", rt.threads);
         for line in llvq_cuda::pers::p4e_report_lines(&r) {
             println!("{line}");
         }
-        let (m4e, _, _) = median_range(&rate[1]);
+        let (m4e, _, _) = median_range(&rate[1 + k]);
         println!("  stamped token {:.1} us against the timed 4E's {:.1} us (the stamps' own cost)", r.token.0 / 1e3, 1e6 / m4e);
-    } else {
-        println!("  phase stamps: no stamp symbol at {} threads", rt.threads);
+    }
+    for rt in rts.iter_mut() {
+        rt.set_kernel_from_for_measurement(from);
     }
     Ok(())
 }
@@ -1704,15 +1747,18 @@ fn main() -> anyhow::Result<()> {
         //
         // A MEASUREMENT MODE on the bench door, refused beside LLVQ_CONFIG and
         // every other mode, the served flags spelled out on the command line.
-        // ONE model on Grow(256) with the "kernel" attention form and every
-        // decode row sent to the kernel (threshold 0, measurement only), so the
-        // eager path's attention is attn_ref.rs's arithmetic, the one 4E owes
-        // its bits to. Per context (5 and 8,192 prompt tokens): the eager path
-        // makes the reference tokens; 4E (llvq_llm::persist4e_cuda), after the
-        // same eager prefill, must make the same ones, or the run is void. The
-        // served grouped door's tokens are printed beside, as a T8 reading.
-        // Then 2 + 5 interleaved rounds of the decode, eager against 4E,
-        // tok/s and the ratio round by round. Value: the tokens a run, 1 to 256.
+        // ONE model on Grow(256) with the "kernel" attention form. At 8,192
+        // prompt tokens the served config itself (the kernel from position
+        // 1,280, every decode row past it); at the short prompt, every decode
+        // row on the kernel (threshold 0, measurement only), since 4E does
+        // not compute the grouped arithmetic the served config runs below
+        // 1,280. Per context: the eager path makes the reference tokens; each
+        // 4E geometry (512 and 768 threads, llvq_llm::persist4e_cuda), after
+        // the same eager prefill, must make the same ones, or the run is void.
+        // The served door's tokens are printed beside. Then 2 + 5 interleaved
+        // rounds of the decode, eager and every geometry, tok/s and the
+        // ratios round by round, then one stamped launch a geometry. Value:
+        // the tokens a run, 2 to 256.
         if let Ok(v) = std::env::var("LLVQ_PERS_4E") {
             let n_new: usize = v.parse().map_err(|_| anyhow::anyhow!("LLVQ_PERS_4E={v:?}: a token count, 2 to 256"))?;
             if !(2..=256).contains(&n_new) {
@@ -1752,9 +1798,22 @@ fn main() -> anyhow::Result<()> {
             let (n_kv, groups, hd) = f.model.attn_geometry();
             let k = llvq_llm::attn::kernel_for(&device, n_kv, groups, hd).map_err(|e| anyhow::anyhow!("{e}"))?;
             f.model.set_attn_kernel(Some(k));
-            let mut rt = llvq_llm::persist4e_cuda::install(&f.model, &device, n_new as u32)?;
-            for line in &rt.lines {
-                println!("{line}");
+            // Both geometries, each where its token symbol loads without
+            // local memory: 512 threads with the rows' prefetch, 768 without.
+            let mut rts = Vec::new();
+            for threads in [512u32, 768] {
+                match llvq_llm::persist4e_cuda::install(&f.model, &device, n_new as u32, Some(threads)) {
+                    Ok(rt) => {
+                        for line in &rt.lines {
+                            println!("{line}");
+                        }
+                        rts.push(rt);
+                    }
+                    Err(e) => println!("4E at {threads} threads: not run: {e}"),
+                }
+            }
+            if rts.is_empty() {
+                anyhow::bail!("LLVQ_PERS_4E: no 4E geometry loads on this card");
             }
             if ctx.is_in_multi_stream_mode() {
                 anyhow::bail!("LLVQ_PERS_4E: a second stream appeared at the load, with events off");
@@ -1763,7 +1822,7 @@ fn main() -> anyhow::Result<()> {
             let base = f.tokenizer.encode(PROMPT, false).map_err(|e| anyhow::anyhow!("{e}"))?.get_ids().to_vec();
             for len in [base.len(), 8192] {
                 let prompt: Vec<u32> = base.iter().copied().cycle().take(len).collect();
-                run_pers_4e(&mut f.model, &mut rt, &prompt, n_new)?;
+                run_pers_4e(&mut f.model, &mut rts, &prompt, n_new)?;
             }
             if ctx.is_in_multi_stream_mode() {
                 anyhow::bail!("LLVQ_PERS_4E: a second stream appeared during the run: the numbers above are void");

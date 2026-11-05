@@ -10,11 +10,14 @@
 //      input at 9,728), each u32 m, k, f32 inv, u32 signs[n/32], f32 small[1024],
 //      u32 n_more, then n_more launches (u32 pos0, n, tok0) run after the
 //      first through the same state, as the runtime runs consecutive decodes
-//      (a later launch may rewind to an earlier position), then u32 stamp: 1
-//      runs the persistent side on the phase-stamp symbols (the served side
-//      ignores it)
+//      (a later launch may rewind to an earlier position), then u32 variant
+//      of the persistent side (the served side ignores it): 0 the 768-thread
+//      token symbols (rows without prefetch), 1 the 512-thread stamp symbols,
+//      2 the 512-thread token symbols (rows with prefetch), 3 the 768-thread
+//      stamp symbols
 // out: u32 ring[n] then each later launch's ring, u16 x[hidden], u16 kc, vc of
-//      each layer, u32 bar, abort; with stamp = 1 on the persistent side, then
+//      each layer, u32 bar, abort + the tickets left; with a stamp variant (1
+//      or 3) on the persistent side, then
 //      u64 stamps[sum of n][3 + 10 x layers][grid] (the harness clock counts
 //      calls: an order, not a duration)
 {
@@ -33,7 +36,8 @@
     const u32 n_more = rd1<u32>();
     std::vector<u32> runs{pos0, n, tok0};
     { const auto m = rd<u32>(3 * (size_t)n_more); runs.insert(runs.end(), m.begin(), m.end()); }
-    const u32 stamp = rd1<u32>();
+    const u32 variant = rd1<u32>();
+    const u32 stamp = (variant == 1u || variant == 3u) ? 1u : 0u;
     size_t ring_len = 0;
     for (size_t i = 0; i < runs.size(); i += 3) ring_len += runs[i + 1];
     const float eps = 1e-6f;
@@ -85,7 +89,7 @@
     std::vector<u32> ring(ring_len, 0xFFFFFFFFu), tail(2, 0u);
     std::vector<unsigned short> x(H, 0u);
 #if PERS_SIDE == 0
-    (void)grid; (void)threads; (void)stamp;
+    (void)grid; (void)threads; (void)stamp; (void)variant;
     auto norm = [&](const std::vector<unsigned short>& v, const unsigned short* al, u32 w) {
         const float sc = candle_rms_scale(v.data(), w, eps, 0);
         std::vector<unsigned short> o(w);
@@ -171,8 +175,8 @@
 #else
     const F1rTables tb = tables();
     std::vector<unsigned short> qs(NH * 128), ks(NKV * 128), vs(NKV * 128), x_b(H), q_out(NH * 128), ctx(NH * 128), act(I);
-    std::vector<float> scratch((size_t)NH * ((cap + 63) / 64) * 130);
-    std::vector<u32> bar(1, 0u), ab(1, 0u), nan(1, 0u);
+    std::vector<float> scratch((size_t)NKV * ((cap + 255) / 256) * GRP * 130);
+    std::vector<u32> bar(1, 0u), ab(1, 0u), nan(1, 0u), ticket(NKV, 0u);
     std::vector<unsigned long long> slots(2, 0ull);
     const auto gu = [&] { std::vector<u32> v; for (u32 g = 0; g < grid; ++g) { v.push_back((u32)((uint64_t)I * g / grid)); v.push_back((u32)((uint64_t)I * (g + 1) / grid)); } return v; }();
     const auto dn = [&] { std::vector<u32> v; for (u32 g = 0; g < grid; ++g) { v.push_back((u32)((uint64_t)H * g / grid)); v.push_back((u32)((uint64_t)H * (g + 1) / grid)); } return v; }();
@@ -204,14 +208,18 @@
     A.cosr = cosr.data(); A.sinr = sinr.data(); A.x_a = x.data(); A.x_b = x_b.data(); A.q_out = q_out.data(); A.ctx = ctx.data();
     A.attn_scratch = scratch.data(); A.bar = bar.data(); A.abort_flag = ab.data(); A.slots = slots.data(); A.nan_flag = nan.data();
     A.rows = tb.rows; A.pref = tb.prefixes; A.br = tb.branches; A.suf = tb.suffixes; A.invnorm = g_inv.data();
+    A.attn_ticket = ticket.data();
     A.n_layers = NL; A.vocab = vocab; A.hidden = H; A.emb_gpr = egpr; A.n_heads = NH; A.n_kv = NKV; A.groups = GRP; A.cap = cap;
     A.eps = eps; A.c = scale;
     typedef void (*Fn)(const Pers4eArgs*, const Pers4eLaunch);
-    const Fn fns[3] = {pers_4e_tokens_f0, pers_4e_tokens_f1, pers_4e_tokens_f2};
-    const Fn stamped[3] = {pers_4e_stamps_f0_t512, pers_4e_stamps_f1_t512, pers_4e_stamps_f2_t512};
+    const Fn table[4][3] = {{pers_4e_tokens_f0, pers_4e_tokens_f1, pers_4e_tokens_f2},
+                            {pers_4e_stamps_f0_t512, pers_4e_stamps_f1_t512, pers_4e_stamps_f2_t512},
+                            {pers_4e_tokens_f0_t512, pers_4e_tokens_f1_t512, pers_4e_tokens_f2_t512},
+                            {pers_4e_stamps_f0_t768, pers_4e_stamps_f1_t768, pers_4e_stamps_f2_t768}};
+    if (variant > 3u) { std::fprintf(stderr, "host_pers: 4E variant %u\n", variant); std::exit(2); }
     const size_t n_ev = 3u + 10u * NL;
     std::vector<unsigned long long> stamps(stamp ? ring_len * n_ev * grid : 0u, 0ull);
-    const size_t smem = PERS_SMEM_HEADER + 18816 + 4 * (size_t)std::max(I, 2 * H);
+    const size_t smem = PERS_SMEM_HEADER + 18816 + std::max(4 * (size_t)std::max(I, 2 * H), (size_t)PERS_ATTN_SMEM(GRP));
     // Launch after launch through the same state, as Runtime4e::decode runs
     // them: the barrier base is the counter's value (no abort), a fresh ring.
     size_t ring_at = 0;
@@ -219,10 +227,11 @@
         const Pers4eLaunch L{bar[0], runs[run_i], runs[run_i + 1], runs[run_i + 2], eos, 0u, ring.data() + ring_at,
                              stamp ? stamps.data() + ring_at * n_ev * grid : nullptr};
         ring_at += runs[run_i + 1];
-        hostgrid::launch_coop(grid, threads, smem, seed + run_i, [&] { (stamp ? stamped : fns)[form](&A, L); });
+        hostgrid::launch_coop(grid, threads, smem, seed + run_i, [&] { table[variant][form](&A, L); });
     }
     tail[0] = bar[0];
     tail[1] = ab[0];
+    for (u32 t : ticket) tail[1] += t;  // the split fold leaves every ticket at zero
 #endif
     wr(ring);
     wr(x);

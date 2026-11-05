@@ -88,7 +88,14 @@ struct SegLaunch {
 // Smem: 256-B header | tables 18,816 B | one vector of max(hidden, inter)
 // floats, the rotation buffer and the staging at once (natural stride 24, the
 // served layout: the rotated vector IS the staged vector).
-template <int NORMV, bool TETRA_DOWN>
+//
+// IN4E (4E's call, never route P's launches): the tables are already in this
+// CTA's shared memory, staged once at the start of the launch, and nothing
+// in 4E writes them, so the segment does not restage them every layer; and
+// the CTA asks L2 for its slice of the down rows before it waits for the
+// activation. PF: the Tetra and int4 rows keep the next block or word in
+// flight (PREFETCH, the same order of accumulation). None of it moves a bit.
+template <int NORMV, bool TETRA_DOWN, bool IN4E = false, bool PF = false>
 __device__ __forceinline__ void pers_segment_body(const SegArgs* __restrict__ A, const SegLaunch L)
 {
     unsigned char* base = PERS_SMEM_BASE();
@@ -98,13 +105,15 @@ __device__ __forceinline__ void pers_segment_body(const SegArgs* __restrict__ A,
     unsigned char* t_suf = reinterpret_cast<unsigned char*>(t_br + 1024);
     float* t_inv = reinterpret_cast<float*>(t_suf + 128);
     float* v = t_inv + 32;
-    for (u32 i = threadIdx.x; i < 4096u; i += blockDim.x) t_rows[i] = A->rows[i];
-    for (u32 i = threadIdx.x; i < 128u; i += blockDim.x) {
-        t_pref[i] = A->pref[i];
-        t_suf[i] = A->suf[i];
+    if (!IN4E) {
+        for (u32 i = threadIdx.x; i < 4096u; i += blockDim.x) t_rows[i] = A->rows[i];
+        for (u32 i = threadIdx.x; i < 128u; i += blockDim.x) {
+            t_pref[i] = A->pref[i];
+            t_suf[i] = A->suf[i];
+        }
+        for (u32 i = threadIdx.x; i < 1024u; i += blockDim.x) t_br[i] = A->br[i];
+        for (u32 i = threadIdx.x; i < 32u; i += blockDim.x) t_inv[i] = A->invnorm[i];
     }
-    for (u32 i = threadIdx.x; i < 1024u; i += blockDim.x) t_br[i] = A->br[i];
-    for (u32 i = threadIdx.x; i < 32u; i += blockDim.x) t_inv[i] = A->invnorm[i];
     const F1rTables tab{t_rows, t_pref, t_br, t_suf};
     const u32 lane = threadIdx.x & 31u;
     const u32 H = A->hidden, I = A->inter;
@@ -125,9 +134,9 @@ __device__ __forceinline__ void pers_segment_body(const SegArgs* __restrict__ A,
         for (;;) {
             const u32 r = pers_claim(lane, 1u);
             if (r >= hi) break;
-            const float ag = pers_tetra_row<24u, false, false>(A->gate.words + r * A->gate.stride_u32, tab,
+            const float ag = pers_tetra_row<24u, false, PF>(A->gate.words + r * A->gate.stride_u32, tab,
                                                                A->gate.gscale, t_inv, v, nb, lane);
-            const float au = pers_tetra_row<24u, false, false>(A->up.words + r * A->up.stride_u32, tab,
+            const float au = pers_tetra_row<24u, false, PF>(A->up.words + r * A->up.stride_u32, tab,
                                                                A->up.gscale, t_inv, v, nb, lane);
             if (lane == 0u) {
                 const unsigned short g = f2h(pers_epilogue(ag, A->gate.rscale[r], A->gate.tail + r * tw, v + nb * 24u, tw));
@@ -137,7 +146,17 @@ __device__ __forceinline__ void pers_segment_body(const SegArgs* __restrict__ A,
         }
     }
 
-    // 3. every row of the activation is written.
+    // 3. every row of the activation is written. 4E: this CTA's down rows are
+    // asked of L2 first, while the slowest CTA finishes its gate/up rows.
+    if (IN4E) {
+        const u32 dlo = A->slice_dn[2u * blockIdx.x], dhi = A->slice_dn[2u * blockIdx.x + 1u];
+        if (TETRA_DOWN) {
+            pers_l2_prefetch(A->down.words + (unsigned long long)dlo * A->down.stride_u32,
+                             4ull * (dhi - dlo) * A->down.stride_u32);
+        } else {
+            pers_l2_prefetch(A->q4w + (unsigned long long)dlo * (I >> 3), 4ull * (dhi - dlo) * (I >> 3));
+        }
+    }
     if (!pers_grid_wait(A->bar, L.bar_base + gridDim.x, A->abort_flag)) return;
 
     // 4. down, then the residual.
@@ -155,10 +174,10 @@ __device__ __forceinline__ void pers_segment_body(const SegArgs* __restrict__ A,
         if (r >= hi) break;
         float acc;
         if (TETRA_DOWN) {
-            acc = pers_tetra_row<24u, false, false>(A->down.words + r * A->down.stride_u32, tab, A->down.gscale, t_inv,
+            acc = pers_tetra_row<24u, false, PF>(A->down.words + r * A->down.stride_u32, tab, A->down.gscale, t_inv,
                                                      v, A->down.nblocks, lane);
         } else {
-            acc = pers_q4_row(A->q4w, A->q4s, A->q4b, v, r, I, A->gpr, lane);
+            acc = pers_q4_row<PF>(A->q4w, A->q4s, A->q4b, v, r, I, A->gpr, lane);
         }
         if (lane == 0u) {
             const float y = TETRA_DOWN ? pers_epilogue(acc, A->down.rscale[r], A->down.tail + r * A->down.tail_w,

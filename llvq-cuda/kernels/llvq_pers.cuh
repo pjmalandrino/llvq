@@ -104,6 +104,24 @@ __device__ __forceinline__ unsigned long long pers_now()
 #endif
 }
 
+// Ask L2 for the 128-byte lines of [p, p + bytes), spread over the CTA's
+// threads: `prefetch.global.L2`, no register written, no value read, so no
+// bit of any result can depend on it. 4E's CTAs issue it for the rows of a
+// later phase while their own phase leaves the DRAM idle (route P's rule D,
+// pers-l1-2026-11-04). The host harness has no cache: a no-op there.
+__device__ __forceinline__ void pers_l2_prefetch(const void* p, unsigned long long bytes)
+{
+#ifdef LLVQ_HOST_BUILD
+    (void)p;
+    (void)bytes;
+#else
+    if (bytes == 0ull) return;
+    const unsigned long long a0 = (unsigned long long)p & ~127ull, a1 = (unsigned long long)p + bytes;
+    for (unsigned long long a = a0 + 128ull * threadIdx.x; a < a1; a += 128ull * blockDim.x)
+        asm volatile("prefetch.global.L2 [%0];" ::"l"(a));
+#endif
+}
+
 __device__ __forceinline__ bool pers_reached(u32 v, u32 target)
 {
     return (int)(v - target) >= 0;  // valid while fewer than 2^31 arrivals separate them
@@ -324,6 +342,10 @@ __device__ __forceinline__ float pers_q4_deq(u32 q, u32 sbits, u32 bbits)
     return __fadd_rn(__fmul_rn(h2f((unsigned short)sbits), (float)q), h2f((unsigned short)bbits));
 }
 
+// PREFETCH (4E): word wi + 32 and its scale and bias are in flight while
+// word wi is used; the same words, scales and products, accumulated in the
+// same order, so the same bits.
+template <bool PREFETCH = false>
 __device__ __forceinline__ float pers_q4_row(const u32* wq, const unsigned short* scales,
                                              const unsigned short* biases, const float* xs, u32 row, u32 d_in,
                                              u32 gpr, u32 lane)
@@ -332,14 +354,37 @@ __device__ __forceinline__ float pers_q4_row(const u32* wq, const unsigned short
     const u32 w0 = row * nwords;
     const u32 s0 = row * gpr;
     float acc = 0.0f;
-    for (u32 wi = lane; wi < nwords; wi += 32u) {
-        const u32 p = wq[w0 + wi];
-        const u32 c = wi << 3;
-        const u32 g = s0 + (c >> 7);
-        const u32 sb = scales[g];
-        const u32 bb = biases[g];
+    if (!PREFETCH) {
+        for (u32 wi = lane; wi < nwords; wi += 32u) {
+            const u32 p = wq[w0 + wi];
+            const u32 c = wi << 3;
+            const u32 g = s0 + (c >> 7);
+            const u32 sb = scales[g];
+            const u32 bb = biases[g];
 #pragma unroll
-        for (u32 k = 0; k < 8u; ++k) acc = __fmaf_rn(pers_q4_deq((p >> (4u * k)) & 0xfu, sb, bb), xs[c + k], acc);
+            for (u32 k = 0; k < 8u; ++k) acc = __fmaf_rn(pers_q4_deq((p >> (4u * k)) & 0xfu, sb, bb), xs[c + k], acc);
+        }
+    } else {
+        u32 p = 0u, sb = 0u, bb = 0u;
+        if (lane < nwords) {
+            p = wq[w0 + lane];
+            sb = scales[s0 + (lane >> 4)];
+            bb = biases[s0 + (lane >> 4)];
+        }
+        for (u32 wi = lane; wi < nwords; wi += 32u) {
+            u32 p2 = 0u, sb2 = 0u, bb2 = 0u;
+            if (wi + 32u < nwords) {
+                p2 = wq[w0 + wi + 32u];
+                sb2 = scales[s0 + ((wi + 32u) >> 4)];
+                bb2 = biases[s0 + ((wi + 32u) >> 4)];
+            }
+            const u32 c = wi << 3;
+#pragma unroll
+            for (u32 k = 0; k < 8u; ++k) acc = __fmaf_rn(pers_q4_deq((p >> (4u * k)) & 0xfu, sb, bb), xs[c + k], acc);
+            p = p2;
+            sb = sb2;
+            bb = bb2;
+        }
     }
     return warp_sum(acc);
 }
@@ -562,6 +607,9 @@ __device__ __forceinline__ bool pers_is_nan16(u32 b)
 // ---------------------------------------------------------------------------
 #define PERS_HDR_KEY 4u  // u32 4..5 of the header: the CTA's 64-bit maximum
 
+// PREFETCH (4E's 512-thread symbols): word wi + 32 in flight while word wi
+// is used (pers_q4_row's PREFETCH), the same products in the same order.
+template <bool PREFETCH = true>
 __device__ __forceinline__ float pers_q4g64_row(const u32* wq, const unsigned short* scales,
                                                 const unsigned short* biases, const float* xs, u32 row, u32 d,
                                                 u32 gpr, u32 lane)
@@ -570,13 +618,36 @@ __device__ __forceinline__ float pers_q4g64_row(const u32* wq, const unsigned sh
     const u32 w0 = row * nwords;
     const u32 s0 = row * gpr;
     float acc = 0.0f;
+    if (!PREFETCH) {
+        for (u32 wi = lane; wi < nwords; wi += 32u) {
+            const u32 p = wq[w0 + wi];
+            const u32 c = wi << 3;
+            const u32 sb = scales[s0 + (c >> 6)];
+            const u32 bb = biases[s0 + (c >> 6)];
+#pragma unroll
+            for (u32 k = 0; k < 8u; ++k) acc = __fmaf_rn(pers_q4_deq((p >> (4u * k)) & 0xfu, sb, bb), xs[c + k], acc);
+        }
+        return warp_sum(acc);
+    }
+    u32 p = 0u, sb = 0u, bb = 0u;
+    if (lane < nwords) {
+        p = wq[w0 + lane];
+        sb = scales[s0 + (lane >> 3)];
+        bb = biases[s0 + (lane >> 3)];
+    }
     for (u32 wi = lane; wi < nwords; wi += 32u) {
-        const u32 p = wq[w0 + wi];
+        u32 p2 = 0u, sb2 = 0u, bb2 = 0u;
+        if (wi + 32u < nwords) {
+            p2 = wq[w0 + wi + 32u];
+            sb2 = scales[s0 + ((wi + 32u) >> 3)];
+            bb2 = biases[s0 + ((wi + 32u) >> 3)];
+        }
         const u32 c = wi << 3;
-        const u32 sb = scales[s0 + (c >> 6)];
-        const u32 bb = biases[s0 + (c >> 6)];
 #pragma unroll
         for (u32 k = 0; k < 8u; ++k) acc = __fmaf_rn(pers_q4_deq((p >> (4u * k)) & 0xfu, sb, bb), xs[c + k], acc);
+        p = p2;
+        sb = sb2;
+        bb = bb2;
     }
     return warp_sum(acc);
 }
@@ -584,6 +655,7 @@ __device__ __forceinline__ float pers_q4g64_row(const u32* wq, const unsigned sh
 // Rows [lo, hi) of the head on this CTA, `xs` the staged f32 hidden vector.
 // Returns the token on every thread of every CTA once the W4 barrier is
 // passed, or 0xffffffff when a NaN logit was seen or the wait aborted.
+template <bool PF = true>
 __device__ __forceinline__ u32 pers_head_argmax(const u32* wq, const unsigned short* scales,
                                                 const unsigned short* biases, const float* xs, u32 d, u32 gpr,
                                                 u32 lo, u32 hi, unsigned long long* slot, u32* nan_flag, u32* bar,
@@ -597,7 +669,7 @@ __device__ __forceinline__ u32 pers_head_argmax(const u32* wq, const unsigned sh
     for (;;) {
         const u32 r = pers_claim(lane, 1u);
         if (r >= hi) break;
-        const float acc = pers_q4g64_row(wq, scales, biases, xs, r, d, gpr, lane);
+        const float acc = pers_q4g64_row<PF>(wq, scales, biases, xs, r, d, gpr, lane);
         if (lane == 0u) {
             const unsigned short h = f2h(acc);
             if (logits) logits[r] = h;
@@ -636,12 +708,13 @@ __device__ __forceinline__ void pers_embed(const u32* wq, const unsigned short* 
 
 // One Tetra row of a projection whose staged input is `xs` (natural, stride
 // 24), through the epilogue, as a binary16.
+template <bool PF = true>
 __device__ __forceinline__ unsigned short pers_tetra_out(const u32* words, u32 stride_u32, u32 nblocks, u32 tail_w,
                                                          const float* rscale, const unsigned short* tail,
                                                          const float* gscale, const F1rTables& tab,
                                                          const float* invnorm, const float* xs, u32 r, u32 lane)
 {
-    const float acc = pers_tetra_row<24u, false, false>(words + r * stride_u32, tab, gscale, invnorm, xs, nblocks, lane);
+    const float acc = pers_tetra_row<24u, false, PF>(words + r * stride_u32, tab, gscale, invnorm, xs, nblocks, lane);
     return f2h(pers_epilogue(acc, rscale[r], tail + r * tail_w, xs + nblocks * 24u, tail_w));
 }
 
@@ -657,6 +730,7 @@ struct Pers4eQkv {
     unsigned short *q, *k, *v;  // outputs, binary16
 };
 
+template <bool PF = true>
 __device__ __forceinline__ void pers_4e_qkv_rows(const Pers4eQkv& P, const F1rTables& tab, const float* invnorm,
                                                  const float* xr, const float* xn, u32 lo, u32 hi)
 {
@@ -666,17 +740,17 @@ __device__ __forceinline__ void pers_4e_qkv_rows(const Pers4eQkv& P, const F1rTa
         const u32 r = pers_claim(lane, 1u);
         if (r >= hi) break;
         if (r < P.q_dout) {
-            const unsigned short y = pers_tetra_out(P.qw, P.q_stride, P.nblocks, P.tail_w, P.qrs, P.qtl, P.qgs, tab,
+            const unsigned short y = pers_tetra_out<PF>(P.qw, P.q_stride, P.nblocks, P.tail_w, P.qrs, P.qtl, P.qgs, tab,
                                                     invnorm, xr, r, lane);
             if (lane == 0u) P.q[r] = y;
         } else if (r < P.q_dout + P.k_dout) {
             const u32 rk = r - P.q_dout;
-            const unsigned short y = pers_tetra_out(P.kw, P.k_stride, P.nblocks, P.tail_w, P.krs, P.ktl, P.kgs, tab,
+            const unsigned short y = pers_tetra_out<PF>(P.kw, P.k_stride, P.nblocks, P.tail_w, P.krs, P.ktl, P.kgs, tab,
                                                     invnorm, xr, rk, lane);
             if (lane == 0u) P.k[rk] = y;
         } else {
             const u32 rv = r - P.q_dout - P.k_dout;
-            const float acc = pers_q4_row(P.vw, P.vsc, P.vbi, xn, rv, P.d_in, P.v_gpr, lane);
+            const float acc = pers_q4_row<PF>(P.vw, P.vsc, P.vbi, xn, rv, P.d_in, P.v_gpr, lane);
             if (lane == 0u) P.v[rv] = f2h(acc);
         }
     }
@@ -685,6 +759,7 @@ __device__ __forceinline__ void pers_4e_qkv_rows(const Pers4eQkv& P, const F1rTa
 
 // The o phase: int4 g128 rows over the attention output `ctx` (binary16,
 // widened into `cs`), then out[r] = x[r] + o[r] as badd_f16 does.
+template <bool PF = true>
 __device__ __forceinline__ void pers_4e_o_int4(const u32* ow, const unsigned short* osc, const unsigned short* obi,
                                                u32 gpr, const unsigned short* ctx, float* cs, u32 d_ctx,
                                                const unsigned short* x, unsigned short* out, u32 lo, u32 hi)
@@ -696,7 +771,7 @@ __device__ __forceinline__ void pers_4e_o_int4(const u32* ow, const unsigned sho
     for (;;) {
         const u32 r = pers_claim(lane, 1u);
         if (r >= hi) break;
-        const float acc = pers_q4_row(ow, osc, obi, cs, r, d_ctx, gpr, lane);
+        const float acc = pers_q4_row<PF>(ow, osc, obi, cs, r, d_ctx, gpr, lane);
         if (lane == 0u) out[r] = exact_hadd(__ldcg(x + r), f2h(acc));
     }
     __syncthreads();
@@ -707,22 +782,47 @@ __device__ __forceinline__ void pers_4e_o_int4(const u32* ow, const unsigned sho
 //     llvq-cuda/src/attn_ref.rs (and of attn_dec.cu, proven equal to it by
 //     the attention lead), re-mapped onto the persistent grid. The bits of a
 //     row depend on its length alone: 8-position tiles aligned to absolute
-//     positions, 64-position units, 256-position splits, units merged into
+//     positions, 64-position units, 256-position splits, units folded into
 //     their split left to right, splits into the row left to right, every
-//     float operation an explicit RN intrinsic. The mapping is ours: phase 1
-//     gives each (query head, unit) to one warp (both half-warps compute the
-//     same job, so every shuffle is a full-warp one) and writes the unit's
-//     state (m, d, a[128]) to global scratch; after a grid barrier, phase 2
-//     gives each query head to one warp, which folds the states in order.
-//     Under T8: identity is owed to the "kernel" attention form, not to
-//     candle's cuBLAS path.
+//     float operation an explicit RN intrinsic. Under T8: identity is owed to
+//     the "kernel" attention form, not to candle's cuBLAS path.
+//
+//     The mapping is attn_dec.cu's, on a CTA of the persistent grid: a job
+//     is one (split, KV head), job j on CTA j mod grid. At step st the CTA
+//     stages tile st of the split's four units, K then V, 32 positions, 16 KB,
+//     into shared memory, once for every query head of the KV head, with the
+//     next step's loads already in flight in registers. A task is one (unit,
+//     pair of query heads), one warp, one head a half-warp, so the 16-lane
+//     butterfly (xor 8, 4, 2, 1) stays inside each half and every shuffle is
+//     a full-warp one. A task's state (m, d, a[128]) lives in shared memory
+//     between steps, so any number of warps covers the tasks. After the steps
+//     the units fold into the split state, one thread a (head, dimension).
+//     A row of one split divides and writes; otherwise the split state goes
+//     to global scratch and the CTA draws a ticket on its KV head's counter
+//     (attn_dec.cu's occ_sk pattern): the last one folds the splits in order,
+//     8 a round trip, writes the output and resets the counter. No grid
+//     barrier inside the phase: the one after it orders the output.
+//
+//     The first version gave one warp each (query head, unit), walked the
+//     unit's positions through dependent 2-byte loads, and folded the units
+//     of a head serially after a grid barrier: 2,355 us a token at a 5-token
+//     prompt and 13,273 us at 8,192 on the card (pers-4e-r3-2026-11-05).
 // ---------------------------------------------------------------------------
 #define PERS_HD 128u
 #define PERS_TT 8u
 #define PERS_UNIT 64u
 #define PERS_SPLIT 256u
+#define PERS_UPS 4u                                       // units a split
 #define PERS_PSTRIDE 130u
+#define PERS_STAGE (PERS_UPS * PERS_TT)                   // positions a step stages: 32
+#define PERS_STAGE_U4 (2u * PERS_STAGE * (PERS_HD / 8u))  // its 16-byte chunks, K then V: 1,024
+#define PERS_ATTN_CH 8u                                   // splits a round trip of the split fold
 #define PERS_NEG_INF __int_as_float((int)0xff800000u)
+#define PERS_HDR_TICKET 6u                                // header u32 6: this CTA drew the last ticket
+
+// Shared bytes the phase needs at `groups` query heads a KV head: the stage,
+// the unit states [UPS][groups][PSTRIDE], q [groups][128] widened.
+#define PERS_ATTN_SMEM(groups) (16u * PERS_STAGE_U4 + 4u * PERS_UPS * (groups) * PERS_PSTRIDE + 4u * (groups) * PERS_HD)
 
 // attn_ref.rs::ex2_fixed / attn_dec.cu::attn_ex2, the fixed polynomial.
 __device__ __forceinline__ float pers_ex2(float x)
@@ -742,144 +842,303 @@ __device__ __forceinline__ float pers_ex2(float x)
     return __int_as_float((int)((unsigned)__float_as_int(p) + ((unsigned)e << 23)));
 }
 
-// One (query head, unit) state: lane l & 15 owns dims 8(l&15)..+7. q is
-// widened in `qf` (this lane's 8 dims). Returns m and d on every lane; the
-// accumulators in `a`.
-__device__ __forceinline__ void pers_attn_unit(const float qf[8], const unsigned short* kc, const unsigned short* vc,
-                                               u32 u0, u32 l, float c, float& m, float& d, float a[8], u32 lane)
-{
-    const u32 dl = (lane & 15u) * 8u;
-    m = PERS_NEG_INF;
-    d = 0.0f;
-#pragma unroll
-    for (u32 i = 0; i < 8u; ++i) a[i] = 0.0f;
-    for (u32 p0 = u0; p0 < u0 + PERS_UNIT && p0 < l; p0 += PERS_TT) {
-        const u32 nv = l - p0 < PERS_TT ? l - p0 : PERS_TT;
-        float sc[PERS_TT];
-        for (u32 j = 0; j < nv; ++j) {
-            const unsigned short* kr = kc + (unsigned long long)(p0 + j) * PERS_HD + dl;
-            float t = 0.0f;
-#pragma unroll
-            for (u32 i = 0; i < 8u; ++i) t = __fmaf_rn(qf[i], h2f(__ldcg(kr + i)), t);  // written this launch
-#pragma unroll
-            for (int off = 8; off > 0; off >>= 1) t = __fadd_rn(t, __shfl_xor_sync(0xffffffffu, t, off));
-            sc[j] = __fmul_rn(t, c);
-        }
-        float mt = sc[0];
-        for (u32 j = 1; j < nv; ++j) mt = fmaxf(mt, sc[j]);
-        float m_new, carry;
-        if (m == PERS_NEG_INF) {
-            m_new = mt;
-            carry = 0.0f;
-        } else {
-            m_new = fmaxf(m, mt);
-            carry = pers_ex2(__fsub_rn(m, m_new));
-        }
-        float pj[PERS_TT];
-        float ts = 0.0f;
-        for (u32 j = 0; j < nv; ++j) {
-            pj[j] = pers_ex2(__fsub_rn(sc[j], m_new));
-            ts = __fadd_rn(ts, pj[j]);
-        }
-        d = __fadd_rn(__fmul_rn(d, carry), ts);
-#pragma unroll
-        for (u32 i = 0; i < 8u; ++i) {
-            float acc = __fmul_rn(a[i], carry);
-            for (u32 j = 0; j < nv; ++j)
-                acc = __fmaf_rn(pj[j], h2f(__ldcg(vc + (unsigned long long)(p0 + j) * PERS_HD + dl + i)), acc);
-            a[i] = acc;
-        }
-        m = m_new;
-    }
-}
-
-// attn_ref.rs::st_merge, on this lane's 8 dims.
-__device__ __forceinline__ void pers_attn_merge(float& am, float& ad, float aa[8], float bm, float bd, const float ba[8])
+// attn_ref.rs::st_merge on one value: b (later) into a (earlier). m and d are
+// the same scalar operations on every dimension, so every thread that folds a
+// dimension computes the same m and d.
+__device__ __forceinline__ void pers_attn_merge1(float& am, float& ad, float& aa, float bm, float bd, float ba)
 {
     if (bm == PERS_NEG_INF) return;
     if (am == PERS_NEG_INF) {
         am = bm;
         ad = bd;
-#pragma unroll
-        for (u32 i = 0; i < 8u; ++i) aa[i] = ba[i];
+        aa = ba;
         return;
     }
     const float m = fmaxf(am, bm);
     const float fa = pers_ex2(__fsub_rn(am, m)), fb = pers_ex2(__fsub_rn(bm, m));
     ad = __fadd_rn(__fmul_rn(ad, fa), __fmul_rn(bd, fb));
-#pragma unroll
-    for (u32 i = 0; i < 8u; ++i) aa[i] = __fadd_rn(__fmul_rn(aa[i], fa), __fmul_rn(ba[i], fb));
+    aa = __fadd_rn(__fmul_rn(aa, fa), __fmul_rn(ba, fb));
     am = m;
 }
 
-// The phase. q: [n_heads][128] binary16 after norm and RoPE; kc, vc:
-// [n_kv][cap][128] holding positions 0..l-1 (the new one appended); scratch:
-// [n_heads][ceil(l / 64)][PSTRIDE] floats; out: [n_heads][128] binary16.
-// Returns false when the barrier between the phases aborted. `dbg_state`,
-// nullable: [n_heads][PSTRIDE], each head's (a, m, d) before the division.
-__device__ __forceinline__ bool pers_attention(const unsigned short* q, const unsigned short* kc,
-                                               const unsigned short* vc, u32 n_heads, u32 groups, u32 cap, u32 l,
-                                               float c, float* scratch, unsigned short* out, u32* bar, u32 bar_target,
-                                               u32* abort_flag, float* dbg_state)
+// The 8 binary16 of a 16-byte chunk, in memory order.
+__device__ __forceinline__ void pers_unpack8(const uint4 w, float f[8])
 {
-    const u32 lane = threadIdx.x & 31u;
-    const u32 nwarps = blockDim.x >> 5;
-    const u32 gwarp = blockIdx.x * nwarps + (threadIdx.x >> 5);
-    const u32 total = gridDim.x * nwarps;
-    const u32 nunits = (l + PERS_UNIT - 1u) / PERS_UNIT;
-    const u32 dl = (lane & 15u) * 8u;
-    for (u32 job = gwarp; job < n_heads * nunits; job += total) {
-        const u32 hq = job / nunits, u = job - hq * nunits;
-        const u32 h = hq / groups;
-        float qf[8], a[8], m, d;
+    f[0] = h2f((unsigned short)(w.x & 0xffffu));
+    f[1] = h2f((unsigned short)(w.x >> 16));
+    f[2] = h2f((unsigned short)(w.y & 0xffffu));
+    f[3] = h2f((unsigned short)(w.y >> 16));
+    f[4] = h2f((unsigned short)(w.z & 0xffffu));
+    f[5] = h2f((unsigned short)(w.z >> 16));
+    f[6] = h2f((unsigned short)(w.w & 0xffffu));
+    f[7] = h2f((unsigned short)(w.w >> 16));
+}
+
+// Chunks [r0, r0 + PF x nthreads) of step st, this thread's share: chunk idx
+// is tensor idx / 512 (K first), staged position (idx mod 512) / 16 = unit x 8
+// + offset, bytes 16 (idx mod 16) of its row. Past the row: zeros, never used.
+template <u32 PF>
+__device__ __forceinline__ void pers_attn_load(uint4 pf[PF], const unsigned short* kh, const unsigned short* vh,
+                                               u32 base, u32 st, u32 lr, u32 r0)
+{
 #pragma unroll
-        for (u32 i = 0; i < 8u; ++i) qf[i] = h2f(__ldcg(q + hq * PERS_HD + dl + i));
-        pers_attn_unit(qf, kc + (unsigned long long)h * cap * PERS_HD, vc + (unsigned long long)h * cap * PERS_HD,
-                       u * PERS_UNIT, l, c, m, d, a, lane);
-        float* st = scratch + ((unsigned long long)hq * nunits + u) * PERS_PSTRIDE;
-        if (lane < 16u) {
-#pragma unroll
-            for (u32 i = 0; i < 8u; ++i) st[dl + i] = a[i];
+    for (u32 i = 0; i < PF; ++i) {
+        const u32 idx = r0 + i * blockDim.x + threadIdx.x;
+        uint4 z;
+        z.x = 0u; z.y = 0u; z.z = 0u; z.w = 0u;
+        if (idx < PERS_STAGE_U4) {
+            const u32 rem = idx % (PERS_STAGE * 16u), pl = rem >> 4;
+            const u32 p = base + (pl / PERS_TT) * PERS_UNIT + st * PERS_TT + (pl % PERS_TT);
+            if (p < lr) z = __ldcg(reinterpret_cast<const uint4*>((idx < PERS_STAGE * 16u ? kh : vh) + (unsigned long long)p * PERS_HD) + (rem & 15u));
         }
-        if (lane == 0u) {
-            st[PERS_HD] = m;
-            st[PERS_HD + 1u] = d;
+        pf[i] = z;
+    }
+}
+
+template <u32 PF>
+__device__ __forceinline__ void pers_attn_store(const uint4 pf[PF], uint4* stage, u32 r0)
+{
+#pragma unroll
+    for (u32 i = 0; i < PF; ++i) {
+        const u32 idx = r0 + i * blockDim.x + threadIdx.x;
+        if (idx < PERS_STAGE_U4) stage[idx] = pf[i];
+    }
+}
+
+// One tile of one task: nv positions staged at ks / vs (16 chunks a
+// position), this lane's 8 dimensions of its query head (qrow, widened in
+// shared memory), its state in shared memory (row: a[128], m, d). `own`
+// false: a half-warp past the last head, which computes from a fresh state
+// and writes nothing (it never reads a row another half writes). Both halves
+// of the warp call it with the same nv. attn_dec.cu's tile, op for op; the
+// accumulators are read only once the scores are made, so q and the
+// accumulators are never live together. Lane 0 of the half rewrites m and d
+// at the end, which the other lanes read: a __syncwarp separates every read
+// from that write (without it the host harness, which runs a lane to its next
+// shuffle or barrier, caught a lane reading the new m).
+__device__ __forceinline__ void pers_attn_tile(const float* qrow, float* row, bool own, const uint4* ks,
+                                               const uint4* vs, u32 nv, float c, u32 lane)
+{
+    const u32 l16 = lane & 15u, dl = l16 * 8u;
+    float sc[PERS_TT];
+    {
+        float qf[8];
+#pragma unroll
+        for (u32 i = 0; i < 8u; ++i) qf[i] = qrow[dl + i];
+#pragma unroll
+        for (u32 j = 0; j < PERS_TT; ++j) {
+            sc[j] = 0.0f;
+            if (j < nv) {
+                float kf[8];
+                pers_unpack8(ks[j * 16u + l16], kf);
+                float t = 0.0f;
+#pragma unroll
+                for (u32 i = 0; i < 8u; ++i) t = __fmaf_rn(qf[i], kf[i], t);
+#pragma unroll
+                for (int off = 8; off > 0; off >>= 1) t = __fadd_rn(t, __shfl_xor_sync(0xffffffffu, t, off));
+                sc[j] = __fmul_rn(t, c);
+            }
         }
     }
-    if (!pers_grid_wait(bar, bar_target, abort_flag)) return false;
-    for (u32 hq = gwarp; hq < n_heads; hq += total) {
-        float tm = PERS_NEG_INF, td = 0.0f, ta[8];
+    const float m = own ? row[PERS_HD] : PERS_NEG_INF, d = own ? row[PERS_HD + 1u] : 0.0f;
+    float mt = sc[0];
 #pragma unroll
-        for (u32 i = 0; i < 8u; ++i) ta[i] = 0.0f;
-        for (u32 s0 = 0; s0 < nunits; s0 += PERS_SPLIT / PERS_UNIT) {
-            float sm = PERS_NEG_INF, sd = 0.0f, sa[8];
+    for (u32 j = 1; j < PERS_TT; ++j)
+        if (j < nv) mt = fmaxf(mt, sc[j]);
+    const bool fresh = m == PERS_NEG_INF;
+    const float mn = fresh ? mt : fmaxf(m, mt);
+    const float carry = fresh ? 0.0f : pers_ex2(__fsub_rn(m, mn));
+    float ts = 0.0f;
 #pragma unroll
-            for (u32 i = 0; i < 8u; ++i) sa[i] = 0.0f;
-            for (u32 u = s0; u < s0 + PERS_SPLIT / PERS_UNIT && u < nunits; ++u) {
-                const float* st = scratch + ((unsigned long long)hq * nunits + u) * PERS_PSTRIDE;
-                float ba[8];
-#pragma unroll
-                for (u32 i = 0; i < 8u; ++i) ba[i] = __ldcg(st + dl + i);
-                pers_attn_merge(sm, sd, sa, __ldcg(st + PERS_HD), __ldcg(st + PERS_HD + 1u), ba);
-            }
-            pers_attn_merge(tm, td, ta, sm, sd, sa);
-        }
-        if (lane < 16u) {
-#pragma unroll
-            for (u32 i = 0; i < 8u; ++i) out[hq * PERS_HD + dl + i] = f2h(__fdiv_rn(ta[i], td));
-        }
-        // nullable: the f32 state before the division, for the host test (a
-        // binary16 output hides a reordered merge most of the time)
-        if (dbg_state && lane < 16u) {
-#pragma unroll
-            for (u32 i = 0; i < 8u; ++i) dbg_state[hq * PERS_PSTRIDE + dl + i] = ta[i];
-            if (lane == 0u) {
-                dbg_state[hq * PERS_PSTRIDE + PERS_HD] = tm;
-                dbg_state[hq * PERS_PSTRIDE + PERS_HD + 1u] = td;
-            }
+    for (u32 j = 0; j < PERS_TT; ++j) {
+        if (j < nv) {
+            sc[j] = pers_ex2(__fsub_rn(sc[j], mn));
+            ts = __fadd_rn(ts, sc[j]);
         }
     }
-    return true;
+    const float dn = __fadd_rn(__fmul_rn(d, carry), ts);
+    float a[8];
+#pragma unroll
+    for (u32 i = 0; i < 8u; ++i) a[i] = __fmul_rn(own ? row[dl + i] : 0.0f, carry);
+#pragma unroll
+    for (u32 j = 0; j < PERS_TT; ++j) {
+        if (j < nv) {
+            float vf[8];
+            pers_unpack8(vs[j * 16u + l16], vf);
+#pragma unroll
+            for (u32 i = 0; i < 8u; ++i) a[i] = __fmaf_rn(sc[j], vf[i], a[i]);
+        }
+    }
+    __syncwarp();  // memory order: every lane's reads of the row precede lane 0's rewrite of m and d
+    if (own) {
+#pragma unroll
+        for (u32 i = 0; i < 8u; ++i) row[dl + i] = a[i];
+        if (l16 == 0u) {
+            row[PERS_HD] = mn;
+            row[PERS_HD + 1u] = dn;
+        }
+    }
+}
+
+// The phase. q: [n_heads][128] binary16 after norm and RoPE; kc, vc:
+// [n_kv][cap][128] holding positions 0..l-1 (the new one appended); part:
+// [n_kv][ceil(cap / 256)][groups][PSTRIDE] floats of split states; ticket:
+// [n_kv] counters, zero at rest and left at zero; out: [n_heads][128]
+// binary16; smem: PERS_ATTN_SMEM(groups) bytes of this CTA's shared memory,
+// 16-byte aligned. `dbg_state`, nullable: [n_heads][PSTRIDE], each head's
+// (a, m, d) before the division. Every thread of every CTA calls it; no
+// grid barrier inside, so the caller's next grid wait orders `out`.
+//
+// PF: the 16-byte chunks a thread holds. When PF x blockDim covers the step's
+// 1,024 chunks (PF 2 at 512 threads), the next step's loads are in flight
+// during the tiles; otherwise (PF 1 at 768, whose registers cannot hold
+// more, or the host's small CTAs) each step is staged in rounds before its
+// tiles. The staged values are the same either way.
+template <u32 PF>
+__device__ __forceinline__ void pers_attention(const unsigned short* q, const unsigned short* kc,
+                                               const unsigned short* vc, u32 n_heads, u32 groups, u32 cap, u32 l,
+                                               float c, float* part, u32* ticket, unsigned short* out,
+                                               unsigned char* smem, float* dbg_state)
+{
+    const u32 lane = threadIdx.x & 31u, warp = threadIdx.x >> 5, nwarps = blockDim.x >> 5;
+    const u32 n_kv = n_heads / groups;
+    const u32 ns = (l + PERS_SPLIT - 1u) / PERS_SPLIT, s_stride = (cap + PERS_SPLIT - 1u) / PERS_SPLIT;
+    const u32 nhp = (groups + 1u) / 2u, ntasks = PERS_UPS * nhp;
+    const u32 rounds = (PERS_STAGE_U4 + PF * blockDim.x - 1u) / (PF * blockDim.x);
+    uint4* stage = reinterpret_cast<uint4*>(smem);
+    float* ust = reinterpret_cast<float*>(smem + 16u * PERS_STAGE_U4);  // [UPS][groups][PSTRIDE]
+    float* qs = ust + PERS_UPS * groups * PERS_PSTRIDE;                 // [groups][128]
+    u32* hdr = pers_hdr();
+    for (u32 job = blockIdx.x; job < ns * n_kv; job += gridDim.x) {
+        const u32 s = job / n_kv, h = job - s * n_kv;
+        const u32 base = s * PERS_SPLIT;
+        const u32 nsteps_raw = (l - base + PERS_TT - 1u) / PERS_TT;
+        const u32 nsteps = nsteps_raw < PERS_UNIT / PERS_TT ? nsteps_raw : PERS_UNIT / PERS_TT;
+        const unsigned short* kh = kc + (unsigned long long)h * cap * PERS_HD;
+        const unsigned short* vh = vc + (unsigned long long)h * cap * PERS_HD;
+        uint4 pf[PF];
+        if (rounds == 1u) pers_attn_load<PF>(pf, kh, vh, base, 0u, l, 0u);
+        for (u32 i = threadIdx.x; i < PERS_UPS * groups * PERS_PSTRIDE; i += blockDim.x) {
+            const u32 k = i % PERS_PSTRIDE;
+            ust[i] = k == PERS_HD ? PERS_NEG_INF : 0.0f;
+        }
+        for (u32 i = threadIdx.x; i < groups * PERS_HD; i += blockDim.x) qs[i] = h2f(__ldcg(q + h * groups * PERS_HD + i));
+        for (u32 st = 0; st < nsteps; ++st) {
+            __syncthreads();  // the previous step's readers are done, the states and q are written
+            if (rounds == 1u) {
+                pers_attn_store<PF>(pf, stage, 0u);
+            } else {
+                for (u32 r = 0; r < rounds; ++r) {
+                    pers_attn_load<PF>(pf, kh, vh, base, st, l, r * PF * blockDim.x);
+                    pers_attn_store<PF>(pf, stage, r * PF * blockDim.x);
+                }
+            }
+            __syncthreads();  // the step is staged
+            if (rounds == 1u && st + 1u < nsteps) pers_attn_load<PF>(pf, kh, vh, base, st + 1u, l, 0u);
+            for (u32 task = warp; task < ntasks; task += nwarps) {
+                const u32 u = task / nhp, hp = task - u * nhp;
+                const u32 p0 = base + u * PERS_UNIT + st * PERS_TT;
+                if (p0 >= l) continue;  // uniform over the warp: both halves hold unit u
+                const u32 nv = l - p0 < PERS_TT ? l - p0 : PERS_TT;
+                const u32 g = 2u * hp + (lane >> 4);
+                // A half past the last head computes on a real q from a fresh
+                // state and keeps nothing.
+                const bool own = g < groups;
+                const u32 ge = own ? g : groups - 1u;
+                pers_attn_tile(qs + ge * PERS_HD, ust + (u * groups + ge) * PERS_PSTRIDE, own,
+                               stage + (u * PERS_TT) * 16u, stage + (PERS_STAGE + u * PERS_TT) * 16u, nv, c, lane);
+            }
+        }
+        __syncthreads();  // every unit state is written
+        // The units, folded into the split state in unit order.
+        for (u32 i = threadIdx.x; i < groups * PERS_HD; i += blockDim.x) {
+            const u32 g = i / PERS_HD, k = i - g * PERS_HD;
+            float sm = PERS_NEG_INF, sd = 0.0f, sa = 0.0f;
+            for (u32 uu = 0; uu < PERS_UPS; ++uu) {
+                const float* row = ust + (uu * groups + g) * PERS_PSTRIDE;
+                pers_attn_merge1(sm, sd, sa, row[PERS_HD], row[PERS_HD + 1u], row[k]);
+            }
+            const u32 hq = h * groups + g;
+            if (ns == 1u) {
+                // The row's only split: folding it into an empty state is a copy.
+                out[hq * PERS_HD + k] = f2h(__fdiv_rn(sa, sd));
+                if (dbg_state) {
+                    dbg_state[hq * PERS_PSTRIDE + k] = sa;
+                    if (k == 0u) {
+                        dbg_state[hq * PERS_PSTRIDE + PERS_HD] = sm;
+                        dbg_state[hq * PERS_PSTRIDE + PERS_HD + 1u] = sd;
+                    }
+                }
+            } else {
+                float* P = part + (((unsigned long long)h * s_stride + s) * groups + g) * PERS_PSTRIDE;
+                P[k] = sa;
+                if (k == 0u) {
+                    P[PERS_HD] = sm;
+                    P[PERS_HD + 1u] = sd;
+                }
+            }
+        }
+        if (ns > 1u) {
+            // One ticket a job on its KV head's counter; the last folds.
+            __threadfence();
+            __syncthreads();
+            if (threadIdx.x == 0u) hdr[PERS_HDR_TICKET] = atomicAdd(ticket + h, 1u) == ns - 1u ? 1u : 0u;
+            __syncthreads();
+            if (hdr[PERS_HDR_TICKET] != 0u) {
+                __threadfence();  // acquire: the states read below follow the ticket drawn
+                // The split fold, chunk by chunk, attn_dec.cu's combine: every
+                // load of a chunk issued before any is used (one round trip a
+                // chunk), its maxima and sums through shared memory (the stage,
+                // free after the steps), each thread's accumulators in
+                // registers. Per head the splits in ascending order. The loop
+                // over (head, dimension) is uniform, so its barriers are too.
+                float* cmd = reinterpret_cast<float*>(stage);  // [CH][groups][2]: m, d
+                for (u32 b0 = 0; b0 < groups * PERS_HD; b0 += blockDim.x) {
+                    const u32 i = b0 + threadIdx.x;
+                    const bool act = i < groups * PERS_HD;
+                    const u32 g = act ? i / PERS_HD : 0u, k = act ? i - g * PERS_HD : 0u;
+                    float am = PERS_NEG_INF, ad = 0.0f, aa = 0.0f;
+                    for (u32 c0 = 0; c0 < ns; c0 += PERS_ATTN_CH) {
+                        __syncthreads();  // the previous chunk's readers are done
+                        for (u32 t = threadIdx.x; t < 2u * PERS_ATTN_CH * groups; t += blockDim.x) {
+                            const u32 j = t / (2u * groups), gg = (t >> 1) % groups;
+                            float val = 0.0f;
+                            if (c0 + j < ns)
+                                val = __ldcg(part + (((unsigned long long)h * s_stride + c0 + j) * groups + gg) * PERS_PSTRIDE + PERS_HD + (t & 1u));
+                            cmd[t] = val;
+                        }
+                        float ba[PERS_ATTN_CH];
+#pragma unroll
+                        for (u32 j = 0; j < PERS_ATTN_CH; ++j) {
+                            ba[j] = 0.0f;
+                            if (act && c0 + j < ns)
+                                ba[j] = __ldcg(part + (((unsigned long long)h * s_stride + c0 + j) * groups + g) * PERS_PSTRIDE + k);
+                        }
+                        __syncthreads();  // the chunk's maxima and sums are in shared memory
+                        if (act) {
+#pragma unroll
+                            for (u32 j = 0; j < PERS_ATTN_CH; ++j)
+                                if (c0 + j < ns)
+                                    pers_attn_merge1(am, ad, aa, cmd[(j * groups + g) * 2u], cmd[(j * groups + g) * 2u + 1u], ba[j]);
+                        }
+                    }
+                    if (act) {
+                        const u32 hq = h * groups + g;
+                        out[hq * PERS_HD + k] = f2h(__fdiv_rn(aa, ad));
+                        if (dbg_state) {
+                            dbg_state[hq * PERS_PSTRIDE + k] = aa;
+                            if (k == 0u) {
+                                dbg_state[hq * PERS_PSTRIDE + PERS_HD] = am;
+                                dbg_state[hq * PERS_PSTRIDE + PERS_HD + 1u] = ad;
+                            }
+                        }
+                    }
+                }
+                if (threadIdx.x == 0u) ticket[h] = 0u;  // the next layer's draws follow a grid barrier
+            }
+        }
+        __syncthreads();  // the next job restages the shared buffer and the header
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -959,23 +1218,32 @@ __device__ __forceinline__ void pers_rope_pair(unsigned short a, unsigned short 
 
 // One head of 128 in place-free form: src (binary16, this head's raw row),
 // alpha (the norm's 128 weights), cos/sin (64 entries at this position), dst.
-// One warp; candle's 32-thread tree for the norm.
+// One warp; candle's 32-thread tree for the norm. Lane l reads columns l,
+// l + 32, l + 64, l + 96 once: the norm sums them in that order (candle's
+// thread order), and RoPE's pairs (i, i + 64) at i = l and l + 32 are the
+// same four values, so they stay in registers between the two.
 template <int FORM>
 __device__ __forceinline__ void pers_head_norm_rope(const unsigned short* src, const unsigned short* alpha,
                                                     const unsigned short* cosr, const unsigned short* sinr, float eps,
                                                     unsigned short* dst, u32 lane)
 {
+    unsigned short hx[4];
+#pragma unroll
+    for (u32 j = 0; j < 4u; ++j) hx[j] = __ldcg(src + lane + 32u * j);
     float tmp = 0.0f;
-    for (u32 col = lane; col < 128u; col += 32u) {
-        const float xi = h2f(__ldcg(src + col));
+#pragma unroll
+    for (u32 j = 0; j < 4u; ++j) {
+        const float xi = h2f(hx[j]);
         tmp = __fmaf_rn(xi, xi, tmp);
     }
 #pragma unroll
     for (int mask = 16; mask > 0; mask >>= 1) tmp = __fadd_rn(tmp, __shfl_xor_sync(0xffffffffu, tmp, mask));
     const float scale = rsqrtf(__fadd_rn(__fdiv_rn(tmp, 128.0f), eps));
-    for (u32 i = lane; i < 64u; i += 32u) {
-        const unsigned short a = exact_rms_apply(scale, __ldcg(src + i), alpha[i]);
-        const unsigned short b = exact_rms_apply(scale, __ldcg(src + i + 64u), alpha[i + 64u]);
+#pragma unroll
+    for (u32 j = 0; j < 2u; ++j) {
+        const u32 i = lane + 32u * j;
+        const unsigned short a = exact_rms_apply(scale, hx[j], alpha[i]);
+        const unsigned short b = exact_rms_apply(scale, hx[j + 2u], alpha[i + 64u]);
         unsigned short o1, o2;
         pers_rope_pair<FORM>(a, b, cosr[i], sinr[i], &o1, &o2);
         dst[i] = o1;
@@ -985,7 +1253,11 @@ __device__ __forceinline__ void pers_head_norm_rope(const unsigned short* src, c
 
 // The phase: q heads normed and roped into q_out; k heads normed and roped
 // into the K cache at `pos`; v copied into the V cache at `pos`. One warp a
-// head, grid-strided. q_raw [n_heads][128], k_raw and v_raw [n_kv][128].
+// head, head w on CTA w mod grid: the 48 heads of the 4B on 48 SMs, one warp
+// each, where the first version put 16 on each of CTAs 0 to 2 and their f64
+// RoPE arithmetic shared one SM's FP64 units (189 us a token on CTA 0, 5.7 on
+// the mean CTA, pers-4e-r3-2026-11-05). q_raw [n_heads][128], k_raw and v_raw
+// [n_kv][128].
 template <int FORM>
 __device__ __forceinline__ void pers_4e_norm_rope_append(const unsigned short* q_raw, const unsigned short* k_raw,
                                                          const unsigned short* v_raw, const unsigned short* q_alpha,
@@ -997,7 +1269,7 @@ __device__ __forceinline__ void pers_4e_norm_rope_append(const unsigned short* q
     const u32 lane = threadIdx.x & 31u;
     const u32 nwarps = blockDim.x >> 5;
     const u32 total = gridDim.x * nwarps;
-    for (u32 w = blockIdx.x * nwarps + (threadIdx.x >> 5); w < n_heads + 2u * n_kv; w += total) {
+    for (u32 w = blockIdx.x + gridDim.x * (threadIdx.x >> 5); w < n_heads + 2u * n_kv; w += total) {
         if (w < n_heads) {
             pers_head_norm_rope<FORM>(q_raw + w * 128u, q_alpha, cosr, sinr, eps, q_out + w * 128u, lane);
         } else if (w < n_heads + n_kv) {

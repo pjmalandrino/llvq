@@ -687,12 +687,24 @@ pub fn grid_waits_4e(m: &ModelShape) -> u32 {
     entry + w3 + 1
 }
 
-/// Grid barriers one token of `pers_4e.cu` passes: the embedding, seven a
-/// layer (q/k/v, norm/RoPE/append, attention's own, after attention, o, the
-/// MLP's own, after the MLP), the head's W4. The host advances `bar_base` by
-/// this times the grid for every token the launch produced.
+/// Grid barriers one token of `pers_4e.cu` passes: the embedding, six a
+/// layer (q/k/v, norm/RoPE/append, after attention, o, the MLP's own, after
+/// the MLP), the head's W4. Attention has none inside since version 2 (its
+/// split fold is a per-KV-head ticket), so the count does not depend on the
+/// position. The host advances `bar_base` by this times the grid for every
+/// token the launch produced.
 pub fn n_bar_4e(layers: u32) -> u32 {
-    2 + 7 * layers
+    2 + 6 * layers
+}
+
+/// Shared bytes of a 4E CTA: the header, the decoder tables, then one region
+/// that is the f32 vector of the row phases (`max(inter, 2 x hidden)` floats)
+/// or the attention phase's stage, unit states and q (`PERS_ATTN_SMEM` of
+/// llvq_pers.cuh), whichever is larger, rounded to 16 bytes.
+pub fn p4e_smem_bytes(hidden: u32, inter: u32, groups: u32) -> u32 {
+    let vec = 4 * inter.max(2 * hidden);
+    let attn = 16 * 1024 + 4 * 4 * groups * 130 + 4 * groups * 128;
+    (SMEM_HEADER + TABLE_BYTES + vec.max(attn)).div_ceil(16) * 16
 }
 
 /// After a 4E launch: the tokens it made (the ring up to its first unwritten
@@ -961,7 +973,7 @@ pub struct SegLaunch {
 /// own definitions by `tests/pers_matches_served.rs`.
 pub const P4E_QKV_BYTES: usize = 152;
 pub const P4E_LAYER_BYTES: usize = 592;
-pub const P4E_ARGS_BYTES: usize = 208;
+pub const P4E_ARGS_BYTES: usize = 216;
 pub const P4E_LAUNCH_BYTES: usize = 40;
 /// Where `qkv` and `mlp` sit in a `Pers4eLayer`.
 pub const P4E_LAYER_QKV: usize = 40;
@@ -1056,13 +1068,13 @@ impl P4eLayerHost {
     }
 }
 
-/// The launch-wide constants of 4E: 21 pointers, then 8 u32 and 2 f32.
+/// The launch-wide constants of 4E: 22 pointers, then 8 u32 and 2 f32.
 #[derive(Clone, Debug, Default)]
 pub struct P4eArgsHost {
     /// layers, emb_w, emb_s, emb_b, final_norm, cosr, sinr, x_a, x_b, q_out,
     /// ctx, attn_scratch, bar, abort_flag, slots, nan_flag, rows, pref, br,
-    /// suf, invnorm
-    pub ptrs: [u64; 21],
+    /// suf, invnorm, attn_ticket
+    pub ptrs: [u64; 22],
     pub n_layers: u32,
     pub vocab: u32,
     pub hidden: u32,
@@ -1085,10 +1097,10 @@ impl P4eArgsHost {
             .into_iter()
             .enumerate()
         {
-            put32(&mut b, 168 + 4 * i, v);
+            put32(&mut b, 176 + 4 * i, v);
         }
-        put32(&mut b, 200, self.eps.to_bits());
-        put32(&mut b, 204, self.c.to_bits());
+        put32(&mut b, 208, self.eps.to_bits());
+        put32(&mut b, 212, self.c.to_bits());
         b
     }
 }
@@ -1122,15 +1134,24 @@ pub fn p4e_symbol(form: u32, threads: u32) -> Result<&'static str, String> {
     })
 }
 
-/// The phase-stamp symbol for a RoPE form: 512 threads only, the geometry the
-/// L40S runs (its 768-thread symbol spills); another block size is refused.
+/// The phase-stamp symbol for a RoPE form and a block size: the same body
+/// and the same rows' variant as the token symbol of that size.
 pub fn p4e_stamp_symbol(form: u32, threads: u32) -> Result<&'static str, String> {
     Ok(match (form, threads) {
         (0, 512) => "pers_4e_stamps_f0_t512",
         (1, 512) => "pers_4e_stamps_f1_t512",
         (2, 512) => "pers_4e_stamps_f2_t512",
-        _ => return Err(format!("4E stamps: no stamp symbol for RoPE form {form} at {threads} threads (512 only)")),
+        (0, 768) => "pers_4e_stamps_f0_t768",
+        (1, 768) => "pers_4e_stamps_f1_t768",
+        (2, 768) => "pers_4e_stamps_f2_t768",
+        _ => return Err(format!("4E stamps: no stamp symbol for RoPE form {form} at {threads} threads")),
     })
+}
+
+/// Whether the 4E symbols of a block size keep the rows' next block or word
+/// in flight: 512 threads yes, 768 no (its registers would spill).
+pub fn p4e_rows_prefetch(threads: u32) -> bool {
+    threads == 512
 }
 
 /// Stamp events of one 4E token (`pers_4e.cu`, STAMP = true): the
@@ -1296,6 +1317,19 @@ pub fn p4e_report_lines(r: &P4eReport) -> Vec<String> {
 /// Rows a `tv_tetra48_persall` work group covers: one per warp of its
 /// 256-thread CTA, as `tv_tetra48_seg` lays its rows.
 pub const PERSALL_GROUP_ROWS: u32 = 8;
+
+/// The one-launch Tetra pass and its variants (`tetra48_persall.cu`): name,
+/// symbol, whether the decoder tables sit in shared memory after the tile
+/// (18,816 bytes more). The first is L1's kernel, byte for byte; the others
+/// add the rows' prefetch (`pf`), the tables in shared memory (`ts`) and the
+/// L2 prefetch of the CTA's next group (`l2`). Every one owes the bits.
+pub const PERSALL_VARIANTS: [(&str, &str, bool); 5] = [
+    ("tpersall", "tv_tetra48_persall", false),
+    ("tpersall_pf", "tv_tetra48_persall_pf", false),
+    ("tpersall_ts", "tv_tetra48_persall_ts", true),
+    ("tpersall_ts_pf", "tv_tetra48_persall_ts_pf", true),
+    ("tpersall_ts_pf_l2", "tv_tetra48_persall_ts_pf_l2", true),
+];
 
 /// The first group of every site and the total, sites in launch order.
 pub fn persall_groups(d_outs: &[u32]) -> (Vec<u32>, u32) {
@@ -1713,29 +1747,44 @@ mod tests {
 
     #[test]
     fn the_4e_launch_bookkeeping() {
-        assert_eq!(n_bar_4e(36), 254);
+        assert_eq!(n_bar_4e(36), 218);
         let (made, next) = p4e_after_launch(&[5, 9, 2, u32::MAX], 4, 10, 36, 142);
         assert_eq!(made, vec![5, 9, 2]);
-        assert_eq!(next, 10 + 3 * 254 * 142);
+        assert_eq!(next, 10 + 3 * 218 * 142);
         // stopped on EOS after one token: one token's barriers
         let (made, next) = p4e_after_launch(&[7, u32::MAX, u32::MAX], 3, 0, 2, 3);
-        assert_eq!((made, next), (vec![7], 16 * 3));
+        assert_eq!((made, next), (vec![7], 14 * 3));
+        // the shared bytes: the 4B's row vector (9,728 floats) is larger than
+        // attention's 26,752 bytes; a narrow model takes attention's
+        assert_eq!(p4e_smem_bytes(2560, 9728, 4), (SMEM_HEADER + TABLE_BYTES + 4 * 9728).div_ceil(16) * 16);
+        assert_eq!(p4e_smem_bytes(256, 512, 5), (SMEM_HEADER + TABLE_BYTES + 16384 + 10400 + 2560).div_ceil(16) * 16);
+        let cuh = include_str!("../kernels/llvq_pers.cuh");
+        for line in [
+            "#define PERS_STAGE_U4 (2u * PERS_STAGE * (PERS_HD / 8u))",
+            "#define PERS_STAGE (PERS_UPS * PERS_TT)",
+            "#define PERS_UPS 4u",
+            "#define PERS_PSTRIDE 130u",
+            "#define PERS_ATTN_SMEM(groups) (16u * PERS_STAGE_U4 + 4u * PERS_UPS * (groups) * PERS_PSTRIDE + 4u * (groups) * PERS_HD)",
+        ] {
+            assert!(cuh.contains(line), "p4e_smem_bytes mirrors {line:?}");
+        }
         // a full ring past n is not read
         let (made, _) = p4e_after_launch(&[1, 2, 3], 2, 0, 1, 1);
         assert_eq!(made, vec![1, 2]);
         // across the wrap
         let (_, next) = p4e_after_launch(&[1], 1, u32::MAX - 1, 1, 1);
-        assert_eq!(next, 7);
+        assert_eq!(next, 6);
         assert_eq!(p4e_symbol(1, 512).unwrap(), "pers_4e_tokens_f1_t512");
         assert!(p4e_symbol(3, 768).is_err() && p4e_symbol(0, 1024).is_err());
         // the symbols the table names are the kernel's
         let cu = include_str!("../kernels/pers_4e.cu");
         for f in 0..3u32 {
             for t in [768u32, 512] {
-                assert!(cu.contains(&format!("PERS_4E({}, {f}, {t}, false)", p4e_symbol(f, t).unwrap())), "{f} {t}");
+                let pf = p4e_rows_prefetch(t);
+                assert!(cu.contains(&format!("PERS_4E({}, {f}, {t}, false, {pf})", p4e_symbol(f, t).unwrap())), "{f} {t}");
+                assert!(cu.contains(&format!("PERS_4E({}, {f}, {t}, true, {pf})", p4e_stamp_symbol(f, t).unwrap())), "stamps {f} {t}");
             }
-            assert!(cu.contains(&format!("PERS_4E({}, {f}, 512, true)", p4e_stamp_symbol(f, 512).unwrap())), "stamps {f}");
-            assert!(p4e_stamp_symbol(f, 768).is_err());
+            assert!(p4e_stamp_symbol(f, 1024).is_err());
         }
         assert_eq!(p4e_events(36), 363);
     }
@@ -1822,6 +1871,14 @@ mod tests {
         for sym in ["tv_tetra48_persall", "tv_pers_bar", "tv_pers_ring", "tv_pers_empty", "pers_ref_rmsnorm", "pers_seg_tetra_v0", "pers_seg_q4_v0"] {
             assert!(t.contains(sym), "{sym}");
         }
+        // the pass's variants: each symbol defined once, with the flags its
+        // name says, and the tables-in-shared column agreeing with the name
+        for (name, sym, ts) in PERSALL_VARIANTS.iter().skip(1) {
+            let (pf, l2) = (name.contains("_pf"), name.contains("_l2"));
+            assert_eq!(*ts, name.contains("_ts"), "{name}");
+            assert!(t.contains(&format!("TOCC_PERSALL_V({sym}, {pf}, {ts}, {l2})")), "{sym}");
+        }
+        assert!(t.contains("extern \"C\" __global__ void tv_tetra48_persall(const unsigned long long* __restrict__ sites,"));
         // composition: every part's guard is defined by an earlier part
         let pos = |n: &str| PERS_UNIT_PARTS.iter().position(|p| p.0 == n).unwrap();
         assert!(pos("matvec.cu") < pos("llvq_pers.cuh"));
