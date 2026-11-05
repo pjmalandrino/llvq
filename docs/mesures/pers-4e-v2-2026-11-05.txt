@@ -1,0 +1,87 @@
+4E v2 on the card, 2026-11-05
+
+Result: 4E v2 decodes the eager path's tokens at both contexts and is faster at both (*measured*): 178.7 tok/s
+[178.7-178.9] against 132.1 at 5 prompt tokens, x1.353 [1.352-1.354] round by round, and 131.8 [131.8-131.8] against
+103.5 at 8,192, x1.273 [1.272-1.273]. At 8,192 the reference is the served config (kernel from 1,280), inside the
+T8. At 5 tokens it is the measurement form (kernel on every row), outside it. The target is missed (rule F): 178.7 is
+under 300. The rows stream at 317 GB/s on the mean CTA's work (rule D: under 350), and none of the four one-launch
+variants beats tpersall (397 GB/s): the next lever is the SASS of the row loops, at $0.
+
+Job      : 6aec3def0e0338d1bb806169, l40sx1, 536 s running (08:53:04 to 09:02:01 UTC) after 1,536 s in the queue,
+           $0.27 (*computed* at $1.80/h).
+Image    : Space sha 94c47f180985f0b9eed2c7318b9105b58a0362f3 (integration/lot1 at d646ac2: 4E v2 28fa6e8, job and
+           prereg 52c6508).
+Prereg   : proofs/preregistration-pers-4e-v2-2026-11-05.md (sha256 58dc5e84...), OpenTimestamps stamped and committed
+           (d646ac2) before the image was built.
+Objects  : sealed 4B 886391a8...; banc-252 files 9db213ef... (ball) and 0adb7cfd... (Tetra); config
+           qwen3-4b-tetra-e4-kernel-from1280.json 5f7eadba....
+Raw      : pers-4e-v2-2026-11-05-brut/ (pers-4e.txt, served-16.txt, bench.txt, digests.txt, oracle.txt, cubin/).
+
+Gates (passed, *measured*):
+1. Oracle MATCH, max |dhidden| = 0.
+2. The three files and the config at their sha256 on the mount.
+3. Event tracking off, one stream; RoPE form 1 matches candle.
+4. 4E at 512 threads: tokens equal the eager path's, 64 of 64 at both contexts, and the served door gives the same 64;
+   the 8,192 context prints the served config inside the T8.
+5. The served door prints "attention kernel from position 1280 on grow(256)" and the NVRTC digest 6193094310bc....
+6. planesbench: tetra48 252 of 252 matrices matched by name, tile 64. The bench prints its usual warning that its tile
+   argument overrides the served policy; no LLVQ_* variable is in the job environment (gate 7).
+Per geometry: 4E at 768 threads did not run ("every block size asked for spills or fails its occupancy"), so it has
+no numbers. Every one-launch variant matched 1,105,920 rows bit for bit and none spilled.
+
+Timed rounds, 64 tokens, tok/s median [range]:
+  context   eager                       4E v2, 512 threads      4E / eager, round by round
+        5   132.1 [132.0-132.2] (a)     178.7 [178.7-178.9]     x1.353 [1.352-1.354]
+     8192   103.5 [103.5-103.6] (b)     131.8 [131.8-131.8]     x1.273 [1.272-1.273]
+  (a) kernel on every row, the measurement form; (b) the served config.
+The served door (16 tokens, prefill included) reads 117.6 tok/s [117.4-117.8]; it is a digest gate, not a speed
+reference (L1's door read 119.2 the same way).
+
+Phase table, 4E 512, us a token, median over 62 stamped tokens (stamped token 5,624 against the timed 5,597 at 5;
+7,626 against 7,588 at 8,192):
+  phase               ctx 5: wall   slowest   mean      ctx 8192: wall   slowest   mean
+  q/k/v                      951.6     922.0    763.2            966.7     937.4    778.7
+  norm/RoPE/append           111.9      76.7     23.8            111.3      78.8     24.4
+  attention                  761.4     736.9    260.2           2682.0    2644.2   2041.2
+  o                          493.5     454.8    377.1            491.4     454.3    378.0
+  MLP                       2933.5    2907.2   2834.3           2993.6    2965.3   2895.4
+  head                       373.0     373.2    372.6            376.1     376.3    375.7
+  token                     5624.2                              7625.7
+Against R3 at 5 tokens: attention 2,354.6 to 761.4, norm 220.4 to 111.9, the rows' walls (q/k/v, o, MLP, head)
+5,056.5 to 4,751.6.
+
+One-launch pass, 0.9806 GB, median ms [range], GB/s, speed over tpersall round by round:
+  tpersall           2.472 [2.461-2.492]   397 [393-398]
+  tpersall_pf        2.494 [2.476-2.502]   393 [392-396]   x0.994 [0.988-0.997]
+  tpersall_ts        2.608 [2.594-2.617]   376 [375-378]   x0.948 [0.945-0.954]
+  tpersall_ts_pf     2.633 [2.618-2.640]   372 [371-375]   x0.940 [0.937-0.947]
+  tpersall_ts_pf_l2  2.573 [2.564-2.595]   381 [378-382]   x0.958 [0.953-0.969]
+tpersall over tetra48seg: 22.1 % [20.0-22.4].
+
+Decision rules (§7):
+- A, identity: holds at both contexts. v2 keeps the bits on this card.
+- B, attention: fixed at 8,192 (2,682 <= 3,000), not at 5 tokens (761 > 600). The stamps name the next host test:
+  at 5 tokens the slowest CTA works 737 us against a mean of 260, so a few CTAs carry the phase at short context.
+- C, norm: 111.9 <= 120, fixed.
+- D, rows: the mean CTA's work over the rows' phases is 763.2 + 377.1 + 2,834.3 + 372.6 = 4,347.2 us for 1.377 GB,
+  317 GB/s (*computed*), under 350. The prefetch did not move the stream, and the 768-thread geometry did not load.
+  Next step: the card's SASS of the 4E row loops (cubin/), at $0.
+- E, one-launch variants: tables in shared at x0.948 (under 1.15: the L1/shared pipe model is not confirmed); the
+  prefetch at x0.994 over tpersall and x0.990 over _ts (under 1.10: latency does not bind there); _l2 at x1.023 over
+  _ts_pf (under 1.05). None of the four is a lever.
+- F, target: missed, 178.7 < 300 at 5 tokens.
+- G: the terms of §6 refuted: attention at 5 tokens (761 against [150, 600]); 4E at 5 tokens (178.7 against
+  [180, 290]); 768 threads loading without local memory (no); tpersall (397 against [400, 420]); _ts (x0.948 against
+  [1.00, 1.45]); _ts_pf (x0.940 against [1.00, 1.60]). Inside their intervals: attention at 8,192, norm, rows' rate,
+  4E at 8,192, eager at 8,192, _pf, _l2.
+
+What it means for 300 tok/s (*computed* from the table): the rows' walls are 4.75 ms of the 5.60 ms token at 5 tokens.
+300 tok/s is 3.33 ms. Even with attention and norm at zero, the rows alone give 210 tok/s. Reaching 300 needs the
+rows at about 475 GB/s on their walls, against 290 here and 397 for the best one-launch pass, which no variant of
+this run moved.
+
+Serving: at 8,192, 4E runs the served config's arithmetic and gives its tokens; the positions below 1,280 are refused
+outside a measurement. Serving 4E at a short prompt needs the operator's license of the kernel form below 1,280 (a T8
+extension, read by paired perplexity at those positions). Nothing served changes in this run.
+
+Not established: 4E on the 8B and 14B; 768 threads; any card but the L40S; the cause of the rows' 317 GB/s.
