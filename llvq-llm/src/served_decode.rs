@@ -135,7 +135,13 @@ impl Served {
                 );
                 #[cfg(all(target_os = "linux", feature = "cuda"))]
                 {
-                    let mut rt = crate::persist4e_cuda::install(model, device, LAUNCH_TOKENS, Some(512))?;
+                    let mut rt = crate::persist4e_cuda::install_rows(
+                        model,
+                        device,
+                        LAUNCH_TOKENS,
+                        Some(512),
+                        self.rows.form(),
+                    )?;
                     rt.set_served_kernel_from(0);
                     let lines = std::mem::take(&mut rt.lines);
                     Ok(Decoder { rt: Some(Box::new(rt)), lines })

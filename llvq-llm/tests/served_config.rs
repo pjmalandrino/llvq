@@ -11,7 +11,7 @@
 use llvq_llm::fused::{EmbedMode, FuseMode, FusedLayout};
 use llvq_llm::kvq::{AttnHeads, KvMode, KvStore, GROW_CHUNK};
 use llvq_llm::rotplan::RotShare;
-use llvq_llm::served::{check_env, check_persistent_object, Decode, Served, ServedFile, BELOW_THE_DOOR, MEASUREMENT_MODES};
+use llvq_llm::served::{check_env, check_persistent_object, Decode, Rows4e, Served, ServedFile, BELOW_THE_DOOR, MEASUREMENT_MODES};
 use std::path::PathBuf;
 
 fn served() -> ServedFile {
@@ -23,6 +23,7 @@ fn served() -> ServedFile {
         kv: "f16".into(),
         attention: None,
         decode: None,
+        rows: None,
         note: Some("Qwen3-4B, Tetra + 36 v_proj int4 g128".into()),
     }
 }
@@ -393,7 +394,7 @@ fn an_absent_attention_field_is_the_published_form() {
     assert_eq!((r.attention, r.store), (AttnHeads::Expanded, KvStore::Cat));
 
     // And on disk: every shipped config except the grouped, kernel and 4E ones
-    // is expanded; every one but the 4E config decodes on the eager path.
+    // is expanded; every one but the 4E configs decodes on the eager path.
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../configs");
     let mut expanded = 0;
     for entry in std::fs::read_dir(&dir).expect("configs/") {
@@ -404,7 +405,7 @@ fn an_absent_attention_field_is_the_published_form() {
         let name = path.file_name().expect("name").to_string_lossy().to_string();
         let f = Served::read_file(&path).expect("parses");
         let r = Served::of(f, path.clone()).expect("resolves");
-        let four_e = name.ends_with("-4e.json");
+        let four_e = name.contains("-4e");
         assert_eq!(r.decode, if four_e { Decode::Persistent } else { Decode::Eager }, "{name}");
         match (name.contains("grouped"), name.contains("kernel") || four_e) {
             (true, _) => assert_eq!(r.attention, AttnHeads::Grouped, "{name}"),
@@ -545,6 +546,7 @@ fn four_e() -> ServedFile {
         kv: "f16".into(),
         attention: Some("kernel".into()),
         decode: Some("persistent".into()),
+        rows: None,
         note: None,
     }
 }
@@ -670,4 +672,61 @@ fn the_persistent_decode_runs_on_the_4b_shape_only() {
         let e = check_persistent_object(&c).expect_err(name);
         assert!(e.contains("persistent") && e.contains("4B"), "{name}: {e}");
     }
+}
+
+// ---- 4E's row loop (2026-11-05) ---------------------------------------------
+
+/// The v4 config is the 4E config with the v4 row loop, and nothing else moved;
+/// its line names the loop, and the v3 config's line reads as it did.
+#[test]
+fn the_v4_config_is_the_4e_config_with_the_v4_rows() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../configs");
+    let read = |name: &str| {
+        let path = dir.join(name);
+        let f = Served::read_file(&path).unwrap_or_else(|e| panic!("{name}: {e}"));
+        Served::of(f, path).unwrap_or_else(|e| panic!("{name}: {e}"))
+    };
+    let v3 = read("qwen3-4b-tetra-e4-4e.json");
+    let v4 = read("qwen3-4b-tetra-e4-4e-v4.json");
+    assert_eq!(v3.rows, Rows4e::V3);
+    assert_eq!(v4.rows, Rows4e::V4);
+    assert_eq!(v4.rows.form(), 2);
+    assert_eq!(v3.rows.form(), 1);
+    assert_eq!(
+        (v4.layout, v4.embed, v4.rot_share, v4.fuse, v4.kv, v4.attention, v4.store, v4.decode),
+        (v3.layout, v3.embed, v3.rot_share, v3.fuse, v3.kv, v3.attention, v3.store, v3.decode),
+        "only the row loop may differ from the 4E config"
+    );
+    assert!(v4.provenance().contains("decode persistent (4E rows v4, one launch a token run)"), "{}", v4.provenance());
+    assert!(v3.provenance().contains("decode persistent (4E, one launch a token run)"), "{}", v3.provenance());
+    let note = v4.note.expect("a note");
+    assert!(note.contains("SERVED from 2026-11-05") && note.contains("886391a8"), "{note}");
+}
+
+/// The field: absent and "v3" are form 1, "v4" form 2; "v5" is refused by
+/// name, and so are the empty string and any other word; beside the eager
+/// decode the key itself is refused.
+#[test]
+fn the_rows_field_serves_v3_and_v4_and_refuses_the_rest() {
+    let mut f = four_e();
+    assert_eq!(of(f.clone()).expect("absent").rows, Rows4e::V3);
+    f.rows = Some("v3".into());
+    assert_eq!(of(f.clone()).expect("v3").rows, Rows4e::V3);
+    f.rows = Some("v4".into());
+    assert_eq!(of(f.clone()).expect("v4").rows, Rows4e::V4);
+    let e = {
+        f.rows = Some("v5".into());
+        of(f.clone()).expect_err("v5")
+    };
+    assert!(e.contains("v5") && e.contains("measurement"), "{e}");
+    for bad in ["", " ", "V4", "4", "v2"] {
+        f.rows = Some(bad.into());
+        let e = of(f.clone()).expect_err(bad);
+        assert!(e.contains("rows"), "{bad:?}: {e}");
+    }
+    let mut g = four_e();
+    g.decode = None;
+    g.rows = Some("v4".into());
+    let e = of(g).expect_err("rows beside the eager decode");
+    assert!(e.contains("eager decode"), "{e}");
 }

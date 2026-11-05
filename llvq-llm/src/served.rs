@@ -102,6 +102,11 @@ pub struct ServedFile {
     /// earlier config served. See [`Decode::parse`].
     #[serde(default)]
     pub decode: Option<String>,
+    /// 4E's row loop, beside `"decode": "persistent"` only: absent is v3,
+    /// the form the served-4e door ran; `"v4"` is the v2 loop inside the v3
+    /// structure. See [`Rows4e::parse`].
+    #[serde(default)]
+    pub rows: Option<String>,
     /// Free text, carried so a config can say what object it belongs to. Read
     /// by nothing and printed with the rest.
     #[serde(default)]
@@ -123,6 +128,8 @@ pub struct Served {
     pub store: KvStore,
     /// How a decode token runs.
     pub decode: Decode,
+    /// 4E's row loop; `V3` under the eager decode, where it is not read.
+    pub rows: Rows4e,
     pub path: PathBuf,
     pub note: Option<String>,
 }
@@ -164,6 +171,50 @@ impl Decode {
         match self {
             Self::Eager => crate::kvq::KERNEL_FROM,
             Self::Persistent => 0,
+        }
+    }
+}
+
+/// 4E's row loop, the module's row form (`llvq_cuda::pers::P4E_ROWS_FORMS`).
+/// Every form owes the eager path's tokens bit for bit; they differ in speed
+/// only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Rows4e {
+    /// Form 1, the loop the served-4e door ran (`docs/mesures/served-4e-2026-11-05.txt`).
+    V3,
+    /// Form 2, the v2 loop inside the v3 structure: x1.060 over v3 after a
+    /// 5-token prompt, same tokens (measured, `docs/mesures/shaker-4e-2026-11-05.txt`).
+    V4,
+}
+
+impl Rows4e {
+    /// Absent is `V3`. `"v5"` is refused by name: it measured x1.001 over v4
+    /// and the shaker's rule B kept it a measurement. Any other word, and the
+    /// empty string, are refused.
+    pub fn parse(v: Option<&str>) -> Result<Self, String> {
+        match v.map(str::trim) {
+            None | Some("v3") => Ok(Self::V3),
+            Some("v4") => Ok(Self::V4),
+            Some("v5") => Err("rows \"v5\": measured at x1.001 over v4 (shaker-4e-2026-11-05) and kept a \
+                               measurement; the served forms are \"v3\" and \"v4\""
+                .into()),
+            Some("") => Err("rows is empty. Write \"v3\" or \"v4\", or delete the key for v3.".into()),
+            Some(o) => Err(format!("rows {o:?}: the served forms of 4E's row loop are \"v3\" and \"v4\"")),
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::V3 => "v3",
+            Self::V4 => "v4",
+        }
+    }
+
+    /// The module's row form number.
+    pub fn form(self) -> u32 {
+        match self {
+            Self::V3 => 1,
+            Self::V4 => 2,
         }
     }
 }
@@ -333,6 +384,14 @@ impl Served {
         // and the empty string is refused inside the parse instead.
         let attention = AttnHeads::parse(f.attention.as_deref())?;
         let decode = Decode::parse(f.decode.as_deref())?;
+        let rows = Rows4e::parse(f.rows.as_deref())?;
+        if f.rows.is_some() && decode != Decode::Persistent {
+            return Err(format!(
+                "rows {:?} beside the eager decode: the field names 4E's row loop. Write \"decode\": \
+                 \"persistent\", or delete the rows key.",
+                rows.label()
+            ));
+        }
         let layout = FusedLayout::parse(field("layout", &f.layout)?)?;
         let embed = EmbedMode::parse(field("embed", &f.embed)?)?;
         let rot_share = RotShare::parse(field("rot_share", &f.rot_share)?)?;
@@ -368,6 +427,7 @@ impl Served {
             attention,
             store: attention.store(),
             decode,
+            rows,
             path,
             note: f.note,
         })
@@ -392,11 +452,13 @@ impl Served {
             AttnHeads::Kernel => format!("kernel from position {}", self.decode.kernel_from()),
             other => other.label().to_string(),
         };
-        // The engine is named only when it is not the eager one, so every
-        // line an earlier config printed reads as it did.
-        let decode = match self.decode {
-            Decode::Eager => String::new(),
-            Decode::Persistent => ", decode persistent (4E, one launch a token run)".to_string(),
+        // The engine is named only when it is not the eager one, and the row
+        // loop only when it is not v3, so every line an earlier config printed
+        // reads as it did.
+        let decode = match (self.decode, self.rows) {
+            (Decode::Eager, _) => String::new(),
+            (Decode::Persistent, Rows4e::V3) => ", decode persistent (4E, one launch a token run)".to_string(),
+            (Decode::Persistent, r) => format!(", decode persistent (4E rows {}, one launch a token run)", r.label()),
         };
         format!(
             "served config: {} (layout {}, embed {}, rot_share {}, fuse {}, kv {}, \
