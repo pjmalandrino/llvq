@@ -78,9 +78,22 @@ struct Pers4eLaunch {
     u32 eos;
     u32 pad;
     u32* ring;                          // [n_tokens] the tokens produced; the host reads it after the launch
+    unsigned long long* stamps;         // STAMP symbols only: [n_tokens][3 + 10 x layers][grid], else unread
 };
 
-template <int FORM>
+// Phase stamps (STAMP = true, a measurement symbol; the token symbols are
+// STAMP = false and carry none of it). Thread 0 of every CTA writes the grid
+// clock at each grid wait: once the whole CTA has finished its phase (after a
+// __syncthreads, so the stamp is the CTA's last store, not thread 0's), and
+// once the wait has released it. Per token, event e of CTA c lands at
+// stamps[(t x E + e) x grid + c], E = 3 + 10 x layers (pers.rs::p4e_events):
+//   0, 1               the embedding: arrival, release
+//   2 + 10l + 2k, +1   layer l, phase k = q/k/v, norm/RoPE/append,
+//                      attention (its own barrier inside), o, MLP (its own
+//                      barrier inside): arrival, release
+//   2 + 10 x layers    the head's W4 released: the token's end
+// pers.rs::p4e_phase_report turns them into time per phase.
+template <int FORM, bool STAMP>
 __device__ __forceinline__ void pers_4e_body(const Pers4eArgs* __restrict__ A, const Pers4eLaunch L)
 {
     unsigned char* base = PERS_SMEM_BASE();
@@ -102,10 +115,20 @@ __device__ __forceinline__ void pers_4e_body(const Pers4eArgs* __restrict__ A, c
     const u32 H = A->hidden, G = gridDim.x, c0 = blockIdx.x;
     const u32 nqkv = A->n_heads * 128u + 2u * A->n_kv * 128u;
     u32 nb = 0u;  // barriers passed in this launch
+    const u32 E = 3u + 10u * A->n_layers;
 #define PERS_BAR() (L.bar_base + (++nb) * G)
-#define PERS_WAIT()                                                  \
+#define PERS_STAMP_AT(e)                                                                   \
+    do {                                                                                   \
+        if (STAMP && threadIdx.x == 0u) L.stamps[((size_t)t * E + (e)) * G + c0] = pers_now(); \
+    } while (0)
+#define PERS_WAIT(e)                                                 \
     do {                                                             \
+        if (STAMP) {                                                 \
+            __syncthreads();                                         \
+            PERS_STAMP_AT(e);                                        \
+        }                                                            \
         if (!pers_grid_wait(A->bar, PERS_BAR(), A->abort_flag)) return; \
+        PERS_STAMP_AT((e) + 1u);                                     \
     } while (0)
     // Both argmax slots start at zero in every launch. The slot of a position
     // is its parity, and a launch may start at any position: a rewound decode
@@ -122,9 +145,10 @@ __device__ __forceinline__ void pers_4e_body(const Pers4eArgs* __restrict__ A, c
         const u32 pos = L.pos0 + t;
         // embedding: this CTA's slice of the residual
         pers_embed(A->emb_w, A->emb_s, A->emb_b, tok, H, A->emb_gpr, A->x_a, H * c0 / G, H * (c0 + 1u) / G);
-        PERS_WAIT();
+        PERS_WAIT(0u);
         for (u32 l = 0; l < A->n_layers; ++l) {
             const Pers4eLayer& Y = A->layers[l];
+            const u32 e0 = 2u + 10u * l;  // this layer's first stamp event
             // ln1, the q/k rotation, the q/k/v rows
             float* xr = v;
             float* xn = v + H;
@@ -136,24 +160,24 @@ __device__ __forceinline__ void pers_4e_body(const Pers4eArgs* __restrict__ A, c
             }
             pers_rot_finish(xr, Y.small_a, H, Y.m_a, Y.k_a, Y.inv_a);
             pers_4e_qkv_rows(Y.qkv, tab, t_inv, xr, xn, nqkv * c0 / G, nqkv * (c0 + 1u) / G);
-            PERS_WAIT();
+            PERS_WAIT(e0);
             pers_4e_norm_rope_append<FORM>(Y.qkv.q, Y.qkv.k, Y.qkv.v, Y.q_norm, Y.k_norm, A->cosr + pos * 64u,
                                            A->sinr + pos * 64u, A->eps, A->n_heads, A->n_kv, A->cap, pos, A->q_out,
                                            Y.kc, Y.vc);
-            PERS_WAIT();
+            PERS_WAIT(e0 + 2u);
             if (!pers_attention(A->q_out, Y.kc, Y.vc, A->n_heads, A->groups, A->cap, pos + 1u, A->c,
                                 A->attn_scratch, A->ctx, A->bar, PERS_BAR(), A->abort_flag, nullptr))
                 return;
-            PERS_WAIT();
+            PERS_WAIT(e0 + 4u);
             pers_4e_o_int4(Y.ow, Y.osc, Y.obi, Y.o_gpr, A->ctx, v, A->n_heads * 128u, A->x_a, A->x_b, H * c0 / G,
                            H * (c0 + 1u) / G);
-            PERS_WAIT();
+            PERS_WAIT(e0 + 6u);
             // the MLP segment: its own barrier is the next ordinal
             const SegLaunch S{A->x_b, A->x_a, L.bar_base + nb * G, 0u};
             ++nb;
             if (Y.tetra_down) pers_segment_body<0, true>(&Y.mlp, S);
             else pers_segment_body<0, false>(&Y.mlp, S);
-            PERS_WAIT();
+            PERS_WAIT(e0 + 8u);
         }
         // the final norm, the head, the argmax (its own barrier is W4)
         const float sc = exact_rms_scale<0>(A->x_a, H, A->eps);
@@ -163,6 +187,7 @@ __device__ __forceinline__ void pers_4e_body(const Pers4eArgs* __restrict__ A, c
                                           A->vocab * (c0 + 1u) / G, A->slots + (pos & 1u), A->nan_flag, A->bar,
                                           PERS_BAR(), A->abort_flag, nullptr);
         if (next == 0xffffffffu) return;  // a NaN logit or an abort: the host reads the flags
+        PERS_STAMP_AT(E - 1u);
         if (c0 == 0u && threadIdx.x == 0u) {
             L.ring[t] = next;
             // the next position's slot, cleared for the next token of this
@@ -173,6 +198,7 @@ __device__ __forceinline__ void pers_4e_body(const Pers4eArgs* __restrict__ A, c
         if (tok == L.eos) return;
     }
 #undef PERS_WAIT
+#undef PERS_STAMP_AT
 #undef PERS_BAR
 }
 
@@ -180,19 +206,24 @@ __device__ __forceinline__ void pers_4e_body(const Pers4eArgs* __restrict__ A, c
 // devel ptxas (ops/nvrtc-check.sh, indicative); 512 threads leave 128
 // registers. The runtime takes the 768-thread symbol only where the card's
 // loaded module reports no local memory.
-#define PERS_4E(sym, FORM_, THREADS_)                                                                    \
+#define PERS_4E(sym, FORM_, THREADS_, STAMP_)                                                            \
     extern "C" __global__ void __launch_bounds__(THREADS_, 1) sym(const Pers4eArgs* __restrict__ A,      \
                                                                    const Pers4eLaunch L)                 \
     {                                                                                                    \
-        pers_4e_body<FORM_>(A, L);                                                                       \
+        pers_4e_body<FORM_, STAMP_>(A, L);                                                               \
     }
 
-PERS_4E(pers_4e_tokens_f0, 0, 768)
-PERS_4E(pers_4e_tokens_f1, 1, 768)
-PERS_4E(pers_4e_tokens_f2, 2, 768)
-PERS_4E(pers_4e_tokens_f0_t512, 0, 512)
-PERS_4E(pers_4e_tokens_f1_t512, 1, 512)
-PERS_4E(pers_4e_tokens_f2_t512, 2, 512)
+PERS_4E(pers_4e_tokens_f0, 0, 768, false)
+PERS_4E(pers_4e_tokens_f1, 1, 768, false)
+PERS_4E(pers_4e_tokens_f2, 2, 768, false)
+PERS_4E(pers_4e_tokens_f0_t512, 0, 512, false)
+PERS_4E(pers_4e_tokens_f1_t512, 1, 512, false)
+PERS_4E(pers_4e_tokens_f2_t512, 2, 512, false)
+// The phase-stamp symbols (LLVQ_PERS_4E's stamped launch): the 512-thread
+// geometry the L40S runs (job 6aebd50b), the same tokens or the run is void.
+PERS_4E(pers_4e_stamps_f0_t512, 0, 512, true)
+PERS_4E(pers_4e_stamps_f1_t512, 1, 512, true)
+PERS_4E(pers_4e_stamps_f2_t512, 2, 512, true)
 
 // The RoPE load check (persist4e_cuda.rs): each form applied to n quads
 // (a, b, cos, sin) the host took from candle's own rope call on the card,

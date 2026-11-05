@@ -948,7 +948,7 @@ int main() {
         o.push_back((u32)sizeof(Pers4eArgs));
         OFF(Pers4eArgs, invnorm); OFF(Pers4eArgs, n_layers); OFF(Pers4eArgs, cap); OFF(Pers4eArgs, eps); OFF(Pers4eArgs, c);
         o.push_back((u32)sizeof(Pers4eLaunch));
-        OFF(Pers4eLaunch, eos); OFF(Pers4eLaunch, ring);
+        OFF(Pers4eLaunch, eos); OFF(Pers4eLaunch, ring); OFF(Pers4eLaunch, stamps);
 #undef OFF
 #endif
         wr(o);

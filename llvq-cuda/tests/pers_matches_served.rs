@@ -450,7 +450,7 @@ fn the_struct_mirrors_match_the_kernel_layouts() {
     want.push(pers::P4E_ARGS_BYTES as u32);
     want.extend([160, 168, 196, 200, 204]);
     want.push(pers::P4E_LAUNCH_BYTES as u32);
-    want.extend([16, 24]);
+    want.extend([16, 24, 32]);
     assert_eq!(o, want);
     assert_eq!(std::mem::size_of::<pers::P4eLaunch>(), pers::P4E_LAUNCH_BYTES);
     let lay = pers::P4eLayerHost { o_gpr: 32, tetra_down: true, qkv: pers::P4eQkvHost { d_in: 2560, out_v: 9, ..Default::default() }, ..Default::default() }.bytes();
@@ -683,6 +683,13 @@ fn g_cmd(form: u32, grid: u32, threads: u32, n: u32, pos0: u32, cap: u32, tok0: 
 /// Several launches through the same state, each `(pos0, n, tok0)`, the way
 /// `Runtime4e::decode` is called launch after launch.
 fn g_cmd_runs(form: u32, grid: u32, threads: u32, runs: &[(u32, u32, u32)], cap: u32, eos: u32, seed: u64) -> Vec<u8> {
+    g_cmd_stamped(form, grid, threads, runs, cap, eos, seed, false)
+}
+
+/// [`g_cmd_runs`], the persistent side on the phase-stamp symbols when
+/// `stamp`: its output then carries the stamps after the usual tail.
+#[allow(clippy::too_many_arguments)]
+fn g_cmd_stamped(form: u32, grid: u32, threads: u32, runs: &[(u32, u32, u32)], cap: u32, eos: u32, seed: u64, stamp: bool) -> Vec<u8> {
     let (pos0, n, tok0) = runs[0];
     let mut c = Cmd::new(b'G').u32(form).u32(grid).u32(threads).u32(n).u32(pos0).u32(cap).u32(tok0).u32(eos).u32(1024).u64(seed);
     for (w, s) in [(2560usize, 51u64), (2560, 52), (9728, 53)] {
@@ -693,7 +700,7 @@ fn g_cmd_runs(form: u32, grid: u32, threads: u32, runs: &[(u32, u32, u32)], cap:
     for &(p, k, t) in &runs[1..] {
         c = c.u32(p).u32(k).u32(t);
     }
-    c.0
+    c.u32(stamp as u32).0
 }
 
 /// 4E's token loop: N tokens in one cooperative launch equal the served chain
@@ -771,6 +778,61 @@ fn consecutive_4e_decodes_keep_their_tokens() {
     let want = u32s(&run(served(), &cmd)[..4 * made as usize]);
     let got = run_mutant(&b, &cmd).map(|o| u32s(&o[..4 * made as usize]));
     assert!(got != Some(want), "the slots-kept mutant survived");
+}
+
+/// 4E's phase-stamp symbols (`LLVQ_PERS_4E`'s stamped launch) make the
+/// tokens, caches and residual of the token symbols, over two launches
+/// through one state, and their stamps read as the barriers they bracket:
+/// every CTA's stamps in event order, every release after the wait's last
+/// arrival, the phases' walls summing to the token. The harness clock counts
+/// calls, so this proves the order of the stamps, never a duration.
+#[test]
+fn the_4e_phase_stamps_keep_the_tokens_and_bracket_the_waits() {
+    use llvq_cuda::pers::{p4e_events, p4e_phase_report};
+    let runs = [(5u32, 3u32, 7u32), (8, 2, 9)];
+    let made: usize = runs.iter().map(|r| r.1 as usize).sum();
+    let ev = p4e_events(2) as usize;
+    for (form, grid, threads, seed) in [(0u32, 3u32, 128u32, 0x4e20u64), (1, 4, 96, 0x4e21)] {
+        let plain = run(persistent(), &g_cmd_runs(form, grid, threads, &runs, 16, u32::MAX, seed));
+        let cmd = g_cmd_stamped(form, grid, threads, &runs, 16, u32::MAX, seed, true);
+        let want = run(served(), &cmd);
+        assert!(want[..want.len() - 8] == plain[..plain.len() - 8], "form {form}, grid {grid}: the token symbols are the served chain");
+        let got = run(persistent(), &cmd);
+        let n_st = made * ev * grid as usize;
+        assert_eq!(got.len(), plain.len() + 8 * n_st, "the stamps follow the tail");
+        assert!(got[..plain.len()] == plain[..], "form {form}, grid {grid}: the stamped launch moved an output");
+        let st: Vec<u64> = got[plain.len()..].chunks(8).map(|b| u64::from_le_bytes(b.try_into().unwrap())).collect();
+        let (first, second) = st.split_at(3 * ev * grid as usize);
+        let r = p4e_phase_report(first, 3, 2, grid).expect("the first launch's stamps");
+        assert_eq!(r.tokens_read, 2);
+        assert_eq!(r.grain, 1, "the harness clock steps by one");
+        let r = p4e_phase_report(second, 2, 2, grid).expect("the second launch's stamps");
+        let walls: f64 = r.phases.iter().map(|p| p.wall.0).sum();
+        assert_eq!(walls, r.token.0, "one token read: the phases' walls are the token");
+        assert!(r.phases.iter().all(|p| p.crit.0 >= p.mean.0 && p.mean.0 > 0.0), "{r:?}");
+    }
+    // Teeth. A release left unstamped, and an arrival stamped after the wait
+    // instead of before it: the report refuses both.
+    let cmd = g_cmd_stamped(1, 4, 96, &runs, 16, u32::MAX, 0x4e21, true);
+    let plain_len = run(persistent(), &g_cmd_runs(1, 4, 96, &runs, 16, u32::MAX, 0x4e21)).len();
+    let first_launch = |o: &[u8]| -> Vec<u64> {
+        o[plain_len..plain_len + 8 * 3 * ev * 4].chunks(8).map(|b| u64::from_le_bytes(b.try_into().unwrap())).collect()
+    };
+    for (tag, edits) in [
+        ("4e_release_unstamped", vec![("llvq-cuda/kernels/pers_4e.cu", "        PERS_STAMP_AT((e) + 1u);", "        PERS_STAMP_AT((e) + 0u);")]),
+        (
+            "4e_arrival_after_wait",
+            vec![
+                ("llvq-cuda/kernels/pers_4e.cu", "            PERS_STAMP_AT(e);", "            (void)0;"),
+                ("llvq-cuda/kernels/pers_4e.cu", "        PERS_STAMP_AT((e) + 1u);", "        PERS_STAMP_AT(e); PERS_STAMP_AT((e) + 1u);"),
+            ],
+        ),
+    ] {
+        let b = mutant_many(tag, &edits);
+        let o = run_mutant(&b, &cmd).unwrap_or_else(|| panic!("{tag}: the mutant must still run"));
+        let r = p4e_phase_report(&first_launch(&o), 3, 2, 4);
+        assert!(r.is_err(), "the {tag} mutant survived: {r:?}");
+    }
 }
 
 // ---- the L2 bench arms ------------------------------------------------------

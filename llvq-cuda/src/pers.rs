@@ -962,7 +962,7 @@ pub struct SegLaunch {
 pub const P4E_QKV_BYTES: usize = 152;
 pub const P4E_LAYER_BYTES: usize = 592;
 pub const P4E_ARGS_BYTES: usize = 208;
-pub const P4E_LAUNCH_BYTES: usize = 32;
+pub const P4E_LAUNCH_BYTES: usize = 40;
 /// Where `qkv` and `mlp` sit in a `Pers4eLayer`.
 pub const P4E_LAYER_QKV: usize = 40;
 pub const P4E_LAYER_MLP: usize = 256;
@@ -1104,6 +1104,9 @@ pub struct P4eLaunch {
     pub eos: u32,
     pub pad: u32,
     pub ring: u64,
+    /// The phase stamps of a `pers_4e_stamps_*` launch, `[n][p4e_events][grid]`
+    /// u64; 0 and unread on the token symbols.
+    pub stamps: u64,
 }
 
 /// The token kernel's symbol for a RoPE form and a block size.
@@ -1117,6 +1120,177 @@ pub fn p4e_symbol(form: u32, threads: u32) -> Result<&'static str, String> {
         (2, 512) => "pers_4e_tokens_f2_t512",
         _ => return Err(format!("4E: no kernel for RoPE form {form} at {threads} threads")),
     })
+}
+
+/// The phase-stamp symbol for a RoPE form: 512 threads only, the geometry the
+/// L40S runs (its 768-thread symbol spills); another block size is refused.
+pub fn p4e_stamp_symbol(form: u32, threads: u32) -> Result<&'static str, String> {
+    Ok(match (form, threads) {
+        (0, 512) => "pers_4e_stamps_f0_t512",
+        (1, 512) => "pers_4e_stamps_f1_t512",
+        (2, 512) => "pers_4e_stamps_f2_t512",
+        _ => return Err(format!("4E stamps: no stamp symbol for RoPE form {form} at {threads} threads (512 only)")),
+    })
+}
+
+/// Stamp events of one 4E token (`pers_4e.cu`, STAMP = true): the
+/// embedding's arrival and release, ten a layer, the head's end.
+pub fn p4e_events(layers: u32) -> u32 {
+    3 + 10 * layers
+}
+
+/// The phases of a 4E token, in order, as [`p4e_phase_report`] names them.
+pub const P4E_PHASES: [&str; 7] = ["embedding", "q/k/v", "norm/RoPE/append", "attention", "o", "MLP", "head"];
+
+/// One phase of [`P4eReport`], summed over the layers of a token. Each is
+/// the median over the tokens read, with its range.
+#[derive(Clone, Debug, PartialEq)]
+pub struct P4ePhase {
+    pub name: &'static str,
+    /// How far the grid's last release moved: the phase's share of the token.
+    pub wall: (f64, f64, f64),
+    /// The slowest CTA's work, from its own release to its own arrival.
+    pub crit: (f64, f64, f64),
+    /// The mean CTA's work.
+    pub mean: (f64, f64, f64),
+    /// The CTA that was slowest most often in this phase, and how often.
+    pub crit_cta: (u32, f64),
+}
+
+/// [`p4e_phase_report`]'s reading of a stamped launch.
+#[derive(Clone, Debug, PartialEq)]
+pub struct P4eReport {
+    pub phases: Vec<P4ePhase>,
+    /// Release to release, the head's end of one token to the next's.
+    pub token: (f64, f64, f64),
+    pub tokens_read: usize,
+    /// Smallest positive step between two stamps: the clock's grain.
+    pub grain: u64,
+}
+
+/// Time per phase from the stamps of one launch of `n` tokens,
+/// `[n][p4e_events(layers)][grid]`, in the clock's unit (ns on a card).
+///
+/// Refused, by name, when the stamps contradict the barriers they bracket: a
+/// release before an arrival of the same wait on any CTA, or a CTA's stamps
+/// going back within the launch. Token 0 has no previous end and is not read,
+/// so `n` must be at least 2. The phases of a token start at the previous
+/// release (the head's end for the embedding) and end at the arrival; the
+/// head, whose W4 is inside it, ends at its release.
+pub fn p4e_phase_report(stamps: &[u64], n: u32, layers: u32, grid: u32) -> Result<P4eReport, String> {
+    let (ev, g) = (p4e_events(layers) as usize, grid as usize);
+    if n < 2 || stamps.len() != n as usize * ev * g {
+        return Err(format!("4E stamps: {} stamps for {n} tokens x {ev} events x {grid} CTAs (n >= 2)", stamps.len()));
+    }
+    let at = |t: usize, e: usize, c: usize| stamps[(t * ev + e) * g + c];
+    for c in 0..g {
+        let mut prev = 0u64;
+        for t in 0..n as usize {
+            for e in 0..ev {
+                let v = at(t, e, c);
+                if v == 0 || v < prev {
+                    return Err(format!("4E stamps: CTA {c}, token {t}, event {e}: {v} after {prev}"));
+                }
+                prev = v;
+            }
+        }
+    }
+    // Every wait: its last arrival before its first release.
+    let waits: Vec<usize> = (0..1 + 5 * layers as usize).map(|w| if w == 0 { 0 } else { 2 + 2 * (w - 1) }).collect();
+    for t in 0..n as usize {
+        for &a in &waits {
+            let last_arrival = (0..g).map(|c| at(t, a, c)).max().unwrap();
+            let first_release = (0..g).map(|c| at(t, a + 1, c)).min().unwrap();
+            if first_release < last_arrival {
+                return Err(format!("4E stamps: token {t}, event {a}: a release at {first_release} before an arrival at {last_arrival}"));
+            }
+        }
+    }
+    let mut sorted: Vec<u64> = stamps.to_vec();
+    sorted.sort_unstable();
+    let grain = sorted.windows(2).map(|w| w[1] - w[0]).filter(|&d| d > 0).min().unwrap_or(0);
+    let k = P4E_PHASES.len();
+    let (mut wall, mut crit, mut mean) = (vec![Vec::new(); k], vec![Vec::new(); k], vec![Vec::new(); k]);
+    let mut crit_ctas = vec![vec![0u32; g]; k];
+    let mut token = Vec::new();
+    let head_end = ev - 1;
+    for t in 1..n as usize {
+        let (mut w, mut cr, mut mn) = (vec![0.0; k], vec![0.0; k], vec![0.0; k]);
+        // (phase kind, start event or None for the previous token's end, end event)
+        let mut segs: Vec<(usize, Option<usize>, usize)> = vec![(0, None, 0)];
+        let mut rel = 1usize;
+        for l in 0..layers as usize {
+            for p in 0..5usize {
+                let arr = 2 + 10 * l + 2 * p;
+                segs.push((1 + p, Some(rel), arr));
+                rel = arr + 1;
+            }
+        }
+        segs.push((6, Some(rel), head_end));
+        for (kind, start, end) in segs {
+            let s_of = |c: usize| match start {
+                Some(e) => at(t, e, c),
+                None => at(t - 1, head_end, c),
+            };
+            // the grid's release that ends this phase: its end event's release
+            let end_rel = if end == head_end { end } else { end + 1 };
+            let grid_from = (0..g).map(s_of).max().unwrap();
+            let grid_to = (0..g).map(|c| at(t, end_rel, c)).max().unwrap();
+            w[kind] += (grid_to - grid_from) as f64;
+            let works: Vec<u64> = (0..g).map(|c| at(t, end, c) - s_of(c)).collect();
+            // the slowest CTA, the lowest index on a tie
+            let (ci, cw) = works.iter().enumerate().fold((0usize, 0u64), |b, (i, &v)| if v > b.1 { (i, v) } else { b });
+            cr[kind] += cw as f64;
+            mn[kind] += works.iter().sum::<u64>() as f64 / g as f64;
+            crit_ctas[kind][ci] += 1;
+        }
+        for i in 0..k {
+            wall[i].push(w[i]);
+            crit[i].push(cr[i]);
+            mean[i].push(mn[i]);
+        }
+        let t_end = (0..g).map(|c| at(t, head_end, c)).max().unwrap();
+        let t_prev = (0..g).map(|c| at(t - 1, head_end, c)).max().unwrap();
+        token.push((t_end - t_prev) as f64);
+    }
+    let phases = (0..k)
+        .map(|i| {
+            let total: u32 = crit_ctas[i].iter().sum();
+            let (cta, hits) = crit_ctas[i].iter().enumerate().fold((0usize, 0u32), |b, (c, &h)| if h > b.1 { (c, h) } else { b });
+            P4ePhase {
+                name: P4E_PHASES[i],
+                wall: med_range(&wall[i]),
+                crit: med_range(&crit[i]),
+                mean: med_range(&mean[i]),
+                crit_cta: (cta as u32, hits as f64 / total.max(1) as f64),
+            }
+        })
+        .collect();
+    Ok(P4eReport { phases, token: med_range(&token), tokens_read: n as usize - 1, grain })
+}
+
+/// [`P4eReport`] as printed lines, the clock in ns: µs a token per phase.
+pub fn p4e_report_lines(r: &P4eReport) -> Vec<String> {
+    let us = |v: (f64, f64, f64)| format!("{:8.1} [{:.1}-{:.1}]", v.0 / 1e3, v.1 / 1e3, v.2 / 1e3);
+    let mut out = vec![format!(
+        "  phase stamps: {} tokens read, clock grain {} ns; us a token, median [range] over tokens",
+        r.tokens_read, r.grain
+    )];
+    out.push(format!("    {:<18} {:>24} {:>24} {:>24} {:>6} {:>12}", "phase", "wall", "slowest CTA's work", "mean CTA's work", "share", "slowest CTA"));
+    for p in &r.phases {
+        out.push(format!(
+            "    {:<18} {} {} {} {:5.1}% {:>5} ({:.0}%)",
+            p.name,
+            us(p.wall),
+            us(p.crit),
+            us(p.mean),
+            100.0 * p.wall.0 / r.token.0,
+            p.crit_cta.0,
+            100.0 * p.crit_cta.1
+        ));
+    }
+    out.push(format!("    {:<18} {}", "token", us(r.token)));
+    out
 }
 
 /// Rows a `tv_tetra48_persall` work group covers: one per warp of its
@@ -1558,9 +1732,64 @@ mod tests {
         let cu = include_str!("../kernels/pers_4e.cu");
         for f in 0..3u32 {
             for t in [768u32, 512] {
-                assert!(cu.contains(&format!("PERS_4E({}, {f}, {t})", p4e_symbol(f, t).unwrap())), "{f} {t}");
+                assert!(cu.contains(&format!("PERS_4E({}, {f}, {t}, false)", p4e_symbol(f, t).unwrap())), "{f} {t}");
             }
+            assert!(cu.contains(&format!("PERS_4E({}, {f}, 512, true)", p4e_stamp_symbol(f, 512).unwrap())), "stamps {f}");
+            assert!(p4e_stamp_symbol(f, 768).is_err());
         }
+        assert_eq!(p4e_events(36), 363);
+    }
+
+    /// The phase report on stamps made by hand: two CTAs, one layer, two
+    /// tokens; every phase's wall, slowest and mean work known in advance.
+    #[test]
+    fn the_4e_phase_report_reads_the_stamps() {
+        let (layers, grid, n) = (1u32, 2usize, 2u32);
+        let ev = p4e_events(layers) as usize; // 13
+        // Per token, CTA 0 and CTA 1: arrivals and releases. Each phase k
+        // (embedding, q/k/v, norm, attention, o, MLP) has CTA 0 working 10
+        // and CTA 1 working 10 + 2k, a release 1 after the last arrival; the
+        // head then takes 7 on both, its W4 inside.
+        let mut st = vec![0u64; n as usize * ev * grid];
+        let mut clock = 100u64;
+        for t in 0..n as usize {
+            let mut rel = [clock; 2];
+            for k in 0..6usize {
+                let arr = [rel[0] + 10, rel[1] + 10 + 2 * k as u64];
+                let r = arr[0].max(arr[1]) + 1;
+                for c in 0..grid {
+                    st[(t * ev + 2 * k) * grid + c] = arr[c];
+                    st[(t * ev + 2 * k + 1) * grid + c] = r;
+                }
+                rel = [r, r];
+            }
+            for c in 0..grid {
+                st[(t * ev + ev - 1) * grid + c] = rel[c] + 7;
+            }
+            clock = rel[0] + 7;
+        }
+        let r = p4e_phase_report(&st, n, layers, grid as u32).unwrap();
+        assert_eq!(r.tokens_read, 1);
+        assert_eq!(r.grain, 1);
+        for (k, p) in r.phases.iter().enumerate().take(6) {
+            let w = 10.0 + 2.0 * k as f64;
+            assert_eq!(p.crit.0, w, "{}", p.name);
+            assert_eq!(p.mean.0, (10.0 + w) / 2.0, "{}", p.name);
+            assert_eq!(p.wall.0, w + 1.0, "{}", p.name);
+            assert_eq!(p.crit_cta.0, if k == 0 { 0 } else { 1 }, "{}", p.name);
+        }
+        assert_eq!(r.phases[6].wall.0, 7.0);
+        let walls: f64 = r.phases.iter().map(|p| p.wall.0).sum();
+        assert_eq!(walls, r.token.0);
+        // a release before the last arrival of its wait is refused
+        let mut bad = st.clone();
+        bad[(ev + 3) * grid] = bad[(ev + 2) * grid + 1] - 1;
+        assert!(p4e_phase_report(&bad, n, layers, grid as u32).is_err());
+        // an unwritten stamp is refused
+        let mut bad = st.clone();
+        bad[ev * grid + 5] = 0;
+        assert!(p4e_phase_report(&bad, n, layers, grid as u32).is_err());
+        assert!(p4e_phase_report(&st[..ev * grid], 1, layers, grid as u32).is_err(), "one token reads nothing");
     }
 
     #[test]

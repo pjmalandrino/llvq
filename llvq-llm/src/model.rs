@@ -2185,13 +2185,18 @@ impl Qwen3 {
     }
 
     /// `generate`'s first step: the prompt through the eager path into
-    /// `caches`, then the argmax of the last position's logits.
+    /// `caches`, then the argmax of the last position's logits. The prompt
+    /// goes in chunks of at most [`MAX_PREFILL_ROWS`] positions, as
+    /// [`Self::generate_timed`] sends it: at or under that length this is
+    /// one call, and an 8,192-token context is two (the fused prefill refuses
+    /// more rows a call; the first 4E card reading stopped on that refusal).
     pub fn prefill_next(&self, tokens: &[u32], caches: &mut [KvCache]) -> Result<u32> {
-        let input = Tensor::from_slice(tokens, (1, tokens.len()), &self.device)?;
-        let h = self.hidden_cached(&input, 0, caches, &mut NoCapture)?;
-        let l = h.dim(1)?;
-        let logits = self.head.project(&h.narrow(1, l - 1, 1)?)?.to_dtype(DType::F32)?;
-        logits.i((0, 0))?.argmax(D::Minus1)?.to_scalar::<u32>()
+        self.prefill_next_in(tokens, MAX_PREFILL_ROWS, caches)
+    }
+
+    /// [`Self::prefill_next`] in chunks of at most `chunk` positions.
+    pub fn prefill_next_in(&self, tokens: &[u32], chunk: usize, caches: &mut [KvCache]) -> Result<u32> {
+        argmax_last(&self.prefill_chunked(tokens, chunk, caches)?)
     }
 
     /// Lower the threshold so a host test reaches the kernel in a short
@@ -3524,6 +3529,27 @@ mod tests {
         let masked = model.generate_timed(&prompt, 9, MAX_PREFILL_ROWS).unwrap();
         assert_eq!(masked.tokens, want, "the zero mask, added again, moves no token");
         assert!(model.step_mask(1, 1, 20).unwrap().is_some(), "the switch must reach step_mask");
+    }
+
+    /// `prefill_next` in chunks leaves the caches and the first token of an
+    /// unchunked prompt, and the decode after it is `generate`'s: what the 4E
+    /// driver needs at an 8,192-token context, at chunk sizes a host reaches.
+    #[test]
+    fn a_chunked_prefill_next_is_the_prefill_of_generate() {
+        // 4E's store: Grow(256), whose count `len` tracks.
+        let mut model = tiny_model(DType::F32);
+        model.set_kv_store(crate::kvq::KvStore::Grow(crate::kvq::GROW_CHUNK));
+        let prompt: Vec<u32> = (0..13u32).map(|i| (i * 11 + 5) % 97).collect();
+        let want = model.generate(&prompt, 6, &mut NoCapture).unwrap();
+        for chunk in [1usize, 4, 12, 13, MAX_PREFILL_ROWS] {
+            let mut caches = model.fresh_caches();
+            let first = model.prefill_next_in(&prompt, chunk, &mut caches).unwrap();
+            assert!(caches.iter().all(|c| c.len() == prompt.len()), "chunk {chunk}: the caches hold the prompt");
+            let got = model.decode_greedy(first, prompt.len(), 6, &mut caches).unwrap();
+            assert_eq!(got, want, "chunk {chunk}: the tokens of generate");
+        }
+        let mut caches = model.fresh_caches();
+        assert_eq!(model.prefill_next(&prompt, &mut caches).unwrap(), want[0], "the served chunk is one call here");
     }
 
     /// 🚨 The served config's pair reaches the model, BOTH halves of it.

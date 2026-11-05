@@ -10,9 +10,13 @@
 //      input at 9,728), each u32 m, k, f32 inv, u32 signs[n/32], f32 small[1024],
 //      u32 n_more, then n_more launches (u32 pos0, n, tok0) run after the
 //      first through the same state, as the runtime runs consecutive decodes
-//      (a later launch may rewind to an earlier position)
+//      (a later launch may rewind to an earlier position), then u32 stamp: 1
+//      runs the persistent side on the phase-stamp symbols (the served side
+//      ignores it)
 // out: u32 ring[n] then each later launch's ring, u16 x[hidden], u16 kc, vc of
-//      each layer, u32 bar, abort
+//      each layer, u32 bar, abort; with stamp = 1 on the persistent side, then
+//      u64 stamps[sum of n][3 + 10 x layers][grid] (the harness clock counts
+//      calls: an order, not a duration)
 {
     const u32 form = rd1<u32>(), grid = rd1<u32>(), threads = rd1<u32>(), n = rd1<u32>(), pos0 = rd1<u32>(),
               cap = rd1<u32>(), tok0 = rd1<u32>(), eos = rd1<u32>(), vocab = rd1<u32>();
@@ -29,6 +33,7 @@
     const u32 n_more = rd1<u32>();
     std::vector<u32> runs{pos0, n, tok0};
     { const auto m = rd<u32>(3 * (size_t)n_more); runs.insert(runs.end(), m.begin(), m.end()); }
+    const u32 stamp = rd1<u32>();
     size_t ring_len = 0;
     for (size_t i = 0; i < runs.size(); i += 3) ring_len += runs[i + 1];
     const float eps = 1e-6f;
@@ -80,7 +85,7 @@
     std::vector<u32> ring(ring_len, 0xFFFFFFFFu), tail(2, 0u);
     std::vector<unsigned short> x(H, 0u);
 #if PERS_SIDE == 0
-    (void)grid; (void)threads;
+    (void)grid; (void)threads; (void)stamp;
     auto norm = [&](const std::vector<unsigned short>& v, const unsigned short* al, u32 w) {
         const float sc = candle_rms_scale(v.data(), w, eps, 0);
         std::vector<unsigned short> o(w);
@@ -203,14 +208,18 @@
     A.eps = eps; A.c = scale;
     typedef void (*Fn)(const Pers4eArgs*, const Pers4eLaunch);
     const Fn fns[3] = {pers_4e_tokens_f0, pers_4e_tokens_f1, pers_4e_tokens_f2};
+    const Fn stamped[3] = {pers_4e_stamps_f0_t512, pers_4e_stamps_f1_t512, pers_4e_stamps_f2_t512};
+    const size_t n_ev = 3u + 10u * NL;
+    std::vector<unsigned long long> stamps(stamp ? ring_len * n_ev * grid : 0u, 0ull);
     const size_t smem = PERS_SMEM_HEADER + 18816 + 4 * (size_t)std::max(I, 2 * H);
     // Launch after launch through the same state, as Runtime4e::decode runs
     // them: the barrier base is the counter's value (no abort), a fresh ring.
     size_t ring_at = 0;
     for (size_t run_i = 0; run_i < runs.size(); run_i += 3) {
-        const Pers4eLaunch L{bar[0], runs[run_i], runs[run_i + 1], runs[run_i + 2], eos, 0u, ring.data() + ring_at};
+        const Pers4eLaunch L{bar[0], runs[run_i], runs[run_i + 1], runs[run_i + 2], eos, 0u, ring.data() + ring_at,
+                             stamp ? stamps.data() + ring_at * n_ev * grid : nullptr};
         ring_at += runs[run_i + 1];
-        hostgrid::launch_coop(grid, threads, smem, seed + run_i, [&] { fns[form](&A, L); });
+        hostgrid::launch_coop(grid, threads, smem, seed + run_i, [&] { (stamp ? stamped : fns)[form](&A, L); });
     }
     tail[0] = bar[0];
     tail[1] = ab[0];
@@ -219,4 +228,7 @@
     wr(x);
     for (auto& Y : Ls) { wr(Y.kc); wr(Y.vc); }
     wr(tail);
+#if PERS_SIDE == 1
+    wr(stamps);
+#endif
 }
