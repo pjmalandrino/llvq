@@ -1,0 +1,178 @@
+WHAT THE SASS SAYS ABOUT 4E'S TETRA ROWS AFTER V3, AND THE ROW-LOOP MICROBENCHMARK THAT CALIBRATES THEM, 2026-11-05
+==================================================================================================================
+
+Result: the SASS of 4E v3's stream loop does not show what bounds the Tetra rows. Every limit inside the SM that can
+be read off the code sits three times or more above the measured rate (*computed*, §2):
+- the dependency chain of a block is about 215 cycles;
+- instruction issue runs at about 24 % of the SM's capacity;
+- the shared-memory pipe at about a quarter;
+- each lane holds 4 blocks' words in flight.
+Two models used so far are refuted by card readings already on file:
+- the L1/shared pipe model behind pers-sass and the review's "Λ-transposed read": the one-launch pass with its
+  tables in shared memory roughly halved that pipe's traffic and read x0.948 (pers-4e-v2 bench);
+- the per-row round-trip model behind v3's estimate: v3 removed those round trips and the rows did not move
+  (pers-4e-v3).
+The bound is dynamic, and the next estimate needs measured rates. One card job is ready, not launched: the row loops
+of 4E v2 and v3 timed alone at 4E's geometry, with per-warp clock stamps and five arms that each remove one suspect.
+- Job: ops/jobs/pers-rowloop.sh.
+- Prereg: proofs/preregistration-pers-rowloop-2026-11-05.md, not stamped.
+- Cost: about 10 min and $0.30 (*estimated*); ceiling $0.90.
+
+v3's MLP got slower (wall 2,934 to 3,096 us) for two reasons visible in the SASS:
+- its stream loop executes about 265 instructions a block against v2's 241;
+- the rows still divide unevenly over 16 warps (§3).
+The microbenchmark measures both.
+
+Prereg:  none for this host work ($0); the card reading has its own (above).
+Cost:    $0. NVRTC 12.4 and ptxas 12.4 in nvidia/cuda:12.4.1-devel-ubuntu22.04 (the container's ptxas, sm_89); the
+         host harness; clang++.
+Inputs:  pers-4e-v3-2026-11-05.txt and -brut/ (integration/lot1 1ba1cf3); pers-4e-v2-2026-11-05.txt and -brut/
+         (bench.txt, cubin/); pers-4e-v3-host-2026-11-05.txt; the review session's proposal (conversation of
+         2026-11-05, never committed; summarized in §5).
+Tools:   ops/sass_loops.py; ops/sass_chain.py (new: the critical path of a loop under declared latencies).
+
+1. THE SASS OF THE V3 STREAM LOOP (devel ptxas 12.4, sm_89, pers_4e_tokens_f1_t512)
+-----------------------------------------------------------------------------------
+  The card's driver ptxas (580) gave 126 registers and 0 B local to this symbol on the card (v3 journal); the devel
+  ptxas gives 120 and 0 B. The v3 job dumped no cubin, so the loops below are the devel compile's. For v2 the devel
+  and the card's loops agreed (241 against 241, v3-host §1).
+  - Four stream loops (q/k, gate/up, two Tetra downs): 1,523 to 1,595 instructions for 4 blocks, the ring unrolled at
+    compile time. A block's slot is 398 instructions. The common path is about 265 instructions: the slot without
+    its row-start region (20) and its row-end region (106, warp_sum and lane 0's epilogue).
+  - Against v2's 241 a block, the added instructions are control:
+    - the row-boundary tests and the (row, item) counters;
+    - 4 BSSY/BSYNC reconvergence regions a slot, which also wall each block's chain off from the next;
+    - the refill's pointer arithmetic.
+  - The decode itself is v2's: LDS.128 6, LDS 4, LDS.U8 2, LDS.U16 1, IDP 6, the 24-deep FFMA chain.
+  - The ring is real. Slot d decodes the words loaded 4 slots earlier (registers R25, R24, R14, R15 of the gate/up
+    loop, traced write to read).
+  - gate/up's row end reloads the activation and SiLU table pointers from the argument struct (LD.E.64 at +0x118 and
+    +0x120) at every row: the store through a generic pointer forbids keeping them in registers. v2's claim loop
+    does the same.
+
+2. NO LIMIT INSIDE THE SM EXPLAINS THE RATE (*computed* unless said)
+---------------------------------------------------------------------
+  The Tetra rows in v3: about 256 GB/s on the MLP phase's mean CTA work (fixed work and int4 downs taken out as in
+  v3-host §2). A warp step is 32 blocks of one row, 201 B. That is 8.97 M warp steps a second a SM.
+    - issue: 265 instructions a step is 2.4 G warp-instructions a second a SM, 24 % of 4 a cycle at 2.52 GHz.
+    - shared pipe: about 65 wavefronts a step, 0.58 G a second, a quarter of one a cycle. The count is 48 for the six
+      LDS.128 (stride 96 B, 2-way conflicts in every quarter-warp) plus about 17 for the gathers: 3.5 each into
+      the 16 KB rank table and the 2 KB branch table, 1 for the 128-byte tables and invnorm.
+    - chain: 215 cycles a block (ops/sass_chain.py on v2's loop and on one v3 slot; assumed latencies: ALU 4-6,
+      shared 30, L1 hit 35). A warp takes about 4,500 cycles a step on the mean CTA basis, about 3,300 per busy
+      warp (§3).
+    - words in flight: 16 warps x 4 x 201 B = 12.9 KB a SM; at a loaded DRAM latency of 0.5-0.7 us (*estimated*)
+      that would carry 2.6-3.7 TB/s.
+  Each of these four predicts 900 GB/s or more. The rate is 256.
+  The int4 rows look the same from this side: 588 GB/s with 75-80 instructions a word, about one warp-instruction a
+  cycle a SM, as the Tetra rows. Their rate tracks bytes per instruction (1.66 for int4, 0.76 for v3 Tetra, 0.83 for
+  v2): 588 x 0.76 / 1.66 = 269 against 256 measured. A common cap near one instruction a cycle a SM fits both
+  loops, and nothing in the code says what it is. That is a fit at two points, not a mechanism.
+
+  Two card readings on file already rule out mechanisms:
+    - the L1/shared pipe. tpersall_ts holds the tables in shared memory: about 65 wavefronts a step against about
+      145 with the tables through L1 (pers-sass). It read x0.948, at 24 warps a SM against 32 (v2 bench, lines
+      90-107). If the pipe bound, halving its traffic would have shown.
+    - the words' latency. v3 keeps 4 blocks in flight a lane against v2's one, and the Tetra rows of the MLP phase
+      moved from 272 to 256 GB/s (same accounting).
+
+3. WHY V3'S MLP GOT SLOWER, AND THE WARPS' BALANCE (*computed*)
+---------------------------------------------------------------
+  - The loop: about 265 instructions a block against 241, +10 %. On a loop whose rate tracks executed instructions,
+    that is the 5-6 % the MLP's mean work moved (2,834 to 2,975 us).
+  - The rows a warp: v2 claimed rows one at a time (pers_claim), v3 assigns them statically. With equal rows both
+    end on the same count, ceil(rows / 16), so this is not the regression. It is a cost of both:
+      phase (4B, 142 CTAs)            rows a CTA   most a warp   balance if every row takes the same time
+      gate/up pairs                   68.5         5             0.856
+      Tetra down (d_in 9,728)         18.0         2             0.563
+      q|k (v3's mixed split)          36.1         3             0.75
+    In the bench's file every projection is Tetra. The balance from row counts alone is 0.805 at d_in 2,560 (q, k,
+    v, gate, up), 0.563 at 4,096 (o) and 0.563 at 9,728 (down). The stamps check these first (prereg rule B).
+  - A fix that keeps the bits exists on paper and is not built. A block's dot product is independent of the others
+    and only the fold into acc is ordered. So two warps can share a long row: one computes block partials into shared
+    memory, the row's owner folds them in order. Not proposed before the calibration (coordinator's order).
+
+4. THE ROW-LOOP MICROBENCHMARK (pers_trows.cu, LLVQ_TROWS=1 in planesbench)
+--------------------------------------------------------------------------
+  Its own NVRTC module, the persistent unit followed by pers_trows.cu, so 4E's module keeps its bytes. The 252
+  matrices of the bare Tetra file in served order. 4E's geometry:
+    - one CTA of 512 threads a SM, forced by 4E's own 57,984 shared bytes (header, tables, activation of 9,728);
+    - each site's rows split over CTAs as 4E splits a phase, and over warps statically;
+    - a CTA barrier between sites, no grid barrier.
+  The served tv_tetra48_h gives the reference rows. With stamps, a separate launch outside the rounds writes:
+    - every warp's busy cycles and the CTA's, per site;
+    - %clock64 and %globaltimer at both ends of the launch.
+  From those: cycles a step per class of d_in, the balance, and the SM clock in MHz (pers.rs::trows_classes,
+  trows_clock_mhz).
+    arm      what it is                                                         owes the bits   regs (devel)
+    v2       4E v2's row (pers_tetra_row, one block a step, next words in flight)   yes          68
+    v3       4E v3's stream (pers_tetra_stream, 4 in flight across rows)            yes          85
+    ilp2     two blocks a step in one region, folds in the served order             yes          94
+    v2u      v2 with a trip count uniform over the warp: control of the three below  yes          67
+    l1w      v2u reading row 0's words for every row: no DRAM for the words          no           71
+    bcast    v2u decoding lane 0's words on every lane: table reads broadcast        no           67
+    xbcast   v2u reading the step's lane-0 activation block: LDS.128 broadcast        no           68
+    v2_s     v2 on the sites of d_in 4,096 or less, one CTA a SM                     yes          68
+    v2_o2    the same at two CTAs a SM (32 warps), launch bound (512, 2)             yes          63
+  Devel SASS (ops/sass_loops.py), each arm's loop is the one intended:
+    - v2's block loop is 241 instructions, as on the card's 4E v2;
+    - v3's stream loop is 1,509 for 4 blocks (4E v3: 1,523 to 1,595);
+    - ilp2 decodes two blocks in one 519-instruction region with a single reconvergence;
+    - bcast adds 2 SHFL; xbcast keeps its 6 LDS.128, uniform at run time.
+  None spills.
+
+5. THE "Λ-TRANSPOSED READ" (review session, 2026-11-05, not committed)
+--------------------------------------------------------------------
+  Claim: Tetra reads 2-3 times faster from the structure y = p 1 + 2c + 4k, with identical bits, through four pieces:
+    1. compute the Golay word, about 16 PRMT/IMAD, instead of 3 table reads, 2 of them dependent;
+    2. gscale in registers and invnorm by a shuffle;
+    3. one row a lane, 32 rows a warp on one column of blocks: the activation is broadcast, and a lane's blocks of
+       one row run with no warp_sum, the 32 partial sums and the butterfly replayed in the lane for the bits;
+    4. only the rank table in shared memory.
+  Its figure comes from the pers-sass LSU model: about 145 accesses a warp step down to about 20, giving a 2.2-2.5 ms
+  floor down to 0.3-0.45 ms.
+  Against the bound:
+  - Its premise does not hold in 4E. 4E already keeps every table in shared memory: about 13 shared reads and 3
+    global loads a block, not 145. The arm that took tpersall from about 145 to about 65 pipe wavefronts gained
+    nothing (§2). Piece 4 is what 4E already is.
+  - Pieces 1 and 2 shorten the decode chain by one or two shared-memory levels and one L1 load. That helps only if
+    the chain's latency binds. ilp2 measures that directly, and bcast bounds what free table reads can buy.
+  - Piece 3 removes the conflicts on the activation (48 of the 65 wavefronts) and gives every lane a long row
+    whose blocks can overlap. xbcast bounds the first, ilp2 the second. Its cost:
+    - a load-time transpose of the words;
+    - in each lane, a replay of the 32 partial sums and the butterfly, in the served order;
+    - no warp_sum, which it saves.
+  - So its 2-3x is not supported by any reading on file, and the microbenchmark tests each of its mechanisms in the
+    same job at no extra cost. Prereg rule E reads it: the 2-3x stands only if bcast x xbcast >= 2 or ilp2 >= 2.
+  - Its variant with integer activations and dp4a is a T8 matter (quality), outside this bound question.
+
+6. HOST PROOFS ($0)
+------------------
+  tests/pers_matches_served.rs:
+    - the_row_loop_arms_are_the_served_rows. v2, v3, ilp2 and v2u give the served rows and their f32 values before
+      f2h on five sites (d_in 2,560, 4,096, 9,728, 128, and a d_out of 23), at grids 3x96, 2x64, 4x128 and 5x32,
+      with and without stamps. The three diagnostics run and move rows.
+    - row_loop_mutants_are_killed: 8 mutants, each caught:
+      - ilp2: fold order, second activation, guard, prefetch;
+      - v2u's trip count; the CTA slice; the warp stride; v3's row count.
+    - Two mutants were replaced, each equivalent for the bits: zero words past the row decode to the zero vector,
+      whose fold leaves acc as it is. These are the ilp2 guard removed and v2u's guard removed. v2u's guard stays: it
+      keeps shared reads inside the staged activation on the card.
+    - The first draft compared binary16 rows only, and the fold-order mutant survived. The test now also compares
+      the f32 value before f2h, as the T tests do.
+  pers.rs:
+    - the_trows_unit_carries_every_arm: 4E's module text first and unchanged; 57,984 B at d_in 9,728;
+    - trows_stamps_fold_by_class.
+  llvq-cuda: 194 tests in 30 suites green (debug loop, nice 10). cargo clippy --all-targets: 0 warnings on the Mac;
+  the Linux half of llvq-cuda: 0. llvq-llm is untouched.
+
+7. THE CARD JOB (READY, NOT LAUNCHED)
+-------------------------------------
+  ops/jobs/pers-rowloop.sh, DRY_RUN=1 parses. Prereg proofs/preregistration-pers-rowloop-2026-11-05.md, not stamped.
+  One job, l40sx1:
+    - the oracle;
+    - planesbench on the two banc-252 files with LLVQ_TROWS=1, LLVQ_TETRA_OCC=1 (tpersall as the run-to-run anchor)
+      and LLVQ_DUMP_CUBIN (the driver's cubins of every module, the row loops' included).
+  No fusedrun: no 4E variant is timed. About 10 min and $0.30 (*estimated*); timeout 30 min, $0.90.
+
+Not established: anything on a card; the driver's allocation of the nine symbols; which suspect binds, if any.

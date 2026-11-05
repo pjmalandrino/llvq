@@ -35,6 +35,8 @@ pub struct Flags {
     pub arms: Vec<usize>,
     /// `LLVQ_DUMP_CUBIN=<dir>`: the driver-JIT cubin of every module loaded.
     pub dump_cubin: Option<PathBuf>,
+    /// `LLVQ_TROWS=1`: 4E's Tetra row loops alone (`pers_trows.cu`).
+    pub trows: bool,
 }
 
 fn flag01(name: &str) -> Result<bool, String> {
@@ -56,17 +58,18 @@ impl Flags {
             micro: flag01("LLVQ_PERS_MICRO")?,
             arms: pers::parse_pers_arms(std::env::var("LLVQ_PERS_ARMS").ok().as_deref())?,
             dump_cubin: std::env::var("LLVQ_DUMP_CUBIN").ok().map(PathBuf::from),
+            trows: flag01("LLVQ_TROWS")?,
         };
-        if (f.tetra_occ || !f.arms.is_empty()) && !(seg_tetra && tetra48) {
-            return Err("LLVQ_TETRA_OCC and LLVQ_PERS_ARMS are read against the fused Tetra geometry: they \
-                        need LLVQ_SEG_TETRA=1 and tetra48 in LLVQ_BENCH_ARMS"
+        if (f.tetra_occ || !f.arms.is_empty() || f.trows) && !(seg_tetra && tetra48) {
+            return Err("LLVQ_TETRA_OCC, LLVQ_PERS_ARMS and LLVQ_TROWS are read against the fused Tetra geometry: \
+                        they need LLVQ_SEG_TETRA=1 and tetra48 in LLVQ_BENCH_ARMS"
                 .into());
         }
         Ok(f)
     }
 
     pub fn any(&self) -> bool {
-        self.tetra_occ || self.micro || !self.arms.is_empty()
+        self.tetra_occ || self.micro || !self.arms.is_empty() || self.trows
     }
 }
 
@@ -233,6 +236,7 @@ pub struct Section<'a> {
     sm: u32,
     persall: Vec<Persall<'a>>,
     l2: Option<L2<'a>>,
+    trows: Option<Trows>,
 }
 
 impl<'a> Section<'a> {
@@ -248,7 +252,7 @@ impl<'a> Section<'a> {
             dump_cubin(dir, "bench", bench_text)?;
             dump_cubin(dir, "persistent", &src.text)?;
         }
-        Ok(Section { flags, module, sm, persall: Vec::new(), l2: None })
+        Ok(Section { flags, module, sm, persall: Vec::new(), l2: None, trows: None })
     }
 
     /// Step L1: the barrier, ring and launch microbenchmarks. Each is one
@@ -458,6 +462,155 @@ impl<'a> Section<'a> {
         // SAFETY: the arguments are the kernel's; every pointer in the site
         // table points into a live allocation of the bench.
         unsafe { b.launch(cfg) }.map_err(|e| format!("{}: {e}", p.sym))?;
+        Ok(())
+    }
+
+    /// The row-loop microbenchmark (`LLVQ_TROWS=1`, `pers_trows.cu`): 4E's
+    /// Tetra row loops alone over the 252 matrices of the bare file (`sites`,
+    /// served order), at 4E's geometry. The served `tv_tetra48_h` gives the
+    /// reference rows; an arm that owes the bits and moves one row is reported
+    /// and never timed. Each valid arm then runs one stamped launch, outside
+    /// the rounds: cycles a step, the warps' balance, the SM clock.
+    pub fn trows_setup(&mut self, sites: &[L2Site<'a>], tables: Tables, x: u64, x_len: usize, tile_define: &str) -> Result<(), String> {
+        if !self.flags.trows {
+            return Ok(());
+        }
+        if x_len < 9728 {
+            return Err(format!("the bench activation has {x_len} values, the row loops read 9,728"));
+        }
+        let text = pers::trows_unit_text(tile_define);
+        let src = KernelSource::new(&[text.as_str()]);
+        println!("\n  Row-loop microbenchmark (LLVQ_TROWS): module {} bytes, sha256 {}", src.text.len(), src.sha256);
+        let m = Cuda::on_stream(self.module.stream().clone(), &src)?;
+        let served_text = pers::served_unit_text(&format!("{tile_define}{}", crate::tile::Prefill::resolve()?.defines()));
+        let ssrc = KernelSource::new(&[served_text.as_str()]);
+        println!("  reference: the served unit, {} bytes, sha256 {}", ssrc.text.len(), ssrc.sha256);
+        let served = Cuda::on_stream(m.stream().clone(), &ssrc)?;
+        if let Some(dir) = &self.flags.dump_cubin {
+            dump_cubin(dir, "trows", &src.text)?;
+        }
+        let tile_blocks: u32 = tile_define
+            .trim()
+            .trim_start_matches("#define TILE_BLOCKS ")
+            .trim_end_matches('u')
+            .parse()
+            .map_err(|e| format!("tile define {tile_define:?}: {e}"))?;
+        let f_ref = served.func("tv_tetra48_h")?;
+        let tails = sites.iter().map(|s| m.up_u16(&s.tail_f16)).collect::<Result<Vec<_>, _>>()?;
+        // The reference rows, site by site, as l2_ref_pass launches them.
+        let mut refs: Vec<Vec<u16>> = Vec::with_capacity(sites.len());
+        for (k, s) in sites.iter().enumerate() {
+            let (nb, tw) = (s.d_in / 24, s.d_in % 24);
+            let y = served.zeros_u16(s.d_out as usize)?;
+            let cfg = LaunchConfig { grid_dim: (s.d_out / 8, 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: tile_blocks * 96 };
+            let tail = ptr(&tails[k], &m);
+            let mut b = m.stream().launch_builder(&f_ref);
+            b.arg(&s.words).arg(&s.stride_u32).arg(&tables.rows).arg(&tables.pref).arg(&tables.br).arg(&tables.suf)
+                .arg(&s.gscale).arg(&tables.invnorm).arg(&s.rscale).arg(&tail).arg(&x).arg(&y).arg(&nb).arg(&tw);
+            // SAFETY: tv_tetra48_h's own arguments on live allocations of this site.
+            unsafe { b.launch(cfg) }.map_err(|e| format!("tv_tetra48_h: {e}"))?;
+            m.sync()?;
+            refs.push(served.down_u16(&y)?);
+        }
+        let mut arms = Vec::new();
+        for &(name, sym, owed, minb) in pers::TROWS_ARMS.iter() {
+            let pick: Vec<usize> = (0..sites.len()).filter(|&k| !pers::trows_small_only(name) || sites[k].d_in <= 4096).collect();
+            let rows: usize = pick.iter().map(|&k| sites[k].d_out as usize).sum();
+            let y = m.zeros_u16(rows)?;
+            let mut words = Vec::with_capacity(pick.len() * 8);
+            let mut at = 0u64;
+            let mut bytes = 0u64;
+            for &k in &pick {
+                let s = &sites[k];
+                let (nb, tw) = (s.d_in / 24, s.d_in % 24);
+                words.extend(pers::trows_site_words(
+                    s.words, s.gscale, s.rscale, ptr(&tails[k], &m), ptr(&y, &m) + 2 * at, s.d_out, nb, tw, s.stride_u32,
+                ));
+                at += u64::from(s.d_out);
+                bytes += u64::from(s.d_out) * (4 * u64::from(s.stride_u32) + 2 * u64::from(tw) + 4);
+            }
+            let table = m.up_u64(&words)?;
+            // One CTA a SM: 4E's own shared bytes. Two: the small sites' staging.
+            let shared = if minb == 1 { pers::trows_smem_bytes(9728) } else { pers::trows_smem_bytes(4096) };
+            let f = m.func_dynamic_shared(sym, shared)?;
+            let rep = m.report(sym)?;
+            let occ = f
+                .occupancy_max_active_blocks_per_multiprocessor(512, shared as usize, None)
+                .map_err(|e| format!("occupancy: {e}"))?;
+            let grid = self.sm * minb;
+            println!(
+                "  {name:<7} {sym}: {} sites, {rows} rows, grid {grid} ({minb} a SM, {occ} fit), 512 threads, {} registers, {} B local, {shared} B shared",
+                pick.len(),
+                rep.num_regs,
+                rep.local_bytes
+            );
+            let mut a = TrowsArm {
+                name,
+                f,
+                table,
+                y,
+                nsites: pick.len() as u32,
+                shapes: pick.iter().map(|&k| (sites[k].d_out, sites[k].d_in)).collect(),
+                grid,
+                shared,
+                bytes,
+                valid: rep.local_bytes == 0 && occ >= minb,
+                series: Vec::new(),
+            };
+            if !a.valid {
+                println!("  {name}: SPILLS {} B or does not fit ({occ} a SM, {minb} needed), not timed", rep.local_bytes);
+                arms.push(a);
+                continue;
+            }
+            trows_launch(&m, &a, &tables, x, None)?;
+            m.sync()?;
+            let got = m.down_u16(&a.y)?;
+            let (mut same, mut at) = (0usize, 0usize);
+            let mut first = None;
+            for &k in &pick {
+                for (r, &want) in refs[k].iter().enumerate() {
+                    if got[at + r] == want {
+                        same += 1;
+                    } else if first.is_none() {
+                        first = Some(format!("{} row {r}: {:#06x} against {want:#06x}", sites[k].name, got[at + r]));
+                    }
+                }
+                at += sites[k].d_out as usize;
+            }
+            if owed {
+                if same == rows {
+                    println!("  {name}: {rows} rows identical BIT FOR BIT to tv_tetra48_h");
+                } else {
+                    a.valid = false;
+                    println!("  {name} INVALIDATED: {same} of {rows} rows equal; first: {}", first.unwrap_or_default());
+                }
+            } else {
+                println!("  {name}: diagnostic, rows not owed ({same} of {rows} happen to equal tv_tetra48_h)");
+            }
+            if a.valid {
+                // The stamped launch, outside the rounds.
+                let nw = 16u32;
+                let stamps = m.zeros_u32(a.shapes.len() * grid as usize * (nw as usize + 1))?;
+                let ends: CudaSlice<u64> = m.stream().alloc_zeros(4 * grid as usize).map_err(|e| format!("alloc u64: {e}"))?;
+                trows_launch(&m, &a, &tables, x, Some((&stamps, &ends)))?;
+                m.sync()?;
+                let st = m.down_u32(&stamps)?;
+                let en: Vec<u64> = m.stream().clone_dtoh(&ends).map_err(|e| format!("D2H u64: {e}"))?;
+                let mhz = pers::trows_clock_mhz(&en);
+                for cl in pers::trows_classes(&st, &a.shapes, grid, nw) {
+                    println!(
+                        "  {name:<7} stamps d_in {:>5}: {:>3} sites, {:>7.0} cycles a step (32 blocks of a row), {:.3} us at {mhz:.0} MHz; warp balance {:.3}",
+                        cl.d_in,
+                        cl.sites,
+                        cl.cycles_per_step(),
+                        cl.cycles_per_step() / mhz,
+                        cl.balance(nw)
+                    );
+                }
+            }
+            arms.push(a);
+        }
+        self.trows = Some(Trows { module: m, _served: served, _tails: tails, arms });
         Ok(())
     }
 
@@ -800,6 +953,17 @@ impl<'a> Section<'a> {
             l2.arms = arms;
             self.l2 = Some(l2);
         }
+        if let Some(mut tr) = self.trows.take() {
+            for a in tr.arms.iter_mut().filter(|a| a.valid) {
+                let t0 = Instant::now();
+                trows_launch(&tr.module, a, &tables, x, None)?;
+                tr.module.sync()?;
+                if timed {
+                    a.series.push(t0.elapsed().as_secs_f64());
+                }
+            }
+            self.trows = Some(tr);
+        }
         Ok(())
     }
 
@@ -873,6 +1037,9 @@ impl<'a> Section<'a> {
                     }
                 }
             }
+        }
+        if let Some(tr) = &self.trows {
+            trows_report(tr);
         }
     }
 }
@@ -952,4 +1119,76 @@ struct Keep {
     u64s: Vec<CudaSlice<u64>>,
     u16s: Vec<CudaSlice<u16>>,
     f32s: Vec<CudaSlice<f32>>,
+}
+
+/// One arm of the row-loop microbenchmark.
+struct TrowsArm {
+    name: &'static str,
+    f: CudaFunction,
+    table: CudaSlice<u64>,
+    y: CudaSlice<u16>,
+    nsites: u32,
+    shapes: Vec<(u32, u32)>,
+    grid: u32,
+    shared: u32,
+    bytes: u64,
+    valid: bool,
+    series: Vec<f64>,
+}
+
+/// The row-loop section: its module, the served reference's module and the
+/// binary16 tails its site tables point to (kept alive), and the arms.
+struct Trows {
+    module: Cuda,
+    _served: Cuda,
+    _tails: Vec<CudaSlice<u16>>,
+    arms: Vec<TrowsArm>,
+}
+
+fn trows_launch(m: &Cuda, a: &TrowsArm, t: &Tables, x: u64, stamps: Option<(&CudaSlice<u32>, &CudaSlice<u64>)>) -> Result<(), String> {
+    let cfg = LaunchConfig { grid_dim: (a.grid, 1, 1), block_dim: (512, 1, 1), shared_mem_bytes: a.shared };
+    let (sp, ep) = match stamps {
+        Some((s, e)) => (ptr(s, m), ptr(e, m)),
+        None => (0u64, 0u64),
+    };
+    let mut b = m.stream().launch_builder(&a.f);
+    b.arg(&a.table).arg(&a.nsites).arg(&t.rows).arg(&t.pref).arg(&t.br).arg(&t.suf).arg(&t.invnorm).arg(&x).arg(&sp).arg(&ep);
+    // SAFETY: the kernel's own arguments; every pointer in the site table and
+    // the stamp buffers (sized sites x grid x 17 and grid x 4) is live.
+    unsafe { b.launch(cfg) }.map_err(|e| format!("{}: {e}", a.name))?;
+    Ok(())
+}
+
+fn trows_report(tr: &Trows) {
+    println!("\n  Row-loop microbenchmark, rounds interleaved with A4; bytes = words (row stride) + binary16 tails + row scales:");
+    let series = |n: &str| tr.arms.iter().find(|a| a.name == n && a.valid && !a.series.is_empty()).map(|a| a.series.clone());
+    for a in &tr.arms {
+        if !a.valid || a.series.is_empty() {
+            println!("  {:<7} not timed", a.name);
+            continue;
+        }
+        let (m, lo, hi) = pers::med_range(&a.series);
+        let gb: Vec<f64> = a.series.iter().map(|t| a.bytes as f64 / t / 1e9).collect();
+        let (b, bl, bh) = pers::med_range(&gb);
+        let base = match a.name {
+            "v2" | "v2_s" => None,
+            "v2_o2" => Some("v2_s"),
+            "l1w" | "bcast" | "xbcast" => Some("v2u"),
+            _ => Some("v2"),
+        };
+        let vs = base.and_then(|n| series(n).map(|s| (n, s))).map(|(n, s)| {
+            let r: Vec<f64> = s.iter().zip(&a.series).map(|(x, y)| x / y).collect();
+            let (rm, rl, rh) = pers::med_range(&r);
+            format!("  speed over {n}: x{rm:.3} [{rl:.3}-{rh:.3}]")
+        });
+        println!(
+            "  {:<7} {:.3} ms [{:.3}-{:.3}]  {:.4} GB: {b:.0} GB/s [{bl:.0}-{bh:.0}]{}",
+            a.name,
+            1e3 * m,
+            1e3 * lo,
+            1e3 * hi,
+            a.bytes as f64 / 1e9,
+            vs.unwrap_or_default()
+        );
+    }
 }

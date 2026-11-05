@@ -134,9 +134,10 @@ be in `UPLOAD_ALLOW` of `ops/run.py`, or the Space dies after 12 minutes. `rankb
 `LLVQ_PREFILL_TOKENS` and `LLVQ_CONTEXTS` are measurement modes, never a served config. Every one is refused by name beside `LLVQ_CONFIG`, except
 `LLVQ_PREFILL_TOKENS` and `LLVQ_CONTEXTS` (prompt lengths, comma-separated: time to the first token and decode speed
 after it), which time the served object with a longer prompt.
-`planesbench` reads four more: `LLVQ_TETRA_OCC=1` and `LLVQ_PERS_ARMS=<arms>` (the persistent Tetra arms, steps L1
-and L2, both requiring `LLVQ_SEG_TETRA=1` and tetra48), `LLVQ_PERS_MICRO=1` (barrier and launch microbenchmarks) and
-`LLVQ_DUMP_CUBIN=<dir>` (the driver's cubins); `llvq-cuda/src/pers.rs` holds their registry.
+`planesbench` reads five more: `LLVQ_TETRA_OCC=1` and `LLVQ_PERS_ARMS=<arms>` (the persistent Tetra arms, steps L1
+and L2), `LLVQ_TROWS=1` (4E's Tetra row loops alone, `pers_trows.cu`), all three requiring `LLVQ_SEG_TETRA=1` and
+tetra48; `LLVQ_PERS_MICRO=1` (barrier and launch microbenchmarks) and `LLVQ_DUMP_CUBIN=<dir>` (the driver's cubins);
+`llvq-cuda/src/pers.rs` holds their registry.
 `LLVQ_GQA_AB` takes the same lengths and times the published attention against the two forms that read the cached
 heads without `repeat_kv` (`kvq::AttnHeads`, `KvStore::Grow`). `LLVQ_GQA_PPL=<ctx>,<windows>` scores the grouped form
 against the published one on WikiText-2, by the prefill path and by a teacher-forced decode path, paired window by

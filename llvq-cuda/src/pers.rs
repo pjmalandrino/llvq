@@ -1404,9 +1404,200 @@ pub fn tetra_row_f64(
     (acc, mag)
 }
 
+/// The row-loop microbenchmark's module: the persistent unit, then
+/// `pers_trows.cu`. Its own module, so 4E's keeps its bytes.
+pub fn trows_unit_text(tile_define: &str) -> String {
+    format!("{}\n{}", pers_unit_text(tile_define), include_str!("../kernels/pers_trows.cu"))
+}
+
+/// The row-loop arms (`pers_trows.cu`): name, symbol, whether every row owes
+/// the served bits, CTAs a SM. The occupancy arm `v2_o2` runs V2 at two CTAs a
+/// SM on the sites of d_in 4,096 or less, beside `v2_s`, the same sites at one.
+pub const TROWS_ARMS: [(&str, &str, bool, u32); 9] = [
+    ("v2", "tv_trows_v2", true, 1),
+    ("v3", "tv_trows_v3", true, 1),
+    ("ilp2", "tv_trows_ilp2", true, 1),
+    ("v2u", "tv_trows_v2u", true, 1),
+    ("l1w", "tv_trows_l1w", false, 1),
+    ("bcast", "tv_trows_bcast", false, 1),
+    ("xbcast", "tv_trows_xbcast", false, 1),
+    ("v2_s", "tv_trows_v2", true, 1),
+    ("v2_o2", "tv_trows_v2_o2", true, 2),
+];
+
+/// Whether an arm runs only the sites of d_in 4,096 or less.
+pub fn trows_small_only(name: &str) -> bool {
+    name == "v2_s" || name == "v2_o2"
+}
+
+/// One `tv_trows_*` site, as the kernel unpacks it (`TROWS_SITE_WORDS`); no
+/// f32 output (word 7 is 0), as on every card launch.
+#[allow(clippy::too_many_arguments)]
+pub fn trows_site_words(
+    words: u64,
+    gscale: u64,
+    rscale: u64,
+    tail_f16: u64,
+    y_f16: u64,
+    d_out: u32,
+    nblocks: u32,
+    tail_w: u32,
+    stride_u32: u32,
+) -> [u64; 8] {
+    assert!(tail_w == 8 || tail_w == 16, "the stream reads the tail as one or two 16-byte chunks: tail_w {tail_w}");
+    [
+        words,
+        gscale,
+        rscale,
+        tail_f16,
+        y_f16,
+        u64::from(d_out) | (u64::from(nblocks) << 32),
+        u64::from(tail_w) | (u64::from(stride_u32) << 32),
+        0,
+    ]
+}
+
+/// Dynamic shared bytes of a `tv_trows_*` launch: 4E's header, tables and
+/// natural staging of the widest activation. At d_in 9,728 it is 4E's 57,984.
+pub fn trows_smem_bytes(max_d_in: u32) -> u32 {
+    SMEM_HEADER + TABLE_BYTES + 4 * max_d_in
+}
+
+/// What the stamps of one `tv_trows_*` launch say about one class of sites
+/// (one d_in), summed over its sites and CTAs.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TrowsClass {
+    pub d_in: u32,
+    pub sites: usize,
+    /// Warp-steps: a warp's rows times ceil(nblocks / 32), summed.
+    pub steps: u64,
+    /// Busy cycles of the warps, summed.
+    pub warp_cycles: u64,
+    /// Cycles of the CTAs (to the barrier after the slowest warp), summed.
+    pub cta_cycles: u64,
+    /// Warps with at least one row, summed over sites and CTAs.
+    pub busy_warps: u64,
+}
+
+impl TrowsClass {
+    /// Cycles a busy warp spends on one step (32 blocks of one row).
+    pub fn cycles_per_step(&self) -> f64 {
+        self.warp_cycles as f64 / self.steps as f64
+    }
+    /// The warps' mean busy time over the CTA's time: 1 when every warp of
+    /// every CTA finishes together.
+    pub fn balance(&self, nw: u32) -> f64 {
+        self.warp_cycles as f64 / (self.cta_cycles as f64 * f64::from(nw))
+    }
+}
+
+/// Rows a warp takes from a CTA's slice [lo, hi), `pers_warp_rows` on the host.
+pub fn trows_warp_rows(lo: u32, hi: u32, warp: u32, nw: u32) -> u32 {
+    if hi > lo + warp {
+        (hi - lo - warp).div_ceil(nw)
+    } else {
+        0
+    }
+}
+
+/// Fold the stamps of one launch, `stamps[(s x grid + c) x (nw + 1) + w]` (a
+/// warp's cycles, then the CTA's at w = nw), over `sites` = (d_out, d_in), into
+/// one class a d_in in first-seen order.
+pub fn trows_classes(stamps: &[u32], sites: &[(u32, u32)], grid: u32, nw: u32) -> Vec<TrowsClass> {
+    let mut out: Vec<TrowsClass> = Vec::new();
+    let w1 = (nw + 1) as usize;
+    assert_eq!(stamps.len(), sites.len() * grid as usize * w1, "stamps of {} sites x {grid} CTAs x {w1}", sites.len());
+    for (s, &(d_out, d_in)) in sites.iter().enumerate() {
+        let nit = u64::from((d_in / 24).div_ceil(32));
+        let k = match out.iter().position(|c| c.d_in == d_in) {
+            Some(k) => k,
+            None => {
+                out.push(TrowsClass { d_in, sites: 0, steps: 0, warp_cycles: 0, cta_cycles: 0, busy_warps: 0 });
+                out.len() - 1
+            }
+        };
+        let cl = &mut out[k];
+        cl.sites += 1;
+        for c in 0..grid {
+            let lo = (u64::from(d_out) * u64::from(c) / u64::from(grid)) as u32;
+            let hi = (u64::from(d_out) * u64::from(c + 1) / u64::from(grid)) as u32;
+            let at = (s * grid as usize + c as usize) * w1;
+            for w in 0..nw {
+                let rows = trows_warp_rows(lo, hi, w, nw);
+                if rows > 0 {
+                    cl.steps += u64::from(rows) * nit;
+                    cl.warp_cycles += u64::from(stamps[at + w as usize]);
+                    cl.busy_warps += 1;
+                }
+            }
+            cl.cta_cycles += u64::from(stamps[at + nw as usize]);
+        }
+    }
+    out
+}
+
+/// The SM clock of a launch in MHz, from `ends[4c..4c + 4]` = (clock64 at
+/// start, globaltimer at start, clock64 at end, globaltimer at end) of every
+/// CTA: total cycles over total nanoseconds.
+pub fn trows_clock_mhz(ends: &[u64]) -> f64 {
+    let (mut cyc, mut ns) = (0u64, 0u64);
+    for e in ends.chunks_exact(4) {
+        cyc += e[2].wrapping_sub(e[0]);
+        ns += e[3].wrapping_sub(e[1]);
+    }
+    1e3 * cyc as f64 / ns as f64
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_trows_unit_carries_every_arm() {
+        let t = trows_unit_text("#define TILE_BLOCKS 64u");
+        assert!(t.starts_with(&pers_unit_text("#define TILE_BLOCKS 64u")), "4E's module bytes come first, unchanged");
+        for (name, sym, _, minb) in TROWS_ARMS {
+            if name == "v2_s" {
+                continue; // the symbol of v2, on fewer sites
+            }
+            let arm = sym.trim_start_matches("tv_trows_").trim_end_matches("_o2").to_uppercase();
+            assert!(t.contains(&format!("TROWS_KERNEL({sym}, TROWS_{arm}, {minb})")), "{sym}");
+        }
+        assert_eq!(trows_smem_bytes(9728), 57_984, "4E's own shared bytes at d_in 9,728");
+        assert!(trows_small_only("v2_o2") && trows_small_only("v2_s") && !trows_small_only("v2"));
+    }
+
+    #[test]
+    fn trows_stamps_fold_by_class() {
+        // 2 sites of d_in 2,560 (nit 4) and 1 of 9,728 (nit 13), grid 2, 4 warps.
+        let sites = [(10u32, 2560u32), (6, 2560), (3, 9728)];
+        let (grid, nw) = (2u32, 4u32);
+        let mut st = vec![0u32; sites.len() * 2 * 5];
+        for (s, &(d_out, _)) in sites.iter().enumerate() {
+            for c in 0..grid {
+                let lo = d_out * c / grid;
+                let hi = d_out * (c + 1) / grid;
+                let at = (s * 2 + c as usize) * 5;
+                for w in 0..nw {
+                    st[at + w as usize] = 100 * trows_warp_rows(lo, hi, w, nw);
+                }
+                st[at + 4] = 100 * (hi - lo).div_ceil(nw);
+            }
+        }
+        let cl = trows_classes(&st, &sites, grid, nw);
+        assert_eq!(cl.len(), 2);
+        assert_eq!((cl[0].d_in, cl[0].sites, cl[1].d_in, cl[1].sites), (2560, 2, 9728, 1));
+        // site 0: 5 rows a CTA over 4 warps (2,1,1,1); site 1: 3 rows (1,1,1,0)
+        assert_eq!(cl[0].steps, 4 * (5 + 5 + 3 + 3));
+        assert_eq!(cl[0].busy_warps, 4 + 4 + 3 + 3);
+        assert_eq!(cl[0].cycles_per_step(), 25.0);
+        assert_eq!(cl[0].cta_cycles, 200 + 200 + 100 + 100);
+        assert!((cl[0].balance(nw) - 1600.0 / 2400.0).abs() < 1e-12);
+        // site 2: CTA 0 rows [0, 1), CTA 1 rows [1, 3)
+        assert_eq!(cl[1].steps, 13 * 3);
+        assert_eq!(trows_clock_mhz(&[0, 0, 2_520, 1_000, 10, 5, 2_530, 1_005]), 2_520.0);
+    }
+
 
     #[test]
     fn the_schedule_has_the_served_counts() {

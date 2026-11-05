@@ -1155,3 +1155,66 @@ fn the_segment_does_not_depend_on_the_grid() {
         assert!(run(persistent(), &seg_cmd(grid, 64, 0, false, 1, 0))[..n] == want[..n], "grid {grid}");
     }
 }
+
+// ---- the row-loop microbenchmark (pers_trows.cu) ---------------------------
+
+// Every tail is 8 or 16 wide, as on the 4B: the stream reads the tail as
+// 16-byte chunks (pers_tetra_stream).
+const TROWS_SITES: [(u32, u32, u64); 5] = [(64, 2560, 0x7101), (48, 4096, 0x7102), (40, 9728, 0x7103), (16, 128, 0x7104), (23, 2560, 0x7105)];
+
+fn trows_cmd(arm: u32, grid: u32, threads: u32, stamps: u32, sites: &[(u32, u32, u64)]) -> Vec<u8> {
+    let mut c = Cmd::new(b'J').u32(arm).u32(grid).u32(threads).u32(stamps).u64(0x7e70).u32(sites.len() as u32);
+    for &(o, i, s) in sites {
+        c = c.u32(o).u32(i).u64(s);
+    }
+    c.0
+}
+
+/// The four arms that owe the bits (V2, V3, ILP2, V2U) give the served rows on
+/// every site, grid and warp count, with and without stamps; the three
+/// diagnostics run and move rows, so each changes what it says it changes.
+#[test]
+fn the_row_loop_arms_are_the_served_rows() {
+    let want = run(served(), &trows_cmd(0, 1, 64, 0, &TROWS_SITES));
+    let rows: u32 = TROWS_SITES.iter().map(|s| s.0).sum();
+    assert_eq!(want.len(), 6 * rows as usize, "binary16 rows, then their f32 values");
+    for arm in 0..4u32 {
+        for &(grid, threads, stamps) in &[(3u32, 96u32, 0u32), (2, 64, 1), (4, 128, 1), (5, 32, 0)] {
+            let got = run(persistent(), &trows_cmd(arm, grid, threads, stamps, &TROWS_SITES));
+            assert!(got == want, "row-loop arm {arm}, grid {grid}x{threads}, stamps {stamps}: rows or their f32 values differ from tv_tetra48_h");
+        }
+    }
+    for arm in 4..7u32 {
+        let got = run(persistent(), &trows_cmd(arm, 3, 96, 1, &TROWS_SITES));
+        assert_eq!(got.len(), want.len());
+        assert!(got != want, "diagnostic arm {arm} gives the served rows: it changes nothing");
+    }
+}
+
+#[test]
+fn row_loop_mutants_are_killed() {
+    let cmds: Vec<Vec<u8>> = (0..4u32).map(|arm| trows_cmd(arm, 3, 96, 0, &TROWS_SITES)).collect();
+    let want = run(served(), &cmds[0]);
+    let f = "llvq-cuda/kernels/pers_trows.cu";
+    let cases = [
+        ("ilp2_fold_order", "        acc = pers_fold(acc, a0, q0, h0, gscale, invnorm);\n        if (two) acc = pers_fold(acc, a1, q1, h1, gscale, invnorm);",
+         "        if (two) acc = pers_fold(acc, a1, q1, h1, gscale, invnorm);\n        acc = pers_fold(acc, a0, q0, h0, gscale, invnorm);"),
+        ("ilp2_second_x", "const float* x1 = two ? x0 + 32u * 24u : x0;", "const float* x1 = x0;"),
+        // Removing the guard is an equivalent mutant: zero words decode to the
+        // zero vector, whose fold leaves acc as it is. Tightening it is not.
+        ("ilp2_guard", "if (two) acc = pers_fold(acc, a1, q1, h1, gscale, invnorm);", "if (j + 64u < nblocks) acc = pers_fold(acc, a1, q1, h1, gscale, invnorm);"),
+        ("ilp2_prefetch", "if (j + 96u < nblocks) f1r_load(wrow, j + 96u, m1, g1);", "if (j + 64u < nblocks) f1r_load(wrow, j + 64u, m1, g1);"),
+        // V2U's guard keeps reads inside the staged activation; for the bits it
+        // is equivalent (zero words past the row), so the trip count is mutated.
+        ("uniform_trip", "const u32 nit = (nblocks + 31u) >> 5;\n    float acc = 0.0f;\n    u32 lo = 0u, hi16 = 0u;", "const u32 nit = nblocks >> 5;\n    float acc = 0.0f;\n    u32 lo = 0u, hi16 = 0u;"),
+        ("cta_slice", "hi = (u32)((unsigned long long)d_out * (c + 1u) / g);", "hi = (u32)((unsigned long long)d_out * (c + 1u) / g) - (c == 0u);"),
+        ("warp_stride", "for (u32 r = lo + warp; r < hi; r += nw) {", "for (u32 r = lo + warp; r < hi; r += nw + (nw > 1u)) {"),
+        ("v3_rows", "            pers_tetra_stream<PERS_STREAM_D>(pers_warp_rows(lo, hi, warp, nw), nb, tw, tab, t_inv, xs, lane, row_of,",
+         "            pers_tetra_stream<PERS_STREAM_D>(pers_warp_rows(lo, hi, warp, nw) - (warp == 0u), nb, tw, tab, t_inv, xs, lane, row_of,"),
+    ];
+    for (tag, from, to) in cases {
+        let b = mutant(tag, f, from, to);
+        let killed = cmds.iter().any(|c| run_mutant(&b, c).is_none_or(|got| got != want));
+        assert!(killed, "row-loop mutant {tag} survived");
+    }
+}

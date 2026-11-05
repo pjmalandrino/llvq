@@ -64,6 +64,7 @@ static inline unsigned short served_capture_f2h(float v) {
 #include "../kernels/tetra48_pers.cu"
 #include "../kernels/pers_segment.cu"
 #include "../kernels/pers_4e.cu"
+#include "../kernels/pers_trows.cu"
 #include "../kernels/tetra48_persall.cu"
 #include "../../llvq-llm/kernels/tok_argmax.cu"
 #endif
@@ -504,6 +505,88 @@ int main() {
 #endif
         wr(y);
         wr(scale);
+    } else if (tag == 'J') {
+        // ROW LOOPS (pers_trows.cu): arm, grid, threads, stamps (0/1), x seed, nsites, then per site d_out, d_in,
+        // seed. Every site's rows in order, binary16, then their f32 values before f2h; the served side ignores arm,
+        // grid, threads and stamps.
+        const u32 arm = rd1<u32>(), grid = rd1<u32>(), threads = rd1<u32>(), stamp = rd1<u32>();
+        const uint64_t xseed = rd1<uint64_t>();
+        const u32 nsites = rd1<u32>();
+        std::vector<TMat> mats;
+        u32 maxd = 0u;
+        for (u32 s = 0; s < nsites; ++s) {
+            const u32 d_out = rd1<u32>(), d_in = rd1<u32>();
+            const uint64_t seed = rd1<uint64_t>();
+            mats.push_back(tmat(d_out, d_in, seed));
+            maxd = std::max(maxd, d_in);
+        }
+        const auto x = act(maxd, xseed);
+        std::vector<unsigned short> out;
+        std::vector<float> outf;
+#if PERS_SIDE == 0
+        (void)arm;
+        (void)grid;
+        (void)threads;
+        (void)stamp;
+        for (const TMat& m : mats) {
+            const std::vector<float> xi(x.begin(), x.begin() + m.nblocks * 24u + m.tail_w);
+            std::vector<float> f(m.d_out);
+            const auto y = served_ref(m, xi, f.data());
+            out.insert(out.end(), y.begin(), y.end());
+            outf.insert(outf.end(), f.begin(), f.end());
+        }
+#else
+        std::vector<std::vector<unsigned short>> ys;
+        std::vector<std::vector<float>> fs;
+        std::vector<unsigned long long> words;
+        ys.reserve(mats.size());
+        fs.reserve(mats.size());
+        for (const TMat& m : mats) {
+            ys.emplace_back(m.d_out, 0xFFFFu);
+            fs.emplace_back(m.d_out, -1.0f);
+            const unsigned long long w[TROWS_SITE_WORDS] = {
+                (unsigned long long)(uintptr_t)m.words.data(), (unsigned long long)(uintptr_t)m.gscale.data(),
+                (unsigned long long)(uintptr_t)m.rscale.data(), (unsigned long long)(uintptr_t)m.tail.data(),
+                (unsigned long long)(uintptr_t)ys.back().data(),
+                (unsigned long long)m.d_out | ((unsigned long long)m.nblocks << 32),
+                (unsigned long long)m.tail_w | ((unsigned long long)m.stride << 32),
+                (unsigned long long)(uintptr_t)fs.back().data()};
+            words.insert(words.end(), w, w + TROWS_SITE_WORDS);
+        }
+        std::vector<u32> st((size_t)nsites * grid * (threads / 32u + 1u), 0u);
+        std::vector<unsigned long long> ends(4u * grid, 0ull);
+        u32* sp = stamp ? st.data() : nullptr;
+        unsigned long long* ep = stamp ? ends.data() : nullptr;
+        const size_t smem = PERS_SMEM_HEADER + 18816u + 4u * maxd + 16u;
+        hostgrid::launch_coop(grid, threads, smem, xseed, [&] {
+            switch (arm) {
+            case 0: trows_body<TROWS_V2>(words.data(), nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), g_inv.data(), x.data(), sp, ep); break;
+            case 1: trows_body<TROWS_V3>(words.data(), nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), g_inv.data(), x.data(), sp, ep); break;
+            case 2: trows_body<TROWS_ILP2>(words.data(), nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), g_inv.data(), x.data(), sp, ep); break;
+            case 3: trows_body<TROWS_V2U>(words.data(), nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), g_inv.data(), x.data(), sp, ep); break;
+            case 4: trows_body<TROWS_L1W>(words.data(), nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), g_inv.data(), x.data(), sp, ep); break;
+            case 5: trows_body<TROWS_BCAST>(words.data(), nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), g_inv.data(), x.data(), sp, ep); break;
+            default: trows_body<TROWS_XBCAST>(words.data(), nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), g_inv.data(), x.data(), sp, ep); break;
+            }
+        });
+        if (stamp) {
+            // every busy warp and every CTA stamped a positive count
+            for (size_t i = 0; i < st.size(); ++i)
+                if (st[i] == 0u && (i % (threads / 32u + 1u)) == threads / 32u) {
+                    std::fprintf(stderr, "host_pers: CTA stamp %zu is zero\n", i);
+                    return 2;
+                }
+            for (u32 c = 0; c < grid; ++c)
+                if (ends[4u * c + 2u] <= ends[4u * c] || ends[4u * c + 3u] <= ends[4u * c + 1u]) {
+                    std::fprintf(stderr, "host_pers: CTA %u: launch ends out of order\n", c);
+                    return 2;
+                }
+        }
+        for (const auto& y : ys) out.insert(out.end(), y.begin(), y.end());
+        for (const auto& f : fs) outf.insert(outf.end(), f.begin(), f.end());
+#endif
+        wr(out);
+        wr(outf);
     } else if (tag == 'T') {
         // TETRA ROWS: d_out, d_in, variant (0 natural/24, 1 natural/25, 2 trio/28, 3 trio/28 prefetch),
         // grid, threads, seed
