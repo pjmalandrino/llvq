@@ -48,6 +48,24 @@
 //!   not the object, and an A100 needs it; the runtime prints it on its
 //!   `NVRTC source:` line so no served log is silent about its target.
 //!
+//! ## The decode engine
+//!
+//! `decode` is the second optional field, added on 2026-11-05. Absent, a
+//! token is decoded by the eager path, as every config written before it.
+//! `"persistent"` decodes it in 4E's one cooperative launch
+//! (`crate::persist4e_cuda`). It never changes what is computed. Its config
+//! sends every decode row to the attention kernel, from position 0: the
+//! operator's T8 extension below 1,280 granted that form on the sealed 4B
+//! (`docs/mesures/attn-t8-below-4b-2026-11-05.txt`). The eager path computes
+//! the same form, and 4E owes its tokens bit for bit, so a binary that ignores
+//! the field serves the same tokens, slower. It is refused:
+//! * beside any attention but `kernel`, and beside any other field than the
+//!   served 4B's (tetra48, q4, rot_share 1, fuse 0, kv f16): 4E reads those;
+//! * on Metal, where 4E has no kernel;
+//! * on any shape but the Qwen3-4B's, the one object it has run on and the
+//!   only one the T8 covers ([`check_persistent_object`]);
+//! * beside any measurement-mode variable ([`MEASUREMENT_MODES`]).
+//!
 //! ## Pure where it can be
 //!
 //! [`Served::of`] reads no environment. The environment check is
@@ -79,6 +97,11 @@ pub struct ServedFile {
     /// the five required fields' defaults were not.
     #[serde(default)]
     pub attention: Option<String>,
+    /// How a decode token runs: absent is the eager path, `"persistent"` is
+    /// 4E. Optional for the reason `attention` is: absent is what every
+    /// earlier config served. See [`Decode::parse`].
+    #[serde(default)]
+    pub decode: Option<String>,
     /// Free text, carried so a config can say what object it belongs to. Read
     /// by nothing and printed with the rest.
     #[serde(default)]
@@ -98,8 +121,87 @@ pub struct Served {
     /// The cache growth store, read from `attention` and never written beside
     /// it ([`AttnHeads::store`]).
     pub store: KvStore,
+    /// How a decode token runs.
+    pub decode: Decode,
     pub path: PathBuf,
     pub note: Option<String>,
+}
+
+/// The decode engine a served config names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Decode {
+    /// The eager path, one launch a kernel: every config before 2026-11-05.
+    Eager,
+    /// 4E: the whole token in one cooperative launch, every decode row of the
+    /// attention on the kernel from position 0.
+    Persistent,
+}
+
+impl Decode {
+    /// Absent is `Eager`. The empty string is refused, like every empty field
+    /// of a file that has no defaults; so is any other word.
+    pub fn parse(v: Option<&str>) -> Result<Self, String> {
+        match v.map(str::trim) {
+            None => Ok(Self::Eager),
+            Some("eager") => Ok(Self::Eager),
+            Some("persistent") => Ok(Self::Persistent),
+            Some("") => Err("decode is empty. Write \"persistent\", or delete the key for the eager path.".into()),
+            Some(o) => Err(format!("decode {o:?}: the engines are \"eager\" (or the key absent) and \"persistent\"")),
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Eager => "eager",
+            Self::Persistent => "persistent",
+        }
+    }
+
+    /// The first position the kernel form sends to its kernel under this
+    /// engine: the constant for the eager configs, 0 for 4E's (the T8
+    /// extension of 2026-11-05).
+    pub fn kernel_from(self) -> usize {
+        match self {
+            Self::Eager => crate::kvq::KERNEL_FROM,
+            Self::Persistent => 0,
+        }
+    }
+}
+
+/// The measurement modes of the binaries that read a served config: each turns
+/// a run into a bench of something. Beside a config that names the persistent
+/// engine each is refused by name ([`check_env`]); `LLVQ_CONTEXTS` and
+/// `LLVQ_PREFILL_TOKENS` are not here, since they time the served object as
+/// served with a longer prompt.
+pub const MEASUREMENT_MODES: [&str; 17] = [
+    "LLVQ_KV_PREALLOC", "LLVQ_GRAPH_AB", "LLVQ_GRAPH_DIAG", "LLVQ_KV_AB", "LLVQ_FUSE_AB", "LLVQ_TIME_PHASES",
+    "LLVQ_TIME_EVENTS", "LLVQ_SEG_ARMS", "LLVQ_BENCH_ARMS", "LLVQ_TRIM_AB", "LLVQ_GQA_AB", "LLVQ_GQA_PPL",
+    "LLVQ_INT4_WIDE_CHECK", "LLVQ_GESTURE_AB", "LLVQ_BOUNDARY_AB", "LLVQ_PERS_SEGMENT", "LLVQ_PERS_4E",
+];
+
+/// The persistent engine against the model's shape: the Qwen3-4B's, the one
+/// object 4E has run on and the one the T8 extension covers. Pure, on the
+/// config candle read from the file.
+pub fn check_persistent_object(cfg: &candle_transformers::models::qwen3::Config) -> Result<(), String> {
+    let got = (
+        cfg.num_hidden_layers,
+        cfg.hidden_size,
+        cfg.intermediate_size,
+        cfg.num_attention_heads,
+        cfg.num_key_value_heads,
+        cfg.head_dim,
+        cfg.vocab_size,
+    );
+    let want = (36, 2560, 9728, 32, 8, 128, 151_936);
+    match got == want {
+        true => Ok(()),
+        false => Err(format!(
+            "decode \"persistent\" on a model of (layers, hidden, intermediate, heads, kv heads, head dim, \
+             vocab) = {got:?}. 4E has run, and the kernel form's T8 extension below 1,280 was granted, on the \
+             sealed Qwen3-4B only {want:?}: the 8B and the 14B are not covered. Serve this object with the \
+             eager engine (delete the decode key)."
+        )),
+    }
 }
 
 /// The variables this file speaks for, in the order the file lists them.
@@ -157,6 +259,17 @@ pub fn check_env(
     f: &ServedFile,
     lookup: impl Fn(&str) -> Option<String>,
 ) -> Result<(), String> {
+    if Decode::parse(f.decode.as_deref()) == Ok(Decode::Persistent) {
+        for var in MEASUREMENT_MODES {
+            if let Some(v) = lookup(var) {
+                return Err(format!(
+                    "{var}={v:?} beside a served config that names the persistent decode: that is a \
+                     measurement mode, and the served 4E path runs one engine with nothing to compare. \
+                     Unset it, or unset LLVQ_CONFIG and run the bench."
+                ));
+            }
+        }
+    }
     for var in BELOW_THE_DOOR {
         if let Some(v) = lookup(var) {
             return Err(format!(
@@ -219,14 +332,42 @@ impl Served {
         // is the one optional field, so `None` is a value here (`expanded`)
         // and the empty string is refused inside the parse instead.
         let attention = AttnHeads::parse(f.attention.as_deref())?;
+        let decode = Decode::parse(f.decode.as_deref())?;
+        let layout = FusedLayout::parse(field("layout", &f.layout)?)?;
+        let embed = EmbedMode::parse(field("embed", &f.embed)?)?;
+        let rot_share = RotShare::parse(field("rot_share", &f.rot_share)?)?;
+        let fuse = FuseMode::parse(field("fuse", &f.fuse)?)?;
+        let kv = KvMode::parse(field("kv", &f.kv)?)?;
+        if decode == Decode::Persistent {
+            if attention != AttnHeads::Kernel {
+                return Err(format!(
+                    "decode \"persistent\" beside attention {:?}: 4E computes the kernel form's attention \
+                     and nothing else. Write \"attention\": \"kernel\", or delete the decode key.",
+                    attention.label()
+                ));
+            }
+            let served_4b = (FusedLayout::Tetra48, EmbedMode::Q4, RotShare::On, FuseMode::Off, KvMode::F16);
+            if (layout, embed, rot_share, fuse, kv) != served_4b {
+                return Err(format!(
+                    "decode \"persistent\" with layout {}, embed {}, rot_share {}, fuse {}, kv {}: 4E reads the \
+                     served 4B's fields, tetra48, q4, 1, 0 and f16, and no other",
+                    layout.name(),
+                    embed.name(),
+                    rot_share.name(),
+                    fuse.name(),
+                    kv.name()
+                ));
+            }
+        }
         Ok(Self {
-            layout: FusedLayout::parse(field("layout", &f.layout)?)?,
-            embed: EmbedMode::parse(field("embed", &f.embed)?)?,
-            rot_share: RotShare::parse(field("rot_share", &f.rot_share)?)?,
-            fuse: FuseMode::parse(field("fuse", &f.fuse)?)?,
-            kv: KvMode::parse(field("kv", &f.kv)?)?,
+            layout,
+            embed,
+            rot_share,
+            fuse,
+            kv,
             attention,
             store: attention.store(),
+            decode,
             path,
             note: f.note,
         })
@@ -248,12 +389,18 @@ impl Served {
         // The kernel form names its threshold: the benches of 2026-11-04 ran
         // a "kernel" with none, and their lines must not read as this one.
         let attention = match self.attention {
-            AttnHeads::Kernel => format!("kernel from position {}", crate::kvq::KERNEL_FROM),
+            AttnHeads::Kernel => format!("kernel from position {}", self.decode.kernel_from()),
             other => other.label().to_string(),
+        };
+        // The engine is named only when it is not the eager one, so every
+        // line an earlier config printed reads as it did.
+        let decode = match self.decode {
+            Decode::Eager => String::new(),
+            Decode::Persistent => ", decode persistent (4E, one launch a token run)".to_string(),
         };
         format!(
             "served config: {} (layout {}, embed {}, rot_share {}, fuse {}, kv {}, \
-             attention {attention} on {}){note}",
+             attention {attention} on {}{decode}){note}",
             self.path.display(),
             self.layout.name(),
             self.embed.name(),
@@ -278,6 +425,14 @@ impl Served {
     /// testable on a machine that has no Metal device, and so this function
     /// stays pure like the rest of this module.
     pub fn check_device(&self, metal: bool) -> Result<(), String> {
+        if self.decode == Decode::Persistent && metal {
+            return Err(format!(
+                "{}: decode \"persistent\" on Metal. 4E is one cooperative CUDA launch \
+                 (llvq-cuda/kernels/pers_4e.cu); no Metal kernel exists. Serve this object with the \
+                 eager engine on Metal.",
+                self.path.display(),
+            ));
+        }
         match (self.attention, metal) {
             (AttnHeads::Expanded, _) | (_, false) => Ok(()),
             (AttnHeads::Kernel, true) => Err(format!(
@@ -311,8 +466,26 @@ impl Served {
         device: &candle_core::Device,
     ) -> Result<(), String> {
         self.check_device(device.is_metal())?;
+        if self.decode == Decode::Persistent {
+            check_persistent_object(model.config()).map_err(|e| format!("{}: {e}", self.path.display()))?;
+        }
+        self.apply_form(model, device)
+    }
+
+    /// [`Self::apply`] past its device and object checks: the store, the form,
+    /// the threshold and the kernel. Split out so the host tests reach the
+    /// threshold on a toy model, which the object check refuses.
+    pub(crate) fn apply_form(
+        &self,
+        model: &mut crate::model::Qwen3,
+        device: &candle_core::Device,
+    ) -> Result<(), String> {
         model.set_kv_store(self.store);
         model.set_attn_heads(self.attention);
+        // The threshold of the kernel form: the constant, or 0 under a config
+        // that names 4E. Applied to the eager path too, which prefills and is
+        // the engine any binary without 4E decodes with: the same arithmetic.
+        model.set_served_kernel_from(self.decode.kernel_from());
         // The kernel form is the one form that needs a device object: built
         // here, once, and on CUDA checked against the CPU replay bit for bit
         // before the first token (`crate::attn::kernel_for`).

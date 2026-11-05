@@ -2177,6 +2177,16 @@ impl Qwen3 {
         }
     }
 
+    /// The served config's threshold ([`crate::served::Served::apply`] only):
+    /// the constant, or 0 under a config that names the persistent decode,
+    /// the kernel form the operator's T8 extension of 2026-11-05 licenses on
+    /// the sealed 4B at every position.
+    pub(crate) fn set_served_kernel_from(&mut self, from: usize) {
+        for b in &mut self.blocks {
+            b.kernel_from = from;
+        }
+    }
+
     /// What 4E reads beside the blocks: the final norm's weight, the
     /// embedding and the head tables, and the rotary tables (cos, sin),
     /// `(max_positions, head_dim / 2)` in the model dtype.
@@ -3571,6 +3581,7 @@ mod tests {
             fuse: "0".into(),
             kv: "f16".into(),
             attention: attention.map(str::to_string),
+            decode: None,
             note: None,
         };
         let resolve = |attention: Option<&str>| {
@@ -3642,15 +3653,17 @@ mod tests {
 
         // The served door installs it: the form, the store and the kernel.
         let mut m = tiny_model_hd(DType::F16, 8, 2, 128);
-        let f = crate::served::ServedFile {
+        let served_file_kernel = || crate::served::ServedFile {
             layout: "tetra48".into(),
             embed: "q4".into(),
             rot_share: "1".into(),
             fuse: "0".into(),
             kv: "f16".into(),
             attention: Some("kernel".into()),
+            decode: None,
             note: None,
         };
+        let f = served_file_kernel();
         let served = crate::served::Served::of(f, "kernel.json".into()).expect("kernel parses");
         served.apply(&mut m, &Device::Cpu).expect("kernel applies on the CPU");
         assert_eq!(m.attn_heads(), AttnHeads::Kernel);
@@ -3660,6 +3673,24 @@ mod tests {
         m.set_kernel_from(0);
         assert_eq!(logit_trace(&m, &prompt, 4, &feed), short, "the door's kernel is the same arithmetic");
         assert!(served.check_device(true).expect_err("Metal").contains("CUDA only"));
+
+        // The persistent decode: refused on a model that is not the 4B, before
+        // anything moves; past that check, every decode row goes to the
+        // kernel (threshold 0), the arithmetic 4E owes its tokens to.
+        let p = crate::served::Served::of(
+            crate::served::ServedFile { decode: Some("persistent".into()), ..served_file_kernel() },
+            "4e.json".into(),
+        )
+        .expect("4E parses");
+        let mut toy = tiny_model_hd(DType::F16, 8, 2, 128);
+        let e = p.apply(&mut toy, &Device::Cpu).expect_err("a toy is not the 4B");
+        assert!(e.contains("4B"), "{e}");
+        assert_eq!(toy.kernel_from(), crate::kvq::KERNEL_FROM, "a refused apply moves nothing");
+        p.apply_form(&mut toy, &Device::Cpu).expect("the form applies");
+        assert_eq!((toy.attn_heads(), toy.kernel_from()), (AttnHeads::Kernel, 0));
+        assert_eq!(logit_trace(&toy, &prompt, 4, &feed), short, "threshold 0: the kernel on every decode row");
+        served.apply(&mut toy, &Device::Cpu).expect("back to the eager kernel config");
+        assert_eq!(toy.kernel_from(), crate::kvq::KERNEL_FROM, "an eager config restores the constant");
         // f32 is refused at the first decode step, far below the threshold;
         // a prefill chunk takes the grouped path in any dtype.
         let mut wide = tiny_model_hd(DType::F32, 8, 2, 128);

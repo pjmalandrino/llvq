@@ -1,6 +1,8 @@
 //! 4E on CUDA: the whole decode token in one cooperative launch, N tokens a
-//! launch (`llvq-cuda/kernels/pers_4e.cu`). Measurement only: nothing builds
-//! it unless `bin/fusedrun` is asked for `LLVQ_PERS_4E=1`.
+//! launch (`llvq-cuda/kernels/pers_4e.cu`). Built by `bin/fusedrun`'s
+//! `LLVQ_PERS_4E` (a measurement), and by a served config that names the
+//! persistent decode (`crate::served_decode`, kernel form from position 0 on
+//! the sealed 4B, operator T8 of 2026-11-05).
 //!
 //! Every phase of the kernel equals the served chain bit for bit on the host
 //! (`llvq-cuda/tests/pers_matches_served.rs`), attention included as the
@@ -404,6 +406,14 @@ impl Runtime4e {
     /// of such a measurement must run the same form
     /// (`Qwen3::set_kernel_from_for_measurement`).
     pub fn set_kernel_from_for_measurement(&mut self, from: usize) {
+        self.kernel_from = from;
+    }
+
+    /// The served config's threshold (`Served::decoder` only): 0 under a
+    /// config that names the persistent decode, the kernel form the
+    /// operator's T8 extension of 2026-11-05 licenses on the sealed 4B at
+    /// every position.
+    pub(crate) fn set_served_kernel_from(&mut self, from: usize) {
         self.kernel_from = from;
     }
 

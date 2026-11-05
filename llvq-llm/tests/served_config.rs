@@ -11,7 +11,7 @@
 use llvq_llm::fused::{EmbedMode, FuseMode, FusedLayout};
 use llvq_llm::kvq::{AttnHeads, KvMode, KvStore, GROW_CHUNK};
 use llvq_llm::rotplan::RotShare;
-use llvq_llm::served::{check_env, Served, ServedFile, BELOW_THE_DOOR};
+use llvq_llm::served::{check_env, check_persistent_object, Decode, Served, ServedFile, BELOW_THE_DOOR, MEASUREMENT_MODES};
 use std::path::PathBuf;
 
 fn served() -> ServedFile {
@@ -22,6 +22,7 @@ fn served() -> ServedFile {
         fuse: "0".into(),
         kv: "f16".into(),
         attention: None,
+        decode: None,
         note: Some("Qwen3-4B, Tetra + 36 v_proj int4 g128".into()),
     }
 }
@@ -391,7 +392,8 @@ fn an_absent_attention_field_is_the_published_form() {
     let r = Served::of(f, PathBuf::from("old.json")).expect("resolves");
     assert_eq!((r.attention, r.store), (AttnHeads::Expanded, KvStore::Cat));
 
-    // And on disk: every shipped config except the grouped and kernel ones is expanded.
+    // And on disk: every shipped config except the grouped, kernel and 4E ones
+    // is expanded; every one but the 4E config decodes on the eager path.
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../configs");
     let mut expanded = 0;
     for entry in std::fs::read_dir(&dir).expect("configs/") {
@@ -402,7 +404,9 @@ fn an_absent_attention_field_is_the_published_form() {
         let name = path.file_name().expect("name").to_string_lossy().to_string();
         let f = Served::read_file(&path).expect("parses");
         let r = Served::of(f, path.clone()).expect("resolves");
-        match (name.contains("grouped"), name.contains("kernel")) {
+        let four_e = name.ends_with("-4e.json");
+        assert_eq!(r.decode, if four_e { Decode::Persistent } else { Decode::Eager }, "{name}");
+        match (name.contains("grouped"), name.contains("kernel") || four_e) {
             (true, _) => assert_eq!(r.attention, AttnHeads::Grouped, "{name}"),
             (false, true) => assert_eq!(r.attention, AttnHeads::Kernel, "{name}"),
             (false, false) => {
@@ -527,4 +531,143 @@ fn the_grouped_form_is_refused_on_metal_and_named_in_the_refusal() {
     let s = of(served()).expect("resolves");
     s.check_device(true).expect("expanded on Metal is the published path");
     s.check_device(false).expect("expanded on a card too");
+}
+
+
+// ---- the decode engine (2026-11-05) ----------------------------------------
+
+fn four_e() -> ServedFile {
+    ServedFile {
+        layout: "tetra48".into(),
+        embed: "q4".into(),
+        rot_share: "1".into(),
+        fuse: "0".into(),
+        kv: "f16".into(),
+        attention: Some("kernel".into()),
+        decode: Some("persistent".into()),
+        note: None,
+    }
+}
+
+/// The 4E config is the kernel config with the persistent decode, and nothing
+/// else about the object moved; its threshold is 0 and its line says so.
+#[test]
+fn the_4e_config_is_the_kernel_config_with_the_persistent_decode() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../configs");
+    let read = |name: &str| {
+        let path = dir.join(name);
+        let f = Served::read_file(&path).unwrap_or_else(|e| panic!("{name}: {e}"));
+        Served::of(f, path).unwrap_or_else(|e| panic!("{name}: {e}"))
+    };
+    let k = read("qwen3-4b-tetra-e4-kernel-from1280.json");
+    let p = read("qwen3-4b-tetra-e4-4e.json");
+    assert_eq!(p.decode, Decode::Persistent);
+    assert_eq!(k.decode, Decode::Eager, "the served config did not move");
+    assert_eq!(
+        (p.layout, p.embed, p.rot_share, p.fuse, p.kv, p.attention, p.store),
+        (k.layout, k.embed, k.rot_share, k.fuse, k.kv, k.attention, k.store),
+        "only the decode engine may differ from the kernel config"
+    );
+    assert_eq!(p.decode.kernel_from(), 0);
+    assert_eq!(k.decode.kernel_from(), llvq_llm::kvq::KERNEL_FROM);
+    let line = p.provenance();
+    assert!(line.contains("attention kernel from position 0 on grow(256), decode persistent"), "{line}");
+    assert!(!k.provenance().contains("decode persistent"), "an eager config's line reads as before: {}", k.provenance());
+    let note = p.note.expect("a note");
+    assert!(note.contains("NOT SERVED YET") && note.contains("886391a8"), "{note}");
+}
+
+/// The field: absent and "eager" are the eager path, "persistent" is 4E, and
+/// the empty string or any other word is refused by name.
+#[test]
+fn the_decode_field_accepts_two_engines_and_refuses_the_rest() {
+    let mut f = four_e();
+    assert_eq!(of(f.clone()).expect("4E").decode, Decode::Persistent);
+    f.decode = None;
+    assert_eq!(of(f.clone()).expect("absent").decode, Decode::Eager);
+    f.decode = Some("eager".into());
+    assert_eq!(of(f.clone()).expect("eager").decode, Decode::Eager);
+    for bad in ["", "  ", "Persistent", "4e", "graph"] {
+        f.decode = Some(bad.into());
+        let e = of(f.clone()).expect_err(bad);
+        assert!(e.contains("decode"), "{bad:?}: {e}");
+    }
+    // In a file, the key is optional and a typo of it is an unknown key.
+    let text = r#"{"layout":"tetra48","embed":"q4","rot_share":"1","fuse":"0","kv":"f16","attention":"kernel","decod":"persistent"}"#;
+    assert!(serde_json::from_str::<ServedFile>(text).is_err(), "a typo must not read as the eager default");
+}
+
+/// 4E computes the kernel form and reads the served 4B's fields: any other
+/// attention or field beside the persistent decode is refused by name.
+#[test]
+fn the_persistent_decode_is_refused_off_the_served_4b_fields() {
+    for attention in [None, Some("expanded"), Some("grouped")] {
+        let mut f = four_e();
+        f.attention = attention.map(str::to_string);
+        let e = of(f).expect_err("not the kernel form");
+        assert!(e.contains("persistent") && e.contains("kernel"), "{attention:?}: {e}");
+    }
+    type Edit = (&'static str, fn(&mut ServedFile));
+    let edits: [Edit; 5] = [
+        ("layout", |f| f.layout = "planes14".into()),
+        ("embed", |f| f.embed = "q8".into()),
+        ("rot_share", |f| f.rot_share = "0".into()),
+        ("kv", |f| f.kv = "q8".into()),
+        ("fuse", |f| {
+            f.fuse = "1".into();
+            f.layout = "planes14".into();
+        }),
+    ];
+    for (what, edit) in edits {
+        let mut f = four_e();
+        edit(&mut f);
+        let e = of(f).expect_err(what);
+        assert!(e.contains("served 4B's fields"), "{what}: {e}");
+    }
+}
+
+/// Beside the persistent decode, every measurement mode is refused by name;
+/// the two prompt-length variables and the card variable are not.
+#[test]
+fn measurement_modes_are_refused_beside_the_persistent_decode() {
+    let f = four_e();
+    for var in MEASUREMENT_MODES {
+        let e = check_env(&f, env_of(&[(var, "1")])).expect_err(var);
+        assert!(e.contains(var) && e.contains("measurement mode"), "{e}");
+    }
+    for var in ["LLVQ_CONTEXTS", "LLVQ_PREFILL_TOKENS", "LLVQ_NVRTC_ARCH"] {
+        check_env(&f, env_of(&[(var, "5,8192")])).unwrap_or_else(|e| panic!("{var}: {e}"));
+    }
+    // An eager config keeps what it accepted before the field existed.
+    check_env(&served(), env_of(&[("LLVQ_TIME_EVENTS", "1")])).expect("not this check's business on an eager config");
+    assert!(MEASUREMENT_MODES.contains(&"LLVQ_PERS_4E") && MEASUREMENT_MODES.contains(&"LLVQ_KV_PREALLOC"));
+}
+
+/// Refused on Metal by name, before the kernel form's own refusal.
+#[test]
+fn the_persistent_decode_is_refused_on_metal() {
+    let p = of(four_e()).expect("4E");
+    let e = p.check_device(true).expect_err("Metal");
+    assert!(e.contains("persistent") && e.contains("Metal"), "{e}");
+    p.check_device(false).expect("CUDA");
+}
+
+/// On the Qwen3-4B's shape only: the 8B and the 14B, whose T8 below 1,280 was
+/// never granted, are refused by name.
+#[test]
+fn the_persistent_decode_runs_on_the_4b_shape_only() {
+    let cfg = |layers, hidden, inter, heads, kv| {
+        let text = format!(
+            r#"{{"vocab_size":151936,"hidden_size":{hidden},"intermediate_size":{inter},"num_hidden_layers":{layers},
+            "num_attention_heads":{heads},"head_dim":128,"attention_bias":false,"num_key_value_heads":{kv},
+            "max_position_embeddings":40960,"sliding_window":null,"max_window_layers":36,"tie_word_embeddings":true,
+            "rope_theta":1000000.0,"rms_norm_eps":1e-6,"use_sliding_window":false,"hidden_act":"silu"}}"#
+        );
+        serde_json::from_str::<candle_transformers::models::qwen3::Config>(&text).expect("a qwen3 config")
+    };
+    check_persistent_object(&cfg(36, 2560, 9728, 32, 8)).expect("the 4B");
+    for (name, c) in [("8B", cfg(36, 4096, 12288, 32, 8)), ("14B", cfg(40, 5120, 17408, 40, 8)), ("0.6B", cfg(28, 1024, 3072, 16, 8))] {
+        let e = check_persistent_object(&c).expect_err(name);
+        assert!(e.contains("persistent") && e.contains("4B"), "{name}: {e}");
+    }
 }

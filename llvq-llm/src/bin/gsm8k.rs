@@ -187,6 +187,16 @@ fn main() -> anyhow::Result<()> {
         Some(cfg) => cfg.apply(&mut model, &device).map_err(anyhow::Error::msg)?,
         None => model.set_kv_store(kv_store),
     }
+    // The decode engine the config names: eager without a config or without
+    // the field (this loop below, unchanged), 4E under "decode":
+    // "persistent", installed after the form and its threshold.
+    let mut dec = match &served {
+        Some(cfg) => cfg.decoder(&model, &device)?,
+        None => llvq_llm::served_decode::Decoder::eager(),
+    };
+    for line in dec.lines() {
+        eprintln!("{line}");
+    }
     let load_s = t_load.elapsed().as_secs_f64();
     let kv_name = match &served {
         Some(cfg) => cfg.kv.name(),
@@ -301,7 +311,22 @@ fn main() -> anyhow::Result<()> {
 
         let t1 = Instant::now();
         let mut said: Vec<u32> = Vec::new();
-        let stop = loop {
+        let stop = if dec.is_persistent() {
+            // The first token from the eager prefill, as below; then 4E's
+            // launches, cut before the first stop token. 4E owes the eager
+            // loop's tokens under this config, so the two branches make one
+            // completion.
+            let first = model.logits_last(&h)?.i((0, 0))?.argmax(D::Minus1)?.to_scalar::<u32>()?;
+            if stops.contains(&first) {
+                "eos"
+            } else {
+                said.push(first);
+                let (rest, stopped) =
+                    dec.continue_greedy(&model, &mut caches, first, offset, max_new - 1, &stops)?;
+                said.extend(rest);
+                if stopped { "eos" } else { "cap" }
+            }
+        } else { loop {
             let logits = model.logits_last(&h)?.i((0, 0))?;
             let next = logits.argmax(D::Minus1)?.to_scalar::<u32>()?;
             if stops.contains(&next) {
@@ -314,7 +339,7 @@ fn main() -> anyhow::Result<()> {
             let input = Tensor::from_slice(&[next], (1, 1), &dev)?;
             h = model.hidden_cached(&input, offset, &mut caches, &mut NoCapture)?;
             offset += 1;
-        };
+        } };
         let decode_s = t1.elapsed().as_secs_f64();
 
         let completion = tok

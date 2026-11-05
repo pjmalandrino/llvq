@@ -43,5 +43,6 @@ pub mod persist4e_cuda;
 pub mod rotplan;
 pub mod sealed;
 pub mod served;
+pub mod served_decode;
 pub mod tempfit;
 pub mod tetra_diag;

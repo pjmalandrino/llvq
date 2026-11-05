@@ -516,6 +516,7 @@ fn run_gqa_ab(
 #[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
 fn run_context_sweep(
     model: &llvq_llm::model::Qwen3,
+    dec: &mut llvq_llm::served_decode::Decoder,
     seed: &[u32],
     lengths: &[usize],
     n_new: usize,
@@ -538,7 +539,7 @@ fn run_context_sweep(
         let (mut first, mut rate) = (Vec::new(), Vec::new());
         let mut reference: Option<Vec<u32>> = None;
         for round in 0..=ROUNDS_TIMED {
-            let g = model.generate_timed(&ids, n_new, chunk)?;
+            let g = dec.generate_timed(model, &ids, n_new, chunk)?;
             match &reference {
                 None => reference = Some(g.tokens),
                 Some(r) => {
@@ -553,6 +554,17 @@ fn run_context_sweep(
                 first.push(g.prompt_s);
                 rate.push((n_new - 1) as f64 / g.decode_s);
             }
+        }
+        // Under the persistent decode, 4E owes the eager path's tokens under
+        // the same config (the kernel form from position 0): one eager run a
+        // length, compared token for token, or the sweep is void.
+        if dec.is_persistent() {
+            let eager = model.generate_timed(&ids, n_new, chunk)?;
+            let r = reference.as_ref().expect("set by round 0");
+            if let Some(i) = first_divergence(&eager.tokens, r).map_err(|e| anyhow::anyhow!("{e}"))? {
+                anyhow::bail!("prompt {n}: 4E diverges from the eager path under this config at token {i}; the run is void");
+            }
+            println!("  prompt {n}: 4E tokens equal the eager path's under this config, {} of {}", r.len(), eager.tokens.len());
         }
         let (fm, fl, fh) = rate_stats(&first);
         let (rm, rl, rh) = rate_stats(&rate);
@@ -1135,6 +1147,68 @@ fn spun_clock(
 /// (`llvq_llm::boundary::per_boundary_us`).
 ///
 /// Out of the cfg-gated body so the Mac type-checks it.
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+/// The served door under a config that names the persistent decode. The eager
+/// path under the same config (the kernel form from position 0) makes the
+/// reference tokens; 4E must make the same ones in every round, or the run is
+/// void. Then 1 discarded + [`ROUNDS_TIMED`] rounds, eager and 4E in each, both
+/// timed as the door times a generate (prompt and decode), and the decode
+/// alone beside it. The token ids are printed so a second config's door can
+/// be compared token for token after the job.
+fn served_door_4e(
+    f: &llvq_llm::fused::FusedSealed,
+    dec: &mut llvq_llm::served_decode::Decoder,
+    ids: &[u32],
+    n_new: usize,
+    load_s: f64,
+) -> anyhow::Result<()> {
+    use llvq_llm::boundary::median_range;
+    anyhow::ensure!(n_new >= 2, "the served 4E door times the decode after the first token: {n_new} asked");
+    let chunk = llvq_llm::model::MAX_PREFILL_ROWS;
+    let want = f.model.generate_timed(ids, n_new, chunk)?.tokens;
+    let (mut door, mut dec_rate, mut door_eager, mut dec_eager) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    for round in 0..=ROUNDS_TIMED {
+        let t = Instant::now();
+        let e = f.model.generate_timed(ids, n_new, chunk)?;
+        let te = t.elapsed().as_secs_f64();
+        if e.tokens != want {
+            anyhow::bail!("round {round}: the eager path moved its tokens; the run is void");
+        }
+        let t = Instant::now();
+        let g = dec.generate_timed(&f.model, ids, n_new, chunk)?;
+        let tg = t.elapsed().as_secs_f64();
+        if let Some(i) = first_divergence(&want, &g.tokens).map_err(|e| anyhow::anyhow!("{e}"))? {
+            anyhow::bail!("round {round}: 4E diverges from the eager path under this config at token {i}; the run is void");
+        }
+        if round > 0 {
+            door_eager.push(n_new as f64 / te);
+            dec_eager.push((n_new - 1) as f64 / e.decode_s);
+            door.push(n_new as f64 / tg);
+            dec_rate.push((n_new - 1) as f64 / g.decode_s);
+        }
+    }
+    println!("served door (decode persistent): 4E tokens equal the eager path's under this config, {} of {}", want.len(), want.len());
+    let bytes = f.runtime_bytes + f.carried_bytes;
+    let (m, lo, hi) = median_range(&door);
+    println!(
+        "served : loaded in {load_s:6.1} s, {m:6.1} tok/s [{lo:.1}–{hi:.1}, {ROUNDS_TIMED} rounds], {:.2} GB on the card          (4E, prompt and decode, as the door times a generate)",
+        bytes as f64 / 1e9
+    );
+    let (m, lo, hi) = median_range(&dec_rate);
+    println!("  4E decode alone          {m:7.1} tok/s [{lo:.1}-{hi:.1}]");
+    let (m, lo, hi) = median_range(&door_eager);
+    println!("  eager, same config, door {m:7.1} tok/s [{lo:.1}-{hi:.1}]");
+    let (m, lo, hi) = median_range(&dec_eager);
+    println!("  eager decode alone       {m:7.1} tok/s [{lo:.1}-{hi:.1}]");
+    let ratio: Vec<f64> = door.iter().zip(&door_eager).map(|(a, b)| a / b).collect();
+    let (m, lo, hi) = median_range(&ratio);
+    println!("  4E / eager, door, round by round: x{m:.3} [{lo:.3}-{hi:.3}]");
+    let s: Vec<String> = want.iter().map(u32::to_string).collect();
+    println!("  token ids: {:016x} {}", llvq_llm::eval::token_fingerprint(&want), s.join(","));
+    println!("  {}", f.tokenizer.decode(&want, true).unwrap_or_default());
+    Ok(())
+}
+
 #[cfg(all(target_os = "linux", feature = "cuda"))]
 /// `LLVQ_PERS_4E` at one prompt length: the reference tokens of the eager
 /// path, each 4E geometry's after the same prefill (identical or void), the
@@ -2092,7 +2166,17 @@ fn main() -> anyhow::Result<()> {
                 .map_err(|e| anyhow::anyhow!("{e}"))?
                 .get_ids()
                 .to_vec();
-            run_context_sweep(&f.model, &seed, &lengths, n_new)?;
+            // The engine the config names (eager without one, or without the
+            // field): 4E installs here, after the form and its threshold.
+            let mut dec = match &served {
+                Some(cfg) => cfg.decoder(&f.model, &device)?,
+                None => llvq_llm::served_decode::Decoder::eager(),
+            };
+            for line in dec.lines() {
+                println!("{line}");
+            }
+            println!("decode engine: {}", if dec.is_persistent() { "persistent (4E)" } else { "eager" });
+            run_context_sweep(&f.model, &mut dec, &seed, &lengths, n_new)?;
             return Ok(());
         }
 
@@ -2369,6 +2453,10 @@ fn main() -> anyhow::Result<()> {
             // The attention form and its store, from the file and from
             // nowhere else. The provenance line above already named them.
             cfg.apply(&mut f.model, &device).map_err(|e| anyhow::anyhow!("{e}"))?;
+            let mut dec = cfg.decoder(&f.model, &device)?;
+            for line in dec.lines() {
+                println!("{line}");
+            }
             let load_s = t.elapsed().as_secs_f64();
             let ids = f
                 .tokenizer
@@ -2376,6 +2464,9 @@ fn main() -> anyhow::Result<()> {
                 .map_err(|e| anyhow::anyhow!("{e}"))?
                 .get_ids()
                 .to_vec();
+            if dec.is_persistent() {
+                return served_door_4e(&f, &mut dec, &ids, n_new, load_s);
+            }
             f.model.generate(&ids, n_new, &mut NoCapture)?;
             let mut rounds = Vec::with_capacity(ROUNDS_TIMED);
             let mut tokens: Vec<u32> = Vec::new();
@@ -2400,6 +2491,8 @@ fn main() -> anyhow::Result<()> {
                 bytes as f64 / 1e9
             );
             println!("  {}", f.tokenizer.decode(&tokens, true).unwrap_or_default());
+            let s: Vec<String> = tokens.iter().map(u32::to_string).collect();
+            println!("  token ids: {:016x} {}", llvq_llm::eval::token_fingerprint(&tokens), s.join(","));
             println!(
                 "\n  No dense arm on this path, so no ratio and no token comparison. \
                  Both are the bench's\n  business: unset LLVQ_CONFIG and it runs, on \
