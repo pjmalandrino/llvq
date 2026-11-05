@@ -391,7 +391,7 @@ fn an_absent_attention_field_is_the_published_form() {
     let r = Served::of(f, PathBuf::from("old.json")).expect("resolves");
     assert_eq!((r.attention, r.store), (AttnHeads::Expanded, KvStore::Cat));
 
-    // And on disk: every shipped config except the grouped one is expanded.
+    // And on disk: every shipped config except the grouped and kernel ones is expanded.
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../configs");
     let mut expanded = 0;
     for entry in std::fs::read_dir(&dir).expect("configs/") {
@@ -402,9 +402,10 @@ fn an_absent_attention_field_is_the_published_form() {
         let name = path.file_name().expect("name").to_string_lossy().to_string();
         let f = Served::read_file(&path).expect("parses");
         let r = Served::of(f, path.clone()).expect("resolves");
-        match name.contains("grouped") {
-            true => assert_eq!(r.attention, AttnHeads::Grouped, "{name}"),
-            false => {
+        match (name.contains("grouped"), name.contains("kernel")) {
+            (true, _) => assert_eq!(r.attention, AttnHeads::Grouped, "{name}"),
+            (false, true) => assert_eq!(r.attention, AttnHeads::Kernel, "{name}"),
+            (false, false) => {
                 assert_eq!(r.attention, AttnHeads::Expanded, "{name} must not have moved");
                 assert_eq!(r.store, KvStore::Cat, "{name}");
                 expanded += 1;
@@ -443,6 +444,32 @@ fn the_grouped_config_is_the_e4_object_with_the_grouped_attention() {
     let line = g.provenance();
     assert!(line.contains("attention grouped on grow(256)"), "{line}");
     assert!(e4.provenance().contains("attention expanded on cat"), "{}", e4.provenance());
+}
+
+/// The 4B kernel config (operator T8, 2026-11-05) is the grouped config with
+/// the kernel form, and nothing else about it moved.
+///
+/// Below position 1,280 the kernel form runs the grouped arithmetic bit for
+/// bit, so the two files must agree on everything but the field.
+#[test]
+fn the_kernel_config_is_the_grouped_config_with_the_kernel_form() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../configs");
+    let read = |name: &str| {
+        let path = dir.join(name);
+        let f = Served::read_file(&path).unwrap_or_else(|e| panic!("{name}: {e}"));
+        Served::of(f, path).unwrap_or_else(|e| panic!("{name}: {e}"))
+    };
+    let g = read("qwen3-4b-tetra-e4-grouped.json");
+    let k = read("qwen3-4b-tetra-e4-kernel-from1280.json");
+
+    assert_eq!(k.attention, AttnHeads::Kernel);
+    assert_eq!(k.store, g.store, "the kernel form reads the grouped store");
+    assert_eq!(
+        (k.layout, k.embed, k.rot_share, k.fuse, k.kv),
+        (g.layout, g.embed, g.rot_share, g.fuse, g.kv),
+        "only the attention form may differ from the grouped config"
+    );
+    assert!(k.provenance().contains("attention kernel from position 1280"), "{}", k.provenance());
 }
 
 /// An `attention` nobody can serve is refused, and never read as the default.
