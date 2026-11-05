@@ -1,0 +1,61 @@
+4E's Tetra row loops alone on the card (row-loop microbenchmark), 2026-11-05
+
+Result: alone at 4E's geometry, v2's Tetra row loop streams 379 GB/s [368-383] over 0.9467 GB, bit for bit (*measured*),
+against about 260 GB/s for the same rows inside 4E (pers-4e-v2/v3, *computed*). The loop is not what holds 4E near
+180 tok/s: about a third of the rows' time is lost in situ. None of the five suspects is a lever by rule C (each under
+x1.30); the strongest is the words' path from DRAM and L2 (l1w, x1.214). v3's loop is slower than v2's alone (x0.849),
+which explains v3's slower MLP (rule F). The "Λ-transposed read" does not stand (rule E): bcast x xbcast = 0.98 and
+ilp2 = 0.93, against 2 for its claimed 2-3x.
+
+Job      : 6aec7403c78863f9c6334c50, l40sx1, 497 s running after 60 s in the queue, $0.25 (*computed* at $1.80/h).
+Image    : Space sha b97539a7849ae38ee86d0123e15e22245046aaf8, built from integration/lot1 at 7f32775 (the row-loop
+           code 7d0e258 and 4E servable 1b7282f, merged).
+Prereg   : proofs/preregistration-pers-rowloop-2026-11-05.md (sha256 83035b5b...), OpenTimestamps stamped and committed
+           (7f32775) before the image was built. The k2 arm, added later on the session's branch, is not in this run;
+           the stamped file was edited there by mistake and restored to its stamped bytes (c4a17ca), k2 moved to its
+           own prereg.
+Raw      : pers-rowloop-2026-11-05-brut/ (bench.txt, cubin/ with trows, persistent and bench, oracle.txt).
+
+Gates (passed, *measured*): oracle MATCH; tetra48 252 of 252 matrices matched, tile 64; the A4 fused groups bit for bit
+on Slot32 and Planes14; tpersall and its four variants bit for bit to the A4 kernels; v2, v3, ilp2, v2u (1,105,920
+rows) and v2_s, v2_o2 (1,013,760 rows) bit for bit to tv_tetra48_h; every symbol 0 B local. l1w, bcast and xbcast are
+diagnostic arms that remove one suspect each and owe no bits.
+
+Row loops, 0.9467 GB (v2_s and v2_o2: 0.7207 GB), median ms [range], GB/s, speed round by round:
+  v2       2.499 [2.473-2.575]   379 [368-383]
+  v3       2.973 [2.911-3.035]   318 [312-325]   over v2   x0.849 [0.839-0.849]
+  ilp2     2.715 [2.660-2.781]   349 [340-356]   over v2   x0.928 [0.905-0.930]
+  v2u      3.056 [2.993-3.123]   310 [303-316]   over v2   x0.825 [0.807-0.826]
+  l1w      2.516 [2.453-2.576]   376 [368-386]   over v2u  x1.214 [1.210-1.221]
+  bcast    3.091 [3.077-3.165]   306 [299-308]   over v2u  x0.987 [0.969-0.993]
+  xbcast   3.101 [3.053-3.138]   305 [302-310]   over v2u  x0.995 [0.965-1.001]
+  v2_s     1.985 [1.947-2.007]   363 [359-370]
+  v2_o2    1.848 [1.803-1.868]   390 [386-400]   over v2_s x1.076 [1.073-1.080]
+  tpersall 2.453 [2.440-2.480]   400 [395-402] (0.9806 GB)
+
+Stamps, cycles a step (32 blocks of a row) at d_in 2,560 / 4,096 / 9,728, warp balance in brackets:
+  v2  1,616 [0.807] / 1,500 [0.626] / 1,272 [0.637] at 2,456 MHz
+  v3  1,837 [0.793] / 1,928 [0.650] / 1,736 [0.625] at 2,502 MHz
+
+Decision rules (§7):
+- A, identity: every arm that owes the bits keeps them.
+- B, stamps: v2's balance at 4,096 and 9,728 (0.626, 0.637) lies outside 0.563 +- 0.05: rows slow each other unevenly
+  inside a CTA, and cycles a step are read per class with that caveat.
+- C, the bound: l1w x1.214, v2_o2 x1.076, xbcast x0.995, bcast x0.987, ilp2 x0.928. None reaches 1.30, so none is a
+  lever by the rule. l1w lies between 1.15 and 1.30: the rule's "none at 1.15 or more" branch (a profiler next) does
+  not apply either. It is reported as the strongest single suspect, under the lever bar.
+- D, calibration: the next 4E estimate is built from these cycles, balances and clocks; its backward check against
+  4E v3's MLP mean work (2,975 us) is the session's, at $0, before any forward number.
+- E, Λ-transposed read: bcast x xbcast = 0.98 and ilp2 = 0.93, both under 2: its claimed 2-3x does not stand on these
+  mechanisms.
+- F, v3's MLP: v3 over v2 = 0.849 <= 0.97: the stream loop's own cost explains it.
+- G, refuted terms of §6: v2 GB/s (379 against [190, 330], faster); v2 cycles a step at 2,560 (1,616 against
+  [2,200, 4,500]); v3 over v2 (0.849 against [0.85, 1.03]); ilp2 over v2 (0.928 against [0.95, 1.70]); v2's balance at
+  4,096 and 9,728 (0.626, 0.637 against [0.51, 0.62]). Inside: identity, no local memory, the clock, the balance at
+  2,560, l1w, bcast, xbcast, v2_o2, tpersall.
+
+Reading: the row loop alone already runs near the one-launch pass (379 against 400 GB/s). 4E's rows read about 260 in
+situ, so the next lever is what 4E adds around the loop (the epilogues, the grid barriers, the restaging, the uneven
+split), not the decode. That is what rule D's backward check names.
+
+Not established: the in-situ costs, one by one; the k2 arm (its own prereg, not run); any card but the L40S.
