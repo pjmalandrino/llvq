@@ -11,3 +11,28 @@ consecutive decodes fails before the fix and passes after, and a mutant that ski
 
 The retry runs under this prereg unchanged, with `RETRY=2`, output `/out/pers-4e-2026-11-04-r2`, on the image rebuilt
 from e403f4a. Same gates, same rules, same ceiling (40 min, $1.20).
+
+## E2, written before the third run (R3): the 8,192 prefill is chunked, and the run prints a phase table
+
+The retry (job 6aebd50b0e0338d1bb804dae, `docs/mesures/pers-4e-2026-11-05-r2.txt`) read the 5-token context: same
+tokens as the eager path, 4E against eager x0.993. Its 8,192 context failed before any 4E timing, on the prefill guard
+("8192 vectors at once, more than 4096") of two unchunked calls. Commit c4f4c51 on `claude/serene-bohr-1edf69` sends
+both in chunks of 4,096, as the context sweep already does; nothing changes at or under 4,096. Commit 7fa4ff2 adds,
+after the timed rounds, one stamped decode a context on 512-thread variants of the kernel that record a timestamp at
+every barrier for every CTA; the timed kernel compiles to identical SASS. Both are merged into `integration/lot1`.
+
+The third run keeps this prereg's gates, identity rule and timing rules unchanged, with `RETRY=3`, output
+`/out/pers-4e-2026-11-04-r3`, on the image rebuilt from `integration/lot1` at the merge. Ceiling unchanged (40 min,
+$1.20); expected about 3 minutes and $0.10 (*estimated*).
+
+Added reading of the phase table, fixed here before the run (from section 4 of
+`docs/mesures/pers-4e-loop-2026-11-05.txt`). The stamped decode must give the eager tokens, or its stamps are void and
+none of the three readings below is made.
+- Cause 1 (row split) holds if the slowest CTA's work over the mean CTA's is 1.3 or more on o, down and q/k/v, with
+  q/k/v's slowest CTA at index 118 or above.
+- Cause 2 (iteration rate) holds if the mean CTA's work over the rows' phases streams the 1.377 GB at 350 GB/s or
+  less.
+- The fixed work and barriers are read as the walls of norm/RoPE/append and attention, plus each phase's wall minus
+  its slowest CTA's work.
+Whichever holds names the first change to build, at $0, before any further card time. The table is a diagnosis: it
+changes nothing served.
