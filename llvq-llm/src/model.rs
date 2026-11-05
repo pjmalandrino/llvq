@@ -3582,6 +3582,7 @@ mod tests {
             kv: "f16".into(),
             attention: attention.map(str::to_string),
             decode: None,
+            rows: None,
             note: None,
         };
         let resolve = |attention: Option<&str>| {
@@ -3661,6 +3662,7 @@ mod tests {
             kv: "f16".into(),
             attention: Some("kernel".into()),
             decode: None,
+            rows: None,
             note: None,
         };
         let f = served_file_kernel();
