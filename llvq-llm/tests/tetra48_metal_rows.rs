@@ -98,6 +98,7 @@ fn first_difference(a: &[f32], b: &[f32]) -> Option<(usize, f32, f32)> {
 
 fn with_kernel(b: &mut Bench, name: &'static str) {
     b.rt.set_tuning(MetalTuning { tetra_kernel: name, ..Default::default() }).expect("a known kernel");
+    assert_eq!(b.rt.tuning().tetra_kernel, name, "the tuning took");
 }
 
 /// Every twin, against the served kernel and the oracle, at one shape.
@@ -112,6 +113,7 @@ fn gate(seed: u64, d_out: usize, nblocks: usize, tail_w: usize, tile: usize, rep
         with_kernel(&mut b, name);
         for rep in 0..reps {
             let got = on_metal(&b);
+            assert!(b.rt.compiled_pipelines().contains(&name), "{name} was launched");
             assert_eq!(
                 first_difference(&got, &served),
                 None,

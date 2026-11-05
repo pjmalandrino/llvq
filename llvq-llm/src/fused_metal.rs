@@ -1588,6 +1588,17 @@ impl MetalRuntime {
         Ok(())
     }
 
+    /// The entry points this runtime has compiled, sorted: which kernels a
+    /// run actually launched. The twins return the served bits by design, so
+    /// no output can say which one ran; this can.
+    pub fn compiled_pipelines(&self) -> Vec<&'static str> {
+        let mut v: Vec<&'static str> =
+            self.pipelines.read().expect("no panic held this lock").keys().map(|k| k.0).collect();
+        v.sort_unstable();
+        v.dedup();
+        v
+    }
+
     /// What this runtime launches, for a provenance line.
     pub fn tuning(&self) -> MetalTuning {
         MetalTuning { q4_tile_cols: self.q4_tile_cols, tetra_kernel: self.kernel, q4_prefetch: self.q4_prefetch }

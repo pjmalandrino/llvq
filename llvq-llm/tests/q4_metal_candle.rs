@@ -144,6 +144,12 @@ fn the_binding_routes_and_matches_at_six_widths() {
             }
         }
     }
+    // The twins return the served bits by design, so only the pipeline cache
+    // can say they ran: all four int4 entry points were launched.
+    assert_eq!(
+        rt.compiled_pipelines(),
+        vec!["tv_q4_metal", "tv_q4_metal_p", "tv_q4_metal_tiled", "tv_q4_metal_tiled_p"]
+    );
 }
 
 /// A bad tile, a wrong group count and a short row are refused by name at
