@@ -1,0 +1,60 @@
+4E, third card reading (R3), with phase stamps, 2026-11-05
+
+Result: 4E decodes the eager path's tokens at both contexts, and it is not faster: x0.997 [0.996-0.997] at 5 prompt
+tokens (132.4 against 132.8 tok/s) and x0.516 [0.515-0.516] at 8,192 (53.9 against 104.5) (*measured*). The phase
+stamps are valid (64 of 64 tokens at both contexts). Under deviation E2, cause 1 (row split) does not hold and cause 2
+(iteration rate) holds: the rows' phases stream 1.377 GB at 290 GB/s. The largest single cost is neither: 4E's own
+attention phase takes 2,355 us a token at 5 prompt tokens (31 % of the token, range 581 to 3,835 over the 62 tokens)
+and 13,273 us at 8,192 (72 %), where the whole eager token takes 9,570 us. Rule H of the L1 prereg read on the measured
+rate: 132.4 tok/s against 300.
+
+Job      : 6aec2b080e0338d1bb805f15, l40sx1, about 170 s running (07:06:48 to 07:09:35 UTC), $0.09 (*computed* at
+           $1.80/h).
+Image    : Space sha 97e11a2d48b1758e4d38f2dba53cd0ffe41bb990 (integration/lot1 at 9bce6e3: the chunked prefill c4f4c51
+           and the phase stamps 7fa4ff2 merged).
+Prereg   : proofs/preregistration-pers-4e-2026-11-04.md (sha256 83164b0e...), deviations E1 and E2 beside it, E2
+           committed and pushed before the launch.
+Raw      : pers-4e-r3-2026-11-05-brut/ (pers-4e.txt, oracle.txt, gpu.txt, files.sha256).
+
+Gates (passed, *measured*): oracle MATCH; sealed 4B 886391a8...; NVRTC digest 6193094310bc...; the attention kernel
+equals the CPU replay on 103 calls; RoPE form 1 matches candle; at both contexts 64 of 64 4E tokens equal the eager
+path's and the served grouped door's. Loaded symbols: pers_4e_tokens_f1 80 registers, 8 B local;
+pers_4e_tokens_f1_t512 119 registers, 0 B local; pers_4e_stamps_f1_t512 118 registers, 0 B local; one resident a SM,
+grid 142 x 512, 254 barriers a token.
+
+Timed rounds, 64 tokens, 2 discarded and 5 rounds, tok/s median [range]:
+  context   eager (kernel form)     4E                      4E / eager, round by round
+        5   132.8 [132.8-132.9]     132.4 [132.4-132.4]     x0.997 [0.996-0.997]
+     8192   104.5 [104.4-104.5]      53.9 [53.9-53.9]       x0.516 [0.515-0.516]
+
+Phase table, us a token, median over 62 stamped tokens (the stamped token costs 7,630 us against the timed 7,553 at
+context 5, and 18,575 against 18,560 at 8,192):
+  phase               ctx 5: wall   slowest   mean      ctx 8192: wall   slowest   mean
+  q/k/v                      889.1     857.9    729.4            894.3     862.9    734.1
+  norm/RoPE/append           220.4     189.1      5.7            221.1     188.9      5.8
+  attention                 2354.6    2314.3   2254.3          13273.3   13244.6   9346.3
+  o                          590.4     548.0    517.9            590.1     549.7    519.0
+  MLP                       3199.9    3177.7   3125.5           3209.9    3185.3   3134.1
+  head                       377.1     377.5    376.7            383.2     383.5    382.8
+  token                     7629.9                              18574.8
+
+Reading under E2 (*computed* from the table at context 5):
+- Cause 1 does not hold. Slowest over mean CTA work: q/k/v 1.18, o 1.06, MLP 1.02, all under 1.3. q/k/v's slowest CTA
+  is 127 (in the v slices, index 118 or above), so the v rows do lag, but by 18 %, not 30 %.
+- Cause 2 holds. Mean CTA work over the rows' phases (q/k/v, o, MLP, head) is 4,749.5 us for the 1.377 GB: 290 GB/s,
+  at or under 350. It is the one-launch pass of L1 at 410 GB/s, slowed by 30 %.
+- Fixed work and barriers: norm/RoPE/append 220.4 and attention 2,354.6, plus the phases' walls over their slowest
+  CTA (31.2 + 42.4 + 22.2 - 0.4 + 1.1): 2,671 us, 35 % of the token. Attention alone is 2,355.
+Under E2's last line, cause 2 names the first change to build at $0: fetching ahead in each row (each lane keeps its
+summation order), or 768 threads without local memory.
+
+Observed, outside E2's two causes (*measured*, reported, no rule written on it before the run): 4E's attention phase.
+At 5 prompt tokens it spans 581 to 3,835 us over the 62 tokens, so it is not a fixed cost; the slowest CTA is CTA 0 in
+82 % of the tokens, and the mean CTA's work (2,254) is close to the slowest's (2,314). At 8,192 it is 13,273 us, more
+than the eager token (9,570). The eager path's attention kernel is the same arithmetic (identical tokens), so the
+difference lies in how 4E runs it inside the persistent grid. Its cause is to be found on the host before any card
+time. Removing it alone would bring the short token from 7.55 to about 5.2 ms, about 190 tok/s (*estimated*, assuming
+nothing else moves), still under the L1 projection of 222-258 and under 300.
+
+Not established: why 4E's attention phase grows with the tokens; a 4E rate with the attention phase and the prefetch
+fixed; any card but the L40S. Nothing served changes.
