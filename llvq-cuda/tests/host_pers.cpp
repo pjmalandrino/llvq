@@ -507,8 +507,8 @@ int main() {
         wr(scale);
     } else if (tag == 'J') {
         // ROW LOOPS (pers_trows.cu): arm, grid, threads, stamps (0/1), x seed, nsites, then per site d_out, d_in,
-        // seed. Every site's rows in order, binary16, then their f32 values before f2h; the served side ignores arm,
-        // grid, threads and stamps.
+        // seed. Every site's rows in order, binary16, then their f32 values before f2h; arm 7 (K2) adds every
+        // site's rows on the second activation after each block. The served side reads the arm for that only.
         const u32 arm = rd1<u32>(), grid = rd1<u32>(), threads = rd1<u32>(), stamp = rd1<u32>();
         const uint64_t xseed = rd1<uint64_t>();
         const u32 nsites = rd1<u32>();
@@ -521,52 +521,67 @@ int main() {
             maxd = std::max(maxd, d_in);
         }
         const auto x = act(maxd, xseed);
+        const auto x2 = act(maxd, xseed + 1u);
+        const bool k2 = arm == 7u;
         std::vector<unsigned short> out;
         std::vector<float> outf;
 #if PERS_SIDE == 0
-        (void)arm;
         (void)grid;
         (void)threads;
         (void)stamp;
+        std::vector<unsigned short> out2;
+        std::vector<float> outf2;
         for (const TMat& m : mats) {
-            const std::vector<float> xi(x.begin(), x.begin() + m.nblocks * 24u + m.tail_w);
-            std::vector<float> f(m.d_out);
-            const auto y = served_ref(m, xi, f.data());
-            out.insert(out.end(), y.begin(), y.end());
-            outf.insert(outf.end(), f.begin(), f.end());
+            for (int which = 0; which < (k2 ? 2 : 1); ++which) {
+                const auto& xv = which ? x2 : x;
+                const std::vector<float> xi(xv.begin(), xv.begin() + m.nblocks * 24u + m.tail_w);
+                std::vector<float> f(m.d_out);
+                const auto y = served_ref(m, xi, f.data());
+                (which ? out2 : out).insert((which ? out2 : out).end(), y.begin(), y.end());
+                (which ? outf2 : outf).insert((which ? outf2 : outf).end(), f.begin(), f.end());
+            }
         }
+        out.insert(out.end(), out2.begin(), out2.end());
+        outf.insert(outf.end(), outf2.begin(), outf2.end());
 #else
-        std::vector<std::vector<unsigned short>> ys;
-        std::vector<std::vector<float>> fs;
+        std::vector<std::vector<unsigned short>> ys, ys2;
+        std::vector<std::vector<float>> fs, fs2;
         std::vector<unsigned long long> words;
         ys.reserve(mats.size());
         fs.reserve(mats.size());
+        ys2.reserve(mats.size());
+        fs2.reserve(mats.size());
         for (const TMat& m : mats) {
             ys.emplace_back(m.d_out, 0xFFFFu);
             fs.emplace_back(m.d_out, -1.0f);
+            ys2.emplace_back(m.d_out, 0xFFFFu);
+            fs2.emplace_back(m.d_out, -1.0f);
             const unsigned long long w[TROWS_SITE_WORDS] = {
                 (unsigned long long)(uintptr_t)m.words.data(), (unsigned long long)(uintptr_t)m.gscale.data(),
                 (unsigned long long)(uintptr_t)m.rscale.data(), (unsigned long long)(uintptr_t)m.tail.data(),
                 (unsigned long long)(uintptr_t)ys.back().data(),
                 (unsigned long long)m.d_out | ((unsigned long long)m.nblocks << 32),
                 (unsigned long long)m.tail_w | ((unsigned long long)m.stride << 32),
-                (unsigned long long)(uintptr_t)fs.back().data()};
+                (unsigned long long)(uintptr_t)fs.back().data(),
+                k2 ? (unsigned long long)(uintptr_t)ys2.back().data() : 0ull,
+                k2 ? (unsigned long long)(uintptr_t)fs2.back().data() : 0ull};
             words.insert(words.end(), w, w + TROWS_SITE_WORDS);
         }
         std::vector<u32> st((size_t)nsites * grid * (threads / 32u + 1u), 0u);
         std::vector<unsigned long long> ends(4u * grid, 0ull);
         u32* sp = stamp ? st.data() : nullptr;
         unsigned long long* ep = stamp ? ends.data() : nullptr;
-        const size_t smem = PERS_SMEM_HEADER + 18816u + 4u * maxd + 16u;
+        const size_t smem = PERS_SMEM_HEADER + 18816u + 4u * (k2 ? TROWS_X2_AT + maxd : maxd) + 16u;
         hostgrid::launch_coop(grid, threads, smem, xseed, [&] {
             switch (arm) {
-            case 0: trows_body<TROWS_V2>(words.data(), nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), g_inv.data(), x.data(), sp, ep); break;
-            case 1: trows_body<TROWS_V3>(words.data(), nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), g_inv.data(), x.data(), sp, ep); break;
-            case 2: trows_body<TROWS_ILP2>(words.data(), nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), g_inv.data(), x.data(), sp, ep); break;
-            case 3: trows_body<TROWS_V2U>(words.data(), nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), g_inv.data(), x.data(), sp, ep); break;
-            case 4: trows_body<TROWS_L1W>(words.data(), nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), g_inv.data(), x.data(), sp, ep); break;
-            case 5: trows_body<TROWS_BCAST>(words.data(), nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), g_inv.data(), x.data(), sp, ep); break;
-            default: trows_body<TROWS_XBCAST>(words.data(), nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), g_inv.data(), x.data(), sp, ep); break;
+            case 0: trows_body<TROWS_V2>(words.data(), nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), g_inv.data(), x.data(), x2.data(), sp, ep); break;
+            case 1: trows_body<TROWS_V3>(words.data(), nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), g_inv.data(), x.data(), x2.data(), sp, ep); break;
+            case 2: trows_body<TROWS_ILP2>(words.data(), nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), g_inv.data(), x.data(), x2.data(), sp, ep); break;
+            case 3: trows_body<TROWS_V2U>(words.data(), nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), g_inv.data(), x.data(), x2.data(), sp, ep); break;
+            case 4: trows_body<TROWS_L1W>(words.data(), nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), g_inv.data(), x.data(), x2.data(), sp, ep); break;
+            case 5: trows_body<TROWS_BCAST>(words.data(), nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), g_inv.data(), x.data(), x2.data(), sp, ep); break;
+            case 6: trows_body<TROWS_XBCAST>(words.data(), nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), g_inv.data(), x.data(), x2.data(), sp, ep); break;
+            default: trows_body<TROWS_K2>(words.data(), nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), g_inv.data(), x.data(), x2.data(), sp, ep); break;
             }
         });
         if (stamp) {
@@ -584,6 +599,10 @@ int main() {
         }
         for (const auto& y : ys) out.insert(out.end(), y.begin(), y.end());
         for (const auto& f : fs) outf.insert(outf.end(), f.begin(), f.end());
+        if (k2) {
+            for (const auto& y : ys2) out.insert(out.end(), y.begin(), y.end());
+            for (const auto& f : fs2) outf.insert(outf.end(), f.begin(), f.end());
+        }
 #endif
         wr(out);
         wr(outf);

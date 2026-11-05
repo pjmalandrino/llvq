@@ -1191,6 +1191,26 @@ fn the_row_loop_arms_are_the_served_rows() {
     }
 }
 
+/// K2 (one decode, two activations): its rows on each activation are the
+/// served rows on that activation, and its rows on the first are the k = 1
+/// arm's (V2) bit for bit, binary16 and f32 before f2h, at every grid.
+#[test]
+fn the_k2_arm_is_the_k1_arm_on_each_activation() {
+    let want = run(served(), &trows_cmd(7, 1, 64, 0, &TROWS_SITES));
+    let rows: usize = TROWS_SITES.iter().map(|s| s.0 as usize).sum();
+    assert_eq!(want.len(), 12 * rows, "two activations: binary16 rows, then their f32 values");
+    let k1 = run(persistent(), &trows_cmd(0, 3, 96, 0, &TROWS_SITES));
+    let (h, f) = (2 * rows, 4 * rows);
+    // served layout: [y(x), y(x2)] then [f(x), f(x2)]
+    assert_eq!(&want[..h], &k1[..h], "the served rows on the first activation are V2's");
+    assert_eq!(&want[2 * h..2 * h + f], &k1[h..], "and so are their f32 values");
+    assert!(want[..h] != want[h..2 * h], "the two activations must give different rows");
+    for &(grid, threads, stamps) in &[(3u32, 96u32, 0u32), (2, 64, 1), (4, 128, 1), (5, 32, 0)] {
+        let got = run(persistent(), &trows_cmd(7, grid, threads, stamps, &TROWS_SITES));
+        assert!(got == want, "K2, grid {grid}x{threads}, stamps {stamps}: rows differ from the k = 1 rows on their activation");
+    }
+}
+
 #[test]
 fn row_loop_mutants_are_killed() {
     let cmds: Vec<Vec<u8>> = (0..4u32).map(|arm| trows_cmd(arm, 3, 96, 0, &TROWS_SITES)).collect();
@@ -1208,7 +1228,7 @@ fn row_loop_mutants_are_killed() {
         // is equivalent (zero words past the row), so the trip count is mutated.
         ("uniform_trip", "const u32 nit = (nblocks + 31u) >> 5;\n    float acc = 0.0f;\n    u32 lo = 0u, hi16 = 0u;", "const u32 nit = nblocks >> 5;\n    float acc = 0.0f;\n    u32 lo = 0u, hi16 = 0u;"),
         ("cta_slice", "hi = (u32)((unsigned long long)d_out * (c + 1u) / g);", "hi = (u32)((unsigned long long)d_out * (c + 1u) / g) - (c == 0u);"),
-        ("warp_stride", "for (u32 r = lo + warp; r < hi; r += nw) {", "for (u32 r = lo + warp; r < hi; r += nw + (nw > 1u)) {"),
+        ("warp_stride", "for (u32 r = lo + warp; r < hi; r += nw) {\n                const u32* wrow", "for (u32 r = lo + warp; r < hi; r += nw + (nw > 1u)) {\n                const u32* wrow"),
         ("v3_rows", "            pers_tetra_stream<PERS_STREAM_D>(pers_warp_rows(lo, hi, warp, nw), nb, tw, tab, t_inv, xs, lane, row_of,",
          "            pers_tetra_stream<PERS_STREAM_D>(pers_warp_rows(lo, hi, warp, nw) - (warp == 0u), nb, tw, tab, t_inv, xs, lane, row_of,"),
     ];
@@ -1216,5 +1236,18 @@ fn row_loop_mutants_are_killed() {
         let b = mutant(tag, f, from, to);
         let killed = cmds.iter().any(|c| run_mutant(&b, c).is_none_or(|got| got != want));
         assert!(killed, "row-loop mutant {tag} survived");
+    }
+    // K2, against its own served output (two activations).
+    let k2cmd = trows_cmd(7, 3, 96, 0, &TROWS_SITES);
+    let k2want = run(served(), &k2cmd);
+    let k2cases = [
+        ("k2_second_fold", "acc2 = pers_fold(acc2, b, q, hi16, gscale, invnorm);", "acc2 = pers_fold(acc2, a, q, hi16, gscale, invnorm);"),
+        ("k2_second_x", "const float* xb = xs2 + j * 24u;", "const float* xb = (xs2 == xs ? xs2 : xs) + j * 24u;"),
+        ("k2_staging", "if (ARM == TROWS_K2) pers_stage_f32<24u, false>(x2, xs2, nb, tw);", "if (ARM == TROWS_K2) pers_stage_f32<24u, false>(x2 == x ? x2 : x, xs2, nb, tw);"),
+        ("k2_second_tail", "const float v2 = pers_epilogue(acc2, rs[r], tail + (size_t)r * tw, xs2 + nb * 24u, tw);", "const float v2 = pers_epilogue(acc2, rs[r], tail + (size_t)r * tw, xs + nb * 24u, tw);"),
+    ];
+    for (tag, from, to) in k2cases {
+        let b = mutant(tag, f, from, to);
+        assert!(run_mutant(&b, &k2cmd).is_none_or(|got| got != k2want), "row-loop mutant {tag} survived");
     }
 }

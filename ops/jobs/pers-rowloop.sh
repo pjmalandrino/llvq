@@ -73,7 +73,7 @@ LLVQ_SEG_TETRA=1 LLVQ_TETRA_OCC=1 LLVQ_TROWS=1 LLVQ_DUMP_CUBIN="$O/cubin" \
   planesbench "$B" "$F" > "$O/bench.txt" 2>&1 || rc=$?
 date -u
 echo "planesbench exit $rc"
-grep -aE 'tetra48: [0-9]+ of [0-9]+|^tile |Row-loop|reference: the served|tv_trows|BIT FOR BIT|INVALIDATED|SPILLS|diagnostic|stamps d_in|One-launch|tpersall|B_pa|speed over|not timed|cubin ' "$O/bench.txt" | tail -90
+grep -aE 'tetra48: [0-9]+ of [0-9]+|^tile |Row-loop|reference: the served|tv_trows|BIT FOR BIT|INVALIDATED|SPILLS|diagnostic|stamps d_in|One-launch|tpersall|B_pa|speed over|second token|not timed|cubin ' "$O/bench.txt" | tail -90
 [ "$rc" = 0 ]
 grep -q 'tetra48: 252 of 252 matrices matched by name' "$O/bench.txt"
 grep -q '^tile 64' "$O/bench.txt"

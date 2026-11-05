@@ -1413,7 +1413,7 @@ pub fn trows_unit_text(tile_define: &str) -> String {
 /// The row-loop arms (`pers_trows.cu`): name, symbol, whether every row owes
 /// the served bits, CTAs a SM. The occupancy arm `v2_o2` runs V2 at two CTAs a
 /// SM on the sites of d_in 4,096 or less, beside `v2_s`, the same sites at one.
-pub const TROWS_ARMS: [(&str, &str, bool, u32); 9] = [
+pub const TROWS_ARMS: [(&str, &str, bool, u32); 10] = [
     ("v2", "tv_trows_v2", true, 1),
     ("v3", "tv_trows_v3", true, 1),
     ("ilp2", "tv_trows_ilp2", true, 1),
@@ -1423,6 +1423,7 @@ pub const TROWS_ARMS: [(&str, &str, bool, u32); 9] = [
     ("xbcast", "tv_trows_xbcast", false, 1),
     ("v2_s", "tv_trows_v2", true, 1),
     ("v2_o2", "tv_trows_v2_o2", true, 2),
+    ("k2", "tv_trows_k2", true, 1),
 ];
 
 /// Whether an arm runs only the sites of d_in 4,096 or less.
@@ -1431,7 +1432,8 @@ pub fn trows_small_only(name: &str) -> bool {
 }
 
 /// One `tv_trows_*` site, as the kernel unpacks it (`TROWS_SITE_WORDS`); no
-/// f32 output (word 7 is 0), as on every card launch.
+/// f32 output (words 7 and 9 are 0), as on every card launch. `y2_f16`: K2's
+/// rows on the second activation, 0 for every other arm.
 #[allow(clippy::too_many_arguments)]
 pub fn trows_site_words(
     words: u64,
@@ -1439,11 +1441,12 @@ pub fn trows_site_words(
     rscale: u64,
     tail_f16: u64,
     y_f16: u64,
+    y2_f16: u64,
     d_out: u32,
     nblocks: u32,
     tail_w: u32,
     stride_u32: u32,
-) -> [u64; 8] {
+) -> [u64; 10] {
     assert!(tail_w == 8 || tail_w == 16, "the stream reads the tail as one or two 16-byte chunks: tail_w {tail_w}");
     [
         words,
@@ -1454,6 +1457,8 @@ pub fn trows_site_words(
         u64::from(d_out) | (u64::from(nblocks) << 32),
         u64::from(tail_w) | (u64::from(stride_u32) << 32),
         0,
+        y2_f16,
+        0,
     ]
 }
 
@@ -1461,6 +1466,13 @@ pub fn trows_site_words(
 /// natural staging of the widest activation. At d_in 9,728 it is 4E's 57,984.
 pub fn trows_smem_bytes(max_d_in: u32) -> u32 {
     SMEM_HEADER + TABLE_BYTES + 4 * max_d_in
+}
+
+/// K2's dynamic shared bytes: two activations, the second at `TROWS_X2_AT` =
+/// 9,728 floats after the first. 96,896 B, under the 101,376 a CTA may opt
+/// into on sm_89.
+pub fn trows_k2_smem_bytes() -> u32 {
+    SMEM_HEADER + TABLE_BYTES + 2 * 4 * 9728
 }
 
 /// What the stamps of one `tv_trows_*` launch say about one class of sites
@@ -1564,6 +1576,8 @@ mod tests {
             assert!(t.contains(&format!("TROWS_KERNEL({sym}, TROWS_{arm}, {minb})")), "{sym}");
         }
         assert_eq!(trows_smem_bytes(9728), 57_984, "4E's own shared bytes at d_in 9,728");
+        assert_eq!(trows_k2_smem_bytes(), 96_896);
+        assert!(t.contains("#define TROWS_X2_AT 9728u"), "K2's second activation sits after the widest first one");
         assert!(trows_small_only("v2_o2") && trows_small_only("v2_s") && !trows_small_only("v2"));
     }
 
