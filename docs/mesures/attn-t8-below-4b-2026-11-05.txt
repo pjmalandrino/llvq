@@ -37,3 +37,7 @@ prereg. Nothing served changes in this run, and no file of configs/ was written.
 
 Not established: a task score under the extended form (GSM8K, whose decodes all lie below 1,280, would be that check);
 the 8B and 14B; any card but the L40S.
+
+Operator decision, 2026-11-05: the T8 extension is granted ("Oui, accorde"). The kernel form is licensed below 1,280 on
+the sealed 4B, under the band above. No served config uses it yet: serving 4E at a short prompt needs a config that
+names it and its served-door measurement, under their own prereg. The 8B and 14B are not covered.
