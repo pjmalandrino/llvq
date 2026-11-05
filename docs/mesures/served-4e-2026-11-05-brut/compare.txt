@@ -1,0 +1,7 @@
+door: 4E config 169.0 tok/s [168.9-169.1], served config 133.7 tok/s [133.5-133.9]; medians 4E/served 1.2640 (two processes, not paired round by round); tokens: identical (256)
+  prompt   4E config tok/s [range]   served config tok/s [range]   medians 4E/served   tokens
+       5    171.2 [171.2-171.3]        134.8 [134.7-134.8]          1.2700            identical (256)
+    2048    162.0 [161.6-162.2]        120.6 [120.5-120.6]          1.3433            identical (256)
+    4096    154.5 [153.2-154.9]        117.3 [117.1-117.3]          1.3171            identical (256)
+    8192    134.1 [133.1-134.4]        103.8 [103.3-103.8]          1.2919            identical (256)
+GSM8K pilot, 50 problems: 4E config 40/50 correct, grouped census 40/50; completions identical 46/50; discordant 0 (4E right 0, census right 0), McNemar exact p = 1.000; delta +0.0 pp
