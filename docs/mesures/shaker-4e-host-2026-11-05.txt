@@ -5,11 +5,11 @@ Result: two new row forms of 4E, the inner stamps of q/k/v and MLP, and one card
 prepared at $0. Nothing is launched.
 - v4 is v2's row loop inside v3's structure; v5 is v4 with each CTA's last rows split over its 16 warps.
 - Both equal the served chain bit for bit on the host, the q/k/v phase and the whole token loop.
-- Job ops/jobs/shaker-4e.sh, prereg proofs/preregistration-shaker-4e-2026-11-05.md (not stamped), about $0.99,
-  ceiling $1.80. Its parts:
+- Job ops/jobs/shaker-4e.sh, prereg proofs/preregistration-shaker-4e-2026-11-05.md (not stamped), about $0.45,
+  ceiling $0.90. Its parts:
   - A, v3 / v4 / v5 at 5 and 8,192 tokens with their inner stamps;
-  - B, the row loops with the k2 arm;
-  - C, the stamped served-4e protocol, read from its own script.
+  - B, the row loops with the k2 arm.
+  The served door under the 4E config is not in it: job 6aec7401 (served-4e) reads it.
 - Expected, *estimated* from measured cycles: v4 184 tok/s and v5 195 at a 5-token prompt, against v3's 179.2
   (*measured*).
 
@@ -69,10 +69,8 @@ Inputs:  pers-4e-insitu-host-2026-11-05.txt (rule D: 1,660 us of fixed work, 420
 
 4. THE SHAKER JOB (ops/jobs/shaker-4e.sh)
 ---------------------------------------
-  Each part runs whatever the others did; the job fails at the end if any part failed.
-  - Part C is the served-4e protocol, taken from ops/jobs/served-4e.sh when the shaker is built (the lines up to the
-    end of its job body) and run unchanged in a subshell, with its output under C/. The departure is written beside
-    its stamped prereg (-ECARTS.md, E1).
+  Each part runs whatever the other did; the job fails at the end if either failed.
+  - A third part, the served-4e protocol, was drafted and then removed: job 6aec7401 runs it on its own.
   - The standalone k2 prereg and job (never stamped, never launched) are removed; k2 is part B.
 
 Not established: anything on a card; the driver's allocation of forms 2 and 3; any of the computed gains.

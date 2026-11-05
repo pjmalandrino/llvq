@@ -4,14 +4,12 @@
 existed. To be timestamped before the first measurement, then never edited; a departure goes to
 `preregistration-shaker-4e-2026-11-05-ECARTS.md`.
 
-The launch is the operator's, through the integration session. Cost: about **$0.99** on l40sx1 for the whole job,
-parts A, B and C (*estimated*, §8). Timeout 60 min: **$1.80** at worst (*computed* at $1.80/h). Spent before it: see
-`docs/data/jobs.csv` at launch.
+The launch is the operator's, through the integration session. Cost: about **$0.45** on l40sx1 (*estimated*, §8).
+Timeout 30 min: **$0.90** at worst (*computed* at $1.80/h). Spent before it: see `docs/data/jobs.csv` at launch.
 
-This prereg covers parts A and B. It replaces `proofs/preregistration-pers-rowloop-k2-2026-11-05.md` (never stamped,
-never launched, removed with this file), whose arm is part B here. Part C runs the stamped protocol of
-`proofs/preregistration-served-4e-2026-11-05.md` unchanged. Its departure (another job script and another output
-directory) is written beside it, in `-ECARTS.md`.
+It replaces `proofs/preregistration-pers-rowloop-k2-2026-11-05.md` (never stamped, never launched, removed with this
+file), whose arm is part B here. The served door under `configs/qwen3-4b-tetra-e4-4e.json` is not part of this run: its
+own stamped prereg was read by job 6aec7401 (`ops/jobs/served-4e.sh`).
 
 ## 1. Why this run exists
 
@@ -72,7 +70,6 @@ One image built from the commit that carries this file. One job, l40sx1, `ops/jo
      form.
 3. **Part B.** `LLVQ_TILE_BLOCKS=64 LLVQ_BENCH_ARMS=slot32,planes14,fp16,tetra48 LLVQ_SEG_TETRA=1 LLVQ_TROWS=1
    LLVQ_DUMP_CUBIN=<dir> planesbench <ball> <tetra>`.
-4. **Part C.** The served-4e protocol, as its prereg describes, under `C/`.
 
 ## 4. Gates
 
@@ -90,8 +87,7 @@ Each voids the run:
    - v2's rows bit for bit.
 5. No `LLVQ_*` variable in the job environment.
 
-v4 or v5 moving a token, or not loading, voids only its own numbers. So does k2 moving a row. Part C's gates are its
-own prereg's.
+v4 or v5 moving a token, or not loading, voids only its own numbers. So does k2 moving a row.
 
 ## 5. Outcomes reported, never gated
 
@@ -136,7 +132,8 @@ barrier); 4E runs 512 threads in every CTA, hence the wide intervals.
 - **B, the forms.** v4 over v3 and v5 over v4, round by round.
   - A form faster than the one before it, with its whole range above x1.00, is proposed for serving: the served
     config's 4E would run it.
-  - The served engine changes only on the operator's yes, after part C's reading, with the config's row form named.
+  - The served engine changes only on the operator's yes, after this reading and the served-4e job's, with the
+    config's row form named.
   - Otherwise the form stays a measurement.
 - **C, the inner parts.** Each part is a named cost.
   - The three rows parts (q/k/v rows, gate/up rows, down rows) are checked backward against the row-loop cycles
@@ -164,12 +161,11 @@ barrier); 4E runs 512 threads in every CTA, hence the wide intervals.
 | oracle | 1 to 2 min |
 | part A (three 4E modules built, 2 contexts x 7 rounds x 4 decodes, 6 stamped launches; v3's own job ran 215 s with one form) | 6 min |
 | part B (planesbench, A4's arms and the row loops, no one-launch pass) | 4.5 min |
-| part C (the served-4e protocol, its own estimate less the container) | 18 min |
 
-About 33 min, **$0.99**. Timeout 60 min: **$1.80** at worst.
+About 15 min, **$0.45**. Timeout 30 min: **$0.90** at worst.
 
 ## 9. What this run does not establish
 
-- Serving v4 or v5: part C runs the served config's form, v3.
+- Serving v4 or v5: the served config's 4E stays v3 (row form 1); a form is served only on the operator's yes.
 - tau, the draft head, a tree attention, a KV rollback.
 - The 8B and the 14B; any card but the L40S.

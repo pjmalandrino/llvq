@@ -4,28 +4,24 @@
 #      LLVQ_PERS_4E=64): the row forms 1, 2, 3 (llvq_pers.cuh), each owing the eager tokens, their rates round by round,
 #      and one stamped launch each with the new inner stamps of q/k/v and MLP.
 #   B. The row-loop microbenchmark with the k2 arm (planesbench LLVQ_TROWS=1 on the banc-252 files).
-#   C. The served door under configs/qwen3-4b-tetra-e4-4e.json: the stamped protocol of
-#      proofs/preregistration-served-4e-2026-11-05.md, its preamble and body taken from ops/jobs/served-4e.sh at
-#      build time and run unchanged, its output under C's own directory (the departure is written beside that
-#      prereg, -ECARTS.md).
-# Preregistered: proofs/preregistration-shaker-4e-2026-11-05.md for A and B, to stamp before this.
+# Preregistered: proofs/preregistration-shaker-4e-2026-11-05.md, to stamp before this. The served door under
+# configs/qwen3-4b-tetra-e4-4e.json is not here: ops/jobs/served-4e.sh read it (job 6aec7401).
 #
 #   DRY_RUN=1 bash ops/jobs/shaker-4e.sh                 parses the job script, launches nothing
 #   IMAGE_SHA=<space sha> bash ops/jobs/shaker-4e.sh      launches, after the operator's go
 #
 # Each part runs whatever the others did; the job fails at the end if any part failed. Every LLVQ_* variable is set
-# on its own command line. Cost, estimated (l40sx1 $1.80/h, prereg section 8): about 33 min, $0.99. Timeout 60m:
-# $1.80 at worst.
+# on its own command line. Cost, estimated (l40sx1 $1.80/h, prereg section 8): about 15 min, $0.45. Timeout 30m:
+# $0.90 at worst.
 set -euo pipefail
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$REPO"
 
 PREREG=proofs/preregistration-shaker-4e-2026-11-05.md
-PREREG_C=proofs/preregistration-served-4e-2026-11-05.md
 IMAGE_SHA=${IMAGE_SHA:-}
 BUCKET=Pier-Jean/jobs-artifacts
 O=/out/shaker-4e-2026-11-05${RETRY:+-r$RETRY}
-TIMEOUT=60m
+TIMEOUT=30m
 DRY=${DRY_RUN:-0}
 
 BALL="ball-ref-2026-09-20/qwen3-4b-llvq.bin:1770527533"
@@ -35,18 +31,8 @@ TETRA_SHA8=0adb7cfd
 SEALED_SHA8=886391a8
 SERVED_SHA=6193094310bc18acdb0a0c554807ff45f6df09c1f6ab49e0577032874f107812
 
-# Part C: the stamped served-4e job's own preamble and body, read from its file (lines up to the end of its BODY
-# heredoc), in a subshell with DRY_RUN=1 so its launch-time checks are skipped here; they are this script's below.
-C_SRC=$(sed -n '1,/^JOB$/p' ops/jobs/served-4e.sh)
-C_JOB=$(DRY_RUN=1 bash -c "$C_SRC"$'\nprintf "%s\\n" "$PRE"; printf "%s\\n" "__BODY__"; printf "%s" "$BODY"' ops/jobs/served-4e.sh)
-C_PRE=${C_JOB%%$'\n'__BODY__*}
-C_BODY=${C_JOB#*__BODY__$'\n'}
-[ -n "$C_PRE" ] && [ -n "$C_BODY" ] || { echo "refused: could not read ops/jobs/served-4e.sh's job" >&2; exit 1; }
-
 if [ "$DRY" != 1 ]; then
-  for p in "$PREREG" "$PREREG_C"; do
-    { test -f "$p" && test -f "$p.ots"; } || { echo "refused: $p(.ots) missing" >&2; exit 1; }
-  done
+  { test -f "$PREREG" && test -f "$PREREG.ots"; } || { echo "refused: $PREREG(.ots) missing" >&2; exit 1; }
   for row in "$BALL" "$TETRA" "$SEALED"; do
     path=${row%%:*}; bytes=${row##*:}
     REMOTE=$(hf buckets ls "hf://buckets/$BUCKET/${path%/*}/" 2>/dev/null \
@@ -63,9 +49,9 @@ if [ "$DRY" != 1 ]; then
   echo "three bucket copies verified by size; image $NOW"
 fi
 
-PRE=$(printf 'O=%q\nB=%q\nF=%q\nS=%q\nBB=%q\nFB=%q\nSB=%q\nFSHA8=%q\nSSHA8=%q\nSERVED_SHA=%q\nC_PRE=%q\nC_BODY=%q' \
+PRE=$(printf 'O=%q\nB=%q\nF=%q\nS=%q\nBB=%q\nFB=%q\nSB=%q\nFSHA8=%q\nSSHA8=%q\nSERVED_SHA=%q' \
   "$O" "/out/${BALL%%:*}" "/out/${TETRA%%:*}" "/out/${SEALED%%:*}" "${BALL##*:}" "${TETRA##*:}" "${SEALED##*:}" \
-  "$TETRA_SHA8" "$SEALED_SHA8" "$SERVED_SHA" "$C_PRE" "$C_BODY")
+  "$TETRA_SHA8" "$SEALED_SHA8" "$SERVED_SHA")
 
 IFS= read -r -d '' BODY <<'JOB' || true
 mkdir -p "$O/A" "$O/B/cubin"
@@ -115,14 +101,6 @@ grep -aE 'tetra48: [0-9]+ of [0-9]+|^tile |Row-loop|reference: the served|tv_tro
   grep -q '  v2: [0-9]* rows identical BIT FOR BIT to tv_tetra48_h' "$O/B/bench.txt"
 } || { echo 'PART B: a gate failed'; failed="$failed B"; }
 
-echo '== PART C: the served-4e protocol, unchanged, under its own directory =='
-date -u
-rc=0
-( eval "$C_PRE"; O="$O/C"; eval "$C_BODY" ) > "$O/C.txt" 2>&1 || rc=$?
-date -u
-tail -40 "$O/C.txt"
-[ "$rc" = 0 ] || { echo 'PART C: the served-4e protocol stopped on one of its gates'; failed="$failed C"; }
-
 ls -laR "$O" | head -80
 [ -z "$failed" ] || { echo "parts failed:$failed"; exit 1; }
 JOB
@@ -131,8 +109,7 @@ if [ "$DRY" = 1 ]; then
   JOBSCRIPT="set -euo pipefail
 $PRE
 $BODY"
-  printf '%s\n' "$JOBSCRIPT" | bash -n && echo "DRY_RUN: job script parses; part C read from ops/jobs/served-4e.sh ($(printf '%s' "$C_BODY" | wc -l | tr -d ' ') lines); nothing launched" >&2
-  printf '%s\n' "$C_PRE" | bash -n && printf '%s\n' "$C_BODY" | bash -n
+  printf '%s\n' "$JOBSCRIPT" | bash -n && echo "DRY_RUN: job script parses; nothing launched" >&2
   exit 0
 fi
 
