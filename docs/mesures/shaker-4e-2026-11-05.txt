@@ -1,0 +1,65 @@
+shaker-4e, 2026-11-05. 4E v3, v4, v5 with inner stamps of q/k/v and MLP, and the row loops' k2 arm, on the sealed 4B.
+
+Job 6aec9a1dc78863f9c63364e7, l40sx1 (NVIDIA L40S, sm_89, 2520 MHz), image 2d617e33 built from integration/lot1
+1d1fa6d. Prereg proofs/preregistration-shaker-4e-2026-11-05.md (sha256 4dc31830, stamped before launch). Created
+15:00:45 UTC, completed by 15:18 UTC, about 16 min of card, $0.48 (computed at $1.80/h). Raw output in
+shaker-4e-2026-11-05-brut/ (the cubin and ptx dumps of part B stay in the bucket).
+
+Gates (§4): all hold. oracle MATCH; files at their sha256 (tetra 0adb7cfd, sealed 886391a8); event tracking off; RoPE
+form 1 equal to candle's; 4E v3 equals the eager tokens at 5 and 8,192 (64 of 64); part B: 252 of 252 matrices,
+tile 64, reference the served unit 6193094310bc, v2's rows bit for bit; no LLVQ_* in the job env.
+
+Part A, measured, 64 tokens, medians [range], same process:
+
+  context   eager            v3                     v4                     v5
+  5         134.2            179.0 (x1.334)         189.8 (x1.415)         190.0 (x1.416)
+  8192      105.0            135.4 (x1.290)         140.1 (x1.335)         140.7 (x1.340)
+  (ratios: 4E / eager, round by round; context 5 is the measurement form, 8,192 the served kernel config)
+
+All three forms equal the eager tokens at both contexts. v4 / v3, formed from the two arms' round-by-round ratios to
+the same eager rounds: x1.060 at 5 [1.059-1.062], x1.035 at 8,192 (computed). v5 / v4: x1.001 at 5, x1.004 at 8,192;
+the ranges touch x1.00.
+
+Inner parts at 5 tokens, us a token, CTA work, slowest / mean:
+
+  part                v3              v4              v5
+  q/k/v ln1+rotation  434 / 417       417 / 407       426 / 415
+  q/k/v rows          475 / 436       441 / 404       439 / 405
+  MLP ln2+rotation    282 / 266       278 / 262       280 / 263
+  MLP gate/up rows    1377 / 1237     1317 / 1184     1207 / 1024
+  MLP inner wait      322 / 191       348 / 189       345 / 229
+  MLP down input      813 / 798       815 / 799       818 / 801
+  MLP down rows       642 / 562       511 / 462       562 / 490
+  token (stamped)     5707            5359            5392
+
+Part B, measured: k2 rows equal the k = 1 rows bit for bit on both activations. The second token costs 0.378
+[0.365-0.398] of a pass (f). v2 alone 383 GB/s, as in pers-rowloop.
+
+Rules (§7).
+- A, identity: v3, v4, v5 keep the served bits on this card.
+- B, the forms: v4 over v3 has its whole range above x1.00: v4 is proposed for serving (the served config's 4E would
+  run row form 2). v5 over v4 does not: v5 stays a measurement. The served engine changes only on the operator's yes.
+- C, the inner parts. Non-row parts at 300 us or more, each a lever on its own number:
+  - MLP down input, about 800 us a token, the largest single non-row cost;
+  - q/k/v ln1+rotation, about 420 us;
+  - MLP inner wait, 320-350 us on the slowest CTA (190-230 mean).
+  ln2+rotation, about 270 us, sits under the bar. Rotations and the down input together: about 1.5 ms of 5.36 ms.
+  The backward check of the rows parts against the row-loop cycles is left to the host analysis (ops/pers_4e_insitu.py).
+- H, k2: f = 0.378 is between 0.25 and 0.60. The door is neither kept at its bar nor closed. At k = 2 a verify pass
+  costs about 1.38 passes in the row phase, before attention and the draft head.
+
+Predictions (§6), misses reported (rule G).
+- identity of all forms, loading without local memory: as predicted.
+- v3 at 5: 179.0 in [176, 182]. v4 at 5: 189.8 against 184 [176, 194], inside. v5 at 5: 190.0 against 195 [183, 210],
+  inside.
+- v4 at 8,192: 140.1 against 138.6 [134, 144], inside. v5 at 8,192: 140.7 against 144.8 [138, 152], inside.
+- v4 over v3: x1.060 against x1.03 [1.00, 1.07], inside.
+- v5 over v4: x1.001 against x1.06 [1.01, 1.12]: MISS, below. Spreading a CTA's last rows over its warps buys
+  gate/up rows (1184 to 1024 us mean) and loses it in down rows and the inner wait.
+- inner parts, v3 mean CTA: ln1+rotation 417 against 250 [150, 450], inside; ln2+rotation 266 against 250, inside;
+  down input 798 against 400 [200, 800], inside at the edge; inner wait 191 against 60 [20, 200], inside at the edge;
+  gate/up rows 1237 against 1060 [900, 1400], inside.
+- k2 f: 0.378 against 0.15 [0.05, 0.60], inside.
+
+What this run does not establish: v4 at the served door (the served-4e protocol ran v3); a GSM8K reading under v4; the
+8B and the 14B; any card but the L40S. The 300 tok/s target is not reached: 190 in the measurement form.
