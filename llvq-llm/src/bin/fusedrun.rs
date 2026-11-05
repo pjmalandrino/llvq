@@ -1328,6 +1328,12 @@ fn run_pers_4e(
         let ratio: Vec<f64> = rate[1 + k].iter().zip(&rate[0]).map(|(a, b)| a / b).collect();
         let (m, lo, hi) = median_range(&ratio);
         println!("  {:<22} 4E / eager, round by round: x{m:.3} [{lo:.3}-{hi:.3}]", "");
+        if k > 0 {
+            // against the first form, the same rounds
+            let ratio: Vec<f64> = rate[1 + k].iter().zip(&rate[1]).map(|(a, b)| a / b).collect();
+            let (m, lo, hi) = median_range(&ratio);
+            println!("  {:<22} 4E {} / 4E {}, round by round: x{m:.3} [{lo:.3}-{hi:.3}]", "", rt.label(), rts[0].label());
+        }
     }
     // One more launch a geometry, on the phase-stamp symbol, after the timed
     // rounds and outside them: where the token's time goes, phase by phase
@@ -1882,12 +1888,12 @@ fn main() -> anyhow::Result<()> {
             let (n_kv, groups, hd) = f.model.attn_geometry();
             let k = llvq_llm::attn::kernel_for(&device, n_kv, groups, hd).map_err(|e| anyhow::anyhow!("{e}"))?;
             f.model.set_attn_kernel(Some(k));
-            // The three row forms at 512 threads, each its own module (the
+            // The bench forms at 512 threads, each its own module (the
             // 768-thread symbol spills under the card's driver, v2 and v3):
-            // v3 the stream, v4 v2's loop, v5 v4 with each CTA's last rows
-            // split over its warps. Each owes the eager path's tokens.
+            // v4, the served form, and v6, v4 with ln1, ln2 and the down's
+            // input in one round trip. Each owes the eager path's tokens.
             let mut rts = Vec::new();
-            for (form, label) in llvq_cuda::pers::P4E_ROWS_FORMS {
+            for (form, label) in llvq_cuda::pers::P4E_BENCH_FORMS {
                 match llvq_llm::persist4e_cuda::install_rows(&f.model, &device, n_new as u32, Some(512), form) {
                     Ok(rt) => {
                         for line in &rt.lines {

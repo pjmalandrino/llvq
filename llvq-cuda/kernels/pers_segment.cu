@@ -132,12 +132,23 @@ __device__ __forceinline__ void pers_segment_body(const SegArgs* __restrict__ A,
     const u32 H = A->hidden, I = A->inter;
 
     // 1. ln2 and the gate/up rotation, in this CTA's shared memory.
-    const float scale = exact_rms_scale<NORMV>(L.x, H, A->eps);
-    for (u32 i = threadIdx.x; i < H; i += blockDim.x) {
-        const float h = h2f(exact_rms_apply(scale, __ldcg(L.x + i), A->alpha[i]));
-        v[i] = ((A->signs_h[i >> 5] >> (i & 31u)) & 1u) ? -h : h;
+#if PERS_4E_ROWS == 4
+    // form 4 (4E only): one round trip; x staged in v + H, `small` after the
+    // row vector, the k rows of the down's rotation there later
+    float* ssm = v + (I > 2u * H ? I : 2u * H);
+    if (IN4E && pers_1rt_ok(L.x, H) && pers_1rt_ok(A->alpha, H)) {
+        pers_ln_1rt<NORMV>(L.x, A->alpha, A->signs_h, H, A->eps, A->small_h, A->k_h, ssm, v, v + H, false);
+        pers_rot_finish<true>(v, ssm, H, A->m_h, A->k_h, A->inv_h);
+    } else
+#endif
+    {
+        const float scale = exact_rms_scale<NORMV>(L.x, H, A->eps);
+        for (u32 i = threadIdx.x; i < H; i += blockDim.x) {
+            const float h = h2f(exact_rms_apply(scale, __ldcg(L.x + i), A->alpha[i]));
+            v[i] = ((A->signs_h[i >> 5] >> (i & 31u)) & 1u) ? -h : h;
+        }
+        pers_rot_finish(v, A->small_h, H, A->m_h, A->k_h, A->inv_h);
     }
-    pers_rot_finish(v, A->small_h, H, A->m_h, A->k_h, A->inv_h);
     PERS_SEG_SUB(0u);
 
     // 2. gate and up, row pairs, the SiLU-mul epilogue.
@@ -230,6 +241,19 @@ __device__ __forceinline__ void pers_segment_body(const SegArgs* __restrict__ A,
     PERS_SEG_SUB(2u);
 
     // 4. down, then the residual.
+#if PERS_4E_ROWS == 4
+    // form 4 (4E only): the activation as vectors, the signs and the k rows of
+    // `small` in the same batch
+    if (IN4E && pers_1rt_ok(A->act, I)) {
+        if (TETRA_DOWN) {
+            pers_load_1rt(A->act, A->signs_i, v, I, A->small_i, A->k_i, ssm);
+            pers_rot_finish<true>(v, ssm, I, A->m_i, A->k_i, A->inv_i);
+        } else {
+            pers_load_1rt(A->act, nullptr, v, I, nullptr, 0u, nullptr);
+            __syncthreads();
+        }
+    } else
+#endif
     if (TETRA_DOWN) {
         pers_rot_load(A->act, A->signs_i, v, I);
         pers_rot_finish(v, A->small_i, I, A->m_i, A->k_i, A->inv_i);

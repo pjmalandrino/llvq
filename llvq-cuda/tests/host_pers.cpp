@@ -457,12 +457,26 @@ int main() {
             rot_apply(xin.data(), signs.data(), small.data(), out.data(), n, m, k, inv, 0u);
         });
 #else
+#if PERS_4E_ROWS == 4
+        // form 4: the one-round-trip load, `small` staged after the vector
+        if (!pers_1rt_ok(xin.data(), n)) {
+            std::fprintf(stderr, "host_pers: the rotation's input is not 16-byte aligned\n");
+            std::exit(2);
+        }
+        hostgrid::launch_coop(1, threads, PERS_SMEM_HEADER + 4 * n + 4 * LLVQ_ROT_KMAX * LLVQ_ROT_KMAX, seed, [&] {
+            float* sp = reinterpret_cast<float*>(PERS_SMEM_BASE() + PERS_SMEM_HEADER);
+            pers_load_1rt(xin.data(), signs.data(), sp, n, small.data(), k, sp + n);
+            pers_rot_finish<true>(sp, sp + n, n, m, k, inv);
+            for (u32 i = threadIdx.x; i < n; i += blockDim.x) out[i] = sp[i];
+        });
+#else
         hostgrid::launch_coop(1, threads, PERS_SMEM_HEADER + 4 * n, seed, [&] {
             float* sp = reinterpret_cast<float*>(PERS_SMEM_BASE() + PERS_SMEM_HEADER);
             pers_rot_load(xin.data(), signs.data(), sp, n);
             pers_rot_finish(sp, small.data(), n, m, k, inv);
             for (u32 i = threadIdx.x; i < n; i += blockDim.x) out[i] = sp[i];
         });
+#endif
 #endif
         wr(out);
     } else if (tag == 'M') {
@@ -476,7 +490,11 @@ int main() {
         hostgrid::launch_seq(1, 32, [&] { rot_mix(sv.data(), small.data(), out.data(), m, k, inv, threadIdx.x, 32u); });
 #else
         hostgrid::launch_coop(1, 32, PERS_SMEM_HEADER, 0, [&] {
+#if PERS_4E_ROWS == 4
+            for (u32 j = threadIdx.x; j < m; j += 32u) pers_mix_1rt(sv.data(), small.data(), m, k, inv, j);
+#else
             for (u32 j = threadIdx.x; j < m; j += 32u) pers_mix_column(sv.data(), small.data(), m, k, inv, j);
+#endif
         });
         out = sv;
 #endif

@@ -200,13 +200,23 @@ __device__ __forceinline__ void pers_4e_body(const Pers4eArgs* __restrict__ A, c
             // ln1, the q/k rotation, the q/k/v rows
             float* xr = v;
             float* xn = v + H;
-            const float sc = exact_rms_scale<0>(A->x_a, H, A->eps);
-            for (u32 i = threadIdx.x; i < H; i += blockDim.x) {
-                const float hv = h2f(exact_rms_apply(sc, __ldcg(A->x_a + i), Y.ln1[i]));
-                xn[i] = hv;
-                xr[i] = ((Y.signs_a[i >> 5] >> (i & 31u)) & 1u) ? -hv : hv;
+#if PERS_4E_ROWS == 4
+            // form 4: one round trip; `small` staged after the row vector
+            float* ssm = v + (Y.mlp.inter > 2u * H ? Y.mlp.inter : 2u * H);
+            if (pers_1rt_ok(A->x_a, H) && pers_1rt_ok(Y.ln1, H)) {
+                pers_ln_1rt<0>(A->x_a, Y.ln1, Y.signs_a, H, A->eps, Y.small_a, Y.k_a, ssm, xr, xn, true);
+                pers_rot_finish<true>(xr, ssm, H, Y.m_a, Y.k_a, Y.inv_a);
+            } else
+#endif
+            {
+                const float sc = exact_rms_scale<0>(A->x_a, H, A->eps);
+                for (u32 i = threadIdx.x; i < H; i += blockDim.x) {
+                    const float hv = h2f(exact_rms_apply(sc, __ldcg(A->x_a + i), Y.ln1[i]));
+                    xn[i] = hv;
+                    xr[i] = ((Y.signs_a[i >> 5] >> (i & 31u)) & 1u) ? -hv : hv;
+                }
+                pers_rot_finish(xr, Y.small_a, H, Y.m_a, Y.k_a, Y.inv_a);
             }
-            pers_rot_finish(xr, Y.small_a, H, Y.m_a, Y.k_a, Y.inv_a);
             if (STAMP) {
                 __syncthreads();
                 PERS_STAMP_AT(e0);

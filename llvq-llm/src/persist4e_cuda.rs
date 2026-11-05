@@ -140,8 +140,9 @@ pub fn install(model: &Qwen3, device: &Device, max_tokens: u32, threads: Option<
     install_rows(model, device, max_tokens, threads, 1)
 }
 
-/// [`install`] with the module's row form (`pers::P4E_ROWS_FORMS`): 1 is v3,
-/// what the served config runs; 2 and 3 are measured by `LLVQ_PERS_4E`.
+/// [`install`] with the module's row form (`pers::P4E_ROWS_FORMS`): 1 is v3;
+/// 2 is v4, what the served config runs since 2026-11-05; 3 is v5; 4 is v6.
+/// `LLVQ_PERS_4E` times `pers::P4E_BENCH_FORMS`.
 pub fn install_rows(model: &Qwen3, device: &Device, max_tokens: u32, threads: Option<u32>, rows_form: u32) -> anyhow::Result<Runtime4e> {
     let dev = device.as_cuda_device()?;
     let stream = dev.cuda_stream();
@@ -366,6 +367,19 @@ pub fn install_rows(model: &Qwen3, device: &Device, max_tokens: u32, threads: Op
         eps: cfg.rms_norm_eps as f32,
         c: llvq_cuda::attn_ref::score_scale(128),
     };
+    if rows_form == 4 {
+        let mut addrs = vec![
+            ("act".to_string(), base.act),
+            ("x_a".to_string(), addr16(&x_a, &stream)),
+            ("x_b".to_string(), addr16(&x_b, &stream)),
+        ];
+        for (l, y) in layers_host.iter().enumerate() {
+            addrs.push((format!("layer {l} ln1"), y.ln1));
+            addrs.push((format!("layer {l} ln2"), y.mlp.alpha));
+        }
+        pers::p4e_v6_inputs(&addrs, hidden, inter).map_err(anyhow::Error::msg)?;
+        lines.push(format!("4E v6: the {} prologue inputs are 16-byte aligned; the vector path runs on every layer", addrs.len()));
+    }
     let layers = stream.clone_htod(&vec![0u8; pers::P4E_LAYER_BYTES * layers_host.len()]).map_err(|e| anyhow::anyhow!("H2D: {e}"))?;
     let args = stream.clone_htod(&vec![0u8; pers::P4E_ARGS_BYTES]).map_err(|e| anyhow::anyhow!("H2D: {e}"))?;
     lines.push(format!("4E: {} layers, grid {grid} x {threads}, {} barriers a token", layers_host.len(), pers::n_bar_4e(layers_host.len() as u32)));
