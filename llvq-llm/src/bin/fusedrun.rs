@@ -272,18 +272,24 @@ struct GqaPplSpec {
     windows: usize,
     first: usize,
     kernel: bool,
+    /// `kernel0`: MEASUREMENT FORM, every decode row on the kernel from
+    /// position 0, the T8 extension below `KERNEL_FROM` that serving 4E at a
+    /// short prompt would need. Implies `kernel`.
+    every_row: bool,
 }
 
 #[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
 fn parse_gqa_ppl(v: &str) -> Result<GqaPplSpec, String> {
     let parts: Vec<&str> = v.split(',').map(str::trim).collect();
-    let (nums, kernel) = match parts.as_slice() {
-        [c, w] => (vec![*c, *w], false),
-        [c, w, f, "kernel"] => (vec![*c, *w, *f], true),
+    let (nums, kernel, every_row) = match parts.as_slice() {
+        [c, w] => (vec![*c, *w], false, false),
+        [c, w, f, "kernel"] => (vec![*c, *w, *f], true, false),
+        [c, w, f, "kernel0"] => (vec![*c, *w, *f], true, true),
         _ => {
             return Err(format!(
                 "LLVQ_GQA_PPL={v:?}: expected <ctx>,<windows> (grouped against published, from \
-                 window 0) or <ctx>,<windows>,<first>,kernel (kernel against grouped)"
+                 window 0), <ctx>,<windows>,<first>,kernel (kernel against grouped) or \
+                 <ctx>,<windows>,<first>,kernel0 (kernel on every row against grouped)"
             ))
         }
     };
@@ -291,7 +297,7 @@ fn parse_gqa_ppl(v: &str) -> Result<GqaPplSpec, String> {
         .iter()
         .map(|s| s.parse::<usize>().map_err(|e| format!("LLVQ_GQA_PPL={v:?}: {s:?}: {e}")))
         .collect::<Result<Vec<_>, _>>()?;
-    let spec = GqaPplSpec { ctx: n[0], windows: n[1], first: n.get(2).copied().unwrap_or(0), kernel };
+    let spec = GqaPplSpec { ctx: n[0], windows: n[1], first: n.get(2).copied().unwrap_or(0), kernel, every_row };
     if spec.ctx < 2 || spec.windows < 2 {
         return Err(format!("LLVQ_GQA_PPL={v:?}: two windows of two tokens at least"));
     }
@@ -308,7 +314,7 @@ fn parse_gqa_ppl(v: &str) -> Result<GqaPplSpec, String> {
     // The kernel form sends a position to its kernel from KERNEL_FROM on: a
     // window must reach past it, or the mode scores the grouped form twice.
     let from = llvq_llm::kvq::KERNEL_FROM;
-    if spec.kernel && spec.ctx <= from + 1 {
+    if spec.kernel && !spec.every_row && spec.ctx <= from + 1 {
         return Err(format!(
             "LLVQ_GQA_PPL: a window of {} never reaches the kernel, which takes positions {from} \
              and later; ask {} tokens at least",
@@ -720,9 +726,13 @@ fn run_gqa_ppl(
                 );
             }
             println!(
-                "  window {:>3}/{nwin}  positions < {split}: bit for bit  decode nll {:.9} {:.9}  \
+                "  window {:>3}/{nwin}  {}  decode nll {:.9} {:.9}  \
                  from {split}: nll {:.9} {:.9}  top-1 {}/{}  max |dlogit| {:.3e}  ({:.0} s)",
                 w + 1,
+                match split {
+                    0 => "every position on the kernel".to_string(),
+                    _ => format!("positions < {split}: bit for bit"),
+                },
                 dec[0][w],
                 dec[1][w],
                 tail[0][w],
@@ -1958,6 +1968,17 @@ fn main() -> anyhow::Result<()> {
                 let k = llvq_llm::attn::kernel_for(&device, n_kv, groups, hd).map_err(|e| anyhow::anyhow!("{e}"))?;
                 f.model.set_attn_kernel(Some(k));
             }
+            if spec.every_row {
+                // The T8 extension's measurement form: the kernel takes every
+                // decode row, so no position is checked bit for bit and every
+                // one is scored. The served threshold stays the constant.
+                f.model.set_kernel_from_for_measurement(0);
+                println!(
+                    "measurement form: every decode row on the kernel, from position 0 (the served \
+                     config runs the grouped path below {})",
+                    llvq_llm::kvq::KERNEL_FROM
+                );
+            }
             run_gqa_ppl(&mut f.model, &ids, &spec)?;
             return Ok(());
         }
@@ -3070,15 +3091,15 @@ mod tests {
     fn gqa_ppl_spec() {
         assert_eq!(
             parse_gqa_ppl("4096,12").unwrap(),
-            GqaPplSpec { ctx: 4096, windows: 12, first: 0, kernel: false }
+            GqaPplSpec { ctx: 4096, windows: 12, first: 0, kernel: false, every_row: false }
         );
         assert_eq!(
             parse_gqa_ppl("8192,6,6,kernel").unwrap(),
-            GqaPplSpec { ctx: 8192, windows: 6, first: 6, kernel: true }
+            GqaPplSpec { ctx: 8192, windows: 6, first: 6, kernel: true, every_row: false }
         );
         assert_eq!(
             parse_gqa_ppl(" 4096 , 12 , 60 , kernel ").unwrap(),
-            GqaPplSpec { ctx: 4096, windows: 12, first: 60, kernel: true }
+            GqaPplSpec { ctx: 4096, windows: 12, first: 60, kernel: true, every_row: false }
         );
         // Above one prefill call: refused for the first form only.
         assert!(parse_gqa_ppl("8192,6").unwrap_err().contains("4096 rows"));
@@ -3089,6 +3110,13 @@ mod tests {
         assert!(at(from + 1).unwrap_err().contains("never reaches the kernel"));
         assert_eq!(at(from + 2).unwrap().ctx, from + 2);
         assert!(parse_gqa_ppl("1024,12").is_ok(), "the first form has no threshold");
+        // kernel0: every row on the kernel, so a short window is the point.
+        assert_eq!(
+            parse_gqa_ppl("1280,24,40,kernel0").unwrap(),
+            GqaPplSpec { ctx: 1280, windows: 24, first: 40, kernel: true, every_row: true }
+        );
+        assert!(parse_gqa_ppl("1280,24,40,kernel").unwrap_err().contains("never reaches the kernel"));
+        assert!(parse_gqa_ppl("1280,24,kernel0").is_err(), "kernel0 needs its first window");
         for bad in ["4096", "4096,12,60", "4096,12,60,grouped", "4096,1", "1,12", "4096,x", "4096,12,60,kernel,1"] {
             assert!(parse_gqa_ppl(bad).is_err(), "{bad} must be refused");
         }

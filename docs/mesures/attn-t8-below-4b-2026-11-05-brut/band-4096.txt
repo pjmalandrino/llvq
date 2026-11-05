@@ -1,0 +1,2 @@
+/out/attn-t8-below-4b-2026-11-05/ppl-4096.txt: from position 0, kernel / grouped - 1 = +0.0018 % [-0.0053 ; +0.0088], inside the band
+band: inside
