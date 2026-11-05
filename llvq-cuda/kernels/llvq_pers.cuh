@@ -718,6 +718,126 @@ __device__ __forceinline__ unsigned short pers_tetra_out(const u32* words, u32 s
     return f2h(pers_epilogue(acc, rscale[r], tail + r * tail_w, xs + nblocks * 24u, tail_w));
 }
 
+// The Tetra row stream (4E's 512-thread symbols). The card's phase table of
+// 4E v2 (pers-4e-v2-2026-11-05) puts a d_in 2,560 row at about 0.69 us an
+// iteration and 3.9 us of fixed cost (*estimated* from its q/k/v and MLP
+// phases): the row's first words, then lane 0's rscale and tail, and in
+// gate/up the SiLU table, each a dependent round trip once the blocks are
+// summed. Here a warp runs a static list of rows, nrows of them, and the
+// lane's blocks of the whole list form one sequence: block j = lane + 32 i
+// of row k is item k x nit + i, nit = ceil(nblocks / 32) for every lane, and
+// the items D ahead are always in flight, across row boundaries. Lane 0
+// loads a row's rscale and tail (and START's extras) when the row's first
+// item is consumed, nit - 1 items before its epilogue. Per lane and per row
+// the blocks are summed in the served order (j increasing), then warp_sum,
+// then sites 2 and 3 as pers_epilogue spells them: the same bits. A lane
+// whose block j is past the row computes nothing; the item count is the
+// same on every lane, so warp_sum stays convergent.
+//
+// ROW(k) gives row k's words, the matrix's gscale, rscale and tail bases and
+// its row index; START(k) runs on lane 0 at the row's first item (extra
+// loads); EPI(k, y) on lane 0 with the row's f32 value before f2h. The tail
+// is read as 16-byte chunks: tail_w a multiple of 8, at most 16, and each
+// row's tail 16-byte aligned (the host checks the shape).
+#ifndef PERS_STREAM_D
+#define PERS_STREAM_D 4u  // items in flight a lane
+#endif
+struct PersTRow {
+    const u32* w;             // the row's words
+    const float* gscale;      // the matrix's two centroid scales
+    const float* rscale;      // the matrix's row scales
+    const unsigned short* tail;  // the matrix's tails, tail_w a row
+    u32 r;                    // the row in its matrix
+};
+
+template <u32 D, class Row, class Start, class Epi>
+__device__ __forceinline__ void pers_tetra_stream(u32 nrows, u32 nblocks, u32 tail_w, const F1rTables& tab,
+                                                  const float* invnorm, const float* xs, u32 lane, Row row_of,
+                                                  Start start, Epi epi)
+{
+    const u32 nit = (nblocks + 31u) >> 5;
+    // (k, i): the item consumed, row k, iteration i; (k2, i2): the next item
+    // to load, w2 its row's words. Both advance by counting, never dividing:
+    // an integer division an item cost about 160 instructions a block more
+    // than the plain row loop (devel SASS of the first draft).
+    u32 k = 0u, i = 0u, k2 = 0u, i2 = 0u;
+    const u32* w2 = nrows ? row_of(0u).w : nullptr;
+    u32 lo[D], hi[D];
+#pragma unroll
+    for (u32 d = 0; d < D; ++d) {
+        lo[d] = 0u;
+        hi[d] = 0u;
+        if (k2 < nrows) {
+            const u32 j2 = lane + 32u * i2;
+            if (j2 < nblocks) f1r_load(w2, j2, lo[d], hi[d]);
+            if (++i2 == nit) {
+                i2 = 0u;
+                if (++k2 < nrows) w2 = row_of(k2).w;
+            }
+        }
+    }
+    const float* gs = nullptr;  // the consumed row's matrix scales
+    float acc = 0.0f, rs = 0.0f;
+    uint4 t0, t1;
+    t0.x = t0.y = t0.z = t0.w = 0u;
+    t1 = t0;
+    while (k < nrows) {  // uniform over the warp
+#pragma unroll
+        for (u32 d = 0; d < D; ++d) {
+            if (k < nrows) {
+                if (i == 0u) {
+                    const PersTRow R = row_of(k);
+                    gs = R.gscale;
+                    if (lane == 0u) {
+                        rs = R.rscale[R.r];
+                        const uint4* tp = reinterpret_cast<const uint4*>(R.tail + (unsigned long long)R.r * tail_w);
+                        t0 = tp[0];
+                        if (tail_w > 8u) t1 = tp[1];
+                        start(k);
+                    }
+                }
+                const u32 j = lane + 32u * i;
+                if (j < nblocks) acc = pers_block(acc, lo[d], hi[d], tab, xs + j * 24u, gs, invnorm);
+                lo[d] = 0u;
+                hi[d] = 0u;
+                if (k2 < nrows) {
+                    const u32 j2 = lane + 32u * i2;
+                    if (j2 < nblocks) f1r_load(w2, j2, lo[d], hi[d]);
+                    if (++i2 == nit) {
+                        i2 = 0u;
+                        if (++k2 < nrows) w2 = row_of(k2).w;
+                    }
+                }
+                if (i == nit - 1u) {
+                    const float a = warp_sum(acc);
+                    acc = 0.0f;
+                    if (lane == 0u) {
+                        // pers_epilogue: site 2, the tail in order, then site 3
+                        const u32 tw[8] = {t0.x, t0.y, t0.z, t0.w, t1.x, t1.y, t1.z, t1.w};
+                        const float* xt = xs + nblocks * 24u;
+                        float tv = 0.0f;
+#pragma unroll
+                        for (u32 q = 0; q < 16u; ++q)
+                            if (q < tail_w) tv = __fmaf_rn(h2f((unsigned short)(tw[q >> 1] >> (16u * (q & 1u)))), xt[q], tv);
+                        epi(k, __fmaf_rn(a, rs, tv));
+                    }
+                    i = 0u;
+                    ++k;
+                } else {
+                    ++i;
+                }
+            }
+        }
+    }
+}
+
+// Rows a warp takes from a CTA's slice [lo, hi) under the stream's static
+// assignment: lo + warp, lo + warp + nwarps, ...
+__device__ __forceinline__ u32 pers_warp_rows(u32 lo, u32 hi, u32 warp, u32 nwarps)
+{
+    return hi > lo + warp ? (hi - lo - warp + nwarps - 1u) / nwarps : 0u;
+}
+
 // The q/k/v phase on one CTA. `xr` holds ln1(x) rotated (q and k read it),
 // `xn` ln1(x) widened in the natural basis (the int4 v reads it), both f32 in
 // shared memory. Rows [lo, hi) of the concatenation q | k | v are this CTA's;
@@ -730,23 +850,55 @@ struct Pers4eQkv {
     unsigned short *q, *k, *v;  // outputs, binary16
 };
 
+// CTA c of g. PF (the stream): the CTA takes its share of the q | k rows,
+// [qk c / g, qk (c + 1) / g), and its share of the v rows, so every CTA holds
+// the same mix of Tetra and int4 rows (a contiguous slice of q | k | v left
+// the int4 v rows to the last CTAs, the slowest once the Tetra rows stream).
+// Otherwise the contiguous slice [n c / g, n (c + 1) / g) of q | k | v.
 template <bool PF = true>
 __device__ __forceinline__ void pers_4e_qkv_rows(const Pers4eQkv& P, const F1rTables& tab, const float* invnorm,
-                                                 const float* xr, const float* xn, u32 lo, u32 hi)
+                                                 const float* xr, const float* xn, u32 c, u32 g)
 {
     const u32 lane = threadIdx.x & 31u;
+    if (PF) {
+        const u32 warp = threadIdx.x >> 5, nw = blockDim.x >> 5;
+        const u32 qk = P.q_dout + P.k_dout;
+        const u32 lo = qk * c / g, thi = qk * (c + 1u) / g;
+        const auto row_of = [&](u32 k) {
+            const u32 r = lo + warp + k * nw;
+            return r < P.q_dout ? PersTRow{P.qw + r * P.q_stride, P.qgs, P.qrs, P.qtl, r}
+                                : PersTRow{P.kw + (r - P.q_dout) * P.k_stride, P.kgs, P.krs, P.ktl, r - P.q_dout};
+        };
+        const auto start = [](u32) {};
+        const auto epi = [&](u32 k, float y) {
+            const u32 r = lo + warp + k * nw;
+            if (r < P.q_dout) P.q[r] = f2h(y);
+            else P.k[r - P.q_dout] = f2h(y);
+        };
+        pers_tetra_stream<PERS_STREAM_D>(pers_warp_rows(lo, thi, warp, nw), P.nblocks, P.tail_w, tab, invnorm, xr,
+                                         lane, row_of, start, epi);
+        const u32 vlo = P.v_dout * c / g, vhi = P.v_dout * (c + 1u) / g;
+        for (u32 rv = vlo + warp; rv < vhi; rv += nw) {
+            const float acc = pers_q4_row<true>(P.vw, P.vsc, P.vbi, xn, rv, P.d_in, P.v_gpr, lane);
+            if (lane == 0u) P.v[rv] = f2h(acc);
+        }
+        __syncthreads();
+        return;
+    }
+    const u32 n = P.q_dout + P.k_dout + P.v_dout;
+    const u32 lo = n * c / g, hi = n * (c + 1u) / g;
     pers_claim_reset(lo);
     for (;;) {
         const u32 r = pers_claim(lane, 1u);
         if (r >= hi) break;
         if (r < P.q_dout) {
             const unsigned short y = pers_tetra_out<PF>(P.qw, P.q_stride, P.nblocks, P.tail_w, P.qrs, P.qtl, P.qgs, tab,
-                                                    invnorm, xr, r, lane);
+                                                        invnorm, xr, r, lane);
             if (lane == 0u) P.q[r] = y;
         } else if (r < P.q_dout + P.k_dout) {
             const u32 rk = r - P.q_dout;
             const unsigned short y = pers_tetra_out<PF>(P.kw, P.k_stride, P.nblocks, P.tail_w, P.krs, P.ktl, P.kgs, tab,
-                                                    invnorm, xr, rk, lane);
+                                                        invnorm, xr, rk, lane);
             if (lane == 0u) P.k[rk] = y;
         } else {
             const u32 rv = r - P.q_dout - P.k_dout;
@@ -875,11 +1027,14 @@ __device__ __forceinline__ void pers_unpack8(const uint4 w, float f[8])
 }
 
 // Chunks [r0, r0 + PF x nthreads) of step st, this thread's share: chunk idx
-// is tensor idx / 512 (K first), staged position (idx mod 512) / 16 = unit x 8
-// + offset, bytes 16 (idx mod 16) of its row. Past the row: zeros, never used.
+// is tensor idx / 512 (K first), staged position pl = (idx mod 512) / 16,
+// bytes 16 (idx mod 16) of its row. A step holds TPU tiles of each of 4 / TPU
+// units: pl = (unit x TPU + t) x 8 + offset, tile st x TPU + t of the unit
+// (TPU 1: one tile of each of the 4 units, attn_dec.cu's step). Past the
+// row: zeros, never used.
 template <u32 PF>
 __device__ __forceinline__ void pers_attn_load(uint4 pf[PF], const unsigned short* kh, const unsigned short* vh,
-                                               u32 base, u32 st, u32 lr, u32 r0)
+                                               u32 base, u32 st, u32 tpu, u32 lr, u32 r0)
 {
 #pragma unroll
     for (u32 i = 0; i < PF; ++i) {
@@ -888,7 +1043,8 @@ __device__ __forceinline__ void pers_attn_load(uint4 pf[PF], const unsigned shor
         z.x = 0u; z.y = 0u; z.z = 0u; z.w = 0u;
         if (idx < PERS_STAGE_U4) {
             const u32 rem = idx % (PERS_STAGE * 16u), pl = rem >> 4;
-            const u32 p = base + (pl / PERS_TT) * PERS_UNIT + st * PERS_TT + (pl % PERS_TT);
+            const u32 tl = pl / PERS_TT, u = tl / tpu, t = tl - u * tpu;
+            const u32 p = base + u * PERS_UNIT + (st * tpu + t) * PERS_TT + (pl % PERS_TT);
             if (p < lr) z = __ldcg(reinterpret_cast<const uint4*>((idx < PERS_STAGE * 16u ? kh : vh) + (unsigned long long)p * PERS_HD) + (rem & 15u));
         }
         pf[i] = z;
@@ -920,6 +1076,7 @@ __device__ __forceinline__ void pers_attn_tile(const float* qrow, float* row, bo
                                                const uint4* vs, u32 nv, float c, u32 lane)
 {
     const u32 l16 = lane & 15u, dl = l16 * 8u;
+    __syncwarp();  // a previous tile of this task (same step) wrote the row: its writes precede these reads
     float sc[PERS_TT];
     {
         float qf[8];
@@ -1012,12 +1169,19 @@ __device__ __forceinline__ void pers_attention(const unsigned short* q, const un
     for (u32 job = blockIdx.x; job < ns * n_kv; job += gridDim.x) {
         const u32 s = job / n_kv, h = job - s * n_kv;
         const u32 base = s * PERS_SPLIT;
-        const u32 nsteps_raw = (l - base + PERS_TT - 1u) / PERS_TT;
-        const u32 nsteps = nsteps_raw < PERS_UNIT / PERS_TT ? nsteps_raw : PERS_UNIT / PERS_TT;
+        // A split's units past the row are empty: with nu of them holding
+        // positions (1, 2, or 3-4), a step stages TPU = 4, 2 or 1 tiles of
+        // each of 4 / TPU units, so a row of 64 positions or less takes 2
+        // steps instead of 8. Each unit still runs its tiles in order.
+        const u32 nu = (l - base + PERS_UNIT - 1u) / PERS_UNIT;
+        const u32 tpu = nu >= 3u ? 1u : (nu == 2u ? 2u : 4u);
+        const u32 tiles_raw = (l - base + PERS_TT - 1u) / PERS_TT;
+        const u32 tiles = tiles_raw < PERS_UNIT / PERS_TT ? tiles_raw : PERS_UNIT / PERS_TT;
+        const u32 nsteps = (tiles + tpu - 1u) / tpu;
         const unsigned short* kh = kc + (unsigned long long)h * cap * PERS_HD;
         const unsigned short* vh = vc + (unsigned long long)h * cap * PERS_HD;
         uint4 pf[PF];
-        if (rounds == 1u) pers_attn_load<PF>(pf, kh, vh, base, 0u, l, 0u);
+        if (rounds == 1u) pers_attn_load<PF>(pf, kh, vh, base, 0u, tpu, l, 0u);
         for (u32 i = threadIdx.x; i < PERS_UPS * groups * PERS_PSTRIDE; i += blockDim.x) {
             const u32 k = i % PERS_PSTRIDE;
             ust[i] = k == PERS_HD ? PERS_NEG_INF : 0.0f;
@@ -1029,24 +1193,28 @@ __device__ __forceinline__ void pers_attention(const unsigned short* q, const un
                 pers_attn_store<PF>(pf, stage, 0u);
             } else {
                 for (u32 r = 0; r < rounds; ++r) {
-                    pers_attn_load<PF>(pf, kh, vh, base, st, l, r * PF * blockDim.x);
+                    pers_attn_load<PF>(pf, kh, vh, base, st, tpu, l, r * PF * blockDim.x);
                     pers_attn_store<PF>(pf, stage, r * PF * blockDim.x);
                 }
             }
             __syncthreads();  // the step is staged
-            if (rounds == 1u && st + 1u < nsteps) pers_attn_load<PF>(pf, kh, vh, base, st + 1u, l, 0u);
+            if (rounds == 1u && st + 1u < nsteps) pers_attn_load<PF>(pf, kh, vh, base, st + 1u, tpu, l, 0u);
             for (u32 task = warp; task < ntasks; task += nwarps) {
                 const u32 u = task / nhp, hp = task - u * nhp;
-                const u32 p0 = base + u * PERS_UNIT + st * PERS_TT;
-                if (p0 >= l) continue;  // uniform over the warp: both halves hold unit u
-                const u32 nv = l - p0 < PERS_TT ? l - p0 : PERS_TT;
+                if (u * tpu >= PERS_UPS) continue;  // a unit this step does not stage (uniform)
                 const u32 g = 2u * hp + (lane >> 4);
                 // A half past the last head computes on a real q from a fresh
                 // state and keeps nothing.
                 const bool own = g < groups;
                 const u32 ge = own ? g : groups - 1u;
-                pers_attn_tile(qs + ge * PERS_HD, ust + (u * groups + ge) * PERS_PSTRIDE, own,
-                               stage + (u * PERS_TT) * 16u, stage + (PERS_STAGE + u * PERS_TT) * 16u, nv, c, lane);
+                for (u32 t = 0; t < tpu; ++t) {
+                    const u32 p0 = base + u * PERS_UNIT + (st * tpu + t) * PERS_TT;
+                    if (p0 >= l || (st * tpu + t) * PERS_TT >= PERS_UNIT) break;  // uniform over the warp: unit u
+                    const u32 nv = l - p0 < PERS_TT ? l - p0 : PERS_TT;
+                    const u32 sl = (u * tpu + t) * PERS_TT;
+                    pers_attn_tile(qs + ge * PERS_HD, ust + (u * groups + ge) * PERS_PSTRIDE, own, stage + sl * 16u,
+                                   stage + (PERS_STAGE + sl) * 16u, nv, c, lane);
+                }
             }
         }
         __syncthreads();  // every unit state is written
