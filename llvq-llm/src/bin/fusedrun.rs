@@ -1145,10 +1145,13 @@ fn run_pers_4e(
     // The served door's form, for the T8 reading only.
     GqaArm::Grouped.apply(model);
     model.set_kernel_from_for_measurement(llvq_llm::kvq::KERNEL_FROM);
-    let served = model.generate(prompt, n_new, &mut NoCapture)?;
+    // In chunks of MAX_PREFILL_ROWS, the context sweep's way: an 8,192-token
+    // prompt in one call is refused by the fused prefill (run 2 of the 4E
+    // reading stopped there). At or under one chunk this is `generate`.
+    let served = model.generate_timed(prompt, n_new, llvq_llm::model::MAX_PREFILL_ROWS)?.tokens;
     kernel_form(model);
     println!("\n  context {}: attention {} on {}, every decode row on the kernel", prompt.len(), model.attn_heads().label(), model.kv_store().label());
-    // One prefill for the context; every run truncates the caches back to
+    // One prefill for the context (chunked, `prefill_next`); every run truncates the caches back to
     // the prompt (a Grow store's truncate moves only its length) and writes
     // the positions after it again, eager or 4E.
     let mut caches = model.fresh_caches();
@@ -1206,6 +1209,29 @@ fn run_pers_4e(
     let ratio: Vec<f64> = rate[1].iter().zip(&rate[0]).map(|(a, b)| a / b).collect();
     let (m, lo, hi) = median_range(&ratio);
     println!("  4E / eager, round by round: x{m:.3} [{lo:.3}-{hi:.3}]");
+    // One more launch, on the phase-stamp symbol, after the timed rounds and
+    // outside them: where the token's time goes, phase by phase and CTA by
+    // CTA (pers.rs::p4e_phase_report). The same tokens, or its stamps are void.
+    if rt.can_stamp() {
+        for c in caches.iter_mut() {
+            c.truncate(prompt.len())?;
+        }
+        let (made, stamps) = rt.decode_stamped(&mut caches, prompt.len(), first, (n_new - 1) as u32, u32::MAX)?;
+        let mut got = vec![first];
+        got.extend(&made);
+        if got != want {
+            anyhow::bail!("context {}: the stamped launch moved its tokens; its stamps are void", prompt.len());
+        }
+        let (layers, grid) = rt.stamp_shape();
+        let r = llvq_cuda::pers::p4e_phase_report(&stamps, made.len() as u32, layers, grid).map_err(anyhow::Error::msg)?;
+        for line in llvq_cuda::pers::p4e_report_lines(&r) {
+            println!("{line}");
+        }
+        let (m4e, _, _) = median_range(&rate[1]);
+        println!("  stamped token {:.1} us against the timed 4E's {:.1} us (the stamps' own cost)", r.token.0 / 1e3, 1e6 / m4e);
+    } else {
+        println!("  phase stamps: no stamp symbol at {} threads", rt.threads);
+    }
     Ok(())
 }
 

@@ -30,6 +30,9 @@ pub const MAX_CAP: usize = 8192 + 512;
 pub struct Runtime4e {
     cuda: llvq_cuda::gpu::Cuda,
     f: CudaFunction,
+    /// The phase-stamp symbol of the same form and block size, when one
+    /// exists (512 threads): [`Runtime4e::decode_stamped`].
+    f_stamp: Option<CudaFunction>,
     pub threads: u32,
     pub grid: u32,
     smem: u32,
@@ -160,6 +163,23 @@ pub fn install(model: &Qwen3, device: &Device, max_tokens: u32) -> anyhow::Resul
         }
     }
     let (f, threads) = chosen.ok_or_else(|| anyhow::anyhow!("4E: every block size spills or fails its occupancy"))?;
+    // The stamp symbol of the chosen geometry: compiled at 512 threads only,
+    // and kept only where it loads as the token symbol did (no spill, one a SM).
+    let f_stamp = match pers::p4e_stamp_symbol(form, threads) {
+        Ok(sym) => {
+            let fs = cuda.func_dynamic_shared(sym, smem).map_err(anyhow::Error::msg)?;
+            let r = cuda.report(sym).map_err(anyhow::Error::msg)?;
+            let occ = fs
+                .occupancy_max_active_blocks_per_multiprocessor(threads, smem as usize, None)
+                .map_err(|e| anyhow::anyhow!("occupancy: {e}"))?;
+            lines.push(format!("4E: {sym}: {} registers, {} B local, {occ} resident a SM (phase stamps)", r.num_regs, r.local_bytes));
+            (r.local_bytes == 0 && occ >= 1).then_some(fs)
+        }
+        Err(e) => {
+            lines.push(e);
+            None
+        }
+    };
     let grid = cuda.device().map_err(anyhow::Error::msg)?.sm_count as u32;
 
     // The tied table.
@@ -314,6 +334,7 @@ pub fn install(model: &Qwen3, device: &Device, max_tokens: u32) -> anyhow::Resul
     Ok(Runtime4e {
         cuda,
         f,
+        f_stamp,
         threads,
         grid,
         smem,
@@ -343,6 +364,30 @@ impl Runtime4e {
     /// holding `pos0` positions, stopping after `eos`. Returns the tokens
     /// made; the caches hold `pos0 + made` positions after.
     pub fn decode(&mut self, caches: &mut [KvCache], pos0: usize, tok: u32, n: u32, eos: u32) -> anyhow::Result<Vec<u32>> {
+        Ok(self.launch(caches, pos0, tok, n, eos, false)?.0)
+    }
+
+    /// Does this runtime carry the phase-stamp symbol?
+    pub fn can_stamp(&self) -> bool {
+        self.f_stamp.is_some()
+    }
+
+    /// [`Self::decode`] on the phase-stamp symbol (a measurement): the same
+    /// tokens, and the stamps `[made][p4e_events][grid]` of the grid clock,
+    /// in ns, for `pers::p4e_phase_report`.
+    pub fn decode_stamped(&mut self, caches: &mut [KvCache], pos0: usize, tok: u32, n: u32, eos: u32) -> anyhow::Result<(Vec<u32>, Vec<u64>)> {
+        self.launch(caches, pos0, tok, n, eos, true)
+    }
+
+    /// The layers and the grid a stamp buffer is laid out by.
+    pub fn stamp_shape(&self) -> (u32, u32) {
+        (self.n_layers, self.grid)
+    }
+
+    fn launch(&mut self, caches: &mut [KvCache], pos0: usize, tok: u32, n: u32, eos: u32, stamped: bool) -> anyhow::Result<(Vec<u32>, Vec<u64>)> {
+        if stamped && self.f_stamp.is_none() {
+            anyhow::bail!("4E: no phase-stamp symbol at {} threads", self.threads);
+        }
         if n == 0 || n > self.max_tokens {
             anyhow::bail!("4E: {n} tokens a launch, the runtime holds {}", self.max_tokens);
         }
@@ -385,9 +430,25 @@ impl Runtime4e {
         stream
             .memcpy_htod(&vec![u32::MAX; self.max_tokens as usize], &mut self.ring)
             .map_err(|e| anyhow::anyhow!("H2D: {e}"))?;
-        let launch = pers::P4eLaunch { bar_base: self.bar_base, pos0: pos0 as u32, n_tokens: n, tok0: tok, eos, pad: 0, ring: self.ring.device_ptr(&stream).0 };
+        let n_stamps = if stamped { n as usize * pers::p4e_events(self.n_layers) as usize * self.grid as usize } else { 0 };
+        let stamps: Option<CudaSlice<u64>> = if stamped {
+            Some(stream.alloc_zeros::<u64>(n_stamps).map_err(|e| anyhow::anyhow!("alloc stamps: {e}"))?)
+        } else {
+            None
+        };
+        let launch = pers::P4eLaunch {
+            bar_base: self.bar_base,
+            pos0: pos0 as u32,
+            n_tokens: n,
+            tok0: tok,
+            eos,
+            pad: 0,
+            ring: self.ring.device_ptr(&stream).0,
+            stamps: stamps.as_ref().map_or(0, |b| b.device_ptr(&stream).0),
+        };
         let cfg = LaunchConfig { grid_dim: (self.grid, 1, 1), block_dim: (self.threads, 1, 1), shared_mem_bytes: self.smem };
-        let mut b = stream.launch_builder(&self.f);
+        let f = if stamped { self.f_stamp.as_ref().expect("checked above") } else { &self.f };
+        let mut b = stream.launch_builder(f);
         b.arg(&self.args).arg(&launch);
         // SAFETY: the kernel's own signature (Pers4eArgs*, Pers4eLaunch), the
         // layouts checked on the host; one CTA a SM, past the occupancy check.
@@ -404,7 +465,14 @@ impl Runtime4e {
         for c in caches.iter_mut() {
             c.set_len(pos0 + made.len())?;
         }
-        Ok(made)
+        let stamps = match stamps {
+            Some(d) => {
+                let all = stream.clone_dtoh(&d).map_err(|e| anyhow::anyhow!("D2H stamps: {e}"))?;
+                all[..made.len() * pers::p4e_events(self.n_layers) as usize * self.grid as usize].to_vec()
+            }
+            None => Vec::new(),
+        };
+        Ok((made, stamps))
     }
 
     /// Synchronise the stream (timing).

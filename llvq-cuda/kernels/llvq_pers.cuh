@@ -88,6 +88,22 @@ __device__ __forceinline__ u32 pers_ld_acquire(const u32* p)
 #endif
 }
 
+// The grid-wide clock of 4E's phase stamps (pers_4e.cu, STAMP = true): the
+// `%globaltimer` register, nanoseconds, one clock for every SM. The host
+// harness counts calls instead, which keeps the order of events and nothing
+// else: a stamp there says what came before what, never how long.
+__device__ __forceinline__ unsigned long long pers_now()
+{
+#ifdef LLVQ_HOST_BUILD
+    static unsigned long long t = 0ull;
+    return ++t;
+#else
+    unsigned long long t;
+    asm volatile("mov.u64 %0, %%globaltimer;" : "=l"(t));
+    return t;
+#endif
+}
+
 __device__ __forceinline__ bool pers_reached(u32 v, u32 target)
 {
     return (int)(v - target) >= 0;  // valid while fewer than 2^31 arrivals separate them
