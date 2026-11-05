@@ -46,6 +46,8 @@ pub struct Runtime4e {
     /// exists (512 threads): [`Runtime4e::decode_stamped`].
     f_stamp: Option<CudaFunction>,
     pub threads: u32,
+    /// The module's row form (`pers::P4E_ROWS_FORMS`).
+    pub rows_form: u32,
     pub grid: u32,
     smem: u32,
     pub form: u32,
@@ -135,6 +137,12 @@ fn rope_forms(cuda: &llvq_cuda::gpu::Cuda, cos: &Tensor, sin: &Tensor, device: &
 /// 512; `Some(n)` takes n (512 or 768) or refuses, for a measurement that
 /// times both geometries.
 pub fn install(model: &Qwen3, device: &Device, max_tokens: u32, threads: Option<u32>) -> anyhow::Result<Runtime4e> {
+    install_rows(model, device, max_tokens, threads, 1)
+}
+
+/// [`install`] with the module's row form (`pers::P4E_ROWS_FORMS`): 1 is v3,
+/// what the served config runs; 2 and 3 are measured by `LLVQ_PERS_4E`.
+pub fn install_rows(model: &Qwen3, device: &Device, max_tokens: u32, threads: Option<u32>, rows_form: u32) -> anyhow::Result<Runtime4e> {
     let dev = device.as_cuda_device()?;
     let stream = dev.cuda_stream();
     let mut lines = Vec::new();
@@ -151,9 +159,13 @@ pub fn install(model: &Qwen3, device: &Device, max_tokens: u32, threads: Option<
     let tables = frt.table_view().ok_or_else(|| anyhow::anyhow!("4E: no Tetra tables"))?;
     let (hidden, inter) = (qv0.d_in, cfg.intermediate_size as u32);
 
-    let text = pers::pers_unit_text(&frt.tile_define());
+    let text = format!("{}{}", pers::p4e_rows_define(rows_form).map_err(anyhow::Error::msg)?, pers::pers_unit_text(&frt.tile_define()));
     let src = llvq_cuda::gpu::KernelSource::new(&[text.as_str()]);
-    lines.push(format!("4E: persistent module {} bytes, sha256 {}, own module on candle's stream", src.text.len(), src.sha256));
+    lines.push(format!(
+        "4E: persistent module {} bytes, sha256 {}, row form {rows_form}, own module on candle's stream",
+        src.text.len(),
+        src.sha256
+    ));
     let cuda = llvq_cuda::gpu::Cuda::on_stream(stream.clone(), &src).map_err(anyhow::Error::msg)?;
 
     // RoPE: the card decides.
@@ -165,7 +177,7 @@ pub fn install(model: &Qwen3, device: &Device, max_tokens: u32, threads: Option<
     lines.push(format!("4E: RoPE forms equal to candle's rope on this card: {forms:?}; running form {form}"));
 
     // The block size: 768 where the card's module does not spill, else 512.
-    let smem = pers::p4e_smem_bytes(hidden, inter, groups as u32);
+    let smem = pers::p4e_smem_bytes(hidden, inter, groups as u32) + pers::p4e_scratch_bytes(rows_form);
     let mut chosen = None;
     let sizes: Vec<u32> = match threads {
         None => vec![768, 512],
@@ -363,6 +375,7 @@ pub fn install(model: &Qwen3, device: &Device, max_tokens: u32, threads: Option<
         f,
         f_stamp,
         threads,
+        rows_form,
         grid,
         smem,
         form,
@@ -393,6 +406,13 @@ impl Runtime4e {
     /// made; the caches hold `pos0 + made` positions after.
     pub fn decode(&mut self, caches: &mut [KvCache], pos0: usize, tok: u32, n: u32, eos: u32) -> anyhow::Result<Vec<u32>> {
         Ok(self.launch(caches, pos0, tok, n, eos, false)?.0)
+    }
+
+    /// The form and the geometry, as the measurement prints them: "v4 at 512
+    /// threads".
+    pub fn label(&self) -> String {
+        let form = pers::P4E_ROWS_FORMS.iter().find(|f| f.0 == self.rows_form).map_or("v?", |f| f.1);
+        format!("{form} at {} threads", self.threads)
     }
 
     /// The first position a launch may start at.

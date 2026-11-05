@@ -877,7 +877,7 @@ int main() {
         Pers4eQkv P{qm.words.data(), qm.rscale.data(), qm.tail.data(), qm.gscale.data(), qm.stride, 4096u,
                     km.words.data(), km.rscale.data(), km.tail.data(), km.gscale.data(), km.stride, 1024u,
                     vw.data(), vs.data(), vb.data(), 1024u, 20u, qm.nblocks, qm.tail_w, H, q.data(), k.data(), v.data()};
-        hostgrid::launch_coop(grid, threads, PERS_SMEM_HEADER + 8 * H, seed, [&] {
+        hostgrid::launch_coop(grid, threads, PERS_SMEM_HEADER + 8 * H + PERS_4E_SCRATCH, seed, [&] {
             float* xr = reinterpret_cast<float*>(PERS_SMEM_BASE() + PERS_SMEM_HEADER);
             float* xn = xr + H;
             const float sc = exact_rms_scale<0>(x.data(), H, 1e-6f);
@@ -887,7 +887,7 @@ int main() {
                 xr[i] = ((signs[i >> 5] >> (i & 31u)) & 1u) ? -hv : hv;
             }
             pers_rot_finish(xr, small.data(), H, m, kk, inv);
-            pers_4e_qkv_rows(P, t, g_inv.data(), xr, xn, blockIdx.x, gridDim.x);
+            pers_4e_qkv_rows(P, t, g_inv.data(), xr, xn, blockIdx.x, gridDim.x, xn + H);
         });
 #endif
         wr(q);

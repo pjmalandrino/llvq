@@ -97,10 +97,16 @@ struct Pers4eLaunch {
 // once the wait has released it. Per token, event e of CTA c lands at
 // stamps[(t x E + e) x grid + c], E = 3 + 10 x layers (pers.rs::p4e_events):
 //   0, 1               the embedding: arrival, release
-//   2 + 10l + 2k, +1   layer l, phase k = q/k/v, norm/RoPE/append,
-//                      attention, o, MLP (its own barrier inside): arrival,
-//                      release
-//   2 + 10 x layers    the head's W4 released: the token's end
+//   b = 2 + 15l        layer l, in the order they happen:
+//     b                q/k/v: ln1 and its rotation done (thread 0 after a
+//                      CTA barrier; no grid wait)
+//     b + 1, b + 2     q/k/v: arrival, release
+//     b + 3 .. b + 8   norm/RoPE/append, attention, o: arrival, release
+//     b + 9 .. b + 12  MLP, inside (pers_segment_body's `sub`): ln2 and its
+//                      rotation done, gate/up rows done, inner wait released,
+//                      the down's input ready
+//     b + 13, b + 14   MLP: arrival, release
+//   2 + 15 x layers    the head's W4 released: the token's end
 // pers.rs::p4e_phase_report turns them into time per phase.
 template <int FORM, bool STAMP, bool PF>
 __device__ __forceinline__ void pers_4e_body(const Pers4eArgs* __restrict__ A, const Pers4eLaunch L)
@@ -124,7 +130,7 @@ __device__ __forceinline__ void pers_4e_body(const Pers4eArgs* __restrict__ A, c
     const u32 H = A->hidden, G = gridDim.x, c0 = blockIdx.x;
     const u32 nqkv = A->n_heads * 128u + 2u * A->n_kv * 128u;
     u32 nb = 0u;  // barriers passed in this launch
-    const u32 E = 3u + 10u * A->n_layers;
+    const u32 E = 3u + 15u * A->n_layers;
 #define PERS_BAR() (L.bar_base + (++nb) * G)
 #define PERS_STAMP_AT(e)                                                   \
     do {                                                                   \
@@ -163,7 +169,7 @@ __device__ __forceinline__ void pers_4e_body(const Pers4eArgs* __restrict__ A, c
         PERS_WAIT(0u);
         for (u32 l = 0; l < A->n_layers; ++l) {
             const Pers4eLayer& Y = A->layers[l];
-            const u32 e0 = 2u + 10u * l;  // this layer's first stamp event
+            const u32 e0 = 2u + 15u * l;  // this layer's first stamp event
             // L2 prefetch: this CTA's q/k/v rows, asked for before ln1 and
             // the rotation every CTA computes first (the rows pers_4e_qkv_rows
             // gives the CTA: its share of q | k and of v under PF).
@@ -201,12 +207,17 @@ __device__ __forceinline__ void pers_4e_body(const Pers4eArgs* __restrict__ A, c
                 xr[i] = ((Y.signs_a[i >> 5] >> (i & 31u)) & 1u) ? -hv : hv;
             }
             pers_rot_finish(xr, Y.small_a, H, Y.m_a, Y.k_a, Y.inv_a);
-            pers_4e_qkv_rows<PF>(Y.qkv, tab, t_inv, xr, xn, c0, G);
-            PERS_WAIT(e0);
+            if (STAMP) {
+                __syncthreads();
+                PERS_STAMP_AT(e0);
+            }
+            pers_4e_qkv_rows<PF>(Y.qkv, tab, t_inv, xr, xn, c0, G,
+                                 v + (Y.mlp.inter > 2u * H ? Y.mlp.inter : 2u * H));
+            PERS_WAIT(e0 + 1u);
             pers_4e_norm_rope_append<FORM>(Y.qkv.q, Y.qkv.k, Y.qkv.v, Y.q_norm, Y.k_norm, A->cosr + pos * 64u,
                                            A->sinr + pos * 64u, A->eps, A->n_heads, A->n_kv, A->cap, pos, A->q_out,
                                            Y.kc, Y.vc);
-            PERS_WAIT(e0 + 2u);
+            PERS_WAIT(e0 + 3u);
             // L2 prefetch: this CTA's o rows and gate/up rows, the next two
             // row phases. A CTA with no attention job asks at once; a CTA with
             // one asks after it, so the prefetches never delay attention's
@@ -227,16 +238,17 @@ __device__ __forceinline__ void pers_4e_body(const Pers4eArgs* __restrict__ A, c
                                          A->attn_scratch, A->attn_ticket, A->ctx, reinterpret_cast<unsigned char*>(v),
                                          nullptr);
             if (c0 < attn_jobs) prefetch_next();
-            PERS_WAIT(e0 + 4u);
+            PERS_WAIT(e0 + 5u);
             pers_4e_o_int4<PF>(Y.ow, Y.osc, Y.obi, Y.o_gpr, A->ctx, v, A->n_heads * 128u, A->x_a, A->x_b, H * c0 / G,
                            H * (c0 + 1u) / G);
-            PERS_WAIT(e0 + 6u);
+            PERS_WAIT(e0 + 7u);
             // the MLP segment: its own barrier is the next ordinal
             const SegLaunch S{A->x_b, A->x_a, L.bar_base + nb * G, 0u};
             ++nb;
-            if (Y.tetra_down) pers_segment_body<0, true, true, PF>(&Y.mlp, S);
-            else pers_segment_body<0, false, true, PF>(&Y.mlp, S);
-            PERS_WAIT(e0 + 8u);
+            unsigned long long* sub = STAMP ? sp + (size_t)(e0 + 9u) * G : nullptr;
+            if (Y.tetra_down) pers_segment_body<0, true, true, PF>(&Y.mlp, S, sub, G);
+            else pers_segment_body<0, false, true, PF>(&Y.mlp, S, sub, G);
+            PERS_WAIT(e0 + 13u);
         }
         // the final norm, the head, the argmax (its own barrier is W4)
         const float sc = exact_rms_scale<0>(A->x_a, H, A->eps);

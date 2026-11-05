@@ -124,7 +124,7 @@ Tools:   ops/sass_loops.py; ops/sass_chain.py (new: the critical path of a loop 
       the two activations. Statically, a second token costs 32 instructions on V2's 241.
   k2 was added on 2026-11-05 on the operator's yes relayed by the throughput review session, after the first
   row-loop job had been stamped and launched without it: it runs under its own prereg and job
-  (proofs/preregistration-pers-rowloop-k2-2026-11-05.md, ops/jobs/pers-rowloop-k2.sh, not stamped, not launched).
+  (now part B of proofs/preregistration-shaker-4e-2026-11-05.md and ops/jobs/shaker-4e.sh, not stamped, not launched).
   None spills.
 
 5. THE "Λ-TRANSPOSED READ" (review session, 2026-11-05, not committed)

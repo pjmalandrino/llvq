@@ -831,6 +831,131 @@ __device__ __forceinline__ void pers_tetra_stream(u32 nrows, u32 nblocks, u32 ta
     }
 }
 
+// The row form of 4E's 512-thread symbols, chosen when the module is built
+// (persist4e_cuda.rs prepends the define): 1, the stream above (4E v3, the
+// default and what every served launch has run); 2, 4E v4, v2's row loop
+// (pers_tetra_row with the next block's words in flight) on the same static
+// rows, row by row. The row-loop card reading timed v2's loop alone at x1.18
+// over the stream's (pers-rowloop-2026-11-05). 3, 4E v5: form 2, with the
+// CTA's last rows (its row count modulo the warps) split block by block over
+// every warp (pers_4e_rows_cta). All three keep every bit.
+#ifndef PERS_4E_ROWS
+#define PERS_4E_ROWS 1u
+#endif
+// Form 3's shared scratch, after the activation staging: the split rows'
+// fold inputs, and gate/up's binary16 values before their product.
+#if PERS_4E_ROWS == 3
+#define PERS_4E_SCRATCH 16384u
+#else
+#define PERS_4E_SCRATCH 0u
+#endif
+
+// Form 2: the stream's interface, one row after the other. Lane 0 reads the
+// row's rscale and runs START before the blocks, so their loads are in flight
+// while the row decodes; the epilogue is pers_epilogue's, the stream's own.
+template <class Row, class Start, class Epi>
+__device__ __forceinline__ void pers_tetra_rows_static(u32 nrows, u32 nblocks, u32 tail_w, const F1rTables& tab,
+                                                       const float* invnorm, const float* xs, u32 lane, Row row_of,
+                                                       Start start, Epi epi)
+{
+    for (u32 k = 0; k < nrows; ++k) {
+        const PersTRow R = row_of(k);
+        float rs = 0.0f;
+        if (lane == 0u) {
+            rs = R.rscale[R.r];
+            start(k);
+        }
+        const float a = pers_tetra_row<24u, false, true>(R.w, tab, R.gscale, invnorm, xs, nblocks, lane);
+        if (lane == 0u) epi(k, pers_epilogue(a, rs, R.tail + (unsigned long long)R.r * tail_w, xs + nblocks * 24u, tail_w));
+    }
+}
+
+// Form 3: the rows of one CTA, idx in [0, n), every warp of it. The full
+// rounds (n rounded down to the warps) run as form 2, row idx on warp idx mod
+// nwarps. The rest, at most nwarps - 1 rows, is split into (row, lane step)
+// units dealt to every warp: a unit decodes block j = lane + 32 i of its row
+// and keeps pers_fold's two factors, t = a x gscale[g] and invnorm[m], in the
+// scratch. After a CTA barrier the row's owner (warp row mod nwarps) folds
+// them in i order, fma(t, inv, acc) from 0 on the blocks of the row, which is
+// pers_tetra_row's sum term for term, then warp_sum and the epilogue. When
+// the units do not fit the scratch, the rest runs as form 2 too.
+// ROW_AT(idx) gives the row; EPI(idx, y) on lane 0 with the f32 value.
+template <class RowAt, class Epi>
+__device__ __forceinline__ void pers_4e_rows_cta(u32 n, u32 nblocks, u32 tail_w, const F1rTables& tab,
+                                                 const float* invnorm, const float* xs, RowAt row_at, Epi epi,
+                                                 float* scratch, u32 scratch_floats)
+{
+    const u32 lane = threadIdx.x & 31u, warp = threadIdx.x >> 5, nw = blockDim.x >> 5;
+    const u32 nit = (nblocks + 31u) >> 5;
+    u32 full = n / nw * nw;
+    u32 rem = n - full;
+    if (2u * 32u * rem * nit > scratch_floats) {
+        full = n;
+        rem = 0u;
+    }
+    const auto whole = [&](u32 idx) {
+        const PersTRow R = row_at(idx);
+        const float a = pers_tetra_row<24u, false, true>(R.w, tab, R.gscale, invnorm, xs, nblocks, lane);
+        if (lane == 0u) epi(idx, pers_epilogue(a, R.rscale[R.r], R.tail + (unsigned long long)R.r * tail_w,
+                                               xs + nblocks * 24u, tail_w));
+    };
+    for (u32 idx = warp; idx < full; idx += nw) whole(idx);
+    if (rem == 0u) return;
+    float* st = scratch;                    // t, [unit][lane]
+    float* sv = scratch + 32u * rem * nit;  // invnorm[m], [unit][lane]
+    const u32 units = rem * nit;
+    for (u32 u = warp; u < units; u += nw) {
+        const u32 rr = u / nit, i = u - rr * nit;
+        const PersTRow R = row_at(full + rr);
+        const u32 j = lane + 32u * i;
+        float tv = 0.0f, iv = 0.0f;
+        if (j < nblocks) {
+            u32 lo, hi16, q[6];
+            f1r_load(R.w, j, lo, hi16);
+            f1r_v3_quads(lo, hi16, tab, q);
+            const float* xb = xs + j * 24u;
+            float a = 0.0f;
+#pragma unroll
+            for (u32 b = 0; b < 6u; ++b) {
+#pragma unroll
+                for (u32 k = 0; k < 4u; ++k) a = __fmaf_rn(f1r_v3_float(q[b], k), xb[TETRA48_ORDER[4u * b + k]], a);
+            }
+            const u32 m = (tetra48_n2(q) >> 4) & (TETRA48_SHELLS - 1u);
+            tv = __fmul_rn(a, R.gscale[(hi16 >> 15) & 1u]);
+            iv = invnorm[m];
+        }
+        st[u * 32u + lane] = tv;
+        sv[u * 32u + lane] = iv;
+    }
+    __syncthreads();
+    for (u32 rr = warp; rr < rem; rr += nw) {
+        float acc = 0.0f;
+        for (u32 i = 0; i < nit; ++i) {
+            const u32 u = rr * nit + i;
+            if (lane + 32u * i < nblocks) acc = __fmaf_rn(st[u * 32u + lane], sv[u * 32u + lane], acc);
+        }
+        acc = warp_sum(acc);
+        if (lane == 0u) {
+            const PersTRow R = row_at(full + rr);
+            epi(full + rr, pers_epilogue(acc, R.rscale[R.r], R.tail + (unsigned long long)R.r * tail_w,
+                                         xs + nblocks * 24u, tail_w));
+        }
+    }
+}
+
+// 4E's row driver: the form the module was built with.
+template <class Row, class Start, class Epi>
+__device__ __forceinline__ void pers_4e_rows(u32 nrows, u32 nblocks, u32 tail_w, const F1rTables& tab,
+                                             const float* invnorm, const float* xs, u32 lane, Row row_of, Start start,
+                                             Epi epi)
+{
+#if PERS_4E_ROWS >= 2
+    pers_tetra_rows_static(nrows, nblocks, tail_w, tab, invnorm, xs, lane, row_of, start, epi);
+#else
+    pers_tetra_stream<PERS_STREAM_D>(nrows, nblocks, tail_w, tab, invnorm, xs, lane, row_of, start, epi);
+#endif
+}
+
 // Rows a warp takes from a CTA's slice [lo, hi) under the stream's static
 // assignment: lo + warp, lo + warp + nwarps, ...
 __device__ __forceinline__ u32 pers_warp_rows(u32 lo, u32 hi, u32 warp, u32 nwarps)
@@ -857,26 +982,36 @@ struct Pers4eQkv {
 // Otherwise the contiguous slice [n c / g, n (c + 1) / g) of q | k | v.
 template <bool PF = true>
 __device__ __forceinline__ void pers_4e_qkv_rows(const Pers4eQkv& P, const F1rTables& tab, const float* invnorm,
-                                                 const float* xr, const float* xn, u32 c, u32 g)
+                                                 const float* xr, const float* xn, u32 c, u32 g,
+                                                 float* scratch = nullptr)
 {
     const u32 lane = threadIdx.x & 31u;
     if (PF) {
+        // The CTA's q | k rows as one list, then the int4 v rows by warp.
         const u32 warp = threadIdx.x >> 5, nw = blockDim.x >> 5;
         const u32 qk = P.q_dout + P.k_dout;
         const u32 lo = qk * c / g, thi = qk * (c + 1u) / g;
-        const auto row_of = [&](u32 k) {
-            const u32 r = lo + warp + k * nw;
+        const auto qk_row = [&](u32 r) {
             return r < P.q_dout ? PersTRow{P.qw + r * P.q_stride, P.qgs, P.qrs, P.qtl, r}
                                 : PersTRow{P.kw + (r - P.q_dout) * P.k_stride, P.kgs, P.krs, P.ktl, r - P.q_dout};
         };
-        const auto start = [](u32) {};
-        const auto epi = [&](u32 k, float y) {
-            const u32 r = lo + warp + k * nw;
+        const auto qk_out = [&](u32 r, float y) {
             if (r < P.q_dout) P.q[r] = f2h(y);
             else P.k[r - P.q_dout] = f2h(y);
         };
-        pers_tetra_stream<PERS_STREAM_D>(pers_warp_rows(lo, thi, warp, nw), P.nblocks, P.tail_w, tab, invnorm, xr,
-                                         lane, row_of, start, epi);
+#if PERS_4E_ROWS == 3
+        // form 3: every warp of the CTA on its list, the last rows split
+        const auto row_at = [&](u32 idx) { return qk_row(lo + idx); };
+        const auto epi = [&](u32 idx, float y) { qk_out(lo + idx, y); };
+        pers_4e_rows_cta(thi - lo, P.nblocks, P.tail_w, tab, invnorm, xr, row_at, epi, scratch, PERS_4E_SCRATCH / 4u);
+#else
+        (void)scratch;
+        const auto row_of = [&](u32 k) { return qk_row(lo + warp + k * nw); };
+        const auto start = [](u32) {};
+        const auto epi = [&](u32 k, float y) { qk_out(lo + warp + k * nw, y); };
+        pers_4e_rows(pers_warp_rows(lo, thi, warp, nw), P.nblocks, P.tail_w, tab, invnorm, xr, lane, row_of, start,
+                     epi);
+#endif
         const u32 vlo = P.v_dout * c / g, vhi = P.v_dout * (c + 1u) / g;
         for (u32 rv = vlo + warp; rv < vhi; rv += nw) {
             const float acc = pers_q4_row<true>(P.vw, P.vsc, P.vbi, xn, rv, P.d_in, P.v_gpr, lane);
@@ -885,6 +1020,9 @@ __device__ __forceinline__ void pers_4e_qkv_rows(const Pers4eQkv& P, const F1rTa
         __syncthreads();
         return;
     }
+#if PERS_4E_ROWS != 3
+    (void)scratch;
+#endif
     const u32 n = P.q_dout + P.k_dout + P.v_dout;
     const u32 lo = n * c / g, hi = n * (c + 1u) / g;
     pers_claim_reset(lo);

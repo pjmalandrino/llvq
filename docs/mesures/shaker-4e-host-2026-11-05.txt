@@ -1,0 +1,78 @@
+4E V4 AND V5, THE INNER STAMPS, AND THE SHAKER JOB, ON THE HOST, 2026-11-05
+==========================================================================
+
+Result: two new row forms of 4E, the inner stamps of q/k/v and MLP, and one card job that carries every 4E reading
+prepared at $0. Nothing is launched.
+- v4 is v2's row loop inside v3's structure; v5 is v4 with each CTA's last rows split over its 16 warps.
+- Both equal the served chain bit for bit on the host, the q/k/v phase and the whole token loop.
+- Job ops/jobs/shaker-4e.sh, prereg proofs/preregistration-shaker-4e-2026-11-05.md (not stamped), about $0.99,
+  ceiling $1.80. Its parts:
+  - A, v3 / v4 / v5 at 5 and 8,192 tokens with their inner stamps;
+  - B, the row loops with the k2 arm;
+  - C, the stamped served-4e protocol, read from its own script.
+- Expected, *estimated* from measured cycles: v4 184 tok/s and v5 195 at a 5-token prompt, against v3's 179.2
+  (*measured*).
+
+Prereg:  none for this host work ($0); the card reading has its own (above).
+Inputs:  pers-4e-insitu-host-2026-11-05.txt (rule D: 1,660 us of fixed work, 420 us of uneven split, about 170 us
+         of v3's loop); pers-rowloop-2026-11-05.txt (cycles a step).
+
+1. ROW FORMS (llvq_pers.cuh, PERS_4E_ROWS, set when the module is built)
+------------------------------------------------------------------------
+  1  v3's stream: the default, the served config's 4E, and the module text of every launch so far (no define).
+  2  v4: pers_tetra_rows_static, v2's row on v3's static rows.
+     - The same lambdas as the stream: row_of, start (lane 0 before the blocks), epi.
+     - So v3's mixed q/k/v split, its deferred SiLU, and its residual at a down row's start are kept as they are.
+  3  v5: pers_4e_rows_cta.
+     - A CTA's rows modulo 16 are split into (row, lane step) units dealt to every warp. Each unit keeps
+       pers_fold's factors, t = a x gscale[g] and invnorm[m], in a 16 KB scratch after the activation staging.
+     - After a CTA barrier, the owner folds them in i order: the same fma chain, from 0, on the row's blocks.
+       Then warp_sum and pers_epilogue.
+     - gate/up's binary16 values wait in the scratch's first 2 KB for exact_hmul(silu[g], u) after a barrier,
+       the stream's own product.
+     - A CTA with more than 512 pairs, or more units than the scratch holds, takes form 2's path. On the 4B's 142
+       CTAs: 69 pairs, and at most 40 units a phase.
+  Computed gains, from the measured cycles: v5's busiest warp drops from 40 to 35 steps in gate/up, from 26 to 15-16
+  in a Tetra down, and from 12 to 9-10 in q|k. That is about -308 us a token on v4's.
+  persist4e_cuda::install_rows takes the form; install keeps form 1. LLVQ_PERS_4E now installs the three forms at
+  512 threads (the 768-thread symbol spills under the card's driver) and names each "4E v3/v4/v5 at 512 threads".
+  devel ptxas 12.4: pers_4e_tokens_f1_t512 120 / 122 / 121 registers, the stamp symbols 125 / 122 / 121, all 0 B
+  stack.
+
+2. INNER STAMPS (pers_4e.cu, the stamp symbols only)
+---------------------------------------------------
+  A layer has 15 events instead of 10, in the order they happen:
+    - q/k/v: ln1+rotation done, arrival, release;
+    - norm, attention, o: arrival and release each;
+    - MLP, inside pers_segment_body's `sub`: ln2+rotation done, gate/up done, the inner wait released, the down's
+      input ready; then arrival, release.
+  pers::p4e_phase_report reads them as 7 parts (P4E_SUBS), each CTA work, which sum to their phase's mean work. The
+  inner wait is checked like a grid wait: its last arrival before its first release.
+
+3. HOST PROOFS ($0, cargo test under nice 10)
+--------------------------------------------
+  - the_4e_v4_rows_are_the_served_chain: q/k/v at two grids; the token loop at two RoPE forms, at positions 270-271,
+    and through the stamp symbol. 4 mutants caught: rscale, tail, start, row order.
+  - the_4e_v5_rows_are_the_served_chain: q/k/v at three grids, the token loop at four. At 20 x 96 gate/up's split
+    is taken: 486-487 pairs a CTA, 2 rows left over on 3 warps. 5 mutants caught: fold order, gscale, unit step,
+    owner's row, the gate/up product.
+  - A defect found and fixed on the way: form 3's gate/up buffer assumed 256 pairs a CTA. The host's 3-CTA grids hold
+    3,243, and the buffer overran into the fold scratch. The capacity is now checked, with form 2's path past it,
+    and the 20-CTA grid tests the split.
+  - The inner stamps: the report's own test (the parts sum to their phase, the inner wait checked); on the host's
+    stamps, every part positive and summing to its phase.
+  - Full suites under nice 10: llvq-cuda, pers_matches_served 34 of 34 and the library 124. llvq-llm 482 in
+    64 suites. cargo clippy --all-targets: 0 warnings on the Mac and on the Linux half of llvq-cuda; llvq-check shows
+    only the two known attn_cuda.rs warnings.
+  - The suite first caught a collision: form 3 had copied the v rows' loop and the k row's construction, and two
+    mutant texts then matched twice. The q|k rows and the v loop are now written once for every form.
+
+4. THE SHAKER JOB (ops/jobs/shaker-4e.sh)
+---------------------------------------
+  Each part runs whatever the others did; the job fails at the end if any part failed.
+  - Part C is the served-4e protocol, taken from ops/jobs/served-4e.sh when the shaker is built (the lines up to the
+    end of its job body) and run unchanged in a subshell, with its output under C/. The departure is written beside
+    its stamped prereg (-ECARTS.md, E1).
+  - The standalone k2 prereg and job (never stamped, never launched) are removed; k2 is part B.
+
+Not established: anything on a card; the driver's allocation of forms 2 and 3; any of the computed gains.
