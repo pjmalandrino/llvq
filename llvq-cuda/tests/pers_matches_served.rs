@@ -45,9 +45,15 @@ fn repo() -> PathBuf {
 /// Build one side from the sources under `root` (the repository, or a
 /// mutated copy of the files it needs).
 fn build_side(root: &Path, side: u32, contract: &str, tag: &str) -> PathBuf {
+    build_side_with(root, side, contract, tag, &[])
+}
+
+/// [`build_side`] with extra `-D` defines (the 4E row form of the module).
+fn build_side_with(root: &Path, side: u32, contract: &str, tag: &str, defines: &[&str]) -> PathBuf {
     let out = std::env::temp_dir().join(format!("llvq_host_pers_{tag}_{side}_{contract}_{}", std::process::id()));
     let res = Command::new("clang++")
         .args(["-std=c++17", "-O2", &format!("-ffp-contract={contract}"), "-Wall", "-Wextra", "-Werror"])
+        .args(defines.iter().map(|d| format!("-D{d}")))
         .arg(format!("-DPERS_SIDE={side}"))
         .arg(root.join("llvq-cuda/tests/host_pers.cpp"))
         .arg("-o")
@@ -66,6 +72,20 @@ fn served() -> &'static Path {
 fn persistent() -> &'static Path {
     static B: OnceLock<PathBuf> = OnceLock::new();
     B.get_or_init(|| build_side(&repo(), 1, "off", "pers"))
+}
+
+/// The persistent side with 4E's row form 3 (4E v5: form 2 with each CTA's
+/// last rows split over its warps).
+fn persistent_v5() -> &'static Path {
+    static B: OnceLock<PathBuf> = OnceLock::new();
+    B.get_or_init(|| build_side_with(&repo(), 1, "off", "pers_v5", &["PERS_4E_ROWS=3u"]))
+}
+
+/// The persistent side with 4E's row form 2 (4E v4: v2's row loop on the
+/// stream's static rows).
+fn persistent_v4() -> &'static Path {
+    static B: OnceLock<PathBuf> = OnceLock::new();
+    B.get_or_init(|| build_side_with(&repo(), 1, "off", "pers_v4", &["PERS_4E_ROWS=2u"]))
 }
 
 /// A copy of the files the harness reads, with `from` replaced by `to`
@@ -886,6 +906,11 @@ fn the_4e_phase_stamps_keep_the_tokens_and_bracket_the_waits() {
         let walls: f64 = r.phases.iter().map(|p| p.wall.0).sum();
         assert_eq!(walls, r.token.0, "one token read: the phases' walls are the token");
         assert!(r.phases.iter().all(|p| p.crit.0 >= p.mean.0 && p.mean.0 > 0.0), "{r:?}");
+        // the inner stamps: every part worked, and the parts are their phase
+        assert!(r.subs.iter().all(|p| p.crit.0 >= p.mean.0 && p.mean.0 > 0.0), "{r:?}");
+        let parts = |lo: usize, hi: usize| r.subs[lo..hi].iter().map(|p| p.mean.0).sum::<f64>();
+        assert!((parts(0, 2) - r.phases[1].mean.0).abs() < 1e-9, "q/k/v parts");
+        assert!((parts(2, 7) - r.phases[5].mean.0).abs() < 1e-9, "MLP parts");
     }
     // Teeth. A release left unstamped, and an arrival stamped after the wait
     // instead of before it: the report refuses both.
@@ -1191,6 +1216,26 @@ fn the_row_loop_arms_are_the_served_rows() {
     }
 }
 
+/// K2 (one decode, two activations): its rows on each activation are the
+/// served rows on that activation, and its rows on the first are the k = 1
+/// arm's (V2) bit for bit, binary16 and f32 before f2h, at every grid.
+#[test]
+fn the_k2_arm_is_the_k1_arm_on_each_activation() {
+    let want = run(served(), &trows_cmd(7, 1, 64, 0, &TROWS_SITES));
+    let rows: usize = TROWS_SITES.iter().map(|s| s.0 as usize).sum();
+    assert_eq!(want.len(), 12 * rows, "two activations: binary16 rows, then their f32 values");
+    let k1 = run(persistent(), &trows_cmd(0, 3, 96, 0, &TROWS_SITES));
+    let (h, f) = (2 * rows, 4 * rows);
+    // served layout: [y(x), y(x2)] then [f(x), f(x2)]
+    assert_eq!(&want[..h], &k1[..h], "the served rows on the first activation are V2's");
+    assert_eq!(&want[2 * h..2 * h + f], &k1[h..], "and so are their f32 values");
+    assert!(want[..h] != want[h..2 * h], "the two activations must give different rows");
+    for &(grid, threads, stamps) in &[(3u32, 96u32, 0u32), (2, 64, 1), (4, 128, 1), (5, 32, 0)] {
+        let got = run(persistent(), &trows_cmd(7, grid, threads, stamps, &TROWS_SITES));
+        assert!(got == want, "K2, grid {grid}x{threads}, stamps {stamps}: rows differ from the k = 1 rows on their activation");
+    }
+}
+
 #[test]
 fn row_loop_mutants_are_killed() {
     let cmds: Vec<Vec<u8>> = (0..4u32).map(|arm| trows_cmd(arm, 3, 96, 0, &TROWS_SITES)).collect();
@@ -1208,7 +1253,7 @@ fn row_loop_mutants_are_killed() {
         // is equivalent (zero words past the row), so the trip count is mutated.
         ("uniform_trip", "const u32 nit = (nblocks + 31u) >> 5;\n    float acc = 0.0f;\n    u32 lo = 0u, hi16 = 0u;", "const u32 nit = nblocks >> 5;\n    float acc = 0.0f;\n    u32 lo = 0u, hi16 = 0u;"),
         ("cta_slice", "hi = (u32)((unsigned long long)d_out * (c + 1u) / g);", "hi = (u32)((unsigned long long)d_out * (c + 1u) / g) - (c == 0u);"),
-        ("warp_stride", "for (u32 r = lo + warp; r < hi; r += nw) {", "for (u32 r = lo + warp; r < hi; r += nw + (nw > 1u)) {"),
+        ("warp_stride", "for (u32 r = lo + warp; r < hi; r += nw) {\n                const u32* wrow", "for (u32 r = lo + warp; r < hi; r += nw + (nw > 1u)) {\n                const u32* wrow"),
         ("v3_rows", "            pers_tetra_stream<PERS_STREAM_D>(pers_warp_rows(lo, hi, warp, nw), nb, tw, tab, t_inv, xs, lane, row_of,",
          "            pers_tetra_stream<PERS_STREAM_D>(pers_warp_rows(lo, hi, warp, nw) - (warp == 0u), nb, tw, tab, t_inv, xs, lane, row_of,"),
     ];
@@ -1216,5 +1261,133 @@ fn row_loop_mutants_are_killed() {
         let b = mutant(tag, f, from, to);
         let killed = cmds.iter().any(|c| run_mutant(&b, c).is_none_or(|got| got != want));
         assert!(killed, "row-loop mutant {tag} survived");
+    }
+    // K2, against its own served output (two activations).
+    let k2cmd = trows_cmd(7, 3, 96, 0, &TROWS_SITES);
+    let k2want = run(served(), &k2cmd);
+    let k2cases = [
+        ("k2_second_fold", "acc2 = pers_fold(acc2, b, q, hi16, gscale, invnorm);", "acc2 = pers_fold(acc2, a, q, hi16, gscale, invnorm);"),
+        ("k2_second_x", "const float* xb = xs2 + j * 24u;", "const float* xb = (xs2 == xs ? xs2 : xs) + j * 24u;"),
+        ("k2_staging", "if (ARM == TROWS_K2) pers_stage_f32<24u, false>(x2, xs2, nb, tw);", "if (ARM == TROWS_K2) pers_stage_f32<24u, false>(x2 == x ? x2 : x, xs2, nb, tw);"),
+        ("k2_second_tail", "const float v2 = pers_epilogue(acc2, rs[r], tail + (size_t)r * tw, xs2 + nb * 24u, tw);", "const float v2 = pers_epilogue(acc2, rs[r], tail + (size_t)r * tw, xs + nb * 24u, tw);"),
+    ];
+    for (tag, from, to) in k2cases {
+        let b = mutant(tag, f, from, to);
+        assert!(run_mutant(&b, &k2cmd).is_none_or(|got| got != k2want), "row-loop mutant {tag} survived");
+    }
+}
+
+
+// ---- 4E v4: v2's row loop inside v3's structure (PERS_4E_ROWS = 2) ---------
+
+/// The module built with row form 2 runs the served chain bit for bit: the
+/// q/k/v phase, the token loop (both RoPE forms read, positions past 256,
+/// EOS), and the stamped symbol's tokens and inner stamps.
+#[test]
+fn the_4e_v4_rows_are_the_served_chain() {
+    let r = rot(2560, 41);
+    let qkv = |grid: u32, threads: u32, seed: u64| {
+        Cmd::new(b'V').u32(grid).u32(threads).u64(seed).u32(r.m).u32(r.k).f32(r.inv).u32s(&r.signs).f32s(&r.small).0
+    };
+    for (grid, threads, seed) in [(3u32, 96u32, 1u64), (4, 64, 2)] {
+        assert!(run(served(), &qkv(grid, threads, seed)) == run(persistent_v4(), &qkv(grid, threads, seed)), "v4 q/k/v, grid {grid}");
+    }
+    let n = 3u32;
+    for (form, grid, threads) in [(0u32, 3u32, 128u32), (2, 4, 96)] {
+        let cmd = g_cmd_variant(form, grid, threads, &[(5, n, 7)], 16, u32::MAX, 0x4e40 + form as u64, 2);
+        let want = run(served(), &cmd);
+        let got = run(persistent_v4(), &cmd);
+        assert!(got[..got.len() - 8] == want[..want.len() - 8], "v4, form {form}, grid {grid}: tokens, residual or caches");
+    }
+    let cmd = g_cmd_variant(1, 3, 128, &[(270, 2, 7)], 288, u32::MAX, 0x4e50, 2);
+    let (want, got) = (run(served(), &cmd), run(persistent_v4(), &cmd));
+    assert!(got[..got.len() - 8] == want[..want.len() - 8], "v4, positions 270-271");
+    // the stamp symbol of v4: the same outputs as the token symbol, stamps that read
+    let runs = [(5u32, 3u32, 7u32), (8, 2, 9)];
+    let plain = run(persistent_v4(), &g_cmd_variant(1, 4, 96, &runs, 16, u32::MAX, 0x4e21, 2));
+    let stamped = run(persistent_v4(), &g_cmd_variant(1, 4, 96, &runs, 16, u32::MAX, 0x4e21, 1));
+    assert!(stamped[..plain.len()] == plain[..], "v4: the stamped launch moved an output");
+    let ev = pers::p4e_events(2) as usize;
+    let st: Vec<u64> = stamped[plain.len()..].chunks(8).map(|b| u64::from_le_bytes(b.try_into().unwrap())).collect();
+    let r = pers::p4e_phase_report(&st[..3 * ev * 4], 3, 2, 4).expect("v4's stamps");
+    assert!(r.subs.iter().all(|p| p.mean.0 > 0.0), "{r:?}");
+}
+
+/// v4's driver: each mutant moves the q/k/v rows or the token loop.
+#[test]
+fn the_4e_v4_mutants_are_killed() {
+    let r = rot(2560, 41);
+    let v = Cmd::new(b'V').u32(3).u32(96).u64(1).u32(r.m).u32(r.k).f32(r.inv).u32s(&r.signs).f32s(&r.small).0;
+    let g = g_cmd_variant(0, 3, 128, &[(5, 3, 7)], 16, u32::MAX, 0x4e40, 2);
+    let (want_v, want_g) = (run(served(), &v), run(served(), &g));
+    let f = "llvq-cuda/kernels/llvq_pers.cuh";
+    for (tag, from, to) in [
+        ("v4_rscale", "            rs = R.rscale[R.r];\n            start(k);", "            rs = R.rscale[R.r ^ 1u];\n            start(k);"),
+        ("v4_tail", "epi(k, pers_epilogue(a, rs, R.tail + (unsigned long long)R.r * tail_w,", "epi(k, pers_epilogue(a, rs, R.tail + (unsigned long long)(R.r + 1u) * tail_w,"),
+        ("v4_start", "            rs = R.rscale[R.r];\n            start(k);", "            rs = R.rscale[R.r];\n            (void)start;"),
+        ("v4_row_order", "    for (u32 k = 0; k < nrows; ++k) {\n        const PersTRow R = row_of(k);", "    for (u32 k = nrows; k-- > 0;) {\n        const PersTRow R = row_of(k);"),
+    ] {
+        let root = std::env::temp_dir().join(format!("llvq_pers_mutant_{tag}_{}", std::process::id()));
+        let _ = mutant(tag, f, from, to); // copies the tree and applies the edit exactly once
+        let b = build_side_with(&root, 1, "off", &format!("{tag}_v4"), &["PERS_4E_ROWS=2u"]);
+        let killed = run_mutant(&b, &v).is_none_or(|o| o != want_v) || run_mutant(&b, &g).is_none_or(|o| o != want_g);
+        assert!(killed, "v4 mutant {tag} survived");
+    }
+}
+
+
+// ---- 4E v5: the last rows of a CTA split over its warps (PERS_4E_ROWS = 3) --
+
+/// The module built with row form 3 runs the served chain bit for bit, on
+/// grids whose CTAs hold a row count that is not a multiple of their warps.
+#[test]
+fn the_4e_v5_rows_are_the_served_chain() {
+    let r = rot(2560, 41);
+    let qkv = |grid: u32, threads: u32, seed: u64| {
+        Cmd::new(b'V').u32(grid).u32(threads).u64(seed).u32(r.m).u32(r.k).f32(r.inv).u32s(&r.signs).f32s(&r.small).0
+    };
+    for (grid, threads, seed) in [(3u32, 96u32, 1u64), (4, 64, 2), (7, 128, 3)] {
+        assert!(run(served(), &qkv(grid, threads, seed)) == run(persistent_v5(), &qkv(grid, threads, seed)), "v5 q/k/v, grid {grid}x{threads}");
+    }
+    // grids 3 to 5: gate/up's pairs a CTA exceed form 3's 512 and take form 2's
+    // path; 20 x 96: 486 or 487 pairs a CTA, 2 rows left over on 3 warps, the
+    // split taken (and the down's and q|k's at every grid)
+    for (form, grid, threads) in [(0u32, 3u32, 128u32), (2, 4, 96), (1, 5, 64), (1, 20, 96)] {
+        let cmd = g_cmd_variant(form, grid, threads, &[(5, 3, 7)], 16, u32::MAX, 0x4e60 + form as u64, 2);
+        let want = run(served(), &cmd);
+        let got = run(persistent_v5(), &cmd);
+        let first = got.iter().zip(&want).position(|(a, b)| a != b);
+        assert!(got[..got.len() - 8] == want[..want.len() - 8], "v5, form {form}, grid {grid}x{threads}: tokens, residual or caches; lengths {} {}, first byte differing {first:?}", got.len(), want.len());
+    }
+    let cmd = g_cmd_variant(1, 3, 128, &[(270, 2, 7)], 288, u32::MAX, 0x4e70, 2);
+    let (want, got) = (run(served(), &cmd), run(persistent_v5(), &cmd));
+    assert!(got[..got.len() - 8] == want[..want.len() - 8], "v5, positions 270-271");
+    let runs = [(5u32, 3u32, 7u32), (8, 2, 9)];
+    let plain = run(persistent_v5(), &g_cmd_variant(1, 4, 96, &runs, 16, u32::MAX, 0x4e21, 2));
+    let stamped = run(persistent_v5(), &g_cmd_variant(1, 4, 96, &runs, 16, u32::MAX, 0x4e21, 1));
+    assert!(stamped[..plain.len()] == plain[..], "v5: the stamped launch moved an output");
+}
+
+/// v5's split: each mutant moves the q/k/v rows or the token loop.
+#[test]
+fn the_4e_v5_mutants_are_killed() {
+    let r = rot(2560, 41);
+    let v = |grid: u32, threads: u32| Cmd::new(b'V').u32(grid).u32(threads).u64(1).u32(r.m).u32(r.k).f32(r.inv).u32s(&r.signs).f32s(&r.small).0;
+    let cmds = [v(3, 96), v(7, 128), g_cmd_variant(0, 3, 128, &[(5, 3, 7)], 16, u32::MAX, 0x4e60, 2), g_cmd_variant(1, 20, 96, &[(5, 3, 7)], 16, u32::MAX, 0x4e61, 2)];
+    let want: Vec<Vec<u8>> = cmds.iter().map(|c| run(served(), c)).collect();
+    let f = "llvq-cuda/kernels/llvq_pers.cuh";
+    let s = "llvq-cuda/kernels/pers_segment.cu";
+    for (tag, file, from, to) in [
+        ("v5_fold_order", f, "        for (u32 i = 0; i < nit; ++i) {\n            const u32 u = rr * nit + i;", "        for (u32 i = nit; i-- > 0;) {\n            const u32 u = rr * nit + i;"),
+        ("v5_gscale", f, "tv = __fmul_rn(a, R.gscale[(hi16 >> 15) & 1u]);", "tv = __fmul_rn(a, R.gscale[0]);"),
+        ("v5_unit_step", f, "const u32 rr = u / nit, i = u - rr * nit;", "const u32 rr = u / nit, i = (u - rr * nit + 1u) % nit;"),
+        ("v5_owner_row", f, "            epi(full + rr, pers_epilogue(acc, R.rscale[R.r],", "            epi(full + (rr ^ 1u) % rem, pers_epilogue(acc, R.rscale[R.r],"),
+        ("v5_gu_product", s, "exact_hmul(A->silu[sgu[2u * p]], sgu[2u * p + 1u]);", "exact_hmul(A->silu[sgu[2u * p + 1u]], sgu[2u * p]);"),
+    ] {
+        let root = std::env::temp_dir().join(format!("llvq_pers_mutant_{tag}_{}", std::process::id()));
+        let _ = mutant(tag, file, from, to);
+        let b = build_side_with(&root, 1, "off", &format!("{tag}_v5"), &["PERS_4E_ROWS=3u"]);
+        let killed = cmds.iter().zip(&want).any(|(c, w)| run_mutant(&b, c).is_none_or(|o| &o != w));
+        assert!(killed, "v5 mutant {tag} survived");
     }
 }

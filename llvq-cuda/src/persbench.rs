@@ -497,41 +497,58 @@ impl<'a> Section<'a> {
             .map_err(|e| format!("tile define {tile_define:?}: {e}"))?;
         let f_ref = served.func("tv_tetra48_h")?;
         let tails = sites.iter().map(|s| m.up_u16(&s.tail_f16)).collect::<Result<Vec<_>, _>>()?;
-        // The reference rows, site by site, as l2_ref_pass launches them.
+        // K2's second activation: 9,728 values of a seeded gaussian, its own
+        // reference rows below.
+        let mut rng = llvq_core::SplitMix64::new(0x7e72);
+        let x2_host: Vec<f32> = (0..9728).map(|_| rng.next_gaussian() as f32).collect();
+        let x2_buf = m.up_f32(&x2_host)?;
+        let x2 = ptr(&x2_buf, &m);
+        // The reference rows, site by site, as l2_ref_pass launches them, on
+        // the bench activation and on the second one.
         let mut refs: Vec<Vec<u16>> = Vec::with_capacity(sites.len());
+        let mut refs2: Vec<Vec<u16>> = Vec::with_capacity(sites.len());
         for (k, s) in sites.iter().enumerate() {
+          for (xa, out) in [(x, &mut refs), (x2, &mut refs2)] {
             let (nb, tw) = (s.d_in / 24, s.d_in % 24);
             let y = served.zeros_u16(s.d_out as usize)?;
             let cfg = LaunchConfig { grid_dim: (s.d_out / 8, 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: tile_blocks * 96 };
             let tail = ptr(&tails[k], &m);
             let mut b = m.stream().launch_builder(&f_ref);
             b.arg(&s.words).arg(&s.stride_u32).arg(&tables.rows).arg(&tables.pref).arg(&tables.br).arg(&tables.suf)
-                .arg(&s.gscale).arg(&tables.invnorm).arg(&s.rscale).arg(&tail).arg(&x).arg(&y).arg(&nb).arg(&tw);
+                .arg(&s.gscale).arg(&tables.invnorm).arg(&s.rscale).arg(&tail).arg(&xa).arg(&y).arg(&nb).arg(&tw);
             // SAFETY: tv_tetra48_h's own arguments on live allocations of this site.
             unsafe { b.launch(cfg) }.map_err(|e| format!("tv_tetra48_h: {e}"))?;
             m.sync()?;
-            refs.push(served.down_u16(&y)?);
+            out.push(served.down_u16(&y)?);
+          }
         }
         let mut arms = Vec::new();
         for &(name, sym, owed, minb) in pers::TROWS_ARMS.iter() {
             let pick: Vec<usize> = (0..sites.len()).filter(|&k| !pers::trows_small_only(name) || sites[k].d_in <= 4096).collect();
             let rows: usize = pick.iter().map(|&k| sites[k].d_out as usize).sum();
+            let k2 = name == "k2";
             let y = m.zeros_u16(rows)?;
-            let mut words = Vec::with_capacity(pick.len() * 8);
+            let y2 = m.zeros_u16(if k2 { rows } else { 1 })?;
+            let mut words = Vec::with_capacity(pick.len() * 10);
             let mut at = 0u64;
             let mut bytes = 0u64;
             for &k in &pick {
                 let s = &sites[k];
                 let (nb, tw) = (s.d_in / 24, s.d_in % 24);
+                let y2p = if k2 { ptr(&y2, &m) + 2 * at } else { 0 };
                 words.extend(pers::trows_site_words(
-                    s.words, s.gscale, s.rscale, ptr(&tails[k], &m), ptr(&y, &m) + 2 * at, s.d_out, nb, tw, s.stride_u32,
+                    s.words, s.gscale, s.rscale, ptr(&tails[k], &m), ptr(&y, &m) + 2 * at, y2p, s.d_out, nb, tw, s.stride_u32,
                 ));
                 at += u64::from(s.d_out);
                 bytes += u64::from(s.d_out) * (4 * u64::from(s.stride_u32) + 2 * u64::from(tw) + 4);
             }
             let table = m.up_u64(&words)?;
             // One CTA a SM: 4E's own shared bytes. Two: the small sites' staging.
-            let shared = if minb == 1 { pers::trows_smem_bytes(9728) } else { pers::trows_smem_bytes(4096) };
+            let shared = match (k2, minb) {
+                (true, _) => pers::trows_k2_smem_bytes(),
+                (false, 1) => pers::trows_smem_bytes(9728),
+                _ => pers::trows_smem_bytes(4096),
+            };
             let f = m.func_dynamic_shared(sym, shared)?;
             let rep = m.report(sym)?;
             let occ = f
@@ -549,6 +566,7 @@ impl<'a> Section<'a> {
                 f,
                 table,
                 y,
+                y2,
                 nsites: pick.len() as u32,
                 shapes: pick.iter().map(|&k| (sites[k].d_out, sites[k].d_in)).collect(),
                 grid,
@@ -562,37 +580,45 @@ impl<'a> Section<'a> {
                 arms.push(a);
                 continue;
             }
-            trows_launch(&m, &a, &tables, x, None)?;
+            trows_launch(&m, &a, &tables, x, x2, None)?;
             m.sync()?;
-            let got = m.down_u16(&a.y)?;
-            let (mut same, mut at) = (0usize, 0usize);
-            let mut first = None;
-            for &k in &pick {
-                for (r, &want) in refs[k].iter().enumerate() {
-                    if got[at + r] == want {
-                        same += 1;
-                    } else if first.is_none() {
-                        first = Some(format!("{} row {r}: {:#06x} against {want:#06x}", sites[k].name, got[at + r]));
+            // Each output against its reference: y on the bench activation,
+            // and for K2 also y2 on the second one.
+            let mut checks = vec![(m.down_u16(&a.y)?, &refs, "")];
+            if k2 {
+                checks.push((m.down_u16(&a.y2)?, &refs2, " on the second activation"));
+            }
+            for (got, want_of, what) in &checks {
+                let (mut same, mut at) = (0usize, 0usize);
+                let mut first = None;
+                for &k in &pick {
+                    for (r, &want) in want_of[k].iter().enumerate() {
+                        if got[at + r] == want {
+                            same += 1;
+                        } else if first.is_none() {
+                            first = Some(format!("{} row {r}: {:#06x} against {want:#06x}", sites[k].name, got[at + r]));
+                        }
+                    }
+                    at += sites[k].d_out as usize;
+                }
+                if owed {
+                    if same == rows {
+                        println!("  {name}: {rows} rows identical BIT FOR BIT to tv_tetra48_h{what}");
+                    } else {
+                        a.valid = false;
+                        println!("  {name} INVALIDATED{what}: {same} of {rows} rows equal; first: {}", first.unwrap_or_default());
                     }
                 }
-                at += sites[k].d_out as usize;
-            }
-            if owed {
-                if same == rows {
-                    println!("  {name}: {rows} rows identical BIT FOR BIT to tv_tetra48_h");
-                } else {
-                    a.valid = false;
-                    println!("  {name} INVALIDATED: {same} of {rows} rows equal; first: {}", first.unwrap_or_default());
+                if !owed {
+                    println!("  {name}: diagnostic, rows not owed ({same} of {rows} happen to equal tv_tetra48_h)");
                 }
-            } else {
-                println!("  {name}: diagnostic, rows not owed ({same} of {rows} happen to equal tv_tetra48_h)");
             }
             if a.valid {
                 // The stamped launch, outside the rounds.
                 let nw = 16u32;
                 let stamps = m.zeros_u32(a.shapes.len() * grid as usize * (nw as usize + 1))?;
                 let ends: CudaSlice<u64> = m.stream().alloc_zeros(4 * grid as usize).map_err(|e| format!("alloc u64: {e}"))?;
-                trows_launch(&m, &a, &tables, x, Some((&stamps, &ends)))?;
+                trows_launch(&m, &a, &tables, x, x2, Some((&stamps, &ends)))?;
                 m.sync()?;
                 let st = m.down_u32(&stamps)?;
                 let en: Vec<u64> = m.stream().clone_dtoh(&ends).map_err(|e| format!("D2H u64: {e}"))?;
@@ -610,7 +636,7 @@ impl<'a> Section<'a> {
             }
             arms.push(a);
         }
-        self.trows = Some(Trows { module: m, _served: served, _tails: tails, arms });
+        self.trows = Some(Trows { module: m, _served: served, _tails: tails, x2, _x2: x2_buf, arms });
         Ok(())
     }
 
@@ -956,7 +982,7 @@ impl<'a> Section<'a> {
         if let Some(mut tr) = self.trows.take() {
             for a in tr.arms.iter_mut().filter(|a| a.valid) {
                 let t0 = Instant::now();
-                trows_launch(&tr.module, a, &tables, x, None)?;
+                trows_launch(&tr.module, a, &tables, x, tr.x2, None)?;
                 tr.module.sync()?;
                 if timed {
                     a.series.push(t0.elapsed().as_secs_f64());
@@ -1127,6 +1153,8 @@ struct TrowsArm {
     f: CudaFunction,
     table: CudaSlice<u64>,
     y: CudaSlice<u16>,
+    /// K2's rows on the second activation (one element for the other arms).
+    y2: CudaSlice<u16>,
     nsites: u32,
     shapes: Vec<(u32, u32)>,
     grid: u32,
@@ -1142,17 +1170,20 @@ struct Trows {
     module: Cuda,
     _served: Cuda,
     _tails: Vec<CudaSlice<u16>>,
+    /// K2's second activation, its address and its buffer (kept alive).
+    x2: u64,
+    _x2: CudaSlice<f32>,
     arms: Vec<TrowsArm>,
 }
 
-fn trows_launch(m: &Cuda, a: &TrowsArm, t: &Tables, x: u64, stamps: Option<(&CudaSlice<u32>, &CudaSlice<u64>)>) -> Result<(), String> {
+fn trows_launch(m: &Cuda, a: &TrowsArm, t: &Tables, x: u64, x2: u64, stamps: Option<(&CudaSlice<u32>, &CudaSlice<u64>)>) -> Result<(), String> {
     let cfg = LaunchConfig { grid_dim: (a.grid, 1, 1), block_dim: (512, 1, 1), shared_mem_bytes: a.shared };
     let (sp, ep) = match stamps {
         Some((s, e)) => (ptr(s, m), ptr(e, m)),
         None => (0u64, 0u64),
     };
     let mut b = m.stream().launch_builder(&a.f);
-    b.arg(&a.table).arg(&a.nsites).arg(&t.rows).arg(&t.pref).arg(&t.br).arg(&t.suf).arg(&t.invnorm).arg(&x).arg(&sp).arg(&ep);
+    b.arg(&a.table).arg(&a.nsites).arg(&t.rows).arg(&t.pref).arg(&t.br).arg(&t.suf).arg(&t.invnorm).arg(&x).arg(&x2).arg(&sp).arg(&ep);
     // SAFETY: the kernel's own arguments; every pointer in the site table and
     // the stamp buffers (sized sites x grid x 17 and grid x 4) is live.
     unsafe { b.launch(cfg) }.map_err(|e| format!("{}: {e}", a.name))?;
@@ -1174,6 +1205,7 @@ fn trows_report(tr: &Trows) {
             "v2" | "v2_s" => None,
             "v2_o2" => Some("v2_s"),
             "l1w" | "bcast" | "xbcast" => Some("v2u"),
+            "k2" => None,
             _ => Some("v2"),
         };
         let vs = base.and_then(|n| series(n).map(|s| (n, s))).map(|(n, s)| {
@@ -1190,5 +1222,17 @@ fn trows_report(tr: &Trows) {
             a.bytes as f64 / 1e9,
             vs.unwrap_or_default()
         );
+        // K2: the cost of a second token as a fraction of a pass, round by
+        // round against V2 (same rows, same bytes, one decode for two).
+        if a.name == "k2" {
+            if let Some(v2) = series("v2") {
+                let f: Vec<f64> = a.series.iter().zip(&v2).map(|(k, v)| k / v - 1.0).collect();
+                let (fm, fl, fh) = pers::med_range(&f);
+                println!(
+                    "  {:<7} time over v2, round by round, less 1: the second token costs {fm:.3} [{fl:.3}-{fh:.3}] of a pass",
+                    ""
+                );
+            }
+        }
     }
 }

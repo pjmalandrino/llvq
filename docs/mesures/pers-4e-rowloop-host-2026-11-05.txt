@@ -114,11 +114,17 @@ Tools:   ops/sass_loops.py; ops/sass_chain.py (new: the critical path of a loop 
     xbcast   v2u reading the step's lane-0 activation block: LDS.128 broadcast        no           68
     v2_s     v2 on the sites of d_in 4,096 or less, one CTA a SM                     yes          68
     v2_o2    the same at two CTAs a SM (32 warps), launch bound (512, 2)             yes          63
+    k2       one decode, two activations (the door to k tokens a pass)              yes, each    87
   Devel SASS (ops/sass_loops.py), each arm's loop is the one intended:
     - v2's block loop is 241 instructions, as on the card's 4E v2;
     - v3's stream loop is 1,509 for 4 blocks (4E v3: 1,523 to 1,595);
     - ilp2 decodes two blocks in one 519-instruction region with a single reconvergence;
-    - bcast adds 2 SHFL; xbcast keeps its 6 LDS.128, uniform at run time.
+    - bcast adds 2 SHFL; xbcast keeps its 6 LDS.128, uniform at run time;
+    - k2's loop is 273 instructions: the decode once (LOP3 46, PRMT 36, IDP 6, as V2), FFMA 50 and LDS.128 12 for
+      the two activations. Statically, a second token costs 32 instructions on V2's 241.
+  k2 was added on 2026-11-05 on the operator's yes relayed by the throughput review session, after the first
+  row-loop job had been stamped and launched without it: it runs under its own prereg and job
+  (now part B of proofs/preregistration-shaker-4e-2026-11-05.md and ops/jobs/shaker-4e.sh, not stamped, not launched).
   None spills.
 
 5. THE "Λ-TRANSPOSED READ" (review session, 2026-11-05, not committed)

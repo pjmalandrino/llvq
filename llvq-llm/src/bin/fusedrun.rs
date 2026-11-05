@@ -1290,9 +1290,9 @@ fn run_pers_4e(
     for rt in rts.iter_mut() {
         let (got, _) = pers(rt, &mut caches)?;
         if let Some(i) = first_divergence(&want, &got).map_err(|e| anyhow::anyhow!("{e}"))? {
-            anyhow::bail!("context {}: 4E at {} threads diverges from the eager path at token {i}; 4E owes its bits, the run is void", prompt.len(), rt.threads);
+            anyhow::bail!("context {}: 4E {} diverges from the eager path at token {i}; 4E owes its bits, the run is void", prompt.len(), rt.label());
         }
-        println!("  4E at {} threads: tokens equal the eager path's, {} of {}", rt.threads, got.len(), want.len());
+        println!("  4E {}: tokens equal the eager path's, {} of {}", rt.label(), got.len(), want.len());
     }
     match first_divergence(&served, &want).map_err(|e| anyhow::anyhow!("{e}"))? {
         None => println!("  served door (kernel from {from}): the same {} tokens", served.len()),
@@ -1311,7 +1311,7 @@ fn run_pers_4e(
         for (k, rt) in rts.iter_mut().enumerate() {
             let (b, tb) = pers(rt, &mut caches)?;
             if b != want {
-                anyhow::bail!("round {round}: 4E at {} threads moved its tokens; the run is void", rt.threads);
+                anyhow::bail!("round {round}: 4E {} moved its tokens; the run is void", rt.label());
             }
             if round >= WARMUP {
                 rate[1 + k].push((n_new - 1) as f64 / tb);
@@ -1323,7 +1323,7 @@ fn run_pers_4e(
     println!("  {eager_name:<22} {m:7.1} tok/s [{lo:.1}-{hi:.1}]");
     for (k, rt) in rts.iter().enumerate() {
         let (m, lo, hi) = median_range(&rate[1 + k]);
-        let name = format!("4E {} threads", rt.threads);
+        let name = format!("4E {}", rt.label());
         println!("  {name:<22} {m:7.1} tok/s [{lo:.1}-{hi:.1}]");
         let ratio: Vec<f64> = rate[1 + k].iter().zip(&rate[0]).map(|(a, b)| a / b).collect();
         let (m, lo, hi) = median_range(&ratio);
@@ -1335,7 +1335,7 @@ fn run_pers_4e(
     // stamps are void.
     for (k, rt) in rts.iter_mut().enumerate() {
         if !rt.can_stamp() {
-            println!("  phase stamps: no stamp symbol at {} threads", rt.threads);
+            println!("  phase stamps: no stamp symbol for 4E {}", rt.label());
             continue;
         }
         for c in caches.iter_mut() {
@@ -1345,11 +1345,11 @@ fn run_pers_4e(
         let mut got = vec![first];
         got.extend(&made);
         if got != want {
-            anyhow::bail!("context {}: the stamped launch at {} threads moved its tokens; its stamps are void", prompt.len(), rt.threads);
+            anyhow::bail!("context {}: the stamped launch of 4E {} moved its tokens; its stamps are void", prompt.len(), rt.label());
         }
         let (layers, grid) = rt.stamp_shape();
         let r = llvq_cuda::pers::p4e_phase_report(&stamps, made.len() as u32, layers, grid).map_err(anyhow::Error::msg)?;
-        println!("  phase stamps, 4E at {} threads:", rt.threads);
+        println!("  phase stamps, 4E {}:", rt.label());
         for line in llvq_cuda::pers::p4e_report_lines(&r) {
             println!("{line}");
         }
@@ -1882,18 +1882,20 @@ fn main() -> anyhow::Result<()> {
             let (n_kv, groups, hd) = f.model.attn_geometry();
             let k = llvq_llm::attn::kernel_for(&device, n_kv, groups, hd).map_err(|e| anyhow::anyhow!("{e}"))?;
             f.model.set_attn_kernel(Some(k));
-            // Both geometries, each where its token symbol loads without
-            // local memory: 512 threads with the rows' prefetch, 768 without.
+            // The three row forms at 512 threads, each its own module (the
+            // 768-thread symbol spills under the card's driver, v2 and v3):
+            // v3 the stream, v4 v2's loop, v5 v4 with each CTA's last rows
+            // split over its warps. Each owes the eager path's tokens.
             let mut rts = Vec::new();
-            for threads in [512u32, 768] {
-                match llvq_llm::persist4e_cuda::install(&f.model, &device, n_new as u32, Some(threads)) {
+            for (form, label) in llvq_cuda::pers::P4E_ROWS_FORMS {
+                match llvq_llm::persist4e_cuda::install_rows(&f.model, &device, n_new as u32, Some(512), form) {
                     Ok(rt) => {
                         for line in &rt.lines {
                             println!("{line}");
                         }
                         rts.push(rt);
                     }
-                    Err(e) => println!("4E at {threads} threads: not run: {e}"),
+                    Err(e) => println!("4E {label} at 512 threads: not run: {e}"),
                 }
             }
             if rts.is_empty() {

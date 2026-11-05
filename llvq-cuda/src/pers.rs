@@ -701,6 +701,30 @@ pub fn n_bar_4e(layers: u32) -> u32 {
 /// that is the f32 vector of the row phases (`max(inter, 2 x hidden)` floats)
 /// or the attention phase's stage, unit states and q (`PERS_ATTN_SMEM` of
 /// llvq_pers.cuh), whichever is larger, rounded to 16 bytes.
+/// 4E's row forms (`PERS_4E_ROWS` in `llvq_pers.cuh`): 1, the stream (4E v3,
+/// what the served config runs); 2, v2's row loop on the same static rows
+/// (4E v4); 3, form 2 with each CTA's last rows split over every warp (4E v5).
+pub const P4E_ROWS_FORMS: [(u32, &str); 3] = [(1, "v3"), (2, "v4"), (3, "v5")];
+
+/// The line a module of row form `form` starts with; form 1 is the
+/// default and adds nothing, so its module keeps its text.
+pub fn p4e_rows_define(form: u32) -> Result<String, String> {
+    match form {
+        1 => Ok(String::new()),
+        2 | 3 => Ok(format!("#define PERS_4E_ROWS {form}u\n")),
+        _ => Err(format!("4E row form {form}: the forms are 1 (v3), 2 (v4) and 3 (v5)")),
+    }
+}
+
+/// Form 3's shared scratch, after the activation staging (`PERS_4E_SCRATCH`).
+pub fn p4e_scratch_bytes(form: u32) -> u32 {
+    if form == 3 {
+        16_384
+    } else {
+        0
+    }
+}
+
 pub fn p4e_smem_bytes(hidden: u32, inter: u32, groups: u32) -> u32 {
     let vec = 4 * inter.max(2 * hidden);
     let attn = 16 * 1024 + 4 * 4 * groups * 130 + 4 * groups * 128;
@@ -1155,10 +1179,27 @@ pub fn p4e_rows_prefetch(threads: u32) -> bool {
 }
 
 /// Stamp events of one 4E token (`pers_4e.cu`, STAMP = true): the
-/// embedding's arrival and release, ten a layer, the head's end.
+/// embedding's arrival and release, fifteen a layer in the order they happen
+/// ([`P4E_LAYER`]), the head's end.
 pub fn p4e_events(layers: u32) -> u32 {
-    3 + 10 * layers
+    3 + 15 * layers
 }
+
+/// A layer's stamp events, offsets from its first (`pers_4e.cu`): q/k/v's
+/// ln1 and rotation done, then each grid wait's arrival and release, with the
+/// MLP's four inner points before its own wait.
+pub const P4E_LAYER: [&str; 15] = [
+    "q/k/v ln1+rotation done", "q/k/v arrival", "q/k/v release", "norm arrival", "norm release",
+    "attention arrival", "attention release", "o arrival", "o release", "MLP ln2+rotation done",
+    "MLP gate/up done", "MLP inner release", "MLP down input ready", "MLP arrival", "MLP release",
+];
+
+/// The parts of q/k/v and MLP the inner stamps split them into, as
+/// [`p4e_phase_report`] names them; each is CTA work, no grid wall.
+pub const P4E_SUBS: [&str; 7] = [
+    "q/k/v: ln1+rotation", "q/k/v: rows", "MLP: ln2+rotation", "MLP: gate/up rows", "MLP: inner wait",
+    "MLP: down input", "MLP: down rows",
+];
 
 /// The phases of a 4E token, in order, as [`p4e_phase_report`] names them.
 pub const P4E_PHASES: [&str; 7] = ["embedding", "q/k/v", "norm/RoPE/append", "attention", "o", "MLP", "head"];
@@ -1182,6 +1223,8 @@ pub struct P4ePhase {
 #[derive(Clone, Debug, PartialEq)]
 pub struct P4eReport {
     pub phases: Vec<P4ePhase>,
+    /// [`P4E_SUBS`], from the inner stamps: their `wall` is unread (zeros).
+    pub subs: Vec<P4ePhase>,
     /// Release to release, the head's end of one token to the next's.
     pub token: (f64, f64, f64),
     pub tokens_read: usize,
@@ -1216,8 +1259,13 @@ pub fn p4e_phase_report(stamps: &[u64], n: u32, layers: u32, grid: u32) -> Resul
             }
         }
     }
-    // Every wait: its last arrival before its first release.
-    let waits: Vec<usize> = (0..1 + 5 * layers as usize).map(|w| if w == 0 { 0 } else { 2 + 2 * (w - 1) }).collect();
+    // Every wait: its last arrival before its first release (the MLP's inner
+    // wait too: its gate/up-done stamp is each CTA's arrival).
+    let mut waits = vec![0usize];
+    for l in 0..layers as usize {
+        let b = 2 + 15 * l;
+        waits.extend([b + 1, b + 3, b + 5, b + 7, b + 10, b + 13]);
+    }
     for t in 0..n as usize {
         for &a in &waits {
             let last_arrival = (0..g).map(|c| at(t, a, c)).max().unwrap();
@@ -1230,34 +1278,44 @@ pub fn p4e_phase_report(stamps: &[u64], n: u32, layers: u32, grid: u32) -> Resul
     let mut sorted: Vec<u64> = stamps.to_vec();
     sorted.sort_unstable();
     let grain = sorted.windows(2).map(|w| w[1] - w[0]).filter(|&d| d > 0).min().unwrap_or(0);
-    let k = P4E_PHASES.len();
-    let (mut wall, mut crit, mut mean) = (vec![Vec::new(); k], vec![Vec::new(); k], vec![Vec::new(); k]);
-    let mut crit_ctas = vec![vec![0u32; g]; k];
+    let (k, ks) = (P4E_PHASES.len(), P4E_SUBS.len());
+    let (mut wall, mut crit, mut mean) = (vec![Vec::new(); k + ks], vec![Vec::new(); k + ks], vec![Vec::new(); k + ks]);
+    let mut crit_ctas = vec![vec![0u32; g]; k + ks];
     let mut token = Vec::new();
     let head_end = ev - 1;
     for t in 1..n as usize {
-        let (mut w, mut cr, mut mn) = (vec![0.0; k], vec![0.0; k], vec![0.0; k]);
-        // (phase kind, start event or None for the previous token's end, end event)
-        let mut segs: Vec<(usize, Option<usize>, usize)> = vec![(0, None, 0)];
+        let (mut w, mut cr, mut mn) = (vec![0.0; k + ks], vec![0.0; k + ks], vec![0.0; k + ks]);
+        // (kind, start event or None for the previous token's end, end event,
+        // whether the kind has a grid wall: the phases do, the parts do not)
+        let mut segs: Vec<(usize, Option<usize>, usize, bool)> = vec![(0, None, 0, true)];
         let mut rel = 1usize;
         for l in 0..layers as usize {
-            for p in 0..5usize {
-                let arr = 2 + 10 * l + 2 * p;
-                segs.push((1 + p, Some(rel), arr));
-                rel = arr + 1;
+            let b = 2 + 15 * l;
+            segs.push((1, Some(rel), b + 1, true));
+            segs.push((k, Some(rel), b, false));
+            segs.push((k + 1, Some(b), b + 1, false));
+            segs.push((2, Some(b + 2), b + 3, true));
+            segs.push((3, Some(b + 4), b + 5, true));
+            segs.push((4, Some(b + 6), b + 7, true));
+            segs.push((5, Some(b + 8), b + 13, true));
+            for (i, e) in (b + 8..b + 13).enumerate() {
+                segs.push((k + 2 + i, Some(e), e + 1, false));
             }
+            rel = b + 14;
         }
-        segs.push((6, Some(rel), head_end));
-        for (kind, start, end) in segs {
+        segs.push((6, Some(rel), head_end, true));
+        for (kind, start, end, walled) in segs {
             let s_of = |c: usize| match start {
                 Some(e) => at(t, e, c),
                 None => at(t - 1, head_end, c),
             };
-            // the grid's release that ends this phase: its end event's release
-            let end_rel = if end == head_end { end } else { end + 1 };
-            let grid_from = (0..g).map(s_of).max().unwrap();
-            let grid_to = (0..g).map(|c| at(t, end_rel, c)).max().unwrap();
-            w[kind] += (grid_to - grid_from) as f64;
+            if walled {
+                // the grid's release that ends this phase: its end event's release
+                let end_rel = if end == head_end { end } else { end + 1 };
+                let grid_from = (0..g).map(s_of).max().unwrap();
+                let grid_to = (0..g).map(|c| at(t, end_rel, c)).max().unwrap();
+                w[kind] += (grid_to - grid_from) as f64;
+            }
             let works: Vec<u64> = (0..g).map(|c| at(t, end, c) - s_of(c)).collect();
             // the slowest CTA, the lowest index on a tie
             let (ci, cw) = works.iter().enumerate().fold((0usize, 0u64), |b, (i, &v)| if v > b.1 { (i, v) } else { b });
@@ -1265,7 +1323,7 @@ pub fn p4e_phase_report(stamps: &[u64], n: u32, layers: u32, grid: u32) -> Resul
             mn[kind] += works.iter().sum::<u64>() as f64 / g as f64;
             crit_ctas[kind][ci] += 1;
         }
-        for i in 0..k {
+        for i in 0..k + ks {
             wall[i].push(w[i]);
             crit[i].push(cr[i]);
             mean[i].push(mn[i]);
@@ -1274,12 +1332,12 @@ pub fn p4e_phase_report(stamps: &[u64], n: u32, layers: u32, grid: u32) -> Resul
         let t_prev = (0..g).map(|c| at(t - 1, head_end, c)).max().unwrap();
         token.push((t_end - t_prev) as f64);
     }
-    let phases = (0..k)
+    let mut all: Vec<P4ePhase> = (0..k + ks)
         .map(|i| {
             let total: u32 = crit_ctas[i].iter().sum();
             let (cta, hits) = crit_ctas[i].iter().enumerate().fold((0usize, 0u32), |b, (c, &h)| if h > b.1 { (c, h) } else { b });
             P4ePhase {
-                name: P4E_PHASES[i],
+                name: if i < k { P4E_PHASES[i] } else { P4E_SUBS[i - k] },
                 wall: med_range(&wall[i]),
                 crit: med_range(&crit[i]),
                 mean: med_range(&mean[i]),
@@ -1287,7 +1345,8 @@ pub fn p4e_phase_report(stamps: &[u64], n: u32, layers: u32, grid: u32) -> Resul
             }
         })
         .collect();
-    Ok(P4eReport { phases, token: med_range(&token), tokens_read: n as usize - 1, grain })
+    let subs = all.split_off(k);
+    Ok(P4eReport { phases: all, subs, token: med_range(&token), tokens_read: n as usize - 1, grain })
 }
 
 /// [`P4eReport`] as printed lines, the clock in ns: µs a token per phase.
@@ -1311,6 +1370,10 @@ pub fn p4e_report_lines(r: &P4eReport) -> Vec<String> {
         ));
     }
     out.push(format!("    {:<18} {}", "token", us(r.token)));
+    out.push("    inside q/k/v and MLP (CTA work, no wall)".to_string());
+    for p in &r.subs {
+        out.push(format!("      {:<22} {} {} {:>5} ({:.0}%)", p.name, us(p.crit), us(p.mean), p.crit_cta.0, 100.0 * p.crit_cta.1));
+    }
     out
 }
 
@@ -1413,7 +1476,7 @@ pub fn trows_unit_text(tile_define: &str) -> String {
 /// The row-loop arms (`pers_trows.cu`): name, symbol, whether every row owes
 /// the served bits, CTAs a SM. The occupancy arm `v2_o2` runs V2 at two CTAs a
 /// SM on the sites of d_in 4,096 or less, beside `v2_s`, the same sites at one.
-pub const TROWS_ARMS: [(&str, &str, bool, u32); 9] = [
+pub const TROWS_ARMS: [(&str, &str, bool, u32); 10] = [
     ("v2", "tv_trows_v2", true, 1),
     ("v3", "tv_trows_v3", true, 1),
     ("ilp2", "tv_trows_ilp2", true, 1),
@@ -1423,6 +1486,7 @@ pub const TROWS_ARMS: [(&str, &str, bool, u32); 9] = [
     ("xbcast", "tv_trows_xbcast", false, 1),
     ("v2_s", "tv_trows_v2", true, 1),
     ("v2_o2", "tv_trows_v2_o2", true, 2),
+    ("k2", "tv_trows_k2", true, 1),
 ];
 
 /// Whether an arm runs only the sites of d_in 4,096 or less.
@@ -1431,7 +1495,8 @@ pub fn trows_small_only(name: &str) -> bool {
 }
 
 /// One `tv_trows_*` site, as the kernel unpacks it (`TROWS_SITE_WORDS`); no
-/// f32 output (word 7 is 0), as on every card launch.
+/// f32 output (words 7 and 9 are 0), as on every card launch. `y2_f16`: K2's
+/// rows on the second activation, 0 for every other arm.
 #[allow(clippy::too_many_arguments)]
 pub fn trows_site_words(
     words: u64,
@@ -1439,11 +1504,12 @@ pub fn trows_site_words(
     rscale: u64,
     tail_f16: u64,
     y_f16: u64,
+    y2_f16: u64,
     d_out: u32,
     nblocks: u32,
     tail_w: u32,
     stride_u32: u32,
-) -> [u64; 8] {
+) -> [u64; 10] {
     assert!(tail_w == 8 || tail_w == 16, "the stream reads the tail as one or two 16-byte chunks: tail_w {tail_w}");
     [
         words,
@@ -1454,6 +1520,8 @@ pub fn trows_site_words(
         u64::from(d_out) | (u64::from(nblocks) << 32),
         u64::from(tail_w) | (u64::from(stride_u32) << 32),
         0,
+        y2_f16,
+        0,
     ]
 }
 
@@ -1461,6 +1529,13 @@ pub fn trows_site_words(
 /// natural staging of the widest activation. At d_in 9,728 it is 4E's 57,984.
 pub fn trows_smem_bytes(max_d_in: u32) -> u32 {
     SMEM_HEADER + TABLE_BYTES + 4 * max_d_in
+}
+
+/// K2's dynamic shared bytes: two activations, the second at `TROWS_X2_AT` =
+/// 9,728 floats after the first. 96,896 B, under the 101,376 a CTA may opt
+/// into on sm_89.
+pub fn trows_k2_smem_bytes() -> u32 {
+    SMEM_HEADER + TABLE_BYTES + 2 * 4 * 9728
 }
 
 /// What the stamps of one `tv_trows_*` launch say about one class of sites
@@ -1564,6 +1639,8 @@ mod tests {
             assert!(t.contains(&format!("TROWS_KERNEL({sym}, TROWS_{arm}, {minb})")), "{sym}");
         }
         assert_eq!(trows_smem_bytes(9728), 57_984, "4E's own shared bytes at d_in 9,728");
+        assert_eq!(trows_k2_smem_bytes(), 96_896);
+        assert!(t.contains("#define TROWS_X2_AT 9728u"), "K2's second activation sits after the widest first one");
         assert!(trows_small_only("v2_o2") && trows_small_only("v2_s") && !trows_small_only("v2"));
     }
 
@@ -1948,6 +2025,13 @@ mod tests {
         // the shared bytes: the 4B's row vector (9,728 floats) is larger than
         // attention's 26,752 bytes; a narrow model takes attention's
         assert_eq!(p4e_smem_bytes(2560, 9728, 4), (SMEM_HEADER + TABLE_BYTES + 4 * 9728).div_ceil(16) * 16);
+        let cuh = include_str!("../kernels/llvq_pers.cuh");
+        assert!(cuh.contains("#if PERS_4E_ROWS == 3\n#define PERS_4E_SCRATCH 16384u"), "p4e_scratch_bytes mirrors the scratch");
+        assert_eq!((p4e_scratch_bytes(1), p4e_scratch_bytes(2), p4e_scratch_bytes(3)), (0, 0, 16_384));
+        assert_eq!(p4e_rows_define(1).unwrap(), "");
+        assert_eq!(p4e_rows_define(3).unwrap(), "#define PERS_4E_ROWS 3u\n");
+        assert!(p4e_rows_define(4).is_err());
+        assert!(cuh.contains("#ifndef PERS_4E_ROWS\n#define PERS_4E_ROWS 1u"), "form 1 is the default");
         assert_eq!(p4e_smem_bytes(256, 512, 5), (SMEM_HEADER + TABLE_BYTES + 16384 + 10400 + 2560).div_ceil(16) * 16);
         let cuh = include_str!("../kernels/llvq_pers.cuh");
         for line in [
@@ -1977,7 +2061,7 @@ mod tests {
             }
             assert!(p4e_stamp_symbol(f, 1024).is_err());
         }
-        assert_eq!(p4e_events(36), 363);
+        assert_eq!(p4e_events(36), 543);
     }
 
     /// The phase report on stamps made by hand: two CTAs, one layer, two
@@ -1985,45 +2069,74 @@ mod tests {
     #[test]
     fn the_4e_phase_report_reads_the_stamps() {
         let (layers, grid, n) = (1u32, 2usize, 2u32);
-        let ev = p4e_events(layers) as usize; // 13
-        // Per token, CTA 0 and CTA 1: arrivals and releases. Each phase k
-        // (embedding, q/k/v, norm, attention, o, MLP) has CTA 0 working 10
-        // and CTA 1 working 10 + 2k, a release 1 after the last arrival; the
-        // head then takes 7 on both, its W4 inside.
+        let ev = p4e_events(layers) as usize; // 18
+        // Per token, CTA 0 and CTA 1, in order: the embedding (a wait), then
+        // the layer's 15 events. Each grid wait: CTA 0 works 10, CTA 1 works
+        // 10 + 2k (k the wait's index), a release 1 after the last arrival.
+        // The two inner stamps of q/k/v and MLP split their phase's work: q/k/v
+        // 3 then the rest; MLP 2, then gate/up to the inner wait's arrival, the
+        // inner wait, 1, the rest. The head then takes 7 on both.
         let mut st = vec![0u64; n as usize * ev * grid];
         let mut clock = 100u64;
+        let put = |st: &mut Vec<u64>, t: usize, e: usize, v: [u64; 2]| {
+            for c in 0..2 {
+                st[(t * ev + e) * grid + c] = v[c];
+            }
+        };
         for t in 0..n as usize {
             let mut rel = [clock; 2];
-            for k in 0..6usize {
+            // embedding, q/k/v, norm, attention, o, MLP: arrival offsets
+            let arrivals = [0usize, 3, 5, 7, 9, 15];
+            for (k, &e) in arrivals.iter().enumerate() {
                 let arr = [rel[0] + 10, rel[1] + 10 + 2 * k as u64];
-                let r = arr[0].max(arr[1]) + 1;
-                for c in 0..grid {
-                    st[(t * ev + 2 * k) * grid + c] = arr[c];
-                    st[(t * ev + 2 * k + 1) * grid + c] = r;
+                if k == 1 {
+                    put(&mut st, t, 2, [rel[0] + 3, rel[1] + 3]);
                 }
+                if k == 5 {
+                    put(&mut st, t, 11, [rel[0] + 2, rel[1] + 2]);
+                    let gu = [rel[0] + 5, rel[1] + 6];
+                    put(&mut st, t, 12, gu);
+                    let inner = gu[0].max(gu[1]) + 1;
+                    put(&mut st, t, 13, [inner, inner]);
+                    put(&mut st, t, 14, [inner + 1, inner + 1]);
+                }
+                let arr = if k == 5 { [arr[0].max(st[(t * ev + 14) * grid] + 1), arr[1].max(st[(t * ev + 14) * grid + 1] + 1)] } else { arr };
+                let r = arr[0].max(arr[1]) + 1;
+                put(&mut st, t, e, arr);
+                put(&mut st, t, e + 1, [r, r]);
                 rel = [r, r];
             }
-            for c in 0..grid {
-                st[(t * ev + ev - 1) * grid + c] = rel[c] + 7;
-            }
+            put(&mut st, t, ev - 1, [rel[0] + 7, rel[1] + 7]);
             clock = rel[0] + 7;
         }
         let r = p4e_phase_report(&st, n, layers, grid as u32).unwrap();
         assert_eq!(r.tokens_read, 1);
         assert_eq!(r.grain, 1);
-        for (k, p) in r.phases.iter().enumerate().take(6) {
+        for (k, p) in r.phases.iter().enumerate().take(5) {
             let w = 10.0 + 2.0 * k as f64;
             assert_eq!(p.crit.0, w, "{}", p.name);
             assert_eq!(p.mean.0, (10.0 + w) / 2.0, "{}", p.name);
             assert_eq!(p.wall.0, w + 1.0, "{}", p.name);
-            assert_eq!(p.crit_cta.0, if k == 0 { 0 } else { 1 }, "{}", p.name);
         }
         assert_eq!(r.phases[6].wall.0, 7.0);
         let walls: f64 = r.phases.iter().map(|p| p.wall.0).sum();
         assert_eq!(walls, r.token.0);
+        // the parts add up to their phase's mean work, CTA by CTA
+        let sum = |lo: usize, hi: usize| r.subs[lo..hi].iter().map(|p| p.mean.0).sum::<f64>();
+        assert_eq!(sum(0, 2), r.phases[1].mean.0, "q/k/v parts");
+        assert_eq!(sum(2, 7), r.phases[5].mean.0, "MLP parts");
+        assert_eq!(r.subs[0].mean.0, 3.0, "ln1 + rotation");
+        assert_eq!(r.subs[2].mean.0, 2.0, "ln2 + rotation");
+        assert_eq!(r.subs[3].crit.0, 4.0, "gate/up: CTA 1's 6 - 2");
+        assert_eq!(r.subs[4].mean.0, 1.5, "the inner wait: 2 on CTA 0, 1 on CTA 1");
+        assert_eq!(r.subs[5].mean.0, 1.0, "the down's input");
         // a release before the last arrival of its wait is refused
         let mut bad = st.clone();
-        bad[(ev + 3) * grid] = bad[(ev + 2) * grid + 1] - 1;
+        bad[(ev + 4) * grid] = bad[(ev + 3) * grid + 1] - 1;
+        assert!(p4e_phase_report(&bad, n, layers, grid as u32).is_err());
+        // so is an inner release before a gate/up arrival
+        let mut bad = st.clone();
+        bad[(ev + 13) * grid] = bad[(ev + 12) * grid + 1] - 1;
         assert!(p4e_phase_report(&bad, n, layers, grid as u32).is_err());
         // an unwritten stamp is refused
         let mut bad = st.clone();

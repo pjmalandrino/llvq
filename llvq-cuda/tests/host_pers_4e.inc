@@ -18,7 +18,7 @@
 // out: u32 ring[n] then each later launch's ring, u16 x[hidden], u16 kc, vc of
 //      each layer, u32 bar, abort + the tickets left; with a stamp variant (1
 //      or 3) on the persistent side, then
-//      u64 stamps[sum of n][3 + 10 x layers][grid] (the harness clock counts
+//      u64 stamps[sum of n][3 + 15 x layers][grid] (the harness clock counts
 //      calls: an order, not a duration)
 {
     const u32 form = rd1<u32>(), grid = rd1<u32>(), threads = rd1<u32>(), n = rd1<u32>(), pos0 = rd1<u32>(),
@@ -217,9 +217,10 @@
                             {pers_4e_tokens_f0_t512, pers_4e_tokens_f1_t512, pers_4e_tokens_f2_t512},
                             {pers_4e_stamps_f0_t768, pers_4e_stamps_f1_t768, pers_4e_stamps_f2_t768}};
     if (variant > 3u) { std::fprintf(stderr, "host_pers: 4E variant %u\n", variant); std::exit(2); }
-    const size_t n_ev = 3u + 10u * NL;
+    const size_t n_ev = 3u + 15u * NL;
     std::vector<unsigned long long> stamps(stamp ? ring_len * n_ev * grid : 0u, 0ull);
-    const size_t smem = PERS_SMEM_HEADER + 18816 + std::max(4 * (size_t)std::max(I, 2 * H), (size_t)PERS_ATTN_SMEM(GRP));
+    const size_t smem = PERS_SMEM_HEADER + 18816 + std::max(4 * (size_t)std::max(I, 2 * H), (size_t)PERS_ATTN_SMEM(GRP)) +
+                        PERS_4E_SCRATCH;
     // Launch after launch through the same state, as Runtime4e::decode runs
     // them: the barrier base is the counter's value (no abort), a fresh ring.
     size_t ring_at = 0;

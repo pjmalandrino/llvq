@@ -33,6 +33,13 @@
 //   XBCAST  every lane reads the activation of the step's lane-0 block: the
 //           six LDS.128 a block are broadcasts.
 //   The last three owe nothing; their rows are never checked.
+//   K2      one decode, two activations: each block is decoded once and dotted
+//           with the activation `x` and with a second one `x2`, each sum in
+//           the served order, so each of its two rows owes the bits of the
+//           one-activation path on its own activation. The door to k tokens a
+//           pass (speculative verification, the prefill GEMM route): its time
+//           against V2's is the cost of a second token as a fraction of a pass.
+//           Its two activations take 77,824 shared bytes (96,896 in all).
 //
 // Composition: its own module, the persistent unit followed by this file
 // (pers.rs::trows_unit_text), so 4E's module keeps its bytes.
@@ -44,12 +51,16 @@
 #define TROWS_L1W 4u
 #define TROWS_BCAST 5u
 #define TROWS_XBCAST 6u
+#define TROWS_K2 7u
 
-// Site words, 8 x u64, laid out by pers.rs::trows_site_words:
+// Site words, 10 x u64, laid out by pers.rs::trows_site_words:
 //   [0] words  [1] gscale  [2] rscale  [3] tail (binary16)  [4] y (binary16)
 //   [5] d_out | nblocks << 32  [6] tail_w | row_stride_u32 << 32
 //   [7] the f32 value of each row before f2h, or 0 (the card's launches)
-#define TROWS_SITE_WORDS 8u
+//   [8] K2's rows on x2 (binary16), or 0  [9] their f32 values, or 0
+#define TROWS_SITE_WORDS 10u
+// Where K2 stages its second activation: after the widest first one.
+#define TROWS_X2_AT 9728u
 
 // The SM clock (cycles). The host harness counts calls, like pers_now.
 __device__ __forceinline__ unsigned long long trows_clock()
@@ -106,6 +117,44 @@ __device__ __forceinline__ float trows_row_ilp2(const u32* wrow, const F1rTables
     return warp_sum(acc);
 }
 
+// K2: V2's loop (one block a step, the next block's words in flight) with
+// each block decoded once and dotted with two activations, `xs` and `xs2`.
+// Each dot is pers_block's arithmetic on its own activation (a = 0, 24 fmas
+// in TETRA48_ORDER, pers_fold), so each sum is the one-activation sum.
+// The first sum is returned, the second written to `out2`.
+__device__ __forceinline__ float trows_row_k2(const u32* wrow, const F1rTables& tab, const float* gscale,
+                                              const float* invnorm, const float* xs, const float* xs2, u32 nblocks,
+                                              u32 lane, float& out2)
+{
+    float acc = 0.0f, acc2 = 0.0f;
+    u32 lo = 0u, hi16 = 0u;
+    if (lane < nblocks) f1r_load(wrow, lane, lo, hi16);
+    for (u32 j = lane; j < nblocks; j += 32u) {
+        u32 lo2 = 0u, hi2 = 0u;
+        if (j + 32u < nblocks) f1r_load(wrow, j + 32u, lo2, hi2);
+        u32 q[6];
+        f1r_v3_quads(lo, hi16, tab, q);
+        const float* xa = xs + j * 24u;
+        const float* xb = xs2 + j * 24u;
+        float a = 0.0f, b = 0.0f;
+#pragma unroll
+        for (u32 i = 0; i < 6u; ++i) {
+#pragma unroll
+            for (u32 k = 0; k < 4u; ++k) {
+                const float w = f1r_v3_float(q[i], k);
+                a = __fmaf_rn(w, xa[TETRA48_ORDER[4u * i + k]], a);
+                b = __fmaf_rn(w, xb[TETRA48_ORDER[4u * i + k]], b);
+            }
+        }
+        acc = pers_fold(acc, a, q, hi16, gscale, invnorm);
+        acc2 = pers_fold(acc2, b, q, hi16, gscale, invnorm);
+        lo = lo2;
+        hi16 = hi2;
+    }
+    out2 = warp_sum(acc2);
+    return warp_sum(acc);
+}
+
 // V2U and its three diagnostics: V2's loop with a uniform trip count. Every
 // lane runs nit steps; a lane whose block j is past the row loads nothing and
 // folds nothing, so the shuffles of BCAST see the whole warp.
@@ -140,7 +189,8 @@ __device__ __forceinline__ void trows_body(const unsigned long long* __restrict_
                                            const unsigned short* __restrict__ branches,
                                            const unsigned char* __restrict__ suffixes,
                                            const float* __restrict__ invnorm, const float* __restrict__ x,
-                                           u32* __restrict__ stamps, unsigned long long* __restrict__ ends)
+                                           const float* __restrict__ x2, u32* __restrict__ stamps,
+                                           unsigned long long* __restrict__ ends)
 {
     if (stamps != nullptr && threadIdx.x == 0u) {
         ends[4u * blockIdx.x] = trows_clock();
@@ -175,7 +225,11 @@ __device__ __forceinline__ void trows_body(const unsigned long long* __restrict_
         const u32 d_out = (u32)(d[5] & 0xffffffffull), nb = (u32)(d[5] >> 32);
         const u32 tw = (u32)(d[6] & 0xffffffffull), stride = (u32)(d[6] >> 32);
         float* yf = reinterpret_cast<float*>(d[7]);
+        unsigned short* y2 = reinterpret_cast<unsigned short*>(d[8]);
+        float* yf2 = reinterpret_cast<float*>(d[9]);
+        float* xs2 = xs + TROWS_X2_AT;
         pers_stage_f32<24u, false>(x, xs, nb, tw);  // barriers on both sides
+        if (ARM == TROWS_K2) pers_stage_f32<24u, false>(x2, xs2, nb, tw);
         const u32 lo = (u32)((unsigned long long)d_out * c / g), hi = (u32)((unsigned long long)d_out * (c + 1u) / g);
         const unsigned long long t0 = trows_clock();
         if (ARM == TROWS_V3) {
@@ -190,6 +244,19 @@ __device__ __forceinline__ void trows_body(const unsigned long long* __restrict_
             };
             pers_tetra_stream<PERS_STREAM_D>(pers_warp_rows(lo, hi, warp, nw), nb, tw, tab, t_inv, xs, lane, row_of,
                                              start, epi);
+        } else if (ARM == TROWS_K2) {
+            for (u32 r = lo + warp; r < hi; r += nw) {
+                float acc2;
+                const float acc = trows_row_k2(words + (size_t)r * stride, tab, gs, t_inv, xs, xs2, nb, lane, acc2);
+                if (lane == 0u) {
+                    const float v = pers_epilogue(acc, rs[r], tail + (size_t)r * tw, xs + nb * 24u, tw);
+                    const float v2 = pers_epilogue(acc2, rs[r], tail + (size_t)r * tw, xs2 + nb * 24u, tw);
+                    y[r] = f2h(v);
+                    y2[r] = f2h(v2);
+                    if (yf != nullptr) yf[r] = v;
+                    if (yf2 != nullptr) yf2[r] = v2;
+                }
+            }
         } else {
             for (u32 r = lo + warp; r < hi; r += nw) {
                 const u32* wrow = words + (size_t)(ARM == TROWS_L1W ? 0u : r) * stride;
@@ -225,9 +292,9 @@ __device__ __forceinline__ void trows_body(const unsigned long long* __restrict_
         const unsigned long long* __restrict__ sites, u32 nsites, const u32* __restrict__ rows,                   \
         const unsigned char* __restrict__ prefixes, const unsigned short* __restrict__ branches,                  \
         const unsigned char* __restrict__ suffixes, const float* __restrict__ invnorm, const float* __restrict__ x, \
-        u32* __restrict__ stamps, unsigned long long* __restrict__ ends)                                          \
+        const float* __restrict__ x2, u32* __restrict__ stamps, unsigned long long* __restrict__ ends)            \
     {                                                                                                             \
-        trows_body<ARM_>(sites, nsites, rows, prefixes, branches, suffixes, invnorm, x, stamps, ends);            \
+        trows_body<ARM_>(sites, nsites, rows, prefixes, branches, suffixes, invnorm, x, x2, stamps, ends);        \
     }
 
 TROWS_KERNEL(tv_trows_v2, TROWS_V2, 1)
@@ -238,3 +305,4 @@ TROWS_KERNEL(tv_trows_l1w, TROWS_L1W, 1)
 TROWS_KERNEL(tv_trows_bcast, TROWS_BCAST, 1)
 TROWS_KERNEL(tv_trows_xbcast, TROWS_XBCAST, 1)
 TROWS_KERNEL(tv_trows_v2_o2, TROWS_V2, 2)
+TROWS_KERNEL(tv_trows_k2, TROWS_K2, 1)
