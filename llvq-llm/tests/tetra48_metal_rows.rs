@@ -157,6 +157,22 @@ fn the_staged_twin_holds_at_tiles_32_and_256() {
     gate(0x5EED_0021, 512, 405, 8, 256, 2);
 }
 
+/// A multi-row twin refuses a d_out that eight simdgroups of its rows do not
+/// tile, by name, at the launch: 48 rows are six threadgroups of the served
+/// kernel and one and a half of `_lutd4`'s.
+#[test]
+fn a_multi_row_twin_refuses_a_partial_threadgroup() {
+    let mut b = build(0x5EED_0040, 48, 7, 5, 64);
+    with_kernel(&mut b, "tv_tetra48_metal_lutd4");
+    let dev = Device::new_metal(0).expect("a Metal device");
+    let xm = Tensor::from_slice(&b.x, (1, b.x.len()), &dev).expect("upload x");
+    let e = b.rt.matvec(&b.proj, &xm).unwrap_err().to_string();
+    assert!(e.contains("d_out 48") && e.contains("tv_tetra48_metal_lutd4"), "{e}");
+    with_kernel(&mut b, "tv_tetra48_metal_lutd2");
+    let oracle = on_cpu(&b);
+    assert_eq!(first_difference(&on_metal(&b), &oracle), None, "48 rows are three groups of 16");
+}
+
 /// The tuning refuses what it cannot serve, by name, before anything is set.
 #[test]
 fn a_bad_tuning_is_refused_by_name() {

@@ -154,12 +154,31 @@ impl MetalTuning {
 
 /// The row-loop twins of the served Tetra matvec (`kernels/llvq_tetra48_rows.metal`).
 /// Each has the served kernel's arguments and, by gate, its bits.
-pub const TETRA_ROW_LOOPS: [&str; 3] = ["tv_tetra48_metal_lutp", "tv_tetra48_metal_lutd", "tv_tetra48_metal_lutdp"];
+pub const TETRA_ROW_LOOPS: [&str; 5] = [
+    "tv_tetra48_metal_lutp",
+    "tv_tetra48_metal_lutd",
+    "tv_tetra48_metal_lutdp",
+    "tv_tetra48_metal_lutd2",
+    "tv_tetra48_metal_lutd4",
+];
 
 /// Whether a Tetra matvec reads the activation from device memory, with no
 /// threadgroup staging to size.
 fn tetra_reads_direct(name: &str) -> bool {
-    matches!(name, "tv_tetra48_metal_lutd" | "tv_tetra48_metal_lutdp")
+    matches!(
+        name,
+        "tv_tetra48_metal_lutd" | "tv_tetra48_metal_lutdp" | "tv_tetra48_metal_lutd2" | "tv_tetra48_metal_lutd4"
+    )
+}
+
+/// Rows a simdgroup of a Tetra matvec carries: 1 for every kernel but the
+/// multi-row twins, which keep 32 lanes a row and give a lane R rows.
+pub fn tetra_rows_per_simd(name: &str) -> usize {
+    match name {
+        "tv_tetra48_metal_lutd2" => 2,
+        "tv_tetra48_metal_lutd4" => 4,
+        _ => 1,
+    }
 }
 
 /// `None` when the whole activation of an int4 record fits in threadgroup
@@ -203,7 +222,8 @@ fn source_of(name: &str) -> Result<&'static str> {
         "tetra48_probe" | "tv_tetra48_metal" | "tv_tetra48_metal_ar" | "tv_tetra48_metal_arh" | "tv_tetra48_metal_lut" | "tv_tetra48_metal_lutg" | "tv_tetra48_metal_ilp" | "tv_tetra48_metal_u2" | "tv_tetra48_metal_c3" => Ok(SRC_TETRA),
         "rot_apply_metal" | "rot_apply_rows_metal" => Ok(SRC_ROT),
         "tv_q4_metal" | "tv_q4_metal_tiled" => Ok(SRC_Q4),
-        "tv_tetra48_metal_lutp" | "tv_tetra48_metal_lutd" | "tv_tetra48_metal_lutdp" => Ok(SRC_TETRA_ROWS),
+        "tv_tetra48_metal_lutp" | "tv_tetra48_metal_lutd" | "tv_tetra48_metal_lutdp" | "tv_tetra48_metal_lutd2"
+        | "tv_tetra48_metal_lutd4" => Ok(SRC_TETRA_ROWS),
         "tv_q4_metal_p" | "tv_q4_metal_tiled_p" => Ok(SRC_Q4_PF),
         "emb_q8_gather_metal" | "tv_q8_metal" => Ok(SRC_Q8),
         "emb_q4_gather_metal" | "tv_emb_q4_metal" => Ok(SRC_E4),
@@ -744,8 +764,21 @@ impl CustomOp1 for TetraMatvec<'_> {
         }
         enc.use_resource(&*out, objc2_metal::MTLResourceUsage::Write);
 
+        // A multi-row twin covers R rows a simdgroup and carries no row guard,
+        // like the served kernel: a d_out that eight simdgroups of R rows do
+        // not tile would compute and store rows past the output.
+        let rps = tetra_rows_per_simd(self.rt.kernel);
+        if !p.d_out.is_multiple_of(rps * GROUP / LANES) {
+            candle_core::bail!(
+                "{}: d_out {} is not a multiple of {} rows, which {} covers a threadgroup",
+                p.name,
+                p.d_out,
+                rps * GROUP / LANES,
+                self.rt.kernel
+            );
+        }
         let grid = objc2_metal::MTLSize {
-            width: p.d_out * LANES,
+            width: p.d_out / rps * LANES,
             height: 1,
             depth: 1,
         };

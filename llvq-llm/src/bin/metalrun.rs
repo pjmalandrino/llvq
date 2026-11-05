@@ -11,6 +11,7 @@
 //! metalrun gate  <sealed> <config> <arms>
 //! metalrun phased <sealed> <config> <arm> [n_new]
 //! metalrun dispatch
+//! metalrun ppl <sealed> <config> <arm> [ctx] [windows]
 //! ```
 //!
 //! `<arms>` is a comma list. Each fused arm is a Tetra matvec, optionally
@@ -19,7 +20,7 @@
 //! | spec | what it loads |
 //! |---|---|
 //! | `lut` | the served Metal kernels, the int4 records past the wall through `tv_q4_metal_tiled` at 2,048 columns |
-//! | `lutp`, `lutd`, `lutdp` | the Tetra row-loop twins of `kernels/llvq_tetra48_rows.metal` |
+//! | `lutp`, `lutd`, `lutdp`, `lutd2`, `lutd4` | the Tetra row-loop twins of `kernels/llvq_tetra48_rows.metal` |
 //! | `+q4p` | the prefetching int4 twins of `kernels/tv_q4_pf.metal` |
 //! | `+t8192`, `+t256` | another int4 tile (zero bits) |
 //! | `+grp` | grouped attention: a TOLERANCE event, refused on the served Metal door, a measurement arm only |
@@ -107,12 +108,14 @@ mod mac {
             }
             Some("phased") if a.len() >= 4 => phased(&a[1], &a[2], &a[3], num(4, 64)?),
             Some("dispatch") => dispatch(),
+            Some("ppl") if a.len() >= 4 => ppl(&a[1], &a[2], &a[3], num(4, 4096)?, num(5, 4)?),
             _ => anyhow::bail!(
                 "usage: metalrun time <sealed> <config> <arms> [n_new=128] [timed_rounds=7]\n\
                  \x20      metalrun gate <sealed> <config> <arms>\n\
                  \x20      metalrun phased <sealed> <config> <arm> [n_new=64]\n\
                  \x20      metalrun dispatch\n\
-                 arms: comma list of lut|lutp|lutd|lutdp[+q4p][+t<cols>][+grp] or D; the first is the reference"
+                 \x20      metalrun ppl <sealed> <config> <arm> [ctx=4096] [windows=4]\n\
+                 arms: comma list of lut|lutp|lutd|lutdp|lutd2|lutd4[+q4p][+t<cols>][+grp] or D; the first is the reference"
             ),
         }
     }
@@ -210,7 +213,9 @@ mod mac {
             "lutp" => "tv_tetra48_metal_lutp",
             "lutd" => "tv_tetra48_metal_lutd",
             "lutdp" => "tv_tetra48_metal_lutdp",
-            other => anyhow::bail!("arm {s:?}: {other:?} is not lut, lutp, lutd, lutdp or D"),
+            "lutd2" => "tv_tetra48_metal_lutd2",
+            "lutd4" => "tv_tetra48_metal_lutd4",
+            other => anyhow::bail!("arm {s:?}: {other:?} is not lut, lutp, lutd, lutdp, lutd2, lutd4 or D"),
         };
         let mut spec = Spec { tuning: MetalTuning { tetra_kernel: kernel, ..Default::default() }, grouped: false };
         for m in parts {
@@ -501,6 +506,70 @@ mod mac {
         line("blocks", &rep.blocks_ms);
         line("head", &rep.head_ms);
         line("argmax", &rep.rest_ms);
+        Ok(())
+    }
+
+    // ---- ppl: the grouped form's tolerance on Metal, a reading ---------------
+
+    /// WikiText-2 test windows of `ctx` tokens, each fed one true token at a
+    /// time through two caches of the same model in lockstep, expanded and
+    /// grouped (`Qwen3::decode_nll_paired`). The decode path only: Metal
+    /// prefills 256 rows a call, so the prefill path of the L40S reading
+    /// (`gqa-ppl-2026-11-01`) cannot score a window of 4,096 here.
+    fn ppl(path: &str, cfg_path: &str, spec: &str, ctx: usize, windows: usize) -> anyhow::Result<()> {
+        let device = Device::new_metal(0)?;
+        let cfg = header(path, cfg_path)?;
+        let mut a = load_arm(path, &cfg, &device, spec)?;
+        anyhow::ensure!(a.fused && a.model.attn_heads() == AttnHeads::Expanded, "ppl takes a fused expanded arm");
+        let text = llvq_llm::corpus::wikitext2_test()?;
+        let ids = a.tokenizer.encode(text.as_str(), false).map_err(anyhow::Error::msg)?.get_ids().to_vec();
+        let nwin = (ids.len() / ctx).min(windows);
+        anyhow::ensure!(nwin >= 2 && ctx >= 2, "two windows of two tokens at least: {} tokens", ids.len());
+        let span = &ids[..nwin * ctx];
+        println!(
+            "ppl: wikitext2 test, {nwin} windows of {ctx} from the start ({} tokens in the split, span sha256 {}), \
+             grouped against expanded, decode path in lockstep; a TOLERANCE reading, never a served decision",
+            ids.len(),
+            llvq_llm::digest::sha256_u32(span)
+        );
+        let arms = [
+            (AttnHeads::Expanded.store(), AttnHeads::Expanded),
+            (AttnHeads::Grouped.store(), AttnHeads::Grouped),
+        ];
+        let (mut ratios, mut nll, mut count, mut agree, mut max_d) = (Vec::new(), [0f64; 2], 0usize, 0usize, 0f32);
+        let t0 = Instant::now();
+        for w in 0..nwin {
+            let win = &span[w * ctx..(w + 1) * ctx];
+            let d = a.model.decode_nll_paired(win, arms)?;
+            let (pe, pg) = ((d.nll[0] / d.count as f64).exp(), (d.nll[1] / d.count as f64).exp());
+            ratios.push(pg / pe);
+            nll[0] += d.nll[0];
+            nll[1] += d.nll[1];
+            count += d.count;
+            agree += d.top1_agree;
+            max_d = max_d.max(d.max_dlogit);
+            println!(
+                "  window {:>2}: ppl expanded {pe:.6} grouped {pg:.6}, grouped / expanded - 1 = {:+.4} %, top-1 \
+                 agreement {}/{}, max |dlogit| {:.3e}, {:.0} s elapsed",
+                w + 1,
+                (pg / pe - 1.0) * 100.0,
+                d.top1_agree,
+                d.count,
+                d.max_dlogit,
+                t0.elapsed().as_secs_f64()
+            );
+        }
+        let (pe, pg) = ((nll[0] / count as f64).exp(), (nll[1] / count as f64).exp());
+        let (m, lo, hi) = stats(&ratios);
+        println!(
+            "ppl over {nwin} windows: expanded {pe:.6}, grouped {pg:.6}, pooled grouped / expanded - 1 = {:+.4} %; \
+             per window median {:+.4} % [{:+.4} ; {:+.4}]; top-1 agreement {agree}/{count} = {:.3} %; max |dlogit| {max_d:.3e}",
+            (pg / pe - 1.0) * 100.0,
+            (m - 1.0) * 100.0,
+            (lo - 1.0) * 100.0,
+            (hi - 1.0) * 100.0,
+            100.0 * agree as f64 / count as f64
+        );
         Ok(())
     }
 

@@ -25,6 +25,8 @@
 //     memory. The eight rows of a threadgroup read the same activation, which
 //     the caches serve.
 //   - `_lutdp`: `_lutd` with the prefetch of `_lutp`.
+//   - `_lutd2`, `_lutd4`: `_lutd` with 2 or 4 rows a simdgroup, the lane order
+//     of each row unchanged (section at the end of this file).
 //
 // ## Why the answer does not move
 //
@@ -210,4 +212,98 @@ kernel void tv_tetra48_metal_lutdp(const device uint*   words          [[buffer(
         hi16 = hi2;
     }
     tetra48_rows_epilogue(acc, row, lane, rscale, tail, x, y, nblocks, tail_w);
+}
+
+// ---------------------------------------------------------------------------
+// R rows a simdgroup: `_lutd` with each lane carrying R rows.
+//
+// The 32-lane kernels give a lane 3.3 blocks at d_in 2,560, each a chain of
+// three dependent loads, and the matvec reads 22 % of the bandwidth: the
+// header of the served kernel calls that latency. `_ilp` gave a row 8 lanes
+// instead of 32 and measured +5 % in situ, but a lane count is part of the
+// arithmetic and its tokens broke at 57. These keep 32 lanes a row and the
+// served lane order, and give each lane R rows instead: R independent chains
+// a thread, and the activation read once for R rows. Row r's accumulator sees
+// blocks lane, lane + 32, ... in ascending order, as in `_lut`, so the bits
+// are the served kernel's. Gated in `tests/tetra48_metal_rows.rs`.
+//
+// The host dispatches d_out / R simdgroups and refuses a d_out that is not a
+// multiple of 8 R (eight simdgroups a threadgroup, no row guard).
+// ---------------------------------------------------------------------------
+
+template <uint R>
+inline void tetra48_lutd_rows(const device uint*   words,
+                              uint                 row_stride_u32,
+                              F1rTables            tab,
+                              const device float*  gscale,
+                              const device float*  invnorm,
+                              const device float*  rscale,
+                              const device half*   tail,
+                              const device float*  x,
+                              device float*        y,
+                              uint                 nblocks,
+                              uint                 tail_w,
+                              uint                 row0,
+                              uint                 lane)
+{
+    float acc[R];
+    for (uint r = 0u; r < R; ++r) {
+        acc[r] = 0.0f;
+    }
+    for (uint j = lane; j < nblocks; j += 32u) {
+        uint lo[R], hi16[R];
+        for (uint r = 0u; r < R; ++r) {
+            f1r_load(words + (row0 + r) * row_stride_u32, j, lo[r], hi16[r]);
+        }
+        for (uint r = 0u; r < R; ++r) {
+            acc[r] += tetra48_dot_lut_dev(lo[r], hi16[r], tab, x + j * 24u, gscale, invnorm);
+        }
+    }
+    for (uint r = 0u; r < R; ++r) {
+        tetra48_rows_epilogue(acc[r], row0 + r, lane, rscale, tail, x, y, nblocks, tail_w);
+    }
+}
+
+kernel void tv_tetra48_metal_lutd2(const device uint*   words          [[buffer(0)]],
+                                   constant uint&       row_stride_u32 [[buffer(1)]],
+                                   const device uint*   rows           [[buffer(2)]],
+                                   const device uchar*  prefixes       [[buffer(3)]],
+                                   const device ushort* branches       [[buffer(4)]],
+                                   const device uchar*  suffixes       [[buffer(5)]],
+                                   const device float*  gscale         [[buffer(6)]],
+                                   const device float*  invnorm        [[buffer(7)]],
+                                   const device float*  rscale         [[buffer(8)]],
+                                   const device half*   tail           [[buffer(9)]],
+                                   const device float*  x              [[buffer(10)]],
+                                   device float*        y              [[buffer(11)]],
+                                   constant uint&       nblocks        [[buffer(12)]],
+                                   constant uint&       tail_w         [[buffer(13)]],
+                                   uint gid  [[thread_position_in_grid]],
+                                   uint lane [[thread_index_in_simdgroup]])
+{
+    F1rTables tab = { rows, prefixes, branches, suffixes };
+    tetra48_lutd_rows<2u>(words, row_stride_u32, tab, gscale, invnorm, rscale, tail, x, y, nblocks, tail_w,
+                          (gid >> 5) * 2u, lane);
+}
+
+kernel void tv_tetra48_metal_lutd4(const device uint*   words          [[buffer(0)]],
+                                   constant uint&       row_stride_u32 [[buffer(1)]],
+                                   const device uint*   rows           [[buffer(2)]],
+                                   const device uchar*  prefixes       [[buffer(3)]],
+                                   const device ushort* branches       [[buffer(4)]],
+                                   const device uchar*  suffixes       [[buffer(5)]],
+                                   const device float*  gscale         [[buffer(6)]],
+                                   const device float*  invnorm        [[buffer(7)]],
+                                   const device float*  rscale         [[buffer(8)]],
+                                   const device half*   tail           [[buffer(9)]],
+                                   const device float*  x              [[buffer(10)]],
+                                   device float*        y              [[buffer(11)]],
+                                   constant uint&       nblocks        [[buffer(12)]],
+                                   constant uint&       tail_w         [[buffer(13)]],
+                                   uint gid  [[thread_position_in_grid]],
+                                   uint lane [[thread_index_in_simdgroup]])
+{
+    F1rTables tab = { rows, prefixes, branches, suffixes };
+    tetra48_lutd_rows<4u>(words, row_stride_u32, tab, gscale, invnorm, rscale, tail, x, y, nblocks, tail_w,
+                          (gid >> 5) * 4u, lane);
 }
