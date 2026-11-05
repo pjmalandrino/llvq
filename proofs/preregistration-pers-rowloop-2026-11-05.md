@@ -50,11 +50,6 @@ Arms:
 | xbcast | v2u with every lane reading the step's lane-0 activation block: the LDS.128 are broadcasts | no |
 | v2_s | v2 on the 216 sites of d_in 4,096 or less (all but the downs), one CTA a SM | yes |
 | v2_o2 | the same at two CTAs a SM (32 warps), launch bound (512, 2) | yes |
-| k2 | one decode, two activations: each block decoded once and dotted with the bench activation and with a second one (a seeded gaussian), each sum in the served order; 96,896 shared bytes | yes, each row on its own activation |
-
-k2 was added on 2026-11-05, before any stamp, on the operator's yes relayed by the throughput review session ("ui"
-to adding the arm, at no extra card time). It is the door to k tokens a pass that a speculative verify, and the
-prefill GEMM route, would use.
 
 Each arm is checked against the served rows once, then runs one stamped launch outside the rounds. The stamps hold
 every warp's busy cycles and the CTA's per site, and `%clock64` and `%globaltimer` at the launch's ends. Then the arms
@@ -63,11 +58,7 @@ run in A4's 7 rounds, 2 discarded, each round timed on the host.
 Host checks at $0:
 - `the_row_loop_arms_are_the_served_rows`: the four exact arms give the served rows and their f32 values before
   `f2h` on 5 sites, at 4 grids, with and without stamps. The three diagnostics move rows.
-- `row_loop_mutants_are_killed`: 12 mutants, all caught, 4 of them on k2.
-- `the_k2_arm_is_the_k1_arm_on_each_activation`: k2's rows on the first activation are V2's, binary16 and f32,
-  and on the second they are the served rows on it, at 4 grids.
-- Under the devel ptxas 12.4 (indicative): k2's block loop is 273 instructions against V2's 241, with the decode
-  once and the FMAs and activation reads twice; 87 registers.
+- `row_loop_mutants_are_killed`: 8 mutants, all caught.
 - Under the devel ptxas 12.4 (indicative): 63 to 94 registers, no local memory; v2_o2 at 63 (two CTAs need 64 or
   fewer). Never run on a card.
 
@@ -88,8 +79,7 @@ Each voids the run:
 1. The image builds; `oracle` prints MATCH.
 2. The files at their bytes, the Tetra file at its sha256; `tetra48: 252 of 252 matrices matched by name`; `tile 64`.
 3. The row loops' reference prints the served unit, 101,625 bytes, sha256 `6193094310bc…`.
-4. v2 and v3 print every row identical bit for bit to `tv_tetra48_h`. (k2's two identity lines are rule H's, not a
-   gate: a k2 that moves a row voids only its own numbers.)
+4. v2 and v3 print every row identical bit for bit to `tv_tetra48_h`.
 5. No `LLVQ_*` variable in the job environment.
 
 Another arm that spills, does not fit, or moves a row voids only its own numbers.
@@ -101,8 +91,7 @@ Another arm that spills, does not fit, or moves a row voids only its own numbers
 - Per arm, its speed over its base round by round:
   - ilp2 and v3 over v2;
   - l1w, bcast and xbcast over v2u;
-  - v2_o2 over v2_s;
-  - k2's time over v2's, less 1: the cost of a second token as a fraction of a pass.
+  - v2_o2 over v2_s.
 - From the stamps, per arm and per d_in (2,560, 4,096, 9,728): cycles a step (32 blocks of one row), in cycles and
   in us; the warp balance (mean busy warp time over the CTA's time); and the SM clock in MHz.
 - tpersall and its variants as in L1 and v2.
@@ -128,8 +117,6 @@ diagnostic arms have no mechanism behind them yet. Their points are a prior, and
 | xbcast over v2u | **x1.10** | [0.95, 1.50] |
 | v2_o2 over v2_s | **x1.30** | [1.00, 1.80] |
 | tpersall, GB/s | **397** | [380, 410] |
-| k2 rows against the k = 1 rows, each activation | **identical** | |
-| k2: second token, fraction of a pass | **0.15** | [0.05, 0.60] |
 
 ## 7. Decision rules
 
@@ -163,16 +150,6 @@ diagnostic arms have no mechanism behind them yet. Their points are a prior, and
 - **F, v3's slower MLP.**
   - v3 over v2 at 0.97 or less: the stream loop's own cost explains it.
   - 0.99 or more: it does not, and the in-situ epilogue or the static split does.
-- **H, k tokens a pass (k2).** On a fundamental criterion:
-  - every k2 row equals the k = 1 row on its own activation, bit for bit. Otherwise the arm is void, and a
-    multi-token row path is not proposed until the divergence is found on the host;
-  - its cost: f = t(k2) / t(v2) - 1, round by round. A verify pass of k tokens then costs about 1 + (k - 1) f
-    passes. With tau accepted tokens a pass (measured apart, at $0, on the Mac), the served rate becomes about
-    tau / (1 + (k - 1) f) times the one-token rate, before attention and the draft head.
-  - f <= 0.25 keeps the door worth its complexity at tau >= 2; f >= 0.6 closes it for the row phase as built.
-    In between is a point of the curve. The decision is the operator's, on tok/s served once tau is known.
-  - Caveat: k2 holds 96,896 shared bytes, which leaves about 28 KB of L1 against about 64 KB beside V2's 57,984.
-    A part of f may be that, and is not separated here.
 - **G.** A miss is reported as a miss, with the term of §6 it refutes. No threshold moves after the clock.
 
 ## 8. Cost
