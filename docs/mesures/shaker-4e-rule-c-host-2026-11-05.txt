@@ -1,0 +1,124 @@
+RULE C OF THE SHAKER, ON THE HOST, AND THE DOWN INPUT AS A COSTED LEVER, 2026-11-05
+==================================================================================
+
+Result: the down input's 800 us a token are about 32 serial round trips a layer to memory, each about 0.7 us. Each
+round trip is a load that every one of the 142 CTAs makes at the same time, on the same lines. A bit-exact rewrite would
+do the same work in one or two round trips:
+- vector loads, all in flight at once;
+- the mix matrix staged in shared memory during the wait before.
+Applied to ln1 and ln2 too, which read the same way, the rewrite takes 4E v4 from 189.8 to about 243 tok/s at a
+5-token prompt, range [192, 247], and from 140.1 to about 167 at 8,192, range [141, 169]. These are *estimated* from
+SASS counts and the shaker's measured parts. The low end is the case where round trips are not the cost.
+
+Rule C, the backward check of the rows:
+- q/k/v rows hold for both forms.
+- gate/up holds for v3 (0.854) and falls outside for v4 (0.800).
+- down rows fall outside for both, in the other direction (1.25, 1.29).
+The down miss is the int4 down rows: they run from L2, not from DRAM.
+
+Prereg: none ($0, host analysis of a measured run).
+Inputs:
+- shaker-4e-2026-11-05.txt (job 6aec9a1d), inner parts and timed tokens, *measured*;
+- pers-rowloop-2026-11-05.txt, cycles a step, *measured*;
+- the SASS of pers_4e_tokens_f1_t512 from the devel ptxas 12.4 (indicative: the card's driver ptxas compiles the
+  same PTX, and every loop below is a single-element PTX loop).
+Tool: ops/pers_4e_insitu.py, function rule_c.
+
+1. RULE C: THE ROWS PARTS AGAINST THE ROW-LOOP CYCLES (mean CTA work, us a token, 5-token prompt)
+--------------------------------------------------------------------------------------------
+  The model of rule D: busiest warp a CTA, times steps a row, times the measured cycles a step; int4 rows at the
+  in-situ 587 GB/s. v3 runs v3's loop, v4 runs v2's.
+                    v3: predicted / measured / ratio      v4: predicted / measured / ratio
+    q/k/v rows        403 /  436.1 / 0.923  holds            370 /  404.2 / 0.915  holds
+    gate/up rows     1057 / 1237.4 / 0.854  holds            947 / 1184.4 / 0.800  outside
+    down rows         703 /  561.5 / 1.253  outside          594 /  462.0 / 1.285  outside
+  - gate/up under v4: 237 us a token (6.6 a layer) the rows do not account for.
+    The part also holds the SiLU table loads, the act writes, and the issue of the down rows' L2 prefetch.
+    v5 cut this part to 1,024 (measured), so most of the 237 is the uneven split, as rule D computed (341 for v3).
+  - Down rows: if the Tetra term holds, an int4 down layer takes 10.7 us (v3) or 11.6 (v4), that is 1,235 or
+    1,144 GB/s.
+    - Both are above the card's 864 GB/s DRAM, so these words come from L2.
+    - They were prefetched before the inner wait, and the wait and the down input have hidden their DRAM fill.
+    - The 587 GB/s of the o and head phases does not apply to them.
+
+2. THE THREE REDUNDANT PARTS ARE SERIAL ROUND TRIPS (v4, mean CTA work)
+----------------------------------------------------------------------
+  Every CTA computes ln1 with its rotation of 2,560, ln2 with its rotation of 2,560, and the down input (the rotation
+  of 9,728 for the 24 Tetra downs, the widening for the 12 int4 ones) on the whole vector. In the SASS, every loop of
+  these parts loads one element an iteration and uses it before the next load issues. The round trips a thread makes,
+  in series, are these (*computed* from the code):
+    exact_rms_scale at 2,560     5   (two candle virtual warps a warp: 3 + 2 columns)
+    exact_rms_apply at 2,560     5   (x, alpha, signs)
+    pers_mix_column at k = 5     5   (one row of `small` an iteration, 32 predicated generic loads)
+    pers_rot_load at 9,728      19
+    pers_mix_column at k = 19   19
+    int4 widening at 9,728      19
+  A ln part is 15 a layer, a Tetra down input 38, an int4 one 19.
+  Measured time over round trips, an upper bound on each:
+    ln1     406.6 us /   540 = 0.75 us (1,897 cycles at 2,520 MHz); this part also issues the q/k/v L2 prefetch
+    ln2     261.6 us /   540 = 0.48 us (1,221 cycles)
+    input   799.0 us / 1,140 = 0.70 us (1,766 cycles)
+  - An unloaded L2 hit on Ada is about 270 cycles (*estimated*, public microbenchmarks, never measured on the L40S).
+  - Each round trip here waits 4.5 to 7 times that. In each one, 142 CTAs x 16 warps load the same 1 KB (or the same
+    128-byte row of `small`) at once.
+  - The down input is the same on every CTA: slowest 815.4 against a mean of 799.0. That fits a shared resource, not
+    one CTA's work.
+  - What the round trips leave: the mix at k = 19 issues 105 instructions an iteration of g (KMAX = 32, predicated),
+    19 iterations, 4 warps a scheduler, about 3.2 us a Tetra layer. That is 58 us a token above the same mix read from
+    shared memory.
+
+3. THE LEVER: EACH REDUNDANT PART IN ONE OR TWO ROUND TRIPS
+----------------------------------------------------------
+  The same operations on the same values, so bit for bit by construction:
+  a. Down input:
+     - act read as 16-byte vectors, at most 3 a thread at 512 threads, all issued before the first use;
+     - the 304 sign words loaded with them;
+     - the halves widened and signed into shared memory as today.
+     - The int4 widening reads the same way.
+  b. `small` (k x KMAX floats, 2.4 KB at k = 19) staged in shared memory before the wait that precedes it. That is
+     the inner wait for the down input and the previous grid wait for ln1 and ln2: time a CTA spends idle today. The
+     mix then reads it from shared memory, in the same fma chain a column (t ascending, the +0 add when k < KMAX).
+  c. ln1 and ln2:
+     - x (2,560 halves, 320 vectors), alpha and the signs read in one round trip into shared memory;
+     - candle's RMS order replayed from there: the virtual thread t sums columns t, t + 1,024, t + 2,048 in order;
+     - the apply from shared memory.
+  Estimated after the change, at each part's present price a round trip: 2 round trips a part, plus about 1.0 us a
+  layer for ln (WHT round, k = 5 mix, reductions, barriers), and 1.9 for a Tetra down input (two WHT rounds over 16
+  warps, the k = 19 mix from shared memory, barriers).
+    part     now      after    saved (us a token)
+    ln1      406.6     90       316
+    ln2      261.6     71       191
+    input    799.0     91       708
+    token (v4)                         5-token prompt              8,192
+    now                                5,269 us, 189.8 tok/s       7,137 us, 140.1 tok/s
+    point (less 60 us of int4 DRAM)    243 tok/s                   167 tok/s
+    range                              [192, 247]                  [141, 169]
+  - Low end: round trips are not the cost, and only the mix's issue count goes (58 us).
+  - High end: every round trip saved at its present price (1,215 us).
+  - The point takes off 60 us: the int4 down's DRAM fill, hidden today behind the down input, can surface in the
+    int4 down rows, at most 5 us a layer.
+  The 300 tok/s target is not reached by this lever alone: 243 at 5 tokens leaves about 4.1 ms a token.
+
+  Rejected: one rotation shared across the grid.
+  - It adds a grid barrier a layer (two for the WHT then the mix). The inner wait already costs 5.3 us a layer on the
+    mean CTA and 9.7 on the slowest (measured).
+  - Every CTA would still read the whole rotated vector, in f32, twice the bytes.
+  - The lever above leaves about 3 us a Tetra layer, below one barrier's wait.
+
+4. COST OF THE PROOF
+-------------------
+  - Host: $0. The rewrite as a define of the 4E module beside the row forms, built on v4. pers_matches_served carries
+    it like v4 and v5: q/k/v, the token loop, the stamp symbol. Planned mutants:
+    - the halves' order inside a vector;
+    - the sign word of a vector;
+    - the offset of the staged `small`;
+    - the virtual thread order of the RMS;
+    - the +0 add of the mix.
+  - Card: one job of the shaker's part A with two modules (v4, v4 with the lever), its inner parts stamped as now.
+    - About 10 min, $0.30 at $1.80/h; timeout 20 min, $0.60 (*estimated*).
+    - The gate is the down input part: from 799 to at most 200 us a token. A drop under 100 us says the round trip
+      was the cost.
+    - Nothing to launch before the operator's go and a stamped prereg.
+
+Not established: that round trips are the cost (the low end is still open); the int4 down rows' L2 rate measured
+directly (it is inferred above); the lever's code; any gain on the card; the 8B and 14B, whose k and m differ.

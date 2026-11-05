@@ -1,5 +1,6 @@
 """Rule D of the row-loop prereg: 4E's MLP and q/k/v phases predicted from the row loops' own card cycles, against
-4E's phase tables, and what is left over.
+4E's phase tables, and what is left over. Then rule C of the shaker prereg: the same rows model against the shaker's
+inner parts, and the serial round trips of the three parts every CTA computes redundantly (ln1, ln2, the down input).
 
     python3 -I ops/pers_4e_insitu.py
 
@@ -97,5 +98,80 @@ def main():
     print(f"    q/k/v: ln1's rotation {LAYERS * rot[0]:.0f} of {MEAN_WORK['v3']['q/k/v'] - phases('v3')['q/k/v']:.0f}")
 
 
+# Shaker inner parts, 5-token prompt, mean CTA work, us a token (docs/mesures/shaker-4e-2026-11-05.txt, measured).
+SHAKER = {
+    "v3": {"ln1": 417.2, "qkv rows": 436.1, "ln2": 265.8, "gu rows": 1237.4, "wait": 191.3, "input": 798.1,
+           "dn rows": 561.5},
+    "v4": {"ln1": 406.6, "qkv rows": 404.2, "ln2": 261.6, "gu rows": 1184.4, "wait": 189.0, "input": 799.0,
+           "dn rows": 462.0},
+}
+TOKEN_V4 = {5: 5268.8, 8192: 7136.6}  # timed 4E v4, us a token (the same journal)
+LOOP = {"v3": "v3", "v4": "v2"}  # the row loop each form runs
+BAND = 0.15
+DRAM_GBS = 864.0  # L40S datasheet
+# Serial global round trips a thread makes in each redundant part, read from the SASS of pers_4e_tokens_f1_t512
+# (devel ptxas 12.4; every loop below loads one element an iteration and uses it before the next load issues):
+#   exact_rms_scale at 2,560: 5 (a warp's two virtual warps, 3 + 2 columns); exact_rms_apply: 5 (x, alpha, signs);
+#   pers_mix_column at k = 5: 5 (one row of `small` an iteration, 32 predicated generic loads);
+#   pers_rot_load at 9,728: 19; pers_mix_column at k = 19: 19; the int4 widening: 19.
+RT = {"ln": 15, "tetra input": 38, "int4 input": 19}
+
+
+def rule_c():
+    print("\nRule C of the shaker prereg: the rows parts against the row-loop cycles (mean CTA work, us a token)")
+    for form in ("v3", "v4"):
+        p = phases(LOOP[form])
+        m = SHAKER[form]
+        rows = {"qkv rows": p["q/k/v"], "gu rows": LAYERS * p["gu"],
+                "dn rows": TETRA_DOWN_LAYERS * p["dn_t"] + (LAYERS - TETRA_DOWN_LAYERS) * p["dn_q"]}
+        print(f"  {form} ({LOOP[form]}'s cycles)")
+        for k, pred in rows.items():
+            r = pred / m[k]
+            verdict = "holds" if abs(r - 1) <= BAND else "outside"
+            print(f"    {k:<9} predicted {pred:7.0f}  measured {m[k]:7.1f}  ratio {r:.3f}  {verdict}")
+        # the down rows, if the Tetra term holds: what the int4 down rows would run at
+        q = (m["dn rows"] - TETRA_DOWN_LAYERS * p["dn_t"]) / (LAYERS - TETRA_DOWN_LAYERS)
+        gbs = H * I * Q4 / q / 1e3
+        print(f"    if the Tetra down term holds, an int4 down layer takes {q:.1f} us: {gbs:.0f} GB/s, "
+              f"above DRAM's {DRAM_GBS:.0f} (its words come from L2, prefetched before the inner wait)")
+
+    print("\nThe redundant parts as serial round trips (us a token, v4, mean CTA work)")
+    m = SHAKER["v4"]
+    n_rt = {"ln1": LAYERS * RT["ln"], "ln2": LAYERS * RT["ln"],
+            "input": TETRA_DOWN_LAYERS * RT["tetra input"] + (LAYERS - TETRA_DOWN_LAYERS) * RT["int4 input"]}
+    for k, n in n_rt.items():
+        print(f"    {k:<6} {m[k]:6.1f} us over {n:5d} round trips a token: at most {m[k] / n:.2f} us each "
+              f"({m[k] / n * 2520:.0f} cycles at 2,520 MHz)")
+    print("    an unloaded L2 hit is about 270 cycles: each round trip here waits 4.5 to 7 times that, on lines all "
+          "142 CTAs read at once")
+
+    # the lever: every redundant part in one or two round trips, `small` staged in shared memory during the
+    # preceding wait, the k = 19 mix from shared memory. Bit for bit: the same operations on the same values.
+    print("\nThe lever, estimated (us a token, v4 at a 5-token prompt)")
+    price = {k: m[k] / n for k, n in n_rt.items()}
+    # what stays per layer: WHT rounds, the mix's FMAs, the RMS reductions and barriers (estimated, issue-bound)
+    after = {
+        "ln1": LAYERS * (2 * price["ln1"] + 1.0),
+        "ln2": LAYERS * (2 * price["ln2"] + 1.0),
+        "input": TETRA_DOWN_LAYERS * (2 * price["input"] + 1.9) + (LAYERS - TETRA_DOWN_LAYERS) * (price["input"] + 0.3),
+    }
+    # the mix's issue count alone (the floor of the gain if round trips were not the cost): 105 instructions an
+    # iteration of g, KMAX = 32 predicated, 19 iterations, 4 warps a scheduler, against about 1,900 cycles from shared
+    mix_only = TETRA_DOWN_LAYERS * ((105 * 19 * 4 - 1900) / 2520)
+    int4_dram = (LAYERS - TETRA_DOWN_LAYERS) * 5.0  # the int4 down's DRAM fill no longer hidden, at most
+    saved = sum(m[k] - after[k] for k in after)
+    for k in after:
+        print(f"    {k:<6} {m[k]:6.1f} -> {after[k]:5.0f}  saves {m[k] - after[k]:5.0f}")
+    lo = mix_only
+    hi = saved
+    mid = saved - int4_dram
+    for ctx, t in TOKEN_V4.items():
+        print(f"    context {ctx}: token {t:.0f} us, {1e6 / t:.1f} tok/s -> point {1e6 / (t - mid):.0f} tok/s, "
+              f"range [{1e6 / (t - lo):.0f}, {1e6 / (t - hi):.0f}]")
+    print(f"    low end: only the mix's issue count ({lo:.0f} us); high end: every round trip at its present price "
+          f"({hi:.0f}); point: the high end less the int4 down's DRAM fill ({int4_dram:.0f})")
+
+
 if __name__ == "__main__":
     main()
+    rule_c()
