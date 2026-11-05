@@ -7,7 +7,7 @@
 //! 5f439df): only a ratio formed round by round in one process survives that.
 //!
 //! ```text
-//! metalrun time  <sealed> <config> <arms> [n_new] [timed_rounds]
+//! metalrun time  <sealed> <config> <arms> [n_new] [timed_rounds] [prompt_tokens]
 //! metalrun gate  <sealed> <config> <arms>
 //! metalrun phased <sealed> <config> <arm> [n_new]
 //! metalrun dispatch
@@ -31,7 +31,9 @@
 //!
 //! `time` runs, in order: the bit gate (below), then two discarded and
 //! `timed_rounds` timed rounds, every arm in the same order each round, each a
-//! `generate_timed` of `n_new` tokens after the 5-token prompt of `fusedrun`.
+//! `generate_timed` of `n_new` tokens after the 5-token prompt of `fusedrun`,
+//! or, when `prompt_tokens` is not 0, after the first `prompt_tokens` tokens of
+//! the WikiText-2 test split (natural text, prefilled in chunks of 256 rows).
 //! It prints, per arm, the door rate (n_new over prompt plus decode, the
 //! quantity of `docs/ETAT.md`'s table) and the decode rate ((n_new - 1) over
 //! decode), as medians with the range over rounds, and each arm over the
@@ -98,7 +100,7 @@ mod mac {
             })
         };
         match a.first().map(String::as_str) {
-            Some("time") if a.len() >= 4 => time(&a[1], &a[2], &a[3], num(4, 128)?, num(5, 7)?),
+            Some("time") if a.len() >= 4 => time(&a[1], &a[2], &a[3], num(4, 128)?, num(5, 7)?, num(6, 0)?),
             Some("gate") if a.len() == 4 => {
                 let device = Device::new_metal(0)?;
                 let cfg = header(&a[1], &a[2])?;
@@ -110,7 +112,7 @@ mod mac {
             Some("dispatch") => dispatch(),
             Some("ppl") if a.len() >= 4 => ppl(&a[1], &a[2], &a[3], num(4, 4096)?, num(5, 4)?),
             _ => anyhow::bail!(
-                "usage: metalrun time <sealed> <config> <arms> [n_new=128] [timed_rounds=7]\n\
+                "usage: metalrun time <sealed> <config> <arms> [n_new=128] [timed_rounds=7] [prompt_tokens=0]\n\
                  \x20      metalrun gate <sealed> <config> <arms>\n\
                  \x20      metalrun phased <sealed> <config> <arm> [n_new=64]\n\
                  \x20      metalrun dispatch\n\
@@ -398,7 +400,7 @@ mod mac {
         (med, s[0], s[n - 1])
     }
 
-    fn time(path: &str, cfg_path: &str, list: &str, n_new: usize, timed: usize) -> anyhow::Result<()> {
+    fn time(path: &str, cfg_path: &str, list: &str, n_new: usize, timed: usize, prompt_tokens: usize) -> anyhow::Result<()> {
         anyhow::ensure!(n_new >= 2 && timed >= 1, "n_new >= 2 and at least one timed round");
         let device = Device::new_metal(0)?;
         let cfg = header(path, cfg_path)?;
@@ -406,9 +408,24 @@ mod mac {
         if arms.iter().filter(|a| a.fused).count() > 1 {
             bit_gate(&arms)?;
         }
-        let ids = arms[0].tokenizer.encode(PROMPT, false).map_err(anyhow::Error::msg)?.get_ids().to_vec();
+        let ids = match prompt_tokens {
+            0 => arms[0].tokenizer.encode(PROMPT, false).map_err(anyhow::Error::msg)?.get_ids().to_vec(),
+            n => {
+                let text = llvq_llm::corpus::wikitext2_test()?;
+                let head: String = text.chars().take(n * 12).collect();
+                let all = arms[0].tokenizer.encode(head.as_str(), false).map_err(anyhow::Error::msg)?;
+                anyhow::ensure!(all.get_ids().len() >= n, "{n} prompt tokens asked, {} found", all.get_ids().len());
+                let ids = all.get_ids()[..n].to_vec();
+                println!(
+                    "prompt: the first {n} tokens of the WikiText-2 test split, sha256 {}",
+                    llvq_llm::digest::sha256_u32(&ids)
+                );
+                ids
+            }
+        };
+        let shown = if ids.len() <= 8 { format!("{PROMPT:?} = {ids:?}") } else { format!("{} tokens", ids.len()) };
         println!(
-            "prompt {PROMPT:?} = {ids:?}; {n_new} new tokens; {DISCARDED} discarded + {timed} timed rounds; order {}",
+            "prompt {shown}; {n_new} new tokens; {DISCARDED} discarded + {timed} timed rounds; order {}",
             arms.iter().map(|a| a.label.as_str()).collect::<Vec<_>>().join(" ")
         );
         let n = arms.len();
