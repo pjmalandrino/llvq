@@ -58,7 +58,7 @@ struct Pers4eArgs {
     float* attn_scratch;                // [n_heads][ceil(cap / 64)][130]
     u32* bar;
     u32* abort_flag;
-    unsigned long long* slots;          // [2] argmax keys, alternated by position parity; zero at install
+    unsigned long long* slots;          // [2] argmax keys, alternated by position parity; cleared at launch start
     u32* nan_flag;
     const u32* rows;                    // decoder tables
     const unsigned char* pref;
@@ -107,6 +107,16 @@ __device__ __forceinline__ void pers_4e_body(const Pers4eArgs* __restrict__ A, c
     do {                                                             \
         if (!pers_grid_wait(A->bar, PERS_BAR(), A->abort_flag)) return; \
     } while (0)
+    // Both argmax slots start at zero in every launch. The slot of a position
+    // is its parity, and a launch may start at any position: a rewound decode
+    // (the measurement's, or a regenerated answer) would otherwise read the
+    // key left by the previous launch's last position (the first card reading,
+    // job 6aebcb97). CTA 0 clears them before the first barrier, whose fence
+    // orders the stores before any CTA's atomicMax.
+    if (c0 == 0u && threadIdx.x == 0u) {
+        A->slots[0] = 0ull;
+        A->slots[1] = 0ull;
+    }
     u32 tok = L.tok0;
     for (u32 t = 0; t < L.n_tokens; ++t) {
         const u32 pos = L.pos0 + t;
@@ -155,8 +165,8 @@ __device__ __forceinline__ void pers_4e_body(const Pers4eArgs* __restrict__ A, c
         if (next == 0xffffffffu) return;  // a NaN logit or an abort: the host reads the flags
         if (c0 == 0u && threadIdx.x == 0u) {
             L.ring[t] = next;
-            // the next position's slot, by parity of the position so it holds
-            // across launches; this one is still being read
+            // the next position's slot, cleared for the next token of this
+            // launch; this one is still being read
             A->slots[(pos + 1u) & 1u] = 0ull;
         }
         tok = next;
