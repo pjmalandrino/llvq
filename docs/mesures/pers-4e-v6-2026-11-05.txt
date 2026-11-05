@@ -1,0 +1,46 @@
+pers-4e-v6, 2026-11-05. 4E v6 (ln1, ln2 and the MLP down input in one round trip a thread, row form 4) against v4.
+
+Job 6aece6370e0338d1bb80aac2, l40sx1 (NVIDIA L40S, sm_89, 2520 MHz), image built from integration/lot1 a559c99.
+Prereg proofs/preregistration-pers-4e-v6-2026-11-05.md (sha256 f646730e, stamped before launch). Ran about 21:35 to
+21:43 UTC, about 8 min of card, $0.24 (computed at $1.80/h). Raw output in pers-4e-v6-2026-11-05-brut/.
+
+Gates (§4): all hold. oracle MATCH; sealed file 886391a8; event tracking off; RoPE equal to candle's; v4 and v6 equal
+the eager tokens at 5 and 8,192 (64 of 64); v6 loads at 128 registers, 0 B local; no LLVQ_* in the job env.
+
+Results, measured, 64 tokens, same process, medians [range]:
+
+  context   eager    v4                       v6                       v6 / v4, round by round
+  5         134.2    190.2 (x1.417)           212.6 (x1.584)           x1.118 [1.117-1.118]
+  8192      104.6    138.9 (x1.328)           152.0 (x1.454)           x1.094 [1.094-1.095]
+  (context 5 is the measurement form, 8,192 the served kernel config)
+
+Inner parts at 5 tokens, us a token, mean CTA work, v4 -> v6:
+  MLP down input   796.0 -> 254.6   (-541)
+  ln1+rotation     409.5 -> 318.9   (-91)
+  ln2+rotation     255.5 -> 157.8   (-98)
+  down rows        461.5 -> 452.8   (no DRAM fill exposed)
+  stamped token    5373 -> 4738
+
+Rules (§7).
+- Gate of the lever: the down input reads 254.6 us, above 200. By the prereg's words the lever FAILS: the round trips
+  were not the whole cost they were read as. It removed 541 of 796 us; about 255 us stay (rule C names the mix, the
+  WHT and the barriers as the candidates).
+- A, identity: holds at both contexts.
+- B, serving: v6 over v4 has its whole range above x1.00, but the gate did not hold, so by the prereg's rule v6 stays
+  a measurement and is not proposed. Any serving of v6 is the operator's call against this rule, and would need a door
+  reading under the served config.
+- C, the parts: the down input (254.6 against [50, 200]) and ln1+rotation (318.9 against [60, 300]) fall but stay
+  above their intervals; ln2+rotation (157.8) is inside. The down rows do not rise.
+
+Predictions (§6), misses reported (rule G).
+- identity, no local memory: as predicted. v4 at 5: 190.2 against 189.8 [186, 194], inside.
+- down input 254.6 against 91 [50, 200]: MISS, above.
+- ln1+rotation 318.9 against 90 [60, 300]: MISS, above.
+- ln2+rotation 157.8 against 71 [40, 200]: inside.
+- v6 at 5: 212.6 against 243 [192, 247], inside, below the point.
+- v6 at 8,192: 152.0 against 167 [141, 169], inside, below the point.
+- v6 over v4: x1.118 against x1.28 [1.01, 1.30] at 5, and x1.094 against x1.19 [1.01, 1.21] at 8,192: inside.
+- down rows v6 against v4: -9 us against +0 to +60: below the band, no exposure.
+
+What this run does not establish: v6 at the served door; any task reading under v6; the 8B and the 14B; any card but
+the L40S. The 300 tok/s target is not reached: 212.6 in the measurement form.
