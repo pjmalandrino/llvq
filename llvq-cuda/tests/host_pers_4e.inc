@@ -7,8 +7,12 @@
 //
 // in : u32 form, grid, threads, n, pos0, cap, tok0, eos, vocab, u64 seed,
 //      three rotations (attention input at 2,560, MLP input at 2,560, down
-//      input at 9,728), each u32 m, k, f32 inv, u32 signs[n/32], f32 small[1024]
-// out: u32 ring[n], u16 x[hidden], u16 kc, vc of each layer, u32 bar, abort
+//      input at 9,728), each u32 m, k, f32 inv, u32 signs[n/32], f32 small[1024],
+//      u32 n_more, then n_more launches (u32 pos0, n, tok0) run after the
+//      first through the same state, as the runtime runs consecutive decodes
+//      (a later launch may rewind to an earlier position)
+// out: u32 ring[n] then each later launch's ring, u16 x[hidden], u16 kc, vc of
+//      each layer, u32 bar, abort
 {
     const u32 form = rd1<u32>(), grid = rd1<u32>(), threads = rd1<u32>(), n = rd1<u32>(), pos0 = rd1<u32>(),
               cap = rd1<u32>(), tok0 = rd1<u32>(), eos = rd1<u32>(), vocab = rd1<u32>();
@@ -22,6 +26,11 @@
         return r;
     };
     const Rot ra = read_rot(H), rm = read_rot(H), rd_ = read_rot(I);
+    const u32 n_more = rd1<u32>();
+    std::vector<u32> runs{pos0, n, tok0};
+    { const auto m = rd<u32>(3 * (size_t)n_more); runs.insert(runs.end(), m.begin(), m.end()); }
+    size_t ring_len = 0;
+    for (size_t i = 0; i < runs.size(); i += 3) ring_len += runs[i + 1];
     const float eps = 1e-6f;
     Rng r(seed);
     // the tied table
@@ -68,7 +77,7 @@
     }
     // the score scale attn_ref::score_scale(128): (1/sqrt(128)) x log2(e), in f64 then f32
     const float scale = (float)((1.0 / std::sqrt(128.0)) * 1.4426950408889634);
-    std::vector<u32> ring(n, 0xFFFFFFFFu), tail(2, 0u);
+    std::vector<u32> ring(ring_len, 0xFFFFFFFFu), tail(2, 0u);
     std::vector<unsigned short> x(H, 0u);
 #if PERS_SIDE == 0
     (void)grid; (void)threads;
@@ -89,6 +98,11 @@
         hostgrid::launch_seq(dout / 8, 256, [&] { tv_q4_hh(w.data(), sc.data(), bi.data(), in.data(), o.data(), din, din / 128); });
         return o;
     };
+  size_t ring_at = 0;
+  for (size_t run_i = 0; run_i < runs.size(); run_i += 3) {
+    const u32 pos0 = runs[run_i], n = runs[run_i + 1], tok0 = runs[run_i + 2];
+    u32* ring_run = ring.data() + ring_at;
+    ring_at += n;
     u32 tok = tok0;
     for (u32 t = 0; t < n; ++t) {
         const u32 pos = pos0 + t;
@@ -144,10 +158,11 @@
             const unsigned long long key = ((unsigned long long)ord << 32) | ((unsigned long long)(1023u - (__brev(i & 1023u) >> 22)) << 22) | (0x3FFFFFu - (i >> 10));
             if (key > best) { best = key; next = i; }
         }
-        ring[t] = next;
+        ring_run[t] = next;
         tok = next;
         if (tok == eos) break;
     }
+  }
 #else
     const F1rTables tb = tables();
     std::vector<unsigned short> qs(NH * 128), ks(NKV * 128), vs(NKV * 128), x_b(H), q_out(NH * 128), ctx(NH * 128), act(I);
@@ -186,11 +201,17 @@
     A.rows = tb.rows; A.pref = tb.prefixes; A.br = tb.branches; A.suf = tb.suffixes; A.invnorm = g_inv.data();
     A.n_layers = NL; A.vocab = vocab; A.hidden = H; A.emb_gpr = egpr; A.n_heads = NH; A.n_kv = NKV; A.groups = GRP; A.cap = cap;
     A.eps = eps; A.c = scale;
-    const Pers4eLaunch L{0u, pos0, n, tok0, eos, 0u, ring.data()};
     typedef void (*Fn)(const Pers4eArgs*, const Pers4eLaunch);
     const Fn fns[3] = {pers_4e_tokens_f0, pers_4e_tokens_f1, pers_4e_tokens_f2};
     const size_t smem = PERS_SMEM_HEADER + 18816 + 4 * (size_t)std::max(I, 2 * H);
-    hostgrid::launch_coop(grid, threads, smem, seed, [&] { fns[form](&A, L); });
+    // Launch after launch through the same state, as Runtime4e::decode runs
+    // them: the barrier base is the counter's value (no abort), a fresh ring.
+    size_t ring_at = 0;
+    for (size_t run_i = 0; run_i < runs.size(); run_i += 3) {
+        const Pers4eLaunch L{bar[0], runs[run_i], runs[run_i + 1], runs[run_i + 2], eos, 0u, ring.data() + ring_at};
+        ring_at += runs[run_i + 1];
+        hostgrid::launch_coop(grid, threads, smem, seed + run_i, [&] { fns[form](&A, L); });
+    }
     tail[0] = bar[0];
     tail[1] = ab[0];
 #endif

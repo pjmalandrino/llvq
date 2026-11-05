@@ -677,10 +677,21 @@ fn the_4e_norm_rope_append_phase() {
 
 #[allow(clippy::too_many_arguments)]
 fn g_cmd(form: u32, grid: u32, threads: u32, n: u32, pos0: u32, cap: u32, tok0: u32, eos: u32, seed: u64) -> Vec<u8> {
+    g_cmd_runs(form, grid, threads, &[(pos0, n, tok0)], cap, eos, seed)
+}
+
+/// Several launches through the same state, each `(pos0, n, tok0)`, the way
+/// `Runtime4e::decode` is called launch after launch.
+fn g_cmd_runs(form: u32, grid: u32, threads: u32, runs: &[(u32, u32, u32)], cap: u32, eos: u32, seed: u64) -> Vec<u8> {
+    let (pos0, n, tok0) = runs[0];
     let mut c = Cmd::new(b'G').u32(form).u32(grid).u32(threads).u32(n).u32(pos0).u32(cap).u32(tok0).u32(eos).u32(1024).u64(seed);
     for (w, s) in [(2560usize, 51u64), (2560, 52), (9728, 53)] {
         let r = rot(w, s);
         c = c.u32(r.m).u32(r.k).f32(r.inv).u32s(&r.signs).f32s(&r.small);
+    }
+    c = c.u32(runs.len() as u32 - 1);
+    for &(p, k, t) in &runs[1..] {
+        c = c.u32(p).u32(k).u32(t);
     }
     c.0
 }
@@ -725,6 +736,41 @@ fn the_4e_token_loop_is_the_served_chain() {
         let got = run_mutant(&b, &cmd).map(|o| o[..4 * n as usize].to_vec());
         assert!(got != Some(want.clone()), "4E mutant {tag} survived");
     }
+}
+
+/// Consecutive decodes through one state, as `Runtime4e::decode` runs them
+/// and as fusedrun's 4E mode times them: the same launch again (rewound to
+/// the prompt), a launch that continues, then a rewind again. Every launch's
+/// tokens, the caches, the residual and the barrier count equal the served
+/// chain run the same way. The first card reading (job 6aebcb97) decoded its
+/// first launch right and a rewound one wrong.
+#[test]
+fn consecutive_4e_decodes_keep_their_tokens() {
+    let runs = [(5u32, 3u32, 7u32), (5, 3, 7), (8, 2, 9), (5, 3, 7)];
+    let made: u32 = runs.iter().map(|r| r.1).sum();
+    for (form, grid, threads, seed) in [(0u32, 3u32, 128u32, 0x4e10u64), (1, 4, 96, 0x4e11), (2, 3, 64, 0x4e12)] {
+        let cmd = g_cmd_runs(form, grid, threads, &runs, 16, u32::MAX, seed);
+        let want = run(served(), &cmd);
+        let got = run(persistent(), &cmd);
+        let rings = |b: &[u8]| u32s(&b[..4 * made as usize]);
+        let (wr, gr) = (rings(&want), rings(&got));
+        assert!(wr.iter().all(|&t| t < 1024), "the served runs made every token: {wr:?}");
+        assert_eq!(&wr[..3], &wr[3..6], "the served chain rewound gives the same tokens");
+        assert_eq!(gr, wr, "form {form}, grid {grid}: the tokens of consecutive launches");
+        assert!(got[..got.len() - 8] == want[..want.len() - 8], "form {form}, grid {grid}: residual or caches");
+        let tail = u32s(&got[got.len() - 8..]);
+        assert_eq!(tail, vec![made * llvq_cuda::pers::n_bar_4e(2) * grid, 0], "barrier count and abort");
+    }
+    // Teeth: without the clear at launch start, a rewound launch reads the
+    // previous launch's key (form 1, grid 4 caught it before the fix).
+    let b = mutant_many(
+        "4e_slots_kept",
+        &[("llvq-cuda/kernels/pers_4e.cu", "        A->slots[0] = 0ull;\n        A->slots[1] = 0ull;\n", "")],
+    );
+    let cmd = g_cmd_runs(1, 4, 96, &runs, 16, u32::MAX, 0x4e11);
+    let want = u32s(&run(served(), &cmd)[..4 * made as usize]);
+    let got = run_mutant(&b, &cmd).map(|o| u32s(&o[..4 * made as usize]));
+    assert!(got != Some(want), "the slots-kept mutant survived");
 }
 
 // ---- the L2 bench arms ------------------------------------------------------
