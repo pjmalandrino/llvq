@@ -1,0 +1,92 @@
+WHERE 4E'S TOKEN GOES, FROM THE ROW LOOPS' OWN CARD CYCLES: RULE D OF THE ROW-LOOP PREREG, 2026-11-05
+====================================================================================================
+
+Result: rule D fails. The row loops' own card cycles, times 4E's row counts, predict 59 % of 4E v3's MLP work:
+1,761 us against 2,975 measured, outside the 10 % band (*computed*, ops/pers_4e_insitu.py).
+- The rest, 1,215 us a token (33.7 a layer), does not follow the loop. With v2's cycles the rows predict 1,541 against
+  2,834, and the remainder is 1,293.
+- From v2 to v3 the rows predict +220 us and the phase moved +141.
+So it is a fixed cost a layer around the rows, about the same with either loop. The q/k/v phase reads the same:
+- rows 403 against 847 measured;
+- a remainder of 445 (12.3 a layer).
+
+Together these fixed costs are 1,660 us of a 5,615 us token, the largest item. Second is the uneven split of rows
+over 16 warps, 420 us inside the rows. Third is waiting between CTAs (wall over mean work), 790 us, half of it in
+attention at a short prompt.
+
+The next 4E change is a measurement, not a variant: stamps inside the q/k/v and MLP phases, to name the 1,660 us one by
+one. Only about 60 % of them can be named today, and only from isolated measurements in another geometry. One code
+change is already backed by card numbers: v2's row loop in v3's structure, about -170 us a token (§4).
+
+Prereg:  none ($0); the inputs are measured journals.
+Inputs:  pers-rowloop-2026-11-05.txt (integration/lot1 ced583d): cycles a step at d_in 2,560 / 9,728, v2 1,616 /
+         1,272 at 2,456 MHz, v3 1,837 / 1,736 at 2,502 MHz.
+         pers-4e-v2 and pers-4e-v3 (phase tables, mean CTA work).
+         pers-4e-v3-host (int4 rows in situ at 587 GB/s).
+         lot1-4b-2026-11-04 (rot_apply alone: 7.82 us at 2,560, 18.40 at 9,728, 1,024 threads).
+         pers-l1-2026-11-04-brut (grid barrier, 142 x 768: 0.786 us).
+Tool:    ops/pers_4e_insitu.py.
+
+1. THE BACKWARD CHECK (rule D)
+------------------------------
+  A CTA's work in a phase is set by its busiest warp. 4E splits a phase's rows evenly over 142 CTAs, then statically
+  over 16 warps, so the busiest warp holds:
+    - 5 gate/up pairs (mean warp 4.28);
+    - 2 down rows (mean 1.13);
+    - 3 q|k rows (mean 2.25).
+  Steps a row: 4 at d_in 2,560, 13 at 9,728. The int4 rows (v, the 12 int4 downs) run at 4E's own in-situ int4 rate,
+  which already carries the same split.
+                         v2 (4E v2's loop)                       v3 (4E v3's stream)
+    a layer              gate/up 26.3, down 13.5 / 22.5 (int4)    gate/up 29.4, down 18.0 / 22.5
+    MLP rows predicted   1,541 us   measured 2,834   ratio 0.544  1,761   measured 2,975   ratio 0.592
+    remainder            1,293 (35.9 a layer)                     1,215 (33.7 a layer)
+    q/k/v (v3's split)                                            403     measured 847     remainder 445 (12.3 a layer)
+  The remainder is the same with either loop: v3 - v2 is +220 us predicted for the rows and +141 measured for the
+  phase. What the loop changes shows up, roughly. The 1,200-1,300 us around it do not move.
+
+2. THE IN-SITU COSTS, ONE BY ONE (v3, us a token, 5-token prompt; token 5,615)
+-----------------------------------------------------------------------------
+  a. Fixed work around the rows: 1,660 (MLP 1,215, q/k/v 445). What each phase does around its rows:
+     - q/k/v: ln1 (an RMS reduction over 2,560), the rotation of 2,560, two stagings (rotated for q|k, natural for the
+       int4 v), the L2 prefetch of the slice;
+     - MLP: ln2 and its rotation of 2,560; after gate/up, the activation written and reread from L2; the inner grid
+       barrier and its wait; the rotation of 9,728 (24 Tetra-down layers) or the widening (12 int4); the epilogues
+       (SiLU table one pair late, the residual).
+     Named from isolated measurements (*estimated*: rot_apply ran at 1,024 threads alone, 4E runs 512 in every CTA):
+       ln1's rotation 282, ln2's 282, the Tetra down's 442, the inner barrier 28: 1,034 of 1,660. The norms, the
+       stagings, the act round trip and the epilogues share the rest, about 630, unnamed.
+     Every CTA runs the same rotations on the same vector: that work is redundant across the grid, but parallel, so
+     it costs the wall time of one rotation.
+  b. The uneven split inside a CTA: 420 (MLP 341, q|k 79), *computed* from the measured cycles. A busiest warp of 5
+     pairs against a mean of 4.28, and of 2 down rows against 1.13. The row-loop stamps saw the same: balance 0.63 at
+     d_in 4,096 and 9,728.
+  c. Waiting between CTAs (wall minus mean CTA work, the v3 table): q/k/v 74, norm 85, attention 396, o 116, MLP 121,
+     head 0. 792 in all, and attention at a short prompt is half of it (slowest CTA 621 against a mean of 248).
+  d. The loop: v3's stream is slower than v2's loop alone (x0.849, measured) and in situ (+141 in MLP, measured).
+
+3. WHAT A CEILING LOOKS LIKE (*computed* from the items above, not a forecast)
+-----------------------------------------------------------------------------
+  Removing a, b, c's attention part and d leaves 5,615 - 1,660 - 420 - 396 - 170 = 2,969 us, about 337 tok/s.
+  Today's loop alone, with its in-situ fixed costs and split as they are, holds 4E near 180.
+
+4. THE NEXT 4E CHANGE, ON MEASURED NUMBERS ONLY
+-----------------------------------------------
+  - Ready to build, backed by card numbers: v2's row loop inside v3's structure (v3's mixed q/k/v split and its
+    short-context attention staging kept).
+    - MLP -141 us (measured, the two 4E tables); q|k about -32 (computed from the measured cycles).
+    - About 5,445 us, 184 tok/s (*estimated*). Bit-exact by construction (v2 and v3 both keep the served bits on the
+      card).
+  - The largest item needs a measurement before any variant: phase stamps inside q/k/v and MLP. These are norm,
+    rotation, staging, rows, the inner barrier's wait, and the epilogues, on the stamp symbol only, outside the
+    timed rounds as today.
+    - Code at $0; one card job of the 4E kind (fusedrun LLVQ_PERS_4E, about $0.15-0.30).
+    - It names the 1,660 us. A per-CTA register rotation (R1), or a rotation shared once across the grid, is
+      proposed only on what it measures.
+  - The split, 420 us (+8 % on the token, *computed*), has a bit-exact fix on paper. A block's dot product does not
+    depend on the others; only the fold into the row's sum is ordered. Two warps can share a long row: one writes
+    block partials to shared memory, the owner folds them in order. Proposed after the stamps, since it adds
+    shared-memory traffic beside the fixed costs it would sit with.
+  - Attention's 396 us wait at a short prompt stays the open item of v3's rule C.
+
+Not established: the 1,660 us split by item (only isolated pieces measured); any of the levers' gains on the card; the
+8B and 14B.
