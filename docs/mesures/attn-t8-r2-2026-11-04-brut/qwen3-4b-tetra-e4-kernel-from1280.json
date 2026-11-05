@@ -1,0 +1,9 @@
+{
+  "layout": "tetra48",
+  "embed": "q4",
+  "rot_share": "1",
+  "fuse": "0",
+  "kv": "f16",
+  "attention": "kernel",
+  "note": "MEASUREMENT ONLY, written by ops/jobs/attn-t8-r2.sh: the qwen3-4b-tetra-e4 object with decode rows at position 1,280 and later sent to the split-KV attention kernel, the rows below on the grouped path. Not licensed: past 1,280 the kernel is not bit for bit with the grouped form, and its T8 decision is the operator's."
+}

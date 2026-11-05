@@ -1,0 +1,44 @@
+The attention kernel with its 1,280 threshold: served sweep and T8 control, 2026-11-04 (into 2026-11-05)
+
+Result: outcome P of the prereg. The "kernel" form now sends a row to the split-KV kernel only from position 1,280,
+and below it runs the grouped arithmetic bit for bit. Served 4B, kernel config against grouped (*measured*): 134.7
+against 135.0 tok/s after 5 tokens (0.9978, same 256 tokens), 120.5 against 114.1 at 2,048 (x1.0561), 117.6 against
+97.9 at 4,096 (x1.2012), 104.0 against 77.5 at 8,192 (x1.3419). Paired WikiText-2 perplexity on the positions the
+kernel takes: -0.0013 % [-0.0074 ; +0.0047] in 12 windows of 4,096 and +0.0001 % [-0.0076 ; +0.0077] in 6 windows of
+8,192, inside +-0.12 %; every step below 1,280 bit for bit. The 50-problem GSM8K replay under the kernel config wrote
+the grouped census's rows (f11a0b23...). The T8 of the kernel form with its threshold is proposed to the operator.
+
+Job      : 6aebb221c78863f9c63302c0, l40sx1, 3,071 s running, $1.54 (*computed* at $1.80/h).
+Image    : Space sha 288f0742b79a68ca3708bc6441958f74fc91633e (integration/lot1 at a4799ce, threshold 1d3bf09).
+Prereg   : proofs/preregistration-attn-t8-r2-2026-11-04.md, sha256 d198e171..., OpenTimestamps stamped before; it
+           supersedes proofs/preregistration-attn-t8-2026-11-04.md, which did not run (C0 in lot 1).
+Object   : sealed 4B, sha256 886391a8...; configs qwen3-4b-tetra-e4-grouped.json and
+           qwen3-4b-tetra-e4-kernel-from1280.json, written from the launch command.
+Raw      : attn-t8-r2-2026-11-04-brut/ (sweeps, ppl and band files, replay, outcome.txt).
+
+Gates (passed, *measured*): oracle MATCH; object and configs on the mount; the replay ran the kernel config and ended
+on the pilot fingerprint; the kernel equals the CPU replay on 103 calls; both sweeps print config, tile, parity, seven
+lengths and seven token lines; the tokens at 5, 256 and 1,024 are identical between the two configs; every ppl step
+below 1,280 bit for bit, every line printed.
+
+Served sweep, 256 new tokens, 1 discarded and 5 rounds, tok/s (*measured*):
+  prompt   kernel from 1280      grouped               kernel / grouped [in situ]   tokens
+       5   134.7 [134.6-134.7]   135.0 [135.0-135.1]   0.9978 [0.9963, 0.9978]      identical
+     256   132.1 [132.0-132.2]   132.0 [132.0-132.1]   1.0008 [0.9992, 1.0015]      identical
+    1024   123.6 [123.6-123.8]   123.9 [123.7-124.0]   0.9976 [0.9968, 1.0008]      identical
+    1280   121.7 [121.4-121.8]   121.1 [120.9-121.3]   1.0050 [1.0008, 1.0074]      identical
+    2048   120.5 [120.4-120.5]   114.1 [114.0-114.3]   1.0561 [1.0534, 1.0570]      identical
+    4096   117.6 [117.3-117.6]    97.9 [97.9-98.1]     1.2012 [1.1957, 1.2012]      identical
+    8192   104.0 [103.8-104.1]    77.5 [77.5-77.7]     1.3419 [1.3359, 1.3432]      identical
+The arms ran one after the other in one job; the in-situ range is min and max across their rounds. Below 1,280 the
+two configs run the same arithmetic, so their speeds are equal within noise by construction.
+
+Perplexity, decode path, kernel against grouped (*measured*):
+  4,096 x 12 windows (61 to 72): from 1280 -0.0013 % [-0.0074 ; +0.0047]; top-1 33,723 of 33,780 (99.831 %)
+  8,192 x 6 windows (7 to 12):   from 1280 +0.0001 % [-0.0076 ; +0.0077]; top-1 41,395 of 41,466 (99.829 %)
+
+Rule reading: outcome P. Proposed to the operator: the T8 of the "kernel" form with its 1,280 threshold, at 4B; a
+config file and a served-door measurement under its own prereg follow on the operator's yes.
+
+Not established: the 8B and 14B under this form (G = 4 at 8B, G = 5 at 14B: the kernel has a G = 5 variant to check);
+task scores at contexts past 1,280; any card but the L40S.
