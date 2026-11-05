@@ -1,0 +1,22 @@
+4E, first card reading, retry 2, 2026-11-05
+
+Result: the 4E token loop decodes the same tokens as the served path and no faster: at a 5-token context, 64 of 64
+tokens equal to the eager path's and to the served grouped door, 133.1 tok/s [133.1-133.1] against 134.0 [134.0-134.0]
+for the eager kernel form, x0.993 [0.993-0.994] round by round (*measured*). The run then stopped before the 8,192
+context: the prefill of 8,192 positions in one call exceeds a guard of the bench path ("8192 vectors at once, more
+than 4096"), so no 8,192 reading exists. The projection of rule H in pers-l1 (222-258 tok/s for 4E) is not approached:
+this 4E keeps the eager step's time.
+
+Job      : 6aebd50b0e0338d1bb804dae, l40sx1, 77 s running, $0.04 (*computed* at $1.80/h).
+Image    : Space sha e8dad0ce887e4ac6af3b148fa26013e8b9786c38 (integration/lot1 at e403f4a, the stale-key fix 3e186a0).
+Prereg   : proofs/preregistration-pers-4e-2026-11-04.md (sha256 83164b0e...), deviation E1 beside it (retry, RETRY=2).
+Raw      : pers-4e-r2-2026-11-05-brut/pers-4e.txt.
+
+Printed (*measured*): load checks as in run 1 (RoPE form 1, pers_4e_tokens_f1 at 1 resident a SM, grid 142 x 512, 254
+barriers a token); context 5: every decode row on the attention kernel, 64 of 64 tokens identical; eager (kernel
+form) 134.0 tok/s, 4E 133.1 tok/s, 4E / eager x0.993 [0.993-0.994].
+
+Rule reading: identity holds at context 5 (the stale-key bug is fixed on the card). The speed rule reads one length of
+two; the 8,192 part is void by the bench guard, a defect of the harness (the prefill must be chunked at 4,096, as
+fusedrun's other modes do). Before any rerun: why the token loop keeps the eager step's 7.5 ms (one CTA a SM at 512
+threads, 254 grid barriers a token, the weight stream inside the loop), measured on the host and by its microbenchmarks.
