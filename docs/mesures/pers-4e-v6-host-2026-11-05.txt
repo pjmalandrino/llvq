@@ -1,0 +1,69 @@
+4E V6, THE REDUNDANT PROLOGUES IN ONE ROUND TRIP, ON THE HOST, 2026-11-05
+=======================================================================
+
+Result: 4E v6 is built and equals the served chain bit for bit on the host. v6 is row form 4: v4's rows, with ln1,
+ln2 and the MLP's down input loaded as 16-byte vectors, and the rotations' `small` staged in shared memory.
+- 14 mutants caught.
+- The card job is prepared and not launched: ops/jobs/pers-4e-v6.sh, about $0.30, ceiling $0.60.
+- Its prereg, proofs/preregistration-pers-4e-v6-2026-11-05.md, is not stamped.
+- Gate: the down input at most 200 us a token, from v4's 799.0 (*measured*, shaker).
+- Expected (*estimated*): 243 tok/s [192, 247] at a 5-token prompt, 167 [141, 169] at 8,192.
+
+Prereg:  none for this host work ($0); the card reading has its own (above).
+Inputs:  shaker-4e-rule-c-host-2026-11-05.txt (the round-trip reading and the lever's estimate). Operator's go of
+         2026-11-05, relayed by the integration session.
+
+1. WHAT FORM 4 CHANGES (llvq_pers.cuh section 7b, pers_4e.cu, pers_segment.cu)
+----------------------------------------------------------------------------
+  Only in 4E, and only when the inputs are 16-byte aligned and the width a multiple of 8. Otherwise the scalar code
+  runs, and the install refuses form 4 (below).
+  - pers_load_1rt: the activation as uint4 loads, at most 3 a thread a batch (one batch for 9,728 at 512 threads), with
+    the sign words and the k rows of `small` in the same batch, all issued before the first use. The halves are
+    widened and signed into shared memory, as pers_rot_load does. Without signs it is the int4 down's widening.
+  - pers_ln_1rt (ln1 and ln2):
+    - x and alpha come as vectors, staged widened in shared memory, with `small` in the same batch;
+    - candle's RMS tree is replayed from the staged x (exact_rms_scale_by: exact_rms_scale's body, which
+      exact_rms_scale now calls with its global loader);
+    - the apply is the same two roundings, by the thread that loaded the vector;
+    - the sign words are read again after the scale, from L1.
+  - pers_rot_finish<true>: the mix reads the staged rows. At k = 5 and k = 19 it is unrolled (pers_mix_column_k), each
+    column chain from +0, t ascending, then + 0; other k run pers_mix_column on the staged rows.
+  - Scratch: 4 KB after the row vector (PERS_4E_SCRATCH, pers::p4e_scratch_bytes(4)).
+  - The final norm before the head keeps the scalar path.
+  Driver:
+  - pers::P4E_ROWS_FORMS gains (4, "v6"). pers::P4E_BENCH_FORMS = [v4, v6] is what fusedrun LLVQ_PERS_4E now
+    installs; v3 and v5 were read by the shaker. fusedrun prints "4E v6 / 4E v4, round by round".
+  - persist4e_cuda::install_rows refuses form 4 when act, x_a, x_b or a layer's ln1 or ln2 is not 16-byte aligned
+    (pers::p4e_v6_inputs). The kernel would take the scalar path and time as v4 under v6's name. On success it
+    prints the 75 inputs checked.
+  The served config is not touched: its rows field still takes v3 and v4 only.
+
+2. HOST PROOFS ($0, cargo test under nice 10, -j 4)
+---------------------------------------------------
+  - the_4e_v6_prologues_are_the_served_chain:
+    - the rotation at the six served widths (k = 5, 19, 1, 3, 5, 17), at 64 threads (several batches, `small` staged
+      in a loop) and at 512 (one batch), equal to rot_apply;
+    - the -0 column at k = 3, 5, 19 through the form's mix;
+    - the token loop at four geometries (3 x 128, 4 x 96, 5 x 64, 3 x 512), at positions 270-271, and through the
+      stamp symbol, equal to the served chain; the stamped inner parts all positive.
+  - the_4e_v6_mutants_are_killed: 14 mutants caught.
+    - 11 in section 7b: the halves' order, the sign word, ln's sign shift, the `small` store and its loop, the mix's
+      order and its + 0, the apply's order, the alpha vector, ln1's natural copy, the RMS loader.
+    - 3 at the segment's call sites, read by the token loop alone: ln2's signs, the down's k, the int4 widening's
+      signs. These show that the loop runs the vector path for ln2, a Tetra down and an int4 down. ln1's is shown by
+      the natural-copy mutant.
+  - norm_square_rounded now mutates exact_rms_scale's loader; it is still caught.
+  - Full llvq-cuda suite under nice 10: pers_matches_served 36 of 36, the library 124 (p4e_v6_inputs among them).
+  - cargo clippy --all-targets: 0 warnings on the Mac and on the Linux half of llvq-cuda. On the Linux half of
+    llvq-llm (ops/check-linux-on-mac.sh), only the two known attn_cuda.rs warnings.
+  - devel ptxas 12.4 (indicative; the card's driver ptxas decides):
+                                   form 2 (v4)       form 4 (v6)
+      pers_4e_tokens_f1_t512       122 registers     128 registers
+      pers_4e_stamps_f1_t512       122 registers     128 registers
+    0 B spill for all four. Form 4 uses the whole 128 of a 512-thread CTA. The 768-thread symbol spilled under the
+    card's driver before (v2, v3), so a spill of v6 under the driver is possible. fusedrun prints the loaded local
+    bytes, and the prereg predicts none.
+  - The form-4 SASS holds 25 LDG.E.128.STRONG.GPU (the vector __ldcg). The scalar loops that remain are the scalar
+    paths kept beside it and the final norm.
+
+Not established: anything on a card; that the driver's ptxas keeps v6 out of local memory; any of the estimated gains.

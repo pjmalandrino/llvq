@@ -450,6 +450,35 @@ __device__ __forceinline__ void pers_mix_column(float* s, const float* small, u3
     }
 }
 
+// Form 4 (4E v6): the same column at a compile-time K, `ssm` the k rows of
+// `small` staged in shared memory. Every g is its own chain, unrolled, so the
+// 19 chains of the 4B's down input interleave; each chain is pers_mix_column's:
+// from +0, t ascending, then the single + 0 when K < KMAX.
+template <u32 K>
+__device__ __forceinline__ void pers_mix_column_k(float* s, const float* ssm, u32 m, float inv, u32 j)
+{
+    float col[K];
+#pragma unroll
+    for (u32 t = 0; t < K; ++t) col[t] = s[t * m + j] * inv;
+#pragma unroll
+    for (u32 g = 0; g < K; ++g) {
+        float acc = 0.0f;
+#pragma unroll
+        for (u32 t = 0; t < K; ++t) acc = __fmaf_rn(ssm[g * LLVQ_ROT_KMAX + t], col[t], acc);
+        if (K < LLVQ_ROT_KMAX) acc = __fadd_rn(acc, 0.0f);
+        s[g * m + j] = acc;
+    }
+}
+
+// The 4B's two odd factors (5 at 2,560, 19 at 9,728) unrolled; any other k
+// runs pers_mix_column on the staged rows.
+__device__ __forceinline__ void pers_mix_1rt(float* s, const float* ssm, u32 m, u32 k, float inv, u32 j)
+{
+    if (k == 5u) pers_mix_column_k<5u>(s, ssm, m, inv, j);
+    else if (k == 19u) pers_mix_column_k<19u>(s, ssm, m, inv, j);
+    else pers_mix_column(s, ssm, m, k, inv, j);
+}
+
 // Load `n` binary16 values with their signs (rot_load), from global memory.
 __device__ __forceinline__ void pers_rot_load(const unsigned short* xin, const u32* signbits, float* s, u32 n)
 {
@@ -460,6 +489,9 @@ __device__ __forceinline__ void pers_rot_load(const unsigned short* xin, const u
 }
 
 // Phases 2 and 3 on `s`, already loaded and signed; ends with a barrier.
+// S1RT (form 4): `small` is the k rows staged in shared memory, and the mix
+// runs pers_mix_1rt.
+template <bool S1RT = false>
 __device__ __forceinline__ void pers_rot_finish(float* s, const float* small, u32 n, u32 m, u32 k, float inv)
 {
     __syncthreads();
@@ -481,7 +513,10 @@ __device__ __forceinline__ void pers_rot_finish(float* s, const float* small, u3
     if (k == 1u) {
         for (u32 i = threadIdx.x; i < n; i += blockDim.x) s[i] = s[i] * inv;
     } else {
-        for (u32 j = threadIdx.x; j < m; j += blockDim.x) pers_mix_column(s, small, m, k, inv, j);
+        for (u32 j = threadIdx.x; j < m; j += blockDim.x) {
+            if (S1RT) pers_mix_1rt(s, small, m, k, inv, j);
+            else pers_mix_column(s, small, m, k, inv, j);
+        }
     }
     __syncthreads();
 }
@@ -530,8 +565,9 @@ __device__ __forceinline__ unsigned short exact_silu_mul(const unsigned short* s
 // gets it. The CTA's warps play candle's BLOCK virtual threads: real warp r
 // takes virtual warps r, r + W, ... Every partial, every butterfly operand
 // and every pairing is candle's. Ends with a barrier.
-template <int VARIANT>
-__device__ float exact_rms_scale(const unsigned short* x, u32 ncols, float eps)
+// LD(col) gives candle's xi, the widened binary16 of column col.
+template <int VARIANT, class LD>
+__device__ __forceinline__ float exact_rms_scale_by(LD ld, u32 ncols, float eps)
 {
     float* s_sum = pers_sum();
     const u32 block = ncols < 1024u ? 32u : 1024u;
@@ -542,7 +578,7 @@ __device__ float exact_rms_scale(const unsigned short* x, u32 ncols, float eps)
         const u32 t = vw * 32u + lane;  // candle's threadIdx.x
         float tmp = 0.0f;
         for (u32 col = t; col < ncols; col += block) {
-            const float xi = h2f(__ldcg(x + col));
+            const float xi = ld(col);
             tmp = VARIANT == 0 ? __fmaf_rn(xi, xi, tmp) : __fadd_rn(tmp, __fmul_rn(xi, xi));
         }
 #pragma unroll
@@ -567,10 +603,181 @@ __device__ float exact_rms_scale(const unsigned short* x, u32 ncols, float eps)
     return scale;
 }
 
+template <int VARIANT>
+__device__ float exact_rms_scale(const unsigned short* x, u32 ncols, float eps)
+{
+    return exact_rms_scale_by<VARIANT>([&](u32 col) { return h2f(__ldcg(x + col)); }, ncols, eps);
+}
+
 // dst = f16((scale * x) * alpha), two roundings, left to right.
 __device__ __forceinline__ unsigned short exact_rms_apply(float scale, unsigned short x, unsigned short alpha)
 {
     return f2h(__fmul_rn(__fmul_rn(scale, h2f(x)), h2f(alpha)));
+}
+
+// ---------------------------------------------------------------------------
+// 7b. Form 4 (4E v6): the parts every CTA computes on the whole vector (ln1,
+//     ln2, the down's input) with each thread's global loads issued before
+//     their first use. The scalar loops above load one element and use it
+//     before the next load issues: 15 serial round trips a ln, 38 a Tetra
+//     down input, 19 an int4 one, each on lines all the grid's CTAs read at
+//     once (docs/mesures/shaker-4e-rule-c-host-2026-11-05.txt). Here the
+//     binary16 vectors come as 16-byte loads, with the sign words and the k
+//     rows of `small` (staged in shared memory for the mix) in the same batch.
+//     The values and the operations on them are the scalar path's.
+// ---------------------------------------------------------------------------
+// The 8 binary16 of a 16-byte chunk, in memory order.
+__device__ __forceinline__ void pers_unpack8(const uint4 w, float f[8])
+{
+    f[0] = h2f((unsigned short)(w.x & 0xffffu));
+    f[1] = h2f((unsigned short)(w.x >> 16));
+    f[2] = h2f((unsigned short)(w.y & 0xffffu));
+    f[3] = h2f((unsigned short)(w.y >> 16));
+    f[4] = h2f((unsigned short)(w.z & 0xffffu));
+    f[5] = h2f((unsigned short)(w.z >> 16));
+    f[6] = h2f((unsigned short)(w.w & 0xffffu));
+    f[7] = h2f((unsigned short)(w.w >> 16));
+}
+
+#define PERS_1RT_V 3u  // vectors a thread a batch: the 4B's 1,216 at 9,728 in one batch at 512 threads
+
+// The vector path's conditions: p 16-byte aligned, n a multiple of 8. The
+// callers keep the scalar path otherwise.
+__device__ __forceinline__ bool pers_1rt_ok(const void* p, u32 n)
+{
+    return ((reinterpret_cast<unsigned long long>(p) & 15ull) == 0ull) && ((n & 7u) == 0u);
+}
+
+// x widened, as rms_apply reads it after h2f: the same value.
+__device__ __forceinline__ unsigned short exact_rms_apply_f(float scale, float xf, float af)
+{
+    return f2h(__fmul_rn(__fmul_rn(scale, xf), af));
+}
+
+// The k rows of `small` (k x KMAX floats): two a thread loaded by
+// pers_small_load, stored into ssm by pers_small_store once the caller's
+// other loads are issued; a CTA under 512 threads loops for the rest.
+struct PersSmall {
+    float a0, a1;
+};
+__device__ __forceinline__ PersSmall pers_small_load(const float* small, u32 k)
+{
+    const u32 ns = k * LLVQ_ROT_KMAX, i0 = threadIdx.x, i1 = threadIdx.x + blockDim.x;
+    PersSmall r{0.0f, 0.0f};
+    if (small != nullptr && i0 < ns) r.a0 = small[i0];
+    if (small != nullptr && i1 < ns) r.a1 = small[i1];
+    return r;
+}
+__device__ __forceinline__ void pers_small_store(PersSmall r, const float* small, u32 k, float* ssm)
+{
+    if (small == nullptr) return;
+    const u32 ns = k * LLVQ_ROT_KMAX, i0 = threadIdx.x, i1 = threadIdx.x + blockDim.x;
+    if (i0 < ns) ssm[i0] = r.a0;
+    if (i1 < ns) ssm[i1] = r.a1;
+    for (u32 i = threadIdx.x + 2u * blockDim.x; i < ns; i += blockDim.x) ssm[i] = small[i];
+}
+
+// pers_rot_load (signbits non-null), or the int4 widening (null), of n
+// binary16 values into s; with `small` non-null its k rows go to ssm in the
+// same batch. Vector q of a batch is thread (q - q0) mod B's. No barrier:
+// pers_rot_finish starts with one, the widening's caller adds one.
+__device__ __forceinline__ void pers_load_1rt(const unsigned short* xin, const u32* signbits, float* s, u32 n,
+                                              const float* small, u32 k, float* ssm)
+{
+    const uint4* xv = reinterpret_cast<const uint4*>(xin);
+    const u32 nv = n >> 3, B = blockDim.x;
+    const PersSmall sm = pers_small_load(small, k);
+    for (u32 q0 = 0; q0 < nv; q0 += PERS_1RT_V * B) {
+        uint4 w[PERS_1RT_V];
+        u32 sw[PERS_1RT_V];
+#pragma unroll
+        for (u32 u = 0; u < PERS_1RT_V; ++u) {
+            const u32 q = q0 + threadIdx.x + u * B;
+            sw[u] = 0u;
+            if (q < nv) {
+                w[u] = __ldcg(xv + q);
+                if (signbits != nullptr) sw[u] = signbits[q >> 2];
+            }
+        }
+#pragma unroll
+        for (u32 u = 0; u < PERS_1RT_V; ++u) {
+            const u32 q = q0 + threadIdx.x + u * B;
+            if (q < nv) {
+                float f[8];
+                pers_unpack8(w[u], f);
+                const u32 bits = sw[u] >> ((q & 3u) * 8u);
+#pragma unroll
+                for (u32 e = 0; e < 8u; ++e) s[8u * q + e] = ((bits >> e) & 1u) ? -f[e] : f[e];
+            }
+        }
+    }
+    pers_small_store(sm, small, k, ssm);
+}
+
+// ln1 or ln2: x and alpha as vectors and the k rows of `small` in one batch;
+// x widened into xs (n floats of shared memory), alpha widened into out;
+// candle's scale replayed from xs; then, by the thread that loaded them,
+// out[i] = the signed widened binary16 of the rmsnorm and, when `nat`,
+// xs[i] = the unsigned one (ln1's natural copy for the int4 v rows). The
+// sign words are read again after the scale, from L1.
+template <int VARIANT>
+__device__ __forceinline__ void pers_ln_1rt(const unsigned short* x, const unsigned short* alpha, const u32* signbits,
+                                            u32 n, float eps, const float* small, u32 k, float* ssm, float* out,
+                                            float* xs, bool nat)
+{
+    const uint4* xv = reinterpret_cast<const uint4*>(x);
+    const uint4* av = reinterpret_cast<const uint4*>(alpha);
+    const u32 nv = n >> 3, B = blockDim.x;
+    const PersSmall sm = pers_small_load(small, k);
+    for (u32 q0 = 0; q0 < nv; q0 += PERS_1RT_V * B) {
+        uint4 w[PERS_1RT_V], a[PERS_1RT_V];
+#pragma unroll
+        for (u32 u = 0; u < PERS_1RT_V; ++u) {
+            const u32 q = q0 + threadIdx.x + u * B;
+            if (q < nv) {
+                w[u] = __ldcg(xv + q);
+                a[u] = av[q];
+            }
+        }
+#pragma unroll
+        for (u32 u = 0; u < PERS_1RT_V; ++u) {
+            const u32 q = q0 + threadIdx.x + u * B;
+            if (q < nv) {
+                float f[8], g[8];
+                pers_unpack8(w[u], f);
+                pers_unpack8(a[u], g);
+#pragma unroll
+                for (u32 e = 0; e < 8u; ++e) {
+                    xs[8u * q + e] = f[e];
+                    out[8u * q + e] = g[e];
+                }
+            }
+        }
+    }
+    pers_small_store(sm, small, k, ssm);
+    const float scale = exact_rms_scale_by<VARIANT>([&](u32 col) { return xs[col]; }, n, eps);
+    for (u32 q0 = 0; q0 < nv; q0 += PERS_1RT_V * B) {
+        u32 sw[PERS_1RT_V];
+#pragma unroll
+        for (u32 u = 0; u < PERS_1RT_V; ++u) {
+            const u32 q = q0 + threadIdx.x + u * B;
+            sw[u] = q < nv ? signbits[q >> 2] : 0u;
+        }
+#pragma unroll
+        for (u32 u = 0; u < PERS_1RT_V; ++u) {
+            const u32 q = q0 + threadIdx.x + u * B;
+            if (q < nv) {
+                const u32 bits = sw[u] >> ((q & 3u) * 8u);
+#pragma unroll
+                for (u32 e = 0; e < 8u; ++e) {
+                    const u32 i = 8u * q + e;
+                    const float hv = h2f(exact_rms_apply_f(scale, xs[i], out[i]));
+                    if (nat) xs[i] = hv;
+                    out[i] = ((bits >> e) & 1u) ? -hv : hv;
+                }
+            }
+        }
+    }
 }
 
 // tok_argmax.cu's key: ord16(v) << 32 | (1023 - bitrev10(i & 1023)) << 22 |
@@ -838,7 +1045,9 @@ __device__ __forceinline__ void pers_tetra_stream(u32 nrows, u32 nblocks, u32 ta
 // rows, row by row. The row-loop card reading timed v2's loop alone at x1.18
 // over the stream's (pers-rowloop-2026-11-05). 3, 4E v5: form 2, with the
 // CTA's last rows (its row count modulo the warps) split block by block over
-// every warp (pers_4e_rows_cta). All three keep every bit.
+// every warp (pers_4e_rows_cta). 4, 4E v6: form 2's rows, with ln1, ln2 and
+// the down's input in one round trip a thread (section 7b). All four keep
+// every bit.
 #ifndef PERS_4E_ROWS
 #define PERS_4E_ROWS 1u
 #endif
@@ -846,6 +1055,8 @@ __device__ __forceinline__ void pers_tetra_stream(u32 nrows, u32 nblocks, u32 ta
 // fold inputs, and gate/up's binary16 values before their product.
 #if PERS_4E_ROWS == 3
 #define PERS_4E_SCRATCH 16384u
+#elif PERS_4E_ROWS == 4
+#define PERS_4E_SCRATCH 4096u  // the k rows of `small` staged by section 7b
 #else
 #define PERS_4E_SCRATCH 0u
 #endif
@@ -1149,19 +1360,6 @@ __device__ __forceinline__ void pers_attn_merge1(float& am, float& ad, float& aa
     ad = __fadd_rn(__fmul_rn(ad, fa), __fmul_rn(bd, fb));
     aa = __fadd_rn(__fmul_rn(aa, fa), __fmul_rn(ba, fb));
     am = m;
-}
-
-// The 8 binary16 of a 16-byte chunk, in memory order.
-__device__ __forceinline__ void pers_unpack8(const uint4 w, float f[8])
-{
-    f[0] = h2f((unsigned short)(w.x & 0xffffu));
-    f[1] = h2f((unsigned short)(w.x >> 16));
-    f[2] = h2f((unsigned short)(w.y & 0xffffu));
-    f[3] = h2f((unsigned short)(w.y >> 16));
-    f[4] = h2f((unsigned short)(w.z & 0xffffu));
-    f[5] = h2f((unsigned short)(w.z >> 16));
-    f[6] = h2f((unsigned short)(w.w & 0xffffu));
-    f[7] = h2f((unsigned short)(w.w >> 16));
 }
 
 // Chunks [r0, r0 + PF x nthreads) of step st, this thread's share: chunk idx

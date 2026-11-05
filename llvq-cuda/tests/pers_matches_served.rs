@@ -347,7 +347,7 @@ fn norm_mutants_are_killed() {
         ("norm_block_switch", "const u32 block = ncols < 1024u ? 32u : 1024u;", "const u32 block = ncols < 128u ? 32u : 1024u;"),
         ("norm_mean_mul", "const float mean = __fdiv_rn(tot, (float)ncols);", "const float mean = __fmul_rn(tot, 1.0f / (float)ncols);"),
         ("norm_apply_order", "return f2h(__fmul_rn(__fmul_rn(scale, h2f(x)), h2f(alpha)));", "return f2h(__fmul_rn(scale, __fmul_rn(h2f(x), h2f(alpha))));"),
-        ("norm_square_rounded", "const float xi = h2f(__ldcg(x + col));", "const float xi = __fmul_rn(h2f(__ldcg(x + col)), 1.0009765625f);"),
+        ("norm_square_rounded", "[&](u32 col) { return h2f(__ldcg(x + col)); }", "[&](u32 col) { return __fmul_rn(h2f(__ldcg(x + col)), 1.0009765625f); }"),
     ];
     for (tag, from, to) in cases {
         let b = mutant(tag, f, from, to);
@@ -1389,5 +1389,117 @@ fn the_4e_v5_mutants_are_killed() {
         let b = build_side_with(&root, 1, "off", &format!("{tag}_v5"), &["PERS_4E_ROWS=3u"]);
         let killed = cmds.iter().zip(&want).any(|(c, w)| run_mutant(&b, c).is_none_or(|o| &o != w));
         assert!(killed, "v5 mutant {tag} survived");
+    }
+}
+
+// ---- 4E v6: ln1, ln2 and the down's input in one round trip (PERS_4E_ROWS = 4) --
+
+/// The persistent side with 4E's row form 4 (4E v6: v4's rows, the
+/// redundant prologues loaded as vectors, `small` staged in shared memory).
+fn persistent_v6() -> &'static Path {
+    static B: OnceLock<PathBuf> = OnceLock::new();
+    B.get_or_init(|| build_side_with(&repo(), 1, "off", "pers_v6", &["PERS_4E_ROWS=4u"]))
+}
+
+/// The -0 column of [`the_mix_turns_minus_zero_into_plus_zero_as_the_padding_does`]
+/// at odd factor `k`: the last real term of every g >= 1 underflows to -0.
+fn mix_minus_zero_cmd(k: u32) -> Vec<u8> {
+    let m = 32u32;
+    let mut s = vec![0.0f32; (k * m) as usize];
+    let mut small = vec![0.0f32; KMAX * KMAX];
+    let last = (k - 1) as usize;
+    for j in 0..m as usize {
+        s[last * m as usize + j] = 1e-30;
+        s[j] = if j % 2 == 0 { 0.0 } else { 0.5 };
+    }
+    for g in 0..k as usize {
+        small[g * KMAX + last] = -1e-20;
+        small[g * KMAX] = if g == 0 { 1.0 } else { 0.0 };
+    }
+    Cmd::new(b'M').u32(m).u32(k).f32(1.0).f32s(&s).f32s(&small).0
+}
+
+/// The module built with row form 4 runs the served chain bit for bit:
+/// - the rotation at every served width through the vector load and the
+///   staged mix (k = 5 and 19 unrolled, the other k on the generic column),
+///   at 64 threads (several batches, `small` staged in a loop) and 512 (the
+///   card's geometry, one batch);
+/// - the -0 column through the unrolled mixes;
+/// - the token loop (ln1, ln2, a Tetra and an int4 down input), at four
+///   geometries, past 256 positions, and through the stamp symbol.
+#[test]
+fn the_4e_v6_prologues_are_the_served_chain() {
+    for &n in &ROT_WIDTHS {
+        for threads in [64u32, 512] {
+            let cmd = rot_cmd(n, threads, 0x6e00 + n as u64);
+            assert!(run(served(), &cmd) == run(persistent_v6(), &cmd), "v6 rotation, n = {n}, {threads} threads");
+        }
+    }
+    for k in [3u32, 5, 19] {
+        let cmd = mix_minus_zero_cmd(k);
+        let (a, b) = (run(served(), &cmd), run(persistent_v6(), &cmd));
+        assert!(a == b, "v6 mix, k = {k}");
+        assert!(u32s(&a).contains(&0), "k = {k}: some output is +0 (the column the padding fixed)");
+    }
+    for (form, grid, threads) in [(0u32, 3u32, 128u32), (2, 4, 96), (1, 5, 64), (1, 3, 512)] {
+        let cmd = g_cmd_variant(form, grid, threads, &[(5, 3, 7)], 16, u32::MAX, 0x6e40 + form as u64, 2);
+        let want = run(served(), &cmd);
+        let got = run(persistent_v6(), &cmd);
+        assert!(got[..got.len() - 8] == want[..want.len() - 8], "v6, form {form}, grid {grid}x{threads}: tokens, residual or caches");
+    }
+    let cmd = g_cmd_variant(1, 3, 128, &[(270, 2, 7)], 288, u32::MAX, 0x6e50, 2);
+    let (want, got) = (run(served(), &cmd), run(persistent_v6(), &cmd));
+    assert!(got[..got.len() - 8] == want[..want.len() - 8], "v6, positions 270-271");
+    let runs = [(5u32, 3u32, 7u32), (8, 2, 9)];
+    let plain = run(persistent_v6(), &g_cmd_variant(1, 4, 96, &runs, 16, u32::MAX, 0x6e21, 2));
+    let stamped = run(persistent_v6(), &g_cmd_variant(1, 4, 96, &runs, 16, u32::MAX, 0x6e21, 1));
+    assert!(stamped[..plain.len()] == plain[..], "v6: the stamped launch moved an output");
+    let ev = pers::p4e_events(2) as usize;
+    let st: Vec<u64> = stamped[plain.len()..].chunks(8).map(|b| u64::from_le_bytes(b.try_into().unwrap())).collect();
+    let r = pers::p4e_phase_report(&st[..3 * ev * 4], 3, 2, 4).expect("v6's stamps");
+    assert!(r.subs.iter().all(|p| p.mean.0 > 0.0), "{r:?}");
+}
+
+/// v6's one-trip code: each mutant moves a rotation, the -0 column or the
+/// token loop. A mutant that survived would mean the vector path is not the
+/// one the commands run.
+#[test]
+fn the_4e_v6_mutants_are_killed() {
+    let mut cmds = vec![rot_cmd(2560, 64, 0x6e01), rot_cmd(9728, 64, 0x6e02), rot_cmd(9728, 512, 0x6e03)];
+    cmds.extend([5u32, 19].map(mix_minus_zero_cmd));
+    cmds.push(g_cmd_variant(1, 3, 96, &[(5, 3, 7)], 16, u32::MAX, 0x6e60, 2));
+    let want: Vec<Vec<u8>> = cmds.iter().map(|c| run(served(), c)).collect();
+    let f = "llvq-cuda/kernels/llvq_pers.cuh";
+    for (tag, from, to) in [
+        ("v6_half_order", "for (u32 e = 0; e < 8u; ++e) s[8u * q + e] = ((bits >> e) & 1u) ? -f[e] : f[e];", "for (u32 e = 0; e < 8u; ++e) s[8u * q + (e ^ 1u)] = ((bits >> e) & 1u) ? -f[e] : f[e];"),
+        ("v6_sign_word", "if (signbits != nullptr) sw[u] = signbits[q >> 2];", "if (signbits != nullptr) sw[u] = signbits[q >> 3];"),
+        ("v6_ln_sign_shift", "const u32 bits = sw[u] >> ((q & 3u) * 8u);\n#pragma unroll\n                for (u32 e = 0; e < 8u; ++e) {", "const u32 bits = sw[u] >> ((q & 3u) * 4u);\n#pragma unroll\n                for (u32 e = 0; e < 8u; ++e) {"),
+        ("v6_small_store", "if (i0 < ns) ssm[i0] = r.a0;", "if (i0 < ns) ssm[i0 ^ 1u] = r.a0;"),
+        ("v6_small_rest", "for (u32 i = threadIdx.x + 2u * blockDim.x; i < ns; i += blockDim.x) ssm[i] = small[i];", ""),
+        ("v6_mix_order", "for (u32 t = 0; t < K; ++t) acc = __fmaf_rn(ssm[g * LLVQ_ROT_KMAX + t], col[t], acc);", "for (u32 t = K; t-- > 0;) acc = __fmaf_rn(ssm[g * LLVQ_ROT_KMAX + t], col[t], acc);"),
+        ("v6_mix_fadd", "if (K < LLVQ_ROT_KMAX) acc = __fadd_rn(acc, 0.0f);", ""),
+        ("v6_apply_order", "return f2h(__fmul_rn(__fmul_rn(scale, xf), af));", "return f2h(__fmul_rn(scale, __fmul_rn(xf, af)));"),
+        ("v6_alpha_vector", "a[u] = av[q];", "a[u] = av[q ^ 1u];"),
+        ("v6_nat_copy", "if (nat) xs[i] = hv;", "if (nat) xs[i] = -hv;"),
+        ("v6_rms_loader", "[&](u32 col) { return xs[col]; }", "[&](u32 col) { return __fmul_rn(xs[col], 1.0009765625f); }"),
+    ] {
+        let root = std::env::temp_dir().join(format!("llvq_pers_mutant_{tag}_{}", std::process::id()));
+        let _ = mutant(tag, f, from, to); // copies the tree and applies the edit exactly once
+        let b = build_side_with(&root, 1, "off", &format!("{tag}_v6"), &["PERS_4E_ROWS=4u"]);
+        let killed = cmds.iter().zip(&want).any(|(c, w)| run_mutant(&b, c).is_none_or(|o| &o != w));
+        assert!(killed, "v6 mutant {tag} survived");
+    }
+    // the call sites in the MLP segment: the token loop runs them (ln2, a Tetra
+    // and an int4 down input), so each mutant moves its tokens or state
+    let (g, want_g) = (cmds.last().unwrap(), want.last().unwrap());
+    for (tag, from, to) in [
+        ("v6_seg_ln2_signs", "pers_ln_1rt<NORMV>(L.x, A->alpha, A->signs_h,", "pers_ln_1rt<NORMV>(L.x, A->alpha, A->signs_i,"),
+        ("v6_seg_down_k", "pers_load_1rt(A->act, A->signs_i, v, I, A->small_i, A->k_i, ssm);", "pers_load_1rt(A->act, A->signs_i, v, I, A->small_i, A->k_i - 1u, ssm);"),
+        ("v6_seg_widen_signs", "pers_load_1rt(A->act, nullptr, v, I, nullptr, 0u, nullptr);", "pers_load_1rt(A->act, A->signs_i, v, I, nullptr, 0u, nullptr);"),
+    ] {
+        let root = std::env::temp_dir().join(format!("llvq_pers_mutant_{tag}_{}", std::process::id()));
+        let _ = mutant(tag, "llvq-cuda/kernels/pers_segment.cu", from, to);
+        let b = build_side_with(&root, 1, "off", &format!("{tag}_v6"), &["PERS_4E_ROWS=4u"]);
+        assert!(run_mutant(&b, g).is_none_or(|o| &o != want_g), "v6 segment mutant {tag} survived");
     }
 }

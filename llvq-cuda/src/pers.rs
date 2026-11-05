@@ -703,25 +703,47 @@ pub fn n_bar_4e(layers: u32) -> u32 {
 /// llvq_pers.cuh), whichever is larger, rounded to 16 bytes.
 /// 4E's row forms (`PERS_4E_ROWS` in `llvq_pers.cuh`): 1, the stream (4E v3,
 /// what the served config runs); 2, v2's row loop on the same static rows
-/// (4E v4); 3, form 2 with each CTA's last rows split over every warp (4E v5).
-pub const P4E_ROWS_FORMS: [(u32, &str); 3] = [(1, "v3"), (2, "v4"), (3, "v5")];
+/// (4E v4); 3, form 2 with each CTA's last rows split over every warp (4E v5);
+/// 4, form 2 with ln1, ln2 and the down's input in one round trip a thread
+/// (4E v6, `llvq_pers.cuh` section 7b).
+pub const P4E_ROWS_FORMS: [(u32, &str); 4] = [(1, "v3"), (2, "v4"), (3, "v5"), (4, "v6")];
+
+/// The forms `fusedrun LLVQ_PERS_4E` times, the first the reference of the
+/// others' round-by-round ratios: v4, the served form since 2026-11-05, and
+/// v6, its candidate. v3 and v5 were read by the shaker (job 6aec9a1d).
+pub const P4E_BENCH_FORMS: [(u32, &str); 2] = [(2, "v4"), (4, "v6")];
 
 /// The line a module of row form `form` starts with; form 1 is the
 /// default and adds nothing, so its module keeps its text.
 pub fn p4e_rows_define(form: u32) -> Result<String, String> {
     match form {
         1 => Ok(String::new()),
-        2 | 3 => Ok(format!("#define PERS_4E_ROWS {form}u\n")),
-        _ => Err(format!("4E row form {form}: the forms are 1 (v3), 2 (v4) and 3 (v5)")),
+        2..=4 => Ok(format!("#define PERS_4E_ROWS {form}u\n")),
+        _ => Err(format!("4E row form {form}: the forms are 1 (v3), 2 (v4), 3 (v5) and 4 (v6)")),
     }
 }
 
-/// Form 3's shared scratch, after the activation staging (`PERS_4E_SCRATCH`).
+/// Form 4's conditions on the card (`pers_1rt_ok` in `llvq_pers.cuh`): every
+/// input of a vector prologue 16-byte aligned, `hidden` and `inter` multiples
+/// of 8. Unmet, the kernel takes the scalar path and would time as v4 under
+/// v6's name, so the install refuses it, naming the first input that fails.
+pub fn p4e_v6_inputs(addrs: &[(String, u64)], hidden: u32, inter: u32) -> Result<(), String> {
+    if !hidden.is_multiple_of(8) || !inter.is_multiple_of(8) {
+        return Err(format!("4E v6: hidden {hidden} and inter {inter} must be multiples of 8 for the vector prologues"));
+    }
+    match addrs.iter().find(|(_, a)| !a.is_multiple_of(16)) {
+        Some((name, a)) => Err(format!("4E v6: {name} at {a:#x} is not 16-byte aligned; the vector prologues would not run")),
+        None => Ok(()),
+    }
+}
+
+/// The shared scratch after the activation staging (`PERS_4E_SCRATCH`):
+/// form 3's split rows, form 4's staged rows of the rotations' `small`.
 pub fn p4e_scratch_bytes(form: u32) -> u32 {
-    if form == 3 {
-        16_384
-    } else {
-        0
+    match form {
+        3 => 16_384,
+        4 => 4_096,
+        _ => 0,
     }
 }
 
@@ -2027,10 +2049,21 @@ mod tests {
         assert_eq!(p4e_smem_bytes(2560, 9728, 4), (SMEM_HEADER + TABLE_BYTES + 4 * 9728).div_ceil(16) * 16);
         let cuh = include_str!("../kernels/llvq_pers.cuh");
         assert!(cuh.contains("#if PERS_4E_ROWS == 3\n#define PERS_4E_SCRATCH 16384u"), "p4e_scratch_bytes mirrors the scratch");
-        assert_eq!((p4e_scratch_bytes(1), p4e_scratch_bytes(2), p4e_scratch_bytes(3)), (0, 0, 16_384));
+        assert!(cuh.contains("#elif PERS_4E_ROWS == 4\n#define PERS_4E_SCRATCH 4096u"), "form 4's scratch too");
+        let scratch: Vec<u32> = (1..=4).map(p4e_scratch_bytes).collect();
+        assert_eq!(scratch, vec![0, 0, 16_384, 4_096]);
+        // form 4's scratch holds every row of a KMAX x KMAX `small`
+        assert_eq!(p4e_scratch_bytes(4) as usize, 4 * 32 * 32);
         assert_eq!(p4e_rows_define(1).unwrap(), "");
         assert_eq!(p4e_rows_define(3).unwrap(), "#define PERS_4E_ROWS 3u\n");
-        assert!(p4e_rows_define(4).is_err());
+        assert_eq!(p4e_rows_define(4).unwrap(), "#define PERS_4E_ROWS 4u\n");
+        assert!(p4e_rows_define(5).is_err());
+        assert!(P4E_BENCH_FORMS.iter().all(|f| P4E_ROWS_FORMS.contains(f)), "the bench forms are row forms");
+        let ok = vec![("act".to_string(), 0x7000_0000u64), ("layer 0 ln1".to_string(), 0x7000_0100)];
+        assert!(p4e_v6_inputs(&ok, 2560, 9728).is_ok());
+        let bad = vec![("act".to_string(), 0x7000_0000u64), ("layer 3 ln2".to_string(), 0x7000_0108)];
+        assert!(p4e_v6_inputs(&bad, 2560, 9728).unwrap_err().contains("layer 3 ln2"));
+        assert!(p4e_v6_inputs(&ok, 2564, 9728).is_err());
         assert!(cuh.contains("#ifndef PERS_4E_ROWS\n#define PERS_4E_ROWS 1u"), "form 1 is the default");
         assert_eq!(p4e_smem_bytes(256, 512, 5), (SMEM_HEADER + TABLE_BYTES + 16384 + 10400 + 2560).div_ceil(16) * 16);
         let cuh = include_str!("../kernels/llvq_pers.cuh");
