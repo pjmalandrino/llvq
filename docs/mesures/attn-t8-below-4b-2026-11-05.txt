@@ -1,0 +1,39 @@
+The T8 extension of the attention kernel form below its threshold, sealed 4B, 2026-11-05
+
+Result: outcome P of the prereg. With every decode row on the split-KV kernel from position 0, the paired WikiText-2
+decode-path perplexity against the grouped form reads +0.0318 % [-0.0151 ; +0.0786] on 32 windows of 1,280 (40,928
+positions, all below the served threshold) and +0.0018 % [-0.0053 ; +0.0088] on 12 windows of 4,096 (49,140
+positions), both inside +-0.12 % (*measured*). Top-1 agreement 99.778 % and 99.825 %. The T8 extension of the kernel
+form below 1,280, the license 4E needs to serve a short prompt, is proposed to the operator.
+
+Job      : 6aec4e34c78863f9c6333af0, l40sx1, 1,620 s running (09:42:48 to 10:09:49 UTC) after 355 s in the queue,
+           $0.81 (*computed* at $1.80/h).
+Image    : Space sha 1beb5a1bedb15ee7b70c04bd718a0953ab6bfbd3, built from integration/lot1 at 0bfe785 (the kernel0 arm
+           of LLVQ_GQA_PPL, 40c03bb).
+Prereg   : proofs/preregistration-attn-t8-below-2026-11-05.md (sha256 29058121...), OpenTimestamps stamped and committed
+           (0bfe785) before the image was built.
+Object   : sealed 4B, sha256 886391a8....
+Raw      : attn-t8-below-4b-2026-11-05-brut/ (ppl-1280.txt, ppl-4096.txt, band-*.txt, oracle-cuda.txt, outcome.txt).
+
+Gates (passed, *measured*): oracle MATCH; the object at its sha256; both logs print the served tile, the int4 parity,
+event tracking off, attn_dec.cu c7b0d8d3..., the kernel equal to the CPU replay on 103 calls, and the measurement-form
+line; headers, the "takes positions 0 and later" line, 32 and 12 window lines marked "every position on the kernel",
+window 1's prefill path bit for bit between the two arms, the paired summary and both top-1 lines.
+
+Perplexity, decode path, kernel on every row against grouped (*measured*):
+  windows            positions   ppl grouped   ppl kernel   kernel / grouped - 1, paired 95 % t   top-1
+  1,280 x 32 (77+)   40,928      13.9712       13.9757      +0.0318 % [-0.0151 ; +0.0786]         99.778 %
+  4,096 x 12 (60+)   49,140      12.1384       12.1386      +0.0018 % [-0.0053 ; +0.0088]         99.825 %
+Max |dlogit|: 6.201 at 1,280 (window 21; 9 of 32 windows above 1.0), 1.375 at 4,096.
+
+Rule reading: P, both intervals inside the band. Against the signed predictions of §6: at 1,280 the point (+0.0318 %)
+lies above the predicted [-0.03, +0.03] and the half-width (0.047 pp) above the predicted [0.004, 0.03]: refuted. The
+short windows move more than the positions past 1,280 did (attn-t8-r2 read within +-0.008 %), and the interval still
+sits inside the band by a factor of 1.5 at its upper end. At 4,096 the point and the half-width (0.007 pp) lie inside
+their predictions; top-1 inside [99.6, 99.95] at both sizes.
+
+What follows on the operator's yes: a served config that names 4E and its served-door measurement, under their own
+prereg. Nothing served changes in this run, and no file of configs/ was written.
+
+Not established: a task score under the extended form (GSM8K, whose decodes all lie below 1,280, would be that check);
+the 8B and 14B; any card but the L40S.
