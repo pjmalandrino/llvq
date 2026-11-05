@@ -1,0 +1,157 @@
+WHAT BOUNDS 4E'S ROWS, READ OFF THE CARD'S SASS AND THE V2 PHASE TABLE; 4E V3 ON THE HOST, 2026-11-05
+=====================================================================================================
+
+Result: 4E v2's rows are not bound by issue, by the L1/shared pipe or by the decode's arithmetic. They are bound by
+latency, row by row, and only on the Tetra rows:
+- the int4 rows (o, the head) streamed at 587-588 GB/s on the mean CTA's work (*computed* from the v2 table);
+- the Tetra rows (q/k, gate/up, the Tetra downs) streamed at about 260 GB/s.
+A Tetra block iteration is 241 instructions on the card (the one-launch pass's: 243), and a d_in 2,560 row has only 4
+of them a lane. Every row then pays dependent round trips: its first words, lane 0's rscale and tail, and in gate/up
+the SiLU table lookup. On v2's q/k/v phase that is about 6.7 us a row, of which the iterations' issue is at most about
+1.5 us (*estimated*).
+v3 runs the Tetra rows as one stream a warp, with the lane's next 4 blocks in flight across row boundaries and the
+epilogue's loads issued at the row's start; it gives every CTA the same mix of q/k and v rows, and at a short context
+stages several tiles of each non-empty unit a step. Every row keeps its summation order: 27 host tests green, 9 new
+mutants caught.
+Host estimate (*estimated*, ops/pers_4e_v3_estimate.py, from the v2 card table):
+
+  context    v3 tok/s          v2 (measured)
+  5          273 [214-333]     178.7
+  8,192      166 [145-182]     131.8
+
+300 tok/s needs the Tetra rows at about 610 GB/s (*computed*, same script). One card job is ready, not launched:
+ops/jobs/pers-4e-v3.sh under proofs/preregistration-pers-4e-v3-2026-11-05.md (not stamped), about 9 min and $0.27,
+ceiling $0.90.
+
+Prereg:  none for this host work ($0); the card reading has its own (above).
+Cost:    $0. cuobjdump 12.4 on the card's cubins (pers-4e-v2-2026-11-05-brut/cubin/, driver ptxas 580); the host
+         harness; NVRTC 12.4 and ptxas 12.4 in nvidia/cuda:12.4.1-devel-ubuntu22.04; the CUDA half in llvq-check.
+Inputs:  pers-4e-v2-2026-11-05.txt and -brut/ (phase table, bench.txt, cubins); pers-sass-2026-11-05.txt.
+Tools:   ops/sass_loops.py; ops/pers_4e_v3_estimate.py.
+
+1. THE CARD'S SASS (pers_4e_tokens_f1_t512 and tv_tetra48_persall, driver ptxas)
+---------------------------------------------------------------------------------
+  The cubins are the ones planesbench's process compiled: the same persistent unit text, compiled by the same driver,
+  but with planesbench's tile define. That compile reports 128 registers and a 16 B stack for the 512-thread symbol;
+  fusedrun's loaded module reported 126 registers and 0 B local. The loops read the same.
+  4E's Tetra block loop (q/k, gate/up, down, 6 copies):
+    - 241-242 instructions a warp-iteration: LOP3 46, IMAD 46, PRMT 36, FFMA 25, FADD 24, SHF 19;
+    - its loads: LDS.128 6 (x, natural stride 24), LDS 4 + LDS.U8 2 + LDS.U16 1 (the tables, in shared), LD.E 3 (the
+      two stream words of the next block, prefetched one iteration ahead, and gscale), one block a lane;
+    - dependent chain an iteration: the words, then prefix, branch, rows and suffix (three shared-memory levels), six
+      IDP.4A for the norm, invnorm, then a 24-deep FFMA chain.
+  tpersall's block loop: 243 instructions, the tables through L1 (LDG.CONSTANT 4 + U8 2 + U16 1), the same chain.
+  4E's int4 word loops: 75-80 instructions for 8 weights (one word a lane), and int4 rows stream at 587-588 GB/s.
+  Instructions a byte: Tetra 241 / 200 B a warp-iteration = 1.2; int4 75 / 128 B = 0.59.
+
+2. WHAT BOUNDS THE ROWS (from the v2 table, *computed* unless said)
+-------------------------------------------------------------------
+  Bytes a token from the shapes (ops/pers_4e_v3_estimate.py): Tetra q/k 123.4 MB, gate/up 469.1, Tetra down 156.4;
+  int4 v 50.1, o 200.5, int4 down 158.8, head 218.8.
+    - int4: o 200.5 MB in 341 us of mean CTA work (ctx staging out) = 588 GB/s; head 218.8 MB in 372.6 us = 587 GB/s.
+    - Tetra: take out of q/k/v and MLP their fixed work (2-4 and 5-9 us a layer: norms, rotations, barriers) and their
+      int4 rows at 560 GB/s. What remains streams the 748.9 MB at 252 to 272 GB/s.
+  Not issue. A SM issues 4 warp-instructions a cycle. At 1.2 instructions a byte that is about 1.2 TB/s over 142 SMs
+  at 2.52 GHz, above DRAM, and the int4 rows reach 588 with half the instructions a byte.
+  Not the L1/shared pipe. 4E holds its tables in shared memory already. On the one-launch pass, tables in shared were
+  slower (x0.948, v2 card), but that variant ran 3 CTAs a SM against 4 (24 warps against 32, its bench line): an
+  occupancy loss, not a pipe result.
+  Not the in-row latency alone. The one-iteration prefetch moved 4E from 290 to 317 GB/s and the one-launch pass by
+  x0.994: a row of 4 iterations has little to overlap.
+  Latency, per row. A Tetra row runs 4 iterations then a serial tail on lane 0:
+    - warp_sum;
+    - rscale[r] and the 16-column tail, global loads issued only now;
+    - in gate/up, the SiLU table at index g, a load that depends on the row's result;
+    - the next row's first words, also issued only now.
+  The q/k CTAs take 2.71 rows a warp a layer in 21.2 us of mean work, less 2-4 us of norm and rotation: about 6.7 us
+  a row (*estimated*). Four iterations at the issue rate of 4 warps a scheduler (964 cycles at 2.52 GHz) are about
+  1.5 us of it; the rest is round trips, several per row, none of them hidden by the 16 warps a SM. The MLP phase,
+  4.28 pairs a warp a layer, reads the same.
+  The int4 rows have none of it: no tail, no rscale, and the o rows were already in L2 from v2's prefetch.
+
+3. WHY 768 THREADS SPILLS ON THE DRIVER
+---------------------------------------
+  At 768 threads a thread holds at most 80 registers (65,536 / 768, in steps of 8). Under the devel ptxas 12.4 the v2
+  token symbol fit in 80 with no local memory; the card's driver ptxas (580) gave it a 96 B stack (cubin res-usage:
+  REG 80, STACK 96), and the runtime refuses any local memory. The live state across the token loop does not fit 80
+  under that allocator: the launch and layer pointers, the shared-table pointers, the loop counters, and the
+  attention phase's stage and fold. v3 does not pursue 768. The stream needs a 4-deep ring and the epilogue's 9
+  registers, about 120 in all, which only the 512-thread geometry has. The 768 symbols keep v2's rows, and the
+  runtime will refuse them on this driver as before.
+
+4. WHAT V3 CHANGES (each keeps every bit)
+-----------------------------------------
+  The Tetra row stream (llvq_pers.cuh::pers_tetra_stream), the 512-thread symbols only:
+    - a warp takes a static list of rows (lo + warp + k x nwarps);
+    - the lane's blocks of the whole list form one sequence, item k x nit + i for block lane + 32 i of row k, with nit
+      the same on every lane;
+    - the next 4 items are always in flight, from a 4-slot ring indexed at compile time, across row boundaries;
+    - the (row, item) counters advance by counting. A first draft divided an item index each item, which cost about
+      160 instructions a block more (devel SASS);
+    - lane 0 loads the row's rscale, its tail as one or two 16-byte chunks, and START's extras when the row's first
+      item is consumed;
+    - per lane and per row: the blocks summed in increasing j, warp_sum, then sites 2 and 3 as pers_epilogue spells
+      them.
+  Call sites:
+    - q/k: one list over q | k;
+    - gate/up: gate then up as consecutive rows. Lane 0 keeps g; at up it issues the SiLU load and stores the
+      previous pair's activation, the same product exact_silu_mul makes;
+    - Tetra down: the residual x[r] is loaded at the row's start;
+    - int4 downs and v: static by warp with the word prefetch.
+  q/k/v balance: in the stream path each CTA takes [qk c / g, qk (c + 1) / g) of q | k and [v c / g, v (c + 1) / g)
+  of v. v2's contiguous slice left the int4 v rows to the last 24 CTAs, whose 2.7 int4 rows a warp would set the
+  phase's wall once the Tetra rows stream. The q/k/v L2 prefetch follows the same split.
+  Attention at a short context:
+    - a split with 1 or 2 non-empty units stages 4 or 2 tiles of each a step (3 or 4: 1 tile, attn_dec.cu's step), so
+      a row of 64 positions takes 2 steps instead of 8;
+    - each unit still runs its tiles in order;
+    - a __syncwarp at a tile's start orders the previous tile's state writes in the same warp;
+    - a CTA with an attention job issues its L2 prefetches after the job, a CTA without one at once. In v2, 8 CTAs
+      carried the phase, 737 us against a mean of 260, with up to 130 KB of prefetches issued before their job.
+
+5. HOST PROOFS ($0)
+------------------
+  tests/pers_matches_served.rs, 27 tests green; llvq-cuda and llvq-llm libraries green (364 tests in all).
+    - the_4e_layer_phases_are_the_served_chain: q/k/v ('V') and o ('W') on the stream path, grids of 3 and 4 or 5
+      CTAs.
+    - the_4e_token_loop_is_the_served_chain: both variants, positions past 256, EOS, barriers.
+    - consecutive decodes and the phase stamps: green.
+    - the_4e_attention_phase_is_attn_ref: 9 lengths (150 added: three non-empty units), grids up to 1 x 512.
+  New mutants, each caught:
+    - stream_tail_half, the second tail chunk never loaded;
+    - stream_lane_order, a lane's blocks reversed;
+    - stream_slot, a primed item in the wrong slot;
+    - k_offset and v_reads_rotated, retargeted to the stream path;
+    - silu_deferred, the wrong table entry;
+    - silu_last_pair, the last pair never stored;
+    - down_residual_row, the residual of the next row;
+    - attn_step_tile_order, a step's tiles read out of order.
+  Registers (devel ptxas 12.4, indicative): pers_4e_tokens_f*_t512 120, 0 B; pers_4e_stamps_f*_t512 123, 0 B; the
+  768 symbols 80 with an 8 B stack (refused on the card as in v2).
+
+6. WHAT EACH CHANGE BUYS (*estimated*, ops/pers_4e_v3_estimate.py, us a token at 5 tokens against v2's 5,625)
+-------------------------------------------------------------------------------------------------------------
+    the stream and the mixed split   rows' walls from 4,751 (v2) to 3,247 at 480 GB/s of Tetra
+                                     ([4,117 at 330; 2,692 at 650]): about 1.5 ms [0.6-2.1]
+    attention staging and prefetch   761 to 300 [450-200]: about 0.46 ms [0.31-0.56]
+  Token: 3,659 us, 273 tok/s [214-333]. At 8,192: the stream only, 166 tok/s [145-182], against v2's 131.8; the
+  attention phase (2,682 us) is the KV stream there and is unchanged.
+  300 tok/s needs the Tetra rows at about 610 GB/s with the middle case's other terms: in the estimate's range, not at
+  its point.
+
+7. THE CARD JOB (READY, NOT LAUNCHED)
+-------------------------------------
+  ops/jobs/pers-4e-v3.sh, DRY_RUN=1 parses. Prereg proofs/preregistration-pers-4e-v3-2026-11-05.md, not stamped. One
+  job, l40sx1, after the oracle: fusedrun LLVQ_PERS_4E=64 (eager and 4E interleaved, 5 and 8,192, the phase table),
+  then the served door for its digest and threshold line. No bench: the phase table reads the stream directly. About
+  9 min and $0.27 (*estimated*); timeout 30 min, $0.90.
+  Gates: oracle, file, RoPE, identity at both contexts, the served door.
+  Rules:
+    - A, identity;
+    - B, the stream: Tetra rows at 450 GB/s or more holds it; under 330 refutes it;
+    - C, attention at 5 tokens at 450 us or less;
+    - D, q/k/v wall over mean at 1.15 or less;
+    - F, the target, in the measurement form only;
+    - G, misses.
+
+Not established: anything on a card, the driver's allocation of the v3 symbols, the stream's rate.

@@ -569,10 +569,17 @@ fn the_4e_layer_phases_are_the_served_chain() {
     assert!(run_mutant(&b, &e) != Some(run(served(), &e)), "the embedding's g64 group survived as g128");
     let v = qkv(3, 96, 1);
     let want = run(served(), &v);
-    let b = mutant("v_reads_rotated", f, "pers_q4_row<PF>(P.vw, P.vsc, P.vbi, xn,", "pers_q4_row<PF>(P.vw, P.vsc, P.vbi, ((void)xn, xr),");
-    assert!(run_mutant(&b, &v) != Some(want.clone()), "v reading the rotated input survived");
-    let b = mutant("k_offset", f, "const u32 rk = r - P.q_dout;", "const u32 rk = r - P.q_dout + 1u;");
-    assert!(run_mutant(&b, &v) != Some(want), "a k row offset survived");
+    // the 512-thread path (the row stream) is the one these commands run
+    for (tag, from, to) in [
+        ("v_reads_rotated", "pers_q4_row<true>(P.vw, P.vsc, P.vbi, xn, rv,", "pers_q4_row<true>(P.vw, P.vsc, P.vbi, ((void)xn, xr), rv,"),
+        ("k_offset", "PersTRow{P.kw + (r - P.q_dout) * P.k_stride,", "PersTRow{P.kw + (r - P.q_dout + 1u) * P.k_stride,"),
+        ("stream_tail_half", "                    if (tail_w > 8u) t1 = tp[1];\n", ""),
+        ("stream_lane_order", "                const u32 j = lane + 32u * i;\n                if (j < nblocks) acc = pers_block(", "                const u32 j = lane + 32u * (nit - 1u - i);\n                if (j < nblocks) acc = pers_block("),
+        ("stream_slot", "            if (j2 < nblocks) f1r_load(w2, j2, lo[d], hi[d]);\n            if (++i2 == nit) {", "            if (j2 < nblocks) f1r_load(w2, j2, lo[(d + 1u) % D], hi[(d + 1u) % D]);\n            if (++i2 == nit) {"),
+    ] {
+        let b = mutant(tag, f, from, to);
+        assert!(run_mutant(&b, &v) != Some(want.clone()), "q/k/v mutant {tag} survived");
+    }
     let w = Cmd::new(b'W').u32(3).u32(96).u64(7).0;
     let b = mutant("o_residual", f, "out[r] = exact_hadd(__ldcg(x + r), f2h(acc));", "out[r] = f2h(__fadd_rn(h2f(__ldcg(x + r)), acc));");
     assert!(run_mutant(&b, &w) != Some(run(served(), &w)), "the o residual's binary16 rounding of o survived");
@@ -626,7 +633,7 @@ fn attn_cmd(n_kv: u32, groups: u32, cap: u32, l: u32, grid: u32, threads: u32, s
 /// which it leaves at zero.
 #[test]
 fn the_4e_attention_phase_is_attn_ref() {
-    let lens = [(2u32, 4u32, 64u32, 1u32), (2, 4, 64, 5), (2, 4, 128, 64), (2, 4, 128, 65), (2, 5, 512, 256), (2, 5, 512, 257), (1, 4, 1408, 1300), (3, 5, 2304, 2049)];
+    let lens = [(2u32, 4u32, 64u32, 1u32), (2, 4, 64, 5), (2, 4, 128, 64), (2, 4, 128, 65), (2, 4, 192, 150), (2, 5, 512, 256), (2, 5, 512, 257), (1, 4, 1408, 1300), (3, 5, 2304, 2049)];
     for &(n_kv, groups, cap, l) in &lens {
         for &(grid, threads) in &[(3u32, 64u32), (5, 96), (1, 512)] {
             let (cmd, want, state) = attn_cmd(n_kv, groups, cap, l, grid, threads, 0xa77 + l as u64);
@@ -655,7 +662,8 @@ fn the_4e_attention_phase_is_attn_ref() {
         ("attn_tile", "#define PERS_TT 8u", "#define PERS_TT 16u"),
         ("attn_no_fold", "atomicAdd(ticket + h, 1u) == ns - 1u ? 1u : 0u;", "atomicAdd(ticket + h, 1u) == ns ? 1u : 0u;"),
         ("attn_no_reset", "if (threadIdx.x == 0u) ticket[h] = 0u;", "(void)0;"),
-        ("attn_stage_pos", "const u32 p = base + (pl / PERS_TT) * PERS_UNIT + st * PERS_TT + (pl % PERS_TT);", "const u32 p = base + (pl / PERS_TT) * PERS_UNIT + st * PERS_TT + ((pl + 1u) % PERS_TT);"),
+        ("attn_stage_pos", "const u32 p = base + u * PERS_UNIT + (st * tpu + t) * PERS_TT + (pl % PERS_TT);", "const u32 p = base + u * PERS_UNIT + (st * tpu + t) * PERS_TT + ((pl + 1u) % PERS_TT);"),
+        ("attn_step_tile_order", "const u32 sl = (u * tpu + t) * PERS_TT;", "const u32 sl = (u * tpu + (tpu - 1u - t)) * PERS_TT;"),
         ("attn_scale", "sc[j] = __fmul_rn(t, c);", "sc[j] = __fmul_rn(t, __fmul_rn(c, 0.5f));"),
         ("attn_no_syncwarp", "    __syncwarp();  // memory order: every lane's reads of the row precede lane 0's rewrite of m and d\n", ""),
         ("attn_split_chunk", "pers_attn_merge1(am, ad, aa, cmd[(j * groups + g) * 2u], cmd[(j * groups + g) * 2u + 1u], ba[j]);", "pers_attn_merge1(am, ad, aa, cmd[(j * groups + g) * 2u], cmd[(j * groups + g) * 2u + 1u], ba[(j + 1u) % PERS_ATTN_CH]);"),
@@ -788,6 +796,20 @@ fn the_4e_token_loop_is_the_served_chain() {
     let f = "llvq-cuda/kernels/pers_4e.cu";
     let cmd = g_cmd(0, 3, 128, n, 5, 16, 7, u32::MAX, 0x4e00);
     let want = run(served(), &cmd)[..4 * n as usize].to_vec();
+    // the segment's row stream (the 512-thread symbols): the deferred SiLU
+    // lookup and the residual loaded at a down row's start
+    let cmd512 = g_cmd_variant(2, 4, 96, &[(5, n, 7)], 16, u32::MAX, 0x4e02, 2);
+    let want512 = run(served(), &cmd512)[..4 * n as usize].to_vec();
+    let fs = "llvq-cuda/kernels/pers_segment.cu";
+    for (tag, from, to) in [
+        ("silu_deferred", "pend_sv = A->silu[g];", "pend_sv = A->silu[g ^ 1u];"),
+        ("down_residual_row", "xr = __ldcg(L.x + dlo + warp + k * nw);", "xr = __ldcg(L.x + dlo + warp + k * nw + 1u);"),
+        ("silu_last_pair", "        if (lane == 0u && pend_r != 0xffffffffu) A->act[pend_r] = exact_hmul(pend_sv, pend_u);\n", ""),
+    ] {
+        let b = mutant(tag, fs, from, to);
+        let got = run_mutant(&b, &cmd512).map(|o| o[..4 * n as usize].to_vec());
+        assert!(got != Some(want512.clone()), "segment stream mutant {tag} survived");
+    }
     for (tag, from, to) in [
         ("4e_pos", "const u32 pos = L.pos0 + t;", "const u32 pos = L.pos0 + t + (t > 0u ? 1u : 0u);"),
         ("4e_ping_pong", "const SegLaunch S{A->x_b, A->x_a,", "const SegLaunch S{A->x_a, A->x_a,"),

@@ -785,8 +785,7 @@ int main() {
                 xr[i] = ((signs[i >> 5] >> (i & 31u)) & 1u) ? -hv : hv;
             }
             pers_rot_finish(xr, small.data(), H, m, kk, inv);
-            const u32 lo = (u32)((uint64_t)6144 * blockIdx.x / gridDim.x), hi = (u32)((uint64_t)6144 * (blockIdx.x + 1) / gridDim.x);
-            pers_4e_qkv_rows(P, t, g_inv.data(), xr, xn, lo, hi);
+            pers_4e_qkv_rows(P, t, g_inv.data(), xr, xn, blockIdx.x, gridDim.x);
         });
 #endif
         wr(q);

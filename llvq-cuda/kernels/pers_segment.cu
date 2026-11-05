@@ -127,7 +127,37 @@ __device__ __forceinline__ void pers_segment_body(const SegArgs* __restrict__ A,
     pers_rot_finish(v, A->small_h, H, A->m_h, A->k_h, A->inv_h);
 
     // 2. gate and up, row pairs, the SiLU-mul epilogue.
-    {
+    if (IN4E && PF) {
+        // The stream (llvq_pers.cuh): this CTA's pairs static by warp, gate
+        // then up as consecutive rows. Lane 0 keeps g; at up it issues the
+        // SiLU table load and stores the PREVIOUS pair's activation, so the
+        // table's round trip runs under the next pair's blocks. The same g, u,
+        // table entry and product: the same act.
+        const u32 warp = threadIdx.x >> 5, nw = blockDim.x >> 5;
+        const u32 glo = A->slice_gu[2u * blockIdx.x], ghi = A->slice_gu[2u * blockIdx.x + 1u];
+        const u32 npairs = pers_warp_rows(glo, ghi, warp, nw);
+        unsigned short g = 0u, pend_sv = 0u, pend_u = 0u;
+        u32 pend_r = 0xffffffffu;
+        const auto row_of = [&](u32 k) {
+            const u32 r = glo + warp + (k >> 1) * nw;
+            const SegTetra& M = (k & 1u) ? A->up : A->gate;
+            return PersTRow{M.words + r * M.stride_u32, M.gscale, M.rscale, M.tail, r};
+        };
+        const auto start = [](u32) {};
+        const auto epi = [&](u32 k, float y) {
+            if ((k & 1u) == 0u) {
+                g = f2h(y);
+                return;
+            }
+            if (pend_r != 0xffffffffu) A->act[pend_r] = exact_hmul(pend_sv, pend_u);
+            pend_sv = A->silu[g];
+            pend_u = f2h(y);
+            pend_r = glo + warp + (k >> 1) * nw;
+        };
+        pers_tetra_stream<PERS_STREAM_D>(2u * npairs, A->gate.nblocks, A->gate.tail_w, tab, t_inv, v, lane, row_of,
+                                         start, epi);
+        if (lane == 0u && pend_r != 0xffffffffu) A->act[pend_r] = exact_hmul(pend_sv, pend_u);
+    } else {
         const u32 nb = A->gate.nblocks, tw = A->gate.tail_w;
         pers_claim_reset(A->slice_gu[2u * blockIdx.x]);
         const u32 hi = A->slice_gu[2u * blockIdx.x + 1u];
@@ -145,6 +175,7 @@ __device__ __forceinline__ void pers_segment_body(const SegArgs* __restrict__ A,
             }
         }
     }
+    (void)lane;
 
     // 3. every row of the activation is written. 4E: this CTA's down rows are
     // asked of L2 first, while the slowest CTA finishes its gate/up rows.
@@ -166,6 +197,29 @@ __device__ __forceinline__ void pers_segment_body(const SegArgs* __restrict__ A,
     } else {
         for (u32 i = threadIdx.x; i < I; i += blockDim.x) v[i] = h2f(__ldcg(A->act + i));
         __syncthreads();
+    }
+    if (IN4E && PF) {
+        // The stream for a Tetra down; the int4 down static by warp with its
+        // word prefetch. Lane 0 loads x[r] when the row starts.
+        const u32 warp = threadIdx.x >> 5, nw = blockDim.x >> 5;
+        const u32 dlo = A->slice_dn[2u * blockIdx.x], dhi = A->slice_dn[2u * blockIdx.x + 1u];
+        if (TETRA_DOWN) {
+            unsigned short xr = 0u;
+            const auto row_of = [&](u32 k) {
+                const u32 r = dlo + warp + k * nw;
+                return PersTRow{A->down.words + r * A->down.stride_u32, A->down.gscale, A->down.rscale, A->down.tail, r};
+            };
+            const auto start = [&](u32 k) { xr = __ldcg(L.x + dlo + warp + k * nw); };
+            const auto epi = [&](u32 k, float y) { L.out[dlo + warp + k * nw] = exact_hadd(xr, f2h(y)); };
+            pers_tetra_stream<PERS_STREAM_D>(pers_warp_rows(dlo, dhi, warp, nw), A->down.nblocks, A->down.tail_w, tab,
+                                             t_inv, v, lane, row_of, start, epi);
+        } else {
+            for (u32 r = dlo + warp; r < dhi; r += nw) {
+                const float acc = pers_q4_row<true>(A->q4w, A->q4s, A->q4b, v, r, I, A->gpr, lane);
+                if (lane == 0u) L.out[r] = exact_hadd(__ldcg(L.x + r), f2h(acc));
+            }
+        }
+        return;
     }
     pers_claim_reset(A->slice_dn[2u * blockIdx.x]);
     const u32 hi = A->slice_dn[2u * blockIdx.x + 1u];

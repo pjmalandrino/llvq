@@ -165,8 +165,19 @@ __device__ __forceinline__ void pers_4e_body(const Pers4eArgs* __restrict__ A, c
             const Pers4eLayer& Y = A->layers[l];
             const u32 e0 = 2u + 10u * l;  // this layer's first stamp event
             // L2 prefetch: this CTA's q/k/v rows, asked for before ln1 and
-            // the rotation every CTA computes first.
-            {
+            // the rotation every CTA computes first (the rows pers_4e_qkv_rows
+            // gives the CTA: its share of q | k and of v under PF).
+            if (PF) {
+                const Pers4eQkv& N = Y.qkv;
+                const u32 qk = N.q_dout + N.k_dout, lo = qk * c0 / G, hi = qk * (c0 + 1u) / G;
+                if (lo < N.q_dout) pers_l2_prefetch(N.qw + (unsigned long long)lo * N.q_stride, 4ull * ((hi < N.q_dout ? hi : N.q_dout) - lo) * N.q_stride);
+                if (hi > N.q_dout) {
+                    const u32 a = lo > N.q_dout ? lo - N.q_dout : 0u, b = hi - N.q_dout;
+                    pers_l2_prefetch(N.kw + (unsigned long long)a * N.k_stride, 4ull * (b - a) * N.k_stride);
+                }
+                const u32 vlo = N.v_dout * c0 / G, vhi = N.v_dout * (c0 + 1u) / G;
+                pers_l2_prefetch(N.vw + (unsigned long long)vlo * (N.d_in >> 3), 4ull * (vhi - vlo) * (N.d_in >> 3));
+            } else {
                 const Pers4eQkv& N = Y.qkv;
                 const u32 lo = nqkv * c0 / G, hi = nqkv * (c0 + 1u) / G;
                 const u32 qe = N.q_dout, ke = N.q_dout + N.k_dout;
@@ -190,16 +201,19 @@ __device__ __forceinline__ void pers_4e_body(const Pers4eArgs* __restrict__ A, c
                 xr[i] = ((Y.signs_a[i >> 5] >> (i & 31u)) & 1u) ? -hv : hv;
             }
             pers_rot_finish(xr, Y.small_a, H, Y.m_a, Y.k_a, Y.inv_a);
-            pers_4e_qkv_rows<PF>(Y.qkv, tab, t_inv, xr, xn, nqkv * c0 / G, nqkv * (c0 + 1u) / G);
+            pers_4e_qkv_rows<PF>(Y.qkv, tab, t_inv, xr, xn, c0, G);
             PERS_WAIT(e0);
             pers_4e_norm_rope_append<FORM>(Y.qkv.q, Y.qkv.k, Y.qkv.v, Y.q_norm, Y.k_norm, A->cosr + pos * 64u,
                                            A->sinr + pos * 64u, A->eps, A->n_heads, A->n_kv, A->cap, pos, A->q_out,
                                            Y.kc, Y.vc);
             PERS_WAIT(e0 + 2u);
             // L2 prefetch: this CTA's o rows and gate/up rows, the next two
-            // row phases, asked for while attention reads the KV cache (at a
-            // short context, eight CTAs and no DRAM traffic to speak of).
-            {
+            // row phases. A CTA with no attention job asks at once; a CTA with
+            // one asks after it, so the prefetches never delay attention's
+            // own loads (v2's card table: 8 CTAs carried the phase at a short
+            // context, 737 us against a mean of 260).
+            const u32 attn_jobs = ((pos + 1u + 255u) / 256u) * A->n_kv;
+            const auto prefetch_next = [&] {
                 const u32 olo = H * c0 / G, ohi = H * (c0 + 1u) / G, dctx = A->n_heads * 128u;
                 pers_l2_prefetch(Y.ow + (unsigned long long)olo * (dctx >> 3), 4ull * (ohi - olo) * (dctx >> 3));
                 const u32 glo = Y.mlp.slice_gu[2u * c0], ghi = Y.mlp.slice_gu[2u * c0 + 1u];
@@ -207,9 +221,12 @@ __device__ __forceinline__ void pers_4e_body(const Pers4eArgs* __restrict__ A, c
                                  4ull * (ghi - glo) * Y.mlp.gate.stride_u32);
                 pers_l2_prefetch(Y.mlp.up.words + (unsigned long long)glo * Y.mlp.up.stride_u32,
                                  4ull * (ghi - glo) * Y.mlp.up.stride_u32);
-            }
-            pers_attention<PF ? 2u : 1u>(A->q_out, Y.kc, Y.vc, A->n_heads, A->groups, A->cap, pos + 1u, A->c, A->attn_scratch,
-                           A->attn_ticket, A->ctx, reinterpret_cast<unsigned char*>(v), nullptr);
+            };
+            if (c0 >= attn_jobs) prefetch_next();
+            pers_attention<PF ? 2u : 1u>(A->q_out, Y.kc, Y.vc, A->n_heads, A->groups, A->cap, pos + 1u, A->c,
+                                         A->attn_scratch, A->attn_ticket, A->ctx, reinterpret_cast<unsigned char*>(v),
+                                         nullptr);
+            if (c0 < attn_jobs) prefetch_next();
             PERS_WAIT(e0 + 4u);
             pers_4e_o_int4<PF>(Y.ow, Y.osc, Y.obi, Y.o_gpr, A->ctx, v, A->n_heads * 128u, A->x_a, A->x_b, H * c0 / G,
                            H * (c0 + 1u) / G);
