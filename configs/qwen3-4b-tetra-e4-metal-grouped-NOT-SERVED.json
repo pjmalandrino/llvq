@@ -1,0 +1,9 @@
+{
+  "layout": "tetra48",
+  "embed": "q4",
+  "rot_share": "1",
+  "fuse": "0",
+  "kv": "f16",
+  "attention": "grouped",
+  "note": "NOT SERVED. A Metal measurement config, written on 2026-11-06 for the operator to test: the sealed Qwen3-4B (qwen3-4b-sealed.bin) under the grouped attention form. served.rs refuses this form on Metal by name, so only bin/metalrun loads it, through Served::apply_measurement. On the M3 Max the form returned the expanded form's logits bit for bit over 49,140 decode steps of 12 WikiText-2 windows of 4,096 (metal-nuit-2026-11-06, M5), and decoded x1.75 faster at 2,048 tokens of context and x2.38 at 4,096 with the same tokens (M4). Serving it on Metal is the operator's decision."
+}

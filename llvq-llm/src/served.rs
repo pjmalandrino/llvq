@@ -498,17 +498,18 @@ impl Served {
         match (self.attention, metal) {
             (AttnHeads::Expanded, _) | (_, false) => Ok(()),
             (AttnHeads::Kernel, true) => Err(format!(
-                "{}: attention \"kernel\" on Metal. The split-KV decode-attention kernel is \
-                 CUDA only (llvq-cuda/kernels/attn_dec.cu); no Metal kernel exists. Serve this \
-                 object with the expanded form on Metal.",
+                "{}: attention \"kernel\" on Metal. kernels/attn_dec.metal returns the \
+                 canonical replay's bits (tests/attn_metal.rs), but no T8 of the form on Metal \
+                 has been granted. Serve this object with the expanded form on Metal; \
+                 bin/metalrun measures the kernel form.",
                 self.path.display(),
             )),
             (form, true) => Err(format!(
-                "{}: attention {:?} on Metal. That form has never been measured on \
-                 Metal — no throughput, no perplexity, and no reading of what Metal \
-                 rounds to — and the +-0.12 % tolerance it passed was measured on an \
-                 L40S (gqa-ppl-2026-11-01). Serve this object with the expanded form, \
-                 or measure the grouped one on Metal first.",
+                "{}: attention {:?} on Metal. Its +-0.12 % tolerance was measured on an \
+                 L40S (gqa-ppl-2026-11-01); on Metal the grouped form read bit for bit \
+                 with the expanded one over 49,140 decode steps (metal-nuit-2026-11-06), \
+                 and serving it there is the operator's decision, not yet taken. Serve \
+                 this object with the expanded form; bin/metalrun measures the others.",
                 self.path.display(),
                 form.label(),
             )),
@@ -530,6 +531,25 @@ impl Served {
         self.check_device(device.is_metal())?;
         if self.decode == Decode::Persistent {
             check_persistent_object(model.config()).map_err(|e| format!("{}: {e}", self.path.display()))?;
+        }
+        self.apply_form(model, device)
+    }
+
+    /// [`Self::apply`] without the device refusal: the measurement door of
+    /// `bin/metalrun`, which times and scores on Metal the attention forms
+    /// [`Self::check_device`] refuses there. No served binary calls it: the
+    /// refusal stands for every served door until the operator lifts it. 4E
+    /// is still refused, since no Metal kernel exists for it.
+    pub fn apply_measurement(
+        &self,
+        model: &mut crate::model::Qwen3,
+        device: &candle_core::Device,
+    ) -> Result<(), String> {
+        if self.decode == Decode::Persistent {
+            return Err(format!(
+                "{}: decode \"persistent\" has no Metal kernel, not even as a measurement",
+                self.path.display()
+            ));
         }
         self.apply_form(model, device)
     }

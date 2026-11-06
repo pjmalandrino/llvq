@@ -15,9 +15,12 @@ pub mod argmax_key;
 pub mod attn;
 #[cfg(all(target_os = "linux", feature = "cuda"))]
 pub mod attn_cuda;
+#[cfg(all(target_os = "macos", feature = "metal"))]
+pub mod attn_metal;
 pub mod boundary;
 pub mod calib;
 pub mod chatfmt;
+pub mod repl;
 pub mod corpus;
 pub mod device;
 pub mod digest;

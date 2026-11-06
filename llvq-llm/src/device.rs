@@ -128,6 +128,25 @@ pub trait Int4Proj: Send + Sync {
     /// this with [`LatticeProj::matvec`] into one activation-agnostic method.
     fn matvec(&self, x: &Tensor, out_dims: &[usize]) -> Result<Tensor>;
 
+    /// Rows one launch of [`Self::matvec_rows`] takes. `1`, the default, is
+    /// no rows kernel: the caller fans a chunk out row by row through
+    /// [`Self::matvec`], the same arithmetic.
+    fn rows_per_launch(&self) -> usize {
+        1
+    }
+
+    /// `y = W X` for `n_rows` rows `[n_rows, d_in]` as the caller handed
+    /// them, one launch, `[n_rows, d_out]`. Reached only when
+    /// [`Self::rows_per_launch`] is above one; the default refuses by name.
+    fn matvec_rows(&self, _x: &Tensor, n_rows: usize) -> Result<Tensor> {
+        candle_core::bail!(
+            "{}: {n_rows} rows asked of an int4 projection that declared rows_per_launch = {} \
+             and implements no rows kernel",
+            self.name(),
+            self.rows_per_launch()
+        )
+    }
+
     /// The concrete projection, for a runtime that reaches its own device
     /// buffers (route P's segment, `persist_cuda.rs`). `None` unless the
     /// backend says otherwise; nothing on a served path calls it.

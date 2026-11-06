@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# The sealed Qwen3-4B on this Mac's GPU. See README.md beside this file.
+#
+#   ./llvq-metal chat [new|fused|kernel|dense] [temp=0.7] [max_new=512]
+#   ./llvq-metal bench [--long]
+#   ./llvq-metal gate
+#
+# The sealed file: $SEALED, else ~/q4b-sealed-2026-09-23/qwen3-4b-sealed.bin.
+set -euo pipefail
+HERE="$(cd "$(dirname "$0")" && pwd)"
+BIN="$HERE/bin/metalrun"
+CFG="$HERE/configs/qwen3-4b-tetra-e4.json"
+SEALED="${SEALED:-$HOME/q4b-sealed-2026-09-23/qwen3-4b-sealed.bin}"
+WANT_SIZE=1418224685
+WANT_SHA=886391a8c03f66dc269cc65c3598c6627dbdcd259180aff36604ef10d37371b8
+
+usage() {
+  sed -n '4,8p' "$0" | sed 's/^# \{0,1\}//'
+  exit 1
+}
+
+check_sealed() {
+  [ -f "$SEALED" ] || {
+    echo "no sealed file at $SEALED"
+    echo "fetch it:  hf buckets cp hf://buckets/Pier-Jean/jobs-artifacts/sealed-4b-2026-09-23/qwen3-4b-sealed.bin <dest>"
+    echo "then:      SEALED=<dest> $0 $*"
+    exit 1
+  }
+  local size sha
+  size=$(stat -f %z "$SEALED")
+  [ "$size" = "$WANT_SIZE" ] || { echo "$SEALED: $size bytes, want $WANT_SIZE"; exit 1; }
+  sha=$(shasum -a 256 "$SEALED" | cut -d' ' -f1)
+  [ "$sha" = "$WANT_SHA" ] || { echo "$SEALED: sha256 $sha, want $WANT_SHA"; exit 1; }
+}
+
+# metalrun refuses every LLVQ_* and CANDLE_* variable: it names its arms itself.
+for v in $(env | cut -d= -f1 | grep -E '^(LLVQ_|CANDLE_)' || true); do unset "$v"; done
+
+cmd="${1:-}"
+[ -n "$cmd" ] || usage
+shift
+case "$cmd" in
+  chat)
+    which="${1:-new}"
+    case "$which" in
+      new)    arm="lutd+h+grp+pq" ;;  # every bit-identical gain of 2026-11-06: lutd, half-io, grouped, prefill kernels
+      fused)  arm="lut" ;;       # the served Metal kernels, expanded attention
+      kernel) arm="lutd+ker" ;;  # attn_dec.metal from position 0, not bit for bit by design
+      dense)  arm="D" ;;         # the dense reconstruction, the only Metal path before 2026-11-06
+      *) usage ;;
+    esac
+    check_sealed chat "$@"
+    exec "$BIN" chat "$SEALED" "$CFG" "$arm" "${2:-0.7}" "${3:-512}"
+    ;;
+  bench)
+    check_sealed bench "$@"
+    if [ "${1:-}" = "--long" ]; then
+      exec nice -n 10 "$BIN" time "$SEALED" "$CFG" lutd+grp,lutd+h+grp+pq,lutd+ker 64 5 4096
+    fi
+    exec nice -n 10 "$BIN" time "$SEALED" "$CFG" lut,lutd+h+grp+pq,D 256 7
+    ;;
+  gate)
+    check_sealed gate
+    exec "$BIN" gate "$SEALED" "$CFG" lut,lutd,lutd+h+grp+pq,lutd+ker
+    ;;
+  *) usage ;;
+esac
