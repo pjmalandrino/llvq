@@ -26,6 +26,7 @@
 //! | `+q4p` | the prefetching int4 twins of `kernels/tv_q4_pf.metal` |
 //! | `+h` | the half-io twins: the Tetra matvec stores f16, the int4 matvecs read and store f16, no adapter casts (`lut`, `lutd` only) |
 //! | `+p` | the Tetra prefill kernel: a prompt chunk of 8 rows a launch, each block decoded once for the 8 (`tv_tetra48_metal_lutdr`); same bits a row |
+//! | `+r` | one-row rotations of width at most 8,192 staged in threadgroup memory (`rot_apply_tg_metal`); same bits |
 //! | `+pq` | `+p`, and the int4 records take the same chunks through `tv_q4_metal_rows`; same bits a row |
 //! | `+t8192`, `+t256` | another int4 tile (zero bits) |
 //! | `+grp` | grouped attention, refused on the served Metal door: a measurement arm |
@@ -149,7 +150,7 @@ mod mac {
                  \x20      metalrun chat <sealed> <config> <arm> [temp=0.7] [max_new=512]\n\
                  \x20      metalrun profile <sealed> <config> <arm> [timed_rounds=11]\n\
                  \x20      metalrun attnprof <sealed> <config> <arm> [timed_rounds=11] [cache_len=0: the prompt's]\n\
-                 arms: comma list of lut|lutp|lutd|lutdp|lutd2|lutd4|lutdt[+q4p][+h][+p|+pq][+t<cols>][+grp|+ker] or D; the first is the reference"
+                 arms: comma list of lut|lutp|lutd|lutdp|lutd2|lutd4|lutdt[+q4p][+h][+r][+p|+pq][+t<cols>][+grp|+ker] or D; the first is the reference"
             ),
         }
     }
@@ -260,6 +261,7 @@ mod mac {
                 "q4p" => spec.tuning.q4_prefetch = true,
                 "h" => spec.tuning.half_io = true,
                 "p" => spec.tuning.prefill_rows = llvq_llm::fused_metal::TETRA_PREFILL_MAX,
+                "r" => spec.tuning.rot_tg = true,
                 "pq" => {
                     spec.tuning.prefill_rows = llvq_llm::fused_metal::TETRA_PREFILL_MAX;
                     spec.tuning.q4_rows = true;

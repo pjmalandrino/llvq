@@ -128,6 +128,11 @@ pub struct MetalTuning {
     /// `tv_q4_metal_rows`; requires `prefill_rows` above 1. `false`, the
     /// served value, keeps their row-by-row loop.
     pub q4_rows: bool,
+    /// The one-row rotations of width at most 8,192 run `rot_apply_tg_metal`,
+    /// which stages the vector in threadgroup memory, instead of
+    /// `rot_apply_metal`, which runs every stage through device memory. The
+    /// same arithmetic in the same order, so the same bits. `false` is served.
+    pub rot_tg: bool,
 }
 
 impl Default for MetalTuning {
@@ -139,6 +144,7 @@ impl Default for MetalTuning {
             half_io: false,
             prefill_rows: 1,
             q4_rows: false,
+            rot_tg: false,
         }
     }
 }
@@ -298,7 +304,7 @@ const SRC_Q4_PF: &str = concat!(include_str!("../kernels/tv_q4_h.metal"), includ
 fn source_of(name: &str) -> Result<&'static str> {
     match name {
         "tetra48_probe" | "tv_tetra48_metal" | "tv_tetra48_metal_ar" | "tv_tetra48_metal_arh" | "tv_tetra48_metal_lut" | "tv_tetra48_metal_lutg" | "tv_tetra48_metal_ilp" | "tv_tetra48_metal_u2" | "tv_tetra48_metal_c3" => Ok(SRC_TETRA),
-        "rot_apply_metal" | "rot_apply_rows_metal" => Ok(SRC_ROT),
+        "rot_apply_metal" | "rot_apply_rows_metal" | "rot_apply_tg_metal" => Ok(SRC_ROT),
         "tv_q4_metal" | "tv_q4_metal_tiled" => Ok(SRC_Q4),
         "tv_tetra48_metal_lutp" | "tv_tetra48_metal_lutd" | "tv_tetra48_metal_lutdp" | "tv_tetra48_metal_lutd2"
         | "tv_tetra48_metal_lutd4" | "tv_tetra48_metal_luth" | "tv_tetra48_metal_lutdh"
@@ -387,6 +393,8 @@ pub struct MetalRuntime {
     prefill_rows: usize,
     /// Whether the int4 records take the prefill chunks ([`MetalTuning::q4_rows`]).
     q4_rows: bool,
+    /// Whether one-row rotations that fit stage in threadgroup memory ([`MetalTuning::rot_tg`]).
+    rot_tg: bool,
     device: candle_core::MetalDevice,
     tables: MetalTables,
     tile: usize,
@@ -522,6 +530,7 @@ impl MetalRuntime {
             half_io: false,
             prefill_rows: 1,
             q4_rows: false,
+            rot_tg: false,
             device: dev,
             tables,
             tile,
@@ -1263,17 +1272,46 @@ impl CustomOp1 for RotOp<'_> {
             );
         }
         let batched = self.rows > 1;
+        let dev = storage.device().clone();
+        let out = dev.new_buffer(self.rows * n, DType::F32, "llvq-metal-rot")?;
+        use candle_metal_kernels::utils::set_param;
+
+        // One row that fits: the vector staged in threadgroup memory, no
+        // scratch, the same stages.
+        let staged = n * DType::F32.size_in_bytes();
+        if self.rt.rot_tg && !batched && staged <= THREADGROUP_LIMIT {
+            let pipe = self.rt.pipeline("rot_apply_tg_metal")?;
+            let enc = dev.command_encoder()?;
+            enc.set_compute_pipeline_state(&pipe);
+            set_param(&enc, 0, (storage.buffer(), 0usize));
+            set_param(&enc, 1, (&*self.rot.signbits, 0usize));
+            set_param(&enc, 2, (&*self.rot.small, 0usize));
+            set_param(&enc, 3, (&*out, 0usize));
+            set_param(&enc, 5, self.rot.n);
+            set_param(&enc, 6, self.rot.m);
+            set_param(&enc, 7, self.rot.k);
+            set_param(&enc, 8, self.rot.inv);
+            set_param(&enc, 9, start as u32);
+            enc.set_threadgroup_memory_length(0, staged);
+            for b in [storage.buffer(), &*self.rot.signbits, &*self.rot.small] {
+                enc.use_resource(b, objc2_metal::MTLResourceUsage::Read);
+            }
+            enc.use_resource(&*out, objc2_metal::MTLResourceUsage::Write);
+            let threads = self.rot.threads;
+            enc.dispatch_threads(
+                objc2_metal::MTLSize { width: threads, height: 1, depth: 1 },
+                objc2_metal::MTLSize { width: threads, height: 1, depth: 1 },
+            );
+            return Ok((MetalStorage::new(out, dev, n, DType::F32), Shape::from(vec![1, n])));
+        }
+
         let kname = if batched { "rot_apply_rows_metal" } else { "rot_apply_metal" };
         let pipe = self.rt.pipeline(kname)?;
-        let dev = storage.device().clone();
-
-        let out = dev.new_buffer(self.rows * n, DType::F32, "llvq-metal-rot")?;
         // The staging, in DEVICE memory. See the section header.
         let scratch = dev.new_buffer(self.rows * n, DType::F32, "llvq-metal-rot-scratch")?;
 
         let enc = dev.command_encoder()?;
         enc.set_compute_pipeline_state(&pipe);
-        use candle_metal_kernels::utils::set_param;
         // `x_off` is in ELEMENTS here, not bytes: the kernel indexes
         // `xin[x_off + i]` on a ushort pointer. The Tetra matvec takes a byte
         // offset instead, because it binds at the offset. Two kernels, two
@@ -1944,6 +1982,7 @@ impl MetalRuntime {
             half_io: false,
             prefill_rows: 1,
             q4_rows: false,
+            rot_tg: false,
             device: dev,
             tile,
             pipelines: RwLock::new(HashMap::new()),
@@ -1961,6 +2000,7 @@ impl MetalRuntime {
         self.half_io = tuning.half_io;
         self.prefill_rows = tuning.prefill_rows;
         self.q4_rows = tuning.q4_rows;
+        self.rot_tg = tuning.rot_tg;
         Ok(())
     }
 
@@ -1984,6 +2024,7 @@ impl MetalRuntime {
             half_io: self.half_io,
             prefill_rows: self.prefill_rows,
             q4_rows: self.q4_rows,
+            rot_tg: self.rot_tg,
         }
     }
 
@@ -2153,7 +2194,7 @@ pub fn load_resolved_tuned(
     let t = rt.tuning();
     println!(
         "metal: tetra matvec {} | int4 {} records, {int4_tiled} through tv_q4_metal_tiled at {} columns a tile, {} \
-         untiled | int4 row loop {} | io {} | prefill {}",
+         untiled | int4 row loop {} | io {} | prefill {} | rotation {}",
         t.tetra_kernel,
         int4_records,
         t.q4_tile_cols,
@@ -2167,6 +2208,7 @@ pub fn load_resolved_tuned(
                 if t.q4_rows { " and int4 (tv_q4_metal_rows)" } else { ", int4 row by row" }
             ),
         },
+        if t.rot_tg { "threadgroup up to 8,192 (rot_apply_tg_metal)" } else { "device (served)" },
     );
     finish(
         path, device, dtype, layout, emode, share, fuse, kv, origin, model, config, tokenizer,
