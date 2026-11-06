@@ -1218,3 +1218,10 @@ Same 256 tokens on the 5-token prompt after each change (b4f07db4); check.py wit
 - The rotation with every group in parallel (GB groups staged together): same values, tokens unchanged. Its speed
   is NOT read: the machine was loaded at the time (Zen's GPU helper 22 %, WindowServer and launchd 48 % CPU), and
   even the old schedule (GB=1) read 28 tok/s then.
+- 16:35-17:00, calm machine at first (GPU 7 %), smoke runs, 128 tokens 3 rounds, same 256 tokens after each change:
+  parallel rotation: 92.0 tok/s (from 84.0); in-model ablation: rotations now 0.9 ms a token, Tetra 4.4 ms.
+  q and k stacked in one dispatch, 2 rows a simdgroup (activation loaded once for both): 94.4 tok/s; the stacked
+  outputs equal q's and k's alone bit for bit. Rows a simdgroup: 1 read 91.3, 2 read 94.5, 4 read 86.5.
+  Ablation prices: the two RMSNorms a layer 0.27 ms a token, the q/k norms 0.15 ms, the rotations 0.85 ms.
+  Threadgroup of the Tetra decode kernels: 64 over 256 by 7 to 10 % in two interleaved pairs, but the machine
+  drifted during them (65 to 51 tok/s, heat or load), so no absolute rate from that window is used. TG=64 adopted.

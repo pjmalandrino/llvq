@@ -32,6 +32,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import statistics
 import struct
 import sys
@@ -283,6 +284,65 @@ ROWS = mx.fast.metal_kernel(name="llvq_tetra_lutdr", input_names=INPUTS + ["nr"]
 DEQ = mx.fast.metal_kernel(name="llvq_tetra_deq", input_names=DEQ_INPUTS, output_names=["w"],
                            source=DEQ_BODY, header=HEADER)
 
+# One row, RR output rows a simdgroup: a lane loads its activation block once
+# and decodes the RR rows' blocks against it. Each row's dot, lane order,
+# butterfly and epilogue are the one-row kernel's, so each row's f16 is too.
+# Rows at DQ or past it read gscale[2], gscale[3]: q and k stacked in one record.
+DECODE2_BODY = """
+    uint row0 = (thread_position_in_grid.x >> 5) * uint(RR);
+    uint lane = thread_index_in_simdgroup;
+    F1rTables tab = { rows, prefixes, branches, suffixes };
+    float acc[RR];
+    for (uint r = 0u; r < uint(RR); ++r) acc[r] = 0.0f;
+    for (uint j = lane; j < uint(NB); j += 32u) {
+        const device float4* x4 = (const device float4*)(x + j * 24u);
+        float xv[24];
+        for (uint q = 0u; q < 6u; ++q) {
+            float4 t4 = x4[q];
+            xv[4u * q] = t4.x; xv[4u * q + 1u] = t4.y; xv[4u * q + 2u] = t4.z; xv[4u * q + 3u] = t4.w;
+        }
+        for (uint r = 0u; r < uint(RR); ++r) {
+            uint row = row0 + r;
+            uint lo, hi16;
+            f1r_load(words + row * STRIDE, j, lo, hi16);
+            F1rV3Block b = f1r_v3_fetch(lo, hi16, tab);
+            uint cs[3] = { b.c1, b.c2, b.c3 };
+            uint rs[3] = { b.row1, b.row2, b.row3 };
+            float a = 0.0f, n2 = 0.0f;
+            for (uint sec = 0u; sec < 3u; ++sec) {
+                for (uint k = 0u; k < 8u; ++k) {
+                    uint o = b.p + 2u * ((cs[sec] >> k) & 1u);
+                    uint rho = (rs[sec] >> (4u * k)) & 15u;
+                    float v = F1R_VAL[(o << 4) | rho];
+                    n2 = fma(v, v, n2);
+                    a = fma(v, xv[sec * 8u + k], a);
+                }
+            }
+            uint m = (uint(n2) >> 4) & (TETRA48_SHELLS - 1u);
+            uint g = (hi16 >> 15) & 1u;
+            uint go = row < uint(DQ) ? 0u : 2u;
+            acc[r] += a * gscale[go + g] * invnorm[m];
+        }
+    }
+    for (uint r = 0u; r < uint(RR); ++r)
+        tetra48_rows_epilogue_h(acc[r], row0 + r, lane, rscale, tail, x, y, uint(NB), uint(TW));
+"""
+DECODE2 = mx.fast.metal_kernel(name="llvq_tetra_lutd_rr", input_names=["words", "rows", "prefixes", "branches",
+                               "suffixes", "gscale", "invnorm", "rscale", "tail", "x"], output_names=["y"],
+                               source=DECODE2_BODY, header=HEADER)
+RR = 2
+TG = 64  # threadgroup of the Tetra decode kernels; 64 read 7-10 % over 256, interleaved (smoke)
+
+
+def decode_rows(words, gscale, rscale, tail, xr, shared, d_out, nb, tw, stride, dq):
+    """One activation row through DECODE2, `[1, d_out]` f16."""
+    s = shared
+    assert d_out % (RR * 8) == 0, d_out
+    return DECODE2(inputs=[words, s.rows, s.prefixes, s.branches, s.suffixes, gscale, s.invnorm, rscale, tail, xr],
+                   template=[("NB", nb), ("TW", tw), ("STRIDE", stride), ("RR", RR), ("DQ", dq)],
+                   grid=(d_out // RR * 32, 1, 1), threadgroup=(TG, 1, 1),
+                   output_shapes=[(1, d_out)], output_dtypes=[mx.float16])[0]
+
 # gate, up and SiLU(gate) * up in one dispatch, for one row. A simdgroup takes
 # output i: it decodes block j of gate's row i and of up's row i against the
 # same activation block, loaded once, and its lane 0 writes SiLU(g) * u in f16.
@@ -482,14 +542,66 @@ class TetraLinear(nn.Module):
         if n == 1 and "tetra" in ABLATE:
             return empty(xr, self.d_out, mx.float16).reshape(*lead, self.d_out)
         if n == 1:
-            y = DECODE(inputs=args, template=tmpl, grid=(self.d_out * 32, 1, 1), threadgroup=(256, 1, 1),
-                       output_shapes=[(1, self.d_out)], output_dtypes=[mx.float16])[0]
+            y = decode_rows(self._words, self._gscale, self._rscale, self._tail, xr, s, self.d_out, self.nb,
+                            self.tw, self.stride, self.d_out)
         else:
             y = ROWS(inputs=args + [mx.array([n], dtype=mx.uint32)],
                      template=tmpl + [("DIN", self.d_in), ("DOUT", self.d_out)],
                      grid=(self.d_out * 32, -(-n // ROWS_MAX), 1), threadgroup=(256, 1, 1),
                      output_shapes=[(n, self.d_out)], output_dtypes=[mx.float16])[0]
         return y.reshape(*lead, self.d_out)
+
+
+class QKFused:
+    """q and k stacked in one record, one dispatch for one row: k's 1,024 rows alone
+    fill a quarter of the GPU, stacked under q's 4,096 they ride along."""
+
+    def __init__(self, q: "TetraLinear", k: "TetraLinear"):
+        assert q.rot is k.rot and (q.d_in, q.nb, q.tw) == (k.d_in, k.nb, k.tw)
+        self.q, self.k = q, k
+        self.words = mx.concatenate([q._words, k._words])
+        self.gscale = mx.concatenate([q._gscale, k._gscale])
+        self.rscale = mx.concatenate([q._rscale, k._rscale])
+        self.tail = mx.concatenate([q._tail, k._tail])
+        mx.eval(self.words, self.gscale, self.rscale, self.tail)
+        self._last = None
+
+    def both(self, x: mx.array) -> tuple[mx.array, mx.array]:
+        if self._last is not None and self._last[0] is x:
+            out = self._last[1]
+            self._last = None
+            return out
+        q, k = self.q, self.k
+        lead = x.shape[:-1]
+        if math.prod(lead) != 1 or "tetra" in ABLATE:
+            out = (q(x), k(x))
+        else:
+            xr = q.rot(x).reshape(1, q.d_in)
+            y = decode_rows(self.words, self.gscale, self.rscale, self.tail, xr, q.shared, q.d_out + k.d_out,
+                            q.nb, q.tw, q.stride, q.d_out)
+            out = (y[:, :q.d_out].reshape(*lead, q.d_out), y[:, q.d_out:].reshape(*lead, k.d_out))
+        self._last = (x, out)
+        return out
+
+
+class QPart(nn.Module):
+    def __init__(self, group: QKFused):
+        super().__init__()
+        self.group, self.inner = group, group.q
+        self.freeze()
+
+    def __call__(self, x):
+        return self.group.both(x)[0]
+
+
+class KPart(nn.Module):
+    def __init__(self, group: QKFused):
+        super().__init__()
+        self.group, self.inner = group, group.k
+        self.freeze()
+
+    def __call__(self, x):
+        return self.group.both(x)[1]
 
 
 class FusedMLP(nn.Module):
@@ -513,7 +625,7 @@ class FusedMLP(nn.Module):
         h = GU(inputs=[g._words, u._words, s.rows, s.prefixes, s.branches, s.suffixes, g._gscale, u._gscale,
                        s.invnorm, g._rscale, u._rscale, g._tail, u._tail, xr],
                template=[("NB", g.nb), ("TW", g.tw), ("STRIDE", g.stride)],
-               grid=(g.d_out * 32, 1, 1), threadgroup=(256, 1, 1),
+               grid=(g.d_out * 32, 1, 1), threadgroup=(TG, 1, 1),
                output_shapes=[(1, g.d_out)], output_dtypes=[mx.float16])[0]
         return self.down_proj(h.reshape(*lead, g.d_out))
 
@@ -556,6 +668,16 @@ def build(path: str):
             raise ValueError(f"{name}: kind {d['kind']}")
         setattr(owner, proj, mod)
     for layer in model.model.layers:
+        if "norm" in ABLATE:
+            layer.input_layernorm = nn.Identity()
+            layer.post_attention_layernorm = nn.Identity()
+        if "qknorm" in ABLATE:
+            layer.self_attn.q_norm = nn.Identity()
+            layer.self_attn.k_norm = nn.Identity()
+        att = layer.self_attn
+        if type(att.q_proj).__name__ == "TetraLinear" and type(att.k_proj).__name__ == "TetraLinear":
+            grp = QKFused(att.q_proj, att.k_proj)
+            att.q_proj, att.k_proj = QPart(grp), KPart(grp)
         mlp = layer.mlp
         if type(mlp.gate_proj).__name__ == "TetraLinear" and type(mlp.up_proj).__name__ == "TetraLinear":
             layer.mlp = FusedMLP(mlp.gate_proj, mlp.up_proj, mlp.down_proj)

@@ -34,7 +34,18 @@ def main():
     bad = 0
     for li in (0, 12):
         layer = model.model.layers[li]
-        projs = [("q", layer.self_attn.q_proj), ("k", layer.self_attn.k_proj), ("gate", layer.mlp.gate_proj),
+        att = layer.self_attn
+        inner = lambda m: getattr(m, "inner", m)
+        if hasattr(att.q_proj, "group"):
+            for i in range(3):
+                x = mx.random.normal((1, 1, inner(att.q_proj).d_in)).astype(mx.float16)
+                qf, kf = att.q_proj(x), att.k_proj(x)
+                inner(att.q_proj).rot._last = None
+                e = max(rel(qf, inner(att.q_proj)(x)), rel(kf, inner(att.k_proj)(x)))
+                ok = e == 0.0
+                bad += not ok
+                print(f"layer {li} stacked q+k row {i}: {e:.2e} {'ok (same bits)' if ok else 'DIFFERS'}")
+        projs = [("q", inner(att.q_proj)), ("k", inner(att.k_proj)), ("gate", layer.mlp.gate_proj),
                  ("up", layer.mlp.up_proj), ("down", layer.mlp.down_proj)]
         for name, lin in projs:
             if type(lin).__name__ != "TetraLinear":
