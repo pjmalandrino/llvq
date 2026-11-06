@@ -70,3 +70,9 @@ the next lever was chosen on the remainder (6.3 ms) and on the alone GB/s, and t
 M8 §2 asks for a quiet machine. Builds were stopped 15 minutes before; Activity Monitor and Battle.net were open, and
 other processes read 79 to 218 % CPU between S1's arms. The arms are interleaved round by round, so the ratios carry
 the load on both sides; the absolute rates sit beside M2's (54.1 tok/s for `lutd` here, 52.1 at M2).
+
+## É9. M9 ran at 13:01, after the M10 code was built
+
+M9's binary was pinned at 12:40 and its run scheduled for 12:56. The int4 prefill kernel was then written and built
+(last build 12:45:19), so the run was called off before it started and moved to 13:01, fifteen minutes after that
+build. M9 ran its pinned binary, `a68aa617…`, as stamped; M10 followed in the same window.

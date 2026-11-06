@@ -43,7 +43,7 @@ case "$cmd" in
   chat)
     which="${1:-new}"
     case "$which" in
-      new)    arm="lutd+grp" ;;  # every bit-identical gain of 2026-11-06
+      new)    arm="lutd+h+grp+pq" ;;  # every bit-identical gain of 2026-11-06: lutd, half-io, grouped, prefill kernels
       fused)  arm="lut" ;;       # the served Metal kernels, expanded attention
       kernel) arm="lutd+ker" ;;  # attn_dec.metal from position 0, not bit for bit by design
       dense)  arm="D" ;;         # the dense reconstruction, the only Metal path before 2026-11-06
@@ -55,13 +55,13 @@ case "$cmd" in
   bench)
     check_sealed bench "$@"
     if [ "${1:-}" = "--long" ]; then
-      exec nice -n 10 "$BIN" time "$SEALED" "$CFG" lutd,lutd+grp,lutd+ker 64 5 4096
+      exec nice -n 10 "$BIN" time "$SEALED" "$CFG" lutd+grp,lutd+h+grp+pq,lutd+ker 64 5 4096
     fi
-    exec nice -n 10 "$BIN" time "$SEALED" "$CFG" lut,lutd,D 256 7
+    exec nice -n 10 "$BIN" time "$SEALED" "$CFG" lut,lutd+h+grp+pq,D 256 7
     ;;
   gate)
     check_sealed gate
-    exec "$BIN" gate "$SEALED" "$CFG" lut,lutd,lutd+grp,lutd+ker
+    exec "$BIN" gate "$SEALED" "$CFG" lut,lutd,lutd+h+grp+pq,lutd+ker
     ;;
   *) usage ;;
 esac

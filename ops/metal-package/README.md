@@ -10,7 +10,7 @@ digest before every run.
 ## Talk to it
 
 ```bash
-./llvq-metal chat              # the new path: fused kernels, lutd, grouped attention
+./llvq-metal chat              # the new path: lutd, half-io, grouped attention, prefill kernels
 ./llvq-metal chat fused        # the served Metal kernels, expanded attention
 ./llvq-metal chat dense        # the dense reconstruction, the only Metal path before 2026-11-06
 ./llvq-metal chat new 0 256    # greedy, 256 new tokens a turn at most
@@ -27,8 +27,8 @@ but its tokens are not bit for bit with the other paths by design: online softma
 ## Measure it
 
 ```bash
-./llvq-metal bench          # about 9 minutes: lut, lutd and dense, 256 tokens after a 5-token prompt
-./llvq-metal bench --long   # about 25 minutes: expanded, grouped, kernel, 64 tokens after 4,096 tokens of WikiText-2
+./llvq-metal bench          # about 9 minutes: lut, new and dense, 256 tokens after a 5-token prompt
+./llvq-metal bench --long   # about 20 minutes: grouped, new, kernel, 64 tokens after 4,096 tokens of WikiText-2
 ./llvq-metal gate           # every path's 253 records against the served kernels, bit for bit
 ```
 
@@ -43,6 +43,17 @@ What the night of 2026-11-06 read on an M3 Max, *measured*, same tokens on every
 |---|---|---|
 | 5 tokens | dense 7.8 tok/s | fused 50.9, fused with `lutd` 52.1 (×1.025) |
 | 4,096 tokens | expanded 15.8 tok/s | grouped 37.6 (×2.38), kernel 39.4 |
+
+And on the afternoon of 2026-11-06, same Mac, *measured*, same tokens on every arm:
+
+| what | before | after |
+|---|---|---|
+| decode, 5-token prompt | `lutd` 54.1 tok/s | with half-io 54.4 (×1.010, a wash) |
+| reading a 4,096-token prompt | 59.7 s (68 tokens/s) | Tetra prefill kernel 37.2 s (×1.60), then int4 too: ×1.09 more, 31.5 s (130 tokens/s) |
+
+The prefill kernels decode each weight block once for 8 prompt tokens instead of once a token. Every token they
+return is the bit-identical f16 of the one-token path. A chat turn with a long pasted prompt starts answering about
+twice as soon. Decode speed does not move.
 
 ## What is not here
 

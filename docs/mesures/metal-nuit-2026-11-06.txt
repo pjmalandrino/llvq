@@ -1060,3 +1060,27 @@ joins the bundle's new arm. Below the prediction (x1.03-1.10 at 5 tokens): 336 c
 0.1 ms, so on Metal the launch count is not the wall.
 Load: other processes 79-218 % CPU between arms in S1 (Activity Monitor and Battle.net open), 14-113 % in S2.
 Prefill: the 4,096-token prompt takes about 60 s on every arm, 68 tokens/s, near the decode rate. That is M9's target.
+
+=== M9, 2026-11-06 13:01-13:13, prereg proofs/preregistration-metal-m9-2026-11-06.md, binary a68aa617 (pinned copy)
+Run at 13:01, not 12:56: the window moved after the int4 build of 12:45 (ECARTS E9).
+G: lutd+h+grp+p against lutd+h+grp: 253 of 253.
+S3, 4,096-token WikiText-2 prompt, 64 new, 5 timed rounds, measured, niced:
+  first token, rounds 2-6 (s): base 59.73 70.69 60.97 57.99 57.32 | +p 45.34 41.54 37.24 36.43 35.94
+  medians: base 59.73 s, +p 37.24 s
+  base / +p, round by round (computed from the rows): x1.595 [1.318-1.702]   (printed door ratio x1.571 [1.301-1.677])
+  decode: base 38.36 tok/s [34.59-40.70], +p 39.51 [31.88-41.11], x1.020 [0.922-1.073]
+  same 64 tokens (sha256 7cbd553b..., the M8 S2 tokens)
+Verdict: wholly above 1.000, +p retained. Prediction x1.5 to x2.5: inside, at the low end.
+Load: other processes up to 200 % CPU on the base arm in rounds 2-4, which widens its range.
+
+=== M10, 2026-11-06 13:13-13:21, prereg proofs/preregistration-metal-m10-2026-11-06.md, binary 2c778780 (pinned copy)
+G: lutd+h+grp+pq against lutd+h+grp: 253 of 253.
+S4, same prompt, 64 new, 5 timed rounds:
+  first token (s): +p 33.88 34.05 34.56 34.95 35.04 | +pq 31.08 31.27 31.53 31.92 32.34
+  medians: +p 34.56 s, +pq 31.53 s (130 prompt tokens/s)
+  +p / +pq, round by round (computed): x1.090 [1.083-1.096]   (printed door ratio x1.086 [1.080-1.091])
+  decode: +p 40.66 tok/s [39.24-41.21], +pq 40.24 [40.02-41.01], x0.997 [0.990-1.020]
+  same 64 tokens (sha256 7cbd553b...)
+Verdict: wholly above 1.000, +pq retained and is the bundle's new arm (lutd+h+grp+pq). Prediction x1.05 to x1.20:
+inside. The two ratios chain to about x1.74 against M9's base (computed, two runs on the same Mac and stack).
+Still 7.7 ms a prompt row: neither matvec class is the wall of the prefill any more; not split yet.
