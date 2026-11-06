@@ -13,6 +13,7 @@
 //! metalrun dispatch
 //! metalrun ppl <sealed> <config> <arm> [ctx] [windows] [grp|ker]
 //! metalrun chat <sealed> <config> <arm> [temp] [max_new]
+//! metalrun profile <sealed> <config> <arm> [timed_rounds]
 //! ```
 //!
 //! `<arms>` is a comma list. Each fused arm is a Tetra matvec, optionally
@@ -45,6 +46,18 @@
 //! `bin/chat`: streamed, stopped on `<|im_end|>`, cache kept across turns.
 //! `temp` 0 is greedy (default 0.7, top_p 0.9, seed 0). Its tok/s is a REPL's
 //! rate, never a measurement: it exists so that a person can try an arm.
+//!
+//! `profile` splits the `blocks` phase of a decode token by op class. It
+//! captures one decode step's projection inputs, then replays the per-layer
+//! ops of the 36 blocks in model order (norms, rotations, every Tetra and int4
+//! matvec, the activation, the residual adds) and times that sequence closed
+//! by one device synchronize: with every class, with each class left out, and
+//! with each class alone, interleaved round by round. A class's marginal cost
+//! is the sequence with it minus the sequence without it, so every matrix is
+//! read in its real order and the system cache sees the real footprint. What
+//! the sequence leaves out (RoPE, q and k norms, the attention, the cache
+//! append, reshapes) is the `blocks` phase minus the full sequence, both read
+//! in the same process. Off protocol: closed by a synchronize, never a rate.
 //!
 //! The bit gate: one decode step of the reference arm with every projection
 //! input captured (q/k/v, o, gate/up, down of each layer), then every arm's
@@ -120,6 +133,7 @@ mod mac {
             Some("ppl") if a.len() >= 4 => {
                 ppl(&a[1], &a[2], &a[3], num(4, 4096)?, num(5, 4)?, a.get(6).map(String::as_str).unwrap_or("grp"))
             }
+            Some("profile") if a.len() >= 4 => profile(&a[1], &a[2], &a[3], num(4, 11)?),
             Some("chat") if a.len() >= 4 => chat(&a[1], &a[2], &a[3], a.get(4).map(String::as_str), num(5, 512)?),
             _ => anyhow::bail!(
                 "usage: metalrun time <sealed> <config> <arms> [n_new=128] [timed_rounds=7] [prompt_tokens=0]\n\
@@ -128,6 +142,7 @@ mod mac {
                  \x20      metalrun dispatch\n\
                  \x20      metalrun ppl <sealed> <config> <arm> [ctx=4096] [windows=4] [grp|ker]\n\
                  \x20      metalrun chat <sealed> <config> <arm> [temp=0.7] [max_new=512]\n\
+                 \x20      metalrun profile <sealed> <config> <arm> [timed_rounds=11]\n\
                  arms: comma list of lut|lutp|lutd|lutdp|lutd2|lutd4[+q4p][+t<cols>][+grp] or D; the first is the reference"
             ),
         }
@@ -560,6 +575,216 @@ mod mac {
             system: None,
         };
         llvq_llm::repl::run(&arm.model, &arm.tokenizer, opts, &mut std::io::stdin().lock())
+    }
+
+    // ---- profile: the blocks phase by op class, off protocol -----------------
+
+    const CLASSES: [&str; 12] =
+        ["norm", "rot", "tetra.q", "tetra.k", "tetra.gate", "tetra.up", "tetra.down", "int4.v", "int4.o", "int4.down", "act", "resid"];
+
+    /// One layer's captured inputs, rotated once, and the outputs the
+    /// activation and residual classes consume.
+    struct LayerIn {
+        h_attn: Tensor,
+        ctx: Tensor,
+        h_mlp: Tensor,
+        gated: Tensor,
+        r_qk: llvq_llm::model::Rotated,
+        r_gu: llvq_llm::model::Rotated,
+        r_down: Option<llvq_llm::model::Rotated>,
+        g_out: Tensor,
+        u_out: Tensor,
+        o_out: Tensor,
+    }
+
+    /// Device bytes of one projection, computed from its shape: Tetra48 is 6
+    /// bytes a block of 24, 2 a tail weight, 8 a row (scale and tail side);
+    /// int4 g128 is half a byte a weight plus a scale and a bias a group.
+    fn proj_bytes(p: &llvq_llm::model::Proj) -> anyhow::Result<f64> {
+        use llvq_llm::model::Proj;
+        Ok(match p {
+            Proj::Lattice(d) => (d.d_out() * ((d.d_in() / 24) * 6 + (d.d_in() % 24) * 2 + 8)) as f64,
+            Proj::Int4(d) => (d.d_out() * d.d_in() / 2 + d.d_out() * (d.d_in() / 128) * 4) as f64,
+            _ => anyhow::bail!("{}: profile reads Lattice and Int4 projections only", p.site_name()),
+        })
+    }
+
+    fn profile(path: &str, cfg_path: &str, spec: &str, timed: usize) -> anyhow::Result<()> {
+        use candle_core::Module;
+        use llvq_llm::model::Proj;
+        anyhow::ensure!(timed >= 3, "at least three timed rounds");
+        let device = Device::new_metal(0)?;
+        let cfg = header(path, cfg_path)?;
+        let a = load_arm(path, &cfg, &device, spec)?;
+        anyhow::ensure!(a.fused, "profile reads a fused arm");
+        let m = &a.model;
+        let ids = a.tokenizer.encode(PROMPT, false).map_err(anyhow::Error::msg)?.get_ids().to_vec();
+        let reference = m.generate(&ids, 64, &mut NoCapture)?;
+        let (toks, rep) = m.generate_phased(&ids, 64)?;
+        anyhow::ensure!(toks == reference, "phased tokens differ from generate");
+
+        // One decode step's projection inputs, as the bit gate takes them.
+        let mut caches = m.fresh_caches();
+        m.hidden_cached(&Tensor::from_slice(&ids, (1, ids.len()), &device)?, 0, &mut caches, &mut NoCapture)?;
+        let mut keep = Keep(HashMap::new());
+        let step = Tensor::from_slice(&[ids[ids.len() - 1]], (1, 1), &device)?;
+        m.hidden_cached(&step, ids.len(), &mut caches, &mut keep)?;
+        let mut layers = Vec::new();
+        let mut bytes = [0f64; CLASSES.len()];
+        for (i, blk) in m.blocks.iter().enumerate() {
+            let get = |act: Act| keep.0.get(&(i, act.index())).cloned().with_context(|| format!("layer {i}: {act:?}"));
+            let (h_attn, ctx, h_mlp, gated) = (get(Act::Attn)?, get(Act::AttnOut)?, get(Act::Mlp)?, get(Act::MlpOut)?);
+            let (_, _, _, q, k, v, o) = blk.attn_parts();
+            let (_, _, act, gate, up, down) = blk.mlp_parts();
+            for (c, p) in [(2, q), (3, k), (4, gate), (5, up), (7, v), (8, o)] {
+                bytes[c] += proj_bytes(p)?;
+            }
+            let r_down = match down {
+                Proj::Lattice(_) => {
+                    bytes[6] += proj_bytes(down)?;
+                    Some(down.prepare(&gated)?)
+                }
+                _ => {
+                    bytes[9] += proj_bytes(down)?;
+                    None
+                }
+            };
+            anyhow::ensure!(matches!(v, Proj::Int4(_)) && matches!(o, Proj::Int4(_)), "layer {i}: v and o are not int4");
+            let (r_qk, r_gu) = (q.prepare(&h_attn)?, gate.prepare(&h_mlp)?);
+            let g_out = gate.forward_with(&r_gu, &h_mlp)?;
+            let u_out = up.forward_with(&r_gu, &h_mlp)?;
+            let o_out = o.forward(&ctx)?;
+            let _ = act;
+            layers.push(LayerIn { h_attn, ctx, h_mlp, gated, r_qk, r_gu, r_down, g_out, u_out, o_out });
+        }
+        let eps = m.blocks[0].mlp_parts().1 as f32;
+
+        // The per-layer ops of the 36 blocks, in model order, `on` naming
+        // the classes that run; closed by one synchronize.
+        let run = |on: &[bool; CLASSES.len()]| -> anyhow::Result<f64> {
+            let t0 = Instant::now();
+            let mut sink = Vec::with_capacity(16);
+            let mut rsink = Vec::with_capacity(8);
+            for (blk, l) in m.blocks.iter().zip(&layers) {
+                let (ln1_w, _, _, q, k, v, o) = blk.attn_parts();
+                let (ln2_w, _, act, gate, up, down) = blk.mlp_parts();
+                if on[0] {
+                    sink.push(candle_nn::ops::rms_norm(&l.h_attn, ln1_w, eps)?);
+                }
+                if on[1] {
+                    rsink.push(q.prepare(&l.h_attn)?);
+                }
+                if on[2] {
+                    sink.push(q.forward_with(&l.r_qk, &l.h_attn)?);
+                }
+                if on[3] {
+                    sink.push(k.forward_with(&l.r_qk, &l.h_attn)?);
+                }
+                if on[7] {
+                    sink.push(v.forward(&l.h_attn)?);
+                }
+                if on[8] {
+                    sink.push(o.forward(&l.ctx)?);
+                }
+                if on[11] {
+                    sink.push((&l.h_attn + &l.o_out)?);
+                }
+                if on[0] {
+                    sink.push(candle_nn::ops::rms_norm(&l.h_attn, ln2_w, eps)?);
+                }
+                if on[1] {
+                    rsink.push(gate.prepare(&l.h_mlp)?);
+                }
+                if on[4] {
+                    sink.push(gate.forward_with(&l.r_gu, &l.h_mlp)?);
+                }
+                if on[5] {
+                    sink.push(up.forward_with(&l.r_gu, &l.h_mlp)?);
+                }
+                if on[10] {
+                    sink.push(act.forward(&l.g_out)?.mul(&l.u_out)?);
+                }
+                match &l.r_down {
+                    Some(rd) => {
+                        if on[1] {
+                            rsink.push(down.prepare(&l.gated)?);
+                        }
+                        if on[6] {
+                            sink.push(down.forward_with(rd, &l.gated)?);
+                        }
+                    }
+                    None => {
+                        if on[9] {
+                            sink.push(down.forward(&l.gated)?);
+                        }
+                    }
+                }
+                if on[11] {
+                    sink.push((&l.h_attn + &l.o_out)?);
+                }
+                if sink.len() > 12 {
+                    sink.clear();
+                    rsink.clear();
+                }
+            }
+            device.synchronize()?;
+            drop((sink, rsink));
+            Ok(t0.elapsed().as_secs_f64() * 1e3)
+        };
+
+        let n = CLASSES.len();
+        let mut configs: Vec<(String, [bool; CLASSES.len()])> = vec![("all".into(), [true; CLASSES.len()]), ("none".into(), [false; CLASSES.len()])];
+        for c in 0..n {
+            let mut without = [true; CLASSES.len()];
+            without[c] = false;
+            configs.push((format!("-{}", CLASSES[c]), without));
+            let mut only = [false; CLASSES.len()];
+            only[c] = true;
+            configs.push((format!("+{}", CLASSES[c]), only));
+        }
+        let mut t: Vec<Vec<f64>> = vec![Vec::new(); configs.len()];
+        for r in 0..DISCARDED + timed {
+            for (j, (_, on)) in configs.iter().enumerate() {
+                let ms = run(on)?;
+                if r >= DISCARDED {
+                    t[j].push(ms);
+                }
+            }
+        }
+        let idx = |name: &str| configs.iter().position(|(c, _)| c == name).expect("a config");
+        let diff = |a: usize, b: usize| -> (f64, f64, f64) {
+            stats(&t[a].iter().zip(&t[b]).map(|(p, q)| p - q).collect::<Vec<_>>())
+        };
+        let (blocks, blo, bhi) = stats(&rep.blocks_ms);
+        let (all, none) = (idx("all"), idx("none"));
+        let (seq, slo, shi) = diff(all, none);
+        println!("OFF PROTOCOL: every sequence closed by one device synchronize; never a rate");
+        println!("phase blocks (generate_phased, 64 tokens):    {blocks:7.3} ms [{blo:.3}-{bhi:.3}]");
+        println!("sequence, every class, minus the empty one:   {seq:7.3} ms [{slo:.3}-{shi:.3}]");
+        let (e, elo, ehi) = stats(&t[none]);
+        println!("empty sequence (the synchronize alone):       {e:7.3} ms [{elo:.3}-{ehi:.3}]");
+        println!("left out of the sequence (attention, RoPE, q/k norms, cache, reshapes): {:.3} ms (computed)", blocks - seq);
+        println!("class        marginal ms [range]        alone ms [range]      share of blocks | bytes a token | GB/s alone (computed)");
+        let mut marg_sum = 0.0;
+        for (c, name) in CLASSES.iter().enumerate() {
+            let (mm, mlo, mhi) = diff(all, idx(&format!("-{name}")));
+            let (am, alo, ahi) = diff(idx(&format!("+{name}")), none);
+            marg_sum += mm;
+            let gbs = match bytes[c] {
+                b if b > 0.0 => format!("{:9.1} MB | {:6.1}", b / 1e6, b / (am * 1e-3) / 1e9),
+                _ => "".to_string(),
+            };
+            println!(
+                "{name:<11} {mm:7.3} [{mlo:6.3}-{mhi:6.3}]   {am:7.3} [{alo:6.3}-{ahi:6.3}]   {:5.1} %   {gbs}",
+                100.0 * mm / blocks
+            );
+        }
+        println!("sum of marginals {marg_sum:.3} ms against the full sequence {seq:.3} ms");
+        let tetra: f64 = (2..=6).map(|c| bytes[c]).sum();
+        let int4: f64 = (7..=9).map(|c| bytes[c]).sum();
+        println!("weights a token: Tetra {:.1} MB, int4 {:.1} MB (computed from the shapes)", tetra / 1e6, int4 / 1e6);
+        println!("end     {} | GPU {:?} % busy", therm(), gpu_utilization());
+        Ok(())
     }
 
     // ---- phased: where a decode token goes, fenced, off protocol --------------
