@@ -307,3 +307,111 @@ kernel void tv_tetra48_metal_lutd4(const device uint*   words          [[buffer(
     tetra48_lutd_rows<4u>(words, row_stride_u32, tab, gscale, invnorm, rscale, tail, x, y, nblocks, tail_w,
                           (gid >> 5) * 4u, lane);
 }
+
+// ===========================================================================
+// Half-store twins: `_luth` (the served loop) and `_lutdh` (`_lutd`'s).
+//
+// The served Tetra matvec stores f32 and the adapter narrows the result with
+// a candle cast, one launch a projection: 168 a token on the sealed 4B. These
+// narrow in the kernel instead, `half(fma(acc, rscale, tail))`, which is the
+// rounding the cast applied (round to nearest even, candle's
+// `static_cast<half>`). The loop, the dot and the epilogue's arithmetic are
+// the twins' text. Gated by `llvq-llm/tests/tetra48_metal_rows.rs` against
+// the served kernel plus the cast, every f16 equal.
+// ===========================================================================
+
+/// The served epilogue, narrowed in the kernel.
+inline void tetra48_rows_epilogue_h(float acc,
+                                    uint row,
+                                    uint lane,
+                                    const device float* rscale,
+                                    const device half* tail,
+                                    const device float* x,
+                                    device half* y,
+                                    uint nblocks,
+                                    uint tail_w)
+{
+    acc = warp_sum(acc);
+    if (lane == 0u) {
+        float tv = 0.0f;
+        const device float* xt = x + nblocks * 24u;
+        for (uint i = 0u; i < tail_w; ++i) {
+            tv = fma(float(tail[row * tail_w + i]), xt[i], tv);
+        }
+        y[row] = half(fma(acc, rscale[row], tv));
+    }
+}
+
+kernel void tv_tetra48_metal_luth(const device uint*   words          [[buffer(0)]],
+                                  constant uint&       row_stride_u32 [[buffer(1)]],
+                                  const device uint*   rows           [[buffer(2)]],
+                                  const device uchar*  prefixes       [[buffer(3)]],
+                                  const device ushort* branches       [[buffer(4)]],
+                                  const device uchar*  suffixes       [[buffer(5)]],
+                                  const device float*  gscale         [[buffer(6)]],
+                                  const device float*  invnorm        [[buffer(7)]],
+                                  const device float*  rscale         [[buffer(8)]],
+                                  const device half*   tail           [[buffer(9)]],
+                                  const device float*  x              [[buffer(10)]],
+                                  device half*         y              [[buffer(11)]],
+                                  constant uint&       nblocks        [[buffer(12)]],
+                                  constant uint&       tail_w         [[buffer(13)]],
+                                  threadgroup float*   xs             [[threadgroup(0)]],
+                                  uint tid  [[thread_position_in_threadgroup]],
+                                  uint gid  [[thread_position_in_grid]],
+                                  uint tgs  [[threads_per_threadgroup]],
+                                  uint lane [[thread_index_in_simdgroup]])
+{
+    uint row = gid >> 5;
+    const device uint* wrow = words + row * row_stride_u32;
+    F1rTables tab = { rows, prefixes, branches, suffixes };
+    float acc = 0.0f;
+
+    uint ntiles = (nblocks + LLVQ_TILE_BLOCKS - 1u) / LLVQ_TILE_BLOCKS;
+    for (uint t = 0u; t < ntiles; ++t) {
+        uint jlo = t * LLVQ_TILE_BLOCKS;
+        uint jhi = min(jlo + LLVQ_TILE_BLOCKS, nblocks);
+        uint n = (jhi - jlo) * 24u;
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        for (uint i = tid; i < n; i += tgs) {
+            xs[i] = x[jlo * 24u + i];
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        for (uint j = jlo + lane; j < jhi; j += 32u) {
+            uint lo, hi16;
+            f1r_load(wrow, j, lo, hi16);
+            acc += tetra48_dot_lut(lo, hi16, tab, xs + (j - jlo) * 24u, gscale, invnorm);
+        }
+    }
+    tetra48_rows_epilogue_h(acc, row, lane, rscale, tail, x, y, nblocks, tail_w);
+}
+
+kernel void tv_tetra48_metal_lutdh(const device uint*   words          [[buffer(0)]],
+                                   constant uint&       row_stride_u32 [[buffer(1)]],
+                                   const device uint*   rows           [[buffer(2)]],
+                                   const device uchar*  prefixes       [[buffer(3)]],
+                                   const device ushort* branches       [[buffer(4)]],
+                                   const device uchar*  suffixes       [[buffer(5)]],
+                                   const device float*  gscale         [[buffer(6)]],
+                                   const device float*  invnorm        [[buffer(7)]],
+                                   const device float*  rscale         [[buffer(8)]],
+                                   const device half*   tail           [[buffer(9)]],
+                                   const device float*  x              [[buffer(10)]],
+                                   device half*         y              [[buffer(11)]],
+                                   constant uint&       nblocks        [[buffer(12)]],
+                                   constant uint&       tail_w         [[buffer(13)]],
+                                   uint gid  [[thread_position_in_grid]],
+                                   uint lane [[thread_index_in_simdgroup]])
+{
+    uint row = gid >> 5;
+    const device uint* wrow = words + row * row_stride_u32;
+    F1rTables tab = { rows, prefixes, branches, suffixes };
+    float acc = 0.0f;
+    for (uint j = lane; j < nblocks; j += 32u) {
+        uint lo, hi16;
+        f1r_load(wrow, j, lo, hi16);
+        acc += tetra48_dot_lut_dev(lo, hi16, tab, x + j * 24u, gscale, invnorm);
+    }
+    tetra48_rows_epilogue_h(acc, row, lane, rscale, tail, x, y, nblocks, tail_w);
+}

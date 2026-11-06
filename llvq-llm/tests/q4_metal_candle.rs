@@ -9,6 +9,9 @@
 //! non-zero offset, and the refusals by name. No test covered the int4 arm
 //! through candle before, tiled or not.
 //!
+//! The half-io twins (`+h`): the same matvecs reading and storing f16, against
+//! the served kernels narrowed by candle's cast, every f16 equal.
+//!
 //! Mutation run (2026-11-06, journal `docs/mesures/metal-nuit-2026-11-06.txt`).
 
 #![cfg(all(target_os = "macos", feature = "metal"))]
@@ -180,4 +183,66 @@ fn the_binding_refuses_by_name() {
     let e = up(Q4_TILE_COLS, 75).expect("refused");
     assert!(e.contains("75 groups"), "{e}");
     assert!(up(Q4_TILE_COLS, 76).is_none(), "the honest record uploads");
+}
+
+/// `matvec_int4` as the model calls it, narrowed view and all, returning the
+/// tensor as the arm hands it back (f32 served, f16 half-io).
+fn run_raw(rt: &MetalRuntime, dev: &Device, m: &Int4Matrix, x: &[half::f16], tile: usize) -> Tensor {
+    let p = rt
+        .upload_int4_tiled(&m.name, m.d_out, m.d_in, m.d_in / 128, &words(m), &m.scales, &m.biases, tile)
+        .expect("uploads");
+    let junk: Vec<half::f16> = (0..m.d_in).map(|i| half::f16::from_f32(i as f32)).collect();
+    let both: Vec<half::f16> = junk.iter().chain(x).copied().collect();
+    let t = Tensor::from_vec(both, (2, m.d_in), dev).unwrap().narrow(0, 1, 1).unwrap();
+    rt.matvec_int4(&p, &t).expect("matvec")
+}
+
+fn bits16_of(t: &Tensor) -> Vec<u16> {
+    t.to_dtype(DType::F16).unwrap().flatten_all().unwrap().to_vec1::<half::f16>().unwrap().iter().map(|v| v.to_bits()).collect()
+}
+
+/// The half-io twins against the served kernels narrowed by candle's cast,
+/// every f16 equal, at the six widths and three tiles; and that both twins
+/// are what ran.
+#[test]
+fn the_half_io_twins_return_the_served_bits_narrowed() {
+    let dev = Device::new_metal(0).expect("a Metal device");
+    let mut served_rt = runtime(&dev);
+    served_rt.set_tuning(MetalTuning::default()).unwrap();
+    let mut half_rt = runtime(&dev);
+    half_rt.set_tuning(MetalTuning { half_io: true, ..Default::default() }).unwrap();
+    for (i, (d_out, d_in)) in [(512usize, 2560usize), (256, 4096), (256, 5120), (2560, 9728), (256, 12288), (256, 17408)]
+        .into_iter()
+        .enumerate()
+    {
+        let (m, xh) = fixture(0x4A_D0 + i as u64, d_out, d_in);
+        for tile in [Q4_TILE_COLS, 256, 8192] {
+            let served = run_raw(&served_rt, &dev, &m, &xh, tile);
+            assert_eq!(served.dtype(), DType::F32);
+            let want = bits16_of(&served);
+            assert!(want.iter().any(|v| *v != 0));
+            let got = run_raw(&half_rt, &dev, &m, &xh, tile);
+            assert_eq!(got.dtype(), DType::F16, "{d_out}x{d_in}: the half-io arm returns f16");
+            let got = bits16_of(&got);
+            assert_eq!(got.iter().zip(&want).position(|(p, q)| p != q), None, "{d_out}x{d_in} tile {tile}");
+        }
+    }
+    assert_eq!(half_rt.compiled_pipelines(), vec!["tv_q4_metal_h", "tv_q4_metal_tiled_h"]);
+}
+
+/// An f32 activation on a half-io runtime keeps the served f32 kernels: the
+/// twins read f16 only, and a model in f32 must not be narrowed.
+#[test]
+fn an_f32_activation_keeps_the_served_kernel_under_half_io() {
+    let dev = Device::new_metal(0).expect("a Metal device");
+    let mut rt = runtime(&dev);
+    rt.set_tuning(MetalTuning { half_io: true, ..Default::default() }).unwrap();
+    let (m, xh) = fixture(0x4A_E0, 256, 2560);
+    let x: Vec<f32> = xh.iter().map(|v| v.to_f32()).collect();
+    let p = rt.upload_int4_tiled(&m.name, m.d_out, m.d_in, m.d_in / 128, &words(&m), &m.scales, &m.biases, Q4_TILE_COLS).unwrap();
+    let t = Tensor::from_vec(x.clone(), (1, m.d_in), &dev).unwrap();
+    let y = rt.matvec_int4(&p, &t).unwrap();
+    assert_eq!(y.dtype(), DType::F32);
+    assert_eq!(first_difference(&y.flatten_all().unwrap().to_vec1::<f32>().unwrap(), &reference(&m, &x)), None);
+    assert_eq!(rt.compiled_pipelines(), vec!["tv_q4_metal"]);
 }

@@ -112,11 +112,17 @@ pub struct MetalTuning {
     /// `tv_q4_metal_tiled`, `true` their prefetching twins
     /// (`kernels/tv_q4_pf.metal`).
     pub q4_prefetch: bool,
+    /// The half-io twins: the Tetra matvec stores f16 (`_luth`, `_lutdh`) and
+    /// the int4 matvecs read and store f16 (`tv_q4_metal_h`,
+    /// `tv_q4_metal_tiled_h`), so the adapter's casts around them, 336
+    /// launches a token on the sealed 4B, are not issued. The same roundings
+    /// in another place, so the same bits.
+    pub half_io: bool,
 }
 
 impl Default for MetalTuning {
     fn default() -> Self {
-        Self { q4_tile_cols: Q4_TILE_COLS, tetra_kernel: SERVED_TETRA, q4_prefetch: false }
+        Self { q4_tile_cols: Q4_TILE_COLS, tetra_kernel: SERVED_TETRA, q4_prefetch: false, half_io: false }
     }
 }
 
@@ -148,7 +154,27 @@ impl MetalTuning {
                 self.tetra_kernel
             );
         }
+        if self.half_io {
+            if tetra_half_twin(self.tetra_kernel).is_none() {
+                candle_core::bail!(
+                    "half-io: {} has no half-store twin; tv_tetra48_metal_lut and tv_tetra48_metal_lutd have one",
+                    self.tetra_kernel
+                );
+            }
+            if self.q4_prefetch {
+                candle_core::bail!("half-io and the prefetching int4 twins are two arms; name one");
+            }
+        }
         Ok(())
+    }
+}
+
+/// The half-store twin of a Tetra matvec, if it has one.
+pub fn tetra_half_twin(name: &str) -> Option<&'static str> {
+    match name {
+        "tv_tetra48_metal_lut" => Some("tv_tetra48_metal_luth"),
+        "tv_tetra48_metal_lutd" => Some("tv_tetra48_metal_lutdh"),
+        _ => None,
     }
 }
 
@@ -167,7 +193,11 @@ pub const TETRA_ROW_LOOPS: [&str; 5] = [
 fn tetra_reads_direct(name: &str) -> bool {
     matches!(
         name,
-        "tv_tetra48_metal_lutd" | "tv_tetra48_metal_lutdp" | "tv_tetra48_metal_lutd2" | "tv_tetra48_metal_lutd4"
+        "tv_tetra48_metal_lutd"
+            | "tv_tetra48_metal_lutdp"
+            | "tv_tetra48_metal_lutd2"
+            | "tv_tetra48_metal_lutd4"
+            | "tv_tetra48_metal_lutdh"
     )
 }
 
@@ -223,8 +253,8 @@ fn source_of(name: &str) -> Result<&'static str> {
         "rot_apply_metal" | "rot_apply_rows_metal" => Ok(SRC_ROT),
         "tv_q4_metal" | "tv_q4_metal_tiled" => Ok(SRC_Q4),
         "tv_tetra48_metal_lutp" | "tv_tetra48_metal_lutd" | "tv_tetra48_metal_lutdp" | "tv_tetra48_metal_lutd2"
-        | "tv_tetra48_metal_lutd4" => Ok(SRC_TETRA_ROWS),
-        "tv_q4_metal_p" | "tv_q4_metal_tiled_p" => Ok(SRC_Q4_PF),
+        | "tv_tetra48_metal_lutd4" | "tv_tetra48_metal_luth" | "tv_tetra48_metal_lutdh" => Ok(SRC_TETRA_ROWS),
+        "tv_q4_metal_p" | "tv_q4_metal_tiled_p" | "tv_q4_metal_h" | "tv_q4_metal_tiled_h" => Ok(SRC_Q4_PF),
         "emb_q8_gather_metal" | "tv_q8_metal" => Ok(SRC_Q8),
         "emb_q4_gather_metal" | "tv_emb_q4_metal" => Ok(SRC_E4),
         other => candle_core::bail!("no Metal source carries {other}"),
@@ -301,6 +331,8 @@ pub struct MetalRuntime {
     q4_tile_cols: usize,
     /// Whether the int4 matvecs are the prefetching twins.
     q4_prefetch: bool,
+    /// Whether the matvecs are the half-io twins ([`MetalTuning::half_io`]).
+    half_io: bool,
     device: candle_core::MetalDevice,
     tables: MetalTables,
     tile: usize,
@@ -433,6 +465,7 @@ impl MetalRuntime {
             kernel: kernel_from_env(),
             q4_tile_cols: Q4_TILE_COLS,
             q4_prefetch: false,
+            half_io: false,
             device: dev,
             tables,
             tile,
@@ -710,9 +743,20 @@ impl CustomOp1 for TetraMatvec<'_> {
         // two kernels in ONE process is the only honest A/B here.
         //
         // Unset, the served kernel is `_lut` and nothing changes.
-        let pipe = self.rt.pipeline(self.rt.kernel)?;
+        // The half-io twin stores f16 where the served kernel stores f32; the
+        // adapter's narrowing cast then has nothing to do.
+        let (kname, out_dtype) = match self.rt.half_io {
+            false => (self.rt.kernel, DType::F32),
+            true => (
+                tetra_half_twin(self.rt.kernel).ok_or_else(|| {
+                    candle_core::Error::msg(format!("half-io: {} has no half-store twin", self.rt.kernel))
+                })?,
+                DType::F16,
+            ),
+        };
+        let pipe = self.rt.pipeline(kname)?;
 
-        let out = dev.new_buffer(p.d_out, DType::F32, "tetra48-matvec")?;
+        let out = dev.new_buffer(p.d_out, out_dtype, "tetra48-matvec")?;
         let enc = dev.command_encoder()?;
         enc.set_compute_pipeline_state(&pipe);
 
@@ -742,7 +786,7 @@ impl CustomOp1 for TetraMatvec<'_> {
         // completion and write zeros. The tile in the length and the tile in
         // the source are the same number by construction, because both come
         // from `self.rt.tile`.
-        if !tetra_reads_direct(self.rt.kernel) {
+        if !tetra_reads_direct(kname) {
             let staged = self.rt.tile * llvq_core::DIM * DType::F32.size_in_bytes();
             enc.set_threadgroup_memory_length(0, staged);
         }
@@ -792,7 +836,7 @@ impl CustomOp1 for TetraMatvec<'_> {
         let mut dims = layout.dims().to_vec();
         *dims.last_mut().expect("rank >= 1") = p.d_out;
         Ok((
-            MetalStorage::new(out, dev, p.d_out, DType::F32),
+            MetalStorage::new(out, dev, p.d_out, out_dtype),
             Shape::from(dims),
         ))
     }
@@ -1175,7 +1219,13 @@ impl MetalRuntime {
         // Widened here, as `FusedRuntime::forward_int4` does. This arm reads
         // the CALLER's activation, which arrives in the model's f16, while the
         // kernel stages f32. `contiguous` because a narrowed row is a view.
-        let x = x.to_dtype(DType::F32)?.contiguous()?;
+        //
+        // The half-io twins read the f16 activation as it arrives and widen
+        // it while staging, which is the same exact widening.
+        let x = match (self.half_io, x.dtype()) {
+            (true, DType::F16) => x.contiguous()?,
+            _ => x.to_dtype(DType::F32)?.contiguous()?,
+        };
         x.apply_op1_no_bwd(&Int4Op { rt: self, proj })
     }
 }
@@ -1196,24 +1246,34 @@ impl CustomOp1 for Int4Op<'_> {
 
     fn metal_fwd(&self, storage: &MetalStorage, layout: &Layout) -> Result<(MetalStorage, Shape)> {
         let p = self.proj;
-        if storage.dtype() != DType::F32 {
-            candle_core::bail!("{}: f32 only, got {:?}", p.name, storage.dtype());
-        }
+        let half = match (storage.dtype(), self.rt.half_io) {
+            (DType::F32, _) => false,
+            (DType::F16, true) => true,
+            (other, _) => candle_core::bail!(
+                "{}: f32, or f16 on the half-io twins, got {other:?} with half-io {}",
+                p.name,
+                self.rt.half_io
+            ),
+        };
         let (start, end) = layout
             .contiguous_offsets()
             .ok_or_else(|| candle_core::Error::msg(format!("{}: non-contiguous activation", p.name)))?;
         if end - start != p.d_in {
             candle_core::bail!("{}: activation of {} values for d_in={}", p.name, end - start, p.d_in);
         }
-        let (kname, staged_cols) = match (p.tile_cols, self.rt.q4_prefetch) {
-            (None, false) => ("tv_q4_metal", p.d_in),
-            (None, true) => ("tv_q4_metal_p", p.d_in),
-            (Some(c), false) => ("tv_q4_metal_tiled", c),
-            (Some(c), true) => ("tv_q4_metal_tiled_p", c),
+        let (kname, staged_cols) = match (p.tile_cols, self.rt.q4_prefetch, half) {
+            (None, false, false) => ("tv_q4_metal", p.d_in),
+            (None, true, false) => ("tv_q4_metal_p", p.d_in),
+            (Some(c), false, false) => ("tv_q4_metal_tiled", c),
+            (Some(c), true, false) => ("tv_q4_metal_tiled_p", c),
+            (None, false, true) => ("tv_q4_metal_h", p.d_in),
+            (Some(c), false, true) => ("tv_q4_metal_tiled_h", c),
+            (_, true, true) => candle_core::bail!("{}: half-io and prefetch are two arms", p.name),
         };
+        let io = if half { DType::F16 } else { DType::F32 };
         let pipe = self.rt.pipeline(kname)?;
         let dev = storage.device().clone();
-        let out = dev.new_buffer(p.d_out, DType::F32, "llvq-metal-q4")?;
+        let out = dev.new_buffer(p.d_out, io, "llvq-metal-q4")?;
         let enc = dev.command_encoder()?;
         enc.set_compute_pipeline_state(&pipe);
         use candle_metal_kernels::utils::set_param;
@@ -1221,7 +1281,7 @@ impl CustomOp1 for Int4Op<'_> {
         set_param(&enc, 1, (&*p.scales, 0usize));
         set_param(&enc, 2, (&*p.biases, 0usize));
         // Bound AT the offset, so the kernel's `x[i]` starts at the row.
-        set_param(&enc, 3, (storage.buffer(), start * DType::F32.size_in_bytes()));
+        set_param(&enc, 3, (storage.buffer(), start * io.size_in_bytes()));
         set_param(&enc, 4, (&*out, 0usize));
         set_param(&enc, 5, p.d_in as u32);
         set_param(&enc, 6, p.gpr as u32);
@@ -1242,7 +1302,7 @@ impl CustomOp1 for Int4Op<'_> {
         );
         let mut dims = layout.dims().to_vec();
         *dims.last_mut().expect("rank >= 1") = p.d_out;
-        Ok((MetalStorage::new(out, dev, p.d_out, DType::F32), Shape::from(dims)))
+        Ok((MetalStorage::new(out, dev, p.d_out, io), Shape::from(dims)))
     }
 }
 
@@ -1604,6 +1664,7 @@ impl MetalRuntime {
             kernel: kernel_from_env(),
             q4_tile_cols: Q4_TILE_COLS,
             q4_prefetch: false,
+            half_io: false,
             device: dev,
             tile,
             pipelines: RwLock::new(HashMap::new()),
@@ -1618,6 +1679,7 @@ impl MetalRuntime {
         self.kernel = tuning.tetra_kernel;
         self.q4_tile_cols = tuning.q4_tile_cols;
         self.q4_prefetch = tuning.q4_prefetch;
+        self.half_io = tuning.half_io;
         Ok(())
     }
 
@@ -1634,7 +1696,12 @@ impl MetalRuntime {
 
     /// What this runtime launches, for a provenance line.
     pub fn tuning(&self) -> MetalTuning {
-        MetalTuning { q4_tile_cols: self.q4_tile_cols, tetra_kernel: self.kernel, q4_prefetch: self.q4_prefetch }
+        MetalTuning {
+            q4_tile_cols: self.q4_tile_cols,
+            tetra_kernel: self.kernel,
+            q4_prefetch: self.q4_prefetch,
+            half_io: self.half_io,
+        }
     }
 
     /// [`Self::upload`] from the row-strided `u32` stream the reader hands
@@ -1803,12 +1870,13 @@ pub fn load_resolved_tuned(
     let t = rt.tuning();
     println!(
         "metal: tetra matvec {} | int4 {} records, {int4_tiled} through tv_q4_metal_tiled at {} columns a tile, {} \
-         untiled | int4 row loop {}",
+         untiled | int4 row loop {} | io {}",
         t.tetra_kernel,
         int4_records,
         t.q4_tile_cols,
         int4_records - int4_tiled,
         if t.q4_prefetch { "prefetching (tv_q4_pf.metal)" } else { "served" },
+        if t.half_io { "half (in-kernel casts, tv_q4_pf.metal and llvq_tetra48_rows.metal)" } else { "f32 (served)" },
     );
     finish(
         path, device, dtype, layout, emode, share, fuse, kv, origin, model, config, tokenizer,

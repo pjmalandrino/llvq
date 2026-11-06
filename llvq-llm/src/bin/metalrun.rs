@@ -24,6 +24,7 @@
 //! | `lut` | the served Metal kernels, the int4 records past the wall through `tv_q4_metal_tiled` at 2,048 columns |
 //! | `lutp`, `lutd`, `lutdp`, `lutd2`, `lutd4` | the Tetra row-loop twins of `kernels/llvq_tetra48_rows.metal` |
 //! | `+q4p` | the prefetching int4 twins of `kernels/tv_q4_pf.metal` |
+//! | `+h` | the half-io twins: the Tetra matvec stores f16, the int4 matvecs read and store f16, no adapter casts (`lut`, `lutd` only) |
 //! | `+t8192`, `+t256` | another int4 tile (zero bits) |
 //! | `+grp` | grouped attention, refused on the served Metal door: a measurement arm |
 //! | `+ker` | the split-KV decode-attention kernel (`kernels/attn_dec.metal`) from position 0, as the 4B's served card config reads it; refused on the served Metal door: a measurement arm |
@@ -144,7 +145,7 @@ mod mac {
                  \x20      metalrun ppl <sealed> <config> <arm> [ctx=4096] [windows=4] [grp|ker]\n\
                  \x20      metalrun chat <sealed> <config> <arm> [temp=0.7] [max_new=512]\n\
                  \x20      metalrun profile <sealed> <config> <arm> [timed_rounds=11]\n\
-                 arms: comma list of lut|lutp|lutd|lutdp|lutd2|lutd4[+q4p][+t<cols>][+grp] or D; the first is the reference"
+                 arms: comma list of lut|lutp|lutd|lutdp|lutd2|lutd4[+q4p][+h][+t<cols>][+grp|+ker] or D; the first is the reference"
             ),
         }
     }
@@ -252,6 +253,7 @@ mod mac {
         for m in parts {
             match m {
                 "q4p" => spec.tuning.q4_prefetch = true,
+                "h" => spec.tuning.half_io = true,
                 "grp" => spec.grouped = true,
                 "ker" => spec.kernel = true,
                 t if t.starts_with('t') => {

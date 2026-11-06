@@ -13,6 +13,9 @@
 //! block, a last tile of one block, tiles 32 and 256. The served kernel runs
 //! at fast math on, as the shipped path compiles it, and so do the twins.
 //!
+//! The half-io twins (`+h`): the same matvecs reading and storing f16, against
+//! the served kernels narrowed by candle's cast, every f16 equal.
+//!
 //! Mutation run (2026-11-06, journal `docs/mesures/metal-nuit-2026-11-06.txt`).
 
 #![cfg(all(target_os = "macos", feature = "metal"))]
@@ -185,5 +188,75 @@ fn a_bad_tuning_is_refused_by_name() {
         let e = b.rt.set_tuning(MetalTuning { q4_tile_cols: tile, ..Default::default() }).unwrap_err().to_string();
         assert!(e.contains(&tile.to_string()), "{e}");
     }
+    assert_eq!(b.rt.tuning(), MetalTuning::default(), "a refused tuning sets nothing");
+}
+
+/// The f16 bits of a tensor, whatever its dtype: candle's own narrowing for
+/// an f32 one, which is the served adapter's cast.
+fn bits16_of(t: &Tensor) -> Vec<u16> {
+    t.to_dtype(candle_core::DType::F16)
+        .unwrap()
+        .flatten_all()
+        .unwrap()
+        .to_vec1::<half::f16>()
+        .unwrap()
+        .iter()
+        .map(|v| v.to_bits())
+        .collect()
+}
+
+/// The half-store twins against the served kernel narrowed by candle's cast,
+/// every f16 equal, at one shape; and that the twin is what ran.
+fn gate_half(seed: u64, d_out: usize, nblocks: usize, tail_w: usize, tile: usize) {
+    let mut b = build(seed, d_out, nblocks, tail_w, tile);
+    let dev = Device::new_metal(0).expect("a Metal device");
+    let xm = Tensor::from_slice(&b.x, (1, b.x.len()), &dev).expect("upload x");
+    for (base, twin) in [(SERVED_TETRA, "tv_tetra48_metal_luth"), ("tv_tetra48_metal_lutd", "tv_tetra48_metal_lutdh")] {
+        b.rt.set_tuning(MetalTuning { tetra_kernel: base, ..Default::default() }).unwrap();
+        let served = b.rt.matvec(&b.proj, &xm).expect("served");
+        assert_eq!(served.dtype(), candle_core::DType::F32, "the served kernel stores f32");
+        let want = bits16_of(&served);
+        assert!(want.iter().any(|v| *v != 0), "zeros would pass every equality");
+        b.rt.set_tuning(MetalTuning { tetra_kernel: base, half_io: true, ..Default::default() }).unwrap();
+        let got = b.rt.matvec(&b.proj, &xm).expect("half twin");
+        assert_eq!(got.dtype(), candle_core::DType::F16, "{twin} stores f16");
+        assert!(b.rt.compiled_pipelines().contains(&twin), "{twin} was launched");
+        let got = bits16_of(&got);
+        let diff = got.iter().zip(&want).position(|(p, q)| p != q);
+        assert_eq!(diff, None, "{twin}, {d_out} rows x {nblocks} blocks + {tail_w}, tile {tile}");
+    }
+}
+
+/// The sealed 4B's two Tetra widths, the loop edges and the other tiles.
+#[test]
+fn the_half_store_twins_return_the_served_bits_narrowed() {
+    gate_half(0x5EED_0101, 1024, 106, 16, 64);
+    gate_half(0x5EED_0102, 2560, 405, 8, 64);
+    for (i, (nblocks, tail_w)) in [(7usize, 5usize), (32, 0), (65, 3)].into_iter().enumerate() {
+        gate_half(0x5EED_0110 + i as u64, 64, nblocks, tail_w, 64);
+    }
+    gate_half(0x5EED_0120, 512, 405, 8, 32);
+    gate_half(0x5EED_0121, 512, 405, 8, 256);
+}
+
+/// Half-io names its refusals: a kernel with no half twin, and the
+/// prefetching int4 twins beside it.
+#[test]
+fn half_io_refuses_what_it_cannot_serve() {
+    let mut b = build(0x5EED_0130, 64, 7, 5, 64);
+    for bad in ["tv_tetra48_metal_lutp", "tv_tetra48_metal_lutd4"] {
+        let e = b
+            .rt
+            .set_tuning(MetalTuning { tetra_kernel: bad, half_io: true, ..Default::default() })
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains(bad) && e.contains("half"), "{e}");
+    }
+    let e = b
+        .rt
+        .set_tuning(MetalTuning { half_io: true, q4_prefetch: true, ..Default::default() })
+        .unwrap_err()
+        .to_string();
+    assert!(e.contains("half-io") && e.contains("prefetch"), "{e}");
     assert_eq!(b.rt.tuning(), MetalTuning::default(), "a refused tuning sets nothing");
 }
