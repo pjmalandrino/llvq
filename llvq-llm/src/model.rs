@@ -3674,7 +3674,8 @@ mod tests {
         assert!(served.provenance().contains("attention kernel from position 1280 on grow(256)"));
         m.set_kernel_from(0);
         assert_eq!(logit_trace(&m, &prompt, 4, &feed), short, "the door's kernel is the same arithmetic");
-        assert!(served.check_device(true).expect_err("Metal").contains("CUDA only"));
+        let e = served.check_device(true).expect_err("the kernel form stays refused on Metal");
+        assert!(e.contains("no T8 of the form on Metal"), "{e}");
 
         // The persistent decode: refused on a model that is not the 4B, before
         // anything moves; past that check, every decode row goes to the

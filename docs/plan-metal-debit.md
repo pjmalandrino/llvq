@@ -98,8 +98,9 @@ and loads what it loaded before, plus the tiled route for the records it used to
 | `metalrun` | `llvq-llm/src/bin/metalrun.rs` | its bit gate: every arm's 252 projections and head against the reference arm's on the real file, 253 of 253 for all nine fused arms |
 
 Mutation runs: 37 mutants, 37 killed (27 in the matvec lot, among them the four barrier removals; 10 in the attention
-kernel). `cargo clippy --all-targets`: zero
-warnings. The Linux half was not type-checked: Docker was not running, and the cross `cargo check` stops in
+kernel). `cargo clippy --all-targets`: zero warnings. The fast loop (`cargo test`, and `-p llvq-llm -p llvq-metal`
+with the `metal` feature) is green; it caught one test pinned to the old Metal refusal text, which now names the
+missing T8 instead of "CUDA only". The Linux half was not type-checked: Docker was not running, and the cross `cargo check` stops in
 `openssl-sys`, a dependency of `hf-hub`. Every line this branch adds outside a test is under `cfg(target_os =
 "macos")` or in `metalrun`, whose non-Metal stub compiles on the Mac without the `metal` feature.
 
