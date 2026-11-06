@@ -9,9 +9,9 @@
 //! billed job to discover.
 
 use llvq_llm::fused::{EmbedMode, FuseMode, FusedLayout};
-use llvq_llm::kvq::KvMode;
+use llvq_llm::kvq::{AttnHeads, KvMode, KvStore, GROW_CHUNK};
 use llvq_llm::rotplan::RotShare;
-use llvq_llm::served::{check_env, Served, ServedFile, BELOW_THE_DOOR};
+use llvq_llm::served::{check_env, check_persistent_object, Decode, Rows4e, Served, ServedFile, BELOW_THE_DOOR, MEASUREMENT_MODES};
 use std::path::PathBuf;
 
 fn served() -> ServedFile {
@@ -21,6 +21,9 @@ fn served() -> ServedFile {
         rot_share: "1".into(),
         fuse: "0".into(),
         kv: "f16".into(),
+        attention: None,
+        decode: None,
+        rows: None,
         note: Some("Qwen3-4B, Tetra + 36 v_proj int4 g128".into()),
     }
 }
@@ -364,4 +367,366 @@ fn the_q4_config_is_the_4b_served_values_with_a_q4_embedding() {
         (q5.layout, q5.rot_share, q5.fuse, q5.kv),
         "only the embedding may differ from the 4B served object"
     );
+}
+
+// ---------------------------------------------------------------------------
+// The `attention` field, added 2026-11-02 with the grouped form.
+// ---------------------------------------------------------------------------
+
+/// 🚨 A config written before the field existed must serve what it served.
+///
+/// This is the whole reason the field is optional and the reason the operator
+/// chose a field over an engine default: `expanded` is the form every
+/// published number ran, so the six files that predate 2026-11-02 keep their
+/// logits, and only a file that SAYS `grouped` changes path.
+#[test]
+fn an_absent_attention_field_is_the_published_form() {
+    // In the struct.
+    let s = of(served()).expect("the field is optional");
+    assert_eq!(s.attention, AttnHeads::Expanded);
+    assert_eq!(s.store, KvStore::Cat);
+
+    // In a file that does not carry the key at all.
+    let text = r#"{"layout":"tetra48","embed":"q4","rot_share":"1","fuse":"0","kv":"f16"}"#;
+    let f: ServedFile = serde_json::from_str(text).expect("five keys are enough");
+    assert_eq!(f.attention, None);
+    let r = Served::of(f, PathBuf::from("old.json")).expect("resolves");
+    assert_eq!((r.attention, r.store), (AttnHeads::Expanded, KvStore::Cat));
+
+    // And on disk: every shipped config except the grouped, kernel and 4E ones
+    // is expanded; every one but the 4E configs decodes on the eager path.
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../configs");
+    let mut expanded = 0;
+    for entry in std::fs::read_dir(&dir).expect("configs/") {
+        let path = entry.expect("entry").path();
+        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+            continue;
+        }
+        let name = path.file_name().expect("name").to_string_lossy().to_string();
+        let f = Served::read_file(&path).expect("parses");
+        let r = Served::of(f, path.clone()).expect("resolves");
+        let four_e = name.contains("-4e");
+        assert_eq!(r.decode, if four_e { Decode::Persistent } else { Decode::Eager }, "{name}");
+        match (name.contains("grouped"), name.contains("kernel") || four_e) {
+            (true, _) => assert_eq!(r.attention, AttnHeads::Grouped, "{name}"),
+            (false, true) => assert_eq!(r.attention, AttnHeads::Kernel, "{name}"),
+            (false, false) => {
+                assert_eq!(r.attention, AttnHeads::Expanded, "{name} must not have moved");
+                assert_eq!(r.store, KvStore::Cat, "{name}");
+                expanded += 1;
+            }
+        }
+    }
+    assert!(expanded >= 6, "{expanded} configs predate the field, 6 expected");
+}
+
+/// The grouped config is the e4 object and nothing else about it moved.
+///
+/// It names the SAME file, the same layout, embedding, hoist, fusion and KV
+/// mode: the only difference between the two is how attention reads the cache,
+/// which is what makes a pair of runs under them an A/B of one thing.
+#[test]
+fn the_grouped_config_is_the_e4_object_with_the_grouped_attention() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../configs");
+    let read = |name: &str| {
+        let path = dir.join(name);
+        let f = Served::read_file(&path).unwrap_or_else(|e| panic!("{name}: {e}"));
+        Served::of(f, path).unwrap_or_else(|e| panic!("{name}: {e}"))
+    };
+    let e4 = read("qwen3-4b-tetra-e4.json");
+    let g = read("qwen3-4b-tetra-e4-grouped.json");
+
+    assert_eq!(g.attention, AttnHeads::Grouped);
+    assert_eq!(g.store, KvStore::Grow(GROW_CHUNK), "the store rides the form");
+    assert_eq!(e4.attention, AttnHeads::Expanded, "the published 4B config did not move");
+    assert_eq!(
+        (g.layout, g.embed, g.rot_share, g.fuse, g.kv),
+        (e4.layout, e4.embed, e4.rot_share, e4.fuse, e4.kv),
+        "only the attention form may differ from the e4 object"
+    );
+    // The provenance names the form, so no log can be silent about which one
+    // produced its number.
+    let line = g.provenance();
+    assert!(line.contains("attention grouped on grow(256)"), "{line}");
+    assert!(e4.provenance().contains("attention expanded on cat"), "{}", e4.provenance());
+}
+
+/// The 4B kernel config (operator T8, 2026-11-05) is the grouped config with
+/// the kernel form, and nothing else about it moved.
+///
+/// Below position 1,280 the kernel form runs the grouped arithmetic bit for
+/// bit, so the two files must agree on everything but the field.
+#[test]
+fn the_kernel_config_is_the_grouped_config_with_the_kernel_form() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../configs");
+    let read = |name: &str| {
+        let path = dir.join(name);
+        let f = Served::read_file(&path).unwrap_or_else(|e| panic!("{name}: {e}"));
+        Served::of(f, path).unwrap_or_else(|e| panic!("{name}: {e}"))
+    };
+    let g = read("qwen3-4b-tetra-e4-grouped.json");
+    let k = read("qwen3-4b-tetra-e4-kernel-from1280.json");
+
+    assert_eq!(k.attention, AttnHeads::Kernel);
+    assert_eq!(k.store, g.store, "the kernel form reads the grouped store");
+    assert_eq!(
+        (k.layout, k.embed, k.rot_share, k.fuse, k.kv),
+        (g.layout, g.embed, g.rot_share, g.fuse, g.kv),
+        "only the attention form may differ from the grouped config"
+    );
+    assert!(k.provenance().contains("attention kernel from position 1280"), "{}", k.provenance());
+}
+
+/// An `attention` nobody can serve is refused, and never read as the default.
+#[test]
+fn an_attention_the_file_cannot_serve_is_refused() {
+    // Empty, and whitespace, like every other field of this file.
+    for empty in ["", "   "] {
+        let mut f = served();
+        f.attention = Some(empty.into());
+        let e = match of(f) {
+            Err(e) => e,
+            Ok(_) => panic!("an empty attention must be refused, not read as expanded"),
+        };
+        assert!(e.contains("attention"), "the message must name the field: {e}");
+        assert!(e.contains("empty"), "and say what is wrong with it: {e}");
+    }
+    // `shared` is refused BY NAME: it is slower than grouped everywhere and
+    // not bit for bit either, so no object is served under it.
+    let mut f = served();
+    f.attention = Some("shared".into());
+    let e = of(f).expect_err("shared is not a served form");
+    assert!(e.contains("gqa-ab-2026-11-01"), "the refusal cites its journal: {e}");
+    // And a typo stays a typo.
+    for bad in ["Grouped", "gqa", "grouped ", "unexpanded"] {
+        let mut f = served();
+        f.attention = Some(bad.into());
+        assert!(of(f).is_err(), "{bad:?} must be refused");
+    }
+}
+
+/// 🚨 The grouped form has never run on Metal, so a Metal build refuses it.
+///
+/// The form is backend-independent code in `model.rs`, which is exactly what
+/// makes a silent acceptance easy: the Mac would serve a form whose tolerance
+/// gate was passed on an L40S, with no throughput, no perplexity and no
+/// reading of Metal's own rounding. The predicate is handed in, so this runs
+/// on a machine with no Metal device.
+#[test]
+fn the_grouped_form_is_refused_on_metal_and_named_in_the_refusal() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../configs");
+    let path = dir.join("qwen3-4b-tetra-e4-grouped.json");
+    let g = Served::of(Served::read_file(&path).expect("parses"), path).expect("resolves");
+
+    let e = g.check_device(true).expect_err("grouped on Metal is refused");
+    assert!(e.contains("Metal"), "{e}");
+    assert!(e.contains("grouped"), "the message names the form: {e}");
+    assert!(e.contains("gqa-ppl-2026-11-01"), "and the measurement that would lift it: {e}");
+    assert!(
+        e.contains("qwen3-4b-tetra-e4-grouped.json"),
+        "and which config asked for it: {e}"
+    );
+    g.check_device(false).expect("grouped on a card is what was measured");
+
+    // The expanded form is the Mac's served path and stays accepted.
+    let s = of(served()).expect("resolves");
+    s.check_device(true).expect("expanded on Metal is the published path");
+    s.check_device(false).expect("expanded on a card too");
+}
+
+
+// ---- the decode engine (2026-11-05) ----------------------------------------
+
+fn four_e() -> ServedFile {
+    ServedFile {
+        layout: "tetra48".into(),
+        embed: "q4".into(),
+        rot_share: "1".into(),
+        fuse: "0".into(),
+        kv: "f16".into(),
+        attention: Some("kernel".into()),
+        decode: Some("persistent".into()),
+        rows: None,
+        note: None,
+    }
+}
+
+/// The 4E config is the kernel config with the persistent decode, and nothing
+/// else about the object moved; its threshold is 0 and its line says so.
+#[test]
+fn the_4e_config_is_the_kernel_config_with_the_persistent_decode() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../configs");
+    let read = |name: &str| {
+        let path = dir.join(name);
+        let f = Served::read_file(&path).unwrap_or_else(|e| panic!("{name}: {e}"));
+        Served::of(f, path).unwrap_or_else(|e| panic!("{name}: {e}"))
+    };
+    let k = read("qwen3-4b-tetra-e4-kernel-from1280.json");
+    let p = read("qwen3-4b-tetra-e4-4e.json");
+    assert_eq!(p.decode, Decode::Persistent);
+    assert_eq!(k.decode, Decode::Eager, "the served config did not move");
+    assert_eq!(
+        (p.layout, p.embed, p.rot_share, p.fuse, p.kv, p.attention, p.store),
+        (k.layout, k.embed, k.rot_share, k.fuse, k.kv, k.attention, k.store),
+        "only the decode engine may differ from the kernel config"
+    );
+    assert_eq!(p.decode.kernel_from(), 0);
+    assert_eq!(k.decode.kernel_from(), llvq_llm::kvq::KERNEL_FROM);
+    let line = p.provenance();
+    assert!(line.contains("attention kernel from position 0 on grow(256), decode persistent"), "{line}");
+    assert!(!k.provenance().contains("decode persistent"), "an eager config's line reads as before: {}", k.provenance());
+    let note = p.note.expect("a note");
+    assert!(note.contains("NOT SERVED YET") && note.contains("886391a8"), "{note}");
+}
+
+/// The field: absent and "eager" are the eager path, "persistent" is 4E, and
+/// the empty string or any other word is refused by name.
+#[test]
+fn the_decode_field_accepts_two_engines_and_refuses_the_rest() {
+    let mut f = four_e();
+    assert_eq!(of(f.clone()).expect("4E").decode, Decode::Persistent);
+    f.decode = None;
+    assert_eq!(of(f.clone()).expect("absent").decode, Decode::Eager);
+    f.decode = Some("eager".into());
+    assert_eq!(of(f.clone()).expect("eager").decode, Decode::Eager);
+    for bad in ["", "  ", "Persistent", "4e", "graph"] {
+        f.decode = Some(bad.into());
+        let e = of(f.clone()).expect_err(bad);
+        assert!(e.contains("decode"), "{bad:?}: {e}");
+    }
+    // In a file, the key is optional and a typo of it is an unknown key.
+    let text = r#"{"layout":"tetra48","embed":"q4","rot_share":"1","fuse":"0","kv":"f16","attention":"kernel","decod":"persistent"}"#;
+    assert!(serde_json::from_str::<ServedFile>(text).is_err(), "a typo must not read as the eager default");
+}
+
+/// 4E computes the kernel form and reads the served 4B's fields: any other
+/// attention or field beside the persistent decode is refused by name.
+#[test]
+fn the_persistent_decode_is_refused_off_the_served_4b_fields() {
+    for attention in [None, Some("expanded"), Some("grouped")] {
+        let mut f = four_e();
+        f.attention = attention.map(str::to_string);
+        let e = of(f).expect_err("not the kernel form");
+        assert!(e.contains("persistent") && e.contains("kernel"), "{attention:?}: {e}");
+    }
+    type Edit = (&'static str, fn(&mut ServedFile));
+    let edits: [Edit; 5] = [
+        ("layout", |f| f.layout = "planes14".into()),
+        ("embed", |f| f.embed = "q8".into()),
+        ("rot_share", |f| f.rot_share = "0".into()),
+        ("kv", |f| f.kv = "q8".into()),
+        ("fuse", |f| {
+            f.fuse = "1".into();
+            f.layout = "planes14".into();
+        }),
+    ];
+    for (what, edit) in edits {
+        let mut f = four_e();
+        edit(&mut f);
+        let e = of(f).expect_err(what);
+        assert!(e.contains("served 4B's fields"), "{what}: {e}");
+    }
+}
+
+/// Beside the persistent decode, every measurement mode is refused by name;
+/// the two prompt-length variables and the card variable are not.
+#[test]
+fn measurement_modes_are_refused_beside_the_persistent_decode() {
+    let f = four_e();
+    for var in MEASUREMENT_MODES {
+        let e = check_env(&f, env_of(&[(var, "1")])).expect_err(var);
+        assert!(e.contains(var) && e.contains("measurement mode"), "{e}");
+    }
+    for var in ["LLVQ_CONTEXTS", "LLVQ_PREFILL_TOKENS", "LLVQ_NVRTC_ARCH"] {
+        check_env(&f, env_of(&[(var, "5,8192")])).unwrap_or_else(|e| panic!("{var}: {e}"));
+    }
+    // An eager config keeps what it accepted before the field existed.
+    check_env(&served(), env_of(&[("LLVQ_TIME_EVENTS", "1")])).expect("not this check's business on an eager config");
+    assert!(MEASUREMENT_MODES.contains(&"LLVQ_PERS_4E") && MEASUREMENT_MODES.contains(&"LLVQ_KV_PREALLOC"));
+}
+
+/// Refused on Metal by name, before the kernel form's own refusal.
+#[test]
+fn the_persistent_decode_is_refused_on_metal() {
+    let p = of(four_e()).expect("4E");
+    let e = p.check_device(true).expect_err("Metal");
+    assert!(e.contains("persistent") && e.contains("Metal"), "{e}");
+    p.check_device(false).expect("CUDA");
+}
+
+/// On the Qwen3-4B's shape only: the 8B and the 14B, whose T8 below 1,280 was
+/// never granted, are refused by name.
+#[test]
+fn the_persistent_decode_runs_on_the_4b_shape_only() {
+    let cfg = |layers, hidden, inter, heads, kv| {
+        let text = format!(
+            r#"{{"vocab_size":151936,"hidden_size":{hidden},"intermediate_size":{inter},"num_hidden_layers":{layers},
+            "num_attention_heads":{heads},"head_dim":128,"attention_bias":false,"num_key_value_heads":{kv},
+            "max_position_embeddings":40960,"sliding_window":null,"max_window_layers":36,"tie_word_embeddings":true,
+            "rope_theta":1000000.0,"rms_norm_eps":1e-6,"use_sliding_window":false,"hidden_act":"silu"}}"#
+        );
+        serde_json::from_str::<candle_transformers::models::qwen3::Config>(&text).expect("a qwen3 config")
+    };
+    check_persistent_object(&cfg(36, 2560, 9728, 32, 8)).expect("the 4B");
+    for (name, c) in [("8B", cfg(36, 4096, 12288, 32, 8)), ("14B", cfg(40, 5120, 17408, 40, 8)), ("0.6B", cfg(28, 1024, 3072, 16, 8))] {
+        let e = check_persistent_object(&c).expect_err(name);
+        assert!(e.contains("persistent") && e.contains("4B"), "{name}: {e}");
+    }
+}
+
+// ---- 4E's row loop (2026-11-05) ---------------------------------------------
+
+/// The v4 config is the 4E config with the v4 row loop, and nothing else moved;
+/// its line names the loop, and the v3 config's line reads as it did.
+#[test]
+fn the_v4_config_is_the_4e_config_with_the_v4_rows() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../configs");
+    let read = |name: &str| {
+        let path = dir.join(name);
+        let f = Served::read_file(&path).unwrap_or_else(|e| panic!("{name}: {e}"));
+        Served::of(f, path).unwrap_or_else(|e| panic!("{name}: {e}"))
+    };
+    let v3 = read("qwen3-4b-tetra-e4-4e.json");
+    let v4 = read("qwen3-4b-tetra-e4-4e-v4.json");
+    assert_eq!(v3.rows, Rows4e::V3);
+    assert_eq!(v4.rows, Rows4e::V4);
+    assert_eq!(v4.rows.form(), 2);
+    assert_eq!(v3.rows.form(), 1);
+    assert_eq!(
+        (v4.layout, v4.embed, v4.rot_share, v4.fuse, v4.kv, v4.attention, v4.store, v4.decode),
+        (v3.layout, v3.embed, v3.rot_share, v3.fuse, v3.kv, v3.attention, v3.store, v3.decode),
+        "only the row loop may differ from the 4E config"
+    );
+    assert!(v4.provenance().contains("decode persistent (4E rows v4, one launch a token run)"), "{}", v4.provenance());
+    assert!(v3.provenance().contains("decode persistent (4E, one launch a token run)"), "{}", v3.provenance());
+    let note = v4.note.expect("a note");
+    assert!(note.contains("SERVED from 2026-11-05") && note.contains("886391a8"), "{note}");
+}
+
+/// The field: absent and "v3" are form 1, "v4" form 2; "v5" is refused by
+/// name, and so are the empty string and any other word; beside the eager
+/// decode the key itself is refused.
+#[test]
+fn the_rows_field_serves_v3_and_v4_and_refuses_the_rest() {
+    let mut f = four_e();
+    assert_eq!(of(f.clone()).expect("absent").rows, Rows4e::V3);
+    f.rows = Some("v3".into());
+    assert_eq!(of(f.clone()).expect("v3").rows, Rows4e::V3);
+    f.rows = Some("v4".into());
+    assert_eq!(of(f.clone()).expect("v4").rows, Rows4e::V4);
+    let e = {
+        f.rows = Some("v5".into());
+        of(f.clone()).expect_err("v5")
+    };
+    assert!(e.contains("v5") && e.contains("measurement"), "{e}");
+    for bad in ["", " ", "V4", "4", "v2"] {
+        f.rows = Some(bad.into());
+        let e = of(f.clone()).expect_err(bad);
+        assert!(e.contains("rows"), "{bad:?}: {e}");
+    }
+    let mut g = four_e();
+    g.decode = None;
+    g.rows = Some("v4".into());
+    let e = of(g).expect_err("rows beside the eager decode");
+    assert!(e.contains("eager decode"), "{e}");
 }

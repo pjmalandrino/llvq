@@ -85,6 +85,13 @@ impl Act {
 pub trait Capture {
     /// `x` is `(batch, seq, width)`; rows are samples for `AᵀA`.
     fn on_activation(&mut self, layer: usize, act: Act, x: &Tensor) -> Result<()>;
+    /// Whether this capture reads activations at all. A block replaces its
+    /// eager MLP ops by route P's segment only when it does not, since the
+    /// segment exposes no intermediate. True unless an implementation says
+    /// otherwise.
+    fn wants_activations(&self) -> bool {
+        true
+    }
 }
 
 /// The do-nothing capture, for plain inference.
@@ -94,6 +101,43 @@ impl Capture for NoCapture {
     fn on_activation(&mut self, _: usize, _: Act, _: &Tensor) -> Result<()> {
         Ok(())
     }
+    fn wants_activations(&self) -> bool {
+        false
+    }
+}
+
+/// The key argmax as the decode loop sees it: write the greedy token of
+/// `logits` (`[1, 1, vocab]`) into `ring[pos]`, on the device, with candle's
+/// tie order, and never read anything back to the host.
+///
+/// CUDA: `fused_cuda::KeyArgmax`, the kernel `tok_argmax_h` as an in-place op
+/// on the ring (no allocation, no upload), checked at load against candle's
+/// own `fast_argmax_f16`. CPU tests: a stand-in that pins the plumbing of the
+/// loops; the key itself is certified by `crate::argmax_key`.
+pub trait KeyKernel: Send + Sync {
+    fn write(&self, logits: &Tensor, ring: &Tensor, pos: usize) -> Result<()>;
+    /// Zero the sticky NaN flag before a generation.
+    fn arm(&self) -> Result<()>;
+    /// Whether a NaN logit was met since [`Self::arm`]. A 4-byte read, once a
+    /// generation.
+    fn nan_seen(&self) -> Result<bool>;
+}
+
+/// How [`Qwen3::generate_loop`] picks and feeds each token. Each kind moves one
+/// mechanism against its neighbour, so each A/B ratio isolates one gesture:
+///
+/// | kind | per token | ratio | gesture |
+/// |---|---|---|---|
+/// | `generate` | head, f32 cast, candle argmax, readback, upload | | today |
+/// | `F16` | without the cast | `F16 / generate` | a1 |
+/// | `Key` | F16 with the key kernel into a one-slot ring, readback, upload | `Key / F16` | a2 |
+/// | `OnDevKey` | Key without the readback and upload: the next step embeds `ring[pos]` | `OnDevKey / Key` | a3 |
+/// | `OnDevCandle` | F16 without the readback and upload: candle's argmax output is the next input | `OnDevCandle / F16` | a3, candle's kernel |
+pub enum TokenLoop<'a> {
+    F16,
+    Key(&'a dyn KeyKernel),
+    OnDevKey(&'a dyn KeyKernel),
+    OnDevCandle,
 }
 
 /// Per-phase wall time of a fenced greedy decode, milliseconds.
@@ -254,10 +298,10 @@ pub struct KvCache {
     /// its baked offset is exactly what a CUDA graph cannot replay, which is
     /// why this field exists.
     write_idx: Option<Tensor>,
-    /// How the history grows — [`KvStore::Cat`] (shipped) or a preallocated
-    /// window. Under `Prealloc`, `k`/`v` hold the FULL fixed buffers and
-    /// `len` counts the valid positions; under `Cat` they hold exactly the
-    /// history and `len` is unused.
+    /// How the history grows — [`KvStore::Cat`] (shipped), a preallocated
+    /// window, or chunks grown on demand. Under `Prealloc` and `Grow`, `k`/`v`
+    /// hold the FULL buffers and `len` counts the valid positions; under `Cat`
+    /// they hold exactly the history and `len` is unused.
     store: crate::kvq::KvStore,
     len: usize,
 }
@@ -302,8 +346,10 @@ impl KvCache {
                 crate::kvq::quantize_dequantize(v)?,
             ),
         };
-        if let crate::kvq::KvStore::Prealloc(w) = self.store {
-            return self.append_prealloc(w, &k, &v);
+        match self.store {
+            crate::kvq::KvStore::Prealloc(w) => return self.append_prealloc(w, &k, &v),
+            crate::kvq::KvStore::Grow(chunk) => return self.append_grow(chunk, &k, &v),
+            crate::kvq::KvStore::Cat => {}
         }
         let k = match &self.k {
             None => k,
@@ -378,9 +424,122 @@ impl KvCache {
         Ok((kb.clone(), vb.clone()))
     }
 
+    /// The `Grow` arm of [`Self::append`]: write in place, return views of
+    /// the valid prefix.
+    ///
+    /// The buffers hold a whole number of `chunk` positions. When the new
+    /// positions do not fit, both are reallocated to the next multiple and
+    /// the valid prefix is copied once; at every other step the only write is
+    /// the `l` new positions. What goes out are `narrow` views, whose batch
+    /// stride is the capacity: the matmuls of grouped attention read them
+    /// where they are (candle passes the stride to cuBLAS, Metal and the CPU
+    /// gemm). Expanded attention accepts them too, and pays the strided copy
+    /// of `repeat_kv`; that pairing is correct and never served.
+    fn append_grow(&mut self, chunk: usize, k: &Tensor, v: &Tensor) -> Result<(Tensor, Tensor)> {
+        if chunk == 0 {
+            candle_core::bail!("KvCache grow: a chunk of zero positions never fits anything");
+        }
+        let l = k.dim(2)?;
+        let need = self.len + l;
+        let cap = match &self.k {
+            Some(b) => b.dim(2)?,
+            None => 0,
+        };
+        if need > cap {
+            let cap = need.div_ceil(chunk) * chunk;
+            self.k = Some(grown(self.k.as_ref(), k, self.len, cap)?);
+            self.v = Some(grown(self.v.as_ref(), v, self.len, cap)?);
+        }
+        let (kb, vb) = (self.k.as_ref().unwrap(), self.v.as_ref().unwrap());
+        kb.slice_set(&k.contiguous()?, 2, self.len)?;
+        vb.slice_set(&v.contiguous()?, 2, self.len)?;
+        self.len = need;
+        Ok((kb.narrow(2, 0, need)?, vb.narrow(2, 0, need)?))
+    }
+
+    /// Keep the first `len` positions and forget the rest: the next append
+    /// writes at `len`. A measurement uses it to decode several times after
+    /// one prefill. Under `Cat` the kept history is copied out; the other
+    /// stores only move their count, since the positions past it are either
+    /// masked (`Prealloc`) or outside the view (`Grow`).
+    pub fn truncate(&mut self, len: usize) -> Result<()> {
+        let have = match self.store {
+            crate::kvq::KvStore::Cat => match &self.k {
+                Some(k) => k.dim(2)?,
+                None => 0,
+            },
+            crate::kvq::KvStore::Prealloc(_) | crate::kvq::KvStore::Grow(_) => self.len,
+        };
+        if len > have {
+            candle_core::bail!("KvCache truncate: {len} positions asked, {have} held");
+        }
+        match self.store {
+            crate::kvq::KvStore::Cat if len == 0 => {
+                self.k = None;
+                self.v = None;
+            }
+            crate::kvq::KvStore::Cat => {
+                if let (Some(k), Some(v)) = (&self.k, &self.v) {
+                    let (k, v) = (k.narrow(2, 0, len)?.contiguous()?, v.narrow(2, 0, len)?.contiguous()?);
+                    self.k = Some(k);
+                    self.v = Some(v);
+                }
+            }
+            crate::kvq::KvStore::Prealloc(_) | crate::kvq::KvStore::Grow(_) => self.len = len,
+        }
+        Ok(())
+    }
+
     /// Arm the capturable write path — see the `write_idx` field. The stepped
     /// driver calls this AFTER the prefill (whose multi-position write stays
     /// on `slice_set`), with clones of one shared index tensor.
+    /// Positions held.
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    /// The `Grow` store's two buffers, `(1, n_kv, cap, head_dim)`, once a
+    /// first append made them. 4E reads and writes them in place.
+    pub fn grow_buffers(&self) -> Option<(&Tensor, &Tensor)> {
+        match (self.store, &self.k, &self.v) {
+            (crate::kvq::KvStore::Grow(_), Some(k), Some(v)) => Some((k, v)),
+            _ => None,
+        }
+    }
+
+    /// Grow the `Grow` buffers to hold `need` positions, by the store's own
+    /// chunk rule, keeping the positions held. 4E calls it before a launch
+    /// writes positions past the capacity.
+    pub fn reserve(&mut self, need: usize) -> Result<()> {
+        let crate::kvq::KvStore::Grow(chunk) = self.store else {
+            candle_core::bail!("KvCache reserve: only the Grow store is written in place");
+        };
+        let (Some(k), Some(v)) = (self.k.as_ref(), self.v.as_ref()) else {
+            candle_core::bail!("KvCache reserve: no buffer before a first append");
+        };
+        if need > k.dim(2)? {
+            let cap = need.div_ceil(chunk) * chunk;
+            let (nk, nv) = (grown(Some(k), k, self.len, cap)?, grown(Some(v), v, self.len, cap)?);
+            self.k = Some(nk);
+            self.v = Some(nv);
+        }
+        Ok(())
+    }
+
+    /// After 4E wrote positions `len..n` into the buffers in place.
+    pub fn set_len(&mut self, n: usize) -> Result<()> {
+        let cap = self.grow_buffers().map(|(k, _)| k.dim(2)).transpose()?.unwrap_or(0);
+        if n > cap {
+            candle_core::bail!("KvCache set_len: {n} positions, the buffers hold {cap}");
+        }
+        self.len = n;
+        Ok(())
+    }
+
     pub fn set_write_index(&mut self, idx: Tensor) {
         self.write_idx = Some(idx);
     }
@@ -399,6 +558,170 @@ impl KvCache {
     }
 }
 
+/// A `Grow` buffer of `cap` positions, shaped like `like` on every other
+/// axis, holding the first `len` positions of `old` and zeros after them.
+fn grown(old: Option<&Tensor>, like: &Tensor, len: usize, cap: usize) -> Result<Tensor> {
+    let (b, heads, _, hd) = like.dims4()?;
+    let fresh = Tensor::zeros((b, heads, cap, hd), like.dtype(), like.device())?;
+    if let Some(old) = old.filter(|_| len > 0) {
+        fresh.slice_set(&old.narrow(2, 0, len)?.contiguous()?, 2, 0)?;
+    }
+    Ok(fresh)
+}
+
+/// `t` with its last two axes row-major, as the CUDA and Metal matmuls require
+/// of each batch element, whatever its batch stride.
+///
+/// A view of a `Grow` buffer is already so and passes as it is: copying it
+/// would be the history copy the store exists to avoid. The first append of a
+/// `Cat` cache hands back the projection output as transposed, rows of one head
+/// interleaved with the others; that one is copied. The CPU gemm accepts both,
+/// which is why the CPU tests did not see it and the card did (deviation É1 of
+/// the GQA perplexity prereg).
+fn rows_contiguous(t: &Tensor) -> Result<Tensor> {
+    let (dims, stride) = (t.dims(), t.stride());
+    let n = dims.len();
+    let row_major = n >= 2 && stride[n - 1] == 1 && (stride[n - 2] == dims[n - 1] || dims[n - 2] == 1);
+    if row_major {
+        Ok(t.clone())
+    } else {
+        t.contiguous()
+    }
+}
+
+/// An attention form that reads the cached heads unexpanded: `q`, `k`, `v`,
+/// the mask (or `None` where it would be all zeros), the score scale.
+type AttnFn = fn(&Tensor, &Tensor, &Tensor, Option<&Tensor>, f64) -> Result<Tensor>;
+
+/// `q` as `[b, n_kv, groups, l, hd]`, with the shapes it is read against.
+///
+/// Query head `h` reads key head `h / groups`, the convention of `repeat_kv`,
+/// so the `groups` query heads of one key head are contiguous in `q`.
+fn group_view(q: &Tensor, k: &Tensor) -> Result<(Tensor, usize, usize)> {
+    let (b, n_heads, l, hd) = q.dims4()?;
+    let n_kv = k.dim(1)?;
+    if n_kv == 0 || n_heads % n_kv != 0 {
+        candle_core::bail!("attention: {n_heads} query heads over {n_kv} key heads");
+    }
+    let groups = n_heads / n_kv;
+    Ok((q.contiguous()?.reshape((b, n_kv, groups, l, hd))?, n_kv, groups))
+}
+
+/// Attention of `q`, `[b, n_heads, l, hd]`, over `k` and `v` holding the
+/// `n_kv` heads the cache stores, `[b, n_kv, L, hd]`, one matmul per position
+/// in the group, without expanding them.
+///
+/// Position `r` of every group is the `[b, n_kv, l, hd]` view `q5[.., .., r]`,
+/// whose batch stride skips the other positions: the matmul multiplies it by
+/// the stored key head with the shape the expanded form uses for one query
+/// head, and the CPU gemm and cuBLAS read the stride rather than copy. The
+/// scores are stacked back in query-head order before the scale, the mask and
+/// the softmax, each of which works row by row. On the CPU this is bit for
+/// bit the expanded form (`attention_forms_agree`); on another backend it is
+/// as long as its matmul rounds a batch element the same way whatever the
+/// batch count.
+fn shared_attention(
+    q: &Tensor,
+    k: &Tensor,
+    v: &Tensor,
+    mask: Option<&Tensor>,
+    scale: f64,
+) -> Result<Tensor> {
+    let (b, n_heads, l, hd) = q.dims4()?;
+    let (q5, _, groups) = group_view(q, k)?;
+    let kt = k.transpose(2, 3)?;
+    let scores = (0..groups)
+        .map(|r| q5.i((.., .., r))?.matmul(&kt))
+        .collect::<Result<Vec<_>>>()?;
+    let scores = (Tensor::stack(&scores, 2)? * scale)?;
+    let scores = match mask {
+        Some(m) => scores.broadcast_add(&m.unsqueeze(2)?)?,
+        None => scores,
+    };
+    let p = candle_nn::ops::softmax_last_dim(&scores)?;
+    let ctx = (0..groups)
+        .map(|r| p.i((.., .., r))?.matmul(v))
+        .collect::<Result<Vec<_>>>()?;
+    Tensor::stack(&ctx, 2)?.reshape((b, n_heads, l, hd))
+}
+
+/// Attention of `q`, `[b, n_heads, l, hd]`, over `k` and `v` holding the
+/// `n_kv` heads the cache stores, `[b, n_kv, L, hd]`, one matmul per key head,
+/// without expanding them.
+///
+/// Query head `h` reads key head `h / groups`, the convention of `repeat_kv`,
+/// so the `groups` query heads of one key head are contiguous in `q`. Viewed
+/// as `[b, n_kv, groups·l, hd]`, they become the rows of one matrix that
+/// multiplies its key head once: no copy of the history, and on Qwen3-4B a
+/// quarter of the bytes `repeat_kv` makes the expanded matmuls read. The rows
+/// are ordered (query head in the group, position), so the `[l, L]` causal
+/// mask applies to each of the `groups` blocks of rows, through a
+/// 5-dimensional view. Each score is the same dot product as in the expanded
+/// form; whether a backend rounds it the same way at the new matmul shape is
+/// a measurement, not a property of this function.
+fn grouped_attention(
+    q: &Tensor,
+    k: &Tensor,
+    v: &Tensor,
+    mask: Option<&Tensor>,
+    scale: f64,
+) -> Result<Tensor> {
+    let (b, n_heads, l, hd) = q.dims4()?;
+    let kv_len = k.dim(2)?;
+    let (q5, n_kv, groups) = group_view(q, k)?;
+    let q = q5.reshape((b, n_kv, groups * l, hd))?;
+    let scores = (q.matmul(&k.transpose(2, 3)?)? * scale)?;
+    let scores = match mask {
+        Some(m) => scores
+            .reshape((b, n_kv, groups, l, kv_len))?
+            .broadcast_add(&m.unsqueeze(2)?)?
+            .reshape((b, n_kv, groups * l, kv_len))?,
+        None => scores,
+    };
+    candle_nn::ops::softmax_last_dim(&scores)?
+        .matmul(v)?
+        .reshape((b, n_heads, l, hd))
+}
+
+/// The `Kernel` form's dispatch of one call of `l` rows, batch 1, over a
+/// cache of `n` positions that already holds them (rows at `n - l .. n`).
+/// Rows at position `from` or later go to `kern`; the rows below take
+/// [`grouped_attention`] over the history they see, with their rows of
+/// `mask`. A call on one side of `from` is one launch of one path; a call
+/// that straddles it is split, so a row's path depends on its position and
+/// on nothing else.
+fn kernel_rows(
+    kern: &dyn crate::device::AttnKernel,
+    q: &Tensor,
+    k: &Tensor,
+    v: &Tensor,
+    mask: Option<&Tensor>,
+    scale: f64,
+    from: usize,
+) -> Result<Tensor> {
+    let (l, n) = (q.dim(2)?, k.dim(2)?);
+    // Rows at `from` or later: positions max(from, n - l) .. n.
+    let tail = n.saturating_sub(from.max(n - l));
+    let head = l - tail;
+    if tail == 0 {
+        return grouped_attention(q, &rows_contiguous(k)?, &rows_contiguous(v)?, mask, scale);
+    }
+    if head == 0 {
+        return kern.attend(&q.contiguous()?, k, v);
+    }
+    let seen = n - tail;
+    let mask = mask.map(|m| m.narrow(2, 0, head)?.narrow(3, 0, seen)).transpose()?;
+    let low = grouped_attention(
+        &q.narrow(2, 0, head)?,
+        &rows_contiguous(&k.narrow(2, 0, seen)?)?,
+        &rows_contiguous(&v.narrow(2, 0, seen)?)?,
+        mask.as_ref(),
+        scale,
+    )?;
+    let high = kern.attend(&q.narrow(2, head, tail)?.contiguous()?, k, v)?;
+    Tensor::cat(&[&low, &high], 2)
+}
+
 /// One transformer block, with its seven projections reachable by name.
 /// A projection: dense weights, or a device kernel reading encoded ones.
 ///
@@ -413,6 +736,15 @@ impl KvCache {
 /// on a device projection rather than returning something plausible, because
 /// every caller of it is a quantization path and quantizing an already
 /// quantized model is a bug, not a use case.
+/// Route P, step A (`docs/archive/debit-vague5-2026-11-02/persistent.md`
+/// §3.1): the MLP half of one decode row in one cooperative launch, from
+/// ln2's input to the residual after down_proj. An implementation owes the
+/// eager ops' bits and is checked against [`Block::mlp_eager`] at install.
+pub trait MlpSegment: Send + Sync {
+    /// `x`: the residual entering ln2, one row. Returns `x + mlp(ln2(x))`.
+    fn forward(&self, x: &Tensor) -> Result<Tensor>;
+}
+
 pub enum Proj {
     Dense(Linear),
     /// One projection whose weights stay encoded, read by a device kernel.
@@ -1232,6 +1564,32 @@ pub struct Block {
     /// `LLVQ_ROT_SHARE` and calls [`Qwen3::set_rot_share`] explicitly, on the
     /// one path where it means something.
     rot_share: RotShare,
+    /// How attention reads the cached heads; [`AttnHeads::Expanded`] unless
+    /// [`Qwen3::set_attn_heads`] says otherwise, for the same reason as
+    /// `rot_share`.
+    ///
+    /// [`AttnHeads::Expanded`]: crate::kvq::AttnHeads::Expanded
+    attn_heads: crate::kvq::AttnHeads,
+    /// The decode-attention kernel the `Kernel` form calls, installed by
+    /// [`Qwen3::set_attn_kernel`]; `None` everywhere else, and a `Kernel`
+    /// block without one refuses to run rather than fall back.
+    attn_kernel: Option<std::sync::Arc<dyn crate::device::AttnKernel>>,
+    /// The norms' weights, the same tensors the norms hold.
+    ln1_w: Tensor,
+    q_norm_w: Tensor,
+    k_norm_w: Tensor,
+    /// ln2's weight and epsilon, the same tensor the norm holds.
+    ln2_w: Tensor,
+    ln2_eps: f64,
+    /// Route P, step A: the MLP half of a one-row decode step in one launch,
+    /// installed by `persist_cuda::install` behind a measurement mode; `None`
+    /// everywhere else, and then `finish` runs the eager ops as always.
+    pers_mlp: Option<std::sync::Arc<dyn MlpSegment>>,
+    /// The first position the `Kernel` form sends to its kernel:
+    /// [`crate::kvq::KERNEL_FROM`]. A field only so the host tests can reach
+    /// the kernel in a window of a few dozen positions; nothing outside
+    /// `cfg(test)` writes it.
+    kernel_from: usize,
 }
 
 /// Take the supplied projection, or build the dense one.
@@ -1270,6 +1628,19 @@ impl Block {
         );
         let a = vb.pp("self_attn");
         let m = vb.pp("mlp");
+        // The same tensor candle_nn::rms_norm fetches (`weight`, hidden, the same
+        // hint, so a VarMap-built test model gets ones as before),
+        // kept beside the norm: route P's segment reads it in place.
+        // The norms keep their weights beside them, fetched with candle_nn::rms_norm's
+        // own hint: 4E (persist4e_cuda.rs) reads them in place.
+        let q_norm_w = a.pp("q_norm").get_with_hints(hd, "weight", candle_nn::Init::Const(1.0))?;
+        let k_norm_w = a.pp("k_norm").get_with_hints(hd, "weight", candle_nn::Init::Const(1.0))?;
+        let ln1_w = vb.pp("input_layernorm").get_with_hints(cfg.hidden_size, "weight", candle_nn::Init::Const(1.0))?;
+        let ln2_w = vb.pp("post_attention_layernorm").get_with_hints(
+            cfg.hidden_size,
+            "weight",
+            candle_nn::Init::Const(1.0),
+        )?;
         Ok(Self {
             kv,
             q_proj: pick(take, idx, "self_attn.q_proj", || {
@@ -1293,19 +1664,24 @@ impl Block {
             down_proj: pick(take, idx, "mlp.down_proj", || {
                 candle_nn::linear_no_bias(cfg.intermediate_size, cfg.hidden_size, m.pp("down_proj"))
             })?,
-            q_norm: candle_nn::rms_norm(hd, cfg.rms_norm_eps, a.pp("q_norm"))?,
-            k_norm: candle_nn::rms_norm(hd, cfg.rms_norm_eps, a.pp("k_norm"))?,
-            ln1: candle_nn::rms_norm(cfg.hidden_size, cfg.rms_norm_eps, vb.pp("input_layernorm"))?,
-            ln2: candle_nn::rms_norm(
-                cfg.hidden_size,
-                cfg.rms_norm_eps,
-                vb.pp("post_attention_layernorm"),
-            )?,
+            q_norm: candle_nn::RmsNorm::new(q_norm_w.clone(), cfg.rms_norm_eps),
+            k_norm: candle_nn::RmsNorm::new(k_norm_w.clone(), cfg.rms_norm_eps),
+            ln1: candle_nn::RmsNorm::new(ln1_w.clone(), cfg.rms_norm_eps),
+            q_norm_w,
+            k_norm_w,
+            ln1_w,
+            ln2: candle_nn::RmsNorm::new(ln2_w.clone(), cfg.rms_norm_eps),
+            ln2_w,
+            ln2_eps: cfg.rms_norm_eps,
             act: cfg.hidden_act,
             n_heads: nh,
             n_kv: nkv,
             head_dim: hd,
             rot_share: RotShare::Off,
+            attn_heads: crate::kvq::AttnHeads::Expanded,
+            attn_kernel: None,
+            pers_mlp: None,
+            kernel_from: crate::kvq::KERNEL_FROM,
         })
     }
 
@@ -1316,6 +1692,16 @@ impl Block {
 
     pub fn rot_share(&self) -> RotShare {
         self.rot_share
+    }
+
+    /// How this block's attention reads the cached heads.
+    pub fn set_attn_heads(&mut self, heads: crate::kvq::AttnHeads) {
+        self.attn_heads = heads;
+    }
+
+    /// The kernel the `Kernel` form calls.
+    pub fn set_attn_kernel(&mut self, k: Option<std::sync::Arc<dyn crate::device::AttnKernel>>) {
+        self.attn_kernel = k;
     }
 
     /// Read-only view of a projection, by checkpoint name.
@@ -1376,17 +1762,23 @@ impl Block {
         cap: &mut dyn Capture,
     ) -> Result<Tensor> {
         let mut fresh = KvCache::new(self.kv);
-        self.forward_cached(x, rotary, mask, RopeAt::Offset(0), &mut fresh, idx, cap)
+        self.forward_cached(x, rotary, Some(mask), RopeAt::Offset(0), &mut fresh, idx, cap)
     }
 
     /// Forward over `l` new positions starting at absolute position `offset`,
     /// attending over everything in `cache` plus what this call adds.
+    ///
+    /// `mask` is `None` only where every entry of it would be zero: one new
+    /// position on the `Cat` store, which sees the whole history and nothing
+    /// in its future. Adding a zero leaves every score bit for bit what it
+    /// was (a `-0.0` becomes `+0.0`, which softmax cannot tell apart), so
+    /// skipping the add changes no output and saves 36 launches a token.
     #[allow(clippy::too_many_arguments)]
     pub fn forward_cached(
         &self,
         x: &Tensor,
         rotary: &Rotary,
-        mask: &Tensor,
+        mask: Option<&Tensor>,
         rope: RopeAt,
         cache: &mut KvCache,
         idx: usize,
@@ -1433,9 +1825,50 @@ impl Block {
             RopeAt::Offset(o) => rotary.apply(&q, &k, o)?,
             RopeAt::Tables { cos, sin } => Rotary::apply_tables(&q, &k, cos, sin)?,
         };
+        let scale = 1.0 / (self.head_dim as f64).sqrt();
+        if self.attn_heads == crate::kvq::AttnHeads::Kernel {
+            let kern = self.attn_kernel.as_ref().ok_or_else(|| {
+                candle_core::Error::msg(
+                    "attention \"kernel\" with no kernel installed: Served::apply installs it, \
+                     and a block never falls back on its own",
+                )
+            })?;
+            let grow = matches!(cache.store(), crate::kvq::KvStore::Grow(_));
+            let (k, v) = cache.append(&k, &v)?;
+            // Decode and verify rows at `kernel_from` or later go to the
+            // kernel. A row below it, a prefill chunk, a batch, or the scratch
+            // `Cat` cache of a full-window forward take the grouped path; the
+            // cache bytes are the same either way, since `append` wrote them
+            // before the branch.
+            let ctx = if b == 1 && l <= kern.max_rows() && grow {
+                if q.dtype() != DType::F16 {
+                    candle_core::bail!(
+                        "attention \"kernel\" decodes in f16 only, and this model runs {:?}",
+                        q.dtype()
+                    );
+                }
+                kernel_rows(kern.as_ref(), &q, &k, &v, mask, scale, self.kernel_from)?
+            } else {
+                grouped_attention(&q, &rows_contiguous(&k)?, &rows_contiguous(&v)?, mask, scale)?
+            };
+            return self.finish(x, ctx, idx, cap);
+        }
+        let unexpanded = match self.attn_heads {
+            crate::kvq::AttnHeads::Expanded => None,
+            crate::kvq::AttnHeads::Shared => Some(shared_attention as AttnFn),
+            crate::kvq::AttnHeads::Grouped | crate::kvq::AttnHeads::Kernel => {
+                Some(grouped_attention as AttnFn)
+            }
+        };
+        if let Some(attend) = unexpanded {
+            let (k, v) = cache.append(&k, &v)?;
+            let (k, v) = (rows_contiguous(&k)?, rows_contiguous(&v)?);
+            let ctx = attend(&q, &k, &v, mask, scale)?;
+            return self.finish(x, ctx, idx, cap);
+        }
         let groups = self.n_heads / self.n_kv;
         let (k, v) = match cache.store() {
-            crate::kvq::KvStore::Cat => {
+            crate::kvq::KvStore::Cat | crate::kvq::KvStore::Grow(_) => {
                 let (k, v) = cache.append(&k, &v)?;
                 (
                     candle_transformers::utils::repeat_kv(k, groups)?.contiguous()?,
@@ -1457,22 +1890,63 @@ impl Block {
             }
         };
 
-        let scale = 1.0 / (self.head_dim as f64).sqrt();
-        let scores = (q.matmul(&k.transpose(2, 3)?)? * scale)?.broadcast_add(mask)?;
+        let scores = (q.matmul(&k.transpose(2, 3)?)? * scale)?;
+        let scores = match mask {
+            Some(m) => scores.broadcast_add(m)?,
+            None => scores,
+        };
         let ctx = candle_nn::ops::softmax_last_dim(&scores)?.matmul(&v)?;
+        self.finish(x, ctx, idx, cap)
+    }
+
+    /// Everything after the attention weights: `o_proj`, the residual, the
+    /// MLP. `ctx` is `[b, n_heads, l, hd]`, whichever form computed it.
+    fn finish(&self, x: &Tensor, ctx: Tensor, idx: usize, cap: &mut dyn Capture) -> Result<Tensor> {
+        let (b, l, _) = x.dims3()?;
         let ctx = ctx
             .transpose(1, 2)?
             .reshape((b, l, self.n_heads * self.head_dim))?;
         cap.on_activation(idx, Act::AttnOut, &ctx)?;
         let x = (x + self.o_proj.forward(&ctx)?)?;
+        // Route P, step A: one decode row, nothing to capture.
+        if let (Some(seg), 1, 1, false) = (&self.pers_mlp, b, l, cap.wants_activations()) {
+            return seg.forward(&x);
+        }
+        self.mlp_residual(&x, idx, cap)
+    }
 
-        let h = self.ln2.forward(&x)?;
+    /// `x + down(act(gate(ln2 x)) * up(ln2 x))`, the eager ops: the half of
+    /// `finish` route P's segment replaces, and its load-time reference.
+    fn mlp_residual(&self, x: &Tensor, idx: usize, cap: &mut dyn Capture) -> Result<Tensor> {
+        let h = self.ln2.forward(x)?;
         cap.on_activation(idx, Act::Mlp, &h)?;
         // The second shared activation: gate and up both read `h`.
         let gu = group_forward(&[&self.gate_proj, &self.up_proj], &h, self.rot_share)?;
         let gated = gu[0].apply(&self.act)?.mul(&gu[1])?;
         cap.on_activation(idx, Act::MlpOut, &gated)?;
         x + self.down_proj.forward(&gated)?
+    }
+
+    /// The eager MLP half on one row, no capture: route P's load check.
+    pub fn mlp_eager(&self, x: &Tensor) -> Result<Tensor> {
+        self.mlp_residual(x, 0, &mut NoCapture)
+    }
+
+    /// What route P's segment reads from this block: ln2's weight and
+    /// epsilon, the activation, and the three MLP projections.
+    pub fn mlp_parts(&self) -> (&Tensor, f64, Activation, &Proj, &Proj, &Proj) {
+        (&self.ln2_w, self.ln2_eps, self.act, &self.gate_proj, &self.up_proj, &self.down_proj)
+    }
+
+    /// What 4E reads from this block's attention half: ln1, q-norm and
+    /// k-norm weights, and the q, k, v, o projections.
+    pub fn attn_parts(&self) -> (&Tensor, &Tensor, &Tensor, &Proj, &Proj, &Proj, &Proj) {
+        (&self.ln1_w, &self.q_norm_w, &self.k_norm_w, &self.q_proj, &self.k_proj, &self.v_proj, &self.o_proj)
+    }
+
+    /// Install or remove route P's MLP segment on this block.
+    pub fn set_pers_mlp(&mut self, seg: Option<std::sync::Arc<dyn MlpSegment>>) {
+        self.pers_mlp = seg;
     }
 }
 
@@ -1487,9 +1961,25 @@ pub struct Qwen3 {
     /// [`Self::set_kv_store`]. The A/B guard is the printed arm line, which
     /// must name the store: an unwired arm prints `cat` and is visible.
     kv_store: crate::kvq::KvStore,
+    /// How every block's attention reads the cached heads, kept here as well
+    /// so the stepped path can size its write index. Set through
+    /// [`Self::set_attn_heads`] only.
+    attn_heads: crate::kvq::AttnHeads,
+    /// Measurement only, `false` everywhere else: build and add the all-zero
+    /// mask of a `Cat` decode step, as every decode step did before
+    /// [`Self::step_mask`] learned to skip it. `bin/fusedrun`'s
+    /// `LLVQ_TRIM_AB` sets it on one arm to time what the skip saves.
+    decode_mask: bool,
+    /// Measurement only, `None` everywhere else: a 1-element f16 tensor
+    /// that [`Self::hidden_cached`] runs one candle affine on after each
+    /// layer, the `candle-tiny` arm of `bin/fusedrun`'s `LLVQ_BOUNDARY_AB`.
+    /// The result is dropped, so no output moves.
+    candle_probe: Option<Tensor>,
     embed: Embed,
     pub blocks: Vec<Block>,
     norm: RmsNorm,
+    /// The final norm's weight, the tensor the norm holds (4E reads it).
+    norm_w: Tensor,
     /// `lm_head`; Qwen3-0.6B and -4B tie it to the embedding matrix.
     head: Head,
     rotary: Rotary,
@@ -1555,13 +2045,18 @@ impl Qwen3 {
         let blocks = (0..cfg.num_hidden_layers)
             .map(|i| Block::new_with(cfg, vb_l.pp(i), i, take, kv))
             .collect::<Result<Vec<_>>>()?;
+        let norm_w = vb.pp("model.norm").get_with_hints(cfg.hidden_size, "weight", candle_nn::Init::Const(1.0))?;
         Ok(Self {
             cfg: cfg.clone(),
             kv,
             kv_store: crate::kvq::KvStore::Cat,
+            attn_heads: crate::kvq::AttnHeads::Expanded,
+            decode_mask: false,
+            candle_probe: None,
             embed,
             blocks,
-            norm: candle_nn::rms_norm(cfg.hidden_size, cfg.rms_norm_eps, vb.pp("model.norm"))?,
+            norm: candle_nn::RmsNorm::new(norm_w.clone(), cfg.rms_norm_eps),
+            norm_w,
             head,
             rotary: Rotary::new(vb.dtype(), cfg, vb.device())?,
             device: vb.device().clone(),
@@ -1605,6 +2100,22 @@ impl Qwen3 {
         build_causal_mask(b, l, offset, w, self.dtype, &self.device)
     }
 
+    /// The mask a cached forward of `l` new positions needs, or `None` when it
+    /// would be all zeros: one position on the `Cat` store. That is every
+    /// decode step of the served path, and building it cost a host vector, an
+    /// upload and a cast a token, then one add a layer, for no effect.
+    ///
+    /// `Grow` hands attention exactly the history, as `Cat` does, so it takes
+    /// the same masks.
+    fn step_mask(&self, b: usize, l: usize, offset: usize) -> Result<Option<Tensor>> {
+        use crate::kvq::KvStore;
+        match self.kv_store {
+            KvStore::Cat | KvStore::Grow(_) if l == 1 && !self.decode_mask => Ok(None),
+            KvStore::Cat | KvStore::Grow(_) => self.causal_mask_offset(b, l, offset).map(Some),
+            KvStore::Prealloc(w) => self.causal_mask_width(b, l, offset, w).map(Some),
+        }
+    }
+
     /// One `KvCache` per block, empty.
     pub fn fresh_caches(&self) -> Vec<KvCache> {
         (0..self.blocks.len())
@@ -1626,6 +2137,113 @@ impl Qwen3 {
         self.kv_store
     }
 
+    /// Name how attention reads the cached heads, in every block. Same rule
+    /// as [`Self::set_kv_store`]: a binary that sets it prints
+    /// [`crate::kvq::AttnHeads::label`] on its arm line. Unset, every block
+    /// keeps the expanded form every published number ran.
+    pub fn set_attn_heads(&mut self, heads: crate::kvq::AttnHeads) {
+        self.attn_heads = heads;
+        for b in &mut self.blocks {
+            b.set_attn_heads(heads);
+        }
+    }
+
+    pub fn attn_heads(&self) -> crate::kvq::AttnHeads {
+        self.attn_heads
+    }
+
+    /// Install the decode-attention kernel in every block (`None` removes
+    /// it). The `Kernel` form refuses to run without one; the other forms
+    /// never call it.
+    pub fn set_attn_kernel(&mut self, k: Option<std::sync::Arc<dyn crate::device::AttnKernel>>) {
+        for b in &mut self.blocks {
+            b.set_attn_kernel(k.clone());
+        }
+    }
+
+    /// The first position the `Kernel` form sends to its kernel:
+    /// [`crate::kvq::KERNEL_FROM`], outside the host tests.
+    pub fn kernel_from(&self) -> usize {
+        self.blocks.first().map_or(crate::kvq::KERNEL_FROM, |b| b.kernel_from)
+    }
+
+    /// MEASUREMENT ONLY (`bin/fusedrun`'s `LLVQ_PERS_4E`): send every decode
+    /// row of the `Kernel` form to its kernel, so the eager path's attention
+    /// is attn_ref.rs's at every position, the arithmetic 4E owes its bits
+    /// to. No served path calls it; the served threshold stays the constant.
+    pub fn set_kernel_from_for_measurement(&mut self, from: usize) {
+        for b in &mut self.blocks {
+            b.kernel_from = from;
+        }
+    }
+
+    /// The served config's threshold ([`crate::served::Served::apply`] only):
+    /// the constant, or 0 under a config that names the persistent decode,
+    /// the kernel form the operator's T8 extension of 2026-11-05 licenses on
+    /// the sealed 4B at every position.
+    pub(crate) fn set_served_kernel_from(&mut self, from: usize) {
+        for b in &mut self.blocks {
+            b.kernel_from = from;
+        }
+    }
+
+    /// What 4E reads beside the blocks: the final norm's weight, the
+    /// embedding and the head tables, and the rotary tables (cos, sin),
+    /// `(max_positions, head_dim / 2)` in the model dtype.
+    pub fn pers_4e_parts(&self) -> (&Tensor, &Embed, &Head, &Tensor, &Tensor) {
+        (&self.norm_w, &self.embed, &self.head, &self.rotary.cos, &self.rotary.sin)
+    }
+
+    /// `generate`'s first step: the prompt through the eager path into
+    /// `caches`, then the argmax of the last position's logits. The prompt
+    /// goes in chunks of at most [`MAX_PREFILL_ROWS`] positions, as
+    /// [`Self::generate_timed`] sends it: at or under that length this is
+    /// one call, and an 8,192-token context is two (the fused prefill refuses
+    /// more rows a call; the first 4E card reading stopped on that refusal).
+    pub fn prefill_next(&self, tokens: &[u32], caches: &mut [KvCache]) -> Result<u32> {
+        self.prefill_next_in(tokens, MAX_PREFILL_ROWS, caches)
+    }
+
+    /// [`Self::prefill_next`] in chunks of at most `chunk` positions.
+    pub fn prefill_next_in(&self, tokens: &[u32], chunk: usize, caches: &mut [KvCache]) -> Result<u32> {
+        argmax_last(&self.prefill_chunked(tokens, chunk, caches)?)
+    }
+
+    /// Lower the threshold so a host test reaches the kernel in a short
+    /// window. Test builds only: the served threshold is a constant.
+    #[cfg(test)]
+    fn set_kernel_from(&mut self, from: usize) {
+        for b in &mut self.blocks {
+            b.kernel_from = from;
+        }
+    }
+
+    /// `(n_kv, query heads per KV head, head_dim)`: what a kernel is sized by.
+    pub fn attn_geometry(&self) -> (usize, usize, usize) {
+        let n_kv = self.cfg.num_key_value_heads;
+        (n_kv, self.cfg.num_attention_heads / n_kv, self.cfg.head_dim)
+    }
+
+    /// Measurement only: make every `Cat` decode step build and add its
+    /// all-zero mask again, the behaviour before 2026-10-30. The output does
+    /// not move (adding zero changes no score), only the time does, which is
+    /// what `LLVQ_TRIM_AB` measures. No served path calls it.
+    pub fn set_decode_mask(&mut self, on: bool) {
+        self.decode_mask = on;
+    }
+
+    /// Measurement only: one candle affine on a 1-element f16 tensor after
+    /// each layer of [`Self::hidden_cached`], counted in `crate::boundary`.
+    /// `LLVQ_BOUNDARY_AB` sets it on its `candle-tiny` arm. No served path
+    /// calls it.
+    pub fn set_candle_probe(&mut self, on: bool) -> Result<()> {
+        self.candle_probe = match on {
+            true => Some(Tensor::zeros(1, DType::F16, &self.device)?),
+            false => None,
+        };
+        Ok(())
+    }
+
     /// Hidden states for `l` new positions, attending over `caches`.
     pub fn hidden_cached(
         &self,
@@ -1639,13 +2257,14 @@ impl Qwen3 {
         // mask is too: the causal condition `j <= offset + i` already −infs
         // every position past the valid prefix, which is what makes the
         // zero-filled tail of the buffers exactly inert.
-        let mask = match self.kv_store {
-            crate::kvq::KvStore::Cat => self.causal_mask_offset(b, l, offset)?,
-            crate::kvq::KvStore::Prealloc(w) => self.causal_mask_width(b, l, offset, w)?,
-        };
+        let mask = self.step_mask(b, l, offset)?;
         let mut h = self.embed.forward(input)?;
         for (i, blk) in self.blocks.iter().enumerate() {
-            h = blk.forward_cached(&h, &self.rotary, &mask, RopeAt::Offset(offset), &mut caches[i], i, cap)?;
+            h = blk.forward_cached(&h, &self.rotary, mask.as_ref(), RopeAt::Offset(offset), &mut caches[i], i, cap)?;
+            if let Some(p) = &self.candle_probe {
+                p.affine(2.0, 1.0)?;
+                crate::boundary::note_added(1);
+            }
         }
         self.norm.forward(&h)
     }
@@ -1705,10 +2324,21 @@ impl Qwen3 {
     pub fn step_state(&self, caches: &mut [KvCache]) -> Result<StepState> {
         let w = match self.kv_store {
             crate::kvq::KvStore::Prealloc(w) => w,
-            crate::kvq::KvStore::Cat => candle_core::bail!(
+            crate::kvq::KvStore::Cat | crate::kvq::KvStore::Grow(_) => candle_core::bail!(
                 "the stepped path requires a preallocated store (LLVQ_KV_PREALLOC): \
                  its fixed shapes are what make it capturable"
             ),
+        };
+        // `scatter_set` wants its index shaped like the step it writes: the
+        // expanded step carries every query head, the grouped one the key
+        // heads only.
+        let heads = match self.attn_heads {
+            crate::kvq::AttnHeads::Expanded => {
+                self.cfg.num_key_value_heads * (self.cfg.num_attention_heads / self.cfg.num_key_value_heads)
+            }
+            crate::kvq::AttnHeads::Shared | crate::kvq::AttnHeads::Grouped | crate::kvq::AttnHeads::Kernel => {
+                self.cfg.num_key_value_heads
+            }
         };
         let (cos, sin) = self.rotary.step_tables()?;
         let st = StepState {
@@ -1716,11 +2346,7 @@ impl Qwen3 {
             mask: Tensor::zeros((1, 1, 1, w), self.dtype, &self.device)?,
             cos,
             sin,
-            pos_idx: Tensor::zeros(
-                (1, self.cfg.num_key_value_heads * (self.cfg.num_attention_heads / self.cfg.num_key_value_heads), 1, self.cfg.head_dim),
-                DType::U32,
-                &self.device,
-            )?,
+            pos_idx: Tensor::zeros((1, heads, 1, self.cfg.head_dim), DType::U32, &self.device)?,
             w,
         };
         for c in caches.iter_mut() {
@@ -1764,7 +2390,7 @@ impl Qwen3 {
             h = blk.forward_cached(
                 &h,
                 &self.rotary,
-                &st.mask,
+                Some(&st.mask),
                 RopeAt::Tables { cos: &st.cos, sin: &st.sin },
                 &mut caches[i],
                 i,
@@ -1865,6 +2491,276 @@ impl Qwen3 {
         }
     }
 
+    /// [`Self::logits_last`] without the f32 cast: the logits of the last
+    /// position of `h` in the model dtype, `[1, 1, vocab]`.
+    ///
+    /// For the greedy loops only. candle's `fast_argmax_f16` and
+    /// `fast_argmax_f32` are one template (`reduce.cu:673`, `:688`), and
+    /// widening f16 to f32 is exact and monotone, so the argmax of these
+    /// logits is the argmax of their cast, ties and signed zeros included
+    /// (`crate::argmax_key`). Callers that sample or score keep `logits_last`.
+    pub fn logits_last_native(&self, h: &Tensor) -> Result<Tensor> {
+        let l = h.dim(1)?;
+        self.head.project(&h.narrow(1, l - 1, 1)?)
+    }
+
+    /// Greedy decode in one of the [`TokenLoop`] kinds. [`Self::generate`] is
+    /// the base kind and stays untouched, so the published loop is the
+    /// reference every kind is held to: the same tokens, which
+    /// `token_loops_match_generate` pins on every store, form and dtype here
+    /// and `LLVQ_GESTURE_AB` pins on the card.
+    ///
+    /// Each kind is one mechanism away from its neighbour, so an A/B ratio
+    /// between neighbours measures one gesture (METHODE §1).
+    pub fn generate_loop(&self, tokens: &[u32], max_new: usize, kind: &TokenLoop) -> Result<Vec<u32>> {
+        if max_new == 0 {
+            return Ok(Vec::new());
+        }
+        let mut caches = self.fresh_caches();
+        // Key: one slot, read back every token. OnDevKey: one slot a token,
+        // read back once at the end.
+        let ring = match kind {
+            TokenLoop::Key(k) => {
+                k.arm()?;
+                Some(Tensor::zeros(1, DType::U32, &self.device)?)
+            }
+            TokenLoop::OnDevKey(k) => {
+                k.arm()?;
+                Some(Tensor::zeros(max_new, DType::U32, &self.device)?)
+            }
+            TokenLoop::F16 | TokenLoop::OnDevCandle => None,
+        };
+        let input = Tensor::from_slice(tokens, (1, tokens.len()), &self.device)?;
+        let mut h = self.hidden_cached(&input, 0, &mut caches, &mut NoCapture)?;
+        let mut out = Vec::with_capacity(max_new); // host ids: F16, Key
+        let mut kept = Vec::new(); // device ids: OnDevCandle
+        // `offset` is the absolute position the token picked at `pos` is fed at.
+        for (pos, offset) in (0..max_new).zip(tokens.len()..) {
+            let logits = self.logits_last_native(&h)?;
+            // Each kind picks its token, then stops BEFORE building the next
+            // input on the last token, as `generate` does.
+            let next = match kind {
+                TokenLoop::F16 => {
+                    let id = logits.i((0, 0))?.argmax(D::Minus1)?.to_scalar::<u32>()?;
+                    out.push(id);
+                    if pos + 1 == max_new {
+                        break;
+                    }
+                    Tensor::from_slice(&[id], (1, 1), &self.device)?
+                }
+                TokenLoop::Key(k) => {
+                    let slot = ring.as_ref().expect("built above for this kind");
+                    k.write(&logits, slot, 0)?;
+                    // A rank-0 view: `to_scalar` refuses any other rank. It
+                    // copies the slot's 4 bytes, the wait every token pays.
+                    let id = slot.i(0)?.to_scalar::<u32>()?;
+                    out.push(id);
+                    if pos + 1 == max_new {
+                        break;
+                    }
+                    Tensor::from_slice(&[id], (1, 1), &self.device)?
+                }
+                TokenLoop::OnDevKey(k) => {
+                    let r = ring.as_ref().expect("built above for this kind");
+                    k.write(&logits, r, pos)?;
+                    if pos + 1 == max_new {
+                        break;
+                    }
+                    // A view of ring[pos]: the next step's gather reads the id
+                    // where the kernel wrote it, with no copy and no wait.
+                    r.narrow(0, pos, 1)?.reshape((1, 1))?
+                }
+                TokenLoop::OnDevCandle => {
+                    let t = logits.i((0, 0))?.argmax_keepdim(D::Minus1)?;
+                    kept.push(t.clone());
+                    if pos + 1 == max_new {
+                        break;
+                    }
+                    t.reshape((1, 1))?
+                }
+            };
+            h = self.hidden_cached(&next, offset, &mut caches, &mut NoCapture)?;
+        }
+        match kind {
+            TokenLoop::F16 => Ok(out),
+            TokenLoop::Key(k) => {
+                if k.nan_seen()? {
+                    candle_core::bail!("generate_loop: a NaN logit; the key argmax refuses to pick a token");
+                }
+                Ok(out)
+            }
+            // The one wait of the decode.
+            TokenLoop::OnDevKey(k) => {
+                let v = ring.expect("built above for this kind").to_vec1::<u32>()?;
+                if k.nan_seen()? {
+                    candle_core::bail!("generate_loop: a NaN logit; the key argmax refuses to pick a token");
+                }
+                Ok(v)
+            }
+            TokenLoop::OnDevCandle => Tensor::cat(&kept, 0)?.to_vec1::<u32>(),
+        }
+    }
+
+    /// [`Self::generate`] with its clock split in two, for a prompt of any
+    /// length: the time to the first token, and the decode after it.
+    ///
+    /// The prompt goes through in chunks of at most `chunk` positions, each
+    /// attending over the cache the earlier ones filled. The fused prefill
+    /// takes at most [`MAX_PREFILL_ROWS`] rows a call, and the product's
+    /// context is 8,192. With `tokens.len() <= chunk` this is `generate`, call
+    /// for call. Every step ends on the host read of its token, so both clocks
+    /// stop on finished device work.
+    pub fn generate_timed(
+        &self,
+        tokens: &[u32],
+        max_new: usize,
+        chunk: usize,
+    ) -> Result<TimedGeneration> {
+        if tokens.is_empty() || max_new == 0 || chunk == 0 {
+            candle_core::bail!(
+                "generate_timed: {} prompt tokens, {max_new} new, chunks of {chunk}: \
+                 there is nothing to time",
+                tokens.len()
+            );
+        }
+        let mut caches = self.fresh_caches();
+        let t0 = std::time::Instant::now();
+        let first = argmax_last(&self.prefill_chunked(tokens, chunk, &mut caches)?)?;
+        let prompt_s = t0.elapsed().as_secs_f64();
+        let t1 = std::time::Instant::now();
+        let out = self.decode_greedy(first, tokens.len(), max_new, &mut caches)?;
+        Ok(TimedGeneration {
+            tokens: out,
+            prompt_s,
+            decode_s: t1.elapsed().as_secs_f64(),
+        })
+    }
+
+    /// The prompt through `caches` in chunks of at most `chunk` positions,
+    /// each attending over what the earlier ones filled, and the f32 logits
+    /// of its last position, `[1, 1, vocab]`.
+    pub fn prefill_chunked(&self, tokens: &[u32], chunk: usize, caches: &mut [KvCache]) -> Result<Tensor> {
+        if tokens.is_empty() || chunk == 0 {
+            candle_core::bail!("prefill_chunked: {} tokens in chunks of {chunk}", tokens.len());
+        }
+        let mut offset = 0;
+        let mut h = None;
+        for part in tokens.chunks(chunk) {
+            let input = Tensor::from_slice(part, (1, part.len()), &self.device)?;
+            h = Some(self.hidden_cached(&input, offset, caches, &mut NoCapture)?);
+            offset += part.len();
+        }
+        self.logits_last(&h.expect("the prompt is not empty"))
+    }
+
+    /// One decode step: `token` at absolute position `offset`, appended to
+    /// `caches`, and the f32 logits it yields, `[1, 1, vocab]`.
+    pub fn step_logits(&self, token: u32, offset: usize, caches: &mut [KvCache]) -> Result<Tensor> {
+        let input = Tensor::from_slice(&[token], (1, 1), &self.device)?;
+        let h = self.hidden_cached(&input, offset, caches, &mut NoCapture)?;
+        self.logits_last(&h)
+    }
+
+    /// Greedy decode from `first`, already chosen and fed at position
+    /// `offset`, until `max_new` tokens counting `first`. Each step ends on
+    /// the host read of its token.
+    pub fn decode_greedy(
+        &self,
+        first: u32,
+        offset: usize,
+        max_new: usize,
+        caches: &mut [KvCache],
+    ) -> Result<Vec<u32>> {
+        let mut out = Vec::with_capacity(max_new.max(1));
+        let (mut next, mut offset) = (first, offset);
+        out.push(next);
+        while out.len() < max_new {
+            next = argmax_last(&self.step_logits(next, offset, caches)?)?;
+            out.push(next);
+            offset += 1;
+        }
+        Ok(out)
+    }
+
+    /// One window scored token by token through the cache, under two
+    /// attention arms at once (a store and a form each), in lockstep.
+    ///
+    /// Measurement only. Each step feeds the same true token to both arms,
+    /// one cache set per arm, and scores the next true token: teacher forcing
+    /// on the decode path, where [`Self::window_nll`] scores the prefill path.
+    /// Running the arms side by side lets every step compare their logits,
+    /// which two separate passes could not do without storing them. The model
+    /// is left in the second arm's state; the caller sets what it needs next.
+    pub fn decode_nll_paired(
+        &mut self,
+        tokens: &[u32],
+        arms: [(crate::kvq::KvStore, crate::kvq::AttnHeads); 2],
+    ) -> Result<PairedDecode> {
+        self.decode_nll_split(tokens, arms, 0)
+    }
+
+    /// [`Self::decode_nll_paired`], with the steps split at position `split`.
+    /// A step at position `p` (the input token's; the cache held `p`
+    /// positions before it) below `split` has its two arms' logits compared
+    /// bit for bit and counted in [`PairedDecode::below_differ`] when they
+    /// differ; a step at `split` or later is also scored in the `tail_*`
+    /// fields. `split` 0 makes the tail the whole window.
+    pub fn decode_nll_split(
+        &mut self,
+        tokens: &[u32],
+        arms: [(crate::kvq::KvStore, crate::kvq::AttnHeads); 2],
+        split: usize,
+    ) -> Result<PairedDecode> {
+        if tokens.len() < 2 {
+            candle_core::bail!("decode_nll_paired: a window must hold at least two tokens");
+        }
+        let (n, kv) = (self.blocks.len(), self.kv);
+        let mut caches: [Vec<KvCache>; 2] =
+            arms.map(|(store, _)| (0..n).map(|_| KvCache::with_store(kv, store)).collect());
+        let mut out = PairedDecode {
+            nll: [0.0; 2],
+            count: 0,
+            top1_agree: 0,
+            max_dlogit: 0.0,
+            below_differ: 0,
+            tail_nll: [0.0; 2],
+            tail_count: 0,
+            tail_top1_agree: 0,
+        };
+        for (offset, pair) in tokens.windows(2).enumerate() {
+            let (input, target) = (pair[0], pair[1]);
+            let mut logits = Vec::with_capacity(2);
+            let mut logp = [0.0; 2];
+            for (k, &(store, heads)) in arms.iter().enumerate() {
+                self.set_kv_store(store);
+                self.set_attn_heads(heads);
+                let l = self.step_logits(input, offset, &mut caches[k])?;
+                logp[k] = logp_of(&l, target)?;
+                out.nll[k] -= logp[k];
+                logits.push(l);
+            }
+            let agree = argmax_last(&logits[0])? == argmax_last(&logits[1])?;
+            out.top1_agree += usize::from(agree);
+            let d = (&logits[0] - &logits[1])?.abs()?.max_all()?.to_scalar::<f32>()?;
+            out.max_dlogit = out.max_dlogit.max(d);
+            out.count += 1;
+            if offset < split {
+                let bits = |l: &Tensor| -> Result<Vec<u32>> {
+                    Ok(l.flatten_all()?.to_vec1::<f32>()?.into_iter().map(f32::to_bits).collect())
+                };
+                if bits(&logits[0])? != bits(&logits[1])? {
+                    out.below_differ += 1;
+                }
+            } else {
+                out.tail_nll[0] -= logp[0];
+                out.tail_nll[1] -= logp[1];
+                out.tail_count += 1;
+                out.tail_top1_agree += usize::from(agree);
+            }
+        }
+        Ok(out)
+    }
+
     /// The pre-cache path: re-run the whole prefix at every step.
     ///
     /// Quadratic, and kept on purpose. It is the only independent answer to
@@ -1943,10 +2839,10 @@ impl Qwen3 {
             report.embed_ms.push(t.elapsed().as_secs_f64() * 1e3);
 
             let t = std::time::Instant::now();
-            let mask = self.causal_mask_offset(1, 1, offset)?;
+            let mask = self.step_mask(1, 1, offset)?;
             let mut hh = e;
             for (i, blk) in self.blocks.iter().enumerate() {
-                hh = blk.forward_cached(&hh, &self.rotary, &mask, RopeAt::Offset(offset), &mut caches[i], i, &mut NoCapture)?;
+                hh = blk.forward_cached(&hh, &self.rotary, mask.as_ref(), RopeAt::Offset(offset), &mut caches[i], i, &mut NoCapture)?;
             }
             h = self.norm.forward(&hh)?;
             fence(&self.device, &mut report.fences)?;
@@ -1978,6 +2874,48 @@ impl Qwen3 {
     }
 }
 
+
+/// The greedy token of `[1, 1, vocab]` logits, read back to the host.
+pub fn argmax_last(logits: &Tensor) -> Result<u32> {
+    logits.i((0, 0))?.argmax(D::Minus1)?.to_scalar::<u32>()
+}
+
+/// The log-probability of `target` under `[1, 1, vocab]` f32 logits.
+pub fn logp_of(logits: &Tensor, target: u32) -> Result<f64> {
+    let logp = candle_nn::ops::log_softmax(&logits.i((0, 0))?, D::Minus1)?;
+    Ok(logp.i(target as usize)?.to_scalar::<f32>()? as f64)
+}
+
+/// What [`Qwen3::decode_nll_paired`] returns for one window.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PairedDecode {
+    /// Summed negative log-likelihood of each arm, in nats.
+    pub nll: [f64; 2],
+    /// Predictions scored, the window length minus one.
+    pub count: usize,
+    /// Steps where both arms put the same token on top.
+    pub top1_agree: usize,
+    /// The largest absolute difference between the two arms' logits, over
+    /// every vocabulary entry of every step.
+    pub max_dlogit: f32,
+    /// Steps below the split whose two logit vectors differ in any bit.
+    pub below_differ: usize,
+    /// [`Self::nll`] over the steps at the split or later.
+    pub tail_nll: [f64; 2],
+    /// Steps at the split or later.
+    pub tail_count: usize,
+    /// [`Self::top1_agree`] over the steps at the split or later.
+    pub tail_top1_agree: usize,
+}
+
+/// One greedy generation from [`Qwen3::generate_timed`], with its two clocks.
+pub struct TimedGeneration {
+    pub tokens: Vec<u32>,
+    /// From the first prompt token sent to the first new token read back.
+    pub prompt_s: f64,
+    /// The `tokens.len() - 1` decode steps after the first new token.
+    pub decode_s: f64,
+}
 
 /// The stable buffers of the stepped (capturable) decode path — every
 /// per-token variation of a decode step, converted into the CONTENT of a
@@ -2027,6 +2965,32 @@ pub fn build_causal_mask(
 
 #[cfg(test)]
 mod tests {
+    /// 4E's cache API on the Grow store: reserve keeps every held position
+    /// and rounds the capacity up to the chunk; set_len refuses past it.
+    #[test]
+    fn grow_reserve_keeps_the_positions() {
+        let dev = Device::Cpu;
+        let mut c = KvCache::with_store(KvMode::F16, crate::kvq::KvStore::Grow(4));
+        let k = Tensor::arange(0f32, 2.0 * 3.0 * 8.0, &dev).unwrap().reshape((1, 2, 3, 8)).unwrap();
+        let v = (k.clone() * 2.0).unwrap();
+        c.append(&k, &v).unwrap();
+        assert_eq!(c.len(), 3);
+        assert_eq!(c.grow_buffers().unwrap().0.dim(2).unwrap(), 4);
+        c.reserve(9).unwrap();
+        let (kb, vb) = c.grow_buffers().unwrap();
+        assert_eq!(kb.dim(2).unwrap(), 12, "rounded up to the chunk");
+        let held: Vec<f32> = kb.narrow(2, 0, 3).unwrap().flatten_all().unwrap().to_vec1().unwrap();
+        assert_eq!(held, k.flatten_all().unwrap().to_vec1::<f32>().unwrap());
+        let vh: Vec<f32> = vb.narrow(2, 0, 3).unwrap().flatten_all().unwrap().to_vec1().unwrap();
+        assert_eq!(vh, v.flatten_all().unwrap().to_vec1::<f32>().unwrap());
+        assert_eq!(c.len(), 3, "reserve moves no length");
+        c.set_len(10).unwrap();
+        assert_eq!(c.len(), 10);
+        assert!(c.set_len(13).is_err());
+        let mut cat = KvCache::new(KvMode::F16);
+        assert!(cat.reserve(4).is_err(), "only the Grow store is written in place");
+    }
+
     use super::*;
 
     fn dense(d_out: usize, d_in: usize) -> Proj {
@@ -2281,44 +3245,8 @@ mod tests {
     /// for free — not on a billed card.
     #[test]
     fn stepped_decode_matches_generate_on_all_stores() {
-        use crate::kvq::{KvMode, KvStore};
-        use candle_nn::VarBuilder;
-        let dev = Device::Cpu;
-        let cfg = Config {
-            vocab_size: 97,
-            hidden_size: 64,
-            intermediate_size: 128,
-            num_hidden_layers: 2,
-            num_attention_heads: 4,
-            head_dim: 16,
-            attention_bias: false,
-            num_key_value_heads: 2,
-            max_position_embeddings: 64,
-            sliding_window: None,
-            max_window_layers: 0,
-            tie_word_embeddings: true,
-            rope_theta: 10000.0,
-            rms_norm_eps: 1e-6,
-            use_sliding_window: false,
-            hidden_act: candle_nn::Activation::Silu,
-        };
-        let varmap = candle_nn::VarMap::new();
-        let vb = VarBuilder::from_varmap(&varmap, DType::F32, &dev);
-        let mut model = Qwen3::new(&cfg, vb, KvMode::F16).expect("model");
-        // Deterministic pseudo-random weights — zeros would make every path
-        // agree trivially and certify nothing.
-        let mut state = 0x9e3779b97f4a7c15u64;
-        for (_, var) in varmap.data().lock().unwrap().iter() {
-            let n = var.elem_count();
-            let vals: Vec<f32> = (0..n)
-                .map(|_| {
-                    state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-                    ((state >> 33) as f32 / (1u64 << 31) as f32 - 1.0) * 0.1
-                })
-                .collect();
-            let t = Tensor::from_vec(vals, var.shape(), &dev).expect("rand");
-            var.set(&t).expect("set");
-        }
+        use crate::kvq::KvStore;
+        let mut model = tiny_model(DType::F32);
         let prompt = [3u32, 17, 42, 7];
         let n_new = 8;
         let cat = {
@@ -2335,5 +3263,809 @@ mod tests {
         };
         assert_eq!(cat, pre, "cat against eager prealloc");
         assert_eq!(pre, stepped, "eager prealloc against stepped (incomplete StepState?)");
+        // The unexpanded forms write `n_kv` heads, so the write index must
+        // be sized for them: a wrong shape refuses inside `scatter_set`.
+        model.set_kv_store(KvStore::Prealloc(32));
+        for heads in [crate::kvq::AttnHeads::Shared, crate::kvq::AttnHeads::Grouped] {
+            model.set_attn_heads(heads);
+            let eager = model.generate(&prompt, n_new, &mut NoCapture).expect("eager, unexpanded");
+            let s = model.generate_stepped(&prompt, n_new).expect("stepped, unexpanded");
+            assert_eq!(eager, s, "stepped under {}", heads.label());
+        }
+    }
+
+    /// The f32 logits of a chunked prefill, then of one decode step per
+    /// token of `feed`. Feeding fixed tokens rather than each arm's own
+    /// greedy choice compares every arm on the same inputs: a near tie that
+    /// one rounding flips would otherwise send two arms down different texts.
+    fn logit_trace(m: &Qwen3, prompt: &[u32], chunk: usize, feed: &[u32]) -> Vec<Vec<f32>> {
+        let mut c = m.fresh_caches();
+        let mut out = vec![m.prefill_chunked(prompt, chunk, &mut c).unwrap()];
+        for (offset, &t) in (prompt.len()..).zip(feed) {
+            out.push(m.step_logits(t, offset, &mut c).unwrap());
+        }
+        out.iter().map(|l| l.flatten_all().unwrap().to_vec1::<f32>().unwrap()).collect()
+    }
+
+    fn max_abs_diff(a: &[Vec<f32>], b: &[Vec<f32>]) -> f32 {
+        a.iter().flatten().zip(b.iter().flatten()).map(|(x, y)| (x - y).abs()).fold(0.0, f32::max)
+    }
+
+    fn same_bits(a: &[Vec<f32>], b: &[Vec<f32>]) -> bool {
+        a.len() == b.len()
+            && a.iter().zip(b).all(|(x, y)| {
+                x.len() == y.len() && x.iter().zip(y).all(|(p, q)| p.to_bits() == q.to_bits())
+            })
+    }
+
+    /// The three attention forms over the stores that hand attention exactly
+    /// the history. Against `Cat` with expanded heads, every published path:
+    /// the `Grow` store alone and the `Shared` form are bit for bit, in the
+    /// chunked prefill (a masked chunk at an offset), in 20 decode steps and
+    /// in the uncached full-window forward; `Grouped` changes the matmul
+    /// shape, and is held to a bound on the logits instead, about ten times
+    /// the largest difference measured on 2026-11-01. It is not held to the
+    /// same greedy text: on this random model, whose logits tie often, one
+    /// rounding difference flipped a token at the ninth step.
+    /// Three head layouts: 4 over 2; 8 over 2, groups of 4 as in Qwen3-4B,
+    /// where a group and a key head no longer have the same count; and 10
+    /// over 2, groups of 5 as in Qwen3-14B (40 over 8), an odd group size.
+    #[test]
+    fn attention_forms_agree() {
+        use crate::kvq::{AttnHeads, KvStore};
+        for (dtype, bound, n_heads) in [
+            (DType::F32, 6e-7f32, 4),
+            (DType::F16, 4e-3, 4),
+            (DType::F32, 6e-7, 8),
+            (DType::F16, 4e-3, 8),
+            (DType::F32, 6e-7, 10),
+            (DType::F16, 4e-3, 10),
+        ] {
+            let mut m = tiny_model_heads(dtype, n_heads, 2);
+            let prompt = [3u32, 17, 42, 7, 9, 11];
+            let window = Tensor::from_slice(&[5u32, 60, 11, 90, 2, 33, 71, 8, 13], (1, 9), &Device::Cpu).unwrap();
+            let full = |m: &Qwen3| {
+                vec![m.logits(&window, &mut NoCapture).unwrap().flatten_all().unwrap().to_dtype(DType::F32).unwrap().to_vec1::<f32>().unwrap()]
+            };
+            let feed = [5u32, 60, 11, 90, 2, 33, 71, 8, 13, 44, 1, 96, 27, 64, 38, 19, 80, 6, 52, 23];
+            let reference = (logit_trace(&m, &prompt, 4, &feed), full(&m));
+            for (store, heads, exact) in [
+                (KvStore::Grow(4), AttnHeads::Expanded, true),
+                (KvStore::Cat, AttnHeads::Shared, true),
+                (KvStore::Grow(4), AttnHeads::Shared, true),
+                (KvStore::Grow(1), AttnHeads::Shared, true),
+                (KvStore::Cat, AttnHeads::Grouped, false),
+                (KvStore::Grow(4), AttnHeads::Grouped, false),
+            ] {
+                m.set_kv_store(store);
+                m.set_attn_heads(heads);
+                let arm = format!("{dtype:?} {n_heads}/2 {} {}", store.label(), heads.label());
+                let got = (logit_trace(&m, &prompt, 4, &feed), full(&m));
+                if exact {
+                    assert!(same_bits(&reference.0, &got.0), "{arm}: cached logits not bit for bit");
+                    assert!(same_bits(&reference.1, &got.1), "{arm}: full-window logits not bit for bit");
+                } else {
+                    let d = max_abs_diff(&reference.0, &got.0).max(max_abs_diff(&reference.1, &got.1));
+                    println!("{arm}: max |dlogit| {d:e}");
+                    assert!(d <= bound, "{arm}: max |dlogit| {d:e} above {bound:e}");
+                    assert!(d > 0.0, "{arm}: bit for bit, so this arm is not testing the grouped matmul");
+                }
+            }
+        }
+    }
+
+    /// What the unexpanded forms hand their matmuls: the transposed output of
+    /// a projection is laid out again, rows row-major; a strided view of a
+    /// `Grow` buffer keeps its storage and strides, so no history is copied.
+    #[test]
+    fn rows_contiguous_copies_only_what_a_matmul_refuses() {
+        let dev = Device::Cpu;
+        let x = Tensor::arange(0f32, 24.0, &dev).unwrap().reshape((1, 4, 2, 3)).unwrap();
+        let t = x.transpose(1, 2).unwrap();
+        assert_eq!(t.stride(), &[24, 3, 6, 1]);
+        let r = rows_contiguous(&t).unwrap();
+        assert_eq!(r.stride(), &[24, 12, 3, 1]);
+        let flat = |t: &Tensor| t.flatten_all().unwrap().to_vec1::<f32>().unwrap();
+        assert_eq!(flat(&r), flat(&t));
+        let buf = Tensor::arange(0f32, 48.0, &dev).unwrap().reshape((1, 2, 8, 3)).unwrap();
+        let view = buf.narrow(2, 0, 5).unwrap();
+        let r = rows_contiguous(&view).unwrap();
+        assert_eq!(r.stride(), &[48, 24, 3, 1], "a Grow view must not be copied");
+        assert_eq!(flat(&r), flat(&view));
+    }
+
+    /// The teacher-forced decode scores the next true token, as the prefill
+    /// does: on one arm twice it agrees with itself bit for bit and with
+    /// [`Qwen3::window_nll`] to rounding. Against the grouped form it moves by
+    /// rounding only, and against the shared form not at all on the CPU.
+    #[test]
+    fn paired_decode_scores_what_the_window_scores() {
+        use crate::kvq::{AttnHeads, KvStore};
+        let mut m = tiny_model_heads(DType::F32, 8, 2);
+        let tokens = [5u32, 60, 11, 90, 2, 33, 71, 8, 13, 44, 1, 96, 27, 64, 38, 19];
+        let published = (KvStore::Cat, AttnHeads::Expanded);
+        let same = m.decode_nll_paired(&tokens, [published, published]).unwrap();
+        assert_eq!(same.count, tokens.len() - 1);
+        assert_eq!(same.nll[0].to_bits(), same.nll[1].to_bits());
+        assert_eq!((same.top1_agree, same.max_dlogit), (same.count, 0.0));
+        m.set_kv_store(KvStore::Cat);
+        m.set_attn_heads(AttnHeads::Expanded);
+        let (window, n) = m.window_nll(&tokens, &mut NoCapture).unwrap();
+        assert_eq!(n, same.count);
+        let rel = (same.nll[0] / window - 1.0).abs();
+        assert!(rel < 1e-5, "decode against prefill: relative {rel:e}");
+        let shared = m.decode_nll_paired(&tokens, [published, (KvStore::Grow(4), AttnHeads::Shared)]).unwrap();
+        assert_eq!(shared.nll[0].to_bits(), shared.nll[1].to_bits());
+        assert_eq!(shared.max_dlogit, 0.0);
+        let grouped = m.decode_nll_paired(&tokens, [published, (KvStore::Grow(4), AttnHeads::Grouped)]).unwrap();
+        assert!(grouped.max_dlogit > 0.0 && grouped.max_dlogit < 6e-7, "{grouped:?}");
+        assert!((grouped.nll[1] / grouped.nll[0] - 1.0).abs() < 1e-6, "{grouped:?}");
+        assert!(m.decode_nll_paired(&tokens[..1], [published, published]).is_err());
+    }
+
+    /// At every append, across chunk boundaries and appends wider than a
+    /// chunk, the `Grow` store hands attention the very history `Cat` does,
+    /// in buffers sized to a whole number of chunks.
+    #[test]
+    fn grow_store_holds_what_cat_holds() {
+        use crate::kvq::{KvMode, KvStore};
+        let dev = Device::Cpu;
+        let mut cat = KvCache::with_store(KvMode::F16, KvStore::Cat);
+        let mut grow = KvCache::with_store(KvMode::F16, KvStore::Grow(4));
+        let mut seed = 1u32;
+        for l in [5usize, 1, 1, 3, 1, 1, 1, 1, 9, 1, 2] {
+            let mut step = || {
+                let n = 2 * l * 3;
+                let v: Vec<f32> = (0..n)
+                    .map(|_| {
+                        seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+                        (seed >> 8) as f32 / (1u32 << 24) as f32
+                    })
+                    .collect();
+                Tensor::from_vec(v, (1, 2, l, 3), &dev).unwrap()
+            };
+            let (k, v) = (step(), step());
+            let (ck, cv) = cat.append(&k, &v).unwrap();
+            let (gk, gv) = grow.append(&k, &v).unwrap();
+            for (c, g) in [(ck, gk), (cv, gv)] {
+                assert_eq!(c.dims(), g.dims());
+                let flat = |t: &Tensor| t.flatten_all().unwrap().to_vec1::<f32>().unwrap();
+                assert_eq!(flat(&c), flat(&g), "after an append of {l}");
+            }
+            let cap = grow.k.as_ref().unwrap().dim(2).unwrap();
+            assert!(cap.is_multiple_of(4) && cap >= grow.len && cap < grow.len + 4, "capacity {cap} for {}", grow.len);
+        }
+        let mut zero = KvCache::with_store(KvMode::F16, KvStore::Grow(0));
+        let k = Tensor::zeros((1, 2, 1, 3), DType::F32, &dev).unwrap();
+        assert!(format!("{}", zero.append(&k, &k).unwrap_err()).contains("chunk"));
+    }
+
+    /// Decoding again after a truncation to the prompt gives the logits of
+    /// the first decode, bit for bit, on every store: `LLVQ_GQA_AB` times
+    /// several decodes after one prefill on the strength of this.
+    #[test]
+    fn a_truncated_cache_decodes_like_a_fresh_one() {
+        use crate::kvq::{AttnHeads, KvStore};
+        let mut m = tiny_model(DType::F32);
+        let prompt = [3u32, 17, 42, 7, 9, 11];
+        for (store, heads) in [
+            (KvStore::Cat, AttnHeads::Expanded),
+            (KvStore::Grow(4), AttnHeads::Grouped),
+            (KvStore::Prealloc(32), AttnHeads::Expanded),
+        ] {
+            m.set_kv_store(store);
+            m.set_attn_heads(heads);
+            let mut c = m.fresh_caches();
+            let first = argmax_last(&m.prefill_chunked(&prompt, 4, &mut c).unwrap()).unwrap();
+            let decode = |c: &mut [KvCache]| -> Vec<Vec<f32>> {
+                let mut next = first;
+                (prompt.len()..prompt.len() + 7)
+                    .map(|offset| {
+                        let l = m.step_logits(next, offset, c).unwrap();
+                        next = argmax_last(&l).unwrap();
+                        l.flatten_all().unwrap().to_vec1::<f32>().unwrap()
+                    })
+                    .collect()
+            };
+            let a = decode(&mut c);
+            for cache in c.iter_mut() {
+                cache.truncate(prompt.len()).unwrap();
+            }
+            let b = decode(&mut c);
+            assert!(same_bits(&a, &b), "{}: a truncated cache decodes differently", store.label());
+            assert!(c[0].truncate(prompt.len() + 100).is_err(), "{}: truncating up must refuse", store.label());
+        }
+    }
+
+    /// A decode step on the `Cat` store skips its mask, which is all zeros.
+    /// This replays each step twice from the same cache state, once through
+    /// `hidden_cached` (no mask) and once with the zero mask added explicitly
+    /// as before, and requires the hidden states to agree bit for bit.
+    #[test]
+    fn a_decode_step_without_its_zero_mask_is_bit_identical() {
+        for dtype in [DType::F32, DType::F16] {
+            let model = tiny_model(dtype);
+            let dev = Device::Cpu;
+            let prompt = [3u32, 17, 42, 7];
+            let input = Tensor::from_slice(&prompt, (1, prompt.len()), &dev).unwrap();
+            let mut a = model.fresh_caches();
+            let mut b = model.fresh_caches();
+            model.hidden_cached(&input, 0, &mut a, &mut NoCapture).unwrap();
+            model.hidden_cached(&input, 0, &mut b, &mut NoCapture).unwrap();
+            for (offset, tok) in (prompt.len()..).zip([5u32, 60, 11, 90, 2, 33, 71, 8]) {
+                assert!(
+                    model.step_mask(1, 1, offset).unwrap().is_none(),
+                    "the decode step must take the unmasked path, or this test certifies nothing"
+                );
+                let x = Tensor::from_slice(&[tok], (1, 1), &dev).unwrap();
+                let ha = model.hidden_cached(&x, offset, &mut a, &mut NoCapture).unwrap();
+                let mask = model.causal_mask_offset(1, 1, offset).unwrap();
+                let mut hb = model.embed.forward(&x).unwrap();
+                for (i, blk) in model.blocks.iter().enumerate() {
+                    hb = blk
+                        .forward_cached(&hb, &model.rotary, Some(&mask), RopeAt::Offset(offset), &mut b[i], i, &mut NoCapture)
+                        .unwrap();
+                }
+                let hb = model.norm.forward(&hb).unwrap();
+                let bits = |t: &Tensor| -> Vec<u32> {
+                    t.flatten_all()
+                        .unwrap()
+                        .to_dtype(DType::F32)
+                        .unwrap()
+                        .to_vec1::<f32>()
+                        .unwrap()
+                        .iter()
+                        .map(|v| v.to_bits())
+                        .collect()
+                };
+                assert_eq!(bits(&ha), bits(&hb), "{dtype:?}, step at offset {offset}");
+            }
+        }
+    }
+
+    /// `generate_timed` decodes what `generate` decodes, whole or in chunks,
+    /// and the measurement switch of the decode mask moves no token either.
+    #[test]
+    fn a_timed_generation_returns_the_tokens_of_generate() {
+        let mut model = tiny_model(DType::F32);
+        let prompt: Vec<u32> = (0..13u32).map(|i| (i * 7 + 3) % 97).collect();
+        let want = model.generate(&prompt, 9, &mut NoCapture).unwrap();
+        let whole = model.generate_timed(&prompt, 9, MAX_PREFILL_ROWS).unwrap();
+        assert_eq!(whole.tokens, want, "one chunk is generate, call for call");
+        let chunked = model.generate_timed(&prompt, 9, 4).unwrap();
+        assert_eq!(chunked.tokens, want, "a prompt in chunks of 4 decodes the same tokens");
+        assert!(whole.prompt_s > 0.0 && whole.decode_s > 0.0);
+        model.set_decode_mask(true);
+        let masked = model.generate_timed(&prompt, 9, MAX_PREFILL_ROWS).unwrap();
+        assert_eq!(masked.tokens, want, "the zero mask, added again, moves no token");
+        assert!(model.step_mask(1, 1, 20).unwrap().is_some(), "the switch must reach step_mask");
+    }
+
+    /// `prefill_next` in chunks leaves the caches and the first token of an
+    /// unchunked prompt, and the decode after it is `generate`'s: what the 4E
+    /// driver needs at an 8,192-token context, at chunk sizes a host reaches.
+    #[test]
+    fn a_chunked_prefill_next_is_the_prefill_of_generate() {
+        // 4E's store: Grow(256), whose count `len` tracks.
+        let mut model = tiny_model(DType::F32);
+        model.set_kv_store(crate::kvq::KvStore::Grow(crate::kvq::GROW_CHUNK));
+        let prompt: Vec<u32> = (0..13u32).map(|i| (i * 11 + 5) % 97).collect();
+        let want = model.generate(&prompt, 6, &mut NoCapture).unwrap();
+        for chunk in [1usize, 4, 12, 13, MAX_PREFILL_ROWS] {
+            let mut caches = model.fresh_caches();
+            let first = model.prefill_next_in(&prompt, chunk, &mut caches).unwrap();
+            assert!(caches.iter().all(|c| c.len() == prompt.len()), "chunk {chunk}: the caches hold the prompt");
+            let got = model.decode_greedy(first, prompt.len(), 6, &mut caches).unwrap();
+            assert_eq!(got, want, "chunk {chunk}: the tokens of generate");
+        }
+        let mut caches = model.fresh_caches();
+        assert_eq!(model.prefill_next(&prompt, &mut caches).unwrap(), want[0], "the served chunk is one call here");
+    }
+
+    /// 🚨 The served config's pair reaches the model, BOTH halves of it.
+    ///
+    /// `served::Served::apply` is the one place `bin/fusedrun`, `bin/mmlu` and
+    /// `bin/gsm8k` set the store and the form, and a half-wired apply is the
+    /// defect that would not show: a `Grouped` form on a `Cat` store decodes
+    /// the same tokens, slowly, and an `Expanded` form on a `Grow` store
+    /// decodes them too. Only the getters tell them apart, so they are
+    /// asserted, and then the pair is made to decode so the config cannot name
+    /// a combination that falls over.
+    #[test]
+    fn a_served_config_sets_the_store_and_the_attention_form() {
+        use crate::kvq::{AttnHeads, KvStore, GROW_CHUNK};
+        let file = |attention: Option<&str>| crate::served::ServedFile {
+            layout: "tetra48".into(),
+            embed: "q4".into(),
+            rot_share: "1".into(),
+            fuse: "0".into(),
+            kv: "f16".into(),
+            attention: attention.map(str::to_string),
+            decode: None,
+            rows: None,
+            note: None,
+        };
+        let resolve = |attention: Option<&str>| {
+            crate::served::Served::of(file(attention), std::path::PathBuf::from("t.json"))
+                .expect("resolves")
+        };
+
+        let mut m = tiny_model(DType::F32);
+        assert_eq!(m.attn_heads(), AttnHeads::Expanded, "the model's default");
+        assert_eq!(m.kv_store(), KvStore::Cat);
+        let prompt: Vec<u32> = (0..9u32).map(|i| (i * 11 + 5) % 97).collect();
+        let want = m.generate(&prompt, 7, &mut NoCapture).unwrap();
+
+        // A config that says nothing leaves the published path in place.
+        resolve(None).apply(&mut m, &Device::Cpu).expect("expanded applies");
+        assert_eq!((m.attn_heads(), m.kv_store()), (AttnHeads::Expanded, KvStore::Cat));
+
+        // A config that says `grouped` moves both halves, and the pair decodes.
+        resolve(Some("grouped")).apply(&mut m, &Device::Cpu).expect("grouped applies");
+        assert_eq!(m.attn_heads(), AttnHeads::Grouped, "the form");
+        assert_eq!(m.kv_store(), KvStore::Grow(GROW_CHUNK), "and the store with it");
+        let got = m.generate(&prompt, 7, &mut NoCapture).unwrap();
+        assert_eq!(got, want, "on the CPU in f32 the two forms agree token for token");
+    }
+
+    /// The `kernel` form on the CPU, where its kernel is the canonical replay
+    /// the card is checked against. Against the grouped form on the same
+    /// `Grow` store: a prefill chunk of more than 8 rows takes the grouped
+    /// path and is bit for bit; chunks and decode steps of 8 rows or fewer go
+    /// through the kernel, whose f32 softmax differs from the grouped f16
+    /// one, and are held to a bound, about ten times the largest difference
+    /// measured on 2026-11-04, and to differing at all.
+    #[test]
+    fn the_kernel_form_attends_through_the_replay() {
+        use crate::kvq::{AttnHeads, KvStore, GROW_CHUNK};
+        let mut m = tiny_model_hd(DType::F16, 8, 2, 128);
+        let prompt = [3u32, 17, 42, 7, 9, 11, 5, 60, 11, 90, 2];
+        let feed = [5u32, 60, 11, 90, 2, 33, 71, 8, 13, 44, 1, 96];
+        m.set_kv_store(KvStore::Grow(GROW_CHUNK));
+        m.set_attn_heads(AttnHeads::Grouped);
+        let grouped_long = logit_trace(&m, &prompt, 16, &feed);
+        let grouped_short = logit_trace(&m, &prompt, 4, &feed);
+
+        m.set_attn_heads(AttnHeads::Kernel);
+        let mut c = m.fresh_caches();
+        let e = m.prefill_chunked(&prompt, 4, &mut c).expect_err("no kernel installed");
+        assert!(e.to_string().contains("no kernel installed"), "{e}");
+
+        m.set_attn_kernel(Some(crate::attn::kernel_for(&Device::Cpu, 2, 4, 128).expect("CPU kernel")));
+        // At the served threshold no position of this window reaches the
+        // kernel: every step is the grouped form's, bit for bit.
+        assert_eq!(m.kernel_from(), crate::kvq::KERNEL_FROM);
+        assert!(same_bits(&logit_trace(&m, &prompt, 16, &feed), &grouped_long), "below the threshold");
+        assert!(same_bits(&logit_trace(&m, &prompt, 4, &feed), &grouped_short), "below the threshold");
+        m.set_kernel_from(0);
+        let long = logit_trace(&m, &prompt, 16, &feed);
+        assert!(
+            same_bits(&grouped_long[..1], &long[..1]),
+            "a chunk of 11 rows takes the grouped path: its logits are the grouped form's"
+        );
+        let d_decode = max_abs_diff(&grouped_long[1..], &long[1..]);
+        let short = logit_trace(&m, &prompt, 4, &feed);
+        let d_short = max_abs_diff(&grouped_short, &short);
+        println!("kernel against grouped: decode max |dlogit| {d_decode:e}, chunks of 4 {d_short:e}");
+        for (what, d) in [("decode", d_decode), ("chunks of 4", d_short)] {
+            assert!(d > 0.0, "{what}: bit for bit with grouped, so the kernel did not run");
+            assert!(d <= 5e-3, "{what}: max |dlogit| {d:e}");
+        }
+
+        // The served door installs it: the form, the store and the kernel.
+        let mut m = tiny_model_hd(DType::F16, 8, 2, 128);
+        let served_file_kernel = || crate::served::ServedFile {
+            layout: "tetra48".into(),
+            embed: "q4".into(),
+            rot_share: "1".into(),
+            fuse: "0".into(),
+            kv: "f16".into(),
+            attention: Some("kernel".into()),
+            decode: None,
+            rows: None,
+            note: None,
+        };
+        let f = served_file_kernel();
+        let served = crate::served::Served::of(f, "kernel.json".into()).expect("kernel parses");
+        served.apply(&mut m, &Device::Cpu).expect("kernel applies on the CPU");
+        assert_eq!(m.attn_heads(), AttnHeads::Kernel);
+        assert_eq!(m.kv_store(), KvStore::Grow(GROW_CHUNK));
+        assert_eq!(m.kernel_from(), crate::kvq::KERNEL_FROM, "the door keeps the form's threshold");
+        assert!(served.provenance().contains("attention kernel from position 1280 on grow(256)"));
+        m.set_kernel_from(0);
+        assert_eq!(logit_trace(&m, &prompt, 4, &feed), short, "the door's kernel is the same arithmetic");
+        assert!(served.check_device(true).expect_err("Metal").contains("CUDA only"));
+
+        // The persistent decode: refused on a model that is not the 4B, before
+        // anything moves; past that check, every decode row goes to the
+        // kernel (threshold 0), the arithmetic 4E owes its tokens to.
+        let p = crate::served::Served::of(
+            crate::served::ServedFile { decode: Some("persistent".into()), ..served_file_kernel() },
+            "4e.json".into(),
+        )
+        .expect("4E parses");
+        let mut toy = tiny_model_hd(DType::F16, 8, 2, 128);
+        let e = p.apply(&mut toy, &Device::Cpu).expect_err("a toy is not the 4B");
+        assert!(e.contains("4B"), "{e}");
+        assert_eq!(toy.kernel_from(), crate::kvq::KERNEL_FROM, "a refused apply moves nothing");
+        p.apply_form(&mut toy, &Device::Cpu).expect("the form applies");
+        assert_eq!((toy.attn_heads(), toy.kernel_from()), (AttnHeads::Kernel, 0));
+        assert_eq!(logit_trace(&toy, &prompt, 4, &feed), short, "threshold 0: the kernel on every decode row");
+        served.apply(&mut toy, &Device::Cpu).expect("back to the eager kernel config");
+        assert_eq!(toy.kernel_from(), crate::kvq::KERNEL_FROM, "an eager config restores the constant");
+        // f32 is refused at the first decode step, far below the threshold;
+        // a prefill chunk takes the grouped path in any dtype.
+        let mut wide = tiny_model_hd(DType::F32, 8, 2, 128);
+        served.apply(&mut wide, &Device::Cpu).expect("kernel applies on the CPU");
+        let mut c = wide.fresh_caches();
+        wide.prefill_chunked(&prompt, 16, &mut c).expect("an 11-row chunk is grouped");
+        let e = wide.step_logits(feed[0], prompt.len(), &mut c).expect_err("f32 decode");
+        assert!(e.to_string().contains("f16 only"), "{e}");
+        // A head dimension the kernel does not compile is refused at the door.
+        let mut small = tiny_model(DType::F16);
+        let e = served.apply(&mut small, &Device::Cpu).expect_err("head dim 16");
+        assert!(e.contains("head dim 16"), "{e}");
+    }
+
+    /// The T8 harness of the kernel form, on the CPU replay: the decode path
+    /// pairs the grouped and the kernel arms in lockstep and scores both, and
+    /// the prefill path of the two arms is the same forward (no call of more
+    /// than 8 rows reaches the kernel), bit for bit.
+    #[test]
+    fn the_kernel_arm_runs_in_the_paired_decode() {
+        use crate::kvq::{AttnHeads, KvStore, GROW_CHUNK};
+        let mut m = tiny_model_hd(DType::F16, 8, 2, 128);
+        m.set_attn_kernel(Some(crate::attn::kernel_for(&Device::Cpu, 2, 4, 128).expect("CPU kernel")));
+        m.set_kernel_from(8);
+        let win = [3u32, 17, 42, 7, 9, 11, 5, 60, 11, 90, 2, 33, 71, 8, 13, 44, 1, 96, 27, 64];
+        let g = (KvStore::Grow(GROW_CHUNK), AttnHeads::Grouped);
+        let k = (KvStore::Grow(GROW_CHUNK), AttnHeads::Kernel);
+        let d = m.decode_nll_split(&win, [g, k], m.kernel_from()).expect("paired decode");
+        assert_eq!(d.count, win.len() - 1);
+        assert_eq!(d.below_differ, 0, "positions 0..8 are the grouped form's, bit for bit");
+        assert_eq!(d.tail_count, win.len() - 1 - 8, "positions 8..19 scored past the split");
+        assert!(d.tail_top1_agree <= d.tail_count && d.top1_agree <= d.count);
+        assert!(d.max_dlogit > 0.0, "bit for bit: the kernel did not run");
+        assert!(d.max_dlogit <= 5e-3, "max |dlogit| {:e}", d.max_dlogit);
+        let rel = (d.nll[1] - d.nll[0]).abs() / d.nll[0];
+        assert!(rel < 1e-3, "nll {} against {}", d.nll[1], d.nll[0]);
+        let tail = (d.tail_nll[1] - d.tail_nll[0]).abs() / d.tail_nll[0];
+        assert!(tail > 0.0 && tail < 1e-3, "tail nll {} against {}", d.tail_nll[1], d.tail_nll[0]);
+        // The whole difference lies past the split: below it the arms agree.
+        assert_eq!((d.nll[1] - d.tail_nll[1]).to_bits(), (d.nll[0] - d.tail_nll[0]).to_bits());
+        // A split past the threshold sees the kernel's steps, each one.
+        let late = m.decode_nll_split(&win, [g, k], 12).expect("paired decode");
+        assert_eq!(late.below_differ, 4, "positions 8, 9, 10 and 11 are the kernel's");
+        assert_eq!(late.tail_count, win.len() - 1 - 12);
+        // Split 0 is the unsplit call.
+        let whole = m.decode_nll_split(&win, [g, k], 0).expect("paired decode");
+        assert_eq!(whole, m.decode_nll_paired(&win, [g, k]).expect("paired decode"));
+        assert_eq!((whole.tail_nll, whole.tail_count, whole.below_differ), (whole.nll, whole.count, 0));
+        let mut pre = |heads| {
+            m.set_kv_store(KvStore::Grow(GROW_CHUNK));
+            m.set_attn_heads(heads);
+            m.window_nll(&win, &mut NoCapture).unwrap().0
+        };
+        let (a, b) = (pre(AttnHeads::Grouped), pre(AttnHeads::Kernel));
+        assert_eq!(a.to_bits(), b.to_bits(), "the prefill path differs between the two arms");
+    }
+
+    /// The `Kernel` form's dispatch of one call, on the CPU replay. A row at
+    /// the threshold or past it returns the kernel's bits for that row alone,
+    /// whatever call carried it (the kernel's rows are invariant); a row
+    /// below it is the grouped path's over the history it sees, and not the
+    /// kernel's. Every way a call can sit against the threshold: below, at
+    /// its first row, straddling it at each row, past it.
+    #[test]
+    fn a_call_is_split_at_the_threshold_by_position() {
+        use crate::attn::canon;
+        let kern = crate::attn::kernel_for(&Device::Cpu, 2, 4, 128).expect("CPU kernel");
+        let t = |shape: (usize, usize, usize, usize), seed: u64| {
+            let n = shape.0 * shape.1 * shape.2 * shape.3;
+            let v: Vec<half::f16> =
+                canon::fill(n, seed, 2.0).into_iter().map(half::f16::from_bits).collect();
+            Tensor::from_vec(v, shape, &Device::Cpu).expect("tensor")
+        };
+        let (l, n) = (8usize, 20usize);
+        let q = t((1, 8, l, 128), 11);
+        let (k, v) = (t((1, 2, n, 128), 12), t((1, 2, n, 128), 13));
+        let mask = build_causal_mask(1, l, n - l, n, DType::F16, &Device::Cpu).expect("mask");
+        let scale = 1.0 / 128f64.sqrt();
+        let rows = |x: &Tensor| -> Vec<Vec<u16>> {
+            (0..l)
+                .map(|r| {
+                    let v = x.narrow(2, r, 1).unwrap().flatten_all().unwrap().to_vec1::<half::f16>().unwrap();
+                    v.into_iter().map(half::f16::to_bits).collect()
+                })
+                .collect()
+        };
+        // Each row through the kernel alone, over the history it sees.
+        let alone: Vec<Vec<u16>> = (0..l)
+            .map(|r| {
+                let seen = n - l + r + 1;
+                let o = kern
+                    .attend(
+                        &q.narrow(2, r, 1).unwrap().contiguous().unwrap(),
+                        &k.narrow(2, 0, seen).unwrap(),
+                        &v.narrow(2, 0, seen).unwrap(),
+                    )
+                    .unwrap();
+                rows(&o.broadcast_as((1, 8, l, 128)).unwrap().contiguous().unwrap())[0].clone()
+            })
+            .collect();
+        let grouped = grouped_attention(&q, &rows_contiguous(&k).unwrap(), &rows_contiguous(&v).unwrap(), Some(&mask), scale)
+            .expect("grouped");
+        let grouped_rows = rows(&grouped);
+        let h2f = |b: u16| half::f16::from_bits(b).to_f32();
+        // Thresholds from all-grouped (20) to all-kernel (12 and below).
+        for from in [0usize, 12, 13, 15, 19, 20, 64] {
+            let got = rows(&kernel_rows(kern.as_ref(), &q, &k, &v, Some(&mask), scale, from).expect("dispatch"));
+            for r in 0..l {
+                let pos = n - l + r;
+                if pos >= from {
+                    assert_eq!(got[r], alone[r], "from {from}: position {pos} is the kernel's, as alone");
+                } else {
+                    assert_ne!(got[r], alone[r], "from {from}: position {pos} reached the kernel");
+                    let d = got[r].iter().zip(&grouped_rows[r]).map(|(a, b)| (h2f(*a) - h2f(*b)).abs()).fold(0.0, f32::max);
+                    assert!(d <= 2e-3, "from {from}: position {pos} is not the grouped path's ({d:e})");
+                }
+            }
+            if from >= n {
+                assert_eq!(got, grouped_rows, "a call wholly below the threshold is one grouped call");
+            }
+        }
+        // A decode step, no mask: one row on each side.
+        let one = q.narrow(2, l - 1, 1).unwrap();
+        let at = rows(&kernel_rows(kern.as_ref(), &one, &k, &v, None, scale, n - 1).unwrap().broadcast_as((1, 8, l, 128)).unwrap().contiguous().unwrap());
+        assert_eq!(at[0], alone[l - 1], "position n - 1 at threshold n - 1 is the kernel's");
+        let below = kernel_rows(kern.as_ref(), &one, &k, &v, None, scale, n).unwrap();
+        let g1 = grouped_attention(&one, &rows_contiguous(&k).unwrap(), &rows_contiguous(&v).unwrap(), None, scale).unwrap();
+        let bits = |x: &Tensor| x.flatten_all().unwrap().to_vec1::<half::f16>().unwrap();
+        assert_eq!(bits(&below), bits(&g1), "position n - 1 at threshold n is the grouped form's decode step");
+    }
+
+    /// The served threshold itself, in a model: a prefill of 1,270 positions
+    /// (grouped, a chunk of more than 8 rows), then decode steps from 1,270
+    /// to 1,289 under the grouped and the kernel forms. Below 1,280 every
+    /// step is bit for bit; from 1,280 on, every step differs, within the
+    /// bound of the replay test. A threshold one position off, or none, or
+    /// read from anything but the position, fails here.
+    #[test]
+    fn the_served_threshold_is_position_1280() {
+        use crate::kvq::{AttnHeads, KvStore, GROW_CHUNK, KERNEL_FROM};
+        assert_eq!(KERNEL_FROM, 1280);
+        let mut m = tiny_model_long(DType::F16, 8, 2, 128, 1300);
+        m.set_attn_kernel(Some(crate::attn::kernel_for(&Device::Cpu, 2, 4, 128).expect("CPU kernel")));
+        let mut s = 0x2545f4914f6cdd1du64;
+        let mut next = || {
+            s ^= s << 13;
+            s ^= s >> 7;
+            s ^= s << 17;
+            (s % 97) as u32
+        };
+        let prompt: Vec<u32> = (0..1270).map(|_| next()).collect();
+        let feed: Vec<u32> = (0..20).map(|_| next()).collect();
+        m.set_kv_store(KvStore::Grow(GROW_CHUNK));
+        let mut trace = |heads| {
+            m.set_attn_heads(heads);
+            logit_trace(&m, &prompt, 512, &feed)
+        };
+        let (g, k) = (trace(AttnHeads::Grouped), trace(AttnHeads::Kernel));
+        assert!(same_bits(&g[..1], &k[..1]), "the prefill takes the grouped path");
+        for (i, (a, b)) in g[1..].iter().zip(&k[1..]).enumerate() {
+            let pos = prompt.len() + i;
+            let same = same_bits(std::slice::from_ref(a), std::slice::from_ref(b));
+            if pos < KERNEL_FROM {
+                assert!(same, "position {pos}: below the threshold, the grouped form's bits");
+            } else {
+                assert!(!same, "position {pos}: past the threshold, and the kernel did not run");
+                let d = max_abs_diff(std::slice::from_ref(a), std::slice::from_ref(b));
+                assert!(d <= 5e-3, "position {pos}: max |dlogit| {d:e}");
+            }
+        }
+    }
+
+    /// A two-layer Qwen3 with deterministic pseudo-random weights, on the CPU.
+    /// The CPU stand-in of the key kernel: candle's own argmax on the host
+    /// device, written into the ring. It pins the plumbing of the `Key` and
+    /// `OnDevKey` kinds (the slot, the views, the offsets, the stop before the
+    /// last upload, the final readback); the key itself is certified by
+    /// `crate::argmax_key` and, on the card, against candle's kernel.
+    struct HostKey;
+
+    impl KeyKernel for HostKey {
+        fn write(&self, logits: &Tensor, ring: &Tensor, pos: usize) -> Result<()> {
+            let id = logits.i((0, 0))?.argmax_keepdim(D::Minus1)?;
+            ring.slice_set(&id, 0, pos)
+        }
+        fn arm(&self) -> Result<()> {
+            Ok(())
+        }
+        fn nan_seen(&self) -> Result<bool> {
+            Ok(false)
+        }
+    }
+
+    /// Every [`TokenLoop`] kind returns `generate`'s tokens, on `Cat`, `Grow`
+    /// and `Prealloc`, under the three attention forms, in f32 and f16, with
+    /// groups of 2, 4 and 5 (10 heads over 2: the 14B's shape, which no other
+    /// test runs). Nine tokens, so `Grow(4)` regrows twice mid-decode.
+    #[test]
+    fn token_loops_match_generate() {
+        use crate::kvq::{AttnHeads, KvStore};
+        let key = HostKey;
+        let prompt = [3u32, 17, 42, 7];
+        for dtype in [DType::F32, DType::F16] {
+            for (n_heads, n_kv) in [(4, 2), (8, 2), (10, 2)] {
+                let mut m = tiny_model_heads(dtype, n_heads, n_kv);
+                for store in [KvStore::Cat, KvStore::Grow(4), KvStore::Prealloc(32)] {
+                    for heads in [AttnHeads::Expanded, AttnHeads::Shared, AttnHeads::Grouped] {
+                        m.set_kv_store(store);
+                        m.set_attn_heads(heads);
+                        let want = m.generate(&prompt, 9, &mut NoCapture).unwrap();
+                        assert_eq!(want.len(), 9);
+                        for (name, kind) in [
+                            ("f16", TokenLoop::F16),
+                            ("key", TokenLoop::Key(&key)),
+                            ("ondev-key", TokenLoop::OnDevKey(&key)),
+                            ("ondev-candle", TokenLoop::OnDevCandle),
+                        ] {
+                            let got = m.generate_loop(&prompt, 9, &kind).unwrap();
+                            assert_eq!(got, want, "{name} {dtype:?} {n_heads}/{n_kv} {store:?} {heads:?}");
+                            assert!(m.generate_loop(&prompt, 0, &kind).unwrap().is_empty(), "{name}: zero tokens");
+                            let one = m.generate_loop(&prompt, 1, &kind).unwrap();
+                            assert_eq!(one, want[..1], "{name}: one token");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// [`HostKey`] that also keeps, widened to f32, every logits row it is
+    /// handed.
+    struct RecordingKey(std::sync::Mutex<Vec<Vec<f32>>>);
+
+    impl KeyKernel for RecordingKey {
+        fn write(&self, logits: &Tensor, ring: &Tensor, pos: usize) -> Result<()> {
+            let row = logits.flatten_all()?.to_dtype(DType::F32)?.to_vec1::<f32>()?;
+            self.0.lock().unwrap().push(row);
+            HostKey.write(logits, ring, pos)
+        }
+        fn arm(&self) -> Result<()> {
+            self.0.lock().unwrap().clear();
+            Ok(())
+        }
+        fn nan_seen(&self) -> Result<bool> {
+            Ok(false)
+        }
+    }
+
+    /// The key kinds hand the key kernel, at every step, bit for bit the
+    /// logits the step API gives for the same tokens at the same positions.
+    /// The tiny model's greedy text barely depends on position (it settles
+    /// into a two-token cycle), so `token_loops_match_generate` alone let a
+    /// frozen offset and a prefill read at position 0 survive (host mutants
+    /// of 2026-11-04); this test kills both.
+    #[test]
+    fn key_loops_feed_the_reference_logits() {
+        use crate::kvq::{AttnHeads, KvStore};
+        let prompt = [3u32, 17, 42, 7];
+        for dtype in [DType::F32, DType::F16] {
+            for (n_heads, n_kv) in [(4, 2), (10, 2)] {
+                let mut m = tiny_model_heads(dtype, n_heads, n_kv);
+                for (store, heads) in [
+                    (KvStore::Cat, AttnHeads::Expanded),
+                    (KvStore::Grow(4), AttnHeads::Grouped),
+                    (KvStore::Prealloc(32), AttnHeads::Shared),
+                ] {
+                    m.set_kv_store(store);
+                    m.set_attn_heads(heads);
+                    for ondev in [false, true] {
+                        let rec = RecordingKey(std::sync::Mutex::new(Vec::new()));
+                        let kind = if ondev { TokenLoop::OnDevKey(&rec) } else { TokenLoop::Key(&rec) };
+                        let tokens = m.generate_loop(&prompt, 9, &kind).unwrap();
+                        let seen = rec.0.into_inner().unwrap();
+                        let mut c = m.fresh_caches();
+                        let mut want = vec![m.prefill_chunked(&prompt, prompt.len(), &mut c).unwrap()];
+                        for (offset, &t) in (prompt.len()..).zip(&tokens[..8]) {
+                            want.push(m.step_logits(t, offset, &mut c).unwrap());
+                        }
+                        assert_eq!(seen.len(), 9);
+                        for (k, (s, w)) in seen.iter().zip(&want).enumerate() {
+                            let w = w.flatten_all().unwrap().to_vec1::<f32>().unwrap();
+                            let same = s.len() == w.len() && s.iter().zip(&w).all(|(a, b)| a.to_bits() == b.to_bits());
+                            assert!(same, "step {k}, ondev {ondev}, {dtype:?} {n_heads}/{n_kv} {store:?} {heads:?}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// The token picked on the f16 logits is the token picked on their f32
+    /// cast, on a model whose logits are f16, at every decode step (gesture
+    /// a1, on candle's CPU argmax; the card's is one template for both).
+    #[test]
+    fn argmax_of_f16_logits_is_argmax_of_their_cast() {
+        let m = tiny_model(DType::F16);
+        let mut caches = m.fresh_caches();
+        let input = Tensor::from_slice(&[3u32, 17, 42, 7], (1, 4), &Device::Cpu).unwrap();
+        let mut h = m.hidden_cached(&input, 0, &mut caches, &mut NoCapture).unwrap();
+        for offset in 4..20 {
+            let native = m.logits_last_native(&h).unwrap();
+            assert_eq!(native.dtype(), DType::F16);
+            let a = argmax_last(&native).unwrap();
+            let b = argmax_last(&m.logits_last(&h).unwrap()).unwrap();
+            assert_eq!(a, b, "offset {offset}");
+            let next = Tensor::from_slice(&[a], (1, 1), &Device::Cpu).unwrap();
+            h = m.hidden_cached(&next, offset, &mut caches, &mut NoCapture).unwrap();
+        }
+    }
+
+    fn tiny_model(dtype: DType) -> Qwen3 {
+        tiny_model_heads(dtype, 4, 2)
+    }
+
+    /// The tiny model with `n_heads` query heads over `n_kv` key heads.
+    fn tiny_model_heads(dtype: DType, n_heads: usize, n_kv: usize) -> Qwen3 {
+        tiny_model_hd(dtype, n_heads, n_kv, 16)
+    }
+
+    /// The tiny model at a head dimension of its own: the attention kernel
+    /// compiles 128, Qwen3's, and refuses anything else.
+    fn tiny_model_hd(dtype: DType, n_heads: usize, n_kv: usize, head_dim: usize) -> Qwen3 {
+        tiny_model_long(dtype, n_heads, n_kv, head_dim, 64)
+    }
+
+    /// The tiny model with RoPE tables for `max_pos` positions.
+    fn tiny_model_long(dtype: DType, n_heads: usize, n_kv: usize, head_dim: usize, max_pos: usize) -> Qwen3 {
+        use crate::kvq::KvMode;
+        use candle_nn::VarBuilder;
+        let dev = Device::Cpu;
+        let cfg = Config {
+            vocab_size: 97,
+            hidden_size: 64,
+            intermediate_size: 128,
+            num_hidden_layers: 2,
+            num_attention_heads: n_heads,
+            head_dim,
+            attention_bias: false,
+            num_key_value_heads: n_kv,
+            max_position_embeddings: max_pos,
+            sliding_window: None,
+            max_window_layers: 0,
+            tie_word_embeddings: true,
+            rope_theta: 10000.0,
+            rms_norm_eps: 1e-6,
+            use_sliding_window: false,
+            hidden_act: candle_nn::Activation::Silu,
+        };
+        let varmap = candle_nn::VarMap::new();
+        let vb = VarBuilder::from_varmap(&varmap, dtype, &dev);
+        let model = Qwen3::new(&cfg, vb, KvMode::F16).expect("model");
+        // Deterministic pseudo-random weights — zeros would make every path
+        // agree trivially and certify nothing. The variables are walked in
+        // name order: the map's own order changes from one process to the
+        // next, and with it every weight.
+        let mut state = 0x9e3779b97f4a7c15u64;
+        let data = varmap.data().lock().unwrap();
+        let mut vars: Vec<_> = data.iter().collect();
+        vars.sort_by(|a, b| a.0.cmp(b.0));
+        for (_, var) in vars {
+            let n = var.elem_count();
+            let vals: Vec<f32> = (0..n)
+                .map(|_| {
+                    state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                    ((state >> 33) as f32 / (1u64 << 31) as f32 - 1.0) * 0.1
+                })
+                .collect();
+            let t = Tensor::from_vec(vals, var.shape(), &dev)
+                .and_then(|t| t.to_dtype(dtype))
+                .expect("rand");
+            var.set(&t).expect("set");
+        }
+        model
     }
 }
+

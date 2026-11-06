@@ -1,0 +1,58 @@
+4E v3 on the card, 2026-11-05
+
+Result: 4E v3 decodes the eager path's tokens at both contexts and is no faster than v2 at a short prompt (*measured*):
+179.2 tok/s [179.1-179.2] against 133.0 for the eager path at 5 prompt tokens, x1.348 [1.347-1.348] (v2: 178.7), and
+135.4 [135.4-135.5] against 104.6 at 8,192, x1.295 [1.294-1.296] (v2: 131.8). The rows' stream did not move: 1.377 GB
+over 4,542 us of mean CTA work, 303 GB/s (v2: 317), so rule B reads under 330: the per-row round trips were not
+removed, or the iteration binds. The target is missed (rule F).
+
+Job      : 6aec5488c78863f9c6333dc3, l40sx1, 215 s running after 3,153 s in the queue, $0.11 (*computed* at
+           $1.80/h).
+Image    : Space sha 65f69c57e717e6c7d827dcc25bdf339febcc3997 (integration/lot1 at 6e7a62a: 4E v3 9e71a54, job and
+           prereg 253bdc4, merged at d1fa364).
+Prereg   : proofs/preregistration-pers-4e-v3-2026-11-05.md (sha256 f73ea94f...), OpenTimestamps stamped and committed
+           (6e7a62a) before the image was built.
+Object   : sealed 4B 886391a8...; config qwen3-4b-tetra-e4-kernel-from1280.json 5f7eadba....
+Raw      : pers-4e-v3-2026-11-05-brut/ (pers-4e.txt, served-16.txt, digests.txt, oracle.txt, files.sha256).
+
+Gates (passed, *measured*): oracle MATCH; object and config at their sha256; event tracking off; RoPE form 1;
+pers_4e_tokens_f1_t512 126 registers, 0 B local, one resident a SM, 218 barriers a token; 64 of 64 tokens equal to
+the eager path's and to the served door's at both contexts; the served door's NVRTC digest 6193094310bc....
+
+Timed rounds, 64 tokens, tok/s median [range]:
+  context   eager                       4E v3, 512 threads      4E / eager      v2 (same day)
+        5   133.0 [132.9-133.0] (a)     179.2 [179.1-179.2]     x1.348          178.7, x1.353
+     8192   104.6 [104.5-104.7] (b)     135.4 [135.4-135.5]     x1.295          131.8, x1.273
+  (a) kernel on every row, the measurement form; (b) the served config.
+
+Phase table, us a token, median over 62 stamped tokens, v3 against v2 (wall / mean CTA work):
+  phase               ctx 5: v3            v2                   ctx 8192: v3          v2
+  q/k/v               921.4 / 847.1        951.6 / 763.2        931.7 / 857.7         966.7 / 778.7
+  norm/RoPE/append    111.5 / 26.6         111.9 / 23.8         110.4 / 27.0          111.3 / 24.4
+  attention           643.6 / 247.8        761.4 / 260.2        2503.0 / 1838.6       2682.0 / 2041.2
+  o                   476.2 / 360.4        493.5 / 377.1        444.0 / 335.2         491.4 / 378.0
+  MLP                 3096.1 / 2975.4      2933.5 / 2834.3      3063.2 / 2945.3       2993.6 / 2895.4
+  head                359.7 / 359.3        373.0 / 372.6        362.8 / 362.5         376.1 / 375.7
+  token               5614.6               5624.2               7416.9                7625.7
+
+Decision rules (§7):
+- A, identity: holds at both contexts.
+- B, the stream: the rows' rate on the mean CTA work is 847.1 + 360.4 + 2,975.4 + 359.3 = 4,542.2 us for 1.377 GB,
+  303 GB/s (*computed*). The int4 rows read near 587 GB/s in v2, so the Tetra rows alone sit below 303: under 330.
+  The stream did not remove the per-row round trips, or the iteration binds. Next step: the card's SASS of the stream
+  loop, at $0.
+- C, attention at 5 tokens: 643.6 us > 450, not fixed (it was 761.4 in v2). Slowest CTA 621.0 against a mean of 247.8:
+  a few CTAs still carry the phase at short context.
+- D, q/k/v balance: wall over mean 921.4 / 847.1 = 1.088 <= 1.15, the mixed split holds.
+- F, target: missed, 179.2 < 300.
+- G, refuted terms of §6: Tetra rows' rate (below 303 against [330, 650]); rows' rate (303 against [350, 560]);
+  attention at 5 tokens (644 against [200, 450]); 4E at 5 tokens (179.2 against [214, 333]); 4E at 8,192 (135.4
+  against [145, 182]). Inside: identity, no local memory, attention at 8,192 (2,503 in [2,400, 2,900]), the q/k/v
+  balance (1.088), both eager rates.
+
+Reading: the MLP phase, 55 % of the short token, got slower (wall 2,934 to 3,096 us; mean work 2,834 to 2,975), while
+q/k/v, o and attention got faster. Net at 5 tokens: 9.6 us a token. The model that predicted 273 tok/s attributed the
+Tetra rows' slowness to row-to-row round trips; this run refutes that attribution as the main bound.
+
+Not established: what bounds the Tetra rows (the SASS of the stream loop is next); 4E on the 8B and 14B; any card but
+the L40S. Nothing served changes.

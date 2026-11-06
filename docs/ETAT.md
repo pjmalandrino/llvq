@@ -1,4 +1,4 @@
-# Project state as of 2026-10-07
+# Project state as of 2026-11-02
 
 ## 1. The project
 
@@ -15,11 +15,18 @@ its version 2 is attached to release `v0.0.2` of 2026-10-06.
 ## 2. Served configuration
 
 One layout, one setting, at all three sizes: `tetra48`, `LLVQ_EMBED=q4`, `LLVQ_ROT_SHARE=1`, `LLVQ_FUSE=0`,
-`LLVQ_KV=f16`. The files that carry it are in [`configs/`](../configs/README.md), one per size.
+`LLVQ_KV=f16`. The files that carry it are in [`configs/`](../configs/README.md), one per size. Since 2026-11-02 a
+config also names the attention form, in an optional `attention` field: absent means `expanded`, the form every score
+below was measured on. **The 4B is served under `qwen3-4b-tetra-e4-grouped.json`** since 2026-11-02, the operator's
+decision; the 8B and the 14B stay expanded, where the grouped form has never run. That configuration is published
+with the same bytes at
+[Qwen3-4B-LLVQ-Tetra-served](https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-Tetra-served) (commit `159afed4`, file
+digest `886391a8` read back from the Hub), whose card moves. The three repositories paper 2 cites, and the
+safetensors one, are frozen and were verified unchanged after that upload.
 
 | size | sealed file | b/param | MMLU | GSM8K | ppl | tok/s | GB on card |
 |---|---|---|---|---|---|---|---|
-| 4B | `qwen3-4b-sealed.bin` | 2.73 | 63.37 | 82.49 | 12.58 | 113.8 | 1.38 |
+| 4B | `qwen3-4b-sealed.bin` | 2.73 | 63.37 | 82.49 | 12.58 | 133.3 | 1.38 |
 | 8B | `qwen3-8b-sealed-B.bin` | 2.70 | 69.58 | 88.63 | 9.71 | 95.0 | 2.76 |
 | 14B | `qwen3-14b-sealed.bin` | 2.73 | 75.66 | 92.04 | 8.44 | 57.2 | 5.04 |
 
@@ -30,7 +37,24 @@ b/param: *computed* by `rtbits`, whole model, int4 tables included. MMLU: *measu
 ([gsm8k-wave1](mesures/gsm8k-wave1-2026-09-26.txt), [gsm8k-wave2](mesures/gsm8k-wave2-2026-09-26.txt)). Perplexity:
 *measured* on the raw WikiText-2 test split, 12 windows of 4,096, f16
 ([ppl-scelles](mesures/ppl-scelles-2026-10-04.txt)). Speed and GB: *measured* on one L40S, batch 1, 256 greedy
-tokens, median of five rounds ([paper-table](mesures/paper-table-2026-09-25.txt)).
+tokens after a 5-token prompt, median of five rounds ([paper-table](mesures/paper-table-2026-09-25.txt)).
+
+🚨 **The 4B's row mixes two configurations, and that is a debt, not an oversight.** Its 133.3 tok/s is the grouped
+attention through the served door (*measured*, [served-grouped](mesures/served-grouped-2026-11-02.txt)); its MMLU,
+GSM8K and perplexity were all measured under the expanded form, and **no task score has ever run under the grouped
+one**. What licenses the grouped form is the paired perplexity of §4, nothing else. The same file under the expanded
+config reads 121.5 tok/s through the same door. The 8B and the 14B are expanded throughout.
+
+**The 4B's 122.4 of 2026-10-30 is the trimmed step under the expanded form, and the other two sizes are not trimmed
+either.** Three trims of 2026-10-30 give the 4B
+122.4 tok/s [122.3-122.4] against 114.2 [113.6-115.2] on the path every earlier figure ran, same tokens, zero bits:
+the causal mask is not rebuilt when it is all zero in decode, the int4 kernel reads f16 instead of a converted f32,
+and cudarc's event tracking is off on the one served stream (*measured*,
+[trims-contexts](mesures/trims-contexts-2026-10-30.txt)). The three multiply to 1.064 and the bundle reads 1.072. The
+8B and the 14B have not been re-timed since, so 95.0 and 57.2 remain pre-trim numbers. Through the served
+door, the config file rather than the flags, the same 4B file reads 121.5 tok/s [121.1-121.6] for the same
+quantity under the expanded form, and 133.3 [133.2-133.3] under the grouped one (*measured*,
+[served-grouped](mesures/served-grouped-2026-11-02.txt)).
 
 **MMLU and perplexity are scored on the dense reconstruction, not through the kernel.** Per-row checks against f64 and
 a 256-token comparison tie the two: identical tokens at 4B and 8B, first difference at token 78 at 14B. One 4B census
@@ -110,6 +134,32 @@ The `nullk` floor belongs to our launch geometry, not to the card: 2.306 ms for 
 weight, where QTIP finishes the same projections in 2.246 ms (*measured*,
 [f2-p3-qtip-banc](mesures/f2-p3-qtip-banc-2026-08-21.txt)). The comparable quantity across stacks is GB/s, never ×.
 
+**Throughput falls with the context, and the cache is why.** The served 4B decodes at 122.5 tok/s after a 5-token
+prompt, 82.7 at 2,048, 61.4 at 4,096 and 33.2 at 8,192, the product's context, where the first token takes 34.9 s
+(*measured*, [trims-contexts](mesures/trims-contexts-2026-10-30.txt)). At 8,192 positions, 72.9 % of a decode token is
+spent above what the 5-token step costs (*computed*). The served path concatenates the whole history at every step and
+then copies each key and value head to its four query heads, so it reads about 17 GB of cache a token at 8,192 against
+1.38 GB of weights (*computed*).
+
+**Attention over the cached heads, with no copy, is measured and servable.** Stacking the query heads of one key head
+as rows of one matmul decodes the 4B at 134.4 tok/s after a 5-token prompt and 77.5 at 8,192, against 121.9 and 33.1
+for the shipped form, with the same 256 tokens at all four lengths (*measured*,
+[gqa-ab](mesures/gqa-ab-2026-11-01.txt)). It is not bit for bit on the card past 5 tokens: cuBLAS rounds a batch of 8
+key heads differently from 32 expanded ones, up to 6.6e-2 on a logit. **This is the one served choice licensed by a
+tolerance rather than by identity**, the operator's decision of 2026-11-01: paired WikiText-2 perplexity through the
+kernel reads +0.0000 % by prefill, bit for bit, and +0.0095 % [-0.0048 ; +0.0238] by decode, inside the 0.12 % band
+below, with 99.788 % top-1 agreement over 49,140 steps (*measured*, [gqa-ppl](mesures/gqa-ppl-2026-11-01.txt)). A few
+isolated decode steps move one logit by up to 13.13, which no reading explains yet and which was not a criterion. The
+form ships in `configs/qwen3-4b-tetra-e4-grouped.json` and nowhere else: the 8B, the 14B and Metal have never run it,
+and Metal refuses it by name.
+
+**Through the served door it reads 133.3 tok/s against 121.5, and 77.5 against 33.2 at 8,192, with the same 256-token
+text under both configs** (*measured*, [served-grouped](mesures/served-grouped-2026-11-02.txt)). The two texts are the
+same bytes, so the grouped config inherits the expanded form's reference line `8784ffc4` and gate 4 of a later job is
+unchanged. The prefill does not pay for the form: 35.02 s to the first token at 8,192 against 34.84. Under the grouped
+form the cache is no longer the majority of a decode token at 8,192, 42.4 % against 72.9 % (*computed*), which is what
+leaves the prefill and the launch count as the next two walls.
+
 **Noise.** The calibration draw carries a standard deviation of 2.92 pp of MMLU and 5.2% of perplexity at 4B over
 three full runs (*measured*, [bruit-mmlu](mesures/bruit-mmlu-graines-4b-2026-08-25.txt),
 [f5-graines](mesures/f5-graines-4b-2026-08-19.txt)). Every size is calibrated on one draw. For an A/B at constant file
@@ -136,9 +186,14 @@ the bar is the paired interval, 0.43 pp in MMLU and 0.12% in perplexity (*measur
   [plan-transformers](plan-transformers.md)). `llvq-tetra` 0.1.0 is on PyPI since 2026-10-07, the bytes that passed
   TestPyPI ([hf-pypi](mesures/hf-pypi-0.1.0-2026-10-07.txt)), so `pip install llvq-tetra` loads it. Next, on the
   operator's go: the upstream issue and PR, together.
-- **Spend.** $246.75 over 227 priced jobs (*measured*, `docs/data/jobs.csv`). The review campaign of 2026-10-04 to
+- **Spend.** $248.84 over 237 rows of the registry, 207 of them priced (*measured*, `docs/data/jobs.csv`). The
+  throughput campaign of 2026-10-30 to 11-02 spent $2.09 over five jobs, each of its three waves under its own $2 cap, the review campaign of 2026-10-04 to
   10-06 spent $4.57 under a $9 cap, and the `transformers` wave of 2026-09-30 spent $0.30 under a $5 cap. No cap is
   in force; one is owed before the next paid job.
+- **MMLU and GSM8K under the grouped attention.** The 4B is served under it since 2026-11-02 and no task score has
+  run under it: the published 63.37 and 82.49 are the expanded form's. GSM8K through the kernel is about $2, MMLU by
+  the 57-question door is cheap and by the census about $20 (*estimated*). This is the debt the switch took on, and
+  it is the first thing to settle on this axis.
 
 ## 6. Closed absent a new idea
 

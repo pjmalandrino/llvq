@@ -239,7 +239,7 @@ fn shipped_and_served(file: &str, entry: &serde_json::Value) -> (PathBuf, PathBu
 #[test]
 fn the_shipped_shader_is_the_repositorys() {
     let shaders = shipped_table();
-    assert_eq!(shaders.len(), 8, "two Metal shaders and six CUDA sources travel");
+    assert_eq!(shaders.len(), 10, "four Metal shaders and six CUDA sources travel");
     let backends = shaders
         .values()
         .filter(|e| e["backend"] == "cuda")
@@ -270,6 +270,15 @@ fn the_shipped_shader_is_the_repositorys() {
         .as_str()
         .expect("entries")
         .contains("tv_q4_metal_tiled"));
+    for (file, entry) in [
+        ("emb_q4.metal", "tv_emb_q4_metal"),
+        ("llvq_rot.metal", "rot_apply_rows_metal"),
+    ] {
+        assert!(
+            shaders[file]["entries"].as_str().expect("entries").contains(entry),
+            "{file} is shipped for {entry}"
+        );
+    }
 }
 
 /// Every `#include "..."` of a shipped CUDA source resolves inside the package.

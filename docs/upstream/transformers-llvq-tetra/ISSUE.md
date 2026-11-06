@@ -15,14 +15,14 @@ I'd like to add LLVQ to transformers as a quantization method, `quant_method: "l
 
 LLVQ stores weights as points of the Leech lattice: 24 weights per 48-bit code, plus one scale per row. The method is
 from van der Ouderaa et al. ([arXiv:2603.11021](https://arxiv.org/abs/2603.11021)). I wrote an independent
-implementation in Rust, and a Python reader for transformers.
+implementation in Rust and a Python reader for transformers.
 
-On Qwen3-4B, 168 of the 252 linear layers use the lattice. The other 84, and the embedding, are 4-bit groups. The whole
+On Qwen3-4B, 168 of the 252 linear layers use the lattice. The other 84 and the embedding use 4-bit groups. The whole
 model comes to 2.73 bits per parameter, 1.38 GB of weights.
 
 ### Motivation
 
-It is smaller than 4-bit, and it costs quality. Here is how much:
+The model is about half the size of the 4-bit AWQ one, and it scores lower:
 
 | Qwen3-4B | bits/param | weights | MMLU, 5-shot | GSM8K, 0-shot |
 |---|---|---|---|---|
@@ -31,8 +31,9 @@ It is smaller than 4-bit, and it costs quality. Here is how much:
 | LLVQ | 2.73 | 1.38 GB | 63.37 | 82.49 |
 
 MMLU is on all 14,042 questions and GSM8K on all 1,319 problems. Paired on the same questions, LLVQ is 6.8 MMLU points
-and 9.6 GSM8K points below FP16. These numbers come from my Rust engine on an L40S, not from transformers. Through
-transformers I checked that the model gives the same 256 greedy tokens as the engine, nothing more.
+and 9.6 GSM8K points below FP16. The LLVQ scores come from my Rust engine on an L40S, not from transformers. FP16 and
+AWQ on GSM8K ran in vLLM, with the same prompts and the same grader. Through transformers I have only checked that the
+model generates the same 256 greedy tokens as the engine.
 
 The second reason is a problem on the transformers side. A method that is not in tree only exists if the user imports
 its package. If they don't, `from_pretrained` prints
@@ -41,18 +42,18 @@ its package. If they don't, `from_pretrained` prints
 Unknown quantization type, got llvq - supported types are [...]. Hence, we will skip the quantization.
 ```
 
-then reinitializes the 254 weights it can't find and returns a model with random weights. No exception, and the logits
-look normal. Anything that loads models by name without importing the package, lm-eval for example, would score that
-random model.
+then reinitializes the 254 weights it can't find and returns a model with random weights. There is no exception and
+the logits look normal. A tool that loads models by name without importing the package, lm-eval for example, would
+benchmark that random model. I was about to run lm-eval on it myself when I noticed.
 
-`trust_remote_code=True` works around it, through an `auto_map` entry in the repo. A caller who passes nothing still
-gets the random model, because `model_type: "qwen3"` picks the class directly. In tree, the problem goes away.
+The repo has an `auto_map` entry, so `trust_remote_code=True` works around it. A caller who passes neither still gets
+the random model, because `model_type: "qwen3"` selects the class directly. In tree, this goes away.
 
 ### Your contribution
 
 PR #____ adds the method in tree, following `docs/source/en/quantization/contribute.md`: `LlvqConfig`, a quantizer,
-the module swap, tests and a doc page. The layers and kernels live in the `llvq-tetra` package (PyPI, MIT or
-Apache-2.0), the way `aqlm` and `vptq` rely on their own packages.
+the module swap, tests and a doc page. The layers and kernels stay in the `llvq-tetra` package (PyPI, MIT or
+Apache-2.0), as `aqlm` and `vptq` do with their own packages.
 
 It already works out of tree:
 
@@ -78,9 +79,9 @@ What I checked:
 What is missing:
 
 - no quality number measured through transformers yet, only the token check;
-- by default the weights are rebuilt dense at load, two and a half to five minutes for the 4B on CPU. The Metal and
-  CUDA kernels that keep them compressed (2.75 GB allocated on Apple silicon) compile at import and need ninja. There
-  are no prebuilt kernels yet;
+- by default the weights are decoded to dense at load, which takes two to three minutes for the 4B on CPU.
+  The Metal and CUDA kernels that keep them compressed (2.75 GB allocated on Apple silicon) compile at import and need
+  ninja. There are no prebuilt kernels yet;
 - those kernels are matrix-vector, so the compressed path runs one token at a time and is slow on long prompts;
 - on CUDA, the 4-bit layers are not fused yet: 168 layers of 252;
 - only Qwen3 is tested;
@@ -99,4 +100,4 @@ for every out-of-tree method, not just this one.
 - Models: [Qwen3-4B-LLVQ-Tetra](https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-Tetra), the safetensors, and
   [Qwen3-4B-LLVQ-Tetra-sealed](https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-Tetra-sealed), the file the Rust engine
   reads. Both carry the same artifact digest.
-- Tested with torch 2.14.1, Python 3.12, macOS 26.6 on an M3 Max, and an NVIDIA L4 for CUDA.
+- Tested with torch 2.14.0 and 2.14.1, Python 3.12, macOS 26.6 on an M3 Max, and an NVIDIA L4 for CUDA.

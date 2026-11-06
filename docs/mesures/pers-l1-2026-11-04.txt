@@ -1,0 +1,43 @@
+Route P, first card reading (L1), 2026-11-04
+
+Result: a one-launch Tetra pass over the 4B's 252 matrices is bit-exact on the card and takes 2.394 ms against 3.788
+for today's 252 launches and 3.009 for the fused 144 (*measured*): 20.5 % [19.8-20.8] over the fused pass. It streams
+the weights at 410 GB/s [408-410]. Fed with these measurements, the projection of rule H gives route P 203-232 tok/s
+and 4E 222-258 tok/s after a short prompt (*estimated*), under the operator's 300 target. The binding term is the
+weight stream, 3.36 ms a token at 410 GB/s; 300 tok/s needs about 490 GB/s or more at 0.5 ms of fixed cost
+(*computed*).
+
+Job      : 6aebb21cc78863f9c63302be, l40sx1, 436 s running, $0.22 (*computed* at $1.80/h).
+Image    : Space sha 288f0742b79a68ca3708bc6441958f74fc91633e (integration/lot1 at a4799ce, which carries route P's
+           branch at 6be29c4 and the attention threshold).
+Prereg   : proofs/preregistration-pers-l1-2026-11-04.md (sha256 9c235346..., OpenTimestamps), deviation E1 beside it
+           (written before any measurement: nullk dropped, timeout 30 min).
+Raw      : pers-l1-2026-11-04-brut/ (bench.txt, boundary.txt, served-16.txt, digests.txt, cubin/, projection.txt).
+
+Gates (passed, *measured*): oracle MATCH; 252 of 252 matrices matched, tile 64; A4 bit-exact, 72 groups on Slot32,
+Planes14 and Tetra48; the served door and the bench door print the same NVRTC digest 6193094310bc...; 256 identical
+tokens in every arm and round of the boundary A/B.
+
+One-launch pass (bench.txt), rounds interleaved with A4: tetra48 (252 launches) 3.788 ms [3.742-3.807]; tetra48seg
+(144) 3.009 [2.983-3.030]; tpersall (1) 2.394 [2.390-2.403]; tpersall's 1,105,920 rows identical bit for bit to the A4
+kernels. B_pa = 0.9806 GB / t = 410 GB/s [408-410]. Grid barriers: 0.786 us at 142 x 768, 1.129 at 284 x 512, 3.052 at
+852 x 256; an empty cooperative 142 x 768 launch 1.951 us.
+
+Boundary A/B (boundary.txt), 8 arms, 5 interleaved rounds after 2 discarded, us per added boundary:
+split@wave 5.256 [5.037-5.385], split@half 5.924, split-down 17.269, empty x1 1.152 [0.810-1.550], empty x4 1.093,
+emptygrid x1 1.734, candle-tiny x1 2.033. Derived: drain+ramp 3.971 [3.706-4.239], underfill 0.540, dispatch 0.718,
+linearity -0.084. Served arm 134.0 tok/s [133.8-134.1].
+
+Rule readings (prereg section 7):
+  A: rows identical: a re-gridded Tetra kernel keeps the bits on this card (first observation of U3 outside A4).
+  B: B_pa 410 lies between 377 and 545: L2 is the operator's choice, subject to decision 8.
+  C: one-launch gain 20.5 % over its whole range >= 10 %: removing launches beyond fusion is worth something on Tetra.
+  D: drain+ramp 3.97 us >= 3: route P is designed with fine counters and L2 prefetch at phase ends.
+  E: cooperative launch +0.80 us (< 3) and barrier 0.79 us (< 4): no constraint.
+  F: the SASS read off cubin/ is pending (no cuobjdump on the Mac); nothing follows until it is read.
+  H: projection (projection.txt; inputs B_pa 410, barrier 0.786, launch 1.152, cooperative +0.799, drain 3.971):
+     route P [203, 232], 4E [222, 258] tok/s. Route P's upper end is under 250: route P stands only as a step toward
+     4E, and L2 reads what 4E needs first. 4E's upper end is under 300: the persistent path does not reach the target
+     on these inputs; the binding term is the weight stream (3.358 ms against 0.519 ms of fixed cost at the upper end).
+
+Not established: the stream rate in route P's own geometry (L2), 4E on the card, any card but the L40S.

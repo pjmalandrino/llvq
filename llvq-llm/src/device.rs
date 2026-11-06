@@ -5,7 +5,7 @@
 //! kernel on Metal. A third is a CPU fake a test builds. They differ in where
 //! the weights live and in nothing the model can see.
 //!
-//! ## Why four traits and not one
+//! ## Why separate traits and not one
 //!
 //! A `SegGroup` cannot reach `LatticeProj::matvec`, and an embedding table
 //! cannot reach `Int4Proj::matvec`. That separation is free here and is the
@@ -101,6 +101,13 @@ pub trait LatticeProj: Send + Sync {
             self.rows_per_launch()
         )
     }
+
+    /// The concrete projection, for a runtime that reaches its own device
+    /// buffers (route P's segment, `persist_cuda.rs`). `None` unless the
+    /// backend says otherwise; nothing on a served path calls it.
+    fn as_any(&self) -> Option<&dyn std::any::Any> {
+        None
+    }
 }
 
 /// One projection served as affine int4 g128, `v_proj` in the mixed file.
@@ -120,6 +127,13 @@ pub trait Int4Proj: Send + Sync {
     /// true if `prepare` ever stops being the identity here. Do not merge
     /// this with [`LatticeProj::matvec`] into one activation-agnostic method.
     fn matvec(&self, x: &Tensor, out_dims: &[usize]) -> Result<Tensor>;
+
+    /// The concrete projection, for a runtime that reaches its own device
+    /// buffers (route P's segment, `persist_cuda.rs`). `None` unless the
+    /// backend says otherwise; nothing on a served path calls it.
+    fn as_any(&self) -> Option<&dyn std::any::Any> {
+        None
+    }
 }
 
 /// The row-concatenation of the projections that share one activation: one
@@ -161,4 +175,32 @@ pub trait QuantEmbedTable: Send + Sync {
     fn gather(&self, ids: &Tensor) -> Result<Tensor>;
     /// `h . W^T`, logits from hidden states.
     fn project(&self, h: &Tensor) -> Result<Tensor>;
+
+    /// The concrete table, for a runtime that reads its device buffers (4E,
+    /// `persist4e_cuda.rs`). `None` unless the backend says otherwise.
+    fn as_any(&self) -> Option<&dyn std::any::Any> {
+        None
+    }
+}
+
+/// Decode and verify attention over the cached heads, one call a layer.
+///
+/// A fifth trait, separate for the reason the four above are: nothing that
+/// attends can reach a matvec. `crate::attn::CpuAttn` is the CPU fake and
+/// runs the card's arithmetic, so a host test that attends through it runs
+/// what the card runs (`crate::attn`).
+pub trait AttnKernel: Send + Sync {
+    /// What an error message or an arm line names.
+    fn name(&self) -> &str;
+
+    /// Rows one call carries. A call of more rows, a batch above one, or a
+    /// cache that is not a `Grow` store takes the grouped path instead, which
+    /// writes the same cache bytes.
+    fn max_rows(&self) -> usize;
+
+    /// `q`, `[1, n_heads, l, hd]` f16 after the norms and RoPE, against `k`
+    /// and `v`, `[1, n_kv, len, hd]` f16 views of the cache that already hold
+    /// the `l` new rows at their end. Row `r` sees positions
+    /// `0..=len - l + r`. Returns `[1, n_heads, l, hd]` f16.
+    fn attend(&self, q: &Tensor, k: &Tensor, v: &Tensor) -> Result<Tensor>;
 }

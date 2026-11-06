@@ -1,0 +1,18 @@
+Cuda(CudaDevice(DeviceId(1))), dtype F16, 256 tokens
+
+served config: /out/trims-contexts-4b-2026-10-30/qwen3-4b-tetra-e4.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16) — Qwen3-4B paper-2 object, sealed 2026-09-23: Tetra with dclm-edu calibration and trained row scales, v_proj + o_proj + down_proj@12-23 as int4 g128 records, the tied embedding stored int4 g64 in the file (qwen3-4b-sealed.bin). fuse is 0 because Tetra carries no segmented kernel, not because fusion was declined.
+cudarc event tracking: off (one stream, ordered by issue)
+shared rotation: 1 (LLVQ_CONFIG), 96 rot_launches/token for 252 projections
+projection fusion: 0 (LLVQ_CONFIG), 252 matvec_launches/token for 252 projections (0 groups + 168 lone + 84 int4)
+fused layout: tetra48 (LLVQ_CONFIG), projections 1.16 GB on the card, 2.550 b/weight (INFERENCE accounting: KeepExact tail in binary16; the bench bills its own in f32)
+NVRTC source: 101625 bytes, sha256 6193094310bc18acdb0a0c554807ff45f6df09c1f6ab49e0577032874f107812 (11 parts), tile 64 (served: measured optimum for sm_89), prefill 4x128 (served pair), 49152 B staged of 49152, target compute_89
+int4: tv_q4_hh equals tv_q4_h bit for bit on model.layers.0.self_attn.v_proj.weight (1024 rows, d_in 2560)
+embedding: q4 g64 (LLVQ_CONFIG), 1 table (model.embed_tokens.weight, lm_head tied on it), 218.8 MB on the card (int4 194.5 + scales/biases 24.3)
+total expected on the card: 1.38 GB (projections 1.16 + carried 0.22)
+layout tetra48, loaded in 3.9 s
+context sweep: 256 new tokens after each prompt, the prompt in chunks of 4096, 1 discarded + 5 rounds
+  prompt    to first token, s       decode tok/s [range]      ms a decode token
+       5       0.03 [0.03–0.03]      122.5 [122.3–122.5]       8.16
+    2048       8.15 [8.14–8.16]       82.7 [82.6–82.7]      12.09
+    4096      16.91 [16.85–17.01]       61.4 [61.4–61.5]      16.27
+    8192      34.86 [34.79–34.86]       33.2 [33.2–33.2]      30.11

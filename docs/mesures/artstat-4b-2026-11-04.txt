@@ -1,0 +1,52 @@
+EVERY GAIN-LEVEL RATIO OF THE SEALED 4B LIES IN [1.2610, 2.0106], INSIDE [1/3.14, 3.14]: THE INT16 BRICK'S SCALE GRID STANDS ON THIS FILE (2026-11-04)
+================================================================================================================================================
+Prereg: none. A deterministic read of stored fields (brick.md §5, step S0, "none").
+Cost:   $0, on the Mac, 2.3 s.
+Object: ~/q4b-sealed-2026-09-23/qwen3-4b-sealed.bin, 1,418,224,685 bytes,
+        sha256 886391a8c03f66dc269cc65c3598c6627dbdcd259180aff36604ef10d37371b8 (the published one,
+        ppl-scelles-2026-10-04-brut/files.sha256).
+Binary: llvq-llm/src/bin/artstat.rs at commit 06e1602, built --release into a separate target dir,
+        sha256 2819c58ae7a41b78565e1a9c2c4124d4554316f251f0a15d87acea1f96505cfe.
+Nature: the six lines below are *measured* (read off the file); the binade spans are *computed*.
+
+RAW OUTPUT, IN FULL
+-------------------
+/Users/pjmalandrino/q4b-sealed-2026-09-23/qwen3-4b-sealed.bin
+  records          168 lattice, 84 int4
+  centroid counts  {2}
+  tails            168 of 168 records carry one, 14647296 values, widths {8, 16} columns
+  gain levels      56667919 on level 0, 61997297 on level 1 (52.2 % on level 1, of 118665216 blocks)
+  level ratio      c1/c0 over 168 matrices: min 1.2610, p50 1.2717, max 2.0106
+  special values   0 records with c0 = 0, 0 with c0 = c1, 0 with a negative level
+
+THE READING
+-----------
+The question of S0: does every two-level Tetra record have max(|c0|, |c1|) / min(|c0|, |c1|) <= 3.14,
+the bound under which the 52 nonzero accumulate scales S[g][m] = c_g / sqrt(16 m) span at most 4
+binades and S_int stays under 2^28 (brick.md §3, "A, accumulate").
+
+  - All 168 lattice records carry exactly two centroids, both nonzero and distinct, none negative.
+  - c1/c0 runs from 1.2610 to 2.0106, so c1 > c0 in every record and the ratio is never below 1:
+    the lower bound 1/3.14 is not approached.
+  - The worst record spans log2(2.0106 * sqrt(26)) = 3.36 binades, max/min |S| = 10.25 against 16
+    (*computed*). The margin to the 3.14 bound is a factor 1.56 on the ratio.
+  - The median record spans 2.70 binades. Half the records lie in [1.2610, 1.2717]; artstat prints
+    no other quantile, so how many records sit near the 2.0106 maximum is not known.
+  - The kernel takes its two gains as `m.centroids[0..2] as f32` (fused.rs:2333), so the ratio
+    read here is the one the S grid sees, to f32 rounding.
+  - The 84 int4 records are not Tetra matrices and do not enter the S grid.
+  - Gain levels are both populated (52.2 % on level 1), so the gain bit is live on this file.
+
+OUTCOME (brick.md §5, S0 row)
+-----------------------------
+"Every two-level record at ratio in [1/3.14, 3.14]: the S grid stands." Met on the 4B. No matrix
+needs the two-accumulator fallback, and no load-time refusal would fire on this file. The zero-level
+path (26 nonzero scales) and the negative-level sign path are not exercised by it.
+
+WHAT THIS DOES NOT ESTABLISH
+----------------------------
+  - The 8B and 14B sealed files: brick.md asks for all three, and only the 4B is on this Mac
+    (~/q8b-14b-sealed-2026-09-23/ holds their metadata, not the files). Tetra's level ratio was not
+    shown to be size-independent; read the two others before the S grid is called general.
+  - Which matrix holds the 2.0106 ratio: artstat prints quantiles only.
+  - Anything about activations; S0 reads weights only.

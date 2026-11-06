@@ -13,13 +13,19 @@ is what every A/B in `docs/mesures/` depends on.
 |---|---|---|---|
 | `qwen3-4b-tetra-q5.json` | Qwen3-4B, `Tetra` + 36 `v_proj` int4 g128, `qwen3-4b-tetra-q5.bin` (1,794,564,765 B, sha256 `ae31087a4b72494d52394f2cf2070da37a845c0a7d4aded65d5bdb0bd18b2263`, *measured*, [references-comptabilite-2026-09-18](../docs/mesures/references-comptabilite-2026-09-18.txt)). The only copy is in the bucket at `tetra-q5-2026-09-09/` | **2.7475** as served (*measured*, whole model, q8 embedding, tail f16, same journal). The f32 tail accounting every published figure used gives 2.8126, and the card has held the tail in f16 since 2026-08-09, so 2.7475 is the width that runs | **56.37 micro, 58.42 macro** on the full 14,042-question split, dense reconstruction (*measured*, [f1e-census-2026-09-11](../docs/mesures/f1e-census-2026-09-11.txt)). On the 2,280-question plan the same file reads 55.52 dense and **55.66 through the served kernel**, 3 discordant questions, all three f16 tie-breaks. The 56.95 the record also carries is a different file: the pure `Tetra` `qwen3-4b-tetra.bin` with `v_proj` restored to int4 at load by `LLVQ_RESTORE_Q4` (`q5-tetra-2026-09-06.txt` T2), so it is not this object's score |
 | `qwen3-4b-tetra-e4.json` | Qwen3-4B paper-2 object: `Tetra` with dclm-edu calibration and trained row scales, `v_proj` + `o_proj` + `down_proj@12-23` as int4 g128 records, the tied embedding stored int4 g64, `qwen3-4b-sealed.bin` (1,418,224,685 B, sha256 `886391a8c03f66dc269cc65c3598c6627dbdcd259180aff36604ef10d37371b8`). Built on 2026-09-23 from the 61.11 object by `int4swap` then `embedq q4` ([embed-q4-swap-2026-09-23](../docs/mesures/embed-q4-swap-2026-09-23.txt)) | **2.7320** as served (*computed* by `rtbits` over the file, tail f16, embedding q4); 2.5420 kernel b/weight | **63.37 micro** for the same weights on the dense path (*measured*, the restore arm of the same journal); the file itself is not scored yet |
+| `qwen3-4b-tetra-e4-grouped.json` | **The 4B's served configuration from 2026-11-02 to 2026-11-05** (operator decision), replaced by the row below. The SAME object as the row above, `qwen3-4b-sealed.bin`, served with the grouped attention: `"attention": "grouped"` and nothing else differs. Added 2026-11-02 | **2.7320** as served, the row above's number: the form changes no stored bit | Not scored. **Perplexity** is what licensed it: WikiText-2 paired against the expanded form through the kernel, +0.0000 % by prefill (bit for bit) and +0.0095 % [-0.0048 ; +0.0238] by decode, inside the +-0.12 % band of `docs/ETAT.md` section 4 (*measured*, [gqa-ppl-2026-11-01](../docs/mesures/gqa-ppl-2026-11-01.txt)). Through the served door it decodes at **133.3 tok/s** after a 5-token prompt against 121.5, and by the context sweep **134.5 / 113.8 / 98.0 / 77.5** against 122.5 / 82.7 / 61.4 / 33.2 at 5 / 2,048 / 4,096 / 8,192, with the same 256-token text (*measured*, [served-grouped-2026-11-02](../docs/mesures/served-grouped-2026-11-02.txt)). No task score has run under this form |
+| `qwen3-4b-tetra-e4-kernel-from1280.json` | **The 4B's served configuration on 2026-11-05, until the v4 config below** (operator decision, T8 of the kernel form with its threshold). The SAME object, `qwen3-4b-sealed.bin`, with `"attention": "kernel"` and nothing else different: decode rows at position 1,280 and later go to the split-KV kernel, rows below run the grouped arithmetic bit for bit. The threshold is `llvq_llm::kvq::KERNEL_FROM` in the code, not a field. Refused on Metal. Added 2026-11-05 | **2.7320** as served: the form changes no stored bit | Not scored. **Perplexity** licensed it: WikiText-2 paired against the grouped form on the positions the kernel takes, -0.0013 % [-0.0074 ; +0.0047] in 12 windows of 4,096 and +0.0001 % [-0.0076 ; +0.0077] in 6 windows of 8,192, inside +-0.12 %; every step below 1,280 bit for bit. Served sweep **134.7 / 120.5 / 117.6 / 104.0** at 5 / 2,048 / 4,096 / 8,192 against 135.0 / 114.1 / 97.9 / 77.5 for the grouped form, same 256 tokens at every length; the 50-problem GSM8K replay wrote the grouped census's rows (*measured*, [attn-t8-r2-2026-11-04](../docs/mesures/attn-t8-r2-2026-11-04.txt)). No task score past 1,280 of context |
+| `qwen3-4b-tetra-e4-4e.json` | **Not served**: the v3 row loop, read at the served door; the served 4E config is the next row. The SAME object, `qwen3-4b-sealed.bin`, with `"attention": "kernel"` and `"decode": "persistent"`: every decode row goes to the split-KV kernel from position 0, and 4E decodes it in one cooperative launch a token run (512 threads). The kernel form below 1,280 is licensed by the operator's T8 extension of 2026-11-05 on this object only. Refused on Metal, on any shape but the 4B's, and beside any measurement-mode variable. Added 2026-11-05 | **2.7320** as served: the engine changes no stored bit | Not scored. **Perplexity** licensed the form below 1,280: paired WikiText-2 decode path against the grouped form, +0.0318 % [-0.0151 ; +0.0786] in 32 windows of 1,280 and +0.0018 % [-0.0053 ; +0.0088] in 12 windows of 4,096, inside +-0.12 % (*measured*, [attn-t8-below-4b-2026-11-05](../docs/mesures/attn-t8-below-4b-2026-11-05.txt)). 4E decodes the eager path's tokens under this form, **179.2 tok/s** against 133.0 after a 5-token prompt and 135.4 against 104.6 at 8,192, in the measurement form of `LLVQ_PERS_4E` (*measured*, [pers-4e-v3-2026-11-05](../docs/mesures/pers-4e-v3-2026-11-05.txt)). At the served door: **169.0 tok/s** against 133.7 for the kernel config, sweep **171.2 / 162.0 / 154.5 / 134.1** at 5 / 2,048 / 4,096 / 8,192 against 134.8 / 120.6 / 117.3 / 103.8, same 256 tokens as the kernel config at every length; GSM8K pilot 40/50 against 40/50 for the grouped census, McNemar p = 1 (*measured*, [served-4e-2026-11-05](../docs/mesures/served-4e-2026-11-05.txt)) |
+| `qwen3-4b-tetra-e4-4e-v4.json` | **The 4B's served configuration since 2026-11-05** (operator decision, "Oui, sers 4E v4"). The 4E config above with `"rows": "v4"` and nothing else different: 4E runs the v2 row loop inside the v3 structure (row form 2). Same arithmetic, so the same tokens as the v3 config and as the eager path. Refused where the 4E config is. Added 2026-11-05 | **2.7320** as served: the row loop changes no stored bit | Not scored; the arithmetic and the tokens are the v3 config's, scored in the row above. v4 decodes **189.8 tok/s** after a 5-token prompt against 179.0 for v3 and 134.2 for the eager path (x1.060 over v3), and **140.1** at 8,192 against 135.4, same 64 tokens as the eager path at both contexts, in the measurement form of `LLVQ_PERS_4E` (*measured*, [shaker-4e-2026-11-05](../docs/mesures/shaker-4e-2026-11-05.txt)). At the served door: **178.0 tok/s**, decode 180.7, x1.404 over the eager path; sweep **180.8 / 169.5 / 162.1 / 139.5** at 5 / 2,048 / 4,096 / 8,192; the v3 config's tokens at the door and every length, and its 50 pilot completions (*measured*, [served-v4-2026-11-05](../docs/mesures/served-v4-2026-11-05.txt)) |
+| `qwen3-8b-tetra-e4-grouped.json` | **The 8B's served configuration since 2026-11-04** (operator decision, T8 granted on condition of a light MMLU check, which passed). The SAME object as `qwen3-8b-tetra-e4.json`, `qwen3-8b-sealed-B.bin`, with `"attention": "grouped"` and nothing else different. Added 2026-11-04 | the row of `qwen3-8b-tetra-e4.json`: the form changes no stored bit | **Perplexity** licensed it: WikiText-2 paired against the expanded form through the kernel, +0.0000 % by prefill and -0.0048 % [-0.0117 ; +0.0021] by decode, inside +-0.12 % (*measured*, [gqa-8b-2026-11-04](../docs/mesures/gqa-8b-2026-11-04.txt)). **MMLU**, 285 questions (5 a subject): the same 285 picks under both configs, 65.55 % each (*measured*, [served-grouped-8b-2026-11-04](../docs/mesures/served-grouped-8b-2026-11-04.txt)). Served door **105.8 tok/s** against 98.3, same 256-token text; sweep **106.9 / 93.1 / 82.1 / 67.1** at 5 / 2,048 / 4,096 / 8,192 (*measured*, same journal). No GSM8K under this form yet |
+| `qwen3-14b-tetra-e4-grouped.json` | **The 14B's served configuration since 2026-11-04** (operator decision, T8 granted at 14B after its control and a light MMLU check both passed). The SAME object as `qwen3-14b-tetra-e4.json`, `qwen3-14b-sealed.bin`, with `"attention": "grouped"` (groups of 5) and nothing else different. Added 2026-11-04 | the row of `qwen3-14b-tetra-e4.json`: the form changes no stored bit | **Perplexity**: WikiText-2 paired against the expanded form through the kernel, +0.0000 % by prefill and +0.0023 % [-0.0062 ; +0.0109] by decode, inside +-0.12 % (*measured*, [gqa-14b-2026-11-04](../docs/mesures/gqa-14b-2026-11-04.txt)). **MMLU**, 285 questions: the same 285 picks under both configs, 74.13 % each (*measured*, [served-grouped-14b-2026-11-04](../docs/mesures/served-grouped-14b-2026-11-04.txt)). Served door **62.5 tok/s** against 58.6, same 256-token text; bench sweep **63.1 / 57.7 / 52.6 / 45.3** at 5 / 2,048 / 4,096 / 8,192 against 59.2 / 42.7 / 34.7 / 21.2 (*measured*, gqa-14b). No GSM8K under this form yet |
 | `qwen3-8b-tetra-q5.json` | Qwen3-8B, `Tetra` + 36 `v_proj` int4 g128, calibrated on `dclm-edu`: `qwen3-8b-dclm.bin` (base, 4,364,205,777 B, sha256 `bcea0d5a7de2fbbfd244ecf1793dd74d94808eadc4a1103533d539829f41bc04`) and `qwen3-8b-dclm-ft.bin` (row scales trained and folded, same size, sha256 `783cef6700e0efa9bca1bf225861932879ce49f5509ec7a22c5c0b3a712ebdad`), in the bucket at `dclm-8b-2026-09-21/` and `dclm-8b-ft-2026-09-21/` ([dclm-8b-rowscales-2026-09-21](../docs/mesures/dclm-8b-rowscales-2026-09-21.txt)). The five values are the 4B's; only the object differs. The head is untied, so `q8` quantizes two tables | **3.0683** as served (*computed* by `rtbits` on the file's bytes, whole model, q8 embedding, tail f16; 3.1064 at tail f32; [dclm-8b-2026-09-21](../docs/mesures/dclm-8b-2026-09-21.txt)) | **68.16 micro, 69.93 macro** for the trained file on the full 14,042-question split, dense reconstruction with the f16 embedding, 4.2080 b/param (*measured*, [dclm-8b-rowscales-2026-09-21](../docs/mesures/dclm-8b-rowscales-2026-09-21.txt)); the base reads 64.87 / 66.58 ([census-8b-2026-09-21](../docs/mesures/census-8b-2026-09-21.txt)). No census through the served kernel: only the 57-question door ([served-8b-2026-09-21](../docs/mesures/served-8b-2026-09-21.txt)) |
 | `qwen3-8b-tetra-e4.json` | Qwen3-8B paper-2 object, sealed 2026-09-24: `Tetra` with dclm-edu calibration and trained row scales, `v_proj` + `down_proj@10-26` as int4 g128 records, both untied tables stored int4 g64, `qwen3-8b-sealed-B.bin` (2,815,098,745 B, sha256 `7bdb9a55...`, *measured*, [sealed-8b-27-2026-09-24](../docs/mesures/sealed-8b-27-2026-09-24.txt)). Variant A, `o_proj` + `down_proj@15-20` (2,819,588,161 B, sha256 `0c6b08b3...`), scored 68.81 at 2.7047 and was declined: B beats it by 0.77 pp [+0.26 ; +1.28], p = 0.004, with fewer bytes | **2.6953** as served (*computed* by `rtbits` over the file's bytes, tail f16, both tables q4) | **69.58 micro** on the full 14,042-question split, dense reconstruction, +1.42 pp [+0.93 ; +1.92] over the 68.16 base (*measured*, same journal). Not scored through the kernel |
 | `qwen3-14b-tetra-q5.json` | Qwen3-14B, `Tetra` + 40 `v_proj` int4 g128, calibrated on `dclm-edu`: `qwen3-14b-dclm.bin` (base, 6,563,782,117 B, sha256 `f8e975b8...`) and `qwen3-14b-dclm-ft.bin` (row scales trained and folded, same size, sha256 `c825cb92...`), written on the Mac under `~/q14b-dclm-2026-09-22/`, both digests read back on the card ([encode-14b-2026-09-22](../docs/mesures/encode-14b-2026-09-22.txt), [dclm-14b-rowscales-2026-09-22](../docs/mesures/dclm-14b-rowscales-2026-09-22.txt)). The five values are the 4B's; only the object differs. The head is untied, so `q8` quantizes two tables | **2.7371** as served (*computed* by `rtbits` on the file's bytes, whole model, q8 embedding, tail f16; 3.5272 at the f16 tables the census read) | **74.20 micro, 75.64 macro** for the trained file on the full 14,042-question split, dense reconstruction with the f16 tables (*measured*, dclm-14b-rowscales); the base reads 72.53 / 74.07 ([census-14b-base-2026-09-22](../docs/mesures/census-14b-base-2026-09-22.txt)). No census through the served kernel |
 | `qwen3-14b-tetra-e4.json` | Qwen3-14B paper-2 object, sealed 2026-09-23: `Tetra` with dclm-edu calibration and trained row scales, `v_proj` + `o_proj` + `down_proj@10-28` as int4 g128 records, both untied tables stored int4 g64, `qwen3-14b-sealed.bin` (5,087,000,541 B, sha256 `61db37fe...`, *measured*, [sealed-8b-14b-2026-09-23](../docs/mesures/sealed-8b-14b-2026-09-23.txt)) | **2.7305** as served (*computed* by `rtbits` over the file's bytes); 2.5217 kernel b/weight | **75.66 micro** on the full 14,042-question split, dense reconstruction, +1.46 pp [+0.99 ; +1.94] over the 74.20 base (*measured*, same journal). Not scored through the kernel |
 
 No field is model-specific. The loader reads every shape from the sealed
-file's own `config.json`, and the five values name runtime choices. Each object has a file of its own anyway, for the two things a run prints
+file's own `config.json`, and the six values name runtime choices. Each object has a file of its own anyway, for the two things a run prints
 from it: the note on the `served config:` line, and the path on every dump's
 `# config=` line. Borrowing another size's file would record the wrong object on
 every line of the run.
@@ -32,12 +38,67 @@ would compile and then fail at the first group. The value is a fact about the
 layout, not a preference, and it is written here so a reader does not conclude
 that projection fusion was measured and declined.
 
+## The `attention` field, and why it is optional
+
+Five fields are required and have no defaults. `attention` is the sixth, added
+on 2026-11-02, and it is the one field that may be absent: an absent
+`attention` means `expanded`, the form every published number ran. That is what
+makes the six files written before it keep serving exactly what they served,
+down to the logits, while a file that SAYS `grouped` changes path.
+
+| value | what attention does | where it is measured |
+|---|---|---|
+| absent, or `"expanded"` | `repeat_kv` copies each key and value head to the query heads that read it, the whole history at every step, on the `cat` store | every published number of this repository |
+| `"grouped"` | the query heads of one key head are stacked as rows of one matmul, which reads each cached byte once and copies no history, on a `grow(256)` store | the L40S, on the 4B object only (`gqa-ab-2026-11-01`, `gqa-ppl-2026-11-01`) |
+
+`"shared"` is refused by name. It exists in the A/B modes of `bin/fusedrun`,
+which is where it was shown slower than `grouped` at every length and not bit
+for bit on the card either, so no object is served under it.
+
+## The `decode` field (2026-11-05)
+
+The seventh field, optional like `attention`. Absent or `"eager"`, a token is
+decoded by the eager path, as every earlier file. `"persistent"` decodes it in
+4E's one cooperative launch (`llvq_llm::served_decode`). It changes the engine,
+never the arithmetic: under it every decode row goes to the attention kernel
+from position 0, on 4E and on the eager path alike (the prefill, and any binary
+that does not drive 4E), and 4E owes the eager path's tokens bit for bit. The
+served door and `gsm8k` decode through 4E; `mmlu` scores prompts and decodes
+nothing. It is accepted only with `"attention": "kernel"` and the served 4B's
+other values, and refused on Metal, on any shape but the Qwen3-4B's (the 8B and
+the 14B have no T8 below 1,280), and beside any measurement-mode variable
+(`llvq_llm::served::MEASUREMENT_MODES`).
+
+Beside `"decode": "persistent"`, an optional `rows` field names 4E's row
+loop: absent or `"v3"` is row form 1, the loop the served-4e door ran; `"v4"`
+is row form 2, x1.060 faster after a 5-token prompt with the same tokens
+(`shaker-4e-2026-11-05`). `"v5"` is refused by name: it measured x1.001 over v4
+and stayed a measurement. Beside the eager decode the key itself is refused.
+
+The cache store is NOT a field beside the form: it is read from the form
+(`AttnHeads::store`). `expanded` has always run on `cat`, and the unexpanded
+form exists to read the history where it lies, which `cat` cannot offer because
+its buffer moves at every step. Two separate fields could name a pair no
+measurement ever ran.
+
+**`grouped` is refused on Metal, by name.** The form is backend-independent
+code in `model.rs`, which is exactly why a silent acceptance would be easy and
+wrong: no throughput, no perplexity and no reading of Metal's own rounding
+exists for it, and the tolerance it passed was passed on an NVIDIA card. The
+refusal names the measurement that would lift it.
+
+**Not bit for bit.** Past five tokens of context the grouped form moves the
+logits: cuBLAS rounds a batch of 8 key heads differently from 32 expanded ones.
+It is served under the tolerance of `docs/ETAT.md` section 4, not under
+identity, and that is a change of gate the operator took on 2026-11-01. A run
+that must reproduce a published line to the bit uses the expanded config.
+
 ## Why every value is a string
 
 They go through the same `parse` the environment variables go through:
 `FusedLayout::parse`, `EmbedMode::parse`, `RotShare::parse`, `FuseMode::parse`,
-`KvMode::parse`. One vocabulary, defined once. A second spelling would be a
-second thing to keep in step.
+`KvMode::parse`, `AttnHeads::parse`. One vocabulary, defined once. A second
+spelling would be a second thing to keep in step.
 
 ## Where they are, on a card
 

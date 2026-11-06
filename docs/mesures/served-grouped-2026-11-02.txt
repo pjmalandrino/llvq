@@ -1,0 +1,126 @@
+THE GROUPED ATTENTION THROUGH THE SERVED DOOR: 133.3 TOK/S AGAINST 121.5 AT A 5-TOKEN PROMPT AND 77.5 AGAINST 33.2 AT 8,192 OF CONTEXT, THE SAME 256-TOKEN TEXT UNDER BOTH CONFIGS, SO THE GROUPED CONFIG INHERITS THE REFERENCE LINE (2026-11-02)
+=================================================================================================================================================================================================================================================
+Prereg: proofs/preregistration-served-grouped-2026-11-02.md, sha256 fff7d616, stamped and committed
+        (f808856) before the run. Deviations: none.
+Job:    6ae83d78c78863f9c6301d39, l40sx1, ran 07:36:44 to 07:54:46 UTC, 1,082 s, $0.54 against $0.87
+        announced and a $2 cap, after 20 s in the queue.
+Image:  Space sha f77f803e, built from commit f808856 (branch debit-trims) in 18 min, no warning.
+        It is the first compiler of the `attention` field and of fusedrun.rs's changes, which do not
+        build on the Mac.
+Card:   NVIDIA L40S, 8.9, 46068 MiB, driver 580.178.04.
+Object: sealed-4b-2026-09-23/qwen3-4b-sealed.bin, sha256 886391a8; configs qwen3-4b-tetra-e4.json,
+        sha256 098fe49c, and qwen3-4b-tetra-e4-grouped.json, sha256 2455fe85, which differ in the
+        `attention` field and in nothing else (checked by the launch script before the job).
+Nature: *measured*; each median over 5 timed rounds with its range, 1 round discarded; quotients and
+        slopes *computed* below and never formed round by round in this run (rule 7).
+Raw:    docs/mesures/served-grouped-2026-11-02-brut/ (bucket copy plus the job log).
+
+GATES, ALL PASSED
+-----------------
+  1. image built; oracle on Qwen3-0.6B: MATCH, max |dhidden| = 0
+  2. object at 1,418,224,685 B and its sha256 on the mount; both configs at theirs
+  3. "int4: tv_q4_hh equals tv_q4_h bit for bit on model.layers.0.self_attn.v_proj.weight
+     (1024 rows, d_in 2560)" at all five loads
+  4. step 2: 256 tokens identical to the dense arm, and the decoded line hashes to 8784ffc4,
+     the line of paper-table run 1: the `attention` field did not move the default path
+  5. every served step printed its form and its store on the provenance line, built from the model's
+     own getters: "attention expanded on cat" in steps 3 and 5a, "attention grouped on grow(256)"
+     in steps 4 and 5b
+  6. the served steps printed "No dense arm on this path", and no ratio
+  7. tile 64 in every step; no LLVQ_* in the job environment, each step passing its own
+
+STEP 2, the bench door replayed (flags spelled out, dense arm resident)
+----------------------------------------------------------------------
+  fused 120.7 tok/s [120.3-121.2], dense 43.4 [43.4-43.4], 1.38 GB on the card, 256 tokens identical
+  to the dense arm. Against 120.5 and 120.3 in the two previous jobs: a cross-job reading, not a
+  ratio (rule 7).
+
+STEPS 3 and 4, the served door, one arm each, 256 tokens after a 5-token prompt
+------------------------------------------------------------------------------
+  config                             load, s   tok/s [range]        GB
+  qwen3-4b-tetra-e4 (expanded)           4.0   121.5 [121.1-121.6]  1.38
+  qwen3-4b-tetra-e4-grouped              4.1   133.3 [133.2-133.3]  1.38
+
+  THE TWO DECODED TEXTS ARE THE SAME BYTES: sha256 0597cee8 for both, whole text compared, not its
+  first line. The grouped config therefore inherits the expanded form's reference line, and gate 4 of
+  a later job under it is the same check.
+
+  The served door reports 256 / t over a whole generate, prefill included. Step 2's fused arm reports
+  the same quantity, hence 121.5 against 120.7 for the same work in another process.
+
+STEP 5, the served object against the context, both configs, 256 new tokens
+--------------------------------------------------------------------------
+Prompt in chunks of 4,096, 1 discarded round + 5 timed, the sweep refusing any round whose tokens
+diverge from the first. No round was refused in either arm. Decode tok/s here is 255 / decode_s, the
+prefill excluded, which is why the 5-token row reads above steps 3 and 4.
+
+  qwen3-4b-tetra-e4, expanded on cat
+  prompt    to first token, s         decode tok/s [range]      ms a decode token
+       5       0.03 [0.03-0.03]        122.5 [122.2-122.7]       8.16
+    2048       8.12 [8.12-8.13]         82.7 [82.6-82.7]        12.09
+    4096      16.89 [16.82-16.95]       61.4 [61.4-61.5]        16.28
+    8192      34.84 [34.78-34.88]       33.2 [33.2-33.3]        30.09
+
+  qwen3-4b-tetra-e4-grouped, grouped on grow(256)
+  prompt    to first token, s         decode tok/s [range]      ms a decode token
+       5       0.02 [0.02-0.02]        134.5 [134.5-134.6]       7.43
+    2048       8.20 [8.19-8.20]        113.8 [113.8-113.9]       8.78
+    4096      17.03 [16.99-17.12]       98.0 [97.9-98.1]        10.20
+    8192      35.02 [34.95-35.06]       77.5 [77.5-77.6]        12.90
+
+*Computed* from the medians:
+  - The expanded arm reproduces the sweep of 2026-10-30 on the same door to every printed digit:
+    122.5 / 82.7 / 61.4 / 33.2 there, 122.5 / 82.7 / 61.4 / 33.2 here, another job and another image.
+    The time to the first token reads 34.84 s against 34.86.
+  - grouped over expanded, from the medians and NOT round by round: 1.098, 1.376, 1.596, 2.334. The
+    A/B of 2026-11-01 formed the same four ratios round by round inside one process and read 1.1028,
+    1.3823, 1.5995, 2.3392. Those are the ones to quote; these four say the served door agrees.
+  - extra ms a decode token per thousand positions, 5 to 8,192: expanded 2.68, grouped 0.67.
+  - share of a decode token spent above the 5-token step at 8,192: expanded 72.9 %, grouped 42.4 %.
+    The cache is still the largest single item under the grouped form, and no longer the majority.
+  - the prefill does not pay for the form: 35.02 s against 34.84 at 8,192, +0.5 %, or 4.27 against
+    4.25 ms a prompt token. The 34.9 s to the first token is untouched by this run.
+
+THE PREDICTIONS
+---------------
+  quantity                                      predicted            measured   inside?
+  step 2 fused tok/s                            120 [113, 126]       120.7      yes
+  step 3 served tok/s, expanded                 122 [116, 128]       121.5      yes
+  step 4 served tok/s, grouped                  134 [126, 142]       133.3      yes
+  the two decoded lines                         equal                equal      yes
+  sweep expanded at 5                           122.5 [118, 126]     122.5      yes
+  sweep expanded at 2,048                       82.7 [79, 86]         82.7      yes
+  sweep expanded at 4,096                       61.4 [59, 64]         61.4      yes
+  sweep expanded at 8,192                       33.2 [32, 35]         33.2      yes
+  sweep grouped at 5                            134 [126, 142]       134.5      yes
+  sweep grouped at 2,048                        113 [104, 121]       113.8      yes
+  sweep grouped at 4,096                         97 [89, 105]         98.0      yes
+  sweep grouped at 8,192                         77 [70, 84]          77.5      yes
+  expanded first token at 8,192, s              34.9 [33, 37]        34.84      yes
+  grouped first token at 8,192, s               34.9 [30, 40]        35.02      yes
+
+All fourteen inside, and twelve of the thirteen numeric ones within one percent of their point
+(grouped at 4,096 misses that by 0.03). The two sweeps were predicted by
+applying the A/B's ratios to the medians of 2026-10-30, so what this confirms is that the served door
+and the bench door measure the same object, not that the prediction was hard.
+
+THE DECISION RULES (prereg section 6)
+-------------------------------------
+  The reference line: the two decoded texts are equal, so the grouped config inherits 8784ffc4 and a
+  later job under it gates on the same hash. The line of the served door itself, which is a different
+  print, hashes to 0597cee8 under both configs.
+  The served door reproduces the bench door: 121.5 against 120.7 at 5 tokens, 0.7 %, well inside the
+  3 % the prereg set, so neither set of figures is in doubt.
+  The grouped form wins at every length, so the rule that would have stopped the path is not
+  triggered.
+  Which file is the 4B's served object stays the operator's decision. The expanded config is what
+  paper 2 and the Hub cards describe; nothing published moves on this run.
+
+WHAT THIS DOES NOT ESTABLISH
+----------------------------
+  - Quality: nothing is scored here. MMLU and GSM8K through the served kernel under the grouped form
+    are a separate run. The licence for the form remains the paired perplexity of 2026-11-01.
+  - Anything at 8B or 14B, on another card, or on Metal, which refuses the form by name.
+  - The prefill: 35.0 s to the first token at 8,192 is unchanged and is the next wall.
+  - The int8 cache, the step after this one: at 8,192 the grouped form still spends 42.4 % of a decode
+    token above its 5-token cost.

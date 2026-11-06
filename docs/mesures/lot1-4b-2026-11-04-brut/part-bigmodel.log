@@ -1,0 +1,137 @@
+NVIDIA L40S, 8.9, 46068 MiB, 580.178.04
+== gate 1: oracle (hard rule 10) ==
+Qwen/Qwen3-0.6B on Cuda(CudaDevice(DeviceId(1))) — max |Δhidden| = 0.000e0   (relative to max|h| = 8.550e1) → 0.000e0
+MATCH — the observable forward reproduces candle's Qwen3
+== the object on the mount: bytes and sha256 against the Mac ==
+886391a8c03f66dc269cc65c3598c6627dbdcd259180aff36604ef10d37371b8  /out/sealed-4b-2026-09-23/qwen3-4b-sealed.bin
+== STEP 2: rotbench, K0 and R0 against the host fixture ==
+Wed Nov  4 20:43:55 UTC 2026
+NVRTC source: 22932 bytes, sha256 0d4b1ee62ffca22c63d3345992615de2b8094450253cbb934840e6af2e8e4ea7
+fixture: 14 lines, sha256 bfbd39f871ccaa912fa6b7ce95114da5dccd6b3d345b6552b8b02ce996dd91d4
+
+NVIDIA L40S: 142 SM, 49152 B of shared memory per block by default, 101376 after opt-in
+  rot_apply             47 registers, 0 local B, sm_89, 1024 max threads
+  rot_apply_rows        47 registers, 0 local B, sm_89, 1024 max threads
+  rot_apply_dev         48 registers, 0 local B, sm_89, 1024 max threads
+  rot_apply_rows_dev    48 registers, 0 local B, sm_89, 1024 max threads
+  handle A: rot_apply, no attribute; handle B: rot_apply opted in at 69632 B;
+  handle C: rot_apply, its own module opted in at n * 4 B; rot_apply_dev: 0 B
+
+Verification: input sha256, output sha256 against the host, then f64 and norm
+  shape                                             n     m   k  arm             bytes  rows        rel      coord
+  ----------------------------------------------------------------------------------------------------------------
+  Qwen3-4B hidden, k=5                           2560   512   5  rot_apply/A     equal equal   6.620e-8   4.258e-7
+  Qwen3-4B hidden, k=5                           2560   512   5  rot_apply_dev   equal equal   6.620e-8   4.258e-7
+  Qwen3-4B o_proj, k=1, no mix                   4096  4096   1  rot_apply/A     equal equal   4.994e-8   3.415e-7
+  Qwen3-4B o_proj, k=1, no mix                   4096  4096   1  rot_apply_dev   equal equal   4.994e-8   3.415e-7
+  Qwen3-14B/32B hidden, k=5, m=1,024             5120  1024   5  rot_apply/A     equal equal   5.954e-8   5.758e-7
+  Qwen3-14B/32B hidden, k=5, m=1,024             5120  1024   5  rot_apply/B     equal equal   5.954e-8   5.758e-7
+  Qwen3-14B/32B hidden, k=5, m=1,024             5120  1024   5  rot_apply_dev   equal equal   5.954e-8   5.758e-7
+  Qwen3.8-27B o_proj input, k=3, m=2,048         6144  2048   3  rot_apply/A     equal equal   7.409e-8   3.686e-7
+  Qwen3.8-27B o_proj input, k=3, m=2,048         6144  2048   3  rot_apply_dev   equal equal   7.409e-8   3.686e-7
+  Qwen3-32B o_proj input, k=1                    8192  8192   1  rot_apply/A     equal equal   6.548e-8   3.899e-7
+  Qwen3-32B o_proj input, k=1                    8192  8192   1  rot_apply_dev   equal equal   6.548e-8   3.899e-7
+  Qwen3-4B down_proj, k=19                       9728   512  19  rot_apply/A     equal equal   9.523e-8   6.234e-7
+  Qwen3-4B down_proj, k=19                       9728   512  19  rot_apply_dev   equal equal   9.523e-8   6.234e-7
+  Qwen3-8B down_proj, k=3, on the default bound  12288  4096   3  rot_apply/A     equal equal   6.775e-8   3.996e-7
+  Qwen3-8B down_proj, k=3, on the default bound  12288  4096   3  rot_apply_dev   equal equal   6.775e-8   3.996e-7
+  Qwen3-14B down_proj, k=17, opt-in             17408  1024  17  rot_apply/B     equal equal   8.790e-8   6.723e-7
+  Qwen3-14B down_proj, k=17, opt-in             17408  1024  17  rot_apply_dev   equal equal   8.790e-8   6.723e-7
+  Qwen3-32B down_proj, k=25: past the 99 KiB opt-in  25600  1024  25  rot_apply_dev   equal equal   1.033e-7   6.703e-7
+  widest odd factor, k=31                       31744  1024  31  rot_apply_dev   equal equal   1.135e-7   9.684e-7
+  Qwen3-0.6B intermediate                        3072  1024   3  rot_apply/A     equal equal   6.733e-8   3.384e-7
+  Qwen3-0.6B intermediate                        3072  1024   3  rot_apply_dev   equal equal   6.733e-8   3.384e-7
+  narrow, k=1                                    1024  1024   1  rot_apply/A     equal equal   4.351e-8   2.659e-7
+  narrow, k=1                                    1024  1024   1  rot_apply_dev   equal equal   4.351e-8   2.659e-7
+  small                                            96    32   3  rot_apply/A     equal equal   4.267e-8   1.351e-7
+  small                                            96    32   3  rot_apply_dev   equal equal   4.267e-8   1.351e-7
+  one Leech block                                  24     8   3  rot_apply/A     equal equal   4.557e-8   1.351e-7
+  one Leech block                                  24     8   3  rot_apply_dev   equal equal   4.557e-8   1.351e-7
+
+Cost: 5 rounds of 200 chained launches, 20 discarded, order rotated
+  WARNING: one launch at a time, on an empty stream. Isolated latency, not in-situ time.
+        n  arm             median µs  [min-max]           
+  --------------------------------------------------------
+     2560  rot_apply/A          7.82  [7.81-7.83]
+     2560  rot_apply_dev        8.39  [8.38-8.40]
+     4096  rot_apply/A          6.72  [6.72-6.79]
+     4096  rot_apply_dev        7.54  [7.53-7.55]
+     5120  rot_apply/A         11.77  [11.77-11.78]
+     5120  rot_apply/B         11.77  [11.77-11.78]
+     5120  rot_apply_dev       12.50  [12.50-12.50]
+     6144  rot_apply/A         14.38  [14.37-14.38]
+     6144  rot_apply_dev       15.43  [15.42-15.44]
+     8192  rot_apply/A         10.47  [10.47-10.48]
+     8192  rot_apply_dev       11.99  [11.98-12.00]
+     9728  rot_apply/A         18.40  [18.40-18.41]
+     9728  rot_apply_dev       21.12  [21.11-21.13]
+    12288  rot_apply/A         26.13  [26.11-26.13]
+    12288  rot_apply_dev       28.05  [28.04-28.06]
+    17408  rot_apply/B         29.78  [29.78-29.82]
+    17408  rot_apply_dev       32.00  [32.00-32.02]
+    25600  rot_apply_dev       45.43  [45.41-45.43]
+    31744  rot_apply_dev       62.30  [62.26-62.33]
+     3072  rot_apply/A          8.79  [8.79-8.80]
+     3072  rot_apply_dev        9.20  [9.19-9.20]
+     1024  rot_apply/A          3.45  [3.45-3.53]
+     1024  rot_apply_dev        3.70  [3.69-3.71]
+       96  rot_apply/A          3.44  [3.44-3.48]
+       96  rot_apply_dev        3.56  [3.54-3.56]
+       24  rot_apply/A          3.19  [3.17-3.23]
+       24  rot_apply_dev        3.33  [3.32-3.33]
+
+R0 / K0, formed round by round, then median [min-max]
+     2560  R0/rot_apply/A  1.073 [1.071-1.075]
+     4096  R0/rot_apply/A  1.121 [1.110-1.123]
+     5120  R0/rot_apply/A  1.062 [1.062-1.062]
+     6144  R0/rot_apply/A  1.073 [1.073-1.074]
+     8192  R0/rot_apply/A  1.146 [1.144-1.146]
+     9728  R0/rot_apply/A  1.148 [1.147-1.148]
+    12288  R0/rot_apply/A  1.074 [1.073-1.075]
+    17408  R0/rot_apply/B  1.074 [1.074-1.075]
+     3072  R0/rot_apply/A  1.046 [1.045-1.047]
+     1024  R0/rot_apply/A  1.071 [1.046-1.073]
+       96  R0/rot_apply/A  1.032 [1.024-1.036]
+       24  R0/rot_apply/A  1.043 [1.030-1.047]
+
+every output and every rows twin equals the host's bytes
+Wed Nov  4 20:43:56 UTC 2026
+rotbench exit 0
+gates 2-5 hold
+== STEP 4: LLVQ_INT4_WIDE_CHECK on the sealed 4B ==
+Wed Nov  4 20:43:56 UTC 2026
+Cuda(CudaDevice(DeviceId(1))), dtype F16, 32 tokens
+
+shared rotation: 1 (LLVQ_ROT_SHARE), 96 rot_launches/token for 252 projections
+projection fusion: 0 (LLVQ_FUSE), 252 matvec_launches/token for 252 projections (0 groups + 168 lone + 84 int4)
+fused layout: tetra48 (LLVQ_FUSED_LAYOUT), projections 1.16 GB on the card, 2.550 b/weight (INFERENCE accounting: KeepExact tail in binary16; the bench bills its own in f32)
+NVRTC source: 101625 bytes, sha256 6193094310bc18acdb0a0c554807ff45f6df09c1f6ab49e0577032874f107812 (11 parts), tile 64 (served: measured optimum for sm_89), prefill 4x128 (served pair), 49152 B staged of 49152, target compute_89
+int4: tv_q4_hh equals tv_q4_h bit for bit on model.layers.0.self_attn.v_proj.weight (1024 rows, d_in 2560)
+LLVQ_INT4_WIDE_CHECK: wide int4 unit 39357 bytes, sha256 a1b7335b19a8631da90cda167afb8874bd6516b3504fe8e40843565a3827b0d1; the card offers 49152 B by default and 101376 after opt-in; fixture sha256 22ced1e1df9dacd529f79b3aa6f72ecd51db369a489c46f2ea3f3d05d0b522fb
+  tv_q4_hs: 25 registers, 0 local B
+int4: tv_q4_hs equals tv_q4_hh bit for bit on model.layers.0.self_attn.v_proj.weight (1024 rows, d_in 2560)
+  256x25344 seed 0x41 x_off 0: tv_q4_hs sha256 EQUALS the host's; tv_q4_hh equals it
+  256x25600 seed 0x42 x_off 0: tv_q4_hs sha256 EQUALS the host's; tv_q4_hh not run (its f32 staging does not fit, or x_off)
+  256x25600 seed 0x43 x_off 37: tv_q4_hs sha256 EQUALS the host's; tv_q4_hh not run (its f32 staging does not fit, or x_off)
+LLVQ_INT4_WIDE_CHECK: every comparison equal
+embedding: q4 g64 (LLVQ_EMBED), 1 table (model.embed_tokens.weight, lm_head tied on it), 218.8 MB on the card (int4 194.5 + scales/biases 24.3)
+total expected on the card: 1.38 GB (projections 1.16 + carried 0.22)
+LLVQ_INT4_WIDE_CHECK: load and checks in 4.2 s; no token decoded
+Wed Nov  4 20:44:01 UTC 2026
+fusedrun exit 0
+gates 3 and 7 hold
+== outcomes: rotbench exit 0, int4 check exit 0 (0 = every comparison equal) ==
+== raw kept ==
+total 10
+drwxr-xr-x.   2 root   root       0 Nov  4 20:43 .
+drwxrwxrwx. 169 nobody nogroup    0 Nov  4 20:43 ..
+-rw-r--r--.   1 root   root     112 Nov  4 20:43 files.sha256
+-rw-r--r--.   1 root   root      40 Nov  4 20:43 gpu.txt
+-rw-r--r--.   1 root   root    1836 Nov  4 20:43 int4-wide.txt
+-rw-r--r--.   1 root   root     377 Nov  4 20:43 oracle-cuda.txt
+-rw-r--r--.   1 root   root    6498 Nov  4 20:43 rotbench.txt
+   1 /out/bigmodel-identity-2026-11-04/gpu.txt
+  18 /out/bigmodel-identity-2026-11-04/int4-wide.txt
+   6 /out/bigmodel-identity-2026-11-04/oracle-cuda.txt
+  90 /out/bigmodel-identity-2026-11-04/rotbench.txt
+ 115 total

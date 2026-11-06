@@ -24,7 +24,10 @@
 //! the device's arithmetic. What that arithmetic does is
 //! `llvq-cuda/tests/tetra48_matches_rust.rs`'s business.
 
-use llvq_llm::fused::{load_int4_sources, load_planes_sources, planes_source_names, FusedLayout};
+use llvq_llm::fused::{
+    int4_wide_unit_names, load_int4_sources, load_int4_wide_sources, load_planes_sources,
+    planes_source_names, FusedLayout,
+};
 use std::process::Command;
 
 /// The host shim plus what a `.cu` expects from CUDA and the shim does not
@@ -50,6 +53,10 @@ fn text(layout: FusedLayout, name: &str) -> String {
     }
     if name == "tv_q4_h.cu" {
         let (cu, _) = load_int4_sources().expect("the int4 source is embedded");
+        return cu;
+    }
+    if name == "tv_q4_wide.cu" {
+        let ([_, cu], _) = load_int4_wide_sources().expect("the wide int4 source is embedded");
         return cu;
     }
     let (planes, _) = load_planes_sources(layout).expect("the layout's sources are embedded");
@@ -170,7 +177,7 @@ fn every_layout_s_translation_unit_parses() {
 fn the_served_unit_carries_the_kernels_the_runtime_looks_up() {
     let e = entry_points(&assembled(FusedLayout::Tetra48, &served_names()));
     for want in
-        ["rot_apply", "rot_apply_rows", "tv_tetra48_h", "tv_tetra48_rows_h", "tv_q4_h"]
+        ["rot_apply", "rot_apply_rows", "tv_tetra48_h", "tv_tetra48_rows_h", "tv_q4_h", "tv_q4_hh"]
     {
         assert!(e.contains(&want.to_string()), "the served unit defines no `{want}`: {e:?}");
     }
@@ -273,3 +280,38 @@ fn dropping_any_source_breaks_the_served_unit() {
         );
     }
 }
+
+/// The wide unit parses as the runtime assembles it when a model has widths
+/// past the card's ceiling: the base two, the device-staged rotation, then
+/// the f16-staged int4 kernel, with no include path. It is compiled only for
+/// such a model, never into the served unit, and its entry points are the
+/// ones `fused_cuda.rs` looks up.
+#[test]
+fn the_wide_unit_parses_and_carries_its_entry_points() {
+    let rot = ["llvq_slot.cuh", "matvec.cu", "llvq_rot.cuh", "rotate_wide.cu"];
+    let int4 = int4_wide_unit_names();
+    let mut both: Vec<&str> = rot.to_vec();
+    both.extend(&int4[2..]);
+    for (tag, names) in [("wide_rot", rot.to_vec()), ("wide_int4", int4.to_vec()), ("wide_both", both)] {
+        if let Err(e) = parses(FusedLayout::Tetra48, tag, &names) {
+            panic!("the wide unit {names:?} does not parse:\n{e}");
+        }
+    }
+    let rot_text = assembled(FusedLayout::Tetra48, &rot);
+    let eps = entry_points(&rot_text);
+    for name in ["rot_apply_dev", "rot_apply_rows_dev"] {
+        assert!(eps.iter().any(|e| e == name), "{name} missing from the wide rotation unit");
+    }
+    let int4_text = assembled(FusedLayout::Tetra48, &int4);
+    assert!(
+        entry_points(&int4_text).iter().any(|e| e == llvq_llm::fused::INT4_WIDE_KERNEL_NAME),
+        "tv_q4_hs missing from the wide int4 unit"
+    );
+    // And never in the served unit: its text, and so its printed sha256, do
+    // not carry the wide kernels.
+    let served = assembled(FusedLayout::Tetra48, &served_names());
+    for name in ["rot_apply_dev", "rot_apply_rows_dev", llvq_llm::fused::INT4_WIDE_KERNEL_NAME] {
+        assert!(!entry_points(&served).iter().any(|e| e == name), "{name} leaked into the served unit");
+    }
+}
+

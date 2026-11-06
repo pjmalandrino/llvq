@@ -1,0 +1,80 @@
+THE GROUPED ATTENTION PASSES THE TOLERANCE: PERPLEXITY +0.0000 % BY PREFILL (BIT FOR BIT) AND +0.0095 % [-0.0048 ; +0.0238] BY DECODE, AGAINST A BAND OF +-0.12 %; BUT A FEW ISOLATED DECODE STEPS MOVE A LOGIT BY UP TO 13 (2026-11-01)
+==================================================================================================================================================================================================================
+Prereg: proofs/preregistration-gqa-ppl-2026-11-01.md, sha256 23f72985, stamped and committed (1c54288)
+        before the run. Deviations: one, É1 in proofs/preregistration-gqa-ppl-2026-11-01-ECARTS.md (attempt
+        1 stopped at the first grouped prefill on a CUDA layout refusal; fixed in 2f8bdd3, relaunched).
+Jobs:   attempt 1  6ae71e5e0e0338d1bb7d705d  image 0884bd31 (commit 1c54288)  176 s  $0.09  ERROR, see É1
+        retry 2    6ae72442c78863f9c62f9717  image 5e5b1fd5 (commit 2f8bdd3)  1,643 s  $0.82  completed
+        l40sx1. Wave: $0.91 against $1.05 announced and a $2 cap. Project total: $248.30.
+Card:   NVIDIA L40S, 8.9, 46068 MiB, driver 580.178.04.
+Object: sealed-4b-2026-09-23/qwen3-4b-sealed.bin, sha256 886391a8; config qwen3-4b-tetra-e4.json,
+        sha256 098fe49c.
+Nature: *measured*; the paired intervals are formed window by window by fusedrun; per-window
+        differences *computed* from its printed values.
+Raw:    docs/mesures/gqa-ppl-2026-11-01-brut/ (retry 2 at the top, attempt 1 in attempt1/).
+
+GATES, ALL PASSED (retry 2)
+---------------------------
+  1. image built; oracle on Qwen3-0.6B: MATCH, max |dhidden| = 0
+  2. object and config at their sha256 on the mount
+  3. "int4: tv_q4_hh equals tv_q4_h bit for bit" at both loads
+  4. step 2: 256 tokens identical to the dense arm, decoded line hashes to 8784ffc4; fused
+     120.6 tok/s [120.2–120.9]
+  5. step 3: events off, token fingerprint 3f1baca9033bf251, 12 window lines, both summary lines
+  6. harness: decode over prefill on the published arm, ppl ratio 0.99994, inside [0.99, 1.01]
+  7. tile 64 in every step; no LLVQ_* in the job environment
+
+THE CONTROL, wikitext-2 test, 12 windows of 4,096, cat+expanded (published) against grow(256)+grouped
+------------------------------------------------------------------------------------------------------
+  path      ppl published   ppl grouped   grouped / published - 1, paired 95 % t interval
+  prefill   12.5822         12.5822       +0.0000 % [+0.0000 ; +0.0000]
+  decode    12.5814         12.5826       +0.0095 % [-0.0048 ; +0.0238]
+
+  decode top-1 agreement: 49,036 of 49,140 steps, 99.788 % (3 to 16 disagreements a window)
+  decode max |dlogit|: 13.13 over every step; above 1 in 6 windows of 12, median of the window
+  maxima 1.05
+
+*Computed* from the window lines:
+  - The prefill path is bit for bit: all 12 window NLLs agree to the last printed digit. At 4,096
+    rows a head, cuBLAS rounds the grouped matmul (16,384 rows a key head) as the expanded one.
+    The GQA A/B saw the same at 4,096: prompt logits bit for bit.
+  - Decode, grouped minus published, per window: -2.3e-4 to +4.3e-4 nats. The published arm's own
+    decode minus its prefill, the same tokens by two paths: -2.8e-4 to +3.6e-4 nats. The two forms
+    differ by about as much as one form differs from itself across paths.
+  - Published prefill 12.5822 through the kernel, against 12.5834 for the dense reconstruction of
+    the same file (ppl-scelles-2026-10-04, another job): read side by side, not divided.
+
+THE PREDICTIONS
+---------------
+  quantity                                         predicted             measured        inside?
+  published prefill ppl through the kernel         12.58 [12.45, 12.72]  12.5822         yes
+  published decode over prefill ppl                1.000 [0.998, 1.002]  0.99994         yes
+  grouped / published - 1, prefill, point          0.000 % [-0.02, 0.02] +0.0000 %       yes
+  grouped / published - 1, decode, point           0.000 % [-0.03, 0.03] +0.0095 %       yes
+  both intervals inside +-0.12 %                   yes                   yes             yes
+  decode top-1 agreement                           99.7 % [99.0, 99.95]  99.788 %        yes
+  decode max |dlogit| over every step              0.12 [0.04, 0.5]      13.13           NO, far above
+
+The miss is large and not explained here. The A/B's first decode steps moved the logits by 2.5e-2 to
+6.6e-2; over 49,140 teacher-forced steps a few steps move one logit by more than 1, the worst by 13.
+They are isolated: the NLL differences stay at 1e-4 nats a window and the top-1 token differs in
+0.21 % of steps. One reading, not tested: where two keys nearly tie in an attention row, a rounding
+difference switches which one dominates, and that position's hidden state moves by a lot. This run
+cannot say whether the published path shows spikes of the same size between its own two paths: it
+compared logits across forms only.
+
+THE DECISION RULES (prereg section 7)
+-------------------------------------
+  Both intervals lie inside [-0.12 %, +0.12 %]: the tolerance is met. By the prereg, the grouped
+  form on the Grow store becomes the served attention in a follow-up commit, with a new reference
+  decoded line for gate 4 of later runs, and how it is switched on (an engine default of the served
+  door or a field of the served config) goes to the operator with that commit. The max |dlogit|
+  miss is reported beside the decision; it is not one of its criteria.
+
+WHAT THIS DOES NOT ESTABLISH
+----------------------------
+  - Task accuracy (GSM8K, MMLU through the kernel).
+  - The 8,192 context: windows stop at 4,096, the fused prefill's rows.
+  - The size of rounding spikes inside the published path itself, the reference the max |dlogit|
+    miss would need.
+  - Anything at 8B or 14B, on another card, or on Metal.

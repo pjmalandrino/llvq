@@ -1,0 +1,21 @@
+Cuda(CudaDevice(DeviceId(1))), dtype F16, 32 tokens
+
+served config: /out/tk-sweep-4b-2026-11-04/qwen3-4b-tetra-e4-grouped.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention grouped on grow(256)) — The qwen3-4b-tetra-e4 object (qwen3-4b-sealed.bin, sha256 886391a8), served with the grouped attention: the cached key and value heads are read where they lie, on a Grow(256) store, with no repeat_kv copy. Decodes the 4B at 134.4 tok/s after a 5-token prompt and 77.5 at 8,192 of context against 121.9 and 33.1 for the expanded form (measured, gqa-ab-2026-11-01). Not bit for bit on the card past 5 tokens: licensed by the tolerance of ETAT section 4, paired WikiText-2 perplexity +0.0000 % by prefill and +0.0095 % [-0.0048 ; +0.0238] by decode against a band of +-0.12 % (measured, gqa-ppl-2026-11-01). Measured on the L40S and on this object only: the 8B and the 14B have never run this form, and neither has Metal, which refuses it by name.
+cudarc event tracking: off (one stream, ordered by issue)
+shared rotation: 1 (LLVQ_CONFIG), 96 rot_launches/token for 252 projections
+projection fusion: 0 (LLVQ_CONFIG), 252 matvec_launches/token for 252 projections (0 groups + 168 lone + 84 int4)
+fused layout: tetra48 (LLVQ_CONFIG), projections 1.16 GB on the card, 2.550 b/weight (INFERENCE accounting: KeepExact tail in binary16; the bench bills its own in f32)
+NVRTC source: 101625 bytes, sha256 6193094310bc18acdb0a0c554807ff45f6df09c1f6ab49e0577032874f107812 (11 parts), tile 64 (served: measured optimum for sm_89), prefill 4x128 (served pair), 49152 B staged of 49152, target compute_89
+int4: tv_q4_hh equals tv_q4_h bit for bit on model.layers.0.self_attn.v_proj.weight (1024 rows, d_in 2560)
+embedding: q4 g64 (LLVQ_CONFIG), 1 table (model.embed_tokens.weight, lm_head tied on it), 218.8 MB on the card (int4 194.5 + scales/biases 24.3)
+total expected on the card: 1.38 GB (projections 1.16 + carried 0.22)
+prefill: 1 tokens, layout tetra48, attention grouped on grow(256), loaded in 4.3 s
+       7.3 ms a prefill of 1 tokens  [7.3–7.3], 5 rounds
+     7.323 ms a token of prompt — multiply by the prompt and by the questions
+  the census of this repository:   2280 questions ->  0.00 h at 1 tokens a prompt
+  the whole MMLU test split   :  14042 questions ->  0.03 h at 1 tokens a prompt
+  (the kernel issues ceil(1/4) launches a projection a question; the dense
+  path issues ONE and does the 2,280 in 4 min 22 s — *measured*, job 6aa414dd)
+
+  gate: 1 tokens in one call against 1 calls of one token
+  max |delta logit| = 0.000e0 on a scale of 1.441e1, argmax 738 vs 738

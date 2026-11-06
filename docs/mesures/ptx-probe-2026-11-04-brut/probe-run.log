@@ -1,0 +1,24 @@
+
+[notice] A new release of pip is available: 25.0.1 -> 26.3
+[notice] To update, run: pip install --upgrade pip
+Name: nvidia-cuda-nvrtc-cu12
+Version: 12.4.127
+Summary: NVRTC native runtime libraries
+ERROR: Pipe to stdout was broken
+Exception ignored in: <_io.TextIOWrapper name='<stdout>' mode='w' encoding='utf-8'>
+BrokenPipeError: [Errno 32] Broken pipe
+__init__.py
+__pycache__
+libnvrtc-builtins.so.12.4
+libnvrtc.so.12
+served unit: 101625 bytes, sha256 6193094310bc18acdb0a0c554807ff45f6df09c1f6ab49e0577032874f107812
+served: 12 entries
+  tv_tetra48_h: ld.shared.f32 0, ld.shared.v2.f32 0, ld.shared.v4.f32 6, fma.rn.f32 31, mul.f32 1, mul.rn.f32 0, add.f32 29, add.rn.f32 0, cvt.rn.f16.f32 1, shfl.sync.bfly.b32 5
+    epilogue float ops: add.f32 fma.rn.f32 fma.rn.f32 fma.rn.f32 fma.rn.f32 fma.rn.f32 fma.rn.f32
+  tv_tetra48_rows_h: ld.shared.f32 3, ld.shared.v2.f32 3, ld.shared.v4.f32 22, fma.rn.f32 136, mul.f32 4, mul.rn.f32 0, add.f32 64, add.rn.f32 0, cvt.rn.f16.f32 8, shfl.sync.bfly.b32 40
+    epilogue float ops: add.f32 fma.rn.f32
+bench: 7 entries
+  tv_f1r_v3g: ld.shared.f32 0, ld.shared.v2.f32 0, ld.shared.v4.f32 6, fma.rn.f32 31, mul.f32 1, mul.rn.f32 0, add.f32 29, add.rn.f32 0, cvt.rn.f16.f32 0, shfl.sync.bfly.b32 5
+    epilogue float ops: add.f32 fma.rn.f32 fma.rn.f32 fma.rn.f32 fma.rn.f32 fma.rn.f32 fma.rn.f32
+  tv_tetra48_seg: ld.shared.f32 0, ld.shared.v2.f32 0, ld.shared.v4.f32 6, fma.rn.f32 31, mul.f32 1, mul.rn.f32 0, add.f32 29, add.rn.f32 0, cvt.rn.f16.f32 0, shfl.sync.bfly.b32 5
+    epilogue float ops: add.f32 fma.rn.f32 fma.rn.f32 fma.rn.f32 fma.rn.f32 fma.rn.f32 fma.rn.f32

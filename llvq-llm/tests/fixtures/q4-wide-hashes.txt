@@ -1,0 +1,7 @@
+# tv_q4_hs on the host, one line per card case: d_out, d_in, seed, x_off, sha256
+# of the f16 output (little-endian), on fused::int4_synthetic(d_out, d_in, seed).
+# Written by tests/proj_q4_wide.rs (LLVQ_Q4_WIDE_FIXTURE_WRITE=1), compiled into
+# llvq-llm and read by fusedrun's LLVQ_INT4_WIDE_CHECK.
+256 25344 0x41 0 dbb7c531e02754ebb697f5822101db81d818e1b85fab8d13a7bf0342e7ee65f3
+256 25600 0x42 0 96c220bb7372d6f8e94a870aae3a14bba1873ca5bc06a28ccbf8422a13399a64
+256 25600 0x43 37 f5f57a74209f059b71a5a726d0a14ce37c6acd904e42b2ff2d2c1534c0c5ce91

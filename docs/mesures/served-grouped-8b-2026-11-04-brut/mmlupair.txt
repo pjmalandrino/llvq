@@ -1,0 +1,31 @@
+
+========================================================================
+A = /out/sealed-8b27-2026-09-24/qwen3-8b-sealed-B.bin [LLVQ 2-bit, SERVED KERNEL, tetra48, attention grouped]
+    docs/mesures/served-grouped-8b-2026-11-04-brut/mmlu-8b-grouped.csv
+    config=/out/served-grouped-8b-2026-11-04/qwen3-8b-tetra-e4-grouped.json, arithmetic=served kernel, layout=tetra48, embed=q4, rot_share=1, fuse=0, kv=f16, attention=grouped
+B = /out/sealed-8b27-2026-09-24/qwen3-8b-sealed-B.bin [LLVQ 2-bit, SERVED KERNEL, tetra48, attention expanded]
+    docs/mesures/served-grouped-8b-2026-11-04-brut/mmlu-8b-expanded.csv
+    config=/out/served-grouped-8b-2026-11-04/qwen3-8b-tetra-e4.json, arithmetic=served kernel, layout=tetra48, embed=q4, rot_share=1, fuse=0, kv=f16, attention=expanded
+285 paired questions, 57 subjects · dtype f16 / f16 · limit 5 / 5
+sampling plan: flat, 5 per subject, 285 questions / flat, 5 per subject, 285 questions
+run fingerprint: ef389049ec30ab01 / ef389049ec30ab01 (identical)
+
+rates (Δ = A − B, in percentage points)
+  stratified micro    A  65.55 %   B  65.55 %   Δ = +0.00 pp   ← the published number
+  unweighted (pooled) A  70.88 %   B  70.88 %   Δ = +0.00 pp   ← what McNemar tests
+
+McNemar exact (unweighted)
+  A✓B✗ = 0   A✗B✓ = 0   concordant = 285   (0.0 % of the questions are discordant)
+  p = 1.0000   (z normal = +0.00)
+
+paired bootstrap stratified by subject (10000 draws, seed 0xb0075eed, finite population correction)
+  Δ stratified micro = +0.00 pp   CI95 [+0.00 ; +0.00]   SE 0.00 pp
+  unweighted control = +0.00 pp   CI95 [+0.00 ; +0.00]   SE 0.00 pp
+  → the CI contains zero: the gap is not resolved by this protocol.
+
+subjects carrying the gap (contribution to the stratified Δ)
+  abstract algebra                          +0.0 pp × weight  0.7 % = +0.000 pp
+  anatomy                                   +0.0 pp × weight  1.0 % = +0.000 pp
+  astronomy                                 +0.0 pp × weight  1.1 % = +0.000 pp
+  business ethics                           +0.0 pp × weight  0.7 % = +0.000 pp
+  clinical knowledge                        +0.0 pp × weight  1.9 % = +0.000 pp

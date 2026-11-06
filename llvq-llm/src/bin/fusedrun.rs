@@ -34,9 +34,9 @@
 //! overhead — but the memory difference is the whole thesis: 8.04 GB of f16
 //! against the encoded projections plus a full-precision embedding.
 
-#[cfg(all(target_os = "linux", feature = "cuda"))]
+// Unconditional since `run_trim_ab` and `run_context_sweep`, which the Mac
+// type-checks, use them too.
 use std::time::Instant;
-#[cfg(all(target_os = "linux", feature = "cuda"))]
 use llvq_llm::model::NoCapture;
 
 #[cfg(all(target_os = "linux", feature = "cuda"))]
@@ -125,6 +125,1403 @@ fn first_divergence(a: &[u32], b: &[u32]) -> Result<Option<usize>, String> {
     Ok(a.iter().zip(b).position(|(x, y)| x != y))
 }
 
+/// The arms of `LLVQ_TRIM_AB`: the trimmed decode step, each of its three
+/// trims undone alone, and all three undone at once.
+///
+/// The three trims of 2026-10-30 are the all-zero decode mask skipped, the
+/// int4 activation read in f16 by `tv_q4_hh` instead of cast for `tv_q4_h`,
+/// and cudarc's per-allocation events turned off. Each is bit-identical by
+/// design, so every arm must return the same tokens. Each single-trim arm
+/// moves one mechanism against `trimmed` (the `check_fuse` rule); `untrimmed`
+/// is the path the published numbers were measured on.
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TrimArm {
+    Trimmed,
+    Mask,
+    Cast,
+    Events,
+    Untrimmed,
+}
+
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+impl TrimArm {
+    const ALL: [TrimArm; 5] =
+        [TrimArm::Trimmed, TrimArm::Mask, TrimArm::Cast, TrimArm::Events, TrimArm::Untrimmed];
+
+    fn name(self) -> &'static str {
+        match self {
+            TrimArm::Trimmed => "trimmed",
+            TrimArm::Mask => "+mask",
+            TrimArm::Cast => "+cast",
+            TrimArm::Events => "+events",
+            TrimArm::Untrimmed => "untrimmed",
+        }
+    }
+
+    /// Builds and adds the all-zero decode mask again.
+    fn mask(self) -> bool {
+        matches!(self, TrimArm::Mask | TrimArm::Untrimmed)
+    }
+
+    /// Casts the int4 activation to f32 for `tv_q4_h` again.
+    fn cast(self) -> bool {
+        matches!(self, TrimArm::Cast | TrimArm::Untrimmed)
+    }
+
+    /// Turns cudarc's per-allocation events back on.
+    fn events(self) -> bool {
+        matches!(self, TrimArm::Events | TrimArm::Untrimmed)
+    }
+}
+
+/// `LLVQ_TRIM_AB`: one model, every arm in every round, same order, two
+/// rounds discarded then [`ROUNDS_TIMED`]; each ratio formed round by round
+/// against `trimmed`. `set` puts the model and the runtime in an arm's state.
+/// Any token that differs between two arms or two rounds stops the run before
+/// a number is printed: the trims claim bit identity, and a speed measured on
+/// arms that disagree is not a speed of the same thing.
+///
+/// Out of the cfg-gated body so the Mac type-checks it.
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+fn run_trim_ab(
+    model: &mut llvq_llm::model::Qwen3,
+    ids: &[u32],
+    n_new: usize,
+    mut set: impl FnMut(&mut llvq_llm::model::Qwen3, TrimArm) -> anyhow::Result<()>,
+) -> anyhow::Result<()> {
+    const WARMUP: usize = 2;
+    let mut reference: Option<Vec<u32>> = None;
+    let mut rates: Vec<Vec<f64>> = vec![Vec::new(); TrimArm::ALL.len()];
+    for round in 0..WARMUP + ROUNDS_TIMED {
+        for (k, arm) in TrimArm::ALL.into_iter().enumerate() {
+            set(model, arm)?;
+            let t = Instant::now();
+            let out = model.generate(ids, n_new, &mut NoCapture)?;
+            let rate = n_new as f64 / t.elapsed().as_secs_f64();
+            match &reference {
+                None => reference = Some(out),
+                Some(r) => {
+                    if let Some(i) = first_divergence(r, &out).map_err(|e| anyhow::anyhow!("{e}"))? {
+                        anyhow::bail!(
+                            "round {round}, arm {}: divergence at token {i}. The trims are \
+                             bit-identical by design, and arms that disagree void the run",
+                            arm.name()
+                        );
+                    }
+                }
+            }
+            if round >= WARMUP {
+                rates[k].push(rate);
+            }
+        }
+    }
+    set(model, TrimArm::Trimmed)?;
+    let n_tokens = reference.map_or(0, |r| r.len());
+    println!(
+        "\n{} arms × {ROUNDS_TIMED} interleaved rounds after {WARMUP} discarded, \
+         {n_tokens} identical tokens in every arm and round",
+        TrimArm::ALL.len()
+    );
+    println!("  arm         tok/s [range]           trimmed / arm, round by round");
+    for (k, arm) in TrimArm::ALL.into_iter().enumerate() {
+        let (m, lo, hi) = rate_stats(&rates[k]);
+        if k == 0 {
+            println!("  {:<10}  {m:6.1} [{lo:.1}–{hi:.1}]", arm.name());
+            continue;
+        }
+        let ratios: Vec<f64> = rates[0].iter().zip(&rates[k]).map(|(a, b)| a / b).collect();
+        let (mr, lr, hr) = rate_stats(&ratios);
+        println!(
+            "  {:<10}  {m:6.1} [{lo:.1}–{hi:.1}]    {mr:.4} [{lr:.4}–{hr:.4}]",
+            arm.name()
+        );
+    }
+    Ok(())
+}
+
+/// The prompt lengths of `LLVQ_CONTEXTS`, comma-separated, each above zero.
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+fn parse_contexts(v: &str) -> Result<Vec<usize>, String> {
+    parse_lengths("LLVQ_CONTEXTS", v)
+}
+
+/// Prompt lengths, comma-separated, each above zero, read from `var`.
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+fn parse_lengths(var: &str, v: &str) -> Result<Vec<usize>, String> {
+    let lengths = v
+        .split(',')
+        .map(|s| s.trim().parse::<usize>())
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("{var}={v:?}: {e}"))?;
+    if lengths.is_empty() || lengths.contains(&0) {
+        return Err(format!("{var}={v:?}: every prompt length must be above zero"));
+    }
+    Ok(lengths)
+}
+
+/// The value of `LLVQ_GQA_PPL`: `<ctx>,<windows>` scores the grouped form
+/// against the published one from window 0, as every control so far did;
+/// `<ctx>,<windows>,<first>,kernel` scores the kernel form against the grouped
+/// one (the served form) from window index `<first>`, so that a T8 control
+/// takes windows no earlier control scored.
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+#[derive(Debug, PartialEq, Eq)]
+struct GqaPplSpec {
+    ctx: usize,
+    windows: usize,
+    first: usize,
+    kernel: bool,
+    /// `kernel0`: MEASUREMENT FORM, every decode row on the kernel from
+    /// position 0, the T8 extension below `KERNEL_FROM` that serving 4E at a
+    /// short prompt would need. Implies `kernel`.
+    every_row: bool,
+}
+
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+fn parse_gqa_ppl(v: &str) -> Result<GqaPplSpec, String> {
+    let parts: Vec<&str> = v.split(',').map(str::trim).collect();
+    let (nums, kernel, every_row) = match parts.as_slice() {
+        [c, w] => (vec![*c, *w], false, false),
+        [c, w, f, "kernel"] => (vec![*c, *w, *f], true, false),
+        [c, w, f, "kernel0"] => (vec![*c, *w, *f], true, true),
+        _ => {
+            return Err(format!(
+                "LLVQ_GQA_PPL={v:?}: expected <ctx>,<windows> (grouped against published, from \
+                 window 0), <ctx>,<windows>,<first>,kernel (kernel against grouped) or \
+                 <ctx>,<windows>,<first>,kernel0 (kernel on every row against grouped)"
+            ))
+        }
+    };
+    let n = nums
+        .iter()
+        .map(|s| s.parse::<usize>().map_err(|e| format!("LLVQ_GQA_PPL={v:?}: {s:?}: {e}")))
+        .collect::<Result<Vec<_>, _>>()?;
+    let spec = GqaPplSpec { ctx: n[0], windows: n[1], first: n.get(2).copied().unwrap_or(0), kernel, every_row };
+    if spec.ctx < 2 || spec.windows < 2 {
+        return Err(format!("LLVQ_GQA_PPL={v:?}: two windows of two tokens at least"));
+    }
+    // The published-against-grouped mode scores the prefill path of every
+    // window in one forward, bounded by the fused prefill's rows. The kernel
+    // mode scores that path on its first window only, and only when it fits.
+    if !spec.kernel && spec.ctx > llvq_llm::model::MAX_PREFILL_ROWS {
+        return Err(format!(
+            "LLVQ_GQA_PPL: a window of {} exceeds the fused prefill's {} rows",
+            spec.ctx,
+            llvq_llm::model::MAX_PREFILL_ROWS
+        ));
+    }
+    // The kernel form sends a position to its kernel from KERNEL_FROM on: a
+    // window must reach past it, or the mode scores the grouped form twice.
+    let from = llvq_llm::kvq::KERNEL_FROM;
+    if spec.kernel && !spec.every_row && spec.ctx <= from + 1 {
+        return Err(format!(
+            "LLVQ_GQA_PPL: a window of {} never reaches the kernel, which takes positions {from} \
+             and later; ask {} tokens at least",
+            spec.ctx,
+            from + 2
+        ));
+    }
+    Ok(spec)
+}
+
+/// The arms of `LLVQ_GQA_AB`: the published attention (`Cat` store, expanded
+/// heads), and the two forms that read the cached heads unexpanded from a
+/// store grown in place by [`llvq_llm::kvq::GROW_CHUNK`] positions.
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum GqaArm {
+    Published,
+    Shared,
+    Grouped,
+    /// Decode and verify rows through the split-KV attention kernel
+    /// (`llvq_llm::attn`), longer calls through the grouped path. Not in
+    /// [`GqaArm::ALL`]: only `LLVQ_GQA_PPL`'s kernel mode runs it, which
+    /// installs the kernel first.
+    Kernel,
+}
+
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+impl GqaArm {
+    const ALL: [GqaArm; 3] = [GqaArm::Published, GqaArm::Shared, GqaArm::Grouped];
+
+    fn store(self) -> llvq_llm::kvq::KvStore {
+        match self {
+            GqaArm::Published => llvq_llm::kvq::KvStore::Cat,
+            GqaArm::Shared | GqaArm::Grouped | GqaArm::Kernel => {
+                llvq_llm::kvq::KvStore::Grow(llvq_llm::kvq::GROW_CHUNK)
+            }
+        }
+    }
+
+    fn heads(self) -> llvq_llm::kvq::AttnHeads {
+        match self {
+            GqaArm::Published => llvq_llm::kvq::AttnHeads::Expanded,
+            GqaArm::Shared => llvq_llm::kvq::AttnHeads::Shared,
+            GqaArm::Grouped => llvq_llm::kvq::AttnHeads::Grouped,
+            GqaArm::Kernel => llvq_llm::kvq::AttnHeads::Kernel,
+        }
+    }
+
+    /// What every line of the table prints: the store and the form, as set.
+    fn name(self) -> String {
+        format!("{}+{}", self.store().label(), self.heads().label())
+    }
+
+    fn apply(self, m: &mut llvq_llm::model::Qwen3) {
+        m.set_kv_store(self.store());
+        m.set_attn_heads(self.heads());
+    }
+}
+
+/// "bit for bit" when two logit vectors agree in every bit, else their
+/// largest absolute difference.
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+fn logit_agreement(a: &[f32], b: &[f32]) -> String {
+    if a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.to_bits() == y.to_bits()) {
+        return "bit for bit".to_string();
+    }
+    let d = a.iter().zip(b).map(|(x, y)| (x - y).abs()).fold(0f32, f32::max);
+    format!("max |dlogit| {d:.3e}")
+}
+
+/// What one arm's prefill leaves for its decode rounds.
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+struct Prefilled {
+    caches: Vec<llvq_llm::model::KvCache>,
+    first: u32,
+    prompt_logits: Vec<f32>,
+    step_logits: Vec<f32>,
+}
+
+/// `LLVQ_GQA_AB`: for each prompt length, one prefill per arm, outside every
+/// clock, then one discarded and [`ROUNDS_TIMED`] greedy decodes of `n_new`
+/// tokens from it, every arm in every round, each cache truncated back to the
+/// prompt before each decode (`a_truncated_cache_decodes_like_a_fresh_one`).
+/// The decode speed is `(n_new − 1) / t`, the reading of `LLVQ_CONTEXTS`.
+///
+/// Two outcomes are printed, never gated: whether each unexpanded arm's logits
+/// are the published arm's bit for bit (the prompt's last position, then the
+/// first decode step), and whether its text is. Within one arm, a text that
+/// changes between rounds stops the run: that is a speed of two things.
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+fn run_gqa_ab(
+    model: &mut llvq_llm::model::Qwen3,
+    seed: &[u32],
+    lengths: &[usize],
+    n_new: usize,
+) -> anyhow::Result<()> {
+    if n_new < 2 || seed.is_empty() {
+        anyhow::bail!(
+            "LLVQ_GQA_AB needs a seed prompt and at least 2 new tokens: the decode is timed \
+             after the first one ({n_new} asked)"
+        );
+    }
+    let chunk = llvq_llm::model::MAX_PREFILL_ROWS;
+    let reference = GqaArm::Published.name();
+    println!(
+        "GQA A/B: {} arms, {n_new} new tokens after each prompt, the prompt in chunks of {chunk}; \
+         one prefill an arm, then 1 discarded + {ROUNDS_TIMED} decodes from it, every arm in \
+         every round",
+        GqaArm::ALL.len()
+    );
+    for &n in lengths {
+        let ids: Vec<u32> = (0..n).map(|i| seed[i % seed.len()]).collect();
+        let mut arms = Vec::with_capacity(GqaArm::ALL.len());
+        for arm in GqaArm::ALL {
+            arm.apply(model);
+            let mut caches = model.fresh_caches();
+            let lp = model.prefill_chunked(&ids, chunk, &mut caches)?;
+            let first = llvq_llm::model::argmax_last(&lp)?;
+            let ls = model.step_logits(first, n, &mut caches)?;
+            arms.push(Prefilled {
+                caches,
+                first,
+                prompt_logits: lp.flatten_all()?.to_vec1::<f32>()?,
+                step_logits: ls.flatten_all()?.to_vec1::<f32>()?,
+            });
+        }
+        println!("\nprompt {n}");
+        for (k, arm) in GqaArm::ALL.into_iter().enumerate().skip(1) {
+            println!(
+                "  {:<18}  logits against {reference}: prompt {}, first decode step {}",
+                arm.name(),
+                logit_agreement(&arms[0].prompt_logits, &arms[k].prompt_logits),
+                logit_agreement(&arms[0].step_logits, &arms[k].step_logits)
+            );
+        }
+        let mut rates: Vec<Vec<f64>> = vec![Vec::new(); GqaArm::ALL.len()];
+        let mut texts: Vec<Option<Vec<u32>>> = vec![None; GqaArm::ALL.len()];
+        for round in 0..=ROUNDS_TIMED {
+            for (k, arm) in GqaArm::ALL.into_iter().enumerate() {
+                arm.apply(model);
+                let p = &mut arms[k];
+                for c in p.caches.iter_mut() {
+                    c.truncate(n)?;
+                }
+                let t = Instant::now();
+                let out = model.decode_greedy(p.first, n, n_new, &mut p.caches)?;
+                let rate = (n_new - 1) as f64 / t.elapsed().as_secs_f64();
+                match &texts[k] {
+                    None => texts[k] = Some(out),
+                    Some(r) => {
+                        if let Some(i) = first_divergence(r, &out).map_err(|e| anyhow::anyhow!("{e}"))? {
+                            anyhow::bail!(
+                                "prompt {n}, arm {}, round {round}: divergence at token {i}. \
+                                 An arm must repeat its own text, or its speed is not the speed \
+                                 of one thing",
+                                arm.name()
+                            );
+                        }
+                    }
+                }
+                if round > 0 {
+                    rates[k].push(rate);
+                }
+            }
+        }
+        println!("  arm                 decode tok/s [range]     arm / {reference}, round by round    text");
+        let base = texts[0].clone().unwrap_or_default();
+        for (k, arm) in GqaArm::ALL.into_iter().enumerate() {
+            let (m, lo, hi) = rate_stats(&rates[k]);
+            if k == 0 {
+                println!("  {:<18}  {m:7.1} [{lo:.1}–{hi:.1}]", arm.name());
+                continue;
+            }
+            let ratios: Vec<f64> = rates[k].iter().zip(&rates[0]).map(|(a, b)| a / b).collect();
+            let (mr, lr, hr) = rate_stats(&ratios);
+            let text = match first_divergence(&base, texts[k].as_deref().unwrap_or_default())
+                .map_err(|e| anyhow::anyhow!("{e}"))?
+            {
+                None => format!("{} tokens identical", base.len()),
+                Some(i) => format!("differs from token {i}"),
+            };
+            println!(
+                "  {:<18}  {m:7.1} [{lo:.1}–{hi:.1}]    {mr:.4} [{lr:.4}–{hr:.4}]          {text}",
+                arm.name()
+            );
+        }
+    }
+    GqaArm::Published.apply(model);
+    Ok(())
+}
+
+/// `LLVQ_CONTEXTS`: for each prompt length, the time to the first token and
+/// the decode speed after it, one discarded generation then
+/// [`ROUNDS_TIMED`], tokens identical across rounds. The prompt repeats
+/// `seed` to length, as `LLVQ_PREFILL_TOKENS` does: no kernel branches on
+/// the ids. The published tok/s divides the whole generation, prompt
+/// included, by the new tokens; at a 5-token prompt the two readings agree,
+/// at 8,192 they do not, which is why this one splits the clock.
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+fn run_context_sweep(
+    model: &llvq_llm::model::Qwen3,
+    dec: &mut llvq_llm::served_decode::Decoder,
+    seed: &[u32],
+    lengths: &[usize],
+    n_new: usize,
+) -> anyhow::Result<()> {
+    if n_new < 2 || seed.is_empty() {
+        anyhow::bail!(
+            "LLVQ_CONTEXTS needs a seed prompt and at least 2 new tokens: the decode is \
+             timed after the first one ({n_new} asked)"
+        );
+    }
+    let chunk = llvq_llm::model::MAX_PREFILL_ROWS;
+    println!(
+        "context sweep: {n_new} new tokens after each prompt, the prompt in chunks of \
+         {chunk}, 1 discarded + {ROUNDS_TIMED} rounds"
+    );
+    println!("  prompt    to first token, s       decode tok/s [range]      ms a decode token");
+    let mut generated = Vec::with_capacity(lengths.len());
+    for &n in lengths {
+        let ids: Vec<u32> = (0..n).map(|i| seed[i % seed.len()]).collect();
+        let (mut first, mut rate) = (Vec::new(), Vec::new());
+        let mut reference: Option<Vec<u32>> = None;
+        for round in 0..=ROUNDS_TIMED {
+            let g = dec.generate_timed(model, &ids, n_new, chunk)?;
+            match &reference {
+                None => reference = Some(g.tokens),
+                Some(r) => {
+                    if let Some(i) =
+                        first_divergence(r, &g.tokens).map_err(|e| anyhow::anyhow!("{e}"))?
+                    {
+                        anyhow::bail!("prompt {n}, round {round}: divergence at token {i}");
+                    }
+                }
+            }
+            if round > 0 {
+                first.push(g.prompt_s);
+                rate.push((n_new - 1) as f64 / g.decode_s);
+            }
+        }
+        // Under the persistent decode, 4E owes the eager path's tokens under
+        // the same config (the kernel form from position 0): one eager run a
+        // length, compared token for token, or the sweep is void.
+        if dec.is_persistent() {
+            let eager = model.generate_timed(&ids, n_new, chunk)?;
+            let r = reference.as_ref().expect("set by round 0");
+            if let Some(i) = first_divergence(&eager.tokens, r).map_err(|e| anyhow::anyhow!("{e}"))? {
+                anyhow::bail!("prompt {n}: 4E diverges from the eager path under this config at token {i}; the run is void");
+            }
+            println!("  prompt {n}: 4E tokens equal the eager path's under this config, {} of {}", r.len(), eager.tokens.len());
+        }
+        let (fm, fl, fh) = rate_stats(&first);
+        let (rm, rl, rh) = rate_stats(&rate);
+        println!(
+            "  {n:>6}    {fm:7.2} [{fl:.2}–{fh:.2}]    {rm:7.1} [{rl:.1}–{rh:.1}]    {:7.2}",
+            1000.0 / rm
+        );
+        generated.push((n, reference.unwrap_or_default()));
+    }
+    // The tokens each prompt produced, below the table, so two configs'
+    // sweeps can be compared token for token after the job: the attention
+    // kernel's form must equal the grouped form's wherever every decoded
+    // position lies below its threshold.
+    for (n, t) in &generated {
+        let ids: Vec<String> = t.iter().map(u32::to_string).collect();
+        println!(
+            "  tokens after {n}: {:016x} {}",
+            llvq_llm::eval::token_fingerprint(t),
+            ids.join(",")
+        );
+    }
+    Ok(())
+}
+
+/// Two-sided 95 % Student quantile for `df` degrees of freedom, from the
+/// table for 1 to 30 and the normal value beyond.
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+fn t95(df: usize) -> f64 {
+    const T: [f64; 30] = [
+        12.706, 4.303, 3.182, 2.776, 2.571, 2.447, 2.365, 2.306, 2.262, 2.228, 2.201, 2.179, 2.160,
+        2.145, 2.131, 2.120, 2.110, 2.101, 2.093, 2.086, 2.080, 2.074, 2.069, 2.064, 2.060, 2.056,
+        2.052, 2.048, 2.045, 2.042,
+    ];
+    match df {
+        0 => f64::NAN,
+        1..=30 => T[df - 1],
+        _ => 1.96,
+    }
+}
+
+/// Per-window differences of mean NLL, `b − a`, as `ppl_b / ppl_a − 1` in %:
+/// the median-free point `exp(mean) − 1` and its paired 95 % t interval.
+/// Every window scores the same number of tokens, so `exp(mean d)` is the
+/// ratio of the two perplexities exactly.
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+fn paired_ppl_pct(a: &[f64], b: &[f64]) -> (f64, f64, f64) {
+    let d: Vec<f64> = a.iter().zip(b).map(|(x, y)| y - x).collect();
+    let n = d.len() as f64;
+    let m = d.iter().sum::<f64>() / n;
+    let sd = (d.iter().map(|x| (x - m).powi(2)).sum::<f64>() / (n - 1.0)).sqrt();
+    let h = t95(d.len().saturating_sub(1)) * sd / n.sqrt();
+    let pct = |x: f64| x.exp_m1() * 100.0;
+    (pct(m), pct(m - h), pct(m + h))
+}
+
+/// `LLVQ_GQA_PPL`: WikiText-2 perplexity of the published attention and of
+/// the grouped form, on the same windows, by two paths. The prefill path is
+/// [`llvq_llm::model::Qwen3::window_nll`], the whole window in one forward.
+/// The decode path is [`llvq_llm::model::Qwen3::decode_nll_paired`], the
+/// window fed one true token at a time through each arm's cache, the two arms
+/// in lockstep. The windows are the sampling unit: each difference is paired
+/// window by window. The published arm's two paths must agree to rounding,
+/// which checks the harness, not the forms.
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+fn run_gqa_ppl(
+    model: &mut llvq_llm::model::Qwen3,
+    ids: &[u32],
+    spec: &GqaPplSpec,
+) -> anyhow::Result<()> {
+    let (ctx, windows, first) = (spec.ctx, spec.windows, spec.first);
+    let nwin = (ids.len() / ctx).saturating_sub(first).min(windows);
+    if nwin < 2 || ctx < 2 {
+        anyhow::bail!(
+            "LLVQ_GQA_PPL needs two windows of two tokens at least: {} tokens, ctx {ctx}, {windows} asked",
+            ids.len()
+        );
+    }
+    let span = &ids[first * ctx..(first + nwin) * ctx];
+    let fingerprint = llvq_llm::eval::token_fingerprint(span);
+    let arms = match spec.kernel {
+        false => [GqaArm::Published, GqaArm::Grouped],
+        true => [GqaArm::Grouped, GqaArm::Kernel],
+    };
+    // The kernel takes no call of more than 8 rows, so its prefill path IS
+    // the grouped arm's: checked bit for bit on the first window when that
+    // window fits one prefill call, never scored for the interval.
+    let prefill_windows = match (spec.kernel, ctx <= llvq_llm::model::MAX_PREFILL_ROWS) {
+        (false, _) => nwin,
+        (true, true) => 1,
+        (true, false) => 0,
+    };
+    if spec.kernel {
+        println!(
+            "GQA perplexity: wikitext2, {nwin} windows of {ctx} from window {first} (tokens \
+             {fingerprint:016x}), {} against {}, decode path in lockstep; prefill path on {} window(s), \
+             checked bit for bit",
+            arms[1].name(),
+            arms[0].name(),
+            prefill_windows
+        );
+        println!(
+            "  the kernel form takes positions {} and later: positions 0..{} checked bit for bit \
+             against the grouped arm, positions {}..{} scored apart ({} a window)",
+            model.kernel_from(),
+            model.kernel_from(),
+            model.kernel_from(),
+            ctx - 1,
+            ctx - 1 - model.kernel_from()
+        );
+    } else {
+        println!(
+            "GQA perplexity: wikitext2, {nwin} windows of {ctx} (tokens {fingerprint:016x}), {} against {}, \
+             prefill path then decode path in lockstep",
+            arms[1].name(),
+            arms[0].name()
+        );
+    }
+    let mut pre: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
+    let mut dec: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
+    let mut tail: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
+    let (mut agree, mut steps, mut max_d) = (0usize, 0usize, 0f32);
+    let (mut tail_agree, mut tail_steps) = (0usize, 0usize);
+    // The kernel arm is the grouped form's below its threshold: those steps
+    // are checked bit for bit and scored apart from the ones past it.
+    let split = if spec.kernel { model.kernel_from() } else { 0 };
+    let t0 = Instant::now();
+    for w in 0..nwin {
+        let win = &span[w * ctx..(w + 1) * ctx];
+        if w < prefill_windows {
+            for (k, arm) in arms.into_iter().enumerate() {
+                arm.apply(model);
+                let (n, c) = model.window_nll(win, &mut NoCapture)?;
+                pre[k].push(n / c as f64);
+            }
+            if spec.kernel {
+                if pre[0][w].to_bits() != pre[1][w].to_bits() {
+                    anyhow::bail!(
+                        "window {}: the kernel arm's prefill path is not the grouped arm's ({:.12} against \
+                         {:.12}); it never reaches the kernel, so this is a wiring defect",
+                        w + 1,
+                        pre[1][w],
+                        pre[0][w]
+                    );
+                }
+                println!("  window {:>3}: prefill path bit for bit between the two arms", w + 1);
+            }
+        }
+        let d = model.decode_nll_split(
+            win,
+            [(arms[0].store(), arms[0].heads()), (arms[1].store(), arms[1].heads())],
+            split,
+        )?;
+        for (v, nll) in dec.iter_mut().zip(d.nll) {
+            v.push(nll / d.count as f64);
+        }
+        for (v, nll) in tail.iter_mut().zip(d.tail_nll) {
+            v.push(nll / d.tail_count as f64);
+        }
+        agree += d.top1_agree;
+        steps += d.count;
+        tail_agree += d.tail_top1_agree;
+        tail_steps += d.tail_count;
+        max_d = max_d.max(d.max_dlogit);
+        if spec.kernel {
+            if d.below_differ > 0 {
+                anyhow::bail!(
+                    "window {}: {} of the {split} steps below position {split} differ between the \
+                     two arms; the kernel form is the grouped form's there, so this is a wiring defect",
+                    w + 1,
+                    d.below_differ
+                );
+            }
+            println!(
+                "  window {:>3}/{nwin}  {}  decode nll {:.9} {:.9}  \
+                 from {split}: nll {:.9} {:.9}  top-1 {}/{}  max |dlogit| {:.3e}  ({:.0} s)",
+                w + 1,
+                match split {
+                    0 => "every position on the kernel".to_string(),
+                    _ => format!("positions < {split}: bit for bit"),
+                },
+                dec[0][w],
+                dec[1][w],
+                tail[0][w],
+                tail[1][w],
+                d.tail_top1_agree,
+                d.tail_count,
+                d.max_dlogit,
+                t0.elapsed().as_secs_f64()
+            );
+        } else {
+            println!(
+                "  window {:>3}/{nwin}  prefill nll {:.9} {:.9}  decode nll {:.9} {:.9}  top-1 {}/{}  \
+                 max |dlogit| {:.3e}  ({:.0} s)",
+                w + 1,
+                pre[0][w],
+                pre[1][w],
+                dec[0][w],
+                dec[1][w],
+                d.top1_agree,
+                d.count,
+                d.max_dlogit,
+                t0.elapsed().as_secs_f64()
+            );
+        }
+    }
+    arms[0].apply(model);
+    if spec.kernel {
+        let ppl = |v: &[f64]| (v.iter().sum::<f64>() / v.len() as f64).exp();
+        let (m, lo, hi) = paired_ppl_pct(&dec[0], &dec[1]);
+        println!(
+            "\n  path      ppl {:<16}  ppl {:<18}  kernel / grouped − 1, paired 95 % t interval over {nwin} windows",
+            arms[0].name(),
+            arms[1].name()
+        );
+        println!("  decode    {:<20.4}  {:<22.4}  {m:+.4} % [{lo:+.4} ; {hi:+.4}]", ppl(&dec[0]), ppl(&dec[1]));
+        let (m, lo, hi) = paired_ppl_pct(&tail[0], &tail[1]);
+        println!(
+            "  from {split:<4} {:<20.4}  {:<22.4}  {m:+.4} % [{lo:+.4} ; {hi:+.4}]  (positions the kernel takes)",
+            ppl(&tail[0]),
+            ppl(&tail[1])
+        );
+        println!(
+            "  decode top-1 agreement {agree}/{steps} steps ({:.3} %), max |dlogit| {max_d:.3e}",
+            100.0 * agree as f64 / steps as f64
+        );
+        println!(
+            "  from {split}: top-1 agreement {tail_agree}/{tail_steps} steps ({:.3} %); below {split}: \
+             bit for bit in all {nwin} windows",
+            100.0 * tail_agree as f64 / tail_steps as f64
+        );
+        return Ok(());
+    }
+    let ppl = |v: &[f64]| (v.iter().sum::<f64>() / v.len() as f64).exp();
+    println!(
+        "\n  path      ppl {:<16}  ppl {:<18}  grouped / published − 1, paired 95 % t interval over {nwin} windows",
+        arms[0].name(),
+        arms[1].name()
+    );
+    for (name, v) in [("prefill", &pre), ("decode", &dec)] {
+        let (m, lo, hi) = paired_ppl_pct(&v[0], &v[1]);
+        println!(
+            "  {name:<8}  {:<20.4}  {:<22.4}  {m:+.4} % [{lo:+.4} ; {hi:+.4}]",
+            ppl(&v[0]),
+            ppl(&v[1])
+        );
+    }
+    println!(
+        "  harness: decode over prefill on the published arm, ppl ratio {:.5}",
+        ppl(&dec[0]) / ppl(&pre[0])
+    );
+    println!(
+        "  decode top-1 agreement {agree}/{steps} steps ({:.3} %), max |dlogit| {max_d:.3e}",
+        100.0 * agree as f64 / steps as f64
+    );
+    Ok(())
+}
+
+/// The arms of `LLVQ_GESTURE_AB`, Part A of the gestures prereg: the token
+/// boundary of the decode loop, one mechanism an arm against its neighbour
+/// (`llvq_llm::model::TokenLoop`). `Base` is `generate` itself, untouched.
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum GestureArm {
+    Base,
+    F16,
+    Key,
+    OnDevKey,
+    OnDevCandle,
+}
+
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+impl GestureArm {
+    const ALL: [GestureArm; 5] =
+        [GestureArm::Base, GestureArm::F16, GestureArm::Key, GestureArm::OnDevKey, GestureArm::OnDevCandle];
+
+    fn name(self) -> &'static str {
+        match self {
+            GestureArm::Base => "base",
+            GestureArm::F16 => "f16",
+            GestureArm::Key => "key",
+            GestureArm::OnDevKey => "ondev-key",
+            GestureArm::OnDevCandle => "ondev-candle",
+        }
+    }
+
+    fn run(
+        self,
+        m: &llvq_llm::model::Qwen3,
+        ids: &[u32],
+        n: usize,
+        key: &dyn llvq_llm::model::KeyKernel,
+    ) -> candle_core::Result<Vec<u32>> {
+        use llvq_llm::model::TokenLoop;
+        match self {
+            GestureArm::Base => m.generate(ids, n, &mut NoCapture),
+            GestureArm::F16 => m.generate_loop(ids, n, &TokenLoop::F16),
+            GestureArm::Key => m.generate_loop(ids, n, &TokenLoop::Key(key)),
+            GestureArm::OnDevKey => m.generate_loop(ids, n, &TokenLoop::OnDevKey(key)),
+            GestureArm::OnDevCandle => m.generate_loop(ids, n, &TokenLoop::OnDevCandle),
+        }
+    }
+}
+
+/// The ratios of `LLVQ_GESTURE_AB`, `numerator / denominator` in tok/s,
+/// formed round by round. The first four move one mechanism each and are the
+/// ones the decision rules read; the last moves three and decides nothing.
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+const GESTURE_RATIOS: [(GestureArm, GestureArm, &str); 5] = [
+    (GestureArm::F16, GestureArm::Base, "a1, the cast"),
+    (GestureArm::Key, GestureArm::F16, "a2, the key kernel"),
+    (GestureArm::OnDevKey, GestureArm::Key, "a3, readback and upload, key kernel"),
+    (GestureArm::OnDevCandle, GestureArm::F16, "a3, readback and upload, candle's argmax"),
+    (GestureArm::OnDevKey, GestureArm::Base, "three mechanisms, reported only"),
+];
+
+/// `LLVQ_GESTURE_AB`, the arms: one model, every arm in every round, same
+/// order, two rounds discarded then [`ROUNDS_TIMED`], the `run_trim_ab`
+/// protocol. Any token that differs from `Base` in any arm or round stops the
+/// run before a number is printed: every gesture claims bit identity.
+/// Returns `Base`'s tokens, the reference of the clocks.
+///
+/// Out of the cfg-gated body so the Mac type-checks it.
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+fn run_gesture_arms(
+    m: &llvq_llm::model::Qwen3,
+    ids: &[u32],
+    n_new: usize,
+    key: &dyn llvq_llm::model::KeyKernel,
+) -> anyhow::Result<Vec<u32>> {
+    const WARMUP: usize = 2;
+    let mut reference: Option<Vec<u32>> = None;
+    let mut rates: Vec<Vec<f64>> = vec![Vec::new(); GestureArm::ALL.len()];
+    for round in 0..WARMUP + ROUNDS_TIMED {
+        for (k, arm) in GestureArm::ALL.into_iter().enumerate() {
+            let t = Instant::now();
+            let out = arm.run(m, ids, n_new, key)?;
+            let rate = n_new as f64 / t.elapsed().as_secs_f64();
+            match &reference {
+                None => reference = Some(out),
+                Some(r) => {
+                    if let Some(i) = first_divergence(r, &out).map_err(|e| anyhow::anyhow!("{e}"))? {
+                        anyhow::bail!(
+                            "round {round}, arm {}: divergence at token {i}. Every gesture claims bit \
+                             identity, and arms that disagree void the run",
+                            arm.name()
+                        );
+                    }
+                }
+            }
+            if round >= WARMUP {
+                rates[k].push(rate);
+            }
+        }
+    }
+    let reference = reference.expect("at least one round ran");
+    println!(
+        "\n{} arms × {ROUNDS_TIMED} interleaved rounds after {WARMUP} discarded, {} identical tokens \
+         in every arm and round",
+        GestureArm::ALL.len(),
+        reference.len()
+    );
+    println!("  arm            tok/s [range]");
+    for (k, arm) in GestureArm::ALL.into_iter().enumerate() {
+        let (m, lo, hi) = rate_stats(&rates[k]);
+        println!("  {:<13}  {m:6.1} [{lo:.1}–{hi:.1}]", arm.name());
+    }
+    println!("  ratio, round by round                    median [range]");
+    let at = |a: GestureArm| GestureArm::ALL.iter().position(|&x| x == a).expect("every arm is in ALL");
+    for (num, den, what) in GESTURE_RATIOS {
+        let r: Vec<f64> = rates[at(num)].iter().zip(&rates[at(den)]).map(|(a, b)| a / b).collect();
+        let (mr, lr, hr) = rate_stats(&r);
+        println!(
+            "  {:>12} / {:<5}  {mr:.4} [{lr:.4}–{hr:.4}]   {what}",
+            num.name(),
+            den.name()
+        );
+    }
+    Ok(reference)
+}
+
+/// Decode steps of each pass of the `LLVQ_GESTURE_AB` clocks.
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+const CLOCK_TOKENS: usize = 64;
+
+/// `E_base` and `E_ondev`, ms a decode step: `(T(64) − T(1)) / 63` for the
+/// `Base` and `OnDevKey` arms, each pass ending on its readback, five passes
+/// interleaved, median and range. The difference removes the prefill and the
+/// first head, so what is left is 63 decode steps of each arm as it runs.
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+fn decode_step_clock(
+    m: &llvq_llm::model::Qwen3,
+    ids: &[u32],
+    key: &dyn llvq_llm::model::KeyKernel,
+    reference: &[u32],
+) -> anyhow::Result<[(f64, f64, f64); 2]> {
+    let arms = [GestureArm::Base, GestureArm::OnDevKey];
+    let mut e: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
+    for _ in 0..ROUNDS_TIMED {
+        for (k, arm) in arms.into_iter().enumerate() {
+            let t = Instant::now();
+            let long = arm.run(m, ids, CLOCK_TOKENS, key)?;
+            let t_long = t.elapsed().as_secs_f64();
+            let t = Instant::now();
+            let short = arm.run(m, ids, 1, key)?;
+            let t_short = t.elapsed().as_secs_f64();
+            for (got, n) in [(&long, CLOCK_TOKENS), (&short, 1)] {
+                if let Some(i) = first_divergence(&reference[..n], got).map_err(|e| anyhow::anyhow!("{e}"))? {
+                    anyhow::bail!("clock, arm {}, {n} tokens: divergence at token {i}", arm.name());
+                }
+            }
+            e[k].push((t_long - t_short) * 1e3 / (CLOCK_TOKENS - 1) as f64);
+        }
+    }
+    Ok([rate_stats(&e[0]), rate_stats(&e[1])])
+}
+
+/// `LLVQ_GESTURE_AB` on the card, in order, each step gating the next: P1 the
+/// key's load check, P2 the card mutants, P3 the kernel times, P4 the
+/// pageable-copy probe, the arms, then the clocks.
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+fn run_gesture_mode(
+    m: &llvq_llm::model::Qwen3,
+    device: &candle_core::Device,
+    ids: &[u32],
+    n_new: usize,
+) -> anyhow::Result<()> {
+    use llvq_llm::gesture_cuda::{kill_card_mutants, GestureProbe, KeyArgmax, P4_SPIN_NS};
+
+    let key = KeyArgmax::new(device)?;
+    println!("tok_argmax_h: own NVRTC module, source sha256 {}", key.sha256);
+    match key.check(device)? {
+        Ok(line) => println!("P1 {line}"),
+        Err(why) => anyhow::bail!("P1, the key's load check: {why}. The run is void"),
+    }
+    let killed = kill_card_mutants(device)?;
+    println!(
+        "P2 {} of {} card mutants killed on the card, each edit found exactly once",
+        killed.len(),
+        llvq_llm::argmax_key::KERNEL_MUTANTS.len()
+    );
+    for line in &killed {
+        println!("{line}");
+    }
+
+    let probe = GestureProbe::new(device)?;
+    let logits = {
+        let mut caches = m.fresh_caches();
+        let input = candle_core::Tensor::from_slice(ids, (1, ids.len()), device)?;
+        let h = m.hidden_cached(&input, 0, &mut caches, &mut NoCapture)?;
+        m.logits_last_native(&h)?
+    };
+    let kt = probe.kernel_times(device, &key, &logits)?;
+    println!(
+        "P3 kernel time, us a launch ({} x {} launches, median): argmax_f16 {:.2}, argmax_f32 {:.2}, \
+         cast {:.2}, key {:.2}, candle argmax call {:.2}",
+        llvq_llm::gesture_cuda::PROBE_REPS,
+        llvq_llm::gesture_cuda::PROBE_BATCH,
+        kt.argmax_f16_direct,
+        kt.argmax_f32_direct,
+        kt.cast,
+        kt.key,
+        kt.candle_argmax_call
+    );
+    let ct = probe.copy_times(device, &logits)?;
+    let power = if ct.to_scalar > 4.0 {
+        "the control waited"
+    } else {
+        "the control did NOT wait: P4 has no power, its readings are not used"
+    };
+    println!(
+        "P4 host time behind a {} ms spin, ms (median of {}): from_slice {:.3}, candle argmax {:.3}, \
+         to_scalar {:.3} ({power})",
+        P4_SPIN_NS / 1_000_000,
+        llvq_llm::gesture_cuda::PROBE_REPS,
+        ct.from_slice,
+        ct.candle_argmax,
+        ct.to_scalar
+    );
+
+    let reference = run_gesture_arms(m, ids, n_new, &key)?;
+
+    let [eb, eo] = decode_step_clock(m, ids, &key, &reference)?;
+    println!(
+        "\nclock E, ms a decode step ((T({CLOCK_TOKENS}) - T(1)) / {}, {ROUNDS_TIMED} passes): \
+         E_base {:.3} [{:.3}–{:.3}], E_ondev {:.3} [{:.3}–{:.3}], E_base - E_ondev {:.3}",
+        CLOCK_TOKENS - 1,
+        eb.0, eb.1, eb.2, eo.0, eo.1, eo.2,
+        eb.0 - eo.0
+    );
+    spun_clock(m, device, ids, &key, &probe, &reference, eo.0)
+}
+
+/// The spun clock: the `OnDevKey` step cut in segments, each enqueued behind
+/// a 5 ms spin, so the host's enqueue span H and the device's work D are
+/// read apart. A step counts only if every segment was enqueued at least
+/// 1 ms before its spin could end. No pageable copy happens inside a step.
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+fn spun_clock(
+    m: &llvq_llm::model::Qwen3,
+    device: &candle_core::Device,
+    ids: &[u32],
+    key: &llvq_llm::gesture_cuda::KeyArgmax,
+    probe: &llvq_llm::gesture_cuda::GestureProbe,
+    reference: &[u32],
+    e_ondev: f64,
+) -> anyhow::Result<()> {
+    use candle_core::{DType, Tensor};
+    use llvq_llm::model::KeyKernel;
+    const SPIN_NS: u64 = 5_000_000;
+    let layers = m.config().num_hidden_layers;
+    let at: Vec<usize> = (1..6).map(|k| k * layers / 6).collect();
+    let (mut hs, mut ds, mut slack) = (Vec::new(), Vec::new(), Vec::new());
+    let (mut valid, mut total) = (0usize, 0usize);
+    for _ in 0..ROUNDS_TIMED {
+        let mut caches = m.fresh_caches();
+        key.arm()?;
+        let ring = Tensor::zeros(CLOCK_TOKENS, DType::U32, device)?;
+        let input = Tensor::from_slice(ids, (1, ids.len()), device)?;
+        let h = m.hidden_cached(&input, 0, &mut caches, &mut NoCapture)?;
+        key.write(&m.logits_last_native(&h)?, &ring, 0)?;
+        probe.sync()?;
+        let mut cap = llvq_llm::gesture_cuda::SpinCapture::new(probe, SPIN_NS, at.clone())?;
+        let last = at.len();
+        for (pos, offset) in (1..CLOCK_TOKENS).zip(ids.len()..) {
+            cap.open(0)?;
+            let next = ring.narrow(0, pos - 1, 1)?.reshape((1, 1))?;
+            let h = m.hidden_cached(&next, offset, &mut caches, &mut cap)?;
+            key.write(&m.logits_last_native(&h)?, &ring, pos)?;
+            cap.close(last)?;
+            probe.sync()?;
+            let (h_ms, d_ms, ok) = cap.read()?;
+            total += 1;
+            if ok {
+                valid += 1;
+                hs.push(h_ms);
+                ds.push(d_ms);
+                slack.push(d_ms - h_ms);
+            }
+        }
+        let tokens = ring.to_vec1::<u32>()?;
+        if key.nan_seen()? {
+            anyhow::bail!("spun clock: a NaN logit");
+        }
+        if let Some(i) = first_divergence(&reference[..CLOCK_TOKENS], &tokens).map_err(|e| anyhow::anyhow!("{e}"))? {
+            anyhow::bail!("spun clock: divergence at token {i} from the base arm");
+        }
+    }
+    println!(
+        "clock H/D: {valid} of {total} spun steps valid ({:.1} %), {} segments a step after ln1 of \
+         layers {at:?}, {} ms spins",
+        100.0 * valid as f64 / total as f64,
+        at.len() + 1,
+        SPIN_NS / 1_000_000
+    );
+    if valid == 0 {
+        println!("  no valid step: H and D are not measured");
+        return Ok(());
+    }
+    let (h, hl, hh) = rate_stats(&hs);
+    let (d, dl, dh) = rate_stats(&ds);
+    let (s, sl, sh) = rate_stats(&slack);
+    println!(
+        "  H {h:.3} [{hl:.3}–{hh:.3}] ms, D {d:.3} [{dl:.3}–{dh:.3}] ms, slack D - H {s:.3} \
+         [{sl:.3}–{sh:.3}] ms, X_ondev = E_ondev - D {:.3} ms",
+        e_ondev - d
+    );
+    Ok(())
+}
+
+/// `LLVQ_BOUNDARY_AB`: one model, every arm in every round, same order, two
+/// rounds discarded then [`ROUNDS_TIMED`], the `run_trim_ab` protocol. `set`
+/// puts the model and the runtime in an arm's state. Any token that differs
+/// between two arms or two rounds stops the run before a number is printed:
+/// every arm adds boundaries and no arithmetic. So does an arm whose counted
+/// boundaries fall outside what its table row allows, or move between
+/// rounds: an arm that added nothing would otherwise time as a free boundary.
+///
+/// `t = elapsed / n_new`, and the cost of one added boundary is
+/// `(t_arm - t_served) / boundaries a token`, formed round by round
+/// (`llvq_llm::boundary::per_boundary_us`).
+///
+/// Out of the cfg-gated body so the Mac type-checks it.
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+/// The served door under a config that names the persistent decode. The eager
+/// path under the same config (the kernel form from position 0) makes the
+/// reference tokens; 4E must make the same ones in every round, or the run is
+/// void. Then 1 discarded + [`ROUNDS_TIMED`] rounds, eager and 4E in each, both
+/// timed as the door times a generate (prompt and decode), and the decode
+/// alone beside it. The token ids are printed so a second config's door can
+/// be compared token for token after the job.
+fn served_door_4e(
+    f: &llvq_llm::fused::FusedSealed,
+    dec: &mut llvq_llm::served_decode::Decoder,
+    ids: &[u32],
+    n_new: usize,
+    load_s: f64,
+) -> anyhow::Result<()> {
+    use llvq_llm::boundary::median_range;
+    anyhow::ensure!(n_new >= 2, "the served 4E door times the decode after the first token: {n_new} asked");
+    let chunk = llvq_llm::model::MAX_PREFILL_ROWS;
+    let want = f.model.generate_timed(ids, n_new, chunk)?.tokens;
+    let (mut door, mut dec_rate, mut door_eager, mut dec_eager) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    for round in 0..=ROUNDS_TIMED {
+        let t = Instant::now();
+        let e = f.model.generate_timed(ids, n_new, chunk)?;
+        let te = t.elapsed().as_secs_f64();
+        if e.tokens != want {
+            anyhow::bail!("round {round}: the eager path moved its tokens; the run is void");
+        }
+        let t = Instant::now();
+        let g = dec.generate_timed(&f.model, ids, n_new, chunk)?;
+        let tg = t.elapsed().as_secs_f64();
+        if let Some(i) = first_divergence(&want, &g.tokens).map_err(|e| anyhow::anyhow!("{e}"))? {
+            anyhow::bail!("round {round}: 4E diverges from the eager path under this config at token {i}; the run is void");
+        }
+        if round > 0 {
+            door_eager.push(n_new as f64 / te);
+            dec_eager.push((n_new - 1) as f64 / e.decode_s);
+            door.push(n_new as f64 / tg);
+            dec_rate.push((n_new - 1) as f64 / g.decode_s);
+        }
+    }
+    println!("served door (decode persistent): 4E tokens equal the eager path's under this config, {} of {}", want.len(), want.len());
+    let bytes = f.runtime_bytes + f.carried_bytes;
+    let (m, lo, hi) = median_range(&door);
+    println!(
+        "served : loaded in {load_s:6.1} s, {m:6.1} tok/s [{lo:.1}–{hi:.1}, {ROUNDS_TIMED} rounds], {:.2} GB on the card          (4E, prompt and decode, as the door times a generate)",
+        bytes as f64 / 1e9
+    );
+    let (m, lo, hi) = median_range(&dec_rate);
+    println!("  4E decode alone          {m:7.1} tok/s [{lo:.1}-{hi:.1}]");
+    let (m, lo, hi) = median_range(&door_eager);
+    println!("  eager, same config, door {m:7.1} tok/s [{lo:.1}-{hi:.1}]");
+    let (m, lo, hi) = median_range(&dec_eager);
+    println!("  eager decode alone       {m:7.1} tok/s [{lo:.1}-{hi:.1}]");
+    let ratio: Vec<f64> = door.iter().zip(&door_eager).map(|(a, b)| a / b).collect();
+    let (m, lo, hi) = median_range(&ratio);
+    println!("  4E / eager, door, round by round: x{m:.3} [{lo:.3}-{hi:.3}]");
+    let s: Vec<String> = want.iter().map(u32::to_string).collect();
+    println!("  token ids: {:016x} {}", llvq_llm::eval::token_fingerprint(&want), s.join(","));
+    println!("  {}", f.tokenizer.decode(&want, true).unwrap_or_default());
+    Ok(())
+}
+
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+/// `LLVQ_PERS_4E` at one prompt length: the reference tokens of the eager
+/// path, each 4E geometry's after the same prefill (identical or void), the
+/// served door's beside, then 2 + 5 interleaved rounds of the decode, eager
+/// and every geometry in each round, then one stamped launch a geometry.
+fn run_pers_4e(
+    model: &mut llvq_llm::model::Qwen3,
+    rts: &mut [llvq_llm::persist4e_cuda::Runtime4e],
+    prompt: &[u32],
+    n_new: usize,
+) -> anyhow::Result<()> {
+    use llvq_llm::boundary::median_range;
+    const WARMUP: usize = 2;
+    // The form 4E and the eager side run. From KERNEL_FROM on, the served
+    // config itself (the kernel from position 1,280, operator T8): every
+    // decode row of a prompt that long is past the threshold. Below it, the
+    // served config runs candle's grouped arithmetic, which 4E does not
+    // compute: both sides then run the kernel on every row, a measurement
+    // form with no T8, as the first three readings did.
+    let from = llvq_llm::kvq::KERNEL_FROM;
+    let served_form = prompt.len() >= from;
+    let eager_from = if served_form { from } else { 0 };
+    for rt in rts.iter_mut() {
+        rt.set_kernel_from_for_measurement(eager_from);
+    }
+    let kernel_form = |m: &mut llvq_llm::model::Qwen3| {
+        GqaArm::Kernel.apply(m);
+        m.set_kernel_from_for_measurement(eager_from);
+    };
+    // The served door: the served 4B config (kernel from 1,280).
+    GqaArm::Kernel.apply(model);
+    model.set_kernel_from_for_measurement(from);
+    // In chunks of MAX_PREFILL_ROWS, the context sweep's way: an 8,192-token
+    // prompt in one call is refused by the fused prefill (run 2 of the 4E
+    // reading stopped there). At or under one chunk this is `generate`.
+    let served = model.generate_timed(prompt, n_new, llvq_llm::model::MAX_PREFILL_ROWS)?.tokens;
+    kernel_form(model);
+    println!(
+        "\n  context {}: attention {} on {}, {}",
+        prompt.len(),
+        model.attn_heads().label(),
+        model.kv_store().label(),
+        if served_form {
+            format!("the served config: every decode row at or past position {from}, inside the T8")
+        } else {
+            format!("measurement form: every decode row on the kernel (no T8; the served config runs the grouped path below {from})")
+        }
+    );
+    // One prefill for the context (chunked, `prefill_next`); every run truncates the caches back to
+    // the prompt (a Grow store's truncate moves only its length) and writes
+    // the positions after it again, eager or 4E.
+    let mut caches = model.fresh_caches();
+    let first = model.prefill_next(prompt, &mut caches)?;
+    let eager = |m: &mut llvq_llm::model::Qwen3, caches: &mut Vec<llvq_llm::model::KvCache>| -> anyhow::Result<(Vec<u32>, f64)> {
+        for c in caches.iter_mut() {
+            c.truncate(prompt.len())?;
+        }
+        let t = Instant::now();
+        let mut out = vec![first];
+        let mut offset = prompt.len();
+        while out.len() < n_new {
+            let logits = m.step_logits(*out.last().expect("one token"), offset, caches)?;
+            out.push(logits.to_dtype(candle_core::DType::F32)?.flatten_all()?.argmax(0)?.to_scalar::<u32>()?);
+            offset += 1;
+        }
+        Ok((out, t.elapsed().as_secs_f64()))
+    };
+    let pers = |rt: &mut llvq_llm::persist4e_cuda::Runtime4e, caches: &mut Vec<llvq_llm::model::KvCache>| -> anyhow::Result<(Vec<u32>, f64)> {
+        for c in caches.iter_mut() {
+            c.truncate(prompt.len())?;
+        }
+        rt.sync()?;
+        let t = Instant::now();
+        let mut out = vec![first];
+        out.extend(rt.decode(caches, prompt.len(), first, (n_new - 1) as u32, u32::MAX)?);
+        Ok((out, t.elapsed().as_secs_f64()))
+    };
+    let (want, _) = eager(model, &mut caches)?;
+    for rt in rts.iter_mut() {
+        let (got, _) = pers(rt, &mut caches)?;
+        if let Some(i) = first_divergence(&want, &got).map_err(|e| anyhow::anyhow!("{e}"))? {
+            anyhow::bail!("context {}: 4E {} diverges from the eager path at token {i}; 4E owes its bits, the run is void", prompt.len(), rt.label());
+        }
+        println!("  4E {}: tokens equal the eager path's, {} of {}", rt.label(), got.len(), want.len());
+    }
+    match first_divergence(&served, &want).map_err(|e| anyhow::anyhow!("{e}"))? {
+        None => println!("  served door (kernel from {from}): the same {} tokens", served.len()),
+        Some(i) if served_form => anyhow::bail!("context {}: the served door diverges from the eager served config at token {i}; the run is void", prompt.len()),
+        Some(i) => println!("  served door (kernel from {from}): diverges at token {i} (the measurement form's T8 reading, not a gate)"),
+    }
+    let mut rate: Vec<Vec<f64>> = vec![Vec::new(); 1 + rts.len()];
+    for round in 0..WARMUP + ROUNDS_TIMED {
+        let (a, ta) = eager(model, &mut caches)?;
+        if a != want {
+            anyhow::bail!("round {round}: the eager decode moved its tokens; the run is void");
+        }
+        if round >= WARMUP {
+            rate[0].push((n_new - 1) as f64 / ta);
+        }
+        for (k, rt) in rts.iter_mut().enumerate() {
+            let (b, tb) = pers(rt, &mut caches)?;
+            if b != want {
+                anyhow::bail!("round {round}: 4E {} moved its tokens; the run is void", rt.label());
+            }
+            if round >= WARMUP {
+                rate[1 + k].push((n_new - 1) as f64 / tb);
+            }
+        }
+    }
+    let eager_name = if served_form { "eager (served config)" } else { "eager (kernel form)" };
+    let (m, lo, hi) = median_range(&rate[0]);
+    println!("  {eager_name:<22} {m:7.1} tok/s [{lo:.1}-{hi:.1}]");
+    for (k, rt) in rts.iter().enumerate() {
+        let (m, lo, hi) = median_range(&rate[1 + k]);
+        let name = format!("4E {}", rt.label());
+        println!("  {name:<22} {m:7.1} tok/s [{lo:.1}-{hi:.1}]");
+        let ratio: Vec<f64> = rate[1 + k].iter().zip(&rate[0]).map(|(a, b)| a / b).collect();
+        let (m, lo, hi) = median_range(&ratio);
+        println!("  {:<22} 4E / eager, round by round: x{m:.3} [{lo:.3}-{hi:.3}]", "");
+        if k > 0 {
+            // against the first form, the same rounds
+            let ratio: Vec<f64> = rate[1 + k].iter().zip(&rate[1]).map(|(a, b)| a / b).collect();
+            let (m, lo, hi) = median_range(&ratio);
+            println!("  {:<22} 4E {} / 4E {}, round by round: x{m:.3} [{lo:.3}-{hi:.3}]", "", rt.label(), rts[0].label());
+        }
+    }
+    // One more launch a geometry, on the phase-stamp symbol, after the timed
+    // rounds and outside them: where the token's time goes, phase by phase
+    // and CTA by CTA (pers.rs::p4e_phase_report). The same tokens, or its
+    // stamps are void.
+    for (k, rt) in rts.iter_mut().enumerate() {
+        if !rt.can_stamp() {
+            println!("  phase stamps: no stamp symbol for 4E {}", rt.label());
+            continue;
+        }
+        for c in caches.iter_mut() {
+            c.truncate(prompt.len())?;
+        }
+        let (made, stamps) = rt.decode_stamped(&mut caches, prompt.len(), first, (n_new - 1) as u32, u32::MAX)?;
+        let mut got = vec![first];
+        got.extend(&made);
+        if got != want {
+            anyhow::bail!("context {}: the stamped launch of 4E {} moved its tokens; its stamps are void", prompt.len(), rt.label());
+        }
+        let (layers, grid) = rt.stamp_shape();
+        let r = llvq_cuda::pers::p4e_phase_report(&stamps, made.len() as u32, layers, grid).map_err(anyhow::Error::msg)?;
+        println!("  phase stamps, 4E {}:", rt.label());
+        for line in llvq_cuda::pers::p4e_report_lines(&r) {
+            println!("{line}");
+        }
+        let (m4e, _, _) = median_range(&rate[1 + k]);
+        println!("  stamped token {:.1} us against the timed 4E's {:.1} us (the stamps' own cost)", r.token.0 / 1e3, 1e6 / m4e);
+    }
+    for rt in rts.iter_mut() {
+        rt.set_kernel_from_for_measurement(from);
+    }
+    Ok(())
+}
+
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+/// `LLVQ_PERS_SEGMENT`: one model, the eager MLP and route P's segment in
+/// every round, same order, two rounds discarded, then [`ROUNDS_TIMED`].
+/// Identical tokens or the run is void; tok/s per arm, and the ratio formed
+/// round by round.
+fn run_pers_ab(
+    model: &mut llvq_llm::model::Qwen3,
+    ids: &[u32],
+    n_new: usize,
+    inst: &llvq_llm::persist_cuda::Installed,
+) -> anyhow::Result<()> {
+    use llvq_llm::boundary::median_range;
+    const WARMUP: usize = 2;
+    let names = ["eager", "segment"];
+    let mut reference: Option<Vec<u32>> = None;
+    let mut rate: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
+    for round in 0..WARMUP + ROUNDS_TIMED {
+        for (k, name) in names.iter().enumerate() {
+            if k == 0 {
+                llvq_llm::persist_cuda::clear(model);
+            } else {
+                inst.set(model);
+            }
+            let t = Instant::now();
+            let out = model.generate(ids, n_new, &mut NoCapture)?;
+            let s = t.elapsed().as_secs_f64();
+            match &reference {
+                None => reference = Some(out),
+                Some(r) => {
+                    if let Some(i) = first_divergence(r, &out).map_err(|e| anyhow::anyhow!("{e}"))? {
+                        anyhow::bail!("round {round}, arm {name}: divergence at token {i}; the segment owes the \
+                                       eager bits, and the run is void");
+                    }
+                }
+            }
+            if round >= WARMUP {
+                rate[k].push(n_new as f64 / s);
+            }
+        }
+    }
+    llvq_llm::persist_cuda::clear(model);
+    println!("  {n_new} tokens identical across 2 arms and {} rounds", WARMUP + ROUNDS_TIMED);
+    for (k, name) in names.iter().enumerate() {
+        let (m, lo, hi) = median_range(&rate[k]);
+        println!("  {name:<8} {m:7.1} tok/s [{lo:.1}-{hi:.1}]");
+    }
+    let ratio: Vec<f64> = rate[1].iter().zip(&rate[0]).map(|(a, b)| a / b).collect();
+    let (m, lo, hi) = median_range(&ratio);
+    println!("  segment / eager, round by round: x{m:.3} [{lo:.3}-{hi:.3}]");
+    Ok(())
+}
+
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+fn run_boundary_ab(
+    model: &mut llvq_llm::model::Qwen3,
+    ids: &[u32],
+    n_new: usize,
+    mut set: impl FnMut(&mut llvq_llm::model::Qwen3, llvq_llm::boundary::BoundaryArm) -> anyhow::Result<()>,
+) -> anyhow::Result<()> {
+    use llvq_llm::boundary::{
+        counted_bounds, derived_series, median_range, per_boundary_us, take_added, BoundaryArm,
+        DERIVED,
+    };
+    const WARMUP: usize = 2;
+    let arms = BoundaryArm::ALL;
+    let mut reference: Option<Vec<u32>> = None;
+    let mut secs: Vec<Vec<f64>> = vec![Vec::new(); arms.len()];
+    let mut counted: Vec<Option<u64>> = vec![None; arms.len()];
+    for round in 0..WARMUP + ROUNDS_TIMED {
+        for (k, arm) in arms.into_iter().enumerate() {
+            set(model, arm)?;
+            take_added();
+            let t = Instant::now();
+            let out = model.generate(ids, n_new, &mut NoCapture)?;
+            let s = t.elapsed().as_secs_f64();
+            let added = take_added();
+            match &reference {
+                None => reference = Some(out),
+                Some(r) => {
+                    if let Some(i) = first_divergence(r, &out).map_err(|e| anyhow::anyhow!("{e}"))? {
+                        anyhow::bail!(
+                            "round {round}, arm {}: divergence at token {i}. Every arm adds \
+                             boundaries and no arithmetic, and arms that disagree void the run",
+                            arm.name()
+                        );
+                    }
+                }
+            }
+            let (lo, hi) = counted_bounds(arm, n_new, ids.len());
+            if added < lo || added > hi {
+                anyhow::bail!(
+                    "round {round}, arm {}: {added} boundaries added in a generate, outside \
+                     [{lo}, {hi}] for {} a decode step. The arm is not wired as its row says, \
+                     and the run is void",
+                    arm.name(),
+                    arm.boundaries_per_token()
+                );
+            }
+            match counted[k] {
+                None => counted[k] = Some(added),
+                Some(c) if c != added => anyhow::bail!(
+                    "round {round}, arm {}: {added} boundaries added, {c} in round 0. The run is void",
+                    arm.name()
+                ),
+                Some(_) => {}
+            }
+            if round >= WARMUP {
+                secs[k].push(s / n_new as f64);
+            }
+        }
+    }
+    set(model, BoundaryArm::Served)?;
+    let n_tokens = reference.map_or(0, |r| r.len());
+    println!(
+        "\n{} arms × {ROUNDS_TIMED} interleaved rounds after {WARMUP} discarded, {n_tokens} \
+         identical tokens in every arm and round",
+        arms.len()
+    );
+    println!(
+        "  t = elapsed / {n_new}; us per added boundary = (t_arm - t_served) / boundaries a \
+         token, round by round"
+    );
+    println!("  arm             a token  a generate   tok/s [range]          us per added boundary [range]");
+    let mut per: Vec<Vec<f64>> = vec![Vec::new(); arms.len()];
+    for (k, arm) in arms.into_iter().enumerate() {
+        let rates: Vec<f64> = secs[k].iter().map(|t| 1.0 / t).collect();
+        let (m, lo, hi) = median_range(&rates);
+        let nb = arm.boundaries_per_token();
+        let c = counted[k].unwrap_or(0);
+        if nb == 0 {
+            println!("  {:<14}  {nb:>7}  {c:>10}   {m:6.1} [{lo:.1}–{hi:.1}]", arm.name());
+            continue;
+        }
+        per[k] = per_boundary_us(&secs[0], &secs[k], nb).map_err(|e| anyhow::anyhow!("{e}"))?;
+        let (pm, pl, ph) = median_range(&per[k]);
+        println!(
+            "  {:<14}  {nb:>7}  {c:>10}   {m:6.1} [{lo:.1}–{hi:.1}]   {pm:7.3} [{pl:.3}–{ph:.3}]",
+            arm.name()
+        );
+    }
+    println!("\nderived classes, us per boundary, round by round (printed, never gated)");
+    for (name, a, b) in DERIVED {
+        let d = derived_series(&per, a, b).map_err(|e| anyhow::anyhow!("{e}"))?;
+        let (m, lo, hi) = median_range(&d);
+        let note = if name == "linearity" { "   (0 when linear)" } else { "" };
+        println!(
+            "  {name:<10} = {:<14} - {:<10}  {m:7.3} [{lo:.3}–{hi:.3}]{note}",
+            a.name(),
+            b.name()
+        );
+    }
+    Ok(())
+}
+
 /// The per-phase table of one arm's fenced pass. Additive diagnostics: this
 /// runs *after* the arm's published measurement and prints below it, so the
 /// published lines stay byte-identical.
@@ -181,11 +1578,14 @@ fn main() -> anyhow::Result<()> {
         // binary into a bench of one thing, and a bench needs its arms named
         // by variables — that is what `LLVQ_CONFIG` exists to replace. Refused
         // by name rather than silently dropped, which is what happened before
-        // the audit of 2026-09-11 found it. `LLVQ_PREFILL_TOKENS` is the one
-        // exception, handled below: it is the served path's own gate.
+        // the audit of 2026-09-11 found it. `LLVQ_PREFILL_TOKENS` and
+        // `LLVQ_CONTEXTS` are the two exceptions, handled below: they time the
+        // served object as served, and change only the prompt it is given.
         if served.is_some() {
             for var in ["LLVQ_GRAPH_AB", "LLVQ_GRAPH_DIAG", "LLVQ_KV_AB", "LLVQ_FUSE_AB",
-                        "LLVQ_TIME_PHASES", "LLVQ_KV_PREALLOC", "LLVQ_SEG_ARMS"] {
+                        "LLVQ_TIME_PHASES", "LLVQ_KV_PREALLOC", "LLVQ_SEG_ARMS",
+                        "LLVQ_TRIM_AB", "LLVQ_GQA_AB", "LLVQ_GQA_PPL",
+                        "LLVQ_INT4_WIDE_CHECK", "LLVQ_GESTURE_AB", "LLVQ_BOUNDARY_AB", "LLVQ_PERS_SEGMENT", "LLVQ_PERS_4E"] {
                 if let Ok(v) = std::env::var(var) {
                     anyhow::bail!(
                         "{var}={v:?} beside LLVQ_CONFIG: that is a measurement mode, and the \
@@ -215,6 +1615,630 @@ fn main() -> anyhow::Result<()> {
         // eagerly, or replayed from the captured graph. Correctness gate
         // first (identical tokens everywhere), numbers second, round by round.
         // Phase prereg 802006c5 (frozen thresholds).
+        // ---- LLVQ_INT4_WIDE_CHECK: the f16-staged int4 kernel, bytes ----
+        //
+        // A MEASUREMENT MODE on the bench door, refused beside LLVQ_CONFIG
+        // (above) and beside every other mode. One load, then
+        // `FusedRuntime::int4_wide_check`: `tv_q4_hs` against `tv_q4_hh` on the
+        // model's first int4 record, and against the host's sha256 on the
+        // synthetic records of `fused::INT4_WIDE_CARD_CASES`
+        // (`prereg-bigmodel-2`, step 4). No token is decoded or timed. The
+        // check runs inside the load and fails it on any difference.
+        if std::env::var("LLVQ_INT4_WIDE_CHECK").ok().as_deref() == Some("1") {
+            for other in ["LLVQ_GQA_AB", "LLVQ_GQA_PPL", "LLVQ_CONTEXTS", "LLVQ_TRIM_AB",
+                          "LLVQ_PREFILL_TOKENS", "LLVQ_GRAPH_AB", "LLVQ_KV_AB", "LLVQ_FUSE_AB",
+                          "LLVQ_TIME_PHASES", "LLVQ_SEG_ARMS", "LLVQ_GESTURE_AB",
+                          "LLVQ_BOUNDARY_AB", "LLVQ_PERS_SEGMENT", "LLVQ_PERS_4E"] {
+                if std::env::var(other).is_ok() {
+                    anyhow::bail!("LLVQ_INT4_WIDE_CHECK runs alone, and {other} is set beside it");
+                }
+            }
+            let fuse = llvq_llm::fused::FuseMode::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
+            llvq_llm::fused_cuda::set_int4_wide_check(true);
+            let t = Instant::now();
+            let loaded = llvq_llm::fused_cuda::load_with(&path, &device, dtype, fuse);
+            llvq_llm::fused_cuda::set_int4_wide_check(false);
+            let _f = loaded?;
+            println!(
+                "LLVQ_INT4_WIDE_CHECK: load and checks in {:.1} s; no token decoded",
+                t.elapsed().as_secs_f64()
+            );
+            return Ok(());
+        }
+        if let Ok(v) = std::env::var("LLVQ_INT4_WIDE_CHECK") {
+            anyhow::bail!("LLVQ_INT4_WIDE_CHECK={v:?}: the only value is 1");
+        }
+        // ---- LLVQ_GESTURE_AB: the token boundary of the decode loop ----
+        //
+        // A MEASUREMENT MODE on the bench door, refused beside LLVQ_CONFIG, the
+        // served flags spelled out on the command line: Part A of the gestures
+        // prereg. ONE model in the served 4B state (Grow(256) + grouped, the
+        // three trims in force, events off before the load), the key kernel's load check
+        // and card mutants, two probes, five arms, two clocks
+        // (`run_gesture_mode`). Every arm must return the base arm's tokens.
+        // `LLVQ_KERNEL_DIR` is refused: the mutants are applied in memory to
+        // the embedded kernel text, and a directory would swap the text the
+        // load check certifies.
+        if let Ok(v) = std::env::var("LLVQ_GESTURE_AB") {
+            if v != "1" {
+                anyhow::bail!("LLVQ_GESTURE_AB={v:?}: the only value is 1");
+            }
+            for other in ["LLVQ_GQA_AB", "LLVQ_GQA_PPL", "LLVQ_CONTEXTS", "LLVQ_TRIM_AB",
+                          "LLVQ_PREFILL_TOKENS", "LLVQ_GRAPH_AB", "LLVQ_GRAPH_DIAG", "LLVQ_KV_AB",
+                          "LLVQ_FUSE_AB", "LLVQ_TIME_PHASES", "LLVQ_SEG_ARMS", "LLVQ_KERNEL_DIR",
+                          "LLVQ_INT4_WIDE_CHECK", "LLVQ_BOUNDARY_AB", "LLVQ_PERS_SEGMENT", "LLVQ_PERS_4E"] {
+                if let Ok(o) = std::env::var(other) {
+                    anyhow::bail!("LLVQ_GESTURE_AB runs alone, and {other}={o:?} is set beside it");
+                }
+            }
+            if !matches!(kv_store, llvq_llm::kvq::KvStore::Cat) {
+                anyhow::bail!("LLVQ_GESTURE_AB sets the served store itself: unset LLVQ_KV_PREALLOC");
+            }
+            if n_new < CLOCK_TOKENS {
+                anyhow::bail!("LLVQ_GESTURE_AB: {n_new} tokens, and its clocks decode {CLOCK_TOKENS}");
+            }
+            // Events off BEFORE the load, as the served door does in
+            // `load_resolved`: cudarc records a read event at every use of a
+            // slice created while tracking was on, whatever the flag says at the
+            // use, so turning it off after the load would leave every weight
+            // recording an event at every launch, a state the served door never
+            // runs in.
+            let ctx = device.as_cuda_device()?.cuda_stream().context().clone();
+            if ctx.is_in_multi_stream_mode() {
+                anyhow::bail!("LLVQ_GESTURE_AB: the context holds several streams, and turning \
+                               cudarc's events off is only safe on one");
+            }
+            // Safe: one stream, checked above, orders every access by issue.
+            unsafe {
+                ctx.disable_event_tracking();
+            }
+            println!("cudarc event tracking: off (one stream, ordered by issue), before the load");
+            let fuse = llvq_llm::fused::FuseMode::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
+            let t = Instant::now();
+            let mut f = llvq_llm::fused_cuda::load_with(&path, &device, dtype, fuse)?;
+            println!(
+                "loaded in {:.1} s. gesture A/B: {} arms, one model, interleaved rounds",
+                t.elapsed().as_secs_f64(),
+                GestureArm::ALL.len()
+            );
+            println!(
+                "LLVQ_ROT_SHARE={}, {} rot_launches/token · LLVQ_FUSE={}, {} matvec_launches/token",
+                f.rot_share.name(), f.rot_launches, f.fuse.name(), f.matvec_launches
+            );
+            GqaArm::Grouped.apply(&mut f.model);
+            println!(
+                "attention {} on {}, layout {}",
+                f.model.attn_heads().label(),
+                f.model.kv_store().label(),
+                f.layout.name()
+            );
+            let ids = f
+                .tokenizer
+                .encode(PROMPT, false)
+                .map_err(|e| anyhow::anyhow!("{e}"))?
+                .get_ids()
+                .to_vec();
+            run_gesture_mode(&f.model, &device, &ids, n_new)?;
+            if ctx.is_in_multi_stream_mode() {
+                anyhow::bail!("LLVQ_GESTURE_AB: a second stream appeared during the run, with \
+                               cudarc's events off: the numbers above are void");
+            }
+            return Ok(());
+        }
+
+        // ---- LLVQ_BOUNDARY_AB: what one added kernel boundary costs ----
+        //
+        // A MEASUREMENT MODE on the bench door, refused beside LLVQ_CONFIG, the
+        // served flags spelled out on the command line: process 2b of
+        // prereg-persistent-0. ONE model in the served 4B state (Grow(256) +
+        // grouped, events off before the load), eight arms that each add kernel
+        // boundaries and no arithmetic (`llvq_llm::boundary`), every arm in
+        // every round (`run_boundary_ab`). The empty kernels come from their own
+        // module on candle's stream, so the served unit and its `NVRTC source:`
+        // line do not move. `LLVQ_KERNEL_DIR` is refused for that line's sake.
+        if let Ok(v) = std::env::var("LLVQ_BOUNDARY_AB") {
+            use llvq_llm::boundary::BoundaryArm;
+            if v != "1" {
+                anyhow::bail!("LLVQ_BOUNDARY_AB={v:?}: the only value is 1");
+            }
+            for other in ["LLVQ_GQA_AB", "LLVQ_GQA_PPL", "LLVQ_CONTEXTS", "LLVQ_TRIM_AB",
+                          "LLVQ_PREFILL_TOKENS", "LLVQ_GRAPH_AB", "LLVQ_GRAPH_DIAG", "LLVQ_KV_AB",
+                          "LLVQ_FUSE_AB", "LLVQ_TIME_PHASES", "LLVQ_SEG_ARMS", "LLVQ_KERNEL_DIR",
+                          "LLVQ_INT4_WIDE_CHECK", "LLVQ_GESTURE_AB"] {
+                if let Ok(o) = std::env::var(other) {
+                    anyhow::bail!("LLVQ_BOUNDARY_AB runs alone, and {other}={o:?} is set beside it");
+                }
+            }
+            if !matches!(kv_store, llvq_llm::kvq::KvStore::Cat) {
+                anyhow::bail!("LLVQ_BOUNDARY_AB sets the served store itself: unset LLVQ_KV_PREALLOC");
+            }
+            if n_new < 2 {
+                anyhow::bail!("LLVQ_BOUNDARY_AB: {n_new} tokens, and its cost is read on decode steps");
+            }
+            // Both refused before the transcode. The splits are Tetra launches,
+            // and a fused gate+up would never reach them.
+            let layout = llvq_llm::fused::FusedLayout::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
+            if layout != llvq_llm::fused::FusedLayout::Tetra48 {
+                anyhow::bail!(
+                    "LLVQ_BOUNDARY_AB: layout {}, and its split arms are tv_tetra48_h launches. \
+                     Set LLVQ_FUSED_LAYOUT=tetra48",
+                    layout.name()
+                );
+            }
+            let fuse = llvq_llm::fused::FuseMode::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
+            if fuse != llvq_llm::fused::FuseMode::Off {
+                anyhow::bail!("LLVQ_BOUNDARY_AB: LLVQ_FUSE={}, and the served 4B runs 0", fuse.name());
+            }
+            // Events off BEFORE the load, as `LLVQ_GESTURE_AB` and the served
+            // door do: cudarc records a read event at every use of a slice
+            // created while tracking was on, whatever the flag says at the use.
+            let ctx = device.as_cuda_device()?.cuda_stream().context().clone();
+            if ctx.is_in_multi_stream_mode() {
+                anyhow::bail!("LLVQ_BOUNDARY_AB: the context holds several streams, and turning \
+                               cudarc's events off is only safe on one");
+            }
+            // Safe: one stream, checked above, orders every access by issue.
+            unsafe {
+                ctx.disable_event_tracking();
+            }
+            println!("cudarc event tracking: off (one stream, ordered by issue)");
+            let t = Instant::now();
+            let mut f = llvq_llm::fused_cuda::load_with(&path, &device, dtype, fuse)?;
+            let sha = llvq_llm::fused_cuda::install_boundary_probe(&device)?;
+            if ctx.is_in_multi_stream_mode() {
+                anyhow::bail!("LLVQ_BOUNDARY_AB: a second stream appeared at the load, with \
+                               cudarc's events off");
+            }
+            println!("llvq_empty: own NVRTC module on candle's stream, source sha256 {sha}");
+            println!(
+                "loaded in {:.1} s. boundary A/B: {} arms, one model, interleaved rounds",
+                t.elapsed().as_secs_f64(),
+                BoundaryArm::ALL.len()
+            );
+            println!(
+                "LLVQ_ROT_SHARE={}, {} rot_launches/token · LLVQ_FUSE={}, {} matvec_launches/token",
+                f.rot_share.name(), f.rot_launches, f.fuse.name(), f.matvec_launches
+            );
+            let c = f.model.config();
+            llvq_llm::boundary::check_4b_shape(c.num_hidden_layers, c.hidden_size, c.intermediate_size)
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+            GqaArm::Grouped.apply(&mut f.model);
+            println!("attention {} on {}", f.model.attn_heads().label(), f.model.kv_store().label());
+            println!(
+                "layout {}, {} layers, gate_proj {} rows, down_proj {} rows",
+                f.layout.name(),
+                llvq_llm::boundary::LAYERS_4B,
+                llvq_llm::boundary::GATE_D_OUT_4B,
+                llvq_llm::boundary::DOWN_D_OUT_4B
+            );
+            let ids = f
+                .tokenizer
+                .encode(PROMPT, false)
+                .map_err(|e| anyhow::anyhow!("{e}"))?
+                .get_ids()
+                .to_vec();
+            let ran = run_boundary_ab(&mut f.model, &ids, n_new, |m, arm| {
+                llvq_llm::fused_cuda::set_boundary_arm(arm);
+                m.set_candle_probe(arm.candle_probe())?;
+                Ok(())
+            });
+            // Back to the served state whatever the run returned.
+            llvq_llm::fused_cuda::set_boundary_arm(BoundaryArm::Served);
+            f.model.set_candle_probe(false)?;
+            ran?;
+            if ctx.is_in_multi_stream_mode() {
+                anyhow::bail!("LLVQ_BOUNDARY_AB: a second stream appeared during the run, with \
+                               cudarc's events off: the numbers above are void");
+            }
+            return Ok(());
+        }
+
+        // ---- LLVQ_PERS_4E: the whole token in one launch, against the eager path ----
+        //
+        // A MEASUREMENT MODE on the bench door, refused beside LLVQ_CONFIG and
+        // every other mode, the served flags spelled out on the command line.
+        // ONE model on Grow(256) with the "kernel" attention form. At 8,192
+        // prompt tokens the served config itself (the kernel from position
+        // 1,280, every decode row past it); at the short prompt, every decode
+        // row on the kernel (threshold 0, measurement only), since 4E does
+        // not compute the grouped arithmetic the served config runs below
+        // 1,280. Per context: the eager path makes the reference tokens; each
+        // 4E geometry (512 and 768 threads, llvq_llm::persist4e_cuda), after
+        // the same eager prefill, must make the same ones, or the run is void.
+        // The served door's tokens are printed beside. Then 2 + 5 interleaved
+        // rounds of the decode, eager and every geometry, tok/s and the
+        // ratios round by round, then one stamped launch a geometry. Value:
+        // the tokens a run, 2 to 256.
+        if let Ok(v) = std::env::var("LLVQ_PERS_4E") {
+            let n_new: usize = v.parse().map_err(|_| anyhow::anyhow!("LLVQ_PERS_4E={v:?}: a token count, 2 to 256"))?;
+            if !(2..=256).contains(&n_new) {
+                anyhow::bail!("LLVQ_PERS_4E={n_new}: 2 to 256 tokens a run");
+            }
+            for other in ["LLVQ_GQA_AB", "LLVQ_GQA_PPL", "LLVQ_CONTEXTS", "LLVQ_TRIM_AB",
+                          "LLVQ_PREFILL_TOKENS", "LLVQ_GRAPH_AB", "LLVQ_GRAPH_DIAG", "LLVQ_KV_AB",
+                          "LLVQ_FUSE_AB", "LLVQ_TIME_PHASES", "LLVQ_SEG_ARMS", "LLVQ_KERNEL_DIR",
+                          "LLVQ_INT4_WIDE_CHECK", "LLVQ_GESTURE_AB", "LLVQ_BOUNDARY_AB", "LLVQ_PERS_SEGMENT"] {
+                if let Ok(o) = std::env::var(other) {
+                    anyhow::bail!("LLVQ_PERS_4E runs alone, and {other}={o:?} is set beside it");
+                }
+            }
+            if !matches!(kv_store, llvq_llm::kvq::KvStore::Cat) {
+                anyhow::bail!("LLVQ_PERS_4E sets the store itself: unset LLVQ_KV_PREALLOC");
+            }
+            let layout = llvq_llm::fused::FusedLayout::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
+            if layout != llvq_llm::fused::FusedLayout::Tetra48 {
+                anyhow::bail!("LLVQ_PERS_4E: layout {}, and 4E reads Tetra48 streams", layout.name());
+            }
+            let fuse = llvq_llm::fused::FuseMode::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
+            if fuse != llvq_llm::fused::FuseMode::Off {
+                anyhow::bail!("LLVQ_PERS_4E: LLVQ_FUSE={}, and the served 4B runs 0", fuse.name());
+            }
+            let ctx = device.as_cuda_device()?.cuda_stream().context().clone();
+            if ctx.is_in_multi_stream_mode() {
+                anyhow::bail!("LLVQ_PERS_4E: the context holds several streams, and turning \
+                               cudarc's events off is only safe on one");
+            }
+            // Safe: one stream, checked above, orders every access by issue.
+            unsafe {
+                ctx.disable_event_tracking();
+            }
+            println!("cudarc event tracking: off (one stream, ordered by issue)");
+            let t = Instant::now();
+            let mut f = llvq_llm::fused_cuda::load_with(&path, &device, dtype, fuse)?;
+            let (n_kv, groups, hd) = f.model.attn_geometry();
+            let k = llvq_llm::attn::kernel_for(&device, n_kv, groups, hd).map_err(|e| anyhow::anyhow!("{e}"))?;
+            f.model.set_attn_kernel(Some(k));
+            // The bench forms at 512 threads, each its own module (the
+            // 768-thread symbol spills under the card's driver, v2 and v3):
+            // v4, the served form, and v6, v4 with ln1, ln2 and the down's
+            // input in one round trip. Each owes the eager path's tokens.
+            let mut rts = Vec::new();
+            for (form, label) in llvq_cuda::pers::P4E_BENCH_FORMS {
+                match llvq_llm::persist4e_cuda::install_rows(&f.model, &device, n_new as u32, Some(512), form) {
+                    Ok(rt) => {
+                        for line in &rt.lines {
+                            println!("{line}");
+                        }
+                        rts.push(rt);
+                    }
+                    Err(e) => println!("4E {label} at 512 threads: not run: {e}"),
+                }
+            }
+            if rts.is_empty() {
+                anyhow::bail!("LLVQ_PERS_4E: no 4E geometry loads on this card");
+            }
+            if ctx.is_in_multi_stream_mode() {
+                anyhow::bail!("LLVQ_PERS_4E: a second stream appeared at the load, with events off");
+            }
+            println!("loaded and checked in {:.1} s", t.elapsed().as_secs_f64());
+            let base = f.tokenizer.encode(PROMPT, false).map_err(|e| anyhow::anyhow!("{e}"))?.get_ids().to_vec();
+            for len in [base.len(), 8192] {
+                let prompt: Vec<u32> = base.iter().copied().cycle().take(len).collect();
+                run_pers_4e(&mut f.model, &mut rts, &prompt, n_new)?;
+            }
+            if ctx.is_in_multi_stream_mode() {
+                anyhow::bail!("LLVQ_PERS_4E: a second stream appeared during the run: the numbers above are void");
+            }
+            return Ok(());
+        }
+
+        // ---- LLVQ_PERS_SEGMENT: route P, step A, against the eager MLP ----
+        //
+        // A MEASUREMENT MODE on the bench door, refused beside LLVQ_CONFIG, the
+        // served flags spelled out on the command line (gate L3 of
+        // persistent.md §5; its prereg is written when L2 has spoken). ONE model
+        // in the served 4B state (Grow(256) + grouped, events off before the
+        // load), two arms in every round: the eager MLP half, and the
+        // persistent segment (`llvq_llm::persist_cuda`) on every layer whose
+        // install check passed. Identical tokens are required: the segment owes
+        // the eager ops' bits, and any divergence voids the run.
+        if let Ok(v) = std::env::var("LLVQ_PERS_SEGMENT") {
+            if v != "1" {
+                anyhow::bail!("LLVQ_PERS_SEGMENT={v:?}: the only value is 1");
+            }
+            for other in ["LLVQ_GQA_AB", "LLVQ_GQA_PPL", "LLVQ_CONTEXTS", "LLVQ_TRIM_AB",
+                          "LLVQ_PREFILL_TOKENS", "LLVQ_GRAPH_AB", "LLVQ_GRAPH_DIAG", "LLVQ_KV_AB",
+                          "LLVQ_FUSE_AB", "LLVQ_TIME_PHASES", "LLVQ_SEG_ARMS", "LLVQ_KERNEL_DIR",
+                          "LLVQ_INT4_WIDE_CHECK", "LLVQ_GESTURE_AB", "LLVQ_BOUNDARY_AB", "LLVQ_PERS_SEGMENT", "LLVQ_PERS_4E"] {
+                if let Ok(o) = std::env::var(other) {
+                    anyhow::bail!("LLVQ_PERS_SEGMENT runs alone, and {other}={o:?} is set beside it");
+                }
+            }
+            if !matches!(kv_store, llvq_llm::kvq::KvStore::Cat) {
+                anyhow::bail!("LLVQ_PERS_SEGMENT sets the served store itself: unset LLVQ_KV_PREALLOC");
+            }
+            if n_new < 2 {
+                anyhow::bail!("LLVQ_PERS_SEGMENT: {n_new} tokens, and the segment runs on decode steps");
+            }
+            let layout = llvq_llm::fused::FusedLayout::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
+            if layout != llvq_llm::fused::FusedLayout::Tetra48 {
+                anyhow::bail!("LLVQ_PERS_SEGMENT: layout {}, and the segment reads Tetra48 streams", layout.name());
+            }
+            let fuse = llvq_llm::fused::FuseMode::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
+            if fuse != llvq_llm::fused::FuseMode::Off {
+                anyhow::bail!("LLVQ_PERS_SEGMENT: LLVQ_FUSE={}, and the served 4B runs 0", fuse.name());
+            }
+            let ctx = device.as_cuda_device()?.cuda_stream().context().clone();
+            if ctx.is_in_multi_stream_mode() {
+                anyhow::bail!("LLVQ_PERS_SEGMENT: the context holds several streams, and turning \
+                               cudarc's events off is only safe on one");
+            }
+            // Safe: one stream, checked above, orders every access by issue.
+            unsafe {
+                ctx.disable_event_tracking();
+            }
+            println!("cudarc event tracking: off (one stream, ordered by issue)");
+            let t = Instant::now();
+            let mut f = llvq_llm::fused_cuda::load_with(&path, &device, dtype, fuse)?;
+            GqaArm::Grouped.apply(&mut f.model);
+            println!("attention {} on {}", f.model.attn_heads().label(), f.model.kv_store().label());
+            let inst = llvq_llm::persist_cuda::install(&f.model, &device)?;
+            for line in &inst.lines {
+                println!("{line}");
+            }
+            if ctx.is_in_multi_stream_mode() {
+                anyhow::bail!("LLVQ_PERS_SEGMENT: a second stream appeared at the load, with events off");
+            }
+            println!("loaded and checked in {:.1} s. route P A/B: eager against segment, interleaved rounds",
+                     t.elapsed().as_secs_f64());
+            let ids = f.tokenizer.encode(PROMPT, false).map_err(|e| anyhow::anyhow!("{e}"))?.get_ids().to_vec();
+            let ran = run_pers_ab(&mut f.model, &ids, n_new, &inst);
+            llvq_llm::persist_cuda::clear(&mut f.model);
+            ran?;
+            if inst.aborted()? {
+                anyhow::bail!("LLVQ_PERS_SEGMENT: a segment launch aborted on its watchdog: the numbers above are void");
+            }
+            if ctx.is_in_multi_stream_mode() {
+                anyhow::bail!("LLVQ_PERS_SEGMENT: a second stream appeared during the run: the numbers above are void");
+            }
+            return Ok(());
+        }
+
+        // ---- LLVQ_GQA_PPL: the grouped form's perplexity, prefill and decode ----
+        //
+        // A MEASUREMENT MODE on the bench door, refused beside LLVQ_CONFIG, the
+        // served flags spelled out on the command line. The value is
+        // `<ctx>,<windows>` (grouped against published) or
+        // `<ctx>,<windows>,<first>,kernel` (kernel against grouped, from window
+        // `<first>`, the kernel installed and checked on the card first): see
+        // `parse_gqa_ppl`. ONE model, two arms (`run_gqa_ppl`), the three trims
+        // in force as in LLVQ_GQA_AB. The first form puts every window through
+        // the prefill in one call, so it is bounded by the fused prefill's rows.
+        if let Ok(v) = std::env::var("LLVQ_GQA_PPL") {
+            let spec = parse_gqa_ppl(&v).map_err(|e| anyhow::anyhow!("{e}"))?;
+            for other in ["LLVQ_GQA_AB", "LLVQ_CONTEXTS", "LLVQ_TRIM_AB", "LLVQ_PREFILL_TOKENS",
+                          "LLVQ_BOUNDARY_AB", "LLVQ_PERS_SEGMENT", "LLVQ_PERS_4E"] {
+                if std::env::var(other).is_ok() {
+                    anyhow::bail!("LLVQ_GQA_PPL runs alone, and {other} is set beside it");
+                }
+            }
+            if !matches!(kv_store, llvq_llm::kvq::KvStore::Cat) {
+                anyhow::bail!("LLVQ_GQA_PPL sets the store of each arm: unset LLVQ_KV_PREALLOC");
+            }
+            let fuse = llvq_llm::fused::FuseMode::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
+            let t = Instant::now();
+            let mut f = llvq_llm::fused_cuda::load_with(&path, &device, dtype, fuse)?;
+            println!(
+                "loaded in {:.1} s. GQA perplexity: 2 arms, one model",
+                t.elapsed().as_secs_f64()
+            );
+            println!(
+                "LLVQ_ROT_SHARE={}, {} rot_launches/token · LLVQ_FUSE={}, {} matvec_launches/token",
+                f.rot_share.name(), f.rot_launches, f.fuse.name(), f.matvec_launches
+            );
+            let ctx = device.as_cuda_device()?.cuda_stream().context().clone();
+            if ctx.is_in_multi_stream_mode() {
+                anyhow::bail!("LLVQ_GQA_PPL: the context holds several streams, and turning \
+                               cudarc's events off is only safe on one");
+            }
+            // Safe: one stream, checked above, orders every access by issue.
+            unsafe {
+                ctx.disable_event_tracking();
+            }
+            println!("cudarc event tracking: off (one stream, ordered by issue)");
+            let text = llvq_llm::corpus::wikitext2_test()?;
+            let ids = f
+                .tokenizer
+                .encode(text.as_str(), false)
+                .map_err(|e| anyhow::anyhow!("{e}"))?
+                .get_ids()
+                .to_vec();
+            if spec.kernel {
+                // Built, reported and checked against the CPU replay on the
+                // card before the first window, as the served door does.
+                let (n_kv, groups, hd) = f.model.attn_geometry();
+                let k = llvq_llm::attn::kernel_for(&device, n_kv, groups, hd).map_err(|e| anyhow::anyhow!("{e}"))?;
+                f.model.set_attn_kernel(Some(k));
+            }
+            if spec.every_row {
+                // The T8 extension's measurement form: the kernel takes every
+                // decode row, so no position is checked bit for bit and every
+                // one is scored. The served threshold stays the constant.
+                f.model.set_kernel_from_for_measurement(0);
+                println!(
+                    "measurement form: every decode row on the kernel, from position 0 (the served \
+                     config runs the grouped path below {})",
+                    llvq_llm::kvq::KERNEL_FROM
+                );
+            }
+            run_gqa_ppl(&mut f.model, &ids, &spec)?;
+            return Ok(());
+        }
+
+        // ---- LLVQ_GQA_AB: attention over the cached heads, unexpanded ----
+        //
+        // A MEASUREMENT MODE on the bench door, refused beside LLVQ_CONFIG: the
+        // served flags are spelled out on the command line. The value is the
+        // list of prompt lengths. ONE model, three arms (`run_gqa_ab`), with the
+        // three trims of 2026-10-30 in force: cudarc's events go off here as on
+        // the served door, which is safe on one stream only, so that is checked.
+        if let Ok(v) = std::env::var("LLVQ_GQA_AB") {
+            let lengths = parse_lengths("LLVQ_GQA_AB", &v).map_err(|e| anyhow::anyhow!("{e}"))?;
+            for other in ["LLVQ_CONTEXTS", "LLVQ_TRIM_AB", "LLVQ_PREFILL_TOKENS", "LLVQ_BOUNDARY_AB", "LLVQ_PERS_SEGMENT", "LLVQ_PERS_4E"] {
+                if std::env::var(other).is_ok() {
+                    anyhow::bail!("LLVQ_GQA_AB runs alone, and {other} is set beside it");
+                }
+            }
+            if !matches!(kv_store, llvq_llm::kvq::KvStore::Cat) {
+                anyhow::bail!("LLVQ_GQA_AB sets the store of each arm: unset LLVQ_KV_PREALLOC");
+            }
+            let fuse = llvq_llm::fused::FuseMode::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
+            let t = Instant::now();
+            let mut f = llvq_llm::fused_cuda::load_with(&path, &device, dtype, fuse)?;
+            println!(
+                "loaded in {:.1} s. GQA A/B: {} arms, one model, interleaved rounds",
+                t.elapsed().as_secs_f64(),
+                GqaArm::ALL.len()
+            );
+            println!(
+                "LLVQ_ROT_SHARE={}, {} rot_launches/token · LLVQ_FUSE={}, {} matvec_launches/token",
+                f.rot_share.name(), f.rot_launches, f.fuse.name(), f.matvec_launches
+            );
+            let ctx = device.as_cuda_device()?.cuda_stream().context().clone();
+            if ctx.is_in_multi_stream_mode() {
+                anyhow::bail!("LLVQ_GQA_AB: the context holds several streams, and turning \
+                               cudarc's events off is only safe on one");
+            }
+            // Safe: one stream, checked above, orders every access by issue.
+            unsafe {
+                ctx.disable_event_tracking();
+            }
+            println!("cudarc event tracking: off (one stream, ordered by issue)");
+            let seed = f
+                .tokenizer
+                .encode(PROMPT, false)
+                .map_err(|e| anyhow::anyhow!("{e}"))?
+                .get_ids()
+                .to_vec();
+            run_gqa_ab(&mut f.model, &seed, &lengths, n_new)?;
+            return Ok(());
+        }
+
+        // ---- LLVQ_CONTEXTS: the served speed at the product's context ----
+        //
+        // Every published tok/s was measured after a 5-token prompt, so at
+        // most 261 positions of cache; the product promises 8,192. This times,
+        // for each prompt length named, the first token and the decode after
+        // it (`run_context_sweep`). Through the served door when there is a
+        // config, like `LLVQ_PREFILL_TOKENS`, so the object timed is the
+        // object served, down to its attention form. A PREALLOCATED window is
+        // refused, because a fixed window would bound the prompt this mode
+        // exists to lengthen; the store a served config asks for is not
+        // refused, and `Grow` promises no window.
+        if let Ok(v) = std::env::var("LLVQ_CONTEXTS") {
+            let lengths = parse_contexts(&v).map_err(|e| anyhow::anyhow!("{e}"))?;
+            for other in ["LLVQ_TRIM_AB", "LLVQ_PREFILL_TOKENS", "LLVQ_BOUNDARY_AB", "LLVQ_PERS_SEGMENT", "LLVQ_PERS_4E"] {
+                if std::env::var(other).is_ok() {
+                    anyhow::bail!("LLVQ_CONTEXTS runs alone, and {other} is set beside it");
+                }
+            }
+            if !matches!(kv_store, llvq_llm::kvq::KvStore::Cat) {
+                anyhow::bail!(
+                    "LLVQ_CONTEXTS with a preallocated window: the window would bound the \
+                     prompt this mode exists to lengthen. Unset LLVQ_KV_PREALLOC. A served \
+                     config's own store is applied below and is not this check's business."
+                );
+            }
+            let t = Instant::now();
+            let mut f = match &served {
+                Some(cfg) => {
+                    println!("{}", cfg.provenance());
+                    llvq_llm::fused_cuda::load_resolved(
+                        &path, &device, dtype, cfg.layout, cfg.embed, cfg.rot_share, cfg.fuse,
+                        cfg.kv, Some("LLVQ_CONFIG"),
+                    )?
+                }
+                None => {
+                    let fuse =
+                        llvq_llm::fused::FuseMode::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
+                    llvq_llm::fused_cuda::load_with(&path, &device, dtype, fuse)?
+                }
+            };
+            // The served attention form rides this mode too, for the reason
+            // the loader choice above rides it: the object timed at 8,192 must
+            // be the object served, not the form the model defaults to while a
+            // provenance line names another.
+            if let Some(cfg) = &served {
+                cfg.apply(&mut f.model, &device).map_err(|e| anyhow::anyhow!("{e}"))?;
+            }
+            println!(
+                "layout {}, attention {} on {}, loaded in {:.1} s",
+                f.layout.name(),
+                f.model.attn_heads().label(),
+                f.model.kv_store().label(),
+                t.elapsed().as_secs_f64()
+            );
+            let seed = f
+                .tokenizer
+                .encode(PROMPT, false)
+                .map_err(|e| anyhow::anyhow!("{e}"))?
+                .get_ids()
+                .to_vec();
+            // The engine the config names (eager without one, or without the
+            // field): 4E installs here, after the form and its threshold.
+            let mut dec = match &served {
+                Some(cfg) => cfg.decoder(&f.model, &device)?,
+                None => llvq_llm::served_decode::Decoder::eager(),
+            };
+            for line in dec.lines() {
+                println!("{line}");
+            }
+            println!("decode engine: {}", if dec.is_persistent() { "persistent (4E)" } else { "eager" });
+            run_context_sweep(&f.model, &mut dec, &seed, &lengths, n_new)?;
+            return Ok(());
+        }
+
+        // ---- LLVQ_TRIM_AB: what the three trims of 2026-10-30 save ----
+        //
+        // A MEASUREMENT MODE on the bench door, refused beside LLVQ_CONFIG: the
+        // served flags are spelled out on the command line. ONE model, every arm
+        // in every round (`run_trim_ab`). The events arm flips cudarc's tracking
+        // between rounds, which is safe only on one stream, so that is checked.
+        if std::env::var("LLVQ_TRIM_AB").ok().as_deref() == Some("1") {
+            if !matches!(kv_store, llvq_llm::kvq::KvStore::Cat) {
+                anyhow::bail!("LLVQ_TRIM_AB times the served decode step, on the Cat store: \
+                               unset LLVQ_KV_PREALLOC");
+            }
+            let fuse = llvq_llm::fused::FuseMode::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
+            let t = Instant::now();
+            let mut f = llvq_llm::fused_cuda::load_with(&path, &device, dtype, fuse)?;
+            println!(
+                "loaded in {:.1} s. trim A/B: {} arms, one model, interleaved rounds",
+                t.elapsed().as_secs_f64(),
+                TrimArm::ALL.len()
+            );
+            println!(
+                "LLVQ_ROT_SHARE={}, {} rot_launches/token · LLVQ_FUSE={}, {} matvec_launches/token",
+                f.rot_share.name(), f.rot_launches, f.fuse.name(), f.matvec_launches
+            );
+            let ctx = device.as_cuda_device()?.cuda_stream().context().clone();
+            if ctx.is_in_multi_stream_mode() {
+                anyhow::bail!("LLVQ_TRIM_AB: the context holds several streams, and the \
+                               events arm is only safe on one");
+            }
+            let ids = f
+                .tokenizer
+                .encode(PROMPT, false)
+                .map_err(|e| anyhow::anyhow!("{e}"))?
+                .get_ids()
+                .to_vec();
+            run_trim_ab(&mut f.model, &ids, n_new, |m, arm| {
+                m.set_decode_mask(arm.mask());
+                llvq_llm::fused_cuda::set_int4_via_f32(arm.cast());
+                // Safe: one stream, checked above, orders every access by issue,
+                // so slices created under either setting are freed in order.
+                unsafe {
+                    if arm.events() {
+                        ctx.enable_event_tracking();
+                    } else {
+                        ctx.disable_event_tracking();
+                    }
+                }
+                Ok(())
+            })?;
+            return Ok(());
+        }
+
         // ---- LLVQ_PREFILL_TOKENS: what a prompt costs through the kernel ----
         //
         // A MEASUREMENT MODE, never a served config — the `LLVQ_TIME_PHASES`
@@ -258,7 +2282,12 @@ fn main() -> anyhow::Result<()> {
                     llvq_llm::fused_cuda::load_with(&path, &device, dtype, fuse)?
                 }
             };
-            f.model.set_kv_store(kv_store);
+            // Served: the config decides the store and the form. Bench: the
+            // store comes from the variable, as it always did.
+            match &served {
+                Some(cfg) => cfg.apply(&mut f.model, &device).map_err(|e| anyhow::anyhow!("{e}"))?,
+                None => f.model.set_kv_store(kv_store),
+            }
             let load = t.elapsed().as_secs_f64();
             // The ids do not matter for a timing — the kernel has no
             // data-dependent branch — so the prompt is repeated to length
@@ -270,7 +2299,12 @@ fn main() -> anyhow::Result<()> {
                 .get_ids()
                 .to_vec();
             let ids: Vec<u32> = (0..n).map(|i| seed[i % seed.len()]).collect();
-            println!("prefill: {n} tokens, layout {}, loaded in {load:.1} s", f.layout.name());
+            println!(
+                "prefill: {n} tokens, layout {}, attention {} on {}, loaded in {load:.1} s",
+                f.layout.name(),
+                f.model.attn_heads().label(),
+                f.model.kv_store().label(),
+            );
             let mut ms: Vec<f64> = Vec::new();
             // Six passes, the first discarded: the first on CUDA pays kernel
             // selection, allocator growth and the clock ramp.
@@ -413,7 +2447,7 @@ fn main() -> anyhow::Result<()> {
         if let Some(cfg) = &served {
             println!("{}", cfg.provenance());
             let t = Instant::now();
-            let f = llvq_llm::fused_cuda::load_resolved(
+            let mut f = llvq_llm::fused_cuda::load_resolved(
                 &path,
                 &device,
                 dtype,
@@ -424,6 +2458,13 @@ fn main() -> anyhow::Result<()> {
                 cfg.kv,
                 Some("LLVQ_CONFIG"),
             )?;
+            // The attention form and its store, from the file and from
+            // nowhere else. The provenance line above already named them.
+            cfg.apply(&mut f.model, &device).map_err(|e| anyhow::anyhow!("{e}"))?;
+            let mut dec = cfg.decoder(&f.model, &device)?;
+            for line in dec.lines() {
+                println!("{line}");
+            }
             let load_s = t.elapsed().as_secs_f64();
             let ids = f
                 .tokenizer
@@ -431,6 +2472,9 @@ fn main() -> anyhow::Result<()> {
                 .map_err(|e| anyhow::anyhow!("{e}"))?
                 .get_ids()
                 .to_vec();
+            if dec.is_persistent() {
+                return served_door_4e(&f, &mut dec, &ids, n_new, load_s);
+            }
             f.model.generate(&ids, n_new, &mut NoCapture)?;
             let mut rounds = Vec::with_capacity(ROUNDS_TIMED);
             let mut tokens: Vec<u32> = Vec::new();
@@ -455,6 +2499,8 @@ fn main() -> anyhow::Result<()> {
                 bytes as f64 / 1e9
             );
             println!("  {}", f.tokenizer.decode(&tokens, true).unwrap_or_default());
+            let s: Vec<String> = tokens.iter().map(u32::to_string).collect();
+            println!("  token ids: {:016x} {}", llvq_llm::eval::token_fingerprint(&tokens), s.join(","));
             println!(
                 "\n  No dense arm on this path, so no ratio and no token comparison. \
                  Both are the bench's\n  business: unset LLVQ_CONFIG and it runs, on \
@@ -468,7 +2514,7 @@ fn main() -> anyhow::Result<()> {
             use llvq_llm::kvq::KvStore;
             let w = match kv_store {
                 KvStore::Prealloc(w) => w,
-                KvStore::Cat => anyhow::bail!(
+                KvStore::Cat | KvStore::Grow(_) => anyhow::bail!(
                     "LLVQ_GRAPH_AB=1 requires LLVQ_KV_PREALLOC=<window>: fixed shapes \
                      are what make the step capturable"
                 ),
@@ -739,7 +2785,7 @@ fn main() -> anyhow::Result<()> {
             use llvq_llm::kvq::KvStore;
             let w = match kv_store {
                 KvStore::Prealloc(w) => w,
-                KvStore::Cat => anyhow::bail!(
+                KvStore::Cat | KvStore::Grow(_) => anyhow::bail!(
                     "LLVQ_KV_AB=1 requires LLVQ_KV_PREALLOC=<window>: the A/B compares \
                      cat to the prealloc store, it needs the window"
                 ),
@@ -1139,7 +3185,47 @@ fn main() -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{first_divergence, rate_stats};
+    use super::{first_divergence, paired_ppl_pct, parse_gqa_ppl, rate_stats, t95, GqaArm, GqaPplSpec};
+
+    /// The two forms of `LLVQ_GQA_PPL`, and what each refuses.
+    #[test]
+    fn gqa_ppl_spec() {
+        assert_eq!(
+            parse_gqa_ppl("4096,12").unwrap(),
+            GqaPplSpec { ctx: 4096, windows: 12, first: 0, kernel: false, every_row: false }
+        );
+        assert_eq!(
+            parse_gqa_ppl("8192,6,6,kernel").unwrap(),
+            GqaPplSpec { ctx: 8192, windows: 6, first: 6, kernel: true, every_row: false }
+        );
+        assert_eq!(
+            parse_gqa_ppl(" 4096 , 12 , 60 , kernel ").unwrap(),
+            GqaPplSpec { ctx: 4096, windows: 12, first: 60, kernel: true, every_row: false }
+        );
+        // Above one prefill call: refused for the first form only.
+        assert!(parse_gqa_ppl("8192,6").unwrap_err().contains("4096 rows"));
+        // The kernel mode needs a window that reaches past the threshold:
+        // position KERNEL_FROM must be an input with a target after it.
+        let from = llvq_llm::kvq::KERNEL_FROM;
+        let at = |ctx: usize| parse_gqa_ppl(&format!("{ctx},12,0,kernel"));
+        assert!(at(from + 1).unwrap_err().contains("never reaches the kernel"));
+        assert_eq!(at(from + 2).unwrap().ctx, from + 2);
+        assert!(parse_gqa_ppl("1024,12").is_ok(), "the first form has no threshold");
+        // kernel0: every row on the kernel, so a short window is the point.
+        assert_eq!(
+            parse_gqa_ppl("1280,24,40,kernel0").unwrap(),
+            GqaPplSpec { ctx: 1280, windows: 24, first: 40, kernel: true, every_row: true }
+        );
+        assert!(parse_gqa_ppl("1280,24,40,kernel").unwrap_err().contains("never reaches the kernel"));
+        assert!(parse_gqa_ppl("1280,24,kernel0").is_err(), "kernel0 needs its first window");
+        for bad in ["4096", "4096,12,60", "4096,12,60,grouped", "4096,1", "1,12", "4096,x", "4096,12,60,kernel,1"] {
+            assert!(parse_gqa_ppl(bad).is_err(), "{bad} must be refused");
+        }
+        // The kernel arm reads the Grow store, and is not one of LLVQ_GQA_AB's arms.
+        assert_eq!(GqaArm::Kernel.store(), llvq_llm::kvq::KvStore::Grow(llvq_llm::kvq::GROW_CHUNK));
+        assert_eq!(GqaArm::Kernel.name(), "grow(256)+kernel");
+        assert!(!GqaArm::ALL.contains(&GqaArm::Kernel));
+    }
 
     #[test]
     fn median_is_the_middle_rate_odd_and_even() {
@@ -1164,5 +3250,25 @@ mod tests {
         let e = first_divergence(&[1, 2, 3], &[1, 2]).expect_err("unequal lengths");
         assert!(e.contains('3') && e.contains('2'), "{e}");
         assert_eq!(first_divergence(&[], &[]), Ok(None));
+    }
+
+    /// The paired perplexity interval: zero for identical arms, the exact
+    /// ratio for a constant shift, and the t(1) half-width worked by hand for
+    /// two windows that disagree.
+    #[test]
+    fn paired_ppl_interval() {
+        let a = [2.0, 2.1, 2.2, 2.3];
+        assert_eq!(paired_ppl_pct(&a, &a), (0.0, 0.0, 0.0));
+        let b: Vec<f64> = a.iter().map(|x| x + 0.01).collect();
+        let (m, lo, hi) = paired_ppl_pct(&a, &b);
+        let want = 0.01f64.exp_m1() * 100.0;
+        assert!((m - want).abs() < 1e-9 && (lo - want).abs() < 1e-9 && (hi - want).abs() < 1e-9);
+        // d = [0, 0.02]: mean 0.01, sd 0.02 / sqrt(2), half-width 12.706 * 0.01 = 0.12706.
+        let (m, lo, hi) = paired_ppl_pct(&[1.0, 1.0], &[1.0, 1.02]);
+        assert!((m - want).abs() < 1e-9, "{m}");
+        assert!((lo - (0.01f64 - 0.12706).exp_m1() * 100.0).abs() < 1e-6, "{lo}");
+        assert!((hi - (0.01f64 + 0.12706).exp_m1() * 100.0).abs() < 1e-6, "{hi}");
+        assert_eq!((t95(11), t95(30), t95(31)), (2.201, 2.042, 1.96));
+        assert!(t95(0).is_nan());
     }
 }

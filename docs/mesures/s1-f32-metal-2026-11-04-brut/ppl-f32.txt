@@ -1,0 +1,19 @@
+device: Metal(MetalDevice(DeviceId(1))), context 4096, dtype f32
+sealed /Users/pjmalandrino/q4b-sealed-2026-09-23/qwen3-4b-sealed.bin: 252 quantized matrices, 1.418 GB on disk
+loading corpus wikitext2…
+299078 tokens → 12 windows of 4096 (fingerprint 3f1baca9033bf251)
+  window   1/12  nll 2.529395127  n 4095  running ppl   12.546  (10.3s)
+  window   2/12  nll 2.902265053  n 4095  running ppl   15.117  (21.7s)
+  window   3/12  nll 2.263106447  n 4095  running ppl   13.000  (35.0s)
+  window   4/12  nll 2.032222985  n 4095  running ppl   11.379  (48.6s)
+  window   5/12  nll 2.638860272  n 4095  running ppl   11.860  (62.3s)
+  window   6/12  nll 2.601080777  n 4095  running ppl   12.116  (77.7s)
+  window   7/12  nll 2.601346440  n 4095  running ppl   12.302  (91.3s)
+  window   8/12  nll 2.595167029  n 4095  running ppl   12.434  (105.1s)
+  window   9/12  nll 2.733589696  n 4095  running ppl   12.732  (124.5s)
+  window  10/12  nll 2.240906880  n 4095  running ppl   12.352  (141.0s)
+  window  11/12  nll 2.669045950  n 4095  running ppl   12.527  (158.5s)
+  window  12/12  nll 2.576650021  n 4095  running ppl   12.578  (178.6s)
+
+/Users/pjmalandrino/q4b-sealed-2026-09-23/qwen3-4b-sealed.bin [LLVQ 2-bit, sealed] — wikitext2, ctx 4096, 12 windows, dtype f32, kv f16, tokens 3f1baca9033bf251
+ppl = 12.5783

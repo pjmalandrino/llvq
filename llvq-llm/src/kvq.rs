@@ -357,11 +357,53 @@ mod tests {
         }
         assert_eq!(KvStore::Cat.label(), "cat");
         assert_eq!(KvStore::Prealloc(256).label(), "prealloc(256)");
+        assert_eq!(KvStore::Grow(256).label(), "grow(256)");
+        assert_eq!(AttnHeads::default(), AttnHeads::Expanded);
+    }
+
+    /// The `attention` field's contract, which is NOT the variables': an
+    /// absent field means the published form, and an empty one is refused.
+    #[test]
+    fn attn_heads_parse_contract() {
+        assert_eq!(AttnHeads::parse(None).unwrap(), AttnHeads::Expanded);
+        assert_eq!(AttnHeads::parse(Some("expanded")).unwrap(), AttnHeads::Expanded);
+        assert_eq!(AttnHeads::parse(Some("grouped")).unwrap(), AttnHeads::Grouped);
+        assert_eq!(AttnHeads::parse(Some("kernel")).unwrap(), AttnHeads::Kernel);
+        assert_eq!(AttnHeads::Kernel.label(), "kernel");
+
+        // Empty is refused, and so is whitespace: "  " trimmed is "", and a
+        // field nobody wrote must not read as a value.
+        for empty in ["", "   "] {
+            let e = AttnHeads::parse(Some(empty)).expect_err("an empty field");
+            assert!(e.contains("empty"), "{e}");
+        }
+        // Shared is refused BY NAME, with the reason, not as a typo.
+        let e = AttnHeads::parse(Some("shared")).expect_err("shared is not served");
+        assert!(e.contains("gqa-ab-2026-11-01"), "the refusal cites its journal: {e}");
+        // And a typo is a typo, never a default.
+        for bad in ["Grouped", "group", "gqa", "cat"] {
+            let e = AttnHeads::parse(Some(bad)).expect_err(bad);
+            assert!(e.contains(bad), "the message must name the value: {e}");
+        }
+    }
+
+    /// The store rides the form. A `Grouped` config on a `Cat` store would
+    /// measure neither arm of the A/B that licensed it.
+    #[test]
+    fn the_store_rides_the_attention_form() {
+        assert_eq!(AttnHeads::Expanded.store(), KvStore::Cat);
+        assert_eq!(AttnHeads::Grouped.store(), KvStore::Grow(GROW_CHUNK));
+        assert_eq!(AttnHeads::Shared.store(), KvStore::Grow(GROW_CHUNK));
+        assert_eq!(AttnHeads::Kernel.store(), KvStore::Grow(GROW_CHUNK));
+        // The kernel stages whole splits: the chunk must be a multiple of one.
+        assert_eq!(GROW_CHUNK % crate::attn::canon::SPLIT, 0);
+        // The chunk the A/B of 2026-11-01 ran, named once.
+        assert_eq!(GROW_CHUNK, 256);
     }
 }
 
-/// How the KV cache GROWS: by concatenation (shipped) or into a buffer
-/// preallocated to a fixed window.
+/// How the KV cache GROWS: by concatenation (shipped), into a buffer
+/// preallocated to a fixed window, or into a buffer grown by whole chunks.
 ///
 /// Resolved once, from `LLVQ_KV_PREALLOC`, by the binaries — `model.rs` reads
 /// no environment variable — and printed on the arm line of every A/B, so an
@@ -380,6 +422,13 @@ pub enum KvStore {
     Cat,
     /// Fixed buffers of this many positions, written in place per step.
     Prealloc(usize),
+    /// Buffers grown by whole chunks of this many positions, written in place
+    /// per step; attention reads a view of the valid prefix. The history is
+    /// copied only when a chunk fills, not at every step as under `Cat`, and
+    /// no window is promised in advance. Paired with
+    /// [`AttnHeads::Grouped`], a decode step reads each cached byte once and
+    /// copies none. Set by `bin/fusedrun`'s `LLVQ_GQA_AB` only, so far.
+    Grow(usize),
 }
 
 impl KvStore {
@@ -411,8 +460,144 @@ impl KvStore {
         match self {
             Self::Cat => "cat".to_string(),
             Self::Prealloc(w) => format!("prealloc({w})"),
+            Self::Grow(c) => format!("grow({c})"),
         }
     }
 
+}
+
+/// The chunk a `Grow` store is sized by when a binary picks it, in positions.
+///
+/// A trade between two small costs, *computed* on Qwen3-4B in f16 (147 KB a
+/// position over 36 layers): at most 255 positions held and unused, 37 MB;
+/// and one copy of the history every 256 tokens, which at 8,192 positions is
+/// 32 positions' worth of copying a token against 8,192 read by attention.
+pub const GROW_CHUNK: usize = 256;
+
+/// The first position the `Kernel` form sends to the attention kernel. A row
+/// at position `p` (the cache held `p` positions before it was written) goes
+/// to the kernel iff `p >= KERNEL_FROM`, and to the grouped path otherwise.
+/// The rule reads the position only, so the output is the same function of
+/// it on every card and in every call shape: a verify call that straddles the
+/// threshold is split by row.
+///
+/// 1,280, from the served 4B on the L40S (*computed* from
+/// `docs/mesures/lot1-4b-2026-11-04.txt`, attention r2, *measured*): a decode
+/// token costs the grouped form 7.58 / 8.73 ms at 256 / 2,048 positions,
+/// linear in the position at 0.64 us each (five lengths, 5 to 8,192, all
+/// within 0.64-0.69); it costs the kernel 8.14 / 8.26 ms there. If the
+/// kernel's cost does not fall as the position grows, it is at least 8.14 ms
+/// and at most 8.30 ms (the slow end of its 2,048 range) in between, so the
+/// two forms cross between 1,130 and 1,380 positions; the straight line
+/// through the two ratios puts it at 1,240. 1,024 lies below that bracket,
+/// where the grouped form is the faster one (8.07 ms against at least 8.14).
+/// 1,280 is the multiple of the 256-position split nearest the line's
+/// crossing, inside the bracket and above it rather than below: a threshold
+/// set too high costs a little speed over a few positions (under 1.2 % per
+/// token at any position of the bracket), one set too low costs the same
+/// speed AND hands more positions to arithmetic that is not the grouped
+/// form's. A constant of the form: no variable moves it.
+pub const KERNEL_FROM: usize = 1280;
+
+/// How attention reads the `n_kv` key and value heads the cache stores.
+///
+/// `Expanded` is the shipped form: `repeat_kv` copies each head to the
+/// `n_heads / n_kv` query heads that read it, the whole history at every step
+/// on the `Cat` store. The two other forms read the stored heads where they
+/// are, and copy no history:
+///
+/// - `Shared` runs one matmul per position in the group, each of the
+///   expanded form's shape, so each score is computed exactly as before. It
+///   reads every key head `n_heads / n_kv` times, as the expanded matmul
+///   does, and launches more kernels than it.
+/// - `Grouped` stacks the query heads of one key head as rows of one matrix,
+///   one matmul per key head, which reads each cached byte once. The matmul
+///   shape differs from the expanded one, so its rounding may too: on the CPU
+///   a decode step moves the logits by about one unit in the last place.
+/// - `Kernel` sends decode and verify rows (up to 8 a call, batch 1) at
+///   position [`KERNEL_FROM`] or later to the split-KV decode-attention
+///   kernel, `crate::attn`: one launch a layer, an f32 online softmax with
+///   explicit rounding. Every other row (a position below the threshold, a
+///   prefill chunk, a batch) takes the grouped path, which writes the same
+///   cache bytes. Below the threshold a decode step is the grouped form's,
+///   bit for bit. It is NOT bit for bit with `Grouped` on the rows the kernel
+///   takes: its licence is a T8 decision of the operator's, not granted.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum AttnHeads {
+    #[default]
+    Expanded,
+    Shared,
+    Grouped,
+    Kernel,
+}
+
+impl AttnHeads {
+    /// What the arm line prints.
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Expanded => "expanded",
+            Self::Shared => "shared",
+            Self::Grouped => "grouped",
+            Self::Kernel => "kernel",
+        }
+    }
+
+    /// Parse the served config's `attention` field. No environment variable
+    /// carries this one: the form belongs to the object, so it is a field or
+    /// it is nothing.
+    ///
+    /// `None` — the field absent — is the ONE default this vocabulary allows,
+    /// and it is honest where the five required fields' defaults were not:
+    /// `Expanded` is the form every published number ran, so the six configs
+    /// written before this field existed keep serving exactly what they
+    /// served, down to the logits. An EMPTY field is refused like any other,
+    /// for the reason `served.rs` gives: a value nobody wrote must not read as
+    /// a value.
+    ///
+    /// `Shared` is refused by name. It is slower than `Grouped` at every
+    /// length measured and it is not bit for bit on the card either
+    /// (`docs/mesures/gqa-ab-2026-11-01.txt`), so nothing is served under it;
+    /// it stays reachable from the A/B modes of `bin/fusedrun`, which is where
+    /// those two facts were established.
+    pub fn parse(v: Option<&str>) -> std::result::Result<Self, String> {
+        match v {
+            None => Ok(Self::Expanded),
+            Some("expanded") => Ok(Self::Expanded),
+            Some("grouped") => Ok(Self::Grouped),
+            Some("kernel") => Ok(Self::Kernel),
+            Some(s) if s.trim().is_empty() => Err(
+                "attention is empty. Write \"expanded\", \"grouped\" or \"kernel\", or \
+                 delete the field — absent means \"expanded\", the published form."
+                    .to_string(),
+            ),
+            Some("shared") => Err(
+                "attention \"shared\" is not a served form: it is slower than \"grouped\" \
+                 at every length measured and not bit for bit on the card either \
+                 (gqa-ab-2026-11-01). It exists in the A/B modes of bin/fusedrun only."
+                    .to_string(),
+            ),
+            Some(other) => Err(format!(
+                "attention {other:?}: accepted values \"expanded\" (the published form, \
+                 also what an absent field means), \"grouped\" or \"kernel\""
+            )),
+        }
+    }
+
+    /// The cache growth store this form needs.
+    ///
+    /// Not a free choice beside the form, which is why it is read from the
+    /// form rather than written beside it: `Expanded` copies the whole history
+    /// every step and has always run on `Cat`, and the two unexpanded forms
+    /// exist to read the history where it lies, which `Cat` cannot offer
+    /// because its buffer moves at every step. A config that could name the
+    /// two separately could name a pair no measurement ever ran.
+    pub fn store(&self) -> KvStore {
+        match self {
+            Self::Expanded => KvStore::Cat,
+            // `Kernel` reads the `Grow` buffers in place: whole splits of 256
+            // positions, which a capacity in whole chunks of 256 guarantees.
+            Self::Shared | Self::Grouped | Self::Kernel => KvStore::Grow(GROW_CHUNK),
+        }
+    }
 }
 

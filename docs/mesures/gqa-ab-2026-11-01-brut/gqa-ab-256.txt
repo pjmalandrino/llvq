@@ -1,0 +1,45 @@
+Cuda(CudaDevice(DeviceId(1))), dtype F16, 256 tokens
+
+shared rotation: 1 (LLVQ_ROT_SHARE), 96 rot_launches/token for 252 projections
+projection fusion: 0 (LLVQ_FUSE), 252 matvec_launches/token for 252 projections (0 groups + 168 lone + 84 int4)
+fused layout: tetra48 (LLVQ_FUSED_LAYOUT), projections 1.16 GB on the card, 2.550 b/weight (INFERENCE accounting: KeepExact tail in binary16; the bench bills its own in f32)
+NVRTC source: 101625 bytes, sha256 6193094310bc18acdb0a0c554807ff45f6df09c1f6ab49e0577032874f107812 (11 parts), tile 64 (served: measured optimum for sm_89), prefill 4x128 (served pair), 49152 B staged of 49152, target compute_89
+int4: tv_q4_hh equals tv_q4_h bit for bit on model.layers.0.self_attn.v_proj.weight (1024 rows, d_in 2560)
+embedding: q4 g64 (LLVQ_EMBED), 1 table (model.embed_tokens.weight, lm_head tied on it), 218.8 MB on the card (int4 194.5 + scales/biases 24.3)
+total expected on the card: 1.38 GB (projections 1.16 + carried 0.22)
+loaded in 4.1 s. GQA A/B: 3 arms, one model, interleaved rounds
+LLVQ_ROT_SHARE=1, 96 rot_launches/token · LLVQ_FUSE=0, 252 matvec_launches/token
+cudarc event tracking: off (one stream, ordered by issue)
+GQA A/B: 3 arms, 256 new tokens after each prompt, the prompt in chunks of 4096; one prefill an arm, then 1 discarded + 5 decodes from it, every arm in every round
+
+prompt 5
+  grow(256)+shared    logits against cat+expanded: prompt bit for bit, first decode step bit for bit
+  grow(256)+grouped   logits against cat+expanded: prompt bit for bit, first decode step max |dlogit| 2.539e-2
+  arm                 decode tok/s [range]     arm / cat+expanded, round by round    text
+  cat+expanded          121.9 [121.7–122.0]
+  grow(256)+shared      118.7 [118.3–119.0]    0.9747 [0.9709–0.9761]          256 tokens identical
+  grow(256)+grouped     134.4 [134.3–134.5]    1.1028 [1.1022–1.1032]          256 tokens identical
+
+prompt 2048
+  grow(256)+shared    logits against cat+expanded: prompt bit for bit, first decode step max |dlogit| 1.587e-2
+  grow(256)+grouped   logits against cat+expanded: prompt max |dlogit| 3.711e-2, first decode step max |dlogit| 3.125e-2
+  arm                 decode tok/s [range]     arm / cat+expanded, round by round    text
+  cat+expanded           82.0 [81.9–82.2]
+  grow(256)+shared       98.9 [98.5–99.1]    1.2052 [1.2021–1.2064]          256 tokens identical
+  grow(256)+grouped     113.4 [113.2–113.5]    1.3823 [1.3816–1.3830]          256 tokens identical
+
+prompt 4096
+  grow(256)+shared    logits against cat+expanded: prompt max |dlogit| 3.516e-2, first decode step max |dlogit| 4.688e-2
+  grow(256)+grouped   logits against cat+expanded: prompt bit for bit, first decode step max |dlogit| 3.125e-2
+  arm                 decode tok/s [range]     arm / cat+expanded, round by round    text
+  cat+expanded           61.0 [60.8–61.1]
+  grow(256)+shared       84.6 [84.3–84.8]    1.3861 [1.3842–1.3881]          256 tokens identical
+  grow(256)+grouped      97.5 [97.3–97.8]    1.5995 [1.5957–1.6005]          256 tokens identical
+
+prompt 8192
+  grow(256)+shared    logits against cat+expanded: prompt max |dlogit| 3.906e-2, first decode step max |dlogit| 6.250e-2
+  grow(256)+grouped   logits against cat+expanded: prompt max |dlogit| 3.418e-2, first decode step max |dlogit| 6.641e-2
+  arm                 decode tok/s [range]     arm / cat+expanded, round by round    text
+  cat+expanded           33.1 [33.1–33.1]
+  grow(256)+shared       61.5 [61.5–61.5]    1.8568 [1.8565–1.8572]          256 tokens identical
+  grow(256)+grouped      77.5 [77.5–77.5]    2.3392 [2.3377–2.3408]          256 tokens identical

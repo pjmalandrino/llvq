@@ -1,0 +1,93 @@
+NVIDIA L40S, 8.9, 46068 MiB, 580.178.04
+== oracle (hard rule 10) ==
+Qwen/Qwen3-0.6B on Cuda(CudaDevice(DeviceId(1))) — max |Δhidden| = 0.000e0   (relative to max|h| = 8.550e1) → 0.000e0
+MATCH — the observable forward reproduces candle's Qwen3
+== the object on the mount: bytes and sha256 against the Mac ==
+886391a8c03f66dc269cc65c3598c6627dbdcd259180aff36604ef10d37371b8  /out/sealed-4b-2026-09-23/qwen3-4b-sealed.bin
+== the served config, written from the launch command ==
+098fe49c03c4b3f8893a0a0079ac2bcf34dd6d55c780c18df7c718470fb6bb4c  /out/gqa-ppl-4b-2026-11-01-r2/qwen3-4b-tetra-e4.json
+{
+  "layout": "tetra48",
+  "embed": "q4",
+  "rot_share": "1",
+  "fuse": "0",
+  "kv": "f16",
+  "note": "Qwen3-4B paper-2 object, sealed 2026-09-23: Tetra with dclm-edu calibration and trained row scales, v_proj + o_proj + down_proj@12-23 as int4 g128 records, the tied embedding stored int4 g64 in the file (qwen3-4b-sealed.bin). fuse is 0 because Tetra carries no segmented kernel, not because fusion was declined."
+}
+== STEP 2: the published arm replayed, 256 tokens against the dense arm, same process ==
+Sun Nov  1 11:38:55 UTC 2026
+Cuda(CudaDevice(DeviceId(1))), dtype F16, 256 tokens
+
+shared rotation: 1 (LLVQ_ROT_SHARE), 96 rot_launches/token for 252 projections
+projection fusion: 0 (LLVQ_FUSE), 252 matvec_launches/token for 252 projections (0 groups + 168 lone + 84 int4)
+fused layout: tetra48 (LLVQ_FUSED_LAYOUT), projections 1.16 GB on the card, 2.550 b/weight (INFERENCE accounting: KeepExact tail in binary16; the bench bills its own in f32)
+NVRTC source: 101625 bytes, sha256 6193094310bc18acdb0a0c554807ff45f6df09c1f6ab49e0577032874f107812 (11 parts), tile 64 (served: measured optimum for sm_89), prefill 4x128 (served pair), 49152 B staged of 49152, target compute_89
+int4: tv_q4_hh equals tv_q4_h bit for bit on model.layers.0.self_attn.v_proj.weight (1024 rows, d_in 2560)
+embedding: q4 g64 (LLVQ_EMBED), 1 table (model.embed_tokens.weight, lm_head tied on it), 218.8 MB on the card (int4 194.5 + scales/biases 24.3)
+total expected on the card: 1.38 GB (projections 1.16 + carried 0.22)
+fused  : loaded in    4.6 s,  120.6 tok/s [120.2–120.9, 5 rounds], 1.38 GB on the card
+         LLVQ_ROT_SHARE=1, 96 rot_lancements/token · LLVQ_FUSE=0, 252 matvec_lancements/token · kv_store=cat
+dense  : loaded in   74.4 s,   43.2 tok/s [43.2–43.2, 5 rounds], 8.04 GB on the card
+         kv_store=cat
+
+--- the two arms ---
+  fused F0: 256 tokens identical to the dense arm
+  dense:  Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of Proofreading: The capital of France is Paris. The capital of
+  fused F0:  Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of Proofreading: The capital of France is Paris. The capital of
+
+--- what it costs ---
+  arm               load  tok/s (median)             range     GB card  matvec/t
+  ------------------------------------------------------------------------------
+  dense            74.4 s            43.2       [43.2–43.2]        8.04         —
+  fused F0          4.6 s           120.6     [120.2–120.9]        1.38       252
+  ------------------------------------------------------------------------------
+  fused F0: speed ×2.79 [×2.78–×2.80] against the dense arm (quotient of medians, 5 rounds per arm, never interleaved), memory ÷5.84
+
+  projections: 2.550 b/weight on the card, file 1.42 GB on disk.
+  WARNING: these two accountings do not compare. The file carries compact
+  indexes, the card reads the unfolded layout the kernel can read fast.
+Sun Nov  1 11:41:03 UTC 2026
+gate 4: decoded line identical to paper-table run 1
+== STEP 3: LLVQ_GQA_PPL=4096,12, two arms, prefill and decode paths ==
+Sun Nov  1 11:41:03 UTC 2026
+embedding: q4 g64 (LLVQ_EMBED), 1 table (model.embed_tokens.weight, lm_head tied on it), 218.8 MB on the card (int4 194.5 + scales/biases 24.3)
+total expected on the card: 1.38 GB (projections 1.16 + carried 0.22)
+loaded in 4.3 s. GQA perplexity: 2 arms, one model
+LLVQ_ROT_SHARE=1, 96 rot_launches/token · LLVQ_FUSE=0, 252 matvec_launches/token
+cudarc event tracking: off (one stream, ordered by issue)
+GQA perplexity: wikitext2, 12 windows of 4096 (tokens 3f1baca9033bf251), grow(256)+grouped against cat+expanded, prefill path then decode path in lockstep
+  window   1/12  prefill nll 2.529226763 2.529226763  decode nll 2.529037845 2.529041904  top-1 4090/4095  max |dlogit| 2.578e-1  (124 s)
+  window   2/12  prefill nll 2.902096688 2.902096688  decode nll 2.901988051 2.902155039  top-1 4091/4095  max |dlogit| 2.383e-1  (247 s)
+  window   3/12  prefill nll 2.263824977 2.263824977  decode nll 2.263731746 2.264013479  top-1 4085/4095  max |dlogit| 3.222e0  (371 s)
+  window   4/12  prefill nll 2.032402797 2.032402797  decode nll 2.032325406 2.032229117  top-1 4084/4095  max |dlogit| 2.695e0  (494 s)
+  window   5/12  prefill nll 2.639750744 2.639750744  decode nll 2.640112321 2.639879709  top-1 4090/4095  max |dlogit| 8.086e-1  (618 s)
+  window   6/12  prefill nll 2.599391646 2.599391646  decode nll 2.599143158 2.599576138  top-1 4079/4095  max |dlogit| 1.129e1  (741 s)
+  window   7/12  prefill nll 2.603219198 2.603219198  decode nll 2.603148364 2.603390940  top-1 4088/4095  max |dlogit| 1.051e0  (865 s)
+  window   8/12  prefill nll 2.596115690 2.596115690  decode nll 2.596138873 2.595923331  top-1 4081/4095  max |dlogit| 6.592e-1  (988 s)
+  window   9/12  prefill nll 2.733835089 2.733835089  decode nll 2.733851388 2.733839824  top-1 4083/4095  max |dlogit| 4.824e-1  (1112 s)
+  window  10/12  prefill nll 2.241309905 2.241309905  decode nll 2.241028530 2.241458834  top-1 4087/4095  max |dlogit| 1.313e1  (1235 s)
+  window  11/12  prefill nll 2.668974645 2.668974645  decode nll 2.668934417 2.669067360  top-1 4092/4095  max |dlogit| 4.050e-1  (1359 s)
+  window  12/12  prefill nll 2.577210203 2.577210203  decode nll 2.577165477 2.577172832  top-1 4086/4095  max |dlogit| 1.418e0  (1482 s)
+
+  path      ppl cat+expanded      ppl grow(256)+grouped   grouped / published − 1, paired 95 % t interval over 12 windows
+  prefill   12.5822               12.5822                 +0.0000 % [+0.0000 ; +0.0000]
+  decode    12.5814               12.5826                 +0.0095 % [-0.0048 ; +0.0238]
+  harness: decode over prefill on the published arm, ppl ratio 0.99994
+  decode top-1 agreement 49036/49140 steps (99.788 %), max |dlogit| 1.313e1
+Sun Nov  1 12:05:51 UTC 2026
+gate: decode and prefill agree on the published arm
+== raw kept ==
+total 10
+drwxr-xr-x.   2 root   root       0 Nov  1 11:41 .
+drwxrwxrwx. 155 nobody nogroup    0 Nov  1 11:38 ..
+-rw-r--r--.   1 root   root     231 Nov  1 11:38 files.sha256
+-rw-r--r--.   1 root   root      40 Nov  1 11:38 gpu.txt
+-rw-r--r--.   1 root   root    3417 Nov  1 11:41 gqa-ppl.txt
+-rw-r--r--.   1 root   root     377 Nov  1 11:38 oracle-cuda.txt
+-rw-r--r--.   1 root   root    4503 Nov  1 11:41 published-q4-256.txt
+-rw-r--r--.   1 root   root     418 Nov  1 11:38 qwen3-4b-tetra-e4.json
+   1 /out/gqa-ppl-4b-2026-11-01-r2/gpu.txt
+  31 /out/gqa-ppl-4b-2026-11-01-r2/gqa-ppl.txt
+   6 /out/gqa-ppl-4b-2026-11-01-r2/oracle-cuda.txt
+  30 /out/gqa-ppl-4b-2026-11-01-r2/published-q4-256.txt
+  68 total

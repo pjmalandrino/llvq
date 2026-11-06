@@ -1,0 +1,119 @@
+WHY THE 4E TOKEN LOOP KEEPS THE EAGER STEP'S 7.5 MS, AND THE 8,192 PREFILL, 2026-11-05
+=====================================================================================
+
+Result: two causes hold most of the 7.51 ms token of the 4E card reading (run 2, 133.1 tok/s at a 5-token context,
+*measured*). First, the work split: every phase gives each CTA a fixed slice of whole rows, and the slowest CTA of a
+phase does 1.37 to 1.46 times the serial iterations of an even spread over the 2,272 warps (*computed*), 27 to 32 % of
+the rows' time, about 2.0 ms of the token if the measured time has the model's structure (*estimated*). Second, the
+iteration rate: 16 warps a SM, one load a lane in flight and none ahead, so even an even split would stream the
+1.377 GB a token at about 290 GB/s on the measured total, 440 GB/s on an unfitted latency model (*estimated*), against
+410 GB/s for L1's one-launch pass at 32 warps a SM. The fixed work every CTA repeats a layer and the 254 grid barriers
+come third, about 0.7 ms (*estimated*). The unfitted model predicts 4.1 to 6.3 ms, so 1.2 to 3.4 ms stay unattributed;
+the kernel now carries phase stamps that measure each phase on the card, and the next reading reads them.
+The 8,192 context of the mode now prefills in chunks of 4,096.
+
+Prereg:  none (analysis and harness at $0). The next card reading reruns proofs/preregistration-pers-4e-2026-11-04.md
+         with a deviation beside it (the coordinator's).
+Cost:    $0. Host tests, NVRTC 12.4 and ptxas 12.4 in nvidia/cuda:12.4.1-devel-ubuntu22.04 on the Mac.
+Inputs:  pers-4e-r2-2026-11-05.txt (133.1 tok/s, grid 142 x 512, 254 barriers a token, pers_4e_tokens_f1_t512 119
+         registers 0 B local); pers-l1-2026-11-04.txt (barrier 0.786 us at 142 x 768, tpersall 410 GB/s at 4 CTAs of
+         256); pers-sass-2026-11-05.txt (wavefronts a block on the sealed 4B's words).
+Tools:   ops/pers_4e_model.py (the phases' critical paths); pers.rs::p4e_phase_report (the stamps, read).
+
+1. THE 8,192 PREFILL
+--------------------
+  Run 2 stopped on "8192 vectors at once, more than 4096": run_pers_4e prefilled the whole prompt in one call, twice
+  (the served door's `generate`, then `prefill_next`). Both now go in chunks of MAX_PREFILL_ROWS, as the context
+  sweep already did: the served door through `generate_timed(prompt, n, 4096)`, the reference prefill through
+  `prefill_next`, which now chunks (`prefill_next_in`). At or under 4,096 positions both are one call, as before.
+  The runtime takes the context: 8,256 positions round up to a Grow capacity of 8,448, under MAX_CAP 8,704.
+  Host proof: model.rs::a_chunked_prefill_next_is_the_prefill_of_generate (chunks 1, 4, 12, 13 and 4,096 on a
+  13-token prompt, Grow store: the caches hold the prompt and the decode after it is `generate`'s); a mutant that
+  stops advancing the offset between chunks is caught.
+
+2. WHAT 4E DOES WITH ITS 7.5 MS
+-------------------------------
+  The kernel's split, read from pers_4e.cu and llvq_pers.cuh:
+    - one CTA of 512 threads a SM, 142 CTAs, 16 warps a SM (L1's pass ran 32);
+    - each phase gives CTA c rows [n c / 142, n (c + 1) / 142) of its matrix (or of q | k | v);
+    - inside a CTA each warp claims one whole row, one Tetra block or one int4 word a lane per iteration, the next
+      iteration's load issued only when this one is done (pers_tetra_row<24, false, false>, pers_q4_row);
+    - every CTA repeats a layer's norms and rotations (ln1 + the 2,560 rotation, ln2 + its rotation, the 9,728 down
+      rotation), restages the 18.8 KB of decoder tables in each MLP segment, and waits at 7 grid barriers.
+  Per iteration (devel ptxas SASS of pers_4e_tokens_f1_t512): a Tetra block 231 instructions, tables in shared; an
+  int4 word 65 to 70.
+
+  Serial iterations on the slowest warp of the slowest CTA, against the even spread (*computed*, ops/pers_4e_model.py):
+    phase        rows    a CTA   a warp   slowest   even     the warps' time that works
+    q/k/v        6,144    43.3    2.70     30.0     13.52    a v slice (int4 rows of 10) against a q/k slice's 12
+    o            2,560    18.0    1.13     32.0     18.03    56.3 %
+    gate/up      9,728    68.5    4.28     40.0     34.25    85.6 %
+    down Tetra   2,560    18.0    1.13     26.0     14.65    56.3 %
+    down int4    2,560    18.0    1.13     76.0     42.82    56.3 %
+    head       151,936 1,070.0   66.87    670.0    668.73    99.8 %
+  Over the rows' phases of a token: x1.373 to x1.460 for t_Q / t_T from 0.6 to 1.0, whatever t_T.
+
+  Iteration times (*estimated*, the largest of three floors of a SM round, none fitted): latency tau (0.5 to 0.8 us,
+  assumed) plus the warp's own chain; issue (4 warps a scheduler x 231 or 70); LSU (16 warps x 65 or 43 wavefronts).
+  Latency binds both loops: t_T 0.63 to 0.95 us, t_Q 0.53 to 0.83 us. Fixed work 10.5 to 16.5 us a layer.
+    model, tau 0.50 to 0.80 us     4.11 to 6.26 ms a token (0.55 to 0.83 x the measured 7.51)
+    middle point (tau 0.65)        5.18 ms: q/k/v 0.73, o 0.78, gate/up 1.38, down 1.14, head 0.46, fixed 0.49,
+                                   barriers 0.20 (254 x 0.786 us)
+  What the model leaves out, and what the stamps measure: the slowest of 2,272 warps under a latency spread (a sum of
+  30 loads at a 30 % spread each, maximized over 2,272 warps, is about 15 to 20 % over its mean), the sustained clock,
+  the barrier's back-off (up to 512 ns of sleep for a CTA that waited long).
+
+THE TWO CAUSES, AND THE THIRD
+  1. The split, 1.37 to 1.46 x on the rows' phases (*computed*). o and down hold 2,560 rows for 2,272 warps: every
+     CTA spends two row-times on 1.13 rows a warp. q/k/v waits on its last 24 CTAs, whose slices are int4 v rows
+     of 10 iterations against 4 for q and k. On the measured total: about 2.0 ms of the 6.8 ms of rows (*estimated*).
+  2. The iteration rate. One block or word in flight a lane, 16 warps a SM: an iteration costs a full load latency
+     plus its decode. An even split would stream at about 290 GB/s on the measured total, 440 on the model
+     (*estimated*); DRAM's floor for the 1.377 GB is 1.59 ms at 864 GB/s (*computed*).
+  3. Fixed work and barriers, about 0.7 ms (*estimated*: 254 barriers at L1's 0.786 us, 36 x 10.5 to 16.5 us of
+     norms, rotations and table staging every CTA repeats).
+
+WHAT EACH WOULD TAKE, WITHIN IDENTITY (4E owes the served bits)
+  - Cost-weighted slices for q/k/v: which CTA computes a row moves no bit. 30 iterations fall to about 15.
+  - 24 warps a SM: o and down fit in one round (2,560 rows for 3,408 warps). Needs the 768-thread symbol without
+    local memory: 8 B under the driver's ptxas today (run 2), 36 B under the devel one.
+  - The next iteration's load in flight: pers_tetra_row's PREFETCH form keeps each lane's order of accumulation,
+    so its bits; the int4 row takes the same change. It attacks cause 2 directly.
+  - Idle warps at a phase's end prefetching the next phase's rows into L2 (L1's rule D).
+  - Not within identity: splitting a row across warps (split-K) changes each lane's order of accumulation.
+
+3. THE PHASE STAMPS
+-------------------
+  pers_4e.cu gains a STAMP template parameter and three symbols, pers_4e_stamps_f{0,1,2}_t512. Thread 0 of every CTA
+  writes %globaltimer at each grid wait: after a __syncthreads (the CTA's work done) and after the release. Per
+  token, 3 + 10 x layers events a CTA (363 at the 4B). Pers4eLaunch carries the buffer (`stamps`, offset 32, 40 bytes
+  in all); the token symbols never read it.
+  pers.rs::p4e_phase_report turns one launch's stamps into, per phase summed over the layers, the median over tokens
+  of: the wall (how far the grid's last release moved, the walls summing to the token), the slowest CTA's work, the
+  mean CTA's work, and the CTA most often slowest. It refuses stamps that contradict their barriers (a release before
+  the wait's last arrival, a CTA's stamps going back, a stamp unwritten).
+  LLVQ_PERS_4E runs one stamped launch at each context after the timed rounds and outside them: the same tokens or
+  its stamps are void, then the table and the stamped token's time beside the timed 4E's.
+  Proofs (host, $0):
+    - pers_matches_served.rs::the_4e_phase_stamps_keep_the_tokens_and_bracket_the_waits: two launches through one
+      state, RoPE forms 0 and 1, grids 3 and 4: the stamped symbols make the token symbols' tokens, caches and
+      residual; their stamps pass the report; the walls sum to the token. Mutants caught: a release left unstamped,
+      an arrival stamped after the wait.
+    - pers.rs::the_4e_phase_report_reads_the_stamps: stamps made by hand, every wall, slowest and mean known.
+    - pers_4e_tokens_f1_t512 and pers_4e_tokens_f1 compile to the same SASS, instruction for instruction, before
+      and after (ptxas 12.4): the timed 4E does not move. The stamp symbols: 118 to 119 registers, 0 B spill.
+
+4. THE NEXT CARD READING (PROPOSED, NOT LAUNCHED)
+-------------------------------------------------
+  R3: ops/jobs/pers-4e.sh unchanged, RETRY=3, on an image of this commit, under the operator's go.
+  Cost (*estimated*, l40sx1 at $1.80/h): about 3 min running, $0.10 (load 30 s, context 5 as run 2, context 8,192:
+  two chunked prefills of about 31 s, 14 decodes of 63 tokens, two stamped launches); the script's own bound is
+  10 min and $0.30, its timeout 40 min.
+  It reads, at 5 and 8,192 prompt tokens: identity, eager against 4E as preregistered, and the phase table.
+  How it reads (to write in the deviation before the run):
+    - cause 1 holds if the slowest CTA's work over the mean CTA's is 1.3 or more on o, down and q/k/v, with
+      q/k/v's slowest CTA in the v slices (index 118 or above);
+    - cause 2 holds if the mean CTA's work over the rows' phases streams the 1.377 GB at 350 GB/s or less;
+    - the fixed work and barriers are the walls of norm/RoPE/append and attention plus each phase's wall minus its
+      slowest CTA's work.
+  Whichever holds names the first change above to build, at $0, before any further card time.

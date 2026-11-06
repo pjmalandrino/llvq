@@ -1,0 +1,114 @@
+ATTENTION WITHOUT REPEAT_KV: THE GROUPED FORM DECODES THE 4B AT 77.5 TOK/S AT 8,192 OF CONTEXT AGAINST 33.1 (x2.34), AND 134.4 AGAINST 121.9 AT 5 (x1.10), SAME 256 TOKENS EVERYWHERE; NEITHER UNEXPANDED FORM IS BIT FOR BIT ON THE CARD PAST 5 TOKENS (2026-11-01)
+=========================================================================================================================================================================================================================================================================
+Prereg: proofs/preregistration-gqa-ab-2026-11-01.md, sha256 a9bf7a28, stamped and committed (de65c9b)
+        before the run. Deviations: one, É1 in proofs/preregistration-gqa-ab-2026-11-01-ECARTS.md (the
+        first image did not build; the image comes from b6fcf3b, which moves no measured path).
+Job:    6ae70eae0e0338d1bb7d6adf, l40sx1, ran 10:08:11 to 10:17:46 UTC, 575 s, $0.29 against $0.54
+        announced and a $2 cap, after 4 min in the queue.
+Image:  Space sha fba9a9fc, built from commit b6fcf3b (branch debit-trims) in 16.3 min, no warning.
+        The first build, 77bd2904 from de65c9b, stopped on E0004 (deviation É1), at no cost.
+Card:   NVIDIA L40S, 8.9, 46068 MiB, driver 580.178.04.
+Object: sealed-4b-2026-09-23/qwen3-4b-sealed.bin, sha256 886391a8; config qwen3-4b-tetra-e4.json,
+        sha256 098fe49c.
+Nature: *measured*; ratios formed round by round by fusedrun; per-token times and slopes *computed*.
+Raw:    docs/mesures/gqa-ab-2026-11-01-brut/ (bucket copy plus the job log).
+
+GATES, ALL PASSED
+-----------------
+  1. image built; oracle on Qwen3-0.6B: MATCH, max |dhidden| = 0
+  2. object and config at their sha256 on the mount
+  3. "int4: tv_q4_hh equals tv_q4_h bit for bit on model.layers.0.self_attn.v_proj.weight
+     (1024 rows, d_in 2560)" at both loads
+  4. step 2: 256 tokens identical to the dense arm, and the decoded line hashes to 8784ffc4,
+     the line of paper-table run 1: the default path did not move
+  5. step 3: cudarc event tracking off, four tables in full, every arm repeating its own text
+     in all six decodes of every length
+  6. tile 64 in every step; no LLVQ_* in the job environment
+
+STEP 2, the published arm replayed
+----------------------------------
+  fused 120.3 tok/s [119.1–120.6], dense 43.3 [43.2–43.3], 1.38 GB on the card. Against 120.5 in
+  step 2 of 2026-10-30: a cross-job reading, not a ratio (rule 7).
+
+THE A/B, one model, 3 arms, one prefill an arm, then 1 discarded + 5 decodes of 256 tokens
+------------------------------------------------------------------------------------------
+Arms: cat+expanded (published), grow(256)+shared, grow(256)+grouped. Decode tok/s = 255 / t.
+
+  prompt   arm                 decode tok/s [range]    arm / published, round by round    text
+       5   cat+expanded        121.9 [121.7–122.0]
+           grow(256)+shared    118.7 [118.3–119.0]     0.9747 [0.9709–0.9761]            256 identical
+           grow(256)+grouped   134.4 [134.3–134.5]     1.1028 [1.1022–1.1032]            256 identical
+    2048   cat+expanded         82.0 [81.9–82.2]
+           grow(256)+shared     98.9 [98.5–99.1]       1.2052 [1.2021–1.2064]            256 identical
+           grow(256)+grouped   113.4 [113.2–113.5]     1.3823 [1.3816–1.3830]            256 identical
+    4096   cat+expanded         61.0 [60.8–61.1]
+           grow(256)+shared     84.6 [84.3–84.8]       1.3861 [1.3842–1.3881]            256 identical
+           grow(256)+grouped    97.5 [97.3–97.8]       1.5995 [1.5957–1.6005]            256 identical
+    8192   cat+expanded         33.1 [33.1–33.1]
+           grow(256)+shared     61.5 [61.5–61.5]       1.8568 [1.8565–1.8572]            256 identical
+           grow(256)+grouped    77.5 [77.5–77.5]       2.3392 [2.3377–2.3408]            256 identical
+
+The published arm reproduces the context sweep of 2026-10-30 (122.5 / 82.7 / 61.4 / 33.2), another
+job, read side by side, not divided.
+
+*Computed* from the medians:
+  ms a decode token, published / shared / grouped:
+    at 5: 8.20 / 8.42 / 7.44; at 2,048: 12.20 / 10.11 / 8.82; at 4,096: 16.39 / 11.82 / 10.26;
+    at 8,192: 30.21 / 16.26 / 12.90.
+  extra ms a decode token per thousand positions, 5 to 8,192: published 2.69, shared 0.96,
+    grouped 0.67.
+  grouped over shared, from the medians: 1.13, 1.15, 1.15, 1.26. Grouped is faster at every length.
+
+THE LOGITS, against the published arm, compared bit for bit (prompt's last position, then the
+first decode step)
+----------------------------------------------------------------------------------------------
+  prompt   grow(256)+shared                         grow(256)+grouped
+       5   bit for bit / bit for bit                bit for bit / max |dlogit| 2.539e-2
+    2048   bit for bit / max |dlogit| 1.587e-2      3.711e-2 / 3.125e-2
+    4096   3.516e-2 / 4.688e-2                      bit for bit / 3.125e-2
+    8192   3.906e-2 / 6.250e-2                      3.418e-2 / 6.641e-2
+
+Shared runs each matmul at the expanded form's shape, and the Mac CPU returned it bit for bit.
+cuBLAS does not: past 5 tokens its batch of 8 key heads, against 32 expanded heads, rounds
+differently. The per-head shape does not fix the rounding on this card.
+
+THE PREDICTIONS
+---------------
+  quantity                                         predicted             measured           inside?
+  step 2 fused tok/s                               120 [113, 126]        120.3              yes
+  published decode at 5                            122 [116, 128]        121.9              yes
+  published decode at 2,048                        83 [79, 87]           82.0               yes
+  published decode at 4,096                        61 [58, 65]           61.0               yes
+  published decode at 8,192                        33 [31.5, 35]         33.1               yes
+  grouped / expanded at 5                          1.10 [1.03, 1.18]     1.1028             yes
+  grouped / expanded at 2,048                      1.45 [1.20, 1.65]     1.3823             yes
+  grouped / expanded at 4,096                      1.85 [1.45, 2.15]     1.5995             yes
+  grouped / expanded at 8,192                      2.9 [1.9, 3.6]        2.3392             yes
+  shared / expanded at 5                           0.94 [0.85, 1.00]     0.9747             yes
+  shared / expanded at 2,048                       1.20 [1.02, 1.40]     1.2052             yes
+  shared / expanded at 4,096                       1.45 [1.15, 1.75]     1.3861             yes
+  shared / expanded at 8,192                       2.2 [1.5, 3.0]        1.8568             yes
+  shared logits bit for bit at all four lengths    yes                   at 5 only          NO
+  grouped first decode step, max |dlogit|          [0.002, 0.25]         2.5e-2 to 6.6e-2   yes
+  grouped text at 5 tokens                         identical             identical          yes
+
+The grouped ratios land in the lower half of their intervals past 5 tokens: the reading of
+cuBLAS's value matmul as poorly occupied holds, and the bytes saved do not convert one for one.
+
+THE DECISION RULES (prereg section 7)
+-------------------------------------
+  Rule A does not apply: shared is not bit for bit at 2,048, 4,096 and 8,192.
+  Rule B: grouped is not bit for bit, so it is not served on this run's strength.
+  Rule C is not triggered: both unexpanded arms are above 1.000 at 8,192.
+  Last rule: shared is not bit for bit on the card, so both forms fall under decision T8, the
+  operator's. What this run hands T8: same 256-token texts at all four lengths for both forms;
+  logit differences up to 6.6e-2; grouped faster than shared at every length; the default path
+  unchanged (gate 4).
+
+WHAT THIS DOES NOT ESTABLISH
+----------------------------
+  - Quality beyond these four texts: a paired perplexity or MMLU through the kernel, grouped
+    against expanded, is what a tolerance gate would rest on. Not run.
+  - Anything at 8B or 14B, on another card, or on Metal.
+  - The prefill: one prefill an arm, untimed. The 34.9 s to the first token at 8,192 is unchanged.
+  - Where the remaining time goes: no kernel timeline in the image.

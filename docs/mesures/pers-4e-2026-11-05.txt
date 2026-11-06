@@ -1,0 +1,21 @@
+4E, first card reading, 2026-11-05 (void)
+
+Result: void by its own gate. The 4E token loop (one cooperative launch, 142 x 512, 254 barriers a token) loaded and
+passed its load checks, and on the first decode at a 5-token context its 64 tokens equalled the eager path's and the
+served grouped door's (*measured*). The first timing round then decoded different tokens, and the mode stopped:
+"round 0: a decode moved its tokens; the run is void". No speed is read. The cause is not known: a state not reset
+between decodes (caches, barrier counters, the device token) or a race between CTAs; it is diagnosed on the host first.
+
+Job      : 6aebcb970e0338d1bb804b35, l40sx1, 74 s running, $0.04 (*computed* at $1.80/h).
+Image    : Space sha 9d092a0f174710bfec473fbe100285ad319ca0e1 (integration/lot1 with route P's branch at ce680e4).
+Prereg   : proofs/preregistration-pers-4e-2026-11-04.md, sha256 83164b0e..., OpenTimestamps stamped before.
+Raw      : pers-4e-2026-11-05-brut/ (pers-4e.txt, oracle.txt, gpu.txt, files.sha256).
+
+Printed before the stop (*measured*): attn_dec_g4_u64 equals the CPU replay on 103 calls; persistent module 168,563
+bytes, sha256 d1422ecd...; RoPE forms equal to candle's on this card: [1], running form 1; pers_4e_tokens_f1 80
+registers, 8 B local, 57,984 B shared, 1 resident a SM; the t512 variant 119 registers, 0 B local; loaded and checked
+in 30.1 s; context 5: every decode row on the attention kernel, 64 of 64 tokens equal to the eager path's, the served
+grouped door the same 64 tokens.
+
+Rule reading: the prereg's identity rule voids the run on any moved token. A retry goes under the same prereg with its
+deviation written beside it, after the cause is found.

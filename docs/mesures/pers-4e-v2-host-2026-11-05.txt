@@ -1,0 +1,186 @@
+4E V2 ON THE HOST: THE ATTENTION PHASE FOUND AND REBUILT, THE NORM SPREAD, THE ROWS' PREFETCH, 2026-11-05
+==========================================================================================================
+
+Result: 4E's attention phase grew token by token because each (query head, 64-position unit) was one warp that
+walked its positions one at a time through dependent 2-byte loads, about 1.43 us a position a layer on the card
+(*computed* from R3: 581 to 3,835 us a token over 63 positions and 36 layers). At a short context those were 32
+warps on CTAs 0 and 1, and every other CTA waited for them at a grid barrier inside the phase. At 8,192, the 129 unit
+states of each head were then folded serially by one warp. v2 runs attn_dec.cu's mapping on the persistent grid,
+bit for bit with attn_ref.rs. It also:
+- spreads norm/RoPE/append over 48 CTAs;
+- keeps the rows' next block or word in flight at 512 threads;
+- stages the decoder tables once a launch;
+- asks L2 for a later phase's rows;
+- refuses positions below the served threshold 1,280 outside a measurement.
+Host estimate for 4E v2 at 512 threads (*estimated*, ops/pers_4e_v2_estimate.py, from R3's measured table):
+
+  context    token time               tok/s
+  5          4.2 ms [3.5-5.5]         240 [180-290]
+  8,192      6.0 ms [5.1-7.7]         165 [130-196]
+
+Against the eager served config's 104.5 tok/s at 8,192 (*measured*, R3). 300 tok/s needs the rows at about
+490 GB/s on the mean CTA's work (*computed* from the same estimates), and this version is not predicted to get there.
+A compact card job is ready, not launched: ops/jobs/pers-4e-v2.sh under proofs/preregistration-pers-4e-v2-2026-11-05.md
+(not stamped), about 13 min and $0.39, ceiling $1.20.
+
+Prereg:  none for this host work ($0); the card reading has its own (above).
+Cost:    $0. Host harness (clang++, fibers), NVRTC 12.4 and ptxas 12.4 in nvidia/cuda:12.4.1-devel-ubuntu22.04 on the
+         Mac, the CUDA half type-checked in llvq-check.
+Inputs:  pers-4e-r3-2026-11-05.txt (the phase table); attn_dec.cu (the mapping); pers-l1-2026-11-04.txt (410 GB/s,
+         the barrier at 0.786 us); pers-sass-2026-11-05.txt (the L1/shared pipe model).
+
+1. WHY THE ATTENTION PHASE GREW, AND COST MORE THAN THE EAGER KERNEL
+-------------------------------------------------------------------
+  v1 (llvq_pers.cuh section 10 before this commit):
+    - phase 1: job = (query head, 64-position unit), one warp, jobs on global warp index, so CTAs 0 and 1 hold the 32
+      jobs of a row of 64 positions or less;
+    - inside a job, each position j: 8 scalar __ldcg of K, a 4-step shuffle tree, then later 8 x 8 scalar __ldcg of V,
+      in a loop whose trip count is the tile's length: the loads of one position wait on the previous one's chain;
+    - the 4 query heads of a KV head each reload the same K and V;
+    - one grid barrier, then phase 2: one warp a query head folds its units in order through dependent loads.
+  Read against the card (R3, *measured*): the wall grows from 581 to 3,835 us a token over the 63 decoded positions,
+  1.43 us a position a layer; CTA 0 is the slowest in 82 % of the tokens; the mean CTA's work (2,254) sits near the
+  slowest's (2,314), because every CTA's work includes waiting at the inner barrier. At 8,192: 4,128 unit jobs on
+  2,272 warps, two rounds of 64-position walks, then 32 warps folding 129 states each, about 280 us a layer, 10 ms a
+  token, against 13.3 measured (*estimated*, the order of magnitude).
+  The eager kernel computes the same arithmetic with another mapping (attn_dec.cu):
+    - one CTA a (split, KV head);
+    - the split's tiles staged once into shared memory for every query head, with the next step's loads in flight;
+    - the splits folded 8 a round trip by a ticket's last CTA.
+
+2. WHAT V2 DOES (each keeps every bit)
+--------------------------------------
+  Attention (llvq_pers.cuh section 10):
+    - attn_dec.cu's mapping on a persistent CTA: a job is one (split, KV head), job j on CTA j mod grid;
+    - each step stages 32 positions (16 KB, K then V) once for the KV head's query heads;
+    - at 512 threads (2 chunks a thread) the next step's loads are in flight; at 768 (1 chunk) and on the host's small
+      CTAs the step is staged in rounds before its tiles;
+    - a task (unit, pair of query heads) is one warp, one head a half-warp, so the 16-lane butterfly stays inside
+      each half and every shuffle is a full-warp one;
+    - task states live in shared memory, so any number of warps covers the tasks;
+    - the units fold into the split state, one thread a (head, dimension);
+    - a row of one split writes its output at once; otherwise the split state goes to scratch and the KV head's last
+      job (a ticket) folds the splits in order, 8 a round trip, their maxima and sums through shared memory (the
+      combine of attn_dec.cu), then resets the counter;
+    - no grid barrier inside: 218 a token at 36 layers, against 254 (pers.rs::n_bar_4e, 2 + 6 x layers), the same at
+      every position;
+    - the tickets are cleared by CTA 0 at launch start, as the argmax slots are;
+    - a __syncwarp orders every lane's reads of a task's state before lane 0 rewrites its m and d. The host harness
+      caught that race in a draft that read m and d after the shuffles without the __syncwarp. The draft gave wrong
+      bits at l = 64; the mutant that removes the __syncwarp is now caught.
+  norm/RoPE/append (section 11): head w on CTA w mod grid, one warp a head on 48 SMs. In v1, 16 heads a CTA on CTAs 0
+  to 2 shared one SM's FP64 units in the f64 RoPE: 189 us on the slowest CTA, 5.7 on the mean (R3). Each lane's four
+  values are read once and serve both the norm and RoPE (the same values in the same order).
+  The rows:
+    - PREFETCH forms of the int4 rows (pers_q4_row<true>, pers_q4g64_row) and the Tetra rows (pers_tetra_row<.., true>)
+      in q/k/v, o, gate/up, down and the head, at 512 threads;
+    - the 768-thread symbols run without them (24 warps a SM), because the prefetch costs registers that 80 cannot
+      hold (§4);
+    - pers_segment_body<.., IN4E = true> does not restage the 18,816 B of tables every layer (4E stages them once a
+      launch and never writes them);
+    - L2 prefetch (prefetch.global.L2, writes no register and reads no value):
+        - each CTA's q/k/v slice before ln1 and the rotation;
+        - its o and gate/up slices at the start of attention (8 CTAs work at a short context, the rest wait);
+        - its down slice before the MLP's own barrier.
+  The served threshold (persist4e_cuda.rs):
+    - below position 1,280 the served config runs candle's grouped arithmetic (cuBLAS matmuls, candle's softmax);
+    - no hand kernel reproduces those bits: grouped and expanded already differ, since cuBLAS's kernel and its
+      reduction order change with the shape;
+    - so the runtime refuses a launch that starts below 1,280; the measurement lowers it to 0 against an eager path
+      with every row on the kernel (the form R1 to R3 ran, no T8);
+    - fusedrun's 4E mode runs the served config itself at 8,192 (every decode row past 1,280, inside the T8);
+    - at the short prompt it runs the measurement form and says so;
+    - its reference door is now the served kernel-from-1280 config;
+    - 4E can therefore serve only from position 1,280. A short-context 4E needs the operator's license of the kernel
+      form below 1,280: a T8 extension, read by the paired perplexity at those positions.
+  The one-launch pass (tetra48_persall.cu): L1's tv_tetra48_persall is left byte for byte; four variants in a
+  separate template:
+    - _pf: the next block's words in flight, across tile boundaries;
+    - _ts: the tables and invnorm in shared memory after the tile;
+    - _ts_pf;
+    - _ts_pf_l2: the L2 prefetch of the CTA's next group.
+  persbench.rs checks each against A4 bit for bit, times it in the same rounds, and prints its B_pa and its speed over
+  tpersall round by round. These are the GB/s 4E's rows need read directly: 300 tok/s needs about 490.
+
+3. HOST PROOFS ($0)
+------------------
+  llvq-cuda tests/pers_matches_served.rs, 27 tests, all green; llvq-cuda lib 122 tests (one ignored), llvq-llm lib
+  green:
+    - the_4e_attention_phase_is_attn_ref:
+        - 8 lengths (1, 5, 64, 65, 256, 257, 1,300 and 2,049; groups 4 and 5; 1 to 3 KV heads);
+        - grids 3 x 64, 5 x 96 and 1 x 512, the last on the in-flight path;
+        - the f16 output and the f32 state before the division;
+        - every ticket back at zero.
+    - the_4e_token_loop_is_the_served_chain:
+        - both variants (768 without the rows' prefetch, 512 with);
+        - positions 270-271, two splits through the ticket fold, at 64 and 128 threads;
+        - barriers (2 + 6 x layers) x grid;
+        - EOS.
+    - consecutive_4e_decodes and the phase stamps: unchanged and green; the 768-thread stamp symbols included.
+    - int4_rows_are_the_served_rows: odd rows on the PREFETCH form.
+    - persall_is_the_fused_kernel_site_by_site: all five, grids 1 to 12.
+    - the struct mirrors: Pers4eArgs 216 bytes, attn_ticket at 168.
+    - pers.rs: n_bar_4e(36) = 218; p4e_smem_bytes against the PERS_ATTN_SMEM text; the symbol tables against the
+      kernel text, the stamp symbols at 768 included.
+  Mutants, each caught:
+    - attention:
+        - attn_unit_order, units folded in reverse;
+        - attn_tile, tiles of 16;
+        - attn_no_fold, no CTA folds;
+        - attn_no_reset, a ticket left drawn;
+        - attn_stage_pos, a staged position shifted;
+        - attn_split_chunk, a split's accumulator mispaired;
+        - attn_no_syncwarp;
+        - attn_spare_half_writes, a half-warp past the last head writes (groups of 5);
+        - attn_carry_fused and attn_scale, rewritten on the new text;
+    - int4: q4_pf_group, q4_pf_stale;
+    - the one-launch pass: persall_pf_stale, persall_ts_unstaged, persall_pf_tile_restart.
+  One mutant the host cannot see, by its nature: "the first ticket folds" behaves like the original under the host's
+  serialized fibers, because each early fold resets the counter and the last job folds again on complete data. It is
+  not in the suite. The ticket's memory order (fence, atomic, fence) is attn_dec.cu's and occ_sk's pattern, and on
+  the card the identity gate tests it.
+
+4. REGISTERS (devel ptxas 12.4, sm_89, indicative: the card's driver ptxas decides)
+-----------------------------------------------------------------------------------
+    symbol                      registers   stack (local)
+    pers_4e_tokens_f*_t512      120         0
+    pers_4e_tokens_f* (768)      80         0
+    pers_4e_stamps_f*_t512      126         0
+    pers_4e_stamps_f*_t768       80         24 B (measurement symbol, launched outside the timed rounds)
+    tv_tetra48_persall           56         0 (as L1)
+    _pf 56, _ts 56, _ts_pf 54, _ts_pf_l2 54, 0 each
+  Found by compiling patched copies (target/kx/): without the new attention the 768 symbol held 79 registers and no
+  spill. Three changes cleared it:
+    - one staged chunk a thread at 768 instead of two;
+    - the split fold's maxima and sums through shared memory (8 values a thread a chunk instead of 24);
+    - a task's accumulators read only after its scores.
+  The rows' prefetch costs the 768 symbol about 176 B of spills, hence 768 without it.
+  (ops/nvrtc-check.sh's "spill" column is stores plus loads; the stack frame is the local memory.)
+
+5. THE HOST ESTIMATE (ops/pers_4e_v2_estimate.py, *estimated*, nothing fitted)
+-----------------------------------------------------------------------------
+    case, rows' stream on the mean CTA's work      context 5                   context 8,192
+    low, 290 GB/s (no stream gain)                 5,513 us, 181 tok/s         7,721 us, 130 tok/s
+    middle, 380 GB/s                               4,177 us, 239 tok/s         6,046 us, 165 tok/s
+    high, 450 GB/s                                 3,478 us, 288 tok/s         5,099 us, 196 tok/s
+  The attention term at 5 tokens is 163 to 357 us a token: up to 8 steps of 0.5 to 1.2 us, plus 1.2 to 3.0 us of job
+  and a 0.786 us wait a layer. At 8,192 it is 1,785 to 2,566 us: the KV cache's 33.8 MB a layer at 550 to 750 GB/s,
+  plus the fold and the wait. The norm term is 57 to 100 us. The rows keep R3's wall-to-mean ratio, 1.065.
+  300 tok/s is 3,333 us. With the middle attention and norm (319 us), the rows must stream at 486 GB/s or more on the
+  mean CTA's work. That is L1's 410 GB/s pass, plus what the variants are meant to show.
+
+6. THE CARD JOB (READY, NOT LAUNCHED)
+-------------------------------------
+  ops/jobs/pers-4e-v2.sh, DRY_RUN=1 parses. Prereg proofs/preregistration-pers-4e-v2-2026-11-05.md, not stamped. One
+  job, l40sx1, after the oracle:
+    1. fusedrun LLVQ_PERS_4E=64: eager, 4E 512 and 4E 768 interleaved in each round, at 5 and 8,192, then one stamped
+       launch a geometry;
+    2. the served door, for the digest and the threshold line;
+    3. planesbench, L1's command without the microbenchmarks: tpersall and its four variants, with the cubins.
+  About 13 min and $0.39 (*estimated*); timeout 40 min, $1.20.
+  Gates: oracle, files, RoPE, identity of 4E 512 at both contexts, the served door's digest and threshold line, the
+  bench's 252 matrices.
+  Decision rules A to G: identity, attention, norm, rows, the one-launch variants, the target, misses.
+
+Not established: anything on a card. Not established either: the driver's register allocation, the attention
+phase's time, the rows' rate with the prefetch, and the variants' GB/s. Nothing served changes.

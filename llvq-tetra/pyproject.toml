@@ -1,6 +1,6 @@
 [project]
 name = "llvq-tetra"
-version = "0.1.0"
+version = "0.2.0"
 description = "Read a Tetra-quantized LLVQ model in transformers, still compressed in memory"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -42,6 +42,8 @@ dependencies = [
     "safetensors>=0.4",
     "torch>=2.14",
     "transformers>=5.17",
+    # `device_map`, which keeps the weights compressed on a GPU, needs it in transformers.
+    "accelerate>=1.0",
 ]
 
 [project.urls]

@@ -11,9 +11,19 @@
 //! driver cannot reproduce — but it takes its thread identity as *arguments*
 //! rather than reading `threadIdx` inside the phases. At one thread the
 //! barriers are vacuous and the arithmetic is unchanged, so the host runs the
-//! real kernel. The phases are then replayed at 7, 32 and 256 threads and all
-//! four results must agree: that is what pins the Walsh–Hadamard addressing,
-//! whose one plausible bug is a stage where two threads own the same slot.
+//! real kernel. The phases are then replayed at 7, 32, 256 and 1,024 threads
+//! and all five results must agree: that is what pins the Walsh–Hadamard
+//! addressing, whose one plausible bug is a stage where two threads own the
+//! same slot.
+//!
+//! ## The device-staged rotation, and the card fixture
+//!
+//! `rotate_wide.cu` runs the same helpers on a device scratch, for widths whose
+//! f32 staging passes the card's shared-memory ceiling (25,600 for Qwen3-32B
+//! on a 99 KiB card). The host has no ceiling, so `rot_apply` itself runs here
+//! at every width, and the new kernels must equal it **byte for byte**, not
+//! within a tolerance. The same outputs, hashed, are the fixture
+//! `bin/rotbench` compiles in and compares the card's bytes against.
 //!
 //! What is left for the card: occupancy, register pressure, and that the
 //! barriers really are where the source says. Everything arithmetic is here.
@@ -28,6 +38,8 @@
 //! where the mix is skipped.
 
 use llvq_core::SplitMix64;
+use llvq_cuda::sha256::sha256_hex;
+use llvq_cuda::wide::{f32_le_bytes, parse_rot_fixture, rot_input_bytes, CARD_WIDTHS};
 use llvq_cuda::{f16_bits, f16_to_f64, ROT_KMAX};
 use llvq_quant::rotation::Rotation;
 use std::io::Write;
@@ -37,17 +49,15 @@ use std::process::{Command, Stdio};
 /// by `the_kmax_constant_matches_the_kernel`.
 const KMAX: usize = ROT_KMAX;
 
-/// `(n, seed)`. The comment is what the shape is in a real model.
-const CASES: [(usize, u64); 8] = [
-    (24, 0x1),      // m=8,    k=3   — one Leech block, small enough to reason about
-    (96, 0x2),      // m=32,   k=3
-    (1024, 0x3),    // m=1024, k=1   — the no-mix branch, narrow
-    (3072, 0x4),    // m=1024, k=3   — Qwen3-0.6B intermediate
-    (2560, 0x5),    // m=512,  k=5   — Qwen3-4B hidden: q/k/v/gate/up input
-    (4096, 0x6),    // m=4096, k=1   — Qwen3-4B o_proj input, widest power of two
-    (9728, 0x7),    // m=512,  k=19  — Qwen3-4B down_proj input, widest dense block
-    (12288, 0x8),   // m=4096, k=3   — Qwen3-8B intermediate
-];
+/// `(n, seed)`: the widths `bin/rotbench` checks on a card
+/// (`llvq_cuda::wide::CARD_WIDTHS`, where each carries what it is in a real
+/// model), so every width the card compares against the fixture is a width
+/// this file diffs against Rust. Since 2026-11-04 that includes the served
+/// 14B's 17,408 and the 32B's 5,120, 8,192 and 25,600, which the 16,384-float
+/// stand-in kept out before.
+fn cases() -> impl Iterator<Item = (usize, u64)> {
+    CARD_WIDTHS.iter().map(|&(n, seed, _)| (n, seed))
+}
 
 /// Compiled once per test binary, then shared. Four tests call this and the
 /// harness runs them in parallel: when each recompiled into the same fixed
@@ -84,17 +94,32 @@ fn compile_driver() -> std::path::PathBuf {
     out
 }
 
-/// `(reference, four kernel results)` for one shape.
+/// Everything the driver returns for one shape.
+struct Run {
+    /// The f64 reference, from `llvq_quant::rotation::Rotation`.
+    want: Vec<f64>,
+    /// `rot_apply` at 1 thread, then the replays at 7, 32, 256 and 1,024.
+    got: Vec<Vec<f32>>,
+    /// `rot_apply_rows` against `rot_apply`, worst difference at 1, 3, 4 rows.
+    rows_worst: Vec<f32>,
+    /// `rot_apply_dev` at one thread.
+    dev: Vec<f32>,
+    /// 0 = equal byte for byte: dev at x_off 13, rows_dev at 1, 3, 4 rows,
+    /// and the scratch past the rows untouched.
+    dev_flags: Vec<u32>,
+    /// The bytes the fixture's input hash covers.
+    input: Vec<u8>,
+}
+
+/// The thread counts of `Run::got`, in order.
+const WIDTHS: [u32; 5] = [1, 7, 32, 256, 1024];
+
+/// The kernel results for one shape.
 ///
 /// `pad` is what fills `small` outside its `k × k` corner. Zero is the
 /// contract; the point of making it an argument is that the kernel must not
 /// depend on it — see `the_mix_ignores_whatever_pads_the_small_block`.
-fn run_case(
-    driver: &std::path::Path,
-    n: usize,
-    seed: u64,
-    pad: f32,
-) -> (Vec<f64>, Vec<Vec<f32>>, Vec<f32>) {
+fn run_case(driver: &std::path::Path, n: usize, seed: u64, pad: f32) -> Run {
     let rot = Rotation::new(n, seed);
     let (m, k) = (rot.pow2(), rot.odd());
     assert!(k <= KMAX, "case n={n} has k={k}, past the kernel's cap");
@@ -136,6 +161,7 @@ fn run_case(
     for v in &small {
         fixture.extend(v.to_le_bytes());
     }
+    let input = rot_input_bytes(&bits, &words, &small, (1.0f64 / (m as f64).sqrt()) as f32);
     for b in &bits {
         fixture.extend(b.to_le_bytes());
     }
@@ -153,23 +179,33 @@ fn run_case(
         .expect("fixture written");
     let out = child.wait_with_output().expect("driver finished");
     assert!(out.status.success(), "driver failed on n={n}");
-    // Four vectors of `n` floats, then the three `rot_apply_rows` residuals.
+    // Five vectors of `n` floats, the three `rot_apply_rows` residuals, the
+    // device-staged vector, and its five flags.
+    let nw = WIDTHS.len();
     assert_eq!(
         out.stdout.len(),
-        4 * n * 4 + ROWS_CASES * 4,
+        nw * n * 4 + ROWS_CASES * 4 + n * 4 + DEV_FLAGS * 4,
         "driver returned {} bytes for n={n}",
         out.stdout.len()
     );
 
-    let f32s: Vec<f32> = out
+    let words4: Vec<[u8; 4]> = out
         .stdout
         .chunks_exact(4)
-        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+        .map(|b| [b[0], b[1], b[2], b[3]])
         .collect();
-    let got: Vec<Vec<f32>> = f32s[..4 * n].chunks_exact(n).map(<[f32]>::to_vec).collect();
-    let rows_worst: Vec<f32> = f32s[4 * n..].to_vec();
-    (want, got, rows_worst)
+    let f32s: Vec<f32> = words4.iter().map(|&b| f32::from_le_bytes(b)).collect();
+    let got: Vec<Vec<f32>> = f32s[..nw * n].chunks_exact(n).map(<[f32]>::to_vec).collect();
+    let at = nw * n;
+    let rows_worst: Vec<f32> = f32s[at..at + ROWS_CASES].to_vec();
+    let at = at + ROWS_CASES;
+    let dev: Vec<f32> = f32s[at..at + n].to_vec();
+    let dev_flags: Vec<u32> = words4[at + n..].iter().map(|&b| u32::from_le_bytes(b)).collect();
+    Run { want, got, rows_worst, dev, dev_flags, input }
 }
+
+/// What the driver checks of `rotate_wide.cu` beyond the single-row output.
+const DEV_FLAGS: usize = 5;
 
 /// How many row counts the driver runs `rot_apply_rows` at: 1, 3 and 4.
 ///
@@ -210,9 +246,9 @@ fn the_cuda_rotation_computes_what_the_rust_rotation_computes() {
     let mut worst_rel = 0.0f64;
     let mut worst_max = 0.0f64;
 
-    for (n, seed) in CASES {
-        let (want, got, _) = run_case(&driver, n, seed, 0.0);
-        let widths = [1u32, 7, 32, 256];
+    for (n, seed) in cases() {
+        let Run { want, got, .. } = run_case(&driver, n, seed, 0.0);
+        let widths = WIDTHS;
 
         for (arm, g) in got.iter().enumerate() {
             let (rel, max) = errors(g, &want);
@@ -238,7 +274,10 @@ fn the_cuda_rotation_computes_what_the_rust_rotation_computes() {
         }
     }
 
-    eprintln!("worst over {} shapes: relative {worst_rel:.3e}, coordinate {worst_max:.3e}", CASES.len());
+    eprintln!(
+        "worst over {} shapes: relative {worst_rel:.3e}, coordinate {worst_max:.3e}",
+        cases().count()
+    );
 }
 
 /// `rot_apply_rows` row `r` IS `rot_apply` of row `r`, bit for bit.
@@ -258,8 +297,8 @@ fn the_cuda_rotation_computes_what_the_rust_rotation_computes() {
 #[cfg_attr(debug_assertions, ignore = "compiles C++ and runs eight widths, run in release")]
 fn the_batched_rotation_is_the_single_row_one_row_by_row() {
     let driver = build_driver();
-    for (n, seed) in CASES {
-        let (_, _, rows_worst) = run_case(&driver, n, seed, 0.0);
+    for (n, seed) in cases() {
+        let Run { rows_worst, .. } = run_case(&driver, n, seed, 0.0);
         assert_eq!(rows_worst.len(), ROWS_CASES);
         for (i, &w) in rows_worst.iter().enumerate() {
             assert_eq!(
@@ -278,7 +317,7 @@ fn the_batched_rotation_is_the_single_row_one_row_by_row() {
 #[cfg_attr(debug_assertions, ignore = "compiles C++, run in release")]
 fn the_cuda_rotation_preserves_the_norm() {
     let driver = build_driver();
-    for (n, seed) in CASES {
+    for (n, seed) in cases() {
         // The same draw `run_case` makes, so this is the norm of the vector
         // the kernel is actually handed.
         let mut rng = SplitMix64::new(seed ^ 0xa5a5_a5a5);
@@ -289,7 +328,7 @@ fn the_cuda_rotation_preserves_the_norm() {
             .sum::<f64>()
             .sqrt();
 
-        let (_, got, _) = run_case(&driver, n, seed, 0.0);
+        let Run { got, .. } = run_case(&driver, n, seed, 0.0);
         let after = got[0].iter().map(|&g| g as f64 * g as f64).sum::<f64>().sqrt();
         let rel = (after - before).abs() / before;
         assert!(rel < 1e-5, "n={n}: norm {before:.9} became {after:.9} ({rel:.3e})");
@@ -316,13 +355,18 @@ fn the_cuda_rotation_preserves_the_norm() {
 #[cfg_attr(debug_assertions, ignore = "compiles C++, run in release")]
 fn the_mix_ignores_whatever_pads_the_small_block() {
     let driver = build_driver();
-    for (n, seed) in CASES {
-        let (_, clean, _) = run_case(&driver, n, seed, 0.0);
+    for (n, seed) in cases() {
+        let clean = run_case(&driver, n, seed, 0.0);
         for pad in [1.0f32, -3.5e12, 7.25e-9] {
-            let (_, dirty, _) = run_case(&driver, n, seed, pad);
+            let dirty = run_case(&driver, n, seed, pad);
             assert_eq!(
-                clean, dirty,
+                clean.got, dirty.got,
                 "n={n}: padding `small` with {pad} changed the result"
+            );
+            assert_eq!(
+                f32_le_bytes(&clean.dev),
+                f32_le_bytes(&dirty.dev),
+                "n={n}: padding `small` with {pad} changed rot_apply_dev's result"
             );
         }
     }
@@ -348,4 +392,79 @@ fn the_kmax_constant_matches_the_kernel() {
         .and_then(|t| t.trim_end_matches('u').parse().ok())
         .expect("LLVQ_ROT_KMAX is a literal");
     assert_eq!(val, ROT_KMAX, "kernel says {val}, Rust says {ROT_KMAX}");
+}
+
+/// `rot_apply_dev` and `rot_apply_rows_dev` return `rot_apply`'s bytes.
+///
+/// Byte equality of the f32 outputs, not a tolerance, at every card width,
+/// 25,600 included: the kernels run the same helpers in the same order on
+/// another memory space, so any difference at all is a defect. Also checked:
+/// the activation read at an offset, the rows twin row by row with rows
+/// `n + 8` apart, and a scratch left untouched past the rows' own staging.
+///
+/// What this cannot see: a missing barrier, vacuous at one thread. The
+/// card's hash gate (`bin/rotbench` against `tests/fixtures/rot-hashes.txt`)
+/// is the net for it.
+#[test]
+#[cfg_attr(debug_assertions, ignore = "compiles C++ and runs fourteen widths, run in release")]
+fn the_device_staged_rotation_is_rot_apply_byte_for_byte() {
+    let driver = build_driver();
+    let what = ["x_off 13", "rows_dev at 1 row", "rows_dev at 3 rows", "rows_dev at 4 rows",
+                "scratch past the rows untouched"];
+    for (n, seed) in cases() {
+        let r = run_case(&driver, n, seed, 0.0);
+        assert_eq!(
+            f32_le_bytes(&r.dev),
+            f32_le_bytes(&r.got[0]),
+            "n={n}: rot_apply_dev differs from rot_apply"
+        );
+        assert_eq!(r.dev_flags.len(), DEV_FLAGS);
+        for (i, &f) in r.dev_flags.iter().enumerate() {
+            assert_eq!(f, 0, "n={n}: {} differs from rot_apply", what[i]);
+        }
+    }
+}
+
+/// Where the fixture `bin/rotbench` compiles in comes from.
+const FIXTURE: &str = "tests/fixtures/rot-hashes.txt";
+
+/// The committed fixture is what the host computes, line for line.
+///
+/// One line per card width: the sha256 of the input bytes (f16 activation,
+/// sign words, padded `small`, `inv`) and of `rot_apply`'s f32 output, run
+/// here. The card hashes its own input and output with the same
+/// `sha256_hex`, so an input mismatch there means the two draws drifted and a
+/// match on the input with a mismatch on the output means the kernel did.
+///
+/// `LLVQ_ROT_FIXTURE_WRITE=1` rewrites the file instead of checking it. The
+/// rewrite is a deliberate act, and the diff it leaves is the review.
+#[test]
+#[cfg_attr(debug_assertions, ignore = "compiles C++ and runs fourteen widths, run in release")]
+fn the_card_fixture_is_the_host_output() {
+    let driver = build_driver();
+    let mut text = String::from(
+        "# rot_apply on the host, one line per card width: n, seed, sha256 of the input\n\
+         # (f16 bits, sign words, KMAX*KMAX padded small, inv; little-endian) and\n\
+         # sha256 of the f32 output. Written by tests/rotation_matches_rust.rs\n\
+         # (LLVQ_ROT_FIXTURE_WRITE=1), compiled into bin/rotbench.\n",
+    );
+    for (n, seed) in cases() {
+        let r = run_case(&driver, n, seed, 0.0);
+        text.push_str(&format!(
+            "{n} {seed:#x} {} {}\n",
+            sha256_hex(&r.input),
+            sha256_hex(&f32_le_bytes(&r.got[0]))
+        ));
+    }
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(FIXTURE);
+    if std::env::var("LLVQ_ROT_FIXTURE_WRITE").ok().as_deref() == Some("1") {
+        std::fs::write(&path, &text).expect("fixture written");
+        eprintln!("wrote {}", path.display());
+        return;
+    }
+    let committed = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("{FIXTURE} is missing ({e}); rotbench compiles it in"));
+    let want = parse_rot_fixture(&text).expect("the host's own lines parse");
+    let got = parse_rot_fixture(&committed).expect("the committed fixture parses");
+    assert_eq!(got, want, "{FIXTURE} is not what rot_apply computes on the host");
 }

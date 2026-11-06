@@ -1,0 +1,64 @@
+Lot 1, the 4B job: gestures A/B, the 32B walls on the card, the revised attention kernel, 2026-11-04
+
+Result, three parts read under their own preregs (*measured* unless said):
+- Gestures: the three gestures together decode 135.6 tok/s against 134.1 for the base (x1.0120 [1.0082-1.0128]),
+  256 identical tokens in every arm and round, 9 of 9 card mutants killed. Under the prereg's rules nothing served
+  changes: the cast alone is not proposed (A1), the key kernel is the device loop's argmax (A2), the token kept on the
+  card is a curve point (A3), and the host is hidden (B1).
+- 32B walls: every output of the device-staged rotation R0 and of the f16-staged int4 kernel equals the host's bytes,
+  up to 25,600 (rule I, bit-exact, no T8). R0 takes 45.43 us at 25,600, under 90 (rule II): proposed for a 32B's
+  first light.
+- Attention kernel r2: served 4B kernel against grouped, 0.94 after 5 tokens and x1.34 at 8,192 (104.2 against 77.7
+  tok/s). eta at 8,192 rose from 0.406 to 0.545 (rule 2: partly). The short-context loss remains (rule 3). The T8
+  control did not run: its condition (5 tokens >= 0.97) does not hold (outcome C0).
+
+Job      : 6aeb90e3c78863f9c632eba9, l40sx1, 1,218 s running, $0.61 (*computed* at $1.80/h). One job, four parts in
+           sequence, each its own bash process under its own ceiling (ops/jobs/lot1.sh).
+Image    : Space sha 142216fc72326a98b94316a7f6cd2e989f0efc50, built from integration/lot1 at 02ec809, which merges the
+           gestures, attention and 32B branches (deviations E1-E2 beside the attention and 32B preregs).
+Preregs  : preregistration-gestures-2026-11-04.md (sha256 fcbccd4d..., deviation E1 written after the run: the
+           script's check of gate 6 missed the `f16 / base` line, the gate as written holds),
+           preregistration-bigmodel-2-2026-11-04.md, preregistration-attn-bench-r2-2026-11-04.md (sha256 5d98584a...),
+           preregistration-attn-t8-2026-11-04.md (sha256 40f0ac95...); all OpenTimestamps-stamped before the launch.
+Object   : sealed 4B, sha256 886391a8...
+Raw      : lot1-4b-2026-11-04-brut/ (part logs and scripts), gesture-ab-4b-2026-11-04-brut/,
+           bigmodel-identity-2026-11-04-brut/, attn-bench-r2-2026-11-04-brut/, attn-t8-4b-2026-11-04-brut/.
+
+1. Gestures (gesture-ab-256.txt). Gates 1 to 6 hold as written (E1). Oracle MATCH; the bench door's line 8784ffc4...;
+   the served door's text 0597cee8... at 134.1 tok/s. P1: the key kernel equals candle's fast_argmax_f16 on 40 cases,
+   NaN flag raised; P2: 9 of 9 card mutants killed, each edit found once; P3 kernel us a launch: argmax_f16 53.16,
+   argmax_f32 53.18, cast 3.27, key 2.72, candle argmax call 55.03; P4 host ms behind a 5 ms spin: to_scalar 5.009.
+   Arms, 5 interleaved rounds after 2 discarded, tok/s median [range]:
+     base 134.1 [133.9-134.2]; f16 133.9 [133.5-134.1]; key 134.9 [134.7-135.4]; ondev-key 135.6 [135.2-135.8];
+     ondev-candle 134.5 [134.2-135.0]
+   Ratios round by round: f16/base 0.9987 [0.9955-0.9998]; key/f16 1.0065 [1.0061-1.0123]; ondev-key/key 1.0065
+   [0.9993-1.0071]; ondev-candle/f16 1.0037 [1.0028-1.0102]; ondev-key/base 1.0120 [1.0082-1.0128] (reported only).
+   Clock E: E_base 7.288, E_ondev 7.225 ms a step; clock H/D: 315 of 315 valid, slack 3.146 ms, X_ondev -0.013 ms.
+   Rules: A1, f16/base lies entirely below 1.000, the cast is not proposed. A2, key/f16 lies entirely above 1.000, the
+   device loop takes the key kernel. A3, ondev-key/key straddles 1.000: a curve point, nothing served changes, and the
+   operator says whether the code stays as a measurement mode. B1: host hidden, no diet.
+
+2. 32B walls (rotbench.txt, int4-wide.txt). Rotation R0 (`rot_apply_dev`) equals the host's bytes at all 14 widths,
+   rows twins included, among them 25,600 (Qwen3-32B down_proj, past the 99 KiB opt-in). `tv_q4_hs` equals the host's
+   sha256 at 256x25,344 (and equals `tv_q4_hh` there), at 256x25,600 and at 256x25,600 with x_off 37. Medians, us:
+   rot_apply/A against rot_apply_dev 7.82 / 8.39 at 2,560, 6.72 / 7.54 at 4,096, 18.40 / 21.12 at 9,728, 26.13 /
+   28.05 at 12,288; rot_apply_dev 45.43 [45.41-45.43] at 25,600. Rule I: bit-exact on the card, selected only where
+   the served kernels refuse. Rule II: 45.43 us <= 90, R0 proposed for a 32B's first light; the operator confirms.
+
+3. Attention kernel r2 (attnbench.txt, sweep-kernel.txt, sweep-grouped.txt). Identity: the card equals the CPU replay.
+   Kernel alone, variant u64, G = 4, eta_k at k = 1: 0.041 at 256, 0.270 at 2,048, 0.465 at 4,096, 0.545 at 8,192
+   (r1: 0.230 / 0.356 / 0.406 at 2,048 / 4,096 / 8,192). A pass at L = 256 takes 1.065 ms for 36 layers: the fixed
+   cost. Served 4B, 256 new tokens, 1 discarded and 5 rounds, tok/s:
+     prompt   kernel                grouped               kernel / grouped, in situ range
+          5   127.1 [127.1-127.2]   135.1 [135.0-135.2]   0.9408 [0.9401-0.9422]
+        256   122.9 [122.9-123.0]   132.0 [131.9-132.0]   0.9311 [0.9311-0.9325]
+       2048   121.0 [120.5-121.7]   114.6 [114.3-114.8]   1.0558 [1.0497-1.0647]
+       4096   118.0 [117.8-118.1]    98.6 [98.4-98.7]     1.1968 [1.1935-1.2002]
+       8192   104.2 [104.1-104.5]    77.7 [77.5-77.8]     1.3411 [1.3380-1.3484]
+   The two arms ran one after the other in one job; the in-situ range is min and max across their rounds.
+   Rules: 2, eta_k(8,192) = 0.545, between 0.45 and 0.60: partly confirmed, the remaining excess is attributed with
+   the L = 256 time. 3, the short-context loss remains (lower end 0.9401 < 0.97): diagnosed in the model before the
+   in-situ A/B is stamped. 4, informative: no served default changes.
+   The T8 control (attn-t8): condition not met, 0.9408 < 0.97 at 5 tokens; outcome C0, not run, nothing billed for it.
+
+Not established: the 32B served end to end; any card but the L40S; the kernel's quality (its T8 control did not run).

@@ -1,0 +1,78 @@
+served config: /out/attn-t8-r2-4b-2026-11-04/qwen3-4b-tetra-e4-kernel-from1280.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention kernel from position 1280 on grow(256)) — MEASUREMENT ONLY, written by ops/jobs/attn-t8-r2.sh: the qwen3-4b-tetra-e4 object with decode rows at position 1,280 and later sent to the split-KV attention kernel, the rows below on the grouped path. Not licensed: past 1,280 the kernel is not bit for bit with the grouped form, and its T8 decision is the operator's.
+cudarc event tracking: off (one stream, ordered by issue)
+shared rotation: 1 (LLVQ_CONFIG), 96 rot_launches/token for 252 projections
+projection fusion: 0 (LLVQ_CONFIG), 252 matvec_launches/token for 252 projections (0 groups + 168 lone + 84 int4)
+fused layout: tetra48 (LLVQ_CONFIG), projections 1.16 GB on the card, 2.550 b/weight (INFERENCE accounting: KeepExact tail in binary16; the bench bills its own in f32)
+NVRTC source: 101625 bytes, sha256 6193094310bc18acdb0a0c554807ff45f6df09c1f6ab49e0577032874f107812 (11 parts), tile 64 (served: measured optimum for sm_89), prefill 4x128 (served pair), 49152 B staged of 49152, target compute_89
+int4: tv_q4_hh equals tv_q4_h bit for bit on model.layers.0.self_attn.v_proj.weight (1024 rows, d_in 2560)
+embedding: q4 g64 (LLVQ_CONFIG), 1 table (model.embed_tokens.weight, lm_head tied on it), 218.8 MB on the card (int4 194.5 + scales/biases 24.3)
+total expected on the card: 1.38 GB (projections 1.16 + carried 0.22)
+attn_dec.cu: embedded, sha256 c7b0d8d3f2e3066ba1a2b4331c0bb6c92f22182c78a31b7fb74e839330a1838d, target compute_89
+attn_dec_g4_u64: 160 registers, 0 B local (spill), 16384 B static shared, sm_89
+attn_dec_g4_u64: the card equals the CPU replay bit for bit on 103 calls (rows ending at 1, 255, 256, 257, 1000, 4096; k 1, 3, 8; eager and wide grids; verify rows alone; fresh rows) (1.1 s)
+model: /out/sealed-4b-2026-09-23/qwen3-4b-sealed.bin [LLVQ 2-bit, SERVED KERNEL, tetra48]
+device: Cuda(CudaDevice(DeviceId(1))), dtype f16, kv f16, attention kernel on grow(256), loaded in 11.2 s
+GSM8K test: 1319 problems, scoring 50 (50), revision 740312add88f781978c0658806c59bc2815b9866, max_new 1024, reasoning off
+dumping per-problem results to /out/attn-t8-r2-4b-2026-11-04/gsm8k-4b-kernel-n50.jsonl
+  [   1/50] #33   ok gen  268 eos boxed acc 100.0 %  (2 s)
+  [   2/50] #46   ok gen  370 eos boxed acc 100.0 %  (6 s)
+  [   3/50] #75   -- gen  333 eos boxed acc  66.7 %  (8 s)
+  [   4/50] #160  ok gen  209 eos boxed acc  75.0 %  (10 s)
+  [   5/50] #162  -- gen  396 eos boxed acc  60.0 %  (13 s)
+  [   6/50] #185  ok gen  219 eos boxed acc  66.7 %  (15 s)
+  [   7/50] #222  ok gen  216 eos boxed acc  71.4 %  (17 s)
+  [   8/50] #231  ok gen  248 eos boxed acc  75.0 %  (19 s)
+  [   9/50] #422  ok gen  468 eos boxed acc  77.8 %  (23 s)
+  [  10/50] #453  ok gen  368 eos boxed acc  80.0 %  (26 s)
+  [  11/50] #461  ok gen  231 eos boxed acc  81.8 %  (28 s)
+  [  12/50] #477  -- gen  313 eos boxed acc  75.0 %  (31 s)
+  [  13/50] #486  ok gen  235 eos boxed acc  76.9 %  (33 s)
+  [  14/50] #515  -- gen  260 eos boxed acc  71.4 %  (35 s)
+  [  15/50] #547  ok gen  280 eos boxed acc  73.3 %  (37 s)
+  [  16/50] #557  ok gen  321 eos boxed acc  75.0 %  (40 s)
+  [  17/50] #604  ok gen  261 eos boxed acc  76.5 %  (42 s)
+  [  18/50] #617  ok gen  280 eos boxed acc  77.8 %  (45 s)
+  [  19/50] #657  ok gen  365 eos boxed acc  78.9 %  (48 s)
+  [  20/50] #660  -- gen  771 eos last  acc  75.0 %  (54 s)
+  [  21/50] #661  ok gen  338 eos boxed acc  76.2 %  (57 s)
+  [  22/50] #703  ok gen  272 eos boxed acc  77.3 %  (59 s)
+  [  23/50] #717  ok gen  339 eos boxed acc  78.3 %  (62 s)
+  [  24/50] #750  ok gen  296 eos boxed acc  79.2 %  (65 s)
+  [  25/50] #758  ok gen  214 eos boxed acc  80.0 %  (67 s)
+  [  26/50] #760  ok gen  360 eos boxed acc  80.8 %  (70 s)
+  [  27/50] #783  ok gen  368 eos boxed acc  81.5 %  (73 s)
+  [  28/50] #801  ok gen  342 eos boxed acc  82.1 %  (76 s)
+  [  29/50] #809  ok gen  299 eos boxed acc  82.8 %  (78 s)
+  [  30/50] #810  ok gen  360 eos boxed acc  83.3 %  (81 s)
+  [  31/50] #811  ok gen  272 eos boxed acc  83.9 %  (84 s)
+  [  32/50] #826  ok gen  271 eos boxed acc  84.4 %  (86 s)
+  [  33/50] #834  ok gen  284 eos boxed acc  84.8 %  (89 s)
+  [  34/50] #843  ok gen  248 eos boxed acc  85.3 %  (91 s)
+  [  35/50] #888  ok gen  156 eos boxed acc  85.7 %  (92 s)
+  [  36/50] #895  ok gen  208 eos boxed acc  86.1 %  (94 s)
+  [  37/50] #915  ok gen  287 eos boxed acc  86.5 %  (96 s)
+  [  38/50] #955  ok gen  338 eos boxed acc  86.8 %  (99 s)
+  [  39/50] #965  -- gen  332 eos boxed acc  84.6 %  (102 s)
+  [  40/50] #1042 -- gen  448 eos boxed acc  82.5 %  (106 s)
+  [  41/50] #1072 -- gen  433 eos boxed acc  80.5 %  (110 s)
+  [  42/50] #1108 ok gen  171 eos boxed acc  81.0 %  (111 s)
+  [  43/50] #1140 ok gen  405 eos boxed acc  81.4 %  (115 s)
+  [  44/50] #1169 ok gen  371 eos boxed acc  81.8 %  (118 s)
+  [  45/50] #1170 ok gen  386 eos boxed acc  82.2 %  (121 s)
+  [  46/50] #1217 -- gen  445 eos boxed acc  80.4 %  (125 s)
+  [  47/50] #1219 ok gen  186 eos boxed acc  80.9 %  (126 s)
+  [  48/50] #1258 -- gen  414 eos boxed acc  79.2 %  (130 s)
+  [  49/50] #1260 ok gen  186 eos boxed acc  79.6 %  (131 s)
+  [  50/50] #1266 ok gen  294 eos boxed acc  80.0 %  (134 s)
+
+/out/sealed-4b-2026-09-23/qwen3-4b-sealed.bin [LLVQ 2-bit, SERVED KERNEL, tetra48]
+GSM8K zero-shot, reasoning off, 50 problems of 1319 (50), dtype f16, kv f16, max_new 1024, tokens 94c7b98876288901
+  accuracy          = 80.00 % (40/50) ± 5.66 (binomial SE)
+  read from a box   = 40/49 right; last number 1; nothing 0
+  generated tokens  = mean 314.7, median 296, p90 414, max 771; stopped at the cap 0
+  prompt tokens     = mean 84.8
+  timing (cuda) = prefill 3.872 ms a prompt token, decode 7.465 ms a token (134.0 tok/s), 2.68 s a problem, 134 s in all, load 11 s
+  timings price a campaign; they are not a throughput measurement
+
+  Dump written. Two arms are compared on the dumps:
+  `cargo run --release -p llvq-llm --bin gsm8kpair -- <a> <b>`.

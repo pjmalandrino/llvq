@@ -590,6 +590,12 @@ mod linux {
 
     /// The four rank-table buffers the F1 decoder walks, plus the two
     /// constants the served Tetra decode adds. Uploaded once for the run.
+    /// A device pointer as the persistent sections take it.
+    fn dptr<T>(s: &cudarc::driver::CudaSlice<T>, cuda: &Cuda) -> u64 {
+        use cudarc::driver::DevicePtr;
+        s.device_ptr(cuda.stream()).0
+    }
+
     struct TetraTabs {
         rows: cudarc::driver::CudaSlice<u32>,
         prefixes: cudarc::driver::CudaSlice<u32>,
@@ -1405,6 +1411,20 @@ mod linux {
                 ))
             }
         };
+        // The persistent sections (llvq_cuda::persbench): L1's one-launch
+        // Tetra pass and microbenchmarks, L2's arms, the driver cubins. Off
+        // unless asked; read here, before anything is built, like A3's arms.
+        let pers_flags = llvq_cuda::persbench::Flags::from_env(seg_tetra, union.has(arms::TETRA48))?;
+        if pers_flags.any() || pers_flags.dump_cubin.is_some() {
+            println!(
+                "Persistent sections: LLVQ_TETRA_OCC={} LLVQ_PERS_MICRO={} LLVQ_PERS_ARMS={} LLVQ_TROWS={} LLVQ_DUMP_CUBIN={}",
+                u8::from(pers_flags.tetra_occ),
+                u8::from(pers_flags.micro),
+                pers_flags.arms.iter().map(|&a| llvq_cuda::pers::PERS_ARMS[a].name).collect::<Vec<_>>().join(","),
+                u8::from(pers_flags.trows),
+                pers_flags.dump_cubin.as_ref().map_or("unset".to_string(), |d| d.display().to_string())
+            );
+        }
         let (awqcu, awq_overridden) = load_awq_source()?;
         let (gv1cu, golay_v1_overridden) = load_golay_v1_source()?;
         // P1c. Same loader as the base pair, so `LLVQ_KERNEL_DIR` overrides it
@@ -2781,16 +2801,33 @@ mod linux {
             tail: cudarc::driver::CudaSlice<f32>,
             slot_bytes: u64,
             planes_bytes: u64,
-            /// The Tetra stream of the same concatenation, present only when
+            /// The Tetra stream of the same group, present only when
             /// `tetra48` is in the selection. `Option` and not a sentinel: a
             /// group whose members are not all Tetra has no such stream, and
             /// an empty `CudaSlice` would launch and read garbage.
-            twords: Option<cudarc::driver::CudaSlice<u32>>,
+            ///
+            /// It carries its own scales, like `TetraArm`. The `gscale`,
+            /// `rscale` and `tail` above belong to the FIRST file; until
+            /// 2026-11-04 the Tetra launch read them, on a stream transcoded
+            /// from the first file's indices, and was compared against the
+            /// second file's separate launches.
+            tetra: Option<FusedTetra>,
             tstride: u32,
             tetra_bytes: u64,
             /// Indices into `mats` of the matrices this one replaces, in row
             /// order — the fused output must equal their outputs concatenated.
             parts: Vec<usize>,
+        }
+
+        /// The Tetra half of a fused group: the SECOND file's words, centroid
+        /// pairs, `gs_off`, row scales and tail, concatenated by
+        /// `seg_concat_tetra48` from the same members in the same order.
+        struct FusedTetra {
+            words: cudarc::driver::CudaSlice<u32>,
+            gscale: cudarc::driver::CudaSlice<f32>,
+            gs_off: cudarc::driver::CudaSlice<u32>,
+            rscale: cudarc::driver::CudaSlice<f32>,
+            tail: cudarc::driver::CudaSlice<f32>,
         }
 
         // 🕳️ **The fusion arm (A4) is built AFTER the five-arm table, and no
@@ -3059,13 +3096,13 @@ mod linux {
         // because `v_proj` is int4.
         let run_tetra48_seg =
             |fm: &FusedMat, y: &mut cudarc::driver::CudaSlice<f32>| -> Result<bool, String> {
-                let Some(w) = fm.twords.as_ref() else {
+                let Some(t) = fm.tetra.as_ref() else {
                     return Ok(false);
                 };
                 launch_tetra48_seg(
-                    &cuda, &f_tetra48_seg, w, fm.tstride,
+                    &cuda, &f_tetra48_seg, &t.words, fm.tstride,
                     tetra_tabs.as_ref().expect("tetra48 tables not uploaded"),
-                    &fm.gscale, &fm.gs_off, &fm.rscale, &fm.tail, &d_x, y,
+                    &t.gscale, &t.gs_off, &t.rscale, &t.tail, &d_x, y,
                     fm.nblocks as u32, fm.tail_w as u32, fm.d_out as u32, THREADS, shared,
                 )?;
                 Ok(true)
@@ -3941,48 +3978,66 @@ mod linux {
                     .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
                     .collect();
 
-                // The Tetra stream of the same concatenation. It costs no
-                // transcoding step of its own: `transcode_tetra48` takes the
-                // indices and gains `seg_concat` already produced, and rows
-                // sharing `d_in` share `row_stride_u32`, so concatenating by
-                // rows is concatenating the word arrays.
+                // The Tetra stream of the same group, built from the SECOND
+                // file. `seg` above is the FIRST file's concatenation: other
+                // indices, other centroids, other row scales, other tail. The
+                // separate Tetra launches read `tetra[name]`, so the fused one
+                // must read the same members, concatenated in the same order
+                // with the same `gs_off` rule. Until 2026-11-04 this block
+                // transcoded `seg.indices` and launched on `seg`'s scales: the
+                // check below then compared two different matrices, and failed
+                // at row 0 on 2026-09-20.
+                //
+                // It costs no transcoding step of its own: each member is
+                // already a row-strided stream, and rows sharing `d_in` share
+                // `row_stride_u32`, so concatenating by rows is concatenating
+                // the word arrays.
                 //
                 // Only built when the arm is selected. A group is skipped when
                 // any member is missing from `tetra`, which is what the served
                 // object's int4 `v_proj` does to a q+k+v group: the pair that
                 // survives is q+k, and gate+up.
-                let (twords, tstride, tetra_bytes) = match seg_tetra
+                let (ftetra, tstride, tetra_bytes) = match seg_tetra
                     && union.has(arms::TETRA48)
                     && idx.iter().all(|&i| tetra.contains_key(&srcs[i].name))
                 {
                     false => (None, 0u32, 0u64),
                     true => {
-                        let tb = llvq_artifact::tetra48::transcode_tetra48(
-                            &seg.indices, &seg.gains, seg.d_out, seg.nblocks,
-                        )
-                        .map_err(|e| e.to_string())?;
-                        // `data` is bytes; the kernel reads u32. Same
-                        // conversion and same assertion as the unfused arm,
-                        // because a stream that is not a whole number of row
-                        // strides would read every row after the first at a
-                        // shifted phase.
-                        let twords: Vec<u32> = tb
-                            .data
-                            .chunks_exact(4)
-                            .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                        let tp: Vec<SegTetraPart<'_>> = idx
+                            .iter()
+                            .map(|&i| {
+                                let t = &tetra[&srcs[i].name];
+                                SegTetraPart {
+                                    d_out: t.d_out,
+                                    d_in: t.d_in,
+                                    blocks: &t.blocks,
+                                    centroids: t.centroids,
+                                    rscale: &t.rscale,
+                                    tail: &t.tail,
+                                }
+                            })
                             .collect();
-                        assert_eq!(
-                            twords.len(),
-                            seg.d_out * tb.stride_u32,
-                            "{key}: the fused Tetra stream is not a whole number of row strides"
-                        );
+                        // The fused output is cut by the FIRST file's row
+                        // counts (`mats[pi].d_out` below), so `seg` is passed
+                        // for its boundaries only, and they are asserted.
+                        // Proved on the Mac by
+                        // `tests/tetra48_segment_matches_unfused.rs`.
+                        let ts = seg_tetra48_group(key, &seg, &tp);
                         // The same ledger the two ball arms keep, with the same
                         // `gs_off` line: it is the only byte fusion ADDS.
-                        let bytes = tb.data.len() as u64
-                            + (seg.d_out * seg.tail_w) as u64 * 4
-                            + seg.d_out as u64 * 4
-                            + seg.d_out as u64 * 4;
-                        (Some(cuda.up_u32(&twords)?), tb.stride_u32 as u32, bytes)
+                        let bytes = ts.words.len() as u64 * 4
+                            + (ts.d_out * ts.tail_w) as u64 * 4
+                            + ts.d_out as u64 * 4
+                            + ts.d_out as u64 * 4;
+                        let ft = FusedTetra {
+                            words: cuda.up_u32(&ts.words)?,
+                            gscale: cuda.up_f32(&ts.centroids)?,
+                            gs_off: cuda.up_u32(&ts.gs_off)?,
+                            rscale: cuda.up_f32(&ts.rscale)?,
+                            tail: cuda
+                                .up_f32(if ts.tail.is_empty() { &[0.0f32] } else { &ts.tail })?,
+                        };
+                        (Some(ft), ts.stride_u32 as u32, bytes)
                     }
                 };
 
@@ -4001,7 +4056,7 @@ mod linux {
                         .up_f32(if seg.tail.is_empty() { &[0.0f32] } else { &seg.tail })?,
                     slot_bytes,
                     planes_bytes,
-                    twords,
+                    tetra: ftetra,
                     tstride,
                     tetra_bytes,
                     parts: idx.clone(),
@@ -4491,6 +4546,140 @@ mod linux {
             // denominator moves. They are timed in the SAME rounds, because a
             // delta of two minima from rounds that never coexisted is the
             // mistake this file documents.
+            // ---- the persistent sections (L1, L2): built after A4's proof,
+            // timed in A4's rounds, the A3 grammar's same-round reference ----
+            // The codec outlives the section, whose f64 references borrow it.
+            let codec = (pers_flags.tetra_occ || !pers_flags.arms.is_empty() || pers_flags.trows).then(llvq_search::tetra::Tetra::new);
+            let mut pers_sec = None;
+            if pers_flags.any() || pers_flags.dump_cubin.is_some() {
+                let mut sec = llvq_cuda::persbench::Section::new(pers_flags.clone(), &cuda, &src.text, &tile.define())?;
+                sec.micro()?;
+                let tt = tetra_tabs.as_ref().expect("tetra48 tables not uploaded");
+                let tables = llvq_cuda::persbench::Tables {
+                    rows: dptr(&tt.rows, &cuda),
+                    pref: dptr(&tt.prefixes, &cuda),
+                    br: dptr(&tt.branches, &cuda),
+                    suf: dptr(&tt.suffixes, &cuda),
+                    invnorm: dptr(&tt.invnorm, &cuda),
+                };
+                let xp = dptr(&d_x, &cuda);
+                // The f64 value of row r of one Tetra matrix, from the second
+                // file's own records: a row that misses its owed equality is
+                // judged against it.
+                let f64_of = |name: &str| {
+                    let src = &tetra[name];
+                    let x = &x;
+                    let codec = codec.as_ref().expect("built when a Tetra section is on");
+                    move |r: usize| {
+                        let tail: Vec<f64> = (0..src.d_in % DIM).map(|i| src.tail[r * (src.d_in % DIM) + i] as f64).collect();
+                        llvq_cuda::pers::tetra_row_f64(
+                            src.d_in / DIM,
+                            |j| src.blocks.decode_block(codec, r, j),
+                            src.centroids,
+                            src.rscale[r],
+                            &tail,
+                            x,
+                        )
+                    }
+                };
+                if pers_flags.tetra_occ {
+                    let zeros = cuda.up_u32(&vec![0u32; max_dout.max(19456)])?;
+                    let mut sites = Vec::new();
+                    for fm in &fused {
+                        let Some(t) = fm.tetra.as_ref() else { continue };
+                        run_tetra48_seg(fm, &mut d_y)?;
+                        cuda.sync()?;
+                        let reference = cuda.down_f32(&d_y)?[..fm.d_out].to_vec();
+                        let parts: Vec<(String, usize)> = fm.parts.iter().map(|&pi| (mats[pi].name.clone(), mats[pi].d_out)).collect();
+                        let rows_of: Vec<_> = parts.iter().map(|(n, d)| (Box::new(f64_of(n)) as Box<dyn Fn(usize) -> (f64, f64)>, *d)).collect();
+                        sites.push(llvq_cuda::persbench::PersallSite {
+                            name: fm.name.clone(),
+                            words: dptr(&t.words, &cuda),
+                            gscale: dptr(&t.gscale, &cuda),
+                            gs_off: dptr(&t.gs_off, &cuda),
+                            rscale: dptr(&t.rscale, &cuda),
+                            tail: dptr(&t.tail, &cuda),
+                            d_out: fm.d_out as u32,
+                            nblocks: fm.nblocks as u32,
+                            tail_w: fm.tail_w as u32,
+                            stride_u32: fm.tstride,
+                            reference,
+                            f64_row: Box::new(move |mut r: usize| {
+                                for (f, d) in &rows_of {
+                                    if r < *d {
+                                        return f(r);
+                                    }
+                                    r -= d;
+                                }
+                                unreachable!("row past the group")
+                            }),
+                        });
+                    }
+                    for (i, m) in mats.iter().enumerate() {
+                        if fused.iter().any(|f| f.parts.contains(&i) && f.tetra.is_some()) {
+                            continue;
+                        }
+                        let Some(a) = m.tetra.as_ref() else { continue };
+                        run_tetra48(m, &mut d_y)?;
+                        cuda.sync()?;
+                        let reference = cuda.down_f32(&d_y)?[..m.d_out].to_vec();
+                        sites.push(llvq_cuda::persbench::PersallSite {
+                            name: m.name.clone(),
+                            words: dptr(a.words.dev(), &cuda),
+                            gscale: dptr(&a.gscale, &cuda),
+                            gs_off: dptr(&zeros, &cuda),
+                            rscale: dptr(&a.rscale, &cuda),
+                            tail: dptr(&a.tail, &cuda),
+                            d_out: m.d_out as u32,
+                            nblocks: m.nblocks as u32,
+                            tail_w: m.tail_w as u32,
+                            stride_u32: a.stride_u32,
+                            reference,
+                            f64_row: Box::new(f64_of(&m.name)),
+                        });
+                    }
+                    sec.persall_setup(sites, tables, xp, shared)?;
+                    std::mem::forget(zeros); // read by every timed launch; freed with the process
+                }
+                if !pers_flags.arms.is_empty() || pers_flags.trows {
+                    let mut sites = Vec::new();
+                    for st in llvq_cuda::pers::served_4b_schedule() {
+                        let proj = match st.proj {
+                            llvq_cuda::pers::Proj::Q => "self_attn.q_proj",
+                            llvq_cuda::pers::Proj::K => "self_attn.k_proj",
+                            llvq_cuda::pers::Proj::V => "self_attn.v_proj",
+                            llvq_cuda::pers::Proj::O => "self_attn.o_proj",
+                            llvq_cuda::pers::Proj::Gate => "mlp.gate_proj",
+                            llvq_cuda::pers::Proj::Up => "mlp.up_proj",
+                            llvq_cuda::pers::Proj::Down => "mlp.down_proj",
+                        };
+                        let name = format!("model.layers.{}.{proj}.weight", st.layer);
+                        let m = mats
+                            .iter()
+                            .find(|m| m.name == name)
+                            .ok_or_else(|| format!("LLVQ_PERS_ARMS: no matrix {name} in the bench"))?;
+                        let a = m.tetra.as_ref().ok_or_else(|| format!("LLVQ_PERS_ARMS: {name} has no Tetra stream"))?;
+                        let src = &tetra[&name];
+                        sites.push(llvq_cuda::persbench::L2Site {
+                            name: name.clone(),
+                            words: dptr(a.words.dev(), &cuda),
+                            gscale: dptr(&a.gscale, &cuda),
+                            rscale: dptr(&a.rscale, &cuda),
+                            // The file's binary16 tail, widened to f32 by the
+                            // reader and narrowed back here: exact both ways.
+                            tail_f16: src.tail.iter().map(|&v| llvq_cuda::f16_bits(v)).collect(),
+                            d_out: m.d_out as u32,
+                            d_in: m.d_in as u32,
+                            stride_u32: a.stride_u32,
+                            f64_row: Box::new(f64_of(&name)),
+                        });
+                    }
+                    sec.trows_setup(&sites, tables, xp, x.len(), &tile.define())?;
+                    sec.l2_setup(sites, tables, xp, x.len(), &tile.define())?;
+                }
+                pers_sec = Some((sec, tables, xp));
+            }
+
             let mut tf: [Vec<f64>; 6] = [
                 Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(),
             ];
@@ -4503,7 +4692,7 @@ mod linux {
                     // they would measure the same launches twice and print a
                     // delta of zero, which reads as "the fusion is worth
                     // nothing" rather than "the fusion did not run".
-                    if arm >= 4 && !fused.iter().any(|f| f.twords.is_some()) {
+                    if arm >= 4 && !fused.iter().any(|f| f.tetra.is_some()) {
                         continue;
                     }
                     let tin = Instant::now();
@@ -4591,6 +4780,12 @@ mod linux {
                         tn[k].push(t);
                     }
                 }
+                if let Some((sec, tables, xp)) = pers_sec.as_mut() {
+                    sec.time_round(rep >= WARMUP, *tables, *xp)?;
+                }
+            }
+            if let Some((sec, _, _)) = &pers_sec {
+                sec.report(&tf[4], &tf[5]);
             }
             let [ts, tss, tp, tps, tt, tts] = tf;
             // The reference series of the A3 arms, round by round, kept before

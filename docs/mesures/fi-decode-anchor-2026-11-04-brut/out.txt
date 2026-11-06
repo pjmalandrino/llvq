@@ -1,0 +1,29 @@
+{"device": "NVIDIA L40S", "sms": 142, "torch": "2.11.0+cu130", "torch_cuda": "13.0", "flashinfer": "0.6.14", "bw_peak": 864000000000.0, "layers": 36, "kv_heads": 8, "head_dim": 128, "g": 4, "warmup": 2, "rounds": 7, "reps": 10, "seed": 20261104}
+/usr/local/lib/python3.12/dist-packages/torch/profiler/profiler.py:224: UserWarning: Warning: Profiler clears events at the end of each cycle.Only events from the current cycle will be reported.To keep events across cycles, set acc_events=True.
+  _warn_once(
+P-L2048 {"arm": "P", "tensor_cores": false, "L": 2048, "bytes": 301989888, "first_call_s": 0.01, "rel_err": 0.00036377282231114805, "timing": "graph", "kernel_sum_us": 539.49}
+T4-L2048 {"arm": "T4", "tensor_cores": true, "L": 2048, "bytes": 301989888, "first_call_s": 0.01, "rel_err": 0.0004196979571133852, "timing": "graph", "kernel_sum_us": 579.3}
+P-L4096 {"arm": "P", "tensor_cores": false, "L": 4096, "bytes": 603979776, "first_call_s": 0.0, "rel_err": 0.0003759195387829095, "timing": "graph", "kernel_sum_us": 923.69}
+T4-L4096 {"arm": "T4", "tensor_cores": true, "L": 4096, "bytes": 603979776, "first_call_s": 0.0, "rel_err": 0.0004056165344081819, "timing": "graph", "kernel_sum_us": 982.26}
+P-L8192 {"arm": "P", "tensor_cores": false, "L": 8192, "bytes": 1207959552, "first_call_s": 0.0, "rel_err": 0.0003892591630574316, "timing": "graph", "kernel_sum_us": 1734.57}
+T4-L8192 {"arm": "T4", "tensor_cores": true, "L": 8192, "bytes": 1207959552, "first_call_s": 0.0, "rel_err": 0.0005186334019526839, "timing": "graph", "kernel_sum_us": 1823.1}
+round 0 discarded
+round 1 discarded
+round 2 kept
+round 3 kept
+round 4 kept
+round 5 kept
+round 6 kept
+round 7 kept
+round 8 kept
+P-L2048      0.5251 ms [0.5248-0.5256]  eta 0.666 [0.665-0.666]  kernel-only 0.648  graph
+T4-L2048     0.5700 ms [0.5698-0.5701]  eta 0.613 [0.613-0.613]  kernel-only 0.603  graph
+P-L4096      0.9174 ms [0.9172-0.9176]  eta 0.762 [0.762-0.762]  kernel-only 0.757  graph
+T4-L4096     0.9735 ms [0.9734-0.9739]  eta 0.718 [0.718-0.718]  kernel-only 0.712  graph
+P-L8192      1.7267 ms [1.7265-1.7269]  eta 0.810 [0.810-0.810]  kernel-only 0.806  graph
+T4-L8192     1.8156 ms [1.8151-1.8159]  eta 0.770 [0.770-0.770]  kernel-only 0.767  graph
+A8: 0.810 [0.810-0.810]
+F: 0.822 [0.821-0.822]
+Rtc: 0.951 [0.951-0.951]
+S_P: 0.873 [0.872-0.873]
+done: 6 configurations timed, 0 void: []

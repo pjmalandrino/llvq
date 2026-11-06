@@ -1,0 +1,58 @@
+Cuda(CudaDevice(DeviceId(1))), dtype F16, 64 tokens
+
+cudarc event tracking: off (one stream, ordered by issue)
+shared rotation: 1 (LLVQ_ROT_SHARE), 96 rot_launches/token for 252 projections
+projection fusion: 0 (LLVQ_FUSE), 252 matvec_launches/token for 252 projections (0 groups + 168 lone + 84 int4)
+fused layout: tetra48 (LLVQ_FUSED_LAYOUT), projections 1.16 GB on the card, 2.550 b/weight (INFERENCE accounting: KeepExact tail in binary16; the bench bills its own in f32)
+NVRTC source: 101625 bytes, sha256 6193094310bc18acdb0a0c554807ff45f6df09c1f6ab49e0577032874f107812 (11 parts), tile 64 (served: measured optimum for sm_89), prefill 4x128 (served pair), 49152 B staged of 49152, target compute_89
+int4: tv_q4_hh equals tv_q4_h bit for bit on model.layers.0.self_attn.v_proj.weight (1024 rows, d_in 2560)
+embedding: q4 g64 (LLVQ_EMBED), 1 table (model.embed_tokens.weight, lm_head tied on it), 218.8 MB on the card (int4 194.5 + scales/biases 24.3)
+total expected on the card: 1.38 GB (projections 1.16 + carried 0.22)
+attn_dec.cu: embedded, sha256 c7b0d8d3f2e3066ba1a2b4331c0bb6c92f22182c78a31b7fb74e839330a1838d, target compute_89
+attn_dec_g4_u64: 160 registers, 0 B local (spill), 16384 B static shared, sm_89
+attn_dec_g4_u64: the card equals the CPU replay bit for bit on 103 calls (rows ending at 1, 255, 256, 257, 1000, 4096; k 1, 3, 8; eager and wide grids; verify rows alone; fresh rows) (1.2 s)
+4E: persistent module 210054 bytes, sha256 2ec7c1800d07df8a1861a2ab25e656c781f9bf7fa5b3f11d6995efbbccd43b2b, own module on candle's stream
+4E: RoPE forms equal to candle's rope on this card: [1]; running form 1
+4E: pers_4e_tokens_f1_t512: 126 registers, 0 B local, 57984 B shared, 1 resident a SM
+4E: pers_4e_stamps_f1_t512: 126 registers, 0 B local, 1 resident a SM (phase stamps, outside the timed rounds)
+4E: 36 layers, grid 142 x 512, 218 barriers a token
+4E at 768 threads: not run: 4E: every block size asked for spills or fails its occupancy
+loaded and checked in 87.5 s
+
+  context 5: attention kernel on grow(256), measurement form: every decode row on the kernel (no T8; the served config runs the grouped path below 1280)
+  4E at 512 threads: tokens equal the eager path's, 64 of 64
+  served door (kernel from 1280): the same 64 tokens
+  eager (kernel form)      133.0 tok/s [132.9-133.0]
+  4E 512 threads           179.2 tok/s [179.1-179.2]
+                         4E / eager, round by round: x1.348 [1.347-1.348]
+  phase stamps, 4E at 512 threads:
+  phase stamps: 62 tokens read, clock grain 32 ns; us a token, median [range] over tokens
+    phase                                  wall       slowest CTA's work          mean CTA's work  share  slowest CTA
+    embedding               1.2 [1.0-1.5]      0.7 [0.5-1.5]      0.3 [0.2-0.5]   0.0%    38 (37%)
+    q/k/v                 921.4 [917.0-927.4]    889.8 [886.5-894.8]    847.1 [845.1-850.5]  16.4%    47 (5%)
+    norm/RoPE/append      111.5 [109.7-114.0]     81.5 [80.5-82.7]     26.6 [26.0-27.0]   2.0%    37 (10%)
+    attention             643.6 [438.7-861.2]    621.0 [411.9-835.6]    247.8 [230.4-263.8]  11.5%     2 (27%)
+    o                     476.2 [472.5-479.6]    437.4 [433.2-442.1]    360.4 [357.8-362.8]   8.5%   109 (9%)
+    MLP                  3096.1 [3085.8-3107.8]   3063.8 [3054.7-3074.8]   2975.4 [2968.7-2985.7]  55.1%    73 (5%)
+    head                  359.7 [357.6-364.8]    360.1 [358.1-364.9]    359.3 [357.2-364.4]   6.4%     8 (11%)
+    token                5614.6 [5402.6-5837.8]
+  stamped token 5614.6 us against the timed 4E's 5580.8 us (the stamps' own cost)
+
+  context 8192: attention kernel on grow(256), the served config: every decode row at or past position 1280, inside the T8
+  4E at 512 threads: tokens equal the eager path's, 64 of 64
+  served door (kernel from 1280): the same 64 tokens
+  eager (served config)    104.6 tok/s [104.5-104.7]
+  4E 512 threads           135.4 tok/s [135.4-135.5]
+                         4E / eager, round by round: x1.295 [1.294-1.296]
+  phase stamps, 4E at 512 threads:
+  phase stamps: 62 tokens read, clock grain 32 ns; us a token, median [range] over tokens
+    phase                                  wall       slowest CTA's work          mean CTA's work  share  slowest CTA
+    embedding               1.2 [1.0-1.7]      0.6 [0.4-1.2]      0.3 [0.2-0.4]   0.0%    38 (44%)
+    q/k/v                 931.7 [926.1-938.3]    900.5 [894.4-905.7]    857.7 [853.3-862.0]  12.6%    47 (6%)
+    norm/RoPE/append      110.4 [108.3-112.3]     83.0 [82.0-83.9]     27.0 [26.4-27.3]   1.5%     2 (6%)
+    attention            2503.0 [2484.9-2516.6]   2467.0 [2451.9-2477.6]   1838.6 [1818.8-1844.7]  33.7%   109 (6%)
+    o                     444.0 [441.0-447.5]    407.1 [404.5-412.2]    335.2 [333.4-337.4]   6.0%    43 (5%)
+    MLP                  3063.2 [3051.6-3072.5]   3027.6 [3016.0-3034.1]   2945.3 [2933.9-2953.5]  41.3%     2 (6%)
+    head                  362.8 [359.8-366.9]    363.5 [360.7-367.4]    362.5 [359.5-366.5]   4.9%     7 (18%)
+    token                7416.9 [7394.3-7433.2]
+  stamped token 7416.9 us against the timed 4E's 7383.9 us (the stamps' own cost)

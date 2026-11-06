@@ -1,0 +1,8 @@
+{
+  "layout": "tetra48",
+  "embed": "q4",
+  "rot_share": "1",
+  "fuse": "0",
+  "kv": "f16",
+  "note": "Qwen3-8B paper-2 object at 2.7 b/param, sealed 2026-09-24: Tetra with dclm-edu calibration and trained row scales, v_proj + down_proj@10-26 as int4 g128 records, both untied tables stored int4 g64 in the file (qwen3-8b-sealed-B.bin). fuse is 0 because Tetra carries no segmented kernel, not because fusion was declined."
+}

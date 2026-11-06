@@ -73,7 +73,7 @@ cargo test --release -- --include-ignored             # full suite, before any f
 cargo clippy --all-targets                            # zero warnings
 cargo run --release -p llvq-bench --bin llvq-bench    # also: encbench, betasweep, decbench, classhist, rtbits, radixstudy, gaindisagree
 cargo run --release -p llvq-metal --bin thesis        # macOS; also: matvec, decreal, mslcheck, p1v0, rankbench
-cargo run --release -p llvq-cuda --bin planesbench -- <model.llvq>   # Linux + CUDA; also: preflight, nullkbench
+cargo run --release -p llvq-cuda --bin planesbench -- <model.llvq>   # Linux + CUDA; also: preflight, nullkbench, attnbench
 LLVQ_MODEL=Qwen/Qwen3-4B LLVQ_CALIB=dclm-edu LLVQ_ARTIFACT=q4b.llvq cargo run --release -p llvq-llm --features metal,fast-linalg --bin smoke -- 64 2048 12 4096 metal nogs leech1c12 999 rot
 #   positional: n_calib · calib_len · n_eval · eval_ctx · device · nogs/gs/dc/sph · codebook (suffix f = free magnitude, L<n> = cap) · limit · rot
 LLVQ_MODEL=Qwen/Qwen3-4B cargo run --release -p llvq-llm --bin seal -- q4b.llvq qwen3-4b-llvq.bin   # also: export, rowscale, embedq, int4swap
@@ -108,7 +108,7 @@ be in `UPLOAD_ALLOW` of `ops/run.py`, or the Space dies after 12 minutes. `rankb
 
 | variable | values | effect |
 |---|---|---|
-| `LLVQ_CONFIG` | path to a served config (`configs/*.json`) | **the served object, as a file.** Puts `fusedrun` on a one-arm path with no dense reference and `mmlu` on the **kernel** instead of a dense reconstruction. No built-in served default: unset, both binaries are the benches they have always been. A variable that contradicts the file is refused, not outvoted |
+| `LLVQ_CONFIG` | path to a served config (`configs/*.json`) | **the served object, as a file.** Puts `fusedrun` on a one-arm path with no dense reference and `mmlu` on the **kernel** instead of a dense reconstruction. No built-in served default: unset, both binaries are the benches they have always been. A variable that contradicts the file is refused, not outvoted. The file also names the attention form, in an optional `attention` field: absent means `expanded`, the form every published number ran, and `grouped` reads the cached heads with no `repeat_kv` copy (134.4 tok/s at a 5-token prompt and 77.5 at 8,192 against 121.9 and 33.1, *measured*, `gqa-ab-2026-11-01`). `grouped` is not bit for bit and is served under the +-0.12 % tolerance of `docs/ETAT.md` §4, not under identity; it is refused by name on Metal, where it has never been measured. `shared` is refused outright. `configs/qwen3-4b-tetra-e4-grouped.json` is the only file that carries it. A second optional field, `decode`, names the engine: absent is eager, `persistent` is 4E (the kernel form from position 0, operator T8 of 2026-11-05), accepted only beside `kernel` on the 4B's shape and refused on Metal and beside any measurement mode; a third, `rows`, names 4E's row loop beside it (absent or `v3`, or `v4`; `v5` refused). **The 4B is served by `configs/qwen3-4b-tetra-e4-4e-v4.json` since 2026-11-05**: 4E with the v4 loop, 189.8 tok/s after a 5-token prompt and 140.1 at 8,192 in the measurement form, same tokens as the eager path (*measured*, `shaker-4e-2026-11-05`); `configs/qwen3-4b-tetra-e4-4e.json` is the v3 loop, read at the served door at 169.0 (`served-4e-2026-11-05`) |
 | `LLVQ_FUSED_LAYOUT` | `planes14` (default), `planes12x`, `slot32`, `golay70`, `tetra48` | VRAM layout of the fused kernel; any other value refused |
 | `LLVQ_EMBED` | `f16` (default), `q8`, `q4` | embedding quantized at load, or read as the file stores it; `q4` in the three served configs, whose files carry it int4 g64 |
 | `LLVQ_KV` | `f16` (default), `q8` | int8 KV cache, shipped, not the default (short context only) |
@@ -129,9 +129,19 @@ be in `UPLOAD_ALLOW` of `ops/run.py`, or the Space dies after 12 minutes. `rankb
 | `LLVQ_SEALED_ARTIFACT` | path | `llvq-artifact` archive tests: moves the search for the sealed file |
 | `LLVQ_QTIP_DIR` | directory | upstream QTIP kernel, GPL v3, not redistributed (`docs/qtip-provenance.md`) |
 
-`LLVQ_KV_PREALLOC`, `LLVQ_GRAPH_AB`, `LLVQ_SEG_ARMS`, `LLVQ_TIME_PHASES`, `LLVQ_TIME_EVENTS`, `LLVQ_BENCH_ARMS` and
-`LLVQ_PREFILL_TOKENS` are measurement modes, never a served config. Every one is refused by name beside `LLVQ_CONFIG`,
-except `LLVQ_PREFILL_TOKENS`, which is the served path's own gate.
+`LLVQ_KV_PREALLOC`, `LLVQ_GRAPH_AB`, `LLVQ_SEG_ARMS`, `LLVQ_TIME_PHASES`, `LLVQ_TIME_EVENTS`, `LLVQ_BENCH_ARMS`,
+`LLVQ_TRIM_AB`, `LLVQ_GQA_AB`, `LLVQ_GQA_PPL`, `LLVQ_BOUNDARY_AB`, `LLVQ_PERS_SEGMENT`, `LLVQ_PERS_4E`,
+`LLVQ_PREFILL_TOKENS` and `LLVQ_CONTEXTS` are measurement modes, never a served config. Every one is refused by name beside `LLVQ_CONFIG`, except
+`LLVQ_PREFILL_TOKENS` and `LLVQ_CONTEXTS` (prompt lengths, comma-separated: time to the first token and decode speed
+after it), which time the served object with a longer prompt.
+`planesbench` reads five more: `LLVQ_TETRA_OCC=1` and `LLVQ_PERS_ARMS=<arms>` (the persistent Tetra arms, steps L1
+and L2), `LLVQ_TROWS=1` (4E's Tetra row loops alone, `pers_trows.cu`), all three requiring `LLVQ_SEG_TETRA=1` and
+tetra48; `LLVQ_PERS_MICRO=1` (barrier and launch microbenchmarks) and `LLVQ_DUMP_CUBIN=<dir>` (the driver's cubins);
+`llvq-cuda/src/pers.rs` holds their registry.
+`LLVQ_GQA_AB` takes the same lengths and times the published attention against the two forms that read the cached
+heads without `repeat_kv` (`kvq::AttnHeads`, `KvStore::Grow`). `LLVQ_GQA_PPL=<ctx>,<windows>` scores the grouped form
+against the published one on WikiText-2, by the prefill path and by a teacher-forced decode path, paired window by
+window. Both runs are done: the grouped form passed the tolerance on 2026-11-01, and it is served by the `attention` field of a config, never by a variable. The six configs that predate the field, and so every published number, stay on the expanded form.
 
 ## Hard rules
 

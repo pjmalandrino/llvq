@@ -762,6 +762,16 @@ pub fn tetra_tables(out: &Path) -> anyhow::Result<(String, usize)> {
             "tv_q4_metal, tv_q4_metal_tiled",
             "the served int4 matvec, and the tiled variant beside it for a d_in past 8192",
         ),
+        (
+            "emb_q4.metal",
+            "emb_q4_gather_metal, tv_emb_q4_metal",
+            "the 4-bit vocabulary: the input rows, and the tied output layer that reads the same table",
+        ),
+        (
+            "llvq_rot.metal",
+            "rot_apply_metal, rot_apply_rows_metal",
+            "the rotation the lattice codes were written under, applied to the activation",
+        ),
     ] {
         let bytes = std::fs::read(llm.join(file))?;
         let sha = sha256_hex(&bytes);

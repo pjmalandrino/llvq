@@ -550,7 +550,7 @@ fn main() -> anyhow::Result<()> {
         // this build carries and refuses by name when it carries none, so the
         // Mac compiles and RUNS this arm down to the refusal.
         {
-            let f = llvq_llm::served::load_resolved(
+            let mut f = llvq_llm::served::load_resolved(
                 &model_arg,
                 &device,
                 dtype,
@@ -573,10 +573,18 @@ fn main() -> anyhow::Result<()> {
                     cfg.path.display()
                 )
             })?;
+            // The attention form and its store, from the same file. A score
+            // is the one number where a silent form swap would be invisible:
+            // MMLU picks from four logits, and the grouped form moves logits.
+            cfg.apply(&mut f.model, &device).map_err(anyhow::Error::msg)?;
             (
                 f.model,
                 f.tokenizer,
-                format!("{model_arg} [LLVQ 2-bit, SERVED KERNEL, {}]", cfg.layout.name()),
+                format!(
+                    "{model_arg} [LLVQ 2-bit, SERVED KERNEL, {}, attention {}]",
+                    cfg.layout.name(),
+                    cfg.attention.label(),
+                ),
                 None,
             )
         }
@@ -730,6 +738,7 @@ fn main() -> anyhow::Result<()> {
                     writeln!(w, "# rot_share={}", cfg.rot_share.name())?;
                     writeln!(w, "# fuse={}", cfg.fuse.name())?;
                     writeln!(w, "# kv={}", cfg.kv.name())?;
+                    writeln!(w, "# attention={}", cfg.attention.label())?;
                 }
                 None => {
                     writeln!(w, "# config=none")?;

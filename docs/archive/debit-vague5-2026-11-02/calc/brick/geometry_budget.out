@@ -1,0 +1,53 @@
+bench 252: rows 1,105,920, row-blocks 150,681,600
+served Tetra 168: rows 946,176, row-blocks 118,665,216
+bytes per row-block on the bench: 0.98e9 / 150,681,600 = 6.50 B (banc-252 GB/pass)
+
+geometry      k   warps/pass   CTAs/pass   L2->smem staging   int64 atomics   smem/CTA   tables if staged per CTA
+S (served)    1    1,105,920     138,240     1.817 GB/pass                 -          -   (read through L1)
+G2 (64,4,4)   1    1,105,920      69,120     0.115 GB/pass         4.4 M     22.5 KB   1.36 GB
+G3 (128,2,8)   1    1,105,920      69,120     0.059 GB/pass         8.8 M     20.0 KB   1.36 GB
+G4 (256,1,16)   1    1,105,920      69,120     0.030 GB/pass        17.7 M     19.5 KB   1.36 GB
+S (served)    8    1,105,920     138,240    14.533 GB/pass                 -          -   (read through L1)
+G2 (64,4,4)   8    1,105,920      69,120     0.918 GB/pass        35.4 M     68.0 KB   1.36 GB
+G3 (128,2,8)   8    1,105,920      69,120     0.471 GB/pass        70.8 M     48.0 KB   1.36 GB
+G4 (256,1,16)   8    1,105,920      69,120     0.237 GB/pass       141.6 M     44.0 KB   1.36 GB
+S (served)   16    1,105,920     138,240    29.067 GB/pass                 -          -   (read through L1)
+G2 (64,4,4)  16    1,105,920      69,120     1.836 GB/pass        70.8 M    120.0 KB   1.36 GB
+G3 (128,2,8)  16    1,105,920      69,120     0.942 GB/pass       141.6 M     80.0 KB   1.36 GB
+G4 (256,1,16)  16    1,105,920      69,120     0.473 GB/pass       283.1 M     72.0 KB   1.36 GB
+G1 (16,16,1)   1    1,105,920      69,120     0.452 GB/pass         0.0 M   d_in 2560: 23.0 KB fits, d_in 4096: 26.0 KB fits, d_in 9728: 37.0 KB fits
+G1 (16,16,1)   8    1,105,920      69,120     3.616 GB/pass         0.0 M   d_in 2560: 71.8 KB fits, d_in 4096: 95.8 KB fits, d_in 9728: 183.9 KB OVER 99 KiB
+G1 (16,16,1)  16    1,105,920      69,120     7.233 GB/pass         0.0 M   d_in 2560: 127.5 KB OVER 99 KiB, d_in 4096: 175.5 KB OVER 99 KiB, d_in 9728: 351.8 KB OVER 99 KiB
+
+ESTIMATED dF(k) in ms, best geometry for each pair of assumed L2 rates (G1 counted where it fits)
+  k= 8 L2 3 TB/s, 0.1 T atomics/s: best G2 dF 0.577 ms -> r(k) from the floor alone 1.126-1.170 (t(1) 3.4-4.6 ms)  [all: G2 0.58, G3 0.76, G4 1.31]
+  k= 8 L2 3 TB/s, 0.5 T atomics/s: best G3 dF 0.261 ms -> r(k) from the floor alone 1.057-1.077 (t(1) 3.4-4.6 ms)  [all: G2 0.33, G3 0.26, G4 0.32]
+  k= 8 L2 7 TB/s, 0.1 T atomics/s: best G2 dF 0.424 ms -> r(k) from the floor alone 1.092-1.125 (t(1) 3.4-4.6 ms)  [all: G2 0.42, G3 0.68, G4 1.27]
+  k= 8 L2 7 TB/s, 0.5 T atomics/s: best G2 dF 0.177 ms -> r(k) from the floor alone 1.038-1.052 (t(1) 3.4-4.6 ms)  [all: G2 0.18, G3 0.18, G4 0.28]
+  k=16 L2 3 TB/s, 0.1 T atomics/s: best G3 dF 1.622 ms -> r(k) from the floor alone 1.353-1.477 (t(1) 3.4-4.6 ms)  [all: G3 1.62, G4 2.80]
+  k=16 L2 3 TB/s, 0.5 T atomics/s: best G3 dF 0.560 ms -> r(k) from the floor alone 1.122-1.165 (t(1) 3.4-4.6 ms)  [all: G3 0.56, G4 0.68]
+  k=16 L2 7 TB/s, 0.1 T atomics/s: best G3 dF 1.453 ms -> r(k) from the floor alone 1.316-1.427 (t(1) 3.4-4.6 ms)  [all: G3 1.45, G4 2.72]
+  k=16 L2 7 TB/s, 0.5 T atomics/s: best G3 dF 0.392 ms -> r(k) from the floor alone 1.085-1.115 (t(1) 3.4-4.6 ms)  [all: G3 0.39, G4 0.59]
+
+served Tetra rows 946,176; x 8 tokens x 4 K-chunks = 30.3 M int64 atomics a pass
+occupancy tv_tetra48_h, 40 regs (tv_tetra48_h.cu:180-182): 6 CTAs/SM, 48 warps/SM
+occupancy brick 16 warps at 64 regs (ESTIMATED regs): 2 CTAs/SM, 32 warps/SM
+occupancy brick 16 warps at 84 regs (ESTIMATED regs): 1 CTAs/SM, 16 warps/SM
+
+W = t(Tetra48) - t(nullk) = 1.440 ms; DRAM floor of 0.98 GB at 864 GB/s = 1.134 ms; W runs at 79 % of the DRAM rate
+served geometry floor + DRAM = 3.428 ms = 0.890 of tetra48h's estimated 3.85 ms (ESTIMATED denominator)
+measured pass per row-block per SM: 8.87 clk; DRAM part 2.69 clk
+
+ESTIMATED kernel r(8) 1.00-1.20, today (7.44 ms step, Tetra share 2.5-2.8 ms): extra per token 0.110-0.260 ms, whole-step r(8) 1.103-1.245
+ESTIMATED kernel r(8) 1.00-1.20, lean (2.6 ms step, Tetra share 1.13-1.5 ms): extra per token 0.110-0.223 ms, whole-step r(8) 1.296-1.600
+
+ESTIMATED kernel r(8) 1.00-1.35, today (7.44 ms step, Tetra share 2.5-2.8 ms): extra per token 0.110-0.320 ms, whole-step r(8) 1.103-1.301
+ESTIMATED kernel r(8) 1.00-1.35, lean (2.6 ms step, Tetra share 1.13-1.5 ms): extra per token 0.110-0.255 ms, whole-step r(8) 1.296-1.687
+
+sum|y| <= 99.920; |P| < 2^21.643; after shift 3: 2^24.643
+|I| < 2^61.304 at 405 blocks with |S_int| < 2^28
+|I| < 2^62.702 at 1067 blocks with |S_int| < 2^28
+S span within one level: sqrt(26) = 5.099 = 2.350 binades
+|S_int| < 2^28 needs a span of at most 4 binades: c1/c0 <= 3.138
+planesbench GSCALE 1.375/0.625 = 2.20: span 3.49 binades
+nonzero scales: 2 levels x 26 shells = 52

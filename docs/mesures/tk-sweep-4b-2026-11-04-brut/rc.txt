@@ -1,0 +1,17 @@
+k=1 order=fwd rc=0 ok
+k=2 order=fwd rc=0 ok
+k=3 order=fwd rc=0 ok
+k=4 order=fwd rc=0 ok
+k=5 order=fwd rc=0 ok
+k=6 order=fwd rc=0 ok
+k=7 order=fwd rc=0 ok
+k=8 order=fwd rc=0 ok
+k=8 order=rev rc=0 ok
+k=7 order=rev rc=0 ok
+k=6 order=rev rc=0 ok
+k=5 order=rev rc=0 ok
+k=4 order=rev rc=0 ok
+k=3 order=rev rc=0 ok
+k=2 order=rev rc=0 ok
+k=1 order=rev rc=0 ok
+contexts rc=0

@@ -111,14 +111,16 @@ fn tetra48_does_not_segment() {
 /// failure `f1floor.cu` paid for on 2026-09-05.
 #[test]
 fn the_int4_kernel_ships_with_its_entry_point() {
-    use llvq_llm::fused::{load_int4_sources, INT4_KERNEL_NAME};
+    use llvq_llm::fused::{load_int4_sources, INT4_HALF_KERNEL_NAME, INT4_KERNEL_NAME};
     let (text, overridden) = load_int4_sources().expect("embedded copy");
     assert!(overridden.is_none(), "LLVQ_KERNEL_DIR set during tests");
     assert!(!text.is_empty(), "tv_q4_h.cu embedded empty");
-    assert!(
-        text.contains(&format!("void {INT4_KERNEL_NAME}(")),
-        "no definition of {INT4_KERNEL_NAME} in the text that ships it"
-    );
+    for name in [INT4_KERNEL_NAME, INT4_HALF_KERNEL_NAME] {
+        assert!(
+            text.contains(&format!("void {name}(")),
+            "no definition of {name} in the text that ships it"
+        );
+    }
     // It is NOT a layout source: a mixed file carries int4 records beside
     // lattice ones, so it is selected by the file's kinds and never by
     // LLVQ_FUSED_LAYOUT. A list that picked it up would tie the two.

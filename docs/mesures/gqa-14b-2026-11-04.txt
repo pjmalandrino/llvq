@@ -1,0 +1,38 @@
+The grouped attention on the sealed 14B, 2026-11-04
+
+Result: on the sealed 14B (groups of 5), the grouped form keeps WikiText-2 perplexity inside the +-0.12 % band by both
+paths, +0.0000 % [+0.0000 ; +0.0000] by prefill and +0.0023 % [-0.0062 ; +0.0109] by decode, and decodes faster at
+every length: x1.066 after a 5-token prompt, x1.351 at 2,048, x1.514 at 4,096, x2.140 at 8,192, from 21.2 to 45.3
+tok/s (*measured*, ratios formed round by round). Rule R1 of the prereg: the extension of the T8 grant to the 14B is
+proposed to the operator, who decides; by the habit of the 8B, a light MMLU check under both configs would follow.
+
+Job      : 6aeb434dc78863f9c6329bf1, l40sx1, 4,406 s running, $2.20 (*computed* at $1.80/h).
+Image    : Space sha ef658736a8eb3e9e6fa0a4cf22ecbc486d8bc78f (llvq-llm sources of 06e1602).
+Prereg   : proofs/preregistration-gqa-14b-2026-11-04.md, sha256 65c01e16..., OpenTimestamps stamped before. A host test
+           of the grouped form at groups of 5 was added to attention_forms_agree before launch (commit of the same day).
+Object   : sealed 14B, sealed-14b-2026-09-23/qwen3-14b-sealed.bin, 5,087,000,541 B, sha256 61db37fe...; config
+           qwen3-14b-tetra-e4.json (833aec4c...), the paper-table config, set through its bench variables.
+Raw      : gqa-14b-2026-11-04-brut/ (published-q4-256.txt, gqa-ab-256.txt, gqa-ppl.txt, oracle, files.sha256).
+
+Gates (all passed, *measured*): oracle MATCH; object and config at their sha256; the published arm replayed with its
+divergence at token 78 and its decoded line identical to the paper-table run, so the 2026-10-30 trims hold on the 14B;
+four lengths, three arms, logit and speed lines complete; decode over prefill on the published arm, ppl ratio 0.99999.
+
+Speed, LLVQ_GQA_AB, 256 new tokens, every arm in every round (*measured*):
+  prompt   cat+expanded        grow(256)+grouped              text
+     5     59.2 [59.1-59.4]    63.1 x1.0658 [1.0654-1.0675]   identical
+  2048     42.7 [42.6-42.8]    57.7 x1.3509 [1.3470-1.3519]   identical
+  4096     34.7 [34.7-34.7]    52.6 x1.5144 [1.5114-1.5169]   identical
+  8192     21.2 [21.2-21.2]    45.3 x2.1399 [2.1378-2.1454]   identical
+(The shared form's lines are in the raw file.)
+
+Perplexity, LLVQ_GQA_PPL=4096,12, WikiText-2, tokens 3f1baca9033bf251 (*measured*):
+  path      cat+expanded   grow(256)+grouped   grouped / published - 1, paired 95 % t interval over 12 windows
+  prefill   8.4440         8.4440              +0.0000 % [+0.0000 ; +0.0000]
+  decode    8.4439         8.4441              +0.0023 % [-0.0062 ; +0.0109]
+  decode top-1 agreement 49,038 of 49,140 steps (99.792 %), max |dlogit| 11.95
+
+Rule reading (prereg): R1. Both intervals inside +-0.12 %, the grouped / published range above 1.000 at all four
+lengths. Proposed: extend the T8 grant to the 14B, the operator decides.
+
+Not established: the 14B's MMLU or GSM8K under the grouped form; Metal; any card but the L40S.

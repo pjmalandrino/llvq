@@ -84,7 +84,9 @@ RUN cargo build --release --locked -p llvq-llm --bin seal --bin embedq --bin exp
 # joining the one that has already been SIGKILLed once. Its kernels are not
 # compiled here at all — they ship as text and NVRTC compiles them at startup,
 # so tuning a tile size or a register cap never touches this image again.
-RUN cargo build --release --locked -p llvq-cuda --bin preflight --bin matvec --bin rotbench --bin graphbench --bin planesbench --bin nullkbench --bin f1floorbench --bin f1rankfloor
+RUN cargo build --release --locked -p llvq-cuda --bin preflight --bin matvec --bin rotbench --bin graphbench --bin planesbench --bin nullkbench --bin f1floorbench --bin f1rankfloor --bin attnbench
+# `attnbench` (2026-11-04): the split-KV decode-attention kernel alone, identity
+# against the CPU replay and read rate. In both lists, like every bin here.
 # `nullkbench` — vague 2 §A1 (2026-08-31) : le plancher sous deux géométries
 # de lancement. Son premier lancement est mort en 15 s sur `which` : ce
 # Dockerfile construit et copie des LISTES explicites, et compiler le crate
@@ -150,6 +152,7 @@ COPY --from=build \
       /src/target/release/nullkbench \
       /src/target/release/f1floorbench \
       /src/target/release/f1rankfloor \
+      /src/target/release/attnbench \
       /usr/local/bin/
 # The QTIP fetcher (F2). It is a script, not a binary, and the runtime stage
 # copies only binaries — so without this line the `qtip` arm cannot be prepared
@@ -183,6 +186,11 @@ RUN test -f /usr/local/share/llvq/configs/qwen3-4b-tetra-q5.json
 # (ops/jobs/served-8b.sh); from this image on, both are in it.
 RUN test -f /usr/local/share/llvq/configs/qwen3-8b-tetra-q5.json \
  && test -f /usr/local/share/llvq/configs/qwen3-14b-tetra-q5.json
+# The 4B paper-2 object and its grouped twin, the pair a run names to compare
+# the two attention forms on one file. Same reason again: a missing config is a
+# build failure here and a billed failure there.
+RUN test -f /usr/local/share/llvq/configs/qwen3-4b-tetra-e4.json \
+ && test -f /usr/local/share/llvq/configs/qwen3-4b-tetra-e4-grouped.json
 # `export` and `rowscale` are RUN here, not just tested for presence. This
 # stage runs on the Space builder, which has no GPU and no `libcuda.so.1`, so a
 # binary linked against it fails to load HERE, by name, rather than on `cpu-xl`

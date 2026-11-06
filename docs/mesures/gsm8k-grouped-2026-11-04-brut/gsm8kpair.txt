@@ -1,0 +1,11 @@
+docs/mesures/gsm8k-grouped-2026-11-04-brut/gsm8k-4b-grouped.jsonl: 0 of 1319 rows re-graded
+docs/mesures/gsm8k-wave1-2026-09-26-brut/run1-served/gsm8k-4b-served.jsonl: 0 of 1319 rows re-graded
+A = /out/sealed-4b-2026-09-23/qwen3-4b-sealed.bin [LLVQ 2-bit, SERVED KERNEL, tetra48] | served kernel | device cuda | dtype f16 | kv f16 | max_new 1024 | reasoning off
+    1081/1319 right, mean 316.9 generated tokens, 8 stopped at the cap, tokens bfa9135ce4b55c75
+B = /out/sealed-4b-2026-09-23/qwen3-4b-sealed.bin [LLVQ 2-bit, SERVED KERNEL, tetra48] | served kernel | device cuda | dtype f16 | kv f16 | max_new 1024 | reasoning off
+    1088/1319 right, mean 316.1 generated tokens, 8 stopped at the cap, tokens bfa9135ce4b55c75
+
+1319 problems, same prompts problem by problem
+  accuracy A = 81.96 %, B = 82.49 %
+  right in A only 3, in B only 10 (1.0 % discordant)
+  A − B = -0.53 pp, 95 % [-1.07 ; +0.00], McNemar exact p = 9.229e-2

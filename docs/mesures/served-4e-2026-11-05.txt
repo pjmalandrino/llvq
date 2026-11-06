@@ -1,0 +1,53 @@
+served-4e, 2026-11-05. The served door under the 4E config, against the served kernel config, on the sealed 4B.
+
+Job 6aec7401c78863f9c6334c4d, l40sx1 (NVIDIA L40S, sm_89, 2520 MHz), image b97539a7 built from integration/lot1
+7f32775. Prereg proofs/preregistration-served-4e-2026-11-05.md (sha256 63243ec5, stamped before launch). Queued 12:18
+UTC, ran 14:05 to 14:27 UTC, about 22 min of card, $0.66 (computed at $1.80/h). Raw output in served-4e-2026-11-05-brut/.
+
+Gates (§4): all hold.
+1. oracle MATCH on Qwen3-0.6B, max |dhidden| 0.
+2. Object 886391a8; configs 7e31f9d9 (4E) and 5f7eadba (served) on the mount.
+3. 4E door: provenance "attention kernel from position 0 on grow(256), decode persistent"; served unit 6193094310bc;
+   pers_4e_tokens_f1_t512 126 registers, 0 B local; RoPE form 1 equals candle's; 256 of 256 tokens equal the eager path.
+4. 4E sweep: the same identity at 5, 2,048, 4,096, 8,192, and four table rows.
+5. The served config prints "attention kernel from position 1280" at its door and in its sweep.
+6. Pilot dump ends on fingerprint 94c7b98876288901 under the 4E provenance.
+7. No LLVQ_* variable in the job environment.
+
+Results, measured, 256 new tokens, 1 discarded + 5 rounds, medians [range]:
+
+  door (prompt and decode)      4E config 169.0 [168.9-169.1]   served config 133.7 [133.5-133.9]   x1.264 (two processes)
+  4E decode alone, door         171.2 [171.2-171.3]
+  eager door, 4E config         126.1 [126.1-126.3]; 4E / eager round by round x1.340 [1.337-1.341]
+
+  prompt   4E config tok/s        served config tok/s     medians 4E/served   tokens of the two configs
+       5   171.2 [171.2-171.3]    134.8 [134.7-134.8]     1.270               identical (256)
+    2048   162.0 [161.6-162.2]    120.6 [120.5-120.6]     1.343               identical (256)
+    4096   154.5 [153.2-154.9]    117.3 [117.1-117.3]     1.317               identical (256)
+    8192   134.1 [133.1-134.4]    103.8 [103.3-103.8]     1.292               identical (256)
+
+GSM8K pilot, 50 problems, reasoning off: 4E config 40/50, grouped census 40/50; completions identical 46/50;
+discordant 0; McNemar exact p = 1.000; delta +0.0 pp. Decode inside the pilot 165.2 tok/s.
+
+Rules (§7).
+- A, identity: holds at the door and at the four lengths.
+- B, speed: the served numbers of the 4E config are 169.0 tok/s at the door and x1.340 against eager, same config.
+- C, agreement past 1,280: identical at 2,048, 4,096, 8,192. At length 5 the two configs also agree on all 256 tokens.
+- D, pilot: within 2 problems and p >= 0.05; the pilot does not object.
+- E: the config is proposable as the served default. The decision is the operator's; this run changed no served file.
+
+Predictions (§6), misses reported (rule G).
+- 4E door 169.0 against 176 [168, 182]: inside, at the low end.
+- 4E decode alone 171.2 against 179 [174, 184]: MISS, below. The 179.2 of pers-4e-v3 is a 64-token decode in the
+  measurement form; the door decodes 256 tokens, so its attention reads a longer cache on average.
+- eager door 126.1 against 132 [127, 137]: MISS, below.
+- 4E / eager x1.340 against x1.33 [1.25, 1.40]: inside.
+- served door 133.7 against 133 [128, 137]: inside.
+- 4E sweep 171.2 / 162.0 / 154.5 / 134.1 against [172, 186] / [155, 175] / [143, 165] / [129, 141]: MISS at 5 (below by
+  0.8), inside at the three others.
+- served sweep inside +-3 % at all four lengths.
+- tokens of the two configs past 1,280: identical, as predicted; at 5: identical.
+- pilot identical completions 46 against 32 [20, 45]: MISS, above. Correct 40 against 40 [37, 43]: inside.
+
+What this run does not establish: the full GSM8K census under the 4E config; the 8B and the 14B; Metal; any card but
+the L40S. The 300 tok/s target is not reached: 169.0 at the door.
