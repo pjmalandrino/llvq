@@ -38,6 +38,11 @@
 //!
 //! The loop itself lives in `llvq_llm::repl` since 2026-11-06, shared with
 //! `metalrun chat`; this binary is its loader and its environment.
+//!
+//! Under `LLVQ_CONFIG` it serves the config whole: the attention form, its
+//! store and the decode engine, through `Served::serve`. `LLVQ_KV_PREALLOC`
+//! beside it is refused, and so is a temperature above zero under the
+//! persistent decode, which only continues a greedy chain.
 
 use candle_core::DType;
 use llvq_llm::repl::{ReplOptions, Sampler};
@@ -69,6 +74,13 @@ fn main() -> anyhow::Result<()> {
     // variable, and an unknown name is an error rather than a silent fallback.
     let kv_mode = llvq_llm::kvq::KvMode::from_env().map_err(anyhow::Error::msg)?;
     let kv_store = llvq_llm::kvq::KvStore::from_env().map_err(anyhow::Error::msg)?;
+    let temp = env_f32("LLVQ_CHAT_TEMP", 0.7)?;
+    // The served config, read and checked against the environment BEFORE the
+    // load: a variable it refuses must cost a second, not eighty.
+    let served = llvq_llm::served::Served::from_env().map_err(anyhow::Error::msg)?;
+    if let Some(cfg) = &served {
+        llvq_llm::repl::check_served_chat(cfg, temp, |v| std::env::var(v).ok()).map_err(anyhow::Error::msg)?;
+    }
 
     // Announced BEFORE the load, not after. A sealed 4B takes about eighty
     // seconds to rebuild on Metal, and a prompt that appears out of eighty
@@ -84,28 +96,37 @@ fn main() -> anyhow::Result<()> {
     // the reason is the prefill: a decode step is one vector, while `mmlu`
     // hands 358 at once and `model::MAX_ROWS` refuses past 256. There is no
     // Metal prefill kernel, so a prompt is fanned out one token a launch.
-    let (mut qwen, tokenizer) = match llvq_llm::served::Served::from_env()
-        .map_err(candle_core::Error::msg)?
-    {
+    //
+    // On the served arm the config decides the store, the attention form and
+    // the decode engine (`Served::serve`, the door `bin/gsm8k` takes), and
+    // refuses on Metal what it does not serve there. Before 2026-11-06 this
+    // arm printed the config's provenance, never applied it, and set the
+    // store from `LLVQ_KV_PREALLOC`: a grouped config ran the expanded form.
+    let (qwen, tokenizer, mut dec) = match &served {
         None => {
-            let s = llvq_llm::sealed::load(&a[0], dtype, &device, kv_mode)?;
-            (s.model, s.tokenizer)
+            let mut s = llvq_llm::sealed::load(&a[0], dtype, &device, kv_mode)?;
+            println!("{:.1} s", t0.elapsed().as_secs_f64());
+            s.model.set_kv_store(kv_store);
+            (s.model, s.tokenizer, llvq_llm::served_decode::Decoder::eager())
         }
         Some(cfg) => {
             println!();
             println!("{}", cfg.provenance());
-            let f = llvq_llm::served::load_resolved(
+            let mut f = llvq_llm::served::load_resolved(
                 &a[0], &device, dtype, cfg.layout, cfg.embed, cfg.rot_share, cfg.fuse, cfg.kv,
                 Some("LLVQ_CONFIG"),
             )?;
-            (f.model, f.tokenizer)
+            println!("{:.1} s", t0.elapsed().as_secs_f64());
+            let dec = cfg.serve(&mut f.model, &device)?;
+            for line in dec.lines() {
+                eprintln!("{line}");
+            }
+            (f.model, f.tokenizer, dec)
         }
     };
-    println!("{:.1} s", t0.elapsed().as_secs_f64());
-    qwen.set_kv_store(kv_store);
     let opts = ReplOptions {
         sampler: Sampler {
-            temp: env_f32("LLVQ_CHAT_TEMP", 0.7)?,
+            temp,
             top_p: env_f32("LLVQ_CHAT_TOP_P", 0.9)?,
             state: env_f32("LLVQ_CHAT_SEED", 0.0)? as u64 ^ 0x5EED_5EED_5EED_5EED,
         },
@@ -115,5 +136,5 @@ fn main() -> anyhow::Result<()> {
         show_ids: env_f32("LLVQ_CHAT_IDS", 0.0)? != 0.0,
         system: std::env::var("LLVQ_CHAT_SYSTEM").ok(),
     };
-    llvq_llm::repl::run(&qwen, &tokenizer, opts, &mut std::io::stdin().lock())
+    llvq_llm::repl::run_with(&qwen, &tokenizer, opts, &mut std::io::stdin().lock(), &mut dec)
 }

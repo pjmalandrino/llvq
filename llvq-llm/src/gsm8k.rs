@@ -310,6 +310,82 @@ impl Dump {
             None => "?".to_string(),
         }
     }
+
+    /// The attention form the dump ran. A dump written before the header
+    /// carried the key ran the expanded form: every served config before
+    /// 2026-11-02 named no form, and the dense paths have only that one.
+    pub fn attention(&self) -> String {
+        self.header
+            .get("attention")
+            .and_then(|v| v.as_str())
+            .unwrap_or("expanded")
+            .to_string()
+    }
+
+    /// The decode engine the dump ran, with 4E's row loop when it names one:
+    /// `eager`, `persistent`, `persistent rows v4`. Absent is `eager`, for the
+    /// reason [`Self::attention`] gives.
+    pub fn decode(&self) -> String {
+        let engine = self.header.get("decode").and_then(|v| v.as_str()).unwrap_or("eager");
+        match self.header.get("rows").and_then(|v| v.as_str()) {
+            Some(rows) => format!("{engine} rows {rows}"),
+            None => engine.to_string(),
+        }
+    }
+}
+
+/// The header keys a served run adds to its dump: every choice of the config
+/// as its own key, so a reader tells a kernel dump from a dense one of the
+/// same file, a grouped one from an expanded one, and a 4E one from an eager
+/// one, without parsing a note. `rows` only under the persistent decode, the
+/// one engine that reads it. `kv` is not here: the header carries it on every
+/// arm.
+pub fn served_header(cfg: &crate::served::Served) -> Vec<(&'static str, String)> {
+    use crate::served::Decode;
+    let mut keys = vec![
+        ("config", cfg.path.display().to_string()),
+        ("layout", cfg.layout.name().to_string()),
+        ("embed", cfg.embed.name().to_string()),
+        ("rot_share", cfg.rot_share.name().to_string()),
+        ("fuse", cfg.fuse.name().to_string()),
+        ("attention", cfg.attention.label().to_string()),
+        ("decode", cfg.decode.label().to_string()),
+    ];
+    if cfg.decode == Decode::Persistent {
+        keys.push(("rows", cfg.rows.label().to_string()));
+    }
+    keys
+}
+
+/// Every problem's prompt against the positions the run can reach, before
+/// the first one is generated: `prompts` holds `(problem index, prompt
+/// tokens)`. `rope` is the model's RoPE table; `engine` the decode engine's
+/// own bound, `Some` under 4E ([`crate::served::Decode::max_positions`]).
+///
+/// A problem whose prompt plus `max_new` passes either bound would fail at
+/// its own turn, which in a census of 1,319 problems can be hours in; here
+/// the run refuses at start and names the longest offender.
+pub fn check_prompts(
+    prompts: &[(usize, usize)],
+    max_new: usize,
+    rope: usize,
+    engine: Option<usize>,
+) -> anyhow::Result<()> {
+    let limit = engine.map_or(rope, |e| e.min(rope));
+    let Some(&(index, len)) = prompts.iter().max_by_key(|p| p.1) else {
+        return Ok(());
+    };
+    let need = len.checked_add(max_new);
+    anyhow::ensure!(
+        need.is_some_and(|n| n <= limit),
+        "problem {index}: {len} prompt tokens plus {max_new} new ones exceed the {limit} positions this run \
+         can reach (RoPE table {rope}{}). Lower LLVQ_GSM8K_MAX_NEW or limit the sample.",
+        match engine {
+            Some(e) => format!(", the persistent decode's attention scratch {e}"),
+            None => String::new(),
+        }
+    );
+    Ok(())
 }
 
 /// Parse a dump. Refuses a file without its header tag, and a file without
@@ -484,6 +560,86 @@ mod tests {
             s.push_str(&format!("{{\"end\": true, \"fingerprint\": \"ab\", \"questions\": {n}}}\n"));
         }
         s
+    }
+
+    fn served_file(attention: Option<&str>, decode: Option<&str>, rows: Option<&str>) -> crate::served::Served {
+        let f = crate::served::ServedFile {
+            layout: "tetra48".into(),
+            embed: "q4".into(),
+            rot_share: "1".into(),
+            fuse: "0".into(),
+            kv: "f16".into(),
+            attention: attention.map(str::to_string),
+            decode: decode.map(str::to_string),
+            rows: rows.map(str::to_string),
+            note: None,
+        };
+        crate::served::Served::of(f, "c.json".into()).expect("resolves")
+    }
+
+    #[test]
+    fn a_served_header_names_the_attention_and_the_engine() {
+        let keys = |s: &crate::served::Served| -> Vec<(String, String)> {
+            served_header(s).into_iter().map(|(k, v)| (k.to_string(), v)).collect()
+        };
+        let get = |k: &[(String, String)], key: &str| k.iter().find(|p| p.0 == key).map(|p| p.1.clone());
+
+        let eager = keys(&served_file(Some("grouped"), None, None));
+        assert_eq!(get(&eager, "attention").as_deref(), Some("grouped"));
+        assert_eq!(get(&eager, "decode").as_deref(), Some("eager"));
+        assert_eq!(get(&eager, "rows"), None, "rows is 4E's key only");
+        assert_eq!(get(&eager, "config").as_deref(), Some("c.json"));
+        for key in ["layout", "embed", "rot_share", "fuse"] {
+            assert!(get(&eager, key).is_some(), "{key}");
+        }
+
+        let v4 = keys(&served_file(Some("kernel"), Some("persistent"), Some("v4")));
+        assert_eq!(get(&v4, "attention").as_deref(), Some("kernel"));
+        assert_eq!(get(&v4, "decode").as_deref(), Some("persistent"));
+        assert_eq!(get(&v4, "rows").as_deref(), Some("v4"));
+        let v3 = keys(&served_file(Some("kernel"), Some("persistent"), None));
+        assert_eq!(get(&v3, "rows").as_deref(), Some("v3"), "absent rows is v3, written out");
+    }
+
+    #[test]
+    fn a_dump_header_round_trips_and_an_old_one_reads_as_expanded_and_eager() {
+        // An old dump: no attention, no decode.
+        let rows = vec![row(3, "aa", true)];
+        let d = parse_dump(&dump_text(&rows, Some(1)), "t").unwrap();
+        assert_eq!((d.attention().as_str(), d.decode().as_str()), ("expanded", "eager"));
+
+        // A new one, written the way bin/gsm8k writes its header.
+        let mut header = serde_json::json!({ DUMP_TAG: DUMP_VERSION, "model": "m" });
+        let h = header.as_object_mut().unwrap();
+        for (k, v) in served_header(&served_file(Some("kernel"), Some("persistent"), Some("v4"))) {
+            h.insert(k.into(), v.into());
+        }
+        let mut text = format!("{header}\n");
+        text.push_str(&serde_json::to_string(&rows[0]).unwrap());
+        text.push_str("\n{\"end\": true, \"fingerprint\": \"ab\", \"questions\": 1}\n");
+        let d = parse_dump(&text, "t").unwrap();
+        assert_eq!(d.attention(), "kernel");
+        assert_eq!(d.decode(), "persistent rows v4");
+    }
+
+    #[test]
+    fn a_prompt_past_the_engine_is_refused_before_the_run() {
+        let cap = crate::served_decode::P4E_MAX_CAP;
+        let rope = 40_960;
+        let prompts = [(0usize, 100usize), (7, cap - 1024), (9, 200)];
+        check_prompts(&prompts, 1024, rope, None).expect("eager: the RoPE table only");
+        check_prompts(&prompts, 1024, rope, Some(cap)).expect("exactly the scratch fits");
+        let e = check_prompts(&prompts, 1025, rope, Some(cap)).expect_err("one past the scratch");
+        assert!(e.to_string().contains("problem 7") && e.to_string().contains("scratch"), "{e}");
+        check_prompts(&prompts, 1025, rope, None).expect("the same run on the eager path fits");
+        // The RoPE table binds under either engine.
+        assert!(check_prompts(&prompts, 1024, cap - 1, None).is_err());
+        assert!(check_prompts(&prompts, 1024, cap - 1, Some(cap)).is_err());
+        // No overflow into a pass, and an empty sample has nothing to refuse.
+        assert!(check_prompts(&[(1, usize::MAX)], 1, usize::MAX, None).is_err());
+        check_prompts(&[], 1024, 10, Some(1)).expect("nothing to check");
+        assert_eq!(crate::served::Decode::Persistent.max_positions(), Some(cap));
+        assert_eq!(crate::served::Decode::Eager.max_positions(), None);
     }
 
     #[test]

@@ -92,7 +92,7 @@ fn cache_view<'a>(
 ) -> candle_core::Result<(CudaView<'a, f16>, usize)> {
     let st = l.stride();
     let hd = canon::HD;
-    if st.len() != 4 || st[3] != 1 || st[2] != hd || st[1] % hd != 0 {
+    if st.len() != 4 || st[3] != 1 || st[2] != hd || !st[1].is_multiple_of(hd) {
         candle_core::bail!(
             "attention kernel: a cache view of stride {st:?}; the kernel reads rows of {hd} \
              contiguous values, heads a whole number of rows apart"
@@ -100,7 +100,7 @@ fn cache_view<'a>(
     }
     let cap = st[1] / hd;
     let start = l.start_offset();
-    if start % 8 != 0 {
+    if !start.is_multiple_of(8) {
         candle_core::bail!("attention kernel: a cache view at offset {start}, not 16-byte aligned");
     }
     let all = s.as_cuda_slice::<f16>()?;

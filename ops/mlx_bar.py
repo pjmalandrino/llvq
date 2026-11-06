@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.10"
-# dependencies = ["mlx-lm==0.28.3", "pyarrow"]
+# dependencies = ["mlx-lm==0.28.3", "mlx==0.32.4", "pyarrow==26.0.1", "transformers==5.22.1"]
 # ///
 """The rival on this Mac: mlx-lm's Qwen3-4B 4-bit, timed like `metalrun time`.
 
@@ -17,6 +17,7 @@ tokens after the first over the time after the first, `metalrun`'s accounting.
     uv run ops/mlx_bar.py <model_dir> <n_new> <timed_rounds> [prompt_tokens=0]
 """
 import hashlib
+import os
 import statistics
 import struct
 import sys
@@ -27,10 +28,28 @@ import mlx.core as mx
 from mlx_lm import load
 from mlx_lm.generate import generate_step
 
-WIKI = Path.home() / (
-    ".cache/huggingface/hub/datasets--Salesforce--wikitext/snapshots/"
-    "b08601e04326c79dfdd32d625aee71d232d685c3/wikitext-2-raw-v1/test-00000-of-00001.parquet"
-)
+# The WikiText-2 test split at the revision `metalrun` reads, from the Hugging
+# Face cache ($HF_HUB_CACHE, else $HF_HOME/hub, else ~/.cache/huggingface/hub).
+# Nothing here downloads it: `wiki_parquet` names the command when it is missing.
+WIKI_REVISION = "b08601e04326c79dfdd32d625aee71d232d685c3"
+WIKI_FILE = "wikitext-2-raw-v1/test-00000-of-00001.parquet"
+
+
+def wiki_parquet() -> Path:
+    hub = os.environ.get("HF_HUB_CACHE") or (
+        str(Path(os.environ["HF_HOME"]) / "hub") if os.environ.get("HF_HOME") else None
+    )
+    hub = Path(hub) if hub else Path.home() / ".cache/huggingface/hub"
+    path = hub / "datasets--Salesforce--wikitext" / "snapshots" / WIKI_REVISION / WIKI_FILE
+    if not path.is_file():
+        sys.exit(
+            f"no WikiText-2 test split at {path}\n"
+            f"It is the dataset Salesforce/wikitext, config wikitext-2-raw-v1, revision {WIKI_REVISION[:8]}.\n"
+            f"Fetch it once into the Hugging Face cache:\n"
+            f"  hf download Salesforce/wikitext --repo-type dataset --revision {WIKI_REVISION} "
+            f"--include '{WIKI_FILE}'"
+        )
+    return path
 PROMPT = "The capital of France is"
 DISCARDED = 2
 
@@ -40,7 +59,7 @@ def prompt_ids(tok, n):
         return tok.encode(PROMPT, add_special_tokens=False)
     import pyarrow.parquet as pq
 
-    rows = pq.read_table(WIKI).column("text").to_pylist()
+    rows = pq.read_table(wiki_parquet()).column("text").to_pylist()
     head = "\n\n".join(rows)[: n * 12]
     ids = tok.encode(head, add_special_tokens=False)
     assert len(ids) >= n, f"{n} prompt tokens asked, {len(ids)} found"

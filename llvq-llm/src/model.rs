@@ -3695,6 +3695,18 @@ mod tests {
         assert_eq!(m.kv_store(), KvStore::Grow(GROW_CHUNK), "and the store with it");
         let got = m.generate(&prompt, 7, &mut NoCapture).unwrap();
         assert_eq!(got, want, "on the CPU in f32 the two forms agree token for token");
+
+        // `Served::serve`, the door of `bin/gsm8k` and `bin/chat`: the same
+        // pair, then the engine. A grouped config on a fresh model leaves it
+        // grouped on `Grow` with the eager engine; an expanded one puts it
+        // back. Before 2026-11-06 `bin/chat` printed the provenance and
+        // skipped this step, so a grouped config ran the expanded form.
+        let mut m = tiny_model(DType::F32);
+        let dec = resolve(Some("grouped")).serve(&mut m, &Device::Cpu).expect("grouped serves");
+        assert_eq!((m.attn_heads(), m.kv_store()), (AttnHeads::Grouped, KvStore::Grow(GROW_CHUNK)));
+        assert!(!dec.is_persistent() && dec.max_positions().is_none(), "the eager engine");
+        resolve(None).serve(&mut m, &Device::Cpu).expect("expanded serves");
+        assert_eq!((m.attn_heads(), m.kv_store()), (AttnHeads::Expanded, KvStore::Cat));
     }
 
     /// The `kernel` form on the CPU, where its kernel is the canonical replay

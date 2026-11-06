@@ -121,13 +121,7 @@ fn main() -> anyhow::Result<()> {
     // else: `bin/fusedrun` has refused this one by name since 2026-09-11, and
     // this binary applied it to the served arm until 2026-11-02.
     if served.is_some() {
-        if let Ok(v) = std::env::var("LLVQ_KV_PREALLOC") {
-            anyhow::bail!(
-                "LLVQ_KV_PREALLOC={v:?} beside LLVQ_CONFIG: the served config names the \
-                 cache store, through its attention form. Unset it, or unset LLVQ_CONFIG \
-                 and score the dense reconstruction."
-            );
-        }
+        llvq_llm::served::check_store_env(|v| std::env::var(v).ok()).map_err(anyhow::Error::msg)?;
     }
 
     // ---- the model ----
@@ -181,18 +175,17 @@ fn main() -> anyhow::Result<()> {
             "reference checkpoint",
         )
     };
-    // Served: the config decides the store and the attention form, in one
-    // place for the three binaries. Bench: the store comes from the variable.
-    match &served {
-        Some(cfg) => cfg.apply(&mut model, &device).map_err(anyhow::Error::msg)?,
-        None => model.set_kv_store(kv_store),
-    }
-    // The decode engine the config names: eager without a config or without
-    // the field (this loop below, unchanged), 4E under "decode":
-    // "persistent", installed after the form and its threshold.
+    // Served: the config decides the store, the attention form and the
+    // decode engine, in one place for the served binaries (`Served::serve`):
+    // eager without the field (the loop below, unchanged), 4E under
+    // "decode": "persistent", installed after the form and its threshold.
+    // Bench: the store comes from the variable, and the engine is eager.
     let mut dec = match &served {
-        Some(cfg) => cfg.decoder(&model, &device)?,
-        None => llvq_llm::served_decode::Decoder::eager(),
+        Some(cfg) => cfg.serve(&mut model, &device)?,
+        None => {
+            model.set_kv_store(kv_store);
+            llvq_llm::served_decode::Decoder::eager()
+        }
     };
     for line in dec.lines() {
         eprintln!("{line}");
@@ -235,6 +228,19 @@ fn main() -> anyhow::Result<()> {
         if think { "on" } else { "off" }
     );
 
+    // Every prompt built and checked against the positions the run can reach
+    // BEFORE the first problem: the RoPE table, and under 4E its attention
+    // scratch. A census is hours long, and a problem that does not fit must
+    // refuse the run at start, not stop it at its own turn.
+    let mut prompts: Vec<Vec<u32>> = Vec::with_capacity(picked.len());
+    for &i in &picked {
+        let mut ids = turn(&tok, &marks, "user", &gsm8k::user_body(&items[i].question))?;
+        ids.extend(open_assistant(&tok, &marks, think)?);
+        prompts.push(ids);
+    }
+    let lens: Vec<(usize, usize)> = picked.iter().zip(&prompts).map(|(&i, p)| (i, p.len())).collect();
+    gsm8k::check_prompts(&lens, max_new, positions, dec.max_positions())?;
+
     let mut dump = match std::env::var("LLVQ_GSM8K_DUMP") {
         Ok(p) if !p.is_empty() => {
             let mut w = std::io::BufWriter::new(std::fs::File::create(&p)?);
@@ -257,13 +263,13 @@ fn main() -> anyhow::Result<()> {
             });
             // Every served choice as its own key, so a reader tells a kernel
             // dump from a dense one of the same file without parsing a note.
+            // The attention form and the decode engine too: `bin/gsm8kpair`
+            // prints them, and reads a dump without them as expanded and eager.
             if let Some(cfg) = &served {
                 let h = header.as_object_mut().expect("an object");
-                h.insert("config".into(), cfg.path.display().to_string().into());
-                h.insert("layout".into(), cfg.layout.name().into());
-                h.insert("embed".into(), cfg.embed.name().into());
-                h.insert("rot_share".into(), cfg.rot_share.name().into());
-                h.insert("fuse".into(), cfg.fuse.name().into());
+                for (k, v) in gsm8k::served_header(cfg) {
+                    h.insert(k.into(), v.into());
+                }
             }
             writeln!(w, "{header}")?;
             w.flush()?;
@@ -278,18 +284,16 @@ fn main() -> anyhow::Result<()> {
     let mut prompt_stream: Vec<u32> = Vec::new();
     let mut rows: Vec<Row> = Vec::with_capacity(picked.len());
     let t_run = Instant::now();
-    for (k, &i) in picked.iter().enumerate() {
+    for (k, (&i, ids)) in picked.iter().zip(&prompts).enumerate() {
         let it = &items[i];
         let gold = gsm8k::gold(&it.answer)
             .ok_or_else(|| anyhow::anyhow!("gsm8k/test row {i}: no `#### <number>` to grade against"))?;
-        let mut ids = turn(&tok, &marks, "user", &gsm8k::user_body(&it.question))?;
-        ids.extend(open_assistant(&tok, &marks, think)?);
         anyhow::ensure!(
             ids.len() + max_new <= positions,
             "problem {i}: {} prompt tokens plus {max_new} new ones exceed the {positions} positions",
             ids.len()
         );
-        prompt_stream.extend_from_slice(&ids);
+        prompt_stream.extend_from_slice(ids);
 
         // Prefill in chunks of `MAX_ROWS`: a served group without a rows
         // kernel spends one launch a row and refuses past that budget. A
@@ -349,7 +353,7 @@ fn main() -> anyhow::Result<()> {
         let correct = gsm8k::is_correct(extracted.as_deref(), &gold);
         let row = Row {
             index: i,
-            qhash: format!("{:016x}", llvq_llm::eval::token_fingerprint(&ids)),
+            qhash: format!("{:016x}", llvq_llm::eval::token_fingerprint(ids)),
             n_prompt: ids.len(),
             n_gen: said.len(),
             stop: stop.to_string(),

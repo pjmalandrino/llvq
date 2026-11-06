@@ -9,15 +9,21 @@
 //! "kernel" form computes it (`attn_ref.rs`). So on the card, with every
 //! decode row of the eager path sent to the attention kernel
 //! (`Qwen3::set_kernel_from_for_measurement(0)`), 4E owes that path's tokens.
-//! The served 4B config (`configs/qwen3-4b-tetra-e4-kernel-from1280.json`)
-//! sends a decode row to the kernel from position 1,280 only, and runs
-//! candle's grouped arithmetic below it (cuBLAS matmuls, candle's softmax),
-//! whose bits no hand kernel reproduces. So 4E keeps the served bits, inside
-//! the operator's T8, only from position [`crate::kvq::KERNEL_FROM`]: the
-//! runtime refuses a launch that starts below it. A measurement may lower the
-//! threshold to 0 ([`Runtime4e::set_kernel_from_for_measurement`]) against an
-//! eager path with every row on the kernel, the form the first readings ran:
-//! that form has no T8 and is never served.
+//!
+//! The runtime refuses a launch that starts below its threshold. Installed,
+//! the threshold is [`crate::kvq::KERNEL_FROM`]: an eager config that names
+//! the kernel form (`configs/qwen3-4b-tetra-e4-kernel-from1280.json`) runs
+//! candle's grouped arithmetic below 1,280 (cuBLAS matmuls, candle's
+//! softmax), whose bits no hand kernel reproduces, so 4E owes that config's
+//! tokens only from there. The served 4B config,
+//! `configs/qwen3-4b-tetra-e4-4e-v4.json`, names the persistent decode and
+//! sends every decode row to the kernel from position 0, the form the
+//! operator's T8 extension of 2026-11-05 licenses on the sealed 4B
+//! (`docs/mesures/attn-t8-below-4b-2026-11-05.txt`). `Served::decoder` sets
+//! the threshold to 0 for it (`Runtime4e::set_served_kernel_from`). A
+//! measurement may lower it to 0 too
+//! ([`Runtime4e::set_kernel_from_for_measurement`]), against an eager path
+//! with every row on the kernel.
 //!
 //! What only the card can decide is RoPE: candle's `rope` is `__half`
 //! arithmetic the driver's ptxas may fuse, so [`install`] runs candle's rope
@@ -36,8 +42,10 @@ use crate::model::{Embed, Head, KvCache, Proj, Qwen3};
 use crate::persist_cuda::{int4_of, mlp_args, seg_tetra, tensor_addr, tetra_of};
 use llvq_cuda::pers;
 
-/// The positions 4E's attention scratch is sized for, at most.
-pub const MAX_CAP: usize = 8192 + 512;
+/// The positions 4E's attention scratch is sized for, at most. Defined in
+/// `served_decode`, which every build compiles, so a harness checks its
+/// prompts against it before a run on any host.
+pub const MAX_CAP: usize = crate::served_decode::P4E_MAX_CAP;
 
 pub struct Runtime4e {
     cuda: llvq_cuda::gpu::Cuda,
@@ -436,9 +444,10 @@ impl Runtime4e {
 
     /// Lower (or restore) the threshold, for a measurement only: below
     /// [`crate::kvq::KERNEL_FROM`] 4E's tokens are the kernel form's, which
-    /// the served config does not run there and no T8 covers. The eager side
-    /// of such a measurement must run the same form
-    /// (`Qwen3::set_kernel_from_for_measurement`).
+    /// an eager config does not run there. The eager side of such a
+    /// measurement must run the same form
+    /// (`Qwen3::set_kernel_from_for_measurement`). A served config that names
+    /// the persistent decode sets 0 through `Served::decoder` instead.
     pub fn set_kernel_from_for_measurement(&mut self, from: usize) {
         self.kernel_from = from;
     }

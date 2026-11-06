@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The sealed Qwen3-4B on this Mac's GPU. See README.md beside this file.
 #
-#   ./llvq-metal chat [new|fused|kernel|dense] [temp=0.7] [max_new=512]
+#   ./llvq-metal chat [expanded|fused|grouped|kernel|dense] [temp=0.7] [max_new=512]
 #   ./llvq-metal bench [--long]
 #   ./llvq-metal gate
 #
@@ -41,12 +41,17 @@ cmd="${1:-}"
 shift
 case "$cmd" in
   chat)
-    which="${1:-new}"
+    which="${1:-expanded}"
     case "$which" in
-      new)    arm="lutd+h+grp+pq" ;;  # every bit-identical gain of 2026-11-06: lutd, half-io, grouped, prefill kernels
-      fused)  arm="lut" ;;       # the served Metal kernels, expanded attention
-      kernel) arm="lutd+ker" ;;  # attn_dec.metal from position 0, not bit for bit by design
-      dense)  arm="D" ;;         # the dense reconstruction, the only Metal path before 2026-11-06
+      # The default: expanded attention, the only form the served door allows on Metal, with the
+      # bit-identical kernels of 2026-11-06 (lutd, half-io, prefill rows). Bit for bit with `fused`.
+      expanded) arm="lutd+h+pq" ;;
+      fused)    arm="lut" ;;            # the served Metal kernels, expanded attention
+      # Grouped attention: bit for bit with the expanded form on Metal (M5), refused by the served door.
+      grouped)  arm="lutd+h+grp+pq" ;;
+      # attn_dec.metal from position 0: not bit for bit, inside T8 (M6); refused by the served door.
+      kernel)   arm="lutd+ker" ;;
+      dense)    arm="D" ;;              # the dense reconstruction, the only Metal path before 2026-11-06
       *) usage ;;
     esac
     check_sealed chat "$@"
@@ -57,11 +62,11 @@ case "$cmd" in
     if [ "${1:-}" = "--long" ]; then
       exec nice -n 10 "$BIN" time "$SEALED" "$CFG" lutd+grp,lutd+h+grp+pq,lutd+ker 64 5 4096
     fi
-    exec nice -n 10 "$BIN" time "$SEALED" "$CFG" lut,lutd+h+grp+pq,D 256 7
+    exec nice -n 10 "$BIN" time "$SEALED" "$CFG" lut,lutd+h+pq,D 256 7
     ;;
   gate)
     check_sealed gate
-    exec "$BIN" gate "$SEALED" "$CFG" lut,lutd,lutd+h+grp+pq,lutd+ker
+    exec "$BIN" gate "$SEALED" "$CFG" lut,lutd,lutd+h+pq,lutd+h+grp+pq,lutd+ker
     ;;
   *) usage ;;
 esac

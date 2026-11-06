@@ -11,7 +11,10 @@
 use llvq_llm::fused::{EmbedMode, FuseMode, FusedLayout};
 use llvq_llm::kvq::{AttnHeads, KvMode, KvStore, GROW_CHUNK};
 use llvq_llm::rotplan::RotShare;
-use llvq_llm::served::{check_env, check_persistent_object, Decode, Rows4e, Served, ServedFile, BELOW_THE_DOOR, MEASUREMENT_MODES};
+use llvq_llm::served::{
+    check_env, check_persistent_object, check_store_env, Decode, Rows4e, Served, ServedFile, BELOW_THE_DOOR,
+    MEASUREMENT_MODES,
+};
 use std::path::PathBuf;
 
 fn served() -> ServedFile {
@@ -729,4 +732,66 @@ fn the_rows_field_serves_v3_and_v4_and_refuses_the_rest() {
     g.rows = Some("v4".into());
     let e = of(g).expect_err("rows beside the eager decode");
     assert!(e.contains("eager decode"), "{e}");
+}
+
+// ---- the doors of bin/chat and bin/gsm8k (2026-11-06) ------------------------
+
+/// `decode` and `rows` are read as written, as `attention` is: a value with a
+/// space around it is refused, not trimmed into the value it resembles. A
+/// whitespace-only value is refused as empty, with the field's name.
+#[test]
+fn the_optional_fields_are_read_as_written() {
+    for v in [" persistent", "persistent ", "\tpersistent"] {
+        let e = Decode::parse(Some(v)).expect_err(v);
+        assert!(e.contains("decode"), "{v:?}: {e}");
+        let e = AttnHeads::parse(Some(&v.replace("persistent", "kernel"))).expect_err(v);
+        assert!(e.contains("attention"), "{v:?}: {e}");
+    }
+    for v in [" v4", "v4 ", " v3"] {
+        let e = Rows4e::parse(Some(v)).expect_err(v);
+        assert!(e.contains("rows"), "{v:?}: {e}");
+    }
+    for (v, field) in [("  ", "decode"), ("\t", "decode")] {
+        let e = Decode::parse(Some(v)).expect_err(v);
+        assert!(e.contains(field) && e.contains("empty"), "{v:?}: {e}");
+        let e = Rows4e::parse(Some(v)).expect_err(v);
+        assert!(e.contains("rows") && e.contains("empty"), "{v:?}: {e}");
+        let e = AttnHeads::parse(Some(v)).expect_err(v);
+        assert!(e.contains("attention") && e.contains("empty"), "{v:?}: {e}");
+    }
+    assert_eq!(Decode::parse(Some("persistent")), Ok(Decode::Persistent));
+    assert_eq!(Rows4e::parse(Some("v4")), Ok(Rows4e::V4));
+    // Every shipped config still resolves: none relied on the trim.
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../configs");
+    for name in ["qwen3-4b-tetra-e4-4e.json", "qwen3-4b-tetra-e4-4e-v4.json"] {
+        let path = dir.join(name);
+        let f = Served::read_file(&path).unwrap_or_else(|e| panic!("{name}: {e}"));
+        Served::of(f, path).unwrap_or_else(|e| panic!("{name}: {e}"));
+    }
+}
+
+/// The store variable beside a config is refused by name; unset passes.
+#[test]
+fn the_store_variable_is_refused_beside_a_config() {
+    check_store_env(env_of(&[])).expect("unset");
+    check_store_env(env_of(&[("LLVQ_KV", "q8")])).expect("not the store's variable");
+    let e = check_store_env(env_of(&[("LLVQ_KV_PREALLOC", "8192")])).expect_err("the store");
+    assert!(e.contains("LLVQ_KV_PREALLOC") && e.contains("LLVQ_CONFIG"), "{e}");
+}
+
+/// The chat door: the store variable under any config, and a temperature
+/// above zero under the persistent decode, are refused before the load.
+#[test]
+fn the_chat_door_refuses_what_its_config_cannot_serve() {
+    use llvq_llm::repl::check_served_chat;
+    let eager = of(served()).expect("eager");
+    let fe = of(four_e()).expect("4E");
+    check_served_chat(&eager, 0.7, env_of(&[])).expect("an eager config samples");
+    check_served_chat(&fe, 0.0, env_of(&[])).expect("4E at temperature 0");
+    let e = check_served_chat(&fe, 0.7, env_of(&[])).expect_err("4E cannot sample");
+    assert!(e.contains("persistent") && e.contains("LLVQ_CHAT_TEMP"), "{e}");
+    for cfg in [&eager, &fe] {
+        let e = check_served_chat(cfg, 0.0, env_of(&[("LLVQ_KV_PREALLOC", "4096")])).expect_err("store");
+        assert!(e.contains("LLVQ_KV_PREALLOC"), "{e}");
+    }
 }

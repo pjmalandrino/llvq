@@ -1,4 +1,4 @@
-# Project state as of 2026-11-02
+# Project state as of 2026-11-06
 
 ## 1. The project
 
@@ -15,46 +15,53 @@ its version 2 is attached to release `v0.0.2` of 2026-10-06.
 ## 2. Served configuration
 
 One layout, one setting, at all three sizes: `tetra48`, `LLVQ_EMBED=q4`, `LLVQ_ROT_SHARE=1`, `LLVQ_FUSE=0`,
-`LLVQ_KV=f16`. The files that carry it are in [`configs/`](../configs/README.md), one per size. Since 2026-11-02 a
-config also names the attention form, in an optional `attention` field: absent means `expanded`, the form every score
-below was measured on. **The 4B is served under `qwen3-4b-tetra-e4-grouped.json`** since 2026-11-02, the operator's
-decision; the 8B and the 14B stay expanded, where the grouped form has never run. That configuration is published
-with the same bytes at
-[Qwen3-4B-LLVQ-Tetra-served](https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-Tetra-served) (commit `159afed4`, file
-digest `886391a8` read back from the Hub), whose card moves. The three repositories paper 2 cites, and the
-safetensors one, are frozen and were verified unchanged after that upload.
+`LLVQ_KV=f16`. The files that carry it are in [`configs/`](../configs/README.md), which is the authority on them. The
+sizes differ in three optional fields: the attention form, the decode engine and 4E's row loop.
 
-| size | sealed file | b/param | MMLU | GSM8K | ppl | tok/s | GB on card |
-|---|---|---|---|---|---|---|---|
-| 4B | `qwen3-4b-sealed.bin` | 2.73 | 63.37 | 82.49 | 12.58 | 133.3 | 1.38 |
-| 8B | `qwen3-8b-sealed-B.bin` | 2.70 | 69.58 | 88.63 | 9.71 | 95.0 | 2.76 |
-| 14B | `qwen3-14b-sealed.bin` | 2.73 | 75.66 | 92.04 | 8.44 | 57.2 | 5.04 |
+- **4B**: `qwen3-4b-tetra-e4-4e-v4.json` since 2026-11-05, the operator's decision. Attention `kernel`: every decode
+  row goes to the split-KV attention kernel from position 0. Decode `persistent`: 4E runs the whole token in one
+  cooperative CUDA launch. Rows `v4`: 4E's second row loop.
+- **8B and 14B**: `qwen3-8b-tetra-e4-grouped.json` and `qwen3-14b-tetra-e4-grouped.json` since 2026-11-04, the
+  operator's decision after a light MMLU check passed at each size.
+
+An absent `attention` field means `expanded`, the form paper 2 ran and the form of every MMLU and perplexity below.
+Neither served form is bit for bit with it; both are served under the ±0.12 % tolerance of §4.
+
+The Hub's moving repository [Qwen3-4B-LLVQ-Tetra-served](https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-Tetra-served)
+still carries the grouped config of 2026-11-02 (commit `159afed4`, file digest `886391a8` read back from the Hub), at
+133.3 tok/s (*measured*, [served-grouped](mesures/served-grouped-2026-11-02.txt)). Moving it to the v4 config is an
+open decision of §5. The three repositories paper 2 cites, and the safetensors one, are frozen.
+
+| size | sealed file | b/param | MMLU | GSM8K expanded | GSM8K grouped | ppl | tok/s served | GB on card |
+|---|---|---|---|---|---|---|---|---|
+| 4B | `qwen3-4b-sealed.bin` | 2.73 | 63.37 | 82.49 | 81.96 | 12.58 | 178.0 | 1.38 |
+| 8B | `qwen3-8b-sealed-B.bin` | 2.70 | 69.58 | 88.63 | 88.55 | 9.71 | 105.8 | 2.76 |
+| 14B | `qwen3-14b-sealed.bin` | 2.73 | 75.66 | 92.04 | 91.96 | 8.44 | 62.5 | 5.04 |
 
 b/param: *computed* by `rtbits`, whole model, int4 tables included. MMLU: *measured* on all 14,042 test questions,
 5-shot, micro average, fingerprint `a74a6d62` ([embed-q4-swap](mesures/embed-q4-swap-2026-09-23.txt),
-[sealed-8b-27](mesures/sealed-8b-27-2026-09-24.txt), [sealed-8b-14b](mesures/sealed-8b-14b-2026-09-23.txt)). GSM8K:
-*measured* through the served kernel on all 1,319 test problems, zero-shot, greedy, fingerprint `bfa9135c`
-([gsm8k-wave1](mesures/gsm8k-wave1-2026-09-26.txt), [gsm8k-wave2](mesures/gsm8k-wave2-2026-09-26.txt)). Perplexity:
-*measured* on the raw WikiText-2 test split, 12 windows of 4,096, f16
-([ppl-scelles](mesures/ppl-scelles-2026-10-04.txt)). Speed and GB: *measured* on one L40S, batch 1, 256 greedy
-tokens after a 5-token prompt, median of five rounds ([paper-table](mesures/paper-table-2026-09-25.txt)).
+[sealed-8b-27](mesures/sealed-8b-27-2026-09-24.txt), [sealed-8b-14b](mesures/sealed-8b-14b-2026-09-23.txt)). GSM8K
+expanded: *measured* through the kernel on all 1,319 test problems, zero-shot, greedy, fingerprint `bfa9135c`
+([gsm8k-wave1](mesures/gsm8k-wave1-2026-09-26.txt), [gsm8k-wave2](mesures/gsm8k-wave2-2026-09-26.txt)). GSM8K grouped:
+*measured* the same way under the grouped config. Paired against the expanded census it reads -0.53 pp [-1.07, +0.00]
+at 4B, -0.08 [-0.61, +0.46] at 8B and -0.08 [-0.22, +0.07] at 14B, McNemar p = 0.092, 1.000 and 1.000
+([gsm8k-grouped](mesures/gsm8k-grouped-2026-11-04.txt), [-8b](mesures/gsm8k-grouped-8b-2026-11-04.txt),
+[-14b](mesures/gsm8k-grouped-14b-2026-11-04.txt)). Perplexity: *measured* on the raw WikiText-2 test split, 12
+windows of 4,096, f16 ([ppl-scelles](mesures/ppl-scelles-2026-10-04.txt)). Speed and GB: *measured* on one L40S
+through the served door of each size's config, batch 1, 256 greedy tokens after a 5-token prompt, prompt and decode,
+median of five rounds ([served-v4](mesures/served-v4-2026-11-05.txt),
+[served-grouped-8b](mesures/served-grouped-8b-2026-11-04.txt),
+[served-grouped-14b](mesures/served-grouped-14b-2026-11-04.txt)). Paper 2 and its cited cards report 113.8, 95.0
+and 57.2 tok/s under the expanded form ([paper-table](mesures/paper-table-2026-09-25.txt)), and they do not move.
 
-🚨 **The 4B's row mixes two configurations, and that is a debt, not an oversight.** Its 133.3 tok/s is the grouped
-attention through the served door (*measured*, [served-grouped](mesures/served-grouped-2026-11-02.txt)); its MMLU,
-GSM8K and perplexity were all measured under the expanded form, and **no task score has ever run under the grouped
-one**. What licenses the grouped form is the paired perplexity of §4, nothing else. The same file under the expanded
-config reads 121.5 tok/s through the same door. The 8B and the 14B are expanded throughout.
-
-**The 4B's 122.4 of 2026-10-30 is the trimmed step under the expanded form, and the other two sizes are not trimmed
-either.** Three trims of 2026-10-30 give the 4B
-122.4 tok/s [122.3-122.4] against 114.2 [113.6-115.2] on the path every earlier figure ran, same tokens, zero bits:
-the causal mask is not rebuilt when it is all zero in decode, the int4 kernel reads f16 instead of a converted f32,
-and cudarc's event tracking is off on the one served stream (*measured*,
-[trims-contexts](mesures/trims-contexts-2026-10-30.txt)). The three multiply to 1.064 and the bundle reads 1.072. The
-8B and the 14B have not been re-timed since, so 95.0 and 57.2 remain pre-trim numbers. Through the served
-door, the config file rather than the flags, the same 4B file reads 121.5 tok/s [121.1-121.6] for the same
-quantity under the expanded form, and 133.3 [133.2-133.3] under the grouped one (*measured*,
-[served-grouped](mesures/served-grouped-2026-11-02.txt)).
+**The score columns and the speed column come from different forms.** MMLU and perplexity were measured under the
+expanded form only. Under the grouped form the 285-question MMLU plan picks the same answer on every question at 8B
+and 14B ([served-grouped-8b](mesures/served-grouped-8b-2026-11-04.txt),
+[served-grouped-14b](mesures/served-grouped-14b-2026-11-04.txt)), and so does the 57-question door at 4B
+([gsm8k-grouped](mesures/gsm8k-grouped-2026-11-04.txt)). The 4B's served form adds the kernel and 4E to the grouped
+form. Its only task reading is a 50-problem GSM8K pilot: 40 of 50, with the same 50 completions as the v3 config
+([served-v4](mesures/served-v4-2026-11-05.txt)). The v3 config read 40 of 50 against 40 of 50 for the grouped census,
+McNemar p = 1 ([served-4e](mesures/served-4e-2026-11-05.txt)). No full task score has run under the kernel form or 4E.
 
 **MMLU and perplexity are scored on the dense reconstruction, not through the kernel.** Per-row checks against f64 and
 a 256-token comparison tie the two: identical tokens at 4B and 8B, first difference at token 78 at 14B. One 4B census
@@ -113,12 +120,14 @@ unit, offload as reference only) sets b_max = 3.00 kernel b/weight. `Tetra` is t
 which moves the admissible class from 43.3 to 81 to 101 billion parameters (*computed*).
 
 **The speed gain is an L40S result.** On one A100, over the same 252 matrices, Tetra beats our FP16 kernel (1.11×) but
-not cuBLAS (1.14×). There the served files decode at 0.92, 0.91 and 0.95 times our dense path with f16 tables, and at
-74.2, 57.9 and 39.0 tok/s where vLLM decodes FP16 at 145.6, 91.8 and 52.7 (*measured*,
+not cuBLAS (1.14×). There the files under their expanded configs decode at 0.92, 0.91 and 0.95 times our dense
+path with f16 tables, and at 74.2, 57.9 and 39.0 tok/s where vLLM decodes FP16 at 145.6, 91.8 and 52.7 (*measured*,
 [a100](mesures/a100-2026-10-06.txt)).
 
-**No model above 14B is served.** The `rot_apply` wall of [format-noyau](format-noyau.md) §8 closes that path whatever
-the format, and the 32B point has never been encoded.
+**No model above 14B is served, and the 32B has never been encoded.** The `rot_apply` wall of
+[format-noyau](format-noyau.md) §8 is lifted on the card: the device-staged rotation and the f16-staged int4 kernel
+return the host's bytes at every width up to 25,600, Qwen3-32B's `down_proj` (*measured*,
+[lot1-4b](mesures/lot1-4b-2026-11-04.txt)). The rotation takes 45.43 µs at 25,600. Nothing past 14B has run end to end.
 
 Trained row scales gain **+3.15, +3.29 and +1.67 MMLU points for zero bits** at 4B, 8B and 14B, halving with size
 (*measured*, [dclm-rowscales](mesures/dclm-rowscales-2026-09-20.txt),
@@ -134,31 +143,51 @@ The `nullk` floor belongs to our launch geometry, not to the card: 2.306 ms for 
 weight, where QTIP finishes the same projections in 2.246 ms (*measured*,
 [f2-p3-qtip-banc](mesures/f2-p3-qtip-banc-2026-08-21.txt)). The comparable quantity across stacks is GB/s, never ×.
 
-**Throughput falls with the context, and the cache is why.** The served 4B decodes at 122.5 tok/s after a 5-token
-prompt, 82.7 at 2,048, 61.4 at 4,096 and 33.2 at 8,192, the product's context, where the first token takes 34.9 s
-(*measured*, [trims-contexts](mesures/trims-contexts-2026-10-30.txt)). At 8,192 positions, 72.9 % of a decode token is
-spent above what the 5-token step costs (*computed*). The served path concatenates the whole history at every step and
-then copies each key and value head to its four query heads, so it reads about 17 GB of cache a token at 8,192 against
-1.38 GB of weights (*computed*).
+**Throughput falls with the context, much less under the served forms.** The served 4B decodes at 180.8 tok/s after a
+5-token prompt, 169.5 at 2,048, 162.1 at 4,096 and 139.5 at 8,192, the product's context, where the first token takes
+35.04 s (*measured*, [served-v4](mesures/served-v4-2026-11-05.txt)). The served 8B reads 106.9 / 93.1 / 82.1 / 67.1
+at the same lengths through its door ([served-grouped-8b](mesures/served-grouped-8b-2026-11-04.txt)). The 14B reads
+63.1 / 57.7 / 52.6 / 45.3 at the bench door (*measured*, [gqa-14b](mesures/gqa-14b-2026-11-04.txt)). The expanded
+form read 122.5, 82.7, 61.4 and 33.2 for the 4B (*measured*, [trims-contexts](mesures/trims-contexts-2026-10-30.txt)).
+It concatenates the whole history at every step and copies each key and value head to its query heads, about 17 GB of
+cache a token at 8,192 against 1.38 GB of weights (*computed*).
 
-**Attention over the cached heads, with no copy, is measured and servable.** Stacking the query heads of one key head
-as rows of one matmul decodes the 4B at 134.4 tok/s after a 5-token prompt and 77.5 at 8,192, against 121.9 and 33.1
-for the shipped form, with the same 256 tokens at all four lengths (*measured*,
-[gqa-ab](mesures/gqa-ab-2026-11-01.txt)). It is not bit for bit on the card past 5 tokens: cuBLAS rounds a batch of 8
-key heads differently from 32 expanded ones, up to 6.6e-2 on a logit. **This is the one served choice licensed by a
-tolerance rather than by identity**, the operator's decision of 2026-11-01: paired WikiText-2 perplexity through the
-kernel reads +0.0000 % by prefill, bit for bit, and +0.0095 % [-0.0048 ; +0.0238] by decode, inside the 0.12 % band
-below, with 99.788 % top-1 agreement over 49,140 steps (*measured*, [gqa-ppl](mesures/gqa-ppl-2026-11-01.txt)). A few
-isolated decode steps move one logit by up to 13.13, which no reading explains yet and which was not a criterion. The
-form ships in `configs/qwen3-4b-tetra-e4-grouped.json` and nowhere else: the 8B, the 14B and Metal have never run it,
-and Metal refuses it by name.
+**Both served attention forms are licensed by a tolerance.** The grouped form stacks the query heads
+of one key head as rows of one matmul and reads each cached byte once. It is not bit for bit on the card past 5
+tokens: cuBLAS rounds a batch of 8 key heads differently from 32 expanded ones, up to 6.6e-2 on a logit. Paired
+WikiText-2 perplexity through the kernel against the expanded form reads +0.0000 % by prefill at every size, and by
+decode +0.0095 % [-0.0048 ; +0.0238] at 4B, -0.0048 % [-0.0117 ; +0.0021] at 8B and +0.0023 % [-0.0062 ; +0.0109]
+at 14B, inside the 0.12 % band below (*measured*, [gqa-ppl](mesures/gqa-ppl-2026-11-01.txt),
+[gqa-8b](mesures/gqa-8b-2026-11-04.txt), [gqa-14b](mesures/gqa-14b-2026-11-04.txt)). A few isolated 4B decode steps
+move one logit by up to 13.13, which no reading explains yet and which was not a criterion. The operator took this
+change of gate on 2026-11-01.
 
-**Through the served door it reads 133.3 tok/s against 121.5, and 77.5 against 33.2 at 8,192, with the same 256-token
-text under both configs** (*measured*, [served-grouped](mesures/served-grouped-2026-11-02.txt)). The two texts are the
-same bytes, so the grouped config inherits the expanded form's reference line `8784ffc4` and gate 4 of a later job is
-unchanged. The prefill does not pay for the form: 35.02 s to the first token at 8,192 against 34.84. Under the grouped
-form the cache is no longer the majority of a decode token at 8,192, 42.4 % against 72.9 % (*computed*), which is what
-leaves the prefill and the launch count as the next two walls.
+The kernel form sends decode rows to the split-KV kernel `attn_dec.cu`. Against the grouped form it reads -0.0013 %
+[-0.0074 ; +0.0047] over 12 windows of 4,096 and +0.0001 % [-0.0076 ; +0.0077] over 6 windows of 8,192 on the
+positions from 1,280 (*measured*, [attn-t8-r2](mesures/attn-t8-r2-2026-11-04.txt)). With every row on the kernel from
+position 0 it reads +0.0318 % [-0.0151 ; +0.0786] over 32 windows of 1,280 and +0.0018 % [-0.0053 ; +0.0088] over 12
+windows of 4,096 (*measured*, [attn-t8-below](mesures/attn-t8-below-4b-2026-11-05.txt)). The operator granted the form
+below 1,280 on the 4B only, on 2026-11-05.
+
+**4E decodes a token in one launch and returns the eager path's tokens.** Under the served 4B config the door reads
+178.0 tok/s [178.0-178.3] against 126.8 [126.7-126.9] for the eager engine, x1.404 [1.404-1.408] round by round, with
+256 of 256 tokens equal (*measured*, [served-v4](mesures/served-v4-2026-11-05.txt)). The v4 row loop is x1.060
+[1.059-1.062] over the v3 loop after a 5-token prompt, same tokens (*computed* from the round-by-round ratios,
+[shaker-4e](mesures/shaker-4e-2026-11-05.txt)). The prefill is untouched. 4E runs on the Qwen3-4B's shape only, and
+has no Metal kernel.
+
+**The sealed 4B runs fused on Metal since 2026-11-06, and nothing is served there.** The int4 wall at d_in 8,192 is
+lifted: the Metal fused door now loads the sealed 4B instead of refusing it. Its 12 int4 `down_proj` records go
+through `tv_q4_metal_tiled`, bit-identical to the host reference (*measured* on an M3 Max, $0,
+[metal-nuit](mesures/metal-nuit-2026-11-06.txt)). The `lutd` Tetra kernel decodes 52.07 tok/s [46.27-53.12] after a
+5-token prompt, the served Metal kernel `lut` 50.85 and the dense reconstruction 7.81, with the same 256 tokens. That
+ratio is raw: the dense arm copies its f16 head table every token, and no same-head arm exists on Metal (rule 4). The
+grouped form returned the expanded form's logits bit for bit over 49,140 decode steps, and decodes x2.380
+[2.362-2.396] faster at 4,096 positions. `attn_dec.metal` from position 0 reads +0.0051 % of perplexity against the
+grouped form, inside the band. `served.rs` still refuses both forms on Metal; the two `*-metal-*-NOT-SERVED.json`
+configs are measurement doors for `bin/metalrun`. An MLX prototype, `ops/mlx_tetra/`, decodes 93.92 tok/s
+[88.38-94.66] on the same Mac (M16, same journal), not bit for bit with the Rust engine, perplexity not measured.
+mlx-lm's 4-bit Qwen3-4B decodes 129.45 there, on another stack, so no ratio is formed.
 
 **Noise.** The calibration draw carries a standard deviation of 2.92 pp of MMLU and 5.2% of perplexity at 4B over
 three full runs (*measured*, [bruit-mmlu](mesures/bruit-mmlu-graines-4b-2026-08-25.txt),
@@ -175,8 +204,24 @@ the bar is the paired interval, 0.43 pp in MMLU and 0.12% in perplexity (*measur
   bytes, against our own prediction. Untested at the other two sizes.
 - **A second calibration draw per size.** Each level is one draw, and the draw moves more than several gains.
 - **A consumer GPU.** Speed is measured on an L40S and an A100, both data-center cards, and the served path loses on
-  the A100. Local hardware, the target of the project, is unmeasured.
-- **A model above 14B**, which needs the `rot_apply` wall lifted first.
+  the A100. A consumer NVIDIA card, the target of the project, is unmeasured. The Mac runs the fused 4B and serves
+  nothing (§4).
+- **A model above 14B.** The `rot_apply` wall is lifted on the card, and the device rotation is proposed for a 32B's
+  first light; the operator confirms. The 32B has to be encoded first.
+- **4E v6 against its missed gate.** v6 decodes 212.6 tok/s after a 5-token prompt and 152.0 at 8,192 in the
+  measurement form, x1.118 [1.117-1.118] and x1.094 [1.094-1.095] over v4 round by round, same tokens (*measured*,
+  [pers-4e-v6](mesures/pers-4e-v6-2026-11-05.txt)). Its lever left the MLP down input at 254.6 µs against a prereg
+  gate of 200, so by the prereg's rule v6 stays a measurement. Serving it is the operator's call, and needs a door
+  reading under a served config first.
+- **The v4 config on the Hub.** The moving repository still serves the grouped config at 133.3 tok/s (§2). Publishing
+  needs the operator.
+- **A served Metal config.** The grouped form is bit for bit with the expanded one on Metal (§4), and the two
+  `NOT-SERVED` configs are ready. `served.rs` refuses both forms on Metal until the operator decides.
+- **A full GSM8K census under 4E.** The 4B's served form has a 50-problem pilot only (§2). The grouped census of the
+  4B cost $2.02 (*computed*, [gsm8k-grouped](mesures/gsm8k-grouped-2026-11-04.txt)).
+- **An int4 KV cache.** It is the next throughput lever after 4E, and it touches quality, so it is outside any
+  "negligible" go.
+- **4E at 8B and 14B.** 4E runs on the 4B's shape only, and the kernel form has no T8 below 1,280 at those sizes.
 - **The next venue for paper 2.** TACO desk-rejected paper 1 on 2026-08-27 on scope. Version 2 sits in release
   `v0.0.2`, and no archive (arXiv, Zenodo) holds it yet. Default if silent: preprint only.
 - **A harder reasoning test**, Qwen3's reasoning mode or GSM-Symbolic, about 3 to 5 $ at 4B (*estimated*).
@@ -186,14 +231,9 @@ the bar is the paired interval, 0.43 pp in MMLU and 0.12% in perplexity (*measur
   [plan-transformers](plan-transformers.md)). `llvq-tetra` 0.1.0 is on PyPI since 2026-10-07, the bytes that passed
   TestPyPI ([hf-pypi](mesures/hf-pypi-0.1.0-2026-10-07.txt)), so `pip install llvq-tetra` loads it. Next, on the
   operator's go: the upstream issue and PR, together.
-- **Spend.** $248.84 over 237 rows of the registry, 207 of them priced (*measured*, `docs/data/jobs.csv`). The
-  throughput campaign of 2026-10-30 to 11-02 spent $2.09 over five jobs, each of its three waves under its own $2 cap, the review campaign of 2026-10-04 to
-  10-06 spent $4.57 under a $9 cap, and the `transformers` wave of 2026-09-30 spent $0.30 under a $5 cap. No cap is
-  in force; one is owed before the next paid job.
-- **MMLU and GSM8K under the grouped attention.** The 4B is served under it since 2026-11-02 and no task score has
-  run under it: the published 63.37 and 82.49 are the expanded form's. GSM8K through the kernel is about $2, MMLU by
-  the 57-question door is cheap and by the census about $20 (*estimated*). This is the debt the switch took on, and
-  it is the first thing to settle on this axis.
+- **Spend.** $273.30 over 267 rows of the registry, 262 of them priced (*computed*, `docs/data/jobs.csv`). The jobs
+  of 2026-11-04 and 11-05 spent $21.27 over 25 rows (*computed*). No cap is in force; one is owed before the next
+  paid job.
 
 ## 6. Closed absent a new idea
 
@@ -207,6 +247,7 @@ the bar is the paired interval, 0.43 pp in MMLU and 0.12% in perplexity (*measur
 | Spherical GPTQ feedback | +31.89% of perplexity at the 0.6B, fifth case of a local reading composing worse | [sph-ppl](mesures/sph-ppl-0.6b-2026-09-22.txt) |
 | A2, CUDA Graphs, served | +12.6% of throughput for +47% of VRAM at 4B | [ECARTS](../proofs/preregistration-a2-a3-geometrie-2026-08-31-ECARTS.md) §É7 |
 | Euclidean gain rule | dead end to end | [HISTORIQUE](HISTORIQUE.md), 2026-09-15 |
+| 4E v5, the last rows spread over the warps | x1.001 over v4 after a 5-token prompt, its range touching x1.00; `"rows": "v5"` is refused by name | [shaker-4e](mesures/shaker-4e-2026-11-05.txt) |
 | A mixed `Tetra` plus int4 bench arm | the bench compares formats on the same 252 matrices, and the served files are timed end to end | operator, 2026-10-06 |
 
 Reopening any of them needs the condition written in its own row, not a new argument. A2 stays out of the core.

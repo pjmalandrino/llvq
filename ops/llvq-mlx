@@ -1,13 +1,19 @@
 #!/usr/bin/env bash
-# The sealed Qwen3-4B (Tetra, 2.7 b/param) on this Mac's GPU through MLX.
+# A prototype: the sealed Qwen3-4B (Tetra, 2.7 b/param) through MLX on this Mac's GPU, not served.
 #
 #   ops/llvq-mlx chat [temp=0.7] [max_new=512]
 #   ops/llvq-mlx bench            # 5-token prompt, 256 new tokens, 7 rounds
 #   ops/llvq-mlx bench --long     # after 4,096 tokens of WikiText-2, 64 new, 5 rounds
 #   ops/llvq-mlx check            # the kernels against each other
 #
+# It reads the sealed codes without re-quantizing them, and runs f16 activations. It is not bit-exact with the
+# served kernels. After the 5-token prompt its 256 greedy tokens differ from the Rust engine's: it leaves the
+# repeated answer at token 243, the Rust engine at another token. After 4,096 tokens of context its 64 tokens are
+# the Rust engine's (M15 of docs/mesures/metal-nuit-2026-11-06.txt). No perplexity has been measured on it yet.
+# The plan: docs/plan-metal-debit.md.
+#
 # The packed model: $PACKED, else ~/q4b-hf-2026-09-28 (hfpack of the sealed file).
-# Needs uv; the first run installs mlx-lm 0.28.3 in uv's cache.
+# Needs uv; the first run installs mlx 0.32.4 and mlx-lm 0.28.3 in uv's cache.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 PACKED="${PACKED:-$HOME/q4b-hf-2026-09-28}"

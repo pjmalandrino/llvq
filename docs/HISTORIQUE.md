@@ -1,6 +1,6 @@
 # History
 
-The project's chronological thread, one entry per period, from 2026-07-24 to 2026-09-26. The current state is in [ETAT.md](ETAT.md), the lab rules in [METHODE.md](METHODE.md), the writing rules in [STYLE.md](STYLE.md). Entries are appended at the bottom and the past is not rewritten.
+The project's chronological thread, one entry per period, from 2026-07-24 to 2026-11-06. The current state is in [ETAT.md](ETAT.md), the lab rules in [METHODE.md](METHODE.md), the writing rules in [STYLE.md](STYLE.md). Entries are appended at the bottom and the past is not rewritten.
 
 ## 2026-07-24 to 07-28. Foundations, G1 to G4
 
@@ -959,4 +959,130 @@ card refuses its shared staging (`rot_apply_dev`), and the int4 matvec stages it
 (`tv_q4_hs`). Both are byte-identical to the kernels they replace on the host at every width up to 31,744, and both
 are selected only where those kernels are refused, so no served object moves. The f16 staging of the rotation was
 dropped because it rounds every stage. No card has run either kernel yet; the identity job is drafted, not stamped.
+
+2026-11-04, later the same day: lot 1 ran both kernels on the L40S. Each returned the host's bytes at every width
+checked, 25,600 included, and `rot_apply_dev` took 45.43 µs at 25,600 (*measured*,
+[lot1](mesures/lot1-4b-2026-11-04.txt), prereg `proofs/preregistration-bigmodel-2-2026-11-04.md`). The 32B is still
+never encoded, and nothing has served it end to end.
+
+## 2026-11-04. The grouped attention at 8B and 14B, and its GSM8K at three sizes
+
+The grouped form serves all three sizes since 2026-11-04, and its GSM8K matches the expanded form's at each.
+
+**GSM8K at 4B.** The grouped config scores 81.96 % (1,081 of 1,319) against 82.49 % for the expanded one, -0.53 pp
+[-1.07 ; +0.00], McNemar p = 0.092, 10 discordant problems against it and 3 for it (*measured*,
+[gsm8k-grouped](mesures/gsm8k-grouped-2026-11-04.txt)). Rule G1 holds, so the GSM8K half of the 2026-11-02 debt is
+settled. The interval touches zero and leans against the grouped form.
+
+**8B and 14B.** The grouped form keeps paired WikiText-2 perplexity inside ±0.12 % on both sealed files. By decode it
+reads -0.0048 % [-0.0117 ; +0.0021] at 8B and +0.0023 % [-0.0062 ; +0.0109] at 14B; by prefill it is bit for bit
+(*measured*, [gqa-8b](mesures/gqa-8b-2026-11-04.txt), [gqa-14b](mesures/gqa-14b-2026-11-04.txt)). At 8,192 it decodes
+×2.156 and ×2.140 faster. A light MMLU of 285 questions picks the same answer on every question under both configs:
+65.55 % at 8B, 74.13 % at 14B (*measured*, [served-grouped-8b](mesures/served-grouped-8b-2026-11-04.txt),
+[served-grouped-14b](mesures/served-grouped-14b-2026-11-04.txt)). The operator granted the T8 at both sizes the same
+day. The served doors read 105.8 and 62.5 tok/s against 98.3 and 58.6 for the expanded configs, with the same
+256-token texts. They replace the 95.0 and 57.2 tok/s of 2026-09-25, measured before the trims.
+
+**GSM8K at 8B and 14B**, run in lot 1 that evening: 88.55 % against 88.63 %, -0.08 pp [-0.61 ; +0.46], and 91.96 %
+against 92.04 %, -0.08 pp [-0.22 ; +0.07], both p = 1.000 (*measured*,
+[gsm8k-grouped-8b](mesures/gsm8k-grouped-8b-2026-11-04.txt),
+[gsm8k-grouped-14b](mesures/gsm8k-grouped-14b-2026-11-04.txt)).
+
+## 2026-11-04 and 05. A split-KV attention kernel, served from position 1,280
+
+On the morning of 2026-11-05 the served 4B took its own decode-attention kernel from position 1,280, with the grouped
+arithmetic below. 4E replaced that config the same afternoon.
+
+**First readings.** The kernel returns the CPU replay's bits on every call checked. It reads the cache at η 0.406 of
+864 GB/s at 8,192, where FlashInfer's decode kernel reads 0.810 on the same card (*measured*,
+[attn-bench](mesures/attn-bench-2026-11-04.txt), [fi-decode-anchor](mesures/fi-decode-anchor-2026-11-04.txt)). In
+the served 4B it gave 95.8 tok/s against 78.0 at 8,192 and ×0.93 after a 5-token prompt. A revised fold raised η to
+0.545 and the 8,192 reading to 104.2 against 77.7, and left the short loss at ×0.9408 (*measured*,
+[lot1](mesures/lot1-4b-2026-11-04.txt)). Its T8 control did not run: its condition at 5 tokens failed.
+
+**The threshold.** Rows below position 1,280 now take the grouped arithmetic, bit for bit. The kernel config reads
+134.7 against 135.0 tok/s after 5 tokens with the same tokens, and 104.0 against 77.5 at 8,192, ×1.3419 (*measured*,
+[attn-t8-r2](mesures/attn-t8-r2-2026-11-04.txt)). Paired perplexity on the positions the kernel takes reads -0.0013 %
+[-0.0074 ; +0.0047] at 4,096 and +0.0001 % [-0.0076 ; +0.0077] at 8,192. The operator granted that T8 on 2026-11-05,
+and `configs/qwen3-4b-tetra-e4-kernel-from1280.json` became the 4B's served config that morning. Its door read 133.7
+tok/s (*measured*, [served-4e](mesures/served-4e-2026-11-05.txt)).
+
+**Below the threshold.** With every decode row on the kernel, paired perplexity reads +0.0318 % [-0.0151 ; +0.0786] on
+32 windows of 1,280 and +0.0018 % [-0.0053 ; +0.0088] on 12 windows of 4,096 (*measured*,
+[attn-t8-below-4b](mesures/attn-t8-below-4b-2026-11-05.txt)). The point at 1,280 missed its prediction. The operator
+extended the T8 below 1,280 at 4B only, the licence 4E needs for a short prompt. No task score exists past 1,280,
+because GSM8K never reaches that position.
+
+**Beside it.** Lot 1's token-boundary gestures read ×1.0120 [1.0082-1.0128] together with the same tokens, and none
+is served under its prereg's rules (lot1). `tv_tetra48_seg` returned the separate launches' bits on 72 of 72 groups
+on the card ([seg-tetra](mesures/seg-tetra-2026-11-04.txt)). One more row on the batched path costs 3.93 ms at position
+0 ([tk-sweep](mesures/tk-sweep-4b-2026-11-04.txt)).
+
+## 2026-11-04 and 05. The persistent kernel 4E serves the 4B at 178.0 tok/s
+
+The 4B decodes one token a cooperative launch since 2026-11-05. Its door reads 178.0 tok/s, against 133.3 for the
+grouped config of 2026-11-02 (*measured*, [served-v4](mesures/served-v4-2026-11-05.txt),
+[served-grouped](mesures/served-grouped-2026-11-02.txt)). The operator's target was 300.
+
+**Route P.** One launch over the 4B's 252 matrices is bit-exact and takes 2.394 ms, against 3.009 for the 144 fused
+launches, streaming 410 GB/s (*measured*, [pers-l1](mesures/pers-l1-2026-11-04.txt)). Rule H projected 222 to 258
+tok/s for 4E from that rate (*estimated*). The rate came from a bench at 32 warps a SM, and 4E runs 16
+([revue-debit](archive/revue-debit-2026-11-05.md) §6).
+
+**First 4E readings.** The first was void: a timing round decoded different tokens
+([pers-4e](mesures/pers-4e-2026-11-05.txt)). A stale argmax key was the cause (`3e186a0`). The retry decoded the same
+tokens at ×0.993 of the eager path ([pers-4e-r2](mesures/pers-4e-r2-2026-11-05.txt)). Phase stamps then showed 4E's
+own attention phase taking 2,355 µs of a short token and 72 % of a token at 8,192
+([pers-4e-r3](mesures/pers-4e-r3-2026-11-05.txt)).
+
+**v2 and v3.** v2 put attention on the split-KV kernel's mapping and prefetched in the row loop. It reads 178.7
+against 132.1 tok/s at 5 tokens, ×1.353, and 131.8 against 103.5 at 8,192, ×1.273, same tokens (*measured*,
+[pers-4e-v2](mesures/pers-4e-v2-2026-11-05.txt)). v3 read 179.2 and 135.4
+([pers-4e-v3](mesures/pers-4e-v3-2026-11-05.txt)). Alone, v2's row loop streams 379 GB/s; inside 4E the same rows move
+about 260 (*measured* and *computed*, [pers-rowloop](mesures/pers-rowloop-2026-11-05.txt)). The served door under the
+v3 config read 169.0 tok/s against 133.7 for the served kernel config, with the same tokens at every length and 40 of
+50 GSM8K pilot problems right under both (*measured*, [served-4e](mesures/served-4e-2026-11-05.txt)).
+
+**The shaker, and v4 served.** One job timed v3, v4 and v5 with inner stamps. v4 over v3 reads ×1.060 [1.059-1.062]
+at 5 tokens, 189.8 tok/s in the measurement form. v5 adds ×1.001 and stays a measurement, refused by name in a config
+(*measured*, [shaker-4e](mesures/shaker-4e-2026-11-05.txt)). The operator served v4 on 2026-11-05 through
+`configs/qwen3-4b-tetra-e4-4e-v4.json`. Its door reads 178.0 [178.0-178.3] tok/s in 1.38 GB. Its sweep reads 180.8,
+169.5, 162.1 and 139.5 at 5, 2,048, 4,096 and 8,192, with the first token at 35.04 s at 8,192 (*measured*,
+[served-v4](mesures/served-v4-2026-11-05.txt)). Its text equals v3's everywhere, and every prediction landed. No full
+task census has run under 4E, and the 8B and 14B have never run it.
+
+**v6.** Folding ln1, ln2 and the MLP down input into one round trip a thread gives 212.6 tok/s against 190.2 for v4,
+×1.118 [1.117-1.118], and 152.0 against 138.9 at 8,192, same tokens (*measured*,
+[pers-4e-v6](mesures/pers-4e-v6-2026-11-05.txt)). The down input fell from 796.0 to 254.6 µs a token and missed its
+200 µs gate, so by its prereg v6 is not proposed.
+
+The card work of 2026-11-04 and 05 took 25 jobs and $21.27. The registry reads $273.30 over 262 priced rows of 267
+(*computed*, `docs/data/jobs.csv`).
+
+## 2026-11-05 and 06. The Metal night: the sealed 4B fused on the Mac, then MLX
+
+The sealed 4B decodes fused on the M3 Max at 52.07 tok/s with its one retained row-loop port, against 7.81 for the
+dense reconstruction, with the same 256 tokens (*measured*, M2 of [metal-nuit](mesures/metal-nuit-2026-11-06.txt)).
+That ratio is raw: the dense arm copies its f16 head table every token, and Metal has no same-head arm. Everything ran
+locally at $0, and nothing is served on Metal.
+
+**The int4 wall.** The fused Metal path was refused at load, because 12 int4 `down_proj` records exceed d_in 8,192.
+They now route to a tiled int4 kernel at 2,048 columns a tile, and the served Metal kernels keep their bytes. All 27
+mutants of the new kernels and host code were killed before the stamp.
+
+**Attention forms.** On Metal the grouped form returned the expanded form's logits bit for bit on 49,140 decode steps
+over 12 windows of 4,096 (*measured*, M5). It decodes ×1.750 faster at 2,048 and ×2.380 at 4,096 (M4). The Metal port
+of the split-KV kernel reads ×0.864 after 5 tokens and a wash at 2,048 and 4,096, with paired perplexity +0.0051 % in
+its T8 (M6). The Metal door still refuses both forms. Two NOT SERVED configs wait for the operator.
+
+**Prefill.** Two prefill kernels cut the first token of a 4,096-token prompt from 59.73 s to 37.24 s, then from 34.56 s
+to 31.53 s, with the same tokens (*measured*, M9 and M10). The two steps chain to about ×1.74 (*computed*). A decode
+token is GPU-bound: the host takes 5.43 ms of 15.18 (M12).
+
+**MLX.** mlx-lm's Qwen3-4B 4-bit decodes 123.27 tok/s against our 65.49 after a 5-token prompt (M14). The operator
+chose MLX as the Mac's engine on 2026-11-06. A prototype runs our Tetra kernel inside mlx-lm's Qwen3. It decodes 93.92
+tok/s after 5 tokens and 70.26 at 4,096, and reads a 4,096-token prompt in 4.11 s at a 3.20 GB peak (*measured*, M16).
+mlx-lm reads 129.45, 98.38 and 3.96 s at 3.67 GB, at about 4.5 b/param against our 2.7. The MLX path is not bit-exact
+with the Rust engine. On the 5-token house prompt its 256 tokens differ from the Rust engine's in a degenerate
+repetition (M15). No perplexity has been read through it.
 

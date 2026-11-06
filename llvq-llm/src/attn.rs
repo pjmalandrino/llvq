@@ -11,8 +11,11 @@
 //!
 //! What this form is NOT: bit for bit with the grouped form it replaces on
 //! decode rows. cuBLAS's reduction order is not the kernel's, and the grouped
-//! form's scale and softmax run in f16. Serving it needs the operator's T8
-//! decision (`docs/archive/debit-vague5-2026-11-02/attention.md` §7).
+//! form's scale and softmax run in f16. It is served under the operator's T8
+//! instead, on the sealed 4B: passed with the 1,280 threshold
+//! (`docs/mesures/attn-t8-r2-2026-11-04.txt`) and extended below it for the
+//! persistent decode (`docs/mesures/attn-t8-below-4b-2026-11-05.txt`). Not on
+//! Metal, where no T8 of the form exists (`crate::served::Served::check_device`).
 
 use std::sync::Arc;
 

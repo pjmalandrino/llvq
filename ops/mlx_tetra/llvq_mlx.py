@@ -1,27 +1,35 @@
 # /// script
 # requires-python = ">=3.10"
-# dependencies = ["mlx-lm==0.28.3", "numpy", "safetensors", "tokenizers", "pyarrow", "llvq-tetra"]
+# dependencies = ["mlx-lm==0.28.3", "mlx==0.32.4", "numpy==2.5.4", "safetensors==0.8.0", "tokenizers==0.23.3",
+#                 "pyarrow==26.0.1", "transformers==5.22.1", "llvq-tetra"]
 # [tool.uv.sources]
 # llvq-tetra = { path = "../../llvq-tetra" }
 # ///
 """The sealed Tetra 4B on MLX: mlx-lm's Qwen3 with our projections.
 
-Prototype of decision 2 of `docs/plan-metal-v2.md`: MLX as the engine on the Mac.
-mlx-lm brings the attention, the norms, RoPE, the cache and the int4 matmul; this
+A prototype of MLX as the engine on the Mac, the operator's choice of 2026-11-06
+(`docs/plan-metal-debit.md`). It reads the sealed codes from the packed directory
+without re-quantizing them. mlx-lm brings the attention, the norms, RoPE, the cache and the int4 matmul; this
 file brings what MLX does not have:
 
 * `TetraLinear`: the 168 Tetra records, resident in the served `tetra48` layout,
   multiplied by our Metal kernels through `mx.fast.metal_kernel`. One row runs the
   `lutd` loop (`llvq_tetra48_rows.metal`), several rows the `lutdr` loop, which
   decodes each block once for up to 8 rows. Both store f16.
-* the rotation `Q = (Q_odd (x) H_m) D` in MLX ops, shared by the projections that
+* the rotation `Q = (Q_odd (x) H_m) D` in one kernel (`ROT`), held by `check.py`
+  against the same rotation in four MLX ops, and shared by the projections that
   read one activation (q and k, gate and up).
 * the int4 records (v, o, down in 12 layers) and the int4 g64 embedding as MLX's
   own quantized layers: the file's affine format, `w = scale q + bias`, nibbles low
   first, is MLX's.
 
-Not bit for bit with the Rust engine (other kernels for everything but Tetra,
-another rotation arithmetic); the gate is the tokens and the M6 band.
+Activations are f16. The path is not bit-exact with the served kernels: other
+kernels for everything but Tetra, another rotation arithmetic. After the 5-token
+prompt its 256 greedy tokens differ from the Rust engine's: it leaves the repeated
+answer at token 243, the Rust engine at another token. After 4,096 tokens of
+context its 64 tokens are the Rust engine's (M15 of
+`docs/mesures/metal-nuit-2026-11-06.txt`). No perplexity has been measured on it
+yet, so whether it holds the M6 band (+-0.12 %) is unknown. Nothing here is served.
 
     uv run ops/mlx_tetra/llvq_mlx.py <packed_dir> gen [n_new=64] [prompt_tokens=0]
     uv run ops/mlx_tetra/llvq_mlx.py <packed_dir> time <n_new> <timed_rounds> [prompt_tokens=0]
@@ -53,10 +61,28 @@ from llvq_tetra.tetra import split_stream
 REPO = Path(__file__).resolve().parents[2]
 KERNELS = REPO / "llvq-llm" / "kernels"
 PROMPT = "The capital of France is"
-WIKI = Path.home() / (
-    ".cache/huggingface/hub/datasets--Salesforce--wikitext/snapshots/"
-    "b08601e04326c79dfdd32d625aee71d232d685c3/wikitext-2-raw-v1/test-00000-of-00001.parquet"
-)
+# The WikiText-2 test split at the revision `metalrun` reads, from the Hugging
+# Face cache ($HF_HUB_CACHE, else $HF_HOME/hub, else ~/.cache/huggingface/hub).
+# Nothing here downloads it: `wiki_parquet` names the command when it is missing.
+WIKI_REVISION = "b08601e04326c79dfdd32d625aee71d232d685c3"
+WIKI_FILE = "wikitext-2-raw-v1/test-00000-of-00001.parquet"
+
+
+def wiki_parquet() -> Path:
+    hub = os.environ.get("HF_HUB_CACHE") or (
+        str(Path(os.environ["HF_HOME"]) / "hub") if os.environ.get("HF_HOME") else None
+    )
+    hub = Path(hub) if hub else Path.home() / ".cache/huggingface/hub"
+    path = hub / "datasets--Salesforce--wikitext" / "snapshots" / WIKI_REVISION / WIKI_FILE
+    if not path.is_file():
+        sys.exit(
+            f"no WikiText-2 test split at {path}\n"
+            f"It is the dataset Salesforce/wikitext, config wikitext-2-raw-v1, revision {WIKI_REVISION[:8]}.\n"
+            f"Fetch it once into the Hugging Face cache:\n"
+            f"  hf download Salesforce/wikitext --repo-type dataset --revision {WIKI_REVISION} "
+            f"--include '{WIKI_FILE}'"
+        )
+    return path
 DISCARDED = 2
 ROWS_MAX = 8
 
@@ -222,6 +248,7 @@ ROT_BODY = """
         pr[q] = yr[p];
     }
 """
+ROT_TG_FLOATS = 7168
 ROT = mx.fast.metal_kernel(name="llvq_rot_tg", input_names=["x", "signs", "small"], output_names=["y", "yp"],
                            source=ROT_BODY, header=HEADER)
 
@@ -407,8 +434,6 @@ GU = mx.fast.metal_kernel(
 # Ablation, a measurement mode of this prototype only: LLVQ_MLX_ABLATE names
 # kernel families ("tetra", "rot", "gu") swapped for an empty kernel of the same
 # grid and output. The tokens are then garbage; only the time means anything.
-import os
-
 ABLATE = set(filter(None, os.environ.get("LLVQ_MLX_ABLATE", "").split(",")))
 EMPTY = mx.fast.metal_kernel(name="llvq_empty", input_names=["x"], output_names=["y"], source="""
     uint i = thread_position_in_grid.x;
@@ -446,6 +471,13 @@ class Rotation:
         self.n = signs.shape[0]
         self.m = self.n & (-self.n)
         self.k = self.n // self.m
+        # ROT stages GB groups of m floats in 7,168 floats (28 KiB) of threadgroup
+        # memory. GB = 0 would leave its group loop stepping by zero forever.
+        self.gb = min(self.k, ROT_TG_FLOATS // self.m)
+        assert self.gb >= 1, (
+            f"rotation of width {self.n}: its power-of-two group m = {self.m} exceeds the {ROT_TG_FLOATS} floats "
+            f"of threadgroup memory ROT stages; this width needs another rotation kernel"
+        )
         self.signs = mx.array(signs.astype(np.float32))
         self.small = mx.array(small.astype(np.float32))
         self._last = None
@@ -483,7 +515,7 @@ class Rotation:
             return out
         out = ROT(inputs=[flat, self.signs, self.small],
                   template=[("N", self.n), ("M", self.m), ("K", self.k), ("NB", self.n // 24),
-                            ("GB", min(self.k, 7168 // self.m))],
+                            ("GB", self.gb)],
                   grid=(1024, rows, 1), threadgroup=(1024, 1, 1),
                   output_shapes=[(rows, self.n), (rows, self.n)],
                   output_dtypes=[mx.float32, mx.float32])[1].reshape(*lead, self.n)
@@ -707,7 +739,7 @@ def prompt_ids(path: str, n: int) -> list[int]:
         return tok.encode(PROMPT, add_special_tokens=False).ids
     import pyarrow.parquet as pq
 
-    head = "\n\n".join(pq.read_table(WIKI).column("text").to_pylist())[: n * 12]
+    head = "\n\n".join(pq.read_table(wiki_parquet()).column("text").to_pylist())[: n * 12]
     ids = tok.encode(head, add_special_tokens=False).ids
     assert len(ids) >= n, f"{n} prompt tokens asked, {len(ids)} found"
     return ids[:n]
@@ -789,6 +821,7 @@ def chat(model, path: str, temp: float, max_new: int) -> None:
 def main():
     path, mode = sys.argv[1], sys.argv[2]
     print(f"mlx {mx.__version__} | {mx.default_device()} | packed {path}")
+    print("prototype: f16 activations, not bit-exact with the served kernels, no perplexity measured; not served")
     t = time.perf_counter()
     model, pm, tetra_bytes = build(path)
     print(f"built in {time.perf_counter() - t:.1f} s | Tetra resident {tetra_bytes / 1e9:.3f} GB | "

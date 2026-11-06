@@ -8,7 +8,11 @@
 //! pairing, so one grader scores every arm, whichever engine generated it.
 //!
 //! Refuses two dumps that do not hold the same problems in the same prompt
-//! tokens, and a dump without its trailer. Prints both accuracies, the
+//! tokens, and a dump without its trailer. Two dumps of different attention
+//! forms or decode engines pair: that is the A/B each of those forms was
+//! licensed by. Both are printed with the arm, as `bin/mmlupair` prints its
+//! served keys, and a dump written before its header carried them reads as
+//! the expanded form and the eager engine. Prints both accuracies, the
 //! discordant counts, the paired difference A − B with its 95 % interval, and
 //! McNemar's exact p. The interval carries no finite-population correction: a
 //! census of the test split is read as a draw from the problems a model could
@@ -49,6 +53,7 @@ fn describe(tag: &str, d: &Dump) {
             "off"
         }
     );
+    println!("    attention {} | decode {}", d.attention(), d.decode());
     println!(
         "    {right}/{} right, mean {:.1} generated tokens, {capped} stopped at the cap, tokens {}",
         d.rows.len(),

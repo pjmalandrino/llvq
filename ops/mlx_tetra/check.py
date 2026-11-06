@@ -1,6 +1,7 @@
 # /// script
 # requires-python = ">=3.10"
-# dependencies = ["mlx-lm==0.28.3", "numpy", "safetensors", "tokenizers", "pyarrow", "llvq-tetra"]
+# dependencies = ["mlx-lm==0.28.3", "mlx==0.32.4", "numpy==2.5.4", "safetensors==0.8.0", "tokenizers==0.23.3",
+#                 "pyarrow==26.0.1", "transformers==5.22.1", "llvq-tetra"]
 # [tool.uv.sources]
 # llvq-tetra = { path = "../../llvq-tetra" }
 # ///

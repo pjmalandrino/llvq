@@ -12,8 +12,9 @@ dequantization and matvec in a single CUDA kernel.
 
 Three Qwen3 files are sealed and served at about 2.7 b/param, 4B, 8B and 14B, and are public on the Hugging Face Hub.
 Paper 2 is written on them (`paper2/`), and its version 2 is attached to release `v0.0.2`. The `Tetra` format reads
-2.150 kernel b/weight against 4.804 for `Planes14`, which is what put it under the product triplet's b_max of 3.00. **No model above 14B is served**: the `rot_apply` wall of `docs/format-noyau.md`
-§8 closes that path whatever the format, and the 32B has never been encoded.
+2.150 kernel b/weight against 4.804 for `Planes14`, which is what put it under the product triplet's b_max of 3.00.
+**No model above 14B is served, and the 32B has never been encoded.** The `rot_apply` wall of `docs/format-noyau.md`
+§8 is lifted on the card, bit-exact up to width 25,600 (`lot1-4b-2026-11-04`); nothing past 14B has run end to end.
 
 ## Where to resume
 
@@ -48,6 +49,8 @@ Beside the crates, `llvq-tetra/` is a Python package: it reads a packed model in
 distribution `llvq-tetra`. It stays in this repository (operator, 2026-10-07): its wheel ships a copy of the served
 kernels that `bin/tetratables` makes, and `hfpack` writes what it reads. `docs/plan-transformers.md` carries its stages.
 `ops/llvqtune` is the other Python package, which trains the free parameters an artifact already holds.
+`ops/mlx_tetra/` is a prototype, not served: the sealed 4B on MLX through our Tetra Metal kernels, not bit-exact.
+`ops/metal-package/` is a prototype, not served: a one-binary Mac bundle that chats with and benches the sealed 4B.
 
 `unsafe` is allowed only at hardware boundaries: mmap, kernel launch, reading a device buffer. Caveat:
 `#![forbid(unsafe_code)]` in a `lib.rs` does not cover integration tests, which are separate crates; closing that hole
@@ -109,9 +112,9 @@ be in `UPLOAD_ALLOW` of `ops/run.py`, or the Space dies after 12 minutes. `rankb
 
 | variable | values | effect |
 |---|---|---|
-| `LLVQ_CONFIG` | path to a served config (`configs/*.json`) | **the served object, as a file.** Puts `fusedrun` on a one-arm path with no dense reference and `mmlu` on the **kernel** instead of a dense reconstruction. No built-in served default: unset, both binaries are the benches they have always been. A variable that contradicts the file is refused, not outvoted. The file also names the attention form, in an optional `attention` field: absent means `expanded`, the form every published number ran, and `grouped` reads the cached heads with no `repeat_kv` copy (134.4 tok/s at a 5-token prompt and 77.5 at 8,192 against 121.9 and 33.1, *measured*, `gqa-ab-2026-11-01`). `grouped` is not bit for bit and is served under the +-0.12 % tolerance of `docs/ETAT.md` §4, not under identity; it is refused by name on Metal, where it has never been measured. `shared` is refused outright. `configs/qwen3-4b-tetra-e4-grouped.json` is the only file that carries it. A second optional field, `decode`, names the engine: absent is eager, `persistent` is 4E (the kernel form from position 0, operator T8 of 2026-11-05), accepted only beside `kernel` on the 4B's shape and refused on Metal and beside any measurement mode; a third, `rows`, names 4E's row loop beside it (absent or `v3`, or `v4`; `v5` refused). **The 4B is served by `configs/qwen3-4b-tetra-e4-4e-v4.json` since 2026-11-05**: 4E with the v4 loop, 189.8 tok/s after a 5-token prompt and 140.1 at 8,192 in the measurement form, same tokens as the eager path (*measured*, `shaker-4e-2026-11-05`); `configs/qwen3-4b-tetra-e4-4e.json` is the v3 loop, read at the served door at 169.0 (`served-4e-2026-11-05`) |
+| `LLVQ_CONFIG` | path to a served config (`configs/*.json`) | **the served object, as a file.** Puts `fusedrun` on a one-arm path with no dense reference and `mmlu` on the **kernel** instead of a dense reconstruction. No built-in served default: unset, both binaries are the benches they have always been. A variable that contradicts the file is refused, not outvoted. Three optional fields name what runs. `attention`: absent means `expanded`, the form every published number ran; `grouped` reads the cached heads with no `repeat_kv` copy; `kernel` sends decode rows to the split-KV attention kernel. Both are served under the +-0.12 % tolerance of `docs/ETAT.md` §4, not under identity; `shared` is refused outright. `decode`: absent is eager, `persistent` is 4E, one launch a token, accepted only beside `kernel` on the 4B's shape. `rows`: 4E's row loop, absent or `v3`, or `v4`; `v5` refused. On Metal `served.rs` refuses `grouped`, `kernel` and `persistent`, although `grouped` read bit for bit there (`metal-nuit-2026-11-06`); the two `*-metal-*-NOT-SERVED.json` files load only in `bin/metalrun`. `grouped` is carried by the 4B, 8B and 14B grouped configs and the Metal grouped NOT-SERVED one. **The 4B is served by `configs/qwen3-4b-tetra-e4-4e-v4.json` since 2026-11-05**, 178.0 tok/s at the served door (*measured*, `served-v4-2026-11-05`); the 8B and the 14B by their grouped configs since 2026-11-04 |
 | `LLVQ_FUSED_LAYOUT` | `planes14` (default), `planes12x`, `slot32`, `golay70`, `tetra48` | VRAM layout of the fused kernel; any other value refused |
-| `LLVQ_EMBED` | `f16` (default), `q8`, `q4` | embedding quantized at load, or read as the file stores it; `q4` in the three served configs, whose files carry it int4 g64 |
+| `LLVQ_EMBED` | `f16` (default), `q8`, `q4` | embedding quantized at load, or read as the file stores it; `q4` in every `*-e4*` config, the served objects of all three sizes, whose files carry it int4 g64 |
 | `LLVQ_KV` | `f16` (default), `q8` | int8 KV cache, shipped, not the default (short context only) |
 | `LLVQ_ROT_SHARE` | `0`, `1` | one rotation per group of projections; served = `1` |
 | `LLVQ_FUSE` | `0`, `1` | q+k+v and gate+up fusion; served = `0` under `Tetra48`, which carries no segmented kernel; `FUSE=1` with `ROT_SHARE=0` refused |
@@ -130,11 +133,14 @@ be in `UPLOAD_ALLOW` of `ops/run.py`, or the Space dies after 12 minutes. `rankb
 | `LLVQ_SEALED_ARTIFACT` | path | `llvq-artifact` archive tests: moves the search for the sealed file |
 | `LLVQ_QTIP_DIR` | directory | upstream QTIP kernel, GPL v3, not redistributed (`docs/qtip-provenance.md`) |
 
-`LLVQ_KV_PREALLOC`, `LLVQ_GRAPH_AB`, `LLVQ_SEG_ARMS`, `LLVQ_TIME_PHASES`, `LLVQ_TIME_EVENTS`, `LLVQ_BENCH_ARMS`,
-`LLVQ_TRIM_AB`, `LLVQ_GQA_AB`, `LLVQ_GQA_PPL`, `LLVQ_BOUNDARY_AB`, `LLVQ_PERS_SEGMENT`, `LLVQ_PERS_4E`,
-`LLVQ_PREFILL_TOKENS` and `LLVQ_CONTEXTS` are measurement modes, never a served config. Every one is refused by name beside `LLVQ_CONFIG`, except
+The 17 entries of `MEASUREMENT_MODES` in `llvq-llm/src/served.rs` are measurement modes, never a served config:
+`LLVQ_KV_PREALLOC`, `LLVQ_GRAPH_AB`, `LLVQ_GRAPH_DIAG`, `LLVQ_KV_AB`, `LLVQ_FUSE_AB`, `LLVQ_TIME_PHASES`,
+`LLVQ_TIME_EVENTS`, `LLVQ_SEG_ARMS`, `LLVQ_BENCH_ARMS`, `LLVQ_TRIM_AB`, `LLVQ_GQA_AB`, `LLVQ_GQA_PPL`,
+`LLVQ_INT4_WIDE_CHECK`, `LLVQ_GESTURE_AB`, `LLVQ_BOUNDARY_AB`, `LLVQ_PERS_SEGMENT`, `LLVQ_PERS_4E`. `fusedrun` refuses
+all but `LLVQ_TIME_EVENTS` and `LLVQ_BENCH_ARMS` beside any `LLVQ_CONFIG`, and `served.rs` refuses all 17 beside a
+config that names the persistent decode. `LLVQ_KERNEL_DIR` and `LLVQ_TILE_BLOCKS` are refused beside any config.
 `LLVQ_PREFILL_TOKENS` and `LLVQ_CONTEXTS` (prompt lengths, comma-separated: time to the first token and decode speed
-after it), which time the served object with a longer prompt.
+after it) are not refused: they time the served object with a longer prompt.
 `planesbench` reads five more: `LLVQ_TETRA_OCC=1` and `LLVQ_PERS_ARMS=<arms>` (the persistent Tetra arms, steps L1
 and L2), `LLVQ_TROWS=1` (4E's Tetra row loops alone, `pers_trows.cu`), all three requiring `LLVQ_SEG_TETRA=1` and
 tetra48; `LLVQ_PERS_MICRO=1` (barrier and launch microbenchmarks) and `LLVQ_DUMP_CUBIN=<dir>` (the driver's cubins);
@@ -142,7 +148,8 @@ tetra48; `LLVQ_PERS_MICRO=1` (barrier and launch microbenchmarks) and `LLVQ_DUMP
 `LLVQ_GQA_AB` takes the same lengths and times the published attention against the two forms that read the cached
 heads without `repeat_kv` (`kvq::AttnHeads`, `KvStore::Grow`). `LLVQ_GQA_PPL=<ctx>,<windows>` scores the grouped form
 against the published one on WikiText-2, by the prefill path and by a teacher-forced decode path, paired window by
-window. Both runs are done: the grouped form passed the tolerance on 2026-11-01, and it is served by the `attention` field of a config, never by a variable. The six configs that predate the field, and so every published number, stay on the expanded form.
+window. A form is served by the `attention` field of a config, never by a variable. The configs that predate the
+field, and so every published number, stay on the expanded form.
 
 ## Hard rules
 

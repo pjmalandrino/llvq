@@ -187,9 +187,12 @@ of `Planes14` on the projections alone; the rest of the model absorbs the gap.
 
 **A `.llvq` v5 may hold `v_proj` as affine int4 beside its lattice matrices,
 at 4.250 b/weight exactly** (option B, operator, 2026-09-06; the measurement
-is [ETAT](ETAT.md) §5 octies). The code is in; **no file has been re-encoded
-and no kernel reads the kind**, so this section describes a container, not a
-served path.
+is [ETAT](ETAT.md) §5 octies). The three sealed files carry int4 g128 records,
+and the served paths read them in place: `tv_q4_h` and `tv_q4_hh` on the card,
+equal bit for bit on every served run (*measured*, e.g.
+`docs/mesures/served-v4-2026-11-05-brut/`), and on Metal `tv_q4_h.metal`, with
+`tv_q4_metal_tiled` from d_in 8,192 (*measured* bit for bit,
+`docs/mesures/metal-nuit-2026-11-06.txt`).
 
 The record shares the head of a lattice record up to its kind tag, then
 empties every lattice field and puts everything in the length-prefixed slot
@@ -229,10 +232,9 @@ the kind: writing `d_out` constant row scales would have aligned the two at
 price of that choice is that the one generic record walker of the repository,
 `llvq_llm::artifact2::shard_extent`, has to know the branch.
 
-What no kernel does: `tv_q4_h.cu` is written and host-verified and **has
-never run on a card**. A mixed file loads today by decoding to the run dtype
-in `sealed.rs`, so it costs 4.250 b/weight on disk and 16 in VRAM for those
-matrices. The disk gain is real; no VRAM claim follows from the format.
+The fused paths keep these records at 4.250 b/weight in VRAM. The dense
+reconstruction (`sealed.rs`) still decodes them to the run dtype, at 16 b/weight
+for those matrices.
 
 ## 6. The nullk floor
 
@@ -336,8 +338,9 @@ whose domain of validity is measured on two cards; the A100 point bounds it.
 
 ## 8. The shared-memory wall
 
-The fused path stops at 32B, on the `rot_apply` rotation (*measured*, [rot-partagee-14b-2026-08-17.txt](mesures/rot-partagee-14b-2026-08-17.txt),
-[fusedrun-14b-2026-08-17.txt](mesures/fusedrun-14b-2026-08-17.txt)). A
+The served rotation `rot_apply` stops at 32B on a 99 KiB card (*measured*, [rot-partagee-14b-2026-08-17.txt](mesures/rot-partagee-14b-2026-08-17.txt),
+[fusedrun-14b-2026-08-17.txt](mesures/fusedrun-14b-2026-08-17.txt)). Two wide
+kernels take over there, bit for bit on the L40S since 2026-11-04 (below). A
 Walsh-Hadamard transform chains log₂ m stages separated by barriers, and
 CUDA has no barrier between blocks. `rot_apply` is therefore a single-block
 kernel that puts the whole activation in f32 shared memory, whatever the
@@ -361,17 +364,21 @@ failed cleanly on the earlier guard: exit 1 after 488 s, $0.24, no tokens.
 `rot_apply` stays refused at 25,600 by 1,024 bytes, the driver's reserve; a
 guard that let it through would produce silent corruption.
 
-Two kernels lift the wall bit for bit, in code since 2026-11-04 and never run
-on a card. `rot_apply_dev` (`llvq-cuda/kernels/rotate_wide.cu`) runs the same
-helpers of `llvq_rot.cuh` in the same order on a device scratch, as the Metal
-port does. `tv_q4_hs` (`llvq-llm/kernels/tv_q4_wide.cu`) stages the int4
+Two kernels lift the wall bit for bit on the card. `rot_apply_dev`
+(`llvq-cuda/kernels/rotate_wide.cu`) runs the same helpers of `llvq_rot.cuh`
+in the same order on a device scratch, as the Metal port does. `tv_q4_hs` (`llvq-llm/kernels/tv_q4_wide.cu`) stages the int4
 activation as f16 bits, 51,200 B at 25,600, past the default, so it takes its
 own opt-in. Each is selected only where today's kernel is refused
 (`llvq_cuda::wide`), and each lives in a translation unit of its own, so the
 served 4B, 8B and 14B keep their kernels and their printed sha256. On the
 host both equal the kernel they replace, byte for byte, at every width up to
 31,744 (*computed*, `tests/rotation_matches_rust.rs`, `tests/proj_q4_wide.rs`).
-The card identity job is `docs/archive/debit-vague5-2026-11-02/prereg-bigmodel-2.md`.
+On the L40S both return the host's bytes: `rot_apply_dev` at all 14 widths
+checked, 25,600 included, and `tv_q4_hs` at 256 × 25,344 and 256 × 25,600
+(*measured*, [lot1-4b-2026-11-04.txt](mesures/lot1-4b-2026-11-04.txt), prereg
+`proofs/preregistration-bigmodel-2-2026-11-04.md`). `rot_apply_dev` takes
+45.43 µs at 25,600, and 21.12 against `rot_apply`'s 18.40 at 9,728. No 32B
+has been encoded, so neither kernel has run inside a model.
 
 The wall exists only on 99 KiB cards (sm_86, sm_89, sm_120). The A100 offers
 166,912 B after opt-in and passes 25,600 with today's kernels. 25,600 is

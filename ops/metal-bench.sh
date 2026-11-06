@@ -5,7 +5,7 @@
 #   ops/metal-bench.sh --long [sealed-file]   # 4,096 tokens of context, about 25 minutes
 #
 # Short (2 discarded + 7 timed rounds of 256 tokens after a 5-token prompt):
-#   lut   the fused path with the served Metal kernels (needs this branch: the int4 wall is lifted)
+#   lut   the fused path with the served Metal kernels (loads since 31e49c1 lifted the int4 wall)
 #   lutd  the same with tv_tetra48_metal_lutd, the Tetra matvec reading its activation unstaged (bit for bit)
 #   D     the dense reconstruction through candle, the only way the sealed file decoded on Metal before
 # Long (2 discarded + 5 timed rounds of 64 tokens after the first 4,096 tokens of WikiText-2's test split):

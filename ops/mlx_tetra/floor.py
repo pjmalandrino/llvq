@@ -2,6 +2,8 @@
 # requires-python = ">=3.10"
 # dependencies = ["mlx==0.29.3"]
 # ///
+# mlx 0.29.3 is the version this reading ran (journal metal-nuit-2026-11-06, MLX prototype).
+# The engine and its other scripts run mlx 0.32.4: this floor is not re-read on that version.
 """The cost of one dependent dispatch in MLX on this Mac: chains of tiny ops."""
 import statistics, time
 import mlx.core as mx

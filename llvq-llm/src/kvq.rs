@@ -521,7 +521,11 @@ pub const KERNEL_FROM: usize = 1280;
 ///   prefill chunk, a batch) takes the grouped path, which writes the same
 ///   cache bytes. Below the threshold a decode step is the grouped form's,
 ///   bit for bit. It is NOT bit for bit with `Grouped` on the rows the kernel
-///   takes: its licence is a T8 decision of the operator's, not granted.
+///   takes: its licence is the operator's T8, passed on the sealed 4B with
+///   this threshold (`docs/mesures/attn-t8-r2-2026-11-04.txt`) and extended
+///   below it, from position 0, for the persistent decode
+///   (`docs/mesures/attn-t8-below-4b-2026-11-05.txt`). No T8 covers it on
+///   Metal, or on the 8B and the 14B.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum AttnHeads {
     #[default]

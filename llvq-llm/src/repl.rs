@@ -23,6 +23,8 @@
 
 use crate::chatfmt::{open_assistant, turn, Marks};
 use crate::model::{NoCapture, Qwen3};
+use crate::served::{Decode, Served};
+use crate::served_decode::Decoder;
 use anyhow::Context;
 use candle_core::{IndexOp, Tensor, D};
 use std::io::{BufRead, Write};
@@ -129,14 +131,81 @@ pub struct ReplOptions {
     pub system: Option<String>,
 }
 
-/// Runs the conversation on `input` until end of input or `/bye`.
+/// A served config against the REPL's environment, before the load.
+///
+/// `bin/chat` calls it under `LLVQ_CONFIG`, with `lookup` the shell and
+/// `temp` the resolved `LLVQ_CHAT_TEMP`, so a refusal costs a second and not
+/// an eighty-second load. Two refusals:
+///
+/// * `LLVQ_KV_PREALLOC`: the config names the cache store
+///   ([`crate::served::check_store_env`]);
+/// * the persistent decode at a temperature above zero. 4E takes the argmax
+///   on the card, token after token inside one launch, so it can only
+///   continue a greedy chain; sampling would need the eager path, which is
+///   not what the config names.
+pub fn check_served_chat(
+    cfg: &Served,
+    temp: f32,
+    lookup: impl Fn(&str) -> Option<String>,
+) -> Result<(), String> {
+    crate::served::check_store_env(lookup)?;
+    if cfg.decode == Decode::Persistent && temp > 0.0 {
+        return Err(format!(
+            "{}: decode \"persistent\" at LLVQ_CHAT_TEMP={temp}. 4E takes the argmax on the card and \
+             cannot sample; set LLVQ_CHAT_TEMP=0 for a greedy chat on 4E, or serve this object with a \
+             config that names the eager engine.",
+            cfg.path.display()
+        ));
+    }
+    Ok(())
+}
+
+/// Write the part of `said` not yet on screen; `shown` is what is.
+fn stream(tok: &tokenizers::Tokenizer, said: &[u32], shown: &mut String) -> anyhow::Result<()> {
+    let full = tok.decode(said, false).map_err(|e| anyhow::anyhow!("{e}"))?;
+    let safe = printable(&full);
+    if let Some(fresh) = safe.strip_prefix(shown.as_str()) {
+        print!("{fresh}");
+        std::io::stdout().flush()?;
+        *shown = safe.to_string();
+    }
+    Ok(())
+}
+
+/// Runs the conversation on `input` until end of input or `/bye`, on the
+/// eager decode.
 pub fn run(
+    qwen: &Qwen3,
+    tok: &tokenizers::Tokenizer,
+    opts: ReplOptions,
+    input: &mut dyn BufRead,
+) -> anyhow::Result<()> {
+    run_with(qwen, tok, opts, input, &mut Decoder::eager())
+}
+
+/// [`run`] on the decode engine a served config installed
+/// ([`Served::serve`]).
+///
+/// Eager: the loop [`run`] has always run, line for line. Persistent: the
+/// prefill is the eager path's, the first token is the sampler's (an argmax,
+/// since [`check_served_chat`] holds the temperature at zero), and the rest
+/// of the answer comes from 4E, one launch of at most
+/// [`Decoder::launch_tokens`] tokens at a time, streamed after each launch.
+/// The context is bounded by 4E's attention scratch as well as by RoPE.
+pub fn run_with(
     qwen: &Qwen3,
     tok: &tokenizers::Tokenizer,
     mut opts: ReplOptions,
     input: &mut dyn BufRead,
+    dec: &mut Decoder,
 ) -> anyhow::Result<()> {
-    let limit = qwen.config().max_position_embeddings;
+    anyhow::ensure!(
+        !dec.is_persistent() || opts.sampler.temp <= 0.0,
+        "the persistent decode is greedy: a REPL on it runs at temperature 0, not {}",
+        opts.sampler.temp
+    );
+    let rope = qwen.config().max_position_embeddings;
+    let limit = dec.max_positions().map_or(rope, |e| e.min(rope));
     let marks = Marks::resolve(tok)?;
     let stops = marks.stops();
     let (max_new, think) = (opts.max_new, opts.think);
@@ -227,7 +296,44 @@ pub fn run(
         // are kept side by side because a token does not map to a character.
         let mut said: Vec<u32> = Vec::new();
         let mut shown = String::new();
-        loop {
+        if dec.is_persistent() {
+            // The positions the cache holds at the end are the eager loop's:
+            // every token said, but the last one when the cap cut it.
+            let first = opts.sampler.pick(&qwen.logits_last(&h)?.i((0, 0))?)?;
+            if !stops.contains(&first) {
+                said.push(first);
+                stream(tok, &said, &mut shown)?;
+                n = 1;
+                let mut last = first;
+                let mut stopped = false;
+                while !stopped && n < max_new {
+                    let k = (max_new - n).min(dec.launch_tokens() as usize);
+                    let (made, s) = dec.continue_greedy(qwen, &mut caches, last, offset, k, &stops)?;
+                    // Fed: `last`, then every token made but the final one,
+                    // or all of them when a stop token ended the run. 4E
+                    // stops on the first stop token only, so a second one
+                    // leaves the cache past the answer: cut it back.
+                    offset += match s {
+                        true => made.len() + 1,
+                        false => made.len(),
+                    };
+                    for c in caches.iter_mut() {
+                        c.set_len(offset)?;
+                    }
+                    n += made.len();
+                    said.extend_from_slice(&made);
+                    stream(tok, &said, &mut shown)?;
+                    stopped = s;
+                    last = match made.last() {
+                        Some(&t) => t,
+                        None => break,
+                    };
+                }
+                if !stopped && n >= max_new {
+                    println!("\n  [stopped at {max_new} tokens]");
+                }
+            }
+        } else { loop {
             let logits = qwen.logits_last(&h)?.i((0, 0))?;
             let next = opts.sampler.pick(&logits)?;
             if stops.contains(&next) {
@@ -252,7 +358,7 @@ pub fn run(
             }
             h = qwen.hidden_cached(&Tensor::from_slice(&[next], (1, 1), dev)?, offset, &mut caches, &mut NoCapture)?;
             offset += 1;
-        }
+        } }
         // The assistant's own `<|im_end|>` goes into the cache, or the next
         // turn starts inside an unterminated message and the model keeps
         // writing the previous answer.

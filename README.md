@@ -9,28 +9,29 @@ serves the codes inside the model without dequantizing to a dense matrix.
 
 ## Results
 
-Three Qwen3 models, sealed at about 2.7 bits per parameter, one served configuration, one NVIDIA L40S.
+Three Qwen3 models, sealed at about 2.7 bits per parameter, each served by its own configuration on one NVIDIA L40S.
 
 | model | b/param | MMLU | WikiText-2 ppl | tok/s | GB of weights |
 |---|---|---|---|---|---|
-| Qwen3-4B | 2.73 | 63.37 | 12.58 | 133.3 | 1.38 |
-| Qwen3-8B | 2.70 | 69.58 | 9.71 | 95.0 | 2.76 |
-| Qwen3-14B | 2.73 | 75.66 | 8.44 | 57.2 | 5.04 |
+| Qwen3-4B | 2.73 | 63.37 | 12.58 | 178.0 | 1.38 |
+| Qwen3-8B | 2.70 | 69.58 | 9.71 | 105.8 | 2.76 |
+| Qwen3-14B | 2.73 | 75.66 | 8.44 | 62.5 | 5.04 |
 
 MMLU is 5-shot on all 14,042 test questions, micro average, scored on the dense reconstruction of the sealed file.
-Perplexity is read the same way, on the raw WikiText-2 test split. Speed is batch 1, greedy, 256 tokens after a 5-token prompt, median of
-five rounds. Bits per parameter count the whole model, tables
-included. Every cell is *measured*; the journals are in [`docs/ETAT.md`](docs/ETAT.md) §2.
+Perplexity is read the same way, on the raw WikiText-2 test split. Speed is batch 1, greedy, 256 tokens after a
+5-token prompt, median of five rounds, through each size's served configuration. Bits per parameter count the whole
+model, tables included. Every cell is *measured*; the journals are in [`docs/ETAT.md`](docs/ETAT.md) §2.
 
-The 4B's row mixes two served configurations, which is worth stating plainly. Its 133.3 tok/s is the grouped
-attention, served since 2026-11-02; its MMLU and perplexity were measured under the expanded form, and no task score
-has run under the grouped one, which is licensed by a paired perplexity inside ±0.12 % and by nothing else
-([`docs/ETAT.md`](docs/ETAT.md) §4). The same file under the expanded configuration reads 121.5 tok/s. The 8B and the
-14B are expanded throughout and have not been re-timed since three bit-identical trims of 2026-10-30, worth 1.072 at
-4B. Paper 2 and the three cited Hub cards report 113.8 for the 4B, measured before all of this, and they do not move.
+The scores and the speeds come from different attention forms. MMLU and perplexity were measured under the expanded
+form that paper 2 ran. The speeds are the served forms: the 4B decodes through the split-KV attention kernel and 4E,
+one CUDA launch a token, since 2026-11-05; the 8B and the 14B use the grouped attention since 2026-11-04. Both forms
+are licensed by a paired perplexity inside ±0.12 % of the expanded form. GSM8K under the grouped form reads 81.96,
+88.55 and 91.96 against 82.49, 88.63 and 92.04 expanded, no gap separated from zero. The 4B's served form has a
+50-problem GSM8K pilot only ([`docs/ETAT.md`](docs/ETAT.md) §2 and §4). Paper 2 and the three cited Hub cards report
+113.8, 95.0 and 57.2 tok/s under the expanded form, and they do not move.
 
-Throughput falls with the context, which the table does not show: at 8,192 tokens of prompt the 4B decodes at 77.5
-tok/s under the grouped form and 33.2 under the expanded one, and the first token takes 35 s either way.
+Throughput falls with the context, which the table does not show: at 8,192 tokens of prompt the 4B decodes at 139.5
+tok/s, the 8B at 67.1, and the 4B's first token takes 35 s.
 
 Against 4-bit AWQ, on the same questions, our files score 4.76, 4.21 and 2.46 points lower, and use 45 to 52% of its
 bits per parameter. Both gaps shrink as the model grows. At 4B we score 23.6 points above llama.cpp's IQ2_XXS for 0.25
@@ -163,9 +164,9 @@ edited; deviations go in a companion `-ECARTS.md`, including the predictions tha
 provenance label, *measured*, *computed* or *estimated*, and a link to its journal. Raw outputs are committed. Speed is
 published as a median with its range, and speeds from two engines are never divided.
 
-As of 2026-10-06: 198 measurement journals and 72 raw-output directories in [`docs/mesures/`](docs/mesures/), 105
-preregistrations, 96 of them stamped, and 58 deviation files in [`proofs/`](proofs/), 57 per-question MMLU dumps, and
-221 priced jobs for $246.45 in [`docs/data/jobs.csv`](docs/data/jobs.csv).
+As of 2026-11-06: 256 measurement journals and 109 raw-output directories in [`docs/mesures/`](docs/mesures/), 158
+preregistrations, 148 of them stamped, and 76 deviation files in [`proofs/`](proofs/), 57 per-question MMLU dumps, and
+262 priced jobs for $273.30 in [`docs/data/jobs.csv`](docs/data/jobs.csv).
 
 ## Licence
 

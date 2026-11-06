@@ -10,25 +10,32 @@ digest before every run.
 ## Talk to it
 
 ```bash
-./llvq-metal chat              # the new path: lutd, half-io, grouped attention, prefill kernels
+./llvq-metal chat              # the default: expanded attention, lutd, half-io, prefill kernels
 ./llvq-metal chat fused        # the served Metal kernels, expanded attention
+./llvq-metal chat grouped      # grouped attention: bit for bit on Metal (M5), not served
+./llvq-metal chat kernel       # the split-KV attention kernel from position 0: not bit for bit, inside T8 (M6)
 ./llvq-metal chat dense        # the dense reconstruction, the only Metal path before 2026-11-06
-./llvq-metal chat new 0 256    # greedy, 256 new tokens a turn at most
+./llvq-metal chat expanded 0 256   # the default, greedy, 256 new tokens a turn at most
 ```
 
 Arguments after the path: temperature (default 0.7, `0` is greedy) and the cap on new tokens a turn (default 512).
 `/reset` drops the conversation, `/bye` leaves. The tok/s printed after each answer is the REPL's own rate, not a
-measurement. `new`, `fused` and `dense` read the same weights. `new` and `fused` give the same tokens bit for bit; the
-dense path gave the same 256 greedy tokens in the night's bench.
+measurement. Every path reads the same weights.
 
-`./llvq-metal chat kernel` uses the split-KV attention kernel from position 0. It returns the canonical replay's bits,
-but its tokens are not bit for bit with the other paths by design: online softmax in f32, in another order.
+The default is the form the served door allows on Metal, expanded attention, and gives the tokens of `fused` bit for
+bit. `grouped` returned the expanded form's logits bit for bit over 49,140 decode steps on this Mac (M5), but the
+served door refuses it on Metal: this binary reaches it through its measurement door and says so on one line.
+`kernel` returns the canonical replay's bits, but its tokens are not bit for bit with the other paths by design
+(online softmax in f32, in another order). Its perplexity stays inside the card's T8 band of +-0.12 %, +0.0051 %
+pooled over 12 windows of 4,096 (M6), and the served door refuses it on Metal too. The dense path gave the same 256
+greedy tokens in the night's bench.
 
 ## Measure it
 
 ```bash
-./llvq-metal bench          # about 9 minutes: lut, new and dense, 256 tokens after a 5-token prompt
-./llvq-metal bench --long   # about 20 minutes: grouped, new, kernel, 64 tokens after 4,096 tokens of WikiText-2
+./llvq-metal bench          # about 9 minutes: fused, the chat default and dense, 256 tokens after a 5-token prompt
+./llvq-metal bench --long   # about 20 minutes: grouped, grouped with half-io and prefill kernels, kernel,
+                            # 64 tokens after 4,096 tokens of WikiText-2
 ./llvq-metal gate           # every path's 253 records against the served kernels, bit for bit
 ```
 
@@ -37,12 +44,16 @@ round by round, and whether the tokens are the same. Close other GPU application
 after a build for a reading worth quoting. `bench --long` reads WikiText-2 from the Hugging Face cache, or downloads it
 once.
 
-What the night of 2026-11-06 read on an M3 Max, *measured*, same tokens on every arm:
+What the night of 2026-11-06 read on an M3 Max, *measured*, same tokens on every arm
+(M2, M4 and M6 of the repository's journal `docs/mesures/metal-nuit-2026-11-06.txt`):
 
 | context | before | after |
 |---|---|---|
 | 5 tokens | dense 7.8 tok/s | fused 50.9, fused with `lutd` 52.1 (×1.025) |
 | 4,096 tokens | expanded 15.8 tok/s | grouped 37.6 (×2.38), kernel 39.4 |
+
+Fused against dense, x6.5 (dense over fused read x0.154 round by round, M2), is a raw ratio. No same-head arm exists
+on Metal: the dense path copies its f16 head table every token, so part of its gap is that copy, not the kernel.
 
 And on the afternoon of 2026-11-06, same Mac, *measured*, same tokens on every arm:
 

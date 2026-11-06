@@ -146,13 +146,17 @@ pub enum Decode {
 
 impl Decode {
     /// Absent is `Eager`. The empty string is refused, like every empty field
-    /// of a file that has no defaults; so is any other word.
+    /// of a file that has no defaults; so is any other word. The value is
+    /// read as written, as [`AttnHeads::parse`] reads `attention`:
+    /// `" persistent"` is refused, not trimmed into a value.
     pub fn parse(v: Option<&str>) -> Result<Self, String> {
-        match v.map(str::trim) {
+        match v {
             None => Ok(Self::Eager),
             Some("eager") => Ok(Self::Eager),
             Some("persistent") => Ok(Self::Persistent),
-            Some("") => Err("decode is empty. Write \"persistent\", or delete the key for the eager path.".into()),
+            Some(s) if s.trim().is_empty() => {
+                Err("decode is empty. Write \"persistent\", or delete the key for the eager path.".into())
+            }
             Some(o) => Err(format!("decode {o:?}: the engines are \"eager\" (or the key absent) and \"persistent\"")),
         }
     }
@@ -173,6 +177,18 @@ impl Decode {
             Self::Persistent => 0,
         }
     }
+
+    /// The positions this engine can decode to, at most, beside the model's
+    /// own RoPE table: none for the eager path, 4E's attention scratch for
+    /// the persistent one ([`crate::served_decode::P4E_MAX_CAP`]). A harness
+    /// checks its longest prompt plus its cap against it BEFORE the first
+    /// problem, so a long one is refused at start and not hours into a run.
+    pub fn max_positions(self) -> Option<usize> {
+        match self {
+            Self::Eager => None,
+            Self::Persistent => Some(crate::served_decode::P4E_MAX_CAP),
+        }
+    }
 }
 
 /// 4E's row loop, the module's row form (`llvq_cuda::pers::P4E_ROWS_FORMS`).
@@ -190,15 +206,17 @@ pub enum Rows4e {
 impl Rows4e {
     /// Absent is `V3`. `"v5"` is refused by name: it measured x1.001 over v4
     /// and the shaker's rule B kept it a measurement. Any other word, and the
-    /// empty string, are refused.
+    /// empty string, are refused. Read as written, like [`Decode::parse`].
     pub fn parse(v: Option<&str>) -> Result<Self, String> {
-        match v.map(str::trim) {
+        match v {
             None | Some("v3") => Ok(Self::V3),
             Some("v4") => Ok(Self::V4),
             Some("v5") => Err("rows \"v5\": measured at x1.001 over v4 (shaker-4e-2026-11-05) and kept a \
                                measurement; the served forms are \"v3\" and \"v4\""
                 .into()),
-            Some("") => Err("rows is empty. Write \"v3\" or \"v4\", or delete the key for v3.".into()),
+            Some(s) if s.trim().is_empty() => {
+                Err("rows is empty. Write \"v3\" or \"v4\", or delete the key for v3.".into())
+            }
             Some(o) => Err(format!("rows {o:?}: the served forms of 4E's row loop are \"v3\" and \"v4\"")),
         }
     }
@@ -262,6 +280,25 @@ const SPOKEN_FOR: [&str; 5] =
 /// The variables that reach below the served door and that this file cannot
 /// carry. Set beside `LLVQ_CONFIG`, each is refused by name.
 pub const BELOW_THE_DOOR: [&str; 2] = ["LLVQ_KERNEL_DIR", "LLVQ_TILE_BLOCKS"];
+
+/// The cache store's variable, beside a served config.
+///
+/// The config names the store through its attention form
+/// ([`AttnHeads::store`]), so `LLVQ_KV_PREALLOC` beside `LLVQ_CONFIG` is a
+/// second answer to the question. Not in [`check_env`], which every served
+/// binary runs: `bin/fusedrun` refuses it mode by mode with its own message,
+/// and `bin/mmlu` never reads it. `bin/gsm8k` and `bin/chat` call this one
+/// before their load, so the refusal costs a second and not a load.
+pub fn check_store_env(lookup: impl Fn(&str) -> Option<String>) -> Result<(), String> {
+    match lookup("LLVQ_KV_PREALLOC") {
+        None => Ok(()),
+        Some(v) => Err(format!(
+            "LLVQ_KV_PREALLOC={v:?} beside LLVQ_CONFIG: the served config names the \
+             cache store, through its attention form. Unset it, or unset LLVQ_CONFIG \
+             and run the dense reconstruction."
+        )),
+    }
+}
 
 /// `Some(value)` from a non-empty string, `Err` from an empty one.
 ///
@@ -519,10 +556,10 @@ impl Served {
     /// Put a loaded model on what this config says: the store, then the form.
     ///
     /// The one place the pair is applied, called by the served door of
-    /// `bin/fusedrun`, `bin/mmlu` and `bin/gsm8k`. Three copies would be three
-    /// chances for one binary to serve `grouped` while another serves
-    /// `expanded` on the same file, which is the defect class
-    /// [`Served`] exists to close.
+    /// `bin/fusedrun` and `bin/mmlu`, and through [`Self::serve`] by
+    /// `bin/gsm8k` and `bin/chat`. Four copies would be four chances for one
+    /// binary to serve `grouped` while another serves `expanded` on the same
+    /// file, which is the defect class [`Served`] exists to close.
     pub fn apply(
         &self,
         model: &mut crate::model::Qwen3,

@@ -23,6 +23,14 @@ use crate::served::{Decode, Served};
 /// after the launch.
 pub const LAUNCH_TOKENS: u32 = 64;
 
+/// The positions 4E's attention scratch is sized for, at most: a cache whose
+/// capacity passes it is refused at the launch (`persist4e_cuda::MAX_CAP` is
+/// this constant). Here rather than in that module, which only a CUDA build
+/// on Linux compiles, so a harness checks its prompts against it on any host.
+/// A whole number of `kvq::GROW_CHUNK` chunks, so `n` positions fit iff
+/// `n <= P4E_MAX_CAP`.
+pub const P4E_MAX_CAP: usize = 8192 + 512;
+
 /// The engine, built once per process from the served config.
 pub struct Decoder {
     #[cfg(all(target_os = "linux", feature = "cuda"))]
@@ -59,6 +67,16 @@ impl Decoder {
     /// The tokens one launch makes, at most.
     pub fn launch_tokens(&self) -> u32 {
         LAUNCH_TOKENS
+    }
+
+    /// The positions this engine decodes to, at most: `None` for the eager
+    /// path, [`P4E_MAX_CAP`] for 4E. See [`Decode::max_positions`].
+    pub fn max_positions(&self) -> Option<usize> {
+        let engine = match self.is_persistent() {
+            true => Decode::Persistent,
+            false => Decode::Eager,
+        };
+        engine.max_positions()
     }
 
     /// Greedy continuation of `first`, already chosen and not yet in
@@ -117,6 +135,16 @@ impl Decoder {
 }
 
 impl Served {
+    /// The served door, whole: [`Served::apply`] (the device and object
+    /// checks, the store, the attention form, its threshold and its kernel),
+    /// then [`Served::decoder`]. What `bin/gsm8k` and `bin/chat` call on the
+    /// model a served config loaded, so neither can print a config's
+    /// provenance and run another form.
+    pub fn serve(&self, model: &mut Qwen3, device: &candle_core::Device) -> anyhow::Result<Decoder> {
+        self.apply(model, device).map_err(anyhow::Error::msg)?;
+        self.decoder(model, device)
+    }
+
     /// The engine this config names, for `model` on `device`. Call after
     /// [`Served::apply`], which puts the eager path on the same threshold.
     /// `Persistent` installs 4E at 512 threads, the geometry its card readings
