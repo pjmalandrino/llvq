@@ -84,3 +84,9 @@ before the prereg's 15 quiet minutes. The first pair is kept in the journal but 
 since the build, its first token took 4,398 ms of pipeline compilation, and that CPU time sits in D1a only, so the
 difference understates the host time. The pair was rerun at once with warm shaders, and that second pair is the
 reading. Its real-time difference (15.3 ms a token) matches the printed decode rate, which the first pair's did not.
+
+## É11. M13 ran early, and its header names the wrong minute
+
+The operator asked to start at once ("go now"); A1 began at 14:48, about a minute after the last build, not fifteen.
+The prereg's first line says it was written "at 15:00"; it was written at 14:47 (the clock was misread), and its
+timestamp is what dates it. The two readings took 16 s in all, on a GPU reading 7-8 % busy at their start.

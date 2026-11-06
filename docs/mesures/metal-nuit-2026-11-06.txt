@@ -1127,3 +1127,24 @@ Second pair (warm, the reading used; ECARTS E10):
 Verdict: at or below 0.50, GPU-bound. The ~5.5 ms a token outside the projections is GPU time in candle's small ops,
 not host encoding. Next by the rule: D2, the attention split by op on the GPU, with its own prereg.
 Aside: lutd+h+grp+pq decodes at 65.9 tok/s on a cool machine with warm shaders, against 54 in M8's loaded window.
+
+=== M13, 2026-11-06 14:48, prereg proofs/preregistration-metal-m13-2026-11-06.md, binary of 1cd57f5 (pinned copy)
+Started at once on the operator's word, about a minute after the last build (ECARTS E11). Off protocol by design.
+A1, 6 positions held (median [range] over 11 rounds, ms for the 36 layers):
+  qknorm 0.242 [0.232-0.357] | rope 0.229 [0.223-0.257] | append 0.184 [0.173-0.309] | attn 0.585 [0.572-0.650] |
+  ctxglue 0.007 | sum alone 1.247 | all together 0.852 [0.832-0.981]
+A2, 4,096 positions held:
+  qknorm 0.265 | rope 0.244 | append 0.192 | attn 7.910 [7.844-8.322] (220 us a layer) | ctxglue 0.007 |
+  sum alone 8.618 | all together 6.975 [6.838-7.217]
+Every prediction held (A1 sum 0.8-1.6, A1 attn 0.4-0.9, A2 attn 4-9, other classes within 0.1 ms).
+Reading, by the prereg's rule: A1's sum is under 2.0 ms, so M7b's 6.3 ms remainder was an artefact. The replay's
+classes read independent inputs and the GPU overlaps them, which the model's dependent chain cannot: "all together"
+is below the sum alone here too (0.85 against 1.25), and that is also why M7 and M7b's marginals came out negative.
+The token's split is the alone costs, computed from M7b P1 and A1 (ms a decode token at 6 positions):
+  Tetra 9.01 (58 %) | int4 2.42 (16 %) | rotations 1.95 (13 %) | attention half 1.25 (8 %) | norms, act, resid 0.87 (6 %)
+  sum 15.5 against M7b's blocks phase 15.9
+At 4,096 positions the attention half is 8.6 ms: the grouped attention reads 604 MB of K and V a token (36 layers,
+8 heads, 4,096 x 128 f16, twice) in 7.9 ms, 76 GB/s (computed). It explains most of the decode gap between a 5- and
+a 4,096-token prompt (15.2 against about 24.6 ms a token, M12 and M10).
+Next levers, by size: the Tetra matvec (9.0 ms, 85-90 GB/s), then the long-context attention (7.9 ms at 4,096,
+76 GB/s of KV), then the rotations (1.95 ms).
