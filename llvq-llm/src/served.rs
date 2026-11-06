@@ -534,6 +534,25 @@ impl Served {
         self.apply_form(model, device)
     }
 
+    /// [`Self::apply`] without the device refusal: the measurement door of
+    /// `bin/metalrun`, which times and scores on Metal the attention forms
+    /// [`Self::check_device`] refuses there. No served binary calls it: the
+    /// refusal stands for every served door until the operator lifts it. 4E
+    /// is still refused, since no Metal kernel exists for it.
+    pub fn apply_measurement(
+        &self,
+        model: &mut crate::model::Qwen3,
+        device: &candle_core::Device,
+    ) -> Result<(), String> {
+        if self.decode == Decode::Persistent {
+            return Err(format!(
+                "{}: decode \"persistent\" has no Metal kernel, not even as a measurement",
+                self.path.display()
+            ));
+        }
+        self.apply_form(model, device)
+    }
+
     /// [`Self::apply`] past its device and object checks: the store, the form,
     /// the threshold and the kernel. Split out so the host tests reach the
     /// threshold on a toy model, which the object check refuses.

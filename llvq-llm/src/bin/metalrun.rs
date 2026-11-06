@@ -11,7 +11,7 @@
 //! metalrun gate  <sealed> <config> <arms>
 //! metalrun phased <sealed> <config> <arm> [n_new]
 //! metalrun dispatch
-//! metalrun ppl <sealed> <config> <arm> [ctx] [windows]
+//! metalrun ppl <sealed> <config> <arm> [ctx] [windows] [grp|ker]
 //! ```
 //!
 //! `<arms>` is a comma list. Each fused arm is a Tetra matvec, optionally
@@ -23,7 +23,8 @@
 //! | `lutp`, `lutd`, `lutdp`, `lutd2`, `lutd4` | the Tetra row-loop twins of `kernels/llvq_tetra48_rows.metal` |
 //! | `+q4p` | the prefetching int4 twins of `kernels/tv_q4_pf.metal` |
 //! | `+t8192`, `+t256` | another int4 tile (zero bits) |
-//! | `+grp` | grouped attention: a TOLERANCE event, refused on the served Metal door, a measurement arm only |
+//! | `+grp` | grouped attention, refused on the served Metal door: a measurement arm |
+//! | `+ker` | the split-KV decode-attention kernel (`kernels/attn_dec.metal`) from position 0, as the 4B's served card config reads it; refused on the served Metal door: a measurement arm |
 //! | `D` | the dense reconstruction, f16, through candle (`sealed::load`) |
 //!
 //! The first arm is the reference: every other arm's tokens and every
@@ -110,13 +111,15 @@ mod mac {
             }
             Some("phased") if a.len() >= 4 => phased(&a[1], &a[2], &a[3], num(4, 64)?),
             Some("dispatch") => dispatch(),
-            Some("ppl") if a.len() >= 4 => ppl(&a[1], &a[2], &a[3], num(4, 4096)?, num(5, 4)?),
+            Some("ppl") if a.len() >= 4 => {
+                ppl(&a[1], &a[2], &a[3], num(4, 4096)?, num(5, 4)?, a.get(6).map(String::as_str).unwrap_or("grp"))
+            }
             _ => anyhow::bail!(
                 "usage: metalrun time <sealed> <config> <arms> [n_new=128] [timed_rounds=7] [prompt_tokens=0]\n\
                  \x20      metalrun gate <sealed> <config> <arms>\n\
                  \x20      metalrun phased <sealed> <config> <arm> [n_new=64]\n\
                  \x20      metalrun dispatch\n\
-                 \x20      metalrun ppl <sealed> <config> <arm> [ctx=4096] [windows=4]\n\
+                 \x20      metalrun ppl <sealed> <config> <arm> [ctx=4096] [windows=4] [grp|ker]\n\
                  arms: comma list of lut|lutp|lutd|lutdp|lutd2|lutd4[+q4p][+t<cols>][+grp] or D; the first is the reference"
             ),
         }
@@ -203,6 +206,7 @@ mod mac {
     struct Spec {
         tuning: MetalTuning,
         grouped: bool,
+        kernel: bool,
     }
 
     fn parse_spec(s: &str) -> anyhow::Result<Option<Spec>> {
@@ -219,17 +223,20 @@ mod mac {
             "lutd4" => "tv_tetra48_metal_lutd4",
             other => anyhow::bail!("arm {s:?}: {other:?} is not lut, lutp, lutd, lutdp, lutd2, lutd4 or D"),
         };
-        let mut spec = Spec { tuning: MetalTuning { tetra_kernel: kernel, ..Default::default() }, grouped: false };
+        let mut spec =
+            Spec { tuning: MetalTuning { tetra_kernel: kernel, ..Default::default() }, grouped: false, kernel: false };
         for m in parts {
             match m {
                 "q4p" => spec.tuning.q4_prefetch = true,
                 "grp" => spec.grouped = true,
+                "ker" => spec.kernel = true,
                 t if t.starts_with('t') => {
                     spec.tuning.q4_tile_cols = t[1..].parse().with_context(|| format!("arm {s:?}: tile {t:?}"))?
                 }
                 other => anyhow::bail!("arm {s:?}: unknown modifier {other:?}"),
             }
         }
+        anyhow::ensure!(!(spec.grouped && spec.kernel), "arm {s:?}: +grp and +ker are two forms; name one");
         spec.tuning.validate()?;
         Ok(Some(spec))
     }
@@ -253,7 +260,7 @@ mod mac {
         let arm = match parse_spec(spec_s)? {
             None => {
                 let mut s = llvq_llm::sealed::load(path, DType::F16, device, cfg.kv)?;
-                cfg.apply(&mut s.model, device).map_err(anyhow::Error::msg)?;
+                apply_config(cfg, &mut s.model, device)?;
                 Arm {
                     label: spec_s.to_string(),
                     weights_a_token: dense_weights_a_token(&s.config),
@@ -277,13 +284,22 @@ mod mac {
                     Some("metalrun"),
                     Some(spec.tuning),
                 )?;
-                // The served door's own pair, store then form, first.
-                cfg.apply(&mut f.model, device).map_err(anyhow::Error::msg)?;
+                // The config's own pair, store then form, first.
+                apply_config(cfg, &mut f.model, device)?;
                 if spec.grouped {
                     // A measurement arm: Served::apply refuses this form on
                     // Metal by name, and this binary is not a served door.
                     f.model.set_kv_store(AttnHeads::Grouped.store());
                     f.model.set_attn_heads(AttnHeads::Grouped);
+                }
+                if spec.kernel {
+                    let (n_kv, groups, hd) = f.model.attn_geometry();
+                    let kern = llvq_llm::attn::kernel_for(device, n_kv, groups, hd).map_err(anyhow::Error::msg)?;
+                    println!("arm {spec_s}: {} compiled and checked against the CPU replay, bit for bit", kern.name());
+                    f.model.set_kv_store(AttnHeads::Kernel.store());
+                    f.model.set_attn_heads(AttnHeads::Kernel);
+                    f.model.set_attn_kernel(Some(kern));
+                    f.model.set_kernel_from_for_measurement(0);
                 }
                 Arm {
                     label: spec_s.to_string(),
@@ -306,6 +322,19 @@ mod mac {
             if arm.fused { "" } else { " | dense reconstruction" },
         );
         Ok(arm)
+    }
+
+    /// The config's store and form. A form the Metal door refuses (grouped,
+    /// kernel) goes through the measurement door, said so on one line: this
+    /// binary times it, nothing serves it.
+    fn apply_config(cfg: &Served, model: &mut Qwen3, device: &Device) -> anyhow::Result<()> {
+        match cfg.check_device(true) {
+            Ok(()) => cfg.apply(model, device).map_err(anyhow::Error::msg),
+            Err(why) => {
+                println!("NOT SERVED on Metal, measured through Served::apply_measurement: {why}");
+                cfg.apply_measurement(model, device).map_err(anyhow::Error::msg)
+            }
+        }
     }
 
     fn load_arms(path: &str, cfg: &Served, device: &Device, list: &str) -> anyhow::Result<Vec<Arm>> {
@@ -533,11 +562,31 @@ mod mac {
     /// grouped (`Qwen3::decode_nll_paired`). The decode path only: Metal
     /// prefills 256 rows a call, so the prefill path of the L40S reading
     /// (`gqa-ppl-2026-11-01`) cannot score a window of 4,096 here.
-    fn ppl(path: &str, cfg_path: &str, spec: &str, ctx: usize, windows: usize) -> anyhow::Result<()> {
+    /// `grp`: grouped against expanded. `ker`: the Metal attention kernel from
+    /// position 0 against the grouped form, the T8 pairing of the card.
+    fn ppl(path: &str, cfg_path: &str, spec: &str, ctx: usize, windows: usize, pair: &str) -> anyhow::Result<()> {
         let device = Device::new_metal(0)?;
         let cfg = header(path, cfg_path)?;
         let mut a = load_arm(path, &cfg, &device, spec)?;
         anyhow::ensure!(a.fused && a.model.attn_heads() == AttnHeads::Expanded, "ppl takes a fused expanded arm");
+        let (arms, names) = match pair {
+            "grp" => (
+                [(AttnHeads::Expanded.store(), AttnHeads::Expanded), (AttnHeads::Grouped.store(), AttnHeads::Grouped)],
+                ["expanded", "grouped"],
+            ),
+            "ker" => {
+                let (n_kv, groups, hd) = a.model.attn_geometry();
+                let kern = llvq_llm::attn::kernel_for(&device, n_kv, groups, hd).map_err(anyhow::Error::msg)?;
+                println!("{} compiled and checked against the CPU replay, bit for bit; kernel from position 0", kern.name());
+                a.model.set_attn_kernel(Some(kern));
+                a.model.set_kernel_from_for_measurement(0);
+                (
+                    [(AttnHeads::Grouped.store(), AttnHeads::Grouped), (AttnHeads::Kernel.store(), AttnHeads::Kernel)],
+                    ["grouped", "kernel"],
+                )
+            }
+            other => anyhow::bail!("ppl pair {other:?}: grp or ker"),
+        };
         let text = llvq_llm::corpus::wikitext2_test()?;
         let ids = a.tokenizer.encode(text.as_str(), false).map_err(anyhow::Error::msg)?.get_ids().to_vec();
         let nwin = (ids.len() / ctx).min(windows);
@@ -545,14 +594,12 @@ mod mac {
         let span = &ids[..nwin * ctx];
         println!(
             "ppl: wikitext2 test, {nwin} windows of {ctx} from the start ({} tokens in the split, span sha256 {}), \
-             grouped against expanded, decode path in lockstep; a TOLERANCE reading, never a served decision",
+             {} against {}, decode path in lockstep; a TOLERANCE reading, never a served decision",
             ids.len(),
-            llvq_llm::digest::sha256_u32(span)
+            llvq_llm::digest::sha256_u32(span),
+            names[1],
+            names[0]
         );
-        let arms = [
-            (AttnHeads::Expanded.store(), AttnHeads::Expanded),
-            (AttnHeads::Grouped.store(), AttnHeads::Grouped),
-        ];
         let (mut ratios, mut nll, mut count, mut agree, mut max_d) = (Vec::new(), [0f64; 2], 0usize, 0usize, 0f32);
         let t0 = Instant::now();
         for w in 0..nwin {
@@ -566,9 +613,13 @@ mod mac {
             agree += d.top1_agree;
             max_d = max_d.max(d.max_dlogit);
             println!(
-                "  window {:>2}: ppl expanded {pe:.6} grouped {pg:.6}, grouped / expanded - 1 = {:+.4} %, top-1 \
+                "  window {:>2}: ppl {} {pe:.6} {} {pg:.6}, {} / {} - 1 = {:+.4} %, top-1 \
                  agreement {}/{}, max |dlogit| {:.3e}, {:.0} s elapsed",
                 w + 1,
+                names[0],
+                names[1],
+                names[1],
+                names[0],
                 (pg / pe - 1.0) * 100.0,
                 d.top1_agree,
                 d.count,
@@ -579,8 +630,12 @@ mod mac {
         let (pe, pg) = ((nll[0] / count as f64).exp(), (nll[1] / count as f64).exp());
         let (m, lo, hi) = stats(&ratios);
         println!(
-            "ppl over {nwin} windows: expanded {pe:.6}, grouped {pg:.6}, pooled grouped / expanded - 1 = {:+.4} %; \
+            "ppl over {nwin} windows: {} {pe:.6}, {} {pg:.6}, pooled {} / {} - 1 = {:+.4} %; \
              per window median {:+.4} % [{:+.4} ; {:+.4}]; top-1 agreement {agree}/{count} = {:.3} %; max |dlogit| {max_d:.3e}",
+            names[0],
+            names[1],
+            names[1],
+            names[0],
             (pg / pe - 1.0) * 100.0,
             (m - 1.0) * 100.0,
             (lo - 1.0) * 100.0,

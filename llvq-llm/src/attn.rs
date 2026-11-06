@@ -116,7 +116,10 @@ impl AttnKernel for CpuAttn {
 /// CPU: the replay. CUDA: `attn_dec.cu` compiled onto candle's stream, its
 /// driver report printed, a spill refused, and the card checked against the
 /// replay bit for bit before it is handed out (`attn_cuda::attn_kernel`).
-/// Metal: refused by name; no such kernel exists there.
+/// Metal: `attn_dec.metal`, the same arithmetic, checked against the replay
+/// bit for bit before it is handed out (`attn_metal::attn_kernel`). Built only
+/// where a caller asks for it: `Served::apply` still refuses the form on Metal
+/// by name, and `bin/metalrun` reaches it as a measurement arm.
 pub fn kernel_for(
     device: &Device,
     n_kv: usize,
@@ -135,6 +138,12 @@ pub fn kernel_for(
             let _ = (n_kv, groups);
             Err("attention \"kernel\": this build carries no CUDA backend".to_string())
         }
-        Device::Metal(_) => Err("attention \"kernel\" has no Metal kernel; serve \"expanded\" on Metal".to_string()),
+        #[cfg(all(target_os = "macos", feature = "metal"))]
+        Device::Metal(_) => crate::attn_metal::attn_kernel(device, n_kv, groups),
+        #[cfg(not(all(target_os = "macos", feature = "metal")))]
+        Device::Metal(_) => {
+            let _ = (n_kv, groups);
+            Err("attention \"kernel\": this build carries no Metal backend".to_string())
+        }
     }
 }
