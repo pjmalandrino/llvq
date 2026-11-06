@@ -92,6 +92,7 @@ LLVQ_CONFIG=configs/qwen3-4b-tetra-e4.json cargo run --release -p llvq-llm --fea
 cargo run --release -p llvq-llm --features cuda --bin fusedrun                                      # the kernel in the model
 LLVQ_DTYPE=f16 cargo run --release -p llvq-llm --features metal --bin ppl -- 4096 12 metal <sealed>
 cargo run --release -p llvq-llm --features metal --bin oracle                                       # forward pass vs candle, on every backend
+ops/metal-bench.sh                                                                                   # the sealed 4B on the Mac: dense, fused, fused with _lutd, same tokens (metalrun time|gate|phased|dispatch|ppl)
 CUDARC_CUDA_VERSION=12040 cargo clippy --target x86_64-unknown-linux-gnu -p llvq-cuda --all-targets  # type-checks the Linux half on a Mac
 uv run ops/run.py estimate|selftest|publish|oracle|launch|monitor                                   # HF Jobs
 uv run --with opentimestamps ops/otsaudit.py                                                        # state of the .ots anchors
