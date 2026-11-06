@@ -83,7 +83,15 @@ DECODE_BODY = """
         F1rV3Block b = f1r_v3_fetch(lo, hi16, tab);
         uint cs[3] = { b.c1, b.c2, b.c3 };
         uint rs[3] = { b.row1, b.row2, b.row3 };
-        const device float* xb = x + j * 24u;
+        // The activation arrives permuted block by block (the rotation wrote
+        // x[24 j + ORDER[k]] at 24 j + k), so a block's 24 values are six
+        // aligned float4 loads instead of 24 gathers. Same products, same order.
+        const device float4* x4 = (const device float4*)(x + j * 24u);
+        float xv[24];
+        for (uint q = 0u; q < 6u; ++q) {
+            float4 t4 = x4[q];
+            xv[4u * q] = t4.x; xv[4u * q + 1u] = t4.y; xv[4u * q + 2u] = t4.z; xv[4u * q + 3u] = t4.w;
+        }
         float a = 0.0f;
         float n2 = 0.0f;
         for (uint sec = 0u; sec < 3u; ++sec) {
@@ -94,7 +102,7 @@ DECODE_BODY = """
                 uint rho = (rw >> (4u * k)) & 15u;
                 float v = F1R_VAL[(o << 4) | rho];
                 n2 = fma(v, v, n2);
-                a = fma(v, xb[TETRA48_ORDER[sec * 8u + k]], a);
+                a = fma(v, xv[sec * 8u + k], a);
             }
         }
         uint m = (uint(n2) >> 4) & (TETRA48_SHELLS - 1u);
@@ -142,7 +150,7 @@ ROWS_BODY = """
             if (r < nrows) {
                 const device float* xb = xc + r * uint(DIN) + j * 24u;
                 float a = 0.0f;
-                for (uint i = 0u; i < 24u; ++i) a = fma(v[i], xb[TETRA48_ORDER[i]], a);
+                for (uint i = 0u; i < 24u; ++i) a = fma(v[i], xb[i], a);
                 acc[r] += a * gs * inv;
             }
         }
@@ -161,19 +169,27 @@ ROWS_BODY = """
 # columns j across the K groups in place. Only M floats live in threadgroup
 # memory, so every width the model has fits (9,728 = 19 x 512 included).
 ROT_BODY = """
-    threadgroup float s[M];
+    // GB groups of M staged together (GB * M floats of threadgroup memory),
+    // every group's butterfly stage in parallel: 9 barriers a batch, not 9 a
+    // group. The same pairs in the same order, so the same values.
+    threadgroup float s[GB * M];
     uint tid = thread_position_in_threadgroup.x;
     uint nt = threads_per_threadgroup.x;
     uint r = threadgroup_position_in_grid.y;
     const device half* xr = x + r * uint(N);
     device float* yr = y + r * uint(N);
     float inv = metal::rsqrt(float(M));
-    for (uint g = 0u; g < uint(K); ++g) {
-        for (uint i = tid; i < uint(M); i += nt) s[i] = float(xr[g * uint(M) + i]) * signs[g * uint(M) + i];
+    for (uint g0 = 0u; g0 < uint(K); g0 += uint(GB)) {
+        uint cnt = min(uint(GB), uint(K) - g0) * uint(M);
+        uint base = g0 * uint(M);
+        for (uint i = tid; i < cnt; i += nt) s[i] = float(xr[base + i]) * signs[base + i];
         threadgroup_barrier(mem_flags::mem_threadgroup);
+        uint half_m = uint(M) / 2u;
         for (uint len = 1u; len < uint(M); len <<= 1) {
-            for (uint p = tid; p < uint(M) / 2u; p += nt) {
-                uint j = (p / len) * (len << 1) + (p % len);
+            for (uint p = tid; p < cnt / 2u; p += nt) {
+                uint grp = p / half_m;
+                uint pp = p % half_m;
+                uint j = grp * uint(M) + (pp / len) * (len << 1) + (pp % len);
                 float a = s[j];
                 float b = s[j + len];
                 s[j] = a + b;
@@ -181,7 +197,7 @@ ROT_BODY = """
             }
             threadgroup_barrier(mem_flags::mem_threadgroup);
         }
-        for (uint i = tid; i < uint(M); i += nt) yr[g * uint(M) + i] = s[i] * inv;
+        for (uint i = tid; i < cnt; i += nt) yr[base + i] = s[i] * inv;
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }
     if (uint(K) > 1u) {
@@ -196,9 +212,28 @@ ROT_BODY = """
             }
         }
     }
+    // The Tetra kernels read a block's 24 coordinates in TETRA48_ORDER: hand
+    // them over in that order, the tail columns as they are.
+    threadgroup_barrier(mem_flags::mem_device);
+    device float* pr = yp + r * uint(N);
+    for (uint q = tid; q < uint(N); q += nt) {
+        uint p = q < uint(NB) * 24u ? (q / 24u) * 24u + TETRA48_ORDER[q % 24u] : q;
+        pr[q] = yr[p];
+    }
 """
-ROT = mx.fast.metal_kernel(name="llvq_rot_tg", input_names=["x", "signs", "small"], output_names=["y"],
-                           source=ROT_BODY)
+ROT = mx.fast.metal_kernel(name="llvq_rot_tg", input_names=["x", "signs", "small"], output_names=["y", "yp"],
+                           source=ROT_BODY, header=HEADER)
+
+TETRA48_ORDER = [0, 1, 2, 3, 4, 7, 10, 12, 6, 11, 13, 14, 16, 17, 18, 19, 5, 8, 9, 15, 20, 21, 22, 23]
+
+
+def permutation(n: int) -> np.ndarray:
+    """Output position q holds natural coordinate perm[q]: the Tetra block order, tail as is."""
+    nb = n // 24
+    perm = np.arange(n)
+    for j in range(nb):
+        perm[24 * j:24 * j + 24] = 24 * j + np.array(TETRA48_ORDER)
+    return perm
 
 # A Tetra record decoded to f16 in the ROTATED basis, for the prefill's GEMM:
 # W'[r, 24 j + ORDER[k]] = v_k * gscale[g] * invnorm[m] * rscale[r], and the
@@ -229,7 +264,8 @@ DEQ_BODY = """
     uint g = (hi16 >> 15) & 1u;
     float sc = gscale[g] * invnorm[m] * rscale[row];
     device half* wr = w + row * uint(DIN);
-    for (uint k = 0u; k < 24u; ++k) wr[j * 24u + TETRA48_ORDER[k]] = half(v[k] * sc);
+    // Columns in the permuted order the rotation writes the activation in.
+    for (uint k = 0u; k < 24u; ++k) wr[j * 24u + k] = half(v[k] * sc);
     if (j == 0u) {
         for (uint t = 0u; t < uint(TW); ++t) wr[uint(NB) * 24u + t] = tail[row * uint(TW) + t];
     }
@@ -246,6 +282,83 @@ ROWS = mx.fast.metal_kernel(name="llvq_tetra_lutdr", input_names=INPUTS + ["nr"]
                             source=ROWS_BODY, header=HEADER)
 DEQ = mx.fast.metal_kernel(name="llvq_tetra_deq", input_names=DEQ_INPUTS, output_names=["w"],
                            source=DEQ_BODY, header=HEADER)
+
+# gate, up and SiLU(gate) * up in one dispatch, for one row. A simdgroup takes
+# output i: it decodes block j of gate's row i and of up's row i against the
+# same activation block, loaded once, and its lane 0 writes SiLU(g) * u in f16.
+# The two dots, butterflies and epilogues are the decode kernel's; the product
+# is taken in f32 where the unfused path rounds g and u to f16 first.
+GU_BODY = """
+    uint row = thread_position_in_grid.x >> 5;
+    uint lane = thread_index_in_simdgroup;
+    F1rTables tab = { rows, prefixes, branches, suffixes };
+    const device uint* wgr = wg + row * STRIDE;
+    const device uint* wur = wu + row * STRIDE;
+    float ag = 0.0f, au = 0.0f;
+    for (uint j = lane; j < uint(NB); j += 32u) {
+        const device float4* x4 = (const device float4*)(x + j * 24u);
+        float xv[24];
+        for (uint q = 0u; q < 6u; ++q) {
+            float4 t4 = x4[q];
+            xv[4u * q] = t4.x; xv[4u * q + 1u] = t4.y; xv[4u * q + 2u] = t4.z; xv[4u * q + 3u] = t4.w;
+        }
+        for (uint w = 0u; w < 2u; ++w) {
+            uint lo, hi16;
+            f1r_load(w == 0u ? wgr : wur, j, lo, hi16);
+            F1rV3Block b = f1r_v3_fetch(lo, hi16, tab);
+            uint cs[3] = { b.c1, b.c2, b.c3 };
+            uint rs[3] = { b.row1, b.row2, b.row3 };
+            float a = 0.0f, n2 = 0.0f;
+            for (uint sec = 0u; sec < 3u; ++sec) {
+                for (uint k = 0u; k < 8u; ++k) {
+                    uint o = b.p + 2u * ((cs[sec] >> k) & 1u);
+                    uint rho = (rs[sec] >> (4u * k)) & 15u;
+                    float v = F1R_VAL[(o << 4) | rho];
+                    n2 = fma(v, v, n2);
+                    a = fma(v, xv[sec * 8u + k], a);
+                }
+            }
+            uint m = (uint(n2) >> 4) & (TETRA48_SHELLS - 1u);
+            uint g = (hi16 >> 15) & 1u;
+            if (w == 0u) ag += a * gg[g] * invnorm[m];
+            else au += a * gu[g] * invnorm[m];
+        }
+    }
+    ag = warp_sum(ag);
+    au = warp_sum(au);
+    if (lane == 0u) {
+        const device float* xt = x + uint(NB) * 24u;
+        float tg_ = 0.0f, tu_ = 0.0f;
+        for (uint i = 0u; i < uint(TW); ++i) {
+            tg_ = fma(float(tailg[row * uint(TW) + i]), xt[i], tg_);
+            tu_ = fma(float(tailu[row * uint(TW) + i]), xt[i], tu_);
+        }
+        float gv = fma(ag, rg[row], tg_);
+        float uv = fma(au, ru[row], tu_);
+        y[row] = half(gv / (1.0f + metal::exp(-gv)) * uv);
+    }
+"""
+GU = mx.fast.metal_kernel(
+    name="llvq_tetra_gate_up",
+    input_names=["wg", "wu", "rows", "prefixes", "branches", "suffixes", "gg", "gu", "invnorm", "rg", "ru",
+                 "tailg", "tailu", "x"],
+    output_names=["y"], source=GU_BODY, header=HEADER)
+
+# Ablation, a measurement mode of this prototype only: LLVQ_MLX_ABLATE names
+# kernel families ("tetra", "rot", "gu") swapped for an empty kernel of the same
+# grid and output. The tokens are then garbage; only the time means anything.
+import os
+
+ABLATE = set(filter(None, os.environ.get("LLVQ_MLX_ABLATE", "").split(",")))
+EMPTY = mx.fast.metal_kernel(name="llvq_empty", input_names=["x"], output_names=["y"], source="""
+    uint i = thread_position_in_grid.x;
+    if (i < uint(NOUT)) y[i] = T(0);
+""")
+
+
+def empty(x: mx.array, n: int, dtype, rows: int = 1) -> mx.array:
+    return EMPTY(inputs=[x], template=[("NOUT", n * rows), ("T", dtype)], grid=(max(n * rows, 32), 1, 1),
+                 threadgroup=(256, 1, 1), output_shapes=[(rows, n)], output_dtypes=[dtype])[0]
 
 # Rows above which a Tetra projection decodes its matrix to f16 and multiplies
 # with MLX's GEMM rather than running the row kernel.
@@ -290,7 +403,7 @@ class Rotation:
         v = mx.hadamard_transform(v, scale=1.0 / math.sqrt(self.m))
         if self.k > 1:
             v = self.small @ v
-        return v.reshape(*lead, self.n)
+        return v.reshape(*lead, self.n)[..., mx.array(permutation(self.n))]
 
     def __call__(self, x: mx.array) -> mx.array:
         # q and k (gate and up) hand in the same array: rotate it once.
@@ -303,10 +416,17 @@ class Rotation:
         lead = x.shape[:-1]
         flat = x.astype(mx.float16).reshape(-1, self.n)
         rows = flat.shape[0]
+        if "rot" in ABLATE:
+            out = empty(flat, self.n, mx.float32, rows).reshape(*lead, self.n)
+            self._hits = 1
+            self._last = (x, out) if self.users > 1 else None
+            return out
         out = ROT(inputs=[flat, self.signs, self.small],
-                  template=[("N", self.n), ("M", self.m), ("K", self.k)],
+                  template=[("N", self.n), ("M", self.m), ("K", self.k), ("NB", self.n // 24),
+                            ("GB", min(self.k, 7168 // self.m))],
                   grid=(1024, rows, 1), threadgroup=(1024, 1, 1),
-                  output_shapes=[(rows, self.n)], output_dtypes=[mx.float32])[0].reshape(*lead, self.n)
+                  output_shapes=[(rows, self.n), (rows, self.n)],
+                  output_dtypes=[mx.float32, mx.float32])[1].reshape(*lead, self.n)
         self._hits = 1
         self._last = (x, out) if self.users > 1 else None
         return out
@@ -359,6 +479,8 @@ class TetraLinear(nn.Module):
         if n >= DENSE_FROM:
             xh = xr.astype(mx.float16)
             return (xh @ self.dense(xh).T).reshape(*lead, self.d_out)
+        if n == 1 and "tetra" in ABLATE:
+            return empty(xr, self.d_out, mx.float16).reshape(*lead, self.d_out)
         if n == 1:
             y = DECODE(inputs=args, template=tmpl, grid=(self.d_out * 32, 1, 1), threadgroup=(256, 1, 1),
                        output_shapes=[(1, self.d_out)], output_dtypes=[mx.float16])[0]
@@ -368,6 +490,32 @@ class TetraLinear(nn.Module):
                      grid=(self.d_out * 32, -(-n // ROWS_MAX), 1), threadgroup=(256, 1, 1),
                      output_shapes=[(n, self.d_out)], output_dtypes=[mx.float16])[0]
         return y.reshape(*lead, self.d_out)
+
+
+class FusedMLP(nn.Module):
+    """`down(SiLU(gate x) * up x)`, with gate, up and the product in one dispatch for one row."""
+
+    def __init__(self, gate: "TetraLinear", up: "TetraLinear", down):
+        super().__init__()
+        assert gate.rot is up.rot and (gate.d_out, gate.nb, gate.tw) == (up.d_out, up.nb, up.tw)
+        self.gate_proj, self.up_proj, self.down_proj = gate, up, down
+        self.freeze()
+
+    def __call__(self, x: mx.array) -> mx.array:
+        g, u = self.gate_proj, self.up_proj
+        lead = x.shape[:-1]
+        if math.prod(lead) != 1:
+            return self.down_proj(nn.silu(g(x)) * u(x))
+        xr = g.rot(x).reshape(1, g.d_in)
+        if "gu" in ABLATE or "tetra" in ABLATE:
+            return self.down_proj(empty(xr, g.d_out, mx.float16).reshape(*lead, g.d_out))
+        s = g.shared
+        h = GU(inputs=[g._words, u._words, s.rows, s.prefixes, s.branches, s.suffixes, g._gscale, u._gscale,
+                       s.invnorm, g._rscale, u._rscale, g._tail, u._tail, xr],
+               template=[("NB", g.nb), ("TW", g.tw), ("STRIDE", g.stride)],
+               grid=(g.d_out * 32, 1, 1), threadgroup=(256, 1, 1),
+               output_shapes=[(1, g.d_out)], output_dtypes=[mx.float16])[0]
+        return self.down_proj(h.reshape(*lead, g.d_out))
 
 
 def int4_linear(pm: PackedModel, name: str) -> nn.QuantizedLinear:
@@ -407,6 +555,10 @@ def build(path: str):
         else:
             raise ValueError(f"{name}: kind {d['kind']}")
         setattr(owner, proj, mod)
+    for layer in model.model.layers:
+        mlp = layer.mlp
+        if type(mlp.gate_proj).__name__ == "TetraLinear" and type(mlp.up_proj).__name__ == "TetraLinear":
+            layer.mlp = FusedMLP(mlp.gate_proj, mlp.up_proj, mlp.down_proj)
     weights = []
     for name, d in pm.raw.items():
         if d["encoding"] == "f16":

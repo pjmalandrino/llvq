@@ -16,6 +16,7 @@ over a projection's outputs is printed and held under a bound.
 import sys
 
 import mlx.core as mx
+import mlx.nn as nn
 
 import llvq_mlx as L
 
@@ -51,6 +52,17 @@ def main():
             bad += not ok
             print(f"layer {li} {name:<4} rotation {e_rot:.2e} | 8-row kernel {e_rows:.2e} | dense prefill {e_dense:.2e}"
                   f" {'ok' if ok else 'OVER BOUND'}")
+        mlp = layer.mlp
+        if type(mlp).__name__ == "FusedMLP":
+            for i in range(4):
+                x = mx.random.normal((1, 1, mlp.gate_proj.d_in)).astype(mx.float16)
+                mlp.gate_proj.rot._last = None
+                want = mlp.down_proj(nn.silu(mlp.gate_proj(x)) * mlp.up_proj(x))
+                mlp.gate_proj.rot._last = None
+                e = rel(mlp(x), want)
+                ok = e < BOUND_MV
+                bad += not ok
+                print(f"layer {li} fused MLP row {i}: {e:.2e} {'ok' if ok else 'OVER BOUND'}")
     print("all within bounds" if bad == 0 else f"{bad} projections over bound")
     sys.exit(1 if bad else 0)
 

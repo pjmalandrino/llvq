@@ -1202,3 +1202,19 @@ Verdict by the rule: L1 at 75 tok/s or more and L2's prompt under 5 s, so the ML
 65.5 to 81.6 tok/s, prompt of 4,096 tokens 31.5 s to 3.5 s, decode at 4,096 about 40 to 59-62 tok/s.
 Open: our decode loses 4.6 ms a token from 5 to 4,096 positions where the rival loses 1.9 with the same attention
 kernel, and its range at 4,096 is wide (56 to 66). Not explained yet.
+
+=== MLX path, squeezing decode, 2026-11-06 ~16:00-16:30, smoke runs, OFF PROTOCOL, not measurements
+Same 256 tokens on the 5-token prompt after each change (b4f07db4); check.py within bounds after each.
+- Pre-permuted activation (the rotation writes each block in TETRA48_ORDER, the kernel reads six float4): 81.9 tok/s
+  against 81.6, no gain. The 24 gathers a block were not the wall.
+- Stripped kernels on gate_proj (ops/mlx_tetra/strip.py, dependent chains of 200, us a call): full 83, LUT replaced
+  by arithmetic 86, rank fetch removed too 72, words and fma only 65, an EMPTY kernel at the same grid 28. Several
+  rows a simdgroup reusing the activation: words-only 50, full 72 (2 rows). Decoding is about a quarter of the kernel.
+- gate, up and SiLU(g) * u in one dispatch (FusedMLP, decode only): 84.0 tok/s against 81.9 (+2.6 %), the product
+  within 7e-4 relative of the unfused path.
+- Ablation inside the real decode (LLVQ_MLX_ABLATE, empty kernels in place, tokens garbage), 128 tokens 3 rounds:
+  none 13.12 ms a token, Tetra kernels emptied 7.74, rotations emptied 11.08, both 6.10. The rotations cost about
+  2.0 ms: 108 at 19 us, because the kernel ran the K groups of 512 one after the other (9 barriers each).
+- The rotation with every group in parallel (GB groups staged together): same values, tokens unchanged. Its speed
+  is NOT read: the machine was loaded at the time (Zen's GPU helper 22 %, WindowServer and launchd 48 % CPU), and
+  even the old schedule (GB=1) read 28 tok/s then.
