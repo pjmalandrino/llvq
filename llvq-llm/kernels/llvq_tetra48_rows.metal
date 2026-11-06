@@ -415,3 +415,92 @@ kernel void tv_tetra48_metal_lutdh(const device uint*   words          [[buffer(
     }
     tetra48_rows_epilogue_h(acc, row, lane, rscale, tail, x, y, nblocks, tail_w);
 }
+
+// ---------------------------------------------------------------------------
+// The prefill twin: `_lutdh` over up to TETRA48_PREFILL_MAX activation rows a
+// launch.
+//
+// A lane decodes each of its blocks ONCE and applies the 24 decoded values to
+// every row of the chunk, so a chunk of 8 prompt positions reads and decodes
+// the weights once instead of 8 times. Per row the arithmetic is
+// `tetra48_dot_lut_dev`'s, in its order: from zero, acc = fma(v, x[ORDER[k]],
+// acc) for k = 0..23, then `acc * gscale[g] * invnorm[m]`, then the lane's
+// running sum in ascending block order, the same butterfly and the half
+// epilogue. `n2`, and so the shell `m`, depend on the block alone. So row r of
+// a chunk is the f16 the decode kernel narrows for that row alone. Gated,
+// never assumed: `tests/tetra48_metal_rows.rs`.
+//
+// The row loop runs to the constant bound with a guard, so the accumulators
+// are indexed by constants and stay in registers; `nrows` is uniform across
+// the grid, so every lane reaches every butterfly.
+// ---------------------------------------------------------------------------
+constant uint TETRA48_PREFILL_MAX = 8u;
+
+kernel void tv_tetra48_metal_lutdr(const device uint*   words          [[buffer(0)]],
+                                   constant uint&       row_stride_u32 [[buffer(1)]],
+                                   const device uint*   rows           [[buffer(2)]],
+                                   const device uchar*  prefixes       [[buffer(3)]],
+                                   const device ushort* branches       [[buffer(4)]],
+                                   const device uchar*  suffixes       [[buffer(5)]],
+                                   const device float*  gscale         [[buffer(6)]],
+                                   const device float*  invnorm        [[buffer(7)]],
+                                   const device float*  rscale         [[buffer(8)]],
+                                   const device half*   tail           [[buffer(9)]],
+                                   const device float*  x              [[buffer(10)]],
+                                   device half*         y              [[buffer(11)]],
+                                   constant uint&       nblocks        [[buffer(12)]],
+                                   constant uint&       tail_w         [[buffer(13)]],
+                                   constant uint&       nrows          [[buffer(15)]],
+                                   constant uint&       d_out          [[buffer(16)]],
+                                   uint gid  [[thread_position_in_grid]],
+                                   uint lane [[thread_index_in_simdgroup]])
+{
+    uint row = gid >> 5;
+    const device uint* wrow = words + row * row_stride_u32;
+    F1rTables tab = { rows, prefixes, branches, suffixes };
+    uint d_in = nblocks * 24u + tail_w;
+    float acc[TETRA48_PREFILL_MAX];
+    for (uint r = 0u; r < TETRA48_PREFILL_MAX; ++r) {
+        acc[r] = 0.0f;
+    }
+    for (uint j = lane; j < nblocks; j += 32u) {
+        uint lo, hi16;
+        f1r_load(wrow, j, lo, hi16);
+        F1rV3Block b = f1r_v3_fetch(lo, hi16, tab);
+        uint cs[3] = { b.c1, b.c2, b.c3 };
+        uint rs[3] = { b.row1, b.row2, b.row3 };
+        float v[24];
+        float n2 = 0.0f;
+        for (uint sec = 0u; sec < 3u; ++sec) {
+            uint c = cs[sec];
+            uint rw = rs[sec];
+            for (uint k = 0u; k < 8u; ++k) {
+                uint o = b.p + 2u * ((c >> k) & 1u);
+                uint rho = (rw >> (4u * k)) & 15u;
+                float vv = F1R_VAL[(o << 4) | rho];
+                v[sec * 8u + k] = vv;
+                n2 = fma(vv, vv, n2);
+            }
+        }
+        uint m = (uint(n2) >> 4) & (TETRA48_SHELLS - 1u);
+        uint g = (hi16 >> 15) & 1u;
+        float gs = gscale[g];
+        float inv = invnorm[m];
+        for (uint r = 0u; r < TETRA48_PREFILL_MAX; ++r) {
+            if (r < nrows) {
+                const device float* xb = x + r * d_in + j * 24u;
+                float a = 0.0f;
+                for (uint i = 0u; i < 24u; ++i) {
+                    a = fma(v[i], xb[TETRA48_ORDER[i]], a);
+                }
+                acc[r] += a * gs * inv;
+            }
+        }
+    }
+    for (uint r = 0u; r < TETRA48_PREFILL_MAX; ++r) {
+        if (r < nrows) {
+            tetra48_rows_epilogue_h(acc[r], row, lane, rscale, tail, x + r * d_in, y + r * d_out,
+                                    nblocks, tail_w);
+        }
+    }
+}

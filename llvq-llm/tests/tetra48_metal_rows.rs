@@ -260,3 +260,66 @@ fn half_io_refuses_what_it_cannot_serve() {
     assert!(e.contains("half-io") && e.contains("prefetch"), "{e}");
     assert_eq!(b.rt.tuning(), MetalTuning::default(), "a refused tuning sets nothing");
 }
+
+/// The prefill kernel (`+p`, `tv_tetra48_metal_lutdr`) against the served
+/// matvec run row by row and narrowed by candle's cast, every f16 equal, for
+/// every chunk length 1..=8 and the row order; and that the kernel ran.
+fn gate_rows(seed: u64, d_out: usize, nblocks: usize, tail_w: usize) {
+    let mut b = build(seed, d_out, nblocks, tail_w, 64);
+    let dev = Device::new_metal(0).expect("a Metal device");
+    let d_in = b.x.len();
+    let mut rng = SplitMix64::new(seed ^ 0xA5A5);
+    let xs: Vec<f32> = (0..8 * d_in).map(|_| half::f16::from_f32(rng.next_gaussian() as f32).to_f32()).collect();
+    let want: Vec<Vec<u16>> = (0..8)
+        .map(|r| {
+            let xr = Tensor::from_slice(&xs[r * d_in..(r + 1) * d_in], (1, d_in), &dev).unwrap();
+            bits16_of(&b.rt.matvec(&b.proj, &xr).expect("served"))
+        })
+        .collect();
+    assert!(want[0].iter().any(|v| *v != 0), "zeros would pass every equality");
+    assert_ne!(want[0], want[1], "two equal rows would hide a row mix-up");
+    b.rt.set_tuning(MetalTuning { prefill_rows: 8, ..Default::default() }).unwrap();
+    for n in 1..=8usize {
+        let xm = Tensor::from_slice(&xs[..n * d_in], (n, d_in), &dev).unwrap();
+        let got = b.rt.matvec_rows(&b.proj, &xm, n).expect("prefill rows");
+        assert_eq!(got.dtype(), candle_core::DType::F16, "the prefill kernel stores f16");
+        assert_eq!(got.dims(), [n, d_out], "one output row a prompt row");
+        for (r, w) in want.iter().enumerate().take(n) {
+            let g = bits16_of(&got.narrow(0, r, 1).unwrap());
+            let diff = g.iter().zip(w).position(|(p, q)| p != q);
+            assert_eq!(diff, None, "row {r} of {n}, {d_out} rows x {nblocks} blocks + {tail_w}");
+        }
+    }
+    assert!(b.rt.compiled_pipelines().contains(&"tv_tetra48_metal_lutdr"), "the prefill kernel ran");
+}
+
+/// The sealed 4B's two Tetra widths and the loop edges.
+#[test]
+fn the_prefill_kernel_returns_each_rows_served_bits_narrowed() {
+    gate_rows(0x5EED_0201, 1024, 106, 16);
+    gate_rows(0x5EED_0202, 2560, 405, 8);
+    for (i, (nblocks, tail_w)) in [(7usize, 5usize), (32, 0), (65, 3)].into_iter().enumerate() {
+        gate_rows(0x5EED_0210 + i as u64, 64, nblocks, tail_w);
+    }
+}
+
+/// The prefill tuning names its refusals: a row count the kernel does not
+/// take, and a chunk longer than the tuning.
+#[test]
+fn the_prefill_kernel_refuses_what_it_cannot_take() {
+    let mut b = build(0x5EED_0220, 64, 7, 5, 64);
+    for bad in [0usize, 3, 16] {
+        let e = b
+            .rt
+            .set_tuning(MetalTuning { prefill_rows: bad, ..Default::default() })
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("prefill rows"), "{e}");
+    }
+    assert_eq!(b.rt.tuning(), MetalTuning::default(), "a refused tuning sets nothing");
+    b.rt.set_tuning(MetalTuning { prefill_rows: 4, ..Default::default() }).unwrap();
+    let dev = Device::new_metal(0).expect("a Metal device");
+    let xm = Tensor::zeros((5, b.x.len()), candle_core::DType::F32, &dev).unwrap();
+    let e = b.rt.matvec_rows(&b.proj, &xm, 5).unwrap_err().to_string();
+    assert!(e.contains("5 rows") && e.contains("at most 4"), "{e}");
+}
