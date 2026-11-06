@@ -28,3 +28,13 @@ Nothing else in either file is affected.
 
 The M6 prereg tests code written after the night prereg was stamped (the Metal attention kernel, commit `dd9abe8`, and
 `Served::apply_measurement`). It carries its own stamp; the night prereg's arms and verdicts are not reopened by it.
+
+## É5. M6's NOT SERVED kernel config is the kernel from 1,280, not from 0
+
+M6 §4: the band held (pooled +0.0051 %, every window inside ±0.12 %) and the kernel is a wash at 4,096
+(x1.037 [0.996-1.093]), so the rule names the kernel form as the Metal candidate and asks for a NOT SERVED config for
+it. A config on the eager engine cannot say "from position 0": that threshold comes only with `"decode":
+"persistent"`, 4E, which has no Metal kernel. `configs/qwen3-4b-tetra-e4-metal-kernel-NOT-SERVED.json` therefore
+names the kernel form with the eager threshold of 1,280. Below 1,280 it runs the grouped arithmetic, measured bit for
+bit with the expanded form on Metal (M5); from 1,280 the kernel, whose band M6 read over positions 0 to 4,095. That
+config was not timed as such. The grouped config is kept beside it.

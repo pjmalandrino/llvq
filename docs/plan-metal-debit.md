@@ -7,7 +7,9 @@ attention form is bit for bit with the expanded one on Metal over 49,140 decode 
 2,048 tokens of context and x2.38 at 4,096, with the same tokens (*measured*, M4 and M5). The split-KV attention
 kernel now exists in MSL, bit for bit with the canonical replay, and reads x0.86 the grouped form at a short context
 and a wash at 2,048 and 4,096 (*measured*, M6). Both forms stay refused on the served Metal door: lifting that is
-the operator's call, and `configs/qwen3-4b-tetra-e4-metal-grouped-NOT-SERVED.json` is ready for it.
+the operator's call. Two NOT SERVED Metal configs are ready for it: `configs/qwen3-4b-tetra-e4-metal-grouped-NOT-SERVED.json`, bit for bit
+with the published expanded form, and `configs/qwen3-4b-tetra-e4-metal-kernel-NOT-SERVED.json`, the kernel from 1,280 tokens, inside the
+card's ±0.12 % perplexity band (M6).
 
 Branch `claude/metal-nuit-3c4257`, cut from `integration/lot1` at `8c0673a`. Night of 2026-11-05 to 11-06, $0, all
 on the operator's M3 Max. Journal: [`mesures/metal-nuit-2026-11-06.txt`](mesures/metal-nuit-2026-11-06.txt).
@@ -73,11 +75,12 @@ and refuses the served config by name.
 | int4 wall (not a CUDA piece: CUDA stages 99 KiB) | `tv_q4_metal_tiled` wired, 2,048 columns a tile | done: the sealed 4B loads and decodes fused; F0 at 50.85 tok/s [45.18-51.45], x6.5 the dense arm, same tokens |
 | 4E v4 row loop: next block's words in flight | `tv_tetra48_metal_lutp` | refused: x0.929 [0.912-0.953], bit for bit |
 | 4E v6: loads issued before first use | `_lutd` (activation from device, no staging), `_lutdp` (both) | `_lutd` retained: x1.055 [1.006-1.087] in M1, x1.025 [1.013-1.034] in M2; `_lutdp` a wash, x1.004 |
+| 4E v6 on the rotation and the norms | not ported. The rotation staged in threadgroup memory (`rot_apply_tg_metal`, already in the file) measured 7.5 % slower in situ on 2026-09-21 (`31a5acb`); the norms are candle's own `rmsnorm` ops | left as is, the prudent choice: the matvecs and the attention carry the step |
 | 4E's int4 row loop with prefetch | `tv_q4_metal_p`, `tv_q4_metal_tiled_p` | wash: x1.003 [0.891-1.061] |
 | (Metal only) R rows a simdgroup, lane order kept | `_lutd2`, `_lutd4` | `_lutd2` a wash, x1.023 [0.972-1.107]; `_lutd4` refused, x0.916 |
 | grouped attention | the backend-free `grouped_attention`; `metalrun` arm `+grp`; `configs/qwen3-4b-tetra-e4-metal-grouped-NOT-SERVED.json` | bit for bit with the expanded form on Metal over 49,140 decode steps of 12 windows of 4,096 (M5); x0.999 at 5 tokens, x1.750 [1.599-1.997] at 2,048, x2.380 [2.362-2.396] at 4,096, same tokens (M4); still refused on the served Metal door |
 | 4E itself: one launch a token | no Metal equivalent: no grid-wide barrier, no forward-progress guarantee | a candle launch costs 1.66 us in a dependent chain (*measured*): about 2 ms of a 19.7 ms token at 1,200 to 1,400 launches (*estimated* from the forward's ops) |
-| split-KV decode-attention kernel | `kernels/attn_dec.metal` + `attn_metal.rs`, two dispatches a layer, safe math; `metalrun` arm `+ker`, from position 0 | bit for bit with the canonical replay (`attn_ref.rs`), hence the card kernel, up to 4,096 positions; against the grouped form: x0.864 [0.851-0.879] at 5 tokens, x0.974 [0.848-1.030] at 2,048, x1.037 [0.996-1.093] at 4,096, same tokens (M6); T8 band: T8_STATUS |
+| split-KV decode-attention kernel | `kernels/attn_dec.metal` + `attn_metal.rs`, two dispatches a layer, safe math; `metalrun` arm `+ker`, from position 0 | bit for bit with the canonical replay (`attn_ref.rs`), hence the card kernel, up to 4,096 positions; against the grouped form: x0.864 [0.851-0.879] at 5 tokens, x0.974 [0.848-1.030] at 2,048, x1.037 [0.996-1.093] at 4,096, same tokens (M6); T8 band held: +0.0051 % pooled over 12 windows of 4,096, every window inside ±0.12 %, top-1 99.772 % (M6); `configs/qwen3-4b-tetra-e4-metal-kernel-NOT-SERVED.json` (kernel from 1,280) |
 
 ## 3. What was built, and how it is held
 

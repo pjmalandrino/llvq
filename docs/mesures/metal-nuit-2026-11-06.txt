@@ -133,7 +133,38 @@ a05c8ba7...). lutd's kernels, decode path in lockstep, the first 12 WikiText-2 t
   The pooled 12.580769 is the expanded form's perplexity of the sealed 4B through the Metal kernels by the decode
   path; ETAT's 12.58 is the card's dense reconstruction in f16, another engine (no ratio formed).
 
-M6_SECTION
+M6, the split-KV decode-attention kernel on Metal (prereg proofs/preregistration-metal-nuit-m6-2026-11-06.md, stamped
+2026-11-06 02:36; binary metalrun sha256 547def2c8dfc272c05304e6a53d9e06551ef44b3d6ca5c21a8d1be64091a35f9).
+Before the stamp: tests/attn_metal.rs 6 of 6 (the kernel's output equal to the canonical replay's at lengths 1 to
+4,096, verify rows to 8, another head geometry, repetition), and 10 mutants, 10 killed (butterfly stage dropped, d
+without carry, unit fold weights swapped, one position too many, units folded backward, split merge weights swapped,
+f2h ties up, ex2 constant dropped, K head stride wrong, merge grid halved). Every mutant was caught by the kernel's
+self-check against the replay at construction, before any test assertion. A first launch of the chain at 02:51 ran
+nothing: zsh passed each step's arguments as one word, and metalrun refused them by its usage line (raw kept).
+
+Gate: attn_dec.metal compiled and checked against the replay; bit gate 253 of 253 for lutd+grp and lutd+ker.
+
+  context  arm        decode tok/s            ker / grp, round by round      tokens
+  5        lutd+grp   60.16 [56.18-60.76]
+  5        lutd+ker   51.71 [49.38-51.96]     x0.864 [0.851-0.879]          the same 256
+  2,048    lutd+grp   43.42 [37.61-46.07]
+  2,048    lutd+ker   41.55 [36.73-42.30]     x0.974 [0.848-1.030]          the same 64
+  4,096    lutd+grp   37.54 [36.55-38.28]
+  4,096    lutd+ker   39.35 [38.12-39.94]     x1.037 [0.996-1.093]          the same 64
+
+  T8, kernel from position 0 against grouped, the first 12 WikiText-2 test windows of 4,096, decode path:
+  per window kernel / grouped - 1, %: -0.0268 +0.0043 +0.0373 -0.0127 +0.0270 +0.0490 -0.0042 -0.0038 +0.0077
+  -0.0131 +0.0021 -0.0049; pooled grouped 12.580769, kernel 12.581416, +0.0051 %; top-1 agreement 49028/49140 =
+  99.772 %; max |dlogit| 1.093e1 (window 6).
+  The absolute rates of this process sit above M2's (lutd+grp 60.16 at 5 tokens against lutd 52.07 in M2, where M1
+  read the grouped form at x0.999): the machine was colder after an hour of perplexity runs at low load. No ratio is
+  formed across processes.
+
+  Predictions: ker/grp x0.97-1.05 at 5 tokens, MISSED (x0.864); x0.95-1.25 at 2,048, inside; x0.95-1.35 at 4,096,
+  inside; T8 pooled inside +-0.05 %, inside (+0.0051 %); top-1 99.5-99.95 %, inside (99.772).
+  Rules (M6 section 4): speed, slower at 5 tokens, a wash at 2,048 and 4,096; T8 band holds (pooled and every window
+  inside [-0.12 %, +0.12 %]); hence "the plan names the kernel form as the Metal candidate". The NOT SERVED config
+  for it is the kernel from 1,280 on the eager engine (deviation E5): configs/qwen3-4b-tetra-e4-metal-kernel-NOT-SERVED.json.
 
 VERDICT
 -------
@@ -158,7 +189,8 @@ WHAT THIS DOES NOT ESTABLISH
 PROVENANCE
 ----------
 Raw outputs, verbatim, below this line, in this order: gate run before the stamp, oracle, M1, phased lut, dispatch,
-phased lutd, M3, the refused M2 of E1, M2, M4a, M4b, mutation log.
+phased lutd, M3, the refused M2 of E1, M2, M4a, M4b, mutation log (first part); then, appended after the night's
+later runs: M5, M6 gate, S1, S2, S3, T8, and the mutation log again in full.
 
 === gate-final.txt ===
 binary  /Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/metal-nuit-3c4257/target/release/metalrun sha256 bc2f9c80ade1add0bbb1393831d64d8d79eb423693b5bcc9edaeaa30195597df
@@ -681,5 +713,303 @@ R8 lutd_rows: rows strided by 1 word: KILLED | tetra48_metal_rows: rc 101 [('FAI
 R9 lutd4: rows of a simdgroup at stride 2: KILLED | tetra48_metal_rows: rc 101 [('FAILED', '2', '4')] failed ['the_twins_return_the_served_bits_at_the_loop_edges', 'the_twins_return_the_served_bits_at_d_in_2560', 'the_staged_twin_holds_at_tiles_32_and_256', 'the_twins_return_the_served_bits_at_d_in_9728']
 R10 lutd_rows: accumulators of rows 0 and 1 swapped in the epilogue: KILLED | tetra48_metal_rows: rc 101 [('FAILED', '1', '5')] failed ['a_multi_row_twin_refuses_a_partial_threadgroup', 'the_twins_return_the_served_bits_at_the_loop_edges', 'the_twins_return_the_served_bits_at_d_in_2560', 'the_staged_twin_holds_at_tiles_32_and_256']
 H6 host: multi-row grid at d_out simdgroups: KILLED | tetra48_metal_rows: rc 101 [('FAILED', '4', '2')] failed ['the_twins_return_the_served_bits_at_the_loop_edges', 'the_staged_twin_holds_at_tiles_32_and_256']
+=== end
+
+
+=== appended after M5 and M6 ===
+=== raw/m5.txt ===
+M5 start Fri Nov  6 01:16:12 CET 2026
+environment: no LLVQ_* or CANDLE_* variable
+binary  /Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/metal-nuit-3c4257/target/release/metalrun sha256 a05c8ba7c16a3603fc564fce8438508b63339d9a92a0c8b4ccffcb978c0600fc
+object  /Users/pjmalandrino/q4b-sealed-2026-09-23/qwen3-4b-sealed.bin sha256 886391a8c03f66dc269cc65c3598c6627dbdcd259180aff36604ef10d37371b8
+config  configs/qwen3-4b-tetra-e4.json sha256 098fe49c03c4b3f8893a0a0079ac2bcf34dd6d55c780c18df7c718470fb6bb4c
+served config: configs/qwen3-4b-tetra-e4.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention expanded on cat) — Qwen3-4B paper-2 object, sealed 2026-09-23: Tetra with dclm-edu calibration and trained row scales, v_proj + o_proj + down_proj@12-23 as int4 g128 records, the tied embedding stored int4 g64 in the file (qwen3-4b-sealed.bin). fuse is 0 because Tetra carries no segmented kernel, not because fusion was declined.
+machine Apple M3 Max | Note: No thermal warning level has been recorded | Note: No performance warning level has been recorded | Note: No CPU power status has been recorded
+load    GPU Some(29) % busy, other processes 68 % CPU
+arm lutd: loading with MetalTuning { q4_tile_cols: 2048, tetra_kernel: "tv_tetra48_metal_lutd", q4_prefetch: false }
+metal: tetra matvec tv_tetra48_metal_lutd | int4 84 records, 12 through tv_q4_metal_tiled at 2048 columns a tile, 72 untiled | int4 row loop served
+embedding: q4 g64 (metalrun), 1 table (model.embed_tokens.weight, lm_head tied on it), 218.8 MB on the card (int4 194.5 + scales/biases 24.3)
+total expected on the device: 1.38 GB (projections 1.16 + carried 0.22)
+arm lutd         loaded in   2.2 s | host count 1.377 GB | 1.377 GB of weights a token | attention expanded on cat
+ppl: wikitext2 test, 12 windows of 4096 from the start (299078 tokens in the split, span sha256 6b69a6ba6998ddda8d1f65406ac23b3e1bc09e0a693f8809d97f0ca7f4b38aab), grouped against expanded, decode path in lockstep; a TOLERANCE reading, never a served decision
+  window  1: ppl expanded 12.542946 grouped 12.542946, grouped / expanded - 1 = +0.0000 %, top-1 agreement 4095/4095, max |dlogit| 0.000e0, 225 s elapsed
+  window  2: ppl expanded 18.210249 grouped 18.210249, grouped / expanded - 1 = +0.0000 %, top-1 agreement 4095/4095, max |dlogit| 0.000e0, 481 s elapsed
+  window  3: ppl expanded 9.617751 grouped 9.617751, grouped / expanded - 1 = +0.0000 %, top-1 agreement 4095/4095, max |dlogit| 0.000e0, 765 s elapsed
+  window  4: ppl expanded 7.631275 grouped 7.631275, grouped / expanded - 1 = +0.0000 %, top-1 agreement 4095/4095, max |dlogit| 0.000e0, 1014 s elapsed
+  window  5: ppl expanded 14.010765 grouped 14.010765, grouped / expanded - 1 = +0.0000 %, top-1 agreement 4095/4095, max |dlogit| 0.000e0, 1270 s elapsed
+  window  6: ppl expanded 13.446688 grouped 13.446688, grouped / expanded - 1 = +0.0000 %, top-1 agreement 4095/4095, max |dlogit| 0.000e0, 1524 s elapsed
+  window  7: ppl expanded 13.508824 grouped 13.508824, grouped / expanded - 1 = +0.0000 %, top-1 agreement 4095/4095, max |dlogit| 0.000e0, 1779 s elapsed
+  window  8: ppl expanded 13.410889 grouped 13.410889, grouped / expanded - 1 = +0.0000 %, top-1 agreement 4095/4095, max |dlogit| 0.000e0, 2032 s elapsed
+  window  9: ppl expanded 15.390806 grouped 15.390806, grouped / expanded - 1 = +0.0000 %, top-1 agreement 4095/4095, max |dlogit| 0.000e0, 2289 s elapsed
+  window 10: ppl expanded 9.403293 grouped 9.403293, grouped / expanded - 1 = +0.0000 %, top-1 agreement 4095/4095, max |dlogit| 0.000e0, 2543 s elapsed
+  window 11: ppl expanded 14.426049 grouped 14.426049, grouped / expanded - 1 = +0.0000 %, top-1 agreement 4095/4095, max |dlogit| 0.000e0, 2800 s elapsed
+  window 12: ppl expanded 13.160094 grouped 13.160094, grouped / expanded - 1 = +0.0000 %, top-1 agreement 4095/4095, max |dlogit| 0.000e0, 3056 s elapsed
+ppl over 12 windows: expanded 12.580769, grouped 12.580769, pooled grouped / expanded - 1 = +0.0000 %; per window median +0.0000 % [+0.0000 ; +0.0000]; top-1 agreement 49140/49140 = 100.000 %; max |dlogit| 0.000e0
+m5 exit 0 Fri Nov  6 02:07:15 CET 2026
+
+=== raw/m6-binary.txt ===
+547def2c8dfc272c05304e6a53d9e06551ef44b3d6ca5c21a8d1be64091a35f9  target/release/metalrun
+
+=== m6-usage-refused/m6-gate.txt ===
+m6-gate start Fri Nov  6 02:51:06 CET 2026
+environment: no LLVQ_* or CANDLE_* variable
+Error: usage: metalrun time <sealed> <config> <arms> [n_new=128] [timed_rounds=7] [prompt_tokens=0]
+       metalrun gate <sealed> <config> <arms>
+       metalrun phased <sealed> <config> <arm> [n_new=64]
+       metalrun dispatch
+       metalrun ppl <sealed> <config> <arm> [ctx=4096] [windows=4] [grp|ker]
+arms: comma list of lut|lutp|lutd|lutdp|lutd2|lutd4[+q4p][+t<cols>][+grp] or D; the first is the reference
+m6-gate exit 1 Fri Nov  6 02:51:06 CET 2026
+
+=== raw/m6-gate.txt ===
+m6-gate start Fri Nov  6 02:51:47 CET 2026
+environment: no LLVQ_* or CANDLE_* variable
+binary  /Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/metal-nuit-3c4257/target/release/metalrun sha256 547def2c8dfc272c05304e6a53d9e06551ef44b3d6ca5c21a8d1be64091a35f9
+object  /Users/pjmalandrino/q4b-sealed-2026-09-23/qwen3-4b-sealed.bin sha256 886391a8c03f66dc269cc65c3598c6627dbdcd259180aff36604ef10d37371b8
+config  configs/qwen3-4b-tetra-e4.json sha256 098fe49c03c4b3f8893a0a0079ac2bcf34dd6d55c780c18df7c718470fb6bb4c
+served config: configs/qwen3-4b-tetra-e4.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention expanded on cat) — Qwen3-4B paper-2 object, sealed 2026-09-23: Tetra with dclm-edu calibration and trained row scales, v_proj + o_proj + down_proj@12-23 as int4 g128 records, the tied embedding stored int4 g64 in the file (qwen3-4b-sealed.bin). fuse is 0 because Tetra carries no segmented kernel, not because fusion was declined.
+machine Apple M3 Max | Note: No thermal warning level has been recorded | Note: No performance warning level has been recorded | Note: No CPU power status has been recorded
+load    GPU Some(28) % busy, other processes 10 % CPU
+arm lutd: loading with MetalTuning { q4_tile_cols: 2048, tetra_kernel: "tv_tetra48_metal_lutd", q4_prefetch: false }
+metal: tetra matvec tv_tetra48_metal_lutd | int4 84 records, 12 through tv_q4_metal_tiled at 2048 columns a tile, 72 untiled | int4 row loop served
+embedding: q4 g64 (metalrun), 1 table (model.embed_tokens.weight, lm_head tied on it), 218.8 MB on the card (int4 194.5 + scales/biases 24.3)
+total expected on the device: 1.38 GB (projections 1.16 + carried 0.22)
+arm lutd         loaded in   2.2 s | host count 1.377 GB | 1.377 GB of weights a token | attention expanded on cat
+arm lutd+grp: loading with MetalTuning { q4_tile_cols: 2048, tetra_kernel: "tv_tetra48_metal_lutd", q4_prefetch: false }
+metal: tetra matvec tv_tetra48_metal_lutd | int4 84 records, 12 through tv_q4_metal_tiled at 2048 columns a tile, 72 untiled | int4 row loop served
+embedding: q4 g64 (metalrun), 1 table (model.embed_tokens.weight, lm_head tied on it), 218.8 MB on the card (int4 194.5 + scales/biases 24.3)
+total expected on the device: 1.38 GB (projections 1.16 + carried 0.22)
+arm lutd+grp     loaded in   2.2 s | host count 1.377 GB | 1.377 GB of weights a token | attention grouped on grow(256)
+arm lutd+ker: loading with MetalTuning { q4_tile_cols: 2048, tetra_kernel: "tv_tetra48_metal_lutd", q4_prefetch: false }
+metal: tetra matvec tv_tetra48_metal_lutd | int4 84 records, 12 through tv_q4_metal_tiled at 2048 columns a tile, 72 untiled | int4 row loop served
+embedding: q4 g64 (metalrun), 1 table (model.embed_tokens.weight, lm_head tied on it), 218.8 MB on the card (int4 194.5 + scales/biases 24.3)
+total expected on the device: 1.38 GB (projections 1.16 + carried 0.22)
+arm lutd+ker: attn_dec.metal compiled and checked against the CPU replay, bit for bit
+arm lutd+ker     loaded in   2.3 s | host count 1.377 GB | 1.377 GB of weights a token | attention kernel on grow(256)
+bit gate: arm lutd+grp against lutd: 253 of 253 records equal bit for bit
+bit gate: arm lutd+ker against lutd: 253 of 253 records equal bit for bit
+m6-gate exit 0 Fri Nov  6 02:51:59 CET 2026
+
+=== raw/m6-s1.txt ===
+m6-s1 start Fri Nov  6 02:51:59 CET 2026
+environment: no LLVQ_* or CANDLE_* variable
+binary  /Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/metal-nuit-3c4257/target/release/metalrun sha256 547def2c8dfc272c05304e6a53d9e06551ef44b3d6ca5c21a8d1be64091a35f9
+object  /Users/pjmalandrino/q4b-sealed-2026-09-23/qwen3-4b-sealed.bin sha256 886391a8c03f66dc269cc65c3598c6627dbdcd259180aff36604ef10d37371b8
+config  configs/qwen3-4b-tetra-e4.json sha256 098fe49c03c4b3f8893a0a0079ac2bcf34dd6d55c780c18df7c718470fb6bb4c
+served config: configs/qwen3-4b-tetra-e4.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention expanded on cat) — Qwen3-4B paper-2 object, sealed 2026-09-23: Tetra with dclm-edu calibration and trained row scales, v_proj + o_proj + down_proj@12-23 as int4 g128 records, the tied embedding stored int4 g64 in the file (qwen3-4b-sealed.bin). fuse is 0 because Tetra carries no segmented kernel, not because fusion was declined.
+machine Apple M3 Max | Note: No thermal warning level has been recorded | Note: No performance warning level has been recorded | Note: No CPU power status has been recorded
+load    GPU Some(34) % busy, other processes 20 % CPU
+arm lutd+grp: loading with MetalTuning { q4_tile_cols: 2048, tetra_kernel: "tv_tetra48_metal_lutd", q4_prefetch: false }
+metal: tetra matvec tv_tetra48_metal_lutd | int4 84 records, 12 through tv_q4_metal_tiled at 2048 columns a tile, 72 untiled | int4 row loop served
+embedding: q4 g64 (metalrun), 1 table (model.embed_tokens.weight, lm_head tied on it), 218.8 MB on the card (int4 194.5 + scales/biases 24.3)
+total expected on the device: 1.38 GB (projections 1.16 + carried 0.22)
+arm lutd+grp     loaded in   2.2 s | host count 1.377 GB | 1.377 GB of weights a token | attention grouped on grow(256)
+arm lutd+ker: loading with MetalTuning { q4_tile_cols: 2048, tetra_kernel: "tv_tetra48_metal_lutd", q4_prefetch: false }
+metal: tetra matvec tv_tetra48_metal_lutd | int4 84 records, 12 through tv_q4_metal_tiled at 2048 columns a tile, 72 untiled | int4 row loop served
+embedding: q4 g64 (metalrun), 1 table (model.embed_tokens.weight, lm_head tied on it), 218.8 MB on the card (int4 194.5 + scales/biases 24.3)
+total expected on the device: 1.38 GB (projections 1.16 + carried 0.22)
+arm lutd+ker: attn_dec.metal compiled and checked against the CPU replay, bit for bit
+arm lutd+ker     loaded in   2.3 s | host count 1.377 GB | 1.377 GB of weights a token | attention kernel on grow(256)
+bit gate: arm lutd+ker against lutd+grp: 253 of 253 records equal bit for bit
+prompt "The capital of France is" = [785, 6722, 315, 9625, 374]; 256 new tokens; 2 discarded + 7 timed rounds; order lutd+grp lutd+ker
+round 0 (discarded) arm lutd+grp     door   59.89 tok/s | decode   60.63 tok/s | first token   68.9 ms | others 29 % CPU
+round 0 (discarded) arm lutd+ker     door   51.20 tok/s | decode   51.72 tok/s | first token   69.9 ms | others 67 % CPU
+round 1 (discarded) arm lutd+grp     door   60.06 tok/s | decode   60.83 tok/s | first token   70.7 ms | others 19 % CPU
+round 1 (discarded) arm lutd+ker     door   51.05 tok/s | decode   51.60 tok/s | first token   72.6 ms | others 74 % CPU
+round 2 arm lutd+grp     door   60.02 tok/s | decode   60.76 tok/s | first token   68.5 ms | others 48 % CPU
+round 2 arm lutd+ker     door   51.16 tok/s | decode   51.71 tok/s | first token   72.0 ms | others 27 % CPU
+round 3 arm lutd+grp     door   59.88 tok/s | decode   60.59 tok/s | first token   66.7 ms | others 59 % CPU
+round 3 arm lutd+ker     door   51.25 tok/s | decode   51.80 tok/s | first token   72.4 ms | others 24 % CPU
+round 4 arm lutd+grp     door   59.66 tok/s | decode   60.39 tok/s | first token   67.9 ms | others 63 % CPU
+round 4 arm lutd+ker     door   51.35 tok/s | decode   51.91 tok/s | first token   72.3 ms | others 18 % CPU
+round 5 arm lutd+grp     door   59.40 tok/s | decode   60.16 tok/s | first token   70.9 ms | others 65 % CPU
+round 5 arm lutd+ker     door   51.41 tok/s | decode   51.96 tok/s | first token   72.3 ms | others 46 % CPU
+round 6 arm lutd+grp     door   57.20 tok/s | decode   57.89 tok/s | first token   70.7 ms | others 64 % CPU
+round 6 arm lutd+ker     door   49.62 tok/s | decode   50.17 tok/s | first token   75.9 ms | others 64 % CPU
+round 7 arm lutd+grp     door   55.52 tok/s | decode   56.18 tok/s | first token   72.4 ms | others 16 % CPU
+round 7 arm lutd+ker     door   48.89 tok/s | decode   49.38 tok/s | first token   72.2 ms | others 66 % CPU
+round 8 arm lutd+grp     door   55.79 tok/s | decode   56.48 tok/s | first token   73.3 ms | others 53 % CPU
+round 8 arm lutd+ker     door   49.04 tok/s | decode   49.58 tok/s | first token   76.9 ms | others 29 % CPU
+--- medians over 7 timed rounds [min-max], niced, measured on this Mac
+arm lutd+grp     door   59.40 tok/s [55.52-60.02] | decode   60.16 tok/s [56.18-60.76] | 16.62 ms a decode token | 82.8 GB/s of weights (computed)
+arm lutd+ker     door   51.16 tok/s [48.89-51.41] | decode   51.71 tok/s [49.38-51.96] | 19.34 ms a decode token | 71.2 GB/s of weights (computed)
+ratio lutd+ker     / lutd+grp: door x0.865 [0.852-0.881] | decode x0.864 [0.851-0.879], round by round
+tokens lutd+ker     against lutd+grp: the same 256 tokens
+tokens of lutd+grp: sha256 d2267d6b6c7c89977cda988327b09395a73ae2491f952fcf40f226fc46fbc41d (u32 little-endian)
+text of lutd+grp: " Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of Proofreading: The capital of France is Paris. The capital of"
+other processes, worst sample between arms: 74 % CPU
+end     Note: No thermal warning level has been recorded | Note: No performance warning level has been recorded | Note: No CPU power status has been recorded | GPU Some(98) % busy
+m6-s1 exit 0 Fri Nov  6 02:53:33 CET 2026
+
+=== raw/m6-s2.txt ===
+m6-s2 start Fri Nov  6 02:53:33 CET 2026
+environment: no LLVQ_* or CANDLE_* variable
+binary  /Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/metal-nuit-3c4257/target/release/metalrun sha256 547def2c8dfc272c05304e6a53d9e06551ef44b3d6ca5c21a8d1be64091a35f9
+object  /Users/pjmalandrino/q4b-sealed-2026-09-23/qwen3-4b-sealed.bin sha256 886391a8c03f66dc269cc65c3598c6627dbdcd259180aff36604ef10d37371b8
+config  configs/qwen3-4b-tetra-e4.json sha256 098fe49c03c4b3f8893a0a0079ac2bcf34dd6d55c780c18df7c718470fb6bb4c
+served config: configs/qwen3-4b-tetra-e4.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention expanded on cat) — Qwen3-4B paper-2 object, sealed 2026-09-23: Tetra with dclm-edu calibration and trained row scales, v_proj + o_proj + down_proj@12-23 as int4 g128 records, the tied embedding stored int4 g64 in the file (qwen3-4b-sealed.bin). fuse is 0 because Tetra carries no segmented kernel, not because fusion was declined.
+machine Apple M3 Max | Note: No thermal warning level has been recorded | Note: No performance warning level has been recorded | Note: No CPU power status has been recorded
+load    GPU Some(29) % busy, other processes 58 % CPU
+arm lutd+grp: loading with MetalTuning { q4_tile_cols: 2048, tetra_kernel: "tv_tetra48_metal_lutd", q4_prefetch: false }
+metal: tetra matvec tv_tetra48_metal_lutd | int4 84 records, 12 through tv_q4_metal_tiled at 2048 columns a tile, 72 untiled | int4 row loop served
+embedding: q4 g64 (metalrun), 1 table (model.embed_tokens.weight, lm_head tied on it), 218.8 MB on the card (int4 194.5 + scales/biases 24.3)
+total expected on the device: 1.38 GB (projections 1.16 + carried 0.22)
+arm lutd+grp     loaded in   2.3 s | host count 1.377 GB | 1.377 GB of weights a token | attention grouped on grow(256)
+arm lutd+ker: loading with MetalTuning { q4_tile_cols: 2048, tetra_kernel: "tv_tetra48_metal_lutd", q4_prefetch: false }
+metal: tetra matvec tv_tetra48_metal_lutd | int4 84 records, 12 through tv_q4_metal_tiled at 2048 columns a tile, 72 untiled | int4 row loop served
+embedding: q4 g64 (metalrun), 1 table (model.embed_tokens.weight, lm_head tied on it), 218.8 MB on the card (int4 194.5 + scales/biases 24.3)
+total expected on the device: 1.38 GB (projections 1.16 + carried 0.22)
+arm lutd+ker: attn_dec.metal compiled and checked against the CPU replay, bit for bit
+arm lutd+ker     loaded in   2.4 s | host count 1.377 GB | 1.377 GB of weights a token | attention kernel on grow(256)
+bit gate: arm lutd+ker against lutd+grp: 253 of 253 records equal bit for bit
+prompt: the first 2048 tokens of the WikiText-2 test split, sha256 942f9f56dff7c8d099cda59e3439e87bf9646019220263793e333a4724d8e44d
+prompt 2048 tokens; 64 new tokens; 2 discarded + 5 timed rounds; order lutd+grp lutd+ker
+round 0 (discarded) arm lutd+grp     door    2.28 tok/s | decode   47.73 tok/s | first token 26808.9 ms | others 81 % CPU
+round 0 (discarded) arm lutd+ker     door    2.16 tok/s | decode   47.73 tok/s | first token 28317.9 ms | others 68 % CPU
+round 1 (discarded) arm lutd+grp     door    2.29 tok/s | decode   48.26 tok/s | first token 26631.6 ms | others 18 % CPU
+round 1 (discarded) arm lutd+ker     door    2.14 tok/s | decode   46.48 tok/s | first token 28593.5 ms | others 22 % CPU
+round 2 arm lutd+grp     door    2.08 tok/s | decode   46.07 tok/s | first token 29407.4 ms | others 48 % CPU
+round 2 arm lutd+ker     door    1.85 tok/s | decode   39.05 tok/s | first token 32960.8 ms | others 72 % CPU
+round 3 arm lutd+grp     door    1.80 tok/s | decode   37.61 tok/s | first token 33908.7 ms | others 70 % CPU
+round 3 arm lutd+ker     door    1.66 tok/s | decode   36.73 tok/s | first token 36949.1 ms | others 68 % CPU
+round 4 arm lutd+grp     door    1.78 tok/s | decode   40.71 tok/s | first token 34320.1 ms | others 72 % CPU
+round 4 arm lutd+ker     door    1.80 tok/s | decode   41.95 tok/s | first token 33996.1 ms | others 60 % CPU
+round 5 arm lutd+grp     door    1.93 tok/s | decode   43.43 tok/s | first token 31783.2 ms | others 67 % CPU
+round 5 arm lutd+ker     door    1.87 tok/s | decode   41.55 tok/s | first token 32662.0 ms | others 77 % CPU
+round 6 arm lutd+grp     door    1.98 tok/s | decode   43.42 tok/s | first token 30820.9 ms | others 68 % CPU
+round 6 arm lutd+ker     door    1.91 tok/s | decode   42.30 tok/s | first token 31958.6 ms | others 76 % CPU
+--- medians over 5 timed rounds [min-max], niced, measured on this Mac
+arm lutd+grp     door    1.93 tok/s [1.78-2.08] | decode   43.42 tok/s [37.61-46.07] | 23.03 ms a decode token | 59.8 GB/s of weights (computed)
+arm lutd+ker     door    1.85 tok/s [1.66-1.91] | decode   41.55 tok/s [36.73-42.30] | 24.07 ms a decode token | 57.2 GB/s of weights (computed)
+ratio lutd+ker     / lutd+grp: door x0.965 [0.890-1.010] | decode x0.974 [0.848-1.030], round by round
+tokens lutd+ker     against lutd+grp: the same 64 tokens
+tokens of lutd+grp: sha256 367f17932ae5b16e40a0239caa48d6ad89035c9a0a2cff506ffcc6e465fee753 (u32 little-endian)
+text of lutd+grp: " have been a student of the Confucian classics . He was also a student of the Daoist and Buddhist schools of thought . He was also a student of the martial arts . He was also a student of the music and poetry of the Han dynasty . He was also a student of the poetry of the Tang dynasty ."
+other processes, worst sample between arms: 81 % CPU
+end     Note: No thermal warning level has been recorded | Note: No performance warning level has been recorded | Note: No CPU power status has been recorded | GPU Some(99) % busy
+m6-s2 exit 0 Fri Nov  6 03:01:23 CET 2026
+
+=== raw/m6-s3.txt ===
+m6-s3 start Fri Nov  6 03:01:23 CET 2026
+environment: no LLVQ_* or CANDLE_* variable
+binary  /Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/metal-nuit-3c4257/target/release/metalrun sha256 547def2c8dfc272c05304e6a53d9e06551ef44b3d6ca5c21a8d1be64091a35f9
+object  /Users/pjmalandrino/q4b-sealed-2026-09-23/qwen3-4b-sealed.bin sha256 886391a8c03f66dc269cc65c3598c6627dbdcd259180aff36604ef10d37371b8
+config  configs/qwen3-4b-tetra-e4.json sha256 098fe49c03c4b3f8893a0a0079ac2bcf34dd6d55c780c18df7c718470fb6bb4c
+served config: configs/qwen3-4b-tetra-e4.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention expanded on cat) — Qwen3-4B paper-2 object, sealed 2026-09-23: Tetra with dclm-edu calibration and trained row scales, v_proj + o_proj + down_proj@12-23 as int4 g128 records, the tied embedding stored int4 g64 in the file (qwen3-4b-sealed.bin). fuse is 0 because Tetra carries no segmented kernel, not because fusion was declined.
+machine Apple M3 Max | Note: No thermal warning level has been recorded | Note: No performance warning level has been recorded | Note: No CPU power status has been recorded
+load    GPU Some(30) % busy, other processes 56 % CPU
+arm lutd+grp: loading with MetalTuning { q4_tile_cols: 2048, tetra_kernel: "tv_tetra48_metal_lutd", q4_prefetch: false }
+metal: tetra matvec tv_tetra48_metal_lutd | int4 84 records, 12 through tv_q4_metal_tiled at 2048 columns a tile, 72 untiled | int4 row loop served
+embedding: q4 g64 (metalrun), 1 table (model.embed_tokens.weight, lm_head tied on it), 218.8 MB on the card (int4 194.5 + scales/biases 24.3)
+total expected on the device: 1.38 GB (projections 1.16 + carried 0.22)
+arm lutd+grp     loaded in   2.2 s | host count 1.377 GB | 1.377 GB of weights a token | attention grouped on grow(256)
+arm lutd+ker: loading with MetalTuning { q4_tile_cols: 2048, tetra_kernel: "tv_tetra48_metal_lutd", q4_prefetch: false }
+metal: tetra matvec tv_tetra48_metal_lutd | int4 84 records, 12 through tv_q4_metal_tiled at 2048 columns a tile, 72 untiled | int4 row loop served
+embedding: q4 g64 (metalrun), 1 table (model.embed_tokens.weight, lm_head tied on it), 218.8 MB on the card (int4 194.5 + scales/biases 24.3)
+total expected on the device: 1.38 GB (projections 1.16 + carried 0.22)
+arm lutd+ker: attn_dec.metal compiled and checked against the CPU replay, bit for bit
+arm lutd+ker     loaded in   2.3 s | host count 1.377 GB | 1.377 GB of weights a token | attention kernel on grow(256)
+bit gate: arm lutd+ker against lutd+grp: 253 of 253 records equal bit for bit
+prompt: the first 4096 tokens of the WikiText-2 test split, sha256 04e38430c7007541a5c73f7f55f5c38021e1b507cf955c2762653b3d974a67fa
+prompt 4096 tokens; 64 new tokens; 2 discarded + 5 timed rounds; order lutd+grp lutd+ker
+round 0 (discarded) arm lutd+grp     door    1.01 tok/s | decode   39.44 tok/s | first token 62032.0 ms | others 24 % CPU
+round 0 (discarded) arm lutd+ker     door    0.97 tok/s | decode   40.96 tok/s | first token 64209.4 ms | others 30 % CPU
+round 1 (discarded) arm lutd+grp     door    1.02 tok/s | decode   38.56 tok/s | first token 61147.5 ms | others 26 % CPU
+round 1 (discarded) arm lutd+ker     door    0.97 tok/s | decode   39.68 tok/s | first token 64185.8 ms | others 36 % CPU
+round 2 arm lutd+grp     door    1.00 tok/s | decode   37.98 tok/s | first token 62537.0 ms | others 63 % CPU
+round 2 arm lutd+ker     door    0.93 tok/s | decode   39.35 tok/s | first token 66888.2 ms | others 17 % CPU
+round 3 arm lutd+grp     door    0.97 tok/s | decode   37.54 tok/s | first token 64635.4 ms | others 47 % CPU
+round 3 arm lutd+ker     door    0.94 tok/s | decode   39.46 tok/s | first token 66839.6 ms | others 28 % CPU
+round 4 arm lutd+grp     door    0.98 tok/s | decode   36.55 tok/s | first token 63424.1 ms | others 63 % CPU
+round 4 arm lutd+ker     door    0.95 tok/s | decode   39.94 tok/s | first token 66030.1 ms | others 51 % CPU
+round 5 arm lutd+grp     door    0.99 tok/s | decode   37.23 tok/s | first token 63149.8 ms | others 20 % CPU
+round 5 arm lutd+ker     door    0.94 tok/s | decode   38.63 tok/s | first token 66216.9 ms | others 66 % CPU
+round 6 arm lutd+grp     door    0.98 tok/s | decode   38.28 tok/s | first token 63334.9 ms | others 45 % CPU
+round 6 arm lutd+ker     door    0.94 tok/s | decode   38.12 tok/s | first token 66213.1 ms | others 46 % CPU
+--- medians over 5 timed rounds [min-max], niced, measured on this Mac
+arm lutd+grp     door    0.98 tok/s [0.97-1.00] | decode   37.54 tok/s [36.55-38.28] | 26.64 ms a decode token | 51.7 GB/s of weights (computed)
+arm lutd+ker     door    0.94 tok/s [0.93-0.95] | decode   39.35 tok/s [38.12-39.94] | 25.41 ms a decode token | 54.2 GB/s of weights (computed)
+ratio lutd+ker     / lutd+grp: door x0.957 [0.937-0.969] | decode x1.037 [0.996-1.093], round by round
+tokens lutd+ker     against lutd+grp: the same 64 tokens
+tokens of lutd+grp: sha256 7cbd553b74b0d385f6b49c463af45b4f747b042796457b235f222bdc310eca18 (u32 little-endian)
+text of lutd+grp: " \" Do not be too greedy for power , do not be too proud of your achievements , do not be too self-centered , and do not be too self-righteous . \" He is often described as a moral man , a man of the people , and a man of the world . He is also described as a man"
+other processes, worst sample between arms: 66 % CPU
+end     Note: No thermal warning level has been recorded | Note: No performance warning level has been recorded | Note: No CPU power status has been recorded | GPU Some(99) % busy
+m6-s3 exit 0 Fri Nov  6 03:16:57 CET 2026
+
+=== raw/m6-t8.txt ===
+m6-t8 start Fri Nov  6 03:16:57 CET 2026
+environment: no LLVQ_* or CANDLE_* variable
+binary  /Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/metal-nuit-3c4257/target/release/metalrun sha256 547def2c8dfc272c05304e6a53d9e06551ef44b3d6ca5c21a8d1be64091a35f9
+object  /Users/pjmalandrino/q4b-sealed-2026-09-23/qwen3-4b-sealed.bin sha256 886391a8c03f66dc269cc65c3598c6627dbdcd259180aff36604ef10d37371b8
+config  configs/qwen3-4b-tetra-e4.json sha256 098fe49c03c4b3f8893a0a0079ac2bcf34dd6d55c780c18df7c718470fb6bb4c
+served config: configs/qwen3-4b-tetra-e4.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention expanded on cat) — Qwen3-4B paper-2 object, sealed 2026-09-23: Tetra with dclm-edu calibration and trained row scales, v_proj + o_proj + down_proj@12-23 as int4 g128 records, the tied embedding stored int4 g64 in the file (qwen3-4b-sealed.bin). fuse is 0 because Tetra carries no segmented kernel, not because fusion was declined.
+machine Apple M3 Max | Note: No thermal warning level has been recorded | Note: No performance warning level has been recorded | Note: No CPU power status has been recorded
+load    GPU Some(27) % busy, other processes 63 % CPU
+arm lutd: loading with MetalTuning { q4_tile_cols: 2048, tetra_kernel: "tv_tetra48_metal_lutd", q4_prefetch: false }
+metal: tetra matvec tv_tetra48_metal_lutd | int4 84 records, 12 through tv_q4_metal_tiled at 2048 columns a tile, 72 untiled | int4 row loop served
+embedding: q4 g64 (metalrun), 1 table (model.embed_tokens.weight, lm_head tied on it), 218.8 MB on the card (int4 194.5 + scales/biases 24.3)
+total expected on the device: 1.38 GB (projections 1.16 + carried 0.22)
+arm lutd         loaded in   2.2 s | host count 1.377 GB | 1.377 GB of weights a token | attention expanded on cat
+attn_dec.metal compiled and checked against the CPU replay, bit for bit; kernel from position 0
+ppl: wikitext2 test, 12 windows of 4096 from the start (299078 tokens in the split, span sha256 6b69a6ba6998ddda8d1f65406ac23b3e1bc09e0a693f8809d97f0ca7f4b38aab), kernel against grouped, decode path in lockstep; a TOLERANCE reading, never a served decision
+  window  1: ppl grouped 12.542946 kernel 12.539579, kernel / grouped - 1 = -0.0268 %, top-1 agreement 4086/4095, max |dlogit| 2.539e-1, 188 s elapsed
+  window  2: ppl grouped 18.210249 kernel 18.211040, kernel / grouped - 1 = +0.0043 %, top-1 agreement 4089/4095, max |dlogit| 1.836e-1, 382 s elapsed
+  window  3: ppl grouped 9.617751 kernel 9.621339, kernel / grouped - 1 = +0.0373 %, top-1 agreement 4088/4095, max |dlogit| 6.914e-1, 574 s elapsed
+  window  4: ppl grouped 7.631275 kernel 7.630305, kernel / grouped - 1 = -0.0127 %, top-1 agreement 4088/4095, max |dlogit| 1.430e0, 766 s elapsed
+  window  5: ppl grouped 14.010765 kernel 14.014541, kernel / grouped - 1 = +0.0270 %, top-1 agreement 4088/4095, max |dlogit| 3.750e-1, 958 s elapsed
+  window  6: ppl grouped 13.446688 kernel 13.453271, kernel / grouped - 1 = +0.0490 %, top-1 agreement 4076/4095, max |dlogit| 1.093e1, 1151 s elapsed
+  window  7: ppl grouped 13.508824 kernel 13.508251, kernel / grouped - 1 = -0.0042 %, top-1 agreement 4086/4095, max |dlogit| 3.145e0, 1343 s elapsed
+  window  8: ppl grouped 13.410889 kernel 13.410385, kernel / grouped - 1 = -0.0038 %, top-1 agreement 4084/4095, max |dlogit| 4.204e-1, 1537 s elapsed
+  window  9: ppl grouped 15.390806 kernel 15.391993, kernel / grouped - 1 = +0.0077 %, top-1 agreement 4088/4095, max |dlogit| 6.039e-1, 1730 s elapsed
+  window 10: ppl grouped 9.403293 kernel 9.402060, kernel / grouped - 1 = -0.0131 %, top-1 agreement 4087/4095, max |dlogit| 4.546e0, 1922 s elapsed
+  window 11: ppl grouped 14.426049 kernel 14.426352, kernel / grouped - 1 = +0.0021 %, top-1 agreement 4086/4095, max |dlogit| 4.453e-1, 2114 s elapsed
+  window 12: ppl grouped 13.160094 kernel 13.159451, kernel / grouped - 1 = -0.0049 %, top-1 agreement 4082/4095, max |dlogit| 2.535e0, 2306 s elapsed
+ppl over 12 windows: grouped 12.580769, kernel 12.581416, pooled kernel / grouped - 1 = +0.0051 %; per window median -0.0008 % [-0.0268 ; +0.0490]; top-1 agreement 49028/49140 = 99.772 %; max |dlogit| 1.093e1
+m6-t8 exit 0 Fri Nov  6 03:55:30 CET 2026
+
+=== scratchpad/mutants.log ===
+=== mutation run 2026-11-05 22:07:52 on c4b529c
+Q1 tiled: xs origin, '- c0' dropped: KILLED | q4_tiled_matches_served: rc 101 [('FAILED', '3', '5')] failed ['tiled_equals_served_where_both_run', 'every_tile_gives_the_same_bits_at_17408', 'tiled_equals_the_host_reference_past_the_wall', 'the_tiles_do_not_race_under_repetition']
+Q2 tiled: last tile not clamped: KILLED | q4_tiled_matches_served: rc 101 [('FAILED', '7', '1')] failed ['tiled_equals_served_where_both_run']
+Q3 tiled: first barrier removed (race): KILLED | q4_tiled_matches_served: rc 101 [('FAILED', '3', '5')] failed ['every_tile_gives_the_same_bits_at_17408', 'tiled_equals_served_where_both_run', 'the_tiled_kernel_gives_the_same_numbers_with_fast_math_either_way', 'tiled_equals_the_host_reference_past_the_wall']
+Q4 tiled: second barrier removed (race): KILLED | q4_tiled_matches_served: rc 101 [('FAILED', '3', '5')] failed ['tiled_equals_served_where_both_run', 'every_tile_gives_the_same_bits_at_17408', 'the_tiled_kernel_gives_the_same_numbers_with_fast_math_either_way', 'tiled_equals_the_host_reference_past_the_wall']
+Q5 tiled: lane stride 31: KILLED | q4_tiled_matches_served: rc 101 [('FAILED', '3', '5')] failed ['tiled_equals_served_where_both_run', 'every_tile_gives_the_same_bits_at_17408', 'tiled_equals_the_host_reference_past_the_wall', 'the_tiles_do_not_race_under_repetition']
+Q6 tiled: every tile restarts at word 0: KILLED | q4_tiled_matches_served: rc 101 [('FAILED', '6', '2')] failed ['every_tile_gives_the_same_bits_at_17408', 'tiled_equals_the_host_reference_past_the_wall']
+P1 untiled_p: next word at wi + 31: KILLED | q4_tiled_matches_served: rc 101 [('FAILED', '7', '1')] failed ['the_prefetching_untiled_twin_returns_the_served_bits']
+P2 untiled_p: next pair from word wi's group: KILLED | q4_tiled_matches_served: rc 101 [('FAILED', '7', '1')] failed ['the_prefetching_untiled_twin_returns_the_served_bits']
+P3 tiled_p: '- c0' dropped: KILLED | q4_tiled_matches_served: rc 101 [('FAILED', '6', '2')] failed ['the_prefetching_tiled_twin_returns_the_served_bits', 'the_tiles_do_not_race_under_repetition']
+P4 tiled_p: first barrier removed (race): KILLED | q4_tiled_matches_served: rc 101 [('FAILED', '6', '2')] failed ['the_prefetching_tiled_twin_returns_the_served_bits', 'the_tiles_do_not_race_under_repetition']
+P5 tiled_p: first word of the lane at lane + 1: KILLED | q4_tiled_matches_served: rc 101 [('FAILED', '6', '2')] failed ['the_prefetching_tiled_twin_returns_the_served_bits', 'the_tiles_do_not_race_under_repetition']
+R1 lutp: next block at j + 33: KILLED | tetra48_metal_rows: rc 101 [('FAILED', '1', '4')] failed ['the_staged_twin_holds_at_tiles_32_and_256', 'the_twins_return_the_served_bits_at_d_in_2560', 'the_twins_return_the_served_bits_at_d_in_9728', 'the_twins_return_the_served_bits_at_the_loop_edges']
+R2 lutp: second barrier removed (race): KILLED | tetra48_metal_rows: rc 101 [('FAILED', '1', '4')] failed ['the_twins_return_the_served_bits_at_d_in_2560', 'the_twins_return_the_served_bits_at_d_in_9728', 'the_staged_twin_holds_at_tiles_32_and_256', 'the_twins_return_the_served_bits_at_the_loop_edges']
+R3 lutp: first barrier removed (race): KILLED | tetra48_metal_rows: rc 101 [('FAILED', '2', '3')] failed ['the_twins_return_the_served_bits_at_d_in_2560', 'the_twins_return_the_served_bits_at_d_in_9728', 'the_staged_twin_holds_at_tiles_32_and_256']
+R4 lutd: activation of block j + 1: KILLED | tetra48_metal_rows: rc 101 [('FAILED', '1', '4')] failed ['the_twins_return_the_served_bits_at_the_loop_edges', 'the_twins_return_the_served_bits_at_d_in_2560', 'the_staged_twin_holds_at_tiles_32_and_256', 'the_twins_return_the_served_bits_at_d_in_9728']
+R5 lutdp: first block of the lane at lane + 1: KILLED | tetra48_metal_rows: rc 101 [('FAILED', '1', '4')] failed ['the_twins_return_the_served_bits_at_the_loop_edges', 'the_twins_return_the_served_bits_at_d_in_2560', 'the_staged_twin_holds_at_tiles_32_and_256', 'the_twins_return_the_served_bits_at_d_in_9728']
+R6 dot_dev: gain bit read from bit 14: KILLED | tetra48_metal_rows: rc 101 [('FAILED', '1', '4')] failed ['the_twins_return_the_served_bits_at_the_loop_edges', 'the_twins_return_the_served_bits_at_d_in_2560', 'the_staged_twin_holds_at_tiles_32_and_256', 'the_twins_return_the_served_bits_at_d_in_9728']
+R7 epilogue: rscale fma split in two roundings: KILLED | tetra48_metal_rows: rc 101 [('FAILED', '1', '4')] failed ['the_twins_return_the_served_bits_at_d_in_9728', 'the_twins_return_the_served_bits_at_d_in_2560', 'the_staged_twin_holds_at_tiles_32_and_256', 'the_twins_return_the_served_bits_at_the_loop_edges']
+H1 host: every int4 record routed to the tiled kernel: KILLED | q4_metal_candle: rc 101 [('FAILED', '1', '1')] failed ['the_binding_routes_and_matches_at_six_widths']
+H2 host: tile multiple-of-256 check dropped: KILLED | q4_metal_candle: rc 101 [('FAILED', '1', '1')] failed ['the_binding_refuses_by_name']; tetra48_metal_rows: rc 101 [('FAILED', '4', '1')] failed ['a_bad_tuning_is_refused_by_name']
+H3 host: group-count check dropped: KILLED | q4_metal_candle: rc 101 [('FAILED', '1', '1')] failed ['the_binding_refuses_by_name']
+H4 host: prefetch flag ignored (served int4 kernels always): KILLED | q4_metal_candle: rc 101 [('FAILED', '1', '1')] failed ['the_binding_routes_and_matches_at_six_widths']
+H5 host: tuning kernel not applied: KILLED | tetra48_metal_rows: rc 101 [('FAILED', '1', '4')] failed ['the_twins_return_the_served_bits_at_d_in_2560', 'the_twins_return_the_served_bits_at_the_loop_edges', 'the_staged_twin_holds_at_tiles_32_and_256', 'the_twins_return_the_served_bits_at_d_in_9728']
+=== end
+=== mutation run 2026-11-05 23:11:52 on aebe662
+R8 lutd_rows: rows strided by 1 word: KILLED | tetra48_metal_rows: rc 101 [('FAILED', '1', '5')] failed ['a_multi_row_twin_refuses_a_partial_threadgroup', 'the_twins_return_the_served_bits_at_d_in_2560', 'the_twins_return_the_served_bits_at_the_loop_edges', 'the_staged_twin_holds_at_tiles_32_and_256']
+R9 lutd4: rows of a simdgroup at stride 2: KILLED | tetra48_metal_rows: rc 101 [('FAILED', '2', '4')] failed ['the_twins_return_the_served_bits_at_the_loop_edges', 'the_twins_return_the_served_bits_at_d_in_2560', 'the_staged_twin_holds_at_tiles_32_and_256', 'the_twins_return_the_served_bits_at_d_in_9728']
+R10 lutd_rows: accumulators of rows 0 and 1 swapped in the epilogue: KILLED | tetra48_metal_rows: rc 101 [('FAILED', '1', '5')] failed ['a_multi_row_twin_refuses_a_partial_threadgroup', 'the_twins_return_the_served_bits_at_the_loop_edges', 'the_twins_return_the_served_bits_at_d_in_2560', 'the_staged_twin_holds_at_tiles_32_and_256']
+H6 host: multi-row grid at d_out simdgroups: KILLED | tetra48_metal_rows: rc 101 [('FAILED', '4', '2')] failed ['the_twins_return_the_served_bits_at_the_loop_edges', 'the_staged_twin_holds_at_tiles_32_and_256']
+=== end
+=== mutation run 2026-11-06 02:13:07 on dd9abe8
+A1 split: butterfly stage 1 dropped: KILLED | attn_metal: rc 101 [('FAILED', '0', '6')] failed ['kernel_for_builds_the_metal_kernel', 'repeated_calls_give_the_same_bits', 'long_contexts_match_the_replay', 'verify_rows_match_the_replay']
+A2 split: d without the carry: KILLED | attn_metal: rc 101 [('FAILED', '0', '6')] failed ['a_decode_row_matches_the_replay_across_every_boundary', 'verify_rows_match_the_replay', 'long_contexts_match_the_replay', 'another_head_geometry_matches_the_replay']
+A3 split: unit fold weights swapped: KILLED | attn_metal: rc 101 [('FAILED', '0', '6')] failed ['repeated_calls_give_the_same_bits', 'another_head_geometry_matches_the_replay', 'verify_rows_match_the_replay', 'kernel_for_builds_the_metal_kernel']
+A4 split: one position too many a tile: KILLED | attn_metal: rc 101 [('FAILED', '0', '6')] failed ['long_contexts_match_the_replay', 'a_decode_row_matches_the_replay_across_every_boundary', 'another_head_geometry_matches_the_replay', 'kernel_for_builds_the_metal_kernel']
+A5 split: units folded last to first: KILLED | attn_metal: rc 101 [('FAILED', '0', '6')] failed ['verify_rows_match_the_replay', 'repeated_calls_give_the_same_bits', 'a_decode_row_matches_the_replay_across_every_boundary', 'kernel_for_builds_the_metal_kernel']
+A6 merge: splits merged with fa and fb swapped: KILLED | attn_metal: rc 101 [('FAILED', '0', '6')] failed ['repeated_calls_give_the_same_bits', 'kernel_for_builds_the_metal_kernel', 'a_decode_row_matches_the_replay_across_every_boundary', 'verify_rows_match_the_replay']
+A7 f2h: ties rounded up: KILLED | attn_metal: rc 101 [('FAILED', '0', '6')] failed ['verify_rows_match_the_replay', 'long_contexts_match_the_replay', 'repeated_calls_give_the_same_bits', 'another_head_geometry_matches_the_replay']
+A8 ex2: last fma constant 1 dropped: KILLED | attn_metal: rc 101 [('FAILED', '0', '6')] failed ['long_contexts_match_the_replay', 'a_decode_row_matches_the_replay_across_every_boundary', 'repeated_calls_give_the_same_bits', 'another_head_geometry_matches_the_replay']
+A9 host: K head stride taken as len * 128: KILLED | attn_metal: rc 101 [('FAILED', '0', '6')] failed ['another_head_geometry_matches_the_replay', 'repeated_calls_give_the_same_bits', 'verify_rows_match_the_replay', 'kernel_for_builds_the_metal_kernel']
+A10 host: merge barrier-free reuse, rows of the merge grid halved: KILLED | attn_metal: rc 101 [('FAILED', '0', '6')] failed ['a_decode_row_matches_the_replay_across_every_boundary', 'verify_rows_match_the_replay', 'long_contexts_match_the_replay', 'kernel_for_builds_the_metal_kernel']
 === end
 

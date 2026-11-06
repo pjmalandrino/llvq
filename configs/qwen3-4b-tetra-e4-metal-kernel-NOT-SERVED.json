@@ -1,0 +1,9 @@
+{
+  "layout": "tetra48",
+  "embed": "q4",
+  "rot_share": "1",
+  "fuse": "0",
+  "kv": "f16",
+  "attention": "kernel",
+  "note": "NOT SERVED. A Metal measurement config, written on 2026-11-06 for the operator to test: the sealed Qwen3-4B (qwen3-4b-sealed.bin) under the kernel attention form on the eager engine, so decode rows at position 1,280 and later go to kernels/attn_dec.metal and rows below run the grouped arithmetic, which on Metal is bit for bit the expanded form's (metal-nuit-2026-11-06, M5). The kernel returns the canonical replay's bits (tests/attn_metal.rs); against the grouped form it read +0.0051 % of WikiText-2 perplexity over 12 windows of 4,096, every window inside +-0.12 %, from position 0 (M6 T8), and x0.974 at 2,048 and x1.037 at 4,096 in decode speed, same tokens. served.rs refuses the form on Metal by name, so only bin/metalrun loads it, through Served::apply_measurement. Serving it on Metal is the operator's decision."
+}
