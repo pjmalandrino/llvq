@@ -1,0 +1,1973 @@
+{
+  "components": {
+    "schemas": {
+      "AssistantMessage": {
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "reasoning": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "role": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "content"
+        ],
+        "type": "object"
+      },
+      "ChatChoice": {
+        "properties": {
+          "finish_reason": {
+            "type": "string"
+          },
+          "index": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "message": {
+            "$ref": "#/components/schemas/AssistantMessage"
+          }
+        },
+        "required": [
+          "index",
+          "message",
+          "finish_reason"
+        ],
+        "type": "object"
+      },
+      "ChatCompletion": {
+        "properties": {
+          "choices": {
+            "items": {
+              "$ref": "#/components/schemas/ChatChoice"
+            },
+            "type": "array"
+          },
+          "created": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "id": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "object": {
+            "type": "string"
+          },
+          "system_fingerprint": {
+            "type": "string"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/Usage"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "created",
+          "model",
+          "system_fingerprint",
+          "choices",
+          "usage"
+        ],
+        "type": "object"
+      },
+      "ChatCompletionRequest": {
+        "allOf": [
+          {
+            "description": "Every other field: ignored, and listed in `warnings`.",
+            "type": "object"
+          },
+          {
+            "properties": {
+              "max_completion_tokens": {
+                "format": "int64",
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "max_tokens": {
+                "format": "int64",
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "messages": {
+                "items": {
+                  "$ref": "#/components/schemas/OaiMessage"
+                },
+                "type": "array"
+              },
+              "model": {
+                "type": "string"
+              },
+              "n": {
+                "format": "int32",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "reasoning_effort": {
+                "description": "Absent or `\"none\"`: no reasoning; any other level turns it on.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "response_format": {
+                "type": [
+                  "object",
+                  "null"
+                ]
+              },
+              "seed": {
+                "format": "int64",
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "stop": {
+                "type": [
+                  "object",
+                  "null"
+                ]
+              },
+              "stream": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "stream_options": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/StreamOptions"
+                  }
+                ]
+              },
+              "temperature": {
+                "format": "float",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "tools": {
+                "items": {
+                  "type": "object"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "top_p": {
+                "format": "float",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "model",
+              "messages"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ChatMessage": {
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "images": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "role": {
+            "description": "`system`, `user` or `assistant`.",
+            "type": "string"
+          },
+          "thinking": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tool_calls": {
+            "items": {
+              "type": "object"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "role",
+          "content"
+        ],
+        "type": "object"
+      },
+      "ChatRequest": {
+        "properties": {
+          "format": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "keep_alive": {
+            "description": "Seconds, or a duration such as `\"5m\"`; negative keeps the model loaded.",
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "logprobs": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/ChatMessage"
+            },
+            "type": "array"
+          },
+          "model": {
+            "type": "string"
+          },
+          "options": {
+            "description": "`temperature`, `top_p`, `seed`, `num_predict`, `stop` and `num_ctx`\nare read; any other option is listed in `warnings` and ignored.",
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "stream": {
+            "description": "Default true.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "think": {
+            "description": "true, false or a level name; default off.",
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "tools": {
+            "items": {
+              "type": "object"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "top_logprobs": {
+            "format": "int32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "model",
+          "messages"
+        ],
+        "type": "object"
+      },
+      "ChatResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/DoneFields"
+          },
+          {
+            "properties": {
+              "created_at": {
+                "type": "string"
+              },
+              "done": {
+                "type": "boolean"
+              },
+              "message": {
+                "$ref": "#/components/schemas/ChatMessage"
+              },
+              "model": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "model",
+              "created_at",
+              "message",
+              "done"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "Completion": {
+        "properties": {
+          "choices": {
+            "items": {
+              "$ref": "#/components/schemas/CompletionChoice"
+            },
+            "type": "array"
+          },
+          "created": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "id": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "object": {
+            "type": "string"
+          },
+          "system_fingerprint": {
+            "type": "string"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/Usage"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "created",
+          "model",
+          "system_fingerprint",
+          "choices",
+          "usage"
+        ],
+        "type": "object"
+      },
+      "CompletionChoice": {
+        "properties": {
+          "finish_reason": {
+            "type": "string"
+          },
+          "index": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "logprobs": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "index",
+          "text",
+          "finish_reason"
+        ],
+        "type": "object"
+      },
+      "CompletionRequest": {
+        "allOf": [
+          {
+            "type": "object"
+          },
+          {
+            "properties": {
+              "max_tokens": {
+                "format": "int64",
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "model": {
+                "type": "string"
+              },
+              "n": {
+                "format": "int32",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "prompt": {
+                "description": "A string, or an array of one string.",
+                "type": "object"
+              },
+              "seed": {
+                "format": "int64",
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "stop": {
+                "type": [
+                  "object",
+                  "null"
+                ]
+              },
+              "stream": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "stream_options": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/StreamOptions"
+                  }
+                ]
+              },
+              "suffix": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "temperature": {
+                "format": "float",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "top_p": {
+                "format": "float",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "model",
+              "prompt"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "CopyRequest": {
+        "properties": {
+          "destination": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "destination"
+        ],
+        "type": "object"
+      },
+      "DeleteRequest": {
+        "properties": {
+          "model": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "model"
+        ],
+        "type": "object"
+      },
+      "Details": {
+        "properties": {
+          "families": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "family": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string"
+          },
+          "parameter_size": {
+            "type": "string"
+          },
+          "parent_model": {
+            "type": "string"
+          },
+          "quantization_level": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "parent_model",
+          "format",
+          "family",
+          "families",
+          "parameter_size",
+          "quantization_level"
+        ],
+        "type": "object"
+      },
+      "DoneFields": {
+        "description": "The timings and counts of the last chunk, in nanoseconds.",
+        "properties": {
+          "done_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "eval_count": {
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "eval_duration": {
+            "format": "int64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "load_duration": {
+            "format": "int64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "prompt_eval_cached_count": {
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "prompt_eval_count": {
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "prompt_eval_duration": {
+            "format": "int64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "total_duration": {
+            "format": "int64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "warnings": {
+            "description": "Options and fields llvq ignored.",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "ErrorResponse": {
+        "properties": {
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "type": "object"
+      },
+      "GenerateRequest": {
+        "properties": {
+          "context": {
+            "description": "Deprecated in Ollama; ignored.",
+            "items": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "format": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "images": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "keep_alive": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "logprobs": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "model": {
+            "type": "string"
+          },
+          "options": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "prompt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "raw": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "stream": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "suffix": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "system": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "template": {
+            "description": "A custom template is not applied: Qwen3's is built from ids.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "think": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "top_logprobs": {
+            "format": "int32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "model"
+        ],
+        "type": "object"
+      },
+      "GenerateResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/DoneFields"
+          },
+          {
+            "properties": {
+              "created_at": {
+                "type": "string"
+              },
+              "done": {
+                "type": "boolean"
+              },
+              "model": {
+                "type": "string"
+              },
+              "response": {
+                "type": "string"
+              },
+              "thinking": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "model",
+              "created_at",
+              "response",
+              "done"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ListResponse": {
+        "properties": {
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/ModelSummary"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "models"
+        ],
+        "type": "object"
+      },
+      "ModelList": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/ModelObject"
+            },
+            "type": "array"
+          },
+          "object": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "object",
+          "data"
+        ],
+        "type": "object"
+      },
+      "ModelObject": {
+        "properties": {
+          "created": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "id": {
+            "type": "string"
+          },
+          "object": {
+            "type": "string"
+          },
+          "owned_by": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "created",
+          "owned_by"
+        ],
+        "type": "object"
+      },
+      "ModelSummary": {
+        "properties": {
+          "details": {
+            "$ref": "#/components/schemas/Details"
+          },
+          "digest": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "modified_at": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "size": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "model",
+          "modified_at",
+          "size",
+          "digest",
+          "details"
+        ],
+        "type": "object"
+      },
+      "OaiError": {
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/OaiErrorBody"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "type": "object"
+      },
+      "OaiErrorBody": {
+        "properties": {
+          "code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "param": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "message",
+          "type"
+        ],
+        "type": "object"
+      },
+      "OaiMessage": {
+        "properties": {
+          "content": {
+            "description": "A string, an array of `{\"type\": \"text\", \"text\": ...}` parts, or null.",
+            "type": "object"
+          },
+          "role": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "role"
+        ],
+        "type": "object"
+      },
+      "PsResponse": {
+        "properties": {
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/RunningModel"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "models"
+        ],
+        "type": "object"
+      },
+      "PullRequest": {
+        "properties": {
+          "insecure": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "model": {
+            "type": "string"
+          },
+          "stream": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "model"
+        ],
+        "type": "object"
+      },
+      "RunningLlvq": {
+        "description": "What llvq adds to a running model.",
+        "properties": {
+          "backend": {
+            "description": "`cuda`, `metal` or `dense-cpu`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "busy": {
+            "type": "boolean"
+          },
+          "config": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error": {
+            "description": "Why the load failed.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "queue": {
+            "description": "Requests waiting behind the one running.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "state": {
+            "description": "`loading`, `ready` or `failed`.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "queue",
+          "busy"
+        ],
+        "type": "object"
+      },
+      "RunningModel": {
+        "properties": {
+          "context_length": {
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "details": {
+            "$ref": "#/components/schemas/Details"
+          },
+          "digest": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": "string"
+          },
+          "llvq": {
+            "$ref": "#/components/schemas/RunningLlvq"
+          },
+          "model": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "size": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "size_vram": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "model",
+          "size",
+          "digest",
+          "details",
+          "expires_at",
+          "size_vram",
+          "llvq"
+        ],
+        "type": "object"
+      },
+      "ShowLlvq": {
+        "properties": {
+          "backend": {
+            "description": "The backend this build serves with.",
+            "type": "string"
+          },
+          "bits_per_param": {
+            "type": "string"
+          },
+          "config_cuda": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "config_metal": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "file": {
+            "type": "string"
+          },
+          "repo": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "repo",
+          "revision",
+          "file",
+          "sha256",
+          "bits_per_param",
+          "backend"
+        ],
+        "type": "object"
+      },
+      "ShowRequest": {
+        "properties": {
+          "model": {
+            "type": "string"
+          },
+          "verbose": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "model"
+        ],
+        "type": "object"
+      },
+      "ShowResponse": {
+        "properties": {
+          "capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "details": {
+            "$ref": "#/components/schemas/Details"
+          },
+          "llvq": {
+            "$ref": "#/components/schemas/ShowLlvq"
+          },
+          "model_info": {
+            "type": "object"
+          },
+          "modelfile": {
+            "type": "string"
+          },
+          "modified_at": {
+            "type": "string"
+          },
+          "parameters": {
+            "type": "string"
+          },
+          "template": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "modelfile",
+          "parameters",
+          "template",
+          "details",
+          "model_info",
+          "capabilities",
+          "modified_at",
+          "llvq"
+        ],
+        "type": "object"
+      },
+      "StatusEvent": {
+        "properties": {
+          "completed": {
+            "format": "int64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "digest": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string"
+          },
+          "total": {
+            "format": "int64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "StreamOptions": {
+        "properties": {
+          "include_usage": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "Usage": {
+        "properties": {
+          "completion_tokens": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "prompt_tokens": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "total_tokens": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "prompt_tokens",
+          "completion_tokens",
+          "total_tokens"
+        ],
+        "type": "object"
+      },
+      "VersionResponse": {
+        "properties": {
+          "commit": {
+            "description": "The commit the binary was built from.",
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "commit"
+        ],
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "Ollama's native API and OpenAI's chat format over the sealed LLVQ files. Generated from the handlers; llvq-runtime/openapi.json is its committed copy.",
+    "license": {
+      "name": "MIT OR Apache-2.0"
+    },
+    "title": "llvq",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/": {
+      "get": {
+        "operationId": "index",
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {}
+            },
+            "description": "The chat page"
+          }
+        },
+        "summary": "A chat page in the browser, on `/api/chat`.",
+        "tags": [
+          "llvq"
+        ]
+      }
+    },
+    "/api/blobs/{digest}": {
+      "head": {
+        "operationId": "blob_head",
+        "parameters": [
+          {
+            "description": "sha256:<hex>",
+            "in": "path",
+            "name": "digest",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "not served"
+        ]
+      },
+      "post": {
+        "operationId": "blob_post",
+        "parameters": [
+          {
+            "description": "sha256:<hex>",
+            "in": "path",
+            "name": "digest",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "not served"
+        ]
+      }
+    },
+    "/api/chat": {
+      "post": {
+        "operationId": "chat",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatResponse"
+                }
+              }
+            },
+            "description": "NDJSON of ChatResponse, or one when stream is false"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "summary": "A chat turn: the whole history in, the answer streamed out.",
+        "tags": [
+          "ollama"
+        ]
+      }
+    },
+    "/api/copy": {
+      "post": {
+        "operationId": "copy",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CopyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "summary": "A second name on the same blob.",
+        "tags": [
+          "ollama"
+        ]
+      }
+    },
+    "/api/create": {
+      "post": {
+        "operationId": "create",
+        "responses": {
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "not served"
+        ]
+      }
+    },
+    "/api/delete": {
+      "delete": {
+        "operationId": "delete",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "summary": "Remove a model, and its blob when no other name holds it.",
+        "tags": [
+          "ollama"
+        ]
+      }
+    },
+    "/api/embed": {
+      "post": {
+        "operationId": "embed",
+        "responses": {
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "not served"
+        ]
+      }
+    },
+    "/api/embeddings": {
+      "post": {
+        "operationId": "embeddings",
+        "responses": {
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "not served"
+        ]
+      }
+    },
+    "/api/generate": {
+      "post": {
+        "operationId": "generate",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenerateResponse"
+                }
+              }
+            },
+            "description": "NDJSON of GenerateResponse, or one when stream is false"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "summary": "A completion of one prompt, through the template or raw.",
+        "tags": [
+          "ollama"
+        ]
+      }
+    },
+    "/api/ps": {
+      "get": {
+        "operationId": "ps",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PsResponse"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "summary": "The loaded models, their backend, config and queue.",
+        "tags": [
+          "ollama"
+        ]
+      }
+    },
+    "/api/pull": {
+      "post": {
+        "operationId": "pull",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PullRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusEvent"
+                }
+              }
+            },
+            "description": "NDJSON of StatusEvent, or one when stream is false"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "summary": "Download a model of the library at its pinned revision, check its size and\nsha256, and register it.",
+        "tags": [
+          "ollama"
+        ]
+      }
+    },
+    "/api/push": {
+      "post": {
+        "operationId": "push",
+        "responses": {
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "not served"
+        ]
+      }
+    },
+    "/api/show": {
+      "post": {
+        "operationId": "show",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShowRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShowResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "summary": "A model's manifest, details and served config.",
+        "tags": [
+          "ollama"
+        ]
+      }
+    },
+    "/api/tags": {
+      "get": {
+        "operationId": "tags",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponse"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "summary": "The models in the store.",
+        "tags": [
+          "ollama"
+        ]
+      }
+    },
+    "/api/version": {
+      "get": {
+        "operationId": "version",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionResponse"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "summary": "The runtime's version and the commit it was built from.",
+        "tags": [
+          "ollama"
+        ]
+      }
+    },
+    "/openapi.json": {
+      "get": {
+        "operationId": "openapi_json",
+        "responses": {
+          "200": {
+            "description": "OpenAPI 3.1"
+          }
+        },
+        "summary": "The OpenAPI 3.1 document of this server.",
+        "tags": [
+          "llvq"
+        ]
+      }
+    },
+    "/v1/chat/completions": {
+      "post": {
+        "operationId": "chat_completions",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatCompletionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatCompletion"
+                }
+              }
+            },
+            "description": "ChatCompletion, or server-sent chunks ending in data: [DONE] when stream is true"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OaiError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OaiError"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "summary": "A chat completion, OpenAI's shape.",
+        "tags": [
+          "openai"
+        ]
+      }
+    },
+    "/v1/completions": {
+      "post": {
+        "operationId": "completions",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompletionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Completion"
+                }
+              }
+            },
+            "description": "Completion, or server-sent chunks ending in data: [DONE] when stream is true"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OaiError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OaiError"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "summary": "A text completion, OpenAI's shape. The prompt goes through Qwen3's\ntemplate as a user turn, as Ollama's compatibility layer sends it.",
+        "tags": [
+          "openai"
+        ]
+      }
+    },
+    "/v1/embeddings": {
+      "post": {
+        "operationId": "embeddings",
+        "responses": {
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OaiError"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "not served"
+        ]
+      }
+    },
+    "/v1/models": {
+      "get": {
+        "operationId": "models",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelList"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "summary": "The models in the store, OpenAI's shape.",
+        "tags": [
+          "openai"
+        ]
+      }
+    },
+    "/v1/models/{model}": {
+      "get": {
+        "operationId": "model",
+        "parameters": [
+          {
+            "description": "name:tag",
+            "in": "path",
+            "name": "model",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelObject"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OaiError"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "summary": "One model, OpenAI's shape.",
+        "tags": [
+          "openai"
+        ]
+      }
+    },
+    "/v1/responses": {
+      "post": {
+        "operationId": "responses",
+        "responses": {
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OaiError"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "not served"
+        ]
+      }
+    }
+  },
+  "servers": [
+    {
+      "description": "llvq serve",
+      "url": "http://127.0.0.1:11435"
+    }
+  ]
+}

@@ -1,0 +1,53 @@
+{
+  "note": "The models `llvq pull` knows. Each entry pins a Hub commit, a file, its size and its full sha256, read on the Hub on 2026-11-06 and equal to configs/README.md. The three repositories are frozen because paper 2 cites them. `configs` names the served config per backend; the files are compiled into the binary from configs/.",
+  "models": [
+    {
+      "name": "qwen3",
+      "tag": "4b",
+      "aliases": ["latest"],
+      "repo": "Pier-Jean/Qwen3-4B-LLVQ-Tetra-sealed",
+      "revision": "58e96ba3cb815d447725b5c27567614644640be1",
+      "file": "qwen3-4b-sealed.bin",
+      "size": 1418224685,
+      "sha256": "886391a8c03f66dc269cc65c3598c6627dbdcd259180aff36604ef10d37371b8",
+      "parameter_size": "4B",
+      "bits_per_param": "2.7320",
+      "configs": {
+        "cuda": "qwen3-4b-tetra-e4-4e-v4.json",
+        "metal": "qwen3-4b-tetra-e4.json"
+      }
+    },
+    {
+      "name": "qwen3",
+      "tag": "8b",
+      "aliases": [],
+      "repo": "Pier-Jean/Qwen3-8B-LLVQ-Tetra-sealed",
+      "revision": "2a6c85db4c5c0bb2dcec51f1e84cd735ed5d77dc",
+      "file": "qwen3-8b-sealed-B.bin",
+      "size": 2815098745,
+      "sha256": "7bdb9a5503518081b1f652a93215250898caae5cc1b6a2f33ee9fb6094565c13",
+      "parameter_size": "8B",
+      "bits_per_param": "2.6953",
+      "configs": {
+        "cuda": "qwen3-8b-tetra-e4-grouped.json",
+        "metal": "qwen3-8b-tetra-e4.json"
+      }
+    },
+    {
+      "name": "qwen3",
+      "tag": "14b",
+      "aliases": [],
+      "repo": "Pier-Jean/Qwen3-14B-LLVQ-Tetra-sealed",
+      "revision": "64fd81f7b19ac0d82b275e509354f94a3e4e0d98",
+      "file": "qwen3-14b-sealed.bin",
+      "size": 5087000541,
+      "sha256": "61db37fe7ce8e6a57c5c59f257319c796574981ecb5e450a02c73dd3c17e2ca0",
+      "parameter_size": "14B",
+      "bits_per_param": "2.7305",
+      "configs": {
+        "cuda": "qwen3-14b-tetra-e4-grouped.json",
+        "metal": "qwen3-14b-tetra-e4.json"
+      }
+    }
+  ]
+}

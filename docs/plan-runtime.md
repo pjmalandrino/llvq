@@ -5,6 +5,47 @@ every platform the engine supports. The API also speaks OpenAI's chat format, is
 and streams. Nothing is run until the operator gives a go on each stage (rule 1). Stages R0 to R4 and R6 cost 0 $ and
 run on the Mac. R5 needs one card.
 
+## State
+
+R0 to R4 are written, in the crate `llvq-runtime` and in `llvq_llm::session`. Every gate that needs no card passes.
+The gates that load a real model on Metal or CUDA have not run.
+
+| stage | state | what passed | what is open |
+|---|---|---|---|
+| R0 | written | the sealed 4B registered from a local copy reads sha256 `886391a8…`, hard-linked into the store; a mutated digest is refused and leaves no manifest, no blob and no partial file (`tests/pull.rs`, fake Hub on 127.0.0.1); an interrupted pull resumes with a range request | a pull of the 4B from the Hub, 1.42 GB |
+| R1 | written | the `Session` loop feeds what the old REPL loop fed, same answers and same cache, under the `Cat` and `Grow` stores, greedy and sampled; a stateless two-turn replay gives the stateful ids; the `repl` tests pass unchanged (`llvq-llm/tests/session.rs`) | `bin/chat` before and after the move on Metal, `LLVQ_CHAT_IDS=1` |
+| R2 | written | a greedy `/api/chat` streams the ids of a direct `Session` run; a stateless second turn reads only its 15 new tokens; a client that leaves frees the engine; the contract test against Ollama's `openapi.yaml` at `6362e0a3` passes; the official `ollama` 0.6.1 client streams a chat unmodified | the same on the fused 4B on Metal |
+| R3 | written | the official `openai` 2.8.1 client streams a chat unmodified and reads the `/api/chat` text; the committed `openapi.json` equals the generated one, and a plain `.route()` fails a test | none on the CPU |
+| R4 | written | `ls`, `show`, `cp`, `rm`, `ps`, `stop` against a running server and on the store alone | the scripted session with a real model: pull, run one prompt, list, stop, remove |
+| R5 | not started | | needs a go, under 1 $ (*estimated*) |
+| R6 | not started | | |
+
+The runtime decodes slower than the served Metal path it wraps, and the cause is not found. On the M3 Max on
+2026-11-06 evening, greedy answers of 64 to 256 tokens through `/api/chat` ran at 21 to 24 tok/s, the runtime's own
+rate and not a measurement, against 50.9 tok/s for the same config in `bin/metalrun` (*measured*,
+[metal-nuit](mesures/metal-nuit-2026-11-06.txt)). The same afternoon, one 32-token answer ran at 52.9. The sampling
+temperature, the reasoning and the browser were ruled out. The next step is `bin/chat` and the runtime on one prompt,
+at the same minute.
+
+The CPU gates run on a tiny deterministic Qwen3 behind the real server (`llvq-runtime/tests/common`). Its stop tokens
+have zero embeddings under a tied head, so a greedy answer runs to its cap, which is what times a cancelled answer.
+The route tests mutate three places before passing: the segment memo, the cancel on a gone client, a required field.
+
+Six points of the design were settled in the code.
+
+- The cache is cut back with `KvCache::truncate`, not `set_len`. `set_len` moves the count of the `Grow` store only.
+- A chat request reuses the cache through a memo of the last conversation's segments. An assistant message whose role
+  and text match the memo is rendered with the ids the model wrote, not by re-encoding its text. Without it, the
+  second turn re-reads the last answer, since a byte-level BPE does not encode a decoded text back to the same ids.
+- Under D2, the default temperature is 0 when the served config decodes with 4E, and 0.7 otherwise. Only an explicit
+  temperature above 0 is refused under 4E.
+- `llvq pull <model> --from <file>` registers a local copy with the same size and sha256 checks, with no network.
+- `GET /` serves a chat page, one HTML file compiled into the binary, on `/api/chat`, `/api/tags`, `/api/ps` and
+  `/api/pull`: model menu, reasoning shown then folded, edit and regenerate, the conversation kept in the browser. Its
+  last version was checked on the real 4B on Metal for the welcome screen only; its JavaScript passes a syntax check.
+- A stop string ends the answer where it starts and leaves the cache mid-message. The next request re-reads from the
+  last message boundary.
+
 ## Why
 
 Today a stranger who wants to talk to a sealed file needs the repository, `cargo`, the right feature flags and a
@@ -192,6 +233,8 @@ Before any commit that touches `llvq-llm` (R1), the full suite runs in release w
 `CLAUDE.md`). `cargo clippy --all-targets` stays at zero warnings at every stage.
 
 ## Decisions for the operator
+
+The code runs each decision as proposed below until the operator rules. Each one is a single place to change.
 
 - **D1. Names.** Binary `llvq`, crate `llvq-runtime`, tags `qwen3:4b`, `qwen3:8b`, `qwen3:14b`, with `latest` on the
   4B. The default port is proposed at 11435: 11434 is the port Ollama's examples use, and both servers may run on one

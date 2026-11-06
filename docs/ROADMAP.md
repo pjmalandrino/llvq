@@ -170,7 +170,7 @@ short context the Rust step reads 70 GB/s of weights of the M3 Max's 340 (*compu
 | whether the Metal door serves the grouped form, bit for bit on 12 windows of 4,096 (M5 of [metal-nuit](mesures/metal-nuit-2026-11-06.txt)) | refused; `configs/qwen3-4b-tetra-e4-metal-grouped-NOT-SERVED.json` waits |
 | whether Metal serves fused kernels under the ±0.12 % band or only bit for bit ([`plan-metal-v2.md`](plan-metal-v2.md) §6) | nothing served on Metal |
 | serving 4E v6 against its missed gate, which needs a served-door reading | v4 stays served |
-| the Ollama-style runtime `llvq`, stages R0 to R6 and decisions D1 to D7 of [`plan-runtime.md`](plan-runtime.md) | not started |
+| the Ollama-style runtime `llvq`, stages R0 to R6 and decisions D1 to D7 of [`plan-runtime.md`](plan-runtime.md) | R0 to R4 written, CPU gates pass; the Metal gates, R5 and R6 wait for a go, and D1 to D7 run as proposed until the operator rules |
 
 Rule 1 applies to every row: no run starts or stops, and no structural decision is taken, without an explicit go, with
 the cost announced before and the running total after.

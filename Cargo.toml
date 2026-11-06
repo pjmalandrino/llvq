@@ -9,6 +9,7 @@ members = [
     "llvq-metal",
     "llvq-cuda",
     "llvq-llm",
+    "llvq-runtime",
 ]
 
 [workspace.package]

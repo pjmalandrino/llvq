@@ -21,6 +21,7 @@ pub mod boundary;
 pub mod calib;
 pub mod chatfmt;
 pub mod repl;
+pub mod session;
 pub mod corpus;
 pub mod device;
 pub mod digest;
