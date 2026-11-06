@@ -56,3 +56,17 @@ of 5.9 to 6.1 ms (`blocks` minus the full sequence), and each matvec class's GB/
 The instrument is fixed in the commit after M7's (outputs freed at every layer in every config, an untimed full pass
 before each reading, three passes a reading, the config order turned by one each round) and rerun under M7b, stamped
 before its run.
+
+## É7. M7b's marginals are still negative: the class-removal split does not work on this machine
+
+M7b ran at 12:15 with the fixed instrument. Gates 1 to 3 held; gate 4 failed (norm -3.31 ms, int4.down -1.58, sum of
+marginals -5.38 ms against a sequence of 9.62). Taking a class out of the replay makes the rest slower, with outputs
+freed every layer, a warm pass and the order turned, so the cause is not the sink. The likeliest one is the GPU clock
+following the load: a lighter sequence lets it drop. Not tested. Per M7b's gate 4, the marginal column is not used;
+the next lever was chosen on the remainder (6.3 ms) and on the alone GB/s, and then on M8's prefill reading.
+
+## É8. M8 ran with other applications open
+
+M8 §2 asks for a quiet machine. Builds were stopped 15 minutes before; Activity Monitor and Battle.net were open, and
+other processes read 79 to 218 % CPU between S1's arms. The arms are interleaved round by round, so the ratios carry
+the load on both sides; the absolute rates are a little low against M2's (54.1 tok/s for `lutd` here, 52.1 at M2).

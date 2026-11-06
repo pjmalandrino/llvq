@@ -1013,3 +1013,50 @@ A9 host: K head stride taken as len * 128: KILLED | attn_metal: rc 101 [('FAILED
 A10 host: merge barrier-free reuse, rows of the merge grid halved: KILLED | attn_metal: rc 101 [('FAILED', '0', '6')] failed ['a_decode_row_matches_the_replay_across_every_boundary', 'verify_rows_match_the_replay', 'long_contexts_match_the_replay', 'kernel_for_builds_the_metal_kernel']
 === end
 
+
+=== M7b, 2026-11-06 12:15, prereg proofs/preregistration-metal-m7b-2026-11-06.md, binary ccb7c07c (pinned copy)
+Off protocol by design (closed by a synchronize, never a rate). Raw logs: P1 lutd, P2 lut.
+Gates 1-3 held: same 64 tokens; sequence 9.616 ms (P1) and 9.960 (P2) under blocks 15.928 and 16.393; bytes
+Tetra 748.9 MB + int4 409.4 MB. Gate 4 FAILED: marginals still negative (norm -3.31, int4.down -1.58, act -0.86,
+resid -0.83 ms in P1; sum of marginals -5.38 ms against the sequence 9.62). The marginal column is unusable again
+(ECARTS E7). Used, per the prereg: the remainder and the alone GB/s.
+remainder (blocks minus sequence, attention, RoPE, q/k norms, cache, reshapes): 6.312 ms P1, 6.433 ms P2 (computed)
+alone, P1 lutd (ms | GB/s computed): norm 0.310 | rot 1.948 | tetra.q 1.347 74.0 | tetra.k 0.684 36.4 |
+  tetra.gate 2.651 89.3 | tetra.up 2.647 89.5 | tetra.down 1.681 89.7 | int4.v 0.614 81.7 | int4.o 1.121 178.9 |
+  int4.down 0.685 231.7 | act 0.287 | resid 0.268
+alone, P2 lut: tetra.gate 2.830 83.7, tetra.up 2.824 83.8, tetra.down 1.866 80.8, tetra.q 1.489 67.0
+Reading: the Tetra classes read 74-90 GB/s alone against 400 nominal, kernel-bound by the prereg's rule.
+Load at start: P1 other processes 154 % CPU (signpost_reporter 96 %), P2 36 %.
+=== mutation run 2026-11-06 10:46:05 on cfd2abb
+K1 q4_h: unfused multiply-add: KILLED | q4_metal_candle: rc 101 [('FAILED', '3', '1')] failed ['the_half_io_twins_return_the_served_bits_narrowed']
+K2 q4_h: staging reads one column late: KILLED | q4_metal_candle: rc 101 [('FAILED', '3', '1')] failed ['the_half_io_twins_return_the_served_bits_narrowed']
+K3 q4_tiled_h: staging ignores the tile offset: KILLED | q4_metal_candle: rc 101 [('FAILED', '3', '1')] failed ['the_half_io_twins_return_the_served_bits_narrowed']
+K4 q4_tiled_h: narrowed off by 1e-3: KILLED | q4_metal_candle: rc 101 [('FAILED', '3', '1')] failed ['the_half_io_twins_return_the_served_bits_narrowed']
+K5 epilogue_h: unfused scale and tail: KILLED | tetra48_metal_rows: rc 101 [('FAILED', '7', '1')] failed ['the_half_store_twins_return_the_served_bits_narrowed']
+K6 epilogue_h: tail dropped: KILLED | tetra48_metal_rows: rc 101 [('FAILED', '7', '1')] failed ['the_half_store_twins_return_the_served_bits_narrowed']
+K7 luth: staging one value late: KILLED | tetra48_metal_rows: rc 101 [('FAILED', '7', '1')] failed ['the_half_store_twins_return_the_served_bits_narrowed']
+K8 lutdh: activation one value late: KILLED | tetra48_metal_rows: rc 101 [('FAILED', '7', '1')] failed ['the_half_store_twins_return_the_served_bits_narrowed']
+H1 host: lutd's half twin is luth: KILLED | tetra48_metal_rows: rc 101 [('FAILED', '7', '1')] failed ['the_half_store_twins_return_the_served_bits_narrowed']
+H2 host: int4 half binding offset in f32 bytes: KILLED | q4_metal_candle: rc 101 [('FAILED', '3', '1')] failed ['the_half_io_twins_return_the_served_bits_narrowed']
+H3 host: half-io int4 still widens: KILLED | q4_metal_candle: rc 101 [('FAILED', '3', '1')] failed ['the_half_io_twins_return_the_served_bits_narrowed']
+H4 host: half twin given an f32 buffer: KILLED | tetra48_metal_rows: rc 101 [('FAILED', '7', '1')] failed ['the_half_store_twins_return_the_served_bits_narrowed']
+H5 host: half-io beside prefetch accepted: KILLED | tetra48_metal_rows: rc 101 [('FAILED', '7', '1')] failed ['half_io_refuses_what_it_cannot_serve']
+=== end
+
+=== M8, 2026-11-06 12:15-12:33, prereg proofs/preregistration-metal-m8-2026-11-06.md, binary c09b08c7 (pinned copy)
+G: lutd+h, lut+h, lutd+h+grp against lutd: 253 of 253 each.
+S1, 5-token prompt, 256 new, 7 timed rounds, measured, niced:
+  lutd     decode 54.10 tok/s [53.00-56.82]  18.49 ms a token
+  lutd+h   decode 54.41 tok/s [53.54-56.21]  18.38 ms
+  lut      decode 52.00 tok/s [51.32-52.93]  19.23 ms
+  lutd+h / lutd: decode x1.010 [0.966-1.013], round by round; lut / lutd x0.968 [0.907-0.972]
+  same 256 tokens on all three (sha256 d2267d6b...)
+S2, 4,096-token WikiText-2 prompt, 64 new, 5 timed rounds:
+  lutd+grp    decode 38.69 tok/s [38.58-39.49], first token about 60.5 s
+  lutd+h+grp  decode 39.06 tok/s [38.48-39.62]
+  lutd+h+grp / lutd+grp: decode x1.002 [0.991-1.021]; same 64 tokens (sha256 7cbd553b...)
+Verdict by the rule: both contexts straddle 1.000 with the median above, a wash; +h is retained (it moves no bit) and
+joins the bundle's new arm. Below the prediction (x1.03-1.10 at 5 tokens): 336 cast launches a token cost about
+0.1 ms, so on Metal the launch count is not the wall.
+Load: other processes 79-218 % CPU between arms in S1 (Activity Monitor and Battle.net open), 14-113 % in S2.
+Prefill: the 4,096-token prompt takes about 60 s on every arm, 68 tokens/s, near the decode rate. That is M9's target.
