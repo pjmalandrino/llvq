@@ -269,7 +269,10 @@ fn gate_rows(seed: u64, d_out: usize, nblocks: usize, tail_w: usize) {
     let dev = Device::new_metal(0).expect("a Metal device");
     let d_in = b.x.len();
     let mut rng = SplitMix64::new(seed ^ 0xA5A5);
-    let xs: Vec<f32> = (0..8 * d_in).map(|_| half::f16::from_f32(rng.next_gaussian() as f32).to_f32()).collect();
+    // Full f32, as the rotation kernel writes it: an f16-representable
+    // activation times a lattice value (an integer of at most 32) is exact in
+    // f32, which would hide an unfused multiply-add (mutant P4, 2026-11-06).
+    let xs: Vec<f32> = (0..8 * d_in).map(|_| rng.next_gaussian() as f32).collect();
     let want: Vec<Vec<u16>> = (0..8)
         .map(|r| {
             let xr = Tensor::from_slice(&xs[r * d_in..(r + 1) * d_in], (1, d_in), &dev).unwrap();
