@@ -16,3 +16,15 @@ the same order holds every round, as METHODE requires.
 The command chain that held M2 ran the off-protocol phased pass of `lutd` and then M3 after M2 stopped on É1. M2 ran
 after M3, on the same quiet machine. §3 step 6 says M3 runs "after M2"; it ran before it. M3 decides nothing (§5), and
 M2's reading does not depend on M3.
+
+## É3. Header times of the M4 and M5 preregs
+
+`preregistration-metal-nuit-m4-2026-11-06.md` says it was written "at 00:35"; its OpenTimestamps stamp was submitted
+at 00:34. `preregistration-metal-nuit-m5-2026-11-06.md` says "at about 01:30"; it was stamped at 01:16 and its run
+started at 01:16. Both headers state a time after the stamp; both stamps precede the first measurement of their run.
+Nothing else in either file is affected.
+
+## É4. M6 and the night's code after M1-M3
+
+The M6 prereg tests code written after the night prereg was stamped (the Metal attention kernel, commit `dd9abe8`, and
+`Served::apply_measurement`). It carries its own stamp; the night prereg's arms and verdicts are not reopened by it.

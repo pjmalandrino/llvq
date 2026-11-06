@@ -3,8 +3,11 @@
 The sealed 4B now runs fused on the Mac, at 50.9 tok/s against 7.8 for the dense path, and 52.1 with the one ported
 row loop that pays, all with the same 256 tokens (*measured*, M2 of the journal below). The fused path was refused at
 load before this branch. The other ports of the CUDA row loops lose on Metal or move nothing measurable. The grouped
-attention form is bit for bit on Metal and decodes x1.75 faster at 2,048 tokens of context and x2.38 at 4,096, with
-the same tokens (*measured*, M3 and M4); the Metal door still refuses it, and lifting that is the operator's call.
+attention form is bit for bit with the expanded one on Metal over 49,140 decode steps, and decodes x1.75 faster at
+2,048 tokens of context and x2.38 at 4,096, with the same tokens (*measured*, M4 and M5). The split-KV attention
+kernel now exists in MSL, bit for bit with the canonical replay, and reads x0.86 the grouped form at a short context
+and a wash at 2,048 and 4,096 (*measured*, M6). Both forms stay refused on the served Metal door: lifting that is
+the operator's call, and `configs/qwen3-4b-tetra-e4-metal-grouped-NOT-SERVED.json` is ready for it.
 
 Branch `claude/metal-nuit-3c4257`, cut from `integration/lot1` at `8c0673a`. Night of 2026-11-05 to 11-06, $0, all
 on the operator's M3 Max. Journal: [`mesures/metal-nuit-2026-11-06.txt`](mesures/metal-nuit-2026-11-06.txt).
@@ -33,15 +36,21 @@ What it must print, in order:
 - `ratio lutd / lut: … decode x1.025 [1.013-1.034]` or near it, and `ratio D / lut` near x0.154.
 - `tokens lutd against lut: the same 256 tokens` and `tokens D against lut: the same 256 tokens`.
 
-Optional, about 17 minutes: the grouped form at 4,096 tokens of context, against the expanded one, same tokens.
-It is a measurement arm, never served: `served.rs` refuses the form on Metal by name.
+Second command, about 25 minutes: the long context, where the attention work of the card pays. Three arms after the
+first 4,096 tokens of WikiText-2: expanded (`lutd`, before), grouped (`lutd+grp`, after) and the split-KV kernel
+(`lutd+ker`). The last two are measurement arms: `served.rs` refuses both forms on Metal by name.
 
 ```bash
-cd /Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/metal-nuit-3c4257 && nice -n 10 target/release/metalrun time ~/q4b-sealed-2026-09-23/qwen3-4b-sealed.bin configs/qwen3-4b-tetra-e4.json lutd,lutd+grp 64 5 4096
+cd /Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/metal-nuit-3c4257 && ops/metal-bench.sh --long
 ```
 
-Last night it read `ratio lutd+grp / lutd: … decode x2.380 [2.362-2.396]`, 37.6 against 15.8 tok/s, and `the same 64
-tokens`. The prefill of 4,096 tokens takes about 62 s on each arm: Metal prefills one row a launch.
+Last night's readings: `lutd` 15.8 tok/s, `lutd+grp` 37.5 to 37.6 (x2.380 [2.362-2.396] over `lutd`), `lutd+ker` 39.4
+(x1.037 [0.996-1.093] over `lutd+grp`), and `the same 64 tokens` on every arm (M4 and M6 of the journal). The prefill
+of 4,096 tokens takes about 62 s an arm: Metal prefills one row a launch.
+
+The NOT SERVED Metal config can be loaded the same way, with every arm then under the grouped form:
+`target/release/metalrun time ~/q4b-sealed-2026-09-23/qwen3-4b-sealed.bin configs/qwen3-4b-tetra-e4-metal-grouped-NOT-SERVED.json lut,lutd 256 7`
+prints `NOT SERVED on Metal, measured through Served::apply_measurement` first.
 
 The absolute rates move with the machine's thermals: M1 read F0 at 47.2 and M2 at 50.9 tok/s on the same binary an
 hour apart. The ratios formed round by round are what carries over. `metalrun` refuses to start if any `LLVQ_*` or
@@ -66,9 +75,9 @@ and refuses the served config by name.
 | 4E v6: loads issued before first use | `_lutd` (activation from device, no staging), `_lutdp` (both) | `_lutd` retained: x1.055 [1.006-1.087] in M1, x1.025 [1.013-1.034] in M2; `_lutdp` a wash, x1.004 |
 | 4E's int4 row loop with prefetch | `tv_q4_metal_p`, `tv_q4_metal_tiled_p` | wash: x1.003 [0.891-1.061] |
 | (Metal only) R rows a simdgroup, lane order kept | `_lutd2`, `_lutd4` | `_lutd2` a wash, x1.023 [0.972-1.107]; `_lutd4` refused, x0.916 |
-| grouped attention | the backend-free `grouped_attention`, a measurement arm in `metalrun` | bit for bit on Metal over 16,380 decode steps (M3); x0.999 at 5 tokens, x1.750 [1.599-1.997] at 2,048, x2.380 [2.362-2.396] at 4,096, same tokens (M4); still refused on the Metal door |
+| grouped attention | the backend-free `grouped_attention`; `metalrun` arm `+grp`; `configs/qwen3-4b-tetra-e4-metal-grouped-NOT-SERVED.json` | bit for bit with the expanded form on Metal over 49,140 decode steps of 12 windows of 4,096 (M5); x0.999 at 5 tokens, x1.750 [1.599-1.997] at 2,048, x2.380 [2.362-2.396] at 4,096, same tokens (M4); still refused on the served Metal door |
 | 4E itself: one launch a token | no Metal equivalent: no grid-wide barrier, no forward-progress guarantee | a candle launch costs 1.66 us in a dependent chain (*measured*): about 2 ms of a 19.7 ms token at 1,200 to 1,400 launches (*estimated* from the forward's ops) |
-| split-KV decode-attention kernel | not ported | §4 |
+| split-KV decode-attention kernel | `kernels/attn_dec.metal` + `attn_metal.rs`, two dispatches a layer, safe math; `metalrun` arm `+ker`, from position 0 | bit for bit with the canonical replay (`attn_ref.rs`), hence the card kernel, up to 4,096 positions; against the grouped form: x0.864 [0.851-0.879] at 5 tokens, x0.974 [0.848-1.030] at 2,048, x1.037 [0.996-1.093] at 4,096, same tokens (M6); T8 band: T8_STATUS |
 
 ## 3. What was built, and how it is held
 
@@ -77,13 +86,16 @@ and loads what it loaded before, plus the tiled route for the records it used to
 
 | piece | where | how it is held |
 |---|---|---|
+| split-KV attention kernel | `kernels/attn_dec.metal`, `src/attn_metal.rs`, `attn::kernel_for` on Metal | `llvq-llm/tests/attn_metal.rs` (6 tests: every boundary to 4,096, verify rows, another geometry, repetition); a self-check against the replay every time it is built; 10 mutants, 10 killed |
+| measurement door | `Served::apply_measurement`, used by `metalrun` only | `served_config` and `served_unit` tests; `Served::apply` and its refusals unchanged |
 | tiled int4 route | `fused_metal.rs`: `Q4_TILE_COLS`, `int4_tile_for`, `upload_int4_tiled`, `Int4Op::metal_fwd` | `llvq-metal/tests/q4_tiled_matches_served.rs` (8 tests: tiled = served, = host reference at 9,728, 12,288, 17,408, fast math either way, 16 repetitions); `llvq-llm/tests/q4_metal_candle.rs` (binding at six widths, offset activation, refusals) |
 | Tetra row-loop twins `_lutp`, `_lutd`, `_lutdp`, `_lutd2`, `_lutd4` | `kernels/llvq_tetra48_rows.metal`, compiled after the served unit as its own library | `llvq-llm/tests/tetra48_metal_rows.rs` (6 tests, against the served kernel and the CPU oracle at the 4B's shapes and the loop edges) |
 | int4 prefetching twins | `kernels/tv_q4_pf.metal`, same rule | in `q4_tiled_matches_served.rs` and `q4_metal_candle.rs` |
 | `MetalTuning`, `load_resolved_tuned`, `compiled_pipelines` | `fused_metal.rs` | the tests above; `compiled_pipelines` proves which kernel ran, since outputs cannot |
 | `metalrun` | `llvq-llm/src/bin/metalrun.rs` | its bit gate: every arm's 252 projections and head against the reference arm's on the real file, 253 of 253 for all nine fused arms |
 
-Mutation run: 27 mutants, 27 killed, among them the four barrier removals. `cargo clippy --all-targets`: zero
+Mutation runs: 37 mutants, 37 killed (27 in the matvec lot, among them the four barrier removals; 10 in the attention
+kernel). `cargo clippy --all-targets`: zero
 warnings. The Linux half was not type-checked: Docker was not running, and the cross `cargo check` stops in
 `openssl-sys`, a dependency of `hf-hub`. Every line this branch adds outside a test is under `cfg(target_os =
 "macos")` or in `metalrun`, whose non-Metal stub compiles on the Mac without the `metal` feature.
@@ -99,9 +111,9 @@ Ordered by what a step buys on a fundamental criterion (served tok/s on the Mac)
 | # | step | cost | gate | what it buys |
 |---|---|---|---|---|
 | 1 | Operator ruling: does a Mac reading answer ETAT §5's "consumer GPU" item, and is a Metal config served | 0 | operator | the wall lift becomes a served path on the Mac |
-| 2 | The grouped form on Metal: the 12-window design (`metalrun ppl <sealed> <config> lutd 4096 12`, about 52 min) to extend M3's bit identity, then an operator ruling and a Metal config with `attention: grouped` | 0.5 day, 1 h of machine | bit identity on 12 windows, or the ±0.12 % band; operator | x1.75 at 2,048 and x2.38 at 4,096 (M4), the largest Metal gain measured |
+| 2 | Operator ruling on the grouped form on Metal: bit identity on 12 windows is measured (M5), the config is written NOT SERVED. Lifting the refusal is a one-line change in `served.rs` `check_device` plus renaming the config | 0 | operator | x1.75 at 2,048 and x2.38 at 4,096 (M4), the largest Metal gain measured, at zero bit cost |
 | 3 | Rows kernel for the prefill (`mac.md` §3.3 b2): 256-row cap lifted, TTFT ×2-3 | 2-3 days | G-D bit for bit on 252 records, prereg for TTFT | long prompts and chat turns past 256 tokens on the fused Metal path; every long-context measurement below needs it |
-| 4 | Split-KV decode attention in MSL, after step 2 (`attn_dec.cu`, 508 lines, its arithmetic stated in `attn_ref.rs`) | 1.5-2 days | bit for bit against `attn_ref.rs` on the host, then a Metal T8 under the ±0.12 % band | the long-context decode: on the card it took 8,192 from 33 to 77 tok/s with the grouped form and further with the kernel |
+| 4 | The attention kernel's speed on Metal: it loses 14 % at a short context. A one-dispatch form (the combine fused into the split pass by an ordered fold, or a split count of one under 256 positions) and the CUDA kernel's 32-position staging | 1 day | bit for bit against `attn_ref.rs` (the arithmetic does not move), then the M6 arms | the kernel at least level with the grouped form at every length; at 8,192 untested on Metal |
 | 5 | f16 in and out of the matvecs: 336 conversion launches a token removed | 0.5 day | bit for bit (`half()` is RNE in MSL and in candle's cast) | probably little: 290 such launches removed on the q5 object changed nothing measurable (`5a75338`) |
 | 6 | Same-head ratio on Metal: an f16-head fused arm, and the dense head's per-token table copy (`model.rs` `broadcast_matmul`) | 0.5 day plus an operator ruling | rule 4 | the raw F0/D ratio gets its same-head companion |
 | 7 | The 8B and the 14B on the Mac | download 7.9 GB (operator), then 1 h | `metalrun gate`, then a prereg | the other two sealed files; the tiled int4 kernel already passes their d_in in the tests |
@@ -118,5 +130,6 @@ offers about 340. At a short context the next Metal lever is the Tetra kernel's 
 
 - Serving anything on Metal. No served config was changed. Which Metal arm becomes a served config is the operator's
   decision, as is whether a Mac reading answers the "consumer GPU" item of `ETAT.md` §5.
-- Lifting the Metal refusal of the grouped form. M3 read bit identity on 4 windows of 4,096; the 12-window design of
-  the L40S and the operator's ruling are step 2.
+- Lifting the Metal refusal of the grouped form or of the kernel form. M5 read the grouped form bit for bit on the
+  L40S's 12-window design; M6 read the kernel's band. The ruling is step 2.
+- GSM8K under either form on Metal, the card T8's second criterion: 1,319 problems did not fit in the night.

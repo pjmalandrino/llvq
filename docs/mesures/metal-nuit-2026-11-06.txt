@@ -119,6 +119,22 @@ rounds. Bit gate 253 of 253 at both lengths. Measured on this Mac.
   The expanded form loses 54 % of its 5-token rate at 4,096 (52.07 to 15.81 by the medians of M2 and M4b, computed);
   the grouped form loses 28 % (to 37.56).
 
+M5, the grouped form against the expanded one on Metal, the L40S's 12-window design (prereg
+proofs/preregistration-metal-nuit-m5-2026-11-06.md, stamped 2026-11-06 01:16, before its run at 01:16; binary
+a05c8ba7...). lutd's kernels, decode path in lockstep, the first 12 WikiText-2 test windows of 4,096 (span sha256
+6b69a6ba...aab). Measured on this Mac, 01:16 to 02:07.
+
+  windows 1 to 12: every window's two perplexities equal to the last printed digit, max |dlogit| 0.000e0 in each;
+  windows 1 to 4 read exactly as in M3 (12.542946, 18.210249, 9.617751, 7.631275).
+  pooled: expanded 12.580769, grouped 12.580769, +0.0000 %; top-1 agreement 49140/49140; max |dlogit| 0.000e0.
+  Prediction (bit identity on all 12, 50 to 60 min): inside, 51 min.
+  Rule of M5 section 3, row "Bit identity": the plan records the form as bit for bit on Metal at 12 windows, and a
+  NOT SERVED Metal config naming it is prepared: configs/qwen3-4b-tetra-e4-metal-grouped-NOT-SERVED.json.
+  The pooled 12.580769 is the expanded form's perplexity of the sealed 4B through the Metal kernels by the decode
+  path; ETAT's 12.58 is the card's dense reconstruction in f16, another engine (no ratio formed).
+
+M6_SECTION
+
 VERDICT
 -------
 Prereg section 5, row "Retained: gates 3 to 5 hold and the range of the ratio lies wholly above 1.000": lutd only.
