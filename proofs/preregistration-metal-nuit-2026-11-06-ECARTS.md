@@ -97,3 +97,10 @@ M14 §2 asks for nice 10 and, by the night's rule, a quiet machine. O1 and X1 ra
 their start. During O2 and X2 the GPU helpers of Brave and Zen were active (13.6 to 30 % CPU each); O2's decode
 swung from 41.0 to 16.4 tok/s round to round and X2 read 70 tok/s against 103 in the smoke run an hour earlier. The
 4,096 readings are kept in the journal and not used; the rule of §4 was applied on the clean 5-token pair.
+
+## É13. M15's gate 3 read the previous run's tail; three runs repeated
+
+Runs went back to back, and the GPU utilization counter still read 99 % at the start of X1, L2 and X2, from the run
+that had just ended (the same lag shows at every back-to-back start since M8). Gate 3 says to repeat such a run once:
+X1, L2 and X2 were repeated at once, each after waiting for the counter to read under 20 % (it read 0 %). Both
+readings are journaled; the repeats are the ones reported. They agree with the first runs within their ranges.

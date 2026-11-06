@@ -1178,3 +1178,27 @@ rotation in MLX ops, the int4 records and the int4 g64 embedding as MLX quantize
 Reading: the engine moves the long-context decode (MLX's attention barely grows with the cache) and nothing at short
 context, where the Tetra kernel is about 9 to 10 ms of a 15 ms token. The prefill and its peak memory need the
 dense-on-the-fly path (decode a layer's Tetra records to f16 for a chunk, then MLX's GEMM).
+
+=== M15, 2026-11-06 15:36-15:40, prereg proofs/preregistration-metal-m15-2026-11-06.md, code at 54ffa22
+Ours: ops/mlx_tetra/llvq_mlx.py on ~/q4b-hf-2026-09-28 (Tetra on MLX). Rival: ops/mlx_bar.py on mlx-community
+Qwen3-4B-4bit at 4dcb3d10. mlx 0.32.4. Gates 1 and 2 held. Gate 3: X1, L2 and X2 started on a GPU reading 99 %, the
+tail of the run before; all three were repeated after the GPU read 0 % (ECARTS E13). Measured, medians [min-max]:
+  L1 ours, 5-token prompt:  decode 81.59 tok/s [80.01-81.77], 12.26 ms a token, first token 50.8 ms, peak 1.50 GB
+  X1 rival (repeat):        decode 128.93 tok/s [128.33-129.21], 7.76 ms, first token 27.3 ms, peak 2.39 GB
+                            (first run: 129.15 [129.00-129.40])
+  L2 ours, 4,096 (repeat):  decode 59.42 tok/s [56.23-66.13], first token 3,486 ms [3,355-3,594], peak 2.99 GB
+                            (first run: decode 62.47 [60.14-66.66], first token 3,537 ms)
+  X2 rival (repeat):        decode 102.74 tok/s [99.59-103.21], first token 3,752 ms [3,572-3,777], peak 3.67 GB
+                            (first run: 104.16 [103.84-104.55], 3,662 ms)
+Bytes, computed: ours reads 1.377 GB of weights a token, 113 GB/s at L1; the rival 2.26 GB, about 290 GB/s at X1.
+b/param for the whole model with its tables: ours 2.7, the rival about 4.5.
+Tokens: L2's 64 tokens are the Rust engine's at the same prompt (7cbd553b, M8 to M14). At 5 tokens ours leaves the
+"Paris. The capital of France is" cycle at token 243 (b4f07db4), and the Rust engine at another token (d2267d6b, not
+the pure cycle 065cc390 either): a near tie in a degenerate repetition, inside the M6 tolerance.
+Predictions: every one held (L1 74-84, X1 115-130, L2 decode 55-70, L2 first token 2.9-3.8 s, L2 peak 2.8-3.3 GB,
+X2 90-110, X2 first token 2.9-5.0 s).
+Verdict by the rule: L1 at 75 tok/s or more and L2's prompt under 5 s, so the MLX path becomes the bundle's Metal path
+(its form waits for the operator). Against the Rust Metal path of this morning (M8, M10, M14): decode at 5 tokens
+65.5 to 81.6 tok/s, prompt of 4,096 tokens 31.5 s to 3.5 s, decode at 4,096 about 40 to 59-62 tok/s.
+Open: our decode loses 4.6 ms a token from 5 to 4,096 positions where the rival loses 1.9 with the same attention
+kernel, and its range at 4,096 is wide (56 to 66). Not explained yet.

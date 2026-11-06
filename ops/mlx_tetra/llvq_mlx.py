@@ -25,6 +25,7 @@ another rotation arithmetic); the gate is the tokens and the M6 band.
 
     uv run ops/mlx_tetra/llvq_mlx.py <packed_dir> gen [n_new=64] [prompt_tokens=0]
     uv run ops/mlx_tetra/llvq_mlx.py <packed_dir> time <n_new> <timed_rounds> [prompt_tokens=0]
+    uv run ops/mlx_tetra/llvq_mlx.py <packed_dir> chat [temp=0.7] [max_new=512]
 """
 from __future__ import annotations
 
@@ -452,6 +453,65 @@ def one_round(model, ids, n_new):
     return t1 - t0, (len(out) - 1) / (t2 - t1), len(out) / (t2 - t0), out
 
 
+def chat(model, path: str, temp: float, max_new: int) -> None:
+    """A terminal conversation, Qwen3's format with reasoning off, the cache kept across turns.
+
+    `<|im_start|>{role}\n{text}<|im_end|>\n` a message, and the assistant's
+    opening pre-filled with an empty reasoning block, as `llvq_llm::chatfmt` does.
+    """
+    from mlx_lm.models.cache import make_prompt_cache, trim_prompt_cache
+    from mlx_lm.sample_utils import make_sampler
+    from tokenizers import Tokenizer
+
+    tok = Tokenizer.from_file(str(Path(path) / "tokenizer.json"))
+    sid = tok.token_to_id
+    im_start, im_end, eot = sid("<|im_start|>"), sid("<|im_end|>"), sid("<|endoftext|>")
+    think = (sid("<think>"), sid("</think>"))
+    nl = tok.encode("\n", add_special_tokens=False).ids
+    sampler = make_sampler(temp=temp, top_p=0.9 if temp > 0 else 0.0)
+    cache = make_prompt_cache(model)
+    print(f"  temp {temp:.2f}, at most {max_new} new tokens a turn, reasoning off; /reset, /bye")
+    while True:
+        try:
+            line = input("> ").strip()
+        except EOFError:
+            break
+        if line == "/bye":
+            break
+        if line == "/reset":
+            cache = make_prompt_cache(model)
+            continue
+        if not line:
+            continue
+        ids = ([im_start] + tok.encode("user\n" + line, add_special_tokens=False).ids + [im_end] + nl
+               + [im_start] + tok.encode("assistant\n", add_special_tokens=False).ids
+               + [think[0]] + nl + nl + [think[1]] + nl + nl)
+        held = cache[0].offset
+        t0 = time.perf_counter()
+        t1, out, shown = None, [], ""
+        for (tid, _), _ in zip(generate_step(mx.array(ids), model, max_tokens=max_new, sampler=sampler,
+                                             prompt_cache=cache), range(max_new)):
+            tid = int(tid)
+            if t1 is None:
+                t1 = time.perf_counter()
+            if tid in (im_end, eot):
+                break
+            out.append(tid)
+            text = tok.decode(out)
+            print(text[len(shown):], end="", flush=True)
+            shown = text
+        t2 = time.perf_counter()
+        # generate_step runs one token ahead, so the cache may hold more than the
+        # turn: cut it back to the prompt and the shown tokens, then close the turn.
+        extra = cache[0].offset - (held + len(ids) + len(out))
+        if extra > 0:
+            trim_prompt_cache(cache, extra)
+        mx.eval(model(mx.array([[im_end] + nl]), cache=cache))
+        rate = (len(out) - 1) / (t2 - t1) if len(out) > 1 else 0.0
+        print(f"\n  {len(out)} tokens, {rate:.1f} tok/s after a {len(ids)}-token prompt read in "
+              f"{(t1 - t0):.2f} s; this REPL's rate, not a measurement")
+
+
 def main():
     path, mode = sys.argv[1], sys.argv[2]
     print(f"mlx {mx.__version__} | {mx.default_device()} | packed {path}")
@@ -459,6 +519,11 @@ def main():
     model, pm, tetra_bytes = build(path)
     print(f"built in {time.perf_counter() - t:.1f} s | Tetra resident {tetra_bytes / 1e9:.3f} GB | "
           f"active {mx.get_active_memory() / 1e9:.2f} GB")
+    if mode == "chat":
+        temp = float(sys.argv[3]) if len(sys.argv) > 3 else 0.7
+        max_new = int(sys.argv[4]) if len(sys.argv) > 4 else 512
+        chat(model, path, temp, max_new)
+        return
     if mode == "gen":
         n_new = int(sys.argv[3]) if len(sys.argv) > 3 else 64
         n_prompt = int(sys.argv[4]) if len(sys.argv) > 4 else 0
