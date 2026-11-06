@@ -124,6 +124,10 @@ pub struct MetalTuning {
     /// decode each block once for that many rows, with every row's bits those
     /// of the matvec narrowed to f16.
     pub prefill_rows: usize,
+    /// The int4 records take the prefill chunks too, through
+    /// `tv_q4_metal_rows`; requires `prefill_rows` above 1. `false`, the
+    /// served value, keeps their row-by-row loop.
+    pub q4_rows: bool,
 }
 
 impl Default for MetalTuning {
@@ -134,6 +138,7 @@ impl Default for MetalTuning {
             q4_prefetch: false,
             half_io: false,
             prefill_rows: 1,
+            q4_rows: false,
         }
     }
 }
@@ -185,6 +190,9 @@ impl MetalTuning {
                 "prefill rows {}: the Tetra prefill kernel takes 2, 4 or 8 rows a launch, and 1 is none",
                 self.prefill_rows
             );
+        }
+        if self.q4_rows && self.prefill_rows == 1 {
+            candle_core::bail!("q4 rows: the int4 prefill kernel takes the chunks prefill rows names, and 1 is none");
         }
         Ok(())
     }
@@ -276,7 +284,8 @@ fn source_of(name: &str) -> Result<&'static str> {
         "tv_tetra48_metal_lutp" | "tv_tetra48_metal_lutd" | "tv_tetra48_metal_lutdp" | "tv_tetra48_metal_lutd2"
         | "tv_tetra48_metal_lutd4" | "tv_tetra48_metal_luth" | "tv_tetra48_metal_lutdh"
         | "tv_tetra48_metal_lutdr" => Ok(SRC_TETRA_ROWS),
-        "tv_q4_metal_p" | "tv_q4_metal_tiled_p" | "tv_q4_metal_h" | "tv_q4_metal_tiled_h" => Ok(SRC_Q4_PF),
+        "tv_q4_metal_p" | "tv_q4_metal_tiled_p" | "tv_q4_metal_h" | "tv_q4_metal_tiled_h"
+        | "tv_q4_metal_rows" => Ok(SRC_Q4_PF),
         "emb_q8_gather_metal" | "tv_q8_metal" => Ok(SRC_Q8),
         "emb_q4_gather_metal" | "tv_emb_q4_metal" => Ok(SRC_E4),
         other => candle_core::bail!("no Metal source carries {other}"),
@@ -357,6 +366,8 @@ pub struct MetalRuntime {
     half_io: bool,
     /// Prompt rows a Tetra prefill launch ([`MetalTuning::prefill_rows`]).
     prefill_rows: usize,
+    /// Whether the int4 records take the prefill chunks ([`MetalTuning::q4_rows`]).
+    q4_rows: bool,
     device: candle_core::MetalDevice,
     tables: MetalTables,
     tile: usize,
@@ -491,6 +502,7 @@ impl MetalRuntime {
             q4_prefetch: false,
             half_io: false,
             prefill_rows: 1,
+            q4_rows: false,
             device: dev,
             tables,
             tile,
@@ -1360,6 +1372,83 @@ impl MetalRuntime {
         };
         x.apply_op1_no_bwd(&Int4Op { rt: self, proj })
     }
+
+    /// `Y = W X` for `n_rows` rows `[n_rows, d_in]`, one launch of
+    /// `tv_q4_metal_rows`, as f16 `[n_rows, d_out]`. Row r is the int4 matvec
+    /// of row r narrowed to f16, bit for bit. Widened to f32 first, as the
+    /// served path widens: exact from f16.
+    pub fn matvec_int4_rows(&self, proj: &MetalInt4Proj, x: &Tensor, n_rows: usize) -> Result<Tensor> {
+        if !self.q4_rows || n_rows == 0 || n_rows > self.prefill_rows || n_rows > TETRA_PREFILL_MAX {
+            candle_core::bail!(
+                "{}: {n_rows} rows for an int4 prefill launch of at most {} (q4 rows {})",
+                proj.name,
+                self.prefill_rows,
+                self.q4_rows
+            );
+        }
+        let x = x.to_dtype(DType::F32)?.contiguous()?;
+        x.apply_op1_no_bwd(&Int4Rows { rt: self, proj, n_rows })
+    }
+}
+
+/// One launch of `tv_q4_metal_rows`, as a candle op.
+struct Int4Rows<'a> {
+    rt: &'a MetalRuntime,
+    proj: &'a MetalInt4Proj,
+    n_rows: usize,
+}
+
+impl CustomOp1 for Int4Rows<'_> {
+    fn name(&self) -> &'static str {
+        "llvq-metal-q4-rows"
+    }
+
+    fn cpu_fwd(&self, _: &CpuStorage, _: &Layout) -> Result<(CpuStorage, Shape)> {
+        candle_core::bail!("{}: the int4 prefill kernel has no CPU path", self.proj.name)
+    }
+
+    fn metal_fwd(&self, storage: &MetalStorage, layout: &Layout) -> Result<(MetalStorage, Shape)> {
+        let p = self.proj;
+        if storage.dtype() != DType::F32 {
+            candle_core::bail!("{}: int4 prefill rows in f32 only, got {:?}", p.name, storage.dtype());
+        }
+        if !layout.is_contiguous() || layout.dims() != [self.n_rows, p.d_in] {
+            candle_core::bail!(
+                "{}: int4 prefill activation {:?} for a contiguous [{}, {}]",
+                p.name,
+                layout.dims(),
+                self.n_rows,
+                p.d_in
+            );
+        }
+        let pipe = self.rt.pipeline("tv_q4_metal_rows")?;
+        let dev = storage.device().clone();
+        let out = dev.new_buffer(self.n_rows * p.d_out, DType::F16, "llvq-metal-q4-rows")?;
+        let enc = dev.command_encoder()?;
+        enc.set_compute_pipeline_state(&pipe);
+        use candle_metal_kernels::utils::set_param;
+        set_param(&enc, 0, (&*p.wq, 0usize));
+        set_param(&enc, 1, (&*p.scales, 0usize));
+        set_param(&enc, 2, (&*p.biases, 0usize));
+        set_param(&enc, 3, (storage.buffer(), layout.start_offset() * DType::F32.size_in_bytes()));
+        set_param(&enc, 4, (&*out, 0usize));
+        set_param(&enc, 5, p.d_in as u32);
+        set_param(&enc, 6, p.gpr as u32);
+        set_param(&enc, 7, self.n_rows as u32);
+        set_param(&enc, 8, p.d_out as u32);
+        for b in [&*p.wq, &*p.scales, &*p.biases, storage.buffer()] {
+            enc.use_resource(b, objc2_metal::MTLResourceUsage::Read);
+        }
+        enc.use_resource(&*out, objc2_metal::MTLResourceUsage::Write);
+        enc.dispatch_threads(
+            objc2_metal::MTLSize { width: p.d_out * LANES, height: 1, depth: 1 },
+            objc2_metal::MTLSize { width: GROUP, height: 1, depth: 1 },
+        );
+        Ok((
+            MetalStorage::new(out, dev, self.n_rows * p.d_out, DType::F16),
+            Shape::from((self.n_rows, p.d_out)),
+        ))
+    }
 }
 
 struct Int4Op<'a> {
@@ -1753,6 +1842,16 @@ impl crate::device::Int4Proj for MetalInt4 {
         // See MetalLattice::matvec: narrowed at the boundary, not in the kernel.
         self.rt.matvec_int4(&self.proj, x)?.to_dtype(DType::F16)
     }
+    /// 1 unless [`MetalTuning::q4_rows`]: then the Tetra prefill chunk.
+    fn rows_per_launch(&self) -> usize {
+        match self.rt.q4_rows {
+            true => self.rt.prefill_rows(),
+            false => 1,
+        }
+    }
+    fn matvec_rows(&self, x: &Tensor, n_rows: usize) -> Result<Tensor> {
+        self.rt.matvec_int4_rows(&self.proj, x, n_rows)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1802,6 +1901,7 @@ impl MetalRuntime {
             q4_prefetch: false,
             half_io: false,
             prefill_rows: 1,
+            q4_rows: false,
             device: dev,
             tile,
             pipelines: RwLock::new(HashMap::new()),
@@ -1818,6 +1918,7 @@ impl MetalRuntime {
         self.q4_prefetch = tuning.q4_prefetch;
         self.half_io = tuning.half_io;
         self.prefill_rows = tuning.prefill_rows;
+        self.q4_rows = tuning.q4_rows;
         Ok(())
     }
 
@@ -1840,6 +1941,7 @@ impl MetalRuntime {
             q4_prefetch: self.q4_prefetch,
             half_io: self.half_io,
             prefill_rows: self.prefill_rows,
+            q4_rows: self.q4_rows,
         }
     }
 
@@ -2018,7 +2120,10 @@ pub fn load_resolved_tuned(
         if t.half_io { "half (in-kernel casts, tv_q4_pf.metal and llvq_tetra48_rows.metal)" } else { "f32 (served)" },
         match t.prefill_rows {
             1 => "row by row (served)".to_string(),
-            n => format!("{n} rows a Tetra launch (tv_tetra48_metal_lutdr)"),
+            n => format!(
+                "{n} rows a launch, Tetra (tv_tetra48_metal_lutdr){}",
+                if t.q4_rows { " and int4 (tv_q4_metal_rows)" } else { ", int4 row by row" }
+            ),
         },
     );
     finish(

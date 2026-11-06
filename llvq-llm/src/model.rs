@@ -1081,6 +1081,12 @@ impl Proj {
                 let y = d.matvec_rows(&r.t, len)?;
                 (0..len).map(|i| y.narrow(0, i, 1)).collect()
             }
+            // An int4 rows kernel, when the chunk fits one launch: `xs`, the
+            // caller's activation, as `forward_with` reads it for int4.
+            Proj::Int4(d) if d.rows_per_launch() >= len => {
+                let y = d.matvec_rows(xs, len)?;
+                (0..len).map(|i| y.narrow(0, i, 1)).collect()
+            }
             // Dense, int4, a segmented part, or a layout with no rows kernel:
             // the same function, one row at a time. `tv_q4_h` takes no row
             // count and no offset, so int4 is here by construction and not by
@@ -1355,6 +1361,24 @@ fn int4_rows(p: &Proj, x: &Tensor) -> Result<Tensor> {
     if rows == 1 {
         let r = p.prepare(x)?;
         return p.forward_with(&r, x);
+    }
+    // A backend with an int4 rows kernel takes the chunk in launches of
+    // `k` rows; each row is the matvec's, so only the launch count moves.
+    if let Proj::Int4(d) = p {
+        let k = d.rows_per_launch();
+        if k > 1 {
+            let flat = row_block(x)?;
+            let parts = (0..rows)
+                .step_by(k)
+                .map(|row0| {
+                    let len = k.min(rows - row0);
+                    d.matvec_rows(&flat.narrow(0, row0, len)?, len)
+                })
+                .collect::<Result<Vec<_>>>()?;
+            let mut out = dims.to_vec();
+            *out.last_mut().expect("rank >= 1") = d.d_out();
+            return Tensor::cat(&parts, 0)?.reshape(out);
+        }
     }
     let ys = row_views(x)?
         .iter()

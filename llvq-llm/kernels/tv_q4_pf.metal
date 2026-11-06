@@ -235,3 +235,65 @@ kernel void tv_q4_metal_tiled_h(const device uint*   wq        [[buffer(0)]],
         y[row] = half(acc);
     }
 }
+
+// ---------------------------------------------------------------------------
+// `tv_q4_metal_rows`: the prefill twin, up to Q4_PREFILL_MAX activation rows a
+// launch. A lane dequantizes each of its words once and applies the eight
+// values to every row of the chunk. The activation is read from device memory
+// at the word's own columns: no staging, so no tile and no threadgroup wall,
+// and the same floats the served kernels stage. Per row the arithmetic is the
+// served kernels': acc = fma(deq, x[c + k], acc) over the lane's words in
+// ascending order, the same butterfly, then the narrowing the adapter applies
+// to the served f32, done here (`half(acc)`, round to nearest even). Gated:
+// `tests/q4_metal_candle.rs`.
+// ---------------------------------------------------------------------------
+constant uint Q4_PREFILL_MAX = 8u;
+
+kernel void tv_q4_metal_rows(const device uint*   wq     [[buffer(0)]],
+                             const device ushort* scales [[buffer(1)]],
+                             const device ushort* biases [[buffer(2)]],
+                             const device float*  x      [[buffer(3)]],
+                             device half*         y      [[buffer(4)]],
+                             constant uint&       d_in   [[buffer(5)]],
+                             constant uint&       gpr    [[buffer(6)]],
+                             constant uint&       nrows  [[buffer(7)]],
+                             constant uint&       d_out  [[buffer(8)]],
+                             uint gid  [[thread_position_in_grid]],
+                             uint lane [[thread_index_in_simdgroup]])
+{
+    uint row = gid >> 5;
+    uint nwords = d_in >> 3;
+    uint w0 = row * nwords;
+    uint s0 = row * gpr;
+    float acc[Q4_PREFILL_MAX];
+    for (uint r = 0u; r < Q4_PREFILL_MAX; ++r) {
+        acc[r] = 0.0f;
+    }
+    for (uint wi = lane; wi < nwords; wi += 32u) {
+        uint p = wq[w0 + wi];
+        uint c = wi << 3;
+        uint g = s0 + c / LLVQ_Q4_GROUP;
+        ushort sb = scales[g];
+        ushort bb = biases[g];
+        float dq[8];
+        for (uint k = 0u; k < 8u; ++k) {
+            dq[k] = q4_deq((p >> (4u * k)) & 0xfu, sb, bb);
+        }
+        for (uint r = 0u; r < Q4_PREFILL_MAX; ++r) {
+            if (r < nrows) {
+                const device float* xr = x + r * d_in + c;
+                for (uint k = 0u; k < 8u; ++k) {
+                    acc[r] = fma(dq[k], xr[k], acc[r]);
+                }
+            }
+        }
+    }
+    for (uint r = 0u; r < Q4_PREFILL_MAX; ++r) {
+        if (r < nrows) {
+            float a = warp_sum(acc[r]);
+            if (lane == 0u) {
+                y[r * d_out + row] = half(a);
+            }
+        }
+    }
+}

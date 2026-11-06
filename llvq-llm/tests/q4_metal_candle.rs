@@ -246,3 +246,61 @@ fn an_f32_activation_keeps_the_served_kernel_under_half_io() {
     assert_eq!(first_difference(&y.flatten_all().unwrap().to_vec1::<f32>().unwrap(), &reference(&m, &x)), None);
     assert_eq!(rt.compiled_pipelines(), vec!["tv_q4_metal"]);
 }
+
+/// The int4 prefill kernel (`+pq`, `tv_q4_metal_rows`) against the served
+/// matvec run row by row and narrowed, every f16 equal, for chunks 1..=8 at
+/// the six widths, untiled and past the wall alike; the chunk is bound at a
+/// non-zero offset, as `forward_rows` hands a narrowed view.
+#[test]
+fn the_int4_prefill_kernel_returns_each_rows_served_bits_narrowed() {
+    let dev = Device::new_metal(0).expect("a Metal device");
+    let served_rt = runtime(&dev);
+    let mut rows_rt = runtime(&dev);
+    rows_rt.set_tuning(MetalTuning { prefill_rows: 8, q4_rows: true, ..Default::default() }).unwrap();
+    for (i, (d_out, d_in)) in [(512usize, 2560usize), (256, 4096), (256, 5120), (2560, 9728), (256, 12288), (256, 17408)]
+        .into_iter()
+        .enumerate()
+    {
+        let (m, _) = fixture(0x4A_F0 + i as u64, d_out, d_in);
+        let mut rng = SplitMix64::new(0x4A_F8 + i as u64);
+        // Row 0 is junk the chunks start past.
+        let xs: Vec<half::f16> =
+            (0..9 * d_in).map(|_| half::f16::from_f32(rng.next_gaussian() as f32)).collect();
+        let want: Vec<Vec<u16>> = (1..9)
+            .map(|r| bits16_of(&run_raw(&served_rt, &dev, &m, &xs[r * d_in..(r + 1) * d_in], Q4_TILE_COLS)))
+            .collect();
+        assert!(want[0].iter().any(|v| *v != 0));
+        assert_ne!(want[0], want[1], "two equal rows would hide a row mix-up");
+        let p = rows_rt
+            .upload_int4_tiled(&m.name, m.d_out, m.d_in, m.d_in / 128, &words(&m), &m.scales, &m.biases, Q4_TILE_COLS)
+            .unwrap();
+        let all = Tensor::from_vec(xs.clone(), (9, d_in), &dev).unwrap();
+        for n in 1..=8usize {
+            let got = rows_rt.matvec_int4_rows(&p, &all.narrow(0, 1, n).unwrap(), n).expect("int4 rows");
+            assert_eq!(got.dtype(), DType::F16);
+            assert_eq!(got.dims(), [n, d_out]);
+            for (r, w) in want.iter().enumerate().take(n) {
+                let g = bits16_of(&got.narrow(0, r, 1).unwrap());
+                assert_eq!(g.iter().zip(w).position(|(a, b)| a != b), None, "{d_out}x{d_in}: row {r} of {n}");
+            }
+        }
+    }
+    assert_eq!(rows_rt.compiled_pipelines(), vec!["tv_q4_metal_rows"]);
+}
+
+/// `q4_rows` names its refusals: without prefill rows at the tuning, and on a
+/// runtime that has not switched it on.
+#[test]
+fn the_int4_prefill_kernel_refuses_what_it_cannot_take() {
+    let dev = Device::new_metal(0).expect("a Metal device");
+    let mut rt = runtime(&dev);
+    let e = rt.set_tuning(MetalTuning { q4_rows: true, ..Default::default() }).unwrap_err().to_string();
+    assert!(e.contains("q4 rows"), "{e}");
+    assert_eq!(rt.tuning(), MetalTuning::default(), "a refused tuning sets nothing");
+    rt.set_tuning(MetalTuning { prefill_rows: 8, ..Default::default() }).unwrap();
+    let (m, _) = fixture(0x4B_00, 256, 2560);
+    let p = rt.upload_int4_tiled(&m.name, m.d_out, m.d_in, m.d_in / 128, &words(&m), &m.scales, &m.biases, Q4_TILE_COLS).unwrap();
+    let x = Tensor::zeros((2, m.d_in), DType::F16, &dev).unwrap();
+    let e = rt.matvec_int4_rows(&p, &x, 2).unwrap_err().to_string();
+    assert!(e.contains("q4 rows false"), "{e}");
+}
