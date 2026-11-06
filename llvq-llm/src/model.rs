@@ -1081,10 +1081,10 @@ impl Proj {
                 let y = d.matvec_rows(&r.t, len)?;
                 (0..len).map(|i| y.narrow(0, i, 1)).collect()
             }
-            // An int4 rows kernel, when the chunk fits one launch: `xs`, the
-            // caller's activation, as `forward_with` reads it for int4.
-            Proj::Int4(d) if d.rows_per_launch() >= len => {
-                let y = d.matvec_rows(xs, len)?;
+            // An int4 rows kernel: `xs`, the caller's activation, as
+            // `forward_with` reads it for int4.
+            Proj::Int4(d) if d.rows_per_launch() > 1 => {
+                let y = int4_chunked(d.as_ref(), xs)?;
                 (0..len).map(|i| y.narrow(0, i, 1)).collect()
             }
             // Dense, int4, a segmented part, or a layout with no rows kernel:
@@ -1239,6 +1239,23 @@ pub fn row_block(x: &Tensor) -> Result<Tensor> {
     x.contiguous()?.reshape((rows, d_in))
 }
 
+/// `y = W x` for the rows of `flat`, `[rows, d_in]`, through an int4 rows
+/// kernel in launches of [`crate::device::Int4Proj::rows_per_launch`] rows,
+/// as `[rows, d_out]`. Each row is the matvec's by the port's contract, so
+/// only the launch count moves. The one place the model reaches that kernel.
+fn int4_chunked(d: &dyn crate::device::Int4Proj, flat: &Tensor) -> Result<Tensor> {
+    let rows = flat.dim(0)?;
+    let k = d.rows_per_launch();
+    let parts = (0..rows)
+        .step_by(k)
+        .map(|row0| {
+            let len = k.min(rows - row0);
+            d.matvec_rows(&flat.narrow(0, row0, len)?, len)
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Tensor::cat(&parts, 0)
+}
+
 /// Reassemble one projection's per-row results into the caller's shape.
 ///
 /// `dims` is the shape the caller handed to [`group_forward`]; the result is
@@ -1362,22 +1379,11 @@ fn int4_rows(p: &Proj, x: &Tensor) -> Result<Tensor> {
         let r = p.prepare(x)?;
         return p.forward_with(&r, x);
     }
-    // A backend with an int4 rows kernel takes the chunk in launches of
-    // `k` rows; each row is the matvec's, so only the launch count moves.
     if let Proj::Int4(d) = p {
-        let k = d.rows_per_launch();
-        if k > 1 {
-            let flat = row_block(x)?;
-            let parts = (0..rows)
-                .step_by(k)
-                .map(|row0| {
-                    let len = k.min(rows - row0);
-                    d.matvec_rows(&flat.narrow(0, row0, len)?, len)
-                })
-                .collect::<Result<Vec<_>>>()?;
+        if d.rows_per_launch() > 1 {
             let mut out = dims.to_vec();
             *out.last_mut().expect("rank >= 1") = d.d_out();
-            return Tensor::cat(&parts, 0)?.reshape(out);
+            return int4_chunked(d.as_ref(), &row_block(x)?)?.reshape(out);
         }
     }
     let ys = row_views(x)?
@@ -2989,6 +2995,65 @@ pub fn build_causal_mask(
 
 #[cfg(test)]
 mod tests {
+
+    /// A CPU int4 projection that declares `k` rows a launch, for the port's
+    /// plumbing: `matvec_rows` is its own matvec row by row, as the port's
+    /// contract demands of a real kernel, and it counts its launches.
+    struct RowsInt4 {
+        w: Tensor,
+        k: usize,
+        launches: std::sync::atomic::AtomicUsize,
+    }
+
+    impl crate::device::Int4Proj for RowsInt4 {
+        fn name(&self) -> &str {
+            "fake.int4"
+        }
+        fn d_out(&self) -> usize {
+            self.w.dim(0).unwrap()
+        }
+        fn d_in(&self) -> usize {
+            self.w.dim(1).unwrap()
+        }
+        fn matvec(&self, x: &Tensor, out_dims: &[usize]) -> Result<Tensor> {
+            let y = x.reshape((1, self.d_in()))?.matmul(&self.w.t()?)?;
+            let mut d = out_dims.to_vec();
+            *d.last_mut().expect("rank >= 1") = self.d_out();
+            y.reshape(d)
+        }
+        fn rows_per_launch(&self) -> usize {
+            self.k
+        }
+        fn matvec_rows(&self, x: &Tensor, n: usize) -> Result<Tensor> {
+            assert!((1..=self.k).contains(&n), "{n} rows for a launch of {}", self.k);
+            assert_eq!(x.dims(), [n, self.d_in()], "the chunk as [rows, d_in]");
+            self.launches.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let ys = (0..n)
+                .map(|i| self.matvec(&x.narrow(0, i, 1)?, &[1, self.d_in()]))
+                .collect::<Result<Vec<_>>>()?;
+            Tensor::cat(&ys, 0)
+        }
+    }
+
+    /// An int4 projection that declares rows a launch gets ceil(rows / k)
+    /// launches, every row in its place, and the caller's shape back; the
+    /// same numbers as the row-by-row loop it replaces.
+    #[test]
+    fn the_int4_rows_port_chunks_in_order_and_keeps_the_shape() {
+        let dev = candle_core::Device::Cpu;
+        let w = Tensor::randn(0f32, 1.0, (5, 8), &dev).unwrap();
+        let x = Tensor::randn(0f32, 1.0, (1, 7, 8), &dev).unwrap();
+        let fake = |k| std::sync::Arc::new(RowsInt4 { w: w.clone(), k, launches: 0.into() });
+        let (one, three) = (fake(1), fake(3));
+        let want = Proj::Int4(one.clone()).forward(&x).unwrap();
+        let got = Proj::Int4(three.clone()).forward(&x).unwrap();
+        assert_eq!(got.dims(), [1, 7, 5]);
+        let flat = |t: &Tensor| t.flatten_all().unwrap().to_vec1::<f32>().unwrap();
+        assert_eq!(flat(&got), flat(&want), "rows out of place or recomputed");
+        assert_eq!(three.launches.load(std::sync::atomic::Ordering::SeqCst), 3, "7 rows at 3 a launch");
+        assert_eq!(one.launches.load(std::sync::atomic::Ordering::SeqCst), 0, "k = 1 never reaches matvec_rows");
+    }
+
     /// 4E's cache API on the Grow store: reserve keeps every held position
     /// and rounds the capacity up to the chunk; set_len refuses past it.
     #[test]
