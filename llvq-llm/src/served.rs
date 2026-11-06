@@ -498,17 +498,18 @@ impl Served {
         match (self.attention, metal) {
             (AttnHeads::Expanded, _) | (_, false) => Ok(()),
             (AttnHeads::Kernel, true) => Err(format!(
-                "{}: attention \"kernel\" on Metal. The split-KV decode-attention kernel is \
-                 CUDA only (llvq-cuda/kernels/attn_dec.cu); no Metal kernel exists. Serve this \
-                 object with the expanded form on Metal.",
+                "{}: attention \"kernel\" on Metal. kernels/attn_dec.metal returns the \
+                 canonical replay's bits (tests/attn_metal.rs), but no T8 of the form on Metal \
+                 has been granted. Serve this object with the expanded form on Metal; \
+                 bin/metalrun measures the kernel form.",
                 self.path.display(),
             )),
             (form, true) => Err(format!(
-                "{}: attention {:?} on Metal. That form has never been measured on \
-                 Metal — no throughput, no perplexity, and no reading of what Metal \
-                 rounds to — and the +-0.12 % tolerance it passed was measured on an \
-                 L40S (gqa-ppl-2026-11-01). Serve this object with the expanded form, \
-                 or measure the grouped one on Metal first.",
+                "{}: attention {:?} on Metal. Its +-0.12 % tolerance was measured on an \
+                 L40S (gqa-ppl-2026-11-01); on Metal the grouped form read bit for bit \
+                 with the expanded one over 49,140 decode steps (metal-nuit-2026-11-06), \
+                 and serving it there is the operator's decision, not yet taken. Serve \
+                 this object with the expanded form; bin/metalrun measures the others.",
                 self.path.display(),
                 form.label(),
             )),

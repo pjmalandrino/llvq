@@ -16,7 +16,8 @@ against the grouped form, the card's T8 pairing.
 
 ## 2. What runs
 
-Binary `metalrun` built from the commit that carries this file, sha256 in §6 of the journal and printed by the binary.
+Binary `metalrun` sha256 `547def2c8dfc272c05304e6a53d9e06551ef44b3d6ca5c21a8d1be64091a35f9`, built from the commit that
+carries this file. Mutation run of the kernel before the stamp: 10 mutants, 10 killed (journal).
 By path, nice 10, quiet machine (no build from 15 minutes before the first run to the last).
 
 1. `metalrun gate <sealed> configs/qwen3-4b-tetra-e4.json lutd,lutd+grp,lutd+ker`: projections and head, 253 of 253;
