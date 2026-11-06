@@ -1084,3 +1084,25 @@ S4, same prompt, 64 new, 5 timed rounds:
 Verdict: wholly above 1.000, +pq retained and is the bundle's new arm (lutd+h+grp+pq). Prediction x1.05 to x1.20:
 inside. The two ratios chain to about x1.74 against M9's base (computed, two runs on the same Mac and stack).
 Still 7.7 ms a prompt row: neither matvec class is the wall of the prefill any more; not split yet.
+
+=== mutation run 2026-11-06 13:24:06 on e0af315
+P1 lutdr: every row reads row 0's activation: KILLED | tetra48_metal_rows: rc 101 [('FAILED', '9', '1')] failed ['the_prefill_kernel_returns_each_rows_served_bits_narrowed']
+P2 lutdr: gain bit read from bit 14: KILLED | tetra48_metal_rows: rc 101 [('FAILED', '9', '1')] failed ['the_prefill_kernel_returns_each_rows_served_bits_narrowed']
+P3 lutdr: output rows strided by d_out - 1: KILLED | tetra48_metal_rows: rc 101 [('FAILED', '9', '1')] failed ['the_prefill_kernel_returns_each_rows_served_bits_narrowed']
+P4 lutdr: per-row dot unfused: SURVIVED | tetra48_metal_rows: rc 0 [('ok', '10', '0')] failed []
+P5 lutdr: scale applied as gs * inv: KILLED | tetra48_metal_rows: rc 101 [('FAILED', '9', '1')] failed ['the_prefill_kernel_returns_each_rows_served_bits_narrowed']
+Q1 q4_rows: every row reads row 0's activation: KILLED | q4_metal_candle: rc 101 [('FAILED', '5', '1')] failed ['the_int4_prefill_kernel_returns_each_rows_served_bits_narrowed']
+Q2 q4_rows: nibbles of a pair swapped: KILLED | q4_metal_candle: rc 101 [('FAILED', '5', '1')] failed ['the_int4_prefill_kernel_returns_each_rows_served_bits_narrowed']
+Q3 q4_rows: unfused multiply-add: KILLED | q4_metal_candle: rc 101 [('FAILED', '5', '1')] failed ['the_int4_prefill_kernel_returns_each_rows_served_bits_narrowed']
+H1 host: int4 rows bound at offset 0: SURVIVED | q4_metal_candle: rc 0 [('ok', '6', '0')] failed []
+H2 host: q4 rows accepted without prefill rows: KILLED | q4_metal_candle: rc 101 [('FAILED', '5', '1')] failed ['the_int4_prefill_kernel_refuses_what_it_cannot_take']
+H3 host: prefill rows 3 accepted: KILLED | tetra48_metal_rows: rc 101 [('FAILED', '9', '1')] failed ['the_prefill_kernel_refuses_what_it_cannot_take']
+=== end
+=== mutation run 2026-11-06 14:22:38 on 5f0f2e6
+P4 lutdr: per-row dot unfused: KILLED | tetra48_metal_rows: rc 101 [('FAILED', '9', '1')] failed ['the_prefill_kernel_returns_each_rows_served_bits_narrowed']
+=== end
+Prefill mutants, reading: 11 of 11 killed after one test fix. P4 first survived: the gate drew f16-representable
+activations, and an f16 value times a lattice value (an integer of at most 32) is exact in f32, so fused and unfused
+agree. The rotation writes full f32, so the gate now draws full f32 (commit after e0af315), and P4 is killed. H1
+survives by construction: matvec_int4_rows widens with to_dtype(F32), a fresh tensor at offset 0, so the binding
+offset is always 0 when the op runs; the offset is still bound for any future caller.
