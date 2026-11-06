@@ -69,4 +69,4 @@ the next lever was chosen on the remainder (6.3 ms) and on the alone GB/s, and t
 
 M8 §2 asks for a quiet machine. Builds were stopped 15 minutes before; Activity Monitor and Battle.net were open, and
 other processes read 79 to 218 % CPU between S1's arms. The arms are interleaved round by round, so the ratios carry
-the load on both sides; the absolute rates are a little low against M2's (54.1 tok/s for `lutd` here, 52.1 at M2).
+the load on both sides; the absolute rates sit beside M2's (54.1 tok/s for `lutd` here, 52.1 at M2).
