@@ -12,6 +12,7 @@
 //! metalrun phased <sealed> <config> <arm> [n_new]
 //! metalrun dispatch
 //! metalrun ppl <sealed> <config> <arm> [ctx] [windows] [grp|ker]
+//! metalrun chat <sealed> <config> <arm> [temp] [max_new]
 //! ```
 //!
 //! `<arms>` is a comma list. Each fused arm is a Tetra matvec, optionally
@@ -39,6 +40,11 @@
 //! quantity of `docs/ETAT.md`'s table) and the decode rate ((n_new - 1) over
 //! decode), as medians with the range over rounds, and each arm over the
 //! reference formed round by round (rule 7).
+//!
+//! `chat` loads one arm and talks to it through `llvq_llm::repl`, the loop of
+//! `bin/chat`: streamed, stopped on `<|im_end|>`, cache kept across turns.
+//! `temp` 0 is greedy (default 0.7, top_p 0.9, seed 0). Its tok/s is a REPL's
+//! rate, never a measurement: it exists so that a person can try an arm.
 //!
 //! The bit gate: one decode step of the reference arm with every projection
 //! input captured (q/k/v, o, gate/up, down of each layer), then every arm's
@@ -114,12 +120,14 @@ mod mac {
             Some("ppl") if a.len() >= 4 => {
                 ppl(&a[1], &a[2], &a[3], num(4, 4096)?, num(5, 4)?, a.get(6).map(String::as_str).unwrap_or("grp"))
             }
+            Some("chat") if a.len() >= 4 => chat(&a[1], &a[2], &a[3], a.get(4).map(String::as_str), num(5, 512)?),
             _ => anyhow::bail!(
                 "usage: metalrun time <sealed> <config> <arms> [n_new=128] [timed_rounds=7] [prompt_tokens=0]\n\
                  \x20      metalrun gate <sealed> <config> <arms>\n\
                  \x20      metalrun phased <sealed> <config> <arm> [n_new=64]\n\
                  \x20      metalrun dispatch\n\
                  \x20      metalrun ppl <sealed> <config> <arm> [ctx=4096] [windows=4] [grp|ker]\n\
+                 \x20      metalrun chat <sealed> <config> <arm> [temp=0.7] [max_new=512]\n\
                  arms: comma list of lut|lutp|lutd|lutdp|lutd2|lutd4[+q4p][+t<cols>][+grp] or D; the first is the reference"
             ),
         }
@@ -530,6 +538,28 @@ mod mac {
         println!("other processes, worst sample between arms: {cpu_max:.0} % CPU");
         println!("end     {} | GPU {:?} % busy", therm(), gpu_utilization());
         Ok(())
+    }
+
+    // ---- chat: one arm, for a person to try --------------------------------
+
+    fn chat(path: &str, cfg_path: &str, spec: &str, temp: Option<&str>, max_new: usize) -> anyhow::Result<()> {
+        let temp: f32 = match temp {
+            None => 0.7,
+            Some(t) => t.parse().with_context(|| format!("temperature {t:?} is not a number"))?,
+        };
+        anyhow::ensure!(temp >= 0.0 && max_new >= 1, "temperature >= 0 and max_new >= 1");
+        anyhow::ensure!(!spec.contains(','), "chat talks to one arm, {spec:?} names several");
+        let device = Device::new_metal(0)?;
+        let cfg = header(path, cfg_path)?;
+        let arm = load_arm(path, &cfg, &device, spec)?;
+        let opts = llvq_llm::repl::ReplOptions {
+            sampler: llvq_llm::repl::Sampler { temp, top_p: 0.9, state: 0x5EED_5EED_5EED_5EED },
+            max_new,
+            think: false,
+            show_ids: false,
+            system: None,
+        };
+        llvq_llm::repl::run(&arm.model, &arm.tokenizer, opts, &mut std::io::stdin().lock())
     }
 
     // ---- phased: where a decode token goes, fenced, off protocol --------------

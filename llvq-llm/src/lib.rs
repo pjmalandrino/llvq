@@ -20,6 +20,7 @@ pub mod attn_metal;
 pub mod boundary;
 pub mod calib;
 pub mod chatfmt;
+pub mod repl;
 pub mod corpus;
 pub mod device;
 pub mod digest;
