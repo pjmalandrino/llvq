@@ -1113,3 +1113,17 @@ a threadgroup looping over rows, about 4 rows a simdgroup a copy. Gate 253 of 25
 metalrun time ... lutd+h,lutdt+h 128 3, 5-token prompt: decode 63.23 tok/s [63.17-63.34] against 53.23 [53.12-54.29],
 x0.843 [0.839-0.858] round by round. The device tables are served well enough by the caches; staging them costs
 more (occupancy, the copy) than the gathers it saves. Not pursued, no prereg spent. Kept as an arm (`lutdt`).
+
+=== M12, 2026-11-06 14:42-14:44, prereg proofs/preregistration-metal-m12-2026-11-06.md, binary 00dd5d40 (pinned copy)
+Started at 14:42 on the operator's word, before the prereg's 15 quiet minutes (last build about 14:40); ECARTS E10.
+First pair (cold shader cache): D1a 18.22 s real, 6.90 user + 1.18 sys; D1b 21.81 real, 8.95 + 3.12. D1a's first
+token took 4,398 ms (pipeline compilation), so its CPU carries the compile and the difference is not used.
+Second pair (warm, the reading used; ECARTS E10):
+  D1a 64 tokens:  10.06 s real, 6.84 user + 1.14 sys = 7.98 s CPU; decode 15.01 ms a token
+  D1b 320 tokens: 21.84 s real, 9.04 user + 3.11 sys = 12.15 s CPU; decode 15.18 ms a token (65.89 tok/s)
+  check: real difference 11.78 s / 768 = 15.3 ms a token, the printed decode rate
+  host = (12.15 - 7.98) / 768 = 5.43 ms a token (user 2.85, sys 2.56), computed
+  ratio host / wall = 5.43 / 15.18 = 0.36
+Verdict: at or below 0.50, GPU-bound. The ~5.5 ms a token outside the projections is GPU time in candle's small ops,
+not host encoding. Next by the rule: D2, the attention split by op on the GPU, with its own prereg.
+Aside: lutd+h+grp+pq decodes at 65.9 tok/s on a cool machine with warm shaders, against 54 in M8's loaded window.

@@ -76,3 +76,11 @@ the load on both sides; the absolute rates sit beside M2's (54.1 tok/s for `lutd
 M9's binary was pinned at 12:40 and its run scheduled for 12:56. The int4 prefill kernel was then written and built
 (last build 12:45:19), so the run was called off before it started and moved to 13:01, fifteen minutes after that
 build. M9 ran its pinned binary, `a68aa617…`, as stamped; M10 followed in the same window.
+
+## É10. M12 ran early, and its first pair carried the shader compile
+
+The operator asked to start at once ("let's go launch now"), at 14:42, about two minutes after the last build and
+before the prereg's 15 quiet minutes. The first pair is kept in the journal but not used: D1a was the first process
+since the build, its first token took 4,398 ms of pipeline compilation, and that CPU time sits in D1a only, so the
+difference understates the host time. The pair was rerun at once with warm shaders, and that second pair is the
+reading. Its real-time difference (15.3 ms a token) matches the printed decode rate, which the first pair's did not.
