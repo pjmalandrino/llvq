@@ -138,6 +138,7 @@ mod mac {
                 ppl(&a[1], &a[2], &a[3], num(4, 4096)?, num(5, 4)?, a.get(6).map(String::as_str).unwrap_or("grp"))
             }
             Some("profile") if a.len() >= 4 => profile(&a[1], &a[2], &a[3], num(4, 11)?),
+            Some("attnprof") if a.len() >= 4 => attnprof(&a[1], &a[2], &a[3], num(4, 11)?, num(5, 0)?),
             Some("chat") if a.len() >= 4 => chat(&a[1], &a[2], &a[3], a.get(4).map(String::as_str), num(5, 512)?),
             _ => anyhow::bail!(
                 "usage: metalrun time <sealed> <config> <arms> [n_new=128] [timed_rounds=7] [prompt_tokens=0]\n\
@@ -147,6 +148,7 @@ mod mac {
                  \x20      metalrun ppl <sealed> <config> <arm> [ctx=4096] [windows=4] [grp|ker]\n\
                  \x20      metalrun chat <sealed> <config> <arm> [temp=0.7] [max_new=512]\n\
                  \x20      metalrun profile <sealed> <config> <arm> [timed_rounds=11]\n\
+                 \x20      metalrun attnprof <sealed> <config> <arm> [timed_rounds=11] [cache_len=0: the prompt's]\n\
                  arms: comma list of lut|lutp|lutd|lutdp|lutd2|lutd4|lutdt[+q4p][+h][+p|+pq][+t<cols>][+grp|+ker] or D; the first is the reference"
             ),
         }
@@ -812,6 +814,158 @@ mod mac {
         let tetra: f64 = (2..=6).map(|c| bytes[c]).sum();
         let int4: f64 = (7..=9).map(|c| bytes[c]).sum();
         println!("weights a token: Tetra {:.1} MB, int4 {:.1} MB (computed from the shapes)", tetra / 1e6, int4 / 1e6);
+        println!("end     {} | GPU {:?} % busy", therm(), gpu_utilization());
+        Ok(())
+    }
+
+    // ---- attnprof: the attention half of a decode step by op, off protocol ----
+
+    const ATTN_CLASSES: [&str; 5] = ["qknorm", "rope", "append", "attn", "ctxglue"];
+
+    /// The ops of `Block::forward_cached` between the q/k/v projections and
+    /// `o_proj`, on the grouped path over a `Grow` cache, replayed for one
+    /// decode row in the model's order with candle's public ops: the views and
+    /// the per-head RMSNorm (`qknorm`), RoPE at the position (`rope`), the
+    /// cache write of k and v (`append`), the grouped attention over the held
+    /// positions (`attn`), and the context back to a row (`ctxglue`). Each
+    /// class alone, minus the empty pass, over the 36 layers; the cost of a
+    /// kernel depends on the shapes and not on the values, so the caches are
+    /// zero buffers of the right length.
+    fn attnprof(path: &str, cfg_path: &str, spec: &str, timed: usize, cache_len: usize) -> anyhow::Result<()> {
+        anyhow::ensure!(timed >= 3, "at least three timed rounds");
+        let device = Device::new_metal(0)?;
+        let cfg = header(path, cfg_path)?;
+        let a = load_arm(path, &cfg, &device, spec)?;
+        anyhow::ensure!(a.fused, "attnprof reads a fused arm");
+        let m = &a.model;
+        let ids = a.tokenizer.encode(PROMPT, false).map_err(anyhow::Error::msg)?.get_ids().to_vec();
+        let mut caches = m.fresh_caches();
+        m.hidden_cached(&Tensor::from_slice(&ids, (1, ids.len()), &device)?, 0, &mut caches, &mut NoCapture)?;
+        let mut keep = Keep(HashMap::new());
+        let step = Tensor::from_slice(&[ids[ids.len() - 1]], (1, 1), &device)?;
+        m.hidden_cached(&step, ids.len(), &mut caches, &mut keep)?;
+        // The position written, and the positions the attention then reads.
+        let pos = if cache_len == 0 { ids.len() } else { cache_len - 1 };
+        let held = pos + 1;
+        let cap = held.div_ceil(256) * 256;
+        let (_, _, _, _, cos, sin) = {
+            let (nw, e, h, c, s) = m.pers_4e_parts();
+            (nw, e, h, (), c.narrow(0, pos, 1)?, s.narrow(0, pos, 1)?)
+        };
+        let eps = m.blocks[0].mlp_parts().1 as f32;
+        struct AttnIn {
+            q: Tensor,
+            k: Tensor,
+            v: Tensor,
+            qn: Tensor,
+            kn: Tensor,
+            qr: Tensor,
+            kr: Tensor,
+            kb: Tensor,
+            vb: Tensor,
+            ctx: Tensor,
+            qw: Tensor,
+            kw: Tensor,
+        }
+        let mut layers = Vec::new();
+        let (mut nh, mut nkv, mut hd) = (0, 0, 0);
+        for (i, blk) in m.blocks.iter().enumerate() {
+            let h = keep.0.get(&(i, Act::Attn.index())).cloned().with_context(|| format!("layer {i}: attn input"))?;
+            let (_, qw, kw, qp, kp, vp, _) = blk.attn_parts();
+            let r = qp.prepare(&h)?;
+            let (q, k, v) = (qp.forward_with(&r, &h)?, kp.forward_with(&r, &h)?, vp.forward(&h)?);
+            hd = qw.dim(0)?;
+            nh = q.dims().last().copied().unwrap_or(0) / hd;
+            nkv = k.dims().last().copied().unwrap_or(0) / hd;
+            let qn = candle_nn::ops::rms_norm(&q.reshape((1, 1, nh, hd))?.transpose(1, 2)?.flatten(0, 2)?, qw, eps)?
+                .reshape((1, nh, 1, hd))?;
+            let kn = candle_nn::ops::rms_norm(&k.reshape((1, 1, nkv, hd))?.transpose(1, 2)?.flatten(0, 2)?, kw, eps)?
+                .reshape((1, nkv, 1, hd))?;
+            let qr = candle_nn::rotary_emb::rope(&qn.contiguous()?, &cos, &sin)?;
+            let kr = candle_nn::rotary_emb::rope(&kn.contiguous()?, &cos, &sin)?;
+            let kb = Tensor::zeros((1, nkv, cap, hd), q.dtype(), &device)?;
+            let vb = Tensor::zeros((1, nkv, cap, hd), q.dtype(), &device)?;
+            let ctx = Tensor::zeros((1, nh, 1, hd), q.dtype(), &device)?;
+            layers.push(AttnIn { q, k, v, qn, kn, qr, kr, kb, vb, ctx, qw: qw.clone(), kw: kw.clone() });
+        }
+        let groups = nh / nkv;
+        let scale = 1.0 / (hd as f64).sqrt();
+        println!("shapes  {nh} query heads, {nkv} key heads, head_dim {hd}; position {pos}, {held} held of {cap}");
+
+        let pass = |on: &[bool; ATTN_CLASSES.len()]| -> anyhow::Result<()> {
+            let mut sink = Vec::with_capacity(16);
+            for l in &layers {
+                if on[0] {
+                    let q = l.q.reshape((1, 1, nh, hd))?.transpose(1, 2)?;
+                    let k = l.k.reshape((1, 1, nkv, hd))?.transpose(1, 2)?;
+                    sink.push(candle_nn::ops::rms_norm(&q.flatten(0, 2)?, &l.qw, eps)?.reshape((1, nh, 1, hd))?);
+                    sink.push(candle_nn::ops::rms_norm(&k.flatten(0, 2)?, &l.kw, eps)?.reshape((1, nkv, 1, hd))?);
+                }
+                if on[1] {
+                    sink.push(candle_nn::rotary_emb::rope(&l.qn.contiguous()?, &cos, &sin)?);
+                    sink.push(candle_nn::rotary_emb::rope(&l.kn.contiguous()?, &cos, &sin)?);
+                }
+                if on[2] {
+                    let v = l.v.reshape((1, 1, nkv, hd))?.transpose(1, 2)?;
+                    l.kb.slice_set(&l.kr.contiguous()?, 2, pos)?;
+                    l.vb.slice_set(&v.contiguous()?, 2, pos)?;
+                }
+                if on[3] {
+                    let (kh, vh) = (l.kb.narrow(2, 0, held)?, l.vb.narrow(2, 0, held)?);
+                    let q = l.qr.contiguous()?.reshape((1, nkv, groups, 1, hd))?.reshape((1, nkv, groups, hd))?;
+                    let s = (q.matmul(&kh.transpose(2, 3)?)? * scale)?;
+                    sink.push(candle_nn::ops::softmax_last_dim(&s)?.matmul(&vh)?.reshape((1, nh, 1, hd))?);
+                }
+                if on[4] {
+                    sink.push(l.ctx.transpose(1, 2)?.reshape((1, 1, nh * hd))?);
+                }
+                sink.clear();
+            }
+            Ok(())
+        };
+        const REPS: usize = 3;
+        let full = [true; ATTN_CLASSES.len()];
+        let run = |on: &[bool; ATTN_CLASSES.len()]| -> anyhow::Result<f64> {
+            pass(&full)?;
+            device.synchronize()?;
+            let t0 = Instant::now();
+            for _ in 0..REPS {
+                pass(on)?;
+            }
+            device.synchronize()?;
+            Ok(t0.elapsed().as_secs_f64() * 1e3 / REPS as f64)
+        };
+        let mut configs: Vec<(String, [bool; ATTN_CLASSES.len()])> =
+            vec![("all".into(), full), ("none".into(), [false; ATTN_CLASSES.len()])];
+        for (c, name) in ATTN_CLASSES.iter().enumerate() {
+            let mut only = [false; ATTN_CLASSES.len()];
+            only[c] = true;
+            configs.push((format!("+{name}"), only));
+        }
+        let nc = configs.len();
+        let mut t: Vec<Vec<f64>> = vec![Vec::new(); nc];
+        for r in 0..DISCARDED + timed {
+            for jj in 0..nc {
+                let j = (jj + r) % nc;
+                let ms = run(&configs[j].1)?;
+                if r >= DISCARDED {
+                    t[j].push(ms);
+                }
+            }
+        }
+        let diff = |a: usize, b: usize| stats(&t[a].iter().zip(&t[b]).map(|(p, q)| p - q).collect::<Vec<_>>());
+        println!("OFF PROTOCOL: each reading a warm full pass, then {REPS} passes closed by one synchronize; order turned each round; never a rate");
+        let (e, elo, ehi) = stats(&t[1]);
+        println!("empty pass (the synchronize alone):    {e:7.3} ms [{elo:.3}-{ehi:.3}]");
+        let (s, slo, shi) = diff(0, 1);
+        println!("every class, minus the empty pass:     {s:7.3} ms [{slo:.3}-{shi:.3}]  (36 layers)");
+        let mut sum = 0.0;
+        for (c, name) in ATTN_CLASSES.iter().enumerate() {
+            let (am, alo, ahi) = diff(2 + c, 1);
+            sum += am;
+            println!("{name:<9} alone {am:7.3} ms [{alo:6.3}-{ahi:6.3}]  {:6.1} us a layer", am * 1e3 / layers.len() as f64);
+        }
+        println!("sum of the classes alone {sum:.3} ms");
         println!("end     {} | GPU {:?} % busy", therm(), gpu_utilization());
         Ok(())
     }
