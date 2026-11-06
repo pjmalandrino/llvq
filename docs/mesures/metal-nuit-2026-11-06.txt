@@ -1148,3 +1148,33 @@ At 4,096 positions the attention half is 8.6 ms: the grouped attention reads 604
 a 4,096-token prompt (15.2 against about 24.6 ms a token, M12 and M10).
 Next levers, by size: the Tetra matvec (9.0 ms, 85-90 GB/s), then the long-context attention (7.9 ms at 4,096,
 76 GB/s of KV), then the rotations (1.95 ms).
+
+=== M14, 2026-11-06 15:15-15:23, prereg proofs/preregistration-metal-m14-2026-11-06.md
+Ours: metalrun of 11af4f2's tree (pinned copy), arm lutd+h+grp+pq+r. Rival: mlx-community/Qwen3-4B-4bit at 4dcb3d10,
+ops/mlx_bar.py, mlx 0.32.4 (resolved by mlx-lm 0.28.3). Gate 1 held (prompt digests 04e38430 at 4,096 on both sides;
+the 5-token prompt's ids agree, 5d2eb20a on mlx's side for [785, 6722, 315, 9625, 374]). Gate 2 held on every side.
+Measured, medians [min-max]:
+  O1 ours, 5-token prompt:   decode 65.49 tok/s [65.32-66.49], 15.27 ms a token; 1.377 GB of weights a token,
+                             90 GB/s (computed); 2.7 b/param for the whole model
+  X1 mlx-lm, 5-token prompt: decode 123.27 tok/s [122.11-128.41], 8.11 ms a token, first token 30.6 ms; 2.26 GB of
+                             safetensors read a token, about 280 GB/s (computed); peak 2.39 GB; about 4.5 b/param
+  O2 ours, 4,096 positions:  decode 27.34 tok/s [16.35-33.95], first token 30.2 to 79.9 s across rounds  (DISTURBED)
+  X2 mlx-lm, 4,096:          decode 69.97 tok/s [67.14-72.30], first token 4.89 s, peak 3.67 GB          (DISTURBED)
+O2 and X2 ran while Brave's and Zen's GPU helpers were active (ECARTS E12): our rounds swing from 41 to 16 tok/s, and
+mlx-lm reads 70 against 103 in the smoke run of 15:0x. Neither 4,096 reading is used.
+Rule: mlx-lm decodes at more than 1.5 times our rate at the clean context (123.3 against 65.5); the operator chose
+MLX as the engine (decision 2, 2026-11-06), so the prototype below was built.
+
+=== MLX engine prototype (ops/mlx_tetra/llvq_mlx.py), smoke runs, OFF PROTOCOL, not measurements
+mlx-lm's Qwen3 with the 168 Tetra records as a custom Metal kernel (lutd body inline, lutdr for several rows), the
+rotation in MLX ops, the int4 records and the int4 g64 embedding as MLX quantized layers. Resident 1.38 GB.
+- 64 greedy tokens on the 5-token prompt: " Paris. The capital of France is Paris. ..." as the Rust engine.
+- decode, 5-token prompt, 3 timed rounds: 65.20 tok/s [64.96-65.77], peak 1.44 GB.
+- decode, 4,096 positions, 2 timed rounds: 67.78 tok/s [67.25-68.31]; first token 35.6 s; peak 7.62 GB.
+- pieces in dependent chains (ops/mlx_tetra/prof.py, ms a call incl. a 3-7 us chain op): tetra.q 0.048 (58 GB/s),
+  tetra.k 0.037 (19 GB/s), tetra.gate 0.083 (79 GB/s), tetra.up 0.080 (83 GB/s), tetra.down 0.083 (76 GB/s),
+  rotation 0.025-0.027 (four MLX ops), int4 v 0.016, int4 o 0.018 (MLX's qmm, about 300 GB/s on o).
+  ops/mlx_tetra/floor.py: one dependent MLX op costs 3 to 7 us.
+Reading: the engine moves the long-context decode (MLX's attention barely grows with the cache) and nothing at short
+context, where the Tetra kernel is about 9 to 10 ms of a 15 ms token. The prefill and its peak memory need the
+dense-on-the-fly path (decode a layer's Tetra records to f16 for a chunk, then MLX's GEMM).

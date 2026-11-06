@@ -90,3 +90,10 @@ reading. Its real-time difference (15.3 ms a token) matches the printed decode r
 The operator asked to start at once ("go now"); A1 began at 14:48, about a minute after the last build, not fifteen.
 The prereg's first line says it was written "at 15:00"; it was written at 14:47 (the clock was misread), and its
 timestamp is what dates it. The two readings took 16 s in all, on a GPU reading 7-8 % busy at their start.
+
+## É12. M14's two 4,096 readings ran beside the operator's browsers
+
+M14 §2 asks for nice 10 and, by the night's rule, a quiet machine. O1 and X1 ran on a GPU reading 9 % and 0 % busy at
+their start. During O2 and X2 the GPU helpers of Brave and Zen were active (13.6 to 30 % CPU each); O2's decode
+swung from 41.0 to 16.4 tok/s round to round and X2 read 70 tok/s against 103 in the smoke run an hour earlier. The
+4,096 readings are kept in the journal and not used; the rule of §4 was applied on the clean 5-token pair.
