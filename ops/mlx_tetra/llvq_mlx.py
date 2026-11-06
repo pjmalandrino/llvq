@@ -154,11 +154,101 @@ ROWS_BODY = """
     }
 """
 
+# The rotation, one dispatch a call: a threadgroup a row. Each group of M
+# coordinates is staged in threadgroup memory, sign-flipped, transformed and
+# scaled by 1/sqrt(M), and written to the output; then each thread mixes whole
+# columns j across the K groups in place. Only M floats live in threadgroup
+# memory, so every width the model has fits (9,728 = 19 x 512 included).
+ROT_BODY = """
+    threadgroup float s[M];
+    uint tid = thread_position_in_threadgroup.x;
+    uint nt = threads_per_threadgroup.x;
+    uint r = threadgroup_position_in_grid.y;
+    const device half* xr = x + r * uint(N);
+    device float* yr = y + r * uint(N);
+    float inv = metal::rsqrt(float(M));
+    for (uint g = 0u; g < uint(K); ++g) {
+        for (uint i = tid; i < uint(M); i += nt) s[i] = float(xr[g * uint(M) + i]) * signs[g * uint(M) + i];
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        for (uint len = 1u; len < uint(M); len <<= 1) {
+            for (uint p = tid; p < uint(M) / 2u; p += nt) {
+                uint j = (p / len) * (len << 1) + (p % len);
+                float a = s[j];
+                float b = s[j + len];
+                s[j] = a + b;
+                s[j + len] = a - b;
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+        }
+        for (uint i = tid; i < uint(M); i += nt) yr[g * uint(M) + i] = s[i] * inv;
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+    if (uint(K) > 1u) {
+        threadgroup_barrier(mem_flags::mem_device);
+        for (uint j = tid; j < uint(M); j += nt) {
+            float col[K];
+            for (uint t = 0u; t < uint(K); ++t) col[t] = yr[t * uint(M) + j];
+            for (uint g = 0u; g < uint(K); ++g) {
+                float acc = 0.0f;
+                for (uint t = 0u; t < uint(K); ++t) acc = fma(small[g * uint(K) + t], col[t], acc);
+                yr[g * uint(M) + j] = acc;
+            }
+        }
+    }
+"""
+ROT = mx.fast.metal_kernel(name="llvq_rot_tg", input_names=["x", "signs", "small"], output_names=["y"],
+                           source=ROT_BODY)
+
+# A Tetra record decoded to f16 in the ROTATED basis, for the prefill's GEMM:
+# W'[r, 24 j + ORDER[k]] = v_k * gscale[g] * invnorm[m] * rscale[r], and the
+# tail columns as stored. One thread a block; block 0's thread writes the tail.
+DEQ_BODY = """
+    uint id = thread_position_in_grid.x;
+    if (id >= uint(DOUT) * uint(NB)) return;
+    uint row = id / uint(NB);
+    uint j = id % uint(NB);
+    F1rTables tab = { rows, prefixes, branches, suffixes };
+    uint lo, hi16;
+    f1r_load(words + row * STRIDE, j, lo, hi16);
+    F1rV3Block b = f1r_v3_fetch(lo, hi16, tab);
+    uint cs[3] = { b.c1, b.c2, b.c3 };
+    uint rs[3] = { b.row1, b.row2, b.row3 };
+    float v[24];
+    float n2 = 0.0f;
+    for (uint sec = 0u; sec < 3u; ++sec) {
+        for (uint k = 0u; k < 8u; ++k) {
+            uint o = b.p + 2u * ((cs[sec] >> k) & 1u);
+            uint rho = (rs[sec] >> (4u * k)) & 15u;
+            float vv = F1R_VAL[(o << 4) | rho];
+            v[sec * 8u + k] = vv;
+            n2 = fma(vv, vv, n2);
+        }
+    }
+    uint m = (uint(n2) >> 4) & (TETRA48_SHELLS - 1u);
+    uint g = (hi16 >> 15) & 1u;
+    float sc = gscale[g] * invnorm[m] * rscale[row];
+    device half* wr = w + row * uint(DIN);
+    for (uint k = 0u; k < 24u; ++k) wr[j * 24u + TETRA48_ORDER[k]] = half(v[k] * sc);
+    if (j == 0u) {
+        for (uint t = 0u; t < uint(TW); ++t) wr[uint(NB) * 24u + t] = tail[row * uint(TW) + t];
+    }
+"""
+# `after` is the activation the matrix will multiply, read by no thread: it makes
+# the decode depend on it, so MLX schedules each matrix at its use and frees it
+# after, instead of decoding all 168 at the head of the graph.
+DEQ_INPUTS = ["words", "rows", "prefixes", "branches", "suffixes", "gscale", "invnorm", "rscale", "tail", "after"]
+
 INPUTS = ["words", "rows", "prefixes", "branches", "suffixes", "gscale", "invnorm", "rscale", "tail", "x"]
 DECODE = mx.fast.metal_kernel(name="llvq_tetra_lutd", input_names=INPUTS, output_names=["y"],
                               source=DECODE_BODY, header=HEADER)
 ROWS = mx.fast.metal_kernel(name="llvq_tetra_lutdr", input_names=INPUTS + ["nr"], output_names=["y"],
                             source=ROWS_BODY, header=HEADER)
+DEQ = mx.fast.metal_kernel(name="llvq_tetra_deq", input_names=DEQ_INPUTS, output_names=["w"],
+                           source=DEQ_BODY, header=HEADER)
+
+# Rows above which a Tetra projection decodes its matrix to f16 and multiplies
+# with MLX's GEMM rather than running the row kernel.
+DENSE_FROM = 9
 
 
 class Shared:
@@ -185,18 +275,39 @@ class Rotation:
         self.signs = mx.array(signs.astype(np.float32))
         self.small = mx.array(small.astype(np.float32))
         self._last = None
+        # Projections that read this rotation's output (2 for q and k, gate and
+        # up; 1 for down). The kept output is dropped after the last of them:
+        # kept longer, the 96 rotations would hold every layer's activations of
+        # a prefill chunk alive.
+        self.users = 1
+        self._hits = 0
 
-    def __call__(self, x: mx.array) -> mx.array:
-        # q and k (gate and up) hand in the same array: rotate it once.
-        if self._last is not None and self._last[0] is x:
-            return self._last[1]
+    def reference(self, x: mx.array) -> mx.array:
+        """The same rotation in MLX ops, four dispatches: the check for `__call__`."""
         lead = x.shape[:-1]
         v = (x.astype(mx.float32) * self.signs).reshape(-1, self.k, self.m)
         v = mx.hadamard_transform(v, scale=1.0 / math.sqrt(self.m))
         if self.k > 1:
             v = self.small @ v
-        out = v.reshape(*lead, self.n)
-        self._last = (x, out)
+        return v.reshape(*lead, self.n)
+
+    def __call__(self, x: mx.array) -> mx.array:
+        # q and k (gate and up) hand in the same array: rotate it once.
+        if self._last is not None and self._last[0] is x:
+            out = self._last[1]
+            self._hits += 1
+            if self._hits >= self.users:
+                self._last = None
+            return out
+        lead = x.shape[:-1]
+        flat = x.astype(mx.float16).reshape(-1, self.n)
+        rows = flat.shape[0]
+        out = ROT(inputs=[flat, self.signs, self.small],
+                  template=[("N", self.n), ("M", self.m), ("K", self.k)],
+                  grid=(1024, rows, 1), threadgroup=(1024, 1, 1),
+                  output_shapes=[(rows, self.n)], output_dtypes=[mx.float32])[0].reshape(*lead, self.n)
+        self._hits = 1
+        self._last = (x, out) if self.users > 1 else None
         return out
 
 
@@ -223,6 +334,16 @@ class TetraLinear(nn.Module):
         self.rot, self.shared = rot, shared
         self.freeze()
 
+    def dense(self, after: mx.array) -> mx.array:
+        """This record as f16 `[d_out, d_in]` in the rotated basis, for the prefill."""
+        s = self.shared
+        return DEQ(inputs=[self._words, s.rows, s.prefixes, s.branches, s.suffixes, self._gscale, s.invnorm,
+                           self._rscale, self._tail, after],
+                   template=[("NB", self.nb), ("TW", self.tw), ("STRIDE", self.stride), ("DIN", self.d_in),
+                             ("DOUT", self.d_out)],
+                   grid=(-(-self.d_out * self.nb // 256) * 256, 1, 1), threadgroup=(256, 1, 1),
+                   output_shapes=[(self.d_out, self.d_in)], output_dtypes=[mx.float16])[0]
+
     def device_bytes(self) -> int:
         return sum(a.nbytes for a in (self._words, self._gscale, self._rscale, self._tail))
 
@@ -234,6 +355,9 @@ class TetraLinear(nn.Module):
         args = [self._words, s.rows, s.prefixes, s.branches, s.suffixes, self._gscale, s.invnorm,
                 self._rscale, self._tail, xr]
         tmpl = [("NB", self.nb), ("TW", self.tw), ("STRIDE", self.stride)]
+        if n >= DENSE_FROM:
+            xh = xr.astype(mx.float16)
+            return (xh @ self.dense(xh).T).reshape(*lead, self.d_out)
         if n == 1:
             y = DECODE(inputs=args, template=tmpl, grid=(self.d_out * 32, 1, 1), threadgroup=(256, 1, 1),
                        output_shapes=[(1, self.d_out)], output_dtypes=[mx.float16])[0]
@@ -263,6 +387,11 @@ def build(path: str):
     model = qwen3.Model(args)
     shared = Shared()
     rots = {key: Rotation(*pm.rotation(key)) for key in pm.rotations}
+    for d in pm.records.values():
+        if d.get("rotation"):
+            rots[d["rotation"]].users += 1
+    for r in rots.values():
+        r.users -= 1
     tetra_bytes = 0
     for name, d in pm.records.items():
         # model.layers.<i>.<self_attn|mlp>.<proj>.weight
