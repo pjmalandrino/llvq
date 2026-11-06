@@ -22,7 +22,7 @@
 //! | spec | what it loads |
 //! |---|---|
 //! | `lut` | the served Metal kernels, the int4 records past the wall through `tv_q4_metal_tiled` at 2,048 columns |
-//! | `lutp`, `lutd`, `lutdp`, `lutd2`, `lutd4` | the Tetra row-loop twins of `kernels/llvq_tetra48_rows.metal` |
+//! | `lutp`, `lutd`, `lutdp`, `lutd2`, `lutd4`, `lutdt` | the Tetra row-loop twins of `kernels/llvq_tetra48_rows.metal`; `lutdt` stages the decoder tables in threadgroup memory |
 //! | `+q4p` | the prefetching int4 twins of `kernels/tv_q4_pf.metal` |
 //! | `+h` | the half-io twins: the Tetra matvec stores f16, the int4 matvecs read and store f16, no adapter casts (`lut`, `lutd` only) |
 //! | `+p` | the Tetra prefill kernel: a prompt chunk of 8 rows a launch, each block decoded once for the 8 (`tv_tetra48_metal_lutdr`); same bits a row |
@@ -147,7 +147,7 @@ mod mac {
                  \x20      metalrun ppl <sealed> <config> <arm> [ctx=4096] [windows=4] [grp|ker]\n\
                  \x20      metalrun chat <sealed> <config> <arm> [temp=0.7] [max_new=512]\n\
                  \x20      metalrun profile <sealed> <config> <arm> [timed_rounds=11]\n\
-                 arms: comma list of lut|lutp|lutd|lutdp|lutd2|lutd4[+q4p][+h][+p|+pq][+t<cols>][+grp|+ker] or D; the first is the reference"
+                 arms: comma list of lut|lutp|lutd|lutdp|lutd2|lutd4|lutdt[+q4p][+h][+p|+pq][+t<cols>][+grp|+ker] or D; the first is the reference"
             ),
         }
     }
@@ -248,7 +248,8 @@ mod mac {
             "lutdp" => "tv_tetra48_metal_lutdp",
             "lutd2" => "tv_tetra48_metal_lutd2",
             "lutd4" => "tv_tetra48_metal_lutd4",
-            other => anyhow::bail!("arm {s:?}: {other:?} is not lut, lutp, lutd, lutdp, lutd2, lutd4 or D"),
+            "lutdt" => "tv_tetra48_metal_lutdt",
+            other => anyhow::bail!("arm {s:?}: {other:?} is not lut, lutp, lutd, lutdp, lutd2, lutd4, lutdt or D"),
         };
         let mut spec =
             Spec { tuning: MetalTuning { tetra_kernel: kernel, ..Default::default() }, grouped: false, kernel: false };

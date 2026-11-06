@@ -1106,3 +1106,10 @@ activations, and an f16 value times a lattice value (an integer of at most 32) i
 agree. The rotation writes full f32, so the gate now draws full f32 (commit after e0af315), and P4 is killed. H1
 survives by construction: matvec_int4_rows widens with to_dtype(F32), a fresh tensor at offset 0, so the binding
 offset is always 0 when the op runs; the offset is still bound for any future caller.
+
+=== lutdt smoke, 2026-11-06 ~14:50, OFF PROTOCOL (no prereg, machine in use), not a measurement
+tv_tetra48_metal_lutdt(h): lutd with the rank tables and F1R_VAL staged in threadgroup memory (18,944 B), 32 simdgroups
+a threadgroup looping over rows, about 4 rows a simdgroup a copy. Gate 253 of 253; same 128 tokens.
+metalrun time ... lutd+h,lutdt+h 128 3, 5-token prompt: decode 63.23 tok/s [63.17-63.34] against 53.23 [53.12-54.29],
+x0.843 [0.839-0.858] round by round. The device tables are served well enough by the caches; staging them costs
+more (occupancy, the copy) than the gathers it saves. Not pursued, no prereg spent. Kept as an arm (`lutdt`).

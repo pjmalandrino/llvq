@@ -211,7 +211,11 @@ fn gate_half(seed: u64, d_out: usize, nblocks: usize, tail_w: usize, tile: usize
     let mut b = build(seed, d_out, nblocks, tail_w, tile);
     let dev = Device::new_metal(0).expect("a Metal device");
     let xm = Tensor::from_slice(&b.x, (1, b.x.len()), &dev).expect("upload x");
-    for (base, twin) in [(SERVED_TETRA, "tv_tetra48_metal_luth"), ("tv_tetra48_metal_lutd", "tv_tetra48_metal_lutdh")] {
+    for (base, twin) in [
+        (SERVED_TETRA, "tv_tetra48_metal_luth"),
+        ("tv_tetra48_metal_lutd", "tv_tetra48_metal_lutdh"),
+        ("tv_tetra48_metal_lutdt", "tv_tetra48_metal_lutdth"),
+    ] {
         b.rt.set_tuning(MetalTuning { tetra_kernel: base, ..Default::default() }).unwrap();
         let served = b.rt.matvec(&b.proj, &xm).expect("served");
         assert_eq!(served.dtype(), candle_core::DType::F32, "the served kernel stores f32");

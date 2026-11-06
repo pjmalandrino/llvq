@@ -203,19 +203,36 @@ pub fn tetra_half_twin(name: &str) -> Option<&'static str> {
     match name {
         "tv_tetra48_metal_lut" => Some("tv_tetra48_metal_luth"),
         "tv_tetra48_metal_lutd" => Some("tv_tetra48_metal_lutdh"),
+        "tv_tetra48_metal_lutdt" => Some("tv_tetra48_metal_lutdth"),
         _ => None,
     }
 }
 
 /// The row-loop twins of the served Tetra matvec (`kernels/llvq_tetra48_rows.metal`).
 /// Each has the served kernel's arguments and, by gate, its bits.
-pub const TETRA_ROW_LOOPS: [&str; 5] = [
+pub const TETRA_ROW_LOOPS: [&str; 6] = [
     "tv_tetra48_metal_lutp",
     "tv_tetra48_metal_lutd",
     "tv_tetra48_metal_lutdp",
     "tv_tetra48_metal_lutd2",
     "tv_tetra48_metal_lutd4",
+    "tv_tetra48_metal_lutdt",
 ];
+
+/// Whether a Tetra matvec stages the decoder tables in threadgroup memory and
+/// loops its simdgroups over the rows (`_lutdt`, `_lutdth`): its own dispatch.
+pub fn tetra_loops_rows(name: &str) -> bool {
+    matches!(name, "tv_tetra48_metal_lutdt" | "tv_tetra48_metal_lutdth")
+}
+
+/// Rows a simdgroup of `_lutdt` takes, on average, from one copy of the tables.
+/// The threadgroup count is `ceil(d_out / (simdgroups * this))`.
+pub const TETRA_TG_LOOP_ROWS: usize = 4;
+
+/// Threadgroup bytes of `_lutdt`'s five tables, in binding order: rank rows
+/// (4,096 u32), branches (1,024 u16), prefixes and suffixes (128 u8 each),
+/// the 64 values of `F1R_VAL`.
+const TETRA_TG_TABLES: [usize; 5] = [16_384, 2_048, 128, 128, 256];
 
 /// Whether a Tetra matvec reads the activation from device memory, with no
 /// threadgroup staging to size.
@@ -227,6 +244,8 @@ fn tetra_reads_direct(name: &str) -> bool {
             | "tv_tetra48_metal_lutd2"
             | "tv_tetra48_metal_lutd4"
             | "tv_tetra48_metal_lutdh"
+            | "tv_tetra48_metal_lutdt"
+            | "tv_tetra48_metal_lutdth"
     )
 }
 
@@ -283,7 +302,7 @@ fn source_of(name: &str) -> Result<&'static str> {
         "tv_q4_metal" | "tv_q4_metal_tiled" => Ok(SRC_Q4),
         "tv_tetra48_metal_lutp" | "tv_tetra48_metal_lutd" | "tv_tetra48_metal_lutdp" | "tv_tetra48_metal_lutd2"
         | "tv_tetra48_metal_lutd4" | "tv_tetra48_metal_luth" | "tv_tetra48_metal_lutdh"
-        | "tv_tetra48_metal_lutdr" => Ok(SRC_TETRA_ROWS),
+        | "tv_tetra48_metal_lutdr" | "tv_tetra48_metal_lutdt" | "tv_tetra48_metal_lutdth" => Ok(SRC_TETRA_ROWS),
         "tv_q4_metal_p" | "tv_q4_metal_tiled_p" | "tv_q4_metal_h" | "tv_q4_metal_tiled_h"
         | "tv_q4_metal_rows" => Ok(SRC_Q4_PF),
         "emb_q8_gather_metal" | "tv_q8_metal" => Ok(SRC_Q8),
@@ -951,6 +970,29 @@ impl CustomOp1 for TetraMatvec<'_> {
             enc.use_resource(b, objc2_metal::MTLResourceUsage::Read);
         }
         enc.use_resource(&*out, objc2_metal::MTLResourceUsage::Write);
+
+        // The table-staging kernels: as many simdgroups a threadgroup as the
+        // pipeline allows up to 32, each looping over rows with a guard, and
+        // enough threadgroups for about TETRA_TG_LOOP_ROWS rows a simdgroup.
+        if tetra_loops_rows(kname) {
+            set_param(&enc, 16, p.d_out as u32);
+            for (i, len) in TETRA_TG_TABLES.iter().enumerate() {
+                enc.set_threadgroup_memory_length(i, *len);
+            }
+            let threads = (pipe.max_total_threads_per_threadgroup().min(1024) / LANES) * LANES;
+            if threads == 0 {
+                candle_core::bail!("{kname}: the pipeline allows fewer than {LANES} threads a threadgroup");
+            }
+            let nsg = threads / LANES;
+            let ntg = p.d_out.div_ceil(nsg * TETRA_TG_LOOP_ROWS).max(1);
+            enc.dispatch_thread_groups(
+                objc2_metal::MTLSize { width: ntg, height: 1, depth: 1 },
+                objc2_metal::MTLSize { width: threads, height: 1, depth: 1 },
+            );
+            let mut dims = layout.dims().to_vec();
+            *dims.last_mut().expect("rank >= 1") = p.d_out;
+            return Ok((MetalStorage::new(out, dev, p.d_out, out_dtype), Shape::from(dims)));
+        }
 
         // A multi-row twin covers R rows a simdgroup and carries no row guard,
         // like the served kernel: a d_out that eight simdgroups of R rows do

@@ -504,3 +504,164 @@ kernel void tv_tetra48_metal_lutdr(const device uint*   words          [[buffer(
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// `_lutdt` and its half twin `_lutdth`: `_lutd` with the decoder's tables in
+// threadgroup memory, and few threadgroups that loop over the rows.
+//
+// The served kernels read the four rank tables (18,688 B) and the 64 values of
+// `F1R_VAL` from device and constant memory: three dependent gathers a block
+// whose index varies by lane, which `constant` serves worst and `device`
+// serves through the cache. Here each threadgroup copies them once into
+// threadgroup memory, then its simdgroups take rows row = tg * nsg + sg,
+// stepping by the grid's simdgroup count, so one copy serves many rows instead
+// of the eight a served threadgroup decodes. `tv_tetra48_metal_tg` (the
+// faithful decoder) asked the same question without the row loop, so it paid
+// one copy for eight rows.
+//
+// Why the answer does not move: the fetch below is `f1r_v3_fetch`'s text with
+// the word `threadgroup`, the dot is `tetra48_dot_lut_dev`'s text reading the
+// same 64 floats from threadgroup memory, and a row's lane order, butterfly
+// and epilogue are `_lutd`'s. Gated: `tests/tetra48_metal_rows.rs`.
+// ---------------------------------------------------------------------------
+
+inline F1rV3Block f1r_v3_fetch_tgt(uint lo, uint hi16, F1rTablesTG t)
+{
+    uint p  = lo & 1u;
+    uint r  = (lo >> 1) & 1u;
+    uint s8 = (lo >> 2) & 63u;
+    uint b1 = (lo >> 8) & 1u;
+    uint i1 = (lo >> 9) & 0x7ffu;
+    uint b2 = (lo >> 20) & 15u;
+    uint i2 = ((lo >> 24) | ((hi16 & 7u) << 8)) & 0x7ffu;
+    uint b3 = (hi16 >> 3) & 1u;
+    uint i3 = (hi16 >> 4) & 0x7ffu;
+
+    F1rV3Block b;
+    b.p  = p;
+    b.c1 = t.prefixes[2u * s8 + b1];
+    uint br = t.branches[16u * s8 + b2];
+    b.c2 = br & 0xffu;
+    uint s16 = (br >> 8) & 63u;
+    b.c3 = t.suffixes[2u * s16 + b3];
+
+    b.row1 = t.rows[2048u * r + i1];
+    bool mid = i2 < F1R_N0_MIXED;
+    uint idx2 = mid ? i2 : (2048u - F1R_N0_MIXED) + i2;
+    b.row2 = t.rows[idx2];
+    uint delta = mid ? 0u : 1u;
+    uint r3 = (p ^ r ^ delta) & 1u;
+    b.row3 = t.rows[2048u * r3 + i3];
+    return b;
+}
+
+inline float tetra48_dot_lut_tgt(uint lo,
+                                 uint hi16,
+                                 F1rTablesTG t,
+                                 const threadgroup float* val,
+                                 const device float* xb,
+                                 const device float* gscale,
+                                 const device float* invnorm)
+{
+    F1rV3Block b = f1r_v3_fetch_tgt(lo, hi16, t);
+    uint cs[3] = { b.c1, b.c2, b.c3 };
+    uint rs[3] = { b.row1, b.row2, b.row3 };
+    float acc = 0.0f;
+    float n2 = 0.0f;
+    for (uint sec = 0u; sec < 3u; ++sec) {
+        uint c = cs[sec];
+        uint row = rs[sec];
+        for (uint j = 0u; j < 8u; ++j) {
+            uint o = b.p + 2u * ((c >> j) & 1u);
+            uint rho = (row >> (4u * j)) & 15u;
+            float v = val[(o << 4) | rho];
+            n2 = fma(v, v, n2);
+            acc = fma(v, xb[TETRA48_ORDER[sec * 8u + j]], acc);
+        }
+    }
+    uint m = (uint(n2) >> 4) & (TETRA48_SHELLS - 1u);
+    uint g = (hi16 >> 15) & 1u;
+    return acc * gscale[g] * invnorm[m];
+}
+
+/// The copy, once a threadgroup, before anything reads a table.
+inline F1rTablesTG tetra48_stage_tables(const device uint*   rows,
+                                        const device uchar*  prefixes,
+                                        const device ushort* branches,
+                                        const device uchar*  suffixes,
+                                        threadgroup uint*    t_rows,
+                                        threadgroup ushort*  t_bran,
+                                        threadgroup uchar*   t_pref,
+                                        threadgroup uchar*   t_suff,
+                                        threadgroup float*   t_val,
+                                        uint tid,
+                                        uint tgs)
+{
+    for (uint i = tid; i < 4096u; i += tgs) t_rows[i] = rows[i];
+    for (uint i = tid; i < 1024u; i += tgs) t_bran[i] = branches[i];
+    for (uint i = tid; i < 128u; i += tgs) { t_pref[i] = prefixes[i]; t_suff[i] = suffixes[i]; }
+    for (uint i = tid; i < 64u; i += tgs) t_val[i] = F1R_VAL[i];
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    F1rTablesTG tab = { t_rows, t_pref, t_bran, t_suff };
+    return tab;
+}
+
+#define TETRA48_LUTDT_ARGS                                                         \
+    const device uint*   words          [[buffer(0)]],                             \
+    constant uint&       row_stride_u32 [[buffer(1)]],                             \
+    const device uint*   rows           [[buffer(2)]],                             \
+    const device uchar*  prefixes       [[buffer(3)]],                             \
+    const device ushort* branches       [[buffer(4)]],                             \
+    const device uchar*  suffixes       [[buffer(5)]],                             \
+    const device float*  gscale         [[buffer(6)]],                             \
+    const device float*  invnorm        [[buffer(7)]],                             \
+    const device float*  rscale         [[buffer(8)]],                             \
+    const device half*   tail           [[buffer(9)]],                             \
+    const device float*  x              [[buffer(10)]],                            \
+    constant uint&       nblocks        [[buffer(12)]],                            \
+    constant uint&       tail_w         [[buffer(13)]],                            \
+    constant uint&       d_out          [[buffer(16)]],                            \
+    threadgroup uint*    t_rows         [[threadgroup(0)]],                        \
+    threadgroup ushort*  t_bran         [[threadgroup(1)]],                        \
+    threadgroup uchar*   t_pref         [[threadgroup(2)]],                        \
+    threadgroup uchar*   t_suff         [[threadgroup(3)]],                        \
+    threadgroup float*   t_val          [[threadgroup(4)]],                        \
+    uint tid  [[thread_position_in_threadgroup]],                                  \
+    uint tgs  [[threads_per_threadgroup]],                                         \
+    uint tgid [[threadgroup_position_in_grid]],                                    \
+    uint ntg  [[threadgroups_per_grid]],                                           \
+    uint sg   [[simdgroup_index_in_threadgroup]],                                  \
+    uint nsg  [[simdgroups_per_threadgroup]],                                      \
+    uint lane [[thread_index_in_simdgroup]]
+
+kernel void tv_tetra48_metal_lutdt(TETRA48_LUTDT_ARGS, device float* y [[buffer(11)]])
+{
+    F1rTablesTG tab = tetra48_stage_tables(rows, prefixes, branches, suffixes,
+                                           t_rows, t_bran, t_pref, t_suff, t_val, tid, tgs);
+    for (uint row = tgid * nsg + sg; row < d_out; row += ntg * nsg) {
+        const device uint* wrow = words + row * row_stride_u32;
+        float acc = 0.0f;
+        for (uint j = lane; j < nblocks; j += 32u) {
+            uint lo, hi16;
+            f1r_load(wrow, j, lo, hi16);
+            acc += tetra48_dot_lut_tgt(lo, hi16, tab, t_val, x + j * 24u, gscale, invnorm);
+        }
+        tetra48_rows_epilogue(acc, row, lane, rscale, tail, x, y, nblocks, tail_w);
+    }
+}
+
+kernel void tv_tetra48_metal_lutdth(TETRA48_LUTDT_ARGS, device half* y [[buffer(11)]])
+{
+    F1rTablesTG tab = tetra48_stage_tables(rows, prefixes, branches, suffixes,
+                                           t_rows, t_bran, t_pref, t_suff, t_val, tid, tgs);
+    for (uint row = tgid * nsg + sg; row < d_out; row += ntg * nsg) {
+        const device uint* wrow = words + row * row_stride_u32;
+        float acc = 0.0f;
+        for (uint j = lane; j < nblocks; j += 32u) {
+            uint lo, hi16;
+            f1r_load(wrow, j, lo, hi16);
+            acc += tetra48_dot_lut_tgt(lo, hi16, tab, t_val, x + j * 24u, gscale, invnorm);
+        }
+        tetra48_rows_epilogue_h(acc, row, lane, rscale, tail, x, y, nblocks, tail_w);
+    }
+}
