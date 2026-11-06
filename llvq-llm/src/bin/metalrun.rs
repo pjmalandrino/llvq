@@ -52,7 +52,8 @@
 //! ops of the 36 blocks in model order (norms, rotations, every Tetra and int4
 //! matvec, the activation, the residual adds) and times that sequence closed
 //! by one device synchronize: with every class, with each class left out, and
-//! with each class alone, interleaved round by round. A class's marginal cost
+//! with each class alone, interleaved round by round, each reading preceded
+//! by an untimed full pass and averaged over three passes. A class's marginal cost
 //! is the sequence with it minus the sequence without it, so every matrix is
 //! read in its real order and the system cache sees the real footprint. What
 //! the sequence leaves out (RoPE, q and k norms, the attention, the cache
@@ -661,8 +662,7 @@ mod mac {
 
         // The per-layer ops of the 36 blocks, in model order, `on` naming
         // the classes that run; closed by one synchronize.
-        let run = |on: &[bool; CLASSES.len()]| -> anyhow::Result<f64> {
-            let t0 = Instant::now();
+        let pass = |on: &[bool; CLASSES.len()]| -> anyhow::Result<()> {
             let mut sink = Vec::with_capacity(16);
             let mut rsink = Vec::with_capacity(8);
             for (blk, l) in m.blocks.iter().zip(&layers) {
@@ -722,14 +722,28 @@ mod mac {
                 if on[11] {
                     sink.push((&l.h_attn + &l.o_out)?);
                 }
-                if sink.len() > 12 {
-                    sink.clear();
-                    rsink.clear();
-                }
+                // Every config frees its outputs at the same point, the end
+                // of each layer, so the buffer pool sees the same churn.
+                sink.clear();
+                rsink.clear();
+            }
+            drop((sink, rsink));
+            Ok(())
+        };
+        // One timed reading: an untimed full pass first, so the GPU clock and
+        // the buffer pool are the same whichever config ran before, then
+        // REPS passes of the config, closed by one synchronize, per pass.
+        const REPS: usize = 3;
+        let full = [true; CLASSES.len()];
+        let run = |on: &[bool; CLASSES.len()]| -> anyhow::Result<f64> {
+            pass(&full)?;
+            device.synchronize()?;
+            let t0 = Instant::now();
+            for _ in 0..REPS {
+                pass(on)?;
             }
             device.synchronize()?;
-            drop((sink, rsink));
-            Ok(t0.elapsed().as_secs_f64() * 1e3)
+            Ok(t0.elapsed().as_secs_f64() * 1e3 / REPS as f64)
         };
 
         let n = CLASSES.len();
@@ -743,8 +757,13 @@ mod mac {
             configs.push((format!("+{}", CLASSES[c]), only));
         }
         let mut t: Vec<Vec<f64>> = vec![Vec::new(); configs.len()];
+        let nc = configs.len();
         for r in 0..DISCARDED + timed {
-            for (j, (_, on)) in configs.iter().enumerate() {
+            // The order turns by one config a round, so no config always
+            // follows the same one.
+            for jj in 0..nc {
+                let j = (jj + r) % nc;
+                let on = &configs[j].1;
                 let ms = run(on)?;
                 if r >= DISCARDED {
                     t[j].push(ms);
@@ -758,7 +777,7 @@ mod mac {
         let (blocks, blo, bhi) = stats(&rep.blocks_ms);
         let (all, none) = (idx("all"), idx("none"));
         let (seq, slo, shi) = diff(all, none);
-        println!("OFF PROTOCOL: every sequence closed by one device synchronize; never a rate");
+        println!("OFF PROTOCOL: each reading a warm full pass, then {REPS} passes closed by one synchronize; order turned each round; never a rate");
         println!("phase blocks (generate_phased, 64 tokens):    {blocks:7.3} ms [{blo:.3}-{bhi:.3}]");
         println!("sequence, every class, minus the empty one:   {seq:7.3} ms [{slo:.3}-{shi:.3}]");
         let (e, elo, ehi) = stats(&t[none]);

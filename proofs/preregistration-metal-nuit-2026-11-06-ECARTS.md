@@ -38,3 +38,21 @@ it. A config on the eager engine cannot say "from position 0": that threshold co
 names the kernel form with the eager threshold of 1,280. Below 1,280 it runs the grouped arithmetic, measured bit for
 bit with the expanded form on Metal (M5); from 1,280 the kernel, whose band M6 read over positions 0 to 4,095. That
 config was not timed as such. The grouped config is kept beside it.
+
+## É6. M7's marginal costs came out negative: the instrument, not the machine
+
+M7 ran on 2026-11-06 at 10:17 (P1 `lutd`, P2 `lut`), after a first attempt at 10:08 was called off before any run
+because another application held the GPU at 79 % and `MTLCompilerService` at 77 % CPU. At 10:17 the GPU read 31 %
+idle-state and other processes 30 % CPU; the operator's `chat` process was loaded and idle.
+
+Gates 1 to 3 held: same 64 tokens, the full sequence (10.042 ms P1, 10.377 P2) shorter than the `blocks` phase
+(15.951, 16.487), Tetra plus int4 bytes 1,158.3 MB against the loader's 1.16 GB. But every class's marginal cost was
+negative, about -1.2 to -3.9 ms: the sequence ran slower with a class left out than with every class in. That is
+impossible for the work and points at the instrument: the configs with a class left out freed their outputs every
+other layer instead of every layer (the sink cleared past 12 entries), and every one of them followed a short config.
+The marginal column and the shares built on it are therefore not used. What M7 does give, and is used: the remainder
+of 5.9 to 6.1 ms (`blocks` minus the full sequence), and each matvec class's GB/s alone.
+
+The instrument is fixed in the commit after M7's (outputs freed at every layer in every config, an untimed full pass
+before each reading, three passes a reading, the config order turned by one each round) and rerun under M7b, stamped
+before its run.
