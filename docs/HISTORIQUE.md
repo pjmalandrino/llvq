@@ -1124,6 +1124,23 @@ measurement form, about 220 at the door (estimated). v6 under v8's shared memory
 stamps were its stamp symbol's spill. The leads left at the bit give about 235 to 258 tok/s at the door (estimated);
 300 needs speculation or fewer bytes ([step3-4e](mesures/step3-4e-2026-11-07.txt)).
 
+## 2026-11-07. 4E v9 with one copy of the int4 bytes, the 8B and the 14B named out
+
+The operator asked for v9 on main at 4B, 8B and 14B, with one copy of the int4 bytes. Step 3's measurement form had
+held them twice: the served words for the eager path, a tiled copy for 4E, 0.385 GB more on the 4B. Under a config
+whose rows are `v9` the loader now tiles the words on the host and uploads them once. The eager path reads them
+through `tv_q4_ht` / `tv_q4_hht`, which keep every product and its order; only the addresses move. On the host they
+return the served readers' bytes at every int4 width of the three sealed files, and 9 mutants of the tiled reader die.
+Each load checks the tiled reader on the card against the served one on a file-order copy, then frees the copy. The
+file and its b/param do not move. `configs/qwen3-4b-tetra-e4-4e-v9.json` is written; its door job,
+`ops/jobs/served-v9.sh`, is prepared and not run.
+
+4E does not hold on the other two sealed files. The 8B holds `o_proj` in Tetra and an untied head. The 14B fits v9's
+shared memory (96,064 B of 101,376) and its int4 down rows, but its head is untied too. `served.rs` now names both
+causes in its refusal. While wiring this, a test of the v6 branch named `llvq_cuda` without the macOS-or-cuda gate
+of pjmalandrino/llvq#12; it would have broken the Linux CI at the merge, and it carries the gate now.
+`ops/check-linux-cuda.sh` type-checks the cuda half of `llvq-llm` on the Mac, which no tool did before.
+
 ## 2026-11-07. The MLX door, on the operator's ruling of a tolerance on Metal
 
 The operator ruled open decision 1 of the Metal plan on 2026-11-07: « Sur métal, on a validé mlx donc implem le

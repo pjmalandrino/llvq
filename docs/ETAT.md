@@ -22,7 +22,8 @@ sizes differ in three optional fields: the attention form, the decode engine and
   row goes to the split-KV attention kernel from position 0. Decode `persistent`: 4E runs the whole token in one
   cooperative CUDA launch. Rows `v4`: 4E's second row loop. `qwen3-4b-tetra-e4-4e-v6.json`, the same with rows
   `v6`, read its served door on 2026-11-07: 197.2 tok/s against 178.0, v4's tokens and pilot text. It is not served
-  before the operator decides (§5).
+  before the operator decides (§5). `qwen3-4b-tetra-e4-4e-v9.json`, the same with rows `v9`, holds the int4 bytes
+  once on the card; its door is prepared and not run (§5).
 - **4B on the Mac**: the MLX door, `configs/mlx/qwen3-4b-tetra-e4-mlx.json`, since 2026-11-07, the operator's
   decision. mlx-lm's Qwen3 with our Tetra kernels, f16 activations, served under a perplexity tolerance (§4).
 - **8B and 14B**: `qwen3-8b-tetra-e4-grouped.json` and `qwen3-14b-tetra-e4-grouped.json` since 2026-11-04, the
@@ -178,7 +179,9 @@ below 1,280 on the 4B only, on 2026-11-05.
 256 of 256 tokens equal (*measured*, [served-v4](mesures/served-v4-2026-11-05.txt)). The v4 row loop is x1.060
 [1.059-1.062] over the v3 loop after a 5-token prompt, same tokens (*computed* from the round-by-round ratios,
 [shaker-4e](mesures/shaker-4e-2026-11-05.txt)). The prefill is untouched. 4E runs on the Qwen3-4B's shape only, and
-has no Metal kernel.
+has no Metal kernel. Under rows `v9` the loader tiles the int4 words once and the eager path reads them tiled through
+`tv_q4_ht` / `tv_q4_hht`. On the host these return the served readers' bytes at every int4 width of the three sealed
+files (*measured*, `llvq-cuda/tests/pers_matches_served.rs`); on the card, each load checks them on a real record.
 
 **The sealed 4B runs fused on Metal since 2026-11-06.** The int4 wall at d_in 8,192 is
 lifted: the Metal fused door now loads the sealed 4B instead of refusing it. Its 12 int4 `down_proj` records go
@@ -226,6 +229,14 @@ the bar is the paired interval, 0.43 pp in MMLU and 0.12% in perplexity (*measur
   §4); whether that answers this item is the operator's call.
 - **A model above 14B.** The `rot_apply` wall is lifted on the card, and the device rotation is proposed for a 32B's
   first light; the operator confirms. The 32B has to be encoded first.
+- **Serving 4E v9 at 4B, the int4 bytes once.** `qwen3-4b-tetra-e4-4e-v9.json` is the v6 config with rows `v9`.
+  Under it the loader writes the int4 words tiled and holds them once, and the eager path reads them tiled. The file
+  and its 2.7320 b/param do not move (*computed*: a permutation inside each row). The measurement form of step3-4e
+  held them twice, 0.385 GB more on the card (*measured*, [step3-4e](mesures/step3-4e-2026-11-07.txt)). In that form v9
+  reads x1.118 over v6 after a 5-token prompt and x1.060 at 8,192, same tokens. About 220 tok/s at the door
+  (*estimated*). The door job `ops/jobs/served-v9.sh` reads it, with the card memory of v9 against v6 in the same job:
+  about $0.48 on l40sx1, $0.90 at worst (*estimated*). It needs the stamp of
+  `proofs/preregistration-served-v9-2026-11-07.md`, a Space rebuilt from the branch, and the operator's go.
 - **Serving 4E v6 at 4B.** The config `qwen3-4b-tetra-e4-4e-v6.json` read its served door on 2026-11-07. It gives
   197.2 tok/s against 178.0 for the served v4, decode alone 200.6, sweep 201.8 / 189.0 / 178.8 / 150.9 at
   5 / 2,048 / 4,096 / 8,192 (*measured*, [served-v6](mesures/served-v6-2026-11-07.txt), two jobs, no ratio round by
@@ -240,7 +251,13 @@ the bar is the paired interval, 0.43 pp in MMLU and 0.12% in perplexity (*measur
   4B cost $2.02 (*computed*, [gsm8k-grouped](mesures/gsm8k-grouped-2026-11-04.txt)).
 - **An int4 KV cache.** It is the next throughput lever after 4E, and it touches quality, so it is outside any
   "negligible" go.
-- **4E at 8B and 14B.** 4E runs on the 4B's shape only, and the kernel form has no T8 below 1,280 at those sizes.
+- **4E at 8B and 14B.** 4E does not hold on either sealed file, and `served.rs` refuses both shapes by name. The 8B
+  holds `o_proj` in Tetra and an untied head; 4E reads an int4 `o` and the embedding's own table as the head, so it
+  would need a Tetra o phase (a rotation of the context, then its rows) and a head table of its own. The 14B fits v9's
+  shared memory, 96,064 B of the 101,376 an L40S CTA may ask, int4 down input included (*computed*), but its head is
+  untied too. A head table of its own is three pointers in 4E's argument struct and a host-tested head phase, before
+  any card. Neither size has a T8 of the kernel form below 1,280, and serving it there needs one (K6 of
+  [plan-300](plan-300.md)). The operator decides whether to open either.
 - **The next venue for paper 2.** TACO desk-rejected paper 1 on 2026-08-27 on scope. Version 2 sits in release
   `v0.0.2`, and no archive (arXiv, Zenodo) holds it yet. Default if silent: preprint only.
 - **A harder reasoning test**, Qwen3's reasoning mode or GSM-Symbolic, about 3 to 5 $ at 4B (*estimated*).
@@ -250,8 +267,9 @@ the bar is the paired interval, 0.43 pp in MMLU and 0.12% in perplexity (*measur
   [plan-transformers](plan-transformers.md)). `llvq-tetra` 0.1.0 is on PyPI since 2026-10-07, the bytes that passed
   TestPyPI ([hf-pypi](mesures/hf-pypi-0.1.0-2026-10-07.txt)), so `pip install llvq-tetra` loads it. Next, on the
   operator's go: the upstream issue and PR, together.
-- **Spend.** $274.05 over 270 rows of this branch's registry, 265 of them priced (*computed*, `docs/data/jobs.csv`);
-  $274.46 with the served-v6 door's $0.41, recorded on `claude/serve-4e-v6-6e15c0`. The jobs
+- **Spend.** $274.46 over 271 rows of this branch's registry, 266 of them priced (*computed*, `docs/data/jobs.csv`),
+  the served-v6 door included. The rows-grid microbench of `claude/route-300-toks-de97fe`, at most $0.90
+  (*estimated*), is recorded on that branch. The jobs
   of 2026-11-04 and 11-05 spent $21.27 over 25 rows (*computed*). No cap is in force; one is owed before the next
   paid job.
 

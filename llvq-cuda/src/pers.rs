@@ -2483,6 +2483,22 @@ mod tests {
         );
     }
 
+    /// 4E v9's dynamic shared bytes at the three sealed shapes, against the
+    /// 101,376 B a CTA may ask on sm_89: the 14B's int4 down input (17,408
+    /// floats) fits, which is why the 14B's refusal is its untied head and
+    /// not its width. The v7 area holds every width's sign words (576).
+    #[test]
+    fn the_4e_v9_shared_bytes_at_the_three_sealed_shapes() {
+        let at = |hidden: u32, inter: u32, groups: u32| p4e_smem_bytes_form(7, hidden, inter, groups) + p4e_scratch_bytes(7);
+        assert_eq!(at(2560, 9728, 4), 85_952, "the 4B, as step3-4e printed");
+        assert_eq!(at(4096, 12288, 4), 85_952);
+        assert_eq!(at(5120, 17408, 5), 96_064);
+        for (h, i) in [(2560u32, 9728u32), (4096, 12288), (5120, 17408)] {
+            assert!(at(h, i, 5) <= 101_376);
+            assert!(i.div_ceil(32) <= 576 && h.div_ceil(32) <= 576, "the v7 area at {h}/{i}");
+        }
+    }
+
     /// The unit a v9 config compiles: the served unit unchanged, then the
     /// tiled int4 readers. Pinned so the door job's digest gate is this text.
     #[test]

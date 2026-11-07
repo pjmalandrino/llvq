@@ -230,7 +230,8 @@ for. The templates are in `docs/templates/`.
   infrastructure and one from the launcher, for $0.02 (*measured*, [wave 2
   deviations](../proofs/preregistration-vague2-gel-geometrie-2026-08-31-ECARTS.md)).
 - Every edit under `cfg(linux)` is type-checked from the Mac
-  (`CUDARC_CUDA_VERSION=12040 cargo check --target x86_64-unknown-linux-gnu`).
+  (`CUDARC_CUDA_VERSION=12040 cargo check --target x86_64-unknown-linux-gnu`; for the cuda half of `llvq-llm`,
+  `ops/check-linux-cuda.sh check -p llvq-llm --features cuda --all-targets`, since 2026-11-07).
   Paid from 2026-08-15 to 08-16: a CUDA image that would not compile, undetected.
 
 ## 7. The words
