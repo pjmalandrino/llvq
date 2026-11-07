@@ -265,13 +265,19 @@ fn a_divergent_history_is_cut_back_to_the_common_prefix() {
         session.feed(&qwen, &[6]).unwrap();
         assert_eq!(session.reuse_prefix(&[1, 2, 9, 9]).unwrap(), 2);
         assert_eq!(session.ids(), &[1, 2]);
-        // A cut cache feeds like a fresh one fed the same prefix.
+        // A cut cache feeds like a fresh one fed the same prefix, to rounding.
+        // Not bit for bit: the kept positions were computed in a matmul of
+        // six rows, the fresh ones in other shapes, and x86-64 Linux rounds
+        // those apart by about 1e-6 (CI, 2026-11-07). A stale position puts
+        // whole tokens back in the attention and moves the logits by far more
+        // than the bound (a mutant that skips the cut fails it).
         let h = session.feed(&qwen, &[9, 9]).unwrap();
         let a = qwen.logits_last(&h).unwrap().flatten_all().unwrap().to_vec1::<f32>().unwrap();
         let mut fresh = Session::new(&qwen);
         let h = fresh.feed(&qwen, &[1, 2, 9, 9]).unwrap();
         let b = qwen.logits_last(&h).unwrap().flatten_all().unwrap().to_vec1::<f32>().unwrap();
-        assert_eq!(a, b, "store {store:?}: a truncated cache kept a stale position");
+        let d = a.iter().zip(&b).map(|(x, y)| (x - y).abs()).fold(0f32, f32::max);
+        assert!(d <= 1e-4, "store {store:?}: a truncated cache kept a stale position, max |dlogit| {d:e}");
         assert_eq!(session.reuse_prefix(&[]).unwrap(), 0);
         assert!(session.is_empty());
     }
