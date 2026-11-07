@@ -3437,6 +3437,13 @@ mod tests {
                     let d = max_abs_diff(&reference.0, &got.0).max(max_abs_diff(&reference.1, &got.1));
                     println!("{arm}: max |dlogit| {d:e}");
                     assert!(d <= bound, "{arm}: max |dlogit| {d:e} above {bound:e}");
+                    // Liveness, on macOS only: there the grouped matmul rounds
+                    // differently from the expanded one, so equal bits would
+                    // mean the arm never took it. On x86-64 Linux candle's CPU
+                    // gemm returns the same bits for both layouts (CI,
+                    // 2026-11-07, F32 4/2), so the check would fail on a
+                    // correct grouped path; the bound above still holds there.
+                    #[cfg(target_os = "macos")]
                     assert!(d > 0.0, "{arm}: bit for bit, so this arm is not testing the grouped matmul");
                 }
             }
@@ -3487,7 +3494,11 @@ mod tests {
         assert_eq!(shared.nll[0].to_bits(), shared.nll[1].to_bits());
         assert_eq!(shared.max_dlogit, 0.0);
         let grouped = m.decode_nll_paired(&tokens, [published, (KvStore::Grow(4), AttnHeads::Grouped)]).unwrap();
-        assert!(grouped.max_dlogit > 0.0 && grouped.max_dlogit < 6e-7, "{grouped:?}");
+        assert!(grouped.max_dlogit < 6e-7, "{grouped:?}");
+        // Above zero on macOS, where the grouped matmul rounds differently;
+        // x86-64 Linux returns the same bits (see `attention_forms_agree`).
+        #[cfg(target_os = "macos")]
+        assert!(grouped.max_dlogit > 0.0, "{grouped:?}");
         assert!((grouped.nll[1] / grouped.nll[0] - 1.0).abs() < 1e-6, "{grouped:?}");
         assert!(m.decode_nll_paired(&tokens[..1], [published, published]).is_err());
     }
