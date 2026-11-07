@@ -103,17 +103,52 @@ pub fn scan(text: &str, stops: &[String]) -> Scan {
 
 /// One stream of text decoded from ids that arrive a few at a time: the
 /// answer, or its reasoning.
+///
+/// [`TextStream::full`] is the text of every id, as `tokenizers` decodes the
+/// whole list, but it decodes only the ids since the last whole character:
+/// decoding the whole answer at every token cost 73 ns a token already said,
+/// 0.6 ms a token at 8,192 (*measured*, `docs/runtime-audit-2026-11.md`).
 #[derive(Default)]
 pub struct TextStream {
     pub ids: Vec<u32>,
     /// What was sent so far.
     pub sent: String,
+    /// The text of `ids[..read]`, which ends on a whole character.
+    done: String,
+    /// The ids the next decode starts from, `ids[from..read]`, and their
+    /// text decoded alone. A window that starts a few ids back gives a
+    /// decoder the context it would have had in the whole list (the space
+    /// a word-level decoder puts between two words, for one).
+    from: usize,
+    read: usize,
+    head: String,
 }
 
 impl TextStream {
-    /// The text of every id so far, as `tokenizers` decodes it.
-    pub fn full(&self, tok: &tokenizers::Tokenizer) -> anyhow::Result<String> {
-        tok.decode(&self.ids, false).map_err(|e| anyhow::anyhow!("{e}"))
+    /// The text of every id so far, as `tokenizers` decodes the whole list.
+    ///
+    /// Exact for a byte-level decoder (Qwen3's): the text of a list of byte
+    /// strings is the text of its first part followed by the text of the
+    /// rest whenever the first part ends on a whole character, and `done`
+    /// grows only then, when the new text does not end with U+FFFD. A
+    /// decoder whose window text does not start with its context text falls
+    /// back to the whole list.
+    pub fn full(&mut self, tok: &tokenizers::Tokenizer) -> anyhow::Result<String> {
+        let decode = |ids: &[u32]| tok.decode(ids, false).map_err(|e| anyhow::anyhow!("{e}"));
+        let window = decode(&self.ids[self.from..])?;
+        let Some(tail) = window.strip_prefix(self.head.as_str()) else {
+            return decode(&self.ids);
+        };
+        let mut full = String::with_capacity(self.done.len() + tail.len());
+        full.push_str(&self.done);
+        full.push_str(tail);
+        if !tail.is_empty() && !tail.ends_with('\u{FFFD}') {
+            self.done.push_str(tail);
+            self.from = self.read;
+            self.read = self.ids.len();
+            self.head = decode(&self.ids[self.from..self.read])?;
+        }
+        Ok(full)
     }
 
     /// The part of `full[..upto]` not yet sent, and mark it sent. Nothing
@@ -178,6 +213,74 @@ mod tests {
         let mut s = TextStream::default();
         assert_eq!(s.take("a\u{e9}", 2), "a");
         assert_eq!(s.take("a\u{e9}", 3), "\u{e9}");
+    }
+
+    /// GPT-2's byte-level alphabet: one token a byte, so that a character
+    /// of two to four bytes is split across ids, as Qwen3's BPE splits rare
+    /// characters, and an invalid byte decodes to U+FFFD.
+    fn byte_tokenizer() -> tokenizers::Tokenizer {
+        let mut chars: Vec<u32> = (33..=126).chain(161..=172).chain(174..=255).collect();
+        let mut vocab = serde_json::Map::new();
+        let mut extra = 0;
+        for b in 0..=255u32 {
+            let c = match chars.contains(&b) {
+                true => b,
+                false => {
+                    extra += 1;
+                    255 + extra
+                }
+            };
+            vocab.insert(char::from_u32(c).unwrap().to_string(), b.into());
+        }
+        chars.clear();
+        let j = serde_json::json!({
+            "version": "1.0", "truncation": null, "padding": null, "added_tokens": [],
+            "normalizer": null, "pre_tokenizer": null, "post_processor": null,
+            "decoder": {"type": "ByteLevel", "add_prefix_space": false, "trim_offsets": false, "use_regex": false},
+            "model": {"type": "BPE", "vocab": vocab, "merges": [], "dropout": null, "unk_token": null,
+                      "continuing_subword_prefix": null, "end_of_word_suffix": null, "fuse_unk": false,
+                      "byte_fallback": false, "ignore_merges": false}
+        });
+        tokenizers::Tokenizer::from_bytes(serde_json::to_vec(&j).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn the_stream_decodes_as_the_whole_list_at_every_id() {
+        let tok = byte_tokenizer();
+        assert_eq!(tok.decode(&[0xC3, 0xA9], false).unwrap(), "\u{e9}", "the test tokenizer is byte-level");
+        let mut texts: Vec<Vec<u32>> = vec![
+            "caf\u{e9} \u{1F600} \u{4E2D}\u{6587} plain".bytes().map(u32::from).collect(),
+            // A lone continuation byte, a truncated character, then text.
+            vec![0x61, 0x80, 0x62, 0xE2, 0x82, 0x63, 0xF0, 0x9F, 0x98, 0x80],
+            // The replacement character itself, written by the model.
+            "a\u{FFFD}b\u{FFFD}".bytes().map(u32::from).collect(),
+        ];
+        let mut state = 0x5EEDu64;
+        for _ in 0..40 {
+            let n = 1 + (state % 60) as usize;
+            texts.push(
+                (0..n)
+                    .map(|_| {
+                        state = state.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+                        // Mostly ASCII, with lead and continuation bytes.
+                        match state >> 61 {
+                            0 => 0xC0 | (state >> 32) as u32 % 0x30,
+                            1 => 0x80 | (state >> 32) as u32 % 0x40,
+                            _ => 0x20 + (state >> 32) as u32 % 0x5F,
+                        }
+                    })
+                    .collect(),
+            );
+        }
+        for ids in texts {
+            for step in [1usize, 3] {
+                let mut s = TextStream::default();
+                for part in ids.chunks(step) {
+                    s.ids.extend_from_slice(part);
+                    assert_eq!(s.full(&tok).unwrap(), tok.decode(&s.ids, false).unwrap(), "ids {:?}", s.ids);
+                }
+            }
+        }
     }
 
     #[test]
