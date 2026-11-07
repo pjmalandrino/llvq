@@ -1119,3 +1119,34 @@ words, kept the eager tokens and read ×1.035 over v8 and ×1.118 over v6 at 5 p
 measurement form, about 220 at the door (estimated). v6 under v8's shared memory read ×1.000: v8's slower rows on its
 stamps were its stamp symbol's spill. The leads left at the bit give about 235 to 258 tok/s at the door (estimated);
 300 needs speculation or fewer bytes ([step3-4e](mesures/step3-4e-2026-11-07.txt)).
+
+## 2026-11-07. The MLX door, on the operator's ruling of a tolerance on Metal
+
+The operator ruled open decision 1 of the Metal plan on 2026-11-07: « Sur métal, on a validé mlx donc implem le
+aussi ». Until then the plan recorded no ruling on tolerance against bit for bit on Metal, and the M15 prereg had
+written "served under the M6 tolerance" as if it were ruled.
+
+The prototype became a door. `ops/mlx_tetra/serve.py` reads `configs/mlx/qwen3-4b-tetra-e4-mlx.json` and refuses by
+name every value it does not carry, the Rust keys, any other object, another mlx or mlx-lm, and any `LLVQ_*`
+variable. `check.py` gained a reference outside MLX, the `llvq-tetra` decoder that matches Rust bit for bit, and on
+the mini fixture a whole forward pass against `transformers`. Before, it compared the MLX kernels only with each
+other, so a defect in the shared shaders could pass it. A first mutation run killed 22 of 23 mutants (*measured*). The survivor
+gave k the gains of q in the stacked dispatch, invisible on a fixture whose records share their centroids; the check
+now scales k's gains apart, and the second run killed 23 of 23 (*measured*, [mlx-door](mesures/mlx-door-2026-11-07.txt)).
+
+The T8 reading ran the same morning on the operator's go, 16.5 minutes, $0. The pooled perplexity read +0.0078 % by
+decode and +0.0133 % by prefill against the Rust Metal path, but windows 6 and 7 fell outside +-0.12 % by both paths,
+at +0.27 % and -0.13 % (*measured*, [mlx-t8](mesures/mlx-t8-2026-11-07.txt)). By its prereg the door is not served. The same two
+windows move by about 0.2 % between two Rust engines, so the gate itself went back to the operator.
+
+The operator chose to keep MLX under a gate on the paired interval, stamped before a reading of windows 13 to 24,
+which the first reading had not seen. Against the Rust dense reconstruction in f16 on Metal, the door read
+-0.0103 % [-0.0847 ; +0.0642] by decode and -0.0099 % [-0.0842 ; +0.0644] by prefill, inside +-0.12 %
+(*measured*, [mlx-pooled](mesures/mlx-pooled-2026-11-07.txt)). The MLX door has served the 4B on the Mac since that reading.
+
+Both readings ran `configs/mlx/qwen3-4b-tetra-e4-mlx.json` at sha256 `d7bd5b5c…`, whose `note`, printed at every
+launch, named the per-window gate that failed. A review before the merge rewrote the note alone to name the paired
+gate that passed: sha256 `8542b7f9…`, every key the door reads unchanged. The same review moved every argument check
+of `serve.py` before the model loads, including the reference file of a reading, and added four refusals (26 of 26
+mutants killed, *measured*,
+[mlx-door](mesures/mlx-door-2026-11-07.txt)).

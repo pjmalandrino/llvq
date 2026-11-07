@@ -1,0 +1,91 @@
+THE MLX DOOR MISSES T8 ON TWO WINDOWS OF TWELVE, BY BOTH PATHS: POOLED +0.0078 % BY DECODE, BUT WINDOW 6 AT +0.27 % AND WINDOW 7 AT -0.13 % (2026-11-07)
+=======================================================================================================================================================
+Prereg: proofs/preregistration-mlx-t8-2026-11-07.md, sha256 c968be4d..., stamped with `ots stamp` at 08:49:57Z,
+        before the run (09:50:11 CET = 08:50:11Z). Stamp committed in e15c11f; the run ran on that commit, 0 paths
+        changed. No deviation.
+Go:     the operator, 2026-11-07, "Lance-la maintenant".
+Cost:   $0. Apple M3 Max, macOS 26.6.2, nice 10. 09:50:11 to 10:06:43 CET, 16 min 32 s wall. Other processes at 166 %
+        CPU before the run and 259 % at its start (16 cores). No thermal warning recorded.
+Object: ~/q4b-hf-2026-09-28, the hfpack of qwen3-4b-sealed.bin (sha256 886391a8...); step 3 rebuilt its 1,602 fields
+        bit for bit against the archive's digests.
+Config: configs/mlx/qwen3-4b-tetra-e4-mlx.json, sha256 d7bd5b5c...; mlx 0.32.4, mlx-lm 0.28.3.
+        (Later, 2026-11-07: the file's note alone was rewritten, sha256 8542b7f9...; these bytes are commit
+        fce41da. See docs/HISTORIQUE.md.)
+Nature: *measured* for every perplexity and NLL; the ratios, paired intervals and the decode/prefill pair are
+        *computed* from the printed window NLLs.
+Raw:    docs/mesures/mlx-t8-2026-11-07-brut/ (env.txt, one file a step, run.log, files.sha256). A torch warning and
+        transformers' progress bar are dropped from the step files; run.log is the script's own output.
+
+GATES, ALL PASSED
+-----------------
+  1. test_served.py 9 of 9.
+  2. check.py on fixtures/mini: 41 of 41 within bounds.
+  3. llvq_hf_check.py: 1,602 fields rebuilt bit for bit.
+  4. check.py on the sealed 4B, layers 0 and 12: 66 of 66 within bounds, the first run of these bounds on the object.
+     Worst: 7.7e-4 (fused gate-up-SiLU, layer 12; bound 2e-3); worst against the reference decoder 5.9e-4 (int4
+     v_proj, layer 0); dense prefill 5.4e-4 (bound 4e-3); q+k stacked bit for bit with each alone, also with k's
+     gains scaled apart; rotation 9,728 within 2.0e-7.
+  5. span: 299,078 tokens in the split, span sha256 6b69a6ba..., M5's.
+
+RESULT
+------
+  window   M5 (Rust Metal)   MLX decode   decode / M5 - 1   MLX prefill   prefill / M5 - 1   decode / prefill - 1
+       1   12.542946         12.549959    +0.0559 %         12.550437     +0.0597 %          -0.0038 %
+       2   18.210249         18.215296    +0.0277 %         18.218880     +0.0474 %          -0.0197 %
+       3    9.617751          9.615508    -0.0233 %          9.616652     -0.0114 %          -0.0119 %
+       4    7.631275          7.631546    +0.0036 %          7.632639     +0.0179 %          -0.0143 %
+       5   14.010765         13.998809    -0.0853 %         13.998499     -0.0875 %          +0.0022 %
+       6   13.446688         13.483508    +0.2738 %         13.485337     +0.2874 %          -0.0136 %
+       7   13.508824         13.490756    -0.1337 %         13.491085     -0.1313 %          -0.0024 %
+       8   13.410889         13.402943    -0.0593 %         13.405551     -0.0398 %          -0.0195 %
+       9   15.390806         15.393729    +0.0190 %         15.393781     +0.0193 %          -0.0003 %
+      10    9.403293          9.404117    +0.0088 %          9.402962     -0.0035 %          +0.0123 %
+      11   14.426049         14.430007    +0.0274 %         14.430245     +0.0291 %          -0.0017 %
+      12   13.160094         13.157429    -0.0203 %         13.156531     -0.0271 %          +0.0068 %
+
+  pooled   12.580769         12.581751    +0.0078 %         12.582442     +0.0133 %          -0.0055 %
+  paired t, 12 windows                    [-0.0554 ; +0.0710]             [-0.0517 ; +0.0783] [-0.0120 ; +0.0010]
+  top-1 hits                              24,588 of 49,140                24,578
+  wall                                    886 s                           55 s
+
+RULE (prereg section 4)
+-----------------------
+  decode:  pooled inside, windows 6 and 7 outside [-0.12 %, +0.12 %]. OUTSIDE.
+  prefill: pooled inside, windows 6 and 7 outside. OUTSIDE.
+  Row "outside | either": NOT SERVED. The configs stay as they are; configs/README.md records the config as not
+  served.
+
+  The row also says "the one-row path is named". The data do not name a path: the decode (one-row kernels) and the
+  prefill (dense GEMM) read the same two windows outside, by the same amounts within 0.02 %, and the two MLX paths
+  agree with each other to [-0.0197 ; +0.0123] % per window. The offset belongs to the MLX engine as a whole against
+  the Rust one, on those two windows.
+
+THE PREDICTIONS
+---------------
+  quantity                                   predicted                measured                 inside?
+  decode, pooled MLX / M5 - 1                inside +-0.05 %          +0.0078 %                yes
+  decode, every window inside +-0.12 %       yes, about 60 %          no, windows 6 and 7      NO
+  decode, widest window ratio                0.03 % to 0.20 %         0.2738 % (window 6)      NO (high)
+  prefill, pooled MLX / M5 - 1               inside +-0.05 %          +0.0133 %                yes
+  decode path, wall time                     8 to 20 min              14.8 min                 yes
+  prefill path, wall time                    1 to 3 min               55 s                     NO (low)
+
+CONTEXT, NOT GATED: THE SAME TWO WINDOWS MOVE BETWEEN TWO RUST ENGINES
+---------------------------------------------------------------------
+*Computed* from docs/mesures/s1-f32-metal-2026-11-04-brut/pair.txt, the same 12 windows (window 1 reads 12.5427 there,
+12.542946 here), the dense `ppl` binary:
+  - Metal f16 against Metal f32, one engine, the dtype alone: window 6 -0.177 %, window 7 +0.189 %, window 5
+    +0.115 %; pooled +0.0225 % [-0.0353 ; +0.0803].
+  - The card's f16 against Metal f16, the same Rust arithmetic on two devices: window 6 +0.186 %, window 10 +0.096 %;
+    pooled +0.0181 % [-0.0231 ; +0.0592].
+Both pairs would fail the per-window half of this rule on window 6 or 7, as this reading does. The MLX door's pooled
+interval, [-0.0554 ; +0.0710] by decode, has the width of the dtype pair's, [-0.0353 ; +0.0803]. On this object, at
+4,096 tokens, windows 6 and 7 move by about 0.2 % under any change of rounding the repository has read.
+
+WHAT THIS DOES NOT ESTABLISH
+----------------------------
+  - Which operation moves windows 6 and 7: attention, norms, int4 matmul, rotation order or the f16 activations.
+  - Whether a gate on the paired pooled interval, as the L40S readings of the grouped form were stated, would license
+    the door. That is a change of gate, the operator's to make, and it would be set before a reading, not read back
+    onto this one.
+  - Any task score, any context past 4,096, the 8B or the 14B.

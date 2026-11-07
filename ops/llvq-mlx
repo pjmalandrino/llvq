@@ -1,30 +1,37 @@
 #!/usr/bin/env bash
-# A prototype: the sealed Qwen3-4B (Tetra, 2.7 b/param) through MLX on this Mac's GPU, not served.
+# The sealed Qwen3-4B (Tetra, 2.7 b/param) through MLX on this Mac's GPU, at the served door.
 #
 #   ops/llvq-mlx chat [temp=0.7] [max_new=512]
-#   ops/llvq-mlx bench            # 5-token prompt, 256 new tokens, 7 rounds
-#   ops/llvq-mlx bench --long     # after 4,096 tokens of WikiText-2, 64 new, 5 rounds
-#   ops/llvq-mlx check            # the kernels against each other
+#   ops/llvq-mlx generate "<message>" [max_new=256]   # one turn, greedy
+#   ops/llvq-mlx bench            # 5-token prompt, 256 new tokens, 2 discarded + 7 timed rounds
+#   ops/llvq-mlx bench --long     # after 4,096 tokens of WikiText-2, 64 new, 2 discarded + 5 timed rounds
+#   ops/llvq-mlx check            # the gates on the sealed 4B, layers 0 and 12
+#   ops/llvq-mlx check-mini       # the gates on llvq-tetra/tests/fixtures/mini, seconds
 #
-# It reads the sealed codes without re-quantizing them, and runs f16 activations. It is not bit-exact with the
-# served kernels. After the 5-token prompt its 256 greedy tokens differ from the Rust engine's: it leaves the
-# repeated answer at token 243, the Rust engine at another token. After 4,096 tokens of context its 64 tokens are
-# the Rust engine's (M15 of docs/mesures/metal-nuit-2026-11-06.txt). No perplexity has been measured on it yet.
-# The plan: docs/plan-metal-debit.md.
+# chat, generate and bench go through ops/mlx_tetra/serve.py and configs/mlx/qwen3-4b-tetra-e4-mlx.json: the door
+# refuses any LLVQ_* variable, another object, another mlx or mlx-lm, and prints the config's line first. check and
+# check-mini run ops/mlx_tetra/check.py on the engine directly.
+# f16 activations, not bit-exact with the Rust kernels: its gate is the paired perplexity interval of
+# proofs/preregistration-mlx-pooled-2026-11-07.md (ops/mlx-pooled.sh). The plan: docs/plan-metal-debit.md.
 #
 # The packed model: $PACKED, else ~/q4b-hf-2026-09-28 (hfpack of the sealed file).
 # Needs uv; the first run installs mlx 0.32.4 and mlx-lm 0.28.3 in uv's cache.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
+CONFIG="$HERE/../configs/mlx/qwen3-4b-tetra-e4-mlx.json"
 PACKED="${PACKED:-$HOME/q4b-hf-2026-09-28}"
-[ -f "$PACKED/model.safetensors" ] || { echo "no packed model at $PACKED (set PACKED=)"; exit 1; }
 cmd="${1:-chat}"; shift || true
+if [ "$cmd" = check-mini ]; then
+  exec uv run "$HERE/mlx_tetra/check.py" "$HERE/../llvq-tetra/tests/fixtures/mini"
+fi
+[ -f "$PACKED/model.safetensors" ] || { echo "no packed model at $PACKED (set PACKED=)"; exit 1; }
+SERVE=(uv run "$HERE/mlx_tetra/serve.py" "$CONFIG" "$PACKED")
 case "$cmd" in
-  chat)  exec uv run "$HERE/mlx_tetra/llvq_mlx.py" "$PACKED" chat "${1:-0.7}" "${2:-512}" ;;
-  bench) if [ "${1:-}" = "--long" ]; then
-           exec nice -n 10 uv run "$HERE/mlx_tetra/llvq_mlx.py" "$PACKED" time 64 5 4096
-         fi
-         exec nice -n 10 uv run "$HERE/mlx_tetra/llvq_mlx.py" "$PACKED" time 256 7 ;;
-  check) exec uv run "$HERE/mlx_tetra/check.py" "$PACKED" ;;
-  *) sed -n '4,7p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+  chat)     exec "${SERVE[@]}" chat "${1:-0.7}" "${2:-512}" ;;
+  generate) [ $# -ge 1 ] || { echo "usage: ops/llvq-mlx generate \"<message>\" [max_new=256]"; exit 1; }
+            exec "${SERVE[@]}" generate "$1" "${2:-256}" ;;
+  bench)    if [ "${1:-}" = "--long" ]; then exec nice -n 10 "${SERVE[@]}" time 64 5 4096; fi
+            exec nice -n 10 "${SERVE[@]}" time 256 7 ;;
+  check)    exec uv run "$HERE/mlx_tetra/check.py" "$PACKED" 0,12 ;;
+  *) sed -n '4,9p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac

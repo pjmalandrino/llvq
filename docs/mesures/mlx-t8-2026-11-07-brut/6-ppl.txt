@@ -1,0 +1,36 @@
+served config: configs/mlx/qwen3-4b-tetra-e4-mlx.json sha256 d7bd5b5ceba77de1 (engine mlx, object qwen3-4b-sealed.bin 886391a8, layout tetra48, embed q4, rot_share 1, kv f16, activations f16, attention mlx_sdpa, mlx 0.32.4, mlx-lm 0.28.3)
+note: The qwen3-4b-tetra-e4 object (qwen3-4b-sealed.bin, sha256 886391a8) on the Mac through MLX, read from its hfpack: mlx-lm's Qwen3 with the 168 Tetra records as custom Metal kernels, f16 activations, mlx-lm's attention and KV cache. Written 2026-11-07 on the operator's word: "Sur métal, on a validé mlx donc implem le aussi". Its gate is a tolerance, not bit for bit: WikiText-2 perplexity inside +-0.12 % of the Rust Metal path's 12.580769, pooled and every window (proofs/preregistration-mlx-t8-2026-11-07.md). Its tokens leave the Rust Metal path's at token 243 after a 5-token prompt (metal-nuit-2026-11-06, M15). Decodes 93.9 tok/s after a 5-token prompt and 70.3 after 4,096 tokens on the M3 Max (measured, M16, prototype door). Loaded by ops/mlx_tetra/serve.py only; configs/README.md is the authority on its status.
+packed /Users/pjmalandrino/q4b-hf-2026-09-28 | Device(gpu, 0)
+built in 2.9 s | Tetra resident 0.749 GB | active 1.51 GB
+ppl: wikitext2 test, 12 windows of 4096 from the start (299078 tokens in the split, span sha256 6b69a6ba6998ddda8d1f65406ac23b3e1bc09e0a693f8809d97f0ca7f4b38aab); paths decode, prefill; a TOLERANCE reading against M5, never a served decision
+span gate: 299078 tokens in the split, span sha256 6b69a6ba6998ddda, M5's
+  decode window  1: ppl 12.549959, MLX / M5 - 1 = +0.0559 %, nll 10359.192771 over 4095, top-1 hits 2069, argmax sha256 b3951bcad0670d3f, 51 s elapsed
+  decode window  2: ppl 18.215296, MLX / M5 - 1 = +0.0277 %, nll 11884.761694 over 4095, top-1 hits 1844, argmax sha256 a48dea710c08464f, 109 s elapsed
+  decode window  3: ppl 9.615508, MLX / M5 - 1 = -0.0233 %, nll 9268.529725 over 4095, top-1 hits 2229, argmax sha256 075247408d5f0931, 174 s elapsed
+  decode window  4: ppl 7.631546, MLX / M5 - 1 = +0.0036 %, nll 8322.229372 over 4095, top-1 hits 2335, argmax sha256 f3920984c6bdfcec, 271 s elapsed
+  decode window  5: ppl 13.998809, MLX / M5 - 1 = -0.0853 %, nll 10806.591479 over 4095, top-1 hits 1942, argmax sha256 0e8a4f5acb972ac2, 374 s elapsed
+  decode window  6: ppl 13.483508, MLX / M5 - 1 = +0.2738 %, nll 10653.008479 over 4095, top-1 hits 1978, argmax sha256 53ffc153b94169eb, 457 s elapsed
+  decode window  7: ppl 13.490756, MLX / M5 - 1 = -0.1337 %, nll 10655.209326 over 4095, top-1 hits 2000, argmax sha256 447eb2fd55d9f4d1, 536 s elapsed
+  decode window  8: ppl 13.402943, MLX / M5 - 1 = -0.0593 %, nll 10628.467154 over 4095, top-1 hits 2001, argmax sha256 53c7891f28cce68b, 635 s elapsed
+  decode window  9: ppl 15.393729, MLX / M5 - 1 = +0.0190 %, nll 11195.567172 over 4095, top-1 hits 1908, argmax sha256 c3069e09b58ca605, 702 s elapsed
+  decode window 10: ppl 9.404117, MLX / M5 - 1 = +0.0088 %, nll 9177.499439 over 4095, top-1 hits 2282, argmax sha256 0a0db11f0a682d36, 763 s elapsed
+  decode window 11: ppl 14.430007, MLX / M5 - 1 = +0.0274 %, nll 10930.823955 over 4095, top-1 hits 1973, argmax sha256 f2d81ffc656c08e5, 824 s elapsed
+  decode window 12: ppl 13.157429, MLX / M5 - 1 = -0.0203 %, nll 10552.759773 over 4095, top-1 hits 2027, argmax sha256 4b21477408198133, 886 s elapsed
+decode: pooled ppl 12.581751 over 12 windows, 49140 predictions, top-1 hits 24588, 886 s
+decode against M5: pooled MLX 12.581751 / M5 12.580769 - 1 = +0.0078 %; paired t over 12 windows +0.0078 % [-0.0554 ; +0.0710]; per window [-0.1337 ; +0.2738] %, 7 of 12 above M5
+decode T8 band +-0.12 %, pooled and every window: OUTSIDE (windows outside: [6, 7], pooled inside)
+  prefill window  1: ppl 12.550437, MLX / M5 - 1 = +0.0597 %, nll 10359.348742 over 4095, top-1 hits 2069, argmax sha256 d50b1b4bbfeb0b86, 4 s elapsed
+  prefill window  2: ppl 18.218880, MLX / M5 - 1 = +0.0474 %, nll 11885.567210 over 4095, top-1 hits 1843, argmax sha256 1eb44ab1f7e4d995, 9 s elapsed
+  prefill window  3: ppl 9.616652, MLX / M5 - 1 = -0.0114 %, nll 9269.016793 over 4095, top-1 hits 2229, argmax sha256 3d27973fe09cf335, 13 s elapsed
+  prefill window  4: ppl 7.632639, MLX / M5 - 1 = +0.0179 %, nll 8322.816011 over 4095, top-1 hits 2335, argmax sha256 f5a7176e7fd26f93, 17 s elapsed
+  prefill window  5: ppl 13.998499, MLX / M5 - 1 = -0.0875 %, nll 10806.500639 over 4095, top-1 hits 1939, argmax sha256 3f259cd82f71ea34, 22 s elapsed
+  prefill window  6: ppl 13.485337, MLX / M5 - 1 = +0.2874 %, nll 10653.564202 over 4095, top-1 hits 1978, argmax sha256 5e99bda2584278f4, 26 s elapsed
+  prefill window  7: ppl 13.491085, MLX / M5 - 1 = -0.1313 %, nll 10655.309043 over 4095, top-1 hits 1999, argmax sha256 adee135005348b18, 31 s elapsed
+  prefill window  8: ppl 13.405551, MLX / M5 - 1 = -0.0398 %, nll 10629.264132 over 4095, top-1 hits 1998, argmax sha256 6eaf1308fb928edf, 36 s elapsed
+  prefill window  9: ppl 15.393781, MLX / M5 - 1 = +0.0193 %, nll 11195.580906 over 4095, top-1 hits 1910, argmax sha256 001df853d6185502, 40 s elapsed
+  prefill window 10: ppl 9.402962, MLX / M5 - 1 = -0.0035 %, nll 9176.996387 over 4095, top-1 hits 2282, argmax sha256 e1b90c19346ff5cc, 45 s elapsed
+  prefill window 11: ppl 14.430245, MLX / M5 - 1 = +0.0291 %, nll 10930.891548 over 4095, top-1 hits 1971, argmax sha256 8a3af1c9f5438719, 50 s elapsed
+  prefill window 12: ppl 13.156531, MLX / M5 - 1 = -0.0271 %, nll 10552.480309 over 4095, top-1 hits 2025, argmax sha256 9cad12d342d40e96, 55 s elapsed
+prefill: pooled ppl 12.582442 over 12 windows, 49140 predictions, top-1 hits 24578, 55 s
+prefill against M5: pooled MLX 12.582442 / M5 12.580769 - 1 = +0.0133 %; paired t over 12 windows +0.0133 % [-0.0517 ; +0.0783]; per window [-0.1313 ; +0.2874] %, 6 of 12 above M5
+prefill T8 band +-0.12 %, pooled and every window: OUTSIDE (windows outside: [6, 7], pooled inside)

@@ -6,6 +6,11 @@
 //! in its own crate, on the same inputs, so the two copies cannot be two
 //! arithmetics.
 
+// `llvq-cuda` is a dev-dependency on macOS only (see `llvq-llm/Cargo.toml`): on a
+// Linux CPU build it would pull `cudarc`, whose build script needs `nvcc`.
+// Under `--features cuda` it is a normal dependency, so the file runs there.
+#![cfg(any(target_os = "macos", feature = "cuda"))]
+
 use candle_core::{DType, Device, Tensor};
 use half::f16;
 use llvq_llm::attn::{canon, CpuAttn};

@@ -40,6 +40,31 @@ from it: the note on the `served config:` line, and the path on every dump's
 `# config=` line. Borrowing another size's file would record the wrong object on
 every line of the run.
 
+## `mlx/`: the MLX door on the Mac
+
+`mlx/qwen3-4b-tetra-e4-mlx.json` is the config of the MLX door,
+`ops/mlx_tetra/serve.py`. It is **the 4B's served configuration on the Mac since
+2026-11-07** (operator decision: « oiui c'est bon on gare », corrected by « garde * »,
+and the option "Garder MLX"), under a gate on the paired interval of its perplexity. Its schema is its own, so it lives in a subdirectory:
+`every_shipped_config_resolves` reads the `*.json` of this directory with
+`deny_unknown_fields`, and does not descend.
+
+Both perplexity readings ran the file at sha256 `d7bd5b5c…` (commit `fce41da`).
+Its `note` then named the first reading's gate, every window inside +-0.12 %.
+On 2026-11-07 the note alone was rewritten to name the gate that passed, the
+paired interval of `preregistration-mlx-pooled-2026-11-07.md`: sha256
+`8542b7f9…`, every other key unchanged.
+
+| file | object | b/param | quality |
+|---|---|---|---|
+| `mlx/qwen3-4b-tetra-e4-mlx.json` | The SAME object as `qwen3-4b-tetra-e4.json`, `qwen3-4b-sealed.bin` (sha256 `886391a8…`), read from its hfpack by mlx-lm's Qwen3 with the 168 Tetra records as custom Metal kernels, f16 activations, mlx-lm's attention and f16 KV cache. Written 2026-11-07 on the operator's ruling « Sur métal, on a validé mlx donc implem le aussi »: on Metal, a tolerance rather than bit for bit | **2.7320**, the file's (*computed* by `rtbits`): the door reads the stored bits. Resident, it holds q and k twice, alone for the prefill and stacked for the decode, about 0.12 GB more (*computed* from the record shapes) | Not scored on a task. **Perplexity** licensed it: WikiText-2 windows 13 to 24 of 4,096 against the Rust dense reconstruction in f16 on Metal, **-0.0103 %** [-0.0847 ; +0.0642] by decode and **-0.0099 %** [-0.0842 ; +0.0644] by prefill, paired, inside +-0.12 % (*measured*, [mlx-pooled-2026-11-07](../docs/mesures/mlx-pooled-2026-11-07.txt)). A first reading on windows 1 to 12 against the Rust Metal path's 12.580769 read +0.0078 % [-0.0554 ; +0.0710] pooled, with windows 6 and 7 at +0.27 % and -0.13 %, outside the every-window rule it had then (*measured*, [mlx-t8-2026-11-07](../docs/mesures/mlx-t8-2026-11-07.txt)). Not bit for bit: its tokens leave the Rust path's at token 243 after a 5-token prompt (*measured*, [metal-nuit-2026-11-06](../docs/mesures/metal-nuit-2026-11-06.txt), M15). The engine decoded 93.9 tok/s after a 5-token prompt and 70.3 after 4,096 at the prototype's door (*measured*, [metal-nuit-2026-11-06](../docs/mesures/metal-nuit-2026-11-06.txt), M16); the served door is not timed |
+
+Every key has one accepted value. `ops/mlx_tetra/served.py` refuses any other
+by name, refuses the Rust keys `fuse`, `decode` and `rows`, any other object,
+another mlx or mlx-lm than the pinned 0.32.4 and 0.28.3, and any `LLVQ_*`
+variable, since the door reads none. `ops/mlx_tetra/test_served.py` holds each
+refusal.
+
 ## Why `fuse` is `0` on the served object
 
 `Tetra48` carries no segmented kernel: `planes_source_names` gives it a list of
@@ -93,13 +118,14 @@ form exists to read the history where it lies, which `cat` cannot offer because
 its buffer moves at every step. Two separate fields could name a pair no
 measurement ever ran.
 
-**`grouped` and `kernel` are refused on Metal, by name, and nothing is served
-there.** Both are measured on the M3 Max: the grouped form returned the
+**`grouped` and `kernel` are refused on Metal, by name, and the Rust door serves
+nothing there.** Both are measured on the M3 Max: the grouped form returned the
 expanded form's logits bit for bit over 49,140 decode steps and decoded x2.380
 faster at 4,096 positions; the kernel form from position 0 read +0.0051 % of
 perplexity against grouped, inside +-0.12 % (*measured*,
 [metal-nuit-2026-11-06](../docs/mesures/metal-nuit-2026-11-06.txt)). No
 operator decision serves either on Metal, so `served.rs` keeps refusing them.
+The Mac's served path is the MLX door, `mlx/` above.
 The two `*-metal-*-NOT-SERVED.json` files reach them only through
 `bin/metalrun`, which says so on its first line. `decode: "persistent"` is
 refused on Metal even there: 4E has no Metal kernel.
