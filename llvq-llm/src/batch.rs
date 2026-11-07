@@ -196,20 +196,50 @@ impl BatchDevice for CandleBatch {
 }
 
 impl crate::model::Qwen3 {
+    /// Run `prompt` through the batch-1 path (the served prefill: the rows
+    /// kernel, and the attention form the model's config names), copy its
+    /// cache into slot `slot` of `kv`, and return its first greedy token.
+    pub fn prefill_slot(&self, prompt: &[u32], kv: &mut BatchKv, slot: usize) -> Result<u32> {
+        use candle_core::{IndexOp, D};
+        if prompt.is_empty() || slot >= kv.batch() || prompt.len() > kv.cap {
+            candle_core::bail!("prefill_slot: {} tokens into slot {slot} of {} (cap {})", prompt.len(), kv.batch(), kv.cap);
+        }
+        let mut caches = self.fresh_caches();
+        let mut offset = 0usize;
+        let mut last = None;
+        for chunk in prompt.chunks(crate::model::MAX_ROWS) {
+            let input = Tensor::from_slice(chunk, (1, chunk.len()), self.device())?;
+            last = Some(self.hidden_cached(&input, offset, &mut caches, &mut crate::model::NoCapture)?);
+            offset += chunk.len();
+        }
+        let h = last.expect("a prompt of at least one token");
+        for (l, c) in caches.iter().enumerate() {
+            let (k, v) = c.held()?.ok_or_else(|| candle_core::Error::msg("prefill_slot: an empty cache"))?;
+            let pad = kv.cap - k.dim(2)?;
+            kv.k[l].slice_set(&k.pad_with_zeros(2, 0, pad)?.contiguous()?, 0, slot)?;
+            kv.v[l].slice_set(&v.pad_with_zeros(2, 0, pad)?.contiguous()?, 0, slot)?;
+        }
+        kv.len[slot] = prompt.len();
+        self.logits_last(&h)?.i((0, 0))?.argmax(D::Minus1)?.to_scalar::<u32>()
+    }
+
     /// Greedy generation for several prompts at once through
     /// [`Self::batch_step`]: up to `max_new` tokens each, a sequence stopping
     /// early when `stop(index, generated so far)` says so.
     ///
-    /// Prompts are fed one token a step (teacher forcing), so sequences of
-    /// different lengths share every step from the first. A sequence that has
-    /// stopped keeps its row in the batch until the last one stops: its picks
-    /// are discarded. That is the minimal driver, not continuous batching.
+    /// `prefill` true runs each prompt through the batch-1 path first
+    /// ([`Self::prefill_slot`]) and batches the decode only. `false` feeds the
+    /// prompts one token a step (teacher forcing), so every row of every step
+    /// is batched from the first. A sequence that has stopped keeps its row in
+    /// the batch until the last one stops, its picks discarded: the minimal
+    /// driver, not continuous batching.
     pub fn generate_batch(
         &self,
         prompts: &[Vec<u32>],
         max_new: usize,
         dev: &dyn BatchDevice,
         projs: BatchProjs,
+        prefill: bool,
         stop: &dyn Fn(usize, &[u32]) -> bool,
     ) -> Result<Vec<Vec<u32>>> {
         let b = prompts.len();
@@ -221,10 +251,19 @@ impl crate::model::Qwen3 {
         }
         let longest = prompts.iter().map(Vec::len).max().unwrap_or(0);
         let mut kv = self.batch_kv(b, longest + max_new)?;
-        let mut fed = vec![0usize; b];
+        let mut fed: Vec<usize> = vec![0; b];
         let mut out: Vec<Vec<u32>> = vec![Vec::with_capacity(max_new); b];
         let mut done = vec![false; b];
         let mut next: Vec<u32> = prompts.iter().map(|p| p[0]).collect();
+        if prefill {
+            for (i, p) in prompts.iter().enumerate() {
+                let first = self.prefill_slot(p, &mut kv, i)?;
+                fed[i] = p.len();
+                out[i].push(first);
+                next[i] = first;
+                done[i] = max_new == 1 || stop(i, &out[i]);
+            }
+        }
         while done.iter().any(|d| !d) {
             let picks = self.batch_step(&next, &mut kv, dev, projs)?;
             for i in 0..b {

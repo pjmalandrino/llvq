@@ -73,8 +73,10 @@ fn a_batch_decodes_each_sequence_as_it_decodes_alone() {
     let m = model(&dev);
     let prompts: Vec<Vec<u32>> = vec![vec![5, 17, 99, 3, 40], vec![77], vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], vec![64, 64]];
     let alone: Vec<Vec<u32>> = prompts.iter().map(|p| m.generate(p, 20, &mut NoCapture).expect("generate")).collect();
-    let batch = m.generate_batch(&prompts, 20, &CandleBatch, BatchProjs::Rows, &|_, _| false).expect("batch");
+    let batch = m.generate_batch(&prompts, 20, &CandleBatch, BatchProjs::Rows, false, &|_, _| false).expect("batch");
     assert_eq!(batch, alone);
+    let pre = m.generate_batch(&prompts, 20, &CandleBatch, BatchProjs::Rows, true, &|_, _| false).expect("prefilled batch");
+    assert_eq!(pre, alone, "prefilled through the batch-1 path");
     // Distinct sequences, so a batch that mixed rows up could not pass.
     assert!(alone.windows(2).all(|w| w[0] != w[1]), "{alone:?}");
 }
@@ -85,7 +87,7 @@ fn a_sequence_that_stops_leaves_the_others_untouched() {
     let m = model(&dev);
     let prompts: Vec<Vec<u32>> = vec![vec![9, 8, 7], vec![30, 31]];
     let alone: Vec<Vec<u32>> = prompts.iter().map(|p| m.generate(p, 12, &mut NoCapture).expect("generate")).collect();
-    let batch = m.generate_batch(&prompts, 12, &CandleBatch, BatchProjs::Rows, &|i, g| i == 0 && g.len() == 4).expect("batch");
+    let batch = m.generate_batch(&prompts, 12, &CandleBatch, BatchProjs::Rows, true, &|i, g| i == 0 && g.len() == 4).expect("batch");
     assert_eq!(batch[0], alone[0][..4].to_vec());
     assert_eq!(batch[1], alone[1]);
 }
@@ -94,6 +96,6 @@ fn a_sequence_that_stops_leaves_the_others_untouched() {
 fn dense_projections_take_their_linear_in_the_tensor_core_arm() {
     let dev = Device::Cpu;
     let m = model(&dev);
-    let e = m.generate_batch(&[vec![1, 2]], 2, &CandleBatch, BatchProjs::Mma, &|_, _| false);
+    let e = m.generate_batch(&[vec![1, 2]], 2, &CandleBatch, BatchProjs::Mma, false, &|_, _| false);
     assert!(e.is_ok(), "dense projections take their Linear in either arm: {e:?}");
 }

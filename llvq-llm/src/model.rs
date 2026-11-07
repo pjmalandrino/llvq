@@ -556,6 +556,23 @@ impl KvCache {
     pub fn store(&self) -> crate::kvq::KvStore {
         self.store
     }
+
+    /// The history held, `(1, n_kv, len, head_dim)` views of keys and values,
+    /// for a store that keeps the grouped heads (`Cat`, `Grow`). `None` before
+    /// a first append. The batched driver copies a prefilled sequence into its
+    /// slot through this.
+    pub fn held(&self) -> Result<Option<(Tensor, Tensor)>> {
+        let (Some(k), Some(v)) = (&self.k, &self.v) else {
+            return Ok(None);
+        };
+        match self.store {
+            crate::kvq::KvStore::Cat => Ok(Some((k.clone(), v.clone()))),
+            crate::kvq::KvStore::Grow(_) => Ok(Some((k.narrow(2, 0, self.len)?, v.narrow(2, 0, self.len)?))),
+            crate::kvq::KvStore::Prealloc(_) => {
+                candle_core::bail!("KvCache held: a preallocated store holds the expanded heads")
+            }
+        }
+    }
 }
 
 /// A `Grow` buffer of `cap` positions, shaped like `like` on every other
@@ -2058,7 +2075,7 @@ impl Block {
 /// row is the one-row kernel's. [`crate::batch::BatchProjs::Mma`] rotates the
 /// rows once (once for the group under [`RotShare::On`], as `group_forward`
 /// does) and hands each projection to the device's tensor-core kernel.
-fn batch_group(
+pub fn batch_group(
     projs: &[&Proj],
     x: &Tensor,
     share: RotShare,
@@ -2655,6 +2672,24 @@ impl Qwen3 {
         }
     }
 
+    /// Logits `[B, 1, vocab]` of `h` `[B, 1, d]`: the head's own path under
+    /// [`crate::batch::BatchProjs::Rows`] (row by row for a quantized table),
+    /// the tensor-core kernel under `Mma` when the head is a quantized table.
+    pub fn batch_head(
+        &self,
+        h: &Tensor,
+        dev: &dyn crate::batch::BatchDevice,
+        projs: crate::batch::BatchProjs,
+    ) -> Result<Tensor> {
+        let b = h.dim(0)?;
+        match (projs, &self.head) {
+            (crate::batch::BatchProjs::Mma, Head::Q8(t)) => {
+                dev.head_mma(t.as_ref(), &row_block(h)?, b)?.reshape((b, 1, ()))
+            }
+            _ => self.head.project(h),
+        }
+    }
+
     /// A fresh [`crate::batch::BatchKv`] for `b` sequences of up to `cap`
     /// positions each, in the model's dtype and on its device.
     pub fn batch_kv(&self, b: usize, cap: usize) -> Result<crate::batch::BatchKv> {
@@ -2699,12 +2734,7 @@ impl Qwen3 {
             h = blk.forward_batch(&h, &cos, &sin, &kv.k[i], &kv.v[i], &pos, max_len, dev, projs)?;
         }
         let h = self.norm.forward(&h)?;
-        let logits = match (projs, &self.head) {
-            (crate::batch::BatchProjs::Mma, Head::Q8(t)) => {
-                dev.head_mma(t.as_ref(), &row_block(&h)?, b)?.reshape((b, 1, ()))?
-            }
-            _ => self.head.project(&h)?,
-        };
+        let logits = self.batch_head(&h, dev, projs)?;
         for l in kv.len.iter_mut() {
             *l += 1;
         }
