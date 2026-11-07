@@ -20,3 +20,16 @@ repository = "https://github.com/pjmalandrino/llvq"
 [profile.release]
 lto = "thin"
 codegen-units = 1
+
+# CI only (`cargo test --profile ci`). The release optimisation level, so the
+# tests gated `cfg_attr(debug_assertions, ignore)` run, without the link-time
+# work that made each of ~40 test binaries take minutes: no LTO, 16 codegen
+# units. Overflow checks are on, which used to need a separate debug build of
+# the whole workspace. Floating-point results do not depend on LTO or on the
+# number of codegen units.
+[profile.ci]
+inherits = "release"
+lto = false
+codegen-units = 16
+incremental = false
+overflow-checks = true
