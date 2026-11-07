@@ -20,6 +20,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 anyhow = "1"
 flate2 = "1"
+# The CPU backend's thread pool (`tetra_cpu`). Already in Cargo.lock through candle.
+rayon = "1.12"
 parquet = { version = "55", default-features = false, features = ["snap", "zstd", "brotli", "flate2"] }
 
 # The fused kernels. Target-gated *and* optional: `llvq-cuda` pulls cudarc,

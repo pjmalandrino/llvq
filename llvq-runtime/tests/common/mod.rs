@@ -141,7 +141,7 @@ pub fn manifest() -> Manifest {
         family: "qwen3".into(),
         parameter_size: "tiny".into(),
         bits_per_param: "32".into(),
-        configs: Configs { cuda: None, metal: None },
+        configs: Configs { cuda: None, metal: None, cpu: None },
         modified_at: 1_762_387_200,
     }
 }

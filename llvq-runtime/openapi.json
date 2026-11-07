@@ -986,7 +986,7 @@
         "description": "What llvq adds to a running model.",
         "properties": {
           "backend": {
-            "description": "`cuda`, `metal` or `dense-cpu`.",
+            "description": "`cuda`, `metal` or `cpu`.",
             "type": [
               "string",
               "null"
@@ -1083,6 +1083,12 @@
           },
           "bits_per_param": {
             "type": "string"
+          },
+          "config_cpu": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "config_cuda": {
             "type": [

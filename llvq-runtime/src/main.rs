@@ -229,6 +229,7 @@ fn show(client: &Client, model: &str) -> anyhow::Result<()> {
                                   "quantization_level": format!("Tetra {} b/param", m.bits_per_param) },
                     "llvq": { "repo": m.repo, "revision": m.revision, "file": m.file, "sha256": m.sha256,
                               "config_cuda": m.configs.cuda, "config_metal": m.configs.metal,
+                              "config_cpu": library::with_cpu_config(&m.configs, &m.sha256).cpu,
                               "backend": Backend::of_build().label() } })
         }
     };
@@ -247,6 +248,7 @@ fn show(client: &Client, model: &str) -> anyhow::Result<()> {
     println!("  Served");
     println!("    config on cuda      {}", s(&l["config_cuda"]));
     println!("    config on metal     {}", s(&l["config_metal"]));
+    println!("    config on cpu       {}", s(&l["config_cpu"]));
     println!("    this build serves   {}", s(&l["backend"]));
     Ok(())
 }

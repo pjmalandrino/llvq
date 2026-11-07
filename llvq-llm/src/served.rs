@@ -709,6 +709,11 @@ pub fn load_resolved(
     int4: crate::fused::Int4Layout,
     origin: Option<&str>,
 ) -> candle_core::Result<crate::fused::FusedSealed> {
+    // The CPU backend, in every build: a machine without a card, or a
+    // device build asked for the CPU.
+    if device.is_cpu() {
+        return crate::fused_cpu::load_resolved(path, dtype, layout, emode, share, fuse, kv, int4, origin);
+    }
     #[cfg(all(target_os = "linux", feature = "cuda"))]
     {
         crate::fused_cuda::load_resolved(path, device, dtype, layout, emode, share, fuse, kv, int4, origin)
@@ -730,8 +735,8 @@ pub fn load_resolved(
         let _ = (path, device, dtype, layout, emode, share, fuse, kv, int4, origin);
         candle_core::bail!(
             "this build carries no device backend: a sealed artifact can be served \
-             through the fused path on a CUDA build on Linux or a Metal build on macOS. \
-             Otherwise take the dense path through sealed::load"
+             through the fused path on a CUDA build on Linux, a Metal build on macOS, \
+             or on the CPU (Device::Cpu) in any build"
         )
     }
 }

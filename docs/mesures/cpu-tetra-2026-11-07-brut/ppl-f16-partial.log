@@ -1,0 +1,8 @@
+23:09  up 15 days, 13:38, 1 user, load averages: 16.42 25.43 30.74
+embedding: q4 g64 (LLVQ_CONFIG), 1 table (model.embed_tokens.weight, lm_head tied on it), 218.8 MB on the card (int4 194.5 + scales/biases 24.3)
+cpu: neon SIMD on 12 threads | tetra 168 + int4 84 matrices | 1.38 GB in memory (projections 1.16 + carried 0.22)
+tetra on the CPU: configs/qwen3-4b-tetra-e4.json (neon)
+299078 tokens → 12 windows of 4096 (fingerprint 3f1baca9033bf251)
+  window   1/12  nll 2.528440028  n 4095  running ppl    12.534  (283.0s)
+  window   2/12  nll 2.900653665  n 4095  running ppl    15.098  (525.2s)
+  window   3/12  nll 2.259022054  n 4095  running ppl    12.971  (938.4s)

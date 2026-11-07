@@ -24,6 +24,11 @@ sizes differ in three optional fields: the attention form, the decode engine and
   and held once on the card. It replaced the v4 config (2026-11-05 to 2026-11-07).
 - **4B on the Mac**: the MLX door, `configs/mlx/qwen3-4b-tetra-e4-mlx.json`, since 2026-11-07, the operator's
   decision. mlx-lm's Qwen3 with our Tetra kernels, f16 activations, served under a perplexity tolerance (§4).
+- **Without a GPU**: the runtime's CPU backend since 2026-11-07, `fused_cpu` on the expanded e4 configs, at f32.
+  It reads the Tetra codes at every matvec instead of rebuilding f16 weights: 8.6 tok/s in 1.86 GB on the 4B at 12
+  threads of an M3 Max, against 0.45 tok/s in 10.6 GB for the dense reconstruction it replaced; perplexity -0.0021 %
+  [-0.0022 ; -0.0019] of the dense f32 over 12 windows (*measured*,
+  [cpu-tetra](mesures/cpu-tetra-2026-11-07.txt)). Never run on x86; not reviewed by the operator.
 - **8B and 14B**: `qwen3-8b-tetra-e4-4e-v9.json` and `qwen3-14b-tetra-e4-4e-v9.json` since 2026-11-07, the
   operator's decision: the 4B's fields, 4E reading each head on its own table and the 8B's Tetra `o_proj`. They
   replaced the grouped configs (2026-11-04 to 2026-11-07), and their kernel form from position 0 passed the
