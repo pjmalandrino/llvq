@@ -17,6 +17,33 @@
 
 #include <vector>
 
+// host_cta's launcher for a third grid axis: every (x, y, z) CTA in one
+// permuted order, so CTAs of different sequences interleave as they may on a
+// card, and a ticket or a partial shared across sequences shows.
+template <class F>
+static void launch3(unsigned gx, unsigned gy, unsigned gz, uint64_t seed, F body) {
+    gridDim = {gx, gy, gz};
+    blockDim = {ATTN_THREADS, 1, 1};
+    std::vector<Dim3> order;
+    for (unsigned z = 0; z < gz; ++z)
+        for (unsigned y = 0; y < gy; ++y)
+            for (unsigned x = 0; x < gx; ++x) order.push_back({x, y, z});
+    uint64_t s = seed;
+    for (size_t i = order.size(); i > 1; --i) {
+        s ^= s >> 12;
+        s ^= s << 25;
+        s ^= s >> 27;
+        std::swap(order[i - 1], order[(size_t)((s * 0x2545f4914f6cdd1dull) % i)]);
+    }
+    const std::function<void()> fn = body;
+    hostcta::body_fn = &fn;
+    for (const auto& b : order) {
+        blockIdx = b;
+        hostcta::run_cta(ATTN_THREADS);
+    }
+    hostcta::body_fn = nullptr;
+}
+
 template <class T>
 static T rd() {
     T v;
@@ -51,16 +78,13 @@ int main() {
     const unsigned gx = (unsigned)((maxl + ATTN_SPLIT - 1) / ATTN_SPLIT);
     const int ss = (int)gx;
 
-    // The batched launch: one (gx, n_kv) grid per z, which is how host_cta
-    // spells a third grid axis; the slices of z are disjoint, so running the z
-    // in sequence is the concurrent launch.
+    // The batched launch, its CTAs interleaved across sequences.
     std::vector<unsigned short> bkc = kc, bvc = vc, bout(B * nq, 0xffffu);
     std::vector<float> bpart((size_t)B * n_kv * ss * ATTN_KMAX * G * ATTN_PSTRIDE, 0.0f);
     std::vector<unsigned> bt((size_t)B * n_kv, 0u);
     std::vector<int> posv = pos;
-    for (unsigned z = 0; z < B; ++z) {
-        hostcta::launch(gx, n_kv, ATTN_THREADS, 0x5eedu + z, [&] {
-            blockIdx.z = z;
+    {
+        launch3(gx, n_kv, B, 0x5eedu, [&] {
             if (G == 4) attn_batch_g4_u64(q.data(), kn.data(), vn.data(), bkc.data(), bvc.data(), posv.data(), (int)cap, c, bpart.data(), bt.data(), bout.data(), ss);
             else attn_batch_g5_u64(q.data(), kn.data(), vn.data(), bkc.data(), bvc.data(), posv.data(), (int)cap, c, bpart.data(), bt.data(), bout.data(), ss);
         });
