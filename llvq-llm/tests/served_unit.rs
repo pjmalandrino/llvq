@@ -24,6 +24,11 @@
 //! the device's arithmetic. What that arithmetic does is
 //! `llvq-cuda/tests/tetra48_matches_rust.rs`'s business.
 
+// `llvq-cuda` is a dev-dependency on macOS only (see `llvq-llm/Cargo.toml`): on a
+// Linux CPU build it would pull `cudarc`, whose build script needs `nvcc`.
+// Under `--features cuda` it is a normal dependency, so the file runs there.
+#![cfg(any(target_os = "macos", feature = "cuda"))]
+
 use llvq_llm::fused::{
     int4_wide_unit_names, load_int4_sources, load_int4_wide_sources, load_planes_sources,
     planes_source_names, FusedLayout,

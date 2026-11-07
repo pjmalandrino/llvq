@@ -8,6 +8,11 @@
 //! the q4 embedding, the int4 matvec. If either side moves, this fails here
 //! rather than as a digest mismatch on a rented card.
 
+// `llvq-cuda` is a dev-dependency on macOS only (see `llvq-llm/Cargo.toml`): on a
+// Linux CPU build it would pull `cudarc`, whose build script needs `nvcc`.
+// Under `--features cuda` it is a normal dependency, so the file runs there.
+#![cfg(any(target_os = "macos", feature = "cuda"))]
+
 use llvq_llm::fused::{load_emb_q4_sources, load_int4_sources, load_planes_sources, FusedLayout};
 
 #[test]
