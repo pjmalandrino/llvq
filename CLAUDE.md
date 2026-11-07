@@ -97,7 +97,7 @@ cargo run --release -p llvq-llm --features cuda --bin fusedrun                  
 LLVQ_DTYPE=f16 cargo run --release -p llvq-llm --features metal --bin ppl -- 4096 12 metal <sealed>
 cargo run --release -p llvq-llm --features metal --bin oracle                                       # forward pass vs candle, on every backend
 ops/llvq-mlx chat|generate "<msg>"|bench [--long]|check|check-mini                                   # the sealed 4B through MLX at its door (configs/mlx/); PACKED= its hfpack
-uv run ops/mlx_tetra/test_served.py && uv run ops/mlx_tetra/mutate.py                                # the MLX door's refusals, then 24 mutants of its gates on the mini fixture
+uv run ops/mlx_tetra/test_served.py && uv run ops/mlx_tetra/mutate.py                                # the MLX door's refusals, then 26 mutants of its gates on the mini fixture
 ops/mlx-pooled.sh                                                                                    # the MLX door's served gate: windows 13-24 against Rust dense f16; ops/mlx-t8.sh the first T8
 ops/metal-bench.sh [--long]                                                                          # the sealed 4B on the Mac, same tokens: dense, fused, _lutd; --long: expanded, grouped, attn_dec.metal at 4,096 (metalrun time|gate|phased|dispatch|ppl)
 CUDARC_CUDA_VERSION=12040 cargo clippy --target x86_64-unknown-linux-gnu -p llvq-cuda --all-targets  # type-checks the Linux half on a Mac

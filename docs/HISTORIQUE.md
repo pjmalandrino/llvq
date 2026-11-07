@@ -1110,3 +1110,10 @@ The operator chose to keep MLX under a gate on the paired interval, stamped befo
 which the first reading had not seen. Against the Rust dense reconstruction in f16 on Metal, the door read
 -0.0103 % [-0.0847 ; +0.0642] by decode and -0.0099 % [-0.0842 ; +0.0644] by prefill, inside +-0.12 %
 (*measured*, [mlx-pooled](mesures/mlx-pooled-2026-11-07.txt)). The MLX door has served the 4B on the Mac since that reading.
+
+Both readings ran `configs/mlx/qwen3-4b-tetra-e4-mlx.json` at sha256 `d7bd5b5c…`, whose `note`, printed at every
+launch, named the per-window gate that failed. A review before the merge rewrote the note alone to name the paired
+gate that passed: sha256 `8542b7f9…`, every key the door reads unchanged. The same review moved every argument check
+of `serve.py` before the model loads, including the reference file of a reading, and added four refusals (26 of 26
+mutants killed, *measured*,
+[mlx-door](mesures/mlx-door-2026-11-07.txt)).

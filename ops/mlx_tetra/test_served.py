@@ -153,12 +153,37 @@ def test_serve_reads_arguments_before_the_door():
 
     import serve
 
+    import tempfile
+
+    ref = Path(tempfile.mkdtemp()) / "ref.txt"
+    ref.write_text("".join(f"window {w:>3}/24  nll 2.5  n 4095\n" for w in range(1, 21)))
     for argv in (["generate"], ["time", "64"], ["chat", "warm"], ["ppl", "4096", "12", "decode,greedy"],
-                 ["bench"]):
+                 ["bench"], ["ppl", "4096", "12", "decode", "12"], ["ppl", "4096", "12", "decode", "12", "/nonexistent"],
+                 ["ppl", "4096", "5", "decode", "12", str(ref)], ["ppl", "4096", "12", "decode", "12", str(ref)],
+                 ["ppl", "2048", "12", "decode", "12", str(ref)]):
         with contextlib.redirect_stderr(io.StringIO()):
             got = serve.main(["serve.py", str(CONFIG), "/nonexistent", *argv])
         assert got == 2, (argv, got)
+    # A well-formed reading passes every argument check and stops at the door (no packed model): exit 1.
+    ref.write_text("".join(f"window {w:>3}/24  nll 2.5  n 4095\n" for w in range(1, 25)))
+    with contextlib.redirect_stderr(io.StringIO()):
+        got = serve.main(["serve.py", str(CONFIG), "/nonexistent", "ppl", "4096", "12", "decode", "12", str(ref)])
+    assert got == 1, got
     assert "mlx.core" not in sys.modules, "MLX imported by a refused command"
+
+
+def test_a_malformed_quantization_config_is_refused():
+    """A packed config.json whose quantization_config is null, a list or absent is refused, never a crash."""
+    cfg = S.load(CONFIG)
+    for packed in ({"quantization_config": None}, {"quantization_config": []}, {}, {"quantization_config": {}},
+                   []):
+        try:
+            S.check_object(cfg, packed)
+        except S.Refused:
+            pass
+        else:
+            raise AssertionError(f"{packed!r} accepted")
+
 
 def main() -> int:
     tests = [(n, f) for n, f in sorted(globals().items()) if n.startswith("test_")]

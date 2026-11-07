@@ -4,6 +4,8 @@ Branch: claude/serve-mlx-metal-855462. Cost $0, Apple M3 Max, macOS 26.6.2, nice
 No prereg: these are gates and a mutation run on the 148 KB fixture, not a measurement of the object. Nothing here
 loaded the sealed 4B on the GPU. The T8 reading of the object is proofs/preregistration-mlx-t8-2026-11-07.md,
 ready and not run.
+Later the same day (see the addendum at the end): both perplexity readings ran (mlx-t8, mlx-pooled), and after the
+reviews before the merge the mutation run killed 26 of 26. The title and this header are as written that morning.
 
 Operator, 2026-11-07, verbatim: « Sur métal, on a validé mlx donc implem le aussi ». Recorded in
 docs/plan-metal-debit.md section 3 as the ruling on rule 1: tolerance rather than bit for bit on Metal.
@@ -158,8 +160,32 @@ Code changes:
     no perplexity was measured; they now name the paired gate of preregistration-mlx-pooled-2026-11-07.md.
   - configs/mlx/qwen3-4b-tetra-e4-mlx.json is NOT edited: its note still names the first reading's gate, and
     configs/README.md says so. Both journals pin the file by its sha256 d7bd5b5c.
+    Superseded the same afternoon, on the second review: the note alone was rewritten to name the paired gate,
+    sha256 8542b7f9; configs/README.md and docs/HISTORIQUE.md record both.
 
 Gates after the changes (*measured*, M3 Max):
   test_served.py   10 of 10 passed
   check.py         41 of 41 comparisons on the fixture, worst whole forward 1.53e-03 < 1e-02
   mutate.py        24 of 24 mutants killed (the 23 above plus the argument check)
+
+SECOND REVIEW BEFORE THE MERGE (2026-11-07, afternoon)
+------------------------------------------------------
+Four points from a second reading of PR #11, on the operator's « Relis les pr et merge les ttes ». Cost $0, fixture
+only.
+
+  - configs/mlx/qwen3-4b-tetra-e4-mlx.json: the note alone rewritten to name the gate that passed (the paired interval
+    of preregistration-mlx-pooled-2026-11-07.md, and its two intervals). sha256 d7bd5b5c... -> 8542b7f9...; every key
+    the door reads unchanged; both readings ran the d7bd5b5c bytes (commit fce41da).
+  - ppl.check_args: every check of a reading that needs no model (sizes, reference file readable, t quantile, the
+    reference holds every window) now runs in serve.py before the door opens. ppl.py imports mlx and llvq_mlx inside
+    its functions, so serve.py can import it before check_env. New mutant "serve: reference windows unchecked".
+  - served.check_object: a packed quantization_config that is null, a list or absent is refused, not an
+    AttributeError. New test and mutant "door: null quantization_config crashes".
+  - This journal's header points to the addenda.
+  - ots upgrade of both MLX preregs: each now carries Bitcoin anchors in blocks 974918, 974919 and 974921, and
+    recomputes (*measured*, ops/otsaudit.py).
+
+Gates after the changes (*measured*, M3 Max):
+  test_served.py   11 of 11 passed
+  check.py         41 of 41 comparisons on the fixture
+  mutate.py        26 of 26 mutants killed

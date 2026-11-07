@@ -79,7 +79,7 @@ def generate(L, model, packed: str, message: str, max_new: int) -> None:
 
     fmt = L.ChatFormat(packed)
     ids = fmt.turn(message)
-    out, t0, t1 = [], time.perf_counter(), None
+    out, t1 = [], None
     for (tid, _), _ in zip(generate_step(mx.array(ids), model, max_tokens=max_new), range(max_new)):
         tid = int(tid)
         if t1 is None:
@@ -124,6 +124,10 @@ def main(argv: list[str]) -> int:
                 raise ValueError(f"paths {bad} refused: decode, prefill")
             first = int(rest[3]) if len(rest) > 3 else 0
             ref = rest[4] if len(rest) > 4 else None
+            if mode == "ppl":
+                import ppl  # no MLX import at module level: safe before the door
+
+                ppl.check_args(ctx, windows, first, ref)
             job = (mode, ctx, windows, paths, first, ref)
     except ValueError as e:
         print(f"{e}\n{usage}", file=sys.stderr)

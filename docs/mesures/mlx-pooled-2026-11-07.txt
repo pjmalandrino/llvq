@@ -11,6 +11,8 @@ Cost:   $0. Apple M3 Max, macOS 26.6.2, nice 10. 10:44:22 to 11:07:55 CET, 23 mi
         121.8 % CPU at the start (16 cores). No thermal warning recorded.
 Object: qwen3-4b-sealed.bin, sha256 886391a8..., for the reference; its hfpack ~/q4b-hf-2026-09-28 for MLX.
 Config: configs/mlx/qwen3-4b-tetra-e4-mlx.json, sha256 d7bd5b5c...; mlx 0.32.4, mlx-lm 0.28.3.
+        (Later, 2026-11-07: the file's note alone was rewritten, sha256 8542b7f9...; these bytes are commit
+        fce41da. See docs/HISTORIQUE.md.)
 Nature: *measured* for every perplexity and NLL; the ratios and intervals *computed* from the printed window NLLs.
 Raw:    docs/mesures/mlx-pooled-2026-11-07-brut/ (env.txt, one file a step, run.log, files.sha256).
 

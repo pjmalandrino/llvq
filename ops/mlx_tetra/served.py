@@ -122,8 +122,8 @@ def check_env(environ) -> None:
 
 def check_object(cfg: MlxServed, packed_config: dict) -> None:
     """The packed directory must hold the config's object, by the sealed file's sha256."""
-    q = packed_config.get("quantization_config", {})
-    got = q.get("artifact_sha256")
+    q = packed_config.get("quantization_config") if isinstance(packed_config, dict) else None
+    got = q.get("artifact_sha256") if isinstance(q, dict) else None
     if got != cfg.object:
         raise Refused(f"the packed directory holds artifact {str(got)[:16]}..., the config serves "
                       f"{cfg.object[:16]}... ({OBJECTS[cfg.object]})")

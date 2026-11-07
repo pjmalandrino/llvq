@@ -9,6 +9,8 @@ Cost:   $0. Apple M3 Max, macOS 26.6.2, nice 10. 09:50:11 to 10:06:43 CET, 16 mi
 Object: ~/q4b-hf-2026-09-28, the hfpack of qwen3-4b-sealed.bin (sha256 886391a8...); step 3 rebuilt its 1,602 fields
         bit for bit against the archive's digests.
 Config: configs/mlx/qwen3-4b-tetra-e4-mlx.json, sha256 d7bd5b5c...; mlx 0.32.4, mlx-lm 0.28.3.
+        (Later, 2026-11-07: the file's note alone was rewritten, sha256 8542b7f9...; these bytes are commit
+        fce41da. See docs/HISTORIQUE.md.)
 Nature: *measured* for every perplexity and NLL; the ratios, paired intervals and the decode/prefill pair are
         *computed* from the printed window NLLs.
 Raw:    docs/mesures/mlx-t8-2026-11-07-brut/ (env.txt, one file a step, run.log, files.sha256). A torch warning and

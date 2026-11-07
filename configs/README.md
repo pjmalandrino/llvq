@@ -48,10 +48,11 @@ and the option "Garder MLX"), under a gate on the paired interval of its perplex
 `every_shipped_config_resolves` reads the `*.json` of this directory with
 `deny_unknown_fields`, and does not descend.
 
-The file's `note` still names the first reading's gate, every window inside
-+-0.12 % (`preregistration-mlx-t8-2026-11-07.md`). The served gate is the paired
-interval of `preregistration-mlx-pooled-2026-11-07.md`. The note is kept as
-written: both journals pin the file by its sha256, `d7bd5b5c…`.
+Both perplexity readings ran the file at sha256 `d7bd5b5c…` (commit `fce41da`).
+Its `note` then named the first reading's gate, every window inside +-0.12 %.
+On 2026-11-07 the note alone was rewritten to name the gate that passed, the
+paired interval of `preregistration-mlx-pooled-2026-11-07.md`: sha256
+`8542b7f9…`, every other key unchanged.
 
 | file | object | b/param | quality |
 |---|---|---|---|

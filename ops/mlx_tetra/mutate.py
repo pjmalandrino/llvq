@@ -30,6 +30,7 @@ UNIT = "llvq-llm/kernels/llvq_tetra48.metal"
 ROWS = "llvq-llm/kernels/llvq_tetra48_rows.metal"
 DOOR = "ops/mlx_tetra/served.py"
 SERVE = "ops/mlx_tetra/serve.py"
+PPL = "ops/mlx_tetra/ppl.py"
 
 # (name, file, old, new, gate): gate "check" or "served".
 MUTANTS = [
@@ -70,6 +71,10 @@ MUTANTS = [
      "served"),
     ("serve: generate without a message", SERVE, "            if not rest:\n                raise ValueError(\"generate",
      "            if False:\n                raise ValueError(\"generate", "served"),
+    ("serve: reference windows unchecked", PPL, "    if missing:\n        raise ValueError",
+     "    if False:\n        raise ValueError", "served"),
+    ("door: null quantization_config crashes", DOOR,
+     'got = q.get("artifact_sha256") if isinstance(q, dict) else None', 'got = q.get("artifact_sha256")', "served"),
 ]
 
 

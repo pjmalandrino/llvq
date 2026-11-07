@@ -30,9 +30,8 @@ import statistics
 import time
 from pathlib import Path
 
-import mlx.core as mx
-
-import llvq_mlx as L
+# mlx and llvq_mlx are imported inside the functions that need them: `check_args`
+# runs before the door opens, and llvq_mlx reads LLVQ_MLX_ABLATE when imported.
 
 # M5, the Rust Metal path (lutd, expanded, f16), decode path: raw/m5.txt of the journal.
 M5_WINDOWS = [12.542946, 18.210249, 9.617751, 7.631275, 14.010765, 13.446688, 13.508824, 13.410889, 15.390806,
@@ -50,6 +49,8 @@ def span(packed: str, ctx: int, windows: int) -> tuple[list[int], int, str, int]
     """The test split as `llvq_llm::corpus::wikitext2_test` builds it, tokenized as `metalrun ppl` does."""
     import pyarrow.parquet as pq
     from tokenizers import Tokenizer
+
+    import llvq_mlx as L
 
     text = "\n\n".join(pq.read_table(L.wiki_parquet()).column("text").to_pylist())
     ids = Tokenizer.from_file(str(Path(packed) / "tokenizer.json")).encode(text, add_special_tokens=False).ids
@@ -74,7 +75,10 @@ def gate_span(digest: str, n_split: int, ctx: int, nwin: int) -> bool:
 
 def decode_window(model, win: list[int]) -> tuple[float, int, int, str]:
     """NLL over len(win) - 1 steps of one true token each, from an empty cache; top-1 hits; argmax digest."""
+    import mlx.core as mx
     from mlx_lm.models.cache import make_prompt_cache
+
+    import llvq_mlx as L
 
     cache = make_prompt_cache(model)
     nll, hits, picks, pending = 0.0, 0, [], None
@@ -101,8 +105,11 @@ def decode_window(model, win: list[int]) -> tuple[float, int, int, str]:
 
 def prefill_window(model, win: list[int]) -> tuple[float, int, int, str]:
     """NLL of the window read in chunks of PREFILL_CHUNK rows through one cache."""
+    import mlx.core as mx
     import numpy as np
     from mlx_lm.models.cache import make_prompt_cache
+
+    import llvq_mlx as L
 
     cache = make_prompt_cache(model)
     nll, hits, picks = 0.0, 0, []
@@ -127,11 +134,36 @@ def read_reference(path: str) -> dict[int, float]:
     import re
 
     out = {}
-    for w, nll, n in re.findall(r"window +(\d+)/\d+ +nll ([\d.]+) +n (\d+)", Path(path).read_text()):
+    try:
+        text = Path(path).read_text()
+    except OSError as e:
+        raise ValueError(f"reference {path} unreadable: {e}") from e
+    for w, nll, n in re.findall(r"window +(\d+)/\d+ +nll ([\d.]+) +n (\d+)", text):
         if int(n) != M5_CTX - 1:
-            raise SystemExit(f"{path}: window {w} scores {n} tokens, {M5_CTX - 1} expected")
+            raise ValueError(f"{path}: window {w} scores {n} tokens, {M5_CTX - 1} expected")
         out[int(w)] = float(nll)
     return out
+
+
+def check_args(ctx: int, windows: int, first: int, ref: str | None) -> dict[int, float] | None:
+    """Every check that needs no model, run by serve.py before the door opens. Raises ValueError.
+
+    Returns the reference's window NLLs when the reading is against a file, None for M5's design.
+    """
+    if ctx < 2 or windows < 2 or first < 0:
+        raise ValueError(f"ctx {ctx}, windows {windows}, first {first}: two windows of two tokens at least")
+    if not first and ref is None:
+        return None
+    if ref is None or ctx != M5_CTX:
+        raise ValueError("windows past the first need a reference file, at ctx 4096")
+    if windows - 1 not in T_975:
+        raise ValueError(f"{windows} windows refused: the paired interval has a t quantile for "
+                         f"{sorted(k + 1 for k in T_975)} windows only")
+    want = read_reference(ref)
+    missing = [w for w in range(first + 1, first + windows + 1) if w not in want]
+    if missing:
+        raise ValueError(f"{ref}: no window {missing}")
+    return want
 
 
 def run(model, packed: str, ctx: int, windows: int, paths: list[str], first: int = 0, ref: str | None = None) -> None:
@@ -179,16 +211,13 @@ def verdict(path: str, nlls: list[float], counts: list[int], pooled: float) -> N
 
 def run_against(model, packed: str, ctx: int, windows: int, paths: list[str], first: int, ref: str | None) -> None:
     """Windows first+1 .. first+windows, each against the reference file's window of the same number."""
-    if ref is None or ctx != M5_CTX:
-        raise SystemExit("windows past the first need a reference file, at ctx 4096")
-    if windows - 1 not in T_975:
-        raise SystemExit(f"{windows} windows refused: the paired interval has a t quantile for "
-                         f"{sorted(k + 1 for k in T_975)} windows only")
-    want = read_reference(ref)
+    import llvq_mlx as L
+
+    try:
+        want = check_args(ctx, windows, first, ref)  # serve.py ran it already; a direct caller gets it here
+    except ValueError as e:
+        raise SystemExit(str(e)) from e
     numbers = list(range(first + 1, first + windows + 1))
-    missing = [w for w in numbers if w not in want]
-    if missing:
-        raise SystemExit(f"{ref}: no window {missing}")
     s, nwin, _, n_split = span(packed, ctx, first + windows)
     if n_split != M5_SPLIT_TOKENS or nwin != first + windows:
         raise SystemExit(f"{n_split} tokens in the split, {nwin} windows; {M5_SPLIT_TOKENS} expected")

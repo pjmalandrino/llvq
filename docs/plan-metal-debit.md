@@ -187,7 +187,7 @@ Not bit for bit: every comparison has a bound, max |a - b| / max |b| over a proj
 | Tetra one-row, 8-row and dense prefill paths, int4 records | `llvq_mlx.py` kernels, MLX's quantized matmul | `check.py` section B: against `llvq_tetra.PackedModel.dequantize`, bit for bit with the Rust decoder, within 2e-3 (kernels) and 4e-3 (dense prefill) |
 | int4 g64 embedding and tied head | MLX's quantized embedding | `check.py` section C, within 2e-3 |
 | the whole forward pass | mlx-lm's Qwen3 with our modules | `check.py` section D, on the mini fixture: against `transformers` through `llvq-tetra` in f32, by prefill, decode and 4-row chunks, within 1e-2 |
-| the gates themselves | `ops/mlx_tetra/mutate.py` | 24 mutants on a copy, each run on the fixture: rotation, stacked q+k, the three Tetra paths, the fused MLP, the rotation reuse, int4, the shared shaders, the door and its argument check; all 24 killed (*measured*, [mlx-door](mesures/mlx-door-2026-11-07.txt)) |
+| the gates themselves | `ops/mlx_tetra/mutate.py` | 26 mutants on a copy, each run on the fixture: rotation, stacked q+k, the three Tetra paths, the fused MLP, the rotation reuse, int4, the shared shaders, the door, its argument checks and a malformed packed config; all 26 killed (*measured*, [mlx-door](mesures/mlx-door-2026-11-07.txt)) |
 
 On the fixture the worst kernel error reads 6.1e-4 and the whole forward pass 1.5e-3 (*measured*,
 [mlx-door](mesures/mlx-door-2026-11-07.txt)). On the sealed 4B, layers 0 and
