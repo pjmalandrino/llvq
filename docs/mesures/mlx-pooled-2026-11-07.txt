@@ -1,0 +1,71 @@
+THE MLX DOOR PASSES ITS PAIRED-INTERVAL GATE ON FRESH WINDOWS: -0.0103 % [-0.0847 ; +0.0642] BY DECODE, -0.0099 % [-0.0842 ; +0.0644] BY PREFILL; SERVED ON METAL (2026-11-07)
+=================================================================================================================================================================
+Prereg: proofs/preregistration-mlx-pooled-2026-11-07.md, stamped with `ots stamp` at 09:44:07Z, before the run
+        (10:44:22 CET = 09:44:22Z). Stamp committed in b08e902; the run ran on that commit, 0 paths changed. No
+        deviation.
+Why:    the first T8 reading (mlx-t8-2026-11-07) missed its per-window rule on windows 6 and 7 with its pooled
+        perplexity inside. The operator then chose to keep MLX under a gate on the paired interval, stamped before a
+        reading of windows the first one had not seen. Verbatim: « oiui c'est bon on gare », corrected by « garde * »,
+        and the option "Garder MLX".
+Cost:   $0. Apple M3 Max, macOS 26.6.2, nice 10. 10:44:22 to 11:07:55 CET, 23 min 33 s wall. Other processes at
+        121.8 % CPU at the start (16 cores). No thermal warning recorded.
+Object: qwen3-4b-sealed.bin, sha256 886391a8..., for the reference; its hfpack ~/q4b-hf-2026-09-28 for MLX.
+Config: configs/mlx/qwen3-4b-tetra-e4-mlx.json, sha256 d7bd5b5c...; mlx 0.32.4, mlx-lm 0.28.3.
+        (Later, 2026-11-07: the file's note alone was rewritten, sha256 8542b7f9...; these bytes are commit
+        fce41da. See docs/HISTORIQUE.md.)
+Nature: *measured* for every perplexity and NLL; the ratios and intervals *computed* from the printed window NLLs.
+Raw:    docs/mesures/mlx-pooled-2026-11-07-brut/ (env.txt, one file a step, run.log, files.sha256).
+
+GATES, ALL PASSED
+-----------------
+  1. ppl binary sha256 5f3ff087... (S1's), sealed file 886391a8...
+  2. Reference windows 1 to 12 equal s1-f32-metal-2026-11-04-brut/ppl-f16.txt to the last printed digit. The 24
+     windows: token fingerprint cd55decc744bb2b4, ppl 12.6174, 414.6 s.
+  3. test_served 9 of 9; check.py 41 of 41 on the fixture, 66 of 66 on the sealed 4B.
+  4. The first 12 windows of the MLX span hash to M5's 6b69a6ba..., 299,078 tokens in the split.
+
+RESULT, windows 13 to 24 of 4,096, against the Rust dense reconstruction in f16 on Metal
+----------------------------------------------------------------------------------------
+  window   Rust       MLX decode   decode / Rust - 1   MLX prefill   prefill / Rust - 1
+      13   14.405864  14.403104    -0.0192 %           14.402960     -0.0202 %
+      14   19.129251  19.073179    -0.2931 %           19.074473     -0.2864 %
+      15   13.262534  13.259018    -0.0265 %           13.258506     -0.0304 %
+      16   10.239751  10.245140    +0.0526 %           10.246035     +0.0614 %
+      17    9.869280   9.888470    +0.1944 %            9.888450     +0.1942 %
+      18   10.082895  10.084010    +0.0111 %           10.082192     -0.0070 %
+      19    7.494562   7.498079    +0.0469 %            7.497959     +0.0453 %
+      20    7.655711   7.648942    -0.0884 %            7.649067     -0.0868 %
+      21   10.609525  10.601035    -0.0800 %           10.600327     -0.0867 %
+      22   21.456140  21.457005    +0.0040 %           21.458222     +0.0097 %
+      23   21.181908  21.179128    -0.0131 %           21.179992     -0.0090 %
+      24   16.357363  16.371903    +0.0889 %           16.373278     +0.0973 %
+
+  decode:  pooled -0.0103 %, paired t [-0.0847 ; +0.0642], 6 of 12 above, top-1 hits 24,767 of 49,140, 858 s
+  prefill: pooled -0.0099 %, paired t [-0.0842 ; +0.0644], 5 of 12 above, top-1 hits 24,773, 63 s
+  decode against prefill: within 0.018 % on every window
+
+RULE (prereg section 4)
+-----------------------
+  decode inside, prefill inside: the MLX door is the served Metal path of the 4B. configs/README.md,
+  docs/ETAT.md, docs/plan-metal-debit.md and CLAUDE.md say so.
+
+  Two windows sit outside +-0.12 % here too, 14 (-0.29 %) and 17 (+0.19 %): the per-window rule of the first reading
+  would have failed again. The gate the operator chose does not ask it.
+
+THE PREDICTIONS
+---------------
+  quantity                                 predicted              measured                 inside?
+  decode interval inside +-0.12 %          yes, about 80 %        [-0.0847 ; +0.0642]      yes
+  decode pooled                            inside +-0.05 %        -0.0103 %                yes
+  widest window ratio                      0.05 % to 0.30 %       0.2931 % (window 14)     yes
+  decode against prefill, every window     within 0.03 %          within 0.018 %           yes
+  reference wall time                      7 to 10 min            7.5 min                  yes
+  MLX decode wall time                     12 to 20 min           14.3 min                 yes
+
+WHAT THIS DOES NOT ESTABLISH
+----------------------------
+  - Any task score (MMLU, GSM8K) through the MLX door.
+  - The fused Rust path on windows 13 to 24: the reference is the dense reconstruction, which agreed with M5 within
+    [-0.029 ; +0.058] % a window on windows 1 to 12.
+  - Context past 4,096, the 8B and the 14B, another Mac.
+  - The served door's speed: M16 timed the same engine at the prototype's door; `ops/llvq-mlx bench` has not run.

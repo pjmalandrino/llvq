@@ -1,4 +1,4 @@
-# Project state as of 2026-11-06
+# Project state as of 2026-11-07
 
 ## 1. The project
 
@@ -21,6 +21,8 @@ sizes differ in three optional fields: the attention form, the decode engine and
 - **4B**: `qwen3-4b-tetra-e4-4e-v4.json` since 2026-11-05, the operator's decision. Attention `kernel`: every decode
   row goes to the split-KV attention kernel from position 0. Decode `persistent`: 4E runs the whole token in one
   cooperative CUDA launch. Rows `v4`: 4E's second row loop.
+- **4B on the Mac**: the MLX door, `configs/mlx/qwen3-4b-tetra-e4-mlx.json`, since 2026-11-07, the operator's
+  decision. mlx-lm's Qwen3 with our Tetra kernels, f16 activations, served under a perplexity tolerance (§4).
 - **8B and 14B**: `qwen3-8b-tetra-e4-grouped.json` and `qwen3-14b-tetra-e4-grouped.json` since 2026-11-04, the
   operator's decision after a light MMLU check passed at each size.
 
@@ -176,7 +178,7 @@ below 1,280 on the 4B only, on 2026-11-05.
 [shaker-4e](mesures/shaker-4e-2026-11-05.txt)). The prefill is untouched. 4E runs on the Qwen3-4B's shape only, and
 has no Metal kernel.
 
-**The sealed 4B runs fused on Metal since 2026-11-06, and nothing is served there.** The int4 wall at d_in 8,192 is
+**The sealed 4B runs fused on Metal since 2026-11-06.** The int4 wall at d_in 8,192 is
 lifted: the Metal fused door now loads the sealed 4B instead of refusing it. Its 12 int4 `down_proj` records go
 through `tv_q4_metal_tiled`, bit-identical to the host reference (*measured* on an M3 Max, $0,
 [metal-nuit](mesures/metal-nuit-2026-11-06.txt)). The `lutd` Tetra kernel decodes 52.07 tok/s [46.27-53.12] after a
@@ -185,9 +187,23 @@ ratio is raw: the dense arm copies its f16 head table every token, and no same-h
 grouped form returned the expanded form's logits bit for bit over 49,140 decode steps, and decodes x2.380
 [2.362-2.396] faster at 4,096 positions. `attn_dec.metal` from position 0 reads +0.0051 % of perplexity against the
 grouped form, inside the band. `served.rs` still refuses both forms on Metal; the two `*-metal-*-NOT-SERVED.json`
-configs are measurement doors for `bin/metalrun`. An MLX prototype, `ops/mlx_tetra/`, decodes 93.92 tok/s
-[88.38-94.66] on the same Mac (M16, same journal), not bit for bit with the Rust engine, perplexity not measured.
-mlx-lm's 4-bit Qwen3-4B decodes 129.45 there, on another stack, so no ratio is formed.
+configs are measurement doors for `bin/metalrun`.
+
+**The MLX door serves the 4B on the Mac since 2026-11-07, under a perplexity tolerance.** The operator ruled
+that Metal is served under a tolerance rather than bit for bit: « Sur métal, on a validé mlx donc implem le aussi ».
+`ops/mlx_tetra/serve.py` serves the sealed 4B through MLX under `configs/mlx/qwen3-4b-tetra-e4-mlx.json`, and refuses
+by name every value that file does not carry. Its engine decoded 93.92 tok/s [88.38-94.66] at the prototype's door,
+not bit for bit with the Rust engine (*measured*, M16, [metal-nuit](mesures/metal-nuit-2026-11-06.txt)); the served
+door's speed is not measured. mlx-lm's 4-bit Qwen3-4B decodes 129.45 there, on another stack, so no ratio is formed
+(*measured*, M16). Its gates pass on the mini fixture with every mutant killed (*measured*,
+[mlx-door](mesures/mlx-door-2026-11-07.txt)), and on the sealed 4B, 66 of 66 comparisons (*measured*,
+[mlx-pooled](mesures/mlx-pooled-2026-11-07.txt)). On WikiText-2 windows 13 to 24 of 4,096, against the Rust dense
+reconstruction in f16 on Metal, its perplexity reads -0.0103 % [-0.0847 ; +0.0642] by decode and -0.0099 %
+[-0.0842 ; +0.0644] by prefill, paired over 12 windows, inside the +-0.12 % gate (*measured*,
+[mlx-pooled](mesures/mlx-pooled-2026-11-07.txt)). Single windows move by up to 0.29 %, as they do by about 0.2 % between two Rust engines (*computed* from
+[s1-f32-metal](mesures/s1-f32-metal-2026-11-04.txt)). A first reading on windows 1 to 12 held the pooled perplexity
+and missed a rule that asked every window inside +-0.12 % ([mlx-t8](mesures/mlx-t8-2026-11-07.txt)). The operator
+then chose the paired gate, stamped before the second reading. No task score has run through the MLX door.
 
 **Noise.** The calibration draw carries a standard deviation of 2.92 pp of MMLU and 5.2% of perplexity at 4B over
 three full runs (*measured*, [bruit-mmlu](mesures/bruit-mmlu-graines-4b-2026-08-25.txt),
@@ -204,8 +220,8 @@ the bar is the paired interval, 0.43 pp in MMLU and 0.12% in perplexity (*measur
   bytes, against our own prediction. Untested at the other two sizes.
 - **A second calibration draw per size.** Each level is one draw, and the draw moves more than several gains.
 - **A consumer GPU.** Speed is measured on an L40S and an A100, both data-center cards, and the served path loses on
-  the A100. A consumer NVIDIA card, the target of the project, is unmeasured. The Mac runs the fused 4B and serves
-  nothing (§4).
+  the A100. A consumer NVIDIA card, the target of the project, is unmeasured. The Mac serves the 4B through MLX (§2,
+  §4); whether that answers this item is the operator's call.
 - **A model above 14B.** The `rot_apply` wall is lifted on the card, and the device rotation is proposed for a 32B's
   first light; the operator confirms. The 32B has to be encoded first.
 - **4E v6 against its missed gate.** v6 decodes 212.6 tok/s after a 5-token prompt and 152.0 at 8,192 in the
@@ -215,8 +231,8 @@ the bar is the paired interval, 0.43 pp in MMLU and 0.12% in perplexity (*measur
   reading under a served config first.
 - **The v4 config on the Hub.** The moving repository still serves the grouped config at 133.3 tok/s (§2). Publishing
   needs the operator.
-- **A served Metal config.** The grouped form is bit for bit with the expanded one on Metal (§4), and the two
-  `NOT-SERVED` configs are ready. `served.rs` refuses both forms on Metal until the operator decides.
+- **The Rust Metal door.** On the Rust Metal path, the grouped form is bit for bit with the expanded one, and `served.rs` refuses both unexpanded forms on
+  Metal until the operator decides.
 - **A full GSM8K census under 4E.** The 4B's served form has a 50-problem pilot only (§2). The grouped census of the
   4B cost $2.02 (*computed*, [gsm8k-grouped](mesures/gsm8k-grouped-2026-11-04.txt)).
 - **An int4 KV cache.** It is the next throughput lever after 4E, and it touches quality, so it is outside any

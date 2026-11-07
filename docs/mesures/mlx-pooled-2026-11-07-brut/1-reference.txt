@@ -1,0 +1,31 @@
+device: Metal(MetalDevice(DeviceId(1))), context 4096, dtype f16
+sealed /Users/pjmalandrino/q4b-sealed-2026-09-23/qwen3-4b-sealed.bin: 252 quantized matrices, 1.418 GB on disk
+loading corpus wikitext2…
+299078 tokens → 24 windows of 4096 (fingerprint cd55decc744bb2b4)
+  window   1/24  nll 2.529144488  n 4095  running ppl   12.543  (9.7s)
+  window   2/24  nll 2.901948594  n 4095  running ppl   15.113  (20.2s)
+  window   3/24  nll 2.263680699  n 4095  running ppl   13.000  (31.5s)
+  window   4/24  nll 2.032138803  n 4095  running ppl   11.379  (43.3s)
+  window   5/24  nll 2.640008537  n 4095  running ppl   11.863  (55.1s)
+  window   6/24  nll 2.599311756  n 4095  running ppl   12.114  (69.7s)
+  window   7/24  nll 2.603237084  n 4095  running ppl   12.304  (82.6s)
+  window   8/24  nll 2.596053686  n 4095  running ppl   12.437  (95.5s)
+  window   9/24  nll 2.733865375  n 4095  running ppl   12.735  (108.1s)
+  window  10/24  nll 2.240771902  n 4095  running ppl   12.354  (119.5s)
+  window  11/24  nll 2.668977745  n 4095  running ppl   12.530  (131.2s)
+  window  12/24  nll 2.577193033  n 4095  running ppl   12.581  (147.6s)
+  window  13/24  nll 2.667635359  n 4095  running ppl   12.713  (161.5s)
+  window  14/24  nll 2.951218616  n 4095  running ppl   13.089  (178.9s)
+  window  15/24  nll 2.584943052  n 4095  running ppl   13.101  (197.5s)
+  window  16/24  nll 2.326277282  n 4095  running ppl   12.901  (218.5s)
+  window  17/24  nll 2.289426893  n 4095  running ppl   12.699  (244.4s)
+  window  18/24  nll 2.310840440  n 4095  running ppl   12.537  (267.9s)
+  window  19/24  nll 2.014177684  n 4095  running ppl   12.202  (294.1s)
+  window  20/24  nll 2.035451961  n 4095  running ppl   11.921  (320.1s)
+  window  21/24  nll 2.361752137  n 4095  running ppl   11.855  (343.1s)
+  window  22/24  nll 3.066010855  n 4095  running ppl   12.179  (365.2s)
+  window  23/24  nll 3.053147417  n 4095  running ppl   12.476  (388.1s)
+  window  24/24  nll 2.794678152  n 4095  running ppl   12.617  (414.6s)
+
+/Users/pjmalandrino/q4b-sealed-2026-09-23/qwen3-4b-sealed.bin [LLVQ 2-bit, sealed] — wikitext2, ctx 4096, 24 windows, dtype f16, kv f16, tokens cd55decc744bb2b4
+ppl = 12.6174

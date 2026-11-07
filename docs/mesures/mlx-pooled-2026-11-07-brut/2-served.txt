@@ -1,0 +1,10 @@
+  ok   test_another_object_is_refused
+  ok   test_another_runtime_is_refused
+  ok   test_every_llvq_variable_is_refused_by_name
+  ok   test_every_other_value_of_every_key_is_refused_by_name
+  ok   test_rust_door_keys_are_refused_by_name
+  ok   test_serve_checks_before_it_imports_mlx
+  ok   test_the_packed_object_must_be_the_configs
+  ok   test_the_shipped_config_parses
+  ok   test_unknown_missing_and_non_string_keys_are_refused
+9 of 9 passed
