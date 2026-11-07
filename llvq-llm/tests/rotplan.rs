@@ -17,6 +17,11 @@
 //! is fast and wrong. Neither test can be dropped, and a single test asserting
 //! "fast and right" would be two assertions wearing one name.
 
+// `llvq-cuda` is a dev-dependency on macOS only (see `llvq-llm/Cargo.toml`): on a
+// Linux CPU build it would pull `cudarc`, whose build script needs `nvcc`.
+// Under `--features cuda` it is a normal dependency, so the file runs there.
+#![cfg(any(target_os = "macos", feature = "cuda"))]
+
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 

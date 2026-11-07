@@ -14,6 +14,11 @@
 //! (`fused::int4_synthetic`), which `fusedrun`'s `LLVQ_INT4_WIDE_CHECK`
 //! compares the card's bytes against.
 
+// `llvq-cuda` is a dev-dependency on macOS only (see `llvq-llm/Cargo.toml`): on a
+// Linux CPU build it would pull `cudarc`, whose build script needs `nvcc`.
+// Under `--features cuda` it is a normal dependency, so the file runs there.
+#![cfg(any(target_os = "macos", feature = "cuda"))]
+
 use llvq_cuda::sha256::sha256_hex;
 use llvq_llm::fused::{
     int4_synthetic, parse_int4_wide_fixture, FusedInt4, INT4_WIDE_CARD_CASES, INT4_WIDE_KERNEL_NAME,
