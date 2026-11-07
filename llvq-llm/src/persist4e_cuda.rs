@@ -187,7 +187,7 @@ pub fn install_rows(model: &Qwen3, device: &Device, max_tokens: u32, threads: Op
     lines.push(format!("4E: RoPE forms equal to candle's rope on this card: {forms:?}; running form {form}"));
 
     // The block size: 768 where the card's module does not spill, else 512.
-    let smem = pers::p4e_smem_bytes(hidden, inter, groups as u32) + pers::p4e_scratch_bytes(rows_form);
+    let smem = pers::p4e_smem_bytes_form(rows_form, hidden, inter, groups as u32) + pers::p4e_scratch_bytes(rows_form);
     let mut chosen = None;
     let sizes: Vec<u32> = match threads {
         None => vec![768, 512],
@@ -376,7 +376,7 @@ pub fn install_rows(model: &Qwen3, device: &Device, max_tokens: u32, threads: Op
         eps: cfg.rms_norm_eps as f32,
         c: llvq_cuda::attn_ref::score_scale(128),
     };
-    if rows_form == 4 {
+    if rows_form >= 4 {
         let mut addrs = vec![
             ("act".to_string(), base.act),
             ("x_a".to_string(), addr16(&x_a, &stream)),
@@ -386,8 +386,17 @@ pub fn install_rows(model: &Qwen3, device: &Device, max_tokens: u32, threads: Op
             addrs.push((format!("layer {l} ln1"), y.ln1));
             addrs.push((format!("layer {l} ln2"), y.mlp.alpha));
         }
+        // v7 also widens the o phase's input from vectors, and stages the
+        // rotations' sign words in a 576-word area
+        if rows_form >= 5 {
+            addrs.push(("ctx".to_string(), addr16(&ctx, &stream)));
+            if inter.div_ceil(32) > 576 || hidden.div_ceil(32) > 576 {
+                anyhow::bail!("4E v7: the sign words of width {} do not fit the 576 of the v7 area", inter.max(hidden));
+            }
+        }
         pers::p4e_v6_inputs(&addrs, hidden, inter).map_err(anyhow::Error::msg)?;
-        lines.push(format!("4E v6: the {} prologue inputs are 16-byte aligned; the vector path runs on every layer", addrs.len()));
+        let label = pers::P4E_ROWS_FORMS.iter().find(|f| f.0 == rows_form).map_or("v?", |f| f.1);
+        lines.push(format!("4E {label}: the {} prologue inputs are 16-byte aligned; the vector path runs on every layer", addrs.len()));
     }
     let layers = stream.clone_htod(&vec![0u8; pers::P4E_LAYER_BYTES * layers_host.len()]).map_err(|e| anyhow::anyhow!("H2D: {e}"))?;
     let args = stream.clone_htod(&vec![0u8; pers::P4E_ARGS_BYTES]).map_err(|e| anyhow::anyhow!("H2D: {e}"))?;

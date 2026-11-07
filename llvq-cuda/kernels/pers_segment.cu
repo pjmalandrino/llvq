@@ -130,6 +130,19 @@ __device__ __forceinline__ void pers_segment_body(const SegArgs* __restrict__ A,
     const F1rTables tab{t_rows, t_pref, t_br, t_suf};
     const u32 lane = threadIdx.x & 31u;
     const u32 H = A->hidden, I = A->inter;
+#if PERS_4E_ROWS >= 5
+    // form 5 (4E only): the v7 area (llvq_pers.cuh section 7c), its rows of
+    // `small`, its sign words and the CTA's slices, staged by 4E during the
+    // barriers before each part; route P's own launches read A as before
+    float* const area = v + (IN4E ? pers_hdr()[PERS_HDR_V7] : 0u);
+    const u32* const v7g = reinterpret_cast<const u32*>(area + PERS_V7_SIGNS);
+    const u32* const v7s = reinterpret_cast<const u32*>(area + PERS_V7_SLICE);
+#define PERS_SEG_GU(i) (IN4E ? v7s[(i)] : A->slice_gu[2u * blockIdx.x + (i)])
+#define PERS_SEG_DN(i) (IN4E ? v7s[2u + (i)] : A->slice_dn[2u * blockIdx.x + (i)])
+#else
+#define PERS_SEG_GU(i) (A->slice_gu[2u * blockIdx.x + (i)])
+#define PERS_SEG_DN(i) (A->slice_dn[2u * blockIdx.x + (i)])
+#endif
 
     // 1. ln2 and the gate/up rotation, in this CTA's shared memory.
 #if PERS_4E_ROWS == 4
@@ -139,6 +152,14 @@ __device__ __forceinline__ void pers_segment_body(const SegArgs* __restrict__ A,
     if (IN4E && pers_1rt_ok(L.x, H) && pers_1rt_ok(A->alpha, H)) {
         pers_ln_1rt<NORMV>(L.x, A->alpha, A->signs_h, H, A->eps, A->small_h, A->k_h, ssm, v, v + H, false);
         pers_rot_finish<true>(v, ssm, H, A->m_h, A->k_h, A->inv_h);
+    } else
+#elif PERS_4E_ROWS >= 5
+    // form 5 (4E only): the sign words and the k rows of `small` were staged
+    // during the o phase's barrier; x and alpha are the only loads left
+    float* ssm = area + PERS_V7_SMALL;
+    if (IN4E && pers_1rt_ok(L.x, H) && pers_1rt_ok(A->alpha, H)) {
+        pers_ln_1rt<NORMV>(L.x, A->alpha, v7g, H, A->eps, nullptr, A->k_h, ssm, v, v + H, false);
+        pers_rot_finish<true, true>(v, ssm, H, A->m_h, A->k_h, A->inv_h);
     } else
 #endif
     {
@@ -159,9 +180,9 @@ __device__ __forceinline__ void pers_segment_body(const SegArgs* __restrict__ A,
     // barrier (exact_hmul(silu[g], u), the stream's own product). A CTA with
     // more pairs takes form 2's path below.
     float* scratch = v + (I > 2u * H ? I : 2u * H);
-    const u32 gu_pairs = A->slice_gu[2u * blockIdx.x + 1u] - A->slice_gu[2u * blockIdx.x];
+    const u32 gu_pairs = PERS_SEG_GU(1u) - PERS_SEG_GU(0u);
     if (IN4E && PF && gu_pairs <= 512u) {
-        const u32 glo = A->slice_gu[2u * blockIdx.x], ghi = A->slice_gu[2u * blockIdx.x + 1u];
+        const u32 glo = PERS_SEG_GU(0u), ghi = PERS_SEG_GU(1u);
         unsigned short* sgu = reinterpret_cast<unsigned short*>(scratch);
         float* fold = scratch + 512u;  // after 1,024 binary16 values
         const auto row_at = [&](u32 idx) {
@@ -183,7 +204,7 @@ __device__ __forceinline__ void pers_segment_body(const SegArgs* __restrict__ A,
         // table's round trip runs under the next pair's blocks. The same g, u,
         // table entry and product: the same act.
         const u32 warp = threadIdx.x >> 5, nw = blockDim.x >> 5;
-        const u32 glo = A->slice_gu[2u * blockIdx.x], ghi = A->slice_gu[2u * blockIdx.x + 1u];
+        const u32 glo = PERS_SEG_GU(0u), ghi = PERS_SEG_GU(1u);
         const u32 npairs = pers_warp_rows(glo, ghi, warp, nw);
         unsigned short g = 0u, pend_sv = 0u, pend_u = 0u;
         u32 pend_r = 0xffffffffu;
@@ -207,8 +228,8 @@ __device__ __forceinline__ void pers_segment_body(const SegArgs* __restrict__ A,
         if (lane == 0u && pend_r != 0xffffffffu) A->act[pend_r] = exact_hmul(pend_sv, pend_u);
     } else {
         const u32 nb = A->gate.nblocks, tw = A->gate.tail_w;
-        pers_claim_reset(A->slice_gu[2u * blockIdx.x]);
-        const u32 hi = A->slice_gu[2u * blockIdx.x + 1u];
+        pers_claim_reset(PERS_SEG_GU(0u));
+        const u32 hi = PERS_SEG_GU(1u);
         for (;;) {
             const u32 r = pers_claim(lane, 1u);
             if (r >= hi) break;
@@ -228,7 +249,7 @@ __device__ __forceinline__ void pers_segment_body(const SegArgs* __restrict__ A,
     // 3. every row of the activation is written. 4E: this CTA's down rows are
     // asked of L2 first, while the slowest CTA finishes its gate/up rows.
     if (IN4E) {
-        const u32 dlo = A->slice_dn[2u * blockIdx.x], dhi = A->slice_dn[2u * blockIdx.x + 1u];
+        const u32 dlo = PERS_SEG_DN(0u), dhi = PERS_SEG_DN(1u);
         if (TETRA_DOWN) {
             pers_l2_prefetch(A->down.words + (unsigned long long)dlo * A->down.stride_u32,
                              4ull * (dhi - dlo) * A->down.stride_u32);
@@ -237,17 +258,32 @@ __device__ __forceinline__ void pers_segment_body(const SegArgs* __restrict__ A,
         }
     }
     PERS_SEG_SUB(1u);
+#if PERS_4E_ROWS >= 5
+    // form 5: the down's sign words and its k rows of `small` copied while
+    // the slowest CTA finishes its gate/up rows
+    if (IN4E) {
+        const auto stage = [&] {
+            if (TETRA_DOWN) pers_v7_stage_rot(area, A->signs_i, I, A->small_i, A->k_i);
+        };
+        if (!pers_grid_wait_gap(A->bar, L.bar_base + gridDim.x, A->abort_flag, stage)) return;
+    } else
+#endif
     if (!pers_grid_wait(A->bar, L.bar_base + gridDim.x, A->abort_flag)) return;
     PERS_SEG_SUB(2u);
 
     // 4. down, then the residual.
-#if PERS_4E_ROWS == 4
+#if PERS_4E_ROWS >= 4
     // form 4 (4E only): the activation as vectors, the signs and the k rows of
-    // `small` in the same batch
+    // `small` in the same batch; form 5: the signs and `small` already staged
     if (IN4E && pers_1rt_ok(A->act, I)) {
         if (TETRA_DOWN) {
+#if PERS_4E_ROWS >= 5
+            pers_load_1rt(A->act, v7g, v, I, nullptr, A->k_i, ssm);
+            pers_rot_finish<true, true>(v, ssm, I, A->m_i, A->k_i, A->inv_i);
+#else
             pers_load_1rt(A->act, A->signs_i, v, I, A->small_i, A->k_i, ssm);
             pers_rot_finish<true>(v, ssm, I, A->m_i, A->k_i, A->inv_i);
+#endif
         } else {
             pers_load_1rt(A->act, nullptr, v, I, nullptr, 0u, nullptr);
             __syncthreads();
@@ -266,7 +302,7 @@ __device__ __forceinline__ void pers_segment_body(const SegArgs* __restrict__ A,
         // The stream for a Tetra down; the int4 down static by warp with its
         // word prefetch. Lane 0 loads x[r] when the row starts.
         const u32 warp = threadIdx.x >> 5, nw = blockDim.x >> 5;
-        const u32 dlo = A->slice_dn[2u * blockIdx.x], dhi = A->slice_dn[2u * blockIdx.x + 1u];
+        const u32 dlo = PERS_SEG_DN(0u), dhi = PERS_SEG_DN(1u);
         if (TETRA_DOWN) {
 #if PERS_4E_ROWS == 3
             {
@@ -299,8 +335,8 @@ __device__ __forceinline__ void pers_segment_body(const SegArgs* __restrict__ A,
         }
         return;
     }
-    pers_claim_reset(A->slice_dn[2u * blockIdx.x]);
-    const u32 hi = A->slice_dn[2u * blockIdx.x + 1u];
+    pers_claim_reset(PERS_SEG_DN(0u));
+    const u32 hi = PERS_SEG_DN(1u);
     for (;;) {
         const u32 r = pers_claim(lane, 1u);
         if (r >= hi) break;
@@ -319,6 +355,8 @@ __device__ __forceinline__ void pers_segment_body(const SegArgs* __restrict__ A,
         }
     }
 #undef PERS_SEG_SUB
+#undef PERS_SEG_GU
+#undef PERS_SEG_DN
 }
 
 #define PERS_SEG(sym, NORMV_, TD_)                                                                   \

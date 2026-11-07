@@ -705,21 +705,29 @@ pub fn n_bar_4e(layers: u32) -> u32 {
 /// what the served config runs); 2, v2's row loop on the same static rows
 /// (4E v4); 3, form 2 with each CTA's last rows split over every warp (4E v5);
 /// 4, form 2 with ln1, ln2 and the down's input in one round trip a thread
-/// (4E v6, `llvq_pers.cuh` section 7b).
-pub const P4E_ROWS_FORMS: [(u32, &str); 4] = [(1, "v3"), (2, "v4"), (3, "v5"), (4, "v6")];
+/// (4E v6, `llvq_pers.cuh` section 7b); 5, form 4 with the launch's
+/// constants (argument structs, row slices, sign words, `small`) copied into
+/// shared memory during the barrier before they are read, and the o phase's
+/// input widened from vectors (4E v7, section 7c); 6, form 5 with the
+/// attention phase's steps staged by `cp.async` into a ring of
+/// [`p4e_attn_ring`] stages, several steps in flight (4E v8, K3a of
+/// `docs/plan-300.md`).
+pub const P4E_ROWS_FORMS: [(u32, &str); 6] = [(1, "v3"), (2, "v4"), (3, "v5"), (4, "v6"), (5, "v7"), (6, "v8")];
 
 /// The forms `fusedrun LLVQ_PERS_4E` times, the first the reference of the
-/// others' round-by-round ratios: v4, the served form since 2026-11-05, and
-/// v6, its candidate. v3 and v5 were read by the shaker (job 6aec9a1d).
-pub const P4E_BENCH_FORMS: [(u32, &str); 2] = [(2, "v4"), (4, "v6")];
+/// others' round-by-round ratios: v4, the served form since 2026-11-05; v6,
+/// served on the operator's go of 2026-11-07; v7 (K2) and v8 (K2 and K3a),
+/// step 2 of `docs/plan-300.md`. v3 and v5 were read by the shaker (job
+/// 6aec9a1d).
+pub const P4E_BENCH_FORMS: [(u32, &str); 4] = [(2, "v4"), (4, "v6"), (5, "v7"), (6, "v8")];
 
 /// The line a module of row form `form` starts with; form 1 is the
 /// default and adds nothing, so its module keeps its text.
 pub fn p4e_rows_define(form: u32) -> Result<String, String> {
     match form {
         1 => Ok(String::new()),
-        2..=4 => Ok(format!("#define PERS_4E_ROWS {form}u\n")),
-        _ => Err(format!("4E row form {form}: the forms are 1 (v3), 2 (v4), 3 (v5) and 4 (v6)")),
+        2..=6 => Ok(format!("#define PERS_4E_ROWS {form}u\n")),
+        _ => Err(format!("4E row form {form}: the forms are 1 (v3), 2 (v4), 3 (v5), 4 (v6), 5 (v7) and 6 (v8)")),
     }
 }
 
@@ -738,18 +746,34 @@ pub fn p4e_v6_inputs(addrs: &[(String, u64)], hidden: u32, inter: u32) -> Result
 }
 
 /// The shared scratch after the activation staging (`PERS_4E_SCRATCH`):
-/// form 3's split rows, form 4's staged rows of the rotations' `small`.
+/// form 3's split rows, form 4's staged rows of the rotations' `small`,
+/// form 5's v7 area (`PERS_V7_FLOATS` floats: `small`, the argument structs,
+/// the CTA's slices and up to 576 sign words).
 pub fn p4e_scratch_bytes(form: u32) -> u32 {
     match form {
         3 => 16_384,
         4 => 4_096,
+        5 | 6 => 7_360,
         _ => 0,
     }
 }
 
+/// The attention phase's stages (`PERS_ATTN_RING` in `llvq_pers.cuh`): one
+/// below form 6, staged through registers; three from form 6 on, staged by
+/// `cp.async`, so three steps of 16 KB are in flight at once.
+pub fn p4e_attn_ring(form: u32) -> u32 {
+    if form >= 6 { 3 } else { 1 }
+}
+
+/// [`p4e_smem_bytes_form`] for the forms below 6.
 pub fn p4e_smem_bytes(hidden: u32, inter: u32, groups: u32) -> u32 {
+    p4e_smem_bytes_form(1, hidden, inter, groups)
+}
+
+/// Shared bytes of a 4E CTA of row form `form`, before the scratch.
+pub fn p4e_smem_bytes_form(form: u32, hidden: u32, inter: u32, groups: u32) -> u32 {
     let vec = 4 * inter.max(2 * hidden);
-    let attn = 16 * 1024 + 4 * 4 * groups * 130 + 4 * groups * 128;
+    let attn = 16 * 1024 * p4e_attn_ring(form) + 4 * 4 * groups * 130 + 4 * groups * 128;
     (SMEM_HEADER + TABLE_BYTES + vec.max(attn)).div_ceil(16) * 16
 }
 
@@ -2202,14 +2226,32 @@ mod tests {
         let cuh = include_str!("../kernels/llvq_pers.cuh");
         assert!(cuh.contains("#if PERS_4E_ROWS == 3\n#define PERS_4E_SCRATCH 16384u"), "p4e_scratch_bytes mirrors the scratch");
         assert!(cuh.contains("#elif PERS_4E_ROWS == 4\n#define PERS_4E_SCRATCH 4096u"), "form 4's scratch too");
-        let scratch: Vec<u32> = (1..=4).map(p4e_scratch_bytes).collect();
-        assert_eq!(scratch, vec![0, 0, 16_384, 4_096]);
+        assert!(cuh.contains("#elif PERS_4E_ROWS >= 5\n#define PERS_4E_SCRATCH 7360u"), "forms 5 and 6's scratch too");
+        assert!(cuh.contains("#define PERS_V7_FLOATS 1840u"), "form 5's scratch is the v7 area");
+        let scratch: Vec<u32> = (1..=6).map(p4e_scratch_bytes).collect();
+        assert_eq!(scratch, vec![0, 0, 16_384, 4_096, 7_360, 7_360]);
+        // the v7 area, and v8's ring, at the 4B, the 8B (4,096 wide, inter
+        // 12,288, 4 groups) and the 14B (5,120, 17,408, 5 groups) fit under
+        // sm_89's 101,376-byte opt-in
+        for form in [5u32, 6] {
+            for (h, i, g) in [(2560u32, 9728u32, 4u32), (4096, 12_288, 4), (5120, 17_408, 5)] {
+                let b = p4e_smem_bytes_form(form, h, i, g) + p4e_scratch_bytes(form);
+                assert!(b <= 101_376, "form {form} at {h}/{i}/{g}: {b} B");
+            }
+        }
+        assert_eq!(p4e_smem_bytes_form(6, 2560, 9728, 4), (SMEM_HEADER + TABLE_BYTES + 3 * 16_384 + 8_320 + 2_048).div_ceil(16) * 16);
+        assert_eq!(p4e_smem_bytes_form(5, 2560, 9728, 4), p4e_smem_bytes(2560, 9728, 4));
+        assert!(cuh.contains("#if PERS_4E_ROWS >= 6\n#define PERS_ATTN_RING 3u\n#else\n#define PERS_ATTN_RING 1u"), "p4e_attn_ring mirrors the ring");
+        let inter_14b: u32 = 17_408;
+        assert!(inter_14b.div_ceil(32) <= 576, "the 14B's down signs fit PERS_V7_SIGNS_MAX");
         // form 4's scratch holds every row of a KMAX x KMAX `small`
         assert_eq!(p4e_scratch_bytes(4) as usize, 4 * 32 * 32);
         assert_eq!(p4e_rows_define(1).unwrap(), "");
         assert_eq!(p4e_rows_define(3).unwrap(), "#define PERS_4E_ROWS 3u\n");
         assert_eq!(p4e_rows_define(4).unwrap(), "#define PERS_4E_ROWS 4u\n");
-        assert!(p4e_rows_define(5).is_err());
+        assert_eq!(p4e_rows_define(5).unwrap(), "#define PERS_4E_ROWS 5u\n");
+        assert_eq!(p4e_rows_define(6).unwrap(), "#define PERS_4E_ROWS 6u\n");
+        assert!(p4e_rows_define(7).is_err());
         assert!(P4E_BENCH_FORMS.iter().all(|f| P4E_ROWS_FORMS.contains(f)), "the bench forms are row forms");
         let ok = vec![("act".to_string(), 0x7000_0000u64), ("layer 0 ln1".to_string(), 0x7000_0100)];
         assert!(p4e_v6_inputs(&ok, 2560, 9728).is_ok());
@@ -2224,7 +2266,7 @@ mod tests {
             "#define PERS_STAGE (PERS_UPS * PERS_TT)",
             "#define PERS_UPS 4u",
             "#define PERS_PSTRIDE 130u",
-            "#define PERS_ATTN_SMEM(groups) (16u * PERS_STAGE_U4 + 4u * PERS_UPS * (groups) * PERS_PSTRIDE + 4u * (groups) * PERS_HD)",
+            "#define PERS_ATTN_SMEM(groups) (16u * PERS_STAGE_U4 * PERS_ATTN_RING + 4u * PERS_UPS * (groups) * PERS_PSTRIDE + 4u * (groups) * PERS_HD)",
         ] {
             assert!(cuh.contains(line), "p4e_smem_bytes mirrors {line:?}");
         }

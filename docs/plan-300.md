@@ -169,6 +169,43 @@ Days, exact route: 26 to 46 working days, 5 to 9 weeks, before K8 and the larger
 table's ranges). The project has spent $273.30 (*computed*, `ETAT.md` §5). No spend cap is in force; one is owed
 before the job of step 1.
 
+### 6b. What is coded (2026-11-07)
+
+The operator asked on 2026-11-07 for the package toward 300 without waiting for the v6 door. Steps 1 and 2 are coded
+and identical to the served chain on the host. Nothing has run on the card.
+
+**Step 1, one job ready.** `ops/jobs/step1-micro.sh` runs the K4 arms (nc, nc256, cpa, tile, bal against v2), the
+K11 arms (q4nc and q4t against 4E's q4 row, the served `tv_q4_hh` timed alone beside them) and the K3b counters
+(tight, rel, ctr8, split against the served barrier) in one planesbench process. Host: every arm that owes the bits
+equal to the served kernel, 21 mutants killed. Prereg
+[`preregistration-step1-micro-2026-11-07.md`](../proofs/preregistration-step1-micro-2026-11-07.md), not stamped.
+Cost about 11 min, $0.33, $0.90 at the 30-minute timeout (*estimated* from pers-rowloop's 497 s for $0.25), after a
+Space rebuild that bills no card. The operator's go is awaited.
+
+**Step 2, two new row forms beside v6.** Both are refused by a served config (`served.rs`) until measured. `fusedrun
+LLVQ_PERS_4E` now times v4, v6, v7 and v8 in one process (`pers::P4E_BENCH_FORMS`).
+
+- **v7, row form 5, K2.** After each grid barrier v6 still reads from L2, on lines all 142 CTAs ask for at once: the
+  fields of the layer's argument struct, then the CTA's row slices through a second dependent load, then the sign
+  words that the norm reads again after its scale. ln1 pays more of these than ln2, which fits ln1's 318.9 µs against
+  ln2's 157.8 (pers-4e-v6). v7 copies these constants into shared memory between the CTA's arrival at the previous
+  barrier and its release (`pers_grid_wait_gap`, `llvq_pers.cuh` §7c): the launch's arguments once, each layer's
+  struct, slices and ln1 inputs during the layer's last barrier, ln2's during the o barrier, the down input's signs
+  and `small` during the inner wait. It also widens the o phase's input from 16-byte vectors (8 serial loads in v6)
+  and reads `small` as float4 in the mix. Shared memory: 65,344 B at the 4B (*computed*). Host: identity on every
+  served rotation width, the -0 column, the q/k/v and o phases and the token loop (four geometries, past 256, three
+  consecutive launches, stamps); 16 mutants killed.
+- **v8, row form 6, K3a.** At 5 positions a row holds at most 69 positions, so attention runs 8 jobs of 4 steps, and
+  only the next step's loads are in flight while a step runs. v8 stages the steps by `cp.async` into a ring of three
+  stages, so three steps are in flight. Tiles, units and folds are unchanged, so the bits are too. This is the latency
+  half of K3a. The other half, a job spread over more CTAs, is not in v8. Shared memory: 85,952 B at the 4B, 96,064 at
+  the 14B, under the 101,376 opt-in (*computed*). Host: attention equal to `attn_ref` on nine row lengths at three
+  geometries, the token loop; 7 mutants killed on the ring's indexing and reader barrier. The host's `cp.async` copies
+  at once, so the waits are only held by the card's identity gate.
+
+Step 2's gates stand as in the table: down input under 200 µs and attention's slowest over mean under 1.5 at 5
+positions on the stamps, the eager tokens at 5 and 8,192. Its job is not written yet.
+
 ## 7. At 8,192 positions
 
 At 8,192 positions v6 takes 6.58 ms, where 300 asks 3.33 ms. The six exact leads at their high bound reach 221

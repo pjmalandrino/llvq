@@ -471,6 +471,24 @@ int main() {
             pers_rot_finish<true>(sp, sp + n, n, m, k, inv);
             for (u32 i = threadIdx.x; i < n; i += blockDim.x) out[i] = sp[i];
         });
+#elif PERS_4E_ROWS >= 5
+        // form 5: the sign words and `small` copied into the v7 area first
+        // (4E does it during the barrier before), then the vector load reads
+        // the signs from there and the mix reads `small` as float4
+        if (!pers_1rt_ok(xin.data(), n)) {
+            std::fprintf(stderr, "host_pers: the rotation's input is not 16-byte aligned\n");
+            std::exit(2);
+        }
+        hostgrid::launch_coop(1, threads, PERS_SMEM_HEADER + 4 * n + 4 * PERS_V7_FLOATS, seed, [&] {
+            float* sp = reinterpret_cast<float*>(PERS_SMEM_BASE() + PERS_SMEM_HEADER);
+            float* area = sp + n;
+            pers_v7_stage_rot(area, signs.data(), n, small.data(), k);
+            __syncthreads();
+            pers_load_1rt(xin.data(), reinterpret_cast<const u32*>(area + PERS_V7_SIGNS), sp, n, nullptr, k,
+                          area + PERS_V7_SMALL);
+            pers_rot_finish<true, true>(sp, area + PERS_V7_SMALL, n, m, k, inv);
+            for (u32 i = threadIdx.x; i < n; i += blockDim.x) out[i] = sp[i];
+        });
 #else
         hostgrid::launch_coop(1, threads, PERS_SMEM_HEADER + 4 * n, seed, [&] {
             float* sp = reinterpret_cast<float*>(PERS_SMEM_BASE() + PERS_SMEM_HEADER);
@@ -494,6 +512,8 @@ int main() {
         hostgrid::launch_coop(1, 32, PERS_SMEM_HEADER, 0, [&] {
 #if PERS_4E_ROWS == 4
             for (u32 j = threadIdx.x; j < m; j += 32u) pers_mix_1rt(sv.data(), small.data(), m, k, inv, j);
+#elif PERS_4E_ROWS >= 5
+            for (u32 j = threadIdx.x; j < m; j += 32u) pers_mix_1rt<true>(sv.data(), small.data(), m, k, inv, j);
 #else
             for (u32 j = threadIdx.x; j < m; j += 32u) pers_mix_column(sv.data(), small.data(), m, k, inv, j);
 #endif
