@@ -1,0 +1,43 @@
+BATCH AWQ: QWEN3-4B AWQ W4G128 IN VLLM AT B = 1, 4, 8, 16, 32 (2026-11-07)
+==========================================================================
+Prereg: proofs/preregistration-batch-baseline-2026-11-07.md, sha256 2486832a, timestamped before launch.
+Deviations: none.
+Code: commit 1bfab2b (ops/awq_batch.py sha256 53ec4e17). Job: 6aef873c0e0338d1bb83c945, l40sx1, 159 s running, $0.08.
+
+SETUP
+-----
+Qwen/Qwen3-4B-AWQ at 74d4bd2b, vllm/vllm-openai:v0.26.0 (vLLM routes it to Marlin, reported "auto_awq"), float16,
+prefix caching off and read back. B copies of the door prompt (raw ids), 256 greedy tokens each, ignore_eos, wall
+clock around one generate call, prefill included. 2 warm-up rounds, then 5 rounds of B = 1, 4, 8, 16, 32.
+
+CONTROLS
+--------
+1. Script sha256 inside the job equals the launcher's: equal, passes.
+2. Prefix caching reads False after load: False, passes.
+3. Every call returns B sequences of 256 tokens: yes, passes.
+
+RESULT
+------
+   B   tok/s aggregate   range (5 rounds)      tok/s a sequence   GB/s (2.67 GB x steps/s)
+   1         203.0       [202.9-203.1]             203.0              541.9
+   4         778.7       [778.2-778.8]             194.7              519.8
+   8       1,524.6       [1,516.2-1,525.7]         190.6              508.8
+  16       2,883.2       [2,882.9-2,885.9]         180.2              481.1
+  32       5,128.7       [5,128.4-5,133.0]         160.3              427.9
+Rates measured; GB/s computed. Every row of every call carries the same tokens, and row 0 equals B = 1's row 0.
+
+VERDICT
+-------
+No decision rule: the AWQ half of the starting point. All five predictions inside their interval (195 / 700 /
+1,300 / 2,300 / 3,800 predicted). AWQ keeps 79 % of its per-sequence rate at B = 32: its step time grows from 4.9
+to 6.2 ms while B grows 32 times.
+
+WHAT THIS DOES NOT ESTABLISH
+----------------------------
+- Nothing about Tetra: its side runs in batch-tetra-2026-11-07, another image.
+- One prompt, 256 tokens: no long-context or mixed-length batch.
+- vLLM's scheduler and CUDA graphs are part of the measured object; no ratio is formed against our stack (rule 5).
+
+PROVENANCE
+----------
+docs/mesures/batch-awq-2026-11-07-brut/ (out.txt, awq-batch.json, gpu.txt, vllm-version.txt).
