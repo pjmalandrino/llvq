@@ -13,6 +13,7 @@ pub mod artifact;
 pub mod artifact2;
 pub mod argmax_key;
 pub mod attn;
+pub mod batch;
 #[cfg(all(target_os = "linux", feature = "cuda"))]
 pub mod attn_cuda;
 #[cfg(all(target_os = "macos", feature = "metal"))]
