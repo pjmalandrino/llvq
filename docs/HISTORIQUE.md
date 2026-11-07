@@ -1143,6 +1143,17 @@ v9 configs and their doors, which also read the kernel form's perplexity band ag
 of pjmalandrino/llvq#12; it would have broken the Linux CI at the merge, and it carries the gate now.
 `ops/check-linux-cuda.sh` type-checks the cuda half of `llvq-llm` on the Mac, which no tool did before.
 
+## 2026-11-07. v9 served at 4B, 8B and 14B
+
+The three doors ran the same evening on one image, for $2.65 (jobs 6aef7864, 6aef7ae2, 6aef7ae4). Every gate held:
+4E returned the eager path's tokens at every length at each size, the 4B kept the v6 config's text and held the int4
+words once (1.980 GB under v9 and under v6), and the kernel form from position 0 stayed inside the perplexity band
+against the grouped form at 8B and 14B. At the door v9 reads 221.5, 142.5 and 86.3 tok/s against 197.4 for v6 and
+105.9 and 62.8 for the grouped configs, in the same jobs ([served-v9](mesures/served-v9-2026-11-07.txt),
+[-8b](mesures/served-v9-8b-2026-11-07.txt), [-14b](mesures/served-v9-14b-2026-11-07.txt)). On the operator's message
+the v9 configs became the served ones at all three sizes. Before, the 4B served v4 at 178.0 tok/s and the 8B and 14B
+their grouped configs at 105.8 and 62.5.
+
 ## 2026-11-07. The MLX door, on the operator's ruling of a tolerance on Metal
 
 The operator ruled open decision 1 of the Metal plan on 2026-11-07: « Sur métal, on a validé mlx donc implem le

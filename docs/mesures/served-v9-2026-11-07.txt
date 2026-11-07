@@ -1,0 +1,54 @@
+served-v9, 2026-11-07. The served door of the sealed 4B under the v9 config, the int4 bytes held once on the card.
+
+Result: v9 decodes 221.5 tok/s at the door against 197.4 for the v6 config in the same job, with the v6 config's
+tokens at the door and at every length, its 50 pilot completions, and the same card memory to the MB: 1.980 GB under
+both (*measured*). The int4 words are on the card once. Every gate held and every prediction fell inside its interval.
+
+Job      : 6aef78640e0338d1bb83afe4, l40sx1 (NVIDIA L40S, sm_89, 2520 MHz, driver 580.178.04), 954 s of card (the
+           job's running_secs) after 2,430 s in the queue, $0.48 (*computed* at $1.80/h).
+Image    : Space sha d30e839eb2c3e92449c05ff0b500af36a62fa82e, built from claude/serve-v9-single-int4-7aba47 652e803
+           (perimeter clean), which also carries the 8B and 14B work.
+Prereg   : proofs/preregistration-served-v9-2026-11-07.md, OpenTimestamps stamped and committed (43b4b39) before the
+           image was built. Deviations written beside it before the run (…-ECARTS.md): the 4E v9 module is 1b422b62
+           (step3's d9da09aa plus the head's own pointers and the Tetra o phase), and one image serves three sizes.
+Raw      : served-v9-2026-11-07-brut/ (door-v6.txt, door.txt, sweep.txt, gsm8k-4b-v9-n50.*, compare.txt, job.log).
+
+Gates (§3, *measured*): oracle MATCH; object 886391a8 and both configs at their sha256; the v6 door compiled the
+served unit 6193094310bc, loaded no tiled word, and its 4E tokens equal the eager path's, 256 of 256; the v9 door, the
+sweep and the pilot print the provenance "4E rows v9", the v9 unit e269ea5d (106,947 B, 12 parts), "int4 layout:
+tiled (LLVQ_CONFIG), 84 records, words 0.385 GB on the card, held once", tv_q4_hht equal to tv_q4_ht, the tiled reader
+equal to tv_q4_hh on the file's order on the three int4 widths (2,560, 4,096, 9,728), module 1b422b62, the tied head,
+the 76 prologue inputs aligned, the int4 records read in place with no relay line, RoPE equal to candle's,
+pers_4e_tokens_f1_t512 with 0 B local; 4E equals the eager path at the door (256 of 256) and at the four lengths; the
+pilot dump on fingerprint 94c7b98876288901 with "rows":"v9"; no LLVQ_* in the job env.
+
+Results, measured, 256 new tokens, 1 discarded + 5 rounds, medians [range]:
+
+                                  v9                     v6 (same job)
+  door (prompt and decode)        221.5 [221.1-221.9]    197.4 [197.2-197.6]
+  4E decode alone                 225.8 [225.4-226.1]    200.9 [200.8-201.0]
+  eager, same config, door        129.0 [128.8-129.0]    126.4 [126.4-126.4]
+  4E / eager, round by round      x1.717 [1.714-1.722]   x1.562 [1.560-1.563]
+  card memory after the install   1.980 GB               1.980 GB   (cuMemGetInfo, the whole context)
+
+  v9 sweep   prompt   to first token, s   decode tok/s [range]    ms a decode token
+                  5   0.02                226.2 [226.2-226.4]     4.42
+               2048   8.17                205.8 [205.5-206.0]     4.86
+               4096   17.04               194.2 [193.9-194.3]     5.15
+               8192   35.05               161.5 [159.7-161.7]     6.19
+
+Against the v6 config (served-v6): door tokens identical (61d0654532d35120), at both doors of this job; sweep tokens
+identical at 5, 2,048, 4,096 and 8,192. GSM8K pilot: 40/50 under v9 and under v6, completions identical 50/50.
+The eager path on tiled words read 129.0 tok/s against 126.4 on the file's words, two processes of one job: the tiled
+reader is not slower. Against the served v4 config (served-v4, another job, no ratio formed): 221.5 against 178.0.
+
+Rules (§6). A, identity: holds. B, the same text as v6: holds. C, one copy: v9 minus v6 = +0.000 GB, inside
+[-0.10, +0.10]; the measurement form had held 0.385 GB more. D: if served, the 4B's numbers are 221.5 tok/s at the
+door and the sweep above. The operator's message of 2026-11-07 asks for the switch.
+
+Predictions (§5), every one inside: door 221.5 against 220 [210, 230]; decode alone 225.8 against 224 [214, 234];
+eager 129.0 against 125.7 [120.7, 130.7]; x1.717 against x1.75 [1.65, 1.85]; sweep 226.2 / 205.8 / 194.2 / 161.5
+against 225.6 / 208.7 / 194.7 / 160.0, each inside; memory +0.000 against 0.00 [-0.10, +0.10]; tokens and pilot
+identical, 40 correct, as predicted.
+
+Not established: batch above 1; any MMLU or full GSM8K under 4E; Metal; any card but the L40S.
