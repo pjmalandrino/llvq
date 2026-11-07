@@ -1,0 +1,80 @@
+plan-300 step 1, 2026-11-07: the Tetra row loop (K4), the int4 rows (K11) and the counters (K3b), alone on the card.
+
+Result: no change of the Tetra row loop's load path, word layout or row assignment speeds it. The best arm, tile,
+reads x1.002 over v2 [0.982-1.024] (*measured*). By rule B of the prereg, 300 tok/s at the bit is out on every bound
+plan-300 can anchor. The int4 rows have a lever: the 4-step tile layout reads x1.338 over 4E's int4 row alone
+[1.313-1.350], 548 against 410 GB/s, bit for bit (*measured*), which licenses the int4 port of step 4. No counter
+form beats the served barrier by 0.3 us a hop. ctr8, the counter that waits on 8 producers, comes closest at 0.274
+under it [0.274-0.275] (*measured*).
+
+Job      : 6aef03fa0e0338d1bb831445, l40sx1 (NVIDIA L40S, sm_89), 8 min 24 s billed, $0.25 (*computed* at $1.80/h).
+           Ran 10:57 to 11:07 UTC, after the served-v6 door had started on its own image.
+Image    : Space sha ed40354de6d7492c8b21a3092d42ea9f744127b3, built from commit c0b32ae of
+           claude/route-300-toks-de97fe (perimeter clean).
+Prereg   : proofs/preregistration-step1-micro-2026-11-07.md (sha256 00a72214...), OpenTimestamps stamped and
+           committed (c0b32ae) before the image was built.
+Raw      : step1-micro-2026-11-07-brut/ (bench.txt, oracle.txt, gpu.txt, files.sha256, job-log.txt). The cubins and
+           PTX (bench, persistent, trows) stay in the bucket under step1-micro-2026-11-07/cubin/, 29 MB.
+
+Gates (§4, all hold, *measured*): oracle MATCH on Qwen3-0.6B; the two files at their bytes, the Tetra file at
+0adb7cfd; 252 of 252 matrices matched, tile 64; the references are the served unit, 101,625 bytes, 6193094310bc...;
+v2 and q4 bit for bit; bar counts OK; no LLVQ_* in the job env. Every arm that owes the bits keeps them (K4: v2, v3,
+ilp2, v2u, v2_s, v2_o2, k2, nc, nc256, cpa, tile, bal, 1,105,920 or 1,013,760 rows; K11: q4, q4nc, q4t, 159,744 rows).
+Every symbol 0 B local. tile's relaid words take 0.9083 GB, the same as the served stream (+0 B).
+
+K4, Tetra row loops, 0.9467 GB, median ms [range], GB/s, speed over v2 round by round:
+  v2       2.531 [2.505-2.570]   374 [368-378]
+  nc       3.164 [3.053-3.189]   299 [297-310]   x0.810 [0.787-0.829]   dead
+  nc256    3.031 [2.925-3.058]   312 [310-324]   x0.845 [0.823-0.865]   dead
+  cpa      2.640 [2.564-2.670]   359 [355-369]   x0.960 [0.944-0.987]   dead
+  tile     2.537 [2.473-2.564]   373 [369-383]   x1.002 [0.982-1.024]   dead
+  bal      2.726 [2.649-2.750]   347 [344-357]   x0.934 [0.916-0.956]   dead
+  The nine arms of pers-rowloop replicate it within 2 % (v3 x0.846, ilp2 x0.927, l1w x1.212 over v2u, v2_o2 x1.073).
+
+K11, int4 rows, 0.4094 GB of synthetic records of the 4B's 84 int4 shapes, median ms [range], GB/s:
+  q4hh     1.333 [1.310-1.338]   307 [306-313]   the served tv_q4_hh, 84 launches
+  q4       0.999 [0.981-1.011]   410 [405-417]   4E's row, one launch; x1.335 over q4hh
+  q4nc     0.927 [0.908-0.932]   442 [440-451]   x1.080 [1.071-1.086] over q4, not a lever
+  q4t      0.747 [0.746-0.749]   548 [547-549]   x1.338 [1.313-1.350] over q4, LEVER
+  q4read   0.610 [0.606-0.611]   671 [670-675]   diagnostic, the same bytes read and summed: the stream ceiling here
+
+K3b, 142 x 512 cooperative, 10,000 hops a launch, 5 reps kept, us a hop, median [range]:
+  bar      0.771 [0.771-0.771]   the served pers_grid_wait
+  tight    0.773 [0.773-0.774]   -0.003 under bar
+  rel      0.678 [0.677-0.678]    0.093 under bar
+  ctr8     0.497 [0.496-0.497]    0.274 under bar
+  split    1.402 [1.402-1.405]   0.356 exposed over work alone (1.046 [1.045-1.049])
+
+Decision rules (§7).
+- A, identity: holds on every arm that owes the bits.
+- B, K4: no arm at x1.15; all five under x1.10, dead for this route. 300 tok/s at the bit is out on every bound
+  plan-300 can anchor. The route continues to steps 2 and 3 toward 279 to 290 tok/s at most, and the K4 port of step
+  4 is dropped. Going on is the operator's call.
+- C, K11: q4t at x1.338 licenses the int4 port of step 4. q4 recovers x1.335 over the eager tv_q4_hh.
+- D, K3b: none of tight, rel and ctr8 reaches 0.3 us under bar. The counter form is not licensed; K3b's high bound is
+  to be re-estimated from the walls over mean alone before step 3 is costed. split over work exposes 0.356 us, above
+  0.3: splitting arrival from wait hides 0.415 of the 0.771 us hop, reported.
+- E, replication: v2 374 GB/s inside [360, 395]; bar 0.771 us inside [0.75, 1.20], under pers-l1's 0.79-1.13.
+- F, misses against §6:
+  - nc x0.810 against [0.95, 1.08], below;
+  - nc256 x0.845 against [0.95, 1.12], below;
+  - bal x0.934 against [0.97, 1.06], below;
+  - q4hh 307 GB/s against [350, 580], below;
+  - q4 410 GB/s against [500, 700], below;
+  - q4t x1.338 against [0.97, 1.20], above.
+  Inside: identity, no local memory, v2, cpa, tile, the "no K4 arm at x1.15" call, q4nc, q4read, and the five
+  counters.
+
+Reading.
+- The read-only path costs the Tetra loop 16 to 19 %. Its words are read once, so L1 bypass gains nothing and the
+  .nc path loses.
+- Claiming rows dynamically loses 7 %. The imbalance is in the row counts, 18 rows a CTA on 16 warps, as the prereg
+  said, and the claim's atomics add their own cost.
+- The int4 row alone (410 GB/s) is slower than the 587 GB/s that pers-4e-v3's stamps computed in situ. The in-situ
+  figure likely reads prefetched lines from L2. So the x1.338 of q4t is a ratio on DRAM-bound rows. How much of it
+  survives inside 4E is the port's question.
+- At 4E's 0.697 ms of int4 rows in situ, x1.338 would save up to 0.18 ms a token (*estimated*), against plan-300's
+  0.11.
+
+Not established: any 4E tok/s; the int4 tile layout inside 4E; real int4 records (shapes and bytes are the 4B's,
+values synthetic); any card but the L40S.

@@ -1,14 +1,13 @@
 # Route to 300 tok/s on the served 4B
 
-**300 tok/s at the served door is out of reach on the low bound of every route we can anchor: 229 tok/s at the bit,
-233 touching quality (*estimated*).** On the high bound it is reachable at the bit, 306 to 322 tok/s, with no
-fundamental criterion moved. That needs all six exact leads at 88 to 96 % of their arithmetic, where 4E's five
-versions delivered 41 %. It costs about $4 to $6 of card and 5 to 9 weeks of code. Touching quality adds at most
-0.21 ms a token at a short prompt and does not change the verdict. At 8,192 positions only an int4 KV cache reaches
-300, on its high bound, and it moves quality, GB in memory and the model class.
-
-One job of about $0.5 decides whether 300 is in play at all: the row microbenchmarks of step 1 (§6). Without a row
-lever, the high bound at the bit stops at 279 to 290 tok/s.
+**300 tok/s at the served door is out of reach at the bit: step 1 found no row lever (*measured*,
+[step1-micro](mesures/step1-micro-2026-11-07.txt), 2026-11-07).** The five arms on the Tetra row loop read ×0.810 to
+×1.002 over v2, under the ×1.15 bar. The exact leads that remain reach 279 to 290 tok/s on their high bound, or 284
+to 296 if the int4 tile layout keeps inside 4E the ×1.338 it read alone (*estimated*). Adding K10, which moves
+quality inside the T8 band, gives 289 to 301. 300 then holds only on the proportional door conversion, with every
+lead at its full arithmetic, where 4E's versions delivered 41 %. The low bound stays 229 tok/s at the bit
+(*estimated*). At 8,192 positions only an int4 KV cache reaches 300, on its high bound, and it moves quality, GB in
+memory and the model class.
 
 State as of 2026-11-07. This is a study at $0: no run, no job, no measurement. It starts from 4E v6 served, which the
 session `serve-4e-v6` is putting in place. Its base is [`plan-debit-noyau.md`](plan-debit-noyau.md) (K1 to K10, M1 to
@@ -174,13 +173,15 @@ before the job of step 1.
 The operator asked on 2026-11-07 for the package toward 300 without waiting for the v6 door. Steps 1 and 2 are coded
 and identical to the served chain on the host. Nothing has run on the card.
 
-**Step 1, one job ready.** `ops/jobs/step1-micro.sh` runs the K4 arms (nc, nc256, cpa, tile, bal against v2), the
-K11 arms (q4nc and q4t against 4E's q4 row, the served `tv_q4_hh` timed alone beside them) and the K3b counters
-(tight, rel, ctr8, split against the served barrier) in one planesbench process. Host: every arm that owes the bits
-equal to the served kernel, 21 mutants killed. Prereg
-[`preregistration-step1-micro-2026-11-07.md`](../proofs/preregistration-step1-micro-2026-11-07.md), not stamped.
-Cost about 11 min, $0.33, $0.90 at the 30-minute timeout (*estimated* from pers-rowloop's 497 s for $0.25), after a
-Space rebuild that bills no card. The operator's go is awaited.
+**Step 1, run on the operator's go of 2026-11-07.** Job 6aef03fa, 8 min 24 s, $0.25 (*computed*), prereg stamped
+before ([step1-micro](mesures/step1-micro-2026-11-07.txt)). Every arm that owes the bits kept them. *Measured*:
+- K4 is dead. nc ×0.810, nc256 ×0.845, cpa ×0.960, tile ×1.002, bal ×0.934 over v2, all under ×1.10. The K4 port of
+  step 4 is dropped.
+- K11 is a lever. q4t, the int4 rows in 4-step tiles, reads ×1.338 over 4E's int4 row alone, 548 against 410 GB/s.
+  It licenses the int4 port of step 4, up to 0.18 ms a token if the ratio holds in situ (*estimated*).
+- K3b's counter form is not licensed. ctr8 waits 0.274 µs less than the barrier's 0.771, under the 0.3 bar; tight
+  and rel gain 0 and 0.09. K3b's high bound is to be re-estimated from the walls over mean alone. Splitting arrival
+  from wait hides 0.415 µs of the hop.
 
 **Step 2, two new row forms beside v6.** Both are refused by a served config (`served.rs`) until measured. `fusedrun
 LLVQ_PERS_4E` now times v4, v6, v7 and v8 in one process (`pers::P4E_BENCH_FORMS`).

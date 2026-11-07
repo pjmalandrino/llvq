@@ -1093,3 +1093,12 @@ input at 254.6 µs against a prereg gate of 200, so by that prereg's rule v6 was
 ([pers-4e-v6](mesures/pers-4e-v6-2026-11-05.txt)). On 2026-11-07 the operator gave the go to implement v6 on the 4B
 regardless. `configs/qwen3-4b-tetra-e4-4e-v6.json` is the v4 config with `"rows": "v6"`, and `served.rs` accepts it.
 v4 stays served until the door of `ops/jobs/served-v6.sh` reads.
+
+## 2026-11-07. plan-300's step 1: no row lever
+
+`docs/plan-300.md` was written on 2026-11-07 with 300 tok/s at the door reachable at the bit on its high bound, 306 to
+322 tok/s, if a row lever existed. Step 1 ran the same day on the operator's go (job 6aef03fa, $0.25). No arm on the
+Tetra row loop reached the ×1.15 bar; the best, a 128-bit tile layout, read ×1.002 over v2. By the prereg's rule B,
+300 at the bit is out on every bound the plan anchors. The int4 tile layout read ×1.338 over 4E's int4 row and is a
+lever; no counter beat the grid barrier by 0.3 µs ([step1-micro](mesures/step1-micro-2026-11-07.txt)). 4E v7 (K2) and
+v8 (K3a) are coded and bit-exact on the host, not run.
