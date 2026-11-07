@@ -3,59 +3,38 @@
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.22133606.svg)](https://doi.org/10.5281/zenodo.22133606)
 
 An independent Rust implementation of Leech-lattice vector quantization for LLM weights
-([arXiv:2603.11021](https://arxiv.org/abs/2603.11021), Qualcomm AI Research, 2026). The core crates (lattice, exact
-search, indexing, GPTQ, file format) have no external dependency and can be read end to end. A fused CUDA kernel
-serves the codes inside the model without dequantizing to a dense matrix.
+([arXiv:2603.11021](https://arxiv.org/abs/2603.11021), Qualcomm AI Research, 2026). The core crates (lattice, search,
+indexing, GPTQ, file format) have no external dependency. Fused CUDA and Metal kernels read the 2-bit codes inside
+the model without ever building a dense matrix.
+
+How it works, from the Golay code to the one-launch CUDA token: [`docs/how-it-works.md`](docs/how-it-works.md).
 
 ## Results
 
-Three Qwen3 models, sealed at about 2.7 bits per parameter, each served by its own configuration on one NVIDIA L40S.
+Three Qwen3 models, sealed at about 2.7 bits per parameter and served on one NVIDIA L40S.
 
-| model | b/param | MMLU | WikiText-2 ppl | tok/s | GB of weights |
-|---|---|---|---|---|---|
-| Qwen3-4B | 2.73 | 63.37 | 12.58 | 178.0 | 1.38 |
-| Qwen3-8B | 2.70 | 69.58 | 9.71 | 105.8 | 2.76 |
-| Qwen3-14B | 2.73 | 75.66 | 8.44 | 62.5 | 5.04 |
+| model | b/param | MMLU | GSM8K | WikiText-2 ppl | tok/s | GB on card |
+|---|---|---|---|---|---|---|
+| Qwen3-4B | 2.73 | 63.37 | 82.49 | 12.58 | 221.5 | 1.38 |
+| Qwen3-8B | 2.70 | 69.58 | 88.63 | 9.71 | 142.5 | 2.76 |
+| Qwen3-14B | 2.73 | 75.66 | 92.04 | 8.44 | 86.3 | 5.04 |
 
-MMLU is 5-shot on all 14,042 test questions, micro average, scored on the dense reconstruction of the sealed file.
-Perplexity is read the same way, on the raw WikiText-2 test split. Speed is batch 1, greedy, 256 tokens after a
-5-token prompt, median of five rounds, through each size's served configuration. Bits per parameter count the whole
-model, tables included. Every cell is *measured*; the journals are in [`docs/ETAT.md`](docs/ETAT.md) §2.
+Every cell is *measured*; the journals are linked from [`docs/ETAT.md`](docs/ETAT.md) §2. MMLU is 5-shot on all 14,042
+test questions. Speed is batch 1, greedy, 256 tokens after a 5-token prompt, median of five rounds. Bits per parameter
+count the whole model, embedding and tables included.
 
-The scores and the speeds come from different attention forms. MMLU and perplexity were measured under the expanded
-form that paper 2 ran. The speeds are the served forms: the 4B decodes through the split-KV attention kernel and 4E,
-one CUDA launch a token, since 2026-11-05; the 8B and the 14B use the grouped attention since 2026-11-04. Both forms
-are licensed by a paired perplexity inside ±0.12 % of the expanded form. GSM8K under the grouped form reads 81.96,
-88.55 and 91.96 against 82.49, 88.63 and 92.04 expanded, no gap separated from zero. The 4B's served form has a
-50-problem GSM8K pilot only ([`docs/ETAT.md`](docs/ETAT.md) §2 and §4). Paper 2 and the three cited Hub cards report
-113.8, 95.0 and 57.2 tok/s under the expanded form, and they do not move.
+The speeds come from the served form: one CUDA launch a token (4E) and our split-KV attention kernel. The scores were
+measured under the expanded attention form of paper 2. The served form returns the eager engine's tokens, and its
+attention stays within ±0.12 % of the expanded form's perplexity. Paper 2 reports 113.8, 95.0 and 57.2 tok/s, the
+speeds of that earlier form. Throughput falls with context: at 8,192 tokens of prompt the 4B decodes 161.5 tok/s.
 
-Throughput falls with the context, which the table does not show: at 8,192 tokens of prompt the 4B decodes at 139.5
-tok/s, the 8B at 67.1, and the 4B's first token takes 35 s.
+Against 4-bit AWQ on the same questions, our files score 4.76, 4.21 and 2.46 MMLU points lower, at 45 to 52 % of its
+bits per parameter. At 4B we score 23.6 points above llama.cpp's IQ2_XXS for 0.25 more bits per parameter. The speed
+is an L40S result: on an A100 our files decode slower than FP16 in vLLM ([`docs/ETAT.md`](docs/ETAT.md) §3 and §4).
 
-Against 4-bit AWQ, on the same questions, our files score 4.76, 4.21 and 2.46 points lower, and use 45 to 52% of its
-bits per parameter. Both gaps shrink as the model grows. At 4B we score 23.6 points above llama.cpp's IQ2_XXS for 0.25
-more bits per parameter. The full comparison, with intervals, is in [`docs/ETAT.md`](docs/ETAT.md) §3. The speed is an
-L40S result: on an A100 the files decode slower than FP16 in vLLM ([`docs/ETAT.md`](docs/ETAT.md) §4).
+## Run it
 
-## How the bits come down
-
-A block of 24 weights is one 48-bit code on the Leech lattice. The codebook has 1.1e14 points, so no kernel can hold a
-lookup table for it. Our first layout, `Planes14`, expanded each code when loading the model and read **4.804 bits per
-weight** from VRAM for 2 bits of code. `Tetra` reads the code as it is stored, through a 64-state trellis of the Golay
-code and one 16 KiB table shared by every block: **2.150 bits per weight** (*computed*,
-`docs/data/echelle-formats.csv`). Three further changes, which leave the lattice codes untouched, build the files
-above: one trained scale per weight row, the matrices that lose the most stored as 4-bit integers, and the embedding
-tables in 4 bits to pay for them.
-
-The whole of it is written up in [`paper2/`](paper2/README.md), *Tetra: Serving Leech-Lattice Quantized LLMs at 2.7
-Bits per Parameter*. Version 2 is attached as a PDF to release
-[`v0.0.2`](https://github.com/pjmalandrino/llvq/releases/tag/v0.0.2).
-
-## What you can download
-
-The three sealed files are public on the Hugging Face Hub, each with its card, Qwen's license and its served
-configuration. A different hash is a different file.
+The sealed files are on the Hugging Face Hub. A different hash is a different file.
 
 | model | repository | file | SHA-256 |
 |---|---|---|---|
@@ -63,32 +42,30 @@ configuration. A different hash is a different file.
 | Qwen3-8B | [Pier-Jean/Qwen3-8B-LLVQ-Tetra-sealed](https://huggingface.co/Pier-Jean/Qwen3-8B-LLVQ-Tetra-sealed) | `qwen3-8b-sealed-B.bin` | `7bdb9a55…` |
 | Qwen3-14B | [Pier-Jean/Qwen3-14B-LLVQ-Tetra-sealed](https://huggingface.co/Pier-Jean/Qwen3-14B-LLVQ-Tetra-sealed) | `qwen3-14b-sealed.bin` | `61db37fe…` |
 
-The sealed container is this repository's own: not GGUF, not AWQ, not safetensors, and no other runtime reads it.
-The 4B also exists as safetensors that `transformers` reads, below.
+The container is this repository's own format; no other runtime reads it. The easiest way in is the `llvq` runtime,
+which speaks Ollama's and OpenAI's APIs ([`llvq-runtime/`](llvq-runtime/README.md)):
 
 ```bash
 git clone https://github.com/pjmalandrino/llvq && cd llvq
-hf download Pier-Jean/Qwen3-4B-LLVQ-Tetra-sealed qwen3-4b-sealed.bin --local-dir .
-shasum -a 256 qwen3-4b-sealed.bin
+cargo build --release -p llvq-runtime --features cuda    # Linux; --features metal on a Mac
+target/release/llvq pull qwen3:4b                        # checked against its pinned sha256
+target/release/llvq run qwen3:4b "Name three primary colours."
+```
 
-# Linux and CUDA: chat through the served kernel.
-LLVQ_CONFIG=configs/qwen3-4b-tetra-e4.json \
-  cargo run --release -p llvq-llm --features cuda --bin chat -- qwen3-4b-sealed.bin cuda
+On CUDA the runtime serves the v9 configs, greedy only. On a Mac it runs the Rust Metal engine; the faster MLX door
+for the 4B is `ops/llvq-mlx chat` ([`docs/plan-metal-debit.md`](docs/plan-metal-debit.md)).
 
-# Apple silicon: the dense reconstruction.
-cargo run --release -p llvq-llm --features metal --bin chat -- qwen3-4b-sealed.bin metal
+Perplexity of the 4B (12.5834 on an L40S, token fingerprint `3f1baca9033bf251`):
 
-# Perplexity of that file (12.5834 on an L40S, token fingerprint 3f1baca9033bf251).
+```bash
 LLVQ_DTYPE=f16 cargo run --release -p llvq-llm --features cuda --bin ppl -- 4096 12 cuda qwen3-4b-sealed.bin
-
-cargo test                                 # fast loop, minutes
 ```
 
 ### In `transformers`
 
-The 4B is also published as safetensors that stay compressed,
-[Pier-Jean/Qwen3-4B-LLVQ-Tetra](https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-Tetra), with the same artifact digest.
-Its reader is the package [`llvq-tetra`](https://pypi.org/project/llvq-tetra/), built from [`llvq-tetra/`](llvq-tetra/).
+The 4B is also published as compressed safetensors,
+[Pier-Jean/Qwen3-4B-LLVQ-Tetra](https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-Tetra), read by the
+[`llvq-tetra`](https://pypi.org/project/llvq-tetra/) package ([`llvq-tetra/`](llvq-tetra/README.md)).
 
 ```bash
 pip install llvq-tetra
@@ -103,74 +80,54 @@ tok = AutoTokenizer.from_pretrained(name)
 model = AutoModelForCausalLM.from_pretrained(name, dtype="float32")
 ```
 
-Installed from an index into an empty environment, it gives the same 256 greedy tokens as `bin/run` on the sealed
-file (*measured*, [`hf-testpypi`](docs/mesures/hf-testpypi-4b-2026-10-07.txt)). Loaded this way the weights are
-rebuilt dense. The fused Metal and CUDA paths keep them compressed in memory, and they compile at import, which needs
-`ninja`: [`docs/plan-transformers.md`](docs/plan-transformers.md).
+It gives the same 256 greedy tokens as our engine (*measured*,
+[hf-testpypi](docs/mesures/hf-testpypi-4b-2026-10-07.txt)).
 
-The earlier `Planes14` object of release `v0.0.1` stays at
-[Pier-Jean/Qwen3-4B-LLVQ-2bit](https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-2bit), `qwen3-4b-llvq.bin`, sha256
-`9db213ef9fa9d7d7000789a8a529ce9459ce9ba6002ef5a72fd5a1c05c1c84b0`. It reads 5.162 b/param and scores 55.59 on MMLU,
-and its numbers are in [`docs/fiche-4b.md`](docs/fiche-4b.md). The archive tests read it, in tens of minutes:
-`LLVQ_SEALED_ARTIFACT=$PWD/qwen3-4b-llvq.bin cargo test --release -- --include-ignored`.
+### Paper 1's file
 
-Feature flags: `metal` (macOS GPU), `cuda` (Linux, NVRTC at startup), `fast-linalg` (`faer`, required in practice for
-quantization: the dependency-free path is 40 times slower for a bit-identical result, *measured*,
-[`smoke.rs`](llvq-llm/src/bin/smoke.rs)). The runtime switches and every binary are listed in
-[`CLAUDE.md`](CLAUDE.md).
-
-Requantizing the 4B takes 4.0 h on an M3 Max (*measured*, [`docs/fiche-4b.md`](docs/fiche-4b.md)), and the recipe no
-longer reproduces the `Planes14` bytes of 2026-08. One block replayed on 2026-09-06 differs on the tail, the gains and
-87% of the indices, most likely from a calibration-volume change of 2026-08-26 (*measured*,
-`llvq-bench/examples/driftcheck.rs`). The three sealed files were all encoded after that date.
+The earlier `Planes14` 4B of release `v0.0.1` stays at
+[Pier-Jean/Qwen3-4B-LLVQ-2bit](https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-2bit). Its numbers are in
+[`docs/fiche-4b.md`](docs/fiche-4b.md), its runbook in [`LAUNCH_ME.md`](LAUNCH_ME.md), and the reviewer notes in
+[`ARTIFACT-EVALUATION.md`](ARTIFACT-EVALUATION.md).
 
 ## Repository map
 
-| crate | role | dependencies |
-|---|---|---|
-| `llvq-core` | Golay [24,12,8], Leech lattice, shells | none, `forbid(unsafe_code)` |
-| `llvq-search` | exact nearest-neighbour search, 48-bit bijective index, packing | none, `forbid(unsafe_code)` |
-| `llvq-quant` | GPTQ, dense algebra, quantizers | none by default; `faer` behind `fast-linalg` |
-| `llvq-artifact` | the `.llvq` container: writer, reader, decoder | none, `forbid(unsafe_code)` |
-| `llvq-bench` | rate-distortion, encoder throughput, decode cost | none, `forbid(unsafe_code)` |
-| `llvq-metal` | macOS GPU micro-benches and the rank decoders | `metal` |
-| `llvq-cuda` | the fused kernel, layouts, benches, Linux only | `cudarc` |
-| `llvq-llm` | model loading, forward pass, calibration, perplexity, MMLU, served path | `candle` |
+| crate | role |
+|---|---|
+| `llvq-core` | Golay code, Leech lattice, shells |
+| `llvq-search` | nearest-point search, the v1 index, the Tetra word and encoder |
+| `llvq-quant` | GPTQ and the block loop; `faer` behind `fast-linalg` |
+| `llvq-artifact` | the `.llvq` container and its VRAM transcoding |
+| `llvq-bench` | rate-distortion and decode-cost benches |
+| `llvq-metal` | macOS GPU shaders and benches |
+| `llvq-cuda` | CUDA kernels, 4E, benches (Linux) |
+| `llvq-llm` | Qwen3 forward pass, served configs, perplexity, MMLU, GSM8K |
+| `llvq-runtime` | the `llvq` binary: pull, run, serve |
 
-Beside the crates, [`llvq-tetra/`](llvq-tetra/) is the Python package that reads a packed model in `transformers`,
-published on PyPI as `llvq-tetra`.
-
-`unsafe` appears only at hardware boundaries (mmap, kernel launch, device reads) in the last three crates.
+The first five have no external dependency and forbid `unsafe`. Feature flags: `metal`, `cuda` (NVRTC at startup),
+`fast-linalg` (needed in practice to quantize: the dependency-free path is 40 times slower, bit for bit the same).
+Every binary and switch is listed in [`CLAUDE.md`](CLAUDE.md). `cargo test` is the fast loop.
 
 ## Documents
 
-- [`docs/ETAT.md`](docs/ETAT.md): served configuration, headline numbers, open decisions.
-- [`docs/ROADMAP.md`](docs/ROADMAP.md): what comes next, with gates and costs.
-- [`docs/HISTORIQUE.md`](docs/HISTORIQUE.md): the chronological thread, one entry per period.
-- [`docs/METHODE.md`](docs/METHODE.md): the lab rules. [`docs/STYLE.md`](docs/STYLE.md): how these documents are written.
-- [`docs/fiche-4b.md`](docs/fiche-4b.md): every number on the published file, with its provenance.
-- [`docs/format-noyau.md`](docs/format-noyau.md): the VRAM layouts and the measurement traps.
-- [`docs/hub/`](docs/hub/): the cards of the files on the Hugging Face Hub. The three `-sealed` cards and the
-  safetensors one are byte for byte what the Hub serves and do not move: paper 2 publishes the digests of the
-  three sealed files. `qwen3-4b-served.md` is the moving card, rewritten whenever a measurement replaces one of
-  its figures.
-- [`paper2/`](paper2/README.md): the second paper. [`ARTIFACT-EVALUATION.md`](ARTIFACT-EVALUATION.md): reviewer instructions.
+- [`docs/how-it-works.md`](docs/how-it-works.md): the maths, the lattice, the format and the kernel.
+- [`docs/ETAT.md`](docs/ETAT.md): served configuration, numbers, open decisions.
+- [`docs/ROADMAP.md`](docs/ROADMAP.md): what comes next.
+- [`docs/METHODE.md`](docs/METHODE.md): the lab rules. [`docs/README.md`](docs/README.md): every other document.
+- [`paper2/`](paper2/README.md): *Tetra: Serving Leech-Lattice Quantized LLMs at 2.7 Bits per Parameter*, version 2
+  attached to release [`v0.0.2`](https://github.com/pjmalandrino/llvq/releases/tag/v0.0.2).
 
 ## Method
 
-Every paid experiment is preregistered in [`proofs/`](proofs/) with its kill criterion and a signed prediction,
-before the first measurement, and most preregistrations are stamped with OpenTimestamps. A preregistration is never
-edited; deviations go in a companion `-ECARTS.md`, including the predictions that were wrong. Every number carries a
-provenance label, *measured*, *computed* or *estimated*, and a link to its journal. Raw outputs are committed. Speed is
-published as a median with its range, and speeds from two engines are never divided.
-
-As of 2026-11-06: 256 measurement journals and 109 raw-output directories in [`docs/mesures/`](docs/mesures/), 158
-preregistrations, 148 of them stamped, and 76 deviation files in [`proofs/`](proofs/), 57 per-question MMLU dumps, and
-262 priced jobs for $273.30 in [`docs/data/jobs.csv`](docs/data/jobs.csv).
+Every paid experiment is preregistered in [`proofs/`](proofs/) with its kill criterion and a signed prediction, before
+the first measurement, and most preregistrations are stamped with OpenTimestamps. Deviations go in a companion
+`-ECARTS.md`, wrong predictions included. Every number carries a label, *measured*, *computed* or *estimated*, and a
+link to its journal in [`docs/mesures/`](docs/mesures/). Raw outputs are committed. Speeds from two engines are never
+divided.
 
 ## Licence
 
 Code: MIT OR Apache-2.0. The Qwen3 forward pass in `llvq-llm/src/model.rs` is derived from
 [candle-transformers](https://github.com/huggingface/candle) (MIT OR Apache-2.0). The published models are Apache 2.0,
-inherited from Qwen3. The QTIP kernel used in one bench is GPL v3
-upstream and is not redistributed here ([`docs/qtip-provenance.md`](docs/qtip-provenance.md)).
+inherited from Qwen3. The QTIP kernel used in one bench is GPL v3 upstream and is not redistributed
+([`docs/qtip-provenance.md`](docs/qtip-provenance.md)).

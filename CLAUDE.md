@@ -7,28 +7,25 @@ history in `docs/HISTORIQUE.md`.
 
 Cut the inference cost of LLMs for sovereignty: fit bigger models on local hardware. The lever is the number of bits
 per weight. We implement the LLVQ paper in Rust, vector quantization on the Leech lattice Λ₂₄
-([arXiv:2603.11021](https://arxiv.org/abs/2603.11021)). The engineering contribution is the multi-shell fused kernel:
-dequantization and matvec in a single CUDA kernel.
+([arXiv:2603.11021](https://arxiv.org/abs/2603.11021)). The engineering contribution is the fused kernel: decode and
+matvec in one CUDA kernel, then the whole token in one launch (4E).
 
-Three Qwen3 files are sealed and served at about 2.7 b/param, 4B, 8B and 14B, and are public on the Hugging Face Hub.
-Paper 2 is written on them (`paper2/`), and its version 2 is attached to release `v0.0.2`. The `Tetra` format reads
-2.150 kernel b/weight against 4.804 for `Planes14`, which is what put it under the product triplet's b_max of 3.00.
-**No model above 14B is served, and the 32B has never been encoded.** The `rot_apply` wall of `docs/format-noyau.md`
-§8 is lifted on the card, bit-exact up to width 25,600 (`lot1-4b-2026-11-04`); nothing past 14B has run end to end.
+Three Qwen3 files, 4B, 8B and 14B, are sealed at about 2.7 b/param and public on the Hugging Face Hub. Paper 2 is
+written on them (`paper2/`), version 2 attached to release `v0.0.2`. Since 2026-11-07 all three are served on CUDA by
+4E v9 at 221.5, 142.5 and 86.3 tok/s on an L40S, and the 4B on the Mac by the MLX door. **No model above 14B is
+served, and the 32B has never been encoded.**
 
 ## Where to resume
 
-Read in this order; each document stands on its own at its level.
-
 1. `docs/ETAT.md`: served configuration, headline numbers, open decisions.
-2. `docs/ROADMAP.md`: what comes next, with gates and costs. `docs/ROADMAP-QUALITY.md` is the quality axis.
-3. `docs/HISTORIQUE.md`: the chronological thread, one entry per period.
-4. `docs/METHODE.md`: the lab rules. `docs/STYLE.md`: the writing rules for every living document.
+2. `docs/ROADMAP.md`: what comes next, with gates and costs.
+3. `docs/how-it-works.md`: the maths, the lattice, the Tetra format and the kernel, in one document.
+4. `docs/METHODE.md`: the lab rules. `docs/STYLE.md`: the writing rules. `docs/HISTORIQUE.md`: the dated thread.
 
-The source paper is transcribed in full in `docs/llvq-paper-notes.md`; do not reopen the PDF, and never run `pdftotext`
-on it (corrupted extraction). Journals in `docs/mesures/`, preregs in `proofs/`, job registry in `docs/data/jobs.csv`,
-served configs in `configs/`. `docs/archive/` is not edited. `docs/fiche-4b.md` is authoritative on the published
-`Planes14` file, `paper2/` on what paper 2 claims, `docs/format-noyau.md` on the kernel and its measurement traps.
+The source paper is transcribed in `docs/llvq-paper-notes.md`; do not reopen the PDF, and never run `pdftotext` on it
+(corrupted extraction). Journals in `docs/mesures/`, preregs in `proofs/`, job registry in `docs/data/jobs.csv`,
+served configs in `configs/`. `docs/archive/` is not edited. `docs/fiche-4b.md` is authoritative on the paper 1
+`Planes14` file, `paper2/` on what paper 2 claims, `docs/format-noyau.md` on the layouts and the measurement traps.
 
 ## Architecture
 
@@ -37,33 +34,28 @@ Nine crates, members of `Cargo.toml`.
 | crate | role | external dependencies | `unsafe` |
 |---|---|---|---|
 | `llvq-core` | Golay [24,12,8], Λ₂₄, shells | none | forbid |
-| `llvq-search` | exact NN search, classes m ≤ 13, indexing, packing, `rankdec` | none | forbid |
+| `llvq-search` | exact NN search, v1 index, Tetra word and encoder, packing | none | forbid |
 | `llvq-quant` | GPTQ, dense algebra, block loop | `faer` 0.24, optional, feature `fast-linalg` | forbid |
-| `llvq-artifact` | `.llvq` format: writer, reader, decoder | none | forbid |
+| `llvq-artifact` | `.llvq` format: writer, reader, decoder, VRAM transcoding | none | forbid |
 | `llvq-bench` | rate-distortion, encoder throughput, decode cost | none | forbid |
-| `llvq-metal` | macOS GPU micro-benchmarks, MSL shaders, `rankbench` | `metal` | allowed |
-| `llvq-cuda` | NVIDIA fused kernel compiled by NVRTC, benchmarks | `cudarc`, `cfg(target_os = "linux")` | allowed |
-| `llvq-llm` | forward pass, corpora, perplexity, MMLU, fused path in the model | `candle`, `tokenizers`, `hf-hub`, `parquet` | allowed |
-| `llvq-runtime` | the `llvq` binary: model library, store, Ollama and OpenAI routes, OpenAPI document (`docs/plan-runtime.md`) | `axum`, `tokio`, `clap`, `utoipa`, `sha2`, `ureq` | forbid |
+| `llvq-metal` | macOS GPU micro-benchmarks, MSL shaders | `metal` | allowed |
+| `llvq-cuda` | NVIDIA kernels compiled by NVRTC, 4E, benchmarks | `cudarc`, `cfg(target_os = "linux")` | allowed |
+| `llvq-llm` | forward pass, served configs, corpora, perplexity, MMLU, GSM8K | `candle`, `tokenizers`, `hf-hub`, `parquet` | allowed |
+| `llvq-runtime` | the `llvq` binary: model library, store, Ollama and OpenAI routes, OpenAPI | `axum`, `tokio`, `clap`, `utoipa`, `sha2`, `ureq` | forbid |
 
-Beside the crates, `llvq-tetra/` is a Python package: it reads a packed model in `transformers`, and it is the
-distribution `llvq-tetra`. It stays in this repository (operator, 2026-10-07): its wheel ships a copy of the served
-kernels that `bin/tetratables` makes, and `hfpack` writes what it reads. `docs/plan-transformers.md` carries its stages.
-`ops/llvqtune` is the other Python package, which trains the free parameters an artifact already holds.
-`ops/mlx_tetra/` is the MLX door on the Mac: the sealed 4B on MLX through our Tetra Metal kernels, not bit-exact, under
-`configs/mlx/qwen3-4b-tetra-e4-mlx.json`, the 4B's served path on the Mac since 2026-11-07 (`docs/mesures/mlx-pooled-2026-11-07.txt`).
-`ops/metal-package/` is a prototype, not served: a one-binary Mac bundle that chats with and benches the sealed 4B.
+Beside the crates: `llvq-tetra/` is the Python package that reads a packed model in `transformers` (on PyPI; its wheel
+ships a copy of the served kernels that `bin/tetratables` makes). `ops/llvqtune` trains the row scales.
+`ops/mlx_tetra/` is the MLX door on the Mac, under `configs/mlx/`. `ops/metal-package/` is a prototype, not served.
 
-`unsafe` is allowed only at hardware boundaries: mmap, kernel launch, reading a device buffer. Caveat:
-`#![forbid(unsafe_code)]` in a `lib.rs` does not cover integration tests, which are separate crates; closing that hole
-needs `[workspace.lints]`, and that operator decision is pending. Without `--features fast-linalg` the factorization is
-about 40 times slower for a bit-identical result. The in-house algebra path (`llvq-quant/src/linalg.rs`) stays the
-verification reference: `both_factorizations_agree` requires the same factor as `faer`. Do not delete it.
+`unsafe` is allowed only at hardware boundaries: mmap, kernel launch, reading a device buffer. `#![forbid(unsafe_code)]`
+in a `lib.rs` does not cover integration tests; closing that needs `[workspace.lints]`, an operator decision. Without
+`--features fast-linalg` the factorization is about 40 times slower for a bit-identical result. The in-house algebra
+(`llvq-quant/src/linalg.rs`) stays the reference: `both_factorizations_agree` requires the same factor as `faer`. Do
+not delete it.
 
-The encoder (nearest neighbour) runs offline once per model; the decoder (index to vector) runs at every GEMM, in
-shifts and masks. Never optimize one while thinking about the other. The derivations are locked by
-`classes_reproduce_theta_series` and `even_repair_matches_dp_reference`. `bin/fusedrun` is the kernel in the model,
-`bin/run` the dense demo.
+The encoder runs offline once per model; the decoder runs at every matvec, in shifts and masks. Never optimize one
+while thinking about the other. The derivations are locked by `classes_reproduce_theta_series` and
+`even_repair_matches_dp_reference`. `bin/fusedrun` is the kernel in the model, `bin/run` the dense demo.
 
 ## Commands
 
@@ -71,6 +63,8 @@ Two test loops, two orders of magnitude. `cargo test` in debug skips the heavy t
 (`cfg_attr(debug_assertions, ignore)`) and runs in minutes. `cargo test --release -- --include-ignored` takes tens of
 minutes. The sealed-archive tests carry an unconditional `#[ignore]`, need `~/llvq-q4b.llvq`, and fail naming that file
 if it is missing.
+CI (`.github/workflows/ci.yml`) runs four jobs in parallel in about 8 minutes: clippy with the dependency-free check,
+the tests under the `ci` profile, the core crates in debug, and `llvq-quant` with `faer`.
 
 ```bash
 cargo test                                            # fast loop
@@ -120,7 +114,7 @@ be in `UPLOAD_ALLOW` of `ops/run.py`, or the Space dies after 12 minutes. `rankb
 
 | variable | values | effect |
 |---|---|---|
-| `LLVQ_CONFIG` | path to a served config (`configs/*.json`) | **the served object, as a file.** Puts `fusedrun` on a one-arm path with no dense reference and `mmlu` on the **kernel** instead of a dense reconstruction. No built-in served default: unset, both binaries are the benches they have always been. A variable that contradicts the file is refused, not outvoted. Three optional fields name what runs. `attention`: absent means `expanded`, the form every published number ran; `grouped` reads the cached heads with no `repeat_kv` copy; `kernel` sends decode rows to the split-KV attention kernel. Both are served under the +-0.12 % tolerance of `docs/ETAT.md` §4, not under identity; `shared` is refused outright. `decode`: absent is eager, `persistent` is 4E, one launch a token, accepted only beside `kernel` on the three sealed shapes. `rows`: 4E's row loop, absent or `v3`, `v4`, `v6` or `v9`; `v5`, `v7` and `v8` refused by cause. `v9` also lays the int4 words tiled on the card, once, read by 4E and by the eager path's `tv_q4_ht` / `tv_q4_hht`; every other config keeps the file's order. On Metal `served.rs` refuses `grouped`, `kernel` and `persistent`, although `grouped` read bit for bit there (`metal-nuit-2026-11-06`); the two `*-metal-*-NOT-SERVED.json` files load only in `bin/metalrun`. `grouped` is carried by the 4B, 8B and 14B grouped configs and the Metal grouped NOT-SERVED one. **All three sizes are served by their v9 configs since 2026-11-07**, `configs/qwen3-{4b,8b,14b}-tetra-e4-4e-v9.json`: 221.5, 142.5 and 86.3 tok/s at the served door (*measured*, `served-v9-2026-11-07`, `served-v9-8b-2026-11-07`, `served-v9-14b-2026-11-07`), the int4 words tiled and held once; `decode: persistent` is accepted on the three sealed shapes; the v4 and grouped configs are kept and load as before |
+| `LLVQ_CONFIG` | path to a served config (`configs/*.json`) | **the served object, as a file.** Puts `fusedrun` on a one-arm path and `mmlu`/`gsm8k` on the kernel instead of the dense reconstruction. Unset, the binaries are benches. A variable that contradicts the file is refused. Optional fields: `attention` (absent = `expanded`, the form of every published score; `grouped`; `kernel`, the split-KV kernel; both served under the ±0.12 % tolerance of `docs/ETAT.md` §4), `decode` (`persistent` = 4E, only beside `kernel`, on the three sealed shapes), `rows` (`v3`, `v4`, `v6`, `v9`; `v5`, `v7`, `v8` refused by cause; `v9` tiles the int4 words once at load). On Metal `served.rs` refuses `grouped`, `kernel` and `persistent`; the `*-metal-*-NOT-SERVED.json` files load only in `bin/metalrun`. Served: `configs/qwen3-{4b,8b,14b}-tetra-e4-4e-v9.json` |
 | `LLVQ_FUSED_LAYOUT` | `planes14` (default), `planes12x`, `slot32`, `golay70`, `tetra48` | VRAM layout of the fused kernel; any other value refused |
 | `LLVQ_EMBED` | `f16` (default), `q8`, `q4` | embedding quantized at load, or read as the file stores it; `q4` in every `*-e4*` config, the served objects of all three sizes, whose files carry it int4 g64 |
 | `LLVQ_KV` | `f16` (default), `q8` | int8 KV cache, shipped, not the default (short context only) |
@@ -137,7 +131,7 @@ be in `UPLOAD_ALLOW` of `ops/run.py`, or the Space dies after 12 minutes. `rankb
 | `LLVQ_MODEL` | HF repo or local directory | checkpoint; required by `RESTORE_*`, never a default in `mmlu` |
 | `LLVQ_MMLU_ALLOC` | `flat` (default), `proportional`, `proportional=<total>` | `mmlu`: how the budget spreads over the 57 subjects. `mmlupair` refuses two dumps of different plans, so re-barring a published arm costs a full run |
 | `LLVQ_GSM8K_DUMP`, `LLVQ_GSM8K_MAX_NEW`, `LLVQ_GSM8K_THINK` | path; count, default 1024; `0`, `1` | `gsm8k`: one JSON line per problem with the raw completion; the cap on generated tokens; Qwen3's reasoning block, off by default. `gsm8kpair` re-grades every row before pairing, vLLM dumps included |
-| `LLVQ_CALIB_SEED`, `LLVQ_DAMPING`, `LLVQ_H_SHRINK`, `LLVQ_GAIN_SCALE`, `LLVQ_SEQ_BLOCK`, `LLVQ_THREADS` | see `docs/METHODE.md` | `smoke` knobs. Their default is the published path and is bit-identical; any other value of `LLVQ_SEQ_BLOCK` is refused by name. `LLVQ_THREADS` ≈ ncpu−4 on a shared machine |
+| `LLVQ_CALIB_SEED`, `LLVQ_DAMPING`, `LLVQ_H_SHRINK`, `LLVQ_GAIN_SCALE`, `LLVQ_SEQ_BLOCK`, `LLVQ_THREADS` | see `llvq-llm/src/bin/smoke.rs` | `smoke` knobs. Their default is the published path and is bit-identical; any other value of `LLVQ_SEQ_BLOCK` is refused by name. `LLVQ_THREADS` ≈ ncpu−4 on a shared machine |
 | `LLVQ_SEALED_ARTIFACT` | path | `llvq-artifact` archive tests: moves the search for the sealed file |
 | `LLVQ_HOME` | directory, default `~/.llvq` | `llvq`: the store, `blobs/` and `manifests/` |
 | `LLVQ_HOST` | `host:port`, default `127.0.0.1:11435` | `llvq`: where `serve` binds and where the client commands connect |
@@ -145,25 +139,12 @@ be in `UPLOAD_ALLOW` of `ops/run.py`, or the Space dies after 12 minutes. `rankb
 | `LLVQ_MAX_LOADED` | count, default `1` | `llvq serve`: models loaded at once; the least recently used idle one is unloaded first |
 | `LLVQ_QTIP_DIR` | directory | upstream QTIP kernel, GPL v3, not redistributed (`docs/qtip-provenance.md`) |
 
-The 17 entries of `MEASUREMENT_MODES` in `llvq-llm/src/served.rs` are measurement modes, never a served config:
-`LLVQ_KV_PREALLOC`, `LLVQ_GRAPH_AB`, `LLVQ_GRAPH_DIAG`, `LLVQ_KV_AB`, `LLVQ_FUSE_AB`, `LLVQ_TIME_PHASES`,
-`LLVQ_TIME_EVENTS`, `LLVQ_SEG_ARMS`, `LLVQ_BENCH_ARMS`, `LLVQ_TRIM_AB`, `LLVQ_GQA_AB`, `LLVQ_GQA_PPL`,
-`LLVQ_INT4_WIDE_CHECK`, `LLVQ_GESTURE_AB`, `LLVQ_BOUNDARY_AB`, `LLVQ_PERS_SEGMENT`, `LLVQ_PERS_4E`. `fusedrun` refuses
-all but `LLVQ_TIME_EVENTS` and `LLVQ_BENCH_ARMS` beside any `LLVQ_CONFIG`, and `served.rs` refuses all 17 beside a
-config that names the persistent decode. `LLVQ_KERNEL_DIR` and `LLVQ_TILE_BLOCKS` are refused beside any config.
-`LLVQ_PREFILL_TOKENS` and `LLVQ_CONTEXTS` (prompt lengths, comma-separated: time to the first token and decode speed
-after it) are not refused: they time the served object with a longer prompt.
-The MLX door (`ops/mlx_tetra/serve.py`) reads no `LLVQ_*` variable and refuses any one set, by name; its config is
-`configs/mlx/*.json`, a schema of its own that the Rust tests do not read.
-`planesbench` reads five more: `LLVQ_TETRA_OCC=1` and `LLVQ_PERS_ARMS=<arms>` (the persistent Tetra arms, steps L1
-and L2), `LLVQ_TROWS=1` (4E's Tetra row loops alone, `pers_trows.cu`), all three requiring `LLVQ_SEG_TETRA=1` and
-tetra48; `LLVQ_PERS_MICRO=1` (barrier and launch microbenchmarks) and `LLVQ_DUMP_CUBIN=<dir>` (the driver's cubins);
-`llvq-cuda/src/pers.rs` holds their registry.
-`LLVQ_GQA_AB` takes the same lengths and times the published attention against the two forms that read the cached
-heads without `repeat_kv` (`kvq::AttnHeads`, `KvStore::Grow`). `LLVQ_GQA_PPL=<ctx>,<windows>` scores the grouped form
-against the published one on WikiText-2, by the prefill path and by a teacher-forced decode path, paired window by
-window. A form is served by the `attention` field of a config, never by a variable. The configs that predate the
-field, and so every published number, stay on the expanded form.
+`MEASUREMENT_MODES` in `llvq-llm/src/served.rs` lists 17 measurement variables (`LLVQ_GQA_AB`, `LLVQ_PERS_4E`,
+...), never a served config. `fusedrun` refuses all but `LLVQ_TIME_EVENTS` and `LLVQ_BENCH_ARMS` beside a config, and
+`served.rs` refuses all 17 beside a persistent decode. `LLVQ_KERNEL_DIR` and `LLVQ_TILE_BLOCKS` are refused beside
+any config. `LLVQ_PREFILL_TOKENS` and `LLVQ_CONTEXTS` time the served object with a longer prompt. `planesbench`'s own
+variables are registered in `llvq-cuda/src/pers.rs`. The MLX door reads no `LLVQ_*` variable and refuses any one set;
+its config schema (`configs/mlx/`) is its own.
 
 ## Hard rules
 

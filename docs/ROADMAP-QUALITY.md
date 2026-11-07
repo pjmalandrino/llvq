@@ -1,5 +1,8 @@
 # Quality roadmap
 
+The quality table of September 2026. Its base objects predate the sealed files, and many journals cite its rows,
+so it stays as written. Current scores are in [ETAT](ETAT.md), current leads in [ROADMAP](ROADMAP.md).
+
 The operator sanctioned this table on 2026-09-06. The adversarial pass of the same evening corrected
 thirteen rows; what it changed is in its own section below. It replaces the quality axis of
 [ROADMAP](ROADMAP.md) §2.3, which priced an arm at $7 on a `Planes14` base that is no longer the object.

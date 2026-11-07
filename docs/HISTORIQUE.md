@@ -1184,3 +1184,19 @@ gate that passed: sha256 `8542b7f9…`, every key the door reads unchanged. The 
 of `serve.py` before the model loads, including the reference file of a reading, and added four refusals (26 of 26
 mutants killed, *measured*,
 [mlx-door](mesures/mlx-door-2026-11-07.txt)).
+
+## 2026-11-06 and 07. The `llvq` runtime, and a faster CI
+
+`llvq-runtime` came to main (pjmalandrino/llvq#10). The `llvq` binary pulls the three sealed files against pinned
+digests and serves them with Ollama's and OpenAI's routes, an OpenAPI document and a chat page. Since
+pjmalandrino/llvq#15 it loads the v9 configs on CUDA, greedy only; on Metal it runs the expanded config. CI runs four
+jobs in parallel in about 8 minutes, tests under a `ci` profile without LTO (pjmalandrino/llvq#12, #13).
+
+## 2026-11-07. The documentation made light
+
+The four HTML courses (`cours-comprendre-llvq`, `cours-tetra`, `cours-layouts-runtime`, `architecture-c4`) were
+replaced by one Markdown document, `docs/how-it-works.md`. Removed with them: the two 27B plans of 2026-09-28, never
+adopted; `plan-debit-noyau.md`, whose open leads `plan-300.md` and `ROADMAP.md` now carry; `modele-erreur.md`
+(2026-09-15), `inference-cost-reduction-2026.md` (July 2026) and `runbook-rownorms-2026-09-22.md`. `ETAT.md`,
+`ROADMAP.md`, `METHODE.md`, `STYLE.md`, `README.md` and `CLAUDE.md` were rewritten shorter on the state of the day.
+`AGENTS.md`, a stale copy of `CLAUDE.md`, now points to it.

@@ -15,6 +15,21 @@ The `note` field inside an older file is frozen with it and may be stale: it
 can call a file served that is served no more, or quote a speed a later run
 replaced. Where a note and this table disagree, the table wins.
 
+## At a glance
+
+| state | files |
+|---|---|
+| served on CUDA since 2026-11-07 | `qwen3-4b-tetra-e4-4e-v9.json`, `qwen3-8b-tetra-e4-4e-v9.json`, `qwen3-14b-tetra-e4-4e-v9.json` |
+| served on the Mac since 2026-11-07 | `mlx/qwen3-4b-tetra-e4-mlx.json` (MLX door) |
+| the paper 2 objects, expanded form, every published score | `qwen3-{4b,8b,14b}-tetra-e4.json` |
+| served before, kept and still loading | `qwen3-4b-tetra-e4-grouped.json`, `-kernel-from1280.json`, `-4e.json`, `-4e-v4.json`, `qwen3-{8b,14b}-tetra-e4-grouped.json` |
+| measured, never served | `qwen3-4b-tetra-e4-4e-v6.json`, the two `*-metal-*-NOT-SERVED.json` |
+| earlier objects | `qwen3-{4b,8b,14b}-tetra-q5.json` |
+
+The runtime `llvq` compiles in the v9 configs for CUDA and the `*-e4.json` configs for Metal (`llvq-runtime/library.json`).
+
+## Every file
+
 | file | object | b/param | MMLU |
 |---|---|---|---|
 | `qwen3-4b-tetra-q5.json` | Qwen3-4B, `Tetra` + 36 `v_proj` int4 g128, `qwen3-4b-tetra-q5.bin` (1,794,564,765 B, sha256 `ae31087a4b72494d52394f2cf2070da37a845c0a7d4aded65d5bdb0bd18b2263`, *measured*, [references-comptabilite-2026-09-18](../docs/mesures/references-comptabilite-2026-09-18.txt)). The only copy is in the bucket at `tetra-q5-2026-09-09/` | **2.7475** as served (*measured*, whole model, q8 embedding, tail f16, same journal). The f32 tail accounting every published figure used gives 2.8126, and the card has held the tail in f16 since 2026-08-09, so 2.7475 is the width that runs | **56.37 micro, 58.42 macro** on the full 14,042-question split, dense reconstruction (*measured*, [f1e-census-2026-09-11](../docs/mesures/f1e-census-2026-09-11.txt)). On the 2,280-question plan the same file reads 55.52 dense and **55.66 through the served kernel**, 3 discordant questions, all three f16 tie-breaks. The 56.95 the record also carries is a different file: the pure `Tetra` `qwen3-4b-tetra.bin` with `v_proj` restored to int4 at load by `LLVQ_RESTORE_Q4` (`q5-tetra-2026-09-06.txt` T2), so it is not this object's score |
@@ -224,6 +239,5 @@ C=/usr/local/share/llvq/configs/qwen3-4b-tetra-q5.json
 Steps 2–3 are the smoke test; steps 4–6 need a stamped prereg first (hard
 rule 2), and the census needs the operator's go with the cost announced.
 
-Steps 2–3 ran green on 2026-09-11 (jobs `6aa40f3a`, `6aa4108b`, `6aa41263`,
-0.17 $). Step 5 is `ops/jobs/f1e-census.sh`, one command, prereg stamped,
-not launched, by the operator's choice.
+The runbook ran on 2026-09-11 on the q5 object (`ops/jobs/f1e-census.sh`,
+[f1e-census-2026-09-11](../docs/mesures/f1e-census-2026-09-11.txt)).

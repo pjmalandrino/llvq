@@ -8,13 +8,14 @@ quality inside the T8 band, gives 289 to 301. 300 then holds only on the proport
 lead at its full arithmetic, where 4E's versions delivered 41 %. The low bound stays 229 tok/s at the bit
 (*estimated*). At 8,192 positions only an int4 KV cache reaches 300, on its high bound, and it moves quality, GB in
 memory and the model class. Step 3 measured v9 at 238.6 tok/s in the measurement form, ×1.118 over v6 and ×1.035 over
-v8, bit for bit, about 220 at the door (*measured*, [step3-4e](mesures/step3-4e-2026-11-07.txt); door *estimated*).
+v8, bit for bit, about 220 at the door (*measured*, [step3-4e](mesures/step3-4e-2026-11-07.txt); door *estimated*). Served the same evening, v9 read
+221.5 tok/s at the door (*measured*, [served-v9](mesures/served-v9-2026-11-07.txt)).
 After step 3 the route's ceiling at the bit is about 235 to 258 tok/s at the door (*estimated*, §6b): 300 needs
 leads that leave the bit or change the bytes.
 
 State as of 2026-11-07. This is a study at $0: no run, no job, no measurement. It starts from 4E v6 served, which the
-session `serve-4e-v6` is putting in place. Its base is [`plan-debit-noyau.md`](plan-debit-noyau.md) (K1 to K10, M1 to
-M5), which it does not repeat. Every lead needs the operator's go and its cost announced (`CLAUDE.md` rule 1).
+session `serve-4e-v6` is putting in place. Its base was `plan-debit-noyau.md` (K1 to K10, M1 to M5), removed on
+2026-11-07 and kept in git history. Every lead needs the operator's go and its cost announced (`CLAUDE.md` rule 1).
 
 ## 1. Starting point and target
 
@@ -98,7 +99,7 @@ the served tokens stay bit for bit, checked at the door. Prices come from `docs/
 | K8 | KV store int8 / int4 | 0 | 0.84 / 0.34, 1.26 / 0.52 | 2-4 weeks, $3-5 | its own prereg | quality, GB, class, noise |
 | K9 | prompt-lookup speculation | workload | workload | 2-3 weeks, $1.00 | rulings R1, R8 | throughput becomes workload-dependent |
 
-All gains and future costs *estimated*. The leads already written in plan-debit-noyau keep their text there (K2,
+All gains and future costs *estimated*. The leads first written in plan-debit-noyau kept their text there (K2,
 K5, K7, K8, K9, K10).
 What changes here:
 
@@ -132,7 +133,7 @@ wait (shaker-4e); a gate/up-only form would be a reopening, the operator's call.
 ## 5. Elite kernels, read against our measurements
 
 Three techniques give the route a lead (K3a, K3b, K11); the others bound it. The table holds only what
-[`plan-debit-noyau.md`](plan-debit-noyau.md) §3 does not already cover.
+`plan-debit-noyau.md` §3 did not already cover.
 
 | technique | what our measurement says | what it gives the route |
 |---|---|---|
