@@ -278,6 +278,9 @@ mod tests {
                 for part in ids.chunks(step) {
                     s.ids.extend_from_slice(part);
                     assert_eq!(s.full(&tok).unwrap(), tok.decode(&s.ids, false).unwrap(), "ids {:?}", s.ids);
+                    // And it stays incremental: the fallback to the whole list
+                    // would give the same text at a cost that grows with it.
+                    assert!(s.ids.len() - s.from <= 16, "a window of {} ids at {:?}", s.ids.len() - s.from, s.ids);
                 }
             }
         }
