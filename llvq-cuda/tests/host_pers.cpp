@@ -57,6 +57,7 @@ static inline unsigned short served_capture_f2h(float v) {
 #define f2h(v) served_capture_f2h(v)
 #include "../../llvq-llm/kernels/tv_tetra48_h.cu"
 #include "../../llvq-llm/kernels/tv_q4_h.cu"
+#include "../../llvq-llm/kernels/tv_q4_tile.cu"
 #include "../../llvq-llm/kernels/emb_q4.cu"
 #undef f2h
 #else
@@ -763,6 +764,56 @@ int main() {
 #endif
         wr(y);
         wr(dbg);
+    } else if (tag == 'q') {
+        // EAGER INT4 ENTRY POINTS on words the host hands in: d_out, d_in,
+        // entry (0 tv_q4_hh, 1 tv_q4_h, 2 tv_q4_hht, 3 tv_q4_ht), seed, then
+        // d_out x d_in / 8 words. Scales, biases and x drawn from the seed as
+        // 'Q' draws them; x f16, widened exactly for the f32 entries. Served
+        // side only: y and each row's f32 before the narrowing.
+        const u32 d_out = rd1<u32>(), d_in = rd1<u32>(), entry = rd1<u32>();
+        const uint64_t seed = rd1<uint64_t>();
+        const std::vector<u32> wq = rd<u32>((size_t)d_out * d_in / 8);
+        Rng r(seed);
+        const u32 gpr = d_in / 128u;
+        std::vector<unsigned short> sc((size_t)d_out * gpr), bi((size_t)d_out * gpr);
+        for (auto& v : sc) v = r.h16(6, 10);
+        for (auto& v : bi) v = r.h16(8, 12);
+        const auto xh = act_h(d_in, seed + 3);
+        std::vector<float> xf(d_in);
+        for (u32 i = 0; i < d_in; ++i) xf[i] = h2f(xh[i]);
+        std::vector<unsigned short> y(d_out, 0xFFFFu);
+        std::vector<float> dbg(d_out, 0.0f);
+#if PERS_SIDE == 0
+        g_capture = dbg.data();
+        hostgrid::launch_seq(d_out / 8, 256, [&] {
+            switch (entry) {
+            case 0: tv_q4_hh(wq.data(), sc.data(), bi.data(), xh.data(), y.data(), d_in, gpr); break;
+            case 1: tv_q4_h(wq.data(), sc.data(), bi.data(), xf.data(), y.data(), d_in, gpr); break;
+            case 2: tv_q4_hht(wq.data(), sc.data(), bi.data(), xh.data(), y.data(), d_in, gpr); break;
+            default: tv_q4_ht(wq.data(), sc.data(), bi.data(), xf.data(), y.data(), d_in, gpr); break;
+            }
+        });
+        g_capture = nullptr;
+#else
+        (void)entry;
+#endif
+        wr(y);
+        wr(dbg);
+    } else if (tag == 'i') {
+        // TILE INDEX: n, then n widths in words; for each, pers_q4_tile_index
+        // of every word. Persistent side only (the served side writes zeros).
+        const u32 n = rd1<u32>();
+        const std::vector<u32> widths = rd<u32>(n);
+        std::vector<u32> o;
+        for (u32 nw : widths)
+            for (u32 wi = 0; wi < nw; ++wi) {
+#if PERS_SIDE == 1
+                o.push_back(pers_q4_tile_index(wi, nw));
+#else
+                o.push_back(0u);
+#endif
+            }
+        wr(o);
     } else if (tag == 'B') {
 #include "host_pers_bench.inc"
     } else if (tag == 'S') {

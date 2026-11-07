@@ -770,6 +770,50 @@ pub fn load_int4_wide_sources() -> Result<([String; 2], Option<String>), String>
     }
 }
 
+/// `tv_q4_tile.cu`: the int4 matvec on the tiled words 4E v9 reads
+/// (`llvq_cuda::pers::q4_tile_index`), for a runtime that holds those words
+/// alone ([`Int4Layout::Tiled`]). Appended to the unit only then, so the unit
+/// of every other config, and its printed sha256, do not move. Composition:
+/// `llvq_slot.cuh`, `matvec.cu`, `tv_q4_h.cu` (`q4_deq`), then this file.
+/// Embedded only: a tiled runtime comes from a served config, which refuses
+/// `LLVQ_KERNEL_DIR` by name.
+pub const Q4_TILE_CU_EMBED: &str = include_str!("../kernels/tv_q4_tile.cu");
+
+/// [`INT4_KERNEL_NAME`] on tiled words, `x` in f32.
+pub const INT4_TILE_KERNEL_NAME: &str = "tv_q4_ht";
+
+/// [`INT4_HALF_KERNEL_NAME`] on tiled words, `x` in f16.
+pub const INT4_TILE_HALF_KERNEL_NAME: &str = "tv_q4_hht";
+
+/// How a runtime lays an int4 record's words on the card. The file always
+/// stores the served order; the choice is made at load and moves no byte of
+/// the count (a permutation inside each row).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Int4Layout {
+    /// The file's order, read by `tv_q4_h` / `tv_q4_hh` and by 4E v3 to v8.
+    Served,
+    /// The tiled order of 4E v9, alone on the card, read by `tv_q4_ht` /
+    /// `tv_q4_hht` and by 4E v9. Chosen by a config whose rows are "v9".
+    Tiled,
+}
+
+impl Int4Layout {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Served => "served",
+            Self::Tiled => "tiled",
+        }
+    }
+}
+
+/// The tiled layout's condition on a record: `d_in % 32 == 0`, so a row is a
+/// whole number of 16-byte loads (nwords a multiple of 4). Every int4 record
+/// of the three sealed files meets it (2,560, 4,096, 5,120, 9,728, 12,288,
+/// 17,408).
+pub fn int4_tileable(d_in: usize) -> bool {
+    d_in.is_multiple_of(32)
+}
+
 /// A synthetic int4 g128 record and an f16 activation, drawn from `seed`.
 ///
 /// The same bytes on the Mac and on a card: the host test

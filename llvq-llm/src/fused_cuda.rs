@@ -210,6 +210,11 @@ pub struct FusedInt4Proj {
     /// F32 (`tv_q4_h` / `tv_q4_hh`, today's kernels) wherever the f32 staging
     /// fits the card; F16 (`tv_q4_hs`) only past it.
     staging: llvq_cuda::wide::Int4Staging,
+    /// The order of `wq` on the card: the file's, or 4E v9's tiled one
+    /// (`llvq_cuda::pers::q4_tile_words`), written at upload. Decides the
+    /// entry point every launch takes, so a tiled record cannot meet a
+    /// served-order reader.
+    pub layout: crate::fused::Int4Layout,
     pub bytes: u64,
 }
 
@@ -395,12 +400,16 @@ pub struct RotView {
 /// One int4 g128 projection.
 #[derive(Clone, Copy, Debug)]
 pub struct Int4View {
+    /// The words, in [`Int4View::layout`]'s order.
     pub wq: u64,
     pub scales: u64,
     pub biases: u64,
     pub gpr: u32,
     pub d_out: u32,
     pub d_in: u32,
+    /// The file's order, or 4E v9's tiled one: 4E v3 to v8 refuse a tiled
+    /// record, v9 reads it in place.
+    pub layout: crate::fused::Int4Layout,
 }
 
 /// The Tetra decoder tables.
@@ -451,6 +460,7 @@ impl CudaInt4 {
             gpr: self.proj.gpr,
             d_out: self.proj.d_out as u32,
             d_in: self.proj.d_in as u32,
+            layout: self.proj.layout,
         }
     }
 }
@@ -636,6 +646,10 @@ pub struct FusedRuntime {
     /// `tv_q4_hh`, the same matvec reading an f16 activation. Present exactly
     /// when `f_int4` is: both entry points live in `tv_q4_h.cu`.
     f_int4_half: Option<CudaFunction>,
+    /// `tv_q4_ht` and `tv_q4_hht` (`tv_q4_tile.cu`): present exactly when the
+    /// runtime holds its int4 records tiled ([`crate::fused::Int4Layout`]),
+    /// which is when that source is in the unit. The `f_int4` pattern.
+    f_int4_tile: Option<(CudaFunction, CudaFunction)>,
     /// The kernels for widths past the card's shared-memory ceiling, from a
     /// translation unit of their own. `None` for every model whose widths all
     /// fit, which is every served model: their unit, its printed sha256 and
@@ -677,6 +691,7 @@ impl FusedRuntime {
         device: &Device,
         emode: EmbedMode,
         fuse: FuseMode,
+        int4_layout: crate::fused::Int4Layout,
     ) -> candle_core::Result<Loaded> {
         let dev = device.as_cuda_device()?.clone();
         let stream = dev.cuda_stream();
@@ -743,6 +758,24 @@ impl FusedRuntime {
             if let Some(d) = overridden {
                 eprintln!("WARNING: tv_q4_h SOURCE OVERRIDDEN from {d}");
             }
+        }
+        // The tiled readers, last, and only for a runtime that holds tiled
+        // words: every other unit keeps its text and its printed sha256.
+        let tiled = int4_layout == crate::fused::Int4Layout::Tiled;
+        if tiled {
+            if int4.is_none() {
+                candle_core::bail!(
+                    "int4 layout tiled on a file with no int4 record: the layout names 4E v9's int4 \
+                     rows, and this file has none"
+                );
+            }
+            if let Some((_, Some(d))) = &int4 {
+                candle_core::bail!(
+                    "int4 layout tiled with tv_q4_h.cu overridden from {d}: the tiled reader is embedded \
+                     only, and a served config refuses LLVQ_KERNEL_DIR"
+                );
+            }
+            parts.push(crate::fused::Q4_TILE_CU_EMBED);
         }
         let src = llvq_cuda::gpu::KernelSource::new(&parts);
         // On the assembled text, which is the only place where "what NVRTC
@@ -829,6 +862,10 @@ impl FusedRuntime {
             spill_checked.push(crate::fused::INT4_KERNEL_NAME);
             spill_checked.push(crate::fused::INT4_HALF_KERNEL_NAME);
         }
+        if tiled {
+            spill_checked.push(crate::fused::INT4_TILE_KERNEL_NAME);
+            spill_checked.push(crate::fused::INT4_TILE_HALF_KERNEL_NAME);
+        }
         // Keyed on the same answer the lookup uses. It carries one accumulator
         // a row on top of the one-row kernel's 40 registers, so a spill here
         // is the number that says PREFILL_ROWS is too high — and a spill is a
@@ -879,6 +916,20 @@ impl FusedRuntime {
                 )
             }
             false => (None, None),
+        };
+        // The tiled pair stages what the served pair stages, so the same
+        // opt-in. Every tiled record is F32-staged (`upload_int4` refuses the
+        // rest), so `int4_entry.f32` covers all of them.
+        let f_int4_tile = match tiled {
+            true => {
+                let bytes = int4_entry.f32.unwrap_or(0) as u32;
+                let f = |name: &str| cuda.func_dynamic_shared(name, bytes).map_err(candle_core::Error::msg);
+                Some((
+                    f(crate::fused::INT4_TILE_KERNEL_NAME)?,
+                    f(crate::fused::INT4_TILE_HALF_KERNEL_NAME)?,
+                ))
+            }
+            false => None,
         };
         // Looked up only when both the layout and the caller allow it: the
         // `Some` is the authorisation, so `forward_rotated_seg` has nothing to
@@ -1120,14 +1171,36 @@ impl FusedRuntime {
         // record gets its staging here, F32 wherever it fits.
         let mut int4_projs = Vec::with_capacity(model.int4.len());
         for q in &model.int4 {
-            int4_projs.push(upload_int4(&cuda, q, shared_def, shared_optin)?);
+            int4_projs.push(upload_int4(&cuda, q, shared_def, shared_optin, int4_layout)?);
         }
         // On the first F32-staged record, which on every served model is the
         // first record.
         let first_f32 =
             int4_projs.iter().find(|p| p.staging == llvq_cuda::wide::Int4Staging::F32);
-        if let (Some(fa), Some(fb), Some(p)) = (&f_int4, &f_int4_half, first_f32) {
-            check_int4_half_parity(&cuda, fa, fb, p).map_err(candle_core::Error::msg)?;
+        match (&f_int4_tile, first_f32) {
+            // Tiled: the f16 entry point against the f32 one on the tiled
+            // words, as the served pair below; then the tiled reader against
+            // the served one on a served copy of the same record, one record
+            // of every width, so the tail of a width that has one is read too.
+            (Some((fa, fb)), Some(p)) => {
+                check_int4_half_parity(&cuda, fa, fb, p, crate::fused::INT4_TILE_KERNEL_NAME, crate::fused::INT4_TILE_HALF_KERNEL_NAME)
+                    .map_err(candle_core::Error::msg)?;
+                let f_hh = f_int4_half.as_ref().expect("a tiled runtime carries tv_q4_h.cu");
+                let mut seen = Vec::new();
+                for (q, p) in model.int4.iter().zip(&int4_projs) {
+                    if !seen.contains(&q.d_in) {
+                        seen.push(q.d_in);
+                        check_int4_tile_parity(&cuda, f_hh, fb, q, p, shared_def, shared_optin)
+                            .map_err(candle_core::Error::msg)?;
+                    }
+                }
+            }
+            _ => {
+                if let (Some(fa), Some(fb), Some(p)) = (&f_int4, &f_int4_half, first_f32) {
+                    check_int4_half_parity(&cuda, fa, fb, p, crate::fused::INT4_KERNEL_NAME, crate::fused::INT4_HALF_KERNEL_NAME)
+                        .map_err(candle_core::Error::msg)?;
+                }
+            }
         }
         // A model with an F16-staged record: `tv_q4_hs` against `tv_q4_hh`,
         // bytes of every row, on a record where both fit. Never reached by a
@@ -1159,6 +1232,7 @@ impl FusedRuntime {
                 f_matvec_rows,
                 f_int4,
                 f_int4_half,
+                f_int4_tile,
                 wide,
                 g70_tabs,
                 rotations,
@@ -1320,7 +1394,7 @@ impl FusedRuntime {
                 .get(&(d_out, d_in, seed, x_off))
                 .ok_or_else(|| format!("no fixture line for {d_out}x{d_in} {seed:#x} {x_off}"))?;
             let (rec, x) = crate::fused::int4_synthetic(d_out, d_in, seed);
-            let p = upload_int4(&cuda, &rec, def, optin).map_err(|e| e.to_string())?;
+            let p = upload_int4(&cuda, &rec, def, optin, crate::fused::Int4Layout::Served).map_err(|e| e.to_string())?;
             let mut xb = vec![0x3c00u16; x_off];
             xb.extend(&x);
             let dx = cuda.up_u16(&xb)?;
@@ -2331,16 +2405,39 @@ impl candle_core::CustomOp1 for FusedInt4Op<'_> {
             .map_err(|e| candle_core::Error::msg(format!("alloc y: {e}")))?;
         // `as_cuda_slice` refuses a storage of the other dtype, so a `half`
         // flag that lied would fail here by name rather than read wrong bytes.
+        // A tiled record goes to the tiled pair and nowhere else: the
+        // served pair on tiled words would return finite, wrong numbers.
+        let tiled = match self.proj.layout {
+            crate::fused::Int4Layout::Served => None,
+            crate::fused::Int4Layout::Tiled => Some(self.rt.f_int4_tile.as_ref().ok_or_else(|| {
+                candle_core::Error::msg(format!(
+                    "{}: tiled words on a runtime that carries no tv_q4_ht / tv_q4_hht",
+                    self.proj.name
+                ))
+            })?),
+        };
         let launched = match self.path {
             Int4Path::Half => {
-                let f = self.rt.f_int4_half.as_ref().ok_or_else(missing)?;
+                let f = match tiled {
+                    Some((_, hh)) => hh,
+                    None => self.rt.f_int4_half.as_ref().ok_or_else(missing)?,
+                };
                 let x = storage.as_cuda_slice::<f16>()?;
                 launch_q4_h(&self.rt.cuda, f, self.proj, x, &mut y, THREADS)
             }
             Int4Path::F32 => {
-                let f = self.rt.f_int4.as_ref().ok_or_else(missing)?;
+                let f = match tiled {
+                    Some((h, _)) => h,
+                    None => self.rt.f_int4.as_ref().ok_or_else(missing)?,
+                };
                 let x = storage.as_cuda_slice::<f32>()?;
                 launch_q4_h(&self.rt.cuda, f, self.proj, x, &mut y, THREADS)
+            }
+            Int4Path::Wide if tiled.is_some() => {
+                return Err(candle_core::Error::msg(format!(
+                    "{}: an f16-staged launch on tiled words; upload_int4 refuses that pairing",
+                    self.proj.name
+                )));
             }
             Int4Path::Wide => {
                 let f = self.rt.wide.as_ref().and_then(|w| w.int4.as_ref()).ok_or_else(|| {
@@ -2698,6 +2795,7 @@ fn upload_int4(
     q: &crate::fused::FusedInt4,
     shared_def: usize,
     shared_optin: usize,
+    layout: crate::fused::Int4Layout,
 ) -> candle_core::Result<FusedInt4Proj> {
     // The four the kernel names, each because the arithmetic below it breaks
     // silently otherwise rather than faulting.
@@ -2771,6 +2869,32 @@ fn upload_int4(
             q.packed.len()
         );
     }
+    // Tiled: the same words, permuted inside each row on the host, so the
+    // card holds this record once, in the order 4E v9 and `tv_q4_hht` read.
+    // Only F32-staged records: `tv_q4_hs` has no tiled form.
+    let words = match layout {
+        crate::fused::Int4Layout::Served => words,
+        crate::fused::Int4Layout::Tiled => {
+            if !crate::fused::int4_tileable(q.d_in) {
+                candle_core::bail!(
+                    "{}: d_in {} is not a multiple of 32, so its rows are not whole 16-byte loads \
+                     and the tiled layout of 4E v9 cannot hold it",
+                    q.name,
+                    q.d_in
+                );
+            }
+            if staging != llvq_cuda::wide::Int4Staging::F32 {
+                candle_core::bail!(
+                    "{}: d_in {} is staged in f16 on this card (tv_q4_hs), which has no tiled form; \
+                     the tiled layout of 4E v9 is refused here",
+                    q.name,
+                    q.d_in
+                );
+            }
+            llvq_cuda::pers::q4_tile_words(&words, q.d_out, q.d_in / 8)
+                .map_err(|e| candle_core::Error::msg(format!("{}: {e}", q.name)))?
+        }
+    };
     Ok(FusedInt4Proj {
         name: q.name.clone(),
         d_out: q.d_out,
@@ -2781,6 +2905,7 @@ fn upload_int4(
         biases: cuda.up_u16(&q.biases).map_err(candle_core::Error::msg)?,
         shared: shared as u32,
         staging,
+        layout,
         bytes: q.bytes,
     })
 }
@@ -2900,6 +3025,8 @@ fn check_int4_half_parity(
     f_f32: &CudaFunction,
     f_f16: &CudaFunction,
     p: &FusedInt4Proj,
+    n_f32: &str,
+    n_f16: &str,
 ) -> Result<(), String> {
     let xh = parity_activation(p.d_in);
     let xf: Vec<f32> = xh.iter().map(|&b| f16::from_bits(b).to_f32()).collect();
@@ -2912,14 +3039,55 @@ fn check_int4_half_parity(
     let (a, b) = (cuda.down_u16(&ya)?, cuda.down_u16(&yb)?);
     if let Some(r) = (0..p.d_out).find(|&r| a[r] != b[r]) {
         return Err(format!(
-            "{}: tv_q4_hh disagrees with tv_q4_h at row {r} ({:#06x} against {:#06x}); \
+            "{}: {n_f16} disagrees with {n_f32} at row {r} ({:#06x} against {:#06x}); \
              the f16 entry point is not the same matvec",
             p.name, b[r], a[r]
         ));
     }
     println!(
-        "int4: tv_q4_hh equals tv_q4_h bit for bit on {} ({} rows, d_in {})",
+        "int4: {n_f16} equals {n_f32} bit for bit on {} ({} rows, d_in {})",
         p.name, p.d_out, p.d_in
+    );
+    Ok(())
+}
+
+/// `tv_q4_hht` on a tiled record against `tv_q4_hh` on the same record in
+/// the file's order, on the card, at load: the claim of `tv_q4_tile.cu`
+/// (only the addresses move) on a real record, every row. The served copy is
+/// uploaded for the check and freed when it returns, so the card holds the
+/// int4 bytes once from the first token on. Any differing row stops the load.
+fn check_int4_tile_parity(
+    cuda: &llvq_cuda::gpu::Cuda,
+    f_hh: &CudaFunction,
+    f_hht: &CudaFunction,
+    q: &crate::fused::FusedInt4,
+    tiled: &FusedInt4Proj,
+    shared_def: usize,
+    shared_optin: usize,
+) -> Result<(), String> {
+    if tiled.layout != crate::fused::Int4Layout::Tiled {
+        return Err(format!("{}: the tile check was handed a served-order record", tiled.name));
+    }
+    let served = upload_int4(cuda, q, shared_def, shared_optin, crate::fused::Int4Layout::Served)
+        .map_err(|e| e.to_string())?;
+    let xh = parity_activation(q.d_in);
+    let dxh = cuda.up_u16(&xh)?;
+    let mut ya = cuda.up_u16(&vec![0u16; q.d_out])?;
+    let mut yb = cuda.up_u16(&vec![0xffffu16; q.d_out])?;
+    launch_q4_h(cuda, f_hh, &served, &dxh, &mut ya, THREADS)?;
+    launch_q4_h(cuda, f_hht, tiled, &dxh, &mut yb, THREADS)?;
+    let (a, b) = (cuda.down_u16(&ya)?, cuda.down_u16(&yb)?);
+    if let Some(r) = (0..q.d_out).find(|&r| a[r] != b[r]) {
+        return Err(format!(
+            "{}: tv_q4_hht on the tiled words disagrees with tv_q4_hh on the file's order at row {r} \
+             ({:#06x} against {:#06x}); the tiled layout is not the same matvec",
+            q.name, b[r], a[r]
+        ));
+    }
+    println!(
+        "int4: tv_q4_hht on the tiled words equals tv_q4_hh on the file's order bit for bit on {} \
+         ({} rows, d_in {}); the file-order copy is freed",
+        q.name, q.d_out, q.d_in
     );
     Ok(())
 }
@@ -3645,7 +3813,7 @@ pub fn load_with(
     // one, or the comparison gains a second variable — which is what this
     // workstream spends its time forbidding. The served door takes the value
     // its config names, and answers a different question.
-    load_resolved(path, device, dtype, layout, emode, share, fuse, crate::kvq::KvMode::F16, None)
+    load_resolved(path, device, dtype, layout, emode, share, fuse, crate::kvq::KvMode::F16, crate::fused::Int4Layout::Served, None)
 }
 
 /// [`load_with`] with the four choices already decided.
@@ -3664,6 +3832,9 @@ pub fn load_resolved(
     share: crate::rotplan::RotShare,
     fuse: FuseMode,
     kv: crate::kvq::KvMode,
+    // The order of the int4 words on the card: the file's, or 4E v9's tiled
+    // one, alone, under a config whose rows are "v9" (`Served::int4_layout`).
+    int4_layout: crate::fused::Int4Layout,
     // `Some("LLVQ_CONFIG")` from the served door, `None` from `load_with`. The
     // three choice lines below print it in place of the variable names, so a
     // served log does not attribute its choices to variables nobody set —
@@ -3782,7 +3953,20 @@ pub fn load_resolved(
         ),
     };
 
-    let (rt, projs, seg_projs, int4_projs) = FusedRuntime::new(&model, device, emode, fuse)?;
+    let (rt, projs, seg_projs, int4_projs) = FusedRuntime::new(&model, device, emode, fuse, int4_layout)?;
+    // Beside the card bytes the layout line printed: the tiled order is a
+    // permutation inside each row, so the bytes, the file and the b/param do
+    // not move; what moves is that 4E v9 needs no second copy.
+    if !int4_projs.is_empty() {
+        let int4_bytes: u64 = int4_projs.iter().map(|p| 4 * p.wq.len() as u64).sum();
+        println!(
+            "int4 layout: {} ({}), {} records, words {:.3} GB on the card, held once",
+            int4_layout.name(),
+            from("the bench door"),
+            int4_projs.len(),
+            int4_bytes as f64 / 1e9
+        );
+    }
     if INT4_WIDE_CHECK.load(std::sync::atomic::Ordering::Relaxed) {
         if source.is_some() {
             candle_core::bail!("LLVQ_INT4_WIDE_CHECK is a measurement mode: not on the served door");

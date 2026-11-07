@@ -2174,7 +2174,7 @@ fn main() -> anyhow::Result<()> {
                     println!("{}", cfg.provenance());
                     llvq_llm::fused_cuda::load_resolved(
                         &path, &device, dtype, cfg.layout, cfg.embed, cfg.rot_share, cfg.fuse,
-                        cfg.kv, Some("LLVQ_CONFIG"),
+                        cfg.kv, cfg.int4_layout(), Some("LLVQ_CONFIG"),
                     )?
                 }
                 None => {
@@ -2302,7 +2302,7 @@ fn main() -> anyhow::Result<()> {
                     println!("{}", cfg.provenance());
                     llvq_llm::fused_cuda::load_resolved(
                         &path, &device, dtype, cfg.layout, cfg.embed, cfg.rot_share, cfg.fuse,
-                        cfg.kv, Some("LLVQ_CONFIG"),
+                        cfg.kv, cfg.int4_layout(), Some("LLVQ_CONFIG"),
                     )?
                 }
                 None => {
@@ -2485,6 +2485,7 @@ fn main() -> anyhow::Result<()> {
                 cfg.rot_share,
                 cfg.fuse,
                 cfg.kv,
+                cfg.int4_layout(),
                 Some("LLVQ_CONFIG"),
             )?;
             // The attention form and its store, from the file and from
@@ -2494,6 +2495,16 @@ fn main() -> anyhow::Result<()> {
             for line in dec.lines() {
                 println!("{line}");
             }
+            // The card's own count, the whole context (weights, tables, 4E's
+            // module and scratch, candle's pool), before the first token:
+            // what serve-v9 reads to show the int4 bytes are held once.
+            let (free, total) = candle_core::cuda_backend::cudarc::driver::result::mem_get_info()
+                .map_err(|e| anyhow::anyhow!("cuMemGetInfo: {e}"))?;
+            println!(
+                "card memory: {:.3} GB used of {:.3} GB after the load and the decoder install (cuMemGetInfo)",
+                (total - free) as f64 / 1e9,
+                total as f64 / 1e9
+            );
             let load_s = t.elapsed().as_secs_f64();
             let ids = f
                 .tokenizer

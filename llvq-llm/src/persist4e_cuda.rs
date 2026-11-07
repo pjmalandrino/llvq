@@ -31,9 +31,15 @@
 //! on the card and keeps the form (pers_rope_pair) that matches it, or
 //! refuses.
 //!
-//! This version reads the 4B and 14B shapes: q and k Tetra under one rotation,
-//! v and o int4, a Tetra or int4 down per layer, a tied int4 g64 table.
-//! Anything else is refused at install by name.
+//! This version reads the 4B's shape: q and k Tetra under one rotation, v and
+//! o int4, a Tetra or int4 down per layer, a tied int4 g64 table. The sealed
+//! 14B has that layer shape but an untied head; the sealed 8B also holds o in
+//! Tetra. Anything else is refused at install by name.
+//!
+//! v9 (row form 7) reads the int4 words tiled. Under a v9 config the loader
+//! wrote them so and the eager path reads the same buffers
+//! (`fused_cuda::upload_int4`, `tv_q4_tile.cu`): the int4 bytes are on the
+//! card once. On the bench door's file-order runtime v9 relays a copy.
 
 use candle_core::cuda_backend::cudarc::driver::{CudaFunction, CudaSlice, DevicePtr, LaunchConfig, PushKernelArg};
 use candle_core::{DType, Device, Tensor};
@@ -260,7 +266,7 @@ pub fn install_rows_as(
         Head::Dense(_) => None,
     };
     if tied.map(|h| h.words) != Some(emb.words) || emb.d != hidden || emb.vocab % 8 != 0 {
-        anyhow::bail!("4E: the head is not the embedding's own int4 g64 table (the tied 4B and 14B)");
+        anyhow::bail!("4E: the head is not the embedding's own int4 g64 table (4E reads a tied head, the 4B's; the 8B and 14B heads are untied)");
     }
     if cos.dtype() != DType::F16 || norm_w.dtype() != DType::F16 {
         anyhow::bail!("4E: the rotary tables and norms must be binary16");
@@ -307,6 +313,7 @@ pub fn install_rows_as(
     };
 
     let mut layers_host = Vec::with_capacity(model.blocks.len());
+    let mut int4_layout: Option<crate::fused::Int4Layout> = None;
     for (l, block) in model.blocks.iter().enumerate() {
         let (ln1, qn, kn, qp, kp, vp, op) = block.attn_parts();
         let ctxt = |m: &str| anyhow::anyhow!("4E: layer {l}: {m}");
@@ -328,7 +335,19 @@ pub fn install_rows_as(
         if qv.d_out != (n_heads * 128) as u32 || kv.d_out != (n_kv * 128) as u32 || qv.d_in != hidden || kv.d_in != hidden {
             return Err(ctxt("q or k has an unexpected shape"));
         }
-        let (mlp, tetra_down) = mlp_args(block, &frt, &base, &stream)?;
+        let (mlp, tetra_down, down_layout) = mlp_args(block, &frt, &base, &stream)?;
+        // One word order for every int4 record 4E reads: the runtime chose it
+        // for all of them at load.
+        for (what, got) in [("v_proj", Some(vq.layout)), ("o_proj", Some(oq.layout)), ("down_proj", down_layout)] {
+            let Some(got) = got else { continue };
+            match int4_layout {
+                None => int4_layout = Some(got),
+                Some(want) if want != got => {
+                    return Err(ctxt(&format!("{what} holds {} words, an earlier int4 record {}", got.name(), want.name())));
+                }
+                Some(_) => {}
+            }
+        }
         layers_host.push(pers::P4eLayerHost {
             ln1: tensor_addr(ln1, &stream)?,
             signs_a: ra.signbits,
@@ -419,12 +438,33 @@ pub fn install_rows_as(
         let label = pers::P4E_ROWS_FORMS.iter().find(|f| f.0 == rows_form).map_or("v?", |f| f.1);
         lines.push(format!("4E {label}: the {} prologue inputs are 16-byte aligned; the vector path runs on every layer", addrs.len()));
     }
-    // v9 (form 7): the int4 records 4E reads (v, o, the int4 downs), relaid
-    // once into buffers of the same size (pers_q4_tile_index, llvq_pers.cuh);
-    // the served records stay as they are for the prefill and the eager path,
-    // so this measurement form holds the int4 bytes twice on the card.
+    // The int4 words against the row form. v3 to v8 read the file's order
+    // (pers_q4_row); a runtime that holds tiled words (a v9 config) is
+    // refused by name, since those forms would read wrong words. v9 reads
+    // tiled words: in place when the runtime holds them so (a v9 config, the
+    // served form, the int4 bytes once on the card), else from a copy relaid
+    // here (the bench door's measurement form, the bytes twice).
+    let tiled_in_place = int4_layout == Some(crate::fused::Int4Layout::Tiled);
+    if tiled_in_place && rows_form < 7 {
+        let label = pers::P4E_ROWS_FORMS.iter().find(|f| f.0 == rows_form).map_or("v?", |f| f.1);
+        anyhow::bail!(
+            "4E {label}: the runtime holds its int4 words tiled (a config whose rows are \"v9\"), and row form \
+             {rows_form} reads the file's order; load with that form's config, or serve v9"
+        );
+    }
+    if tiled_in_place {
+        lines.push(format!(
+            "4E v9: the int4 records are read in place, tiled at load and held once on the card ({} layers)",
+            layers_host.len()
+        ));
+    }
+    // v9 (form 7) on a runtime that holds the file's order: the int4 records
+    // 4E reads (v, o, the int4 downs), relaid once into buffers of the same
+    // size (pers_q4_tile_index, llvq_pers.cuh); the served records stay as
+    // they are for the prefill and the eager path, so this measurement form
+    // holds the int4 bytes twice on the card.
     let mut tiled: Vec<CudaSlice<u32>> = Vec::new();
-    if rows_form >= 7 {
+    if rows_form >= 7 && !tiled_in_place {
         let relay = cuda.func("pers_4e_q4_tile_relayout").map_err(anyhow::Error::msg)?;
         let mut bytes = 0u64;
         {

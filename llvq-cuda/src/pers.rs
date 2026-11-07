@@ -745,6 +745,43 @@ pub fn p4e_v6_inputs(addrs: &[(String, u64)], hidden: u32, inter: u32) -> Result
     }
 }
 
+/// Where word `wi` of an int4 row of `nwords` words sits in 4E v9's tiled
+/// layout: `pers_q4_tile_index` of `llvq_pers.cuh`, which the device relayout
+/// uses, transcribed. Inside a full tile of 128 words, word `128 t + k` goes
+/// to `128 t + 4 (k mod 32) + k / 32`, so one 128-bit load gives lane l its
+/// words `128 t + l + 32 s`, s = 0..3; the words past the last full tile keep
+/// the served order. `tests/pers_matches_served.rs` compares it with the
+/// device function on every word of the served widths.
+pub fn q4_tile_index(wi: u32, nwords: u32) -> u32 {
+    let nt = nwords >> 7;
+    if wi >= nt << 7 {
+        return wi;
+    }
+    let (t, k) = (wi >> 7, wi & 127);
+    (t << 7) + 4 * (k & 31) + (k >> 5)
+}
+
+/// An int4 record's words, `d_out` rows of `nwords`, in the tiled layout:
+/// the loader's form of `pers_4e_q4_tile_relayout`, run on the host before
+/// the upload so the card never holds the served order beside it. A
+/// permutation inside each row: the same words, the same count. Refuses a
+/// width that is not a whole number of 16-byte loads.
+pub fn q4_tile_words(words: &[u32], d_out: usize, nwords: usize) -> Result<Vec<u32>, String> {
+    if !nwords.is_multiple_of(4) {
+        return Err(format!("int4 tiles: rows of {nwords} words are not a whole number of 16-byte loads"));
+    }
+    if words.len() != d_out * nwords {
+        return Err(format!("int4 tiles: {} words for {d_out} rows of {nwords}", words.len()));
+    }
+    let mut out = vec![0u32; words.len()];
+    for (src, dst) in words.chunks_exact(nwords).zip(out.chunks_exact_mut(nwords)) {
+        for (wi, &w) in src.iter().enumerate() {
+            dst[q4_tile_index(wi as u32, nwords as u32) as usize] = w;
+        }
+    }
+    Ok(out)
+}
+
 /// The shared scratch after the activation staging (`PERS_4E_SCRATCH`):
 /// form 3's split rows, form 4's staged rows of the rotations' `small`,
 /// form 5's v7 area (`PERS_V7_FLOATS` floats: `small`, the argument structs,
@@ -867,6 +904,17 @@ pub const SERVED_UNIT_PARTS: [(&str, &str); 10] = [
 /// `Prefill::defines()`).
 pub fn served_unit_text(defines: &str) -> String {
     std::iter::once(defines).chain(SERVED_UNIT_PARTS.iter().map(|p| p.1)).collect::<Vec<_>>().join("\n")
+}
+
+/// The tiled int4 readers (`tv_q4_tile.cu`), the part `fused_cuda.rs`
+/// appends after [`SERVED_UNIT_PARTS`] for a runtime that holds its int4
+/// words tiled: a config whose rows are "v9".
+pub const SERVED_UNIT_TILE_PART: (&str, &str) = ("tv_q4_tile.cu", include_str!("../../llvq-llm/kernels/tv_q4_tile.cu"));
+
+/// The served unit under a v9 config: [`served_unit_text`], then the tiled
+/// int4 readers. The other configs' unit does not move.
+pub fn served_unit_text_tiled(defines: &str) -> String {
+    format!("{}\n{}", served_unit_text(defines), SERVED_UNIT_TILE_PART.1)
 }
 
 /// The served unit's defines at the served tile of the L40S and the default
@@ -2432,6 +2480,24 @@ mod tests {
             crate::sha256::sha256_hex(t.as_bytes()),
             "6193094310bc18acdb0a0c554807ff45f6df09c1f6ab49e0577032874f107812",
             "the served unit moved: the L2 reference would not be the served kernel"
+        );
+    }
+
+    /// The unit a v9 config compiles: the served unit unchanged, then the
+    /// tiled int4 readers. Pinned so the door job's digest gate is this text.
+    #[test]
+    fn the_tiled_served_unit_is_the_served_unit_and_the_tile_readers() {
+        let (plain, tiled) = (served_unit_text(SERVED_DEFINES_SM89), served_unit_text_tiled(SERVED_DEFINES_SM89));
+        assert!(tiled.starts_with(&plain), "the served unit's text moved under v9");
+        for sym in ["tv_q4_ht(", "tv_q4_hht("] {
+            assert_eq!(tiled.matches(sym).count(), 1, "{sym}");
+            assert!(!plain.contains(sym), "{sym} leaked into the other configs' unit");
+        }
+        assert_eq!(tiled.len(), 106_947);
+        assert_eq!(
+            crate::sha256::sha256_hex(tiled.as_bytes()),
+            "e269ea5d11b7e40ba0682f536f52ed9f09abfaa9fd6f3185eb306edca5c60e53",
+            "the v9 served unit moved: the served-v9 door gates on this digest"
         );
     }
 

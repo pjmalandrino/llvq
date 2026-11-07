@@ -675,6 +675,12 @@ fn the_persistent_decode_runs_on_the_4b_shape_only() {
         let e = check_persistent_object(&c).expect_err(name);
         assert!(e.contains("persistent") && e.contains("4B"), "{name}: {e}");
     }
+    // The two sealed sizes name why 4E does not hold on them.
+    let e = check_persistent_object(&cfg(36, 4096, 12288, 32, 8)).expect_err("8B");
+    assert!(e.contains("o_proj in Tetra") && e.contains("untied head"), "8B: {e}");
+    let e = check_persistent_object(&cfg(40, 5120, 17408, 40, 8)).expect_err("14B");
+    assert!(e.contains("head is untied") && e.contains("96,064"), "14B: {e}");
+    assert!(!check_persistent_object(&cfg(28, 1024, 3072, 16, 8)).expect_err("0.6B").contains("untied"));
 }
 
 // ---- 4E's row loop (2026-11-05) ---------------------------------------------
@@ -751,20 +757,84 @@ fn the_v6_config_is_the_v4_config_with_the_v6_rows() {
     assert!(e.contains("persistent") && e.contains("Metal"), "{e}");
 }
 
+/// The v9 config is the v6 config with the v9 row loop, and nothing else
+/// moved; its line names the loop, it resolves to the module's form 7, and
+/// it is the one config that lays the int4 words tiled on the card.
+#[test]
+fn the_v9_config_is_the_v6_config_with_the_v9_rows() {
+    use llvq_llm::fused::Int4Layout;
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../configs");
+    let read = |name: &str| {
+        let path = dir.join(name);
+        let f = Served::read_file(&path).unwrap_or_else(|e| panic!("{name}: {e}"));
+        Served::of(f, path).unwrap_or_else(|e| panic!("{name}: {e}"))
+    };
+    let v6 = read("qwen3-4b-tetra-e4-4e-v6.json");
+    let v9 = read("qwen3-4b-tetra-e4-4e-v9.json");
+    assert_eq!(v9.rows, Rows4e::V9);
+    assert_eq!(v9.rows.form(), 7);
+    assert_eq!(
+        (v9.layout, v9.embed, v9.rot_share, v9.fuse, v9.kv, v9.attention, v9.store, v9.decode),
+        (v6.layout, v6.embed, v6.rot_share, v6.fuse, v6.kv, v6.attention, v6.store, v6.decode),
+        "only the row loop may differ from the v6 config"
+    );
+    assert!(
+        v9.provenance().contains("attention kernel from position 0 on grow(256), decode persistent (4E rows v9, one launch a token run)"),
+        "{}",
+        v9.provenance()
+    );
+    // The int4 words: tiled and held once under v9, the file's order under
+    // every other config, so no config reads words in the wrong order.
+    assert_eq!(v9.int4_layout(), Int4Layout::Tiled);
+    for name in [
+        "qwen3-4b-tetra-e4-4e.json",
+        "qwen3-4b-tetra-e4-4e-v4.json",
+        "qwen3-4b-tetra-e4-4e-v6.json",
+        "qwen3-4b-tetra-e4-grouped.json",
+        "qwen3-8b-tetra-e4-grouped.json",
+        "qwen3-14b-tetra-e4-grouped.json",
+    ] {
+        assert_eq!(read(name).int4_layout(), Int4Layout::Served, "{name}");
+    }
+    for r in [Rows4e::V3, Rows4e::V4, Rows4e::V6] {
+        assert_eq!(r.int4_layout(), Int4Layout::Served, "{r:?}");
+    }
+    let note = v9.note.as_deref().expect("a note");
+    assert!(note.contains("886391a8") && note.contains("row form 7") && note.contains("once"), "{note}");
+    let raw = |name: &str| -> Vec<String> {
+        std::fs::read_to_string(dir.join(name))
+            .unwrap_or_else(|e| panic!("{name}: {e}"))
+            .lines()
+            .filter(|l| !l.trim_start().starts_with("\"note\""))
+            .map(str::to_string)
+            .collect()
+    };
+    let (a, b) = (raw("qwen3-4b-tetra-e4-4e-v6.json"), raw("qwen3-4b-tetra-e4-4e-v9.json"));
+    let differ: Vec<_> = a.iter().zip(&b).filter(|(x, y)| x != y).collect();
+    assert_eq!(a.len(), b.len(), "the same keys");
+    assert_eq!(differ, vec![(&"  \"rows\": \"v6\",".to_string(), &"  \"rows\": \"v9\",".to_string())]);
+    let e = v9.check_device(true).expect_err("Metal");
+    assert!(e.contains("persistent") && e.contains("Metal"), "{e}");
+}
+
 /// Every served row loop is a row form of the module, under the name the
 /// module gives it: a `form()` that pointed at v5's number would compile
-/// v5's loop under v6's provenance.
+/// v5's loop under v6's provenance. It names `llvq_cuda`, a dev-dependency on
+/// macOS only, so it carries that gate (a Linux CPU build has no such crate).
+#[cfg(any(target_os = "macos", feature = "cuda"))]
 #[test]
 fn the_served_rows_are_the_modules_row_forms() {
     use llvq_cuda::pers::P4E_ROWS_FORMS;
-    for r in [Rows4e::V3, Rows4e::V4, Rows4e::V6] {
+    for r in [Rows4e::V3, Rows4e::V4, Rows4e::V6, Rows4e::V9] {
         assert!(P4E_ROWS_FORMS.contains(&(r.form(), r.label())), "{r:?}: ({}, {}) is not a module form", r.form(), r.label());
         assert_eq!(Rows4e::parse(Some(r.label())), Ok(r), "{r:?} parses from its own label");
         llvq_cuda::pers::p4e_rows_define(r.form()).unwrap_or_else(|e| panic!("{r:?}: {e}"));
     }
-    // v5 is a module form and not a served one.
-    assert!(P4E_ROWS_FORMS.contains(&(3, "v5")));
-    assert!(Rows4e::parse(Some("v5")).is_err());
+    // v5, v7 and v8 are module forms and not served ones.
+    for (form, label) in [(3, "v5"), (5, "v7"), (6, "v8")] {
+        assert!(P4E_ROWS_FORMS.contains(&(form, label)));
+        assert!(Rows4e::parse(Some(label)).is_err(), "{label}");
+    }
 }
 
 /// The field: absent and "v3" are form 1, "v4" form 2, "v6" form 4; "v5" is refused by
@@ -780,19 +850,25 @@ fn the_rows_field_serves_v3_v4_and_v6_and_refuses_the_rest() {
     assert_eq!(of(f.clone()).expect("v4").rows, Rows4e::V4);
     f.rows = Some("v6".into());
     assert_eq!(of(f.clone()).expect("v6").rows, Rows4e::V6);
+    f.rows = Some("v9".into());
+    assert_eq!(of(f.clone()).expect("v9").rows, Rows4e::V9);
     let e = {
         f.rows = Some("v5".into());
         of(f.clone()).expect_err("v5")
     };
     assert!(e.contains("v5") && e.contains("measurement"), "{e}");
-    let named = Rows4e::parse(Some("v7")).expect_err("v7");
-    assert!(named.contains("\"v3\", \"v4\" and \"v6\""), "the refusal names the served forms: {named}");
-    for bad in ["", " ", "V4", "V6", "4", "v2", "v7", "6"] {
+    let e = Rows4e::parse(Some("v7")).expect_err("v7");
+    assert!(e.contains("local memory") && e.contains("does not install"), "v7 is refused by its cause: {e}");
+    let e = Rows4e::parse(Some("v8")).expect_err("v8");
+    assert!(e.contains("measurement") && e.contains("x1.035"), "v8 is refused by its cause: {e}");
+    let named = Rows4e::parse(Some("v10")).expect_err("v10");
+    assert!(named.contains("\"v3\", \"v4\", \"v6\" and \"v9\""), "the refusal names the served forms: {named}");
+    for bad in ["", " ", "V4", "V6", "V9", "4", "v2", "v7", "v8", "6", "9"] {
         f.rows = Some(bad.into());
         let e = of(f.clone()).expect_err(bad);
         assert!(e.contains("rows"), "{bad:?}: {e}");
     }
-    for v in ["v4", "v6"] {
+    for v in ["v4", "v6", "v9"] {
         let mut g = four_e();
         g.decode = None;
         g.rows = Some(v.into());
@@ -814,7 +890,7 @@ fn the_optional_fields_are_read_as_written() {
         let e = AttnHeads::parse(Some(&v.replace("persistent", "kernel"))).expect_err(v);
         assert!(e.contains("attention"), "{v:?}: {e}");
     }
-    for v in [" v4", "v4 ", " v3", " v6", "v6 "] {
+    for v in [" v4", "v4 ", " v3", " v6", "v6 ", " v9", "v9 "] {
         let e = Rows4e::parse(Some(v)).expect_err(v);
         assert!(e.contains("rows"), "{v:?}: {e}");
     }
@@ -830,7 +906,12 @@ fn the_optional_fields_are_read_as_written() {
     assert_eq!(Rows4e::parse(Some("v4")), Ok(Rows4e::V4));
     // Every shipped config still resolves: none relied on the trim.
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../configs");
-    for name in ["qwen3-4b-tetra-e4-4e.json", "qwen3-4b-tetra-e4-4e-v4.json", "qwen3-4b-tetra-e4-4e-v6.json"] {
+    for name in [
+        "qwen3-4b-tetra-e4-4e.json",
+        "qwen3-4b-tetra-e4-4e-v4.json",
+        "qwen3-4b-tetra-e4-4e-v6.json",
+        "qwen3-4b-tetra-e4-4e-v9.json",
+    ] {
         let path = dir.join(name);
         let f = Served::read_file(&path).unwrap_or_else(|e| panic!("{name}: {e}"));
         Served::of(f, path).unwrap_or_else(|e| panic!("{name}: {e}"));

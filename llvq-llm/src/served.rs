@@ -104,7 +104,9 @@ pub struct ServedFile {
     pub decode: Option<String>,
     /// 4E's row loop, beside `"decode": "persistent"` only: absent is v3,
     /// the form the served-4e door ran; `"v4"` is the v2 loop inside the v3
-    /// structure; `"v6"` is v4 with vector prologues. See [`Rows4e::parse`].
+    /// structure; `"v6"` is v4 with vector prologues; `"v9"` is v8 with the
+    /// int4 rows on tiled words, which also lays the int4 words tiled on the
+    /// card ([`Rows4e::int4_layout`]). See [`Rows4e::parse`].
     #[serde(default)]
     pub rows: Option<String>,
     /// Free text, carried so a config can say what object it belongs to. Read
@@ -208,6 +210,14 @@ pub enum Rows4e {
     /// aligned (`llvq_cuda::pers::p4e_v6_inputs`), so it never times as v4
     /// under v6's name.
     V6,
+    /// Form 7, v8 (v6 with the launch's constants staged during the barriers
+    /// and attention's steps in a cp.async ring) with the int4 rows read from
+    /// tiled words: x1.035 over v8 and x1.118 over v6 after a 5-token prompt,
+    /// x1.060 over v6 at 8,192, same tokens (measured,
+    /// `docs/mesures/step3-4e-2026-11-07.txt`, measurement form). Served with
+    /// the int4 words tiled and held once ([`Rows4e::int4_layout`]): the
+    /// eager path reads the same words through `tv_q4_hht`.
+    V9,
 }
 
 impl Rows4e {
@@ -215,17 +225,27 @@ impl Rows4e {
     /// and the shaker's rule B kept it a measurement. Any other word, and the
     /// empty string, are refused. Read as written, like [`Decode::parse`].
     pub fn parse(v: Option<&str>) -> Result<Self, String> {
+        const FORMS: &str = "the served forms are \"v3\", \"v4\", \"v6\" and \"v9\"";
         match v {
             None | Some("v3") => Ok(Self::V3),
             Some("v4") => Ok(Self::V4),
             Some("v6") => Ok(Self::V6),
-            Some("v5") => Err("rows \"v5\": measured at x1.001 over v4 (shaker-4e-2026-11-05) and kept a \
-                               measurement; the served forms are \"v3\", \"v4\" and \"v6\""
-                .into()),
+            Some("v9") => Ok(Self::V9),
+            Some("v5") => Err(format!(
+                "rows \"v5\": measured at x1.001 over v4 (shaker-4e-2026-11-05) and kept a measurement; {FORMS}"
+            )),
+            Some("v7") => Err(format!(
+                "rows \"v7\": its module holds 24 B of local memory at 128 registers under the card's ptxas and \
+                 does not install (step2-4e-2026-11-07); {FORMS}"
+            )),
+            Some("v8") => Err(format!(
+                "rows \"v8\": a measurement, v9's base, which reads x1.035 over it at the bit \
+                 (step3-4e-2026-11-07); {FORMS}"
+            )),
             Some(s) if s.trim().is_empty() => {
-                Err("rows is empty. Write \"v3\", \"v4\" or \"v6\", or delete the key for v3.".into())
+                Err("rows is empty. Write \"v3\", \"v4\", \"v6\" or \"v9\", or delete the key for v3.".into())
             }
-            Some(o) => Err(format!("rows {o:?}: the served forms of 4E's row loop are \"v3\", \"v4\" and \"v6\"")),
+            Some(o) => Err(format!("rows {o:?}: {FORMS} of 4E's row loop")),
         }
     }
 
@@ -234,6 +254,7 @@ impl Rows4e {
             Self::V3 => "v3",
             Self::V4 => "v4",
             Self::V6 => "v6",
+            Self::V9 => "v9",
         }
     }
 
@@ -243,6 +264,19 @@ impl Rows4e {
             Self::V3 => 1,
             Self::V4 => 2,
             Self::V6 => 4,
+            Self::V9 => 7,
+        }
+    }
+
+    /// The order of the int4 words on the card under this row loop: tiled
+    /// for v9, which reads them so, and the file's for every other form,
+    /// which reads the file's. Not a field of its own, so a config cannot
+    /// name v9 with the file's order (two copies on the card) or v6 with the
+    /// tiled one (wrong words).
+    pub fn int4_layout(self) -> crate::fused::Int4Layout {
+        match self {
+            Self::V9 => crate::fused::Int4Layout::Tiled,
+            Self::V3 | Self::V4 | Self::V6 => crate::fused::Int4Layout::Served,
         }
     }
 }
@@ -272,13 +306,28 @@ pub fn check_persistent_object(cfg: &candle_transformers::models::qwen3::Config)
         cfg.vocab_size,
     );
     let want = (36, 2560, 9728, 32, 8, 128, 151_936);
+    // Why each other sealed size is refused, named, so a reader of the
+    // refusal does not have to rediscover it (docs/ETAT.md section 5).
+    let why = match got {
+        (36, 4096, 12288, 32, 8, 128, 151_936) => {
+            " The sealed Qwen3-8B holds o_proj in Tetra (its int4 records are v and the downs of layers 10 to \
+             26) and an untied head: 4E reads an int4 o and the embedding's own table as the head, so it would \
+             need a Tetra o phase (a rotation of the context and its rows) and a head table of its own."
+        }
+        (40, 5120, 17408, 40, 8, 128, 151_936) => {
+            " The sealed Qwen3-14B fits 4E's shared memory (96,064 B of the L40S's 101,376 at v9) and its \
+             int4 down rows, but its head is untied: 4E reads the embedding's own table as the head, so it \
+             would need a head table of its own. The kernel form below 1,280 has no T8 at 14B either."
+        }
+        _ => "",
+    };
     match got == want {
         true => Ok(()),
         false => Err(format!(
             "decode \"persistent\" on a model of (layers, hidden, intermediate, heads, kv heads, head dim, \
              vocab) = {got:?}. 4E has run, and the kernel form's T8 extension below 1,280 was granted, on the \
-             sealed Qwen3-4B only {want:?}: the 8B and the 14B are not covered. Serve this object with the \
-             eager engine (delete the decode key)."
+             sealed Qwen3-4B only {want:?}: the 8B and the 14B are not covered.{why} Serve this object with \
+             the eager engine (delete the decode key)."
         )),
     }
 }
@@ -480,6 +529,13 @@ impl Served {
         })
     }
 
+    /// The order of the int4 words on the card: tiled under rows "v9", the
+    /// file's otherwise ([`Rows4e::int4_layout`]). Handed to the loader by
+    /// every served door, so the card holds the int4 bytes once.
+    pub fn int4_layout(&self) -> crate::fused::Int4Layout {
+        self.rows.int4_layout()
+    }
+
     /// What a runtime prints as the source of its choices, in place of the
     /// variable names it prints in measurement mode.
     pub fn source(&self) -> String {
@@ -660,14 +716,20 @@ pub fn load_resolved(
     share: crate::rotplan::RotShare,
     fuse: crate::fused::FuseMode,
     kv: crate::kvq::KvMode,
+    int4: crate::fused::Int4Layout,
     origin: Option<&str>,
 ) -> candle_core::Result<crate::fused::FusedSealed> {
     #[cfg(all(target_os = "linux", feature = "cuda"))]
     {
-        crate::fused_cuda::load_resolved(path, device, dtype, layout, emode, share, fuse, kv, origin)
+        crate::fused_cuda::load_resolved(path, device, dtype, layout, emode, share, fuse, kv, int4, origin)
     }
     #[cfg(all(target_os = "macos", feature = "metal"))]
     {
+        // The tiled order exists for 4E v9, which has no Metal kernel; the
+        // Metal int4 kernels read the file's order.
+        if int4 != crate::fused::Int4Layout::Served {
+            candle_core::bail!("int4 layout {} on Metal: the tiled order is 4E v9's, a CUDA kernel", int4.name());
+        }
         crate::fused_metal::load_resolved(path, device, dtype, layout, emode, share, fuse, kv, origin)
     }
     #[cfg(not(any(
@@ -675,7 +737,7 @@ pub fn load_resolved(
         all(target_os = "macos", feature = "metal")
     )))]
     {
-        let _ = (path, device, dtype, layout, emode, share, fuse, kv, origin);
+        let _ = (path, device, dtype, layout, emode, share, fuse, kv, int4, origin);
         candle_core::bail!(
             "this build carries no device backend: a sealed artifact can be served \
              through the fused path on a CUDA build on Linux or a Metal build on macOS. \
