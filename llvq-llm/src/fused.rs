@@ -2611,6 +2611,8 @@ mod tests {
     /// request, `fusedrun-14b-2026-08-17.txt`): the 4B and the 8B fit the
     /// default, the 14B needs the opt-in, and nothing needs more.
     #[test]
+    // `llvq-cuda` is a test dependency on macOS only (llvq-llm/Cargo.toml).
+    #[cfg(any(target_os = "macos", feature = "cuda"))]
     fn the_int4_staging_fits_the_card_at_every_sealed_size() {
         use llvq_cuda::shared::{plan, Fit};
         let (def, optin) = (49_152, 101_376);
@@ -2636,6 +2638,8 @@ mod tests {
     /// size, and nothing is staged in f16, so the wide unit is never
     /// compiled. The 32B moves on 99 KiB cards only, and only its 25,600.
     #[test]
+    // `llvq-cuda` is a test dependency on macOS only (llvq-llm/Cargo.toml).
+    #[cfg(any(target_os = "macos", feature = "cuda"))]
     fn the_served_models_keep_todays_kernels_after_the_wall_lift() {
         use llvq_cuda::shared::rot_bytes;
         use llvq_cuda::wide::{int4_entry_bytes, rot_kernel, Int4EntryBytes, RotKernel};
