@@ -22,8 +22,9 @@ Main findings:
    (`1b422b62`) hash text that also carries Slot32 and the v3/v5 forms. Removing one byte of `llvq_slot.cuh`,
    `matvec.cu`, `llvq_pers.cuh`, `pers_4e.cu` or `pers_segment.cu` moves a pin, and a moved pin means a new paid door
    at each size. Most cleanup can avoid those files.
-2. **The runtime does not serve what `docs/ETAT.md` says is served.** `llvq-runtime/library.json` names the v4 config
-   for the 4B on CUDA and the grouped configs for 8B and 14B; ETAT §2 serves v9 at all three sizes.
+2. **The runtime did not serve what `docs/ETAT.md` says is served.** At `3e2d4f0`, `llvq-runtime/library.json` named the
+   v4 config for the 4B on CUDA and the grouped configs for 8B and 14B. PR #15 (`7be533e`) moved it to v9 at all three
+   sizes the same evening.
 3. **One measurement mode cannot run.** `LLVQ_PERS_SEGMENT` lists itself among the variables it refuses
    (`llvq-llm/src/bin/fusedrun.rs:1971`), so `=1` always fails. No job, journal or prereg uses it.
 4. **Two variables change the served load without being refused beside a config**: `LLVQ_PREFILL`
@@ -420,7 +421,7 @@ HTML files 71 and 58. `ops/Dockerfile.cuda` comments keep French paragraphs and 
 | # | batch | gain | risk | prerequisite |
 |---:|---|---|---|---|
 | 1 | **Defects and doc truth.** Fix or remove `LLVQ_PERS_SEGMENT`; put `LLVQ_PREFILL` and `LLVQ_METAL_KERNEL` under the served refusal; make `METAL_KERNEL` refuse unknown values; drop the three `planesbench`-only names from `MEASUREMENT_MODES`; rewrite the env table of `CLAUDE.md` (49 missing, 4 mismatches); fix `llvq-llm/src/lib.rs:7-10`, the `ci.yml` pointers, `proofs/README.md`; replace `AGENTS.md` by a pointer to `CLAUDE.md` | two served-path holes closed, one dead mode settled, the map true again | very low; no kernel text | none |
-| 2 | **Runtime on the served configs.** `library.json` and `library.rs` to the v9 configs at three sizes | the `llvq` binary serves what ETAT says; unblocks removing v4 and grouped 8B/14B later | low; runtime behaviour changes, one run on a card to confirm (paid, operator go) | operator decision |
+| 2 | **Runtime on the served configs.** Done by PR #15 (`7be533e`) | the `llvq` binary serves what ETAT says; unblocks removing v4 and grouped 8B/14B later | done | none |
 | 3 | **Delete the 9 dead targets** (§2.6) | 1,027 lines, 9 targets | none | tag |
 | 4 | **Delete the no-setter modes**: `GRAPH_AB`, `GRAPH_DIAG`, `KV_AB`, `KV_PREALLOC`, `FUSE_AB`, and `PERS_SEGMENT` with the host of `persist_cuda.rs` (move its five shared helpers into `persist4e_cuda.rs` first) | ~1,150 lines (*estimated*), 6 names out of `MEASUREMENT_MODES`, `KvStore::Prealloc` gone from `model.rs` | low; `fusedrun` and `model.rs` are not in a pinned unit; refusal-list tests to update | tag; coordinate with the batching branch, which edits `model.rs` |
 | 5 | **Fence measurement-only targets** behind `archive` features: B1, B2, B3, B5, B6, B7, less the dead targets of batch 3 and the image's `gbench` (fence, never delete B7) | 52 targets, 21,317 lines out of the default build; about 30 % fewer `llvq-llm` link steps in CI's test job (*estimated*) | low; archived code stops being checked unless a non-blocking `--features archive` check job is added; gate the `CARGO_BIN_EXE_*` cases of `classhist`, `lswap`, `radixstudy` | tag; decide B5 with row 18 of `ROADMAP-27B-DEV.md`; `rankbench` and `mslcheck` in B3 are the operator's call |
@@ -456,7 +457,7 @@ Batches 3, 5 and 6 delete or fence 66 targets and 24,377 lines (*measured*); bat
 
 ### 4.4 Decisions for the operator
 
-1. Batch 2: move the runtime to the v9 configs, with one card run to confirm.
+1. Batch 1 is PR #19 (wave 0), and batch 2 is done by PR #15.
 2. Batch 6: republish the CUDA Space after the image diet.
 3. Batch 11: accept that Golay70 and Planes12x are reproducible from `v0.0.2` only.
 4. Whether `LAUNCH_ME.md` and `ARTIFACT-EVALUATION.md` belong to the frozen paper 1 perimeter, which decides the fate
