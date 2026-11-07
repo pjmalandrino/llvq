@@ -106,8 +106,8 @@ pub fn scan(text: &str, stops: &[String]) -> Scan {
 ///
 /// [`TextStream::full`] is the text of every id, as `tokenizers` decodes the
 /// whole list, but it decodes only the ids since the last whole character:
-/// decoding the whole answer at every token cost 73 ns a token already said,
-/// 0.6 ms a token at 8,192 (*measured*, `docs/runtime-audit-2026-11.md`).
+/// decoding the whole answer at every token cost about 85 ns a token already
+/// said, 0.68 ms a token at 7,936 (*measured*, `docs/runtime-audit-2026-11.md`).
 #[derive(Default)]
 pub struct TextStream {
     pub ids: Vec<u32>,
@@ -219,7 +219,7 @@ mod tests {
     /// of two to four bytes is split across ids, as Qwen3's BPE splits rare
     /// characters, and an invalid byte decodes to U+FFFD.
     fn byte_tokenizer() -> tokenizers::Tokenizer {
-        let mut chars: Vec<u32> = (33..=126).chain(161..=172).chain(174..=255).collect();
+        let chars: Vec<u32> = (33..=126).chain(161..=172).chain(174..=255).collect();
         let mut vocab = serde_json::Map::new();
         let mut extra = 0;
         for b in 0..=255u32 {
@@ -232,7 +232,6 @@ mod tests {
             };
             vocab.insert(char::from_u32(c).unwrap().to_string(), b.into());
         }
-        chars.clear();
         let j = serde_json::json!({
             "version": "1.0", "truncation": null, "padding": null, "added_tokens": [],
             "normalizer": null, "pre_tokenizer": null, "post_processor": null,
@@ -264,9 +263,9 @@ mod tests {
                         state = state.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
                         // Mostly ASCII, with lead and continuation bytes.
                         match state >> 61 {
-                            0 => 0xC0 | (state >> 32) as u32 % 0x30,
-                            1 => 0x80 | (state >> 32) as u32 % 0x40,
-                            _ => 0x20 + (state >> 32) as u32 % 0x5F,
+                            0 => 0xC0 | ((state >> 32) as u32 % 0x30),
+                            1 => 0x80 | ((state >> 32) as u32 % 0x40),
+                            _ => 0x20 + ((state >> 32) as u32 % 0x5F),
                         }
                     })
                     .collect(),
