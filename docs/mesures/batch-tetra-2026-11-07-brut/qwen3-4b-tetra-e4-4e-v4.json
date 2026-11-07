@@ -1,0 +1,11 @@
+{
+  "layout": "tetra48",
+  "embed": "q4",
+  "rot_share": "1",
+  "fuse": "0",
+  "kv": "f16",
+  "attention": "kernel",
+  "decode": "persistent",
+  "rows": "v4",
+  "note": "The qwen3-4b-tetra-e4 object (qwen3-4b-sealed.bin, sha256 886391a8), SERVED from 2026-11-05 on the operator's yes: the kernel attention form on every decode row from position 0, decoded by 4E with the v4 row loop (one cooperative launch a token run, 512 threads). The form below 1,280 is licensed by the operator's T8 extension of 2026-11-05 on this object only (measured, attn-t8-below-4b-2026-11-05). Same tokens as the eager path and as the v3 config, which read 169.0 tok/s at the served door against 133.7 for the kernel config, same 256 tokens at 5, 2,048, 4,096 and 8,192, GSM8K pilot 40/50 against 40/50 (measured, served-4e-2026-11-05). v4 decodes 189.8 tok/s after a 5-token prompt against 179.0 for v3 and 134.2 for the eager path, and 140.1 at 8,192, same tokens (measured, shaker-4e-2026-11-05, measurement form). Not yet read at the served door under v4. Refused on Metal and on any object but the 4B."
+}

@@ -1,0 +1,65 @@
+BATCH TETRA: THE BATCHED DECODE OF THE SEALED 4B, MULTI-ROW PATH AGAINST THE TENSOR-CORE KERNEL (2026-11-07)
+===========================================================================================================
+Prereg: proofs/preregistration-batch-tetra-2026-11-07.md, sha256 911cb658, timestamped before launch.
+Deviations: none.
+Code: commit f26c40f, Space sha 4e5a3bcc. Job: 6aef94d7e6320c66fad65a0d, l40sx1, 958 s running, $0.48.
+
+SETUP
+-----
+qwen3-4b-sealed.bin (886391a8) under configs/qwen3-4b-tetra-e4-4e-v4.json. Qwen3::batch_step: B sequences, one cache
+slot each, one decode row each a step, the attention attn_dec_batch.cu (the served kernel's body, one sequence per
+grid z). Arm rows: the existing multi-row path (Tetra rows kernel 4 rows a launch, int4 and head row by row). Arm
+mma: tv_batch_mma.cu, every projection and the head decoded once a block and multiplied on the tensor cores.
+
+CONTROLS
+--------
+1. oracle on Qwen3-0.6B: MATCH, passes.
+2. Object and config at their bytes and sha256: equal, passes.
+3. Served door at batch 1 decodes 61d0654532d35120: yes, passes. 179.3 tok/s [179.2-179.5] (4E), eager 126.4.
+4. batchrun check, worst relative RMS of mma against rows over 7 projections, the head, 1/8/16/32 rows: 1.46e-5
+   (gate 1e-2), passes. No kernel spills (116 registers at most).
+5. Both GSM8K dumps end on 94c7b98876288901: yes, passes.
+
+RESULT
+------
+Door: 256 tokens a sequence after the 5-token prompt fed through the batch, prompt and decode, median of 3 rounds.
+GB/s = weights on the card x tok/s a sequence: 1.38 GB for Tetra, 2.67 for AWQ (computed). AWQ: batch-awq-2026-11-07,
+vLLM, same prompt and token count.
+
+   B   rows tok/s   mma tok/s (range)            AWQ tok/s   rows GB/s   mma GB/s   AWQ GB/s   door tokens = batch 1
+   1       126.1        63.9 [63.9-63.9]            203.0      174.0       88.2      541.9    rows 1/1, mma 1/1
+   4       199.5       240.9 [240.8-241.0]          778.7       68.8       83.1      519.8    rows 4/4, mma 4/4
+   8       217.1       449.7 [449.6-449.7]        1,524.6       37.4       77.6      508.8    rows 8/8, mma 8/8
+  16       226.8       788.4 [788.1-788.7]        2,883.2       19.6       68.0      481.1    rows 16/16, mma 16/16
+  32       231.9     1,256.5 [1,256.0-1,258.3]    5,128.7       10.0       54.2      427.9    rows 32/32, mma 32/32
+Rows ranges are within 0.1 tok/s of their medians. Rates measured; GB/s computed.
+
+Decode-path perplexity, WikiText-2 test, 16 windows of 2,048 (32,752 positions, tokens 41391567): rows 13.4599, mma
+13.4604, pooled +0.0038 %, window mean +0.0038 % [-0.0024 ; +0.0099] (measured).
+
+GSM8K pilot, 50 problems, batched 16 at a time, prompts prefilled through the batch-1 path: rows 40/50, completions
+identical to the served pilot 50/50; mma 40/50, completions identical 44/50, discordant pairs 0 and 0 (measured).
+Wall time 138.8 s (rows) and 55.6 s (mma) for about 15,750 kept tokens.
+
+VERDICT
+-------
+Serving path (prereg section 4): every rows door row equals the batch-1 fingerprint at every B and the 50 pilot
+completions equal the served dump. The batched path returns the batch-1 tokens.
+Kernel gate, all three required: (1) mma above rows at B = 8 (449.7 against 217.1) and B = 16 (788.4 against 226.8),
+ranges apart: holds. (2) every mma door row equals the batch-1 fingerprint: holds, so (3) is not needed; it holds
+too: pooled +0.0038 % inside +-0.12 %, GSM8K 40/50 against 40/50. THE GATE PASSES.
+Predictions: all inside their interval but one, "mma door rows equal to the reference: not all", which read all.
+
+WHAT THIS DOES NOT ESTABLISH
+----------------------------
+- Tetra does not compete with AWQ in aggregate: at B = 32 it decodes 1,256.5 tok/s against 5,128.7, 54.2 GB/s
+  against 427.9. The step time is 15.6 ms at B = 1 and 25.1 ms at B = 32 under mma; AWQ's 4.9 and 6.2 ms.
+- mma at B = 1 is half the rows path (63.9 against 126.1): batch 1 stays on the served path.
+- One prompt for the door; 16 equal windows for perplexity; the GSM8K driver keeps a stopped sequence's row until its
+  batch ends (no continuous batching).
+- The 8B and 14B were not run.
+
+PROVENANCE
+----------
+docs/mesures/batch-tetra-2026-11-07-brut/ (door-b1, check, door-batch, ppl, gsm8k-b16-{rows,mma}.{txt,jsonl},
+compare, oracle, files.sha256).
