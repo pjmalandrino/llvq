@@ -1135,9 +1135,11 @@ Each load checks the tiled reader on the card against the served one on a file-o
 file and its b/param do not move. `configs/qwen3-4b-tetra-e4-4e-v9.json` is written; its door job,
 `ops/jobs/served-v9.sh`, is prepared and not run.
 
-4E does not hold on the other two sealed files. The 8B holds `o_proj` in Tetra and an untied head. The 14B fits v9's
-shared memory (96,064 B of 101,376) and its int4 down rows, but its head is untied too. `served.rs` now names both
-causes in its refusal. While wiring this, a test of the v6 branch named `llvq_cuda` without the macOS-or-cuda gate
+4E did not hold on the other two sealed files at first. The 8B holds `o_proj` in Tetra and an untied head; the 14B fits
+v9's shared memory (96,064 B of 101,376) and its int4 down rows, but its head is untied too. The operator asked the
+same evening for all three sizes. 4E gained the head's own pointers and a Tetra o phase, the MLP's Tetra down at the
+context's width; on the host the token loop with both equals the served chain for v4, v6, v8 and v9. The 8B and 14B
+v9 configs and their doors, which also read the kernel form's perplexity band against the grouped form, are ready. While wiring this, a test of the v6 branch named `llvq_cuda` without the macOS-or-cuda gate
 of pjmalandrino/llvq#12; it would have broken the Linux CI at the merge, and it carries the gate now.
 `ops/check-linux-cuda.sh` type-checks the cuda half of `llvq-llm` on the Mac, which no tool did before.
 

@@ -657,10 +657,10 @@ fn the_persistent_decode_is_refused_on_metal() {
     p.check_device(false).expect("CUDA");
 }
 
-/// On the Qwen3-4B's shape only: the 8B and the 14B, whose T8 below 1,280 was
-/// never granted, are refused by name.
+/// On the three sealed shapes only: the 4B, the 8B and the 14B; any other
+/// shape (here the 0.6B's, and a 14B with one layer less) is refused by name.
 #[test]
-fn the_persistent_decode_runs_on_the_4b_shape_only() {
+fn the_persistent_decode_runs_on_the_three_sealed_shapes_only() {
     let cfg = |layers, hidden, inter, heads, kv| {
         let text = format!(
             r#"{{"vocab_size":151936,"hidden_size":{hidden},"intermediate_size":{inter},"num_hidden_layers":{layers},
@@ -671,16 +671,12 @@ fn the_persistent_decode_runs_on_the_4b_shape_only() {
         serde_json::from_str::<candle_transformers::models::qwen3::Config>(&text).expect("a qwen3 config")
     };
     check_persistent_object(&cfg(36, 2560, 9728, 32, 8)).expect("the 4B");
-    for (name, c) in [("8B", cfg(36, 4096, 12288, 32, 8)), ("14B", cfg(40, 5120, 17408, 40, 8)), ("0.6B", cfg(28, 1024, 3072, 16, 8))] {
+    check_persistent_object(&cfg(36, 4096, 12288, 32, 8)).expect("the 8B");
+    check_persistent_object(&cfg(40, 5120, 17408, 40, 8)).expect("the 14B");
+    for (name, c) in [("0.6B", cfg(28, 1024, 3072, 16, 8)), ("14B less a layer", cfg(39, 5120, 17408, 40, 8))] {
         let e = check_persistent_object(&c).expect_err(name);
-        assert!(e.contains("persistent") && e.contains("4B"), "{name}: {e}");
+        assert!(e.contains("persistent") && e.contains("three sealed"), "{name}: {e}");
     }
-    // The two sealed sizes name why 4E does not hold on them.
-    let e = check_persistent_object(&cfg(36, 4096, 12288, 32, 8)).expect_err("8B");
-    assert!(e.contains("o_proj in Tetra") && e.contains("untied head"), "8B: {e}");
-    let e = check_persistent_object(&cfg(40, 5120, 17408, 40, 8)).expect_err("14B");
-    assert!(e.contains("head is untied") && e.contains("96,064"), "14B: {e}");
-    assert!(!check_persistent_object(&cfg(28, 1024, 3072, 16, 8)).expect_err("0.6B").contains("untied"));
 }
 
 // ---- 4E's row loop (2026-11-05) ---------------------------------------------
@@ -815,6 +811,32 @@ fn the_v9_config_is_the_v6_config_with_the_v9_rows() {
     assert_eq!(differ, vec![(&"  \"rows\": \"v6\",".to_string(), &"  \"rows\": \"v9\",".to_string())]);
     let e = v9.check_device(true).expect_err("Metal");
     assert!(e.contains("persistent") && e.contains("Metal"), "{e}");
+}
+
+/// The 8B and 14B v9 configs carry the 4B v9 config's keys, line for line
+/// beside the note; each names its own object and resolves to v9 with the
+/// int4 words tiled.
+#[test]
+fn the_8b_and_14b_v9_configs_are_the_4b_v9_config_on_their_objects() {
+    use llvq_llm::fused::Int4Layout;
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../configs");
+    let raw = |name: &str| -> Vec<String> {
+        std::fs::read_to_string(dir.join(name))
+            .unwrap_or_else(|e| panic!("{name}: {e}"))
+            .lines()
+            .filter(|l| !l.trim_start().starts_with("\"note\""))
+            .map(str::to_string)
+            .collect()
+    };
+    let four = raw("qwen3-4b-tetra-e4-4e-v9.json");
+    for (name, object) in [("qwen3-8b-tetra-e4-4e-v9.json", "7bdb9a55"), ("qwen3-14b-tetra-e4-4e-v9.json", "61db37fe")] {
+        assert_eq!(raw(name), four, "{name}: only the note may differ from the 4B v9 config");
+        let path = dir.join(name);
+        let c = Served::of(Served::read_file(&path).unwrap(), path).unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert_eq!((c.rows, c.decode, c.int4_layout()), (Rows4e::V9, Decode::Persistent, Int4Layout::Tiled), "{name}");
+        let note = c.note.as_deref().expect("a note");
+        assert!(note.contains(object) && note.contains("untied"), "{name}: {note}");
+    }
 }
 
 /// Every served row loop is a row form of the module, under the name the

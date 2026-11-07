@@ -1090,8 +1090,13 @@ pub struct SegLaunch {
 /// `sizeof(Pers4eLaunch)`; the offsets below are checked against the kernel's
 /// own definitions by `tests/pers_matches_served.rs`.
 pub const P4E_QKV_BYTES: usize = 152;
-pub const P4E_LAYER_BYTES: usize = 592;
-pub const P4E_ARGS_BYTES: usize = 216;
+pub const P4E_LAYER_BYTES: usize = 600;
+pub const P4E_ARGS_BYTES: usize = 240;
+/// `sizeof(Pers4eOT)`: a Tetra o and its rotation.
+pub const P4E_OT_BYTES: usize = 80;
+/// Where `ot` sits in a `Pers4eLayer`, and the head pointers in `Pers4eArgs`.
+pub const P4E_LAYER_OT: usize = 592;
+pub const P4E_ARGS_HEAD: usize = 216;
 pub const P4E_LAUNCH_BYTES: usize = 40;
 /// Where `qkv` and `mlp` sit in a `Pers4eLayer`.
 pub const P4E_LAYER_QKV: usize = 40;
@@ -1134,6 +1139,34 @@ pub struct P4eLayerHost {
     pub o_gpr: u32,
     pub tetra_down: bool,
     pub mlp: SegArgsHost,
+    /// The device address of this layer's `Pers4eOT` (a Tetra o), or 0 for
+    /// the int4 o.
+    pub ot: u64,
+}
+
+/// A Tetra o_proj and its own rotation (`Pers4eOT`), uploaded once a layer.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct P4eOTHost {
+    pub t: SegTetraHost,
+    pub signs: u64,
+    pub small: u64,
+    pub m: u32,
+    pub k: u32,
+    pub inv: f32,
+}
+
+impl P4eOTHost {
+    pub fn bytes(&self) -> Vec<u8> {
+        let mut b = Vec::with_capacity(P4E_OT_BYTES);
+        self.t.put(&mut b);
+        b.extend(self.signs.to_le_bytes());
+        b.extend(self.small.to_le_bytes());
+        for v in [self.m, self.k, self.inv.to_bits(), 0] {
+            b.extend(v.to_le_bytes());
+        }
+        debug_assert_eq!(b.len(), P4E_OT_BYTES);
+        b
+    }
 }
 
 fn put64(b: &mut [u8], at: usize, v: u64) {
@@ -1182,11 +1215,13 @@ impl P4eLayerHost {
         put32(&mut b, o + 56, self.o_gpr);
         put32(&mut b, o + 60, u32::from(self.tetra_down));
         b[P4E_LAYER_MLP..P4E_LAYER_MLP + SEG_ARGS_BYTES].copy_from_slice(&self.mlp.bytes());
+        put64(&mut b, P4E_LAYER_OT, self.ot);
         b
     }
 }
 
-/// The launch-wide constants of 4E: 22 pointers, then 8 u32 and 2 f32.
+/// The launch-wide constants of 4E: 22 pointers, then 8 u32 and 2 f32, then
+/// the head's three pointers.
 #[derive(Clone, Debug, Default)]
 pub struct P4eArgsHost {
     /// layers, emb_w, emb_s, emb_b, final_norm, cosr, sinr, x_a, x_b, q_out,
@@ -1203,6 +1238,9 @@ pub struct P4eArgsHost {
     pub cap: u32,
     pub eps: f32,
     pub c: f32,
+    /// head_w, head_s, head_b: the embedding's own table when tied (the 4B),
+    /// the head's table when not (the 8B and the 14B).
+    pub head: [u64; 3],
 }
 
 impl P4eArgsHost {
@@ -1219,6 +1257,9 @@ impl P4eArgsHost {
         }
         put32(&mut b, 208, self.eps.to_bits());
         put32(&mut b, 212, self.c.to_bits());
+        for (i, p) in self.head.into_iter().enumerate() {
+            put64(&mut b, P4E_ARGS_HEAD + 8 * i, p);
+        }
         b
     }
 }
@@ -2497,6 +2538,20 @@ mod tests {
             assert!(at(h, i, 5) <= 101_376);
             assert!(i.div_ceil(32) <= 576 && h.div_ceil(32) <= 576, "the v7 area at {h}/{i}");
         }
+    }
+
+    /// 4E v9's module at the L40S's tile, the one the served-v9 doors gate
+    /// on: the step-3 module with the head's own pointers and the Tetra o
+    /// phase added (step3-4e timed d9da09aa…, 250,057 B).
+    #[test]
+    fn the_4e_v9_module_is_the_one_the_doors_gate_on() {
+        let t = format!("{}{}", p4e_rows_define(7).unwrap(), pers_unit_text("#define TILE_BLOCKS 64u\n"));
+        assert_eq!(t.len(), 252_757);
+        assert_eq!(
+            crate::sha256::sha256_hex(t.as_bytes()),
+            "1b422b62328be6752df4add43280565fd2a49cfa20ee26953b301abe7a15c530",
+            "the 4E v9 module moved: the served-v9 doors gate on this digest"
+        );
     }
 
     /// The unit a v9 config compiles: the served unit unchanged, then the

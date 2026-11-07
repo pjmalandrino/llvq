@@ -32,6 +32,18 @@
 #include "llvq_pers.cuh"
 #endif
 
+// A Tetra o_proj (the sealed 8B's): its stream and its own rotation, at the
+// width of the attention output. Held in global memory and named by one
+// pointer of Pers4eLayer, so the layer struct keeps inside form 5's area.
+struct Pers4eOT {
+    SegTetra t;                         // [hidden][n_heads*128 rotated]
+    const u32* signs;                   // the o rotation
+    const float* small;
+    u32 m, k;
+    float inv;
+    u32 pad;
+};
+
 struct Pers4eLayer {
     const unsigned short* ln1;          // [hidden]
     const u32* signs_a;                 // the q/k rotation
@@ -49,6 +61,7 @@ struct Pers4eLayer {
     const unsigned short* obi;
     u32 o_gpr, tetra_down;              // tetra_down: this layer's MLP takes the Tetra down branch
     SegArgs mlp;                        // the layer's MLP segment, step A's own struct
+    const Pers4eOT* ot;                 // a Tetra o (ow, osc, obi unread), or null for the int4 o
 };
 
 struct Pers4eArgs {
@@ -77,7 +90,34 @@ struct Pers4eArgs {
     u32 n_layers, vocab, hidden, emb_gpr;
     u32 n_heads, n_kv, groups, cap;
     float eps, c;                       // c: 1/sqrt(128) x log2(e), attn_ref::score_scale
+    const u32* head_w;                  // the head's int4 g64 table, [vocab][hidden]: emb_w when tied (the 4B),
+    const unsigned short* head_s;       // its own table when not (the 8B and the 14B); same group and widths
+    const unsigned short* head_b;
 };
+
+// The Tetra o phase: the context through its own rotation in this CTA's
+// shared memory (pers_rot_load and pers_rot_finish, rot_apply's bits), then
+// this CTA's rows [lo, hi) as the stream (pers_4e_rows, tv_tetra48_h's bits
+// and epilogue) and the residual: the MLP segment's Tetra down, at the o's
+// width. Same contract as pers_4e_o_int4: x read, out written, row by row.
+__device__ __forceinline__ void pers_4e_o_tetra(const Pers4eOT& O, const F1rTables& tab, const float* invnorm,
+                                                const unsigned short* ctx, float* cs, u32 d_ctx,
+                                                const unsigned short* x, unsigned short* out, u32 lo, u32 hi)
+{
+    __syncthreads();
+    pers_rot_load(ctx, O.signs, cs, d_ctx);
+    pers_rot_finish(cs, O.small, d_ctx, O.m, O.k, O.inv);
+    const u32 lane = threadIdx.x & 31u, warp = threadIdx.x >> 5, nw = blockDim.x >> 5;
+    unsigned short xr = 0u;
+    const auto row_of = [&](u32 k) {
+        const u32 r = lo + warp + k * nw;
+        return PersTRow{O.t.words + r * O.t.stride_u32, O.t.gscale, O.t.rscale, O.t.tail, r};
+    };
+    const auto start = [&](u32 k) { xr = __ldcg(x + lo + warp + k * nw); };
+    const auto epi = [&](u32 k, float y) { out[lo + warp + k * nw] = exact_hadd(xr, f2h(y)); };
+    pers_4e_rows(pers_warp_rows(lo, hi, warp, nw), O.t.nblocks, O.t.tail_w, tab, invnorm, cs, lane, row_of, start, epi);
+    __syncthreads();
+}
 
 struct Pers4eLaunch {
     u32 bar_base;                       // arrivals before this launch (pers.rs::Ledger)
@@ -293,7 +333,11 @@ __device__ __forceinline__ void pers_4e_body(const Pers4eArgs* __restrict__ A, c
             const u32 attn_jobs = ((pos + 1u + 255u) / 256u) * A->n_kv;
             const auto prefetch_next = [&] {
                 const u32 olo = H * c0 / G, ohi = H * (c0 + 1u) / G, dctx = A->n_heads * 128u;
-                pers_l2_prefetch(Y.ow + (unsigned long long)olo * (dctx >> 3), 4ull * (ohi - olo) * (dctx >> 3));
+                if (Y.ot != nullptr)
+                    pers_l2_prefetch(Y.ot->t.words + (unsigned long long)olo * Y.ot->t.stride_u32,
+                                     4ull * (ohi - olo) * Y.ot->t.stride_u32);
+                else
+                    pers_l2_prefetch(Y.ow + (unsigned long long)olo * (dctx >> 3), 4ull * (ohi - olo) * (dctx >> 3));
                 const u32 glo = Y.mlp.slice_gu[2u * c0], ghi = Y.mlp.slice_gu[2u * c0 + 1u];
                 pers_l2_prefetch(Y.mlp.gate.words + (unsigned long long)glo * Y.mlp.gate.stride_u32,
                                  4ull * (ghi - glo) * Y.mlp.gate.stride_u32);
@@ -306,8 +350,12 @@ __device__ __forceinline__ void pers_4e_body(const Pers4eArgs* __restrict__ A, c
                                          nullptr);
             if (c0 < attn_jobs) prefetch_next();
             PERS_WAIT(e0 + 5u);
-            pers_4e_o_int4<PF>(Y.ow, Y.osc, Y.obi, Y.o_gpr, A->ctx, v, A->n_heads * 128u, A->x_a, A->x_b, H * c0 / G,
-                           H * (c0 + 1u) / G);
+            if (Y.ot != nullptr)
+                pers_4e_o_tetra(*Y.ot, tab, t_inv, A->ctx, v, A->n_heads * 128u, A->x_a, A->x_b, H * c0 / G,
+                                H * (c0 + 1u) / G);
+            else
+                pers_4e_o_int4<PF>(Y.ow, Y.osc, Y.obi, Y.o_gpr, A->ctx, v, A->n_heads * 128u, A->x_a, A->x_b,
+                                   H * c0 / G, H * (c0 + 1u) / G);
 #if PERS_4E_ROWS >= 5
             // ln2's rotation inputs, during the o phase's barrier
             PERS_WAIT_GAP(e0 + 7u, [&] { pers_v7_stage_rot(area, Y.mlp.signs_h, H, Y.mlp.small_h, Y.mlp.k_h); });
@@ -334,7 +382,7 @@ __device__ __forceinline__ void pers_4e_body(const Pers4eArgs* __restrict__ A, c
         const float sc = exact_rms_scale<0>(A->x_a, H, A->eps);
         for (u32 i = threadIdx.x; i < H; i += blockDim.x) v[i] = h2f(exact_rms_apply(sc, __ldcg(A->x_a + i), A->final_norm[i]));
         __syncthreads();
-        const u32 next = pers_head_argmax<PF>(A->emb_w, A->emb_s, A->emb_b, v, H, A->emb_gpr, A->vocab * c0 / G,
+        const u32 next = pers_head_argmax<PF>(A->head_w, A->head_s, A->head_b, v, H, A->emb_gpr, A->vocab * c0 / G,
                                           A->vocab * (c0 + 1u) / G, A->slots + (pos & 1u), A->nan_flag, A->bar,
                                           PERS_BAR(), A->abort_flag, nullptr);
         if (next == 0xffffffffu) return;  // a NaN logit or an abort: the host reads the flags

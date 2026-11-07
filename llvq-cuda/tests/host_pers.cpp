@@ -1177,10 +1177,12 @@ int main() {
         OFF(Pers4eQkv, d_in); OFF(Pers4eQkv, q); OFF(Pers4eQkv, v);
         o.push_back((u32)sizeof(Pers4eLayer));
         OFF(Pers4eLayer, m_a); OFF(Pers4eLayer, inv_a); OFF(Pers4eLayer, qkv); OFF(Pers4eLayer, q_norm); OFF(Pers4eLayer, obi);
-        OFF(Pers4eLayer, o_gpr); OFF(Pers4eLayer, tetra_down); OFF(Pers4eLayer, mlp);
+        OFF(Pers4eLayer, o_gpr); OFF(Pers4eLayer, tetra_down); OFF(Pers4eLayer, mlp); OFF(Pers4eLayer, ot);
         o.push_back((u32)sizeof(Pers4eArgs));
         OFF(Pers4eArgs, invnorm); OFF(Pers4eArgs, attn_ticket); OFF(Pers4eArgs, n_layers); OFF(Pers4eArgs, cap);
-        OFF(Pers4eArgs, eps); OFF(Pers4eArgs, c);
+        OFF(Pers4eArgs, eps); OFF(Pers4eArgs, c); OFF(Pers4eArgs, head_w); OFF(Pers4eArgs, head_b);
+        o.push_back((u32)sizeof(Pers4eOT));
+        OFF(Pers4eOT, t); OFF(Pers4eOT, signs); OFF(Pers4eOT, small); OFF(Pers4eOT, m); OFF(Pers4eOT, k); OFF(Pers4eOT, inv);
         o.push_back((u32)sizeof(Pers4eLaunch));
         OFF(Pers4eLaunch, eos); OFF(Pers4eLaunch, ring); OFF(Pers4eLaunch, stamps);
 #undef OFF

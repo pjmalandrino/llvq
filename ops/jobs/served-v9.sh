@@ -46,8 +46,10 @@ CV6_SHA_WANT=ffbeb4157d43e5811eef038581621bea43522495489841bf474ff00198307887
 # llvq-cuda's the_tiled_served_unit_is_the_served_unit_and_the_tile_readers. The v6 door keeps the 11-part unit.
 SERVED_SHA_V9=e269ea5d11b7e40ba0682f536f52ed9f09abfaa9fd6f3185eb306edca5c60e53
 SERVED_SHA_V6=6193094310bc18acdb0a0c554807ff45f6df09c1f6ab49e0577032874f107812
-# 4E's row form 7 module, the one step3-4e timed (docs/mesures/step3-4e-2026-11-07-brut/pers-4e.txt).
-P4E_V9_SHA=d9da09aa5de328d2890b873d0e7790a89e77198e33d5f4038879cb4056da3264
+# 4E's row form 7 module: step3-4e's (d9da09aa, 250,057 B) with the head's own pointers and the Tetra o phase added
+# for the 8B and the 14B (proofs/preregistration-served-v9-2026-11-07-ECARTS.md, deviation 1). Pinned by llvq-cuda's
+# the_4e_v9_module_is_the_one_the_doors_gate_on.
+P4E_V9_SHA=1b422b62328be6752df4add43280565fd2a49cfa20ee26953b301abe7a15c530
 REPLAY_FP=94c7b98876288901
 # The 4B's vector prologue inputs from v7 on: act, x_a, x_b, ctx, then ln1 and ln2 of each of the 36 layers.
 V9_INPUTS=76
@@ -145,7 +147,8 @@ v9_loaded() {  # the load and 4E install lines: the tiled int4 words held once, 
   grep -qE '^int4: tv_q4_hht equals tv_q4_ht bit for bit on ' "$1" || { echo "gate: $1 has no tiled f16/f32 parity line" >&2; exit 1; }
   test "$(grep -cE "^int4: tv_q4_hht on the tiled words equals tv_q4_hh on the file's order bit for bit on .* \(([0-9]+) rows, d_in (2560|4096|9728)\); the file-order copy is freed" "$1")" = 3 \
     || { echo "gate: $1 did not check the tiled reader on the three int4 widths" >&2; exit 1; }
-  grep -qF "4E: persistent module 250057 bytes, sha256 $P4E_V9_SHA, row form 7," "$1" || { echo "gate: $1 did not install step3's row form 7 module" >&2; exit 1; }
+  grep -qF "4E: persistent module 252757 bytes, sha256 $P4E_V9_SHA, row form 7," "$1" || { echo "gate: $1 did not install the row form 7 module $P4E_V9_SHA" >&2; exit 1; }
+  grep -qF "4E: head tied to the embedding's table (151936 rows)" "$1" || { echo "gate: $1 did not read the tied head" >&2; exit 1; }
   grep -qF "4E v9: the $V9_INPUTS prologue inputs are 16-byte aligned; the vector path runs on every layer" "$1" \
     || { echo "gate: $1 did not run the vector prologues on the $V9_INPUTS inputs" >&2; exit 1; }
   grep -qF "4E v9: the int4 records are read in place, tiled at load and held once on the card (36 layers)" "$1" \

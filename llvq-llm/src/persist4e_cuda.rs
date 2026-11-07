@@ -31,10 +31,11 @@
 //! on the card and keeps the form (pers_rope_pair) that matches it, or
 //! refuses.
 //!
-//! This version reads the 4B's shape: q and k Tetra under one rotation, v and
-//! o int4, a Tetra or int4 down per layer, a tied int4 g64 table. The sealed
-//! 14B has that layer shape but an untied head; the sealed 8B also holds o in
-//! Tetra. Anything else is refused at install by name.
+//! This version reads the three sealed shapes: q and k Tetra under one
+//! rotation, v int4, o int4 (4B, 14B) or Tetra under its own rotation (8B, a
+//! `Pers4eOT` image a layer), a Tetra or int4 down per layer, and the head on
+//! the embedding's int4 g64 table (4B, tied) or on its own (8B, 14B). Anything
+//! else is refused at install by name.
 //!
 //! v9 (row form 7) reads the int4 words tiled. Under a v9 config the loader
 //! wrote them so and the eager path reads the same buffers
@@ -86,6 +87,8 @@ pub struct Runtime4e {
     _held32: Vec<CudaSlice<u32>>,
     _heldf: Vec<CudaSlice<f32>>,
     _held64: Vec<CudaSlice<u64>>,
+    /// The Tetra o images (`Pers4eOT`), one a layer that has one.
+    _held8: Vec<CudaSlice<u8>>,
     /// The (cap, K, V addresses) the uploaded images carry.
     kv_seen: Vec<(usize, u64, u64)>,
     /// The first position a launch may start at: the served threshold, or 0
@@ -261,13 +264,26 @@ pub fn install_rows_as(
         Embed::Dense(_) => None,
     }
     .ok_or_else(|| anyhow::anyhow!("4E: the embedding is not the int4 g64 table (LLVQ_EMBED=q4)"))?;
-    let tied = match head {
+    // The head: the embedding's own table when tied (the 4B), a table of its
+    // own when not (the 8B and the 14B), of the same shape and group, read by
+    // the head phase through its own pointers.
+    let hv = match head {
         Head::Q8(t) => t.as_any().and_then(|a| a.downcast_ref::<crate::fused_cuda::CudaEmbed>()).and_then(|c| c.q4_view()),
         Head::Dense(_) => None,
-    };
-    if tied.map(|h| h.words) != Some(emb.words) || emb.d != hidden || emb.vocab % 8 != 0 {
-        anyhow::bail!("4E: the head is not the embedding's own int4 g64 table (4E reads a tied head, the 4B's; the 8B and 14B heads are untied)");
     }
+    .ok_or_else(|| anyhow::anyhow!("4E: the head is not an int4 g64 table (LLVQ_EMBED=q4)"))?;
+    if emb.d != hidden || emb.vocab % 8 != 0 || (hv.vocab, hv.d, hv.gpr) != (emb.vocab, emb.d, emb.gpr) {
+        anyhow::bail!(
+            "4E: the head table ({} x {}, {} groups a row) is not the embedding's shape ({} x {}, {})",
+            hv.vocab, hv.d, hv.gpr, emb.vocab, emb.d, emb.gpr
+        );
+    }
+    let tied = hv.words == emb.words;
+    lines.push(format!(
+        "4E: head {} ({} rows)",
+        if tied { "tied to the embedding's table" } else { "on a table of its own (untied)" },
+        hv.vocab
+    ));
     if cos.dtype() != DType::F16 || norm_w.dtype() != DType::F16 {
         anyhow::bail!("4E: the rotary tables and norms must be binary16");
     }
@@ -314,6 +330,7 @@ pub fn install_rows_as(
 
     let mut layers_host = Vec::with_capacity(model.blocks.len());
     let mut int4_layout: Option<crate::fused::Int4Layout> = None;
+    let mut held_ot: Vec<CudaSlice<u8>> = Vec::new();
     for (l, block) in model.blocks.iter().enumerate() {
         let (ln1, qn, kn, qp, kp, vp, op) = block.attn_parts();
         let ctxt = |m: &str| anyhow::anyhow!("4E: layer {l}: {m}");
@@ -328,17 +345,44 @@ pub fn install_rows_as(
             return Err(ctxt("the q/k rotation is not the hidden width's"));
         }
         let vq = int4_of(vp).ok_or_else(|| ctxt("v_proj is not an int4 record"))?.int4_view();
-        let oq = int4_of(op).ok_or_else(|| ctxt("o_proj is not an int4 record (an 8B Tetra o is not in this version)"))?.int4_view();
-        if vq.d_in != hidden || vq.d_out != (n_kv * 128) as u32 || oq.d_in != (n_heads * 128) as u32 || oq.d_out != hidden {
-            return Err(ctxt("v or o has an unexpected shape"));
+        if vq.d_in != hidden || vq.d_out != (n_kv * 128) as u32 {
+            return Err(ctxt("v has an unexpected shape"));
         }
+        // o: an int4 record (the 4B, the 14B), or a Tetra stream under its own
+        // rotation at the context's width (the 8B), named by a Pers4eOT image.
+        let d_ctx = (n_heads * 128) as u32;
+        let (oq, ot_addr) = match (int4_of(op), tetra_of(op)) {
+            (Some(q), _) => {
+                let oq = q.int4_view();
+                if oq.d_in != d_ctx || oq.d_out != hidden {
+                    return Err(ctxt("o has an unexpected shape"));
+                }
+                (Some(oq), 0u64)
+            }
+            (None, Some((ov, _))) => {
+                if ov.d_in != d_ctx || ov.d_out != hidden {
+                    return Err(ctxt("the Tetra o has an unexpected shape"));
+                }
+                let okey = ov.rotation.ok_or_else(|| ctxt("the Tetra o_proj carries no rotation"))?;
+                let ro = frt.rot_view(&okey).ok_or_else(|| ctxt("no rotation buffers for o"))?;
+                if ro.n != d_ctx || pers::rot_mk(ro.n).map_err(anyhow::Error::msg)? != (ro.m, ro.k) {
+                    return Err(ctxt("the o rotation is not the context's width"));
+                }
+                let img = pers::P4eOTHost { t: seg_tetra(&ov), signs: ro.signbits, small: ro.small, m: ro.m, k: ro.k, inv: ro.inv };
+                let buf = stream.clone_htod(&img.bytes()).map_err(|e| anyhow::anyhow!("H2D: {e}"))?;
+                let a = buf.device_ptr(&stream).0;
+                held_ot.push(buf);
+                (None, a)
+            }
+            (None, None) => return Err(ctxt("o_proj is neither an int4 record nor a Tetra48 stream")),
+        };
         if qv.d_out != (n_heads * 128) as u32 || kv.d_out != (n_kv * 128) as u32 || qv.d_in != hidden || kv.d_in != hidden {
             return Err(ctxt("q or k has an unexpected shape"));
         }
         let (mlp, tetra_down, down_layout) = mlp_args(block, &frt, &base, &stream)?;
         // One word order for every int4 record 4E reads: the runtime chose it
         // for all of them at load.
-        for (what, got) in [("v_proj", Some(vq.layout)), ("o_proj", Some(oq.layout)), ("down_proj", down_layout)] {
+        for (what, got) in [("v_proj", Some(vq.layout)), ("o_proj", oq.map(|o| o.layout)), ("down_proj", down_layout)] {
             let Some(got) = got else { continue };
             match int4_layout {
                 None => int4_layout = Some(got),
@@ -372,12 +416,13 @@ pub fn install_rows_as(
             k_norm: tensor_addr(kn, &stream)?,
             kc: 0,
             vc: 0,
-            ow: oq.wq,
-            osc: oq.scales,
-            obi: oq.biases,
-            o_gpr: oq.gpr,
+            ow: oq.map_or(0, |o| o.wq),
+            osc: oq.map_or(0, |o| o.scales),
+            obi: oq.map_or(0, |o| o.biases),
+            o_gpr: oq.map_or(0, |o| o.gpr),
             tetra_down,
             mlp,
+            ot: ot_addr,
         });
     }
     let args_host = pers::P4eArgsHost {
@@ -415,7 +460,12 @@ pub fn install_rows_as(
         cap: 0,
         eps: cfg.rms_norm_eps as f32,
         c: llvq_cuda::attn_ref::score_scale(128),
+        head: [hv.words, hv.scales, hv.biases],
     };
+    let tetra_o = layers_host.iter().filter(|y| y.ot != 0).count();
+    if tetra_o > 0 {
+        lines.push(format!("4E: {tetra_o} Tetra o_proj read under their own rotation, {} int4", layers_host.len() - tetra_o));
+    }
     if rows_form >= 4 {
         let mut addrs = vec![
             ("act".to_string(), base.act),
@@ -487,7 +537,9 @@ pub fn install_rows_as(
             };
             for y in layers_host.iter_mut() {
                 y.qkv.vw = tile(y.qkv.vw, y.qkv.v_dout, y.qkv.d_in)?;
-                y.ow = tile(y.ow, hidden, (n_heads * 128) as u32)?;
+                if y.ot == 0 {
+                    y.ow = tile(y.ow, hidden, (n_heads * 128) as u32)?;
+                }
                 if !y.tetra_down {
                     y.mlp.q4w = tile(y.mlp.q4w, hidden, inter)?;
                 }
@@ -533,6 +585,7 @@ pub fn install_rows_as(
         },
         _heldf: vec![scratch],
         _held64: vec![slots],
+        _held8: held_ot,
         kv_seen: Vec::new(),
         kernel_from: crate::kvq::KERNEL_FROM,
         lines,

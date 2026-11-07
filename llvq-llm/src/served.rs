@@ -62,8 +62,8 @@
 //! * beside any attention but `kernel`, and beside any other field than the
 //!   served 4B's (tetra48, q4, rot_share 1, fuse 0, kv f16): 4E reads those;
 //! * on Metal, where 4E has no kernel;
-//! * on any shape but the Qwen3-4B's, the one object it has run on and the
-//!   only one the T8 covers ([`check_persistent_object`]);
+//! * on any shape but the three sealed Qwen3 shapes, 4B, 8B and 14B
+//!   ([`check_persistent_object`]);
 //! * beside any measurement-mode variable ([`MEASUREMENT_MODES`]).
 //!
 //! ## Pure where it can be
@@ -292,9 +292,10 @@ pub const MEASUREMENT_MODES: [&str; 17] = [
     "LLVQ_INT4_WIDE_CHECK", "LLVQ_GESTURE_AB", "LLVQ_BOUNDARY_AB", "LLVQ_PERS_SEGMENT", "LLVQ_PERS_4E",
 ];
 
-/// The persistent engine against the model's shape: the Qwen3-4B's, the one
-/// object 4E has run on and the one the T8 extension covers. Pure, on the
-/// config candle read from the file.
+/// The persistent engine against the model's shape: the three sealed Qwen3
+/// shapes 4E reads (the 4B's since 2026-11-05; the 8B's, with its Tetra o and
+/// its untied head, and the 14B's, with its untied head, since 2026-11-07).
+/// Any other shape is refused. Pure, on the config candle read from the file.
 pub fn check_persistent_object(cfg: &candle_transformers::models::qwen3::Config) -> Result<(), String> {
     let got = (
         cfg.num_hidden_layers,
@@ -305,29 +306,18 @@ pub fn check_persistent_object(cfg: &candle_transformers::models::qwen3::Config)
         cfg.head_dim,
         cfg.vocab_size,
     );
-    let want = (36, 2560, 9728, 32, 8, 128, 151_936);
-    // Why each other sealed size is refused, named, so a reader of the
-    // refusal does not have to rediscover it (docs/ETAT.md section 5).
-    let why = match got {
-        (36, 4096, 12288, 32, 8, 128, 151_936) => {
-            " The sealed Qwen3-8B holds o_proj in Tetra (its int4 records are v and the downs of layers 10 to \
-             26) and an untied head: 4E reads an int4 o and the embedding's own table as the head, so it would \
-             need a Tetra o phase (a rotation of the context and its rows) and a head table of its own."
-        }
-        (40, 5120, 17408, 40, 8, 128, 151_936) => {
-            " The sealed Qwen3-14B fits 4E's shared memory (96,064 B of the L40S's 101,376 at v9) and its \
-             int4 down rows, but its head is untied: 4E reads the embedding's own table as the head, so it \
-             would need a head table of its own. The kernel form below 1,280 has no T8 at 14B either."
-        }
-        _ => "",
-    };
-    match got == want {
+    type Shape = (usize, usize, usize, usize, usize, usize, usize);
+    const SEALED: [(&str, Shape); 3] = [
+        ("4B", (36, 2560, 9728, 32, 8, 128, 151_936)),
+        ("8B", (36, 4096, 12288, 32, 8, 128, 151_936)),
+        ("14B", (40, 5120, 17408, 40, 8, 128, 151_936)),
+    ];
+    match SEALED.iter().any(|(_, s)| *s == got) {
         true => Ok(()),
         false => Err(format!(
             "decode \"persistent\" on a model of (layers, hidden, intermediate, heads, kv heads, head dim, \
-             vocab) = {got:?}. 4E has run, and the kernel form's T8 extension below 1,280 was granted, on the \
-             sealed Qwen3-4B only {want:?}: the 8B and the 14B are not covered.{why} Serve this object with \
-             the eager engine (delete the decode key)."
+             vocab) = {got:?}. 4E reads the three sealed Qwen3 shapes only, the 4B, the 8B and the 14B \
+             {SEALED:?}. Serve this object with the eager engine (delete the decode key)."
         )),
     }
 }

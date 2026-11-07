@@ -196,7 +196,9 @@ RUN test -f /usr/local/share/llvq/configs/qwen3-4b-tetra-e4.json \
 # line, but a chat or a census names the shipped file.
 RUN test -f /usr/local/share/llvq/configs/qwen3-4b-tetra-e4-4e-v4.json \
  && test -f /usr/local/share/llvq/configs/qwen3-4b-tetra-e4-4e-v6.json \
- && test -f /usr/local/share/llvq/configs/qwen3-4b-tetra-e4-4e-v9.json
+ && test -f /usr/local/share/llvq/configs/qwen3-4b-tetra-e4-4e-v9.json \
+ && test -f /usr/local/share/llvq/configs/qwen3-8b-tetra-e4-4e-v9.json \
+ && test -f /usr/local/share/llvq/configs/qwen3-14b-tetra-e4-4e-v9.json
 # `export` and `rowscale` are RUN here, not just tested for presence. This
 # stage runs on the Space builder, which has no GPU and no `libcuda.so.1`, so a
 # binary linked against it fails to load HERE, by name, rather than on `cpu-xl`

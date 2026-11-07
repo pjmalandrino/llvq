@@ -251,13 +251,15 @@ the bar is the paired interval, 0.43 pp in MMLU and 0.12% in perplexity (*measur
   4B cost $2.02 (*computed*, [gsm8k-grouped](mesures/gsm8k-grouped-2026-11-04.txt)).
 - **An int4 KV cache.** It is the next throughput lever after 4E, and it touches quality, so it is outside any
   "negligible" go.
-- **4E at 8B and 14B.** 4E does not hold on either sealed file, and `served.rs` refuses both shapes by name. The 8B
-  holds `o_proj` in Tetra and an untied head; 4E reads an int4 `o` and the embedding's own table as the head, so it
-  would need a Tetra o phase (a rotation of the context, then its rows) and a head table of its own. The 14B fits v9's
-  shared memory, 96,064 B of the 101,376 an L40S CTA may ask, int4 down input included (*computed*), but its head is
-  untied too. A head table of its own is three pointers in 4E's argument struct and a host-tested head phase, before
-  any card. Neither size has a T8 of the kernel form below 1,280, and serving it there needs one (K6 of
-  [plan-300](plan-300.md)). The operator decides whether to open either.
+- **4E v9 at 8B and 14B.** `qwen3-8b-tetra-e4-4e-v9.json` and `qwen3-14b-tetra-e4-4e-v9.json` are written. 4E now
+  reads the head through pointers of its own (both heads are untied) and the 8B's Tetra `o_proj` under its own
+  rotation. On the host the token loop with both equals the served chain byte for byte, for v4, v6, v8 and v9
+  (*measured*, `llvq-cuda/tests/pers_matches_served.rs`). v9 asks 96,064 B of shared memory a CTA at 14B and 85,952 at
+  8B, of 101,376 (*computed*). The kernel attention form those configs serve has no T8 below 1,280 at either size:
+  each door job, `SIZE=8b|14b ops/jobs/served-v9-big.sh`, reads the paired perplexity against the grouped form with
+  the identity, the sweep and the 50-problem pilot. About $1.05 and $1.80 (*estimated*), prereg
+  `proofs/preregistration-served-v9-8b-14b-2026-11-07.md`. The 8B and the 14B stay on their grouped configs until
+  those doors read.
 - **The next venue for paper 2.** TACO desk-rejected paper 1 on 2026-08-27 on scope. Version 2 sits in release
   `v0.0.2`, and no archive (arXiv, Zenodo) holds it yet. Default if silent: preprint only.
 - **A harder reasoning test**, Qwen3's reasoning mode or GSM-Symbolic, about 3 to 5 $ at 4B (*estimated*).
