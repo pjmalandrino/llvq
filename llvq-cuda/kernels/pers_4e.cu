@@ -406,3 +406,18 @@ __device__ __forceinline__ void pers_rope_probe_body(const unsigned short* a, co
 PERS_ROPE_PROBE(pers_rope_probe_f0, 0)
 PERS_ROPE_PROBE(pers_rope_probe_f1, 1)
 PERS_ROPE_PROBE(pers_rope_probe_f2, 2)
+
+#if PERS_4E_ROWS >= 7
+// Form 7's words (pers_q4_tile_index), written once at install from the
+// served record into a buffer of the same size: the bits move, none changes.
+extern "C" __global__ void pers_4e_q4_tile_relayout(const u32* __restrict__ src, u32* __restrict__ dst, u32 d_out,
+                                                    u32 nwords)
+{
+    const unsigned long long n = (unsigned long long)d_out * nwords;
+    for (unsigned long long i = (unsigned long long)blockIdx.x * blockDim.x + threadIdx.x; i < n;
+         i += (unsigned long long)gridDim.x * blockDim.x) {
+        const u32 r = (u32)(i / nwords), wi = (u32)(i - (unsigned long long)r * nwords);
+        dst[(size_t)r * nwords + pers_q4_tile_index(wi, nwords)] = src[i];
+    }
+}
+#endif

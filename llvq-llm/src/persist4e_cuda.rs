@@ -59,6 +59,8 @@ pub struct Runtime4e {
     pub rows_form: u32,
     pub grid: u32,
     smem: u32,
+    /// The launch asks for more shared bytes than the form needs.
+    padded: bool,
     pub form: u32,
     layers_host: Vec<pers::P4eLayerHost>,
     args_host: pers::P4eArgsHost,
@@ -153,6 +155,20 @@ pub fn install(model: &Qwen3, device: &Device, max_tokens: u32, threads: Option<
 /// 2 is v4, what the served config runs since 2026-11-05; 3 is v5; 4 is v6.
 /// `LLVQ_PERS_4E` times `pers::P4E_BENCH_FORMS`.
 pub fn install_rows(model: &Qwen3, device: &Device, max_tokens: u32, threads: Option<u32>, rows_form: u32) -> anyhow::Result<Runtime4e> {
+    install_rows_as(model, device, max_tokens, threads, rows_form, None)
+}
+
+/// [`install_rows`], the launch asking for at least the dynamic shared bytes
+/// of row form `smem_of` (a measurement: the same code and bits, with the
+/// L1/shared carve-out a larger form forces). Its label carries an `s`.
+pub fn install_rows_as(
+    model: &Qwen3,
+    device: &Device,
+    max_tokens: u32,
+    threads: Option<u32>,
+    rows_form: u32,
+    smem_of: Option<u32>,
+) -> anyhow::Result<Runtime4e> {
     let dev = device.as_cuda_device()?;
     let stream = dev.cuda_stream();
     let mut lines = Vec::new();
@@ -187,7 +203,11 @@ pub fn install_rows(model: &Qwen3, device: &Device, max_tokens: u32, threads: Op
     lines.push(format!("4E: RoPE forms equal to candle's rope on this card: {forms:?}; running form {form}"));
 
     // The block size: 768 where the card's module does not spill, else 512.
-    let smem = pers::p4e_smem_bytes_form(rows_form, hidden, inter, groups as u32) + pers::p4e_scratch_bytes(rows_form);
+    let own = pers::p4e_smem_bytes_form(rows_form, hidden, inter, groups as u32) + pers::p4e_scratch_bytes(rows_form);
+    let smem = smem_of.map_or(own, |o| own.max(pers::p4e_smem_bytes_form(o, hidden, inter, groups as u32) + pers::p4e_scratch_bytes(o)));
+    if smem != own {
+        lines.push(format!("4E: row form {rows_form} asks for {smem} B of dynamic shared memory, its own {own} B padded (measurement)"));
+    }
     let mut chosen = None;
     let sizes: Vec<u32> = match threads {
         None => vec![768, 512],
@@ -399,6 +419,47 @@ pub fn install_rows(model: &Qwen3, device: &Device, max_tokens: u32, threads: Op
         let label = pers::P4E_ROWS_FORMS.iter().find(|f| f.0 == rows_form).map_or("v?", |f| f.1);
         lines.push(format!("4E {label}: the {} prologue inputs are 16-byte aligned; the vector path runs on every layer", addrs.len()));
     }
+    // v9 (form 7): the int4 records 4E reads (v, o, the int4 downs), relaid
+    // once into buffers of the same size (pers_q4_tile_index, llvq_pers.cuh);
+    // the served records stay as they are for the prefill and the eager path,
+    // so this measurement form holds the int4 bytes twice on the card.
+    let mut tiled: Vec<CudaSlice<u32>> = Vec::new();
+    if rows_form >= 7 {
+        let relay = cuda.func("pers_4e_q4_tile_relayout").map_err(anyhow::Error::msg)?;
+        let mut bytes = 0u64;
+        {
+            let mut tile = |src: u64, d_out: u32, d_in: u32| -> anyhow::Result<u64> {
+                if !d_in.is_multiple_of(32) || !src.is_multiple_of(16) {
+                    anyhow::bail!("4E v9: an int4 record of d_in {d_in} at {src:#x} cannot be read by 16-byte tiles");
+                }
+                let nwords = d_in / 8;
+                let buf = cuda.zeros_u32(d_out as usize * nwords as usize).map_err(anyhow::Error::msg)?;
+                let cfg = LaunchConfig { grid_dim: (1024, 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 0 };
+                let mut b = cuda.stream().launch_builder(&relay);
+                b.arg(&src).arg(&buf).arg(&d_out).arg(&nwords);
+                // SAFETY: src is a live int4 record of d_out x nwords words, buf
+                // a fresh buffer of the same size; the kernel only moves words.
+                unsafe { b.launch(cfg) }.map_err(|e| anyhow::anyhow!("pers_4e_q4_tile_relayout: {e}"))?;
+                let p = buf.device_ptr(&stream).0;
+                bytes += 4 * u64::from(d_out) * u64::from(nwords);
+                tiled.push(buf);
+                Ok(p)
+            };
+            for y in layers_host.iter_mut() {
+                y.qkv.vw = tile(y.qkv.vw, y.qkv.v_dout, y.qkv.d_in)?;
+                y.ow = tile(y.ow, hidden, (n_heads * 128) as u32)?;
+                if !y.tetra_down {
+                    y.mlp.q4w = tile(y.mlp.q4w, hidden, inter)?;
+                }
+            }
+        }
+        cuda.sync().map_err(anyhow::Error::msg)?;
+        lines.push(format!(
+            "4E v9: {} int4 records relaid into tiled words, {:.3} GB more on the card (measurement form)",
+            tiled.len(),
+            bytes as f64 / 1e9
+        ));
+    }
     let layers = stream.clone_htod(&vec![0u8; pers::P4E_LAYER_BYTES * layers_host.len()]).map_err(|e| anyhow::anyhow!("H2D: {e}"))?;
     let args = stream.clone_htod(&vec![0u8; pers::P4E_ARGS_BYTES]).map_err(|e| anyhow::anyhow!("H2D: {e}"))?;
     lines.push(format!("4E: {} layers, grid {grid} x {threads}, {} barriers a token", layers_host.len(), pers::n_bar_4e(layers_host.len() as u32)));
@@ -410,6 +471,7 @@ pub fn install_rows(model: &Qwen3, device: &Device, max_tokens: u32, threads: Op
         threads,
         rows_form,
         grid,
+        padded: smem != own,
         smem,
         form,
         layers_host,
@@ -424,7 +486,11 @@ pub fn install_rows(model: &Qwen3, device: &Device, max_tokens: u32, threads: Op
         bar_base: 0,
         n_layers,
         _held16: vec![silu, act, q_raw, k_raw, v_raw, q_out, ctx, x_a, x_b],
-        _held32: vec![d_gu, d_dn, ticket],
+        _held32: {
+            let mut v = vec![d_gu, d_dn, ticket];
+            v.extend(tiled);
+            v
+        },
         _heldf: vec![scratch],
         _held64: vec![slots],
         kv_seen: Vec::new(),
@@ -445,7 +511,8 @@ impl Runtime4e {
     /// threads".
     pub fn label(&self) -> String {
         let form = pers::P4E_ROWS_FORMS.iter().find(|f| f.0 == self.rows_form).map_or("v?", |f| f.1);
-        format!("{form} at {} threads", self.threads)
+        let pad = if self.padded { "s" } else { "" };
+        format!("{form}{pad} at {} threads", self.threads)
     }
 
     /// The first position a launch may start at.

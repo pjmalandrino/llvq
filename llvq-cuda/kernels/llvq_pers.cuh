@@ -1145,7 +1145,9 @@ __device__ __forceinline__ void pers_tetra_stream(u32 nrows, u32 nblocks, u32 ta
 // every warp (pers_4e_rows_cta). 4, 4E v6: form 2's rows, with ln1, ln2 and
 // the down's input in one round trip a thread (section 7b). 5, 4E v7: form 4
 // with the launch's constants read during the barriers (section 7c) and the o
-// phase's input widened from vectors. All five keep every bit.
+// phase's input widened from vectors. 6, 4E v8: form 5 with attention's
+// steps in a cp.async ring. 7, 4E v9: form 6 with the int4 rows on tiled
+// words. All keep every bit.
 #ifndef PERS_4E_ROWS
 #define PERS_4E_ROWS 1u
 #endif
@@ -1160,6 +1162,71 @@ __device__ __forceinline__ void pers_tetra_stream(u32 nrows, u32 nblocks, u32 ta
 #else
 #define PERS_4E_SCRATCH 0u
 #endif
+
+// Form 7 (4E v9, K11 of docs/plan-300.md): v8, with 4E's int4 rows (v, o and
+// the int4 downs) read from words relaid once at install, so one 128-bit
+// load gives lane l its words 128 t + l + 32 s, s = 0..3 (step1-micro's q4t,
+// x1.338 over pers_q4_row alone). Lane l still folds its words l, l + 32, ...
+// in increasing order, eight products each in increasing k, then the same
+// warp_sum: pers_q4_row's bits. The words past the last full tile of 128 keep
+// the served order. pers_q4_tile_index is the layout and
+// pers_4e_q4_tile_relayout (pers_4e.cu) writes it; nwords must be a multiple
+// of 4 and every row 16-byte aligned (persist4e_cuda.rs checks both).
+__device__ __forceinline__ u32 pers_q4_tile_index(u32 wi, u32 nwords)
+{
+    const u32 nt = nwords >> 7;
+    if (wi >= (nt << 7)) return wi;
+    const u32 t = wi >> 7, k = wi & 127u;
+    return (t << 7) + 4u * (k & 31u) + (k >> 5);
+}
+
+__device__ __forceinline__ float pers_q4_row_tile(const u32* wq, const unsigned short* scales,
+                                                  const unsigned short* biases, const float* xs, u32 row, u32 d_in,
+                                                  u32 gpr, u32 lane)
+{
+    const u32 nwords = d_in >> 3, nt = nwords >> 7;
+    const u32* wrow = wq + (size_t)row * nwords;
+    const u32 s0 = row * gpr;
+    float acc = 0.0f;
+    uint4 P{0u, 0u, 0u, 0u};
+    if (nt > 0u) P = *reinterpret_cast<const uint4*>(wrow + 4u * lane);
+    for (u32 t = 0; t < nt; ++t) {
+        uint4 P2{0u, 0u, 0u, 0u};
+        if (t + 1u < nt) P2 = *reinterpret_cast<const uint4*>(wrow + ((t + 1u) << 7) + 4u * lane);
+        const u32 w[4] = {P.x, P.y, P.z, P.w};
+#pragma unroll
+        for (u32 s = 0; s < 4u; ++s) {
+            const u32 c = ((t << 7) + 32u * s + lane) << 3;
+            const u32 g = (c >> 7) + s0;  // the group of word c / 8
+            const u32 sb = scales[g], bb = biases[g];
+#pragma unroll
+            for (u32 k = 0; k < 8u; ++k) acc = __fmaf_rn(pers_q4_deq((w[s] >> (4u * k)) & 0xfu, sb, bb), xs[c + k], acc);
+        }
+        P = P2;
+    }
+    for (u32 wi = (nt << 7) + lane; wi < nwords; wi += 32u) {
+        const u32 p = wrow[wi];
+        const u32 c = wi << 3;
+        const u32 g = (c >> 7) + s0;  // the group of word c / 8
+        const u32 sb = scales[g], bb = biases[g];
+#pragma unroll
+        for (u32 k = 0; k < 8u; ++k) acc = __fmaf_rn(pers_q4_deq((p >> (4u * k)) & 0xfu, sb, bb), xs[c + k], acc);
+    }
+    return warp_sum(acc);
+}
+
+// 4E's int4 row: form 7's tiled words, else pers_q4_row on the served words.
+template <bool PF>
+__device__ __forceinline__ float pers_q4_row_4e(const u32* wq, const unsigned short* scales,
+                                                const unsigned short* biases, const float* xs, u32 row, u32 d_in,
+                                                u32 gpr, u32 lane)
+{
+#if PERS_4E_ROWS >= 7
+    return pers_q4_row_tile(wq, scales, biases, xs, row, d_in, gpr, lane);
+#else
+    return pers_q4_row<PF>(wq, scales, biases, xs, row, d_in, gpr, lane);
+#endif
+}
 
 // Form 2: the stream's interface, one row after the other. Lane 0 reads the
 // row's rscale and runs START before the blocks, so their loads are in flight
@@ -1325,7 +1392,7 @@ __device__ __forceinline__ void pers_4e_qkv_rows(const Pers4eQkv& P, const F1rTa
 #endif
         const u32 vlo = P.v_dout * c / g, vhi = P.v_dout * (c + 1u) / g;
         for (u32 rv = vlo + warp; rv < vhi; rv += nw) {
-            const float acc = pers_q4_row<true>(P.vw, P.vsc, P.vbi, xn, rv, P.d_in, P.v_gpr, lane);
+            const float acc = pers_q4_row_4e<true>(P.vw, P.vsc, P.vbi, xn, rv, P.d_in, P.v_gpr, lane);
             if (lane == 0u) P.v[rv] = f2h(acc);
         }
         __syncthreads();
@@ -1351,7 +1418,7 @@ __device__ __forceinline__ void pers_4e_qkv_rows(const Pers4eQkv& P, const F1rTa
             if (lane == 0u) P.k[rk] = y;
         } else {
             const u32 rv = r - P.q_dout - P.k_dout;
-            const float acc = pers_q4_row<PF>(P.vw, P.vsc, P.vbi, xn, rv, P.d_in, P.v_gpr, lane);
+            const float acc = pers_q4_row_4e<PF>(P.vw, P.vsc, P.vbi, xn, rv, P.d_in, P.v_gpr, lane);
             if (lane == 0u) P.v[rv] = f2h(acc);
         }
     }
@@ -1382,10 +1449,10 @@ __device__ __forceinline__ void pers_4e_o_int4(const u32* ow, const unsigned sho
         if (r >= hi) break;
 #if PERS_4E_ROWS >= 5
         const unsigned short xr = lane == 0u ? __ldcg(x + r) : (unsigned short)0u;
-        const float acc = pers_q4_row<PF>(ow, osc, obi, cs, r, d_ctx, gpr, lane);
+        const float acc = pers_q4_row_4e<PF>(ow, osc, obi, cs, r, d_ctx, gpr, lane);
         if (lane == 0u) out[r] = exact_hadd(xr, f2h(acc));
 #else
-        const float acc = pers_q4_row<PF>(ow, osc, obi, cs, r, d_ctx, gpr, lane);
+        const float acc = pers_q4_row_4e<PF>(ow, osc, obi, cs, r, d_ctx, gpr, lane);
         if (lane == 0u) out[r] = exact_hadd(__ldcg(x + r), f2h(acc));
 #endif
     }

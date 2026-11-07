@@ -203,6 +203,24 @@
         M.hidden = H; M.inter = I; M.m_h = rm.m; M.k_h = rm.k; M.m_i = rd_.m; M.k_i = rd_.k;
         M.inv_h = rm.inv; M.inv_i = rd_.inv; M.eps = eps; M.gpr = I / 128;
     }
+#if PERS_4E_ROWS >= 7
+    // Form 7 reads its int4 rows (v, o, the int4 down) from words relaid by
+    // pers_q4_tile_index, as persist4e_cuda.rs relays them on the card.
+    std::vector<std::vector<u32>> tiled;
+    auto tile = [&](const std::vector<u32>& w, u32 d_out, u32 d_in) -> const u32* {
+        const u32 nw = d_in / 8;
+        std::vector<u32> t(w.size());
+        for (u32 row = 0; row < d_out; ++row)
+            for (u32 wi = 0; wi < nw; ++wi) t[(size_t)row * nw + pers_q4_tile_index(wi, nw)] = w[(size_t)row * nw + wi];
+        tiled.push_back(std::move(t));
+        return tiled.back().data();
+    };
+    for (u32 l = 0; l < NL; ++l) {
+        PL[l].qkv.vw = tile(Ls[l].vw, NKV * 128, H);
+        PL[l].ow = tile(Ls[l].ow, H, NH * 128);
+        if (!Ls[l].tetra_down) PL[l].mlp.q4w = tile(Ls[l].dqw, H, I);
+    }
+#endif
     Pers4eArgs A{};
     A.layers = PL.data(); A.emb_w = ew.data(); A.emb_s = es.data(); A.emb_b = eb.data(); A.final_norm = final_norm.data();
     A.cosr = cosr.data(); A.sinr = sinr.data(); A.x_a = x.data(); A.x_b = x_b.data(); A.q_out = q_out.data(); A.ctx = ctx.data();

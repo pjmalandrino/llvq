@@ -214,7 +214,8 @@ LLVQ_PERS_4E` now times v4, v6, v7 and v8 in one process (`pers::P4E_BENCH_FORMS
 - K2 holds. Down input 254.8 to 150.2 µs, ln1 319.9 to 227.0, ln2 158.3 to 135.5.
 - K3a fails its gate. Attention's slowest over mean reads 4.40. The ring halved the mean work (237 to 125 µs) and took
   79 µs off the wall; the job spread is what remains. At 8,192 the ring costs attention 141 µs.
-- v8's rows run 175 µs slower at 5 positions (gate/up +94, down +52, q/k/v +28); the cause is not established.
+- v8's rows read 175 µs slower on its stamps at 5 positions (gate/up +94, down +52, q/k/v +28). Its stamp symbol
+  spills 48 B, so this may be the stamps' own cost; the carve-out is the other candidate.
 - By the prereg's rule v8 stays a measurement. Step 3 is not chained.
 
 ## 7. At 8,192 positions

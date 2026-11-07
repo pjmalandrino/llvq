@@ -591,7 +591,7 @@ fn the_4e_layer_phases_are_the_served_chain() {
     let want = run(served(), &v);
     // the 512-thread path (the row stream) is the one these commands run
     for (tag, from, to) in [
-        ("v_reads_rotated", "pers_q4_row<true>(P.vw, P.vsc, P.vbi, xn, rv,", "pers_q4_row<true>(P.vw, P.vsc, P.vbi, ((void)xn, xr), rv,"),
+        ("v_reads_rotated", "pers_q4_row_4e<true>(P.vw, P.vsc, P.vbi, xn, rv,", "pers_q4_row_4e<true>(P.vw, P.vsc, P.vbi, ((void)xn, xr), rv,"),
         ("k_offset", "PersTRow{P.kw + (r - P.q_dout) * P.k_stride,", "PersTRow{P.kw + (r - P.q_dout + 1u) * P.k_stride,"),
         ("stream_tail_half", "                    if (tail_w > 8u) t1 = tp[1];\n", ""),
         ("stream_lane_order", "                const u32 j = lane + 32u * i;\n                if (j < nblocks) acc = pers_block(", "                const u32 j = lane + 32u * (nit - 1u - i);\n                if (j < nblocks) acc = pers_block("),
@@ -1828,5 +1828,77 @@ fn the_4e_v8_mutants_are_killed() {
         let b = build_side_with(&root, 1, "off", &format!("{tag}_v8"), &["PERS_4E_ROWS=6u"]);
         let killed = cmds.iter().any(|(c, w)| run_mutant(&b, c).is_none_or(|o| &o != w));
         assert!(killed, "v8 mutant {tag} survived");
+    }
+}
+
+// ---- 4E v9: v8 with the int4 rows on tiled words (PERS_4E_ROWS = 7) -------
+
+/// The persistent side with 4E's row form 7 (4E v9: v8, and every int4 row of
+/// the token loop, v, o and the int4 down, read from words relaid by
+/// `pers_q4_tile_index`, K11 of plan-300). The harness relays the 4E side's
+/// records as `persist4e_cuda.rs` does on the card; the served side keeps
+/// the served words.
+fn persistent_v9() -> &'static Path {
+    static B: OnceLock<PathBuf> = OnceLock::new();
+    B.get_or_init(|| build_side_with(&repo(), 1, "off", "pers_v9", &["PERS_4E_ROWS=7u"]))
+}
+
+/// The token loop of form 7 is the served chain: both row variants, each
+/// RoPE form, positions past 256, consecutive launches, and the stamp symbol.
+/// The v rows (d_in 2,560: 2 tiles and a 64-word tail), the o rows (4,096: 4
+/// tiles, no tail) and layer 1's int4 down (9,728: 9 tiles and a tail) all
+/// run the tiled reader.
+#[test]
+fn the_4e_v9_int4_tiles_are_the_served_chain() {
+    for (form, grid, threads, variant) in [(0u32, 3u32, 128u32, 0u32), (2, 4, 96, 2), (1, 5, 64, 2), (1, 3, 512, 2), (1, 2, 128, 0)] {
+        let cmd = g_cmd_variant(form, grid, threads, &[(5, 3, 7)], 16, u32::MAX, 0x9e40 + form as u64, variant);
+        let want = run(served(), &cmd);
+        let got = run(persistent_v9(), &cmd);
+        assert!(got[..got.len() - 8] == want[..want.len() - 8], "v9, form {form}, grid {grid}x{threads}, variant {variant}: tokens, residual or caches");
+    }
+    for (pos0, cap, seed) in [(64u32, 160u32, 0x9e50u64), (270, 288, 0x9e52)] {
+        let cmd = g_cmd_variant(1, 3, 128, &[(pos0, 3, 7)], cap, u32::MAX, seed, 2);
+        let (want, got) = (run(served(), &cmd), run(persistent_v9(), &cmd));
+        assert!(got[..got.len() - 8] == want[..want.len() - 8], "v9, positions from {pos0}");
+    }
+    let runs = [(5u32, 3u32, 7u32), (8, 2, 9)];
+    let cmd = g_cmd_variant(1, 4, 96, &runs, 16, u32::MAX, 0x9e21, 2);
+    let (want, plain) = (run(served(), &cmd), run(persistent_v9(), &cmd));
+    assert!(plain[..plain.len() - 8] == want[..want.len() - 8], "v9: two consecutive launches");
+    let stamped = run(persistent_v9(), &g_cmd_variant(1, 4, 96, &runs, 16, u32::MAX, 0x9e21, 1));
+    assert!(stamped[..plain.len()] == plain[..], "v9: the stamped launch moved an output");
+}
+
+/// The tiled reader, its layout, and each int4 site of the token loop: each
+/// mutant moves the tokens, the residual or a cache. A site mutant puts that
+/// site back on the served reader, which then reads tiled words: it proves
+/// the site runs the tiled reader under form 7.
+#[test]
+fn the_4e_v9_mutants_are_killed() {
+    let cmds: Vec<(Vec<u8>, Vec<u8>)> = [(1u32, 3u32, 128u32, 2u32, 0x9e60u64), (1, 4, 96, 0, 0x9e61)]
+        .iter()
+        .map(|&(form, grid, threads, variant, seed)| {
+            let cmd = g_cmd_variant(form, grid, threads, &[(5, 3, 7)], 16, u32::MAX, seed, variant);
+            let want = run(persistent_v9(), &cmd);
+            (cmd, want)
+        })
+        .collect();
+    let cuh = "llvq-cuda/kernels/llvq_pers.cuh";
+    let seg = "llvq-cuda/kernels/pers_segment.cu";
+    for (tag, f, from, to) in [
+        ("v9_index", cuh, "return (t << 7) + 4u * (k & 31u) + (k >> 5);", "return (t << 7) + 4u * (k & 31u) + ((k >> 5) ^ 1u);"),
+        ("v9_first_tile", cuh, "if (nt > 0u) P = *reinterpret_cast<const uint4*>(wrow + 4u * lane);", "if (nt > 0u) P = *reinterpret_cast<const uint4*>(wrow + 4u * (lane ^ 1u));"),
+        ("v9_next_tile", cuh, "if (t + 1u < nt) P2 = *reinterpret_cast<const uint4*>(wrow + ((t + 1u) << 7) + 4u * lane);", "if (t + 1u < nt) P2 = *reinterpret_cast<const uint4*>(wrow + (t << 7) + 4u * lane);"),
+        ("v9_column", cuh, "const u32 c = ((t << 7) + 32u * s + lane) << 3;", "const u32 c = ((t << 7) + 32u * (3u - s) + lane) << 3;"),
+        ("v9_tail", cuh, "for (u32 wi = (nt << 7) + lane; wi < nwords; wi += 32u) {\n        const u32 p = wrow[wi];", "for (u32 wi = (nt << 7) + lane + 32u; wi < nwords; wi += 32u) {\n        const u32 p = wrow[wi];"),
+        ("v9_site_v", cuh, "const float acc = pers_q4_row_4e<true>(P.vw,", "const float acc = pers_q4_row<true>(P.vw,"),
+        ("v9_site_o", cuh, ": (unsigned short)0u;\n        const float acc = pers_q4_row_4e<PF>(ow,", ": (unsigned short)0u;\n        const float acc = pers_q4_row<PF>(ow,"),
+        ("v9_site_down", seg, "const float acc = pers_q4_row_4e<true>(A->q4w,", "const float acc = pers_q4_row<true>(A->q4w,"),
+    ] {
+        let root = std::env::temp_dir().join(format!("llvq_pers_mutant_{tag}_{}", std::process::id()));
+        let _ = mutant(tag, f, from, to);
+        let b = build_side_with(&root, 1, "off", &format!("{tag}_v9"), &["PERS_4E_ROWS=7u"]);
+        let killed = cmds.iter().any(|(c, w)| run_mutant(&b, c).is_none_or(|o| &o != w));
+        assert!(killed, "v9 mutant {tag} survived");
     }
 }

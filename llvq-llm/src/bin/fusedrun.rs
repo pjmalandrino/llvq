@@ -1907,8 +1907,8 @@ fn main() -> anyhow::Result<()> {
             f.model.set_attn_kernel(Some(k));
             // The bench forms at 512 threads, each its own module (the
             // 768-thread symbol spills under the card's driver, v2 and v3):
-            // pers::P4E_BENCH_FORMS, v4 (the served form), v6, v7 and v8.
-            // Each owes the eager path's tokens.
+            // pers::P4E_BENCH_FORMS, v4 (the served form), v6, v7, v8 and
+            // v9, then v6s. Each owes the eager path's tokens.
             let mut rts = Vec::new();
             for (form, label) in llvq_cuda::pers::P4E_BENCH_FORMS {
                 match llvq_llm::persist4e_cuda::install_rows(&f.model, &device, n_new as u32, Some(512), form) {
@@ -1920,6 +1920,18 @@ fn main() -> anyhow::Result<()> {
                     }
                     Err(e) => println!("4E {label} at 512 threads: not run: {e}"),
                 }
+            }
+            // v6s: v6's module asking for v8's shared bytes, the same code and
+            // bits under v8's L1/shared carve-out (plan-300 step 3's
+            // diagnostic of v8's slower rows).
+            match llvq_llm::persist4e_cuda::install_rows_as(&f.model, &device, n_new as u32, Some(512), 4, Some(6)) {
+                Ok(rt) => {
+                    for line in &rt.lines {
+                        println!("{line}");
+                    }
+                    rts.push(rt);
+                }
+                Err(e) => println!("4E v6s at 512 threads: not run: {e}"),
             }
             if rts.is_empty() {
                 anyhow::bail!("LLVQ_PERS_4E: no 4E geometry loads on this card");

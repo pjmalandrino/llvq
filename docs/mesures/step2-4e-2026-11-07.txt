@@ -81,8 +81,9 @@ Reading.
   slowest CTA runs 8 jobs; spreading them is the remaining half of K3a.
 - At 8,192 the ring costs attention 141 us of wall: three 16 KB stages a CTA where the rows are already long. A form
   with v7's staging and no ring would keep v8's 0.33 ms of prologue gain at 8,192.
-- v8's rows run slower: gate/up +94, down +52, q/k/v +28 us at 5 tokens. A larger shared carve-out leaves less L1;
-  that cause is a candidate, not established. The rows gave back about 175 us; the timed token still fell 334.
+- v8's rows read slower on its stamps: gate/up +94, down +52, q/k/v +28 us at 5 tokens. Two causes are open: the
+  larger shared carve-out leaves less L1, or the stamp symbol's 48 B spill (its stamped token costs 214 us over the
+  timed one, against 14 for v6). Neither is established; the timed token fell 334 us.
 - v8's door, if served, would read about 211 tok/s (*estimated*: v6's door over its measurement form, 197.2 / 212.6,
   times 227.9).
 

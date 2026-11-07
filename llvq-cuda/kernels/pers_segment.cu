@@ -329,7 +329,7 @@ __device__ __forceinline__ void pers_segment_body(const SegArgs* __restrict__ A,
                          row_of, start, epi);
         } else {
             for (u32 r = dlo + warp; r < dhi; r += nw) {
-                const float acc = pers_q4_row<true>(A->q4w, A->q4s, A->q4b, v, r, I, A->gpr, lane);
+                const float acc = pers_q4_row_4e<true>(A->q4w, A->q4s, A->q4b, v, r, I, A->gpr, lane);
                 if (lane == 0u) L.out[r] = exact_hadd(__ldcg(L.x + r), f2h(acc));
             }
         }
@@ -345,7 +345,7 @@ __device__ __forceinline__ void pers_segment_body(const SegArgs* __restrict__ A,
             acc = pers_tetra_row<24u, false, PF>(A->down.words + r * A->down.stride_u32, tab, A->down.gscale, t_inv,
                                                      v, A->down.nblocks, lane);
         } else {
-            acc = pers_q4_row<PF>(A->q4w, A->q4s, A->q4b, v, r, I, A->gpr, lane);
+            acc = pers_q4_row_4e<PF>(A->q4w, A->q4s, A->q4b, v, r, I, A->gpr, lane);
         }
         if (lane == 0u) {
             const float y = TETRA_DOWN ? pers_epilogue(acc, A->down.rscale[r], A->down.tail + r * A->down.tail_w,
