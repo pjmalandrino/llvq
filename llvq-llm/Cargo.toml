@@ -52,17 +52,22 @@ cuda = ["candle-core/cuda", "candle-nn/cuda", "candle-transformers/cuda", "dep:l
 cudnn = ["cuda", "candle-core/cudnn"]
 fast-linalg = ["llvq-quant/fast-linalg"]
 
-# Portable and unconditional, exactly as `llvq-cuda` takes the core crates in
-# ITS dev-dependencies and for the same reason. The comment above is about the
-# shipped graph: `cudarc` is target-gated INSIDE `llvq-cuda`, so on macOS that
-# crate builds without it — which is why `cargo test -p llvq-cuda` runs here.
-#
-# What it buys: `llvq_cuda::embedded_source` is deliberately un-gated, "so a
-# Mac can assert the table is complete". `tests/served_unit.rs` compiles the
-# served translation unit from THOSE texts rather than from a list retyped by
-# hand, on a machine with no card.
 [dev-dependencies]
 # Test-only, for the rank tables the Metal gate uploads. No cycle:
 # `llvq-bench` does not name this crate.
 llvq-bench = { path = "../llvq-bench" }
+
+# `llvq-cuda` for the tests, on macOS only. `cudarc` is target-gated INSIDE
+# `llvq-cuda`, so on macOS that crate builds without it, and
+# `llvq_cuda::embedded_source` is deliberately un-gated "so a Mac can assert the
+# table is complete": `tests/served_unit.rs` compiles the served translation
+# unit from THOSE texts, on a machine with no card.
+#
+# Not on Linux: there `llvq-cuda` pulls `cudarc` with `dynamic-linking`, whose
+# build script runs `nvcc --version` and whose test binaries link libcuda. A
+# CPU runner has neither, and CI was red on every push from 2026-09-28 for that
+# reason alone. Under `--features cuda` the crate is a normal dependency, so the
+# five test files that name it (`#![cfg(any(target_os = "macos", feature =
+# "cuda"))]`) still compile on the card's image.
+[target.'cfg(target_os = "macos")'.dev-dependencies]
 llvq-cuda = { path = "../llvq-cuda" }
