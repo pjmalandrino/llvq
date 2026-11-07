@@ -518,7 +518,15 @@ impl Worker {
         // memo learns its ids. A stop string leaves the cache mid-message:
         // the next request re-reads from the last message boundary.
         if close && stopped_at.is_none() {
-            self.session.feed(&self.loaded.qwen, &[marks.im_end, marks.nl])?;
+            // On a length cut `Session::answer` stops before feeding its last
+            // token; the client shows it, so the cache must hold it too, or the
+            // memo would replay the answer one token short.
+            let mut tail = Vec::with_capacity(3);
+            if answer.finish == Finish::Length {
+                tail.extend(answer.said.last().copied());
+            }
+            tail.extend([marks.im_end, marks.nl]);
+            self.session.feed(&self.loaded.qwen, &tail)?;
             self.memo.push(Segment {
                 msg: Some(Msg { role: Role::Assistant, content: content.sent.clone() }),
                 ids: self.session.ids()[messages_end..].to_vec(),
@@ -587,7 +595,27 @@ impl Engine {
             while let Ok(job) = rx.recv() {
                 inf.queue.fetch_sub(1, Ordering::SeqCst);
                 inf.busy.store(true, Ordering::SeqCst);
-                w.run(&job);
+                // A panic leaves the session in an unknown state: the engine
+                // fails, answers its queue with the reason, and the next
+                // request loads the model again (`Models::submit` forgets a
+                // failed engine) instead of hitting a wedged one forever.
+                let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| w.run(&job)));
+                if let Err(p) = ran {
+                    let why = p
+                        .downcast_ref::<&str>()
+                        .map(|s| s.to_string())
+                        .or_else(|| p.downcast_ref::<String>().cloned())
+                        .unwrap_or_else(|| "no message".into());
+                    let msg = format!("the engine of {name} panicked: {why}");
+                    *inf.state.lock().expect("state lock") = State::Failed(msg.clone());
+                    let _ = job.events.blocking_send(Event::Error { status: 500, message: msg.clone() });
+                    inf.busy.store(false, Ordering::SeqCst);
+                    while let Ok(job) = rx.recv() {
+                        inf.queue.fetch_sub(1, Ordering::SeqCst);
+                        let _ = job.events.blocking_send(Event::Error { status: 500, message: msg.clone() });
+                    }
+                    return;
+                }
                 *inf.expires.lock().expect("expires lock") = job.keep_alive.until(SystemTime::now());
                 inf.busy.store(false, Ordering::SeqCst);
             }
@@ -688,17 +716,28 @@ impl Models {
             None => {
                 engines.retain(|e| e.info.name != *name);
                 while engines.len() >= self.max_loaded {
-                    // The least recently expiring idle engine goes first; a busy
-                    // one finishes its queue after its handle is dropped.
+                    // Only an idle engine is unloaded, the one expiring first.
+                    // Dropping a busy one would leave its thread running beside
+                    // the new load, two models in memory under a cap of one.
                     let victim = engines
                         .iter()
                         .enumerate()
+                        .filter(|(_, e)| e.idle())
                         .min_by_key(|(_, e)| {
                             let t = *e.info.expires.lock().expect("expires lock");
-                            (!e.idle(), t.is_none(), t)
+                            (t.is_none(), t)
                         })
-                        .map(|(i, _)| i)
-                        .expect("engines is not empty");
+                        .map(|(i, _)| i);
+                    let Some(victim) = victim else {
+                        return Err(Refusal {
+                            status: 503,
+                            message: format!(
+                                "{} model(s) loaded and busy (LLVQ_MAX_LOADED={}); try again when one is idle",
+                                engines.len(),
+                                self.max_loaded
+                            ),
+                        });
+                    };
                     engines.remove(victim);
                 }
                 let e = Engine::spawn(name.clone(), manifest, self.store.clone(), self.loader.clone())

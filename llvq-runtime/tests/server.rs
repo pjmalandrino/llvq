@@ -51,7 +51,13 @@ fn reference(turns: &[&str], max_new: usize) -> Vec<Vec<u32>> {
                 Flow::Continue
             })
             .unwrap();
-        s.feed(&qwen, &[marks.im_end, marks.nl]).unwrap();
+        // A length cut leaves the last token unfed; the conversation holds it.
+        let mut tail: Vec<u32> = Vec::new();
+        if a.finish == llvq_llm::session::Finish::Length {
+            tail.extend(a.said.last().copied());
+        }
+        tail.extend([marks.im_end, marks.nl]);
+        s.feed(&qwen, &tail).unwrap();
         out.push(a.said);
     }
     out
@@ -264,6 +270,35 @@ fn refusals_answer_with_their_status_and_a_reason() {
         assert_eq!(s, 501, "{path}");
         assert!(m.contains("not implemented by llvq"), "{path}: {m}");
     }
+}
+
+#[test]
+fn a_page_from_another_site_cannot_drive_the_server() {
+    let host = common::serve(common::store("origin"), "http://127.0.0.1:9");
+    let body = json!({"model": "tiny:test", "messages": [{"role": "user", "content": "hello"}], "stream": false});
+    let post = |origin: Option<&str>, host_header: Option<&str>| {
+        let mut r = ureq::post(&format!("http://{host}/api/chat"));
+        if let Some(o) = origin {
+            r = r.set("Origin", o);
+        }
+        if let Some(h) = host_header {
+            r = r.set("Host", h);
+        }
+        match r.send_string(&body.to_string()) {
+            Ok(resp) => resp.status(),
+            Err(ureq::Error::Status(code, _)) => code,
+            Err(e) => panic!("{e}"),
+        }
+    };
+    assert_eq!(post(None, None), 200, "curl and the CLI send no Origin");
+    assert_eq!(post(Some(&format!("http://{host}")), None), 200, "the chat page is same-origin");
+    assert_eq!(post(Some("https://evil.example"), None), 403, "a cross-site text/plain POST");
+    assert_eq!(post(None, Some("evil.example:11435")), 403, "a DNS-rebound name");
+    let pull = ureq::post(&format!("http://{host}/api/pull"))
+        .set("Origin", "https://evil.example")
+        .set("Content-Type", "text/plain")
+        .send_string(r#"{"model":"qwen3:4b"}"#);
+    assert!(matches!(pull, Err(ureq::Error::Status(403, _))), "a page cannot start a download");
 }
 
 #[test]

@@ -959,7 +959,75 @@ pub fn openapi() -> utoipa::openapi::OpenApi {
 /// The whole server. Every route goes through `api_router`, so a route
 /// without its annotation does not exist.
 pub fn app(state: AppState) -> axum::Router {
-    api_router().split_for_parts().0.with_state(state)
+    api_router().split_for_parts().0.with_state(state).layer(axum::middleware::from_fn(same_origin_only))
+}
+
+/// Refuse what a web page the user happens to visit could send.
+///
+/// The server binds to loopback, but a browser on the same machine reaches
+/// loopback too: any site can POST a `text/plain` body to `/api/pull` (the
+/// handlers parse JSON whatever the content type), and a DNS-rebound name can
+/// read the answers. Two checks close both, the ones Ollama makes:
+/// - `Host` must be a loopback name or an IP literal. A rebound attacker name
+///   is neither; an IP literal cannot be rebound.
+/// - `Origin`, when a browser sends one, must be a loopback origin or the
+///   origin of the `Host` itself (the chat page served from this address).
+///
+/// Clients that send no `Origin` (curl, the CLI, SDKs) are not browsers and
+/// pass. There is no allow-list for other origins yet.
+async fn same_origin_only(req: axum::extract::Request, next: axum::middleware::Next) -> axum::response::Response {
+    // Read both headers into owned strings first: a borrow of the request
+    // held across the await below would make the future not `Send`.
+    let verdict = {
+        let get = |n: header::HeaderName| req.headers().get(n).map(|v| v.to_str().unwrap_or("\u{fffd}").to_string());
+        check_origin(get(header::HOST).as_deref(), get(header::ORIGIN).as_deref())
+    };
+    match verdict {
+        Ok(()) => next.run(req).await,
+        Err(why) => (StatusCode::FORBIDDEN, Json(json!({ "error": why }))).into_response(),
+    }
+}
+
+/// The host part of `authority` (`name`, `name:port`, `[v6]` or `[v6]:port`),
+/// lower case.
+fn authority_host(authority: &str) -> String {
+    let a = authority.trim();
+    let h = if let Some(rest) = a.strip_prefix('[') {
+        rest.split(']').next().unwrap_or("")
+    } else {
+        a.rsplit_once(':').filter(|(_, p)| p.chars().all(|c| c.is_ascii_digit())).map_or(a, |(h, _)| h)
+    };
+    h.to_ascii_lowercase()
+}
+
+fn is_loopback_name(host: &str) -> bool {
+    host == "localhost"
+        || host.ends_with(".localhost")
+        || host.parse::<std::net::IpAddr>().is_ok_and(|ip| ip.is_loopback())
+}
+
+/// The rule of [`same_origin_only`], on the two header values.
+pub fn check_origin(host: Option<&str>, origin: Option<&str>) -> Result<(), String> {
+    if let Some(h) = host {
+        let name = authority_host(h);
+        if !(is_loopback_name(&name) || name.parse::<std::net::IpAddr>().is_ok()) {
+            return Err(format!("host '{h}' refused: this server answers loopback names and IP addresses only"));
+        }
+    }
+    if let Some(o) = origin {
+        let authority = o.split_once("://").map(|(scheme, rest)| (scheme, rest.split('/').next().unwrap_or("")));
+        let ok = match authority {
+            Some(("http" | "https", a)) => {
+                let name = authority_host(a);
+                is_loopback_name(&name) || host.is_some_and(|h| authority_host(h) == name && a.eq_ignore_ascii_case(h.trim()))
+            }
+            _ => false,
+        };
+        if !ok {
+            return Err(format!("origin '{o}' refused: a web page from another site cannot drive this server"));
+        }
+    }
+    Ok(())
 }
 
 /// Serve until Ctrl-C, unloading expired models every second.
@@ -983,6 +1051,29 @@ pub async fn serve(listener: tokio::net::TcpListener, state: AppState) -> anyhow
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_loopback_or_same_origin_pages_reach_the_server() {
+        // Not browsers: no Origin.
+        assert!(check_origin(Some("127.0.0.1:11435"), None).is_ok());
+        assert!(check_origin(Some("localhost:11435"), None).is_ok());
+        assert!(check_origin(Some("[::1]:11435"), None).is_ok());
+        assert!(check_origin(None, None).is_ok());
+        // A LAN address the operator bound to is an IP literal.
+        assert!(check_origin(Some("192.168.1.20:11435"), Some("http://192.168.1.20:11435")).is_ok());
+        // The chat page, and other local pages.
+        assert!(check_origin(Some("127.0.0.1:11435"), Some("http://127.0.0.1:11435")).is_ok());
+        assert!(check_origin(Some("127.0.0.1:11435"), Some("http://localhost:3000")).is_ok());
+        // DNS rebinding: a name that resolves to loopback but is not one.
+        assert!(check_origin(Some("evil.example:11435"), None).is_err());
+        assert!(check_origin(Some("evil.example:11435"), Some("http://evil.example:11435")).is_err());
+        // Cross-site pages.
+        assert!(check_origin(Some("127.0.0.1:11435"), Some("https://evil.example")).is_err());
+        assert!(check_origin(Some("127.0.0.1:11435"), Some("null")).is_err());
+        assert!(check_origin(Some("127.0.0.1:11435"), Some("http://127.0.0.1.evil.example")).is_err());
+        assert!(check_origin(Some("192.168.1.20:11435"), Some("http://192.168.1.21:11435")).is_err());
+        assert!(check_origin(Some("127.0.0.1:11435"), Some("file:///tmp/x.html")).is_err());
+    }
 
     #[test]
     fn rfc3339_matches_known_instants() {

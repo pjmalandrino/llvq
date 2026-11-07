@@ -2176,7 +2176,6 @@ impl Qwen3 {
         }
     }
 
-    /// One `KvCache` per block, empty.
     /// Most positions one [`Self::hidden_cached`] call takes on this model,
     /// at most [`MAX_PREFILL_ROWS`]: 256 where a projection loops one launch
     /// a row, which is the served Metal path. A caller that feeds a prompt in
@@ -2185,6 +2184,7 @@ impl Qwen3 {
         self.blocks.iter().map(Block::row_cap).fold(MAX_PREFILL_ROWS, usize::min)
     }
 
+    /// One `KvCache` per block, empty.
     pub fn fresh_caches(&self) -> Vec<KvCache> {
         (0..self.blocks.len())
             .map(|_| KvCache::with_store(self.kv, self.kv_store))
