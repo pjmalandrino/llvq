@@ -1,4 +1,4 @@
-# Project state as of 2026-11-06
+# Project state as of 2026-11-07
 
 ## 1. The project
 
@@ -185,9 +185,18 @@ ratio is raw: the dense arm copies its f16 head table every token, and no same-h
 grouped form returned the expanded form's logits bit for bit over 49,140 decode steps, and decodes x2.380
 [2.362-2.396] faster at 4,096 positions. `attn_dec.metal` from position 0 reads +0.0051 % of perplexity against the
 grouped form, inside the band. `served.rs` still refuses both forms on Metal; the two `*-metal-*-NOT-SERVED.json`
-configs are measurement doors for `bin/metalrun`. An MLX prototype, `ops/mlx_tetra/`, decodes 93.92 tok/s
-[88.38-94.66] on the same Mac (M16, same journal), not bit for bit with the Rust engine, perplexity not measured.
-mlx-lm's 4-bit Qwen3-4B decodes 129.45 there, on another stack, so no ratio is formed.
+configs are measurement doors for `bin/metalrun`.
+
+**The MLX door is built, and its quality reading waits for the operator's go.** On 2026-11-07 the operator ruled
+that Metal is served under a tolerance rather than bit for bit: « Sur métal, on a validé mlx donc implem le aussi ».
+`ops/mlx_tetra/serve.py` serves the sealed 4B through MLX under `configs/mlx/qwen3-4b-tetra-e4-mlx.json`, and refuses
+by name every value that file does not carry. Its engine decodes 93.92 tok/s [88.38-94.66] on the same Mac (M16, same
+journal), not bit for bit with the Rust engine. mlx-lm's 4-bit Qwen3-4B decodes 129.45 there, on another stack, so no
+ratio is formed. Its gates pass on the mini fixture, and 23 of 23 mutants are killed
+([mlx-door](mesures/mlx-door-2026-11-07.txt)). Its T8 reading
+(`ops/mlx-t8.sh`, prereg `proofs/preregistration-mlx-t8-2026-11-07.md`) holds it to +-0.12 % of the Rust Metal path's
+12.580769 by decode and by prefill. That reading takes the Mac's GPU for 15 to 25 minutes (*estimated*), and has not
+run.
 
 **Noise.** The calibration draw carries a standard deviation of 2.92 pp of MMLU and 5.2% of perplexity at 4B over
 three full runs (*measured*, [bruit-mmlu](mesures/bruit-mmlu-graines-4b-2026-08-25.txt),
@@ -215,8 +224,10 @@ the bar is the paired interval, 0.43 pp in MMLU and 0.12% in perplexity (*measur
   reading under a served config first.
 - **The v4 config on the Hub.** The moving repository still serves the grouped config at 133.3 tok/s (§2). Publishing
   needs the operator.
-- **A served Metal config.** The grouped form is bit for bit with the expanded one on Metal (§4), and the two
-  `NOT-SERVED` configs are ready. `served.rs` refuses both forms on Metal until the operator decides.
+- **The MLX door's T8 reading.** Ready, $0, 15 to 25 minutes of the Mac's GPU (*estimated*): the operator picks the
+  hour and stamps the prereg. Both paths inside the band make the MLX door the served Metal path (§4). On the Rust
+  Metal path, the grouped form is bit for bit with the expanded one, and `served.rs` refuses both unexpanded forms on
+  Metal until the operator decides.
 - **A full GSM8K census under 4E.** The 4B's served form has a 50-problem pilot only (§2). The grouped census of the
   4B cost $2.02 (*computed*, [gsm8k-grouped](mesures/gsm8k-grouped-2026-11-04.txt)).
 - **An int4 KV cache.** It is the next throughput lever after 4E, and it touches quality, so it is outside any

@@ -1086,3 +1086,18 @@ mlx-lm reads 129.45, 98.38 and 3.96 s at 3.67 GB, at about 4.5 b/param against o
 with the Rust engine. On the 5-token house prompt its 256 tokens differ from the Rust engine's in a degenerate
 repetition (M15). No perplexity has been read through it.
 
+
+## 2026-11-07. The MLX door, on the operator's ruling of a tolerance on Metal
+
+The operator ruled open decision 1 of the Metal plan on 2026-11-07: « Sur métal, on a validé mlx donc implem le
+aussi ». Until then the plan recorded no ruling on tolerance against bit for bit on Metal, and the M15 prereg had
+written "served under the M6 tolerance" as if it were ruled.
+
+The prototype became a door. `ops/mlx_tetra/serve.py` reads `configs/mlx/qwen3-4b-tetra-e4-mlx.json` and refuses by
+name every value it does not carry, the Rust keys, any other object, another mlx or mlx-lm, and any `LLVQ_*`
+variable. `check.py` gained a reference outside MLX, the `llvq-tetra` decoder that matches Rust bit for bit, and on
+the mini fixture a whole forward pass against `transformers`. Before, it compared the MLX kernels only with each
+other, so a defect in the shared shaders could pass it. A first mutation run killed 22 of 23 mutants. The survivor
+gave k the gains of q in the stacked dispatch, invisible on a fixture whose records share their centroids; the check
+now scales k's gains apart, and the second run killed 23 of 23 ([mlx-door](mesures/mlx-door-2026-11-07.txt)). The T8
+reading is ready and has not run.

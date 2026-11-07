@@ -29,7 +29,12 @@ prompt its 256 greedy tokens differ from the Rust engine's: it leaves the repeat
 answer at token 243, the Rust engine at another token. After 4,096 tokens of
 context its 64 tokens are the Rust engine's (M15 of
 `docs/mesures/metal-nuit-2026-11-06.txt`). No perplexity has been measured on it
-yet, so whether it holds the M6 band (+-0.12 %) is unknown. Nothing here is served.
+yet, so whether it holds the M6 band (+-0.12 %) is unknown.
+
+This file is the engine, and its `main` the measurement door: no config, the
+ablation modes of `LLVQ_MLX_ABLATE` accepted, the door M15 and M16 timed. The
+served door is `serve.py`, which reads `configs/mlx/qwen3-4b-tetra-e4-mlx.json`
+and refuses what that file does not name.
 
     uv run ops/mlx_tetra/llvq_mlx.py <packed_dir> gen [n_new=64] [prompt_tokens=0]
     uv run ops/mlx_tetra/llvq_mlx.py <packed_dir> time <n_new> <timed_rounds> [prompt_tokens=0]
@@ -573,7 +578,12 @@ class TetraLinear(nn.Module):
             return (xh @ self.dense(xh).T).reshape(*lead, self.d_out)
         if n == 1 and "tetra" in ABLATE:
             return empty(xr, self.d_out, mx.float16).reshape(*lead, self.d_out)
-        if n == 1:
+        if n == 1 and self.d_out % (RR * 8):
+            # The one-row lutd kernel, for widths DECODE2 does not tile: the mini
+            # fixture's o_proj (136 rows). Every record of the sealed 4B tiles.
+            y = DECODE(inputs=args, template=tmpl, grid=(self.d_out * 32, 1, 1), threadgroup=(TG, 1, 1),
+                       output_shapes=[(1, self.d_out)], output_dtypes=[mx.float16])[0]
+        elif n == 1:
             y = decode_rows(self._words, self._gscale, self._rscale, self._tail, xr, s, self.d_out, self.nb,
                             self.tw, self.stride, self.d_out)
         else:
@@ -673,7 +683,15 @@ def int4_linear(pm: PackedModel, name: str) -> nn.QuantizedLinear:
     return q
 
 
-def build(path: str):
+def build(path: str, ragged_embedding: bool = False):
+    """The model on the GPU, every weight read from the packed directory as stored.
+
+    `ragged_embedding`: for the check on `llvq-tetra/tests/fixtures/mini` only,
+    whose hidden size 136 is not a multiple of the table's group of 64, which
+    MLX's quantized embedding cannot hold. The table is then decoded once to f16
+    by `llvq-tetra`. The served door never passes it, and the 4B's 2,560 does not
+    need it.
+    """
     pm = PackedModel(path)
     cfg = {k: v for k, v in pm.config.items() if k != "quantization_config"}
     args = qwen3.ModelArgs.from_dict(cfg)
@@ -719,11 +737,18 @@ def build(path: str):
             weights.append((name, mx.array(pm.tensor(name).astype(np.float16))))
     emb = pm.raw["model.embed_tokens.weight"]
     assert emb["encoding"] == "quant" and emb["bits"] == 4, emb
-    qe = nn.QuantizedEmbedding(emb["dims"][0], emb["dims"][1], group_size=emb["group"], bits=4)
-    p = emb["prefix"]
-    qe.weight = mx.array(np.ascontiguousarray(pm.tensor(f"{p}.qweight")).view("<u4"))
-    qe.scales = mx.array(pm.tensor(f"{p}.scales").astype(np.float16))
-    qe.biases = mx.array(pm.tensor(f"{p}.biases").astype(np.float16))
+    if emb["dims"][1] % emb["group"]:
+        if not ragged_embedding:
+            raise ValueError(f"embedding width {emb['dims'][1]} is not a multiple of its group {emb['group']}: "
+                             f"MLX's quantized embedding cannot hold it")
+        qe = nn.Embedding(emb["dims"][0], emb["dims"][1])
+        qe.weight = mx.array(pm.dequantize_raw("model.embed_tokens.weight").astype(np.float16))
+    else:
+        qe = nn.QuantizedEmbedding(emb["dims"][0], emb["dims"][1], group_size=emb["group"], bits=4)
+        p = emb["prefix"]
+        qe.weight = mx.array(np.ascontiguousarray(pm.tensor(f"{p}.qweight")).view("<u4"))
+        qe.scales = mx.array(pm.tensor(f"{p}.scales").astype(np.float16))
+        qe.biases = mx.array(pm.tensor(f"{p}.biases").astype(np.float16))
     model.model.embed_tokens = qe
     model.load_weights(weights, strict=False)
     model.freeze()
@@ -759,21 +784,36 @@ def one_round(model, ids, n_new):
     return t1 - t0, (len(out) - 1) / (t2 - t1), len(out) / (t2 - t0), out
 
 
-def chat(model, path: str, temp: float, max_new: int) -> None:
-    """A terminal conversation, Qwen3's format with reasoning off, the cache kept across turns.
+class ChatFormat:
+    """Qwen3's turn format with reasoning off, as `llvq_llm::chatfmt` writes it.
 
     `<|im_start|>{role}\n{text}<|im_end|>\n` a message, and the assistant's
-    opening pre-filled with an empty reasoning block, as `llvq_llm::chatfmt` does.
+    opening pre-filled with an empty reasoning block.
     """
+
+    def __init__(self, path: str):
+        from tokenizers import Tokenizer
+
+        self.tok = Tokenizer.from_file(str(Path(path) / "tokenizer.json"))
+        sid = self.tok.token_to_id
+        self.im_start, self.im_end, self.eot = sid("<|im_start|>"), sid("<|im_end|>"), sid("<|endoftext|>")
+        self.think = (sid("<think>"), sid("</think>"))
+        self.nl = self.tok.encode("\n", add_special_tokens=False).ids
+
+    def turn(self, line: str) -> list[int]:
+        enc = lambda t: self.tok.encode(t, add_special_tokens=False).ids
+        return ([self.im_start] + enc("user\n" + line) + [self.im_end] + self.nl
+                + [self.im_start] + enc("assistant\n")
+                + [self.think[0]] + self.nl + self.nl + [self.think[1]] + self.nl + self.nl)
+
+
+def chat(model, path: str, temp: float, max_new: int) -> None:
+    """A terminal conversation in `ChatFormat`, the cache kept across turns."""
     from mlx_lm.models.cache import make_prompt_cache, trim_prompt_cache
     from mlx_lm.sample_utils import make_sampler
-    from tokenizers import Tokenizer
 
-    tok = Tokenizer.from_file(str(Path(path) / "tokenizer.json"))
-    sid = tok.token_to_id
-    im_start, im_end, eot = sid("<|im_start|>"), sid("<|im_end|>"), sid("<|endoftext|>")
-    think = (sid("<think>"), sid("</think>"))
-    nl = tok.encode("\n", add_special_tokens=False).ids
+    fmt = ChatFormat(path)
+    tok, im_end, eot, nl = fmt.tok, fmt.im_end, fmt.eot, fmt.nl
     sampler = make_sampler(temp=temp, top_p=0.9 if temp > 0 else 0.0)
     cache = make_prompt_cache(model)
     print(f"  temp {temp:.2f}, at most {max_new} new tokens a turn, reasoning off; /reset, /bye")
@@ -789,9 +829,7 @@ def chat(model, path: str, temp: float, max_new: int) -> None:
             continue
         if not line:
             continue
-        ids = ([im_start] + tok.encode("user\n" + line, add_special_tokens=False).ids + [im_end] + nl
-               + [im_start] + tok.encode("assistant\n", add_special_tokens=False).ids
-               + [think[0]] + nl + nl + [think[1]] + nl + nl)
+        ids = fmt.turn(line)
         held = cache[0].offset
         t0 = time.perf_counter()
         t1, out, shown = None, [], ""
@@ -818,10 +856,35 @@ def chat(model, path: str, temp: float, max_new: int) -> None:
               f"{(t1 - t0):.2f} s; this REPL's rate, not a measurement")
 
 
+def time_rounds(model, ids: list[int], n_new: int, timed: int, label: str) -> None:
+    """`metalrun time`'s protocol: DISCARDED rounds, then `timed` ones, a fresh cache each, medians [min-max]."""
+    print(f"prompt {len(ids)} tokens, sha256 {sha_u32(ids)}; {n_new} new; {DISCARDED} discarded + {timed} timed")
+    firsts, decodes, doors, ref = [], [], [], None
+    for r in range(DISCARDED + timed):
+        first, decode, door, out = one_round(model, ids, n_new)
+        tag = "(discarded) " if r < DISCARDED else ""
+        print(f"round {r} {tag}door {door:7.2f} tok/s | decode {decode:7.2f} tok/s | first token {first * 1e3:8.1f} ms")
+        if r >= DISCARDED:
+            firsts.append(first), decodes.append(decode), doors.append(door)
+        if ref is None:
+            ref = out
+        elif out != ref:
+            print("WARNING: tokens differ from round 0")
+    med = statistics.median
+    print(f"--- medians over {timed} timed rounds [min-max], measured on this Mac")
+    print(f"{label} door {med(doors):7.2f} tok/s [{min(doors):.2f}-{max(doors):.2f}] | "
+          f"decode {med(decodes):7.2f} tok/s [{min(decodes):.2f}-{max(decodes):.2f}] | "
+          f"{1e3 / med(decodes):.2f} ms a decode token | first token {med(firsts) * 1e3:.1f} ms "
+          f"[{min(firsts) * 1e3:.1f}-{max(firsts) * 1e3:.1f}]")
+    print(f"peak memory {mx.get_peak_memory() / 1e9:.2f} GB")
+    print(f"tokens sha256 {sha_u32(ref)}")
+
+
 def main():
     path, mode = sys.argv[1], sys.argv[2]
     print(f"mlx {mx.__version__} | {mx.default_device()} | packed {path}")
-    print("prototype: f16 activations, not bit-exact with the served kernels, no perplexity measured; not served")
+    print("measurement door: no served config, f16 activations, not bit-exact with the Rust kernels; "
+          "the served door is serve.py")
     t = time.perf_counter()
     model, pm, tetra_bytes = build(path)
     print(f"built in {time.perf_counter() - t:.1f} s | Tetra resident {tetra_bytes / 1e9:.3f} GB | "
@@ -846,27 +909,7 @@ def main():
         return
     n_new, timed = int(sys.argv[3]), int(sys.argv[4])
     n_prompt = int(sys.argv[5]) if len(sys.argv) > 5 else 0
-    ids = prompt_ids(path, n_prompt)
-    print(f"prompt {len(ids)} tokens, sha256 {sha_u32(ids)}; {n_new} new; {DISCARDED} discarded + {timed} timed")
-    firsts, decodes, doors, ref = [], [], [], None
-    for r in range(DISCARDED + timed):
-        first, decode, door, out = one_round(model, ids, n_new)
-        tag = "(discarded) " if r < DISCARDED else ""
-        print(f"round {r} {tag}door {door:7.2f} tok/s | decode {decode:7.2f} tok/s | first token {first * 1e3:8.1f} ms")
-        if r >= DISCARDED:
-            firsts.append(first), decodes.append(decode), doors.append(door)
-        if ref is None:
-            ref = out
-        elif out != ref:
-            print("WARNING: tokens differ from round 0")
-    med = statistics.median
-    print(f"--- medians over {timed} timed rounds [min-max], measured on this Mac")
-    print(f"llvq-mlx door {med(doors):7.2f} tok/s [{min(doors):.2f}-{max(doors):.2f}] | "
-          f"decode {med(decodes):7.2f} tok/s [{min(decodes):.2f}-{max(decodes):.2f}] | "
-          f"{1e3 / med(decodes):.2f} ms a decode token | first token {med(firsts) * 1e3:.1f} ms "
-          f"[{min(firsts) * 1e3:.1f}-{max(firsts) * 1e3:.1f}]")
-    print(f"peak memory {mx.get_peak_memory() / 1e9:.2f} GB")
-    print(f"tokens sha256 {sha_u32(ref)}")
+    time_rounds(model, prompt_ids(path, n_prompt), n_new, timed, "llvq-mlx")
 
 
 if __name__ == "__main__":

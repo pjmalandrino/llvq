@@ -1,0 +1,143 @@
+THE MLX DOOR HOLDS ITS GATES ON THE MINI FIXTURE, AND 23 OF 23 MUTANTS ARE KILLED; NO READING OF THE SEALED 4B (2026-11-07)
+==========================================================================================================================
+Branch: claude/serve-mlx-metal-855462. Cost $0, Apple M3 Max, macOS 26.6.2, nice 10 for the mutation runs.
+No prereg: these are gates and a mutation run on the 148 KB fixture, not a measurement of the object. Nothing here
+loaded the sealed 4B on the GPU. The T8 reading of the object is proofs/preregistration-mlx-t8-2026-11-07.md,
+ready and not run.
+
+Operator, 2026-11-07, verbatim: « Sur métal, on a validé mlx donc implem le aussi ». Recorded in
+docs/plan-metal-debit.md section 3 as the ruling on rule 1: tolerance rather than bit for bit on Metal.
+
+WHAT RAN
+--------
+1. ops/mlx_tetra/test_served.py: the door's refusals, 9 tests, no GPU.
+2. ops/mlx_tetra/check.py llvq-tetra/tests/fixtures/mini: sections A to D, 41 comparisons.
+3. ops/mlx_tetra/serve.py <config> ~/q4b-hf-2026-09-28 span: the T8 span gate alone, without the model. 299,078
+   tokens in the split, span sha256 6b69a6ba6998ddda..., M5's: the Python tokenizer and join reproduce metalrun's
+   12 windows of 4,096.
+4. ops/mlx_tetra/mutate.py, twice. The first run killed 22 of 23. The survivor, "stacked q+k: k reads q's gains",
+   is equivalent on this fixture: every record carries the centroids [0.7, 1.1], where the 4B's q and k of layer 0
+   read [0.8768, 1.1082] and [0.8762, 1.1098]. check.py section A now scales k's gains by 1.5 for one comparison;
+   the second run killed 23 of 23.
+
+*Measured*, this fixture only: worst kernel error against the reference decoder 6.1e-4 (bound 2e-3), dense prefill
+6.1e-4 (bound 4e-3), whole forward pass against transformers 1.5e-3 (bound 1e-2). "rotation reuse: any input" was
+killed by a reshape error, a stale rotation of the wrong width, before any bound was read.
+
+The bounds of sections A to C have never run on the sealed 4B. That is gate 4 of the T8 run.
+
+=== raw: test_served.py ===
+  ok   test_another_object_is_refused
+  ok   test_another_runtime_is_refused
+  ok   test_every_llvq_variable_is_refused_by_name
+  ok   test_every_other_value_of_every_key_is_refused_by_name
+  ok   test_rust_door_keys_are_refused_by_name
+  ok   test_serve_checks_before_it_imports_mlx
+  ok   test_the_packed_object_must_be_the_configs
+  ok   test_the_shipped_config_parses
+  ok   test_unknown_missing_and_non_string_keys_are_refused
+9 of 9 passed
+
+=== raw: check.py on fixtures/mini (stderr dropped: a torch warning and transformers' progress bar) ===
+A. kernels against each other
+  layer 0 q+k stacked against each alone, row 0              0.00e+00 same bits  ok
+  layer 0 q+k stacked against each alone, row 1              0.00e+00 same bits  ok
+  layer 0 q+k stacked against each alone, row 2              0.00e+00 same bits  ok
+  layer 0 q+k stacked against k alone, k's gains apart       0.00e+00 same bits  ok
+  layer 0 rotation 136 (via q) against 4 MLX ops             1.31e-07 < 1e-05    ok
+  layer 0 rotation 128 (via o) against 4 MLX ops             0.00e+00 < 1e-05    ok
+  layer 0 fused gate-up-SiLU against unfused, row 0          8.57e-04 < 2e-03    ok
+  layer 0 fused gate-up-SiLU against unfused, row 1          9.16e-04 < 2e-03    ok
+  layer 0 fused gate-up-SiLU against unfused, row 2          5.88e-04 < 2e-03    ok
+B. projections against the reference decoder (llvq-tetra, bit for bit with Rust)
+  layer 0 q    one-row kernel, 20 rows                       3.64e-04 < 2e-03    ok
+  layer 0 q    8-row kernel, 8 rows                          3.64e-04 < 2e-03    ok
+  layer 0 q    8-row kernel, 3 rows                          3.44e-04 < 2e-03    ok
+  layer 0 q    dense prefill, 20 rows                        4.97e-04 < 4e-03    ok
+  layer 0 k    one-row kernel, 20 rows                       3.84e-04 < 2e-03    ok
+  layer 0 k    8-row kernel, 8 rows                          4.28e-04 < 2e-03    ok
+  layer 0 k    8-row kernel, 3 rows                          4.04e-04 < 2e-03    ok
+  layer 0 k    dense prefill, 20 rows                        4.57e-04 < 4e-03    ok
+  layer 0 v    one-row kernel, 20 rows                       5.96e-04 < 2e-03    ok
+  layer 0 v    8-row kernel, 8 rows                          3.62e-04 < 2e-03    ok
+  layer 0 v    8-row kernel, 3 rows                          5.96e-04 < 2e-03    ok
+  layer 0 v    dense prefill, 20 rows                        5.96e-04 < 4e-03    ok
+  layer 0 o    one-row kernel, 20 rows                       4.27e-04 < 2e-03    ok
+  layer 0 o    8-row kernel, 8 rows                          4.86e-04 < 2e-03    ok
+  layer 0 o    8-row kernel, 3 rows                          3.78e-04 < 2e-03    ok
+  layer 0 o    dense prefill, 20 rows                        4.86e-04 < 4e-03    ok
+  layer 0 gate one-row kernel, 20 rows                       3.89e-04 < 2e-03    ok
+  layer 0 gate 8-row kernel, 8 rows                          3.89e-04 < 2e-03    ok
+  layer 0 gate 8-row kernel, 3 rows                          2.91e-04 < 2e-03    ok
+  layer 0 gate dense prefill, 20 rows                        6.09e-04 < 4e-03    ok
+  layer 0 up   one-row kernel, 20 rows                       4.11e-04 < 2e-03    ok
+  layer 0 up   8-row kernel, 8 rows                          4.31e-04 < 2e-03    ok
+  layer 0 up   8-row kernel, 3 rows                          3.83e-04 < 2e-03    ok
+  layer 0 up   dense prefill, 20 rows                        5.11e-04 < 4e-03    ok
+  layer 0 down int4 g128, MLX quantized matmul               5.37e-04 < 2e-03    ok
+  layer 0 q    stacked q+k dispatch, one row                 3.37e-04 < 2e-03    ok
+  layer 0 k    stacked q+k dispatch, one row                 3.52e-04 < 2e-03    ok
+C. embedding and tied head against the reference
+  embedding rows                                             4.27e-04 < 2e-03    ok
+  tied head, 4 rows                                          3.19e-04 < 2e-03    ok
+D. whole forward pass against transformers through llvq-tetra, f32 on the CPU
+  prefill, 16 rows (dense path)                              1.25e-03 < 1e-02    ok
+  decode, 16 steps of one row                                1.53e-03 < 1e-02    ok
+  chunks of 4 rows (rows kernel)                             1.53e-03 < 1e-02    ok
+41 comparisons, all within bounds
+
+=== raw: mutate.py, first run (stderr lines of the progress bar dropped) ===
+unmutated check: exit 0 | (last line: transformers progress bar)
+unmutated served: exit 0 | 9 of 9 passed
+  killed   rotation sign flip dropped               check  exit 1 | (last line: transformers progress bar)
+  killed   rotation 1/sqrt(m) dropped               check  exit 1 | (last line: transformers progress bar)
+  killed   rotation mix transposed                  check  exit 1 | (last line: transformers progress bar)
+  killed   rotation block order dropped             check  exit 1 | (last line: transformers progress bar)
+  SURVIVED stacked q+k: k reads q's gains           check  exit 0 | (last line: transformers progress bar)
+  killed   8-row kernel: 7 rows                     check  exit 1 | (last line: transformers progress bar)
+  killed   8-row kernel: gain bit ignored           check  exit 1 | (last line: transformers progress bar)
+  killed   dense prefill: row scale dropped         check  exit 1 | (last line: transformers progress bar)
+  killed   dense prefill: tail zeroed               check  exit 1 | (last line: transformers progress bar)
+  killed   fused MLP: SiLU dropped                  check  exit 1 | (last line: transformers progress bar)
+  killed   fused MLP: up takes gate's row scales    check  exit 1 | (last line: transformers progress bar)
+  killed   rotation reuse: any input                check  exit 1 | ValueError: [reshape] Cannot reshape array of size 128 into shape (1,16,128).
+  killed   int4 biases zeroed                       check  exit 1 | (last line: transformers progress bar)
+  killed   shared epilogue: tail dropped            check  exit 1 | (last line: transformers progress bar)
+  killed   shared decoder: suffix bit ignored       check  exit 1 | (last line: transformers progress bar)
+  killed   door: kv q8 accepted                     served exit 1 | 8 of 9 passed
+  killed   door: LLVQ_* not refused                 served exit 1 | 7 of 9 passed
+  killed   door: any object                         served exit 1 | 8 of 9 passed
+  killed   door: Rust keys unnamed                  served exit 1 | 8 of 9 passed
+  killed   door: packed object unchecked            served exit 1 | 7 of 9 passed
+  killed   door: mlx version unchecked              served exit 1 | 8 of 9 passed
+  killed   serve: environment unchecked             served exit 1 | 8 of 9 passed
+  killed   serve: object unchecked                  served exit 1 | 8 of 9 passed
+22 of 23 mutants killed
+
+=== raw: mutate.py, second run ===
+unmutated check: exit 0 | 41 comparisons, all within bounds
+unmutated served: exit 0 | 9 of 9 passed
+  killed   rotation sign flip dropped               check  exit 1 | 31 of 41 comparisons over bound
+  killed   rotation 1/sqrt(m) dropped               check  exit 1 | 31 of 41 comparisons over bound
+  killed   rotation mix transposed                  check  exit 1 | 26 of 41 comparisons over bound
+  killed   rotation block order dropped             check  exit 1 | 31 of 41 comparisons over bound
+  killed   stacked q+k: k reads q's gains           check  exit 1 | 1 of 41 comparisons over bound
+  killed   8-row kernel: 7 rows                     check  exit 1 | 6 of 41 comparisons over bound
+  killed   8-row kernel: gain bit ignored           check  exit 1 | 13 of 41 comparisons over bound
+  killed   dense prefill: row scale dropped         check  exit 1 | 7 of 41 comparisons over bound
+  killed   dense prefill: tail zeroed               check  exit 1 | 7 of 41 comparisons over bound
+  killed   fused MLP: SiLU dropped                  check  exit 1 | 4 of 41 comparisons over bound
+  killed   fused MLP: up takes gate's row scales    check  exit 1 | 4 of 41 comparisons over bound
+  killed   rotation reuse: any input                check  exit 1 | ValueError: [reshape] Cannot reshape array of size 128 into shape (1,16,128).
+  killed   int4 biases zeroed                       check  exit 1 | 4 of 41 comparisons over bound
+  killed   shared epilogue: tail dropped            check  exit 1 | 25 of 41 comparisons over bound
+  killed   shared decoder: suffix bit ignored       check  exit 1 | 29 of 41 comparisons over bound
+  killed   door: kv q8 accepted                     served exit 1 | 8 of 9 passed
+  killed   door: LLVQ_* not refused                 served exit 1 | 7 of 9 passed
+  killed   door: any object                         served exit 1 | 8 of 9 passed
+  killed   door: Rust keys unnamed                  served exit 1 | 8 of 9 passed
+  killed   door: packed object unchecked            served exit 1 | 7 of 9 passed
+  killed   door: mlx version unchecked              served exit 1 | 8 of 9 passed
+  killed   serve: environment unchecked             served exit 1 | 8 of 9 passed
+  killed   serve: object unchecked                  served exit 1 | 8 of 9 passed
+23 of 23 mutants killed

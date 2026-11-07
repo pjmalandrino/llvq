@@ -39,6 +39,25 @@ from it: the note on the `served config:` line, and the path on every dump's
 `# config=` line. Borrowing another size's file would record the wrong object on
 every line of the run.
 
+## `mlx/`: the MLX door on the Mac
+
+`mlx/qwen3-4b-tetra-e4-mlx.json` is the config of the MLX door,
+`ops/mlx_tetra/serve.py`. It is **not served yet**: its T8 reading is ready and
+waits for the operator's go (`proofs/preregistration-mlx-t8-2026-11-07.md`,
+`ops/mlx-t8.sh`). Its schema is its own, so it lives in a subdirectory:
+`every_shipped_config_resolves` reads the `*.json` of this directory with
+`deny_unknown_fields`, and does not descend.
+
+| file | object | b/param | quality |
+|---|---|---|---|
+| `mlx/qwen3-4b-tetra-e4-mlx.json` | The SAME object as `qwen3-4b-tetra-e4.json`, `qwen3-4b-sealed.bin` (sha256 `886391a8…`), read from its hfpack by mlx-lm's Qwen3 with the 168 Tetra records as custom Metal kernels, f16 activations, mlx-lm's attention and f16 KV cache. Written 2026-11-07 on the operator's ruling « Sur métal, on a validé mlx donc implem le aussi »: on Metal, a tolerance rather than bit for bit | **2.7320**, the file's: the door reads the stored bits. Resident, it holds q and k twice, alone for the prefill and stacked for the decode, about 0.12 GB more (*computed* from the record shapes) | Not scored. Gate: WikiText-2 perplexity inside +-0.12 % of the Rust Metal path's 12.580769, pooled and every window, by decode and by prefill. Not bit for bit: its tokens leave the Rust path's at token 243 after a 5-token prompt (*measured*, [metal-nuit-2026-11-06](../docs/mesures/metal-nuit-2026-11-06.txt), M15). The engine decoded 93.9 tok/s after a 5-token prompt and 70.3 after 4,096 at the prototype's door (M16) |
+
+Every key has one accepted value. `ops/mlx_tetra/served.py` refuses any other
+by name, refuses the Rust keys `fuse`, `decode` and `rows`, any other object,
+another mlx or mlx-lm than the pinned 0.32.4 and 0.28.3, and any `LLVQ_*`
+variable, since the door reads none. `ops/mlx_tetra/test_served.py` holds each
+refusal.
+
 ## Why `fuse` is `0` on the served object
 
 `Tetra48` carries no segmented kernel: `planes_source_names` gives it a list of
