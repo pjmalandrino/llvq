@@ -131,6 +131,17 @@ fn generate(t: &mut Loaded, d: &mut Loaded, ids: &[u32], max_new: usize, stops: 
     Ok(Arm { tokens, door_s: t0.elapsed().as_secs_f64(), decode_s: t1.elapsed().as_secs_f64(), stats })
 }
 
+/// Where a speculative arm's time went: the mean verify pass and the mean
+/// drafter launch in ms, and the verify pass in greedy tokens (`greedy_rate`
+/// the greedy arm's decode tok/s on the same prompts): what one pass of k + 1
+/// rows costs against one 4E token.
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+fn cost_line(s: &llvq_llm::speculative::SpecStats, greedy_rate: f64) -> String {
+    let v = s.verify_ns as f64 / 1e6 / s.rounds.max(1) as f64;
+    let d = s.draft_ns as f64 / 1e6 / s.draft_launches.max(1) as f64;
+    format!("verify {v:.3} ms a pass (x{:.3} a greedy token), drafter {d:.3} ms a launch", v * greedy_rate / 1e3)
+}
+
 #[cfg(all(target_os = "linux", feature = "cuda"))]
 fn first_divergence(a: &[u32], b: &[u32]) -> Option<usize> {
     if a == b {
@@ -243,6 +254,7 @@ fn run() -> anyhow::Result<()> {
                 }
             }
             println!("{name}: every arm made the greedy tokens in every round, {} of {}", want.len(), want.len());
+            let (greedy_dm, _, _) = median_range(&dec[0]);
             for (i, &k) in arms.iter().enumerate() {
                 let (m, lo, hi) = median_range(&door[i]);
                 let (dm, dlo, dhi) = median_range(&dec[i]);
@@ -255,12 +267,13 @@ fn run() -> anyhow::Result<()> {
                     let (qm, qlo, qhi) = median_range(&rd);
                     let s = stats[i];
                     line += &format!(
-                        ", / greedy round by round: door x{rm:.3} [{rlo:.3}-{rhi:.3}], decode x{qm:.3} [{qlo:.3}-{qhi:.3}]; acceptance {:.3} ({} of {}), {:.2} tokens a verify, {} catch-ups",
+                        ", / greedy round by round: door x{rm:.3} [{rlo:.3}-{rhi:.3}], decode x{qm:.3} [{qlo:.3}-{qhi:.3}]; acceptance {:.3} ({} of {}), {:.2} tokens a verify, {} catch-ups; {}",
                         s.acceptance(),
                         s.accepted,
                         s.drafted,
                         s.tokens_per_round(),
-                        s.catchups
+                        s.catchups,
+                        cost_line(&s, greedy_dm)
                     );
                 }
                 println!("{line}");
@@ -276,6 +289,7 @@ fn run() -> anyhow::Result<()> {
         let prompts: Vec<Vec<u32>> = picked.iter().map(|&i| chat(&llvq_llm::gsm8k::user_body(&items[i].question))).collect::<anyhow::Result<_>>()?;
         let arms: Vec<Option<usize>> = std::iter::once(None).chain(ks.iter().map(|&k| Some(k))).collect();
         let mut greedy: Vec<Vec<u32>> = Vec::new();
+        let mut greedy_rate = 0.0f64;
         for &k in &arms {
             let (mut n_tok, mut dec_s, mut correct) = (0usize, 0.0f64, 0usize);
             let mut st = llvq_llm::speculative::SpecStats::default();
@@ -293,6 +307,9 @@ fn run() -> anyhow::Result<()> {
                 st.drafted += g.stats.drafted;
                 st.accepted += g.stats.accepted;
                 st.catchups += g.stats.catchups;
+                st.draft_launches += g.stats.draft_launches;
+                st.draft_ns += g.stats.draft_ns;
+                st.verify_ns += g.stats.verify_ns;
                 let text = tok.decode(&g.tokens, true).unwrap_or_default();
                 let gold = llvq_llm::gsm8k::gold(&items[picked[j]].answer).unwrap_or_default();
                 let (_, got) = llvq_llm::gsm8k::extract(&text);
@@ -302,16 +319,20 @@ fn run() -> anyhow::Result<()> {
                 all.push(g.tokens);
             }
             let label = k.map_or("greedy".to_string(), |k| format!("k = {k}"));
+            if k.is_none() {
+                greedy_rate = n_tok as f64 / dec_s;
+            }
             let mut line = format!("  gsm8k {label}: {correct} of {} correct, decode {:.1} tok/s over {n_tok} tokens", prompts.len(), n_tok as f64 / dec_s);
             if k.is_some() {
                 line += &format!(
-                    "; completions identical to greedy {} of {}; acceptance {:.3} ({} of {}), {:.2} tokens a verify",
+                    "; completions identical to greedy {} of {}; acceptance {:.3} ({} of {}), {:.2} tokens a verify; {}",
                     prompts.len(),
                     prompts.len(),
                     st.acceptance(),
                     st.accepted,
                     st.drafted,
-                    st.tokens_per_round()
+                    st.tokens_per_round(),
+                    cost_line(&st, greedy_rate)
                 );
             }
             println!("{line}");

@@ -37,6 +37,11 @@ pub struct SpecStats {
     pub catchups: usize,
     /// Drafter launches that proposed tokens.
     pub draft_launches: usize,
+    /// Wall time inside the drafter's launches (catch-ups included) and inside
+    /// the verify passes, in ns. Each launch reads its result back, so each is
+    /// synchronous and these add up to the decode less the host's own work.
+    pub draft_ns: u64,
+    pub verify_ns: u64,
 }
 
 impl SpecStats {
@@ -102,11 +107,13 @@ pub fn speculative_greedy(
         // its drafts plus one.
         let kk = k.min(more - out.len() - 1);
         let drafts = if kk > 0 {
+            let t0 = std::time::Instant::now();
             if let Some((p, t)) = lag.take() {
                 let _ = draft(p, t, 1)?;
                 st.catchups += 1;
             }
             let d = draft(pos, tok, kk as u32)?;
+            st.draft_ns += t0.elapsed().as_nanos() as u64;
             anyhow::ensure!(!d.is_empty() && d.len() <= kk, "a draft launch asked for {kk} tokens made {}", d.len());
             st.draft_launches += 1;
             d
@@ -116,7 +123,9 @@ pub fn speculative_greedy(
         let mut rows = Vec::with_capacity(drafts.len() + 1);
         rows.push(tok);
         rows.extend_from_slice(&drafts);
+        let t0 = std::time::Instant::now();
         let ys = verify(pos, &rows)?;
+        st.verify_ns += t0.elapsed().as_nanos() as u64;
         anyhow::ensure!(ys.len() == rows.len(), "a verify pass of {} rows returned {} tokens", rows.len(), ys.len());
         st.rounds += 1;
         st.drafted += drafts.len();
@@ -284,7 +293,7 @@ mod tests {
         let (out, stopped, s) =
             speculative_greedy(1, 0, 9, &[], 2, |_, _, n| Ok(vec![3; n as usize]), |_, rows| Ok(vec![3; rows.len()]), |_, _| Ok(())).unwrap();
         assert_eq!((out.len(), stopped), (9, false));
-        assert_eq!((s.rounds, s.drafted, s.accepted, s.catchups), (3, 6, 6, 2));
+        assert_eq!((s.rounds, s.drafted, s.accepted, s.catchups, s.draft_launches), (3, 6, 6, 2, 3));
         assert_eq!(s.tokens_per_round(), 3.0);
     }
 }
