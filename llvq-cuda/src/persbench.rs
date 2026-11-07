@@ -523,30 +523,63 @@ impl<'a> Section<'a> {
           }
         }
         let mut arms = Vec::new();
+        let relayout = m.func("tv_trows_tile_relayout")?;
+        let mut tiled: Vec<CudaSlice<u32>> = Vec::new();
         for &(name, sym, owed, minb) in pers::TROWS_ARMS.iter() {
             let pick: Vec<usize> = (0..sites.len()).filter(|&k| !pers::trows_small_only(name) || sites[k].d_in <= 4096).collect();
             let rows: usize = pick.iter().map(|&k| sites[k].d_out as usize).sum();
             let k2 = name == "k2";
+            let (tile, cpa) = (name == "tile", name == "cpa");
             let y = m.zeros_u16(rows)?;
             let y2 = m.zeros_u16(if k2 { rows } else { 1 })?;
             let mut words = Vec::with_capacity(pick.len() * 10);
             let mut at = 0u64;
             let mut bytes = 0u64;
+            let (mut served_words, mut tile_words) = (0u64, 0u64);
             for &k in &pick {
                 let s = &sites[k];
                 let (nb, tw) = (s.d_in / 24, s.d_in % 24);
                 let y2p = if k2 { ptr(&y2, &m) + 2 * at } else { 0 };
+                // TILE reads its own copy of the words, relaid once here by a
+                // kernel that only moves bits (tv_trows_tile_relayout).
+                let (wp, stride) = if tile {
+                    let ts = pers::trows_tile_stride(nb);
+                    let buf = m.zeros_u32(s.d_out as usize * ts as usize)?;
+                    let cfg = LaunchConfig { grid_dim: (1024, 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 0 };
+                    let mut b = m.stream().launch_builder(&relayout);
+                    b.arg(&s.words).arg(&s.stride_u32).arg(&buf).arg(&ts).arg(&s.d_out).arg(&nb);
+                    // SAFETY: the relayout's own arguments: the site's live word
+                    // stream and a zeroed buffer of d_out x ts words.
+                    unsafe { b.launch(cfg) }.map_err(|e| format!("tv_trows_tile_relayout: {e}"))?;
+                    let wp = ptr(&buf, &m);
+                    tiled.push(buf);
+                    served_words += u64::from(s.d_out) * 4 * u64::from(s.stride_u32);
+                    tile_words += u64::from(s.d_out) * 4 * u64::from(ts);
+                    (wp, ts)
+                } else {
+                    (s.words, s.stride_u32)
+                };
                 words.extend(pers::trows_site_words(
-                    s.words, s.gscale, s.rscale, ptr(&tails[k], &m), ptr(&y, &m) + 2 * at, y2p, s.d_out, nb, tw, s.stride_u32,
+                    wp, s.gscale, s.rscale, ptr(&tails[k], &m), ptr(&y, &m) + 2 * at, y2p, s.d_out, nb, tw, stride,
                 ));
                 at += u64::from(s.d_out);
-                bytes += u64::from(s.d_out) * (4 * u64::from(s.stride_u32) + 2 * u64::from(tw) + 4);
+                bytes += u64::from(s.d_out) * (4 * u64::from(stride) + 2 * u64::from(tw) + 4);
+            }
+            if tile {
+                m.sync()?;
+                println!(
+                    "  tile: words relaid on card, {:.4} GB against the served stream's {:.4} GB ({:+} B), a second copy for the bench only",
+                    tile_words as f64 / 1e9,
+                    served_words as f64 / 1e9,
+                    tile_words as i64 - served_words as i64
+                );
             }
             let table = m.up_u64(&words)?;
             // One CTA a SM: 4E's own shared bytes. Two: the small sites' staging.
-            let shared = match (k2, minb) {
-                (true, _) => pers::trows_k2_smem_bytes(),
-                (false, 1) => pers::trows_smem_bytes(9728),
+            let shared = match (k2, cpa, minb) {
+                (true, _, _) => pers::trows_k2_smem_bytes(),
+                (false, true, _) => pers::trows_cpa_smem_bytes(16),
+                (false, false, 1) => pers::trows_smem_bytes(9728),
                 _ => pers::trows_smem_bytes(4096),
             };
             let f = m.func_dynamic_shared(sym, shared)?;
@@ -577,6 +610,12 @@ impl<'a> Section<'a> {
             };
             if !a.valid {
                 println!("  {name}: SPILLS {} B or does not fit ({occ} a SM, {minb} needed), not timed", rep.local_bytes);
+                arms.push(a);
+                continue;
+            }
+            if cpa && !pick.iter().all(|&k| pers::trows_cpa_ok(sites[k].stride_u32)) {
+                println!("  cpa: REFUSED, a row stride is not a multiple of 16 B; not timed");
+                a.valid = false;
                 arms.push(a);
                 continue;
             }
@@ -636,7 +675,9 @@ impl<'a> Section<'a> {
             }
             arms.push(a);
         }
-        self.trows = Some(Trows { module: m, _served: served, _tails: tails, x2, _x2: x2_buf, arms });
+        let q4 = q4rows_setup(&m, &served, self.sm)?;
+        ctr_micro(&m, self.sm)?;
+        self.trows = Some(Trows { module: m, _served: served, _tails: tails, x2, _x2: x2_buf, arms, _tiled: tiled, q4 });
         Ok(())
     }
 
@@ -988,6 +1029,7 @@ impl<'a> Section<'a> {
                     a.series.push(t0.elapsed().as_secs_f64());
                 }
             }
+            q4rows_round(&tr.module, &mut tr.q4, timed)?;
             self.trows = Some(tr);
         }
         Ok(())
@@ -1174,6 +1216,10 @@ struct Trows {
     x2: u64,
     _x2: CudaSlice<f32>,
     arms: Vec<TrowsArm>,
+    /// TILE's relaid words (kept alive).
+    _tiled: Vec<CudaSlice<u32>>,
+    /// K11's int4 rows.
+    q4: Q4Rows,
 }
 
 fn trows_launch(m: &Cuda, a: &TrowsArm, t: &Tables, x: u64, x2: u64, stamps: Option<(&CudaSlice<u32>, &CudaSlice<u64>)>) -> Result<(), String> {
@@ -1222,6 +1268,9 @@ fn trows_report(tr: &Trows) {
             a.bytes as f64 / 1e9,
             vs.unwrap_or_default()
         );
+        if let Some(v) = k4_verdict(a.name, base, &series, &a.series) {
+            println!("  {:<7} {v}", "");
+        }
         // K2: the cost of a second token as a fraction of a pass, round by
         // round against V2 (same rows, same bytes, one decode for two).
         if a.name == "k2" {
@@ -1235,4 +1284,349 @@ fn trows_report(tr: &Trows) {
             }
         }
     }
+    q4rows_report(&tr.q4);
+}
+
+/// K4's rule (plan-300 step 1) for an arm of the five: the median of its
+/// round-by-round speed over v2 against the bar.
+fn k4_verdict(name: &str, base: Option<&str>, series: &dyn Fn(&str) -> Option<Vec<f64>>, s: &[f64]) -> Option<String> {
+    if !["nc", "nc256", "cpa", "tile", "bal"].contains(&name) || base != Some("v2") {
+        return None;
+    }
+    let v2 = series("v2")?;
+    let r: Vec<f64> = v2.iter().zip(s).map(|(b, t)| b / t).collect();
+    let (m, _, _) = pers::med_range(&r);
+    let verdict = if m >= pers::K4_LEVER {
+        "LEVER: at or over x1.15, licenses the 4E port (step 4)"
+    } else if m >= pers::K4_DEAD {
+        "reported, not a lever: between x1.10 and x1.15"
+    } else {
+        "DEAD: under x1.10"
+    };
+    Some(format!("K4 rule: x{m:.3} over v2, {verdict}"))
+}
+
+// ---- plan-300 step 1: K11, the int4 rows alone; K3b, the counters ---------
+
+/// One int4 record of K11's synthetic set: its buffers and shape.
+struct Q4Rec {
+    wq: CudaSlice<u32>,
+    sc: CudaSlice<u16>,
+    bi: CudaSlice<u16>,
+    d_out: u32,
+    d_in: u32,
+}
+
+/// One arm of K11 (`pers_q4rows.cu`).
+struct Q4Arm {
+    name: &'static str,
+    f: CudaFunction,
+    table: CudaSlice<u64>,
+    _y: CudaSlice<u16>,
+    grid: u32,
+    shared: u32,
+    valid: bool,
+    series: Vec<f64>,
+}
+
+/// K11's section: the served `tv_q4_hh` over the 84 records (the reference of
+/// rows and time), then the arms, timed in the same rounds.
+struct Q4Rows {
+    f_ref: CudaFunction,
+    recs: Vec<Q4Rec>,
+    xh: CudaSlice<u16>,
+    y_ref: CudaSlice<u16>,
+    _tiled: Vec<CudaSlice<u32>>,
+    ref_series: Vec<f64>,
+    arms: Vec<Q4Arm>,
+    bytes: u64,
+}
+
+/// binary16 bits with a random sign and mantissa and an exponent field in
+/// [lo, hi]: the host fixture's `Rng::h16`, on the bench's generator.
+fn h16(rng: &mut llvq_core::SplitMix64, lo: u64, hi: u64) -> u16 {
+    let r = rng.next();
+    let e = lo + (r >> 20) % (hi - lo + 1);
+    (((r >> 40) & 1) << 15 | e << 10 | (r & 0x3ff)) as u16
+}
+
+/// The served pass: `tv_q4_hh` on each record, as the eager path launches it
+/// (one warp a row, 256 threads, the activation staged in f32).
+fn q4hh_pass(m: &Cuda, q: &Q4Rows) -> Result<(), String> {
+    let mut at = 0u64;
+    for r in &q.recs {
+        let cfg = LaunchConfig { grid_dim: (r.d_out / 8, 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 4 * r.d_in };
+        let gpr = r.d_in / 128;
+        let y = ptr(&q.y_ref, m) + 2 * at;
+        let mut b = m.stream().launch_builder(&q.f_ref);
+        b.arg(&r.wq).arg(&r.sc).arg(&r.bi).arg(&q.xh).arg(&y).arg(&r.d_in).arg(&gpr);
+        // SAFETY: tv_q4_hh's own arguments on the record's live buffers; y
+        // points at the record's rows inside y_ref.
+        unsafe { b.launch(cfg) }.map_err(|e| format!("tv_q4_hh: {e}"))?;
+        at += u64::from(r.d_out);
+    }
+    Ok(())
+}
+
+fn q4rows_launch(m: &Cuda, a: &Q4Arm, nsites: u32, xh: &CudaSlice<u16>) -> Result<(), String> {
+    let cfg = LaunchConfig { grid_dim: (a.grid, 1, 1), block_dim: (512, 1, 1), shared_mem_bytes: a.shared };
+    let (sp, ep) = (0u64, 0u64);
+    let mut b = m.stream().launch_builder(&a.f);
+    b.arg(&a.table).arg(&nsites).arg(xh).arg(&sp).arg(&ep);
+    // SAFETY: the kernel's own arguments; every pointer of the site table is
+    // a live buffer of the section; no stamps.
+    unsafe { b.launch(cfg) }.map_err(|e| format!("{}: {e}", a.name))?;
+    Ok(())
+}
+
+/// K11's setup: 84 synthetic records of the 4B's int4 shapes, seeded (the
+/// values do not move the time; identity is held on these same values), the
+/// served reference rows, then each arm checked row by row before it is timed.
+fn q4rows_setup(m: &Cuda, served: &Cuda, sm: u32) -> Result<Q4Rows, String> {
+    let sites = pers::q4rows_sites();
+    let bytes = pers::q4rows_bytes(&sites);
+    let mut rng = llvq_core::SplitMix64::new(0x7e75);
+    let mut recs = Vec::with_capacity(sites.len());
+    for &(d_out, d_in, _, _) in &sites {
+        let gpr = (d_out * (d_in / 128)) as usize;
+        let w: Vec<u32> = (0..(d_out as usize * d_in as usize / 8)).map(|_| rng.next() as u32).collect();
+        let sc: Vec<u16> = (0..gpr).map(|_| h16(&mut rng, 6, 10)).collect();
+        let bi: Vec<u16> = (0..gpr).map(|_| h16(&mut rng, 8, 12)).collect();
+        recs.push(Q4Rec { wq: m.up_u32(&w)?, sc: m.up_u16(&sc)?, bi: m.up_u16(&bi)?, d_out, d_in });
+    }
+    let xh_host: Vec<u16> = (0..9728).map(|_| crate::f16_bits(rng.next_gaussian() as f32)).collect();
+    let xh = m.up_u16(&xh_host)?;
+    let rows: usize = sites.iter().map(|s| s.0 as usize).sum();
+    let mut q = Q4Rows {
+        f_ref: served.func("tv_q4_hh")?,
+        recs,
+        xh,
+        y_ref: m.zeros_u16(rows)?,
+        _tiled: Vec::new(),
+        ref_series: Vec::new(),
+        arms: Vec::new(),
+        bytes,
+    };
+    println!(
+        "\n  Int4 rows alone (K11): {} synthetic records of the 4B's int4 shapes, {rows} rows, {:.4} GB (words, scales, biases)",
+        sites.len(),
+        bytes as f64 / 1e9
+    );
+    q4hh_pass(m, &q)?;
+    m.sync()?;
+    let want = m.down_u16(&q.y_ref)?;
+    let relayout = m.func("tv_q4rows_tile_relayout")?;
+    let shared = pers::q4rows_smem_bytes(9728);
+    for &(name, sym, owed) in pers::Q4ROWS_ARMS.iter() {
+        let y = m.zeros_u16(rows)?;
+        let mut words = Vec::with_capacity(sites.len() * 6);
+        let mut at = 0u64;
+        for r in &q.recs {
+            let wp = if name == "q4t" {
+                let buf = m.zeros_u32(r.d_out as usize * r.d_in as usize / 8)?;
+                let nwords = r.d_in / 8;
+                let cfg = LaunchConfig { grid_dim: (1024, 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 0 };
+                let mut b = m.stream().launch_builder(&relayout);
+                b.arg(&r.wq).arg(&buf).arg(&r.d_out).arg(&nwords);
+                // SAFETY: the relayout's own arguments, both buffers d_out x nwords.
+                unsafe { b.launch(cfg) }.map_err(|e| format!("tv_q4rows_tile_relayout: {e}"))?;
+                let p = ptr(&buf, m);
+                q._tiled.push(buf);
+                p
+            } else {
+                ptr(&r.wq, m)
+            };
+            words.extend(pers::q4rows_site_words(wp, ptr(&r.sc, m), ptr(&r.bi, m), ptr(&y, m) + 2 * at, r.d_out, r.d_in));
+            at += u64::from(r.d_out);
+        }
+        let f = m.func_dynamic_shared(sym, shared)?;
+        let rep = m.report(sym)?;
+        let occ = f
+            .occupancy_max_active_blocks_per_multiprocessor(512, shared as usize, None)
+            .map_err(|e| format!("occupancy: {e}"))?;
+        println!(
+            "  {name:<7} {sym}: grid {sm} (1 a SM, {occ} fit), 512 threads, {} registers, {} B local, {shared} B shared",
+            rep.num_regs, rep.local_bytes
+        );
+        let mut a = Q4Arm { name, f, table: m.up_u64(&words)?, _y: y, grid: sm, shared, valid: rep.local_bytes == 0 && occ >= 1, series: Vec::new() };
+        if !a.valid {
+            println!("  {name}: SPILLS {} B or does not fit, not timed", rep.local_bytes);
+            q.arms.push(a);
+            continue;
+        }
+        q4rows_launch(m, &a, sites.len() as u32, &q.xh)?;
+        m.sync()?;
+        let got = m.down_u16(&a._y)?;
+        let same = got.iter().zip(&want).filter(|(g, w)| g == w).count();
+        if !owed {
+            println!("  {name}: diagnostic, rows not owed ({same} of {rows} happen to equal tv_q4_hh)");
+        } else if same == rows {
+            println!("  {name}: {rows} rows identical BIT FOR BIT to tv_q4_hh");
+        } else {
+            let k = got.iter().zip(&want).position(|(g, w)| g != w).unwrap_or(0);
+            println!("  {name} INVALIDATED: {same} of {rows} rows equal; first: row {k}: {:#06x} against {:#06x}", got[k], want[k]);
+            a.valid = false;
+        }
+        q.arms.push(a);
+    }
+    Ok(q)
+}
+
+/// One round of K11: the served pass, then every valid arm.
+fn q4rows_round(m: &Cuda, q: &mut Q4Rows, timed: bool) -> Result<(), String> {
+    let t0 = Instant::now();
+    q4hh_pass(m, q)?;
+    m.sync()?;
+    if timed {
+        q.ref_series.push(t0.elapsed().as_secs_f64());
+    }
+    let n = q.recs.len() as u32;
+    for a in q.arms.iter_mut().filter(|a| a.valid) {
+        let t0 = Instant::now();
+        q4rows_launch(m, a, n, &q.xh)?;
+        m.sync()?;
+        if timed {
+            a.series.push(t0.elapsed().as_secs_f64());
+        }
+    }
+    Ok(())
+}
+
+fn q4rows_report(q: &Q4Rows) {
+    println!("\n  Int4 rows alone (K11), rounds interleaved with A4; bytes = {:.4} GB of words, scales and biases:", q.bytes as f64 / 1e9);
+    let line = |name: &str, s: &[f64]| {
+        let (m, lo, hi) = pers::med_range(s);
+        let gb: Vec<f64> = s.iter().map(|t| q.bytes as f64 / t / 1e9).collect();
+        let (b, bl, bh) = pers::med_range(&gb);
+        format!("  {name:<7} {:.3} ms [{:.3}-{:.3}]  {b:.0} GB/s [{bl:.0}-{bh:.0}]", 1e3 * m, 1e3 * lo, 1e3 * hi)
+    };
+    if q.ref_series.is_empty() {
+        println!("  q4hh    not timed");
+    } else {
+        println!("{} (tv_q4_hh, 84 launches)", line("q4hh", &q.ref_series));
+    }
+    let q4 = q.arms.iter().find(|a| a.name == "q4" && a.valid && !a.series.is_empty()).map(|a| a.series.clone());
+    for a in &q.arms {
+        if !a.valid || a.series.is_empty() {
+            println!("  {:<7} not timed", a.name);
+            continue;
+        }
+        let mut s = line(a.name, &a.series);
+        let speed = |base: &[f64]| {
+            let r: Vec<f64> = base.iter().zip(&a.series).map(|(b, t)| b / t).collect();
+            pers::med_range(&r)
+        };
+        if !q.ref_series.is_empty() {
+            let (m, lo, hi) = speed(&q.ref_series);
+            s.push_str(&format!("  speed over q4hh: x{m:.3} [{lo:.3}-{hi:.3}]"));
+        }
+        if let (Some(b), true) = (&q4, a.name != "q4") {
+            let (m, lo, hi) = speed(b);
+            s.push_str(&format!("  speed over q4: x{m:.3} [{lo:.3}-{hi:.3}]"));
+            if a.name == "q4nc" || a.name == "q4t" {
+                let v = if m >= pers::K11_LEVER { "LEVER: at or over x1.10" } else { "not a lever: under x1.10" };
+                s.push_str(&format!("\n  {:<7} K11 rule: x{m:.3} over q4, {v}", ""));
+            }
+        }
+        println!("{s}");
+    }
+}
+
+/// K3b: the counter kernels (`pers_ctr.cu`), one cooperative launch of N hops
+/// each, at 4E's geometry, the arms interleaved rep by rep so every
+/// difference is formed within one rep. Timed on the host around launch and
+/// sync, as the L1 microbenchmarks. After the reps, every counter must hold
+/// what the hops put there (`pers::ctr_expected`), or the arm is void.
+fn ctr_micro(m: &Cuda, sm: u32) -> Result<(), String> {
+    const N: u32 = 10_000;
+    const REPS: usize = 7;
+    const DISCARD: usize = 2;
+    // About 1 us at the 2,456-2,502 MHz of pers-rowloop's stamps.
+    const WORK: u32 = 2_500;
+    let hdr = pers::SMEM_HEADER;
+    let grid = sm;
+    println!(
+        "\n  Counters (K3b): {grid} x 512 cooperative, {N} hops a launch, {REPS} reps interleaved, {DISCARD} discarded; \
+         split and work spin {WORK} cycles a hop"
+    );
+    let mut fs = Vec::new();
+    for &(name, sym) in pers::CTR_ARMS.iter() {
+        let f = m.func(sym)?;
+        let occ = f
+            .occupancy_max_active_blocks_per_multiprocessor(512, hdr as usize, None)
+            .map_err(|e| format!("occupancy: {e}"))?;
+        if occ < 1 {
+            return Err(format!("{sym}: no CTA of 512 fits a SM"));
+        }
+        let lines = pers::ctr_groups(grid) as usize * 32;
+        fs.push((name, f, m.up_u32(&vec![0u32; lines])?, Vec::<f64>::new(), true));
+    }
+    let mut abort = m.up_u32(&[0])?;
+    for rep in 0..REPS {
+        for (name, f, ctr, series, ok) in fs.iter_mut() {
+            if !*ok {
+                continue;
+            }
+            let base = rep as u32 * N;
+            let cfg = LaunchConfig { grid_dim: (grid, 1, 1), block_dim: (512, 1, 1), shared_mem_bytes: hdr };
+            let t0 = Instant::now();
+            let mut b = m.stream().launch_builder(f);
+            b.arg(&mut *ctr).arg(&base).arg(&N).arg(&WORK).arg(&mut abort);
+            // SAFETY: the kernel's own arguments; the grid passed the
+            // occupancy check, and a cooperative launch refuses a grid that
+            // cannot be co-resident.
+            unsafe { b.launch_cooperative(cfg) }.map_err(|e| format!("tv_ctr {name}: {e}"))?;
+            m.sync()?;
+            let us = t0.elapsed().as_secs_f64() / f64::from(N) * 1e6;
+            if m.down_u32(&abort)?[0] != 0 {
+                println!("  {name}: ABORTED on the watchdog, void");
+                *ok = false;
+                abort = m.up_u32(&[0])?;
+                continue;
+            }
+            if rep >= DISCARD {
+                series.push(us);
+            }
+        }
+    }
+    for (name, _, ctr, _, ok) in fs.iter_mut() {
+        if !*ok {
+            continue;
+        }
+        let got = m.down_u32(ctr)?;
+        let want: Vec<u32> = pers::ctr_expected(name, grid, N).iter().map(|v| v * REPS as u32).collect();
+        let heads: Vec<u32> = (0..want.len()).map(|p| got[32 * p]).collect();
+        if heads == want {
+            println!("  {name}: counts OK ({} counter{})", want.len(), if want.len() > 1 { "s" } else { "" });
+        } else {
+            println!("  {name} INVALIDATED: counters {heads:?}, expected {want:?}");
+            *ok = false;
+        }
+    }
+    let get = |n: &str| fs.iter().find(|f| f.0 == n && f.4).map(|f| f.3.clone());
+    for (name, _, _, series, ok) in &fs {
+        if !*ok {
+            println!("  {name:<6} void");
+            continue;
+        }
+        let (md, lo, hi) = pers::med_range(series);
+        let mut s = format!("  {name:<6} {md:7.3} us a hop [{lo:.3}-{hi:.3}]");
+        if ["tight", "rel", "ctr8"].contains(name) {
+            if let Some(bar) = get("bar") {
+                let g: Vec<f64> = bar.iter().zip(series).map(|(b, x)| b - x).collect();
+                let (gm, gl, gh) = pers::med_range(&g);
+                let v = if gm >= pers::K3B_GAIN_US { "LEVER: under bar by 0.3 us or more" } else { "not a lever" };
+                s.push_str(&format!("  under bar, rep by rep: {gm:.3} us [{gl:.3}-{gh:.3}]; K3b rule: {v}"));
+            }
+        }
+        if *name == "split" {
+            if let Some(w) = get("work") {
+                let g: Vec<f64> = series.iter().zip(&w).map(|(x, y)| x - y).collect();
+                let (gm, gl, gh) = pers::med_range(&g);
+                s.push_str(&format!("  exposed over work, rep by rep: {gm:.3} us [{gl:.3}-{gh:.3}]"));
+            }
+        }
+        println!("{s}");
+    }
+    Ok(())
 }

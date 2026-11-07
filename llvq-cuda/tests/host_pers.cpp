@@ -65,6 +65,8 @@ static inline unsigned short served_capture_f2h(float v) {
 #include "../kernels/pers_segment.cu"
 #include "../kernels/pers_4e.cu"
 #include "../kernels/pers_trows.cu"
+#include "../kernels/pers_q4rows.cu"
+#include "../kernels/pers_ctr.cu"
 #include "../kernels/tetra48_persall.cu"
 #include "../../llvq-llm/kernels/tok_argmax.cu"
 #endif
@@ -585,11 +587,28 @@ int main() {
                 k2 ? (unsigned long long)(uintptr_t)fs2.back().data() : 0ull};
             words.insert(words.end(), w, w + TROWS_SITE_WORDS);
         }
+        // TILE (arm 11) reads the words relaid by tv_trows_tile_relayout, run
+        // through the harness like any kernel; its site words point there.
+        std::vector<std::vector<u32>> tiled(mats.size());
+        if (arm == TROWS_TILE) {
+            for (size_t k = 0; k < mats.size(); ++k) {
+                const TMat& m = mats[k];
+                const u32 ts = trows_tile_stride(m.nblocks);
+                tiled[k].assign((size_t)m.d_out * ts, 0u);
+                hostgrid::launch_seq(3, 64, [&] {
+                    tv_trows_tile_relayout(m.words.data(), m.stride, tiled[k].data(), ts, m.d_out, m.nblocks);
+                });
+                words[k * TROWS_SITE_WORDS] = (unsigned long long)(uintptr_t)tiled[k].data();
+                words[k * TROWS_SITE_WORDS + 6u] = (unsigned long long)m.tail_w | ((unsigned long long)ts << 32);
+            }
+        }
         std::vector<u32> st((size_t)nsites * grid * (threads / 32u + 1u), 0u);
         std::vector<unsigned long long> ends(4u * grid, 0ull);
         u32* sp = stamp ? st.data() : nullptr;
         unsigned long long* ep = stamp ? ends.data() : nullptr;
-        const size_t smem = PERS_SMEM_HEADER + 18816u + 4u * (k2 ? TROWS_X2_AT + maxd : maxd) + 16u;
+        const bool cpa = arm == TROWS_CPA;
+        const size_t smem = PERS_SMEM_HEADER + 18816u + 4u * (k2 || cpa ? TROWS_X2_AT + maxd : maxd) + 16u +
+                            (cpa ? 4u * TROWS_CPA_WARP * (threads / 32u) : 0u);
         hostgrid::launch_coop(grid, threads, smem, xseed, [&] {
             switch (arm) {
             case 0: trows_body<TROWS_V2>(words.data(), nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), g_inv.data(), x.data(), x2.data(), sp, ep); break;
@@ -599,7 +618,13 @@ int main() {
             case 4: trows_body<TROWS_L1W>(words.data(), nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), g_inv.data(), x.data(), x2.data(), sp, ep); break;
             case 5: trows_body<TROWS_BCAST>(words.data(), nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), g_inv.data(), x.data(), x2.data(), sp, ep); break;
             case 6: trows_body<TROWS_XBCAST>(words.data(), nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), g_inv.data(), x.data(), x2.data(), sp, ep); break;
-            default: trows_body<TROWS_K2>(words.data(), nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), g_inv.data(), x.data(), x2.data(), sp, ep); break;
+            case 7: trows_body<TROWS_K2>(words.data(), nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), g_inv.data(), x.data(), x2.data(), sp, ep); break;
+            case 8: trows_body<TROWS_NC>(words.data(), nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), g_inv.data(), x.data(), x2.data(), sp, ep); break;
+            case 9: trows_body<TROWS_NC256>(words.data(), nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), g_inv.data(), x.data(), x2.data(), sp, ep); break;
+            case 10: trows_body<TROWS_CPA>(words.data(), nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), g_inv.data(), x.data(), x2.data(), sp, ep); break;
+            case 11: trows_body<TROWS_TILE>(words.data(), nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), g_inv.data(), x.data(), x2.data(), sp, ep); break;
+            case 12: trows_body<TROWS_BAL>(words.data(), nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), g_inv.data(), x.data(), x2.data(), sp, ep); break;
+            default: std::abort();
             }
         });
         if (stamp) {
@@ -1081,6 +1106,8 @@ int main() {
 #undef OFF
 #endif
         wr(o);
+    } else if (tag == 'y' || tag == 'c') {
+#include "host_pers_step1.inc"
     } else if (tag == 'K') {
         // KEY: the persistent key against tok_argmax.cu's, every binary16
         // pattern at a spread of indices. Writes the number of mismatches.

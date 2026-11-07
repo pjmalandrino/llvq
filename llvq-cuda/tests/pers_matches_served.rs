@@ -1278,6 +1278,139 @@ fn row_loop_mutants_are_killed() {
 }
 
 
+// ---- plan-300 step 1: K4's row-loop arms, K11's int4 rows, K3b's counters ----
+
+/// K4's five arms (NC, NC256, CPA, TILE, BAL: arms 8 to 12) give the served
+/// rows on every site, grid and warp count, with and without stamps. The
+/// 9,728 site holds three full tiles and 21 blocks left, the 4,096 one tile
+/// and 42, the 2,560 none, so TILE runs both of its planes.
+#[test]
+fn the_step1_row_loop_arms_are_the_served_rows() {
+    let want = run(served(), &trows_cmd(0, 1, 64, 0, &TROWS_SITES));
+    for arm in 8..13u32 {
+        for &(grid, threads, stamps) in &[(3u32, 96u32, 0u32), (2, 64, 1), (4, 128, 1), (5, 32, 0)] {
+            let got = run(persistent(), &trows_cmd(arm, grid, threads, stamps, &TROWS_SITES));
+            assert!(got == want, "K4 arm {arm}, grid {grid}x{threads}, stamps {stamps}: rows or their f32 values differ from tv_tetra48_h");
+        }
+    }
+}
+
+#[test]
+fn step1_row_loop_mutants_are_killed() {
+    let f = "llvq-cuda/kernels/pers_trows.cu";
+    let want = run(served(), &trows_cmd(0, 1, 64, 0, &TROWS_SITES));
+    let cases: [(&str, u32, &str, &str); 11] = [
+        ("nc_word", 8, "const u32 w1 = trows_ldw<LD>(row + w + 1u);", "const u32 w1 = trows_ldw<LD>(row + w);"),
+        ("nc_prefetch", 9, "if (j + 32u < nblocks) trows_load<LD>(wrow, j + 32u, lo2, hi2);", "if (j + 64u < nblocks) trows_load<LD>(wrow, j + 32u, lo2, hi2);"),
+        ("cpa_slot", 10, "f1r_load(ring + TROWS_CPA_SLOT * (i % 3u), lane, lo, hi16);", "f1r_load(ring + TROWS_CPA_SLOT * ((i + 1u) % 3u), lane, lo, hi16);"),
+        ("cpa_chunk", 10, "if (c + 4u <= row_u32) trows_cp16(", "if (c + 8u <= row_u32) trows_cp16("),
+        ("cpa_ahead", 10, "        trows_cpa_issue(ring, wrow, row_u32, i + 2u, nit, lane);\n", "        trows_cpa_issue(ring, wrow, row_u32, i + 3u, nit, lane);\n"),
+        ("tile_hi_half", 11, "acc = pers_block(acc, lo[s], (u32)(H >> (16u * s)) & 0xffffu,", "acc = pers_block(acc, lo[s], (u32)(H >> (16u * (s ^ 1u))) & 0xffffu,"),
+        ("tile_put_lane", 11, "drow[192u * t + 4u * l + s] = lo;", "drow[192u * t + 4u * s + l] = lo;"),
+        ("tile_next", 11, "if (t + 1u < nt) {\n            const u32* nx", "if (t + 2u < nt) {\n            const u32* nx"),
+        ("tile_rem_hi", 11, "const unsigned short* rhi = reinterpret_cast<const unsigned short*>(rlo + rem);", "const unsigned short* rhi = reinterpret_cast<const unsigned short*>(rlo + rem + 1u);"),
+        // A change of the stride alone is equivalent here (relayout and read
+        // share it); pers.rs pins it to the served stride at the 4B's widths.
+        ("tile_put_rem_hi", 11, "h[2u * (192u * nt + rem) + rr] = (unsigned short)hi16;", "h[2u * (192u * nt + rem) + (rr ^ 1u)] = (unsigned short)hi16;"),
+        ("bal_last_row", 12, "if (r >= hi) break;", "if (r + 1u >= hi) break;"),
+    ];
+    for (tag, arm, from, to) in cases {
+        let b = mutant(tag, f, from, to);
+        let killed = [(3u32, 96u32), (2, 64)].iter().any(|&(g, th)| run_mutant(&b, &trows_cmd(arm, g, th, 0, &TROWS_SITES)).is_none_or(|got| got != want));
+        assert!(killed, "K4 mutant {tag} survived");
+    }
+}
+
+// Int4 sites of the 4B's three shapes, cut to a few rows; d_in in whole
+// steps of 32 words, d_out a multiple of 8 (tv_q4_hh's blocks). 9,728: 9
+// full tiles of 128 words and 2 steps left.
+const Q4_SITES: [(u32, u32, u64); 4] = [(16, 2560, 0x7401), (24, 4096, 0x7402), (8, 9728, 0x7403), (40, 2560, 0x7404)];
+
+fn q4rows_cmd(arm: u32, grid: u32, threads: u32, stamps: u32, sites: &[(u32, u32, u64)]) -> Vec<u8> {
+    let mut c = Cmd::new(b'y').u32(arm).u32(grid).u32(threads).u32(stamps).u64(0x7e74).u32(sites.len() as u32);
+    for &(o, i, s) in sites {
+        c = c.u32(o).u32(i).u64(s);
+    }
+    c.0
+}
+
+/// K11: 4E's int4 row (Q4), its read-only loads (NC) and its tile layout
+/// (TILE) give tv_q4_hh's rows bit for bit, binary16 and f32 before f2h, on
+/// every grid; READ, the diagnostic, owes nothing and moves the rows.
+#[test]
+fn the_int4_rows_alone_are_the_served_rows() {
+    let want = run(served(), &q4rows_cmd(0, 1, 64, 0, &Q4_SITES));
+    let rows: usize = Q4_SITES.iter().map(|s| s.0 as usize).sum();
+    assert_eq!(want.len(), 6 * rows);
+    for arm in 0..3u32 {
+        for &(grid, threads, stamps) in &[(3u32, 96u32, 0u32), (2, 64, 1), (5, 128, 1), (4, 32, 0)] {
+            let got = run(persistent(), &q4rows_cmd(arm, grid, threads, stamps, &Q4_SITES));
+            assert!(got == want, "int4 arm {arm}, grid {grid}x{threads}, stamps {stamps}: rows differ from tv_q4_hh");
+        }
+    }
+    let got = run(persistent(), &q4rows_cmd(3, 3, 96, 1, &Q4_SITES));
+    assert_eq!(got.len(), want.len());
+    assert!(got != want, "READ gives the served rows: it computes something");
+}
+
+#[test]
+fn int4_rows_mutants_are_killed() {
+    let f = "llvq-cuda/kernels/pers_q4rows.cu";
+    let want = run(served(), &q4rows_cmd(0, 1, 64, 0, &Q4_SITES));
+    let cases: [(&str, u32, &str, &str); 6] = [
+        ("q4nc_next", 1, "p2 = trows_ldw<LD>(wq + w0 + wi + 32u);", "p2 = trows_ldw<LD>(wq + w0 + wi + 64u);"),
+        ("q4nc_scale", 1, "sb2 = scales[s0 + ((wi + 32u) >> 4)];", "sb2 = scales[s0 + (wi >> 4)];"),
+        ("q4t_index", 2, "return (t << 7) + 4u * (k & 31u) + (k >> 5);", "return (t << 7) + 4u * (k >> 5) + (k & 31u);"),
+        ("q4t_next", 2, "if (t + 1u < nt) P2 = ", "if (t + 2u < nt) P2 = "),
+        ("q4t_group", 2, "const u32 c = ((t << 7) + 32u * s + lane) << 3;", "const u32 c = ((t << 7) + 32u * s + (lane ^ 16u)) << 3;"),
+        ("q4t_rest", 2, "for (u32 wi = (nt << 7) + lane; wi < nwords; wi += 32u) {", "for (u32 wi = (nt << 7) + lane + 32u * (nt > 0u); wi < nwords; wi += 32u) {"),
+    ];
+    for (tag, arm, from, to) in cases {
+        let b = mutant(tag, f, from, to);
+        assert!(run_mutant(&b, &q4rows_cmd(arm, 3, 96, 0, &Q4_SITES)).is_none_or(|got| got != want), "int4 mutant {tag} survived");
+    }
+}
+
+fn ctr_cmd(arm: u32, grid: u32, threads: u32, n: u32, work: u32) -> Vec<u8> {
+    Cmd::new(b'c').u32(arm).u32(grid).u32(threads).u32(n).u32(work).0
+}
+
+/// K3b: every counter kernel runs its hops to the end on the host grid, at
+/// grids with and without a short last group, over two launches whose second
+/// starts from the first's counters (the epoch). A hop that moved a target
+/// would hang and raise the abort flag; a lost arrival would leave a count.
+#[test]
+fn the_counter_kernels_count_every_hop() {
+    for (k, &(name, _)) in pers::CTR_ARMS.iter().enumerate() {
+        for &(grid, threads) in &[(12u32, 64u32), (5, 32), (17, 96)] {
+            let n = 4u32;
+            let got = u32s(&run(persistent(), &ctr_cmd(k as u32, grid, threads, n, 6)));
+            let want: Vec<u32> = pers::ctr_expected(name, grid, n).iter().map(|v| 2 * v).collect();
+            assert_eq!(got[..got.len() - 1], want[..], "{name}, grid {grid}x{threads}: counts after two launches");
+            assert_eq!(got[got.len() - 1], 0, "{name}, grid {grid}x{threads}: abort flag");
+        }
+    }
+}
+
+#[test]
+fn counter_mutants_are_killed() {
+    let f = "llvq-cuda/kernels/pers_ctr.cu";
+    let cases: [(&str, u32, &str, &str); 4] = [
+        ("ctr8_signal", 3, "ctr_red_release(ctr + CTR_LINE * p);", "ctr_red_release(ctr + CTR_LINE * q);"),
+        ("rel_target", 2, "            ctr_red_release(ctr);\n            ok = ctr_spin_tight(ctr, (base + i + 1u) * gridDim.x, abort_flag);", "            ctr_red_release(ctr);\n            ok = ctr_spin_tight(ctr, (base + i + 2u) * gridDim.x, abort_flag);"),
+        ("tight_arrival", 1, "            __threadfence();\n            atomicAdd(ctr, 1u);\n            ok = ctr_spin_tight", "            __threadfence();\n            ok = ctr_spin_tight"),
+        ("split_target", 4, "if (threadIdx.x == 0u) ok = ctr_spin_tight(ctr, (base + i + 1u) * gridDim.x, abort_flag);", "if (threadIdx.x == 0u) ok = ctr_spin_tight(ctr, (base + i + 2u) * gridDim.x, abort_flag);"),
+    ];
+    for (tag, arm, from, to) in cases {
+        let b = mutant(tag, f, from, to);
+        let name = pers::CTR_ARMS[arm as usize].0;
+        let want: Vec<u32> = pers::ctr_expected(name, 12, 4).iter().map(|v| 2 * v).chain([0]).collect();
+        let killed = run_mutant(&b, &ctr_cmd(arm, 12, 64, 4, 6)).is_none_or(|o| u32s(&o) != want);
+        assert!(killed, "counter mutant {tag} survived");
+    }
+}
+
+
 // ---- 4E v4: v2's row loop inside v3's structure (PERS_4E_ROWS = 2) ---------
 
 /// The module built with row form 2 runs the served chain bit for bit: the

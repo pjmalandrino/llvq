@@ -1490,15 +1490,23 @@ pub fn tetra_row_f64(
 }
 
 /// The row-loop microbenchmark's module: the persistent unit, then
-/// `pers_trows.cu`. Its own module, so 4E's keeps its bytes.
+/// `pers_trows.cu`, then plan-300 step 1's int4 rows (`pers_q4rows.cu`) and
+/// counters (`pers_ctr.cu`). Its own module, so 4E's keeps its bytes.
 pub fn trows_unit_text(tile_define: &str) -> String {
-    format!("{}\n{}", pers_unit_text(tile_define), include_str!("../kernels/pers_trows.cu"))
+    format!(
+        "{}\n{}\n{}\n{}",
+        pers_unit_text(tile_define),
+        include_str!("../kernels/pers_trows.cu"),
+        include_str!("../kernels/pers_q4rows.cu"),
+        include_str!("../kernels/pers_ctr.cu")
+    )
 }
 
 /// The row-loop arms (`pers_trows.cu`): name, symbol, whether every row owes
 /// the served bits, CTAs a SM. The occupancy arm `v2_o2` runs V2 at two CTAs a
 /// SM on the sites of d_in 4,096 or less, beside `v2_s`, the same sites at one.
-pub const TROWS_ARMS: [(&str, &str, bool, u32); 10] = [
+/// The last five are K4's arms of plan-300 step 1, each against `v2`.
+pub const TROWS_ARMS: [(&str, &str, bool, u32); 15] = [
     ("v2", "tv_trows_v2", true, 1),
     ("v3", "tv_trows_v3", true, 1),
     ("ilp2", "tv_trows_ilp2", true, 1),
@@ -1509,7 +1517,120 @@ pub const TROWS_ARMS: [(&str, &str, bool, u32); 10] = [
     ("v2_s", "tv_trows_v2", true, 1),
     ("v2_o2", "tv_trows_v2_o2", true, 2),
     ("k2", "tv_trows_k2", true, 1),
+    ("nc", "tv_trows_nc", true, 1),
+    ("nc256", "tv_trows_nc256", true, 1),
+    ("cpa", "tv_trows_cpa", true, 1),
+    ("tile", "tv_trows_tile", true, 1),
+    ("bal", "tv_trows_bal", true, 1),
 ];
+
+/// K4's bar (plan-300 §4, step 1): the speed over `v2` alone, median of the
+/// round-by-round ratios, that licenses a 4E port. Under [`K4_DEAD`] an arm is
+/// dead; between the two it is reported and is not a lever.
+pub const K4_LEVER: f64 = 1.15;
+pub const K4_DEAD: f64 = 1.10;
+
+/// CPA's ring: three slots of 192 bytes a warp (`TROWS_CPA_WARP`), after the
+/// widest activation, where K2 stages its second one.
+pub fn trows_cpa_smem_bytes(warps: u32) -> u32 {
+    SMEM_HEADER + TABLE_BYTES + 4 * 9728 + warps * 3 * 192
+}
+
+/// Whether CPA can stage a row stride: its 16-byte chunks must tile the row.
+pub fn trows_cpa_ok(stride_u32: u32) -> bool {
+    stride_u32.is_multiple_of(4)
+}
+
+/// TILE's row stride in u32 for `nblocks` blocks (`trows_tile_stride`):
+/// 192 u32 a full tile of 128 blocks, then 6 bytes a block left, padded to 16.
+pub fn trows_tile_stride(nblocks: u32) -> u32 {
+    let nt = nblocks >> 7;
+    let rem = nblocks - (nt << 7);
+    192 * nt + (6 * rem).div_ceil(16) * 4
+}
+
+/// The served stream's row stride in u32: 6 bytes a block, padded to 8.
+pub fn tetra_stride(nblocks: u32) -> u32 {
+    (6 * nblocks).div_ceil(8) * 2
+}
+
+/// The int4 arms of K11 (`pers_q4rows.cu`): name, symbol, whether every row
+/// owes the served bits. The served `tv_q4_hh` (84 launches) is the
+/// reference of rows and time, and runs beside them.
+pub const Q4ROWS_ARMS: [(&str, &str, bool); 4] = [
+    ("q4", "tv_q4rows_q4", true),
+    ("q4nc", "tv_q4rows_nc", true),
+    ("q4t", "tv_q4rows_tile", true),
+    ("q4read", "tv_q4rows_read", false),
+];
+
+/// K11's bar: `q4nc` or `q4t` over `q4`, median of the round-by-round ratios.
+pub const K11_LEVER: f64 = 1.10;
+
+/// The 84 int4 records of the served 4B (`configs/qwen3-4b-tetra-e4-4e-v6.json`
+/// reads v and o int4 in every layer, down in layers 12 to 23), in served
+/// order: (d_out, d_in, layer, projection).
+pub fn q4rows_sites() -> Vec<(u32, u32, u32, &'static str)> {
+    let mut v = Vec::with_capacity(84);
+    for l in 0..36u32 {
+        v.push((1024, 2560, l, "v"));
+        v.push((2560, 4096, l, "o"));
+        if (12..24).contains(&l) {
+            v.push((2560, 9728, l, "down"));
+        }
+    }
+    v
+}
+
+/// Bytes one pass over int4 records reads: the words (4 bits a weight) and a
+/// binary16 scale and bias a group of 128.
+pub fn q4rows_bytes(sites: &[(u32, u32, u32, &str)]) -> u64 {
+    sites.iter().map(|&(o, i, _, _)| u64::from(o) * (u64::from(i) / 2 + 4 * u64::from(i / 128))).sum()
+}
+
+/// One `tv_q4rows_*` site (`Q4ROWS_SITE_WORDS`); no f32 output on the card.
+pub fn q4rows_site_words(words: u64, scales: u64, biases: u64, y_f16: u64, d_out: u32, d_in: u32) -> [u64; 6] {
+    assert!(d_in.is_multiple_of(256), "a row is whole steps of 32 words: d_in {d_in}");
+    [words, scales, biases, y_f16, u64::from(d_out) | (u64::from(d_in) << 32), 0]
+}
+
+/// Dynamic shared bytes of a `tv_q4rows_*` launch: header and the f32
+/// staging of the widest activation.
+pub fn q4rows_smem_bytes(max_d_in: u32) -> u32 {
+    SMEM_HEADER + 4 * max_d_in
+}
+
+/// The counter kernels of K3b (`pers_ctr.cu`): name, symbol. `work` is the
+/// control of `split`, not a hop.
+pub const CTR_ARMS: [(&str, &str); 6] = [
+    ("bar", "tv_ctr_bar"),
+    ("tight", "tv_ctr_tight"),
+    ("rel", "tv_ctr_rel"),
+    ("ctr8", "tv_ctr_8"),
+    ("split", "tv_ctr_split"),
+    ("work", "tv_ctr_work"),
+];
+
+/// K3b's bar: a counter form under `bar` by this many microseconds a hop.
+pub const K3B_GAIN_US: f64 = 0.3;
+
+/// CTR8's group size and the counters it needs at a grid (one 32-u32 line
+/// each, `CTR_LINE`).
+pub const CTR_GROUP: u32 = 8;
+pub fn ctr_groups(grid: u32) -> u32 {
+    grid.div_ceil(CTR_GROUP)
+}
+
+/// What one launch of `n` hops leaves in the counters of `arm` from zero, a
+/// line apart (`CTR_LINE` = 32 u32): the host's check that every CTA ran
+/// every hop.
+pub fn ctr_expected(arm: &str, grid: u32, n: u32) -> Vec<u32> {
+    match arm {
+        "ctr8" => (0..ctr_groups(grid)).map(|p| n * (grid - p * CTR_GROUP).min(CTR_GROUP)).collect(),
+        "work" => vec![grid],
+        _ => vec![n * grid],
+    }
+}
 
 /// Whether an arm runs only the sites of d_in 4,096 or less.
 pub fn trows_small_only(name: &str) -> bool {
@@ -1664,6 +1785,37 @@ mod tests {
         assert_eq!(trows_k2_smem_bytes(), 96_896);
         assert!(t.contains("#define TROWS_X2_AT 9728u"), "K2's second activation sits after the widest first one");
         assert!(trows_small_only("v2_o2") && trows_small_only("v2_s") && !trows_small_only("v2"));
+        assert_eq!(trows_cpa_smem_bytes(16), 67_200, "CPA's ring after 4E's own bytes");
+        for (name, sym, _) in Q4ROWS_ARMS {
+            assert!(t.contains(&format!("extern \"C\" __global__ void __launch_bounds__(512, 1) {sym}(")) || t.contains(&format!("Q4ROWS_KERNEL({sym}, ")), "{name}");
+        }
+        for (name, sym) in CTR_ARMS {
+            assert!(t.contains(&format!("extern \"C\" __global__ void {sym}(")), "{name}");
+        }
+    }
+
+    #[test]
+    fn the_tile_layout_keeps_the_served_bytes_at_the_4b_widths() {
+        // 2,560, 4,096 and 9,728 columns: 106, 170 and 405 blocks
+        for nb in [106u32, 170, 405] {
+            assert_eq!(trows_tile_stride(nb), tetra_stride(nb), "nb {nb}");
+            assert!(trows_cpa_ok(tetra_stride(nb)), "nb {nb}");
+        }
+        assert_eq!(trows_tile_stride(128), 192);
+        assert_eq!(trows_tile_stride(5), 8);
+        assert_eq!(trows_tile_stride(129), 196);
+    }
+
+    #[test]
+    fn the_int4_sites_are_the_84_records_of_the_4b() {
+        let s = q4rows_sites();
+        assert_eq!(s.len(), 84);
+        assert_eq!(s.iter().filter(|r| r.3 == "down").count(), 12);
+        let b = q4rows_bytes(&s);
+        assert_eq!(b, 409_436_160, "0.409 GB, plan-300 §4");
+        assert!(s.iter().all(|r| r.1 % 256 == 0));
+        assert_eq!(ctr_expected("ctr8", 142, 3), [vec![24u32; 17], vec![18]].concat());
+        assert_eq!(ctr_expected("bar", 142, 3), vec![426]);
     }
 
     #[test]
