@@ -50,7 +50,7 @@ distribution `llvq-tetra`. It stays in this repository (operator, 2026-10-07): i
 kernels that `bin/tetratables` makes, and `hfpack` writes what it reads. `docs/plan-transformers.md` carries its stages.
 `ops/llvqtune` is the other Python package, which trains the free parameters an artifact already holds.
 `ops/mlx_tetra/` is the MLX door on the Mac: the sealed 4B on MLX through our Tetra Metal kernels, not bit-exact, under
-`configs/mlx/qwen3-4b-tetra-e4-mlx.json`. It is not served until its T8 reading passes (`ops/mlx-t8.sh`, waiting for a go).
+`configs/mlx/qwen3-4b-tetra-e4-mlx.json`. Not served: its T8 missed the band on 2 windows of 12, pooled inside (`docs/mesures/mlx-t8-2026-11-07.txt`).
 `ops/metal-package/` is a prototype, not served: a one-binary Mac bundle that chats with and benches the sealed 4B.
 
 `unsafe` is allowed only at hardware boundaries: mmap, kernel launch, reading a device buffer. Caveat:

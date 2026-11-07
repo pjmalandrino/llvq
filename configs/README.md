@@ -42,15 +42,15 @@ every line of the run.
 ## `mlx/`: the MLX door on the Mac
 
 `mlx/qwen3-4b-tetra-e4-mlx.json` is the config of the MLX door,
-`ops/mlx_tetra/serve.py`. It is **not served yet**: its T8 reading is ready and
-waits for the operator's go (`proofs/preregistration-mlx-t8-2026-11-07.md`,
-`ops/mlx-t8.sh`). Its schema is its own, so it lives in a subdirectory:
+`ops/mlx_tetra/serve.py`. It is **not served**: its T8 reading missed the band on
+windows 6 and 7 of 12, by decode and by prefill, with the pooled perplexity inside
+([mlx-t8-2026-11-07](../docs/mesures/mlx-t8-2026-11-07.txt)). Its schema is its own, so it lives in a subdirectory:
 `every_shipped_config_resolves` reads the `*.json` of this directory with
 `deny_unknown_fields`, and does not descend.
 
 | file | object | b/param | quality |
 |---|---|---|---|
-| `mlx/qwen3-4b-tetra-e4-mlx.json` | The SAME object as `qwen3-4b-tetra-e4.json`, `qwen3-4b-sealed.bin` (sha256 `886391a8…`), read from its hfpack by mlx-lm's Qwen3 with the 168 Tetra records as custom Metal kernels, f16 activations, mlx-lm's attention and f16 KV cache. Written 2026-11-07 on the operator's ruling « Sur métal, on a validé mlx donc implem le aussi »: on Metal, a tolerance rather than bit for bit | **2.7320**, the file's: the door reads the stored bits. Resident, it holds q and k twice, alone for the prefill and stacked for the decode, about 0.12 GB more (*computed* from the record shapes) | Not scored. Gate: WikiText-2 perplexity inside +-0.12 % of the Rust Metal path's 12.580769, pooled and every window, by decode and by prefill. Not bit for bit: its tokens leave the Rust path's at token 243 after a 5-token prompt (*measured*, [metal-nuit-2026-11-06](../docs/mesures/metal-nuit-2026-11-06.txt), M15). The engine decoded 93.9 tok/s after a 5-token prompt and 70.3 after 4,096 at the prototype's door (M16) |
+| `mlx/qwen3-4b-tetra-e4-mlx.json` | The SAME object as `qwen3-4b-tetra-e4.json`, `qwen3-4b-sealed.bin` (sha256 `886391a8…`), read from its hfpack by mlx-lm's Qwen3 with the 168 Tetra records as custom Metal kernels, f16 activations, mlx-lm's attention and f16 KV cache. Written 2026-11-07 on the operator's ruling « Sur métal, on a validé mlx donc implem le aussi »: on Metal, a tolerance rather than bit for bit | **2.7320**, the file's: the door reads the stored bits. Resident, it holds q and k twice, alone for the prefill and stacked for the decode, about 0.12 GB more (*computed* from the record shapes) | Not scored on a task. **Perplexity**, WikiText-2, 12 windows of 4,096, against the Rust Metal path's 12.580769: **+0.0078 %** [-0.0554 ; +0.0710] by decode and **+0.0133 %** [-0.0517 ; +0.0783] by prefill, but windows 6 and 7 at +0.27 % and -0.13 %, outside the +-0.12 % its prereg asks of every window (*measured*, [mlx-t8-2026-11-07](../docs/mesures/mlx-t8-2026-11-07.txt)). Not bit for bit: its tokens leave the Rust path's at token 243 after a 5-token prompt (*measured*, [metal-nuit-2026-11-06](../docs/mesures/metal-nuit-2026-11-06.txt), M15). The engine decoded 93.9 tok/s after a 5-token prompt and 70.3 after 4,096 at the prototype's door (M16) |
 
 Every key has one accepted value. `ops/mlx_tetra/served.py` refuses any other
 by name, refuses the Rust keys `fuse`, `decode` and `rows`, any other object,

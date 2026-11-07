@@ -1101,3 +1101,8 @@ other, so a defect in the shared shaders could pass it. A first mutation run kil
 gave k the gains of q in the stacked dispatch, invisible on a fixture whose records share their centroids; the check
 now scales k's gains apart, and the second run killed 23 of 23 ([mlx-door](mesures/mlx-door-2026-11-07.txt)). The T8
 reading is ready and has not run.
+
+The T8 reading ran the same morning on the operator's go, 16.5 minutes, $0. The pooled perplexity read +0.0078 % by
+decode and +0.0133 % by prefill against the Rust Metal path, but windows 6 and 7 fell outside +-0.12 % by both paths,
+at +0.27 % and -0.13 % ([mlx-t8](mesures/mlx-t8-2026-11-07.txt)). By its prereg the door is not served. The same two
+windows move by about 0.2 % between two Rust engines, so the gate itself went back to the operator.
