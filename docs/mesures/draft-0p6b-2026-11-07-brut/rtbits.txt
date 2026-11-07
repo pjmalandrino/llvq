@@ -1,0 +1,20 @@
+
+  ── /Users/pjmalandrino/q06b-tetra-2026-11-07/qwen3-0p6b-sealed.bin — format v5, kinds Tetra+Int4G128 ──
+  140 lattice matrices, 352321536 weights at 1.9766 b/weight of stream
+  56 int4 matrices,    88080384 weights at 4.2500 b/weight, side data included
+  tail 4128768 weights, 286720 row scales — the side data every arm uploads
+
+  kernel b/weight, over 440401920 projection weights
+    tail at f32 (the accounting every published figure used) ... 2.7521
+    tail at f16 (the width the card has held since 2026-08-09) .. 2.6021
+
+  b/param WHOLE MODEL over 751632384 parameters (311164928 embedding, 65536 norms)
+  tail width                 embed f16      embed q8      embed q4
+  f32 (published)               8.2377        5.1328        3.4769
+  f16 (served)                  8.1498        5.0449        3.3890
+  carried MEASURED in the file: 4.5024 b/param
+
+  NO CLASS STATISTIC IS PRINTED. Every accumulator of this tool keys on a v1
+           class — masks, level histograms, slot strides, the Planes14 and E1c projections —
+           and a Tetra word names none. A plausible-looking histogram here would be worse
+           than its absence.

@@ -95,6 +95,29 @@ pub struct Runtime4e {
     /// for a measurement against the kernel on every row.
     kernel_from: usize,
     pub lines: Vec<String>,
+    /// The tile define of the model's runtime, for the verify module's text.
+    tile_define: String,
+    inter: u32,
+    /// The verify pass, once [`Runtime4e::install_verify`] has run.
+    verify: Option<Verify4e>,
+}
+
+/// 4E's verify pass (`pers_4ev.cu`): its own module (the v9 module and the
+/// verify kernel), its block size and staging area, and its K-row buffers.
+struct Verify4e {
+    _cuda: llvq_cuda::gpu::Cuda,
+    f: CudaFunction,
+    threads: u32,
+    smem: u32,
+    act_floats: u32,
+    part_stride: u32,
+    toks: CudaSlice<u32>,
+    ring: CudaSlice<u32>,
+    _held16: Vec<CudaSlice<u16>>,
+    held16_addr: [u64; 8],
+    part: CudaSlice<f32>,
+    tickets: CudaSlice<u32>,
+    slots: CudaSlice<u64>,
 }
 
 fn addr16(s: &CudaSlice<u16>, st: &candle_core::cuda_backend::cudarc::driver::CudaStream) -> u64 {
@@ -589,6 +612,9 @@ pub fn install_rows_as(
         kv_seen: Vec::new(),
         kernel_from: crate::kvq::KERNEL_FROM,
         lines,
+        tile_define: frt.tile_define(),
+        inter,
+        verify: None,
     })
 }
 
@@ -665,39 +691,8 @@ impl Runtime4e {
                 self.kernel_from
             );
         }
+        self.prepare(caches, pos0, n as usize)?;
         let stream = self.cuda.stream().clone();
-        // Grow every cache to hold the launch; the images carry the
-        // addresses, re-uploaded only when a buffer moved.
-        let mut seen = Vec::with_capacity(caches.len());
-        for c in caches.iter_mut() {
-            if c.len() != pos0 {
-                anyhow::bail!("4E: a cache holds {} positions, the launch starts at {pos0}", c.len());
-            }
-            c.reserve(pos0 + n as usize)?;
-            let (k, v) = c.grow_buffers().ok_or_else(|| anyhow::anyhow!("4E: a cache with no Grow buffer"))?;
-            let cap = k.dim(2)?;
-            if cap > MAX_CAP {
-                anyhow::bail!("4E: a cache of {cap} positions, the attention scratch holds {MAX_CAP}");
-            }
-            seen.push((cap, tensor_addr(k, &stream)?, tensor_addr(v, &stream)?));
-        }
-        if seen != self.kv_seen {
-            let caps: std::collections::BTreeSet<usize> = seen.iter().map(|s| s.0).collect();
-            if caps.len() != 1 {
-                anyhow::bail!("4E: the layers' caches have different capacities {caps:?}");
-            }
-            let mut img = Vec::with_capacity(pers::P4E_LAYER_BYTES * seen.len());
-            for (h, &(_, k, v)) in self.layers_host.iter_mut().zip(&seen) {
-                h.kc = k;
-                h.vc = v;
-                img.extend(h.bytes());
-            }
-            stream.memcpy_htod(&img, &mut self.layers).map_err(|e| anyhow::anyhow!("H2D: {e}"))?;
-            self.args_host.ptrs[0] = self.layers.device_ptr(&stream).0;
-            self.args_host.cap = seen[0].0 as u32;
-            stream.memcpy_htod(&self.args_host.bytes(), &mut self.args).map_err(|e| anyhow::anyhow!("H2D: {e}"))?;
-            self.kv_seen = seen;
-        }
         stream
             .memcpy_htod(&vec![u32::MAX; self.max_tokens as usize], &mut self.ring)
             .map_err(|e| anyhow::anyhow!("H2D: {e}"))?;
@@ -744,6 +739,201 @@ impl Runtime4e {
             None => Vec::new(),
         };
         Ok((made, stamps))
+    }
+
+    /// Install the verify pass ([`Self::verify`]): its module (row form 7
+    /// and `pers_4ev.cu`, compiled beside the served module, whose text does
+    /// not move), its block size (768 where the symbol does not spill, else
+    /// 512), the largest staging area the card's shared memory allows
+    /// (`pers::p4v_act_floats`), and buffers for `pers::P4V_KMAX` rows.
+    /// Refused below row form 7: the pass reads the int4 rows tiled.
+    pub fn install_verify(&mut self) -> anyhow::Result<()> {
+        if self.rows_form < 7 {
+            anyhow::bail!("4E verify: the pass reads the int4 rows on tiled words (row form 7, v9); this runtime is form {}", self.rows_form);
+        }
+        if self.verify.is_some() {
+            return Ok(());
+        }
+        // The pass stages a rotation's k rows of `small` in P4V_SSM floats.
+        let kmax = pers::P4V_SSM / llvq_cuda::pers::ROT_KMAX;
+        if let Some((l, k)) = self
+            .layers_host
+            .iter()
+            .enumerate()
+            .flat_map(|(l, y)| [(l, y.k_a), (l, y.mlp.k_h), (l, y.mlp.k_i)])
+            .find(|&(_, k)| k > kmax)
+        {
+            anyhow::bail!("4E verify: layer {l} has a rotation of odd factor {k}, the pass stages {kmax} rows of `small`");
+        }
+        let stream = self.cuda.stream().clone();
+        let text = pers::p4v_unit_text(&self.tile_define);
+        let src = llvq_cuda::gpu::KernelSource::new(&[text.as_str()]);
+        self.lines.push(format!("4E verify: module {} bytes, sha256 {}, row form 7 and pers_4ev.cu, its own module", src.text.len(), src.sha256));
+        let cuda = llvq_cuda::gpu::Cuda::on_stream(stream.clone(), &src).map_err(anyhow::Error::msg)?;
+        let dev = cuda.device().map_err(anyhow::Error::msg)?;
+        let (hidden, n_heads, n_kv, groups) = (self.args_host.hidden, self.args_host.n_heads, self.args_host.n_kv, self.args_host.groups);
+        let d_ctx = n_heads * 128;
+        let act_floats = pers::p4v_act_floats(hidden, self.inter, d_ctx, groups, dev.shared_per_block_optin as u32).map_err(anyhow::Error::msg)?;
+        let smem = pers::SMEM_HEADER + pers::TABLE_BYTES + 4 * act_floats;
+        let k = pers::P4V_KMAX;
+        let group = |w: u32| (act_floats / w).clamp(1, k);
+        self.lines.push(format!(
+            "4E verify: {act_floats} floats of staging, {smem} B shared; rows a group at most {k}: {} at hidden {hidden}, {} at the context {d_ctx}, {} at inter {}",
+            group(hidden),
+            group(d_ctx),
+            group(self.inter),
+            self.inter
+        ));
+        let mut chosen = None;
+        let mut why = Vec::new();
+        for threads in [768u32, 512] {
+            let sym = pers::p4v_symbol(self.form, threads).map_err(anyhow::Error::msg)?;
+            let f = cuda.func_dynamic_shared(sym, smem).map_err(anyhow::Error::msg)?;
+            let r = cuda.report(sym).map_err(anyhow::Error::msg)?;
+            let occ = f
+                .occupancy_max_active_blocks_per_multiprocessor(threads, smem as usize, None)
+                .map_err(|e| anyhow::anyhow!("occupancy: {e}"))?;
+            let line = format!("4E verify: {sym}: {} registers, {} B local, {smem} B shared, {occ} resident a SM", r.num_regs, r.local_bytes);
+            self.lines.push(line.clone());
+            why.push(line);
+            if occ >= 1 && (r.local_bytes == 0 || threads == 512) {
+                chosen = Some((f, threads));
+                break;
+            }
+        }
+        let (f, threads) = chosen.ok_or_else(|| anyhow::anyhow!("4E verify: no block size fits one CTA a SM: {}", why.join("; ")))?;
+        let e = |r: Result<CudaSlice<u16>, String>| r.map_err(anyhow::Error::msg);
+        let (h, dq, dkv, i) = ((k * hidden) as usize, (k * d_ctx) as usize, (k * n_kv * 128) as usize, (k * self.inter) as usize);
+        let held = vec![e(cuda.zeros_u16(h))?, e(cuda.zeros_u16(h))?, e(cuda.zeros_u16(dq))?, e(cuda.zeros_u16(dkv))?, e(cuda.zeros_u16(dkv))?, e(cuda.zeros_u16(dq))?, e(cuda.zeros_u16(dq))?, e(cuda.zeros_u16(i))?];
+        let mut held16_addr = [0u64; 8];
+        for (a, b) in held16_addr.iter_mut().zip(&held) {
+            *a = addr16(b, &stream);
+        }
+        let part_stride = n_kv * (MAX_CAP as u32).div_ceil(256) * groups * 130;
+        let part = cuda.zeros_f32((k * part_stride) as usize).map_err(anyhow::Error::msg)?;
+        let tickets = cuda.up_u32(&vec![0u32; (k * n_kv) as usize]).map_err(anyhow::Error::msg)?;
+        let slots = cuda.up_u64(&vec![0u64; k as usize]).map_err(anyhow::Error::msg)?;
+        let toks = cuda.up_u32(&vec![0u32; k as usize]).map_err(anyhow::Error::msg)?;
+        let ring = cuda.up_u32(&vec![u32::MAX; k as usize]).map_err(anyhow::Error::msg)?;
+        let bytes = 2 * (2 * h + 3 * dq + 2 * dkv + i) + 4 * (k * part_stride) as usize;
+        self.lines.push(format!("4E verify: {threads} threads; {:.3} GB of row buffers on the card", bytes as f64 / 1e9));
+        self.verify = Some(Verify4e { _cuda: cuda, f, threads, smem, act_floats, part_stride, toks, ring, _held16: held, held16_addr, part, tickets, slots });
+        Ok(())
+    }
+
+    /// The verify pass's block size, once installed.
+    pub fn verify_threads(&self) -> Option<u32> {
+        self.verify.as_ref().map(|v| v.threads)
+    }
+
+    /// One verify launch: `toks.len()` rows (1 to `pers::P4V_KMAX`), row r
+    /// the token `toks[r]` at position `pos0 + r`, the caches holding `pos0`
+    /// positions. Returns each row's argmax, the target's token after it; the
+    /// caches hold `pos0 + toks.len()` after (rewind them to what is kept).
+    /// Each row is the 4E token at its position bit for bit
+    /// (`tests/pers_matches_served.rs::the_4e_verify_rows_are_the_served_chain`).
+    pub fn verify(&mut self, caches: &mut [KvCache], pos0: usize, toks: &[u32]) -> anyhow::Result<Vec<u32>> {
+        let n = toks.len();
+        if n == 0 || n > pers::P4V_KMAX as usize {
+            anyhow::bail!("4E verify: {n} rows, the pass carries 1 to {}", pers::P4V_KMAX);
+        }
+        if self.verify.is_none() {
+            anyhow::bail!("4E verify: not installed (Runtime4e::install_verify)");
+        }
+        if caches.len() != self.layers_host.len() {
+            anyhow::bail!("4E: {} caches for {} layers", caches.len(), self.layers_host.len());
+        }
+        if pos0 < self.kernel_from {
+            anyhow::bail!("4E verify: a launch at position {pos0}, below the kernel threshold {}", self.kernel_from);
+        }
+        self.prepare(caches, pos0, n)?;
+        let stream = self.cuda.stream().clone();
+        let v = self.verify.as_mut().expect("checked above");
+        stream.memcpy_htod(toks, &mut v.toks).map_err(|e| anyhow::anyhow!("H2D: {e}"))?;
+        stream.memcpy_htod(&vec![u32::MAX; pers::P4V_KMAX as usize], &mut v.ring).map_err(|e| anyhow::anyhow!("H2D: {e}"))?;
+        let a = v.held16_addr;
+        let launch = pers::P4vLaunch {
+            bar_base: self.bar_base,
+            pos0: pos0 as u32,
+            n_rows: n as u32,
+            act_floats: v.act_floats,
+            toks: v.toks.device_ptr(&stream).0,
+            ring: v.ring.device_ptr(&stream).0,
+            x_a: a[0],
+            x_b: a[1],
+            q_raw: a[2],
+            k_raw: a[3],
+            v_raw: a[4],
+            q_out: a[5],
+            ctx: a[6],
+            act: a[7],
+            part: v.part.device_ptr(&stream).0,
+            tickets: v.tickets.device_ptr(&stream).0,
+            slots: v.slots.device_ptr(&stream).0,
+            part_stride: v.part_stride,
+            pad: 0,
+        };
+        let cfg = LaunchConfig { grid_dim: (self.grid, 1, 1), block_dim: (v.threads, 1, 1), shared_mem_bytes: v.smem };
+        let mut b = stream.launch_builder(&v.f);
+        b.arg(&self.args).arg(&launch);
+        // SAFETY: the kernel's own signature (Pers4eArgs*, Pers4vLaunch), the
+        // layouts checked on the host; one CTA a SM, past the occupancy check.
+        unsafe { b.launch_cooperative(cfg) }.map_err(|e| anyhow::anyhow!("4E verify: {e}"))?;
+        let ring = stream.clone_dtoh(&v.ring).map_err(|e| anyhow::anyhow!("D2H: {e}"))?;
+        if self.cuda.down_u32(&self.abort).map_err(anyhow::Error::msg)?[0] != 0 {
+            anyhow::bail!("4E verify: a barrier aborted on its watchdog; the counters are poisoned");
+        }
+        if self.cuda.down_u32(&self.nan).map_err(anyhow::Error::msg)?[0] != 0 {
+            anyhow::bail!("4E verify: a NaN logit; the eager path is the one to read");
+        }
+        let made: Vec<u32> = ring[..n].to_vec();
+        if made.contains(&u32::MAX) {
+            anyhow::bail!("4E verify: a row wrote no token ({made:?})");
+        }
+        self.bar_base = self.bar_base.wrapping_add(pers::n_bar_4e(self.n_layers).wrapping_mul(self.grid));
+        for c in caches.iter_mut() {
+            c.set_len(pos0 + n)?;
+        }
+        Ok(made)
+    }
+
+    /// The caches grown to hold a launch of `n` positions from `pos0`, and
+    /// the images re-uploaded when a buffer moved.
+    fn prepare(&mut self, caches: &mut [KvCache], pos0: usize, n: usize) -> anyhow::Result<()> {
+        let stream = self.cuda.stream().clone();
+        // Grow every cache to hold the launch; the images carry the
+        // addresses, re-uploaded only when a buffer moved.
+        let mut seen = Vec::with_capacity(caches.len());
+        for c in caches.iter_mut() {
+            if c.len() != pos0 {
+                anyhow::bail!("4E: a cache holds {} positions, the launch starts at {pos0}", c.len());
+            }
+            c.reserve(pos0 + n)?;
+            let (k, v) = c.grow_buffers().ok_or_else(|| anyhow::anyhow!("4E: a cache with no Grow buffer"))?;
+            let cap = k.dim(2)?;
+            if cap > MAX_CAP {
+                anyhow::bail!("4E: a cache of {cap} positions, the attention scratch holds {MAX_CAP}");
+            }
+            seen.push((cap, tensor_addr(k, &stream)?, tensor_addr(v, &stream)?));
+        }
+        if seen != self.kv_seen {
+            let caps: std::collections::BTreeSet<usize> = seen.iter().map(|s| s.0).collect();
+            if caps.len() != 1 {
+                anyhow::bail!("4E: the layers' caches have different capacities {caps:?}");
+            }
+            let mut img = Vec::with_capacity(pers::P4E_LAYER_BYTES * seen.len());
+            for (h, &(_, k, v)) in self.layers_host.iter_mut().zip(&seen) {
+                h.kc = k;
+                h.vc = v;
+                img.extend(h.bytes());
+            }
+            stream.memcpy_htod(&img, &mut self.layers).map_err(|e| anyhow::anyhow!("H2D: {e}"))?;
+            self.args_host.ptrs[0] = self.layers.device_ptr(&stream).0;
+            self.args_host.cap = seen[0].0 as u32;
+            stream.memcpy_htod(&self.args_host.bytes(), &mut self.args).map_err(|e| anyhow::anyhow!("H2D: {e}"))?;
+            self.kv_seen = seen;
+        }
+        Ok(())
     }
 
     /// Synchronise the stream (timing).

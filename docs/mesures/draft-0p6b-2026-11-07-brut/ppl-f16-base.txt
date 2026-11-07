@@ -1,0 +1,19 @@
+device: Metal(MetalDevice(DeviceId(1))), context 4096, dtype f16
+loading corpus wikitext2…
+299078 tokens → 12 windows of 4096 (fingerprint 3f1baca9033bf251)
+  window   1/12  nll 2.880842682  n 4095  running ppl   17.829  (4.1s)
+  window   2/12  nll 3.293745230  n 4095  running ppl   21.918  (8.2s)
+  window   3/12  nll 2.650512487  n 4095  running ppl   18.948  (12.3s)
+  window   4/12  nll 2.425042210  n 4095  running ppl   16.652  (16.4s)
+  window   5/12  nll 3.102942565  n 4095  running ppl   17.648  (20.4s)
+  window   6/12  nll 2.979738534  n 4095  running ppl   17.972  (24.5s)
+  window   7/12  nll 3.004618819  n 4095  running ppl   18.272  (28.6s)
+  window   8/12  nll 3.037184018  n 4095  running ppl   18.575  (32.6s)
+  window   9/12  nll 3.175599769  n 4095  running ppl   19.106  (36.6s)
+  window  10/12  nll 2.623218578  n 4095  running ppl   18.492  (40.6s)
+  window  11/12  nll 3.109129369  n 4095  running ppl   18.817  (44.7s)
+  window  12/12  nll 3.008898046  n 4095  running ppl   18.934  (48.7s)
+
+Qwen/Qwen3-0.6B [baseline] — wikitext2, ctx 4096, 12 windows, dtype f16, kv f16, tokens 3f1baca9033bf251
+ppl = 18.9339
+exit 0

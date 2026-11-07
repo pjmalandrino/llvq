@@ -65,6 +65,9 @@ static inline unsigned short served_capture_f2h(float v) {
 #include "../kernels/tetra48_pers.cu"
 #include "../kernels/pers_segment.cu"
 #include "../kernels/pers_4e.cu"
+#if PERS_4E_ROWS >= 7
+#include "../kernels/pers_4ev.cu"
+#endif
 #include "../kernels/pers_trows.cu"
 #include "../kernels/pers_q4rows.cu"
 #include "../kernels/pers_ctr.cu"
@@ -1185,6 +1188,20 @@ int main() {
         OFF(Pers4eOT, t); OFF(Pers4eOT, signs); OFF(Pers4eOT, small); OFF(Pers4eOT, m); OFF(Pers4eOT, k); OFF(Pers4eOT, inv);
         o.push_back((u32)sizeof(Pers4eLaunch));
         OFF(Pers4eLaunch, eos); OFF(Pers4eLaunch, ring); OFF(Pers4eLaunch, stamps);
+#undef OFF
+#endif
+        wr(o);
+    } else if (tag == 'P') {
+        // The verify pass's launch struct (pers_4ev.cu): its size and the
+        // offsets of its fields, for pers.rs::P4vLaunch.
+        std::vector<u32> o;
+#if PERS_SIDE == 1 && PERS_4E_ROWS >= 7
+#define OFF(T, f) o.push_back((u32)offsetof(T, f))
+        o.push_back((u32)sizeof(Pers4vLaunch));
+        OFF(Pers4vLaunch, act_floats); OFF(Pers4vLaunch, toks); OFF(Pers4vLaunch, ring); OFF(Pers4vLaunch, x_a);
+        OFF(Pers4vLaunch, act); OFF(Pers4vLaunch, part); OFF(Pers4vLaunch, tickets); OFF(Pers4vLaunch, slots);
+        OFF(Pers4vLaunch, part_stride);
+        o.push_back(P4V_KMAX);
 #undef OFF
 #endif
         wr(o);

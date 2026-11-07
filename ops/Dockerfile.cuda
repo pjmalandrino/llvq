@@ -51,7 +51,7 @@ ENV CARGO_BUILD_JOBS=2
 # différence entre une mesure et une anecdote.
 RUN cargo build --release --locked -p llvq-llm --features ${FEATURES} \
       --bin smoke --bin ppl --bin oracle --bin mmlu --bin gbench --bin fusedrun \
-      --bin chat --bin gsm8k --bin gsm8kpair
+      --bin chat --bin gsm8k --bin gsm8kpair --bin specrun
 # 🕳️ `seal` se construit SANS `cuda`, et ça se paie sinon.
 #
 # Bâti avec la feature comme les autres, il se lie à `libcuda.so.1` — que seule
@@ -140,6 +140,7 @@ COPY --from=build \
       /src/target/release/chat \
       /src/target/release/gsm8k \
       /src/target/release/gsm8kpair \
+      /src/target/release/specrun \
       /src/target/release/seal \
       /src/target/release/embedq \
       /src/target/release/export \
@@ -198,7 +199,8 @@ RUN test -f /usr/local/share/llvq/configs/qwen3-4b-tetra-e4-4e-v4.json \
  && test -f /usr/local/share/llvq/configs/qwen3-4b-tetra-e4-4e-v6.json \
  && test -f /usr/local/share/llvq/configs/qwen3-4b-tetra-e4-4e-v9.json \
  && test -f /usr/local/share/llvq/configs/qwen3-8b-tetra-e4-4e-v9.json \
- && test -f /usr/local/share/llvq/configs/qwen3-14b-tetra-e4-4e-v9.json
+ && test -f /usr/local/share/llvq/configs/qwen3-14b-tetra-e4-4e-v9.json \
+ && test -f /usr/local/share/llvq/configs/qwen3-0p6b-tetra-e4-4e-v9.json
 # `export` and `rowscale` are RUN here, not just tested for presence. This
 # stage runs on the Space builder, which has no GPU and no `libcuda.so.1`, so a
 # binary linked against it fails to load HERE, by name, rather than on `cpu-xl`

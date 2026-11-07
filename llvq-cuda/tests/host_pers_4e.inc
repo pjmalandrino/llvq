@@ -44,6 +44,18 @@
     const bool ext = (variant_raw & 16u) != 0u;
     Rot ro{};
     if (ext) ro = read_rot(NH * 128);
+    // + 32: the last run is a verify run (pers_4ev.cu): its rows are tok0
+    // then the forced tokens, each row's argmax is written, nothing stops it.
+    // Read after the variant: u32 act_floats (the persistent side's staging
+    // area), u32 forced[n - 1] of the last run.
+    const bool verify = (variant_raw & 32u) != 0u;
+    u32 act_floats = 0u;
+    std::vector<u32> forced;
+    if (verify) {
+        act_floats = rd1<u32>();
+        forced = rd<u32>(runs[runs.size() - 2] - 1u);
+    }
+    (void)act_floats;  // read by the verify launch, which only form 7 builds
     const u32 stamp = (variant == 1u || variant == 3u) ? 1u : 0u;
     size_t ring_len = 0;
     for (size_t i = 0; i < runs.size(); i += 3) ring_len += runs[i + 1];
@@ -190,6 +202,10 @@
             if (key > best) { best = key; next = i; }
         }
         ring_run[t] = next;
+        if (verify && run_i + 3 == runs.size()) {
+            if (t + 1u < n) tok = forced[t];
+            continue;
+        }
         tok = next;
         if (tok == eos) break;
     }
@@ -271,14 +287,45 @@
     // Launch after launch through the same state, as Runtime4e::decode runs
     // them: the barrier base is the counter's value (no abort), a fresh ring.
     size_t ring_at = 0;
+    u32 vtickets = 0u;
     for (size_t run_i = 0; run_i < runs.size(); run_i += 3) {
+        if (verify && run_i + 3 == runs.size()) {
+#if PERS_4E_ROWS >= 7
+            // The verify launch through the same state: K-row buffers of its
+            // own, the 4E arguments, the barrier counter where 4E left it.
+            const u32 vn = runs[run_i + 1], K = P4V_KMAX;
+            const u32 pstride = NKV * ((cap + 255u) / 256u) * GRP * 130u;
+            std::vector<unsigned short> vxa((size_t)K * H), vxb((size_t)K * H), vq((size_t)K * NH * 128),
+                vk((size_t)K * NKV * 128), vv((size_t)K * NKV * 128), vqo((size_t)K * NH * 128), vctx((size_t)K * NH * 128),
+                vact((size_t)K * I);
+            std::vector<float> vpart((size_t)K * pstride);
+            std::vector<u32> vtk((size_t)K * NKV, 7u), vtoks(vn);  // the launch clears its tickets
+            std::vector<unsigned long long> vslots(K, 5ull);        // and its slots
+            vtoks[0] = runs[run_i + 2];
+            for (u32 t = 1; t < vn; ++t) vtoks[t] = forced[t - 1];
+            const Pers4vLaunch V{bar[0], runs[run_i], vn, act_floats, vtoks.data(), ring.data() + ring_at,
+                                 vxa.data(), vxb.data(), vq.data(), vk.data(), vv.data(), vqo.data(), vctx.data(),
+                                 vact.data(), vpart.data(), vtk.data(), vslots.data(), pstride, 0u};
+            typedef void (*Fv)(const Pers4eArgs*, const Pers4vLaunch);
+            const Fv vt[3] = {pers_4ev_rows_f0, pers_4ev_rows_f1, pers_4ev_rows_f2};
+            const size_t vsmem = PERS_SMEM_HEADER + 18816 + 4 * (size_t)act_floats;
+            hostgrid::launch_coop(grid, threads, vsmem, seed + run_i, [&] { vt[form](&A, V); });
+            ring_at += vn;
+            std::copy(vxa.begin() + (size_t)(vn - 1u) * H, vxa.begin() + (size_t)vn * H, x.begin());
+            for (u32 t : vtk) vtickets += t;
+#else
+            std::fprintf(stderr, "host_pers: a verify run needs PERS_4E_ROWS 7\n");
+            std::exit(2);
+#endif
+            continue;
+        }
         const Pers4eLaunch L{bar[0], runs[run_i], runs[run_i + 1], runs[run_i + 2], eos, 0u, ring.data() + ring_at,
                              stamp ? stamps.data() + ring_at * n_ev * grid : nullptr};
         ring_at += runs[run_i + 1];
         hostgrid::launch_coop(grid, threads, smem, seed + run_i, [&] { table[variant][form](&A, L); });
     }
     tail[0] = bar[0];
-    tail[1] = ab[0];
+    tail[1] = ab[0] + vtickets;
     for (u32 t : ticket) tail[1] += t;  // the split fold leaves every ticket at zero
 #endif
     wr(ring);

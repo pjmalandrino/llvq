@@ -62,7 +62,7 @@
 //! * beside any attention but `kernel`, and beside any other field than the
 //!   served 4B's (tetra48, q4, rot_share 1, fuse 0, kv f16): 4E reads those;
 //! * on Metal, where 4E has no kernel;
-//! * on any shape but the three sealed Qwen3 shapes, 4B, 8B and 14B
+//! * on any shape but the sealed Qwen3 shapes, 4B, 8B and 14B, and the 0.6B drafter
 //!   ([`check_persistent_object`]);
 //! * beside any measurement-mode variable ([`MEASUREMENT_MODES`]).
 //!
@@ -292,10 +292,12 @@ pub const MEASUREMENT_MODES: [&str; 17] = [
     "LLVQ_INT4_WIDE_CHECK", "LLVQ_GESTURE_AB", "LLVQ_BOUNDARY_AB", "LLVQ_PERS_SEGMENT", "LLVQ_PERS_4E",
 ];
 
-/// The persistent engine against the model's shape: the three sealed Qwen3
-/// shapes 4E reads (the 4B's since 2026-11-05; the 8B's, with its Tetra o and
-/// its untied head, and the 14B's, with its untied head, since 2026-11-07).
-/// Any other shape is refused. Pure, on the config candle read from the file.
+/// The persistent engine against the model's shape: the sealed Qwen3 shapes
+/// 4E reads (the 4B's since 2026-11-05; the 8B's, with its Tetra o and its
+/// untied head, and the 14B's, with its untied head, since 2026-11-07), and the
+/// 0.6B's, the speculative decode's drafter (2026-11-07; its tied head is the
+/// 4B's case). Any other shape is refused. Pure, on the config candle read
+/// from the file.
 pub fn check_persistent_object(cfg: &candle_transformers::models::qwen3::Config) -> Result<(), String> {
     let got = (
         cfg.num_hidden_layers,
@@ -307,7 +309,8 @@ pub fn check_persistent_object(cfg: &candle_transformers::models::qwen3::Config)
         cfg.vocab_size,
     );
     type Shape = (usize, usize, usize, usize, usize, usize, usize);
-    const SEALED: [(&str, Shape); 3] = [
+    const SEALED: [(&str, Shape); 4] = [
+        ("0.6B drafter", (28, 1024, 3072, 16, 8, 128, 151_936)),
         ("4B", (36, 2560, 9728, 32, 8, 128, 151_936)),
         ("8B", (36, 4096, 12288, 32, 8, 128, 151_936)),
         ("14B", (40, 5120, 17408, 40, 8, 128, 151_936)),
@@ -316,8 +319,8 @@ pub fn check_persistent_object(cfg: &candle_transformers::models::qwen3::Config)
         true => Ok(()),
         false => Err(format!(
             "decode \"persistent\" on a model of (layers, hidden, intermediate, heads, kv heads, head dim, \
-             vocab) = {got:?}. 4E reads the three sealed Qwen3 shapes only, the 4B, the 8B and the 14B \
-             {SEALED:?}. Serve this object with the eager engine (delete the decode key)."
+             vocab) = {got:?}. 4E reads the sealed Qwen3 shapes only, the 4B, the 8B and the 14B, and the \
+             0.6B drafter {SEALED:?}. Serve this object with the eager engine (delete the decode key)."
         )),
     }
 }

@@ -1280,6 +1280,91 @@ pub struct P4eLaunch {
     pub stamps: u64,
 }
 
+// ---- 4E's verify pass (`kernels/pers_4ev.cu`): n rows of the decode a launch ----
+
+/// `P4V_KMAX` of `pers_4ev.cu`: the rows one verify launch carries, at most.
+pub const P4V_KMAX: u32 = 4;
+
+/// `Pers4vLaunch`, passed by value: 4 words, 13 device pointers, 2 words.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct P4vLaunch {
+    pub bar_base: u32,
+    pub pos0: u32,
+    pub n_rows: u32,
+    /// Floats of the CTA's staging area after the tables ([`p4v_act_floats`]).
+    pub act_floats: u32,
+    pub toks: u64,
+    pub ring: u64,
+    pub x_a: u64,
+    pub x_b: u64,
+    pub q_raw: u64,
+    pub k_raw: u64,
+    pub v_raw: u64,
+    pub q_out: u64,
+    pub ctx: u64,
+    pub act: u64,
+    pub part: u64,
+    pub tickets: u64,
+    pub slots: u64,
+    /// Floats of one row's split states: n_kv x ceil(cap / 256) x groups x 130.
+    pub part_stride: u32,
+    pub pad: u32,
+}
+
+/// `sizeof(Pers4vLaunch)`.
+pub const P4V_LAUNCH_BYTES: usize = 128;
+
+/// The verify kernel's symbol for a RoPE form and a block size.
+pub fn p4v_symbol(form: u32, threads: u32) -> Result<&'static str, String> {
+    Ok(match (form, threads) {
+        (0, 768) => "pers_4ev_rows_f0",
+        (1, 768) => "pers_4ev_rows_f1",
+        (2, 768) => "pers_4ev_rows_f2",
+        (0, 512) => "pers_4ev_rows_f0_t512",
+        (1, 512) => "pers_4ev_rows_f1_t512",
+        (2, 512) => "pers_4ev_rows_f2_t512",
+        _ => return Err(format!("4E verify: no kernel for RoPE form {form} at {threads} threads")),
+    })
+}
+
+/// `P4V_SSM` of `pers_4ev.cu`: the floats before the rows, a rotation's
+/// staged rows of `small` (k x 32, k at most 20).
+pub const P4V_SSM: u32 = 640;
+
+/// The verify launch's staging area, in floats, under `smem_max` bytes of
+/// dynamic shared memory a block: what every phase of `P4V_KMAX` rows needs
+/// at once when it fits (the staged `small`, the widest of hidden, the
+/// context and inter times the rows, the head's maxima), else as much as
+/// fits, a multiple of 4. Refused when it cannot hold one row of each phase
+/// or attention's stage ([`p4e_smem_bytes_form`]'s at form 7): then no group
+/// size works.
+pub fn p4v_act_floats(hidden: u32, inter: u32, d_ctx: u32, groups: u32, smem_max: u32) -> Result<u32, String> {
+    let attn = (16 * 1024 * p4e_attn_ring(7) + 4 * 4 * groups * 130 + 4 * groups * 128).div_ceil(4);
+    let widest = hidden.max(inter).max(d_ctx);
+    let fixed = P4V_SSM + 2 * P4V_KMAX;
+    let need = attn.max(widest + fixed);
+    let want = (P4V_KMAX * widest + fixed).max(attn);
+    let room = smem_max.saturating_sub(SMEM_HEADER + TABLE_BYTES) / 4;
+    let got = want.min(room) & !3;
+    if got < need {
+        return Err(format!(
+            "4E verify: {room} floats of staging under {smem_max} B of shared memory, one row of each phase needs {need}"
+        ));
+    }
+    Ok(got)
+}
+
+/// The verify module's text: the 4E module of row form 7 (`p4e_rows_define`
+/// then [`pers_unit_text`]) and `pers_4ev.cu`. Its own module, so the served
+/// 4E module keeps its text.
+pub fn p4v_unit_text(tile_define: &str) -> String {
+    format!("{}{}\n{}", p4e_rows_define(7).expect("form 7 exists"), pers_unit_text(tile_define), P4V_PART.1)
+}
+
+/// `pers_4ev.cu`, embedded so the Mac hashes what the card compiles.
+pub const P4V_PART: (&str, &str) = ("pers_4ev.cu", include_str!("../kernels/pers_4ev.cu"));
+
 /// The token kernel's symbol for a RoPE form and a block size.
 pub fn p4e_symbol(form: u32, threads: u32) -> Result<&'static str, String> {
     Ok(match (form, threads) {
@@ -2551,6 +2636,23 @@ mod tests {
             crate::sha256::sha256_hex(t.as_bytes()),
             "1b422b62328be6752df4add43280565fd2a49cfa20ee26953b301abe7a15c530",
             "the 4E v9 module moved: the served-v9 doors gate on this digest"
+        );
+    }
+
+    /// The verify pass's module at the L40S's tile: the 4E v9 module the
+    /// served doors gate on, unchanged, then `pers_4ev.cu`. Pinned so the
+    /// speculative gate's job gates on this digest.
+    #[test]
+    fn the_verify_module_is_the_v9_module_and_the_verify_pass() {
+        let tile = "#define TILE_BLOCKS 64u\n";
+        let v9 = format!("{}{}", p4e_rows_define(7).unwrap(), pers_unit_text(tile));
+        let t = p4v_unit_text(tile);
+        assert!(t.starts_with(&v9) && t[v9.len()..] == format!("\n{}", P4V_PART.1), "the verify module is the v9 module and pers_4ev.cu");
+        assert_eq!(t.len(), 287_744);
+        assert_eq!(
+            crate::sha256::sha256_hex(t.as_bytes()),
+            "ab162e7fca4a1b5130170931eda22194cc7514c15fa64a52829f33a728ddd2fd",
+            "the verify module moved: the speculative gate gates on this digest"
         );
     }
 

@@ -48,5 +48,6 @@ pub mod rotplan;
 pub mod sealed;
 pub mod served;
 pub mod served_decode;
+pub mod speculative;
 pub mod tempfit;
 pub mod tetra_diag;

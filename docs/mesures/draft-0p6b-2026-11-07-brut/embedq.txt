@@ -1,0 +1,9 @@
+/Users/pjmalandrino/q06b-tetra-2026-11-07/qwen3-0p6b-sealed-f16.bin: format v5, kinds Tetra+Int4G128, 140 lattice + 56 int4 records passed through undecoded
+  lm_head.weight: 155582464 weights, f16 → int4 g64 (4.50 b/w), 311.2 → 87.5 MB
+  model.embed_tokens.weight: 155582464 weights, f16 → int4 g64 (4.50 b/w), 311.2 → 87.5 MB
+
+── /Users/pjmalandrino/q06b-tetra-2026-11-07/qwen3-0p6b-sealed.bin
+   carried    0.622 GB → 0.175 GB
+   file       0.787 GB → 0.339 GB
+
+   score the OUTPUT file (ppl + mmlu) before believing anything.

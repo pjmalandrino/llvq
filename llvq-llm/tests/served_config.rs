@@ -657,10 +657,11 @@ fn the_persistent_decode_is_refused_on_metal() {
     p.check_device(false).expect("CUDA");
 }
 
-/// On the three sealed shapes only: the 4B, the 8B and the 14B; any other
-/// shape (here the 0.6B's, and a 14B with one layer less) is refused by name.
+/// On the sealed shapes only: the 4B, the 8B, the 14B and the 0.6B drafter;
+/// any other shape (here the 1.7B's, and a 14B with one layer less) is refused
+/// by name.
 #[test]
-fn the_persistent_decode_runs_on_the_three_sealed_shapes_only() {
+fn the_persistent_decode_runs_on_the_sealed_shapes_only() {
     let cfg = |layers, hidden, inter, heads, kv| {
         let text = format!(
             r#"{{"vocab_size":151936,"hidden_size":{hidden},"intermediate_size":{inter},"num_hidden_layers":{layers},
@@ -673,9 +674,10 @@ fn the_persistent_decode_runs_on_the_three_sealed_shapes_only() {
     check_persistent_object(&cfg(36, 2560, 9728, 32, 8)).expect("the 4B");
     check_persistent_object(&cfg(36, 4096, 12288, 32, 8)).expect("the 8B");
     check_persistent_object(&cfg(40, 5120, 17408, 40, 8)).expect("the 14B");
-    for (name, c) in [("0.6B", cfg(28, 1024, 3072, 16, 8)), ("14B less a layer", cfg(39, 5120, 17408, 40, 8))] {
+    check_persistent_object(&cfg(28, 1024, 3072, 16, 8)).expect("the 0.6B drafter");
+    for (name, c) in [("1.7B", cfg(28, 2048, 6144, 16, 8)), ("14B less a layer", cfg(39, 5120, 17408, 40, 8))] {
         let e = check_persistent_object(&c).expect_err(name);
-        assert!(e.contains("persistent") && e.contains("three sealed"), "{name}: {e}");
+        assert!(e.contains("persistent") && e.contains("sealed Qwen3 shapes"), "{name}: {e}");
     }
 }
 

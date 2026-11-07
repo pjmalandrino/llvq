@@ -1,0 +1,28 @@
+draft-0p6b, 2026-11-07. Qwen3-0.6B in Tetra, the speculative decode's drafter, encoded and sealed on the Mac.
+
+Prereg proofs/preregistration-draft-0p6b-2026-11-07.md (stamped before the first measurement), deviations beside it
+(-ECARTS.md). Mac M3 Max, nice 10, LLVQ_THREADS=12, Metal. $0. Raw output in draft-0p6b-2026-11-07-brut/ (run.sh is
+the script that ran; commit.txt the worktree's HEAD, the encoder unchanged from main).
+
+Gates: oracle Qwen3-0.6B MATCH on Metal; smoke verified 196 matrices against the evaluated model, 56 of them int4 g128
+(v_proj and o_proj); seal, embedq and ppl exit 0; no LLVQ_* inherited.
+
+The object (measured unless named):
+  qwen3-0p6b-sealed.bin  339,261,863 B, sha256 5d62875e a1eee5f8 079ee522 d307e905 0645d6f6 30ad4ec2 33f397f1 6ba48494
+  140 Tetra records, 352.3 M weights at 1.9766 b/weight of stream; 56 int4 g128 records, 88.1 M weights at 4.25
+  kernel b/weight over the 440.4 M projection weights: 2.6021 (f16 tail)
+  b/param, whole model, f16 tail, embedding int4 g64: 3.389 over 751.6 M counted parameters (both tables)
+  The checkpoint ships lm_head.weight beside the tied embedding; both were carried and made int4 (87.5 MB each); the
+  loader reads the embedding only. Over the 596.1 M parameters the model reads: 3.10 b/param, 0.252 GB (computed).
+
+Quality (measured, WikiText-2 test, 12 windows of 4,096):
+  f16 checkpoint, ppl Metal f16       18.934
+  encoder's own evaluation, f32       18.932 -> 39.693 (x2.10)
+  sealed file, ppl Metal f16          40.302
+
+Predictions (prereg section 4): file 0.23 GB [0.21, 0.26], MISS (0.339, the duplicate table; 0.252 without it, inside);
+b/param 3.08 [2.95, 3.25], inside over the parameters the model reads (3.10), above over the file's count (3.389);
+perplexity 26 [21, 34], MISS above (40.30). Tetra costs the 0.6B a factor two in perplexity, against 3 % at 4B.
+
+What this does not establish: the acceptance rate against the sealed targets, the drafter's speed on the card, the
+card memory it adds. The card gate reads those (proofs/preregistration-spec-gate-2026-11-07.md).
