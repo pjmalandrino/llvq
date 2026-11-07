@@ -43,4 +43,5 @@ Frozen, never edited:
 | [`../proofs/`](../proofs/) | the timestamped preregs and their deviations |
 
 A path `docs/<name>-<date>.md` cited in an older journal or prereg now resolves under `archive/`. Documents removed on
-2026-11-07 (the HTML courses, the 27B plans, `plan-debit-noyau.md` and a few dated reports) are in git history.
+2026-11-07 (the HTML courses, the 27B plans, `plan-debit-noyau.md`, a few dated reports and 31 uncited archive
+entries) are in git history.

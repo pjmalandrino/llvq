@@ -1200,3 +1200,5 @@ adopted; `plan-debit-noyau.md`, whose open leads `plan-300.md` and `ROADMAP.md` 
 (2026-09-15), `inference-cost-reduction-2026.md` (July 2026) and `runbook-rownorms-2026-09-22.md`. `ETAT.md`,
 `ROADMAP.md`, `METHODE.md`, `STYLE.md`, `README.md` and `CLAUDE.md` were rewritten shorter on the state of the day.
 `AGENTS.md`, a stale copy of `CLAUDE.md`, now points to it.
+On the operator's go, 31 entries of `docs/archive/` that nothing outside the archive cites were removed: hand-overs,
+drafts, posts and plans of July to November, 33 files and 6,765 lines.
