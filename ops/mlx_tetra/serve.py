@@ -10,7 +10,7 @@
     uv run ops/mlx_tetra/serve.py <config> <packed_dir> chat [temp=0.7] [max_new=512]
     uv run ops/mlx_tetra/serve.py <config> <packed_dir> generate "<message>" [max_new=256]
     uv run ops/mlx_tetra/serve.py <config> <packed_dir> time <n_new> <timed_rounds> [prompt_tokens=0]
-    uv run ops/mlx_tetra/serve.py <config> <packed_dir> ppl [ctx=4096] [windows=12] [paths=decode,prefill]
+    uv run ops/mlx_tetra/serve.py <config> <packed_dir> ppl [ctx=4096] [windows=12] [paths=decode,prefill] [first=0 ref]
     uv run ops/mlx_tetra/serve.py <config> <packed_dir> span
 
 <config> is `configs/mlx/qwen3-4b-tetra-e4-mlx.json`; <packed_dir> the hfpack of
@@ -133,7 +133,9 @@ def main(argv: list[str]) -> int:
         if bad or not paths:
             print(f"paths {bad} refused: decode, prefill", file=sys.stderr)
             return 2
-        ppl.run(model, packed, ctx, windows, paths)
+        first = int(rest[3]) if len(rest) > 3 else 0
+        ref = rest[4] if len(rest) > 4 else None
+        ppl.run(model, packed, ctx, windows, paths, first, ref)
     return 0
 
 

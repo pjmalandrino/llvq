@@ -17,6 +17,11 @@ tokenizer, another split or another join would score other tokens. Each path is
 compared to M5 window by window and pooled; the paired interval is a t over the
 12 per-window log ratios (each window has 4,095 predictions, so the pooled
 ratio is the exponential of their mean). The band is printed, not a decision.
+
+Second design (prereg `proofs/preregistration-mlx-pooled-2026-11-07.md`): the
+windows after M5's, against a reference file written by the Rust `ppl` binary
+(`window  13/24  nll 2.52  n 4095` lines), and a gate on the paired interval.
+`run(..., first=12, ref=<file>)`.
 """
 from __future__ import annotations
 
@@ -117,7 +122,21 @@ def prefill_window(model, win: list[int]) -> tuple[float, int, int, str]:
     return nll, n, hits, L.sha_u32(picks)
 
 
-def run(model, packed: str, ctx: int, windows: int, paths: list[str]) -> None:
+def read_reference(path: str) -> dict[int, float]:
+    """Window number (1-based) -> mean NLL a token, from the Rust `ppl` binary's output."""
+    import re
+
+    out = {}
+    for w, nll, n in re.findall(r"window +(\d+)/\d+ +nll ([\d.]+) +n (\d+)", Path(path).read_text()):
+        if int(n) != M5_CTX - 1:
+            raise SystemExit(f"{path}: window {w} scores {n} tokens, {M5_CTX - 1} expected")
+        out[int(w)] = float(nll)
+    return out
+
+
+def run(model, packed: str, ctx: int, windows: int, paths: list[str], first: int = 0, ref: str | None = None) -> None:
+    if first or ref:
+        return run_against(model, packed, ctx, windows, paths, first, ref)
     s, nwin, digest, n_split = span(packed, ctx, windows)
     print(f"ppl: wikitext2 test, {nwin} windows of {ctx} from the start ({n_split} tokens in the split, "
           f"span sha256 {digest}); paths {', '.join(paths)}; a TOLERANCE reading against M5, never a served decision")
@@ -156,3 +175,46 @@ def verdict(path: str, nlls: list[float], counts: list[int], pooled: float) -> N
     print(f"{path} T8 band +-{BAND} %, pooled and every window: {'INSIDE' if inside else 'OUTSIDE'}"
           + ("" if inside else f" (windows outside: {[i + 1 for i, v in enumerate(per) if abs(v) > BAND]}, "
                                 f"pooled {'inside' if abs(pooled_pct) <= BAND else 'outside'})"))
+
+
+def run_against(model, packed: str, ctx: int, windows: int, paths: list[str], first: int, ref: str | None) -> None:
+    """Windows first+1 .. first+windows, each against the reference file's window of the same number."""
+    if ref is None or ctx != M5_CTX:
+        raise SystemExit("windows past the first need a reference file, at ctx 4096")
+    want = read_reference(ref)
+    numbers = list(range(first + 1, first + windows + 1))
+    missing = [w for w in numbers if w not in want]
+    if missing:
+        raise SystemExit(f"{ref}: no window {missing}")
+    s, nwin, _, n_split = span(packed, ctx, first + windows)
+    if n_split != M5_SPLIT_TOKENS or nwin != first + windows:
+        raise SystemExit(f"{n_split} tokens in the split, {nwin} windows; {M5_SPLIT_TOKENS} expected")
+    head = L.sha_u32(s[:M5_NWIN * ctx])
+    if head != M5_SPAN_SHA:
+        raise SystemExit(f"the first 12 windows hash to {head}, M5's to {M5_SPAN_SHA}: another tokenization")
+    tail = s[first * ctx:]
+    print(f"ppl: wikitext2 test, windows {numbers[0]} to {numbers[-1]} of {ctx} ({n_split} tokens in the split; "
+          f"the first 12 windows are M5's span; these hash to {L.sha_u32(tail)}); against {ref}; paths "
+          f"{', '.join(paths)}; a TOLERANCE reading")
+    for path in paths:
+        score = decode_window if path == "decode" else prefill_window
+        t0 = time.perf_counter()
+        logs, hits = [], 0
+        for i, w in enumerate(numbers):
+            nll, count, hit, picks = score(model, tail[i * ctx:(i + 1) * ctx])
+            hits += hit
+            logs.append(nll / count - want[w])
+            print(f"  {path} window {w:>2}: ppl {math.exp(nll / count):.6f}, Rust {math.exp(want[w]):.6f}, "
+                  f"MLX / Rust - 1 = {(math.exp(logs[-1]) - 1) * 100:+.4f} %, nll {nll:.6f} over {count}, top-1 hits "
+                  f"{hit}, argmax sha256 {picks[:16]}, {time.perf_counter() - t0:.0f} s elapsed", flush=True)
+        k = len(logs)
+        mean, sd = statistics.mean(logs), statistics.stdev(logs)
+        half = T_975[k - 1] * sd / math.sqrt(k)
+        pct = lambda v: (math.exp(v) - 1) * 100
+        lo, hi = pct(mean - half), pct(mean + half)
+        inside = -BAND <= lo and hi <= BAND
+        per = [pct(v) for v in logs]
+        print(f"{path} against Rust: pooled MLX / Rust - 1 = {pct(mean):+.4f} %; paired t over {k} windows "
+              f"[{lo:+.4f} ; {hi:+.4f}]; per window [{min(per):+.4f} ; {max(per):+.4f}] %, "
+              f"{sum(v > 0 for v in per)} of {k} above; top-1 hits {hits}; {time.perf_counter() - t0:.0f} s")
+        print(f"{path} gate, paired interval inside +-{BAND} %: {'INSIDE' if inside else 'OUTSIDE'}")
