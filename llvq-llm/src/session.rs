@@ -18,7 +18,7 @@
 //! out. A callback sees the answer grow and can cancel it between steps (eager)
 //! or between launches (4E).
 
-use crate::model::{KvCache, NoCapture, Qwen3, MAX_PREFILL_ROWS};
+use crate::model::{KvCache, NoCapture, Qwen3};
 use crate::repl::Sampler;
 use crate::served_decode::Decoder;
 use candle_core::{IndexOp, Tensor};
@@ -116,14 +116,16 @@ impl Session {
     }
 
     /// Feed `ids` after what is held, in chunks of at most
-    /// [`MAX_PREFILL_ROWS`], and return the hidden states of the last chunk.
-    /// One chunk is one `hidden_cached` call, the call the REPL made for a
-    /// whole turn.
+    /// [`Qwen3::prefill_rows`], and return the hidden states of the last
+    /// chunk. One chunk is one `hidden_cached` call. The chunk is the
+    /// model's, not [`crate::model::MAX_PREFILL_ROWS`]: the served Metal path
+    /// takes 256 rows a call, and a turn of 257 tokens or more was refused
+    /// there until 2026-11-07.
     pub fn feed(&mut self, qwen: &Qwen3, ids: &[u32]) -> anyhow::Result<Tensor> {
         anyhow::ensure!(!ids.is_empty(), "Session feed: nothing to feed");
         let dev = qwen.device();
         let mut h = None;
-        for part in ids.chunks(MAX_PREFILL_ROWS) {
+        for part in ids.chunks(qwen.prefill_rows()) {
             let x = Tensor::from_slice(part, (1, part.len()), dev)?;
             h = Some(qwen.hidden_cached(&x, self.ids.len(), &mut self.caches, &mut NoCapture)?);
             self.ids.extend_from_slice(part);

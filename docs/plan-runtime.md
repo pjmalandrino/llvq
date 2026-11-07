@@ -20,12 +20,14 @@ The gates that load a real model on Metal or CUDA have not run.
 | R5 | not started | | needs a go, under 1 $ (*estimated*) |
 | R6 | not started | | |
 
-The runtime decodes slower than the served Metal path it wraps, and the cause is not found. On the M3 Max on
-2026-11-06 evening, greedy answers of 64 to 256 tokens through `/api/chat` ran at 21 to 24 tok/s, the runtime's own
-rate and not a measurement, against 50.9 tok/s for the same config in `bin/metalrun` (*measured*,
-[metal-nuit](mesures/metal-nuit-2026-11-06.txt)). The same afternoon, one 32-token answer ran at 52.9. The sampling
-temperature, the reasoning and the browser were ruled out. The next step is `bin/chat` and the runtime on one prompt,
-at the same minute.
+The runtime adds no cost of its own on Metal. On an idle M3 Max on 2026-11-07, greedy 256-token answers decoded
+55.6 tok/s from position 31, 38.2 from 1,098 and 27.7 from 2,114 (*measured*, journal
+`docs/mesures/m1-runtime-metal-2026-11-07.txt` on branch `plan/noyau-debit-2026-11-06`). Another process holding the
+GPU dropped position 31 to 25.1. Either mechanism reproduces the 21 to 24 tok/s of 2026-11-06 evening. The grouped
+form, refused on Metal today, is the lever for the first: 43.3 against 23.2 at 2,048 in `bin/metalrun`.
+
+A turn feeds in chunks of `Qwen3::prefill_rows`, 256 on the served Metal path, which loops one launch a row. Before
+2026-11-07 it fed in chunks of 4,096 there, so any turn of 257 new tokens or more was refused on Metal.
 
 The CPU gates run on a tiny deterministic Qwen3 behind the real server (`llvq-runtime/tests/common`). Its stop tokens
 have zero embeddings under a tied head, so a greedy answer runs to its cap, which is what times a cancelled answer.
