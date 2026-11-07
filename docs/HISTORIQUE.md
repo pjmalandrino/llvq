@@ -1117,3 +1117,17 @@ gate that passed: sha256 `8542b7f9…`, every key the door reads unchanged. The 
 of `serve.py` before the model loads, including the reference file of a reading, and added four refusals (26 of 26
 mutants killed, *measured*,
 [mlx-door](mesures/mlx-door-2026-11-07.txt)).
+
+## 2026-11-07. A batching branch: the batched decode of the 4B and its tensor-core kernel
+
+The operator opened a batching axis on 2026-11-07. AWQ in vLLM was measured first at B = 1 to 32 on the L40S: 203.0
+to 5,128.7 tok/s aggregate, 541.9 to 427.9 GB/s (*measured*, [batch-awq](mesures/batch-awq-2026-11-07.txt), $0.08).
+
+The branch added a batched step (B sequences, one cache slot each, one row each a step), a batched attention that is
+the served kernel's body with one sequence per grid z, and `tv_batch_mma.cu`: Tetra blocks and int4 nibbles decoded
+once into shared memory as exact integers, multiplied on the tensor cores, the rotated activation in two f16 halves.
+Host probes held the kernel to a double reference (16 of 16 mutants killed) and the attention to the one-row bits (5
+of 5). One job read both arms ($0.48): the existing multi-row path plateaus at 231.9 tok/s, the tensor-core kernel
+reaches 1,256.5 at B = 32, both with the batch-1 tokens on every row (*measured*,
+[batch-tetra](mesures/batch-tetra-2026-11-07.txt)). The gate passed. The kernel's step costs 15.6 ms at B = 1 against
+AWQ's 4.9, which leaves Tetra four times below AWQ in aggregate.

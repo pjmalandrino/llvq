@@ -205,6 +205,16 @@ reconstruction in f16 on Metal, its perplexity reads -0.0103 % [-0.0847 ; +0.064
 and missed a rule that asked every window inside +-0.12 % ([mlx-t8](mesures/mlx-t8-2026-11-07.txt)). The operator
 then chose the paired gate, stamped before the second reading. No task score has run through the MLX door.
 
+**Batched decode runs on the 4B, four times below AWQ in aggregate.** `Qwen3::batch_step` decodes B sequences a step,
+one cache slot each (`llvq-llm/src/batch.rs`, `bin/batchrun`). Its tensor-core kernel (`tv_batch_mma.cu`: a block
+decoded once as exact integers, multiplied for up to 32 rows by `mma.sync`) reads 63.9 / 240.9 / 449.7 / 788.4 /
+1,256.5 tok/s aggregate at B = 1 / 4 / 8 / 16 / 32, against 126.1 / 199.5 / 217.1 / 226.8 / 231.9 for the existing
+multi-row path and 203.0 / 778.7 / 1,524.6 / 2,883.2 / 5,128.7 for AWQ in vLLM (*measured*,
+[batch-tetra](mesures/batch-tetra-2026-11-07.txt), [batch-awq](mesures/batch-awq-2026-11-07.txt)). At B = 32 that is
+54.2 GB/s against AWQ's 427.9 (*computed*, weights on the card times steps per second). Every sequence decoded the
+batch-1 door tokens under both arms; decode-path perplexity reads +0.0038 % [-0.0024 ; +0.0099] against the multi-row
+path, GSM8K pilot 40/50 against 40/50. Nothing batched is served.
+
 **Noise.** The calibration draw carries a standard deviation of 2.92 pp of MMLU and 5.2% of perplexity at 4B over
 three full runs (*measured*, [bruit-mmlu](mesures/bruit-mmlu-graines-4b-2026-08-25.txt),
 [f5-graines](mesures/f5-graines-4b-2026-08-19.txt)). Every size is calibrated on one draw. For an A/B at constant file

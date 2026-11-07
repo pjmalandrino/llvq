@@ -95,6 +95,7 @@ cargo run --release -p llvq-llm --features metal --bin mmlu -- <checkpoint|seale
 LLVQ_CONFIG=configs/qwen3-4b-tetra-e4.json cargo run --release -p llvq-llm --features cuda --bin mmlu -- <sealed> cuda 40   # THROUGH the served kernel
 LLVQ_CONFIG=configs/qwen3-4b-tetra-e4.json cargo run --release -p llvq-llm --features cuda --bin gsm8k -- <sealed> cuda   # GSM8K through the kernel; gsm8kpair <a> <b> pairs two dumps
 cargo run --release -p llvq-llm --features cuda --bin fusedrun                                      # the kernel in the model
+LLVQ_CONFIG=configs/qwen3-4b-tetra-e4-4e-v4.json cargo run --release -p llvq-llm --features cuda --bin batchrun -- <sealed> door 1,8,32 rows,mma   # B sequences a step; also check, ppl, gsm8k
 cargo run --release -p llvq-runtime --features metal --bin llvq -- serve                             # the runtime; also pull, run, ls, ps, show, stop, rm, cp
 cargo run -p llvq-runtime --example tiny_server && uv run ops/llvq_runtime_clients.py <addr> tiny:test  # the official ollama and openai clients against llvq, CPU only
 LLVQ_DTYPE=f16 cargo run --release -p llvq-llm --features metal --bin ppl -- 4096 12 metal <sealed>
