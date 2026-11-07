@@ -1,7 +1,7 @@
 # Continuous integration for the CPU half of the workspace.
 #
 # The repo advertises two properties a reviewer can check mechanically: "zéro
-# warning clippy" (CLAUDE.md §7) and a doctrine of lethal tests (§5). Neither
+# warning clippy" (CLAUDE.md, Conventions) and a doctrine of lethal tests (hard rule 10). Neither
 # was enforced anywhere until now, and the first machine to compile a pushed
 # tree was a *paid* Hugging Face Space builder. This moves that first compile
 # onto a free runner — and no further. Nothing here publishes, deploys, or
@@ -33,7 +33,7 @@
 #   * llvq-llm's `metal`, `cuda` and `cudnn` features, i.e. every code path
 #     `bin/fusedrun` actually takes;
 #   * llvq-cuda/tests/*, the CUDA-vs-Rust decoder equivalence sweeps. Those
-#     need no GPU *by design* — K1 of docs/portage-noyau-cuda.md has clang++
+#     need no GPU *by design* — K1 of docs/archive/portage-noyau-cuda.md has clang++
 #     compile the .cu text as host C++ — but building the package drags cudarc
 #     in, so they are unreachable on Linux. They run on the macOS dev machine
 #     and nowhere else. The CUDA decoder's correctness tests are precisely the
@@ -42,10 +42,10 @@
 # Covering them needs a self-hosted GPU runner, or a macos-* runner for the
 # clang++ half (10x minute multiplier on private repos). That is a spending
 # decision, not a technical one, so it is left to a human. K2 of
-# docs/portage-noyau-cuda.md already scopes the compile-only NVRTC job.
+# docs/archive/portage-noyau-cuda.md already scopes the compile-only NVRTC job.
 #
 # Treating this badge as "everything is checked" would be the same defect
-# CLAUDE.md §5 is about: an assertion that does not exercise what it appears
+# hard rule 10 of CLAUDE.md is about: an assertion that does not exercise what it appears
 # to cover.
 # ============================================================================
 
@@ -58,9 +58,9 @@ name: CI
 on:
   push:
     branches: [main]
-    paths-ignore: ['**.md', 'docs/**', 'paper/**']
+    paths-ignore: ['**.md', 'docs/**', 'paper/**', 'paper2/**', 'proofs/**']
   pull_request:
-    paths-ignore: ['**.md', 'docs/**', 'paper/**']
+    paths-ignore: ['**.md', 'docs/**', 'paper/**', 'paper2/**', 'proofs/**']
 
 # Read-only, explicitly. No secret, no write scope, nothing that could push,
 # publish or bill anything.
@@ -74,7 +74,7 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
 
-# Four jobs in parallel, so the wall time is the slowest one, not the sum.
+# Five jobs in parallel, so the wall time is the slowest one, not the sum.
 # Each caches its own target directory under its own key: one profile per
 # job, and actions/cache saves only after a job succeeds. Rust is pinned:
 # `-D warnings` on a floating toolchain turns the tree red overnight on code
@@ -82,7 +82,7 @@ env:
 # measured on. Bump deliberately, in every job.
 jobs:
   # The convention, enforced: zero clippy warnings, and the five core crates
-  # free of external dependencies (CLAUDE.md §2). Path dependencies render as
+  # free of external dependencies (CLAUDE.md, Conventions). Path dependencies render as
   # `name vX (/abs/path)`; anything from crates.io has no path, so any
   # surviving line is a violation. Run against llvq-llm the same check reports
   # 249 external crates, so it does detect what it is meant to detect.
@@ -124,6 +124,39 @@ jobs:
             fi
           done
           exit $status
+      - name: the forbid(unsafe_code) crates keep it
+        run: |
+          set -euo pipefail
+          for f in llvq-core/src/lib.rs llvq-search/src/lib.rs llvq-quant/src/lib.rs \
+                   llvq-artifact/src/lib.rs llvq-bench/src/lib.rs \
+                   llvq-runtime/src/lib.rs llvq-runtime/src/main.rs; do
+            grep -q '^#!\[forbid(unsafe_code)\]' "$f" \
+              || { echo "::error::$f lost #![forbid(unsafe_code)]"; exit 1; }
+          done
+
+  # The Python that needs no GPU and no torch, and the CUDA image's lists.
+  # `ops/llvqtune` skips its torch tests when torch is absent (66 run, 8 skip
+  # on 2026-11-07); the MLX door's refusals use the standard library only; and
+  # `check_image_lists.py` catches the two-lists trap of ops/Dockerfile.cuda
+  # before a paid Space build does. Well under a minute.
+  python:
+    name: python (llvqtune, MLX door refusals, image lists)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: the CUDA image's three lists agree
+        run: python3 ops/check_image_lists.py
+      - name: the MLX door's refusals
+        run: python3 ops/mlx_tetra/test_served.py
+      - name: llvqtune, without torch
+        working-directory: ops/llvqtune
+        run: |
+          python3 -m pip install --quiet pytest==9.2.0
+          PYTHONPATH=. python3 -m pytest -q -p no:cacheprovider
 
   # The whole CPU suite under `--profile ci` (Cargo.toml): release
   # optimisation, so the tests gated `cfg_attr(debug_assertions, ignore)` run,

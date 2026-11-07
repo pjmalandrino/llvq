@@ -1,5 +1,7 @@
 target/
 __pycache__/
+# Python virtualenvs (llvq-tetra's is about 750 MB).
+.venv/
 
 # `ots upgrade` writes a .bak beside every stamp it rewrites; the stamp is the
 # artefact, the backup is not.
