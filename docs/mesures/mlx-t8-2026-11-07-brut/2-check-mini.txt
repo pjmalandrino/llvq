@@ -1,0 +1,46 @@
+A. kernels against each other
+  layer 0 q+k stacked against each alone, row 0              0.00e+00 same bits  ok
+  layer 0 q+k stacked against each alone, row 1              0.00e+00 same bits  ok
+  layer 0 q+k stacked against each alone, row 2              0.00e+00 same bits  ok
+  layer 0 q+k stacked against k alone, k's gains apart       0.00e+00 same bits  ok
+  layer 0 rotation 136 (via q) against 4 MLX ops             1.31e-07 < 1e-05    ok
+  layer 0 rotation 128 (via o) against 4 MLX ops             0.00e+00 < 1e-05    ok
+  layer 0 fused gate-up-SiLU against unfused, row 0          8.57e-04 < 2e-03    ok
+  layer 0 fused gate-up-SiLU against unfused, row 1          9.16e-04 < 2e-03    ok
+  layer 0 fused gate-up-SiLU against unfused, row 2          5.88e-04 < 2e-03    ok
+B. projections against the reference decoder (llvq-tetra, bit for bit with Rust)
+  layer 0 q    one-row kernel, 20 rows                       3.64e-04 < 2e-03    ok
+  layer 0 q    8-row kernel, 8 rows                          3.64e-04 < 2e-03    ok
+  layer 0 q    8-row kernel, 3 rows                          3.44e-04 < 2e-03    ok
+  layer 0 q    dense prefill, 20 rows                        4.97e-04 < 4e-03    ok
+  layer 0 k    one-row kernel, 20 rows                       3.84e-04 < 2e-03    ok
+  layer 0 k    8-row kernel, 8 rows                          4.28e-04 < 2e-03    ok
+  layer 0 k    8-row kernel, 3 rows                          4.04e-04 < 2e-03    ok
+  layer 0 k    dense prefill, 20 rows                        4.57e-04 < 4e-03    ok
+  layer 0 v    one-row kernel, 20 rows                       5.96e-04 < 2e-03    ok
+  layer 0 v    8-row kernel, 8 rows                          3.62e-04 < 2e-03    ok
+  layer 0 v    8-row kernel, 3 rows                          5.96e-04 < 2e-03    ok
+  layer 0 v    dense prefill, 20 rows                        5.96e-04 < 4e-03    ok
+  layer 0 o    one-row kernel, 20 rows                       4.27e-04 < 2e-03    ok
+  layer 0 o    8-row kernel, 8 rows                          4.86e-04 < 2e-03    ok
+  layer 0 o    8-row kernel, 3 rows                          3.78e-04 < 2e-03    ok
+  layer 0 o    dense prefill, 20 rows                        4.86e-04 < 4e-03    ok
+  layer 0 gate one-row kernel, 20 rows                       3.89e-04 < 2e-03    ok
+  layer 0 gate 8-row kernel, 8 rows                          3.89e-04 < 2e-03    ok
+  layer 0 gate 8-row kernel, 3 rows                          2.91e-04 < 2e-03    ok
+  layer 0 gate dense prefill, 20 rows                        6.09e-04 < 4e-03    ok
+  layer 0 up   one-row kernel, 20 rows                       4.11e-04 < 2e-03    ok
+  layer 0 up   8-row kernel, 8 rows                          4.31e-04 < 2e-03    ok
+  layer 0 up   8-row kernel, 3 rows                          3.83e-04 < 2e-03    ok
+  layer 0 up   dense prefill, 20 rows                        5.11e-04 < 4e-03    ok
+  layer 0 down int4 g128, MLX quantized matmul               5.37e-04 < 2e-03    ok
+  layer 0 q    stacked q+k dispatch, one row                 3.37e-04 < 2e-03    ok
+  layer 0 k    stacked q+k dispatch, one row                 3.52e-04 < 2e-03    ok
+C. embedding and tied head against the reference
+  embedding rows                                             4.27e-04 < 2e-03    ok
+  tied head, 4 rows                                          3.19e-04 < 2e-03    ok
+D. whole forward pass against transformers through llvq-tetra, f32 on the CPU
+  prefill, 16 rows (dense path)                              1.25e-03 < 1e-02    ok
+  decode, 16 steps of one row                                1.53e-03 < 1e-02    ok
+  chunks of 4 rows (rows kernel)                             1.53e-03 < 1e-02    ok
+41 comparisons, all within bounds

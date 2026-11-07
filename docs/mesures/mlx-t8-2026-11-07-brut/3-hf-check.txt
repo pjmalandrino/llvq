@@ -1,0 +1,7 @@
+Installed 2 packages in 41ms
+/Users/pjmalandrino/q4b-hf-2026-09-28
+  artifact   886391a8c03f66dc… v5, kinds Tetra+Int4G128
+  records    168 Tetra, 84 Int4G128, 3.633 B weights
+  carried    146 raw tensors, 389.2 M weights
+  rotations  96 tables
+  1602 fields rebuilt bit for bit, every digest of the archive matched
