@@ -1,0 +1,5 @@
+tetra-f32-12-1: decode over the 4 prompts: 124 steps in 14.34 s, 8.65 tok/s |           1864220672  maximum resident set size | load averages: 2.80 6.04 8.16
+tetra-f32-4-1: decode over the 4 prompts: 124 steps in 24.12 s, 5.14 tok/s |           1859993600  maximum resident set size | load averages: 4.25 6.20 8.18
+tetra-f32-12-2: decode over the 4 prompts: 124 steps in 14.34 s, 8.65 tok/s |           1858437120  maximum resident set size | load averages: 4.04 5.95 8.01
+tetra-f32-4-2: decode over the 4 prompts: 124 steps in 24.16 s, 5.13 tok/s |           1862795264  maximum resident set size | load averages: 5.89 6.23 8.06
+dense-f16-12: decode over the 4 prompts: 124 steps in 173.98 s, 0.71 tok/s |          10567761920  maximum resident set size | load averages: 5.29 6.05 7.93

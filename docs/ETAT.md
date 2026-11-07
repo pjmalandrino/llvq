@@ -26,7 +26,7 @@ sizes differ in three optional fields: the attention form, the decode engine and
   decision. mlx-lm's Qwen3 with our Tetra kernels, f16 activations, served under a perplexity tolerance (§4).
 - **Without a GPU**: the runtime's CPU backend since 2026-11-07, `fused_cpu` on the expanded e4 configs, at f32.
   It reads the Tetra codes at every matvec instead of rebuilding f16 weights: 8.6 tok/s in 1.86 GB on the 4B at 12
-  threads of an M3 Max, against 0.45 tok/s in 10.6 GB for the dense reconstruction it replaced; perplexity -0.0021 %
+  threads of an M3 Max, against 0.71 tok/s in 10.6 GB for the dense reconstruction it replaced; perplexity -0.0021 %
   [-0.0022 ; -0.0019] of the dense f32 over 12 windows (*measured*,
   [cpu-tetra](mesures/cpu-tetra-2026-11-07.txt)). Never run on x86; not reviewed by the operator.
 - **8B and 14B**: `qwen3-8b-tetra-e4-4e-v9.json` and `qwen3-14b-tetra-e4-4e-v9.json` since 2026-11-07, the

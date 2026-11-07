@@ -1,0 +1,41 @@
+[lock /tmp/llvq-mac-bench.lock held after 0.0 s]
+ 0:27  up 15 days, 14:57, 1 user, load averages: 5.29 6.05 7.93
+dense reconstruction on the CPU (sealed::load)
+loaded in 32.8 s at f16
+── "The capital of France is"
+   → Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital
+   prompt 5 tokens in 1.52 s | 31 decode steps in 43.48 s, 0.71 tok/s
+── "In 1969, the first humans landed on"
+   → the Moon. The first humans to land on the Moon were the members of the Apollo 11 mission, which included Neil Armstrong, Buzz Aldrin, and
+   prompt 12 tokens in 1.48 s | 31 decode steps in 43.51 s, 0.71 tok/s
+── "def fibonacci(n):\n    if n < 2:\n        return n\n    return"
+   → fibonacci(n-1) + fibonacci(n-2)
+
+def fibonacci2(n):
+    a = 1
+    b = 1
+    for i in
+   prompt 17 tokens in 1.55 s | 31 decode steps in 43.57 s, 0.71 tok/s
+── "Water boils at a temperature of"
+   → 100°C. How much heat is required to convert 1 kg of water at 20°C to steam at 100°C?
+   prompt 6 tokens in 1.46 s | 31 decode steps in 43.41 s, 0.71 tok/s
+decode over the 4 prompts: 124 steps in 173.98 s, 0.71 tok/s
+dumped 4 prompts to /private/tmp/claude-501/-Users-pjmalandrino-Documents-Pro-workspace-poc-llvq--claude-worktrees-hopeful-swirles-b4155f/bd184212-27cb-4931-a202-9e128c40fb5a/scratchpad/locked/dense-f16-12.json
+      212.87 real       219.38 user        14.70 sys
+         10567761920  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+              848760  page reclaims
+                   1  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   0  voluntary context switches
+              940603  involuntary context switches
+       2115679086838  instructions retired
+        864335010303  cycles elapsed
+         10567000128  peak memory footprint

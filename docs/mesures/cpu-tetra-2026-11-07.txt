@@ -1,11 +1,13 @@
-THE 4B SERVED ON THE CPU WITHOUT DECODING ITS WEIGHTS: 8.6 TOK/S IN 1.86 GB AGAINST 0.45 TOK/S IN 10.6 GB, PERPLEXITY -0.0021 % OF THE DENSE f32 (2026-11-07)
-=============================================================================================================================================================
+THE 4B SERVED ON THE CPU WITHOUT DECODING ITS WEIGHTS: 8.65 TOK/S IN 1.86 GB AGAINST 0.71 TOK/S IN 10.6 GB, PERPLEXITY -0.0021 % OF THE DENSE f32 (2026-11-07)
+==============================================================================================================================================================
 Why:    a laptop without an NVIDIA or Apple GPU took the dense reconstruction (`sealed::load` on `Device::Cpu`), whose
         speed and memory had never been measured. This lot adds a CPU backend that reads the Tetra codes at every
         matvec (`llvq-llm/src/tetra_cpu.rs`, `fused_cpu.rs`) and puts it in the runtime in place of the dense path.
 Cost:   $0. Apple M3 Max (12 P + 4 E cores, 64 GB), macOS 26.6.2, rustc 1.95.0, nice 10, LLVQ_THREADS and
-        RAYON_NUM_THREADS at 12 or 4. The machine was shared with other sessions; `uptime` is in each raw log and
-        the contended runs are kept and marked.
+        RAYON_NUM_THREADS at 12 or 4. The machine was shared with other sessions. The rates of the table below were
+        re-read at 00:25-00:35 on 2026-11-08 under the exclusive lock /tmp/llvq-mac-bench.lock (flock(2), through
+        locked/withlock.py since the Mac has no flock(1)), load 2.8 to 5.9; the earlier unlocked runs are kept,
+        and the contended ones marked.
 Object: qwen3-4b-sealed.bin, sha256 886391a8..., the store blob of `llvq pull qwen3:4b`.
 Config: configs/qwen3-4b-tetra-e4.json (tetra48, embed q4, rot_share 1, fuse 0, kv f16, expanded, eager), the
         `cpu` entry `library.json` now carries.
@@ -32,16 +34,19 @@ GATES
      `config_cpu` field); cargo clippy --all-targets zero warnings on aarch64-apple-darwin, and on
      x86_64-unknown-linux-gnu through ops/check-linux-cuda.sh (the AVX2 path type-checks; it never ran here).
 
-THROUGHPUT AND MEMORY, 4 PROMPTS x 32 GREEDY TOKENS (cpurun, bin/run for the dense arm)
--------------------------------------------------------------------------------------
-  arm                         dtype  threads  decode tok/s               peak RSS   load     load avg at start
-  dense (sealed::load)        f16    12*      0.4-0.5 (whole run 323 s)  10.57 GB   ~30 s    not recorded
-  Tetra CPU                   f16    12       6.90, 7.02                 1.84-1.85  2.3 s    -, 24.2
-  Tetra CPU                   f32    12       8.62, 8.67                 1.86       2.1 s    9.9, 8.1
-  Tetra CPU                   f16    4        4.63                       1.85       -        35.0
-  Tetra CPU                   f32    4        5.11, 5.13                 1.86       -        9.9, 8.1
-  * the dense run's user time equals its wall time (322.5 s against 323.0 s): candle's f16 matvec ran on one
-    core whatever RAYON_NUM_THREADS said.
+THROUGHPUT AND MEMORY, 4 PROMPTS x 32 GREEDY TOKENS (cpurun), DECODE STEPS ONLY
+-------------------------------------------------------------------------------
+Under the lock (locked/):
+  arm                         dtype  threads  decode tok/s     peak RSS   load
+  dense (sealed::load)        f16    12*      0.71             10.57 GB   32.8 s
+  Tetra CPU                   f32    12       8.65, 8.65       1.86 GB    2.1 s
+  Tetra CPU                   f32    4        5.14, 5.13       1.86 GB    2.1 s
+  * the dense run's user time is its wall time (219 s against 213 s): candle's f16 matvec ran on one core
+    whatever RAYON_NUM_THREADS said. Same 128 ids as the first dense run through bin/run.
+Before the lock (same binaries' arithmetic, machine shared):
+  dense through bin/run, 0.4-0.5 tok/s as bin/run prints it (prefill included, whole run 323 s, 10.57 GB);
+  Tetra f16 at 12 threads 6.90 and 7.02, f32 at 12 threads 8.62 and 8.67, f16 at 4 threads 4.63, f32 at 4
+  threads 5.11 and 5.13, all at 1.84-1.86 GB.
   Contended (another session's `smoke` at 11 cores, load 26-41): f16 at 12 threads fell to 0.6-0.9 tok/s and f32
   to 1.1-6.2 on some prompts; 4 threads held at 4.6. Kept in series-f16-contended.log and tetra-f32-12-a.log.
   Prompt: about 19 tok/s at 4,096 tokens (window wall time 210 s, logits of 151,936 included).

@@ -1,0 +1,45 @@
+[lock /tmp/llvq-mac-bench.lock held after 0.0 s]
+ 0:27  up 15 days, 14:56, 1 user, load averages: 5.89 6.23 8.06
+embedding: q4 g64 (LLVQ_CONFIG), 1 table (model.embed_tokens.weight, lm_head tied on it), 218.8 MB on the card (int4 194.5 + scales/biases 24.3)
+cpu: neon SIMD on 4 threads | tetra 168 + int4 84 matrices | 1.38 GB in memory (projections 1.16 + carried 0.22)
+tetra on the CPU: configs/qwen3-4b-tetra-e4.json (neon)
+loaded in 2.1 s at f32
+── "The capital of France is"
+   → Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital
+   prompt 5 tokens in 0.43 s | 31 decode steps in 6.03 s, 5.14 tok/s
+── "In 1969, the first humans landed on"
+   → the Moon. The first humans to land on the Moon were the members of the Apollo 11 mission, which included Neil Armstrong, Buzz Aldrin, and
+   prompt 12 tokens in 0.95 s | 31 decode steps in 6.04 s, 5.13 tok/s
+── "def fibonacci(n):\n    if n < 2:\n        return n\n    return"
+   → fibonacci(n-1) + fibonacci(n-2)
+
+def fibonacci2(n):
+    a = 1
+    b = 1
+    for i in
+   prompt 17 tokens in 1.55 s | 31 decode steps in 6.05 s, 5.12 tok/s
+── "Water boils at a temperature of"
+   → 100°C. What is the temperature of the boiling point of water in Fahrenheit?
+
+To convert a temperature from Celsius to Fahrenheit, we use the formula
+   prompt 6 tokens in 0.49 s | 31 decode steps in 6.03 s, 5.14 tok/s
+decode over the 4 prompts: 124 steps in 24.16 s, 5.13 tok/s
+dumped 4 prompts to /private/tmp/claude-501/-Users-pjmalandrino-Documents-Pro-workspace-poc-llvq--claude-worktrees-hopeful-swirles-b4155f/bd184212-27cb-4931-a202-9e128c40fb5a/scratchpad/locked/tetra-f32-4-2.json
+       29.67 real       104.15 user         3.62 sys
+          1862795264  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+              242456  page reclaims
+                   1  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   0  voluntary context switches
+              480053  involuntary context switches
+       2023070509605  instructions retired
+        383857222248  cycles elapsed
+          1799965120  peak memory footprint

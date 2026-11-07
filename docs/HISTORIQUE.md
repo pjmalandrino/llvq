@@ -1188,7 +1188,7 @@ mutants killed, *measured*,
 ## 2026-11-07. A CPU backend for the runtime, in place of the dense reconstruction
 
 Asked the same day whether a laptop without a dedicated GPU runs the models. Until then such a machine took
-`sealed::load` on the CPU, which rebuilds every projection as f16. Measured for the first time on the 4B: 0.45 tok/s
+`sealed::load` on the CPU, which rebuilds every projection as f16. Measured for the first time on the 4B: 0.71 tok/s
 in a 10.6 GB peak, candle's f16 matvec on one core (*measured*, [cpu-tetra](mesures/cpu-tetra-2026-11-07.txt)).
 
 `llvq-llm` gained `tetra_cpu.rs` and `fused_cpu.rs`. The Tetra word is decoded through three lookups in a 128 KiB
@@ -1202,5 +1202,5 @@ killed.
 At f16 the first reading moved one 4,096-token window by -0.47 % of perplexity against the dense f16, past every
 gap between two Rust engines. The same window at f32 read -0.0017 % against the dense f32: the matvec was right, and
 candle's CPU f16 arithmetic around it was not. The CPU path runs at f32, which also decodes faster there: 8.6 tok/s at
-12 threads and 5.1 at 4, in 1.86 GB, and -0.0021 % [-0.0022 ; -0.0019] of the dense f32 over 12 windows
+12 threads and 5.1 at 4, in 1.86 GB, under the bench lock the Mac's sessions share, and -0.0021 % [-0.0022 ; -0.0019] of the dense f32 over 12 windows
 (*measured*). Nothing ran on x86, and Windows was never built.
