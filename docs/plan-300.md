@@ -7,8 +7,10 @@ to 296 if the int4 tile layout keeps inside 4E the ×1.338 it read alone (*estim
 quality inside the T8 band, gives 289 to 301. 300 then holds only on the proportional door conversion, with every
 lead at its full arithmetic, where 4E's versions delivered 41 %. The low bound stays 229 tok/s at the bit
 (*estimated*). At 8,192 positions only an int4 KV cache reaches 300, on its high bound, and it moves quality, GB in
-memory and the model class. Step 2 measured v8 at 227.9 tok/s in the measurement form, ×1.076 over v6, bit for bit
-(*measured*, [step2-4e](mesures/step2-4e-2026-11-07.txt)).
+memory and the model class. Step 3 measured v9 at 238.6 tok/s in the measurement form, ×1.118 over v6 and ×1.035 over
+v8, bit for bit, about 220 at the door (*measured*, [step3-4e](mesures/step3-4e-2026-11-07.txt); door *estimated*).
+After step 3 the route's ceiling at the bit is about 235 to 258 tok/s at the door (*estimated*, §6b): 300 needs
+leads that leave the bit or change the bytes.
 
 State as of 2026-11-07. This is a study at $0: no run, no job, no measurement. It starts from 4E v6 served, which the
 session `serve-4e-v6` is putting in place. Its base is [`plan-debit-noyau.md`](plan-debit-noyau.md) (K1 to K10, M1 to
@@ -217,6 +219,33 @@ LLVQ_PERS_4E` now times v4, v6, v7 and v8 in one process (`pers::P4E_BENCH_FORMS
 - v8's rows read 175 µs slower on its stamps at 5 positions (gate/up +94, down +52, q/k/v +28). Its stamp symbol
   spills 48 B, so this may be the stamps' own cost; the carve-out is the other candidate.
 - By the prereg's rule v8 stays a measurement. Step 3 is not chained.
+
+**Step 3, run on the operator's go of 2026-11-07.** Job 6aef51d3, 9 min, $0.28 (*computed*), prereg stamped before
+([step3-4e](mesures/step3-4e-2026-11-07.txt)). *Measured*:
+- v9, row form 7, is v8 with 4E's int4 rows (v, o, the int4 downs) read by step 1's q4t on words relaid at install.
+  It keeps the eager tokens at both contexts: 238.6 tok/s at 5 positions, ×1.035 over v8 and ×1.118 over v6 round
+  by round; 163.5 at 8,192, ×1.031 over v8. K11 holds in situ: 0.146 ms a token, 83 % of its arithmetic.
+- v9 holds the int4 bytes twice on the card in this form (+0.385 GB). Serving it with one copy needs the eager int4
+  readers on the tiled layout; that step is licensed, not coded.
+- v6s, v6 under v8's 85,952 B of shared memory, reads ×1.000 over v6: the carve-out costs nothing. v8's slower rows
+  on its stamps were its stamp symbol's spill (48 B; v9's spills 40 B).
+- v7 is refused at 128 registers for 24 B of local memory. v8 and v9 carry all of v7's staging, so v7 is not needed.
+- Not coded, with the reason (prereg §1). K3a's second half: at a short prompt attention runs 8 jobs, and inside a job
+  the units and head pairs already run on separate warps; the critical path is one unit's tiles in order, which the
+  canonical arithmetic fixes. K3b: step 1 found no counter 0.3 µs under the barrier. K5: it adds bytes to the card
+  and takes weeks.
+
+**The route after step 3 (*estimated*).** v9's timed token at 5 positions is 4.19 ms. What is left at the bit:
+- attention's fixed cost at short context: 551 µs of wall for 36 layers, against a floor near 130. Its job setup,
+  q load, waits and fold are the candidates; sub-phase stamps must name them first. 0 to 0.42 ms.
+- K5, the certified head: 0.07 to 0.16 ms, with +0.6 MB on the card.
+- K3b, priced on step 1's counters: 0.274 µs on each of 218 barriers, 0.06 ms at most.
+- Serving v9 with one int4 copy: no speed, needed to serve it.
+Together 0.24 to 0.59 ms: 253 to 278 tok/s in the measurement form, about 235 to 258 at the door. 300 at the door
+asks for about 2.96 ms in the measurement form, 1.23 ms under v9. The rows alone take about 2.62 ms, so 300 would
+need the non-row work down to 0.34 ms. That is out at the bit. What remains for 300 leaves it, or changes the bytes:
+prompt-lookup speculation (K9, workload-dependent), fewer bytes per weight (Q1 and its kind: quality, b/param), or a
+faster Tetra row decode, which five arms of step 1 did not find.
 
 ## 7. At 8,192 positions
 

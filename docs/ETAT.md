@@ -234,8 +234,8 @@ the bar is the paired interval, 0.43 pp in MMLU and 0.12% in perplexity (*measur
   [plan-transformers](plan-transformers.md)). `llvq-tetra` 0.1.0 is on PyPI since 2026-10-07, the bytes that passed
   TestPyPI ([hf-pypi](mesures/hf-pypi-0.1.0-2026-10-07.txt)), so `pip install llvq-tetra` loads it. Next, on the
   operator's go: the upstream issue and PR, together.
-- **Spend.** $273.77 over 269 rows of this branch's registry, 264 of them priced (*computed*, `docs/data/jobs.csv`);
-  $274.18 with the served-v6 door's $0.41, recorded on `claude/serve-4e-v6-6e15c0`. The jobs
+- **Spend.** $274.05 over 270 rows of this branch's registry, 265 of them priced (*computed*, `docs/data/jobs.csv`);
+  $274.46 with the served-v6 door's $0.41, recorded on `claude/serve-4e-v6-6e15c0`. The jobs
   of 2026-11-04 and 11-05 spent $21.27 over 25 rows (*computed*). No cap is in force; one is owed before the next
   paid job.
 

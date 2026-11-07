@@ -1111,3 +1111,11 @@ cp.async ring in attention, kept the eager tokens and read ×1.076 over v6 at 5 
 K2's gate, read on v8, held: the down input fell from 255 to 150 µs. K3a's gate failed: attention's slowest CTA over
 mean reads 4.40, and the job spread is what remains. v8 stays a measurement
 ([step2-4e](mesures/step2-4e-2026-11-07.txt)).
+
+## 2026-11-07. plan-300's step 3: the int4 tiles hold in situ, the route stops short of 300 at the bit
+
+Step 3 ran the same day on the operator's go (job 6aef51d3, $0.28). v9, v8 with the int4 rows on step 1's tiled
+words, kept the eager tokens and read ×1.035 over v8 and ×1.118 over v6 at 5 prompt tokens, 238.6 tok/s in the
+measurement form, about 220 at the door (estimated). v6 under v8's shared memory read ×1.000: v8's slower rows on its
+stamps were its stamp symbol's spill. The leads left at the bit give about 235 to 258 tok/s at the door (estimated);
+300 needs speculation or fewer bytes ([step3-4e](mesures/step3-4e-2026-11-07.txt)).
