@@ -1093,3 +1093,7 @@ input at 254.6 µs against a prereg gate of 200, so by that prereg's rule v6 was
 ([pers-4e-v6](mesures/pers-4e-v6-2026-11-05.txt)). On 2026-11-07 the operator gave the go to implement v6 on the 4B
 regardless. `configs/qwen3-4b-tetra-e4-4e-v6.json` is the v4 config with `"rows": "v6"`, and `served.rs` accepts it.
 v4 stays served until the door of `ops/jobs/served-v6.sh` reads.
+
+The door read the same day for $0.41 (job 6aeeea70, 825 s of card). It gives 197.2 tok/s against 178.0 for v4, and
+150.9 against 139.5 at 8,192, with v4's tokens at the door and every length and v4's 50 pilot completions
+([served-v6](mesures/served-v6-2026-11-07.txt)). Every prediction held. Serving it is the operator's call.

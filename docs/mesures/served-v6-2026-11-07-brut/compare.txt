@@ -1,0 +1,6 @@
+door tokens: 61d0654532d35120 against the v4 config 61d0654532d35120: identical
+sweep tokens after 5: 61d0654532d35120 against the v4 config 61d0654532d35120: identical
+sweep tokens after 2048: a4645c00f879ae80 against the v4 config a4645c00f879ae80: identical
+sweep tokens after 4096: cc9b3414c4d67ba6 against the v4 config cc9b3414c4d67ba6: identical
+sweep tokens after 8192: 9aa830caa48cb332 against the v4 config 9aa830caa48cb332: identical
+GSM8K pilot, 50 problems: v6 config 40 correct, v4 config 40; completions identical 50/50; dump header rows v6
