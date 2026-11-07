@@ -24,7 +24,8 @@ use crate::gpu::{Cuda, FnReport, KernelSource};
 pub const THREADS: u32 = 128;
 
 /// The entry point for a group size and a unit size, or a refusal naming what
-/// exists. Qwen3-4B and 8B have 4 query heads per KV head, 14B has 5.
+/// exists. Qwen3-4B and 8B have 4 query heads per KV head, 14B has 5, the 0.6B
+/// drafter 2 (its entries are in `attn_dec_g2.cu`, compiled only for it).
 pub fn kernel_name(groups: usize, unit: usize) -> Result<&'static str, String> {
     attn_ref::check_unit(unit)?;
     match (groups, unit) {
@@ -32,9 +33,11 @@ pub fn kernel_name(groups: usize, unit: usize) -> Result<&'static str, String> {
         (5, 64) => Ok("attn_dec_g5_u64"),
         (4, 32) => Ok("attn_dec_g4_u32"),
         (5, 32) => Ok("attn_dec_g5_u32"),
+        (2, 64) => Ok("attn_dec_g2_u64"),
+        (2, 32) => Ok("attn_dec_g2_u32"),
         (g, _) => Err(format!(
-            "attention kernel: {g} query heads per KV head; the kernel compiles 4 (Qwen3-4B, 8B) \
-             and 5 (Qwen3-14B)"
+            "attention kernel: {g} query heads per KV head; the kernel compiles 4 (Qwen3-4B, 8B), \
+             5 (Qwen3-14B) and 2 (Qwen3-0.6B)"
         )),
     }
 }
@@ -49,7 +52,14 @@ pub struct AttnModule {
 }
 
 fn source() -> Result<(KernelSource, Option<String>), String> {
-    let set = crate::load_sources_many(&["attn_dec.cu"])?;
+    source_for(4)
+}
+
+/// The module's text for a model of `groups` query heads per KV head:
+/// `attn_dec.cu` alone, the served text, or with `attn_dec_g2.cu` after it at 2.
+fn source_for(groups: usize) -> Result<(KernelSource, Option<String>), String> {
+    let names: &[&str] = if groups == 2 { &["attn_dec.cu", "attn_dec_g2.cu"] } else { &["attn_dec.cu"] };
+    let set = crate::load_sources_many(names)?;
     let parts: Vec<&str> = set.parts.iter().map(String::as_str).collect();
     Ok((KernelSource::new(&parts), set.overridden_from))
 }
@@ -57,7 +67,13 @@ fn source() -> Result<(KernelSource, Option<String>), String> {
 impl AttnModule {
     /// Compile onto an existing stream, candle's in the model.
     pub fn on_stream(stream: Arc<CudaStream>) -> Result<Arc<Self>, String> {
-        let (src, overridden_from) = source()?;
+        Self::on_stream_for(stream, 4)
+    }
+
+    /// [`Self::on_stream`] for a model of `groups` query heads per KV head:
+    /// the 2-group entries appended only at 2 ([`source_for`]).
+    pub fn on_stream_for(stream: Arc<CudaStream>, groups: usize) -> Result<Arc<Self>, String> {
+        let (src, overridden_from) = source_for(groups)?;
         let cuda = Cuda::on_stream(stream, &src)?;
         Ok(Arc::new(Self { cuda, sha256: src.sha256, overridden_from }))
     }

@@ -26,3 +26,9 @@ perplexity 26 [21, 34], MISS above (40.30). Tetra costs the 0.6B a factor two in
 
 What this does not establish: the acceptance rate against the sealed targets, the drafter's speed on the card, the
 card memory it adds. The card gate reads those (proofs/preregistration-spec-gate-2026-11-07.md).
+
+Re-sealed (2026-11-07, later; raw output in draft-0p6b-2026-11-07-brut/v2/). seal now leaves lm_head.weight out when
+tie_word_embeddings is true. qwen3-0p6b-sealed.bin 251,746,661 B, sha256 bf924246 18df3055 c19ced0d 5c866fb4
+e23be880 9d680f47 8fb7c530 365b20f6, 3.099 b/param over 596.0 M parameters (f16 tail, q4
+embedding, rtbits), ppl Metal f16 40.3017, scored tokens 3f1baca9: the first file's weights, without the copy.
+This is the drafter the card gate reads.

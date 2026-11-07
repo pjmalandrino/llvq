@@ -18,3 +18,7 @@ Written on 2026-11-07 after the run, beside the stamped prereg, which is not edi
    acceptance rate the card gate reads.
 4. **Added, not preregistered:** the f16 checkpoint through `ppl` on the same protocol (Metal, f16, 12 x 4,096), to
    place the 40.30.
+5. **Re-sealed without the duplicate head (2026-11-07, later).** The card showed the drafter uploading the duplicate
+   table in f16 (0.31 GB never read). `seal` now leaves `lm_head.weight` out when the model ties its ends. The new
+   file is 251,746,661 B (sha256 `bf924246…`), 3.099 b/param over the 596.0 M parameters, perplexity 40.3017 on the
+   same scored tokens: the same weights, inside the size prediction [0.21, 0.26] GB (*measured*, `-brut/v2/`).

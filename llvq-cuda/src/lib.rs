@@ -212,6 +212,8 @@ pub const ROTATE_WIDE_CU: &str = include_str!("../kernels/rotate_wide.cu");
 /// The split-KV decode-attention kernel: its own translation unit, which
 /// includes nothing and is concatenated with nothing.
 pub const ATTN_DEC_CU: &str = include_str!("../kernels/attn_dec.cu");
+/// The 2-group entries of the attention kernel (the 0.6B drafter), a part of their own.
+pub const ATTN_DEC_G2_CU: &str = include_str!("../kernels/attn_dec_g2.cu");
 pub const E1V_CUH: &str = include_str!("../kernels/llvq_e1v.cuh");
 pub const E1V_CU: &str = include_str!("../kernels/e1v.cu");
 pub const NULLK_CU: &str = include_str!("../kernels/nullk.cu");
@@ -345,6 +347,7 @@ pub fn embedded_source(name: &str) -> Result<&'static str, String> {
         "rotate.cu" => Ok(ROTATE_CU),
         "rotate_wide.cu" => Ok(ROTATE_WIDE_CU),
         "attn_dec.cu" => Ok(ATTN_DEC_CU),
+        "attn_dec_g2.cu" => Ok(ATTN_DEC_G2_CU),
         other => Err(format!("no embedded copy of {other}")),
     }
 }

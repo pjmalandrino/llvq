@@ -95,6 +95,14 @@ fn main() -> anyhow::Result<()> {
             if quantized.contains(name.as_str()) {
                 continue;
             }
+            // A checkpoint that ties its two ends may still ship the head as
+            // its own tensor (Qwen3-0.6B does). The loader reads the embedding
+            // for both under `tie_word_embeddings` and never this copy, which
+            // a sealed file would carry for nothing: 311 MB at f16 for the 0.6B.
+            if ck.config.tie_word_embeddings && name == llvq_llm::fused::HEAD_NAME {
+                eprintln!("  not carrying {name}: tie_word_embeddings is true, the embedding is the head");
+                continue;
+            }
             let dims = t.dims().to_vec();
             let data: Vec<u16> = t
                 .to_dtype(DType::F16)?
