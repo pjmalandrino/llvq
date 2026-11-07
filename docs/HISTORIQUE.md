@@ -1102,3 +1102,12 @@ Tetra row loop reached the ×1.15 bar; the best, a 128-bit tile layout, read ×1
 300 at the bit is out on every bound the plan anchors. The int4 tile layout read ×1.338 over 4E's int4 row and is a
 lever; no counter beat the grid barrier by 0.3 µs ([step1-micro](mesures/step1-micro-2026-11-07.txt)). 4E v7 (K2) and
 v8 (K3a) are coded and bit-exact on the host, not run.
+
+## 2026-11-07. plan-300's step 2: v8 runs, v7 does not load
+
+Step 2 ran the same day on the operator's go (job 6aef3f69, $0.22). v8, v7's staged constants plus a three-stage
+cp.async ring in attention, kept the eager tokens and read ×1.076 over v6 at 5 prompt tokens and ×1.025 at 8,192,
+227.9 against 211.8 tok/s in the measurement form. v7 alone did not install at 512 threads under the card's ptxas.
+K2's gate, read on v8, held: the down input fell from 255 to 150 µs. K3a's gate failed: attention's slowest CTA over
+mean reads 4.40, and the job spread is what remains. v8 stays a measurement
+([step2-4e](mesures/step2-4e-2026-11-07.txt)).

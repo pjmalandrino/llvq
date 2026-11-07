@@ -206,7 +206,8 @@ pub fn install_rows(model: &Qwen3, device: &Device, max_tokens: u32, threads: Op
             break;
         }
     }
-    let (f, threads) = chosen.ok_or_else(|| anyhow::anyhow!("4E: every block size asked for spills or fails its occupancy"))?;
+    // The refusal names what each block size read (step2-4e did not print it).
+    let (f, threads) = chosen.ok_or_else(|| anyhow::anyhow!("4E: every block size asked for spills or fails its occupancy: {}", lines.join("; ")))?;
     // The stamp symbol of the chosen geometry, kept where one CTA a SM fits.
     // It may hold local memory where the token symbol does not (768 threads
     // under the devel ptxas): its launch runs outside the timed rounds, and

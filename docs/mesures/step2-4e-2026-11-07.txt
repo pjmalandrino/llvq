@@ -1,0 +1,94 @@
+plan-300 step 2, 2026-11-07: 4E v7 (K2) and v8 (v7 plus K3a's latency half) against v6, on the sealed 4B.
+
+Result: v8 keeps the eager tokens at 5 and 8,192 prompt tokens and reads x1.076 over v6 at 5 [1.076-1.077] and
+x1.025 at 8,192 [1.024-1.026], 227.9 against 211.8 tok/s and 155.6 against 151.9 (*measured*, measurement form at 5,
+served config at 8,192). v7 did not run: its module at 512 threads spills or fails its occupancy under the card's
+ptxas, and install_rows refused it. v8 carries all of v7's staging, so K2's gate is read on v8, a departure
+written beside the prereg. The down input falls to 150.2 us, under the gate of 200: K2 holds. Attention's slowest
+over mean CTA work reads 4.40, above 1.5: K3a's gate fails. Its wall fell 79 us and its mean work halved, so the
+ring worked, and what is left is the job spread, K3a's other half. At 8,192 the ring costs attention 141 us.
+
+Job      : 6aef3f69e6320c66fad5d7e9, l40sx1 (NVIDIA L40S, sm_89, 2520 MHz, driver 580.178.04), 7 min billed, $0.22
+           (*computed* at $1.80/h). fusedrun ran 15:11:51 to 15:18:02 UTC.
+Image    : Space sha 8aff432057c1b2a7749a1f8b02d7dc293b57595a, built from commit d1e64c4 of
+           claude/route-300-toks-de97fe (perimeter clean).
+Prereg   : proofs/preregistration-step2-4e-2026-11-07.md (sha256 5acfa2ff...), OpenTimestamps stamped and committed
+           (d1e64c4) before the image was built. Departure: preregistration-step2-4e-2026-11-07-ECARTS.md.
+Raw      : step2-4e-2026-11-07-brut/ (pers-4e.txt, oracle.txt, gpu.txt, files.sha256, job-log.txt).
+
+Gates (§4, *measured*): oracle MATCH on Qwen3-0.6B; sealed file 886391a8; event tracking off; RoPE form equal to
+candle's; v4 and v6 equal the eager tokens at 5 and 8,192 (64 of 64); no LLVQ_* in the job env. All hold.
+Gate 6, per form: v8 equals the eager tokens at both contexts (64 of 64). v7 voided: "4E v7 at 512 threads: not run:
+4E: every block size asked for spills or fails its occupancy". The line naming registers and local bytes is built
+before that check and was not printed. v8, a superset of v7 with 20 KB more shared memory, loads at 1 resident a SM,
+so v7 most likely spills (*inferred*, not established).
+
+Modules under the driver's ptxas, pers_4e_tokens_f1_t512 / stamp symbol:
+  v4   126 registers, 0 B local, 57,984 B shared / 126, 0 B
+  v6   128 registers, 0 B local, 62,080 B shared / 128, 0 B
+  v7   not loaded
+  v8   128 registers, 0 B local, 85,952 B shared / 128, 48 B local
+  v8's stamp symbol spills 48 B: its stamped token costs 214 us over the timed one, against 14 for v6. The timed
+  rates do not run the stamp symbol.
+
+Rates, 64 tokens, same process, 2 + 5 interleaved rounds, medians [range], ratios round by round:
+
+  context   eager    v4               v6               v8               v8 / v6
+  5         134.1    189.3 (x1.411)   211.8 (x1.579)   227.9 (x1.699)   x1.076 [1.076-1.077]
+  8192      104.5    138.5 (x1.326)   151.9 (x1.454)   155.6 (x1.491)   x1.025 [1.024-1.026]
+  v6 / v4: x1.119 at 5, x1.097 at 8,192 (pers-4e-v6: x1.118, x1.094). v8 / v4: x1.204, x1.124.
+  Timed token at 5: v6 4,720.8 us, v8 4,387.2 us (-334).
+
+Phase stamps at 5 tokens, us a token, v6 -> v8 (mean CTA work unless named):
+  MLP down input        254.8 -> 150.2   (-105)   K2 gate: under 200
+  q/k/v ln1+rotation    319.9 -> 227.0   (-93)
+  MLP ln2+rotation      158.3 -> 135.5   (-23)
+  attention wall        634.2 -> 555.0   (-79)
+  attention slowest     611.3 -> 549.9
+  attention mean        237.3 -> 124.9   (-112)   slowest over mean 2.58 -> 4.40   K3a gate: above 1.5
+  o wall                474.4 -> 438.7
+  q/k/v rows            411.6 -> 439.3   (+28)
+  MLP gate/up rows     1212.3 -> 1306.2  (+94)
+  MLP down rows         452.7 -> 504.3   (+52)
+  MLP inner wait wall   349.6 -> 403.3
+  head                  359.9 -> 366.9
+
+At 8,192, v6 -> v8: down input 256.0 -> 153.0, ln1 325.4 -> 237.3, ln2 166.1 -> 142.2; attention wall 2,532.0 ->
+2,672.9 (+141), mean 1,851.2 -> 1,891.6; gate/up rows 1,177.6 -> 1,204.3, down rows 459.0 -> 513.4.
+
+Decision rules (§7).
+- K2: read on v8 (departure). Down input 150.2 us, at most 200: the lever holds. The staged constants took 105 us
+  from the down input, 93 from ln1 and 23 from ln2.
+- K3a: slowest over mean 4.40, at or above 1.5, wall down 79 us (more than 50): the latency half worked, and the
+  imbalance left is the job spread over CTAs, which v8 does not contain.
+- A, identity: v4, v6 and v8 hold at both contexts. v7 voided by its install, not by a divergence.
+- B, serving: v8 over v6 has its whole range above x1.00 at both contexts, but K3a, v8's own gate, failed. By the
+  prereg's rule v8 stays a measurement and is not proposed. v7 has no reading. Any door reading of v8 (a config whose
+  rows name it, `served.rs` refuses it today) is the operator's call against this rule, as with v6.
+- C, the route: step 3 is not chained. Its high bound is re-estimated below.
+- G, misses against §6:
+  - v7 and v8 load without local memory: v7 not loaded, MISS; v8's token symbol 0 B, its stamp symbol 48 B;
+  - attention slowest over mean on v8, 4.40 against 2.3 [1.6, 2.8]: MISS, above;
+  - attention wall on v8 at 8,192, 2,672.9 against 2,380 [1,900, 2,600]: MISS, above;
+  - every v7 row: void.
+  Inside: identity of v4, v6, v8; v4 at 5 (189.3 in [186, 194]); v6 at 5 (211.8 in [208, 217]); down input 150.2 in
+  [60, 220]; ln1 227.0 in [120, 320]; ln2 135.5 in [90, 165]; attention wall at 5, 555.0 in [300, 660]; v8 at 5,
+  227.9 in [215, 250]; v8 / v6 at 5, x1.076 in [1.00, 1.16]; v8 at 8,192, 155.6 in [150, 175]; v8 / v6 at 8,192,
+  x1.025 in [0.98, 1.14].
+
+Reading.
+- The ring halves attention's mean work at 5 tokens but not its slowest CTA, so the wall falls by 79 us only. The
+  slowest CTA runs 8 jobs; spreading them is the remaining half of K3a.
+- At 8,192 the ring costs attention 141 us of wall: three 16 KB stages a CTA where the rows are already long. A form
+  with v7's staging and no ring would keep v8's 0.33 ms of prologue gain at 8,192.
+- v8's rows run slower: gate/up +94, down +52, q/k/v +28 us at 5 tokens. A larger shared carve-out leaves less L1;
+  that cause is a candidate, not established. The rows gave back about 175 us; the timed token still fell 334.
+- v8's door, if served, would read about 211 tok/s (*estimated*: v6's door over its measurement form, 197.2 / 212.6,
+  times 227.9).
+
+Step 3's high bound from here (*estimated*): v8 at 227.9 in the measurement form. Recovering the rows' 175 us and the
+job spread (attention wall to its 130 us floor) would give about 0.60 ms: 264 tok/s in the measurement form, about
+245 at the door. K3b, K5 and K11 come on top.
+
+Not established: v7's reading; the cause of v7's install refusal; v8 at the served door; v8 on any task; the cause of
+v8's slower rows; the 8B and the 14B; any card but the L40S.

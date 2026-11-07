@@ -7,7 +7,8 @@ to 296 if the int4 tile layout keeps inside 4E the ×1.338 it read alone (*estim
 quality inside the T8 band, gives 289 to 301. 300 then holds only on the proportional door conversion, with every
 lead at its full arithmetic, where 4E's versions delivered 41 %. The low bound stays 229 tok/s at the bit
 (*estimated*). At 8,192 positions only an int4 KV cache reaches 300, on its high bound, and it moves quality, GB in
-memory and the model class.
+memory and the model class. Step 2 measured v8 at 227.9 tok/s in the measurement form, ×1.076 over v6, bit for bit
+(*measured*, [step2-4e](mesures/step2-4e-2026-11-07.txt)).
 
 State as of 2026-11-07. This is a study at $0: no run, no job, no measurement. It starts from 4E v6 served, which the
 session `serve-4e-v6` is putting in place. Its base is [`plan-debit-noyau.md`](plan-debit-noyau.md) (K1 to K10, M1 to
@@ -204,8 +205,17 @@ LLVQ_PERS_4E` now times v4, v6, v7 and v8 in one process (`pers::P4E_BENCH_FORMS
   geometries, the token loop; 7 mutants killed on the ring's indexing and reader barrier. The host's `cp.async` copies
   at once, so the waits are only held by the card's identity gate.
 
-Step 2's gates stand as in the table: down input under 200 µs and attention's slowest over mean under 1.5 at 5
-positions on the stamps, the eager tokens at 5 and 8,192. Its job is not written yet.
+**Step 2, run on the operator's go of 2026-11-07.** Job 6aef3f69, 7 min, $0.22 (*computed*), prereg stamped before
+([step2-4e](mesures/step2-4e-2026-11-07.txt)). *Measured*:
+- v8 keeps the eager tokens at both contexts: 227.9 tok/s against v6's 211.8 at 5 positions (×1.076 round by round),
+  155.6 against 151.9 at 8,192 (×1.025).
+- v7 did not install: at 512 threads its module spills or fails its occupancy under the card's ptxas. K2's gate is
+  read on v8, which holds all of v7's staging (departure E1 beside the prereg).
+- K2 holds. Down input 254.8 to 150.2 µs, ln1 319.9 to 227.0, ln2 158.3 to 135.5.
+- K3a fails its gate. Attention's slowest over mean reads 4.40. The ring halved the mean work (237 to 125 µs) and took
+  79 µs off the wall; the job spread is what remains. At 8,192 the ring costs attention 141 µs.
+- v8's rows run 175 µs slower at 5 positions (gate/up +94, down +52, q/k/v +28); the cause is not established.
+- By the prereg's rule v8 stays a measurement. Step 3 is not chained.
 
 ## 7. At 8,192 positions
 
