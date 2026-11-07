@@ -1,0 +1,891 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light">
+<title>Tetra</title>
+<style>
+/* Light, plain grey, one blue, glass on the composer and the menu. System
+   fonts only: nothing is fetched. */
+:root {
+  color-scheme: light;
+  --ink: #1d1d1f; --muted: #6e6e73; --icon: #8e8e93; --faint: #a1a1a6; --line: rgba(0, 0, 0, 0.08);
+  --accent: #0071e3; --ok: #34c759; --warn: #ff9500; --bad: #c41e3a; --bg: #f5f5f7;
+  --glass: rgba(255, 255, 255, 0.64); --edge: rgba(255, 255, 255, 0.8);
+  --shadow: 0 1px 0 rgba(255, 255, 255, 0.9) inset, 0 10px 30px rgba(15, 23, 42, 0.08), 0 1px 3px rgba(15, 23, 42, 0.06);
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--ink); font: 16px/1.65 var(--font); -webkit-font-smoothing: antialiased; overflow: hidden; }
+button, textarea { font: inherit; color: inherit; }
+button { background: none; border: 0; padding: 0; cursor: pointer; }
+button:disabled { cursor: default; }
+:focus-visible { outline: 2px solid rgba(0, 113, 227, 0.55); outline-offset: 2px; border-radius: 6px; }
+[hidden] { display: none !important; }
+.glass {
+  background: var(--glass); border: 1px solid var(--edge); box-shadow: var(--shadow);
+  -webkit-backdrop-filter: blur(24px) saturate(170%); backdrop-filter: blur(24px) saturate(170%);
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) { .glass { background: rgba(255, 255, 255, 0.94); } }
+.ico { display: inline-flex; color: var(--icon); transition: color 0.12s; }
+.ico:hover { color: var(--ink); }
+.ico svg { width: 17px; height: 17px; }
+.ico.done { color: var(--ok); }
+
+/* Top: the model on the left, a new chat on the right, over a fade. */
+header {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 3; height: 56px; display: flex; align-items: center;
+  justify-content: space-between; padding: 0 18px; background: linear-gradient(var(--bg) 55%, rgba(245, 245, 247, 0));
+}
+.picker { display: inline-flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; padding: 6px 10px; border-radius: 10px; }
+.picker:hover:not(:disabled) { background: rgba(0, 0, 0, 0.04); }
+.picker .dot { width: 7px; height: 7px; border-radius: 50%; background: #c7c7cc; }
+.picker .dot.ready { background: var(--ok); }
+.picker .dot.loading { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: 0.3; } }
+.picker .chev { width: 6px; height: 6px; border-right: 1.6px solid var(--muted); border-bottom: 1.6px solid var(--muted); transform: rotate(45deg); margin: -4px 0 0 2px; }
+.picker.none { color: var(--muted); font-weight: 500; }
+
+.menu { position: fixed; top: 52px; left: 18px; z-index: 4; width: 330px; max-width: calc(100vw - 36px); border-radius: 14px; padding: 6px; font-size: 14px; }
+.menu .row { display: grid; grid-template-columns: 18px 1fr auto; align-items: center; gap: 8px; padding: 9px 10px; border-radius: 9px; width: 100%; text-align: left; }
+.menu .row:hover:not(:disabled) { background: rgba(0, 0, 0, 0.045); }
+.menu .row small { display: block; font-size: 12px; color: var(--muted); }
+.menu .row .r { font-size: 12px; color: var(--faint); }
+.menu .row .get { font-size: 13px; color: var(--accent); font-weight: 500; }
+.menu .check { color: var(--accent); font-size: 13px; }
+.menu hr { border: 0; border-top: 1px solid var(--line); margin: 5px 8px; }
+.menu .title { font-size: 12px; color: var(--muted); padding: 6px 10px 2px; }
+.prog { grid-column: 1 / -1; height: 3px; background: rgba(0, 0, 0, 0.07); border-radius: 2px; overflow: hidden; }
+.prog i { display: block; height: 3px; width: 0; background: var(--accent); transition: width 0.2s; }
+
+main { position: absolute; inset: 0; overflow-y: auto; padding: 64px 0 190px; }
+.col { max-width: 720px; margin: 0 auto; padding: 0 24px; }
+
+/* Turns: a question and its answer read as a pair. */
+.turn { margin: 0 0 36px; }
+.turn.user { display: flex; flex-direction: column; align-items: flex-end; margin-bottom: 14px; }
+.turn.user .text { background: rgba(255, 255, 255, 0.85); padding: 9px 15px; border-radius: 14px; max-width: 75%; white-space: pre-wrap; overflow-wrap: anywhere; }
+.uacts { display: flex; gap: 14px; margin-top: 6px; opacity: 0; transition: opacity 0.15s; }
+.turn.user:hover .uacts, .turn.user:focus-within .uacts { opacity: 1; }
+.turn.assistant .text { overflow-wrap: anywhere; }
+
+.text p { margin: 0 0 0.7em; }
+.text > :last-child { margin-bottom: 0; }
+.text h1, .text h2, .text h3 { font-weight: 600; line-height: 1.3; margin: 1.2em 0 0.45em; letter-spacing: -0.01em; }
+.text h1 { font-size: 1.25em; } .text h2 { font-size: 1.12em; } .text h3 { font-size: 1.03em; }
+.text > h1:first-child, .text > h2:first-child, .text > h3:first-child { margin-top: 0; }
+.text ul, .text ol { margin: 0 0 0.7em; padding-left: 1.3em; }
+.text li { margin: 0.25em 0; }
+.text li::marker { color: var(--faint); }
+.text strong { font-weight: 600; }
+.text a { color: var(--accent); text-decoration: none; }
+.text a:hover { text-decoration: underline; }
+.text blockquote { margin: 0 0 0.7em; padding: 1px 0 1px 14px; border-left: 2px solid rgba(0, 0, 0, 0.12); color: var(--muted); }
+.text hr { border: 0; border-top: 1px solid var(--line); margin: 1em 0; }
+.text .tablewrap { overflow-x: auto; margin: 0 0 0.9em; }
+.text table { border-collapse: collapse; width: 100%; font-size: 0.92em; }
+.text th, .text td { text-align: left; padding: 8px 14px 8px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+.text th { font-weight: 600; }
+.text code { font: 0.86em var(--mono); background: rgba(0, 0, 0, 0.05); padding: 1px 5px; border-radius: 5px; }
+.code { margin: 0 0 0.9em; border-radius: 12px; background: #fff; border: 1px solid var(--line); overflow: hidden; }
+.code .head { display: flex; align-items: center; justify-content: space-between; padding: 6px 12px 6px 14px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--line); }
+.code .head .ico svg { width: 15px; height: 15px; }
+.code pre { margin: 0; padding: 13px 14px; font: 13.5px/1.6 var(--mono); overflow-x: auto; }
+.code pre code { background: none; padding: 0; font-size: inherit; }
+
+/* Reasoning: a shimmering label and the latest line while it runs, one line once done. */
+.thinking { margin: 0 0 12px; font-size: 14px; color: var(--muted); }
+.thinking .label { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 14px; }
+.thinking .label::after { content: ""; width: 5px; height: 5px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(-45deg); transition: transform 0.15s; }
+.thinking.open .label::after { transform: rotate(45deg); margin-top: -3px; }
+.thinking .label:hover { color: var(--ink); }
+.thinking.live .label span {
+  background: linear-gradient(90deg, var(--muted) 0 40%, #d1d1d6 50%, var(--muted) 60% 100%); background-size: 250% 100%;
+  -webkit-background-clip: text; background-clip: text; color: transparent; animation: shimmer 1.8s linear infinite;
+}
+@keyframes shimmer { from { background-position: 100% 0; } to { background-position: -150% 0; } }
+.thinking .peek { margin-top: 4px; font-size: 13.5px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.thinking .full { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 8px; padding: 10px 14px; border-radius: 10px; background: rgba(255, 255, 255, 0.6); border: 1px solid var(--line); max-height: 320px; overflow-y: auto; font-size: 13.5px; line-height: 1.55; }
+
+.loading { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--muted); }
+.spin { width: 14px; height: 14px; border-radius: 50%; border: 1.6px solid #d1d1d6; border-top-color: var(--muted); animation: spin 0.9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.actions { display: flex; align-items: center; gap: 16px; margin-top: 10px; opacity: 0; transition: opacity 0.15s; }
+.turn.assistant:hover .actions, .turn.assistant:focus-within .actions, .turn.assistant.last .actions { opacity: 1; }
+.actions .meta { font-size: 12px; color: var(--faint); cursor: default; }
+.notice { display: flex; align-items: center; gap: 6px; margin-top: 10px; font-size: 13px; color: var(--muted); }
+.notice button { color: var(--accent); font-size: 13px; }
+.errbox { border-left: 2px solid #ff3b30; padding: 2px 0 2px 12px; font-size: 14px; color: #3a3a3c; }
+.errbox b { color: var(--bad); font-weight: 600; }
+
+.down { position: fixed; bottom: 112px; left: 50%; transform: translateX(-50%); z-index: 3; color: var(--muted); display: flex; }
+.down svg { width: 20px; height: 20px; }
+.down:hover { color: var(--ink); }
+
+/* The composer: one row, the text and then the icons. */
+footer {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 3; padding: 0 18px calc(14px + env(safe-area-inset-bottom));
+  background: linear-gradient(rgba(245, 245, 247, 0), var(--bg) 40%);
+}
+.composer { max-width: 720px; margin: 0 auto; display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; padding: 10px 10px 10px 18px; border-radius: 18px; }
+.composer:focus-within { border-color: rgba(0, 113, 227, 0.35); box-shadow: var(--shadow), 0 0 0 3px rgba(0, 113, 227, 0.12); }
+.composer .editing { width: 100%; font-size: 12.5px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+.composer .editing button { color: var(--accent); font-size: 12.5px; }
+.composer textarea { flex: 1; resize: none; border: 0; outline: none; background: transparent; padding: 5px 0; min-height: 26px; max-height: 40vh; line-height: 1.5; }
+.composer textarea::placeholder { color: var(--faint); }
+.tools { display: flex; align-items: center; gap: 12px; padding-bottom: 1px; }
+#think { color: var(--icon); display: inline-flex; }
+#think svg { width: 19px; height: 19px; }
+#think:hover { color: var(--ink); }
+#think.on { color: var(--accent); }
+.gauge { display: inline-flex; }
+.ring { width: 15px; height: 15px; border-radius: 50%; -webkit-mask: radial-gradient(circle, transparent 5px, #000 5.5px); mask: radial-gradient(circle, transparent 5px, #000 5.5px); }
+#send { width: 30px; height: 30px; flex: none; border-radius: 50%; background: var(--ink); color: #fff; display: flex; align-items: center; justify-content: center; }
+#send svg { width: 15px; height: 15px; }
+#send:disabled { background: #d1d1d6; }
+.note { max-width: 720px; margin: 8px auto 0; text-align: center; font-size: 11.5px; color: var(--faint); }
+
+/* Empty: greeting and composer in the middle. */
+.center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0 18px 8vh; }
+.center h1 { font-size: 27px; font-weight: 600; letter-spacing: -0.02em; margin: 0 0 22px; text-align: center; }
+.center #centerSlot { width: 100%; max-width: 720px; }
+.center .facts { margin-top: 14px; font-size: 12.5px; color: var(--faint); text-align: center; }
+.lib { width: 100%; max-width: 520px; border-radius: 16px; padding: 6px; }
+.lib .row { display: grid; grid-template-columns: 1fr auto auto 74px; gap: 16px; align-items: center; padding: 11px 12px; border-radius: 10px; font-size: 14px; width: 100%; text-align: left; }
+.lib .row:hover:not(:disabled) { background: rgba(0, 0, 0, 0.035); }
+.lib .row span { color: var(--muted); font-size: 13px; }
+.lib .row .act { color: var(--accent); text-align: right; font-weight: 500; }
+#pullstatus { margin-top: 10px; font-size: 12.5px; color: var(--muted); text-align: center; max-width: 520px; overflow-wrap: anywhere; }
+
+@media (max-width: 560px) {
+  header { padding: 0 10px; } footer { padding: 0 10px calc(12px + env(safe-area-inset-bottom)); }
+  .col { padding: 0 16px; } .turn.user .text { max-width: 85%; }
+  .lib .row { grid-template-columns: 1fr auto 64px; } .lib .row span:nth-child(3) { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<header>
+  <button id="picker" class="picker" type="button" aria-haspopup="menu" aria-expanded="false"></button>
+  <button id="new" class="ico" type="button" title="New chat" aria-label="New chat"></button>
+</header>
+<div id="menu" class="menu glass" role="menu" hidden></div>
+
+<div id="welcome" class="center" hidden>
+  <h1 id="welcomeTitle"></h1>
+  <div id="centerSlot"></div>
+  <div id="lib" class="lib glass" hidden></div>
+  <div id="pullstatus"></div>
+  <div id="facts" class="facts"></div>
+</div>
+
+<main id="main" hidden><div class="col"><div id="log" aria-live="polite"></div></div></main>
+<button id="down" class="down" type="button" title="Back to the end" aria-label="Back to the end" hidden></button>
+
+<footer id="footer" hidden><div id="footerSlot"></div><div class="note">Runs on this machine. Answers can be wrong.</div></footer>
+
+<form id="form" class="composer glass">
+  <div id="editing" class="editing" hidden>Editing: the rest of the conversation will be replaced. <button type="button" id="cancelEdit">Cancel</button></div>
+  <textarea id="input" rows="1" placeholder="Ask anything" aria-label="Message"></textarea>
+  <div class="tools">
+    <span id="gauge" class="gauge" hidden><span class="ring"></span></span>
+    <button id="think" type="button" aria-pressed="true"></button>
+    <button id="send" type="submit" disabled></button>
+  </div>
+</form>
+
+<script id="library" type="application/json">__LLVQ_LIBRARY__</script>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const library = JSON.parse($("library").textContent);
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+  del(k) { try { localStorage.removeItem(k); } catch {} },
+};
+
+const ICON = {
+  copy: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5V3.5A1.5 1.5 0 0 0 9 2H3.5A1.5 1.5 0 0 0 2 3.5V9a1.5 1.5 0 0 0 1.5 1.5h2"/></svg>',
+  check: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5 6.5 12 13 4.5"/></svg>',
+  regen: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9"/><path d="M13.5 2.5v3h-3"/></svg>',
+  edit: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10.8 2.7 13.3 5.2 5.5 13H3v-2.5Z"/></svg>',
+  down: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v10M3.5 8.5 8 13l4.5-4.5"/></svg>',
+  up: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5"/></svg>',
+  stop: '<svg viewBox="0 0 16 16" fill="currentColor"><rect x="4.5" y="4.5" width="7" height="7" rx="1.2"/></svg>',
+  new: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 8.5v4a1.5 1.5 0 0 1-1.5 1.5H3.5A1.5 1.5 0 0 1 2 12.5V4a1.5 1.5 0 0 1 1.5-1.5h4"/><path d="M11.5 2.2 13.8 4.5 8 10.3H5.7V8Z"/></svg>',
+  bulb: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 12.5h4M6.5 14.5h3M8 1.5a4.5 4.5 0 0 0-2.6 8.2c.4.3.6.7.6 1.1v.2h4v-.2c0-.4.2-.8.6-1.1A4.5 4.5 0 0 0 8 1.5Z"/></svg>',
+};
+
+// ---------------------------------------------------------------- state
+
+let models = [];          // /api/tags
+let loaded = new Map();   // name -> context_length, from /api/ps
+let model = "";           // the model of this conversation
+let turns = [];           // {role, content, thinking?, secs?, finish?, stats?, error?}
+let controller = null;    // the answer being streamed
+let editing = -1;         // index of the user turn being edited
+let think = store.get("llvq.think") !== "0";
+let follow = true;        // keep the end in view while an answer streams
+
+const SAVE = "tetra.chat";
+function save() {
+  if (turns.length) store.set(SAVE, JSON.stringify({ model, turns }));
+  else store.del(SAVE);
+}
+
+// The messages /api/chat takes. A stopped or failed answer is left out: the
+// next turn is asked as if it had not been written.
+function history(upto = turns.length) {
+  return turns.slice(0, upto)
+    .filter((t) => t.role === "user" || t.finish === "stop" || t.finish === "length")
+    .map((t) => ({ role: t.role, content: t.content }));
+}
+
+// ------------------------------------------------------------- helpers
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+}
+function human(bytes) {
+  return bytes >= 1e9 ? (bytes / 1e9).toFixed(2) + " GB" : (bytes / 1e6).toFixed(0) + " MB";
+}
+function bitsOf(m) {
+  const q = (m.details && m.details.quantization_level) || "";
+  const n = parseFloat(q.replace(/[^0-9.]/g, ""));
+  return isFinite(n) ? n.toFixed(2) + " b/param" : "";
+}
+function current() { return models.find((m) => m.name === model); }
+
+// Markdown: headings, lists, tables, quotes, rules, fenced code, inline code,
+// bold, italics and links. A fence still open while streaming is shown as code.
+function inline(t) {
+  const codes = [];
+  t = t.replace(/`([^`]+)`/g, (_, c) => { codes.push(c); return "\u0000" + (codes.length - 1) + "\u0000"; });
+  t = escapeHtml(t)
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|[^*\w])\*([^*\s][^*]*)\*/g, "$1<em>$2</em>")
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  return t.replace(/\u0000(\d+)\u0000/g, (_, i) => "<code>" + escapeHtml(codes[+i]) + "</code>");
+}
+function markdown(src) {
+  const lines = src.split("\n");
+  let html = "", i = 0;
+  const isTableSep = (l) => /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(l);
+  const cells = (l) => l.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
+  const starts = (l) => /^\s*```/.test(l) || /^#{1,6}\s/.test(l) || /^\s*>/.test(l) || /^\s*[-*+] /.test(l) || /^\s*\d+[.)] /.test(l);
+  while (i < lines.length) {
+    const l = lines[i];
+    const fence = l.match(/^\s*```\s*([\w+-]*)/);
+    if (fence) {
+      const body = [];
+      i++;
+      while (i < lines.length && !/^\s*```/.test(lines[i])) body.push(lines[i++]);
+      i++;
+      html += '<div class="code"><div class="head"><span>' + escapeHtml(fence[1] || "code") +
+        '</span><button class="ico" type="button" data-copy aria-label="Copy code" title="Copy">' + ICON.copy +
+        "</button></div><pre><code>" + escapeHtml(body.join("\n")) + "</code></pre></div>";
+      continue;
+    }
+    if (!l.trim()) { i++; continue; }
+    const h = l.match(/^(#{1,6})\s+(.*)$/);
+    if (h) { const n = Math.min(h[1].length, 3); html += `<h${n}>${inline(h[2])}</h${n}>`; i++; continue; }
+    if (/^\s*(-\s*){3,}$|^\s*(\*\s*){3,}$|^\s*(_\s*){3,}$/.test(l)) { html += "<hr>"; i++; continue; }
+    if (l.includes("|") && i + 1 < lines.length && isTableSep(lines[i + 1])) {
+      const head = cells(l);
+      i += 2;
+      let rows = "";
+      while (i < lines.length && lines[i].includes("|") && lines[i].trim()) {
+        rows += "<tr>" + cells(lines[i]).map((c) => "<td>" + inline(c) + "</td>").join("") + "</tr>";
+        i++;
+      }
+      html += '<div class="tablewrap"><table><tr>' + head.map((c) => "<th>" + inline(c) + "</th>").join("") + "</tr>" + rows + "</table></div>";
+      continue;
+    }
+    if (/^\s*>/.test(l)) {
+      const q = [];
+      while (i < lines.length && /^\s*>/.test(lines[i])) q.push(lines[i++].replace(/^\s*>\s?/, ""));
+      html += "<blockquote>" + q.map(inline).join("<br>") + "</blockquote>";
+      continue;
+    }
+    if (/^\s*[-*+] /.test(l) || /^\s*\d+[.)] /.test(l)) {
+      const ordered = /^\s*\d+[.)] /.test(l);
+      const re = ordered ? /^\s*\d+[.)] / : /^\s*[-*+] /;
+      const items = [];
+      while (i < lines.length && re.test(lines[i])) items.push(lines[i++].replace(re, ""));
+      const tag = ordered ? "ol" : "ul";
+      html += `<${tag}>` + items.map((t) => "<li>" + inline(t) + "</li>").join("") + `</${tag}>`;
+      continue;
+    }
+    const para = [lines[i++]];
+    while (i < lines.length && lines[i].trim() && !starts(lines[i])) para.push(lines[i++]);
+    html += "<p>" + para.map(inline).join("<br>") + "</p>";
+  }
+  return html;
+}
+
+async function copyText(text, button) {
+  try { await navigator.clipboard.writeText(text); } catch { return; }
+  const was = button.innerHTML;
+  button.innerHTML = ICON.check;
+  button.classList.add("done");
+  setTimeout(() => { button.innerHTML = was; button.classList.remove("done"); }, 1200);
+}
+function wireCode(el) {
+  for (const b of el.querySelectorAll("[data-copy]")) {
+    b.onclick = () => copyText(b.closest(".code").querySelector("pre").textContent, b);
+  }
+}
+
+// --------------------------------------------------------------- scroll
+
+function nearEnd() { const m = $("main"); return m.scrollHeight - m.scrollTop - m.clientHeight < 80; }
+function toEnd() { const m = $("main"); m.scrollTop = m.scrollHeight; }
+$("main").addEventListener("scroll", () => {
+  follow = nearEnd();
+  $("down").hidden = follow;
+});
+$("down").onclick = () => { follow = true; toEnd(); $("down").hidden = true; };
+// Change the page without moving what the reader is looking at.
+function keepPlace(change) {
+  if (follow) { change(); toEnd(); return; }
+  const m = $("main"), before = m.scrollHeight;
+  change();
+  m.scrollTop += m.scrollHeight - before;
+}
+
+// ------------------------------------------------------------ rendering
+
+function iconButton(icon, label, onclick) {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "ico";
+  b.title = label;
+  b.setAttribute("aria-label", label);
+  b.innerHTML = ICON[icon];
+  b.onclick = onclick;
+  return b;
+}
+
+function renderUser(t, index) {
+  const el = document.createElement("div");
+  el.className = "turn user";
+  const body = document.createElement("div");
+  body.className = "text";
+  body.textContent = t.content;
+  const acts = document.createElement("div");
+  acts.className = "uacts";
+  const copy = iconButton("copy", "Copy", () => copyText(t.content, copy));
+  acts.append(copy, iconButton("edit", "Edit", () => startEdit(index)));
+  el.append(body, acts);
+  return el;
+}
+
+// The reasoning block: live (label shimmering, latest line), or folded.
+function thinkingBlock(t, live) {
+  const box = document.createElement("div");
+  box.className = "thinking" + (live ? " live" : "");
+  const label = document.createElement("button");
+  label.type = "button";
+  label.className = "label";
+  const span = document.createElement("span");
+  span.textContent = live ? "Thinking" : "Thought for " + (t.secs || 1) + " s";
+  label.append(span);
+  const peek = document.createElement("div");
+  peek.className = "peek";
+  peek.hidden = !live;
+  const full = document.createElement("div");
+  full.className = "full";
+  full.hidden = true;
+  label.onclick = () => keepPlace(() => {
+    const open = full.hidden;
+    full.hidden = !open;
+    full.textContent = t.thinking || "";
+    peek.hidden = open || !box.classList.contains("live");
+    box.classList.toggle("open", open);
+  });
+  box.append(label, peek, full);
+  box.update = (text) => {
+    peek.textContent = text.trim().split("\n").filter((s) => s.trim()).pop() || "";
+    if (!full.hidden) { full.textContent = text; full.scrollTop = full.scrollHeight; }
+  };
+  box.fold = (secs) => {
+    box.classList.remove("live");
+    span.textContent = "Thought for " + secs + " s";
+    peek.hidden = true;
+  };
+  return box;
+}
+
+function speed(stats) {
+  if (!stats || !stats.eval_count) return null;
+  const rate = stats.eval_count / Math.max(stats.eval_duration / 1e9, 1e-9);
+  const s = document.createElement("span");
+  s.className = "meta";
+  s.textContent = Math.round(rate) + " tok/s";
+  s.title = stats.eval_count + " tokens, " + rate.toFixed(1) + " tok/s; " + stats.prompt_eval_cached_count + " of " +
+    stats.prompt_eval_count + " prompt tokens from the cache. The page's own rate, not a measurement.";
+  return s;
+}
+
+function notice(text, action, onclick) {
+  const n = document.createElement("div");
+  n.className = "notice";
+  if (text) n.append(document.createTextNode(text + " ·"));
+  const b = document.createElement("button");
+  b.type = "button";
+  b.textContent = action;
+  b.onclick = onclick;
+  n.append(b);
+  return n;
+}
+
+function renderAssistant(t, index) {
+  const el = document.createElement("div");
+  el.className = "turn assistant";
+  if (t.thinking) el.append(thinkingBlock(t, false));
+  if (t.finish === "error") {
+    const e = document.createElement("div");
+    e.className = "errbox";
+    e.innerHTML = "<b>The model could not answer.</b> ";
+    e.append(document.createTextNode(t.error || ""));
+    el.append(e, notice(null, "Try again", () => regenerate(index)));
+    return el;
+  }
+  const body = document.createElement("div");
+  body.className = "text";
+  body.innerHTML = markdown(t.content || "");
+  wireCode(body);
+  el.append(body);
+  if (t.finish === "stopped") el.append(notice("Stopped", "Regenerate", () => regenerate(index)));
+  else if (t.finish === "length") el.append(notice("Cut at the length limit", "Continue", () => send("Continue.")));
+  else if (!t.content) el.append(notice("No answer", "Regenerate", () => regenerate(index)));
+  const acts = document.createElement("div");
+  acts.className = "actions";
+  const copy = iconButton("copy", "Copy", () => copyText(t.content || "", copy));
+  acts.append(copy, iconButton("regen", "Regenerate", () => regenerate(index)));
+  const s = speed(t.stats);
+  if (s) acts.append(s);
+  el.append(acts);
+  return el;
+}
+
+function renderAll() {
+  const log = $("log");
+  log.innerHTML = "";
+  turns.forEach((t, i) => log.append(t.role === "user" ? renderUser(t, i) : renderAssistant(t, i)));
+  markLast();
+  layout();
+}
+function markLast() {
+  const all = $("log").querySelectorAll(".turn.assistant");
+  all.forEach((e, i) => e.classList.toggle("last", i === all.length - 1));
+}
+
+// Where the composer sits: in the middle with no conversation, at the bottom otherwise.
+function layout() {
+  const none = models.length === 0;
+  const empty = turns.length === 0;
+  $("welcome").hidden = !(none || empty);
+  $("main").hidden = empty;
+  $("footer").hidden = empty || none;
+  $("lib").hidden = !none;
+  $("centerSlot").hidden = none;
+  (empty ? $("centerSlot") : $("footerSlot")).appendChild($("form"));
+  const m = current();
+  $("welcomeTitle").textContent = none ? "Choose a model to start" : "What's on your mind?";
+  $("facts").textContent = none
+    ? "Each file is checked against its published sha256 before it is used."
+    : m ? [m.name, bitsOf(m), human(m.size), "runs on this machine, nothing leaves it"].filter(Boolean).join(" · ") : "";
+  renderPicker();
+}
+
+function renderPicker(state) {
+  const p = $("picker");
+  p.disabled = !!controller;
+  if (!models.length) { p.className = "picker none"; p.textContent = "No model"; return; }
+  p.className = "picker";
+  const dot = state || (loaded.has(model) ? "ready" : "");
+  p.innerHTML = '<span class="dot ' + dot + '"></span><span></span><span class="chev"></span>';
+  p.children[1].textContent = model;
+  p.title = dot === "ready" ? model + " is loaded" : dot === "loading" ? "Loading " + model : model + " loads on the first message";
+}
+
+// The context gauge: shown from 75 % of the model's context.
+function gauge(stats) {
+  const ctx = loaded.get(model);
+  const g = $("gauge");
+  if (!stats || !ctx) { g.hidden = true; return; }
+  const used = (stats.prompt_eval_count + stats.eval_count) / ctx;
+  g.hidden = used < 0.75;
+  const pct = Math.min(100, Math.round(used * 100));
+  g.firstChild.style.background = `conic-gradient(var(--warn) 0 ${pct}%, rgba(0,0,0,0.09) ${pct}% 100%)`;
+  g.title = pct + "% of the context is used. A new chat starts fresh.";
+}
+
+function setBusy(busy) {
+  $("send").innerHTML = busy ? ICON.stop : ICON.up;
+  $("send").title = busy ? "Stop (Esc)" : "Send";
+  $("send").setAttribute("aria-label", busy ? "Stop" : "Send");
+  $("send").disabled = !busy && !$("input").value.trim();
+  $("new").disabled = busy;
+  renderPicker(busy && !loaded.has(model) ? "loading" : undefined);
+}
+function renderThink() {
+  $("think").innerHTML = ICON.bulb;
+  $("think").classList.toggle("on", think);
+  $("think").setAttribute("aria-pressed", String(think));
+  $("think").setAttribute("aria-label", "Thinking");
+  $("think").title = think ? "Thinking on: the model reasons before it answers" : "Thinking off";
+}
+
+// --------------------------------------------------------------- server
+
+async function* lines(resp) {
+  const reader = resp.body.getReader();
+  const dec = new TextDecoder();
+  let buf = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    let i;
+    while ((i = buf.indexOf("\n")) >= 0) {
+      const line = buf.slice(0, i).trim();
+      buf = buf.slice(i + 1);
+      if (line) yield JSON.parse(line);
+    }
+  }
+  if (buf.trim()) yield JSON.parse(buf);
+}
+async function errorOf(resp) {
+  try { return (await resp.json()).error || resp.statusText; } catch { return resp.statusText; }
+}
+
+async function refresh() {
+  const [tags, ps] = await Promise.all([
+    fetch("/api/tags").then((r) => r.json()),
+    fetch("/api/ps").then((r) => r.json()).catch(() => ({ models: [] })),
+  ]);
+  models = tags.models || [];
+  loaded = new Map((ps.models || []).filter((m) => m.llvq && m.llvq.state === "ready").map((m) => [m.name, m.context_length]));
+  if (!models.some((m) => m.name === model)) {
+    const saved = store.get("llvq.model");
+    model = models.some((m) => m.name === saved) ? saved : (models[0] ? models[0].name : "");
+  }
+}
+
+async function pull(name, onProgress) {
+  const r = await fetch("/api/pull", { method: "POST", body: JSON.stringify({ model: name }) });
+  if (!r.ok) throw new Error(await errorOf(r));
+  const t0 = performance.now();
+  let first = null;
+  for await (const ev of lines(r)) {
+    if (ev.error) throw new Error(ev.error);
+    if (ev.total) {
+      if (first === null) first = ev.completed;
+      const secs = (performance.now() - t0) / 1000;
+      const rate = (ev.completed - first) / Math.max(secs, 0.1);
+      const left = rate > 0 ? Math.round((ev.total - ev.completed) / rate) : 0;
+      const eta = left > 90 ? Math.round(left / 60) + " min left" : left + " s left";
+      onProgress(ev.completed / ev.total, human(ev.completed) + " of " + human(ev.total) +
+        (rate > 0 ? " · " + human(rate) + "/s · " + eta : ""));
+    } else {
+      onProgress(null, ev.status);
+    }
+  }
+}
+
+// ---------------------------------------------------------------- views
+
+function showLibrary() {
+  const box = $("lib");
+  box.innerHTML = "";
+  for (const e of library) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "row";
+    b.innerHTML = '<div></div><span></span><span></span><span class="act">Get</span>';
+    b.children[0].textContent = e.name;
+    b.children[1].textContent = human(e.size);
+    b.children[2].textContent = parseFloat(e.bits_per_param).toFixed(2) + " b/param";
+    b.onclick = () => getModel(e.name, b);
+    box.append(b);
+  }
+}
+
+async function getModel(name, row) {
+  const act = row.querySelector(".act, .get");
+  const rows = document.querySelectorAll(".lib .row, .menu .row");
+  rows.forEach((b) => { b.disabled = true; });
+  let bar = row.querySelector(".prog");
+  if (!bar) { bar = document.createElement("div"); bar.className = "prog"; bar.innerHTML = "<i></i>"; row.append(bar); }
+  try {
+    await pull(name, (frac, text) => {
+      if (frac !== null) {
+        bar.firstChild.style.width = (100 * frac).toFixed(1) + "%";
+        if (act) act.textContent = Math.floor(100 * frac) + "%";
+      }
+      $("pullstatus").textContent = text;
+    });
+    $("pullstatus").textContent = "";
+    model = name;
+    store.set("llvq.model", name);
+    await refresh();
+    closeMenu();
+    newChat();
+  } catch (e) {
+    $("pullstatus").textContent = "Could not get " + name + ": " + e.message;
+    if (act) act.textContent = "Retry";
+    rows.forEach((b) => { b.disabled = false; });
+  }
+}
+
+function openMenu() {
+  const menu = $("menu");
+  menu.innerHTML = "";
+  for (const m of models) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "row";
+    b.setAttribute("role", "menuitem");
+    b.innerHTML = '<span class="check"></span><div><span></span><small></small></div><span class="r"></span>';
+    b.querySelector(".check").textContent = m.name === model ? "✓" : "";
+    b.querySelector("div > span").textContent = m.name;
+    b.querySelector("small").textContent = ["Tetra", bitsOf(m), loaded.has(m.name) ? "loaded" : ""].filter(Boolean).join(" · ");
+    b.querySelector(".r").textContent = human(m.size);
+    b.onclick = () => {
+      closeMenu();
+      if (m.name !== model) { model = m.name; store.set("llvq.model", model); newChat(); }
+    };
+    menu.append(b);
+  }
+  const others = library.filter((e) => !models.some((m) => m.name === e.name));
+  if (others.length) {
+    const hr = document.createElement("hr");
+    const title = document.createElement("div");
+    title.className = "title";
+    title.textContent = "Get another model";
+    menu.append(hr, title);
+    for (const e of others) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "row";
+      b.setAttribute("role", "menuitem");
+      b.innerHTML = '<span></span><div><span></span><small></small></div><span class="get">Get</span>';
+      b.querySelector("div > span").textContent = e.name;
+      b.querySelector("small").textContent = human(e.size) + " · " + parseFloat(e.bits_per_param).toFixed(2) + " b/param";
+      b.onclick = (ev) => { ev.stopPropagation(); getModel(e.name, b); };
+      menu.append(b);
+    }
+  }
+  menu.hidden = false;
+  $("picker").setAttribute("aria-expanded", "true");
+}
+function closeMenu() { $("menu").hidden = true; $("picker").setAttribute("aria-expanded", "false"); }
+
+function newChat() {
+  if (controller) return;
+  turns = [];
+  editing = -1;
+  $("editing").hidden = true;
+  save();
+  renderAll();
+  gauge(null);
+  $("input").focus();
+}
+
+function startEdit(index) {
+  if (controller) return;
+  editing = index;
+  $("input").value = turns[index].content;
+  $("editing").hidden = false;
+  autosize();
+  $("send").disabled = false;
+  $("input").focus();
+}
+function cancelEdit() {
+  editing = -1;
+  $("editing").hidden = true;
+  $("input").value = "";
+  autosize();
+  $("send").disabled = true;
+}
+
+// Drop the answer at `index` and everything after it, then ask again.
+function regenerate(index) {
+  if (controller) return;
+  turns = turns.slice(0, index);
+  renderAll();
+  ask();
+}
+
+// ----------------------------------------------------------------- send
+
+async function send(text) {
+  if (controller) return;
+  if (editing >= 0) { turns = turns.slice(0, editing); editing = -1; $("editing").hidden = true; }
+  turns.push({ role: "user", content: text });
+  renderAll();
+  follow = true;
+  toEnd();
+  await ask();
+}
+
+// Ask for the answer to the conversation as it stands.
+async function ask() {
+  const t = { role: "assistant", content: "", thinking: "", finish: null };
+  const index = turns.length;
+  turns.push(t);
+  layout();
+  const el = document.createElement("div");
+  el.className = "turn assistant last";
+  $("log").querySelectorAll(".turn.assistant").forEach((e) => e.classList.remove("last"));
+  $("log").append(el);
+  const wasLoaded = loaded.has(model);
+  const t0 = performance.now();
+  const wait = document.createElement("div");
+  wait.className = "loading";
+  wait.innerHTML = '<span class="spin"></span><span></span>';
+  const tick = () => {
+    const s = Math.round((performance.now() - t0) / 1000);
+    const m = current();
+    wait.lastChild.textContent = "Loading " + model + " into memory" + (m ? " · " + human(m.size) : "") +
+      (s >= 3 ? " · " + s + " s" : "");
+  };
+  tick();
+  const timer = setInterval(tick, 1000);
+  if (!wasLoaded) el.append(wait);
+  toEnd();
+  controller = new AbortController();
+  setBusy(true);
+  let thinkBox = null, body = null, thinkFrom = 0;
+  const ensureBody = () => {
+    if (!body) { body = document.createElement("div"); body.className = "text"; el.append(body); }
+    return body;
+  };
+  try {
+    const req = { model, messages: history(index), think, stream: true };
+    const r = await fetch("/api/chat", { method: "POST", body: JSON.stringify(req), signal: controller.signal });
+    // The response starts once the model is loaded and the request accepted.
+    clearInterval(timer);
+    wait.remove();
+    if (!r.ok) throw new Error(await errorOf(r));
+    renderPicker("ready");
+    for await (const ev of lines(r)) {
+      if (ev.error) throw new Error(ev.error);
+      const m = ev.message || {};
+      if (m.thinking) {
+        t.thinking += m.thinking;
+        if (!thinkBox) {
+          thinkFrom = performance.now();
+          thinkBox = thinkingBlock(t, true);
+          keepPlace(() => el.insertBefore(thinkBox, body));
+        }
+        keepPlace(() => thinkBox.update(t.thinking));
+      }
+      if (m.content) {
+        t.content += m.content;
+        if (thinkBox && thinkBox.classList.contains("live")) {
+          t.secs = Math.max(1, Math.round((performance.now() - thinkFrom) / 1000));
+          keepPlace(() => thinkBox.fold(t.secs));
+        }
+        keepPlace(() => { ensureBody().innerHTML = markdown(t.content); });
+      }
+      if (ev.done) {
+        t.finish = ev.done_reason === "length" ? "length" : "stop";
+        t.stats = {
+          eval_count: ev.eval_count, eval_duration: ev.eval_duration,
+          prompt_eval_count: ev.prompt_eval_count, prompt_eval_cached_count: ev.prompt_eval_cached_count,
+        };
+      }
+    }
+    if (thinkBox && !t.secs) t.secs = Math.max(1, Math.round((performance.now() - thinkFrom) / 1000));
+    if (!t.finish) t.finish = "stop";
+  } catch (e) {
+    clearInterval(timer);
+    wait.remove();
+    if (e.name === "AbortError") t.finish = "stopped";
+    else { t.finish = "error"; t.error = e.message; }
+  }
+  controller = null;
+  // The context length is known once the model is loaded.
+  await refresh().catch(() => {});
+  keepPlace(() => { el.replaceWith(renderAssistant(t, index)); markLast(); });
+  setBusy(false);
+  gauge(t.stats);
+  save();
+  $("input").focus();
+}
+
+// ---------------------------------------------------------------- input
+
+function autosize() {
+  const t = $("input");
+  t.style.height = "";
+  t.style.height = t.scrollHeight + "px";
+}
+$("form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  if (controller) { controller.abort(); return; }
+  const text = $("input").value.trim();
+  if (!text || !model) return;
+  $("input").value = "";
+  autosize();
+  $("send").disabled = true;
+  send(text);
+});
+$("input").addEventListener("keydown", (ev) => {
+  if (ev.key === "Enter" && !ev.shiftKey && !ev.isComposing) { ev.preventDefault(); $("form").requestSubmit(); return; }
+  // Up arrow in an empty field edits the last question.
+  if (ev.key === "ArrowUp" && !$("input").value && !controller) {
+    for (let i = turns.length - 1; i >= 0; i--) {
+      if (turns[i].role === "user") { ev.preventDefault(); startEdit(i); break; }
+    }
+  }
+});
+$("input").addEventListener("input", () => { autosize(); if (!controller) $("send").disabled = !$("input").value.trim(); });
+document.addEventListener("keydown", (ev) => {
+  if (ev.key !== "Escape") return;
+  if (controller) controller.abort();
+  else if (!$("menu").hidden) closeMenu();
+  else if (editing >= 0) cancelEdit();
+});
+document.addEventListener("click", (ev) => {
+  if (!$("menu").hidden && !$("menu").contains(ev.target) && !$("picker").contains(ev.target)) closeMenu();
+});
+$("picker").onclick = () => { if (models.length) ($("menu").hidden ? openMenu() : closeMenu()); };
+$("new").innerHTML = ICON.new;
+$("new").onclick = newChat;
+$("down").innerHTML = ICON.down;
+$("cancelEdit").onclick = cancelEdit;
+$("think").onclick = () => { think = !think; store.set("llvq.think", think ? "1" : "0"); renderThink(); };
+
+// ----------------------------------------------------------------- start
+
+(async () => {
+  renderThink();
+  setBusy(false);
+  try { await refresh(); } catch (e) { $("pullstatus").textContent = "The server does not answer: " + e.message; }
+  try {
+    const saved = JSON.parse(store.get(SAVE) || "null");
+    if (saved && Array.isArray(saved.turns) && models.some((m) => m.name === saved.model)) {
+      model = saved.model;
+      // An answer cut by a reload is kept as stopped.
+      turns = saved.turns.map((t) => (t.role === "assistant" && !t.finish ? Object.assign(t, { finish: "stopped" }) : t));
+    }
+  } catch {}
+  if (!models.length) showLibrary();
+  renderAll();
+  follow = true;
+  toEnd();
+  $("input").focus();
+})();
+</script>
+</body>
+</html>
