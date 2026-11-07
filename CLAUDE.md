@@ -50,7 +50,7 @@ distribution `llvq-tetra`. It stays in this repository (operator, 2026-10-07): i
 kernels that `bin/tetratables` makes, and `hfpack` writes what it reads. `docs/plan-transformers.md` carries its stages.
 `ops/llvqtune` is the other Python package, which trains the free parameters an artifact already holds.
 `ops/mlx_tetra/` is the MLX door on the Mac: the sealed 4B on MLX through our Tetra Metal kernels, not bit-exact, under
-`configs/mlx/qwen3-4b-tetra-e4-mlx.json`. Not served: its T8 missed the band on 2 windows of 12, pooled inside (`docs/mesures/mlx-t8-2026-11-07.txt`).
+`configs/mlx/qwen3-4b-tetra-e4-mlx.json`, the 4B's served path on the Mac since 2026-11-07 (`docs/mesures/mlx-pooled-2026-11-07.txt`).
 `ops/metal-package/` is a prototype, not served: a one-binary Mac bundle that chats with and benches the sealed 4B.
 
 `unsafe` is allowed only at hardware boundaries: mmap, kernel launch, reading a device buffer. Caveat:
@@ -98,7 +98,7 @@ LLVQ_DTYPE=f16 cargo run --release -p llvq-llm --features metal --bin ppl -- 409
 cargo run --release -p llvq-llm --features metal --bin oracle                                       # forward pass vs candle, on every backend
 ops/llvq-mlx chat|generate "<msg>"|bench [--long]|check|check-mini                                   # the sealed 4B through MLX at its door (configs/mlx/); PACKED= its hfpack
 uv run ops/mlx_tetra/test_served.py && uv run ops/mlx_tetra/mutate.py                                # the MLX door's refusals, then 23 mutants of its gates on the mini fixture
-ops/mlx-t8.sh                                                                                        # the MLX door's T8 against M5's 12.580769; refuses before its prereg is stamped
+ops/mlx-pooled.sh                                                                                    # the MLX door's served gate: windows 13-24 against Rust dense f16; ops/mlx-t8.sh the first T8
 ops/metal-bench.sh [--long]                                                                          # the sealed 4B on the Mac, same tokens: dense, fused, _lutd; --long: expanded, grouped, attn_dec.metal at 4,096 (metalrun time|gate|phased|dispatch|ppl)
 CUDARC_CUDA_VERSION=12040 cargo clippy --target x86_64-unknown-linux-gnu -p llvq-cuda --all-targets  # type-checks the Linux half on a Mac
 uv run ops/run.py estimate|selftest|publish|oracle|launch|monitor                                   # HF Jobs

@@ -1106,3 +1106,8 @@ The T8 reading ran the same morning on the operator's go, 16.5 minutes, $0. The 
 decode and +0.0133 % by prefill against the Rust Metal path, but windows 6 and 7 fell outside +-0.12 % by both paths,
 at +0.27 % and -0.13 % ([mlx-t8](mesures/mlx-t8-2026-11-07.txt)). By its prereg the door is not served. The same two
 windows move by about 0.2 % between two Rust engines, so the gate itself went back to the operator.
+
+The operator chose to keep MLX under a gate on the paired interval, stamped before a reading of windows 13 to 24,
+which the first reading had not seen. Against the Rust dense reconstruction in f16 on Metal, the door read
+-0.0103 % [-0.0847 ; +0.0642] by decode and -0.0099 % [-0.0842 ; +0.0644] by prefill, inside +-0.12 %
+([mlx-pooled](mesures/mlx-pooled-2026-11-07.txt)). The MLX door has served the 4B on the Mac since that reading.

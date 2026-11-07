@@ -42,15 +42,15 @@ every line of the run.
 ## `mlx/`: the MLX door on the Mac
 
 `mlx/qwen3-4b-tetra-e4-mlx.json` is the config of the MLX door,
-`ops/mlx_tetra/serve.py`. It is **not served**: its T8 reading missed the band on
-windows 6 and 7 of 12, by decode and by prefill, with the pooled perplexity inside
-([mlx-t8-2026-11-07](../docs/mesures/mlx-t8-2026-11-07.txt)). Its schema is its own, so it lives in a subdirectory:
+`ops/mlx_tetra/serve.py`. It is **the 4B's served configuration on the Mac since
+2026-11-07** (operator decision, « Garder MLX »), under a gate on the paired
+interval of its perplexity. Its schema is its own, so it lives in a subdirectory:
 `every_shipped_config_resolves` reads the `*.json` of this directory with
 `deny_unknown_fields`, and does not descend.
 
 | file | object | b/param | quality |
 |---|---|---|---|
-| `mlx/qwen3-4b-tetra-e4-mlx.json` | The SAME object as `qwen3-4b-tetra-e4.json`, `qwen3-4b-sealed.bin` (sha256 `886391a8…`), read from its hfpack by mlx-lm's Qwen3 with the 168 Tetra records as custom Metal kernels, f16 activations, mlx-lm's attention and f16 KV cache. Written 2026-11-07 on the operator's ruling « Sur métal, on a validé mlx donc implem le aussi »: on Metal, a tolerance rather than bit for bit | **2.7320**, the file's: the door reads the stored bits. Resident, it holds q and k twice, alone for the prefill and stacked for the decode, about 0.12 GB more (*computed* from the record shapes) | Not scored on a task. **Perplexity**, WikiText-2, 12 windows of 4,096, against the Rust Metal path's 12.580769: **+0.0078 %** [-0.0554 ; +0.0710] by decode and **+0.0133 %** [-0.0517 ; +0.0783] by prefill, but windows 6 and 7 at +0.27 % and -0.13 %, outside the +-0.12 % its prereg asks of every window (*measured*, [mlx-t8-2026-11-07](../docs/mesures/mlx-t8-2026-11-07.txt)). Not bit for bit: its tokens leave the Rust path's at token 243 after a 5-token prompt (*measured*, [metal-nuit-2026-11-06](../docs/mesures/metal-nuit-2026-11-06.txt), M15). The engine decoded 93.9 tok/s after a 5-token prompt and 70.3 after 4,096 at the prototype's door (M16) |
+| `mlx/qwen3-4b-tetra-e4-mlx.json` | The SAME object as `qwen3-4b-tetra-e4.json`, `qwen3-4b-sealed.bin` (sha256 `886391a8…`), read from its hfpack by mlx-lm's Qwen3 with the 168 Tetra records as custom Metal kernels, f16 activations, mlx-lm's attention and f16 KV cache. Written 2026-11-07 on the operator's ruling « Sur métal, on a validé mlx donc implem le aussi »: on Metal, a tolerance rather than bit for bit | **2.7320**, the file's: the door reads the stored bits. Resident, it holds q and k twice, alone for the prefill and stacked for the decode, about 0.12 GB more (*computed* from the record shapes) | Not scored on a task. **Perplexity** licensed it: WikiText-2 windows 13 to 24 of 4,096 against the Rust dense reconstruction in f16 on Metal, **-0.0103 %** [-0.0847 ; +0.0642] by decode and **-0.0099 %** [-0.0842 ; +0.0644] by prefill, paired, inside +-0.12 % (*measured*, [mlx-pooled-2026-11-07](../docs/mesures/mlx-pooled-2026-11-07.txt)). A first reading on windows 1 to 12 against the Rust Metal path's 12.580769 read +0.0078 % [-0.0554 ; +0.0710] pooled, with windows 6 and 7 at +0.27 % and -0.13 %, outside the every-window rule it had then (*measured*, [mlx-t8-2026-11-07](../docs/mesures/mlx-t8-2026-11-07.txt)). Not bit for bit: its tokens leave the Rust path's at token 243 after a 5-token prompt (*measured*, [metal-nuit-2026-11-06](../docs/mesures/metal-nuit-2026-11-06.txt), M15). The engine decoded 93.9 tok/s after a 5-token prompt and 70.3 after 4,096 at the prototype's door (M16) |
 
 Every key has one accepted value. `ops/mlx_tetra/served.py` refuses any other
 by name, refuses the Rust keys `fuse`, `decode` and `rows`, any other object,
@@ -111,8 +111,8 @@ form exists to read the history where it lies, which `cat` cannot offer because
 its buffer moves at every step. Two separate fields could name a pair no
 measurement ever ran.
 
-**`grouped` and `kernel` are refused on Metal, by name, and nothing is served
-there.** Both are measured on the M3 Max: the grouped form returned the
+**`grouped` and `kernel` are refused on Metal, by name, and the Rust door serves
+nothing there.** The Mac's served path is the MLX door, `mlx/` above. Both are measured on the M3 Max: the grouped form returned the
 expanded form's logits bit for bit over 49,140 decode steps and decoded x2.380
 faster at 4,096 positions; the kernel form from position 0 read +0.0051 % of
 perplexity against grouped, inside +-0.12 % (*measured*,

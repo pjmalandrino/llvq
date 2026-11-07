@@ -1,8 +1,8 @@
 # Plan: throughput on Metal
 
-Nothing is served on Metal. The MLX door (`ops/mlx_tetra/serve.py`, `configs/mlx/qwen3-4b-tetra-e4-mlx.json`) missed
-its T8 band on 2 windows of 12, by decode and by prefill alike, with a pooled perplexity +0.0078 % from the Rust
-Metal path's (*measured*, [mlx-t8](mesures/mlx-t8-2026-11-07.txt)). Whether that gate is the right one is the operator's call (section 3). Its
+The 4B is served on Metal by the MLX door since 2026-11-07: `ops/mlx_tetra/serve.py` under
+`configs/mlx/qwen3-4b-tetra-e4-mlx.json`. On 12 fresh WikiText-2 windows its perplexity reads -0.0103 %
+[-0.0847 ; +0.0642] from the Rust path's by decode, inside its +-0.12 % gate (*measured*, [mlx-pooled](mesures/mlx-pooled-2026-11-07.txt)). Its
 engine decodes at 93.9 tok/s after a 5-token prompt and 70.3 after 4,096 tokens of context, not bit-exact with the
 Rust path (*measured*, M16). The Rust path (`metalrun`) decodes at 65.5 tok/s, every kernel bit for bit with the
 served Metal kernels (*measured*, M14). mlx-lm's own Qwen3-4B 4-bit reads 129.5 and 98.4 on
@@ -70,13 +70,22 @@ section 2.
 
 ## 2. What is served on Metal
 
-Nothing yet. The candidate is the MLX door, `ops/mlx_tetra/serve.py`, with its config
-`configs/mlx/qwen3-4b-tetra-e4-mlx.json`. That config is a schema of its own, in a subdirectory the Rust tests do not
-read. Every key has one accepted value, and the door refuses any other by name, the Rust keys, any other object,
-another mlx or mlx-lm, and any `LLVQ_*` variable (`served.py`). Its T8 reading missed the band, so by its prereg it
-is not served.
+The MLX door serves the 4B: `ops/mlx_tetra/serve.py`, with its config `configs/mlx/qwen3-4b-tetra-e4-mlx.json`
+(`ops/llvq-mlx chat`). That config is a schema of its own, in a subdirectory the Rust tests do not read. Every key has
+one accepted value, and the door refuses any other by name, the Rust keys, any other object, another mlx or mlx-lm,
+and any `LLVQ_*` variable (`served.py`).
 
-T8, decode and prefill over M5's 12 windows of 4,096, against 12.580769 (*measured*, [mlx-t8](mesures/mlx-t8-2026-11-07.txt)):
+Its gate is the paired interval of its perplexity against the Rust path, inside +-0.12 % by decode and by prefill,
+on WikiText-2 windows 13 to 24 of 4,096 against the Rust dense reconstruction in f16 on Metal (*measured*, [mlx-pooled](mesures/mlx-pooled-2026-11-07.txt)):
+
+| path | pooled | paired interval | widest windows | gate |
+|---|---|---|---|---|
+| decode | -0.0103 % | [-0.0847 ; +0.0642] | window 14 -0.2931 %, window 17 +0.1944 % | inside |
+| prefill | -0.0099 % | [-0.0842 ; +0.0644] | window 14 -0.2864 %, window 17 +0.1942 % | inside |
+
+The operator chose that gate after the first reading below, and it was stamped before these windows were read. The
+first reading, on M5's windows 1 to 12 against the fused Rust path's 12.580769, held the pooled perplexity and missed
+a per-window rule (*measured*, [mlx-t8](mesures/mlx-t8-2026-11-07.txt)):
 
 | path | pooled | paired interval | widest windows | band |
 |---|---|---|---|---|
@@ -84,9 +93,8 @@ T8, decode and prefill over M5's 12 windows of 4,096, against 12.580769 (*measur
 | prefill | +0.0133 % | [-0.0517 ; +0.0783] | window 6 +0.2874 %, window 7 -0.1313 % | outside |
 
 The two MLX paths agree with each other to 0.02 % on every window, so the offset belongs to the engine, not to one
-path. The same two windows move by about 0.2 % between two Rust engines: Metal f16 against f32, and the card against
-Metal at f16 (*computed* from `s1-f32-metal-2026-11-04`). Both of those pairs would fail the per-window half of the
-rule too.
+path. Single windows move by about 0.2 % between two Rust engines too: Metal f16 against f32, and the card against
+Metal at f16 (*computed* from `s1-f32-metal-2026-11-04`).
 
 No Rust served config changed. The Rust Metal door accepts the expanded config only, and refuses the grouped
 and kernel forms by name (`served.rs`). Two configs name those forms and are marked NOT SERVED:
@@ -107,15 +115,12 @@ Taken:
 - 2026-11-06. The rival's 2.28 GB download, approved before M14 (its prereg).
 - 2026-11-07. Rule 1, tolerance or bit for bit on Metal: tolerance. The operator wrote « Sur métal, on a validé mlx
   donc implem le aussi ». A fused Metal path is served under T8's band (+-0.12 % of perplexity, pooled and every
-  window), as the grouped and kernel forms are on CUDA. The MLX door was built on this ruling; its T8 reading,
-  section 2, missed the per-window half of that band.
+  window), as the grouped and kernel forms are on CUDA. The MLX door was built on this ruling.
+- 2026-11-07. The MLX door's gate: the paired interval, not every window. After the first reading missed the
+  per-window rule, the operator chose « Garder MLX »: the paired pooled interval inside +-0.12 %, stamped before a
+  reading of fresh windows. That reading passed by both paths, and the door is served (section 2).
 
 Open:
-0. The MLX door's gate. Its T8 reading kept the pooled perplexity within +0.0078 % [-0.0554 ; +0.0710] by decode, and
-   missed the per-window band on windows 6 and 7 (section 2). Two Rust engines miss it on the same windows. Keep the
-   per-window rule, and the door stays unserved until a different arithmetic passes it; or set another gate (the
-   paired pooled interval inside +-0.12 %, as the L40S readings of the grouped form state theirs) and stamp it before
-   a new reading.
 1. Acknowledge the int4 wall lift on the Metal door (section 2).
 2. Whether a Mac reading answers the "consumer GPU" item of `ETAT.md` §5.
 3. Lift the Metal refusal of the grouped form (bit for bit, M5: a one-line change in `served.rs` `check_device`) or of
@@ -130,7 +135,7 @@ $0. Times are *estimated* working time.
 
 | # | step | cost | gate | what it buys |
 |---|---|---|---|---|
-| 1 | Ruling 0 above, the MLX door's gate | 0 | operator | a served Metal path, or the arithmetic work below |
+| 1 | The served door's speed: `ops/llvq-mlx bench` and `bench --long`, M16's protocol at the served door | 10 min, a prereg | none, a reading | the served tok/s on the Mac, which M16 read at the prototype's door |
 | 2 | Rulings 1 to 4 above | 0 | operator | the rest of the Metal door |
 | 3 | MLX path, the Tetra kernel: about 4.4 ms a token in the off-protocol ablation before M16. Leads: two blocks a lane interleaved, a table of decoded byte quads, a load-time re-encoding (b/param stated, rule 6) | days | microbench, then the M16 arms | the largest cost left at short context |
 | 4 | MLX path at long context: it loses 4.6 ms a token from 5 to 4,096 positions where the rival loses 1.9 with the same attention kernel (M15), not explained | 1 day | the M16 L2 arm | decode at 4,096 |
