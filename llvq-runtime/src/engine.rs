@@ -645,11 +645,9 @@ impl Engine {
                     }
                     return;
                 }
-                let now = SystemTime::now();
-                *inf.expires.lock().expect("expires lock") = match inf.retiring.load(Ordering::SeqCst) {
-                    true => Some(now),
-                    false => job.keep_alive.until(now),
-                };
+                // A retiring engine is left to the reaper, which reads the
+                // flag itself: it may be set after this line.
+                *inf.expires.lock().expect("expires lock") = job.keep_alive.until(SystemTime::now());
                 inf.busy.store(false, Ordering::SeqCst);
             }
         })?;
