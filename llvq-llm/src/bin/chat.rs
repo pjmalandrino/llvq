@@ -114,7 +114,7 @@ fn main() -> anyhow::Result<()> {
             println!("{}", cfg.provenance());
             let mut f = llvq_llm::served::load_resolved(
                 &a[0], &device, dtype, cfg.layout, cfg.embed, cfg.rot_share, cfg.fuse, cfg.kv,
-                Some("LLVQ_CONFIG"),
+                cfg.int4_layout(), Some("LLVQ_CONFIG"),
             )?;
             println!("{:.1} s", t0.elapsed().as_secs_f64());
             let dec = cfg.serve(&mut f.model, &device)?;

@@ -82,9 +82,9 @@ Matching them puts the 2.7 b/param files behind tools people already use, with n
 
 | name proposed | Hub repository | file | bytes | sha256 | config on CUDA | config on Metal |
 |---|---|---|---|---|---|---|
-| `qwen3:4b` | `Pier-Jean/Qwen3-4B-LLVQ-Tetra-sealed` | `qwen3-4b-sealed.bin` | 1,418,224,685 | `886391a8…` | `qwen3-4b-tetra-e4-4e-v4.json` | `qwen3-4b-tetra-e4.json` |
-| `qwen3:8b` | `Pier-Jean/Qwen3-8B-LLVQ-Tetra-sealed` | `qwen3-8b-sealed-B.bin` | 2,815,098,745 | `7bdb9a55…` | `qwen3-8b-tetra-e4-grouped.json` | `qwen3-8b-tetra-e4.json` |
-| `qwen3:14b` | `Pier-Jean/Qwen3-14B-LLVQ-Tetra-sealed` | `qwen3-14b-sealed.bin` | 5,087,000,541 | `61db37fe…` | `qwen3-14b-tetra-e4-grouped.json` | `qwen3-14b-tetra-e4.json` |
+| `qwen3:4b` | `Pier-Jean/Qwen3-4B-LLVQ-Tetra-sealed` | `qwen3-4b-sealed.bin` | 1,418,224,685 | `886391a8…` | `qwen3-4b-tetra-e4-4e-v9.json` | `qwen3-4b-tetra-e4.json` |
+| `qwen3:8b` | `Pier-Jean/Qwen3-8B-LLVQ-Tetra-sealed` | `qwen3-8b-sealed-B.bin` | 2,815,098,745 | `7bdb9a55…` | `qwen3-8b-tetra-e4-4e-v9.json` | `qwen3-8b-tetra-e4.json` |
+| `qwen3:14b` | `Pier-Jean/Qwen3-14B-LLVQ-Tetra-sealed` | `qwen3-14b-sealed.bin` | 5,087,000,541 | `61db37fe…` | `qwen3-14b-tetra-e4-4e-v9.json` | `qwen3-14b-tetra-e4.json` |
 
 Sizes and digests come from `configs/README.md`. The full digests go in the manifest, not here. The three sealed
 repositories are frozen because paper 2 cites them, so a pinned revision never moves under the runtime. The Metal
@@ -214,7 +214,7 @@ runs.
 
 | platform | backend | served config | state |
 |---|---|---|---|
-| Linux x86_64, NVIDIA card | fused CUDA | 4E v4 at 4B, grouped at 8B and 14B | served door *measured* on one L40S only; a consumer card is unmeasured (`ETAT.md` §5) |
+| Linux x86_64, NVIDIA card | fused CUDA | 4E v9 at 4B, 8B and 14B (since 2026-11-07) | served door *measured* on one L40S only; a consumer card is unmeasured (`ETAT.md` §5) |
 | macOS, Apple silicon | fused Metal | expanded configs only | 4B *measured* on one M3 Max; 8B and 14B never run fused on Metal |
 | Linux or macOS, no accelerator | dense, `sealed::load` | none | builds today; speed and memory on CPU not measured |
 | Windows | none | none | not built, not tested; `llvq-cuda` is gated to Linux |

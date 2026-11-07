@@ -112,24 +112,24 @@ pub fn find(n: &ModelName) -> Option<&'static Entry> {
 /// bytes the journals pinned. One row per file `library.json` names.
 const CONFIGS: &[(&str, &str)] = &[
     (
-        "qwen3-4b-tetra-e4-4e-v4.json",
-        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../configs/qwen3-4b-tetra-e4-4e-v4.json")),
+        "qwen3-4b-tetra-e4-4e-v9.json",
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../configs/qwen3-4b-tetra-e4-4e-v9.json")),
     ),
     (
         "qwen3-4b-tetra-e4.json",
         include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../configs/qwen3-4b-tetra-e4.json")),
     ),
     (
-        "qwen3-8b-tetra-e4-grouped.json",
-        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../configs/qwen3-8b-tetra-e4-grouped.json")),
+        "qwen3-8b-tetra-e4-4e-v9.json",
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../configs/qwen3-8b-tetra-e4-4e-v9.json")),
     ),
     (
         "qwen3-8b-tetra-e4.json",
         include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../configs/qwen3-8b-tetra-e4.json")),
     ),
     (
-        "qwen3-14b-tetra-e4-grouped.json",
-        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../configs/qwen3-14b-tetra-e4-grouped.json")),
+        "qwen3-14b-tetra-e4-4e-v9.json",
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../configs/qwen3-14b-tetra-e4-4e-v9.json")),
     ),
     (
         "qwen3-14b-tetra-e4.json",

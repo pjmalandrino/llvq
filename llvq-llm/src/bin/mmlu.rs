@@ -561,6 +561,7 @@ fn main() -> anyhow::Result<()> {
                 // The KV mode rides the config too, so one file decides every
                 // choice and `LLVQ_KV` cannot move half of them.
                 cfg.kv,
+                cfg.int4_layout(),
                 Some("LLVQ_CONFIG"),
             )
             // The context, not a remedy. The old `cfg(not(cuda))` arm could

@@ -1,0 +1,167 @@
+NVIDIA L40S, 8.9, 46068 MiB, 580.178.04, 2520 MHz
+9db213ef9fa9d7d7000789a8a529ce9459ce9ba6002ef5a72fd5a1c05c1c84b0  /out/ball-ref-2026-09-20/qwen3-4b-llvq.bin
+0adb7cfd02ed74022b639bdaee27f9440fa1083d2d81b80096b7ae5679866ce5  /out/tetra-4b-2026-09-06/qwen3-4b-tetra.bin
+== gate 1: oracle ==
+window: 47 tokens
+Qwen/Qwen3-0.6B on Cuda(CudaDevice(DeviceId(1))) — max |Δhidden| = 0.000e0   (relative to max|h| = 8.550e1) → 0.000e0
+MATCH — the observable forward reproduces candle's Qwen3
+== process 1: K4 row loops, K11 int4 rows, K3b counters, beside the one-launch pass ==
+Sat Nov  7 10:58:57 UTC 2026
+Sat Nov  7 11:06:22 UTC 2026
+planesbench exit 0
+  tpersall_ts: 1105920 rows identical BIT FOR BIT to the A4 kernels
+  One-launch Tetra pass (L1, tpersall_ts_pf): 144 sites, 1105920 rows, 138240 groups of 8, grid 426 (3 a SM x 142), 54 registers, 0 B local, 24960 B shared
+  tpersall_ts_pf: 1105920 rows identical BIT FOR BIT to the A4 kernels
+  One-launch Tetra pass (L1, tpersall_ts_pf_l2): 144 sites, 1105920 rows, 138240 groups of 8, grid 426 (3 a SM x 142), 54 registers, 0 B local, 24960 B shared
+  tpersall_ts_pf_l2: 1105920 rows identical BIT FOR BIT to the A4 kernels
+  Row-loop microbenchmark (LLVQ_TROWS): module 290059 bytes, sha256 53a0141c644b2b3c2dc6aaa20cd5b7104887a4ae3c54518f630a7c59cc29352a
+  reference: the served unit, 101625 bytes, sha256 6193094310bc18acdb0a0c554807ff45f6df09c1f6ab49e0577032874f107812
+  cubin trows: 5507408 bytes, sha256 28b2cc6475c2c02614aefb39310db563f9c15b7e01055ea4235ba6be28b2adbd (driver JIT of a 290059-byte unit, sha256 53a0141c644b2b3c2dc6aaa20cd5b7104887a4ae3c54518f630a7c59cc29352a)
+  v2      tv_trows_v2: 252 sites, 1105920 rows, grid 142 (1 a SM, 1 fit), 512 threads, 69 registers, 0 B local, 57984 B shared
+  v2: 1105920 rows identical BIT FOR BIT to tv_tetra48_h
+  v2      stamps d_in  2560: 180 sites,    1611 cycles a step (32 blocks of a row), 0.664 us at 2427 MHz; warp balance 0.807
+  v2      stamps d_in  4096:  36 sites,    1497 cycles a step (32 blocks of a row), 0.617 us at 2427 MHz; warp balance 0.628
+  v2      stamps d_in  9728:  36 sites,    1271 cycles a step (32 blocks of a row), 0.524 us at 2427 MHz; warp balance 0.638
+  v3      tv_trows_v3: 252 sites, 1105920 rows, grid 142 (1 a SM, 1 fit), 512 threads, 84 registers, 0 B local, 57984 B shared
+  v3: 1105920 rows identical BIT FOR BIT to tv_tetra48_h
+  v3      stamps d_in  2560: 180 sites,    1835 cycles a step (32 blocks of a row), 0.737 us at 2491 MHz; warp balance 0.794
+  v3      stamps d_in  4096:  36 sites,    1925 cycles a step (32 blocks of a row), 0.773 us at 2491 MHz; warp balance 0.651
+  v3      stamps d_in  9728:  36 sites,    1737 cycles a step (32 blocks of a row), 0.697 us at 2491 MHz; warp balance 0.625
+  ilp2    tv_trows_ilp2: 252 sites, 1105920 rows, grid 142 (1 a SM, 1 fit), 512 threads, 94 registers, 0 B local, 57984 B shared
+  ilp2: 1105920 rows identical BIT FOR BIT to tv_tetra48_h
+  ilp2    stamps d_in  2560: 180 sites,    1774 cycles a step (32 blocks of a row), 0.729 us at 2433 MHz; warp balance 0.821
+  ilp2    stamps d_in  4096:  36 sites,    1667 cycles a step (32 blocks of a row), 0.685 us at 2433 MHz; warp balance 0.653
+  ilp2    stamps d_in  9728:  36 sites,    1477 cycles a step (32 blocks of a row), 0.607 us at 2433 MHz; warp balance 0.654
+  v2u     tv_trows_v2u: 252 sites, 1105920 rows, grid 142 (1 a SM, 1 fit), 512 threads, 64 registers, 0 B local, 57984 B shared
+  v2u: 1105920 rows identical BIT FOR BIT to tv_tetra48_h
+  v2u     stamps d_in  2560: 180 sites,    1957 cycles a step (32 blocks of a row), 0.780 us at 2509 MHz; warp balance 0.796
+  v2u     stamps d_in  4096:  36 sites,    1880 cycles a step (32 blocks of a row), 0.749 us at 2509 MHz; warp balance 0.617
+  v2u     stamps d_in  9728:  36 sites,    1674 cycles a step (32 blocks of a row), 0.667 us at 2509 MHz; warp balance 0.625
+  l1w     tv_trows_l1w: 252 sites, 1105920 rows, grid 142 (1 a SM, 1 fit), 512 threads, 70 registers, 0 B local, 57984 B shared
+  l1w: diagnostic, rows not owed (392 of 1105920 happen to equal tv_tetra48_h)
+  l1w     stamps d_in  2560: 180 sites,    1437 cycles a step (32 blocks of a row), 0.574 us at 2501 MHz; warp balance 0.825
+  l1w     stamps d_in  4096:  36 sites,    1548 cycles a step (32 blocks of a row), 0.619 us at 2501 MHz; warp balance 0.749
+  l1w     stamps d_in  9728:  36 sites,    1418 cycles a step (32 blocks of a row), 0.567 us at 2501 MHz; warp balance 0.767
+  bcast   tv_trows_bcast: 252 sites, 1105920 rows, grid 142 (1 a SM, 1 fit), 512 threads, 64 registers, 0 B local, 57984 B shared
+  bcast: diagnostic, rows not owed (125 of 1105920 happen to equal tv_tetra48_h)
+  bcast   stamps d_in  2560: 180 sites,    1974 cycles a step (32 blocks of a row), 0.787 us at 2509 MHz; warp balance 0.795
+  bcast   stamps d_in  4096:  36 sites,    1895 cycles a step (32 blocks of a row), 0.755 us at 2509 MHz; warp balance 0.614
+  bcast   stamps d_in  9728:  36 sites,    1684 cycles a step (32 blocks of a row), 0.671 us at 2509 MHz; warp balance 0.621
+  xbcast  tv_trows_xbcast: 252 sites, 1105920 rows, grid 142 (1 a SM, 1 fit), 512 threads, 68 registers, 0 B local, 57984 B shared
+  xbcast: diagnostic, rows not owed (123 of 1105920 happen to equal tv_tetra48_h)
+  xbcast  stamps d_in  2560: 180 sites,    1940 cycles a step (32 blocks of a row), 0.773 us at 2510 MHz; warp balance 0.793
+  xbcast  stamps d_in  4096:  36 sites,    1884 cycles a step (32 blocks of a row), 0.751 us at 2510 MHz; warp balance 0.621
+  xbcast  stamps d_in  9728:  36 sites,    1684 cycles a step (32 blocks of a row), 0.671 us at 2510 MHz; warp balance 0.631
+  v2_s    tv_trows_v2: 216 sites, 1013760 rows, grid 142 (1 a SM, 1 fit), 512 threads, 69 registers, 0 B local, 57984 B shared
+  v2_s: 1013760 rows identical BIT FOR BIT to tv_tetra48_h
+  v2_s    stamps d_in  2560: 180 sites,    1611 cycles a step (32 blocks of a row), 0.663 us at 2429 MHz; warp balance 0.808
+  v2_s    stamps d_in  4096:  36 sites,    1498 cycles a step (32 blocks of a row), 0.617 us at 2429 MHz; warp balance 0.628
+  v2_o2   tv_trows_v2_o2: 216 sites, 1013760 rows, grid 284 (2 a SM, 2 fit), 512 threads, 63 registers, 0 B local, 35456 B shared
+  v2_o2: 1013760 rows identical BIT FOR BIT to tv_tetra48_h
+  v2_o2   stamps d_in  2560: 180 sites,    2015 cycles a step (32 blocks of a row), 0.880 us at 2291 MHz; warp balance 0.651
+  v2_o2   stamps d_in  4096:  36 sites,    1518 cycles a step (32 blocks of a row), 0.663 us at 2291 MHz; warp balance 0.497
+  k2      tv_trows_k2: 252 sites, 1105920 rows, grid 142 (1 a SM, 1 fit), 512 threads, 86 registers, 0 B local, 96896 B shared
+  k2: 1105920 rows identical BIT FOR BIT to tv_tetra48_h
+  k2: 1105920 rows identical BIT FOR BIT to tv_tetra48_h on the second activation
+  k2      stamps d_in  2560: 180 sites,    2202 cycles a step (32 blocks of a row), 0.918 us at 2399 MHz; warp balance 0.838
+  k2      stamps d_in  4096:  36 sites,    2133 cycles a step (32 blocks of a row), 0.889 us at 2399 MHz; warp balance 0.694
+  k2      stamps d_in  9728:  36 sites,    1916 cycles a step (32 blocks of a row), 0.799 us at 2399 MHz; warp balance 0.728
+  nc      tv_trows_nc: 252 sites, 1105920 rows, grid 142 (1 a SM, 1 fit), 512 threads, 70 registers, 0 B local, 57984 B shared
+  nc: 1105920 rows identical BIT FOR BIT to tv_tetra48_h
+  nc      stamps d_in  2560: 180 sites,    1934 cycles a step (32 blocks of a row), 0.771 us at 2508 MHz; warp balance 0.794
+  nc      stamps d_in  4096:  36 sites,    1868 cycles a step (32 blocks of a row), 0.745 us at 2508 MHz; warp balance 0.620
+  nc      stamps d_in  9728:  36 sites,    1689 cycles a step (32 blocks of a row), 0.673 us at 2508 MHz; warp balance 0.631
+  nc256   tv_trows_nc256: 252 sites, 1105920 rows, grid 142 (1 a SM, 1 fit), 512 threads, 70 registers, 0 B local, 57984 B shared
+  nc256: 1105920 rows identical BIT FOR BIT to tv_tetra48_h
+  nc256   stamps d_in  2560: 180 sites,    1762 cycles a step (32 blocks of a row), 0.708 us at 2487 MHz; warp balance 0.802
+  nc256   stamps d_in  4096:  36 sites,    1749 cycles a step (32 blocks of a row), 0.703 us at 2487 MHz; warp balance 0.634
+  nc256   stamps d_in  9728:  36 sites,    1667 cycles a step (32 blocks of a row), 0.670 us at 2487 MHz; warp balance 0.634
+  cpa     tv_trows_cpa: 252 sites, 1105920 rows, grid 142 (1 a SM, 1 fit), 512 threads, 64 registers, 0 B local, 67200 B shared
+  cpa: 1105920 rows identical BIT FOR BIT to tv_tetra48_h
+  cpa     stamps d_in  2560: 180 sites,    1669 cycles a step (32 blocks of a row), 0.694 us at 2405 MHz; warp balance 0.814
+  cpa     stamps d_in  4096:  36 sites,    1588 cycles a step (32 blocks of a row), 0.660 us at 2405 MHz; warp balance 0.669
+  cpa     stamps d_in  9728:  36 sites,    1383 cycles a step (32 blocks of a row), 0.575 us at 2405 MHz; warp balance 0.698
+  tile: words relaid on card, 0.9083 GB against the served stream's 0.9083 GB (+0 B), a second copy for the bench only
+  tile    tv_trows_tile: 252 sites, 1105920 rows, grid 142 (1 a SM, 1 fit), 512 threads, 110 registers, 0 B local, 57984 B shared
+  tile: 1105920 rows identical BIT FOR BIT to tv_tetra48_h
+  tile    stamps d_in  2560: 180 sites,    1606 cycles a step (32 blocks of a row), 0.665 us at 2416 MHz; warp balance 0.806
+  tile    stamps d_in  4096:  36 sites,    1576 cycles a step (32 blocks of a row), 0.652 us at 2416 MHz; warp balance 0.675
+  tile    stamps d_in  9728:  36 sites,    1295 cycles a step (32 blocks of a row), 0.536 us at 2416 MHz; warp balance 0.729
+  bal     tv_trows_bal: 252 sites, 1105920 rows, grid 142 (1 a SM, 1 fit), 512 threads, 72 registers, 0 B local, 57984 B shared
+  bal: 1105920 rows identical BIT FOR BIT to tv_tetra48_h
+  bal     stamps d_in  2560: 180 sites,    1662 cycles a step (32 blocks of a row), 0.681 us at 2440 MHz; warp balance 0.782
+  bal     stamps d_in  4096:  36 sites,    1652 cycles a step (32 blocks of a row), 0.677 us at 2440 MHz; warp balance 0.664
+  bal     stamps d_in  9728:  36 sites,    1347 cycles a step (32 blocks of a row), 0.552 us at 2440 MHz; warp balance 0.662
+  Int4 rows alone (K11): 84 synthetic records of the 4B's int4 shapes, 159744 rows, 0.4094 GB (words, scales, biases)
+  q4      tv_q4rows_q4: grid 142 (1 a SM, 2 fit), 512 threads, 48 registers, 0 B local, 39168 B shared
+  q4: 159744 rows identical BIT FOR BIT to tv_q4_hh
+  q4nc    tv_q4rows_nc: grid 142 (1 a SM, 2 fit), 512 threads, 48 registers, 0 B local, 39168 B shared
+  q4nc: 159744 rows identical BIT FOR BIT to tv_q4_hh
+  q4t     tv_q4rows_tile: grid 142 (1 a SM, 1 fit), 512 threads, 72 registers, 0 B local, 39168 B shared
+  q4t: 159744 rows identical BIT FOR BIT to tv_q4_hh
+  q4read  tv_q4rows_read: grid 142 (1 a SM, 1 fit), 512 threads, 96 registers, 0 B local, 39168 B shared
+  q4read: diagnostic, rows not owed (0 of 159744 happen to equal tv_q4_hh)
+  Counters (K3b): 142 x 512 cooperative, 10000 hops a launch, 7 reps interleaved, 2 discarded; split and work spin 2500 cycles a hop
+  bar: counts OK (1 counter)
+  tight: counts OK (1 counter)
+  rel: counts OK (1 counter)
+  ctr8: counts OK (18 counters)
+  split: counts OK (1 counter)
+  work: counts OK (1 counter)
+  bar      0.771 us a hop [0.771-0.771]
+  tight    0.773 us a hop [0.773-0.774]  under bar, rep by rep: -0.003 us [-0.003--0.002]; K3b rule: not a lever
+  rel      0.678 us a hop [0.677-0.678]  under bar, rep by rep: 0.093 us [0.093-0.093]; K3b rule: not a lever
+  ctr8     0.497 us a hop [0.496-0.497]  under bar, rep by rep: 0.274 us [0.274-0.275]; K3b rule: not a lever
+  split    1.402 us a hop [1.402-1.405]  exposed over work, rep by rep: 0.356 us [0.355-0.357]
+  work     1.046 us a hop [1.045-1.049]
+  One-launch Tetra pass (L1) and its variants, rounds interleaved with A4:
+  tpersall           2.485 ms [2.482-2.494]  B_pa = 0.9806 GB / t: 395 GB/s [393-395]
+  tpersall_pf        2.505 ms [2.494-2.509]  B_pa = 0.9806 GB / t: 391 GB/s [391-393]
+                     speed over tpersall, round by round: x0.994 [0.989-0.997]
+  tpersall_ts        2.638 ms [2.615-2.647]  B_pa = 0.9806 GB / t: 372 GB/s [371-375]
+                     speed over tpersall, round by round: x0.943 [0.938-0.950]
+  tpersall_ts_pf     2.670 ms [2.644-2.678]  B_pa = 0.9806 GB / t: 367 GB/s [366-371]
+                     speed over tpersall, round by round: x0.934 [0.928-0.940]
+  tpersall_ts_pf_l2  2.596 ms [2.584-2.612]  B_pa = 0.9806 GB / t: 378 GB/s [375-379]
+                     speed over tpersall, round by round: x0.958 [0.952-0.961]
+  Row-loop microbenchmark, rounds interleaved with A4; bytes = words (row stride) + binary16 tails + row scales:
+  v3      2.987 ms [2.959-3.073]  0.9467 GB: 317 GB/s [308-320]  speed over v2: x0.846 [0.836-0.849]
+  ilp2    2.729 ms [2.702-2.810]  0.9467 GB: 347 GB/s [337-350]  speed over v2: x0.927 [0.915-0.928]
+  v2u     3.106 ms [3.061-3.153]  0.9467 GB: 305 GB/s [300-309]  speed over v2: x0.823 [0.806-0.825]
+  l1w     2.567 ms [2.504-2.653]  0.9467 GB: 369 GB/s [357-378]  speed over v2u: x1.212 [1.171-1.223]
+  bcast   3.174 ms [3.092-3.233]  0.9467 GB: 298 GB/s [293-306]  speed over v2u: x0.993 [0.949-0.993]
+  xbcast  3.154 ms [3.057-3.206]  0.9467 GB: 300 GB/s [295-310]  speed over v2u: x0.985 [0.958-1.005]
+  v2_o2   1.885 ms [1.836-1.906]  0.7207 GB: 382 GB/s [378-392]  speed over v2_s: x1.073 [1.064-1.075]
+  nc      3.164 ms [3.053-3.189]  0.9467 GB: 299 GB/s [297-310]  speed over v2: x0.810 [0.787-0.829]
+          K4 rule: x0.810 over v2, DEAD: under x1.10
+  nc256   3.031 ms [2.925-3.058]  0.9467 GB: 312 GB/s [310-324]  speed over v2: x0.845 [0.823-0.865]
+          K4 rule: x0.845 over v2, DEAD: under x1.10
+  cpa     2.640 ms [2.564-2.670]  0.9467 GB: 359 GB/s [355-369]  speed over v2: x0.960 [0.944-0.987]
+          K4 rule: x0.960 over v2, DEAD: under x1.10
+  tile    2.537 ms [2.473-2.564]  0.9467 GB: 373 GB/s [369-383]  speed over v2: x1.002 [0.982-1.024]
+          K4 rule: x1.002 over v2, DEAD: under x1.10
+  bal     2.726 ms [2.649-2.750]  0.9467 GB: 347 GB/s [344-357]  speed over v2: x0.934 [0.916-0.956]
+          K4 rule: x0.934 over v2, DEAD: under x1.10
+  Int4 rows alone (K11), rounds interleaved with A4; bytes = 0.4094 GB of words, scales and biases:
+  q4      0.999 ms [0.981-1.011]  410 GB/s [405-417]  speed over q4hh: x1.335 [1.323-1.338]
+  q4nc    0.927 ms [0.908-0.932]  442 GB/s [440-451]  speed over q4hh: x1.436 [1.433-1.443]  speed over q4: x1.080 [1.071-1.086]
+          K11 rule: x1.080 over q4, not a lever: under x1.10
+  q4t     0.747 ms [0.746-0.749]  548 GB/s [547-549]  speed over q4hh: x1.784 [1.754-1.786]  speed over q4: x1.338 [1.313-1.350]
+          K11 rule: x1.338 over q4, LEVER: at or over x1.10
+  q4read  0.610 ms [0.606-0.611]  671 GB/s [670-675]  speed over q4hh: x2.187 [2.145-2.194]  speed over q4: x1.638 [1.606-1.658]
+/out/step1-micro-2026-11-07:
+total 25
+-rw-r--r--. 1 root root 23119 Nov  7 10:58 bench.txt
+drwxr-xr-x. 2 root root     0 Nov  7 11:06 cubin
+-rw-r--r--. 1 root root   219 Nov  7 10:58 files.sha256
+-rw-r--r--. 1 root root    50 Nov  7 10:58 gpu.txt
+-rw-r--r--. 1 root root   377 Nov  7 10:58 oracle.txt
+
+/out/step1-micro-2026-11-07/cubin:
+total 28193
+-rw-r--r--. 1 root root  386304 Nov  7 11:03 bench.cubin
+-rw-r--r--. 1 root root  620922 Nov  7 11:03 bench.ptx
+-rw-r--r--. 1 root root 5172240 Nov  7 11:04 persistent.cubin
+-rw-r--r--. 1 root root 8323389 Nov  7 11:04 persistent.ptx
+-rw-r--r--. 1 root root 5507408 Nov  7 11:06 trows.cubin
+-rw-r--r--. 1 root root 8857682 Nov  7 11:06 trows.ptx

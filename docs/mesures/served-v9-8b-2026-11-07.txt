@@ -1,0 +1,60 @@
+served-v9-8b, 2026-11-07. The served door of the sealed 8B under its v9 config: 4E with a Tetra o and an untied head.
+
+Result: v9 decodes the 8B at 142.5 tok/s at the door against 105.9 for the served grouped config in the same job
+(*measured*), and 4E returns the eager path's tokens under the v9 config at the door and at every length. The kernel
+form from position 0 reads +0.0043 % [-0.0141 ; +0.0227] of paired perplexity against the grouped form, inside
++-0.12 %. The pilot scores 46/50, as the grouped census on the same problems. Every gate held.
+
+Job      : 6aef7ae20e0338d1bb83b4f6, l40sx1 (NVIDIA L40S, sm_89, 2520 MHz, driver 580.178.04), 1,655 s of card (the
+           job's running_secs), $0.83 (*computed* at $1.80/h). Ran 19:26 to 19:54 UTC.
+Image    : Space sha d30e839eb2c3e92449c05ff0b500af36a62fa82e, built from claude/serve-v9-single-int4-7aba47 652e803.
+Prereg   : proofs/preregistration-served-v9-8b-14b-2026-11-07.md, OpenTimestamps stamped and committed (652e803)
+           before the image was built. No departure.
+Raw      : served-v9-8b-2026-11-07-brut/ (door-grouped.txt, door.txt, sweep.txt, gsm8k-8b-v9-n50.*, ppl.txt,
+           band.txt, compare.txt, job.log).
+
+Gates (§3, *measured*): oracle MATCH; object 7bdb9a55 and both configs at their sha256; the v9 door, the sweep and the
+pilot print the provenance "4E rows v9", the v9 unit e269ea5d, "int4 layout: tiled (LLVQ_CONFIG), 53 records, words
+0.503 GB on the card, held once", tv_q4_hht equal to tv_q4_ht, the tiled reader equal to tv_q4_hh on the file's order
+on both int4 widths (4,096 and 12,288), module 1b422b62, "4E: head on a table of its own (untied) (151936 rows)",
+"4E: 36 Tetra o_proj read under their own rotation, 0 int4", the 76 prologue inputs aligned, the int4 records read
+in place with no relay line, RoPE equal to candle's, pers_4e_tokens_f1_t512 with 128 registers, 0 B local, 85,952 B
+shared; 4E equals the eager path at the door (256 of 256) and at the four lengths; the pilot dump on fingerprint
+94c7b98876288901 with "rows":"v9"; part 4 printed the kernel's replay check, the kernel from position 0, window 1's
+prefill bit for bit; no LLVQ_* in the job env.
+
+Results, measured, 256 new tokens, 1 discarded + 5 rounds, medians [range]:
+
+                                  v9                     grouped (served, same job)
+  door (prompt and decode)        142.5 [142.1-142.7]    105.9 [105.8-106.0]
+  4E decode alone                 144.8 [144.3-144.9]
+  eager, same config, door        103.0 [102.8-103.1]
+  4E / eager, round by round      x1.384 [1.382-1.385]
+  card memory after the install   3.356 GB               3.286 GB   (cuMemGetInfo, the whole context)
+
+  v9 sweep   prompt   to first token, s   decode tok/s [range]    ms a decode token
+                  5   0.03                144.5 [144.4-144.8]     6.92
+               2048   11.00               135.2 [134.8-135.4]     7.40
+               4096   22.66               129.3 [127.9-129.7]     7.73
+               8192   46.30               110.0 [109.3-110.2]     9.09
+
+The grouped config's sweep was not read in this job; gqa-8b-2026-11-04 read 106.4 / … / 66.9 at 5 / … / 8,192 (another
+job, no ratio formed). The door's 256 tokens are the same under v9 and grouped (c817aeaf2f5d1116), which the attention
+form did not owe.
+
+GSM8K pilot, 50 problems: 46 correct under v9, 46 for the grouped census on the same problems; 44/50 completions
+identical (not owed: the attention form differs).
+
+Perplexity, WikiText-2, 6 windows of 4,096 from window 60, decode path, kernel from position 0 against grouped:
+8.9427 against 8.9423, +0.0043 % [-0.0141 ; +0.0227] (paired 95 % t); top-1 agreement 99.792 % (24,519 of 24,570
+steps); max |dlogit| 3.832.
+
+Rules (§6). A, identity: holds. B, quality: the interval is inside +-0.12 %, so the kernel form from position 0 is
+licensed at 8B. C: the operator's message of 2026-11-07 asks for the switch; the 8B's served numbers become 142.5
+tok/s at the door and the sweep above.
+
+Predictions (§5): grouped door 105.9 against 106 [100, 112], inside; v9 door 142.5 against 140 [110, 175], inside;
+sweep at 8,192 110.0 against 100 [75, 130], inside; pilot 46 against 46 [43, 49], inside; perplexity +0.0043 % against
++0.00 % inside [-0.05, +0.05], inside; identity as predicted.
+
+Not established: batch above 1; any MMLU or full GSM8K under 4E at 8B; Metal; any card but the L40S.

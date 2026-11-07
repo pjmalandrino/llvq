@@ -1216,7 +1216,7 @@ fn served_door_4e(
 /// and every geometry in each round, then one stamped launch a geometry.
 fn run_pers_4e(
     model: &mut llvq_llm::model::Qwen3,
-    rts: &mut [llvq_llm::persist4e_cuda::Runtime4e],
+    rts: &mut Vec<llvq_llm::persist4e_cuda::Runtime4e>,
     prompt: &[u32],
     n_new: usize,
 ) -> anyhow::Result<()> {
@@ -1287,12 +1287,29 @@ fn run_pers_4e(
         Ok((out, t.elapsed().as_secs_f64()))
     };
     let (want, _) = eager(model, &mut caches)?;
-    for rt in rts.iter_mut() {
-        let (got, _) = pers(rt, &mut caches)?;
-        if let Some(i) = first_divergence(&want, &got).map_err(|e| anyhow::anyhow!("{e}"))? {
-            anyhow::bail!("context {}: 4E {} diverges from the eager path at token {i}; 4E owes its bits, the run is void", prompt.len(), rt.label());
+    // v4 (served) and v6 are the references: a divergence of either voids the
+    // run. A newer form that diverges leaves the run alone, its numbers void,
+    // and the forms that kept the bits are still timed.
+    let mut k = 0;
+    while k < rts.len() {
+        let (got, _) = pers(&mut rts[k], &mut caches)?;
+        let label = rts[k].label();
+        match first_divergence(&want, &got).map_err(|e| anyhow::anyhow!("{e}"))? {
+            None => {
+                println!("  4E {label}: tokens equal the eager path's, {} of {}", got.len(), want.len());
+                k += 1;
+            }
+            Some(i) if rts[k].rows_form <= 4 => {
+                anyhow::bail!("context {}: 4E {label} diverges from the eager path at token {i}; 4E owes its bits, the run is void", prompt.len());
+            }
+            Some(i) => {
+                println!("  4E {label}: DIVERGES from the eager path at token {i}; this form's numbers are void and it leaves the run");
+                rts.remove(k);
+            }
         }
-        println!("  4E {}: tokens equal the eager path's, {} of {}", rt.label(), got.len(), want.len());
+    }
+    if rts.is_empty() {
+        anyhow::bail!("context {}: no 4E form kept the eager path's tokens", prompt.len());
     }
     match first_divergence(&served, &want).map_err(|e| anyhow::anyhow!("{e}"))? {
         None => println!("  served door (kernel from {from}): the same {} tokens", served.len()),
@@ -1328,11 +1345,11 @@ fn run_pers_4e(
         let ratio: Vec<f64> = rate[1 + k].iter().zip(&rate[0]).map(|(a, b)| a / b).collect();
         let (m, lo, hi) = median_range(&ratio);
         println!("  {:<22} 4E / eager, round by round: x{m:.3} [{lo:.3}-{hi:.3}]", "");
-        if k > 0 {
-            // against the first form, the same rounds
-            let ratio: Vec<f64> = rate[1 + k].iter().zip(&rate[1]).map(|(a, b)| a / b).collect();
+        // against every earlier form, the same rounds
+        for (j, rj) in rts.iter().enumerate().take(k) {
+            let ratio: Vec<f64> = rate[1 + k].iter().zip(&rate[1 + j]).map(|(a, b)| a / b).collect();
             let (m, lo, hi) = median_range(&ratio);
-            println!("  {:<22} 4E {} / 4E {}, round by round: x{m:.3} [{lo:.3}-{hi:.3}]", "", rt.label(), rts[0].label());
+            println!("  {:<22} 4E {} / 4E {}, round by round: x{m:.3} [{lo:.3}-{hi:.3}]", "", rt.label(), rj.label());
         }
     }
     // One more launch a geometry, on the phase-stamp symbol, after the timed
@@ -1890,8 +1907,8 @@ fn main() -> anyhow::Result<()> {
             f.model.set_attn_kernel(Some(k));
             // The bench forms at 512 threads, each its own module (the
             // 768-thread symbol spills under the card's driver, v2 and v3):
-            // v4, the served form, and v6, v4 with ln1, ln2 and the down's
-            // input in one round trip. Each owes the eager path's tokens.
+            // pers::P4E_BENCH_FORMS, v4 (the served form), v6, v7, v8 and
+            // v9, then v6s. Each owes the eager path's tokens.
             let mut rts = Vec::new();
             for (form, label) in llvq_cuda::pers::P4E_BENCH_FORMS {
                 match llvq_llm::persist4e_cuda::install_rows(&f.model, &device, n_new as u32, Some(512), form) {
@@ -1903,6 +1920,18 @@ fn main() -> anyhow::Result<()> {
                     }
                     Err(e) => println!("4E {label} at 512 threads: not run: {e}"),
                 }
+            }
+            // v6s: v6's module asking for v8's shared bytes, the same code and
+            // bits under v8's L1/shared carve-out (plan-300 step 3's
+            // diagnostic of v8's slower rows).
+            match llvq_llm::persist4e_cuda::install_rows_as(&f.model, &device, n_new as u32, Some(512), 4, Some(6)) {
+                Ok(rt) => {
+                    for line in &rt.lines {
+                        println!("{line}");
+                    }
+                    rts.push(rt);
+                }
+                Err(e) => println!("4E v6s at 512 threads: not run: {e}"),
             }
             if rts.is_empty() {
                 anyhow::bail!("LLVQ_PERS_4E: no 4E geometry loads on this card");
@@ -2145,7 +2174,7 @@ fn main() -> anyhow::Result<()> {
                     println!("{}", cfg.provenance());
                     llvq_llm::fused_cuda::load_resolved(
                         &path, &device, dtype, cfg.layout, cfg.embed, cfg.rot_share, cfg.fuse,
-                        cfg.kv, Some("LLVQ_CONFIG"),
+                        cfg.kv, cfg.int4_layout(), Some("LLVQ_CONFIG"),
                     )?
                 }
                 None => {
@@ -2273,7 +2302,7 @@ fn main() -> anyhow::Result<()> {
                     println!("{}", cfg.provenance());
                     llvq_llm::fused_cuda::load_resolved(
                         &path, &device, dtype, cfg.layout, cfg.embed, cfg.rot_share, cfg.fuse,
-                        cfg.kv, Some("LLVQ_CONFIG"),
+                        cfg.kv, cfg.int4_layout(), Some("LLVQ_CONFIG"),
                     )?
                 }
                 None => {
@@ -2456,6 +2485,7 @@ fn main() -> anyhow::Result<()> {
                 cfg.rot_share,
                 cfg.fuse,
                 cfg.kv,
+                cfg.int4_layout(),
                 Some("LLVQ_CONFIG"),
             )?;
             // The attention form and its store, from the file and from
@@ -2465,6 +2495,16 @@ fn main() -> anyhow::Result<()> {
             for line in dec.lines() {
                 println!("{line}");
             }
+            // The card's own count, the whole context (weights, tables, 4E's
+            // module and scratch, candle's pool), before the first token:
+            // what serve-v9 reads to show the int4 bytes are held once.
+            let (free, total) = candle_core::cuda_backend::cudarc::driver::result::mem_get_info()
+                .map_err(|e| anyhow::anyhow!("cuMemGetInfo: {e}"))?;
+            println!(
+                "card memory: {:.3} GB used of {:.3} GB after the load and the decoder install (cuMemGetInfo)",
+                (total - free) as f64 / 1e9,
+                total as f64 / 1e9
+            );
             let load_s = t.elapsed().as_secs_f64();
             let ids = f
                 .tokenizer

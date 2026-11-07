@@ -251,7 +251,12 @@ pub fn install(model: &Qwen3, device: &Device) -> anyhow::Result<Installed> {
     let mut refused = Vec::new();
     for (l, block) in model.blocks.iter().enumerate() {
         let built = (|| -> anyhow::Result<Segment> {
-            let (a, tetra_down) = mlp_args(block, &frt, &base, &stream)?;
+            let (a, tetra_down, q4_layout) = mlp_args(block, &frt, &base, &stream)?;
+            // Route P's segment reads the file's order (pers_q4_row): a
+            // runtime that holds tiled words (a v9 config) is refused here.
+            if q4_layout == Some(crate::fused::Int4Layout::Tiled) {
+                anyhow::bail!("the int4 down_proj holds tiled words (4E v9's layout); the segment reads the file's order");
+            }
             let args = rt.cuda.stream().clone_htod(&a.bytes()).map_err(|e| anyhow::anyhow!("H2D: {e}"))?;
             Ok(Segment { rt: rt.clone(), args, tetra_down, hidden: hidden as usize })
         })();
@@ -303,14 +308,16 @@ pub fn clear(model: &mut Qwen3) {
 /// One layer's `SegArgs`, the constants of `base` (SiLU table, scratch,
 /// tables, slices, counters, widths) completed with this block's ln2, its
 /// gate/up rotation and Tetra streams, and its Tetra or int4 down. Returns the
-/// image and whether the down is Tetra. Shared by step A and by 4E.
+/// image, whether the down is Tetra, and an int4 down's word order (`None`
+/// for a Tetra down). Shared by step A and by 4E.
 pub(crate) fn mlp_args(
     block: &crate::model::Block,
     frt: &crate::fused_cuda::FusedRuntime,
     base: &pers::SegArgsHost,
     stream: &candle_core::cuda_backend::cudarc::driver::CudaStream,
-) -> anyhow::Result<(pers::SegArgsHost, bool)> {
+) -> anyhow::Result<(pers::SegArgsHost, bool, Option<crate::fused::Int4Layout>)> {
     let (hidden, inter) = (base.hidden, base.inter);
+    let mut q4_layout = None;
     let (ln2_w, eps, _, gate, up, down) = block.mlp_parts();
     if ln2_w.dtype() != DType::F16 {
         anyhow::bail!("ln2 is {:?}, the segment reads binary16", ln2_w.dtype());
@@ -357,9 +364,10 @@ pub(crate) fn mlp_args(
         a.q4s = v.scales;
         a.q4b = v.biases;
         a.gpr = v.gpr;
+        q4_layout = Some(v.layout);
         false
     } else {
         anyhow::bail!("down_proj is neither a Tetra48 stream nor an int4 record");
     };
-    Ok((a, tetra_down))
+    Ok((a, tetra_down, q4_layout))
 }

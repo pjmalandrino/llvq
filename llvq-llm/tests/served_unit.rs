@@ -31,7 +31,7 @@
 
 use llvq_llm::fused::{
     int4_wide_unit_names, load_int4_sources, load_int4_wide_sources, load_planes_sources,
-    planes_source_names, FusedLayout,
+    planes_source_names, FusedLayout, INT4_TILE_HALF_KERNEL_NAME, INT4_TILE_KERNEL_NAME, Q4_TILE_CU_EMBED,
 };
 use std::process::Command;
 
@@ -59,6 +59,9 @@ fn text(layout: FusedLayout, name: &str) -> String {
     if name == "tv_q4_h.cu" {
         let (cu, _) = load_int4_sources().expect("the int4 source is embedded");
         return cu;
+    }
+    if name == "tv_q4_tile.cu" {
+        return Q4_TILE_CU_EMBED.to_string();
     }
     if name == "tv_q4_wide.cu" {
         let ([_, cu], _) = load_int4_wide_sources().expect("the wide int4 source is embedded");
@@ -152,6 +155,25 @@ fn the_served_translation_unit_parses() {
     if let Err(e) = parses(FusedLayout::Tetra48, "served", &served_names()) {
         panic!("the served unit does not parse:\n{e}");
     }
+}
+
+/// The unit a v9 config compiles: the served list, then `tv_q4_tile.cu`.
+/// It parses with no kernel include path, defines both tiled entry points
+/// under the names the runtime looks up, and keeps the served ones; dropping
+/// `tv_q4_h.cu` (whose `q4_deq` it calls) fails the parse.
+#[test]
+fn the_tiled_served_unit_parses_and_carries_the_tiled_entry_points() {
+    let mut names = served_names();
+    names.push("tv_q4_tile.cu");
+    if let Err(e) = parses(FusedLayout::Tetra48, "served_tiled", &names) {
+        panic!("the v9 served unit does not parse:\n{e}");
+    }
+    let e = entry_points(&assembled(FusedLayout::Tetra48, &names));
+    for want in ["tv_q4_h", "tv_q4_hh", INT4_TILE_KERNEL_NAME, INT4_TILE_HALF_KERNEL_NAME] {
+        assert!(e.contains(&want.to_string()), "the v9 unit defines no `{want}`: {e:?}");
+    }
+    let dropped: Vec<&str> = names.iter().copied().filter(|n| *n != "tv_q4_h.cu").collect();
+    assert!(parses(FusedLayout::Tetra48, "served_tiled_drop", &dropped).is_err(), "tv_q4_tile.cu parsed without tv_q4_h.cu");
 }
 
 /// Every layout's unit, so a source added to one and forgotten in another is

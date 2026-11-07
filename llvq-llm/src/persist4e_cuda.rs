@@ -16,7 +16,8 @@
 //! candle's grouped arithmetic below 1,280 (cuBLAS matmuls, candle's
 //! softmax), whose bits no hand kernel reproduces, so 4E owes that config's
 //! tokens only from there. The served 4B config,
-//! `configs/qwen3-4b-tetra-e4-4e-v4.json`, names the persistent decode and
+//! `configs/qwen3-4b-tetra-e4-4e-v4.json` (and its v6 twin,
+//! `configs/qwen3-4b-tetra-e4-4e-v6.json`), names the persistent decode and
 //! sends every decode row to the kernel from position 0, the form the
 //! operator's T8 extension of 2026-11-05 licenses on the sealed 4B
 //! (`docs/mesures/attn-t8-below-4b-2026-11-05.txt`). `Served::decoder` sets
@@ -30,9 +31,16 @@
 //! on the card and keeps the form (pers_rope_pair) that matches it, or
 //! refuses.
 //!
-//! This version reads the 4B and 14B shapes: q and k Tetra under one rotation,
-//! v and o int4, a Tetra or int4 down per layer, a tied int4 g64 table.
-//! Anything else is refused at install by name.
+//! This version reads the three sealed shapes: q and k Tetra under one
+//! rotation, v int4, o int4 (4B, 14B) or Tetra under its own rotation (8B, a
+//! `Pers4eOT` image a layer), a Tetra or int4 down per layer, and the head on
+//! the embedding's int4 g64 table (4B, tied) or on its own (8B, 14B). Anything
+//! else is refused at install by name.
+//!
+//! v9 (row form 7) reads the int4 words tiled. Under a v9 config the loader
+//! wrote them so and the eager path reads the same buffers
+//! (`fused_cuda::upload_int4`, `tv_q4_tile.cu`): the int4 bytes are on the
+//! card once. On the bench door's file-order runtime v9 relays a copy.
 
 use candle_core::cuda_backend::cudarc::driver::{CudaFunction, CudaSlice, DevicePtr, LaunchConfig, PushKernelArg};
 use candle_core::{DType, Device, Tensor};
@@ -58,6 +66,8 @@ pub struct Runtime4e {
     pub rows_form: u32,
     pub grid: u32,
     smem: u32,
+    /// The launch asks for more shared bytes than the form needs.
+    padded: bool,
     pub form: u32,
     layers_host: Vec<pers::P4eLayerHost>,
     args_host: pers::P4eArgsHost,
@@ -77,6 +87,8 @@ pub struct Runtime4e {
     _held32: Vec<CudaSlice<u32>>,
     _heldf: Vec<CudaSlice<f32>>,
     _held64: Vec<CudaSlice<u64>>,
+    /// The Tetra o images (`Pers4eOT`), one a layer that has one.
+    _held8: Vec<CudaSlice<u8>>,
     /// The (cap, K, V addresses) the uploaded images carry.
     kv_seen: Vec<(usize, u64, u64)>,
     /// The first position a launch may start at: the served threshold, or 0
@@ -152,6 +164,20 @@ pub fn install(model: &Qwen3, device: &Device, max_tokens: u32, threads: Option<
 /// 2 is v4, what the served config runs since 2026-11-05; 3 is v5; 4 is v6.
 /// `LLVQ_PERS_4E` times `pers::P4E_BENCH_FORMS`.
 pub fn install_rows(model: &Qwen3, device: &Device, max_tokens: u32, threads: Option<u32>, rows_form: u32) -> anyhow::Result<Runtime4e> {
+    install_rows_as(model, device, max_tokens, threads, rows_form, None)
+}
+
+/// [`install_rows`], the launch asking for at least the dynamic shared bytes
+/// of row form `smem_of` (a measurement: the same code and bits, with the
+/// L1/shared carve-out a larger form forces). Its label carries an `s`.
+pub fn install_rows_as(
+    model: &Qwen3,
+    device: &Device,
+    max_tokens: u32,
+    threads: Option<u32>,
+    rows_form: u32,
+    smem_of: Option<u32>,
+) -> anyhow::Result<Runtime4e> {
     let dev = device.as_cuda_device()?;
     let stream = dev.cuda_stream();
     let mut lines = Vec::new();
@@ -186,7 +212,11 @@ pub fn install_rows(model: &Qwen3, device: &Device, max_tokens: u32, threads: Op
     lines.push(format!("4E: RoPE forms equal to candle's rope on this card: {forms:?}; running form {form}"));
 
     // The block size: 768 where the card's module does not spill, else 512.
-    let smem = pers::p4e_smem_bytes(hidden, inter, groups as u32) + pers::p4e_scratch_bytes(rows_form);
+    let own = pers::p4e_smem_bytes_form(rows_form, hidden, inter, groups as u32) + pers::p4e_scratch_bytes(rows_form);
+    let smem = smem_of.map_or(own, |o| own.max(pers::p4e_smem_bytes_form(o, hidden, inter, groups as u32) + pers::p4e_scratch_bytes(o)));
+    if smem != own {
+        lines.push(format!("4E: row form {rows_form} asks for {smem} B of dynamic shared memory, its own {own} B padded (measurement)"));
+    }
     let mut chosen = None;
     let sizes: Vec<u32> = match threads {
         None => vec![768, 512],
@@ -205,7 +235,8 @@ pub fn install_rows(model: &Qwen3, device: &Device, max_tokens: u32, threads: Op
             break;
         }
     }
-    let (f, threads) = chosen.ok_or_else(|| anyhow::anyhow!("4E: every block size asked for spills or fails its occupancy"))?;
+    // The refusal names what each block size read (step2-4e did not print it).
+    let (f, threads) = chosen.ok_or_else(|| anyhow::anyhow!("4E: every block size asked for spills or fails its occupancy: {}", lines.join("; ")))?;
     // The stamp symbol of the chosen geometry, kept where one CTA a SM fits.
     // It may hold local memory where the token symbol does not (768 threads
     // under the devel ptxas): its launch runs outside the timed rounds, and
@@ -233,13 +264,26 @@ pub fn install_rows(model: &Qwen3, device: &Device, max_tokens: u32, threads: Op
         Embed::Dense(_) => None,
     }
     .ok_or_else(|| anyhow::anyhow!("4E: the embedding is not the int4 g64 table (LLVQ_EMBED=q4)"))?;
-    let tied = match head {
+    // The head: the embedding's own table when tied (the 4B), a table of its
+    // own when not (the 8B and the 14B), of the same shape and group, read by
+    // the head phase through its own pointers.
+    let hv = match head {
         Head::Q8(t) => t.as_any().and_then(|a| a.downcast_ref::<crate::fused_cuda::CudaEmbed>()).and_then(|c| c.q4_view()),
         Head::Dense(_) => None,
-    };
-    if tied.map(|h| h.words) != Some(emb.words) || emb.d != hidden || emb.vocab % 8 != 0 {
-        anyhow::bail!("4E: the head is not the embedding's own int4 g64 table (the tied 4B and 14B)");
     }
+    .ok_or_else(|| anyhow::anyhow!("4E: the head is not an int4 g64 table (LLVQ_EMBED=q4)"))?;
+    if emb.d != hidden || emb.vocab % 8 != 0 || (hv.vocab, hv.d, hv.gpr) != (emb.vocab, emb.d, emb.gpr) {
+        anyhow::bail!(
+            "4E: the head table ({} x {}, {} groups a row) is not the embedding's shape ({} x {}, {})",
+            hv.vocab, hv.d, hv.gpr, emb.vocab, emb.d, emb.gpr
+        );
+    }
+    let tied = hv.words == emb.words;
+    lines.push(format!(
+        "4E: head {} ({} rows)",
+        if tied { "tied to the embedding's table" } else { "on a table of its own (untied)" },
+        hv.vocab
+    ));
     if cos.dtype() != DType::F16 || norm_w.dtype() != DType::F16 {
         anyhow::bail!("4E: the rotary tables and norms must be binary16");
     }
@@ -285,6 +329,8 @@ pub fn install_rows(model: &Qwen3, device: &Device, max_tokens: u32, threads: Op
     };
 
     let mut layers_host = Vec::with_capacity(model.blocks.len());
+    let mut int4_layout: Option<crate::fused::Int4Layout> = None;
+    let mut held_ot: Vec<CudaSlice<u8>> = Vec::new();
     for (l, block) in model.blocks.iter().enumerate() {
         let (ln1, qn, kn, qp, kp, vp, op) = block.attn_parts();
         let ctxt = |m: &str| anyhow::anyhow!("4E: layer {l}: {m}");
@@ -299,14 +345,53 @@ pub fn install_rows(model: &Qwen3, device: &Device, max_tokens: u32, threads: Op
             return Err(ctxt("the q/k rotation is not the hidden width's"));
         }
         let vq = int4_of(vp).ok_or_else(|| ctxt("v_proj is not an int4 record"))?.int4_view();
-        let oq = int4_of(op).ok_or_else(|| ctxt("o_proj is not an int4 record (an 8B Tetra o is not in this version)"))?.int4_view();
-        if vq.d_in != hidden || vq.d_out != (n_kv * 128) as u32 || oq.d_in != (n_heads * 128) as u32 || oq.d_out != hidden {
-            return Err(ctxt("v or o has an unexpected shape"));
+        if vq.d_in != hidden || vq.d_out != (n_kv * 128) as u32 {
+            return Err(ctxt("v has an unexpected shape"));
         }
+        // o: an int4 record (the 4B, the 14B), or a Tetra stream under its own
+        // rotation at the context's width (the 8B), named by a Pers4eOT image.
+        let d_ctx = (n_heads * 128) as u32;
+        let (oq, ot_addr) = match (int4_of(op), tetra_of(op)) {
+            (Some(q), _) => {
+                let oq = q.int4_view();
+                if oq.d_in != d_ctx || oq.d_out != hidden {
+                    return Err(ctxt("o has an unexpected shape"));
+                }
+                (Some(oq), 0u64)
+            }
+            (None, Some((ov, _))) => {
+                if ov.d_in != d_ctx || ov.d_out != hidden {
+                    return Err(ctxt("the Tetra o has an unexpected shape"));
+                }
+                let okey = ov.rotation.ok_or_else(|| ctxt("the Tetra o_proj carries no rotation"))?;
+                let ro = frt.rot_view(&okey).ok_or_else(|| ctxt("no rotation buffers for o"))?;
+                if ro.n != d_ctx || pers::rot_mk(ro.n).map_err(anyhow::Error::msg)? != (ro.m, ro.k) {
+                    return Err(ctxt("the o rotation is not the context's width"));
+                }
+                let img = pers::P4eOTHost { t: seg_tetra(&ov), signs: ro.signbits, small: ro.small, m: ro.m, k: ro.k, inv: ro.inv };
+                let buf = stream.clone_htod(&img.bytes()).map_err(|e| anyhow::anyhow!("H2D: {e}"))?;
+                let a = buf.device_ptr(&stream).0;
+                held_ot.push(buf);
+                (None, a)
+            }
+            (None, None) => return Err(ctxt("o_proj is neither an int4 record nor a Tetra48 stream")),
+        };
         if qv.d_out != (n_heads * 128) as u32 || kv.d_out != (n_kv * 128) as u32 || qv.d_in != hidden || kv.d_in != hidden {
             return Err(ctxt("q or k has an unexpected shape"));
         }
-        let (mlp, tetra_down) = mlp_args(block, &frt, &base, &stream)?;
+        let (mlp, tetra_down, down_layout) = mlp_args(block, &frt, &base, &stream)?;
+        // One word order for every int4 record 4E reads: the runtime chose it
+        // for all of them at load.
+        for (what, got) in [("v_proj", Some(vq.layout)), ("o_proj", oq.map(|o| o.layout)), ("down_proj", down_layout)] {
+            let Some(got) = got else { continue };
+            match int4_layout {
+                None => int4_layout = Some(got),
+                Some(want) if want != got => {
+                    return Err(ctxt(&format!("{what} holds {} words, an earlier int4 record {}", got.name(), want.name())));
+                }
+                Some(_) => {}
+            }
+        }
         layers_host.push(pers::P4eLayerHost {
             ln1: tensor_addr(ln1, &stream)?,
             signs_a: ra.signbits,
@@ -331,12 +416,13 @@ pub fn install_rows(model: &Qwen3, device: &Device, max_tokens: u32, threads: Op
             k_norm: tensor_addr(kn, &stream)?,
             kc: 0,
             vc: 0,
-            ow: oq.wq,
-            osc: oq.scales,
-            obi: oq.biases,
-            o_gpr: oq.gpr,
+            ow: oq.map_or(0, |o| o.wq),
+            osc: oq.map_or(0, |o| o.scales),
+            obi: oq.map_or(0, |o| o.biases),
+            o_gpr: oq.map_or(0, |o| o.gpr),
             tetra_down,
             mlp,
+            ot: ot_addr,
         });
     }
     let args_host = pers::P4eArgsHost {
@@ -374,8 +460,13 @@ pub fn install_rows(model: &Qwen3, device: &Device, max_tokens: u32, threads: Op
         cap: 0,
         eps: cfg.rms_norm_eps as f32,
         c: llvq_cuda::attn_ref::score_scale(128),
+        head: [hv.words, hv.scales, hv.biases],
     };
-    if rows_form == 4 {
+    let tetra_o = layers_host.iter().filter(|y| y.ot != 0).count();
+    if tetra_o > 0 {
+        lines.push(format!("4E: {tetra_o} Tetra o_proj read under their own rotation, {} int4", layers_host.len() - tetra_o));
+    }
+    if rows_form >= 4 {
         let mut addrs = vec![
             ("act".to_string(), base.act),
             ("x_a".to_string(), addr16(&x_a, &stream)),
@@ -385,8 +476,81 @@ pub fn install_rows(model: &Qwen3, device: &Device, max_tokens: u32, threads: Op
             addrs.push((format!("layer {l} ln1"), y.ln1));
             addrs.push((format!("layer {l} ln2"), y.mlp.alpha));
         }
+        // v7 also widens the o phase's input from vectors, and stages the
+        // rotations' sign words in a 576-word area
+        if rows_form >= 5 {
+            addrs.push(("ctx".to_string(), addr16(&ctx, &stream)));
+            if inter.div_ceil(32) > 576 || hidden.div_ceil(32) > 576 {
+                anyhow::bail!("4E v7: the sign words of width {} do not fit the 576 of the v7 area", inter.max(hidden));
+            }
+        }
         pers::p4e_v6_inputs(&addrs, hidden, inter).map_err(anyhow::Error::msg)?;
-        lines.push(format!("4E v6: the {} prologue inputs are 16-byte aligned; the vector path runs on every layer", addrs.len()));
+        let label = pers::P4E_ROWS_FORMS.iter().find(|f| f.0 == rows_form).map_or("v?", |f| f.1);
+        lines.push(format!("4E {label}: the {} prologue inputs are 16-byte aligned; the vector path runs on every layer", addrs.len()));
+    }
+    // The int4 words against the row form. v3 to v8 read the file's order
+    // (pers_q4_row); a runtime that holds tiled words (a v9 config) is
+    // refused by name, since those forms would read wrong words. v9 reads
+    // tiled words: in place when the runtime holds them so (a v9 config, the
+    // served form, the int4 bytes once on the card), else from a copy relaid
+    // here (the bench door's measurement form, the bytes twice).
+    let tiled_in_place = int4_layout == Some(crate::fused::Int4Layout::Tiled);
+    if tiled_in_place && rows_form < 7 {
+        let label = pers::P4E_ROWS_FORMS.iter().find(|f| f.0 == rows_form).map_or("v?", |f| f.1);
+        anyhow::bail!(
+            "4E {label}: the runtime holds its int4 words tiled (a config whose rows are \"v9\"), and row form \
+             {rows_form} reads the file's order; load with that form's config, or serve v9"
+        );
+    }
+    if tiled_in_place {
+        lines.push(format!(
+            "4E v9: the int4 records are read in place, tiled at load and held once on the card ({} layers)",
+            layers_host.len()
+        ));
+    }
+    // v9 (form 7) on a runtime that holds the file's order: the int4 records
+    // 4E reads (v, o, the int4 downs), relaid once into buffers of the same
+    // size (pers_q4_tile_index, llvq_pers.cuh); the served records stay as
+    // they are for the prefill and the eager path, so this measurement form
+    // holds the int4 bytes twice on the card.
+    let mut tiled: Vec<CudaSlice<u32>> = Vec::new();
+    if rows_form >= 7 && !tiled_in_place {
+        let relay = cuda.func("pers_4e_q4_tile_relayout").map_err(anyhow::Error::msg)?;
+        let mut bytes = 0u64;
+        {
+            let mut tile = |src: u64, d_out: u32, d_in: u32| -> anyhow::Result<u64> {
+                if !d_in.is_multiple_of(32) || !src.is_multiple_of(16) {
+                    anyhow::bail!("4E v9: an int4 record of d_in {d_in} at {src:#x} cannot be read by 16-byte tiles");
+                }
+                let nwords = d_in / 8;
+                let buf = cuda.zeros_u32(d_out as usize * nwords as usize).map_err(anyhow::Error::msg)?;
+                let cfg = LaunchConfig { grid_dim: (1024, 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 0 };
+                let mut b = cuda.stream().launch_builder(&relay);
+                b.arg(&src).arg(&buf).arg(&d_out).arg(&nwords);
+                // SAFETY: src is a live int4 record of d_out x nwords words, buf
+                // a fresh buffer of the same size; the kernel only moves words.
+                unsafe { b.launch(cfg) }.map_err(|e| anyhow::anyhow!("pers_4e_q4_tile_relayout: {e}"))?;
+                let p = buf.device_ptr(&stream).0;
+                bytes += 4 * u64::from(d_out) * u64::from(nwords);
+                tiled.push(buf);
+                Ok(p)
+            };
+            for y in layers_host.iter_mut() {
+                y.qkv.vw = tile(y.qkv.vw, y.qkv.v_dout, y.qkv.d_in)?;
+                if y.ot == 0 {
+                    y.ow = tile(y.ow, hidden, (n_heads * 128) as u32)?;
+                }
+                if !y.tetra_down {
+                    y.mlp.q4w = tile(y.mlp.q4w, hidden, inter)?;
+                }
+            }
+        }
+        cuda.sync().map_err(anyhow::Error::msg)?;
+        lines.push(format!(
+            "4E v9: {} int4 records relaid into tiled words, {:.3} GB more on the card (measurement form)",
+            tiled.len(),
+            bytes as f64 / 1e9
+        ));
     }
     let layers = stream.clone_htod(&vec![0u8; pers::P4E_LAYER_BYTES * layers_host.len()]).map_err(|e| anyhow::anyhow!("H2D: {e}"))?;
     let args = stream.clone_htod(&vec![0u8; pers::P4E_ARGS_BYTES]).map_err(|e| anyhow::anyhow!("H2D: {e}"))?;
@@ -399,6 +563,7 @@ pub fn install_rows(model: &Qwen3, device: &Device, max_tokens: u32, threads: Op
         threads,
         rows_form,
         grid,
+        padded: smem != own,
         smem,
         form,
         layers_host,
@@ -413,9 +578,14 @@ pub fn install_rows(model: &Qwen3, device: &Device, max_tokens: u32, threads: Op
         bar_base: 0,
         n_layers,
         _held16: vec![silu, act, q_raw, k_raw, v_raw, q_out, ctx, x_a, x_b],
-        _held32: vec![d_gu, d_dn, ticket],
+        _held32: {
+            let mut v = vec![d_gu, d_dn, ticket];
+            v.extend(tiled);
+            v
+        },
         _heldf: vec![scratch],
         _held64: vec![slots],
+        _held8: held_ot,
         kv_seen: Vec::new(),
         kernel_from: crate::kvq::KERNEL_FROM,
         lines,
@@ -434,7 +604,8 @@ impl Runtime4e {
     /// threads".
     pub fn label(&self) -> String {
         let form = pers::P4E_ROWS_FORMS.iter().find(|f| f.0 == self.rows_form).map_or("v?", |f| f.1);
-        format!("{form} at {} threads", self.threads)
+        let pad = if self.padded { "s" } else { "" };
+        format!("{form}{pad} at {} threads", self.threads)
     }
 
     /// The first position a launch may start at.

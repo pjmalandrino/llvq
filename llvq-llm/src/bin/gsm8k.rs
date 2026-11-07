@@ -142,6 +142,7 @@ fn main() -> anyhow::Result<()> {
             cfg.rot_share,
             cfg.fuse,
             cfg.kv,
+            cfg.int4_layout(),
             Some("LLVQ_CONFIG"),
         )
         .map_err(|e| {

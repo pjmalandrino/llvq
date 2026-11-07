@@ -85,6 +85,7 @@ impl Loader for DeviceLoader {
             cfg.rot_share,
             cfg.fuse,
             cfg.kv,
+            cfg.int4_layout(),
             Some("the llvq library"),
         )?;
         let decoder = cfg.serve(&mut f.model, &device)?;

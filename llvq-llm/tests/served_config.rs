@@ -657,10 +657,10 @@ fn the_persistent_decode_is_refused_on_metal() {
     p.check_device(false).expect("CUDA");
 }
 
-/// On the Qwen3-4B's shape only: the 8B and the 14B, whose T8 below 1,280 was
-/// never granted, are refused by name.
+/// On the three sealed shapes only: the 4B, the 8B and the 14B; any other
+/// shape (here the 0.6B's, and a 14B with one layer less) is refused by name.
 #[test]
-fn the_persistent_decode_runs_on_the_4b_shape_only() {
+fn the_persistent_decode_runs_on_the_three_sealed_shapes_only() {
     let cfg = |layers, hidden, inter, heads, kv| {
         let text = format!(
             r#"{{"vocab_size":151936,"hidden_size":{hidden},"intermediate_size":{inter},"num_hidden_layers":{layers},
@@ -671,9 +671,11 @@ fn the_persistent_decode_runs_on_the_4b_shape_only() {
         serde_json::from_str::<candle_transformers::models::qwen3::Config>(&text).expect("a qwen3 config")
     };
     check_persistent_object(&cfg(36, 2560, 9728, 32, 8)).expect("the 4B");
-    for (name, c) in [("8B", cfg(36, 4096, 12288, 32, 8)), ("14B", cfg(40, 5120, 17408, 40, 8)), ("0.6B", cfg(28, 1024, 3072, 16, 8))] {
+    check_persistent_object(&cfg(36, 4096, 12288, 32, 8)).expect("the 8B");
+    check_persistent_object(&cfg(40, 5120, 17408, 40, 8)).expect("the 14B");
+    for (name, c) in [("0.6B", cfg(28, 1024, 3072, 16, 8)), ("14B less a layer", cfg(39, 5120, 17408, 40, 8))] {
         let e = check_persistent_object(&c).expect_err(name);
-        assert!(e.contains("persistent") && e.contains("4B"), "{name}: {e}");
+        assert!(e.contains("persistent") && e.contains("three sealed"), "{name}: {e}");
     }
 }
 
@@ -706,32 +708,195 @@ fn the_v4_config_is_the_4e_config_with_the_v4_rows() {
     assert!(note.contains("SERVED from 2026-11-05") && note.contains("886391a8"), "{note}");
 }
 
-/// The field: absent and "v3" are form 1, "v4" form 2; "v5" is refused by
+/// The v6 config is the v4 config with the v6 row loop, and nothing else
+/// moved; its line names the loop, and it resolves to the module's form 4.
+#[test]
+fn the_v6_config_is_the_v4_config_with_the_v6_rows() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../configs");
+    let read = |name: &str| {
+        let path = dir.join(name);
+        let f = Served::read_file(&path).unwrap_or_else(|e| panic!("{name}: {e}"));
+        Served::of(f, path).unwrap_or_else(|e| panic!("{name}: {e}"))
+    };
+    let v4 = read("qwen3-4b-tetra-e4-4e-v4.json");
+    let v6 = read("qwen3-4b-tetra-e4-4e-v6.json");
+    assert_eq!(v6.rows, Rows4e::V6);
+    assert_eq!(v6.rows.form(), 4);
+    assert_eq!(
+        (v6.layout, v6.embed, v6.rot_share, v6.fuse, v6.kv, v6.attention, v6.store, v6.decode),
+        (v4.layout, v4.embed, v4.rot_share, v4.fuse, v4.kv, v4.attention, v4.store, v4.decode),
+        "only the row loop may differ from the v4 config"
+    );
+    assert!(
+        v6.provenance().contains("attention kernel from position 0 on grow(256), decode persistent (4E rows v6, one launch a token run)"),
+        "{}",
+        v6.provenance()
+    );
+    let note = v6.note.as_deref().expect("a note");
+    assert!(note.contains("886391a8") && note.contains("row form 4"), "{note}");
+    // The files themselves: the same keys in the same order, one line apart
+    // besides the free-text note.
+    let raw = |name: &str| -> Vec<String> {
+        std::fs::read_to_string(dir.join(name))
+            .unwrap_or_else(|e| panic!("{name}: {e}"))
+            .lines()
+            .filter(|l| !l.trim_start().starts_with("\"note\""))
+            .map(str::to_string)
+            .collect()
+    };
+    let (a, b) = (raw("qwen3-4b-tetra-e4-4e-v4.json"), raw("qwen3-4b-tetra-e4-4e-v6.json"));
+    let differ: Vec<_> = a.iter().zip(&b).filter(|(x, y)| x != y).collect();
+    assert_eq!(a.len(), b.len(), "the same keys");
+    assert_eq!(differ, vec![(&"  \"rows\": \"v4\",".to_string(), &"  \"rows\": \"v6\",".to_string())]);
+    // The 4E install refuses Metal and every object but the 4B, as under v4.
+    let e = v6.check_device(true).expect_err("Metal");
+    assert!(e.contains("persistent") && e.contains("Metal"), "{e}");
+}
+
+/// The v9 config is the v6 config with the v9 row loop, and nothing else
+/// moved; its line names the loop, it resolves to the module's form 7, and
+/// it is the one config that lays the int4 words tiled on the card.
+#[test]
+fn the_v9_config_is_the_v6_config_with_the_v9_rows() {
+    use llvq_llm::fused::Int4Layout;
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../configs");
+    let read = |name: &str| {
+        let path = dir.join(name);
+        let f = Served::read_file(&path).unwrap_or_else(|e| panic!("{name}: {e}"));
+        Served::of(f, path).unwrap_or_else(|e| panic!("{name}: {e}"))
+    };
+    let v6 = read("qwen3-4b-tetra-e4-4e-v6.json");
+    let v9 = read("qwen3-4b-tetra-e4-4e-v9.json");
+    assert_eq!(v9.rows, Rows4e::V9);
+    assert_eq!(v9.rows.form(), 7);
+    assert_eq!(
+        (v9.layout, v9.embed, v9.rot_share, v9.fuse, v9.kv, v9.attention, v9.store, v9.decode),
+        (v6.layout, v6.embed, v6.rot_share, v6.fuse, v6.kv, v6.attention, v6.store, v6.decode),
+        "only the row loop may differ from the v6 config"
+    );
+    assert!(
+        v9.provenance().contains("attention kernel from position 0 on grow(256), decode persistent (4E rows v9, one launch a token run)"),
+        "{}",
+        v9.provenance()
+    );
+    // The int4 words: tiled and held once under v9, the file's order under
+    // every other config, so no config reads words in the wrong order.
+    assert_eq!(v9.int4_layout(), Int4Layout::Tiled);
+    for name in [
+        "qwen3-4b-tetra-e4-4e.json",
+        "qwen3-4b-tetra-e4-4e-v4.json",
+        "qwen3-4b-tetra-e4-4e-v6.json",
+        "qwen3-4b-tetra-e4-grouped.json",
+        "qwen3-8b-tetra-e4-grouped.json",
+        "qwen3-14b-tetra-e4-grouped.json",
+    ] {
+        assert_eq!(read(name).int4_layout(), Int4Layout::Served, "{name}");
+    }
+    for r in [Rows4e::V3, Rows4e::V4, Rows4e::V6] {
+        assert_eq!(r.int4_layout(), Int4Layout::Served, "{r:?}");
+    }
+    let note = v9.note.as_deref().expect("a note");
+    assert!(note.contains("886391a8") && note.contains("row form 7") && note.contains("once"), "{note}");
+    let raw = |name: &str| -> Vec<String> {
+        std::fs::read_to_string(dir.join(name))
+            .unwrap_or_else(|e| panic!("{name}: {e}"))
+            .lines()
+            .filter(|l| !l.trim_start().starts_with("\"note\""))
+            .map(str::to_string)
+            .collect()
+    };
+    let (a, b) = (raw("qwen3-4b-tetra-e4-4e-v6.json"), raw("qwen3-4b-tetra-e4-4e-v9.json"));
+    let differ: Vec<_> = a.iter().zip(&b).filter(|(x, y)| x != y).collect();
+    assert_eq!(a.len(), b.len(), "the same keys");
+    assert_eq!(differ, vec![(&"  \"rows\": \"v6\",".to_string(), &"  \"rows\": \"v9\",".to_string())]);
+    let e = v9.check_device(true).expect_err("Metal");
+    assert!(e.contains("persistent") && e.contains("Metal"), "{e}");
+}
+
+/// The 8B and 14B v9 configs carry the 4B v9 config's keys, line for line
+/// beside the note; each names its own object and resolves to v9 with the
+/// int4 words tiled.
+#[test]
+fn the_8b_and_14b_v9_configs_are_the_4b_v9_config_on_their_objects() {
+    use llvq_llm::fused::Int4Layout;
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../configs");
+    let raw = |name: &str| -> Vec<String> {
+        std::fs::read_to_string(dir.join(name))
+            .unwrap_or_else(|e| panic!("{name}: {e}"))
+            .lines()
+            .filter(|l| !l.trim_start().starts_with("\"note\""))
+            .map(str::to_string)
+            .collect()
+    };
+    let four = raw("qwen3-4b-tetra-e4-4e-v9.json");
+    for (name, object) in [("qwen3-8b-tetra-e4-4e-v9.json", "7bdb9a55"), ("qwen3-14b-tetra-e4-4e-v9.json", "61db37fe")] {
+        assert_eq!(raw(name), four, "{name}: only the note may differ from the 4B v9 config");
+        let path = dir.join(name);
+        let c = Served::of(Served::read_file(&path).unwrap(), path).unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert_eq!((c.rows, c.decode, c.int4_layout()), (Rows4e::V9, Decode::Persistent, Int4Layout::Tiled), "{name}");
+        let note = c.note.as_deref().expect("a note");
+        assert!(note.contains(object) && note.contains("untied"), "{name}: {note}");
+    }
+}
+
+/// Every served row loop is a row form of the module, under the name the
+/// module gives it: a `form()` that pointed at v5's number would compile
+/// v5's loop under v6's provenance. It names `llvq_cuda`, a dev-dependency on
+/// macOS only, so it carries that gate (a Linux CPU build has no such crate).
+#[cfg(any(target_os = "macos", feature = "cuda"))]
+#[test]
+fn the_served_rows_are_the_modules_row_forms() {
+    use llvq_cuda::pers::P4E_ROWS_FORMS;
+    for r in [Rows4e::V3, Rows4e::V4, Rows4e::V6, Rows4e::V9] {
+        assert!(P4E_ROWS_FORMS.contains(&(r.form(), r.label())), "{r:?}: ({}, {}) is not a module form", r.form(), r.label());
+        assert_eq!(Rows4e::parse(Some(r.label())), Ok(r), "{r:?} parses from its own label");
+        llvq_cuda::pers::p4e_rows_define(r.form()).unwrap_or_else(|e| panic!("{r:?}: {e}"));
+    }
+    // v5, v7 and v8 are module forms and not served ones.
+    for (form, label) in [(3, "v5"), (5, "v7"), (6, "v8")] {
+        assert!(P4E_ROWS_FORMS.contains(&(form, label)));
+        assert!(Rows4e::parse(Some(label)).is_err(), "{label}");
+    }
+}
+
+/// The field: absent and "v3" are form 1, "v4" form 2, "v6" form 4; "v5" is refused by
 /// name, and so are the empty string and any other word; beside the eager
 /// decode the key itself is refused.
 #[test]
-fn the_rows_field_serves_v3_and_v4_and_refuses_the_rest() {
+fn the_rows_field_serves_v3_v4_and_v6_and_refuses_the_rest() {
     let mut f = four_e();
     assert_eq!(of(f.clone()).expect("absent").rows, Rows4e::V3);
     f.rows = Some("v3".into());
     assert_eq!(of(f.clone()).expect("v3").rows, Rows4e::V3);
     f.rows = Some("v4".into());
     assert_eq!(of(f.clone()).expect("v4").rows, Rows4e::V4);
+    f.rows = Some("v6".into());
+    assert_eq!(of(f.clone()).expect("v6").rows, Rows4e::V6);
+    f.rows = Some("v9".into());
+    assert_eq!(of(f.clone()).expect("v9").rows, Rows4e::V9);
     let e = {
         f.rows = Some("v5".into());
         of(f.clone()).expect_err("v5")
     };
     assert!(e.contains("v5") && e.contains("measurement"), "{e}");
-    for bad in ["", " ", "V4", "4", "v2"] {
+    let e = Rows4e::parse(Some("v7")).expect_err("v7");
+    assert!(e.contains("local memory") && e.contains("does not install"), "v7 is refused by its cause: {e}");
+    let e = Rows4e::parse(Some("v8")).expect_err("v8");
+    assert!(e.contains("measurement") && e.contains("x1.035"), "v8 is refused by its cause: {e}");
+    let named = Rows4e::parse(Some("v10")).expect_err("v10");
+    assert!(named.contains("\"v3\", \"v4\", \"v6\" and \"v9\""), "the refusal names the served forms: {named}");
+    for bad in ["", " ", "V4", "V6", "V9", "4", "v2", "v7", "v8", "6", "9"] {
         f.rows = Some(bad.into());
         let e = of(f.clone()).expect_err(bad);
         assert!(e.contains("rows"), "{bad:?}: {e}");
     }
-    let mut g = four_e();
-    g.decode = None;
-    g.rows = Some("v4".into());
-    let e = of(g).expect_err("rows beside the eager decode");
-    assert!(e.contains("eager decode"), "{e}");
+    for v in ["v4", "v6", "v9"] {
+        let mut g = four_e();
+        g.decode = None;
+        g.rows = Some(v.into());
+        let e = of(g).expect_err("rows beside the eager decode");
+        assert!(e.contains("eager decode") && e.contains(v), "{e}");
+    }
 }
 
 // ---- the doors of bin/chat and bin/gsm8k (2026-11-06) ------------------------
@@ -747,7 +912,7 @@ fn the_optional_fields_are_read_as_written() {
         let e = AttnHeads::parse(Some(&v.replace("persistent", "kernel"))).expect_err(v);
         assert!(e.contains("attention"), "{v:?}: {e}");
     }
-    for v in [" v4", "v4 ", " v3"] {
+    for v in [" v4", "v4 ", " v3", " v6", "v6 ", " v9", "v9 "] {
         let e = Rows4e::parse(Some(v)).expect_err(v);
         assert!(e.contains("rows"), "{v:?}: {e}");
     }
@@ -763,7 +928,12 @@ fn the_optional_fields_are_read_as_written() {
     assert_eq!(Rows4e::parse(Some("v4")), Ok(Rows4e::V4));
     // Every shipped config still resolves: none relied on the trim.
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../configs");
-    for name in ["qwen3-4b-tetra-e4-4e.json", "qwen3-4b-tetra-e4-4e-v4.json"] {
+    for name in [
+        "qwen3-4b-tetra-e4-4e.json",
+        "qwen3-4b-tetra-e4-4e-v4.json",
+        "qwen3-4b-tetra-e4-4e-v6.json",
+        "qwen3-4b-tetra-e4-4e-v9.json",
+    ] {
         let path = dir.join(name);
         let f = Served::read_file(&path).unwrap_or_else(|e| panic!("{name}: {e}"));
         Served::of(f, path).unwrap_or_else(|e| panic!("{name}: {e}"));

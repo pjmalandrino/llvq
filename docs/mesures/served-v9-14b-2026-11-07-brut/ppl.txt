@@ -1,0 +1,32 @@
+Cuda(CudaDevice(DeviceId(1))), dtype F16, 32 tokens
+
+shared rotation: 1 (LLVQ_ROT_SHARE), 101 rot_launches/token for 280 projections
+projection fusion: 0 (LLVQ_FUSE), 280 matvec_launches/token for 280 projections (0 groups + 181 lone + 99 int4)
+fused layout: tetra48 (LLVQ_FUSED_LAYOUT), projections 4.17 GB on the card, 2.524 b/weight (INFERENCE accounting: KeepExact tail in binary16; the bench bills its own in f32)
+NVRTC source: 101625 bytes, sha256 6193094310bc18acdb0a0c554807ff45f6df09c1f6ab49e0577032874f107812 (11 parts), tile 64 (served: measured optimum for sm_89), prefill 4x128 (served pair), 49152 B staged of 49152, target compute_89
+int4: tv_q4_hh equals tv_q4_h bit for bit on model.layers.0.self_attn.v_proj.weight (1024 rows, d_in 5120)
+int4 layout: served (the bench door), 99 records, words 1.476 GB on the card, held once
+embedding: q4 g64 (LLVQ_EMBED), 2 tables (model.embed_tokens.weight + lm_head.weight), 875.2 MB on the card (int4 777.9 + scales/biases 97.2)
+total expected on the card: 5.04 GB (projections 4.17 + carried 0.88)
+loaded in 19.1 s. GQA perplexity: 2 arms, one model
+LLVQ_ROT_SHARE=1, 101 rot_launches/token · LLVQ_FUSE=0, 280 matvec_launches/token
+cudarc event tracking: off (one stream, ordered by issue)
+attn_dec.cu: embedded, sha256 c7b0d8d3f2e3066ba1a2b4331c0bb6c92f22182c78a31b7fb74e839330a1838d, target compute_89
+attn_dec_g5_u64: 188 registers, 0 B local (spill), 16384 B static shared, sm_89
+attn_dec_g5_u64: the card equals the CPU replay bit for bit on 103 calls (rows ending at 1, 255, 256, 257, 1000, 4096; k 1, 3, 8; eager and wide grids; verify rows alone; fresh rows) (1.4 s)
+measurement form: every decode row on the kernel, from position 0 (the served config runs the grouped path below 1280)
+GQA perplexity: wikitext2, 6 windows of 4096 from window 60 (tokens a4cc2562e92149fe), grow(256)+kernel against grow(256)+grouped, decode path in lockstep; prefill path on 1 window(s), checked bit for bit
+  the kernel form takes positions 0 and later: positions 0..0 checked bit for bit against the grouped arm, positions 0..4095 scored apart (4095 a window)
+  window   1: prefill path bit for bit between the two arms
+  window   1/6  every position on the kernel  decode nll 2.151459568 2.151304738  from 0: nll 2.151459568 2.151304738  top-1 4087/4095  max |dlogit| 1.240e0  (235 s)
+  window   2/6  every position on the kernel  decode nll 1.876768329 1.876729617  from 0: nll 1.876768329 1.876729617  top-1 4088/4095  max |dlogit| 1.046e0  (381 s)
+  window   3/6  every position on the kernel  decode nll 2.190522118 2.190476318  from 0: nll 2.190522118 2.190476318  top-1 4085/4095  max |dlogit| 3.242e0  (528 s)
+  window   4/6  every position on the kernel  decode nll 2.115544746 2.115464348  from 0: nll 2.115544746 2.115464348  top-1 4084/4095  max |dlogit| 3.895e0  (675 s)
+  window   5/6  every position on the kernel  decode nll 1.966485042 1.966077817  from 0: nll 1.966485042 1.966077817  top-1 4082/4095  max |dlogit| 4.305e0  (822 s)
+  window   6/6  every position on the kernel  decode nll 2.124526218 2.124604441  from 0: nll 2.124526218 2.124604441  top-1 4092/4095  max |dlogit| 1.117e0  (968 s)
+
+  path      ppl grow(256)+grouped  ppl grow(256)+kernel    kernel / grouped − 1, paired 95 % t interval over 6 windows
+  decode    7.9318                7.9310                  -0.0108 % [-0.0281 ; +0.0065]
+  from 0    7.9318                7.9310                  -0.0108 % [-0.0281 ; +0.0065]  (positions the kernel takes)
+  decode top-1 agreement 24518/24570 steps (99.788 %), max |dlogit| 4.305e0
+  from 0: top-1 agreement 24518/24570 steps (99.788 %); below 0: bit for bit in all 6 windows

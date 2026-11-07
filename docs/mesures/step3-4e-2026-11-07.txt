@@ -1,0 +1,68 @@
+plan-300 step 3, 2026-11-07: 4E v9 (v8 with the int4 rows on tiled words, K11) and v6s (v6 under v8's carve-out).
+
+Result: v9 keeps the eager tokens at 5 and 8,192 prompt tokens and reads x1.035 over v8 at 5 [1.034-1.036] and x1.031
+at 8,192 [1.031-1.031], 238.6 against 230.6 tok/s and 163.5 against 158.5. Over v6, x1.118 at 5 and x1.060 at 8,192
+(*measured*, measurement form at 5, served config at 8,192). K11 holds in situ: the int4 rows took 0.146 ms off the
+timed token, 83 % of the 0.176 ms the step-1 ratio gave. v6s reads x1.000 over v6 at 5 and x0.998 at 8,192: the
+carve-out costs nothing, so v8's slower rows on its stamps came from its stamp symbol's spill. v7 is refused for 24 B
+of local memory at 128 registers.
+
+Job      : 6aef51d3e6320c66fad5fa4d, l40sx1 (NVIDIA L40S, sm_89, 2520 MHz, driver 580.178.04), 9 min billed, $0.28
+           (*computed* at $1.80/h). fusedrun ran 17:03:25 to 17:11:47 UTC.
+Image    : Space sha aeedd8fc20e674681a61789faceee80f68cce948, built from commit 7c42e86 of
+           claude/route-300-toks-de97fe (perimeter clean).
+Prereg   : proofs/preregistration-step3-4e-2026-11-07.md (sha256 e392ed0e...), OpenTimestamps stamped and committed
+           (7c42e86) before the image was built. No departure.
+Raw      : step3-4e-2026-11-07-brut/ (pers-4e.txt, oracle.txt, gpu.txt, files.sha256, job-log.txt).
+
+Gates (§4, *measured*): oracle MATCH on Qwen3-0.6B; sealed file 886391a8; event tracking off; RoPE form equal to
+candle's; v4, v6 and v6s equal the eager tokens at 5 and 8,192 (64 of 64); no LLVQ_* in the job env. All hold.
+Gate 6, per form: v8 and v9 equal the eager tokens at both contexts. v7 voided by its install (24 B local).
+
+Modules under the driver's ptxas, pers_4e_tokens_f1_t512 / stamp symbol:
+  v4    126 registers, 0 B local, 57,984 B shared / 0 B
+  v6    128 registers, 0 B local, 62,080 B shared / 0 B
+  v7    128 registers, 24 B local, 65,344 B shared: refused
+  v8    128 registers, 0 B local, 85,952 B shared / 48 B
+  v9    128 registers, 0 B local, 85,952 B shared / 40 B
+  v6s   128 registers, 0 B local, 85,952 B shared (v6's module, padded) / 0 B
+  v9 relaid 84 int4 records, 0.385 GB more on the card (measurement form: the served records stay for the prefill).
+
+Rates, 64 tokens, same process, 2 + 5 interleaved rounds, medians [range], ratios round by round:
+
+  context   eager    v4      v6      v8      v9      v6s     v9 / v8               v9 / v6               v6s / v6
+  5         132.9    191.3   213.3   230.6   238.6   213.4   x1.035 [1.034-1.036]  x1.118 [1.118-1.119]  x1.000 [1.000-1.000]
+  8192      105.0    140.7   154.2   158.5   163.5   154.0   x1.031 [1.031-1.031]  x1.060 [1.060-1.060]  x0.998 [0.998-0.999]
+  v8 / v6: x1.081 at 5, x1.028 at 8,192 (step2-4e: x1.076, x1.025).
+  Timed token at 5: v6 4,687.5 us, v8 4,336.8, v9 4,191.2 (-146 against v8).
+  This card ran the eager path 0.9 % slower than step 2's (132.9 against 134.1) and every 4E form 0.8 to 1.2 %
+  faster; the ratios round by round are the readings.
+
+Phase stamps at 5 tokens, v8 -> v9, us a token (both stamp symbols spill, so walls only, as an order):
+  o wall 439.1 -> 336.6, q/k/v wall 666.0 -> 622.4, MLP down rows (mean) 500.0 -> 474.0.
+  v6 -> v6s: every phase within 3 us.
+
+Decision rules (§7).
+- A, identity: v4, v6, v6s, v8 and v9 hold at both contexts.
+- B, K11: v9 over v8 at 5 has its whole range above x1.010: the lever holds in situ. The eager int4 readers on the
+  same layout are licensed as the step toward serving it with one copy of the int4 bytes.
+- C, the carve-out: v6s over v6 at 5, median x1.000, at or above x0.995: the carve-out is not the cause. v8's rows
+  read slower on its stamps because its stamp symbol spills.
+- D, serving: v9 over v8 has its whole range above x1.00 at both contexts. v9 is not proposed as is: its measurement
+  form holds the int4 bytes twice (+0.385 GB). Serving, and any door job, is the operator's call.
+- E, the route: no step 4 is chained.
+- G, misses against §6:
+  - v9 at 8,192, 163.5 against 158.5 [153, 161]: MISS, above;
+  - v9 over v8 at 8,192, x1.031 against x1.019 [0.99, 1.03]: MISS, above by 0.001.
+  Inside: identity of the five forms; v9's token symbol without local memory; v6 at 5 (213.3 in [208, 216]); v8 at
+  5 (230.6 in [224, 231]); v9 over v8 at 5 (x1.035 in [0.99, 1.045]); v9 at 5 (238.6 in [225, 239]); v6s over v6
+  at both contexts (x1.000 and x0.998 in [0.96, 1.01]).
+
+Reading.
+- The int4 rows gained more than the 41 % low bound: 83 % of the step-1 arithmetic at 5 tokens. The ratio read alone
+  on DRAM-bound rows held in situ.
+- v9 at the door would read about 220 tok/s (*estimated*: v6's door over its measurement form, 197.2 / 212.6, times
+  238.6 gives 221; v6's door residue added in ms gives 219).
+
+Not established: v9 at the served door; v9 with one copy of the int4 bytes; v9 on any task; the 8B and the 14B; any
+card but the L40S.

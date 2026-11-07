@@ -470,11 +470,42 @@ __device__ __forceinline__ void pers_mix_column_k(float* s, const float* ssm, u3
     }
 }
 
+// Form 5 (4E v7): pers_mix_column_k with each row of `small` read as float4
+// (ssm 16-byte aligned, rows of KMAX = 32 floats): 5 loads a chain at K = 19
+// instead of 19. Each chain is pers_mix_column_k's term for term: the same
+// value of `small` multiplies the same col[t], t ascending, from +0, then the
+// single + 0 when K < KMAX. Lanes past K in the last float4 are never used.
+template <u32 K>
+__device__ __forceinline__ void pers_mix_column_k4(float* s, const float* ssm, u32 m, float inv, u32 j)
+{
+    float col[K];
+#pragma unroll
+    for (u32 t = 0; t < K; ++t) col[t] = s[t * m + j] * inv;
+#pragma unroll
+    for (u32 g = 0; g < K; ++g) {
+        const float4* r4 = reinterpret_cast<const float4*>(ssm + g * LLVQ_ROT_KMAX);
+        float acc = 0.0f;
+#pragma unroll
+        for (u32 t4 = 0; t4 < (K + 3u) / 4u; ++t4) {
+            const float4 w = r4[t4];
+            acc = __fmaf_rn(w.x, col[4u * t4], acc);
+            if (4u * t4 + 1u < K) acc = __fmaf_rn(w.y, col[4u * t4 + 1u], acc);
+            if (4u * t4 + 2u < K) acc = __fmaf_rn(w.z, col[4u * t4 + 2u], acc);
+            if (4u * t4 + 3u < K) acc = __fmaf_rn(w.w, col[4u * t4 + 3u], acc);
+        }
+        acc = K < LLVQ_ROT_KMAX ? __fadd_rn(acc, 0.0f) : acc;
+        s[g * m + j] = acc;
+    }
+}
+
 // The 4B's two odd factors (5 at 2,560, 19 at 9,728) unrolled; any other k
-// runs pers_mix_column on the staged rows.
+// runs pers_mix_column on the staged rows. V4: the float4 reads of form 5.
+template <bool V4 = false>
 __device__ __forceinline__ void pers_mix_1rt(float* s, const float* ssm, u32 m, u32 k, float inv, u32 j)
 {
-    if (k == 5u) pers_mix_column_k<5u>(s, ssm, m, inv, j);
+    if (V4 && k == 5u) pers_mix_column_k4<5u>(s, ssm, m, inv, j);
+    else if (V4 && k == 19u) pers_mix_column_k4<19u>(s, ssm, m, inv, j);
+    else if (k == 5u) pers_mix_column_k<5u>(s, ssm, m, inv, j);
     else if (k == 19u) pers_mix_column_k<19u>(s, ssm, m, inv, j);
     else pers_mix_column(s, ssm, m, k, inv, j);
 }
@@ -490,8 +521,8 @@ __device__ __forceinline__ void pers_rot_load(const unsigned short* xin, const u
 
 // Phases 2 and 3 on `s`, already loaded and signed; ends with a barrier.
 // S1RT (form 4): `small` is the k rows staged in shared memory, and the mix
-// runs pers_mix_1rt.
-template <bool S1RT = false>
+// runs pers_mix_1rt. V4 (form 5): with its float4 reads.
+template <bool S1RT = false, bool V4 = false>
 __device__ __forceinline__ void pers_rot_finish(float* s, const float* small, u32 n, u32 m, u32 k, float inv)
 {
     __syncthreads();
@@ -514,7 +545,7 @@ __device__ __forceinline__ void pers_rot_finish(float* s, const float* small, u3
         for (u32 i = threadIdx.x; i < n; i += blockDim.x) s[i] = s[i] * inv;
     } else {
         for (u32 j = threadIdx.x; j < m; j += blockDim.x) {
-            if (S1RT) pers_mix_1rt(s, small, m, k, inv, j);
+            if (S1RT) pers_mix_1rt<V4>(s, small, m, k, inv, j);
             else pers_mix_column(s, small, m, k, inv, j);
         }
     }
@@ -778,6 +809,72 @@ __device__ __forceinline__ void pers_ln_1rt(const unsigned short* x, const unsig
             }
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// 7c. Form 5 (4E v7): what a CTA reads right after a grid barrier, read
+//     during it. After every barrier v6 still reads, from L2 and on lines all
+//     142 CTAs ask for at once: the fields of the layer's argument struct
+//     (pointers and sizes, a dependent load before the first data load can
+//     issue), the CTA's row slices (a second dependent load), the rotation's
+//     sign words (ln reads them again after the scale) and the k rows of
+//     `small`. Each is a constant of the launch. Form 5 copies them into the
+//     CTA's shared memory between its arrival at the previous barrier and its
+//     release (pers_grid_wait_gap), so after the release the prologue loads
+//     only the activation. Where a value is read from changes, never which
+//     value or what is done with it: every bit is form 4's.
+//
+//     The area sits after the larger of the row vector and attention's stage,
+//     so attention never overwrites it; its offset from `v`, in floats, is in
+//     header u32 PERS_HDR_V7 (the MLP segment does not know the head groups).
+// ---------------------------------------------------------------------------
+#define PERS_HDR_V7 8u           // header u32 8: the v7 area's offset from v, in floats
+#define PERS_V7_SMALL 0u         // the k rows of `small`, KMAX x KMAX floats
+#define PERS_V7_ARGS 1024u       // the launch's Pers4eArgs, 256 bytes
+#define PERS_V7_LAYER 1088u      // the current layer's Pers4eLayer, 640 bytes
+#define PERS_V7_SLICE 1248u      // the CTA's gate/up and down slices: lo, hi, lo, hi
+#define PERS_V7_SIGNS 1264u      // a rotation's sign words
+#define PERS_V7_SIGNS_MAX 576u   // up to width 18,432: the 14B's inter is 17,408
+#define PERS_V7_FLOATS 1840u     // 7,360 bytes, PERS_4E_SCRATCH of form 5
+
+// pers_grid_wait with STAGE run by every thread between thread 0's arrival
+// and its spin. STAGE may only copy constants of the launch (nothing a CTA
+// writes during it), so no fence is owed for them: the arrival's ordering is
+// pers_grid_wait's, and the closing barrier makes the copies visible to the
+// whole CTA, as it makes the verdict.
+template <class Stage>
+__device__ __forceinline__ bool pers_grid_wait_gap(u32* bar, u32 target, u32* abort_flag, Stage stage)
+{
+    u32* hdr = pers_hdr();
+    __syncthreads();  // the CTA's stores precede thread 0's arrival
+    if (threadIdx.x == 0u) {
+        __threadfence();
+        atomicAdd(bar, 1u);
+    }
+    stage();
+    if (threadIdx.x == 0u) {
+        const int ok = pers_spin(bar, target, abort_flag);
+        __threadfence();
+        hdr[PERS_HDR_OK] = (u32)ok;
+    }
+    __syncthreads();
+    return hdr[PERS_HDR_OK] != 0u;
+}
+
+// n words of a constant, spread over the CTA's threads. No barrier.
+__device__ __forceinline__ void pers_copy_u32(u32* dst, const u32* src, u32 n)
+{
+    for (u32 i = threadIdx.x; i < n; i += blockDim.x) dst[i] = src[i];
+}
+
+// A rotation's sign words (width / 32) and its k rows of `small` (k x KMAX
+// floats), into the v7 area. No barrier.
+__device__ __forceinline__ void pers_v7_stage_rot(float* area, const u32* signbits, u32 width, const float* small,
+                                                  u32 k)
+{
+    pers_copy_u32(reinterpret_cast<u32*>(area + PERS_V7_SIGNS), signbits, width >> 5);
+    pers_copy_u32(reinterpret_cast<u32*>(area + PERS_V7_SMALL), reinterpret_cast<const u32*>(small),
+                  k * LLVQ_ROT_KMAX);
 }
 
 // tok_argmax.cu's key: ord16(v) << 32 | (1023 - bitrev10(i & 1023)) << 22 |
@@ -1046,8 +1143,11 @@ __device__ __forceinline__ void pers_tetra_stream(u32 nrows, u32 nblocks, u32 ta
 // over the stream's (pers-rowloop-2026-11-05). 3, 4E v5: form 2, with the
 // CTA's last rows (its row count modulo the warps) split block by block over
 // every warp (pers_4e_rows_cta). 4, 4E v6: form 2's rows, with ln1, ln2 and
-// the down's input in one round trip a thread (section 7b). All four keep
-// every bit.
+// the down's input in one round trip a thread (section 7b). 5, 4E v7: form 4
+// with the launch's constants read during the barriers (section 7c) and the o
+// phase's input widened from vectors. 6, 4E v8: form 5 with attention's
+// steps in a cp.async ring. 7, 4E v9: form 6 with the int4 rows on tiled
+// words. All keep every bit.
 #ifndef PERS_4E_ROWS
 #define PERS_4E_ROWS 1u
 #endif
@@ -1057,9 +1157,76 @@ __device__ __forceinline__ void pers_tetra_stream(u32 nrows, u32 nblocks, u32 ta
 #define PERS_4E_SCRATCH 16384u
 #elif PERS_4E_ROWS == 4
 #define PERS_4E_SCRATCH 4096u  // the k rows of `small` staged by section 7b
+#elif PERS_4E_ROWS >= 5
+#define PERS_4E_SCRATCH 7360u  // the v7 area of section 7c, PERS_V7_FLOATS x 4
 #else
 #define PERS_4E_SCRATCH 0u
 #endif
+
+// Form 7 (4E v9, K11 of docs/plan-300.md): v8, with 4E's int4 rows (v, o and
+// the int4 downs) read from words relaid once at install, so one 128-bit
+// load gives lane l its words 128 t + l + 32 s, s = 0..3 (step1-micro's q4t,
+// x1.338 over pers_q4_row alone). Lane l still folds its words l, l + 32, ...
+// in increasing order, eight products each in increasing k, then the same
+// warp_sum: pers_q4_row's bits. The words past the last full tile of 128 keep
+// the served order. pers_q4_tile_index is the layout and
+// pers_4e_q4_tile_relayout (pers_4e.cu) writes it; nwords must be a multiple
+// of 4 and every row 16-byte aligned (persist4e_cuda.rs checks both).
+__device__ __forceinline__ u32 pers_q4_tile_index(u32 wi, u32 nwords)
+{
+    const u32 nt = nwords >> 7;
+    if (wi >= (nt << 7)) return wi;
+    const u32 t = wi >> 7, k = wi & 127u;
+    return (t << 7) + 4u * (k & 31u) + (k >> 5);
+}
+
+__device__ __forceinline__ float pers_q4_row_tile(const u32* wq, const unsigned short* scales,
+                                                  const unsigned short* biases, const float* xs, u32 row, u32 d_in,
+                                                  u32 gpr, u32 lane)
+{
+    const u32 nwords = d_in >> 3, nt = nwords >> 7;
+    const u32* wrow = wq + (size_t)row * nwords;
+    const u32 s0 = row * gpr;
+    float acc = 0.0f;
+    uint4 P{0u, 0u, 0u, 0u};
+    if (nt > 0u) P = *reinterpret_cast<const uint4*>(wrow + 4u * lane);
+    for (u32 t = 0; t < nt; ++t) {
+        uint4 P2{0u, 0u, 0u, 0u};
+        if (t + 1u < nt) P2 = *reinterpret_cast<const uint4*>(wrow + ((t + 1u) << 7) + 4u * lane);
+        const u32 w[4] = {P.x, P.y, P.z, P.w};
+#pragma unroll
+        for (u32 s = 0; s < 4u; ++s) {
+            const u32 c = ((t << 7) + 32u * s + lane) << 3;
+            const u32 g = (c >> 7) + s0;  // the group of word c / 8
+            const u32 sb = scales[g], bb = biases[g];
+#pragma unroll
+            for (u32 k = 0; k < 8u; ++k) acc = __fmaf_rn(pers_q4_deq((w[s] >> (4u * k)) & 0xfu, sb, bb), xs[c + k], acc);
+        }
+        P = P2;
+    }
+    for (u32 wi = (nt << 7) + lane; wi < nwords; wi += 32u) {
+        const u32 p = wrow[wi];
+        const u32 c = wi << 3;
+        const u32 g = (c >> 7) + s0;  // the group of word c / 8
+        const u32 sb = scales[g], bb = biases[g];
+#pragma unroll
+        for (u32 k = 0; k < 8u; ++k) acc = __fmaf_rn(pers_q4_deq((p >> (4u * k)) & 0xfu, sb, bb), xs[c + k], acc);
+    }
+    return warp_sum(acc);
+}
+
+// 4E's int4 row: form 7's tiled words, else pers_q4_row on the served words.
+template <bool PF>
+__device__ __forceinline__ float pers_q4_row_4e(const u32* wq, const unsigned short* scales,
+                                                const unsigned short* biases, const float* xs, u32 row, u32 d_in,
+                                                u32 gpr, u32 lane)
+{
+#if PERS_4E_ROWS >= 7
+    return pers_q4_row_tile(wq, scales, biases, xs, row, d_in, gpr, lane);
+#else
+    return pers_q4_row<PF>(wq, scales, biases, xs, row, d_in, gpr, lane);
+#endif
+}
 
 // Form 2: the stream's interface, one row after the other. Lane 0 reads the
 // row's rscale and runs START before the blocks, so their loads are in flight
@@ -1225,7 +1392,7 @@ __device__ __forceinline__ void pers_4e_qkv_rows(const Pers4eQkv& P, const F1rTa
 #endif
         const u32 vlo = P.v_dout * c / g, vhi = P.v_dout * (c + 1u) / g;
         for (u32 rv = vlo + warp; rv < vhi; rv += nw) {
-            const float acc = pers_q4_row<true>(P.vw, P.vsc, P.vbi, xn, rv, P.d_in, P.v_gpr, lane);
+            const float acc = pers_q4_row_4e<true>(P.vw, P.vsc, P.vbi, xn, rv, P.d_in, P.v_gpr, lane);
             if (lane == 0u) P.v[rv] = f2h(acc);
         }
         __syncthreads();
@@ -1251,7 +1418,7 @@ __device__ __forceinline__ void pers_4e_qkv_rows(const Pers4eQkv& P, const F1rTa
             if (lane == 0u) P.k[rk] = y;
         } else {
             const u32 rv = r - P.q_dout - P.k_dout;
-            const float acc = pers_q4_row<PF>(P.vw, P.vsc, P.vbi, xn, rv, P.d_in, P.v_gpr, lane);
+            const float acc = pers_q4_row_4e<PF>(P.vw, P.vsc, P.vbi, xn, rv, P.d_in, P.v_gpr, lane);
             if (lane == 0u) P.v[rv] = f2h(acc);
         }
     }
@@ -1266,14 +1433,28 @@ __device__ __forceinline__ void pers_4e_o_int4(const u32* ow, const unsigned sho
                                                const unsigned short* x, unsigned short* out, u32 lo, u32 hi)
 {
     __syncthreads();
+#if PERS_4E_ROWS >= 5
+    // form 5: ctx widened from 16-byte vectors, all issued before the first
+    // use (the scalar loop is d_ctx / 512 serial round trips), and lane 0
+    // asks for x[r] before the row's blocks. The same values, the same rows.
+    if (pers_1rt_ok(ctx, d_ctx)) {
+        pers_load_1rt(ctx, nullptr, cs, d_ctx, nullptr, 0u, nullptr);
+    } else
+#endif
     for (u32 i = threadIdx.x; i < d_ctx; i += blockDim.x) cs[i] = h2f(__ldcg(ctx + i));
     const u32 lane = threadIdx.x & 31u;
-    pers_claim_reset(lo);
+    pers_claim_reset(lo);  // its opening barrier orders the widening before every row
     for (;;) {
         const u32 r = pers_claim(lane, 1u);
         if (r >= hi) break;
-        const float acc = pers_q4_row<PF>(ow, osc, obi, cs, r, d_ctx, gpr, lane);
+#if PERS_4E_ROWS >= 5
+        const unsigned short xr = lane == 0u ? __ldcg(x + r) : (unsigned short)0u;
+        const float acc = pers_q4_row_4e<PF>(ow, osc, obi, cs, r, d_ctx, gpr, lane);
+        if (lane == 0u) out[r] = exact_hadd(xr, f2h(acc));
+#else
+        const float acc = pers_q4_row_4e<PF>(ow, osc, obi, cs, r, d_ctx, gpr, lane);
         if (lane == 0u) out[r] = exact_hadd(__ldcg(x + r), f2h(acc));
+#endif
     }
     __syncthreads();
 }
@@ -1321,9 +1502,18 @@ __device__ __forceinline__ void pers_4e_o_int4(const u32* ow, const unsigned sho
 #define PERS_NEG_INF __int_as_float((int)0xff800000u)
 #define PERS_HDR_TICKET 6u                                // header u32 6: this CTA drew the last ticket
 
-// Shared bytes the phase needs at `groups` query heads a KV head: the stage,
-// the unit states [UPS][groups][PSTRIDE], q [groups][128] widened.
-#define PERS_ATTN_SMEM(groups) (16u * PERS_STAGE_U4 + 4u * PERS_UPS * (groups) * PERS_PSTRIDE + 4u * (groups) * PERS_HD)
+// Form 6 (4E v8, K3a of docs/plan-300.md): the steps staged by cp.async into
+// a ring of PERS_ATTN_RING stages, so up to three steps' loads are in flight
+// while a step's tiles run. Below form 6, one stage filled from registers.
+#if PERS_4E_ROWS >= 6
+#define PERS_ATTN_RING 3u
+#else
+#define PERS_ATTN_RING 1u
+#endif
+
+// Shared bytes the phase needs at `groups` query heads a KV head: the
+// stages, the unit states [UPS][groups][PSTRIDE], q [groups][128] widened.
+#define PERS_ATTN_SMEM(groups) (16u * PERS_STAGE_U4 * PERS_ATTN_RING + 4u * PERS_UPS * (groups) * PERS_PSTRIDE + 4u * (groups) * PERS_HD)
 
 // attn_ref.rs::ex2_fixed / attn_dec.cu::attn_ex2, the fixed polynomial.
 __device__ __forceinline__ float pers_ex2(float x)
@@ -1385,6 +1575,68 @@ __device__ __forceinline__ void pers_attn_load(uint4 pf[PF], const unsigned shor
         }
         pf[i] = z;
     }
+}
+
+// Form 6: chunk idx of step st copied global to shared by cp.async, cached in
+// L2 only (the cache was written in this launch, as __ldcg reads it). A
+// chunk past the row is zero-filled (source size 0, nothing read). The host
+// build copies at once: its cp.async completes before the wait that follows.
+__device__ __forceinline__ void pers_cp16z(uint4* dst, const uint4* src, bool valid)
+{
+#ifdef LLVQ_HOST_BUILD
+    uint4 z;
+    z.x = 0u; z.y = 0u; z.z = 0u; z.w = 0u;
+    *dst = valid ? *src : z;
+#else
+    unsigned long long d;
+    asm("cvta.to.shared.u64 %0, %1;" : "=l"(d) : "l"(dst));
+    asm volatile("cp.async.cg.shared.global [%0], [%1], 16, %2;" ::"r"((unsigned)d), "l"(src), "r"(valid ? 16u : 0u)
+                 : "memory");
+#endif
+}
+
+__device__ __forceinline__ void pers_cp_commit()
+{
+#ifndef LLVQ_HOST_BUILD
+    asm volatile("cp.async.commit_group;" ::: "memory");
+#endif
+}
+
+// Every group but the PERS_ATTN_RING - 1 newest is complete, for this
+// thread's copies (a CTA barrier after it makes them everyone's).
+__device__ __forceinline__ void pers_cp_wait_ring()
+{
+#ifndef LLVQ_HOST_BUILD
+    asm volatile("cp.async.wait_group %0;" ::"n"(PERS_ATTN_RING - 1u) : "memory");
+#endif
+}
+
+__device__ __forceinline__ void pers_cp_wait_all()
+{
+#ifndef LLVQ_HOST_BUILD
+    asm volatile("cp.async.wait_group 0;" ::: "memory");
+#endif
+}
+
+// Step st of a job into `stage` (one ring slot), every chunk pers_attn_load
+// would load, the same address map; then one commit, empty past the last
+// step, so the count of groups a thread has committed stays uniform.
+__device__ __forceinline__ void pers_attn_issue(uint4* stage, const unsigned short* kh, const unsigned short* vh,
+                                                u32 base, u32 st, u32 nsteps, u32 tpu, u32 lr)
+{
+    if (st < nsteps) {
+        for (u32 idx = threadIdx.x; idx < PERS_STAGE_U4; idx += blockDim.x) {
+            const u32 rem = idx % (PERS_STAGE * 16u), pl = rem >> 4;
+            const u32 tl = pl / PERS_TT, u = tl / tpu, t = tl - u * tpu;
+            const u32 p = base + u * PERS_UNIT + (st * tpu + t) * PERS_TT + pl % PERS_TT;
+            const unsigned short* src = (idx < PERS_STAGE * 16u ? kh : vh);
+            const bool valid = p < lr;
+            pers_cp16z(stage + idx,
+                       reinterpret_cast<const uint4*>(src + (unsigned long long)(valid ? p : 0u) * PERS_HD) + (rem & 15u),
+                       valid);
+        }
+    }
+    pers_cp_commit();
 }
 
 template <u32 PF>
@@ -1482,6 +1734,11 @@ __device__ __forceinline__ void pers_attn_tile(const float* qrow, float* row, bo
 // (a, m, d) before the division. Every thread of every CTA calls it; no
 // grid barrier inside, so the caller's next grid wait orders `out`.
 //
+// Form 6 (PERS_ATTN_RING 3): the steps go global to shared by cp.async into
+// three stages, steps st + 1 and st + 2 in flight while step st's tiles run,
+// and PF is not used. The staged values, the tiles and the folds are the
+// same, so the bits are the same.
+//
 // PF: the 16-byte chunks a thread holds. When PF x blockDim covers the step's
 // 1,024 chunks (PF 2 at 512 threads), the next step's loads are in flight
 // during the tiles; otherwise (PF 1 at 768, whose registers cannot hold
@@ -1499,7 +1756,7 @@ __device__ __forceinline__ void pers_attention(const unsigned short* q, const un
     const u32 nhp = (groups + 1u) / 2u, ntasks = PERS_UPS * nhp;
     const u32 rounds = (PERS_STAGE_U4 + PF * blockDim.x - 1u) / (PF * blockDim.x);
     uint4* stage = reinterpret_cast<uint4*>(smem);
-    float* ust = reinterpret_cast<float*>(smem + 16u * PERS_STAGE_U4);  // [UPS][groups][PSTRIDE]
+    float* ust = reinterpret_cast<float*>(smem + 16u * PERS_STAGE_U4 * PERS_ATTN_RING);  // [UPS][groups][PSTRIDE]
     float* qs = ust + PERS_UPS * groups * PERS_PSTRIDE;                 // [groups][128]
     u32* hdr = pers_hdr();
     for (u32 job = blockIdx.x; job < ns * n_kv; job += gridDim.x) {
@@ -1516,14 +1773,28 @@ __device__ __forceinline__ void pers_attention(const unsigned short* q, const un
         const u32 nsteps = (tiles + tpu - 1u) / tpu;
         const unsigned short* kh = kc + (unsigned long long)h * cap * PERS_HD;
         const unsigned short* vh = vc + (unsigned long long)h * cap * PERS_HD;
+#if PERS_ATTN_RING > 1
+        // form 6: the first steps' copies, one commit each, before the states
+        // and q are written
+        for (u32 st = 0; st < PERS_ATTN_RING; ++st)
+            pers_attn_issue(stage + st * PERS_STAGE_U4, kh, vh, base, st, nsteps, tpu, l);
+        (void)rounds;
+#else
         uint4 pf[PF];
         if (rounds == 1u) pers_attn_load<PF>(pf, kh, vh, base, 0u, tpu, l, 0u);
+#endif
         for (u32 i = threadIdx.x; i < PERS_UPS * groups * PERS_PSTRIDE; i += blockDim.x) {
             const u32 k = i % PERS_PSTRIDE;
             ust[i] = k == PERS_HD ? PERS_NEG_INF : 0.0f;
         }
         for (u32 i = threadIdx.x; i < groups * PERS_HD; i += blockDim.x) qs[i] = h2f(__ldcg(q + h * groups * PERS_HD + i));
         for (u32 st = 0; st < nsteps; ++st) {
+#if PERS_ATTN_RING > 1
+            uint4* const sbuf = stage + (st % PERS_ATTN_RING) * PERS_STAGE_U4;
+            pers_cp_wait_ring();  // this thread's copies of step st are done
+            __syncthreads();      // everyone's: the step is staged, the states and q are written
+#else
+            uint4* const sbuf = stage;
             __syncthreads();  // the previous step's readers are done, the states and q are written
             if (rounds == 1u) {
                 pers_attn_store<PF>(pf, stage, 0u);
@@ -1535,6 +1806,7 @@ __device__ __forceinline__ void pers_attention(const unsigned short* q, const un
             }
             __syncthreads();  // the step is staged
             if (rounds == 1u && st + 1u < nsteps) pers_attn_load<PF>(pf, kh, vh, base, st + 1u, tpu, l, 0u);
+#endif
             for (u32 task = warp; task < ntasks; task += nwarps) {
                 const u32 u = task / nhp, hp = task - u * nhp;
                 if (u * tpu >= PERS_UPS) continue;  // a unit this step does not stage (uniform)
@@ -1548,11 +1820,18 @@ __device__ __forceinline__ void pers_attention(const unsigned short* q, const un
                     if (p0 >= l || (st * tpu + t) * PERS_TT >= PERS_UNIT) break;  // uniform over the warp: unit u
                     const u32 nv = l - p0 < PERS_TT ? l - p0 : PERS_TT;
                     const u32 sl = (u * tpu + t) * PERS_TT;
-                    pers_attn_tile(qs + ge * PERS_HD, ust + (u * groups + ge) * PERS_PSTRIDE, own, stage + sl * 16u,
-                                   stage + (PERS_STAGE + sl) * 16u, nv, c, lane);
+                    pers_attn_tile(qs + ge * PERS_HD, ust + (u * groups + ge) * PERS_PSTRIDE, own, sbuf + sl * 16u,
+                                   sbuf + (PERS_STAGE + sl) * 16u, nv, c, lane);
                 }
             }
+#if PERS_ATTN_RING > 1
+            __syncthreads();  // the slot's readers are done: it takes step st + RING
+            pers_attn_issue(sbuf, kh, vh, base, st + PERS_ATTN_RING, nsteps, tpu, l);
+#endif
         }
+#if PERS_ATTN_RING > 1
+        pers_cp_wait_all();  // no copy may land in the stages once they are reused
+#endif
         __syncthreads();  // every unit state is written
         // The units, folded into the split state in unit order.
         for (u32 i = threadIdx.x; i < groups * PERS_HD; i += blockDim.x) {

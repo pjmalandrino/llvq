@@ -1,0 +1,4 @@
+door: v9 86.3 tok/s, grouped 62.8 tok/s (two processes, one job); tokens v9 dc4f9ab9aa24c4d3, grouped dc4f9ab9aa24c4d3 (not owed: the attention form differs); card memory v9 5.637 GB, grouped 5.568 GB
+GSM8K pilot, 50 problems: v9 config 46 correct, grouped census on the same problems 46; completions identical 44/50 (not owed); dump header rows v9
+perplexity, kernel from position 0 against grouped: -0.0108 % [-0.0281 ; +0.0065], inside the +-0.12 % band
+band: inside

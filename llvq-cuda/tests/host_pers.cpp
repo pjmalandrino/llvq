@@ -57,6 +57,7 @@ static inline unsigned short served_capture_f2h(float v) {
 #define f2h(v) served_capture_f2h(v)
 #include "../../llvq-llm/kernels/tv_tetra48_h.cu"
 #include "../../llvq-llm/kernels/tv_q4_h.cu"
+#include "../../llvq-llm/kernels/tv_q4_tile.cu"
 #include "../../llvq-llm/kernels/emb_q4.cu"
 #undef f2h
 #else
@@ -65,6 +66,8 @@ static inline unsigned short served_capture_f2h(float v) {
 #include "../kernels/pers_segment.cu"
 #include "../kernels/pers_4e.cu"
 #include "../kernels/pers_trows.cu"
+#include "../kernels/pers_q4rows.cu"
+#include "../kernels/pers_ctr.cu"
 #include "../kernels/tetra48_persall.cu"
 #include "../../llvq-llm/kernels/tok_argmax.cu"
 #endif
@@ -469,6 +472,24 @@ int main() {
             pers_rot_finish<true>(sp, sp + n, n, m, k, inv);
             for (u32 i = threadIdx.x; i < n; i += blockDim.x) out[i] = sp[i];
         });
+#elif PERS_4E_ROWS >= 5
+        // form 5: the sign words and `small` copied into the v7 area first
+        // (4E does it during the barrier before), then the vector load reads
+        // the signs from there and the mix reads `small` as float4
+        if (!pers_1rt_ok(xin.data(), n)) {
+            std::fprintf(stderr, "host_pers: the rotation's input is not 16-byte aligned\n");
+            std::exit(2);
+        }
+        hostgrid::launch_coop(1, threads, PERS_SMEM_HEADER + 4 * n + 4 * PERS_V7_FLOATS, seed, [&] {
+            float* sp = reinterpret_cast<float*>(PERS_SMEM_BASE() + PERS_SMEM_HEADER);
+            float* area = sp + n;
+            pers_v7_stage_rot(area, signs.data(), n, small.data(), k);
+            __syncthreads();
+            pers_load_1rt(xin.data(), reinterpret_cast<const u32*>(area + PERS_V7_SIGNS), sp, n, nullptr, k,
+                          area + PERS_V7_SMALL);
+            pers_rot_finish<true, true>(sp, area + PERS_V7_SMALL, n, m, k, inv);
+            for (u32 i = threadIdx.x; i < n; i += blockDim.x) out[i] = sp[i];
+        });
 #else
         hostgrid::launch_coop(1, threads, PERS_SMEM_HEADER + 4 * n, seed, [&] {
             float* sp = reinterpret_cast<float*>(PERS_SMEM_BASE() + PERS_SMEM_HEADER);
@@ -492,6 +513,8 @@ int main() {
         hostgrid::launch_coop(1, 32, PERS_SMEM_HEADER, 0, [&] {
 #if PERS_4E_ROWS == 4
             for (u32 j = threadIdx.x; j < m; j += 32u) pers_mix_1rt(sv.data(), small.data(), m, k, inv, j);
+#elif PERS_4E_ROWS >= 5
+            for (u32 j = threadIdx.x; j < m; j += 32u) pers_mix_1rt<true>(sv.data(), small.data(), m, k, inv, j);
 #else
             for (u32 j = threadIdx.x; j < m; j += 32u) pers_mix_column(sv.data(), small.data(), m, k, inv, j);
 #endif
@@ -585,11 +608,29 @@ int main() {
                 k2 ? (unsigned long long)(uintptr_t)fs2.back().data() : 0ull};
             words.insert(words.end(), w, w + TROWS_SITE_WORDS);
         }
+        // TILE (arm 11) reads the words relaid by tv_trows_tile_relayout, run
+        // through the harness like any kernel; its site words point there.
+        std::vector<std::vector<u32>> tiled(mats.size());
+        if (arm == TROWS_TILE) {
+            for (size_t k = 0; k < mats.size(); ++k) {
+                const TMat& m = mats[k];
+                const u32 ts = trows_tile_stride(m.nblocks);
+                tiled[k].assign((size_t)m.d_out * ts, 0u);
+                hostgrid::launch_seq(3, 64, [&] {
+                    tv_trows_tile_relayout(m.words.data(), m.stride, tiled[k].data(), ts, m.d_out, m.nblocks);
+                });
+                words[k * TROWS_SITE_WORDS] = (unsigned long long)(uintptr_t)tiled[k].data();
+                words[k * TROWS_SITE_WORDS + 6u] = (unsigned long long)m.tail_w | ((unsigned long long)ts << 32);
+            }
+        }
         std::vector<u32> st((size_t)nsites * grid * (threads / 32u + 1u), 0u);
         std::vector<unsigned long long> ends(4u * grid, 0ull);
         u32* sp = stamp ? st.data() : nullptr;
         unsigned long long* ep = stamp ? ends.data() : nullptr;
-        const size_t smem = PERS_SMEM_HEADER + 18816u + 4u * (k2 ? TROWS_X2_AT + maxd : maxd) + 16u;
+        std::vector<u32> ctrs(2u + nsites, 0u);
+        const bool cpa = arm == TROWS_CPA;
+        const size_t smem = PERS_SMEM_HEADER + 18816u + 4u * (k2 || cpa ? TROWS_X2_AT + maxd : maxd) + 16u +
+                            (cpa ? 4u * TROWS_CPA_WARP * (threads / 32u) : 0u);
         hostgrid::launch_coop(grid, threads, smem, xseed, [&] {
             switch (arm) {
             case 0: trows_body<TROWS_V2>(words.data(), nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), g_inv.data(), x.data(), x2.data(), sp, ep); break;
@@ -599,9 +640,23 @@ int main() {
             case 4: trows_body<TROWS_L1W>(words.data(), nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), g_inv.data(), x.data(), x2.data(), sp, ep); break;
             case 5: trows_body<TROWS_BCAST>(words.data(), nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), g_inv.data(), x.data(), x2.data(), sp, ep); break;
             case 6: trows_body<TROWS_XBCAST>(words.data(), nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), g_inv.data(), x.data(), x2.data(), sp, ep); break;
-            default: trows_body<TROWS_K2>(words.data(), nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), g_inv.data(), x.data(), x2.data(), sp, ep); break;
+            case 7: trows_body<TROWS_K2>(words.data(), nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), g_inv.data(), x.data(), x2.data(), sp, ep); break;
+            case 8: trows_body<TROWS_NC>(words.data(), nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), g_inv.data(), x.data(), x2.data(), sp, ep); break;
+            case 9: trows_body<TROWS_NC256>(words.data(), nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), g_inv.data(), x.data(), x2.data(), sp, ep); break;
+            case 10: trows_body<TROWS_CPA>(words.data(), nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), g_inv.data(), x.data(), x2.data(), sp, ep); break;
+            case 11: trows_body<TROWS_TILE>(words.data(), nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), g_inv.data(), x.data(), x2.data(), sp, ep); break;
+            case 12: trows_body<TROWS_BAL>(words.data(), nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), g_inv.data(), x.data(), x2.data(), sp, ep); break;
+            // GB and GBC read x2 as their counters: barrier, abort flag, a cursor a site
+            case 13: trows_body<TROWS_GB>(words.data(), nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), g_inv.data(), x.data(), reinterpret_cast<const float*>(ctrs.data()), sp, ep); break;
+            case 14: trows_body<TROWS_GBC>(words.data(), nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), g_inv.data(), x.data(), reinterpret_cast<const float*>(ctrs.data()), sp, ep); break;
+            default: std::abort();
             }
         });
+        // GB and GBC: every CTA arrived at the grid barrier after every site
+        if ((arm == TROWS_GB || arm == TROWS_GBC) && (ctrs[0] != nsites * grid || ctrs[1] != 0u)) {
+            std::fprintf(stderr, "host_pers: grid barrier at %u, %u sites x %u CTAs expected\n", ctrs[0], nsites, grid);
+            return 2;
+        }
         if (stamp) {
             // every busy warp and every CTA stamped a positive count
             for (size_t i = 0; i < st.size(); ++i)
@@ -709,6 +764,56 @@ int main() {
 #endif
         wr(y);
         wr(dbg);
+    } else if (tag == 'q') {
+        // EAGER INT4 ENTRY POINTS on words the host hands in: d_out, d_in,
+        // entry (0 tv_q4_hh, 1 tv_q4_h, 2 tv_q4_hht, 3 tv_q4_ht), seed, then
+        // d_out x d_in / 8 words. Scales, biases and x drawn from the seed as
+        // 'Q' draws them; x f16, widened exactly for the f32 entries. Served
+        // side only: y and each row's f32 before the narrowing.
+        const u32 d_out = rd1<u32>(), d_in = rd1<u32>(), entry = rd1<u32>();
+        const uint64_t seed = rd1<uint64_t>();
+        const std::vector<u32> wq = rd<u32>((size_t)d_out * d_in / 8);
+        Rng r(seed);
+        const u32 gpr = d_in / 128u;
+        std::vector<unsigned short> sc((size_t)d_out * gpr), bi((size_t)d_out * gpr);
+        for (auto& v : sc) v = r.h16(6, 10);
+        for (auto& v : bi) v = r.h16(8, 12);
+        const auto xh = act_h(d_in, seed + 3);
+        std::vector<float> xf(d_in);
+        for (u32 i = 0; i < d_in; ++i) xf[i] = h2f(xh[i]);
+        std::vector<unsigned short> y(d_out, 0xFFFFu);
+        std::vector<float> dbg(d_out, 0.0f);
+#if PERS_SIDE == 0
+        g_capture = dbg.data();
+        hostgrid::launch_seq(d_out / 8, 256, [&] {
+            switch (entry) {
+            case 0: tv_q4_hh(wq.data(), sc.data(), bi.data(), xh.data(), y.data(), d_in, gpr); break;
+            case 1: tv_q4_h(wq.data(), sc.data(), bi.data(), xf.data(), y.data(), d_in, gpr); break;
+            case 2: tv_q4_hht(wq.data(), sc.data(), bi.data(), xh.data(), y.data(), d_in, gpr); break;
+            default: tv_q4_ht(wq.data(), sc.data(), bi.data(), xf.data(), y.data(), d_in, gpr); break;
+            }
+        });
+        g_capture = nullptr;
+#else
+        (void)entry;
+#endif
+        wr(y);
+        wr(dbg);
+    } else if (tag == 'i') {
+        // TILE INDEX: n, then n widths in words; for each, pers_q4_tile_index
+        // of every word. Persistent side only (the served side writes zeros).
+        const u32 n = rd1<u32>();
+        const std::vector<u32> widths = rd<u32>(n);
+        std::vector<u32> o;
+        for (u32 nw : widths)
+            for (u32 wi = 0; wi < nw; ++wi) {
+#if PERS_SIDE == 1
+                o.push_back(pers_q4_tile_index(wi, nw));
+#else
+                o.push_back(0u);
+#endif
+            }
+        wr(o);
     } else if (tag == 'B') {
 #include "host_pers_bench.inc"
     } else if (tag == 'S') {
@@ -1072,15 +1177,19 @@ int main() {
         OFF(Pers4eQkv, d_in); OFF(Pers4eQkv, q); OFF(Pers4eQkv, v);
         o.push_back((u32)sizeof(Pers4eLayer));
         OFF(Pers4eLayer, m_a); OFF(Pers4eLayer, inv_a); OFF(Pers4eLayer, qkv); OFF(Pers4eLayer, q_norm); OFF(Pers4eLayer, obi);
-        OFF(Pers4eLayer, o_gpr); OFF(Pers4eLayer, tetra_down); OFF(Pers4eLayer, mlp);
+        OFF(Pers4eLayer, o_gpr); OFF(Pers4eLayer, tetra_down); OFF(Pers4eLayer, mlp); OFF(Pers4eLayer, ot);
         o.push_back((u32)sizeof(Pers4eArgs));
         OFF(Pers4eArgs, invnorm); OFF(Pers4eArgs, attn_ticket); OFF(Pers4eArgs, n_layers); OFF(Pers4eArgs, cap);
-        OFF(Pers4eArgs, eps); OFF(Pers4eArgs, c);
+        OFF(Pers4eArgs, eps); OFF(Pers4eArgs, c); OFF(Pers4eArgs, head_w); OFF(Pers4eArgs, head_b);
+        o.push_back((u32)sizeof(Pers4eOT));
+        OFF(Pers4eOT, t); OFF(Pers4eOT, signs); OFF(Pers4eOT, small); OFF(Pers4eOT, m); OFF(Pers4eOT, k); OFF(Pers4eOT, inv);
         o.push_back((u32)sizeof(Pers4eLaunch));
         OFF(Pers4eLaunch, eos); OFF(Pers4eLaunch, ring); OFF(Pers4eLaunch, stamps);
 #undef OFF
 #endif
         wr(o);
+    } else if (tag == 'y' || tag == 'c') {
+#include "host_pers_step1.inc"
     } else if (tag == 'K') {
         // KEY: the persistent key against tok_argmax.cu's, every binary16
         // pattern at a spread of indices. Writes the number of mismatches.

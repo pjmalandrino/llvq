@@ -14,7 +14,10 @@
 //      of the persistent side (the served side ignores it): 0 the 768-thread
 //      token symbols (rows without prefetch), 1 the 512-thread stamp symbols,
 //      2 the 512-thread token symbols (rows with prefetch), 3 the 768-thread
-//      stamp symbols
+//      stamp symbols; plus 16 for the 8B's two differences, read by both
+//      sides: layer 1's o_proj in Tetra under its own rotation (then read
+//      here, at the context's width 4,096, after the variant), and a head
+//      table of its own (untied, drawn from the seed)
 // out: u32 ring[n] then each later launch's ring, u16 x[hidden], u16 kc, vc of
 //      each layer, u32 bar, abort + the tickets left; with a stamp variant (1
 //      or 3) on the persistent side, then
@@ -36,7 +39,11 @@
     const u32 n_more = rd1<u32>();
     std::vector<u32> runs{pos0, n, tok0};
     { const auto m = rd<u32>(3 * (size_t)n_more); runs.insert(runs.end(), m.begin(), m.end()); }
-    const u32 variant = rd1<u32>();
+    const u32 variant_raw = rd1<u32>();
+    const u32 variant = variant_raw & 15u;
+    const bool ext = (variant_raw & 16u) != 0u;
+    Rot ro{};
+    if (ext) ro = read_rot(NH * 128);
     const u32 stamp = (variant == 1u || variant == 3u) ? 1u : 0u;
     size_t ring_len = 0;
     for (size_t i = 0; i < runs.size(); i += 3) ring_len += runs[i + 1];
@@ -49,15 +56,28 @@
     std::vector<unsigned short> es((size_t)vocab * egpr), eb((size_t)vocab * egpr);
     for (auto& v : es) v = r.h16(5, 8);
     for (auto& v : eb) v = r.h16(6, 9);
+    // the untied head (ext): a second table of the same shape and group
+    std::vector<u32> hw;
+    std::vector<unsigned short> hs, hb;
+    if (ext) {
+        Rng rh(seed + 15);
+        hw.resize(ew.size()); for (auto& w : hw) w = (u32)rh.next();
+        hs.resize(es.size()); hb.resize(eb.size());
+        for (auto& v : hs) v = rh.h16(5, 8);
+        for (auto& v : hb) v = rh.h16(6, 9);
+    }
+    const std::vector<u32>& head_w = ext ? hw : ew;
+    const std::vector<unsigned short>& head_s = ext ? hs : es;
+    const std::vector<unsigned short>& head_b = ext ? hb : eb;
     const auto final_norm = act_h(H, seed + 11, 13, 16);
     const auto cosr = act_h(cap * 64, seed + 12, 4, 14), sinr = act_h(cap * 64, seed + 13, 4, 14);
     std::vector<unsigned short> silu(65536);
     { Rng rs(seed + 14); for (auto& e : silu) e = rs.h16(8, 15); }
     struct Layer {
         std::vector<unsigned short> ln1, ln2, qn, kn, vs, vb, os, ob, dqs, dqb, kc, vc;
-        TMat q, k, gate, up, down;
+        TMat q, k, gate, up, down, ot;
         std::vector<u32> vw, ow, dqw;
-        bool tetra_down;
+        bool tetra_down, tetra_o;
     };
     std::vector<Layer> Ls(NL);
     for (u32 l = 0; l < NL; ++l) {
@@ -81,6 +101,8 @@
         for (auto& e : Y.dqs) e = rv.h16(6, 10);
         for (auto& e : Y.dqb) e = rv.h16(8, 12);
         Y.tetra_down = l == 0;
+        Y.tetra_o = ext && l == 1;
+        if (Y.tetra_o) Y.ot = tmat(H, NH * 128, s0 + 13);
         Y.kc = act_h(NKV * cap * 128, s0 + 11, 9, 15);
         Y.vc = act_h(NKV * cap * 128, s0 + 12, 9, 15);
     }
@@ -142,7 +164,7 @@
             for (u32 hq = 0; hq < NH; ++hq)
                 ref_attn_row(qo.data() + hq * 128, Y.kc.data() + (size_t)(hq / GRP) * cap * 128,
                              Y.vc.data() + (size_t)(hq / GRP) * cap * 128, pos + 1, scale, ctx.data() + hq * 128);
-            const auto o = q4(Y.ow, Y.os, Y.ob, ctx, H, NH * 128);
+            const auto o = Y.tetra_o ? served_ref(Y.ot, rot(ctx, ro, NH * 128)) : q4(Y.ow, Y.os, Y.ob, ctx, H, NH * 128);
             for (u32 i = 0; i < H; ++i) x[i] = f2h(__fadd_rn(h2f(x[i]), h2f(o[i])));
             // the MLP, as the served chain runs it (host_pers_segment.inc)
             const auto h2 = norm(x, Y.ln2.data(), H);
@@ -157,7 +179,7 @@
         }
         const auto hf = norm(x, final_norm.data(), H);
         std::vector<unsigned short> logits(vocab);
-        hostgrid::launch_seq(vocab / 8, 256, [&] { tv_emb_q4_h(ew.data(), es.data(), eb.data(), hf.data(), logits.data(), H, egpr, 0u, 0u); });
+        hostgrid::launch_seq(vocab / 8, 256, [&] { tv_emb_q4_h(head_w.data(), head_s.data(), head_b.data(), hf.data(), logits.data(), H, egpr, 0u, 0u); });
         unsigned long long best = 0ull;
         u32 next = 0;
         for (u32 i = 0; i < vocab; ++i) {
@@ -182,6 +204,7 @@
     const auto dn = [&] { std::vector<u32> v; for (u32 g = 0; g < grid; ++g) { v.push_back((u32)((uint64_t)H * g / grid)); v.push_back((u32)((uint64_t)H * (g + 1) / grid)); } return v; }();
     auto segt = [](const TMat& m) { return SegTetra{m.words.data(), m.rscale.data(), m.tail.data(), m.gscale.data(), m.stride, m.nblocks, m.tail_w, m.d_out}; };
     std::vector<Pers4eLayer> PL(NL);
+    std::vector<Pers4eOT> OT(NL);
     for (u32 l = 0; l < NL; ++l) {
         Layer& Y = Ls[l];
         Pers4eLayer& P = PL[l];
@@ -202,7 +225,30 @@
         M.slice_gu = gu.data(); M.slice_dn = dn.data(); M.bar = bar.data(); M.abort_flag = ab.data();
         M.hidden = H; M.inter = I; M.m_h = rm.m; M.k_h = rm.k; M.m_i = rd_.m; M.k_i = rd_.k;
         M.inv_h = rm.inv; M.inv_i = rd_.inv; M.eps = eps; M.gpr = I / 128;
+        if (Y.tetra_o) {
+            OT[l] = Pers4eOT{segt(Y.ot), ro.signs.data(), ro.small.data(), ro.m, ro.k, ro.inv, 0u};
+            P.ot = &OT[l];
+            P.ow = nullptr; P.osc = nullptr; P.obi = nullptr;
+        }
     }
+#if PERS_4E_ROWS >= 7
+    // Form 7 reads its int4 rows (v, o, the int4 down) from words relaid by
+    // pers_q4_tile_index, as persist4e_cuda.rs relays them on the card.
+    std::vector<std::vector<u32>> tiled;
+    auto tile = [&](const std::vector<u32>& w, u32 d_out, u32 d_in) -> const u32* {
+        const u32 nw = d_in / 8;
+        std::vector<u32> t(w.size());
+        for (u32 row = 0; row < d_out; ++row)
+            for (u32 wi = 0; wi < nw; ++wi) t[(size_t)row * nw + pers_q4_tile_index(wi, nw)] = w[(size_t)row * nw + wi];
+        tiled.push_back(std::move(t));
+        return tiled.back().data();
+    };
+    for (u32 l = 0; l < NL; ++l) {
+        PL[l].qkv.vw = tile(Ls[l].vw, NKV * 128, H);
+        if (!Ls[l].tetra_o) PL[l].ow = tile(Ls[l].ow, H, NH * 128);
+        if (!Ls[l].tetra_down) PL[l].mlp.q4w = tile(Ls[l].dqw, H, I);
+    }
+#endif
     Pers4eArgs A{};
     A.layers = PL.data(); A.emb_w = ew.data(); A.emb_s = es.data(); A.emb_b = eb.data(); A.final_norm = final_norm.data();
     A.cosr = cosr.data(); A.sinr = sinr.data(); A.x_a = x.data(); A.x_b = x_b.data(); A.q_out = q_out.data(); A.ctx = ctx.data();
@@ -211,6 +257,7 @@
     A.attn_ticket = ticket.data();
     A.n_layers = NL; A.vocab = vocab; A.hidden = H; A.emb_gpr = egpr; A.n_heads = NH; A.n_kv = NKV; A.groups = GRP; A.cap = cap;
     A.eps = eps; A.c = scale;
+    A.head_w = head_w.data(); A.head_s = head_s.data(); A.head_b = head_b.data();
     typedef void (*Fn)(const Pers4eArgs*, const Pers4eLaunch);
     const Fn table[4][3] = {{pers_4e_tokens_f0, pers_4e_tokens_f1, pers_4e_tokens_f2},
                             {pers_4e_stamps_f0_t512, pers_4e_stamps_f1_t512, pers_4e_stamps_f2_t512},
