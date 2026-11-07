@@ -16,7 +16,8 @@
 //! candle's grouped arithmetic below 1,280 (cuBLAS matmuls, candle's
 //! softmax), whose bits no hand kernel reproduces, so 4E owes that config's
 //! tokens only from there. The served 4B config,
-//! `configs/qwen3-4b-tetra-e4-4e-v4.json`, names the persistent decode and
+//! `configs/qwen3-4b-tetra-e4-4e-v4.json` (and its v6 twin,
+//! `configs/qwen3-4b-tetra-e4-4e-v6.json`), names the persistent decode and
 //! sends every decode row to the kernel from position 0, the form the
 //! operator's T8 extension of 2026-11-05 licenses on the sealed 4B
 //! (`docs/mesures/attn-t8-below-4b-2026-11-05.txt`). `Served::decoder` sets

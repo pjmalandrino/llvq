@@ -1086,3 +1086,10 @@ mlx-lm reads 129.45, 98.38 and 3.96 s at 3.67 GB, at about 4.5 b/param against o
 with the Rust engine. On the 5-token house prompt its 256 tokens differ from the Rust engine's in a degenerate
 repetition (M15). No perplexity has been read through it.
 
+## 2026-11-07. 4E v6 written as a config for the 4B
+
+Until 2026-11-07 the living state read 4E v6 as a measurement against its missed gate. Its lever left the MLP down
+input at 254.6 µs against a prereg gate of 200, so by that prereg's rule v6 was not proposed for serving
+([pers-4e-v6](mesures/pers-4e-v6-2026-11-05.txt)). On 2026-11-07 the operator gave the go to implement v6 on the 4B
+regardless. `configs/qwen3-4b-tetra-e4-4e-v6.json` is the v4 config with `"rows": "v6"`, and `served.rs` accepts it.
+v4 stays served until the door of `ops/jobs/served-v6.sh` reads.

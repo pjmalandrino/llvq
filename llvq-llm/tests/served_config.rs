@@ -706,32 +706,99 @@ fn the_v4_config_is_the_4e_config_with_the_v4_rows() {
     assert!(note.contains("SERVED from 2026-11-05") && note.contains("886391a8"), "{note}");
 }
 
-/// The field: absent and "v3" are form 1, "v4" form 2; "v5" is refused by
+/// The v6 config is the v4 config with the v6 row loop, and nothing else
+/// moved; its line names the loop, and it resolves to the module's form 4.
+#[test]
+fn the_v6_config_is_the_v4_config_with_the_v6_rows() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../configs");
+    let read = |name: &str| {
+        let path = dir.join(name);
+        let f = Served::read_file(&path).unwrap_or_else(|e| panic!("{name}: {e}"));
+        Served::of(f, path).unwrap_or_else(|e| panic!("{name}: {e}"))
+    };
+    let v4 = read("qwen3-4b-tetra-e4-4e-v4.json");
+    let v6 = read("qwen3-4b-tetra-e4-4e-v6.json");
+    assert_eq!(v6.rows, Rows4e::V6);
+    assert_eq!(v6.rows.form(), 4);
+    assert_eq!(
+        (v6.layout, v6.embed, v6.rot_share, v6.fuse, v6.kv, v6.attention, v6.store, v6.decode),
+        (v4.layout, v4.embed, v4.rot_share, v4.fuse, v4.kv, v4.attention, v4.store, v4.decode),
+        "only the row loop may differ from the v4 config"
+    );
+    assert!(
+        v6.provenance().contains("attention kernel from position 0 on grow(256), decode persistent (4E rows v6, one launch a token run)"),
+        "{}",
+        v6.provenance()
+    );
+    let note = v6.note.as_deref().expect("a note");
+    assert!(note.contains("886391a8") && note.contains("row form 4"), "{note}");
+    // The files themselves: the same keys in the same order, one line apart
+    // besides the free-text note.
+    let raw = |name: &str| -> Vec<String> {
+        std::fs::read_to_string(dir.join(name))
+            .unwrap_or_else(|e| panic!("{name}: {e}"))
+            .lines()
+            .filter(|l| !l.trim_start().starts_with("\"note\""))
+            .map(str::to_string)
+            .collect()
+    };
+    let (a, b) = (raw("qwen3-4b-tetra-e4-4e-v4.json"), raw("qwen3-4b-tetra-e4-4e-v6.json"));
+    let differ: Vec<_> = a.iter().zip(&b).filter(|(x, y)| x != y).collect();
+    assert_eq!(a.len(), b.len(), "the same keys");
+    assert_eq!(differ, vec![(&"  \"rows\": \"v4\",".to_string(), &"  \"rows\": \"v6\",".to_string())]);
+    // The 4E install refuses Metal and every object but the 4B, as under v4.
+    let e = v6.check_device(true).expect_err("Metal");
+    assert!(e.contains("persistent") && e.contains("Metal"), "{e}");
+}
+
+/// Every served row loop is a row form of the module, under the name the
+/// module gives it: a `form()` that pointed at v5's number would compile
+/// v5's loop under v6's provenance.
+#[test]
+fn the_served_rows_are_the_modules_row_forms() {
+    use llvq_cuda::pers::P4E_ROWS_FORMS;
+    for r in [Rows4e::V3, Rows4e::V4, Rows4e::V6] {
+        assert!(P4E_ROWS_FORMS.contains(&(r.form(), r.label())), "{r:?}: ({}, {}) is not a module form", r.form(), r.label());
+        assert_eq!(Rows4e::parse(Some(r.label())), Ok(r), "{r:?} parses from its own label");
+        llvq_cuda::pers::p4e_rows_define(r.form()).unwrap_or_else(|e| panic!("{r:?}: {e}"));
+    }
+    // v5 is a module form and not a served one.
+    assert!(P4E_ROWS_FORMS.contains(&(3, "v5")));
+    assert!(Rows4e::parse(Some("v5")).is_err());
+}
+
+/// The field: absent and "v3" are form 1, "v4" form 2, "v6" form 4; "v5" is refused by
 /// name, and so are the empty string and any other word; beside the eager
 /// decode the key itself is refused.
 #[test]
-fn the_rows_field_serves_v3_and_v4_and_refuses_the_rest() {
+fn the_rows_field_serves_v3_v4_and_v6_and_refuses_the_rest() {
     let mut f = four_e();
     assert_eq!(of(f.clone()).expect("absent").rows, Rows4e::V3);
     f.rows = Some("v3".into());
     assert_eq!(of(f.clone()).expect("v3").rows, Rows4e::V3);
     f.rows = Some("v4".into());
     assert_eq!(of(f.clone()).expect("v4").rows, Rows4e::V4);
+    f.rows = Some("v6".into());
+    assert_eq!(of(f.clone()).expect("v6").rows, Rows4e::V6);
     let e = {
         f.rows = Some("v5".into());
         of(f.clone()).expect_err("v5")
     };
     assert!(e.contains("v5") && e.contains("measurement"), "{e}");
-    for bad in ["", " ", "V4", "4", "v2"] {
+    let named = Rows4e::parse(Some("v7")).expect_err("v7");
+    assert!(named.contains("\"v3\", \"v4\" and \"v6\""), "the refusal names the served forms: {named}");
+    for bad in ["", " ", "V4", "V6", "4", "v2", "v7", "6"] {
         f.rows = Some(bad.into());
         let e = of(f.clone()).expect_err(bad);
         assert!(e.contains("rows"), "{bad:?}: {e}");
     }
-    let mut g = four_e();
-    g.decode = None;
-    g.rows = Some("v4".into());
-    let e = of(g).expect_err("rows beside the eager decode");
-    assert!(e.contains("eager decode"), "{e}");
+    for v in ["v4", "v6"] {
+        let mut g = four_e();
+        g.decode = None;
+        g.rows = Some(v.into());
+        let e = of(g).expect_err("rows beside the eager decode");
+        assert!(e.contains("eager decode") && e.contains(v), "{e}");
+    }
 }
 
 // ---- the doors of bin/chat and bin/gsm8k (2026-11-06) ------------------------
@@ -747,7 +814,7 @@ fn the_optional_fields_are_read_as_written() {
         let e = AttnHeads::parse(Some(&v.replace("persistent", "kernel"))).expect_err(v);
         assert!(e.contains("attention"), "{v:?}: {e}");
     }
-    for v in [" v4", "v4 ", " v3"] {
+    for v in [" v4", "v4 ", " v3", " v6", "v6 "] {
         let e = Rows4e::parse(Some(v)).expect_err(v);
         assert!(e.contains("rows"), "{v:?}: {e}");
     }
@@ -763,7 +830,7 @@ fn the_optional_fields_are_read_as_written() {
     assert_eq!(Rows4e::parse(Some("v4")), Ok(Rows4e::V4));
     // Every shipped config still resolves: none relied on the trim.
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../configs");
-    for name in ["qwen3-4b-tetra-e4-4e.json", "qwen3-4b-tetra-e4-4e-v4.json"] {
+    for name in ["qwen3-4b-tetra-e4-4e.json", "qwen3-4b-tetra-e4-4e-v4.json", "qwen3-4b-tetra-e4-4e-v6.json"] {
         let path = dir.join(name);
         let f = Served::read_file(&path).unwrap_or_else(|e| panic!("{name}: {e}"));
         Served::of(f, path).unwrap_or_else(|e| panic!("{name}: {e}"));

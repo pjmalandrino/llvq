@@ -1,4 +1,4 @@
-# Project state as of 2026-11-06
+# Project state as of 2026-11-07
 
 ## 1. The project
 
@@ -20,7 +20,8 @@ sizes differ in three optional fields: the attention form, the decode engine and
 
 - **4B**: `qwen3-4b-tetra-e4-4e-v4.json` since 2026-11-05, the operator's decision. Attention `kernel`: every decode
   row goes to the split-KV attention kernel from position 0. Decode `persistent`: 4E runs the whole token in one
-  cooperative CUDA launch. Rows `v4`: 4E's second row loop.
+  cooperative CUDA launch. Rows `v4`: 4E's second row loop. `qwen3-4b-tetra-e4-4e-v6.json`, the same with rows
+  `v6`, is written and loads everywhere v4 loads; it is not served before its door reads (§5).
 - **8B and 14B**: `qwen3-8b-tetra-e4-grouped.json` and `qwen3-14b-tetra-e4-grouped.json` since 2026-11-04, the
   operator's decision after a light MMLU check passed at each size.
 
@@ -208,11 +209,13 @@ the bar is the paired interval, 0.43 pp in MMLU and 0.12% in perplexity (*measur
   nothing (§4).
 - **A model above 14B.** The `rot_apply` wall is lifted on the card, and the device rotation is proposed for a 32B's
   first light; the operator confirms. The 32B has to be encoded first.
-- **4E v6 against its missed gate.** v6 decodes 212.6 tok/s after a 5-token prompt and 152.0 at 8,192 in the
-  measurement form, x1.118 [1.117-1.118] and x1.094 [1.094-1.095] over v4 round by round, same tokens (*measured*,
-  [pers-4e-v6](mesures/pers-4e-v6-2026-11-05.txt)). Its lever left the MLP down input at 254.6 µs against a prereg
-  gate of 200, so by the prereg's rule v6 stays a measurement. Serving it is the operator's call, and needs a door
-  reading under a served config first.
+- **Serving 4E v6 at 4B.** The operator gave the go to implement v6 on the 4B on 2026-11-07. The config
+  `qwen3-4b-tetra-e4-4e-v6.json` is written and `served.rs` accepts `"rows": "v6"`. In the measurement form v6 reads
+  x1.118 [1.117-1.118] over v4 after a 5-token prompt and x1.094 at 8,192, same tokens (*measured*,
+  [pers-4e-v6](mesures/pers-4e-v6-2026-11-05.txt)). At the served door that makes about 199 tok/s, and 152.6 at
+  8,192 (*estimated*, served-v4 times those ratios). The door job `ops/jobs/served-v6.sh` costs about $0.42 on
+  l40sx1 (*estimated*). It needs the stamp of `proofs/preregistration-served-v6-2026-11-07.md`, a Space rebuilt from
+  the branch, and the operator's go. Serving v6 is the operator's call on that reading.
 - **The v4 config on the Hub.** The moving repository still serves the grouped config at 133.3 tok/s (§2). Publishing
   needs the operator.
 - **A served Metal config.** The grouped form is bit for bit with the expanded one on Metal (§4), and the two
