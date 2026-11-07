@@ -104,7 +104,7 @@ pub struct ServedFile {
     pub decode: Option<String>,
     /// 4E's row loop, beside `"decode": "persistent"` only: absent is v3,
     /// the form the served-4e door ran; `"v4"` is the v2 loop inside the v3
-    /// structure. See [`Rows4e::parse`].
+    /// structure; `"v6"` is v4 with vector prologues. See [`Rows4e::parse`].
     #[serde(default)]
     pub rows: Option<String>,
     /// Free text, carried so a config can say what object it belongs to. Read
@@ -201,6 +201,13 @@ pub enum Rows4e {
     /// Form 2, the v2 loop inside the v3 structure: x1.060 over v3 after a
     /// 5-token prompt, same tokens (measured, `docs/mesures/shaker-4e-2026-11-05.txt`).
     V4,
+    /// Form 4, v4 with ln1, ln2 and the down's input in one round trip a
+    /// thread: x1.118 over v4 after a 5-token prompt and x1.094 at 8,192, same
+    /// tokens (measured, `docs/mesures/pers-4e-v6-2026-11-05.txt`). The
+    /// install refuses it when an input of a vector prologue is not 16-byte
+    /// aligned (`llvq_cuda::pers::p4e_v6_inputs`), so it never times as v4
+    /// under v6's name.
+    V6,
 }
 
 impl Rows4e {
@@ -211,13 +218,14 @@ impl Rows4e {
         match v {
             None | Some("v3") => Ok(Self::V3),
             Some("v4") => Ok(Self::V4),
+            Some("v6") => Ok(Self::V6),
             Some("v5") => Err("rows \"v5\": measured at x1.001 over v4 (shaker-4e-2026-11-05) and kept a \
-                               measurement; the served forms are \"v3\" and \"v4\""
+                               measurement; the served forms are \"v3\", \"v4\" and \"v6\""
                 .into()),
             Some(s) if s.trim().is_empty() => {
-                Err("rows is empty. Write \"v3\" or \"v4\", or delete the key for v3.".into())
+                Err("rows is empty. Write \"v3\", \"v4\" or \"v6\", or delete the key for v3.".into())
             }
-            Some(o) => Err(format!("rows {o:?}: the served forms of 4E's row loop are \"v3\" and \"v4\"")),
+            Some(o) => Err(format!("rows {o:?}: the served forms of 4E's row loop are \"v3\", \"v4\" and \"v6\"")),
         }
     }
 
@@ -225,6 +233,7 @@ impl Rows4e {
         match self {
             Self::V3 => "v3",
             Self::V4 => "v4",
+            Self::V6 => "v6",
         }
     }
 
@@ -233,6 +242,7 @@ impl Rows4e {
         match self {
             Self::V3 => 1,
             Self::V4 => 2,
+            Self::V6 => 4,
         }
     }
 }
