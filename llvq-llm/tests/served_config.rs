@@ -307,12 +307,15 @@ fn the_comparison_goes_through_the_parsers() {
     assert!(e.contains("LLVQ_EMBED"), "{e}");
 }
 
-/// The two variables that reach below the served door are refused by name,
+/// The variables that reach below the served door are refused by name,
 /// whatever their value, and the card variable is not.
 #[test]
 fn variables_below_the_door_are_refused_by_name() {
     let f = served();
-    assert_eq!(BELOW_THE_DOOR, ["LLVQ_KERNEL_DIR", "LLVQ_TILE_BLOCKS"]);
+    assert_eq!(
+        BELOW_THE_DOOR,
+        ["LLVQ_KERNEL_DIR", "LLVQ_TILE_BLOCKS", "LLVQ_PREFILL", "LLVQ_METAL_KERNEL"]
+    );
     for var in BELOW_THE_DOOR {
         let e = match check_env(&f, env_of(&[(var, "anything")])) {
             Err(e) => e,
