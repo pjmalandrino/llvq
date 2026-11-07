@@ -73,7 +73,7 @@ mod run {
         println!("{}", cfg.provenance());
         let device = candle_core::Device::new_cuda(0)?;
         let t0 = Instant::now();
-        let f = llvq_llm::served::load_resolved(&path, &device, DType::F16, cfg.layout, cfg.embed, cfg.rot_share, cfg.fuse, cfg.kv, Some("LLVQ_CONFIG"))?;
+        let f = llvq_llm::served::load_resolved(&path, &device, DType::F16, cfg.layout, cfg.embed, cfg.rot_share, cfg.fuse, cfg.kv, cfg.int4_layout(), Some("LLVQ_CONFIG"))?;
         let (mut model, tok) = (f.model, f.tokenizer);
         cfg.apply(&mut model, &device).map_err(anyhow::Error::msg)?;
         let (_, groups, _) = model.attn_geometry();

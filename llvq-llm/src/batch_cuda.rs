@@ -296,6 +296,9 @@ impl crate::batch::BatchDevice for CudaBatch {
             .and_then(|a| a.downcast_ref::<CudaInt4>())
             .ok_or_else(|| candle_core::Error::msg(format!("{}: not a CUDA int4 projection", p.name())))?;
         let v = c.int4_view();
+        if v.layout != crate::fused::Int4Layout::Served {
+            candle_core::bail!("{}: int4 words in 4E v9's tiled order; the batched kernel reads the file's order", p.name());
+        }
         let (d_out, d_in) = (v.d_out as usize, v.d_in as usize);
         if v.gpr as usize * 128 != d_in {
             candle_core::bail!("{}: {} groups a row for d_in {d_in}, the kernel reads groups of 128", p.name(), v.gpr);
