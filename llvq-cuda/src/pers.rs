@@ -1529,8 +1529,11 @@ pub fn trows_unit_text(tile_define: &str) -> String {
 /// The row-loop arms (`pers_trows.cu`): name, symbol, whether every row owes
 /// the served bits, CTAs a SM. The occupancy arm `v2_o2` runs V2 at two CTAs a
 /// SM on the sites of d_in 4,096 or less, beside `v2_s`, the same sites at one.
-/// The last five are K4's arms of plan-300 step 1, each against `v2`.
-pub const TROWS_ARMS: [(&str, &str, bool, u32); 15] = [
+/// Then K4's five arms of plan-300 step 1, each against `v2`, and the row
+/// lead's three (2026-11-07): `gb` (v2 with a grid barrier after every site),
+/// `gbc` (gb with the rows claimed across the grid) and `v2r64` (v2's loop at
+/// 64 registers, one CTA a SM).
+pub const TROWS_ARMS: [(&str, &str, bool, u32); 18] = [
     ("v2", "tv_trows_v2", true, 1),
     ("v3", "tv_trows_v3", true, 1),
     ("ilp2", "tv_trows_ilp2", true, 1),
@@ -1546,7 +1549,38 @@ pub const TROWS_ARMS: [(&str, &str, bool, u32); 15] = [
     ("cpa", "tv_trows_cpa", true, 1),
     ("tile", "tv_trows_tile", true, 1),
     ("bal", "tv_trows_bal", true, 1),
+    ("gb", "tv_trows_gb", true, 1),
+    ("gbc", "tv_trows_gbc", true, 1),
+    ("v2r64", "tv_trows_v2_o2", true, 1),
 ];
+
+/// The row lead's bar (proofs/preregistration-rows-grid-2026-11-07.md): the
+/// median of gbc's round-by-round speed over gb that licenses a 4E form with
+/// rows claimed across the grid; under [`ROWS_GRID_DEAD`] the claim is dead.
+pub const ROWS_GRID_LEVER: f64 = 1.05;
+pub const ROWS_GRID_DEAD: f64 = 1.02;
+
+/// Does arm `name` read the counters (`x2` as u32: barrier, abort, a cursor a
+/// site) that the host zeroes before each launch?
+pub fn trows_counters(name: &str) -> bool {
+    name == "gb" || name == "gbc"
+}
+
+/// The CTAs' spread over a launch's sites: the sum over sites of the slowest
+/// CTA's busy cycles over the sum of the mean CTA's (1.0 when every CTA takes
+/// as long). Inside 4E a grid barrier ends each phase, so the slowest CTA of a
+/// phase sets its wall.
+pub fn trows_cta_spread(stamps: &[u32], nsites: usize, grid: u32, nw: u32) -> f64 {
+    let (g, w1) = (grid as usize, (nw + 1) as usize);
+    assert_eq!(stamps.len(), nsites * g * w1, "stamps of {nsites} sites x {grid} CTAs x {w1}");
+    let (mut slow, mut mean) = (0f64, 0f64);
+    for s in 0..nsites {
+        let cta = |c: usize| f64::from(stamps[(s * g + c) * w1 + nw as usize]);
+        slow += (0..g).map(cta).fold(0f64, f64::max);
+        mean += (0..g).map(cta).sum::<f64>() / g as f64;
+    }
+    if mean > 0.0 { slow / mean } else { 0.0 }
+}
 
 /// K4's bar (plan-300 §4, step 1): the speed over `v2` alone, median of the
 /// round-by-round ratios, that licenses a 4E port. Under [`K4_DEAD`] an arm is
@@ -1799,8 +1833,8 @@ mod tests {
         let t = trows_unit_text("#define TILE_BLOCKS 64u");
         assert!(t.starts_with(&pers_unit_text("#define TILE_BLOCKS 64u")), "4E's module bytes come first, unchanged");
         for (name, sym, _, minb) in TROWS_ARMS {
-            if name == "v2_s" {
-                continue; // the symbol of v2, on fewer sites
+            if name == "v2_s" || name == "v2r64" {
+                continue; // the symbols of v2 and v2_o2, on other sites or CTAs a SM
             }
             let arm = sym.trim_start_matches("tv_trows_").trim_end_matches("_o2").to_uppercase();
             assert!(t.contains(&format!("TROWS_KERNEL({sym}, TROWS_{arm}, {minb})")), "{sym}");
@@ -1809,6 +1843,12 @@ mod tests {
         assert_eq!(trows_k2_smem_bytes(), 96_896);
         assert!(t.contains("#define TROWS_X2_AT 9728u"), "K2's second activation sits after the widest first one");
         assert!(trows_small_only("v2_o2") && trows_small_only("v2_s") && !trows_small_only("v2"));
+        assert!(!trows_small_only("v2r64"), "v2r64 runs every site at one CTA a SM");
+        assert!(trows_counters("gb") && trows_counters("gbc") && !trows_counters("v2") && !trows_counters("bal"));
+        // two sites, two CTAs, one warp: CTA busy at w = 1
+        let st = [0u32, 10, 0, 30, 0, 20, 0, 20];
+        assert!((trows_cta_spread(&st, 2, 2, 1) - 50.0 / 40.0).abs() < 1e-12, "slowest 30 + 20 over mean 20 + 20");
+        assert!(t.contains("if (!pers_grid_wait(ctr, (s + 1u) * g, ctr + 1)) return;"), "gb and gbc wait on the grid after a site");
         assert_eq!(trows_cpa_smem_bytes(16), 67_200, "CPA's ring after 4E's own bytes");
         for (name, sym, _) in Q4ROWS_ARMS {
             assert!(t.contains(&format!("extern \"C\" __global__ void __launch_bounds__(512, 1) {sym}(")) || t.contains(&format!("Q4ROWS_KERNEL({sym}, ")), "{name}");

@@ -607,6 +607,7 @@ impl<'a> Section<'a> {
                 bytes,
                 valid: rep.local_bytes == 0 && occ >= minb,
                 series: Vec::new(),
+                ctrs: if pers::trows_counters(name) { Some(m.zeros_u32(2 + pick.len())?) } else { None },
             };
             if !a.valid {
                 println!("  {name}: SPILLS {} B or does not fit ({occ} a SM, {minb} needed), not timed", rep.local_bytes);
@@ -619,7 +620,7 @@ impl<'a> Section<'a> {
                 arms.push(a);
                 continue;
             }
-            trows_launch(&m, &a, &tables, x, x2, None)?;
+            trows_launch(&m, &mut a, &tables, x, x2, None)?;
             m.sync()?;
             // Each output against its reference: y on the bench activation,
             // and for K2 also y2 on the second one.
@@ -657,7 +658,7 @@ impl<'a> Section<'a> {
                 let nw = 16u32;
                 let stamps = m.zeros_u32(a.shapes.len() * grid as usize * (nw as usize + 1))?;
                 let ends: CudaSlice<u64> = m.stream().alloc_zeros(4 * grid as usize).map_err(|e| format!("alloc u64: {e}"))?;
-                trows_launch(&m, &a, &tables, x, x2, Some((&stamps, &ends)))?;
+                trows_launch(&m, &mut a, &tables, x, x2, Some((&stamps, &ends)))?;
                 m.sync()?;
                 let st = m.down_u32(&stamps)?;
                 let en: Vec<u64> = m.stream().clone_dtoh(&ends).map_err(|e| format!("D2H u64: {e}"))?;
@@ -672,6 +673,11 @@ impl<'a> Section<'a> {
                         cl.balance(nw)
                     );
                 }
+                println!(
+                    "  {name:<7} CTA spread over {} sites (sum of the slowest CTA's busy cycles over the mean's): {:.3}",
+                    a.shapes.len(),
+                    pers::trows_cta_spread(&st, a.shapes.len(), grid, nw)
+                );
             }
             arms.push(a);
         }
@@ -1204,6 +1210,9 @@ struct TrowsArm {
     bytes: u64,
     valid: bool,
     series: Vec<f64>,
+    /// gb and gbc's counters (barrier, abort, a cursor a site), zeroed
+    /// before each launch and passed as `x2`.
+    ctrs: Option<CudaSlice<u32>>,
 }
 
 /// The row-loop section: its module, the served reference's module and the
@@ -1222,8 +1231,15 @@ struct Trows {
     q4: Q4Rows,
 }
 
-fn trows_launch(m: &Cuda, a: &TrowsArm, t: &Tables, x: u64, x2: u64, stamps: Option<(&CudaSlice<u32>, &CudaSlice<u64>)>) -> Result<(), String> {
+fn trows_launch(m: &Cuda, a: &mut TrowsArm, t: &Tables, x: u64, x2: u64, stamps: Option<(&CudaSlice<u32>, &CudaSlice<u64>)>) -> Result<(), String> {
     let cfg = LaunchConfig { grid_dim: (a.grid, 1, 1), block_dim: (512, 1, 1), shared_mem_bytes: a.shared };
+    let x2 = match a.ctrs.as_mut() {
+        Some(c) => {
+            m.stream().memset_zeros(c).map_err(|e| format!("{}: counters: {e}", a.name))?;
+            ptr(c, m)
+        }
+        None => x2,
+    };
     let (sp, ep) = match stamps {
         Some((s, e)) => (ptr(s, m), ptr(e, m)),
         None => (0u64, 0u64),
@@ -1251,6 +1267,7 @@ fn trows_report(tr: &Trows) {
             "v2" | "v2_s" => None,
             "v2_o2" => Some("v2_s"),
             "l1w" | "bcast" | "xbcast" => Some("v2u"),
+            "gbc" => Some("gb"),
             "k2" => None,
             _ => Some("v2"),
         };
@@ -1270,6 +1287,21 @@ fn trows_report(tr: &Trows) {
         );
         if let Some(v) = k4_verdict(a.name, base, &series, &a.series) {
             println!("  {:<7} {v}", "");
+        }
+        // The row lead's rule: gbc over gb, the median of the round-by-round speeds.
+        if a.name == "gbc" {
+            if let Some(gb) = series("gb") {
+                let r: Vec<f64> = gb.iter().zip(&a.series).map(|(b, t)| b / t).collect();
+                let (rm, _, _) = pers::med_range(&r);
+                let verdict = if rm >= pers::ROWS_GRID_LEVER {
+                    "LEVER: at or over x1.05, licenses v10 (4E with rows claimed across the grid)"
+                } else if rm >= pers::ROWS_GRID_DEAD {
+                    "reported, not a lever: between x1.02 and x1.05"
+                } else {
+                    "DEAD: under x1.02"
+                };
+                println!("  {:<7} row-lead rule: x{rm:.3} over gb, {verdict}", "");
+            }
         }
         // K2: the cost of a second token as a fraction of a pass, round by
         // round against V2 (same rows, same bytes, one decode for two).

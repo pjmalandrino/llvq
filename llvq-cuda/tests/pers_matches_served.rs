@@ -1321,6 +1321,41 @@ fn step1_row_loop_mutants_are_killed() {
     }
 }
 
+/// The row lead's arms (2026-11-07): GB (v2 with a grid barrier after every
+/// site) and GBC (the rows claimed across the grid) give the served rows on
+/// every site, grid and warp count, with and without stamps; the harness
+/// checks that every CTA arrived at the barrier after every site.
+#[test]
+fn the_rows_grid_arms_are_the_served_rows() {
+    let want = run(served(), &trows_cmd(0, 1, 64, 0, &TROWS_SITES));
+    for arm in [13u32, 14] {
+        for &(grid, threads, stamps) in &[(3u32, 96u32, 0u32), (2, 64, 1), (4, 128, 1), (5, 32, 0), (1, 64, 0)] {
+            let got = run(persistent(), &trows_cmd(arm, grid, threads, stamps, &TROWS_SITES));
+            assert!(got == want, "row-lead arm {arm}, grid {grid}x{threads}, stamps {stamps}: rows or their f32 values differ from tv_tetra48_h");
+        }
+    }
+}
+
+#[test]
+fn rows_grid_mutants_are_killed() {
+    let f = "llvq-cuda/kernels/pers_trows.cu";
+    let want = run(served(), &trows_cmd(0, 1, 64, 0, &TROWS_SITES));
+    // GB's row choice has no mutant: without its branch it falls to the
+    // uniform loop, which owes the same bits (an equivalent mutant).
+    let cases: [(&str, u32, &str, &str); 5] = [
+        ("gbc_first", 14, "if (lane == 0u) r = atomicAdd(cur, 1u);", "if (lane == 0u) r = atomicAdd(cur, 1u) + 1u;"),
+        ("gbc_next", 14, "if (lane == 0u) rn = atomicAdd(cur, 1u);", "if (lane == 0u) rn = atomicAdd(cur, 2u);"),
+        ("gbc_bound", 14, "while (r < d_out) {", "while (r + 1u < d_out) {"),
+        ("gbc_site_cursor", 14, "reinterpret_cast<u32*>(const_cast<float*>(x2)) + 2u + s;", "reinterpret_cast<u32*>(const_cast<float*>(x2)) + 2u;"),
+        ("gb_barrier", 13, "if (!pers_grid_wait(ctr, (s + 1u) * g, ctr + 1)) return;", "(void)ctr;"),
+    ];
+    for (tag, arm, from, to) in cases {
+        let b = mutant(tag, f, from, to);
+        let killed = [(3u32, 96u32), (2, 64)].iter().any(|&(g, th)| run_mutant(&b, &trows_cmd(arm, g, th, 0, &TROWS_SITES)).is_none_or(|got| got != want));
+        assert!(killed, "row-lead mutant {tag} survived");
+    }
+}
+
 // Int4 sites of the 4B's three shapes, cut to a few rows; d_in in whole
 // steps of 32 words, d_out a multiple of 8 (tv_q4_hh's blocks). 9,728: 9
 // full tiles of 128 words and 2 steps left.

@@ -61,6 +61,22 @@
 //           the shared cursor (pers_claim) instead of the static warp split:
 //           the warp-balance suspect of pers-rowloop (0.63 at d_in 4,096).
 //
+// The arms of plan-300's row lead (2026-11-07,
+// proofs/preregistration-rows-grid-2026-11-07.md). Inside 4E every row phase
+// ends at a grid barrier, so each phase waits for its slowest CTA; alone, the
+// sites run back to back and a CTA's slow site is averaged with its fast ones.
+//   GB      V2, the static split, with 4E's grid barrier (pers_grid_wait)
+//           after every site: the loss the barriers add to the rows alone.
+//           Owes the bits.
+//   GBC     GB with the site's rows claimed across the whole grid, one row a
+//           warp from a cursor in global memory, the next claim in flight
+//           while the row decodes: a fast CTA takes rows a slow one would
+//           have kept. Owes the bits (a row's bits do not depend on its warp).
+//   Both take `x2` as their counters (u32): [0] the barrier, [1] the abort
+//   flag, [2 + s] site s's cursor, zeroed by the host before each launch.
+// The register arm v2r64 needs no code: tv_trows_v2_o2 (at most 64 registers)
+// at one CTA a SM on every site.
+//
 // Composition: its own module, the persistent unit followed by this file
 // (pers.rs::trows_unit_text), so 4E's module keeps its bytes.
 
@@ -77,6 +93,8 @@
 #define TROWS_CPA 10u
 #define TROWS_TILE 11u
 #define TROWS_BAL 12u
+#define TROWS_GB 13u
+#define TROWS_GBC 14u
 
 // Site words, 10 x u64, laid out by pers.rs::trows_site_words:
 //   [0] words  [1] gscale  [2] rscale  [3] tail (binary16)  [4] y (binary16)
@@ -494,6 +512,22 @@ __device__ __forceinline__ void trows_body(const unsigned long long* __restrict_
                     if (yf2 != nullptr) yf2[r] = v2;
                 }
             }
+        } else if (ARM == TROWS_GBC) {
+            u32* const cur = reinterpret_cast<u32*>(const_cast<float*>(x2)) + 2u + s;
+            u32 r = 0u;
+            if (lane == 0u) r = atomicAdd(cur, 1u);
+            r = __shfl_sync(0xffffffffu, r, 0);
+            while (r < d_out) {
+                u32 rn = 0u;
+                if (lane == 0u) rn = atomicAdd(cur, 1u);  // the next row, claimed while this one decodes
+                const float acc = pers_tetra_row<24u, false, true>(words + (size_t)r * stride, tab, gs, t_inv, xs, nb, lane);
+                if (lane == 0u) {
+                    const float v = pers_epilogue(acc, rs[r], tail + (size_t)r * tw, xs + nb * 24u, tw);
+                    y[r] = f2h(v);
+                    if (yf != nullptr) yf[r] = v;
+                }
+                r = __shfl_sync(0xffffffffu, rn, 0);
+            }
         } else if (ARM == TROWS_BAL) {
             pers_claim_reset(lo);
             for (;;) {
@@ -511,7 +545,7 @@ __device__ __forceinline__ void trows_body(const unsigned long long* __restrict_
             for (u32 r = lo + warp; r < hi; r += nw) {
                 const u32* wrow = words + (size_t)(ARM == TROWS_L1W ? 0u : r) * stride;
                 float acc;
-                if (ARM == TROWS_V2) {
+                if (ARM == TROWS_V2 || ARM == TROWS_GB) {
                     acc = pers_tetra_row<24u, false, true>(wrow, tab, gs, t_inv, xs, nb, lane);
                 } else if (ARM == TROWS_NC) {
                     acc = trows_row_ld<1u>(wrow, tab, gs, t_inv, xs, nb, lane);
@@ -536,6 +570,10 @@ __device__ __forceinline__ void trows_body(const unsigned long long* __restrict_
         if (stamps != nullptr && lane == 0u) stamps[((size_t)s * g + c) * (nw + 1u) + warp] = (u32)(trows_clock() - t0);
         __syncthreads();
         if (stamps != nullptr && threadIdx.x == 0u) stamps[((size_t)s * g + c) * (nw + 1u) + nw] = (u32)(trows_clock() - t0);
+        if (ARM == TROWS_GB || ARM == TROWS_GBC) {
+            u32* const ctr = reinterpret_cast<u32*>(const_cast<float*>(x2));
+            if (!pers_grid_wait(ctr, (s + 1u) * g, ctr + 1)) return;
+        }
     }
     if (stamps != nullptr && threadIdx.x == 0u) {
         ends[4u * blockIdx.x + 2u] = trows_clock();
@@ -569,3 +607,5 @@ TROWS_KERNEL(tv_trows_nc256, TROWS_NC256, 1)
 TROWS_KERNEL(tv_trows_cpa, TROWS_CPA, 1)
 TROWS_KERNEL(tv_trows_tile, TROWS_TILE, 1)
 TROWS_KERNEL(tv_trows_bal, TROWS_BAL, 1)
+TROWS_KERNEL(tv_trows_gb, TROWS_GB, 1)
+TROWS_KERNEL(tv_trows_gbc, TROWS_GBC, 1)

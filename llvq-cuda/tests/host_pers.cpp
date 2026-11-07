@@ -626,6 +626,7 @@ int main() {
         std::vector<unsigned long long> ends(4u * grid, 0ull);
         u32* sp = stamp ? st.data() : nullptr;
         unsigned long long* ep = stamp ? ends.data() : nullptr;
+        std::vector<u32> ctrs(2u + nsites, 0u);
         const bool cpa = arm == TROWS_CPA;
         const size_t smem = PERS_SMEM_HEADER + 18816u + 4u * (k2 || cpa ? TROWS_X2_AT + maxd : maxd) + 16u +
                             (cpa ? 4u * TROWS_CPA_WARP * (threads / 32u) : 0u);
@@ -644,9 +645,17 @@ int main() {
             case 10: trows_body<TROWS_CPA>(words.data(), nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), g_inv.data(), x.data(), x2.data(), sp, ep); break;
             case 11: trows_body<TROWS_TILE>(words.data(), nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), g_inv.data(), x.data(), x2.data(), sp, ep); break;
             case 12: trows_body<TROWS_BAL>(words.data(), nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), g_inv.data(), x.data(), x2.data(), sp, ep); break;
+            // GB and GBC read x2 as their counters: barrier, abort flag, a cursor a site
+            case 13: trows_body<TROWS_GB>(words.data(), nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), g_inv.data(), x.data(), reinterpret_cast<const float*>(ctrs.data()), sp, ep); break;
+            case 14: trows_body<TROWS_GBC>(words.data(), nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), g_inv.data(), x.data(), reinterpret_cast<const float*>(ctrs.data()), sp, ep); break;
             default: std::abort();
             }
         });
+        // GB and GBC: every CTA arrived at the grid barrier after every site
+        if ((arm == TROWS_GB || arm == TROWS_GBC) && (ctrs[0] != nsites * grid || ctrs[1] != 0u)) {
+            std::fprintf(stderr, "host_pers: grid barrier at %u, %u sites x %u CTAs expected\n", ctrs[0], nsites, grid);
+            return 2;
+        }
         if (stamp) {
             // every busy warp and every CTA stamped a positive count
             for (size_t i = 0; i < st.size(); ++i)
