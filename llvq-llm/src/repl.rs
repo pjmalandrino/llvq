@@ -22,11 +22,12 @@
 //! warmup, no rounds, no interleaving, and a CPU sampler in every step.
 
 use crate::chatfmt::{open_assistant, turn, Marks};
-use crate::model::{NoCapture, Qwen3};
+use crate::model::Qwen3;
 use crate::served::{Decode, Served};
 use crate::served_decode::Decoder;
+use crate::session::{Finish, Flow, Generate, Session};
 use anyhow::Context;
-use candle_core::{IndexOp, Tensor, D};
+use candle_core::{Tensor, D};
 use std::io::{BufRead, Write};
 
 /// Temperature and nucleus, on the CPU, over one row of logits.
@@ -186,7 +187,9 @@ pub fn run(
 /// [`run`] on the decode engine a served config installed
 /// ([`Served::serve`]).
 ///
-/// Eager: the loop [`run`] has always run, line for line. Persistent: the
+/// The loop is [`Session::answer`] since 2026-11-06, the one the runtime
+/// serves: the same `hidden_cached` calls in the same order as the loop that
+/// lived here, so the same ids. Eager: one step a token. Persistent: the
 /// prefill is the eager path's, the first token is the sampler's (an argmax,
 /// since [`check_served_chat`] holds the temperature at zero), and the rest
 /// of the answer comes from 4E, one launch of at most
@@ -228,22 +231,14 @@ pub fn run_with(
     println!("  context {limit} positions");
     println!("  /reset drops the conversation, /bye leaves\n");
 
-    // The cache and the position are the conversation. They are built once and
-    // carried across turns: only the NEW tokens of a turn are ever fed, which
+    // The session is the conversation: its caches and the ids they hold,
+    // carried across turns. Only the NEW tokens of a turn are ever fed, which
     // is the whole difference from calling `generate` in a loop.
-    let mut caches = qwen.fresh_caches();
-    let mut offset = 0usize;
+    let mut session = Session::new(qwen);
 
     if let Some(sys) = &opts.system {
         let ids = turn(tok, &marks, "system", sys)?;
-        qwen.hidden_cached(
-            &Tensor::from_slice(&ids, (1, ids.len()), qwen.device())?,
-            offset,
-            &mut caches,
-            &mut NoCapture,
-        )
-        .context("the system turn")?;
-        offset += ids.len();
+        session.feed(qwen, &ids).context("the system turn")?;
     }
 
     loop {
@@ -259,11 +254,10 @@ pub fn run_with(
             "" => continue,
             "/bye" => return Ok(()),
             "/reset" => {
-                // Read BEFORE the reset. Printing it after set `offset` to zero
-                // and reported that every conversation released nothing.
-                println!("  conversation dropped, {offset} positions released\n");
-                caches = qwen.fresh_caches();
-                offset = 0;
+                // Read BEFORE the reset. Printing it after set the count to
+                // zero and reported that every conversation released nothing.
+                println!("  conversation dropped, {} positions released\n", session.len());
+                session.reset(qwen);
                 continue;
             }
             _ => {}
@@ -271,110 +265,60 @@ pub fn run_with(
 
         let mut ids = turn(tok, &marks, "user", line)?;
         ids.extend(open_assistant(tok, &marks, think)?);
-        if !turn_fits(offset, ids.len(), max_new, limit) {
+        if !session.fits(ids.len(), max_new, limit) {
             println!(
-                "  this turn needs {} positions of the {limit} this model has, and {offset} \
+                "  this turn needs {} positions of the {limit} this model has, and {} \
                  are already held.\n  /reset to start over.\n",
-                offset + ids.len() + max_new + CLOSE_LEN
+                session.len() + ids.len() + max_new + CLOSE_LEN,
+                session.len()
             );
             continue;
         }
-        let dev = qwen.device();
         let t_prompt = std::time::Instant::now();
-        let mut h = qwen.hidden_cached(
-            &Tensor::from_slice(&ids, (1, ids.len()), dev)?,
-            offset,
-            &mut caches,
-            &mut NoCapture,
-        )?;
-        offset += ids.len();
+        let h = session.feed(qwen, &ids)?;
         let prompt_s = t_prompt.elapsed().as_secs_f64();
 
         let t_turn = std::time::Instant::now();
-        let mut n = 0usize;
-        // The answer so far, in ids and in the text already written. The two
-        // are kept side by side because a token does not map to a character.
-        let mut said: Vec<u32> = Vec::new();
+        // The text already written. A token does not map to a character, so
+        // the whole answer is decoded each time and only the NEW SUFFIX is
+        // written (`stream`).
         let mut shown = String::new();
-        if dec.is_persistent() {
-            // The positions the cache holds at the end are the eager loop's:
-            // every token said, but the last one when the cap cut it.
-            let first = opts.sampler.pick(&qwen.logits_last(&h)?.i((0, 0))?)?;
-            if !stops.contains(&first) {
-                said.push(first);
-                stream(tok, &said, &mut shown)?;
-                n = 1;
-                let mut last = first;
-                let mut stopped = false;
-                while !stopped && n < max_new {
-                    let k = (max_new - n).min(dec.launch_tokens() as usize);
-                    let (made, s) = dec.continue_greedy(qwen, &mut caches, last, offset, k, &stops)?;
-                    // Fed: `last`, then every token made but the final one,
-                    // or all of them when a stop token ended the run. 4E
-                    // stops on the first stop token only, so a second one
-                    // leaves the cache past the answer: cut it back.
-                    offset += match s {
-                        true => made.len() + 1,
-                        false => made.len(),
-                    };
-                    for c in caches.iter_mut() {
-                        c.set_len(offset)?;
-                    }
-                    n += made.len();
-                    said.extend_from_slice(&made);
-                    stream(tok, &said, &mut shown)?;
-                    stopped = s;
-                    last = match made.last() {
-                        Some(&t) => t,
-                        None => break,
-                    };
+        let mut failed: Option<anyhow::Error> = None;
+        let answer = session.answer(
+            qwen,
+            dec,
+            h,
+            Generate { sampler: &mut opts.sampler, max_new, stops: &stops },
+            &mut |said| match stream(tok, said, &mut shown) {
+                Ok(()) => Flow::Continue,
+                Err(e) => {
+                    failed = Some(e);
+                    Flow::Cancel
                 }
-                if !stopped && n >= max_new {
-                    println!("\n  [stopped at {max_new} tokens]");
-                }
-            }
-        } else { loop {
-            let logits = qwen.logits_last(&h)?.i((0, 0))?;
-            let next = opts.sampler.pick(&logits)?;
-            if stops.contains(&next) {
-                break;
-            }
-            // NOT `decode(&[next])`: a character outside the ASCII range
-            // arrives across several tokens. The whole answer is decoded each
-            // time and only the NEW SUFFIX is written.
-            said.push(next);
-            let full = tok.decode(&said, false).map_err(|e| anyhow::anyhow!("{e}"))?;
-            let safe = printable(&full);
-            if let Some(fresh) = safe.strip_prefix(shown.as_str()) {
-                print!("{fresh}");
-                std::io::stdout().flush()?;
-                shown = safe.to_string();
-            }
-
-            n += 1;
-            if n >= max_new {
-                println!("\n  [stopped at {max_new} tokens]");
-                break;
-            }
-            h = qwen.hidden_cached(&Tensor::from_slice(&[next], (1, 1), dev)?, offset, &mut caches, &mut NoCapture)?;
-            offset += 1;
-        } }
+            },
+        )?;
+        if let Some(e) = failed {
+            return Err(e);
+        }
+        if answer.finish == Finish::Length {
+            println!("\n  [stopped at {max_new} tokens]");
+        }
         // The assistant's own `<|im_end|>` goes into the cache, or the next
         // turn starts inside an unterminated message and the model keeps
         // writing the previous answer.
-        let close = [marks.im_end, marks.nl];
-        qwen.hidden_cached(&Tensor::from_slice(&close, (1, 2), dev)?, offset, &mut caches, &mut NoCapture)?;
-        offset += close.len();
+        session.feed(qwen, &[marks.im_end, marks.nl])?;
         if opts.show_ids {
-            println!("\n  ids: {said:?}");
+            println!("\n  ids: {:?}", answer.said);
         }
+        let n = answer.said.len();
         let secs = t_turn.elapsed().as_secs_f64();
         println!(
             "\n  {n} tokens in {secs:.1} s ({:.1} tok/s) after a {}-token prompt read in {:.1} s; \
-             {offset} positions held. This REPL's rate, not a measurement\n",
+             {} positions held. This REPL's rate, not a measurement\n",
             n as f64 / secs.max(1e-9),
             ids.len(),
-            prompt_s
+            prompt_s,
+            session.len()
         );
     }
 }

@@ -891,6 +891,22 @@ pub fn row_cap(batch: usize) -> usize {
     }
 }
 
+/// Most rows one [`group_forward`] call on `projs` takes, by the branch that
+/// call would take: no bound where no projection is rotated, [`MAX_ROWS`] for
+/// a segmented group, and [`row_cap`] of the group's batch otherwise.
+///
+/// A caller that cuts a prompt into chunks reads it so that no chunk is
+/// refused. The served Metal path batches nothing, so it is 256 there.
+pub fn group_row_cap(projs: &[&Proj]) -> usize {
+    if projs.iter().all(|p| p.rot_key().is_none()) {
+        return usize::MAX;
+    }
+    if projs.iter().any(|p| matches!(p, Proj::GroupPart { .. })) {
+        return MAX_ROWS;
+    }
+    row_cap(prefill_rows_of(projs))
+}
+
 impl Proj {
     pub fn forward(&self, x: &Tensor) -> Result<Tensor> {
         // A group of one: `Off` and `On` coincide, so the mode is not a
@@ -1642,6 +1658,20 @@ fn pick(
 }
 
 impl Block {
+    /// Most rows one call of this block's prefill takes: the tightest of its
+    /// four [`group_forward`] groups, as [`Self::forward`] forms them.
+    fn row_cap(&self) -> usize {
+        [
+            group_row_cap(&[&self.q_proj, &self.k_proj, &self.v_proj]),
+            group_row_cap(&[&self.o_proj]),
+            group_row_cap(&[&self.gate_proj, &self.up_proj]),
+            group_row_cap(&[&self.down_proj]),
+        ]
+        .into_iter()
+        .min()
+        .expect("four groups")
+    }
+
     /// `idx` names the layer, so a caller can hand over projections it has
     /// already built rather than have them read out of the `VarBuilder`.
     fn new_with(
@@ -2144,6 +2174,14 @@ impl Qwen3 {
             KvStore::Cat | KvStore::Grow(_) => self.causal_mask_offset(b, l, offset).map(Some),
             KvStore::Prealloc(w) => self.causal_mask_width(b, l, offset, w).map(Some),
         }
+    }
+
+    /// Most positions one [`Self::hidden_cached`] call takes on this model,
+    /// at most [`MAX_PREFILL_ROWS`]: 256 where a projection loops one launch
+    /// a row, which is the served Metal path. A caller that feeds a prompt in
+    /// chunks of this size is never refused.
+    pub fn prefill_rows(&self) -> usize {
+        self.blocks.iter().map(Block::row_cap).fold(MAX_PREFILL_ROWS, usize::min)
     }
 
     /// One `KvCache` per block, empty.
@@ -3660,6 +3698,87 @@ mod tests {
         }
         let mut caches = model.fresh_caches();
         assert_eq!(model.prefill_next(&prompt, &mut caches).unwrap(), want[0], "the served chunk is one call here");
+    }
+
+    /// A CPU lattice projection over a dense weight: rotation key `(0, 0)`,
+    /// the identity as its rotation, `k` rows a launch. The dense arithmetic,
+    /// through the rotated branch of `group_forward` and its row budget.
+    struct HostLattice {
+        w: Tensor,
+        k: usize,
+    }
+
+    impl crate::device::LatticeProj for HostLattice {
+        fn name(&self) -> &str {
+            "fake.lattice"
+        }
+        fn d_out(&self) -> usize {
+            self.w.dim(0).unwrap()
+        }
+        fn d_in(&self) -> usize {
+            self.w.dim(1).unwrap()
+        }
+        fn rotation(&self) -> Option<RotKey> {
+            Some((0, 0))
+        }
+        fn prepare(&self, x: &Tensor) -> Result<Tensor> {
+            Ok(x.clone())
+        }
+        fn prepare_rows(&self, xs: &Tensor, _rows: usize) -> Result<Tensor> {
+            Ok(xs.clone())
+        }
+        fn matvec(&self, xr: &Tensor, out_dims: &[usize]) -> Result<Tensor> {
+            let y = xr.reshape((1, self.d_in()))?.matmul(&self.w.t()?)?;
+            let mut d = out_dims.to_vec();
+            *d.last_mut().expect("rank >= 1") = self.d_out();
+            y.reshape(d)
+        }
+        fn rows_per_launch(&self) -> usize {
+            self.k
+        }
+        fn matvec_rows(&self, xr: &Tensor, n: usize) -> Result<Tensor> {
+            assert!((1..=self.k).contains(&n), "{n} rows for a launch of {}", self.k);
+            xr.matmul(&self.w.t()?)
+        }
+    }
+
+    /// The tiny model with every `q_proj` served by [`HostLattice`] at `k`
+    /// rows a launch, and RoPE tables for 512 positions.
+    fn tiny_model_lattice_q(k: usize) -> Qwen3 {
+        let mut m = tiny_model_long(DType::F32, 4, 2, 16, 512);
+        for b in &mut m.blocks {
+            let Proj::Dense(l) = &b.q_proj else { panic!("the tiny model's q_proj is dense") };
+            b.q_proj = Proj::Lattice(std::sync::Arc::new(HostLattice { w: l.weight().clone(), k }));
+        }
+        m
+    }
+
+    /// A turn longer than the model takes in one call goes in chunks the
+    /// model takes. On the served Metal path a projection loops one launch a
+    /// row and refuses more than 256 rows a call; until 2026-11-07
+    /// `Session::feed` cut at 4,096, so a 257-token turn failed there.
+    #[test]
+    fn a_session_feeds_a_long_turn_in_chunks_the_model_takes() {
+        let dense = tiny_model_long(DType::F32, 4, 2, 16, 512);
+        assert_eq!(dense.prefill_rows(), MAX_PREFILL_ROWS, "nothing rotated: the batched budget");
+        assert_eq!(tiny_model_lattice_q(4).prefill_rows(), MAX_PREFILL_ROWS, "four rows a launch");
+        let looped = tiny_model_lattice_q(1);
+        assert_eq!(looped.prefill_rows(), MAX_ROWS, "one launch a row: the served Metal path");
+
+        let ids: Vec<u32> = (0..300u32).map(|i| (i * 13 + 7) % 97).collect();
+        let x = Tensor::from_slice(&ids, (1, ids.len()), &Device::Cpu).unwrap();
+        let e = looped
+            .hidden_cached(&x, 0, &mut looped.fresh_caches(), &mut NoCapture)
+            .expect_err("300 rows in one call of the looped path");
+        assert!(e.to_string().contains("more than 256"), "{e}");
+
+        let mut s = crate::session::Session::new(&looped);
+        let h = s.feed(&looped, &ids).expect("a 300-token turn on the looped path");
+        assert_eq!(s.len(), ids.len(), "every position held");
+        let mut d = crate::session::Session::new(&dense);
+        let hd = d.feed(&dense, &ids).expect("the dense model takes it in one call");
+        let next = |m: &Qwen3, h: &Tensor| argmax_last(&m.logits_last(h).unwrap()).unwrap();
+        assert_eq!(next(&looped, &h), next(&dense, &hd), "the dense model's next token");
     }
 
     /// 🚨 The served config's pair reaches the model, BOTH halves of it.

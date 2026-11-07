@@ -32,7 +32,7 @@ served configs in `configs/`. `docs/archive/` is not edited. `docs/fiche-4b.md` 
 
 ## Architecture
 
-Eight crates, members of `Cargo.toml`.
+Nine crates, members of `Cargo.toml`.
 
 | crate | role | external dependencies | `unsafe` |
 |---|---|---|---|
@@ -44,6 +44,7 @@ Eight crates, members of `Cargo.toml`.
 | `llvq-metal` | macOS GPU micro-benchmarks, MSL shaders, `rankbench` | `metal` | allowed |
 | `llvq-cuda` | NVIDIA fused kernel compiled by NVRTC, benchmarks | `cudarc`, `cfg(target_os = "linux")` | allowed |
 | `llvq-llm` | forward pass, corpora, perplexity, MMLU, fused path in the model | `candle`, `tokenizers`, `hf-hub`, `parquet` | allowed |
+| `llvq-runtime` | the `llvq` binary: model library, store, Ollama and OpenAI routes, OpenAPI document (`docs/plan-runtime.md`) | `axum`, `tokio`, `clap`, `utoipa`, `sha2`, `ureq` | forbid |
 
 Beside the crates, `llvq-tetra/` is a Python package: it reads a packed model in `transformers`, and it is the
 distribution `llvq-tetra`. It stays in this repository (operator, 2026-10-07): its wheel ships a copy of the served
@@ -94,6 +95,8 @@ cargo run --release -p llvq-llm --features metal --bin mmlu -- <checkpoint|seale
 LLVQ_CONFIG=configs/qwen3-4b-tetra-e4.json cargo run --release -p llvq-llm --features cuda --bin mmlu -- <sealed> cuda 40   # THROUGH the served kernel
 LLVQ_CONFIG=configs/qwen3-4b-tetra-e4.json cargo run --release -p llvq-llm --features cuda --bin gsm8k -- <sealed> cuda   # GSM8K through the kernel; gsm8kpair <a> <b> pairs two dumps
 cargo run --release -p llvq-llm --features cuda --bin fusedrun                                      # the kernel in the model
+cargo run --release -p llvq-runtime --features metal --bin llvq -- serve                             # the runtime; also pull, run, ls, ps, show, stop, rm, cp
+cargo run -p llvq-runtime --example tiny_server && uv run ops/llvq_runtime_clients.py <addr> tiny:test  # the official ollama and openai clients against llvq, CPU only
 LLVQ_DTYPE=f16 cargo run --release -p llvq-llm --features metal --bin ppl -- 4096 12 metal <sealed>
 cargo run --release -p llvq-llm --features metal --bin oracle                                       # forward pass vs candle, on every backend
 ops/llvq-mlx chat|generate "<msg>"|bench [--long]|check|check-mini                                   # the sealed 4B through MLX at its door (configs/mlx/); PACKED= its hfpack
@@ -136,6 +139,10 @@ be in `UPLOAD_ALLOW` of `ops/run.py`, or the Space dies after 12 minutes. `rankb
 | `LLVQ_GSM8K_DUMP`, `LLVQ_GSM8K_MAX_NEW`, `LLVQ_GSM8K_THINK` | path; count, default 1024; `0`, `1` | `gsm8k`: one JSON line per problem with the raw completion; the cap on generated tokens; Qwen3's reasoning block, off by default. `gsm8kpair` re-grades every row before pairing, vLLM dumps included |
 | `LLVQ_CALIB_SEED`, `LLVQ_DAMPING`, `LLVQ_H_SHRINK`, `LLVQ_GAIN_SCALE`, `LLVQ_SEQ_BLOCK`, `LLVQ_THREADS` | see `docs/METHODE.md` | `smoke` knobs. Their default is the published path and is bit-identical; any other value of `LLVQ_SEQ_BLOCK` is refused by name. `LLVQ_THREADS` ≈ ncpu−4 on a shared machine |
 | `LLVQ_SEALED_ARTIFACT` | path | `llvq-artifact` archive tests: moves the search for the sealed file |
+| `LLVQ_HOME` | directory, default `~/.llvq` | `llvq`: the store, `blobs/` and `manifests/` |
+| `LLVQ_HOST` | `host:port`, default `127.0.0.1:11435` | `llvq`: where `serve` binds and where the client commands connect |
+| `LLVQ_KEEP_ALIVE` | duration (`5m`, `30s`, `0`, negative for never), default `5m` | `llvq serve`: how long a model stays loaded after its last request; a request's `keep_alive` wins |
+| `LLVQ_MAX_LOADED` | count, default `1` | `llvq serve`: models loaded at once; the least recently used idle one is unloaded first |
 | `LLVQ_QTIP_DIR` | directory | upstream QTIP kernel, GPL v3, not redistributed (`docs/qtip-provenance.md`) |
 
 The 17 entries of `MEASUREMENT_MODES` in `llvq-llm/src/served.rs` are measurement modes, never a served config:

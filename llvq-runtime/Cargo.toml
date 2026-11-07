@@ -1,0 +1,39 @@
+[package]
+name = "llvq-runtime"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "llvq: pull, run and serve the sealed LLVQ files with Ollama's commands and API"
+
+[[bin]]
+name = "llvq"
+path = "src/main.rs"
+
+[dependencies]
+llvq-llm = { path = "../llvq-llm" }
+candle-core = "0.9"
+tokenizers = { version = "0.21", default-features = false, features = ["onig"] }
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+axum = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time", "signal"] }
+futures-util = "0.3"
+clap = { version = "4", features = ["derive"] }
+utoipa = "5"
+utoipa-axum = "0.2"
+sha2 = "0.10"
+# Both already in Cargo.lock at these versions, pulled by hf-hub's sync API.
+ureq = { version = "2", default-features = false, features = ["native-tls", "json"] }
+native-tls = "0.2"
+
+# The device backends, carried through to the engine.
+[features]
+metal = ["llvq-llm/metal"]
+cuda = ["llvq-llm/cuda"]
+
+[dev-dependencies]
+candle-nn = "0.9"
+candle-transformers = "0.9"
+serde_yaml = "0.9"
