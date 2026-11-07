@@ -14,9 +14,9 @@ llvq ls; llvq ps; llvq show qwen3:4b; llvq stop qwen3:4b; llvq rm qwen3:4b
 
 | model | file | b/param | Metal config | CUDA config |
 |---|---|---|---|---|
-| `qwen3:4b`, also `qwen3:latest` | `qwen3-4b-sealed.bin`, 1.42 GB | 2.7320 | expanded | 4E v4 (greedy only) |
-| `qwen3:8b` | `qwen3-8b-sealed-B.bin`, 2.82 GB | 2.6953 | expanded, never run fused on Metal | grouped |
-| `qwen3:14b` | `qwen3-14b-sealed.bin`, 5.09 GB | 2.7305 | expanded, never run fused on Metal | grouped |
+| `qwen3:4b`, also `qwen3:latest` | `qwen3-4b-sealed.bin`, 1.42 GB | 2.7320 | expanded | 4E v9 (greedy only) |
+| `qwen3:8b` | `qwen3-8b-sealed-B.bin`, 2.82 GB | 2.6953 | expanded, never run fused on Metal | 4E v9 (greedy only) |
+| `qwen3:14b` | `qwen3-14b-sealed.bin`, 5.09 GB | 2.7305 | expanded, never run fused on Metal | 4E v9 (greedy only) |
 
 The library is `library.json`: each model pins a Hub commit, a size and a sha256. The served
 configs are compiled in from `configs/`. The server listens on `127.0.0.1:11435`, one port above
@@ -39,7 +39,7 @@ blobs and `/v1/responses` answer `501` with the reason.
 
 ## Limits
 
-The engine decodes one sequence at a time, so requests to one model queue. The 4B on CUDA runs
-4E, which decodes greedily: a temperature above 0 is refused there. A chat history is read again
+The engine decodes one sequence at a time, so requests to one model queue. On CUDA the three
+models run 4E, which decodes greedily: a temperature above 0 is refused there. A chat history is read again
 only from the first message that changed since the last request. Rates in a response are the
 runtime's own, never a measurement.
