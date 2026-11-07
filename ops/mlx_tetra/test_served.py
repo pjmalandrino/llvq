@@ -145,6 +145,21 @@ def test_serve_checks_before_it_imports_mlx():
         os.environ.update(saved)
 
 
+
+def test_serve_reads_arguments_before_the_door():
+    """A malformed command returns 2 before the door opens: no model load, no MLX import."""
+    import contextlib
+    import io
+
+    import serve
+
+    for argv in (["generate"], ["time", "64"], ["chat", "warm"], ["ppl", "4096", "12", "decode,greedy"],
+                 ["bench"]):
+        with contextlib.redirect_stderr(io.StringIO()):
+            got = serve.main(["serve.py", str(CONFIG), "/nonexistent", *argv])
+        assert got == 2, (argv, got)
+    assert "mlx.core" not in sys.modules, "MLX imported by a refused command"
+
 def main() -> int:
     tests = [(n, f) for n, f in sorted(globals().items()) if n.startswith("test_")]
     bad = 0

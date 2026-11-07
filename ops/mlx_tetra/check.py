@@ -209,6 +209,8 @@ def main():
         section_d(model, path, t)
     else:
         print("D. skipped: the whole forward pass in f32 on the CPU is for the fixture only")
+    if t.n == 0:
+        sys.exit("0 comparisons: nothing was checked")
     print(f"{t.n} comparisons, all within bounds" if t.bad == 0 else f"{t.bad} of {t.n} comparisons over bound")
     sys.exit(1 if t.bad else 0)
 

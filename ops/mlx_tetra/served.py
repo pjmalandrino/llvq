@@ -5,8 +5,8 @@ names what the Rust door runs. It is a separate schema in a separate directory:
 `llvq-llm/tests/served_config.rs` parses every file of `configs/` with
 `deny_unknown_fields`, and the MLX keys are not the Rust keys.
 
-Every value has exactly one accepted spelling, the one M16 timed and the T8
-reading scores. Anything else is refused with the key, the value and the reason,
+Every value has exactly one accepted spelling, the one M16 timed and both
+perplexity readings scored (mlx-t8 and mlx-pooled, 2026-11-07). Anything else is refused with the key, the value and the reason,
 never replaced by a default. A Rust-door key (`fuse`, `decode`, `rows`) is
 refused too: the MLX door reads none of them, and silence would let a reader
 believe it did.

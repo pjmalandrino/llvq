@@ -106,13 +106,14 @@ The 8B and 14B serve the grouped form at 105.8 and 62.5 tok/s at the door (*meas
 
 ### 2.9 Throughput on Metal: the prefill, then the Tetra kernel's decode
 
-**Gate.** The operator's ruling on tolerance first: bit for bit only, or the ±0.12 % band
-([`plan-metal-v2.md`](plan-metal-v2.md) §6). The MLX path then needs a perplexity reading against the Rust Metal path.
-**Cost** $0, local.
+**Gate.** Passed on 2026-11-07: the operator ruled a tolerance on Metal, and the MLX door serves the 4B under the
+paired perplexity interval, -0.0103 % [-0.0847 ; +0.0642] by decode against the Rust dense f16 reading (*measured*,
+[mlx-pooled](mesures/mlx-pooled-2026-11-07.txt)). What remains is speed, [`plan-metal-debit.md`](plan-metal-debit.md)
+§4. **Cost** $0, local.
 
 The Rust Metal path reads a 4,096-token prompt in 31.53 s and decodes 65.49 tok/s after 5 tokens (*measured*, M10 and
-M14 of [metal-nuit](mesures/metal-nuit-2026-11-06.txt)). The MLX prototype reads the same prompt in 4.11 s and decodes
-93.92 tok/s (M16). Its tokens differ from the Rust engine's after a 5-token prompt, and it has no perplexity. At a
+M14 of [metal-nuit](mesures/metal-nuit-2026-11-06.txt)). The MLX engine read the same prompt in 4.11 s and decoded
+93.92 tok/s at the prototype's door (*measured*, M16); the served door is not timed. At a
 short context the Rust step reads 70 GB/s of weights of the M3 Max's 340 (*computed*,
 [`plan-metal-debit.md`](plan-metal-debit.md) §4). The Tetra kernel's decode binds there, and its leads are in
 [`plan-metal-v2.md`](plan-metal-v2.md) §3 C.
@@ -168,7 +169,6 @@ short context the Rust step reads 70 GB/s of weights of the M3 Max's 340 (*compu
 | document-extraction domain benchmark ([arXiv:2607.08734](https://arxiv.org/abs/2607.08734)) | not done |
 | a harder reasoning test than GSM8K: Qwen3's reasoning mode or GSM-Symbolic, about 3 to 5 $ at 4B | not done |
 | whether the Metal door serves the grouped form, bit for bit on 12 windows of 4,096 (M5 of [metal-nuit](mesures/metal-nuit-2026-11-06.txt)) | refused; `configs/qwen3-4b-tetra-e4-metal-grouped-NOT-SERVED.json` waits |
-| whether Metal serves fused kernels under the ±0.12 % band or only bit for bit ([`plan-metal-v2.md`](plan-metal-v2.md) §6) | nothing served on Metal |
 | serving 4E v6 against its missed gate, which needs a served-door reading | v4 stays served |
 
 Rule 1 applies to every row: no run starts or stops, and no structural decision is taken, without an explicit go, with

@@ -141,3 +141,25 @@ unmutated served: exit 0 | 9 of 9 passed
   killed   serve: environment unchecked             served exit 1 | 8 of 9 passed
   killed   serve: object unchecked                  served exit 1 | 8 of 9 passed
 23 of 23 mutants killed
+
+REVIEW BEFORE THE MERGE (2026-11-07, afternoon)
+-----------------------------------------------
+Asked by the operator: « Dans la session métal relis mlx et fait les ajustements et merge ». Cost $0, fixture only,
+nothing on the sealed 4B.
+
+Code changes:
+  - serve.py reads every argument before the door opens: a malformed command returns 2 with no model load and no
+    MLX import (before, `generate` with no message loaded the model first). New test
+    test_serve_reads_arguments_before_the_door, new mutant "serve: generate without a message".
+  - ppl.run_against refuses a window count with no t quantile before any work (before: a KeyError after the whole
+    reading). Checked directly: 5 windows refused, 12 accepted.
+  - check.py fails on 0 comparisons instead of printing "0 comparisons, all within bounds".
+  - Docstrings of serve.py, served.py, llvq_mlx.py and ops/llvq-mlx named the T8 per-window band as the gate, or said
+    no perplexity was measured; they now name the paired gate of preregistration-mlx-pooled-2026-11-07.md.
+  - configs/mlx/qwen3-4b-tetra-e4-mlx.json is NOT edited: its note still names the first reading's gate, and
+    configs/README.md says so. Both journals pin the file by its sha256 d7bd5b5c.
+
+Gates after the changes (*measured*, M3 Max):
+  test_served.py   10 of 10 passed
+  check.py         41 of 41 comparisons on the fixture, worst whole forward 1.53e-03 < 1e-02
+  mutate.py        24 of 24 mutants killed (the 23 above plus the argument check)

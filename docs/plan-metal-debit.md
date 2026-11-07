@@ -2,9 +2,10 @@
 
 The 4B is served on Metal by the MLX door since 2026-11-07: `ops/mlx_tetra/serve.py` under
 `configs/mlx/qwen3-4b-tetra-e4-mlx.json`. On 12 fresh WikiText-2 windows its perplexity reads -0.0103 %
-[-0.0847 ; +0.0642] from the Rust path's by decode, inside its +-0.12 % gate (*measured*, [mlx-pooled](mesures/mlx-pooled-2026-11-07.txt)). Its
-engine decodes at 93.9 tok/s after a 5-token prompt and 70.3 after 4,096 tokens of context, not bit-exact with the
-Rust path (*measured*, M16). The Rust path (`metalrun`) decodes at 65.5 tok/s, every kernel bit for bit with the
+[-0.0847 ; +0.0642] from the Rust dense reconstruction in f16 by decode, inside its +-0.12 % gate (*measured*,
+[mlx-pooled](mesures/mlx-pooled-2026-11-07.txt)). Its engine decoded at 93.9 tok/s after a 5-token prompt and 70.3
+after 4,096 tokens of context at the prototype's door, not bit-exact with the Rust path (*measured*, M16); the served
+door is not timed. The Rust path (`metalrun`) decodes at 65.5 tok/s, every kernel bit for bit with the
 served Metal kernels (*measured*, M14). mlx-lm's own Qwen3-4B 4-bit reads 129.5 and 98.4 on
 the same Mac, at about 4.5 b/param against our 2.7 (*measured*, M16). Rule 5: no ratio is formed across the two
 stacks.
@@ -22,7 +23,8 @@ From the repository root, on a quiet Mac (no build running, no other GPU applica
 ops/llvq-mlx chat           # the MLX door: a conversation with the sealed 4B; PACKED= the hfpack of the sealed file
 ops/llvq-mlx bench          # the MLX door, metalrun's protocol, 256 tokens after a 5-token prompt; --long at 4,096
 ops/llvq-mlx check-mini     # the MLX gates on the mini fixture, seconds; `check` runs them on the sealed 4B
-ops/mlx-t8.sh               # the MLX door's T8 reading, 16.5 minutes on 2026-11-07; refuses before its prereg is stamped
+ops/mlx-pooled.sh           # the MLX door's served gate: windows 13-24 against Rust dense f16, 23.5 minutes on 2026-11-07
+ops/mlx-t8.sh               # the first reading, not the gate: windows 1-12 against M5, 16.5 minutes on 2026-11-07
 ops/metal-bench.sh          # the Rust path, about 9 minutes: lut, lutd, D, 256 tokens after a 5-token prompt
 ops/metal-bench.sh --long   # the Rust path, about 25 minutes: lutd, lutd+grp, lutd+ker, 64 tokens after 4,096 tokens
 ```
@@ -114,10 +116,11 @@ Taken:
   set aside.
 - 2026-11-06. The rival's 2.28 GB download, approved before M14 (its prereg).
 - 2026-11-07. Rule 1, tolerance or bit for bit on Metal: tolerance. The operator wrote « Sur métal, on a validé mlx
-  donc implem le aussi ». A fused Metal path is served under T8's band (+-0.12 % of perplexity, pooled and every
-  window), as the grouped and kernel forms are on CUDA. The MLX door was built on this ruling.
+  donc implem le aussi ». A fused Metal path is served under a perplexity tolerance of +-0.12 %, as the grouped and
+  kernel forms are on CUDA. The MLX door was built on this ruling.
 - 2026-11-07. The MLX door's gate: the paired interval, not every window. After the first reading missed the
-  per-window rule, the operator chose « Garder MLX »: the paired pooled interval inside +-0.12 %, stamped before a
+  per-window rule, the operator wrote « oiui c'est bon on gare », corrected by « garde * », and picked the option
+  "Garder MLX": the paired pooled interval inside +-0.12 %, stamped before a
   reading of fresh windows. That reading passed by both paths, and the door is served (section 2).
 
 Open:
@@ -184,8 +187,9 @@ Not bit for bit: every comparison has a bound, max |a - b| / max |b| over a proj
 | Tetra one-row, 8-row and dense prefill paths, int4 records | `llvq_mlx.py` kernels, MLX's quantized matmul | `check.py` section B: against `llvq_tetra.PackedModel.dequantize`, bit for bit with the Rust decoder, within 2e-3 (kernels) and 4e-3 (dense prefill) |
 | int4 g64 embedding and tied head | MLX's quantized embedding | `check.py` section C, within 2e-3 |
 | the whole forward pass | mlx-lm's Qwen3 with our modules | `check.py` section D, on the mini fixture: against `transformers` through `llvq-tetra` in f32, by prefill, decode and 4-row chunks, within 1e-2 |
-| the gates themselves | `ops/mlx_tetra/mutate.py` | 23 mutants on a copy, each run on the fixture: rotation, the three Tetra paths, the fused MLP, the rotation reuse, int4, the shared shaders, the door; all 23 killed (*measured*, [mlx-door](mesures/mlx-door-2026-11-07.txt)) |
+| the gates themselves | `ops/mlx_tetra/mutate.py` | 24 mutants on a copy, each run on the fixture: rotation, stacked q+k, the three Tetra paths, the fused MLP, the rotation reuse, int4, the shared shaders, the door and its argument check; all 24 killed (*measured*, [mlx-door](mesures/mlx-door-2026-11-07.txt)) |
 
-On the fixture the worst kernel error reads 6.1e-4 and the whole forward pass 1.5e-3. On the sealed 4B, layers 0 and
+On the fixture the worst kernel error reads 6.1e-4 and the whole forward pass 1.5e-3 (*measured*,
+[mlx-door](mesures/mlx-door-2026-11-07.txt)). On the sealed 4B, layers 0 and
 12, sections A to C passed 66 of 66 comparisons, worst 7.7e-4 against a bound of 2e-3 (*measured*, gate 4 of
 [mlx-t8](mesures/mlx-t8-2026-11-07.txt)).

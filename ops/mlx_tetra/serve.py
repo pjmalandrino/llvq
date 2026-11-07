@@ -25,11 +25,13 @@ the config's, with its sha256.
 `chat`: a conversation, Qwen3's format with reasoning off, the cache kept
 across turns. `generate`: one such turn, greedy, its text and token digest.
 `time`: `metalrun time`'s protocol at this door (2 discarded rounds, then the
-timed ones, medians with their ranges). `ppl`: the T8 reading of `ppl.py`.
+timed ones, medians with their ranges). `ppl`: the perplexity readings of `ppl.py`.
 `span`: the span gate of that reading alone, without loading the model.
 
 Activations are f16 and the path is not bit-exact with the Rust kernels. Its
-gate is a perplexity band, proofs/preregistration-mlx-t8-2026-11-07.md.
+gate is the paired perplexity interval of
+proofs/preregistration-mlx-pooled-2026-11-07.md, inside +-0.12 % of the Rust
+path; the per-window band of the first reading (mlx-t8-2026-11-07) was missed.
 """
 from __future__ import annotations
 
@@ -101,43 +103,52 @@ def main(argv: list[str]) -> int:
     if mode not in ("chat", "generate", "time", "ppl", "span"):
         print(f"mode {mode!r} refused\n{usage}", file=sys.stderr)
         return 2
+    # Every argument is read before the model loads: a typo costs nothing.
+    try:
+        if mode == "chat":
+            job = ("chat", float(rest[0]) if rest else 0.7, int(rest[1]) if len(rest) > 1 else 512)
+        elif mode == "generate":
+            if not rest:
+                raise ValueError("generate needs a message")
+            job = ("generate", rest[0], int(rest[1]) if len(rest) > 1 else 256)
+        elif mode == "time":
+            if len(rest) < 2:
+                raise ValueError("time needs <n_new> <timed_rounds>")
+            job = ("time", int(rest[0]), int(rest[1]), int(rest[2]) if len(rest) > 2 else 0)
+        else:
+            ctx = int(rest[0]) if rest else 4096
+            windows = int(rest[1]) if len(rest) > 1 else 12
+            paths = rest[2].split(",") if len(rest) > 2 else ["decode", "prefill"]
+            bad = [p for p in paths if p not in ("decode", "prefill")]
+            if bad or not paths:
+                raise ValueError(f"paths {bad} refused: decode, prefill")
+            first = int(rest[3]) if len(rest) > 3 else 0
+            ref = rest[4] if len(rest) > 4 else None
+            job = (mode, ctx, windows, paths, first, ref)
+    except ValueError as e:
+        print(f"{e}\n{usage}", file=sys.stderr)
+        return 2
     try:
         cfg, L, model = open_door(cfg_path, packed, load_model=mode != "span")
     except S.Refused as e:
         print(f"refused: {e}", file=sys.stderr)
         return 1
     if mode == "chat":
-        L.chat(model, packed, float(rest[0]) if rest else 0.7, int(rest[1]) if len(rest) > 1 else 512)
+        L.chat(model, packed, job[1], job[2])
     elif mode == "generate":
-        if not rest:
-            print(usage, file=sys.stderr)
-            return 2
-        generate(L, model, packed, rest[0], int(rest[1]) if len(rest) > 1 else 256)
+        generate(L, model, packed, job[1], job[2])
     elif mode == "time":
-        if len(rest) < 2:
-            print(usage, file=sys.stderr)
-            return 2
-        n_prompt = int(rest[2]) if len(rest) > 2 else 0
-        L.time_rounds(model, L.prompt_ids(packed, n_prompt), int(rest[0]), int(rest[1]), "llvq-mlx served")
+        L.time_rounds(model, L.prompt_ids(packed, job[3]), job[1], job[2], "llvq-mlx served")
     else:
         import ppl
 
-        ctx = int(rest[0]) if rest else ppl.M5_CTX
-        windows = int(rest[1]) if len(rest) > 1 else ppl.M5_NWIN
+        _, ctx, windows, paths, first, ref = job
         if mode == "span":
             _, nwin, digest, n_split = ppl.span(packed, ctx, windows)
             ppl.gate_span(digest, n_split, ctx, nwin)
             return 0
-        paths = rest[2].split(",") if len(rest) > 2 else ["decode", "prefill"]
-        bad = [p for p in paths if p not in ("decode", "prefill")]
-        if bad or not paths:
-            print(f"paths {bad} refused: decode, prefill", file=sys.stderr)
-            return 2
-        first = int(rest[3]) if len(rest) > 3 else 0
-        ref = rest[4] if len(rest) > 4 else None
         ppl.run(model, packed, ctx, windows, paths, first, ref)
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv))

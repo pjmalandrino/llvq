@@ -68,6 +68,8 @@ MUTANTS = [
     ("serve: environment unchecked", SERVE, "    S.check_env(os.environ)\n", "    pass\n", "served"),
     ("serve: object unchecked", SERVE, '    S.check_object(cfg, json.loads(cfg_file.read_text()))\n', "    pass\n",
      "served"),
+    ("serve: generate without a message", SERVE, "            if not rest:\n                raise ValueError(\"generate",
+     "            if False:\n                raise ValueError(\"generate", "served"),
 ]
 
 

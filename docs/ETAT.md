@@ -192,13 +192,15 @@ configs are measurement doors for `bin/metalrun`.
 **The MLX door serves the 4B on the Mac since 2026-11-07, under a perplexity tolerance.** The operator ruled
 that Metal is served under a tolerance rather than bit for bit: « Sur métal, on a validé mlx donc implem le aussi ».
 `ops/mlx_tetra/serve.py` serves the sealed 4B through MLX under `configs/mlx/qwen3-4b-tetra-e4-mlx.json`, and refuses
-by name every value that file does not carry. Its engine decodes 93.92 tok/s [88.38-94.66] on the same Mac (M16, same
-journal), not bit for bit with the Rust engine. mlx-lm's 4-bit Qwen3-4B decodes 129.45 there, on another stack, so no
-ratio is formed. Its gates pass on the mini fixture and on the sealed 4B, and 23 of 23 mutants are killed
-([mlx-door](mesures/mlx-door-2026-11-07.txt)). On WikiText-2 windows 13 to 24 of 4,096, against the Rust dense
+by name every value that file does not carry. Its engine decoded 93.92 tok/s [88.38-94.66] at the prototype's door,
+not bit for bit with the Rust engine (*measured*, M16, [metal-nuit](mesures/metal-nuit-2026-11-06.txt)); the served
+door's speed is not measured. mlx-lm's 4-bit Qwen3-4B decodes 129.45 there, on another stack, so no ratio is formed
+(*measured*, M16). Its gates pass on the mini fixture with every mutant killed (*measured*,
+[mlx-door](mesures/mlx-door-2026-11-07.txt)), and on the sealed 4B, 66 of 66 comparisons (*measured*,
+[mlx-pooled](mesures/mlx-pooled-2026-11-07.txt)). On WikiText-2 windows 13 to 24 of 4,096, against the Rust dense
 reconstruction in f16 on Metal, its perplexity reads -0.0103 % [-0.0847 ; +0.0642] by decode and -0.0099 %
-[-0.0842 ; +0.0644] by prefill, paired over 12 windows, inside the +-0.12 % gate (*measured*, [mlx-pooled](mesures/mlx-pooled-2026-11-07.txt)). Single
-windows move by up to 0.29 %, as they do by about 0.2 % between two Rust engines (*computed* from
+[-0.0842 ; +0.0644] by prefill, paired over 12 windows, inside the +-0.12 % gate (*measured*,
+[mlx-pooled](mesures/mlx-pooled-2026-11-07.txt)). Single windows move by up to 0.29 %, as they do by about 0.2 % between two Rust engines (*computed* from
 [s1-f32-metal](mesures/s1-f32-metal-2026-11-04.txt)). A first reading on windows 1 to 12 held the pooled perplexity
 and missed a rule that asked every window inside +-0.12 % ([mlx-t8](mesures/mlx-t8-2026-11-07.txt)). The operator
 then chose the paired gate, stamped before the second reading. No task score has run through the MLX door.

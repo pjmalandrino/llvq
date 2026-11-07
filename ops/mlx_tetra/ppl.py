@@ -181,6 +181,9 @@ def run_against(model, packed: str, ctx: int, windows: int, paths: list[str], fi
     """Windows first+1 .. first+windows, each against the reference file's window of the same number."""
     if ref is None or ctx != M5_CTX:
         raise SystemExit("windows past the first need a reference file, at ctx 4096")
+    if windows - 1 not in T_975:
+        raise SystemExit(f"{windows} windows refused: the paired interval has a t quantile for "
+                         f"{sorted(k + 1 for k in T_975)} windows only")
     want = read_reference(ref)
     numbers = list(range(first + 1, first + windows + 1))
     missing = [w for w in numbers if w not in want]

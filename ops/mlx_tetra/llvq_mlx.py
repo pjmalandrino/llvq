@@ -7,8 +7,8 @@
 # ///
 """The sealed Tetra 4B on MLX: mlx-lm's Qwen3 with our projections.
 
-A prototype of MLX as the engine on the Mac, the operator's choice of 2026-11-06
-(`docs/plan-metal-debit.md`). It reads the sealed codes from the packed directory
+The MLX engine on the Mac, the operator's choice of 2026-11-06, served through
+`serve.py` since 2026-11-07 (`docs/plan-metal-debit.md`). It reads the sealed codes from the packed directory
 without re-quantizing them. mlx-lm brings the attention, the norms, RoPE, the cache and the int4 matmul; this
 file brings what MLX does not have:
 
@@ -28,8 +28,10 @@ kernels for everything but Tetra, another rotation arithmetic. After the 5-token
 prompt its 256 greedy tokens differ from the Rust engine's: it leaves the repeated
 answer at token 243, the Rust engine at another token. After 4,096 tokens of
 context its 64 tokens are the Rust engine's (M15 of
-`docs/mesures/metal-nuit-2026-11-06.txt`). No perplexity has been measured on it
-yet, so whether it holds the M6 band (+-0.12 %) is unknown.
+`docs/mesures/metal-nuit-2026-11-06.txt`). Its WikiText-2 perplexity sits within
+-0.0103 % [-0.0847 ; +0.0642] of the Rust dense f16 reading on windows 13 to 24
+(*measured*, `docs/mesures/mlx-pooled-2026-11-07.txt`), the gate it is served
+under.
 
 This file is the engine, and its `main` the measurement door: no config, the
 ablation modes of `LLVQ_MLX_ABLATE` accepted, the door M15 and M16 timed. The

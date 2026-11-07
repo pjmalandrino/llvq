@@ -8,10 +8,11 @@
 #   ops/llvq-mlx check            # the gates on the sealed 4B, layers 0 and 12
 #   ops/llvq-mlx check-mini       # the gates on llvq-tetra/tests/fixtures/mini, seconds
 #
-# Every command but check-mini goes through ops/mlx_tetra/serve.py and configs/mlx/qwen3-4b-tetra-e4-mlx.json: the
-# door refuses any LLVQ_* variable, another object, another mlx or mlx-lm, and prints the config's line first.
-# f16 activations, not bit-exact with the Rust kernels: its gate is a perplexity band, the T8 reading of
-# proofs/preregistration-mlx-t8-2026-11-07.md (ops/mlx-t8.sh). The plan: docs/plan-metal-debit.md.
+# chat, generate and bench go through ops/mlx_tetra/serve.py and configs/mlx/qwen3-4b-tetra-e4-mlx.json: the door
+# refuses any LLVQ_* variable, another object, another mlx or mlx-lm, and prints the config's line first. check and
+# check-mini run ops/mlx_tetra/check.py on the engine directly.
+# f16 activations, not bit-exact with the Rust kernels: its gate is the paired perplexity interval of
+# proofs/preregistration-mlx-pooled-2026-11-07.md (ops/mlx-pooled.sh). The plan: docs/plan-metal-debit.md.
 #
 # The packed model: $PACKED, else ~/q4b-hf-2026-09-28 (hfpack of the sealed file).
 # Needs uv; the first run installs mlx 0.32.4 and mlx-lm 0.28.3 in uv's cache.
