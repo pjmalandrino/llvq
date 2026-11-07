@@ -21,7 +21,8 @@ sizes differ in three optional fields: the attention form, the decode engine and
 - **4B**: `qwen3-4b-tetra-e4-4e-v4.json` since 2026-11-05, the operator's decision. Attention `kernel`: every decode
   row goes to the split-KV attention kernel from position 0. Decode `persistent`: 4E runs the whole token in one
   cooperative CUDA launch. Rows `v4`: 4E's second row loop. `qwen3-4b-tetra-e4-4e-v6.json`, the same with rows
-  `v6`, is written and loads everywhere v4 loads; it is not served before its door reads (§5).
+  `v6`, read its served door on 2026-11-07: 197.2 tok/s against 178.0, v4's tokens and pilot text. It is not served
+  before the operator decides (§5).
 - **4B on the Mac**: the MLX door, `configs/mlx/qwen3-4b-tetra-e4-mlx.json`, since 2026-11-07, the operator's
   decision. mlx-lm's Qwen3 with our Tetra kernels, f16 activations, served under a perplexity tolerance (§4).
 - **8B and 14B**: `qwen3-8b-tetra-e4-grouped.json` and `qwen3-14b-tetra-e4-grouped.json` since 2026-11-04, the
@@ -225,13 +226,12 @@ the bar is the paired interval, 0.43 pp in MMLU and 0.12% in perplexity (*measur
   §4); whether that answers this item is the operator's call.
 - **A model above 14B.** The `rot_apply` wall is lifted on the card, and the device rotation is proposed for a 32B's
   first light; the operator confirms. The 32B has to be encoded first.
-- **Serving 4E v6 at 4B.** The operator gave the go to implement v6 on the 4B on 2026-11-07. The config
-  `qwen3-4b-tetra-e4-4e-v6.json` is written and `served.rs` accepts `"rows": "v6"`. In the measurement form v6 reads
-  x1.118 [1.117-1.118] over v4 after a 5-token prompt and x1.094 at 8,192, same tokens (*measured*,
-  [pers-4e-v6](mesures/pers-4e-v6-2026-11-05.txt)). At the served door that makes about 199 tok/s, and 152.6 at
-  8,192 (*estimated*, served-v4 times those ratios). The door job `ops/jobs/served-v6.sh` costs about $0.42 on
-  l40sx1 (*estimated*). It needs the stamp of `proofs/preregistration-served-v6-2026-11-07.md`, a Space rebuilt from
-  the branch, and the operator's go. Serving v6 is the operator's call on that reading.
+- **Serving 4E v6 at 4B.** The config `qwen3-4b-tetra-e4-4e-v6.json` read its served door on 2026-11-07. It gives
+  197.2 tok/s against 178.0 for the served v4, decode alone 200.6, sweep 201.8 / 189.0 / 178.8 / 150.9 at
+  5 / 2,048 / 4,096 / 8,192 (*measured*, [served-v6](mesures/served-v6-2026-11-07.txt), two jobs, no ratio round by
+  round). Its tokens equal the eager path's and v4's at the door and every length, and its 50 GSM8K pilot completions
+  equal v4's. Every prediction of the prereg held. The gate cost $0.41. Making v6 the served config is the operator's
+  call; v4 stays served until then.
 - **The v4 config on the Hub.** The moving repository still serves the grouped config at 133.3 tok/s (§2). Publishing
   needs the operator.
 - **The Rust Metal door.** On the Rust Metal path, the grouped form is bit for bit with the expanded one, and `served.rs` refuses both unexpanded forms on
