@@ -99,3 +99,17 @@ fn dense_projections_take_their_linear_in_the_tensor_core_arm() {
     let e = m.generate_batch(&[vec![1, 2]], 2, &CandleBatch, BatchProjs::Mma, false, &|_, _| false);
     assert!(e.is_ok(), "dense projections take their Linear in either arm: {e:?}");
 }
+
+#[test]
+fn the_batched_window_score_is_the_full_window_score() {
+    let dev = Device::Cpu;
+    let m = model(&dev);
+    let w: Vec<Vec<u32>> = vec![(0..24u32).map(|i| (i * 7 + 3) % 128).collect(), (0..24u32).map(|i| (i * 13 + 1) % 128).collect()];
+    let refs: Vec<&[u32]> = w.iter().map(Vec::as_slice).collect();
+    let got = m.batch_window_nll(&refs, &CandleBatch, BatchProjs::Rows).expect("batched nll");
+    for (i, win) in w.iter().enumerate() {
+        let (n, c) = m.window_nll(win, &mut NoCapture).expect("window nll");
+        assert_eq!(got[i].1, c);
+        assert!((got[i].0 - n).abs() < 1e-3 * n.abs().max(1.0), "window {i}: batched {} full {n}", got[i].0);
+    }
+}

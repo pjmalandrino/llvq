@@ -2715,6 +2715,18 @@ impl Qwen3 {
         dev: &dyn crate::batch::BatchDevice,
         projs: crate::batch::BatchProjs,
     ) -> Result<Vec<u32>> {
+        let logits = self.batch_logits(tokens, kv, dev, projs)?;
+        logits.to_dtype(DType::F32)?.argmax(D::Minus1)?.flatten_all()?.to_vec1::<u32>()
+    }
+
+    /// [`Self::batch_step`]'s logits, `[B, 1, vocab]` in the model dtype.
+    pub fn batch_logits(
+        &self,
+        tokens: &[u32],
+        kv: &mut crate::batch::BatchKv,
+        dev: &dyn crate::batch::BatchDevice,
+        projs: crate::batch::BatchProjs,
+    ) -> Result<Tensor> {
         let b = kv.batch();
         if tokens.len() != b {
             candle_core::bail!("{} tokens for a batch of {b}", tokens.len());
@@ -2738,7 +2750,7 @@ impl Qwen3 {
         for l in kv.len.iter_mut() {
             *l += 1;
         }
-        logits.to_dtype(DType::F32)?.argmax(D::Minus1)?.flatten_all()?.to_vec1::<u32>()
+        Ok(logits)
     }
 
     /// [`Self::logits_last`] without the f32 cast: the logits of the last

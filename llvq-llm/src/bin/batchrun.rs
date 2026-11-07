@@ -4,6 +4,7 @@
 //!   LLVQ_CONFIG=<served config> batchrun <sealed> door  <B,B,..> <rows,mma> [tokens] [rounds]
 //!   LLVQ_CONFIG=<served config> batchrun <sealed> check
 //!   LLVQ_CONFIG=<served config> batchrun <sealed> gsm8k <B> <rows|mma> <limit>
+//!   LLVQ_CONFIG=<served config> batchrun <sealed> ppl <ctx> <windows>
 //!
 //! `door`: B copies of the door prompt ("The capital of France is", raw ids),
 //! `tokens` greedy tokens each (default 256), the prompt fed through the batch
@@ -19,6 +20,11 @@
 //! `gsm8k`: the pilot problems of `bin/gsm8k` (`gsm8k::select(.., limit)`),
 //! each prompt prefilled through the batch-1 path, the decode batched B at a
 //! time; dump at `LLVQ_GSM8K_DUMP` in `bin/gsm8k`'s format.
+//!
+//! `ppl`: the first `windows` windows of `ctx` tokens of the raw WikiText-2
+//! test split (as `bin/ppl` cuts them), every position scored by a decode row,
+//! all windows in one batch, under both arms; the paired difference window by
+//! window, pooled, and its 95 % interval (paired t over windows).
 //!
 //! Every `LLVQ_*` variable but `LLVQ_CONFIG`, `LLVQ_BATCH_REF`,
 //! `LLVQ_GSM8K_DUMP` and `LLVQ_DATASET_REV` is refused.
@@ -81,7 +87,8 @@ mod run {
             "door" => door(&model, &dev, &a[2..]),
             "check" => check(&model, &dev),
             "gsm8k" => gsm(&model, &dev, &tok, &a[2..]),
-            m => anyhow::bail!("mode {m:?}: door, check or gsm8k"),
+            "ppl" => ppl(&model, &dev, &tok, &a[2..]),
+            m => anyhow::bail!("mode {m:?}: door, check, gsm8k or ppl"),
         }
     }
 
@@ -254,6 +261,42 @@ mod run {
             w.flush()?;
         }
         println!("GSM8K batched ({}, B={b}): {right}/{} correct, {gen} tokens generated in {wall:.1} s ({:.1} tok/s of kept tokens), fingerprint {fp:016x}", arm.name(), picked.len(), gen as f64 / wall);
+        Ok(())
+    }
+
+    fn ppl(model: &Qwen3, dev: &dyn BatchDevice, tok: &tokenizers::Tokenizer, a: &[String]) -> anyhow::Result<()> {
+        let ctx: usize = a.first().map(|s| s.parse()).transpose()?.unwrap_or(2048);
+        let nwin: usize = a.get(1).map(|s| s.parse()).transpose()?.unwrap_or(16);
+        anyhow::ensure!((1..=llvq_llm::batch_cuda::MAX_ROWS).contains(&nwin), "windows in 1..={}", llvq_llm::batch_cuda::MAX_ROWS);
+        let text = llvq_llm::corpus::wikitext2_test()?;
+        let ids = tok.encode(text.as_str(), false).map_err(|e| anyhow::anyhow!("{e}"))?.get_ids().to_vec();
+        anyhow::ensure!(ids.len() >= nwin * ctx, "corpus shorter than {nwin} windows of {ctx}");
+        let fp = llvq_llm::eval::token_fingerprint(&ids[..nwin * ctx]);
+        let wins: Vec<&[u32]> = (0..nwin).map(|w| &ids[w * ctx..(w + 1) * ctx]).collect();
+        let t = Instant::now();
+        let r = model.batch_window_nll(&wins, dev, BatchProjs::Rows)?;
+        let tr = t.elapsed().as_secs_f64();
+        let t = Instant::now();
+        let m = model.batch_window_nll(&wins, dev, BatchProjs::Mma)?;
+        let tm = t.elapsed().as_secs_f64();
+        let mut d = Vec::with_capacity(nwin);
+        for w in 0..nwin {
+            let (pr, pm) = ((r[w].0 / r[w].1 as f64).exp(), (m[w].0 / m[w].1 as f64).exp());
+            let dd = 100.0 * (pm / pr - 1.0);
+            d.push(dd);
+            println!("  window {:>2}: ppl rows {pr:.4}, mma {pm:.4}, {dd:+.4} %", w + 1);
+        }
+        let (nr, nm, c): (f64, f64, usize) = (r.iter().map(|x| x.0).sum(), m.iter().map(|x| x.0).sum(), r.iter().map(|x| x.1).sum());
+        let (pr, pm) = ((nr / c as f64).exp(), (nm / c as f64).exp());
+        let mean = d.iter().sum::<f64>() / nwin as f64;
+        let sd = (d.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (nwin.max(2) - 1) as f64).sqrt();
+        // t quantile 0.975 for the common window counts, else 1.96.
+        let tq = match nwin { 8 => 2.365, 12 => 2.201, 16 => 2.131, 24 => 2.069, 32 => 2.040, _ => 1.96 };
+        let half = tq * sd / (nwin as f64).sqrt();
+        let pooled = 100.0 * (pm / pr - 1.0);
+        println!("batched ppl: WikiText-2 test, {nwin} windows of {ctx}, {c} positions, tokens {fp:016x}; rows {tr:.1} s, mma {tm:.1} s");
+        println!("ppl rows {pr:.4} (decode path, multi-row kernels), mma {pm:.4}: pooled {pooled:+.4} %, window mean {mean:+.4} % [{:+.4} ; {:+.4}]", mean - half, mean + half);
+        println!("T8 band: pooled inside +-0.12 %: {}", if pooled.abs() <= 0.12 { "yes" } else { "NO" });
         Ok(())
     }
 }

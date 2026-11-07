@@ -223,6 +223,37 @@ impl crate::model::Qwen3 {
         self.logits_last(&h)?.i((0, 0))?.argmax(D::Minus1)?.to_scalar::<u32>()
     }
 
+    /// Negative log-likelihood of each window, every position scored by a
+    /// decode row of the batched step (teacher forcing): the decode-path
+    /// perplexity of B windows at once. Returns `(sum of -log p, positions)`
+    /// per window. Windows share one length.
+    pub fn batch_window_nll(
+        &self,
+        windows: &[&[u32]],
+        dev: &dyn BatchDevice,
+        projs: BatchProjs,
+    ) -> Result<Vec<(f64, usize)>> {
+        let b = windows.len();
+        let l = windows.first().map(|w| w.len()).unwrap_or(0);
+        if b == 0 || l < 2 || windows.iter().any(|w| w.len() != l) {
+            candle_core::bail!("batch_window_nll: {b} windows of unequal or short length");
+        }
+        let mut kv = self.batch_kv(b, l)?;
+        let mut nll = vec![0f64; b];
+        for t in 0..l - 1 {
+            let tokens: Vec<u32> = windows.iter().map(|w| w[t]).collect();
+            let targets: Vec<u32> = windows.iter().map(|w| w[t + 1]).collect();
+            let logits = self.batch_logits(&tokens, &mut kv, dev, projs)?.to_dtype(DType::F32)?.reshape((b, ()))?;
+            let logp = candle_nn::ops::log_softmax(&logits, candle_core::D::Minus1)?;
+            let tg = Tensor::from_slice(&targets, (b, 1), self.device())?;
+            let picked: Vec<f32> = logp.gather(&tg, 1)?.flatten_all()?.to_vec1()?;
+            for (n, p) in nll.iter_mut().zip(picked) {
+                *n -= p as f64;
+            }
+        }
+        Ok(nll.into_iter().map(|n| (n, l - 1)).collect())
+    }
+
     /// Greedy generation for several prompts at once through
     /// [`Self::batch_step`]: up to `max_new` tokens each, a sequence stopping
     /// early when `stop(index, generated so far)` says so.
