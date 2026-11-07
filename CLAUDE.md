@@ -145,12 +145,17 @@ be in `UPLOAD_ALLOW` of `ops/run.py`, or the Space dies after 12 minutes. `rankb
 | `LLVQ_MAX_LOADED` | count, default `1` | `llvq serve`: models loaded at once; the least recently used idle one is unloaded first |
 | `LLVQ_QTIP_DIR` | directory | upstream QTIP kernel, GPL v3, not redistributed (`docs/qtip-provenance.md`) |
 
+`docs/ENV.md` lists every variable the code reads, and `llvq-llm/tests/env_registry.rs` fails on a quoted `LLVQ_*`
+name it does not list.
+
 The 17 entries of `MEASUREMENT_MODES` in `llvq-llm/src/served.rs` are measurement modes, never a served config:
 `LLVQ_KV_PREALLOC`, `LLVQ_GRAPH_AB`, `LLVQ_GRAPH_DIAG`, `LLVQ_KV_AB`, `LLVQ_FUSE_AB`, `LLVQ_TIME_PHASES`,
 `LLVQ_TIME_EVENTS`, `LLVQ_SEG_ARMS`, `LLVQ_BENCH_ARMS`, `LLVQ_TRIM_AB`, `LLVQ_GQA_AB`, `LLVQ_GQA_PPL`,
 `LLVQ_INT4_WIDE_CHECK`, `LLVQ_GESTURE_AB`, `LLVQ_BOUNDARY_AB`, `LLVQ_PERS_SEGMENT`, `LLVQ_PERS_4E`. `fusedrun` refuses
 all but `LLVQ_TIME_EVENTS` and `LLVQ_BENCH_ARMS` beside any `LLVQ_CONFIG`, and `served.rs` refuses all 17 beside a
-config that names the persistent decode. `LLVQ_KERNEL_DIR` and `LLVQ_TILE_BLOCKS` are refused beside any config.
+config that names the persistent decode. `LLVQ_KERNEL_DIR`, `LLVQ_TILE_BLOCKS`, `LLVQ_PREFILL` and
+`LLVQ_METAL_KERNEL` are refused beside any config (`BELOW_THE_DOOR`). `fusedrun` refuses two of its modes set
+together (`ALONE`).
 `LLVQ_PREFILL_TOKENS` and `LLVQ_CONTEXTS` (prompt lengths, comma-separated: time to the first token and decode speed
 after it) are not refused: they time the served object with a longer prompt.
 The MLX door (`ops/mlx_tetra/serve.py`) reads no `LLVQ_*` variable and refuses any one set, by name; its config is
