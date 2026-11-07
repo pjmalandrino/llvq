@@ -68,7 +68,13 @@ pub enum PullEvent {
 
 pub struct Store {
     root: PathBuf,
+    /// How long a pull waits for the next bytes before it fails.
+    read_timeout: std::time::Duration,
 }
+
+/// The default of [`Store::read_timeout`]: a Hub that sends nothing for a
+/// minute is gone.
+pub const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// `<user home>/.llvq`, or `LLVQ_HOME`.
 pub fn default_home() -> anyhow::Result<PathBuf> {
@@ -123,7 +129,13 @@ impl Throttle {
 
 impl Store {
     pub fn at(root: impl Into<PathBuf>) -> Self {
-        Store { root: root.into() }
+        Store { root: root.into(), read_timeout: READ_TIMEOUT }
+    }
+
+    /// The same store, with another wait for a stalled download.
+    pub fn read_timeout(mut self, d: std::time::Duration) -> Self {
+        self.read_timeout = d;
+        self
     }
 
     pub fn from_env() -> anyhow::Result<Self> {
@@ -136,6 +148,27 @@ impl Store {
 
     pub fn blob_path(&self, sha256: &str) -> PathBuf {
         self.root.join("blobs").join(format!("sha256-{sha256}"))
+    }
+
+    /// Hold the lock of one blob: a pull or an import of it, in this
+    /// process or another, waits until the lock is released. Two writers
+    /// appending to one partial file would register a file that is neither,
+    /// and a pull still appending after another renamed the partial would
+    /// write into the registered blob. The lock file stays: removing it while
+    /// another process waits on it would let a third take a second lock.
+    fn lock_blob(&self, sha256: &str, report: &mut dyn FnMut(PullEvent)) -> anyhow::Result<std::fs::File> {
+        let dir = self.root.join("locks");
+        std::fs::create_dir_all(&dir)?;
+        let f = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(dir.join(format!("sha256-{sha256}.lock")))?;
+        if let Err(std::fs::TryLockError::WouldBlock) = f.try_lock() {
+            report(PullEvent::Status("waiting for another pull of this file".into()));
+            f.lock()?;
+        }
+        Ok(f)
     }
 
     fn manifest_path(&self, n: &ModelName) -> PathBuf {
@@ -262,6 +295,7 @@ impl Store {
         report: &mut dyn FnMut(PullEvent),
     ) -> anyhow::Result<Manifest> {
         report(PullEvent::Status("pulling manifest".into()));
+        let _lock = self.lock_blob(&e.sha256, report)?;
         let blob = self.blob_path(&e.sha256);
         if blob.exists() {
             if let Err(err) = self.verify(&blob, e, report) {
@@ -297,7 +331,13 @@ impl Store {
         report(PullEvent::Progress { digest: digest.clone(), total: e.size, completed: done });
         if done < e.size {
             let tls = native_tls::TlsConnector::new()?;
-            let agent = ureq::AgentBuilder::new().tls_connector(std::sync::Arc::new(tls)).build();
+            // Without a read timeout, a connection that stops sending holds
+            // the pull, and the blob's lock, forever.
+            let agent = ureq::AgentBuilder::new()
+                .tls_connector(std::sync::Arc::new(tls))
+                .timeout_connect(std::time::Duration::from_secs(30))
+                .timeout_read(self.read_timeout)
+                .build();
             let mut req = agent.get(&url).set("User-Agent", concat!("llvq/", env!("CARGO_PKG_VERSION")));
             if let Ok(t) = std::env::var("HF_TOKEN") {
                 req = req.set("Authorization", &format!("Bearer {t}"));
@@ -353,8 +393,12 @@ impl Store {
     }
 
     /// Register a local copy of `e`'s file as `n`, with no network: the size
-    /// and the sha256 are checked as a download's are. The file is
-    /// hard-linked into the store when it can be, copied otherwise.
+    /// and the sha256 are checked as a download's are.
+    ///
+    /// The file is copied, and the copy is what is checked. A hard link
+    /// would share the source's bytes: a re-seal written in place to the
+    /// same path would change the registered blob after its check. On APFS
+    /// and on btrfs or XFS `std::fs::copy` clones, at no cost in space.
     pub fn import(
         &self,
         n: &ModelName,
@@ -362,17 +406,24 @@ impl Store {
         file: &Path,
         report: &mut dyn FnMut(PullEvent),
     ) -> anyhow::Result<Manifest> {
-        self.verify(file, e, report)?;
+        let _lock = self.lock_blob(&e.sha256, report)?;
         let blob = self.blob_path(&e.sha256);
-        if !blob.exists() {
-            std::fs::create_dir_all(blob.parent().expect("blobs has a parent"))?;
-            if std::fs::hard_link(file, &blob).is_err() {
-                report(PullEvent::Status(format!("copying {}", file.display())));
-                let tmp = blob.with_file_name(format!("sha256-{}-partial", e.sha256));
-                std::fs::copy(file, &tmp)?;
-                std::fs::rename(&tmp, &blob)?;
+        if blob.exists() {
+            if let Err(err) = self.verify(&blob, e, report) {
+                std::fs::remove_file(&blob)?;
+                return Err(err.context("the blob on disk was removed; import again"));
             }
+            return self.register(n, e, report);
         }
+        std::fs::create_dir_all(blob.parent().expect("blobs has a parent"))?;
+        report(PullEvent::Status(format!("copying {}", file.display())));
+        let tmp = blob.with_file_name(format!("sha256-{}-partial", e.sha256));
+        std::fs::copy(file, &tmp)?;
+        if let Err(err) = self.verify(&tmp, e, report) {
+            std::fs::remove_file(&tmp)?;
+            return Err(err);
+        }
+        std::fs::rename(&tmp, &blob)?;
         self.register(n, e, report)
     }
 }

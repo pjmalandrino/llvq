@@ -117,6 +117,21 @@ pub fn model() -> Qwen3 {
 
 pub struct TinyLoader;
 
+/// The tiny model, counting its loads and taking `delay` to load: what the
+/// engine tests need to see a second copy loaded, or a load time counted.
+pub struct CountingLoader {
+    pub loads: Arc<std::sync::atomic::AtomicUsize>,
+    pub delay: Duration,
+}
+
+impl Loader for CountingLoader {
+    fn load(&self, n: &ModelName, m: &Manifest, s: &Store) -> anyhow::Result<Loaded> {
+        self.loads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        std::thread::sleep(self.delay);
+        TinyLoader.load(n, m, s)
+    }
+}
+
 impl Loader for TinyLoader {
     fn load(&self, _: &ModelName, _: &Manifest, _: &Store) -> anyhow::Result<Loaded> {
         Ok(Loaded {
@@ -158,7 +173,12 @@ pub fn store(tag: &str) -> Arc<Store> {
 /// The server on 127.0.0.1 at a free port, on its own runtime thread.
 /// Returns the `host:port`.
 pub fn serve(store: Arc<Store>, hub: &str) -> String {
-    let models = Arc::new(Models::new(store, Arc::new(TinyLoader), 1, KeepAlive::For(Duration::from_secs(300))));
+    serve_with(store, hub, Arc::new(TinyLoader))
+}
+
+/// [`serve`] with another loader.
+pub fn serve_with(store: Arc<Store>, hub: &str, loader: Arc<dyn Loader>) -> String {
+    let models = Arc::new(Models::new(store, loader, 1, KeepAlive::For(Duration::from_secs(300))));
     let state = AppState::new(models, hub.to_string());
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
