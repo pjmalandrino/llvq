@@ -543,6 +543,19 @@ impl Worker {
             (Finish::Length, None) => "length",
             (Finish::Cancelled, None) => unreachable!("only a stop string or a gone client cancels"),
         };
+        // The client has the whole answer: it is told so before the cache is
+        // closed below, which costs a step of the model it would otherwise
+        // wait for. A request it sends now queues behind that step.
+        send(Event::Done(Stats {
+            done_reason: done_reason.into(),
+            total_duration: nanos(total(job, started, load_duration)),
+            load_duration: nanos(load_duration),
+            prompt_eval_count: prompt.len(),
+            prompt_eval_cached_count: cached,
+            prompt_eval_duration: nanos(prompt_eval),
+            eval_count: answer.said.len(),
+            eval_duration: nanos(eval),
+        }));
         // A clean end closes the assistant's message in the cache, and the
         // memo learns its ids. A stop string leaves the cache mid-message:
         // the next request re-reads from the last message boundary.
@@ -555,22 +568,19 @@ impl Worker {
                 tail.extend(answer.said.last().copied());
             }
             tail.extend([marks.im_end, marks.nl]);
-            self.session.feed(&self.loaded.qwen, &tail)?;
+            if let Err(e) = self.session.feed(&self.loaded.qwen, &tail) {
+                // Too late for the client, which has its answer: the next
+                // request starts from an empty cache rather than a doubtful one.
+                eprintln!("llvq: closing the answer in the cache failed, the cache is reset: {e:#}");
+                self.session.reset(&self.loaded.qwen);
+                self.memo.clear();
+                return Ok(());
+            }
             self.memo.push(Segment {
                 msg: Some(Msg { role: Role::Assistant, content: content.sent.clone() }),
                 ids: self.session.ids()[messages_end..].to_vec(),
             });
         }
-        send(Event::Done(Stats {
-            done_reason: done_reason.into(),
-            total_duration: nanos(total(job, started, load_duration)),
-            load_duration: nanos(load_duration),
-            prompt_eval_count: prompt.len(),
-            prompt_eval_cached_count: cached,
-            prompt_eval_duration: nanos(prompt_eval),
-            eval_count: answer.said.len(),
-            eval_duration: nanos(eval),
-        }));
         Ok(())
     }
 }
