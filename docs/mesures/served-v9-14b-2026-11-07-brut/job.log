@@ -1,0 +1,97 @@
+NVIDIA L40S, 8.9, 46068 MiB, 580.178.04, 2520 MHz
+== gate 1: oracle ==
+Qwen/Qwen3-0.6B on Cuda(CudaDevice(DeviceId(1))) — max |Δhidden| = 0.000e0   (relative to max|h| = 8.550e1) → 0.000e0
+MATCH — the observable forward reproduces candle's Qwen3
+== gate 2: the object and the configs ==
+61db37fe7ce8e6a57c5c59f257319c796574981ecb5e450a02c73dd3c17e2ca0  /out/sealed-14b-2026-09-23/qwen3-14b-sealed.bin
+c77e166833087993833dc40a843dccd914809dc33c85c3fcb9b360097cf686d2  /out/served-v9-14b-2026-11-07/qwen3-14b-tetra-e4-4e-v9.json
+d2353c7828a5a67f3b240717c7b5189ea393db435c4b380adc092735096d160f  /out/served-v9-14b-2026-11-07/qwen3-14b-tetra-e4-grouped.json
+== PART 0: the served grouped config at the door ==
+Sat Nov  7 20:00:33 UTC 2026
+Sat Nov  7 20:01:18 UTC 2026
+served config: /out/served-v9-14b-2026-11-07/qwen3-14b-tetra-e4-grouped.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention grouped on grow(256)) — The qwen3-14b-tetra-e4 object (qwen3-14b-sealed.bin, sha256 61db37fe), served with the grouped attention: the cached key and value heads are read where they lie, on a Grow(256) store, with no repeat_kv copy, in groups of 5. Decodes the 14B at 63.1 tok/s after a 5-token prompt and 45.3 at 8,192 of context against 59.2 and 21.2 for the expanded form (measured, gqa-14b-2026-11-04). Not bit for bit on the card past 5 tokens: licensed by the tolerance of ETAT section 4, granted at 14B by the operator on 2026-11-04 on condition of a light MMLU check, paired WikiText-2 perplexity +0.0000 % by prefill and +0.0023 % [-0.0062 ; +0.0109] by decode against a band of +-0.12 % (measured, gqa-14b-2026-11-04). Measured on the L40S only; Metal refuses this form by name.
+card memory: 5.568 GB used of 47.666 GB after the load and the decoder install (cuMemGetInfo)
+served : loaded in   19.9 s,   62.8 tok/s [62.7–63.0, 5 rounds], 5.04 GB on the card
+== PART 1: the v9 door, 256 tokens ==
+Sat Nov  7 20:01:18 UTC 2026
+Sat Nov  7 20:03:53 UTC 2026
+served config: /out/served-v9-14b-2026-11-07/qwen3-14b-tetra-e4-4e-v9.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention kernel from position 0 on grow(256), decode persistent (4E rows v9, one launch a token run)) — The qwen3-14b-tetra-e4 object (qwen3-14b-sealed.bin, sha256 61db37fe) under 4E v9: the kernel attention form on every decode row from position 0, decoded by 4E v9 (row form 7, one cooperative launch a token run, 512 threads), the int4 words tiled at load and held once on the card, read by 4E and by the eager path's tv_q4_hht. At 14B 4E reads o_proj int4 and the head on its own int4 g64 table (untied); v9 asks 96,064 B of shared memory a CTA (computed). Written on 2026-11-07 on the operator's go to serve v9 at 4B, 8B and 14B. 4E owes the eager path's tokens bit for bit under this config (host-tested, llvq-cuda/tests/pers_matches_served.rs). The attention form differs from the served qwen3-14b-tetra-e4-grouped.json (63.1 tok/s after a 5-token prompt, measured, gqa-14b-2026-11-04): the kernel form below 1,280 has no T8 at this size before the served-v9 door's perplexity band reads it. Not yet read at the served door. The file and its b/param do not move. Refused on Metal.
+int4: tv_q4_hht equals tv_q4_ht bit for bit on model.layers.0.self_attn.v_proj.weight (1024 rows, d_in 5120)
+int4: tv_q4_hht on the tiled words equals tv_q4_hh on the file's order bit for bit on model.layers.0.self_attn.v_proj.weight (1024 rows, d_in 5120); the file-order copy is freed
+int4: tv_q4_hht on the tiled words equals tv_q4_hh on the file's order bit for bit on model.layers.10.mlp.down_proj.weight (5120 rows, d_in 17408); the file-order copy is freed
+int4 layout: tiled (LLVQ_CONFIG), 99 records, words 1.476 GB on the card, held once
+4E: persistent module 252757 bytes, sha256 1b422b62328be6752df4add43280565fd2a49cfa20ee26953b301abe7a15c530, row form 7, own module on candle's stream
+4E: RoPE forms equal to candle's rope on this card: [1]; running form 1
+4E: pers_4e_tokens_f1_t512: 128 registers, 0 B local, 96064 B shared, 1 resident a SM
+4E: pers_4e_stamps_f1_t512: 128 registers, 32 B local, 1 resident a SM (phase stamps, outside the timed rounds)
+4E: head on a table of its own (untied) (151936 rows)
+4E v9: the 84 prologue inputs are 16-byte aligned; the vector path runs on every layer
+4E v9: the int4 records are read in place, tiled at load and held once on the card (40 layers)
+4E: 40 layers, grid 142 x 512, 242 barriers a token
+card memory: 5.637 GB used of 47.666 GB after the load and the decoder install (cuMemGetInfo)
+served door (decode persistent): 4E tokens equal the eager path's under this config, 256 of 256
+served : loaded in  107.9 s,   86.3 tok/s [85.3–87.0, 5 rounds], 5.04 GB on the card          (4E, prompt and decode, as the door times a generate)
+  4E decode alone             87.6 tok/s [86.6-88.4]
+  eager, same config, door    62.8 tok/s [62.3-63.2]
+  eager decode alone          63.4 tok/s [62.9-63.9]
+  4E / eager, door, round by round: x1.375 [1.369-1.376]
+gate 3: the v9 door decoded the eager path tokens
+door: v9 86.3 tok/s, grouped 62.8 tok/s (two processes, one job); tokens v9 dc4f9ab9aa24c4d3, grouped dc4f9ab9aa24c4d3 (not owed: the attention form differs); card memory v9 5.637 GB, grouped 5.568 GB
+== PART 2: the sweep, LLVQ_CONTEXTS=5,2048,4096,8192 ==
+Sat Nov  7 20:03:53 UTC 2026
+Sat Nov  7 20:22:58 UTC 2026
+4E: 40 layers, grid 142 x 512, 242 barriers a token
+decode engine: persistent (4E)
+context sweep: 256 new tokens after each prompt, the prompt in chunks of 4096, 1 discarded + 5 rounds
+  prompt    to first token, s       decode tok/s [range]      ms a decode token
+  prompt 5: 4E tokens equal the eager path's under this config, 256 of 256
+       5       0.06 [0.06–0.06]       87.3 [86.9–87.8]      11.46
+  prompt 2048: 4E tokens equal the eager path's under this config, 256 of 256
+    2048      19.36 [19.34–19.49]       83.7 [83.6–83.7]      11.95
+  prompt 4096: 4E tokens equal the eager path's under this config, 256 of 256
+    4096      39.72 [39.63–40.10]       80.9 [80.6–81.7]      12.36
+  prompt 8192: 4E tokens equal the eager path's under this config, 256 of 256
+    8192      80.74 [80.26–81.07]       71.5 [70.1–71.6]      13.99
+gate 4: the v9 sweep decoded the eager path tokens at every length
+== PART 3: the pilot 50 GSM8K problems ==
+Sat Nov  7 20:22:58 UTC 2026
+Sat Nov  7 20:27:38 UTC 2026
+  read from a box   = 46/50 right; last number 0; nothing 0
+  generated tokens  = mean 296.8, median 285, p90 420, max 497; stopped at the cap 0
+  prompt tokens     = mean 84.8
+  timing (cuda) = prefill 9.380 ms a prompt token, decode 11.487 ms a token (87.1 tok/s), 4.21 s a problem, 210 s in all, load 69 s
+  timings price a campaign; they are not a throughput measurement
+
+  Dump written. Two arms are compared on the dumps:
+  `cargo run --release -p llvq-llm --bin gsm8kpair -- <a> <b>`.
+GSM8K pilot, 50 problems: v9 config 46 correct, grouped census on the same problems 46; completions identical 44/50 (not owed); dump header rows v9
+== PART 4: the kernel form from position 0 against the grouped form, perplexity (4096,6,60) ==
+Sat Nov  7 20:27:38 UTC 2026
+Sat Nov  7 20:44:12 UTC 2026
+  window   4/6  every position on the kernel  decode nll 2.115544746 2.115464348  from 0: nll 2.115544746 2.115464348  top-1 4084/4095  max |dlogit| 3.895e0  (675 s)
+  window   5/6  every position on the kernel  decode nll 1.966485042 1.966077817  from 0: nll 1.966485042 1.966077817  top-1 4082/4095  max |dlogit| 4.305e0  (822 s)
+  window   6/6  every position on the kernel  decode nll 2.124526218 2.124604441  from 0: nll 2.124526218 2.124604441  top-1 4092/4095  max |dlogit| 1.117e0  (968 s)
+
+  path      ppl grow(256)+grouped  ppl grow(256)+kernel    kernel / grouped − 1, paired 95 % t interval over 6 windows
+  decode    7.9318                7.9310                  -0.0108 % [-0.0281 ; +0.0065]
+  from 0    7.9318                7.9310                  -0.0108 % [-0.0281 ; +0.0065]  (positions the kernel takes)
+  decode top-1 agreement 24518/24570 steps (99.788 %), max |dlogit| 4.305e0
+  from 0: top-1 agreement 24518/24570 steps (99.788 %); below 0: bit for bit in all 6 windows
+perplexity, kernel from position 0 against grouped: -0.0108 % [-0.0281 ; +0.0065], inside the +-0.12 % band
+band: inside
+total 97
+drwxr-xr-x.   2 root   root        0 Nov  7 20:44 .
+drwxrwxrwx. 194 nobody nogroup     0 Nov  7 19:59 ..
+-rw-r--r--.   1 root   root      121 Nov  7 20:44 band.txt
+-rw-r--r--.   1 root   root      470 Nov  7 20:27 compare.txt
+-rw-r--r--.   1 root   root     4775 Nov  7 20:01 door-grouped.txt
+-rw-r--r--.   1 root   root     6739 Nov  7 20:03 door.txt
+-rw-r--r--.   1 root   root      368 Nov  7 20:00 files.sha256
+-rw-r--r--.   1 root   root       50 Nov  7 19:59 gpu.txt
+-rw-r--r--.   1 root   root    59173 Nov  7 20:27 gsm8k-14b-v9-n50.jsonl
+-rw-r--r--.   1 root   root     7905 Nov  7 20:27 gsm8k-14b-v9-n50.txt
+-rw-r--r--.   1 root   root      377 Nov  7 20:00 oracle.txt
+-rw-r--r--.   1 root   root     3666 Nov  7 20:27 ppl.txt
+-rw-r--r--.   1 root   root     1157 Nov  7 20:00 qwen3-14b-tetra-e4-4e-v9.json
+-rw-r--r--.   1 root   root      896 Nov  7 20:00 qwen3-14b-tetra-e4-grouped.json
+-rw-r--r--.   1 root   root     9344 Nov  7 20:23 sweep.txt

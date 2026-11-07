@@ -1,0 +1,43 @@
+served-v6, 2026-11-07. The served door of the sealed 4B under the v6 config, 4E with the v6 row loop.
+
+Job 6aeeea70e6320c66fad56229, l40sx1 (NVIDIA L40S, sm_89), image built from claude/serve-4e-v6-6e15c0 0cb5cc6 (Space
+sha 5b419ee5). Prereg proofs/preregistration-served-v6-2026-11-07.md (sha256 07fe5003, stamped before launch).
+Queued 09:08 UTC, ran 10:38:19 to 10:52:05 UTC: 825 s of card (the job's running_secs), $0.41 (computed at $1.80/h).
+Raw output in served-v6-2026-11-07-brut/, job.log included.
+
+Gates (§3): all hold. oracle MATCH; object 886391a8 and the config ffbeb415 at their sha256; provenance "decode
+persistent (4E rows v6, one launch a token run)" in the door, the sweep and the pilot; install line "row form 4";
+"4E v6: the 75 prologue inputs are 16-byte aligned; the vector path runs on every layer"; RoPE form equal to candle's;
+pers_4e_tokens_f1_t512 128 registers, 0 B local, 62080 B shared; served unit 6193094310bc; 4E equals the eager path
+at the door (256 of 256) and at the four lengths; pilot dump on fingerprint 94c7b98876288901, header "rows":"v6"; no
+LLVQ_* in the job env.
+
+Results, measured, 256 new tokens, 1 discarded + 5 rounds, medians [range]:
+
+  door (prompt and decode)     197.2 [197.0-197.5], 1.38 GB on the card
+  4E decode alone, door        200.6 [200.4-201.0]
+  eager door, same config      125.7 [125.6-126.0]; 4E / eager round by round x1.568 [1.567-1.568]
+
+  prompt   to first token, s   decode tok/s [range]    ms a decode token
+       5   0.02                201.8 [201.7-201.9]     4.96
+    2048   8.26                189.0 [187.8-189.6]     5.29
+    4096   17.33               178.8 [178.1-179.0]     5.59
+    8192   35.65               150.9 [149.8-151.5]     6.63
+
+Against the v4 config (served-v4-2026-11-05): door tokens identical (61d0654532d35120); sweep tokens identical at 5
+(61d0654532d35120), 2,048 (a4645c00f879ae80), 4,096 (cc9b3414c4d67ba6), 8,192 (9aa830caa48cb332). GSM8K pilot: 40/50
+correct under v6 and under v4, completions identical 50/50.
+Against v4 at the door: 197.2 vs 178.0, decode alone 200.6 vs 180.7, sweep 201.8 / 189.0 / 178.8 / 150.9 vs
+180.8 / 169.5 / 162.1 / 139.5 (two processes on two jobs, no ratio formed round by round). The eager arm, which v6
+does not touch, read 125.7 here against 126.8 in served-v4: about 0.9 % between the two jobs on the same code path.
+
+Rules (§6). A, identity: holds. B, the same text as v4: holds at the door, the four lengths and the pilot. C: if the
+operator serves v6, the 4B's served numbers are 197.2 tok/s at the door and the sweep above. Serving it is the
+operator's decision; v4 stays the served config until then.
+
+Predictions (§5): every one inside its interval. door 197.2 against 199 [191, 207]; decode alone 200.6 against 202
+[194, 210]; x1.568 against x1.57 [1.50, 1.64]; sweep 201.8 / 189.0 / 178.8 / 150.9 against 202.1 / 188.5 / 179.3 /
+152.6, each inside; tokens and pilot completions identical to v4's, 40 correct, as predicted.
+
+What this run does not establish: a full GSM8K census under 4E; any MMLU reading under 4E; the 8B and the 14B; Metal;
+any card but the L40S.

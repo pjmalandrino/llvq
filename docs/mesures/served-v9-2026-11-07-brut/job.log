@@ -1,0 +1,97 @@
+NVIDIA L40S, 8.9, 46068 MiB, 580.178.04, 2520 MHz
+== gate 1: oracle ==
+Qwen/Qwen3-0.6B on Cuda(CudaDevice(DeviceId(1))) — max |Δhidden| = 0.000e0   (relative to max|h| = 8.550e1) → 0.000e0
+MATCH — the observable forward reproduces candle's Qwen3
+== gate 2: the object and the configs ==
+886391a8c03f66dc269cc65c3598c6627dbdcd259180aff36604ef10d37371b8  /out/sealed-4b-2026-09-23/qwen3-4b-sealed.bin
+29b3ef32bbda757b6eeff251e10b5c8f103c4dfa3157bff23ca42fef298a3af0  /out/served-v9-2026-11-07/qwen3-4b-tetra-e4-4e-v9.json
+ffbeb4157d43e5811eef038581621bea43522495489841bf474ff00198307887  /out/served-v9-2026-11-07/qwen3-4b-tetra-e4-4e-v6.json
+== PART 0: the v6 config door, its card memory ==
+Sat Nov  7 19:54:55 UTC 2026
+Sat Nov  7 19:56:59 UTC 2026
+served config: /out/served-v9-2026-11-07/qwen3-4b-tetra-e4-4e-v6.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention kernel from position 0 on grow(256), decode persistent (4E rows v6, one launch a token run)) — The qwen3-4b-tetra-e4 object (qwen3-4b-sealed.bin, sha256 886391a8), the v4 config with the v6 row loop and nothing else different: the kernel attention form on every decode row from position 0, decoded by 4E with ln1, ln2 and the down's input in one round trip a thread (row form 4, one cooperative launch a token run, 512 threads). Written on 2026-11-07 on the operator's go to implement v6 on the 4B. v6 decodes 212.6 tok/s after a 5-token prompt against 190.2 for v4 (x1.118 round by round) and 152.0 at 8,192 against 138.9 (x1.094), the same 64 tokens as the eager path at both contexts (measured, pers-4e-v6-2026-11-05, measurement form). Not yet read at the served door: served-v6 (proofs/preregistration-served-v6-2026-11-07.md) reads it. The install refuses v6 when an input of a vector prologue is not 16-byte aligned. Refused on Metal and on any object but the 4B.
+int4: tv_q4_hh equals tv_q4_h bit for bit on model.layers.0.self_attn.v_proj.weight (1024 rows, d_in 2560)
+int4 layout: served (LLVQ_CONFIG), 84 records, words 0.385 GB on the card, held once
+4E v6: the 75 prologue inputs are 16-byte aligned; the vector path runs on every layer
+card memory: 1.980 GB used of 47.666 GB after the load and the decoder install (cuMemGetInfo)
+served door (decode persistent): 4E tokens equal the eager path's under this config, 256 of 256
+served : loaded in  101.2 s,  197.4 tok/s [197.2–197.6, 5 rounds], 1.38 GB on the card          (4E, prompt and decode, as the door times a generate)
+  4E decode alone            200.9 tok/s [200.8-201.0]
+  eager, same config, door   126.4 tok/s [126.4-126.4]
+  eager decode alone         127.5 tok/s [127.4-127.5]
+  4E / eager, door, round by round: x1.562 [1.560-1.563]
+v6 door tokens: 61d0654532d35120 against the v6 config 61d0654532d35120: identical
+gate 3a: the v6 door decoded the eager path tokens
+== PART 1: the v9 door, 256 tokens ==
+Sat Nov  7 19:56:59 UTC 2026
+Sat Nov  7 19:58:56 UTC 2026
+served config: /out/served-v9-2026-11-07/qwen3-4b-tetra-e4-4e-v9.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention kernel from position 0 on grow(256), decode persistent (4E rows v9, one launch a token run)) — The qwen3-4b-tetra-e4 object (qwen3-4b-sealed.bin, sha256 886391a8), the v6 config with the v9 row loop and nothing else different: the kernel attention form on every decode row from position 0, decoded by 4E v9 (row form 7: v6, the launch's constants staged during the barriers, attention's steps in a cp.async ring, and the int4 rows v, o and the int4 downs read from tiled words; one cooperative launch a token run, 512 threads). Under this config the loader writes the int4 words tiled and holds them once on the card: the eager path, which prefills, reads the same words through tv_q4_hht, checked against tv_q4_hh on the file's order at every load. The file and its 2.7320 b/param do not move (a permutation inside each row, computed). Written on 2026-11-07 on the operator's go to serve v9 with one copy of the int4 bytes. In the measurement form v9 decodes 238.6 tok/s after a 5-token prompt against 213.3 for v6 (x1.118 round by round) and 163.5 at 8,192 against 154.2 (x1.060), the same 64 tokens as the eager path at both contexts (measured, step3-4e-2026-11-07, with the int4 bytes twice on the card). Not yet read at the served door: served-v9 (proofs/preregistration-served-v9-2026-11-07.md) reads it. Refused on Metal and on any object but the 4B.
+int4: tv_q4_hht equals tv_q4_ht bit for bit on model.layers.0.self_attn.v_proj.weight (1024 rows, d_in 2560)
+int4: tv_q4_hht on the tiled words equals tv_q4_hh on the file's order bit for bit on model.layers.0.self_attn.v_proj.weight (1024 rows, d_in 2560); the file-order copy is freed
+int4: tv_q4_hht on the tiled words equals tv_q4_hh on the file's order bit for bit on model.layers.0.self_attn.o_proj.weight (2560 rows, d_in 4096); the file-order copy is freed
+int4: tv_q4_hht on the tiled words equals tv_q4_hh on the file's order bit for bit on model.layers.12.mlp.down_proj.weight (2560 rows, d_in 9728); the file-order copy is freed
+int4 layout: tiled (LLVQ_CONFIG), 84 records, words 0.385 GB on the card, held once
+4E: persistent module 252757 bytes, sha256 1b422b62328be6752df4add43280565fd2a49cfa20ee26953b301abe7a15c530, row form 7, own module on candle's stream
+4E: RoPE forms equal to candle's rope on this card: [1]; running form 1
+4E: pers_4e_tokens_f1_t512: 128 registers, 0 B local, 85952 B shared, 1 resident a SM
+4E: pers_4e_stamps_f1_t512: 128 registers, 32 B local, 1 resident a SM (phase stamps, outside the timed rounds)
+4E: head tied to the embedding's table (151936 rows)
+4E v9: the 76 prologue inputs are 16-byte aligned; the vector path runs on every layer
+4E v9: the int4 records are read in place, tiled at load and held once on the card (36 layers)
+4E: 36 layers, grid 142 x 512, 218 barriers a token
+card memory: 1.980 GB used of 47.666 GB after the load and the decoder install (cuMemGetInfo)
+served door (decode persistent): 4E tokens equal the eager path's under this config, 256 of 256
+served : loaded in   95.6 s,  221.5 tok/s [221.1–221.9, 5 rounds], 1.38 GB on the card          (4E, prompt and decode, as the door times a generate)
+  4E decode alone            225.8 tok/s [225.4-226.1]
+  eager, same config, door   129.0 tok/s [128.8-129.0]
+  eager decode alone         130.0 tok/s [129.9-130.1]
+  4E / eager, door, round by round: x1.717 [1.714-1.722]
+gate 3: the v9 door decoded the eager path tokens
+v9 door tokens: 61d0654532d35120 against the v6 config 61d0654532d35120: identical
+card memory after the install: v9 1.980 GB, v6 1.980 GB, v9 - v6 +0.000 GB (the measurement form held 0.385 GB more)
+== PART 2: the sweep, LLVQ_CONTEXTS=5,2048,4096,8192 ==
+Sat Nov  7 19:58:56 UTC 2026
+Sat Nov  7 20:07:36 UTC 2026
+4E: 36 layers, grid 142 x 512, 218 barriers a token
+decode engine: persistent (4E)
+context sweep: 256 new tokens after each prompt, the prompt in chunks of 4096, 1 discarded + 5 rounds
+  prompt    to first token, s       decode tok/s [range]      ms a decode token
+  prompt 5: 4E tokens equal the eager path's under this config, 256 of 256
+       5       0.02 [0.02–0.02]      226.2 [226.2–226.4]       4.42
+  prompt 2048: 4E tokens equal the eager path's under this config, 256 of 256
+    2048       8.17 [8.14–8.18]      205.8 [205.5–206.0]       4.86
+  prompt 4096: 4E tokens equal the eager path's under this config, 256 of 256
+    4096      17.04 [17.04–17.07]      194.2 [193.9–194.3]       5.15
+  prompt 8192: 4E tokens equal the eager path's under this config, 256 of 256
+    8192      35.05 [34.99–35.07]      161.5 [159.7–161.7]       6.19
+gate 4: the v9 sweep decoded the eager path tokens at every length
+sweep tokens after 5: 61d0654532d35120 against the v6 config 61d0654532d35120: identical
+sweep tokens after 2048: a4645c00f879ae80 against the v6 config a4645c00f879ae80: identical
+sweep tokens after 4096: cc9b3414c4d67ba6 against the v6 config cc9b3414c4d67ba6: identical
+sweep tokens after 8192: 9aa830caa48cb332 against the v6 config 9aa830caa48cb332: identical
+== PART 3: the pilot 50 GSM8K problems ==
+Sat Nov  7 20:07:36 UTC 2026
+Sat Nov  7 20:10:02 UTC 2026
+  read from a box   = 40/49 right; last number 1; nothing 0
+  generated tokens  = mean 315.0, median 299, p90 414, max 771; stopped at the cap 0
+  prompt tokens     = mean 84.8
+  timing (cuda) = prefill 3.836 ms a prompt token, decode 4.586 ms a token (218.1 tok/s), 1.77 s a problem, 89 s in all, load 57 s
+  timings price a campaign; they are not a throughput measurement
+
+  Dump written. Two arms are compared on the dumps:
+  `cargo run --release -p llvq-llm --bin gsm8kpair -- <a> <b>`.
+GSM8K pilot, 50 problems: v9 config 40 correct, v6 config 40; completions identical 50/50; dump header rows v9
+total 98
+drwxr-xr-x.   2 root   root        0 Nov  7 20:08 .
+drwxrwxrwx. 193 nobody nogroup     0 Nov  7 19:54 ..
+-rw-r--r--.   1 root   root      759 Nov  7 20:07 compare.txt
+-rw-r--r--.   1 root   root     6115 Nov  7 19:57 door-v6.txt
+-rw-r--r--.   1 root   root     7131 Nov  7 19:58 door.txt
+-rw-r--r--.   1 root   root      354 Nov  7 19:54 files.sha256
+-rw-r--r--.   1 root   root       50 Nov  7 19:54 gpu.txt
+-rw-r--r--.   1 root   root    62219 Nov  7 20:08 gsm8k-4b-v9-n50.jsonl
+-rw-r--r--.   1 root   root     8318 Nov  7 20:07 gsm8k-4b-v9-n50.txt
+-rw-r--r--.   1 root   root      377 Nov  7 19:54 oracle.txt
+-rw-r--r--.   1 root   root     1049 Nov  7 19:54 qwen3-4b-tetra-e4-4e-v6.json
+-rw-r--r--.   1 root   root     1436 Nov  7 19:54 qwen3-4b-tetra-e4-4e-v9.json
+-rw-r--r--.   1 root   root     9769 Nov  7 20:07 sweep.txt

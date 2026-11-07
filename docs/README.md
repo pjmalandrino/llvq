@@ -11,6 +11,8 @@ Where to resume, in this order. Each document stands on its own at its level.
 | [`METHODE.md`](METHODE.md) | the lab rules: prereg, numbers, noise, tests, machines | yes, when a rule changes |
 | [`STYLE.md`](STYLE.md) | how we write here, with the target length of each document | yes |
 | [`plan-transformers.md`](plan-transformers.md) | loading a Tetra file in `transformers`: stages, gates, open decisions | yes |
+| [`plan-debit-noyau.md`](plan-debit-noyau.md) | decode throughput leads K1-K10 (CUDA) and M1-M5 (Metal), with gates and costs | yes |
+| [`plan-300.md`](plan-300.md) | the route from 4E v6 to 300 tok/s on the 4B, then the 8B and 14B | yes |
 | [`templates/`](templates/) | templates: experiment, prereg, journal, deviations | yes |
 
 Reference documents, up to date and long:

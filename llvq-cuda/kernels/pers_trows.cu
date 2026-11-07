@@ -41,6 +41,42 @@
 //           against V2's is the cost of a second token as a fraction of a pass.
 //           Its two activations take 77,824 shared bytes (96,896 in all).
 //
+// The K4 arms of plan-300's step 1 (2026-11-07,
+// proofs/preregistration-step1-micro-2026-11-07.md). Each changes one thing
+// in V2's row and owes its bits:
+//   NC      the word loads through the read-only path (`ld.global.nc`).
+//   NC256   the same with no L1 allocation and a 256-byte L2 prefetch
+//           (`ld.global.nc.L1::no_allocate.L2::256B`, sm_80 and later).
+//   CPA     each warp stages the words of its row two steps ahead (32 blocks,
+//           192 B a step) by `cp.async` into a ring of three slots in shared
+//           memory, and decodes from there. The ring sits where K2 stages its
+//           second activation: 16 warps x 576 B = 9,216 B, 67,200 B in all.
+//           Every row stride must be a multiple of 16 B (the host checks).
+//   TILE    the words relaid once (tv_trows_tile_relayout) so one 128-bit load
+//           gives a lane the low words of its blocks l, l+32, l+64, l+96 and
+//           one 64-bit load their four high halves; the blocks past the last
+//           full tile of 128 sit in plane form. Same bytes a row, same lane to
+//           block map, same fold order.
+//   BAL     V2's row, the rows of the CTA's slice claimed one at a time from
+//           the shared cursor (pers_claim) instead of the static warp split:
+//           the warp-balance suspect of pers-rowloop (0.63 at d_in 4,096).
+//
+// The arms of plan-300's row lead (2026-11-07,
+// proofs/preregistration-rows-grid-2026-11-07.md). Inside 4E every row phase
+// ends at a grid barrier, so each phase waits for its slowest CTA; alone, the
+// sites run back to back and a CTA's slow site is averaged with its fast ones.
+//   GB      V2, the static split, with 4E's grid barrier (pers_grid_wait)
+//           after every site: the loss the barriers add to the rows alone.
+//           Owes the bits.
+//   GBC     GB with the site's rows claimed across the whole grid, one row a
+//           warp from a cursor in global memory, the next claim in flight
+//           while the row decodes: a fast CTA takes rows a slow one would
+//           have kept. Owes the bits (a row's bits do not depend on its warp).
+//   Both take `x2` as their counters (u32): [0] the barrier, [1] the abort
+//   flag, [2 + s] site s's cursor, zeroed by the host before each launch.
+// The register arm v2r64 needs no code: tv_trows_v2_o2 (at most 64 registers)
+// at one CTA a SM on every site.
+//
 // Composition: its own module, the persistent unit followed by this file
 // (pers.rs::trows_unit_text), so 4E's module keeps its bytes.
 
@@ -52,6 +88,13 @@
 #define TROWS_BCAST 5u
 #define TROWS_XBCAST 6u
 #define TROWS_K2 7u
+#define TROWS_NC 8u
+#define TROWS_NC256 9u
+#define TROWS_CPA 10u
+#define TROWS_TILE 11u
+#define TROWS_BAL 12u
+#define TROWS_GB 13u
+#define TROWS_GBC 14u
 
 // Site words, 10 x u64, laid out by pers.rs::trows_site_words:
 //   [0] words  [1] gscale  [2] rscale  [3] tail (binary16)  [4] y (binary16)
@@ -61,6 +104,10 @@
 #define TROWS_SITE_WORDS 10u
 // Where K2 stages its second activation: after the widest first one.
 #define TROWS_X2_AT 9728u
+
+// CPA's ring: three slots of 48 u32 (one step of 32 blocks) a warp.
+#define TROWS_CPA_SLOT 48u
+#define TROWS_CPA_WARP (3u * TROWS_CPA_SLOT)
 
 // The SM clock (cycles). The host harness counts calls, like pers_now.
 __device__ __forceinline__ unsigned long long trows_clock()
@@ -152,6 +199,214 @@ __device__ __forceinline__ float trows_row_k2(const u32* wrow, const F1rTables& 
         hi16 = hi2;
     }
     out2 = warp_sum(acc2);
+    return warp_sum(acc);
+}
+
+// The word loads of the K4 arms: 0 plain, 1 the read-only path, 2 the
+// read-only path with no L1 allocation and a 256-byte L2 prefetch. The same
+// value whatever the path: the words are never written during a launch.
+template <u32 LD>
+__device__ __forceinline__ u32 trows_ldw(const u32* p)
+{
+#ifdef LLVQ_HOST_BUILD
+    return LD == 1u ? __ldg(p) : *p;
+#else
+    if (LD == 0u) return *p;
+    if (LD == 1u) return __ldg(p);
+    u32 v;
+    asm("ld.global.nc.L1::no_allocate.L2::256B.u32 %0, [%1];" : "=r"(v) : "l"(p));
+    return v;
+#endif
+}
+
+// f1r_load with the loads of path LD.
+template <u32 LD>
+__device__ __forceinline__ void trows_load(const u32* row, u32 j, u32& lo, u32& hi16)
+{
+    const u32 w = (3u * j) >> 1;
+    const u32 w0 = trows_ldw<LD>(row + w);
+    const u32 w1 = trows_ldw<LD>(row + w + 1u);
+    const u32 odd = j & 1u;
+    lo = odd ? ((w0 >> 16) | (w1 << 16)) : w0;
+    hi16 = odd ? (w1 >> 16) : (w1 & 0xffffu);
+}
+
+// NC, NC256: pers_tetra_row<24, false, true> with the loads of path LD.
+template <u32 LD>
+__device__ __forceinline__ float trows_row_ld(const u32* wrow, const F1rTables& tab, const float* gscale,
+                                              const float* invnorm, const float* xs, u32 nblocks, u32 lane)
+{
+    float acc = 0.0f;
+    u32 lo = 0u, hi16 = 0u;
+    if (lane < nblocks) trows_load<LD>(wrow, lane, lo, hi16);
+    for (u32 j = lane; j < nblocks; j += 32u) {
+        u32 lo2 = 0u, hi2 = 0u;
+        if (j + 32u < nblocks) trows_load<LD>(wrow, j + 32u, lo2, hi2);
+        acc = pers_block(acc, lo, hi16, tab, xs + j * 24u, gscale, invnorm);
+        lo = lo2;
+        hi16 = hi2;
+    }
+    return warp_sum(acc);
+}
+
+// cp.async of 16 bytes, global to shared, cached in L2 only. The host build
+// copies at once, so its commit and wait are empty: the host checks the ring's
+// indexing, never the asynchrony.
+__device__ __forceinline__ void trows_cp16(u32* dst, const u32* src)
+{
+#ifdef LLVQ_HOST_BUILD
+    for (u32 i = 0; i < 4u; ++i) dst[i] = src[i];
+#else
+    unsigned long long s64;
+    asm("cvta.to.shared.u64 %0, %1;" : "=l"(s64) : "l"(dst));
+    asm volatile("cp.async.cg.shared.global [%0], [%1], 16;" ::"r"((unsigned)s64), "l"(src) : "memory");
+#endif
+}
+__device__ __forceinline__ void trows_cp_commit()
+{
+#ifndef LLVQ_HOST_BUILD
+    asm volatile("cp.async.commit_group;" ::: "memory");
+#endif
+}
+// At most two groups of this thread still in flight.
+__device__ __forceinline__ void trows_cp_wait2()
+{
+#ifndef LLVQ_HOST_BUILD
+    asm volatile("cp.async.wait_group 2;" ::: "memory");
+#endif
+}
+
+// CPA: step i of the row (bytes [192 i, 192 i + 192)) goes to slot i % 3 of
+// the warp's ring, twelve 16-byte chunks on lanes 0..11, a chunk only if it
+// lies inside the row's `row_u32` words. Every lane commits one group a step,
+// empty or not, so `wait_group 2` means "step i has landed" on every lane.
+__device__ __forceinline__ void trows_cpa_issue(u32* ring, const u32* wrow, u32 row_u32, u32 i, u32 nit, u32 lane)
+{
+    if (i < nit && lane < 12u) {
+        const u32 c = TROWS_CPA_SLOT * i + 4u * lane;
+        if (c + 4u <= row_u32) trows_cp16(ring + TROWS_CPA_SLOT * (i % 3u) + 4u * lane, wrow + c);
+    }
+    trows_cp_commit();
+}
+
+__device__ __forceinline__ float trows_row_cpa(const u32* wrow, u32 row_u32, u32* ring, const F1rTables& tab,
+                                               const float* gscale, const float* invnorm, const float* xs, u32 nblocks,
+                                               u32 lane)
+{
+    const u32 nit = (nblocks + 31u) >> 5;
+    float acc = 0.0f;
+    trows_cpa_issue(ring, wrow, row_u32, 0u, nit, lane);
+    trows_cpa_issue(ring, wrow, row_u32, 1u, nit, lane);
+    for (u32 i = 0; i < nit; ++i) {
+        // slot (i + 2) % 3 was last read at step i - 1, before its __syncwarp
+        trows_cpa_issue(ring, wrow, row_u32, i + 2u, nit, lane);
+        trows_cp_wait2();
+        __syncwarp();
+        const u32 j = 32u * i + lane;
+        if (j < nblocks) {
+            u32 lo, hi16;
+            f1r_load(ring + TROWS_CPA_SLOT * (i % 3u), lane, lo, hi16);
+            acc = pers_block(acc, lo, hi16, tab, xs + j * 24u, gscale, invnorm);
+        }
+        __syncwarp();
+    }
+    return warp_sum(acc);
+}
+
+// TILE's layout, a row of `nblocks` blocks: ntiles = nblocks / 128 tiles of
+// 192 u32, each a low plane (lane l's uint4 at u32 4l: the low words of
+// blocks 128t + l + 32s, s = 0..3) then a high plane (lane l's 64-bit word at
+// u32 128 + 2l: their four high halves, s = 0 in the low 16 bits); then the
+// rem = nblocks - 128 ntiles blocks left, a plane of rem u32 low words and a
+// plane of rem u16 high halves, the row padded to 16 bytes. 6 bytes a block
+// as in the served stream; at the 4B's widths (106, 170 and 405 blocks) the
+// stride is the served one.
+__device__ __forceinline__ u32 trows_tile_stride(u32 nblocks)
+{
+    const u32 nt = nblocks >> 7, rem = nblocks - (nt << 7);
+    return 192u * nt + ((6u * rem + 15u) / 16u) * 4u;
+}
+
+// Block j's low word and high half into a TILE row.
+__device__ __forceinline__ void trows_tile_put(u32* drow, u32 nblocks, u32 j, u32 lo, u32 hi16)
+{
+    const u32 nt = nblocks >> 7, rem = nblocks - (nt << 7);
+    unsigned short* h = reinterpret_cast<unsigned short*>(drow);
+    if (j < (nt << 7)) {
+        const u32 t = j >> 7, k = j & 127u, s = k >> 5, l = k & 31u;
+        drow[192u * t + 4u * l + s] = lo;
+        h[2u * (192u * t + 128u) + 4u * l + s] = (unsigned short)hi16;
+    } else {
+        const u32 rr = j - (nt << 7);
+        drow[192u * nt + rr] = lo;
+        h[2u * (192u * nt + rem) + rr] = (unsigned short)hi16;
+    }
+}
+
+// The relayout, once at setup: every block of every row of one site, read
+// as the served stream reads it (f1r_load) and written into the TILE layout.
+// The destination comes zeroed, so the padding is zero.
+extern "C" __global__ void tv_trows_tile_relayout(const u32* __restrict__ src, u32 src_stride, u32* __restrict__ dst,
+                                                  u32 dst_stride, u32 d_out, u32 nblocks)
+{
+    const unsigned long long n = (unsigned long long)d_out * nblocks;
+    for (unsigned long long i = (unsigned long long)blockIdx.x * blockDim.x + threadIdx.x; i < n;
+         i += (unsigned long long)gridDim.x * blockDim.x) {
+        const u32 r = (u32)(i / nblocks), j = (u32)(i - (unsigned long long)r * nblocks);
+        u32 lo, hi16;
+        f1r_load(src + (size_t)r * src_stride, j, lo, hi16);
+        trows_tile_put(dst + (size_t)r * dst_stride, nblocks, j, lo, hi16);
+    }
+}
+
+// TILE: V2's row read from the TILE layout, the next tile (or the next block
+// left) in flight while one decodes. Lane l folds blocks l, l+32, ... in
+// increasing order, as V2.
+__device__ __forceinline__ float trows_row_tile(const u32* wrow, const F1rTables& tab, const float* gscale,
+                                                const float* invnorm, const float* xs, u32 nblocks, u32 lane)
+{
+    const u32 nt = nblocks >> 7, rem = nblocks - (nt << 7);
+    float acc = 0.0f;
+    uint4 L{0u, 0u, 0u, 0u};
+    unsigned long long H = 0ull;
+    if (nt > 0u) {
+        L = *reinterpret_cast<const uint4*>(wrow + 4u * lane);
+        H = *reinterpret_cast<const unsigned long long*>(wrow + 128u + 2u * lane);
+    }
+    for (u32 t = 0; t < nt; ++t) {
+        uint4 L2{0u, 0u, 0u, 0u};
+        unsigned long long H2 = 0ull;
+        if (t + 1u < nt) {
+            const u32* nx = wrow + 192u * (t + 1u);
+            L2 = *reinterpret_cast<const uint4*>(nx + 4u * lane);
+            H2 = *reinterpret_cast<const unsigned long long*>(nx + 128u + 2u * lane);
+        }
+        const u32 lo[4] = {L.x, L.y, L.z, L.w};
+        const u32 j0 = (t << 7) + lane;
+#pragma unroll
+        for (u32 s = 0; s < 4u; ++s)
+            acc = pers_block(acc, lo[s], (u32)(H >> (16u * s)) & 0xffffu, tab, xs + (j0 + 32u * s) * 24u, gscale,
+                             invnorm);
+        L = L2;
+        H = H2;
+    }
+    const u32* rlo = wrow + 192u * nt;
+    const unsigned short* rhi = reinterpret_cast<const unsigned short*>(rlo + rem);
+    u32 lo = 0u, hi16 = 0u;
+    if (lane < rem) {
+        lo = rlo[lane];
+        hi16 = rhi[lane];
+    }
+    for (u32 k = lane; k < rem; k += 32u) {
+        u32 lo2 = 0u, hi2 = 0u;
+        if (k + 32u < rem) {
+            lo2 = rlo[k + 32u];
+            hi2 = rhi[k + 32u];
+        }
+        acc = pers_block(acc, lo, hi16, tab, xs + ((nt << 7) + k) * 24u, gscale, invnorm);
+        lo = lo2;
+        hi16 = hi2;
+    }
     return warp_sum(acc);
 }
 
@@ -257,12 +512,49 @@ __device__ __forceinline__ void trows_body(const unsigned long long* __restrict_
                     if (yf2 != nullptr) yf2[r] = v2;
                 }
             }
+        } else if (ARM == TROWS_GBC) {
+            u32* const cur = reinterpret_cast<u32*>(const_cast<float*>(x2)) + 2u + s;
+            u32 r = 0u;
+            if (lane == 0u) r = atomicAdd(cur, 1u);
+            r = __shfl_sync(0xffffffffu, r, 0);
+            while (r < d_out) {
+                u32 rn = 0u;
+                if (lane == 0u) rn = atomicAdd(cur, 1u);  // the next row, claimed while this one decodes
+                const float acc = pers_tetra_row<24u, false, true>(words + (size_t)r * stride, tab, gs, t_inv, xs, nb, lane);
+                if (lane == 0u) {
+                    const float v = pers_epilogue(acc, rs[r], tail + (size_t)r * tw, xs + nb * 24u, tw);
+                    y[r] = f2h(v);
+                    if (yf != nullptr) yf[r] = v;
+                }
+                r = __shfl_sync(0xffffffffu, rn, 0);
+            }
+        } else if (ARM == TROWS_BAL) {
+            pers_claim_reset(lo);
+            for (;;) {
+                const u32 r = pers_claim(lane, 1u);
+                if (r >= hi) break;
+                const float acc = pers_tetra_row<24u, false, true>(words + (size_t)r * stride, tab, gs, t_inv, xs, nb, lane);
+                if (lane == 0u) {
+                    const float v = pers_epilogue(acc, rs[r], tail + (size_t)r * tw, xs + nb * 24u, tw);
+                    y[r] = f2h(v);
+                    if (yf != nullptr) yf[r] = v;
+                }
+            }
         } else {
+            u32* ring = reinterpret_cast<u32*>(xs + TROWS_X2_AT) + warp * TROWS_CPA_WARP;
             for (u32 r = lo + warp; r < hi; r += nw) {
                 const u32* wrow = words + (size_t)(ARM == TROWS_L1W ? 0u : r) * stride;
                 float acc;
-                if (ARM == TROWS_V2) {
+                if (ARM == TROWS_V2 || ARM == TROWS_GB) {
                     acc = pers_tetra_row<24u, false, true>(wrow, tab, gs, t_inv, xs, nb, lane);
+                } else if (ARM == TROWS_NC) {
+                    acc = trows_row_ld<1u>(wrow, tab, gs, t_inv, xs, nb, lane);
+                } else if (ARM == TROWS_NC256) {
+                    acc = trows_row_ld<2u>(wrow, tab, gs, t_inv, xs, nb, lane);
+                } else if (ARM == TROWS_CPA) {
+                    acc = trows_row_cpa(wrow, stride, ring, tab, gs, t_inv, xs, nb, lane);
+                } else if (ARM == TROWS_TILE) {
+                    acc = trows_row_tile(wrow, tab, gs, t_inv, xs, nb, lane);
                 } else if (ARM == TROWS_ILP2) {
                     acc = trows_row_ilp2(wrow, tab, gs, t_inv, xs, nb, lane);
                 } else {
@@ -278,6 +570,10 @@ __device__ __forceinline__ void trows_body(const unsigned long long* __restrict_
         if (stamps != nullptr && lane == 0u) stamps[((size_t)s * g + c) * (nw + 1u) + warp] = (u32)(trows_clock() - t0);
         __syncthreads();
         if (stamps != nullptr && threadIdx.x == 0u) stamps[((size_t)s * g + c) * (nw + 1u) + nw] = (u32)(trows_clock() - t0);
+        if (ARM == TROWS_GB || ARM == TROWS_GBC) {
+            u32* const ctr = reinterpret_cast<u32*>(const_cast<float*>(x2));
+            if (!pers_grid_wait(ctr, (s + 1u) * g, ctr + 1)) return;
+        }
     }
     if (stamps != nullptr && threadIdx.x == 0u) {
         ends[4u * blockIdx.x + 2u] = trows_clock();
@@ -306,3 +602,10 @@ TROWS_KERNEL(tv_trows_bcast, TROWS_BCAST, 1)
 TROWS_KERNEL(tv_trows_xbcast, TROWS_XBCAST, 1)
 TROWS_KERNEL(tv_trows_v2_o2, TROWS_V2, 2)
 TROWS_KERNEL(tv_trows_k2, TROWS_K2, 1)
+TROWS_KERNEL(tv_trows_nc, TROWS_NC, 1)
+TROWS_KERNEL(tv_trows_nc256, TROWS_NC256, 1)
+TROWS_KERNEL(tv_trows_cpa, TROWS_CPA, 1)
+TROWS_KERNEL(tv_trows_tile, TROWS_TILE, 1)
+TROWS_KERNEL(tv_trows_bal, TROWS_BAL, 1)
+TROWS_KERNEL(tv_trows_gb, TROWS_GB, 1)
+TROWS_KERNEL(tv_trows_gbc, TROWS_GBC, 1)

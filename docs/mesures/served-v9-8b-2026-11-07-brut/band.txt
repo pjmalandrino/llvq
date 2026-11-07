@@ -1,0 +1,2 @@
+perplexity, kernel from position 0 against grouped: +0.0043 % [-0.0141 ; +0.0227], inside the +-0.12 % band
+band: inside

@@ -597,6 +597,10 @@ mod tests {
         assert_eq!(get(&v4, "attention").as_deref(), Some("kernel"));
         assert_eq!(get(&v4, "decode").as_deref(), Some("persistent"));
         assert_eq!(get(&v4, "rows").as_deref(), Some("v4"));
+        let v6 = keys(&served_file(Some("kernel"), Some("persistent"), Some("v6")));
+        assert_eq!(get(&v6, "rows").as_deref(), Some("v6"), "a v6 dump says so");
+        let v9 = keys(&served_file(Some("kernel"), Some("persistent"), Some("v9")));
+        assert_eq!(get(&v9, "rows").as_deref(), Some("v9"), "a v9 dump says so");
         let v3 = keys(&served_file(Some("kernel"), Some("persistent"), None));
         assert_eq!(get(&v3, "rows").as_deref(), Some("v3"), "absent rows is v3, written out");
     }

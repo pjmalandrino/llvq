@@ -1086,6 +1086,73 @@ mlx-lm reads 129.45, 98.38 and 3.96 s at 3.67 GB, at about 4.5 b/param against o
 with the Rust engine. On the 5-token house prompt its 256 tokens differ from the Rust engine's in a degenerate
 repetition (M15). No perplexity has been read through it.
 
+## 2026-11-07. 4E v6 written as a config for the 4B
+
+Until 2026-11-07 the living state read 4E v6 as a measurement against its missed gate. Its lever left the MLP down
+input at 254.6 µs against a prereg gate of 200, so by that prereg's rule v6 was not proposed for serving
+([pers-4e-v6](mesures/pers-4e-v6-2026-11-05.txt)). On 2026-11-07 the operator gave the go to implement v6 on the 4B
+regardless. `configs/qwen3-4b-tetra-e4-4e-v6.json` is the v4 config with `"rows": "v6"`, and `served.rs` accepts it.
+v4 stays served until the door of `ops/jobs/served-v6.sh` reads.
+
+The door read the same day for $0.41 (job 6aeeea70, 825 s of card). It gives 197.2 tok/s against 178.0 for v4, and
+150.9 against 139.5 at 8,192, with v4's tokens at the door and every length and v4's 50 pilot completions
+([served-v6](mesures/served-v6-2026-11-07.txt)). Every prediction held. Serving it is the operator's call.
+
+## 2026-11-07. plan-300's step 1: no row lever
+
+`docs/plan-300.md` was written on 2026-11-07 with 300 tok/s at the door reachable at the bit on its high bound, 306 to
+322 tok/s, if a row lever existed. Step 1 ran the same day on the operator's go (job 6aef03fa, $0.25). No arm on the
+Tetra row loop reached the ×1.15 bar; the best, a 128-bit tile layout, read ×1.002 over v2. By the prereg's rule B,
+300 at the bit is out on every bound the plan anchors. The int4 tile layout read ×1.338 over 4E's int4 row and is a
+lever; no counter beat the grid barrier by 0.3 µs ([step1-micro](mesures/step1-micro-2026-11-07.txt)). 4E v7 (K2) and
+v8 (K3a) are coded and bit-exact on the host, not run.
+
+## 2026-11-07. plan-300's step 2: v8 runs, v7 does not load
+
+Step 2 ran the same day on the operator's go (job 6aef3f69, $0.22). v8, v7's staged constants plus a three-stage
+cp.async ring in attention, kept the eager tokens and read ×1.076 over v6 at 5 prompt tokens and ×1.025 at 8,192,
+227.9 against 211.8 tok/s in the measurement form. v7 alone did not install at 512 threads under the card's ptxas.
+K2's gate, read on v8, held: the down input fell from 255 to 150 µs. K3a's gate failed: attention's slowest CTA over
+mean reads 4.40, and the job spread is what remains. v8 stays a measurement
+([step2-4e](mesures/step2-4e-2026-11-07.txt)).
+
+## 2026-11-07. plan-300's step 3: the int4 tiles hold in situ, the route stops short of 300 at the bit
+
+Step 3 ran the same day on the operator's go (job 6aef51d3, $0.28). v9, v8 with the int4 rows on step 1's tiled
+words, kept the eager tokens and read ×1.035 over v8 and ×1.118 over v6 at 5 prompt tokens, 238.6 tok/s in the
+measurement form, about 220 at the door (estimated). v6 under v8's shared memory read ×1.000: v8's slower rows on its
+stamps were its stamp symbol's spill. The leads left at the bit give about 235 to 258 tok/s at the door (estimated);
+300 needs speculation or fewer bytes ([step3-4e](mesures/step3-4e-2026-11-07.txt)).
+
+## 2026-11-07. 4E v9 with one copy of the int4 bytes, the 8B and the 14B named out
+
+The operator asked for v9 on main at 4B, 8B and 14B, with one copy of the int4 bytes. Step 3's measurement form had
+held them twice: the served words for the eager path, a tiled copy for 4E, 0.385 GB more on the 4B. Under a config
+whose rows are `v9` the loader now tiles the words on the host and uploads them once. The eager path reads them
+through `tv_q4_ht` / `tv_q4_hht`, which keep every product and its order; only the addresses move. On the host they
+return the served readers' bytes at every int4 width of the three sealed files, and 9 mutants of the tiled reader die.
+Each load checks the tiled reader on the card against the served one on a file-order copy, then frees the copy. The
+file and its b/param do not move. `configs/qwen3-4b-tetra-e4-4e-v9.json` is written; its door job,
+`ops/jobs/served-v9.sh`, is prepared and not run.
+
+4E did not hold on the other two sealed files at first. The 8B holds `o_proj` in Tetra and an untied head; the 14B fits
+v9's shared memory (96,064 B of 101,376) and its int4 down rows, but its head is untied too. The operator asked the
+same evening for all three sizes. 4E gained the head's own pointers and a Tetra o phase, the MLP's Tetra down at the
+context's width; on the host the token loop with both equals the served chain for v4, v6, v8 and v9. The 8B and 14B
+v9 configs and their doors, which also read the kernel form's perplexity band against the grouped form, are ready. While wiring this, a test of the v6 branch named `llvq_cuda` without the macOS-or-cuda gate
+of pjmalandrino/llvq#12; it would have broken the Linux CI at the merge, and it carries the gate now.
+`ops/check-linux-cuda.sh` type-checks the cuda half of `llvq-llm` on the Mac, which no tool did before.
+
+## 2026-11-07. v9 served at 4B, 8B and 14B
+
+The three doors ran the same evening on one image, for $2.65 (jobs 6aef7864, 6aef7ae2, 6aef7ae4). Every gate held:
+4E returned the eager path's tokens at every length at each size, the 4B kept the v6 config's text and held the int4
+words once (1.980 GB under v9 and under v6), and the kernel form from position 0 stayed inside the perplexity band
+against the grouped form at 8B and 14B. At the door v9 reads 221.5, 142.5 and 86.3 tok/s against 197.4 for v6 and
+105.9 and 62.8 for the grouped configs, in the same jobs ([served-v9](mesures/served-v9-2026-11-07.txt),
+[-8b](mesures/served-v9-8b-2026-11-07.txt), [-14b](mesures/served-v9-14b-2026-11-07.txt)). On the operator's message
+the v9 configs became the served ones at all three sizes. Before, the 4B served v4 at 178.0 tok/s and the 8B and 14B
+their grouped configs at 105.8 and 62.5.
 
 ## 2026-11-07. The MLX door, on the operator's ruling of a tolerance on Metal
 

@@ -705,21 +705,29 @@ pub fn n_bar_4e(layers: u32) -> u32 {
 /// what the served config runs); 2, v2's row loop on the same static rows
 /// (4E v4); 3, form 2 with each CTA's last rows split over every warp (4E v5);
 /// 4, form 2 with ln1, ln2 and the down's input in one round trip a thread
-/// (4E v6, `llvq_pers.cuh` section 7b).
-pub const P4E_ROWS_FORMS: [(u32, &str); 4] = [(1, "v3"), (2, "v4"), (3, "v5"), (4, "v6")];
+/// (4E v6, `llvq_pers.cuh` section 7b); 5, form 4 with the launch's
+/// constants (argument structs, row slices, sign words, `small`) copied into
+/// shared memory during the barrier before they are read, and the o phase's
+/// input widened from vectors (4E v7, section 7c); 6, form 5 with the
+/// attention phase's steps staged by `cp.async` into a ring of
+/// [`p4e_attn_ring`] stages, several steps in flight (4E v8, K3a of
+/// `docs/plan-300.md`).
+pub const P4E_ROWS_FORMS: [(u32, &str); 7] = [(1, "v3"), (2, "v4"), (3, "v5"), (4, "v6"), (5, "v7"), (6, "v8"), (7, "v9")];
 
 /// The forms `fusedrun LLVQ_PERS_4E` times, the first the reference of the
-/// others' round-by-round ratios: v4, the served form since 2026-11-05, and
-/// v6, its candidate. v3 and v5 were read by the shaker (job 6aec9a1d).
-pub const P4E_BENCH_FORMS: [(u32, &str); 2] = [(2, "v4"), (4, "v6")];
+/// others' round-by-round ratios: v4, the served form since 2026-11-05; v6,
+/// served on the operator's go of 2026-11-07; v7 (K2) and v8 (K2 and K3a),
+/// step 2 of `docs/plan-300.md`; v9 (v8 with the int4 rows on tiled words,
+/// K11), step 3. v3 and v5 were read by the shaker (job 6aec9a1d).
+pub const P4E_BENCH_FORMS: [(u32, &str); 5] = [(2, "v4"), (4, "v6"), (5, "v7"), (6, "v8"), (7, "v9")];
 
 /// The line a module of row form `form` starts with; form 1 is the
 /// default and adds nothing, so its module keeps its text.
 pub fn p4e_rows_define(form: u32) -> Result<String, String> {
     match form {
         1 => Ok(String::new()),
-        2..=4 => Ok(format!("#define PERS_4E_ROWS {form}u\n")),
-        _ => Err(format!("4E row form {form}: the forms are 1 (v3), 2 (v4), 3 (v5) and 4 (v6)")),
+        2..=7 => Ok(format!("#define PERS_4E_ROWS {form}u\n")),
+        _ => Err(format!("4E row form {form}: the forms are 1 (v3), 2 (v4), 3 (v5), 4 (v6), 5 (v7), 6 (v8) and 7 (v9)")),
     }
 }
 
@@ -737,19 +745,72 @@ pub fn p4e_v6_inputs(addrs: &[(String, u64)], hidden: u32, inter: u32) -> Result
     }
 }
 
+/// Where word `wi` of an int4 row of `nwords` words sits in 4E v9's tiled
+/// layout: `pers_q4_tile_index` of `llvq_pers.cuh`, which the device relayout
+/// uses, transcribed. Inside a full tile of 128 words, word `128 t + k` goes
+/// to `128 t + 4 (k mod 32) + k / 32`, so one 128-bit load gives lane l its
+/// words `128 t + l + 32 s`, s = 0..3; the words past the last full tile keep
+/// the served order. `tests/pers_matches_served.rs` compares it with the
+/// device function on every word of the served widths.
+pub fn q4_tile_index(wi: u32, nwords: u32) -> u32 {
+    let nt = nwords >> 7;
+    if wi >= nt << 7 {
+        return wi;
+    }
+    let (t, k) = (wi >> 7, wi & 127);
+    (t << 7) + 4 * (k & 31) + (k >> 5)
+}
+
+/// An int4 record's words, `d_out` rows of `nwords`, in the tiled layout:
+/// the loader's form of `pers_4e_q4_tile_relayout`, run on the host before
+/// the upload so the card never holds the served order beside it. A
+/// permutation inside each row: the same words, the same count. Refuses a
+/// width that is not a whole number of 16-byte loads.
+pub fn q4_tile_words(words: &[u32], d_out: usize, nwords: usize) -> Result<Vec<u32>, String> {
+    if !nwords.is_multiple_of(4) {
+        return Err(format!("int4 tiles: rows of {nwords} words are not a whole number of 16-byte loads"));
+    }
+    if words.len() != d_out * nwords {
+        return Err(format!("int4 tiles: {} words for {d_out} rows of {nwords}", words.len()));
+    }
+    let mut out = vec![0u32; words.len()];
+    for (src, dst) in words.chunks_exact(nwords).zip(out.chunks_exact_mut(nwords)) {
+        for (wi, &w) in src.iter().enumerate() {
+            dst[q4_tile_index(wi as u32, nwords as u32) as usize] = w;
+        }
+    }
+    Ok(out)
+}
+
 /// The shared scratch after the activation staging (`PERS_4E_SCRATCH`):
-/// form 3's split rows, form 4's staged rows of the rotations' `small`.
+/// form 3's split rows, form 4's staged rows of the rotations' `small`,
+/// form 5's v7 area (`PERS_V7_FLOATS` floats: `small`, the argument structs,
+/// the CTA's slices and up to 576 sign words).
 pub fn p4e_scratch_bytes(form: u32) -> u32 {
     match form {
         3 => 16_384,
         4 => 4_096,
+        5..=7 => 7_360,
         _ => 0,
     }
 }
 
+/// The attention phase's stages (`PERS_ATTN_RING` in `llvq_pers.cuh`): one
+/// below form 6, staged through registers; three from form 6 on, staged by
+/// `cp.async`, so three steps of 16 KB are in flight at once.
+pub fn p4e_attn_ring(form: u32) -> u32 {
+    if form >= 6 { 3 } else { 1 }
+}
+
+/// [`p4e_smem_bytes_form`] for the forms below 6.
 pub fn p4e_smem_bytes(hidden: u32, inter: u32, groups: u32) -> u32 {
+    p4e_smem_bytes_form(1, hidden, inter, groups)
+}
+
+/// Shared bytes of a 4E CTA of row form `form`, before the scratch.
+pub fn p4e_smem_bytes_form(form: u32, hidden: u32, inter: u32, groups: u32) -> u32 {
     let vec = 4 * inter.max(2 * hidden);
-    let attn = 16 * 1024 + 4 * 4 * groups * 130 + 4 * groups * 128;
+    let attn = 16 * 1024 * p4e_attn_ring(form) + 4 * 4 * groups * 130 + 4 * groups * 128;
     (SMEM_HEADER + TABLE_BYTES + vec.max(attn)).div_ceil(16) * 16
 }
 
@@ -843,6 +904,17 @@ pub const SERVED_UNIT_PARTS: [(&str, &str); 10] = [
 /// `Prefill::defines()`).
 pub fn served_unit_text(defines: &str) -> String {
     std::iter::once(defines).chain(SERVED_UNIT_PARTS.iter().map(|p| p.1)).collect::<Vec<_>>().join("\n")
+}
+
+/// The tiled int4 readers (`tv_q4_tile.cu`), the part `fused_cuda.rs`
+/// appends after [`SERVED_UNIT_PARTS`] for a runtime that holds its int4
+/// words tiled: a config whose rows are "v9".
+pub const SERVED_UNIT_TILE_PART: (&str, &str) = ("tv_q4_tile.cu", include_str!("../../llvq-llm/kernels/tv_q4_tile.cu"));
+
+/// The served unit under a v9 config: [`served_unit_text`], then the tiled
+/// int4 readers. The other configs' unit does not move.
+pub fn served_unit_text_tiled(defines: &str) -> String {
+    format!("{}\n{}", served_unit_text(defines), SERVED_UNIT_TILE_PART.1)
 }
 
 /// The served unit's defines at the served tile of the L40S and the default
@@ -1018,8 +1090,13 @@ pub struct SegLaunch {
 /// `sizeof(Pers4eLaunch)`; the offsets below are checked against the kernel's
 /// own definitions by `tests/pers_matches_served.rs`.
 pub const P4E_QKV_BYTES: usize = 152;
-pub const P4E_LAYER_BYTES: usize = 592;
-pub const P4E_ARGS_BYTES: usize = 216;
+pub const P4E_LAYER_BYTES: usize = 600;
+pub const P4E_ARGS_BYTES: usize = 240;
+/// `sizeof(Pers4eOT)`: a Tetra o and its rotation.
+pub const P4E_OT_BYTES: usize = 80;
+/// Where `ot` sits in a `Pers4eLayer`, and the head pointers in `Pers4eArgs`.
+pub const P4E_LAYER_OT: usize = 592;
+pub const P4E_ARGS_HEAD: usize = 216;
 pub const P4E_LAUNCH_BYTES: usize = 40;
 /// Where `qkv` and `mlp` sit in a `Pers4eLayer`.
 pub const P4E_LAYER_QKV: usize = 40;
@@ -1062,6 +1139,34 @@ pub struct P4eLayerHost {
     pub o_gpr: u32,
     pub tetra_down: bool,
     pub mlp: SegArgsHost,
+    /// The device address of this layer's `Pers4eOT` (a Tetra o), or 0 for
+    /// the int4 o.
+    pub ot: u64,
+}
+
+/// A Tetra o_proj and its own rotation (`Pers4eOT`), uploaded once a layer.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct P4eOTHost {
+    pub t: SegTetraHost,
+    pub signs: u64,
+    pub small: u64,
+    pub m: u32,
+    pub k: u32,
+    pub inv: f32,
+}
+
+impl P4eOTHost {
+    pub fn bytes(&self) -> Vec<u8> {
+        let mut b = Vec::with_capacity(P4E_OT_BYTES);
+        self.t.put(&mut b);
+        b.extend(self.signs.to_le_bytes());
+        b.extend(self.small.to_le_bytes());
+        for v in [self.m, self.k, self.inv.to_bits(), 0] {
+            b.extend(v.to_le_bytes());
+        }
+        debug_assert_eq!(b.len(), P4E_OT_BYTES);
+        b
+    }
 }
 
 fn put64(b: &mut [u8], at: usize, v: u64) {
@@ -1110,11 +1215,13 @@ impl P4eLayerHost {
         put32(&mut b, o + 56, self.o_gpr);
         put32(&mut b, o + 60, u32::from(self.tetra_down));
         b[P4E_LAYER_MLP..P4E_LAYER_MLP + SEG_ARGS_BYTES].copy_from_slice(&self.mlp.bytes());
+        put64(&mut b, P4E_LAYER_OT, self.ot);
         b
     }
 }
 
-/// The launch-wide constants of 4E: 22 pointers, then 8 u32 and 2 f32.
+/// The launch-wide constants of 4E: 22 pointers, then 8 u32 and 2 f32, then
+/// the head's three pointers.
 #[derive(Clone, Debug, Default)]
 pub struct P4eArgsHost {
     /// layers, emb_w, emb_s, emb_b, final_norm, cosr, sinr, x_a, x_b, q_out,
@@ -1131,6 +1238,9 @@ pub struct P4eArgsHost {
     pub cap: u32,
     pub eps: f32,
     pub c: f32,
+    /// head_w, head_s, head_b: the embedding's own table when tied (the 4B),
+    /// the head's table when not (the 8B and the 14B).
+    pub head: [u64; 3],
 }
 
 impl P4eArgsHost {
@@ -1147,6 +1257,9 @@ impl P4eArgsHost {
         }
         put32(&mut b, 208, self.eps.to_bits());
         put32(&mut b, 212, self.c.to_bits());
+        for (i, p) in self.head.into_iter().enumerate() {
+            put64(&mut b, P4E_ARGS_HEAD + 8 * i, p);
+        }
         b
     }
 }
@@ -1490,15 +1603,26 @@ pub fn tetra_row_f64(
 }
 
 /// The row-loop microbenchmark's module: the persistent unit, then
-/// `pers_trows.cu`. Its own module, so 4E's keeps its bytes.
+/// `pers_trows.cu`, then plan-300 step 1's int4 rows (`pers_q4rows.cu`) and
+/// counters (`pers_ctr.cu`). Its own module, so 4E's keeps its bytes.
 pub fn trows_unit_text(tile_define: &str) -> String {
-    format!("{}\n{}", pers_unit_text(tile_define), include_str!("../kernels/pers_trows.cu"))
+    format!(
+        "{}\n{}\n{}\n{}",
+        pers_unit_text(tile_define),
+        include_str!("../kernels/pers_trows.cu"),
+        include_str!("../kernels/pers_q4rows.cu"),
+        include_str!("../kernels/pers_ctr.cu")
+    )
 }
 
 /// The row-loop arms (`pers_trows.cu`): name, symbol, whether every row owes
 /// the served bits, CTAs a SM. The occupancy arm `v2_o2` runs V2 at two CTAs a
 /// SM on the sites of d_in 4,096 or less, beside `v2_s`, the same sites at one.
-pub const TROWS_ARMS: [(&str, &str, bool, u32); 10] = [
+/// Then K4's five arms of plan-300 step 1, each against `v2`, and the row
+/// lead's three (2026-11-07): `gb` (v2 with a grid barrier after every site),
+/// `gbc` (gb with the rows claimed across the grid) and `v2r64` (v2's loop at
+/// 64 registers, one CTA a SM).
+pub const TROWS_ARMS: [(&str, &str, bool, u32); 18] = [
     ("v2", "tv_trows_v2", true, 1),
     ("v3", "tv_trows_v3", true, 1),
     ("ilp2", "tv_trows_ilp2", true, 1),
@@ -1509,7 +1633,151 @@ pub const TROWS_ARMS: [(&str, &str, bool, u32); 10] = [
     ("v2_s", "tv_trows_v2", true, 1),
     ("v2_o2", "tv_trows_v2_o2", true, 2),
     ("k2", "tv_trows_k2", true, 1),
+    ("nc", "tv_trows_nc", true, 1),
+    ("nc256", "tv_trows_nc256", true, 1),
+    ("cpa", "tv_trows_cpa", true, 1),
+    ("tile", "tv_trows_tile", true, 1),
+    ("bal", "tv_trows_bal", true, 1),
+    ("gb", "tv_trows_gb", true, 1),
+    ("gbc", "tv_trows_gbc", true, 1),
+    ("v2r64", "tv_trows_v2_o2", true, 1),
 ];
+
+/// The row lead's bar (proofs/preregistration-rows-grid-2026-11-07.md): the
+/// median of gbc's round-by-round speed over gb that licenses a 4E form with
+/// rows claimed across the grid; under [`ROWS_GRID_DEAD`] the claim is dead.
+pub const ROWS_GRID_LEVER: f64 = 1.05;
+pub const ROWS_GRID_DEAD: f64 = 1.02;
+
+/// Does arm `name` read the counters (`x2` as u32: barrier, abort, a cursor a
+/// site) that the host zeroes before each launch?
+pub fn trows_counters(name: &str) -> bool {
+    name == "gb" || name == "gbc"
+}
+
+/// The CTAs' spread over a launch's sites: the sum over sites of the slowest
+/// CTA's busy cycles over the sum of the mean CTA's (1.0 when every CTA takes
+/// as long). Inside 4E a grid barrier ends each phase, so the slowest CTA of a
+/// phase sets its wall.
+pub fn trows_cta_spread(stamps: &[u32], nsites: usize, grid: u32, nw: u32) -> f64 {
+    let (g, w1) = (grid as usize, (nw + 1) as usize);
+    assert_eq!(stamps.len(), nsites * g * w1, "stamps of {nsites} sites x {grid} CTAs x {w1}");
+    let (mut slow, mut mean) = (0f64, 0f64);
+    for s in 0..nsites {
+        let cta = |c: usize| f64::from(stamps[(s * g + c) * w1 + nw as usize]);
+        slow += (0..g).map(cta).fold(0f64, f64::max);
+        mean += (0..g).map(cta).sum::<f64>() / g as f64;
+    }
+    if mean > 0.0 { slow / mean } else { 0.0 }
+}
+
+/// K4's bar (plan-300 §4, step 1): the speed over `v2` alone, median of the
+/// round-by-round ratios, that licenses a 4E port. Under [`K4_DEAD`] an arm is
+/// dead; between the two it is reported and is not a lever.
+pub const K4_LEVER: f64 = 1.15;
+pub const K4_DEAD: f64 = 1.10;
+
+/// CPA's ring: three slots of 192 bytes a warp (`TROWS_CPA_WARP`), after the
+/// widest activation, where K2 stages its second one.
+pub fn trows_cpa_smem_bytes(warps: u32) -> u32 {
+    SMEM_HEADER + TABLE_BYTES + 4 * 9728 + warps * 3 * 192
+}
+
+/// Whether CPA can stage a row stride: its 16-byte chunks must tile the row.
+pub fn trows_cpa_ok(stride_u32: u32) -> bool {
+    stride_u32.is_multiple_of(4)
+}
+
+/// TILE's row stride in u32 for `nblocks` blocks (`trows_tile_stride`):
+/// 192 u32 a full tile of 128 blocks, then 6 bytes a block left, padded to 16.
+pub fn trows_tile_stride(nblocks: u32) -> u32 {
+    let nt = nblocks >> 7;
+    let rem = nblocks - (nt << 7);
+    192 * nt + (6 * rem).div_ceil(16) * 4
+}
+
+/// The served stream's row stride in u32: 6 bytes a block, padded to 8.
+pub fn tetra_stride(nblocks: u32) -> u32 {
+    (6 * nblocks).div_ceil(8) * 2
+}
+
+/// The int4 arms of K11 (`pers_q4rows.cu`): name, symbol, whether every row
+/// owes the served bits. The served `tv_q4_hh` (84 launches) is the
+/// reference of rows and time, and runs beside them.
+pub const Q4ROWS_ARMS: [(&str, &str, bool); 4] = [
+    ("q4", "tv_q4rows_q4", true),
+    ("q4nc", "tv_q4rows_nc", true),
+    ("q4t", "tv_q4rows_tile", true),
+    ("q4read", "tv_q4rows_read", false),
+];
+
+/// K11's bar: `q4nc` or `q4t` over `q4`, median of the round-by-round ratios.
+pub const K11_LEVER: f64 = 1.10;
+
+/// The 84 int4 records of the served 4B (`configs/qwen3-4b-tetra-e4-4e-v6.json`
+/// reads v and o int4 in every layer, down in layers 12 to 23), in served
+/// order: (d_out, d_in, layer, projection).
+pub fn q4rows_sites() -> Vec<(u32, u32, u32, &'static str)> {
+    let mut v = Vec::with_capacity(84);
+    for l in 0..36u32 {
+        v.push((1024, 2560, l, "v"));
+        v.push((2560, 4096, l, "o"));
+        if (12..24).contains(&l) {
+            v.push((2560, 9728, l, "down"));
+        }
+    }
+    v
+}
+
+/// Bytes one pass over int4 records reads: the words (4 bits a weight) and a
+/// binary16 scale and bias a group of 128.
+pub fn q4rows_bytes(sites: &[(u32, u32, u32, &str)]) -> u64 {
+    sites.iter().map(|&(o, i, _, _)| u64::from(o) * (u64::from(i) / 2 + 4 * u64::from(i / 128))).sum()
+}
+
+/// One `tv_q4rows_*` site (`Q4ROWS_SITE_WORDS`); no f32 output on the card.
+pub fn q4rows_site_words(words: u64, scales: u64, biases: u64, y_f16: u64, d_out: u32, d_in: u32) -> [u64; 6] {
+    assert!(d_in.is_multiple_of(256), "a row is whole steps of 32 words: d_in {d_in}");
+    [words, scales, biases, y_f16, u64::from(d_out) | (u64::from(d_in) << 32), 0]
+}
+
+/// Dynamic shared bytes of a `tv_q4rows_*` launch: header and the f32
+/// staging of the widest activation.
+pub fn q4rows_smem_bytes(max_d_in: u32) -> u32 {
+    SMEM_HEADER + 4 * max_d_in
+}
+
+/// The counter kernels of K3b (`pers_ctr.cu`): name, symbol. `work` is the
+/// control of `split`, not a hop.
+pub const CTR_ARMS: [(&str, &str); 6] = [
+    ("bar", "tv_ctr_bar"),
+    ("tight", "tv_ctr_tight"),
+    ("rel", "tv_ctr_rel"),
+    ("ctr8", "tv_ctr_8"),
+    ("split", "tv_ctr_split"),
+    ("work", "tv_ctr_work"),
+];
+
+/// K3b's bar: a counter form under `bar` by this many microseconds a hop.
+pub const K3B_GAIN_US: f64 = 0.3;
+
+/// CTR8's group size and the counters it needs at a grid (one 32-u32 line
+/// each, `CTR_LINE`).
+pub const CTR_GROUP: u32 = 8;
+pub fn ctr_groups(grid: u32) -> u32 {
+    grid.div_ceil(CTR_GROUP)
+}
+
+/// What one launch of `n` hops leaves in the counters of `arm` from zero, a
+/// line apart (`CTR_LINE` = 32 u32): the host's check that every CTA ran
+/// every hop.
+pub fn ctr_expected(arm: &str, grid: u32, n: u32) -> Vec<u32> {
+    match arm {
+        "ctr8" => (0..ctr_groups(grid)).map(|p| n * (grid - p * CTR_GROUP).min(CTR_GROUP)).collect(),
+        "work" => vec![grid],
+        _ => vec![n * grid],
+    }
+}
 
 /// Whether an arm runs only the sites of d_in 4,096 or less.
 pub fn trows_small_only(name: &str) -> bool {
@@ -1654,8 +1922,8 @@ mod tests {
         let t = trows_unit_text("#define TILE_BLOCKS 64u");
         assert!(t.starts_with(&pers_unit_text("#define TILE_BLOCKS 64u")), "4E's module bytes come first, unchanged");
         for (name, sym, _, minb) in TROWS_ARMS {
-            if name == "v2_s" {
-                continue; // the symbol of v2, on fewer sites
+            if name == "v2_s" || name == "v2r64" {
+                continue; // the symbols of v2 and v2_o2, on other sites or CTAs a SM
             }
             let arm = sym.trim_start_matches("tv_trows_").trim_end_matches("_o2").to_uppercase();
             assert!(t.contains(&format!("TROWS_KERNEL({sym}, TROWS_{arm}, {minb})")), "{sym}");
@@ -1664,6 +1932,43 @@ mod tests {
         assert_eq!(trows_k2_smem_bytes(), 96_896);
         assert!(t.contains("#define TROWS_X2_AT 9728u"), "K2's second activation sits after the widest first one");
         assert!(trows_small_only("v2_o2") && trows_small_only("v2_s") && !trows_small_only("v2"));
+        assert!(!trows_small_only("v2r64"), "v2r64 runs every site at one CTA a SM");
+        assert!(trows_counters("gb") && trows_counters("gbc") && !trows_counters("v2") && !trows_counters("bal"));
+        // two sites, two CTAs, one warp: CTA busy at w = 1
+        let st = [0u32, 10, 0, 30, 0, 20, 0, 20];
+        assert!((trows_cta_spread(&st, 2, 2, 1) - 50.0 / 40.0).abs() < 1e-12, "slowest 30 + 20 over mean 20 + 20");
+        assert!(t.contains("if (!pers_grid_wait(ctr, (s + 1u) * g, ctr + 1)) return;"), "gb and gbc wait on the grid after a site");
+        assert_eq!(trows_cpa_smem_bytes(16), 67_200, "CPA's ring after 4E's own bytes");
+        for (name, sym, _) in Q4ROWS_ARMS {
+            assert!(t.contains(&format!("extern \"C\" __global__ void __launch_bounds__(512, 1) {sym}(")) || t.contains(&format!("Q4ROWS_KERNEL({sym}, ")), "{name}");
+        }
+        for (name, sym) in CTR_ARMS {
+            assert!(t.contains(&format!("extern \"C\" __global__ void {sym}(")), "{name}");
+        }
+    }
+
+    #[test]
+    fn the_tile_layout_keeps_the_served_bytes_at_the_4b_widths() {
+        // 2,560, 4,096 and 9,728 columns: 106, 170 and 405 blocks
+        for nb in [106u32, 170, 405] {
+            assert_eq!(trows_tile_stride(nb), tetra_stride(nb), "nb {nb}");
+            assert!(trows_cpa_ok(tetra_stride(nb)), "nb {nb}");
+        }
+        assert_eq!(trows_tile_stride(128), 192);
+        assert_eq!(trows_tile_stride(5), 8);
+        assert_eq!(trows_tile_stride(129), 196);
+    }
+
+    #[test]
+    fn the_int4_sites_are_the_84_records_of_the_4b() {
+        let s = q4rows_sites();
+        assert_eq!(s.len(), 84);
+        assert_eq!(s.iter().filter(|r| r.3 == "down").count(), 12);
+        let b = q4rows_bytes(&s);
+        assert_eq!(b, 409_436_160, "0.409 GB, plan-300 §4");
+        assert!(s.iter().all(|r| r.1 % 256 == 0));
+        assert_eq!(ctr_expected("ctr8", 142, 3), [vec![24u32; 17], vec![18]].concat());
+        assert_eq!(ctr_expected("bar", 142, 3), vec![426]);
     }
 
     #[test]
@@ -2050,14 +2355,34 @@ mod tests {
         let cuh = include_str!("../kernels/llvq_pers.cuh");
         assert!(cuh.contains("#if PERS_4E_ROWS == 3\n#define PERS_4E_SCRATCH 16384u"), "p4e_scratch_bytes mirrors the scratch");
         assert!(cuh.contains("#elif PERS_4E_ROWS == 4\n#define PERS_4E_SCRATCH 4096u"), "form 4's scratch too");
-        let scratch: Vec<u32> = (1..=4).map(p4e_scratch_bytes).collect();
-        assert_eq!(scratch, vec![0, 0, 16_384, 4_096]);
+        assert!(cuh.contains("#elif PERS_4E_ROWS >= 5\n#define PERS_4E_SCRATCH 7360u"), "forms 5 and 6's scratch too");
+        assert!(cuh.contains("#define PERS_V7_FLOATS 1840u"), "form 5's scratch is the v7 area");
+        let scratch: Vec<u32> = (1..=7).map(p4e_scratch_bytes).collect();
+        assert_eq!(scratch, vec![0, 0, 16_384, 4_096, 7_360, 7_360, 7_360]);
+        // the v7 area, and v8's ring, at the 4B, the 8B (4,096 wide, inter
+        // 12,288, 4 groups) and the 14B (5,120, 17,408, 5 groups) fit under
+        // sm_89's 101,376-byte opt-in
+        for form in [5u32, 6, 7] {
+            for (h, i, g) in [(2560u32, 9728u32, 4u32), (4096, 12_288, 4), (5120, 17_408, 5)] {
+                let b = p4e_smem_bytes_form(form, h, i, g) + p4e_scratch_bytes(form);
+                assert!(b <= 101_376, "form {form} at {h}/{i}/{g}: {b} B");
+            }
+        }
+        assert_eq!(p4e_smem_bytes_form(6, 2560, 9728, 4), (SMEM_HEADER + TABLE_BYTES + 3 * 16_384 + 8_320 + 2_048).div_ceil(16) * 16);
+        assert_eq!(p4e_smem_bytes_form(5, 2560, 9728, 4), p4e_smem_bytes(2560, 9728, 4));
+        assert!(cuh.contains("#if PERS_4E_ROWS >= 6\n#define PERS_ATTN_RING 3u\n#else\n#define PERS_ATTN_RING 1u"), "p4e_attn_ring mirrors the ring");
+        let inter_14b: u32 = 17_408;
+        assert!(inter_14b.div_ceil(32) <= 576, "the 14B's down signs fit PERS_V7_SIGNS_MAX");
         // form 4's scratch holds every row of a KMAX x KMAX `small`
         assert_eq!(p4e_scratch_bytes(4) as usize, 4 * 32 * 32);
         assert_eq!(p4e_rows_define(1).unwrap(), "");
         assert_eq!(p4e_rows_define(3).unwrap(), "#define PERS_4E_ROWS 3u\n");
         assert_eq!(p4e_rows_define(4).unwrap(), "#define PERS_4E_ROWS 4u\n");
-        assert!(p4e_rows_define(5).is_err());
+        assert_eq!(p4e_rows_define(5).unwrap(), "#define PERS_4E_ROWS 5u\n");
+        assert_eq!(p4e_rows_define(6).unwrap(), "#define PERS_4E_ROWS 6u\n");
+        assert_eq!(p4e_rows_define(7).unwrap(), "#define PERS_4E_ROWS 7u\n");
+        assert!(p4e_rows_define(8).is_err());
+        assert_eq!(p4e_smem_bytes_form(7, 2560, 9728, 4), p4e_smem_bytes_form(6, 2560, 9728, 4));
         assert!(P4E_BENCH_FORMS.iter().all(|f| P4E_ROWS_FORMS.contains(f)), "the bench forms are row forms");
         let ok = vec![("act".to_string(), 0x7000_0000u64), ("layer 0 ln1".to_string(), 0x7000_0100)];
         assert!(p4e_v6_inputs(&ok, 2560, 9728).is_ok());
@@ -2072,7 +2397,7 @@ mod tests {
             "#define PERS_STAGE (PERS_UPS * PERS_TT)",
             "#define PERS_UPS 4u",
             "#define PERS_PSTRIDE 130u",
-            "#define PERS_ATTN_SMEM(groups) (16u * PERS_STAGE_U4 + 4u * PERS_UPS * (groups) * PERS_PSTRIDE + 4u * (groups) * PERS_HD)",
+            "#define PERS_ATTN_SMEM(groups) (16u * PERS_STAGE_U4 * PERS_ATTN_RING + 4u * PERS_UPS * (groups) * PERS_PSTRIDE + 4u * (groups) * PERS_HD)",
         ] {
             assert!(cuh.contains(line), "p4e_smem_bytes mirrors {line:?}");
         }
@@ -2196,6 +2521,54 @@ mod tests {
             crate::sha256::sha256_hex(t.as_bytes()),
             "6193094310bc18acdb0a0c554807ff45f6df09c1f6ab49e0577032874f107812",
             "the served unit moved: the L2 reference would not be the served kernel"
+        );
+    }
+
+    /// 4E v9's dynamic shared bytes at the three sealed shapes, against the
+    /// 101,376 B a CTA may ask on sm_89: the 14B's int4 down input (17,408
+    /// floats) fits, which is why the 14B's refusal is its untied head and
+    /// not its width. The v7 area holds every width's sign words (576).
+    #[test]
+    fn the_4e_v9_shared_bytes_at_the_three_sealed_shapes() {
+        let at = |hidden: u32, inter: u32, groups: u32| p4e_smem_bytes_form(7, hidden, inter, groups) + p4e_scratch_bytes(7);
+        assert_eq!(at(2560, 9728, 4), 85_952, "the 4B, as step3-4e printed");
+        assert_eq!(at(4096, 12288, 4), 85_952);
+        assert_eq!(at(5120, 17408, 5), 96_064);
+        for (h, i) in [(2560u32, 9728u32), (4096, 12288), (5120, 17408)] {
+            assert!(at(h, i, 5) <= 101_376);
+            assert!(i.div_ceil(32) <= 576 && h.div_ceil(32) <= 576, "the v7 area at {h}/{i}");
+        }
+    }
+
+    /// 4E v9's module at the L40S's tile, the one the served-v9 doors gate
+    /// on: the step-3 module with the head's own pointers and the Tetra o
+    /// phase added (step3-4e timed d9da09aa…, 250,057 B).
+    #[test]
+    fn the_4e_v9_module_is_the_one_the_doors_gate_on() {
+        let t = format!("{}{}", p4e_rows_define(7).unwrap(), pers_unit_text("#define TILE_BLOCKS 64u\n"));
+        assert_eq!(t.len(), 252_757);
+        assert_eq!(
+            crate::sha256::sha256_hex(t.as_bytes()),
+            "1b422b62328be6752df4add43280565fd2a49cfa20ee26953b301abe7a15c530",
+            "the 4E v9 module moved: the served-v9 doors gate on this digest"
+        );
+    }
+
+    /// The unit a v9 config compiles: the served unit unchanged, then the
+    /// tiled int4 readers. Pinned so the door job's digest gate is this text.
+    #[test]
+    fn the_tiled_served_unit_is_the_served_unit_and_the_tile_readers() {
+        let (plain, tiled) = (served_unit_text(SERVED_DEFINES_SM89), served_unit_text_tiled(SERVED_DEFINES_SM89));
+        assert!(tiled.starts_with(&plain), "the served unit's text moved under v9");
+        for sym in ["tv_q4_ht(", "tv_q4_hht("] {
+            assert_eq!(tiled.matches(sym).count(), 1, "{sym}");
+            assert!(!plain.contains(sym), "{sym} leaked into the other configs' unit");
+        }
+        assert_eq!(tiled.len(), 106_947);
+        assert_eq!(
+            crate::sha256::sha256_hex(tiled.as_bytes()),
+            "e269ea5d11b7e40ba0682f536f52ed9f09abfaa9fd6f3185eb306edca5c60e53",
+            "the v9 served unit moved: the served-v9 door gates on this digest"
         );
     }
 
