@@ -31,3 +31,10 @@ stopping; those files are in the bucket.
 The retries (`RETRY=1 REUSE=1`) take the first attempt's gate, rung and quantized files by sha256 and measure two arms,
 on the operator's choice: IQ2_S, the rung at our bits, and unsloth's UD-IQ2_XXS. Our own IQ2_XXS keeps only its
 perplexity from run 1; it gets no speed, VRAM, MMLU or GSM8K. Ceilings 2h / 2h / 3h30.
+
+## D3, 2026-11-08: retry 1 stopped before any measurement; retry 2
+
+Retries 1 of the 8B and the 14B stopped 12 minutes in, at the reuse block: it read `$DIR`, which the job did not
+receive (`set -u`). Nothing was measured. The 4B retry 1 was cancelled in the queue, before it started. `DIR` is now
+passed, a static check finds no other unassigned variable in the job body, and the reuse block was run on the Mac
+against stub files before relaunching. Retry 2 measures the same two arms; ceilings 2h / 2h / 200m.

@@ -70,8 +70,8 @@ case "$SIZE" in
   *) echo "refused: SIZE=$SIZE, the sizes are 4b, 8b and 14b" >&2; exit 1 ;;
 esac
 O=/out/$DIR/$SIZE${RETRY:+-r$RETRY}
-# a REUSE retry skips the f16, the imatrix and the quantization: its ceilings, 2h / 2h / 3h30, keep the duel under its cap
-if [ -n "${REUSE:-}" ]; then case "$SIZE" in 4b|8b) TIMEOUT=2h ;; 14b) TIMEOUT=210m ;; esac; fi
+# a REUSE retry skips the f16, the imatrix and the quantization: its ceilings, 2h / 2h / 200m, keep the duel under its cap
+if [ -n "${REUSE:-}" ]; then case "$SIZE" in 4b|8b) TIMEOUT=2h ;; 14b) TIMEOUT=200m ;; esac; fi
 REUSE=${REUSE:-}
 KEEP=${KEEP:-}   # comma-separated arm names to measure; empty = all three
 if [ -n "$REUSE" ] && [ -z "${RETRY:-}" ]; then echo "refused: REUSE=1 reads the first attempt, so it needs RETRY" >&2; exit 1; fi
@@ -94,8 +94,8 @@ if [ "$DRY" != 1 ]; then
   fi
 fi
 
-PRE=$(printf 'O=%q\nI=%q\nSIZE=%q\nBASE=%q\nBASE_REV=%q\nPARAMS=%q\nOUR_BYTES=%q\nF16_REF=%q\nPUB_REPO=%q\nPUB_REV=%q\nPUB_FILE=%q\nPUB_BYTES=%q\nBATCHED=%q\nREUSE=%q\nKEEP=%q\nLCPP_SHA=%q\nINPUTS_SHA=%q\nSCRIPTS_SHA=%q' \
-  "$O" "/out/$DIR/inputs" "$SIZE" "$BASE" "$BASE_REV" "$PARAMS" "$OUR_BYTES" "$F16_REF" "$PUB_REPO" "$PUB_REV" \
+PRE=$(printf 'O=%q\nDIR=%q\nI=%q\nSIZE=%q\nBASE=%q\nBASE_REV=%q\nPARAMS=%q\nOUR_BYTES=%q\nF16_REF=%q\nPUB_REPO=%q\nPUB_REV=%q\nPUB_FILE=%q\nPUB_BYTES=%q\nBATCHED=%q\nREUSE=%q\nKEEP=%q\nLCPP_SHA=%q\nINPUTS_SHA=%q\nSCRIPTS_SHA=%q' \
+  "$O" "$DIR" "/out/$DIR/inputs" "$SIZE" "$BASE" "$BASE_REV" "$PARAMS" "$OUR_BYTES" "$F16_REF" "$PUB_REPO" "$PUB_REV" \
   "$PUB_FILE" "$PUB_BYTES" "$BATCHED" "$REUSE" "$KEEP" "$LCPP_SHA" "$INPUTS_SHA" "$SCRIPTS_SHA")
 
 IFS= read -r -d '' BODY <<'JOB' || true
