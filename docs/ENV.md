@@ -75,13 +75,10 @@ modes set together (`ALONE` in that file).
 | `LLVQ_CONTEXTS` | `fusedrun` | prompt lengths: time to first token and decode speed after each; allowed beside a config |
 | `LLVQ_PREFILL_TOKENS` | `fusedrun` | prompt length for the prefill timing; allowed beside a config |
 | `LLVQ_SOFTMAX_WHOLE` | `fusedrun` (`LLVQ_CONTEXTS` only) | `1`: every masked softmax on the whole score tensor, the memory form before 2026-11-08, to check the in-place form's logits bit for bit in a second process; `0` or unset: in place; allowed beside a config, moves no output bit |
-| `LLVQ_TRIM_AB` | `fusedrun` | trim A/B |
-| `LLVQ_TIME_PHASES` | `fusedrun`, `model.rs` | per-phase timing of a token |
 | `LLVQ_GQA_AB`, `LLVQ_GQA_PPL` | `fusedrun` | grouped attention timing, and its paired perplexity |
 | `LLVQ_KV_CAPTURE` | `fusedrun`, `kvcapture.rs` | `<ctx>,<tokens>,<corpus>,<window>`: one window fed token by token on the kernel form, the decode queries and the final KV cache written to `fusedrun`'s third argument for `ops/kv_mass_score.py` |
 | `LLVQ_KV_LADDER` | `fusedrun`, `kvladder.rs` | the cache of the second arm of `LLVQ_GQA_PPL=<ctx>,<windows>,<first>,ladder`, scored against the f16 cache under the kernel form on every decode row: `k8v8` (the `q8` code), `k8v4`, `k4v4c` or `k4v4c:<q>` (static key steps, clip quantile `q`, default 0.999, calibrated on 4,096 `dclm-edu` tokens), `k4v4h` (Hadamard then int4). Round trips: the cache keeps its dtype. Refused beside `LLVQ_KV`, beside any other mode, and beside a config |
 | `LLVQ_INT4_WIDE_CHECK` | `fusedrun` | int4 kernel against the host at widths above 14B |
-| `LLVQ_GESTURE_AB`, `LLVQ_BOUNDARY_AB` | `fusedrun` | decode-step gesture and boundary A/Bs |
 | `LLVQ_PERS_4E` | `fusedrun` | 4E's row forms against the eager path |
 | `LLVQ_BATCH_REF` | `batchrun` | the door's token fingerprint every batched row must reproduce |
 | `LLVQ_BENCH_ARMS`, `LLVQ_SEG_ARMS`, `LLVQ_SEG_TETRA`, `LLVQ_TIME_EVENTS` | `planesbench` | arm selection, segment arms, Tetra segment, event timing |
@@ -100,6 +97,10 @@ copied from an old journal fails instead of measuring something else.
 | `LLVQ_GRAPH_AB`, `LLVQ_GRAPH_DIAG` | `fusedrun`'s CUDA Graphs A/B and its diagnostic |
 | `LLVQ_KV_AB`, `LLVQ_FUSE_AB` | `fusedrun`'s cache-store and fusion A/Bs |
 | `LLVQ_PERS_SEGMENT` | route P's persistent MLP segment against the eager MLP |
+| `LLVQ_TIME_PHASES` | `fusedrun`'s fenced per-phase pass; `metalrun phased` keeps the fenced decode |
+| `LLVQ_TRIM_AB` | `fusedrun`'s A/B of the three decode trims of 2026-10-30, now always on |
+| `LLVQ_GESTURE_AB` | `fusedrun`'s token-loop gestures, with `gesture_cuda.rs` and `gesture_spin.cu` |
+| `LLVQ_BOUNDARY_AB` | `fusedrun`'s added-kernel-boundary A/B, with the split and empty launches |
 
 ## Tests
 

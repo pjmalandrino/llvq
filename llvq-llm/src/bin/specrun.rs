@@ -64,7 +64,7 @@ fn main() -> anyhow::Result<()> {
 #[cfg(all(target_os = "linux", feature = "cuda"))]
 fn phases(t: &mut Loaded, contexts: &[(&str, Vec<u32>)]) -> anyhow::Result<()> {
     use llvq_cuda::pers::{p4e_phase_report, p4e_report_lines, p4v_phases, P4V_KMAX, P4V_PHASES};
-    use llvq_llm::boundary::median_range;
+    use llvq_llm::stats::median_range;
     const DISCARD: usize = 2;
     const TIMED: usize = 5;
     let model = &t.f.model;
@@ -281,7 +281,7 @@ fn first_divergence(a: &[u32], b: &[u32]) -> Option<usize> {
 
 #[cfg(all(target_os = "linux", feature = "cuda"))]
 fn run() -> anyhow::Result<()> {
-    use llvq_llm::boundary::median_range;
+    use llvq_llm::stats::median_range;
     use llvq_llm::chatfmt::{open_assistant, turn, Marks};
     let a: Vec<String> = std::env::args().skip(1).collect();
     let usage = "usage: LLVQ_CONFIG=<target config> specrun <target sealed> <draft config> <draft sealed> [ks] [all|load|door|gsm8k]\n       \

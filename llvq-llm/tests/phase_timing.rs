@@ -23,7 +23,7 @@
 use candle_core::{DType, Device};
 use candle_nn::{Activation, VarBuilder, VarMap};
 use candle_transformers::models::qwen3::Config;
-use llvq_llm::model::{time_phases_enabled, NoCapture, PhaseReport, Qwen3};
+use llvq_llm::model::{NoCapture, PhaseReport, Qwen3};
 
 /// Same tiny configuration as `kv_cache.rs`: grouped-query attention, two
 /// layers, a real head_dim — everything the phased loop walks through.
@@ -109,18 +109,6 @@ fn zero_tokens_means_zero_fences() {
     let (tokens, r) = m.generate_phased(&[1, 2, 3], 0).expect("phased");
     assert!(tokens.is_empty());
     assert_eq!(r.fences, 0);
-}
-
-/// The env gate: exactly `"1"` and nothing else. `bin/fusedrun`'s published
-/// output must be byte-identical whenever this returns false, so a gate that
-/// drifted to "any non-empty value" would silently change the protocol for
-/// users exporting unrelated values.
-#[test]
-fn the_gate_accepts_exactly_one() {
-    assert!(time_phases_enabled(Some("1")));
-    for v in [None, Some(""), Some("0"), Some("true"), Some("yes"), Some("2")] {
-        assert!(!time_phases_enabled(v), "gate opened on {v:?}");
-    }
 }
 
 /// Median and range: odd count takes the middle sample, even count the mean

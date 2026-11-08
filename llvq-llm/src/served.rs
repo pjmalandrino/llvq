@@ -515,10 +515,9 @@ impl DecodeCache {
 /// engine each is refused by name ([`check_env`]); `LLVQ_CONTEXTS` and
 /// `LLVQ_PREFILL_TOKENS` are not here, since they time the served object as
 /// served with a longer prompt.
-pub const MEASUREMENT_MODES: [&str; 13] = [
-    "LLVQ_TIME_PHASES", "LLVQ_TIME_EVENTS", "LLVQ_SEG_ARMS", "LLVQ_BENCH_ARMS", "LLVQ_TRIM_AB", "LLVQ_GQA_AB",
-    "LLVQ_GQA_PPL", "LLVQ_KV_CAPTURE", "LLVQ_KV_LADDER",
-    "LLVQ_INT4_WIDE_CHECK", "LLVQ_GESTURE_AB", "LLVQ_BOUNDARY_AB", "LLVQ_PERS_4E",
+pub const MEASUREMENT_MODES: [&str; 9] = [
+    "LLVQ_TIME_EVENTS", "LLVQ_SEG_ARMS", "LLVQ_BENCH_ARMS", "LLVQ_GQA_AB", "LLVQ_GQA_PPL", "LLVQ_KV_CAPTURE",
+    "LLVQ_KV_LADDER", "LLVQ_INT4_WIDE_CHECK", "LLVQ_PERS_4E",
 ];
 
 /// Variables the binaries read once and no longer do. The code behind them was
@@ -526,9 +525,9 @@ pub const MEASUREMENT_MODES: [&str; 13] = [
 /// §4.2); the tag `pre-clean-2026-11` still holds it. Set, each is refused by
 /// name, with or without a config, so a command copied from an old journal
 /// fails instead of measuring something else.
-pub const REMOVED: [&str; 7] = [
+pub const REMOVED: [&str; 11] = [
     "LLVQ_KV_PREALLOC", "LLVQ_STEPPED", "LLVQ_GRAPH_AB", "LLVQ_GRAPH_DIAG", "LLVQ_KV_AB", "LLVQ_FUSE_AB",
-    "LLVQ_PERS_SEGMENT",
+    "LLVQ_PERS_SEGMENT", "LLVQ_TIME_PHASES", "LLVQ_TRIM_AB", "LLVQ_GESTURE_AB", "LLVQ_BOUNDARY_AB",
 ];
 
 /// Refuse every name of [`REMOVED`] that `lookup` finds set. `bin/fusedrun`,
