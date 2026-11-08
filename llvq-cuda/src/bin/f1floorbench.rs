@@ -242,11 +242,7 @@ mod linux {
         Ok(t.elapsed().as_secs_f64() * 1e3)
     }
 
-    fn median_range(v: &[f64]) -> (f64, f64, f64) {
-        let mut s = v.to_vec();
-        s.sort_by(f64::total_cmp);
-        (s[s.len() / 2], s[0], s[s.len() - 1])
-    }
+    use llvq_cuda::stats::median_range;
 
     /// Every output row written, finite, and — for a table arm — different from
     /// the floor's. The last part is what catches an elided load: a compiler

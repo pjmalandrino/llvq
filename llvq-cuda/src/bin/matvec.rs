@@ -110,18 +110,9 @@ mod linux {
         scale: Vec<f64>,
     }
 
-    fn worst_error(got: &[f32], want: &[f64], scale: &[f64]) -> f64 {
-        got.iter()
-            .zip(want)
-            .zip(scale)
-            .map(|((&g, &w), &s)| (g as f64 - w).abs() / s.max(1e-12))
-            .fold(0.0, f64::max)
-    }
+    use llvq_cuda::stats::worst_error;
 
-    fn spread(mut v: Vec<f64>) -> (f64, f64, f64) {
-        v.sort_by(f64::total_cmp);
-        (v[0], v[v.len() / 2], v[v.len() - 1])
-    }
+    use llvq_cuda::stats::spread;
 
     /// f32 → binary16 bits, round to nearest even. Same function as
     /// `llvq_metal::f16_bits`; duplicated rather than shared because the two

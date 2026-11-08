@@ -1,6 +1,6 @@
 //! What several test files of this crate share.
 //!
-//! `tiny` was copied into six files until 2026-11-08 (audit batch 10).
+//! `tiny` was copied into seven files until 2026-11-08 (audit batch 10).
 //! `tests/session.rs` keeps its own, a vocabulary of 64.
 
 use candle_nn::Activation;

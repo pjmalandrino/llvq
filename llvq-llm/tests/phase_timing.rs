@@ -21,32 +21,11 @@
 //! certifies, and that reasoning is documented at the helper.
 
 use candle_core::{DType, Device};
-use candle_nn::{Activation, VarBuilder, VarMap};
-use candle_transformers::models::qwen3::Config;
+use candle_nn::{VarBuilder, VarMap};
 use llvq_llm::model::{NoCapture, PhaseReport, Qwen3};
 
-/// Same tiny configuration as `kv_cache.rs`: grouped-query attention, two
-/// layers, a real head_dim — everything the phased loop walks through.
-fn tiny() -> Config {
-    Config {
-        vocab_size: 128,
-        hidden_size: 32,
-        intermediate_size: 64,
-        num_hidden_layers: 2,
-        num_attention_heads: 4,
-        head_dim: 8,
-        attention_bias: false,
-        num_key_value_heads: 2,
-        max_position_embeddings: 64,
-        sliding_window: None,
-        max_window_layers: 0,
-        tie_word_embeddings: true,
-        rope_theta: 10_000.0,
-        rms_norm_eps: 1e-6,
-        use_sliding_window: false,
-        hidden_act: Activation::Silu,
-    }
-}
+mod common;
+use common::tiny;
 
 fn model(dev: &Device) -> (Qwen3, VarMap) {
     let map = VarMap::new();

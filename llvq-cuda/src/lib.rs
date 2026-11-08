@@ -84,6 +84,8 @@ pub mod wide;
 
 // Portable so the Mac host test and the card hash with the same code.
 pub mod sha256;
+/// Summary statistics shared by the bench binaries.
+pub mod stats;
 // Portable, and the reference rather than a helper: the canonical arithmetic
 // of the split-KV decode-attention kernel, replayed on the CPU. The kernel is
 // checked against it bit for bit on the Mac (`tests/attn_dec_matches_rust.rs`
