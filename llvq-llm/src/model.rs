@@ -3183,6 +3183,22 @@ mod tests {
             })
     }
 
+    /// Bit equality between two computations that reach candle's CPU matmul
+    /// with different shapes or layouts (the `Shared` form, a `Grow` view).
+    /// Strict on macOS, where it was measured. Elsewhere the gemm may order a
+    /// reduction by shape, which is how three tests fell on the Linux runner
+    /// on 2026-11-07 (`f43a774`, `abdbaae`), so the two sides are held to
+    /// `bound` instead. Same shape, same kernel: use [`same_bits`].
+    fn same_bits_across_shapes(a: &[Vec<f32>], b: &[Vec<f32>], bound: f32) -> bool {
+        if cfg!(target_os = "macos") {
+            same_bits(a, b)
+        } else {
+            a.len() == b.len()
+                && a.iter().zip(b).all(|(x, y)| x.len() == y.len())
+                && max_abs_diff(a, b) <= bound
+        }
+    }
+
     /// The three attention forms over the stores that hand attention exactly
     /// the history. Against `Cat` with expanded heads, every published path:
     /// the `Grow` store alone and the `Shared` form are bit for bit, in the
@@ -3227,8 +3243,8 @@ mod tests {
                 let arm = format!("{dtype:?} {n_heads}/2 {} {}", store.label(), heads.label());
                 let got = (logit_trace(&m, &prompt, 4, &feed), full(&m));
                 if exact {
-                    assert!(same_bits(&reference.0, &got.0), "{arm}: cached logits not bit for bit");
-                    assert!(same_bits(&reference.1, &got.1), "{arm}: full-window logits not bit for bit");
+                    assert!(same_bits_across_shapes(&reference.0, &got.0, bound), "{arm}: cached logits not bit for bit");
+                    assert!(same_bits_across_shapes(&reference.1, &got.1, bound), "{arm}: full-window logits not bit for bit");
                 } else {
                     let d = max_abs_diff(&reference.0, &got.0).max(max_abs_diff(&reference.1, &got.1));
                     println!("{arm}: max |dlogit| {d:e}");
@@ -3287,8 +3303,16 @@ mod tests {
         let rel = (same.nll[0] / window - 1.0).abs();
         assert!(rel < 1e-5, "decode against prefill: relative {rel:e}");
         let shared = m.decode_nll_paired(&tokens, [published, (KvStore::Grow(4), AttnHeads::Shared)]).unwrap();
-        assert_eq!(shared.nll[0].to_bits(), shared.nll[1].to_bits());
-        assert_eq!(shared.max_dlogit, 0.0);
+        // Bit for bit on macOS; elsewhere the shared form's matmul shape may
+        // round differently, so the grouped form's bounds hold instead (see
+        // `same_bits_across_shapes`).
+        if cfg!(target_os = "macos") {
+            assert_eq!(shared.nll[0].to_bits(), shared.nll[1].to_bits());
+            assert_eq!(shared.max_dlogit, 0.0);
+        } else {
+            assert!(shared.max_dlogit < 6e-7, "{shared:?}");
+            assert!((shared.nll[1] / shared.nll[0] - 1.0).abs() < 1e-6, "{shared:?}");
+        }
         let grouped = m.decode_nll_paired(&tokens, [published, (KvStore::Grow(4), AttnHeads::Grouped)]).unwrap();
         assert!(grouped.max_dlogit < 6e-7, "{grouped:?}");
         // Above zero on macOS, where the grouped matmul rounds differently;
