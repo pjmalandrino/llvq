@@ -14,8 +14,10 @@
 //! ([`Worker::run_batch`]): a request takes a free slot of a pool as soon as
 //! one exists, its prompt is prefilled alone, and every step decodes one token
 //! for every live request at once. A request that ends gives its slot back
-//! without stopping the others. The batched engine is greedy, and it keeps no
-//! conversation cache between requests.
+//! without stopping the others. A request alone decodes on the batch-1 path
+//! (4E under a persistent config, the faster one for one sequence) and joins
+//! the pool when a second one arrives. The batched engine is greedy, and it
+//! keeps no conversation cache between requests.
 
 use crate::chat::{self, Msg, Role, Scan, Segment, TextStream};
 use crate::library::{Backend, ModelName};
@@ -789,6 +791,17 @@ impl Worker {
                 }
             }
             while pool.free() > 0 {
+                if live.is_empty() && pending.len() == 1 {
+                    // Alone: the batch-1 path, until another request arrives.
+                    let job = pending.pop_front().expect("one pending");
+                    inf.take_job();
+                    let keep = job.keep_alive;
+                    match self.solo(job, rx, &mut pending, &mut open, &mut pool) {
+                        Some(l) => live.push(l),
+                        None => *inf.expires.lock().expect("expires lock") = keep.until(SystemTime::now()),
+                    }
+                    continue;
+                }
                 let Some(job) = pending.pop_front() else { break };
                 inf.take_job();
                 let keep = job.keep_alive;
@@ -829,6 +842,157 @@ impl Worker {
                     self.finish(&mut l, reason);
                 }
                 *inf.expires.lock().expect("expires lock") = l.job.keep_alive.until(SystemTime::now());
+            }
+        }
+    }
+
+    /// A request with no other live: prefilled and decoded on the batch-1
+    /// path ([`Session::answer`], 4E under a persistent config), which stops
+    /// between two launches as soon as another job arrives (it goes to
+    /// `pending`). The conversation then takes a slot of the pool with its
+    /// caches, and is returned live, its next token not yet fed. `None` when
+    /// it ended alone.
+    fn solo(
+        &mut self,
+        job: Job,
+        rx: &std::sync::mpsc::Receiver<Job>,
+        pending: &mut VecDeque<Job>,
+        open: &mut bool,
+        pool: &mut llvq_llm::batch::Pool,
+    ) -> Option<Live> {
+        let started = Instant::now();
+        let load = self.load_duration.take().unwrap_or_default();
+        let tx = job.events.clone();
+        if tx.is_closed() {
+            return None;
+        }
+        let send = |e: Event| tx.blocking_send(e).is_ok();
+        if let Prompt::Load = job.request.prompt {
+            send(Event::Accepted { prompt_tokens: 0, cached: 0 });
+            send(Event::Done(Stats {
+                done_reason: "load".into(),
+                total_duration: nanos(total(&job, started, load)),
+                load_duration: nanos(load),
+                ..Stats::default()
+            }));
+            return None;
+        }
+        let p = match self.prepare(&job.request, &[]) {
+            Ok(Ok(p)) => p,
+            Ok(Err(refusal)) => {
+                send(refusal);
+                return None;
+            }
+            Err(e) => {
+                send(Self::error(500, format!("{e:#}")));
+                return None;
+            }
+        };
+        let mut session = Session::new(&self.loaded.qwen);
+        let t = Instant::now();
+        let h = match session.feed(&self.loaded.qwen, &p.prompt) {
+            Ok(h) => h,
+            Err(e) => {
+                send(Self::error(500, format!("{e:#}")));
+                return None;
+            }
+        };
+        let prompt_eval = t.elapsed();
+        if !send(Event::Accepted { prompt_tokens: p.prompt.len(), cached: 0 }) {
+            return None;
+        }
+        let tok = &self.loaded.tokenizer;
+        let (think, stops) = (self.marks.think, self.marks.stops());
+        let stop_strings = job.request.options.stop.clone();
+        let mut router = Router::default();
+        let (mut gone, mut arrived) = (false, false);
+        let mut failure: Option<anyhow::Error> = None;
+        let mut sampler = Sampler { temp: 0.0, top_p: 1.0, state: 0 };
+        let t_eval = Instant::now();
+        let answer = session.answer(
+            &self.loaded.qwen,
+            &mut self.loaded.decoder,
+            h,
+            Generate { sampler: &mut sampler, max_new: p.max_new, stops: &stops },
+            &mut |said| {
+                match router.step(said, tok, think, &stop_strings) {
+                    Err(e) => {
+                        failure = Some(e);
+                        return Flow::Cancel;
+                    }
+                    Ok((c, r, stop)) => {
+                        if (!c.is_empty() || !r.is_empty()) && !send(Event::Delta { content: c, thinking: r }) {
+                            gone = true;
+                            return Flow::Cancel;
+                        }
+                        if stop {
+                            return Flow::Cancel;
+                        }
+                    }
+                }
+                loop {
+                    match rx.try_recv() {
+                        Ok(j) => {
+                            pending.push_back(j);
+                            arrived = true;
+                        }
+                        Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                        Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                            *open = false;
+                            break;
+                        }
+                    }
+                }
+                match arrived {
+                    true => Flow::Cancel,
+                    false => Flow::Continue,
+                }
+            },
+        );
+        let answer = match (answer, failure) {
+            (_, Some(e)) | (Err(e), None) => {
+                send(Self::error(500, format!("{e:#}")));
+                return None;
+            }
+            (Ok(a), None) => a,
+        };
+        if gone {
+            return None;
+        }
+        let next = answer.said.last().copied().unwrap_or(0);
+        let mut l = Live {
+            job,
+            slot: usize::MAX,
+            router,
+            said: answer.said,
+            next,
+            max_new: p.max_new,
+            started,
+            load,
+            prompt_len: p.prompt.len(),
+            prompt_eval,
+            t_eval,
+        };
+        let reason = match (answer.finish, l.router.stopped_at) {
+            (_, Some(_)) | (Finish::Stop, None) => Some("stop"),
+            (Finish::Length, None) => Some("length"),
+            (Finish::Cancelled, None) if l.said.len() >= l.max_new => Some("length"),
+            (Finish::Cancelled, None) => None,
+        };
+        if let Some(reason) = reason {
+            self.finish(&mut l, reason);
+            return None;
+        }
+        // Another request arrived: this one joins the pool where it stands.
+        match pool.adopt(&self.loaded.qwen, session.caches()) {
+            Ok(Some(slot)) => {
+                l.slot = slot;
+                Some(l)
+            }
+            Ok(None) => unreachable!("a lone request leaves every slot free"),
+            Err(e) => {
+                let _ = l.job.events.blocking_send(Self::error(500, format!("joining the batch: {e:#}")));
+                None
             }
         }
     }

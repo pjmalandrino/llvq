@@ -53,12 +53,14 @@ enum P {
     Tetra(usize, usize, usize, u32),
     /// d_out, d_in, group shift, splits
     Int4(usize, usize, u32, u32),
+    /// The same in 4E v9's tiled word order.
+    Int4Tiled(usize, usize, u32, u32),
 }
 
 impl P {
     fn d_out(&self) -> usize {
         match *self {
-            P::Tetra(d, ..) | P::Int4(d, ..) => d,
+            P::Tetra(d, ..) | P::Int4(d, ..) | P::Int4Tiled(d, ..) => d,
         }
     }
 }
@@ -120,14 +122,18 @@ fn launch(n_rows: usize, projs: &[P], seed: u64) {
                     .collect();
                 put(&mut f, &x, |v: u16| v.to_le_bytes().to_vec());
             }
-            P::Int4(d_out, d_in, gshift, splits) => {
+            P::Int4(d_out, d_in, gshift, splits) | P::Int4Tiled(d_out, d_in, gshift, splits) => {
                 let gpr = d_in >> gshift;
                 f.extend(1u32.to_le_bytes());
-                for v in [d_out as u32, d_in as u32, gshift, splits] {
+                for v in [d_out as u32, d_in as u32, gshift, splits, matches!(p, P::Int4Tiled(..)) as u32] {
                     f.extend(v.to_le_bytes());
                 }
                 let words: Vec<u32> = (0..d_out * d_in / 8).map(|_| rng.next() as u32).collect();
                 put(&mut f, &words, |v: u32| v.to_le_bytes().to_vec());
+                if matches!(p, P::Int4Tiled(..)) {
+                    let tiled = llvq_cuda::pers::q4_tile_words(&words, d_out, d_in / 8).expect("a tileable width");
+                    put(&mut f, &tiled, |v: u32| v.to_le_bytes().to_vec());
+                }
                 let sc: Vec<u16> = (0..d_out * gpr).map(|_| half::f16::from_f64(0.002 + 0.01 * rnd(&mut rng)).to_bits()).collect();
                 let bi: Vec<u16> = (0..d_out * gpr).map(|_| half::f16::from_f64(-0.08 * rnd(&mut rng)).to_bits()).collect();
                 put(&mut f, &sc, |v: u16| v.to_le_bytes().to_vec());
@@ -195,6 +201,17 @@ fn int4_projections_match_the_reference_for_records_and_the_head() {
     launch(29, &[P::Int4(128, 640, 6, 2)], 13);
     launch(64, &[P::Int4(128, 256, 6, 1)], 14);
     launch(100, &[P::Int4(128, 384, 7, 3)], 15);
+}
+
+#[test]
+#[cfg_attr(debug_assertions, ignore = "compiles C++ and runs whole CTAs, run in release")]
+fn int4_records_in_the_tiled_order_of_4e_v9_match_the_file_order() {
+    // Full tiles of 128 words (d_in 1,024 per tile) and a remainder in the
+    // file's order (d_in 1,280 = one tile and 32 words), every entry's chunk.
+    launch(8, &[P::Int4Tiled(128, 1024, 7, 1)], 31);
+    launch(29, &[P::Int4Tiled(128, 1280, 7, 3)], 32);
+    launch(100, &[P::Int4Tiled(256, 2048, 7, 2)], 33);
+    launch(13, &[P::Tetra(128, 10, 16, 2), P::Int4Tiled(128, 1280, 7, 1)], 34);
 }
 
 #[test]

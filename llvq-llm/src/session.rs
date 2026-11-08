@@ -77,6 +77,12 @@ impl Session {
         &self.ids
     }
 
+    /// The caches, one a layer: what a batch pool copies into a slot when
+    /// this conversation joins it (`batch::Pool::adopt`).
+    pub fn caches(&self) -> &[KvCache] {
+        &self.caches
+    }
+
     /// Positions held.
     pub fn len(&self) -> usize {
         self.ids.len()

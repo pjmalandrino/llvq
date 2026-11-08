@@ -159,16 +159,16 @@ const CONFIGS: &[(&str, &str)] = &[
         include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../configs/qwen3-14b-tetra-e4.json")),
     ),
     (
-        "qwen3-4b-tetra-e4-batch.json",
-        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../configs/qwen3-4b-tetra-e4-batch.json")),
+        "qwen3-4b-tetra-e4-4e-v9-batch.json",
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../configs/qwen3-4b-tetra-e4-4e-v9-batch.json")),
     ),
     (
-        "qwen3-8b-tetra-e4-batch.json",
-        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../configs/qwen3-8b-tetra-e4-batch.json")),
+        "qwen3-8b-tetra-e4-4e-v9-batch.json",
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../configs/qwen3-8b-tetra-e4-4e-v9-batch.json")),
     ),
     (
-        "qwen3-14b-tetra-e4-batch.json",
-        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../configs/qwen3-14b-tetra-e4-batch.json")),
+        "qwen3-14b-tetra-e4-4e-v9-batch.json",
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../configs/qwen3-14b-tetra-e4-4e-v9-batch.json")),
     ),
 ];
 

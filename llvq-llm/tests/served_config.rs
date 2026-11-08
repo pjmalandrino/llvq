@@ -996,12 +996,20 @@ fn the_batch_configs_are_the_served_fields_with_a_batch_and_no_4e() {
         assert!(b.provenance().contains("batch of up to 64 sequences of 2048 positions"), "{}", b.provenance());
         let e = b.check_device(true).expect_err("Metal");
         assert!(e.contains("batch") && e.contains("Metal"), "{e}");
+        // The served v9 config with the batch: 4E for a lone request, the
+        // GEMM on the tiled int4 words for the rest.
+        let vb = read(format!("qwen3-{size}-tetra-e4-4e-v9-batch.json"));
+        assert_eq!(
+            (vb.layout, vb.embed, vb.rot_share, vb.fuse, vb.kv, vb.attention, vb.decode, vb.rows, vb.int4_layout()),
+            (v9.layout, v9.embed, v9.rot_share, v9.fuse, v9.kv, v9.attention, v9.decode, v9.rows, v9.int4_layout())
+        );
+        assert_eq!(vb.batch, Some(BatchServe { max: 64, context: 2048 }));
     }
     let with = |f: ServedFile| of(ServedFile { batch: Some(BatchFile { max: 32, context: 4096 }), ..f });
     let kernel = ServedFile { attention: Some("kernel".into()), embed: "q4".into(), ..served() };
     assert!(with(kernel.clone()).is_ok());
+    assert!(with(ServedFile { decode: Some("persistent".into()), rows: Some("v9".into()), ..kernel.clone() }).is_ok(), "4E beside the batch");
     for (f, word) in [
-        (ServedFile { decode: Some("persistent".into()), ..kernel.clone() }, "persistent"),
         (served(), "kernel"),
         (ServedFile { kv: "q8".into(), ..kernel.clone() }, "f16"),
         (ServedFile { fuse: "1".into(), ..kernel.clone() }, "fuse"),

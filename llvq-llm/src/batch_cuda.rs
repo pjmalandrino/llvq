@@ -77,7 +77,7 @@ struct BgSeg {
     s: u32,
     cta0: u32,
     tk0: u32,
-    pad: u32,
+    tiled: u32,
 }
 
 /// `BgArgs` of `tv_batch_gemm.cu`, passed by value as the kernel's one
@@ -506,11 +506,12 @@ impl CudaBatch {
                     .and_then(|a| a.downcast_ref::<CudaInt4>())
                     .ok_or_else(|| candle_core::Error::msg(format!("{}: not a CUDA int4 projection", p.name())))?;
                 let v = c.int4_view();
-                if v.layout != crate::fused::Int4Layout::Served {
-                    candle_core::bail!("{}: int4 words in 4E v9's tiled order; the batched GEMM reads the file's order", p.name());
-                }
                 let ax = x_of(p.name(), x, v.d_in as usize, candle_core::DType::F16, 2)?;
-                int4(p.name(), v.wq, v.scales, v.biases, v.d_out as usize, v.d_in as usize, v.gpr, 7, ax)?
+                let tiled = v.layout == crate::fused::Int4Layout::Tiled;
+                if tiled && !crate::fused::int4_tileable(v.d_in as usize) {
+                    candle_core::bail!("{}: tiled words on a width of {} the layout cannot hold", p.name(), v.d_in);
+                }
+                BgSeg { tiled: tiled as u32, ..int4(p.name(), v.wq, v.scales, v.biases, v.d_out as usize, v.d_in as usize, v.gpr, 7, ax)? }
             }
             GemmIn::Head(t, x) => {
                 let c = t

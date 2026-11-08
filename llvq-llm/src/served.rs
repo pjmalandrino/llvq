@@ -135,9 +135,9 @@ pub struct BatchFile {
 /// the tensor-core GEMM (`crate::batch::BatchProjs::Gemm`), each in a cache
 /// slot of `context` positions. What it changes: the sum order of the
 /// projections, so a sequence's tokens are not bit for bit those of batch 1;
-/// the licence is the T8 band (the gate of preregistration-batch-l40s). It is
-/// refused:
-/// * beside `decode: persistent`, which the batched path does not run;
+/// the licence is the T8 band (the gate of preregistration-batch-l40s). Beside
+/// `decode: persistent`, a request decoded alone runs on 4E and joins the
+/// batch when another arrives (`llvq serve`). It is refused:
 /// * beside any attention but `kernel`, the form its attention computes from
 ///   position 0, and any kv but `f16`, the cache it holds;
 /// * beside `fuse: 1`, which has no batched kernel;
@@ -572,9 +572,7 @@ impl Served {
         let batch = match f.batch {
             None => None,
             Some(b) => {
-                let why = if decode == Decode::Persistent {
-                    Some("decode \"persistent\": the batched path decodes every sequence itself and never runs 4E")
-                } else if attention != AttnHeads::Kernel {
+                let why = if attention != AttnHeads::Kernel {
                     Some("an attention other than \"kernel\": the batched attention is the kernel form from position 0")
                 } else if kv != KvMode::F16 {
                     Some("a kv other than \"f16\": the batched cache is f16")

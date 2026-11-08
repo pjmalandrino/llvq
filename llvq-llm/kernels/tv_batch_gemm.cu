@@ -86,7 +86,7 @@ struct BgSeg {
     u32 S;                    // slices
     u32 cta0;                 // first CTA of this projection in the grid
     u32 tk0;                  // first ticket of this projection
-    u32 pad;
+    u32 tiled;                // int4: 1 when the words are in 4E v9's tiled order
 };
 
 struct BgArgs {
@@ -195,6 +195,20 @@ __device__ __forceinline__ void bg_issue(const BgSeg& s, u32* stage, u32 kc, u32
             const u32 r = i / WC, k = i % WC;
             const bool ok = w0 + k < s.stride;
             const u32* src = (const u32*)s.w + (unsigned long long)(wrow0 + r) * s.stride + (ok ? w0 + k : 0u);
+            bg_cp<4u>(ws + r * WW + k, src, ok);
+        }
+    } else if (s.tiled) {
+        // 4E v9's tiled order (llvq_pers.cuh, pers_q4_tile_index): inside each
+        // full tile of 128 words, logical word 128 t + k sits at 128 t +
+        // 4 (k % 32) + k / 32; the words past the last full tile keep the
+        // file's order. Two neighbours are four words apart, so a word a copy.
+        constexpr u32 WC = KC / 8u;
+        const u32 nw = s.d_in / 8u, w0 = kc * WC, full = (nw >> 7) << 7;
+        for (u32 i = t; i < BG_ROWS * WC; i += BG_THREADS) {
+            const u32 r = i / WC, k = i % WC, wi = w0 + k;
+            const bool ok = wi < nw;
+            const u32 phys = wi >= full ? wi : (wi & ~127u) + 4u * (wi & 31u) + ((wi & 127u) >> 5);
+            const u32* src = (const u32*)s.w + (unsigned long long)(wrow0 + r) * nw + (ok ? phys : 0u);
             bg_cp<4u>(ws + r * WW + k, src, ok);
         }
     } else {

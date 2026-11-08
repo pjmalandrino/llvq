@@ -49,7 +49,7 @@ struct BatchLoader(usize, Arc<AtomicUsize>);
 
 impl Loader for BatchLoader {
     fn load(&self, _: &ModelName, _: &Manifest, _: &Store) -> anyhow::Result<Loaded> {
-        let serve = BatchServe::of(BatchFile { max: self.0, context: 256 }).map_err(anyhow::Error::msg)?;
+        let serve = BatchServe::of(BatchFile { max: self.0, context: 1024 }).map_err(anyhow::Error::msg)?;
         Ok(Loaded {
             qwen: common::model(),
             tokenizer: common::tokenizer(),
@@ -143,4 +143,27 @@ fn llvq_batch_reads_a_count_or_a_count_and_a_context() {
     for bad in ["x", "64:", ":4096", "0:4096", "-1"] {
         assert!(batch_from_env(Some(bad.into())).is_err(), "{bad:?} must be refused");
     }
+}
+
+#[test]
+fn a_lone_request_runs_on_the_batch_1_path_and_joins_the_pool_when_another_arrives() {
+    let widest = Arc::new(AtomicUsize::new(0));
+    let host = common::serve_with(common::store("batch-solo"), "http://127.0.0.1:9", Arc::new(BatchLoader(4, widest.clone())));
+    let tok = common::tokenizer();
+    // Alone: no batched step at all.
+    let (content, last) = chat(&Client::new(&host), "hello how are you", 30);
+    assert_eq!(content, tok.decode(&alone("hello how are you", 30), false).unwrap());
+    assert_eq!(last["done_reason"], "length");
+    assert_eq!(widest.load(Ordering::SeqCst), 0, "a lone request took the batched step");
+    // A long one, then a second while it decodes: the first leaves the batch-1
+    // path for a slot where it stands, and both answer as they would alone.
+    let h1 = host.clone();
+    let first = std::thread::spawn(move || chat(&Client::new(&h1), "the cat sat on the mat", 400));
+    std::thread::sleep(std::time::Duration::from_millis(150));
+    let (c2, _) = chat(&Client::new(&host), "why", 20);
+    let (c1, last1) = first.join().unwrap();
+    assert_eq!(c2, tok.decode(&alone("why", 20), false).unwrap(), "the second request");
+    assert_eq!(c1, tok.decode(&alone("the cat sat on the mat", 400), false).unwrap(), "the request that joined the pool");
+    assert_eq!(last1["eval_count"], 400);
+    assert_eq!(widest.load(Ordering::SeqCst), 2, "the two requests never stepped together");
 }

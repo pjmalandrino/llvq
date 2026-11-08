@@ -216,6 +216,21 @@ impl Pool {
         }
     }
 
+    /// Take a free slot for a sequence decoded so far on the batch-1 path
+    /// (`caches`, as a `Session` holds them): its positions are copied in, and
+    /// it steps with the others from its next token. `None` when every slot is
+    /// taken.
+    pub fn adopt(&mut self, model: &crate::model::Qwen3, caches: &[crate::model::KvCache]) -> Result<Option<usize>> {
+        let Some(slot) = self.free.pop() else { return Ok(None) };
+        match model.caches_to_slot(caches, &mut self.kv, slot) {
+            Ok(()) => Ok(Some(slot)),
+            Err(e) => {
+                self.release(slot);
+                Err(e)
+            }
+        }
+    }
+
     /// Give a slot back. Its cache is not cleared: the next prefill
     /// overwrites the positions it reads.
     pub fn release(&mut self, slot: usize) {
@@ -322,14 +337,29 @@ impl crate::model::Qwen3 {
             offset += chunk.len();
         }
         let h = last.expect("a prompt of at least one token");
+        self.caches_to_slot(&caches, kv, slot)?;
+        self.logits_last(&h)?.i((0, 0))?.argmax(D::Minus1)?.to_scalar::<u32>()
+    }
+
+    /// Copy one sequence's caches (batch-1 path, one per layer) into slot
+    /// `slot` of `kv`, which then holds their positions.
+    pub fn caches_to_slot(&self, caches: &[crate::model::KvCache], kv: &mut BatchKv, slot: usize) -> Result<()> {
+        if caches.len() != kv.k.len() || slot >= kv.batch() {
+            candle_core::bail!("caches_to_slot: {} layers into slot {slot} of {} ({} layers)", caches.len(), kv.batch(), kv.k.len());
+        }
+        let mut held = 0usize;
         for (l, c) in caches.iter().enumerate() {
-            let (k, v) = c.held()?.ok_or_else(|| candle_core::Error::msg("prefill_slot: an empty cache"))?;
-            let pad = kv.cap - k.dim(2)?;
+            let (k, v) = c.held()?.ok_or_else(|| candle_core::Error::msg("caches_to_slot: an empty cache"))?;
+            held = k.dim(2)?;
+            if held > kv.cap {
+                candle_core::bail!("caches_to_slot: {held} positions into a slot of {}", kv.cap);
+            }
+            let pad = kv.cap - held;
             kv.k[l].slice_set(&k.pad_with_zeros(2, 0, pad)?.contiguous()?, 0, slot)?;
             kv.v[l].slice_set(&v.pad_with_zeros(2, 0, pad)?.contiguous()?, 0, slot)?;
         }
-        kv.len[slot] = prompt.len();
-        self.logits_last(&h)?.i((0, 0))?.argmax(D::Minus1)?.to_scalar::<u32>()
+        kv.len[slot] = held;
+        Ok(())
     }
 
     /// Negative log-likelihood of each window, every position scored by a

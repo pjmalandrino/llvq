@@ -17,7 +17,8 @@
 //          0 Tetra: u32 d_out, nblocks, tail_w, row_stride, splits; f32[2] gscale;
 //                   u32[d_out*row_stride] words; f32[d_out] rscale; u16[d_out*tail_w] tail;
 //                   u16[n_rows*d_in] x (the rotated rows, already f16)
-//          1 int4:  u32 d_out, d_in, gshift, splits; u32[d_out*d_in/8] words;
+//          1 int4:  u32 d_out, d_in, gshift, splits, tiled; u32[d_out*d_in/8] words (file order),
+//                   then when tiled the same words in 4E v9's tiled order, which the kernel reads;
 //                   u16[d_out*gpr] scales; u16[d_out*gpr] biases; u16[n_rows*d_in] x
 //   out: per projection, u16[n_rows*d_out] y, f32[n_rows*d_out] reference, f32[n_rows*d_out] bound
 
@@ -113,7 +114,8 @@ static std::vector<T> rd(std::size_t n) {
 static u32 rd1() { return rd<u32>(1)[0]; }
 
 struct Proj {
-    u32 kind, d_out, d_in, nblocks, tail_w, rs, gshift, splits;
+    u32 kind, d_out, d_in, nblocks, tail_w, rs, gshift, splits, tiled = 0;
+    std::vector<u32> dev_words;  // what the kernel reads
     std::vector<float> gs, rscale;
     std::vector<u32> words;
     std::vector<unsigned short> tail, sc, bi, xh, y;
@@ -142,9 +144,12 @@ int main()
             p.tail = rd<unsigned short>((std::size_t)p.d_out * p.tail_w);
             p.xh = rd<unsigned short>((std::size_t)n_rows * p.d_in);
         } else {
-            p.d_out = rd1(); p.d_in = rd1(); p.gshift = rd1(); p.splits = rd1();
+            p.d_out = rd1(); p.d_in = rd1(); p.gshift = rd1(); p.splits = rd1(); p.tiled = rd1();
             const u32 gpr = p.d_in >> p.gshift;
             p.words = rd<u32>((std::size_t)p.d_out * p.d_in / 8);
+            // Tiled: the loader's own permutation (llvq_cuda::pers::q4_tile_words)
+            // follows, and the kernel reads it; the reference reads the file order.
+            p.dev_words = p.tiled ? rd<u32>((std::size_t)p.d_out * p.d_in / 8) : p.words;
             p.sc = rd<unsigned short>((std::size_t)p.d_out * gpr);
             p.bi = rd<unsigned short>((std::size_t)p.d_out * gpr);
             p.xh = rd<unsigned short>((std::size_t)n_rows * p.d_in);
@@ -173,7 +178,8 @@ int main()
             s.w = P(p.words.data()); s.a0 = P(p.gs.data()); s.a1 = P(p.rscale.data()); s.tail = P(p.tail.data());
             s.x = P(p.xh.data()); s.stride = p.rs; s.nblocks = p.nblocks; s.tail_w = p.tail_w;
         } else {
-            s.w = P(p.words.data()); s.a0 = P(p.sc.data()); s.a1 = P(p.bi.data()); s.x = P(p.xh.data());
+            s.w = P(p.dev_words.data()); s.a0 = P(p.sc.data()); s.a1 = P(p.bi.data()); s.x = P(p.xh.data());
+            s.tiled = p.tiled;
             s.stride = p.d_in >> p.gshift; s.nblocks = p.gshift;
         }
         cta += p.d_out / BG_ROWS * S;
