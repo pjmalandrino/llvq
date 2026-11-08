@@ -1,0 +1,2 @@
+/tmp/pub/Qwen3-4B-UD-IQ2_XXS.gguf, ctx 4096, 12 windows, 49140 predictions
+ppl = 34.5136

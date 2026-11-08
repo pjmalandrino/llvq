@@ -1,0 +1,2 @@
+/tmp/f16.gguf, ctx 4096, 12 windows, 49140 predictions
+ppl = 12.2309

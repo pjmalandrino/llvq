@@ -1,0 +1,3 @@
+batched own-iq2_s B=1: 274.5 tok/s aggregate, generated tokens over prompt+decode time (t_pp 0.028 s, t_tg 0.905 s)
+batched own-iq2_s B=8: 1314.2 tok/s aggregate, generated tokens over prompt+decode time (t_pp 0.012 s, t_tg 1.547 s)
+batched own-iq2_s B=32: 3004.8 tok/s aggregate, generated tokens over prompt+decode time (t_pp 0.021 s, t_tg 2.705 s)

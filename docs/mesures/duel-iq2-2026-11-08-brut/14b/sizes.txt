@@ -1,0 +1,3 @@
+size own-iq2_xxs 4299192544 B  2.3289 b/param  4.299 GB
+size own-iq2_s 4963312864 B  2.6886 b/param  4.963 GB
+size unsloth-ud-iq2_xxs 4470113664 B  2.4215 b/param  4.470 GB

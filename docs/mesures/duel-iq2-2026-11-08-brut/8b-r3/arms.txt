@@ -1,0 +1,1 @@
+arms measured: own-iq2_s:/tmp/q/qwen3-8b-iq2_s.gguf unsloth-ud-iq2_xxs:/tmp/pub/Qwen3-8B-UD-IQ2_XXS.gguf (KEEP=own-iq2_s,unsloth-ud-iq2_xxs)

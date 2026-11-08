@@ -1,0 +1,4 @@
+vram bench-own-iq2_s-d5 idle 0 MiB peak 5149 MiB
+vram bench-own-iq2_s-d8192 idle 0 MiB peak 6581 MiB
+vram bench-unsloth-ud-iq2_xxs-d5 idle 0 MiB peak 4679 MiB
+vram bench-unsloth-ud-iq2_xxs-d8192 idle 0 MiB peak 6113 MiB

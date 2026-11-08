@@ -1,0 +1,3 @@
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 45457 MiB):
+  Device 0: NVIDIA L40S, compute capability 8.9, VMM: yes, VRAM: 45457 MiB
+vram bench-unsloth-ud-iq2_xxs-d8192 idle 0 MiB peak 3209 MiB

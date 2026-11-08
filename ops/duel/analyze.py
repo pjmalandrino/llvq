@@ -1,31 +1,48 @@
-"""Read the duel's raw outputs into one table: size, speed, peak VRAM, perplexity.
+"""Read the duel's raw outputs into one table a size: memory, speed, perplexity, MMLU, GSM8K, and the verdicts.
 
     python3 ops/duel/analyze.py <raw dir>
 
-<raw dir> holds `4b/`, `8b/`, `14b/` (the llama.cpp jobs) and `tetra/` (our side), as the bucket
-`duel-iq2-2026-11-08/` lays them out. Quality on the census (MMLU, GSM8K) is paired by `bin/mmlupair` and
-`bin/gsm8kpair`, not here.
+<raw dir> holds, as the bucket `duel-iq2-2026-11-08/` lays them out: `<size>/` (run 1: the gate, the rungs, the
+GGUF sizes, and the perplexity of our IQ2_XXS), `<size>-r3/` (retry 3: IQ2_S and unsloth, every measure) and
+`tetra/` (our speed and peak memory). A file is read from `<size>-r3/` first, then from `<size>/`.
 
 Perplexity is paired window by window against our sealed files' reading of 2026-10-04
-(`docs/mesures/ppl-scelles-2026-10-04-brut/ppl-<size>.txt`): same 12 windows of 4,096 tokens, every
-position scored on both sides. The ratio is exp(mean of the per-window NLL differences), its interval
-the paired t at 11 degrees of freedom.
+(`docs/mesures/ppl-scelles-2026-10-04-brut/ppl-<size>.txt`): same 12 windows of 4,096 tokens, every position scored
+on both sides. The ratio is exp(mean of the per-window NLL differences), its interval the paired t at 11 degrees of
+freedom. MMLU and GSM8K are paired by `target/release/mmlupair` and `gsm8kpair` against the census dumps the
+preregistration names; MMLU's interval is the McNemar normal interval on the 14,042 pairs (the census bootstrap with
+finite-population correction has zero width by construction).
+
+Decision rule: section 6 of `proofs/preregistration-duel-iq2-2026-11-08.md`.
 """
 
 from __future__ import annotations
 
-import json
 import math
 import re
 import statistics
+import subprocess
 import sys
 from pathlib import Path
 
+REPO = Path(__file__).resolve().parents[2]
 SIZES = {"4b": 4022468096, "8b": 8190735360, "14b": 14768307200}
 OUR_BYTES = {"4b": 1418224685, "8b": 2815098745, "14b": 5087000541}
-OUR_PPL_DIR = Path(__file__).resolve().parents[2] / "docs/mesures/ppl-scelles-2026-10-04-brut"
+OUR_PPL_DIR = REPO / "docs/mesures/ppl-scelles-2026-10-04-brut"
+OUR_MMLU = {
+    "4b": "docs/mesures/embed-q4-swap-2026-09-23-brut/mmlu-4b-embed-q4-swap-FULL.csv",
+    "8b": "docs/mesures/sealed-8b-27-2026-09-24-brut/mmlu-B/mmlu-8b-B-sealed-FULL.csv",
+    "14b": "docs/mesures/sealed-8b-14b-2026-09-23-brut/mmlu-14b/mmlu-14b-sealed-FULL.csv",
+}
+OUR_GSM8K = {
+    "4b": "docs/mesures/gsm8k-wave1-2026-09-26-brut/run1-served/gsm8k-4b-served.jsonl",
+    "8b": "docs/mesures/gsm8k-wave2-2026-09-26-brut/run2-served-8b/gsm8k-8b-served.jsonl",
+    "14b": "docs/mesures/gsm8k-wave2-2026-09-26-brut/run3-served-14b/gsm8k-14b-served.jsonl",
+}
 T95_DF11 = 2.200985
+Z95 = 1.959964
 WIN = re.compile(r"window +(\d+)/12 +nll ([0-9.]+)")
+ARMS = ["own-iq2_s", "unsloth-ud-iq2_xxs", "own-iq2_xxs"]
 
 
 def windows(path: Path) -> list[float]:
@@ -34,84 +51,173 @@ def windows(path: Path) -> list[float]:
     return [got[i] for i in range(1, 13)]
 
 
-def paired(ours: list[float], theirs: list[float]) -> str:
-    d = [t - o for o, t in zip(ours, theirs)]
-    m, sd = statistics.mean(d), statistics.stdev(d)
-    h = T95_DF11 * sd / math.sqrt(len(d))
-    return f"x{math.exp(m):.4f} [{math.exp(m - h):.4f} ; {math.exp(m + h):.4f}]"
-
-
 def mib_gb(mib: float) -> float:
     return mib * 1048576 / 1e9
 
 
 def vram_rows(path: Path) -> dict[str, tuple[int, int]]:
     out = {}
-    for line in path.read_text().splitlines():
-        m = re.match(r"vram (\S+) idle (\d+) MiB peak (\d+) MiB", line)
-        if m:
-            out[m.group(1)] = (int(m.group(2)), int(m.group(3)))
+    if path.exists():
+        for line in path.read_text().splitlines():
+            m = re.match(r"vram (\S+) idle (\d+) MiB peak (\d+) MiB", line)
+            if m:
+                out[m.group(1)] = (int(m.group(2)), int(m.group(3)))
     return out
+
+
+def find(dirs: list[Path], name: str) -> Path | None:
+    for d in dirs:
+        if (d / name).exists():
+            return d / name
+    return None
+
+
+def verdict_interval(lo: float, hi: float, ours_better_if_positive: bool) -> str:
+    if not ours_better_if_positive:
+        lo, hi = -hi, -lo
+    return "Tetra" if lo > 0 else "llama.cpp" if hi < 0 else "not separated"
+
+
+def run(*args: str) -> str:
+    return subprocess.run(args, cwd=REPO, capture_output=True, text=True, check=True).stdout
+
+
+def mmlu(size: str, dump: Path) -> tuple[float, float, str]:
+    out = run(str(REPO / "target/release/mmlupair"), OUR_MMLU[size], str(dump))
+    m = re.search(r"stratified micro +A +([0-9.]+) % +B +([0-9.]+) %", out)
+    b = re.search(r"A✓B✗ = (\d+) +A✗B✓ = (\d+) +concordant = (\d+)", out)
+    a_acc, b_acc = float(m.group(1)), float(m.group(2))
+    nb, nc, nn = int(b.group(1)), int(b.group(2)), int(b.group(3))
+    n = nb + nc + nn
+    d = (nb - nc) / n
+    se = math.sqrt(nb + nc - (nb - nc) ** 2 / n) / n
+    lo, hi = 100 * (d - Z95 * se), 100 * (d + Z95 * se)
+    gap = f"{a_acc - b_acc:+.2f} pp [{lo:+.2f} ; {hi:+.2f}]"
+    return a_acc, b_acc, f"{gap} {verdict_interval(lo, hi, True)}"
+
+
+def gsm8k(size: str, dump: Path) -> tuple[float, float, str, int]:
+    out = run(str(REPO / "target/release/gsm8kpair"), OUR_GSM8K[size], str(dump))
+    acc = re.search(r"accuracy A = ([0-9.]+) %, B = ([0-9.]+) %", out)
+    gap = re.search(r"A − B = ([+-][0-9.]+) pp, 95 % \[([+-][0-9.]+) ; ([+-][0-9.]+)\]", out)
+    cap = re.findall(r"(\d+) stopped at the cap", out)
+    lo, hi = float(gap.group(2)), float(gap.group(3))
+    txt = f"{gap.group(1)} pp [{gap.group(2)} ; {gap.group(3)}] {verdict_interval(lo, hi, True)}"
+    return float(acc.group(1)), float(acc.group(2)), txt, int(cap[1])
+
+
+def speed_verdict(ours: tuple[float, float, float] | None, theirs: tuple[float, float, float] | None) -> str:
+    if not ours or not theirs:
+        return "-"
+    if ours[1] > theirs[2]:
+        return "Tetra"
+    if ours[2] < theirs[1]:
+        return "llama.cpp"
+    return "not separated"
+
+
+def lower_wins(ours: float, theirs: float, tie: float) -> str:
+    return "Tetra" if theirs - ours > tie else "llama.cpp" if ours - theirs > tie else "tie"
 
 
 def main(root: Path) -> int:
     t = root / "tetra"
-    tv = vram_rows(t / "vram.txt") if (t / "vram.txt").exists() else {}
+    tv = vram_rows(t / "vram.txt")
     for size, params in SIZES.items():
-        d = root / size
-        if not d.exists():
+        dirs = [root / f"{size}-r3", root / size]
+        if not dirs[1].exists():
             print(f"== {size}: no output")
             continue
-        print(f"== {size} ({params:,} parameters)")
-        gate = (d / "gate-f16.txt").read_text().strip() if (d / "gate-f16.txt").exists() else "gate missing"
-        print("  " + gate)
-        rung = [l for l in (d / "rungs.txt").read_text().splitlines() if l.startswith("rung")]
+        print(f"\n== {size} ({params:,} parameters)")
+        for name in ("gate-f16.txt",):
+            p = find(dirs, name)
+            print("  " + (p.read_text().strip() if p else f"{name} missing"))
+        rung = [line for line in find(dirs, "rungs.txt").read_text().splitlines() if line.startswith("rung")]
         print("  " + (rung[0] if rung else "rung missing"))
-        ours_w = windows(OUR_PPL_DIR / f"ppl-{size}.txt")
-        ours_ppl = math.exp(statistics.mean(ours_w))
-        vr = vram_rows(d / "vram.txt") if (d / "vram.txt").exists() else {}
-        speed = (d / "speed.txt").read_text() if (d / "speed.txt").exists() else ""
-        hdr = f"  {'arm':22} {'b/param':>8} {'file GB':>8} {'peak GB d5':>10} {'peak GB d8k':>11} " \
-              f"{'tok/s d5 [range]':>22} {'tok/s d8k [range]':>22} {'ppl':>8}  ppl / Tetra (paired)"
-        print(hdr)
-        for line in (d / "sizes.txt").read_text().splitlines():
-            m = re.match(r"size (\S+) (\d+) B", line)
-            if not m:
-                continue
-            arm, b = m.group(1), int(m.group(2))
-            sp = {}
-            for dep in ("5", "8192"):
-                s = re.search(rf"speed {re.escape(arm)} depth {dep}: tg256 ([0-9.]+) tok/s \[([0-9.]+)-([0-9.]+)\]", speed)
-                sp[dep] = f"{s.group(1)} [{s.group(2)}-{s.group(3)}]" if s else "-"
-            pk = {dep: vr.get(f"bench-{arm}-d{dep}") for dep in ("5", "8192")}
-            pks = {k: f"{mib_gb(v[1] - v[0]):.2f}" if v else "-" for k, v in pk.items()}
-            pf = d / f"ppl-{arm}.err"
-            if pf.exists():
-                w = windows(pf)
-                ppl, pr = f"{math.exp(statistics.mean(w)):.4f}", paired(ours_w, w)
-            else:
-                ppl, pr = "-", "-"
-            print(f"  {arm:22} {b * 8 / params:8.4f} {b / 1e9:8.3f} {pks['5']:>10} {pks['8192']:>11} "
-                  f"{sp['5']:>22} {sp['8192']:>22} {ppl:>8}  {pr}")
+
         # our side
-        sp = {}
+        ours_w = windows(OUR_PPL_DIR / f"ppl-{size}.txt")
+        osp: dict[str, tuple[float, float, float] | None] = {}
         for dep in ("5", "8192"):
             f = t / f"sweep-{size}-p{dep}.txt"
             s = re.search(rf"^ +{dep} +[0-9.]+ \[[^\]]+\] +([0-9.]+) \[([0-9.]+)[^0-9]+([0-9.]+)\]",
                           f.read_text(), re.M) if f.exists() else None
-            sp[dep] = f"{s.group(1)} [{s.group(2)}-{s.group(3)}]" if s else "-"
-        pks = {}
-        for dep in ("5", "8192"):
-            v = tv.get(f"tetra-{size}-p{dep}")
-            pks[dep] = f"{mib_gb(v[1] - v[0]):.2f}" if v else "-"
-        b = OUR_BYTES[size]
-        print(f"  {'tetra-v9 (ours)':22} {b * 8 / params:8.4f} {b / 1e9:8.3f} {pks['5']:>10} {pks['8192']:>11} "
-              f"{sp['5']:>22} {sp['8192']:>22} {ours_ppl:8.4f}  (2026-10-04)")
-        bt = d / "batched.txt"
-        if bt.exists():
+            osp[dep] = tuple(float(s.group(i)) for i in (1, 2, 3)) if s else None
+        opk = {dep: mib_gb(v[1] - v[0]) if (v := tv.get(f"tetra-{size}-p{dep}")) else None for dep in ("5", "8192")}
+        ob = OUR_BYTES[size]
+        rows = [("tetra-v9 (ours)", ob, osp, opk, math.exp(statistics.mean(ours_w)), None)]
+
+        sizes = {}
+        for line in find(dirs, "sizes.txt").read_text().splitlines():
+            m = re.match(r"size (\S+) (\d+) B", line)
+            if m:
+                sizes[m.group(1)] = int(m.group(2))
+        verdicts = []
+        for arm in ARMS:
+            b = sizes[arm]
+            sp: dict[str, tuple[float, float, float] | None] = {}
+            spf = find(dirs, "speed.txt")
+            txt = spf.read_text() if spf else ""
+            for dep in ("5", "8192"):
+                s = re.search(rf"speed {re.escape(arm)} depth {dep}: tg256 ([0-9.]+) tok/s "
+                              rf"\[([0-9.]+)-([0-9.]+)\]", txt)
+                sp[dep] = tuple(float(s.group(i)) for i in (1, 2, 3)) if s else None
+            # deviation D2: our IQ2_XXS keeps its perplexity only; run 1 died inside its first bench
+            vr = vram_rows(find(dirs, "vram.txt") or Path("/nonexistent")) if arm != "own-iq2_xxs" else {}
+            if arm == "own-iq2_xxs":
+                sp = {"5": None, "8192": None}
+            pk = {dep: mib_gb(v[1] - v[0]) if (v := vr.get(f"bench-{arm}-d{dep}")) else None for dep in ("5", "8192")}
+            pf = find(dirs, f"ppl-{arm}.err")
+            w = windows(pf) if pf else None
+            rows.append((arm, b, sp, pk, math.exp(statistics.mean(w)) if w else None, w))
+
+            v = [f"  vs {arm}:"]
+            v.append(f"b/param {lower_wins(ob * 8 / params, b * 8 / params, 0.01)}"
+                     f" ({ob * 8 / params:.4f} vs {b * 8 / params:.4f})")
+            v.append(f"file GB {lower_wins(ob / 1e9, b / 1e9, 0.05)}")
+            for dep in ("5", "8192"):
+                if opk[dep] is not None and pk[dep] is not None:
+                    v.append(f"peak d{dep} {lower_wins(opk[dep], pk[dep], 0.05)}"
+                             f" ({opk[dep]:.2f} vs {pk[dep]:.2f} GB)")
+                if sp[dep]:
+                    v.append(f"tok/s d{dep} {speed_verdict(osp[dep], sp[dep])}"
+                             f" ({osp[dep][0]:.1f} vs {sp[dep][0]:.1f})")
+            if w:
+                d = [o - x for o, x in zip(ours_w, w)]
+                m, sd = statistics.mean(d), statistics.stdev(d)
+                h = T95_DF11 * sd / math.sqrt(12)
+                v.append(f"ppl Tetra/arm x{math.exp(m):.4f} [{math.exp(m - h):.4f} ; {math.exp(m + h):.4f}] "
+                         f"{verdict_interval(m - h, m + h, False)}")
+            mf = find(dirs, f"mmlu-{size}-{arm}-FULL.csv")
+            if mf:
+                a, bb, g = mmlu(size, mf)
+                v.append(f"MMLU {a:.2f} vs {bb:.2f}, Tetra - arm {g}")
+            gf = find(dirs, f"gsm8k-{size}-{arm}.jsonl")
+            if gf:
+                a, bb, g, cap = gsm8k(size, gf)
+                v.append(f"GSM8K {a:.2f} vs {bb:.2f}, Tetra - arm {g}; arm at the 1,024 cap {cap}/1319")
+            verdicts.append("\n    ".join(v))
+
+        print(f"  {'arm':20} {'b/param':>7} {'file GB':>7} {'peak d5':>7} {'peak d8k':>8} "
+              f"{'tok/s d5 [range]':>21} {'GB/s d5':>7} {'tok/s d8k [range]':>21} {'GB/s d8k':>8} {'ppl':>8}")
+        for arm, b, sp, pk, ppl, _ in rows:
+            def f_sp(x):
+                return f"{x[0]:.1f} [{x[1]:.1f}-{x[2]:.1f}]" if x else "-"
+
+            def f_bw(x):
+                return f"{b * x[0] / 1e9:.1f}" if x else "-"
+
+            def f_pk(x):
+                return f"{x:.2f}" if x is not None else "-"
+            print(f"  {arm:20} {b * 8 / params:7.4f} {b / 1e9:7.3f} {f_pk(pk['5']):>7} {f_pk(pk['8192']):>8} "
+                  f"{f_sp(sp['5']):>21} {f_bw(sp['5']):>7} {f_sp(sp['8192']):>21} {f_bw(sp['8192']):>8} "
+                  f"{(f'{ppl:.4f}' if ppl else '-'):>8}")
+        print("\n".join(verdicts))
+        bt = find(dirs, "batched.txt")
+        if bt:
             print("  " + bt.read_text().strip().replace("\n", "\n  "))
-    print("peak GB = sampled memory.used peak minus idle, 100 ms, 1 GB = 1e9 B (measured); "
-          "b/param = file bytes x 8 / parameters (computed)")
+    print("\npeak GB = sampled memory.used peak minus idle, 100 ms, 1 GB = 1e9 B (measured); tok/s median of 5 "
+          "[range] (measured); b/param = file bytes x 8 / parameters, GB/s = file bytes x tok/s (computed)")
     return 0
 
 

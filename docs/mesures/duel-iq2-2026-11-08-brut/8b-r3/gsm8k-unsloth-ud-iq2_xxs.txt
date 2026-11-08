@@ -1,0 +1,3 @@
+gsm8k_llamacpp, arm /tmp/pub/Qwen3-8B-UD-IQ2_XXS.gguf [llama.cpp unsloth-ud-iq2_xxs]: 1319 problems, run fingerprint bfa9135ce4b55c75, 16 slots
+  generated 404950 tokens in 447.5 s, 905 tok/s aggregate
+  dump /out/duel-iq2-2026-11-08/8b-r3/gsm8k-8b-unsloth-ud-iq2_xxs.jsonl: ungraded, score it with `gsm8kpair`

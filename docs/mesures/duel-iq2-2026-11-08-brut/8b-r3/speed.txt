@@ -1,0 +1,4 @@
+speed own-iq2_s depth 5: tg256 208.4 tok/s [208.1-209.6] over 5 reps, fa 1, build cd959bae9
+speed own-iq2_s depth 8192: tg256 154.2 tok/s [154.1-154.4] over 5 reps, fa 1, build cd959bae9
+speed unsloth-ud-iq2_xxs depth 5: tg256 222.6 tok/s [222.4-223.9] over 5 reps, fa 1, build cd959bae9
+speed unsloth-ud-iq2_xxs depth 8192: tg256 162.3 tok/s [162.3-162.5] over 5 reps, fa 1, build cd959bae9

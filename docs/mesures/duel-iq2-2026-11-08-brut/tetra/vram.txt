@@ -1,0 +1,6 @@
+vram tetra-4b-p5 idle 0 MiB peak 1921 MiB
+vram tetra-4b-p8192 idle 0 MiB peak 10951 MiB
+vram tetra-8b-p5 idle 0 MiB peak 3265 MiB
+vram tetra-8b-p8192 idle 0 MiB peak 12071 MiB
+vram tetra-14b-p5 idle 0 MiB peak 5441 MiB
+vram tetra-14b-p8192 idle 0 MiB peak 16295 MiB

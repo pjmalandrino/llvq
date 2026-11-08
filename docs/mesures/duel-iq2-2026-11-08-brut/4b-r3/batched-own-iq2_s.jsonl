@@ -1,0 +1,4 @@
+{"n_kv_max": 16384, "n_batch": 2048, "n_ubatch": 512, "flash_attn": 1, "is_pp_shared": 0, "n_gpu_layers": 99, "n_threads": 4, "n_threads_batch": 4, "pp": 5, "tg": 256, "pl": 1, "n_kv": 261, "t_pp": 0.027752, "speed_pp": 180.167191, "t_tg": 0.904988, "speed_tg": 282.876678, "t": 0.932740, "speed": 279.820740}
+{"n_kv_max": 16384, "n_batch": 2048, "n_ubatch": 512, "flash_attn": 1, "is_pp_shared": 0, "n_gpu_layers": 99, "n_threads": 4, "n_threads_batch": 4, "pp": 5, "tg": 256, "pl": 8, "n_kv": 2088, "t_pp": 0.011750, "speed_pp": 3404.255371, "t_tg": 1.546564, "speed_tg": 1324.225830, "t": 1.558314, "speed": 1339.909668}
+{"n_kv_max": 16384, "n_batch": 2048, "n_ubatch": 512, "flash_attn": 1, "is_pp_shared": 0, "n_gpu_layers": 99, "n_threads": 4, "n_threads_batch": 4, "pp": 5, "tg": 256, "pl": 32, "n_kv": 8352, "t_pp": 0.021404, "speed_pp": 7475.238281, "t_tg": 2.704925, "speed_tg": 3028.549805, "t": 2.726329, "speed": 3063.459961}
+
