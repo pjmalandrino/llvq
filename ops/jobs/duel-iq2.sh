@@ -71,7 +71,7 @@ case "$SIZE" in
 esac
 O=/out/$DIR/$SIZE${RETRY:+-r$RETRY}
 # a REUSE retry skips the f16, the imatrix and the quantization: its ceilings, 2h / 2h / 3h30, keep the duel under its cap
-if [ -n "${REUSE:-}" ]; then case "$SIZE" in 4b|8b) TIMEOUT=2h ;; 14b) TIMEOUT=3h30m ;; esac; fi
+if [ -n "${REUSE:-}" ]; then case "$SIZE" in 4b|8b) TIMEOUT=2h ;; 14b) TIMEOUT=210m ;; esac; fi
 REUSE=${REUSE:-}
 KEEP=${KEEP:-}   # comma-separated arm names to measure; empty = all three
 if [ -n "$REUSE" ] && [ -z "${RETRY:-}" ]; then echo "refused: REUSE=1 reads the first attempt, so it needs RETRY" >&2; exit 1; fi
