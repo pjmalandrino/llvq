@@ -219,3 +219,83 @@ for s, d in sizes.items():
         lo = 0.41 * cen
         print(f"   {name:30s} save {cen:.3f} [{lo:.3f}, {hi:.3f}] ms -> {1000/(door-cen):6.1f} "
               f"[{1000/(door-lo):6.1f}, {1000/(door-hi):6.1f}] tok/s")
+
+# --- part 7: breaking the ceiling. A token's budget, then multi-token verification.
+print("\n== part 7: budget a token and multi-token verification ==")
+# Bench token (4E v9 measurement form) and door; rows from plan-300 (v6 stamps, v9's int4 saving), the rest by closure.
+budget = {
+ "4B": dict(door=1000/221.5, bench=1000/238.6, tetra=1.81, int4=0.551, head=0.36, layers=36,
+            gb_t=sizes["4B"]["blocks"]*6.45/1e9, gb_q=0.409, gb_h=0.219, w_all=1.377),
+ "8B": dict(door=1000/142.5, bench=1000/142.5*ratio_bench, tetra=close["8B"], int4=1.007e9*0.53125/1e9*ms_gb_int4,
+            head=151936*4096*4.5/8/1e9*ms_gb_head, layers=36, gb_t=sizes["8B"]["blocks"]*6.45/1e9,
+            gb_q=1.007e9*0.53125/1e9, gb_h=151936*4096*4.5/8/1e9, w_all=2.41),
+ "14B": dict(door=1000/86.3, bench=1000/86.3*ratio_bench, tetra=close["14B"], int4=2.952e9*0.53125/1e9*ms_gb_int4,
+             head=151936*5120*4.5/8/1e9*ms_gb_head, layers=40, gb_t=sizes["14B"]["blocks"]*6.45/1e9,
+             gb_q=2.952e9*0.53125/1e9, gb_h=151936*5120*4.5/8/1e9, w_all=4.60),
+}
+for s, b in budget.items():
+    nonrow = b["bench"] - b["tetra"] - b["int4"] - b["head"]
+    b["nonrow"] = nonrow
+    ceil_t = b["gb_t"] / 671 * 1e3
+    door_ceil = b["door"] - (b["tetra"] - ceil_t)
+    print(f"{s}: door {b['door']:.2f} = Tetra {b['tetra']:.2f} + int4 {b['int4']:.2f} + head {b['head']:.2f}"
+          f" + non-row {nonrow:.2f} + door overhead {b['door']-b['bench']:.2f} ms;"
+          f" at the 671 ceiling Tetra {ceil_t:.2f}, door {door_ceil:.2f} ms = {1000/door_ceil:.0f} tok/s;"
+          f" weights at 864 {b['w_all']/864*1e3:.2f} ms = {864/b['w_all']:.0f} tok/s;"
+          f" whole-token rate today {b['w_all']/b['door']*1e3:.0f} GB/s")
+# 4B non-row split, v8/v9 stamps (plan-300 6b): norms and rotations, attention wall, append, the rest.
+nr = budget["4B"]["nonrow"]
+print(f"4B non-row {nr:.2f}: norms+rotations 0.51, attention wall 0.55, norm/RoPE/append 0.11, waits {nr-1.17:.2f};"
+      f" barriers inside them {218*0.771e-3:.2f}")
+
+# Multi-token rounds: a round costs T1 + k*delta + D(k) and emits E = (1 - a^(k+1)) / (1 - a) tokens (chain).
+def best_round(T1, delta, d_step, a, kmax=5):
+    best = (T1, 1.0, 0)
+    for k in range(1, kmax + 1):
+        E = (1 - a ** (k + 1)) / (1 - a)
+        t = T1 + k * delta + k * d_step
+        if E / t > best[1] / best[0]:
+            best = (t, E, k)
+    return 1000 * best[1] / best[0], best[2]
+# delta, an extra row: today's verify (measured 0.95 T1 at k = 1), the row phases' 0.378 (shaker-4e), and the
+# integer dot of B1 (smem 48 B a block-row, 20 instructions, int4, head, attention and norms a row; estimated).
+# D a draft step: an EAGLE-style head, one target layer plus a 32k-row int4 head, in a persistent launch (estimated).
+for s, b in budget.items():
+    w = b["w_all"] / 1.377
+    T1_b1 = {"4B": 1000/239.4, "8B": 1000/156.7, "14B": 1000/94.7}[s]
+    layer = (b["tetra"] + b["int4"]) / b["layers"]
+    d_step = layer + 0.04 + 32768 * {"4B": 2560, "8B": 4096, "14B": 5120}[s] * 4.5 / 8 / 1e9 * ms_gb_head
+    cases = [("today's verify, x0.95 a row", b["door"], 0.95 * b["door"]),
+             ("verify at the row phases' 0.378", b["door"], 0.378 * (b["tetra"] + b["int4"] + b["head"]) + 0.10 * w),
+             ("B1 and an integer-dot verify", T1_b1, 0.30 * w)]
+    print(f"{s}: draft step {d_step:.2f} ms")
+    for name, T1, dl in cases:
+        out = []
+        for a in (0.6, 0.7, 0.8):
+            v, k = best_round(T1, dl, d_step, a)
+            out.append(f"a {a}: {v:5.0f} (k {k})")
+        print(f"   {name:34s} delta {dl:.2f} ms  " + "  ".join(out))
+# The non-row floor, plan-300's leads at their arithmetic plus the door residue: attention 0.13, norms 0.16, waits 0.1.
+for s, b in budget.items():
+    w = b["w_all"] / 1.377
+    T1 = b["door"] - (b["tetra"] - b["gb_t"] / 671 * 1e3) - (b["nonrow"] - (0.13 + 0.16 + 0.10 + 0.17)) - 0.24
+    print(f"{s}: single-token floor (Tetra at 671, non-row at its floor, no door residue) {T1:.2f} ms = {1000/T1:.0f} tok/s")
+# L2 persisting window: 72 MB of weights read from L2 at ~2.5 TB/s instead of DRAM at 671 GB/s.
+print(f"L2 window: {72e-3/671*1e3 - 72e-3/2500*1e3:.3f} ms a token")
+# Lattice self-speculation: a draft that reads the 32-bit plane only loses section 3 (8 of 24 coordinates).
+print(f"plane-only draft: reads {32/48:.2f} of the Tetra bytes; error power {1/3 + 0.111*2/3:.2f} against 0.111")
+# EAGLE head memory, b/param of the whole model.
+for s, (lay, hid, P) in {"4B": (100.9e6, 2560, 4.02e9), "8B": (192.9e6, 4096, 8.19e9), "14B": (330.3e6, 5120, 14.77e9)}.items():
+    byt = lay * 2.73 / 8 + 32768 * hid * 4.5 / 8 + 2 * hid * hid * 2
+    print(f"{s}: draft head {byt/1e6:.0f} MB, +{byt*8/P:.2f} b/param")
+# Prompt lookup (n-gram from the context, no drafter): D = 0, acceptance depends on how much the text repeats.
+for s, b in budget.items():
+    w = b["w_all"] / 1.377
+    T1_b1 = {"4B": 1000/239.4, "8B": 1000/156.7, "14B": 1000/94.7}[s]
+    r378 = 0.378 * (b["tetra"] + b["int4"] + b["head"]) + 0.10 * w
+    out = []
+    for a in (0.3, 0.5):
+        v1, k1 = best_round(b["door"], r378, 0.0, a)
+        v2, k2 = best_round(T1_b1, 0.30 * w, 0.0, a)
+        out.append(f"a {a}: {v1:4.0f} at 0.378 (k {k1}), {v2:4.0f} with B1 (k {k2})")
+    print(f"{s} prompt lookup: " + "; ".join(out))

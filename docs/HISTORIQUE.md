@@ -1276,3 +1276,12 @@ from 278 / 196 / 121 to 260 / 174 / 105 (*estimated*). New: the word relabeled a
 linearity (237 to 207 instructions, exact), and an int16 dot through `dp2a` (145, rounding 2.0e-5). The best lever,
 both with lane rotation, projects 239 / 157 / 95. Turyn, hexacode, Walsh-Hadamard, table-of-dots and sublattice
 decodes are closed by computation.
+
+## 2026-11-08. Breaking the throughput ceiling: the budget of a token
+
+Section 11 of [`recherche-debit-maths.md`](recherche-debit-maths.md). At batch 1 the hard limit is the weight bytes,
+628 / 359 / 188 tok/s at 864 GB/s; the rest of the 4B's 4.51 ms door is implementation. The single-token floor of
+this engine is about 370 / 222 / 124 tok/s (*estimated*). Past it, only multi-token verification: with B1's integer
+dot shared across rows and a one-layer drafter, 454 / 288 / 171 at α = 0.7 (*estimated*), gated on a 2-row verify
+under 1.15 greedy tokens (spec-gate measured 1.95). The sealed 4B's Tetra words carry 47.4 bits of entropy of 48
+(*computed*, `bin/tetraentropy`): lossless coding above Tetra is closed, and so is self-speculation from the lattice.

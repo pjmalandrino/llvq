@@ -9,6 +9,8 @@ instructions (*computed*). The rounding error is 2.0e-5 relative, ten times unde
 already passed (*computed*), so it is served under the attention form's ±0.12 % perplexity gate and not at the bit.
 At the bit, the relabeled decoder with lane rotation gives 231, 149 and 89. No decode can take the doors past 260,
 174 and 105: that is the token with Tetra rows streaming at 671 GB/s, the best rate any of our kernels has read.
+Only one mechanism breaks that ceiling at batch 1: reading each weight once for several tokens. With the integer dot
+shared across rows and a one-layer drafter, it projects 454, 288 and 171 tok/s (*estimated*, §11).
 
 State as of 2026-11-08, after a second pass that corrected the first (§9). A study at $0: SASS counted on the Mac,
 numpy simulations, exact enumeration, arithmetic. No card ran. Every derived number comes from `ops/debit_maths.py`;
@@ -277,3 +279,126 @@ with lane rotation, 231 / 149 / 89. Batch is unchanged in rank, with N1's attrib
 - B1's perplexity: the errors are simulated on synthetic activations.
 - The batch L2 bandwidth: 2.3 TB/s is fitted, not measured.
 - Any card but the L40S, and anything on the 5090 beyond the issue arithmetic.
+
+## 11. Breaking the ceiling
+
+**At batch 1 the hard limit is the weight bytes of one token: 1.59, 2.79 and 5.32 ms at 864 GB/s, 628, 359 and 188
+tok/s (*computed*). The 260 / 174 / 105 ceiling sits far under it because the rest of the token is implementation.**
+Verifying several drafted tokens in one pass reads the weights once for all of them, and it is the only lever here
+that moves the hard limit itself. Its gate is the verify pass: today it costs 0.95 of a token an extra row, which
+cancels any drafter (*measured*, [spec-gate](mesures/spec-gate-2026-11-07.txt)).
+
+### 11.1 The budget of a token
+
+Door ms a token, batch 1, 5-token prompt (*estimated*: the 4B's rows from [`plan-300.md`](plan-300.md) §4 and §6b,
+the 8B's and 14B's Tetra rows by closing each token, non-row work at the 4B's per layer; every share in
+`ops/debit_maths.py` part 7).
+
+| item | 4B | 8B | 14B | what sets it | kind |
+|---|---|---|---|---|---|
+| Tetra rows | 1.81 | 3.65 | 6.18 | decode instructions over the bytes | implementation above the bytes |
+| of which the bytes at 671 GB/s | 1.15 | 2.38 | 4.11 | 0.77, 1.60, 2.76 GB a token | physics, given the format |
+| int4 rows | 0.55 | 0.72 | 2.11 | 0.41, 0.54, 1.57 GB, the matrices kept in int4 for quality | physics, given the format |
+| head (int4 g64) | 0.36 | 0.58 | 0.72 | 0.22, 0.35, 0.44 GB | physics, unless pruned |
+| attention and KV append | 0.66 | about 0.7 | about 0.8 | job setup at short context; the KV read past 2k | implementation; KV bytes at long context |
+| norms and rotations | 0.51 | about 0.5 | about 0.6 | L2 round trips and barriers, a few thousand adds | implementation |
+| waits and imbalance | 0.30 | about 0.3 | about 0.3 | the MLP's inner wait, uneven row counts | half dependency, half implementation |
+| door overhead | 0.32 | 0.50 | 0.83 | the prompt's prefill share and a residue of 0.27 ms at 4B with no known cause | implementation |
+| **door** | **4.51** | **7.02** | **11.59** | | |
+
+The 218 grid barriers (0.17 ms) sit inside the non-row rows. The whole token reads 305, 343 and 397 GB/s today
+against 864 at the peak. The eager path's host overhead (4.11 ms) is not in this budget: 4E launches once a token.
+
+**Hard (physics).** The weight bytes, and at long context the KV bytes. At 8,192 positions the 4B's door falls to
+161.5 tok/s, about 1.8 ms of KV and attention a token (*measured*, served-v9). **Implementation.** Everything else:
+the decode's excess over the bytes, 671 against 864 GB/s, attention's fixed cost, norms, waits, the door residue.
+With every implementation item at its floor (attention 0.13 ms, norms 0.16, waits 0.10, barriers 0.17, no residue)
+and Tetra at 671 GB/s, one token takes 2.70, 4.50 and 8.09 ms: 370, 222 and 124 tok/s (*estimated*). That is the
+single-token ceiling of this engine; only multi-token verification goes past it.
+
+### 11.2 Why verifying two tokens costs 1.95
+
+The weights are read once. The cost is the kernel, not the format (spec-gate, *measured*): the verify symbol spills
+(128 registers, 144 to 272 bytes of local memory), it runs the prologues and attention once a row, and at 8B and 14B
+the down projection does not share across rows because two inner vectors do not fit in 99 KB. The row phases alone
+cost 0.378 of a token for a second row ([shaker-4e](mesures/shaker-4e-2026-11-05.txt)). That share is itself the
+f32 FMA chain and its 96 bytes of shared memory a block and row, which B1 cuts to 20 instructions and 48 bytes.
+
+A round of k drafts costs T1 + k δ + k D and emits (1 - α^(k+1)) / (1 - α) tokens, with δ the extra row of the
+verify pass, D a draft step and α the acceptance a token. Doors in tok/s, best k (*estimated*):
+
+| verify | δ at 4B | 4B, α 0.6 / 0.7 / 0.8 | 8B | 14B |
+|---|---|---|---|---|
+| today | 4.29 ms | 221 / 221 / 221, no k pays | 142 | 86 |
+| at the row phases' 0.378 | 1.13 ms | 275 / 307 / 349 | 171 / 188 / 211 | 102 / 110 / 123 |
+| with B1's integer dot | 0.30 ms | 387 / 454 / 560 | 247 / 288 / 354 | 147 / 171 / 210 |
+
+D here is a one-layer drafter: 0.18, 0.29 and 0.40 ms a step. δ under B1 is 0.30 ms at 4B (*estimated*: 48 bytes of
+shared memory and 20 instructions a block and row, plus a row's share of int4, head, attention and norms), scaled
+with the weights at 8B and 14B.
+
+**The reopening condition of `ETAT.md` §6 is reachable on these estimates.** It asks a 2-row verify under 1.4
+greedy tokens and a draft token under 1 ms. With B1's verify a 2-row pass costs 1.07 tokens at 4B, and a one-layer
+drafter takes 0.18 to 0.40 ms. The 0.6B drafter cannot meet it: 28 layers at about 40 µs of fixed cost each already
+take 1.1 ms. Reopening still needs the condition measured, not this argument.
+
+### 11.3 Which drafter
+
+- **A one-layer head on the target's features (EAGLE style).** Draft step 0.18 / 0.29 / 0.40 ms: one target layer
+  plus a 32,768-row int4 head. Acceptance 0.6 to 0.8 is the range such heads report on chat models at temperature 0;
+  on our 2.7-bit target it is not measured. Memory +108 / 208 / 312 MB, +0.21 / 0.20 / 0.17 b/param (*computed*).
+  Training: about one to two GPU-days a size (*estimated*). The tokens stay the greedy tokens by construction, as
+  spec-gate showed at the bit.
+- **Prompt lookup.** No drafter, no memory, no training. Where the text repeats (code edits, summaries, retrieval),
+  α 0.3 to 0.5 gives 291-369 / 188-236 / 112-139 tok/s with B1's verify; where nothing matches, a round falls back to
+  one token. Throughput becomes workload-dependent, as plan-300's K9 noted.
+- **Lookahead (Jacobi) decoding.** Tens of extra rows a step: it pays only once δ is a few percent of a token.
+- **Self-speculation from the lattice. Closed.** Tetra's labels do not refine: a draft that reads only the 32-bit
+  plane of the relabeled word loses section 3, 8 coordinates of 24, for 0.67 of the bytes. Its error power is 0.41
+  against the lattice's 0.111 (*computed*), so the draft costs two thirds of a token and agrees rarely. Truncating
+  the gain or a rank index does not shrink the bytes read. A layer-skipping draft costs at least half a token, which
+  no α in 0.6-0.8 repays at these verify costs.
+
+### 11.4 Bandwidth and bytes
+
+- **671 to 780 GB/s.** 90 % of the GDDR6 peak is a usual ceiling for a stream; FlashInfer reads 700 on this card
+  ([fi-decode-anchor](mesures/fi-decode-anchor-2026-11-04.txt)). At 780 the 4B's weights save 0.28 ms a token once
+  every row is stream-bound (*estimated*). Deeper `cp.async` pipelines; Ada has no TMA.
+- **The L2's 96 MB.** A persisting window of 72 MB holds 5 % of the 4B's weights across tokens: 0.08 ms a token
+  (*computed* at 2.5 TB/s from L2, an assumed rate). Less at 8B and 14B.
+- **Lossless coding above Tetra. Closed.** On the sealed 4B's 118,665,216 blocks the stored fields carry 47.4 bits of
+  entropy of 48 (*computed*, `bin/tetraentropy`): p 0.88 bits, the Golay path 12.00, the rank rows 11.80, 10.96 and
+  10.80, g 1.00. A field-wise entropy coder saves at most 1.2 % of the bytes and adds decode work. The shells run
+  from 5 to 20, 74 % of blocks on m 10 to 14.
+
+### 11.5 Outside the weights
+
+- **Attention and KV.** Short context: 0.66 ms at 4B, a floor near 0.13 (plan-300 K3a). Long context: the KV bytes,
+  which int8 halves (shipped, short context only) and int4 quarters with a quality cost. Multi-token verification
+  reads the KV once for every row, so its gain grows with context.
+- **Head.** 0.36 ms at 4B; plan-300's certified head (K5) saves 0.07 to 0.16.
+- **Host.** 4E launches once a token. The door residue of 0.27 ms at 4B has no measured cause; if it is the
+  per-token launch and argmax read-back, a persistent loop that emits several tokens a launch removes it. That is not
+  A2. **A2 (CUDA Graphs) stays closed by rule 3**: its +12.6 % was on the eager path, and on 4E it could act on the
+  residue at most, 0.27 ms, +6 % at 4B. Reopening it is the operator's call.
+
+### 11.6 Ranked levers past the ceiling
+
+Doors in tok/s, batch 1, L40S, α = 0.7 central where a drafter is involved. All *estimated*.
+
+| rank | lever | 4B | 8B | 14B | quality | memory | cost | gate |
+|---|---|---|---|---|---|---|---|---|
+| 1 | B1 + a multi-row 4E verify + a one-layer drafter | 454 [387-560] | 288 [247-354] | 171 [147-210] | greedy tokens kept by the verify; B1 under ±0.12 % ppl | +0.21 / 0.20 / 0.17 b/param | 4-6 weeks; head training about $40-90 a size | a 2-row verify ≤ 1.15 greedy tokens on the card, then α ≥ 0.6 on chat |
+| 2 | B1 + the same verify + prompt lookup | 291-369 | 188-236 | 112-139 | as rank 1 | 0 | 3-4 weeks, no training | the verify gate, then a prompt mix |
+| 3 | the verify fixed alone (no spill, shared prologues), one-layer drafter | 307 | 188 | 110 | greedy tokens kept, at the bit | as rank 1 | 3-5 weeks | 2-row verify ≤ 1.3 greedy tokens |
+| 4 | every non-row item at its floor, Tetra at 671 GB/s | 370 | 222 | 124 | at the bit or under the attention gate | 0 | plan-300's route, B1 | plan-300's gates |
+| 5 | stream at 780 GB/s | +0.28 ms | | | at the bit | 0 | 1-2 weeks | `pword` at ≥ 750 GB/s |
+| 6 | L2 persisting window | +0.08 ms | | | at the bit | 0 | days | door A/B |
+
+Ranks 1 and 4 compose: a round built on the single-token floor of rank 4 would go further, but two stacked estimates
+are not a projection worth printing. Closed past the ceiling: lattice self-speculation, layer-skip drafts, lossless
+coding above Tetra, and A2 inside 4E.
+
+**The first gate costs about $0.30** and needs no drafter: a verify pass of 2 to 4 rows with B1's integer dot and no
+spill, timed beside the greedy token in the microbench job of §8. Under 1.15 greedy tokens for 2 rows, rank 1 is
+worth a drafter. The prereg, the spend cap and the operator's go come first.
