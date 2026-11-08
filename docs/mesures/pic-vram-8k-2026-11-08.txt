@@ -97,6 +97,7 @@ against this branch, M3 Max 64 GB, peak memory footprint by `/usr/bin/time -l` (
   form       code      time    first token   last-position logits fingerprint   peak footprint
   grouped    1997edc   33.0 s  1874          f92a4ed4b7f432c2                   56.65 GB
   grouped    branch    21.7 s  1874          f92a4ed4b7f432c2                   14.94 GB
+  grouped    40c405f+  17.4 s  1874          f92a4ed4b7f432c2                   14.79 GB   (locals freed early)
   expanded   1997edc   29.2 s  1874          f92a4ed4b7f432c2                   62.99 GB
   expanded   branch    16.9 s  1874          f92a4ed4b7f432c2                   27.12 GB
 The same bits at the real shape, and 41.7 GB less on the grouped form. Metal's buffer cache is not the CUDA pool
@@ -114,8 +115,12 @@ form keeps 12 GB more than grouped on Metal on the branch; it is not served and 
 The served line keeps one score tensor (2.15 / 2.15 / 2.68 GB). The kprefill line keeps none, and its peak moves to
 the chunk's MLP: gate, up, act(gate) and their product alive together, f16, with the residual in and out and ln2,
 0.38 / 0.50 / 0.70 GB (*computed*, mlp_residual). A first version of this table counted the attention moment only
-(3.47 / 4.91 / 7.37); the bug audit of 2026-11-08 flagged it, recounting +0.44 / +0.56 / +0.77, above this
-recount's +0.20 / +0.29 / +0.44 (the difference is not reconciled yet; both sit inside the prereg's band). What
+(3.47 / 4.91 / 7.37); the bug audit of 2026-11-08 flagged it, recounting +0.44 / +0.56 / +0.77. The audit's
+extra 0.24 / 0.27 / 0.33 GB was real: the attention's locals (ln1, q, k, v before and after norms and RoPE, the
+context and its flat copy) stayed alive through the MLP, because `finish` ran inside `forward_cached`'s scope, and
+the prefill driver kept the last chunk's hidden states until the next returned. The code now frees them (the
+attention in its own function, `ctx` consumed after o_proj, ln2 and gate/up dropped before down_proj, the last h
+dropped before each chunk), which leaves the table's count. What
 remains against llama.cpp is the base at 5 tokens (2.01 against 2.17 at 4B, 3.42 against 3.35 at 8B, 5.71 against
 5.40 at 14B) and the 4,096-row MLP, where llama.cpp prefills 512 rows at a time.
 

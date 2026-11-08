@@ -2059,6 +2059,27 @@ impl Block {
         idx: usize,
         cap: &mut dyn Capture,
     ) -> Result<Tensor> {
+        // The attention's locals (ln1, q, k, v before and after their norms
+        // and RoPE) live in `attention_ctx` and are freed when it returns, so
+        // none of them sits under the MLP: 0.22 GB at 4B for a 4,096-row
+        // chunk, the peak's moment once no score tensor exists.
+        let ctx = self.attention_ctx(x, rotary, mask, rope, cache, idx, cap)?;
+        self.finish(x, ctx, idx, cap)
+    }
+
+    /// The attention half of [`Self::forward_cached`]: its context
+    /// `[b, n_heads, l, hd]`, the cache appended.
+    #[allow(clippy::too_many_arguments)]
+    fn attention_ctx(
+        &self,
+        x: &Tensor,
+        rotary: &Rotary,
+        mask: Option<&Tensor>,
+        rope: RopeAt,
+        cache: &mut KvCache,
+        idx: usize,
+        cap: &mut dyn Capture,
+    ) -> Result<Tensor> {
         let (b, l, _) = x.dims3()?;
 
         let h = self.ln1.forward(x)?;
@@ -2134,7 +2155,7 @@ impl Block {
             } else {
                 grouped_attention(&q, &rows_contiguous(&k)?, &rows_contiguous(&v)?, mask, scale)?
             };
-            return self.finish(x, ctx, idx, cap);
+            return Ok(ctx);
         }
         let unexpanded = match self.attn_heads {
             crate::kvq::AttnHeads::Expanded => None,
@@ -2147,7 +2168,7 @@ impl Block {
             let (k, v) = cache.append(&k, &v)?;
             let (k, v) = (rows_contiguous(&k)?, rows_contiguous(&v)?);
             let ctx = attend(&q, &k, &v, mask, scale)?;
-            return self.finish(x, ctx, idx, cap);
+            return Ok(ctx);
         }
         let groups = self.n_heads / self.n_kv;
         let (k, v) = match cache.store() {
@@ -2189,18 +2210,21 @@ impl Block {
             None => candle_nn::ops::softmax_last_dim(&(raw * scale)?)?,
         };
         let ctx = p.matmul(&v)?;
-        self.finish(x, ctx, idx, cap)
+        Ok(ctx)
     }
 
     /// Everything after the attention weights: `o_proj`, the residual, the
     /// MLP. `ctx` is `[b, n_heads, l, hd]`, whichever form computed it.
     fn finish(&self, x: &Tensor, ctx: Tensor, idx: usize, cap: &mut dyn Capture) -> Result<Tensor> {
         let (b, l, _) = x.dims3()?;
-        let ctx = ctx
-            .transpose(1, 2)?
-            .reshape((b, l, self.n_heads * self.head_dim))?;
-        cap.on_activation(idx, Act::AttnOut, &ctx)?;
-        let x = (x + self.o_proj.forward(&ctx)?)?;
+        // `ctx` is consumed here and its flat copy dropped after `o_proj`: a
+        // shadowed binding would keep both alive through the MLP.
+        let x = {
+            let flat = ctx.transpose(1, 2)?.reshape((b, l, self.n_heads * self.head_dim))?;
+            drop(ctx);
+            cap.on_activation(idx, Act::AttnOut, &flat)?;
+            (x + self.o_proj.forward(&flat)?)?
+        };
         // Route P, step A: one decode row, nothing to capture.
         if let (Some(seg), 1, 1, false) = (&self.pers_mlp, b, l, cap.wants_activations()) {
             return seg.forward(&x);
@@ -2211,11 +2235,14 @@ impl Block {
     /// `x + down(act(gate(ln2 x)) * up(ln2 x))`, the eager ops: the half of
     /// `finish` route P's segment replaces, and its load-time reference.
     fn mlp_residual(&self, x: &Tensor, idx: usize, cap: &mut dyn Capture) -> Result<Tensor> {
-        let h = self.ln2.forward(x)?;
-        cap.on_activation(idx, Act::Mlp, &h)?;
-        // The second shared activation: gate and up both read `h`.
-        let gu = group_forward(&[&self.gate_proj, &self.up_proj], &h, self.rot_share)?;
-        let gated = gu[0].apply(&self.act)?.mul(&gu[1])?;
+        // ln2, gate and up are dropped before `down_proj` runs.
+        let gated = {
+            let h = self.ln2.forward(x)?;
+            cap.on_activation(idx, Act::Mlp, &h)?;
+            // The second shared activation: gate and up both read `h`.
+            let gu = group_forward(&[&self.gate_proj, &self.up_proj], &h, self.rot_share)?;
+            gu[0].apply(&self.act)?.mul(&gu[1])?
+        };
         cap.on_activation(idx, Act::MlpOut, &gated)?;
         x + self.down_proj.forward(&gated)?
     }
@@ -3153,6 +3180,9 @@ impl Qwen3 {
         let mut h = None;
         for part in tokens.chunks(chunk) {
             let input = Tensor::from_slice(part, (1, part.len()), &self.device)?;
+            // The last chunk's hidden states are not read again: freed before
+            // this chunk allocates, not after it returns.
+            drop(h.take());
             h = Some(self.hidden_cached(&input, offset, caches, &mut NoCapture)?);
             offset += part.len();
         }

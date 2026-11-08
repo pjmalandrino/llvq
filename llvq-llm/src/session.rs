@@ -127,6 +127,7 @@ impl Session {
         let mut h = None;
         for part in ids.chunks(qwen.prefill_rows()) {
             let x = Tensor::from_slice(part, (1, part.len()), dev)?;
+            drop(h.take());
             h = Some(qwen.hidden_cached(&x, self.ids.len(), &mut self.caches, &mut NoCapture)?);
             self.ids.extend_from_slice(part);
         }

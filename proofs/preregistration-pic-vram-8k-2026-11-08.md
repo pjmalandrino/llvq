@@ -45,7 +45,9 @@ of the prompt's last-position f32 logits, and under kprefill the same logits in 
 
 Peak minus idle, GB (*computed* in `ops/pic_vram_8k.py`; the pool's behaviour is *estimated*, so the band is +-0.5 GB).
 The kprefill peak sits at the chunk's MLP (gate, up, act and product alive, 0.38 / 0.50 / 0.70 GB), not at the
-attention; the bug audit's independent recount, 3.91 / 5.47 / 8.14, falls inside the same bands:
+attention. The bug audit's recount, 3.91 / 5.47 / 8.14, held the attention's locals and the last chunk's hidden
+states alive under the MLP, which the code did until this branch frees them early; with them freed, the count
+below is the code's:
 
 | arm | 4B | 8B | 14B |
 |---|---|---|---|
