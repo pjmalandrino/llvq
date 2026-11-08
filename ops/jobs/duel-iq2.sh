@@ -6,6 +6,8 @@
 #   bash ops/jobs/duel-iq2.sh upload                     inputs and scripts into the bucket (run once, before the go)
 #   SIZE=4b|8b|14b DRY_RUN=1 bash ops/jobs/duel-iq2.sh   parses the job script, launches nothing
 #   SIZE=4b|8b|14b bash ops/jobs/duel-iq2.sh             launches (only after the operator's go)
+#   SIZE=.. RETRY=1 REUSE=1 bash ops/jobs/duel-iq2.sh    a retry that takes the first attempt's f16 gate, imatrix,
+#                                                        rung and quantized files from $DIR/$SIZE/, by sha256
 #
 # What the job does, in order:
 #   0. card, CPU, disk; the shipped inputs at their sha256;
@@ -68,6 +70,8 @@ case "$SIZE" in
   *) echo "refused: SIZE=$SIZE, the sizes are 4b, 8b and 14b" >&2; exit 1 ;;
 esac
 O=/out/$DIR/$SIZE${RETRY:+-r$RETRY}
+REUSE=${REUSE:-}
+if [ -n "$REUSE" ] && [ -z "${RETRY:-}" ]; then echo "refused: REUSE=1 reads the first attempt, so it needs RETRY" >&2; exit 1; fi
 
 SCRIPTS_SHA=$(shasum -a 256 ops/duel/ppl_windows.cpp ops/duel/gsm8k_llamacpp.py ops/duel/mmlu_llamacpp.py \
   | sed 's#  ops/duel/#  #')
@@ -78,14 +82,18 @@ if [ "$DRY" != 1 ]; then
            gsm8k_llamacpp.py mmlu_llamacpp.py; do
     hf buckets ls "hf://buckets/$BUCKET/$DIR/inputs/" | grep -q "$f" || { echo "refused: $f not uploaded; run 'upload'" >&2; exit 1; }
   done
+  if [ -n "$REUSE" ]; then
+    hf buckets ls "hf://buckets/$BUCKET/$DIR/$SIZE/" | grep -q 'gguf.sha256' \
+      || { echo "refused: REUSE but $DIR/$SIZE/gguf.sha256 is missing" >&2; exit 1; }
+  fi
   if hf buckets ls "hf://buckets/$BUCKET/${O#/out/}/" 2>/dev/null | grep -v '^(empty)$' | grep -q .; then
     echo "refused: ${O#/out/}/ already exists" >&2; exit 1
   fi
 fi
 
-PRE=$(printf 'O=%q\nI=%q\nSIZE=%q\nBASE=%q\nBASE_REV=%q\nPARAMS=%q\nOUR_BYTES=%q\nF16_REF=%q\nPUB_REPO=%q\nPUB_REV=%q\nPUB_FILE=%q\nPUB_BYTES=%q\nBATCHED=%q\nLCPP_SHA=%q\nINPUTS_SHA=%q\nSCRIPTS_SHA=%q' \
+PRE=$(printf 'O=%q\nI=%q\nSIZE=%q\nBASE=%q\nBASE_REV=%q\nPARAMS=%q\nOUR_BYTES=%q\nF16_REF=%q\nPUB_REPO=%q\nPUB_REV=%q\nPUB_FILE=%q\nPUB_BYTES=%q\nBATCHED=%q\nREUSE=%q\nLCPP_SHA=%q\nINPUTS_SHA=%q\nSCRIPTS_SHA=%q' \
   "$O" "/out/$DIR/inputs" "$SIZE" "$BASE" "$BASE_REV" "$PARAMS" "$OUR_BYTES" "$F16_REF" "$PUB_REPO" "$PUB_REV" \
-  "$PUB_FILE" "$PUB_BYTES" "$BATCHED" "$LCPP_SHA" "$INPUTS_SHA" "$SCRIPTS_SHA")
+  "$PUB_FILE" "$PUB_BYTES" "$BATCHED" "$REUSE" "$LCPP_SHA" "$INPUTS_SHA" "$SCRIPTS_SHA")
 
 IFS= read -r -d '' BODY <<'JOB' || true
 mkdir -p "$O"
@@ -119,10 +127,6 @@ python3 -m venv /opt/v
 pip install -q --extra-index-url https://download.pytorch.org/whl/cpu \
   -r requirements/requirements-convert_hf_to_gguf.txt ./gguf-py "huggingface_hub[cli]>=0.34" tokenizers
 pip freeze > "$O/pip-freeze.txt"
-hf download "$BASE" --revision "$BASE_REV" --local-dir /tmp/base > /dev/null
-python3 convert_hf_to_gguf.py /tmp/base --outtype f16 --outfile /tmp/f16.gguf > "$O/convert.txt" 2>&1
-ls -l /tmp/f16.gguf | tee "$O/f16-size.txt"
-date -u
 
 # VRAM sampler: memory.used every 100 ms around one command; idle and peak in MiB.
 vram() {
@@ -134,9 +138,35 @@ vram() {
   "$@" || rc=$?
   kill "$sp"; wait "$sp" 2>/dev/null || true
   local peak; peak=$(sort -n "$O/vram-$tag.csv" | tail -1)
-  echo "vram $tag idle $idle MiB peak $peak MiB" | tee -a "$O/vram.txt"
+  # to stderr: the caller redirects the command's stdout into its own file (llama-bench's JSON)
+  echo "vram $tag idle $idle MiB peak $peak MiB" | tee -a "$O/vram.txt" >&2
   return $rc
 }
+
+if [ -n "$REUSE" ]; then
+P0=/out/$DIR/$SIZE
+echo "== 2-5. reused from $P0: its f16 gate, imatrix, rung and quantized files, checked by sha256 =="
+hf download "$BASE" tokenizer.json --revision "$BASE_REV" --local-dir /tmp/base > /dev/null
+cp "$P0/gate-f16.txt" "$P0/rungs.txt" "$O/"
+cat "$O/gate-f16.txt" "$O/rungs.txt"
+grep -q ' inside ' "$O/gate-f16.txt"
+RSTAR=$(sed -nE 's/^rung at our bits: ([A-Z0-9_]+) .*/\1/p' "$O/rungs.txt")
+test -n "$RSTAR"
+mkdir -p /tmp/q
+for T in IQ2_XXS "$RSTAR"; do
+  t=$(echo "$T" | tr 'A-Z' 'a-z')
+  cp "$P0/qwen3-$SIZE-$t.gguf" /tmp/q/
+done
+(cd /tmp/q && for g in *.gguf; do grep " $P0/$g\$" "$P0/gguf.sha256" | sed "s# $P0/# #"; done | sha256sum -c -) \
+  | tee "$O/reuse-check.txt"
+test "$(grep -c ': OK$' "$O/reuse-check.txt")" = 2
+QD=/tmp/q
+date -u
+else
+hf download "$BASE" --revision "$BASE_REV" --local-dir /tmp/base > /dev/null
+python3 convert_hf_to_gguf.py /tmp/base --outtype f16 --outfile /tmp/f16.gguf > "$O/convert.txt" 2>&1
+ls -l /tmp/f16.gguf | tee "$O/f16-size.txt"
+date -u
 
 echo '== 3. gate: the f16 GGUF on our windows =='
 "$B/llama-ppl-windows" /tmp/f16.gguf "$I/ppl-tokens.u32" 4096 12 > "$O/ppl-f16.txt" 2> "$O/ppl-f16.err"
@@ -182,17 +212,19 @@ for T in IQ2_XXS "$RSTAR"; do
     > "$O/quantize-$T.txt" 2>&1 || { tail -20 "$O/quantize-$T.txt"; exit 1; }
   grep -E 'quant size|model size' "$O/quantize-$T.txt"
 done
+QD=$O
 date -u
+fi
 hf download "$PUB_REPO" "$PUB_FILE" --revision "$PUB_REV" --local-dir /tmp/pub > /dev/null
 test "$(stat -c %s "/tmp/pub/$PUB_FILE")" = "$PUB_BYTES"
 rm -f /tmp/f16.gguf
 r=$(echo "$RSTAR" | tr 'A-Z' 'a-z')
-ARMS="own-iq2_xxs:$O/qwen3-$SIZE-iq2_xxs.gguf own-$r:$O/qwen3-$SIZE-$r.gguf unsloth-ud-iq2_xxs:/tmp/pub/$PUB_FILE"
+ARMS="own-iq2_xxs:$QD/qwen3-$SIZE-iq2_xxs.gguf own-$r:$QD/qwen3-$SIZE-$r.gguf unsloth-ud-iq2_xxs:/tmp/pub/$PUB_FILE"
 for a in $ARMS; do
   f=${a#*:}
   python3 -c "import os; b=os.path.getsize('$f'); print('size ${a%%:*} %d B  %.4f b/param  %.3f GB' % (b, b*8/$PARAMS, b/1e9))" | tee -a "$O/sizes.txt"
 done
-sha256sum "$O"/*.gguf "/tmp/pub/$PUB_FILE" | tee "$O/gguf.sha256"
+sha256sum "$QD"/qwen3-*.gguf "/tmp/pub/$PUB_FILE" | tee "$O/gguf.sha256"
 
 echo '== 6. per arm: perplexity, speed, VRAM, MMLU, GSM8K =='
 for a in $ARMS; do
