@@ -147,8 +147,10 @@ For an A/B on one file the bar is the paired interval, 0.43 pp of MMLU and 0.12 
 - **Throughput past v9.** At the bit the 4B tops out near 235 to 258 tok/s at the door (*estimated*,
   [`plan-300.md`](plan-300.md)). Speculative decoding with B1's integer-dot verify: its Tetra rows cost 0.187 of a
   row an extra token, BETWEEN the gates ([spec-micro](mesures/spec-micro-2026-11-08.txt)). Going on means B1 in
-  `pers_4ev.cu` and in 4E's single-token row, weeks of kernel work, projected 251 to 363 tok/s at 4B with prompt lookup
-  or an EAGLE-3 head (*estimated*, [`plan-speculation.md`](plan-speculation.md)). The operator decides.
+  `pers_4ev.cu` and in 4E's single-token row, weeks of kernel work, projected 395 to 469 tok/s at 4B on copy-heavy prompts
+  with prompt lookup, whose acceptance the 4B measured ([spec-lookup](mesures/spec-lookup-2026-11-08.txt)), about
+  greedy's door on free text, 284 to 363 with an EAGLE-3 head (*estimated*, [`plan-speculation.md`](plan-speculation.md)).
+  The operator decides.
 - **Scores through the served kernel.** MMLU and perplexity are scored on the dense reconstruction with f16 tables;
   the b/param count int4 tables. About $20 by the mixed route, $70 for the full census at three sizes (*estimated*,
   [`ROADMAP.md`](ROADMAP.md)). `ppl` does not read `LLVQ_CONFIG` yet.
@@ -163,7 +165,7 @@ For an A/B on one file the bar is the paired interval, 0.43 pp of MMLU and 0.12 
 - **The next venue for paper 2.** No archive holds version 2 yet. Default if silent: preprint only.
 - **Upstream `transformers`.** `llvq-tetra` 0.1.0 is on PyPI and loads the 4B safetensors; the upstream issue and PR
   wait for the operator ([`plan-transformers.md`](plan-transformers.md)).
-- **Spend.** $280.53 over 275 priced rows of 280 in `docs/data/jobs.csv` (*computed*). No cap is in force; one is owed
+- **Spend.** $281.02 over 276 priced rows of 281 in `docs/data/jobs.csv` (*computed*). No cap is in force; one is owed
   before the next paid job.
 
 ## 6. Closed absent a new idea

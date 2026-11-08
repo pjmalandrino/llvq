@@ -72,16 +72,20 @@ its Tetra part f x the Tetra rows (0.34, 0.68, 1.16 ms), plus the rest of the ro
 | drafter | α a token | 4B | 8B | 14B |
 |---|---|---|---|---|
 | greedy today (*measured*, served-v9) | | 221.5 | 142.5 | 86.3 |
-| prompt lookup | 0.3 | 251 [244-259] | 159 [154-163] | 96 [93-99] |
-| prompt lookup | 0.5 | 300 [285-316] | 187 [178-197] | 113 [108-119] |
+| prompt lookup, chat (measured t) | 0.17 | 219 [212-225] | 138 [134-142] | 83 [81-86] |
+| prompt lookup, GSM8K (measured t) | 0.35 | 253 [246-261] | 160 [156-165] | 97 [94-100] |
+| prompt lookup, code edit (measured t) | 0.71 | 395 [369-424] | 243 [228-260] | 147 [138-157] |
+| prompt lookup, retrieval answer (measured t) | 0.82 | 469 [438-504] | 289 [271-309] | 174 [164-187] |
 | EAGLE-3 head | 0.5 | 284 [274-299] | 177 [173-186] | 108 [105-113] |
 | EAGLE-3 head | 0.6 | 319 [304-335] | 198 [189-208] | 121 [115-127] |
 | EAGLE-3 head | 0.7 | 363 [341-388] | 223 [211-238] | 136 [129-145] |
 
 - A 2-row pass costs 1.14, 1.16 and 1.17 greedy tokens at the central rest (*estimated*), at the study's 1.15 gate
   and under ETAT §6's 1.4.
-- Prompt lookup's α is the workload's: 0.3 to 0.5 where the text repeats (code edits, retrieval, summaries), near 0
-  on free chat, where a round verifies one row and the door stays greedy's. It has not been measured on our prompts.
+- Prompt lookup's rows use the tokens a verify the 4B measured by workload ([spec-lookup](mesures/spec-lookup-2026-11-08.txt)),
+  the same t at 8B and 14B (not measured there). They charge a round with no match the k extra rows; routed to 4E's
+  single-token step instead, those rounds would cost a greedy token and free text would sit at greedy's door, not
+  under it. Code (α 0.29) and summary (0.15) read like chat and GSM8K.
 - The table assumes B1 in the verify only. B1 in the single-token path as well would lower T1 too (i16 reads x1.143
   over v2 alone); two stacked estimates are not printed.
 - What it costs to get there: B1's integer dot ported into `pers_4ev.cu` and into 4E's single-token row, the
@@ -93,8 +97,14 @@ The drafter is the context itself: the tokens that followed the latest earlier o
 n-gram, n from 3 down to 1 (`speculative::lookup_draft`). No model, no memory, no training. A round with no match
 verifies one row, which is the greedy token. `speculative::lookup_greedy` is the loop, tested against the greedy loop;
 `Decoder::continue_lookup` runs it on one 4E engine and its verify pass; `specrun <sealed> lookup [ks] [what]` times
-it on chat, code, summary, a code edit and a retrieval answer. It has not run on a card. On today's verify pass (0.95
-of a token an extra row) it cannot pay: it needs the integer-dot verify above first.
+it on chat, code, summary, a code edit and a retrieval answer.
+
+On the card (4B, today's verify, [spec-lookup](mesures/spec-lookup-2026-11-08.txt), *measured*): the greedy tokens on
+six prompts and 50 GSM8K problems in every round. Tokens a verify at k = 3: chat 1.21, code 1.40, summary 1.18, GSM8K
+1.51, code edit 2.56, retrieval answer 3.04. The decode reads x0.676 to x0.872 of greedy on the first five, x1.012 on
+retrieval. A round with no match costs about 1.26 greedy tokens, because the verify symbol spills where 4E v9 does
+not (*computed*); sending those rounds to 4E's single-token step is a code change, not yet made. The verify pass adds
++0.002 GB.
 
 ## Published EAGLE heads for Qwen3 (2026-11-08)
 

@@ -1296,3 +1296,11 @@ lean x1.020, rotation x0.856. Projected doors with a one-layer EAGLE-3 head at �
 prompt lookup at α 0.3 to 0.5: 251-300 / 159-187 / 96-113 (*estimated*, `plan-speculation.md`). Three Apache-2.0
 EAGLE-3 heads exist for Qwen3 4B, 8B and 14B, +0.24 / 0.22 / 0.19 b/param in int4 (*computed*). The route goes on only
 on the operator's call.
+
+## 2026-11-08. Prompt lookup on the card: the copy-heavy prompts only
+
+[spec-lookup](mesures/spec-lookup-2026-11-08.txt), the 4B alone under the operator's $0.75 cap, $0.49. Prompt lookup
+keeps the greedy tokens on six prompts and 50 GSM8K problems. Tokens a verify at k = 3: 2.56 on a code edit and 3.04 on
+a retrieval answer (α 0.71 and 0.82), 1.18 to 1.51 on chat, code, summary and GSM8K (α 0.15 to 0.35) (*measured*,
+α *computed*). On today's verify the decode stays under greedy except on retrieval (x1.012). With the integer-dot
+verify the copy-heavy prompts would reach 395 and 469 tok/s at 4B, free text about greedy's door (*estimated*).
