@@ -46,15 +46,15 @@ pub mod arms;
 // noticed was a billed job — which is how it was found (0,24 $, 2026-08-17).
 pub mod shared;
 
-// Portable for the reason `shared` is: the A3 occupancy arms size their grids,
-// slices and shared memory here, and the bench that launches them is
-// `cfg(linux)` — a grid one CTA short would corrupt on a rented card without
-// a log line, so the arithmetic is tested where tests are free.
+// Portable for the reason `shared` is: the staged block width and the
+// residency model, which size launches whose benches are `cfg(linux)`, so the
+// arithmetic is tested where tests are free.
 pub mod occ;
 
-// Portable for the reason `occ` is: the persistent kernels' site list, slice
-// tables, barrier ledger and row judge. A grid one barrier short deadlocks on
-// a rented card, and a counter epoch one off reads stale rows without a hang.
+// Portable for the reason `occ` is: the persistent kernels' unit texts, struct
+// mirrors, 4E bookkeeping and the row-loop tables. A grid one barrier short
+// deadlocks on a rented card, and a counter epoch one off reads stale rows
+// without a hang.
 pub mod pers;
 
 // The persistent sections of planesbench, Linux only like `gpu`.

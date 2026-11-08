@@ -128,8 +128,8 @@ pub struct DeviceReport {
     pub shared_per_block_optin: i32,
     pub shared_per_sm: i32,
     /// The two other residency limits an SM has, read for the same reason
-    /// `shared_per_sm` is: the persistent arms of A3 size their grid to what
-    /// the card holds resident (`crate::occ::residency`), and the 1,536
+    /// `shared_per_sm` is: residency is computed from what the card reports
+    /// (`crate::occ::residency`), and the 1,536
     /// threads / 65,536 registers of an L40S are a fixture in a test, never
     /// a constant in the launcher.
     pub max_threads_per_sm: i32,
@@ -438,8 +438,8 @@ impl Cuda {
         self.stream.clone_htod(v).map_err(|e| format!("H2D u16: {e}"))
     }
 
-    /// The site table of A3's persistent-global arm: device pointers and
-    /// packed `u32` pairs, eight `u64` a site (`crate::occ::site_words`).
+    /// A site table of device pointers and packed `u32` pairs (the persistent
+    /// sections' `pers::persall_site_words`, `pers::trows_site_words`).
     pub fn up_u64(&self, v: &[u64]) -> Result<CudaSlice<u64>, String> {
         self.stream.clone_htod(v).map_err(|e| format!("H2D u64: {e}"))
     }
