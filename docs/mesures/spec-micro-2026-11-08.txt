@@ -10,7 +10,7 @@ x0.856. The operator decides whether the route goes on.
 Job r0   : 6af07cbfe6320c66fad755a7, l40sx1, 6 min 50 s billed, $0.21 (*computed* at $1.80/h). Image 99b161e9,
            commit 3476562. Panicked before any verify row: deviation 2.
 Job r1   : 6af09ea10e0338d1bb84c12c, l40sx1 (NVIDIA L40S, sm_89, driver 580.178.04), 9 min 10 s billed, $0.28
-           (*computed*). Ran 16:09 to 16:18 UTC. Timeout 13 min, so both runs stay under the $0.60 cap: $0.48 spent.
+           (*computed*). Ran 16:09 to 16:18 UTC. Timeout 13 min, so both runs stay under the $0.60 cap: $0.49 spent ($0.21 + $0.28, the registry rows; this line read $0.48 until the audit of PR #29).
 Image    : Space sha c25e611da92d21a5442fd3ad8fb9f7e5697217ab, built from commit 1dd0973 of claude/spec-4e-0058c6.
 Prereg   : proofs/preregistration-spec-micro-2026-11-08.md (sha256 47160520...), OpenTimestamps stamped and committed
            (3476562) before the first image was built. Deviations: -ECARTS.md, items 1 to 3.
