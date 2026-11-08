@@ -163,9 +163,10 @@ __device__ __forceinline__ void bg_wait()
 // Shared words a stage holds: the activation of N rows, then the weight words
 // of BG_ROWS rows. The activation is f16 pairs with a row of KC / 2 + 4 words,
 // which puts a B fragment's 32 lanes on 32 banks. Weight rows: KC / 16 words (Tetra) rounded up to 2 mod 4, so the 16
-// rows a warp decodes sit on 16 distinct even banks; KC / 8 + 2 (int4).
+// rows a warp decodes sit on 16 distinct even banks; KC / 8 + 2 (int4), with no
+// pad at KC = 48, which keeps the 128-row entry under 48 KB.
 #define BG_XW(kind, kc) ((kc) / 2u + 4u)
-#define BG_WW(kind, kc) ((kind) == 0u ? ((kc) / 16u + 1u) / 4u * 4u + 2u : (kc) / 8u + 2u)
+#define BG_WW(kind, kc) ((kind) == 0u ? ((kc) / 16u + 1u) / 4u * 4u + 2u : (kc) / 8u + ((kc) > 48u ? 2u : 0u))
 #define BG_STAGE(kind, n, kc) ((n) * BG_XW(kind, kc) + BG_ROWS * BG_WW(kind, kc))
 
 template <unsigned NT, unsigned KC, unsigned KIND>
@@ -405,17 +406,18 @@ __device__ __forceinline__ BgSeg bg_seg(const BgArgs& a)
      + BG_WARPS * 16u * BG_AS)
 
 #define BG_ENTRY(NAME, NT, KC)                                                    \
-    extern "C" __global__ void __launch_bounds__(BG_THREADS) NAME(const BgArgs a)       \
+    extern "C" __global__ void __launch_bounds__(BG_THREADS, 2) NAME(const BgArgs a)    \
     {                                                                             \
         const BgSeg s = bg_seg(a);                                                \
         if (s.kind == 0u) bg_cta<NT, KC, 0u>(a, s);                               \
         else bg_cta<NT, KC, 1u>(a, s);                                            \
     }
 
-// Rows a launch carries, and the K chunk of each: two stages stay near 30 to
-// 60 KB of shared memory.
+// Rows a launch carries, and the K chunk of each: the two stages and the A
+// tiles stay under 48 KB and the registers under 128 a thread, so two CTAs (16
+// warps) share a SM at every width (batch-l40s-v2 held one at 128 rows).
 BG_ENTRY(tv_bg_n8, 1u, 192u)
-BG_ENTRY(tv_bg_n16, 2u, 192u)
-BG_ENTRY(tv_bg_n32, 4u, 192u)
-BG_ENTRY(tv_bg_n64, 8u, 96u)
-BG_ENTRY(tv_bg_n128, 16u, 96u)
+BG_ENTRY(tv_bg_n16, 2u, 96u)
+BG_ENTRY(tv_bg_n32, 4u, 96u)
+BG_ENTRY(tv_bg_n64, 8u, 48u)
+BG_ENTRY(tv_bg_n128, 16u, 48u)

@@ -1,0 +1,161 @@
+served config: /out/batch-l40s-v2-2026-11-08/qwen3-4b-tetra-e4-batch.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention kernel from position 1280 on grow(256), batch of up to 64 sequences of 2048 positions (gemm)) — NOT SERVED until its gate (preregistration-batch-l40s-2026-11-08). The batched decode of the sealed 4B (qwen3-4b-sealed.bin, sha256 886391a8): up to 64 sequences a step through the tensor-core GEMM (kernels/tv_batch_gemm.cu), a cache slot of 2,048 positions each, the kernel attention form from position 0; prompts prefilled one at a time on the eager path. The int4 words stay in the file's order. llvq serve takes it under LLVQ_BATCH; batchrun takes it under LLVQ_CONFIG. Added 2026-11-08.
+cudarc event tracking: off (one stream, ordered by issue)
+shared rotation: 1 (LLVQ_CONFIG), 96 rot_launches/token for 252 projections
+projection fusion: 0 (LLVQ_CONFIG), 252 matvec_launches/token for 252 projections (0 groups + 168 lone + 84 int4)
+fused layout: tetra48 (LLVQ_CONFIG), projections 1.16 GB on the card, 2.550 b/weight (INFERENCE accounting: KeepExact tail in binary16; the bench bills its own in f32)
+NVRTC source: 101625 bytes, sha256 6193094310bc18acdb0a0c554807ff45f6df09c1f6ab49e0577032874f107812 (11 parts), tile 64 (served: measured optimum for sm_89), prefill 4x128 (served pair), 49152 B staged of 49152, target compute_89
+int4: tv_q4_hh equals tv_q4_h bit for bit on model.layers.0.self_attn.v_proj.weight (1024 rows, d_in 2560)
+int4 layout: served (LLVQ_CONFIG), 84 records, words 0.385 GB on the card, held once
+embedding: q4 g64 (LLVQ_CONFIG), 1 table (model.embed_tokens.weight, lm_head tied on it), 218.8 MB on the card (int4 194.5 + scales/biases 24.3)
+total expected on the card: 1.38 GB (projections 1.16 + carried 0.22)
+attn_dec.cu: embedded, sha256 c7b0d8d3f2e3066ba1a2b4331c0bb6c92f22182c78a31b7fb74e839330a1838d, target compute_89
+attn_dec_g4_u64: 160 registers, 0 B local (spill), 16384 B static shared, sm_89
+attn_dec_g4_u64: the card equals the CPU replay bit for bit on 103 calls (rows ending at 1, 255, 256, 257, 1000, 4096; k 1, 3, 8; eager and wide grids; verify rows alone; fresh rows) (1.2 s)
+batch mma unit: 81799 bytes, sha256 d241ea8d1407bff65950d069acb7440b3ab5bdf9a831338ebac75bd3aae893b3, target compute_89
+batch gemm unit: 78294 bytes, sha256 38a469c8c49ab7af269514fddf9a4231f105e529f39bce0f7c0060ef529c0ce7
+batch attention unit: 28404 bytes, sha256 ed0d7dab9a46e17c1dd53f278fbd00a93f130da0e53e9ef5fb227ff2cdf991b5
+tv_tetra48_mma_n8: 48 registers, 0 B local
+tv_tetra48_mma_n16: 64 registers, 0 B local
+tv_tetra48_mma_n32: 116 registers, 0 B local
+tv_q4_mma_n8: 40 registers, 0 B local
+tv_q4_mma_n16: 63 registers, 0 B local
+tv_q4_mma_n32: 96 registers, 0 B local
+tv_bg_n8: 40 registers, 0 B local, 47360 B shared
+tv_bg_n16: 48 registers, 0 B local, 53760 B shared
+tv_bg_n32: 64 registers, 0 B local, 66560 B shared
+tv_bg_n64: 80 registers, 0 B local, 55296 B shared
+tv_bg_n128: 128 registers, 0 B local, 81920 B shared
+attn_batch_g4_u64: 158 registers, 0 B local
+attn_slot_g4_u64: 161 registers, 0 B local
+loaded in 16.4 s, attention kernel on grow(256)
+  window  1: ppl rows 21.4176, gemm 21.4372, +0.0915 %
+  window  2: ppl rows 22.6149, gemm 22.6140, -0.0040 %
+  window  3: ppl rows 33.0874, gemm 33.1117, +0.0734 %
+  window  4: ppl rows 29.4009, gemm 29.4112, +0.0348 %
+  window  5: ppl rows 41.0686, gemm 41.0610, -0.0183 %
+  window  6: ppl rows 20.6856, gemm 20.6784, -0.0349 %
+  window  7: ppl rows 33.2478, gemm 33.2529, +0.0153 %
+  window  8: ppl rows 18.7411, gemm 18.7265, -0.0783 %
+  window  9: ppl rows 20.9746, gemm 20.9611, -0.0643 %
+  window 10: ppl rows 20.0953, gemm 20.1109, +0.0776 %
+  window 11: ppl rows 23.2064, gemm 23.2100, +0.0158 %
+  window 12: ppl rows 26.2571, gemm 26.2513, -0.0221 %
+  window 13: ppl rows 35.8581, gemm 35.8651, +0.0195 %
+  window 14: ppl rows 26.3190, gemm 26.3068, -0.0463 %
+  window 15: ppl rows 25.9029, gemm 25.8935, -0.0366 %
+  window 16: ppl rows 28.9023, gemm 28.9294, +0.0938 %
+  window 17: ppl rows 50.8429, gemm 50.8798, +0.0726 %
+  window 18: ppl rows 37.8726, gemm 37.8599, -0.0334 %
+  window 19: ppl rows 35.6431, gemm 35.6399, -0.0091 %
+  window 20: ppl rows 35.9641, gemm 35.9800, +0.0442 %
+  window 21: ppl rows 21.0295, gemm 21.0524, +0.1091 %
+  window 22: ppl rows 25.8602, gemm 25.8616, +0.0055 %
+  window 23: ppl rows 22.1846, gemm 22.1914, +0.0309 %
+  window 24: ppl rows 26.8216, gemm 26.8290, +0.0276 %
+  window 25: ppl rows 44.1198, gemm 44.0850, -0.0787 %
+  window 26: ppl rows 32.1696, gemm 32.1403, -0.0911 %
+  window 27: ppl rows 35.8238, gemm 35.8250, +0.0034 %
+  window 28: ppl rows 23.2091, gemm 23.2155, +0.0278 %
+  window 29: ppl rows 33.0407, gemm 33.0491, +0.0255 %
+  window 30: ppl rows 21.3553, gemm 21.3470, -0.0387 %
+  window 31: ppl rows 30.3495, gemm 30.3528, +0.0110 %
+  window 32: ppl rows 41.3962, gemm 41.3600, -0.0874 %
+  window 33: ppl rows 9.3864, gemm 9.3922, +0.0610 %
+  window 34: ppl rows 10.2851, gemm 10.2828, -0.0220 %
+  window 35: ppl rows 33.1041, gemm 33.0820, -0.0665 %
+  window 36: ppl rows 30.8196, gemm 30.8281, +0.0276 %
+  window 37: ppl rows 47.0351, gemm 47.0368, +0.0036 %
+  window 38: ppl rows 23.9739, gemm 23.9586, -0.0641 %
+  window 39: ppl rows 26.1799, gemm 26.1550, -0.0953 %
+  window 40: ppl rows 22.7203, gemm 22.7116, -0.0385 %
+  window 41: ppl rows 18.7022, gemm 18.7202, +0.0961 %
+  window 42: ppl rows 11.5153, gemm 11.5054, -0.0856 %
+  window 43: ppl rows 17.9866, gemm 17.9839, -0.0152 %
+  window 44: ppl rows 19.8110, gemm 19.8208, +0.0496 %
+  window 45: ppl rows 13.4488, gemm 13.4489, +0.0004 %
+  window 46: ppl rows 11.3612, gemm 11.3659, +0.0419 %
+  window 47: ppl rows 14.9031, gemm 14.9094, +0.0417 %
+  window 48: ppl rows 7.0499, gemm 7.0466, -0.0473 %
+  window 49: ppl rows 10.2644, gemm 10.2726, +0.0797 %
+  window 50: ppl rows 13.0983, gemm 13.0977, -0.0043 %
+  window 51: ppl rows 11.4156, gemm 11.4240, +0.0736 %
+  window 52: ppl rows 15.2769, gemm 15.2723, -0.0297 %
+  window 53: ppl rows 7.4482, gemm 7.4491, +0.0113 %
+  window 54: ppl rows 11.8420, gemm 11.8476, +0.0470 %
+  window 55: ppl rows 16.3964, gemm 16.4013, +0.0296 %
+  window 56: ppl rows 17.0531, gemm 17.0474, -0.0332 %
+  window 57: ppl rows 17.8794, gemm 17.8747, -0.0262 %
+  window 58: ppl rows 20.0302, gemm 20.0430, +0.0637 %
+  window 59: ppl rows 14.5186, gemm 14.5191, +0.0035 %
+  window 60: ppl rows 20.2852, gemm 20.2936, +0.0411 %
+  window 61: ppl rows 35.5057, gemm 35.4909, -0.0417 %
+  window 62: ppl rows 16.5515, gemm 16.5566, +0.0308 %
+  window 63: ppl rows 15.1408, gemm 15.1498, +0.0596 %
+  window 64: ppl rows 21.1126, gemm 21.1240, +0.0541 %
+  window 65: ppl rows 21.2731, gemm 21.2757, +0.0123 %
+  window 66: ppl rows 9.6026, gemm 9.6119, +0.0969 %
+  window 67: ppl rows 19.8284, gemm 19.8238, -0.0231 %
+  window 68: ppl rows 25.7626, gemm 25.7806, +0.0700 %
+  window 69: ppl rows 34.3167, gemm 34.3025, -0.0415 %
+  window 70: ppl rows 25.9996, gemm 26.0108, +0.0429 %
+  window 71: ppl rows 19.9098, gemm 19.9221, +0.0618 %
+  window 72: ppl rows 27.5340, gemm 27.5276, -0.0233 %
+  window 73: ppl rows 40.5401, gemm 40.5148, -0.0623 %
+  window 74: ppl rows 45.1503, gemm 45.1327, -0.0391 %
+  window 75: ppl rows 31.6320, gemm 31.6239, -0.0254 %
+  window 76: ppl rows 24.8420, gemm 24.8448, +0.0111 %
+  window 77: ppl rows 16.6660, gemm 16.6463, -0.1181 %
+  window 78: ppl rows 16.5196, gemm 16.5201, +0.0033 %
+  window 79: ppl rows 27.2306, gemm 27.2299, -0.0028 %
+  window 80: ppl rows 31.1313, gemm 31.1482, +0.0541 %
+  window 81: ppl rows 25.7922, gemm 25.7858, -0.0250 %
+  window 82: ppl rows 23.2990, gemm 23.2983, -0.0028 %
+  window 83: ppl rows 19.5732, gemm 19.5783, +0.0263 %
+  window 84: ppl rows 16.7108, gemm 16.7269, +0.0962 %
+  window 85: ppl rows 28.6767, gemm 28.6750, -0.0059 %
+  window 86: ppl rows 24.3543, gemm 24.3568, +0.0104 %
+  window 87: ppl rows 19.8585, gemm 19.8725, +0.0707 %
+  window 88: ppl rows 17.7269, gemm 17.7382, +0.0634 %
+  window 89: ppl rows 11.7939, gemm 11.7900, -0.0332 %
+  window 90: ppl rows 20.4347, gemm 20.4355, +0.0042 %
+  window 91: ppl rows 19.0029, gemm 19.0068, +0.0201 %
+  window 92: ppl rows 23.0144, gemm 23.0281, +0.0593 %
+  window 93: ppl rows 12.5873, gemm 12.5826, -0.0370 %
+  window 94: ppl rows 63.4529, gemm 63.4762, +0.0368 %
+  window 95: ppl rows 33.6210, gemm 33.6206, -0.0012 %
+  window 96: ppl rows 27.4999, gemm 27.4931, -0.0247 %
+  window 97: ppl rows 21.1276, gemm 21.1426, +0.0707 %
+  window 98: ppl rows 12.9599, gemm 12.9587, -0.0096 %
+  window 99: ppl rows 19.9352, gemm 19.9300, -0.0265 %
+  window 100: ppl rows 26.6360, gemm 26.6520, +0.0601 %
+  window 101: ppl rows 20.1281, gemm 20.1407, +0.0624 %
+  window 102: ppl rows 23.9320, gemm 23.9460, +0.0586 %
+  window 103: ppl rows 13.6206, gemm 13.6220, +0.0099 %
+  window 104: ppl rows 20.8979, gemm 20.8983, +0.0020 %
+  window 105: ppl rows 24.6999, gemm 24.7086, +0.0354 %
+  window 106: ppl rows 28.4831, gemm 28.4790, -0.0145 %
+  window 107: ppl rows 35.4176, gemm 35.4220, +0.0126 %
+  window 108: ppl rows 27.0514, gemm 27.0647, +0.0489 %
+  window 109: ppl rows 23.4790, gemm 23.4882, +0.0388 %
+  window 110: ppl rows 25.0321, gemm 25.0270, -0.0201 %
+  window 111: ppl rows 52.2489, gemm 52.2529, +0.0076 %
+  window 112: ppl rows 29.4087, gemm 29.4206, +0.0403 %
+  window 113: ppl rows 36.4786, gemm 36.4751, -0.0096 %
+  window 114: ppl rows 12.8836, gemm 12.8804, -0.0251 %
+  window 115: ppl rows 20.0286, gemm 20.0221, -0.0328 %
+  window 116: ppl rows 31.3291, gemm 31.3453, +0.0516 %
+  window 117: ppl rows 37.5264, gemm 37.5301, +0.0100 %
+  window 118: ppl rows 30.0232, gemm 30.0233, +0.0001 %
+  window 119: ppl rows 25.6819, gemm 25.6837, +0.0071 %
+  window 120: ppl rows 30.1820, gemm 30.1768, -0.0171 %
+  window 121: ppl rows 33.7264, gemm 33.7406, +0.0421 %
+  window 122: ppl rows 27.6810, gemm 27.6817, +0.0025 %
+  window 123: ppl rows 22.4992, gemm 22.4939, -0.0240 %
+  window 124: ppl rows 30.8869, gemm 30.8909, +0.0130 %
+  window 125: ppl rows 25.6832, gemm 25.6930, +0.0380 %
+  window 126: ppl rows 25.3316, gemm 25.3438, +0.0480 %
+  window 127: ppl rows 22.4952, gemm 22.4976, +0.0107 %
+  window 128: ppl rows 32.7880, gemm 32.7941, +0.0185 %
+batched ppl: WikiText-2 test, 128 windows of 256, 32640 positions, tokens 41391567c7bdff87; rows 137.2 s, gemm 7.2 s
+ppl rows 23.0180 (decode path, multi-row kernels), gemm 23.0201: pooled +0.0091 %, window mean +0.0091 % [+0.0011 ; +0.0172]
+T8 band: pooled inside +-0.12 %: yes

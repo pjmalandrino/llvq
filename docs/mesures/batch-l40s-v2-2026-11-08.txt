@@ -1,0 +1,69 @@
+BATCH L40S V2: THE GEMM WITH AN F16 ACTIVATION AND 128-ROW TILES, THE GATE AGAIN, THE STEP ATTRIBUTED (2026-11-08)
+=================================================================================================================
+Prereg: proofs/preregistration-batch-l40s-v2-2026-11-08.md, sha256 23adb4b5, timestamped before launch.
+Deviations: none.
+Code: commit 2a58855 (branch claude/batch-l40s), Space sha 59be6e48.
+Job: 6af04fea0e0338d1bb84aa6b, l40sx1, 1,839 s running, $0.92 (it waited 1,644 s for a card, unbilled). Branch total
+$2.40 of the $5 envelope (computed). Raw: batch-l40s-v2-2026-11-08-brut/.
+
+SETUP
+-----
+As batch-l40s-2026-11-08 (same objects, same batch configs, same prompt and token counts), with the second pass of
+kernels/tv_batch_gemm.cu: the rotated rows of a Tetra projection converted to f16 once a group, the activation staged in
+f16 for both kinds, 128 output rows a CTA (8 warps), K chunks of 192 / 192 / 192 / 96 / 96 at 8 / 16 / 32 / 64 / 128
+rows. The kernel unit: 78,294 bytes, sha256 38a469c8. Card registers 40 / 48 / 64 / 80 / 128, shared 47,360 / 53,760 /
+66,560 / 55,296 / 81,920 B, no local memory. NVIDIA L40S, sm_89.
+
+CONTROLS
+--------
+1. oracle: MATCH. 2. objects and configs at their bytes: equal. 3. GSM8K dump ends on 94c7b98876288901: yes.
+4. every kernel at 0 B local: yes. All pass.
+
+RESULT
+------
+Aggregate tok/s, median of 3 rounds after a warm-up (measured), against batch-l40s (first GEMM, another job, same card
+type and image recipe). Ranges within 1 % of every median. Every door row of every size and B equals its batch-1
+fingerprint.
+
+   B    4B v2   4B v1     8B v2   8B v1     14B v2   14B v1
+   1    105.5   107.2      74.1    72.5       43.6     40.5
+   8    800.0   816.3     568.3   552.1      335.0    309.6
+  16  1,524.4 1,381.9   1,185.8   915.5      720.4    564.0
+  32  2,468.0 2,102.0   1,826.6 1,366.7    1,102.2    840.0
+  64  3,628.5 2,862.7   2,873.6 1,851.0    1,761.7  1,109.2
+ 128  4,493.6 3,996.7   3,552.3 2,628.7    2,183.8  1,552.4
+
+GB/s at B = 32 and 128 (weights x tok/s a sequence, computed): 4B 106.4 and 48.4 against AWQ's 428.3 and 211.6; 8B
+157.6 and 76.7 against 643.5 and 336.5; 14B 173.4 and 86.2 against 670.0 and 359.1 (AWQ: batch-l40s-2026-11-08).
+
+The projections of one step alone (batchrun kernels: every layer's four groups and the head, random rows, rotation and
+conversion included, 10 steps), ms a step, against the door's step (1 / steps a second):
+         q,k,v     o   gate,up   down   head   total   door step   share
+  4B  1   1.280  0.718  2.758   2.052  0.463   7.272     9.33       78 %
+  4B 128  3.529  3.250  7.212   5.765  1.003  20.759    28.05       74 %
+  8B  1   1.504  1.153  4.328   3.442  0.993  11.420    13.29       86 %
+  8B 128  4.848  3.419 12.129   7.462  1.792  29.650    35.47       84 %
+ 14B  1   2.419  1.725  7.860   6.465  1.211  19.681    22.58       87 %
+ 14B 128  7.079  4.161 21.900  13.218  2.168  48.527    57.70       84 %
+
+check gemm, worst relative RMS: 4.23e-4 (4B), 4.31e-4 (8B), 4.22e-4 (14B), gate 1e-2.
+Decode-path perplexity, gemm against rows: 4B 16 x 2,048 +0.0026 % [-0.0077 ; +0.0128], 4B 128 x 256 +0.0091 %
+[+0.0011 ; +0.0172], 8B +0.0018 % [-0.0064 ; +0.0101], 14B +0.0005 % [-0.0081 ; +0.0092].
+GSM8K pilot, one batch of 50: 40/50 against 40/50 served, completions identical 42/50, discordant 0 and 0.
+
+VERDICT
+-------
+The gate passes again (check, the band at every width and size, GSM8K). The pass is kept by the prereg's rule: the 4B
+gains at B = 128 (+12 %) and no B loses more than 5 % (B = 1 -1.6 %, B = 8 -2.0 %). It gains most where the
+activation re-read weighed: +41 % at 14B and +35 % at 8B at B = 128, +27 % at 4B at B = 64.
+Predictions: 4B at 1 / 8 / 32 / 128 inside their intervals at 1 and 8, above the point at 32 (2,468 in [2,000,
+3,300]), below it at 128 (4,494 in [4,200, 9,000]); 8B and 14B at 128 inside; projections alone at 4B, 128 rows 20.8
+ms, outside [4, 16] (above); at 1 row 7.3 ms, outside [2, 6] (above); check and perplexity inside.
+
+WHAT THIS DOES NOT ESTABLISH
+----------------------------
+- The projections are three quarters of the step and more at every size and B (computed, from the table). At one row
+  they take 7.3 ms on the 4B: the GEMM's Tetra decode moves about 200 GB/s there, its int4 head about 475 (computed:
+  gate,up's 0.58 GB in 2.76 ms, the head's 0.22 GB in 0.46 ms). The decode, not the MMA, bounds a small batch.
+- A CTA of 128 rows still holds one SM alone at 128 rows (82 KB of shared memory): the occupancy the operator asked for
+  is the next pass.

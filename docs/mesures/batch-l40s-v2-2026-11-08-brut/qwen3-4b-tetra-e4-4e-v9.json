@@ -1,0 +1,11 @@
+{
+  "layout": "tetra48",
+  "embed": "q4",
+  "rot_share": "1",
+  "fuse": "0",
+  "kv": "f16",
+  "attention": "kernel",
+  "decode": "persistent",
+  "rows": "v9",
+  "note": "The qwen3-4b-tetra-e4 object (qwen3-4b-sealed.bin, sha256 886391a8), the v6 config with the v9 row loop and nothing else different: the kernel attention form on every decode row from position 0, decoded by 4E v9 (row form 7: v6, the launch's constants staged during the barriers, attention's steps in a cp.async ring, and the int4 rows v, o and the int4 downs read from tiled words; one cooperative launch a token run, 512 threads). Under this config the loader writes the int4 words tiled and holds them once on the card: the eager path, which prefills, reads the same words through tv_q4_hht, checked against tv_q4_hh on the file's order at every load. The file and its 2.7320 b/param do not move (a permutation inside each row, computed). Written on 2026-11-07 on the operator's go to serve v9 with one copy of the int4 bytes. In the measurement form v9 decodes 238.6 tok/s after a 5-token prompt against 213.3 for v6 (x1.118 round by round) and 163.5 at 8,192 against 154.2 (x1.060), the same 64 tokens as the eager path at both contexts (measured, step3-4e-2026-11-07, with the int4 bytes twice on the card). Not yet read at the served door: served-v9 (proofs/preregistration-served-v9-2026-11-07.md) reads it. Refused on Metal and on any object but the 4B."
+}

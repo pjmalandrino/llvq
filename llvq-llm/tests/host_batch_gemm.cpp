@@ -28,7 +28,7 @@
 #undef __shared__
 #define __shared__
 #define __align__(n)
-#define __launch_bounds__(n)
+#define __launch_bounds__(...)
 
 #include <cmath>
 #include <vector>
@@ -156,7 +156,8 @@ int main()
         }
     }
     const u32 nt = n_rows <= 8 ? 1 : n_rows <= 16 ? 2 : n_rows <= 32 ? 4 : n_rows <= 64 ? 8 : 16;
-    const u32 kc = nt <= 2 ? 192 : nt == 4 ? 96 : 48;
+    // The K chunk of each entry (BG_ENTRY lines of tv_batch_gemm.cu).
+    const u32 kc = nt == 1 ? 192 : nt <= 4 ? 96 : 48;
 
     BgArgs a;
     __builtin_memset(&a, 0, sizeof a);

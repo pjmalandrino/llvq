@@ -41,14 +41,14 @@ const BG_MAXSEG: usize = 4;
 /// The GEMM's entries: rows they carry and the K chunk each was compiled
 /// with (`BG_ENTRY` lines of `tv_batch_gemm.cu`).
 const BG_ENTRIES: [(&str, usize, usize); 5] =
-    [("tv_bg_n8", 8, 192), ("tv_bg_n16", 16, 192), ("tv_bg_n32", 32, 192), ("tv_bg_n64", 64, 96), ("tv_bg_n128", 128, 96)];
+    [("tv_bg_n8", 8, 192), ("tv_bg_n16", 16, 96), ("tv_bg_n32", 32, 96), ("tv_bg_n64", 64, 48), ("tv_bg_n128", 128, 48)];
 
 /// Shared bytes of a GEMM entry: `BG_SMEM_WORDS` of the kernel, transcribed.
 fn bg_smem_bytes(n: usize, kc: usize) -> u32 {
     let stage = |kind: usize| {
         let ww = match kind {
             0 => (kc / 16 + 1) / 4 * 4 + 2,
-            _ => kc / 8 + 2,
+            _ => kc / 8 + if kc > 48 { 2 } else { 0 },
         };
         n * (kc / 2 + 4) + BG_ROWS * ww
     };
@@ -702,5 +702,10 @@ mod tests {
         // stage is int4's (words of 26 and 14 a row), the A tiles 8 x 16 x 28.
         assert_eq!(super::bg_smem_bytes(8, 192), (2 * (8 * 100 + 128 * 26) + 3584) * 4);
         assert_eq!(super::bg_smem_bytes(128, 96), (2 * (128 * 52 + 128 * 14) + 3584) * 4);
+        assert_eq!(super::bg_smem_bytes(128, 48), (2 * (128 * 28 + 128 * 6) + 3584) * 4);
+        // Two CTAs a SM (100 KB, 1 KB reserved a CTA) at every width.
+        for (_, n, kc) in super::BG_ENTRIES.iter() {
+            assert!(super::bg_smem_bytes(*n, *kc) <= 49 * 1024, "{n} rows: {} B", super::bg_smem_bytes(*n, *kc));
+        }
     }
 }
