@@ -295,7 +295,7 @@ fn launch(g: usize, unit: usize, pos0: usize, k: usize, frozen: bool, with_new: 
 #[test]
 fn the_kernel_text_returns_the_replay_bits() {
     let mut ls = Vec::new();
-    for g in [4, 5] {
+    for g in [4, 5, 2] {
         for unit in [64, 32] {
             for &(pos0, k) in &[
                 (0, 1),

@@ -106,6 +106,84 @@ impl Decoder {
         })
     }
 
+    /// Install 4E's verify pass on this engine (`Runtime4e::install_verify`),
+    /// so it can be the target of [`Self::continue_speculative`]. Refused on
+    /// the eager engine and below row form 7. Its install lines are appended
+    /// to [`Self::lines`].
+    pub fn install_verify(&mut self) -> anyhow::Result<()> {
+        #[cfg(all(target_os = "linux", feature = "cuda"))]
+        if let Some(rt) = self.rt.as_mut() {
+            let before = rt.lines.len();
+            rt.install_verify()?;
+            self.lines.extend(rt.lines.drain(before..));
+            return Ok(());
+        }
+        anyhow::bail!("the speculative decode's verify pass is a 4E launch: this engine is the eager path")
+    }
+
+    /// The greedy continuation of [`Self::continue_greedy`], with `draft`
+    /// (the drafter's engine, its own model and caches) proposing up to `k`
+    /// tokens a round and this engine checking them in one verify pass
+    /// ([`crate::speculative::speculative_greedy`]). Both caches hold `offset`
+    /// positions and neither holds `first`. The tokens are this engine's
+    /// greedy tokens: each verify row is its 4E token bit for bit. `k + 1`
+    /// rows must fit the verify pass (`pers::P4V_KMAX`).
+    #[allow(clippy::too_many_arguments)]
+    pub fn continue_speculative(
+        &mut self,
+        caches: &mut [KvCache],
+        draft: &mut Decoder,
+        draft_caches: &mut [KvCache],
+        first: u32,
+        offset: usize,
+        more: usize,
+        stops: &[u32],
+        k: usize,
+    ) -> anyhow::Result<(Vec<u32>, bool, crate::speculative::SpecStats)> {
+        #[cfg(all(target_os = "linux", feature = "cuda"))]
+        if let (Some(rt), Some(drt)) = (self.rt.as_mut(), draft.rt.as_mut()) {
+            anyhow::ensure!(
+                k < llvq_cuda::pers::P4V_KMAX as usize,
+                "speculative decode: {k} drafts a round, the verify pass carries {} rows",
+                llvq_cuda::pers::P4V_KMAX
+            );
+            let eos = stops.first().copied().unwrap_or(u32::MAX);
+            let t = std::cell::RefCell::new((rt, caches));
+            let d = std::cell::RefCell::new((drt, draft_caches));
+            return crate::speculative::speculative_greedy(
+                first,
+                offset,
+                more,
+                stops,
+                k,
+                |pos, tok, n| {
+                    let mut g = d.borrow_mut();
+                    let (rt, c) = &mut *g;
+                    rt.decode(c, pos, tok, n, eos)
+                },
+                |pos, rows| {
+                    let mut g = t.borrow_mut();
+                    let (rt, c) = &mut *g;
+                    rt.verify(c, pos, rows)
+                },
+                |side, len| {
+                    let set = |c: &mut [KvCache]| -> anyhow::Result<()> {
+                        for x in c.iter_mut() {
+                            x.set_len(len)?;
+                        }
+                        Ok(())
+                    };
+                    match side {
+                        crate::speculative::Side::Target => set(t.borrow_mut().1),
+                        crate::speculative::Side::Draft => set(d.borrow_mut().1),
+                    }
+                },
+            );
+        }
+        let _ = (caches, draft, draft_caches, first, offset, more, stops, k);
+        anyhow::bail!("the speculative decode needs 4E on both the target and the drafter")
+    }
+
     /// `Qwen3::generate_timed` through this engine: `max_new` tokens after
     /// `tokens`, the prompt in chunks of `chunk`. Eager: that function, call
     /// for call. Persistent: the same prefill, then 4E with no stop token.

@@ -23,6 +23,8 @@ unsafe impl DeviceRepr for PersLaunch {}
 unsafe impl DeviceRepr for pers::SegLaunch {}
 // SAFETY: the same for 4E's per-launch struct (`kernels/pers_4e.cu`).
 unsafe impl DeviceRepr for pers::P4eLaunch {}
+// SAFETY: the same for the verify pass's per-launch struct (`kernels/pers_4ev.cu`).
+unsafe impl DeviceRepr for pers::P4vLaunch {}
 
 /// What the environment asks of the persistent sections.
 #[derive(Clone, Debug, Default)]

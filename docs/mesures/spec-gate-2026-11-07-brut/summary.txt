@@ -1,0 +1,9 @@
+specrun 4b exit 1
+card memory: 1.980 GB used after the target's load and its 4E install (cuMemGetInfo)
+4b gate: the drafter's 4E v9 module
+specrun 8b exit 1
+card memory: 3.356 GB used after the target's load and its 4E install (cuMemGetInfo)
+8b gate: the drafter's 4E v9 module
+specrun 14b exit 1
+card memory: 5.637 GB used after the target's load and its 4E install (cuMemGetInfo)
+14b gate: the drafter's 4E v9 module

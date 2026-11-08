@@ -1,0 +1,11 @@
+{
+  "layout": "tetra48",
+  "embed": "q4",
+  "rot_share": "1",
+  "fuse": "0",
+  "kv": "f16",
+  "attention": "kernel",
+  "decode": "persistent",
+  "rows": "v9",
+  "note": "The drafter of the speculative decode: Qwen3-0.6B in Tetra (qwen3-0p6b-sealed.bin, the 14B encode's recipe with o_proj in int4 too and no trained row scales, proofs/preregistration-draft-0p6b-2026-11-07.md), decoded by 4E v9 as the 4B v9 config decodes the 4B. Its tokens are never served: under greedy acceptance the target's tokens do not depend on the drafter, which sets the acceptance rate only (docs/plan-speculation.md). Written on 2026-11-07 on the operator's go to test the speculative decode with the 0.6B. Not read on a card when written."
+}

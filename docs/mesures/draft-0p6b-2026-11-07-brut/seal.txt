@@ -1,0 +1,11 @@
+/Users/pjmalandrino/q06b-tetra-2026-11-07/qwen3-0p6b-dclm.llvq: format v5, 196 quantized matrices, kinds Tetra+Int4G128
+reading Qwen/Qwen3-0.6B for the tensors the artifact is missing…
+  carrying 115 tensors, 311230464 weights (0.622 GB at f16)
+
+── /Users/pjmalandrino/q06b-tetra-2026-11-07/qwen3-0p6b-sealed-f16.bin
+   quantized     440401920 weights → 0.153 GB (2.7730 bits/weight)
+   carried       311230464 weights → 0.634 GB at f16
+   total          0.787 GB on disk
+   against        1.503 GB in FP16  →  ×1.91
+
+   this file needs no checkpoint, no cache and no network.

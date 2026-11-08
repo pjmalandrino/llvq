@@ -1,0 +1,83 @@
+spec-gate, 2026-11-07/08. The speculative decode on one L40S: the sealed 0.6B drafts, the served 4B, 8B and 14B check
+with 4E's verify pass. Identity holds at the three sizes; the speculative decode is slower than greedy everywhere.
+
+Prereg proofs/preregistration-spec-gate-2026-11-07.md (stamped before the first run), deviations beside it (-ECARTS.md).
+Run 1, job 6aefa831e6320c66fad6899a, void at the drafter's load (2-group attention kernel missing), 10 min, $0.30.
+Run 2, job 6aefb0780e0338d1bb84167e, l40sx1, image c16c4c73 built from f63b590, 23:12 to 00:21 UTC, about 69 min,
+$2.07 (computed at $1.80/h). Branch total $2.37. Raw output: spec-gate-2026-11-07-brut/ (run 1 at the top, run 2 in r2/).
+Drafter: qwen3-0p6b-sealed.bin 251,746,661 B, sha256 bf924246 (draft-0p6b-2026-11-07.txt).
+
+Gates (prereg section 3), run 2: all hold at the three sizes.
+- oracle MATCH; every object and config at its sha256; no LLVQ_* in the job env.
+- Target and drafter on the 4E v9 module 1b422b62 (252,757 B); verify module ab162e7f (287,744 B).
+- The greedy reference at the house prompt is the served v9 door: 61d0654532d35120, c817aeaf2f5d1116, dc4f9ab9aa24c4d3.
+- IDENTITY: at k = 1, 2, 3, every speculative arm made the greedy tokens in all 6 rounds at the 4 prompts, and the
+  greedy completion on each of the 50 GSM8K problems. 4E's verify pass keeps the bits on the card.
+
+Decode tok/s, median [range] over 5 rounds, ratio to greedy formed round by round (measured). k = 1 is the best k at
+every size and prompt. Acceptance = kept drafts over proposed. Verify = one pass of k + 1 rows, in greedy tokens.
+
+4B (greedy door 221.5 at the served door)
+  prompt    greedy   k=1               ratio    accept  k=2      ratio    k=3      ratio
+  chat      221.8    126.3 [126.0-126.3]  x0.569   0.427   102.6    x0.463   81.2     x0.366
+  code      221.2    137.8 [137.8-137.8]  x0.623   0.597   118.0    x0.534   100.7    x0.455
+  summary   211.9    125.9 [125.7-125.9]  x0.594   0.473   110.1    x0.519   86.3     x0.407
+  house     226.3    164.5 [164.4-164.6]  x0.727   0.977   175.7    x0.776   175.6    x0.776
+  GSM8K 50  217.2    146.7                x0.675   0.763   142.8    x0.657   128.7    x0.593
+  verify pass: x1.95 (k=1), x2.61 (k=2), x3.39 (k=3) a greedy token; drafter launch 2.5-3.3 ms at k=1
+
+8B (served door 142.5)
+  chat      142.3    84.1 [84.0-84.1]     x0.591   0.435   69.7     x0.490   56.3     x0.395
+  code      141.2    90.5 [90.2-90.6]     x0.641   0.574   81.3     x0.576   65.4     x0.463
+  summary   138.2    90.9 [90.8-90.9]     x0.658   0.620   77.9     x0.564   65.4     x0.473
+  house     142.9    105.9 [105.7-106.0]  x0.741   0.875   104.1    x0.729   98.5     x0.689
+  GSM8K 50  139.4    98.0                 x0.703   0.751   94.1     x0.675   82.3     x0.590
+  verify pass: x2.05 (k=1), x2.81 (k=2), x3.79 (k=3)
+
+14B (served door 86.3)
+  chat      88.6     51.3 [50.9-51.4]     x0.579   0.449   42.8     x0.484   34.3     x0.389
+  code      87.6     54.5 [54.4-54.8]     x0.623   0.558   47.9     x0.546   39.9     x0.456
+  summary   84.8     57.4 [57.3-57.6]     x0.676   0.686   49.3     x0.581   45.6     x0.537
+  house     88.9     60.7 [60.4-60.9]     x0.683   0.735   57.0     x0.641   55.2     x0.621
+  GSM8K 50  86.8     60.2                 x0.694   0.750   57.4     x0.661   51.1     x0.589
+  verify pass: x2.25 (k=1), x3.10 (k=2), x4.11 (k=3)
+
+GSM8K ratios are the two arms' summed decode rates (one pass each over the 50 problems), not round by round. Correct
+counts are identical in every arm, as the completions are: 40, 46, 46 of 50. The full lines, door rates, catch-ups
+and timings per arm are in r2/spec-<size>.txt.
+
+Pooled, chat, code and summary at k = 1, geometric mean of the median decode ratios (computed): 4B x0.595, 8B x0.629,
+14B x0.625.
+
+Card memory (cuMemGetInfo, the whole context) after the drafter's load, its 4E and the target's verify pass, against
+the target alone: 4B 1.980 -> 2.217 GB (+0.237), 8B 3.356 -> 3.626 (+0.271), 14B 5.637 -> 5.874 (+0.237).
+
+Where the time goes (from the arms' own timings):
+- The verify pass does not share enough. Two rows cost 1.95, 2.05 and 2.25 greedy tokens; at 14B more than two 4E
+  tokens. Each extra row adds 0.65 to 1.25 of a token, against the 0.378 of the row phases alone (shaker-4e).
+  The verify symbol spills at both block sizes (512 threads: 128 registers, 144 B local; 768: 272 B), it runs the
+  prologues and attention once per row, and the down shares only at the 4B (2 rows a group; 1 at the 8B and 14B,
+  whose inter does not fit twice in 99 KB). The install line printed "4 at hidden" for the 8B and 14B; the kernel's
+  groups were 4 and 3 (the line omitted the staged `small`; fixed after the run).
+- The drafter costs 2.5 ms a launch at k = 1, 3.9 at k = 2, 5.4 at k = 3: about 1.4 ms a token plus a launch, where a
+  token of the 4B costs 4.4. A round that keeps its draft also pays a catch-up launch.
+- Acceptance at k = 1 is 0.43 to 0.69 on chat, code and summary and 0.75 on GSM8K: a round emits 1.43 to 1.76 tokens.
+
+Predictions (prereg section 5), misses reported:
+- Identity at every size, prompt and k: as predicted.
+- Verify pass at 4B: x1.95 against x1.4 [1.2, 1.7], MISS; x2.61 against x1.8 [1.5, 2.2], MISS; x3.39 against
+  x2.2 [1.8, 2.7], MISS. "No higher at 8B and 14B": MISS, higher.
+- Drafter 1.0 ms a token [0.6, 1.6]: about 1.4 ms a token from the k = 1..3 launches, inside; a launch adds about 1 ms.
+- Acceptance at k = 1: chat 0.43 against 0.55 [0.35, 0.75], inside; code 0.60 against 0.65, inside; summary 0.47
+  against 0.60, inside; GSM8K 0.76 against 0.65, inside; house 0.98 against 0.8 [0.5, 0.97], MISS above at 4B.
+- Pooled decode ratio at the best k: 4B x0.595 against x1.00 [0.80, 1.20], MISS; 8B x0.629 against x1.08, MISS;
+  14B x0.625 against x1.15, MISS. Best k 1 at every size: as predicted at 4B, inside at 8B and 14B.
+- Card memory +0.237 / +0.271 / +0.237 GB against 0.5 [0.3, 0.9]: MISS below.
+
+Decision rule (prereg section 6): identity holds at the three sizes and no pooled ratio reaches x1.00. The speculative
+decode stays a measurement; it is not proposed for serving.
+
+What this does not establish: a cheaper verify pass (no spill, shared prologues, the down shared through L2) or a
+cheaper drafter (its launches merged, no catch-up), a drafter on CPU, a long context, any card but the L40S. Even with
+the verify pass at the 0.378 a row of the row phases and the drafter as measured, the estimate at k = 1 stays under
+x1.00 at 4B and near x1.0 at 14B (estimated, plan-speculation.md).

@@ -25,7 +25,7 @@ use crate::device::AttnKernel;
 /// and checked against the CPU replay bit for bit before it is handed out.
 pub fn attn_kernel(device: &Device, n_kv: usize, groups: usize) -> Result<Arc<dyn AttnKernel>, String> {
     let dev = device.as_cuda_device().map_err(|e| format!("attention kernel: {e}"))?.clone();
-    let module = llvq_cuda::attn::AttnModule::on_stream(dev.cuda_stream())?;
+    let module = llvq_cuda::attn::AttnModule::on_stream_for(dev.cuda_stream(), groups)?;
     println!("{}", module.provenance());
     let dec = llvq_cuda::attn::AttnDec::new(module, n_kv, groups, canon::UNIT_SERVED)?;
     println!("{}", dec.report_line());

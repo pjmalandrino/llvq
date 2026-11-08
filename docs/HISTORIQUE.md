@@ -1245,3 +1245,16 @@ of 5). One job read both arms ($0.48): the existing multi-row path plateaus at 2
 reaches 1,256.5 at B = 32, both with the batch-1 tokens on every row (*measured*,
 [batch-tetra](mesures/batch-tetra-2026-11-07.txt)). The gate passed. The kernel's step costs 15.6 ms at B = 1 against
 AWQ's 4.9, which leaves Tetra four times below AWQ in aggregate.
+
+## 2026-11-07. Speculative decoding with the 0.6B: the bits hold, the speed does not
+
+- Operator's go: test the speculative decode with the 0.6B. Qwen3-0.6B sealed in Tetra on the Mac: 0.252 GB,
+  3.099 b/param, perplexity 40.30 against 18.93 for its f16 checkpoint ([draft-0p6b](mesures/draft-0p6b-2026-11-07.txt)).
+  `seal` no longer carries a head the model ties to its embedding.
+- `pers_4ev.cu`, 4E's verify pass: up to 4 rows of the decode in one launch, each row the served chain's bits on the
+  host (11 mutants killed). `speculative.rs`: greedy acceptance, both caches rewound. `bin/specrun`, the gate.
+- On the L40S ([spec-gate](mesures/spec-gate-2026-11-07.txt), $2.37 with a first run void at the drafter's load):
+  every speculative arm made the greedy tokens at the three sizes, four prompts, k = 1 to 3, and on the 50 GSM8K
+  pilot problems. Decode at the best k, x0.595 (4B), x0.629 (8B), x0.625 (14B) of greedy; +0.24 to +0.27 GB on the
+  card. A 2-row verify pass costs 1.95 to 2.25 greedy tokens (it spills, runs the prologues and attention per row),
+  the drafter 2.5 ms a launch. Not proposed for serving.

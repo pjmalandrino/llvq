@@ -1,0 +1,19 @@
+device: Metal(MetalDevice(DeviceId(1))), context 4096, dtype f16
+sealed qwen3-0p6b-sealed.bin: 196 quantized matrices, 0.252 GB on disk
+loading corpus wikitext2…
+299078 tokens → 12 windows of 4096 (fingerprint 3f1baca9033bf251)
+  window   1/12  nll 3.699462950  n 4095  running ppl   40.426  (3.4s)
+  window   2/12  nll 4.096597413  n 4095  running ppl   49.305  (6.6s)
+  window   3/12  nll 3.419975294  n 4095  running ppl   42.042  (9.7s)
+  window   4/12  nll 3.097915236  n 4095  running ppl   35.819  (12.8s)
+  window   5/12  nll 3.958389614  n 4095  running ppl   38.647  (16.0s)
+  window   6/12  nll 3.920469895  n 4095  running ppl   40.399  (19.3s)
+  window   7/12  nll 3.690137076  n 4095  running ppl   40.349  (22.6s)
+  window   8/12  nll 3.719943815  n 4095  running ppl   40.462  (25.9s)
+  window   9/12  nll 3.885682091  n 4095  running ppl   41.304  (29.2s)
+  window  10/12  nll 3.379703239  n 4095  running ppl   39.918  (32.7s)
+  window  11/12  nll 3.806943252  n 4095  running ppl   40.356  (36.1s)
+  window  12/12  nll 3.681493008  n 4095  running ppl   40.302  (39.6s)
+
+qwen3-0p6b-sealed.bin [LLVQ 2-bit, sealed] — wikitext2, ctx 4096, 12 windows, dtype f16, kv f16, tokens 3f1baca9033bf251
+ppl = 40.3017

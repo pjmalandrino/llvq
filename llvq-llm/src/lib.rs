@@ -54,6 +54,7 @@ pub mod rotplan;
 pub mod sealed;
 pub mod served;
 pub mod served_decode;
+pub mod speculative;
 pub mod tempfit;
 /// The CPU matvecs that decode Tetra and int4 codes on the fly.
 pub mod tetra_cpu;

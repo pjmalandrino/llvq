@@ -1,0 +1,12 @@
+qwen3-0p6b-dclm.llvq: format v5, 196 quantized matrices, kinds Tetra+Int4G128
+reading Qwen/Qwen3-0.6B for the tensors the artifact is missing…
+  not carrying lm_head.weight: tie_word_embeddings is true, the embedding is the head
+  carrying 114 tensors, 155648000 weights (0.311 GB at f16)
+
+── v2/qwen3-0p6b-sealed-f16.bin
+   quantized     440401920 weights → 0.153 GB (2.7730 bits/weight)
+   carried       155648000 weights → 0.323 GB at f16
+   total          0.475 GB on disk
+   against        1.192 GB in FP16  →  ×2.51
+
+   this file needs no checkpoint, no cache and no network.

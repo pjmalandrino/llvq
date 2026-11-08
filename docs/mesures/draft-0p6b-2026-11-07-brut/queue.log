@@ -1,0 +1,14 @@
+== build 2026-11-07T21:41:23Z
+== oracle 2026-11-07T21:43:03Z
+oracle exit 0
+== smoke 2026-11-07T21:44:37Z
+smoke exit 0 2026-11-07T22:03:34Z
+== seal 2026-11-07T22:03:34Z
+seal exit 0
+embedq exit 0
+-rw-r--r--  1 pjmalandrino  staff  152669242 Nov  7 23:02 /Users/pjmalandrino/q06b-tetra-2026-11-07/qwen3-0p6b-dclm.llvq
+-rw-r--r--  1 pjmalandrino  staff  786561415 Nov  7 23:03 /Users/pjmalandrino/q06b-tetra-2026-11-07/qwen3-0p6b-sealed-f16.bin
+-rw-r--r--  1 pjmalandrino  staff  339261863 Nov  7 23:03 /Users/pjmalandrino/q06b-tetra-2026-11-07/qwen3-0p6b-sealed.bin
+rtbits exit 0
+== ppl 2026-11-07T22:03:43Z
+ppl exit 0 2026-11-07T22:04:33Z

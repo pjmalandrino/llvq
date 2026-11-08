@@ -19,6 +19,7 @@
 
 #include "host_cta.h"
 #include "../kernels/attn_dec.cu"
+#include "../kernels/attn_dec_g2.cu"
 
 template <class T>
 static T rd() {
@@ -53,6 +54,8 @@ static Entry entry(unsigned g, unsigned unit) {
     if (g == 5 && unit == 64) return attn_dec_g5_u64;
     if (g == 4 && unit == 32) return attn_dec_g4_u32;
     if (g == 5 && unit == 32) return attn_dec_g5_u32;
+    if (g == 2 && unit == 64) return attn_dec_g2_u64;
+    if (g == 2 && unit == 32) return attn_dec_g2_u32;
     std::fprintf(stderr, "host_attn_dec: no entry point for G=%u unit=%u\n", g, unit);
     std::exit(3);
 }
