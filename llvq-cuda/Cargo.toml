@@ -6,16 +6,20 @@ license.workspace = true
 repository.workspace = true
 description = "CUDA port of the LLVQ fused kernel: the same Leech decoder, measured on an NVIDIA GPU."
 
-# Portable dependencies go here, unconditionally, exactly as in llvq-metal.
-# The shared host-side pieces (class table, f64 reference, transcoding) still
-# live in llvq-metal and only move out at K0. `llvq-bench` is here for one
-# reason: `bin/f1rankfloor` builds the F1 universal-table decoder's tables
-# from the reference module (`llvq_bench::f1::rank`) and checks the card's
-# decode against it, and `tests/f1rank_matches_rust.rs` does the same on the
-# Mac through clang++ — one dependency serves both. It is workspace-only:
-# no external crate, `forbid(unsafe_code)`.
+# `llvq-bench` builds the F1 universal-table decoder's rank tables
+# (`llvq_bench::f1::rank`), which three bench binaries upload and check the
+# card's decode against: `planesbench`, `f1rankfloor` and `f1floorbench`. The
+# library never names it, so it sits behind the default feature `bench`, and
+# `llvq-llm` takes this crate with `default-features = false`: the served build
+# does not compile the bench crate (audit batch 7, 2026-11-08). The image's
+# `cargo build -p llvq-cuda` keeps the default and builds the three as before.
+# The `tests/f1rank*_matches_rust.rs` sweeps reach it as a dev-dependency.
+[features]
+default = ["bench"]
+bench = ["dep:llvq-bench"]
+
 [dependencies]
-llvq-bench = { path = "../llvq-bench" }
+llvq-bench = { path = "../llvq-bench", optional = true }
 
 # NVIDIA-only by construction, and target-gated rather than feature-gated on
 # purpose: cudarc cannot build on macOS at all, whichever way it is asked.
@@ -76,6 +80,7 @@ llvq-quant = { path = "../llvq-quant" }
 # has to run on the development machine — which is exactly the machine with no
 # CUDA. None of these three crates pulls in an external dependency.
 [dev-dependencies]
+llvq-bench = { path = "../llvq-bench" }
 llvq-core = { path = "../llvq-core" }
 llvq-search = { path = "../llvq-search" }
 llvq-artifact = { path = "../llvq-artifact" }
@@ -83,3 +88,18 @@ llvq-artifact = { path = "../llvq-artifact" }
 # artifact, so it is not a reimplementation to diff against — it is the basis
 # the stored weights are in.
 llvq-quant = { path = "../llvq-quant" }
+
+[[bin]]
+name = "planesbench"
+path = "src/bin/planesbench.rs"
+required-features = ["bench"]
+
+[[bin]]
+name = "f1rankfloor"
+path = "src/bin/f1rankfloor.rs"
+required-features = ["bench"]
+
+[[bin]]
+name = "f1floorbench"
+path = "src/bin/f1floorbench.rs"
+required-features = ["bench"]
