@@ -27,6 +27,21 @@ the hold of `plan-debit-noyau.md` K9 on neural drafters for this test.
   models whose output depends on the whole cache. `Decoder::continue_speculative` runs it on two 4E engines.
 - **The gate.** `bin/specrun`, `ops/jobs/spec-gate.sh`, `proofs/preregistration-spec-gate-2026-11-07.md`.
 
+## What the card read (2026-11-07)
+
+[spec-gate](mesures/spec-gate-2026-11-07.txt), one L40S, *measured*. Identity holds: at the 4B, 8B and 14B, k = 1 to
+3, every speculative arm made the greedy tokens on chat, code, summary and the house prompt in every round, and the
+greedy completion on each of the 50 GSM8K pilot problems. The speed does not: k = 1 is best everywhere, and the decode
+reads x0.569 to x0.676 of greedy on chat, code and summary, x0.68 to x0.74 on the looping house prompt, x0.68 to
+x0.70 on GSM8K. Acceptance at k = 1: 0.43 to 0.69 on chat, code and summary, 0.75 on GSM8K. Card memory +0.237,
++0.271 and +0.237 GB.
+
+| size | greedy decode, chat | k = 1 | ratio | 2-row verify, in greedy tokens | drafter, a launch at k = 1 |
+|---|---|---|---|---|---|
+| 4B | 221.8 | 126.3 | x0.569 | 1.95 | 2.5 ms |
+| 8B | 142.3 | 84.1 | x0.591 | 2.05 | 2.5 ms |
+| 14B | 88.6 | 51.3 | x0.579 | 2.25 | 2.5 ms |
+
 ## What decides the speed
 
 A round of k drafts costs the drafter's k tokens plus one verify pass of k + 1 rows, and emits the kept drafts plus

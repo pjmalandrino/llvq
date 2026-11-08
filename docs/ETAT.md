@@ -268,6 +268,7 @@ the bar is the paired interval, 0.43 pp in MMLU and 0.12% in perplexity (*measur
 | A2, CUDA Graphs, served | +12.6% of throughput for +47% of VRAM at 4B | [ECARTS](../proofs/preregistration-a2-a3-geometrie-2026-08-31-ECARTS.md) §É7 |
 | Euclidean gain rule | dead end to end | [HISTORIQUE](HISTORIQUE.md), 2026-09-15 |
 | 4E v5, the last rows spread over the warps | x1.001 over v4 after a 5-token prompt, its range touching x1.00; `"rows": "v5"` is refused by name | [shaker-4e](mesures/shaker-4e-2026-11-05.txt) |
+| Speculative decoding, the 0.6B drafting, 4E's verify pass checking | tokens identical to greedy at the bit at 4B, 8B and 14B, but decode x0.595, x0.629, x0.625 of greedy at the best k (k = 1): a 2-row verify pass costs 1.95 to 2.25 greedy tokens, the drafter 2.5 ms a launch, acceptance 0.43 to 0.69 on chat, code and summary. Reopen when a 2-row verify pass costs under 1.4 tokens and a draft token under 1 ms | [spec-gate](mesures/spec-gate-2026-11-07.txt) |
 | A mixed `Tetra` plus int4 bench arm | the bench compares formats on the same 252 matrices, and the served files are timed end to end | operator, 2026-10-06 |
 
 Reopening any of them needs the condition written in its own row, not a new argument. A2 stays out of the core.

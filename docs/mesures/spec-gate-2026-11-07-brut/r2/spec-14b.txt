@@ -1,0 +1,94 @@
+target: served config: /out/spec-gate-2026-11-07-r2/qwen3-14b-tetra-e4-4e-v9.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention kernel from position 0 on grow(256), decode persistent (4E rows v9, one launch a token run)) — The qwen3-14b-tetra-e4 object (qwen3-14b-sealed.bin, sha256 61db37fe) under 4E v9: the kernel attention form on every decode row from position 0, decoded by 4E v9 (row form 7, one cooperative launch a token run, 512 threads), the int4 words tiled at load and held once on the card, read by 4E and by the eager path's tv_q4_hht. At 14B 4E reads o_proj int4 and the head on its own int4 g64 table (untied); v9 asks 96,064 B of shared memory a CTA (computed). Written on 2026-11-07 on the operator's go to serve v9 at 4B, 8B and 14B. 4E owes the eager path's tokens bit for bit under this config (host-tested, llvq-cuda/tests/pers_matches_served.rs). The attention form differs from the served qwen3-14b-tetra-e4-grouped.json (63.1 tok/s after a 5-token prompt, measured, gqa-14b-2026-11-04): the kernel form below 1,280 has no T8 at this size before the served-v9 door's perplexity band reads it. Not yet read at the served door. The file and its b/param do not move. Refused on Metal.
+cudarc event tracking: off (one stream, ordered by issue)
+shared rotation: 1 (specrun), 101 rot_launches/token for 280 projections
+projection fusion: 0 (specrun), 280 matvec_launches/token for 280 projections (0 groups + 181 lone + 99 int4)
+fused layout: tetra48 (specrun), projections 4.17 GB on the card, 2.524 b/weight (INFERENCE accounting: KeepExact tail in binary16; the bench bills its own in f32)
+NVRTC source: 106947 bytes, sha256 e269ea5d11b7e40ba0682f536f52ed9f09abfaa9fd6f3185eb306edca5c60e53 (12 parts), tile 64 (served: measured optimum for sm_89), prefill 4x128 (served pair), 49152 B staged of 49152, target compute_89
+int4: tv_q4_hht equals tv_q4_ht bit for bit on model.layers.0.self_attn.v_proj.weight (1024 rows, d_in 5120)
+int4: tv_q4_hht on the tiled words equals tv_q4_hh on the file's order bit for bit on model.layers.0.self_attn.v_proj.weight (1024 rows, d_in 5120); the file-order copy is freed
+int4: tv_q4_hht on the tiled words equals tv_q4_hh on the file's order bit for bit on model.layers.10.mlp.down_proj.weight (5120 rows, d_in 17408); the file-order copy is freed
+int4 layout: tiled (specrun), 99 records, words 1.476 GB on the card, held once
+embedding: q4 g64 (specrun), 2 tables (model.embed_tokens.weight + lm_head.weight), 875.2 MB on the card (int4 777.9 + scales/biases 97.2)
+total expected on the card: 5.04 GB (projections 4.17 + carried 0.88)
+attn_dec.cu: embedded, sha256 c7b0d8d3f2e3066ba1a2b4331c0bb6c92f22182c78a31b7fb74e839330a1838d, target compute_89
+attn_dec_g5_u64: 188 registers, 0 B local (spill), 16384 B static shared, sm_89
+attn_dec_g5_u64: the card equals the CPU replay bit for bit on 103 calls (rows ending at 1, 255, 256, 257, 1000, 4096; k 1, 3, 8; eager and wide grids; verify rows alone; fresh rows) (1.5 s)
+4E: persistent module 252757 bytes, sha256 1b422b62328be6752df4add43280565fd2a49cfa20ee26953b301abe7a15c530, row form 7, own module on candle's stream
+4E: RoPE forms equal to candle's rope on this card: [1]; running form 1
+4E: pers_4e_tokens_f1_t512: 128 registers, 0 B local, 96064 B shared, 1 resident a SM
+4E: pers_4e_stamps_f1_t512: 128 registers, 32 B local, 1 resident a SM (phase stamps, outside the timed rounds)
+4E: head on a table of its own (untied) (151936 rows)
+4E v9: the 84 prologue inputs are 16-byte aligned; the vector path runs on every layer
+4E v9: the int4 records are read in place, tiled at load and held once on the card (40 layers)
+4E: 40 layers, grid 142 x 512, 242 barriers a token
+card memory: 5.637 GB used after the target's load and its 4E install (cuMemGetInfo)
+drafter: served config: /out/spec-gate-2026-11-07-r2/qwen3-0p6b-tetra-e4-4e-v9.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention kernel from position 0 on grow(256), decode persistent (4E rows v9, one launch a token run)) — The drafter of the speculative decode: Qwen3-0.6B in Tetra (qwen3-0p6b-sealed.bin, the 14B encode's recipe with o_proj in int4 too and no trained row scales, proofs/preregistration-draft-0p6b-2026-11-07.md), decoded by 4E v9 as the 4B v9 config decodes the 4B. Its tokens are never served: under greedy acceptance the target's tokens do not depend on the drafter, which sets the acceptance rate only (docs/plan-speculation.md). Written on 2026-11-07 on the operator's go to test the speculative decode with the 0.6B. Not read on a card when written.
+cudarc event tracking: off (one stream, ordered by issue)
+shared rotation: 1 (specrun), 84 rot_launches/token for 196 projections
+projection fusion: 0 (specrun), 196 matvec_launches/token for 196 projections (0 groups + 140 lone + 56 int4)
+fused layout: tetra48 (specrun), projections 0.14 GB on the card, 2.621 b/weight (INFERENCE accounting: KeepExact tail in binary16; the bench bills its own in f32)
+NVRTC source: 106947 bytes, sha256 e269ea5d11b7e40ba0682f536f52ed9f09abfaa9fd6f3185eb306edca5c60e53 (12 parts), tile 64 (served: measured optimum for sm_89), prefill 4x128 (served pair), 49152 B staged of 49152, target compute_89
+int4: tv_q4_hht equals tv_q4_ht bit for bit on model.layers.0.self_attn.v_proj.weight (1024 rows, d_in 1024)
+int4: tv_q4_hht on the tiled words equals tv_q4_hh on the file's order bit for bit on model.layers.0.self_attn.v_proj.weight (1024 rows, d_in 1024); the file-order copy is freed
+int4: tv_q4_hht on the tiled words equals tv_q4_hh on the file's order bit for bit on model.layers.0.self_attn.o_proj.weight (1024 rows, d_in 2048); the file-order copy is freed
+int4 layout: tiled (specrun), 56 records, words 0.044 GB on the card, held once
+embedding: q4 g64 (specrun), 1 table (model.embed_tokens.weight, lm_head tied on it), 87.5 MB on the card (int4 77.8 + scales/biases 9.7)
+total expected on the card: 0.23 GB (projections 0.14 + carried 0.09)
+attn_dec.cu: embedded, sha256 7684ba6183dc9c8c188360bc3f4bff90e35b2fc293b4739ed91b098f5d5c2e0b, target compute_89
+attn_dec_g2_u64: 127 registers, 0 B local (spill), 16384 B static shared, sm_89
+attn_dec_g2_u64: the card equals the CPU replay bit for bit on 103 calls (rows ending at 1, 255, 256, 257, 1000, 4096; k 1, 3, 8; eager and wide grids; verify rows alone; fresh rows) (0.6 s)
+drafter 4E: persistent module 252757 bytes, sha256 1b422b62328be6752df4add43280565fd2a49cfa20ee26953b301abe7a15c530, row form 7, own module on candle's stream
+drafter 4E: RoPE forms equal to candle's rope on this card: [1]; running form 1
+drafter 4E: pers_4e_tokens_f1_t512: 128 registers, 0 B local, 80768 B shared, 1 resident a SM
+drafter 4E: pers_4e_stamps_f1_t512: 128 registers, 32 B local, 1 resident a SM (phase stamps, outside the timed rounds)
+drafter 4E: head tied to the embedding's table (151936 rows)
+drafter 4E v9: the 60 prologue inputs are 16-byte aligned; the vector path runs on every layer
+drafter 4E v9: the int4 records are read in place, tiled at load and held once on the card (28 layers)
+drafter 4E: 28 layers, grid 142 x 512, 170 barriers a token
+4E verify: module 287744 bytes, sha256 ab162e7fca4a1b5130170931eda22194cc7514c15fa64a52829f33a728ddd2fd, row form 7 and pers_4ev.cu, its own module
+4E verify: 20576 floats of staging, 101376 B shared; rows a group at most 4: 4 at hidden 5120, 4 at the context 5120, 1 at inter 17408
+4E verify: pers_4ev_rows_f1: 80 registers, 272 B local, 101376 B shared, 1 resident a SM
+4E verify: pers_4ev_rows_f1_t512: 128 registers, 144 B local, 101376 B shared, 1 resident a SM
+4E verify: 512 threads; 0.003 GB of row buffers on the card
+card memory: 5.874 GB used after the drafter's load, its 4E install and the target's verify pass (cuMemGetInfo): +0.237 GB
+weights: target 5.044 GB, drafter 0.232 GB (runtime and carried bytes)
+loaded in 193.6 s; draft lengths [1, 2, 3]
+
+== chat: 62 prompt tokens, greedy reference 256 tokens, fingerprint 37205c2f372d8bdc
+chat: every arm made the greedy tokens in every round, 256 of 256
+  chat greedy: door    73.9 tok/s [73.2-74.3], decode    88.6 [87.7-89.1]
+  chat k = 1  : door    45.4 tok/s [45.1-45.5], decode    51.3 [50.9-51.4], / greedy round by round: door x0.614 [0.612-0.618], decode x0.579 [0.576-0.583]; acceptance 0.449 (79 of 176), 1.45 tokens a verify, 78 catch-ups; verify 25.826 ms a pass (x2.288 a greedy token), drafter 2.534 ms a launch
+  chat k = 2  : door    38.7 tok/s [38.6-38.7], decode    42.8 [42.8-42.9], / greedy round by round: door x0.523 [0.521-0.528], decode x0.484 [0.481-0.488]; acceptance 0.346 (104 of 301), 1.69 tokens a verify, 36 catch-ups; verify 35.564 ms a pass (x3.151 a greedy token), drafter 3.870 ms a launch
+  chat k = 3  : door    31.6 tok/s [31.5-31.8], decode    34.3 [34.2-34.5], / greedy round by round: door x0.429 [0.428-0.432], decode x0.389 [0.387-0.391]; acceptance 0.267 (113 of 424), 1.80 tokens a verify, 15 catch-ups; verify 46.982 ms a pass (x4.163 a greedy token), drafter 5.348 ms a launch
+  text: Lisbon is a wonderful city to explore on foot, with its mix of historic charm, vibrant culture, and delicious local cuisine. Since you're planning a three-day trip in late autumn (October or November), the weather should be mild and pleasant, making it ideal for walking. Here's a suggested itinerary and some practical tips to help you make the most of your trip:  ---  ### **Day 1: Old Lisbon – A Walk Through History** **Morning:** - **Start at the Castle of São Jorge** (Castelo de São Jorge) – a must-visit for panoramic views of the city. The climb is worth it, and the views of the Tagus River and the city below are stunning. - **Walk down to the Alfama district** – the oldest neighborhood in Lisbon, full of narrow streets, traditional fado music, and small shops.  **Afternoon:** - **Visit the São Luís Church** (Igreja de São Luís) – a small, peaceful church with a beautiful view of the Tagus River. - **Explore the Mercado de Ribeira** – a local market with fresh seafood, fruits, and souvenirs. Try some *bacalhau* (cod) or *past
+
+== code: 62 prompt tokens, greedy reference 256 tokens, fingerprint 73e90ee1d2b77b8d
+code: every arm made the greedy tokens in every round, 256 of 256
+  code greedy: door    73.2 tok/s [73.1-73.4], decode    87.6 [87.5-87.9]
+  code k = 1  : door    47.9 tok/s [47.8-48.1], decode    54.5 [54.4-54.8], / greedy round by round: door x0.655 [0.654-0.656], decode x0.623 [0.622-0.624]; acceptance 0.558 (91 of 163), 1.55 tokens a verify, 90 catch-ups; verify 25.875 ms a pass (x2.267 a greedy token), drafter 2.733 ms a launch
+  code k = 2  : door    42.8 tok/s [42.7-42.8], decode    47.9 [47.8-48.0], / greedy round by round: door x0.583 [0.583-0.585], decode x0.546 [0.545-0.548]; acceptance 0.451 (121 of 268), 1.90 tokens a verify, 45 catch-ups; verify 35.690 ms a pass (x3.127 a greedy token), drafter 4.059 ms a launch
+  code k = 3  : door    36.3 tok/s [36.2-36.5], decode    39.9 [39.9-40.2], / greedy round by round: door x0.497 [0.494-0.498], decode x0.456 [0.454-0.457]; acceptance 0.370 (134 of 362), 2.11 tokens a verify, 26 catch-ups; verify 47.211 ms a pass (x4.136 a greedy token), drafter 5.555 ms a launch
+  text: Here's a Python function `merge_intervals(intervals)` that merges overlapping intervals, sorted by their start time. It includes a docstring, type hints, and a few unit tests using `pytest`.  ---  ### ✅ **Function Definition**  ```python from typing import List, Tuple  def merge_intervals(intervals: List[Tuple[int, int]]) -> List[Tuple[int, int]]:     """     Merge overlapping intervals and return them sorted by start time.      Args:         intervals (List[Tuple[int, int]]): A list of intervals represented as [start, end] pairs.      Returns:         List[Tuple[int, int]]: A list of merged intervals with no overlaps, sorted by start time.      Example:         >>> merge_intervals([[1, 3], [2, 4], [5, 7]])         [[1, 4], [5, 7]]     """     # Sort intervals by start time     intervals.sort()          # Initialize merged list with the first interval     merged = [intervals[0]]          # Iterate through the rest of the intervals     for current in intervals[1:]:         last = merged[-1]         # If current overlaps with the last merged interval, merge
+
+== summary: 341 prompt tokens, greedy reference 118 tokens, fingerprint 5bf7695319a71239
+summary: every arm made the greedy tokens in every round, 118 of 118
+  summary greedy: door    26.1 tok/s [26.0-26.2], decode    84.8 [84.4-85.7]
+  summary k = 1  : door    21.0 tok/s [21.0-21.1], decode    57.4 [57.3-57.6], / greedy round by round: door x0.805 [0.804-0.808], decode x0.676 [0.672-0.680]; acceptance 0.686 (48 of 70), 1.69 tokens a verify, 48 catch-ups; verify 26.008 ms a pass (x2.206 a greedy token), drafter 3.102 ms a launch
+  summary k = 2  : door    19.9 tok/s [19.8-19.9], decode    49.3 [49.3-49.3], / greedy round by round: door x0.761 [0.758-0.763], decode x0.581 [0.576-0.584]; acceptance 0.500 (59 of 118), 2.00 tokens a verify, 25 catch-ups; verify 35.823 ms a pass (x3.038 a greedy token), drafter 4.411 ms a launch
+  summary k = 3  : door    19.2 tok/s [19.2-19.3], decode    45.6 [45.5-45.9], / greedy round by round: door x0.737 [0.735-0.742], decode x0.537 [0.534-0.543]; acceptance 0.486 (70 of 144), 2.46 tokens a verify, 16 catch-ups; verify 47.160 ms a pass (x4.000 a greedy token), drafter 6.045 ms a launch
+  text: - The town council discussed three proposals for the old railway depot: affordable housing, a covered market, or a bus interchange.   - A housing cooperative plans to convert the depot into 40 affordable flats, preserving its historic features.   - A local business group proposed a covered market with 60 stalls, a brewery, and a food hall.   - The regional transport authority suggested demolishing the depot for a bus interchange and park-and-ride facility.   - The council will delay a decision until spring after a public consultation, requiring detailed budgets and timetables by February.
+
+== door: 5 prompt tokens, greedy reference 256 tokens, fingerprint dc4f9ab9aa24c4d3
+door: every arm made the greedy tokens in every round, 256 of 256
+  door greedy: door    87.6 tok/s [86.8-87.8], decode    88.9 [88.1-89.1]
+  door k = 1  : door    60.0 tok/s [59.7-60.2], decode    60.7 [60.4-60.9], / greedy round by round: door x0.685 [0.685-0.688], decode x0.683 [0.683-0.685]; acceptance 0.735 (108 of 147), 1.73 tokens a verify, 107 catch-ups; verify 25.671 ms a pass (x2.282 a greedy token), drafter 2.898 ms a launch
+  door k = 2  : door    56.4 tok/s [56.4-56.4], decode    57.0 [56.9-57.0], / greedy round by round: door x0.644 [0.643-0.649], decode x0.641 [0.640-0.646]; acceptance 0.631 (142 of 225), 2.26 tokens a verify, 60 catch-ups; verify 35.400 ms a pass (x3.147 a greedy token), drafter 4.175 ms a launch
+  door k = 3  : door    54.7 tok/s [54.5-54.9], decode    55.2 [55.1-55.4], / greedy round by round: door x0.625 [0.623-0.629], decode x0.621 [0.620-0.626]; acceptance 0.637 (167 of 262), 2.90 tokens a verify, 36 catch-ups; verify 46.739 ms a pass (x4.155 a greedy token), drafter 5.609 ms a launch
+  text:  Paris. The capital of Italy is Rome. The capital of Spain is Madrid. The capital of Germany is Berlin. The capital of Japan is Tokyo. The capital of Canada is Ottawa. The capital of Australia is Canberra. The capital of Brazil is Brasília. The capital of Russia is Moscow. The capital of China is Beijing. The capital of India is New Delhi. The capital of South Korea is Seoul. The capital of Mexico is Mexico City. The capital of Egypt is Cairo. The capital of South Africa is Pretoria. The capital of Thailand is Bangkok. The capital of Indonesia is Jakarta. The capital of Turkey is Ankara. The capital of Greece is Athens. The capital of Portugal is Lisbon. The capital of Sweden is Stockholm. The capital of Norway is Oslo. The capital of Finland is Helsinki. The capital of Denmark is Copenhagen. The capital of Netherlands is Amsterdam. The capital of Belgium is Brussels. The capital of Switzerland is Bern. The capital of Austria is Vienna. The capital of Hungary is Budapest. The capital of Poland is Warsaw. The capital of Czech Republic is Prague. The capital of Slovakia is Bratislava. The capital of Slovenia is Ljubljana. The capital of Croatia is Zagreb. The capital of Serbia is Belgrade.
+
+== gsm8k: 50 problems of 1319, revision 740312add88f781978c0658806c59bc2815b9866, max_new 1024, reasoning off
+  gsm8k greedy: 46 of 50 correct, decode 86.8 tok/s over 14788 tokens
+  gsm8k greedy completions fingerprint 39f754083e236ea1
+  gsm8k k = 1: 46 of 50 correct, decode 60.2 tok/s over 14788 tokens; completions identical to greedy 50 of 50; acceptance 0.750 (6359 of 8480), 1.75 tokens a verify; verify 25.867 ms a pass (x2.245 a greedy token), drafter 3.109 ms a launch
+  gsm8k k = 2: 46 of 50 correct, decode 57.4 tok/s over 14788 tokens; completions identical to greedy 50 of 50; acceptance 0.657 (8428 of 12821), 2.31 tokens a verify; verify 35.678 ms a pass (x3.096 a greedy token), drafter 4.532 ms a launch
+  gsm8k k = 3: 46 of 50 correct, decode 51.1 tok/s over 14788 tokens; completions identical to greedy 50 of 50; acceptance 0.577 (9408 of 16291), 2.73 tokens a verify; verify 47.198 ms a pass (x4.096 a greedy token), drafter 6.040 ms a launch

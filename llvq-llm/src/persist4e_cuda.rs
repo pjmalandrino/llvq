@@ -776,7 +776,8 @@ impl Runtime4e {
         let act_floats = pers::p4v_act_floats(hidden, self.inter, d_ctx, groups, dev.shared_per_block_optin as u32).map_err(anyhow::Error::msg)?;
         let smem = pers::SMEM_HEADER + pers::TABLE_BYTES + 4 * act_floats;
         let k = pers::P4V_KMAX;
-        let group = |w: u32| (act_floats / w).clamp(1, k);
+        // the kernel's group size: the rows after the staged `small` and the head's maxima
+        let group = |w: u32| ((act_floats - pers::P4V_SSM - 2 * k) / w).clamp(1, k);
         self.lines.push(format!(
             "4E verify: {act_floats} floats of staging, {smem} B shared; rows a group at most {k}: {} at hidden {hidden}, {} at the context {d_ctx}, {} at inter {}",
             group(hidden),
