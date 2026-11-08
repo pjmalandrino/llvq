@@ -1,0 +1,24 @@
+Runtime overhead, 2026-11-07. Journal of docs/runtime-audit-2026-11.md.
+
+Command:  cargo run --release -p llvq-runtime --example overhead -- <Qwen3-4B tokenizer.json>
+Machine:  Apple M3 Max, 16 cores, shared with other Claude sessions; CPU only, no card, no sealed file.
+Code:     branch claude/runtime-audit-7d025d at b020185 (fixes committed; this run measures both text paths:
+          "whole decode" replicates the engine before the audit, "TextStream" is the engine after it).
+Tokenizer: Qwen/Qwen3-4B snapshot 1cfa9a72, decoder ByteLevel.
+Medians as printed; "µs a token at K" is the median over the 256 tokens from position K of the answer.
+
+Raw output:
+tokenizer: /Users/pjmalandrino/.cache/huggingface/hub/models--Qwen--Qwen3-4B/snapshots/1cfa9a7208912126459214e8b04321603b3df60c/tokenizer.json
+text: 8192 tokens of the repository's docs
+  no stop string  whole decode: µs a token at 0   11.9, 1,024  101.1, 4,096  380.8, 7,936  678.9; whole answer  4643.5 ms
+  no stop string  TextStream  : µs a token at 0    0.8, 1,024    1.0, 4,096    1.6, 7,936    1.9; whole answer    32.1 ms
+  3 stop strings  whole decode: µs a token at 0   11.7, 1,024  106.8, 4,096  384.0, 7,936  716.9; whole answer  3345.0 ms
+  3 stop strings  TextStream  : µs a token at 0    1.1, 1,024    2.3, 4,096    6.2, 7,936   10.5; whole answer    57.0 ms
+  same text at every token: the docs with and without stop strings, and 4,096 random ids
+render: 20 messages, 8314 tokens, medians of 21
+  all messages tokenized 5753 µs; 19 from the memo and the last tokenized 19 µs; prefix against the cache 2.8 µs
+transport: the server's channel, events and NDJSON body to a client on loopback, medians of 7
+  engine thread a send 2.66 µs; pipeline a chunk 2.73 µs (20000 chunks a round); one chunk, send to client 18 µs
+accept: request to response headers on loopback, a loaded idle model, median of 201: 430 µs
+  the same client on /api/version 64 µs, on /api/show (reads the manifest) 136 µs
+  manifest read 85 µs, template 15 µs, cache cut to the prefix 3 µs

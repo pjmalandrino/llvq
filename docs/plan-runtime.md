@@ -12,7 +12,7 @@ The gates that load a real model on Metal or CUDA have not run.
 
 | stage | state | what passed | what is open |
 |---|---|---|---|
-| R0 | written | the sealed 4B registered from a local copy reads sha256 `886391a8…`, hard-linked into the store; a mutated digest is refused and leaves no manifest, no blob and no partial file (`tests/pull.rs`, fake Hub on 127.0.0.1); an interrupted pull resumes with a range request | a pull of the 4B from the Hub, 1.42 GB |
+| R0 | written | the sealed 4B registered from a local copy reads sha256 `886391a8…`, copied into the store and checked there; a mutated digest is refused and leaves no manifest, no blob and no partial file (`tests/pull.rs`, fake Hub on 127.0.0.1); an interrupted pull resumes with a range request | a pull of the 4B from the Hub, 1.42 GB |
 | R1 | written | the `Session` loop feeds what the old REPL loop fed, same answers and same cache, under the `Cat` and `Grow` stores, greedy and sampled; a stateless two-turn replay gives the stateful ids; the `repl` tests pass unchanged (`llvq-llm/tests/session.rs`) | `bin/chat` before and after the move on Metal, `LLVQ_CHAT_IDS=1` |
 | R2 | written | a greedy `/api/chat` streams the ids of a direct `Session` run; a stateless second turn reads only its 15 new tokens; a client that leaves frees the engine; the contract test against Ollama's `openapi.yaml` at `6362e0a3` passes; the official `ollama` 0.6.1 client streams a chat unmodified | the same on the fused 4B on Metal |
 | R3 | written | the official `openai` 2.8.1 client streams a chat unmodified and reads the `/api/chat` text; the committed `openapi.json` equals the generated one, and a plain `.route()` fails a test | none on the CPU |

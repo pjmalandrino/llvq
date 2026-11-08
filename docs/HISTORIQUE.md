@@ -1202,3 +1202,12 @@ adopted; `plan-debit-noyau.md`, whose open leads `plan-300.md` and `ROADMAP.md` 
 `AGENTS.md`, a stale copy of `CLAUDE.md`, now points to it.
 On the operator's go, 31 entries of `docs/archive/` that nothing outside the archive cites were removed: hand-overs,
 drafts, posts and plans of July to November, 33 files and 6,765 lines.
+
+## 2026-11-07. The runtime audit: eight bugs fixed, the text work 350 times cheaper at 8k
+
+The audit of `llvq-runtime` fixed eight bugs, each with a test that failed first, and killed 12 of 12 mutants
+([runtime-audit-2026-11](runtime-audit-2026-11.md)). A busy model stopped or deleted stayed in memory out of the cap,
+and a second copy could load beside it. A request abandoned in the queue cut the live conversation's cache. Two pulls
+of one file could corrupt it, and `llvq pull --from` hard-linked a source that a re-seal could change after its check.
+The engine decoded the whole answer at every token, 679 µs a token at 7,936 tokens; the incremental decode takes 1.9 µs
+for the same text (*measured*, [runtime-overhead](mesures/runtime-overhead-2026-11-07.txt)).

@@ -423,3 +423,134 @@ fn the_chat_page_is_served_whole_with_the_library_written_in() {
         assert!(html.contains(&format!("\"{route}\"")), "the page does not call {route}");
     }
 }
+
+// ---------------------------------------------------------------------------
+// The audit of 2026-11 (`docs/runtime-audit-2026-11.md`): each test below
+// failed on the code it was written against.
+// ---------------------------------------------------------------------------
+
+const HUB: &str = "http://127.0.0.1:9";
+
+/// A greedy answer of `n` tokens to "one two": the tiny model never stops on
+/// its own, so `n` is the answer's length.
+fn ask(n: u64, stream: bool) -> Value {
+    json!({"model": "tiny:test", "messages": [{"role": "user", "content": "one two"}],
+           "options": {"temperature": 0, "num_predict": n}, "stream": stream})
+}
+
+/// The engine's time a token on this machine, after a warm-up.
+fn per_token(c: &Client) -> Duration {
+    c.send("POST", "/api/chat", &ask(1, false)).unwrap();
+    let t = Instant::now();
+    c.send("POST", "/api/chat", &ask(200, false)).unwrap();
+    t.elapsed() / 200
+}
+
+fn counting(delay: Duration) -> (std::sync::Arc<std::sync::atomic::AtomicUsize>, std::sync::Arc<common::CountingLoader>) {
+    let loads = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    (loads.clone(), std::sync::Arc::new(common::CountingLoader { loads, delay }))
+}
+
+#[test]
+fn stopping_a_busy_model_keeps_one_copy_until_its_answer_ends() {
+    let (loads, loader) = counting(Duration::ZERO);
+    let host = common::serve_with(common::store("stopbusy"), HUB, loader);
+    let c = Client::new(&host);
+    let resp = ureq::post(&format!("http://{host}/api/chat")).send_json(ask(3000, true)).unwrap();
+    let mut lines = BufReader::new(resp.into_reader()).lines();
+    lines.next().unwrap().unwrap();
+    // `llvq stop` while the model answers.
+    let u = c.send("POST", "/api/generate", &json!({"model": "tiny:test", "keep_alive": 0, "stream": false})).unwrap();
+    assert_eq!(u["done_reason"], "unload");
+    let ps = c.get("/api/ps").unwrap();
+    assert_eq!(ps["models"].as_array().unwrap().len(), 1, "the busy model is still in memory and /api/ps hides it: {ps}");
+    // A request now waits for that copy instead of loading a second one.
+    let h = host.clone();
+    let short = std::thread::spawn(move || Client::new(&h).send("POST", "/api/chat", &ask(1, false)));
+    std::thread::sleep(Duration::from_millis(200));
+    drop(lines);
+    short.join().unwrap().unwrap();
+    assert_eq!(loads.load(std::sync::atomic::Ordering::SeqCst), 1, "a second copy was loaded beside the busy one");
+    // That request took the model back: it stays past the reaper's second.
+    std::thread::sleep(Duration::from_millis(1500));
+    assert_eq!(c.get("/api/ps").unwrap()["models"].as_array().unwrap().len(), 1, "the model taken back was unloaded");
+}
+
+#[test]
+fn a_model_stopped_while_busy_unloads_when_its_answer_ends() {
+    let host = common::serve(common::store("stoplater"), HUB);
+    let c = Client::new(&host);
+    let resp = ureq::post(&format!("http://{host}/api/chat")).send_json(ask(3000, true)).unwrap();
+    let mut lines = BufReader::new(resp.into_reader()).lines();
+    lines.next().unwrap().unwrap();
+    c.send("POST", "/api/generate", &json!({"model": "tiny:test", "keep_alive": 0, "stream": false})).unwrap();
+    drop(lines);
+    let t = Instant::now();
+    while !c.get("/api/ps").unwrap()["models"].as_array().unwrap().is_empty() {
+        assert!(t.elapsed() < Duration::from_secs(5), "the stopped model stayed loaded after its answer ended");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+#[test]
+fn a_request_abandoned_in_the_queue_leaves_the_cache_alone() {
+    let host = common::serve(common::store("abandon"), HUB);
+    let c = Client::new(&host);
+    let n = (Duration::from_millis(1500).as_nanos() / per_token(&c).as_nanos().max(1)).clamp(50, 3000) as u64;
+    let opts = |k: u64| json!({"temperature": 0, "num_predict": k});
+    let (a1, _, _) =
+        chat(&c, json!({"model": "tiny:test", "messages": [{"role": "user", "content": "hello world"}], "options": opts(4)}));
+    let h1 = json!([
+        {"role": "user", "content": "hello world"},
+        {"role": "assistant", "content": a1},
+        {"role": "user", "content": "why the cat"},
+    ]);
+    let (h, body) = (host.clone(), json!({"model": "tiny:test", "messages": h1.clone(), "options": opts(n)}));
+    let long = std::thread::spawn(move || chat(&Client::new(&h), body));
+    std::thread::sleep(Duration::from_millis(300));
+    // Another conversation, queued behind the long answer, then abandoned.
+    let gone = ureq::AgentBuilder::new()
+        .timeout(Duration::from_millis(200))
+        .build()
+        .post(&format!("http://{host}/api/chat"))
+        .send_json(json!({"model": "tiny:test", "messages": [{"role": "user", "content": "the dog sat"}], "stream": false}));
+    assert!(gone.is_err(), "the abandoned request was answered within its timeout");
+    let (x, _, last) = long.join().unwrap();
+    assert_eq!(last["done_reason"], "length");
+    let mut h2 = h1.as_array().unwrap().clone();
+    h2.push(json!({"role": "assistant", "content": x}));
+    h2.push(json!({"role": "user", "content": "yes"}));
+    let (_, _, last) = chat(&c, json!({"model": "tiny:test", "messages": h2, "options": opts(2)}));
+    let (n, cached) = (last["prompt_eval_count"].as_u64().unwrap(), last["prompt_eval_cached_count"].as_u64().unwrap());
+    // New: `<|im_start|>user\nyes<|im_end|>\n` (6) and the opening (7).
+    assert_eq!(n - cached, 13, "the abandoned request cut the cache: {cached} of {n} positions kept");
+}
+
+#[test]
+fn a_client_that_leaves_a_non_streamed_answer_stops_the_engine() {
+    let host = common::serve(common::store("cancel-nostream"), HUB);
+    let c = Client::new(&host);
+    let pt = per_token(&c);
+    let long = 3000u32;
+    let gone = ureq::AgentBuilder::new()
+        .timeout(Duration::from_millis(300))
+        .build()
+        .post(&format!("http://{host}/api/chat"))
+        .send_json(ask(long as u64, false));
+    assert!(gone.is_err());
+    let t = Instant::now();
+    c.send("POST", "/api/chat", &ask(1, false)).unwrap();
+    let waited = t.elapsed();
+    assert!(waited < pt * long / 4, "the next request waited {waited:?} behind an answer nobody reads ({pt:?} a token)");
+}
+
+#[test]
+fn the_first_answer_counts_its_load_once() {
+    let (_, loader) = counting(Duration::from_millis(500));
+    let host = common::serve_with(common::store("loadtime"), HUB, loader);
+    let c = Client::new(&host);
+    let v = c.send("POST", "/api/chat", &ask(1, false)).unwrap();
+    let (load, total) = (v["load_duration"].as_u64().unwrap(), v["total_duration"].as_u64().unwrap());
+    assert!(load >= 500_000_000, "load_duration {load} ns, the load slept 500 ms");
+    assert!(total >= load && total < load + 400_000_000, "total_duration {total} ns counts the {load} ns load twice");
+}

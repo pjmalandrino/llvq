@@ -266,7 +266,9 @@ function current() { return models.find((m) => m.name === model); }
 // bold, italics and links. A fence still open while streaming is shown as code.
 function inline(t) {
   const codes = [];
-  t = t.replace(/`([^`]+)`/g, (_, c) => { codes.push(c); return "\u0000" + (codes.length - 1) + "\u0000"; });
+  // NUL marks the code spans below: one written by the model is shown as
+  // U+FFFD, or its digits would name a span that does not exist.
+  t = t.replace(/\u0000/g, "\uFFFD").replace(/`([^`]+)`/g, (_, c) => { codes.push(c); return "\u0000" + (codes.length - 1) + "\u0000"; });
   t = escapeHtml(t)
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
     .replace(/(^|[^*\w])\*([^*\s][^*]*)\*/g, "$1<em>$2</em>")

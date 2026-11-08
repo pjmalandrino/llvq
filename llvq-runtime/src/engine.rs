@@ -187,6 +187,23 @@ pub struct EngineInfo {
     pub busy: std::sync::atomic::AtomicBool,
     /// When the engine may be unloaded; `None` is never.
     pub expires: Mutex<Option<SystemTime>>,
+    /// Asked to unload while busy: it goes as soon as it is idle, and a new
+    /// request for the same model takes it back.
+    pub retiring: std::sync::atomic::AtomicBool,
+}
+
+impl EngineInfo {
+    /// The worker takes a job off the queue: busy first, then one less
+    /// queued, so that no reader ever sees the engine idle in between.
+    fn take_job(&self) {
+        self.busy.store(true, Ordering::SeqCst);
+        self.queue.fetch_sub(1, Ordering::SeqCst);
+    }
+
+    /// Nothing queued and nothing running.
+    fn idle(&self) -> bool {
+        self.queue.load(Ordering::SeqCst) == 0 && !self.busy.load(Ordering::SeqCst)
+    }
 }
 
 pub struct Engine {
@@ -279,6 +296,12 @@ pub fn default_temperature(greedy_only: bool) -> f32 {
 }
 pub const DEFAULT_TOP_P: f32 = 0.9;
 
+/// From the request to now. A job queued while the model loaded has waited
+/// the load already, so the load is added only to what the job did not wait.
+fn total(job: &Job, started: Instant, load: Duration) -> Duration {
+    job.queued_at.elapsed().max(started.elapsed() + load)
+}
+
 fn nanos(d: Duration) -> u64 {
     d.as_nanos().min(u64::MAX as u128) as u64
 }
@@ -307,6 +330,11 @@ impl Worker {
     fn run(&mut self, job: &Job) {
         let started = Instant::now();
         let tx = &job.events;
+        // A client that left while its job was queued: running it would
+        // still cut the cache down to its prompt, for an answer nobody reads.
+        if tx.is_closed() {
+            return;
+        }
         let send = |e: Event| tx.blocking_send(e).is_ok();
         let load_duration = self.load_duration.take().unwrap_or_default();
         if let Err(e) = self.run_inner(job, started, load_duration, &send) {
@@ -327,7 +355,7 @@ impl Worker {
             send(Event::Accepted { prompt_tokens: 0, cached: 0 });
             send(Event::Done(Stats {
                 done_reason: "load".into(),
-                total_duration: nanos(started.elapsed() + load_duration),
+                total_duration: nanos(total(job, started, load_duration)),
                 load_duration: nanos(load_duration),
                 ..Stats::default()
             }));
@@ -515,6 +543,19 @@ impl Worker {
             (Finish::Length, None) => "length",
             (Finish::Cancelled, None) => unreachable!("only a stop string or a gone client cancels"),
         };
+        // The client has the whole answer: it is told so before the cache is
+        // closed below, which costs a step of the model it would otherwise
+        // wait for. A request it sends now queues behind that step.
+        send(Event::Done(Stats {
+            done_reason: done_reason.into(),
+            total_duration: nanos(total(job, started, load_duration)),
+            load_duration: nanos(load_duration),
+            prompt_eval_count: prompt.len(),
+            prompt_eval_cached_count: cached,
+            prompt_eval_duration: nanos(prompt_eval),
+            eval_count: answer.said.len(),
+            eval_duration: nanos(eval),
+        }));
         // A clean end closes the assistant's message in the cache, and the
         // memo learns its ids. A stop string leaves the cache mid-message:
         // the next request re-reads from the last message boundary.
@@ -527,22 +568,19 @@ impl Worker {
                 tail.extend(answer.said.last().copied());
             }
             tail.extend([marks.im_end, marks.nl]);
-            self.session.feed(&self.loaded.qwen, &tail)?;
+            if let Err(e) = self.session.feed(&self.loaded.qwen, &tail) {
+                // Too late for the client, which has its answer: the next
+                // request starts from an empty cache rather than a doubtful one.
+                eprintln!("llvq: closing the answer in the cache failed, the cache is reset: {e:#}");
+                self.session.reset(&self.loaded.qwen);
+                self.memo.clear();
+                return Ok(());
+            }
             self.memo.push(Segment {
                 msg: Some(Msg { role: Role::Assistant, content: content.sent.clone() }),
                 ids: self.session.ids()[messages_end..].to_vec(),
             });
         }
-        send(Event::Done(Stats {
-            done_reason: done_reason.into(),
-            total_duration: nanos(job.queued_at.elapsed().max(started.elapsed()) + load_duration),
-            load_duration: nanos(load_duration),
-            prompt_eval_count: prompt.len(),
-            prompt_eval_cached_count: cached,
-            prompt_eval_duration: nanos(prompt_eval),
-            eval_count: answer.said.len(),
-            eval_duration: nanos(eval),
-        }));
         Ok(())
     }
 }
@@ -563,6 +601,7 @@ impl Engine {
             queue: AtomicUsize::new(0),
             busy: std::sync::atomic::AtomicBool::new(false),
             expires: Mutex::new(None),
+            retiring: std::sync::atomic::AtomicBool::new(false),
         });
         let (tx, rx) = std::sync::mpsc::channel::<Job>();
         let inf = info.clone();
@@ -594,8 +633,7 @@ impl Engine {
                 greedy_only: w.greedy_only(),
             };
             while let Ok(job) = rx.recv() {
-                inf.queue.fetch_sub(1, Ordering::SeqCst);
-                inf.busy.store(true, Ordering::SeqCst);
+                inf.take_job();
                 // A panic leaves the session in an unknown state: the engine
                 // fails, answers its queue with the reason, and the next
                 // request loads the model again (`Models::submit` forgets a
@@ -617,6 +655,8 @@ impl Engine {
                     }
                     return;
                 }
+                // A retiring engine is left to the reaper, which reads the
+                // flag itself: it may be set after this line.
                 *inf.expires.lock().expect("expires lock") = job.keep_alive.until(SystemTime::now());
                 inf.busy.store(false, Ordering::SeqCst);
             }
@@ -633,12 +673,32 @@ impl Engine {
     }
 
     fn idle(&self) -> bool {
-        self.info.queue.load(Ordering::SeqCst) == 0 && !self.info.busy.load(Ordering::SeqCst)
+        self.info.idle()
     }
 
     pub fn state(&self) -> State {
         self.info.state.lock().expect("state lock").clone()
     }
+}
+
+/// Unload the engines `pick` names: an idle one now, a busy one when its jobs
+/// end (the reaper drops it then). Dropping a busy engine would not stop its
+/// thread: the model would stay in memory, out of the list and of the cap,
+/// while a new request loaded a second copy. True when `pick` named any.
+fn retire(engines: &mut Vec<Engine>, pick: impl Fn(&Engine) -> bool) -> bool {
+    let mut any = false;
+    engines.retain(|e| {
+        if !pick(e) {
+            return true;
+        }
+        any = true;
+        if e.idle() {
+            return false;
+        }
+        e.info.retiring.store(true, Ordering::SeqCst);
+        true
+    });
+    any
 }
 
 /// An error before any engine ran: the HTTP status and the message.
@@ -704,7 +764,7 @@ impl Models {
         let mut engines = self.engines.lock().expect("engines lock");
         // An unload request does not load a model that is not loaded.
         if matches!(request.prompt, Prompt::Load) && keep == KeepAlive::For(Duration::ZERO) {
-            engines.retain(|e| e.info.name != *name);
+            retire(&mut engines, |e| e.info.name == *name);
             let (tx, rx) = tokio::sync::mpsc::channel(4);
             let _ = tx.try_send(Event::Accepted { prompt_tokens: 0, cached: 0 });
             let _ = tx.try_send(Event::Done(Stats { done_reason: "unload".into(), ..Stats::default() }));
@@ -713,20 +773,27 @@ impl Models {
         // A failed load is forgotten, so the next request tries again.
         engines.retain(|e| !matches!(e.state(), State::Failed(_)));
         let pos = match engines.iter().position(|e| e.info.name == *name && e.info.manifest == manifest) {
-            Some(p) => p,
+            Some(p) => {
+                // Asked back before it went.
+                engines[p].info.retiring.store(false, Ordering::SeqCst);
+                p
+            }
             None => {
-                engines.retain(|e| e.info.name != *name);
+                // Another manifest under this name: the old engine goes when
+                // it is idle, and counts against the cap until then.
+                retire(&mut engines, |e| e.info.name == *name);
                 while engines.len() >= self.max_loaded {
-                    // Only an idle engine is unloaded, the one expiring first.
-                    // Dropping a busy one would leave its thread running beside
-                    // the new load, two models in memory under a cap of one.
+                    // Only an idle engine is unloaded: one retiring first,
+                    // then the one expiring first. Dropping a busy one would
+                    // leave its thread running beside the new load, two
+                    // models in memory under a cap of one.
                     let victim = engines
                         .iter()
                         .enumerate()
                         .filter(|(_, e)| e.idle())
                         .min_by_key(|(_, e)| {
                             let t = *e.info.expires.lock().expect("expires lock");
-                            (t.is_none(), t)
+                            (!e.info.retiring.load(Ordering::SeqCst), t.is_none(), t)
                         })
                         .map(|(i, _)| i);
                     let Some(victim) = victim else {
@@ -755,20 +822,18 @@ impl Models {
         Ok(rx)
     }
 
-    /// Unload `name` now. False when it was not loaded.
+    /// Unload `name`: now when it is idle, after its jobs when it is busy.
+    /// False when it was not loaded.
     pub fn unload(&self, name: &ModelName) -> bool {
-        let mut engines = self.engines.lock().expect("engines lock");
-        let before = engines.len();
-        engines.retain(|e| e.info.name != *name);
-        engines.len() != before
+        retire(&mut self.engines.lock().expect("engines lock"), |e| e.info.name == *name)
     }
 
-    /// Drop the engines whose keep-alive has passed and that hold no job.
+    /// Drop the idle engines whose keep-alive has passed or that retire.
     pub fn reap(&self, now: SystemTime) {
         let mut engines = self.engines.lock().expect("engines lock");
         engines.retain(|e| {
             let expired = matches!(*e.info.expires.lock().expect("expires lock"), Some(t) if t <= now);
-            !(expired && e.idle())
+            !((expired || e.info.retiring.load(Ordering::SeqCst)) && e.idle())
         });
     }
 
@@ -795,6 +860,60 @@ impl Models {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A job taken off the queue is never seen idle: the eviction of
+    /// `Models::submit` would drop the engine as it starts the job, and its
+    /// thread would run beside the next model loaded under the cap.
+    #[test]
+    fn a_job_being_taken_is_never_seen_idle() {
+        let info = Arc::new(EngineInfo {
+            name: ModelName::parse("x:y").unwrap(),
+            manifest: Manifest {
+                schema: 1,
+                sha256: String::new(),
+                size: 0,
+                repo: String::new(),
+                revision: String::new(),
+                file: String::new(),
+                family: String::new(),
+                parameter_size: String::new(),
+                bits_per_param: String::new(),
+                configs: crate::library::Configs { cuda: None, metal: None },
+                modified_at: 0,
+            },
+            state: Mutex::new(State::Loading),
+            queue: AtomicUsize::new(0),
+            busy: std::sync::atomic::AtomicBool::new(false),
+            expires: Mutex::new(None),
+            retiring: std::sync::atomic::AtomicBool::new(false),
+        });
+        // `round` is odd from a submit until the job is under way.
+        let round = Arc::new(AtomicUsize::new(0));
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let seen = Arc::new(AtomicUsize::new(0));
+        let watcher = {
+            let (info, round, stop, seen) = (info.clone(), round.clone(), stop.clone(), seen.clone());
+            std::thread::spawn(move || {
+                while !stop.load(Ordering::SeqCst) {
+                    let r = round.load(Ordering::SeqCst);
+                    let idle = info.idle();
+                    if r % 2 == 1 && idle && round.load(Ordering::SeqCst) == r {
+                        seen.fetch_add(1, Ordering::SeqCst);
+                    }
+                }
+            })
+        };
+        for _ in 0..200_000 {
+            info.queue.fetch_add(1, Ordering::SeqCst);
+            round.fetch_add(1, Ordering::SeqCst);
+            info.take_job();
+            round.fetch_add(1, Ordering::SeqCst);
+            info.busy.store(false, Ordering::SeqCst);
+        }
+        stop.store(true, Ordering::SeqCst);
+        watcher.join().unwrap();
+        assert_eq!(seen.load(Ordering::SeqCst), 0, "an engine starting a job was seen idle");
+    }
 
     #[test]
     fn keep_alive_reads_ollamas_forms() {

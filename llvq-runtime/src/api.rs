@@ -33,15 +33,15 @@ use utoipa_axum::routes;
 #[derive(Clone)]
 pub struct AppState {
     pub models: Arc<Models>,
-    /// Where `/api/pull` downloads from: `HF_ENDPOINT` or the Hub.
+    /// Where `/api/pull` downloads from: `HF_ENDPOINT` or the Hub. Two
+    /// pulls of one file wait for each other on the store's file lock, in
+    /// this server or across processes.
     pub hub: String,
-    /// One pull at a time: two writers on one partial file would corrupt it.
-    pub pull_lock: Arc<std::sync::Mutex<()>>,
 }
 
 impl AppState {
     pub fn new(models: Arc<Models>, hub: String) -> Self {
-        AppState { models, hub, pull_lock: Arc::new(std::sync::Mutex::new(())) }
+        AppState { models, hub }
     }
 }
 
@@ -617,9 +617,7 @@ pub async fn pull(State(st): State<AppState>, body: Bytes) -> Response {
     let (tx, rx) = tokio::sync::mpsc::channel::<Result<StatusEvent, String>>(64);
     let store = st.models.store.clone();
     let hub = st.hub.clone();
-    let lock = st.pull_lock.clone();
     tokio::task::spawn_blocking(move || {
-        let _guard = lock.lock().unwrap_or_else(|p| p.into_inner());
         let mut report = |e: PullEvent| {
             let _ = tx.blocking_send(Ok(status_event(e)));
         };
