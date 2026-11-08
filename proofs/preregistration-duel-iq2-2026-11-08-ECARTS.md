@@ -51,3 +51,11 @@ were cancelled before they reached the census (the 4B in its build, the 8B in th
 The same reproduction shows that llama.cpp's MMLU picks depend on the server batch: 2 of 400 picks differ between the
 two batch sizes (47.20 % against 46.99 %). Retry 3 runs every arm at `-b 16384`. Ceilings 100m / 110m / 190m, so the
 duel stays under its $19.80 cap even if all three run to their ceiling.
+
+## Correction to D1, 2026-11-08, after the run (audit `docs/archive/audit-bugs-2026-11-08.md` §2.1)
+
+D1 says `22338dd` "changes the group size of the 4E pass". It does not: its only change to
+`llvq-llm/src/persist4e_cuda.rs` is the closure that prints the verify pass's group sizes in its install line
+(`git show 22338dd -- llvq-llm/src/persist4e_cuda.rs`). The 4E module the duel ran is the published one (sha256
+`1b422b62`). D1 is kept as written; this note replaces its second bullet as a cause. The speed differences against
+the published figures are read sweep to sweep in the journal.
