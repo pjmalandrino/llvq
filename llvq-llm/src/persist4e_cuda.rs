@@ -183,9 +183,9 @@ pub fn install(model: &Qwen3, device: &Device, max_tokens: u32, threads: Option<
     install_rows(model, device, max_tokens, threads, 1)
 }
 
-/// [`install`] with the module's row form (`pers::P4E_ROWS_FORMS`): 1 is v3;
-/// 2 is v4, what the served config runs since 2026-11-05; 3 is v5; 4 is v6.
-/// `LLVQ_PERS_4E` times `pers::P4E_BENCH_FORMS`.
+/// [`install`] with the module's row form (`pers::P4E_ROWS_FORMS`): 1 is v3,
+/// 2 is v4, 4 is v6 and 7 is v9, which the served configs run since
+/// 2026-11-07. `LLVQ_PERS_4E` times `pers::P4E_BENCH_FORMS`.
 pub fn install_rows(model: &Qwen3, device: &Device, max_tokens: u32, threads: Option<u32>, rows_form: u32) -> anyhow::Result<Runtime4e> {
     install_rows_as(model, device, max_tokens, threads, rows_form, None)
 }

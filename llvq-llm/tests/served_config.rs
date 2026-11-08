@@ -647,7 +647,7 @@ fn measurement_modes_are_refused_beside_the_persistent_decode() {
         check_env(&f, env_of(&[(var, "5,8192")])).unwrap_or_else(|e| panic!("{var}: {e}"));
     }
     // An eager config keeps what it accepted before the field existed.
-    check_env(&served(), env_of(&[("LLVQ_TIME_EVENTS", "1")])).expect("not this check's business on an eager config");
+    check_env(&served(), env_of(&[("LLVQ_BENCH_ARMS", "1")])).expect("not this check's business on an eager config");
     assert!(MEASUREMENT_MODES.contains(&"LLVQ_PERS_4E") && MEASUREMENT_MODES.contains(&"LLVQ_GQA_PPL"));
 }
 

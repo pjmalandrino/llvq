@@ -941,9 +941,8 @@ fn run_pers_4e(
 /// them, so a mode beside `LLVQ_GQA_PPL` was silently ignored. A mode calls
 /// [`runs_alone`]: every OTHER name here, set beside it, is refused.
 #[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
-const ALONE: [&str; 7] = [
+const ALONE: [&str; 6] = [
     "LLVQ_INT4_WIDE_CHECK", "LLVQ_PERS_4E", "LLVQ_GQA_PPL", "LLVQ_GQA_AB", "LLVQ_CONTEXTS", "LLVQ_PREFILL_TOKENS",
-    "LLVQ_SEG_ARMS",
 ];
 
 /// `mode` against every other name of [`ALONE`] and the mode's own `extra`
@@ -997,13 +996,10 @@ fn main() -> anyhow::Result<()> {
         // the audit of 2026-09-11 found it. `LLVQ_PREFILL_TOKENS` and
         // `LLVQ_CONTEXTS` are the two exceptions, handled below: they time the
         // served object as served, and change only the prompt it is given.
-        // `LLVQ_TIME_EVENTS` and `LLVQ_BENCH_ARMS` are read by `planesbench`
-        // only, so this binary lets them pass.
+        // `LLVQ_BENCH_ARMS` is read by `planesbench` only, so this binary
+        // lets it pass.
         if served.is_some() {
-            for var in llvq_llm::served::MEASUREMENT_MODES
-                .into_iter()
-                .filter(|v| !["LLVQ_TIME_EVENTS", "LLVQ_BENCH_ARMS"].contains(v))
-            {
+            for var in llvq_llm::served::MEASUREMENT_MODES.into_iter().filter(|v| *v != "LLVQ_BENCH_ARMS") {
                 if let Ok(v) = std::env::var(var) {
                     anyhow::bail!(
                         "{var}={v:?} beside LLVQ_CONFIG: that is a measurement mode, and the \
@@ -1088,8 +1084,8 @@ fn main() -> anyhow::Result<()> {
             f.model.set_attn_kernel(Some(k));
             // The bench forms at 512 threads, each its own module (the
             // 768-thread symbol spills under the card's driver, v2 and v3):
-            // pers::P4E_BENCH_FORMS, v4 (the served form), v6, v7, v8 and
-            // v9, then v6s. Each owes the eager path's tokens.
+            // pers::P4E_BENCH_FORMS, v4, v6 and v9 (the served forms), then
+            // v6s. Each owes the eager path's tokens.
             let mut rts = Vec::new();
             for (form, label) in llvq_cuda::pers::P4E_BENCH_FORMS {
                 match llvq_llm::persist4e_cuda::install_rows(&f.model, &device, n_new as u32, Some(512), form) {

@@ -145,7 +145,7 @@ be in `UPLOAD_ALLOW` of `ops/run.py`, or the Space dies after 12 minutes. `rankb
 name it does not list.
 
 `MEASUREMENT_MODES` in `llvq-llm/src/served.rs` lists the measurement variables (`LLVQ_GQA_AB`, `LLVQ_PERS_4E`,
-...), never a served config. `fusedrun` refuses all but `LLVQ_TIME_EVENTS` and `LLVQ_BENCH_ARMS` beside a config, and
+...), never a served config. `fusedrun` refuses all but `LLVQ_BENCH_ARMS` beside a config, and
 two of its modes set together (`ALONE`); `served.rs` refuses all of them beside a persistent decode. The variables
 whose code the cleanup of 2026-11-08 removed are refused by name, config or not (`REMOVED`, same file). `LLVQ_KERNEL_DIR`,
 `LLVQ_TILE_BLOCKS`, `LLVQ_PREFILL` and `LLVQ_METAL_KERNEL` are refused beside any config (`BELOW_THE_DOOR`).

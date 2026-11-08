@@ -124,10 +124,40 @@ pub fn arch_binary_ok(binary: i32, compiled_for: i32) -> bool {
     binary >= compiled_for
 }
 
-pub use llvq_artifact::f16::f16_bits;
+/// `planesbench` variables whose code the cleanup of 2026-11-08 removed (the
+/// L2 arms, the barrier microbenchmarks, the A3 segment arms, the event
+/// timing). The tag `pre-clean-2026-11` still holds it. Set, each is refused
+/// by name, so a job copied from an old journal fails instead of running the
+/// plain bench. `llvq_llm::served::REMOVED` lists them too.
+pub const REMOVED_BENCH_VARS: [&str; 4] = ["LLVQ_PERS_ARMS", "LLVQ_PERS_MICRO", "LLVQ_SEG_ARMS", "LLVQ_TIME_EVENTS"];
 
+/// Refuse every name of [`REMOVED_BENCH_VARS`] that `lookup` finds set.
+/// Portable, so the Mac tests it.
+pub fn check_removed_bench(lookup: impl Fn(&str) -> Option<String>) -> Result<(), String> {
+    for var in REMOVED_BENCH_VARS {
+        if let Some(v) = lookup(var) {
+            return Err(format!(
+                "{var}={v:?}: this variable was removed on 2026-11-08 with the code it drove. \
+                 The tag pre-clean-2026-11 still has it; unset it here."
+            ));
+        }
+    }
+    Ok(())
+}
 
-pub use llvq_artifact::f16::f16_to_f64;
+#[cfg(test)]
+mod removed_tests {
+    #[test]
+    fn removed_bench_variables_are_refused_by_name() {
+        assert!(super::check_removed_bench(|_| None).is_ok());
+        for var in super::REMOVED_BENCH_VARS {
+            let e = super::check_removed_bench(|v| (v == var).then(|| "1".to_string())).expect_err(var);
+            assert!(e.contains(var) && e.contains("pre-clean-2026-11"), "{e}");
+        }
+    }
+}
+
+pub use llvq_artifact::f16::{f16_bits, f16_to_f64};
 
 /// Blocks a tile stages in shared memory — the value the host must `#define`
 /// for `matvec.cu`, which `#error`s without it.
