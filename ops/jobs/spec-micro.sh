@@ -25,7 +25,7 @@ PREREG=proofs/preregistration-spec-micro-2026-11-08.md
 IMAGE_SHA=${IMAGE_SHA:-}
 BUCKET=Pier-Jean/jobs-artifacts
 O=/out/spec-micro-2026-11-08${RETRY:+-r$RETRY}
-TIMEOUT=20m
+TIMEOUT=${TIMEOUT:-20m}
 DRY=${DRY_RUN:-0}
 
 BALL="ball-ref-2026-09-20/qwen3-4b-llvq.bin:1770527533"

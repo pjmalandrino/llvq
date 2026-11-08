@@ -4550,7 +4550,7 @@ mod linux {
             // ---- the persistent sections (L1, L2): built after A4's proof,
             // timed in A4's rounds, the A3 grammar's same-round reference ----
             // The codec outlives the section, whose f64 references borrow it.
-            let codec = (pers_flags.tetra_occ || !pers_flags.arms.is_empty() || pers_flags.trows).then(llvq_search::tetra::Tetra::new);
+            let codec = (pers_flags.tetra_occ || !pers_flags.arms.is_empty() || pers_flags.trows || pers_flags.vrows).then(llvq_search::tetra::Tetra::new);
             let mut pers_sec = None;
             if pers_flags.any() || pers_flags.dump_cubin.is_some() {
                 let mut sec = llvq_cuda::persbench::Section::new(pers_flags.clone(), &cuda, &src.text, &tile.define())?;

@@ -1,0 +1,17 @@
+NVIDIA L40S, 8.9, 46068 MiB, 580.178.04, 2520 MHz
+9db213ef9fa9d7d7000789a8a529ce9459ce9ba6002ef5a72fd5a1c05c1c84b0  /out/ball-ref-2026-09-20/qwen3-4b-llvq.bin
+0adb7cfd02ed74022b639bdaee27f9440fa1083d2d81b80096b7ae5679866ce5  /out/tetra-4b-2026-09-06/qwen3-4b-tetra.bin
+== gate 1: oracle ==
+window: 47 tokens
+Qwen/Qwen3-0.6B on Cuda(CudaDevice(DeviceId(1))) — max |Δhidden| = 0.000e0   (relative to max|h| = 8.550e1) → 0.000e0
+MATCH — the observable forward reproduces candle's Qwen3
+== process 1: the verify rows and B1 levers, interleaved with A4 ==
+Sun Nov  8 15:40:17 UTC 2026
+Sun Nov  8 15:46:19 UTC 2026
+planesbench exit 101
+tile 64 (⚠️ LLVQ_TILE_BLOCKS overrides the served policy)
+  /out/tetra-4b-2026-09-06/qwen3-4b-tetra.bin — 252 matrices: 252 Tetra, 0 int4 g128 (counted, not timed)
+  tetra48: 252 of 252 matrices matched by name, from 252 Tetra records
+  72 groups, 921600 rows — identical BIT FOR BIT, on Slot32 AND on Planes14
+  cubin bench: 386304 bytes, sha256 a53a5e1da09d9a7255cc6b0df9b2e520f9a6dc341a422aa1f00d0842644c04b2 (driver JIT of a 190100-byte unit, sha256 87b1943d66af604a345bd8beb9b0767b7ae694f1bca001feeee23da12e0fedc7)
+  cubin persistent: 5994640 bytes, sha256 3530c920a72fe8784b924d01ba3b38b1cdff563a36259f7f3569183f5aef8df0 (driver JIT of a 252733-byte unit, sha256 c8b9770325a44344633753a44ec64617e438ea9f294352086b9b7b6a7fde17fd)
