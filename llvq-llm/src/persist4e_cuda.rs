@@ -73,8 +73,8 @@ pub struct Runtime4e {
     args_host: pers::P4eArgsHost,
     layers: CudaSlice<u8>,
     args: CudaSlice<u8>,
-    /// Held, read by the kernel only: its address is in the images.
-    #[allow(dead_code)]
+    /// The barrier counter: its address is in the images; the host writes it
+    /// back to 0 after a faulted launch ([`pers::p4e_settle`]).
     bar: CudaSlice<u32>,
     abort: CudaSlice<u32>,
     nan: CudaSlice<u32>,
@@ -100,6 +100,29 @@ pub struct Runtime4e {
     inter: u32,
     /// The verify pass, once [`Runtime4e::install_verify`] has run.
     verify: Option<Verify4e>,
+}
+
+/// The card's barrier counter and flags, as [`pers::p4e_settle`] reads and
+/// clears them.
+struct Counters4e<'a> {
+    cuda: &'a llvq_cuda::gpu::Cuda,
+    bar: &'a mut CudaSlice<u32>,
+    abort: &'a mut CudaSlice<u32>,
+    nan: &'a mut CudaSlice<u32>,
+}
+
+impl pers::P4eCounters for Counters4e<'_> {
+    fn flags(&mut self) -> Result<(u32, u32), String> {
+        Ok((self.cuda.down_u32(self.abort)?[0], self.cuda.down_u32(self.nan)?[0]))
+    }
+
+    fn zero(&mut self) -> Result<(), String> {
+        let stream = self.cuda.stream();
+        for d in [&mut *self.bar, &mut *self.abort, &mut *self.nan] {
+            stream.memcpy_htod(&[0u32], d).map_err(|e| format!("H2D: {e}"))?;
+        }
+        stream.synchronize().map_err(|e| format!("sync: {e}"))
+    }
 }
 
 /// 4E's verify pass (`pers_4ev.cu`): its own module (the v9 module and the
@@ -674,6 +697,14 @@ impl Runtime4e {
         (self.n_layers, self.grid)
     }
 
+    /// The two flags after a launch; on a fault, the counter, both flags and
+    /// the barrier base back to 0, so one fault fails one request and not
+    /// every request after it.
+    fn settle(&mut self) -> anyhow::Result<Option<pers::P4eFault>> {
+        let mut dev = Counters4e { cuda: &self.cuda, bar: &mut self.bar, abort: &mut self.abort, nan: &mut self.nan };
+        pers::p4e_settle(&mut dev, &mut self.bar_base).map_err(anyhow::Error::msg)
+    }
+
     fn launch(&mut self, caches: &mut [KvCache], pos0: usize, tok: u32, n: u32, eos: u32, stamped: bool) -> anyhow::Result<(Vec<u32>, Vec<u64>)> {
         if stamped && self.f_stamp.is_none() {
             anyhow::bail!("4E: no phase-stamp symbol at {} threads", self.threads);
@@ -720,11 +751,12 @@ impl Runtime4e {
         // layouts checked on the host; one CTA a SM, past the occupancy check.
         unsafe { b.launch_cooperative(cfg) }.map_err(|e| anyhow::anyhow!("4E: {e}"))?;
         let ring = self.cuda.down_u32(&self.ring).map_err(anyhow::Error::msg)?;
-        if self.cuda.down_u32(&self.abort).map_err(anyhow::Error::msg)?[0] != 0 {
-            anyhow::bail!("4E: a barrier aborted on its watchdog; the counters are poisoned");
-        }
-        if self.cuda.down_u32(&self.nan).map_err(anyhow::Error::msg)?[0] != 0 {
-            anyhow::bail!("4E: a NaN logit; the eager path is the one to read");
+        match self.settle()? {
+            Some(pers::P4eFault::Abort) => {
+                anyhow::bail!("4E: a barrier aborted on its watchdog; the counters are reset for the next launch")
+            }
+            Some(pers::P4eFault::Nan) => anyhow::bail!("4E: a NaN logit; the eager path is the one to read"),
+            None => {}
         }
         let (made, bar_base) = pers::p4e_after_launch(&ring, n, self.bar_base, self.n_layers, self.grid);
         self.bar_base = bar_base;
@@ -881,15 +913,19 @@ impl Runtime4e {
         // layouts checked on the host; one CTA a SM, past the occupancy check.
         unsafe { b.launch_cooperative(cfg) }.map_err(|e| anyhow::anyhow!("4E verify: {e}"))?;
         let ring = stream.clone_dtoh(&v.ring).map_err(|e| anyhow::anyhow!("D2H: {e}"))?;
-        if self.cuda.down_u32(&self.abort).map_err(anyhow::Error::msg)?[0] != 0 {
-            anyhow::bail!("4E verify: a barrier aborted on its watchdog; the counters are poisoned");
-        }
-        if self.cuda.down_u32(&self.nan).map_err(anyhow::Error::msg)?[0] != 0 {
-            anyhow::bail!("4E verify: a NaN logit; the eager path is the one to read");
+        match self.settle()? {
+            Some(pers::P4eFault::Abort) => {
+                anyhow::bail!("4E verify: a barrier aborted on its watchdog; the counters are reset for the next launch")
+            }
+            Some(pers::P4eFault::Nan) => anyhow::bail!("4E verify: a NaN logit; the eager path is the one to read"),
+            None => {}
         }
         let made: Vec<u32> = ring[..n].to_vec();
         if made.contains(&u32::MAX) {
-            anyhow::bail!("4E verify: a row wrote no token ({made:?})");
+            // The barriers this launch passed are unknown: start over.
+            let mut dev = Counters4e { cuda: &self.cuda, bar: &mut self.bar, abort: &mut self.abort, nan: &mut self.nan };
+            pers::p4e_reset(&mut dev, &mut self.bar_base).map_err(anyhow::Error::msg)?;
+            anyhow::bail!("4E verify: a row wrote no token ({made:?}); the counters are reset for the next launch");
         }
         self.bar_base = self.bar_base.wrapping_add(pers::n_bar_4e(self.n_layers).wrapping_mul(self.grid));
         for c in caches.iter_mut() {

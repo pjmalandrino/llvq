@@ -896,6 +896,43 @@ fn consecutive_4e_decodes_keep_their_tokens() {
     assert!(got != Some(want), "the slots-kept mutant survived");
 }
 
+/// A launch that faults (the NaN flag raised: every CTA leaves at its first
+/// head) fails alone once the host resets the counter, both flags and its
+/// barrier base, as `pers::p4e_settle` does: the launches after it make the
+/// served chain's tokens. Before the reset (audit 2026-11-08 §1.1) every
+/// later launch left at its first head too, and the runtime answered 500
+/// until a restart. A reset of the flags and the counter that keeps the base
+/// deadlocks the next launch on its first barrier, until the watchdog.
+#[test]
+fn a_faulted_4e_launch_fails_alone_after_the_reset() {
+    let runs = [(5u32, 3u32, 7u32), (5, 3, 7), (5, 3, 7), (8, 2, 9)];
+    let made: usize = runs.iter().map(|r| r.1 as usize).sum();
+    let cmd = |policy: u32| {
+        let mut c = g_cmd_variant(1, 4, 96, &runs, 16, u32::MAX, 0x4e40, 64);
+        c.extend_from_slice(&1u32.to_le_bytes()); // the second launch faults
+        c.extend_from_slice(&policy.to_le_bytes());
+        c
+    };
+    let want = u32s(&run(served(), &cmd(0))[..4 * made]);
+    assert!(want.iter().all(|&t| t < 1024), "the served runs made every token: {want:?}");
+    let rings = |b: &[u8]| {
+        let r = u32s(&b[..4 * made]);
+        (r[..3].to_vec(), r[3..6].to_vec(), r[6..].to_vec())
+    };
+    let got = run(persistent(), &cmd(0));
+    let (first, faulted, after) = rings(&got);
+    assert_eq!(first, want[..3].to_vec(), "the launch before the fault");
+    assert_eq!(faulted, vec![u32::MAX; 3], "the faulted launch wrote no token");
+    assert_eq!(after, want[6..].to_vec(), "the launches after the reset make the served tokens");
+    let tail = u32s(&got[got.len() - 8..]);
+    assert_eq!(tail, vec![5 * pers::n_bar_4e(2) * 4, 0], "the counter restarted at 0, no abort, tickets at zero");
+    // Teeth: the code before the reset, and a reset that keeps the base.
+    for (policy, what) in [(1u32, "no reset"), (3, "flags and counter, base kept")] {
+        let (_, _, after) = rings(&run(persistent(), &cmd(policy)));
+        assert_ne!(after, want[6..].to_vec(), "policy {policy} ({what}) made the served tokens");
+    }
+}
+
 /// 4E's phase-stamp symbols (`LLVQ_PERS_4E`'s stamped launch) make the
 /// tokens, caches and residual of the token symbols, over two launches
 /// through one state, and their stamps read as the barriers they bracket:

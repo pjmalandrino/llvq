@@ -824,6 +824,52 @@ pub fn p4e_after_launch(ring: &[u32], n: u32, bar_base: u32, layers: u32, grid: 
     (made, next)
 }
 
+/// Why a 4E launch (decode or verify) failed on the card: one of the two
+/// flags the kernel raises and never lowers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum P4eFault {
+    /// A grid barrier passed `PERS_SPIN_LIMIT` and every CTA left.
+    Abort,
+    /// The head saw a NaN logit and every CTA left.
+    Nan,
+}
+
+/// The device words a 4E launch leaves behind it and the host must keep in
+/// step with: the barrier counter, the abort flag and the NaN flag.
+pub trait P4eCounters {
+    /// The abort flag and the NaN flag as the launch left them.
+    fn flags(&mut self) -> Result<(u32, u32), String>;
+    /// The barrier counter, the abort flag and the NaN flag back to 0.
+    fn zero(&mut self) -> Result<(), String>;
+}
+
+/// After every 4E launch, before reading its tokens. A clean launch returns
+/// `None`. A faulted one leaves the counter wherever its CTAs stopped and
+/// both flags as they are, so every later launch would bail on the same
+/// flag (the runtime answered 500 until a restart, audit 2026-11-08 §1.1):
+/// here the device words go back to 0 and so does the host's barrier base,
+/// and the next launch starts as the first one did.
+pub fn p4e_settle(dev: &mut impl P4eCounters, bar_base: &mut u32) -> Result<Option<P4eFault>, String> {
+    let (abort, nan) = dev.flags()?;
+    let fault = if abort != 0 {
+        P4eFault::Abort
+    } else if nan != 0 {
+        P4eFault::Nan
+    } else {
+        return Ok(None);
+    };
+    p4e_reset(dev, bar_base)?;
+    Ok(Some(fault))
+}
+
+/// The device words and the host's barrier base back to 0: after a fault,
+/// or after any launch whose barrier count the host cannot account for.
+pub fn p4e_reset(dev: &mut impl P4eCounters, bar_base: &mut u32) -> Result<(), String> {
+    dev.zero()?;
+    *bar_base = 0;
+    Ok(())
+}
+
 /// One route-P step-A launch: the MLP segment of one layer, from `ln2` to the
 /// residual add after down_proj. Its grid-wide waits inside the launch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2423,6 +2469,92 @@ mod tests {
                 assert_eq!(*w == Wait4E::None, free, "phase {k}: {p:?}");
             }
         }
+    }
+
+    /// The card's three words as a 4E launch leaves them, for
+    /// [`p4e_settle`]: each barrier adds `grid` to the counter, a fault
+    /// raises its flag and stops every CTA at that barrier.
+    struct FakeCounters {
+        bar: u32,
+        abort: u32,
+        nan: u32,
+    }
+
+    impl P4eCounters for FakeCounters {
+        fn flags(&mut self) -> Result<(u32, u32), String> {
+            Ok((self.abort, self.nan))
+        }
+        fn zero(&mut self) -> Result<(), String> {
+            (self.bar, self.abort, self.nan) = (0, 0, 0);
+            Ok(())
+        }
+    }
+
+    impl FakeCounters {
+        /// One launch of `barriers` barriers from the host's base. The
+        /// kernel waits for `base + k * grid` at barrier k: a counter that
+        /// does not start at the base either deadlocks (behind it, the
+        /// watchdog aborts) or lets the barriers pass early (ahead of it).
+        /// Returns the barriers it passed.
+        fn launch(&mut self, base: u32, barriers: u32, grid: u32, fault: Option<(u32, P4eFault)>) -> u32 {
+            if self.nan != 0 {
+                return 0; // the head reads the flag and leaves at its first token
+            }
+            if self.bar != base {
+                self.abort = 1; // early passes are a race; count them as the abort they risk
+                return 0;
+            }
+            for k in 1..=barriers {
+                if let Some((at, f)) = fault {
+                    if k == at {
+                        match f {
+                            P4eFault::Abort => self.abort = 1,
+                            P4eFault::Nan => self.nan = 1,
+                        }
+                        self.bar = self.bar.wrapping_add(grid / 2); // some CTAs arrived
+                        return k - 1;
+                    }
+                }
+                self.bar = self.bar.wrapping_add(grid);
+            }
+            barriers
+        }
+    }
+
+    #[test]
+    fn a_faulted_4e_launch_does_not_poison_the_next() {
+        let (grid, per) = (142u32, n_bar_4e(36));
+        for fault in [P4eFault::Abort, P4eFault::Nan] {
+            let mut dev = FakeCounters { bar: 0, abort: 0, nan: 0 };
+            let mut base = 0u32;
+            // a clean launch of 3 tokens
+            assert_eq!(dev.launch(base, 3 * per, grid, None), 3 * per);
+            assert_eq!(p4e_settle(&mut dev, &mut base), Ok(None));
+            let (_, next) = p4e_after_launch(&[1, 2, 3], 3, base, 36, grid);
+            base = next;
+            assert_eq!(dev.bar, base, "the host's base follows the counter");
+            // a launch that faults in its second token
+            dev.launch(base, 3 * per, grid, Some((per + 5, fault)));
+            assert_eq!(p4e_settle(&mut dev, &mut base), Ok(Some(fault)), "{fault:?} is reported");
+            assert_eq!((dev.bar, base), (0, 0), "{fault:?}: counter and base start over together");
+            // the next launches run, and stay in step
+            for _ in 0..2 {
+                assert_eq!(dev.launch(base, 2 * per, grid, None), 2 * per, "{fault:?}: the next launch runs");
+                assert_eq!(p4e_settle(&mut dev, &mut base), Ok(None), "{fault:?}: the next launch is clean");
+                base = p4e_after_launch(&[4, 5], 2, base, 36, grid).1;
+                assert_eq!(dev.bar, base);
+            }
+        }
+        // the NaN flag wins nothing over the abort: both set reads as Abort
+        let mut dev = FakeCounters { bar: 7, abort: 1, nan: 1 };
+        let mut base = 3u32;
+        assert_eq!(p4e_settle(&mut dev, &mut base), Ok(Some(P4eFault::Abort)));
+        assert_eq!((dev.bar, dev.abort, dev.nan, base), (0, 0, 0, 0));
+        // a reset outside a fault (a launch the host cannot account for)
+        let mut dev = FakeCounters { bar: 99, abort: 0, nan: 0 };
+        let mut base = 42u32;
+        p4e_reset(&mut dev, &mut base).unwrap();
+        assert_eq!((dev.bar, base), (0, 0));
     }
 
     #[test]
