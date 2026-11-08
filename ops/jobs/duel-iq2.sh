@@ -70,8 +70,8 @@ case "$SIZE" in
   *) echo "refused: SIZE=$SIZE, the sizes are 4b, 8b and 14b" >&2; exit 1 ;;
 esac
 O=/out/$DIR/$SIZE${RETRY:+-r$RETRY}
-# a REUSE retry skips the f16, the imatrix and the quantization: its ceilings, 2h / 2h / 200m, keep the duel under its cap
-if [ -n "${REUSE:-}" ]; then case "$SIZE" in 4b|8b) TIMEOUT=2h ;; 14b) TIMEOUT=200m ;; esac; fi
+# a REUSE retry skips the f16, the imatrix and the quantization: its ceilings, 100m / 110m / 190m, keep the duel under its cap
+if [ -n "${REUSE:-}" ]; then case "$SIZE" in 4b) TIMEOUT=100m ;; 8b) TIMEOUT=110m ;; 14b) TIMEOUT=190m ;; esac; fi
 REUSE=${REUSE:-}
 KEEP=${KEEP:-}   # comma-separated arm names to measure; empty = all three
 if [ -n "$REUSE" ] && [ -z "${RETRY:-}" ]; then echo "refused: REUSE=1 reads the first attempt, so it needs RETRY" >&2; exit 1; fi
@@ -263,7 +263,9 @@ for l in open('$O/batched-$n.jsonl'):
     print('batched $n B=%d: %.1f tok/s aggregate, generated tokens over prompt+decode time (t_pp %.3f s, t_tg %.3f s)' % (d['pl'], d['pl']*d['tg']/(d['t_pp']+d['t_tg']), d['t_pp'], d['t_tg']))
 " | tee -a "$O/batched.txt"
   fi
-  "$B/llama-server" -m "$f" -ngl 99 -fa on -np 16 -c 53248 --host 127.0.0.1 --port 8080 > "$O/server-$n.log" 2>&1 &
+  # -b 16384: at the default 2,048 the server fills its low slots first and starves slot 15 for good (run 2 of the
+  # 14B, 900 s without an answer); 16 MMLU prompts average 11,120 tokens, so one step now holds them all
+  "$B/llama-server" -m "$f" -ngl 99 -fa on -np 16 -c 53248 -b 16384 --host 127.0.0.1 --port 8080 > "$O/server-$n.log" 2>&1 &
   SRV=$!
   ok=0
   for i in $(seq 1 200); do

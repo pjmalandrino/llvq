@@ -38,3 +38,16 @@ Retries 1 of the 8B and the 14B stopped 12 minutes in, at the reuse block: it re
 receive (`set -u`). Nothing was measured. The 4B retry 1 was cancelled in the queue, before it started. `DIR` is now
 passed, a static check finds no other unassigned variable in the job body, and the reuse block was run on the Mac
 against stub files before relaunching. Retry 2 measures the same two arms; ceilings 2h / 2h / 200m.
+
+## D4, 2026-11-08: retry 2 starved a server slot; retry 3 with a larger server batch
+
+Retry 2 of the 14B stopped in the MMLU census: one request went 900 s without an answer. The server log shows why:
+`llama-server` with 16 slots and its default batch of 2,048 tokens fills its low slots first, and slot 15 was never
+served while 6,750 other requests went through. Reproduced on the Mac with the 0.6B and 400 MMLU prompts: at the
+default batch, slot 0 serves 62 requests and slot 15 one; at `-b 16384`, every slot serves 25. Retry 2 measured, before
+stopping, the 14B IQ2_S perplexity (9.4696) and its decode speed; retry 3 measures them again. The 4B and 8B retries 2
+were cancelled before they reached the census (the 4B in its build, the 8B in the queue).
+
+The same reproduction shows that llama.cpp's MMLU picks depend on the server batch: 2 of 400 picks differ between the
+two batch sizes (47.20 % against 46.99 %). Retry 3 runs every arm at `-b 16384`. Ceilings 100m / 110m / 190m, so the
+duel stays under its $19.80 cap even if all three run to their ceiling.
