@@ -509,7 +509,29 @@ mod tests {
     #[test]
     fn no_launch_in_the_host_is_bounded_by_the_served_constant() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
-        for rel in ["llvq-llm/src/fused_cuda.rs", "llvq-llm/src/model.rs", "llvq-llm/src/bin/fusedrun.rs"] {
+        // The two library files have child modules since 2026-11-08 (audit
+        // batch 14), and a binary may too: every `.rs` under each name is read.
+        let mut files = Vec::new();
+        for base in ["llvq-llm/src/fused_cuda", "llvq-llm/src/model", "llvq-llm/src/bin/fusedrun"] {
+            let file = format!("{base}.rs");
+            if root.join(&file).is_file() {
+                files.push(file);
+            }
+            let mut dirs = vec![base.to_string()];
+            while let Some(d) = dirs.pop() {
+                let Ok(entries) = std::fs::read_dir(root.join(&d)) else { continue };
+                for e in entries.flatten() {
+                    let rel = format!("{d}/{}", e.file_name().to_string_lossy());
+                    if e.path().is_dir() {
+                        dirs.push(rel);
+                    } else if rel.ends_with(".rs") {
+                        files.push(rel);
+                    }
+                }
+            }
+        }
+        assert!(files.len() >= 8, "only {files:?}: the scan lost its files");
+        for rel in &files {
             let src = std::fs::read_to_string(root.join(rel)).expect("{rel} reads");
             for (i, line) in src.lines().enumerate() {
                 let code = line.split("//").next().unwrap_or("");
