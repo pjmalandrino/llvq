@@ -683,7 +683,7 @@ int main() {
 #endif
         wr(out);
         wr(outf);
-    } else if (tag == 'V') {
+    } else if (tag == 'D') {
         // VERIFY ROWS (pers_vrows.cu): arm (0 v2, 1 k2, 2 pword, 3 lean, 4 rot, 5..8 i16 at K = 1..4), grid,
         // threads, x seed, nsites, then per site d_out, d_in, seed. Out: for each of the four activations every
         // site's rows (binary16), then for each the f32 values. The served side gives all four; the persistent

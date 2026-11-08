@@ -1306,14 +1306,14 @@ const VROWS_SITES: [(u32, u32, u64); 7] =
     [(64, 2560, 0x7201), (48, 4096, 0x7202), (40, 9728, 0x7203), (16, 128, 0x7204), (23, 2568, 0x7205), (37, 800, 0x7206), (9, 4096, 0x7207)];
 
 fn vrows_cmd(arm: u32, grid: u32, threads: u32, xseed: u64, sites: &[(u32, u32, u64)]) -> Vec<u8> {
-    let mut c = Cmd::new(b'V').u32(arm).u32(grid).u32(threads).u64(xseed).u32(sites.len() as u32);
+    let mut c = Cmd::new(b'D').u32(arm).u32(grid).u32(threads).u64(xseed).u32(sites.len() as u32);
     for &(o, i, s) in sites {
         c = c.u32(o).u32(i).u64(s);
     }
     c.0
 }
 
-/// One 'V' output split: rows (binary16) and f32 values, by activation.
+/// One 'D' output split: rows (binary16) and f32 values, by activation.
 struct VOut {
     y: Vec<Vec<u16>>,
     f: Vec<Vec<f32>>,
