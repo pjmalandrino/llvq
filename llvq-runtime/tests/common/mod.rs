@@ -141,6 +141,7 @@ impl Loader for TinyLoader {
             backend: "dense-cpu".into(),
             config: None,
             lines: Vec::new(),
+            batch: None,
         })
     }
 }
@@ -156,7 +157,7 @@ pub fn manifest() -> Manifest {
         family: "qwen3".into(),
         parameter_size: "tiny".into(),
         bits_per_param: "32".into(),
-        configs: Configs { cuda: None, metal: None, cpu: None },
+        configs: Configs { cuda: None, metal: None, cpu: None, cuda_batch: None },
         modified_at: 1_762_387_200,
     }
 }

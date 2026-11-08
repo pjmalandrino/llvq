@@ -572,6 +572,7 @@ mod tests {
             attention: attention.map(str::to_string),
             decode: decode.map(str::to_string),
             rows: rows.map(str::to_string),
+            batch: None,
             note: None,
         };
         crate::served::Served::of(f, "c.json".into()).expect("resolves")

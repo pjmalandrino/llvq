@@ -55,6 +55,11 @@ pub struct Configs {
     /// it existed, which then have no CPU config.
     #[serde(default)]
     pub cpu: Option<String>,
+    /// The config `llvq serve` takes on CUDA under `LLVQ_BATCH`: the batched
+    /// decode, several requests a step. Absent in manifests written before it
+    /// existed; [`with_cpu_config`] fills it from the library.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cuda_batch: Option<String>,
 }
 
 /// One model of `library.json`.
@@ -116,8 +121,12 @@ pub fn find(n: &ModelName) -> Option<&'static Entry> {
 /// when `c` names none: a manifest pulled before the CPU backend existed.
 pub fn with_cpu_config(c: &Configs, sha256: &str) -> Configs {
     let mut out = c.clone();
+    let entry = entries().iter().find(|e| e.sha256 == sha256);
     if out.cpu.is_none() {
-        out.cpu = entries().iter().find(|e| e.sha256 == sha256).and_then(|e| e.configs.cpu.clone());
+        out.cpu = entry.and_then(|e| e.configs.cpu.clone());
+    }
+    if out.cuda_batch.is_none() {
+        out.cuda_batch = entry.and_then(|e| e.configs.cuda_batch.clone());
     }
     out
 }
@@ -148,6 +157,18 @@ const CONFIGS: &[(&str, &str)] = &[
     (
         "qwen3-14b-tetra-e4.json",
         include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../configs/qwen3-14b-tetra-e4.json")),
+    ),
+    (
+        "qwen3-4b-tetra-e4-batch.json",
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../configs/qwen3-4b-tetra-e4-batch.json")),
+    ),
+    (
+        "qwen3-8b-tetra-e4-batch.json",
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../configs/qwen3-8b-tetra-e4-batch.json")),
+    ),
+    (
+        "qwen3-14b-tetra-e4-batch.json",
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../configs/qwen3-14b-tetra-e4-batch.json")),
     ),
 ];
 
@@ -233,7 +254,7 @@ mod tests {
             assert!(m.sha256.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
             assert_eq!(m.revision.len(), 40, "{}: a pinned commit, not a branch", m.model_name());
             assert!(ModelName::parse(&m.model_name().to_string()).is_ok());
-            for c in [&m.configs.cuda, &m.configs.metal, &m.configs.cpu].into_iter().flatten() {
+            for c in [&m.configs.cuda, &m.configs.metal, &m.configs.cpu, &m.configs.cuda_batch].into_iter().flatten() {
                 let text = config_text(c).unwrap_or_else(|| panic!("{c} is named and not compiled in"));
                 let f: ServedFile = serde_json::from_str(text).unwrap();
                 Served::of(f, c.into()).unwrap_or_else(|e| panic!("{c}: {e}"));
@@ -292,8 +313,9 @@ mod tests {
     #[test]
     fn an_old_manifest_takes_the_library_cpu_config() {
         let e = &entries()[0];
-        let old = Configs { cuda: e.configs.cuda.clone(), metal: e.configs.metal.clone(), cpu: None };
+        let old = Configs { cuda: e.configs.cuda.clone(), metal: e.configs.metal.clone(), cpu: None, cuda_batch: None };
         assert_eq!(with_cpu_config(&old, &e.sha256).cpu, e.configs.cpu, "filled from the same file's entry");
+        assert_eq!(with_cpu_config(&old, &e.sha256).cuda_batch, e.configs.cuda_batch, "the batch config too");
         assert_eq!(with_cpu_config(&old, &"0".repeat(64)).cpu, None, "an unknown file gets none");
         let own = Configs { cpu: Some("x.json".into()), ..old };
         assert_eq!(with_cpu_config(&own, &e.sha256).cpu.as_deref(), Some("x.json"), "a manifest's own wins");

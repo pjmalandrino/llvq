@@ -100,9 +100,9 @@ mod run {
         let arms: Vec<BatchProjs> = a.get(1).map(String::as_str).unwrap_or("rows,mma").split(',').map(BatchProjs::parse).collect::<Result<_, _>>().map_err(anyhow::Error::msg)?;
         let n: usize = a.get(2).map(|s| s.parse()).transpose()?.unwrap_or(256);
         let rounds: usize = a.get(3).map(|s| s.parse()).transpose()?.unwrap_or(3);
-        for &arm in &arms {
-            let mx = dev.max_rows(arm);
-            anyhow::ensure!(bs.iter().all(|&b| (1..=mx).contains(&b)) || arm == BatchProjs::Rows, "B in 1..={mx} under {}", arm.name());
+        // A B past an arm's widest entry skips that arm; every B must fit one.
+        for &b in &bs {
+            anyhow::ensure!(b >= 1 && arms.iter().any(|&a| b <= dev.max_rows(a)), "B = {b}: no arm takes it");
         }
         let reference = std::env::var("LLVQ_BATCH_REF").ok();
         let mut rates: Vec<Vec<f64>> = vec![Vec::new(); bs.len() * arms.len()];

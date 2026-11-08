@@ -11,6 +11,12 @@
 //!
 //! `llvq serve` also serves a chat page at `/`, on the same routes.
 //!
+//! `LLVQ_BATCH=<sequences>[:<positions>]` puts `llvq serve` on CUDA in
+//! continuous batching: up to that many requests decode together, each in a
+//! slot of the model's batch config (`configs/qwen3-*-tetra-e4-batch.json`),
+//! greedy only. Unset or `0`, requests run one after another on the served
+//! config.
+//!
 //! The client commands talk HTTP to `LLVQ_HOST`, as Ollama's do. `ls`, `rm`,
 //! `cp`, `show` and `pull` work on the store directly when no server answers.
 //! `run` starts a server in the background when none answers (decision D7),

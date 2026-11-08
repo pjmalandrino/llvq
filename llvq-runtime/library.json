@@ -15,7 +15,8 @@
       "configs": {
         "cuda": "qwen3-4b-tetra-e4-4e-v9.json",
         "metal": "qwen3-4b-tetra-e4.json",
-        "cpu": "qwen3-4b-tetra-e4.json"
+        "cpu": "qwen3-4b-tetra-e4.json",
+        "cuda_batch": "qwen3-4b-tetra-e4-batch.json"
       }
     },
     {
@@ -32,7 +33,8 @@
       "configs": {
         "cuda": "qwen3-8b-tetra-e4-4e-v9.json",
         "metal": "qwen3-8b-tetra-e4.json",
-        "cpu": "qwen3-8b-tetra-e4.json"
+        "cpu": "qwen3-8b-tetra-e4.json",
+        "cuda_batch": "qwen3-8b-tetra-e4-batch.json"
       }
     },
     {
@@ -49,7 +51,8 @@
       "configs": {
         "cuda": "qwen3-14b-tetra-e4-4e-v9.json",
         "metal": "qwen3-14b-tetra-e4.json",
-        "cpu": "qwen3-14b-tetra-e4.json"
+        "cpu": "qwen3-14b-tetra-e4.json",
+        "cuda_batch": "qwen3-14b-tetra-e4-batch.json"
       }
     }
   ]

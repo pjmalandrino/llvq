@@ -4122,6 +4122,7 @@ mod tests {
             attention: attention.map(str::to_string),
             decode: None,
             rows: None,
+            batch: None,
             note: None,
         };
         let resolve = |attention: Option<&str>| {
@@ -4214,6 +4215,7 @@ mod tests {
             attention: Some("kernel".into()),
             decode: None,
             rows: None,
+            batch: None,
             note: None,
         };
         let f = served_file_kernel();

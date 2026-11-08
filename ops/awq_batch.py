@@ -3,7 +3,7 @@
 # vllm/vllm-openai image, whose vLLM is the thing measured. Imports are stdlib
 # and vllm only, and nothing from the repository: the file is copied into a
 # bucket and executed alone.
-"""Aggregate decode throughput of the official AWQ 4-bit Qwen3-4B in vLLM, B sequences at a time.
+"""Aggregate decode throughput of the official AWQ 4-bit Qwen3 (4B, 8B, 14B) in vLLM, B sequences at a time.
 
 The batch-1 figure (200.5 tok/s, ops/awq_speed.py) answers one user. This file answers B users: B copies of the
 door prompt, decoded together by vLLM's scheduler, 256 greedy tokens each, wall clock around one `generate`
@@ -32,10 +32,13 @@ PROMPT_IDS = [785, 6722, 315, 9625, 374]
 N_TOKENS = 256
 WARMUPS = 2
 ROUNDS = 5
-# The revision ops/awq_dequant.py's structural controls ran against (ops/awq_speed.py SIZES["4b"]).
-AWQ_REPO = "Qwen/Qwen3-4B-AWQ"
-AWQ_REV = "74d4bd2bd4bff9cafc9345221320bffb08b406a3"
-AWQ_GB = 2.67  # weights on the card, the published table's GB column (docs/ETAT.md section 3)
+# The revisions ops/awq_speed.py pins (SIZES), and the weights on the card, the published table's GB column
+# (docs/ETAT.md section 3). Copied, not imported: this file runs alone in the vLLM image.
+AWQ = {
+    "4b": ("Qwen/Qwen3-4B-AWQ", "74d4bd2bd4bff9cafc9345221320bffb08b406a3", 2.67),
+    "8b": ("Qwen/Qwen3-8B-AWQ", "4da05a8edb55c6046cce958586c33b61da07bb79", 6.10),
+    "14b": ("Qwen/Qwen3-14B-AWQ", "31c69efc29464b6bb0aee1398b5a7b50a99340c3", 9.98),
+}
 
 
 class Refused(Exception):
@@ -63,6 +66,7 @@ def dig(root, *paths):
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--batches", default="1,4,8,16,32")
+    ap.add_argument("--size", default="4b", choices=sorted(AWQ))
     ap.add_argument("--json", required=True)
     ap.add_argument("--gpu-util", type=float, default=0.5)
     args = ap.parse_args()
@@ -70,6 +74,7 @@ def main() -> int:
         tag = os.environ.get("LLVQ_IMAGE_TAG", "").strip()
         if not tag or "latest" in tag:
             raise Refused(f"LLVQ_IMAGE_TAG={tag!r}: the launcher passes a pinned tag")
+        AWQ_REPO, AWQ_REV, AWQ_GB = AWQ[args.size]
         batches = [int(b) for b in args.batches.split(",")]
         if any(b < 1 or b > 256 for b in batches) or len(set(batches)) != len(batches):
             raise Refused(f"--batches {args.batches!r}: distinct counts in 1..=256")
