@@ -1258,3 +1258,11 @@ AWQ's 4.9, which leaves Tetra four times below AWQ in aggregate.
   pilot problems. Decode at the best k, x0.595 (4B), x0.629 (8B), x0.625 (14B) of greedy; +0.24 to +0.27 GB on the
   card. A 2-row verify pass costs 1.95 to 2.25 greedy tokens (it spills, runs the prologues and attention per row),
   the drafter 2.5 ms a launch. Not proposed for serving.
+
+## 2026-11-08. What the format's maths can buy in throughput
+
+A study at $0 ([`recherche-debit-maths.md`](recherche-debit-maths.md)). The eager Tetra loop's time is linear in its
+SASS count a block on the four F1 floor arms, within 2.5 % (*computed*, [sass-tetra-int8](mesures/sass-tetra-int8-2026-11-08.txt)).
+Rows at DRAM speed would cap the doors at 278, 196 and 121 tok/s (*estimated*). The int8 activation with `dp4a` takes
+the block from 237 to 152 instructions (*computed*), projected 248, 168 and 103 tok/s on the arithmetic (*estimated*),
+not at the bit. Two exact levers give 234, 151 and 90 at most. Nothing ran on a card.

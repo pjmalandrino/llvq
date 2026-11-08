@@ -1,0 +1,71 @@
+INSTRUCTION COUNTS OF THE TETRA BLOCK, AND A TIME MODEL LINEAR IN THEM (2026-11-08)
+==================================================================================
+Prereg: none (analysis at $0, no card). Deviations: none.
+Code: ops/tetra-sass-probe.sh, ops/tetra-sass-probe/probe.cu, ops/debit_maths.py. Job: none, $0.
+Nature: *computed*. Counts from the devel nvcc/ptxas 12.4 for sm_89 in nvidia/cuda:12.4.1-devel-ubuntu22.04 on the
+Mac; the model fitted on times *measured* in f1-rang-variantes-2026-09-05.txt.
+
+SETUP
+-----
+One warp a row, one block a lane-iteration, `#pragma unroll 1`, so the inner loop is one 24-weight block. The served
+block (natural staging, TETRA48_ORDER addresses, 24 __fmaf_rn, the fold) against exact variants and int8-activation
+variants. The F1 floor kernels compiled in the same container, from their committed sources, tile 128 as they ran.
+
+CONTROLS
+--------
+1. The served block reproduces the card's count: 237 here, 243 in the card's cubin of tpersall (pers-sass-2026-11-05),
+   same opcode mix within 6. Passes.
+2. Each exact variant multiplies the same 24 values by the same activations in the same order: the staging moves
+   addresses only, `prmt.b32` in sign mode builds the same byte mask, the SoA planes hold the same 48 bits. By
+   reading; no host harness ran. Not a gate.
+3. The int8 variants are not exact: the activation is rounded to int8 with one f32 scale a block of 24.
+
+RESULT
+------
+Inner-loop SASS instructions a block (devel ptxas, sm_89):
+
+  variant          instr   what changes
+  row_f32           237    the served block
+  row_f32_trio      230    activation staged in trio order, six LDS.128 (exact)
+  row_ex_sp         224    + the byte mask by raw prmt in sign mode (exact)
+  row_ex_soa        228    trio + words as a u32 plane and a u16 plane (exact)
+  row_ex_all        222    trio + raw prmt + SoA (exact)
+  row_dec           152    the decode alone, no dot (floor of any dot)
+  row_i8            163    int8 activation, six dp4a for the dot
+  row_i8_sp         157    + raw prmt
+  row_i8_best       152    + SoA words
+
+F1 floor loops, the same container, against their times (one process, *measured*, f1-rang-variantes):
+
+  arm    instr   measured ms   model ms   model/measured
+  word     50      2.825        anchor
+  v3      219      3.875        anchor
+  f1r     499      5.515        5.615      +1.8 %
+  v1      238      3.900        3.993      +2.4 %
+  v2      523      5.625        5.764      +2.5 %
+
+Model: t = t_word + c x (N - 50), c = 6.213 us per instruction a block over the 151.3M blocks of the 4B's 252 matrices.
+It predicts the three arms it was not fitted on within +2.5 %, the arm with 24 I2F included. The implied issue rate is
+2.13 warp-instructions a clock a SM, 53 % of the 4 schedulers. At the served 237 the instruction-driven part is
+64.3 % of the time above the floor.
+
+Activation rounding (ops/debit_maths.py part 4, Gaussian and outlier inputs after a randomized Hadamard, 2,560
+columns): relative RMS error of y, f16 2.1e-4, int8 a block of 24 4.4e-3 to 5.1e-3, int8 a token 5.7e-3 to 8.4e-3.
+Against Tetra's own relative weight error of 0.333, the block form adds 2.3e-4 of its noise power.
+
+VERDICT
+-------
+No decision rule: a study input. The time of the eager Tetra loop is linear in its instruction count on four arms,
+which makes instruction counts a usable proxy for the decode, in that geometry.
+
+WHAT THIS DOES NOT ESTABLISH
+----------------------------
+The card's driver ptxas may allocate and schedule differently: counts are indicative.
+That the slope holds inside 4E, whose rows run at one CTA a SM and stall at grid barriers.
+Any time of the variants: none ran. Any perplexity of the int8 form: the error above is a simulation on synthetic
+activations.
+
+PROVENANCE
+----------
+ops/tetra-sass-probe.sh writes the SASS listings under target/tetra-sass-probe/. ops/debit_maths.py prints every
+derived number of docs/recherche-debit-maths.md.

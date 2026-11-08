@@ -16,6 +16,7 @@ Plans still in use:
 | document | content |
 |---|---|
 | [`plan-300.md`](plan-300.md) | the study of 4E's speed past v6, with its three measured steps |
+| [`recherche-debit-maths.md`](recherche-debit-maths.md) | what the lattice's maths can buy in throughput, ranked, with its ceilings |
 | [`plan-metal-debit.md`](plan-metal-debit.md) | the Mac: the MLX door, the Rust Metal path, what comes next |
 | [`plan-transformers.md`](plan-transformers.md) | loading a Tetra file in `transformers`: stages, gates, upstream |
 | [`plan-runtime.md`](plan-runtime.md) | the `llvq` runtime: design, stages, decisions |
