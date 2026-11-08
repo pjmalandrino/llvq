@@ -150,8 +150,8 @@ For an A/B on one file the bar is the paired interval, 0.43 pp of MMLU and 0.12 
 ## 5. Open decisions
 
 - **Throughput past v9.** At the bit the 4B tops out near 235 to 258 tok/s at the door (*estimated*,
-  [`plan-300.md`](plan-300.md)). Next: speculative decoding with a 0.6B draft, and batching. Both are being worked on
-  branches, not on main.
+  [`plan-300.md`](plan-300.md)). Speculative decoding with the 0.6B draft is closed (§6). Next, on branches and not
+  on main: batching (PR #24) and a speculative route with a cheaper verify pass (PR #27).
 - **Scores through the served kernel.** MMLU and perplexity are scored on the dense reconstruction with f16 tables;
   the b/param count int4 tables. About $20 by the mixed route, $70 for the full census at three sizes (*estimated*,
   [`ROADMAP.md`](ROADMAP.md)). `ppl` does not read `LLVQ_CONFIG` yet.

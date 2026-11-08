@@ -881,7 +881,7 @@ both Hub cards, and of the shim's `ImportError`, had promised that package since
 
 ## 2026-10-30 to 11-02. The decode step trimmed, attention ungrouped from `repeat_kv`, and a field to serve it
 
-Three jobs on the L40S, $1.55, all on the sealed 4B and its config. They answer the two cheapest questions a throughput
+Four jobs on the L40S, one of them a failed first attempt, $1.55, all on the sealed 4B and its config. They answer the two cheapest questions a throughput
 audit of 2026-10-29 raised: what the served step wastes on work it does not need, and what the KV cache costs at the
 context the product promises.
 
