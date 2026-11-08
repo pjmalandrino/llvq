@@ -6,11 +6,13 @@ time of writing: nothing runs before the operator's go.**
 
 Cost: **$1.75 expected, $2.40 at worst** (80 min timeout) on l40sx1 (*estimated* from the duel's Tetra job, 29 billed
 minutes for six sweeps, `docs/data/jobs.csv`). Registry total on this branch's base: $280.04 over 278 rows
-(*computed*); $297.59 over 291 rows once the duel's PR is merged.
+(*computed*); $304.05 across the branches open on 2026-11-08, the duel's and the speculative decode's included
+(the parent session's count).
 
 **Base commit:** the commit of `claude/pic-vram-8k-1835fd` that carries this file and `ops/jobs/pic-vram-8k.sh`.
 **Image:** the Space `Pier-Jean/llvq-runner-cuda` republished from that commit, passed as `IMAGE_SHA`. The Space
-carries another session's branch at the time of writing: check `hf jobs ps` before republishing it.
+carries another session's branch at the time of writing: check `hf jobs ps` before republishing it (none ran at
+22:11 CET on 2026-11-08; the speculative decode's 6af0b3e0 had completed).
 
 ## 1. Question
 

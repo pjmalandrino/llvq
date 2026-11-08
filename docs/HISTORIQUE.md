@@ -1258,3 +1258,16 @@ AWQ's 4.9, which leaves Tetra four times below AWQ in aggregate.
   pilot problems. Decode at the best k, x0.595 (4B), x0.629 (8B), x0.625 (14B) of greedy; +0.24 to +0.27 GB on the
   card. A 2-row verify pass costs 1.95 to 2.25 greedy tokens (it spills, runs the prologues and attention per row),
   the drafter 2.5 ms a launch. Not proposed for serving.
+
+## 2026-11-08. The prefill's card memory at 8,192 tokens: three score tensors, cut to one bit for bit
+
+- The duel against llama.cpp IQ2_S measured 11.48 / 12.66 / 17.09 GB of card memory after an 8,192-token prompt at
+  4B / 8B / 14B, against 3.52 / 4.71 / 6.90. The excess was the grouped prefill keeping three f16 score tensors alive
+  (6.44 GB at 4B, *computed*), and the stream-ordered pool keeping the first chunk's under the second (*estimated*).
+  That model lands on the three measures ([pic-vram-8k](mesures/pic-vram-8k-2026-11-08.txt)).
+- The served path now writes the masked softmax back in place, builds the causal mask in f16, syncs the stream
+  before each prefill chunk and after each cache growth, and frees the attention's locals before the MLP. The same
+  logits bit for bit on the host and on Metal at the real 4B shape, 56.65 to 14.79 GB there (*measured*). Computed
+  card peak 5.65 / 7.09 / 10.08 GB.
+- `"prefill_attention": "kernel"`, NOT SERVED, sends the prompt rows to the decode-attention kernel: no score tensor,
+  3.67 / 5.20 / 7.81 GB (*computed*). The card gate ($1.75, $2.40 at worst) is written and waits on the operator.
