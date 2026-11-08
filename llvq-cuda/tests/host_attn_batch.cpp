@@ -8,7 +8,10 @@
 // third, so the batched launch runs a grid wider than two of its sequences and
 // folds their partials through the ticket while the one-row calls do not.
 //
-//   in : u32 G, u32 n_kv, u32 cap, u32 B, i32[B] pos, u64 seed
+//   in : u32 G, u32 n_kv, u32 cap, u32 B, i32[B] pos, u64 seed, u32 P, i32[B] slot
+//        P = 0 runs the dense entry (row z in slot z); P > 0 the slot entry
+//        over a pool of P slots, row z in slot[z], and checks that every slot
+//        no row names keeps its bytes.
 //   out: "MATCH <values>" on stdout and exit 0, or the first difference and exit 1
 
 #include "host_cta.h"
@@ -59,6 +62,10 @@ int main() {
     std::vector<int> pos(B);
     for (auto& p : pos) p = rd<int>();
     uint64_t s = rd<uint64_t>();
+    const unsigned P = rd<unsigned>();
+    std::vector<int> slot(B);
+    for (unsigned z = 0; z < B; ++z) slot[z] = P ? rd<int>() : (int)z;
+    const unsigned pool = P ? P : B;
     auto next = [&]() {
         s += 0x9e3779b97f4a7c15ull;
         uint64_t z = s;
@@ -68,7 +75,7 @@ int main() {
         return attn_f2h((float)((double)(z >> 11) / 9007199254740992.0 * 2.0 - 1.0));
     };
     const size_t nq = (size_t)n_kv * G * ATTN_HD, nk = (size_t)n_kv * ATTN_HD, nc = (size_t)n_kv * cap * ATTN_HD;
-    std::vector<unsigned short> q(B * nq), kn(B * nk), vn(B * nk), kc(B * nc), vc(B * nc);
+    std::vector<unsigned short> q(B * nq), kn(B * nk), vn(B * nk), kc(pool * nc), vc(pool * nc);
     for (auto* v : {&q, &kn, &vn, &kc, &vc})
         for (auto& x : *v) x = next();
     const float c = 0.08838834764831845f * 1.4426950408889634f;
@@ -85,8 +92,10 @@ int main() {
     std::vector<int> posv = pos;
     {
         launch3(gx, n_kv, B, 0x5eedu, [&] {
-            if (G == 4) attn_batch_g4_u64(q.data(), kn.data(), vn.data(), bkc.data(), bvc.data(), posv.data(), (int)cap, c, bpart.data(), bt.data(), bout.data(), ss);
-            else attn_batch_g5_u64(q.data(), kn.data(), vn.data(), bkc.data(), bvc.data(), posv.data(), (int)cap, c, bpart.data(), bt.data(), bout.data(), ss);
+            if (P == 0 && G == 4) attn_batch_g4_u64(q.data(), kn.data(), vn.data(), bkc.data(), bvc.data(), posv.data(), (int)cap, c, bpart.data(), bt.data(), bout.data(), ss);
+            if (P == 0 && G == 5) attn_batch_g5_u64(q.data(), kn.data(), vn.data(), bkc.data(), bvc.data(), posv.data(), (int)cap, c, bpart.data(), bt.data(), bout.data(), ss);
+            if (P != 0 && G == 4) attn_slot_g4_u64(q.data(), kn.data(), vn.data(), bkc.data(), bvc.data(), posv.data(), slot.data(), (int)cap, c, bpart.data(), bt.data(), bout.data(), ss);
+            if (P != 0 && G == 5) attn_slot_g5_u64(q.data(), kn.data(), vn.data(), bkc.data(), bvc.data(), posv.data(), slot.data(), (int)cap, c, bpart.data(), bt.data(), bout.data(), ss);
         });
     }
     for (unsigned t : bt)
@@ -94,8 +103,9 @@ int main() {
 
     size_t n = 0;
     for (unsigned z = 0; z < B; ++z) {
-        std::vector<unsigned short> skc(kc.begin() + z * nc, kc.begin() + (z + 1) * nc);
-        std::vector<unsigned short> svc(vc.begin() + z * nc, vc.begin() + (z + 1) * nc);
+        const size_t sz = (size_t)slot[z];
+        std::vector<unsigned short> skc(kc.begin() + sz * nc, kc.begin() + (sz + 1) * nc);
+        std::vector<unsigned short> svc(vc.begin() + sz * nc, vc.begin() + (sz + 1) * nc);
         std::vector<unsigned short> sout(nq, 0xffffu);
         const unsigned sg = (unsigned)((pos[z] + 1 + ATTN_SPLIT - 1) / ATTN_SPLIT);
         std::vector<float> spart((size_t)n_kv * sg * ATTN_KMAX * G * ATTN_PSTRIDE, 0.0f);
@@ -111,10 +121,20 @@ int main() {
                 return 1;
             }
         for (size_t i = 0; i < nc; ++i)
-            if (skc[i] != bkc[z * nc + i] || svc[i] != bvc[z * nc + i]) {
+            if (skc[i] != bkc[sz * nc + i] || svc[i] != bvc[sz * nc + i]) {
                 std::printf("sequence %u cache value %zu differs\n", z, i);
                 return 1;
             }
+    }
+    for (unsigned p = 0; p < pool; ++p) {
+        bool named = false;
+        for (int x : slot) named = named || x == (int)p;
+        if (!named)
+            for (size_t i = 0; i < nc; ++i)
+                if (kc[p * nc + i] != bkc[p * nc + i] || vc[p * nc + i] != bvc[p * nc + i]) {
+                    std::printf("slot %u, which no row names, was written\n", p);
+                    return 1;
+                }
     }
     std::printf("MATCH %zu\n", n);
     return 0;

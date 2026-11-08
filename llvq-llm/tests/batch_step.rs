@@ -113,3 +113,49 @@ fn the_batched_window_score_is_the_full_window_score() {
         assert!((got[i].0 - n).abs() < 1e-3 * n.abs().max(1.0), "window {i}: batched {} full {n}", got[i].0);
     }
 }
+
+#[test]
+fn sequences_that_join_and_leave_a_pool_decode_as_they_decode_alone() {
+    // Three slots, five requests: each joins when a slot frees, the others
+    // keep stepping, and every answer is the one `generate` gives alone.
+    let dev = Device::Cpu;
+    let m = model(&dev);
+    let reqs: Vec<(Vec<u32>, usize)> = vec![
+        (vec![5, 17, 99, 3, 40], 9),
+        (vec![77], 4),
+        (vec![1, 2, 3, 4, 5, 6, 7, 8], 12),
+        (vec![64, 64], 6),
+        (vec![9, 8, 7], 7),
+    ];
+    let alone: Vec<Vec<u32>> = reqs.iter().map(|(p, n)| m.generate(p, *n, &mut NoCapture).expect("generate")).collect();
+    let mut pool = llvq_llm::batch::Pool::new(&m, 3, 32).expect("pool");
+    let mut out: Vec<Vec<u32>> = vec![Vec::new(); reqs.len()];
+    // (request, slot, next token to feed)
+    let mut live: Vec<(usize, usize, u32)> = Vec::new();
+    let mut next_req = 0usize;
+    while next_req < reqs.len() || !live.is_empty() {
+        while next_req < reqs.len() && pool.free() > 0 {
+            let (slot, first) = pool.admit(&m, &reqs[next_req].0).expect("admit").expect("a free slot");
+            out[next_req].push(first);
+            live.push((next_req, slot, first));
+            next_req += 1;
+        }
+        live.retain(|&(r, slot, _)| {
+            let done = out[r].len() >= reqs[r].1;
+            if done {
+                pool.release(slot);
+            }
+            !done
+        });
+        if live.is_empty() {
+            continue;
+        }
+        let step: Vec<(usize, u32)> = live.iter().map(|&(_, s, t)| (s, t)).collect();
+        let picks = pool.step(&m, &step, &CandleBatch, BatchProjs::Rows).expect("step");
+        for (l, p) in live.iter_mut().zip(picks) {
+            out[l.0].push(p);
+            l.2 = p;
+        }
+    }
+    assert_eq!(out, alone);
+}

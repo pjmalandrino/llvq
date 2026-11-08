@@ -5,6 +5,9 @@
 //!
 //! * `tv_batch_mma.cu` after the decoder headers it reads, for the
 //!   tensor-core projections (Tetra, int4 records, the int4 head);
+//! * `tv_batch_gemm.cu`, the same headers, for the staged and folded GEMM of
+//!   [`crate::batch::BatchProjs::Gemm`], in a module of its own so the first
+//!   kernel's unit keeps its text;
 //! * `attn_dec.cu` then `attn_dec_batch.cu`, for the attention of B
 //!   sequences in one launch, each with the served kernel's bits.
 //!
@@ -21,11 +24,79 @@ use half::f16;
 use crate::fused_cuda::{CudaEmbed, CudaInt4, CudaLattice, FusedRuntime, TableView};
 
 const MMA_CU: &str = include_str!("../kernels/tv_batch_mma.cu");
+const GEMM_CU: &str = include_str!("../kernels/tv_batch_gemm.cu");
 const ATTN_BATCH_CU: &str = include_str!("../../llvq-cuda/kernels/attn_dec_batch.cu");
 /// Rows a CTA of the tensor-core kernels owns; `d_out` must be a multiple.
 const BM_ROWS: usize = 128;
-/// Activation rows the widest entry point takes.
+/// Activation rows the widest entry point of `tv_batch_mma.cu` takes.
 pub const MAX_ROWS: usize = 32;
+/// Activation rows the widest entry point of `tv_batch_gemm.cu` takes.
+pub const GEMM_MAX_ROWS: usize = 128;
+/// Rows a CTA of the GEMM owns, and projections a launch carries.
+const BG_ROWS: usize = 64;
+const BG_MAXSEG: usize = 4;
+
+/// The GEMM's entries: rows they carry and the K chunk each was compiled
+/// with (`BG_ENTRY` lines of `tv_batch_gemm.cu`).
+const BG_ENTRIES: [(&str, usize, usize); 5] =
+    [("tv_bg_n8", 8, 192), ("tv_bg_n16", 16, 192), ("tv_bg_n32", 32, 96), ("tv_bg_n64", 64, 48), ("tv_bg_n128", 128, 48)];
+
+/// Shared bytes of a GEMM entry: `BG_SMEM_WORDS` of the kernel, transcribed.
+fn bg_smem_bytes(n: usize, kc: usize) -> u32 {
+    let stage = |kind: usize| {
+        let (xw, ww) = match kind {
+            0 => (kc + 8, (kc / 16 + 1) / 4 * 4 + 2),
+            _ => (kc / 2 + 4, kc / 8 + 2),
+        };
+        n * xw + BG_ROWS * ww
+    };
+    ((2 * stage(0).max(stage(1)) + 4 * 16 * 28) * 4) as u32
+}
+
+/// `BgSeg` of `tv_batch_gemm.cu`, field for field.
+#[repr(C)]
+#[derive(Clone, Copy, Default, Debug)]
+struct BgSeg {
+    w: u64,
+    a0: u64,
+    a1: u64,
+    tail: u64,
+    x: u64,
+    y: u64,
+    part: u64,
+    kind: u32,
+    stride: u32,
+    nblocks: u32,
+    tail_w: u32,
+    d_in: u32,
+    d_out: u32,
+    nk: u32,
+    slice: u32,
+    s: u32,
+    cta0: u32,
+    tk0: u32,
+    pad: u32,
+}
+
+/// `BgArgs` of `tv_batch_gemm.cu`, passed by value as the kernel's one
+/// parameter.
+#[repr(C)]
+#[derive(Clone, Copy, Default, Debug)]
+struct BgArgs {
+    seg: [BgSeg; BG_MAXSEG],
+    trows: u64,
+    pref: u64,
+    br: u64,
+    suf: u64,
+    invnorm: u64,
+    ticket: u64,
+    nseg: u32,
+    n_rows: u32,
+}
+
+// SAFETY: plain old data, `#[repr(C)]`, the layout of the kernel's struct
+// (the sizes are asserted in `tests`); the driver copies its bytes.
+unsafe impl candle_core::cuda_backend::cudarc::driver::DeviceRepr for BgArgs {}
 
 fn addr(t: &Tensor, stream: &candle_core::cuda_backend::cudarc::driver::CudaStream, elem: u64) -> candle_core::Result<u64> {
     let (st, lay) = t.storage_and_layout();
@@ -74,6 +145,8 @@ impl candle_core::CustomOp1 for Launch<'_> {
 }
 
 struct Scratch {
+    gemm_part: CudaSlice<f32>,
+    gemm_ticket: CudaSlice<u32>,
     part: CudaSlice<f32>,
     ticket: CudaSlice<u32>,
     attn_part: CudaSlice<f32>,
@@ -83,10 +156,12 @@ struct Scratch {
 pub struct CudaBatch {
     rt: Arc<FusedRuntime>,
     _mma: llvq_cuda::gpu::Cuda,
+    gemm_mod: llvq_cuda::gpu::Cuda,
     attn: llvq_cuda::gpu::Cuda,
     tetra: [CudaFunction; 3],
     q4: [CudaFunction; 3],
-    attn_f: CudaFunction,
+    bg: Vec<(CudaFunction, usize, usize, u32)>,
+    attn_slot: CudaFunction,
     tables: TableView,
     sms: usize,
     groups: usize,
@@ -115,17 +190,22 @@ impl CudaBatch {
         ];
         let src = llvq_cuda::gpu::KernelSource::new(&parts);
         let mma = llvq_cuda::gpu::Cuda::on_stream(stream.clone(), &src).map_err(msg)?;
+        let mut gparts = parts;
+        gparts[parts.len() - 1] = GEMM_CU;
+        let gsrc = llvq_cuda::gpu::KernelSource::new(&gparts);
+        let gemm_mod = llvq_cuda::gpu::Cuda::on_stream(stream.clone(), &gsrc).map_err(msg)?;
         let asrc = llvq_cuda::gpu::KernelSource::new(&[llvq_cuda::ATTN_DEC_CU, ATTN_BATCH_CU]);
         let attn = llvq_cuda::gpu::Cuda::on_stream(stream, &asrc).map_err(msg)?;
         let mut provenance = vec![
             format!("batch mma unit: {} bytes, sha256 {}, target {}", src.text.len(), src.sha256, llvq_cuda::gpu::arch()),
+            format!("batch gemm unit: {} bytes, sha256 {}", gsrc.text.len(), gsrc.sha256),
             format!("batch attention unit: {} bytes, sha256 {}", asrc.text.len(), asrc.sha256),
         ];
         let names_t = ["tv_tetra48_mma_n8", "tv_tetra48_mma_n16", "tv_tetra48_mma_n32"];
         let names_q = ["tv_q4_mma_n8", "tv_q4_mma_n16", "tv_q4_mma_n32"];
-        let attn_name = match groups {
-            4 => "attn_batch_g4_u64",
-            5 => "attn_batch_g5_u64",
+        let (attn_name, slot_name) = match groups {
+            4 => ("attn_batch_g4_u64", "attn_slot_g4_u64"),
+            5 => ("attn_batch_g5_u64", "attn_slot_g5_u64"),
             g => candle_core::bail!("batched attention: {g} query heads a KV head, compiled for 4 and 5"),
         };
         for n in names_t.iter().chain(names_q.iter()) {
@@ -135,20 +215,49 @@ impl CudaBatch {
                 candle_core::bail!("{n} spills {} B to local memory", r.local_bytes);
             }
         }
-        let r = attn.report(attn_name).map_err(msg)?;
-        provenance.push(format!("{attn_name}: {} registers, {} B local", r.num_regs, r.local_bytes));
+        let mut bg = Vec::with_capacity(BG_ENTRIES.len());
+        for (n, rows, kc) in BG_ENTRIES {
+            let bytes = bg_smem_bytes(rows, kc);
+            let f = gemm_mod.func_dynamic_shared(n, bytes).map_err(msg)?;
+            let r = gemm_mod.report(n).map_err(msg)?;
+            provenance.push(format!("{n}: {} registers, {} B local, {bytes} B shared", r.num_regs, r.local_bytes));
+            if r.local_bytes != 0 {
+                candle_core::bail!("{n} spills {} B to local memory", r.local_bytes);
+            }
+            bg.push((f, rows, kc, bytes));
+        }
+        for n in [attn_name, slot_name] {
+            let r = attn.report(n).map_err(msg)?;
+            provenance.push(format!("{n}: {} registers, {} B local", r.num_regs, r.local_bytes));
+        }
         let f = |c: &llvq_cuda::gpu::Cuda, n: &str| c.func(n).map_err(candle_core::Error::msg);
         let tetra = [f(&mma, names_t[0])?, f(&mma, names_t[1])?, f(&mma, names_t[2])?];
         let q4 = [f(&mma, names_q[0])?, f(&mma, names_q[1])?, f(&mma, names_q[2])?];
-        let attn_f = f(&attn, attn_name)?;
+        let attn_slot = f(&attn, slot_name)?;
         let sms = mma.device().map_err(msg)?.sm_count as usize;
         let scratch = Scratch {
+            gemm_part: gemm_mod.zeros_f32(1).map_err(msg)?,
+            gemm_ticket: gemm_mod.zeros_u32(TICKETS).map_err(msg)?,
             part: mma.zeros_f32(PART_FLOATS).map_err(msg)?,
             ticket: mma.zeros_u32(TICKETS).map_err(msg)?,
             attn_part: attn.zeros_f32(1).map_err(msg)?,
             attn_ticket: attn.zeros_u32(1).map_err(msg)?,
         };
-        Ok(Self { rt, _mma: mma, attn, tetra, q4, attn_f, tables, sms, groups, scratch: Mutex::new(scratch), provenance })
+        Ok(Self {
+            rt,
+            _mma: mma,
+            gemm_mod,
+            attn,
+            tetra,
+            q4,
+            bg,
+            attn_slot,
+            tables,
+            sms,
+            groups,
+            scratch: Mutex::new(scratch),
+            provenance,
+        })
     }
 
     fn entry(n: usize) -> candle_core::Result<usize> {
@@ -203,11 +312,15 @@ impl crate::batch::BatchDevice for CudaBatch {
         kc: &Tensor,
         vc: &Tensor,
         pos: &Tensor,
+        slots: &Tensor,
         max_len: usize,
     ) -> candle_core::Result<Tensor> {
         use llvq_cuda::attn_ref::{HD, KMAX, PSTRIDE, SPLIT};
         let (b, nh, one, hd) = q.dims4()?;
         let (_, n_kv, cap, _) = kc.dims4()?;
+        if slots.dims() != [b] || pos.dims() != [b] {
+            candle_core::bail!("batched attention: {b} rows, positions {:?}, slots {:?}", pos.dims(), slots.dims());
+        }
         if one != 1 || hd != HD || nh != n_kv * self.groups || !cap.is_multiple_of(SPLIT) || max_len > cap {
             candle_core::bail!(
                 "batched attention: q {:?}, cache {:?}, length {max_len} (head dim {HD}, {} groups, cap a multiple of {SPLIT})",
@@ -219,13 +332,14 @@ impl crate::batch::BatchDevice for CudaBatch {
         let stream = self.rt.cuda_device().cuda_stream();
         // Bound here so the buffers outlive the launch that reads their addresses.
         let (q, k_new, v_new) = (q.contiguous()?, k_new.contiguous()?, v_new.contiguous()?);
-        let (aq, ak, av, akc, avc, apos) = (
+        let (aq, ak, av, akc, avc, apos, aslot) = (
             addr(&q, &stream, 2)?,
             addr(&k_new, &stream, 2)?,
             addr(&v_new, &stream, 2)?,
             addr(kc, &stream, 2)?,
             addr(vc, &stream, 2)?,
             addr(pos, &stream, 4)?,
+            addr(slots, &stream, 4)?,
         );
         let gx = max_len.div_ceil(SPLIT);
         let s_stride = gx.next_power_of_two();
@@ -240,10 +354,10 @@ impl crate::batch::BatchDevice for CudaBatch {
         let (part, ticket) = (slice_addr(&sc.attn_part, &stream), slice_addr(&sc.attn_ticket, &stream));
         let c = llvq_cuda::attn_ref::score_scale(HD);
         let (cap_i, ss) = (cap as i32, s_stride as i32);
-        let f = &self.attn_f;
+        let f = &self.attn_slot;
         let run = |out: u64| -> candle_core::Result<()> {
             let mut l = stream.launch_builder(f);
-            l.arg(&aq).arg(&ak).arg(&av).arg(&akc).arg(&avc).arg(&apos).arg(&cap_i).arg(&c).arg(&part).arg(&ticket).arg(&out).arg(&ss);
+            l.arg(&aq).arg(&ak).arg(&av).arg(&akc).arg(&avc).arg(&apos).arg(&aslot).arg(&cap_i).arg(&c).arg(&part).arg(&ticket).arg(&out).arg(&ss);
             let cfg = LaunchConfig { grid_dim: (gx as u32, n_kv as u32, b as u32), block_dim: (llvq_cuda::attn::THREADS, 1, 1), shared_mem_bytes: 0 };
             unsafe { l.launch(cfg) }.map_err(|e| candle_core::Error::msg(format!("attn_batch: {e}")))?;
             Ok(())
@@ -314,6 +428,192 @@ impl crate::batch::BatchDevice for CudaBatch {
         let v = c.q4_view().ok_or_else(|| candle_core::Error::msg("head: the batched head reads the int4 g64 table only"))?;
         self.q4_launch("lm_head", v.words, v.scales, v.biases, v.vocab as usize, v.d as usize, v.gpr, 6, h, n)
     }
+
+    fn max_rows(&self, projs: crate::batch::BatchProjs) -> usize {
+        match projs {
+            crate::batch::BatchProjs::Gemm => GEMM_MAX_ROWS,
+            crate::batch::BatchProjs::Mma => MAX_ROWS,
+            crate::batch::BatchProjs::Rows => usize::MAX,
+        }
+    }
+
+    fn gemm(&self, items: &[crate::batch::GemmIn<'_>], n: usize) -> candle_core::Result<Vec<Tensor>> {
+        let mut out = Vec::with_capacity(items.len());
+        for group in items.chunks(BG_MAXSEG) {
+            out.extend(self.gemm_launch(group, n)?);
+        }
+        Ok(out)
+    }
+}
+
+/// One projection of a GEMM launch, resolved to device addresses.
+struct BgItem {
+    seg: BgSeg,
+    d_out: usize,
+    tiles: usize,
+}
+
+impl CudaBatch {
+    fn bg_item(&self, it: &crate::batch::GemmIn<'_>, n: usize, stream: &candle_core::cuda_backend::cudarc::driver::CudaStream) -> candle_core::Result<BgItem> {
+        use crate::batch::GemmIn;
+        let x_of = |name: &str, x: &Tensor, d_in: usize, dt: candle_core::DType, elem: u64| -> candle_core::Result<u64> {
+            if x.dims() != [n, d_in] || x.dtype() != dt {
+                candle_core::bail!("{name}: rows {:?} {:?}, expected [{n}, {d_in}] {dt:?}", x.dims(), x.dtype());
+            }
+            let a = addr(x, stream, elem)?;
+            if !a.is_multiple_of(16) {
+                candle_core::bail!("{name}: rows at {a:#x}, not 16-byte aligned");
+            }
+            Ok(a)
+        };
+        let int4 = |name: &str, wq: u64, scales: u64, biases: u64, d_out: usize, d_in: usize, gpr: u32, gshift: u32, x: u64| -> candle_core::Result<BgSeg> {
+            if gpr as usize * (1usize << gshift) != d_in || !d_in.is_multiple_of(32) {
+                candle_core::bail!("{name}: d_in {d_in}, {gpr} groups of {}", 1 << gshift);
+            }
+            Ok(BgSeg { w: wq, a0: scales, a1: biases, x, kind: 1, stride: gpr, nblocks: gshift, d_in: d_in as u32, d_out: d_out as u32, ..BgSeg::default() })
+        };
+        let seg = match *it {
+            GemmIn::Lattice(p, x) => {
+                let c = p
+                    .as_any()
+                    .and_then(|a| a.downcast_ref::<CudaLattice>())
+                    .ok_or_else(|| candle_core::Error::msg(format!("{}: not a CUDA lattice projection", p.name())))?;
+                let v = c.tetra_view().ok_or_else(|| candle_core::Error::msg(format!("{}: not a Tetra48 stream", p.name())))?;
+                if !(v.d_in as usize).is_multiple_of(8) || v.stride_u32 as usize * 4 < 6 * v.nblocks as usize {
+                    candle_core::bail!("{}: d_in {} or row stride {} out of the kernel's contract", p.name(), v.d_in, v.stride_u32);
+                }
+                let ax = x_of(p.name(), x, v.d_in as usize, candle_core::DType::F32, 4)?;
+                BgSeg {
+                    w: v.words,
+                    a0: v.gscale,
+                    a1: v.rscale,
+                    tail: v.tail,
+                    x: ax,
+                    kind: 0,
+                    stride: v.stride_u32,
+                    nblocks: v.nblocks,
+                    tail_w: v.tail_w,
+                    d_in: v.d_in,
+                    d_out: v.d_out,
+                    ..BgSeg::default()
+                }
+            }
+            GemmIn::Int4(p, x) => {
+                let c = p
+                    .as_any()
+                    .and_then(|a| a.downcast_ref::<CudaInt4>())
+                    .ok_or_else(|| candle_core::Error::msg(format!("{}: not a CUDA int4 projection", p.name())))?;
+                let v = c.int4_view();
+                if v.layout != crate::fused::Int4Layout::Served {
+                    candle_core::bail!("{}: int4 words in 4E v9's tiled order; the batched GEMM reads the file's order", p.name());
+                }
+                let ax = x_of(p.name(), x, v.d_in as usize, candle_core::DType::F16, 2)?;
+                int4(p.name(), v.wq, v.scales, v.biases, v.d_out as usize, v.d_in as usize, v.gpr, 7, ax)?
+            }
+            GemmIn::Head(t, x) => {
+                let c = t
+                    .as_any()
+                    .and_then(|a| a.downcast_ref::<CudaEmbed>())
+                    .ok_or_else(|| candle_core::Error::msg("head: not a CUDA embedding table"))?;
+                let v = c.q4_view().ok_or_else(|| candle_core::Error::msg("head: the batched head reads the int4 g64 table only"))?;
+                let ax = x_of("lm_head", x, v.d as usize, candle_core::DType::F16, 2)?;
+                int4("lm_head", v.words, v.scales, v.biases, v.vocab as usize, v.d as usize, v.gpr, 6, ax)?
+            }
+        };
+        let d_out = seg.d_out as usize;
+        if !d_out.is_multiple_of(BG_ROWS) {
+            candle_core::bail!("batched GEMM: d_out {d_out} is not a multiple of {BG_ROWS}");
+        }
+        Ok(BgItem { seg, d_out, tiles: d_out / BG_ROWS })
+    }
+
+    /// Slices of K for every projection of a launch, so the grid holds about
+    /// two CTAs a SM, each slice two chunks or more.
+    fn bg_split(&self, items: &mut [BgItem], kc: usize) {
+        let tiles: usize = items.iter().map(|i| i.tiles).sum();
+        let want = (2 * self.sms).div_ceil(tiles.max(1)).max(1);
+        for it in items.iter_mut() {
+            let nk = (it.seg.d_in as usize).div_ceil(kc);
+            let s = want.min(nk / 2).clamp(1, 32);
+            let slice = nk.div_ceil(s);
+            it.seg.nk = nk as u32;
+            it.seg.slice = slice as u32;
+            it.seg.s = nk.div_ceil(slice) as u32;
+        }
+    }
+
+    fn gemm_launch(&self, group: &[crate::batch::GemmIn<'_>], n: usize) -> candle_core::Result<Vec<Tensor>> {
+        if n == 0 || n > GEMM_MAX_ROWS || group.is_empty() || group.len() > BG_MAXSEG {
+            candle_core::bail!("batched GEMM: {n} rows and {} projections; 1..={GEMM_MAX_ROWS} and 1..={BG_MAXSEG}", group.len());
+        }
+        let stream = self.rt.cuda_device().cuda_stream();
+        let (f, _, kc, smem) = self.bg.iter().find(|e| e.1 >= n).expect("an entry of 128 rows");
+        let mut items = group.iter().map(|it| self.bg_item(it, n, &stream)).collect::<candle_core::Result<Vec<_>>>()?;
+        self.bg_split(&mut items, *kc);
+        let mut sc = self.scratch.lock().map_err(|_| candle_core::Error::msg("batched scratch poisoned"))?;
+        let part_floats: usize = items.iter().filter(|i| i.seg.s > 1).map(|i| i.seg.s as usize * n * i.d_out).sum();
+        if sc.gemm_part.len() < part_floats {
+            sc.gemm_part = self.gemm_mod.zeros_f32(part_floats).map_err(candle_core::Error::msg)?;
+        }
+        let tickets: usize = items.iter().map(|i| i.tiles).sum();
+        if sc.gemm_ticket.len() < tickets {
+            sc.gemm_ticket = self.gemm_mod.zeros_u32(tickets).map_err(candle_core::Error::msg)?;
+        }
+        let (part, ticket) = (slice_addr(&sc.gemm_part, &stream), slice_addr(&sc.gemm_ticket, &stream));
+        let t = self.tables;
+        let mut args = BgArgs {
+            trows: t.rows,
+            pref: t.pref,
+            br: t.br,
+            suf: t.suf,
+            invnorm: t.invnorm,
+            ticket,
+            nseg: items.len() as u32,
+            n_rows: n as u32,
+            ..BgArgs::default()
+        };
+        let (mut cta, mut tk, mut poff, mut yoff) = (0u32, 0u32, 0u64, Vec::with_capacity(items.len()));
+        let mut total = 0usize;
+        for (i, it) in items.iter().enumerate() {
+            let mut sg = it.seg;
+            sg.cta0 = cta;
+            sg.tk0 = tk;
+            if sg.s > 1 {
+                sg.part = part + 4 * poff;
+                poff += sg.s as u64 * (n * it.d_out) as u64;
+            }
+            cta += (it.tiles as u32) * sg.s;
+            tk += it.tiles as u32;
+            yoff.push(total);
+            total += n * it.d_out;
+            args.seg[i] = sg;
+        }
+        // The x the launch reads is the first projection's: any input works
+        // as the custom op's anchor, the kernel reads every one by address.
+        let anchor = match group[0] {
+            crate::batch::GemmIn::Lattice(_, x) | crate::batch::GemmIn::Int4(_, x) | crate::batch::GemmIn::Head(_, x) => x,
+        };
+        let smem = *smem;
+        let run = |y: u64| -> candle_core::Result<()> {
+            let mut a = args;
+            for (i, off) in yoff.iter().enumerate() {
+                a.seg[i].y = y + 2 * *off as u64;
+            }
+            let mut l = stream.launch_builder(f);
+            l.arg(&a);
+            let cfg = LaunchConfig { grid_dim: (cta, 1, 1), block_dim: (128, 1, 1), shared_mem_bytes: smem };
+            unsafe { l.launch(cfg) }.map_err(|e| candle_core::Error::msg(format!("tv_bg: {e}")))?;
+            Ok(())
+        };
+        let op = Launch { name: "llvq-batch-gemm", out_elems: total, out_shape: Shape::from(total), run: &run };
+        let flat = anchor.apply_op1_no_bwd(&op)?;
+        drop(sc);
+        let mut out = Vec::with_capacity(items.len());
+        for (it, off) in items.iter().zip(yoff.iter()) {
+            out.push(flat.narrow(0, *off, n * it.d_out)?.reshape((n, it.d_out))?);
+        }
+        Ok(out)
+    }
 }
 
 impl CudaBatch {
@@ -381,4 +681,22 @@ pub fn runtime_of(m: &crate::model::Qwen3) -> candle_core::Result<Arc<FusedRunti
 /// Whether `d` is a CUDA device (the batched step exists there only).
 pub fn on_cuda(d: &Device) -> bool {
     matches!(d, Device::Cuda(_))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_argument_structs_have_the_kernels_layout() {
+        // 7 eight-byte fields and 12 four-byte ones; four of those, six
+        // pointers and two counts.
+        assert_eq!(std::mem::size_of::<super::BgSeg>(), 104);
+        assert_eq!(std::mem::size_of::<super::BgArgs>(), 4 * 104 + 6 * 8 + 2 * 4);
+    }
+
+    #[test]
+    fn the_shared_bytes_are_the_kernels() {
+        // BG_SMEM_WORDS at (8, 192) and (128, 48), worked by hand.
+        assert_eq!(super::bg_smem_bytes(8, 192), (2 * (8 * 200 + 64 * 14) + 1792) * 4);
+        assert_eq!(super::bg_smem_bytes(128, 48), (2 * (128 * 56 + 64 * 6) + 1792) * 4);
+    }
 }
