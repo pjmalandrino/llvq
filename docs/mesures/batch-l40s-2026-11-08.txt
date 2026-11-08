@@ -84,8 +84,9 @@ inside; ppl inside; GSM8K inside; "door rows equal: some, not all" read all.
 
 WHAT THIS DOES NOT ESTABLISH
 ----------------------------
-- Tetra is still about two times below AWQ in aggregate at every B and size (4B: 3,996.7 against 10,146.2 at
-  B = 128), and three to five times below it in GB/s.
+- Tetra is still below AWQ in aggregate at every B and size (4B at B = 128: Tetra 3,996.7 tok/s, AWQ 10,146.2), and
+  below it in GB/s (4B at B = 32: Tetra 90.7, AWQ 428.3). Rewritten on 2026-11-08 after the audit (section 2.5): the
+  line gave the two stacks as a quotient, against rule 5.
 - Where the step goes, by reading the figures (computed, not profiled): the 4B step is 9.2 ms at B = 1 against 4.5 ms
   for the served 4E door, so about 5 ms are a fixed cost of the eager launches; it then grows about 0.2 ms a row
   (15.0 ms at 32, 31.5 at 128), where AWQ grows 0.06 ms a row (4.9 to 12.6 ms). The GEMM reloads the whole activation in f32 for every

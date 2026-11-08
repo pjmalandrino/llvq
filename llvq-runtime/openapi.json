@@ -992,6 +992,12 @@
               "null"
             ]
           },
+          "batch_pool_bytes": {
+            "description": "Bytes of the batch pool's KV caches (`LLVQ_BATCH`), counted in\n`size_vram` on a device; 0 without the batch.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
           "busy": {
             "type": "boolean"
           },
@@ -1021,7 +1027,8 @@
         "required": [
           "state",
           "queue",
-          "busy"
+          "busy",
+          "batch_pool_bytes"
         ],
         "type": "object"
       },

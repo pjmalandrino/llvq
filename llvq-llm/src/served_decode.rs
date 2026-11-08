@@ -36,6 +36,9 @@ pub struct Decoder {
     #[cfg(all(target_os = "linux", feature = "cuda"))]
     rt: Option<Box<crate::persist4e_cuda::Runtime4e>>,
     lines: Vec<String>,
+    /// A position cap on the eager path, for the tests of a caller that must
+    /// hand a sequence over before 4E's cap ([`Decoder::eager_capped`]).
+    cap: Option<usize>,
 }
 
 impl Decoder {
@@ -45,7 +48,15 @@ impl Decoder {
             #[cfg(all(target_os = "linux", feature = "cuda"))]
             rt: None,
             lines: Vec::new(),
+            cap: None,
         }
+    }
+
+    /// The eager path, reporting `positions` as its cap the way 4E reports
+    /// [`P4E_MAX_CAP`]: a CPU test of a caller that must stop decoding a
+    /// sequence on this path at the cap (the batch engine's hand-over).
+    pub fn eager_capped(positions: usize) -> Self {
+        Decoder { cap: Some(positions), ..Self::eager() }
     }
 
     pub fn is_persistent(&self) -> bool {
@@ -76,7 +87,7 @@ impl Decoder {
             true => Decode::Persistent,
             false => Decode::Eager,
         };
-        engine.max_positions()
+        engine.max_positions().or(self.cap)
     }
 
     /// Greedy continuation of `first`, already chosen and not yet in
@@ -250,7 +261,7 @@ impl Served {
                     )?;
                     rt.set_served_kernel_from(0);
                     let lines = std::mem::take(&mut rt.lines);
-                    Ok(Decoder { rt: Some(Box::new(rt)), lines })
+                    Ok(Decoder { rt: Some(Box::new(rt)), lines, cap: None })
                 }
                 #[cfg(not(all(target_os = "linux", feature = "cuda")))]
                 {

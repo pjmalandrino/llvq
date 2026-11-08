@@ -502,6 +502,17 @@ impl KvCache {
         self.len == 0
     }
 
+    /// Fill an empty cache with `k` and `v`, `(1, n_kv, positions, head_dim)`,
+    /// through the same write as a prefill: a sequence taken back from a batch
+    /// slot onto the batch-1 path (`batch::Pool::caches_of`).
+    pub fn restore(&mut self, k: &Tensor, v: &Tensor) -> Result<()> {
+        if self.k.is_some() || self.v.is_some() {
+            candle_core::bail!("KvCache restore: the cache is not empty");
+        }
+        self.append(k, v)?;
+        Ok(())
+    }
+
     /// The `Grow` store's two buffers, `(1, n_kv, cap, head_dim)`, once a
     /// first append made them. 4E reads and writes them in place.
     pub fn grow_buffers(&self) -> Option<(&Tensor, &Tensor)> {
@@ -2785,6 +2796,14 @@ impl Qwen3 {
 
     /// A fresh [`crate::batch::BatchKv`] for `b` sequences of up to `cap`
     /// positions each, in the model's dtype and on its device.
+    /// The bytes [`Self::batch_kv`] allocates for `b` sequences of `cap`
+    /// positions: a K and a V buffer a layer, the cap rounded up to 256.
+    pub fn batch_kv_bytes(&self, b: usize, cap: usize) -> u64 {
+        let cap = cap.div_ceil(256).max(1) * 256;
+        let per = 2 * self.cfg.num_key_value_heads * self.cfg.head_dim * self.dtype.size_in_bytes();
+        (self.blocks.len() * b * cap * per) as u64
+    }
+
     pub fn batch_kv(&self, b: usize, cap: usize) -> Result<crate::batch::BatchKv> {
         crate::batch::BatchKv::new(
             self.blocks.len(),
