@@ -736,11 +736,21 @@ mod tests {
     fn no_binary_writes_its_own_tile() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/bin");
         let mut seen = 0;
-        for e in std::fs::read_dir(&dir).expect("src/bin") {
-            let path = e.expect("dir entry").path();
-            if path.extension().and_then(|x| x.to_str()) != Some("rs") {
-                continue;
+        // A binary may have child modules in a folder of its name since
+        // 2026-11-08 (planesbench, audit batch 14): read them too.
+        let mut paths = Vec::new();
+        let mut dirs = vec![dir.clone()];
+        while let Some(d) = dirs.pop() {
+            for e in std::fs::read_dir(&d).expect("src/bin") {
+                let path = e.expect("dir entry").path();
+                if path.is_dir() {
+                    dirs.push(path);
+                } else if path.extension().and_then(|x| x.to_str()) == Some("rs") {
+                    paths.push(path);
+                }
             }
+        }
+        for path in paths {
             let text = std::fs::read_to_string(&path).expect("read bin");
             seen += 1;
             for banned in ["#define TILE_BLOCKS ", "const TILE_BLOCKS"] {
