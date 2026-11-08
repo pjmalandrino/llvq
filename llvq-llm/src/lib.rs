@@ -4,10 +4,11 @@
 //! are observable (that is the whole point — see [`model`]), and scores
 //! perplexity. The quantization itself lives in `llvq-quant`.
 //!
-//! `unsafe` is allowed here, and only here in the workspace: mapping a
-//! multi-gigabyte safetensors file is `unsafe` in `candle` by construction
-//! (the file could change underneath the mapping). The mathematical core
-//! keeps `forbid(unsafe_code)`.
+//! `unsafe` is allowed here, as in `llvq-cuda` and `llvq-metal`, at hardware
+//! boundaries only: mapping a multi-gigabyte safetensors file (`unsafe` in
+//! `candle` by construction, the file could change underneath the mapping),
+//! launching a kernel, and reading a device buffer. The five core crates keep
+//! `forbid(unsafe_code)`.
 
 pub mod artifact;
 pub mod artifact2;

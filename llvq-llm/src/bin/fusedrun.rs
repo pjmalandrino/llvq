@@ -1564,6 +1564,41 @@ fn print_phases(arm: &str, r: &llvq_llm::model::PhaseReport) {
     println!("  {:<15}{total:>10.3}  (sum of medians, fences included)", "total fenced");
 }
 
+/// The measurement modes and prompt variables of this binary that run alone.
+///
+/// One table replaces the eight lists each mode used to spell out, which had
+/// drifted apart: `LLVQ_PERS_SEGMENT` listed itself, so `=1` always failed,
+/// and the modes dispatched last returned before reading the ones dispatched
+/// after them, so `LLVQ_GRAPH_AB` beside `LLVQ_GQA_PPL` was silently ignored.
+/// A mode calls [`runs_alone`]: every OTHER name here, set beside it, is
+/// refused. `LLVQ_GRAPH_DIAG` rides inside `LLVQ_GRAPH_AB`, which does not
+/// call it.
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+const ALONE: [&str; 16] = [
+    "LLVQ_INT4_WIDE_CHECK", "LLVQ_GESTURE_AB", "LLVQ_BOUNDARY_AB", "LLVQ_PERS_4E", "LLVQ_PERS_SEGMENT",
+    "LLVQ_GQA_PPL", "LLVQ_GQA_AB", "LLVQ_CONTEXTS", "LLVQ_TRIM_AB", "LLVQ_PREFILL_TOKENS",
+    "LLVQ_GRAPH_AB", "LLVQ_GRAPH_DIAG", "LLVQ_KV_AB", "LLVQ_FUSE_AB", "LLVQ_TIME_PHASES", "LLVQ_SEG_ARMS",
+];
+
+/// `mode` against every other name of [`ALONE`] and the mode's own `extra`
+/// names, with the environment handed in so a test can drive it.
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+fn alone_in(mode: &str, extra: &[&str], lookup: impl Fn(&str) -> Option<String>) -> Result<(), String> {
+    debug_assert!(ALONE.contains(&mode), "{mode} is not in ALONE");
+    for other in ALONE.iter().chain(extra).filter(|o| **o != mode) {
+        if let Some(o) = lookup(other) {
+            return Err(format!("{mode} runs alone, and {other}={o:?} is set beside it"));
+        }
+    }
+    Ok(())
+}
+
+/// [`alone_in`] on the real environment.
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+fn runs_alone(mode: &str, extra: &[&str]) -> anyhow::Result<()> {
+    alone_in(mode, extra, |v| std::env::var(v).ok()).map_err(anyhow::Error::msg)
+}
+
 fn main() -> anyhow::Result<()> {
     let mut args = std::env::args().skip(1);
     let path = args
@@ -1642,14 +1677,7 @@ fn main() -> anyhow::Result<()> {
         // (`prereg-bigmodel-2`, step 4). No token is decoded or timed. The
         // check runs inside the load and fails it on any difference.
         if std::env::var("LLVQ_INT4_WIDE_CHECK").ok().as_deref() == Some("1") {
-            for other in ["LLVQ_GQA_AB", "LLVQ_GQA_PPL", "LLVQ_CONTEXTS", "LLVQ_TRIM_AB",
-                          "LLVQ_PREFILL_TOKENS", "LLVQ_GRAPH_AB", "LLVQ_KV_AB", "LLVQ_FUSE_AB",
-                          "LLVQ_TIME_PHASES", "LLVQ_SEG_ARMS", "LLVQ_GESTURE_AB",
-                          "LLVQ_BOUNDARY_AB", "LLVQ_PERS_SEGMENT", "LLVQ_PERS_4E"] {
-                if std::env::var(other).is_ok() {
-                    anyhow::bail!("LLVQ_INT4_WIDE_CHECK runs alone, and {other} is set beside it");
-                }
-            }
+            runs_alone("LLVQ_INT4_WIDE_CHECK", &[])?;
             let fuse = llvq_llm::fused::FuseMode::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
             llvq_llm::fused_cuda::set_int4_wide_check(true);
             let t = Instant::now();
@@ -1680,14 +1708,7 @@ fn main() -> anyhow::Result<()> {
             if v != "1" {
                 anyhow::bail!("LLVQ_GESTURE_AB={v:?}: the only value is 1");
             }
-            for other in ["LLVQ_GQA_AB", "LLVQ_GQA_PPL", "LLVQ_CONTEXTS", "LLVQ_TRIM_AB",
-                          "LLVQ_PREFILL_TOKENS", "LLVQ_GRAPH_AB", "LLVQ_GRAPH_DIAG", "LLVQ_KV_AB",
-                          "LLVQ_FUSE_AB", "LLVQ_TIME_PHASES", "LLVQ_SEG_ARMS", "LLVQ_KERNEL_DIR",
-                          "LLVQ_INT4_WIDE_CHECK", "LLVQ_BOUNDARY_AB", "LLVQ_PERS_SEGMENT", "LLVQ_PERS_4E"] {
-                if let Ok(o) = std::env::var(other) {
-                    anyhow::bail!("LLVQ_GESTURE_AB runs alone, and {other}={o:?} is set beside it");
-                }
-            }
+            runs_alone("LLVQ_GESTURE_AB", &["LLVQ_KERNEL_DIR"])?;
             if !matches!(kv_store, llvq_llm::kvq::KvStore::Cat) {
                 anyhow::bail!("LLVQ_GESTURE_AB sets the served store itself: unset LLVQ_KV_PREALLOC");
             }
@@ -1758,14 +1779,7 @@ fn main() -> anyhow::Result<()> {
             if v != "1" {
                 anyhow::bail!("LLVQ_BOUNDARY_AB={v:?}: the only value is 1");
             }
-            for other in ["LLVQ_GQA_AB", "LLVQ_GQA_PPL", "LLVQ_CONTEXTS", "LLVQ_TRIM_AB",
-                          "LLVQ_PREFILL_TOKENS", "LLVQ_GRAPH_AB", "LLVQ_GRAPH_DIAG", "LLVQ_KV_AB",
-                          "LLVQ_FUSE_AB", "LLVQ_TIME_PHASES", "LLVQ_SEG_ARMS", "LLVQ_KERNEL_DIR",
-                          "LLVQ_INT4_WIDE_CHECK", "LLVQ_GESTURE_AB"] {
-                if let Ok(o) = std::env::var(other) {
-                    anyhow::bail!("LLVQ_BOUNDARY_AB runs alone, and {other}={o:?} is set beside it");
-                }
-            }
+            runs_alone("LLVQ_BOUNDARY_AB", &["LLVQ_KERNEL_DIR"])?;
             if !matches!(kv_store, llvq_llm::kvq::KvStore::Cat) {
                 anyhow::bail!("LLVQ_BOUNDARY_AB sets the served store itself: unset LLVQ_KV_PREALLOC");
             }
@@ -1871,14 +1885,7 @@ fn main() -> anyhow::Result<()> {
             if !(2..=256).contains(&n_new) {
                 anyhow::bail!("LLVQ_PERS_4E={n_new}: 2 to 256 tokens a run");
             }
-            for other in ["LLVQ_GQA_AB", "LLVQ_GQA_PPL", "LLVQ_CONTEXTS", "LLVQ_TRIM_AB",
-                          "LLVQ_PREFILL_TOKENS", "LLVQ_GRAPH_AB", "LLVQ_GRAPH_DIAG", "LLVQ_KV_AB",
-                          "LLVQ_FUSE_AB", "LLVQ_TIME_PHASES", "LLVQ_SEG_ARMS", "LLVQ_KERNEL_DIR",
-                          "LLVQ_INT4_WIDE_CHECK", "LLVQ_GESTURE_AB", "LLVQ_BOUNDARY_AB", "LLVQ_PERS_SEGMENT"] {
-                if let Ok(o) = std::env::var(other) {
-                    anyhow::bail!("LLVQ_PERS_4E runs alone, and {other}={o:?} is set beside it");
-                }
-            }
+            runs_alone("LLVQ_PERS_4E", &["LLVQ_KERNEL_DIR"])?;
             if !matches!(kv_store, llvq_llm::kvq::KvStore::Cat) {
                 anyhow::bail!("LLVQ_PERS_4E sets the store itself: unset LLVQ_KV_PREALLOC");
             }
@@ -1965,14 +1972,7 @@ fn main() -> anyhow::Result<()> {
             if v != "1" {
                 anyhow::bail!("LLVQ_PERS_SEGMENT={v:?}: the only value is 1");
             }
-            for other in ["LLVQ_GQA_AB", "LLVQ_GQA_PPL", "LLVQ_CONTEXTS", "LLVQ_TRIM_AB",
-                          "LLVQ_PREFILL_TOKENS", "LLVQ_GRAPH_AB", "LLVQ_GRAPH_DIAG", "LLVQ_KV_AB",
-                          "LLVQ_FUSE_AB", "LLVQ_TIME_PHASES", "LLVQ_SEG_ARMS", "LLVQ_KERNEL_DIR",
-                          "LLVQ_INT4_WIDE_CHECK", "LLVQ_GESTURE_AB", "LLVQ_BOUNDARY_AB", "LLVQ_PERS_SEGMENT", "LLVQ_PERS_4E"] {
-                if let Ok(o) = std::env::var(other) {
-                    anyhow::bail!("LLVQ_PERS_SEGMENT runs alone, and {other}={o:?} is set beside it");
-                }
-            }
+            runs_alone("LLVQ_PERS_SEGMENT", &["LLVQ_KERNEL_DIR"])?;
             if !matches!(kv_store, llvq_llm::kvq::KvStore::Cat) {
                 anyhow::bail!("LLVQ_PERS_SEGMENT sets the served store itself: unset LLVQ_KV_PREALLOC");
             }
@@ -2035,12 +2035,7 @@ fn main() -> anyhow::Result<()> {
         // the prefill in one call, so it is bounded by the fused prefill's rows.
         if let Ok(v) = std::env::var("LLVQ_GQA_PPL") {
             let spec = parse_gqa_ppl(&v).map_err(|e| anyhow::anyhow!("{e}"))?;
-            for other in ["LLVQ_GQA_AB", "LLVQ_CONTEXTS", "LLVQ_TRIM_AB", "LLVQ_PREFILL_TOKENS",
-                          "LLVQ_BOUNDARY_AB", "LLVQ_PERS_SEGMENT", "LLVQ_PERS_4E"] {
-                if std::env::var(other).is_ok() {
-                    anyhow::bail!("LLVQ_GQA_PPL runs alone, and {other} is set beside it");
-                }
-            }
+            runs_alone("LLVQ_GQA_PPL", &[])?;
             if !matches!(kv_store, llvq_llm::kvq::KvStore::Cat) {
                 anyhow::bail!("LLVQ_GQA_PPL sets the store of each arm: unset LLVQ_KV_PREALLOC");
             }
@@ -2103,11 +2098,7 @@ fn main() -> anyhow::Result<()> {
         // the served door, which is safe on one stream only, so that is checked.
         if let Ok(v) = std::env::var("LLVQ_GQA_AB") {
             let lengths = parse_lengths("LLVQ_GQA_AB", &v).map_err(|e| anyhow::anyhow!("{e}"))?;
-            for other in ["LLVQ_CONTEXTS", "LLVQ_TRIM_AB", "LLVQ_PREFILL_TOKENS", "LLVQ_BOUNDARY_AB", "LLVQ_PERS_SEGMENT", "LLVQ_PERS_4E"] {
-                if std::env::var(other).is_ok() {
-                    anyhow::bail!("LLVQ_GQA_AB runs alone, and {other} is set beside it");
-                }
-            }
+            runs_alone("LLVQ_GQA_AB", &[])?;
             if !matches!(kv_store, llvq_llm::kvq::KvStore::Cat) {
                 anyhow::bail!("LLVQ_GQA_AB sets the store of each arm: unset LLVQ_KV_PREALLOC");
             }
@@ -2156,11 +2147,7 @@ fn main() -> anyhow::Result<()> {
         // refused, and `Grow` promises no window.
         if let Ok(v) = std::env::var("LLVQ_CONTEXTS") {
             let lengths = parse_contexts(&v).map_err(|e| anyhow::anyhow!("{e}"))?;
-            for other in ["LLVQ_TRIM_AB", "LLVQ_PREFILL_TOKENS", "LLVQ_BOUNDARY_AB", "LLVQ_PERS_SEGMENT", "LLVQ_PERS_4E"] {
-                if std::env::var(other).is_ok() {
-                    anyhow::bail!("LLVQ_CONTEXTS runs alone, and {other} is set beside it");
-                }
-            }
+            runs_alone("LLVQ_CONTEXTS", &[])?;
             if !matches!(kv_store, llvq_llm::kvq::KvStore::Cat) {
                 anyhow::bail!(
                     "LLVQ_CONTEXTS with a preallocated window: the window would bound the \
@@ -3225,7 +3212,46 @@ fn main() -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{first_divergence, paired_ppl_pct, parse_gqa_ppl, rate_stats, t95, GqaArm, GqaPplSpec};
+    use super::{alone_in, first_divergence, paired_ppl_pct, parse_gqa_ppl, rate_stats, t95, GqaArm, GqaPplSpec, ALONE};
+
+    fn env_of<'a>(set: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<String> + 'a {
+        move |v| set.iter().find(|(k, _)| *k == v).map(|(_, x)| x.to_string())
+    }
+
+    /// A mode set alone passes its own check. `LLVQ_PERS_SEGMENT` failed this
+    /// from 2026-11-04 to 2026-11-07, when its list named itself.
+    #[test]
+    fn no_mode_refuses_itself() {
+        for mode in ALONE {
+            alone_in(mode, &["LLVQ_KERNEL_DIR"], env_of(&[(mode, "1")]))
+                .unwrap_or_else(|e| panic!("{mode} alone: {e}"));
+        }
+    }
+
+    /// Every pair is refused both ways, naming both variables, whatever the
+    /// order the modes are dispatched in.
+    #[test]
+    fn every_pair_is_refused_both_ways() {
+        for mode in ALONE {
+            for other in ALONE.iter().filter(|o| **o != mode) {
+                let e = alone_in(mode, &[], env_of(&[(mode, "1"), (other, "1")]))
+                    .expect_err(&format!("{mode} beside {other}"));
+                assert!(e.contains(mode) && e.contains(other), "{e}");
+            }
+        }
+        // The hole the eight lists left: GQA_PPL returned before GRAPH_AB was read.
+        assert!(alone_in("LLVQ_GQA_PPL", &[], env_of(&[("LLVQ_GRAPH_AB", "1")])).is_err());
+    }
+
+    /// The extra names are refused beside their mode only, and an unrelated
+    /// variable is not.
+    #[test]
+    fn extras_belong_to_their_mode() {
+        let dir = [("LLVQ_KERNEL_DIR", "/tmp/k")];
+        assert!(alone_in("LLVQ_PERS_4E", &["LLVQ_KERNEL_DIR"], env_of(&dir)).is_err());
+        alone_in("LLVQ_GQA_AB", &[], env_of(&dir)).expect("GQA_AB takes a kernel directory");
+        alone_in("LLVQ_GQA_AB", &[], env_of(&[("LLVQ_CONFIG", "x.json")])).expect("not a mode");
+    }
 
     /// The two forms of `LLVQ_GQA_PPL`, and what each refuses.
     #[test]

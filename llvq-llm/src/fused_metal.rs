@@ -457,21 +457,26 @@ fn compose_c3(branches: &[u16], suffixes: &[u8]) -> Vec<u8> {
 
 
 /// The matvec named by `LLVQ_METAL_KERNEL`, or the served one.
-fn kernel_from_env() -> &'static str {
+fn kernel_from_env() -> Result<&'static str> {
+    kernel_named(std::env::var("LLVQ_METAL_KERNEL").ok().as_deref())
+}
+
+/// The matvec a value of `LLVQ_METAL_KERNEL` names. An unknown name is refused:
+/// falling back to the served kernel would label an A/B arm with a kernel it
+/// did not run.
+fn kernel_named(v: Option<&str>) -> Result<&'static str> {
     const SERVED: &str = "tv_tetra48_metal_lut";
-    match std::env::var("LLVQ_METAL_KERNEL").ok().as_deref() {
-        None => SERVED,
-        Some("lut") => SERVED,
+    Ok(match v {
+        None | Some("lut") => SERVED,
         Some("c3") => "tv_tetra48_metal_c3",
         Some("ar") => "tv_tetra48_metal_ar",
         Some("u2") => "tv_tetra48_metal_u2",
         Some("ilp") => "tv_tetra48_metal_ilp",
         Some("plain") => "tv_tetra48_metal",
-        Some(other) => {
-            eprintln!("LLVQ_METAL_KERNEL={other:?} is not a matvec of this file; serving {SERVED}");
-            SERVED
-        }
-    }
+        Some(other) => candle_core::bail!(
+            "LLVQ_METAL_KERNEL={other:?} is not a matvec of this file: lut, c3, ar, u2, ilp or plain"
+        ),
+    })
 }
 
 impl MetalRuntime {
@@ -524,7 +529,7 @@ impl MetalRuntime {
             }),
         };
         Ok(Self {
-            kernel: kernel_from_env(),
+            kernel: kernel_from_env()?,
             q4_tile_cols: Q4_TILE_COLS,
             q4_prefetch: false,
             half_io: false,
@@ -1976,7 +1981,7 @@ impl MetalRuntime {
                 // tables twice and its CPU arm is not a fallback.
                 host: None,
             },
-            kernel: kernel_from_env(),
+            kernel: kernel_from_env()?,
             q4_tile_cols: Q4_TILE_COLS,
             q4_prefetch: false,
             half_io: false,
@@ -2374,7 +2379,22 @@ fn finish(
 
 #[cfg(test)]
 mod tests {
-    use super::h2f;
+    use super::{h2f, kernel_named};
+
+    /// Unset and `lut` serve the served matvec, each A/B name maps to its own
+    /// kernel, and an unknown name is refused by name instead of falling back
+    /// to the served kernel under a label it did not run.
+    #[test]
+    fn an_unknown_metal_kernel_is_refused() {
+        assert_eq!(kernel_named(None).unwrap(), "tv_tetra48_metal_lut");
+        assert_eq!(kernel_named(Some("lut")).unwrap(), "tv_tetra48_metal_lut");
+        assert_eq!(kernel_named(Some("plain")).unwrap(), "tv_tetra48_metal");
+        assert_eq!(kernel_named(Some("c3")).unwrap(), "tv_tetra48_metal_c3");
+        for bad in ["lutd", "", "LUT"] {
+            let e = kernel_named(Some(bad)).expect_err(bad).to_string();
+            assert!(e.contains("LLVQ_METAL_KERNEL"), "{bad:?}: {e}");
+        }
+    }
 
     /// The IEEE definition of binary16, in f64, from the fields.
     ///

@@ -41,10 +41,10 @@
 //!   rule, a refusal: whichever way one resolved it, half the readers of the
 //!   run would believe the other. The comparison goes THROUGH the parsers, so
 //!   `LLVQ_FUSE=""` beside `"fuse": "0"` agrees — both mean `Off`;
-//! * two variables that reach BELOW the served door and that no field of this
+//! * four variables that reach BELOW the served door and that no field of this
 //!   file carries: `LLVQ_KERNEL_DIR` swaps the kernel text, `LLVQ_TILE_BLOCKS`
-//!   moves a served constant. Either one set beside `LLVQ_CONFIG` is refused
-//!   by name. `LLVQ_NVRTC_ARCH` is deliberately NOT refused: it names the card,
+//!   and `LLVQ_PREFILL` move served constants, `LLVQ_METAL_KERNEL` swaps the
+//!   Metal matvec. Any one set beside `LLVQ_CONFIG` is refused by name. `LLVQ_NVRTC_ARCH` is deliberately NOT refused: it names the card,
 //!   not the object, and an A100 needs it; the runtime prints it on its
 //!   `NVRTC source:` line so no served log is silent about its target.
 //!
@@ -328,7 +328,12 @@ const SPOKEN_FOR: [&str; 5] =
 
 /// The variables that reach below the served door and that this file cannot
 /// carry. Set beside `LLVQ_CONFIG`, each is refused by name.
-pub const BELOW_THE_DOOR: [&str; 2] = ["LLVQ_KERNEL_DIR", "LLVQ_TILE_BLOCKS"];
+///
+/// `LLVQ_PREFILL` recompiles the prefill kernel at another `rows:tile` pair,
+/// and `LLVQ_METAL_KERNEL` swaps the Metal matvec: both are measurement modes
+/// that change the compiled object without a field to say so.
+pub const BELOW_THE_DOOR: [&str; 4] =
+    ["LLVQ_KERNEL_DIR", "LLVQ_TILE_BLOCKS", "LLVQ_PREFILL", "LLVQ_METAL_KERNEL"];
 
 /// The cache store's variable, beside a served config.
 ///

@@ -139,12 +139,16 @@ be in `UPLOAD_ALLOW` of `ops/run.py`, or the Space dies after 12 minutes. `rankb
 | `LLVQ_MAX_LOADED` | count, default `1` | `llvq serve`: models loaded at once; the least recently used idle one is unloaded first |
 | `LLVQ_QTIP_DIR` | directory | upstream QTIP kernel, GPL v3, not redistributed (`docs/qtip-provenance.md`) |
 
+`docs/ENV.md` lists every variable the code reads, and `llvq-llm/tests/env_registry.rs` fails on a quoted `LLVQ_*`
+name it does not list.
+
 `MEASUREMENT_MODES` in `llvq-llm/src/served.rs` lists 17 measurement variables (`LLVQ_GQA_AB`, `LLVQ_PERS_4E`,
 ...), never a served config. `fusedrun` refuses all but `LLVQ_TIME_EVENTS` and `LLVQ_BENCH_ARMS` beside a config, and
-`served.rs` refuses all 17 beside a persistent decode. `LLVQ_KERNEL_DIR` and `LLVQ_TILE_BLOCKS` are refused beside
-any config. `LLVQ_PREFILL_TOKENS` and `LLVQ_CONTEXTS` time the served object with a longer prompt. `planesbench`'s own
-variables are registered in `llvq-cuda/src/pers.rs`. The MLX door reads no `LLVQ_*` variable and refuses any one set;
-its config schema (`configs/mlx/`) is its own.
+two of its modes set together (`ALONE`); `served.rs` refuses all 17 beside a persistent decode. `LLVQ_KERNEL_DIR`,
+`LLVQ_TILE_BLOCKS`, `LLVQ_PREFILL` and `LLVQ_METAL_KERNEL` are refused beside any config (`BELOW_THE_DOOR`).
+`LLVQ_PREFILL_TOKENS` and `LLVQ_CONTEXTS` time the served object with a longer prompt. `planesbench`'s own variables
+are registered in `llvq-cuda/src/pers.rs`. The MLX door reads no `LLVQ_*` variable and refuses any one set; its config
+schema (`configs/mlx/`) is its own.
 
 ## Hard rules
 
