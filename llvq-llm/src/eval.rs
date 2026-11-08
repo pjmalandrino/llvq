@@ -118,6 +118,21 @@ pub fn narrow(v: f32, dtype: DType) -> f32 {
     }
 }
 
+/// Two-sided 95 % Student quantile for `df` degrees of freedom, from the
+/// table for 1 to 30 and the normal value beyond. `fusedrun` and `cpurun`
+/// form their paired intervals with it.
+pub fn t95(df: usize) -> f64 {
+    const T: [f64; 30] = [
+        12.706, 4.303, 3.182, 2.776, 2.571, 2.447, 2.365, 2.306, 2.262, 2.228, 2.201, 2.179, 2.160, 2.145, 2.131,
+        2.120, 2.110, 2.101, 2.093, 2.086, 2.080, 2.074, 2.069, 2.064, 2.060, 2.056, 2.052, 2.048, 2.045, 2.042,
+    ];
+    match df {
+        0 => f64::NAN,
+        1..=30 => T[df - 1],
+        _ => 1.96,
+    }
+}
+
 /// A dependency-free fingerprint of a token stream (FNV-1a, 64 bits).
 ///
 /// Two perplexities are comparable only if they scored the *same tokens*. That
@@ -145,6 +160,12 @@ pub fn token_fingerprint(ids: &[u32]) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn t95_is_students_quantile() {
+        assert_eq!((t95(1), t95(3), t95(11), t95(30), t95(31)), (12.706, 3.182, 2.201, 2.042, 1.96));
+        assert!(t95(0).is_nan());
+    }
 
     #[test]
     fn spellings_of_the_same_dtype_agree() {
