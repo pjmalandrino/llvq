@@ -1,176 +1,123 @@
 # Roadmap
 
-What comes next, with its gate and its cost. State as of 2026-11-06. Where things stand is in
-[`ETAT.md`](ETAT.md), the past in [`HISTORIQUE.md`](HISTORIQUE.md), the rules in [`METHODE.md`](METHODE.md). The
-quality axis has its own document, [`ROADMAP-QUALITY.md`](ROADMAP-QUALITY.md), sanctioned 2026-09-06 and ordered by
-feasibility.
+What comes next, with its gate and its cost. State as of 2026-11-07. Where things stand is in [`ETAT.md`](ETAT.md),
+the rules in [`METHODE.md`](METHODE.md). The quality leads of September are listed in
+[`ROADMAP-QUALITY.md`](ROADMAP-QUALITY.md).
+
+Rule 1 applies to every item: no run starts or stops, and no structural decision is taken, without an explicit go,
+with the cost announced before and the running total after.
 
 ## 1. Starting point
 
-Three Qwen3 files are sealed, served and public on the Hugging Face Hub at about 2.7 b/param, and version 2 of paper 2
-is released on them with `v0.0.2` ([`ETAT.md`](ETAT.md) §2). They score 4.76, 4.21 and 2.46 MMLU points below 4-bit
-AWQ for 45 to 52% of its bits per parameter, and the gap shrinks with size. What comes next closes the gaps that the
-paper lists, in the order below.
+The three sealed files are served by 4E v9 on CUDA at 221.5, 142.5 and 86.3 tok/s, and the 4B by MLX on the Mac
+([`ETAT.md`](ETAT.md) §2). They score 4.76, 4.21 and 2.46 MMLU points below 4-bit AWQ for 45 to 52 % of its bits per
+parameter.
 
-Every A/B at 0.6B follows the Design C gate: 28 blocks, same seed, then three seeds. Any experiment that recalibrates
-is read against 5.2% of perplexity and 2.92 pp of MMLU. An A/B at constant file is read against 0.43 pp and 0.12%
-([`ETAT.md`](ETAT.md) §4).
+An A/B that recalibrates is read against the draw's noise, 5.2 % of perplexity and 2.92 pp of MMLU. An A/B on one file
+is read against 0.43 pp and 0.12 %.
 
 ## 2. Next, in order
 
-### 2.1 Score the served object, not its reconstruction
+### 2.1 Throughput: speculative decoding and batching
 
-**Gate.** The census through the kernel lands within the paired bar of the dense reconstruction, or the paper's tables
-move. **Cost** about $20 by the mixed route, about $70 for the full census through the kernel at three sizes
-(*estimated*).
+At the bit, the 4B tops out near 235 to 258 tok/s at the door (*estimated*, [`plan-300.md`](plan-300.md) §6b). Past
+that, two levers change what a launch does rather than how fast it does it.
 
-Every MMLU we report is read on the dense reconstruction with f16 tables, while the b/param count int4 tables. The one
-measurement that ties the two arms cost $2.85 and ran on 2,280 questions at 4B on the 2026-09-09 object: the kernel
-scored 55.66 against the dense path's 55.52, three discordant questions out of 2,280, McNemar p = 0.25 (*measured*,
-[f1e-census](mesures/f1e-census-2026-09-11.txt)). That bounds the risk at one size, on an older object, with q8 tables.
+- **Speculative decoding with a Qwen3-0.6B draft.** The draft proposes a few tokens, the 4B checks them in one pass,
+  and greedy output stays the 4B's own. The second row of a 4E pass costs 0.378 of a row pass (*measured*,
+  [shaker-4e](mesures/shaker-4e-2026-11-05.txt)). Worked on branch `claude/spec-0p6b-96ba73`, not on main.
+  **Gate**: the served tokens unchanged, and a speed-up on a workload fixed before the run.
+- **Batching.** Decode several sequences per pass: the bytes are read once for all of them. vLLM's AWQ 4B reaches
+  5,129 tok/s in aggregate at batch 32 on the L40S (*measured*, branch `claude/batching-eca5f1`, job 6aef873c).
+  Our batched Tetra matvec and attention are written on that branch, not on main. **Gate**: each sequence returns
+  its batch-1 tokens, or a stated tolerance; aggregate tok/s against AWQ at the same batch.
 
-Code comes before the run: `ppl` does not read `LLVQ_CONFIG`, so no perplexity can be scored through the kernel today.
+### 2.2 Score the served object
 
-### 2.2 `down_proj` instead of `o_proj` in int4, at 4B and 14B
+**Gate**: the census through the kernel lands within the paired bar of the dense reconstruction, or the paper's
+tables move. **Cost**: about $20 by the mixed route, $70 for the full census at three sizes (*estimated*).
 
-**Gate.** The paired gain against the shipped file clears 0.43 pp. **Cost** about $2 a size, no encoding.
+Every MMLU we report is read on the dense reconstruction with f16 tables. The one census through the kernel, on an
+older 4B object, read 55.66 against 55.52 dense, McNemar p = 0.25 (*measured*,
+[f1e-census](mesures/f1e-census-2026-09-11.txt)). `ppl` does not read `LLVQ_CONFIG` yet, so code comes first.
 
-At 8B, `down_proj` of layers 10 to 26 alone scored 0.77 points better [0.26, 1.28] than `o_proj` plus `down_proj`, with
-fewer bytes, against our own signed prediction (*measured*, [sealed-8b-27](mesures/sealed-8b-27-2026-09-24.txt)). The
-4B and 14B files still spend their int4 budget the old way, and nothing says 8B's answer is theirs. The 4B carries
-`o_proj` for a budget reason: all of `down_proj` would take it to 3.2286 b/param, over b_max = 3.00, where `o_proj`
-fits at 2.9599 (*measured*, [q5-alloc-int4](mesures/q5-alloc-int4-2026-09-16.txt)).
+### 2.3 A full GSM8K census under 4E
 
-### 2.3 A second calibration draw per size
+**Gate**: paired against the expanded census, as the grouped census was. **Cost**: about $2 at 4B (the grouped census
+cost $2.02), more at 8B and 14B.
 
-**Gate.** The three absolute levels move by less than the 2.92 pp the draw carries at 4B. **Cost** a full encode a
-size, plus the row-scale training on top of it. The 14B encode cost $15.35 on `rtx-pro-6000`, the re-export included,
-and its training $9.78 on an h200; the 8B training cost $5.66 (*measured*, `docs/data/jobs.csv`). The 8B and 4B encodes
-ran on the Mac and are not billed.
+### 2.4 `down_proj` instead of `o_proj` in int4, at 4B and 14B
 
-Each level is one draw. The chain gains of [`ETAT.md`](ETAT.md) §4 compare fixed files on the same questions and do not
-depend on it, so this is about the levels, not the gains.
+**Gate**: the paired gain against the shipped file clears 0.43 pp. **Cost**: about $2 a size, no encoding.
 
-### 2.4 A consumer GPU
+At 8B, `down_proj` of layers 10 to 26 scored 0.77 points better [0.26, 1.28] than `o_proj` plus `down_proj`, with
+fewer bytes (*measured*, [sealed-8b-27](mesures/sealed-8b-27-2026-09-24.txt)). At 4B all of `down_proj` would go over
+b_max, at 3.2286 b/param (*measured*, [q5-alloc-int4](mesures/q5-alloc-int4-2026-09-16.txt)), so the split needs
+choosing.
 
-**Gate.** Formulate it before the run. On the A100 the served files lost to FP16 in vLLM, because cuBLAS reads f16
-faster there than our kernel reads `Tetra` (*measured*, [a100](mesures/a100-2026-10-06.txt)). Local hardware is GDDR
-like the L40S, with less compute. **Cost** under the A100 run's $3.04 (*estimated*). A 24 GB card cannot hold the 14B
-FP16 reference.
+### 2.5 A second calibration draw per size
 
-### 2.5 `transformers`: upstream
+**Gate**: the three levels move by less than 2.92 pp. **Cost**: one encode and one row-scale training a size; the 14B
+took $15.35 and $9.78 (*measured*, `docs/data/jobs.csv`). The 4B and 8B encode on the Mac at $0.
 
-**Gate.** The maintainers of `transformers` accept or refuse the method in tree, which is not ours to decide.
-**Cost** 0 $.
+### 2.6 A consumer GPU
 
-`llvq-tetra` 0.1.0 is on PyPI since 2026-10-07 (*measured*, [hf-pypi](mesures/hf-pypi-0.1.0-2026-10-07.txt)), after
-TestPyPI gave the 256 ids of `bin/run` from an empty environment on transformers 5.18.0 and 5.19.0
-([hf-testpypi](mesures/hf-testpypi-4b-2026-10-07.txt)). What remains is the issue and the PR, posted together. The PR
-needs a fork of `transformers`, and the issue draft in `upstream/transformers-llvq-tetra/` is rewritten to go with it.
-The stages and their open decisions are in [`plan-transformers.md`](plan-transformers.md).
+**Gate**: written before the run. On the A100 the served files lost to vLLM's FP16 (*measured*,
+[a100](mesures/a100-2026-10-06.txt)). A consumer card is GDDR like the L40S, with less compute. **Cost**: under the
+A100 run's $3.04 (*estimated*).
 
-### 2.6 Throughput: the last 255 µs of 4E's down input
+### 2.7 An int4 KV cache
 
-**Gate.** v6's own: the MLP down input under 200 µs a token by the inner stamps, with the eager path's tokens.
-**Cost** about $0.24 a card reading, the v6 job's price (*measured*, `docs/data/jobs.csv`).
+**Gate**: its own prereg, because it moves the logits: paired perplexity, a light MMLU and a task past 1,280 tokens.
+**Cost**: $3 to $5 of card after 2 to 4 weeks of code (*estimated*). At 8,192 tokens it takes the cache from 1.21 to
+about 0.34 GB, and it is the only lead that reaches 300 tok/s at that context ([`plan-300.md`](plan-300.md) §7).
 
-v6 cut the down input from 796.0 to 254.6 µs a token and decodes 212.6 tok/s against v4's 190.2 in the measurement
-form, same tokens (*measured*, [pers-4e-v6](mesures/pers-4e-v6-2026-11-05.txt)). It missed the gate and stays a
-measurement. Its journal names three candidates for the rest: the mix, the Walsh-Hadamard transform and the barriers.
-300 tok/s needs the 1.377 GB weight stream at about 490 GB/s with 0.45 ms of fixed cost (*computed*,
-[revue-debit](archive/revue-debit-2026-11-05.md) §1).
+### 2.8 Metal speed
 
-### 2.7 Throughput: a real KV store in int4
+The MLX door serves the 4B; its own speed is not measured yet, and the door holds q and k words twice (about 0.12 GB).
+The Rust Metal path decodes 65.5 tok/s and the MLX prototype 93.9 (*measured*,
+[metal-nuit](mesures/metal-nuit-2026-11-06.txt)). The steps are in [`plan-metal-debit.md`](plan-metal-debit.md) §4.
+**Cost**: $0, local.
 
-**Gate.** Its own prereg, because it moves the logits: paired perplexity, a light MMLU and a long task under the T8
-rule. **Cost** $3 to $5 of card for those readings, after 2 to 4 weeks of code (*estimated*,
-[revue-debit](archive/revue-debit-2026-11-05.md) §3.2 item 4).
+### 2.9 `transformers` upstream
 
-The served 4B spends 7.17 ms a decode token at 8,192 of context against 5.53 after 5 tokens (*measured*,
-[served-v4](mesures/served-v4-2026-11-05.txt)). An int8 then int4 store read in place by the split-KV kernel takes the
-8k cache from 1.21 GB to 0.64 or 0.34 GB (*computed*, same review). It touches quality, so it sits outside the
-bit-for-bit throughput work. The attention kernel's own pipeline is the companion lever: it reads at η 0.545 where
-FlashInfer reads 0.810 on the same card (*measured*, [lot1](mesures/lot1-4b-2026-11-04.txt),
-[fi-decode-anchor](mesures/fi-decode-anchor-2026-11-04.txt)).
+**Gate**: the maintainers accept or refuse the method in tree. **Cost**: $0. `llvq-tetra` 0.1.0 is on PyPI. The issue
+and the PR go together, from a fork; the drafts are in `upstream/transformers-llvq-tetra/`
+([`plan-transformers.md`](plan-transformers.md)).
 
-### 2.8 Throughput: the kernel form and 4E at 8B and 14B
+## 3. Debt
 
-**Gate.** The T8 of the kernel form per size, as at 4B: paired perplexity inside ±0.12 % on the positions it takes,
-then a served-door reading. **Cost** about $1.5 at 8B and $2.5 at 14B for the T8 (*estimated*,
-[revue-debit](archive/revue-debit-2026-11-05.md) §3.2 item 3). Porting 4E above 4B is not costed in any document.
-
-The 8B and 14B serve the grouped form at 105.8 and 62.5 tok/s at the door (*measured*,
-[served-grouped-8b](mesures/served-grouped-8b-2026-11-04.txt),
-[served-grouped-14b](mesures/served-grouped-14b-2026-11-04.txt)).
-4E has never run above 4B, and the kernel form's G = 5 variant has never run in the 14B.
-
-### 2.9 Throughput on Metal: the prefill, then the Tetra kernel's decode
-
-**Gate.** Passed on 2026-11-07: the operator ruled a tolerance on Metal, and the MLX door serves the 4B under the
-paired perplexity interval, -0.0103 % [-0.0847 ; +0.0642] by decode against the Rust dense f16 reading (*measured*,
-[mlx-pooled](mesures/mlx-pooled-2026-11-07.txt)). What remains is speed, [`plan-metal-debit.md`](plan-metal-debit.md)
-§4. **Cost** $0, local.
-
-The Rust Metal path reads a 4,096-token prompt in 31.53 s and decodes 65.49 tok/s after 5 tokens (*measured*, M10 and
-M14 of [metal-nuit](mesures/metal-nuit-2026-11-06.txt)). The MLX engine read the same prompt in 4.11 s and decoded
-93.92 tok/s at the prototype's door (*measured*, M16); the served door is not timed. At a
-short context the Rust step reads 70 GB/s of weights of the M3 Max's 340 (*computed*,
-[`plan-metal-debit.md`](plan-metal-debit.md) §4). The Tetra kernel's decode binds there, and its leads are in
-[`plan-metal-v2.md`](plan-metal-v2.md) §3 C.
-
-## 3. Debt and hygiene
-
-- `[workspace.lints.rust] unsafe_code = "forbid"` and `[lints] workspace = true` on the five core crates.
-  `#![forbid]` in a `lib.rs` does not cover integration tests, which are separate crates.
-- Host compilation of the `.cuh` files by `clang++` in CI, on the model of `llvq-cuda/tests/host_e1v.cpp`. `ci.yml`
-  does not carry it.
-- Two timestamps no longer attest their file, 2026-08-10 and 08-11, rewritten by the anonymization pass `01fdbe6`. A
-  third, `f5-graines-4b-2026-08-19.v1-l4x4.md.ots`, has no `.md` beside it at all. The attested bytes are
-  unrecoverable. Nothing repairs this; it is recorded so no reader trusts those three.
-- Nine preregistrations have no `.ots` beside them: 2026-08-13, `p2`, `p3` and `p4` of 08-14, `e1v-cuda` of 08-15,
-  `awq-vllm` and `fusedrun14b` of 08-17, `variance-calibration` of 08-26 and `gain-mr-4b` of 09-16.
-- Two code comments still give the old shell bound: `llvq-llm/src/fused.rs:652` ("m <= 27") and
-  `llvq-cuda/kernels/llvq_tetra48.cuh:76-77` ("n2 <= 432"). The bound is 26 and 416.
-- The HF bucket has never been inventoried: 69 files, 46.7 GB as of 2026-08-17. An inventory comes before any re-run
-  quote (rule 9).
-- `ops/status.py`, which would generate [`ETAT.md`](ETAT.md) from `mesures/`, `jobs.csv` and `otsaudit`, is not
-  written. Until it is, that document is maintained by hand and can go stale.
-- No tag points at the deposited commit `e21a8bb`. `v0.0.1` points at its child `16c9c8b` and contains it.
+- `[workspace.lints.rust] unsafe_code = "forbid"` on the five core crates. `#![forbid]` in a `lib.rs` does not cover
+  integration tests.
+- No host compilation of the `.cuh` files by `clang++` in CI.
+- Two timestamps no longer attest their file (2026-08-10 and 08-11, rewritten by `01fdbe6`), and
+  `f5-graines-4b-2026-08-19.v1-l4x4.md.ots` has no `.md`. Nothing repairs this.
+- Nine preregistrations have no `.ots`: 2026-08-13, `p2`, `p3` and `p4` of 08-14, `e1v-cuda` of 08-15, `awq-vllm` and
+  `fusedrun14b` of 08-17, `variance-calibration` of 08-26 and `gain-mr-4b` of 09-16.
+- `llvq-cuda/kernels/llvq_tetra48.cuh` line 85 says `n2 ≤ 432`; the bound is 416. Fixing it moves the served unit's
+  digest, so it waits for the next kernel change.
+- The HF bucket has never been inventoried (69 files, 46.7 GB on 2026-08-17).
+- [`ETAT.md`](ETAT.md) is maintained by hand.
+- No tag points at the deposited commit `e21a8bb`; `v0.0.1` points at its child `16c9c8b`.
 
 ## 4. On hold
 
-- **MoE.** Model settled: Qwen3-30B-A3B, gpt-oss ruled out. A policy for experts below full rank is missing: 31.4% of
-  (layer, expert) cells, one dead expert, measured on gpt-oss-20b as a floor (*measured*,
-  [moe-routing](mesures/moe-routing-gptoss20b-2026-08-12.txt)). About $1.4 to open, about $69 to serve (*estimated*).
-- **q8 KV cache at long context.** Quality green at short context, interval containing zero (*measured*,
-  [kvq8-4b](mesures/kvq8-4b-2026-08-15.txt)). The served 4B decodes 139.5 tok/s at 8,192 of context (*measured*,
-  [served-v4](mesures/served-v4-2026-11-05.txt)). What is left for this row is the mode itself, and §2.7 carries it.
-  `KvMode::Q8` quantizes and then keeps the reconstructed f16, so it saves neither memory nor bandwidth. The b_max
-  accounting of the product triplet subtracts a q8 cache at 8k, 0.64 GB, where the engine stores 1.21. A real int8
-  store, read in place by a decode attention kernel, closes both at once.
-- **Batch above 1, and prefill.** Batch 1 accepted since 2026-08-18, edge regime. The optimal format depends on the
-  batch, so this reopens the layout if prefill is ever served.
-- **The 32B point.** About $62 and 11.4 h on `rtx-pro-6000x2` (*estimated*). The 32B is never encoded. The
-  `rot_apply` wall on `down_proj` is lifted on the L40S: `rot_apply_dev` and `tv_q4_hs` return the host's bytes up to
-  25,600, the rotation in 45.43 µs (*measured*, [lot1](mesures/lot1-4b-2026-11-04.txt),
-  [format-noyau](format-noyau.md) §8). No model above 14B has run end to end. A gate on the drop in the 14B-to-32B gap
-  comes first.
+- **MoE.** Qwen3-30B-A3B chosen, gpt-oss ruled out. A policy for experts below full rank is missing (*measured*,
+  [moe-routing](mesures/moe-routing-gptoss20b-2026-08-12.txt)). About $1.4 to open, $69 to serve (*estimated*).
+- **The 32B.** About $62 and 11.4 h on `rtx-pro-6000x2` to encode (*estimated*). The `rot_apply` wall is lifted
+  (*measured*, [lot1](mesures/lot1-4b-2026-11-04.txt)). A gate on the 14B-to-32B gap comes first.
+- **Prefill by GEMM.** The 4B's first token at 8,192 takes 35 s. Batched prefill moves the logits, so it needs the T8
+  band.
 
 ## 5. Decisions awaited
 
 | decision | default if silent |
 |---|---|
-| which route for the served census, $20 or $70 | neither, the tables stay unscored |
-| the upstream issue and PR to `transformers`, posted together | not posted |
 | a spend cap for the next campaign | no paid job |
-| next venue for paper 2 | preprint only |
+| the served census, $20 or $70 | neither |
+| the v9 config on the Hub's moving repository | not published |
+| the Rust Metal door's grouped and kernel forms | refused |
+| the upstream `transformers` issue and PR | not posted |
+| the next venue for paper 2 | preprint only |
+| a harder reasoning test, about $3 to $5 at 4B | not done |
 | `ots upgrade` after each new stamp | stamps sit un-upgraded |
-| the 32B budget, once a gate exists | not launched |
-| document-extraction domain benchmark ([arXiv:2607.08734](https://arxiv.org/abs/2607.08734)) | not done |
-| a harder reasoning test than GSM8K: Qwen3's reasoning mode or GSM-Symbolic, about 3 to 5 $ at 4B | not done |
-| whether the Metal door serves the grouped form, bit for bit on 12 windows of 4,096 (M5 of [metal-nuit](mesures/metal-nuit-2026-11-06.txt)) | refused; `configs/qwen3-4b-tetra-e4-metal-grouped-NOT-SERVED.json` waits |
-| serving 4E v6 against its missed gate, which needs a served-door reading | v4 stays served |
-| the Ollama-style runtime `llvq`, stages R0 to R6 and decisions D1 to D7 of [`plan-runtime.md`](plan-runtime.md) | R0 to R4 written, CPU gates pass; the Metal gates, R5 and R6 wait for a go, and D1 to D7 run as proposed until the operator rules |
-
-Rule 1 applies to every row: no run starts or stops, and no structural decision is taken, without an explicit go, with
-the cost announced before and the running total after.

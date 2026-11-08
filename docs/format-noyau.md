@@ -159,7 +159,7 @@ portable, returns +26.36% [+25.31; +26.61] on the fused matvec. No portable
 arm passes the 10% gate, and a split-K on `o` and `down` returns
 −1.87% (*measured*, [a3-occupation-banc-2026-09-01.txt](mesures/a3-occupation-banc-2026-09-01.txt)).
 CUDA Graphs (A2) return +13.45% at 4B and are not served, for a memory
-reason ([ETAT.md](ETAT.md) §7).
+reason ([ETAT.md](ETAT.md) §6).
 
 ## 5. Transcoding at load
 
@@ -187,7 +187,7 @@ of `Planes14` on the projections alone; the rest of the model absorbs the gap.
 
 **A `.llvq` v5 may hold `v_proj` as affine int4 beside its lattice matrices,
 at 4.250 b/weight exactly** (option B, operator, 2026-09-06; the measurement
-is [ETAT](ETAT.md) §5 octies). The three sealed files carry int4 g128 records,
+is in [HISTORIQUE](HISTORIQUE.md), 2026-09-06). The three sealed files carry int4 g128 records,
 and the served paths read them in place: `tv_q4_h` and `tv_q4_hh` on the card,
 equal bit for bit on every served run (*measured*, e.g.
 `docs/mesures/served-v4-2026-11-05-brut/`), and on Metal `tv_q4_h.metal`, with

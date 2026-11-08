@@ -649,7 +649,7 @@ pub struct Tetra48Tables {
     pub suffixes: Vec<u32>,
     /// `1/√(16 m)` with entry 0 **zero** — the origin, reconstructed without a
     /// branch and without a division. `llvq_artifact::tetra48::TETRA48_SHELLS`
-    /// entries; `m ≤ 27` on this codebook.
+    /// entries; `m ≤ 26` on this codebook.
     pub invnorm: Vec<f32>,
 }
 
