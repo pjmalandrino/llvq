@@ -71,6 +71,7 @@ case "$SIZE" in
 esac
 O=/out/$DIR/$SIZE${RETRY:+-r$RETRY}
 REUSE=${REUSE:-}
+KEEP=${KEEP:-}   # comma-separated arm names to measure; empty = all three
 if [ -n "$REUSE" ] && [ -z "${RETRY:-}" ]; then echo "refused: REUSE=1 reads the first attempt, so it needs RETRY" >&2; exit 1; fi
 
 SCRIPTS_SHA=$(shasum -a 256 ops/duel/ppl_windows.cpp ops/duel/gsm8k_llamacpp.py ops/duel/mmlu_llamacpp.py \
@@ -91,9 +92,9 @@ if [ "$DRY" != 1 ]; then
   fi
 fi
 
-PRE=$(printf 'O=%q\nI=%q\nSIZE=%q\nBASE=%q\nBASE_REV=%q\nPARAMS=%q\nOUR_BYTES=%q\nF16_REF=%q\nPUB_REPO=%q\nPUB_REV=%q\nPUB_FILE=%q\nPUB_BYTES=%q\nBATCHED=%q\nREUSE=%q\nLCPP_SHA=%q\nINPUTS_SHA=%q\nSCRIPTS_SHA=%q' \
+PRE=$(printf 'O=%q\nI=%q\nSIZE=%q\nBASE=%q\nBASE_REV=%q\nPARAMS=%q\nOUR_BYTES=%q\nF16_REF=%q\nPUB_REPO=%q\nPUB_REV=%q\nPUB_FILE=%q\nPUB_BYTES=%q\nBATCHED=%q\nREUSE=%q\nKEEP=%q\nLCPP_SHA=%q\nINPUTS_SHA=%q\nSCRIPTS_SHA=%q' \
   "$O" "/out/$DIR/inputs" "$SIZE" "$BASE" "$BASE_REV" "$PARAMS" "$OUR_BYTES" "$F16_REF" "$PUB_REPO" "$PUB_REV" \
-  "$PUB_FILE" "$PUB_BYTES" "$BATCHED" "$REUSE" "$LCPP_SHA" "$INPUTS_SHA" "$SCRIPTS_SHA")
+  "$PUB_FILE" "$PUB_BYTES" "$BATCHED" "$REUSE" "$KEEP" "$LCPP_SHA" "$INPUTS_SHA" "$SCRIPTS_SHA")
 
 IFS= read -r -d '' BODY <<'JOB' || true
 mkdir -p "$O"
@@ -225,6 +226,12 @@ for a in $ARMS; do
   python3 -c "import os; b=os.path.getsize('$f'); print('size ${a%%:*} %d B  %.4f b/param  %.3f GB' % (b, b*8/$PARAMS, b/1e9))" | tee -a "$O/sizes.txt"
 done
 sha256sum "$QD"/qwen3-*.gguf "/tmp/pub/$PUB_FILE" | tee "$O/gguf.sha256"
+if [ -n "$KEEP" ]; then
+  K=""; for a in $ARMS; do case ",$KEEP," in *",${a%%:*},"*) K="$K $a" ;; esac; done
+  ARMS=${K# }
+  echo "arms measured: $ARMS (KEEP=$KEEP)" | tee "$O/arms.txt"
+  test -n "$ARMS"
+fi
 
 echo '== 6. per arm: perplexity, speed, VRAM, MMLU, GSM8K =='
 for a in $ARMS; do
