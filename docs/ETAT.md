@@ -145,8 +145,10 @@ For an A/B on one file the bar is the paired interval, 0.43 pp of MMLU and 0.12 
 ## 5. Open decisions
 
 - **Throughput past v9.** At the bit the 4B tops out near 235 to 258 tok/s at the door (*estimated*,
-  [`plan-300.md`](plan-300.md)). Next: speculative decoding with a 0.6B draft, and batching. Both are being worked on
-  branches, not on main.
+  [`plan-300.md`](plan-300.md)). Speculative decoding with B1's integer-dot verify: its Tetra rows cost 0.187 of a
+  row an extra token, BETWEEN the gates ([spec-micro](mesures/spec-micro-2026-11-08.txt)). Going on means B1 in
+  `pers_4ev.cu` and in 4E's single-token row, weeks of kernel work, projected 251 to 363 tok/s at 4B with prompt lookup
+  or an EAGLE-3 head (*estimated*, [`plan-speculation.md`](plan-speculation.md)). The operator decides.
 - **Scores through the served kernel.** MMLU and perplexity are scored on the dense reconstruction with f16 tables;
   the b/param count int4 tables. About $20 by the mixed route, $70 for the full census at three sizes (*estimated*,
   [`ROADMAP.md`](ROADMAP.md)). `ppl` does not read `LLVQ_CONFIG` yet.
@@ -161,7 +163,7 @@ For an A/B on one file the bar is the paired interval, 0.43 pp of MMLU and 0.12 
 - **The next venue for paper 2.** No archive holds version 2 yet. Default if silent: preprint only.
 - **Upstream `transformers`.** `llvq-tetra` 0.1.0 is on PyPI and loads the 4B safetensors; the upstream issue and PR
   wait for the operator ([`plan-transformers.md`](plan-transformers.md)).
-- **Spend.** $277.11 over 269 priced rows of 274 in `docs/data/jobs.csv` (*computed*). No cap is in force; one is owed
+- **Spend.** $280.53 over 275 priced rows of 280 in `docs/data/jobs.csv` (*computed*). No cap is in force; one is owed
   before the next paid job.
 
 ## 6. Closed absent a new idea
@@ -178,7 +180,7 @@ For an A/B on one file the bar is the paired interval, 0.43 pp of MMLU and 0.12 
 | Euclidean gain rule | dead end to end | [HISTORIQUE](HISTORIQUE.md), 2026-09-15 |
 | 4E v5 | ×1.001 over v4; refused by name | [shaker-4e](mesures/shaker-4e-2026-11-05.txt) |
 | 4E row-loop arms (K4) | best arm ×1.002 over v2, under the ×1.15 bar | [step1-micro](mesures/step1-micro-2026-11-07.txt) |
-| Speculative decoding, the 0.6B drafting, 4E verifying | tokens identical to greedy at 4B, 8B and 14B, but decode ×0.595, ×0.629, ×0.625 of greedy at the best k (k = 1). Reopen when a 2-row verify pass costs under 1.4 greedy tokens and a draft token under 1 ms | [spec-gate](mesures/spec-gate-2026-11-07.txt) |
+| Speculative decoding, the 0.6B drafting, 4E verifying | tokens identical to greedy at 4B, 8B and 14B, but decode ×0.595, ×0.629, ×0.625 of greedy at the best k (k = 1). Reopen when a 2-row verify pass costs under 1.4 greedy tokens and a draft token under 1 ms. With B1's integer dot, the Tetra part of an extra row costs 0.187 of a row alone, between the 0.15 and 0.26 gates (2026-11-08), not yet a verify pass | [spec-gate](mesures/spec-gate-2026-11-07.txt), [spec-micro](mesures/spec-micro-2026-11-08.txt) |
 | A mixed Tetra plus int4 bench arm | the bench compares formats; served files are timed end to end | operator, 2026-10-06 |
 
 Reopening any of them needs the condition in its row, not a new argument. A2 stays out of the core.

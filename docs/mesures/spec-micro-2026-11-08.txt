@@ -1,0 +1,88 @@
+Speculative route, gate 1, 2026-11-08: the verify rows of a round with B1's integer dot, and B1's levers, alone on the card.
+
+Result: an extra verify row costs f = 0.187 of 4E's Tetra row [0.173-0.201 over K = 2, 3, 4] (*measured*). That is
+BETWEEN by rule B of the prereg: over the 0.15 of PASS, under the 0.26 of FAIL. In situ the Tetra part of an extra row
+is about 0.34 ms at 4B (*estimated*, f x 1.81 ms), against 0.27 for PASS. The integer dot keeps every row within one
+binary16 ulp of the served rows: 91.6 % identical, 0 out of tolerance, on four activations (*measured*). None of B1's
+three levers clears its bar alone: i16 x1.143 against x1.15, lean x1.020 against x1.05, and rotation is slower,
+x0.856. The operator decides whether the route goes on.
+
+Job r0   : 6af07cbfe6320c66fad755a7, l40sx1, 6 min 50 s billed, $0.21 (*computed* at $1.80/h). Image 99b161e9,
+           commit 3476562. Panicked before any verify row: deviation 2.
+Job r1   : 6af09ea10e0338d1bb84c12c, l40sx1 (NVIDIA L40S, sm_89, driver 580.178.04), 9 min 10 s billed, $0.28
+           (*computed*). Ran 16:09 to 16:18 UTC. Timeout 13 min, so both runs stay under the $0.60 cap: $0.48 spent.
+Image    : Space sha c25e611da92d21a5442fd3ad8fb9f7e5697217ab, built from commit 1dd0973 of claude/spec-4e-0058c6.
+Prereg   : proofs/preregistration-spec-micro-2026-11-08.md (sha256 47160520...), OpenTimestamps stamped and committed
+           (3476562) before the first image was built. Deviations: -ECARTS.md, items 1 to 3.
+Raw      : spec-micro-2026-11-08-brut/r0/ and r1/ (bench.txt, oracle.txt, gpu.txt, files.sha256, job-log.txt). The
+           cubins and PTX stay in the bucket under spec-micro-2026-11-08-r1/cubin/.
+
+Gates (§4, *measured*). 1: oracle MATCH on Qwen3-0.6B, max |dhidden| 0. 2: the two files at their bytes, the Tetra file
+at 0adb7cfd; 252 of 252 matrices matched; tile 64. 3: the reference is the served unit, 101,625 bytes, 6193094310bc...
+5: GA ^ GB differs from the trellis on 0 of 4,096 paths. 6: no LLVQ_* in the job env.
+Gate 4 holds on activation 0 only, and the job script stopped there (exit 1, after the report was written). The code
+checked v2, lean and rot against tv_tetra48_h on the bench activation alone, and k2 on activations 0 and 1; the prereg
+asked v2 on all four. What covers activations 1 to 3: k2's f32 path, which is v2's dot, is bit for bit on activation
+1; i16 sits within tolerance of the served rows on 1, 2 and 3 with 91.3 to 91.6 % identical, which a wrong reference
+could not give. Deviation 3. Whether gate 4 voids the run is the operator's call; the numbers below are reported
+under that reserve.
+
+Arms. 252 sites, 1,105,920 rows, grid 142 x 512, one CTA a SM. Registers under the driver's ptxas, 0 B local on every
+symbol:
+  v2 74, k2 87, pword 35, lean 74, rot 78, i16 72, i16k2 80, i16k3 88, i16k4 108 (101,120 B shared).
+
+Identity (rule A, *measured*):
+  v2, lean, rot  1,105,920 rows bit for bit to tv_tetra48_h on activation 0
+  k2             bit for bit on activations 0 and 1
+  i16            against tv_tetra48_h, rows identical / one binary16 ulp / out of tolerance, worst |dy| over the
+                 site's rms:
+                   act 0  1,013,203 / 78,525 / 0   3.44e-3
+                   act 1  1,013,089 / 78,640 / 0   4.24e-3
+                   act 2  1,009,522 / 81,591 / 0   6.43e-3
+                   act 3  1,010,783 / 80,612 / 0   4.20e-3
+  i16k2/3/4      bit for bit to i16 on each of their activations
+
+Times, rounds interleaved with A4, 7 rounds, 2 discarded, median ms [range], GB/s on 0.9467 GB (pword: 0.9083 GB of
+words), speed over v2 round by round (*measured*):
+  v2      2.510 [2.506-2.522]   377   base
+  k2      3.465 [3.455-3.481]   273   x0.724 [0.723-0.726]   second f32 row 0.381 [0.377-0.384] of v2
+  pword   1.810 [1.807-1.815]   502   x1.389 [1.381-1.395]   the words alone at this geometry
+  lean    2.469 [2.454-2.477]   383   x1.020 [1.014-1.023]   bar x1.05: under
+  rot     2.931 [2.922-2.957]   323   x0.856 [0.851-0.859]   bar x1.05: under
+  i16     2.199 [2.187-2.219]   431   x1.143 [1.137-1.148]   bar x1.15: under
+  i16k2   2.626 [2.621-2.655]   361   x0.955 [0.950-0.958]
+  i16k3   3.137 [3.121-3.149]   302   x0.801 [0.799-0.803]
+  i16k4   3.720 [3.700-3.731]   254   x0.676 [0.673-0.678]
+
+An extra row, f_K = (t(i16kK) - t(i16)) / ((K - 1) t(v2)), round by round (*measured*):
+  K = 2   0.173 [0.170-0.177]   0.434 ms over the 252 matrices
+  K = 3   0.187 [0.184-0.188]   0.469 ms
+  K = 4   0.201 [0.199-0.205]   0.506 ms
+  f = 0.187. In situ, f x 1.81 ms = 0.338 ms (*estimated*).
+The integer dot cuts the second row from 0.381 of v2 (f32, k2) to 0.173: x2.2 (*measured*, same rounds).
+
+Decision rules (§6).
+- A, identity: holds on every arm, on the activations each was checked on (gate 4 reserve above).
+- B, the verify gate: f = 0.187, BETWEEN. Reported; the operator decides. The Tetra part of an extra row takes about
+  0.34 ms at 4B; under the study's 1.15-token gate (an extra row of 0.63 to 0.68 ms at 4B) that leaves 0.29 to 0.34 ms
+  for the extra row's int4 rows, head, attention and norms, against the 0.36 to 0.41 PASS would have left.
+- C, B1's levers: none licensed alone. i16 x1.143 misses x1.15 by 0.007, its range [1.137-1.148] under the bar. lean
+  x1.020. rot x0.856: the rotated loop is slower, not faster.
+
+Predictions (§7) against the card:
+  v2 374 [355, 395] GB/s           377      inside
+  k2 0.38 [0.32, 0.45]             0.381    inside
+  pword 600 [450, 760] GB/s        502      inside
+  lean x1.06 [0.98, 1.15]          x1.020   inside
+  rot x1.06 [0.97, 1.17]           x0.856   BELOW
+  i16 x1.20 [1.05, 1.40]           x1.143   inside
+  f 0.10 [0.04, 0.20]              0.187    inside, near the top
+  verify gate PASS                 BETWEEN  missed
+  i16 identical 95 % [85, 99.9]    91.6 %   inside
+  i16 out of tolerance 0           0        hit
+  no local memory                  yes      hit
+rot's miss has no measured cause. A guess, not checked: the rotated stream reads each row's blocks at a lane offset
+that breaks the 128-byte sector alignment v2's loads keep.
+
+What this run does not establish (§9): any verify pass inside 4E, any tok/s at a door, any acceptance, any perplexity
+of B1's rounding, the 8B and 14B, another card.

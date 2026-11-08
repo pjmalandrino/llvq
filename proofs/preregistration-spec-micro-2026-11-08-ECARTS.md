@@ -16,3 +16,13 @@
    the same command on a rebuilt image, output `spec-micro-2026-11-08-r1/`, timeout 13 min so that both runs together
    stay under the operator's $0.60 cap ($0.21 + $0.39 at worst). The raw output of the first run is in
    `docs/mesures/spec-micro-2026-11-08-brut/r0/`.
+
+3. **Gate 4 was checked on one activation of four (2026-11-08, read on the card).** §4 asks v2 bit for bit to
+   `tv_tetra48_h` on each of the four activations. `persbench::vrows_setup` checks the arms that owe the served bits
+   (v2, lean, rot) on the bench activation only, and k2 on activations 0 and 1; it times i16 against the served rows
+   on all four. The host test `the_verify_row_arms_that_owe_the_bits_keep_them` does check v2 on four activations, but
+   the bench does not repeat it. The job script's gate 4 found no line for activation 1 and exited 1 after the report
+   was written. On the card: v2, lean and rot bit for bit on activation 0; k2, whose second row is v2's f32 dot on
+   activation 1, bit for bit; i16 within tolerance of the served rows on activations 1 to 3, 91.3 to 91.6 % identical.
+   The numbers are reported under this reserve in `docs/mesures/spec-micro-2026-11-08.txt`; the operator decides
+   whether the gate voids them. Not rerun: a third run would pass the $0.60 cap.

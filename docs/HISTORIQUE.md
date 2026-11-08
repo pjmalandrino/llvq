@@ -1285,3 +1285,14 @@ this engine is about 370 / 222 / 124 tok/s (*estimated*). Past it, only multi-to
 dot shared across rows and a one-layer drafter, 454 / 288 / 171 at α = 0.7 (*estimated*), gated on a 2-row verify
 under 1.15 greedy tokens (spec-gate measured 1.95). The sealed 4B's Tetra words carry 47.4 bits of entropy of 48
 (*computed*, `bin/tetraentropy`): lossless coding above Tetra is closed, and so is self-speculation from the lattice.
+
+## 2026-11-08. The integer-dot verify rows on the card: between the gates
+
+[spec-micro](mesures/spec-micro-2026-11-08.txt), $0.48 over two runs, the first nul on a wiring panic. An extra verify
+row with B1's integer dot costs 0.187 of 4E's Tetra row, against 0.381 for a second f32 row (*measured*): BETWEEN the
+prereg's 0.15 and 0.26, about 0.34 ms in situ at 4B (*estimated*). The integer dot keeps 91.6 % of the rows identical
+to the served ones, the rest one binary16 ulp away. Alone, none of B1's levers clears its bar: i16 x1.143 for x1.15,
+lean x1.020, rotation x0.856. Projected doors with a one-layer EAGLE-3 head at α 0.6: 319 / 198 / 121 tok/s; with
+prompt lookup at α 0.3 to 0.5: 251-300 / 159-187 / 96-113 (*estimated*, `plan-speculation.md`). Three Apache-2.0
+EAGLE-3 heads exist for Qwen3 4B, 8B and 14B, +0.24 / 0.22 / 0.19 b/param in int4 (*computed*). The route goes on only
+on the operator's call.
