@@ -106,7 +106,7 @@ copied from an old journal fails instead of measuring something else.
 | variable | read by | what it does |
 |---|---|---|
 | `LLVQ_SEALED_ARTIFACT` | `llvq-artifact` tests, `llvq-cuda/tests/golay70_decoder_matches_rust.rs` | where to find the sealed file |
-| `LLVQ_Q4B` | `radixstudy`'s unit tests (`llvq-bench/src/bin/radixstudy.rs`) | path of the sealed 4B, default `~/llvq-q4b.llvq`; it moves the search, and a missing file still fails. These tests do not read `LLVQ_SEALED_ARTIFACT` |
+| `LLVQ_Q4B` | `radixstudy`'s unit tests (`llvq-bench/src/bin/radixstudy.rs`, built under `--features archive`) | path of the sealed 4B, default `~/llvq-q4b.llvq`; it moves the search, and a missing file still fails. These tests do not read `LLVQ_SEALED_ARTIFACT` |
 | `LLVQ_HF_FIXTURE`, `LLVQ_HF_MINI_FIXTURE` | `llvq-llm/tests/hfpack.rs` | rewrite the packed fixtures |
 | `LLVQ_Q4_WIDE_FIXTURE_WRITE` | `llvq-llm/tests/proj_q4_wide.rs` | rewrite the wide int4 fixture |
 | `LLVQ_ROT_FIXTURE_WRITE` | `llvq-cuda/tests/rotation_matches_rust.rs` | rewrite the rotation fixture |
