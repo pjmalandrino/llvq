@@ -847,7 +847,9 @@ pub async fn generate(State(st): State<AppState>, body: Bytes) -> Response {
 }
 
 // ---------------------------------------------------------------------------
-// Routes not served: 501, with the reason.
+// Routes not served: 501, with the reason. The POST handlers read the body
+// before answering: a reply sent over an unread body makes hyper close the
+// connection, and a client that reuses it gets a reset instead of the 501.
 // ---------------------------------------------------------------------------
 
 fn not_served(what: &str, why: &str) -> Response {
@@ -857,22 +859,22 @@ fn not_served(what: &str, why: &str) -> Response {
 const NO_EMBED: &str = "the served models are generative and no embedding head is sealed";
 
 #[utoipa::path(post, path = "/api/embed", tag = "not served", responses((status = 501, body = ErrorResponse)))]
-pub async fn embed() -> Response {
+pub async fn embed(_body: Bytes) -> Response {
     not_served("/api/embed", NO_EMBED)
 }
 
 #[utoipa::path(post, path = "/api/embeddings", tag = "not served", responses((status = 501, body = ErrorResponse)))]
-pub async fn embeddings() -> Response {
+pub async fn embeddings(_body: Bytes) -> Response {
     not_served("/api/embeddings", NO_EMBED)
 }
 
 #[utoipa::path(post, path = "/api/create", tag = "not served", responses((status = 501, body = ErrorResponse)))]
-pub async fn create() -> Response {
+pub async fn create(_body: Bytes) -> Response {
     not_served("/api/create", "a model is a sealed file of the library; there is no Modelfile")
 }
 
 #[utoipa::path(post, path = "/api/push", tag = "not served", responses((status = 501, body = ErrorResponse)))]
-pub async fn push() -> Response {
+pub async fn push(_body: Bytes) -> Response {
     not_served("/api/push", "the library is read from the Hub; there is no registry to push to")
 }
 
@@ -884,7 +886,7 @@ pub async fn blob_head() -> Response {
 
 #[utoipa::path(post, path = "/api/blobs/{digest}", tag = "not served",
     params(("digest" = String, Path, description = "sha256:<hex>")), responses((status = 501, body = ErrorResponse)))]
-pub async fn blob_post() -> Response {
+pub async fn blob_post(_body: Bytes) -> Response {
     not_served("/api/blobs", "blobs come from llvq pull only, checked against the library")
 }
 

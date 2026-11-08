@@ -554,12 +554,12 @@ pub async fn model(State(st): State<AppState>, Path(model): Path<String>) -> Res
 }
 
 #[utoipa::path(post, path = "/v1/embeddings", tag = "not served", responses((status = 501, body = OaiError)))]
-pub async fn embeddings() -> Response {
+pub async fn embeddings(_body: Bytes) -> Response {
     oai_error(501, "/v1/embeddings is not implemented by llvq: no embedding head is sealed")
 }
 
 #[utoipa::path(post, path = "/v1/responses", tag = "not served", responses((status = 501, body = OaiError)))]
-pub async fn responses() -> Response {
+pub async fn responses(_body: Bytes) -> Response {
     oai_error(501, "/v1/responses is not implemented by llvq: use /v1/chat/completions")
 }
 

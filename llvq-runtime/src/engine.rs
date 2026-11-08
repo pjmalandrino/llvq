@@ -877,7 +877,7 @@ mod tests {
                 family: String::new(),
                 parameter_size: String::new(),
                 bits_per_param: String::new(),
-                configs: crate::library::Configs { cuda: None, metal: None },
+                configs: crate::library::Configs { cuda: None, metal: None, cpu: None },
                 modified_at: 0,
             },
             state: Mutex::new(State::Loading),

@@ -42,7 +42,7 @@ modes set together (`ALONE` in that file).
 | `LLVQ_H_SHRINK` | `smoke`, `hcapture` | Hessian shrink ρ; unset = published | tool |
 | `LLVQ_GAIN_SCALE` | `smoke` | gain multiplier; unset = published | tool |
 | `LLVQ_SEQ_BLOCK` | `smoke` | unset or `1`; any other value refused | tool |
-| `LLVQ_THREADS` | `smoke`, `errmap`, `f1recdump` | thread count; about ncpu-4 on a shared machine | tool |
+| `LLVQ_THREADS` | `smoke`, `errmap`, `f1recdump`, `tetra_cpu::pool` | thread count; about ncpu-4 on a shared machine; the CPU backend uses every core when unset | tool |
 | `LLVQ_ARTIFACT` | `smoke` | path of the artifact to write; unset = none | tool |
 | `LLVQ_RESUME` | `smoke` | shard to resume from; requires `LLVQ_ARTIFACT` | tool |
 | `LLVQ_INT4_TYPES` | `smoke` | projection types written int4 g128, comma-separated | tool |
@@ -77,6 +77,7 @@ modes set together (`ALONE` in that file).
 | `LLVQ_INT4_WIDE_CHECK` | `fusedrun` | int4 kernel against the host at widths above 14B |
 | `LLVQ_GESTURE_AB`, `LLVQ_BOUNDARY_AB` | `fusedrun` | decode-step gesture and boundary A/Bs |
 | `LLVQ_PERS_SEGMENT`, `LLVQ_PERS_4E` | `fusedrun` | persistent MLP segment, and 4E's row forms against the eager path |
+| `LLVQ_BATCH_REF` | `batchrun` | the door's token fingerprint every batched row must reproduce |
 | `LLVQ_BENCH_ARMS`, `LLVQ_SEG_ARMS`, `LLVQ_SEG_TETRA`, `LLVQ_TIME_EVENTS` | `planesbench` | arm selection, segment arms, Tetra segment, event timing |
 | `LLVQ_TETRA_OCC`, `LLVQ_PERS_MICRO`, `LLVQ_TROWS`, `LLVQ_PERS_ARMS`, `LLVQ_DUMP_CUBIN` | `planesbench` (`persbench.rs`) | persistent Tetra arms, microbenchmarks, row loops, cubin dump |
 
@@ -88,6 +89,7 @@ modes set together (`ALONE` in that file).
 | `LLVQ_HF_FIXTURE`, `LLVQ_HF_MINI_FIXTURE` | `llvq-llm/tests/hfpack.rs` | rewrite the packed fixtures |
 | `LLVQ_Q4_WIDE_FIXTURE_WRITE` | `llvq-llm/tests/proj_q4_wide.rs` | rewrite the wide int4 fixture |
 | `LLVQ_ROT_FIXTURE_WRITE` | `llvq-cuda/tests/rotation_matches_rust.rs` | rewrite the rotation fixture |
+| `LLVQ_TOKENIZER` | `llvq-runtime/examples/overhead.rs` | tokenizer file when no path is given |
 | `LLVQ_UPDATE_OPENAPI` | `llvq-runtime/tests/openapi.rs` | rewrite the committed OpenAPI document |
 
 ## Python
