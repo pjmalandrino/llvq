@@ -74,13 +74,6 @@ fn persistent() -> &'static Path {
     B.get_or_init(|| build_side(&repo(), 1, "off", "pers"))
 }
 
-/// The persistent side with 4E's row form 3 (4E v5: form 2 with each CTA's
-/// last rows split over its warps).
-fn persistent_v5() -> &'static Path {
-    static B: OnceLock<PathBuf> = OnceLock::new();
-    B.get_or_init(|| build_side_with(&repo(), 1, "off", "pers_v5", &["PERS_4E_ROWS=3u"]))
-}
-
 /// The persistent side with 4E's row form 2 (4E v4: v2's row loop on the
 /// stream's static rows).
 fn persistent_v4() -> &'static Path {
@@ -455,14 +448,7 @@ fn the_argmax_key_is_tok_argmax_key() {
 #[test]
 fn the_struct_mirrors_match_the_kernel_layouts() {
     let o = u32s(&run(persistent(), &Cmd::new(b'L').0));
-    let mut want = vec![pers::PERS_ARGS_BYTES as u32];
-    want.extend((0..pers::PERS_ARGS_PTRS.len() as u32).map(|i| 8 * i));
-    // nsites, hidden, inter, m_h, k_h, m_i, k_i, then (3 pads) inv_h, inv_i, eps
-    want.extend([176, 180, 184, 188, 192, 196, 200, 216, 220, 224]);
-    want.push(pers::PERS_LAUNCH_BYTES as u32);
-    want.extend([0, 4, 8, 16, 24, 32]);
-    want.push(4 * pers::SITE_U32 as u32);
-    want.push(48);
+    let mut want = vec![48];
     want.extend([0, 8, 16, 24, 32, 36, 40, 44]);
     want.push(pers::SEG_ARGS_BYTES as u32);
     want.extend([0, 8, 16, 24, 32, 40, 88, 136, 184, 192, 200, 208, 216, 224, 232, 240, 248, 256, 264, 272, 280, 288]);
@@ -513,12 +499,6 @@ fn the_struct_mirrors_match_the_kernel_layouts() {
     assert_eq!(u32::from_le_bytes(seg[136 + 44..136 + 48].try_into().unwrap()), 2560);
     assert_eq!(f32::from_le_bytes(seg[328..332].try_into().unwrap()), 1e-6);
     assert_eq!(u32::from_le_bytes(seg[332..336].try_into().unwrap()), 76);
-    // the Rust image puts the same values at the same offsets
-    let img = pers::PersArgsHost { ptrs: std::array::from_fn(|i| 0x1000 + i as u64), nsites: 7, inv_h: 0.5, eps: 1e-6, ..Default::default() }.bytes();
-    assert_eq!(u64::from_le_bytes(img[8 * 21..8 * 22].try_into().unwrap()), 0x1000 + 21);
-    assert_eq!(u32::from_le_bytes(img[176..180].try_into().unwrap()), 7);
-    assert_eq!(f32::from_le_bytes(img[216..220].try_into().unwrap()), 0.5);
-    assert_eq!(f32::from_le_bytes(img[224..228].try_into().unwrap()), 1e-6);
 }
 
 /// The L1 one-launch pass walks its work list onto the right rows: a fused
@@ -956,168 +936,6 @@ fn the_4e_phase_stamps_keep_the_tokens_and_bracket_the_waits() {
     }
 }
 
-// ---- the L2 bench arms ------------------------------------------------------
-
-/// The served pattern on two layers (a Tetra down, then an int4-pattern one)
-/// at the real widths, rows cut to `rows` a site so the host run stays short.
-fn short_schedule(rows: u32) -> Vec<pers::Site> {
-    let mut s = pers::schedule_for(2, 2560, 9728, |l| l == 0);
-    for site in &mut s {
-        site.d_out = rows;
-    }
-    pers::validate(&s).expect("valid");
-    s
-}
-
-struct BenchOut {
-    y: Vec<u16>,
-    f32s: Vec<u8>,
-    norm: Vec<u16>,
-    rot: Vec<u8>,
-    bar: u32,
-    abort: u32,
-}
-
-fn bench_cmd(arm: usize, grid: u32, threads: u32, launches: u32, seed: u64, sites: &[pers::Site]) -> (Vec<u8>, u32) {
-    let (h, i) = (2560usize, 9728usize);
-    let (rh, ri) = (rot(h, 21), rot(i, 22));
-    let mut c = Cmd::new(b'B').u32(arm as u32).u32(grid).u32(threads).u32(launches).u64(seed).u32(sites.len() as u32);
-    for st in sites {
-        c = c.u32s(&pers::site_record(st, 0, 0, 0));
-    }
-    let (lo, hi) = pers::slice_tables(sites, grid);
-    c = c.u32s(&lo).u32s(&hi);
-    c = c.u32(h as u32).u32(i as u32).u32(rh.m).u32(rh.k).u32(ri.m).u32(ri.k).f32(rh.inv).f32(ri.inv).f32(1e-6);
-    c = c.u32s(&rh.signs).u32s(&ri.signs).f32s(&rh.small).f32s(&ri.small);
-    // The ledger the bench keeps, launch by launch.
-    let mut led = pers::Ledger::new(pers::N_PERS_ARMS);
-    let a = &pers::PERS_ARMS[arm];
-    for _ in 0..launches {
-        let lc = led.before(arm, sites.len()).unwrap();
-        c = c.u32(lc.bar_base).u32(lc.epoch).u32(lc.cnt_offset);
-        led.after(arm, pers::n_bar(sites, a.waits), grid, a.waits > 0);
-    }
-    let final_bar = led.before(arm, sites.len()).unwrap().bar_base;
-    (c.0, final_bar)
-}
-
-fn parse_bench(b: &[u8], sites: &[pers::Site]) -> BenchOut {
-    let total: usize = sites.iter().map(|s| s.d_out as usize).sum();
-    let (y, rest) = b.split_at(2 * total);
-    let (f32s, rest) = rest.split_at(4 * total);
-    // norm and rot sizes follow from the restage rule of host_pers_bench.inc
-    let mut n_norm = 0usize;
-    let mut n_prol = 0usize;
-    for (k, s) in sites.iter().enumerate() {
-        let restage = k == 0 || sites[k - 1].d_in != s.d_in || sites[k - 1].layer != s.layer;
-        if restage && s.prologue != pers::Prologue::None {
-            n_prol += 1;
-            n_norm += usize::from(s.prologue == pers::Prologue::NormRot);
-        }
-    }
-    let (norm, rest) = rest.split_at(2 * n_norm * 2560);
-    let (rot, tail) = rest.split_at(4 * n_prol * 9728);
-    let t = u32s(tail);
-    BenchOut { y: u16s(y), f32s: f32s.to_vec(), norm: u16s(norm), rot: rot.to_vec(), bar: t[0], abort: t[1] }
-}
-
-/// Every arm on the short schedule, three launches, a grid of 3: the owed
-/// arms give the served rows bit for bit, no arm leaves a row unwritten, the
-/// chained arms' barrier counter ends where the ledger says, nothing aborts,
-/// and pchain_wp's prologue vectors are candle's norm and rot_apply's
-/// rotation.
-#[test]
-fn every_bench_arm_runs_the_served_rows() {
-    let sites = short_schedule(24);
-    let (cmd0, _) = bench_cmd(0, 3, 64, 1, 0xbe7c, &sites);
-    let want = parse_bench(&run(served(), &cmd0), &sites);
-    assert!(want.y.iter().all(|&v| v != pers::POISON_H));
-    for (k, a) in pers::PERS_ARMS.iter().enumerate() {
-        let (cmd, final_bar) = bench_cmd(k, 3, 64, 3, 0xbe7c, &sites);
-        let got = parse_bench(&run(persistent(), &cmd), &sites);
-        assert_eq!(got.abort, 0, "{}: a launch aborted", a.name);
-        assert!(got.y.iter().all(|&v| v != pers::POISON_H), "{}: a row was never written", a.name);
-        if a.owes_identity() {
-            assert!(got.y == want.y, "{}: rows differ from tv_tetra48_h", a.name);
-            assert!(got.f32s == want.f32s, "{}: the f32 values before f2h differ", a.name);
-        }
-        if a.waits > 0 {
-            assert_eq!(got.bar, final_bar, "{}: the barrier counter left the ledger", a.name);
-        }
-        if a.prologue {
-            assert!(got.norm == want.norm, "{}: the norm prologue is not candle's", a.name);
-            assert!(got.rot == want.rot, "{}: the rotation prologue is not rot_apply", a.name);
-        }
-    }
-}
-
-/// The work-claiming race of the draft: without the barrier before the
-/// cursor is set again, a warp still claiming site s draws indices of site
-/// s + 1 (same staging, no wait between q and k). The scheduler's drift finds
-/// it within a few seeds; the fixed text never does.
-#[test]
-fn the_claiming_race_is_closed() {
-    let sites = short_schedule(24);
-    let arm = pers::PERS_ARMS.iter().position(|a| a.name == "psmem_t28").unwrap();
-    // The draft's text: the cursor set again with no barrier before it, and
-    // no barrier at the end of the site either.
-    let b = mutant_many(
-        "claim_race",
-        &[
-            ("llvq-cuda/kernels/llvq_pers.cuh", "    __syncthreads();  // every warp has left the previous claim loop\n", ""),
-            ("llvq-cuda/kernels/tetra48_pers.cu", "        __syncthreads();  // the CTA's rows of site s precede its signal and the next reset\n", ""),
-        ],
-    );
-    let mut caught = false;
-    for seed in 1..=6u64 {
-        // the seed drives both the fixture and the scheduler
-        let (cmd, _) = bench_cmd(arm, 3, 96, 1, seed, &sites);
-        let want = parse_bench(&run(served(), &cmd), &sites).y;
-        let got = parse_bench(&run(persistent(), &cmd), &sites).y;
-        let bad: Vec<(usize, u16, u16)> = got.iter().zip(&want).enumerate().filter(|(_, (a, b))| a != b).map(|(i, (a, b))| (i, *a, *b)).take(8).collect();
-        assert!(bad.is_empty(), "seed {seed}: the fixed text differs at (row, got, want) {bad:?}");
-        caught |= parse_bench(&run(&b, &cmd), &sites).y != want;
-    }
-    assert!(caught, "the claiming race never showed: the test has no teeth");
-}
-
-/// The two decode arms fold the same values, one reading the tables through
-/// L1, the other from its shared copy: their rows are equal, and a copy that
-/// swaps two branch entries makes them differ (the card-side check of
-/// persbench.rs rests on this).
-#[test]
-fn the_decode_arms_read_one_table() {
-    let sites = short_schedule(24);
-    let pos = |n: &str| pers::PERS_ARMS.iter().position(|a| a.name == n).unwrap();
-    let (l1, sm, word) = (pos("pdec_l1"), pos("pdec_smem"), pos("pword"));
-    let rows = |bin: &Path, arm: usize| parse_bench(&run(bin, &bench_cmd(arm, 3, 64, 1, 0xdec0, &sites).0), &sites).y;
-    let a = rows(persistent(), l1);
-    assert!(a.iter().all(|&v| v != pers::POISON_H), "pdec_l1 left a row unwritten");
-    assert!(a == rows(persistent(), sm), "pdec_smem's rows differ from pdec_l1's");
-    assert!(a != rows(persistent(), word), "the decode arms fold nothing beyond the words");
-    let b = mutant("dec_tables", "llvq-cuda/kernels/tetra48_pers.cu", "t_br[i] = A->br[i];", "t_br[i] = A->br[i ^ 1u];");
-    assert!(a != rows(&b, sm), "a swapped branch table survived: the test has no teeth");
-}
-
-/// One arm at its real block size and a full layer's rows: the template at
-/// 768 threads, every row of every site of one layer.
-#[test]
-fn one_arm_at_full_size() {
-    let mut sites = pers::schedule_for(1, 2560, 9728, |_| true);
-    // o reads 4,096 columns; keep it, cut nothing
-    for s in &mut sites {
-        s.d_out = s.d_out.min(4096);
-    }
-    let arm = pers::PERS_ARMS.iter().position(|a| a.name == "pchain_wp").unwrap();
-    let (cmd, final_bar) = bench_cmd(arm, 2, 768, 1, 77, &sites);
-    let want = parse_bench(&run(served(), &cmd), &sites);
-    let got = parse_bench(&run(persistent(), &cmd), &sites);
-    assert_eq!(got.abort, 0);
-    assert_eq!(got.bar, final_bar);
-    assert!(got.y == want.y && got.f32s == want.f32s, "rows differ at full size");
-    assert!(got.norm == want.norm && got.rot == want.rot, "prologues differ at full size");
-}
-
 // ---- route P, step A ------------------------------------------------------
 
 fn seg_cmd(grid: u32, threads: u32, normv: u32, tetra_down: bool, seed: u64, bar_base: u32) -> Vec<u8> {
@@ -1523,62 +1341,6 @@ fn the_4e_v4_mutants_are_killed() {
     }
 }
 
-
-// ---- 4E v5: the last rows of a CTA split over its warps (PERS_4E_ROWS = 3) --
-
-/// The module built with row form 3 runs the served chain bit for bit, on
-/// grids whose CTAs hold a row count that is not a multiple of their warps.
-#[test]
-fn the_4e_v5_rows_are_the_served_chain() {
-    let r = rot(2560, 41);
-    let qkv = |grid: u32, threads: u32, seed: u64| {
-        Cmd::new(b'V').u32(grid).u32(threads).u64(seed).u32(r.m).u32(r.k).f32(r.inv).u32s(&r.signs).f32s(&r.small).0
-    };
-    for (grid, threads, seed) in [(3u32, 96u32, 1u64), (4, 64, 2), (7, 128, 3)] {
-        assert!(run(served(), &qkv(grid, threads, seed)) == run(persistent_v5(), &qkv(grid, threads, seed)), "v5 q/k/v, grid {grid}x{threads}");
-    }
-    // grids 3 to 5: gate/up's pairs a CTA exceed form 3's 512 and take form 2's
-    // path; 20 x 96: 486 or 487 pairs a CTA, 2 rows left over on 3 warps, the
-    // split taken (and the down's and q|k's at every grid)
-    for (form, grid, threads) in [(0u32, 3u32, 128u32), (2, 4, 96), (1, 5, 64), (1, 20, 96)] {
-        let cmd = g_cmd_variant(form, grid, threads, &[(5, 3, 7)], 16, u32::MAX, 0x4e60 + form as u64, 2);
-        let want = run(served(), &cmd);
-        let got = run(persistent_v5(), &cmd);
-        let first = got.iter().zip(&want).position(|(a, b)| a != b);
-        assert!(got[..got.len() - 8] == want[..want.len() - 8], "v5, form {form}, grid {grid}x{threads}: tokens, residual or caches; lengths {} {}, first byte differing {first:?}", got.len(), want.len());
-    }
-    let cmd = g_cmd_variant(1, 3, 128, &[(270, 2, 7)], 288, u32::MAX, 0x4e70, 2);
-    let (want, got) = (run(served(), &cmd), run(persistent_v5(), &cmd));
-    assert!(got[..got.len() - 8] == want[..want.len() - 8], "v5, positions 270-271");
-    let runs = [(5u32, 3u32, 7u32), (8, 2, 9)];
-    let plain = run(persistent_v5(), &g_cmd_variant(1, 4, 96, &runs, 16, u32::MAX, 0x4e21, 2));
-    let stamped = run(persistent_v5(), &g_cmd_variant(1, 4, 96, &runs, 16, u32::MAX, 0x4e21, 1));
-    assert!(stamped[..plain.len()] == plain[..], "v5: the stamped launch moved an output");
-}
-
-/// v5's split: each mutant moves the q/k/v rows or the token loop.
-#[test]
-fn the_4e_v5_mutants_are_killed() {
-    let r = rot(2560, 41);
-    let v = |grid: u32, threads: u32| Cmd::new(b'V').u32(grid).u32(threads).u64(1).u32(r.m).u32(r.k).f32(r.inv).u32s(&r.signs).f32s(&r.small).0;
-    let cmds = [v(3, 96), v(7, 128), g_cmd_variant(0, 3, 128, &[(5, 3, 7)], 16, u32::MAX, 0x4e60, 2), g_cmd_variant(1, 20, 96, &[(5, 3, 7)], 16, u32::MAX, 0x4e61, 2)];
-    let want: Vec<Vec<u8>> = cmds.iter().map(|c| run(served(), c)).collect();
-    let f = "llvq-cuda/kernels/llvq_pers.cuh";
-    let s = "llvq-cuda/kernels/pers_segment.cu";
-    for (tag, file, from, to) in [
-        ("v5_fold_order", f, "        for (u32 i = 0; i < nit; ++i) {\n            const u32 u = rr * nit + i;", "        for (u32 i = nit; i-- > 0;) {\n            const u32 u = rr * nit + i;"),
-        ("v5_gscale", f, "tv = __fmul_rn(a, R.gscale[(hi16 >> 15) & 1u]);", "tv = __fmul_rn(a, R.gscale[0]);"),
-        ("v5_unit_step", f, "const u32 rr = u / nit, i = u - rr * nit;", "const u32 rr = u / nit, i = (u - rr * nit + 1u) % nit;"),
-        ("v5_owner_row", f, "            epi(full + rr, pers_epilogue(acc, R.rscale[R.r],", "            epi(full + (rr ^ 1u) % rem, pers_epilogue(acc, R.rscale[R.r],"),
-        ("v5_gu_product", s, "exact_hmul(A->silu[sgu[2u * p]], sgu[2u * p + 1u]);", "exact_hmul(A->silu[sgu[2u * p + 1u]], sgu[2u * p]);"),
-    ] {
-        let root = std::env::temp_dir().join(format!("llvq_pers_mutant_{tag}_{}", std::process::id()));
-        let _ = mutant(tag, file, from, to);
-        let b = build_side_with(&root, 1, "off", &format!("{tag}_v5"), &["PERS_4E_ROWS=3u"]);
-        let killed = cmds.iter().zip(&want).any(|(c, w)| run_mutant(&b, c).is_none_or(|o| &o != w));
-        assert!(killed, "v5 mutant {tag} survived");
-    }
-}
 
 // ---- 4E v6: ln1, ln2 and the down's input in one round trip (PERS_4E_ROWS = 4) --
 

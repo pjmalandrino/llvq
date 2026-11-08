@@ -101,6 +101,8 @@ The lab rules: the rule, then the incident that taught it. Templates are in `doc
   "lost" outputs lived elsewhere. Paid on 2026-08-17: the 14B MMLU dumps were in the bucket.
 - **Commit the raw output.** A summary journal is a loss once the channel expires. `bin/ppl` prints per-window NLLs on
   stderr: without `2>`, they are gone.
+- **A raw file over 1 MB goes to the bucket, with its sha256 in the journal.** Raw directories are 70 % of the tracked
+  tree. `ops/check_big_files.py` fails CI on a new one; `ops/big-files.allow` lists the 80 kept on 2026-11-08.
 - **`ots upgrade` follows each stamp**, on the operator's go. The anchors have never been checked against the chain.
 
 ## 6. The machines

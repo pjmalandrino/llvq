@@ -422,8 +422,8 @@ which times 252 projections with the rotation excluded.
   launch with `--timeout 90m`. The B2 14B job was killed at 42.5 min for 40
   requested, after its last measurement (*measured*, b2-fusedrun-plages).
 - `LLVQ_NVRTC_ARCH=compute_89` by default, `compute_80` for the A100; any other form is refused.
-- `LLVQ_TIME_EVENTS=1` times the device span with CUDA events, outside the
-  published protocol. The host−device gap is 0.1 to 0.2%, 4 to 8 µs per
+- `LLVQ_TIME_EVENTS=1` timed the device span with CUDA events, outside the
+  published protocol (removed on 2026-11-08; the tag `pre-clean-2026-11` has it). The host−device gap is 0.1 to 0.2%, 4 to 8 µs per
   whole round (*measured*, f3-events): the latency item is device-side,
   inter-kernel bubbles included.
 - The V0 line of the `nullk` journal prints "pires erreurs 0.0e0": that arm

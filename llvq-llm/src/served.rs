@@ -286,11 +286,36 @@ impl Rows4e {
 /// engine each is refused by name ([`check_env`]); `LLVQ_CONTEXTS` and
 /// `LLVQ_PREFILL_TOKENS` are not here, since they time the served object as
 /// served with a longer prompt.
-pub const MEASUREMENT_MODES: [&str; 17] = [
-    "LLVQ_KV_PREALLOC", "LLVQ_GRAPH_AB", "LLVQ_GRAPH_DIAG", "LLVQ_KV_AB", "LLVQ_FUSE_AB", "LLVQ_TIME_PHASES",
-    "LLVQ_TIME_EVENTS", "LLVQ_SEG_ARMS", "LLVQ_BENCH_ARMS", "LLVQ_TRIM_AB", "LLVQ_GQA_AB", "LLVQ_GQA_PPL",
-    "LLVQ_INT4_WIDE_CHECK", "LLVQ_GESTURE_AB", "LLVQ_BOUNDARY_AB", "LLVQ_PERS_SEGMENT", "LLVQ_PERS_4E",
+pub const MEASUREMENT_MODES: [&str; 5] =
+    ["LLVQ_BENCH_ARMS", "LLVQ_GQA_AB", "LLVQ_GQA_PPL", "LLVQ_INT4_WIDE_CHECK", "LLVQ_PERS_4E"];
+
+/// Variables the binaries read once and no longer do. The code behind them was
+/// deleted by the cleanup of 2026-11-08 (`docs/audit-architecture-2026-11.md`
+/// §4.2); the tag `pre-clean-2026-11` still holds it. Set, each is refused by
+/// name, with or without a config, so a command copied from an old journal
+/// fails instead of measuring something else.
+/// The last four are `planesbench`'s, which `llvq_cuda::REMOVED_BENCH_VARS`
+/// refuses on its side.
+pub const REMOVED: [&str; 15] = [
+    "LLVQ_KV_PREALLOC", "LLVQ_STEPPED", "LLVQ_GRAPH_AB", "LLVQ_GRAPH_DIAG", "LLVQ_KV_AB", "LLVQ_FUSE_AB",
+    "LLVQ_PERS_SEGMENT", "LLVQ_TIME_PHASES", "LLVQ_TRIM_AB", "LLVQ_GESTURE_AB", "LLVQ_BOUNDARY_AB",
+    "LLVQ_PERS_ARMS", "LLVQ_PERS_MICRO", "LLVQ_SEG_ARMS", "LLVQ_TIME_EVENTS",
 ];
+
+/// Refuse every name of [`REMOVED`] that `lookup` finds set. `bin/fusedrun`,
+/// `bin/gsm8k`, `bin/chat` and `bin/run` call it first, and [`check_env`]
+/// calls it for every served binary.
+pub fn check_removed(lookup: impl Fn(&str) -> Option<String>) -> Result<(), String> {
+    for var in REMOVED {
+        if let Some(v) = lookup(var) {
+            return Err(format!(
+                "{var}={v:?}: this variable was removed on 2026-11-08 with the code it drove. \
+                 The tag pre-clean-2026-11 still has it; unset it here."
+            ));
+        }
+    }
+    Ok(())
+}
 
 /// The persistent engine against the model's shape: the sealed Qwen3 shapes
 /// 4E reads (the 4B's since 2026-11-05; the 8B's, with its Tetra o and its
@@ -337,25 +362,6 @@ const SPOKEN_FOR: [&str; 5] =
 /// that change the compiled object without a field to say so.
 pub const BELOW_THE_DOOR: [&str; 4] =
     ["LLVQ_KERNEL_DIR", "LLVQ_TILE_BLOCKS", "LLVQ_PREFILL", "LLVQ_METAL_KERNEL"];
-
-/// The cache store's variable, beside a served config.
-///
-/// The config names the store through its attention form
-/// ([`AttnHeads::store`]), so `LLVQ_KV_PREALLOC` beside `LLVQ_CONFIG` is a
-/// second answer to the question. Not in [`check_env`], which every served
-/// binary runs: `bin/fusedrun` refuses it mode by mode with its own message,
-/// and `bin/mmlu` never reads it. `bin/gsm8k` and `bin/chat` call this one
-/// before their load, so the refusal costs a second and not a load.
-pub fn check_store_env(lookup: impl Fn(&str) -> Option<String>) -> Result<(), String> {
-    match lookup("LLVQ_KV_PREALLOC") {
-        None => Ok(()),
-        Some(v) => Err(format!(
-            "LLVQ_KV_PREALLOC={v:?} beside LLVQ_CONFIG: the served config names the \
-             cache store, through its attention form. Unset it, or unset LLVQ_CONFIG \
-             and run the dense reconstruction."
-        )),
-    }
-}
 
 /// `Some(value)` from a non-empty string, `Err` from an empty one.
 ///
@@ -404,6 +410,7 @@ pub fn check_env(
     f: &ServedFile,
     lookup: impl Fn(&str) -> Option<String>,
 ) -> Result<(), String> {
+    check_removed(&lookup)?;
     if Decode::parse(f.decode.as_deref()) == Ok(Decode::Persistent) {
         for var in MEASUREMENT_MODES {
             if let Some(v) = lookup(var) {

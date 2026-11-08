@@ -12,8 +12,8 @@ use llvq_llm::fused::{EmbedMode, FuseMode, FusedLayout};
 use llvq_llm::kvq::{AttnHeads, KvMode, KvStore, GROW_CHUNK};
 use llvq_llm::rotplan::RotShare;
 use llvq_llm::served::{
-    check_env, check_persistent_object, check_store_env, Decode, Rows4e, Served, ServedFile, BELOW_THE_DOOR,
-    MEASUREMENT_MODES,
+    check_env, check_persistent_object, check_removed, Decode, Rows4e, Served, ServedFile, BELOW_THE_DOOR,
+    MEASUREMENT_MODES, REMOVED,
 };
 use std::path::PathBuf;
 
@@ -647,8 +647,8 @@ fn measurement_modes_are_refused_beside_the_persistent_decode() {
         check_env(&f, env_of(&[(var, "5,8192")])).unwrap_or_else(|e| panic!("{var}: {e}"));
     }
     // An eager config keeps what it accepted before the field existed.
-    check_env(&served(), env_of(&[("LLVQ_TIME_EVENTS", "1")])).expect("not this check's business on an eager config");
-    assert!(MEASUREMENT_MODES.contains(&"LLVQ_PERS_4E") && MEASUREMENT_MODES.contains(&"LLVQ_KV_PREALLOC"));
+    check_env(&served(), env_of(&[("LLVQ_BENCH_ARMS", "1")])).expect("not this check's business on an eager config");
+    assert!(MEASUREMENT_MODES.contains(&"LLVQ_PERS_4E") && MEASUREMENT_MODES.contains(&"LLVQ_GQA_PPL"));
 }
 
 /// Refused on Metal by name, before the kernel form's own refusal.
@@ -945,13 +945,20 @@ fn the_optional_fields_are_read_as_written() {
     }
 }
 
-/// The store variable beside a config is refused by name; unset passes.
+/// A removed variable is refused by name, by `check_removed` and by every
+/// served config; unset passes, and a live variable passes.
 #[test]
-fn the_store_variable_is_refused_beside_a_config() {
-    check_store_env(env_of(&[])).expect("unset");
-    check_store_env(env_of(&[("LLVQ_KV", "q8")])).expect("not the store's variable");
-    let e = check_store_env(env_of(&[("LLVQ_KV_PREALLOC", "8192")])).expect_err("the store");
-    assert!(e.contains("LLVQ_KV_PREALLOC") && e.contains("LLVQ_CONFIG"), "{e}");
+fn removed_variables_are_refused_by_name() {
+    check_removed(env_of(&[])).expect("unset");
+    check_removed(env_of(&[("LLVQ_KV", "q8")])).expect("a live variable");
+    for var in REMOVED {
+        let e = check_removed(env_of(&[(var, "1")])).expect_err(var);
+        assert!(e.contains(var) && e.contains("pre-clean-2026-11"), "{e}");
+        let e = check_env(&served(), env_of(&[(var, "1")])).expect_err(var);
+        assert!(e.contains(var), "{e}");
+        assert!(!MEASUREMENT_MODES.contains(&var), "{var} is both removed and a mode");
+    }
+    assert!(REMOVED.contains(&"LLVQ_KV_PREALLOC") && REMOVED.contains(&"LLVQ_PERS_SEGMENT"));
 }
 
 /// The chat door: the store variable under any config, and a temperature
@@ -966,7 +973,7 @@ fn the_chat_door_refuses_what_its_config_cannot_serve() {
     let e = check_served_chat(&fe, 0.7, env_of(&[])).expect_err("4E cannot sample");
     assert!(e.contains("persistent") && e.contains("LLVQ_CHAT_TEMP"), "{e}");
     for cfg in [&eager, &fe] {
-        let e = check_served_chat(cfg, 0.0, env_of(&[("LLVQ_KV_PREALLOC", "4096")])).expect_err("store");
-        assert!(e.contains("LLVQ_KV_PREALLOC"), "{e}");
+        let e = check_served_chat(cfg, 0.0, env_of(&[("LLVQ_KV_PREALLOC", "4096")])).expect_err("removed");
+        assert!(e.contains("LLVQ_KV_PREALLOC") && e.contains("removed"), "{e}");
     }
 }

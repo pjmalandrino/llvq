@@ -27,6 +27,9 @@ use llvq_llm::artifact2::{shard_extent, ArtifactWriter, CodeKind, KindSet, Recor
 use llvq_llm::model::{Act, Qwen3};
 use std::path::PathBuf;
 
+mod common;
+use common::tiny;
+
 fn tmp(name: &str) -> String {
     let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
     std::fs::create_dir_all(&dir).expect("tmpdir");
@@ -185,27 +188,6 @@ fn shard_extent_walks_a_mixed_shard() {
 // ---------------------------------------------------------------------------
 // 3 — the resume checks the kind per projection
 // ---------------------------------------------------------------------------
-
-fn tiny() -> Config {
-    Config {
-        vocab_size: 128,
-        hidden_size: 32,
-        intermediate_size: 64,
-        num_hidden_layers: 2,
-        num_attention_heads: 4,
-        head_dim: 8,
-        attention_bias: false,
-        num_key_value_heads: 2,
-        max_position_embeddings: 64,
-        sliding_window: None,
-        max_window_layers: 0,
-        tie_word_embeddings: true,
-        rope_theta: 10_000.0,
-        rms_norm_eps: 1e-6,
-        use_sliding_window: false,
-        hidden_act: Activation::Silu,
-    }
-}
 
 fn fresh(map: &VarMap, dev: &Device) -> Qwen3 {
     let vb = VarBuilder::from_varmap(map, DType::F32, dev);

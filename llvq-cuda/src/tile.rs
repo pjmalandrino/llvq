@@ -69,13 +69,6 @@ pub const TILE_MIN: usize = 32;
 /// `CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK` on every card measured
 /// here. Past it the launch fails at run time on the card, which is the worst
 /// place to find out.
-///
-/// The stride is not universal. The A3 arms `pad` and `mr2p` stage at
-/// [`crate::occ::XS_PAD`] = 28 floats a block (`occ::XS_STRIDE`), where the
-/// same 512 would ask for 57,344 B and be refused by the driver. Those arms
-/// are refused off the served tile outright — see
-/// [`crate::occ::refuse_off_served_tile`] — so this bound is the one that
-/// applies to every launch that can actually happen.
 pub const TILE_MAX: usize = 512;
 
 /// Activation rows one prefill launch carries.
@@ -289,18 +282,6 @@ impl Tile {
     /// and that is the point: the `#define` and the launch parameter were two
     /// independent expressions over one `const`, safe only while the const
     /// could not move.
-    ///
-    /// 🕳️ It is **not** the only place the product is formed in this crate.
-    /// [`crate::occ::shared_bytes`] forms it again, clamping at
-    /// [`crate::TILE_BLOCKS`] directly, and it is the live launch argument of
-    /// the A3 section (`planesbench` :3310, :3318, :3328). Threading the
-    /// resolved tile through `occ` would not be enough either: `planes_occ.cu`
-    /// branches on `nblocks <= TILE_BLOCKS` at :259 and :416, so the `pers`
-    /// arm takes a *different code path* below the tile and would report two
-    /// algorithms under one name. That section is off by default
-    /// (`occ::parse_seg_arms(None)` is empty) and off F1d's path, so it is
-    /// refused off the served tile rather than resized — see
-    /// [`crate::occ::refuse_off_served_tile`].
     pub fn shared_bytes(&self) -> u32 {
         (self.blocks * crate::occ::XS_DIM * 4) as u32
     }
@@ -528,7 +509,29 @@ mod tests {
     #[test]
     fn no_launch_in_the_host_is_bounded_by_the_served_constant() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
-        for rel in ["llvq-llm/src/fused_cuda.rs", "llvq-llm/src/model.rs", "llvq-llm/src/bin/fusedrun.rs"] {
+        // The two library files have child modules since 2026-11-08 (audit
+        // batch 14), and a binary may too: every `.rs` under each name is read.
+        let mut files = Vec::new();
+        for base in ["llvq-llm/src/fused_cuda", "llvq-llm/src/model", "llvq-llm/src/bin/fusedrun"] {
+            let file = format!("{base}.rs");
+            if root.join(&file).is_file() {
+                files.push(file);
+            }
+            let mut dirs = vec![base.to_string()];
+            while let Some(d) = dirs.pop() {
+                let Ok(entries) = std::fs::read_dir(root.join(&d)) else { continue };
+                for e in entries.flatten() {
+                    let rel = format!("{d}/{}", e.file_name().to_string_lossy());
+                    if e.path().is_dir() {
+                        dirs.push(rel);
+                    } else if rel.ends_with(".rs") {
+                        files.push(rel);
+                    }
+                }
+            }
+        }
+        assert!(files.len() >= 8, "only {files:?}: the scan lost its files");
+        for rel in &files {
             let src = std::fs::read_to_string(root.join(rel)).expect("{rel} reads");
             for (i, line) in src.lines().enumerate() {
                 let code = line.split("//").next().unwrap_or("");
@@ -733,11 +736,21 @@ mod tests {
     fn no_binary_writes_its_own_tile() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/bin");
         let mut seen = 0;
-        for e in std::fs::read_dir(&dir).expect("src/bin") {
-            let path = e.expect("dir entry").path();
-            if path.extension().and_then(|x| x.to_str()) != Some("rs") {
-                continue;
+        // A binary may have child modules in a folder of its name since
+        // 2026-11-08 (planesbench, audit batch 14): read them too.
+        let mut paths = Vec::new();
+        let mut dirs = vec![dir.clone()];
+        while let Some(d) = dirs.pop() {
+            for e in std::fs::read_dir(&d).expect("src/bin") {
+                let path = e.expect("dir entry").path();
+                if path.is_dir() {
+                    dirs.push(path);
+                } else if path.extension().and_then(|x| x.to_str()) == Some("rs") {
+                    paths.push(path);
+                }
             }
+        }
+        for path in paths {
             let text = std::fs::read_to_string(&path).expect("read bin");
             seen += 1;
             for banned in ["#define TILE_BLOCKS ", "const TILE_BLOCKS"] {

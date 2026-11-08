@@ -46,15 +46,15 @@ pub mod arms;
 // noticed was a billed job — which is how it was found (0,24 $, 2026-08-17).
 pub mod shared;
 
-// Portable for the reason `shared` is: the A3 occupancy arms size their grids,
-// slices and shared memory here, and the bench that launches them is
-// `cfg(linux)` — a grid one CTA short would corrupt on a rented card without
-// a log line, so the arithmetic is tested where tests are free.
+// Portable for the reason `shared` is: the staged block width and the
+// residency model, which size launches whose benches are `cfg(linux)`, so the
+// arithmetic is tested where tests are free.
 pub mod occ;
 
-// Portable for the reason `occ` is: the persistent kernels' site list, slice
-// tables, barrier ledger and row judge. A grid one barrier short deadlocks on
-// a rented card, and a counter epoch one off reads stale rows without a hang.
+// Portable for the reason `occ` is: the persistent kernels' unit texts, struct
+// mirrors, 4E bookkeeping and the row-loop tables. A grid one barrier short
+// deadlocks on a rented card, and a counter epoch one off reads stale rows
+// without a hang.
 pub mod pers;
 
 // The persistent sections of planesbench, Linux only like `gpu`.
@@ -84,6 +84,8 @@ pub mod wide;
 
 // Portable so the Mac host test and the card hash with the same code.
 pub mod sha256;
+/// Summary statistics shared by the bench binaries.
+pub mod stats;
 // Portable, and the reference rather than a helper: the canonical arithmetic
 // of the split-KV decode-attention kernel, replayed on the CPU. The kernel is
 // checked against it bit for bit on the Mac (`tests/attn_dec_matches_rust.rs`
@@ -124,57 +126,40 @@ pub fn arch_binary_ok(binary: i32, compiled_for: i32) -> bool {
     binary >= compiled_for
 }
 
-pub fn f16_bits(x: f32) -> u16 {
-    let b = x.to_bits();
-    let sign = ((b >> 16) & 0x8000) as u16;
-    let exp = ((b >> 23) & 0xff) as i32;
-    let man = b & 0x7f_ffff;
-    if exp == 255 {
-        return sign | 0x7c00 | if man != 0 { 0x200 } else { 0 };
-    }
-    let e16 = exp - 127 + 15;
-    if e16 >= 31 {
-        return sign | 0x7c00;
-    }
-    if e16 <= 0 {
-        if e16 < -10 {
-            return sign;
+/// `planesbench` variables whose code the cleanup of 2026-11-08 removed (the
+/// L2 arms, the barrier microbenchmarks, the A3 segment arms, the event
+/// timing). The tag `pre-clean-2026-11` still holds it. Set, each is refused
+/// by name, so a job copied from an old journal fails instead of running the
+/// plain bench. `llvq_llm::served::REMOVED` lists them too.
+pub const REMOVED_BENCH_VARS: [&str; 4] = ["LLVQ_PERS_ARMS", "LLVQ_PERS_MICRO", "LLVQ_SEG_ARMS", "LLVQ_TIME_EVENTS"];
+
+/// Refuse every name of [`REMOVED_BENCH_VARS`] that `lookup` finds set.
+/// Portable, so the Mac tests it.
+pub fn check_removed_bench(lookup: impl Fn(&str) -> Option<String>) -> Result<(), String> {
+    for var in REMOVED_BENCH_VARS {
+        if let Some(v) = lookup(var) {
+            return Err(format!(
+                "{var}={v:?}: this variable was removed on 2026-11-08 with the code it drove. \
+                 The tag pre-clean-2026-11 still has it; unset it here."
+            ));
         }
-        let man = man | 0x80_0000;
-        let shift = (14 - e16) as u32;
-        let half = 1u32 << (shift - 1);
-        let mut v = man >> shift;
-        let rem = man & ((1 << shift) - 1);
-        if rem > half || (rem == half && v & 1 == 1) {
-            v += 1;
-        }
-        return sign | v as u16;
     }
-    let mut v = (sign as u32) | ((e16 as u32) << 10) | (man >> 13);
-    let rem = man & 0x1fff;
-    if rem > 0x1000 || (rem == 0x1000 && v & 1 == 1) {
-        v += 1;
-    }
-    v as u16
+    Ok(())
 }
 
-/// binary16 bits → f64. Exact: every binary16 is a binary64.
-pub fn f16_to_f64(h: u16) -> f64 {
-    let sign = if h & 0x8000 != 0 { -1.0 } else { 1.0 };
-    let exp = (h >> 10) & 0x1f;
-    let man = (h & 0x3ff) as f64;
-    sign * match exp {
-        0 => man * (-24f64).exp2(),
-        31 => {
-            if man == 0.0 {
-                f64::INFINITY
-            } else {
-                f64::NAN
-            }
+#[cfg(test)]
+mod removed_tests {
+    #[test]
+    fn removed_bench_variables_are_refused_by_name() {
+        assert!(super::check_removed_bench(|_| None).is_ok());
+        for var in super::REMOVED_BENCH_VARS {
+            let e = super::check_removed_bench(|v| (v == var).then(|| "1".to_string())).expect_err(var);
+            assert!(e.contains(var) && e.contains("pre-clean-2026-11"), "{e}");
         }
-        e => (1.0 + man / 1024.0) * ((e as f64) - 15.0).exp2(),
     }
 }
+
+pub use llvq_artifact::f16::{f16_bits, f16_to_f64};
 
 /// Blocks a tile stages in shared memory — the value the host must `#define`
 /// for `matvec.cu`, which `#error`s without it.

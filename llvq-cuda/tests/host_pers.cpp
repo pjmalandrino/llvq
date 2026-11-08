@@ -817,8 +817,6 @@ int main() {
 #endif
             }
         wr(o);
-    } else if (tag == 'B') {
-#include "host_pers_bench.inc"
     } else if (tag == 'S') {
 #include "host_pers_segment.inc"
     } else if (tag == 'G') {
@@ -1150,18 +1148,6 @@ int main() {
         std::vector<u32> o;
 #if PERS_SIDE == 1
 #define OFF(T, f) o.push_back((u32)__builtin_offsetof(T, f))
-        o.push_back((u32)sizeof(PersArgs));
-        OFF(PersArgs, sites); OFF(PersArgs, rows); OFF(PersArgs, pref); OFF(PersArgs, br); OFF(PersArgs, suf);
-        OFF(PersArgs, invnorm); OFF(PersArgs, gscale); OFF(PersArgs, rscale); OFF(PersArgs, tail); OFF(PersArgs, x);
-        OFF(PersArgs, y_all); OFF(PersArgs, slice_lo); OFF(PersArgs, slice_hi); OFF(PersArgs, bar); OFF(PersArgs, cnts);
-        OFF(PersArgs, abort_flag); OFF(PersArgs, resid); OFF(PersArgs, alpha); OFF(PersArgs, signs_h);
-        OFF(PersArgs, signs_i); OFF(PersArgs, small_h); OFF(PersArgs, small_i);
-        OFF(PersArgs, nsites); OFF(PersArgs, hidden); OFF(PersArgs, inter); OFF(PersArgs, m_h); OFF(PersArgs, k_h);
-        OFF(PersArgs, m_i); OFF(PersArgs, k_i); OFF(PersArgs, inv_h); OFF(PersArgs, inv_i); OFF(PersArgs, eps);
-        o.push_back((u32)sizeof(PersLaunch));
-        OFF(PersLaunch, bar_base); OFF(PersLaunch, epoch); OFF(PersLaunch, cnt_offset); OFF(PersLaunch, dbg);
-        OFF(PersLaunch, dbg_norm); OFF(PersLaunch, dbg_rot);
-        o.push_back((u32)sizeof(PersSite));
         o.push_back((u32)sizeof(SegTetra));
         OFF(SegTetra, words); OFF(SegTetra, rscale); OFF(SegTetra, tail); OFF(SegTetra, gscale);
         OFF(SegTetra, stride_u32); OFF(SegTetra, nblocks); OFF(SegTetra, tail_w); OFF(SegTetra, d_out);

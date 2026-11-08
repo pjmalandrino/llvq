@@ -61,7 +61,7 @@ modes set together (`ALONE` in that file).
 | `LLVQ_ROT`, `LLVQ_H_DENSE` | `hcapture` | rotation on, dense Hessian | tool |
 | `LLVQ_ALT_K` | `tetraalt` | alternative count | tool |
 | `LLVQ_Q4B` | `radixstudy` | int4 bit study switch | tool |
-| `LLVQ_STEPPED`, `LLVQ_RUN_DUMP`, `LLVQ_VERIFY_CACHE` | `run` (dense demo) | stepped decode, dump path, cache check (set means on) | tool |
+| `LLVQ_RUN_DUMP`, `LLVQ_VERIFY_CACHE` | `run` (dense demo) | dump path; cache check, `0` or `1` | tool |
 
 ## Measurement modes
 
@@ -69,17 +69,33 @@ modes set together (`ALONE` in that file).
 |---|---|---|
 | `LLVQ_CONTEXTS` | `fusedrun` | prompt lengths: time to first token and decode speed after each; allowed beside a config |
 | `LLVQ_PREFILL_TOKENS` | `fusedrun` | prompt length for the prefill timing; allowed beside a config |
-| `LLVQ_KV_PREALLOC` | `kvq.rs` | preallocated cache window |
-| `LLVQ_GRAPH_AB`, `LLVQ_GRAPH_DIAG` | `fusedrun` | CUDA Graphs A/B and its diagnostic (lead closed) |
-| `LLVQ_KV_AB`, `LLVQ_FUSE_AB`, `LLVQ_TRIM_AB` | `fusedrun` | cache store, fusion and trim A/Bs |
-| `LLVQ_TIME_PHASES` | `fusedrun`, `model.rs` | per-phase timing of a token |
 | `LLVQ_GQA_AB`, `LLVQ_GQA_PPL` | `fusedrun` | grouped attention timing, and its paired perplexity |
 | `LLVQ_INT4_WIDE_CHECK` | `fusedrun` | int4 kernel against the host at widths above 14B |
-| `LLVQ_GESTURE_AB`, `LLVQ_BOUNDARY_AB` | `fusedrun` | decode-step gesture and boundary A/Bs |
-| `LLVQ_PERS_SEGMENT`, `LLVQ_PERS_4E` | `fusedrun` | persistent MLP segment, and 4E's row forms against the eager path |
+| `LLVQ_PERS_4E` | `fusedrun` | 4E's row forms against the eager path |
 | `LLVQ_BATCH_REF` | `batchrun` | the door's token fingerprint every batched row must reproduce |
-| `LLVQ_BENCH_ARMS`, `LLVQ_SEG_ARMS`, `LLVQ_SEG_TETRA`, `LLVQ_TIME_EVENTS` | `planesbench` | arm selection, segment arms, Tetra segment, event timing |
-| `LLVQ_TETRA_OCC`, `LLVQ_PERS_MICRO`, `LLVQ_TROWS`, `LLVQ_PERS_ARMS`, `LLVQ_DUMP_CUBIN` | `planesbench` (`persbench.rs`) | persistent Tetra arms, microbenchmarks, row loops, cubin dump |
+| `LLVQ_BENCH_ARMS`, `LLVQ_SEG_TETRA` | `planesbench` | arm selection, Tetra segment |
+| `LLVQ_TETRA_OCC`, `LLVQ_TROWS`, `LLVQ_DUMP_CUBIN` | `planesbench` (`persbench.rs`) | the L1 Tetra arm, the row-loop microbenches `ops/jobs/rows-grid.sh` still sets, cubin dump |
+
+## Removed
+
+The cleanup of 2026-11-08 deleted the code behind these variables; the tag `pre-clean-2026-11` holds it.
+`served::REMOVED` refuses each one by name in `fusedrun`, `gsm8k`, `chat`, `run` and every served config, and
+`llvq_cuda::REMOVED_BENCH_VARS` refuses `planesbench`'s four in `planesbench`, so a command copied from an old journal
+fails instead of measuring something else.
+
+| variable | what it drove |
+|---|---|
+| `LLVQ_KV_PREALLOC` | a fixed-window KV store, the scaffold of the closed CUDA Graphs lead (A2) |
+| `LLVQ_STEPPED` | `run`'s stepped decode over that store |
+| `LLVQ_GRAPH_AB`, `LLVQ_GRAPH_DIAG` | `fusedrun`'s CUDA Graphs A/B and its diagnostic |
+| `LLVQ_KV_AB`, `LLVQ_FUSE_AB` | `fusedrun`'s cache-store and fusion A/Bs |
+| `LLVQ_PERS_SEGMENT` | route P's persistent MLP segment against the eager MLP |
+| `LLVQ_TIME_PHASES` | `fusedrun`'s fenced per-phase pass; `metalrun phased` keeps the fenced decode |
+| `LLVQ_TRIM_AB` | `fusedrun`'s A/B of the three decode trims of 2026-10-30, now always on |
+| `LLVQ_GESTURE_AB` | `fusedrun`'s token-loop gestures, with `gesture_cuda.rs` and `gesture_spin.cu` |
+| `LLVQ_PERS_ARMS`, `LLVQ_PERS_MICRO` | `planesbench`'s L2 persistent arms and barrier microbenchmarks (refused by `llvq_cuda::REMOVED_BENCH_VARS`) |
+| `LLVQ_SEG_ARMS`, `LLVQ_TIME_EVENTS` | `planesbench`'s A3 segment arms and CUDA-event timing |
+| `LLVQ_BOUNDARY_AB` | `fusedrun`'s added-kernel-boundary A/B, with the split and empty launches |
 
 ## Tests
 

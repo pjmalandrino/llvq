@@ -25,3 +25,38 @@ llvq-bench = { path = "../llvq-bench" }
 # crate exists precisely to answer a question about one GPU.
 [target.'cfg(target_os = "macos")'.dependencies]
 metal = "0.29"
+
+[features]
+# The measurement-only targets listed at the end of this file.
+archive = []
+
+# Measurement-only targets, out of the default build since 2026-11-08
+# (docs/audit-architecture-2026-11.md §2.6, batch 5). Their verdicts are in the
+# journals; `--features archive` builds them, at the same paths, so the
+# journals' commands and paper2/PROVENANCE.md keep pointing at real files.
+# CI checks them in a non-blocking step.
+
+[[bin]]
+name = "decode"
+path = "src/bin/decode.rs"
+required-features = ["archive"]
+
+[[bin]]
+name = "decreal"
+path = "src/bin/decreal.rs"
+required-features = ["archive"]
+
+[[bin]]
+name = "p1v0"
+path = "src/bin/p1v0.rs"
+required-features = ["archive"]
+
+[[bin]]
+name = "matvec"
+path = "src/bin/matvec.rs"
+required-features = ["archive"]
+
+[[example]]
+name = "metalsplit"
+path = "examples/metalsplit.rs"
+required-features = ["archive"]

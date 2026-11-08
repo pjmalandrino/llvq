@@ -356,9 +356,8 @@ pub fn fuse_arms_are_discriminating(prompt_len: usize, n_new: usize) -> bool {
 /// comparison prints "128 tokens identiques" for a lot that could be entirely
 /// broken.
 ///
-/// A function here rather than an `if` in `bin/fusedrun`, for the reason
-/// [`crate::model::time_phases_enabled`] is one: the whole of that binary's
-/// body sits behind `cfg(all(target_os = "linux", feature = "cuda"))` and
+/// A function here rather than an `if` in `bin/fusedrun`, because the whole
+/// of that binary's body sits behind `cfg(all(target_os = "linux", feature = "cuda"))` and
 /// compiles on no machine this suite runs on. Mutation testing found it — a
 /// mutant weakening the bound to zero survived the entire suite until this
 /// predicate moved out. The `if` that calls it is still unchecked; the

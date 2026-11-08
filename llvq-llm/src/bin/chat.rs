@@ -40,9 +40,9 @@
 //! `metalrun chat`; this binary is its loader and its environment.
 //!
 //! Under `LLVQ_CONFIG` it serves the config whole: the attention form, its
-//! store and the decode engine, through `Served::serve`. `LLVQ_KV_PREALLOC`
-//! beside it is refused, and so is a temperature above zero under the
-//! persistent decode, which only continues a greedy chain.
+//! store and the decode engine, through `Served::serve`. A temperature above
+//! zero under the persistent decode is refused, since 4E only continues a
+//! greedy chain.
 
 use candle_core::DType;
 use llvq_llm::repl::{ReplOptions, Sampler};
@@ -73,7 +73,7 @@ fn main() -> anyhow::Result<()> {
     // Resolved here and carried by value: `model.rs` reads no environment
     // variable, and an unknown name is an error rather than a silent fallback.
     let kv_mode = llvq_llm::kvq::KvMode::from_env().map_err(anyhow::Error::msg)?;
-    let kv_store = llvq_llm::kvq::KvStore::from_env().map_err(anyhow::Error::msg)?;
+    llvq_llm::served::check_removed(|v| std::env::var(v).ok()).map_err(anyhow::Error::msg)?;
     let temp = env_f32("LLVQ_CHAT_TEMP", 0.7)?;
     // The served config, read and checked against the environment BEFORE the
     // load: a variable it refuses must cost a second, not eighty.
@@ -101,12 +101,11 @@ fn main() -> anyhow::Result<()> {
     // the decode engine (`Served::serve`, the door `bin/gsm8k` takes), and
     // refuses on Metal what it does not serve there. Before 2026-11-06 this
     // arm printed the config's provenance, never applied it, and set the
-    // store from `LLVQ_KV_PREALLOC`: a grouped config ran the expanded form.
+    // store from a variable: a grouped config ran the expanded form.
     let (qwen, tokenizer, mut dec) = match &served {
         None => {
-            let mut s = llvq_llm::sealed::load(&a[0], dtype, &device, kv_mode)?;
+            let s = llvq_llm::sealed::load(&a[0], dtype, &device, kv_mode)?;
             println!("{:.1} s", t0.elapsed().as_secs_f64());
-            s.model.set_kv_store(kv_store);
             (s.model, s.tokenizer, llvq_llm::served_decode::Decoder::eager())
         }
         Some(cfg) => {
@@ -131,9 +130,9 @@ fn main() -> anyhow::Result<()> {
             state: env_f32("LLVQ_CHAT_SEED", 0.0)? as u64 ^ 0x5EED_5EED_5EED_5EED,
         },
         max_new: env_f32("LLVQ_CHAT_MAX_NEW", 512.0)? as usize,
-        think: env_f32("LLVQ_CHAT_THINK", 0.0)? != 0.0,
+        think: llvq_llm::eval::env_flag("LLVQ_CHAT_THINK")?,
         // `LLVQ_CHAT_IDS=1` prints the raw ids of each answer.
-        show_ids: env_f32("LLVQ_CHAT_IDS", 0.0)? != 0.0,
+        show_ids: llvq_llm::eval::env_flag("LLVQ_CHAT_IDS")?,
         system: std::env::var("LLVQ_CHAT_SYSTEM").ok(),
     };
     llvq_llm::repl::run_with(&qwen, &tokenizer, opts, &mut std::io::stdin().lock(), &mut dec)

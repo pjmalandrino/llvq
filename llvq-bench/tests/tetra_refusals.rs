@@ -18,6 +18,7 @@ use llvq_search::tetra::Tetra;
 use std::path::PathBuf;
 use std::process::Command;
 
+#[cfg(feature = "archive")]
 const REFUSAL: &str = "no runtime layout for Tetra: this reads the v1 ball's classes, and a Tetra word names none";
 
 /// A one-matrix v5 Tetra file, two blocks, on disk.
@@ -47,6 +48,7 @@ fn tetra_file(name: &str) -> PathBuf {
     path
 }
 
+#[cfg(feature = "archive")]
 fn refuses(bin: &str, args: &[&str], path: &std::path::Path) {
     let out = Command::new(bin).args(args).output().unwrap_or_else(|e| panic!("run {bin}: {e}"));
     let stderr = String::from_utf8_lossy(&out.stderr);
@@ -94,12 +96,16 @@ fn rtbits_prices_a_tetra_file_instead_of_refusing_it() {
     );
 }
 
+// An archive target since 2026-11-08: built under `--features archive` only.
+#[cfg(feature = "archive")]
 #[test]
 fn classhist_refuses_a_tetra_file_by_name() {
     let p = tetra_file("tetra-classhist.llvq");
     refuses(env!("CARGO_BIN_EXE_classhist"), &[p.to_str().unwrap()], &p);
 }
 
+// An archive target since 2026-11-08: built under `--features archive` only.
+#[cfg(feature = "archive")]
 #[test]
 fn lswap_refuses_a_tetra_file_by_name() {
     let p = tetra_file("tetra-lswap.llvq");
@@ -114,6 +120,8 @@ fn lswap_refuses_a_tetra_file_by_name() {
     assert!(!PathBuf::from(format!("{}.tmp", out.display())).exists(), "nor its temporary");
 }
 
+// An archive target since 2026-11-08: built under `--features archive` only.
+#[cfg(feature = "archive")]
 #[test]
 fn radixstudy_refuses_a_tetra_file_by_name() {
     let p = tetra_file("tetra-radixstudy.llvq");
