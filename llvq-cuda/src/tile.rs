@@ -69,13 +69,6 @@ pub const TILE_MIN: usize = 32;
 /// `CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK` on every card measured
 /// here. Past it the launch fails at run time on the card, which is the worst
 /// place to find out.
-///
-/// The stride is not universal. The A3 arms `pad` and `mr2p` stage at
-/// [`crate::occ::XS_PAD`] = 28 floats a block (`occ::XS_STRIDE`), where the
-/// same 512 would ask for 57,344 B and be refused by the driver. Those arms
-/// are refused off the served tile outright — see
-/// [`crate::occ::refuse_off_served_tile`] — so this bound is the one that
-/// applies to every launch that can actually happen.
 pub const TILE_MAX: usize = 512;
 
 /// Activation rows one prefill launch carries.
@@ -289,18 +282,6 @@ impl Tile {
     /// and that is the point: the `#define` and the launch parameter were two
     /// independent expressions over one `const`, safe only while the const
     /// could not move.
-    ///
-    /// 🕳️ It is **not** the only place the product is formed in this crate.
-    /// [`crate::occ::shared_bytes`] forms it again, clamping at
-    /// [`crate::TILE_BLOCKS`] directly, and it is the live launch argument of
-    /// the A3 section (`planesbench` :3310, :3318, :3328). Threading the
-    /// resolved tile through `occ` would not be enough either: `planes_occ.cu`
-    /// branches on `nblocks <= TILE_BLOCKS` at :259 and :416, so the `pers`
-    /// arm takes a *different code path* below the tile and would report two
-    /// algorithms under one name. That section is off by default
-    /// (`occ::parse_seg_arms(None)` is empty) and off F1d's path, so it is
-    /// refused off the served tile rather than resized — see
-    /// [`crate::occ::refuse_off_served_tile`].
     pub fn shared_bytes(&self) -> u32 {
         (self.blocks * crate::occ::XS_DIM * 4) as u32
     }
