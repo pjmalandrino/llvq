@@ -9,13 +9,15 @@
 //! digest of the file can be stored. Four windows of 32 rows enter block 0.
 
 use candle_core::{DType, Device, Tensor};
-use candle_nn::{Activation, VarBuilder, VarMap};
-use candle_transformers::models::qwen3::Config;
+use candle_nn::{VarBuilder, VarMap};
 use llvq_artifact::CodeKind;
 use llvq_llm::artifact2::ArtifactWriter;
 use llvq_llm::calib::{matrices_per_block, quantize_model_capturing, Codebook, MatrixSink, RunConfig};
 use llvq_llm::model::Qwen3;
 use llvq_quant::gptq::{GptqConfig, TailPolicy};
+
+mod common;
+use common::tiny;
 
 const ROT: u64 = 0x11_0FEED;
 const WINDOWS: usize = 4;
@@ -25,27 +27,6 @@ fn tetra() -> Codebook {
     Codebook::Tetra {
         gain_bits: 1,
         post_shape_gain: false,
-    }
-}
-
-fn tiny() -> Config {
-    Config {
-        vocab_size: 128,
-        hidden_size: 32,
-        intermediate_size: 64,
-        num_hidden_layers: 2,
-        num_attention_heads: 4,
-        head_dim: 8,
-        attention_bias: false,
-        num_key_value_heads: 2,
-        max_position_embeddings: 64,
-        sliding_window: None,
-        max_window_layers: 0,
-        tie_word_embeddings: true,
-        rope_theta: 10_000.0,
-        rms_norm_eps: 1e-6,
-        use_sliding_window: false,
-        hidden_act: Activation::Silu,
     }
 }
 

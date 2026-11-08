@@ -13,8 +13,7 @@
 //! were run against them and all five die here; none would show in a dump.
 
 use candle_core::{DType, Device, Tensor};
-use candle_nn::{Activation, VarBuilder, VarMap};
-use candle_transformers::models::qwen3::Config;
+use candle_nn::{VarBuilder, VarMap};
 use llvq_llm::calib::{
     capture_model_hessians, effective_rotation_seed, CaptureConfig, CapturedHessian, HBasis,
     Hessian, HessianSink,
@@ -23,32 +22,14 @@ use llvq_llm::model::{Act, Capture, Qwen3};
 use llvq_quant::rotation::Rotation;
 use std::collections::HashMap;
 
+mod common;
+use common::tiny;
+
 /// The accumulator runs in f32 and the readback widens to f64: two paths that
 /// perform the *same* operations in the *same* order must agree exactly, and
 /// the tests that compare two such paths use 0.0. This tolerance is for the
 /// one comparison that reorders arithmetic — the rotation.
 const TOL: f64 = 1e-9;
-
-fn tiny() -> Config {
-    Config {
-        vocab_size: 128,
-        hidden_size: 32,
-        intermediate_size: 64,
-        num_hidden_layers: 2,
-        num_attention_heads: 4,
-        head_dim: 8,
-        attention_bias: false,
-        num_key_value_heads: 2,
-        max_position_embeddings: 64,
-        sliding_window: None,
-        max_window_layers: 0,
-        tie_word_embeddings: true,
-        rope_theta: 10_000.0,
-        rms_norm_eps: 1e-6,
-        use_sliding_window: false,
-        hidden_act: Activation::Silu,
-    }
-}
 
 fn fresh(map: &VarMap, dev: &Device) -> Qwen3 {
     let vb = VarBuilder::from_varmap(map, DType::F32, dev);
