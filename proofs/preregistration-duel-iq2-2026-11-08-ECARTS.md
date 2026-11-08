@@ -20,3 +20,14 @@ What differs on our path, read from `git diff f63b590 1929db1`:
 
 Consequence: our speed and peak memory are those of main's served 4E, not of the build that produced 221.5 / 142.5 /
 86.3 tok/s. The published figures stay where they are; the duel table uses the same-day reading.
+
+## D2, 2026-11-08: run 1 stopped at the first bench on all three sizes; retries on two arms
+
+Run 1 of each llama.cpp job stopped at its first `llama-bench`: `vram()` tee'd its peak line to stdout, which the caller
+redirects into the bench JSON, so the parser read invalid JSON (fixed in `8c19ba9`, the line goes to stderr). Each run
+1 got through the f16 gate, the imatrix, the rung choice, the quantization and the perplexity of IQ2_XXS before
+stopping; those files are in the bucket.
+
+The retries (`RETRY=1 REUSE=1`) take the first attempt's gate, rung and quantized files by sha256 and measure two arms,
+on the operator's choice: IQ2_S, the rung at our bits, and unsloth's UD-IQ2_XXS. Our own IQ2_XXS keeps only its
+perplexity from run 1; it gets no speed, VRAM, MMLU or GSM8K. Ceilings 2h / 2h / 3h30.
