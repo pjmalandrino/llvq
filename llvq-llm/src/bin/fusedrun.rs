@@ -1436,10 +1436,9 @@ fn run_pers_4e(
 /// them, so a mode beside `LLVQ_GQA_PPL` was silently ignored. A mode calls
 /// [`runs_alone`]: every OTHER name here, set beside it, is refused.
 #[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
-const ALONE: [&str; 8] = [
+const ALONE: [&str; 7] = [
     "LLVQ_INT4_WIDE_CHECK", "LLVQ_PERS_4E", "LLVQ_GQA_PPL", "LLVQ_KV_CAPTURE", "LLVQ_GQA_AB", "LLVQ_CONTEXTS",
     "LLVQ_PREFILL_TOKENS",
-    "LLVQ_SEG_ARMS",
 ];
 
 /// `mode` against every other name of [`ALONE`] and the mode's own `extra`

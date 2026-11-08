@@ -72,6 +72,7 @@ fn main() {
 
 #[cfg(target_os = "linux")]
 fn main() -> Result<(), String> {
+    llvq_cuda::check_removed_bench(|v| std::env::var(v).ok())?;
     linux::run()
 }
 
