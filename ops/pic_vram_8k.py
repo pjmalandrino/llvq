@@ -35,6 +35,9 @@ MIB = 1 << 20
 BASE_P5 = {"4B": 1921 * MIB, "8B": 3265 * MIB, "14B": 5441 * MIB}
 PEAK_8K = {"4B": 10951 * MIB, "8B": 12071 * MIB, "14B": 16295 * MIB}
 LLAMA_8K = {"4B": 3.52e9, "8B": 4.71e9, "14B": 6.90e9}  # IQ2_S, same sampler
+# Measured, card gate 2026-11-08 (HF job 6af0eb02): the branch's served and kprefill configs, MiB.
+CARD_SERVED = {"4B": 5671 * MIB, "8B": 7047 * MIB, "14B": 10055 * MIB}
+CARD_KPREFILL = {"4B": 4545 * MIB, "8B": 6817 * MIB, "14B": 8865 * MIB}
 
 PROMPT, CHUNK, BLOCK_ROWS = 8192, 4096, 1024
 
@@ -95,6 +98,8 @@ def main():
         print(f"  {'model today':<58} {today_lo / GB:6.2f}-{today_hi / GB:.2f}  against {PEAK_8K[name] / GB:.2f} measured")
         print(f"  {'exact fix (S + 2 blocks of 1,024 rows, syncs)':<58} {exact / GB:6.2f}")
         print(f"  {'kernel prefill (no score tensor; peak at the MLP)':<58} {kernel / GB:6.2f}")
+        print(f"  {'exact fix, measured on the card':<58} {CARD_SERVED[name] / GB:6.2f}")
+        print(f"  {'kernel prefill, measured on the card':<58} {CARD_KPREFILL[name] / GB:6.2f}")
         print(f"  {'llama.cpp IQ2_S, measured':<58} {LLAMA_8K[name] / GB:6.2f}")
         bp = lambda b: b * 8 / params
         print(

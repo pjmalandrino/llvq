@@ -1,0 +1,17 @@
+4b-served   prompt 8192: last-position logits fingerprint cac41130853d8eba (prefill in chunks of 4096, softmax in place)
+4b-served     8192      36.51 [36.50–36.67]      155.0 [153.8–155.9]       6.45
+4b-whole   prompt 8192: last-position logits fingerprint cac41130853d8eba (prefill in chunks of 4096, softmax whole tensor (LLVQ_SOFTMAX_WHOLE=1))
+4b-whole     8192      41.56 [41.49–41.81]      146.1 [145.0–147.8]       6.85
+4b-kprefill   prompt 8192: last-position logits fingerprint 13a2687e3434f03a (prefill in chunks of 4096, softmax in place)
+4b-kprefill   prompt 8192: prefill attention kernel, last-position logits in chunks of 4096 against chunks of 512: bit for bit (0 of 151936 differ)
+4b-kprefill     8192      44.16 [44.14–44.44]      156.3 [155.5–156.6]       6.40
+8b-served   prompt 8192: last-position logits fingerprint 7a4089609afc6a0a (prefill in chunks of 4096, softmax in place)
+8b-served     8192      48.18 [48.02–48.34]      106.4 [106.2–106.9]       9.40
+8b-kprefill   prompt 8192: last-position logits fingerprint 361b38058d9d4d54 (prefill in chunks of 4096, softmax in place)
+8b-kprefill   prompt 8192: prefill attention kernel, last-position logits in chunks of 4096 against chunks of 512: bit for bit (0 of 151936 differ)
+8b-kprefill     8192      55.95 [55.81–56.22]      106.7 [105.1–107.3]       9.38
+14b-served   prompt 8192: last-position logits fingerprint 41496350cda071c6 (prefill in chunks of 4096, softmax in place)
+14b-served     8192      83.63 [83.18–84.13]       69.3 [68.3–70.1]      14.42
+14b-kprefill   prompt 8192: last-position logits fingerprint 6743355b47df6cd0 (prefill in chunks of 4096, softmax in place)
+14b-kprefill   prompt 8192: prefill attention kernel, last-position logits in chunks of 4096 against chunks of 512: bit for bit (0 of 151936 differ)
+14b-kprefill     8192      95.43 [95.23–96.09]       69.9 [69.2–70.3]      14.30

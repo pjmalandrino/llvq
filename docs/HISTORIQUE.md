@@ -1267,7 +1267,9 @@ AWQ's 4.9, which leaves Tetra four times below AWQ in aggregate.
   That model lands on the three measures ([pic-vram-8k](mesures/pic-vram-8k-2026-11-08.txt)).
 - The served path now writes the masked softmax back in place, builds the causal mask in f16, syncs the stream
   before each prefill chunk and after each cache growth, and frees the attention's locals before the MLP. The same
-  logits bit for bit on the host and on Metal at the real 4B shape, 56.65 to 14.79 GB there (*measured*). Computed
-  card peak 5.65 / 7.09 / 10.08 GB.
-- `"prefill_attention": "kernel"`, NOT SERVED, sends the prompt rows to the decode-attention kernel: no score tensor,
-  3.67 / 5.20 / 7.81 GB (*computed*). The card gate ($1.75, $2.40 at worst) is written and waits on the operator.
+  logits bit for bit on the host and on Metal at the real 4B shape, 56.65 to 14.79 GB there (*measured*). On the
+  L40S ($2.04): 5.95 / 7.39 / 10.54 GB, inside the computed 5.65 / 7.09 / 10.08 +-0.5, and the logits of the in-place
+  softmax equal the whole tensor's (*measured*).
+- `"prefill_attention": "kernel"`, NOT SERVED, sends the prompt rows to the decode-attention kernel: no score tensor.
+  On the card 4.77 / 7.15 / 9.30 GB against 3.67 / 5.20 / 7.81 computed, 1.14 to 1.21 times slower to the first
+  token, its logits the same in chunks of 512 and of 4,096. Not proposed; the excess is not traced.

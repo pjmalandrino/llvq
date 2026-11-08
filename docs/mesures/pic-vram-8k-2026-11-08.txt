@@ -1,18 +1,21 @@
 pic-vram-8k, 2026-11-08. Where the card memory goes after an 8,192-token prompt, and what the branch cuts.
 
-Result: the excess of the duel's peak is the grouped prefill's attention, not a storage cost. It kept three f16 score
-tensors of heads x 4,096 x 8,192 alive at once (6.44 GB on the 4B), and the stream-ordered pool kept the first
-chunk's (1.07 GB) under them (*computed*; the pool term *estimated*). That model lands on all three measured peaks.
-The branch removes two of the three tensors and the pool's leftovers with no bit moved, which brings the computed
-4B peak from 11.48 to 5.65 GB. A kernel prefill, not served, removes the last one: 3.67 GB against llama.cpp's 3.52, its
-peak then at the MLP.
-Nothing here ran on a card; the card gate is written and not launched.
+Result: the served peak after an 8,192-token prompt falls from 11.48 / 12.66 / 17.09 GB to 5.95 / 7.39 / 10.54 at
+4B / 8B / 14B, with the same logits bit for bit (*measured*, L40S, §7). The excess was the grouped prefill's
+attention: three f16 score tensors of heads x 4,096 x 8,192 alive at once (6.44 GB on the 4B), and the stream-ordered
+pool keeping the first chunk's under them (*computed*; the pool term *estimated*). The branch keeps one tensor, and
+the three served peaks land inside their computed band (5.65 / 7.09 / 10.08, +-0.5). llama.cpp IQ2_S stays 2.43 /
+2.68 / 3.64 GB lower. The kernel prefill, not served, misses its band: 4.77 / 7.15 / 9.30 against 3.67 / 5.20 / 7.81
+computed, and it is 1.14 to 1.21 times slower to the first token. It is not proposed for serving.
 
 Sources : the duel's raw outputs, branch claude/duel-iq2-xxs-c5d375 (PR #26), docs/mesures/duel-iq2-2026-11-08-brut/
           tetra/ (vram.txt, sweep-*.txt) and ops/jobs/duel-tetra.sh; the code paths named below at the branch's base
           1997edc; the arithmetic in ops/pic_vram_8k.py.
-Prereg  : proofs/preregistration-pic-vram-8k-2026-11-08.md, written, NOT stamped (stamped at the go, before launch).
-Cost    : $0. Mac only: host tests, Metal, arithmetic.
+Prereg  : proofs/preregistration-pic-vram-8k-2026-11-08.md, stamped 2026-11-08 before the launch (.ots beside it).
+Cost    : $0 for §1-§6 (Mac: host tests, Metal, arithmetic); $2.04 for §7 (HF job 6af0eb02, l40sx1, 68 min, the
+          operator's go written in the session, 2026-11-08). Registry $304.05 before, $306.09 after (the parent
+          session's count across the open branches; $282.08 on this branch's base).
+Raw     : docs/mesures/pic-vram-8k-2026-11-08-brut/ (sweeps, vram series, speed.txt, vram.txt, gpu.txt, oracle.txt).
 
 1. HOW THE DUEL READ THE PEAK
 -----------------------------
@@ -126,12 +129,65 @@ remains against llama.cpp is the base at 5 tokens (2.01 against 2.17 at 4B, 3.42
 
 6. OPEN
 -------
-- The card gate (prereg above, ops/jobs/pic-vram-8k.sh): $1.75 expected, $2.40 at worst. It reads the three peaks,
-  the in-place logits against the whole-tensor ones in a second process (LLVQ_SOFTMAX_WHOLE=1), and the kprefill
-  peaks, time to first token and chunking identity. Waiting on the operator's go; the Space carries another branch.
-- Serving the kprefill configs: the operator's decision after the gate.
-- The time to first token: the in-place pass and the syncs cost an estimated +0.2 to +0.6 s of 34.5 at 4B; the kernel
-  prefill's attention against cuBLAS's is estimated 0.9 to 1.1 times. Neither is measured on a card.
-- With the kernel prefill, the causal mask (0.07 GB) is built and not read, and the prefill chunk could shrink for
-  its MLP (0.38 / 0.50 / 0.70 GB at 4,096 rows, a quarter at 1,024) without moving a bit if the rows kernels are
-  chunk-invariant (the gate's probe says).
+See §8, after the card gate.
+
+7. THE CARD GATE, 2026-11-08 (measured, HF job 6af0eb02, NVIDIA L40S sm_89, driver 580.178.04, $2.04)
+---------------------------------------------------------------------------------------------------
+Image: the Space republished from 94097dc (Space sha 1e1fb955). Oracle MATCH. One process per arm, `fusedrun
+<sealed> 256` with LLVQ_CONTEXTS=8192, 1 discarded + 5 rounds, the duel's sampler (nvidia-smi 100 ms, idle 0 MiB).
+Peak minus idle, GB (1e9 B), and b/param of the whole model at peak:
+
+  arm        4B                         8B                         14B
+  duel       11.48 (22.8)               12.66 (12.4)               17.09 (9.3)    measured, before the branch
+  served      5.95 (11.8)  pred 5.65     7.39 (7.2)  pred 7.09     10.54 (5.7)  pred 10.08
+  whole      10.88         pred 7.8      -                          -
+  kprefill    4.77 (9.5)   pred 3.67     7.15 (7.0)  pred 5.20      9.30 (5.0)  pred 7.81
+  llama.cpp   3.52 (7.0)                 4.71 (4.6)                 6.90 (3.7)    measured, duel, same sampler
+
+  arm        to first token, s (median of 5 [range])          decode tok/s at 8,192            logits fingerprint
+  4B served   36.51 [36.50-36.67]   duel 34.48 (+5.9 %)      155.0 [153.8-155.9]  duel 160.8   cac41130853d8eba
+  4B whole    41.56 [41.49-41.81]                             146.1 [145.0-147.8]              cac41130853d8eba
+  4B kprefill 44.16 [44.14-44.44]   x1.21 served             156.3 [155.5-156.6]              13a2687e3434f03a
+  8B served   48.18 [48.02-48.34]   duel 45.98 (+4.8 %)      106.4 [106.2-106.9]  duel 109.6   7a4089609afc6a0a
+  8B kprefill 55.95 [55.81-56.22]   x1.16 served             106.7 [105.1-107.3]              361b38058d9d4d54
+  14B served  83.63 [83.18-84.13]   duel 80.31 (+4.1 %)       69.3 [68.3-70.1]    duel 71.7    41496350cda071c6
+  14B kprefill 95.43 [95.23-96.09]  x1.14 served              69.9 [69.2-70.3]                 6743355b47df6cd0
+
+Every arm: 4E tokens equal the eager path's, 256 of 256.
+
+G1, the exact claim: PASSED. 4B served and whole print the same last-position logits fingerprint, cac41130853d8eba,
+and 256 of 256 4E tokens each. The in-place softmax is bit for bit on the card.
+
+G2, the memory: PASSED at the three sizes, each on the high side of its band: +0.30 / +0.30 / +0.46 GB over the
+computed value. The served peak falls by 5.53 / 5.27 / 6.55 GB from the duel.
+
+G3, the kernel prefill: HALF. Chunks of 512 and of 4,096 give the same logits bit for bit at the three sizes (0 of
+151,936 differ), so its prompt rows are its decode rows. Its memory misses the band at every size, by +1.10 / +1.95 /
++1.49 GB. Its time to first token is 1.21 / 1.16 / 1.14 times served's, outside the 0.9-1.1 predicted. The prereg
+puts serving it to the operator only if both halves hold: it is not proposed.
+
+Two predictions missed, both outside the served path:
+- whole: 10.88 GB against 7.8. The whole-tensor form keeps 8.86 GB above the base at 4B; KV and activations explain
+  1.4, so the scores hold about 3.5 S where the code reads 2 S at most. Not traced. It moves nothing served: it is a
+  measurement switch, and its bits are G1's.
+- kprefill: the series show the memory climbing linearly across the whole prefill, 2.65 / 3.72 / 3.73 GB above the
+  base at its peak against 1.66 / 1.78 / 2.11 computed (KV, the chunk's MLP, the mask). The KV cache explains
+  1.21 / 1.21 / 1.34 of the climb; the rest, 0.99 / 1.94 / 1.62 GB, accumulates layer by layer and survives the sync
+  between chunks, so it is held, not pooled (*estimated* from the series' shape). The kernel allocates its output
+  only and reads the cache in place (attn_cuda.rs). Not traced.
+
+Time to first token against the duel: +5.9 / +4.8 / +4.1 %. The 4B misses the prereg's +5 %, the 8B and 14B are
+inside. The decode, which the branch does not change, is 3.6 / 2.9 / 3.3 % slower than in the duel too, and two
+processes on the same card differ by 6 % in decode (served 155.0, whole 146.1): the prefill's cost of the syncs and
+the in-place pass is not separable from that variance across jobs. Inside this job, the in-place form is 5.05 s
+faster to the first token than the whole-tensor form (36.51 against 41.56).
+
+8. OPEN
+-------
+- The kprefill excess (0.99 / 1.94 / 1.62 GB, held layer by layer) and the whole arm's extra 1.5 S. Tracing either
+  needs a live-allocation count on the card, or a counting allocator on the host's tiny model first ($0).
+- The kernel prefill is not proposed for serving: memory outside its band, time to first token 1.14 to 1.21 times.
+  If the excess is found, the remaining question is its speed; the chunk could also shrink for the MLP (0.38 /
+  0.50 / 0.70 GB at 4,096 rows) now that its chunking is shown not to move a bit.
+- What stays against llama.cpp on the served path: one score tensor (2.15 / 2.15 / 2.68 GB) and the base at 5
+  tokens. Removing the tensor bit for bit means smaller cuBLAS shapes, which move bits (gqa-ab-2026-11-01).
