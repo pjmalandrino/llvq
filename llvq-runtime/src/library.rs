@@ -112,14 +112,13 @@ pub fn find(n: &ModelName) -> Option<&'static Entry> {
     entries().iter().find(|e| e.answers(n))
 }
 
-/// `c` with its CPU config filled from the library entry of the same file,
-/// when `c` names none: a manifest pulled before the CPU backend existed.
-pub fn with_cpu_config(c: &Configs, sha256: &str) -> Configs {
-    let mut out = c.clone();
-    if out.cpu.is_none() {
-        out.cpu = entries().iter().find(|e| e.sha256 == sha256).and_then(|e| e.configs.cpu.clone());
-    }
-    out
+/// The configs a file is served with: the library entry of the same digest,
+/// whatever the manifest wrote at pull time. A manifest copies the configs of
+/// its day, and a config renamed since (v4 and grouped to v9, 7be533e) is no
+/// longer compiled in, or is compiled in and stale (audit 2026-11-08 §1.5).
+/// A file the library does not know keeps its manifest's own.
+pub fn served_configs(c: &Configs, sha256: &str) -> Configs {
+    entries().iter().find(|e| e.sha256 == sha256).map_or_else(|| c.clone(), |e| e.configs.clone())
 }
 
 /// The served configs, compiled in from `configs/` so the runtime serves the
@@ -290,14 +289,25 @@ mod tests {
     }
 
     #[test]
-    fn an_old_manifest_takes_the_library_cpu_config() {
-        let e = &entries()[0];
-        let old = Configs { cuda: e.configs.cuda.clone(), metal: e.configs.metal.clone(), cpu: None };
-        assert_eq!(with_cpu_config(&old, &e.sha256).cpu, e.configs.cpu, "filled from the same file's entry");
-        assert_eq!(with_cpu_config(&old, &"0".repeat(64)).cpu, None, "an unknown file gets none");
-        let own = Configs { cpu: Some("x.json".into()), ..old };
-        assert_eq!(with_cpu_config(&own, &e.sha256).cpu.as_deref(), Some("x.json"), "a manifest's own wins");
-        // A manifest written before the field parses.
+    fn a_manifest_is_served_by_the_library_configs_of_its_file() {
+        for e in entries() {
+            // Pulled before the CPU backend existed: no CPU config.
+            let old = Configs { cuda: e.configs.cuda.clone(), metal: e.configs.metal.clone(), cpu: None };
+            assert_eq!(served_configs(&old, &e.sha256), e.configs, "{}: the CPU config filled", e.model_name());
+            // Pulled on 2026-11-06: the CUDA config of that day, no longer
+            // compiled in, and a stale one that still is.
+            for cuda in ["qwen3-4b-tetra-e4-4e-v4.json", "qwen3-4b-tetra-e4.json"] {
+                let stale = Configs { cuda: Some(cuda.into()), ..e.configs.clone() };
+                let got = served_configs(&stale, &e.sha256);
+                assert_eq!(got, e.configs, "{}: {cuda} replaced by the library's", e.model_name());
+                let c = Backend::Cuda.config(&got).unwrap().unwrap();
+                assert!(config_text(c).is_some(), "{}: {c} is compiled in", e.model_name());
+            }
+        }
+        // A file the library does not know keeps its own.
+        let own = Configs { cuda: Some("x.json".into()), metal: None, cpu: None };
+        assert_eq!(served_configs(&own, &"0".repeat(64)), own);
+        // A manifest written before the CPU field parses.
         let parsed: Configs = serde_json::from_str(r#"{"cuda": null, "metal": "m.json"}"#).unwrap();
         assert_eq!(parsed.cpu, None);
     }

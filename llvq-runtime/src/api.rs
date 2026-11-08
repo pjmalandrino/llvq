@@ -557,6 +557,7 @@ pub async fn show(State(st): State<AppState>, body: Bytes) -> Response {
         Ok(None) => return error(404, format!("model '{name}' not found")),
         Ok(Some(m)) => m,
     };
+    let served = library::served_configs(&m.configs, &m.sha256);
     let mut info = Map::new();
     info.insert("general.architecture".into(), json!("qwen3"));
     info.insert("general.parameter_count_label".into(), json!(m.parameter_size));
@@ -577,9 +578,9 @@ pub async fn show(State(st): State<AppState>, body: Bytes) -> Response {
             file: m.file.clone(),
             sha256: m.sha256.clone(),
             bits_per_param: m.bits_per_param.clone(),
-            config_cuda: m.configs.cuda.clone(),
-            config_metal: m.configs.metal.clone(),
-            config_cpu: library::with_cpu_config(&m.configs, &m.sha256).cpu,
+            config_cuda: served.cuda,
+            config_metal: served.metal,
+            config_cpu: served.cpu,
             backend: library::Backend::of_build().label().into(),
         },
     })
