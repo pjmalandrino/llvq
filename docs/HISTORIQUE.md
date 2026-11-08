@@ -1246,6 +1246,21 @@ reaches 1,256.5 at B = 32, both with the batch-1 tokens on every row (*measured*
 [batch-tetra](mesures/batch-tetra-2026-11-07.txt)). The gate passed. The kernel's step costs 15.6 ms at B = 1 against
 AWQ's 4.9, which leaves Tetra four times below AWQ in aggregate.
 
+## 2026-11-08. Batching for the L40S: a staged GEMM, B to 128, continuous batching in the runtime
+
+The operator made batching the project's priority on 2026-11-08 ("régler le batch pour défoncer la L40S"). The first
+kernel read each weight row's block from global memory one lane a row, with no prefetch. `tv_batch_gemm.cu` stages
+the words of a K chunk in shared memory two chunks ahead, folds every scale into f16 weights, runs one MMA pass, takes
+up to 128 rows, and launches q, k, v and gate, up as one launch each (17 of 17 mutants killed on the host). The
+attention gained a slot-indexed entry, and `llvq serve` a pool of slots under `LLVQ_BATCH`: a request joins a free
+slot and leaves without stopping the others.
+
+Two jobs ($1.48 of a $5 envelope) read the gate and the bench at three sizes. The GEMM is x1.67 to x1.81 the first
+kernel, keeps every door row equal to batch 1 and perplexity within +-0.0053 %, and scores 40/50 on the GSM8K pilot.
+It stays about two times below AWQ in aggregate at every size and B: 3,996.7 against 10,146.2 tok/s on the 4B at
+B = 128 (*measured*, [batch-l40s](mesures/batch-l40s-2026-11-08.txt)). The 4B step costs 9.2 ms at B = 1, about 5 ms
+of it eager launches, and grows 0.2 ms a row against AWQ's 0.06.
+
 ## 2026-11-07. Speculative decoding with the 0.6B: the bits hold, the speed does not
 
 - Operator's go: test the speculative decode with the 0.6B. Qwen3-0.6B sealed in Tetra on the Mac: 0.252 GB,

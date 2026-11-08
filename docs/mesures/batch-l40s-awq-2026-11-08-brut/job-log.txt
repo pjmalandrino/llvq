@@ -1,0 +1,45 @@
+NVIDIA L40S, 8.9, 46068 MiB, 580.178.04, 2520 MHz
+vllm 0.26.0
+== AWQ 4b ==
+Sun Nov  8 08:58:48 UTC 2026
+  round 5 B= 32:   5129.8 tok/s aggregate (1.597 s)
+  round 5 B= 64:   7857.7 tok/s aggregate (2.085 s)
+  round 5 B=128:  10059.3 tok/s aggregate (3.257 s)
+
+AWQ w4g128 (vLLM, auto_awq), 256 tokens a sequence, prompt and decode, 5 rounds
+   B    tok/s aggregate                  range  tok/s a sequence     GB/s  rows equal
+   1              203.0 [    202.8-    203.1]             203.0    541.9  True (row 0 = B=1 row 0: True)
+   8             1524.8 [   1524.5-   1527.2]             190.6    508.9  True (row 0 = B=1 row 0: True)
+  16             2883.8 [   2881.2-   2887.2]             180.2    481.2  True (row 0 = B=1 row 0: True)
+  32             5133.8 [   5129.8-   5137.6]             160.4    428.3  True (row 0 = B=1 row 0: True)
+  64             7891.2 [   7857.7-   7918.4]             123.3    329.2  True (row 0 = B=1 row 0: True)
+ 128            10146.2 [  10059.3-  10240.8]              79.3    211.6  True (row 0 = B=1 row 0: True)
+== AWQ 8b ==
+Sun Nov  8 09:01:41 UTC 2026
+  round 5 B= 32:   3369.3 tok/s aggregate (2.431 s)
+  round 5 B= 64:   5285.3 tok/s aggregate (3.100 s)
+  round 5 B=128:   6918.8 tok/s aggregate (4.736 s)
+
+AWQ w4g128 (vLLM, auto_awq), 256 tokens a sequence, prompt and decode, 5 rounds
+   B    tok/s aggregate                  range  tok/s a sequence     GB/s  rows equal
+   1              123.9 [    123.9-    124.0]             123.9    755.9  True (row 0 = B=1 row 0: True)
+   8              950.0 [    949.7-    950.6]             118.8    724.4  True (row 0 = B=1 row 0: False)
+  16             1825.5 [   1825.2-   1825.7]             114.1    696.0  False (row 0 = B=1 row 0: False)
+  32             3376.0 [   3369.3-   3377.4]             105.5    643.5  False (row 0 = B=1 row 0: False)
+  64             5343.4 [   5285.3-   5361.3]              83.5    509.3  False (row 0 = B=1 row 0: False)
+ 128             7060.6 [   6918.8-   7081.8]              55.2    336.5  False (row 0 = B=1 row 0: False)
+== AWQ 14b ==
+Sun Nov  8 09:04:58 UTC 2026
+  round 5 B= 32:   2148.3 tok/s aggregate (3.813 s)
+  round 5 B= 64:   3496.3 tok/s aggregate (4.686 s)
+  round 5 B=128:   4593.1 tok/s aggregate (7.134 s)
+
+AWQ w4g128 (vLLM, auto_awq), 256 tokens a sequence, prompt and decode, 5 rounds
+   B    tok/s aggregate                  range  tok/s a sequence     GB/s  rows equal
+   1               78.4 [     78.4-     78.4]              78.4    782.5  True (row 0 = B=1 row 0: True)
+   8              607.1 [    606.4-    607.2]              75.9    757.3  True (row 0 = B=1 row 0: True)
+  16             1164.1 [   1162.8-   1164.7]              72.8    726.1  True (row 0 = B=1 row 0: True)
+  32             2148.3 [   2137.3-   2150.4]              67.1    670.0  True (row 0 = B=1 row 0: True)
+  64             3496.3 [   3433.2-   3500.3]              54.6    545.2  True (row 0 = B=1 row 0: True)
+ 128             4605.7 [   4487.6-   4627.2]              36.0    359.1  True (row 0 = B=1 row 0: True)
+Sun Nov  8 09:09:28 UTC 2026

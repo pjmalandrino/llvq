@@ -131,11 +131,14 @@ refuses its grouped and kernel forms until the operator decides.
 (*measured*, [dclm-rowscales](mesures/dclm-rowscales-2026-09-20.txt),
 [-8b](mesures/dclm-8b-rowscales-2026-09-21.txt), [-14b](mesures/dclm-14b-rowscales-2026-09-22.txt)).
 
-**Batch.** `Qwen3::batch_step` decodes B sequences a step (`llvq-llm/src/batch.rs`, `bin/batchrun`). Its
-tensor-core kernel `tv_batch_mma.cu` reads 63.9 / 240.9 / 449.7 / 788.4 / 1,256.5 tok/s aggregate on the 4B at B = 1 /
-4 / 8 / 16 / 32, against 203.0 / 778.7 / 1,524.6 / 2,883.2 / 5,128.7 for AWQ in vLLM (*measured*,
-[batch-tetra](mesures/batch-tetra-2026-11-07.txt), [batch-awq](mesures/batch-awq-2026-11-07.txt)): 54.2 GB/s against
-427.9 at B = 32 (*computed*). Every sequence decodes the batch-1 door tokens. Nothing batched is served.
+**Batch.** `Qwen3::batch_step` decodes B sequences a step (`llvq-llm/src/batch.rs`, `bin/batchrun`), and `llvq serve`
+batches continuously under `LLVQ_BATCH` through `configs/qwen3-*-tetra-e4-batch.json`. Its GEMM `tv_batch_gemm.cu`
+reads, aggregate at B = 1 / 8 / 32 / 128: 4B 107.2 / 816.3 / 2,102.0 / 3,996.7 tok/s, 8B 72.5 / 552.1 / 1,366.7 /
+2,628.7, 14B 40.5 / 309.6 / 840.0 / 1,552.4; AWQ in vLLM 203.0 / 1,524.8 / 5,133.8 / 10,146.2, 123.9 / 950.0 / 3,376.0
+/ 7,060.6, 78.4 / 607.1 / 2,148.3 / 4,605.7 (*measured*, [batch-l40s](mesures/batch-l40s-2026-11-08.txt)). That is
+90.7 GB/s against 428.3 on the 4B at B = 32 (*computed*). The gate passed: perplexity within +-0.0053 % of the
+multi-row path at all three sizes, GSM8K pilot 40/50 as served, and every door row equal to batch 1. The batch configs
+are licensed; nothing batched is served by default.
 
 **Noise.** The calibration draw moves MMLU by 2.92 pp and perplexity by 5.2 % (one standard deviation, 4B, three full
 runs, *measured*, [bruit-mmlu](mesures/bruit-mmlu-graines-4b-2026-08-25.txt)). Every size is calibrated on one draw.
