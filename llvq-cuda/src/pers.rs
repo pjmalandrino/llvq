@@ -342,10 +342,13 @@ pub const P4E_ROWS_FORMS: [(u32, &str); 7] = [(1, "v3"), (2, "v4"), (3, "v5"), (
 
 /// The forms `fusedrun LLVQ_PERS_4E` times, the first the reference of the
 /// others' round-by-round ratios: v4, the form served from 2026-11-05 until
-/// v9; v6; v7 (K2) and v8 (K2 and K3a), step 2 of `docs/plan-300.md`; v9 (v8
-/// with the int4 rows on tiled words, K11), step 3, the form the served
-/// configs run. v3 and v5 were read by the shaker (job 6aec9a1d).
-pub const P4E_BENCH_FORMS: [(u32, &str); 5] = [(2, "v4"), (4, "v6"), (5, "v7"), (6, "v8"), (7, "v9")];
+/// v9; v6, the reference v9's door proves its tokens against; v9 (v8 with the
+/// int4 rows on tiled words, K11), the form the served configs run. v3 and v5
+/// were read by the shaker (job 6aec9a1d), v7 and v8 by plan-300's steps 2
+/// and 3 (jobs 6aef3f69, 6aef51d3); `served.rs` refuses v5, v7 and v8 by
+/// name, and their code stays in the kernel as v9's (forms 5 and 6 are
+/// cumulative into 7).
+pub const P4E_BENCH_FORMS: [(u32, &str); 3] = [(2, "v4"), (4, "v6"), (7, "v9")];
 
 /// The line a module of row form `form` starts with; form 1 is the
 /// default and adds nothing, so its module keeps its text.

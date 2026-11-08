@@ -1620,8 +1620,8 @@ fn main() -> anyhow::Result<()> {
             f.model.set_attn_kernel(Some(k));
             // The bench forms at 512 threads, each its own module (the
             // 768-thread symbol spills under the card's driver, v2 and v3):
-            // pers::P4E_BENCH_FORMS, v4 (the served form), v6, v7, v8 and
-            // v9, then v6s. Each owes the eager path's tokens.
+            // pers::P4E_BENCH_FORMS, v4, v6 and v9 (the served form), then
+            // v6s. Each owes the eager path's tokens.
             let mut rts = Vec::new();
             for arm in &e1_arms {
                 let installed = if local_arms.iter().any(|a| a == arm) {
