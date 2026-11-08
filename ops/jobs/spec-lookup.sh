@@ -35,7 +35,7 @@ TIMEOUT=${TIMEOUT:-110m}
 row() {
   case "$1" in
     4b) echo "sealed-4b-2026-09-23/qwen3-4b-sealed.bin:1418224685 886391a8c03f66dc269cc65c3598c6627dbdcd259180aff36604ef10d37371b8 61d0654532d35120 22m" ;;
-    8b) echo "sealed-8b27-2026-09-24/qwen3-8b-sealed-B.bin:2815098745 7bdb9a5503518081b1f652a93215250898caae5cc1b6a2f33ee9fb6094565c13 c817aeaf2f5d1116 35m" ;;
+    8b) echo "sealed-8b27-2026-09-24/qwen3-8b-sealed-B.bin:2815098745 7bdb9a5503518081b1f652a93215250898caae5cc1b6a2f33ee9fb6094565c13 c817aeaf2f5d1116 33m" ;;
     14b) echo "sealed-14b-2026-09-23/qwen3-14b-sealed.bin:5087000541 61db37fe7ce8e6a57c5c59f257319c796574981ecb5e450a02c73dd3c17e2ca0 dc4f9ab9aa24c4d3 50m" ;;
     *) echo "refused: size $1" >&2; exit 1 ;;
   esac
