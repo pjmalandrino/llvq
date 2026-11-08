@@ -76,12 +76,11 @@ pub fn common_prefix(a: &[u32], b: &[u32]) -> usize {
 }
 
 /// The positions a cache holds, on any store: [`KvCache::len`] counts them
-/// under `Grow` and `Prealloc` only, and under `Cat` the buffers are the
-/// history.
+/// under `Grow` only, and under `Cat` the buffers are the history.
 fn positions_held(c: &KvCache) -> anyhow::Result<usize> {
     Ok(match c.store() {
         crate::kvq::KvStore::Cat => c.held()?.map_or(Ok(0), |(k, _)| k.dim(2))?,
-        crate::kvq::KvStore::Grow(_) | crate::kvq::KvStore::Prealloc(_) => c.len(),
+        crate::kvq::KvStore::Grow(_) => c.len(),
     })
 }
 

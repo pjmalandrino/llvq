@@ -103,9 +103,9 @@ pub trait LatticeProj: Send + Sync {
     }
 
     /// The concrete projection, for a runtime that reaches its own device
-    /// buffers (`persist_cuda.rs`'s `tetra_of` and `int4_of`). `None` unless
-    /// the backend says otherwise. The served persistent decode calls it
-    /// through those helpers when it installs (`persist4e_cuda.rs`).
+    /// buffers (4E's `tetra_of` and `int4_of`, `persist4e_cuda.rs`). `None`
+    /// unless the backend says otherwise. The served persistent decode calls
+    /// it through those helpers when it installs.
     fn as_any(&self) -> Option<&dyn std::any::Any> {
         None
     }
@@ -149,9 +149,9 @@ pub trait Int4Proj: Send + Sync {
     }
 
     /// The concrete projection, for a runtime that reaches its own device
-    /// buffers (`persist_cuda.rs`'s `tetra_of` and `int4_of`). `None` unless
-    /// the backend says otherwise. The served persistent decode calls it
-    /// through those helpers when it installs (`persist4e_cuda.rs`).
+    /// buffers (4E's `tetra_of` and `int4_of`, `persist4e_cuda.rs`). `None`
+    /// unless the backend says otherwise. The served persistent decode calls
+    /// it through those helpers when it installs.
     fn as_any(&self) -> Option<&dyn std::any::Any> {
         None
     }
