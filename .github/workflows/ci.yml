@@ -110,6 +110,16 @@ jobs:
           cargo clippy --locked
           --workspace --exclude llvq-cuda --exclude llvq-metal
           --all-targets -- -D warnings
+      # The measurement-only targets behind the `archive` features (batch 5 of
+      # docs/audit-architecture-2026-11.md). Non-blocking: their verdicts are
+      # in the journals, and a dependency moving under them should not stop a
+      # served change. A red step here says which one stopped compiling.
+      - name: archive targets still compile (non-blocking)
+        continue-on-error: true
+        run: >
+          cargo clippy --locked
+          --workspace --exclude llvq-cuda --exclude llvq-metal
+          --all-targets --features llvq-bench/archive,llvq-llm/archive -- -D warnings
       - name: the dependency-free crates must stay dependency-free
         run: |
           set -euo pipefail
@@ -189,6 +199,14 @@ jobs:
         run: >
           cargo test --locked --profile ci
           --workspace --exclude llvq-cuda --exclude llvq-metal
+      # The refusal tests that run three archive binaries (classhist, lswap,
+      # radixstudy) and one archive example (driftcheck) on a Tetra and a mixed
+      # file. Blocking: a tool that silently reads a file it cannot price is the
+      # failure these tests exist for.
+      - name: archive refusals
+        run: |
+          cargo build --locked --profile ci -p llvq-bench --features archive --example driftcheck
+          cargo test --locked --profile ci -p llvq-bench --features archive --test int4_refusals --test tetra_refusals
 
   # `debug_assert!` lives almost entirely in the five core crates (search,
   # quant, artifact), which have no external dependency and build in seconds.
