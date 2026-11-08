@@ -29,6 +29,7 @@ modes set together (`ALONE` in that file).
 | `LLVQ_HOST` | `llvq-runtime` client and server | `host:port`, default `127.0.0.1:11435` | served |
 | `LLVQ_KEEP_ALIVE` | `llvq-runtime` engine | duration, default `5m`; `0`; negative = never | served |
 | `LLVQ_MAX_LOADED` | `llvq-runtime` engine | count, default `1` | served |
+| `LLVQ_BATCH` | `llvq-runtime` engine | unset or `0` (default); `<n>` or `<n>:<positions>`, n in 1..=128; CUDA only | served |
 | `LLVQ_BUILD_COMMIT` | `llvq-runtime`, compile time | set by `llvq-runtime/build.rs` | build |
 
 ## Encoding and evaluation
