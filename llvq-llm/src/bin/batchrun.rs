@@ -5,6 +5,7 @@
 //!   LLVQ_CONFIG=<served config> batchrun <sealed> check [mma|gemm]
 //!   LLVQ_CONFIG=<served config> batchrun <sealed> gsm8k <B> <rows|mma|gemm> <limit>
 //!   LLVQ_CONFIG=<served config> batchrun <sealed> ppl <ctx> <windows> [mma|gemm]
+//!   LLVQ_CONFIG=<served config> batchrun <sealed> kernels <B,B,..> [arm] [reps]
 //!
 //! `door`: B copies of the door prompt ("The capital of France is", raw ids),
 //! `tokens` greedy tokens each (default 256), the prompt fed through the batch
@@ -28,6 +29,11 @@
 //! all windows in one batch, under the multi-row path and the arm (default
 //! `gemm`); the paired difference window by window, pooled, and its 95 %
 //! interval (paired t over windows).
+//!
+//! `kernels`: the projections of one step alone, B random rows, every layer's
+//! four groups (q,k,v; o; gate,up; down) and the head, as the step launches
+//! them (rotation and conversion included), timed per group over `reps` steps
+//! (default 10) after two warm-ups: where the step's time goes.
 //!
 //! Every `LLVQ_*` variable but `LLVQ_CONFIG`, `LLVQ_BATCH_REF`,
 //! `LLVQ_GSM8K_DUMP` and `LLVQ_DATASET_REV` is refused.
@@ -91,7 +97,8 @@ mod run {
             "check" => check(&model, &dev, &a[2..]),
             "gsm8k" => gsm(&model, &dev, &tok, &a[2..]),
             "ppl" => ppl(&model, &dev, &tok, &a[2..]),
-            m => anyhow::bail!("mode {m:?}: door, check, gsm8k or ppl"),
+            "kernels" => kernels(&model, &dev, &a[2..]),
+            m => anyhow::bail!("mode {m:?}: door, check, gsm8k, ppl or kernels"),
         }
     }
 
@@ -156,6 +163,53 @@ mod run {
                 let mx = v.iter().cloned().fold(0.0, f64::max);
                 println!("{b:>3} {:<4} {m:>16.1} [{mn:>9.1}-{mx:>9.1}] {:>12.2} {:>14.1}  {}", arm.name(), m / b as f64 * ((n + DOOR.len() - 1) as f64 / n as f64), m / b as f64, ident[k]);
             }
+        }
+        Ok(())
+    }
+
+    fn kernels(model: &Qwen3, dev: &dyn BatchDevice, a: &[String]) -> anyhow::Result<()> {
+        let bs: Vec<usize> = a.first().map(String::as_str).unwrap_or("1,8,32,128").split(',').map(str::parse).collect::<Result<_, _>>()?;
+        let arm = BatchProjs::parse(a.get(1).map(String::as_str).unwrap_or("gemm")).map_err(anyhow::Error::msg)?;
+        let reps: usize = a.get(2).map(|s| s.parse()).transpose()?.unwrap_or(10);
+        let c = model.config();
+        let (hid, qd, inter) = (c.hidden_size, c.num_attention_heads * c.head_dim, c.intermediate_size);
+        let share = model.blocks[0].rot_share();
+        println!("projections alone, arm {}, {} layers, {reps} steps a figure, ms a step", arm.name(), model.blocks.len());
+        println!("{:>4} {:>9} {:>9} {:>9} {:>9} {:>9} {:>9}", "B", "q,k,v", "o", "gate,up", "down", "head", "total");
+        for &b in &bs {
+            anyhow::ensure!(b >= 1 && b <= dev.max_rows(arm), "B = {b} past the arm's {}", dev.max_rows(arm));
+            let r = |d: usize| -> anyhow::Result<Tensor> { Ok(Tensor::randn(0f32, 1f32, (b, 1, d), model.device())?.to_dtype(DType::F16)?) };
+            let (xh, xq, xi) = (r(hid)?, r(qd)?, r(inter)?);
+            let mut ms = [0f64; 5];
+            for (g, m) in ms.iter_mut().enumerate() {
+                let once = || -> anyhow::Result<()> {
+                    if g == 4 {
+                        model.batch_head(&xh, dev, arm)?;
+                        return Ok(());
+                    }
+                    for blk in &model.blocks {
+                        let (ps, x): (Vec<&Proj>, &Tensor) = match g {
+                            0 => (vec![&blk.q_proj, &blk.k_proj, &blk.v_proj], &xh),
+                            1 => (vec![&blk.o_proj], &xq),
+                            2 => (vec![&blk.gate_proj, &blk.up_proj], &xh),
+                            _ => (vec![&blk.down_proj], &xi),
+                        };
+                        llvq_llm::model::batch_group(&ps, x, share, dev, arm)?;
+                    }
+                    Ok(())
+                };
+                once()?;
+                once()?;
+                model.device().synchronize()?;
+                let t = Instant::now();
+                for _ in 0..reps {
+                    once()?;
+                }
+                model.device().synchronize()?;
+                *m = t.elapsed().as_secs_f64() * 1e3 / reps as f64;
+            }
+            let tot: f64 = ms.iter().sum();
+            println!("{b:>4} {:>9.3} {:>9.3} {:>9.3} {:>9.3} {:>9.3} {tot:>9.3}", ms[0], ms[1], ms[2], ms[3], ms[4]);
         }
         Ok(())
     }

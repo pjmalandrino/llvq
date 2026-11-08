@@ -16,11 +16,12 @@
 //        then per projection, u32 kind:
 //          0 Tetra: u32 d_out, nblocks, tail_w, row_stride, splits; f32[2] gscale;
 //                   u32[d_out*row_stride] words; f32[d_out] rscale; u16[d_out*tail_w] tail;
-//                   f32[n_rows*d_in] x
+//                   u16[n_rows*d_in] x (the rotated rows, already f16)
 //          1 int4:  u32 d_out, d_in, gshift, splits; u32[d_out*d_in/8] words;
 //                   u16[d_out*gpr] scales; u16[d_out*gpr] biases; u16[n_rows*d_in] x
 //   out: per projection, u16[n_rows*d_out] y, f32[n_rows*d_out] reference, f32[n_rows*d_out] bound
 
+#define HOSTCTA_MAX_THREADS 256
 #include "../../llvq-cuda/tests/host_cta.h"
 
 #undef __shared__
@@ -61,8 +62,8 @@ static inline float __shfl_xor_sync(unsigned, float, int) { std::abort(); }
 u32 bg_smem[32768];
 float xs[1];
 
-static u32 mma_a[128][4], mma_b[128][2];
-static float mma_d[128][4];
+static u32 mma_a[256][4], mma_b[256][2];
+static float mma_d[256][4];
 
 void bg_mma_host(float* d, const u32* a, u32 b0, u32 b1)
 {
@@ -113,7 +114,7 @@ static u32 rd1() { return rd<u32>(1)[0]; }
 
 struct Proj {
     u32 kind, d_out, d_in, nblocks, tail_w, rs, gshift, splits;
-    std::vector<float> gs, rscale, xf;
+    std::vector<float> gs, rscale;
     std::vector<u32> words;
     std::vector<unsigned short> tail, sc, bi, xh, y;
     std::vector<float> part;
@@ -139,7 +140,7 @@ int main()
             p.words = rd<u32>((std::size_t)p.d_out * p.rs);
             p.rscale = rd<float>(p.d_out);
             p.tail = rd<unsigned short>((std::size_t)p.d_out * p.tail_w);
-            p.xf = rd<float>((std::size_t)n_rows * p.d_in);
+            p.xh = rd<unsigned short>((std::size_t)n_rows * p.d_in);
         } else {
             p.d_out = rd1(); p.d_in = rd1(); p.gshift = rd1(); p.splits = rd1();
             const u32 gpr = p.d_in >> p.gshift;
@@ -170,7 +171,7 @@ int main()
         s.y = P(p.y.data()); s.part = P(p.part.data());
         if (p.kind == 0) {
             s.w = P(p.words.data()); s.a0 = P(p.gs.data()); s.a1 = P(p.rscale.data()); s.tail = P(p.tail.data());
-            s.x = P(p.xf.data()); s.stride = p.rs; s.nblocks = p.nblocks; s.tail_w = p.tail_w;
+            s.x = P(p.xh.data()); s.stride = p.rs; s.nblocks = p.nblocks; s.tail_w = p.tail_w;
         } else {
             s.w = P(p.words.data()); s.a0 = P(p.sc.data()); s.a1 = P(p.bi.data()); s.x = P(p.xh.data());
             s.stride = p.d_in >> p.gshift; s.nblocks = p.gshift;
@@ -217,7 +218,7 @@ int main()
             for (u32 n = 0; n < n_rows; ++n) {
                 double s = 0.0, m = 0.0;
                 for (u32 c = 0; c < p.d_in; ++c) {
-                    const double x = p.kind == 0 ? (double)p.xf[(std::size_t)n * p.d_in + c] : (double)h2f(p.xh[(std::size_t)n * p.d_in + c]);
+                    const double x = (double)h2f(p.xh[(std::size_t)n * p.d_in + c]);
                     s += w[c] * x;
                     m += std::fabs(w[c] * x);
                 }

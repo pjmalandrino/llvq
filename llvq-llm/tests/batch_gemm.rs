@@ -114,11 +114,11 @@ fn launch(n_rows: usize, projs: &[P], seed: u64) {
                 put(&mut f, &rscale, |v: f32| v.to_le_bytes().to_vec());
                 let tail: Vec<u16> = (0..d_out * tail_w).map(|_| half::f16::from_f64(rnd(&mut rng) - 0.5).to_bits()).collect();
                 put(&mut f, &tail, |v: u16| v.to_le_bytes().to_vec());
-                // Rotated activations over three decades.
-                let x: Vec<f32> = (0..n_rows * d_in)
-                    .map(|_| ((rnd(&mut rng) - 0.5) * 10f64.powf(3.0 * rnd(&mut rng) - 1.5)) as f32)
+                // Rotated activations over three decades, rounded to f16 as the caller hands them.
+                let x: Vec<u16> = (0..n_rows * d_in)
+                    .map(|_| half::f16::from_f64((rnd(&mut rng) - 0.5) * 10f64.powf(3.0 * rnd(&mut rng) - 1.5)).to_bits())
                     .collect();
-                put(&mut f, &x, |v: f32| v.to_le_bytes().to_vec());
+                put(&mut f, &x, |v: u16| v.to_le_bytes().to_vec());
             }
             P::Int4(d_out, d_in, gshift, splits) => {
                 let gpr = d_in >> gshift;
@@ -179,30 +179,30 @@ fn check(tag: &str, y: &[f32], r: &[f32], b: &[f32]) {
 fn tetra_projections_match_the_reference_at_every_width() {
     // Each entry (8, 16, 32, 64, 128 rows) and ragged counts; a tail and none;
     // one slice and several; a chunk that ends inside a row's last block pair.
-    launch(8, &[P::Tetra(64, 13, 16, 1)], 1);
-    launch(13, &[P::Tetra(128, 21, 8, 3)], 2);
-    launch(32, &[P::Tetra(64, 37, 0, 4)], 3);
-    launch(1, &[P::Tetra(64, 9, 5, 2)], 4);
-    launch(47, &[P::Tetra(64, 30, 16, 5)], 5);
-    launch(128, &[P::Tetra(64, 11, 8, 2)], 6);
+    launch(8, &[P::Tetra(128, 13, 16, 1)], 1);
+    launch(13, &[P::Tetra(256, 21, 8, 3)], 2);
+    launch(32, &[P::Tetra(128, 37, 0, 4)], 3);
+    launch(1, &[P::Tetra(128, 9, 5, 2)], 4);
+    launch(47, &[P::Tetra(128, 30, 16, 5)], 5);
+    launch(128, &[P::Tetra(128, 11, 8, 2)], 6);
 }
 
 #[test]
 #[cfg_attr(debug_assertions, ignore = "compiles C++ and runs whole CTAs, run in release")]
 fn int4_projections_match_the_reference_for_records_and_the_head() {
-    launch(8, &[P::Int4(64, 512, 7, 1)], 11);
-    launch(16, &[P::Int4(128, 1024, 7, 3)], 12);
-    launch(29, &[P::Int4(64, 640, 6, 2)], 13);
-    launch(64, &[P::Int4(64, 256, 6, 1)], 14);
-    launch(100, &[P::Int4(64, 384, 7, 3)], 15);
+    launch(8, &[P::Int4(128, 512, 7, 1)], 11);
+    launch(16, &[P::Int4(256, 1024, 7, 3)], 12);
+    launch(29, &[P::Int4(128, 640, 6, 2)], 13);
+    launch(64, &[P::Int4(128, 256, 6, 1)], 14);
+    launch(100, &[P::Int4(128, 384, 7, 3)], 15);
 }
 
 #[test]
 #[cfg_attr(debug_assertions, ignore = "compiles C++ and runs whole CTAs, run in release")]
 fn several_projections_share_one_launch() {
     // q, k (Tetra) and v (int4) of one step, each with its own split.
-    launch(12, &[P::Tetra(128, 10, 16, 2), P::Tetra(64, 10, 16, 3), P::Int4(64, 256, 7, 1)], 21);
+    launch(12, &[P::Tetra(256, 10, 16, 2), P::Tetra(128, 10, 16, 3), P::Int4(128, 256, 7, 1)], 21);
     // gate and up, one slice each, then four projections at 64 rows.
-    launch(5, &[P::Tetra(64, 7, 8, 1), P::Tetra(128, 7, 8, 1)], 22);
-    launch(64, &[P::Int4(64, 256, 7, 2), P::Tetra(64, 6, 0, 1), P::Tetra(64, 6, 0, 2), P::Int4(64, 128, 6, 1)], 23);
+    launch(5, &[P::Tetra(128, 7, 8, 1), P::Tetra(256, 7, 8, 1)], 22);
+    launch(64, &[P::Int4(128, 256, 7, 2), P::Tetra(128, 6, 0, 1), P::Tetra(128, 6, 0, 2), P::Int4(128, 128, 6, 1)], 23);
 }

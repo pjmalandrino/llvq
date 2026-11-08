@@ -87,7 +87,11 @@ static inline float __int_as_float(int i) {
 
 namespace hostcta {
 
-constexpr int kMaxThreads = 128;
+// 128 unless the includer asks for more (the batched GEMM runs 256 a CTA).
+#ifndef HOSTCTA_MAX_THREADS
+#define HOSTCTA_MAX_THREADS 128
+#endif
+constexpr int kMaxThreads = HOSTCTA_MAX_THREADS;
 constexpr int kGroup = 16;
 constexpr size_t kStack = 128 * 1024;
 

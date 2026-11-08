@@ -2142,6 +2142,7 @@ fn batch_gemm_group(
     let flat = row_block(x)?;
     let n = flat.dim(0)?;
     let mut shared: Option<Rotated> = None;
+    let mut shared_h: Option<Tensor> = None;
     // The rows each projection reads, held here so the GEMM can borrow them.
     let mut inputs: Vec<Option<Tensor>> = Vec::with_capacity(projs.len());
     let mut out: Vec<Option<Tensor>> = vec![None; projs.len()];
@@ -2162,7 +2163,17 @@ fn batch_gemm_group(
                     }
                 };
                 check_key(p.site_name(), p.rot_key(), r.key).map_err(candle_core::Error::msg)?;
-                inputs.push(Some(r.t.contiguous()?));
+                // The GEMM reads the rotated rows in f16, two bytes a value for
+                // every CTA that re-reads them: converted once a group under
+                // the shared rotation.
+                let h = match (share, &shared_h) {
+                    (RotShare::On, Some(h)) => h.clone(),
+                    _ => r.t.to_dtype(DType::F16)?.contiguous()?,
+                };
+                if share == RotShare::On {
+                    shared_h = Some(h.clone());
+                }
+                inputs.push(Some(h));
             }
             Proj::Int4(_) => inputs.push(Some(flat.to_dtype(DType::F16)?.contiguous()?)),
             Proj::Dense(l) => {

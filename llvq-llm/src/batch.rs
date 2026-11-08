@@ -70,7 +70,7 @@ impl BatchProjs {
 
 /// One projection of a [`BatchDevice::gemm`] launch, with the rows it reads.
 pub enum GemmIn<'a> {
-    /// A lattice projection and its rotated rows, `[n, d_in]` f32.
+    /// A lattice projection and its rotated rows, `[n, d_in]` f16.
     Lattice(&'a dyn crate::device::LatticeProj, &'a Tensor),
     /// An int4 record and its rows, `[n, d_in]` f16, natural basis.
     Int4(&'a dyn crate::device::Int4Proj, &'a Tensor),

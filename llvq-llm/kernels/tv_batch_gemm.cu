@@ -20,9 +20,13 @@
 //     K dimension is then one plain sum over d_in, with no per-block epilogue,
 //     no 24 -> 32 padding (two blocks fill three k16 steps) and the f16 tail of
 //     a Tetra row read as two more columns of A;
-//   * the activation enters the MMA once, rounded to f16 (the first kernel
-//     carried it in two halves, two MMAs a step). An f16 weight and an f16
-//     activation are what every f16 inference stack multiplies.
+//   * the activation enters the MMA once, in f16 (the first kernel carried it
+//     in two halves, two MMAs a step). An f16 weight and an f16 activation are
+//     what every f16 inference stack multiplies. The caller hands the rotated
+//     rows of a Tetra projection already rounded to f16, so every CTA reads
+//     two bytes a value: each CTA re-reads the activation of its K slice, and
+//     at 128 rows in f32 with 64-row tiles that re-read asked the L2 for about
+//     16 bytes a cycle a SM, more than it delivers (batch-l40s-2026-11-08).
 //
 // The weight rounding (2^-11 relative) and the activation rounding are far
 // below the quantization step of a 2.7-bit weight. This path is not bit for
@@ -31,14 +35,13 @@
 //
 // ## Layout
 //
-// A CTA owns 64 output rows (4 warps x 16) of one projection and one slice of
+// A CTA owns 128 output rows (8 warps x 16) of one projection and one slice of
 // its K chunks. Grid x enumerates the CTAs of every projection of the launch
 // (`BgSeg.cta0` is a projection's first). A chunk is KC columns; inside it a
 // warp runs sub-steps of 48 columns: lane l decodes row l / 2, half l % 2 of
 // the sub-step (one Tetra block, or three int4 words), into the warp's A tile,
-// then the warp runs 3 k16 steps x NT n8 tiles of MMA. The activation is
-// staged as the caller hands it: f32 (the rotated rows of a Tetra projection)
-// converted to f16 pairs when a B fragment is loaded, or f16 (int4).
+// then the warp runs 3 k16 steps x NT n8 tiles of MMA. The activation is f16
+// for both kinds, staged as f16 pairs.
 //
 // Split K: as tv_batch_mma.cu, partials [S][n][d_out] per projection, a
 // ticket per row tile, the last CTA folds the slices in order 0..S-1 and
@@ -56,9 +59,9 @@
 #include "../../llvq-cuda/kernels/llvq_tetra48.cuh"
 #endif
 
-#define BG_ROWS 64u     // output rows a CTA owns
-#define BG_WARPS 4u     // 16 rows a warp
-#define BG_THREADS 128u
+#define BG_ROWS 128u    // output rows a CTA owns
+#define BG_WARPS 8u     // 16 rows a warp
+#define BG_THREADS 256u
 #define BG_SUB 48u      // columns a sub-step decodes: two Tetra blocks, six int4 words
 #define BG_AS 28u       // u32 words of a decoded row in a warp's A tile: 24 + 4 pad
 #define BG_MAXSEG 4u
@@ -70,7 +73,7 @@ struct BgSeg {
     unsigned long long a0;    // Tetra: gscale f32[2]; int4: scales f16 [d_out][gpr]
     unsigned long long a1;    // Tetra: rscale f32[d_out]; int4: biases f16 [d_out][gpr]
     unsigned long long tail;  // Tetra: tail f16 [d_out][tail_w]; int4: unused
-    unsigned long long x;     // Tetra: f32 [n][d_in] rotated; int4: f16 [n][d_in]
+    unsigned long long x;     // f16 [n][d_in]: the rotated rows (Tetra), the natural ones (int4)
     unsigned long long y;     // f16 [n][d_out]
     unsigned long long part;  // f32 [S][n][d_out] when S > 1
     u32 kind;                 // 0 Tetra, 1 int4
@@ -158,11 +161,10 @@ __device__ __forceinline__ void bg_wait()
 }
 
 // Shared words a stage holds: the activation of N rows, then the weight words
-// of 64 rows. Tetra x is f32 with a row of KC + 8 floats; int4 x is f16 pairs
-// with a row of KC / 2 + 4 words. Both pads put a B fragment's 32 lanes on 32
-// banks. Weight rows: KC / 16 words (Tetra) rounded up to 2 mod 4, so the 16
+// of BG_ROWS rows. The activation is f16 pairs with a row of KC / 2 + 4 words,
+// which puts a B fragment's 32 lanes on 32 banks. Weight rows: KC / 16 words (Tetra) rounded up to 2 mod 4, so the 16
 // rows a warp decodes sit on 16 distinct even banks; KC / 8 + 2 (int4).
-#define BG_XW(kind, kc) ((kind) == 0u ? (kc) + 8u : (kc) / 2u + 4u)
+#define BG_XW(kind, kc) ((kc) / 2u + 4u)
 #define BG_WW(kind, kc) ((kind) == 0u ? ((kc) / 16u + 1u) / 4u * 4u + 2u : (kc) / 8u + 2u)
 #define BG_STAGE(kind, n, kc) ((n) * BG_XW(kind, kc) + BG_ROWS * BG_WW(kind, kc))
 
@@ -174,16 +176,16 @@ __device__ __forceinline__ void bg_issue(const BgSeg& s, u32* stage, u32 kc, u32
     const u32 c0 = kc * KC;
     u32* xs = stage;
     u32* ws = stage + N * XW;
-    // The activation: 16-byte pieces, 4 floats or 8 halves.
-    constexpr u32 PER = KIND == 0u ? 4u : 8u;
+    // The activation: 16-byte pieces of 8 halves.
+    constexpr u32 PER = 8u;
     constexpr u32 PIECES = KC / PER;
     for (u32 i = t; i < N * PIECES; i += BG_THREADS) {
         const u32 n = i / PIECES, p = i % PIECES, col = c0 + p * PER;
         const bool ok = n < n_rows && col < s.d_in;
-        const char* src = (const char*)s.x + ((unsigned long long)(ok ? n : 0u) * s.d_in + (ok ? col : 0u)) * (KIND == 0u ? 4u : 2u);
+        const char* src = (const char*)s.x + ((unsigned long long)(ok ? n : 0u) * s.d_in + (ok ? col : 0u)) * 2u;
         bg_cp<16u>(xs + n * XW + p * 4u, src, ok);
     }
-    // The weight words of the CTA's 64 rows.
+    // The weight words of the CTA's rows.
     const u32 lb = blockIdx.x - s.cta0, tiles = s.d_out / BG_ROWS;
     const u32 wrow0 = (lb % tiles) * BG_ROWS;
     if (KIND == 0u) {
@@ -325,23 +327,8 @@ __device__ __forceinline__ void bg_cta(const BgArgs& a, const BgSeg& s)
 #pragma unroll
                 for (u32 nt = 0; nt < NT; ++nt) {
                     const u32 n = nt * 8u + gid;
-                    u32 b0, b1;
-                    if (KIND == 0u) {
-                        const float* xr = (const float*)xs + n * XW + k;
-#ifdef LLVQ_HOST_BUILD
-                        b0 = bg_pack(xr[0], xr[1]);
-                        b1 = bg_pack(xr[8], xr[9]);
-#else
-                        const float2 v0 = *(const float2*)xr, v1 = *(const float2*)(xr + 8);
-                        b0 = bg_pack(v0.x, v0.y);
-                        b1 = bg_pack(v1.x, v1.y);
-#endif
-                    } else {
-                        const u32* xr = xs + n * XW + (k >> 1);
-                        b0 = xr[0];
-                        b1 = xr[4];
-                    }
-                    bg_mma(acc[nt], af, b0, b1);
+                    const u32* xr = xs + n * XW + (k >> 1);
+                    bg_mma(acc[nt], af, xr[0], xr[4]);
                 }
             }
             BG_WARP_SYNC();
@@ -378,7 +365,7 @@ __device__ __forceinline__ void bg_cta(const BgArgs& a, const BgSeg& s)
     if (!last) return;
     __threadfence();
     const u32 row = tile * BG_ROWS + (t & (BG_ROWS - 1u));
-    for (u32 n = t / BG_ROWS; n < n_rows; n += 2u) {
+    for (u32 n = t / BG_ROWS; n < n_rows; n += BG_THREADS / BG_ROWS) {
         float sum = 0.0f;
         for (u32 k = 0; k < s.S; ++k)
             sum += ((const volatile float*)part)[((unsigned long long)k * n_rows + n) * s.d_out + row];
@@ -411,10 +398,10 @@ __device__ __forceinline__ BgSeg bg_seg(const BgArgs& a)
         else bg_cta<NT, KC, 1u>(a, s);                                            \
     }
 
-// Rows a launch carries, and the chunk that keeps two stages small enough for
-// two or more CTAs a SM.
+// Rows a launch carries, and the K chunk of each: two stages stay near 30 to
+// 60 KB of shared memory.
 BG_ENTRY(tv_bg_n8, 1u, 192u)
 BG_ENTRY(tv_bg_n16, 2u, 192u)
-BG_ENTRY(tv_bg_n32, 4u, 96u)
-BG_ENTRY(tv_bg_n64, 8u, 48u)
-BG_ENTRY(tv_bg_n128, 16u, 48u)
+BG_ENTRY(tv_bg_n32, 4u, 192u)
+BG_ENTRY(tv_bg_n64, 8u, 96u)
+BG_ENTRY(tv_bg_n128, 16u, 96u)

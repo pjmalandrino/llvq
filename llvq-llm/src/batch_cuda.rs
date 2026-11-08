@@ -33,24 +33,26 @@ pub const MAX_ROWS: usize = 32;
 /// Activation rows the widest entry point of `tv_batch_gemm.cu` takes.
 pub const GEMM_MAX_ROWS: usize = 128;
 /// Rows a CTA of the GEMM owns, and projections a launch carries.
-const BG_ROWS: usize = 64;
+const BG_ROWS: usize = 128;
+/// Threads of a GEMM CTA: 8 warps of 16 rows.
+const BG_THREADS: u32 = 256;
 const BG_MAXSEG: usize = 4;
 
 /// The GEMM's entries: rows they carry and the K chunk each was compiled
 /// with (`BG_ENTRY` lines of `tv_batch_gemm.cu`).
 const BG_ENTRIES: [(&str, usize, usize); 5] =
-    [("tv_bg_n8", 8, 192), ("tv_bg_n16", 16, 192), ("tv_bg_n32", 32, 96), ("tv_bg_n64", 64, 48), ("tv_bg_n128", 128, 48)];
+    [("tv_bg_n8", 8, 192), ("tv_bg_n16", 16, 192), ("tv_bg_n32", 32, 192), ("tv_bg_n64", 64, 96), ("tv_bg_n128", 128, 96)];
 
 /// Shared bytes of a GEMM entry: `BG_SMEM_WORDS` of the kernel, transcribed.
 fn bg_smem_bytes(n: usize, kc: usize) -> u32 {
     let stage = |kind: usize| {
-        let (xw, ww) = match kind {
-            0 => (kc + 8, (kc / 16 + 1) / 4 * 4 + 2),
-            _ => (kc / 2 + 4, kc / 8 + 2),
+        let ww = match kind {
+            0 => (kc / 16 + 1) / 4 * 4 + 2,
+            _ => kc / 8 + 2,
         };
-        n * xw + BG_ROWS * ww
+        n * (kc / 2 + 4) + BG_ROWS * ww
     };
-    ((2 * stage(0).max(stage(1)) + 4 * 16 * 28) * 4) as u32
+    ((2 * stage(0).max(stage(1)) + 8 * 16 * 28) * 4) as u32
 }
 
 /// `BgSeg` of `tv_batch_gemm.cu`, field for field.
@@ -482,7 +484,7 @@ impl CudaBatch {
                 if !(v.d_in as usize).is_multiple_of(8) || v.stride_u32 as usize * 4 < 6 * v.nblocks as usize {
                     candle_core::bail!("{}: d_in {} or row stride {} out of the kernel's contract", p.name(), v.d_in, v.stride_u32);
                 }
-                let ax = x_of(p.name(), x, v.d_in as usize, candle_core::DType::F32, 4)?;
+                let ax = x_of(p.name(), x, v.d_in as usize, candle_core::DType::F16, 2)?;
                 BgSeg {
                     w: v.words,
                     a0: v.gscale,
@@ -601,7 +603,7 @@ impl CudaBatch {
             }
             let mut l = stream.launch_builder(f);
             l.arg(&a);
-            let cfg = LaunchConfig { grid_dim: (cta, 1, 1), block_dim: (128, 1, 1), shared_mem_bytes: smem };
+            let cfg = LaunchConfig { grid_dim: (cta, 1, 1), block_dim: (BG_THREADS, 1, 1), shared_mem_bytes: smem };
             unsafe { l.launch(cfg) }.map_err(|e| candle_core::Error::msg(format!("tv_bg: {e}")))?;
             Ok(())
         };
@@ -695,8 +697,9 @@ mod tests {
 
     #[test]
     fn the_shared_bytes_are_the_kernels() {
-        // BG_SMEM_WORDS at (8, 192) and (128, 48), worked by hand.
-        assert_eq!(super::bg_smem_bytes(8, 192), (2 * (8 * 200 + 64 * 14) + 1792) * 4);
-        assert_eq!(super::bg_smem_bytes(128, 48), (2 * (128 * 56 + 64 * 6) + 1792) * 4);
+        // BG_SMEM_WORDS at (8, 192) and (128, 96), worked by hand: the wider
+        // stage is int4's (words of 26 and 14 a row), the A tiles 8 x 16 x 28.
+        assert_eq!(super::bg_smem_bytes(8, 192), (2 * (8 * 100 + 128 * 26) + 3584) * 4);
+        assert_eq!(super::bg_smem_bytes(128, 96), (2 * (128 * 52 + 128 * 14) + 3584) * 4);
     }
 }
