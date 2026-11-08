@@ -13,15 +13,17 @@ How it works, from the Golay code to the one-launch CUDA token: [`docs/how-it-wo
 
 Three Qwen3 models, sealed at about 2.7 bits per parameter and served on one NVIDIA L40S.
 
-| model | b/param | MMLU | GSM8K | WikiText-2 ppl | tok/s | GB on card |
-|---|---|---|---|---|---|---|
-| Qwen3-4B | 2.73 | 63.37 | 82.49 | 12.58 | 221.5 | 1.38 |
-| Qwen3-8B | 2.70 | 69.58 | 88.63 | 9.71 | 142.5 | 2.76 |
-| Qwen3-14B | 2.73 | 75.66 | 92.04 | 8.44 | 86.3 | 5.04 |
+| model | b/param | MMLU | GSM8K | WikiText-2 ppl | tok/s | GB weights on card | GB card used after load |
+|---|---|---|---|---|---|---|---|
+| Qwen3-4B | 2.73 | 63.37 | 82.49 | 12.58 | 221.5 | 1.38 | 1.98 |
+| Qwen3-8B | 2.70 | 69.58 | 88.63 | 9.71 | 142.5 | 2.76 | 3.36 |
+| Qwen3-14B | 2.73 | 75.66 | 92.04 | 8.44 | 86.3 | 5.04 | 5.64 |
 
-Every cell is *measured*; the journals are linked from [`docs/ETAT.md`](docs/ETAT.md) §2. MMLU is 5-shot on all 14,042
-test questions. Speed is batch 1, greedy, 256 tokens after a 5-token prompt, median of five rounds. Bits per parameter
-count the whole model, embedding and tables included.
+MMLU, GSM8K, perplexity, speed and the card memory used after load are *measured*. Bits per parameter and the weights
+on the card are *computed* from the files. The journals are linked from [`docs/ETAT.md`](docs/ETAT.md) §2. MMLU is
+5-shot on all 14,042 test questions. Speed is batch 1, greedy, 256 tokens after a 5-token prompt, median of five rounds.
+Bits per parameter count the whole model, embedding and tables included. The memory used after load adds the CUDA
+context and the decoder's buffers to the weights; a long prompt adds the KV cache on top.
 
 The speeds come from the served form: one CUDA launch a token (4E) and our split-KV attention kernel. The scores were
 measured under the expanded attention form of paper 2. The served form returns the eager engine's tokens, and its

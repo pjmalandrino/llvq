@@ -1244,7 +1244,8 @@ Host probes held the kernel to a double reference (16 of 16 mutants killed) and 
 of 5). One job read both arms ($0.48): the existing multi-row path plateaus at 231.9 tok/s, the tensor-core kernel
 reaches 1,256.5 at B = 32, both with the batch-1 tokens on every row (*measured*,
 [batch-tetra](mesures/batch-tetra-2026-11-07.txt)). The gate passed. The kernel's step costs 15.6 ms at B = 1 against
-AWQ's 4.9, which leaves Tetra four times below AWQ in aggregate.
+AWQ's 4.9 in vLLM, which leaves Tetra below AWQ in aggregate: 1,256.5 tok/s against 5,128.7 at B = 32, 54.2 GB/s
+against 427.9 (*measured*, same journal).
 
 ## 2026-11-07. Speculative decoding with the 0.6B: the bits hold, the speed does not
 

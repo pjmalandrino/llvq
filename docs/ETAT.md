@@ -27,11 +27,11 @@ All three sizes share one setting: layout `tetra48`, `LLVQ_EMBED=q4`, `LLVQ_ROT_
   tok/s in 10.6 GB for the dense reconstruction it replaced; perplexity -0.0021 % of the dense f32 over 12 windows
   (*measured*, [cpu-tetra](mesures/cpu-tetra-2026-11-07.txt)). Never run on x86.
 
-| size | sealed file | b/param | MMLU | GSM8K | ppl | tok/s served | GB on card |
-|---|---|---|---|---|---|---|---|
-| 4B | `qwen3-4b-sealed.bin` | 2.73 | 63.37 | 82.49 | 12.58 | 221.5 | 1.38 |
-| 8B | `qwen3-8b-sealed-B.bin` | 2.70 | 69.58 | 88.63 | 9.71 | 142.5 | 2.76 |
-| 14B | `qwen3-14b-sealed.bin` | 2.73 | 75.66 | 92.04 | 8.44 | 86.3 | 5.04 |
+| size | sealed file | b/param | MMLU | GSM8K | ppl | tok/s served | GB weights on card | GB card used after load |
+|---|---|---|---|---|---|---|---|---|
+| 4B | `qwen3-4b-sealed.bin` | 2.73 | 63.37 | 82.49 | 12.58 | 221.5 | 1.38 | 1.98 |
+| 8B | `qwen3-8b-sealed-B.bin` | 2.70 | 69.58 | 88.63 | 9.71 | 142.5 | 2.76 | 3.36 |
+| 14B | `qwen3-14b-sealed.bin` | 2.73 | 75.66 | 92.04 | 8.44 | 86.3 | 5.04 | 5.64 |
 
 - b/param: *computed* by `rtbits`, whole model, int4 tables included.
 - MMLU: *measured*, all 14,042 test questions, 5-shot, micro average
@@ -41,9 +41,14 @@ All three sizes share one setting: layout `tetra48`, `LLVQ_EMBED=q4`, `LLVQ_ROT_
   ([gsm8k-wave1](mesures/gsm8k-wave1-2026-09-26.txt), [gsm8k-wave2](mesures/gsm8k-wave2-2026-09-26.txt)).
 - Perplexity: *measured*, raw WikiText-2 test split, 12 windows of 4,096, f16
   ([ppl-scelles](mesures/ppl-scelles-2026-10-04.txt)).
-- Speed and GB: *measured* on one L40S at each config's door, batch 1, 256 greedy tokens after a 5-token prompt,
+- Speed: *measured* on one L40S at each config's door, batch 1, 256 greedy tokens after a 5-token prompt,
   median of five rounds ([served-v9](mesures/served-v9-2026-11-07.txt),
   [-8b](mesures/served-v9-8b-2026-11-07.txt), [-14b](mesures/served-v9-14b-2026-11-07.txt)).
+- GB weights on card: *computed* by the door from the tensors it loads, projections plus the carried tensors
+  (`total expected on the card` in the same jobs' raw `door.txt`).
+- GB card used after load: *measured* by `cuMemGetInfo` after the load and 4E's install, in the same jobs. It adds
+  the CUDA context, 4E's buffers and the allocator's slack to the weights. The peak after a long prompt is higher:
+  the KV cache and the prefill's activations come on top.
 
 **The scores and the speeds come from different forms.** MMLU, GSM8K and perplexity ran under the `expanded`
 attention form of paper 2, and MMLU and perplexity on the dense reconstruction. The served form adds the `kernel`
@@ -161,8 +166,10 @@ For an A/B on one file the bar is the paired interval, 0.43 pp of MMLU and 0.12 
 - **The next venue for paper 2.** No archive holds version 2 yet. Default if silent: preprint only.
 - **Upstream `transformers`.** `llvq-tetra` 0.1.0 is on PyPI and loads the 4B safetensors; the upstream issue and PR
   wait for the operator ([`plan-transformers.md`](plan-transformers.md)).
-- **Spend.** $277.11 over 269 priced rows of 274 in `docs/data/jobs.csv` (*computed*). No cap is in force; one is owed
-  before the next paid job.
+- **Spend.** $304.05 over 301 jobs on 2026-11-08 (*computed*, [audit](archive/audit-bugs-2026-11-08.md) §3): $280.04
+  over 273 priced rows of 278 in `docs/data/jobs.csv` on `main`, $22.00 in the open PRs #24, #26 and #27, and $2.01 in
+  two jobs no pushed CSV prices yet (`rows-grid` $0.25, `spec-lookup-r1` $1.76). No cap is in force; one is owed before
+  the next paid job.
 
 ## 6. Closed absent a new idea
 
