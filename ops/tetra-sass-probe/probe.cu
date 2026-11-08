@@ -280,3 +280,187 @@ extern "C" __global__ void row_i8_best(const u32* __restrict__ words, const unsi
     acc = warp_sum(acc);
     if (lane == 0u) y[r] = acc;
 }
+
+// ---------------------------------------------------------------------------
+// Second pass. (1) int16 activation, `dp2a`: the same exact lattice bytes against an activation rounded to 16 bits.
+// (2) The word relabeled at load, a bijection of the 48 bits: the fields the decoder indexes with are contiguous,
+// and the Golay patterns come from two tables by linearity (c = GA[s8] ^ GB[b1, b3, b2]), with no dependent chain.
+// Layout: lo = R1 (r << 11 | i1) : 12 | i2 : 11 | p : 1 | b1 | b3 | s8 : 6 ; hi16 = i3 : 11 | b2 : 4 | g : 1.
+// The decoded point is the same, so an f32 dot over it keeps the served bits; the int8 dot keeps B1's.
+// ---------------------------------------------------------------------------
+template <bool SP>
+__device__ __forceinline__ float i16_block(const u32 q[6], const uint4* x8, u32& n2out)
+{
+    int dot = 0, n2 = 0;
+#pragma unroll
+    for (u32 i = 0; i < 3u; ++i) {
+        const uint4 v = x8[i];  // eight int16: two quads of the block
+        const int s0 = (int)(q[2u * i] ^ 0x80808080u), s1 = (int)(q[2u * i + 1u] ^ 0x80808080u);
+        dot = __dp2a_lo((int)v.x, s0, dot);
+        dot = __dp2a_hi((int)v.y, s0, dot);
+        dot = __dp2a_lo((int)v.z, s1, dot);
+        dot = __dp2a_hi((int)v.w, s1, dot);
+        n2 = __dp4a(s0, s0, n2);
+        n2 = __dp4a(s1, s1, n2);
+    }
+    n2out = (u32)n2;
+    return (float)dot;
+}
+
+extern "C" __global__ void row_i16_best(const u32* __restrict__ words, const unsigned short* __restrict__ whi, u32 nb,
+                                        F1rTables tab, const float* __restrict__ gscale,
+                                        const float* __restrict__ invnorm, const uint4* __restrict__ xq,
+                                        const float* __restrict__ xsc, float* __restrict__ y)
+{
+    __shared__ uint4 xs8[3 * 256];
+    __shared__ float ss[256];
+    for (u32 i = threadIdx.x; i < nb * 3u; i += blockDim.x) xs8[i] = xq[i];
+    for (u32 i = threadIdx.x; i < nb; i += blockDim.x) ss[i] = xsc[i];
+    __syncthreads();
+    const u32 lane = threadIdx.x & 31u, r = blockIdx.x * (blockDim.x >> 5) + (threadIdx.x >> 5);
+    const u32* w = words + r * nb;
+    const unsigned short* wh = whi + r * nb;
+    float acc = 0.0f;
+#pragma unroll 1
+    for (u32 j = lane; j < nb; j += 32u) {
+        const u32 lo = w[j], hi16 = wh[j];
+        u32 q[6];
+        quads_sp(lo, hi16, tab, q);
+        u32 n2;
+        const float d = i16_block<true>(q, xs8 + j * 3u, n2);
+        const u32 m = (n2 >> 4) & (TETRA48_SHELLS - 1u);
+        const u32 g = (hi16 >> 15) & 1u;
+        acc = __fmaf_rn(d * ss[j], gscale[g] * invnorm[m], acc);
+    }
+    acc = warp_sum(acc);
+    if (lane == 0u) y[r] = acc;
+}
+
+struct LeanTab {
+    const u32* rows;  // the served 4,096 rank rows
+    const u32* ga;    // 64: c of s8, the three pattern bytes packed c1 | c2 << 8 | c3 << 16
+    const u32* gb;    // 128: c of (b1, b3, b2), g ignored
+};
+
+// The six quads of a relabeled word. gs0, gs1 are the matrix's two gains, held in registers.
+__device__ __forceinline__ void lean_quads(u32 lo, u32 hi16, const LeanTab& t, u32 q[6])
+{
+    const u32 R1 = lo & 0xfffu;
+    const u32 i2 = (lo >> 12) & 0x7ffu;
+    const u32 p = (lo >> 23) & 1u;
+    const u32 c = t.ga[lo >> 26] ^ t.gb[((lo >> 24) & 3u) | (hi16 >> 9)];
+    const bool mid = i2 < F1R_N0_MIXED;
+    const u32 idx2 = mid ? i2 : i2 + (2048u - F1R_N0_MIXED);
+    const u32 r3 = (p ^ (R1 >> 11) ^ (mid ? 0u : 1u)) & 1u;
+    const u32 rs[3] = {t.rows[R1], t.rows[idx2], t.rows[(r3 << 11) | (hi16 & 0x7ffu)]};
+    const F1rV3Tab v = f1r_v3_tables(p);
+#pragma unroll
+    for (u32 s = 0; s < 3u; ++s)
+#pragma unroll
+        for (u32 h = 0; h < 2u; ++h) {
+            const u32 sel = h ? rs[s] >> 16 : rs[s];
+            const u32 c4 = (c >> (8u * s + 4u * h)) & 0xfu;
+            const u32 m0 = __byte_perm(v.c0lo, v.c0hi, sel);
+            const u32 m1 = __byte_perm(v.c1lo, v.c1hi, sel);
+            const u32 k = prmt_raw(c4 * 0x10204080u, 0u, 0xba98u);
+            q[2u * s + h] = (m0 & ~k) | (m1 & k);
+        }
+}
+
+extern "C" __global__ void row_lean_f32(const u32* __restrict__ words, const unsigned short* __restrict__ whi, u32 nb,
+                                        LeanTab tab, float gs0, float gs1, const float* __restrict__ invnorm,
+                                        const float* __restrict__ x, float* __restrict__ y)
+{
+    __shared__ float4 xs4[7 * 128];
+    float* xs = reinterpret_cast<float*>(xs4);
+    for (u32 i = threadIdx.x; i < nb * 24u; i += blockDim.x) xs[(i / 24u) * 28u + i % 24u] = x[i];
+    __syncthreads();
+    const u32 lane = threadIdx.x & 31u, r = blockIdx.x * (blockDim.x >> 5) + (threadIdx.x >> 5);
+    const u32* w = words + r * nb;
+    const unsigned short* wh = whi + r * nb;
+    float acc = 0.0f;
+#pragma unroll 1
+    for (u32 j = lane; j < nb; j += 32u) {
+        const u32 lo = w[j], hi16 = wh[j];
+        u32 q[6];
+        lean_quads(lo, hi16, tab, q);
+        const float4* x4 = xs4 + j * 7u;
+        float a = 0.0f;
+#pragma unroll
+        for (u32 i = 0; i < 6u; ++i) {
+            const float4 v = x4[i];
+            a = __fmaf_rn(f1r_v3_float(q[i], 0u), v.x, a);
+            a = __fmaf_rn(f1r_v3_float(q[i], 1u), v.y, a);
+            a = __fmaf_rn(f1r_v3_float(q[i], 2u), v.z, a);
+            a = __fmaf_rn(f1r_v3_float(q[i], 3u), v.w, a);
+        }
+        const u32 m = (tetra48_n2(q) >> 4) & (TETRA48_SHELLS - 1u);
+        acc = __fmaf_rn(__fmul_rn(a, (hi16 >> 15) ? gs1 : gs0), invnorm[m], acc);
+    }
+    acc = warp_sum(acc);
+    if (lane == 0u) y[r] = acc;
+}
+
+extern "C" __global__ void row_lean_i8(const u32* __restrict__ words, const unsigned short* __restrict__ whi, u32 nb,
+                                       LeanTab tab, float gs0, float gs1, const float* __restrict__ invnorm,
+                                       const u32* __restrict__ xq, const float* __restrict__ xsc, float* __restrict__ y)
+{
+    __shared__ uint2 xs2[3 * 512];
+    __shared__ float ss[512];
+    u32* xs = reinterpret_cast<u32*>(xs2);
+    for (u32 i = threadIdx.x; i < nb * 6u; i += blockDim.x) xs[i] = xq[i];
+    for (u32 i = threadIdx.x; i < nb; i += blockDim.x) ss[i] = xsc[i];
+    __syncthreads();
+    const u32 lane = threadIdx.x & 31u, r = blockIdx.x * (blockDim.x >> 5) + (threadIdx.x >> 5);
+    const u32* w = words + r * nb;
+    const unsigned short* wh = whi + r * nb;
+    float acc = 0.0f;
+#pragma unroll 1
+    for (u32 j = lane; j < nb; j += 32u) {
+        const u32 lo = w[j], hi16 = wh[j];
+        u32 q[6];
+        lean_quads(lo, hi16, tab, q);
+        const uint2* x2 = xs2 + j * 3u;
+        int dot = 0, n2 = 0;
+#pragma unroll
+        for (u32 i = 0; i < 3u; ++i) {
+            const uint2 v = x2[i];
+            const int s0 = (int)(q[2u * i] ^ 0x80808080u), s1 = (int)(q[2u * i + 1u] ^ 0x80808080u);
+            dot = __dp4a(s0, (int)v.x, dot);
+            dot = __dp4a(s1, (int)v.y, dot);
+            n2 = __dp4a(s0, s0, n2);
+            n2 = __dp4a(s1, s1, n2);
+        }
+        const u32 m = ((u32)n2 >> 4) & (TETRA48_SHELLS - 1u);
+        acc = __fmaf_rn((float)dot * ss[j], ((hi16 >> 15) ? gs1 : gs0) * invnorm[m], acc);
+    }
+    acc = warp_sum(acc);
+    if (lane == 0u) y[r] = acc;
+}
+
+extern "C" __global__ void row_lean_i16(const u32* __restrict__ words, const unsigned short* __restrict__ whi, u32 nb,
+                                        LeanTab tab, float gs0, float gs1, const float* __restrict__ invnorm,
+                                        const uint4* __restrict__ xq, const float* __restrict__ xsc, float* __restrict__ y)
+{
+    __shared__ uint4 xs8[3 * 256];
+    __shared__ float ss[256];
+    for (u32 i = threadIdx.x; i < nb * 3u; i += blockDim.x) xs8[i] = xq[i];
+    for (u32 i = threadIdx.x; i < nb; i += blockDim.x) ss[i] = xsc[i];
+    __syncthreads();
+    const u32 lane = threadIdx.x & 31u, r = blockIdx.x * (blockDim.x >> 5) + (threadIdx.x >> 5);
+    const u32* w = words + r * nb;
+    const unsigned short* wh = whi + r * nb;
+    float acc = 0.0f;
+#pragma unroll 1
+    for (u32 j = lane; j < nb; j += 32u) {
+        const u32 lo = w[j], hi16 = wh[j];
+        u32 q[6];
+        lean_quads(lo, hi16, tab, q);
+        u32 n2;
+        const float d = i16_block<true>(q, xs8 + j * 3u, n2);
+        const u32 m = (n2 >> 4) & (TETRA48_SHELLS - 1u);
+        acc = __fmaf_rn(d * ss[j], ((hi16 >> 15) ? gs1 : gs0) * invnorm[m], acc);
+    }
+    acc = warp_sum(acc);
+    if (lane == 0u) y[r] = acc;
+}

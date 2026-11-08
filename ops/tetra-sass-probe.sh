@@ -20,11 +20,11 @@ K=llvq-cuda/kernels
 docker run --rm --platform linux/arm64 -v "$PWD":/src -w /src nvidia/cuda:12.4.1-devel-ubuntu22.04 bash -c "
 set -euo pipefail
 for u in probe floor; do nvcc -arch=sm_89 -cubin -O3 -o $OUT/\$u.cubin $OUT/\${u}_unit.cu; done
-for f in row_f32 row_f32_trio row_ex_sp row_ex_soa row_ex_all row_dec row_i8 row_i8_sp row_i8_best; do
+for f in row_f32 row_f32_trio row_ex_sp row_ex_soa row_ex_all row_dec row_i8 row_i8_sp row_i8_best row_i16_best row_lean_f32 row_lean_i8 row_lean_i16; do
   cuobjdump -sass -fun \$f $OUT/probe.cubin > $OUT/\$f.sass; done
 for f in tv_f1r_word tv_f1r tv_f1r_v1 tv_f1r_v2 tv_f1r_v3; do cuobjdump -sass -fun \$f $OUT/floor.cubin > $OUT/\$f.sass; done
 " > /dev/null
-for f in row_f32 row_f32_trio row_ex_sp row_ex_soa row_ex_all row_dec row_i8 row_i8_sp row_i8_best \
+for f in row_f32 row_f32_trio row_ex_sp row_ex_soa row_ex_all row_dec row_i8 row_i8_sp row_i8_best row_i16_best row_lean_f32 row_lean_i8 row_lean_i16 \
          tv_f1r_word tv_f1r tv_f1r_v1 tv_f1r_v2 tv_f1r_v3; do
   # The block loop: the longest backward branch that loads a word (LDG) and the activation (LDS), with no barrier;
   # the floor kernels nest it in a tile loop. row_dec reads no activation.

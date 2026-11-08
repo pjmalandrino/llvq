@@ -1266,3 +1266,13 @@ SASS count a block on the four F1 floor arms, within 2.5 % (*computed*, [sass-te
 Rows at DRAM speed would cap the doors at 278, 196 and 121 tok/s (*estimated*). The int8 activation with `dp4a` takes
 the block from 237 to 152 instructions (*computed*), projected 248, 168 and 103 tok/s on the arithmetic (*estimated*),
 not at the bit. Two exact levers give 234, 151 and 90 at most. Nothing ran on a card.
+
+## 2026-11-08. Second pass on the throughput study
+
+The first pass gave in-situ Tetra rows the eager loop's instruction share, 64.3 %, which the stream floor forbids:
+bounded by the bytes at 671 to 864 GB/s the share is 36 to 51 % at 4B ([sass-tetra-lean](mesures/sass-tetra-lean-2026-11-08.txt)).
+The int8 lever drops from 248 / 168 / 103 to 235 / 154 / 94 tok/s at the central figure, and the decode-free ceilings
+from 278 / 196 / 121 to 260 / 174 / 105 (*estimated*). New: the word relabeled at load with the Golay patterns by
+linearity (237 to 207 instructions, exact), and an int16 dot through `dp2a` (145, rounding 2.0e-5). The best lever,
+both with lane rotation, projects 239 / 157 / 95. Turyn, hexacode, Walsh-Hadamard, table-of-dots and sublattice
+decodes are closed by computation.

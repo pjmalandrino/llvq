@@ -140,3 +140,82 @@ for name, gen in [("gauss", lambda: rng.standard_normal((64, d))),
         e = (qf(x) @ W.T) - y
         print(f"{name:24s} {qn:20s} rel rms err of y = {np.sqrt((e**2).mean() / (y**2).mean()):.2e}")
 print(f"int8 per 24-block noise power over the weight error's: {(5.09e-3 / 0.333) ** 2:.1e}")
+
+# --- part 5: second pass (2026-11-08)
+print("\n== second pass ==")
+# Local residual of the model: v1 - v3 measured 0.025 ms, predicted 0.118: 0.093 ms at eager scale.
+resid = (inst["v1"] - inst["v3"]) * c - (meas["v1"] - meas["v3"])
+insitu = rows4 * share / (c * (237 - 50) * sizes["4B"]["blocks"] / blocks_f1)
+print(f"model residual on v1-v3: {resid:.3f} ms eager; in-situ factor {insitu:.2f}")
+# Closure of the 8B and 14B tokens: bench = door x 0.928 (4B), int4 and head at the 4B's in-situ ms/GB, non-row by layers.
+ratio_bench = (1000 / 238.6) / (1000 / 221.5)
+ms_gb_int4 = 0.55 / 0.409
+ms_gb_head = 0.36 / 0.219
+close = {
+ "8B": 1000 / 142.5 * ratio_bench - 1.007e9 * 0.53125 / 1e9 * ms_gb_int4 - 151936 * 4096 * 4.5 / 8 / 1e9 * ms_gb_head - 1.57,
+ "14B": 1000 / 86.3 * ratio_bench - 2.952e9 * 0.53125 / 1e9 * ms_gb_int4 - 151936 * 5120 * 4.5 / 8 / 1e9 * ms_gb_head - 1.57 * 40 / 36,
+}
+for s in ("8B", "14B"):
+    print(f"{s}: Tetra rows scaled {sizes[s]['rows']:.2f} ms, by closure {close[s]:.2f} ms ({close[s]/sizes[s]['rows']-1:+.0%})")
+sizes["8B"]["rows2"], sizes["14B"]["rows2"], sizes["4B"]["rows2"] = close["8B"], close["14B"], rows4
+for s, d in sizes.items():
+    R, door, bl = d["rows2"], d["door"], d["blocks"]
+    ins = R * share
+    band = resid * bl / blocks_f1 * insitu
+    q = d["sites"] * quant_us * 1e-3
+    arms = {
+      "lean exact 207": (ins * (1 - 157/187), 0),
+      "lean exact + rotation": (ins * (1 - 157/187 * ratios[s]), 0),
+      "lean int8 140": (ins * (1 - 90/187), q),
+      "lean int16 145": (ins * (1 - 95/187), q),
+      "lean int16 + rotation": (ins * (1 - 95/187 * ratios[s]), q),
+    }
+    print(f"{s}: rows {R:.2f} ms, model band +-{band:.3f} ms")
+    for k, (v, qq) in arms.items():
+        v -= qq
+        print(f"   {k:24s} save {v:.3f} (low {0.41*v:.3f}) -> {1000/(door-v):6.1f} (low {1000/(door-0.41*v):6.1f})")
+    st = bl * 6.45 / 671e9 * 1e3
+    print(f"   ceiling at 671 GB/s: rows {st:.2f} ms -> {1000/(door-(R-st)):6.1f} tok/s; at 864: {1000/(door-(R-d['dram'])):6.1f}")
+print(f"barrier floor with 5 dependencies a layer: {(218/36-5)*36*0.771e-3:.3f} ms")
+# int16 activation error
+xr = np.random.default_rng(1).standard_normal((64, 2560)); Wr = np.random.default_rng(2).standard_normal((2048, 2560))
+yr = xr @ Wr.T
+def qbits(v, bits, blk=24):
+    nb = v.shape[1] // blk; vb = v[:, :nb*blk].reshape(v.shape[0], nb, blk); M = 2 ** (bits - 1) - 1
+    s = np.abs(vb).max(2, keepdims=True) / M
+    return np.concatenate([(np.rint(vb / s) * s).reshape(v.shape[0], -1), v[:, nb*blk:]], 1)
+for b in (8, 16):
+    e = qbits(xr, b) @ Wr.T - yr; r = np.sqrt((e**2).mean() / (yr**2).mean())
+    print(f"int{b} a block of 24: rel err {r:.2e}, noise power over the weight error's {(r/0.333)**2:.1e}")
+# LUT break-even: a table of T entries an 8-dim section, built at 8 MACs an entry, read once by each of d_out rows,
+# replaces 8 MACs a row-section: pays when T * 8 < d_out * 8, T < d_out.
+print("section codebook with its pattern: up to", 2 * 128 * 4096, "entries; largest d_out", 17408)
+
+# --- part 6: second-pass model. The first pass gave 64.3 % of in-situ row time to instructions, the eager share.
+# In situ the rows cannot stream faster than the bytes allow, so the instruction part is at most rows - bytes / BW,
+# with BW between 671 GB/s (q4read, the best stream any of our kernels read alone) and 864 (DRAM peak).
+# The eager fit then only says how that part scales: in proportion to N - 50.
+print("\n== second-pass model: instruction part = rows - bytes / BW ==")
+def proj(N, rot, quant, s):
+    d = sizes[s]; R = d["rows2"]; byt = d["blocks"] * 6.45
+    out = []
+    for bw in (671e9, 864e9):
+        ins = R - byt / bw * 1e3
+        keep = (N - 50) / 187 * (ratios[s] if rot else 1.0)
+        out.append(ins * (1 - keep) - (d["sites"] * quant_us * 1e-3 if quant else 0.0))
+    return out  # [central (671), high (864)]
+arms2 = [("lean exact 207", 207, False, False), ("lane rotation alone", 237, True, False),
+         ("lean exact + rotation", 207, True, False), ("int8 dp4a 152 (first pass B1)", 152, False, True),
+         ("lean int8 140", 140, False, True), ("lean int16 145", 145, False, True),
+         ("lean int16 + rotation", 145, True, True)]
+for s, d in sizes.items():
+    R, door = d["rows2"], d["door"]
+    byt = d["blocks"] * 6.45
+    print(f"{s}: rows {R:.2f} ms, instruction part {R - byt/671e6:.2f} (671) to {R - byt/864e6:.2f} (864) ms,"
+          f" in-situ cost of an instruction x{(R - byt/671e6)/(c*187*d['blocks']/blocks_f1):.2f} to"
+          f" x{(R - byt/864e6)/(c*187*d['blocks']/blocks_f1):.2f} of eager")
+    for name, N, rot, quant in arms2:
+        cen, hi = proj(N, rot, quant, s)
+        lo = 0.41 * cen
+        print(f"   {name:30s} save {cen:.3f} [{lo:.3f}, {hi:.3f}] ms -> {1000/(door-cen):6.1f} "
+              f"[{1000/(door-lo):6.1f}, {1000/(door-hi):6.1f}] tok/s")
