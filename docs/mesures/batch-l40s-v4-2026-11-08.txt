@@ -1,0 +1,46 @@
+BATCH L40S V4: THE TILED INT4 ORDER COSTS ABOUT 1 %, TWO CTAS A SM COST 5 TO 17 % (4B, 2026-11-08)
+=================================================================================================
+Prereg: proofs/preregistration-batch-l40s-v4-2026-11-08.md, sha256 e388d6b8, timestamped before launch.
+Deviations: none.
+Code: commit 1214569 (branch claude/batch-l40s), Space sha 97484371.
+Job: 6af072bee6320c66fad7516a, l40sx1, 581 s running, $0.29 (438 s waiting, unbilled). Branch total $3.47 of the $5
+envelope (computed). Raw: batch-l40s-v4-2026-11-08-brut/.
+
+SETUP
+-----
+The sealed 4B. Arm gemm: the served entries, back to batch-l40s-v2's (K chunks 192 / 192 / 192 / 96 / 96, one CTA a
+SM at 128 rows: card registers 96 / 72 / 80 / 113 / 191). Arm gemm-occ: the two-CTA entries of batch-l40s-v3 (192 /
+96 / 96 / 48 / 48, 128 registers at most, 49,152 B of shared memory at most). Each under qwen3-4b-tetra-e4-batch.json
+(int4 words in the file's order) and qwen3-4b-tetra-e4-4e-v9-batch.json (4E v9's tiled order), in one job.
+
+CONTROLS
+--------
+oracle MATCH; object, configs, bench at their sha256; the check log names the int4 layout tiled; every kernel at 0 B
+local; every request answered 256 tokens. All pass. check gemm on the tiled words: worst relative RMS 4.23e-4.
+
+RESULT
+------
+Door, aggregate tok/s, median of 3 rounds [range] (measured). Every row equals the batch-1 fingerprint 61d06545.
+   B   gemm, file order          gemm-occ, file order      gemm, tiled               gemm-occ, tiled
+   1     107.4 [107.0-107.4]       107.3 [107.1-107.4]       106.2 [106.2-106.4]       106.2 [106.2-106.3]
+  32   2,459.3 [2,456.7-2,460.2] 2,318.9 [2,314.4-2,322.1] 2,441.4 [2,440.4-2,445.3] 2,286.8 [2,285.7-2,290.7]
+  64   3,635.1 [3,625.3-3,639.6] 3,001.4 [3,000.5-3,010.9] 3,580.2 [3,576.2-3,589.2] 2,961.7 [2,960.1-2,967.6]
+ 128   4,467.8 [4,459.0-4,473.5] 4,150.7 [4,138.2-4,154.9] 4,417.2 [4,410.9-4,426.6] 4,189.5 [4,180.5-4,189.6]
+
+llvq serve under LLVQ_BATCH=128:1024 with the v9-batch config, B concurrent requests (measured):
+   B   aggregate tok/s           tok/s a request   answers equal to B = 1
+   1     221.9 [221.8-222.0]       225.4            1 of 1
+   8     757.8 [757.4-758.2]        99.4            8 of 8
+  32   1,976.5 [1,975.3-1,977.7]    69.7            32 of 32
+ 128   3,067.5 [3,066.0-3,069.0]    28.9            128 of 128
+
+VERDICT
+-------
+Order: the tiled words cost 0.7 % at B = 32, 1.5 % at 64 and 1.1 % at 128 under gemm, ranges apart at 64 and 128. The
+v9-batch config pays about 1 % at the door for 4E on a lone request (225 tok/s against 106).
+Occupancy: gemm-occ is 5.7 / 17.4 / 7.1 % below gemm at B = 32 / 64 / 128 in file order, 6.3 / 17.3 / 5.2 % in tiled
+order, ranges apart everywhere. Two CTAs a SM, at the price of halving the K chunk and capping registers, lose: the lead
+is closed for these entries.
+batch-l40s-v3's loss came from the occupancy change, not the order.
+Predictions: gemm file order at 128 inside [4,350, 4,650]; tiled at 128 inside; gemm-occ against gemm -7.1 % inside
+[-15, +3]; client B = 1 225.4 inside; client B = 128 3,067.5 inside.

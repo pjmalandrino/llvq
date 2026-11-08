@@ -1261,6 +1261,13 @@ It stays about two times below AWQ in aggregate at every size and B: 3,996.7 aga
 B = 128 (*measured*, [batch-l40s](mesures/batch-l40s-2026-11-08.txt)). The 4B step costs 9.2 ms at B = 1, about 5 ms
 of it eager launches, and grows 0.2 ms a row against AWQ's 0.06.
 
+Three more jobs the same day ($1.99; branch $3.47 of $5). The activation in f16 and 128-row tiles gained 12 to 41 % at
+B = 128 ([batch-l40s-v2](mesures/batch-l40s-v2-2026-11-08.txt)). The operator then asked for a lone request on 4E and
+for two CTAs a SM. The GEMM learned to read 4E v9's tiled int4 words, so the served v9 configs carry the batch: alone,
+a request decodes at 224.4 / 142.4 / 88.1 tok/s on the 4B / 8B / 14B, against 106 / 74 / 44 on the GEMM
+([batch-l40s-v3](mesures/batch-l40s-v3-2026-11-08.txt)). Two CTAs a SM lost 5 to 17 % and the tiled order about 1 %,
+read apart in one job ([batch-l40s-v4](mesures/batch-l40s-v4-2026-11-08.txt)); the occupancy lead is closed.
+
 ## 2026-11-07. Speculative decoding with the 0.6B: the bits hold, the speed does not
 
 - Operator's go: test the speculative decode with the 0.6B. Qwen3-0.6B sealed in Tetra on the Mac: 0.252 GB,

@@ -89,7 +89,7 @@ cargo run --release -p llvq-llm --features metal --bin mmlu -- <checkpoint|seale
 LLVQ_CONFIG=configs/qwen3-4b-tetra-e4.json cargo run --release -p llvq-llm --features cuda --bin mmlu -- <sealed> cuda 40   # THROUGH the served kernel
 LLVQ_CONFIG=configs/qwen3-4b-tetra-e4.json cargo run --release -p llvq-llm --features cuda --bin gsm8k -- <sealed> cuda   # GSM8K through the kernel; gsm8kpair <a> <b> pairs two dumps
 cargo run --release -p llvq-llm --features cuda --bin fusedrun                                      # the kernel in the model
-LLVQ_CONFIG=configs/qwen3-4b-tetra-e4-batch.json cargo run --release -p llvq-llm --features cuda --bin batchrun -- <sealed> door 1,8,32,128 gemm   # B sequences a step (rows, mma, gemm); also check, ppl, gsm8k
+LLVQ_CONFIG=configs/qwen3-4b-tetra-e4-4e-v9-batch.json cargo run --release -p llvq-llm --features cuda --bin batchrun -- <sealed> door 1,8,32,128 gemm   # B sequences a step (rows, mma, gemm, gemm-occ); also check, ppl, gsm8k, kernels
 LLVQ_BATCH=64 cargo run --release -p llvq-runtime --features cuda --bin llvq -- serve                # continuous batching on CUDA, up to 64 requests a step
 cargo run --release -p llvq-runtime --features metal --bin llvq -- serve                             # the runtime; also pull, run, ls, ps, show, stop, rm, cp
 cargo run -p llvq-runtime --example tiny_server && uv run ops/llvq_runtime_clients.py <addr> tiny:test  # the official ollama and openai clients against llvq, CPU only
@@ -140,7 +140,7 @@ be in `UPLOAD_ALLOW` of `ops/run.py`, or the Space dies after 12 minutes. `rankb
 | `LLVQ_HOST` | `host:port`, default `127.0.0.1:11435` | `llvq`: where `serve` binds and where the client commands connect |
 | `LLVQ_KEEP_ALIVE` | duration (`5m`, `30s`, `0`, negative for never), default `5m` | `llvq serve`: how long a model stays loaded after its last request; a request's `keep_alive` wins |
 | `LLVQ_MAX_LOADED` | count, default `1` | `llvq serve`: models loaded at once; the least recently used idle one is unloaded first |
-| `LLVQ_BATCH` | unset or `0` (default), `<n>`, `<n>:<positions>` | `llvq serve` on CUDA: continuous batching of up to n requests (1..=128) through the model's `*-batch.json` config, its context unless positions is given; greedy only; refused on Metal and the CPU |
+| `LLVQ_BATCH` | unset or `0` (default), `<n>`, `<n>:<positions>` | `llvq serve` on CUDA: continuous batching of up to n requests (1..=128) through the model's `*-4e-v9-batch.json` config, its context unless positions is given; a lone request decodes on 4E; greedy only; refused on Metal and the CPU |
 | `LLVQ_QTIP_DIR` | directory | upstream QTIP kernel, GPL v3, not redistributed (`docs/qtip-provenance.md`) |
 
 `docs/ENV.md` lists every variable the code reads, and `llvq-llm/tests/env_registry.rs` fails on a quoted `LLVQ_*`
