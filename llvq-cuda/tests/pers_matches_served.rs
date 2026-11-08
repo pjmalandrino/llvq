@@ -1298,6 +1298,142 @@ fn row_loop_mutants_are_killed() {
 }
 
 
+// ---- the verify rows (pers_vrows.cu): B1's levers and k rows a pass --------
+
+// Odd and even block counts, a row of 33 blocks (rotation across many rows of
+// one warp), a row under 32 (rotation falls back to v2's row), a tail of 0.
+const VROWS_SITES: [(u32, u32, u64); 7] =
+    [(64, 2560, 0x7201), (48, 4096, 0x7202), (40, 9728, 0x7203), (16, 128, 0x7204), (23, 2568, 0x7205), (37, 800, 0x7206), (9, 4096, 0x7207)];
+
+fn vrows_cmd(arm: u32, grid: u32, threads: u32, xseed: u64, sites: &[(u32, u32, u64)]) -> Vec<u8> {
+    let mut c = Cmd::new(b'V').u32(arm).u32(grid).u32(threads).u64(xseed).u32(sites.len() as u32);
+    for &(o, i, s) in sites {
+        c = c.u32(o).u32(i).u64(s);
+    }
+    c.0
+}
+
+/// One 'V' output split: rows (binary16) and f32 values, by activation.
+struct VOut {
+    y: Vec<Vec<u16>>,
+    f: Vec<Vec<f32>>,
+}
+fn vout(b: &[u8], rows: usize) -> VOut {
+    assert_eq!(b.len(), 4 * rows * 6, "four activations: binary16 rows, then f32 values");
+    let y = u16s(&b[..8 * rows]);
+    let f: Vec<f32> = u32s(&b[8 * rows..]).into_iter().map(f32::from_bits).collect();
+    VOut { y: (0..4).map(|a| y[a * rows..(a + 1) * rows].to_vec()).collect(), f: (0..4).map(|a| f[a * rows..(a + 1) * rows].to_vec()).collect() }
+}
+fn vrows_rows() -> usize {
+    VROWS_SITES.iter().map(|s| s.0 as usize).sum()
+}
+const VROWS_GRIDS: [(u32, u32); 4] = [(3, 96), (2, 64), (4, 128), (5, 32)];
+
+/// v2, the relabeled decoder and lane rotation give the served rows on every
+/// site, grid and warp count, binary16 and f32 before f2h; K2 gives them on
+/// both its activations.
+#[test]
+fn the_verify_row_arms_that_owe_the_bits_keep_them() {
+    let rows = vrows_rows();
+    let want = vout(&run(served(), &vrows_cmd(0, 1, 64, 0x7e70, &VROWS_SITES)), rows);
+    assert!(want.y[0] != want.y[1], "the activations must give different rows");
+    for (arm, k) in [(0u32, 1usize), (3, 1), (4, 1), (1, 2)] {
+        for &(grid, threads) in &VROWS_GRIDS {
+            let got = vout(&run(persistent(), &vrows_cmd(arm, grid, threads, 0x7e70, &VROWS_SITES)), rows);
+            for a in 0..k {
+                assert!(got.y[a] == want.y[a], "arm {arm}, grid {grid}x{threads}, activation {a}: binary16 rows differ from tv_tetra48_h");
+                assert!(got.f[a].iter().zip(&want.f[a]).all(|(g, w)| g.to_bits() == w.to_bits()), "arm {arm}, grid {grid}x{threads}, activation {a}: f32 values differ");
+            }
+            for a in k..4 {
+                assert!(got.y[a].iter().all(|&v| v == 0xFFFF), "arm {arm} wrote rows on activation {a}, past its K");
+            }
+        }
+    }
+    let pword = vout(&run(persistent(), &vrows_cmd(2, 3, 96, 0x7e70, &VROWS_SITES)), rows);
+    assert!(pword.y[0] != want.y[0], "pword decodes nothing and must not give the served rows");
+}
+
+/// B1's integer dot: I16 at K = 1 is within the activation rounding of the
+/// served rows (max error under 1e-3 of the site's rms, f32 before f2h), and
+/// at K = 2, 3, 4 each activation's rows are I16 at K = 1's on that activation,
+/// bit for bit.
+#[test]
+#[allow(clippy::needless_range_loop)]
+fn the_integer_dot_verify_rows_are_the_one_row_rows() {
+    let rows = vrows_rows();
+    let k1: Vec<VOut> = (0..4u64).map(|a| vout(&run(persistent(), &vrows_cmd(5, 3, 96, 0x7e70 + a, &VROWS_SITES)), rows)).collect();
+    let want = vout(&run(served(), &vrows_cmd(0, 1, 64, 0x7e70, &VROWS_SITES)), rows);
+    let mut at = 0usize;
+    let mut worst = 0f64;
+    for &(o, _, _) in &VROWS_SITES {
+        let r = at..at + o as usize;
+        for a in 0..4 {
+            let w = &want.f[a][r.clone()];
+            let g = &k1[a].f[0][r.clone()];
+            let rms = (w.iter().map(|v| f64::from(*v).powi(2)).sum::<f64>() / w.len() as f64).sqrt();
+            let e = g.iter().zip(w).map(|(g, w)| (f64::from(*g) - f64::from(*w)).abs()).fold(0f64, f64::max) / rms;
+            worst = worst.max(e);
+        }
+        at += o as usize;
+    }
+    assert!(worst < 1e-3, "the int16 rows sit {worst:.2e} of the rms from the served rows");
+    assert!(worst > 0.0, "the int16 rows equal the served rows: the integer dot is not running");
+    for (arm, k) in [(6u32, 2usize), (7, 3), (8, 4)] {
+        for &(grid, threads) in &VROWS_GRIDS {
+            let got = vout(&run(persistent(), &vrows_cmd(arm, grid, threads, 0x7e70, &VROWS_SITES)), rows);
+            for a in 0..k {
+                assert!(got.y[a] == k1[a].y[0], "i16 K = {k}, grid {grid}x{threads}, activation {a}: rows differ from K = 1's");
+                assert!(got.f[a].iter().zip(&k1[a].f[0]).all(|(g, w)| g.to_bits() == w.to_bits()), "i16 K = {k}, activation {a}: f32 values differ from K = 1's");
+            }
+        }
+    }
+}
+
+#[test]
+fn verify_row_mutants_are_killed() {
+    let rows = vrows_rows();
+    let f = "llvq-cuda/kernels/pers_vrows.cu";
+    let served_out = run(served(), &vrows_cmd(0, 1, 64, 0x7e70, &VROWS_SITES));
+    let want = vout(&served_out, rows);
+    // Against the served rows: lean (arm 3) and rot (arm 4).
+    let exact = [
+        // Masking g (bit 6) off is an equivalent mutant: GB ignores it by construction. Masking a b2 bit is not.
+        ("lean_gb_mask", 3u32, "((hi16 >> 9) & 0x7cu)", "((hi16 >> 9) & 0x78u)"),
+        ("lean_r1", 3, "const u32 R1 = lo & 0xfffu;", "const u32 R1 = lo & 0x7ffu;"),
+        ("lean_r3", 3, "const u32 r3 = (p ^ (R1 >> 11) ^ (mid ? 0u : 1u)) & 1u;", "const u32 r3 = (p ^ (R1 >> 11)) & 1u;"),
+        ("lean_word_b3", 3, "(b1 << 24) | (b3 << 25)", "(b1 << 24) | ((b3 ^ b1) << 25)"),
+        ("relayout_odd", 3, "d[3u * m + 2u] = (a1 >> 16) | (b1 << 16);", "d[3u * m + 2u] = (a1 >> 16) | (b << 16);"),
+        // The padding half is never decoded, so keeping it is not tested; relabeling the last block's half is.
+        ("relayout_last", 3, "d[3u * m + 1u] = b | (s[3u * m + 1u] & 0xffff0000u);", "d[3u * m + 1u] = s[3u * m + 1u];"),
+        ("rot_end", 4, "if (end <= 32u * s + 32u) {", "if (end <= 32u * s + 31u) {"),
+        ("rot_next_row", 4, "f1r_load(words + (size_t)(r0 + k2 * nw) * stride, j2, lo2, hi2);", "f1r_load(words + (size_t)(r0 + k * nw) * stride, j2, lo2, hi2);"),
+        ("rot_mine", 4, "const bool mine = k == kc;", "const bool mine = true;"),
+    ];
+    for (tag, arm, from, to) in exact {
+        let b = mutant(tag, f, from, to);
+        let killed = VROWS_GRIDS.iter().any(|&(g, th)| run_mutant(&b, &vrows_cmd(arm, g, th, 0x7e70, &VROWS_SITES)).is_none_or(|o| vout(&o, rows).y[0] != want.y[0]));
+        assert!(killed, "verify-row mutant {tag} survived");
+    }
+    // Against I16's own rows (arms 5 and 8): the integer dot and its staging.
+    let ref_k1 = run(persistent(), &vrows_cmd(5, 3, 96, 0x7e70, &VROWS_SITES));
+    let ref_k4 = run(persistent(), &vrows_cmd(8, 3, 96, 0x7e70, &VROWS_SITES));
+    let ints = [
+        ("i16_hi_lo", 5u32, "dot = __dp2a_hi((int)v.y, s[2u * i], dot);", "dot = __dp2a_lo((int)v.y, s[2u * i], dot);"),
+        ("i16_scale", 5, "__uint_as_float(s16 << 16)), w, acc[a]);", "__uint_as_float(s16 << 15)), w, acc[a]);"),
+        ("i16_order", 5, "const int lo = vrows_q16(v[TETRA48_ORDER[2u * k]], inv)", "const int lo = vrows_q16(v[2u * k], inv)"),
+        ("i16_round_up", 5, "return (b + 0xffffu) >> 16;", "return b >> 16;"),
+        ("i16_stage_x", 8, "f[a][i] = __ldcg(reinterpret_cast<const float4*>(xa[a0 + a] + 24u * b) + i);", "f[a][i] = __ldcg(reinterpret_cast<const float4*>(xa[a0] + 24u * b) + i);"),
+        ("i16_area", 8, "const unsigned char* ar = areas + a * abytes;", "const unsigned char* ar = areas + (a >> 1) * abytes;"),
+        ("i16_tail", 8, "const float* xt = reinterpret_cast<const float*>(act + a * abytes + abytes - 64u);", "const float* xt = reinterpret_cast<const float*>(act + abytes - 64u);"),
+    ];
+    for (tag, arm, from, to) in ints {
+        let b = mutant(tag, f, from, to);
+        let want = if arm == 5 { &ref_k1 } else { &ref_k4 };
+        let got = run_mutant(&b, &vrows_cmd(arm, 3, 96, 0x7e70, &VROWS_SITES));
+        assert!(got.as_ref() != Some(want), "verify-row mutant {tag} survived");
+    }
+}
+
 // ---- plan-300 step 1: K4's row-loop arms, K11's int4 rows, K3b's counters ----
 
 /// K4's five arms (NC, NC256, CPA, TILE, BAL: arms 8 to 12) give the served

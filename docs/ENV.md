@@ -79,7 +79,7 @@ modes set together (`ALONE` in that file).
 | `LLVQ_PERS_SEGMENT`, `LLVQ_PERS_4E` | `fusedrun` | persistent MLP segment, and 4E's row forms against the eager path |
 | `LLVQ_BATCH_REF` | `batchrun` | the door's token fingerprint every batched row must reproduce |
 | `LLVQ_BENCH_ARMS`, `LLVQ_SEG_ARMS`, `LLVQ_SEG_TETRA`, `LLVQ_TIME_EVENTS` | `planesbench` | arm selection, segment arms, Tetra segment, event timing |
-| `LLVQ_TETRA_OCC`, `LLVQ_PERS_MICRO`, `LLVQ_TROWS`, `LLVQ_PERS_ARMS`, `LLVQ_DUMP_CUBIN` | `planesbench` (`persbench.rs`) | persistent Tetra arms, microbenchmarks, row loops, cubin dump |
+| `LLVQ_TETRA_OCC`, `LLVQ_PERS_MICRO`, `LLVQ_TROWS`, `LLVQ_VROWS`, `LLVQ_PERS_ARMS`, `LLVQ_DUMP_CUBIN` | `planesbench` (`persbench.rs`) | persistent Tetra arms, microbenchmarks, row loops, verify rows, cubin dump |
 
 ## Tests
 

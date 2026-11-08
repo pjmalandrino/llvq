@@ -110,6 +110,18 @@ static inline int __dp4a(int a, int b, int c) {
     }
     return c;
 }
+// PTX `dp2a.lo.s32.s32` and `dp2a.hi.s32.s32`: the two signed 16-bit halves
+// of `a` against signed bytes 0 and 1 (lo) or 2 and 3 (hi) of `b`, plus `c`.
+static inline int __dp2a_lo(int a, int b, int c) {
+    return c + (short)((unsigned)a & 0xffffu) * (signed char)((unsigned)b & 0xffu) +
+           (short)((unsigned)a >> 16) * (signed char)(((unsigned)b >> 8) & 0xffu);
+}
+static inline int __dp2a_hi(int a, int b, int c) {
+    return c + (short)((unsigned)a & 0xffffu) * (signed char)(((unsigned)b >> 16) & 0xffu) +
+           (short)((unsigned)a >> 16) * (signed char)((unsigned)b >> 24);
+}
+// `cvt.rni.s32.f32`: round to nearest, ties to even (the default mode).
+static inline int __float2int_rn(float f) { return (int)nearbyintf(f); }
 template <class T>
 static inline T __ldcg(const T* p) { return *p; }
 template <class T>
