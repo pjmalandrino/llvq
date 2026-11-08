@@ -150,7 +150,7 @@ For an A/B on one file the bar is the paired interval, 0.43 pp of MMLU and 0.12 
 - **Card memory after an 8,192-token prompt.** The duel measured 11.48 / 12.66 / 17.09 GB at 4B / 8B / 14B against
   3.52 / 4.71 / 6.90 for llama.cpp IQ2_S. The excess was the grouped prefill's three live score tensors and the pool's
   leftovers; the prefill now keeps one tensor, bit for bit, for 5.65 / 7.09 / 10.08 GB (*computed*), and the
-  NOT SERVED `prefill_attention: kernel` keeps none, 3.47 / 4.91 / 7.37 (*computed*,
+  NOT SERVED `prefill_attention: kernel` keeps none, 3.67 / 5.20 / 7.81 (*computed*,
   [pic-vram-8k](mesures/pic-vram-8k-2026-11-08.txt)). The card gate costs $1.75 and waits on the operator.
 - **Scores through the served kernel.** MMLU and perplexity are scored on the dense reconstruction with f16 tables;
   the b/param count int4 tables. About $20 by the mixed route, $70 for the full census at three sizes (*estimated*,

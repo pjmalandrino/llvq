@@ -43,13 +43,15 @@ of the prompt's last-position f32 logits, and under kprefill the same logits in 
 
 ## 3. Predictions (signed before the run)
 
-Peak minus idle, GB (*computed* in `ops/pic_vram_8k.py`; the pool's behaviour is *estimated*, so the band is +-0.5 GB):
+Peak minus idle, GB (*computed* in `ops/pic_vram_8k.py`; the pool's behaviour is *estimated*, so the band is +-0.5 GB).
+The kprefill peak sits at the chunk's MLP (gate, up, act and product alive, 0.38 / 0.50 / 0.70 GB), not at the
+attention; the bug audit's independent recount, 3.91 / 5.47 / 8.14, falls inside the same bands:
 
 | arm | 4B | 8B | 14B |
 |---|---|---|---|
 | served | 5.65 | 7.09 | 10.08 |
 | whole | 7.8 (two score tensors since the lifetimes fix, plus the syncs) | - | - |
-| kprefill | 3.47 | 4.91 | 7.37 |
+| kprefill | 3.67 | 5.20 | 7.81 |
 
 - served: last-position logits fingerprint equal to the whole arm's at 4B; time to first token within +5 % of the
   duel's 34.48 / 45.98 / 80.31 s (the in-place pass and the syncs, *estimated* +0.2 to +0.6 s).

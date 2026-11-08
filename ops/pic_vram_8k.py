@@ -24,11 +24,11 @@ terms (what cuMemAllocAsync keeps between syncs) are *estimated*.
 GB = 1e9
 F16 = 2
 
-# name: hidden, layers, query heads, kv heads, head dim, parameters
+# name: hidden, layers, query heads, kv heads, head dim, parameters, MLP width
 MODELS = {
-    "4B": (2560, 36, 32, 8, 128, 4_022_468_096),
-    "8B": (4096, 36, 32, 8, 128, 8_190_735_360),
-    "14B": (5120, 40, 40, 8, 128, 14_768_307_200),
+    "4B": (2560, 36, 32, 8, 128, 4_022_468_096, 9728),
+    "8B": (4096, 36, 32, 8, 128, 8_190_735_360, 12288),
+    "14B": (5120, 40, 40, 8, 128, 14_768_307_200, 17408),
 }
 # Measured, duel 2026-11-08: peak minus idle after 5 and 8,192 tokens (MiB in vram.txt).
 MIB = 1 << 20
@@ -40,7 +40,7 @@ PROMPT, CHUNK, BLOCK_ROWS = 8192, 4096, 1024
 
 
 def items(name):
-    hidden, layers, nh, nkv, hd, _ = MODELS[name]
+    hidden, layers, nh, nkv, hd, _, inter = MODELS[name]
     l, big_l = CHUNK, PROMPT  # the second chunk: 4,096 rows over 8,192 keys
     kv = layers * 2 * nkv * PROMPT * hd * F16
     s2 = nh * l * big_l * F16  # one score tensor of the second chunk
@@ -53,7 +53,15 @@ def items(name):
     act = 2 * l * hidden * F16 + 3 * q + 5 * kvrow
     grow_frag = layers * 2 * nkv * CHUNK * hd * F16  # the chunk-1 buffers each layer drops
     block = BLOCK_ROWS * big_l * F16
-    return dict(kv=kv, s2=s2, s1=s1, mask16=mask16, mask32=mask32, act=act, frag=grow_frag, block=block)
+    # The MLP of the same chunk (mlp_residual): gate, up, act(gate) and their product alive
+    # together, f16 out of the rows kernels, beside the block's input, the new residual and ln2.
+    # Below the score tensor's moment while one exists; the peak's moment once none does.
+    mlp = 4 * l * inter * F16 + 3 * l * hidden * F16
+    # The kernel prefill's own attention moment: the activations above, plus its 8-row
+    # outputs and their concatenation.
+    att_k = act + 2 * q
+    return dict(kv=kv, s2=s2, s1=s1, mask16=mask16, mask32=mask32, act=act, frag=grow_frag, block=block,
+                mlp=mlp, att_k=att_k)
 
 
 def main():
@@ -62,10 +70,11 @@ def main():
         i = items(name)
         base = BASE_P5[name]
         params = MODELS[name][5]
+        att_s = i["s2"] + 2 * i["block"] + i["act"]
         today_lo = base + i["kv"] + 3 * i["s2"] + i["s1"] + i["act"] + i["mask16"]
         today_hi = today_lo + i["frag"]
-        exact = base + i["kv"] + i["s2"] + 2 * i["block"] + i["act"] + i["mask16"]
-        kernel = base + i["kv"] + i["act"] + i["mask16"]
+        exact = base + i["kv"] + max(att_s, i["mlp"]) + i["mask16"]
+        kernel = base + i["kv"] + max(i["att_k"], i["mlp"]) + i["mask16"]
         print(f"== {name} ==")
         rows = [
             ("measured at 5 tokens: context, weights, 4E, fixed buffers", base, "measured"),
@@ -74,6 +83,7 @@ def main():
             ("  one score tensor S (heads x 4,096 x 8,192 x 2 B)", i["s2"], "computed"),
             ("chunk 1's score block kept by the pool (no sync)", i["s1"], "estimated"),
             ("activations alive at the attention, 4,096 rows", i["act"], "computed"),
+            ("MLP of the chunk: gate, up, act, product, x, ln2", i["mlp"], "computed"),
             ("causal mask f16 (plus f32 transient before)", i["mask16"], "computed"),
             ("  f32 mask, uploaded then cast", i["mask32"], "computed"),
             ("chunk-1 cache buffers dropped at the growth (up to)", i["frag"], "estimated"),
@@ -84,7 +94,7 @@ def main():
             print(f"  {label:<58} {v / GB:6.2f}  {tag}")
         print(f"  {'model today':<58} {today_lo / GB:6.2f}-{today_hi / GB:.2f}  against {PEAK_8K[name] / GB:.2f} measured")
         print(f"  {'exact fix (S + 2 blocks of 1,024 rows, syncs)':<58} {exact / GB:6.2f}")
-        print(f"  {'kernel prefill (no score tensor)':<58} {kernel / GB:6.2f}")
+        print(f"  {'kernel prefill (no score tensor; peak at the MLP)':<58} {kernel / GB:6.2f}")
         print(f"  {'llama.cpp IQ2_S, measured':<58} {LLAMA_8K[name] / GB:6.2f}")
         bp = lambda b: b * 8 / params
         print(

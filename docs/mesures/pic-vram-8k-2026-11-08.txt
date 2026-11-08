@@ -4,7 +4,8 @@ Result: the excess of the duel's peak is the grouped prefill's attention, not a 
 tensors of heads x 4,096 x 8,192 alive at once (6.44 GB on the 4B), and the stream-ordered pool kept the first
 chunk's (1.07 GB) under them (*computed*; the pool term *estimated*). That model lands on all three measured peaks.
 The branch removes two of the three tensors and the pool's leftovers with no bit moved, which brings the computed
-4B peak from 11.48 to 5.65 GB. A kernel prefill, not served, removes the last one: 3.47 GB against llama.cpp's 3.52.
+4B peak from 11.48 to 5.65 GB. A kernel prefill, not served, removes the last one: 3.67 GB against llama.cpp's 3.52, its
+peak then at the MLP.
 Nothing here ran on a card; the card gate is written and not launched.
 
 Sources : the duel's raw outputs, branch claude/duel-iq2-xxs-c5d375 (PR #26), docs/mesures/duel-iq2-2026-11-08-brut/
@@ -63,8 +64,8 @@ against the 1.38 of weights) and the pool's leftovers, which the audit did not c
   sync after each cache growth                      up to -0.60, and 4E's growth past the prompt stops holding
                                                     the cache twice (+1.21 transient, 2.42 at the loop's end)
   mask built in f16 on the host                     -0.13 transient
-  kernel prefill (8 rows a call through attn_dec)  -2.18 more: no score tensor at all; NOT bit for bit with the
-                                                    grouped prefill
+  kernel prefill (8 rows a call through attn_dec)  -1.98 more: no score tensor at all, the peak moves to the
+                                                    MLP (0.38 GB at 4B); NOT bit for bit with the grouped prefill
   smaller prefill chunks                            not taken: they change the matmul shapes cuBLAS sees, so the
                                                     bits (gqa-ab-2026-11-01: 2 of 6 reshapes kept them)
 
@@ -108,11 +109,15 @@ form keeps 12 GB more than grouped on Metal on the branch; it is not served and 
                        4B             8B             14B
   measured (duel)      11.48 (22.8)   12.66 (12.4)   17.09 (9.3)
   served, this branch   5.65 (11.2)    7.09 (6.9)    10.08 (5.5)
-  kprefill, NOT SERVED  3.47 (6.9)     4.91 (4.8)     7.37 (4.0)
+  kprefill, NOT SERVED  3.67 (7.3)     5.20 (5.1)     7.81 (4.2)
   llama.cpp IQ2_S       3.52 (7.0)     4.71 (4.6)     6.90 (3.7)   measured, same sampler
-The served line keeps one score tensor (2.15 / 2.15 / 2.68 GB). The kprefill line keeps none; what remains against
-llama.cpp is the base at 5 tokens (2.01 against 2.17 at 4B, 3.42 against 3.35 at 8B, 5.71 against 5.40 at 14B) and
-the 4,096-row activations (0.18-0.25), where llama.cpp prefills 512 rows at a time.
+The served line keeps one score tensor (2.15 / 2.15 / 2.68 GB). The kprefill line keeps none, and its peak moves to
+the chunk's MLP: gate, up, act(gate) and their product alive together, f16, with the residual in and out and ln2,
+0.38 / 0.50 / 0.70 GB (*computed*, mlp_residual). A first version of this table counted the attention moment only
+(3.47 / 4.91 / 7.37); the bug audit of 2026-11-08 flagged it, recounting +0.44 / +0.56 / +0.77, above this
+recount's +0.20 / +0.29 / +0.44 (the difference is not reconciled yet; both sit inside the prereg's band). What
+remains against llama.cpp is the base at 5 tokens (2.01 against 2.17 at 4B, 3.42 against 3.35 at 8B, 5.71 against
+5.40 at 14B) and the 4,096-row MLP, where llama.cpp prefills 512 rows at a time.
 
 6. OPEN
 -------
@@ -123,4 +128,5 @@ the 4,096-row activations (0.18-0.25), where llama.cpp prefills 512 rows at a ti
 - The time to first token: the in-place pass and the syncs cost an estimated +0.2 to +0.6 s of 34.5 at 4B; the kernel
   prefill's attention against cuBLAS's is estimated 0.9 to 1.1 times. Neither is measured on a card.
 - With the kernel prefill, the causal mask (0.07 GB) is built and not read, and the prefill chunk could shrink for
-  activations without moving a bit if the rows kernels are chunk-invariant (the gate's probe says).
+  its MLP (0.38 / 0.50 / 0.70 GB at 4,096 rows, a quarter at 1,024) without moving a bit if the rows kernels are
+  chunk-invariant (the gate's probe says).
