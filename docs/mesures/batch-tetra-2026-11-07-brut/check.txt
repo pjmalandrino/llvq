@@ -1,0 +1,55 @@
+served config: /out/batch-tetra-2026-11-07/qwen3-4b-tetra-e4-4e-v4.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention kernel from position 0 on grow(256), decode persistent (4E rows v4, one launch a token run)) — The qwen3-4b-tetra-e4 object (qwen3-4b-sealed.bin, sha256 886391a8), SERVED from 2026-11-05 on the operator's yes: the kernel attention form on every decode row from position 0, decoded by 4E with the v4 row loop (one cooperative launch a token run, 512 threads). The form below 1,280 is licensed by the operator's T8 extension of 2026-11-05 on this object only (measured, attn-t8-below-4b-2026-11-05). Same tokens as the eager path and as the v3 config, which read 169.0 tok/s at the served door against 133.7 for the kernel config, same 256 tokens at 5, 2,048, 4,096 and 8,192, GSM8K pilot 40/50 against 40/50 (measured, served-4e-2026-11-05). v4 decodes 189.8 tok/s after a 5-token prompt against 179.0 for v3 and 134.2 for the eager path, and 140.1 at 8,192, same tokens (measured, shaker-4e-2026-11-05, measurement form). Not yet read at the served door under v4. Refused on Metal and on any object but the 4B.
+cudarc event tracking: off (one stream, ordered by issue)
+shared rotation: 1 (LLVQ_CONFIG), 96 rot_launches/token for 252 projections
+projection fusion: 0 (LLVQ_CONFIG), 252 matvec_launches/token for 252 projections (0 groups + 168 lone + 84 int4)
+fused layout: tetra48 (LLVQ_CONFIG), projections 1.16 GB on the card, 2.550 b/weight (INFERENCE accounting: KeepExact tail in binary16; the bench bills its own in f32)
+NVRTC source: 101625 bytes, sha256 6193094310bc18acdb0a0c554807ff45f6df09c1f6ab49e0577032874f107812 (11 parts), tile 64 (served: measured optimum for sm_89), prefill 4x128 (served pair), 49152 B staged of 49152, target compute_89
+int4: tv_q4_hh equals tv_q4_h bit for bit on model.layers.0.self_attn.v_proj.weight (1024 rows, d_in 2560)
+embedding: q4 g64 (LLVQ_CONFIG), 1 table (model.embed_tokens.weight, lm_head tied on it), 218.8 MB on the card (int4 194.5 + scales/biases 24.3)
+total expected on the card: 1.38 GB (projections 1.16 + carried 0.22)
+attn_dec.cu: embedded, sha256 c7b0d8d3f2e3066ba1a2b4331c0bb6c92f22182c78a31b7fb74e839330a1838d, target compute_89
+attn_dec_g4_u64: 160 registers, 0 B local (spill), 16384 B static shared, sm_89
+attn_dec_g4_u64: the card equals the CPU replay bit for bit on 103 calls (rows ending at 1, 255, 256, 257, 1000, 4096; k 1, 3, 8; eager and wide grids; verify rows alone; fresh rows) (1.1 s)
+batch mma unit: 81799 bytes, sha256 d241ea8d1407bff65950d069acb7440b3ab5bdf9a831338ebac75bd3aae893b3, target compute_89
+batch attention unit: 26691 bytes, sha256 c762fc8f39476d7fba0fabdd80617e8122fe60bb802f63ffc6e721fea1ebd9c8
+tv_tetra48_mma_n8: 48 registers, 0 B local
+tv_tetra48_mma_n16: 64 registers, 0 B local
+tv_tetra48_mma_n32: 116 registers, 0 B local
+tv_q4_mma_n8: 40 registers, 0 B local
+tv_q4_mma_n16: 63 registers, 0 B local
+tv_q4_mma_n32: 96 registers, 0 B local
+attn_batch_g4_u64: 158 registers, 0 B local
+loaded in 19.1 s, attention kernel on grow(256)
+check q_proj    tetra rows  1: relative RMS 3.481e-6, max 2.161e-4 of the RMS
+check k_proj    tetra rows  1: relative RMS 2.398e-8, max 7.673e-7 of the RMS
+check v_proj    int4  rows  1: relative RMS 1.279e-5, max 3.972e-4 of the RMS
+check o_proj    int4  rows  1: relative RMS 1.362e-5, max 6.686e-4 of the RMS
+check gate_proj tetra rows  1: relative RMS 5.516e-6, max 4.018e-4 of the RMS
+check up_proj   tetra rows  1: relative RMS 4.892e-6, max 4.153e-4 of the RMS
+check down_proj tetra rows  1: relative RMS 8.390e-6, max 4.228e-4 of the RMS
+check lm_head   int4  rows  1: relative RMS 1.078e-5, max 1.754e-3 of the RMS
+check q_proj    tetra rows  8: relative RMS 8.131e-6, max 8.245e-4 of the RMS
+check k_proj    tetra rows  8: relative RMS 3.123e-6, max 1.967e-4 of the RMS
+check v_proj    int4  rows  8: relative RMS 2.014e-6, max 1.041e-4 of the RMS
+check o_proj    int4  rows  8: relative RMS 8.146e-6, max 6.924e-4 of the RMS
+check gate_proj tetra rows  8: relative RMS 1.163e-5, max 1.580e-3 of the RMS
+check up_proj   tetra rows  8: relative RMS 1.437e-5, max 1.695e-3 of the RMS
+check down_proj tetra rows  8: relative RMS 6.831e-6, max 8.385e-4 of the RMS
+check lm_head   int4  rows  8: relative RMS 1.127e-5, max 1.736e-3 of the RMS
+check q_proj    tetra rows 16: relative RMS 7.356e-6, max 8.188e-4 of the RMS
+check k_proj    tetra rows 16: relative RMS 6.203e-6, max 3.911e-4 of the RMS
+check v_proj    int4  rows 16: relative RMS 1.463e-5, max 1.668e-3 of the RMS
+check o_proj    int4  rows 16: relative RMS 5.048e-6, max 6.958e-4 of the RMS
+check gate_proj tetra rows 16: relative RMS 1.056e-5, max 1.580e-3 of the RMS
+check up_proj   tetra rows 16: relative RMS 9.193e-6, max 1.696e-3 of the RMS
+check down_proj tetra rows 16: relative RMS 1.315e-5, max 1.669e-3 of the RMS
+check lm_head   int4  rows 16: relative RMS 1.135e-5, max 1.734e-3 of the RMS
+check q_proj    tetra rows 32: relative RMS 7.824e-6, max 1.645e-3 of the RMS
+check k_proj    tetra rows 32: relative RMS 1.221e-5, max 1.580e-3 of the RMS
+check v_proj    int4  rows 32: relative RMS 1.427e-5, max 1.665e-3 of the RMS
+check o_proj    int4  rows 32: relative RMS 7.287e-6, max 6.995e-4 of the RMS
+check gate_proj tetra rows 32: relative RMS 9.778e-6, max 1.576e-3 of the RMS
+check up_proj   tetra rows 32: relative RMS 1.113e-5, max 1.698e-3 of the RMS
+check down_proj tetra rows 32: relative RMS 7.218e-6, max 8.253e-4 of the RMS
+check lm_head   int4  rows 32: relative RMS 1.106e-5, max 1.748e-3 of the RMS
+check: worst relative RMS 1.463e-5 (gate 1e-2)

@@ -1,0 +1,2 @@
+GSM8K pilot, 50 problems, rows: 40 correct against 40 served; completions identical 50/50; discordant 0 up, 0 down
+GSM8K pilot, 50 problems, mma: 40 correct against 40 served; completions identical 44/50; discordant 0 up, 0 down

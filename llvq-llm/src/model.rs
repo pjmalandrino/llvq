@@ -556,6 +556,23 @@ impl KvCache {
     pub fn store(&self) -> crate::kvq::KvStore {
         self.store
     }
+
+    /// The history held, `(1, n_kv, len, head_dim)` views of keys and values,
+    /// for a store that keeps the grouped heads (`Cat`, `Grow`). `None` before
+    /// a first append. The batched driver copies a prefilled sequence into its
+    /// slot through this.
+    pub fn held(&self) -> Result<Option<(Tensor, Tensor)>> {
+        let (Some(k), Some(v)) = (&self.k, &self.v) else {
+            return Ok(None);
+        };
+        match self.store {
+            crate::kvq::KvStore::Cat => Ok(Some((k.clone(), v.clone()))),
+            crate::kvq::KvStore::Grow(_) => Ok(Some((k.narrow(2, 0, self.len)?, v.narrow(2, 0, self.len)?))),
+            crate::kvq::KvStore::Prealloc(_) => {
+                candle_core::bail!("KvCache held: a preallocated store holds the expanded heads")
+            }
+        }
+    }
 }
 
 /// A `Grow` buffer of `cap` positions, shaped like `like` on every other
@@ -2008,6 +2025,102 @@ impl Block {
     pub fn set_pers_mlp(&mut self, seg: Option<std::sync::Arc<dyn MlpSegment>>) {
         self.pers_mlp = seg;
     }
+
+    /// One decode row for each of B sequences, `x` `[B, 1, d]`.
+    ///
+    /// The operations of [`Self::forward_cached`] on its decode path, in the
+    /// same order, with two differences that move no bit of a row: RoPE reads
+    /// a table row per sequence (`cos`/`sin` `[B, 1, hd/2]`, gathered at each
+    /// position), and the attention is [`crate::batch::BatchDevice::attend`],
+    /// which writes the fresh key and value into the sequence's slot itself.
+    #[allow(clippy::too_many_arguments)]
+    pub fn forward_batch(
+        &self,
+        x: &Tensor,
+        cos: &Tensor,
+        sin: &Tensor,
+        kc: &Tensor,
+        vc: &Tensor,
+        pos: &Tensor,
+        max_len: usize,
+        dev: &dyn crate::batch::BatchDevice,
+        projs: crate::batch::BatchProjs,
+    ) -> Result<Tensor> {
+        let (b, l, _) = x.dims3()?;
+        if l != 1 {
+            candle_core::bail!("a batched step carries one row per sequence, got {l}");
+        }
+        let h = self.ln1.forward(x)?;
+        let qkv = batch_group(&[&self.q_proj, &self.k_proj, &self.v_proj], &h, self.rot_share, dev, projs)?;
+        let q = qkv[0].reshape((b, 1, self.n_heads, self.head_dim))?.transpose(1, 2)?;
+        let k = qkv[1].reshape((b, 1, self.n_kv, self.head_dim))?.transpose(1, 2)?;
+        let v = qkv[2].reshape((b, 1, self.n_kv, self.head_dim))?.transpose(1, 2)?;
+        let q = self.q_norm.forward(&q.flatten(0, 2)?)?.reshape((b, self.n_heads, 1, self.head_dim))?;
+        let k = self.k_norm.forward(&k.flatten(0, 2)?)?.reshape((b, self.n_kv, 1, self.head_dim))?;
+        let q = candle_nn::rotary_emb::rope(&q.contiguous()?, cos, sin)?;
+        let k = candle_nn::rotary_emb::rope(&k.contiguous()?, cos, sin)?;
+        let ctx = dev.attend(&q, &k, &v.contiguous()?, kc, vc, pos, max_len)?;
+        let ctx = ctx.transpose(1, 2)?.reshape((b, 1, self.n_heads * self.head_dim))?;
+        let x = (x + &batch_group(&[&self.o_proj], &ctx, self.rot_share, dev, projs)?[0])?;
+        let h = self.ln2.forward(&x)?;
+        let gu = batch_group(&[&self.gate_proj, &self.up_proj], &h, self.rot_share, dev, projs)?;
+        let gated = gu[0].apply(&self.act)?.mul(&gu[1])?;
+        x + &batch_group(&[&self.down_proj], &gated, self.rot_share, dev, projs)?[0]
+    }
+}
+
+/// The projections of one shared activation for a batched step.
+///
+/// [`crate::batch::BatchProjs::Rows`] is [`group_forward`] itself, so every
+/// row is the one-row kernel's. [`crate::batch::BatchProjs::Mma`] rotates the
+/// rows once (once for the group under [`RotShare::On`], as `group_forward`
+/// does) and hands each projection to the device's tensor-core kernel.
+pub fn batch_group(
+    projs: &[&Proj],
+    x: &Tensor,
+    share: RotShare,
+    dev: &dyn crate::batch::BatchDevice,
+    mode: crate::batch::BatchProjs,
+) -> Result<Vec<Tensor>> {
+    if mode == crate::batch::BatchProjs::Rows {
+        return group_forward(projs, x, share);
+    }
+    let dims = x.dims().to_vec();
+    let flat = row_block(x)?;
+    let n = flat.dim(0)?;
+    let mut shared: Option<Rotated> = None;
+    let mut out = Vec::with_capacity(projs.len());
+    for p in projs {
+        let y = match p {
+            Proj::Lattice(d) => {
+                let own;
+                let r = match share {
+                    RotShare::On => {
+                        if shared.is_none() {
+                            shared = Some(p.prepare_rows(&flat)?);
+                        }
+                        shared.as_ref().expect("set above")
+                    }
+                    RotShare::Off => {
+                        own = p.prepare_rows(&flat)?;
+                        &own
+                    }
+                };
+                check_key(p.site_name(), p.rot_key(), r.key).map_err(candle_core::Error::msg)?;
+                dev.lattice_mma(d.as_ref(), &r.t, n)?
+            }
+            Proj::Int4(d) => dev.int4_mma(d.as_ref(), &flat, n)?,
+            Proj::Dense(l) => l.forward(&flat)?,
+            Proj::GroupPart { .. } => candle_core::bail!(
+                "{}: a fused group in a batched step (LLVQ_FUSE=1 has no batched kernel)",
+                p.site_name()
+            ),
+        };
+        let mut od = dims.clone();
+        *od.last_mut().expect("rank >= 1") = p.d_out()?;
+        out.push(y.reshape(od)?);
+    }
+    Ok(out)
 }
 
 /// Qwen3, loaded for scoring.
@@ -2557,6 +2670,87 @@ impl Qwen3 {
             h = self.hidden_cached(&input, offset, &mut caches, cap)?;
             offset += 1;
         }
+    }
+
+    /// Logits `[B, 1, vocab]` of `h` `[B, 1, d]`: the head's own path under
+    /// [`crate::batch::BatchProjs::Rows`] (row by row for a quantized table),
+    /// the tensor-core kernel under `Mma` when the head is a quantized table.
+    pub fn batch_head(
+        &self,
+        h: &Tensor,
+        dev: &dyn crate::batch::BatchDevice,
+        projs: crate::batch::BatchProjs,
+    ) -> Result<Tensor> {
+        let b = h.dim(0)?;
+        match (projs, &self.head) {
+            (crate::batch::BatchProjs::Mma, Head::Q8(t)) => {
+                dev.head_mma(t.as_ref(), &row_block(h)?, b)?.reshape((b, 1, ()))
+            }
+            _ => self.head.project(h),
+        }
+    }
+
+    /// A fresh [`crate::batch::BatchKv`] for `b` sequences of up to `cap`
+    /// positions each, in the model's dtype and on its device.
+    pub fn batch_kv(&self, b: usize, cap: usize) -> Result<crate::batch::BatchKv> {
+        crate::batch::BatchKv::new(
+            self.blocks.len(),
+            b,
+            self.cfg.num_key_value_heads,
+            self.cfg.head_dim,
+            cap,
+            self.dtype,
+            &self.device,
+        )
+    }
+
+    /// One decode step for every sequence of `kv`: `tokens[b]` is fed to
+    /// sequence `b` at position `kv.len[b]`, which then grows by one. Returns
+    /// the greedy next token of every sequence, as [`Self::generate`] picks
+    /// it (f32 logits, candle's argmax).
+    pub fn batch_step(
+        &self,
+        tokens: &[u32],
+        kv: &mut crate::batch::BatchKv,
+        dev: &dyn crate::batch::BatchDevice,
+        projs: crate::batch::BatchProjs,
+    ) -> Result<Vec<u32>> {
+        let logits = self.batch_logits(tokens, kv, dev, projs)?;
+        logits.to_dtype(DType::F32)?.argmax(D::Minus1)?.flatten_all()?.to_vec1::<u32>()
+    }
+
+    /// [`Self::batch_step`]'s logits, `[B, 1, vocab]` in the model dtype.
+    pub fn batch_logits(
+        &self,
+        tokens: &[u32],
+        kv: &mut crate::batch::BatchKv,
+        dev: &dyn crate::batch::BatchDevice,
+        projs: crate::batch::BatchProjs,
+    ) -> Result<Tensor> {
+        let b = kv.batch();
+        if tokens.len() != b {
+            candle_core::bail!("{} tokens for a batch of {b}", tokens.len());
+        }
+        if let Some(full) = kv.len.iter().position(|&l| l >= kv.cap) {
+            candle_core::bail!("sequence {full} holds {} positions, its slot {}", kv.len[full], kv.cap);
+        }
+        let pos_host: Vec<u32> = kv.len.iter().map(|&l| l as u32).collect();
+        let max_len = kv.len.iter().max().copied().unwrap_or(0) + 1;
+        let pos = Tensor::from_slice(&pos_host, b, &self.device)?;
+        let half = self.rotary.cos.dim(1)?;
+        let cos = self.rotary.cos.index_select(&pos, 0)?.reshape((b, 1, half))?;
+        let sin = self.rotary.sin.index_select(&pos, 0)?.reshape((b, 1, half))?;
+        let input = Tensor::from_slice(tokens, (b, 1), &self.device)?;
+        let mut h = self.embed.forward(&input)?;
+        for (i, blk) in self.blocks.iter().enumerate() {
+            h = blk.forward_batch(&h, &cos, &sin, &kv.k[i], &kv.v[i], &pos, max_len, dev, projs)?;
+        }
+        let h = self.norm.forward(&h)?;
+        let logits = self.batch_head(&h, dev, projs)?;
+        for l in kv.len.iter_mut() {
+            *l += 1;
+        }
+        Ok(logits)
     }
 
     /// [`Self::logits_last`] without the f32 cast: the logits of the last

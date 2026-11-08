@@ -131,6 +131,12 @@ refuses its grouped and kernel forms until the operator decides.
 (*measured*, [dclm-rowscales](mesures/dclm-rowscales-2026-09-20.txt),
 [-8b](mesures/dclm-8b-rowscales-2026-09-21.txt), [-14b](mesures/dclm-14b-rowscales-2026-09-22.txt)).
 
+**Batch.** `Qwen3::batch_step` decodes B sequences a step (`llvq-llm/src/batch.rs`, `bin/batchrun`). Its
+tensor-core kernel `tv_batch_mma.cu` reads 63.9 / 240.9 / 449.7 / 788.4 / 1,256.5 tok/s aggregate on the 4B at B = 1 /
+4 / 8 / 16 / 32, against 203.0 / 778.7 / 1,524.6 / 2,883.2 / 5,128.7 for AWQ in vLLM (*measured*,
+[batch-tetra](mesures/batch-tetra-2026-11-07.txt), [batch-awq](mesures/batch-awq-2026-11-07.txt)): 54.2 GB/s against
+427.9 at B = 32 (*computed*). Every sequence decodes the batch-1 door tokens. Nothing batched is served.
+
 **Noise.** The calibration draw moves MMLU by 2.92 pp and perplexity by 5.2 % (one standard deviation, 4B, three full
 runs, *measured*, [bruit-mmlu](mesures/bruit-mmlu-graines-4b-2026-08-25.txt)). Every size is calibrated on one draw.
 For an A/B on one file the bar is the paired interval, 0.43 pp of MMLU and 0.12 % of perplexity (*measured*,

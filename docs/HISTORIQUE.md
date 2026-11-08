@@ -1231,3 +1231,17 @@ gap between two Rust engines. The same window at f32 read -0.0017 % against the 
 candle's CPU f16 arithmetic around it was not. The CPU path runs at f32, which also decodes faster there: 8.6 tok/s at
 12 threads and 5.1 at 4, in 1.86 GB, under the bench lock the Mac's sessions share, and -0.0021 % [-0.0022 ; -0.0019] of the dense f32 over 12 windows
 (*measured*). Nothing ran on x86, and Windows was never built.
+
+## 2026-11-07. A batching branch: the batched decode of the 4B and its tensor-core kernel
+
+The operator opened a batching axis on 2026-11-07. AWQ in vLLM was measured first at B = 1 to 32 on the L40S: 203.0
+to 5,128.7 tok/s aggregate, 541.9 to 427.9 GB/s (*measured*, [batch-awq](mesures/batch-awq-2026-11-07.txt), $0.08).
+
+The branch added a batched step (B sequences, one cache slot each, one row each a step), a batched attention that is
+the served kernel's body with one sequence per grid z, and `tv_batch_mma.cu`: Tetra blocks and int4 nibbles decoded
+once into shared memory as exact integers, multiplied on the tensor cores, the rotated activation in two f16 halves.
+Host probes held the kernel to a double reference (16 of 16 mutants killed) and the attention to the one-row bits (5
+of 5). One job read both arms ($0.48): the existing multi-row path plateaus at 231.9 tok/s, the tensor-core kernel
+reaches 1,256.5 at B = 32, both with the batch-1 tokens on every row (*measured*,
+[batch-tetra](mesures/batch-tetra-2026-11-07.txt)). The gate passed. The kernel's step costs 15.6 ms at B = 1 against
+AWQ's 4.9, which leaves Tetra four times below AWQ in aggregate.
