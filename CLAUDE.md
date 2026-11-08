@@ -160,7 +160,7 @@ name it does not list.
 removed are refused by name, config or not (`REMOVED`, same file). `LLVQ_KERNEL_DIR`, `LLVQ_TILE_BLOCKS`,
 `LLVQ_PREFILL`, `LLVQ_METAL_KERNEL` and the three `LLVQ_GUIDED_*` are refused beside any config (`BELOW_THE_DOOR`).
 `LLVQ_PREFILL_TOKENS` and `LLVQ_CONTEXTS` time the served object with a longer prompt. `planesbench`'s own variables
-are registered in `llvq-cuda/src/pers.rs`. The MLX door reads no `LLVQ_*` variable and refuses any one set; its config
+are read in `llvq-cuda/src/persbench.rs` and listed in `docs/ENV.md`. The MLX door reads no `LLVQ_*` variable and refuses any one set; its config
 schema (`configs/mlx/`) is its own.
 
 ## Hard rules
