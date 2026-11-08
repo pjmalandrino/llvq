@@ -7,6 +7,8 @@ repository.workspace = true
 description = "Gaussian-source rate-distortion evaluation of the LLVQ quantizers (paper §4, gate G4)."
 
 [features]
+# The measurement-only targets listed at the end of this file.
+archive = []
 fast-linalg = ["llvq-quant/fast-linalg"]
 
 [dependencies]
@@ -14,3 +16,214 @@ llvq-core = { path = "../llvq-core" }
 llvq-search = { path = "../llvq-search" }
 llvq-quant = { path = "../llvq-quant" }
 llvq-artifact = { path = "../llvq-artifact" }
+
+# Measurement-only targets, out of the default build since 2026-11-08
+# (docs/audit-architecture-2026-11.md §2.6, batch 5). Their verdicts are in the
+# journals; `--features archive` builds them, at the same paths, so the
+# journals' commands and paper2/PROVENANCE.md keep pointing at real files.
+# CI checks them in a non-blocking step.
+
+[[bin]]
+name = "f1bench"
+path = "src/bin/f1bench.rs"
+required-features = ["archive"]
+
+[[bin]]
+name = "arrbits"
+path = "src/bin/arrbits.rs"
+required-features = ["archive"]
+
+[[bin]]
+name = "classprofile"
+path = "src/bin/classprofile.rs"
+required-features = ["archive"]
+
+[[bin]]
+name = "decfast"
+path = "src/bin/decfast.rs"
+required-features = ["archive"]
+
+[[bin]]
+name = "decfull"
+path = "src/bin/decfull.rs"
+required-features = ["archive"]
+
+[[bin]]
+name = "decprofile"
+path = "src/bin/decprofile.rs"
+required-features = ["archive"]
+
+[[bin]]
+name = "decbench"
+path = "src/bin/decbench.rs"
+required-features = ["archive"]
+
+[[bin]]
+name = "lcap"
+path = "src/bin/lcap.rs"
+required-features = ["archive"]
+
+[[bin]]
+name = "lswap"
+path = "src/bin/lswap.rs"
+required-features = ["archive"]
+
+[[bin]]
+name = "radixstudy"
+path = "src/bin/radixstudy.rs"
+required-features = ["archive"]
+
+[[bin]]
+name = "classhist"
+path = "src/bin/classhist.rs"
+required-features = ["archive"]
+
+[[bin]]
+name = "encbench"
+path = "src/bin/encbench.rs"
+required-features = ["archive"]
+
+[[bin]]
+name = "betasweep"
+path = "src/bin/betasweep.rs"
+required-features = ["archive"]
+
+[[bin]]
+name = "cholbench"
+path = "src/bin/cholbench.rs"
+required-features = ["archive"]
+
+[[bin]]
+name = "tetraencbench"
+path = "src/bin/tetraencbench.rs"
+required-features = ["archive"]
+
+[[bin]]
+name = "e8bench"
+path = "src/bin/e8bench.rs"
+required-features = ["archive"]
+
+[[bin]]
+name = "e8gptq"
+path = "src/bin/e8gptq.rs"
+required-features = ["archive"]
+
+[[bin]]
+name = "gaindisagree"
+path = "src/bin/gaindisagree.rs"
+required-features = ["archive"]
+
+[[bin]]
+name = "f1count"
+path = "src/bin/f1count.rs"
+required-features = ["archive"]
+
+[[example]]
+name = "f1accesscv"
+path = "examples/f1accesscv.rs"
+required-features = ["archive"]
+
+[[example]]
+name = "f1enc"
+path = "examples/f1enc.rs"
+required-features = ["archive"]
+
+[[example]]
+name = "f1encaudit"
+path = "examples/f1encaudit.rs"
+required-features = ["archive"]
+
+[[example]]
+name = "f1enclazy"
+path = "examples/f1enclazy.rs"
+required-features = ["archive"]
+
+[[example]]
+name = "f1encprof"
+path = "examples/f1encprof.rs"
+required-features = ["archive"]
+
+[[example]]
+name = "f1encrankscales"
+path = "examples/f1encrankscales.rs"
+required-features = ["archive"]
+
+[[example]]
+name = "f1encscales"
+path = "examples/f1encscales.rs"
+required-features = ["archive"]
+
+[[example]]
+name = "f1encsolve"
+path = "examples/f1encsolve.rs"
+required-features = ["archive"]
+
+[[example]]
+name = "f1linear"
+path = "examples/f1linear.rs"
+required-features = ["archive"]
+
+[[example]]
+name = "f1mids"
+path = "examples/f1mids.rs"
+required-features = ["archive"]
+
+[[example]]
+name = "f1rankenc"
+path = "examples/f1rankenc.rs"
+required-features = ["archive"]
+
+[[example]]
+name = "f1scale"
+path = "examples/f1scale.rs"
+required-features = ["archive"]
+
+[[example]]
+name = "f1shrink"
+path = "examples/f1shrink.rs"
+required-features = ["archive"]
+
+[[example]]
+name = "f1table"
+path = "examples/f1table.rs"
+required-features = ["archive"]
+
+[[example]]
+name = "tetrascales"
+path = "examples/tetrascales.rs"
+required-features = ["archive"]
+
+[[example]]
+name = "gainrule"
+path = "examples/gainrule.rs"
+required-features = ["archive"]
+
+[[example]]
+name = "rowshrink"
+path = "examples/rowshrink.rs"
+required-features = ["archive"]
+
+[[example]]
+name = "sphgeom"
+path = "examples/sphgeom.rs"
+required-features = ["archive"]
+
+[[example]]
+name = "tetrashell"
+path = "examples/tetrashell.rs"
+required-features = ["archive"]
+
+[[example]]
+name = "f1rankbench"
+path = "examples/f1rankbench.rs"
+required-features = ["archive"]
+
+[[example]]
+name = "driftcheck"
+path = "examples/driftcheck.rs"
+required-features = ["archive"]
+
+[[example]]
+name = "f1encreal"
+path = "examples/f1encreal.rs"
+required-features = ["archive"]

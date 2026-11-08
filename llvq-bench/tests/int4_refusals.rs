@@ -21,8 +21,10 @@ use llvq_core::DIM;
 use llvq_quant::quantizer::BlockCode;
 use llvq_search::index::Indexer;
 use std::path::PathBuf;
+#[cfg(feature = "archive")]
 use std::process::Command;
 
+#[cfg(feature = "archive")]
 const REFUSAL: &str = "no runtime layout for Int4G128 records";
 
 /// A v5 file whose default kind is Ball and whose declared set also holds
@@ -73,6 +75,7 @@ fn mixed_file(name: &str) -> PathBuf {
     path
 }
 
+#[cfg(feature = "archive")]
 fn refuses(bin: &std::path::Path, args: &[&str], path: &std::path::Path) {
     let out = Command::new(bin)
         .args(args)
@@ -123,6 +126,8 @@ fn rtbits_prices_a_mixed_file_instead_of_refusing_it() {
     );
 }
 
+// An archive target since 2026-11-08: built under `--features archive` only.
+#[cfg(feature = "archive")]
 #[test]
 fn classhist_refuses_a_mixed_file_by_name() {
     let p = mixed_file("int4-classhist.llvq");
@@ -133,6 +138,8 @@ fn classhist_refuses_a_mixed_file_by_name() {
     );
 }
 
+// An archive target since 2026-11-08: built under `--features archive` only.
+#[cfg(feature = "archive")]
 #[test]
 fn lswap_refuses_a_mixed_file_by_name() {
     let p = mixed_file("int4-lswap.llvq");
@@ -147,6 +154,8 @@ fn lswap_refuses_a_mixed_file_by_name() {
     assert!(!out.exists(), "lswap must not leave an output behind a refusal");
 }
 
+// An archive target since 2026-11-08: built under `--features archive` only.
+#[cfg(feature = "archive")]
 #[test]
 fn radixstudy_refuses_a_mixed_file_by_name() {
     let p = mixed_file("int4-radixstudy.llvq");
@@ -157,6 +166,8 @@ fn radixstudy_refuses_a_mixed_file_by_name() {
     );
 }
 
+// An archive target since 2026-11-08: built under `--features archive` only.
+#[cfg(feature = "archive")]
 #[test]
 fn driftcheck_refuses_a_mixed_file_by_name() {
     // An example, not a binary: cargo builds it for `cargo test` and puts it

@@ -70,8 +70,8 @@ the tests under the `ci` profile, the core crates in debug, and `llvq-quant` wit
 cargo test                                            # fast loop
 cargo test --release -- --include-ignored             # full suite, before any format commit
 cargo clippy --all-targets                            # zero warnings
-cargo run --release -p llvq-bench --bin llvq-bench    # also: encbench, betasweep, decbench, classhist, rtbits, radixstudy, gaindisagree
-cargo run --release -p llvq-metal --bin thesis        # macOS; also: matvec, decreal, mslcheck, p1v0, rankbench
+cargo run --release -p llvq-bench --bin llvq-bench    # also: rtbits; the format-v1 era benches (encbench, classhist, ...) need --features archive
+cargo run --release -p llvq-metal --bin thesis        # macOS; also: mslcheck, rankbench; matvec, decreal, p1v0 need --features archive
 cargo run --release -p llvq-cuda --bin planesbench -- <model.llvq>   # Linux + CUDA; also: preflight, nullkbench, attnbench
 LLVQ_MODEL=Qwen/Qwen3-4B LLVQ_CALIB=dclm-edu LLVQ_ARTIFACT=q4b.llvq cargo run --release -p llvq-llm --features metal,fast-linalg --bin smoke -- 64 2048 12 4096 metal nogs leech1c12 999 rot
 #   positional: n_calib · calib_len · n_eval · eval_ctx · device · nogs/gs/dc/sph · codebook (suffix f = free magnitude, L<n> = cap) · limit · rot
