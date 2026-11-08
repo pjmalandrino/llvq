@@ -160,6 +160,8 @@ jobs:
           python-version: '3.12'
       - name: the CUDA image's three lists agree
         run: python3 ops/check_image_lists.py
+      - name: no new tracked file over 1 MB
+        run: python3 ops/check_big_files.py
       - name: the MLX door's refusals
         run: python3 ops/mlx_tetra/test_served.py
       - name: llvqtune, without torch
