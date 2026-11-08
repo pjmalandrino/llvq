@@ -1,0 +1,62 @@
+BATCH L40S V3: THE SERVED V9 CONFIGS WITH A BATCH, 4E FOR A LONE REQUEST, LLVQ SERVE UNDER CONCURRENT REQUESTS (2026-11-08)
+==========================================================================================================================
+Prereg: proofs/preregistration-batch-l40s-v3-2026-11-08.md, sha256 3634a6a3, timestamped before launch.
+Deviations: none.
+Code: commit 5b2c4af (branch claude/batch-l40s), Space sha f5e4d7a2.
+Job: 6af064dd0e0338d1bb84b135, l40sx1, 1,559 s running, $0.78 (276 s waiting for a card, unbilled). Branch total
+$3.18 of the $5 envelope (computed). Raw: batch-l40s-v3-2026-11-08-brut/.
+
+SETUP
+-----
+The three sealed files under configs/qwen3-{4b,8b,14b}-tetra-e4-4e-v9-batch.json: the served v9 configs (4E v9, the
+int4 words tiled and held once) with batch {max 64, context 2048}. The GEMM reads the tiled words; every entry at two
+CTAs a SM (K chunks 192 / 96 / 96 / 48 / 48; card registers 96 / 72 / 80 / 120 / 128, shared 47,360 / 35,328 /
+41,984 / 34,816 / 49,152 B, no local memory). (d): llvq serve under LLVQ_BATCH=128:1024 and ops/batch_serve_bench.py,
+B concurrent /api/generate requests, raw prompt "The capital of France is", greedy, 256 tokens, 2 rounds after a
+warm-up; tok/s a request on the server's decode clock.
+
+CONTROLS
+--------
+1. oracle: MATCH. 2. objects, configs, bench at their bytes: equal. 3. every check log names the int4 layout tiled
+(84 / 53 / 99 records); every kernel at 0 B local. 4. every request answered 256 tokens. All pass.
+
+RESULT
+------
+check gemm on the tiled words, worst relative RMS: 4.23e-4 (4B), 4.31e-4 (8B), 4.22e-4 (14B) (measured, gate 1e-2).
+4B decode-path perplexity, 16 x 2,048, gemm against rows: 13.4598 against 13.4599, pooled -0.0009 % [-0.0087 ; +0.0069].
+
+Door, aggregate tok/s (measured), against batch-l40s-v2 (file order, the v2 entries); every row equals batch 1:
+   B    4B v3   4B v2     8B v3   8B v2     14B v3   14B v2
+   1    106.5   105.5      74.8    74.1       43.9     43.6
+   8    807.1   800.0     573.7   568.3      335.8    335.0
+  32  2,295.2 2,468.0   1,632.6 1,826.6      951.3  1,102.2
+  64  2,977.6 3,628.5   2,197.5 2,873.6    1,308.8  1,761.7
+ 128  4,169.9 4,493.6   3,192.8 3,552.3    1,938.4  2,183.8
+
+llvq serve, B concurrent requests: aggregate tok/s and tok/s a request (measured):
+   B    4B agg  4B req    8B agg  8B req    14B agg  14B req   answers equal to B = 1
+   1     221.0   224.4     140.6   142.4       86.9     88.1    all
+   8     759.4    99.6     542.6    71.0      318.1     41.6    all
+  16   1,178.8    79.1     841.0    56.1      479.2     31.8    all
+  32   1,880.1    65.8   1,361.3    47.3      791.5     27.3    all
+  64   2,309.5    41.5   1,715.4    30.6    1,021.3     18.1    all
+ 128   2,941.2    27.5   2,256.9    21.0    1,372.4     12.8    all
+AWQ in vLLM, same prompt and count, batch-l40s-awq (computed GB/s = weights x tok/s a request): at B = 1 the served
+lone request reads 309.7 / 393.0 / 444.0 GB/s for Tetra 4B / 8B / 14B against AWQ's 541.9 / 755.9 / 782.5.
+
+VERDICT
+-------
+Tiled path: check and the band hold; its door rows equal batch 1.
+Fix (1) holds: a lone request decodes at 224.4 / 142.4 / 88.1 tok/s a request, within 10 % of the served 4E doors
+(223.4 / 137.1 / 87.1), against 105.5 / 74.1 / 43.6 for the GEMM at B = 1; every answer equals the B = 1 answer.
+Fix (2) is not kept: the door loses 7 to 26 % at B = 32, 64 and 128 at every size. The job also moved the int4 words
+to the tiled order, so it does not say which change cost: batch-l40s-v4 separates them. The served entries go back to
+v2's; the two-CTA entries stay as the measurement arm gemm-occ.
+Predictions: client B = 1 inside at all three sizes; door 4B at 32 / 64 / 128 below their intervals; 8B and 14B at 128
+below; client 4B at 8 inside, at 32 inside, at 128 below; check and perplexity inside.
+
+WHAT THIS DOES NOT ESTABLISH
+----------------------------
+- Under concurrent requests the server reads 15 to 30 % below the door at B >= 16 (4B 2,941 against 4,170 at 128):
+  every prompt is prefilled alone on the batch-1 path while the live requests wait. Not measured apart.
+- One prompt, all requests at once; no arrival process.

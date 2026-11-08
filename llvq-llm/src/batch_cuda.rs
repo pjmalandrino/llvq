@@ -41,7 +41,10 @@ const BG_MAXSEG: usize = 4;
 /// The GEMM's entries: rows they carry and the K chunk each was compiled
 /// with (`BG_ENTRY` lines of `tv_batch_gemm.cu`).
 const BG_ENTRIES: [(&str, usize, usize); 5] =
-    [("tv_bg_n8", 8, 192), ("tv_bg_n16", 16, 96), ("tv_bg_n32", 32, 96), ("tv_bg_n64", 64, 48), ("tv_bg_n128", 128, 48)];
+    [("tv_bg_n8", 8, 192), ("tv_bg_n16", 16, 192), ("tv_bg_n32", 32, 192), ("tv_bg_n64", 64, 96), ("tv_bg_n128", 128, 96)];
+/// The two-CTA entries of the measurement arm `gemm-occ`.
+const BG_OCC_ENTRIES: [(&str, usize, usize); 5] =
+    [("tv_bgo_n8", 8, 192), ("tv_bgo_n16", 16, 96), ("tv_bgo_n32", 32, 96), ("tv_bgo_n64", 64, 48), ("tv_bgo_n128", 128, 48)];
 
 /// Shared bytes of a GEMM entry: `BG_SMEM_WORDS` of the kernel, transcribed.
 fn bg_smem_bytes(n: usize, kc: usize) -> u32 {
@@ -163,6 +166,7 @@ pub struct CudaBatch {
     tetra: [CudaFunction; 3],
     q4: [CudaFunction; 3],
     bg: Vec<(CudaFunction, usize, usize, u32)>,
+    bgo: Vec<(CudaFunction, usize, usize, u32)>,
     attn_slot: CudaFunction,
     tables: TableView,
     sms: usize,
@@ -217,17 +221,20 @@ impl CudaBatch {
                 candle_core::bail!("{n} spills {} B to local memory", r.local_bytes);
             }
         }
-        let mut bg = Vec::with_capacity(BG_ENTRIES.len());
-        for (n, rows, kc) in BG_ENTRIES {
-            let bytes = bg_smem_bytes(rows, kc);
-            let f = gemm_mod.func_dynamic_shared(n, bytes).map_err(msg)?;
-            let r = gemm_mod.report(n).map_err(msg)?;
-            provenance.push(format!("{n}: {} registers, {} B local, {bytes} B shared", r.num_regs, r.local_bytes));
-            if r.local_bytes != 0 {
-                candle_core::bail!("{n} spills {} B to local memory", r.local_bytes);
+        let mut sets = [Vec::with_capacity(5), Vec::with_capacity(5)];
+        for (set, entries) in sets.iter_mut().zip([BG_ENTRIES, BG_OCC_ENTRIES]) {
+            for (n, rows, kc) in entries {
+                let bytes = bg_smem_bytes(rows, kc);
+                let f = gemm_mod.func_dynamic_shared(n, bytes).map_err(msg)?;
+                let r = gemm_mod.report(n).map_err(msg)?;
+                provenance.push(format!("{n}: {} registers, {} B local, {bytes} B shared", r.num_regs, r.local_bytes));
+                if r.local_bytes != 0 {
+                    candle_core::bail!("{n} spills {} B to local memory", r.local_bytes);
+                }
+                set.push((f, rows, kc, bytes));
             }
-            bg.push((f, rows, kc, bytes));
         }
+        let [bg, bgo] = sets;
         for n in [attn_name, slot_name] {
             let r = attn.report(n).map_err(msg)?;
             provenance.push(format!("{n}: {} registers, {} B local", r.num_regs, r.local_bytes));
@@ -253,6 +260,7 @@ impl CudaBatch {
             tetra,
             q4,
             bg,
+            bgo,
             attn_slot,
             tables,
             sms,
@@ -433,16 +441,21 @@ impl crate::batch::BatchDevice for CudaBatch {
 
     fn max_rows(&self, projs: crate::batch::BatchProjs) -> usize {
         match projs {
-            crate::batch::BatchProjs::Gemm => GEMM_MAX_ROWS,
+            crate::batch::BatchProjs::Gemm | crate::batch::BatchProjs::GemmOcc => GEMM_MAX_ROWS,
             crate::batch::BatchProjs::Mma => MAX_ROWS,
             crate::batch::BatchProjs::Rows => usize::MAX,
         }
     }
 
-    fn gemm(&self, items: &[crate::batch::GemmIn<'_>], n: usize) -> candle_core::Result<Vec<Tensor>> {
+    fn gemm(&self, items: &[crate::batch::GemmIn<'_>], n: usize, projs: crate::batch::BatchProjs) -> candle_core::Result<Vec<Tensor>> {
+        let occ = match projs {
+            crate::batch::BatchProjs::Gemm => false,
+            crate::batch::BatchProjs::GemmOcc => true,
+            p => candle_core::bail!("batched GEMM under the {} arm", p.name()),
+        };
         let mut out = Vec::with_capacity(items.len());
         for group in items.chunks(BG_MAXSEG) {
-            out.extend(self.gemm_launch(group, n)?);
+            out.extend(self.gemm_launch(group, n, occ)?);
         }
         Ok(out)
     }
@@ -545,12 +558,13 @@ impl CudaBatch {
         }
     }
 
-    fn gemm_launch(&self, group: &[crate::batch::GemmIn<'_>], n: usize) -> candle_core::Result<Vec<Tensor>> {
+    fn gemm_launch(&self, group: &[crate::batch::GemmIn<'_>], n: usize, occ: bool) -> candle_core::Result<Vec<Tensor>> {
         if n == 0 || n > GEMM_MAX_ROWS || group.is_empty() || group.len() > BG_MAXSEG {
             candle_core::bail!("batched GEMM: {n} rows and {} projections; 1..={GEMM_MAX_ROWS} and 1..={BG_MAXSEG}", group.len());
         }
         let stream = self.rt.cuda_device().cuda_stream();
-        let (f, _, kc, smem) = self.bg.iter().find(|e| e.1 >= n).expect("an entry of 128 rows");
+        let set = if occ { &self.bgo } else { &self.bg };
+        let (f, _, kc, smem) = set.iter().find(|e| e.1 >= n).expect("an entry of 128 rows");
         let mut items = group.iter().map(|it| self.bg_item(it, n, &stream)).collect::<candle_core::Result<Vec<_>>>()?;
         self.bg_split(&mut items, *kc);
         let mut sc = self.scratch.lock().map_err(|_| candle_core::Error::msg("batched scratch poisoned"))?;
@@ -703,8 +717,8 @@ mod tests {
         assert_eq!(super::bg_smem_bytes(8, 192), (2 * (8 * 100 + 128 * 26) + 3584) * 4);
         assert_eq!(super::bg_smem_bytes(128, 96), (2 * (128 * 52 + 128 * 14) + 3584) * 4);
         assert_eq!(super::bg_smem_bytes(128, 48), (2 * (128 * 28 + 128 * 6) + 3584) * 4);
-        // Two CTAs a SM (100 KB, 1 KB reserved a CTA) at every width.
-        for (_, n, kc) in super::BG_ENTRIES.iter() {
+        // The measurement arm fits two CTAs a SM (100 KB, 1 KB reserved a CTA).
+        for (_, n, kc) in super::BG_OCC_ENTRIES.iter() {
             assert!(super::bg_smem_bytes(*n, *kc) <= 49 * 1024, "{n} rows: {} B", super::bg_smem_bytes(*n, *kc));
         }
     }

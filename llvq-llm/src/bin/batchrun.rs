@@ -232,7 +232,7 @@ mod run {
         let arm = BatchProjs::parse(a.first().map(String::as_str).unwrap_or("gemm")).map_err(anyhow::Error::msg)?;
         anyhow::ensure!(arm != BatchProjs::Rows, "check compares a tensor-core arm with rows");
         let counts: &[usize] = match arm {
-            BatchProjs::Gemm => &[1, 8, 13, 32, 64, 128],
+            BatchProjs::Gemm | BatchProjs::GemmOcc => &[1, 8, 13, 32, 64, 128],
             _ => &[1, 8, 16, 32],
         };
         let blk = &model.blocks[0];
@@ -263,7 +263,7 @@ mod run {
             let (r, m) = rel(&a, &b)?;
             worst = worst.max(r);
             println!("check lm_head   int4  rows {n:>2}: relative RMS {r:.3e}, max {m:.3e} of the RMS");
-            if arm == BatchProjs::Gemm {
+            if arm.is_gemm() {
                 // The groups as the step launches them, under the served share.
                 let share = blk.rot_share();
                 let groups: [(&str, Vec<&Proj>, usize); 2] = [

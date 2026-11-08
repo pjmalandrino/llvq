@@ -1,0 +1,27 @@
+  B=  1 warm-up       2.9 tok/s aggregate (87.65 s)
+  B=  8 warm-up     323.2 tok/s aggregate (6.34 s)
+  B= 16 warm-up     488.7 tok/s aggregate (8.38 s)
+  B= 32 warm-up     807.3 tok/s aggregate (10.15 s)
+  B= 64 warm-up    1037.0 tok/s aggregate (15.80 s)
+  B=128 warm-up    1384.6 tok/s aggregate (23.67 s)
+  round 1 B=  1      87.1 tok/s aggregate,    88.3 a request (2.94 s)
+  round 1 B=  8     319.3 tok/s aggregate,    41.6 a request (6.41 s)
+  round 1 B= 16     479.9 tok/s aggregate,    31.9 a request (8.54 s)
+  round 1 B= 32     792.5 tok/s aggregate,    27.3 a request (10.34 s)
+  round 1 B= 64    1026.6 tok/s aggregate,    18.2 a request (15.96 s)
+  round 1 B=128    1377.2 tok/s aggregate,    12.8 a request (23.79 s)
+  round 2 B=  1      86.8 tok/s aggregate,    88.0 a request (2.95 s)
+  round 2 B=  8     316.9 tok/s aggregate,    41.5 a request (6.46 s)
+  round 2 B= 16     478.5 tok/s aggregate,    31.8 a request (8.56 s)
+  round 2 B= 32     790.5 tok/s aggregate,    27.3 a request (10.36 s)
+  round 2 B= 64    1016.0 tok/s aggregate,    18.0 a request (16.13 s)
+  round 2 B=128    1367.6 tok/s aggregate,    12.7 a request (23.96 s)
+
+llvq serve, qwen3:14b, 256 tokens a request, raw prompt, 2 rounds
+   B  tok/s aggregate                  range  tok/s a request  answers equal to B=1
+   1             86.9 [     86.8-     87.1]             88.1  1 of 1
+   8            318.1 [    316.9-    319.3]             41.6  8 of 8
+  16            479.2 [    478.5-    479.9]             31.8  16 of 16
+  32            791.5 [    790.5-    792.5]             27.3  32 of 32
+  64           1021.3 [   1016.0-   1026.6]             18.1  64 of 64
+ 128           1372.4 [   1367.6-   1377.2]             12.8  128 of 128

@@ -48,6 +48,15 @@ pub enum BatchProjs {
     Mma,
     /// The staged, folded tensor-core GEMM, several projections a launch.
     Gemm,
+    /// The same GEMM on its two-CTA entries: a measurement arm, never served.
+    GemmOcc,
+}
+
+impl BatchProjs {
+    /// Whether the arm runs the GEMM (`Gemm` or its measurement arm).
+    pub fn is_gemm(self) -> bool {
+        matches!(self, Self::Gemm | Self::GemmOcc)
+    }
 }
 
 impl BatchProjs {
@@ -56,7 +65,8 @@ impl BatchProjs {
             "rows" => Ok(Self::Rows),
             "mma" => Ok(Self::Mma),
             "gemm" => Ok(Self::Gemm),
-            other => Err(format!("batch projections {other:?}: expected \"rows\", \"mma\" or \"gemm\"")),
+            "gemm-occ" => Ok(Self::GemmOcc),
+            other => Err(format!("batch projections {other:?}: expected \"rows\", \"mma\", \"gemm\" or \"gemm-occ\"")),
         }
     }
     pub fn name(self) -> &'static str {
@@ -64,6 +74,7 @@ impl BatchProjs {
             Self::Rows => "rows",
             Self::Mma => "mma",
             Self::Gemm => "gemm",
+            Self::GemmOcc => "gemm-occ",
         }
     }
 }
@@ -122,9 +133,10 @@ pub trait BatchDevice: Send + Sync {
     }
 
     /// `Y_i = X_i W_i^T` for every projection of `items`, `n` rows each, in
-    /// as few launches as the kernel allows. Returns `[n, d_out_i]` f16 each.
-    fn gemm(&self, items: &[GemmIn<'_>], n: usize) -> Result<Vec<Tensor>> {
-        let _ = (items, n);
+    /// as few launches as the kernel allows, on the entries `projs` names.
+    /// Returns `[n, d_out_i]` f16 each.
+    fn gemm(&self, items: &[GemmIn<'_>], n: usize, projs: BatchProjs) -> Result<Vec<Tensor>> {
+        let _ = (items, n, projs);
         candle_core::bail!("{}: no batched GEMM", self.name())
     }
 

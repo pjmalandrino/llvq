@@ -1,0 +1,15 @@
+{
+  "layout": "tetra48",
+  "embed": "q4",
+  "rot_share": "1",
+  "fuse": "0",
+  "kv": "f16",
+  "attention": "kernel",
+  "decode": "persistent",
+  "rows": "v9",
+  "batch": {
+    "max": 64,
+    "context": 2048
+  },
+  "note": "The v9 config of the sealed 14B (qwen3-14b-sealed.bin, sha256 61db37fe) with a batch of up to 64 sequences of 2,048 positions: under llvq serve's LLVQ_BATCH, a request decoded alone runs on 4E v9, and from the second live request on every one decodes through the tensor-core GEMM (kernels/tv_batch_gemm.cu, which reads the int4 words in the tiled order v9 lays). Added 2026-11-08; its gate is preregistration-batch-l40s-v3-2026-11-08."
+}

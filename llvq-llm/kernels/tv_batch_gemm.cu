@@ -405,19 +405,28 @@ __device__ __forceinline__ BgSeg bg_seg(const BgArgs& a)
     (2u * (BG_STAGE(0u, n, kc) > BG_STAGE(1u, n, kc) ? BG_STAGE(0u, n, kc) : BG_STAGE(1u, n, kc)) \
      + BG_WARPS * 16u * BG_AS)
 
-#define BG_ENTRY(NAME, NT, KC)                                                    \
-    extern "C" __global__ void __launch_bounds__(BG_THREADS, 2) NAME(const BgArgs a)    \
+#define BG_ENTRY(NAME, NT, KC, MINB)                                              \
+    extern "C" __global__ void __launch_bounds__(BG_THREADS, MINB) NAME(const BgArgs a) \
     {                                                                             \
         const BgSeg s = bg_seg(a);                                                \
         if (s.kind == 0u) bg_cta<NT, KC, 0u>(a, s);                               \
         else bg_cta<NT, KC, 1u>(a, s);                                            \
     }
 
-// Rows a launch carries, and the K chunk of each: the two stages and the A
-// tiles stay under 48 KB and the registers under 128 a thread, so two CTAs (16
-// warps) share a SM at every width (batch-l40s-v2 held one at 128 rows).
-BG_ENTRY(tv_bg_n8, 1u, 192u)
-BG_ENTRY(tv_bg_n16, 2u, 96u)
-BG_ENTRY(tv_bg_n32, 4u, 96u)
-BG_ENTRY(tv_bg_n64, 8u, 48u)
-BG_ENTRY(tv_bg_n128, 16u, 48u)
+// The entries the batched step serves: rows a launch carries and the K chunk
+// of each (batch-l40s-v2-2026-11-08). The 128-row entry holds one CTA a SM.
+BG_ENTRY(tv_bg_n8, 1u, 192u, 1)
+BG_ENTRY(tv_bg_n16, 2u, 192u, 1)
+BG_ENTRY(tv_bg_n32, 4u, 192u, 1)
+BG_ENTRY(tv_bg_n64, 8u, 96u, 1)
+BG_ENTRY(tv_bg_n128, 16u, 96u, 1)
+
+// A measurement arm (batchrun's `gemm-occ`): every entry under 48 KB of shared
+// memory and 128 registers, two CTAs a SM. Read slower than the entries above
+// at B >= 32 in batch-l40s-v3, in a job that also changed the int4 word order;
+// kept to separate the two.
+BG_ENTRY(tv_bgo_n8, 1u, 192u, 2)
+BG_ENTRY(tv_bgo_n16, 2u, 96u, 2)
+BG_ENTRY(tv_bgo_n32, 4u, 96u, 2)
+BG_ENTRY(tv_bgo_n64, 8u, 48u, 2)
+BG_ENTRY(tv_bgo_n128, 16u, 48u, 2)

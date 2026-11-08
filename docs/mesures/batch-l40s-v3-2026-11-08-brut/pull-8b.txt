@@ -1,0 +1,4 @@
+[Kcopying /out/sealed-8b27-2026-09-24/qwen3-8b-sealed-B.bin
+[Kverifying sha256 digest
+[Kwriting manifest
+[Ksuccess

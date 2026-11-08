@@ -31,6 +31,7 @@
 #define __launch_bounds__(...)
 
 #include <cmath>
+#include <cstdlib>
 #include <vector>
 
 static inline float __fmaf_rn(float a, float b, float c) { return std::fma(a, b, c); }
@@ -156,8 +157,10 @@ int main()
         }
     }
     const u32 nt = n_rows <= 8 ? 1 : n_rows <= 16 ? 2 : n_rows <= 32 ? 4 : n_rows <= 64 ? 8 : 16;
-    // The K chunk of each entry (BG_ENTRY lines of tv_batch_gemm.cu).
-    const u32 kc = nt == 1 ? 192 : nt <= 4 ? 96 : 48;
+    // The K chunk of each entry (BG_ENTRY lines of tv_batch_gemm.cu): the
+    // served set, or the two-CTA set when HBG_OCC is set.
+    const bool occ = std::getenv("HBG_OCC") != nullptr;
+    const u32 kc = occ ? (nt == 1 ? 192 : nt <= 4 ? 96 : 48) : (nt <= 4 ? 192 : 96);
 
     BgArgs a;
     __builtin_memset(&a, 0, sizeof a);
@@ -190,11 +193,11 @@ int main()
     a.ticket = P(ticket.data());
     hostcta::launch(cta, 1, BG_THREADS, 0x2545f491u, [&] {
         switch (nt) {
-        case 1: tv_bg_n8(a); break;
-        case 2: tv_bg_n16(a); break;
-        case 4: tv_bg_n32(a); break;
-        case 8: tv_bg_n64(a); break;
-        default: tv_bg_n128(a); break;
+        case 1: occ ? tv_bgo_n8(a) : tv_bg_n8(a); break;
+        case 2: occ ? tv_bgo_n16(a) : tv_bg_n16(a); break;
+        case 4: occ ? tv_bgo_n32(a) : tv_bg_n32(a); break;
+        case 8: occ ? tv_bgo_n64(a) : tv_bg_n64(a); break;
+        default: occ ? tv_bgo_n128(a) : tv_bg_n128(a); break;
         }
     });
     for (u32 t : ticket)

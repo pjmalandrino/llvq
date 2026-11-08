@@ -2086,8 +2086,8 @@ pub fn batch_group(
     if mode == crate::batch::BatchProjs::Rows {
         return group_forward(projs, x, share);
     }
-    if mode == crate::batch::BatchProjs::Gemm {
-        return batch_gemm_group(projs, x, share, dev);
+    if mode.is_gemm() {
+        return batch_gemm_group(projs, x, share, dev, mode);
     }
     let dims = x.dims().to_vec();
     let flat = row_block(x)?;
@@ -2136,6 +2136,7 @@ fn batch_gemm_group(
     x: &Tensor,
     share: RotShare,
     dev: &dyn crate::batch::BatchDevice,
+    mode: crate::batch::BatchProjs,
 ) -> Result<Vec<Tensor>> {
     use crate::batch::GemmIn;
     let dims = x.dims().to_vec();
@@ -2197,7 +2198,7 @@ fn batch_gemm_group(
         at.push(i);
     }
     if !items.is_empty() {
-        for (i, y) in at.into_iter().zip(dev.gemm(&items, n)?) {
+        for (i, y) in at.into_iter().zip(dev.gemm(&items, n, mode)?) {
             out[i] = Some(y);
         }
     }
@@ -2773,9 +2774,9 @@ impl Qwen3 {
             (crate::batch::BatchProjs::Mma, Head::Q8(t)) => {
                 dev.head_mma(t.as_ref(), &row_block(h)?, b)?.reshape((b, 1, ()))
             }
-            (crate::batch::BatchProjs::Gemm, Head::Q8(t)) => {
+            (p, Head::Q8(t)) if p.is_gemm() => {
                 let x = row_block(h)?.to_dtype(DType::F16)?.contiguous()?;
-                let mut y = dev.gemm(&[crate::batch::GemmIn::Head(t.as_ref(), &x)], b)?;
+                let mut y = dev.gemm(&[crate::batch::GemmIn::Head(t.as_ref(), &x)], b, p)?;
                 y.pop().expect("one output").reshape((b, 1, ()))
             }
             _ => self.head.project(h),
