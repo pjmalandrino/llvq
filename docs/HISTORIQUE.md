@@ -1304,3 +1304,7 @@ keeps the greedy tokens on six prompts and 50 GSM8K problems. Tokens a verify at
 a retrieval answer (α 0.71 and 0.82), 1.18 to 1.51 on chat, code, summary and GSM8K (α 0.15 to 0.35) (*measured*,
 α *computed*). On today's verify the decode stays under greedy except on retrieval (x1.012). With the integer-dot
 verify the copy-heavy prompts would reach 395 and 469 tok/s at 4B, free text about greedy's door (*estimated*).
+
+The 8B and 14B the same day ($1.76 of the operator's $2.60): identity at both sizes. Tokens a verify at k = 3 on the
+code edit 2.54 and 1.98, on the retrieval answer 3.52 and 2.61, 1.09 to 1.48 on free text (*measured*). Projected with
+the integer-dot verify: 241 and 334 tok/s at 8B, 115 and 150 at 14B on those two prompts (*estimated*).
