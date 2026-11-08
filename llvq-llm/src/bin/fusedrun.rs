@@ -34,22 +34,12 @@
 //! overhead — but the memory difference is the whole thesis: 8.04 GB of f16
 //! against the encoded projections plus a full-precision embedding.
 
-// Unconditional since `run_trim_ab` and `run_context_sweep`, which the Mac
-// type-checks, use them too.
+// Unconditional since the mode functions the Mac type-checks use them too.
 use std::time::Instant;
 use llvq_llm::model::NoCapture;
 
 #[cfg(all(target_os = "linux", feature = "cuda"))]
 const PROMPT: &str = "The capital of France is";
-
-/// Decode steps of the extra, fenced pass under `LLVQ_TIME_PHASES=1`.
-///
-/// Not cfg-gated like the rest of this binary, on purpose: the call sites
-/// only exist on linux+cuda, but a Mac cannot type-check gated code, and an
-/// error here would otherwise surface in a paid image build. Compiling it
-/// everywhere keeps `cargo check` on the dev machine load-bearing.
-#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
-const PHASE_TOKENS: usize = 32;
 
 /// The measurement protocol, aligned on the kernel benches (2026-08-18):
 /// one discarded generation per arm (kernel selection, allocator growth,
@@ -67,9 +57,8 @@ const PHASE_TOKENS: usize = 32;
 #[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
 const ROUNDS_TIMED: usize = 5;
 
-/// Median and min–max of per-round rates. Not cfg-gated, same reason as
-/// [`PHASE_TOKENS`]: the Mac must type-check what a paid image build would
-/// otherwise be the first to compile.
+/// Median and min–max of per-round rates. Not cfg-gated: the Mac must
+/// type-check what a paid image build would otherwise be the first to compile.
 #[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
 fn rate_stats(rounds: &[f64]) -> (f64, f64, f64) {
     assert!(!rounds.is_empty(), "rate_stats over zero rounds");
@@ -86,9 +75,8 @@ fn rate_stats(rounds: &[f64]) -> (f64, f64, f64) {
 /// One fused arm's published numbers, so two of them can be run in one process
 /// and compared side by side.
 ///
-/// Not cfg-gated, same reason as [`PHASE_TOKENS`]: a Mac cannot type-check
-/// gated code, and this struct's shape is exactly what an image build would
-/// otherwise be the first to compile.
+/// Not cfg-gated: a Mac cannot type-check gated code, and this struct's shape
+/// is exactly what an image build would otherwise be the first to compile.
 #[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
 struct Arm {
     fuse: llvq_llm::fused::FuseMode,
@@ -123,121 +111,6 @@ fn first_divergence(a: &[u32], b: &[u32]) -> Result<Option<usize>, String> {
         ));
     }
     Ok(a.iter().zip(b).position(|(x, y)| x != y))
-}
-
-/// The arms of `LLVQ_TRIM_AB`: the trimmed decode step, each of its three
-/// trims undone alone, and all three undone at once.
-///
-/// The three trims of 2026-10-30 are the all-zero decode mask skipped, the
-/// int4 activation read in f16 by `tv_q4_hh` instead of cast for `tv_q4_h`,
-/// and cudarc's per-allocation events turned off. Each is bit-identical by
-/// design, so every arm must return the same tokens. Each single-trim arm
-/// moves one mechanism against `trimmed` (the `check_fuse` rule); `untrimmed`
-/// is the path the published numbers were measured on.
-#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum TrimArm {
-    Trimmed,
-    Mask,
-    Cast,
-    Events,
-    Untrimmed,
-}
-
-#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
-impl TrimArm {
-    const ALL: [TrimArm; 5] =
-        [TrimArm::Trimmed, TrimArm::Mask, TrimArm::Cast, TrimArm::Events, TrimArm::Untrimmed];
-
-    fn name(self) -> &'static str {
-        match self {
-            TrimArm::Trimmed => "trimmed",
-            TrimArm::Mask => "+mask",
-            TrimArm::Cast => "+cast",
-            TrimArm::Events => "+events",
-            TrimArm::Untrimmed => "untrimmed",
-        }
-    }
-
-    /// Builds and adds the all-zero decode mask again.
-    fn mask(self) -> bool {
-        matches!(self, TrimArm::Mask | TrimArm::Untrimmed)
-    }
-
-    /// Casts the int4 activation to f32 for `tv_q4_h` again.
-    fn cast(self) -> bool {
-        matches!(self, TrimArm::Cast | TrimArm::Untrimmed)
-    }
-
-    /// Turns cudarc's per-allocation events back on.
-    fn events(self) -> bool {
-        matches!(self, TrimArm::Events | TrimArm::Untrimmed)
-    }
-}
-
-/// `LLVQ_TRIM_AB`: one model, every arm in every round, same order, two
-/// rounds discarded then [`ROUNDS_TIMED`]; each ratio formed round by round
-/// against `trimmed`. `set` puts the model and the runtime in an arm's state.
-/// Any token that differs between two arms or two rounds stops the run before
-/// a number is printed: the trims claim bit identity, and a speed measured on
-/// arms that disagree is not a speed of the same thing.
-///
-/// Out of the cfg-gated body so the Mac type-checks it.
-#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
-fn run_trim_ab(
-    model: &mut llvq_llm::model::Qwen3,
-    ids: &[u32],
-    n_new: usize,
-    mut set: impl FnMut(&mut llvq_llm::model::Qwen3, TrimArm) -> anyhow::Result<()>,
-) -> anyhow::Result<()> {
-    const WARMUP: usize = 2;
-    let mut reference: Option<Vec<u32>> = None;
-    let mut rates: Vec<Vec<f64>> = vec![Vec::new(); TrimArm::ALL.len()];
-    for round in 0..WARMUP + ROUNDS_TIMED {
-        for (k, arm) in TrimArm::ALL.into_iter().enumerate() {
-            set(model, arm)?;
-            let t = Instant::now();
-            let out = model.generate(ids, n_new, &mut NoCapture)?;
-            let rate = n_new as f64 / t.elapsed().as_secs_f64();
-            match &reference {
-                None => reference = Some(out),
-                Some(r) => {
-                    if let Some(i) = first_divergence(r, &out).map_err(|e| anyhow::anyhow!("{e}"))? {
-                        anyhow::bail!(
-                            "round {round}, arm {}: divergence at token {i}. The trims are \
-                             bit-identical by design, and arms that disagree void the run",
-                            arm.name()
-                        );
-                    }
-                }
-            }
-            if round >= WARMUP {
-                rates[k].push(rate);
-            }
-        }
-    }
-    set(model, TrimArm::Trimmed)?;
-    let n_tokens = reference.map_or(0, |r| r.len());
-    println!(
-        "\n{} arms × {ROUNDS_TIMED} interleaved rounds after {WARMUP} discarded, \
-         {n_tokens} identical tokens in every arm and round",
-        TrimArm::ALL.len()
-    );
-    println!("  arm         tok/s [range]           trimmed / arm, round by round");
-    for (k, arm) in TrimArm::ALL.into_iter().enumerate() {
-        let (m, lo, hi) = rate_stats(&rates[k]);
-        if k == 0 {
-            println!("  {:<10}  {m:6.1} [{lo:.1}–{hi:.1}]", arm.name());
-            continue;
-        }
-        let ratios: Vec<f64> = rates[0].iter().zip(&rates[k]).map(|(a, b)| a / b).collect();
-        let (mr, lr, hr) = rate_stats(&ratios);
-        println!(
-            "  {:<10}  {m:6.1} [{lo:.1}–{hi:.1}]    {mr:.4} [{lr:.4}–{hr:.4}]",
-            arm.name()
-        );
-    }
-    Ok(())
 }
 
 /// The prompt lengths of `LLVQ_CONTEXTS`, comma-separated, each above zero.
@@ -822,331 +695,6 @@ fn run_gqa_ppl(
     Ok(())
 }
 
-/// The arms of `LLVQ_GESTURE_AB`, Part A of the gestures prereg: the token
-/// boundary of the decode loop, one mechanism an arm against its neighbour
-/// (`llvq_llm::model::TokenLoop`). `Base` is `generate` itself, untouched.
-#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum GestureArm {
-    Base,
-    F16,
-    Key,
-    OnDevKey,
-    OnDevCandle,
-}
-
-#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
-impl GestureArm {
-    const ALL: [GestureArm; 5] =
-        [GestureArm::Base, GestureArm::F16, GestureArm::Key, GestureArm::OnDevKey, GestureArm::OnDevCandle];
-
-    fn name(self) -> &'static str {
-        match self {
-            GestureArm::Base => "base",
-            GestureArm::F16 => "f16",
-            GestureArm::Key => "key",
-            GestureArm::OnDevKey => "ondev-key",
-            GestureArm::OnDevCandle => "ondev-candle",
-        }
-    }
-
-    fn run(
-        self,
-        m: &llvq_llm::model::Qwen3,
-        ids: &[u32],
-        n: usize,
-        key: &dyn llvq_llm::model::KeyKernel,
-    ) -> candle_core::Result<Vec<u32>> {
-        use llvq_llm::model::TokenLoop;
-        match self {
-            GestureArm::Base => m.generate(ids, n, &mut NoCapture),
-            GestureArm::F16 => m.generate_loop(ids, n, &TokenLoop::F16),
-            GestureArm::Key => m.generate_loop(ids, n, &TokenLoop::Key(key)),
-            GestureArm::OnDevKey => m.generate_loop(ids, n, &TokenLoop::OnDevKey(key)),
-            GestureArm::OnDevCandle => m.generate_loop(ids, n, &TokenLoop::OnDevCandle),
-        }
-    }
-}
-
-/// The ratios of `LLVQ_GESTURE_AB`, `numerator / denominator` in tok/s,
-/// formed round by round. The first four move one mechanism each and are the
-/// ones the decision rules read; the last moves three and decides nothing.
-#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
-const GESTURE_RATIOS: [(GestureArm, GestureArm, &str); 5] = [
-    (GestureArm::F16, GestureArm::Base, "a1, the cast"),
-    (GestureArm::Key, GestureArm::F16, "a2, the key kernel"),
-    (GestureArm::OnDevKey, GestureArm::Key, "a3, readback and upload, key kernel"),
-    (GestureArm::OnDevCandle, GestureArm::F16, "a3, readback and upload, candle's argmax"),
-    (GestureArm::OnDevKey, GestureArm::Base, "three mechanisms, reported only"),
-];
-
-/// `LLVQ_GESTURE_AB`, the arms: one model, every arm in every round, same
-/// order, two rounds discarded then [`ROUNDS_TIMED`], the `run_trim_ab`
-/// protocol. Any token that differs from `Base` in any arm or round stops the
-/// run before a number is printed: every gesture claims bit identity.
-/// Returns `Base`'s tokens, the reference of the clocks.
-///
-/// Out of the cfg-gated body so the Mac type-checks it.
-#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
-fn run_gesture_arms(
-    m: &llvq_llm::model::Qwen3,
-    ids: &[u32],
-    n_new: usize,
-    key: &dyn llvq_llm::model::KeyKernel,
-) -> anyhow::Result<Vec<u32>> {
-    const WARMUP: usize = 2;
-    let mut reference: Option<Vec<u32>> = None;
-    let mut rates: Vec<Vec<f64>> = vec![Vec::new(); GestureArm::ALL.len()];
-    for round in 0..WARMUP + ROUNDS_TIMED {
-        for (k, arm) in GestureArm::ALL.into_iter().enumerate() {
-            let t = Instant::now();
-            let out = arm.run(m, ids, n_new, key)?;
-            let rate = n_new as f64 / t.elapsed().as_secs_f64();
-            match &reference {
-                None => reference = Some(out),
-                Some(r) => {
-                    if let Some(i) = first_divergence(r, &out).map_err(|e| anyhow::anyhow!("{e}"))? {
-                        anyhow::bail!(
-                            "round {round}, arm {}: divergence at token {i}. Every gesture claims bit \
-                             identity, and arms that disagree void the run",
-                            arm.name()
-                        );
-                    }
-                }
-            }
-            if round >= WARMUP {
-                rates[k].push(rate);
-            }
-        }
-    }
-    let reference = reference.expect("at least one round ran");
-    println!(
-        "\n{} arms × {ROUNDS_TIMED} interleaved rounds after {WARMUP} discarded, {} identical tokens \
-         in every arm and round",
-        GestureArm::ALL.len(),
-        reference.len()
-    );
-    println!("  arm            tok/s [range]");
-    for (k, arm) in GestureArm::ALL.into_iter().enumerate() {
-        let (m, lo, hi) = rate_stats(&rates[k]);
-        println!("  {:<13}  {m:6.1} [{lo:.1}–{hi:.1}]", arm.name());
-    }
-    println!("  ratio, round by round                    median [range]");
-    let at = |a: GestureArm| GestureArm::ALL.iter().position(|&x| x == a).expect("every arm is in ALL");
-    for (num, den, what) in GESTURE_RATIOS {
-        let r: Vec<f64> = rates[at(num)].iter().zip(&rates[at(den)]).map(|(a, b)| a / b).collect();
-        let (mr, lr, hr) = rate_stats(&r);
-        println!(
-            "  {:>12} / {:<5}  {mr:.4} [{lr:.4}–{hr:.4}]   {what}",
-            num.name(),
-            den.name()
-        );
-    }
-    Ok(reference)
-}
-
-/// Decode steps of each pass of the `LLVQ_GESTURE_AB` clocks.
-#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
-const CLOCK_TOKENS: usize = 64;
-
-/// `E_base` and `E_ondev`, ms a decode step: `(T(64) − T(1)) / 63` for the
-/// `Base` and `OnDevKey` arms, each pass ending on its readback, five passes
-/// interleaved, median and range. The difference removes the prefill and the
-/// first head, so what is left is 63 decode steps of each arm as it runs.
-#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
-fn decode_step_clock(
-    m: &llvq_llm::model::Qwen3,
-    ids: &[u32],
-    key: &dyn llvq_llm::model::KeyKernel,
-    reference: &[u32],
-) -> anyhow::Result<[(f64, f64, f64); 2]> {
-    let arms = [GestureArm::Base, GestureArm::OnDevKey];
-    let mut e: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
-    for _ in 0..ROUNDS_TIMED {
-        for (k, arm) in arms.into_iter().enumerate() {
-            let t = Instant::now();
-            let long = arm.run(m, ids, CLOCK_TOKENS, key)?;
-            let t_long = t.elapsed().as_secs_f64();
-            let t = Instant::now();
-            let short = arm.run(m, ids, 1, key)?;
-            let t_short = t.elapsed().as_secs_f64();
-            for (got, n) in [(&long, CLOCK_TOKENS), (&short, 1)] {
-                if let Some(i) = first_divergence(&reference[..n], got).map_err(|e| anyhow::anyhow!("{e}"))? {
-                    anyhow::bail!("clock, arm {}, {n} tokens: divergence at token {i}", arm.name());
-                }
-            }
-            e[k].push((t_long - t_short) * 1e3 / (CLOCK_TOKENS - 1) as f64);
-        }
-    }
-    Ok([rate_stats(&e[0]), rate_stats(&e[1])])
-}
-
-/// `LLVQ_GESTURE_AB` on the card, in order, each step gating the next: P1 the
-/// key's load check, P2 the card mutants, P3 the kernel times, P4 the
-/// pageable-copy probe, the arms, then the clocks.
-#[cfg(all(target_os = "linux", feature = "cuda"))]
-fn run_gesture_mode(
-    m: &llvq_llm::model::Qwen3,
-    device: &candle_core::Device,
-    ids: &[u32],
-    n_new: usize,
-) -> anyhow::Result<()> {
-    use llvq_llm::gesture_cuda::{kill_card_mutants, GestureProbe, KeyArgmax, P4_SPIN_NS};
-
-    let key = KeyArgmax::new(device)?;
-    println!("tok_argmax_h: own NVRTC module, source sha256 {}", key.sha256);
-    match key.check(device)? {
-        Ok(line) => println!("P1 {line}"),
-        Err(why) => anyhow::bail!("P1, the key's load check: {why}. The run is void"),
-    }
-    let killed = kill_card_mutants(device)?;
-    println!(
-        "P2 {} of {} card mutants killed on the card, each edit found exactly once",
-        killed.len(),
-        llvq_llm::argmax_key::KERNEL_MUTANTS.len()
-    );
-    for line in &killed {
-        println!("{line}");
-    }
-
-    let probe = GestureProbe::new(device)?;
-    let logits = {
-        let mut caches = m.fresh_caches();
-        let input = candle_core::Tensor::from_slice(ids, (1, ids.len()), device)?;
-        let h = m.hidden_cached(&input, 0, &mut caches, &mut NoCapture)?;
-        m.logits_last_native(&h)?
-    };
-    let kt = probe.kernel_times(device, &key, &logits)?;
-    println!(
-        "P3 kernel time, us a launch ({} x {} launches, median): argmax_f16 {:.2}, argmax_f32 {:.2}, \
-         cast {:.2}, key {:.2}, candle argmax call {:.2}",
-        llvq_llm::gesture_cuda::PROBE_REPS,
-        llvq_llm::gesture_cuda::PROBE_BATCH,
-        kt.argmax_f16_direct,
-        kt.argmax_f32_direct,
-        kt.cast,
-        kt.key,
-        kt.candle_argmax_call
-    );
-    let ct = probe.copy_times(device, &logits)?;
-    let power = if ct.to_scalar > 4.0 {
-        "the control waited"
-    } else {
-        "the control did NOT wait: P4 has no power, its readings are not used"
-    };
-    println!(
-        "P4 host time behind a {} ms spin, ms (median of {}): from_slice {:.3}, candle argmax {:.3}, \
-         to_scalar {:.3} ({power})",
-        P4_SPIN_NS / 1_000_000,
-        llvq_llm::gesture_cuda::PROBE_REPS,
-        ct.from_slice,
-        ct.candle_argmax,
-        ct.to_scalar
-    );
-
-    let reference = run_gesture_arms(m, ids, n_new, &key)?;
-
-    let [eb, eo] = decode_step_clock(m, ids, &key, &reference)?;
-    println!(
-        "\nclock E, ms a decode step ((T({CLOCK_TOKENS}) - T(1)) / {}, {ROUNDS_TIMED} passes): \
-         E_base {:.3} [{:.3}–{:.3}], E_ondev {:.3} [{:.3}–{:.3}], E_base - E_ondev {:.3}",
-        CLOCK_TOKENS - 1,
-        eb.0, eb.1, eb.2, eo.0, eo.1, eo.2,
-        eb.0 - eo.0
-    );
-    spun_clock(m, device, ids, &key, &probe, &reference, eo.0)
-}
-
-/// The spun clock: the `OnDevKey` step cut in segments, each enqueued behind
-/// a 5 ms spin, so the host's enqueue span H and the device's work D are
-/// read apart. A step counts only if every segment was enqueued at least
-/// 1 ms before its spin could end. No pageable copy happens inside a step.
-#[cfg(all(target_os = "linux", feature = "cuda"))]
-fn spun_clock(
-    m: &llvq_llm::model::Qwen3,
-    device: &candle_core::Device,
-    ids: &[u32],
-    key: &llvq_llm::gesture_cuda::KeyArgmax,
-    probe: &llvq_llm::gesture_cuda::GestureProbe,
-    reference: &[u32],
-    e_ondev: f64,
-) -> anyhow::Result<()> {
-    use candle_core::{DType, Tensor};
-    use llvq_llm::model::KeyKernel;
-    const SPIN_NS: u64 = 5_000_000;
-    let layers = m.config().num_hidden_layers;
-    let at: Vec<usize> = (1..6).map(|k| k * layers / 6).collect();
-    let (mut hs, mut ds, mut slack) = (Vec::new(), Vec::new(), Vec::new());
-    let (mut valid, mut total) = (0usize, 0usize);
-    for _ in 0..ROUNDS_TIMED {
-        let mut caches = m.fresh_caches();
-        key.arm()?;
-        let ring = Tensor::zeros(CLOCK_TOKENS, DType::U32, device)?;
-        let input = Tensor::from_slice(ids, (1, ids.len()), device)?;
-        let h = m.hidden_cached(&input, 0, &mut caches, &mut NoCapture)?;
-        key.write(&m.logits_last_native(&h)?, &ring, 0)?;
-        probe.sync()?;
-        let mut cap = llvq_llm::gesture_cuda::SpinCapture::new(probe, SPIN_NS, at.clone())?;
-        let last = at.len();
-        for (pos, offset) in (1..CLOCK_TOKENS).zip(ids.len()..) {
-            cap.open(0)?;
-            let next = ring.narrow(0, pos - 1, 1)?.reshape((1, 1))?;
-            let h = m.hidden_cached(&next, offset, &mut caches, &mut cap)?;
-            key.write(&m.logits_last_native(&h)?, &ring, pos)?;
-            cap.close(last)?;
-            probe.sync()?;
-            let (h_ms, d_ms, ok) = cap.read()?;
-            total += 1;
-            if ok {
-                valid += 1;
-                hs.push(h_ms);
-                ds.push(d_ms);
-                slack.push(d_ms - h_ms);
-            }
-        }
-        let tokens = ring.to_vec1::<u32>()?;
-        if key.nan_seen()? {
-            anyhow::bail!("spun clock: a NaN logit");
-        }
-        if let Some(i) = first_divergence(&reference[..CLOCK_TOKENS], &tokens).map_err(|e| anyhow::anyhow!("{e}"))? {
-            anyhow::bail!("spun clock: divergence at token {i} from the base arm");
-        }
-    }
-    println!(
-        "clock H/D: {valid} of {total} spun steps valid ({:.1} %), {} segments a step after ln1 of \
-         layers {at:?}, {} ms spins",
-        100.0 * valid as f64 / total as f64,
-        at.len() + 1,
-        SPIN_NS / 1_000_000
-    );
-    if valid == 0 {
-        println!("  no valid step: H and D are not measured");
-        return Ok(());
-    }
-    let (h, hl, hh) = rate_stats(&hs);
-    let (d, dl, dh) = rate_stats(&ds);
-    let (s, sl, sh) = rate_stats(&slack);
-    println!(
-        "  H {h:.3} [{hl:.3}–{hh:.3}] ms, D {d:.3} [{dl:.3}–{dh:.3}] ms, slack D - H {s:.3} \
-         [{sl:.3}–{sh:.3}] ms, X_ondev = E_ondev - D {:.3} ms",
-        e_ondev - d
-    );
-    Ok(())
-}
-
-/// `LLVQ_BOUNDARY_AB`: one model, every arm in every round, same order, two
-/// rounds discarded then [`ROUNDS_TIMED`], the `run_trim_ab` protocol. `set`
-/// puts the model and the runtime in an arm's state. Any token that differs
-/// between two arms or two rounds stops the run before a number is printed:
-/// every arm adds boundaries and no arithmetic. So does an arm whose counted
-/// boundaries fall outside what its table row allows, or move between
-/// rounds: an arm that added nothing would otherwise time as a free boundary.
-///
-/// `t = elapsed / n_new`, and the cost of one added boundary is
-/// `(t_arm - t_served) / boundaries a token`, formed round by round
-/// (`llvq_llm::boundary::per_boundary_us`).
-///
-/// Out of the cfg-gated body so the Mac type-checks it.
 #[cfg(all(target_os = "linux", feature = "cuda"))]
 /// The served door under a config that names the persistent decode. The eager
 /// path under the same config (the kernel form from position 0) makes the
@@ -1162,7 +710,7 @@ fn served_door_4e(
     n_new: usize,
     load_s: f64,
 ) -> anyhow::Result<()> {
-    use llvq_llm::boundary::median_range;
+    use llvq_llm::stats::median_range;
     anyhow::ensure!(n_new >= 2, "the served 4E door times the decode after the first token: {n_new} asked");
     let chunk = llvq_llm::model::MAX_PREFILL_ROWS;
     let want = f.model.generate_timed(ids, n_new, chunk)?.tokens;
@@ -1220,7 +768,7 @@ fn run_pers_4e(
     prompt: &[u32],
     n_new: usize,
 ) -> anyhow::Result<()> {
-    use llvq_llm::boundary::median_range;
+    use llvq_llm::stats::median_range;
     const WARMUP: usize = 2;
     // The form 4E and the eager side run. From KERNEL_FROM on, the served
     // config itself (the kernel from position 1,280, operator T8): every
@@ -1385,133 +933,6 @@ fn run_pers_4e(
     Ok(())
 }
 
-#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
-fn run_boundary_ab(
-    model: &mut llvq_llm::model::Qwen3,
-    ids: &[u32],
-    n_new: usize,
-    mut set: impl FnMut(&mut llvq_llm::model::Qwen3, llvq_llm::boundary::BoundaryArm) -> anyhow::Result<()>,
-) -> anyhow::Result<()> {
-    use llvq_llm::boundary::{
-        counted_bounds, derived_series, median_range, per_boundary_us, take_added, BoundaryArm,
-        DERIVED,
-    };
-    const WARMUP: usize = 2;
-    let arms = BoundaryArm::ALL;
-    let mut reference: Option<Vec<u32>> = None;
-    let mut secs: Vec<Vec<f64>> = vec![Vec::new(); arms.len()];
-    let mut counted: Vec<Option<u64>> = vec![None; arms.len()];
-    for round in 0..WARMUP + ROUNDS_TIMED {
-        for (k, arm) in arms.into_iter().enumerate() {
-            set(model, arm)?;
-            take_added();
-            let t = Instant::now();
-            let out = model.generate(ids, n_new, &mut NoCapture)?;
-            let s = t.elapsed().as_secs_f64();
-            let added = take_added();
-            match &reference {
-                None => reference = Some(out),
-                Some(r) => {
-                    if let Some(i) = first_divergence(r, &out).map_err(|e| anyhow::anyhow!("{e}"))? {
-                        anyhow::bail!(
-                            "round {round}, arm {}: divergence at token {i}. Every arm adds \
-                             boundaries and no arithmetic, and arms that disagree void the run",
-                            arm.name()
-                        );
-                    }
-                }
-            }
-            let (lo, hi) = counted_bounds(arm, n_new, ids.len());
-            if added < lo || added > hi {
-                anyhow::bail!(
-                    "round {round}, arm {}: {added} boundaries added in a generate, outside \
-                     [{lo}, {hi}] for {} a decode step. The arm is not wired as its row says, \
-                     and the run is void",
-                    arm.name(),
-                    arm.boundaries_per_token()
-                );
-            }
-            match counted[k] {
-                None => counted[k] = Some(added),
-                Some(c) if c != added => anyhow::bail!(
-                    "round {round}, arm {}: {added} boundaries added, {c} in round 0. The run is void",
-                    arm.name()
-                ),
-                Some(_) => {}
-            }
-            if round >= WARMUP {
-                secs[k].push(s / n_new as f64);
-            }
-        }
-    }
-    set(model, BoundaryArm::Served)?;
-    let n_tokens = reference.map_or(0, |r| r.len());
-    println!(
-        "\n{} arms × {ROUNDS_TIMED} interleaved rounds after {WARMUP} discarded, {n_tokens} \
-         identical tokens in every arm and round",
-        arms.len()
-    );
-    println!(
-        "  t = elapsed / {n_new}; us per added boundary = (t_arm - t_served) / boundaries a \
-         token, round by round"
-    );
-    println!("  arm             a token  a generate   tok/s [range]          us per added boundary [range]");
-    let mut per: Vec<Vec<f64>> = vec![Vec::new(); arms.len()];
-    for (k, arm) in arms.into_iter().enumerate() {
-        let rates: Vec<f64> = secs[k].iter().map(|t| 1.0 / t).collect();
-        let (m, lo, hi) = median_range(&rates);
-        let nb = arm.boundaries_per_token();
-        let c = counted[k].unwrap_or(0);
-        if nb == 0 {
-            println!("  {:<14}  {nb:>7}  {c:>10}   {m:6.1} [{lo:.1}–{hi:.1}]", arm.name());
-            continue;
-        }
-        per[k] = per_boundary_us(&secs[0], &secs[k], nb).map_err(|e| anyhow::anyhow!("{e}"))?;
-        let (pm, pl, ph) = median_range(&per[k]);
-        println!(
-            "  {:<14}  {nb:>7}  {c:>10}   {m:6.1} [{lo:.1}–{hi:.1}]   {pm:7.3} [{pl:.3}–{ph:.3}]",
-            arm.name()
-        );
-    }
-    println!("\nderived classes, us per boundary, round by round (printed, never gated)");
-    for (name, a, b) in DERIVED {
-        let d = derived_series(&per, a, b).map_err(|e| anyhow::anyhow!("{e}"))?;
-        let (m, lo, hi) = median_range(&d);
-        let note = if name == "linearity" { "   (0 when linear)" } else { "" };
-        println!(
-            "  {name:<10} = {:<14} - {:<10}  {m:7.3} [{lo:.3}–{hi:.3}]{note}",
-            a.name(),
-            b.name()
-        );
-    }
-    Ok(())
-}
-
-/// The per-phase table of one arm's fenced pass. Additive diagnostics: this
-/// runs *after* the arm's published measurement and prints below it, so the
-/// published lines stay byte-identical.
-#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
-fn print_phases(arm: &str, r: &llvq_llm::model::PhaseReport) {
-    use llvq_llm::model::PhaseReport;
-    println!("\n--- phases, arm {arm} (LLVQ_TIME_PHASES, {PHASE_TOKENS} tokens, off protocol) ---");
-    println!("  WARNING: each phase is bounded by a device synchronization. The");
-    println!("     attribution holds, but the fences serialize what the normal path");
-    println!("     overlaps. This total does NOT replace the tok/s published above.");
-    println!("  {:<15}{:>10}  range (ms/token)", "phase", "median");
-    let mut total = 0.0;
-    for (name, samples) in [
-        ("embed", &r.embed_ms),
-        ("blocks+norm", &r.blocks_ms),
-        ("lm_head", &r.head_ms),
-        ("argmax+misc", &r.rest_ms),
-    ] {
-        let (med, lo, hi) = PhaseReport::stats(samples);
-        total += med;
-        println!("  {name:<15}{med:>10.3}  [{lo:.3}–{hi:.3}]  ({} samples)", samples.len());
-    }
-    println!("  {:<15}{total:>10.3}  (sum of medians, fences included)", "total fenced");
-}
-
 /// The measurement modes and prompt variables of this binary that run alone.
 ///
 /// One table replaces the eight lists each mode used to spell out, which had
@@ -1520,9 +941,9 @@ fn print_phases(arm: &str, r: &llvq_llm::model::PhaseReport) {
 /// them, so a mode beside `LLVQ_GQA_PPL` was silently ignored. A mode calls
 /// [`runs_alone`]: every OTHER name here, set beside it, is refused.
 #[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
-const ALONE: [&str; 11] = [
-    "LLVQ_INT4_WIDE_CHECK", "LLVQ_GESTURE_AB", "LLVQ_BOUNDARY_AB", "LLVQ_PERS_4E", "LLVQ_GQA_PPL",
-    "LLVQ_GQA_AB", "LLVQ_CONTEXTS", "LLVQ_TRIM_AB", "LLVQ_PREFILL_TOKENS", "LLVQ_TIME_PHASES", "LLVQ_SEG_ARMS",
+const ALONE: [&str; 7] = [
+    "LLVQ_INT4_WIDE_CHECK", "LLVQ_PERS_4E", "LLVQ_GQA_PPL", "LLVQ_GQA_AB", "LLVQ_CONTEXTS", "LLVQ_PREFILL_TOKENS",
+    "LLVQ_SEG_ARMS",
 ];
 
 /// `mode` against every other name of [`ALONE`] and the mode's own `extra`
@@ -1594,14 +1015,6 @@ fn main() -> anyhow::Result<()> {
         }
         println!("{device:?}, dtype {dtype:?}, {n_new} tokens\n");
 
-        // Whether to run the extra fenced pass after each arm's published
-        // measurement. With the variable unset (or anything but "1") this
-        // binary is byte-identical to the published protocol: the gate is the
-        // only reference to it, and no fence exists outside the gated calls.
-        let time_phases = llvq_llm::model::time_phases_enabled(
-            std::env::var("LLVQ_TIME_PHASES").ok().as_deref(),
-        );
-
         // ---- LLVQ_INT4_WIDE_CHECK: the f16-staged int4 kernel, bytes ----
         //
         // A MEASUREMENT MODE on the bench door, refused beside LLVQ_CONFIG
@@ -1628,171 +1041,6 @@ fn main() -> anyhow::Result<()> {
         if let Ok(v) = std::env::var("LLVQ_INT4_WIDE_CHECK") {
             anyhow::bail!("LLVQ_INT4_WIDE_CHECK={v:?}: the only value is 1");
         }
-        // ---- LLVQ_GESTURE_AB: the token boundary of the decode loop ----
-        //
-        // A MEASUREMENT MODE on the bench door, refused beside LLVQ_CONFIG, the
-        // served flags spelled out on the command line: Part A of the gestures
-        // prereg. ONE model in the served 4B state (Grow(256) + grouped, the
-        // three trims in force, events off before the load), the key kernel's load check
-        // and card mutants, two probes, five arms, two clocks
-        // (`run_gesture_mode`). Every arm must return the base arm's tokens.
-        // `LLVQ_KERNEL_DIR` is refused: the mutants are applied in memory to
-        // the embedded kernel text, and a directory would swap the text the
-        // load check certifies.
-        if let Ok(v) = std::env::var("LLVQ_GESTURE_AB") {
-            if v != "1" {
-                anyhow::bail!("LLVQ_GESTURE_AB={v:?}: the only value is 1");
-            }
-            runs_alone("LLVQ_GESTURE_AB", &["LLVQ_KERNEL_DIR"])?;
-            if n_new < CLOCK_TOKENS {
-                anyhow::bail!("LLVQ_GESTURE_AB: {n_new} tokens, and its clocks decode {CLOCK_TOKENS}");
-            }
-            // Events off BEFORE the load, as the served door does in
-            // `load_resolved`: cudarc records a read event at every use of a
-            // slice created while tracking was on, whatever the flag says at the
-            // use, so turning it off after the load would leave every weight
-            // recording an event at every launch, a state the served door never
-            // runs in.
-            let ctx = device.as_cuda_device()?.cuda_stream().context().clone();
-            if ctx.is_in_multi_stream_mode() {
-                anyhow::bail!("LLVQ_GESTURE_AB: the context holds several streams, and turning \
-                               cudarc's events off is only safe on one");
-            }
-            // Safe: one stream, checked above, orders every access by issue.
-            unsafe {
-                ctx.disable_event_tracking();
-            }
-            println!("cudarc event tracking: off (one stream, ordered by issue), before the load");
-            let fuse = llvq_llm::fused::FuseMode::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
-            let t = Instant::now();
-            let mut f = llvq_llm::fused_cuda::load_with(&path, &device, dtype, fuse)?;
-            println!(
-                "loaded in {:.1} s. gesture A/B: {} arms, one model, interleaved rounds",
-                t.elapsed().as_secs_f64(),
-                GestureArm::ALL.len()
-            );
-            println!(
-                "LLVQ_ROT_SHARE={}, {} rot_launches/token · LLVQ_FUSE={}, {} matvec_launches/token",
-                f.rot_share.name(), f.rot_launches, f.fuse.name(), f.matvec_launches
-            );
-            GqaArm::Grouped.apply(&mut f.model);
-            println!(
-                "attention {} on {}, layout {}",
-                f.model.attn_heads().label(),
-                f.model.kv_store().label(),
-                f.layout.name()
-            );
-            let ids = f
-                .tokenizer
-                .encode(PROMPT, false)
-                .map_err(|e| anyhow::anyhow!("{e}"))?
-                .get_ids()
-                .to_vec();
-            run_gesture_mode(&f.model, &device, &ids, n_new)?;
-            if ctx.is_in_multi_stream_mode() {
-                anyhow::bail!("LLVQ_GESTURE_AB: a second stream appeared during the run, with \
-                               cudarc's events off: the numbers above are void");
-            }
-            return Ok(());
-        }
-
-        // ---- LLVQ_BOUNDARY_AB: what one added kernel boundary costs ----
-        //
-        // A MEASUREMENT MODE on the bench door, refused beside LLVQ_CONFIG, the
-        // served flags spelled out on the command line: process 2b of
-        // prereg-persistent-0. ONE model in the served 4B state (Grow(256) +
-        // grouped, events off before the load), eight arms that each add kernel
-        // boundaries and no arithmetic (`llvq_llm::boundary`), every arm in
-        // every round (`run_boundary_ab`). The empty kernels come from their own
-        // module on candle's stream, so the served unit and its `NVRTC source:`
-        // line do not move. `LLVQ_KERNEL_DIR` is refused for that line's sake.
-        if let Ok(v) = std::env::var("LLVQ_BOUNDARY_AB") {
-            use llvq_llm::boundary::BoundaryArm;
-            if v != "1" {
-                anyhow::bail!("LLVQ_BOUNDARY_AB={v:?}: the only value is 1");
-            }
-            runs_alone("LLVQ_BOUNDARY_AB", &["LLVQ_KERNEL_DIR"])?;
-            if n_new < 2 {
-                anyhow::bail!("LLVQ_BOUNDARY_AB: {n_new} tokens, and its cost is read on decode steps");
-            }
-            // Both refused before the transcode. The splits are Tetra launches,
-            // and a fused gate+up would never reach them.
-            let layout = llvq_llm::fused::FusedLayout::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
-            if layout != llvq_llm::fused::FusedLayout::Tetra48 {
-                anyhow::bail!(
-                    "LLVQ_BOUNDARY_AB: layout {}, and its split arms are tv_tetra48_h launches. \
-                     Set LLVQ_FUSED_LAYOUT=tetra48",
-                    layout.name()
-                );
-            }
-            let fuse = llvq_llm::fused::FuseMode::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
-            if fuse != llvq_llm::fused::FuseMode::Off {
-                anyhow::bail!("LLVQ_BOUNDARY_AB: LLVQ_FUSE={}, and the served 4B runs 0", fuse.name());
-            }
-            // Events off BEFORE the load, as `LLVQ_GESTURE_AB` and the served
-            // door do: cudarc records a read event at every use of a slice
-            // created while tracking was on, whatever the flag says at the use.
-            let ctx = device.as_cuda_device()?.cuda_stream().context().clone();
-            if ctx.is_in_multi_stream_mode() {
-                anyhow::bail!("LLVQ_BOUNDARY_AB: the context holds several streams, and turning \
-                               cudarc's events off is only safe on one");
-            }
-            // Safe: one stream, checked above, orders every access by issue.
-            unsafe {
-                ctx.disable_event_tracking();
-            }
-            println!("cudarc event tracking: off (one stream, ordered by issue)");
-            let t = Instant::now();
-            let mut f = llvq_llm::fused_cuda::load_with(&path, &device, dtype, fuse)?;
-            let sha = llvq_llm::fused_cuda::install_boundary_probe(&device)?;
-            if ctx.is_in_multi_stream_mode() {
-                anyhow::bail!("LLVQ_BOUNDARY_AB: a second stream appeared at the load, with \
-                               cudarc's events off");
-            }
-            println!("llvq_empty: own NVRTC module on candle's stream, source sha256 {sha}");
-            println!(
-                "loaded in {:.1} s. boundary A/B: {} arms, one model, interleaved rounds",
-                t.elapsed().as_secs_f64(),
-                BoundaryArm::ALL.len()
-            );
-            println!(
-                "LLVQ_ROT_SHARE={}, {} rot_launches/token · LLVQ_FUSE={}, {} matvec_launches/token",
-                f.rot_share.name(), f.rot_launches, f.fuse.name(), f.matvec_launches
-            );
-            let c = f.model.config();
-            llvq_llm::boundary::check_4b_shape(c.num_hidden_layers, c.hidden_size, c.intermediate_size)
-                .map_err(|e| anyhow::anyhow!("{e}"))?;
-            GqaArm::Grouped.apply(&mut f.model);
-            println!("attention {} on {}", f.model.attn_heads().label(), f.model.kv_store().label());
-            println!(
-                "layout {}, {} layers, gate_proj {} rows, down_proj {} rows",
-                f.layout.name(),
-                llvq_llm::boundary::LAYERS_4B,
-                llvq_llm::boundary::GATE_D_OUT_4B,
-                llvq_llm::boundary::DOWN_D_OUT_4B
-            );
-            let ids = f
-                .tokenizer
-                .encode(PROMPT, false)
-                .map_err(|e| anyhow::anyhow!("{e}"))?
-                .get_ids()
-                .to_vec();
-            let ran = run_boundary_ab(&mut f.model, &ids, n_new, |m, arm| {
-                llvq_llm::fused_cuda::set_boundary_arm(arm);
-                m.set_candle_probe(arm.candle_probe())?;
-                Ok(())
-            });
-            // Back to the served state whatever the run returned.
-            llvq_llm::fused_cuda::set_boundary_arm(BoundaryArm::Served);
-            f.model.set_candle_probe(false)?;
-            ran?;
-            if ctx.is_in_multi_stream_mode() {
-                anyhow::bail!("LLVQ_BOUNDARY_AB: a second stream appeared during the run, with \
-                               cudarc's events off: the numbers above are void");
-            }
-            return Ok(());
-        }
-
         // ---- LLVQ_PERS_4E: the whole token in one launch, against the eager path ----
         //
         // A MEASUREMENT MODE on the bench door, refused beside LLVQ_CONFIG and
@@ -2052,58 +1300,10 @@ fn main() -> anyhow::Result<()> {
             return Ok(());
         }
 
-        // ---- LLVQ_TRIM_AB: what the three trims of 2026-10-30 save ----
-        //
-        // A MEASUREMENT MODE on the bench door, refused beside LLVQ_CONFIG: the
-        // served flags are spelled out on the command line. ONE model, every arm
-        // in every round (`run_trim_ab`). The events arm flips cudarc's tracking
-        // between rounds, which is safe only on one stream, so that is checked.
-        if std::env::var("LLVQ_TRIM_AB").ok().as_deref() == Some("1") {
-            let fuse = llvq_llm::fused::FuseMode::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
-            let t = Instant::now();
-            let mut f = llvq_llm::fused_cuda::load_with(&path, &device, dtype, fuse)?;
-            println!(
-                "loaded in {:.1} s. trim A/B: {} arms, one model, interleaved rounds",
-                t.elapsed().as_secs_f64(),
-                TrimArm::ALL.len()
-            );
-            println!(
-                "LLVQ_ROT_SHARE={}, {} rot_launches/token · LLVQ_FUSE={}, {} matvec_launches/token",
-                f.rot_share.name(), f.rot_launches, f.fuse.name(), f.matvec_launches
-            );
-            let ctx = device.as_cuda_device()?.cuda_stream().context().clone();
-            if ctx.is_in_multi_stream_mode() {
-                anyhow::bail!("LLVQ_TRIM_AB: the context holds several streams, and the \
-                               events arm is only safe on one");
-            }
-            let ids = f
-                .tokenizer
-                .encode(PROMPT, false)
-                .map_err(|e| anyhow::anyhow!("{e}"))?
-                .get_ids()
-                .to_vec();
-            run_trim_ab(&mut f.model, &ids, n_new, |m, arm| {
-                m.set_decode_mask(arm.mask());
-                llvq_llm::fused_cuda::set_int4_via_f32(arm.cast());
-                // Safe: one stream, checked above, orders every access by issue,
-                // so slices created under either setting are freed in order.
-                unsafe {
-                    if arm.events() {
-                        ctx.enable_event_tracking();
-                    } else {
-                        ctx.disable_event_tracking();
-                    }
-                }
-                Ok(())
-            })?;
-            return Ok(());
-        }
-
         // ---- LLVQ_PREFILL_TOKENS: what a prompt costs through the kernel ----
         //
-        // A MEASUREMENT MODE, never a served config — the `LLVQ_TIME_PHASES`
-        // rule. Unset, this binary is byte-identical to
-        // the published protocol.
+        // A MEASUREMENT MODE, never a served config. Unset, this binary is
+        // byte-identical to the published protocol.
         //
         // It answers one question and no other: how long does the fused path
         // take to swallow N tokens? That is what decides whether a real MMLU
@@ -2478,10 +1678,6 @@ fn main() -> anyhow::Result<()> {
             if tok.is_none() {
                 tok = Some(f.tokenizer.clone());
             }
-            if time_phases {
-                let (_, report) = f.model.generate_phased(&ids, PHASE_TOKENS)?;
-                print_phases(&format!("fused F{}", f.fuse.name()), &report);
-            }
             arms.push(Arm {
                 fuse: f.fuse,
                 tokens,
@@ -2537,10 +1733,6 @@ fn main() -> anyhow::Result<()> {
                 bytes as f64 / 1e9
             );
             println!("         kv_store={}", m.model.kv_store().label());
-            if time_phases {
-                let (_, report) = m.model.generate_phased(&ids, PHASE_TOKENS)?;
-                print_phases("dense", &report);
-            }
             (out, load, rate, lo, hi, bytes)
         };
 
@@ -2716,7 +1908,7 @@ mod tests {
         }
         // The hole the eight lists left: GQA_PPL returned before the modes
         // dispatched after it were read.
-        assert!(alone_in("LLVQ_GQA_PPL", &[], env_of(&[("LLVQ_TIME_PHASES", "1")])).is_err());
+        assert!(alone_in("LLVQ_GQA_PPL", &[], env_of(&[("LLVQ_PREFILL_TOKENS", "1")])).is_err());
     }
 
     /// The extra names are refused beside their mode only, and an unrelated

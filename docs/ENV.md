@@ -69,11 +69,8 @@ modes set together (`ALONE` in that file).
 |---|---|---|
 | `LLVQ_CONTEXTS` | `fusedrun` | prompt lengths: time to first token and decode speed after each; allowed beside a config |
 | `LLVQ_PREFILL_TOKENS` | `fusedrun` | prompt length for the prefill timing; allowed beside a config |
-| `LLVQ_TRIM_AB` | `fusedrun` | trim A/B |
-| `LLVQ_TIME_PHASES` | `fusedrun`, `model.rs` | per-phase timing of a token |
 | `LLVQ_GQA_AB`, `LLVQ_GQA_PPL` | `fusedrun` | grouped attention timing, and its paired perplexity |
 | `LLVQ_INT4_WIDE_CHECK` | `fusedrun` | int4 kernel against the host at widths above 14B |
-| `LLVQ_GESTURE_AB`, `LLVQ_BOUNDARY_AB` | `fusedrun` | decode-step gesture and boundary A/Bs |
 | `LLVQ_PERS_4E` | `fusedrun` | 4E's row forms against the eager path |
 | `LLVQ_BATCH_REF` | `batchrun` | the door's token fingerprint every batched row must reproduce |
 | `LLVQ_BENCH_ARMS`, `LLVQ_SEG_ARMS`, `LLVQ_SEG_TETRA`, `LLVQ_TIME_EVENTS` | `planesbench` | arm selection, segment arms, Tetra segment, event timing |
@@ -92,6 +89,10 @@ copied from an old journal fails instead of measuring something else.
 | `LLVQ_GRAPH_AB`, `LLVQ_GRAPH_DIAG` | `fusedrun`'s CUDA Graphs A/B and its diagnostic |
 | `LLVQ_KV_AB`, `LLVQ_FUSE_AB` | `fusedrun`'s cache-store and fusion A/Bs |
 | `LLVQ_PERS_SEGMENT` | route P's persistent MLP segment against the eager MLP |
+| `LLVQ_TIME_PHASES` | `fusedrun`'s fenced per-phase pass; `metalrun phased` keeps the fenced decode |
+| `LLVQ_TRIM_AB` | `fusedrun`'s A/B of the three decode trims of 2026-10-30, now always on |
+| `LLVQ_GESTURE_AB` | `fusedrun`'s token-loop gestures, with `gesture_cuda.rs` and `gesture_spin.cu` |
+| `LLVQ_BOUNDARY_AB` | `fusedrun`'s added-kernel-boundary A/B, with the split and empty launches |
 
 ## Tests
 

@@ -96,40 +96,6 @@ impl Capture for NoCapture {
     }
 }
 
-/// The key argmax as the decode loop sees it: write the greedy token of
-/// `logits` (`[1, 1, vocab]`) into `ring[pos]`, on the device, with candle's
-/// tie order, and never read anything back to the host.
-///
-/// CUDA: `fused_cuda::KeyArgmax`, the kernel `tok_argmax_h` as an in-place op
-/// on the ring (no allocation, no upload), checked at load against candle's
-/// own `fast_argmax_f16`. CPU tests: a stand-in that pins the plumbing of the
-/// loops; the key itself is certified by `crate::argmax_key`.
-pub trait KeyKernel: Send + Sync {
-    fn write(&self, logits: &Tensor, ring: &Tensor, pos: usize) -> Result<()>;
-    /// Zero the sticky NaN flag before a generation.
-    fn arm(&self) -> Result<()>;
-    /// Whether a NaN logit was met since [`Self::arm`]. A 4-byte read, once a
-    /// generation.
-    fn nan_seen(&self) -> Result<bool>;
-}
-
-/// How [`Qwen3::generate_loop`] picks and feeds each token. Each kind moves one
-/// mechanism against its neighbour, so each A/B ratio isolates one gesture:
-///
-/// | kind | per token | ratio | gesture |
-/// |---|---|---|---|
-/// | `generate` | head, f32 cast, candle argmax, readback, upload | | today |
-/// | `F16` | without the cast | `F16 / generate` | a1 |
-/// | `Key` | F16 with the key kernel into a one-slot ring, readback, upload | `Key / F16` | a2 |
-/// | `OnDevKey` | Key without the readback and upload: the next step embeds `ring[pos]` | `OnDevKey / Key` | a3 |
-/// | `OnDevCandle` | F16 without the readback and upload: candle's argmax output is the next input | `OnDevCandle / F16` | a3, candle's kernel |
-pub enum TokenLoop<'a> {
-    F16,
-    Key(&'a dyn KeyKernel),
-    OnDevKey(&'a dyn KeyKernel),
-    OnDevCandle,
-}
-
 /// Per-phase wall time of a fenced greedy decode, milliseconds.
 ///
 /// Produced by [`Qwen3::generate_phased`]; see its contract. A decode of `n`
@@ -167,12 +133,6 @@ impl PhaseReport {
         };
         (median, s[0], s[n - 1])
     }
-}
-
-/// The `LLVQ_TIME_PHASES` gate: exactly `"1"` opts in. Anything else — unset
-/// included — leaves the caller byte-identical to the published protocol.
-pub fn time_phases_enabled(value: Option<&str>) -> bool {
-    value == Some("1")
 }
 
 /// One phase boundary: a device fence, counted.
@@ -1946,16 +1906,6 @@ pub struct Qwen3 {
     /// How every block's attention reads the cached heads, kept here as well
     /// as in every block. Set through [`Self::set_attn_heads`] only.
     attn_heads: crate::kvq::AttnHeads,
-    /// Measurement only, `false` everywhere else: build and add the all-zero
-    /// mask of a `Cat` decode step, as every decode step did before
-    /// [`Self::step_mask`] learned to skip it. `bin/fusedrun`'s
-    /// `LLVQ_TRIM_AB` sets it on one arm to time what the skip saves.
-    decode_mask: bool,
-    /// Measurement only, `None` everywhere else: a 1-element f16 tensor
-    /// that [`Self::hidden_cached`] runs one candle affine on after each
-    /// layer, the `candle-tiny` arm of `bin/fusedrun`'s `LLVQ_BOUNDARY_AB`.
-    /// The result is dropped, so no output moves.
-    candle_probe: Option<Tensor>,
     embed: Embed,
     pub blocks: Vec<Block>,
     norm: RmsNorm,
@@ -2032,8 +1982,6 @@ impl Qwen3 {
             kv,
             kv_store: crate::kvq::KvStore::Cat,
             attn_heads: crate::kvq::AttnHeads::Expanded,
-            decode_mask: false,
-            candle_probe: None,
             embed,
             blocks,
             norm: candle_nn::RmsNorm::new(norm_w.clone(), cfg.rms_norm_eps),
@@ -2083,7 +2031,7 @@ impl Qwen3 {
     fn step_mask(&self, b: usize, l: usize, offset: usize) -> Result<Option<Tensor>> {
         use crate::kvq::KvStore;
         match self.kv_store {
-            KvStore::Cat | KvStore::Grow(_) if l == 1 && !self.decode_mask => Ok(None),
+            KvStore::Cat | KvStore::Grow(_) if l == 1 => Ok(None),
             KvStore::Cat | KvStore::Grow(_) => self.causal_mask_offset(b, l, offset).map(Some),
         }
     }
@@ -2203,26 +2151,6 @@ impl Qwen3 {
         (n_kv, self.cfg.num_attention_heads / n_kv, self.cfg.head_dim)
     }
 
-    /// Measurement only: make every `Cat` decode step build and add its
-    /// all-zero mask again, the behaviour before 2026-10-30. The output does
-    /// not move (adding zero changes no score), only the time does, which is
-    /// what `LLVQ_TRIM_AB` measures. No served path calls it.
-    pub fn set_decode_mask(&mut self, on: bool) {
-        self.decode_mask = on;
-    }
-
-    /// Measurement only: one candle affine on a 1-element f16 tensor after
-    /// each layer of [`Self::hidden_cached`], counted in `crate::boundary`.
-    /// `LLVQ_BOUNDARY_AB` sets it on its `candle-tiny` arm. No served path
-    /// calls it.
-    pub fn set_candle_probe(&mut self, on: bool) -> Result<()> {
-        self.candle_probe = match on {
-            true => Some(Tensor::zeros(1, DType::F16, &self.device)?),
-            false => None,
-        };
-        Ok(())
-    }
-
     /// Hidden states for `l` new positions, attending over `caches`.
     pub fn hidden_cached(
         &self,
@@ -2240,10 +2168,6 @@ impl Qwen3 {
         let mut h = self.embed.forward(input)?;
         for (i, blk) in self.blocks.iter().enumerate() {
             h = blk.forward_cached(&h, &self.rotary, mask.as_ref(), offset, &mut caches[i], i, cap)?;
-            if let Some(p) = &self.candle_probe {
-                p.affine(2.0, 1.0)?;
-                crate::boundary::note_added(1);
-            }
         }
         self.norm.forward(&h)
     }
@@ -2440,116 +2364,6 @@ impl Qwen3 {
         Ok(logits)
     }
 
-    /// [`Self::logits_last`] without the f32 cast: the logits of the last
-    /// position of `h` in the model dtype, `[1, 1, vocab]`.
-    ///
-    /// For the greedy loops only. candle's `fast_argmax_f16` and
-    /// `fast_argmax_f32` are one template (`reduce.cu:673`, `:688`), and
-    /// widening f16 to f32 is exact and monotone, so the argmax of these
-    /// logits is the argmax of their cast, ties and signed zeros included
-    /// (`crate::argmax_key`). Callers that sample or score keep `logits_last`.
-    pub fn logits_last_native(&self, h: &Tensor) -> Result<Tensor> {
-        let l = h.dim(1)?;
-        self.head.project(&h.narrow(1, l - 1, 1)?)
-    }
-
-    /// Greedy decode in one of the [`TokenLoop`] kinds. [`Self::generate`] is
-    /// the base kind and stays untouched, so the published loop is the
-    /// reference every kind is held to: the same tokens, which
-    /// `token_loops_match_generate` pins on every store, form and dtype here
-    /// and `LLVQ_GESTURE_AB` pins on the card.
-    ///
-    /// Each kind is one mechanism away from its neighbour, so an A/B ratio
-    /// between neighbours measures one gesture (METHODE §1).
-    pub fn generate_loop(&self, tokens: &[u32], max_new: usize, kind: &TokenLoop) -> Result<Vec<u32>> {
-        if max_new == 0 {
-            return Ok(Vec::new());
-        }
-        let mut caches = self.fresh_caches();
-        // Key: one slot, read back every token. OnDevKey: one slot a token,
-        // read back once at the end.
-        let ring = match kind {
-            TokenLoop::Key(k) => {
-                k.arm()?;
-                Some(Tensor::zeros(1, DType::U32, &self.device)?)
-            }
-            TokenLoop::OnDevKey(k) => {
-                k.arm()?;
-                Some(Tensor::zeros(max_new, DType::U32, &self.device)?)
-            }
-            TokenLoop::F16 | TokenLoop::OnDevCandle => None,
-        };
-        let input = Tensor::from_slice(tokens, (1, tokens.len()), &self.device)?;
-        let mut h = self.hidden_cached(&input, 0, &mut caches, &mut NoCapture)?;
-        let mut out = Vec::with_capacity(max_new); // host ids: F16, Key
-        let mut kept = Vec::new(); // device ids: OnDevCandle
-        // `offset` is the absolute position the token picked at `pos` is fed at.
-        for (pos, offset) in (0..max_new).zip(tokens.len()..) {
-            let logits = self.logits_last_native(&h)?;
-            // Each kind picks its token, then stops BEFORE building the next
-            // input on the last token, as `generate` does.
-            let next = match kind {
-                TokenLoop::F16 => {
-                    let id = logits.i((0, 0))?.argmax(D::Minus1)?.to_scalar::<u32>()?;
-                    out.push(id);
-                    if pos + 1 == max_new {
-                        break;
-                    }
-                    Tensor::from_slice(&[id], (1, 1), &self.device)?
-                }
-                TokenLoop::Key(k) => {
-                    let slot = ring.as_ref().expect("built above for this kind");
-                    k.write(&logits, slot, 0)?;
-                    // A rank-0 view: `to_scalar` refuses any other rank. It
-                    // copies the slot's 4 bytes, the wait every token pays.
-                    let id = slot.i(0)?.to_scalar::<u32>()?;
-                    out.push(id);
-                    if pos + 1 == max_new {
-                        break;
-                    }
-                    Tensor::from_slice(&[id], (1, 1), &self.device)?
-                }
-                TokenLoop::OnDevKey(k) => {
-                    let r = ring.as_ref().expect("built above for this kind");
-                    k.write(&logits, r, pos)?;
-                    if pos + 1 == max_new {
-                        break;
-                    }
-                    // A view of ring[pos]: the next step's gather reads the id
-                    // where the kernel wrote it, with no copy and no wait.
-                    r.narrow(0, pos, 1)?.reshape((1, 1))?
-                }
-                TokenLoop::OnDevCandle => {
-                    let t = logits.i((0, 0))?.argmax_keepdim(D::Minus1)?;
-                    kept.push(t.clone());
-                    if pos + 1 == max_new {
-                        break;
-                    }
-                    t.reshape((1, 1))?
-                }
-            };
-            h = self.hidden_cached(&next, offset, &mut caches, &mut NoCapture)?;
-        }
-        match kind {
-            TokenLoop::F16 => Ok(out),
-            TokenLoop::Key(k) => {
-                if k.nan_seen()? {
-                    candle_core::bail!("generate_loop: a NaN logit; the key argmax refuses to pick a token");
-                }
-                Ok(out)
-            }
-            // The one wait of the decode.
-            TokenLoop::OnDevKey(k) => {
-                let v = ring.expect("built above for this kind").to_vec1::<u32>()?;
-                if k.nan_seen()? {
-                    candle_core::bail!("generate_loop: a NaN logit; the key argmax refuses to pick a token");
-                }
-                Ok(v)
-            }
-            TokenLoop::OnDevCandle => Tensor::cat(&kept, 0)?.to_vec1::<u32>(),
-        }
-    }
-
     /// [`Self::generate`] with its clock split in two, for a prompt of any
     /// length: the time to the first token, and the decode after it.
     ///
@@ -2738,9 +2552,8 @@ impl Qwen3 {
     /// Greedy decode with every phase bracketed by device fences — diagnostics
     /// only, never on the published path.
     ///
-    /// `bin/fusedrun` calls this behind `LLVQ_TIME_PHASES=1`, *after* the
-    /// published measurement. Each phase boundary is a [`Device::synchronize`],
-    /// so the wall time between two fences belongs to the phase between them
+    /// `bin/metalrun` calls it beside a plain `generate` and checks its
+    /// tokens. Each phase boundary is a [`Device::synchronize`], so the wall time between two fences belongs to the phase between them
     /// and to nothing else. The price of that attribution is the attribution
     /// itself: the fences serialise work the normal path overlaps, so the
     /// fenced per-token total is **not** the published rate and must never be
@@ -3442,11 +3255,10 @@ mod tests {
         }
     }
 
-    /// `generate_timed` decodes what `generate` decodes, whole or in chunks,
-    /// and the measurement switch of the decode mask moves no token either.
+    /// `generate_timed` decodes what `generate` decodes, whole or in chunks.
     #[test]
     fn a_timed_generation_returns_the_tokens_of_generate() {
-        let mut model = tiny_model(DType::F32);
+        let model = tiny_model(DType::F32);
         let prompt: Vec<u32> = (0..13u32).map(|i| (i * 7 + 3) % 97).collect();
         let want = model.generate(&prompt, 9, &mut NoCapture).unwrap();
         let whole = model.generate_timed(&prompt, 9, MAX_PREFILL_ROWS).unwrap();
@@ -3454,10 +3266,6 @@ mod tests {
         let chunked = model.generate_timed(&prompt, 9, 4).unwrap();
         assert_eq!(chunked.tokens, want, "a prompt in chunks of 4 decodes the same tokens");
         assert!(whole.prompt_s > 0.0 && whole.decode_s > 0.0);
-        model.set_decode_mask(true);
-        let masked = model.generate_timed(&prompt, 9, MAX_PREFILL_ROWS).unwrap();
-        assert_eq!(masked.tokens, want, "the zero mask, added again, moves no token");
-        assert!(model.step_mask(1, 1, 20).unwrap().is_some(), "the switch must reach step_mask");
     }
 
     /// `prefill_next` in chunks leaves the caches and the first token of an
@@ -3879,143 +3687,6 @@ mod tests {
     }
 
     /// A two-layer Qwen3 with deterministic pseudo-random weights, on the CPU.
-    /// The CPU stand-in of the key kernel: candle's own argmax on the host
-    /// device, written into the ring. It pins the plumbing of the `Key` and
-    /// `OnDevKey` kinds (the slot, the views, the offsets, the stop before the
-    /// last upload, the final readback); the key itself is certified by
-    /// `crate::argmax_key` and, on the card, against candle's kernel.
-    struct HostKey;
-
-    impl KeyKernel for HostKey {
-        fn write(&self, logits: &Tensor, ring: &Tensor, pos: usize) -> Result<()> {
-            let id = logits.i((0, 0))?.argmax_keepdim(D::Minus1)?;
-            ring.slice_set(&id, 0, pos)
-        }
-        fn arm(&self) -> Result<()> {
-            Ok(())
-        }
-        fn nan_seen(&self) -> Result<bool> {
-            Ok(false)
-        }
-    }
-
-    /// Every [`TokenLoop`] kind returns `generate`'s tokens, on `Cat` and
-    /// `Grow`, under the three attention forms, in f32 and f16, with
-    /// groups of 2, 4 and 5 (10 heads over 2: the 14B's shape, which no other
-    /// test runs). Nine tokens, so `Grow(4)` regrows twice mid-decode.
-    #[test]
-    fn token_loops_match_generate() {
-        use crate::kvq::{AttnHeads, KvStore};
-        let key = HostKey;
-        let prompt = [3u32, 17, 42, 7];
-        for dtype in [DType::F32, DType::F16] {
-            for (n_heads, n_kv) in [(4, 2), (8, 2), (10, 2)] {
-                let mut m = tiny_model_heads(dtype, n_heads, n_kv);
-                for store in [KvStore::Cat, KvStore::Grow(4)] {
-                    for heads in [AttnHeads::Expanded, AttnHeads::Shared, AttnHeads::Grouped] {
-                        m.set_kv_store(store);
-                        m.set_attn_heads(heads);
-                        let want = m.generate(&prompt, 9, &mut NoCapture).unwrap();
-                        assert_eq!(want.len(), 9);
-                        for (name, kind) in [
-                            ("f16", TokenLoop::F16),
-                            ("key", TokenLoop::Key(&key)),
-                            ("ondev-key", TokenLoop::OnDevKey(&key)),
-                            ("ondev-candle", TokenLoop::OnDevCandle),
-                        ] {
-                            let got = m.generate_loop(&prompt, 9, &kind).unwrap();
-                            assert_eq!(got, want, "{name} {dtype:?} {n_heads}/{n_kv} {store:?} {heads:?}");
-                            assert!(m.generate_loop(&prompt, 0, &kind).unwrap().is_empty(), "{name}: zero tokens");
-                            let one = m.generate_loop(&prompt, 1, &kind).unwrap();
-                            assert_eq!(one, want[..1], "{name}: one token");
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    /// [`HostKey`] that also keeps, widened to f32, every logits row it is
-    /// handed.
-    struct RecordingKey(std::sync::Mutex<Vec<Vec<f32>>>);
-
-    impl KeyKernel for RecordingKey {
-        fn write(&self, logits: &Tensor, ring: &Tensor, pos: usize) -> Result<()> {
-            let row = logits.flatten_all()?.to_dtype(DType::F32)?.to_vec1::<f32>()?;
-            self.0.lock().unwrap().push(row);
-            HostKey.write(logits, ring, pos)
-        }
-        fn arm(&self) -> Result<()> {
-            self.0.lock().unwrap().clear();
-            Ok(())
-        }
-        fn nan_seen(&self) -> Result<bool> {
-            Ok(false)
-        }
-    }
-
-    /// The key kinds hand the key kernel, at every step, bit for bit the
-    /// logits the step API gives for the same tokens at the same positions.
-    /// The tiny model's greedy text barely depends on position (it settles
-    /// into a two-token cycle), so `token_loops_match_generate` alone let a
-    /// frozen offset and a prefill read at position 0 survive (host mutants
-    /// of 2026-11-04); this test kills both.
-    #[test]
-    fn key_loops_feed_the_reference_logits() {
-        use crate::kvq::{AttnHeads, KvStore};
-        let prompt = [3u32, 17, 42, 7];
-        for dtype in [DType::F32, DType::F16] {
-            for (n_heads, n_kv) in [(4, 2), (10, 2)] {
-                let mut m = tiny_model_heads(dtype, n_heads, n_kv);
-                for (store, heads) in [
-                    (KvStore::Cat, AttnHeads::Expanded),
-                    (KvStore::Grow(4), AttnHeads::Grouped),
-                    (KvStore::Cat, AttnHeads::Shared),
-                ] {
-                    m.set_kv_store(store);
-                    m.set_attn_heads(heads);
-                    for ondev in [false, true] {
-                        let rec = RecordingKey(std::sync::Mutex::new(Vec::new()));
-                        let kind = if ondev { TokenLoop::OnDevKey(&rec) } else { TokenLoop::Key(&rec) };
-                        let tokens = m.generate_loop(&prompt, 9, &kind).unwrap();
-                        let seen = rec.0.into_inner().unwrap();
-                        let mut c = m.fresh_caches();
-                        let mut want = vec![m.prefill_chunked(&prompt, prompt.len(), &mut c).unwrap()];
-                        for (offset, &t) in (prompt.len()..).zip(&tokens[..8]) {
-                            want.push(m.step_logits(t, offset, &mut c).unwrap());
-                        }
-                        assert_eq!(seen.len(), 9);
-                        for (k, (s, w)) in seen.iter().zip(&want).enumerate() {
-                            let w = w.flatten_all().unwrap().to_vec1::<f32>().unwrap();
-                            let same = s.len() == w.len() && s.iter().zip(&w).all(|(a, b)| a.to_bits() == b.to_bits());
-                            assert!(same, "step {k}, ondev {ondev}, {dtype:?} {n_heads}/{n_kv} {store:?} {heads:?}");
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    /// The token picked on the f16 logits is the token picked on their f32
-    /// cast, on a model whose logits are f16, at every decode step (gesture
-    /// a1, on candle's CPU argmax; the card's is one template for both).
-    #[test]
-    fn argmax_of_f16_logits_is_argmax_of_their_cast() {
-        let m = tiny_model(DType::F16);
-        let mut caches = m.fresh_caches();
-        let input = Tensor::from_slice(&[3u32, 17, 42, 7], (1, 4), &Device::Cpu).unwrap();
-        let mut h = m.hidden_cached(&input, 0, &mut caches, &mut NoCapture).unwrap();
-        for offset in 4..20 {
-            let native = m.logits_last_native(&h).unwrap();
-            assert_eq!(native.dtype(), DType::F16);
-            let a = argmax_last(&native).unwrap();
-            let b = argmax_last(&m.logits_last(&h).unwrap()).unwrap();
-            assert_eq!(a, b, "offset {offset}");
-            let next = Tensor::from_slice(&[a], (1, 1), &Device::Cpu).unwrap();
-            h = m.hidden_cached(&next, offset, &mut caches, &mut NoCapture).unwrap();
-        }
-    }
-
     fn tiny_model(dtype: DType) -> Qwen3 {
         tiny_model_heads(dtype, 4, 2)
     }

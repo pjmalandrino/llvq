@@ -21,7 +21,6 @@ pub mod batch_cuda;
 pub mod attn_cuda;
 #[cfg(all(target_os = "macos", feature = "metal"))]
 pub mod attn_metal;
-pub mod boundary;
 pub mod calib;
 pub mod chatfmt;
 pub mod repl;
@@ -37,8 +36,6 @@ pub mod fused;
 pub mod fused_cpu;
 #[cfg(all(target_os = "linux", feature = "cuda"))]
 pub mod fused_cuda;
-#[cfg(all(target_os = "linux", feature = "cuda"))]
-pub mod gesture_cuda;
 #[cfg(all(target_os = "macos", feature = "metal"))]
 pub mod fused_metal;
 pub mod gsm8k;
@@ -53,6 +50,7 @@ pub mod sealed;
 pub mod served;
 pub mod served_decode;
 pub mod speculative;
+pub mod stats;
 pub mod tempfit;
 /// The CPU matvecs that decode Tetra and int4 codes on the fly.
 pub mod tetra_cpu;

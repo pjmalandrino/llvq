@@ -152,7 +152,7 @@ fn first_divergence(a: &[u32], b: &[u32]) -> Option<usize> {
 
 #[cfg(all(target_os = "linux", feature = "cuda"))]
 fn run() -> anyhow::Result<()> {
-    use llvq_llm::boundary::median_range;
+    use llvq_llm::stats::median_range;
     use llvq_llm::chatfmt::{open_assistant, turn, Marks};
     let a: Vec<String> = std::env::args().skip(1).collect();
     let usage = "usage: LLVQ_CONFIG=<target config> specrun <target sealed> <draft config> <draft sealed> [ks] [all|load|door|gsm8k]";
