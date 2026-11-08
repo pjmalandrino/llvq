@@ -30,6 +30,8 @@ pub mod embedquant;
 pub mod errmodel;
 pub mod eval;
 pub mod fused;
+/// The CPU backend: the sealed file served without a card.
+pub mod fused_cpu;
 #[cfg(all(target_os = "linux", feature = "cuda"))]
 pub mod fused_cuda;
 #[cfg(all(target_os = "linux", feature = "cuda"))]
@@ -50,4 +52,6 @@ pub mod sealed;
 pub mod served;
 pub mod served_decode;
 pub mod tempfit;
+/// The CPU matvecs that decode Tetra and int4 codes on the fly.
+pub mod tetra_cpu;
 pub mod tetra_diag;

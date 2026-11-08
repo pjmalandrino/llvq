@@ -40,7 +40,7 @@ Nine crates, members of `Cargo.toml`.
 | `llvq-bench` | rate-distortion, encoder throughput, decode cost | none | forbid |
 | `llvq-metal` | macOS GPU micro-benchmarks, MSL shaders | `metal` | allowed |
 | `llvq-cuda` | NVIDIA kernels compiled by NVRTC, 4E, benchmarks | `cudarc`, `cfg(target_os = "linux")` | allowed |
-| `llvq-llm` | forward pass, served configs, corpora, perplexity, MMLU, GSM8K | `candle`, `tokenizers`, `hf-hub`, `parquet` | allowed |
+| `llvq-llm` | forward pass, served configs, corpora, perplexity, MMLU, GSM8K, CPU backend (`fused_cpu`, `tetra_cpu`) | `candle`, `tokenizers`, `hf-hub`, `parquet`, `rayon` | allowed |
 | `llvq-runtime` | the `llvq` binary: model library, store, Ollama and OpenAI routes, OpenAPI | `axum`, `tokio`, `clap`, `utoipa`, `sha2`, `ureq` | forbid |
 
 Beside the crates: `llvq-tetra/` is the Python package that reads a packed model in `transformers` (on PyPI; its wheel
@@ -93,6 +93,7 @@ cargo run --release -p llvq-runtime --features metal --bin llvq -- serve        
 cargo run -p llvq-runtime --example tiny_server && uv run ops/llvq_runtime_clients.py <addr> tiny:test  # the official ollama and openai clients against llvq, CPU only
 LLVQ_DTYPE=f16 cargo run --release -p llvq-llm --features metal --bin ppl -- 4096 12 metal <sealed>
 cargo run --release -p llvq-llm --features metal --bin oracle                                       # forward pass vs candle, on every backend
+LLVQ_CONFIG=configs/qwen3-4b-tetra-e4.json cargo run --release -p llvq-llm --bin cpurun -- <sealed> tetra|dense|ppl|gate   # the CPU backend: tok/s, tokens, perplexity
 ops/llvq-mlx chat|generate "<msg>"|bench [--long]|check|check-mini                                   # the sealed 4B through MLX at its door (configs/mlx/); PACKED= its hfpack
 uv run ops/mlx_tetra/test_served.py && uv run ops/mlx_tetra/mutate.py                                # the MLX door's refusals, then 26 mutants of its gates on the mini fixture
 ops/mlx-pooled.sh                                                                                    # the MLX door's served gate: windows 13-24 against Rust dense f16; ops/mlx-t8.sh the first T8
@@ -131,7 +132,7 @@ be in `UPLOAD_ALLOW` of `ops/run.py`, or the Space dies after 12 minutes. `rankb
 | `LLVQ_MODEL` | HF repo or local directory | checkpoint; required by `RESTORE_*`, never a default in `mmlu` |
 | `LLVQ_MMLU_ALLOC` | `flat` (default), `proportional`, `proportional=<total>` | `mmlu`: how the budget spreads over the 57 subjects. `mmlupair` refuses two dumps of different plans, so re-barring a published arm costs a full run |
 | `LLVQ_GSM8K_DUMP`, `LLVQ_GSM8K_MAX_NEW`, `LLVQ_GSM8K_THINK` | path; count, default 1024; `0`, `1` | `gsm8k`: one JSON line per problem with the raw completion; the cap on generated tokens; Qwen3's reasoning block, off by default. `gsm8kpair` re-grades every row before pairing, vLLM dumps included |
-| `LLVQ_CALIB_SEED`, `LLVQ_DAMPING`, `LLVQ_H_SHRINK`, `LLVQ_GAIN_SCALE`, `LLVQ_SEQ_BLOCK`, `LLVQ_THREADS` | see `llvq-llm/src/bin/smoke.rs` | `smoke` knobs. Their default is the published path and is bit-identical; any other value of `LLVQ_SEQ_BLOCK` is refused by name. `LLVQ_THREADS` ≈ ncpu−4 on a shared machine |
+| `LLVQ_CALIB_SEED`, `LLVQ_DAMPING`, `LLVQ_H_SHRINK`, `LLVQ_GAIN_SCALE`, `LLVQ_SEQ_BLOCK`, `LLVQ_THREADS` | see `llvq-llm/src/bin/smoke.rs` | `smoke` knobs. Their default is the published path and is bit-identical; any other value of `LLVQ_SEQ_BLOCK` is refused by name. `LLVQ_THREADS` ≈ ncpu−4 on a shared machine; it also sizes the CPU backend's pool (`tetra_cpu::pool`, every core when unset) |
 | `LLVQ_SEALED_ARTIFACT` | path | `llvq-artifact` archive tests: moves the search for the sealed file |
 | `LLVQ_HOME` | directory, default `~/.llvq` | `llvq`: the store, `blobs/` and `manifests/` |
 | `LLVQ_HOST` | `host:port`, default `127.0.0.1:11435` | `llvq`: where `serve` binds and where the client commands connect |

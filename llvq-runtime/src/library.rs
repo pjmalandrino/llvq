@@ -51,6 +51,10 @@ impl fmt::Display for ModelName {
 pub struct Configs {
     pub cuda: Option<String>,
     pub metal: Option<String>,
+    /// The config the CPU backend serves. Absent in manifests written before
+    /// it existed, which then have no CPU config.
+    #[serde(default)]
+    pub cpu: Option<String>,
 }
 
 /// One model of `library.json`.
@@ -108,6 +112,16 @@ pub fn find(n: &ModelName) -> Option<&'static Entry> {
     entries().iter().find(|e| e.answers(n))
 }
 
+/// `c` with its CPU config filled from the library entry of the same file,
+/// when `c` names none: a manifest pulled before the CPU backend existed.
+pub fn with_cpu_config(c: &Configs, sha256: &str) -> Configs {
+    let mut out = c.clone();
+    if out.cpu.is_none() {
+        out.cpu = entries().iter().find(|e| e.sha256 == sha256).and_then(|e| e.configs.cpu.clone());
+    }
+    out
+}
+
 /// The served configs, compiled in from `configs/` so the runtime serves the
 /// bytes the journals pinned. One row per file `library.json` names.
 const CONFIGS: &[(&str, &str)] = &[
@@ -154,9 +168,10 @@ pub enum Backend {
     Cuda,
     /// The fused Metal kernel, macOS with `--features metal`.
     Metal,
-    /// The dense reconstruction on the CPU (`sealed::load`): any other build.
-    /// Its speed and memory are not measured.
-    Dense,
+    /// The Tetra codes read on the CPU (`llvq_llm::fused_cpu`): any other
+    /// build, at f32. 8.6 tok/s in 1.86 GB on the 4B on an M3 Max at 12
+    /// threads (`docs/mesures/cpu-tetra-2026-11-07.txt`).
+    Cpu,
 }
 
 impl Backend {
@@ -171,7 +186,7 @@ impl Backend {
         }
         #[cfg(not(any(all(target_os = "linux", feature = "cuda"), all(target_os = "macos", feature = "metal"))))]
         {
-            Backend::Dense
+            Backend::Cpu
         }
     }
 
@@ -179,17 +194,17 @@ impl Backend {
         match self {
             Backend::Cuda => "cuda",
             Backend::Metal => "metal",
-            Backend::Dense => "dense-cpu",
+            Backend::Cpu => "cpu",
         }
     }
 
-    /// The config this backend serves `c` with: `None` on the dense path,
-    /// which takes no config.
+    /// The config this backend serves `c` with. `Option` for the callers'
+    /// sake; every backend now takes one.
     pub fn config(self, c: &Configs) -> Result<Option<&str>, String> {
         let pick = match self {
-            Backend::Dense => return Ok(None),
             Backend::Cuda => c.cuda.as_deref(),
             Backend::Metal => c.metal.as_deref(),
+            Backend::Cpu => c.cpu.as_deref(),
         };
         pick.map(Some).ok_or_else(|| format!("this model has no served config on {}", self.label()))
     }
@@ -218,7 +233,7 @@ mod tests {
             assert!(m.sha256.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
             assert_eq!(m.revision.len(), 40, "{}: a pinned commit, not a branch", m.model_name());
             assert!(ModelName::parse(&m.model_name().to_string()).is_ok());
-            for c in [&m.configs.cuda, &m.configs.metal].into_iter().flatten() {
+            for c in [&m.configs.cuda, &m.configs.metal, &m.configs.cpu].into_iter().flatten() {
                 let text = config_text(c).unwrap_or_else(|| panic!("{c} is named and not compiled in"));
                 let f: ServedFile = serde_json::from_str(text).unwrap();
                 Served::of(f, c.into()).unwrap_or_else(|e| panic!("{c}: {e}"));
@@ -256,5 +271,34 @@ mod tests {
             let s = Served::of(f, c.into()).unwrap();
             s.check_device(true).unwrap_or_else(|e| panic!("{c}: {e}"));
         }
+    }
+
+    #[test]
+    fn the_cpu_serves_what_its_loader_reads() {
+        // fused_cpu refuses anything but tetra48, no fused group, the file's
+        // int4 order, an int4 or f16 embedding, and the eager decode.
+        for m in entries() {
+            let c = m.configs.cpu.as_deref().unwrap_or_else(|| panic!("{}: no CPU config", m.model_name()));
+            let f: ServedFile = serde_json::from_str(config_text(c).unwrap()).unwrap();
+            let s = Served::of(f, c.into()).unwrap();
+            assert_eq!(s.layout, llvq_llm::fused::FusedLayout::Tetra48, "{c}");
+            assert_eq!(s.fuse, llvq_llm::fused::FuseMode::Off, "{c}");
+            assert_eq!(s.int4_layout(), llvq_llm::fused::Int4Layout::Served, "{c}");
+            assert_ne!(s.embed, llvq_llm::fused::EmbedMode::Q8, "{c}");
+            assert_eq!(s.decode, llvq_llm::served::Decode::Eager, "{c}");
+        }
+    }
+
+    #[test]
+    fn an_old_manifest_takes_the_library_cpu_config() {
+        let e = &entries()[0];
+        let old = Configs { cuda: e.configs.cuda.clone(), metal: e.configs.metal.clone(), cpu: None };
+        assert_eq!(with_cpu_config(&old, &e.sha256).cpu, e.configs.cpu, "filled from the same file's entry");
+        assert_eq!(with_cpu_config(&old, &"0".repeat(64)).cpu, None, "an unknown file gets none");
+        let own = Configs { cpu: Some("x.json".into()), ..old };
+        assert_eq!(with_cpu_config(&own, &e.sha256).cpu.as_deref(), Some("x.json"), "a manifest's own wins");
+        // A manifest written before the field parses.
+        let parsed: Configs = serde_json::from_str(r#"{"cuda": null, "metal": "m.json"}"#).unwrap();
+        assert_eq!(parsed.cpu, None);
     }
 }

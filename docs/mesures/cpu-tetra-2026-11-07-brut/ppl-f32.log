@@ -1,0 +1,37 @@
+23:38  up 15 days, 14:07, 1 user, load averages: 7.30 11.41 16.33
+embedding: q4 g64 (LLVQ_CONFIG), 1 table (model.embed_tokens.weight, lm_head tied on it), 218.8 MB on the card (int4 194.5 + scales/biases 24.3)
+cpu: neon SIMD on 12 threads | tetra 168 + int4 84 matrices | 1.38 GB in memory (projections 1.16 + carried 0.22)
+tetra on the CPU: configs/qwen3-4b-tetra-e4.json (neon)
+299078 tokens → 12 windows of 4096 (fingerprint 3f1baca9033bf251)
+  window   1/12  nll 2.529375811  n 4095  running ppl    12.546  (208.9s)
+  window   2/12  nll 2.902242397  n 4095  running ppl    15.117  (420.7s)
+  window   3/12  nll 2.263089753  n 4095  running ppl    12.999  (639.0s)
+  window   4/12  nll 2.032205815  n 4095  running ppl    11.379  (892.3s)
+  window   5/12  nll 2.638839047  n 4095  running ppl    11.860  (1104.0s)
+  window   6/12  nll 2.601059791  n 4095  running ppl    12.115  (1314.3s)
+  window   7/12  nll 2.601323785  n 4095  running ppl    12.302  (1524.4s)
+  window   8/12  nll 2.595142228  n 4095  running ppl    12.434  (1734.4s)
+  window   9/12  nll 2.733564417  n 4095  running ppl    12.732  (1944.9s)
+  window  10/12  nll 2.240887563  n 4095  running ppl    12.351  (2155.2s)
+  window  11/12  nll 2.669026395  n 4095  running ppl    12.527  (2365.2s)
+  window  12/12  nll 2.576629750  n 4095  running ppl    12.578  (2574.9s)
+ppl = 12.5780
+     2577.78 real     18841.09 user       745.72 sys
+         17722458112  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+             4251787  page reclaims
+                   1  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   0  voluntary context switches
+            66605739  involuntary context switches
+     271338463029396  instructions retired
+      62790136362154  cycles elapsed
+         16907286160  peak memory footprint
+ 0:21  up 15 days, 14:50, 1 user, load averages: 9.57 9.33 9.75

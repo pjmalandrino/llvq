@@ -1,0 +1,4 @@
+llvq 0.1.0 (529100a80b53) serving on http://127.0.0.1:11499, backend cpu, store /Users/pjmalandrino/.llvq
+chat in the browser: http://127.0.0.1:11499/
+embedding: q4 g64 (the llvq library), 1 table (model.embed_tokens.weight, lm_head tied on it), 218.8 MB on the card (int4 194.5 + scales/biases 24.3)
+cpu: neon SIMD on 12 threads | tetra 168 + int4 84 matrices | 1.38 GB in memory (projections 1.16 + carried 0.22)

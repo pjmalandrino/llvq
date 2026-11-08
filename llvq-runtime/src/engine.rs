@@ -27,9 +27,9 @@ pub struct Loaded {
     pub qwen: Qwen3,
     pub tokenizer: tokenizers::Tokenizer,
     pub decoder: Decoder,
-    /// `cuda`, `metal` or `dense-cpu`.
+    /// `cuda`, `metal` or `cpu` (`dense-cpu` for a test model).
     pub backend: String,
-    /// The served config's file name, `None` on the dense path.
+    /// The served config's file name, `None` for a test model.
     pub config: Option<String>,
     /// Lines the load printed (4E's install), kept for `/api/show`.
     pub lines: Vec<String>,
@@ -41,7 +41,8 @@ pub trait Loader: Send + Sync + 'static {
 }
 
 /// The loader of this build: the fused backend under the library's served
-/// config on CUDA and Metal, the dense reconstruction anywhere else.
+/// config, on CUDA, Metal, or the CPU anywhere else. On the CPU the codes stay
+/// encoded too (`llvq_llm::fused_cpu`); nothing reconstructs dense weights.
 pub struct DeviceLoader;
 
 impl Loader for DeviceLoader {
@@ -50,18 +51,9 @@ impl Loader for DeviceLoader {
         let path = store.blob_path(&m.sha256);
         let path_s = path.to_str().ok_or_else(|| anyhow::anyhow!("{}: not UTF-8", path.display()))?;
         let backend = Backend::of_build();
-        let config = backend.config(&m.configs).map_err(|e| anyhow::anyhow!("{name}: {e}"))?;
-        let Some(config) = config else {
-            let s = llvq_llm::sealed::load(path_s, DType::F16, &candle_core::Device::Cpu, llvq_llm::kvq::KvMode::F16)?;
-            return Ok(Loaded {
-                qwen: s.model,
-                tokenizer: s.tokenizer,
-                decoder: Decoder::eager(),
-                backend: backend.label().into(),
-                config: None,
-                lines: Vec::new(),
-            });
-        };
+        let configs = crate::library::with_cpu_config(&m.configs, &m.sha256);
+        let config = backend.config(&configs).map_err(|e| anyhow::anyhow!("{name}: {e}"))?;
+        let config = config.ok_or_else(|| anyhow::anyhow!("{name}: no served config on {}", backend.label()))?;
         let text = crate::library::config_text(config)
             .ok_or_else(|| anyhow::anyhow!("{name}: config {config} is not compiled into this binary"))?;
         let file: llvq_llm::served::ServedFile =
@@ -74,12 +66,19 @@ impl Loader for DeviceLoader {
         let device = match backend {
             Backend::Cuda => candle_core::Device::new_cuda(0)?,
             Backend::Metal => candle_core::Device::new_metal(0)?,
-            Backend::Dense => unreachable!("the dense path returned above"),
+            Backend::Cpu => candle_core::Device::Cpu,
+        };
+        // f32 on the CPU: candle's f16 ops there moved a 4,096-token window
+        // by -0.47 % against the dense reference, f32 by -0.002 %, and f32 is
+        // the faster of the two (`docs/mesures/cpu-tetra-2026-11-07.txt`).
+        let dtype = match backend {
+            Backend::Cpu => DType::F32,
+            Backend::Cuda | Backend::Metal => DType::F16,
         };
         let mut f = llvq_llm::served::load_resolved(
             path_s,
             &device,
-            DType::F16,
+            dtype,
             cfg.layout,
             cfg.embed,
             cfg.rot_share,

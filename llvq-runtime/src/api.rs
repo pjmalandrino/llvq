@@ -254,7 +254,7 @@ pub struct ListResponse {
 pub struct RunningLlvq {
     /// `loading`, `ready` or `failed`.
     pub state: String,
-    /// `cuda`, `metal` or `dense-cpu`.
+    /// `cuda`, `metal` or `cpu`.
     pub backend: Option<String>,
     pub config: Option<String>,
     /// Requests waiting behind the one running.
@@ -297,6 +297,7 @@ pub struct ShowLlvq {
     pub bits_per_param: String,
     pub config_cuda: Option<String>,
     pub config_metal: Option<String>,
+    pub config_cpu: Option<String>,
     /// The backend this build serves with.
     pub backend: String,
 }
@@ -515,7 +516,7 @@ pub async fn ps(State(st): State<AppState>) -> Json<PsResponse> {
                 }
                 EngineState::Failed(e) => ("failed", None, None, None, Some(e)),
             };
-            let on_device = backend.as_deref().is_some_and(|b| b != "dense-cpu");
+            let on_device = backend.as_deref().is_some_and(|b| b != "cpu" && b != "dense-cpu");
             RunningModel {
                 name: r.name.to_string(),
                 model: r.name.to_string(),
@@ -578,6 +579,7 @@ pub async fn show(State(st): State<AppState>, body: Bytes) -> Response {
             bits_per_param: m.bits_per_param.clone(),
             config_cuda: m.configs.cuda.clone(),
             config_metal: m.configs.metal.clone(),
+            config_cpu: library::with_cpu_config(&m.configs, &m.sha256).cpu,
             backend: library::Backend::of_build().label().into(),
         },
     })

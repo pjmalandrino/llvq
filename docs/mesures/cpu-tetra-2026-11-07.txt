@@ -1,0 +1,102 @@
+THE 4B SERVED ON THE CPU WITHOUT DECODING ITS WEIGHTS: 8.65 TOK/S IN 1.86 GB AGAINST 0.71 TOK/S IN 10.6 GB, PERPLEXITY -0.0021 % OF THE DENSE f32 (2026-11-07)
+==============================================================================================================================================================
+Why:    a laptop without an NVIDIA or Apple GPU took the dense reconstruction (`sealed::load` on `Device::Cpu`), whose
+        speed and memory had never been measured. This lot adds a CPU backend that reads the Tetra codes at every
+        matvec (`llvq-llm/src/tetra_cpu.rs`, `fused_cpu.rs`) and puts it in the runtime in place of the dense path.
+Cost:   $0. Apple M3 Max (12 P + 4 E cores, 64 GB), macOS 26.6.2, rustc 1.95.0, nice 10, LLVQ_THREADS and
+        RAYON_NUM_THREADS at 12 or 4. The machine was shared with other sessions. The rates of the table below were
+        re-read at 00:25-00:35 on 2026-11-08 under the exclusive lock /tmp/llvq-mac-bench.lock (flock(2), through
+        locked/withlock.py since the Mac has no flock(1)), load 2.8 to 5.9; the earlier unlocked runs are kept,
+        and the contended ones marked.
+Object: qwen3-4b-sealed.bin, sha256 886391a8..., the store blob of `llvq pull qwen3:4b`.
+Config: configs/qwen3-4b-tetra-e4.json (tetra48, embed q4, rot_share 1, fuse 0, kv f16, expanded, eager), the
+        `cpu` entry `library.json` now carries.
+Code:   base 529100a, the worktree of this lot uncommitted at measurement time. Binaries in binaries.sha256; the
+        throughput runs c/d and the window-3 reading ran a cpurun built one edit earlier (the CLI's default dtype),
+        same arithmetic.
+Nature: *measured* for every rate, memory peak, token id and NLL; ratios and intervals *computed* by pair.py.
+Raw:    docs/mesures/cpu-tetra-2026-11-07-brut/.
+
+GATES
+-----
+  1. tetra_cpu::tests::decode_matches_the_reference: the table decode equals Tetra::decode_trio_order and
+     Tetra::decode on 200,005 words (random, the origin, both gains, the mixed split's edges).
+  2. tests/cpu_tetra.rs, 6 tests: the Tetra matvec against decode_matrix (f64 reference, f32 output) on five
+     shapes (4B hidden 2560 with a tail of 16, down_proj's 9728, 4096, 240, a natural-basis 72), within
+     2e-6 of sum|w x| per row, on every SIMD path of the CPU (scalar and NEON here, scalar and AVX2 on CI);
+     19-row batches against single rows; the rotation left out is caught (> 1e-2); the candle adapter;
+     int4 g128 against Int4Matrix::to_f32; the int4 g64 embedding's gather (bit for bit) and head (70 rows).
+  3. Mutants of tetra_cpu.rs, 10 of 10 killed: NEON lane order, norm-table shift, trio permutation dropped,
+     word phase, int4 nibble halves swapped, row scale dropped, bias dropped, mixed split, batch transpose,
+     int4 pass offset. A first mutation run used a test filter that excluded tests/cpu_tetra.rs and read two
+     survivors; it was discarded.
+  4. Workspace: cargo test --profile ci -p llvq-llm -p llvq-runtime green (openapi.json regenerated for the new
+     `config_cpu` field); cargo clippy --all-targets zero warnings on aarch64-apple-darwin, and on
+     x86_64-unknown-linux-gnu through ops/check-linux-cuda.sh (the AVX2 path type-checks; it never ran here).
+
+THROUGHPUT AND MEMORY, 4 PROMPTS x 32 GREEDY TOKENS (cpurun), DECODE STEPS ONLY
+-------------------------------------------------------------------------------
+Under the lock (locked/):
+  arm                         dtype  threads  decode tok/s     peak RSS   load
+  dense (sealed::load)        f16    12*      0.71             10.57 GB   32.8 s
+  Tetra CPU                   f32    12       8.65, 8.65       1.86 GB    2.1 s
+  Tetra CPU                   f32    4        5.14, 5.13       1.86 GB    2.1 s
+  * the dense run's user time is its wall time (219 s against 213 s): candle's f16 matvec ran on one core
+    whatever RAYON_NUM_THREADS said. Same 128 ids as the first dense run through bin/run.
+Before the lock (same binaries' arithmetic, machine shared):
+  dense through bin/run, 0.4-0.5 tok/s as bin/run prints it (prefill included, whole run 323 s, 10.57 GB);
+  Tetra f16 at 12 threads 6.90 and 7.02, f32 at 12 threads 8.62 and 8.67, f16 at 4 threads 4.63, f32 at 4
+  threads 5.11 and 5.13, all at 1.84-1.86 GB.
+  Contended (another session's `smoke` at 11 cores, load 26-41): f16 at 12 threads fell to 0.6-0.9 tok/s and f32
+  to 1.1-6.2 on some prompts; 4 threads held at 4.6. Kept in series-f16-contended.log and tetra-f32-12-a.log.
+  Prompt: about 19 tok/s at 4,096 tokens (window wall time 210 s, logits of 151,936 included).
+  The runtime itself (`llvq serve` built without a GPU feature): at f16 and 4 threads, beside the 12-thread
+  perplexity run, "The capital of France is Paris." in a server of 1.80 GB; at f32 and 12 threads on a quiet
+  machine (load 4.7), a 60-token answer at 8.2 tok/s by the client's clock, server RSS 1.84 GB, `ps` and `show`
+  naming backend `cpu` and qwen3-4b-tetra-e4.json (a manifest pulled before the `cpu` field takes it from the
+  compiled library).
+
+TOKENS AGAINST THE DENSE PATH (greedy, 32 tokens, the 4 prompts of bin/run)
+--------------------------------------------------------------------------
+  Prompts 1 to 3: the same 32 ids as dense f16, in every Tetra run (f16 and f32, 4 and 12 threads).
+  Prompt 4 ("Water boils at a temperature of"): the same first 6 ids, then " What" where dense reads " How".
+  The thread count changes no id. Not bit for bit: the CPU arm keeps the weights exact in f32 where the dense arm
+  rounds them to f16 and runs candle's CPU f16 kernels. Whether step 7 is a near tie was not measured.
+
+PERPLEXITY, WikiText-2 test, 12 windows of 4,096, token fingerprint 3f1baca9033bf251
+-----------------------------------------------------------------------------------
+Reference: the Rust dense reconstruction on Metal, s1-f32-metal-2026-11-04-brut/ppl-f32.txt (f32) and
+ppl-f16.txt (f16), the same windows.
+
+  against          ppl A     ppl B (Tetra CPU f32)   paired mean B/A - 1, CI 95 %   largest |window|
+  dense f32        12.5783   12.5780                 -0.0021 % [-0.0022 ; -0.0019]   0.0025 %
+  dense f16        12.5811   12.5780                 -0.0245 % [-0.0760 ; +0.0270]   0.1911 % (window 7)
+
+  window   dense f32    Tetra CPU f32   B / A - 1     window   dense f32    Tetra CPU f32   B / A - 1
+       1   12.545915    12.545673       -0.0019 %          7   13.481878    13.481573       -0.0023 %
+       2   18.215357    18.214945       -0.0023 %          8   13.398825    13.398493       -0.0025 %
+       3    9.612905     9.612744       -0.0017 %          9   15.388026    15.387637       -0.0025 %
+       4    7.631031     7.630900       -0.0017 %         10    9.401854     9.401672       -0.0019 %
+       5   13.997241    13.996944       -0.0021 %         11   14.426199    14.425917       -0.0020 %
+       6   13.478297    13.478014       -0.0021 %         12   13.153002    13.152735       -0.0020 %
+
+Against the dense f32 the twelve windows move by 0.0017 % to 0.0025 %, all the same sign: the arithmetic of one
+object in two orders, nothing else. Against the dense f16 the paired interval sits inside the +-0.12 % band the
+served forms answer to (ETAT.md §4); windows 6 and 7 are the two that move most between any two Rust engines in
+s1 as well. 2,578 s for the 12 windows at 12 threads; the scoring harness peaked at 17.7 GB (it holds the
+f32 logits of 4,096 positions several times over), which is not what the runtime holds.
+
+The f16 run, stopped after 3 windows (ppl-f16-partial.log): window 3 read 2.259022054 against 2.263680699 for the
+dense f16 reference, -0.47 % of perplexity, past every gap between the Rust engines of s1 (largest 0.0019 nat).
+The same window at f32 read 2.263089753 against 2.263106447 for the dense f32 reference, -0.0017 %. The CPU
+backend's matvec is the same in both runs; what differs is candle's CPU arithmetic in f16 around it (norms,
+attention, softmax). Hence the runtime runs the CPU backend at f32, which is also the faster dtype there.
+
+WHAT THIS DOES NOT SHOW
+-----------------------
+  - Nothing ran on x86. The AVX2 + FMA path compiles for x86_64 Linux and its tests run on the CI runner; no x86
+    rate exists. No AVX-512 or VNNI path. Windows was never built.
+  - The 8B and 14B never ran on the CPU path.
+  - Memory at long context: the KV cache is f32 on this path, 288 KiB a position on the 4B (computed: 36 layers x
+    2 x 8 heads x 128 x 4 B), 1.2 GB at 4,096 positions, twice the f16 cache.
+  - The rates are one machine, shared, two repeats at most.

@@ -72,8 +72,8 @@ Matching them puts the 2.7 b/param files behind tools people already use, with n
 - The persistent decode (4E) takes the argmax on the card. `repl::check_served_chat` refuses a temperature above zero
   under it. 4E decodes at most 64 tokens a launch and 8,704 positions (`served_decode.rs`), on the 4B's shape only.
 - On Metal, `Served::check_device` refuses the grouped and kernel forms and 4E. Only an expanded config serves there.
-- `load_resolved` has two arms, CUDA on Linux and Metal on macOS. Any other build bails and points to the dense path,
-  `sealed::load`. `llvq-cuda` is target-gated to Linux.
+- `load_resolved` has three arms: `Device::Cpu` goes to `fused_cpu` in every build, then CUDA on Linux and Metal on
+  macOS. `llvq-cuda` is target-gated to Linux.
 - The CUDA kernels are compiled by NVRTC at launch, so a CUDA target needs the NVRTC library present.
 - A sealed file opens with no checkpoint and no network: it carries its tokenizer and its `config.json`.
 - `tokio`, `hyper`, `tower` and `reqwest` are already in `Cargo.lock`, pulled by `hf-hub`. `axum` is not.
@@ -216,7 +216,7 @@ runs.
 |---|---|---|---|
 | Linux x86_64, NVIDIA card | fused CUDA | 4E v9 at 4B, 8B and 14B (since 2026-11-07) | served door *measured* on one L40S only; a consumer card is unmeasured (`ETAT.md` §5) |
 | macOS, Apple silicon | fused Metal | expanded configs only | 4B *measured* on one M3 Max; 8B and 14B never run fused on Metal |
-| Linux or macOS, no accelerator | dense, `sealed::load` | none | builds today; speed and memory on CPU not measured |
+| Linux or macOS, no accelerator | Tetra on the CPU, `fused_cpu` (NEON, AVX2 + FMA, scalar) | expanded configs (`cpu` in `library.json`) | 4B *measured* on one M3 Max only (`docs/mesures/cpu-tetra-2026-11-07.txt`); x86 never run |
 | Windows | none | none | not built, not tested; `llvq-cuda` is gated to Linux |
 
 ## Stages
@@ -252,8 +252,8 @@ The code runs each decision as proposed below until the operator rules. Each one
   its test.
 - **D5. Metal configs.** The runtime serves on Metal what `served.rs` serves there, the expanded form. Lifting the
   grouped form on Metal is already an open decision of `ETAT.md` §5, and the runtime follows it.
-- **D6. The dense CPU path.** Exposed under the same commands, with `ps` saying "dense", or refused. Proposed: exposed,
-  since it is the only path on a machine without a GPU, with its speed unmeasured and said so.
+- **D6. The CPU path.** Settled 2026-11-07: the dense reconstruction is gone from the runtime. A build without a GPU
+  feature reads the Tetra codes on the CPU (`fused_cpu`), and `ps` says `cpu`.
 - **D7. `run` with no server.** Print how to start one, or start one in the background. Proposed: start one, as a
   desktop user expects.
 

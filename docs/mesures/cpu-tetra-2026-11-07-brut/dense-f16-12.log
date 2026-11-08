@@ -1,0 +1,44 @@
+loaded /Users/pjmalandrino/.llvq/blobs/sha256-886391a8c03f66dc269cc65c3598c6627dbdcd259180aff36604ef10d37371b8 — 252 quantized matrices + 146 carried tensors
+
+── model
+   running at dtype f16, kv f16, kv_store cat
+   1.418 GB on disk against 8.045 GB in FP16  →  ×5.67
+   3633315840 weights quantized, 389152256 carried at f16
+
+── "The capital of France is"
+   → Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital
+   32 tokens in 82.93 s — 0.4 tok/s
+── "In 1969, the first humans landed on"
+   → the Moon. The first humans to land on the Moon were the members of the Apollo 11 mission, which included Neil Armstrong, Buzz Aldrin, and
+   32 tokens in 73.57 s — 0.4 tok/s
+── "def fibonacci(n):\n    if n < 2:\n        return n\n    return"
+   → fibonacci(n-1) + fibonacci(n-2)
+
+def fibonacci2(n):
+    a = 1
+    b = 1
+    for i in
+   32 tokens in 68.46 s — 0.5 tok/s
+── "Water boils at a temperature of"
+   → 100°C. How much heat is required to convert 1 kg of water at 20°C to steam at 100°C?
+   32 tokens in 60.11 s — 0.5 tok/s
+
+dumped 4 prompts to /private/tmp/claude-501/-Users-pjmalandrino-Documents-Pro-workspace-poc-llvq--claude-worktrees-hopeful-swirles-b4155f/bd184212-27cb-4931-a202-9e128c40fb5a/scratchpad/dense-run.json
+      323.02 real       322.50 user        20.06 sys
+         10567237632  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+              849037  page reclaims
+                   1  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   2  voluntary context switches
+             1233567  involuntary context switches
+       2126961674265  instructions retired
+       1161946320589  cycles elapsed
+         10566754344  peak memory footprint

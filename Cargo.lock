@@ -2076,6 +2076,7 @@ dependencies = [
  "llvq-search",
  "objc2-metal",
  "parquet",
+ "rayon",
  "serde",
  "serde_json",
  "tokenizers",

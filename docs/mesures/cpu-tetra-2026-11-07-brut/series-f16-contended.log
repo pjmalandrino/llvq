@@ -1,0 +1,36 @@
+23:04  up 15 days, 13:33, 1 user, load averages: 8.96 22.21 31.35
+== dtype f16 threads 12 run a
+   prompt 5 tokens in 0.23 s | 31 decode steps in 3.87 s, 8.00 tok/s
+   prompt 12 tokens in 0.57 s | 31 decode steps in 34.79 s, 0.89 tok/s
+   prompt 17 tokens in 8.28 s | 31 decode steps in 51.44 s, 0.60 tok/s
+   prompt 6 tokens in 2.61 s | 31 decode steps in 49.65 s, 0.62 tok/s
+decode over the 4 prompts: 124 steps in 139.75 s, 0.89 tok/s
+      153.65 real       166.15 user        29.75 sys
+          1850294272  maximum resident set size
+23:07  up 15 days, 13:36, 1 user, load averages: 41.38 29.80 32.84
+== dtype f32 threads 12 run a
+   prompt 5 tokens in 1.99 s | 31 decode steps in 26.74 s, 1.16 tok/s
+   prompt 12 tokens in 1.11 s | 31 decode steps in 9.61 s, 3.23 tok/s
+   prompt 17 tokens in 1.57 s | 31 decode steps in 7.59 s, 4.09 tok/s
+   prompt 6 tokens in 0.45 s | 31 decode steps in 4.99 s, 6.21 tok/s
+decode over the 4 prompts: 124 steps in 48.93 s, 2.53 tok/s
+       57.18 real       170.40 user        38.91 sys
+          1852112896  maximum resident set size
+23:08  up 15 days, 13:37, 1 user, load averages: 34.97 29.98 32.71
+== dtype f16 threads 4 run a
+   prompt 5 tokens in 0.45 s | 31 decode steps in 6.63 s, 4.68 tok/s
+   prompt 12 tokens in 0.95 s | 31 decode steps in 6.74 s, 4.60 tok/s
+   prompt 17 tokens in 1.50 s | 31 decode steps in 6.69 s, 4.64 tok/s
+   prompt 6 tokens in 0.54 s | 31 decode steps in 6.75 s, 4.59 tok/s
+decode over the 4 prompts: 124 steps in 26.81 s, 4.63 tok/s
+       32.47 real       112.24 user         3.90 sys
+          1850671104  maximum resident set size
+23:08  up 15 days, 13:37, 1 user, load averages: 24.20 27.85 31.82
+== dtype f16 threads 12 run b
+   prompt 5 tokens in 0.28 s | 31 decode steps in 4.37 s, 7.10 tok/s
+   prompt 12 tokens in 0.58 s | 31 decode steps in 4.40 s, 7.04 tok/s
+   prompt 17 tokens in 0.90 s | 31 decode steps in 4.43 s, 6.99 tok/s
+   prompt 6 tokens in 0.40 s | 31 decode steps in 4.46 s, 6.94 tok/s
+decode over the 4 prompts: 124 steps in 17.67 s, 7.02 tok/s
+       22.06 real       147.31 user        56.65 sys
+          1851867136  maximum resident set size

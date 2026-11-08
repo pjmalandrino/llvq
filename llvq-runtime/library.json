@@ -14,7 +14,8 @@
       "bits_per_param": "2.7320",
       "configs": {
         "cuda": "qwen3-4b-tetra-e4-4e-v9.json",
-        "metal": "qwen3-4b-tetra-e4.json"
+        "metal": "qwen3-4b-tetra-e4.json",
+        "cpu": "qwen3-4b-tetra-e4.json"
       }
     },
     {
@@ -30,7 +31,8 @@
       "bits_per_param": "2.6953",
       "configs": {
         "cuda": "qwen3-8b-tetra-e4-4e-v9.json",
-        "metal": "qwen3-8b-tetra-e4.json"
+        "metal": "qwen3-8b-tetra-e4.json",
+        "cpu": "qwen3-8b-tetra-e4.json"
       }
     },
     {
@@ -46,7 +48,8 @@
       "bits_per_param": "2.7305",
       "configs": {
         "cuda": "qwen3-14b-tetra-e4-4e-v9.json",
-        "metal": "qwen3-14b-tetra-e4.json"
+        "metal": "qwen3-14b-tetra-e4.json",
+        "cpu": "qwen3-14b-tetra-e4.json"
       }
     }
   ]

@@ -62,7 +62,7 @@ fn entry(sha256: String) -> Entry {
         sha256,
         parameter_size: "1B".into(),
         bits_per_param: "2.7".into(),
-        configs: Configs { cuda: None, metal: Some("qwen3-4b-tetra-e4.json".into()) },
+        configs: Configs { cuda: None, metal: Some("qwen3-4b-tetra-e4.json".into()), cpu: None },
     }
 }
 

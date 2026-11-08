@@ -5,7 +5,7 @@ speaks OpenAI's chat format, streams, and describes itself in an OpenAPI 3.1 doc
 plan, its gates and its open decisions are in [`docs/plan-runtime.md`](../docs/plan-runtime.md).
 
 ```bash
-cargo build --release -p llvq-runtime --features metal   # macOS; --features cuda on Linux; neither: dense CPU path
+cargo build --release -p llvq-runtime --features metal   # macOS; --features cuda on Linux; neither: the CPU path (Tetra codes read on the CPU)
 llvq pull qwen3:4b                                       # 1.42 GB from the Hub, checked against its pinned sha256
 llvq run qwen3:4b                                        # starts a server if none answers
 llvq run qwen3:4b "Name three primary colours."
