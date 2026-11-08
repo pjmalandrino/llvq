@@ -1,6 +1,6 @@
 //! What several test files of this crate share.
 //!
-//! `tiny` was copied into six files until 2026-11-08 (audit batch 10), and
+//! `tiny` was copied into seven files until 2026-11-08 (audit batch 10), and
 //! into `tests/guided.rs` until 2026-11-24.
 //! `tests/session.rs` keeps its own, a vocabulary of 64.
 

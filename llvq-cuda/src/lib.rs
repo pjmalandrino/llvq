@@ -96,6 +96,9 @@ pub mod modcache;
 // Portable: the speculative decode loop around the tree verify pass, run
 // on the card by `llvq_llm` and on the Mac by the host twin.
 pub mod spec_loop;
+
+/// Summary statistics shared by the bench binaries.
+pub mod stats;
 // Portable, and the reference rather than a helper: the canonical arithmetic
 // of the split-KV decode-attention kernel, replayed on the CPU. The kernel is
 // checked against it bit for bit on the Mac (`tests/attn_dec_matches_rust.rs`
