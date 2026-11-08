@@ -27,6 +27,7 @@ fn served() -> ServedFile {
         attention: None,
         decode: None,
         rows: None,
+        prefill_attention: None,
         note: Some("Qwen3-4B, Tetra + 36 v_proj int4 g128".into()),
     }
 }
@@ -553,6 +554,7 @@ fn four_e() -> ServedFile {
         attention: Some("kernel".into()),
         decode: Some("persistent".into()),
         rows: None,
+        prefill_attention: None,
         note: None,
     }
 }
@@ -968,5 +970,54 @@ fn the_chat_door_refuses_what_its_config_cannot_serve() {
     for cfg in [&eager, &fe] {
         let e = check_served_chat(cfg, 0.0, env_of(&[("LLVQ_KV_PREALLOC", "4096")])).expect_err("store");
         assert!(e.contains("LLVQ_KV_PREALLOC"), "{e}");
+    }
+}
+
+// ---- the prefill attention (2026-11-08) ------------------------------------
+
+/// `prefill_attention`: absent and "grouped" are today's prefill, "kernel"
+/// sends the prompt's rows to the kernel; beside any form but the kernel form
+/// the key is refused, and the empty string or another word too. The line
+/// names it only when it is not the grouped prefill.
+#[test]
+fn the_prefill_attention_field_rides_the_kernel_form_only() {
+    use llvq_llm::kvq::PrefillAttn;
+    let mut f = four_e();
+    let base = of(f.clone()).expect("4E");
+    assert_eq!(base.prefill, PrefillAttn::Grouped);
+    f.prefill_attention = Some("grouped".into());
+    assert_eq!(of(f.clone()).expect("grouped").prefill, PrefillAttn::Grouped);
+    assert_eq!(of(f.clone()).unwrap().provenance(), base.provenance(), "grouped reads as an absent key");
+    f.prefill_attention = Some("kernel".into());
+    let k = of(f.clone()).expect("kernel");
+    assert_eq!(k.prefill, PrefillAttn::Kernel);
+    assert!(k.provenance().contains("prefill attention kernel (8 rows a call)"), "{}", k.provenance());
+    for bad in ["", " ", "Kernel", "flash"] {
+        f.prefill_attention = Some(bad.into());
+        let e = of(f.clone()).expect_err(bad);
+        assert!(e.contains("prefill_attention"), "{bad:?}: {e}");
+    }
+    for attention in [None, Some("expanded"), Some("grouped")] {
+        let mut g = four_e();
+        g.decode = None;
+        g.attention = attention.map(str::to_string);
+        g.prefill_attention = Some("kernel".into());
+        let e = of(g).expect_err("not the kernel form");
+        assert!(e.contains("prefill_attention") && e.contains("kernel"), "{attention:?}: {e}");
+    }
+    // On disk: the three kprefill files are the v9 configs with this key and
+    // nothing else different, and say they are not served.
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../configs");
+    for size in ["4b", "8b", "14b"] {
+        let read = |name: String| {
+            let path = dir.join(&name);
+            let f = Served::read_file(&path).unwrap_or_else(|e| panic!("{name}: {e}"));
+            (f.clone(), Served::of(f, path).unwrap_or_else(|e| panic!("{name}: {e}")))
+        };
+        let (fv, v) = read(format!("qwen3-{size}-tetra-e4-4e-v9.json"));
+        let (fk, k) = read(format!("qwen3-{size}-tetra-e4-4e-v9-kprefill.json"));
+        assert_eq!(ServedFile { prefill_attention: None, note: None, ..fk.clone() }, ServedFile { note: None, ..fv });
+        assert_eq!((v.prefill, k.prefill), (PrefillAttn::Grouped, PrefillAttn::Kernel), "{size}");
+        assert!(fk.note.expect("a note").starts_with("NOT SERVED"), "{size}");
     }
 }

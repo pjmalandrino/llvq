@@ -69,6 +69,7 @@ modes set together (`ALONE` in that file).
 |---|---|---|
 | `LLVQ_CONTEXTS` | `fusedrun` | prompt lengths: time to first token and decode speed after each; allowed beside a config |
 | `LLVQ_PREFILL_TOKENS` | `fusedrun` | prompt length for the prefill timing; allowed beside a config |
+| `LLVQ_SOFTMAX_WHOLE` | `fusedrun` (`LLVQ_CONTEXTS` only) | `1`: every masked softmax on the whole score tensor, the memory form before 2026-11-08, to check the in-place form's logits bit for bit in a second process; `0` or unset: in place; allowed beside a config, moves no output bit |
 | `LLVQ_KV_PREALLOC` | `kvq.rs` | preallocated cache window |
 | `LLVQ_GRAPH_AB`, `LLVQ_GRAPH_DIAG` | `fusedrun` | CUDA Graphs A/B and its diagnostic (lead closed) |
 | `LLVQ_KV_AB`, `LLVQ_FUSE_AB`, `LLVQ_TRIM_AB` | `fusedrun` | cache store, fusion and trim A/Bs |

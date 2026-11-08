@@ -67,6 +67,11 @@ const PHASE_TOKENS: usize = 32;
 #[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
 const ROUNDS_TIMED: usize = 5;
 
+/// The second chunking `LLVQ_CONTEXTS` reads a kernel-prefill prompt in, to
+/// check its logits do not depend on the chunking.
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+const PREFILL_PROBE_ROWS: usize = 512;
+
 /// Median and min–max of per-round rates. Not cfg-gated, same reason as
 /// [`PHASE_TOKENS`]: the Mac must type-check what a paid image build would
 /// otherwise be the first to compile.
@@ -565,6 +570,35 @@ fn run_context_sweep(
                 anyhow::bail!("prompt {n}: 4E diverges from the eager path under this config at token {i}; the run is void");
             }
             println!("  prompt {n}: 4E tokens equal the eager path's under this config, {} of {}", r.len(), eager.tokens.len());
+        }
+        // The prompt's last-position logits, bit for bit, as a fingerprint:
+        // what two processes compare when one runs the whole-tensor softmax
+        // (`LLVQ_SOFTMAX_WHOLE=1`) and the other the in-place one, or two
+        // configs that should prefill alike. One more prefill a length.
+        let logit_bits = |chunk: usize| -> anyhow::Result<Vec<u32>> {
+            let mut c = model.fresh_caches();
+            let l = model.prefill_chunked(&ids, chunk, &mut c)?;
+            Ok(l.flatten_all()?.to_vec1::<f32>()?.iter().map(|x| x.to_bits()).collect())
+        };
+        let a = logit_bits(chunk)?;
+        println!(
+            "  prompt {n}: last-position logits fingerprint {:016x} (prefill in chunks of {chunk}, softmax {})",
+            llvq_llm::eval::token_fingerprint(&a),
+            llvq_llm::model::softmax_form()
+        );
+        // Under the kernel prefill those logits must not depend on the
+        // chunking: every attention row is the kernel's for its position, and
+        // what is left to move them is the projections' rows kernels. Read,
+        // not enforced: the card gate of the field decides on it.
+        if n > PREFILL_PROBE_ROWS && model.prefill_attention() == llvq_llm::kvq::PrefillAttn::Kernel {
+            let b = logit_bits(PREFILL_PROBE_ROWS)?;
+            let differ = a.iter().zip(&b).filter(|(x, y)| x != y).count();
+            println!(
+                "  prompt {n}: prefill attention kernel, last-position logits in chunks of {chunk} against \
+                 chunks of {PREFILL_PROBE_ROWS}: {} ({differ} of {} differ)",
+                if differ == 0 { "bit for bit" } else { "DIFFER" },
+                a.len()
+            );
         }
         let (fm, fl, fh) = rate_stats(&first);
         let (rm, rl, rh) = rate_stats(&rate);
@@ -2148,6 +2182,14 @@ fn main() -> anyhow::Result<()> {
         if let Ok(v) = std::env::var("LLVQ_CONTEXTS") {
             let lengths = parse_contexts(&v).map_err(|e| anyhow::anyhow!("{e}"))?;
             runs_alone("LLVQ_CONTEXTS", &[])?;
+            // The softmax's memory form, the one variable this mode reads
+            // beside a config: it moves no output bit (the logits fingerprint
+            // each length prints is how a second process checks that).
+            match std::env::var("LLVQ_SOFTMAX_WHOLE").as_deref() {
+                Err(_) | Ok("0") => {}
+                Ok("1") => llvq_llm::model::set_softmax_whole_for_measurement(true),
+                Ok(o) => anyhow::bail!("LLVQ_SOFTMAX_WHOLE={o:?}: 1 (the whole-tensor softmax) or 0 (in place)"),
+            }
             if !matches!(kv_store, llvq_llm::kvq::KvStore::Cat) {
                 anyhow::bail!(
                     "LLVQ_CONTEXTS with a preallocated window: the window would bound the \
