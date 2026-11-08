@@ -49,6 +49,9 @@
     // Read after the variant: u32 act_floats (the persistent side's staging
     // area), u32 forced[n - 1] of the last run.
     const bool verify = (variant_raw & 32u) != 0u;
+    // + 64 with + 32: the verify launch stamps its phases (pers_4ev.cu); the
+    // harness requires every CTA's clock at every event, writes nothing more.
+    const bool vstamp = verify && (variant_raw & 64u) != 0u;
     u32 act_floats = 0u;
     std::vector<u32> forced;
     if (verify) {
@@ -56,6 +59,7 @@
         forced = rd<u32>(runs[runs.size() - 2] - 1u);
     }
     (void)act_floats;  // read by the verify launch, which only form 7 builds
+    (void)vstamp;
     const u32 stamp = (variant == 1u || variant == 3u) ? 1u : 0u;
     size_t ring_len = 0;
     for (size_t i = 0; i < runs.size(); i += 3) ring_len += runs[i + 1];
@@ -305,11 +309,20 @@
             for (u32 t = 1; t < vn; ++t) vtoks[t] = forced[t - 1];
             const Pers4vLaunch V{bar[0], runs[run_i], vn, act_floats, vtoks.data(), ring.data() + ring_at,
                                  vxa.data(), vxb.data(), vq.data(), vk.data(), vv.data(), vqo.data(), vctx.data(),
-                                 vact.data(), vpart.data(), vtk.data(), vslots.data(), pstride, 0u};
+                                 vact.data(), vpart.data(), vtk.data(), vslots.data(), pstride, 0u,
+                                 nullptr};
+            std::vector<unsigned long long> vst(vstamp ? (size_t)(3u + 6u * NL) * grid : 0u, 0ull);
+            Pers4vLaunch VS = V;
+            if (vstamp) VS.stamps = vst.data();
             typedef void (*Fv)(const Pers4eArgs*, const Pers4vLaunch);
             const Fv vt[3] = {pers_4ev_rows_f0, pers_4ev_rows_f1, pers_4ev_rows_f2};
             const size_t vsmem = PERS_SMEM_HEADER + 18816 + 4 * (size_t)act_floats;
-            hostgrid::launch_coop(grid, threads, vsmem, seed + run_i, [&] { vt[form](&A, V); });
+            hostgrid::launch_coop(grid, threads, vsmem, seed + run_i, [&] { vt[form](&A, VS); });
+            for (unsigned long long t : vst)
+                if (t == 0ull) {
+                    std::fprintf(stderr, "host_pers: a verify stamp left unwritten\n");
+                    std::exit(3);
+                }
             ring_at += vn;
             std::copy(vxa.begin() + (size_t)(vn - 1u) * H, vxa.begin() + (size_t)vn * H, x.begin());
             for (u32 t : vtk) vtickets += t;

@@ -2321,7 +2321,8 @@ fn v_cmd(form: u32, grid: u32, threads: u32, runs: &[(u32, u32, u32)], cap: u32,
 /// phase across the four rows, one that takes the down two rows at a time,
 /// one that takes it a row at a time and the o rows 3 + 1; the 8B's Tetra o
 /// and untied head; after a 4E launch through the same state; rows across
-/// the first split (lengths 255 to 258, the fold of row 2 and 3); one row.
+/// the first split (lengths 255 to 258, the fold of row 2 and 3); one, two
+/// and three rows.
 #[test]
 fn the_4e_verify_rows_are_the_served_chain() {
     let nb = llvq_cuda::pers::n_bar_4e(2);
@@ -2354,6 +2355,15 @@ fn the_4e_verify_rows_are_the_served_chain() {
     // one row: the verify launch is a 4E token
     let cmd = v_cmd(0, 3, 128, &[(5, 1, 7)], 16, 0xf430, 0, V_ATTN4, &[]);
     check(&cmd, 3, nb, "one row");
+    // two rows, the 8B's parts; three rows on an area that shares every
+    // phase, the last row of each group on the vector ln
+    let cmd = v_cmd(1, 4, 96, &[(5, 2, 7)], 16, 0xf431, 16, V_ATTN4, &forced[..1]);
+    check(&cmd, 4, nb, "two rows");
+    let cmd = v_cmd(0, 3, 128, &[(5, 3, 7)], 16, 0xf432, 0, V_ALL4, &forced[..2]);
+    check(&cmd, 3, nb, "three rows, every phase shared");
+    // a stamped launch: the same rows, every CTA's clock at every event
+    let cmd = v_cmd(1, 4, 96, &[(5, 4, 7)], 16, 0xf433, 64, V_DOWN2, &forced);
+    check(&cmd, 4, nb, "four rows, stamped");
 }
 
 /// Each guard of the verify pass has a mutant, killed by a verify command:
@@ -2361,13 +2371,15 @@ fn the_4e_verify_rows_are_the_served_chain() {
 /// int4 row's vector stride, a group's v rows written to its first row, the
 /// o residual, the down's rotation, the v rows read on signed values, the
 /// vector ln that stages no `small`, the head key's row, the tickets left as
-/// they were (rows past 256 fold on a stale count).
+/// they were (rows past 256 fold on a stale count), each phase stamp, the
+/// last row's ln scratch on its own row.
 #[test]
 fn the_4e_verify_mutants_are_killed() {
     let forced = [11u32, 523, 7];
     let cmds: Vec<(Vec<u8>, Vec<u8>)> = [
         v_cmd(1, 3, 128, &[(5, 4, 7)], 16, 0xf440, 0, V_ALL4, &forced),
         v_cmd(2, 4, 96, &[(254, 4, 7)], 288, 0xf441, 16, V_ATTN4, &forced),
+        v_cmd(1, 3, 128, &[(5, 3, 7)], 16, 0xf442, 64, V_ALL4, &forced[..2]),
     ]
     .into_iter()
     .map(|c| {
@@ -2388,6 +2400,9 @@ fn the_4e_verify_mutants_are_killed() {
         ("v_ln_small", "pers_ln_1rt<0>(x, alpha, signs, w, eps, small, k, ssm, s, scratch, false);", "pers_ln_1rt<0>(x, alpha, signs, w, eps, nullptr, k, ssm, s, scratch, false);"),
         ("v_head_key", "else atomicMax(cmax + r, pers_tie_key(hb, row));", "else atomicMax(cmax + r, pers_tie_key(hb, row ^ 1u));"),
         ("v_tickets", "for (u32 i = threadIdx.x; i < P4V_KMAX * A->n_kv; i += blockDim.x) L.tickets[i] = 0u;", ""),
+        ("v_stamp_wait", "        if (L.stamps != nullptr && threadIdx.x == 0u) L.stamps[(size_t)nb * G + c0] = pers_now(); \\\n", ""),
+        ("v_stamp_start", "    if (L.stamps != nullptr && threadIdx.x == 0u) L.stamps[c0] = pers_now();\n", ""),
+        ("v_ln_last", "return (r + 2u) * w <= FR ? R + (r + 1u) * w : nullptr;", "return (r + 2u) * w <= FR ? R + r * w : nullptr;"),
     ] {
         let root = std::env::temp_dir().join(format!("llvq_pers_mutant_{tag}_{}", std::process::id()));
         let _ = mutant(tag, f, from, to);
@@ -2402,7 +2417,7 @@ fn the_4e_verify_mutants_are_killed() {
 #[test]
 fn the_verify_launch_mirror_matches_the_kernel() {
     let o = u32s(&run(persistent_v9(), &Cmd::new(b'P').0));
-    assert_eq!(o, vec![pers::P4V_LAUNCH_BYTES as u32, 12, 16, 24, 32, 88, 96, 104, 112, 120, pers::P4V_KMAX]);
+    assert_eq!(o, vec![pers::P4V_LAUNCH_BYTES as u32, 12, 16, 24, 32, 88, 96, 104, 112, 120, 128, pers::P4V_KMAX]);
     assert_eq!(std::mem::size_of::<pers::P4vLaunch>(), pers::P4V_LAUNCH_BYTES);
     // 4B: every phase of 4 rows fits under the L40S's 101,376 B; the 14B's
     // down does not, and takes the most that fits

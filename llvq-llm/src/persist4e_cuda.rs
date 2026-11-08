@@ -834,6 +834,22 @@ impl Runtime4e {
     /// Each row is the 4E token at its position bit for bit
     /// (`tests/pers_matches_served.rs::the_4e_verify_rows_are_the_served_chain`).
     pub fn verify(&mut self, caches: &mut [KvCache], pos0: usize, toks: &[u32]) -> anyhow::Result<Vec<u32>> {
+        Ok(self.verify_inner(caches, pos0, toks, false)?.0)
+    }
+
+    /// [`Self::verify`] with its phases stamped: the same rows and tokens,
+    /// and `[1 + n_bar_4e][grid]` clocks (`pers::p4v_phases` reads them).
+    /// A measurement launch.
+    pub fn verify_stamped(&mut self, caches: &mut [KvCache], pos0: usize, toks: &[u32]) -> anyhow::Result<(Vec<u32>, Vec<u64>)> {
+        self.verify_inner(caches, pos0, toks, true)
+    }
+
+    /// The layers and the grid a verify stamp buffer is laid out by.
+    pub fn verify_stamp_shape(&self) -> (u32, u32) {
+        (self.n_layers, self.grid)
+    }
+
+    fn verify_inner(&mut self, caches: &mut [KvCache], pos0: usize, toks: &[u32], stamped: bool) -> anyhow::Result<(Vec<u32>, Vec<u64>)> {
         let n = toks.len();
         if n == 0 || n > pers::P4V_KMAX as usize {
             anyhow::bail!("4E verify: {n} rows, the pass carries 1 to {}", pers::P4V_KMAX);
@@ -853,6 +869,12 @@ impl Runtime4e {
         stream.memcpy_htod(toks, &mut v.toks).map_err(|e| anyhow::anyhow!("H2D: {e}"))?;
         stream.memcpy_htod(&vec![u32::MAX; pers::P4V_KMAX as usize], &mut v.ring).map_err(|e| anyhow::anyhow!("H2D: {e}"))?;
         let a = v.held16_addr;
+        let n_stamps = if stamped { (1 + pers::n_bar_4e(self.n_layers)) as usize * self.grid as usize } else { 0 };
+        let stamps: Option<CudaSlice<u64>> = if stamped {
+            Some(stream.alloc_zeros::<u64>(n_stamps).map_err(|e| anyhow::anyhow!("alloc stamps: {e}"))?)
+        } else {
+            None
+        };
         let launch = pers::P4vLaunch {
             bar_base: self.bar_base,
             pos0: pos0 as u32,
@@ -873,6 +895,7 @@ impl Runtime4e {
             slots: v.slots.device_ptr(&stream).0,
             part_stride: v.part_stride,
             pad: 0,
+            stamps: stamps.as_ref().map_or(0, |b| b.device_ptr(&stream).0),
         };
         let cfg = LaunchConfig { grid_dim: (self.grid, 1, 1), block_dim: (v.threads, 1, 1), shared_mem_bytes: v.smem };
         let mut b = stream.launch_builder(&v.f);
@@ -895,7 +918,11 @@ impl Runtime4e {
         for c in caches.iter_mut() {
             c.set_len(pos0 + n)?;
         }
-        Ok(made)
+        let stamps = match stamps {
+            Some(d) => stream.clone_dtoh(&d).map_err(|e| anyhow::anyhow!("D2H stamps: {e}"))?,
+            None => Vec::new(),
+        };
+        Ok((made, stamps))
     }
 
     /// The caches grown to hold a launch of `n` positions from `pos0`, and

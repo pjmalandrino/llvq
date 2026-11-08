@@ -64,6 +64,7 @@ struct Pers4vLaunch {
     unsigned long long* slots;  // [KMAX] argmax keys, cleared at launch start
     u32 part_stride;            // floats a row: n_kv x ceil(cap / 256) x groups x 130
     u32 pad;
+    unsigned long long* stamps; // null, or [1 + waits][grid]: each CTA's clock at its start and after each wait
 };
 
 // Rows of a group at width w: what `floats` holds, at least one.
@@ -421,16 +422,23 @@ __device__ __forceinline__ void pers_4ev_body(const Pers4eArgs* __restrict__ A, 
     float* const ssm = S;            // the k rows of `small`, 16-byte aligned
     float* const R = S + P4V_SSM;    // the group's rows
     const u32 FR = F - P4V_SSM - 2u * P4V_KMAX;
-    // The ln of row r uses row r + 1's place as its scratch, and the last
-    // row of a group takes the scalar path: no place beyond the group.
-    const auto scratch_of = [&](u32 r, u32 g, u32 w) { return r + 1u < g ? R + (r + 1u) * w : nullptr; };
+    // The ln of row r uses row r + 1's place as its scratch; the last row
+    // of a group too when the area holds one more row, else the scalar path
+    // (the same values either way, p4v_ln).
+    const auto scratch_of = [&](u32 r, u32 w) { return (r + 2u) * w <= FR ? R + (r + 1u) * w : nullptr; };
     const u32 lane = threadIdx.x & 31u, warp = threadIdx.x >> 5, nw = blockDim.x >> 5;
     const u32 dq = A->n_heads * 128u, dkv = A->n_kv * 128u;
     u32 nb = 0u;
 #define P4V_WAIT()                                                                          \
     do {                                                                                    \
         if (!pers_grid_wait(A->bar, L.bar_base + (++nb) * G, A->abort_flag)) return;        \
+        if (L.stamps != nullptr && threadIdx.x == 0u) L.stamps[(size_t)nb * G + c0] = pers_now(); \
     } while (0)
+    // Phase stamps (a measurement launch, L.stamps non-null): event 0 at the
+    // CTA's start, event e after its e-th wait, thread 0 of each CTA once the
+    // wait returned. Phase e lasts from event e - 1 to event e. The clock is
+    // pers_now's; nothing a row computes reads it.
+    if (L.stamps != nullptr && threadIdx.x == 0u) L.stamps[c0] = pers_now();
     // The argmax keys and the tickets start at zero; the first barrier's
     // fence orders these stores before any CTA's atomics.
     if (c0 == 0u) {
@@ -455,7 +463,7 @@ __device__ __forceinline__ void pers_4ev_body(const Pers4eArgs* __restrict__ A, 
                 // ln1 of each row, signed; the k rows of `small` staged
                 for (u32 r = 0; r < g; ++r)
                     p4v_ln(L.x_a + (size_t)(r0 + r) * H, Y.ln1, Y.signs_a, Y.small_a, Y.k_a, H, A->eps, R + r * H,
-                           scratch_of(r, g, H), ssm);
+                           scratch_of(r, H), ssm);
                 // the natural values for the int4 v rows: the signs undone
                 // (negation is exact), then put back for the rotation
                 const auto flip = [&] {
@@ -570,7 +578,7 @@ __device__ __forceinline__ void pers_4ev_body(const Pers4eArgs* __restrict__ A, 
                 const u32 g = n - r0 < gg ? n - r0 : gg;
                 for (u32 r = 0; r < g; ++r) {
                     p4v_ln(L.x_b + (size_t)(r0 + r) * H, M.alpha, M.signs_h, M.small_h, M.k_h, H, M.eps, R + r * H,
-                           scratch_of(r, g, H), ssm);
+                           scratch_of(r, H), ssm);
                     pers_rot_finish<true, true>(R + r * H, ssm, H, M.m_h, M.k_h, M.inv_h);
                 }
                 for (u32 row = glo + warp; row < ghi; row += nw) {

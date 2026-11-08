@@ -110,6 +110,13 @@ impl Decoder {
     /// so it can be the target of [`Self::continue_speculative`]. Refused on
     /// the eager engine and below row form 7. Its install lines are appended
     /// to [`Self::lines`].
+    /// The 4E runtime, for a measurement binary that drives its launches
+    /// directly (specrun's phase stamps). None on the eager path.
+    #[cfg(all(target_os = "linux", feature = "cuda"))]
+    pub fn runtime_mut(&mut self) -> Option<&mut crate::persist4e_cuda::Runtime4e> {
+        self.rt.as_deref_mut()
+    }
+
     pub fn install_verify(&mut self) -> anyhow::Result<()> {
         #[cfg(all(target_os = "linux", feature = "cuda"))]
         if let Some(rt) = self.rt.as_mut() {
@@ -197,6 +204,7 @@ impl Decoder {
         more: usize,
         stops: &[u32],
         k: usize,
+        policy: crate::speculative::LookupPolicy,
     ) -> anyhow::Result<(Vec<u32>, bool, crate::speculative::SpecStats)> {
         #[cfg(all(target_os = "linux", feature = "cuda"))]
         if let Some(rt) = self.rt.as_mut() {
@@ -212,10 +220,13 @@ impl Decoder {
                 more,
                 stops,
                 k,
+                policy,
                 |pos, rows| {
                     let mut g = t.borrow_mut();
                     let (rt, c) = &mut *g;
-                    rt.verify(c, pos, rows)
+                    // A round with no draft is one greedy step: 4E's token
+                    // launch, the served symbol, not a verify pass of one row.
+                    if rows.len() == 1 { rt.decode(c, pos, rows[0], 1, u32::MAX) } else { rt.verify(c, pos, rows) }
                 },
                 |len| {
                     for x in t.borrow_mut().1.iter_mut() {
@@ -225,7 +236,7 @@ impl Decoder {
                 },
             );
         }
-        let _ = (caches, prompt, first, more, stops, k);
+        let _ = (caches, prompt, first, more, stops, k, policy);
         anyhow::bail!("prompt lookup needs 4E and its verify pass on the target")
     }
 

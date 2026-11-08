@@ -1292,7 +1292,7 @@ int main() {
         o.push_back((u32)sizeof(Pers4vLaunch));
         OFF(Pers4vLaunch, act_floats); OFF(Pers4vLaunch, toks); OFF(Pers4vLaunch, ring); OFF(Pers4vLaunch, x_a);
         OFF(Pers4vLaunch, act); OFF(Pers4vLaunch, part); OFF(Pers4vLaunch, tickets); OFF(Pers4vLaunch, slots);
-        OFF(Pers4vLaunch, part_stride);
+        OFF(Pers4vLaunch, part_stride); OFF(Pers4vLaunch, stamps);
         o.push_back(P4V_KMAX);
 #undef OFF
 #endif

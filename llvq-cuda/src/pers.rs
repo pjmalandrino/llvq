@@ -1310,10 +1310,52 @@ pub struct P4vLaunch {
     /// Floats of one row's split states: n_kv x ceil(cap / 256) x groups x 130.
     pub part_stride: u32,
     pub pad: u32,
+    /// 0, or `[1 + n_bar_4e][grid]` u64 phase clocks ([`p4v_phases`]).
+    pub stamps: u64,
 }
 
 /// `sizeof(Pers4vLaunch)`.
-pub const P4V_LAUNCH_BYTES: usize = 128;
+pub const P4V_LAUNCH_BYTES: usize = 136;
+
+/// The verify pass's phases, in the order of its waits within a layer.
+pub const P4V_PHASES: [&str; 8] = ["embed", "qkv", "rope", "attn", "o", "gateup", "down", "head"];
+
+/// A stamped verify launch's time by phase, nanoseconds, summed over the
+/// layers: `stamps` is `[1 + n_bar_4e(n_layers)][grid]` (event 0 each CTA's
+/// start, event e after its e-th wait). Event e's time is the median over
+/// the CTAs, and phase e lasts from event e - 1 to event e. Returns the
+/// totals in the order of [`P4V_PHASES`], or an error when the buffer does
+/// not have that shape or a CTA never wrote an event.
+pub fn p4v_phases(stamps: &[u64], n_layers: u32, grid: u32) -> Result<[f64; 8], String> {
+    let events = 1 + n_bar_4e(n_layers) as usize;
+    let g = grid as usize;
+    if g == 0 || stamps.len() != events * g {
+        return Err(format!("verify stamps: {} values for {events} events of {g} CTAs", stamps.len()));
+    }
+    if stamps.contains(&0) {
+        return Err("verify stamps: a CTA wrote no clock at some event".into());
+    }
+    let med = |e: usize| {
+        let mut v: Vec<u64> = stamps[e * g..(e + 1) * g].to_vec();
+        v.sort_unstable();
+        v[g / 2] as f64
+    };
+    let t: Vec<f64> = (0..events).map(med).collect();
+    let mut out = [0.0f64; 8];
+    for e in 1..events {
+        // wait 1 ends the embedding, waits 2..=1 + 6L the layers' six
+        // phases, the last the head
+        let kind = if e == 1 {
+            0
+        } else if e == events - 1 {
+            7
+        } else {
+            1 + (e - 2) % 6
+        };
+        out[kind] += t[e] - t[e - 1];
+    }
+    Ok(out)
+}
 
 /// The verify kernel's symbol for a RoPE form and a block size.
 pub fn p4v_symbol(form: u32, threads: u32) -> Result<&'static str, String> {
@@ -1756,6 +1798,8 @@ pub struct I16Check {
     pub same: usize,
     /// Rows one binary16 ulp away.
     pub one_ulp: usize,
+    /// Rows two ulps or more away, within the rms bound.
+    pub within_rms: usize,
     /// Rows that pass neither the ulp nor the rms bound.
     pub out: usize,
     /// The largest |row - served row| over its site's rms.
@@ -1772,7 +1816,7 @@ fn f16_ordered(h: u16) -> i32 {
 pub fn vrows_i16_check(got: &[u16], want: &[u16], d_outs: &[u32]) -> I16Check {
     assert_eq!(got.len(), want.len());
     assert_eq!(d_outs.iter().map(|&d| d as usize).sum::<usize>(), want.len());
-    let mut c = I16Check { rows: want.len(), same: 0, one_ulp: 0, out: 0, worst: 0.0 };
+    let mut c = I16Check { rows: want.len(), same: 0, one_ulp: 0, within_rms: 0, out: 0, worst: 0.0 };
     let mut at = 0usize;
     for &d in d_outs {
         let r = at..at + d as usize;
@@ -1784,7 +1828,7 @@ pub fn vrows_i16_check(got: &[u16], want: &[u16], d_outs: &[u32]) -> I16Check {
             match ulp {
                 0 => c.same += 1,
                 1 => c.one_ulp += 1,
-                _ if e <= VROWS_I16_TOL => {}
+                _ if e <= VROWS_I16_TOL => c.within_rms += 1,
                 _ => c.out += 1,
             }
         }
@@ -2168,6 +2212,31 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_verify_phases_sum_their_events() {
+        // two layers, three CTAs: 15 events; CTA 1 is the median at each
+        let (layers, g) = (2u32, 3usize);
+        let events = 1 + n_bar_4e(layers) as usize;
+        let mut st = vec![0u64; events * g];
+        let mut t = 100u64;
+        for e in 0..events {
+            t += 10 * (e as u64 + 1);
+            st[e * g] = t - 3;
+            st[e * g + 1] = t;
+            st[e * g + 2] = t + 50;
+        }
+        let p = p4v_phases(&st, layers, g as u32).unwrap();
+        // phase of event e lasts 10 (e + 1)
+        assert_eq!(p[0], 20.0);
+        assert_eq!(p[1], 30.0 + 90.0);
+        assert_eq!(p[6], 80.0 + 140.0);
+        assert_eq!(p[7], 150.0);
+        assert_eq!(p.iter().sum::<f64>(), (st[(events - 1) * g + 1] - st[1]) as f64);
+        assert!(p4v_phases(&st[1..], layers, g as u32).is_err());
+        st[5] = 0;
+        assert!(p4v_phases(&st, layers, g as u32).is_err());
+    }
+
+    #[test]
     fn the_trows_unit_carries_every_arm() {
         let t = trows_unit_text("#define TILE_BLOCKS 64u");
         assert!(t.starts_with(&pers_unit_text("#define TILE_BLOCKS 64u")), "4E's module bytes come first, unchanged");
@@ -2226,12 +2295,12 @@ mod tests {
         // site 1: 1.0, 2.0, -1.0 ; site 2: 0.5, 1e-4 (a row near zero)
         let want = [0x3c00u16, 0x4000, 0xbc00, 0x3800, 0x068e];
         let same = vrows_i16_check(&want, &want, &[3, 2]);
-        assert_eq!((same.same, same.one_ulp, same.out), (5, 0, 0));
+        assert_eq!((same.same, same.one_ulp, same.within_rms, same.out), (5, 0, 0, 0));
         // one ulp up on 1.0, two ulps on 2.0 (out: 2 ulps of 2.0 is 3.9e-3 of
         // site 1's rms 1.41), a near-zero row moved by many ulps but 1e-4 of 0.35
         let got = [0x3c01u16, 0x4002, 0xbc00, 0x3800, 0x0600];
         let c = vrows_i16_check(&got, &want, &[3, 2]);
-        assert_eq!((c.same, c.one_ulp, c.out), (2, 1, 1), "{c:?}");
+        assert_eq!((c.same, c.one_ulp, c.within_rms, c.out), (2, 1, 1, 1), "{c:?}");
         assert!(c.worst > 2e-3 && c.worst < 3e-3, "{c:?}");
         // the two zeros are one value
         assert_eq!(vrows_i16_check(&[0x8000], &[0x0000], &[1]).same, 1);

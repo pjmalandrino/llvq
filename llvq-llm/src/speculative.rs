@@ -189,6 +189,34 @@ pub fn lookup_draft(ctx: &[u32], k: usize, min_n: usize, max_n: usize) -> Vec<u3
 pub const LOOKUP_MIN_N: usize = 1;
 pub const LOOKUP_MAX_N: usize = 3;
 
+/// When prompt lookup drafts. `min_n`: the shortest n-gram that may draft
+/// (from [`LOOKUP_MAX_N`] down to it). `probe`: a round drafts one token
+/// until `probe` drafted tokens in a row were kept, then up to `k`; a round
+/// that loses a draft goes back to one (0: always up to `k`). Neither moves a
+/// token: every round's tokens are the target's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LookupPolicy {
+    pub min_n: usize,
+    pub probe: usize,
+}
+
+impl LookupPolicy {
+    /// The method's usual setting: any n-gram from 3 down to 1, always `k`.
+    pub const PLAIN: LookupPolicy = LookupPolicy { min_n: LOOKUP_MIN_N, probe: 0 };
+
+    /// `lookup` (the plain setting) or `lookup-n<min_n>p<probe>`, as specrun
+    /// names an arm.
+    pub fn parse(word: &str) -> Option<LookupPolicy> {
+        if word == "lookup" {
+            return Some(Self::PLAIN);
+        }
+        let rest = word.strip_prefix("lookup-n")?;
+        let (n, p) = rest.split_once('p')?;
+        let (min_n, probe) = (n.parse().ok()?, p.parse().ok()?);
+        (1..=LOOKUP_MAX_N).contains(&min_n).then_some(LookupPolicy { min_n, probe })
+    }
+}
+
 /// [`speculative_greedy`] with prompt lookup as the drafter: the greedy
 /// continuation of `first` after `prompt` (the target's caches hold
 /// `prompt.len()` positions), up to `more` tokens, cut before a stop token.
@@ -197,12 +225,14 @@ pub const LOOKUP_MAX_N: usize = 3;
 /// alone: one row, the greedy step. The drafter has no cache, so only the
 /// target is rewound. `verify` and `rewind` are [`speculative_greedy`]'s.
 /// `draft_ns` counts the host's lookups.
+#[allow(clippy::too_many_arguments)]
 pub fn lookup_greedy(
     prompt: &[u32],
     first: u32,
     more: usize,
     stops: &[u32],
     k: usize,
+    policy: LookupPolicy,
     mut verify: impl FnMut(usize, &[u32]) -> anyhow::Result<Vec<u32>>,
     mut rewind: impl FnMut(usize) -> anyhow::Result<()>,
 ) -> anyhow::Result<(Vec<u32>, bool, SpecStats)> {
@@ -212,10 +242,15 @@ pub fn lookup_greedy(
     ctx.extend_from_slice(prompt);
     ctx.push(first);
     let (mut tok, mut pos) = (first, prompt.len());
+    // drafted tokens kept in a row, for the probe
+    let mut streak = 0usize;
     while out.len() < more {
-        let kk = k.min(more - out.len() - 1);
+        let mut kk = k.min(more - out.len() - 1);
+        if policy.probe > 0 && streak < policy.probe {
+            kk = kk.min(1);
+        }
         let t0 = std::time::Instant::now();
-        let drafts = lookup_draft(&ctx, kk, LOOKUP_MIN_N, LOOKUP_MAX_N);
+        let drafts = lookup_draft(&ctx, kk, policy.min_n, LOOKUP_MAX_N);
         st.draft_ns += t0.elapsed().as_nanos() as u64;
         if !drafts.is_empty() {
             st.draft_launches += 1;
@@ -231,6 +266,9 @@ pub fn lookup_greedy(
         st.drafted += drafts.len();
         let a = drafts.iter().zip(&ys).take_while(|(d, y)| d == y).count();
         st.accepted += a;
+        if !drafts.is_empty() {
+            streak = if a == drafts.len() { streak + a } else { 0 };
+        }
         for &t in &ys[..=a] {
             if stops.contains(&t) {
                 return Ok((out, true, st));
@@ -400,11 +438,17 @@ mod tests {
         assert!(lookup_draft(&ctx, 0, 1, 3).is_empty());
         assert!(lookup_draft(&[], 3, 1, 3).is_empty());
         assert!(lookup_draft(&[7], 3, 1, 3).is_empty());
+        // the longest n-gram wins over a later match of a shorter one: the
+        // bigram "1 2" last followed by 9, the unigram "2" last by 7
+        let ctx = [1, 2, 9, 3, 2, 7, 1, 2];
+        assert_eq!(lookup_draft(&ctx, 1, 1, 3), vec![9]);
+        assert_eq!(lookup_draft(&ctx, 1, 1, 1), vec![7]);
     }
 
     #[test]
     fn the_lookup_loop_is_the_greedy_loop() {
         let mut some_kept = false;
+        for policy in [LookupPolicy::PLAIN, LookupPolicy { min_n: 2, probe: 1 }, LookupPolicy { min_n: 3, probe: 2 }] {
         for k in 0..=4usize {
             for more in [0usize, 1, 2, 3, 7, 30, 60] {
                 for stops in [vec![], vec![5u32], vec![5, 11]] {
@@ -420,6 +464,7 @@ mod tests {
                             more,
                             &stops,
                             k,
+                            policy,
                             |pos, rows| {
                                 assert!(rows.len() <= k + 1, "{} rows at k = {k}", rows.len());
                                 let mut m = t.borrow_mut();
@@ -446,7 +491,43 @@ mod tests {
                 }
             }
         }
+        }
         // the toy repeats itself (its next token is mostly a function of the last), so lookup keeps drafts
         assert!(some_kept, "no draft kept on a text that repeats");
+    }
+
+    #[test]
+    fn the_lookup_policy_parses_and_probes() {
+        assert_eq!(LookupPolicy::parse("lookup"), Some(LookupPolicy::PLAIN));
+        assert_eq!(LookupPolicy::parse("lookup-n3p1"), Some(LookupPolicy { min_n: 3, probe: 1 }));
+        assert_eq!(LookupPolicy::parse("lookup-n4p1"), None);
+        assert_eq!(LookupPolicy::parse("lookup-n0p1"), None);
+        assert_eq!(LookupPolicy::parse("lookup-n2"), None);
+        assert_eq!(LookupPolicy::parse("lookupx"), None);
+        // a text that copies itself: the probe drafts one token until one
+        // was kept, then three; a lost draft goes back to one
+        let prompt: Vec<u32> = (0..40).map(|i| i % 10).collect();
+        let next = |pos: usize, _t: u32| ((pos + 1) % 10) as u32;
+        let sizes = std::cell::RefCell::new(Vec::new());
+        let (out, _, st) = lookup_greedy(
+            &prompt,
+            next(39, 0),
+            30,
+            &[],
+            3,
+            LookupPolicy { min_n: 3, probe: 1 },
+            |pos, rows| {
+                sizes.borrow_mut().push(rows.len());
+                Ok((0..rows.len()).map(|i| next(pos + i, rows[i])).collect())
+            },
+            |_| Ok(()),
+        )
+        .unwrap();
+        let want: Vec<u32> = (41..71).map(|p| (p % 10) as u32).collect();
+        assert_eq!(out, want);
+        let sizes = sizes.into_inner();
+        assert_eq!(sizes[0], 2, "the first round probes one draft: {sizes:?}");
+        assert!(sizes[1..sizes.len() - 1].iter().all(|&n| n == 4), "then three drafts a round: {sizes:?}");
+        assert_eq!(st.drafted, st.accepted, "{st:?}");
     }
 }

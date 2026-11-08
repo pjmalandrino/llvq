@@ -826,13 +826,26 @@ impl<'a> Section<'a> {
             let got: Vec<Vec<u16>> = a.ys.iter().map(|y| m.down_u16(y)).collect::<Result<_, _>>()?;
             match owes {
                 pers::VrowsOwes::Served => {
-                    for (g, (act, want)) in got.iter().zip(refs.iter().enumerate()) {
-                        let same = g.iter().zip(want).filter(|(x, y)| x == y).count();
-                        if same == rows {
-                            println!("  {name}: {rows} rows identical BIT FOR BIT to tv_tetra48_h on activation {act}");
-                        } else {
-                            a.valid = false;
-                            println!("  {name} INVALIDATED: {same} of {rows} rows equal tv_tetra48_h on activation {act}");
+                    // Every activation, K at a time: a launch's activation j
+                    // is activation base + j, against its served rows.
+                    let ku = k as usize;
+                    for base in (0..refs.len()).step_by(ku) {
+                        let mut xs1 = xp;
+                        for (j, x) in xs1.iter_mut().enumerate().take(ku) {
+                            *x = xp[(base + j) % refs.len()];
+                        }
+                        vrows_launch(&m, &mut a, &tables, ga, gb, xs1)?;
+                        m.sync()?;
+                        for j in 0..ku.min(refs.len() - base) {
+                            let act = base + j;
+                            let g = m.down_u16(&a.ys[j])?;
+                            let same = g.iter().zip(&refs[act]).filter(|(x, y)| x == y).count();
+                            if same == rows {
+                                println!("  {name}: {rows} rows identical BIT FOR BIT to tv_tetra48_h on activation {act}");
+                            } else {
+                                a.valid = false;
+                                println!("  {name} INVALIDATED: {same} of {rows} rows equal tv_tetra48_h on activation {act}");
+                            }
                         }
                     }
                 }
@@ -851,8 +864,8 @@ impl<'a> Section<'a> {
                             let g = m.down_u16(&a.ys[0])?;
                             let c = pers::vrows_i16_check(&g, &refs[act], &d_outs);
                             println!(
-                                "  {name}: activation {act} against tv_tetra48_h: {} rows identical, {} one binary16 ulp away, {} out of bounds; worst |dy| {:.2e} of the site's rms",
-                                c.same, c.one_ulp, c.out, c.worst
+                                "  {name}: activation {act} against tv_tetra48_h: {} rows identical, {} one binary16 ulp away, {} two ulps or more within {} of the rms, {} out of bounds; worst |dy| {:.2e} of the site's rms",
+                                c.same, c.one_ulp, c.within_rms, pers::VROWS_I16_TOL, c.out, c.worst
                             );
                             if c.out != 0 {
                                 a.valid = false;
