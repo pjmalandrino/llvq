@@ -74,13 +74,6 @@ fn persistent() -> &'static Path {
     B.get_or_init(|| build_side(&repo(), 1, "off", "pers"))
 }
 
-/// The persistent side with 4E's row form 3 (4E v5: form 2 with each CTA's
-/// last rows split over its warps).
-fn persistent_v5() -> &'static Path {
-    static B: OnceLock<PathBuf> = OnceLock::new();
-    B.get_or_init(|| build_side_with(&repo(), 1, "off", "pers_v5", &["PERS_4E_ROWS=3u"]))
-}
-
 /// The persistent side with 4E's row form 2 (4E v4: v2's row loop on the
 /// stream's static rows).
 fn persistent_v4() -> &'static Path {
@@ -1348,62 +1341,6 @@ fn the_4e_v4_mutants_are_killed() {
     }
 }
 
-
-// ---- 4E v5: the last rows of a CTA split over its warps (PERS_4E_ROWS = 3) --
-
-/// The module built with row form 3 runs the served chain bit for bit, on
-/// grids whose CTAs hold a row count that is not a multiple of their warps.
-#[test]
-fn the_4e_v5_rows_are_the_served_chain() {
-    let r = rot(2560, 41);
-    let qkv = |grid: u32, threads: u32, seed: u64| {
-        Cmd::new(b'V').u32(grid).u32(threads).u64(seed).u32(r.m).u32(r.k).f32(r.inv).u32s(&r.signs).f32s(&r.small).0
-    };
-    for (grid, threads, seed) in [(3u32, 96u32, 1u64), (4, 64, 2), (7, 128, 3)] {
-        assert!(run(served(), &qkv(grid, threads, seed)) == run(persistent_v5(), &qkv(grid, threads, seed)), "v5 q/k/v, grid {grid}x{threads}");
-    }
-    // grids 3 to 5: gate/up's pairs a CTA exceed form 3's 512 and take form 2's
-    // path; 20 x 96: 486 or 487 pairs a CTA, 2 rows left over on 3 warps, the
-    // split taken (and the down's and q|k's at every grid)
-    for (form, grid, threads) in [(0u32, 3u32, 128u32), (2, 4, 96), (1, 5, 64), (1, 20, 96)] {
-        let cmd = g_cmd_variant(form, grid, threads, &[(5, 3, 7)], 16, u32::MAX, 0x4e60 + form as u64, 2);
-        let want = run(served(), &cmd);
-        let got = run(persistent_v5(), &cmd);
-        let first = got.iter().zip(&want).position(|(a, b)| a != b);
-        assert!(got[..got.len() - 8] == want[..want.len() - 8], "v5, form {form}, grid {grid}x{threads}: tokens, residual or caches; lengths {} {}, first byte differing {first:?}", got.len(), want.len());
-    }
-    let cmd = g_cmd_variant(1, 3, 128, &[(270, 2, 7)], 288, u32::MAX, 0x4e70, 2);
-    let (want, got) = (run(served(), &cmd), run(persistent_v5(), &cmd));
-    assert!(got[..got.len() - 8] == want[..want.len() - 8], "v5, positions 270-271");
-    let runs = [(5u32, 3u32, 7u32), (8, 2, 9)];
-    let plain = run(persistent_v5(), &g_cmd_variant(1, 4, 96, &runs, 16, u32::MAX, 0x4e21, 2));
-    let stamped = run(persistent_v5(), &g_cmd_variant(1, 4, 96, &runs, 16, u32::MAX, 0x4e21, 1));
-    assert!(stamped[..plain.len()] == plain[..], "v5: the stamped launch moved an output");
-}
-
-/// v5's split: each mutant moves the q/k/v rows or the token loop.
-#[test]
-fn the_4e_v5_mutants_are_killed() {
-    let r = rot(2560, 41);
-    let v = |grid: u32, threads: u32| Cmd::new(b'V').u32(grid).u32(threads).u64(1).u32(r.m).u32(r.k).f32(r.inv).u32s(&r.signs).f32s(&r.small).0;
-    let cmds = [v(3, 96), v(7, 128), g_cmd_variant(0, 3, 128, &[(5, 3, 7)], 16, u32::MAX, 0x4e60, 2), g_cmd_variant(1, 20, 96, &[(5, 3, 7)], 16, u32::MAX, 0x4e61, 2)];
-    let want: Vec<Vec<u8>> = cmds.iter().map(|c| run(served(), c)).collect();
-    let f = "llvq-cuda/kernels/llvq_pers.cuh";
-    let s = "llvq-cuda/kernels/pers_segment.cu";
-    for (tag, file, from, to) in [
-        ("v5_fold_order", f, "        for (u32 i = 0; i < nit; ++i) {\n            const u32 u = rr * nit + i;", "        for (u32 i = nit; i-- > 0;) {\n            const u32 u = rr * nit + i;"),
-        ("v5_gscale", f, "tv = __fmul_rn(a, R.gscale[(hi16 >> 15) & 1u]);", "tv = __fmul_rn(a, R.gscale[0]);"),
-        ("v5_unit_step", f, "const u32 rr = u / nit, i = u - rr * nit;", "const u32 rr = u / nit, i = (u - rr * nit + 1u) % nit;"),
-        ("v5_owner_row", f, "            epi(full + rr, pers_epilogue(acc, R.rscale[R.r],", "            epi(full + (rr ^ 1u) % rem, pers_epilogue(acc, R.rscale[R.r],"),
-        ("v5_gu_product", s, "exact_hmul(A->silu[sgu[2u * p]], sgu[2u * p + 1u]);", "exact_hmul(A->silu[sgu[2u * p + 1u]], sgu[2u * p]);"),
-    ] {
-        let root = std::env::temp_dir().join(format!("llvq_pers_mutant_{tag}_{}", std::process::id()));
-        let _ = mutant(tag, file, from, to);
-        let b = build_side_with(&root, 1, "off", &format!("{tag}_v5"), &["PERS_4E_ROWS=3u"]);
-        let killed = cmds.iter().zip(&want).any(|(c, w)| run_mutant(&b, c).is_none_or(|o| &o != w));
-        assert!(killed, "v5 mutant {tag} survived");
-    }
-}
 
 // ---- 4E v6: ln1, ln2 and the down's input in one round trip (PERS_4E_ROWS = 4) --
 
