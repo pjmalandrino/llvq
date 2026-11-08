@@ -47,8 +47,6 @@ pub mod kvq;
 pub mod loader;
 pub mod model;
 #[cfg(all(target_os = "linux", feature = "cuda"))]
-pub mod persist_cuda;
-#[cfg(all(target_os = "linux", feature = "cuda"))]
 pub mod persist4e_cuda;
 pub mod rotplan;
 pub mod sealed;

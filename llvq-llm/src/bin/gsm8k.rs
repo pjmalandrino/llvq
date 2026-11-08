@@ -113,16 +113,8 @@ fn main() -> anyhow::Result<()> {
     let think = env_flag("LLVQ_GSM8K_THINK")?;
     let dtype = llvq_llm::eval::dtype(DType::F16)?;
     let kv_mode = llvq_llm::kvq::KvMode::from_env().map_err(anyhow::Error::msg)?;
-    let kv_store = llvq_llm::kvq::KvStore::from_env().map_err(anyhow::Error::msg)?;
+    llvq_llm::served::check_removed(|v| std::env::var(v).ok()).map_err(anyhow::Error::msg)?;
     let served = llvq_llm::served::Served::from_env().map_err(anyhow::Error::msg)?;
-    // The store is the config's business on the served path, and the config
-    // reads it from the attention form. A variable beside it would be two
-    // answers to one question, which is what `served.rs` refuses everywhere
-    // else: `bin/fusedrun` has refused this one by name since 2026-09-11, and
-    // this binary applied it to the served arm until 2026-11-02.
-    if served.is_some() {
-        llvq_llm::served::check_store_env(|v| std::env::var(v).ok()).map_err(anyhow::Error::msg)?;
-    }
 
     // ---- the model ----
     let t_load = Instant::now();
@@ -180,13 +172,10 @@ fn main() -> anyhow::Result<()> {
     // decode engine, in one place for the served binaries (`Served::serve`):
     // eager without the field (the loop below, unchanged), 4E under
     // "decode": "persistent", installed after the form and its threshold.
-    // Bench: the store comes from the variable, and the engine is eager.
+    // Bench: the shipped store, and the engine is eager.
     let mut dec = match &served {
         Some(cfg) => cfg.serve(&mut model, &device)?,
-        None => {
-            model.set_kv_store(kv_store);
-            llvq_llm::served_decode::Decoder::eager()
-        }
+        None => llvq_llm::served_decode::Decoder::eager(),
     };
     for line in dec.lines() {
         eprintln!("{line}");

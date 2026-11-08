@@ -138,8 +138,7 @@ pub struct ReplOptions {
 /// `temp` the resolved `LLVQ_CHAT_TEMP`, so a refusal costs a second and not
 /// an eighty-second load. Two refusals:
 ///
-/// * `LLVQ_KV_PREALLOC`: the config names the cache store
-///   ([`crate::served::check_store_env`]);
+/// * a removed variable ([`crate::served::check_removed`]);
 /// * the persistent decode at a temperature above zero. 4E takes the argmax
 ///   on the card, token after token inside one launch, so it can only
 ///   continue a greedy chain; sampling would need the eager path, which is
@@ -149,7 +148,7 @@ pub fn check_served_chat(
     temp: f32,
     lookup: impl Fn(&str) -> Option<String>,
 ) -> Result<(), String> {
-    crate::served::check_store_env(lookup)?;
+    crate::served::check_removed(lookup)?;
     if cfg.decode == Decode::Persistent && temp > 0.0 {
         return Err(format!(
             "{}: decode \"persistent\" at LLVQ_CHAT_TEMP={temp}. 4E takes the argmax on the card and \

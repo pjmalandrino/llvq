@@ -1385,58 +1385,6 @@ fn run_pers_4e(
     Ok(())
 }
 
-#[cfg(all(target_os = "linux", feature = "cuda"))]
-/// `LLVQ_PERS_SEGMENT`: one model, the eager MLP and route P's segment in
-/// every round, same order, two rounds discarded, then [`ROUNDS_TIMED`].
-/// Identical tokens or the run is void; tok/s per arm, and the ratio formed
-/// round by round.
-fn run_pers_ab(
-    model: &mut llvq_llm::model::Qwen3,
-    ids: &[u32],
-    n_new: usize,
-    inst: &llvq_llm::persist_cuda::Installed,
-) -> anyhow::Result<()> {
-    use llvq_llm::boundary::median_range;
-    const WARMUP: usize = 2;
-    let names = ["eager", "segment"];
-    let mut reference: Option<Vec<u32>> = None;
-    let mut rate: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
-    for round in 0..WARMUP + ROUNDS_TIMED {
-        for (k, name) in names.iter().enumerate() {
-            if k == 0 {
-                llvq_llm::persist_cuda::clear(model);
-            } else {
-                inst.set(model);
-            }
-            let t = Instant::now();
-            let out = model.generate(ids, n_new, &mut NoCapture)?;
-            let s = t.elapsed().as_secs_f64();
-            match &reference {
-                None => reference = Some(out),
-                Some(r) => {
-                    if let Some(i) = first_divergence(r, &out).map_err(|e| anyhow::anyhow!("{e}"))? {
-                        anyhow::bail!("round {round}, arm {name}: divergence at token {i}; the segment owes the \
-                                       eager bits, and the run is void");
-                    }
-                }
-            }
-            if round >= WARMUP {
-                rate[k].push(n_new as f64 / s);
-            }
-        }
-    }
-    llvq_llm::persist_cuda::clear(model);
-    println!("  {n_new} tokens identical across 2 arms and {} rounds", WARMUP + ROUNDS_TIMED);
-    for (k, name) in names.iter().enumerate() {
-        let (m, lo, hi) = median_range(&rate[k]);
-        println!("  {name:<8} {m:7.1} tok/s [{lo:.1}-{hi:.1}]");
-    }
-    let ratio: Vec<f64> = rate[1].iter().zip(&rate[0]).map(|(a, b)| a / b).collect();
-    let (m, lo, hi) = median_range(&ratio);
-    println!("  segment / eager, round by round: x{m:.3} [{lo:.3}-{hi:.3}]");
-    Ok(())
-}
-
 #[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
 fn run_boundary_ab(
     model: &mut llvq_llm::model::Qwen3,
@@ -1567,17 +1515,14 @@ fn print_phases(arm: &str, r: &llvq_llm::model::PhaseReport) {
 /// The measurement modes and prompt variables of this binary that run alone.
 ///
 /// One table replaces the eight lists each mode used to spell out, which had
-/// drifted apart: `LLVQ_PERS_SEGMENT` listed itself, so `=1` always failed,
-/// and the modes dispatched last returned before reading the ones dispatched
-/// after them, so `LLVQ_GRAPH_AB` beside `LLVQ_GQA_PPL` was silently ignored.
-/// A mode calls [`runs_alone`]: every OTHER name here, set beside it, is
-/// refused. `LLVQ_GRAPH_DIAG` rides inside `LLVQ_GRAPH_AB`, which does not
-/// call it.
+/// drifted apart: one mode listed itself, so `=1` always failed, and the
+/// modes dispatched last returned before reading the ones dispatched after
+/// them, so a mode beside `LLVQ_GQA_PPL` was silently ignored. A mode calls
+/// [`runs_alone`]: every OTHER name here, set beside it, is refused.
 #[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
-const ALONE: [&str; 16] = [
-    "LLVQ_INT4_WIDE_CHECK", "LLVQ_GESTURE_AB", "LLVQ_BOUNDARY_AB", "LLVQ_PERS_4E", "LLVQ_PERS_SEGMENT",
-    "LLVQ_GQA_PPL", "LLVQ_GQA_AB", "LLVQ_CONTEXTS", "LLVQ_TRIM_AB", "LLVQ_PREFILL_TOKENS",
-    "LLVQ_GRAPH_AB", "LLVQ_GRAPH_DIAG", "LLVQ_KV_AB", "LLVQ_FUSE_AB", "LLVQ_TIME_PHASES", "LLVQ_SEG_ARMS",
+const ALONE: [&str; 11] = [
+    "LLVQ_INT4_WIDE_CHECK", "LLVQ_GESTURE_AB", "LLVQ_BOUNDARY_AB", "LLVQ_PERS_4E", "LLVQ_GQA_PPL",
+    "LLVQ_GQA_AB", "LLVQ_CONTEXTS", "LLVQ_TRIM_AB", "LLVQ_PREFILL_TOKENS", "LLVQ_TIME_PHASES", "LLVQ_SEG_ARMS",
 ];
 
 /// `mode` against every other name of [`ALONE`] and the mode's own `extra`
@@ -1617,14 +1562,12 @@ fn main() -> anyhow::Result<()> {
         use candle_core::{DType, Device};
         let device = Device::new_cuda(0)?;
         let dtype = DType::F16;
-        // Resolved once, here — `model.rs` reads no environment variable. The
-        // store rides BOTH arms identically: it is never the variable of this
-        // A/B (the `check_fuse` rule), and each arm line prints it below so a
-        // wiring miss shows as `cat` instead of silently measuring it.
-        let kv_store = llvq_llm::kvq::KvStore::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
-        // Resolved here, beside `kv_store`, and for the same reason: one read
-        // of the outside world, at the top, so no path below can pick up a
-        // different answer. `None` is the bench; `Some` is the runner.
+        // A variable whose code is gone fails here, by name, instead of
+        // leaving an old command to measure the plain bench.
+        llvq_llm::served::check_removed(|v| std::env::var(v).ok()).map_err(anyhow::Error::msg)?;
+        // Resolved once, here: one read of the outside world, at the top, so
+        // no path below can pick up a different answer. `None` is the bench;
+        // `Some` is the runner.
         let served = llvq_llm::served::Served::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
         // The served path takes no measurement mode. Each of these turns this
         // binary into a bench of one thing, and a bench needs its arms named
@@ -1633,11 +1576,13 @@ fn main() -> anyhow::Result<()> {
         // the audit of 2026-09-11 found it. `LLVQ_PREFILL_TOKENS` and
         // `LLVQ_CONTEXTS` are the two exceptions, handled below: they time the
         // served object as served, and change only the prompt it is given.
+        // `LLVQ_TIME_EVENTS` and `LLVQ_BENCH_ARMS` are read by `planesbench`
+        // only, so this binary lets them pass.
         if served.is_some() {
-            for var in ["LLVQ_GRAPH_AB", "LLVQ_GRAPH_DIAG", "LLVQ_KV_AB", "LLVQ_FUSE_AB",
-                        "LLVQ_TIME_PHASES", "LLVQ_KV_PREALLOC", "LLVQ_SEG_ARMS",
-                        "LLVQ_TRIM_AB", "LLVQ_GQA_AB", "LLVQ_GQA_PPL",
-                        "LLVQ_INT4_WIDE_CHECK", "LLVQ_GESTURE_AB", "LLVQ_BOUNDARY_AB", "LLVQ_PERS_SEGMENT", "LLVQ_PERS_4E"] {
+            for var in llvq_llm::served::MEASUREMENT_MODES
+                .into_iter()
+                .filter(|v| !["LLVQ_TIME_EVENTS", "LLVQ_BENCH_ARMS"].contains(v))
+            {
                 if let Ok(v) = std::env::var(var) {
                     anyhow::bail!(
                         "{var}={v:?} beside LLVQ_CONFIG: that is a measurement mode, and the \
@@ -1657,16 +1602,6 @@ fn main() -> anyhow::Result<()> {
             std::env::var("LLVQ_TIME_PHASES").ok().as_deref(),
         );
 
-        // ---- A2 steps 2+3: the capture, and the graph-against-eager A/B ----
-        //
-        // `LLVQ_GRAPH_AB=1`: ONE model on a FRESH stream (the legacy NULL one
-        // does not capture), event tracking off BEFORE any allocation (the
-        // graphbench lesson of 08-06: a foreign event invalidates the
-        // capture). The two arms share everything, weights, caches, StepState,
-        // logits buffer, and differ by ONE thing only: the decode step is run
-        // eagerly, or replayed from the captured graph. Correctness gate
-        // first (identical tokens everywhere), numbers second, round by round.
-        // Phase prereg 802006c5 (frozen thresholds).
         // ---- LLVQ_INT4_WIDE_CHECK: the f16-staged int4 kernel, bytes ----
         //
         // A MEASUREMENT MODE on the bench door, refused beside LLVQ_CONFIG
@@ -1709,9 +1644,6 @@ fn main() -> anyhow::Result<()> {
                 anyhow::bail!("LLVQ_GESTURE_AB={v:?}: the only value is 1");
             }
             runs_alone("LLVQ_GESTURE_AB", &["LLVQ_KERNEL_DIR"])?;
-            if !matches!(kv_store, llvq_llm::kvq::KvStore::Cat) {
-                anyhow::bail!("LLVQ_GESTURE_AB sets the served store itself: unset LLVQ_KV_PREALLOC");
-            }
             if n_new < CLOCK_TOKENS {
                 anyhow::bail!("LLVQ_GESTURE_AB: {n_new} tokens, and its clocks decode {CLOCK_TOKENS}");
             }
@@ -1780,9 +1712,6 @@ fn main() -> anyhow::Result<()> {
                 anyhow::bail!("LLVQ_BOUNDARY_AB={v:?}: the only value is 1");
             }
             runs_alone("LLVQ_BOUNDARY_AB", &["LLVQ_KERNEL_DIR"])?;
-            if !matches!(kv_store, llvq_llm::kvq::KvStore::Cat) {
-                anyhow::bail!("LLVQ_BOUNDARY_AB sets the served store itself: unset LLVQ_KV_PREALLOC");
-            }
             if n_new < 2 {
                 anyhow::bail!("LLVQ_BOUNDARY_AB: {n_new} tokens, and its cost is read on decode steps");
             }
@@ -1886,9 +1815,6 @@ fn main() -> anyhow::Result<()> {
                 anyhow::bail!("LLVQ_PERS_4E={n_new}: 2 to 256 tokens a run");
             }
             runs_alone("LLVQ_PERS_4E", &["LLVQ_KERNEL_DIR"])?;
-            if !matches!(kv_store, llvq_llm::kvq::KvStore::Cat) {
-                anyhow::bail!("LLVQ_PERS_4E sets the store itself: unset LLVQ_KV_PREALLOC");
-            }
             let layout = llvq_llm::fused::FusedLayout::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
             if layout != llvq_llm::fused::FusedLayout::Tetra48 {
                 anyhow::bail!("LLVQ_PERS_4E: layout {}, and 4E reads Tetra48 streams", layout.name());
@@ -1958,71 +1884,6 @@ fn main() -> anyhow::Result<()> {
             return Ok(());
         }
 
-        // ---- LLVQ_PERS_SEGMENT: route P, step A, against the eager MLP ----
-        //
-        // A MEASUREMENT MODE on the bench door, refused beside LLVQ_CONFIG, the
-        // served flags spelled out on the command line (gate L3 of
-        // persistent.md §5; its prereg is written when L2 has spoken). ONE model
-        // in the served 4B state (Grow(256) + grouped, events off before the
-        // load), two arms in every round: the eager MLP half, and the
-        // persistent segment (`llvq_llm::persist_cuda`) on every layer whose
-        // install check passed. Identical tokens are required: the segment owes
-        // the eager ops' bits, and any divergence voids the run.
-        if let Ok(v) = std::env::var("LLVQ_PERS_SEGMENT") {
-            if v != "1" {
-                anyhow::bail!("LLVQ_PERS_SEGMENT={v:?}: the only value is 1");
-            }
-            runs_alone("LLVQ_PERS_SEGMENT", &["LLVQ_KERNEL_DIR"])?;
-            if !matches!(kv_store, llvq_llm::kvq::KvStore::Cat) {
-                anyhow::bail!("LLVQ_PERS_SEGMENT sets the served store itself: unset LLVQ_KV_PREALLOC");
-            }
-            if n_new < 2 {
-                anyhow::bail!("LLVQ_PERS_SEGMENT: {n_new} tokens, and the segment runs on decode steps");
-            }
-            let layout = llvq_llm::fused::FusedLayout::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
-            if layout != llvq_llm::fused::FusedLayout::Tetra48 {
-                anyhow::bail!("LLVQ_PERS_SEGMENT: layout {}, and the segment reads Tetra48 streams", layout.name());
-            }
-            let fuse = llvq_llm::fused::FuseMode::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
-            if fuse != llvq_llm::fused::FuseMode::Off {
-                anyhow::bail!("LLVQ_PERS_SEGMENT: LLVQ_FUSE={}, and the served 4B runs 0", fuse.name());
-            }
-            let ctx = device.as_cuda_device()?.cuda_stream().context().clone();
-            if ctx.is_in_multi_stream_mode() {
-                anyhow::bail!("LLVQ_PERS_SEGMENT: the context holds several streams, and turning \
-                               cudarc's events off is only safe on one");
-            }
-            // Safe: one stream, checked above, orders every access by issue.
-            unsafe {
-                ctx.disable_event_tracking();
-            }
-            println!("cudarc event tracking: off (one stream, ordered by issue)");
-            let t = Instant::now();
-            let mut f = llvq_llm::fused_cuda::load_with(&path, &device, dtype, fuse)?;
-            GqaArm::Grouped.apply(&mut f.model);
-            println!("attention {} on {}", f.model.attn_heads().label(), f.model.kv_store().label());
-            let inst = llvq_llm::persist_cuda::install(&f.model, &device)?;
-            for line in &inst.lines {
-                println!("{line}");
-            }
-            if ctx.is_in_multi_stream_mode() {
-                anyhow::bail!("LLVQ_PERS_SEGMENT: a second stream appeared at the load, with events off");
-            }
-            println!("loaded and checked in {:.1} s. route P A/B: eager against segment, interleaved rounds",
-                     t.elapsed().as_secs_f64());
-            let ids = f.tokenizer.encode(PROMPT, false).map_err(|e| anyhow::anyhow!("{e}"))?.get_ids().to_vec();
-            let ran = run_pers_ab(&mut f.model, &ids, n_new, &inst);
-            llvq_llm::persist_cuda::clear(&mut f.model);
-            ran?;
-            if inst.aborted()? {
-                anyhow::bail!("LLVQ_PERS_SEGMENT: a segment launch aborted on its watchdog: the numbers above are void");
-            }
-            if ctx.is_in_multi_stream_mode() {
-                anyhow::bail!("LLVQ_PERS_SEGMENT: a second stream appeared during the run: the numbers above are void");
-            }
-            return Ok(());
-        }
-
         // ---- LLVQ_GQA_PPL: the grouped form's perplexity, prefill and decode ----
         //
         // A MEASUREMENT MODE on the bench door, refused beside LLVQ_CONFIG, the
@@ -2036,9 +1897,6 @@ fn main() -> anyhow::Result<()> {
         if let Ok(v) = std::env::var("LLVQ_GQA_PPL") {
             let spec = parse_gqa_ppl(&v).map_err(|e| anyhow::anyhow!("{e}"))?;
             runs_alone("LLVQ_GQA_PPL", &[])?;
-            if !matches!(kv_store, llvq_llm::kvq::KvStore::Cat) {
-                anyhow::bail!("LLVQ_GQA_PPL sets the store of each arm: unset LLVQ_KV_PREALLOC");
-            }
             let fuse = llvq_llm::fused::FuseMode::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
             let t = Instant::now();
             let mut f = llvq_llm::fused_cuda::load_with(&path, &device, dtype, fuse)?;
@@ -2099,9 +1957,6 @@ fn main() -> anyhow::Result<()> {
         if let Ok(v) = std::env::var("LLVQ_GQA_AB") {
             let lengths = parse_lengths("LLVQ_GQA_AB", &v).map_err(|e| anyhow::anyhow!("{e}"))?;
             runs_alone("LLVQ_GQA_AB", &[])?;
-            if !matches!(kv_store, llvq_llm::kvq::KvStore::Cat) {
-                anyhow::bail!("LLVQ_GQA_AB sets the store of each arm: unset LLVQ_KV_PREALLOC");
-            }
             let fuse = llvq_llm::fused::FuseMode::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
             let t = Instant::now();
             let mut f = llvq_llm::fused_cuda::load_with(&path, &device, dtype, fuse)?;
@@ -2148,13 +2003,6 @@ fn main() -> anyhow::Result<()> {
         if let Ok(v) = std::env::var("LLVQ_CONTEXTS") {
             let lengths = parse_contexts(&v).map_err(|e| anyhow::anyhow!("{e}"))?;
             runs_alone("LLVQ_CONTEXTS", &[])?;
-            if !matches!(kv_store, llvq_llm::kvq::KvStore::Cat) {
-                anyhow::bail!(
-                    "LLVQ_CONTEXTS with a preallocated window: the window would bound the \
-                     prompt this mode exists to lengthen. Unset LLVQ_KV_PREALLOC. A served \
-                     config's own store is applied below and is not this check's business."
-                );
-            }
             let t = Instant::now();
             let mut f = match &served {
                 Some(cfg) => {
@@ -2211,10 +2059,6 @@ fn main() -> anyhow::Result<()> {
         // in every round (`run_trim_ab`). The events arm flips cudarc's tracking
         // between rounds, which is safe only on one stream, so that is checked.
         if std::env::var("LLVQ_TRIM_AB").ok().as_deref() == Some("1") {
-            if !matches!(kv_store, llvq_llm::kvq::KvStore::Cat) {
-                anyhow::bail!("LLVQ_TRIM_AB times the served decode step, on the Cat store: \
-                               unset LLVQ_KV_PREALLOC");
-            }
             let fuse = llvq_llm::fused::FuseMode::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
             let t = Instant::now();
             let mut f = llvq_llm::fused_cuda::load_with(&path, &device, dtype, fuse)?;
@@ -2258,7 +2102,7 @@ fn main() -> anyhow::Result<()> {
         // ---- LLVQ_PREFILL_TOKENS: what a prompt costs through the kernel ----
         //
         // A MEASUREMENT MODE, never a served config — the `LLVQ_TIME_PHASES`
-        // and `LLVQ_GRAPH_AB` rule. Unset, this binary is byte-identical to
+        // rule. Unset, this binary is byte-identical to
         // the published protocol.
         //
         // It answers one question and no other: how long does the fused path
@@ -2299,10 +2143,9 @@ fn main() -> anyhow::Result<()> {
                 }
             };
             // Served: the config decides the store and the form. Bench: the
-            // store comes from the variable, as it always did.
-            match &served {
-                Some(cfg) => cfg.apply(&mut f.model, &device).map_err(|e| anyhow::anyhow!("{e}"))?,
-                None => f.model.set_kv_store(kv_store),
+            // shipped store.
+            if let Some(cfg) = &served {
+                cfg.apply(&mut f.model, &device).map_err(|e| anyhow::anyhow!("{e}"))?;
             }
             let load = t.elapsed().as_secs_f64();
             // The ids do not matter for a timing — the kernel has no
@@ -2536,372 +2379,10 @@ fn main() -> anyhow::Result<()> {
             return Ok(());
         }
 
-        if std::env::var("LLVQ_GRAPH_AB").ok().as_deref() == Some("1") {
-            use candle_core::IndexOp;
-            use llvq_llm::kvq::KvStore;
-            let w = match kv_store {
-                KvStore::Prealloc(w) => w,
-                KvStore::Cat | KvStore::Grow(_) => anyhow::bail!(
-                    "LLVQ_GRAPH_AB=1 requires LLVQ_KV_PREALLOC=<window>: fixed shapes \
-                     are what make the step capturable"
-                ),
-            };
-            // This mode's device: fresh stream plus tracking off, BEFORE any
-            // allocation. The published protocol's `device` (created above) is
-            // not touched; this one shadows it for this mode only.
-            let device = Device::new_cuda_with_stream(0)?;
-            let stream = device.as_cuda_device()?.cuda_stream();
-            unsafe { stream.context().disable_event_tracking() };
-            let fuse = llvq_llm::fused::FuseMode::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
-            let t = Instant::now();
-            let mut f = llvq_llm::fused_cuda::load_with(&path, &device, dtype, fuse)?;
-            f.model.set_kv_store(kv_store);
-            println!(
-                "loaded in {:.1} s. graph A/B: eager against replay, prealloc({w}), fresh stream, events off",
-                t.elapsed().as_secs_f64()
-            );
-            let ids = f
-                .tokenizer
-                .encode(PROMPT, false)
-                .map_err(|e| anyhow::anyhow!("{e}"))?
-                .get_ids()
-                .to_vec();
-            if ids.len() + n_new > w {
-                anyhow::bail!("window {w} < {} + {n_new} tokens", ids.len());
-            }
-            let vocab = f.model.config().vocab_size;
-            let mut caches = f.model.fresh_caches();
-            // The prefill sizes the buffers; step_state then ARMS the
-            // capturable write path (never before: the prefill's
-            // multi-position write stays on slice_set).
-            let prefill = |model: &llvq_llm::model::Qwen3,
-                           caches: &mut [llvq_llm::model::KvCache]|
-             -> anyhow::Result<u32> {
-                for c in caches.iter_mut() {
-                    c.reset();
-                }
-                let input = candle_core::Tensor::from_slice(&ids, (1, ids.len()), &device)?;
-                let h = model.hidden_cached(&input, 0, caches, &mut NoCapture)?;
-                let l = h.dim(1)?;
-                let last = h.narrow(1, l - 1, 1)?;
-                let logits = model.project_head(&last)?.to_dtype(candle_core::DType::F32)?;
-                Ok(logits.i((0, 0))?.argmax(candle_core::D::Minus1)?.to_scalar::<u32>()?)
-            };
-            let first = prefill(&f.model, &mut caches)?;
-            let st = f.model.step_state(&mut caches)?;
-            let logits_out =
-                candle_core::Tensor::zeros((1usize, 1, vocab), candle_core::DType::F32, &device)?;
-            // THE step, bit-identical between the two arms: what the eager arm
-            // runs is what the capture recorded.
-            let step = |model: &llvq_llm::model::Qwen3,
-                        caches: &mut [llvq_llm::model::KvCache]|
-             -> anyhow::Result<()> {
-                let lg = model.token_step(&st, caches, &mut NoCapture)?;
-                logits_out.slice_set(&lg.to_dtype(candle_core::DType::F32)?, 0, 0)?;
-                Ok(())
-            };
-            let read_next = || -> anyhow::Result<u32> {
-                Ok(logits_out
-                    .i((0, 0))?
-                    .argmax(candle_core::D::Minus1)?
-                    .to_scalar::<u32>()?)
-            };
-            // Warmup: one complete eager generation (allocator, cuBLAS,
-            // clocks), discarded.
-            let gen_eager = |f: &llvq_llm::fused_cuda::FusedSealed,
-                             caches: &mut [llvq_llm::model::KvCache]|
-             -> anyhow::Result<Vec<u32>> {
-                let mut next = prefill(&f.model, caches)?;
-                let mut offset = ids.len();
-                let mut out = Vec::with_capacity(n_new);
-                loop {
-                    out.push(next);
-                    if out.len() == n_new {
-                        return Ok(out);
-                    }
-                    f.model.refresh_step(&st, next, offset)?;
-                    step(&f.model, caches)?;
-                    next = read_next()?;
-                    offset += 1;
-                }
-            };
-            let warm = gen_eager(&f, &mut caches)?;
-            // THE CAPTURE: prepare the state of the first real step, record
-            // the step (the body runs host-side, the device RECORDS without
-            // executing), then the graph is replayable at every token.
-            let next0 = prefill(&f.model, &mut caches)?;
-            f.model.refresh_step(&st, next0, ids.len())?;
-            let graph = {
-                let fm = &f.model;
-                let cs = &mut caches;
-                let mut err: Option<anyhow::Error> = None;
-                let g = llvq_cuda::gpu::capture_on(&stream, || {
-                    // THE SAME `step` as the eager arm: what the capture
-                    // records is, byte for byte, what the eager arm runs.
-                    if let Err(e) = step(fm, cs) {
-                        err = Some(e);
-                        return Err("the capture body failed".to_string());
-                    }
-                    Ok(())
-                });
-                if let Some(e) = err {
-                    return Err(e.context("during the capture"));
-                }
-                g.map_err(|e| anyhow::anyhow!("{e}"))?
-            };
-            println!("capture: OK, the decode step is a replayable graph");
-            // The FIRST launch of an AUTO_FREE graph is the one that
-            // materializes its allocation nodes, and the 2026-09-01 diagnostic
-            // measured it SLIGHTLY WRONG (max|Δlogits| = 11.2 on the first
-            // launch, then 0.000e0 EXACTLY on every later one, twelve tokens
-            // long). So it is spent here as a dry run, on the capture's state:
-            // its writes land on a state that every generation re-prefills
-            // anyway.
-            graph.launch().map_err(|e| anyhow::anyhow!("graph launch (throwaway): {e}"))?;
-            device.synchronize()?;
-            println!("first launch spent as a dry run (the diagnostic measured it inexact)");
-            let gen_graph = |f: &llvq_llm::fused_cuda::FusedSealed,
-                             caches: &mut [llvq_llm::model::KvCache]|
-             -> anyhow::Result<Vec<u32>> {
-                let mut next = prefill(&f.model, caches)?;
-                let mut offset = ids.len();
-                let mut out = Vec::with_capacity(n_new);
-                loop {
-                    out.push(next);
-                    if out.len() == n_new {
-                        return Ok(out);
-                    }
-                    f.model.refresh_step(&st, next, offset)?;
-                    graph.launch().map_err(|e| anyhow::anyhow!("graph launch: {e}"))?;
-                    next = read_next()?;
-                    offset += 1;
-                }
-            };
-            // Diagnostic mode: every token does replay THEN eager on the SAME
-            // state (the scatter rewrites the same position with the same
-            // values, idempotent), the two logit vectors are compared in
-            // full, and the StepState channels are read back FROM THE DEVICE
-            // after the refresh. What this discriminates: a channel frozen by
-            // value (the read-backs are right, the replay is wrong, the eager
-            // arm is right), an allocator corruption (massively different
-            // logits), or a numerical drift (small and growing gap).
-            if std::env::var("LLVQ_GRAPH_DIAG").ok().as_deref() == Some("1") {
-                let mut next = prefill(&f.model, &mut caches)?;
-                let mut offset = ids.len();
-                #[allow(clippy::explicit_counter_loop)]
-                for tok in 0..12usize {
-                    f.model.refresh_step(&st, next, offset)?;
-                    let inp: u32 = st.debug_input()?;
-                    let pos: u32 = st.debug_pos()?;
-                    graph.launch().map_err(|e| anyhow::anyhow!("graph launch: {e}"))?;
-                    let lg_graph: Vec<f32> = logits_out.flatten_all()?.to_vec1()?;
-                    let ng = read_next()?;
-                    step(&f.model, &mut caches)?;
-                    let lg_eager: Vec<f32> = logits_out.flatten_all()?.to_vec1()?;
-                    let ne = read_next()?;
-                    let maxd = lg_graph
-                        .iter()
-                        .zip(&lg_eager)
-                        .map(|(a, b)| (a - b).abs())
-                        .fold(0f32, f32::max);
-                    println!(
-                        "  diag t{tok:02}: input={inp} pos={pos} · graph→{ng} eager→{ne} \
-                         {} · max|Δlogits|={maxd:.3e}",
-                        if ng == ne { "==" } else { "≠≠ DIVERGENT" },
-                    );
-                    next = ne;
-                    offset += 1;
-                }
-                anyhow::bail!("diagnostic done, no timing in DIAG mode");
-            }
-            // The fallback hybrid: the first decode token eager (it "lands"
-            // the state), replay for all the following ones.
-            let gen_hybrid = |f: &llvq_llm::fused_cuda::FusedSealed,
-                              caches: &mut [llvq_llm::model::KvCache]|
-             -> anyhow::Result<Vec<u32>> {
-                let mut next = prefill(&f.model, caches)?;
-                let mut offset = ids.len();
-                let mut out = Vec::with_capacity(n_new);
-                loop {
-                    out.push(next);
-                    if out.len() == n_new {
-                        return Ok(out);
-                    }
-                    f.model.refresh_step(&st, next, offset)?;
-                    if out.len() == 1 {
-                        step(&f.model, caches)?;
-                    } else {
-                        graph.launch().map_err(|e| anyhow::anyhow!("graph launch: {e}"))?;
-                    }
-                    next = read_next()?;
-                    offset += 1;
-                }
-            };
-            // Correctness gate BEFORE any timing: pure replay first, hybrid
-            // as the fallback, and BOTH verdicts print.
-            let g0 = gen_graph(&f, &mut caches)?;
-            let pure_ok = first_divergence(&warm, &g0).map_err(|e| anyhow::anyhow!("{e}"))?;
-            let use_hybrid = match pure_ok {
-                None => {
-                    println!("PURE replay gate: {} identical tokens, timing the pure arm", warm.len());
-                    false
-                }
-                Some(i) => {
-                    println!("pure replay gate: RED (divergence at token {i}), trying the hybrid");
-                    let h0 = gen_hybrid(&f, &mut caches)?;
-                    match first_divergence(&warm, &h0).map_err(|e| anyhow::anyhow!("{e}"))? {
-                        None => {
-                            println!("HYBRID gate: {} identical tokens, timing the hybrid \
-                                      (1st token eager, replay after)", warm.len());
-                            true
-                        }
-                        Some(j) => anyhow::bail!(
-                            "RED GATE on both arms: pure at token {i}, hybrid at token {j}, \
-                             no timing"
-                        ),
-                    }
-                }
-            };
-            let _ = first;
-            let (mut r_e, mut r_g, mut ratios) = (Vec::new(), Vec::new(), Vec::new());
-            for round in 0..ROUNDS_TIMED {
-                let t = Instant::now();
-                let oe = gen_eager(&f, &mut caches)?;
-                let te = n_new as f64 / t.elapsed().as_secs_f64();
-                let t = Instant::now();
-                let og = if use_hybrid {
-                    gen_hybrid(&f, &mut caches)?
-                } else {
-                    gen_graph(&f, &mut caches)?
-                };
-                let tg = n_new as f64 / t.elapsed().as_secs_f64();
-                for (o, name) in [(&oe, "eager"), (&og, "graph")] {
-                    if let Some(i) = first_divergence(&warm, o).map_err(|e| anyhow::anyhow!("{e}"))? {
-                        anyhow::bail!("round {round}, {name}: divergence at token {i}");
-                    }
-                }
-                r_e.push(te);
-                r_g.push(tg);
-                ratios.push(tg / te);
-            }
-            let (me, le, he) = rate_stats(&r_e);
-            let (mg, lg2, hg) = rate_stats(&r_g);
-            let (mr, lr, hr) = rate_stats(&ratios);
-            println!("\n{ROUNDS_TIMED} interleaved round pairs, {} identical tokens everywhere", warm.len());
-            println!("  eager (prealloc)  {me:6.1} tok/s [{le:.1}–{he:.1}]");
-            println!("  graph (replay)    {mg:6.1} tok/s [{lg2:.1}–{hg:.1}]");
-            println!("  r = graph/eager = {mr:.4} [{lr:.4}–{hr:.4}]  (formed round by round)");
-            println!("\n  frozen reading (phase prereg 802006c5): end-to-end gain");
-            println!("  ≥ 8% → adopted · < 3% → closed · in between: a curve point.");
-            println!("  WARNING: net against the v1 config = this gain − 0.83% (fixed-base cost, e1b).");
-            return Ok(());
-        }
-
-        // ---- A2 step 1: the prealloc-against-cat A/B, in one process ----
-        //
-        // `LLVQ_KV_AB=1` short-circuits the published protocol: ONE fused
-        // model loaded once (config taken from the environment, the v1 frozen
-        // for the preregistered job), then INTERLEAVED round pairs where the
-        // store switches through `set_kv_store` between two `generate` calls,
-        // same weights, same NVRTC translation unit, same process, same
-        // prompt. The ratio forms round by round, never as a quotient of
-        // medians of separate arms. The only mechanism that moves is the cache
-        // storage: the `check_fuse` rule, applied to the axis it protects.
-        // Prereg: proofs/preregistration-a2-etape1-prealloc-2026-09-01.md.
-        if std::env::var("LLVQ_KV_AB").ok().as_deref() == Some("1") {
-            use llvq_llm::kvq::KvStore;
-            let w = match kv_store {
-                KvStore::Prealloc(w) => w,
-                KvStore::Cat | KvStore::Grow(_) => anyhow::bail!(
-                    "LLVQ_KV_AB=1 requires LLVQ_KV_PREALLOC=<window>: the A/B compares \
-                     cat to the prealloc store, it needs the window"
-                ),
-            };
-            let fuse = llvq_llm::fused::FuseMode::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
-            let t = Instant::now();
-            let mut f = llvq_llm::fused_cuda::load_with(&path, &device, dtype, fuse)?;
-            println!("loaded in {:.1} s. kv_store A/B: cat against prealloc({w})", t.elapsed().as_secs_f64());
-            println!(
-                "LLVQ_ROT_SHARE={}, {} rot_lancements/token · LLVQ_FUSE={}, {} matvec_lancements/token",
-                f.rot_share.name(), f.rot_launches, f.fuse.name(), f.matvec_launches
-            );
-            let ids = f
-                .tokenizer
-                .encode(PROMPT, false)
-                .map_err(|e| anyhow::anyhow!("{e}"))?
-                .get_ids()
-                .to_vec();
-            if ids.len() + n_new > w {
-                anyhow::bail!(
-                    "window {w} < {} + {n_new} tokens: the prealloc arm would die \
-                     mid-round, grow LLVQ_KV_PREALLOC",
-                    ids.len()
-                );
-            }
-            // One discarded generation PER STORE: the first on CUDA pays
-            // kernel selection and clock ramp, and the first prealloc round
-            // pays its window allocations.
-            let mut reference: Option<Vec<u32>> = None;
-            for store in [KvStore::Cat, KvStore::Prealloc(w)] {
-                f.model.set_kv_store(store);
-                let out = f.model.generate(&ids, n_new, &mut NoCapture)?;
-                match &reference {
-                    None => reference = Some(out),
-                    Some(r) => {
-                        if let Some(i) = first_divergence(r, &out).map_err(|e| anyhow::anyhow!("{e}"))? {
-                            anyhow::bail!(
-                                "warmup: cat/prealloc divergence at token {i}. The A/B is not \
-                                 measured on arms that do not return the same tokens"
-                            );
-                        }
-                    }
-                }
-            }
-            let reference = reference.expect("warmup done");
-            let (mut r_cat, mut r_pre, mut ratios) = (Vec::new(), Vec::new(), Vec::new());
-            for round in 0..ROUNDS_TIMED {
-                let mut pair = [0f64; 2];
-                for (slot, store) in [KvStore::Cat, KvStore::Prealloc(w)].into_iter().enumerate() {
-                    f.model.set_kv_store(store);
-                    let t = Instant::now();
-                    let out = f.model.generate(&ids, n_new, &mut NoCapture)?;
-                    pair[slot] = n_new as f64 / t.elapsed().as_secs_f64();
-                    if let Some(i) = first_divergence(&reference, &out).map_err(|e| anyhow::anyhow!("{e}"))? {
-                        anyhow::bail!(
-                            "round {round}, {}: divergence at token {i} against the reference",
-                            store.label()
-                        );
-                    }
-                }
-                r_cat.push(pair[0]);
-                r_pre.push(pair[1]);
-                ratios.push(pair[1] / pair[0]);
-            }
-            let (mc, lc, hc) = rate_stats(&r_cat);
-            let (mp, lp, hp) = rate_stats(&r_pre);
-            let (mr, lr, hr) = rate_stats(&ratios);
-            println!("\n{ROUNDS_TIMED} interleaved round pairs, {} identical tokens everywhere", reference.len());
-            println!("  cat            {mc:6.1} tok/s [{lc:.1}–{hc:.1}]");
-            println!("  prealloc({w})  {mp:6.1} tok/s [{lp:.1}–{hp:.1}]");
-            println!("  r = prealloc/cat = {mr:.4} [{lr:.4}–{hr:.4}]  (formed round by round)");
-            println!("\n  preregistered reading: r ≥ 0.97 → prealloc carries step 2;");
-            println!("  r < 0.97 → regression, stop and back to the operator.");
-            return Ok(());
-        }
-
-        // Which fused arms to run. Normally one, named by `LLVQ_FUSE`; under
-        // `LLVQ_FUSE_AB=1` both, `On` then `Off`, each loaded and **dropped**
-        // before the next — the card never holds two arms, and the two share a
-        // process, an NVRTC translation unit, a card and a prompt. The only
-        // thing that moves between them is the number of launches, which is
-        // what makes the delta attributable. It costs one extra transcode
-        // (~145 s at the 4B).
-        let fuse_ab = std::env::var("LLVQ_FUSE_AB").ok().as_deref() == Some("1");
-        let modes: Vec<llvq_llm::fused::FuseMode> = if fuse_ab {
-            vec![llvq_llm::fused::FuseMode::On, llvq_llm::fused::FuseMode::Off]
-        } else {
-            vec![llvq_llm::fused::FuseMode::from_env().map_err(|e| anyhow::anyhow!("{e}"))?]
-        };
+        // The fused arm, named by `LLVQ_FUSE`. A list of one since
+        // `LLVQ_FUSE_AB`, which ran both, was removed on 2026-11-08.
+        let modes: Vec<llvq_llm::fused::FuseMode> =
+            vec![llvq_llm::fused::FuseMode::from_env().map_err(|e| anyhow::anyhow!("{e}"))?];
 
         // ---- fused arms, first ----
         //
@@ -2916,8 +2397,7 @@ fn main() -> anyhow::Result<()> {
         let mut fused_file = 0.0f64;
         for fuse in modes {
             let t = Instant::now();
-            let mut f = llvq_llm::fused_cuda::load_with(&path, &device, dtype, fuse)?;
-            f.model.set_kv_store(kv_store);
+            let f = llvq_llm::fused_cuda::load_with(&path, &device, dtype, fuse)?;
             let load_s = t.elapsed().as_secs_f64();
             let ids = f
                 .tokenizer
@@ -2970,11 +2450,7 @@ fn main() -> anyhow::Result<()> {
             // the embedding sits on the card as int8 + f16 scales, and the old
             // identity would over-report by ~365 MB.
             let bytes = f.runtime_bytes + f.carried_bytes;
-            // The trailing "projections … b/weight" line reports the FIRST arm,
-            // which is the fused one under `LLVQ_FUSE_AB=1`. Letting the loop
-            // overwrite it would print the control arm's accounting under the
-            // fused arm's heading — the two differ by `gs_off`, 3.69 MB on the
-            // 4B, and that is exactly the term this lot adds.
+            // The trailing "projections … b/weight" line reports the first arm.
             if arms.is_empty() {
                 fused_rt_bits = f.runtime_bytes as f64 * 8.0 / f.quantized_weights as f64;
                 fused_file = f.file_bytes as f64 / 1e9;
@@ -2997,7 +2473,7 @@ fn main() -> anyhow::Result<()> {
                 f.rot_launches,
                 f.fuse.name(),
                 f.matvec_launches,
-                kv_store.label()
+                f.model.kv_store().label()
             );
             if tok.is_none() {
                 tok = Some(f.tokenizer.clone());
@@ -3027,8 +2503,7 @@ fn main() -> anyhow::Result<()> {
         // ---- dense arm ----
         let (dense_tokens, dense_load, dense_rate, dense_lo, dense_hi, dense_bytes) = {
             let t = Instant::now();
-            let mut m = llvq_llm::sealed::load(&path, dtype, &device, llvq_llm::kvq::KvMode::F16)?;
-            m.model.set_kv_store(kv_store);
+            let m = llvq_llm::sealed::load(&path, dtype, &device, llvq_llm::kvq::KvMode::F16)?;
             let load = t.elapsed().as_secs_f64();
             let ids = m
                 .tokenizer
@@ -3061,7 +2536,7 @@ fn main() -> anyhow::Result<()> {
                  [{lo:.1}–{hi:.1}, {ROUNDS_TIMED} rounds], {:.2} GB on the card",
                 bytes as f64 / 1e9
             );
-            println!("         kv_store={}", kv_store.label());
+            println!("         kv_store={}", m.model.kv_store().label());
             if time_phases {
                 let (_, report) = m.model.generate_phased(&ids, PHASE_TOKENS)?;
                 print_phases("dense", &report);
@@ -3218,8 +2693,8 @@ mod tests {
         move |v| set.iter().find(|(k, _)| *k == v).map(|(_, x)| x.to_string())
     }
 
-    /// A mode set alone passes its own check. `LLVQ_PERS_SEGMENT` failed this
-    /// from 2026-11-04 to 2026-11-07, when its list named itself.
+    /// A mode set alone passes its own check. One mode failed this from
+    /// 2026-11-04 to 2026-11-07, when its list named itself.
     #[test]
     fn no_mode_refuses_itself() {
         for mode in ALONE {
@@ -3239,8 +2714,9 @@ mod tests {
                 assert!(e.contains(mode) && e.contains(other), "{e}");
             }
         }
-        // The hole the eight lists left: GQA_PPL returned before GRAPH_AB was read.
-        assert!(alone_in("LLVQ_GQA_PPL", &[], env_of(&[("LLVQ_GRAPH_AB", "1")])).is_err());
+        // The hole the eight lists left: GQA_PPL returned before the modes
+        // dispatched after it were read.
+        assert!(alone_in("LLVQ_GQA_PPL", &[], env_of(&[("LLVQ_TIME_PHASES", "1")])).is_err());
     }
 
     /// The extra names are refused beside their mode only, and an unrelated

@@ -343,20 +343,10 @@ mod tests {
         );
     }
 
-    /// The `LLVQ_KV_PREALLOC` contract, same shape as `LLVQ_KV`'s: unset and
-    /// empty mean the default, `0` and typos are refused by name — a fallback
-    /// would make an A/B lie.
     #[test]
-    fn kv_store_parse_contract() {
-        assert_eq!(KvStore::parse(None).unwrap(), KvStore::Cat);
-        assert_eq!(KvStore::parse(Some("")).unwrap(), KvStore::Cat);
-        assert_eq!(KvStore::parse(Some("256")).unwrap(), KvStore::Prealloc(256));
-        for bad in ["0", "abc", "-1", "1.5", " 256"] {
-            let e = KvStore::parse(Some(bad)).expect_err(bad);
-            assert!(e.contains("LLVQ_KV_PREALLOC"), "{e}");
-        }
+    fn kv_store_labels() {
+        assert_eq!(KvStore::default(), KvStore::Cat);
         assert_eq!(KvStore::Cat.label(), "cat");
-        assert_eq!(KvStore::Prealloc(256).label(), "prealloc(256)");
         assert_eq!(KvStore::Grow(256).label(), "grow(256)");
         assert_eq!(AttnHeads::default(), AttnHeads::Expanded);
     }
@@ -402,26 +392,19 @@ mod tests {
     }
 }
 
-/// How the KV cache GROWS: by concatenation (shipped), into a buffer
-/// preallocated to a fixed window, or into a buffer grown by whole chunks.
+/// How the KV cache GROWS: by concatenation (shipped), or into a buffer grown
+/// by whole chunks.
 ///
-/// Resolved once, from `LLVQ_KV_PREALLOC`, by the binaries — `model.rs` reads
-/// no environment variable — and printed on the arm line of every A/B, so an
-/// unwired arm is visible instead of silently measuring `Cat`.
-///
-/// `Prealloc` exists for A2 (CUDA Graphs, preregistration `802006c5…`): a
-/// static graph cannot capture a `Tensor::cat` whose output grows, so the
-/// history must live at a stable address. The window is a hard bound — going
-/// past it is a named error, never a silent wrap: a ring would silently
-/// change what attention sees, and no experiment of this repository wants
-/// that behaviour implicitly.
+/// Named by a served config's attention form ([`AttnHeads::store`]) or by a
+/// measurement mode, never by a variable, and printed on the arm line of every
+/// A/B, so an unwired arm is visible instead of silently measuring `Cat`. A
+/// third store, `Prealloc`, held a fixed window for the closed CUDA Graphs lead
+/// (A2) and was removed on 2026-11-08 with `LLVQ_KV_PREALLOC`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum KvStore {
     /// The shipped behaviour: `Tensor::cat` per step, unbounded.
     #[default]
     Cat,
-    /// Fixed buffers of this many positions, written in place per step.
-    Prealloc(usize),
     /// Buffers grown by whole chunks of this many positions, written in place
     /// per step; attention reads a view of the valid prefix. The history is
     /// copied only when a chunk fills, not at every step as under `Cat`, and
@@ -432,38 +415,13 @@ pub enum KvStore {
 }
 
 impl KvStore {
-    /// Parse the value of `LLVQ_KV_PREALLOC`. Same contract as [`KvMode`]:
-    /// unset and empty mean the default, anything else must be a positive
-    /// decimal window — `0` and typos are refused, a fallback would make an
-    /// A/B lie.
-    pub fn parse(v: Option<&str>) -> std::result::Result<Self, String> {
-        match v {
-            None | Some("") => Ok(Self::Cat),
-            Some(other) => match other.parse::<usize>() {
-                Ok(w) if w > 0 => Ok(Self::Prealloc(w)),
-                _ => Err(format!(
-                    "LLVQ_KV_PREALLOC={other}: accepted values \"\" (default, \
-                     concatenation) or a whole window > 0"
-                )),
-            },
-        }
-    }
-
-    /// Resolve from the environment.
-    pub fn from_env() -> std::result::Result<Self, String> {
-        let v = std::env::var("LLVQ_KV_PREALLOC").ok();
-        Self::parse(v.as_deref())
-    }
-
     /// What the arm line prints.
     pub fn label(&self) -> String {
         match self {
             Self::Cat => "cat".to_string(),
-            Self::Prealloc(w) => format!("prealloc({w})"),
             Self::Grow(c) => format!("grow({c})"),
         }
     }
-
 }
 
 /// The chunk a `Grow` store is sized by when a binary picks it, in positions.

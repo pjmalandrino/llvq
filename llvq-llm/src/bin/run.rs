@@ -50,17 +50,12 @@ fn main() -> anyhow::Result<()> {
     // mode travels by value from this line down to every `KvCache`. An unknown
     // name is an error, never a silent fallback — a typo would make an A/B lie.
     let kv_mode = llvq_llm::kvq::KvMode::from_env().map_err(anyhow::Error::msg)?;
-    let kv_store = llvq_llm::kvq::KvStore::from_env().map_err(anyhow::Error::msg)?;
-    // The stepped (capturable) decode path — stable buffers, scatter write.
-    // Only meaningful over a preallocated store; `generate_stepped` refuses
-    // otherwise, by name.
-    let stepped = std::env::var("LLVQ_STEPPED").ok().as_deref() == Some("1");
+    llvq_llm::served::check_removed(|v| std::env::var(v).ok()).map_err(anyhow::Error::msg)?;
 
     let dump = std::env::var("LLVQ_RUN_DUMP").ok();
     let mut dumped: Vec<serde_json::Value> = Vec::new();
 
-    let mut s = llvq_llm::sealed::load(&path, dtype, &device, kv_mode)?;
-    s.model.set_kv_store(kv_store);
+    let s = llvq_llm::sealed::load(&path, dtype, &device, kv_mode)?;
     let fp16 = (s.quantized_weights + s.carried_weights) * 2;
     eprintln!(
         "loaded {path} — {} quantized matrices + {} carried tensors\n",
@@ -68,11 +63,10 @@ fn main() -> anyhow::Result<()> {
     );
     println!("── model");
     println!(
-        "   running at dtype {}, kv {}, kv_store {}{}",
+        "   running at dtype {}, kv {}, kv_store {}",
         llvq_llm::eval::dtype_name(dtype),
         kv_mode.name(),
-        kv_store.label(),
-        if stepped { " (stepped)" } else { "" }
+        s.model.kv_store().label(),
     );
     println!(
         "   {:.3} GB on disk against {:.3} GB in FP16  →  ×{:.2}",
@@ -93,11 +87,7 @@ fn main() -> anyhow::Result<()> {
             .get_ids()
             .to_vec();
         let t = std::time::Instant::now();
-        let out = if stepped {
-            s.model.generate_stepped(&ids, n_new)?
-        } else {
-            s.model.generate(&ids, n_new, &mut NoCapture)?
-        };
+        let out = s.model.generate(&ids, n_new, &mut NoCapture)?;
         let secs = t.elapsed().as_secs_f64();
         let text = s
             .tokenizer

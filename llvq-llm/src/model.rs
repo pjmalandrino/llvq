@@ -85,13 +85,6 @@ impl Act {
 pub trait Capture {
     /// `x` is `(batch, seq, width)`; rows are samples for `AᵀA`.
     fn on_activation(&mut self, layer: usize, act: Act, x: &Tensor) -> Result<()>;
-    /// Whether this capture reads activations at all. A block replaces its
-    /// eager MLP ops by route P's segment only when it does not, since the
-    /// segment exposes no intermediate. True unless an implementation says
-    /// otherwise.
-    fn wants_activations(&self) -> bool {
-        true
-    }
 }
 
 /// The do-nothing capture, for plain inference.
@@ -100,9 +93,6 @@ pub struct NoCapture;
 impl Capture for NoCapture {
     fn on_activation(&mut self, _: usize, _: Act, _: &Tensor) -> Result<()> {
         Ok(())
-    }
-    fn wants_activations(&self) -> bool {
-        false
     }
 }
 
@@ -226,46 +216,11 @@ impl Rotary {
         let (_, _, l, _) = q.dims4()?;
         let cos = self.cos.narrow(0, offset, l)?;
         let sin = self.sin.narrow(0, offset, l)?;
-        Self::apply_tables(q, k, &cos, &sin)
-    }
-
-    /// The same rotation from CALLER-OWNED tables — the stepped/capturable
-    /// path. The tables are stable buffers whose content a driver refreshes
-    /// outside the capture (via [`Self::refresh_step`]); inside the closure
-    /// nothing varies but bytes behind stable pointers.
-    fn apply_tables(q: &Tensor, k: &Tensor, cos: &Tensor, sin: &Tensor) -> Result<(Tensor, Tensor)> {
         Ok((
-            candle_nn::rotary_emb::rope(&q.contiguous()?, cos, sin)?,
-            candle_nn::rotary_emb::rope(&k.contiguous()?, cos, sin)?,
+            candle_nn::rotary_emb::rope(&q.contiguous()?, &cos, &sin)?,
+            candle_nn::rotary_emb::rope(&k.contiguous()?, &cos, &sin)?,
         ))
     }
-
-    /// Stable one-position tables for the stepped path, born zeroed.
-    pub fn step_tables(&self) -> Result<(Tensor, Tensor)> {
-        let half = self.cos.dim(1)?;
-        Ok((
-            Tensor::zeros((1, half), self.cos.dtype(), self.cos.device())?,
-            Tensor::zeros((1, half), self.sin.dtype(), self.sin.device())?,
-        ))
-    }
-
-    /// Refresh the stable tables to `offset` — an in-place `slice_set` at a
-    /// CONSTANT destination offset, done outside any capture.
-    pub fn refresh_step(&self, cos_step: &Tensor, sin_step: &Tensor, offset: usize) -> Result<()> {
-        cos_step.slice_set(&self.cos.narrow(0, offset, 1)?, 0, 0)?;
-        sin_step.slice_set(&self.sin.narrow(0, offset, 1)?, 0, 0)?;
-        Ok(())
-    }
-}
-
-/// Where a cached forward finds its rotation: a host `offset` (the shipped
-/// path — the pointer into the tables is recomputed each call), or stable
-/// `Tables` owned by a stepped driver (the capturable path — nothing about
-/// the call varies with the token). One enum instead of a second forward:
-/// the two paths CANNOT drift apart because they are the same code.
-pub enum RopeAt<'a> {
-    Offset(usize),
-    Tables { cos: &'a Tensor, sin: &'a Tensor },
 }
 
 /// One block's keys and values, for every position already seen.
@@ -274,13 +229,6 @@ pub enum RopeAt<'a> {
 /// `n_kv` heads, so caching the expanded form would hold `n_heads / n_kv`
 /// times the bytes for nothing. On Qwen3-4B that is a factor 4.
 ///
-/// 🕳️ **That argument holds for `Cat`, and was measured NOT to hold for a
-/// bounded window (2026-09-01, step 1b).** Under
-/// [`crate::kvq::KvStore::Prealloc`] this cache stores the EXPANDED form in
-/// a fixed `[b, n_heads, W, hd]` buffer: ×4 of a bounded window is ~151 MB
-/// at W = 256 on the 4B — trivial — and it removes the real per-step cost,
-/// the ×4 HISTORY copy `repeat_kv` performs on every decode step of the
-/// `Cat` path.
 /// ⚠️ **No `Default`, deliberately.** Every construction site must name the
 /// mode it caches in. With a `Default`, an incomplete wiring compiles and an
 /// unwired arm reports Δppl = 0, ΔMMLU = 0 and 1.00× throughput — three greens
@@ -289,19 +237,10 @@ pub struct KvCache {
     k: Option<Tensor>,
     v: Option<Tensor>,
     mode: KvMode,
-    /// The capturable write path: when set, the `Prealloc` arm writes through
-    /// `scatter_set` with THIS index tensor — a stable device buffer whose
-    /// CONTENT is the position, refreshed outside any capture. All caches of
-    /// a model share one underlying storage (`Tensor::clone` shares), so one
-    /// 4-byte refresh moves every layer's write. When unset (the shipped
-    /// path, and the prefill), `slice_set` at the host-side `len` is used —
-    /// its baked offset is exactly what a CUDA graph cannot replay, which is
-    /// why this field exists.
-    write_idx: Option<Tensor>,
-    /// How the history grows — [`KvStore::Cat`] (shipped), a preallocated
-    /// window, or chunks grown on demand. Under `Prealloc` and `Grow`, `k`/`v`
-    /// hold the FULL buffers and `len` counts the valid positions; under `Cat`
-    /// they hold exactly the history and `len` is unused.
+    /// How the history grows — [`KvStore::Cat`] (shipped) or chunks grown on
+    /// demand. Under `Grow`, `k`/`v` hold the FULL buffers and `len` counts the
+    /// valid positions; under `Cat` they hold exactly the history and `len` is
+    /// unused.
     store: crate::kvq::KvStore,
     len: usize,
 }
@@ -320,7 +259,6 @@ impl KvCache {
             mode,
             store,
             len: 0,
-            write_idx: None,
         }
     }
 
@@ -347,7 +285,6 @@ impl KvCache {
             ),
         };
         match self.store {
-            crate::kvq::KvStore::Prealloc(w) => return self.append_prealloc(w, &k, &v),
             crate::kvq::KvStore::Grow(chunk) => return self.append_grow(chunk, &k, &v),
             crate::kvq::KvStore::Cat => {}
         }
@@ -362,66 +299,6 @@ impl KvCache {
         self.k = Some(k.clone());
         self.v = Some(v.clone());
         Ok((k, v))
-    }
-
-    /// The `Prealloc` arm of [`Self::append`]: write in place, return the
-    /// FULL fixed buffers.
-    ///
-    /// The buffers are allocated on first use, from the shape/dtype/device of
-    /// what arrives — the cache needs no model handle, and the CALLER decides
-    /// what head count arrives: the block hands the EXPANDED step in, so the
-    /// buffer is `[b, n_heads, W, hd]` and `repeat_kv` has no call site on
-    /// this path. `slice_set` demands contiguity on both sides; the buffers
-    /// are born contiguous and the incoming step is made so (a copy of `l`
-    /// positions, not of the history).
-    ///
-    /// What goes OUT are the full `W`-wide buffers — contiguous, at a stable
-    /// address: the shape the wide causal mask expects and the shape a CUDA
-    /// graph can capture. 🕳️ The first form of this arm (step 1, 2026-09-01)
-    /// returned `narrow` views instead: non-contiguous at every `len < W`,
-    /// they pushed `repeat_kv`'s per-step history copy into its strided
-    /// paths — r = 0.8919 [0.8884–0.8953] on CUDA, ~−29% on Metal. Measured,
-    /// then replaced by this form (step 1b). `generate` and
-    /// `generate_uncached` staying token-identical under `LLVQ_VERIFY_CACHE`
-    /// remains the end-to-end witness.
-    ///
-    /// Overflow is a NAMED error: a silent ring would change what attention
-    /// sees. The window is the operator's promise, and this arm holds it.
-    fn append_prealloc(&mut self, w: usize, k: &Tensor, v: &Tensor) -> Result<(Tensor, Tensor)> {
-        let l = k.dim(2)?;
-        if self.k.is_none() {
-            let (b, n_heads, _, hd) = k.dims4()?;
-            self.k = Some(Tensor::zeros((b, n_heads, w, hd), k.dtype(), k.device())?);
-            self.v = Some(Tensor::zeros((b, n_heads, w, hd), v.dtype(), v.device())?);
-        }
-        if self.len + l > w {
-            candle_core::bail!(
-                "KvCache prealloc: {} + {l} positions > window {w} (LLVQ_KV_PREALLOC). \
-                 The window is a hard bound, not a ring.",
-                self.len
-            );
-        }
-        let (kb, vb) = (self.k.as_ref().unwrap(), self.v.as_ref().unwrap());
-        // The scatter path serves the DECODE step (l = 1, the captured
-        // shape). A multi-position prefill on an armed cache falls back to
-        // `slice_set` — outside any capture by construction, since arming
-        // happens after the prefill and a round reset keeps the arm.
-        match self.write_idx.as_ref().filter(|_| l == 1) {
-            None => {
-                kb.slice_set(&k.contiguous()?, 2, self.len)?;
-                vb.slice_set(&v.contiguous()?, 2, self.len)?;
-            }
-            // Indirection by CONTENT: the kernel reads the position from the
-            // index tensor, so the captured node replays correctly at every
-            // token. `scatter_set` wants indexes shaped like the source; the
-            // driver refreshes the full (tiny) buffer outside the capture.
-            Some(idx) => {
-                kb.scatter_set(idx, &k.contiguous()?, 2)?;
-                vb.scatter_set(idx, &v.contiguous()?, 2)?;
-            }
-        }
-        self.len += l;
-        Ok((kb.clone(), vb.clone()))
     }
 
     /// The `Grow` arm of [`Self::append`]: write in place, return views of
@@ -459,16 +336,15 @@ impl KvCache {
 
     /// Keep the first `len` positions and forget the rest: the next append
     /// writes at `len`. A measurement uses it to decode several times after
-    /// one prefill. Under `Cat` the kept history is copied out; the other
-    /// stores only move their count, since the positions past it are either
-    /// masked (`Prealloc`) or outside the view (`Grow`).
+    /// one prefill. Under `Cat` the kept history is copied out; `Grow` only
+    /// moves its count, since the positions past it are outside the view.
     pub fn truncate(&mut self, len: usize) -> Result<()> {
         let have = match self.store {
             crate::kvq::KvStore::Cat => match &self.k {
                 Some(k) => k.dim(2)?,
                 None => 0,
             },
-            crate::kvq::KvStore::Prealloc(_) | crate::kvq::KvStore::Grow(_) => self.len,
+            crate::kvq::KvStore::Grow(_) => self.len,
         };
         if len > have {
             candle_core::bail!("KvCache truncate: {len} positions asked, {have} held");
@@ -485,14 +361,11 @@ impl KvCache {
                     self.v = Some(v);
                 }
             }
-            crate::kvq::KvStore::Prealloc(_) | crate::kvq::KvStore::Grow(_) => self.len = len,
+            crate::kvq::KvStore::Grow(_) => self.len = len,
         }
         Ok(())
     }
 
-    /// Arm the capturable write path — see the `write_idx` field. The stepped
-    /// driver calls this AFTER the prefill (whose multi-position write stays
-    /// on `slice_set`), with clones of one shared index tensor.
     /// Positions held.
     pub fn len(&self) -> usize {
         self.len
@@ -540,18 +413,6 @@ impl KvCache {
         Ok(())
     }
 
-    pub fn set_write_index(&mut self, idx: Tensor) {
-        self.write_idx = Some(idx);
-    }
-
-    /// Start a new generation WITHOUT reallocating: the window buffers, and
-    /// therefore every pointer a captured graph baked, stay where they are.
-    /// Stale positions past the new `len` are unreachable behind the wide
-    /// causal mask — the same validity rule that makes the zero tail inert.
-    pub fn reset(&mut self) {
-        self.len = 0;
-    }
-
     /// Which store this cache grows by — the block branches on it.
     pub fn store(&self) -> crate::kvq::KvStore {
         self.store
@@ -568,9 +429,6 @@ impl KvCache {
         match self.store {
             crate::kvq::KvStore::Cat => Ok(Some((k.clone(), v.clone()))),
             crate::kvq::KvStore::Grow(_) => Ok(Some((k.narrow(2, 0, self.len)?, v.narrow(2, 0, self.len)?))),
-            crate::kvq::KvStore::Prealloc(_) => {
-                candle_core::bail!("KvCache held: a preallocated store holds the expanded heads")
-            }
         }
     }
 }
@@ -753,15 +611,6 @@ fn kernel_rows(
 /// on a device projection rather than returning something plausible, because
 /// every caller of it is a quantization path and quantizing an already
 /// quantized model is a bug, not a use case.
-/// Route P, step A (`docs/archive/debit-vague5-2026-11-02/persistent.md`
-/// §3.1): the MLP half of one decode row in one cooperative launch, from
-/// ln2's input to the residual after down_proj. An implementation owes the
-/// eager ops' bits and is checked against [`Block::mlp_eager`] at install.
-pub trait MlpSegment: Send + Sync {
-    /// `x`: the residual entering ln2, one row. Returns `x + mlp(ln2(x))`.
-    fn forward(&self, x: &Tensor) -> Result<Tensor>;
-}
-
 pub enum Proj {
     Dense(Linear),
     /// One projection whose weights stay encoded, read by a device kernel.
@@ -1644,10 +1493,6 @@ pub struct Block {
     /// ln2's weight and epsilon, the same tensor the norm holds.
     ln2_w: Tensor,
     ln2_eps: f64,
-    /// Route P, step A: the MLP half of a one-row decode step in one launch,
-    /// installed by `persist_cuda::install` behind a measurement mode; `None`
-    /// everywhere else, and then `finish` runs the eager ops as always.
-    pers_mlp: Option<std::sync::Arc<dyn MlpSegment>>,
     /// The first position the `Kernel` form sends to its kernel:
     /// [`crate::kvq::KERNEL_FROM`]. A field only so the host tests can reach
     /// the kernel in a window of a few dozen positions; nothing outside
@@ -1757,7 +1602,6 @@ impl Block {
             rot_share: RotShare::Off,
             attn_heads: crate::kvq::AttnHeads::Expanded,
             attn_kernel: None,
-            pers_mlp: None,
             kernel_from: crate::kvq::KERNEL_FROM,
         })
     }
@@ -1839,7 +1683,7 @@ impl Block {
         cap: &mut dyn Capture,
     ) -> Result<Tensor> {
         let mut fresh = KvCache::new(self.kv);
-        self.forward_cached(x, rotary, Some(mask), RopeAt::Offset(0), &mut fresh, idx, cap)
+        self.forward_cached(x, rotary, Some(mask), 0, &mut fresh, idx, cap)
     }
 
     /// Forward over `l` new positions starting at absolute position `offset`,
@@ -1856,7 +1700,7 @@ impl Block {
         x: &Tensor,
         rotary: &Rotary,
         mask: Option<&Tensor>,
-        rope: RopeAt,
+        offset: usize,
         cache: &mut KvCache,
         idx: usize,
         cap: &mut dyn Capture,
@@ -1898,10 +1742,7 @@ impl Block {
 
         // RoPE at the *absolute* position. `Rotary::apply` has taken an
         // offset since it was written; nothing had ever passed one but zero.
-        let (q, k) = match rope {
-            RopeAt::Offset(o) => rotary.apply(&q, &k, o)?,
-            RopeAt::Tables { cos, sin } => Rotary::apply_tables(&q, &k, cos, sin)?,
-        };
+        let (q, k) = rotary.apply(&q, &k, offset)?;
         let scale = 1.0 / (self.head_dim as f64).sqrt();
         if self.attn_heads == crate::kvq::AttnHeads::Kernel {
             let kern = self.attn_kernel.as_ref().ok_or_else(|| {
@@ -1944,28 +1785,11 @@ impl Block {
             return self.finish(x, ctx, idx, cap);
         }
         let groups = self.n_heads / self.n_kv;
-        let (k, v) = match cache.store() {
-            crate::kvq::KvStore::Cat | crate::kvq::KvStore::Grow(_) => {
-                let (k, v) = cache.append(&k, &v)?;
-                (
-                    candle_transformers::utils::repeat_kv(k, groups)?.contiguous()?,
-                    candle_transformers::utils::repeat_kv(v, groups)?.contiguous()?,
-                )
-            }
-            // Prealloc stores the EXPANDED step: the ×`groups` copy happens
-            // once, on the `l` new positions, instead of on the whole history
-            // at every step — which is what `repeat_kv` costs on the `Cat`
-            // path. What comes back is the full contiguous
-            // `[b, n_heads, W, hd]` pair; the wide causal mask −infs
-            // everything past the valid prefix, so softmax weights there are
-            // exactly zero and the zero-filled tail contributes exactly
-            // nothing.
-            crate::kvq::KvStore::Prealloc(_) => {
-                let ke = candle_transformers::utils::repeat_kv(k, groups)?.contiguous()?;
-                let ve = candle_transformers::utils::repeat_kv(v, groups)?.contiguous()?;
-                cache.append(&ke, &ve)?
-            }
-        };
+        let (k, v) = cache.append(&k, &v)?;
+        let (k, v) = (
+            candle_transformers::utils::repeat_kv(k, groups)?.contiguous()?,
+            candle_transformers::utils::repeat_kv(v, groups)?.contiguous()?,
+        );
 
         let scores = (q.matmul(&k.transpose(2, 3)?)? * scale)?;
         let scores = match mask {
@@ -1985,15 +1809,10 @@ impl Block {
             .reshape((b, l, self.n_heads * self.head_dim))?;
         cap.on_activation(idx, Act::AttnOut, &ctx)?;
         let x = (x + self.o_proj.forward(&ctx)?)?;
-        // Route P, step A: one decode row, nothing to capture.
-        if let (Some(seg), 1, 1, false) = (&self.pers_mlp, b, l, cap.wants_activations()) {
-            return seg.forward(&x);
-        }
         self.mlp_residual(&x, idx, cap)
     }
 
-    /// `x + down(act(gate(ln2 x)) * up(ln2 x))`, the eager ops: the half of
-    /// `finish` route P's segment replaces, and its load-time reference.
+    /// `x + down(act(gate(ln2 x)) * up(ln2 x))`, the MLP half of `finish`.
     fn mlp_residual(&self, x: &Tensor, idx: usize, cap: &mut dyn Capture) -> Result<Tensor> {
         let h = self.ln2.forward(x)?;
         cap.on_activation(idx, Act::Mlp, &h)?;
@@ -2004,12 +1823,7 @@ impl Block {
         x + self.down_proj.forward(&gated)?
     }
 
-    /// The eager MLP half on one row, no capture: route P's load check.
-    pub fn mlp_eager(&self, x: &Tensor) -> Result<Tensor> {
-        self.mlp_residual(x, 0, &mut NoCapture)
-    }
-
-    /// What route P's segment reads from this block: ln2's weight and
+    /// What 4E's MLP phase reads from this block: ln2's weight and
     /// epsilon, the activation, and the three MLP projections.
     pub fn mlp_parts(&self) -> (&Tensor, f64, Activation, &Proj, &Proj, &Proj) {
         (&self.ln2_w, self.ln2_eps, self.act, &self.gate_proj, &self.up_proj, &self.down_proj)
@@ -2019,11 +1833,6 @@ impl Block {
     /// k-norm weights, and the q, k, v, o projections.
     pub fn attn_parts(&self) -> (&Tensor, &Tensor, &Tensor, &Proj, &Proj, &Proj, &Proj) {
         (&self.ln1_w, &self.q_norm_w, &self.k_norm_w, &self.q_proj, &self.k_proj, &self.v_proj, &self.o_proj)
-    }
-
-    /// Install or remove route P's MLP segment on this block.
-    pub fn set_pers_mlp(&mut self, seg: Option<std::sync::Arc<dyn MlpSegment>>) {
-        self.pers_mlp = seg;
     }
 
     /// One decode row for each of B sequences, `x` `[B, 1, d]`.
@@ -2129,14 +1938,13 @@ pub struct Qwen3 {
     /// Cache mode, named by the caller at construction. `model.rs` reads no
     /// environment variable; the binaries resolve `LLVQ_KV` and pass it here.
     kv: KvMode,
-    /// Cache growth store — [`crate::kvq::KvStore::Cat`] unless a binary
-    /// resolves `LLVQ_KV_PREALLOC` and says otherwise via
-    /// [`Self::set_kv_store`]. The A/B guard is the printed arm line, which
-    /// must name the store: an unwired arm prints `cat` and is visible.
+    /// Cache growth store — [`crate::kvq::KvStore::Cat`] unless a served
+    /// config or a measurement mode says otherwise via [`Self::set_kv_store`].
+    /// The A/B guard is the printed arm line, which must name the store: an
+    /// unwired arm prints `cat` and is visible.
     kv_store: crate::kvq::KvStore,
     /// How every block's attention reads the cached heads, kept here as well
-    /// so the stepped path can size its write index. Set through
-    /// [`Self::set_attn_heads`] only.
+    /// as in every block. Set through [`Self::set_attn_heads`] only.
     attn_heads: crate::kvq::AttnHeads,
     /// Measurement only, `false` everywhere else: build and add the all-zero
     /// mask of a `Cat` decode step, as every decode step did before
@@ -2262,15 +2070,7 @@ impl Qwen3 {
     /// future. That degenerate row is the entire attention arithmetic of a
     /// decode step.
     fn causal_mask_offset(&self, b: usize, l: usize, offset: usize) -> Result<Tensor> {
-        self.causal_mask_width(b, l, offset, offset + l)
-    }
-
-    /// The same mask at an imposed key width `w >= offset + l` — the fixed
-    /// window of a preallocated cache. Columns past `offset + i` are −inf,
-    /// which covers BOTH the future and the not-yet-written tail: no second
-    /// mechanism, the causal rule is the validity rule.
-    fn causal_mask_width(&self, b: usize, l: usize, offset: usize, w: usize) -> Result<Tensor> {
-        build_causal_mask(b, l, offset, w, self.dtype, &self.device)
+        build_causal_mask(b, l, offset, offset + l, self.dtype, &self.device)
     }
 
     /// The mask a cached forward of `l` new positions needs, or `None` when it
@@ -2285,7 +2085,6 @@ impl Qwen3 {
         match self.kv_store {
             KvStore::Cat | KvStore::Grow(_) if l == 1 && !self.decode_mask => Ok(None),
             KvStore::Cat | KvStore::Grow(_) => self.causal_mask_offset(b, l, offset).map(Some),
-            KvStore::Prealloc(w) => self.causal_mask_width(b, l, offset, w).map(Some),
         }
     }
 
@@ -2304,8 +2103,7 @@ impl Qwen3 {
             .collect()
     }
 
-    /// Name the cache growth store — resolved from `LLVQ_KV_PREALLOC` by the
-    /// binaries, after construction (the loaders' signatures predate the
+    /// Name the cache growth store, after construction (the loaders' signatures predate the
     /// store, and threading it through them would touch every call site for
     /// a value that only the generation binaries exercise). Every arm line
     /// that a binary prints must include [`crate::kvq::KvStore::label`], so
@@ -2441,7 +2239,7 @@ impl Qwen3 {
         let mask = self.step_mask(b, l, offset)?;
         let mut h = self.embed.forward(input)?;
         for (i, blk) in self.blocks.iter().enumerate() {
-            h = blk.forward_cached(&h, &self.rotary, mask.as_ref(), RopeAt::Offset(offset), &mut caches[i], i, cap)?;
+            h = blk.forward_cached(&h, &self.rotary, mask.as_ref(), offset, &mut caches[i], i, cap)?;
             if let Some(p) = &self.candle_probe {
                 p.affine(2.0, 1.0)?;
                 crate::boundary::note_added(1);
@@ -2496,121 +2294,10 @@ impl Qwen3 {
         self.dtype
     }
 
-    /// Build the stable buffers and ARM the caches' capturable write path.
-    ///
-    /// Requires a preallocated store (the fixed shapes are what make the
-    /// stepped path meaningful), and must be called AFTER the prefill: the
-    /// prefill's multi-position write stays on `slice_set`, and arming
-    /// before it would scatter every prompt position to one slot.
-    pub fn step_state(&self, caches: &mut [KvCache]) -> Result<StepState> {
-        let w = match self.kv_store {
-            crate::kvq::KvStore::Prealloc(w) => w,
-            crate::kvq::KvStore::Cat | crate::kvq::KvStore::Grow(_) => candle_core::bail!(
-                "the stepped path requires a preallocated store (LLVQ_KV_PREALLOC): \
-                 its fixed shapes are what make it capturable"
-            ),
-        };
-        // `scatter_set` wants its index shaped like the step it writes: the
-        // expanded step carries every query head, the grouped one the key
-        // heads only.
-        let heads = match self.attn_heads {
-            crate::kvq::AttnHeads::Expanded => {
-                self.cfg.num_key_value_heads * (self.cfg.num_attention_heads / self.cfg.num_key_value_heads)
-            }
-            crate::kvq::AttnHeads::Shared | crate::kvq::AttnHeads::Grouped | crate::kvq::AttnHeads::Kernel => {
-                self.cfg.num_key_value_heads
-            }
-        };
-        let (cos, sin) = self.rotary.step_tables()?;
-        let st = StepState {
-            input: Tensor::zeros((1, 1), DType::U32, &self.device)?,
-            mask: Tensor::zeros((1, 1, 1, w), self.dtype, &self.device)?,
-            cos,
-            sin,
-            pos_idx: Tensor::zeros((1, heads, 1, self.cfg.head_dim), DType::U32, &self.device)?,
-            w,
-        };
-        for c in caches.iter_mut() {
-            c.set_write_index(st.pos_idx.clone());
-        }
-        Ok(st)
-    }
-
-    /// Refresh every stable buffer for the next step — OUTSIDE any capture.
-    /// `next` is the token to feed, `offset` its absolute position. Each
-    /// write is an in-place `slice_set` at a CONSTANT destination offset;
-    /// the temporaries live and die host-side, before any capture begins.
-    pub fn refresh_step(&self, st: &StepState, next: u32, offset: usize) -> Result<()> {
-        st.input
-            .slice_set(&Tensor::from_slice(&[next], (1, 1), &self.device)?, 0, 0)?;
-        st.mask
-            .slice_set(&self.causal_mask_width(1, 1, offset, st.w)?, 0, 0)?;
-        self.rotary.refresh_step(&st.cos, &st.sin, offset)?;
-        let pos = Tensor::full(offset as u32, st.pos_idx.dims4()?, &self.device)?;
-        st.pos_idx.slice_set(&pos, 0, 0)?;
-        Ok(())
-    }
-
-    /// `lm_head` from hidden states — the public form the stepped drivers
-    /// need (the field itself stays private).
+    /// `lm_head` from hidden states, the public form a driver of its own
+    /// decode loop needs (the field itself stays private).
     pub fn project_head(&self, h: &Tensor) -> Result<Tensor> {
         self.head.project(h)
-    }
-
-    /// One decode step reading ONLY stable buffers — the capturable closure.
-    /// Embed → blocks → norm → lm_head, logits out; the argmax and the D2H
-    /// read stay with the caller, outside any capture.
-    pub fn token_step(
-        &self,
-        st: &StepState,
-        caches: &mut [KvCache],
-        cap: &mut dyn Capture,
-    ) -> Result<Tensor> {
-        let mut h = self.embed.forward(&st.input)?;
-        for (i, blk) in self.blocks.iter().enumerate() {
-            h = blk.forward_cached(
-                &h,
-                &self.rotary,
-                Some(&st.mask),
-                RopeAt::Tables { cos: &st.cos, sin: &st.sin },
-                &mut caches[i],
-                i,
-                cap,
-            )?;
-        }
-        let h = self.norm.forward(&h)?;
-        self.head.project(&h)
-    }
-
-    /// Greedy decode through the stepped path — same contract as
-    /// [`Self::generate`], and the test that they return the SAME tokens is
-    /// what certifies the buffer inventory of [`StepState`]: a missed
-    /// per-token variation shows up as a divergence, never as a hunch.
-    pub fn generate_stepped(&self, tokens: &[u32], max_new: usize) -> Result<Vec<u32>> {
-        if max_new == 0 {
-            return Ok(Vec::new());
-        }
-        let mut caches = self.fresh_caches();
-        let mut out = Vec::with_capacity(max_new);
-        let input = Tensor::from_slice(tokens, (1, tokens.len()), &self.device)?;
-        let h = self.hidden_cached(&input, 0, &mut caches, &mut NoCapture)?;
-        let st = self.step_state(&mut caches)?;
-        let l = h.dim(1)?;
-        let last = h.narrow(1, l - 1, 1)?;
-        let logits = self.head.project(&last)?.to_dtype(DType::F32)?;
-        let mut next = logits.i((0, 0))?.argmax(D::Minus1)?.to_scalar::<u32>()?;
-        let mut offset = tokens.len();
-        loop {
-            out.push(next);
-            if out.len() == max_new {
-                return Ok(out);
-            }
-            self.refresh_step(&st, next, offset)?;
-            let logits = self.token_step(&st, &mut caches, &mut NoCapture)?;
-            let logits = logits.to_dtype(DType::F32)?;
-            next = logits.i((0, 0))?.argmax(D::Minus1)?.to_scalar::<u32>()?;
-            offset += 1;
-        }
     }
 
     /// Greedy continuation of `prompt`, `max_new` tokens, with a KV cache.
@@ -3104,7 +2791,7 @@ impl Qwen3 {
             let mask = self.step_mask(1, 1, offset)?;
             let mut hh = e;
             for (i, blk) in self.blocks.iter().enumerate() {
-                hh = blk.forward_cached(&hh, &self.rotary, mask.as_ref(), RopeAt::Offset(offset), &mut caches[i], i, &mut NoCapture)?;
+                hh = blk.forward_cached(&hh, &self.rotary, mask.as_ref(), offset, &mut caches[i], i, &mut NoCapture)?;
             }
             h = self.norm.forward(&hh)?;
             fence(&self.device, &mut report.fences)?;
@@ -3177,33 +2864,6 @@ pub struct TimedGeneration {
     pub prompt_s: f64,
     /// The `tokens.len() - 1` decode steps after the first new token.
     pub decode_s: f64,
-}
-
-/// The stable buffers of the stepped (capturable) decode path — every
-/// per-token variation of a decode step, converted into the CONTENT of a
-/// buffer at a stable address. What a CUDA graph replays is device work
-/// against stable pointers; what changes between tokens must therefore
-/// travel as bytes, never as a host value baked into a launch. This struct
-/// is the exhaustive list of those bytes: the input id, the wide causal
-/// mask, the one-position RoPE tables, and the KV write position.
-pub struct StepState {
-    input: Tensor,
-    mask: Tensor,
-    cos: Tensor,
-    sin: Tensor,
-    pos_idx: Tensor,
-    w: usize,
-}
-
-impl StepState {
-    /// Device read-backs for the graph diagnostics: what the buffers ACTUALLY
-    /// contain after a refresh — not what the host believes it wrote.
-    pub fn debug_input(&self) -> Result<u32> {
-        self.input.flatten_all()?.to_vec1::<u32>().map(|v| v[0])
-    }
-    pub fn debug_pos(&self) -> Result<u32> {
-        self.pos_idx.flatten_all()?.to_vec1::<u32>().map(|v| v[0])
-    }
 }
 
 /// The causal mask at an imposed key width `w >= offset + l` — free-standing
@@ -3460,53 +3120,6 @@ mod tests {
         assert_eq!(out[0].dims(), &[1, MAX_ROWS + 44, 2]);
     }
 
-    /// Step 1b invariant: the expanded fixed-window store must hold, in its
-    /// valid prefix, EXACTLY the bytes the `Cat` path hands to attention
-    /// (`repeat_kv` of the history), and exactly zeros past it. A prefill
-    /// then single-token steps, checked at every step — this is what catches
-    /// a stale `len`, a wrong dim, a slice landing one position off, or an
-    /// expansion done in the wrong order relative to Q8 quantization.
-    #[test]
-    fn prealloc_expanded_matches_repeat_kv_of_cat_at_every_step() {
-        use crate::kvq::{KvMode, KvStore};
-        use candle_transformers::utils::repeat_kv;
-        let dev = Device::Cpu;
-        let (b, n_kv, hd, groups, w) = (1, 2, 64, 4, 16); // hd a multiple of the q8 GROUP
-        for mode in [KvMode::F16, KvMode::Q8] {
-            let mut cat = KvCache::new(mode);
-            let mut pre = KvCache::with_store(mode, KvStore::Prealloc(w));
-            let mut pos = 0u32;
-            let mut len = 0usize;
-            for (step, l) in [5usize, 1, 1, 1, 1, 1].into_iter().enumerate() {
-                let n = b * n_kv * l * hd;
-                let kd: Vec<f32> = (0..n).map(|i| (pos as f32) + i as f32 * 0.25).collect();
-                let vd: Vec<f32> = (0..n).map(|i| -(pos as f32) - i as f32 * 0.5).collect();
-                pos += l as u32;
-                len += l;
-                let k = Tensor::from_vec(kd, (b, n_kv, l, hd), &dev).expect("k");
-                let v = Tensor::from_vec(vd, (b, n_kv, l, hd), &dev).expect("v");
-                // Cat path: append then repeat_kv, what forward_cached does
-                let (ck, cv) = cat.append(&k, &v).expect("cat append");
-                let ck = repeat_kv(ck, groups).unwrap().contiguous().unwrap();
-                let cv = repeat_kv(cv, groups).unwrap().contiguous().unwrap();
-                // Prealloc path: expand THEN append, what forward_cached does
-                let ke = repeat_kv(k.clone(), groups).unwrap().contiguous().unwrap();
-                let ve = repeat_kv(v.clone(), groups).unwrap().contiguous().unwrap();
-                let (pk, pv) = pre.append(&ke, &ve).expect("prealloc append");
-                assert_eq!(pk.dims(), &[b, n_kv * groups, w, hd], "step {step}: full buffer");
-                for (full, reference, name) in [(&pk, &ck, "k"), (&pv, &cv, "v")] {
-                    let prefix = full.narrow(2, 0, len).unwrap().contiguous().unwrap();
-                    let a: Vec<f32> = reference.flatten_all().unwrap().to_vec1().unwrap();
-                    let bb: Vec<f32> = prefix.flatten_all().unwrap().to_vec1().unwrap();
-                    assert_eq!(a, bb, "step {step} ({mode:?}): prefix {name}");
-                    let tail = full.narrow(2, len, w - len).unwrap();
-                    let t: Vec<f32> = tail.flatten_all().unwrap().to_vec1().unwrap();
-                    assert!(t.iter().all(|x| *x == 0.0), "step {step} ({mode:?}): tail {name} not zero");
-                }
-            }
-        }
-    }
-
     /// The padding of the fixed window must be EXACTLY inert through the
     /// whole attention arithmetic: same scores→softmax→ctx bytes over `len`
     /// keys as over `w` keys whose tail is zeros behind −inf. `exp(−inf) = 0`
@@ -3544,55 +3157,6 @@ mod tests {
             p.matmul(v).unwrap().flatten_all().unwrap().to_vec1().unwrap()
         };
         assert_eq!(attn(&k, &v, len), attn(&kw, &vw, w), "the padding is not inert");
-    }
-
-    #[test]
-    fn prealloc_overflow_is_a_named_error() {
-        use crate::kvq::{KvMode, KvStore};
-        let dev = Device::Cpu;
-        let mut c = KvCache::with_store(KvMode::F16, KvStore::Prealloc(4));
-        let k = Tensor::zeros((1, 2, 3, 4), DType::F32, &dev).unwrap();
-        c.append(&k, &k).expect("3 out of 4 passes");
-        let e = c.append(&k, &k).expect_err("3+3 out of 4 must refuse");
-        let msg = format!("{e}");
-        assert!(msg.contains("window"), "message without a mechanism: {msg}");
-    }
-
-    /// THE certifier of the stepped path: on a tiny random model, the three
-    /// decodes — `Cat`, `Prealloc` (eager), and `Prealloc` stepped (stable
-    /// buffers + scatter write, the capturable closure) — must return the
-    /// SAME tokens. A per-token variation missing from [`StepState`]'s
-    /// inventory (mask, RoPE, input, write position) diverges here, on CPU,
-    /// for free — not on a billed card.
-    #[test]
-    fn stepped_decode_matches_generate_on_all_stores() {
-        use crate::kvq::KvStore;
-        let mut model = tiny_model(DType::F32);
-        let prompt = [3u32, 17, 42, 7];
-        let n_new = 8;
-        let cat = {
-            model.set_kv_store(KvStore::Cat);
-            model.generate(&prompt, n_new, &mut NoCapture).expect("cat")
-        };
-        let pre = {
-            model.set_kv_store(KvStore::Prealloc(32));
-            model.generate(&prompt, n_new, &mut NoCapture).expect("prealloc")
-        };
-        let stepped = {
-            model.set_kv_store(KvStore::Prealloc(32));
-            model.generate_stepped(&prompt, n_new).expect("stepped")
-        };
-        assert_eq!(cat, pre, "cat against eager prealloc");
-        assert_eq!(pre, stepped, "eager prealloc against stepped (incomplete StepState?)");
-        // The unexpanded forms write `n_kv` heads, so the write index must
-        // be sized for them: a wrong shape refuses inside `scatter_set`.
-        model.set_kv_store(KvStore::Prealloc(32));
-        for heads in [crate::kvq::AttnHeads::Shared, crate::kvq::AttnHeads::Grouped] {
-            model.set_attn_heads(heads);
-            let eager = model.generate(&prompt, n_new, &mut NoCapture).expect("eager, unexpanded");
-            let s = model.generate_stepped(&prompt, n_new).expect("stepped, unexpanded");
-            assert_eq!(eager, s, "stepped under {}", heads.label());
-        }
     }
 
     /// The f32 logits of a chunked prefill, then of one decode step per
@@ -3783,7 +3347,6 @@ mod tests {
         for (store, heads) in [
             (KvStore::Cat, AttnHeads::Expanded),
             (KvStore::Grow(4), AttnHeads::Grouped),
-            (KvStore::Prealloc(32), AttnHeads::Expanded),
         ] {
             m.set_kv_store(store);
             m.set_attn_heads(heads);
@@ -3835,7 +3398,7 @@ mod tests {
                 let mut hb = model.embed.forward(&x).unwrap();
                 for (i, blk) in model.blocks.iter().enumerate() {
                     hb = blk
-                        .forward_cached(&hb, &model.rotary, Some(&mask), RopeAt::Offset(offset), &mut b[i], i, &mut NoCapture)
+                        .forward_cached(&hb, &model.rotary, Some(&mask), offset, &mut b[i], i, &mut NoCapture)
                         .unwrap();
                 }
                 let hb = model.norm.forward(&hb).unwrap();
@@ -4312,8 +3875,8 @@ mod tests {
         }
     }
 
-    /// Every [`TokenLoop`] kind returns `generate`'s tokens, on `Cat`, `Grow`
-    /// and `Prealloc`, under the three attention forms, in f32 and f16, with
+    /// Every [`TokenLoop`] kind returns `generate`'s tokens, on `Cat` and
+    /// `Grow`, under the three attention forms, in f32 and f16, with
     /// groups of 2, 4 and 5 (10 heads over 2: the 14B's shape, which no other
     /// test runs). Nine tokens, so `Grow(4)` regrows twice mid-decode.
     #[test]
@@ -4324,7 +3887,7 @@ mod tests {
         for dtype in [DType::F32, DType::F16] {
             for (n_heads, n_kv) in [(4, 2), (8, 2), (10, 2)] {
                 let mut m = tiny_model_heads(dtype, n_heads, n_kv);
-                for store in [KvStore::Cat, KvStore::Grow(4), KvStore::Prealloc(32)] {
+                for store in [KvStore::Cat, KvStore::Grow(4)] {
                     for heads in [AttnHeads::Expanded, AttnHeads::Shared, AttnHeads::Grouped] {
                         m.set_kv_store(store);
                         m.set_attn_heads(heads);
@@ -4383,7 +3946,7 @@ mod tests {
                 for (store, heads) in [
                     (KvStore::Cat, AttnHeads::Expanded),
                     (KvStore::Grow(4), AttnHeads::Grouped),
-                    (KvStore::Prealloc(32), AttnHeads::Shared),
+                    (KvStore::Cat, AttnHeads::Shared),
                 ] {
                     m.set_kv_store(store);
                     m.set_attn_heads(heads);

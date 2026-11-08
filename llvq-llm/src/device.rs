@@ -103,8 +103,8 @@ pub trait LatticeProj: Send + Sync {
     }
 
     /// The concrete projection, for a runtime that reaches its own device
-    /// buffers (route P's segment, `persist_cuda.rs`). `None` unless the
-    /// backend says otherwise; nothing on a served path calls it.
+    /// buffers (4E, `persist4e_cuda.rs`). `None` unless the backend says
+    /// otherwise.
     fn as_any(&self) -> Option<&dyn std::any::Any> {
         None
     }
@@ -148,8 +148,8 @@ pub trait Int4Proj: Send + Sync {
     }
 
     /// The concrete projection, for a runtime that reaches its own device
-    /// buffers (route P's segment, `persist_cuda.rs`). `None` unless the
-    /// backend says otherwise; nothing on a served path calls it.
+    /// buffers (4E, `persist4e_cuda.rs`). `None` unless the backend says
+    /// otherwise.
     fn as_any(&self) -> Option<&dyn std::any::Any> {
         None
     }
