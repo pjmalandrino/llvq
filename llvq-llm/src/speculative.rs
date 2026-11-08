@@ -160,6 +160,94 @@ pub fn speculative_greedy(
     Ok((out, false, st))
 }
 
+/// Prompt lookup, the drafter with no model (Saxena 2023, "prompt lookup
+/// decoding"): the tokens that followed the latest earlier occurrence of the
+/// context's last n-gram, longest n first from `max_n` down to `min_n`, at
+/// most `k` of them. Empty when no n-gram repeats. It costs no weight read and
+/// no memory: what it buys depends only on how much the text repeats itself
+/// (code edits, summaries, retrieval answers quote their input).
+pub fn lookup_draft(ctx: &[u32], k: usize, min_n: usize, max_n: usize) -> Vec<u32> {
+    let len = ctx.len();
+    if k == 0 || min_n == 0 {
+        return Vec::new();
+    }
+    for n in (min_n..=max_n.min(len.saturating_sub(1))).rev() {
+        let tail = &ctx[len - n..];
+        // the latest start i < len - n whose n tokens equal the tail
+        for i in (0..len - n).rev() {
+            if &ctx[i..i + n] == tail {
+                let from = i + n;
+                return ctx[from..(from + k).min(len)].to_vec();
+            }
+        }
+    }
+    Vec::new()
+}
+
+/// The n-gram lengths prompt lookup tries, longest first: 3 down to 1, the
+/// usual setting of the method.
+pub const LOOKUP_MIN_N: usize = 1;
+pub const LOOKUP_MAX_N: usize = 3;
+
+/// [`speculative_greedy`] with prompt lookup as the drafter: the greedy
+/// continuation of `first` after `prompt` (the target's caches hold
+/// `prompt.len()` positions), up to `more` tokens, cut before a stop token.
+/// A round drafts up to `k` tokens from the context (the prompt, `first` and
+/// every token emitted), and a round with no match verifies the pending token
+/// alone: one row, the greedy step. The drafter has no cache, so only the
+/// target is rewound. `verify` and `rewind` are [`speculative_greedy`]'s.
+/// `draft_ns` counts the host's lookups.
+pub fn lookup_greedy(
+    prompt: &[u32],
+    first: u32,
+    more: usize,
+    stops: &[u32],
+    k: usize,
+    mut verify: impl FnMut(usize, &[u32]) -> anyhow::Result<Vec<u32>>,
+    mut rewind: impl FnMut(usize) -> anyhow::Result<()>,
+) -> anyhow::Result<(Vec<u32>, bool, SpecStats)> {
+    let mut st = SpecStats::default();
+    let mut out = Vec::with_capacity(more);
+    let mut ctx = Vec::with_capacity(prompt.len() + more + 1);
+    ctx.extend_from_slice(prompt);
+    ctx.push(first);
+    let (mut tok, mut pos) = (first, prompt.len());
+    while out.len() < more {
+        let kk = k.min(more - out.len() - 1);
+        let t0 = std::time::Instant::now();
+        let drafts = lookup_draft(&ctx, kk, LOOKUP_MIN_N, LOOKUP_MAX_N);
+        st.draft_ns += t0.elapsed().as_nanos() as u64;
+        if !drafts.is_empty() {
+            st.draft_launches += 1;
+        }
+        let mut rows = Vec::with_capacity(drafts.len() + 1);
+        rows.push(tok);
+        rows.extend_from_slice(&drafts);
+        let t0 = std::time::Instant::now();
+        let ys = verify(pos, &rows)?;
+        st.verify_ns += t0.elapsed().as_nanos() as u64;
+        anyhow::ensure!(ys.len() == rows.len(), "a verify pass of {} rows returned {} tokens", rows.len(), ys.len());
+        st.rounds += 1;
+        st.drafted += drafts.len();
+        let a = drafts.iter().zip(&ys).take_while(|(d, y)| d == y).count();
+        st.accepted += a;
+        for &t in &ys[..=a] {
+            if stops.contains(&t) {
+                return Ok((out, true, st));
+            }
+            out.push(t);
+            ctx.push(t);
+            if out.len() == more {
+                return Ok((out, false, st));
+            }
+        }
+        rewind(pos + a + 1)?;
+        tok = ys[a];
+        pos += a + 1;
+    }
+    Ok((out, false, st))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -295,5 +383,70 @@ mod tests {
         assert_eq!((out.len(), stopped), (9, false));
         assert_eq!((s.rounds, s.drafted, s.accepted, s.catchups, s.draft_launches), (3, 6, 6, 2, 3));
         assert_eq!(s.tokens_per_round(), 3.0);
+    }
+
+    #[test]
+    fn lookup_drafts_the_latest_continuation_of_the_longest_ngram() {
+        // ... 1 2 3 9 ... 1 2 3 7 8 ... 2 3 | the tail "2 3" last followed by 7 8
+        let ctx = [1, 2, 3, 9, 5, 1, 2, 3, 7, 8, 4, 2, 3];
+        assert_eq!(lookup_draft(&ctx, 2, 1, 3), vec![7, 8]);
+        assert_eq!(lookup_draft(&ctx, 5, 1, 3), vec![7, 8, 4, 2, 3]);
+        // the trigram "4 2 3" never repeats, the bigram does
+        assert_eq!(lookup_draft(&ctx, 1, 3, 3), Vec::<u32>::new());
+        // nothing repeats
+        assert!(lookup_draft(&[1, 2, 3, 4], 3, 1, 3).is_empty());
+        // a match at the end of the context: what follows is cut by the context
+        assert_eq!(lookup_draft(&[5, 6, 5], 4, 1, 3), vec![6, 5]);
+        assert!(lookup_draft(&ctx, 0, 1, 3).is_empty());
+        assert!(lookup_draft(&[], 3, 1, 3).is_empty());
+        assert!(lookup_draft(&[7], 3, 1, 3).is_empty());
+    }
+
+    #[test]
+    fn the_lookup_loop_is_the_greedy_loop() {
+        let mut some_kept = false;
+        for k in 0..=4usize {
+            for more in [0usize, 1, 2, 3, 7, 30, 60] {
+                for stops in [vec![], vec![5u32], vec![5, 11]] {
+                    for first in [0u32, 4, 13] {
+                        let offset = 6;
+                        let (target, _) = prefilled(1, 1, offset);
+                        let prompt: Vec<u32> = target.cache.clone();
+                        let want = greedy(&target, first, offset, more, &stops);
+                        let t = std::cell::RefCell::new(target.clone());
+                        let got = lookup_greedy(
+                            &prompt,
+                            first,
+                            more,
+                            &stops,
+                            k,
+                            |pos, rows| {
+                                assert!(rows.len() <= k + 1, "{} rows at k = {k}", rows.len());
+                                let mut m = t.borrow_mut();
+                                Ok(rows.iter().enumerate().map(|(i, &r)| m.feed(pos + i, r)).collect())
+                            },
+                            |len| {
+                                let mut m = t.borrow_mut();
+                                assert!(len <= m.cache.len(), "a rewind to {len} past {}", m.cache.len());
+                                m.cache.truncate(len);
+                                Ok(())
+                            },
+                        )
+                        .unwrap();
+                        assert_eq!((got.0.clone(), got.1), want, "k {k}, {more} more, stops {stops:?}, first {first}");
+                        let s = got.2;
+                        assert!(s.accepted <= s.drafted && (k > 0 || s.drafted == 0), "{s:?}");
+                        // a round emits its kept drafts and one token, less what a stop or `more` cut
+                        assert!(s.rounds + s.accepted >= got.0.len(), "{s:?}");
+                        if !got.1 {
+                            assert_eq!(s.rounds + s.accepted, got.0.len(), "{s:?}");
+                        }
+                        some_kept |= s.accepted > 0;
+                    }
+                }
+            }
+        }
+        // the toy repeats itself (its next token is mostly a function of the last), so lookup keeps drafts
+        assert!(some_kept, "no draft kept on a text that repeats");
     }
 }

@@ -4,6 +4,11 @@
 //!
 //! Usage:
 //!   `LLVQ_CONFIG=<target config> specrun <target sealed> <draft config> <draft sealed> [ks] [what]`
+//!   `LLVQ_CONFIG=<target config> specrun <target sealed> lookup [ks] [what]`
+//!
+//! `lookup` drafts by prompt lookup (`speculative::lookup_draft`): n-grams of
+//! the prompt and of the text so far, no drafter model, no memory. A round
+//! with no match verifies the pending token alone.
 //!
 //! - `ks`: the draft lengths to run, comma-separated, each below
 //!   `pers::P4V_KMAX` (default `1,2,3`).
@@ -13,7 +18,9 @@
 //! Both configs must name the persistent decode at row form 7 (v9). The
 //! target's verify pass is installed beside its 4E decode.
 //!
-//! Prompts (`door`): `chat`, `code` and `summary`, each one user turn through
+//! Prompts (`door`): `chat`, `code`, `summary`, `edit` (a function to return
+//! changed, most of it copied) and `rag` (a question to answer from a passage,
+//! quoting it), each one user turn through
 //! the chat template with reasoning off, then the house prompt of the served
 //! door ("The capital of France is", raw, the prompt every served tok/s ran),
 //! which loops and so flatters any drafter: it is printed, never the verdict.
@@ -98,13 +105,13 @@ struct Arm {
 /// One generate: the target's prefill (and the drafter's when `k` is some),
 /// then 4E greedy or the speculative loop.
 #[cfg(all(target_os = "linux", feature = "cuda"))]
-fn generate(t: &mut Loaded, d: &mut Loaded, ids: &[u32], max_new: usize, stops: &[u32], k: Option<usize>) -> anyhow::Result<Arm> {
+fn generate(t: &mut Loaded, mut d: Option<&mut Loaded>, ids: &[u32], max_new: usize, stops: &[u32], k: Option<usize>) -> anyhow::Result<Arm> {
     let chunk = llvq_llm::model::MAX_PREFILL_ROWS;
     let t0 = Instant::now();
     let mut caches = t.f.model.fresh_caches();
     let first = t.f.model.prefill_next_in(ids, chunk, &mut caches)?;
     let mut dcaches = Vec::new();
-    if k.is_some() {
+    if let (Some(_), Some(d)) = (k, d.as_mut()) {
         dcaches = d.f.model.fresh_caches();
         let _ = d.f.model.prefill_next_in(ids, chunk, &mut dcaches)?;
     }
@@ -120,7 +127,10 @@ fn generate(t: &mut Loaded, d: &mut Loaded, ids: &[u32], max_new: usize, stops: 
                 (r, s)
             }
             Some(k) => {
-                let (r, s, st) = t.dec.continue_speculative(&mut caches, &mut d.dec, &mut dcaches, first, ids.len(), max_new - 1, stops, k)?;
+                let (r, s, st) = match d {
+                    Some(d) => t.dec.continue_speculative(&mut caches, &mut d.dec, &mut dcaches, first, ids.len(), max_new - 1, stops, k)?,
+                    None => t.dec.continue_lookup(&mut caches, ids, first, max_new - 1, stops, k)?,
+                };
                 stats = st;
                 (r, s)
             }
@@ -155,26 +165,30 @@ fn run() -> anyhow::Result<()> {
     use llvq_llm::boundary::median_range;
     use llvq_llm::chatfmt::{open_assistant, turn, Marks};
     let a: Vec<String> = std::env::args().skip(1).collect();
-    let usage = "usage: LLVQ_CONFIG=<target config> specrun <target sealed> <draft config> <draft sealed> [ks] [all|load|door|gsm8k]";
+    let usage = "usage: LLVQ_CONFIG=<target config> specrun <target sealed> <draft config> <draft sealed> [ks] [all|load|door|gsm8k]\n       \
+                 LLVQ_CONFIG=<target config> specrun <target sealed> lookup [ks] [all|load|door|gsm8k]";
+    let lookup = a.get(1).map(String::as_str) == Some("lookup");
+    // Positional arguments after the drafter: one fewer with prompt lookup.
+    let rest = if lookup { 2 } else { 3 };
     let (tpath, dcfg_path, dpath) = match (a.first(), a.get(1), a.get(2)) {
+        (Some(t), Some(_), _) if lookup => (t.clone(), String::new(), String::new()),
         (Some(t), Some(c), Some(d)) => (t.clone(), c.clone(), d.clone()),
         _ => anyhow::bail!("{usage}"),
     };
     let ks: Vec<usize> = a
-        .get(3)
+        .get(rest)
         .map_or("1,2,3", String::as_str)
         .split(',')
         .map(|s| s.trim().parse::<usize>().map_err(|_| anyhow::anyhow!("ks: {s:?} is not a count")))
         .collect::<anyhow::Result<_>>()?;
     let kmax = llvq_cuda::pers::P4V_KMAX as usize;
     anyhow::ensure!(!ks.is_empty() && ks.iter().all(|&k| (1..kmax).contains(&k)), "ks {ks:?}: each in 1..{}", kmax - 1);
-    let what = a.get(4).map_or("all", String::as_str);
+    let what = a.get(rest + 1).map_or("all", String::as_str);
     anyhow::ensure!(["all", "load", "door", "gsm8k"].contains(&what), "{usage}");
 
     let tcfg = llvq_llm::served::Served::from_env()
         .map_err(|e| anyhow::anyhow!("{e}"))?
         .ok_or_else(|| anyhow::anyhow!("LLVQ_CONFIG names the target's served config; {usage}"))?;
-    let dcfg = llvq_llm::served::Served::read(std::path::Path::new(&dcfg_path)).map_err(|e| anyhow::anyhow!("{e}"))?;
     let device = candle_core::Device::new_cuda(0)?;
 
     let t_load = Instant::now();
@@ -184,10 +198,17 @@ fn run() -> anyhow::Result<()> {
     }
     let used_target = card_used()?;
     println!("card memory: {used_target:.3} GB used after the target's load and its 4E install (cuMemGetInfo)");
-    let mut d = load(&dcfg, &dpath, &device, "drafter")?;
-    for line in d.dec.lines() {
-        println!("drafter {line}");
-    }
+    let mut d = if lookup {
+        println!("drafter: prompt lookup, n-grams {} to {} of the prompt and the text so far; no model", llvq_llm::speculative::LOOKUP_MAX_N, llvq_llm::speculative::LOOKUP_MIN_N);
+        None
+    } else {
+        let dcfg = llvq_llm::served::Served::read(std::path::Path::new(&dcfg_path)).map_err(|e| anyhow::anyhow!("{e}"))?;
+        let d = load(&dcfg, &dpath, &device, "drafter")?;
+        for line in d.dec.lines() {
+            println!("drafter {line}");
+        }
+        Some(d)
+    };
     let before = t.dec.lines().len();
     t.dec.install_verify()?;
     for line in &t.dec.lines()[before..] {
@@ -201,7 +222,7 @@ fn run() -> anyhow::Result<()> {
     println!(
         "weights: target {:.3} GB, drafter {:.3} GB (runtime and carried bytes)",
         (t.f.runtime_bytes + t.f.carried_bytes) as f64 / 1e9,
-        (d.f.runtime_bytes + d.f.carried_bytes) as f64 / 1e9
+        d.as_ref().map_or(0.0, |d| (d.f.runtime_bytes + d.f.carried_bytes) as f64 / 1e9)
     );
     println!("loaded in {:.1} s; draft lengths {ks:?}", t_load.elapsed().as_secs_f64());
     if what == "load" {
@@ -221,10 +242,12 @@ fn run() -> anyhow::Result<()> {
             ("chat", chat(CHAT)?, stops.clone()),
             ("code", chat(CODE)?, stops.clone()),
             ("summary", chat(&format!("{SUMMARY}\n\n{SUMMARY_TEXT}"))?, stops.clone()),
+            ("edit", chat(&format!("{EDIT}\n\n{EDIT_CODE}"))?, stops.clone()),
+            ("rag", chat(&format!("{RAG}\n\n{SUMMARY_TEXT}"))?, stops.clone()),
             ("door", tok.encode(DOOR, false).map_err(|e| anyhow::anyhow!("{e}"))?.get_ids().to_vec(), Vec::new()),
         ];
         for (name, ids, st) in &prompts {
-            let want = generate(&mut t, &mut d, ids, N_NEW, st, None)?.tokens;
+            let want = generate(&mut t, d.as_mut(), ids, N_NEW, st, None)?.tokens;
             println!(
                 "\n== {name}: {} prompt tokens, greedy reference {} tokens, fingerprint {:016x}",
                 ids.len(),
@@ -237,7 +260,7 @@ fn run() -> anyhow::Result<()> {
             let mut stats = vec![llvq_llm::speculative::SpecStats::default(); arms.len()];
             for round in 0..=ROUNDS_TIMED {
                 for (i, &k) in arms.iter().enumerate() {
-                    let g = generate(&mut t, &mut d, ids, N_NEW, st, k)?;
+                    let g = generate(&mut t, d.as_mut(), ids, N_NEW, st, k)?;
                     if let Some(at) = first_divergence(&want, &g.tokens) {
                         anyhow::bail!(
                             "{name}, round {round}, {}: diverges from the greedy reference at token {at} ({} against {} tokens); the run is void",
@@ -295,7 +318,7 @@ fn run() -> anyhow::Result<()> {
             let mut st = llvq_llm::speculative::SpecStats::default();
             let mut all = Vec::with_capacity(prompts.len());
             for (j, ids) in prompts.iter().enumerate() {
-                let g = generate(&mut t, &mut d, ids, 1024, &stops, k)?;
+                let g = generate(&mut t, d.as_mut(), ids, 1024, &stops, k)?;
                 if k.is_some() {
                     if let Some(at) = first_divergence(&greedy[j], &g.tokens) {
                         anyhow::bail!("gsm8k problem {}, k = {}: diverges from the greedy completion at token {at}; the run is void", picked[j], k.unwrap_or(0));
@@ -375,3 +398,27 @@ centre is getting worse. The council's engineer reported that the roof needs urg
 chosen, at an estimated cost of 1.2 million, and that the soil near the old fuel tanks must be cleaned before any \
 housing can be built. The mayor said no decision would be taken before a public consultation in the spring, and \
 asked each group to submit a detailed budget and timetable by the end of February.";
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+const EDIT: &str = "Rename the variable `buf` to `pending` everywhere in this function and add type hints to its \
+signature. Return the whole function, changed, and nothing else.";
+// Written for this gate (2026-11-08), not quoted from any source.
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+const EDIT_CODE: &str = "```python
+def batch_lines(lines, size, sep):
+    out = []
+    buf = []
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        buf.append(line)
+        if len(buf) >= size:
+            out.append(sep.join(buf))
+            buf = []
+    if buf:
+        out.append(sep.join(buf))
+    return out
+```";
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+const RAG: &str = "Answer from the text below only. What did the council's engineer report, and what did the mayor \
+decide? Quote the sentences of the text that support your answer.";

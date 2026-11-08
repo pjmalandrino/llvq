@@ -184,6 +184,51 @@ impl Decoder {
         anyhow::bail!("the speculative decode needs 4E on both the target and the drafter")
     }
 
+    /// The greedy continuation by prompt lookup (`speculative::lookup_greedy`):
+    /// n-grams of `prompt` and of the text so far draft up to `k` tokens a
+    /// round, 4E's verify pass checks them, and every token is the target's
+    /// greedy token. No drafter, no memory. `caches` hold `prompt`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn continue_lookup(
+        &mut self,
+        caches: &mut [KvCache],
+        prompt: &[u32],
+        first: u32,
+        more: usize,
+        stops: &[u32],
+        k: usize,
+    ) -> anyhow::Result<(Vec<u32>, bool, crate::speculative::SpecStats)> {
+        #[cfg(all(target_os = "linux", feature = "cuda"))]
+        if let Some(rt) = self.rt.as_mut() {
+            anyhow::ensure!(
+                k < llvq_cuda::pers::P4V_KMAX as usize,
+                "prompt lookup: {k} drafts a round, the verify pass carries {} rows",
+                llvq_cuda::pers::P4V_KMAX
+            );
+            let t = std::cell::RefCell::new((rt, caches));
+            return crate::speculative::lookup_greedy(
+                prompt,
+                first,
+                more,
+                stops,
+                k,
+                |pos, rows| {
+                    let mut g = t.borrow_mut();
+                    let (rt, c) = &mut *g;
+                    rt.verify(c, pos, rows)
+                },
+                |len| {
+                    for x in t.borrow_mut().1.iter_mut() {
+                        x.set_len(len)?;
+                    }
+                    Ok(())
+                },
+            );
+        }
+        let _ = (caches, prompt, first, more, stops, k);
+        anyhow::bail!("prompt lookup needs 4E and its verify pass on the target")
+    }
+
     /// `Qwen3::generate_timed` through this engine: `max_new` tokens after
     /// `tokens`, the prompt in chunks of `chunk`. Eager: that function, call
     /// for call. Persistent: the same prefill, then 4E with no stop token.
