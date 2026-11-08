@@ -130,9 +130,9 @@ fn main() -> anyhow::Result<()> {
             state: env_f32("LLVQ_CHAT_SEED", 0.0)? as u64 ^ 0x5EED_5EED_5EED_5EED,
         },
         max_new: env_f32("LLVQ_CHAT_MAX_NEW", 512.0)? as usize,
-        think: env_f32("LLVQ_CHAT_THINK", 0.0)? != 0.0,
+        think: llvq_llm::eval::env_flag("LLVQ_CHAT_THINK")?,
         // `LLVQ_CHAT_IDS=1` prints the raw ids of each answer.
-        show_ids: env_f32("LLVQ_CHAT_IDS", 0.0)? != 0.0,
+        show_ids: llvq_llm::eval::env_flag("LLVQ_CHAT_IDS")?,
         system: std::env::var("LLVQ_CHAT_SYSTEM").ok(),
     };
     llvq_llm::repl::run_with(&qwen, &tokenizer, opts, &mut std::io::stdin().lock(), &mut dec)

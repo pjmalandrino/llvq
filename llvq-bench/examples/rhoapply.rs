@@ -110,12 +110,12 @@
 //! Arms A and B are not written in that mode, and the M1 mode is untouched.
 
 use std::collections::HashMap;
-use std::fmt::Write as _;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+use llvq_artifact::sha256::Sha256;
 use llvq_artifact::{Codebook, QuantizedMatrix, RawMatrix};
 use llvq_quant::quantizer::BlockCode;
 
@@ -149,123 +149,9 @@ fn next_raw(r: &mut impl Read, version: u32) -> Result<Option<RawMatrix>, String
 // SHA-256, because a core crate has no dependencies
 // ---------------------------------------------------------------------------
 
-/// FIPS 180-4 SHA-256. Self-tested against two published vectors at startup:
+/// Self-test of the workspace's SHA-256 against published vectors at startup:
 /// a hash function that is wrong in the same way on both files would report a
 /// false idempotence, which is exactly the control it serves.
-struct Sha256 {
-    h: [u32; 8],
-    buf: [u8; 64],
-    len: usize,
-    total: u64,
-}
-
-const K: [u32; 64] = [
-    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
-    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
-    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
-    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
-    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
-    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
-    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
-    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
-];
-
-impl Sha256 {
-    fn new() -> Self {
-        Self {
-            h: [
-                0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab,
-                0x5be0cd19,
-            ],
-            buf: [0u8; 64],
-            len: 0,
-            total: 0,
-        }
-    }
-
-    fn block(&mut self, b: &[u8]) {
-        let mut w = [0u32; 64];
-        for (i, wi) in w.iter_mut().take(16).enumerate() {
-            *wi = u32::from_be_bytes([b[4 * i], b[4 * i + 1], b[4 * i + 2], b[4 * i + 3]]);
-        }
-        for i in 16..64 {
-            let s0 = w[i - 15].rotate_right(7) ^ w[i - 15].rotate_right(18) ^ (w[i - 15] >> 3);
-            let s1 = w[i - 2].rotate_right(17) ^ w[i - 2].rotate_right(19) ^ (w[i - 2] >> 10);
-            w[i] = w[i - 16]
-                .wrapping_add(s0)
-                .wrapping_add(w[i - 7])
-                .wrapping_add(s1);
-        }
-        let mut v = self.h;
-        for i in 0..64 {
-            let s1 = v[4].rotate_right(6) ^ v[4].rotate_right(11) ^ v[4].rotate_right(25);
-            let ch = (v[4] & v[5]) ^ (!v[4] & v[6]);
-            let t1 = v[7]
-                .wrapping_add(s1)
-                .wrapping_add(ch)
-                .wrapping_add(K[i])
-                .wrapping_add(w[i]);
-            let s0 = v[0].rotate_right(2) ^ v[0].rotate_right(13) ^ v[0].rotate_right(22);
-            let maj = (v[0] & v[1]) ^ (v[0] & v[2]) ^ (v[1] & v[2]);
-            let t2 = s0.wrapping_add(maj);
-            v[7] = v[6];
-            v[6] = v[5];
-            v[5] = v[4];
-            v[4] = v[3].wrapping_add(t1);
-            v[3] = v[2];
-            v[2] = v[1];
-            v[1] = v[0];
-            v[0] = t1.wrapping_add(t2);
-        }
-        for (a, b) in self.h.iter_mut().zip(v) {
-            *a = a.wrapping_add(b);
-        }
-    }
-
-    fn update(&mut self, mut data: &[u8]) {
-        self.total += data.len() as u64;
-        if self.len > 0 {
-            let take = (64 - self.len).min(data.len());
-            self.buf[self.len..self.len + take].copy_from_slice(&data[..take]);
-            self.len += take;
-            data = &data[take..];
-            if self.len == 64 {
-                let b = self.buf;
-                self.block(&b);
-                self.len = 0;
-            } else {
-                // `take` emptied `data`, and the buffer is still short of a
-                // block. Falling through would overwrite it with nothing and
-                // lose what is held — the shape that made `finish` spin
-                // forever the first time this was run.
-                return;
-            }
-        }
-        while data.len() >= 64 {
-            let (b, rest) = data.split_at(64);
-            self.block(b);
-            data = rest;
-        }
-        self.buf[..data.len()].copy_from_slice(data);
-        self.len = data.len();
-    }
-
-    fn finish(mut self) -> String {
-        let bits = self.total * 8;
-        self.update(&[0x80]);
-        while self.len != 56 {
-            self.update(&[0]);
-        }
-        let b = bits.to_be_bytes();
-        self.update(&b);
-        let mut s = String::new();
-        for x in self.h {
-            let _ = write!(s, "{x:08x}");
-        }
-        s
-    }
-}
-
 fn sha256_selftest() {
     let mut a = Sha256::new();
     a.update(b"");

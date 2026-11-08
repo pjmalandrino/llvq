@@ -64,22 +64,8 @@ fn parse_count(key: &str, v: Option<&str>, default: usize) -> anyhow::Result<usi
     }
 }
 
-/// `0`, `1`, or unset. Anything else is refused: a flag that reads `yes` as
-/// off is an arm that lies about its own protocol.
-fn parse_flag(key: &str, v: Option<&str>) -> anyhow::Result<bool> {
-    match v.map(str::trim) {
-        None | Some("") | Some("0") => Ok(false),
-        Some("1") => Ok(true),
-        Some(other) => anyhow::bail!("{key}={other:?}: accepted values are 0 and 1"),
-    }
-}
-
 fn env_count(key: &str, default: usize) -> anyhow::Result<usize> {
     parse_count(key, std::env::var(key).ok().as_deref(), default)
-}
-
-fn env_flag(key: &str) -> anyhow::Result<bool> {
-    parse_flag(key, std::env::var(key).ok().as_deref())
 }
 
 /// Median and 90th percentile of a count, nearest rank.
@@ -110,7 +96,7 @@ fn main() -> anyhow::Result<()> {
     // second, not a load.
     let max_new = env_count("LLVQ_GSM8K_MAX_NEW", 1024)?;
     anyhow::ensure!(max_new > 0, "LLVQ_GSM8K_MAX_NEW=0 generates nothing to score");
-    let think = env_flag("LLVQ_GSM8K_THINK")?;
+    let think = llvq_llm::eval::env_flag("LLVQ_GSM8K_THINK")?;
     let dtype = llvq_llm::eval::dtype(DType::F16)?;
     let kv_mode = llvq_llm::kvq::KvMode::from_env().map_err(anyhow::Error::msg)?;
     llvq_llm::served::check_removed(|v| std::env::var(v).ok()).map_err(anyhow::Error::msg)?;
@@ -465,15 +451,6 @@ mod tests {
         assert_eq!(quantiles(&[10, 1, 9, 2, 8, 3, 7, 4, 6, 5]), (5, 9));
     }
 
-    #[test]
-    fn a_flag_is_zero_one_or_refused() {
-        assert!(!parse_flag("F", None).unwrap());
-        assert!(!parse_flag("F", Some(" ")).unwrap());
-        assert!(!parse_flag("F", Some("0")).unwrap());
-        assert!(parse_flag("F", Some("1")).unwrap());
-        assert!(parse_flag("F", Some("yes")).is_err(), "`yes` must not read as off");
-        assert!(parse_flag("F", Some("true")).is_err());
-    }
 
     #[test]
     fn a_count_defaults_only_when_unset() {

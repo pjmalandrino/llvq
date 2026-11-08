@@ -32,8 +32,7 @@
 //! under different configurations, all of which produce a valid file.
 
 use candle_core::{DType, Device, Tensor};
-use candle_nn::{Activation, VarBuilder, VarMap};
-use candle_transformers::models::qwen3::Config;
+use candle_nn::{VarBuilder, VarMap};
 use llvq_llm::artifact2::{
     resume_from_shard, shard_extent, ArtifactWriter, RunState, ShardExpect,
 };
@@ -44,38 +43,15 @@ use llvq_llm::calib::{
 use llvq_llm::model::{Act, Qwen3};
 use llvq_quant::gptq::{GptqConfig, TailPolicy};
 
+mod common;
+use common::tiny;
+
 /// The rotation is **on** in every artifact test here. It is the one input
 /// whose per-matrix value is *derived* rather than stored twice
 /// (`effective_rotation_seed`), so a resume that rebuilt it from the run's
 /// base seed instead of the matrix's would decode to plausible garbage. With
 /// the rotation off, that whole class of defect is invisible.
 const ROT: u64 = 0x11_0FEED;
-
-/// Two transformer blocks, and every matrix carrying a tail: `hidden_size` 32
-/// is one 24-wide block plus 8, `intermediate_size` 64 is two plus 16. The
-/// real shape, in miniature — and the tail matters here, because it is the
-/// part of a matrix that is *narrowed to f32 in the rotated basis* before the
-/// un-rotation, which is what makes the file and the model the same object.
-fn tiny() -> Config {
-    Config {
-        vocab_size: 128,
-        hidden_size: 32,
-        intermediate_size: 64,
-        num_hidden_layers: 2,
-        num_attention_heads: 4,
-        head_dim: 8,
-        attention_bias: false,
-        num_key_value_heads: 2,
-        max_position_embeddings: 64,
-        sliding_window: None,
-        max_window_layers: 0,
-        tie_word_embeddings: true,
-        rope_theta: 10_000.0,
-        rms_norm_eps: 1e-6,
-        use_sliding_window: false,
-        hidden_act: Activation::Silu,
-    }
-}
 
 /// A model on the *same* weights every time — `quantize_model` rebuilds each
 /// `Linear` rather than writing through the `Var`, so the `VarMap` survives a

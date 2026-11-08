@@ -20,6 +20,9 @@ bench = ["dep:llvq-bench"]
 
 [dependencies]
 llvq-bench = { path = "../llvq-bench", optional = true }
+# The workspace's SHA-256 (`llvq_artifact::sha256`), on every platform: the
+# pinned-unit tests hash the NVRTC text on the Mac. No external dependency.
+llvq-artifact = { path = "../llvq-artifact" }
 
 # NVIDIA-only by construction, and target-gated rather than feature-gated on
 # purpose: cudarc cannot build on macOS at all, whichever way it is asked.
@@ -69,7 +72,6 @@ cudarc = { version = "0.19", default-features = false, features = [
 ] }
 llvq-core = { path = "../llvq-core" }
 llvq-search = { path = "../llvq-search" }
-llvq-artifact = { path = "../llvq-artifact" }
 # `bin/rotbench` needs the rotation the quantizer used — not a reimplementation
 # of it. No new closure: `llvq-artifact` already pulls `llvq-quant` in for
 # `decode_matrix`, so this only names what was reachable anyway.

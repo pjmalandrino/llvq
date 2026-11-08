@@ -65,6 +65,23 @@ pub fn device(name: &str) -> anyhow::Result<Device> {
     }
 }
 
+/// A 0/1 switch: `0`, `1`, empty or unset. Anything else is refused: a flag
+/// that reads `yes` as off is an arm that lies about its own protocol. The
+/// binaries' one parser for such switches since 2026-11-08 (audit batch 10);
+/// before it, `LLVQ_VERIFY_CACHE=0` turned the check on.
+pub fn parse_flag(key: &str, v: Option<&str>) -> anyhow::Result<bool> {
+    match v.map(str::trim) {
+        None | Some("") | Some("0") => Ok(false),
+        Some("1") => Ok(true),
+        Some(other) => anyhow::bail!("{key}={other:?}: accepted values are 0 and 1"),
+    }
+}
+
+/// [`parse_flag`] on the environment.
+pub fn env_flag(key: &str) -> anyhow::Result<bool> {
+    parse_flag(key, std::env::var(key).ok().as_deref())
+}
+
 /// Resolve the model dtype: `default`, unless `LLVQ_DTYPE` overrides it.
 pub fn dtype(default: DType) -> anyhow::Result<DType> {
     match std::env::var(DTYPE_ENV) {
@@ -145,6 +162,16 @@ pub fn token_fingerprint(ids: &[u32]) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_flag_is_zero_one_or_refused() {
+        assert!(!parse_flag("F", None).unwrap());
+        assert!(!parse_flag("F", Some(" ")).unwrap());
+        assert!(!parse_flag("F", Some("0")).unwrap());
+        assert!(parse_flag("F", Some("1")).unwrap());
+        assert!(parse_flag("F", Some("yes")).is_err(), "`yes` must not read as off");
+        assert!(parse_flag("F", Some("true")).is_err());
+    }
 
     #[test]
     fn spellings_of_the_same_dtype_agree() {

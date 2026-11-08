@@ -1106,11 +1106,7 @@ fn main() -> anyhow::Result<()> {
     // each activation AFTER the matrices upstream of it in the same block
     // have been quantized, four passes instead of one. Refused by name rather
     // than coerced, like every other switch here.
-    let sequential_block = match std::env::var("LLVQ_SEQ_BLOCK").ok().as_deref() {
-        None | Some("") | Some("0") => false,
-        Some("1") => true,
-        Some(o) => anyhow::bail!("LLVQ_SEQ_BLOCK={o}: accepted values `0` (default) and `1`"),
-    };
+    let sequential_block = llvq_llm::eval::env_flag("LLVQ_SEQ_BLOCK")?;
 
     let run = llvq_llm::calib::RunConfig {
         sequential_block,

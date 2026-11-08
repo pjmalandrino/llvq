@@ -24,8 +24,7 @@
 //! seam that breaks four hours into a 4B run.
 
 use candle_core::{DType, Device, Tensor};
-use candle_nn::{Activation, VarBuilder, VarMap};
-use candle_transformers::models::qwen3::Config;
+use candle_nn::{VarBuilder, VarMap};
 use llvq_artifact::{CodeKind, KindSet};
 use llvq_llm::artifact2::{
     decode_matrix, read_header, read_matrix_with, resume_from_shard, ArtifactWriter, Codebooks,
@@ -36,6 +35,9 @@ use llvq_llm::calib::{
 };
 use llvq_llm::model::{Act, Qwen3};
 use llvq_quant::gptq::{GptqConfig, TailPolicy};
+
+mod common;
+use common::tiny;
 
 /// The rotation is on, as it is in every artifact test here: it is the input
 /// whose per-matrix value is derived rather than stored twice, so a decode
@@ -56,28 +58,6 @@ fn ball() -> Codebook {
         max_shell: 12,
         free_magnitude: false,
         level_cap: 5,
-    }
-}
-
-/// Two transformer blocks, every matrix one 24-wide block plus a tail.
-fn tiny() -> Config {
-    Config {
-        vocab_size: 128,
-        hidden_size: 32,
-        intermediate_size: 64,
-        num_hidden_layers: 2,
-        num_attention_heads: 4,
-        head_dim: 8,
-        attention_bias: false,
-        num_key_value_heads: 2,
-        max_position_embeddings: 64,
-        sliding_window: None,
-        max_window_layers: 0,
-        tie_word_embeddings: true,
-        rope_theta: 10_000.0,
-        rms_norm_eps: 1e-6,
-        use_sliding_window: false,
-        hidden_act: Activation::Silu,
     }
 }
 

@@ -61,7 +61,7 @@ modes set together (`ALONE` in that file).
 | `LLVQ_ROT`, `LLVQ_H_DENSE` | `hcapture` | rotation on, dense Hessian | tool |
 | `LLVQ_ALT_K` | `tetraalt` | alternative count | tool |
 | `LLVQ_Q4B` | `radixstudy` | int4 bit study switch | tool |
-| `LLVQ_RUN_DUMP`, `LLVQ_VERIFY_CACHE` | `run` (dense demo) | dump path, cache check (set means on) | tool |
+| `LLVQ_RUN_DUMP`, `LLVQ_VERIFY_CACHE` | `run` (dense demo) | dump path; cache check, `0` or `1` | tool |
 
 ## Measurement modes
 

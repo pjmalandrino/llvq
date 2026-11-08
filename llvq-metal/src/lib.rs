@@ -346,61 +346,9 @@ pub use gpu::{Kernel, Timing};
 /// apart in two crates.
 pub mod p1host;
 
-/// f32 → IEEE 754 binary16 bits, round to nearest even. No `half` crate —
-/// this crate stays at two dependencies.
-pub fn f16_bits(x: f32) -> u16 {
-    let b = x.to_bits();
-    let sign = ((b >> 16) & 0x8000) as u16;
-    let exp = ((b >> 23) & 0xff) as i32;
-    let man = b & 0x7f_ffff;
-    if exp == 255 {
-        // Inf / NaN.
-        return sign | 0x7c00 | if man != 0 { 0x200 } else { 0 };
-    }
-    let e16 = exp - 127 + 15;
-    if e16 >= 31 {
-        return sign | 0x7c00; // overflow to inf
-    }
-    if e16 <= 0 {
-        // Subnormal (or zero): shift the implicit-1 mantissa down.
-        if e16 < -10 {
-            return sign;
-        }
-        let man = man | 0x80_0000;
-        let shift = (14 - e16) as u32;
-        let half = 1u32 << (shift - 1);
-        let mut v = man >> shift;
-        // Round to nearest even.
-        let rem = man & ((1 << shift) - 1);
-        if rem > half || (rem == half && v & 1 == 1) {
-            v += 1;
-        }
-        return sign | v as u16;
-    }
-    let mut v = (sign as u32) | ((e16 as u32) << 10) | (man >> 13);
-    let rem = man & 0x1fff;
-    if rem > 0x1000 || (rem == 0x1000 && v & 1 == 1) {
-        v += 1; // may carry into the exponent — that is correct rounding
-    }
-    v as u16
-}
+/// f32 ↔ binary16 on the host, shared with `llvq-cuda` (`llvq_artifact::f16`).
+pub use llvq_artifact::f16::{f16_bits, f16_to_f64};
 
-pub fn f16_to_f64(h: u16) -> f64 {
-    let sign = if h & 0x8000 != 0 { -1.0 } else { 1.0 };
-    let exp = (h >> 10) & 0x1f;
-    let man = (h & 0x3ff) as f64;
-    sign * match exp {
-        0 => man * (-24f64).exp2(),
-        31 => {
-            if man == 0.0 {
-                f64::INFINITY
-            } else {
-                f64::NAN
-            }
-        }
-        e => (1.0 + man / 1024.0) * ((e as f64) - 15.0).exp2(),
-    }
-}
 
 /// GPU-side class record; must match [`PAYLOAD_MSL`]'s `ClassRec` byte for
 /// byte — which is why it lives in the same crate as that source.

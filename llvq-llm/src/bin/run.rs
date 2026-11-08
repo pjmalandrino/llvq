@@ -114,7 +114,7 @@ fn main() -> anyhow::Result<()> {
         // kept for exactly this — an independent answer to "did the cache
         // change what the model says". Greedy decoding is deterministic, so
         // the two token sequences must be equal, not close.
-        if std::env::var("LLVQ_VERIFY_CACHE").is_ok() {
+        if llvq_llm::eval::env_flag("LLVQ_VERIFY_CACHE")? {
             // Below three tokens the cache is never read: `generate` returns
             // right after the prefill, so `append` never sees a non-empty
             // cache and the mask never sees a nonzero offset. The check would
