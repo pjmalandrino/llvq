@@ -1282,6 +1282,17 @@ read apart in one job ([batch-l40s-v4](mesures/batch-l40s-v4-2026-11-08.txt)); t
   card. A 2-row verify pass costs 1.95 to 2.25 greedy tokens (it spills, runs the prologues and attention per row),
   the drafter 2.5 ms a launch. Not proposed for serving.
 
+## 2026-11-08. The llama.cpp duel: IQ2_S at our bits, three sizes, one L40S
+
+- Prereg stamped before the first job; four deviations, each written before the run it touched: our side on the
+  batching Space (D1), run 1 stopped at its first bench by a VRAM line in the JSON (D2), a variable that never reached
+  the retry (D3), and a `llama-server` slot starved at its default batch, reproduced on the Mac (D4).
+- llama.cpp's nearest rung to our bits is IQ2_S at all three sizes. Against it Tetra wins perplexity and MMLU at
+  every size (+9.08, +4.13, +2.89 points) and GSM8K at 4B and 8B; the 14B GSM8K is not separated. IQ2_S decodes 33.5
+  to 63.9 tok/s faster after 5 tokens, and wins peak memory everywhere but the 4B after 5 tokens. unsloth's
+  UD-IQ2_XXS loops under greedy decoding at 4B (9.17 GSM8K). $17.55
+  ([duel-iq2](mesures/duel-iq2-2026-11-08.txt)).
+
 ## 2026-11-08. The prefill's card memory at 8,192 tokens: three score tensors, cut to one bit for bit
 
 - The duel against llama.cpp IQ2_S measured 11.48 / 12.66 / 17.09 GB of card memory after an 8,192-token prompt at

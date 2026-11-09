@@ -1,0 +1,2 @@
+/out/duel-iq2-2026-11-08/8b/qwen3-8b-iq2_xxs.gguf, ctx 4096, 12 windows, 49140 predictions
+ppl = 13.2947

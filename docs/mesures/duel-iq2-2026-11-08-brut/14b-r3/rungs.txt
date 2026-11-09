@@ -1,0 +1,7 @@
+our file: 5087000541 B, 2.7556 b/param over 14768307200
+dry-run IQ2_XXS     4094.35 MiB  2.3256 b/param
+dry-run IQ2_XS      4468.56 MiB  2.5382 b/param
+dry-run IQ2_S       4727.70 MiB  2.6854 b/param
+dry-run IQ2_M       5070.67 MiB  2.8802 b/param
+dry-run IQ3_XXS     5661.68 MiB  3.2159 b/param
+rung at our bits: IQ2_S (of IQ2_XS, IQ2_S, IQ2_M, IQ3_XXS, the nearest 2.7556)

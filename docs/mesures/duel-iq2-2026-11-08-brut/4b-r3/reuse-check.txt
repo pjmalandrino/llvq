@@ -1,0 +1,2 @@
+qwen3-4b-iq2_s.gguf: OK
+qwen3-4b-iq2_xxs.gguf: OK

@@ -1,0 +1,1 @@
+-rw-r--r--. 1 root root 29543423968 Nov  8 10:46 /tmp/f16.gguf

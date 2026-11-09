@@ -1,0 +1,156 @@
+DUEL LLAMA.CPP IQ2 AGAINST TETRA SERVED BY 4E V9, QWEN3 4B / 8B / 14B, ONE L40S (2026-11-08)
+=========================================================================================
+Prereg: proofs/preregistration-duel-iq2-2026-11-08.md, sha256 f893d1c8, timestamped before the first job (6e4657f).
+Deviations: D1-D4 in proofs/preregistration-duel-iq2-2026-11-08-ECARTS.md, each written before the run it touches.
+Code: llama.cpp cd959bae9 built for sm_89 in each job; our side Space 0536a87c (D1); job scripts at 65224b2.
+Jobs: 13 rows in docs/data/jobs.csv, 585 billed minutes, $17.55 on l40sx1, against $13.80 estimated and a $19.80 cap.
+Raw: docs/mesures/duel-iq2-2026-11-08-brut/ (server logs stay in the bucket, duel-iq2-2026-11-08/<size>-r3/).
+Every table below is printed by `python3 ops/duel/analyze.py docs/mesures/duel-iq2-2026-11-08-brut`.
+
+RESULT IN ONE LINE
+------------------
+At our bits (IQ2_S, 2.69-2.82 b/param), Tetra wins perplexity and MMLU at all three sizes and GSM8K at 4B and 8B; the
+14B GSM8K is not separated. llama.cpp wins decode speed at every size and both lengths, by 28.0 to 63.9 tok/s, and
+peak card memory after 8,192 tokens at every size. After 5 tokens llama.cpp keeps its input embedding in host memory
+(0.27 / 0.27 / 0.33 GB for IQ2_S), which the card's peak does not see; counting it, Tetra holds less than IQ2_S at 4B
+and 8B and the two tie at 14B. The quality gap shrinks with size: +9.08, +4.13, +2.89 MMLU points.
+
+THE COMPARISON, PER SIZE
+------------------------
+b/param: whole file, tables included, file bytes x 8 / parameters (computed). Peak: card memory sampled every 100 ms,
+peak minus idle, 1 GB = 1e9 B (measured). Speed: 256 new tokens after a prompt of 5 and of 8,192 tokens, batch 1,
+median of 5 [range] (measured). GB/s = file bytes x tok/s, the prereg form (computed). Perplexity: WikiText-2, the
+same 12 windows of 4,096 (measured). MMLU micro on the 14,042-question census, GSM8K on the 1,319-problem census,
+greedy, 1,024 new tokens at most (measured). Tetra's quality is not re-measured (prereg section 5): perplexity of
+2026-10-04, MMLU on the dense reconstruction, GSM8K through the kernel. IQ2_XXS (ours) carries its perplexity, and
+from run 1's first bench its speed and peak after 5 tokens (D2): llama-bench wrote its five rounds before the run
+stopped. Host: llama.cpp's CPU_Mapped model buffer in each arm's log, held in host memory, outside the card's peak.
+
+4B (4,022,468,096 parameters; f16 gate: llama.cpp 12.2309 against our 12.2361, -0.042 %, inside +-0.5 %)
+
+  arm                   b/param  peak GB at 5 / 8192  tok/s at 5 [range]   tok/s at 8192 [range]  GB/s 5 / 8192  ppl      MMLU   GSM8K
+  Tetra, 4E v9           2.8206   2.01 / 11.48         227.4 [227.3-227.5]  160.8 [160.4-161.1]    322 / 228      12.5834  63.37  82.49
+  IQ2_S (ours, imatrix)  2.8188   2.17 /  3.52         287.5 [286.8-288.6]  195.4 [195.0-195.6]    408 / 277      16.7772  54.29  68.23
+  unsloth UD-IQ2_XXS     2.4967   2.01 /  3.36         306.3 [305.9-308.4]  202.6 [202.6-202.8]    385 / 254      34.5136  36.03   9.17
+  IQ2_XXS (ours)         2.4793   2.00 /  -            308.7 [308.4-310.6]  -                      385 /  -       28.7785  -      -
+
+8B (8,190,735,360 parameters; f16 gate: 8.9899 against 8.9899, +0.000 %)
+
+  arm                   b/param  peak GB at 5 / 8192  tok/s at 5 [range]   tok/s at 8192 [range]  GB/s 5 / 8192  ppl      MMLU   GSM8K
+  Tetra, 4E v9           2.7495   3.42 / 12.66         144.5 [144.4-144.5]  109.6 [109.0-110.1]    407 / 309       9.7062  69.58  88.63
+  IQ2_S (ours, imatrix)  2.7980   3.35 /  4.71         208.4 [208.1-209.6]  154.2 [154.1-154.4]    597 / 442      10.7495  65.45  85.60
+  unsloth UD-IQ2_XXS     2.5446   3.09 /  4.46         222.6 [222.4-223.9]  162.3 [162.3-162.5]    580 / 423      13.4416  60.96  70.51
+  IQ2_XXS (ours)         2.4321   3.04 /  -            229.3 [229.3-230.6]  -                      571 /  -       13.2947  -      -
+
+14B (14,768,307,200 parameters; f16 gate: 7.9817 against 7.9820, -0.004 %)
+
+  arm                   b/param  peak GB at 5 / 8192  tok/s at 5 [range]   tok/s at 8192 [range]  GB/s 5 / 8192  ppl      MMLU   GSM8K
+  Tetra, 4E v9           2.7556   5.71 / 17.09          90.0 [89.6-90.3]     71.7 [70.7-72.1]      458 / 365       8.4440  75.66  92.04
+  IQ2_S (ours, imatrix)  2.6886   5.40 /  6.90         123.5 [123.4-124.3]   99.7 [99.6-99.8]      613 / 495       9.4696  72.77  91.89
+  unsloth UD-IQ2_XXS     2.4215   4.91 /  6.41         134.0 [133.8-134.6]  106.2 [106.1-106.4]    599 / 475      10.4654  67.78  85.52
+  IQ2_XXS (ours)         2.3289   4.81 /  -            137.1 [137.1-137.7]  -                      590 /  -       10.5534  -      -
+
+PAIRED GAPS, TETRA MINUS ARM, AND THE PREREG VERDICT (section 6)
+---------------------------------------------------------------
+Perplexity: exp of the mean per-window NLL gap, paired t at 11 df. MMLU: McNemar normal interval on the 14,042 pairs.
+GSM8K: gsm8kpair's paired interval after re-grading every row. "Tetra" or "llama.cpp" when the 95 % interval excludes
+zero, "not separated" otherwise. Speed: ranges disjoint or not. Memory: a gap above 0.05 GB / 0.01 b/param.
+
+                 4B                                     8B                                     14B
+vs IQ2_S
+  b/param        tie (2.8206 / 2.8188)                  Tetra (2.7495 / 2.7980)                llama.cpp (2.7556 / 2.6886)
+  peak at 5      Tetra (2.01 / 2.17)                    llama.cpp (3.42 / 3.35)                llama.cpp (5.71 / 5.40)
+   + host       Tetra (2.01 / 2.43)                    Tetra (3.42 / 3.62)                    tie (5.71 / 5.73)
+  peak at 8192   llama.cpp (11.48 / 3.52)               llama.cpp (12.66 / 4.71)               llama.cpp (17.09 / 6.90)
+  tok/s at 5     llama.cpp (227.4 / 287.5)              llama.cpp (144.5 / 208.4)              llama.cpp (90.0 / 123.5)
+  tok/s at 8192  llama.cpp (160.8 / 195.4)              llama.cpp (109.6 / 154.2)              llama.cpp (71.7 / 99.7)
+  ppl ratio      Tetra x0.7500 [0.7308 ; 0.7697]        Tetra x0.9029 [0.8891 ; 0.9170]        Tetra x0.8917 [0.8785 ; 0.9051]
+  MMLU           Tetra +9.08 pp [+8.19 ; +9.97]         Tetra +4.13 pp [+3.37 ; +4.88]         Tetra +2.89 pp [+2.26 ; +3.52]
+  GSM8K          Tetra +14.25 pp [+11.65 ; +16.86]      Tetra +3.03 pp [+1.10 ; +4.96]         not separated +0.15 pp [-1.27 ; +1.58]
+vs unsloth UD-IQ2_XXS
+  b/param        llama.cpp (2.8206 / 2.4967)            llama.cpp (2.7495 / 2.5446)            llama.cpp (2.7556 / 2.4215)
+  peak at 5      tie (2.01 / 2.01)                      llama.cpp (3.42 / 3.09)                llama.cpp (5.71 / 4.91)
+   + host       Tetra (2.01 / 2.27)                    llama.cpp (3.42 / 3.36)                llama.cpp (5.71 / 5.24)
+  peak at 8192   llama.cpp (11.48 / 3.36)               llama.cpp (12.66 / 4.46)               llama.cpp (17.09 / 6.41)
+  tok/s at 5     llama.cpp (227.4 / 306.3)              llama.cpp (144.5 / 222.6)              llama.cpp (90.0 / 134.0)
+  tok/s at 8192  llama.cpp (160.8 / 202.6)              llama.cpp (109.6 / 162.3)              llama.cpp (71.7 / 106.2)
+  ppl ratio      Tetra x0.3646 [0.3366 ; 0.3949]        Tetra x0.7221 [0.6763 ; 0.7711]        Tetra x0.8069 [0.7906 ; 0.8235]
+  MMLU           Tetra +27.34 pp [+26.33 ; +28.36]      Tetra +8.62 pp [+7.79 ; +9.44]         Tetra +7.88 pp [+7.16 ; +8.60]
+  GSM8K          Tetra +73.31 pp [+70.91 ; +75.72]      Tetra +18.12 pp [+15.57 ; +20.67]      Tetra +6.52 pp [+4.72 ; +8.32]
+vs IQ2_XXS (ours)
+  b/param        llama.cpp (2.8206 / 2.4793)            llama.cpp (2.7495 / 2.4321)            llama.cpp (2.7556 / 2.3289)
+  peak at 5      tie (2.01 / 2.00)                      llama.cpp (3.42 / 3.04)                llama.cpp (5.71 / 4.81)
+   + host       Tetra (2.01 / 2.26)                    llama.cpp (3.42 / 3.25)                llama.cpp (5.71 / 5.07)
+  tok/s at 5     llama.cpp (227.4 / 308.7)              llama.cpp (144.5 / 229.3)              llama.cpp (90.0 / 137.1)
+  ppl ratio      Tetra x0.4372 [0.4135 ; 0.4623]        Tetra x0.7301 [0.7059 ; 0.7551]        Tetra x0.8001 [0.7842 ; 0.8164]
+
+Speed gaps in levels (computed): IQ2_S decodes 60.1 / 63.9 / 33.5 tok/s faster than Tetra after 5 tokens at 4B / 8B /
+14B, and 34.6 / 44.6 / 28.0 faster after 8,192. No x is formed between the two stacks (rule 5). In GB/s, at the same
+bits, IQ2_S moves 408 / 597 / 613 GB/s after 5 tokens and Tetra 322 / 407 / 458.
+
+CONTROLS
+--------
+1. f16 gate inside +-0.5 % at every size (above): every llama.cpp perplexity is compared. Passes.
+2. Inputs by sha256 in each job (inputs-check.txt): token windows, calibration, GSM8K and MMLU ids, the three runner
+   scripts. Passes.
+3. Fingerprints: 9 perplexity runs print 3f1baca9033bf251; 6 MMLU dumps end on a74a6d6213602979 with 14,042 questions
+   and 14,042 four-letter answers in the top 100; 6 GSM8K dumps end on bfa9135ce4b55c75 with 1,319 rows. Passes.
+4. Retry 3 reads run 1's GGUFs by sha256 (reuse-check.txt, 2 of 2 OK at each size); unsloth's files at their bytes.
+5. Ours: oracle MATCH on Qwen3-0.6B; sealed files and configs at their sha256; the served-config line names 4E v9;
+   4E decodes the eager path's 256 tokens at each of the 6 points. Passes.
+6. Card: NVIDIA L40S, sm_89, 46,068 MiB, driver 580.178.04, on both sides.
+
+WHAT THE NUMBERS DO NOT SAY
+---------------------------
+- Our peak after 8,192 tokens is not a storage figure. The same process prefills the 8,192-token prompt eagerly in
+  chunks of 4,096 and runs the eager check; the peak is that prefill's. llama-bench prefills the depth with flash
+  attention in ubatches of 512. The 4B reaches its first token in 34.5 s on our side (measured, sweep-4b-p8192). The
+  peak after 5 tokens is the comparable storage figure.
+- unsloth's UD-IQ2_XXS at 4B loops under greedy decoding: 999 of 1,319 GSM8K answers hit the 1,024-token cap repeating
+  one sentence. Qwen3's model card advises against greedy decoding; the prereg fixes greedy for every arm. At 8B and
+  14B the cap catches 39 and 9 of its answers; IQ2_S 52 / 14 / 1, Tetra 8 / 9 / 5.
+- The 14B rung sits 0.067 b/param below us (2.6886 against 2.7556); at 4B and 8B it sits at +-0.05. The 14B quality
+  gap is measured against a file 0.12 GB smaller.
+- llama.cpp's MMLU picks move with the server batch (D4): 2 of 400 picks on the Mac. Every arm ran at -b 16384.
+- Our quality forms differ from theirs (dense reconstruction for MMLU and perplexity, the kernel for GSM8K, f16);
+  theirs come from the served engine, as the prereg names them.
+- The GB/s use file bytes. llama.cpp keeps its input embedding in host memory at every size (CPU_Mapped, 0.27 / 0.27 /
+  0.33 GB for IQ2_S), so the card's peak leaves it out; the "+ host" rows add it back. At 8B and 14B the embedding is
+  untied and a token reads one row of it; we keep it on the card as int4 g64 (0.35 / 0.44 GB).
+- Our speeds are same-day readings on Space 0536a87c (D1): 227.4 / 144.5 / 90.0 tok/s of decode after 5 tokens. The
+  221.5 / 142.5 / 86.3 published for served v9 are door figures, prompt included, a different quantity. The published
+  sweep after 5 tokens reads 226.2 [226.2-226.4] / 144.5 [144.4-144.8] / 87.3 [86.9-87.8] (served-v9 journals): at
+  equal quantity the 4B moves +0.5 %, the 8B not at all, and the 14B +3.1 % with ranges apart. The 4E module is the
+  same (sha256 1b422b62), on the same card model and driver: a card instance is the plausible cause, not established.
+  D1 named 22338dd as changing the 4E pass's group size; 22338dd changes only the install line that prints it (see the
+  correction to D1).
+
+THE SIGNED PREDICTIONS (prereg section 7), AGAINST THE MEASURE
+--------------------------------------------------------------
+                                 predicted 4B / 8B / 14B                measured             inside?
+r*                               IQ2_S / IQ2_S / IQ2_S                  IQ2_S x3             yes
+own-iq2_xxs b/param              2.48 / 2.44 / 2.38                     2.479 / 2.432 / 2.329 yes / yes / yes
+own-r* b/param                   2.82 / 2.80 / 2.78                     2.819 / 2.798 / 2.689 yes / yes / no (below)
+Tetra tok/s at 5                 226 / 144 / 87                         227.4 / 144.5 / 90.0  yes / yes / yes (edge)
+Tetra tok/s at 8192              161 / 110 / 71                         160.8 / 109.6 / 71.7  yes / yes / yes
+Tetra peak GB at 8192            3.6 / 4.9 / 7.3                        11.48 / 12.66 / 17.09 no / no / no
+own-iq2_xxs ppl                  30 / 16 / 12                           28.78 / 13.29 / 10.55 yes / yes / yes
+own-r* ppl                       18 / 12 / 9.8                          16.78 / 10.75 / 9.47  yes / yes / yes
+own-r* MMLU                      50 / 60 / 68                           54.29 / 65.45 / 72.77 yes / yes / no (above)
+own-r* GSM8K                     60 / 75 / 85                           68.23 / 85.60 / 91.89 yes / no / no (above)
+own-iq2_xxs speed and peak after 5 tokens: measured in run 1, not predicted against (the prereg signed them at the
+retry's arms): 308.7 / 229.3 / 137.1 tok/s, 2.00 / 3.04 / 4.81 GB. Its speed and peak after 8,192, MMLU, GSM8K, and
+unsloth against own-iq2_xxs MMLU: not measured (D2).
+The signed verdict holds on speed and fails once: Tetra does not win the 14B GSM8K against IQ2_S. "IQ2_XXS wins
+memory" holds only in part: after 5 tokens IQ2_XXS holds less at 8B and 14B, ties on the card at 4B and holds more at
+4B once its host embedding is counted; its peak after 8,192 was never measured. The speed gap narrows at 8,192 in levels, as signed. The prediction missed our 8,192 peak by 2.3 to 3.2 times,
+for the prefill reason above, and under-predicted IQ2_S quality at 8B and 14B.
+
+CORRECTIONS AFTER THE AUDIT (2026-11-08, docs/archive/audit-bugs-2026-11-08.md sections 2.1 and 2.3, $0)
+------------------------------------------------------------------------------------------------------
+- IQ2_XXS (ours): its speed and peak after 5 tokens were in run 1's raw files and read "not measured". They are read
+  now (ops/duel/analyze.py), and the verdict on its memory is narrowed to what they show.
+- llama.cpp's host-held embedding: added beside every peak after 5 tokens. The 8B card peak verdict against IQ2_S turns
+  to Tetra, the 14B to a tie.
+- Our speed against the published one: compared sweep to sweep, and the wrong attribution of D1 corrected.
+- What would change on the Hub card: nothing published there quotes this duel.

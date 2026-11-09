@@ -1,0 +1,456 @@
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 45457 MiB):
+  Device 0: NVIDIA L40S, compute capability 8.9, VMM: yes, VRAM: 45457 MiB
+version: 0.9.0-dev (build 12110, commit cd959bae9)
+built with GNU 13.3.0 for Linux x86_64
+llama_quantize: calculating quantization size for '/tmp/f16.gguf' as IQ2_S
+llama_model_loader: loaded meta data with 39 key-value pairs and 398 tensors from /tmp/f16.gguf (version GGUF V3 (latest))
+llama_model_loader: Dumping metadata keys/values. Note: KV overrides do not apply in this output.
+llama_model_loader: - kv   0:                       general.architecture str              = qwen3
+llama_model_loader: - kv   1:                               general.type str              = model
+llama_model_loader: - kv   2:                     general.sampling.top_k i32              = 20
+llama_model_loader: - kv   3:                     general.sampling.top_p f32              = 0.950000
+llama_model_loader: - kv   4:                      general.sampling.temp f32              = 0.600000
+llama_model_loader: - kv   5:                               general.name str              = Base
+llama_model_loader: - kv   6:                         general.size_label str              = 4.0B
+llama_model_loader: - kv   7:                            general.license str              = apache-2.0
+llama_model_loader: - kv   8:                       general.license.link str              = https://huggingface.co/Qwen/Qwen3-4B/...
+llama_model_loader: - kv   9:                   general.base_model.count u32              = 1
+llama_model_loader: - kv  10:                  general.base_model.0.name str              = Qwen3 4B Base
+llama_model_loader: - kv  11:          general.base_model.0.organization str              = Qwen
+llama_model_loader: - kv  12:              general.base_model.0.repo_url str              = https://huggingface.co/Qwen/Qwen3-4B-...
+llama_model_loader: - kv  13:                               general.tags arr[str,1]       = ["text-generation"]
+llama_model_loader: - kv  14:                          qwen3.block_count u32              = 36
+llama_model_loader: - kv  15:                       qwen3.context_length u32              = 40960
+llama_model_loader: - kv  16:                     qwen3.embedding_length u32              = 2560
+llama_model_loader: - kv  17:                  qwen3.feed_forward_length u32              = 9728
+llama_model_loader: - kv  18:                 qwen3.attention.head_count u32              = 32
+llama_model_loader: - kv  19:              qwen3.attention.head_count_kv u32              = 8
+llama_model_loader: - kv  20:                       qwen3.rope.freq_base f32              = 1000000.000000
+llama_model_loader: - kv  21:     qwen3.attention.layer_norm_rms_epsilon f32              = 0.000001
+llama_model_loader: - kv  22:                 qwen3.attention.key_length u32              = 128
+llama_model_loader: - kv  23:               qwen3.attention.value_length u32              = 128
+llama_model_loader: - kv  24:                          general.file_type u32              = 1
+llama_model_loader: - kv  25:               general.quantization_version u32              = 2
+llama_model_loader: - kv  26:                       tokenizer.ggml.model str              = gpt2
+llama_model_loader: - kv  27:                         tokenizer.ggml.pre str              = qwen2
+llama_model_loader: - kv  28:                      tokenizer.ggml.tokens arr[str,151936]  = ["!", "\"", "#", "$", "%", "&", "'", ...
+llama_model_loader: - kv  29:                  tokenizer.ggml.token_type arr[i32,151936]  = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, ...
+llama_model_loader: - kv  30:                      tokenizer.ggml.merges arr[str,151387]  = ["Ġ Ġ", "ĠĠ ĠĠ", "i n", "Ġ t",...
+llama_model_loader: - kv  31:                tokenizer.ggml.eos_token_id u32              = 151645
+llama_model_loader: - kv  32:            tokenizer.ggml.padding_token_id u32              = 151643
+llama_model_loader: - kv  33:                tokenizer.ggml.bos_token_id u32              = 151643
+llama_model_loader: - kv  34:               tokenizer.ggml.add_bos_token bool             = false
+llama_model_loader: - kv  35:               tokenizer.ggml.add_eos_token bool             = false
+llama_model_loader: - kv  36:                    tokenizer.chat_template str              = {%- if tools %}\n    {{- '<|im_start|>...
+llama_model_loader: - kv  37:              tokenizer.ggml.normalizer.nfc bool             = true
+llama_model_loader: - kv  38:                tokenizer.ggml.clean_spaces bool             = false
+llama_model_loader: - type  f32:  145 tensors
+llama_model_loader: - type  f16:  253 tensors
+
+llama_model_quantize_impl: have importance matrix data with 252 entries
+[   1/ 398] output_norm.weight                   - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[   2/ 398] token_embd.weight                    - [  2560, 151936,      1,      1], type =    f16, size =   741.88 MiB ->   255.02 MiB (q5_K)
+[   3/ 398] blk.0.attn_k.weight                  - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     0.72 MiB (iq2_xs)
+[   4/ 398] blk.0.attn_k_norm.weight             - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[   5/ 398] blk.0.attn_norm.weight               - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[   6/ 398] blk.0.attn_output.weight             - [  4096,   2560,      1,      1], type =    f16, size =    20.00 MiB ->     4.30 MiB (iq3_s)
+[   7/ 398] blk.0.attn_q.weight                  - [  2560,   4096,      1,      1], type =    f16, size =    20.00 MiB ->     2.89 MiB (iq2_xs)
+[   8/ 398] blk.0.attn_q_norm.weight             - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[   9/ 398] blk.0.attn_v.weight                  - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     1.41 MiB (q4_K)
+[  10/ 398] blk.0.ffn_down.weight                - [  9728,   2560,      1,      1], type =    f16, size =    47.50 MiB ->    10.21 MiB (iq3_s)
+[  11/ 398] blk.0.ffn_gate.weight                - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[  12/ 398] blk.0.ffn_norm.weight                - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[  13/ 398] blk.0.ffn_up.weight                  - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[  14/ 398] blk.1.attn_k.weight                  - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     0.72 MiB (iq2_xs)
+[  15/ 398] blk.1.attn_k_norm.weight             - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[  16/ 398] blk.1.attn_norm.weight               - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[  17/ 398] blk.1.attn_output.weight             - [  4096,   2560,      1,      1], type =    f16, size =    20.00 MiB ->     4.30 MiB (iq3_s)
+[  18/ 398] blk.1.attn_q.weight                  - [  2560,   4096,      1,      1], type =    f16, size =    20.00 MiB ->     2.89 MiB (iq2_xs)
+[  19/ 398] blk.1.attn_q_norm.weight             - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[  20/ 398] blk.1.attn_v.weight                  - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     1.41 MiB (q4_K)
+[  21/ 398] blk.1.ffn_down.weight                - [  9728,   2560,      1,      1], type =    f16, size =    47.50 MiB ->    10.21 MiB (iq3_s)
+[  22/ 398] blk.1.ffn_gate.weight                - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[  23/ 398] blk.1.ffn_norm.weight                - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[  24/ 398] blk.1.ffn_up.weight                  - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[  25/ 398] blk.2.attn_k.weight                  - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     0.72 MiB (iq2_xs)
+[  26/ 398] blk.2.attn_k_norm.weight             - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[  27/ 398] blk.2.attn_norm.weight               - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[  28/ 398] blk.2.attn_output.weight             - [  4096,   2560,      1,      1], type =    f16, size =    20.00 MiB ->     4.30 MiB (iq3_s)
+[  29/ 398] blk.2.attn_q.weight                  - [  2560,   4096,      1,      1], type =    f16, size =    20.00 MiB ->     2.89 MiB (iq2_xs)
+[  30/ 398] blk.2.attn_q_norm.weight             - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[  31/ 398] blk.2.attn_v.weight                  - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     1.41 MiB (q4_K)
+[  32/ 398] blk.2.ffn_down.weight                - [  9728,   2560,      1,      1], type =    f16, size =    47.50 MiB ->    10.21 MiB (iq3_s)
+[  33/ 398] blk.2.ffn_gate.weight                - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[  34/ 398] blk.2.ffn_norm.weight                - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[  35/ 398] blk.2.ffn_up.weight                  - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[  36/ 398] blk.3.attn_k.weight                  - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     0.72 MiB (iq2_xs)
+[  37/ 398] blk.3.attn_k_norm.weight             - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[  38/ 398] blk.3.attn_norm.weight               - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[  39/ 398] blk.3.attn_output.weight             - [  4096,   2560,      1,      1], type =    f16, size =    20.00 MiB ->     4.30 MiB (iq3_s)
+[  40/ 398] blk.3.attn_q.weight                  - [  2560,   4096,      1,      1], type =    f16, size =    20.00 MiB ->     2.89 MiB (iq2_xs)
+[  41/ 398] blk.3.attn_q_norm.weight             - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[  42/ 398] blk.3.attn_v.weight                  - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     1.41 MiB (q4_K)
+[  43/ 398] blk.3.ffn_down.weight                - [  9728,   2560,      1,      1], type =    f16, size =    47.50 MiB ->    10.21 MiB (iq3_s)
+[  44/ 398] blk.3.ffn_gate.weight                - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[  45/ 398] blk.3.ffn_norm.weight                - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[  46/ 398] blk.3.ffn_up.weight                  - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[  47/ 398] blk.4.attn_k.weight                  - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     0.72 MiB (iq2_xs)
+[  48/ 398] blk.4.attn_k_norm.weight             - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[  49/ 398] blk.4.attn_norm.weight               - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[  50/ 398] blk.4.attn_output.weight             - [  4096,   2560,      1,      1], type =    f16, size =    20.00 MiB ->     4.30 MiB (iq3_s)
+[  51/ 398] blk.4.attn_q.weight                  - [  2560,   4096,      1,      1], type =    f16, size =    20.00 MiB ->     2.89 MiB (iq2_xs)
+[  52/ 398] blk.4.attn_q_norm.weight             - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[  53/ 398] blk.4.attn_v.weight                  - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     1.41 MiB (q4_K)
+[  54/ 398] blk.4.ffn_down.weight                - [  9728,   2560,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[  55/ 398] blk.4.ffn_gate.weight                - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[  56/ 398] blk.4.ffn_norm.weight                - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[  57/ 398] blk.4.ffn_up.weight                  - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[  58/ 398] blk.5.attn_k.weight                  - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     0.72 MiB (iq2_xs)
+[  59/ 398] blk.5.attn_k_norm.weight             - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[  60/ 398] blk.5.attn_norm.weight               - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[  61/ 398] blk.5.attn_output.weight             - [  4096,   2560,      1,      1], type =    f16, size =    20.00 MiB ->     4.30 MiB (iq3_s)
+[  62/ 398] blk.5.attn_q.weight                  - [  2560,   4096,      1,      1], type =    f16, size =    20.00 MiB ->     2.89 MiB (iq2_xs)
+[  63/ 398] blk.5.attn_q_norm.weight             - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[  64/ 398] blk.5.attn_v.weight                  - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     1.41 MiB (q4_K)
+[  65/ 398] blk.5.ffn_down.weight                - [  9728,   2560,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[  66/ 398] blk.5.ffn_gate.weight                - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[  67/ 398] blk.5.ffn_norm.weight                - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[  68/ 398] blk.5.ffn_up.weight                  - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[  69/ 398] blk.6.attn_k.weight                  - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     0.72 MiB (iq2_xs)
+[  70/ 398] blk.6.attn_k_norm.weight             - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[  71/ 398] blk.6.attn_norm.weight               - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[  72/ 398] blk.6.attn_output.weight             - [  4096,   2560,      1,      1], type =    f16, size =    20.00 MiB ->     4.30 MiB (iq3_s)
+[  73/ 398] blk.6.attn_q.weight                  - [  2560,   4096,      1,      1], type =    f16, size =    20.00 MiB ->     2.89 MiB (iq2_xs)
+[  74/ 398] blk.6.attn_q_norm.weight             - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[  75/ 398] blk.6.attn_v.weight                  - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     1.41 MiB (q4_K)
+[  76/ 398] blk.6.ffn_down.weight                - [  9728,   2560,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[  77/ 398] blk.6.ffn_gate.weight                - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[  78/ 398] blk.6.ffn_norm.weight                - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[  79/ 398] blk.6.ffn_up.weight                  - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[  80/ 398] blk.7.attn_k.weight                  - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     0.72 MiB (iq2_xs)
+[  81/ 398] blk.7.attn_k_norm.weight             - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[  82/ 398] blk.7.attn_norm.weight               - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[  83/ 398] blk.7.attn_output.weight             - [  4096,   2560,      1,      1], type =    f16, size =    20.00 MiB ->     4.30 MiB (iq3_s)
+[  84/ 398] blk.7.attn_q.weight                  - [  2560,   4096,      1,      1], type =    f16, size =    20.00 MiB ->     2.89 MiB (iq2_xs)
+[  85/ 398] blk.7.attn_q_norm.weight             - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[  86/ 398] blk.7.attn_v.weight                  - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     1.41 MiB (q4_K)
+[  87/ 398] blk.7.ffn_down.weight                - [  9728,   2560,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[  88/ 398] blk.7.ffn_gate.weight                - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[  89/ 398] blk.7.ffn_norm.weight                - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[  90/ 398] blk.7.ffn_up.weight                  - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[  91/ 398] blk.8.attn_k.weight                  - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     0.72 MiB (iq2_xs)
+[  92/ 398] blk.8.attn_k_norm.weight             - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[  93/ 398] blk.8.attn_norm.weight               - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[  94/ 398] blk.8.attn_output.weight             - [  4096,   2560,      1,      1], type =    f16, size =    20.00 MiB ->     4.30 MiB (iq3_s)
+[  95/ 398] blk.8.attn_q.weight                  - [  2560,   4096,      1,      1], type =    f16, size =    20.00 MiB ->     2.89 MiB (iq2_xs)
+[  96/ 398] blk.8.attn_q_norm.weight             - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[  97/ 398] blk.8.attn_v.weight                  - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     1.41 MiB (q4_K)
+[  98/ 398] blk.8.ffn_down.weight                - [  9728,   2560,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[  99/ 398] blk.8.ffn_gate.weight                - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 100/ 398] blk.8.ffn_norm.weight                - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 101/ 398] blk.8.ffn_up.weight                  - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 102/ 398] blk.9.attn_k.weight                  - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     0.72 MiB (iq2_xs)
+[ 103/ 398] blk.9.attn_k_norm.weight             - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 104/ 398] blk.9.attn_norm.weight               - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 105/ 398] blk.9.attn_output.weight             - [  4096,   2560,      1,      1], type =    f16, size =    20.00 MiB ->     4.30 MiB (iq3_s)
+[ 106/ 398] blk.9.attn_q.weight                  - [  2560,   4096,      1,      1], type =    f16, size =    20.00 MiB ->     2.89 MiB (iq2_xs)
+[ 107/ 398] blk.9.attn_q_norm.weight             - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 108/ 398] blk.9.attn_v.weight                  - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     1.41 MiB (q4_K)
+[ 109/ 398] blk.9.ffn_down.weight                - [  9728,   2560,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 110/ 398] blk.9.ffn_gate.weight                - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 111/ 398] blk.9.ffn_norm.weight                - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 112/ 398] blk.9.ffn_up.weight                  - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 113/ 398] blk.10.attn_k.weight                 - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     0.72 MiB (iq2_xs)
+[ 114/ 398] blk.10.attn_k_norm.weight            - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 115/ 398] blk.10.attn_norm.weight              - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 116/ 398] blk.10.attn_output.weight            - [  4096,   2560,      1,      1], type =    f16, size =    20.00 MiB ->     4.30 MiB (iq3_s)
+[ 117/ 398] blk.10.attn_q.weight                 - [  2560,   4096,      1,      1], type =    f16, size =    20.00 MiB ->     2.89 MiB (iq2_xs)
+[ 118/ 398] blk.10.attn_q_norm.weight            - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 119/ 398] blk.10.attn_v.weight                 - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     1.41 MiB (q4_K)
+[ 120/ 398] blk.10.ffn_down.weight               - [  9728,   2560,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 121/ 398] blk.10.ffn_gate.weight               - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 122/ 398] blk.10.ffn_norm.weight               - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 123/ 398] blk.10.ffn_up.weight                 - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 124/ 398] blk.11.attn_k.weight                 - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     0.72 MiB (iq2_xs)
+[ 125/ 398] blk.11.attn_k_norm.weight            - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 126/ 398] blk.11.attn_norm.weight              - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 127/ 398] blk.11.attn_output.weight            - [  4096,   2560,      1,      1], type =    f16, size =    20.00 MiB ->     4.30 MiB (iq3_s)
+[ 128/ 398] blk.11.attn_q.weight                 - [  2560,   4096,      1,      1], type =    f16, size =    20.00 MiB ->     2.89 MiB (iq2_xs)
+[ 129/ 398] blk.11.attn_q_norm.weight            - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 130/ 398] blk.11.attn_v.weight                 - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     1.41 MiB (q4_K)
+[ 131/ 398] blk.11.ffn_down.weight               - [  9728,   2560,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 132/ 398] blk.11.ffn_gate.weight               - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 133/ 398] blk.11.ffn_norm.weight               - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 134/ 398] blk.11.ffn_up.weight                 - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 135/ 398] blk.12.attn_k.weight                 - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     0.72 MiB (iq2_xs)
+[ 136/ 398] blk.12.attn_k_norm.weight            - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 137/ 398] blk.12.attn_norm.weight              - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 138/ 398] blk.12.attn_output.weight            - [  4096,   2560,      1,      1], type =    f16, size =    20.00 MiB ->     4.30 MiB (iq3_s)
+[ 139/ 398] blk.12.attn_q.weight                 - [  2560,   4096,      1,      1], type =    f16, size =    20.00 MiB ->     2.89 MiB (iq2_xs)
+[ 140/ 398] blk.12.attn_q_norm.weight            - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 141/ 398] blk.12.attn_v.weight                 - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     1.41 MiB (q4_K)
+[ 142/ 398] blk.12.ffn_down.weight               - [  9728,   2560,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 143/ 398] blk.12.ffn_gate.weight               - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 144/ 398] blk.12.ffn_norm.weight               - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 145/ 398] blk.12.ffn_up.weight                 - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 146/ 398] blk.13.attn_k.weight                 - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     0.72 MiB (iq2_xs)
+[ 147/ 398] blk.13.attn_k_norm.weight            - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 148/ 398] blk.13.attn_norm.weight              - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 149/ 398] blk.13.attn_output.weight            - [  4096,   2560,      1,      1], type =    f16, size =    20.00 MiB ->     4.30 MiB (iq3_s)
+[ 150/ 398] blk.13.attn_q.weight                 - [  2560,   4096,      1,      1], type =    f16, size =    20.00 MiB ->     2.89 MiB (iq2_xs)
+[ 151/ 398] blk.13.attn_q_norm.weight            - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 152/ 398] blk.13.attn_v.weight                 - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     1.41 MiB (q4_K)
+[ 153/ 398] blk.13.ffn_down.weight               - [  9728,   2560,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 154/ 398] blk.13.ffn_gate.weight               - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 155/ 398] blk.13.ffn_norm.weight               - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 156/ 398] blk.13.ffn_up.weight                 - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 157/ 398] blk.14.attn_k.weight                 - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     0.72 MiB (iq2_xs)
+[ 158/ 398] blk.14.attn_k_norm.weight            - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 159/ 398] blk.14.attn_norm.weight              - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 160/ 398] blk.14.attn_output.weight            - [  4096,   2560,      1,      1], type =    f16, size =    20.00 MiB ->     4.30 MiB (iq3_s)
+[ 161/ 398] blk.14.attn_q.weight                 - [  2560,   4096,      1,      1], type =    f16, size =    20.00 MiB ->     2.89 MiB (iq2_xs)
+[ 162/ 398] blk.14.attn_q_norm.weight            - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 163/ 398] blk.14.attn_v.weight                 - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     1.41 MiB (q4_K)
+[ 164/ 398] blk.14.ffn_down.weight               - [  9728,   2560,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 165/ 398] blk.14.ffn_gate.weight               - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 166/ 398] blk.14.ffn_norm.weight               - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 167/ 398] blk.14.ffn_up.weight                 - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 168/ 398] blk.15.attn_k.weight                 - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     0.72 MiB (iq2_xs)
+[ 169/ 398] blk.15.attn_k_norm.weight            - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 170/ 398] blk.15.attn_norm.weight              - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 171/ 398] blk.15.attn_output.weight            - [  4096,   2560,      1,      1], type =    f16, size =    20.00 MiB ->     4.30 MiB (iq3_s)
+[ 172/ 398] blk.15.attn_q.weight                 - [  2560,   4096,      1,      1], type =    f16, size =    20.00 MiB ->     2.89 MiB (iq2_xs)
+[ 173/ 398] blk.15.attn_q_norm.weight            - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 174/ 398] blk.15.attn_v.weight                 - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     1.41 MiB (q4_K)
+[ 175/ 398] blk.15.ffn_down.weight               - [  9728,   2560,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 176/ 398] blk.15.ffn_gate.weight               - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 177/ 398] blk.15.ffn_norm.weight               - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 178/ 398] blk.15.ffn_up.weight                 - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 179/ 398] blk.16.attn_k.weight                 - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     0.72 MiB (iq2_xs)
+[ 180/ 398] blk.16.attn_k_norm.weight            - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 181/ 398] blk.16.attn_norm.weight              - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 182/ 398] blk.16.attn_output.weight            - [  4096,   2560,      1,      1], type =    f16, size =    20.00 MiB ->     4.30 MiB (iq3_s)
+[ 183/ 398] blk.16.attn_q.weight                 - [  2560,   4096,      1,      1], type =    f16, size =    20.00 MiB ->     2.89 MiB (iq2_xs)
+[ 184/ 398] blk.16.attn_q_norm.weight            - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 185/ 398] blk.16.attn_v.weight                 - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     1.41 MiB (q4_K)
+[ 186/ 398] blk.16.ffn_down.weight               - [  9728,   2560,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 187/ 398] blk.16.ffn_gate.weight               - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 188/ 398] blk.16.ffn_norm.weight               - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 189/ 398] blk.16.ffn_up.weight                 - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 190/ 398] blk.17.attn_k.weight                 - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     0.72 MiB (iq2_xs)
+[ 191/ 398] blk.17.attn_k_norm.weight            - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 192/ 398] blk.17.attn_norm.weight              - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 193/ 398] blk.17.attn_output.weight            - [  4096,   2560,      1,      1], type =    f16, size =    20.00 MiB ->     4.30 MiB (iq3_s)
+[ 194/ 398] blk.17.attn_q.weight                 - [  2560,   4096,      1,      1], type =    f16, size =    20.00 MiB ->     2.89 MiB (iq2_xs)
+[ 195/ 398] blk.17.attn_q_norm.weight            - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 196/ 398] blk.17.attn_v.weight                 - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     1.41 MiB (q4_K)
+[ 197/ 398] blk.17.ffn_down.weight               - [  9728,   2560,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 198/ 398] blk.17.ffn_gate.weight               - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 199/ 398] blk.17.ffn_norm.weight               - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 200/ 398] blk.17.ffn_up.weight                 - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 201/ 398] blk.18.attn_k.weight                 - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     0.72 MiB (iq2_xs)
+[ 202/ 398] blk.18.attn_k_norm.weight            - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 203/ 398] blk.18.attn_norm.weight              - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 204/ 398] blk.18.attn_output.weight            - [  4096,   2560,      1,      1], type =    f16, size =    20.00 MiB ->     4.30 MiB (iq3_s)
+[ 205/ 398] blk.18.attn_q.weight                 - [  2560,   4096,      1,      1], type =    f16, size =    20.00 MiB ->     2.89 MiB (iq2_xs)
+[ 206/ 398] blk.18.attn_q_norm.weight            - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 207/ 398] blk.18.attn_v.weight                 - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     1.41 MiB (q4_K)
+[ 208/ 398] blk.18.ffn_down.weight               - [  9728,   2560,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 209/ 398] blk.18.ffn_gate.weight               - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 210/ 398] blk.18.ffn_norm.weight               - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 211/ 398] blk.18.ffn_up.weight                 - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 212/ 398] blk.19.attn_k.weight                 - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     0.72 MiB (iq2_xs)
+[ 213/ 398] blk.19.attn_k_norm.weight            - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 214/ 398] blk.19.attn_norm.weight              - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 215/ 398] blk.19.attn_output.weight            - [  4096,   2560,      1,      1], type =    f16, size =    20.00 MiB ->     4.30 MiB (iq3_s)
+[ 216/ 398] blk.19.attn_q.weight                 - [  2560,   4096,      1,      1], type =    f16, size =    20.00 MiB ->     2.89 MiB (iq2_xs)
+[ 217/ 398] blk.19.attn_q_norm.weight            - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 218/ 398] blk.19.attn_v.weight                 - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     1.41 MiB (q4_K)
+[ 219/ 398] blk.19.ffn_down.weight               - [  9728,   2560,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 220/ 398] blk.19.ffn_gate.weight               - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 221/ 398] blk.19.ffn_norm.weight               - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 222/ 398] blk.19.ffn_up.weight                 - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 223/ 398] blk.20.attn_k.weight                 - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     0.72 MiB (iq2_xs)
+[ 224/ 398] blk.20.attn_k_norm.weight            - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 225/ 398] blk.20.attn_norm.weight              - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 226/ 398] blk.20.attn_output.weight            - [  4096,   2560,      1,      1], type =    f16, size =    20.00 MiB ->     4.30 MiB (iq3_s)
+[ 227/ 398] blk.20.attn_q.weight                 - [  2560,   4096,      1,      1], type =    f16, size =    20.00 MiB ->     2.89 MiB (iq2_xs)
+[ 228/ 398] blk.20.attn_q_norm.weight            - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 229/ 398] blk.20.attn_v.weight                 - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     1.41 MiB (q4_K)
+[ 230/ 398] blk.20.ffn_down.weight               - [  9728,   2560,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 231/ 398] blk.20.ffn_gate.weight               - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 232/ 398] blk.20.ffn_norm.weight               - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 233/ 398] blk.20.ffn_up.weight                 - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 234/ 398] blk.21.attn_k.weight                 - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     0.72 MiB (iq2_xs)
+[ 235/ 398] blk.21.attn_k_norm.weight            - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 236/ 398] blk.21.attn_norm.weight              - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 237/ 398] blk.21.attn_output.weight            - [  4096,   2560,      1,      1], type =    f16, size =    20.00 MiB ->     4.30 MiB (iq3_s)
+[ 238/ 398] blk.21.attn_q.weight                 - [  2560,   4096,      1,      1], type =    f16, size =    20.00 MiB ->     2.89 MiB (iq2_xs)
+[ 239/ 398] blk.21.attn_q_norm.weight            - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 240/ 398] blk.21.attn_v.weight                 - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     1.41 MiB (q4_K)
+[ 241/ 398] blk.21.ffn_down.weight               - [  9728,   2560,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 242/ 398] blk.21.ffn_gate.weight               - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 243/ 398] blk.21.ffn_norm.weight               - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 244/ 398] blk.21.ffn_up.weight                 - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 245/ 398] blk.22.attn_k.weight                 - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     0.72 MiB (iq2_xs)
+[ 246/ 398] blk.22.attn_k_norm.weight            - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 247/ 398] blk.22.attn_norm.weight              - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 248/ 398] blk.22.attn_output.weight            - [  4096,   2560,      1,      1], type =    f16, size =    20.00 MiB ->     4.30 MiB (iq3_s)
+[ 249/ 398] blk.22.attn_q.weight                 - [  2560,   4096,      1,      1], type =    f16, size =    20.00 MiB ->     2.89 MiB (iq2_xs)
+[ 250/ 398] blk.22.attn_q_norm.weight            - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 251/ 398] blk.22.attn_v.weight                 - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     1.41 MiB (q4_K)
+[ 252/ 398] blk.22.ffn_down.weight               - [  9728,   2560,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 253/ 398] blk.22.ffn_gate.weight               - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 254/ 398] blk.22.ffn_norm.weight               - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 255/ 398] blk.22.ffn_up.weight                 - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 256/ 398] blk.23.attn_k.weight                 - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     0.72 MiB (iq2_xs)
+[ 257/ 398] blk.23.attn_k_norm.weight            - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 258/ 398] blk.23.attn_norm.weight              - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 259/ 398] blk.23.attn_output.weight            - [  4096,   2560,      1,      1], type =    f16, size =    20.00 MiB ->     4.30 MiB (iq3_s)
+[ 260/ 398] blk.23.attn_q.weight                 - [  2560,   4096,      1,      1], type =    f16, size =    20.00 MiB ->     2.89 MiB (iq2_xs)
+[ 261/ 398] blk.23.attn_q_norm.weight            - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 262/ 398] blk.23.attn_v.weight                 - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     1.41 MiB (q4_K)
+[ 263/ 398] blk.23.ffn_down.weight               - [  9728,   2560,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 264/ 398] blk.23.ffn_gate.weight               - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 265/ 398] blk.23.ffn_norm.weight               - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 266/ 398] blk.23.ffn_up.weight                 - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 267/ 398] blk.24.attn_k.weight                 - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     0.72 MiB (iq2_xs)
+[ 268/ 398] blk.24.attn_k_norm.weight            - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 269/ 398] blk.24.attn_norm.weight              - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 270/ 398] blk.24.attn_output.weight            - [  4096,   2560,      1,      1], type =    f16, size =    20.00 MiB ->     4.30 MiB (iq3_s)
+[ 271/ 398] blk.24.attn_q.weight                 - [  2560,   4096,      1,      1], type =    f16, size =    20.00 MiB ->     2.89 MiB (iq2_xs)
+[ 272/ 398] blk.24.attn_q_norm.weight            - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 273/ 398] blk.24.attn_v.weight                 - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     1.41 MiB (q4_K)
+[ 274/ 398] blk.24.ffn_down.weight               - [  9728,   2560,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 275/ 398] blk.24.ffn_gate.weight               - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 276/ 398] blk.24.ffn_norm.weight               - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 277/ 398] blk.24.ffn_up.weight                 - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 278/ 398] blk.25.attn_k.weight                 - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     0.72 MiB (iq2_xs)
+[ 279/ 398] blk.25.attn_k_norm.weight            - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 280/ 398] blk.25.attn_norm.weight              - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 281/ 398] blk.25.attn_output.weight            - [  4096,   2560,      1,      1], type =    f16, size =    20.00 MiB ->     4.30 MiB (iq3_s)
+[ 282/ 398] blk.25.attn_q.weight                 - [  2560,   4096,      1,      1], type =    f16, size =    20.00 MiB ->     2.89 MiB (iq2_xs)
+[ 283/ 398] blk.25.attn_q_norm.weight            - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 284/ 398] blk.25.attn_v.weight                 - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     1.41 MiB (q4_K)
+[ 285/ 398] blk.25.ffn_down.weight               - [  9728,   2560,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 286/ 398] blk.25.ffn_gate.weight               - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 287/ 398] blk.25.ffn_norm.weight               - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 288/ 398] blk.25.ffn_up.weight                 - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 289/ 398] blk.26.attn_k.weight                 - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     0.72 MiB (iq2_xs)
+[ 290/ 398] blk.26.attn_k_norm.weight            - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 291/ 398] blk.26.attn_norm.weight              - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 292/ 398] blk.26.attn_output.weight            - [  4096,   2560,      1,      1], type =    f16, size =    20.00 MiB ->     4.30 MiB (iq3_s)
+[ 293/ 398] blk.26.attn_q.weight                 - [  2560,   4096,      1,      1], type =    f16, size =    20.00 MiB ->     2.89 MiB (iq2_xs)
+[ 294/ 398] blk.26.attn_q_norm.weight            - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 295/ 398] blk.26.attn_v.weight                 - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     1.41 MiB (q4_K)
+[ 296/ 398] blk.26.ffn_down.weight               - [  9728,   2560,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 297/ 398] blk.26.ffn_gate.weight               - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 298/ 398] blk.26.ffn_norm.weight               - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 299/ 398] blk.26.ffn_up.weight                 - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 300/ 398] blk.27.attn_k.weight                 - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     0.72 MiB (iq2_xs)
+[ 301/ 398] blk.27.attn_k_norm.weight            - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 302/ 398] blk.27.attn_norm.weight              - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 303/ 398] blk.27.attn_output.weight            - [  4096,   2560,      1,      1], type =    f16, size =    20.00 MiB ->     4.30 MiB (iq3_s)
+[ 304/ 398] blk.27.attn_q.weight                 - [  2560,   4096,      1,      1], type =    f16, size =    20.00 MiB ->     2.89 MiB (iq2_xs)
+[ 305/ 398] blk.27.attn_q_norm.weight            - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 306/ 398] blk.27.attn_v.weight                 - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     1.41 MiB (q4_K)
+[ 307/ 398] blk.27.ffn_down.weight               - [  9728,   2560,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 308/ 398] blk.27.ffn_gate.weight               - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 309/ 398] blk.27.ffn_norm.weight               - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 310/ 398] blk.27.ffn_up.weight                 - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 311/ 398] blk.28.attn_k.weight                 - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     0.72 MiB (iq2_xs)
+[ 312/ 398] blk.28.attn_k_norm.weight            - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 313/ 398] blk.28.attn_norm.weight              - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 314/ 398] blk.28.attn_output.weight            - [  4096,   2560,      1,      1], type =    f16, size =    20.00 MiB ->     4.30 MiB (iq3_s)
+[ 315/ 398] blk.28.attn_q.weight                 - [  2560,   4096,      1,      1], type =    f16, size =    20.00 MiB ->     2.89 MiB (iq2_xs)
+[ 316/ 398] blk.28.attn_q_norm.weight            - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 317/ 398] blk.28.attn_v.weight                 - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     1.41 MiB (q4_K)
+[ 318/ 398] blk.28.ffn_down.weight               - [  9728,   2560,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 319/ 398] blk.28.ffn_gate.weight               - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 320/ 398] blk.28.ffn_norm.weight               - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 321/ 398] blk.28.ffn_up.weight                 - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 322/ 398] blk.29.attn_k.weight                 - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     0.72 MiB (iq2_xs)
+[ 323/ 398] blk.29.attn_k_norm.weight            - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 324/ 398] blk.29.attn_norm.weight              - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 325/ 398] blk.29.attn_output.weight            - [  4096,   2560,      1,      1], type =    f16, size =    20.00 MiB ->     4.30 MiB (iq3_s)
+[ 326/ 398] blk.29.attn_q.weight                 - [  2560,   4096,      1,      1], type =    f16, size =    20.00 MiB ->     2.89 MiB (iq2_xs)
+[ 327/ 398] blk.29.attn_q_norm.weight            - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 328/ 398] blk.29.attn_v.weight                 - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     1.41 MiB (q4_K)
+[ 329/ 398] blk.29.ffn_down.weight               - [  9728,   2560,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 330/ 398] blk.29.ffn_gate.weight               - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 331/ 398] blk.29.ffn_norm.weight               - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 332/ 398] blk.29.ffn_up.weight                 - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 333/ 398] blk.30.attn_k.weight                 - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     0.72 MiB (iq2_xs)
+[ 334/ 398] blk.30.attn_k_norm.weight            - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 335/ 398] blk.30.attn_norm.weight              - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 336/ 398] blk.30.attn_output.weight            - [  4096,   2560,      1,      1], type =    f16, size =    20.00 MiB ->     4.30 MiB (iq3_s)
+[ 337/ 398] blk.30.attn_q.weight                 - [  2560,   4096,      1,      1], type =    f16, size =    20.00 MiB ->     2.89 MiB (iq2_xs)
+[ 338/ 398] blk.30.attn_q_norm.weight            - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 339/ 398] blk.30.attn_v.weight                 - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     1.41 MiB (q4_K)
+[ 340/ 398] blk.30.ffn_down.weight               - [  9728,   2560,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 341/ 398] blk.30.ffn_gate.weight               - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 342/ 398] blk.30.ffn_norm.weight               - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 343/ 398] blk.30.ffn_up.weight                 - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 344/ 398] blk.31.attn_k.weight                 - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     0.72 MiB (iq2_xs)
+[ 345/ 398] blk.31.attn_k_norm.weight            - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 346/ 398] blk.31.attn_norm.weight              - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 347/ 398] blk.31.attn_output.weight            - [  4096,   2560,      1,      1], type =    f16, size =    20.00 MiB ->     4.30 MiB (iq3_s)
+[ 348/ 398] blk.31.attn_q.weight                 - [  2560,   4096,      1,      1], type =    f16, size =    20.00 MiB ->     2.89 MiB (iq2_xs)
+[ 349/ 398] blk.31.attn_q_norm.weight            - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 350/ 398] blk.31.attn_v.weight                 - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     1.41 MiB (q4_K)
+[ 351/ 398] blk.31.ffn_down.weight               - [  9728,   2560,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 352/ 398] blk.31.ffn_gate.weight               - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 353/ 398] blk.31.ffn_norm.weight               - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 354/ 398] blk.31.ffn_up.weight                 - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 355/ 398] blk.32.attn_k.weight                 - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     0.72 MiB (iq2_xs)
+[ 356/ 398] blk.32.attn_k_norm.weight            - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 357/ 398] blk.32.attn_norm.weight              - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 358/ 398] blk.32.attn_output.weight            - [  4096,   2560,      1,      1], type =    f16, size =    20.00 MiB ->     4.30 MiB (iq3_s)
+[ 359/ 398] blk.32.attn_q.weight                 - [  2560,   4096,      1,      1], type =    f16, size =    20.00 MiB ->     2.89 MiB (iq2_xs)
+[ 360/ 398] blk.32.attn_q_norm.weight            - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 361/ 398] blk.32.attn_v.weight                 - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     1.41 MiB (q4_K)
+[ 362/ 398] blk.32.ffn_down.weight               - [  9728,   2560,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 363/ 398] blk.32.ffn_gate.weight               - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 364/ 398] blk.32.ffn_norm.weight               - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 365/ 398] blk.32.ffn_up.weight                 - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 366/ 398] blk.33.attn_k.weight                 - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     0.72 MiB (iq2_xs)
+[ 367/ 398] blk.33.attn_k_norm.weight            - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 368/ 398] blk.33.attn_norm.weight              - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 369/ 398] blk.33.attn_output.weight            - [  4096,   2560,      1,      1], type =    f16, size =    20.00 MiB ->     4.30 MiB (iq3_s)
+[ 370/ 398] blk.33.attn_q.weight                 - [  2560,   4096,      1,      1], type =    f16, size =    20.00 MiB ->     2.89 MiB (iq2_xs)
+[ 371/ 398] blk.33.attn_q_norm.weight            - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 372/ 398] blk.33.attn_v.weight                 - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     1.41 MiB (q4_K)
+[ 373/ 398] blk.33.ffn_down.weight               - [  9728,   2560,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 374/ 398] blk.33.ffn_gate.weight               - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 375/ 398] blk.33.ffn_norm.weight               - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 376/ 398] blk.33.ffn_up.weight                 - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 377/ 398] blk.34.attn_k.weight                 - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     0.72 MiB (iq2_xs)
+[ 378/ 398] blk.34.attn_k_norm.weight            - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 379/ 398] blk.34.attn_norm.weight              - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 380/ 398] blk.34.attn_output.weight            - [  4096,   2560,      1,      1], type =    f16, size =    20.00 MiB ->     4.30 MiB (iq3_s)
+[ 381/ 398] blk.34.attn_q.weight                 - [  2560,   4096,      1,      1], type =    f16, size =    20.00 MiB ->     2.89 MiB (iq2_xs)
+[ 382/ 398] blk.34.attn_q_norm.weight            - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 383/ 398] blk.34.attn_v.weight                 - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     1.41 MiB (q4_K)
+[ 384/ 398] blk.34.ffn_down.weight               - [  9728,   2560,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 385/ 398] blk.34.ffn_gate.weight               - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 386/ 398] blk.34.ffn_norm.weight               - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 387/ 398] blk.34.ffn_up.weight                 - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 388/ 398] blk.35.attn_k.weight                 - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     0.72 MiB (iq2_xs)
+[ 389/ 398] blk.35.attn_k_norm.weight            - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 390/ 398] blk.35.attn_norm.weight              - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 391/ 398] blk.35.attn_output.weight            - [  4096,   2560,      1,      1], type =    f16, size =    20.00 MiB ->     4.30 MiB (iq3_s)
+[ 392/ 398] blk.35.attn_q.weight                 - [  2560,   4096,      1,      1], type =    f16, size =    20.00 MiB ->     2.89 MiB (iq2_xs)
+[ 393/ 398] blk.35.attn_q_norm.weight            - [   128,      1,      1,      1], type =    f32, size =    0.000 MiB
+[ 394/ 398] blk.35.attn_v.weight                 - [  2560,   1024,      1,      1], type =    f16, size =     5.00 MiB ->     1.41 MiB (q4_K)
+[ 395/ 398] blk.35.ffn_down.weight               - [  9728,   2560,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 396/ 398] blk.35.ffn_gate.weight               - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+[ 397/ 398] blk.35.ffn_norm.weight               - [  2560,      1,      1,      1], type =    f32, size =    0.010 MiB
+[ 398/ 398] blk.35.ffn_up.weight                 - [  2560,   9728,      1,      1], type =    f16, size =    47.50 MiB ->     6.87 MiB (iq2_xs)
+llama_model_quantize_impl: model size  =  7672.62 MiB (16.00 BPW)
+llama_model_quantize_impl: quant size  =  1345.96 MiB (2.81 BPW)
+load_imatrix: imatrix datasets=['/out/duel-iq2-2026-11-08/inputs/calib-dclm.txt']
+load_imatrix: loaded 252 importance matrix entries from /out/duel-iq2-2026-11-08/4b/imatrix-dclm.gguf computed on 64 chunks
+prepare_imatrix: have 252 importance matrix entries
+
+llama_quantize: quantize time =    79.68 ms
+llama_quantize:    total time =    79.68 ms

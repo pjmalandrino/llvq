@@ -1,0 +1,1 @@
+gate f16: llama.cpp 8.9899 against our 8.9899, +0.000 %, inside  +-0.5 %

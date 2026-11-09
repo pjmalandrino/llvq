@@ -1,0 +1,4 @@
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 45457 MiB):
+  Device 0: NVIDIA L40S, compute capability 8.9, VMM: yes, VRAM: 45457 MiB
+Available devices:
+  CUDA0: NVIDIA L40S (45457 MiB, 45023 MiB free)
