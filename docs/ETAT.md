@@ -74,7 +74,11 @@ one, are frozen.
 
 All *measured* on the L40S; each cell's journal is in `docs/data/paper2-results.csv` and `docs/data/paper2-ppl.csv`,
 the IQ2_S rows in [duel-iq2](mesures/duel-iq2-2026-11-08.txt) (llama.cpp cd959bae9, imatrix on dclm-edu, the nearest
-rung to our bits). Speeds from different engines are never divided (rule 5).
+rung to our bits). Speeds from different engines are never divided (rule 5). The IQ2_S rows keep the duel's accounting:
+b/param from file bytes, tok/s of llama-bench decode after 5 tokens, GB of file. In that accounting our files read
+2.82 / 2.75 / 2.76 b/param, 227.4 / 144.5 / 90.0 tok/s of decode and 1.42 / 2.82 / 5.09 GB (*measured* and *computed*,
+same journal): at 4B Tetra and IQ2_S tie on b/param (2.8206 against 2.8188), where the `rtbits` 2.73 of §2 would put
+us 0.09 below. Compare §2's door figures with the AWQ and FP16 rows, and these with the IQ2 rows.
 
 Paired gaps, our file below the arm (MMLU *computed*, `docs/data/paper2-gaps.csv`; GSM8K *measured* by `gsm8kpair`):
 
@@ -86,7 +90,8 @@ Paired gaps, our file below the arm (MMLU *computed*, `docs/data/paper2-gaps.csv
 
 We lose quality and win memory, at 45 to 52 % of AWQ's bits per parameter, and both gaps shrink with size. At 4B we
 score 23.6 points above IQ2_XXS for 0.25 more bits per parameter. Against llama.cpp's IQ2_S at our bits, the same day on
-the same card, we score +9.08, +4.13 and +2.89 MMLU points higher and read 25.0, 9.7 and 10.8 % lower perplexity; GSM8K
+the same card, we score +9.08, +4.13 and +2.89 MMLU points higher and read 12.58, 9.71 and 8.44 perplexity against
+16.78, 10.75 and 9.47; GSM8K
 +14.25 and +3.03 at 4B and 8B, not separated at 14B. IQ2_S decodes 60.1, 63.9 and 33.5 tok/s faster than our 4E v9
 after 5 tokens (*measured*, [duel-iq2](mesures/duel-iq2-2026-11-08.txt)). Perplexity ranks the files differently: our
 4B reads 6.9 % below AWQ, our 8B and 14B 3.0 and 1.9 % above it.

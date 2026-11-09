@@ -18,6 +18,7 @@ Decision rule: section 6 of `proofs/preregistration-duel-iq2-2026-11-08.md`.
 
 from __future__ import annotations
 
+import json
 import math
 import re
 import statistics
@@ -63,6 +64,27 @@ def vram_rows(path: Path) -> dict[str, tuple[int, int]]:
             if m:
                 out[m.group(1)] = (int(m.group(2)), int(m.group(3)))
     return out
+
+
+def bench_json_speed(path: Path) -> tuple[float, float, float] | None:
+    """Median and range of a llama-bench JSON's `samples_ts`. Run 1's bench file carries the stray peak line of D2
+    after the array, so the array is cut out first."""
+    if not path.exists():
+        return None
+    t = path.read_text()
+    i, j = t.find("["), t.rfind("]")
+    if i < 0 or j < i:
+        return None
+    ts = json.loads(t[i:j + 1])[0]["samples_ts"]
+    return statistics.median(ts), min(ts), max(ts)
+
+
+def host_gb(path: Path | None) -> float | None:
+    """The model bytes llama.cpp keeps in host memory (`CPU_Mapped model buffer`), outside the card's peak."""
+    if path is None or not path.exists():
+        return None
+    m = re.search(r"CPU_Mapped model buffer size = +([0-9.]+) MiB", path.read_text())
+    return mib_gb(float(m.group(1))) if m else None
 
 
 def find(dirs: list[Path], name: str) -> Path | None:
@@ -162,13 +184,16 @@ def main(root: Path) -> int:
                 s = re.search(rf"speed {re.escape(arm)} depth {dep}: tg256 ([0-9.]+) tok/s "
                               rf"\[([0-9.]+)-([0-9.]+)\]", txt)
                 sp[dep] = tuple(float(s.group(i)) for i in (1, 2, 3)) if s else None
-            # deviation D2: our IQ2_XXS keeps its perplexity only; run 1 died inside its first bench
-            vr = vram_rows(find(dirs, "vram.txt") or Path("/nonexistent")) if arm != "own-iq2_xxs" else {}
+            vr = vram_rows(find(dirs, "vram.txt") or Path("/nonexistent"))
             if arm == "own-iq2_xxs":
-                sp = {"5": None, "8192": None}
+                # Deviation D2: run 1 stopped inside its first bench, after llama-bench had written its five rounds
+                # at depth 5 and the sampler its peak; nothing else of this arm is measured.
+                sp = {"5": bench_json_speed(dirs[1] / "bench-own-iq2_xxs-d5.json"), "8192": None}
+                vr = vram_rows(dirs[1] / "vram.txt")
             pk = {dep: mib_gb(v[1] - v[0]) if (v := vr.get(f"bench-{arm}-d{dep}")) else None for dep in ("5", "8192")}
             pf = find(dirs, f"ppl-{arm}.err")
             w = windows(pf) if pf else None
+            hm = host_gb(pf)
             rows.append((arm, b, sp, pk, math.exp(statistics.mean(w)) if w else None, w))
 
             v = [f"  vs {arm}:"]
@@ -179,6 +204,9 @@ def main(root: Path) -> int:
                 if opk[dep] is not None and pk[dep] is not None:
                     v.append(f"peak d{dep} {lower_wins(opk[dep], pk[dep], 0.05)}"
                              f" ({opk[dep]:.2f} vs {pk[dep]:.2f} GB)")
+                    if hm is not None:
+                        v.append(f"peak d{dep} + host {lower_wins(opk[dep], pk[dep] + hm, 0.05)}"
+                                 f" ({opk[dep]:.2f} vs {pk[dep]:.2f} + {hm:.2f} GB held in host memory)")
                 if sp[dep]:
                     v.append(f"tok/s d{dep} {speed_verdict(osp[dep], sp[dep])}"
                              f" ({osp[dep][0]:.1f} vs {sp[dep][0]:.1f})")
@@ -217,7 +245,9 @@ def main(root: Path) -> int:
         if bt:
             print("  " + bt.read_text().strip().replace("\n", "\n  "))
     print("\npeak GB = sampled memory.used peak minus idle, 100 ms, 1 GB = 1e9 B (measured); tok/s median of 5 "
-          "[range] (measured); b/param = file bytes x 8 / parameters, GB/s = file bytes x tok/s (computed)")
+          "[range] (measured); b/param = file bytes x 8 / parameters, GB/s = file bytes x tok/s (computed); "
+          "host = llama.cpp's CPU_Mapped model buffer, read from the arm's perplexity log (measured), which the "
+          "card's peak does not see; Tetra holds every byte on the card")
     return 0
 
 
