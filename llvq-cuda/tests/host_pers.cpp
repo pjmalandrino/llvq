@@ -67,6 +67,8 @@ static inline unsigned short served_capture_f2h(float v) {
 #include "../kernels/pers_4e.cu"
 #if PERS_4E_ROWS >= 7
 #include "../kernels/pers_4ev.cu"
+#include "host_mma.h"
+#include "../kernels/pers_4et.cu"
 #endif
 #include "../kernels/pers_trows.cu"
 #include "../kernels/pers_vrows.cu"
@@ -915,6 +917,13 @@ int main() {
 #include "host_pers_segment.inc"
     } else if (tag == 'G') {
 #include "host_pers_4e.inc"
+    } else if (tag == 'Y') {
+#if PERS_SIDE == 1 && PERS_4E_ROWS >= 7
+#include "host_pers_tree.inc"
+#else
+        std::fprintf(stderr, "host_pers: the tree verify needs the persistent side with PERS_4E_ROWS 7\n");
+        return 2;
+#endif
     } else if (tag == 'A') {
         // PERSALL: sites = a fused group of two parts (16 + 24 rows, d_in
         // 2560, two centroid pairs through gs_off) and a single (16 rows,
