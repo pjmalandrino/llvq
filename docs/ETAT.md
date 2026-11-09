@@ -200,9 +200,10 @@ For an A/B on one file the bar is the paired interval, 0.43 pp of MMLU and 0.12 
 - **The next venue for paper 2.** No archive holds version 2 yet. Default if silent: preprint only.
 - **Upstream `transformers`.** `llvq-tetra` 0.1.0 is on PyPI and loads the 4B safetensors; the upstream issue and PR
   wait for the operator ([`plan-transformers.md`](plan-transformers.md)).
-- **Spend.** $307.13 over 303 jobs on 2026-11-09 (*computed*): the $304.05 over 301 jobs of the
-  [audit](archive/audit-bugs-2026-11-08.md) §3, then `pic-vram-8k` $2.04 and `spec-final` $1.04. No cap is in
-  force; one is owed before the next paid job.
+- **Spend.** $307.13 on 2026-11-09 (*computed*): $306.88 over 297 priced rows of 302 in `docs/data/jobs.csv`, and
+  `rows-grid` $0.25, which no CSV on main carries yet ([audit](archive/audit-bugs-2026-11-08.md) §3). The night of
+  2026-11-08 added `pic-vram-8k` $2.04 and `spec-final` $1.04. No cap is in force; one is owed before the next paid
+  job.
 
 ## 6. Closed absent a new idea
 

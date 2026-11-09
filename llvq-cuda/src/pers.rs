@@ -3032,18 +3032,19 @@ mod tests {
     }
 
     /// The verify pass's module at the L40S's tile: the 4E v9 module the
-    /// served doors gate on, unchanged, then `pers_4ev.cu`. Pinned so the
-    /// speculative gate's job gates on this digest.
+    /// served doors gate on, unchanged, then `pers_4ev.cu`. Pinned at the
+    /// module spec-final ran (288,366 B at d7686d86, with the phase stamps of
+    /// 486fa45); spec-gate and spec-lookup ran the earlier 287,744 B at ab162e7f.
     #[test]
     fn the_verify_module_is_the_v9_module_and_the_verify_pass() {
         let tile = "#define TILE_BLOCKS 64u\n";
         let v9 = format!("{}{}", p4e_rows_define(7).unwrap(), pers_unit_text(tile));
         let t = p4v_unit_text(tile);
         assert!(t.starts_with(&v9) && t[v9.len()..] == format!("\n{}", P4V_PART.1), "the verify module is the v9 module and pers_4ev.cu");
-        assert_eq!(t.len(), 287_744);
+        assert_eq!(t.len(), 288_366);
         assert_eq!(
             crate::sha256::sha256_hex(t.as_bytes()),
-            "ab162e7fca4a1b5130170931eda22194cc7514c15fa64a52829f33a728ddd2fd",
+            "d7686d86b990b079c47a754ccb5675e090c0b9d19e1b3710558967614c3944e5",
             "the verify module moved: the speculative gate gates on this digest"
         );
     }
