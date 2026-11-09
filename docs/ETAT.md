@@ -145,12 +145,14 @@ For an A/B on one file the bar is the paired interval, 0.43 pp of MMLU and 0.12 
 ## 5. Open decisions
 
 - **Throughput past v9.** At the bit the 4B tops out near 235 to 258 tok/s at the door (*estimated*,
-  [`plan-300.md`](plan-300.md)). Speculative decoding with B1's integer-dot verify: its Tetra rows cost 0.187 of a
-  row an extra token, BETWEEN the gates ([spec-micro](mesures/spec-micro-2026-11-08.txt)). Going on means B1 in
-  `pers_4ev.cu` and in 4E's single-token row, weeks of kernel work, projected 395 to 469 / 241 to 334 / 115 to 150 tok/s at
-  4B / 8B / 14B on copy-heavy prompts with prompt lookup, whose acceptance the three sizes measured ([spec-lookup](mesures/spec-lookup-2026-11-08.txt)), about
-  greedy's door on free text, 284 to 363 with an EAGLE-3 head (*estimated*, [`plan-speculation.md`](plan-speculation.md)).
-  The operator decides.
+  [`plan-300.md`](plan-300.md)). Speculation closed on today's f32 verify (§6). An extra verify row costs 0.74 / 0.89 /
+  0.98 of a 4E token at 4B / 8B / 14B, 92 to 95 % of it in the row phases (*measured*,
+  [spec-final](mesures/spec-final-2026-11-08.txt)). Reopening it means a cheaper K-row loop: B1's integer dot (0.187
+  of a Tetra row an extra token, [spec-micro](mesures/spec-micro-2026-11-08.txt)), which changes the logits and needs
+  a new served object, or an f32 loop nearer its floor. With B1 an EAGLE-3 head, whose acceptance on Tetra is measured
+  (α 0.43 to 0.61 on free text, [eagle-alpha](mesures/eagle-alpha-2026-11-08.txt)), projects x1.25 to x1.52 of
+  greedy decode at 4B on free text (*computed* from an *estimated* row cost, [`plan-speculation.md`](plan-speculation.md)).
+  Weeks of kernel work; the operator decides.
 - **Scores through the served kernel.** MMLU and perplexity are scored on the dense reconstruction with f16 tables;
   the b/param count int4 tables. About $20 by the mixed route, $70 for the full census at three sizes (*estimated*,
   [`ROADMAP.md`](ROADMAP.md)). `ppl` does not read `LLVQ_CONFIG` yet.
@@ -183,6 +185,8 @@ For an A/B on one file the bar is the paired interval, 0.43 pp of MMLU and 0.12 
 | 4E v5 | ×1.001 over v4; refused by name | [shaker-4e](mesures/shaker-4e-2026-11-05.txt) |
 | 4E row-loop arms (K4) | best arm ×1.002 over v2, under the ×1.15 bar | [step1-micro](mesures/step1-micro-2026-11-07.txt) |
 | Speculative decoding, the 0.6B drafting, 4E verifying | tokens identical to greedy at 4B, 8B and 14B, but decode ×0.595, ×0.629, ×0.625 of greedy at the best k (k = 1). Reopen when a 2-row verify pass costs under 1.4 greedy tokens and a draft token under 1 ms. With B1's integer dot, the Tetra part of an extra row costs 0.187 of a row alone, between the 0.15 and 0.26 gates (2026-11-08), not yet a verify pass | [spec-gate](mesures/spec-gate-2026-11-07.txt), [spec-micro](mesures/spec-micro-2026-11-08.txt) |
+| Prompt lookup, 4E verifying | tokens identical to greedy at three sizes; best policy (n-grams 3, probe 1) decodes ×0.92 to ×0.96 of greedy on chat, code and summary at 4B, ×1.108 on retrieval, under its rule B. Reopen with the same condition as the 0.6B row | [spec-final](mesures/spec-final-2026-11-08.txt) |
+| EAGLE-3 head on the card | acceptance measured on Tetra at $0 (α 0.43 to 0.61 on free text), projection ×0.72 on chat at today's verify, ×1.04 at an f32 floor. Reopen with a verify row under 0.2 of a 4E token (B1) | [eagle-alpha](mesures/eagle-alpha-2026-11-08.txt) |
 | A mixed Tetra plus int4 bench arm | the bench compares formats; served files are timed end to end | operator, 2026-10-06 |
 
 Reopening any of them needs the condition in its row, not a new argument. A2 stays out of the core.

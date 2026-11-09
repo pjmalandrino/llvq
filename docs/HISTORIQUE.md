@@ -1308,3 +1308,20 @@ verify the copy-heavy prompts would reach 395 and 469 tok/s at 4B, free text abo
 The 8B and 14B the same day ($1.76 of the operator's $2.60): identity at both sizes. Tokens a verify at k = 3 on the
 code edit 2.54 and 1.98, on the retrieval answer 3.52 and 2.61, 1.09 to 1.48 on free text (*measured*). Projected with
 the integer-dot verify: 241 and 334 tok/s at 8B, 115 and 150 at 14B on those two prompts (*estimated*).
+
+## 2026-11-08 to 11-09. The speculative night: closed on today's verify, for $1.04
+
+The operator's go: finish speculation and its tests within $15. One card job and one Mac bench were enough.
+
+- [eagle-alpha](mesures/eagle-alpha-2026-11-08.txt), $0. The Apache-2.0 head `AngelSlim/Qwen3-4B_eagle3`, on the
+  sealed 4B through the MLX door, replayed on the greedy text. α 0.43 to 0.61 on free text, 0.67 to 0.81 on GSM8K and
+  copies (*measured* / *computed*). On today's verify it projects x0.72 on chat (*computed*). The conditional card job
+  J3 was not run.
+- [spec-final](mesures/spec-final-2026-11-08.txt), $1.04. Identity at 4B, 8B and 14B on every prompt, phase launch and
+  GSM8K completion. An extra verify row costs 0.74 / 0.89 / 0.98 of a 4E token, with 92 to 95 % in qkv, o, gateup and
+  down; attention and RoPE take under 0.5 % (*measured*). Prompt lookup with no-draft rounds on 4E and a trigram probe
+  policy reads x0.94 / 0.96 / 0.92 / 0.88 of greedy decode on chat, code, summary and GSM8K at 4B, x1.108 on
+  retrieval; the house prompt reaches 250.4 tok/s at the door (*measured*). Rule B is not met: lookup closes.
+- B1 was cut for the night: the integer dot changes the logits, so it needs a new served object (4E's single-token
+  path and the verify, perplexity and MMLU gates at three sizes), weeks of work, not a test.
+- The served decode stays greedy 4E v9. The next lever is the K-row loop, on the operator's go.

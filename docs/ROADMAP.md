@@ -23,10 +23,13 @@ is read against 0.43 pp and 0.12 %.
 At the bit, the 4B tops out near 235 to 258 tok/s at the door (*estimated*, [`plan-300.md`](plan-300.md) §6b). Past
 that, two levers change what a launch does rather than how fast it does it.
 
-- **Speculative decoding with a Qwen3-0.6B draft.** The draft proposes a few tokens, the 4B checks them in one pass,
-  and greedy output stays the 4B's own. The second row of a 4E pass costs 0.378 of a row pass (*measured*,
-  [shaker-4e](mesures/shaker-4e-2026-11-05.txt)). Worked on branch `claude/spec-0p6b-96ba73`, not on main.
-  **Gate**: the served tokens unchanged, and a speed-up on a workload fixed before the run.
+- **Speculative decoding: closed on today's verify.** A 0.6B drafter, prompt lookup and a published EAGLE-3 head all
+  keep the greedy tokens; none beats greedy decode on free text at any size (*measured*,
+  [spec-final](mesures/spec-final-2026-11-08.txt), [`plan-speculation.md`](plan-speculation.md)). An extra verify row
+  costs 0.74 to 0.98 of a 4E token, almost all of it in the row phases. Worked on branch `claude/spec-4e-0058c6`,
+  not on main. **Next, on a branch, on the operator's go**: a cheaper K-row loop (B1's integer dot with a new served
+  object, or f32 nearer shaker-4e's floor). **Gate**: an extra row under 0.2 of a 4E token, then an EAGLE-3 head on
+  the card.
 - **Batching.** Decode several sequences per pass: the bytes are read once for all of them. vLLM's AWQ 4B reaches
   5,129 tok/s in aggregate at batch 32 on the L40S (*measured*, branch `claude/batching-eca5f1`, job 6aef873c).
   Our batched Tetra matvec and attention are written on that branch, not on main. **Gate**: each sequence returns
