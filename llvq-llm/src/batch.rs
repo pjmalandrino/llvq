@@ -196,10 +196,20 @@ pub struct Pool {
 }
 
 impl Pool {
-    /// `slots` sequences of up to `cap` positions each.
+    /// `slots` sequences of up to `cap` positions each. On CUDA the caches
+    /// must fit the card's free memory: at 64 slots of 2,048 positions they
+    /// weigh 19.3 GB at the 4B, beside 1.38 GB of weights (audit 2026-11-08
+    /// §1.8), and an allocation that fits with nothing left fails at the
+    /// first prefill instead of here.
     pub fn new(model: &crate::model::Qwen3, slots: usize, cap: usize) -> Result<Self> {
+        check_free(model, model.batch_kv_bytes(slots, cap))?;
         let kv = model.batch_kv(slots, cap)?;
         Ok(Self { kv, free: (0..slots).rev().collect() })
+    }
+
+    /// The bytes the caches hold, allocated once at [`Self::new`].
+    pub fn bytes(&self) -> u64 {
+        self.kv.k.iter().chain(&self.kv.v).map(|t| (t.elem_count() * t.dtype().size_in_bytes()) as u64).sum()
     }
 
     pub fn slots(&self) -> usize {
@@ -243,6 +253,14 @@ impl Pool {
         }
     }
 
+    /// The caches of slot `slot` as the batch-1 path holds them (a
+    /// `Session`'s, one a layer): the inverse of [`Self::adopt`], for a
+    /// sequence left alone in the pool that goes back to the batch-1 path.
+    /// The slot stays taken; [`Self::release`] gives it back.
+    pub fn caches_of(&self, model: &crate::model::Qwen3, slot: usize) -> Result<Vec<crate::model::KvCache>> {
+        model.slot_to_caches(&self.kv, slot)
+    }
+
     /// Give a slot back. Its cache is not cleared: the next prefill
     /// overwrites the positions it reads.
     pub fn release(&mut self, slot: usize) {
@@ -265,6 +283,27 @@ impl Pool {
         let tokens: Vec<u32> = live.iter().map(|l| l.1).collect();
         model.batch_step_slots(&tokens, &slots, &mut self.kv, dev, projs)
     }
+}
+
+/// Refuse a pool of `bytes` that the card's free memory does not hold. Only
+/// on CUDA: Metal and the CPU share the host's memory and report no budget.
+fn check_free(model: &crate::model::Qwen3, bytes: u64) -> Result<()> {
+    #[cfg(all(target_os = "linux", feature = "cuda"))]
+    if let Device::Cuda(d) = model.device() {
+        d.cuda_stream().context().bind_to_thread().map_err(|e| candle_core::Error::msg(format!("bind: {e}")))?;
+        let (free, total) = candle_core::cuda_backend::cudarc::driver::result::mem_get_info()
+            .map_err(|e| candle_core::Error::msg(format!("cuMemGetInfo: {e}")))?;
+        if bytes > free as u64 {
+            candle_core::bail!(
+                "the pool's caches need {:.2} GB and the card has {:.2} GB free of {:.2} GB: fewer slots or positions",
+                bytes as f64 / 1e9,
+                free as f64 / 1e9,
+                total as f64 / 1e9
+            );
+        }
+    }
+    let _ = (model, bytes);
+    Ok(())
 }
 
 /// The batched attention on any device, from candle operations: the reference
@@ -351,6 +390,25 @@ impl crate::model::Qwen3 {
         let h = last.expect("a prompt of at least one token");
         self.caches_to_slot(&caches, kv, slot)?;
         self.logits_last(&h)?.i((0, 0))?.argmax(D::Minus1)?.to_scalar::<u32>()
+    }
+
+    /// Copy slot `slot` of `kv` out into fresh batch-1 caches, one a layer,
+    /// holding its positions: the inverse of [`Self::caches_to_slot`].
+    pub fn slot_to_caches(&self, kv: &BatchKv, slot: usize) -> Result<Vec<crate::model::KvCache>> {
+        let held = *kv.len.get(slot).ok_or_else(|| candle_core::Error::msg(format!("slot_to_caches: slot {slot} of {}", kv.batch())))?;
+        if held == 0 {
+            candle_core::bail!("slot_to_caches: slot {slot} holds no position");
+        }
+        let mut caches = self.fresh_caches();
+        if caches.len() != kv.k.len() {
+            candle_core::bail!("slot_to_caches: {} layers from a pool of {}", caches.len(), kv.k.len());
+        }
+        for (l, c) in caches.iter_mut().enumerate() {
+            let k = kv.k[l].narrow(0, slot, 1)?.narrow(2, 0, held)?.contiguous()?;
+            let v = kv.v[l].narrow(0, slot, 1)?.narrow(2, 0, held)?.contiguous()?;
+            c.restore(&k, &v)?;
+        }
+        Ok(caches)
     }
 
     /// Copy one sequence's caches (batch-1 path, one per layer) into slot

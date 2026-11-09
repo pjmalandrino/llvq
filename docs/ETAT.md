@@ -142,6 +142,11 @@ the served v9 configs with a batch field: a lone request decodes on 4E v9, the o
 B = 32 (*computed*). The projections are three quarters of the step and more; at one row the GEMM's Tetra decode moves
 about 200 GB/s. The gate passed at every pass: perplexity within +-0.01 % of the multi-row path, GSM8K pilot 40/50 as
 served, every door row equal to batch 1. Nothing batched is served by default.
+The pool's KV caches are allocated at load, beside the weights: 64 slots of 2,048 positions weigh 19.3 / 19.3 / 21.5 GB
+at 4B / 8B / 14B (*computed*). The load refuses a pool the card's free memory does not hold, and `/api/ps` counts it in
+`size_vram`. A memory figure of the batch counts the pool (rule 6). A request left alone in the pool goes back to 4E, and a
+lone request past 4E's 8,704 positions finishes in the pool (audit 2026-11-08, sections 1.2, 1.7 and 1.8; CPU tests in
+`llvq-runtime/tests/batch_server.rs`, not run on the card).
 
 **Noise.** The calibration draw moves MMLU by 2.92 pp and perplexity by 5.2 % (one standard deviation, 4B, three full
 runs, *measured*, [bruit-mmlu](mesures/bruit-mmlu-graines-4b-2026-08-25.txt)). Every size is calibrated on one draw.

@@ -256,7 +256,15 @@ struct Job {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum State {
     Loading,
-    Ready { backend: String, config: Option<String>, context: usize, greedy_only: bool },
+    Ready {
+        backend: String,
+        config: Option<String>,
+        context: usize,
+        greedy_only: bool,
+        /// The batch pool's KV caches, allocated beside the weights; 0
+        /// without `LLVQ_BATCH`.
+        pool_bytes: u64,
+    },
     Failed(String),
 }
 
@@ -480,9 +488,18 @@ struct Live {
     max_new: usize,
     started: Instant,
     load: Duration,
-    prompt_len: usize,
+    /// The prompt's ids: the positions before the answer, for a request
+    /// that goes back from the pool to the batch-1 path.
+    prompt: Vec<u32>,
     prompt_eval: Duration,
     t_eval: Instant,
+}
+
+/// Tokens the batch-1 path may still answer from `held` positions under a
+/// cap of `max` (`None`: no cap): a launch from position p of n tokens needs
+/// p + n positions, and the answer's last token is never fed.
+fn solo_room(max: Option<usize>, held: usize) -> usize {
+    max.map_or(usize::MAX, |m| m.saturating_sub(held))
 }
 
 /// How a token left a live request.
@@ -532,9 +549,9 @@ impl Worker {
         }
         if greedy_only && temp > 0.0 {
             let why = match self.loaded.batch.is_some() {
-                true => "this model is served with the batched decode (LLVQ_BATCH), which takes the argmax on the \\
+                true => "this model is served with the batched decode (LLVQ_BATCH), which takes the argmax on the \
                          card and cannot sample",
-                false => "this model is served with the persistent decode (4E), which takes the argmax on the \\
+                false => "this model is served with the persistent decode (4E), which takes the argmax on the \
                           card and cannot sample",
             };
             return Ok(Err(Self::error(
@@ -796,7 +813,7 @@ impl Worker {
                     let job = pending.pop_front().expect("one pending");
                     inf.take_job();
                     let keep = job.keep_alive;
-                    match self.solo(job, rx, &mut pending, &mut open, &mut pool) {
+                    match self.solo(job, rx, &mut pending, &mut open, &mut pool, inf) {
                         Some(l) => live.push(l),
                         None => *inf.expires.lock().expect("expires lock") = keep.until(SystemTime::now()),
                     }
@@ -843,15 +860,23 @@ impl Worker {
                 }
                 *inf.expires.lock().expect("expires lock") = l.job.keep_alive.until(SystemTime::now());
             }
+            if live.len() == 1 && pending.is_empty() && self.back_to_solo(&live[0]) {
+                let l = live.pop().expect("one live");
+                let keep = l.job.keep_alive;
+                match self.resume(l, rx, &mut pending, &mut open, &mut pool, inf) {
+                    Ok(Some(l)) => live.push(l),
+                    Ok(None) => *inf.expires.lock().expect("expires lock") = keep.until(SystemTime::now()),
+                    Err(l) => live.push(*l),
+                }
+            }
         }
     }
 
     /// A request with no other live: prefilled and decoded on the batch-1
-    /// path ([`Session::answer`], 4E under a persistent config), which stops
-    /// between two launches as soon as another job arrives (it goes to
-    /// `pending`). The conversation then takes a slot of the pool with its
-    /// caches, and is returned live, its next token not yet fed. `None` when
-    /// it ended alone.
+    /// path ([`Session::answer`], 4E under a persistent config). `None` when
+    /// it ended there; otherwise it is returned live in a slot of the pool,
+    /// its next token not yet fed (see [`Self::solo_decode`]).
+    #[allow(clippy::too_many_arguments)]
     fn solo(
         &mut self,
         job: Job,
@@ -859,6 +884,7 @@ impl Worker {
         pending: &mut VecDeque<Job>,
         open: &mut bool,
         pool: &mut llvq_llm::batch::Pool,
+        inf: &EngineInfo,
     ) -> Option<Live> {
         let started = Instant::now();
         let load = self.load_duration.take().unwrap_or_default();
@@ -868,13 +894,7 @@ impl Worker {
         }
         let send = |e: Event| tx.blocking_send(e).is_ok();
         if let Prompt::Load = job.request.prompt {
-            send(Event::Accepted { prompt_tokens: 0, cached: 0 });
-            send(Event::Done(Stats {
-                done_reason: "load".into(),
-                total_duration: nanos(total(&job, started, load)),
-                load_duration: nanos(load),
-                ..Stats::default()
-            }));
+            Self::answer_load(&job, started, load);
             return None;
         }
         let p = match self.prepare(&job.request, &[]) {
@@ -901,21 +921,110 @@ impl Worker {
         if !send(Event::Accepted { prompt_tokens: p.prompt.len(), cached: 0 }) {
             return None;
         }
+        let l = Live {
+            job,
+            slot: usize::MAX,
+            router: Router::default(),
+            said: Vec::new(),
+            next: 0,
+            max_new: p.max_new,
+            started,
+            load,
+            prompt: p.prompt,
+            prompt_eval,
+            t_eval: Instant::now(),
+        };
+        self.solo_decode(l, session, h, rx, pending, open, pool, inf)
+    }
+
+    /// Whether the lone live request of the pool goes back to the batch-1
+    /// path: it decodes there at 225.4 tok/s on 4E against 106.2 on the
+    /// batched step at B = 1 (4B, batch-l40s-v4), so a request that outlived
+    /// its neighbours ran its tail at 0.47x (audit 2026-11-08 §1.2). Not when
+    /// the batch-1 path has fewer positions left than one launch.
+    fn back_to_solo(&self, l: &Live) -> bool {
+        let held = l.prompt.len() + l.said.len();
+        solo_room(self.loaded.decoder.max_positions(), held) > self.loaded.decoder.launch_tokens() as usize
+    }
+
+    /// [`Self::solo`] for a request taken out of the pool: its slot's caches
+    /// copied back into a `Session`, its next token fed. `Err` gives the
+    /// request back untouched in its slot, which keeps decoding in the pool.
+    #[allow(clippy::too_many_arguments)]
+    fn resume(
+        &mut self,
+        mut l: Live,
+        rx: &std::sync::mpsc::Receiver<Job>,
+        pending: &mut VecDeque<Job>,
+        open: &mut bool,
+        pool: &mut llvq_llm::batch::Pool,
+        inf: &EngineInfo,
+    ) -> Result<Option<Live>, Box<Live>> {
+        let fed = l.said.len().saturating_sub(1);
+        let ids: Vec<u32> = l.prompt.iter().chain(&l.said[..fed]).copied().collect();
+        let back = pool
+            .caches_of(&self.loaded.qwen, l.slot)
+            .map_err(anyhow::Error::from)
+            .and_then(|c| Session::from_caches(&self.loaded.qwen, c, ids))
+            .and_then(|mut s| s.feed(&self.loaded.qwen, &[l.next]).map(|h| (s, h)));
+        match back {
+            Ok((session, h)) => {
+                pool.release(l.slot);
+                l.slot = usize::MAX;
+                Ok(self.solo_decode(l, session, h, rx, pending, open, pool, inf))
+            }
+            Err(e) => {
+                eprintln!("llvq: a lone request stays in the pool, its caches did not come back: {e:#}");
+                Err(Box::new(l))
+            }
+        }
+    }
+
+    /// The batch-1 decode of `l` from `h`, the hidden state after the last
+    /// position `session` holds. It stops between two launches as soon as
+    /// another request arrives (it goes to `pending`), or when the batch-1
+    /// path's positions run out (4E holds [`llvq_llm::served_decode::P4E_MAX_CAP`],
+    /// the pool may hold more, audit 2026-11-08 §1.7). The conversation then
+    /// takes a slot of the pool with its caches and is returned live, its
+    /// next token not yet fed. `None` when it ended here.
+    ///
+    /// A job that only loads the model is answered at once and does not stop
+    /// the decode: the model is loaded.
+    #[allow(clippy::too_many_arguments)]
+    fn solo_decode(
+        &mut self,
+        mut l: Live,
+        mut session: Session,
+        h: candle_core::Tensor,
+        rx: &std::sync::mpsc::Receiver<Job>,
+        pending: &mut VecDeque<Job>,
+        open: &mut bool,
+        pool: &mut llvq_llm::batch::Pool,
+        inf: &EngineInfo,
+    ) -> Option<Live> {
+        let tx = l.job.events.clone();
+        let send = |e: Event| tx.blocking_send(e).is_ok();
         let tok = &self.loaded.tokenizer;
         let (think, stops) = (self.marks.think, self.marks.stops());
-        let stop_strings = job.request.options.stop.clone();
-        let mut router = Router::default();
+        let stop_strings = l.job.request.options.stop.clone();
+        let mut router = std::mem::take(&mut l.router);
+        let before = l.said.clone();
+        let budget = l.max_new.saturating_sub(before.len());
+        // The first token comes from `h` on the eager path, never a launch.
+        let max_new = budget.min(solo_room(self.loaded.decoder.max_positions(), session.len())).max(1);
         let (mut gone, mut arrived) = (false, false);
         let mut failure: Option<anyhow::Error> = None;
         let mut sampler = Sampler { temp: 0.0, top_p: 1.0, state: 0 };
-        let t_eval = Instant::now();
+        let mut whole = before.clone();
         let answer = session.answer(
             &self.loaded.qwen,
             &mut self.loaded.decoder,
             h,
-            Generate { sampler: &mut sampler, max_new: p.max_new, stops: &stops },
+            Generate { sampler: &mut sampler, max_new, stops: &stops },
             &mut |said| {
-                match router.step(said, tok, think, &stop_strings) {
+                whole.truncate(before.len());
+                whole.extend_from_slice(said);
+                match router.step(&whole, tok, think, &stop_strings) {
                     Err(e) => {
                         failure = Some(e);
                         return Flow::Cancel;
@@ -932,6 +1041,11 @@ impl Worker {
                 }
                 loop {
                     match rx.try_recv() {
+                        Ok(j) if matches!(j.request.prompt, Prompt::Load) => {
+                            inf.take_job();
+                            Self::answer_load(&j, Instant::now(), Duration::ZERO);
+                            *inf.expires.lock().expect("expires lock") = j.keep_alive.until(SystemTime::now());
+                        }
                         Ok(j) => {
                             pending.push_back(j);
                             arrived = true;
@@ -959,31 +1073,21 @@ impl Worker {
         if gone {
             return None;
         }
-        let next = answer.said.last().copied().unwrap_or(0);
-        let mut l = Live {
-            job,
-            slot: usize::MAX,
-            router,
-            said: answer.said,
-            next,
-            max_new: p.max_new,
-            started,
-            load,
-            prompt_len: p.prompt.len(),
-            prompt_eval,
-            t_eval,
-        };
+        l.router = router;
+        l.said.extend_from_slice(&answer.said);
+        if let Some(&t) = answer.said.last() {
+            l.next = t;
+        }
         let reason = match (answer.finish, l.router.stopped_at) {
             (_, Some(_)) | (Finish::Stop, None) => Some("stop"),
-            (Finish::Length, None) => Some("length"),
-            (Finish::Cancelled, None) if l.said.len() >= l.max_new => Some("length"),
-            (Finish::Cancelled, None) => None,
+            _ if l.said.len() >= l.max_new => Some("length"),
+            // Cancelled by an arrival, or cut at the batch-1 path's cap.
+            _ => None,
         };
         if let Some(reason) = reason {
             self.finish(&mut l, reason);
             return None;
         }
-        // Another request arrived: this one joins the pool where it stands.
         match pool.adopt(&self.loaded.qwen, session.caches()) {
             Ok(Some(slot)) => {
                 l.slot = slot;
@@ -997,6 +1101,17 @@ impl Worker {
         }
     }
 
+    /// The answer to a job that only loads the model.
+    fn answer_load(job: &Job, started: Instant, load: Duration) {
+        let _ = job.events.blocking_send(Event::Accepted { prompt_tokens: 0, cached: 0 });
+        let _ = job.events.blocking_send(Event::Done(Stats {
+            done_reason: "load".into(),
+            total_duration: nanos(total(job, started, load)),
+            load_duration: nanos(load),
+            ..Stats::default()
+        }));
+    }
+
     /// Prefill a job into a slot and take its first token. `None` when the
     /// job ended there (refused, answered, failed, or its client gone).
     fn admit(&mut self, job: Job, pool: &mut llvq_llm::batch::Pool) -> Option<Live> {
@@ -1008,13 +1123,7 @@ impl Worker {
         }
         let send = |e: Event| tx.blocking_send(e).is_ok();
         if let Prompt::Load = job.request.prompt {
-            send(Event::Accepted { prompt_tokens: 0, cached: 0 });
-            send(Event::Done(Stats {
-                done_reason: "load".into(),
-                total_duration: nanos(total(&job, started, load)),
-                load_duration: nanos(load),
-                ..Stats::default()
-            }));
+            Self::answer_load(&job, started, load);
             return None;
         }
         let p = match self.prepare(&job.request, &[]) {
@@ -1051,7 +1160,7 @@ impl Worker {
             max_new: p.max_new,
             started,
             load,
-            prompt_len: p.prompt.len(),
+            prompt: p.prompt,
             prompt_eval,
             t_eval: Instant::now(),
         };
@@ -1120,7 +1229,7 @@ impl Worker {
             done_reason: reason.into(),
             total_duration: nanos(total(&l.job, l.started, l.load)),
             load_duration: nanos(l.load),
-            prompt_eval_count: l.prompt_len,
+            prompt_eval_count: l.prompt.len(),
             prompt_eval_cached_count: 0,
             prompt_eval_duration: nanos(l.prompt_eval),
             eval_count: l.said.len(),
@@ -1155,6 +1264,9 @@ impl Engine {
                 let marks = Marks::resolve(&loaded.tokenizer)?;
                 let rope = loaded.qwen.config().max_position_embeddings;
                 let context = loaded.decoder.max_positions().map_or(rope, |e| e.min(rope));
+                // Under the batch the pool's positions are the context: past
+                // 4E's cap a lone request hands over to the pool
+                // (`Worker::solo_decode`) instead of failing there.
                 let context = loaded.batch.as_ref().map_or(context, |b| b.serve.context.min(rope));
                 let session = Session::new(&loaded.qwen);
                 Ok(Worker { loaded, marks, session, memo: Vec::new(), context, load_duration: Some(t0.elapsed()) })
@@ -1176,6 +1288,7 @@ impl Engine {
                 config: w.loaded.config.clone(),
                 context: w.context,
                 greedy_only: w.greedy_only(),
+                pool_bytes: w.loaded.batch.as_ref().map_or(0, |b| w.loaded.qwen.batch_kv_bytes(b.serve.max, b.serve.context)),
             };
             if w.loaded.batch.is_some() {
                 let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| w.run_batch(&rx, &inf)));
