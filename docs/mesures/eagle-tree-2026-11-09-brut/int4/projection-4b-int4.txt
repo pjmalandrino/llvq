@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/verif-arbre-e8b79b/ops/tree_projection.py", line 164, in <module>
+    sys.exit(main(sys.argv))
+             ^^^^^^^^^^^^^^
+  File "/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/verif-arbre-e8b79b/ops/tree_projection.py", line 92, in main
+    raw = json.loads(gzip.decompress(open(argv[1], "rb").read()))
+                                     ^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: 'docs/mesures/eagle-tree-2026-11-09-brut/int4/per-position.json.gz'

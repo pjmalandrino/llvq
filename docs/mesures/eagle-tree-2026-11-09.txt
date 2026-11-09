@@ -1,0 +1,82 @@
+EAGLE-3 draft trees on the sealed Tetra 4B, on the Mac, 2026-11-09. $0.
+Result: with the same published head and the same greedy text, a tree of 15 drafted nodes (a 16-row verify pass)
+emits 2.28 to 3.55 tokens a pass at 3 head steps where the chain of 3 emits 1.69 to 3.00 (*measured*): chat 2.28,
+code 2.77, summary 2.48, edit 2.70, rag 3.55, GSM8K 3.15. A 7-node tree (8 rows) already reads chat 2.12 and GSM8K
+2.90. The head runs as published (BF16 in f32); its int4 g64 form was not measured. With an R-row tensor-core
+verify estimated at c_8 = 1.18 [0.99-1.41] and c_16 = 1.27 [1.03-1.60] greedy tokens (docs/plan-verify-tree.md
+section 2) and a head step at 0.05 of a token (*estimated*), the 4B projects x1.60 [1.31-1.91] on chat with 8 rows and x1.89 [1.47-2.33] on code with 16 (*computed*). The task's kill
+rule does not fire: at c_16 = 1.25 and D = 0.04 the 4B chat reads x1.66, over its x1.3 bar.
+Script : ops/eagle_tree.py (the sibling of ops/eagle_alpha.py, which it imports); ops/tree_projection.py (stdlib).
+Raw    : eagle-tree-2026-11-09-brut/: tree-4b.txt (the script's output), completions.json (the 55 greedy completions,
+         prompt and tokens), per-position.json.gz (the true tokens' ranks to depth 10 and the dynamic trees' accepts
+         at every round position), projection-4b.txt. int4/ holds an interrupted run, not used (below and
+         int4/INTERRUPTED.txt). Mac M3 Max, 985 s with 626 s of completions, nice 10.
+Target, head, prompts: eagle-alpha-2026-11-08.txt's. The sealed 4B (886391a8) through the MLX door, its hfpack
+         ~/q4b-hf-2026-09-28; AngelSlim/Qwen3-4B_eagle3 at fd331e59626c8e95c392381a16ee59d518727fbb, BF16 run in f32;
+         specrun's five prompts (256 new tokens at most) and the 50 GSM8K pilot problems (1,024 at most, reasoning
+         off). 17,659 completion tokens; teacher-forced agreement 100 % on the five prompts.
+Method : greedy decoding makes acceptance a function of the greedy text. At every round position m the head's cache
+         over 0..m-1 is built from the target's states, as eagle-alpha replays a chain; a tree node attends that
+         cache and its own ancestors. A tree accepts depth d when x[m+1..m+d] is a path from its root, and the pass
+         emits d + 1 tokens. Every position gets its tree in one batched pass; the rounds are then replayed as the
+         loop runs them, for every tree.
+         - dynamic (EAGLE-2): each level expands the K = 8 candidates of highest cumulative log probability, each
+           proposes its top 8; after d levels the N best candidates of all levels form the tree. d head steps a round.
+         - static: the N most frequent rank paths of the true tokens over the other five workloads, each weighted
+           equally (leave one workload out). Head steps a round: the tree's depth.
+Gate   : the chain k = 1, 2, 3 replayed from this script's teacher-forced ranks equals eagle_alpha.py's own replay on
+         the same completions, rounds and tokens, at every workload: HOLDS. Both reproduce eagle-alpha-2026-11-08.txt:
+         chat 171 / 157 / 151 rounds for 255 tokens, GSM8K 9,596 / 7,615 / 6,938 for 16,817.
+
+Tokens a verify pass (accepted drafts + 1), *measured*; standard error over rounds in brackets (*computed*, rounds
+treated as independent). The five prompts are one completion each: 255, 255, 99, 100 and 78 positions.
+  tree                rows  steps  chat         code         summary      edit         rag          GSM8K
+  chain k = 3           4     3    1.69 (0.08)  2.04 (0.10)  1.74 (0.14)  2.44 (0.18)  3.00 (0.17)  2.42 (0.013)
+  dynamic N = 7         8     3    2.12 (0.10)  2.36 (0.10)  2.25 (0.16)  2.70 (0.21)  3.55 (0.13)  2.90 (0.014)
+  dynamic N = 15       16     3    2.28 (0.11)  2.77 (0.12)  2.48 (0.18)  2.70 (0.21)  3.55 (0.14)  3.15 (0.014)
+  dynamic N = 15       16     4    2.34         2.77         2.41         2.94         3.90         3.28
+  dynamic N = 31       32     4    2.45         3.04         2.83         3.23         3.71         3.55
+  static N = 7          8     4    2.02         2.36         1.98         2.86         3.25         2.80
+  static N = 15        16    4-5   2.18         2.55         2.25         2.94         3.39         3.09
+  static N = 31        32    5-6   2.38         2.80         2.36         3.33         3.55         3.40
+  Every N from 1 to 32 at depths 2 to 10, and the chain at k = 1 to 8: tree-4b.txt.
+- The dynamic tree beats the static one on five workloads of six at 8 and 16 rows, with fewer head steps. Edit, one
+  completion of 100 tokens, goes the other way.
+- Depth past 4 buys little. The head's acceptance falls after its fourth draft: on GSM8K 1,876 positions keep 4 chain
+  drafts and 652 keep 5 (*measured*). The chain itself stops at 2.54 on GSM8K from k = 6.
+- From 8 to 16 rows at 3 steps a tree gains 0 to 0.41 tokens a pass (0.25 on GSM8K); from 16 to 32 at 4 steps,
+  -0.19 to +0.42 (0.27 on GSM8K).
+int4 head: not measured. A run of the head rounded to int4 g64 (`ops/eagle_tree.py ... int4`) was started on
+2026-11-09 and interrupted twice: killed (exit 137) after 32 sequences, then stopped when the Mac froze and was
+restarted. It is not reported. Acceptance with a quantized head stays unmeasured, as in eagle-alpha. No number of this
+journal comes from int4/.
+Projection, decode over greedy, tok/s = tau / (c_R + d D) (*computed* from the measured tau and *estimated* c_R and
+D): c_R central [low ; high] 1.13 [0.97 ; 1.32] at 4 rows, 1.18 [0.99 ; 1.41] at 8, 1.27 [1.03 ; 1.60] at 16, 1.56
+[1.14 ; 2.03] at 32; D = 0.05 [0.04 ; 0.07]. The range pairs low c_R with low D and high with high. D is costed for
+an int4 g64 head while tau is the BF16 head's: what int4 does to tau is not measured.
+  tree            rows steps  chat               code               summary
+  chain k = 3       4    3    x1.32 [1.10-1.55]  x1.59 [1.33-1.87]  x1.36 [1.14-1.59]
+  dynamic N = 7     8    3    x1.60 [1.31-1.91]  x1.78 [1.46-2.13]  x1.69 [1.39-2.03]
+  dynamic N = 15   16    4    x1.59 [1.24-1.97]  x1.89 [1.47-2.33]  x1.64 [1.28-2.03]
+  dynamic N = 31   32    4    x1.39 [1.06-1.89]  x1.72 [1.31-2.34]  x1.61 [1.22-2.18]
+  tree            rows steps  edit               rag                GSM8K
+  chain k = 3       4    3    x1.91 [1.59-2.24]  x2.34 [1.96-2.75]  x1.89 [1.58-2.22]
+  dynamic N = 7     8    3    x2.03 [1.67-2.43]  x2.67 [2.19-3.19]  x2.18 [1.79-2.61]
+  dynamic N = 15   16    4    x2.00 [1.56-2.47]  x2.65 [2.07-3.28]  x2.23 [1.75-2.76]
+  dynamic N = 31   32    4    x1.83 [1.40-2.48]  x2.11 [1.61-2.86]  x2.01 [1.54-2.73]
+  Decode tok/s, greedy decode of spec-final-2026-11-08.txt times the ratio; the 8B and 14B reuse the 4B's tau:
+  8 rows:   4B chat 353 [290-423], code 391 [321-469], GSM8K 473 [388-567]
+            8B chat 226 [185-271]; 14B chat 142 [117-171]
+  16 rows:  4B chat 352 [275-435], code 416 [325-514], GSM8K 484 [379-598]
+            8B chat 225 [176-278]; 14B chat 142 [111-175]
+  Every tree and workload: projection-4b.txt.
+- At these c_R, 8 rows and 16 rows read the same on chat; 16 rows gain on code and GSM8K; 32 rows lose everywhere.
+- Even the chain of 3 would beat greedy (x1.32 on chat) on a tensor-core verify; today's verify reads x0.72.
+Kill rule (task). (1) The 4B chat gain under x1.3 with c_16 = 1.25: no, x1.66 at N = 15 and 3 steps (tau 2.28), x1.50
+at the static tree. (2) The code shows an extra row cannot fall under about 0.05 of a token inside 4E: no, 0.005 to
+0.023 once each prologue runs once a row (plan-verify-tree.md section 2). Step A passes; the plan is
+docs/plan-verify-tree.md.
+What this does not establish: any card number; c_R and D, which are estimates; the tokens a pass through the CUDA door
+or the verify's arithmetic (the MLX door's greedy text parts from the CUDA door's at token 243 of the house prompt);
+the int4 head's tokens a pass; the 8B and 14B heads; a head retrained on Tetra features; contexts past 1,099
+positions (the longest sequence; median 383).

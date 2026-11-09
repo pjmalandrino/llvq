@@ -28,8 +28,9 @@ that, two levers change what a launch does rather than how fast it does it.
   [spec-final](mesures/spec-final-2026-11-08.txt), [`plan-speculation.md`](plan-speculation.md)). An extra verify row
   costs 0.74 to 0.98 of a 4E token, almost all of it in the row phases.
   **Next, on a branch, on the operator's go**: a cheaper K-row loop (B1's integer dot with a new served
-  object, or f32 nearer shaker-4e's floor). **Gate**: an extra row under 0.2 of a 4E token, then an EAGLE-3 head on
-  the card.
+  object, f32 nearer shaker-4e's floor, or tensor cores with each prologue run once a row and a tree of drafts,
+  [`plan-verify-tree.md`](plan-verify-tree.md)). **Gate**: an extra row under 0.2 of a 4E token, then an EAGLE-3 head
+  on the card.
 - **Batching.** Decode several sequences per pass: the bytes are read once for all of them. vLLM's AWQ 4B reaches
   5,129 tok/s in aggregate at batch 32 on the L40S (*measured*, branch `claude/batching-eca5f1`, job 6aef873c).
   Our batched decode and its continuous batching in `llvq serve` are on main since 2026-11-09, licensed and not served by default. **Gate**: each sequence returns

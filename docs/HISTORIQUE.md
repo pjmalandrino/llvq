@@ -1374,3 +1374,13 @@ The operator's go: finish speculation and its tests within $15. One card job and
 - B1 was cut for the night: the integer dot changes the logits, so it needs a new served object (4E's single-token
   path and the verify, perplexity and MMLU gates at three sizes), weeks of work, not a test.
 - The served decode stays greedy 4E v9. The next lever is the K-row loop, on the operator's go.
+
+## 2026-11-09. Draft trees on the Mac: step A of the tree verify holds, $0
+
+[eagle-tree](mesures/eagle-tree-2026-11-09.txt). The same head and greedy text as eagle-alpha, drafting EAGLE-2 trees
+instead of a chain: 16 rows emit 2.28 tokens a pass on chat and 3.15 on GSM8K at 3 head steps, against 1.69 and 2.42
+for the chain of 3 (*measured*). A tensor-core verify with each prologue run once a row would cost 1.27 [1.03-1.60]
+greedy tokens at 16 rows (*estimated*), and the 4B would decode about 352 tok/s on chat [275-435] (*computed*). The
+plan is [`plan-verify-tree.md`](plan-verify-tree.md); its first card job, about $0.30, is drafted and not
+timestamped. The int4 head's run was interrupted when the Mac froze and was dropped: a quantized head's acceptance
+stays unmeasured.

@@ -1,0 +1,13 @@
+Interrupted run, NOT USED. No number of eagle-tree-2026-11-09.txt comes from this folder.
+
+The int4 g64 head (`ops/eagle_tree.py <packed> <this dir> 50 8 10 int4`), 2026-11-09:
+
+- tree-4b-int4-killed.txt: first attempt. The quantized weights were left as lazy MLX graphs; the process was killed
+  (exit 137) after 32 of 55 sequences. The script then materialized them once (`mx.eval` in `quantize_head`).
+- tree-4b-int4.txt: second attempt, stopped after 10 sequences when the Mac froze around 10:15 and was restarted. It
+  ran beside another session's weight extraction. No EXIT line.
+- projection-4b-int4.txt: a projection attempted on the first attempt's output; it failed (no per-position file).
+- completions.json: a copy of ../completions.json, the same 55 greedy completions.
+
+The operator dropped the measurement (2026-11-09): it is not relaunched. Acceptance with a quantized head stays
+unmeasured, as in eagle-alpha-2026-11-08.txt.

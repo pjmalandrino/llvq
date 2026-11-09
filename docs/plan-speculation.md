@@ -18,7 +18,9 @@ chat (*computed*). The served decode stays greedy 4E v9: 221.5 / 142.5 / 86.3 to
 What would reopen it: an extra verify row costs 0.74 / 0.89 / 0.98 of a 4E token, and 92 to 95 % of that is the row
 phases (*measured*). Only the row loop moves it: B1's integer dot, which changes the logits and so needs a new served
 object, or an f32 K-row loop nearer shaker-4e's floor, 2.4 times below today's (*computed*). Either is weeks of kernel
-work and the operator's call.
+work and the operator's call. A third road, tensor-core rows with each prologue run once a row and a tree of drafts,
+has its plan in [`plan-verify-tree.md`](plan-verify-tree.md): a 16-row tree emits 2.28 tokens a pass on chat and 3.15
+on GSM8K with the same head (*measured*, [eagle-tree](mesures/eagle-tree-2026-11-09.txt)).
 
 ## What exists
 
