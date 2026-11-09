@@ -1704,6 +1704,75 @@ pub fn p4t_tiled_words(int4: bool, d_out: u32, d_in: u32) -> u64 {
     (d_out / 16) as u64 * d_in.div_ceil(48) as u64 * if int4 { 96 } else { 48 }
 }
 
+/// `p4t_stream_cap` of `pers_4et_stream.cu`: the 48-column sub-steps one
+/// slice of the stream unit may hold, in an area of `area_floats` floats at
+/// `nw` warps a CTA: the warps' A tiles, `P4T_RMAX` staged rows of 24 ns + 4
+/// words, the argmax maxima. A function of the area and the warps, never of
+/// the rows a launch carries.
+pub fn p4t_stream_cap(area_floats: u32, nw: u32) -> u32 {
+    let fixed = nw * 16 * 28 + 2 * P4T_RMAX;
+    let per = area_floats.saturating_sub(fixed) / P4T_RMAX;
+    per.saturating_sub(4) / 24
+}
+
+/// The largest slice of a projection of `d_in` columns cut in `s`: its
+/// sub-steps, as `pers_4et.cu` cuts them (slice sl from sl nsub / S).
+pub fn p4t_slice_steps(d_in: u32, s: u32) -> u32 {
+    d_in.div_ceil(48).div_ceil(s)
+}
+
+/// Job N2's plan for the stream unit (arm a3, and a2 beside it): for each
+/// phase (q/k/v, o, gate/up, down, head) the smallest S whose slices fit
+/// `cap` sub-steps ([`p4t_stream_cap`]) is the floor; above it, S up to 32
+/// (and at most the phase's sub-steps) with the largest fill of
+/// [`p4t_plan`], the smaller S on a tie. Refused when no S up to 32 fits.
+#[allow(clippy::too_many_arguments)]
+pub fn p4t_splits_stream(hidden: u32, inter: u32, d_ctx: u32, n_kv: u32, vocab: u32, nw: u32, grid: u32, cap: u32) -> Result<[u32; 5], String> {
+    let d_ins = [hidden, d_ctx, hidden, inter, hidden];
+    let mut s = [1u32; 5];
+    for (i, &d_in) in d_ins.iter().enumerate() {
+        let top = d_in.div_ceil(48).min(32);
+        let lo = (1..=top).find(|&x| p4t_slice_steps(d_in, x) <= cap).ok_or_else(|| {
+            format!("tree stream: phase {i} ({d_in} columns) needs slices of at most {cap} sub-steps, which no S up to {top} gives")
+        })?;
+        let fill = |x: u32| {
+            let mut t = s;
+            t[i] = x;
+            p4t_plan(t, hidden, inter, d_ctx, n_kv, vocab, nw, grid)[i].2
+        };
+        let mut best = lo;
+        for x in lo + 1..=top {
+            if fill(x) > fill(best) + 1e-12 {
+                best = x;
+            }
+        }
+        s[i] = best;
+    }
+    Ok(s)
+}
+
+/// The stream tree module's text: [`p4t_tiled_unit_text`] (for
+/// `p4t_tile_words`) under `P4T_STREAM 1`, then `pers_4et_stream.cu`, which
+/// emits the `pers_4et_stream_*` symbols. `pers_4et.cu` keeps its bytes, so
+/// the other arms' modules keep theirs.
+pub fn p4t_stream_unit_text(tile_define: &str) -> String {
+    format!("#define P4T_STREAM 1\n{}\n{}", p4t_tiled_unit_text(tile_define), P4T_STREAM_PART.1)
+}
+
+/// The tree kernel's stream symbol for a RoPE form (a module of
+/// [`p4t_stream_unit_text`]).
+pub fn p4t_stream_symbol(form: u32) -> Result<&'static str, String> {
+    Ok(match form {
+        0 => "pers_4et_stream_f0_t512",
+        1 => "pers_4et_stream_f1_t512",
+        2 => "pers_4et_stream_f2_t512",
+        _ => return Err(format!("tree verify: no stream kernel for RoPE form {form}")),
+    })
+}
+
+/// `pers_4et_stream.cu`, embedded so the Mac hashes what the card compiles.
+pub const P4T_STREAM_PART: (&str, &str) = ("pers_4et_stream.cu", include_str!("../kernels/pers_4et_stream.cu"));
+
 /// The tree kernel's symbol for a RoPE form (512 threads only).
 pub fn p4t_symbol(form: u32) -> Result<&'static str, String> {
     Ok(match form {
@@ -2589,6 +2658,78 @@ mod tests {
         assert_eq!(p4t_splits_balanced([6, 14, 2, 14, 1], 2560, 9728, 4096, 8, 151_936, 16, 142)[0], 11);
         assert_eq!(p4t_tiled_words(false, 4096, 2560), 256 * 54 * 48);
         assert_eq!(p4t_tiled_words(true, 151_936, 2560), 9496 * 54 * 96);
+    }
+
+    #[test]
+    fn the_n2_stream_plan_fits_the_area_and_fills_the_grid() {
+        // the 4B on 142 SMs, 16 warps: a2's area, so a2's shared bytes
+        let area = p4t_area_floats(16, 32, 9728, 4);
+        let smem = SMEM_HEADER + TABLE_BYTES + 4 * area;
+        assert_eq!((area, smem), (17_728, 89_984));
+        assert!(smem <= 101_376);
+        let cap = p4t_stream_cap(area, 16);
+        assert_eq!(cap, 13, "32 rows of 24 x 13 + 4 words beside the A tiles");
+        assert!(16 * 16 * 28 + 32 * (24 * cap + 4) + 2 * 32 <= area && 16 * 16 * 28 + 32 * (24 * (cap + 1) + 4) + 2 * 32 > area);
+        let (h, i, d, kv, v) = (2560, 9728, 4096, 8, 151_936);
+        let s = p4t_splits_stream(h, i, d, kv, v, 16, 142, cap).unwrap();
+        let names = ["q/k/v", "o", "gate/up", "down", "head"];
+        let d_ins = [h, d, h, i, h];
+        let floor: Vec<u32> = d_ins.iter().map(|&x| (1..=32).find(|&s| p4t_slice_steps(x, s) <= cap).unwrap()).collect();
+        assert_eq!(floor, [5, 7, 5, 16, 5]);
+        let p = p4t_plan(s, h, i, d, kv, v, 16, 142);
+        for k in 0..5 {
+            eprintln!(
+                "4B, 142 CTAs: {} S {} (floor {}), units {}, waves {}, fill {:.1} %, at most {} sub-steps a slice",
+                names[k], s[k], floor[k], p[k].0, p[k].1, 100.0 * p[k].2, p4t_slice_steps(d_ins[k], s[k])
+            );
+            assert!(s[k] >= floor[k] && p4t_slice_steps(d_ins[k], s[k]) <= cap);
+        }
+        assert_eq!(s, [29, 14, 28, 28, 27]);
+        eprintln!("slice partials {} floats", p4t_fpart_floats(s, h, i, d, kv, v));
+        // the host twin: 3 CTAs of 2 warps, its area the widest row's
+        let ht = p4t_area_floats(2, 32, 9728, 4);
+        let hcap = p4t_stream_cap(ht, 2);
+        assert_eq!(hcap, 18);
+        let hs = p4t_splits_stream(h, i, d, kv, 1024, 2, 3, hcap).unwrap();
+        let hp = p4t_plan(hs, h, i, d, kv, 1024, 2, 3);
+        for k in 0..5 {
+            eprintln!(
+                "host twin, 3 CTAs of 2 warps: {} S {}, units {}, waves {}, fill {:.1} %, at most {} sub-steps a slice",
+                names[k], hs[k], hp[k].0, hp[k].1, 100.0 * hp[k].2, p4t_slice_steps(d_ins[k], hs[k])
+            );
+        }
+        assert_eq!(hs, [3, 6, 3, 12, 3]);
+        assert!(p4t_splits_stream(h, i, d, kv, v, 16, 142, 3).is_err(), "the down needs S > 32 at 3 sub-steps a slice");
+    }
+
+    #[test]
+    fn the_stream_body_is_the_tree_body() {
+        // pers_4et_stream.cu carries pers_4et.cu's pass with three
+        // substitutions, and nothing else of it changed
+        let src = P4T_PART.1;
+        let a = src.find("template <int FORM, bool TILED>\n__device__ __forceinline__ void pers_4et_body(").unwrap();
+        let end = "#undef P4T_WAIT\n}\n";
+        let b = a + src[a..].find(end).unwrap() + end.len();
+        let body = src[a..b]
+            .replacen("template <int FORM, bool TILED>\n", "template <int FORM>\n", 1)
+            .replacen("void pers_4et_body(", "void pers_4et_stream_body(", 1)
+            .replace("p4t_phase<TILED>(", "p4t_phase_stream(");
+        assert!(!body.contains("TILED"));
+        assert_eq!(P4T_STREAM_PART.1.matches(body.as_str()).count(), 1, "the stream body drifted from pers_4et_body");
+        let t = p4t_stream_unit_text(SERVED_DEFINES_SM89);
+        assert!(t.contains(&p4t_tiled_unit_text(SERVED_DEFINES_SM89)));
+        for f in 0..3 {
+            assert_eq!(t.matches(p4t_stream_symbol(f).unwrap()).count(), 1);
+            assert_eq!(p4t_unit_text(SERVED_DEFINES_SM89).matches(p4t_stream_symbol(f).unwrap()).count(), 0);
+        }
+        // the module texts of a0/a1 and a2, and a3's (the bench builds them from the runtime's tile define)
+        for (n, x) in [("rows", p4t_unit_text(SERVED_DEFINES_SM89)), ("tiled", p4t_tiled_unit_text(SERVED_DEFINES_SM89)), ("stream", t)] {
+            eprintln!("tree module {n} at SERVED_DEFINES_SM89: {} bytes, sha256 {}", x.len(), crate::sha256::sha256_hex(x.as_bytes()));
+            // LLVQ_P4T_DUMP=<dir>: the texts NVRTC compiles, for an offline nvcc SASS probe
+            if let Ok(dir) = std::env::var("LLVQ_P4T_DUMP") {
+                std::fs::write(std::path::Path::new(&dir).join(format!("tree_{n}.cu")), &x).unwrap();
+            }
+        }
     }
 
     use super::*;

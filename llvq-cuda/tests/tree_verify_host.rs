@@ -770,3 +770,102 @@ fn tiled_mutants_are_killed() {
     }
     eprintln!("tiled mutants: {killed} of {} killed", muts.len());
 }
+
+// ---- job N2: the stream unit (arm a3) ----------------------------------------------
+
+/// The host twin's stream plan: `pers::p4t_splits_stream` at 3 CTAs of 2
+/// warps, whose area (attention's share) holds slices of 18 sub-steps; the
+/// q/k/v, gate/up and head slices at the cap, the head in 3.
+const SPLIT_N2: [u32; 5] = [3, 6, 3, 12, 3];
+/// A second plan within the cap, every phase cut otherwise, the head in 5.
+const SPLIT_N2B: [u32; 5] = [5, 8, 4, 19, 5];
+
+/// Passes of `sizes` rows run by the tiled symbols (variant 32, arm a2) on
+/// `tiled` and by the stream symbols (variant 128, arm a3) on `bin`, at the
+/// same slices: every row's argmax, logits, residual, K and V equal.
+fn gate_stream(bin: &Path, tiled: &Path, f: &Fix, t: &Tree, sizes: &[usize], pos0: u32) -> Result<usize, String> {
+    let passes: Vec<Pass> =
+        sizes.iter().enumerate().map(|(i, &s)| Pass::of(t, &t.subset(s, 0x5e00 + i as u64), pos0, 0x7c00 + i as u64)).collect();
+    let u = exec(tiled, &Fix { variant: (f.variant & !128) | 32, ..*f }, None, &passes)?;
+    let v = exec(bin, &Fix { variant: (f.variant & !32) | 128, ..*f }, None, &passes)?;
+    let mut rows = 0;
+    for (pi, (a, b)) in u.passes.iter().zip(&v.passes).enumerate() {
+        for (s, (ra, rb)) in a.iter().zip(b).enumerate() {
+            rows += 1;
+            if let Some(what) = diff(rb, ra) {
+                return Err(format!("stream against tiled, split {:?}, pass {pi} ({} rows), slot {s}: {what}", f.split, a.len()));
+            }
+        }
+    }
+    Ok(rows)
+}
+
+/// The stream pass equals the tiled pass bit for bit at R = 1, 2, 8, 16, 32
+/// under the twin's stream plan and a second plan, the head folded from 3
+/// and 5 slices; and on the 8B's parts (a Tetra o, an untied head) at RoPE
+/// form 2, R = 1 and 5.
+#[test]
+#[cfg_attr(debug_assertions, ignore)]
+fn stream_rows_equal_tiled_rows_under_both_plans() {
+    let cap = pers::p4t_stream_cap(pers::p4t_area_floats(2, 32, 9728, 4), 2);
+    assert_eq!(pers::p4t_splits_stream(2560, 9728, 4096, 8, VOCAB, 2, 3, cap).unwrap(), SPLIT_N2);
+    assert!(SPLIT_N2B.iter().zip([2560u32, 4096, 2560, 9728, 2560]).all(|(&s, d)| pers::p4t_slice_steps(d, s) <= cap));
+    let t = tree(32, 7, 0x3e8);
+    for split in [SPLIT_N2, SPLIT_N2B] {
+        let n = gate_stream(host(), host(), &Fix { split, ..FIX }, &t, &[1, 2, 8, 16, 32], 9).unwrap();
+        eprintln!("split {split:?}: {n} rows of 5 passes, stream equals tiled bit for bit");
+    }
+    let t = tree(12, 4, 0x3e9);
+    let f = Fix { form: 2, variant: 16, cap: 288, split: SPLIT_N2B, ..FIX };
+    let n = gate_stream(host(), host(), &f, &t, &[1, 5], 254).unwrap();
+    eprintln!("8B's parts, form 2: {n} rows, stream equals tiled bit for bit");
+}
+
+/// A plan whose q/k/v slice holds 27 sub-steps, past the twin's 18: the
+/// stream pass refuses it through the abort flag.
+#[test]
+fn a_stream_slice_past_the_cap_is_refused() {
+    let t = tree(4, 2, 0x3ea);
+    let f = Fix { split: [2, 6, 3, 12, 3], variant: 128, ..FIX };
+    let e = exec(host(), &f, None, &[Pass::of(&t, &[0], 9, 0x7c80)]).err().expect("a slice past the cap runs");
+    assert!(e.contains("aborted"), "{e}");
+}
+
+/// Each guard of the stream unit has a mutant, killed by the stream gate
+/// against the unmutated tiled pass.
+#[test]
+#[cfg_attr(debug_assertions, ignore)]
+fn stream_mutants_are_killed() {
+    let t = tree(12, 4, 0x3eb);
+    let f = Fix { split: SPLIT_N2B, ..FIX };
+    gate_stream(host(), host(), &f, &t, &[1, 9], 9).expect("the unmutated stream pass passes its gate");
+    let s = "llvq-cuda/kernels/pers_4et_stream.cu";
+    let muts: &[(&str, &[Edit])] = &[
+        // the slice's columns staged one sub-step late
+        ("slice_column", &[(s, "col = sub_lo * P4T_SUB + 8u * p;", "col = (sub_lo + 1u) * P4T_SUB + 8u * p;")]),
+        // no restaging: the stage still holds the previous unit's slice
+        ("stale_stage", &[(s, "    p4t_stream_stage(g, xs, sub_lo, ns, R, RS, XS);\n", "    (void)RS;\n")]),
+        // a B fragment read from the next activation row
+        ("b_row", &[(s, "const u32* xr = xs + (nt * 8u + gid) * XS + kw;", "const u32* xr = xs + ((nt * 8u + gid + 1u) % RS) * XS + kw;")]),
+        // the tile stream advanced by half a sub-step
+        ("stream_stride", &[(s, "            wp += SW;\n", "            wp += SW / 2u;\n")]),
+        // the read-ahead takes the current sub-step's words for the next's
+        ("read_ahead", &[(s, "p4t_stream_load(g.kind, wp + SW, n0, n1, n2);", "p4t_stream_load(g.kind, wp, n0, n1, n2);")]),
+        // the head's partials and fold skipped
+        ("head_fold", &[(s, "    if (has) p4t_store(g, L, A, sl, acc, wrow, lane, cmax);\n", "    if (has && (g.epi != P4T_HEAD || g.S == 1u)) p4t_store(g, L, A, sl, acc, wrow, lane, cmax);\n")]),
+    ];
+    let mut killed = 0;
+    for (tag, edits) in muts {
+        let b = mutant(tag, edits);
+        let r = gate_stream(&b, host(), &f, &t, &[1, 9], 9);
+        let _ = std::fs::remove_file(&b);
+        match r {
+            Err(e) => {
+                killed += 1;
+                eprintln!("{tag}: killed by {}", e.lines().next().unwrap_or(""))
+            }
+            Ok(_) => panic!("stream mutant {tag} survived its gate"),
+        }
+    }
+    eprintln!("stream mutants: {killed} of {} killed", muts.len());
+}

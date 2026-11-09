@@ -1,15 +1,21 @@
-//! Stages S1 and N1 of the tree verify (`docs/plan-verify-tree.md`): what a
-//! tree verify pass of R rows costs beside 4E's one-token launch, on the
-//! card, for each arm of the pass.
+//! Stages S1, N1 and N2 of the tree verify (`docs/plan-verify-tree.md`):
+//! what a tree verify pass of R rows costs beside 4E's one-token launch, on
+//! the card, for each arm of the pass.
 //!
 //! Usage: `LLVQ_CONFIG=<served v9 config> vtreebench <sealed> [arms]`, arms a
-//! comma-separated subset of `a0,a1,a2` (default all three):
+//! comma-separated subset of `a0,a1,a2,a3` (default `a0,a1,a2`):
 //!
 //! * a0: S1's kernel and S1's slices (`pers::p4t_splits`);
 //! * a1: S1's kernel, the balanced slices q/k/v 11, o 14, gate/up 7, down
 //!   14, head 1 (`pers::p4t_splits_balanced` keeps them where q/k/v and
 //!   gate/up fill 90 % of the grid);
-//! * a2: a1's slices, the tiled kernel on tree-tiled copies (`P4T_TILED`).
+//! * a2: the tiled kernel on tree-tiled copies (`P4T_TILED`), at a1's slices,
+//!   or at a3's when a3 is asked too, so that a2 against a3 isolates the
+//!   unit's control flow;
+//! * a3: the stream unit (`P4T_STREAM`, `pers_4et_stream.cu`) on the same
+//!   copies, at the stream plan (`pers::p4t_splits_stream`). a2 is its guard:
+//!   a3's 32-row pass must equal a2's bit for bit, else a3's numbers are
+//!   void.
 //!
 //! The served object loads as `specrun` loads it (4E v9 under its config),
 //! then the tree pass installs beside it (`Runtime4e::install_tree`, its own
@@ -98,15 +104,22 @@ fn run() -> anyhow::Result<()> {
     use llvq_llm::boundary::median_range;
     use llvq_llm::chatfmt::{open_assistant, turn, Marks};
     let a: Vec<String> = std::env::args().skip(1).collect();
-    let usage = "usage: LLVQ_CONFIG=<served v9 config> vtreebench <sealed> [a0,a1,a2]";
+    let usage = "usage: LLVQ_CONFIG=<served v9 config> vtreebench <sealed> [a0,a1,a2,a3]";
     let path = a.first().ok_or_else(|| anyhow::anyhow!("{usage}"))?.clone();
     let want_arms: Vec<String> = a.get(1).map_or("a0,a1,a2", |s| s.as_str()).split(',').map(str::to_string).collect();
+    use llvq_llm::persist4e_cuda::{TreeForm, TreePlan};
+    let with_a3 = want_arms.iter().any(|w| w == "a3");
     let mut specs: Vec<llvq_llm::persist4e_cuda::TreeArmSpec> = Vec::new();
     for w in &want_arms {
+        if specs.iter().any(|s| s.0 == w.as_str()) {
+            anyhow::bail!("vtreebench: arm {w} asked twice; {usage}");
+        }
         specs.push(match w.as_str() {
-            "a0" => ("a0", None, false),
-            "a1" => ("a1", Some(BALANCED), false),
-            "a2" => ("a2", Some(BALANCED), true),
+            "a0" => ("a0", TreePlan::S1, TreeForm::Rows),
+            "a1" => ("a1", TreePlan::Balanced(BALANCED), TreeForm::Rows),
+            "a2" if with_a3 => ("a2", TreePlan::Stream, TreeForm::Tiled),
+            "a2" => ("a2", TreePlan::Balanced(BALANCED), TreeForm::Tiled),
+            "a3" => ("a3", TreePlan::Stream, TreeForm::Stream),
             other => anyhow::bail!("vtreebench: unknown arm {other:?}; {usage}"),
         });
     }
@@ -146,6 +159,9 @@ fn run() -> anyhow::Result<()> {
     }
     let arms = rt.tree_arms();
     let na = arms.len();
+    for a in &arms {
+        println!("arm {}: {:?} kernel, {:?} plan, slices {:?}", a.name, a.form, a.plan, a.splits);
+    }
     println!("loaded in {:.1} s", t_load.elapsed().as_secs_f64());
     let tok = f.tokenizer.clone();
     let marks = Marks::resolve(&tok)?;
@@ -252,6 +268,19 @@ fn run() -> anyhow::Result<()> {
                         println!("  {} against {} (other slices): the same argmax at {same_tok} of 32 rows", arms[y].name, arms[x].name);
                     }
                 }
+            }
+        }
+        // a3's guard: a2 at the same plan, bit for bit
+        let at = |n: &str| arms.iter().position(|a| a.name == n);
+        if let (Some(i2), Some(i3)) = (at("a2"), at("a3")) {
+            if let (Some(b2), Some(b3)) = (&bases[i2], &bases[i3]) {
+                let ok = arms[i2].splits == arms[i3].splits && b2.ring == b3.ring && b2.logits == b3.logits;
+                println!(
+                    "  a3 guard against a2 (slices {:?} and {:?}): {}",
+                    arms[i2].splits,
+                    arms[i3].splits,
+                    if ok { "PASSES, the 32-row pass equal bit for bit" } else { "FAILS: a3's numbers are void" }
+                );
             }
         }
         // 4. timing, rounds interleaved
