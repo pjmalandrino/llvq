@@ -45,3 +45,6 @@ rows in greedy tokens, D a head step (BF16: 0.11 of a token, 438 MB at the L40S'
   an *estimated* row cost).
 What this does not establish: any card number, the head's cost on the card, the 8B and 14B heads (RedHat, not run),
 a quantized head's acceptance, the MLX door's tokens against the CUDA door's beyond the agreement above.
+Correction, 2026-11-09: shaker-4e's 0.378 is a share of a row pass, not of a token. At 4B the f32 floor is about 0.27
+of a token a row plus the head (spec-final-2026-11-08.txt §1); its row then reads chat x1.04 and code x1.13 with the
+BF16 head at k = 1 (*computed*). Rule D still fails on chat, and on this night's measured verify (x0.72 / x0.77).
