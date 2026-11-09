@@ -1,6 +1,13 @@
 # LLVQ in Rust
 
+[![arXiv](https://img.shields.io/badge/arXiv-2609.35465-b31b1b?logo=arxiv&logoColor=white)](https://arxiv.org/abs/2609.35465)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.22133606.svg)](https://doi.org/10.5281/zenodo.22133606)
+[![Rust 2021](https://img.shields.io/badge/Rust-2021-000000?logo=rust&logoColor=white)](https://www.rust-lang.org)
+[![CUDA](https://img.shields.io/badge/CUDA-NVRTC-76B900?logo=nvidia&logoColor=white)](llvq-cuda/)
+[![Metal](https://img.shields.io/badge/Metal-macOS-555555?logo=apple&logoColor=white)](llvq-metal/)
+[![Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Hub-Qwen3%204B%20%C2%B7%208B%20%C2%B7%2014B-FFD21E)](https://huggingface.co/Pier-Jean)
+[![PyPI](https://img.shields.io/pypi/v/llvq-tetra?label=PyPI%20llvq-tetra&logo=pypi&logoColor=white)](https://pypi.org/project/llvq-tetra/)
+[![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](#licence)
 
 An independent Rust implementation of Leech-lattice vector quantization for LLM weights
 ([arXiv:2603.11021](https://arxiv.org/abs/2603.11021), Qualcomm AI Research, 2026). The core crates (lattice, search,
@@ -12,6 +19,15 @@ How it works, from the Golay code to the one-launch CUDA token: [`docs/how-it-wo
 ## Results
 
 Three Qwen3 models, sealed at about 2.7 bits per parameter and served on one NVIDIA L40S.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/frontier-dark.svg">
+  <img src="docs/figures/frontier-light.svg" width="800" alt="MMLU against file size for Qwen3 4B, 8B and 14B, four arms: Tetra, AWQ 4-bit, llama.cpp IQ2_S and FP16. At about the same size, Tetra's 8B scores above AWQ's 4B, and its 14B above AWQ's 8B.">
+</picture>
+
+The figure counts the whole file: our three files weigh 1.42, 2.82 and 5.09 GB there, against the 1.38, 2.76 and
+5.04 GB of weights on the card in the table below. Its points and their journals are in
+[`docs/data/readme-frontier.csv`](docs/data/readme-frontier.csv); `uv run ops/readme_figure.py` redraws it.
 
 | model | b/param | MMLU | GSM8K | WikiText-2 ppl | tok/s | GB weights on card | GB card used after load |
 |---|---|---|---|---|---|---|---|
@@ -116,8 +132,11 @@ Every binary and switch is listed in [`CLAUDE.md`](CLAUDE.md). `cargo test` is t
 - [`docs/ETAT.md`](docs/ETAT.md): served configuration, numbers, open decisions.
 - [`docs/ROADMAP.md`](docs/ROADMAP.md): what comes next.
 - [`docs/METHODE.md`](docs/METHODE.md): the lab rules. [`docs/README.md`](docs/README.md): every other document.
-- [`paper2/`](paper2/README.md): *Tetra: Serving Leech-Lattice Quantized LLMs at 2.7 Bits per Parameter*, version 2
-  attached to release [`v0.0.2`](https://github.com/pjmalandrino/llvq/releases/tag/v0.0.2).
+- [`paper2/`](paper2/README.md): *Tetra: Serving Leech-Lattice Quantized LLMs at 2.7 Bits per Parameter*, version 1
+  on [arXiv:2609.35465](https://arxiv.org/abs/2609.35465), version 2 attached to release
+  [`v0.0.2`](https://github.com/pjmalandrino/llvq/releases/tag/v0.0.2).
+- [`paper/`](paper/README.md): *Decoding the Leech Lattice at Matvec Speed: Fused Kernels and VRAM Layouts for 2-Bit
+  LLM Inference*, paper 1, on Zenodo ([10.5281/zenodo.22133606](https://doi.org/10.5281/zenodo.22133606)).
 
 ## Method
 
