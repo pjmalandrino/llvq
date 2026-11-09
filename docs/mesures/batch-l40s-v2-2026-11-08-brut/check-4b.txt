@@ -1,0 +1,109 @@
+served config: /out/batch-l40s-v2-2026-11-08/qwen3-4b-tetra-e4-batch.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention kernel from position 1280 on grow(256), batch of up to 64 sequences of 2048 positions (gemm)) — NOT SERVED until its gate (preregistration-batch-l40s-2026-11-08). The batched decode of the sealed 4B (qwen3-4b-sealed.bin, sha256 886391a8): up to 64 sequences a step through the tensor-core GEMM (kernels/tv_batch_gemm.cu), a cache slot of 2,048 positions each, the kernel attention form from position 0; prompts prefilled one at a time on the eager path. The int4 words stay in the file's order. llvq serve takes it under LLVQ_BATCH; batchrun takes it under LLVQ_CONFIG. Added 2026-11-08.
+cudarc event tracking: off (one stream, ordered by issue)
+shared rotation: 1 (LLVQ_CONFIG), 96 rot_launches/token for 252 projections
+projection fusion: 0 (LLVQ_CONFIG), 252 matvec_launches/token for 252 projections (0 groups + 168 lone + 84 int4)
+fused layout: tetra48 (LLVQ_CONFIG), projections 1.16 GB on the card, 2.550 b/weight (INFERENCE accounting: KeepExact tail in binary16; the bench bills its own in f32)
+NVRTC source: 101625 bytes, sha256 6193094310bc18acdb0a0c554807ff45f6df09c1f6ab49e0577032874f107812 (11 parts), tile 64 (served: measured optimum for sm_89), prefill 4x128 (served pair), 49152 B staged of 49152, target compute_89
+int4: tv_q4_hh equals tv_q4_h bit for bit on model.layers.0.self_attn.v_proj.weight (1024 rows, d_in 2560)
+int4 layout: served (LLVQ_CONFIG), 84 records, words 0.385 GB on the card, held once
+embedding: q4 g64 (LLVQ_CONFIG), 1 table (model.embed_tokens.weight, lm_head tied on it), 218.8 MB on the card (int4 194.5 + scales/biases 24.3)
+total expected on the card: 1.38 GB (projections 1.16 + carried 0.22)
+attn_dec.cu: embedded, sha256 c7b0d8d3f2e3066ba1a2b4331c0bb6c92f22182c78a31b7fb74e839330a1838d, target compute_89
+attn_dec_g4_u64: 160 registers, 0 B local (spill), 16384 B static shared, sm_89
+attn_dec_g4_u64: the card equals the CPU replay bit for bit on 103 calls (rows ending at 1, 255, 256, 257, 1000, 4096; k 1, 3, 8; eager and wide grids; verify rows alone; fresh rows) (1.2 s)
+batch mma unit: 81799 bytes, sha256 d241ea8d1407bff65950d069acb7440b3ab5bdf9a831338ebac75bd3aae893b3, target compute_89
+batch gemm unit: 78294 bytes, sha256 38a469c8c49ab7af269514fddf9a4231f105e529f39bce0f7c0060ef529c0ce7
+batch attention unit: 28404 bytes, sha256 ed0d7dab9a46e17c1dd53f278fbd00a93f130da0e53e9ef5fb227ff2cdf991b5
+tv_tetra48_mma_n8: 48 registers, 0 B local
+tv_tetra48_mma_n16: 64 registers, 0 B local
+tv_tetra48_mma_n32: 116 registers, 0 B local
+tv_q4_mma_n8: 40 registers, 0 B local
+tv_q4_mma_n16: 63 registers, 0 B local
+tv_q4_mma_n32: 96 registers, 0 B local
+tv_bg_n8: 40 registers, 0 B local, 47360 B shared
+tv_bg_n16: 48 registers, 0 B local, 53760 B shared
+tv_bg_n32: 64 registers, 0 B local, 66560 B shared
+tv_bg_n64: 80 registers, 0 B local, 55296 B shared
+tv_bg_n128: 128 registers, 0 B local, 81920 B shared
+attn_batch_g4_u64: 158 registers, 0 B local
+attn_slot_g4_u64: 161 registers, 0 B local
+loaded in 16.3 s, attention kernel on grow(256)
+check q_proj    tetra rows  1: relative RMS 3.995e-4, max 1.729e-3 of the RMS
+check k_proj    tetra rows  1: relative RMS 3.947e-4, max 1.571e-3 of the RMS
+check v_proj    int4  rows  1: relative RMS 3.023e-4, max 1.589e-3 of the RMS
+check o_proj    int4  rows  1: relative RMS 3.180e-4, max 2.674e-3 of the RMS
+check gate_proj tetra rows  1: relative RMS 4.011e-4, max 1.607e-3 of the RMS
+check up_proj   tetra rows  1: relative RMS 3.920e-4, max 1.661e-3 of the RMS
+check down_proj tetra rows  1: relative RMS 3.887e-4, max 1.691e-3 of the RMS
+check lm_head   int4  rows  1: relative RMS 3.097e-4, max 3.508e-3 of the RMS
+check q,k,v     part 0 rows   1: relative RMS 4.085e-4, max 1.635e-3 of the RMS
+check q,k,v     part 1 rows   1: relative RMS 4.230e-4, max 1.589e-3 of the RMS
+check q,k,v     part 2 rows   1: relative RMS 3.098e-4, max 1.705e-3 of the RMS
+check gate,up   part 0 rows   1: relative RMS 3.921e-4, max 3.235e-3 of the RMS
+check gate,up   part 1 rows   1: relative RMS 3.942e-4, max 1.732e-3 of the RMS
+check q_proj    tetra rows  8: relative RMS 3.924e-4, max 3.289e-3 of the RMS
+check k_proj    tetra rows  8: relative RMS 3.954e-4, max 1.566e-3 of the RMS
+check v_proj    int4  rows  8: relative RMS 3.097e-4, max 1.675e-3 of the RMS
+check o_proj    int4  rows  8: relative RMS 3.038e-4, max 2.731e-3 of the RMS
+check gate_proj tetra rows  8: relative RMS 3.954e-4, max 3.173e-3 of the RMS
+check up_proj   tetra rows  8: relative RMS 3.930e-4, max 3.396e-3 of the RMS
+check down_proj tetra rows  8: relative RMS 3.919e-4, max 3.348e-3 of the RMS
+check lm_head   int4  rows  8: relative RMS 3.055e-4, max 3.433e-3 of the RMS
+check q,k,v     part 0 rows   8: relative RMS 3.940e-4, max 3.281e-3 of the RMS
+check q,k,v     part 1 rows   8: relative RMS 3.992e-4, max 3.144e-3 of the RMS
+check q,k,v     part 2 rows   8: relative RMS 3.075e-4, max 1.662e-3 of the RMS
+check gate,up   part 0 rows   8: relative RMS 3.959e-4, max 3.183e-3 of the RMS
+check gate,up   part 1 rows   8: relative RMS 3.938e-4, max 3.412e-3 of the RMS
+check q_proj    tetra rows 13: relative RMS 3.971e-4, max 3.293e-3 of the RMS
+check k_proj    tetra rows 13: relative RMS 4.021e-4, max 3.117e-3 of the RMS
+check v_proj    int4  rows 13: relative RMS 3.130e-4, max 1.673e-3 of the RMS
+check o_proj    int4  rows 13: relative RMS 3.066e-4, max 2.804e-3 of the RMS
+check gate_proj tetra rows 13: relative RMS 3.876e-4, max 3.127e-3 of the RMS
+check up_proj   tetra rows 13: relative RMS 3.923e-4, max 3.382e-3 of the RMS
+check down_proj tetra rows 13: relative RMS 3.906e-4, max 3.293e-3 of the RMS
+check lm_head   int4  rows 13: relative RMS 3.114e-4, max 3.521e-3 of the RMS
+check q,k,v     part 0 rows  13: relative RMS 3.967e-4, max 3.321e-3 of the RMS
+check q,k,v     part 1 rows  13: relative RMS 3.965e-4, max 3.192e-3 of the RMS
+check q,k,v     part 2 rows  13: relative RMS 3.101e-4, max 3.314e-3 of the RMS
+check gate,up   part 0 rows  13: relative RMS 3.941e-4, max 3.169e-3 of the RMS
+check gate,up   part 1 rows  13: relative RMS 3.977e-4, max 3.405e-3 of the RMS
+check q_proj    tetra rows 32: relative RMS 3.907e-4, max 6.557e-3 of the RMS
+check k_proj    tetra rows 32: relative RMS 3.972e-4, max 3.131e-3 of the RMS
+check v_proj    int4  rows 32: relative RMS 3.054e-4, max 3.322e-3 of the RMS
+check o_proj    int4  rows 32: relative RMS 3.092e-4, max 5.552e-3 of the RMS
+check gate_proj tetra rows 32: relative RMS 3.937e-4, max 3.175e-3 of the RMS
+check up_proj   tetra rows 32: relative RMS 3.964e-4, max 3.383e-3 of the RMS
+check down_proj tetra rows 32: relative RMS 3.935e-4, max 3.303e-3 of the RMS
+check lm_head   int4  rows 32: relative RMS 3.088e-4, max 3.470e-3 of the RMS
+check q,k,v     part 0 rows  32: relative RMS 3.957e-4, max 3.316e-3 of the RMS
+check q,k,v     part 1 rows  32: relative RMS 3.961e-4, max 3.129e-3 of the RMS
+check q,k,v     part 2 rows  32: relative RMS 3.149e-4, max 1.678e-3 of the RMS
+check gate,up   part 0 rows  32: relative RMS 3.928e-4, max 3.172e-3 of the RMS
+check gate,up   part 1 rows  32: relative RMS 3.942e-4, max 3.409e-3 of the RMS
+check q_proj    tetra rows 64: relative RMS 3.962e-4, max 3.308e-3 of the RMS
+check k_proj    tetra rows 64: relative RMS 3.943e-4, max 3.081e-3 of the RMS
+check v_proj    int4  rows 64: relative RMS 3.087e-4, max 3.333e-3 of the RMS
+check o_proj    int4  rows 64: relative RMS 3.085e-4, max 5.619e-3 of the RMS
+check gate_proj tetra rows 64: relative RMS 3.930e-4, max 3.160e-3 of the RMS
+check up_proj   tetra rows 64: relative RMS 3.939e-4, max 3.397e-3 of the RMS
+check down_proj tetra rows 64: relative RMS 3.931e-4, max 3.321e-3 of the RMS
+check lm_head   int4  rows 64: relative RMS 3.088e-4, max 3.461e-3 of the RMS
+check q,k,v     part 0 rows  64: relative RMS 3.952e-4, max 3.274e-3 of the RMS
+check q,k,v     part 1 rows  64: relative RMS 3.963e-4, max 3.099e-3 of the RMS
+check q,k,v     part 2 rows  64: relative RMS 3.108e-4, max 3.333e-3 of the RMS
+check gate,up   part 0 rows  64: relative RMS 3.940e-4, max 3.175e-3 of the RMS
+check gate,up   part 1 rows  64: relative RMS 3.950e-4, max 3.409e-3 of the RMS
+check q_proj    tetra rows 128: relative RMS 3.954e-4, max 6.619e-3 of the RMS
+check k_proj    tetra rows 128: relative RMS 3.896e-4, max 3.086e-3 of the RMS
+check v_proj    int4  rows 128: relative RMS 3.065e-4, max 3.344e-3 of the RMS
+check o_proj    int4  rows 128: relative RMS 3.097e-4, max 5.601e-3 of the RMS
+check gate_proj tetra rows 128: relative RMS 3.930e-4, max 3.168e-3 of the RMS
+check up_proj   tetra rows 128: relative RMS 3.945e-4, max 3.403e-3 of the RMS
+check down_proj tetra rows 128: relative RMS 3.937e-4, max 3.315e-3 of the RMS
+check lm_head   int4  rows 128: relative RMS 3.102e-4, max 3.492e-3 of the RMS
+check q,k,v     part 0 rows 128: relative RMS 3.933e-4, max 3.288e-3 of the RMS
+check q,k,v     part 1 rows 128: relative RMS 3.946e-4, max 3.115e-3 of the RMS
+check q,k,v     part 2 rows 128: relative RMS 3.096e-4, max 3.343e-3 of the RMS
+check gate,up   part 0 rows 128: relative RMS 3.933e-4, max 3.174e-3 of the RMS
+check gate,up   part 1 rows 128: relative RMS 3.943e-4, max 3.400e-3 of the RMS
+check: worst relative RMS 4.230e-4 (gate 1e-2)

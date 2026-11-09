@@ -31,3 +31,26 @@
 
 ATTN_BATCH_ENTRY(attn_batch_g4_u64, 4, 64)
 ATTN_BATCH_ENTRY(attn_batch_g5_u64, 5, 64)
+
+// The same launch over rows that live in any slots of a larger pool: row z
+// reads and writes cache slot `slot[z]`, everything else is indexed by z.
+// Continuous batching steps the sequences that are live, wherever they sit;
+// the slots of the others are not touched. Row z's bits are those of a
+// one-row call on its slot, as above.
+#define ATTN_SLOT_ENTRY(NAME, G, UNIT)                                                           \
+    extern "C" __global__ void ATTN_BOUNDS NAME(                                                 \
+        const unsigned short* q, const unsigned short* k_new, const unsigned short* v_new,      \
+        unsigned short* kc, unsigned short* vc, const int* pos, const int* slot, int cap,       \
+        float c, float* part, unsigned* ticket, unsigned short* out, int s_stride) {            \
+        const long long z = (long long)blockIdx.z;                                               \
+        const long long nkv = (long long)gridDim.y;                                              \
+        const long long qz = z * nkv * G * ATTN_HD;                                              \
+        const long long kz = z * nkv * ATTN_HD;                                                  \
+        const long long cz = (long long)slot[z] * nkv * (long long)cap * ATTN_HD;                \
+        const long long pz = z * nkv * (long long)s_stride * ATTN_KMAX * G * ATTN_PSTRIDE;       \
+        attn_dec_body<G, UNIT>(q + qz, k_new + kz, v_new + kz, kc + cz, vc + cz, pos[z], 1, cap, \
+                               c, part + pz, ticket + z * nkv, out + qz, s_stride);              \
+    }
+
+ATTN_SLOT_ENTRY(attn_slot_g4_u64, 4, 64)
+ATTN_SLOT_ENTRY(attn_slot_g5_u64, 5, 64)

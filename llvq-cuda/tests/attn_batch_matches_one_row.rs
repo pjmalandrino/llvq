@@ -22,6 +22,12 @@ fn probe() -> std::path::PathBuf {
 }
 
 fn run(exe: &std::path::Path, g: u32, n_kv: u32, cap: u32, pos: &[i32], seed: u64) {
+    run_slots(exe, g, n_kv, cap, pos, seed, 0, &[]);
+}
+
+/// `pool` 0 is the dense entry; otherwise the slot entry, row z in `slots[z]`.
+#[allow(clippy::too_many_arguments)]
+fn run_slots(exe: &std::path::Path, g: u32, n_kv: u32, cap: u32, pos: &[i32], seed: u64, pool: u32, slots: &[i32]) {
     let mut f = Vec::new();
     for v in [g, n_kv, cap, pos.len() as u32] {
         f.extend(v.to_le_bytes());
@@ -30,6 +36,10 @@ fn run(exe: &std::path::Path, g: u32, n_kv: u32, cap: u32, pos: &[i32], seed: u6
         f.extend(p.to_le_bytes());
     }
     f.extend(seed.to_le_bytes());
+    f.extend(pool.to_le_bytes());
+    for s in slots {
+        f.extend(s.to_le_bytes());
+    }
     let mut ch = Command::new(exe).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().expect("probe runs");
     ch.stdin.take().expect("stdin").write_all(&f).expect("fixture");
     let out = ch.wait_with_output().expect("probe exits");
@@ -45,4 +55,14 @@ fn every_sequence_of_a_batch_gets_the_one_row_bits() {
     run(&exe, 5, 2, 512, &[255, 256, 1, 511], 9);
     run(&exe, 4, 8, 256, &[17], 3);
     run(&exe, 4, 3, 1024, &[1000, 0, 513, 64, 255], 11);
+}
+
+#[test]
+#[cfg_attr(debug_assertions, ignore = "compiles C++ and runs whole CTAs, run in release")]
+fn rows_in_any_slots_of_a_pool_get_the_one_row_bits() {
+    let exe = probe();
+    // Rows in reverse and scattered slots, slots left out of the step.
+    run_slots(&exe, 4, 2, 768, &[0, 300, 700], 5, 6, &[5, 0, 3]);
+    run_slots(&exe, 5, 2, 512, &[255, 256, 1, 511], 13, 4, &[3, 2, 1, 0]);
+    run_slots(&exe, 4, 3, 512, &[17, 400], 21, 7, &[6, 2]);
 }

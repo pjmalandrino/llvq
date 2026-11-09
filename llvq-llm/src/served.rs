@@ -115,10 +115,65 @@ pub struct ServedFile {
     /// call, and makes no score tensor. See [`PrefillAttn`].
     #[serde(default)]
     pub prefill_attention: Option<String>,
+    /// The batched decode (`crate::batch`): how many sequences one step
+    /// carries at most, and how many positions a sequence holds. Absent, the
+    /// object is served one sequence at a time, as every config before it.
+    /// See [`BatchServe`].
+    #[serde(default)]
+    pub batch: Option<BatchFile>,
     /// Free text, carried so a config can say what object it belongs to. Read
     /// by nothing and printed with the rest.
     #[serde(default)]
     pub note: Option<String>,
+}
+
+/// The `batch` field of a config file.
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct BatchFile {
+    /// Sequences one step carries at most.
+    pub max: usize,
+    /// Positions a sequence holds at most, prompt and answer.
+    pub context: usize,
+}
+
+/// The batched decode a config names: up to `max` sequences a step through
+/// the tensor-core GEMM (`crate::batch::BatchProjs::Gemm`), each in a cache
+/// slot of `context` positions. What it changes: the sum order of the
+/// projections, so a sequence's tokens are not bit for bit those of batch 1;
+/// the licence is the T8 band (the gate of preregistration-batch-l40s). Beside
+/// `decode: persistent`, a request decoded alone runs on 4E and joins the
+/// batch when another arrives (`llvq serve`). It is refused:
+/// * beside any attention but `kernel`, the form its attention computes from
+///   position 0, and any kv but `f16`, the cache it holds;
+/// * beside `fuse: 1`, which has no batched kernel;
+/// * with `max` outside 1..=128 (the widest entry) or `context` outside
+///   256..=40,960 (Qwen3's RoPE table).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BatchServe {
+    pub max: usize,
+    pub context: usize,
+}
+
+/// The widest batch the GEMM's entries take (`batch_cuda::GEMM_MAX_ROWS`).
+pub const BATCH_MAX_ROWS: usize = 128;
+
+impl BatchServe {
+    pub fn of(f: BatchFile) -> Result<Self, String> {
+        if !(1..=BATCH_MAX_ROWS).contains(&f.max) {
+            return Err(format!("batch max {}: between 1 and {BATCH_MAX_ROWS}", f.max));
+        }
+        if !(256..=40_960).contains(&f.context) {
+            return Err(format!("batch context {}: between 256 and 40,960 positions", f.context));
+        }
+        Ok(Self { max: f.max, context: f.context })
+    }
+
+    /// The same, with `max` replaced by an operator's choice at serve time
+    /// (`llvq serve`'s `LLVQ_BATCH`), under the same bounds.
+    pub fn with_max(self, max: usize) -> Result<Self, String> {
+        Self::of(BatchFile { max, context: self.context })
+    }
 }
 
 /// The same thing resolved, plus where it came from.
@@ -141,6 +196,8 @@ pub struct Served {
     /// How the kernel form attends a prefill chunk; `Grouped` under any other
     /// form, where it is not read.
     pub prefill: PrefillAttn,
+    /// The batched decode, when the config names one.
+    pub batch: Option<BatchServe>,
     pub path: PathBuf,
     pub note: Option<String>,
 }
@@ -530,6 +587,24 @@ impl Served {
                 ));
             }
         }
+        let batch = match f.batch {
+            None => None,
+            Some(b) => {
+                let why = if attention != AttnHeads::Kernel {
+                    Some("an attention other than \"kernel\": the batched attention is the kernel form from position 0")
+                } else if kv != KvMode::F16 {
+                    Some("a kv other than \"f16\": the batched cache is f16")
+                } else if fuse != FuseMode::Off {
+                    Some("fuse \"1\": a fused group has no batched kernel")
+                } else {
+                    None
+                };
+                if let Some(why) = why {
+                    return Err(format!("batch beside {why}. Write a config of its own for the batched decode."));
+                }
+                Some(BatchServe::of(b)?)
+            }
+        };
         Ok(Self {
             layout,
             embed,
@@ -541,6 +616,7 @@ impl Served {
             decode,
             rows,
             prefill,
+            batch,
             path,
             note: f.note,
         })
@@ -586,6 +662,10 @@ impl Served {
             PrefillAttn::Grouped => decode,
             PrefillAttn::Kernel => format!("{decode}, prefill attention kernel (8 rows a call)"),
         };
+        let decode = match self.batch {
+            None => decode,
+            Some(b) => format!("{decode}, batch of up to {} sequences of {} positions (gemm)", b.max, b.context),
+        };
         format!(
             "served config: {} (layout {}, embed {}, rot_share {}, fuse {}, kv {}, \
              attention {attention} on {}{decode}){note}",
@@ -613,6 +693,13 @@ impl Served {
     /// testable on a machine that has no Metal device, and so this function
     /// stays pure like the rest of this module.
     pub fn check_device(&self, metal: bool) -> Result<(), String> {
+        if self.batch.is_some() && metal {
+            return Err(format!(
+                "{}: batch on Metal. The batched decode's kernels are CUDA (kernels/tv_batch_gemm.cu); \
+                 serve this object one sequence at a time on Metal.",
+                self.path.display(),
+            ));
+        }
         if self.decode == Decode::Persistent && metal {
             return Err(format!(
                 "{}: decode \"persistent\" on Metal. 4E is one cooperative CUDA launch \

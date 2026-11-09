@@ -1,0 +1,134 @@
+NVIDIA L40S, 8.9, 46068 MiB, 580.178.04, 2520 MHz
+== gate 1: oracle ==
+Qwen/Qwen3-0.6B on Cuda(CudaDevice(DeviceId(1))) — max |Δhidden| = 0.000e0   (relative to max|h| = 8.550e1) → 0.000e0
+MATCH — the observable forward reproduces candle's Qwen3
+== gate 2: the objects, the configs, the bench ==
+886391a8c03f66dc269cc65c3598c6627dbdcd259180aff36604ef10d37371b8  /out/sealed-4b-2026-09-23/qwen3-4b-sealed.bin
+7bdb9a5503518081b1f652a93215250898caae5cc1b6a2f33ee9fb6094565c13  /out/sealed-8b27-2026-09-24/qwen3-8b-sealed-B.bin
+61db37fe7ce8e6a57c5c59f257319c796574981ecb5e450a02c73dd3c17e2ca0  /out/sealed-14b-2026-09-23/qwen3-14b-sealed.bin
+configs and bench at their bytes
+== 4b (a): batchrun check gemm on the tiled words ==
+Sun Nov  8 12:08:48 UTC 2026
+served config: /out/batch-l40s-v3-2026-11-08/qwen3-4b-tetra-e4-4e-v9-batch.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention kernel from position 0 on grow(256), decode persistent (4E rows v9, one launch a token run), batch of up to 64 sequences of 2048 positions (gemm)) — The v9 config of the sealed 4B (qwen3-4b-sealed.bin, sha256 886391a8) with a batch of up to 64 sequences of 2,048 positions: under llvq serve's LLVQ_BATCH, a request decoded alone runs on 4E v9, and from the second live request on every one decodes through the tensor-core GEMM (kernels/tv_batch_gemm.cu, which reads the int4 words in the tiled order v9 lays). Added 2026-11-08; its gate is preregistration-batch-l40s-v3-2026-11-08.
+int4 layout: tiled (LLVQ_CONFIG), 84 records, words 0.385 GB on the card, held once
+tv_bg_n8: 96 registers, 0 B local, 47360 B shared
+tv_bg_n16: 72 registers, 0 B local, 35328 B shared
+tv_bg_n32: 80 registers, 0 B local, 41984 B shared
+tv_bg_n64: 120 registers, 0 B local, 34816 B shared
+tv_bg_n128: 128 registers, 0 B local, 49152 B shared
+check: worst relative RMS 4.230e-4 (gate 1e-2)
+== 4b (b): the batched door, gemm ==
+Sun Nov  8 12:09:16 UTC 2026
+batched door: 256 tokens a sequence after the 5-token prompt fed through the batch, prompt and decode, 3 rounds
+  B arm   tok/s aggregate                  range      steps/s    tok/s a seq  tokens
+  1 gemm            106.5 [    106.5-    106.6]       108.17          106.5  1 of 1 rows equal 61d0654532d35120
+  8 gemm            807.1 [    806.7-    807.3]       102.46          100.9  8 of 8 rows equal 61d0654532d35120
+ 32 gemm           2295.2 [   2294.2-   2295.9]        72.84           71.7  32 of 32 rows equal 61d0654532d35120
+ 64 gemm           2977.6 [   2976.8-   2978.4]        47.25           46.5  64 of 64 rows equal 61d0654532d35120
+128 gemm           4169.9 [   4169.5-   4176.9]        33.09           32.6  128 of 128 rows equal 61d0654532d35120
+== 4b (c): decode-path perplexity on the tiled words, gemm against rows ==
+Sun Nov  8 12:11:02 UTC 2026
+batched ppl: WikiText-2 test, 16 windows of 2048, 32752 positions, tokens 41391567c7bdff87; rows 146.7 s, gemm 31.0 s
+ppl rows 13.4599 (decode path, multi-row kernels), gemm 13.4598: pooled -0.0009 %, window mean -0.0009 % [-0.0087 ; +0.0069]
+T8 band: pooled inside +-0.12 %: yes
+== 4b (d): llvq serve under LLVQ_BATCH=128:1024, concurrent requests ==
+Sun Nov  8 12:14:19 UTC 2026
+llvq serve, qwen3:4b, 256 tokens a request, raw prompt, 2 rounds
+   B  tok/s aggregate                  range  tok/s a request  answers equal to B=1
+   1            221.0 [    220.8-    221.1]            224.4  1 of 1
+   8            759.4 [    759.3-    759.4]             99.6  8 of 8
+  16           1178.8 [   1178.6-   1179.0]             79.1  16 of 16
+  32           1880.1 [   1879.8-   1880.3]             65.8  32 of 32
+  64           2309.5 [   2308.9-   2310.1]             41.5  64 of 64
+ 128           2941.2 [   2940.2-   2942.2]             27.5  128 of 128
+== 8b (a): batchrun check gemm on the tiled words ==
+Sun Nov  8 12:17:44 UTC 2026
+served config: /out/batch-l40s-v3-2026-11-08/qwen3-8b-tetra-e4-4e-v9-batch.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention kernel from position 0 on grow(256), decode persistent (4E rows v9, one launch a token run), batch of up to 64 sequences of 2048 positions (gemm)) — The v9 config of the sealed 8B (qwen3-8b-sealed-B.bin, sha256 7bdb9a55) with a batch of up to 64 sequences of 2,048 positions: under llvq serve's LLVQ_BATCH, a request decoded alone runs on 4E v9, and from the second live request on every one decodes through the tensor-core GEMM (kernels/tv_batch_gemm.cu, which reads the int4 words in the tiled order v9 lays). Added 2026-11-08; its gate is preregistration-batch-l40s-v3-2026-11-08.
+int4 layout: tiled (LLVQ_CONFIG), 53 records, words 0.503 GB on the card, held once
+tv_bg_n8: 96 registers, 0 B local, 47360 B shared
+tv_bg_n16: 72 registers, 0 B local, 35328 B shared
+tv_bg_n32: 80 registers, 0 B local, 41984 B shared
+tv_bg_n64: 120 registers, 0 B local, 34816 B shared
+tv_bg_n128: 128 registers, 0 B local, 49152 B shared
+check: worst relative RMS 4.312e-4 (gate 1e-2)
+== 8b (b): the batched door, gemm ==
+Sun Nov  8 12:18:07 UTC 2026
+batched door: 256 tokens a sequence after the 5-token prompt fed through the batch, prompt and decode, 3 rounds
+  B arm   tok/s aggregate                  range      steps/s    tok/s a seq  tokens
+  1 gemm             74.8 [     74.6-     75.0]        76.00           74.8  1 of 1 rows equal c817aeaf2f5d1116
+  8 gemm            573.7 [    572.9-    576.8]        72.84           71.7  8 of 8 rows equal c817aeaf2f5d1116
+ 32 gemm           1632.6 [   1627.6-   1639.5]        51.82           51.0  32 of 32 rows equal c817aeaf2f5d1116
+ 64 gemm           2197.5 [   2173.5-   2198.2]        34.87           34.3  64 of 64 rows equal c817aeaf2f5d1116
+128 gemm           3192.8 [   3151.7-   3207.1]        25.33           24.9  128 of 128 rows equal c817aeaf2f5d1116
+== 8b (d): llvq serve under LLVQ_BATCH=128:1024, concurrent requests ==
+Sun Nov  8 12:20:29 UTC 2026
+llvq serve, qwen3:8b, 256 tokens a request, raw prompt, 2 rounds
+   B  tok/s aggregate                  range  tok/s a request  answers equal to B=1
+   1            140.6 [    140.0-    141.2]            142.4  1 of 1
+   8            542.6 [    542.2-    542.9]             71.0  8 of 8
+  16            841.0 [    837.7-    844.4]             56.1  16 of 16
+  32           1361.3 [   1348.8-   1373.7]             47.3  32 of 32
+  64           1715.4 [   1699.0-   1731.7]             30.6  64 of 64
+ 128           2256.9 [   2243.0-   2270.9]             21.0  128 of 128
+== 14b (a): batchrun check gemm on the tiled words ==
+Sun Nov  8 12:23:45 UTC 2026
+served config: /out/batch-l40s-v3-2026-11-08/qwen3-14b-tetra-e4-4e-v9-batch.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention kernel from position 0 on grow(256), decode persistent (4E rows v9, one launch a token run), batch of up to 64 sequences of 2048 positions (gemm)) — The v9 config of the sealed 14B (qwen3-14b-sealed.bin, sha256 61db37fe) with a batch of up to 64 sequences of 2,048 positions: under llvq serve's LLVQ_BATCH, a request decoded alone runs on 4E v9, and from the second live request on every one decodes through the tensor-core GEMM (kernels/tv_batch_gemm.cu, which reads the int4 words in the tiled order v9 lays). Added 2026-11-08; its gate is preregistration-batch-l40s-v3-2026-11-08.
+int4 layout: tiled (LLVQ_CONFIG), 99 records, words 1.476 GB on the card, held once
+tv_bg_n8: 96 registers, 0 B local, 47360 B shared
+tv_bg_n16: 72 registers, 0 B local, 35328 B shared
+tv_bg_n32: 80 registers, 0 B local, 41984 B shared
+tv_bg_n64: 120 registers, 0 B local, 34816 B shared
+tv_bg_n128: 128 registers, 0 B local, 49152 B shared
+check: worst relative RMS 4.219e-4 (gate 1e-2)
+== 14b (b): the batched door, gemm ==
+Sun Nov  8 12:24:21 UTC 2026
+batched door: 256 tokens a sequence after the 5-token prompt fed through the batch, prompt and decode, 3 rounds
+  B arm   tok/s aggregate                  range      steps/s    tok/s a seq  tokens
+  1 gemm             43.9 [     43.8-     44.4]        44.60           43.9  1 of 1 rows equal dc4f9ab9aa24c4d3
+  8 gemm            335.8 [    335.7-    338.6]        42.63           42.0  8 of 8 rows equal dc4f9ab9aa24c4d3
+ 32 gemm            951.3 [    948.1-    956.5]        30.19           29.7  32 of 32 rows equal dc4f9ab9aa24c4d3
+ 64 gemm           1308.8 [   1294.0-   1309.0]        20.77           20.4  64 of 64 rows equal dc4f9ab9aa24c4d3
+128 gemm           1938.4 [   1920.6-   1949.7]        15.38           15.1  128 of 128 rows equal dc4f9ab9aa24c4d3
+== 14b (d): llvq serve under LLVQ_BATCH=128:1024, concurrent requests ==
+Sun Nov  8 12:28:14 UTC 2026
+llvq serve, qwen3:14b, 256 tokens a request, raw prompt, 2 rounds
+   B  tok/s aggregate                  range  tok/s a request  answers equal to B=1
+   1             86.9 [     86.8-     87.1]             88.1  1 of 1
+   8            318.1 [    316.9-    319.3]             41.6  8 of 8
+  16            479.2 [    478.5-    479.9]             31.8  16 of 16
+  32            791.5 [    790.5-    792.5]             27.3  32 of 32
+  64           1021.3 [   1016.0-   1026.6]             18.1  64 of 64
+ 128           1372.4 [   1367.6-   1377.2]             12.8  128 of 128
+Sun Nov  8 12:33:10 UTC 2026
+total 82
+drwxr-xr-x.   2 root   root       0 Nov  8 12:33 .
+drwxrwxrwx. 204 nobody nogroup    0 Nov  8 12:07 ..
+-rw-r--r--.   1 root   root    5286 Nov  8 12:08 batch_serve_bench.py
+-rw-r--r--.   1 root   root    9694 Nov  8 12:24 check-14b.txt
+-rw-r--r--.   1 root   root    9869 Nov  8 12:09 check-4b.txt
+-rw-r--r--.   1 root   root    9693 Nov  8 12:18 check-8b.txt
+-rw-r--r--.   1 root   root    5619 Nov  8 12:28 door-batch-14b.txt
+-rw-r--r--.   1 root   root    5788 Nov  8 12:11 door-batch-4b.txt
+-rw-r--r--.   1 root   root    5615 Nov  8 12:20 door-batch-8b.txt
+-rw-r--r--.   1 root   root     342 Nov  8 12:08 files.sha256
+-rw-r--r--.   1 root   root      50 Nov  8 12:07 gpu.txt
+-rw-r--r--.   1 root   root     377 Nov  8 12:07 oracle.txt
+-rw-r--r--.   1 root   root    4826 Nov  8 12:14 ppl-2048x16-4b.txt
+-rw-r--r--.   1 root   root     515 Nov  8 12:33 ps-14b.json
+-rw-r--r--.   1 root   root     511 Nov  8 12:17 ps-4b.json
+-rw-r--r--.   1 root   root     511 Nov  8 12:23 ps-8b.json
+-rw-r--r--.   1 root   root     121 Nov  8 12:28 pull-14b.txt
+-rw-r--r--.   1 root   root     119 Nov  8 12:14 pull-4b.txt
+-rw-r--r--.   1 root   root     123 Nov  8 12:20 pull-8b.txt
+-rw-r--r--.   1 root   root     661 Nov  8 12:08 qwen3-14b-tetra-e4-4e-v9-batch.json
+-rw-r--r--.   1 root   root     659 Nov  8 12:08 qwen3-4b-tetra-e4-4e-v9-batch.json
+-rw-r--r--.   1 root   root     661 Nov  8 12:08 qwen3-8b-tetra-e4-4e-v9-batch.json
+-rw-r--r--.   1 root   root    1958 Nov  8 12:28 serve-14b.txt
+-rw-r--r--.   1 root   root    2135 Nov  8 12:17 serve-4b.txt
+-rw-r--r--.   1 root   root    1957 Nov  8 12:23 serve-8b.txt
+-rw-r--r--.   1 root   root    1362 Nov  8 12:33 serve-bench-14b.json
+-rw-r--r--.   1 root   root    1731 Nov  8 12:28 serve-bench-14b.txt
+-rw-r--r--.   1 root   root    1357 Nov  8 12:17 serve-bench-4b.json
+-rw-r--r--.   1 root   root    1725 Nov  8 12:17 serve-bench-4b.txt
+-rw-r--r--.   1 root   root    1363 Nov  8 12:23 serve-bench-8b.json
+-rw-r--r--.   1 root   root    1724 Nov  8 12:23 serve-bench-8b.txt

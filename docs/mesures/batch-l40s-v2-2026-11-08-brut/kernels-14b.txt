@@ -1,0 +1,36 @@
+served config: /out/batch-l40s-v2-2026-11-08/qwen3-14b-tetra-e4-batch.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention kernel from position 1280 on grow(256), batch of up to 64 sequences of 2048 positions (gemm)) — NOT SERVED until its gate (preregistration-batch-l40s-2026-11-08). The batched decode of the sealed 14B (qwen3-14b-sealed.bin, sha256 61db37fe): up to 64 sequences a step through the tensor-core GEMM (kernels/tv_batch_gemm.cu), a cache slot of 2,048 positions each, the kernel attention form from position 0; prompts prefilled one at a time on the eager path. The int4 words stay in the file's order. llvq serve takes it under LLVQ_BATCH; batchrun takes it under LLVQ_CONFIG. Added 2026-11-08.
+cudarc event tracking: off (one stream, ordered by issue)
+shared rotation: 1 (LLVQ_CONFIG), 101 rot_launches/token for 280 projections
+projection fusion: 0 (LLVQ_CONFIG), 280 matvec_launches/token for 280 projections (0 groups + 181 lone + 99 int4)
+fused layout: tetra48 (LLVQ_CONFIG), projections 4.17 GB on the card, 2.524 b/weight (INFERENCE accounting: KeepExact tail in binary16; the bench bills its own in f32)
+NVRTC source: 101625 bytes, sha256 6193094310bc18acdb0a0c554807ff45f6df09c1f6ab49e0577032874f107812 (11 parts), tile 64 (served: measured optimum for sm_89), prefill 4x128 (served pair), 49152 B staged of 49152, target compute_89
+int4: tv_q4_hh equals tv_q4_h bit for bit on model.layers.0.self_attn.v_proj.weight (1024 rows, d_in 5120)
+int4 layout: served (LLVQ_CONFIG), 99 records, words 1.476 GB on the card, held once
+embedding: q4 g64 (LLVQ_CONFIG), 2 tables (model.embed_tokens.weight + lm_head.weight), 875.2 MB on the card (int4 777.9 + scales/biases 97.2)
+total expected on the card: 5.04 GB (projections 4.17 + carried 0.88)
+attn_dec.cu: embedded, sha256 c7b0d8d3f2e3066ba1a2b4331c0bb6c92f22182c78a31b7fb74e839330a1838d, target compute_89
+attn_dec_g5_u64: 188 registers, 0 B local (spill), 16384 B static shared, sm_89
+attn_dec_g5_u64: the card equals the CPU replay bit for bit on 103 calls (rows ending at 1, 255, 256, 257, 1000, 4096; k 1, 3, 8; eager and wide grids; verify rows alone; fresh rows) (1.5 s)
+batch mma unit: 81799 bytes, sha256 d241ea8d1407bff65950d069acb7440b3ab5bdf9a831338ebac75bd3aae893b3, target compute_89
+batch gemm unit: 78294 bytes, sha256 38a469c8c49ab7af269514fddf9a4231f105e529f39bce0f7c0060ef529c0ce7
+batch attention unit: 28404 bytes, sha256 ed0d7dab9a46e17c1dd53f278fbd00a93f130da0e53e9ef5fb227ff2cdf991b5
+tv_tetra48_mma_n8: 48 registers, 0 B local
+tv_tetra48_mma_n16: 64 registers, 0 B local
+tv_tetra48_mma_n32: 116 registers, 0 B local
+tv_q4_mma_n8: 40 registers, 0 B local
+tv_q4_mma_n16: 63 registers, 0 B local
+tv_q4_mma_n32: 96 registers, 0 B local
+tv_bg_n8: 40 registers, 0 B local, 47360 B shared
+tv_bg_n16: 48 registers, 0 B local, 53760 B shared
+tv_bg_n32: 64 registers, 0 B local, 66560 B shared
+tv_bg_n64: 80 registers, 0 B local, 55296 B shared
+tv_bg_n128: 128 registers, 0 B local, 81920 B shared
+attn_batch_g5_u64: 181 registers, 0 B local
+attn_slot_g5_u64: 186 registers, 0 B local
+loaded in 31.4 s, attention kernel on grow(256)
+projections alone, arm gemm, 40 layers, 10 steps a figure, ms a step
+   B     q,k,v         o   gate,up      down      head     total
+   1     2.419     1.725     7.860     6.465     1.211    19.681
+   8     2.669     1.837     8.223     6.682     1.244    20.656
+  32     3.334     2.185    11.149     7.372     1.207    25.248
+ 128     7.079     4.161    21.900    13.218     2.168    48.527

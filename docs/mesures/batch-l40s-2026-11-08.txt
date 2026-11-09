@@ -1,0 +1,96 @@
+BATCH L40S: THE BATCHED GEMM AT 4B, 8B AND 14B, AGAINST AWQ IN VLLM AT B = 1 TO 128 (2026-11-08)
+================================================================================================
+Prereg: proofs/preregistration-batch-l40s-2026-11-08.md, sha256 e47e1fb3, timestamped before launch.
+Deviations: none.
+Code: commit 1929db1 (branch claude/batch-l40s), Space sha 0536a87c.
+Jobs: T 6af02eb80e0338d1bb84908d, l40sx1, 2,297 s running, $1.15. A 6af0299de6320c66fad71e74, l40sx1, 651 s
+running, $0.33 (it waited 4,130 s for a card, unbilled). Branch total $1.48 of the $5 envelope (computed).
+Raw: batch-l40s-2026-11-08-brut/, batch-l40s-awq-2026-11-08-brut/.
+
+SETUP
+-----
+The three sealed files under their batch configs (configs/qwen3-{4b,8b,14b}-tetra-e4-batch.json: the v9 object fields
+without 4E, the int4 words in the file's order). Arm gemm: kernels/tv_batch_gemm.cu, the words of a K chunk staged in
+shared memory two chunks ahead, every scale folded into f16 weights, one MMA pass, q, k, v and gate, up one launch
+each. Arm mma: the first tensor-core kernel (batch-tetra-2026-11-07), 4B only, up to 32 rows. AWQ: Qwen/Qwen3-{4B,8B,
+14B}-AWQ at their pinned revisions, vLLM 0.26.0, f16, prefix caching off. Both sides: the door prompt's 5 ids, 256
+greedy tokens a sequence, prompt and decode inside the timed call. Tetra 3 rounds after a warm-up, AWQ 5 after two.
+NVIDIA L40S, sm_89, driver 580.178.04, 2,520 MHz.
+
+CONTROLS
+--------
+1. oracle on Qwen3-0.6B: MATCH, passes. No LLVQ_* in either job environment.
+2. The three objects and the six configs at their bytes and sha256: equal, passes.
+3. The 4B served door decodes 61d0654532d35120: yes, passes.
+4. The GSM8K dump ends on 94c7b98876288901: yes, passes.
+5. Every kernel loaded with 0 B of local memory: tv_bg_n8 / n16 / n32 / n64 / n128 at 48 / 72 / 72 / 96 / 168
+   registers and 27,136 / 39,936 / 36,864 / 38,912 / 67,584 B of shared memory; passes.
+
+RESULT
+------
+Aggregate tok/s, median of the rounds (measured). Ranges are within 1 % of every median and are in the raw files.
+Per sequence = aggregate / B. GB/s = weights on the card x tok/s a sequence, Tetra 1.38 / 2.76 / 5.04 GB, AWQ 2.67 /
+6.10 / 9.98 GB (computed). No x across the two stacks (rule 5).
+
+4B. Served door at batch 1 (4E v9): 223.4 tok/s.
+   B   gemm      mma      AWQ        gemm/seq   AWQ/seq   gemm GB/s   AWQ GB/s   gemm rows = batch 1
+   1     107.2    64.1     203.0       107.2     203.0       147.9      541.9     1/1
+   8     816.3   450.2   1,524.8       102.0     190.6       140.8      508.9     8/8
+  16   1,381.9   788.3   2,883.8        86.4     180.2       119.2      481.2     16/16
+  32   2,102.0 1,255.2   5,133.8        65.7     160.4        90.7      428.3     32/32
+  64   2,862.7     -     7,891.2        44.7     123.3        61.7      329.2     64/64
+ 128   3,996.7     -    10,146.2        31.2      79.3        43.1      211.6     128/128
+
+8B. Served door at batch 1 (4E v9): 137.1 tok/s.
+   B   gemm      AWQ        gemm/seq   AWQ/seq   gemm GB/s   AWQ GB/s   gemm rows = batch 1
+   1      72.5     123.9        72.5     123.9       200.1      755.9     1/1
+   8     552.1     950.0        69.0     118.8       190.4      724.4     8/8
+  16     915.5   1,825.5        57.2     114.1       157.9      696.0     16/16
+  32   1,366.7   3,376.0        42.7     105.5       117.9      643.5     32/32
+  64   1,851.0   5,343.4        28.9      83.5        79.8      509.3     64/64
+ 128   2,628.7   7,060.6        20.5      55.2        56.6      336.5     128/128
+
+14B. Served door at batch 1 (4E v9): 87.1 tok/s.
+   B   gemm      AWQ        gemm/seq   AWQ/seq   gemm GB/s   AWQ GB/s   gemm rows = batch 1
+   1      40.5      78.4        40.5      78.4       204.1      782.5     1/1
+   8     309.6     607.1        38.7      75.9       195.0      757.3     8/8
+  16     564.0   1,164.1        35.2      72.8       177.4      726.1     16/16
+  32     840.0   2,148.3        26.3      67.1       132.6      670.0     32/32
+  64   1,109.2   3,496.3        17.3      54.6        87.2      545.2     64/64
+ 128   1,552.4   4,605.7        12.1      36.0        61.0      359.1     128/128
+
+check gemm against the multi-row path, layer 0's seven projections, the head and the two groups, 1 to 128 rows: worst
+relative RMS 4.26e-4 (4B), 4.31e-4 (8B), 4.22e-4 (14B) (measured; gate 1e-2).
+
+Decode-path perplexity, WikiText-2 test, gemm against rows (measured):
+  4B, 16 windows of 2,048: 13.4599 against 13.4599, pooled -0.0001 %, window mean [-0.0086 ; +0.0085].
+  4B, 128 windows of 256: 23.0180 against 23.0191, pooled +0.0048 %, window mean [-0.0026 ; +0.0121].
+  8B, 16 windows of 2,048: 10.2533 against 10.2538, pooled +0.0053 %, window mean [-0.0039 ; +0.0146].
+  14B, 16 windows of 2,048: 8.8518 against 8.8513, pooled -0.0052 %, window mean [-0.0140 ; +0.0036].
+
+GSM8K pilot, 50 problems in one batch of 50 under gemm, prompts prefilled on the batch-1 path: 40/50 against 40/50
+served, completions identical 43/50, discordant pairs 0 and 0; 15,883 kept tokens in 37.4 s (measured).
+
+VERDICT
+-------
+Gate of the batched decode (4B), all three required: (1) check under 1e-2 at every count and group: holds. (2) T8
+band at both widths: +-0.0001 % and +0.0048 %, inside +-0.12 %: holds. (3) GSM8K 40/50 against 40/50: holds.
+THE GATE PASSES. The 8B and 14B hold check and the band: their batch configs are licensed on the same terms.
+Every door row of every size and every B equals its batch-1 fingerprint under gemm (reported, not owed).
+Kernel against the starting point: gemm above mma at B = 8, 16 and 32, x1.81, x1.75, x1.67, ranges apart: holds.
+Predictions: 4B gemm at 1 / 8 / 16 / 32 / 64 / 128 inside their intervals at every B, below the point from B = 16
+on; 8B and 14B at 1 / 32 / 128 inside, below the point at 128; AWQ 4B at 64 inside, at 128 inside; check 4.3e-4
+inside; ppl inside; GSM8K inside; "door rows equal: some, not all" read all.
+
+WHAT THIS DOES NOT ESTABLISH
+----------------------------
+- Tetra is still below AWQ in aggregate at every B and size (4B at B = 128: Tetra 3,996.7 tok/s, AWQ 10,146.2), and
+  below it in GB/s (4B at B = 32: Tetra 90.7, AWQ 428.3). Rewritten on 2026-11-08 after the audit (section 2.5): the
+  line gave the two stacks as a quotient, against rule 5.
+- Where the step goes, by reading the figures (computed, not profiled): the 4B step is 9.2 ms at B = 1 against 4.5 ms
+  for the served 4E door, so about 5 ms are a fixed cost of the eager launches; it then grows about 0.2 ms a row
+  (15.0 ms at 32, 31.5 at 128), where AWQ grows 0.06 ms a row (4.9 to 12.6 ms). The GEMM reloads the whole activation in f32 for every
+  tile of 64 output rows, about 29 GB of L2 traffic a step at B = 128 on the 4B (computed), and runs one CTA of four
+  warps a SM at 128 rows. Neither is measured yet.
+- One prompt for the door; the GSM8K pilot is one batch of 50, not continuous batching under arrivals.
+- llvq serve under LLVQ_BATCH was not run on the card in this job (its CPU test only).

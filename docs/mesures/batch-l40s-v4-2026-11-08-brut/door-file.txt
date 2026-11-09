@@ -1,0 +1,78 @@
+served config: /out/batch-l40s-v4-2026-11-08/qwen3-4b-tetra-e4-batch.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention kernel from position 1280 on grow(256), batch of up to 64 sequences of 2048 positions (gemm)) — NOT SERVED until its gate (preregistration-batch-l40s-2026-11-08). The batched decode of the sealed 4B (qwen3-4b-sealed.bin, sha256 886391a8): up to 64 sequences a step through the tensor-core GEMM (kernels/tv_batch_gemm.cu), a cache slot of 2,048 positions each, the kernel attention form from position 0; prompts prefilled one at a time on the eager path. The int4 words stay in the file's order. llvq serve takes it under LLVQ_BATCH; batchrun takes it under LLVQ_CONFIG. Added 2026-11-08.
+cudarc event tracking: off (one stream, ordered by issue)
+shared rotation: 1 (LLVQ_CONFIG), 96 rot_launches/token for 252 projections
+projection fusion: 0 (LLVQ_CONFIG), 252 matvec_launches/token for 252 projections (0 groups + 168 lone + 84 int4)
+fused layout: tetra48 (LLVQ_CONFIG), projections 1.16 GB on the card, 2.550 b/weight (INFERENCE accounting: KeepExact tail in binary16; the bench bills its own in f32)
+NVRTC source: 101625 bytes, sha256 6193094310bc18acdb0a0c554807ff45f6df09c1f6ab49e0577032874f107812 (11 parts), tile 64 (served: measured optimum for sm_89), prefill 4x128 (served pair), 49152 B staged of 49152, target compute_89
+int4: tv_q4_hh equals tv_q4_h bit for bit on model.layers.0.self_attn.v_proj.weight (1024 rows, d_in 2560)
+int4 layout: served (LLVQ_CONFIG), 84 records, words 0.385 GB on the card, held once
+embedding: q4 g64 (LLVQ_CONFIG), 1 table (model.embed_tokens.weight, lm_head tied on it), 218.8 MB on the card (int4 194.5 + scales/biases 24.3)
+total expected on the card: 1.38 GB (projections 1.16 + carried 0.22)
+attn_dec.cu: embedded, sha256 c7b0d8d3f2e3066ba1a2b4331c0bb6c92f22182c78a31b7fb74e839330a1838d, target compute_89
+attn_dec_g4_u64: 160 registers, 0 B local (spill), 16384 B static shared, sm_89
+attn_dec_g4_u64: the card equals the CPU replay bit for bit on 103 calls (rows ending at 1, 255, 256, 257, 1000, 4096; k 1, 3, 8; eager and wide grids; verify rows alone; fresh rows) (1.2 s)
+batch mma unit: 81799 bytes, sha256 d241ea8d1407bff65950d069acb7440b3ab5bdf9a831338ebac75bd3aae893b3, target compute_89
+batch gemm unit: 79819 bytes, sha256 c258073f645be92a4c1ffe18be03ec27e4d0cd8361f620214609689281c23afd
+batch attention unit: 28404 bytes, sha256 ed0d7dab9a46e17c1dd53f278fbd00a93f130da0e53e9ef5fb227ff2cdf991b5
+tv_tetra48_mma_n8: 48 registers, 0 B local
+tv_tetra48_mma_n16: 64 registers, 0 B local
+tv_tetra48_mma_n32: 116 registers, 0 B local
+tv_q4_mma_n8: 40 registers, 0 B local
+tv_q4_mma_n16: 63 registers, 0 B local
+tv_q4_mma_n32: 96 registers, 0 B local
+tv_bg_n8: 96 registers, 0 B local, 47360 B shared
+tv_bg_n16: 72 registers, 0 B local, 53760 B shared
+tv_bg_n32: 80 registers, 0 B local, 66560 B shared
+tv_bg_n64: 113 registers, 0 B local, 55296 B shared
+tv_bg_n128: 191 registers, 0 B local, 81920 B shared
+tv_bgo_n8: 96 registers, 0 B local, 47360 B shared
+tv_bgo_n16: 72 registers, 0 B local, 35328 B shared
+tv_bgo_n32: 80 registers, 0 B local, 41984 B shared
+tv_bgo_n64: 120 registers, 0 B local, 34816 B shared
+tv_bgo_n128: 128 registers, 0 B local, 49152 B shared
+attn_batch_g4_u64: 158 registers, 0 B local
+attn_slot_g4_u64: 161 registers, 0 B local
+loaded in 19.5 s, attention kernel on grow(256)
+  B= 1 gemm warm-up    106.5 tok/s; tokens: 1 of 1 rows equal 61d0654532d35120; row 0 61d0654532d35120
+  B= 1 gemm-occ warm-up    107.5 tok/s; tokens: 1 of 1 rows equal 61d0654532d35120; row 0 61d0654532d35120
+  B=32 gemm warm-up   2473.0 tok/s; tokens: 32 of 32 rows equal 61d0654532d35120; row 0 61d0654532d35120
+  B=32 gemm-occ warm-up   2319.4 tok/s; tokens: 32 of 32 rows equal 61d0654532d35120; row 0 61d0654532d35120
+  B=64 gemm warm-up   3648.8 tok/s; tokens: 64 of 64 rows equal 61d0654532d35120; row 0 61d0654532d35120
+  B=64 gemm-occ warm-up   3020.4 tok/s; tokens: 64 of 64 rows equal 61d0654532d35120; row 0 61d0654532d35120
+  B=128 gemm warm-up   4488.2 tok/s; tokens: 128 of 128 rows equal 61d0654532d35120; row 0 61d0654532d35120
+  B=128 gemm-occ warm-up   4157.4 tok/s; tokens: 128 of 128 rows equal 61d0654532d35120; row 0 61d0654532d35120
+  round 1 B= 1 gemm    107.4 tok/s aggregate (2.385 s)
+  round 1 B= 1 gemm-occ    107.4 tok/s aggregate (2.385 s)
+  round 1 B=32 gemm   2460.2 tok/s aggregate (3.330 s)
+  round 1 B=32 gemm-occ   2322.1 tok/s aggregate (3.528 s)
+  round 1 B=64 gemm   3639.6 tok/s aggregate (4.502 s)
+  round 1 B=64 gemm-occ   3010.9 tok/s aggregate (5.441 s)
+  round 1 B=128 gemm   4473.5 tok/s aggregate (7.325 s)
+  round 1 B=128 gemm-occ   4154.9 tok/s aggregate (7.887 s)
+  round 2 B= 1 gemm    107.4 tok/s aggregate (2.384 s)
+  round 2 B= 1 gemm-occ    107.3 tok/s aggregate (2.385 s)
+  round 2 B=32 gemm   2459.3 tok/s aggregate (3.331 s)
+  round 2 B=32 gemm-occ   2318.9 tok/s aggregate (3.533 s)
+  round 2 B=64 gemm   3635.1 tok/s aggregate (4.507 s)
+  round 2 B=64 gemm-occ   3001.4 tok/s aggregate (5.459 s)
+  round 2 B=128 gemm   4467.8 tok/s aggregate (7.334 s)
+  round 2 B=128 gemm-occ   4150.7 tok/s aggregate (7.895 s)
+  round 3 B= 1 gemm    107.0 tok/s aggregate (2.392 s)
+  round 3 B= 1 gemm-occ    107.1 tok/s aggregate (2.391 s)
+  round 3 B=32 gemm   2456.7 tok/s aggregate (3.335 s)
+  round 3 B=32 gemm-occ   2314.4 tok/s aggregate (3.540 s)
+  round 3 B=64 gemm   3625.3 tok/s aggregate (4.519 s)
+  round 3 B=64 gemm-occ   3000.5 tok/s aggregate (5.460 s)
+  round 3 B=128 gemm   4459.0 tok/s aggregate (7.349 s)
+  round 3 B=128 gemm-occ   4138.2 tok/s aggregate (7.918 s)
+
+batched door: 256 tokens a sequence after the 5-token prompt fed through the batch, prompt and decode, 3 rounds
+  B arm   tok/s aggregate                  range      steps/s    tok/s a seq  tokens
+  1 gemm            107.4 [    107.0-    107.4]       109.04          107.4  1 of 1 rows equal 61d0654532d35120
+  1 gemm-occ            107.3 [    107.1-    107.4]       109.01          107.3  1 of 1 rows equal 61d0654532d35120
+ 32 gemm           2459.3 [   2456.7-   2460.2]        78.05           76.9  32 of 32 rows equal 61d0654532d35120
+ 32 gemm-occ           2318.9 [   2314.4-   2322.1]        73.60           72.5  32 of 32 rows equal 61d0654532d35120
+ 64 gemm           3635.1 [   3625.3-   3639.6]        57.69           56.8  64 of 64 rows equal 61d0654532d35120
+ 64 gemm-occ           3001.4 [   3000.5-   3010.9]        47.63           46.9  64 of 64 rows equal 61d0654532d35120
+128 gemm           4467.8 [   4459.0-   4473.5]        35.45           34.9  128 of 128 rows equal 61d0654532d35120
+128 gemm-occ           4150.7 [   4138.2-   4154.9]        32.93           32.4  128 of 128 rows equal 61d0654532d35120

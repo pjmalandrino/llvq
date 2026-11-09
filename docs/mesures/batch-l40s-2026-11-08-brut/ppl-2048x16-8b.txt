@@ -1,0 +1,49 @@
+served config: /out/batch-l40s-2026-11-08/qwen3-8b-tetra-e4-batch.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention kernel from position 1280 on grow(256), batch of up to 64 sequences of 2048 positions (gemm)) — NOT SERVED until its gate (preregistration-batch-l40s-2026-11-08). The batched decode of the sealed 8B (qwen3-8b-sealed-B.bin, sha256 7bdb9a55): up to 64 sequences a step through the tensor-core GEMM (kernels/tv_batch_gemm.cu), a cache slot of 2,048 positions each, the kernel attention form from position 0; prompts prefilled one at a time on the eager path. The int4 words stay in the file's order. llvq serve takes it under LLVQ_BATCH; batchrun takes it under LLVQ_CONFIG. Added 2026-11-08.
+cudarc event tracking: off (one stream, ordered by issue)
+shared rotation: 1 (LLVQ_CONFIG), 127 rot_launches/token for 252 projections
+projection fusion: 0 (LLVQ_CONFIG), 252 matvec_launches/token for 252 projections (0 groups + 199 lone + 53 int4)
+fused layout: tetra48 (LLVQ_CONFIG), projections 2.06 GB on the card, 2.377 b/weight (INFERENCE accounting: KeepExact tail in binary16; the bench bills its own in f32)
+NVRTC source: 101625 bytes, sha256 6193094310bc18acdb0a0c554807ff45f6df09c1f6ab49e0577032874f107812 (11 parts), tile 64 (served: measured optimum for sm_89), prefill 4x128 (served pair), 49152 B staged of 49152, target compute_89
+int4: tv_q4_hh equals tv_q4_h bit for bit on model.layers.0.self_attn.v_proj.weight (1024 rows, d_in 4096)
+int4 layout: served (LLVQ_CONFIG), 53 records, words 0.503 GB on the card, held once
+embedding: q4 g64 (LLVQ_CONFIG), 2 tables (model.embed_tokens.weight + lm_head.weight), 700.1 MB on the card (int4 622.3 + scales/biases 77.8)
+total expected on the card: 2.76 GB (projections 2.06 + carried 0.70)
+attn_dec.cu: embedded, sha256 c7b0d8d3f2e3066ba1a2b4331c0bb6c92f22182c78a31b7fb74e839330a1838d, target compute_89
+attn_dec_g4_u64: 160 registers, 0 B local (spill), 16384 B static shared, sm_89
+attn_dec_g4_u64: the card equals the CPU replay bit for bit on 103 calls (rows ending at 1, 255, 256, 257, 1000, 4096; k 1, 3, 8; eager and wide grids; verify rows alone; fresh rows) (1.2 s)
+batch mma unit: 81799 bytes, sha256 d241ea8d1407bff65950d069acb7440b3ab5bdf9a831338ebac75bd3aae893b3, target compute_89
+batch gemm unit: 78742 bytes, sha256 0e5a7de4dec1303a0e9ad7665d1e0ff397d2f9d755691ce2be8acd8ebc59ef2f
+batch attention unit: 28404 bytes, sha256 ed0d7dab9a46e17c1dd53f278fbd00a93f130da0e53e9ef5fb227ff2cdf991b5
+tv_tetra48_mma_n8: 48 registers, 0 B local
+tv_tetra48_mma_n16: 64 registers, 0 B local
+tv_tetra48_mma_n32: 116 registers, 0 B local
+tv_q4_mma_n8: 40 registers, 0 B local
+tv_q4_mma_n16: 63 registers, 0 B local
+tv_q4_mma_n32: 96 registers, 0 B local
+tv_bg_n8: 48 registers, 0 B local, 27136 B shared
+tv_bg_n16: 72 registers, 0 B local, 39936 B shared
+tv_bg_n32: 72 registers, 0 B local, 36864 B shared
+tv_bg_n64: 96 registers, 0 B local, 38912 B shared
+tv_bg_n128: 168 registers, 0 B local, 67584 B shared
+attn_batch_g4_u64: 158 registers, 0 B local
+attn_slot_g4_u64: 161 registers, 0 B local
+loaded in 19.9 s, attention kernel on grow(256)
+  window  1: ppl rows 8.2221, gemm 8.2219, -0.0025 %
+  window  2: ppl rows 13.1229, gemm 13.1214, -0.0113 %
+  window  3: ppl rows 16.2117, gemm 16.2133, +0.0095 %
+  window  4: ppl rows 12.9356, gemm 12.9343, -0.0100 %
+  window  5: ppl rows 10.0155, gemm 10.0166, +0.0105 %
+  window  6: ppl rows 6.2296, gemm 6.2300, +0.0059 %
+  window  7: ppl rows 4.8475, gemm 4.8466, -0.0186 %
+  window  8: ppl rows 8.8873, gemm 8.8882, +0.0101 %
+  window  9: ppl rows 10.8650, gemm 10.8668, +0.0170 %
+  window 10: ppl rows 12.3584, gemm 12.3589, +0.0041 %
+  window 11: ppl rows 10.3997, gemm 10.3992, -0.0049 %
+  window 12: ppl rows 10.5511, gemm 10.5496, -0.0145 %
+  window 13: ppl rows 10.0742, gemm 10.0745, +0.0029 %
+  window 14: ppl rows 12.0122, gemm 12.0135, +0.0113 %
+  window 15: ppl rows 11.1538, gemm 11.1563, +0.0221 %
+  window 16: ppl rows 12.3363, gemm 12.3429, +0.0541 %
+batched ppl: WikiText-2 test, 16 windows of 2048, 32752 positions, tokens 41391567c7bdff87; rows 202.5 s, gemm 41.9 s
+ppl rows 10.2533 (decode path, multi-row kernels), gemm 10.2538: pooled +0.0053 %, window mean +0.0053 % [-0.0039 ; +0.0146]
+T8 band: pooled inside +-0.12 %: yes

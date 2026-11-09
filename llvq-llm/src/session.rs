@@ -72,9 +72,32 @@ impl Session {
         Session { caches: qwen.fresh_caches(), ids: Vec::new() }
     }
 
+    /// A conversation from caches that already hold `ids`, position for
+    /// position: a sequence taken back from a batch slot
+    /// (`batch::Pool::caches_of`).
+    pub fn from_caches(qwen: &Qwen3, caches: Vec<KvCache>, ids: Vec<u32>) -> anyhow::Result<Self> {
+        anyhow::ensure!(
+            caches.len() == qwen.fresh_caches().len(),
+            "Session from_caches: {} caches for {} layers",
+            caches.len(),
+            qwen.fresh_caches().len()
+        );
+        for c in &caches {
+            let held = c.held()?.map_or(Ok(0), |(k, _)| k.dim(2))?;
+            anyhow::ensure!(held == ids.len(), "Session from_caches: a cache holds {held} positions, {} ids", ids.len());
+        }
+        Ok(Session { caches, ids })
+    }
+
     /// The ids the caches hold, in position order.
     pub fn ids(&self) -> &[u32] {
         &self.ids
+    }
+
+    /// The caches, one a layer: what a batch pool copies into a slot when
+    /// this conversation joins it (`batch::Pool::adopt`).
+    pub fn caches(&self) -> &[KvCache] {
+        &self.caches
     }
 
     /// Positions held.

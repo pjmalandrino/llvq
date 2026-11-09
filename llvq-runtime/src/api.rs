@@ -262,6 +262,9 @@ pub struct RunningLlvq {
     pub busy: bool,
     /// Why the load failed.
     pub error: Option<String>,
+    /// Bytes of the batch pool's KV caches (`LLVQ_BATCH`), counted in
+    /// `size_vram` on a device; 0 without the batch.
+    pub batch_pool_bytes: u64,
 }
 
 #[derive(Serialize, Deserialize, ToSchema)]
@@ -509,12 +512,12 @@ pub async fn ps(State(st): State<AppState>) -> Json<PsResponse> {
         .running()
         .into_iter()
         .map(|r| {
-            let (state, backend, config, context, err) = match r.state {
-                EngineState::Loading => ("loading", None, None, None, None),
-                EngineState::Ready { backend, config, context, .. } => {
-                    ("ready", Some(backend), config, Some(context), None)
+            let (state, backend, config, context, err, pool) = match r.state {
+                EngineState::Loading => ("loading", None, None, None, None, 0),
+                EngineState::Ready { backend, config, context, pool_bytes, .. } => {
+                    ("ready", Some(backend), config, Some(context), None, pool_bytes)
                 }
-                EngineState::Failed(e) => ("failed", None, None, None, Some(e)),
+                EngineState::Failed(e) => ("failed", None, None, None, Some(e), 0),
             };
             let on_device = backend.as_deref().is_some_and(|b| b != "cpu" && b != "dense-cpu");
             RunningModel {
@@ -527,9 +530,19 @@ pub async fn ps(State(st): State<AppState>) -> Json<PsResponse> {
                 expires_at: rfc3339(r.expires.unwrap_or(
                     SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(253_402_300_799),
                 )),
-                size_vram: if on_device { r.manifest.size } else { 0 },
+                // The weights and the batch pool: the pool weighs 19.3 GB at
+                // 64 x 2,048 beside a 1.38 GB 4B (audit 2026-11-08 §1.8).
+                size_vram: if on_device { r.manifest.size + pool } else { 0 },
                 context_length: context,
-                llvq: RunningLlvq { state: state.into(), backend, config, queue: r.queue, busy: r.busy, error: err },
+                llvq: RunningLlvq {
+                    state: state.into(),
+                    backend,
+                    config,
+                    queue: r.queue,
+                    busy: r.busy,
+                    error: err,
+                    batch_pool_bytes: pool,
+                },
             }
         })
         .collect();

@@ -52,6 +52,10 @@ ENV CARGO_BUILD_JOBS=2
 RUN cargo build --release --locked -p llvq-llm --features ${FEATURES} \
       --bin smoke --bin ppl --bin oracle --bin mmlu --bin gbench --bin fusedrun \
       --bin chat --bin gsm8k --bin gsm8kpair --bin batchrun --bin specrun
+# The runtime, for the client-side bench of the batched decode (`llvq serve`
+# under LLVQ_BATCH, ops/batch_serve_bench.py). Its own package, with only the
+# `cuda` feature it carries through to llvq-llm.
+RUN cargo build --release --locked -p llvq-runtime --features cuda --bin llvq
 # 🕳️ `seal` se construit SANS `cuda`, et ça se paie sinon.
 #
 # Bâti avec la feature comme les autres, il se lie à `libcuda.so.1` — que seule
@@ -142,6 +146,7 @@ COPY --from=build \
       /src/target/release/gsm8kpair \
       /src/target/release/batchrun \
       /src/target/release/specrun \
+      /src/target/release/llvq \
       /src/target/release/seal \
       /src/target/release/embedq \
       /src/target/release/export \

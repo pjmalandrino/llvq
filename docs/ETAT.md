@@ -136,11 +136,22 @@ refuses its grouped and kernel forms until the operator decides.
 (*measured*, [dclm-rowscales](mesures/dclm-rowscales-2026-09-20.txt),
 [-8b](mesures/dclm-8b-rowscales-2026-09-21.txt), [-14b](mesures/dclm-14b-rowscales-2026-09-22.txt)).
 
-**Batch.** `Qwen3::batch_step` decodes B sequences a step (`llvq-llm/src/batch.rs`, `bin/batchrun`). Its
-tensor-core kernel `tv_batch_mma.cu` reads 63.9 / 240.9 / 449.7 / 788.4 / 1,256.5 tok/s aggregate on the 4B at B = 1 /
-4 / 8 / 16 / 32, against 203.0 / 778.7 / 1,524.6 / 2,883.2 / 5,128.7 for AWQ in vLLM (*measured*,
-[batch-tetra](mesures/batch-tetra-2026-11-07.txt), [batch-awq](mesures/batch-awq-2026-11-07.txt)): 54.2 GB/s against
-427.9 at B = 32 (*computed*). Every sequence decodes the batch-1 door tokens. Nothing batched is served.
+**Batch.** `llvq serve` batches continuously under `LLVQ_BATCH` through `configs/qwen3-*-tetra-e4-4e-v9-batch.json`,
+the served v9 configs with a batch field: a lone request decodes on 4E v9, the others step together through the GEMM
+`tv_batch_gemm.cu` (`llvq-llm/src/batch.rs`, `bin/batchrun`). Under concurrent requests the 4B reads 221.9 / 757.8 /
+1,976.5 / 3,067.5 tok/s aggregate at B = 1 / 8 / 32 / 128, and 225.4 tok/s a request alone (*measured*,
+[batch-l40s-v4](mesures/batch-l40s-v4-2026-11-08.txt)). The kernel alone, the prompt fed through the batch: 4B 105.5
+/ 800.0 / 2,468.0 / 4,493.6, 8B 74.1 / 568.3 / 1,826.6 / 3,552.3, 14B 43.6 / 335.0 / 1,102.2 / 2,183.8 at B = 1 / 8 / 32
+/ 128 (*measured*, [batch-l40s-v2](mesures/batch-l40s-v2-2026-11-08.txt)); AWQ in vLLM 203.0 / 1,524.8 / 5,133.8 /
+10,146.2 on the 4B ([batch-l40s](mesures/batch-l40s-2026-11-08.txt)). That is 106.4 GB/s against 428.3 on the 4B at
+B = 32 (*computed*). The projections are three quarters of the step and more; at one row the GEMM's Tetra decode moves
+about 200 GB/s. The gate passed at every pass: perplexity within +-0.01 % of the multi-row path, GSM8K pilot 40/50 as
+served, every door row equal to batch 1. Nothing batched is served by default.
+The pool's KV caches are allocated at load, beside the weights: 64 slots of 2,048 positions weigh 19.3 / 19.3 / 21.5 GB
+at 4B / 8B / 14B (*computed*). The load refuses a pool the card's free memory does not hold, and `/api/ps` counts it in
+`size_vram`. A memory figure of the batch counts the pool (rule 6). A request left alone in the pool goes back to 4E, and a
+lone request past 4E's 8,704 positions finishes in the pool (audit 2026-11-08, sections 1.2, 1.7 and 1.8; CPU tests in
+`llvq-runtime/tests/batch_server.rs`, not run on the card).
 
 **Noise.** The calibration draw moves MMLU by 2.92 pp and perplexity by 5.2 % (one standard deviation, 4B, three full
 runs, *measured*, [bruit-mmlu](mesures/bruit-mmlu-graines-4b-2026-08-25.txt)). Every size is calibrated on one draw.
@@ -192,5 +203,6 @@ For an A/B on one file the bar is the paired interval, 0.43 pp of MMLU and 0.12 
 | 4E row-loop arms (K4) | best arm ×1.002 over v2, under the ×1.15 bar | [step1-micro](mesures/step1-micro-2026-11-07.txt) |
 | Speculative decoding, the 0.6B drafting, 4E verifying | tokens identical to greedy at 4B, 8B and 14B, but decode ×0.595, ×0.629, ×0.625 of greedy at the best k (k = 1). Reopen when a 2-row verify pass costs under 1.4 greedy tokens and a draft token under 1 ms | [spec-gate](mesures/spec-gate-2026-11-07.txt) |
 | A mixed Tetra plus int4 bench arm | the bench compares formats; served files are timed end to end | operator, 2026-10-06 |
+| Batched GEMM at two CTAs a SM (K chunk halved, registers capped at 128) | 5.7 to 17.4 % below one CTA a SM at B = 32 to 128 on the 4B, both int4 orders | [batch-l40s-v4](mesures/batch-l40s-v4-2026-11-08.txt) |
 
 Reopening any of them needs the condition in its row, not a new argument. A2 stays out of the core.

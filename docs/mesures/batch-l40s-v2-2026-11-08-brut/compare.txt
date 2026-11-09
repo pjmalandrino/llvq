@@ -1,0 +1,1 @@
+GSM8K pilot, 50 problems, gemm: 40 correct against 40 served; completions identical 42/50; discordant 0 up, 0 down

@@ -1,0 +1,13 @@
+{
+  "layout": "tetra48",
+  "embed": "q4",
+  "rot_share": "1",
+  "fuse": "0",
+  "kv": "f16",
+  "attention": "kernel",
+  "batch": {
+    "max": 64,
+    "context": 2048
+  },
+  "note": "NOT SERVED until its gate (preregistration-batch-l40s-2026-11-08). The batched decode of the sealed 8B (qwen3-8b-sealed-B.bin, sha256 7bdb9a55): up to 64 sequences a step through the tensor-core GEMM (kernels/tv_batch_gemm.cu), a cache slot of 2,048 positions each, the kernel attention form from position 0; prompts prefilled one at a time on the eager path. The int4 words stay in the file's order. llvq serve takes it under LLVQ_BATCH; batchrun takes it under LLVQ_CONFIG. Added 2026-11-08."
+}

@@ -55,6 +55,11 @@ pub struct Configs {
     /// it existed, which then have no CPU config.
     #[serde(default)]
     pub cpu: Option<String>,
+    /// The config `llvq serve` takes on CUDA under `LLVQ_BATCH`: the batched
+    /// decode, several requests a step. Absent in manifests written before it
+    /// existed; [`served_configs`] fills it from the library.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cuda_batch: Option<String>,
 }
 
 /// One model of `library.json`.
@@ -148,6 +153,18 @@ const CONFIGS: &[(&str, &str)] = &[
         "qwen3-14b-tetra-e4.json",
         include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../configs/qwen3-14b-tetra-e4.json")),
     ),
+    (
+        "qwen3-4b-tetra-e4-4e-v9-batch.json",
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../configs/qwen3-4b-tetra-e4-4e-v9-batch.json")),
+    ),
+    (
+        "qwen3-8b-tetra-e4-4e-v9-batch.json",
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../configs/qwen3-8b-tetra-e4-4e-v9-batch.json")),
+    ),
+    (
+        "qwen3-14b-tetra-e4-4e-v9-batch.json",
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../configs/qwen3-14b-tetra-e4-4e-v9-batch.json")),
+    ),
 ];
 
 /// The text of a compiled-in config.
@@ -232,7 +249,7 @@ mod tests {
             assert!(m.sha256.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
             assert_eq!(m.revision.len(), 40, "{}: a pinned commit, not a branch", m.model_name());
             assert!(ModelName::parse(&m.model_name().to_string()).is_ok());
-            for c in [&m.configs.cuda, &m.configs.metal, &m.configs.cpu].into_iter().flatten() {
+            for c in [&m.configs.cuda, &m.configs.metal, &m.configs.cpu, &m.configs.cuda_batch].into_iter().flatten() {
                 let text = config_text(c).unwrap_or_else(|| panic!("{c} is named and not compiled in"));
                 let f: ServedFile = serde_json::from_str(text).unwrap();
                 Served::of(f, c.into()).unwrap_or_else(|e| panic!("{c}: {e}"));
@@ -292,8 +309,8 @@ mod tests {
     fn a_manifest_is_served_by_the_library_configs_of_its_file() {
         for e in entries() {
             // Pulled before the CPU backend existed: no CPU config.
-            let old = Configs { cuda: e.configs.cuda.clone(), metal: e.configs.metal.clone(), cpu: None };
-            assert_eq!(served_configs(&old, &e.sha256), e.configs, "{}: the CPU config filled", e.model_name());
+            let old = Configs { cuda: e.configs.cuda.clone(), metal: e.configs.metal.clone(), cpu: None, cuda_batch: None };
+            assert_eq!(served_configs(&old, &e.sha256), e.configs, "{}: the CPU and batch configs filled", e.model_name());
             // Pulled on 2026-11-06: the CUDA config of that day, no longer
             // compiled in, and a stale one that still is.
             for cuda in ["qwen3-4b-tetra-e4-4e-v4.json", "qwen3-4b-tetra-e4.json"] {
@@ -305,7 +322,7 @@ mod tests {
             }
         }
         // A file the library does not know keeps its own.
-        let own = Configs { cuda: Some("x.json".into()), metal: None, cpu: None };
+        let own = Configs { cuda: Some("x.json".into()), metal: None, cpu: None, cuda_batch: None };
         assert_eq!(served_configs(&own, &"0".repeat(64)), own);
         // A manifest written before the CPU field parses.
         let parsed: Configs = serde_json::from_str(r#"{"cuda": null, "metal": "m.json"}"#).unwrap();

@@ -1,0 +1,146 @@
+NVIDIA L40S, 8.9, 46068 MiB, 580.178.04, 2520 MHz
+== gate 1: oracle ==
+Qwen/Qwen3-0.6B on Cuda(CudaDevice(DeviceId(1))) — max |Δhidden| = 0.000e0   (relative to max|h| = 8.550e1) → 0.000e0
+MATCH — the observable forward reproduces candle's Qwen3
+== gate 2: the objects and the configs ==
+886391a8c03f66dc269cc65c3598c6627dbdcd259180aff36604ef10d37371b8  /out/sealed-4b-2026-09-23/qwen3-4b-sealed.bin
+7bdb9a5503518081b1f652a93215250898caae5cc1b6a2f33ee9fb6094565c13  /out/sealed-8b27-2026-09-24/qwen3-8b-sealed-B.bin
+61db37fe7ce8e6a57c5c59f257319c796574981ecb5e450a02c73dd3c17e2ca0  /out/sealed-14b-2026-09-23/qwen3-14b-sealed.bin
+configs at their bytes: 29b3ef32bbda757b6eeff251e10b5c8f103c4dfa3157bff23ca42fef298a3af0 1e932b0988968ea4912fe42191dd2e49a327ebde6a3c6e15855e2ac99e1f10fb 58d2bf1b4b5ac771bd71790fb37200ef349bfeff562fda3f8ed4a1e13c10ab25 eab7c7c7675f235864b773339b27f635bcea193662d85761f05a3171fe1e1cf7 c77e166833087993833dc40a843dccd914809dc33c85c3fcb9b360097cf686d2 95a46674211ec1356aa36999f7ddc28ffd5c14dc055746e3958e37baa6f278eb 
+== 4b (a): the served v9 door at batch 1 ==
+Sun Nov  8 08:20:42 UTC 2026
+served door (decode persistent): 4E tokens equal the eager path's under this config, 256 of 256
+served : loaded in   92.6 s,  223.4 tok/s [223.3–223.7, 5 rounds], 1.38 GB on the card          (4E, prompt and decode, as the door times a generate)
+  token ids: 61d0654532d35120 12095,13,576,6722,315,9625,374,12095,13,576,6722,315,9625,374,12095,13,576,6722,315,9625,374,12095,13,576,6722,315,9625,374,12095,
+gate 3: the 4B served door decoded 61d0654532d35120
+== 4b (b): batchrun check gemm ==
+Sun Nov  8 08:22:36 UTC 2026
+batch mma unit: 81799 bytes, sha256 d241ea8d1407bff65950d069acb7440b3ab5bdf9a831338ebac75bd3aae893b3, target compute_89
+batch gemm unit: 78742 bytes, sha256 0e5a7de4dec1303a0e9ad7665d1e0ff397d2f9d755691ce2be8acd8ebc59ef2f
+batch attention unit: 28404 bytes, sha256 ed0d7dab9a46e17c1dd53f278fbd00a93f130da0e53e9ef5fb227ff2cdf991b5
+tv_bg_n8: 48 registers, 0 B local, 27136 B shared
+tv_bg_n16: 72 registers, 0 B local, 39936 B shared
+tv_bg_n32: 72 registers, 0 B local, 36864 B shared
+tv_bg_n64: 96 registers, 0 B local, 38912 B shared
+tv_bg_n128: 168 registers, 0 B local, 67584 B shared
+attn_slot_g4_u64: 161 registers, 0 B local
+check: worst relative RMS 4.263e-4 (gate 1e-2)
+== 4b (c): the batched door, gemm,mma, B = 1,8,16,32,64,128 ==
+Sun Nov  8 08:23:00 UTC 2026
+batched door: 256 tokens a sequence after the 5-token prompt fed through the batch, prompt and decode, 3 rounds
+  B arm   tok/s aggregate                  range      steps/s    tok/s a seq  tokens
+  1 gemm            107.2 [    107.1-    107.3]       108.84          107.2  1 of 1 rows equal 61d0654532d35120
+  1 mma              64.1 [     64.1-     64.1]        65.06           64.1  1 of 1 rows equal 61d0654532d35120
+  8 gemm            816.3 [    816.3-    817.1]       103.64          102.0  8 of 8 rows equal 61d0654532d35120
+  8 mma             450.2 [    450.1-    450.2]        57.15           56.3  8 of 8 rows equal 61d0654532d35120
+ 16 gemm           1381.9 [   1381.5-   1383.5]        87.72           86.4  16 of 16 rows equal 61d0654532d35120
+ 16 mma             788.3 [    788.2-    788.7]        50.04           49.3  16 of 16 rows equal 61d0654532d35120
+ 32 gemm           2102.0 [   2098.5-   2106.2]        66.71           65.7  32 of 32 rows equal 61d0654532d35120
+ 32 mma            1255.2 [   1255.2-   1255.8]        39.84           39.2  32 of 32 rows equal 61d0654532d35120
+ 64 gemm           2862.7 [   2855.9-   2867.1]        45.43           44.7  64 of 64 rows equal 61d0654532d35120
+128 gemm           3996.7 [   3978.4-   4003.3]        31.71           31.2  128 of 128 rows equal 61d0654532d35120
+== 4b (d): decode-path perplexity, gemm against rows ==
+Sun Nov  8 08:26:20 UTC 2026
+batched ppl: WikiText-2 test, 16 windows of 2048, 32752 positions, tokens 41391567c7bdff87; rows 147.8 s, gemm 29.7 s
+ppl rows 13.4599 (decode path, multi-row kernels), gemm 13.4599: pooled -0.0001 %, window mean -0.0001 % [-0.0086 ; +0.0085]
+T8 band: pooled inside +-0.12 %: yes
+batched ppl: WikiText-2 test, 128 windows of 256, 32640 positions, tokens 41391567c7bdff87; rows 136.8 s, gemm 8.1 s
+ppl rows 23.0180 (decode path, multi-row kernels), gemm 23.0191: pooled +0.0048 %, window mean +0.0048 % [-0.0026 ; +0.0121]
+T8 band: pooled inside +-0.12 %: yes
+== 4b (e): the GSM8K pilot, one batch of 50, gemm ==
+Sun Nov  8 08:32:18 UTC 2026
+GSM8K batched (gemm, B=50): 40/50 correct, 15883 tokens generated in 37.4 s (424.8 tok/s of kept tokens), fingerprint 94c7b98876288901
+GSM8K pilot, 50 problems, gemm: 40 correct against 40 served; completions identical 43/50; discordant 0 up, 0 down
+== 8b (a): the served v9 door at batch 1 ==
+Sun Nov  8 08:33:13 UTC 2026
+served door (decode persistent): 4E tokens equal the eager path's under this config, 256 of 256
+served : loaded in   58.2 s,  137.1 tok/s [136.2–138.3, 5 rounds], 2.76 GB on the card          (4E, prompt and decode, as the door times a generate)
+  token ids: c817aeaf2f5d1116 12095,13,576,6722,315,9856,374,19846,13,576,6722,315,15344,374,21718,13,576,6722,315,17689,374,24081,13,576,6722,315,279,3639,1507
+== 8b (b): batchrun check gemm ==
+Sun Nov  8 08:34:40 UTC 2026
+batch mma unit: 81799 bytes, sha256 d241ea8d1407bff65950d069acb7440b3ab5bdf9a831338ebac75bd3aae893b3, target compute_89
+batch gemm unit: 78742 bytes, sha256 0e5a7de4dec1303a0e9ad7665d1e0ff397d2f9d755691ce2be8acd8ebc59ef2f
+batch attention unit: 28404 bytes, sha256 ed0d7dab9a46e17c1dd53f278fbd00a93f130da0e53e9ef5fb227ff2cdf991b5
+tv_bg_n8: 48 registers, 0 B local, 27136 B shared
+tv_bg_n16: 72 registers, 0 B local, 39936 B shared
+tv_bg_n32: 72 registers, 0 B local, 36864 B shared
+tv_bg_n64: 96 registers, 0 B local, 38912 B shared
+tv_bg_n128: 168 registers, 0 B local, 67584 B shared
+attn_slot_g4_u64: 161 registers, 0 B local
+check: worst relative RMS 4.312e-4 (gate 1e-2)
+== 8b (c): the batched door, gemm, B = 1,8,16,32,64,128 ==
+Sun Nov  8 08:35:02 UTC 2026
+batched door: 256 tokens a sequence after the 5-token prompt fed through the batch, prompt and decode, 3 rounds
+  B arm   tok/s aggregate                  range      steps/s    tok/s a seq  tokens
+  1 gemm             72.5 [     72.4-     72.6]        73.62           72.5  1 of 1 rows equal c817aeaf2f5d1116
+  8 gemm            552.1 [    550.8-    555.2]        70.09           69.0  8 of 8 rows equal c817aeaf2f5d1116
+ 16 gemm            915.5 [    911.9-    920.9]        58.11           57.2  16 of 16 rows equal c817aeaf2f5d1116
+ 32 gemm           1366.7 [   1365.7-   1380.0]        43.38           42.7  32 of 32 rows equal c817aeaf2f5d1116
+ 64 gemm           1851.0 [   1847.2-   1860.7]        29.37           28.9  64 of 64 rows equal c817aeaf2f5d1116
+128 gemm           2628.7 [   2623.8-   2630.9]        20.86           20.5  128 of 128 rows equal c817aeaf2f5d1116
+== 8b (d): decode-path perplexity, gemm against rows ==
+Sun Nov  8 08:37:58 UTC 2026
+batched ppl: WikiText-2 test, 16 windows of 2048, 32752 positions, tokens 41391567c7bdff87; rows 202.5 s, gemm 41.9 s
+ppl rows 10.2533 (decode path, multi-row kernels), gemm 10.2538: pooled +0.0053 %, window mean +0.0053 % [-0.0039 ; +0.0146]
+T8 band: pooled inside +-0.12 %: yes
+== 14b (a): the served v9 door at batch 1 ==
+Sun Nov  8 08:42:23 UTC 2026
+served door (decode persistent): 4E tokens equal the eager path's under this config, 256 of 256
+served : loaded in   70.1 s,   87.1 tok/s [85.5–88.0, 5 rounds], 5.04 GB on the card          (4E, prompt and decode, as the door times a generate)
+  token ids: dc4f9ab9aa24c4d3 12095,13,576,6722,315,15344,374,21718,13,576,6722,315,17689,374,24081,13,576,6722,315,9856,374,19846,13,576,6722,315,6323,374,2619
+== 14b (b): batchrun check gemm ==
+Sun Nov  8 08:44:20 UTC 2026
+batch mma unit: 81799 bytes, sha256 d241ea8d1407bff65950d069acb7440b3ab5bdf9a831338ebac75bd3aae893b3, target compute_89
+batch gemm unit: 78742 bytes, sha256 0e5a7de4dec1303a0e9ad7665d1e0ff397d2f9d755691ce2be8acd8ebc59ef2f
+batch attention unit: 28404 bytes, sha256 ed0d7dab9a46e17c1dd53f278fbd00a93f130da0e53e9ef5fb227ff2cdf991b5
+tv_bg_n8: 48 registers, 0 B local, 27136 B shared
+tv_bg_n16: 72 registers, 0 B local, 39936 B shared
+tv_bg_n32: 72 registers, 0 B local, 36864 B shared
+tv_bg_n64: 96 registers, 0 B local, 38912 B shared
+tv_bg_n128: 168 registers, 0 B local, 67584 B shared
+attn_slot_g5_u64: 186 registers, 0 B local
+check: worst relative RMS 4.219e-4 (gate 1e-2)
+== 14b (c): the batched door, gemm, B = 1,8,16,32,64,128 ==
+Sun Nov  8 08:44:53 UTC 2026
+batched door: 256 tokens a sequence after the 5-token prompt fed through the batch, prompt and decode, 3 rounds
+  B arm   tok/s aggregate                  range      steps/s    tok/s a seq  tokens
+  1 gemm             40.5 [     40.3-     40.6]        41.16           40.5  1 of 1 rows equal dc4f9ab9aa24c4d3
+  8 gemm            309.6 [    307.4-    310.1]        39.30           38.7  8 of 8 rows equal dc4f9ab9aa24c4d3
+ 16 gemm            564.0 [    562.4-    565.9]        35.80           35.2  16 of 16 rows equal dc4f9ab9aa24c4d3
+ 32 gemm            840.0 [    836.4-    840.8]        26.66           26.3  32 of 32 rows equal dc4f9ab9aa24c4d3
+ 64 gemm           1109.2 [   1108.7-   1118.3]        17.60           17.3  64 of 64 rows equal dc4f9ab9aa24c4d3
+128 gemm           1552.4 [   1544.1-   1555.0]        12.32           12.1  128 of 128 rows equal dc4f9ab9aa24c4d3
+== 14b (d): decode-path perplexity, gemm against rows ==
+Sun Nov  8 08:49:47 UTC 2026
+batched ppl: WikiText-2 test, 16 windows of 2048, 32752 positions, tokens 41391567c7bdff87; rows 362.0 s, gemm 63.9 s
+ppl rows 8.8518 (decode path, multi-row kernels), gemm 8.8513: pooled -0.0052 %, window mean -0.0052 % [-0.0140 ; +0.0036]
+T8 band: pooled inside +-0.12 %: yes
+Sun Nov  8 08:57:25 UTC 2026
+total 166
+drwxr-xr-x.   2 root   root        0 Nov  8 08:49 .
+drwxrwxrwx. 202 nobody nogroup     0 Nov  8 08:19 ..
+-rw-r--r--.   1 root   root     9334 Nov  8 08:44 check-14b.txt
+-rw-r--r--.   1 root   root     9332 Nov  8 08:23 check-4b.txt
+-rw-r--r--.   1 root   root     9333 Nov  8 08:35 check-8b.txt
+-rw-r--r--.   1 root   root      115 Nov  8 08:33 compare.txt
+-rw-r--r--.   1 root   root     6736 Nov  8 08:44 door-b1-14b.txt
+-rw-r--r--.   1 root   root     7132 Nov  8 08:22 door-b1-4b.txt
+-rw-r--r--.   1 root   root     6793 Nov  8 08:34 door-b1-8b.txt
+-rw-r--r--.   1 root   root     5643 Nov  8 08:49 door-batch-14b.txt
+-rw-r--r--.   1 root   root     7163 Nov  8 08:26 door-batch-4b.txt
+-rw-r--r--.   1 root   root     5639 Nov  8 08:38 door-batch-8b.txt
+-rw-r--r--.   1 root   root      342 Nov  8 08:20 files.sha256
+-rw-r--r--.   1 root   root       50 Nov  8 08:19 gpu.txt
+-rw-r--r--.   1 root   root    61291 Nov  8 08:33 gsm8k-b50-gemm.jsonl
+-rw-r--r--.   1 root   root     3377 Nov  8 08:33 gsm8k-b50-gemm.txt
+-rw-r--r--.   1 root   root      377 Nov  8 08:19 oracle.txt
+-rw-r--r--.   1 root   root     4275 Nov  8 08:49 ppl-2048x16-14b.txt
+-rw-r--r--.   1 root   root     4289 Nov  8 08:29 ppl-2048x16-4b.txt
+-rw-r--r--.   1 root   root     4286 Nov  8 08:42 ppl-2048x16-8b.txt
+-rw-r--r--.   1 root   root    10473 Nov  8 08:32 ppl-256x128-4b.txt
+-rw-r--r--.   1 root   root     1157 Nov  8 08:20 qwen3-14b-tetra-e4-4e-v9.json
+-rw-r--r--.   1 root   root      678 Nov  8 08:20 qwen3-14b-tetra-e4-batch.json
+-rw-r--r--.   1 root   root     1436 Nov  8 08:20 qwen3-4b-tetra-e4-4e-v9.json
+-rw-r--r--.   1 root   root      676 Nov  8 08:20 qwen3-4b-tetra-e4-batch.json
+-rw-r--r--.   1 root   root     1157 Nov  8 08:20 qwen3-8b-tetra-e4-4e-v9.json
+-rw-r--r--.   1 root   root      678 Nov  8 08:20 qwen3-8b-tetra-e4-batch.json

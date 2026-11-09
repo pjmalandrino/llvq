@@ -1247,6 +1247,28 @@ reaches 1,256.5 at B = 32, both with the batch-1 tokens on every row (*measured*
 AWQ's 4.9 in vLLM, which leaves Tetra below AWQ in aggregate: 1,256.5 tok/s against 5,128.7 at B = 32, 54.2 GB/s
 against 427.9 (*measured*, same journal).
 
+## 2026-11-08. Batching for the L40S: a staged GEMM, B to 128, continuous batching in the runtime
+
+The operator made batching the project's priority on 2026-11-08 ("régler le batch pour défoncer la L40S"). The first
+kernel read each weight row's block from global memory one lane a row, with no prefetch. `tv_batch_gemm.cu` stages
+the words of a K chunk in shared memory two chunks ahead, folds every scale into f16 weights, runs one MMA pass, takes
+up to 128 rows, and launches q, k, v and gate, up as one launch each (17 of 17 mutants killed on the host). The
+attention gained a slot-indexed entry, and `llvq serve` a pool of slots under `LLVQ_BATCH`: a request joins a free
+slot and leaves without stopping the others.
+
+Two jobs ($1.48 of a $5 envelope) read the gate and the bench at three sizes. The GEMM is x1.67 to x1.81 the first
+kernel, keeps every door row equal to batch 1 and perplexity within +-0.0053 %, and scores 40/50 on the GSM8K pilot.
+It stays about two times below AWQ in aggregate at every size and B: 3,996.7 against 10,146.2 tok/s on the 4B at
+B = 128 (*measured*, [batch-l40s](mesures/batch-l40s-2026-11-08.txt)). The 4B step costs 9.2 ms at B = 1, about 5 ms
+of it eager launches, and grows 0.2 ms a row against AWQ's 0.06.
+
+Three more jobs the same day ($1.99; branch $3.47 of $5). The activation in f16 and 128-row tiles gained 12 to 41 % at
+B = 128 ([batch-l40s-v2](mesures/batch-l40s-v2-2026-11-08.txt)). The operator then asked for a lone request on 4E and
+for two CTAs a SM. The GEMM learned to read 4E v9's tiled int4 words, so the served v9 configs carry the batch: alone,
+a request decodes at 224.4 / 142.4 / 88.1 tok/s on the 4B / 8B / 14B, against 106 / 74 / 44 on the GEMM
+([batch-l40s-v3](mesures/batch-l40s-v3-2026-11-08.txt)). Two CTAs a SM lost 5 to 17 % and the tiled order about 1 %,
+read apart in one job ([batch-l40s-v4](mesures/batch-l40s-v4-2026-11-08.txt)); the occupancy lead is closed.
+
 ## 2026-11-07. Speculative decoding with the 0.6B: the bits hold, the speed does not
 
 - Operator's go: test the speculative decode with the 0.6B. Qwen3-0.6B sealed in Tetra on the Mac: 0.252 GB,

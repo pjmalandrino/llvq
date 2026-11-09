@@ -28,6 +28,7 @@ fn served() -> ServedFile {
         decode: None,
         rows: None,
         prefill_attention: None,
+        batch: None,
         note: Some("Qwen3-4B, Tetra + 36 v_proj int4 g128".into()),
     }
 }
@@ -400,8 +401,9 @@ fn an_absent_attention_field_is_the_published_form() {
     let r = Served::of(f, PathBuf::from("old.json")).expect("resolves");
     assert_eq!((r.attention, r.store), (AttnHeads::Expanded, KvStore::Cat));
 
-    // And on disk: every shipped config except the grouped, kernel and 4E ones
-    // is expanded; every one but the 4E configs decodes on the eager path.
+    // And on disk: every shipped config except the grouped, kernel, 4E and
+    // batch ones is expanded; every one but the 4E configs decodes on the
+    // eager path.
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../configs");
     let mut expanded = 0;
     for entry in std::fs::read_dir(&dir).expect("configs/") {
@@ -414,7 +416,7 @@ fn an_absent_attention_field_is_the_published_form() {
         let r = Served::of(f, path.clone()).expect("resolves");
         let four_e = name.contains("-4e");
         assert_eq!(r.decode, if four_e { Decode::Persistent } else { Decode::Eager }, "{name}");
-        match (name.contains("grouped"), name.contains("kernel") || four_e) {
+        match (name.contains("grouped"), name.contains("kernel") || four_e || name.contains("-batch")) {
             (true, _) => assert_eq!(r.attention, AttnHeads::Grouped, "{name}"),
             (false, true) => assert_eq!(r.attention, AttnHeads::Kernel, "{name}"),
             (false, false) => {
@@ -555,6 +557,7 @@ fn four_e() -> ServedFile {
         decode: Some("persistent".into()),
         rows: None,
         prefill_attention: None,
+        batch: None,
         note: None,
     }
 }
@@ -1020,4 +1023,53 @@ fn the_prefill_attention_field_rides_the_kernel_form_only() {
         assert_eq!((v.prefill, k.prefill), (PrefillAttn::Grouped, PrefillAttn::Kernel), "{size}");
         assert!(fk.note.expect("a note").starts_with("NOT SERVED"), "{size}");
     }
+}
+
+/// The three batch configs are the v9 configs' object fields without 4E, with
+/// a batch of 64 sequences of 2,048 positions; the field is refused beside
+/// what the batched path does not run, and outside its bounds.
+#[test]
+fn the_batch_configs_are_the_served_fields_with_a_batch_and_no_4e() {
+    use llvq_llm::served::{BatchFile, BatchServe};
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../configs");
+    for size in ["4b", "8b", "14b"] {
+        let read = |name: String| {
+            let path = dir.join(&name);
+            let f = Served::read_file(&path).unwrap_or_else(|e| panic!("{name}: {e}"));
+            Served::of(f, path).unwrap_or_else(|e| panic!("{name}: {e}"))
+        };
+        let b = read(format!("qwen3-{size}-tetra-e4-batch.json"));
+        let v9 = read(format!("qwen3-{size}-tetra-e4-4e-v9.json"));
+        assert_eq!((b.layout, b.embed, b.rot_share, b.fuse, b.kv, b.attention), (v9.layout, v9.embed, v9.rot_share, v9.fuse, v9.kv, v9.attention));
+        assert_eq!(b.decode, Decode::Eager, "{size}: the batched path never runs 4E");
+        assert_eq!(b.int4_layout(), llvq_llm::fused::Int4Layout::Served, "{size}: the GEMM reads the file's order");
+        assert_eq!(b.batch, Some(BatchServe { max: 64, context: 2048 }));
+        assert!(b.provenance().contains("batch of up to 64 sequences of 2048 positions"), "{}", b.provenance());
+        let e = b.check_device(true).expect_err("Metal");
+        assert!(e.contains("batch") && e.contains("Metal"), "{e}");
+        // The served v9 config with the batch: 4E for a lone request, the
+        // GEMM on the tiled int4 words for the rest.
+        let vb = read(format!("qwen3-{size}-tetra-e4-4e-v9-batch.json"));
+        assert_eq!(
+            (vb.layout, vb.embed, vb.rot_share, vb.fuse, vb.kv, vb.attention, vb.decode, vb.rows, vb.int4_layout()),
+            (v9.layout, v9.embed, v9.rot_share, v9.fuse, v9.kv, v9.attention, v9.decode, v9.rows, v9.int4_layout())
+        );
+        assert_eq!(vb.batch, Some(BatchServe { max: 64, context: 2048 }));
+    }
+    let with = |f: ServedFile| of(ServedFile { batch: Some(BatchFile { max: 32, context: 4096 }), ..f });
+    let kernel = ServedFile { attention: Some("kernel".into()), embed: "q4".into(), ..served() };
+    assert!(with(kernel.clone()).is_ok());
+    assert!(with(ServedFile { decode: Some("persistent".into()), rows: Some("v9".into()), ..kernel.clone() }).is_ok(), "4E beside the batch");
+    for (f, word) in [
+        (served(), "kernel"),
+        (ServedFile { kv: "q8".into(), ..kernel.clone() }, "f16"),
+        (ServedFile { fuse: "1".into(), ..kernel.clone() }, "fuse"),
+    ] {
+        let e = with(f).expect_err(word);
+        assert!(e.contains("batch") && e.contains(word), "{word}: {e}");
+    }
+    for (max, context) in [(0, 4096), (129, 4096), (8, 255), (8, 40_961)] {
+        assert!(BatchServe::of(BatchFile { max, context }).is_err(), "({max}, {context}) must be refused");
+    }
+    assert_eq!(BatchServe::of(BatchFile { max: 64, context: 2048 }).unwrap().with_max(128).unwrap().max, 128);
 }
