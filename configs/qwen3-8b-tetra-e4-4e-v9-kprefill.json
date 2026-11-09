@@ -1,0 +1,12 @@
+{
+  "layout": "tetra48",
+  "embed": "q4",
+  "rot_share": "1",
+  "fuse": "0",
+  "kv": "f16",
+  "attention": "kernel",
+  "decode": "persistent",
+  "rows": "v9",
+  "prefill_attention": "kernel",
+  "note": "NOT SERVED. The qwen3-8b-tetra-e4-4e-v9 config (qwen3-8b-sealed-B.bin, sha256 7bdb9a55) with \"prefill_attention\": \"kernel\" and nothing else different: a prefill chunk goes to the decode-attention kernel 8 rows a call instead of the grouped matmuls, so no heads x 4,096 x 8,192 score tensor is made. Every prompt row gets the bits a decode step at its position gets; it is not bit for bit with the grouped prefill the served config runs. Peak card memory after an 8,192-token prompt, measured on the L40S: 4.77 / 7.15 / 9.30 GB at 4B / 8B / 14B, outside the 3.67 / 5.20 / 7.81 computed, against 5.95 / 7.39 / 10.54 for the served config; time to first token 1.21 / 1.16 / 1.14 times served's; logits in chunks of 512 and of 4,096 bit for bit (pic-vram-8k-2026-11-08, card gate of 2026-11-08). Not proposed for serving: the excess over the computed peak is not traced."
+}

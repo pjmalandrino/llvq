@@ -1,0 +1,7 @@
+vram 4b-served idle 0 MiB peak 5671 MiB
+vram 4b-whole idle 0 MiB peak 10375 MiB
+vram 4b-kprefill idle 0 MiB peak 4545 MiB
+vram 8b-served idle 0 MiB peak 7047 MiB
+vram 8b-kprefill idle 0 MiB peak 6817 MiB
+vram 14b-served idle 0 MiB peak 10055 MiB
+vram 14b-kprefill idle 0 MiB peak 8865 MiB

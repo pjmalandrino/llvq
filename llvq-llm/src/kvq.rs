@@ -605,3 +605,50 @@ impl AttnHeads {
     }
 }
 
+/// How the `Kernel` form attends a prefill chunk, a call of more rows than
+/// the kernel carries.
+///
+/// - `Grouped`, the default and what every config before 2026-11-08 served:
+///   the chunk takes [`AttnHeads::Grouped`]'s matmuls, whose score tensor is
+///   `n_heads × l × L` (2.15 GB on the 4B at the second chunk of an
+///   8,192-token prompt, one tensor since the in-place softmax).
+/// - `Kernel`: the chunk goes to the decode-attention kernel in calls of at
+///   most [`crate::attn::canon::KMAX`] rows. No score tensor exists. The
+///   kernel's row is a function of `(q, K[0..=pos], V[0..=pos])` alone
+///   (`llvq-cuda/src/attn_ref.rs`), so every prompt row gets the bits a decode
+///   step at its position gets, whatever the chunking: the prompt's attention
+///   becomes the arithmetic 4E decodes with. It is not bit for bit with
+///   `Grouped`, so it is NOT SERVED until a card gate reads it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum PrefillAttn {
+    #[default]
+    Grouped,
+    Kernel,
+}
+
+impl PrefillAttn {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Grouped => "grouped",
+            Self::Kernel => "kernel",
+        }
+    }
+
+    /// The served config's `prefill_attention` field: absent is `Grouped`,
+    /// what every config written before the field served. Empty is refused.
+    pub fn parse(v: Option<&str>) -> std::result::Result<Self, String> {
+        match v {
+            None | Some("grouped") => Ok(Self::Grouped),
+            Some("kernel") => Ok(Self::Kernel),
+            Some(s) if s.trim().is_empty() => Err(
+                "prefill_attention is empty. Write \"kernel\", or delete the key for the grouped prefill."
+                    .to_string(),
+            ),
+            Some(other) => Err(format!(
+                "prefill_attention {other:?}: accepted values \"grouped\" (also what an absent key means) \
+                 and \"kernel\""
+            )),
+        }
+    }
+}
+

@@ -152,6 +152,11 @@ For an A/B on one file the bar is the paired interval, 0.43 pp of MMLU and 0.12 
 - **Throughput past v9.** At the bit the 4B tops out near 235 to 258 tok/s at the door (*estimated*,
   [`plan-300.md`](plan-300.md)). Speculative decoding with the 0.6B draft is closed (§6). Next, on branches and not
   on main: batching (PR #24) and a speculative route with a cheaper verify pass (PR #27).
+- **Card memory after an 8,192-token prompt.** The served prefill keeps one score tensor instead of three, bit for
+  bit: 5.95 / 7.39 / 10.54 GB at 4B / 8B / 14B, from 11.48 / 12.66 / 17.09 in the duel, against 3.52 / 4.71 / 6.90 for
+  llama.cpp IQ2_S (*measured*, L40S, [pic-vram-8k](mesures/pic-vram-8k-2026-11-08.txt)). The NOT SERVED
+  `prefill_attention: kernel` measured 4.77 / 7.15 / 9.30, about 1 to 2 GB over its computed peak, and 1.14 to 1.21
+  times slower to the first token: not proposed. Open: the excess it holds layer by layer is not traced.
 - **Scores through the served kernel.** MMLU and perplexity are scored on the dense reconstruction with f16 tables;
   the b/param count int4 tables. About $20 by the mixed route, $70 for the full census at three sizes (*estimated*,
   [`ROADMAP.md`](ROADMAP.md)). `ppl` does not read `LLVQ_CONFIG` yet.

@@ -1,0 +1,193 @@
+pic-vram-8k, 2026-11-08. Where the card memory goes after an 8,192-token prompt, and what the branch cuts.
+
+Result: the served peak after an 8,192-token prompt falls from 11.48 / 12.66 / 17.09 GB to 5.95 / 7.39 / 10.54 at
+4B / 8B / 14B, with the same logits bit for bit (*measured*, L40S, §7). The excess was the grouped prefill's
+attention: three f16 score tensors of heads x 4,096 x 8,192 alive at once (6.44 GB on the 4B), and the stream-ordered
+pool keeping the first chunk's under them (*computed*; the pool term *estimated*). The branch keeps one tensor, and
+the three served peaks land inside their computed band (5.65 / 7.09 / 10.08, +-0.5). llama.cpp IQ2_S stays 2.43 /
+2.68 / 3.64 GB lower. The kernel prefill, not served, misses its band: 4.77 / 7.15 / 9.30 against 3.67 / 5.20 / 7.81
+computed, and it is 1.14 to 1.21 times slower to the first token. It is not proposed for serving.
+
+Sources : the duel's raw outputs, branch claude/duel-iq2-xxs-c5d375 (PR #26), docs/mesures/duel-iq2-2026-11-08-brut/
+          tetra/ (vram.txt, sweep-*.txt) and ops/jobs/duel-tetra.sh; the code paths named below at the branch's base
+          1997edc; the arithmetic in ops/pic_vram_8k.py.
+Prereg  : proofs/preregistration-pic-vram-8k-2026-11-08.md, stamped 2026-11-08 before the launch (.ots beside it).
+Cost    : $0 for §1-§6 (Mac: host tests, Metal, arithmetic); $2.04 for §7 (HF job 6af0eb02, l40sx1, 68 min, the
+          operator's go written in the session, 2026-11-08). Registry $304.05 before, $306.09 after (the parent
+          session's count across the open branches; $282.08 on this branch's base).
+Raw     : docs/mesures/pic-vram-8k-2026-11-08-brut/ (sweeps, vram series, speed.txt, vram.txt, gpu.txt, oracle.txt).
+
+1. HOW THE DUEL READ THE PEAK
+-----------------------------
+One process per size and length: `fusedrun <sealed> 256` under the served v9 config with LLVQ_CONTEXTS, and
+`nvidia-smi --query-gpu=memory.used -lms 100` beside it; peak minus idle (idle 0 MiB). The process loads, installs
+4E, runs 1 + 5 rounds (each: prefill in chunks of 4,096 through the eager path, then 4E decodes 256 tokens), then one
+eager generation to check 4E's tokens. Measured: 1,921 / 10,951 MiB at 4B after 5 / 8,192 tokens, 3,265 / 12,071 at
+8B, 5,441 / 16,295 at 14B.
+
+What a `llvq serve` user pays at 8,192 tokens: the same. Session::feed prefills in chunks of prefill_rows() = 4,096
+through the same hidden_cached, and 4E decodes after it (*computed* from the code path). The eager check adds
+nothing: it runs after the rounds, on the same prefill, and each generation's caches are freed and the stream
+synchronised (the token read) before the next. The harness costs no memory a server does not.
+
+2. THE DECOMPOSITION, 4B (GB = 1e9 B), second prefill chunk: 4,096 rows over 8,192 keys
+-------------------------------------------------------------------------------------
+  item                                                     GB     label     where
+  context, weights, 4E, fixed buffers (peak at 5 tokens)  2.01   measured  duel vram.txt
+  KV cache, 8,192 positions, 36 x 2 x 8 x 128 x 2 B       1.21   computed  KvCache, Grow(256)
+  score tensors: scaled, masked, softmaxed, all alive     6.44   computed  grouped_attention, model.rs (base)
+    one tensor S = 32 heads x 4,096 x 8,192 x 2 B         2.15
+  chunk 1's score block left in the pool                  1.07   estimated cuMemAllocAsync, no sync in a prefill
+  activations alive at the attention (x, ln1, q, k, v,    0.18   computed  forward_cached
+    q and k after norms and RoPE)
+  causal mask f16                                          0.07   computed  build_causal_mask
+    its f32 copy, uploaded then cast, freed to the pool   0.13   computed
+  chunk 1's cache buffers dropped at the growth, up to    0.60   estimated append_grow
+  repeat_kv copies                                         0      computed  the grouped and kernel forms have none
+  eager check                                              0      computed  sequential, same path
+  model                                                   10.99-11.59         measured 11.48
+
+The same model at 8B: 12.42-13.03 against 12.66 measured; at 14B (40 heads, S = 2.68 GB): 16.76-17.43 against 17.09.
+Without the pool term the model falls 1.3 to 1.7 GB short at every size: the leftovers are needed to explain the
+measure. On the cards the pool is candle's stream-ordered allocator (cudarc 0.19.8, malloc_async), whose default
+release threshold is 0: freed memory returns to the driver only at a stream, event or device synchronisation, and a
+prefill had none between its chunks.
+
+Why the score tensors were three: candle's ops take &self, so `let scores = ...; let scores = match mask {...}` keeps
+the first binding alive to the end of the function, and the softmax allocates a third. The 6.44 GB was already
+computed in the ML audit of 2026-11-02 (docs/archive/debit-vague5-2026-11-02/prefill.md §3.1, "U5": 9.6 GB estimated
+at 4B as 1.38 + 1.21 + 6.44 + ~0.6). The gap from 9.6 to 11.48 is the CUDA context and fixed buffers (2.01 measured
+against the 1.38 of weights) and the pool's leftovers, which the audit did not count.
+
+3. THE LEVERS, GAINS COMPUTED BEFORE THE CODE (4B, second chunk)
+-------------------------------------------------------------
+  lever                                            gain GB   bits
+  softmax in place, blocks of 1,024 rows           -4.26     none move (argument below, tests §4)
+  sync before each prefill chunk                    -1.07     none (ordering already holds)
+  sync after each cache growth                      up to -0.60, and 4E's growth past the prompt stops holding
+                                                    the cache twice (+1.21 transient, 2.42 at the loop's end)
+  mask built in f16 on the host                     -0.13 transient
+  kernel prefill (8 rows a call through attn_dec)  -1.98 more: no score tensor at all, the peak moves to the
+                                                    MLP (0.38 GB at 4B); NOT bit for bit with the grouped prefill
+  smaller prefill chunks                            not taken: they change the matmul shapes cuBLAS sees, so the
+                                                    bits (gqa-ab-2026-11-01: 2 of 6 reshapes kept them)
+
+The in-place softmax keeps every bit: the QK^T and PV matmuls keep their operands, shapes and strides; between them
+each element meets the affine x*scale+0, then x+m with m = +0 or -inf, then a softmax that reduces one row at a time
+(one warp a row, candle-kernels reduce.cu). A block of whole rows is contiguous, so each kernel takes the branch the
+whole tensor took; the broadcast mask add becomes an add of equal shapes, the same x+y. The copy back is a copy.
+
+4. WHAT RAN ON THE MAC (measured)
+---------------------------------
+Host tests, llvq-llm (CPU):
+- in_place_softmax_matches_the_whole_tensor: grouped and expanded bodies, f16 and f32, groups of 4 and 5, batch 2
+  under a one-row mask, chunks at an offset, blocks of 1, 3, l and 4l rows: bit for bit. Same test on Metal
+  (in_place_softmax_matches_the_whole_tensor_on_metal): bit for bit.
+- the_in_place_softmax_moves_no_logit: the whole tiny model, in place forced on every masked call in blocks of 3,
+  against the default, on expanded/Cat, expanded/Prealloc, grouped/Grow(256), grouped/Grow(4), kernel/Grow(256):
+  the same logits through a chunked prefill, 12 decode steps and the full window.
+- the_causal_mask_is_built_in_its_dtype: f16, bf16, f32 equal to the f32 mask cast.
+- Four mutants of softmax_in_place (wrong mask rows, no copy back, scale off by 1e-4, first block only), each
+  applied (non-empty diff), each killed.
+- the_kernel_prefill_does_not_depend_on_the_chunking: under prefill_attention kernel, chunkings 19, 16+3, 11+8,
+  8+8+3, 4x4+3 give the same logits bit for bit; the grouped prefill moves with the chunking; kernel against grouped
+  max |dlogit| 3.7e-4. A chunking that leaves a one-row piece moves the tiny model's dense projections under every
+  form (candle's CPU gemm rounds a one-row product apart), so it is left out; on the card that is the rows kernels'
+  identity, which the gate reads. kernel_prefill_rows_are_the_kernel_rows: each row equals the kernel called alone.
+
+Metal, dense Qwen3-4B f16, 8,192 tokens in chunks of 4,096, `llvq-llm/examples/prefill_peak.rs`, base 1997edc
+against this branch, M3 Max 64 GB, peak memory footprint by `/usr/bin/time -l` (counts the Metal buffers):
+  form       code      time    first token   last-position logits fingerprint   peak footprint
+  grouped    1997edc   33.0 s  1874          f92a4ed4b7f432c2                   56.65 GB
+  grouped    branch    21.7 s  1874          f92a4ed4b7f432c2                   14.94 GB
+  grouped    40c405f+  17.4 s  1874          f92a4ed4b7f432c2                   14.79 GB   (locals freed early)
+  expanded   1997edc   29.2 s  1874          f92a4ed4b7f432c2                   62.99 GB
+  expanded   branch    16.9 s  1874          f92a4ed4b7f432c2                   27.12 GB
+The same bits at the real shape, and 41.7 GB less on the grouped form. Metal's buffer cache is not the CUDA pool
+(candle keeps freed Metal buffers by size and a sync does not return them), so these GB are not a card prediction;
+the old runs sat near the machine's 64 GB, which is likely where their extra time went (*estimated*). The expanded
+form keeps 12 GB more than grouped on Metal on the branch; it is not served and its cause is not traced.
+
+5. PROJECTED PEAKS AFTER 8,192 TOKENS (computed, GB, and b/param of the whole model at peak)
+-------------------------------------------------------------------------------------------
+                       4B             8B             14B
+  measured (duel)      11.48 (22.8)   12.66 (12.4)   17.09 (9.3)
+  served, this branch   5.65 (11.2)    7.09 (6.9)    10.08 (5.5)
+  kprefill, NOT SERVED  3.67 (7.3)     5.20 (5.1)     7.81 (4.2)
+  llama.cpp IQ2_S       3.52 (7.0)     4.71 (4.6)     6.90 (3.7)   measured, same sampler
+The served line keeps one score tensor (2.15 / 2.15 / 2.68 GB). The kprefill line keeps none, and its peak moves to
+the chunk's MLP: gate, up, act(gate) and their product alive together, f16, with the residual in and out and ln2,
+0.38 / 0.50 / 0.70 GB (*computed*, mlp_residual). A first version of this table counted the attention moment only
+(3.47 / 4.91 / 7.37); the bug audit of 2026-11-08 flagged it, recounting +0.44 / +0.56 / +0.77. The audit's
+extra 0.24 / 0.27 / 0.33 GB was real: the attention's locals (ln1, q, k, v before and after norms and RoPE, the
+context and its flat copy) stayed alive through the MLP, because `finish` ran inside `forward_cached`'s scope, and
+the prefill driver kept the last chunk's hidden states until the next returned. The code now frees them (the
+attention in its own function, `ctx` consumed after o_proj, ln2 and gate/up dropped before down_proj, the last h
+dropped before each chunk), which leaves the table's count. What
+remains against llama.cpp is the base at 5 tokens (2.01 against 2.17 at 4B, 3.42 against 3.35 at 8B, 5.71 against
+5.40 at 14B) and the 4,096-row MLP, where llama.cpp prefills 512 rows at a time.
+
+6. OPEN
+-------
+See §8, after the card gate.
+
+7. THE CARD GATE, 2026-11-08 (measured, HF job 6af0eb02, NVIDIA L40S sm_89, driver 580.178.04, $2.04)
+---------------------------------------------------------------------------------------------------
+Image: the Space republished from 94097dc (Space sha 1e1fb955). Oracle MATCH. One process per arm, `fusedrun
+<sealed> 256` with LLVQ_CONTEXTS=8192, 1 discarded + 5 rounds, the duel's sampler (nvidia-smi 100 ms, idle 0 MiB).
+Peak minus idle, GB (1e9 B), and b/param of the whole model at peak:
+
+  arm        4B                         8B                         14B
+  duel       11.48 (22.8)               12.66 (12.4)               17.09 (9.3)    measured, before the branch
+  served      5.95 (11.8)  pred 5.65     7.39 (7.2)  pred 7.09     10.54 (5.7)  pred 10.08
+  whole      10.88         pred 7.8      -                          -
+  kprefill    4.77 (9.5)   pred 3.67     7.15 (7.0)  pred 5.20      9.30 (5.0)  pred 7.81
+  llama.cpp   3.52 (7.0)                 4.71 (4.6)                 6.90 (3.7)    measured, duel, same sampler
+
+  arm        to first token, s (median of 5 [range])          decode tok/s at 8,192            logits fingerprint
+  4B served   36.51 [36.50-36.67]   duel 34.48 (+5.9 %)      155.0 [153.8-155.9]  duel 160.8   cac41130853d8eba
+  4B whole    41.56 [41.49-41.81]                             146.1 [145.0-147.8]              cac41130853d8eba
+  4B kprefill 44.16 [44.14-44.44]   x1.21 served             156.3 [155.5-156.6]              13a2687e3434f03a
+  8B served   48.18 [48.02-48.34]   duel 45.98 (+4.8 %)      106.4 [106.2-106.9]  duel 109.6   7a4089609afc6a0a
+  8B kprefill 55.95 [55.81-56.22]   x1.16 served             106.7 [105.1-107.3]              361b38058d9d4d54
+  14B served  83.63 [83.18-84.13]   duel 80.31 (+4.1 %)       69.3 [68.3-70.1]    duel 71.7    41496350cda071c6
+  14B kprefill 95.43 [95.23-96.09]  x1.14 served              69.9 [69.2-70.3]                 6743355b47df6cd0
+
+Every arm: 4E tokens equal the eager path's, 256 of 256.
+
+G1, the exact claim: PASSED. 4B served and whole print the same last-position logits fingerprint, cac41130853d8eba,
+and 256 of 256 4E tokens each. The in-place softmax is bit for bit on the card.
+
+G2, the memory: PASSED at the three sizes, each on the high side of its band: +0.30 / +0.30 / +0.46 GB over the
+computed value. The served peak falls by 5.53 / 5.27 / 6.55 GB from the duel.
+
+G3, the kernel prefill: HALF. Chunks of 512 and of 4,096 give the same logits bit for bit at the three sizes (0 of
+151,936 differ), so its prompt rows are its decode rows. Its memory misses the band at every size, by +1.10 / +1.95 /
++1.49 GB. Its time to first token is 1.21 / 1.16 / 1.14 times served's, outside the 0.9-1.1 predicted. The prereg
+puts serving it to the operator only if both halves hold: it is not proposed.
+
+Two predictions missed, both outside the served path:
+- whole: 10.88 GB against 7.8. The whole-tensor form keeps 8.86 GB above the base at 4B; KV and activations explain
+  1.4, so the scores hold about 3.5 S where the code reads 2 S at most. Not traced. It moves nothing served: it is a
+  measurement switch, and its bits are G1's.
+- kprefill: the series show the memory climbing linearly across the whole prefill, 2.65 / 3.72 / 3.73 GB above the
+  base at its peak against 1.66 / 1.78 / 2.11 computed (KV, the chunk's MLP, the mask). The KV cache explains
+  1.21 / 1.21 / 1.34 of the climb; the rest, 0.99 / 1.94 / 1.62 GB, accumulates layer by layer and survives the sync
+  between chunks, so it is held, not pooled (*estimated* from the series' shape). The kernel allocates its output
+  only and reads the cache in place (attn_cuda.rs). Not traced.
+
+Time to first token against the duel: +5.9 / +4.8 / +4.1 %. The 4B misses the prereg's +5 %, the 8B and 14B are
+inside. The decode, which the branch does not change, is 3.6 / 2.9 / 3.3 % slower than in the duel too, and two
+processes on the same card differ by 6 % in decode (served 155.0, whole 146.1): the prefill's cost of the syncs and
+the in-place pass is not separable from that variance across jobs. Inside this job, the in-place form is 5.05 s
+faster to the first token than the whole-tensor form (36.51 against 41.56).
+
+8. OPEN
+-------
+- The kprefill excess (0.99 / 1.94 / 1.62 GB, held layer by layer) and the whole arm's extra 1.5 S. Tracing either
+  needs a live-allocation count on the card, or a counting allocator on the host's tiny model first ($0).
+- The kernel prefill is not proposed for serving: memory outside its band, time to first token 1.14 to 1.21 times.
+  If the excess is found, the remaining question is its speed; the chunk could also shrink for the MLP (0.38 /
+  0.50 / 0.70 GB at 4,096 rows) now that its chunking is shown not to move a bit.
+- What stays against llama.cpp on the served path: one score tensor (2.15 / 2.15 / 2.68 GB) and the base at 5
+  tokens. Removing the tensor bit for bit means smaller cuBLAS shapes, which move bits (gqa-ab-2026-11-01).

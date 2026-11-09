@@ -77,7 +77,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::fused::{EmbedMode, FuseMode, FusedLayout};
-use crate::kvq::{AttnHeads, KvMode, KvStore};
+use crate::kvq::{AttnHeads, KvMode, KvStore, PrefillAttn};
 use crate::rotplan::RotShare;
 
 /// The file on disk. Strings, because the vocabulary belongs to the parsers.
@@ -109,6 +109,12 @@ pub struct ServedFile {
     /// card ([`Rows4e::int4_layout`]). See [`Rows4e::parse`].
     #[serde(default)]
     pub rows: Option<String>,
+    /// How a prefill chunk is attended, beside `"attention": "kernel"` only:
+    /// absent is `"grouped"`, what every config before 2026-11-08 served;
+    /// `"kernel"` sends the prompt's rows to the decode-attention kernel, 8 a
+    /// call, and makes no score tensor. See [`PrefillAttn`].
+    #[serde(default)]
+    pub prefill_attention: Option<String>,
     /// Free text, carried so a config can say what object it belongs to. Read
     /// by nothing and printed with the rest.
     #[serde(default)]
@@ -132,6 +138,9 @@ pub struct Served {
     pub decode: Decode,
     /// 4E's row loop; `V3` under the eager decode, where it is not read.
     pub rows: Rows4e,
+    /// How the kernel form attends a prefill chunk; `Grouped` under any other
+    /// form, where it is not read.
+    pub prefill: PrefillAttn,
     pub path: PathBuf,
     pub note: Option<String>,
 }
@@ -479,6 +488,15 @@ impl Served {
         let attention = AttnHeads::parse(f.attention.as_deref())?;
         let decode = Decode::parse(f.decode.as_deref())?;
         let rows = Rows4e::parse(f.rows.as_deref())?;
+        let prefill = PrefillAttn::parse(f.prefill_attention.as_deref())?;
+        if f.prefill_attention.is_some() && attention != AttnHeads::Kernel {
+            return Err(format!(
+                "prefill_attention {:?} beside attention {:?}: the field says how the kernel form attends \
+                 a prefill chunk. Write \"attention\": \"kernel\", or delete the prefill_attention key.",
+                prefill.label(),
+                attention.label()
+            ));
+        }
         if f.rows.is_some() && decode != Decode::Persistent {
             return Err(format!(
                 "rows {:?} beside the eager decode: the field names 4E's row loop. Write \"decode\": \
@@ -522,6 +540,7 @@ impl Served {
             store: attention.store(),
             decode,
             rows,
+            prefill,
             path,
             note: f.note,
         })
@@ -560,6 +579,12 @@ impl Served {
             (Decode::Eager, _) => String::new(),
             (Decode::Persistent, Rows4e::V3) => ", decode persistent (4E, one launch a token run)".to_string(),
             (Decode::Persistent, r) => format!(", decode persistent (4E rows {}, one launch a token run)", r.label()),
+        };
+        // Named only when it is not the grouped prefill, so every line an
+        // earlier config printed reads as it did.
+        let decode = match self.prefill {
+            PrefillAttn::Grouped => decode,
+            PrefillAttn::Kernel => format!("{decode}, prefill attention kernel (8 rows a call)"),
         };
         format!(
             "served config: {} (layout {}, embed {}, rot_share {}, fuse {}, kv {}, \
@@ -680,6 +705,7 @@ impl Served {
             AttnHeads::Expanded | AttnHeads::Shared | AttnHeads::Grouped => None,
         };
         model.set_attn_kernel(kernel);
+        model.set_prefill_attention(self.prefill);
         Ok(())
     }
 }
