@@ -336,7 +336,7 @@ verify pass, D a draft step and α the acceptance a token. Doors in tok/s, best 
 Measured since (spec-final, 2026-11-09): δ today is 3.26 / 6.18 / 10.80 ms at 4B / 8B / 14B, 0.74 to 0.98 of a 4E
 token, and 92 to 95 % of it sits in the row phases, attention and the prologues under 0.5 % (*measured*,
 [spec-final](mesures/spec-final-2026-11-08.txt)). Shaker's 0.378 is a share of a row pass, about 0.27 of a token at
-4B, so the second row above (1.13 ms) is an upper bound on that floor. The measured EAGLE-3 α on Tetra is 0.43 to 0.61
+4B (*computed*), not a share of a token as written above. The measured EAGLE-3 α on Tetra is 0.43 to 0.61
 on free text ([eagle-alpha](mesures/eagle-alpha-2026-11-08.txt)), under the 0.6 to 0.8 this table spans.
 
 D here is a one-layer drafter: 0.18, 0.29 and 0.40 ms a step. δ under B1 is 0.30 ms at 4B (*estimated*: 48 bytes of
