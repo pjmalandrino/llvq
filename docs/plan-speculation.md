@@ -5,6 +5,21 @@ target's greedy output token for token. The drafter is Qwen3-0.6B in Tetra, whic
 served Qwen3. The operator's go: "ça vaut le coup pour notre famille de tester avec le 0.6B" (2026-11-07). It lifts
 the hold of `plan-debit-noyau.md` K9 on neural drafters for this test.
 
+## Where it stands (2026-11-09)
+
+Speculation closes on today's f32 verify. Every arm keeps the greedy tokens at the three sizes; none beats greedy on
+free text. Prompt lookup under its best policy reads x0.92 to x0.96 of greedy decode on chat, code and summary at 4B,
+x1.108 on a retrieval answer; rule B of spec-final is not met (*measured*,
+[spec-final](mesures/spec-final-2026-11-08.txt)). A published EAGLE-3 head reads Tetra at α 0.43 to 0.61 on free text
+(*measured* on the Mac, [eagle-alpha](mesures/eagle-alpha-2026-11-08.txt)), but at today's verify it projects x0.72 on
+chat (*computed*). The served decode stays greedy 4E v9: 221.5 / 142.5 / 86.3 tok/s at the door on the house prompt,
+221.0 / 141.3 / 89.1 decode and 183.8 / 119.9 / 74.2 at the door on the 62-token chat prompt (*measured*, spec-final).
+
+What would reopen it: an extra verify row costs 0.74 / 0.89 / 0.98 of a 4E token, and 92 to 95 % of that is the row
+phases (*measured*). Only the row loop moves it: B1's integer dot, which changes the logits and so needs a new served
+object, or an f32 K-row loop nearer shaker-4e's floor, 2.4 times below today's (*computed*). Either is weeks of kernel
+work and the operator's call.
+
 ## What exists
 
 - **The drafter.** `qwen3-0p6b-sealed.bin`, 0.339 GB, sealed on the Mac with the 14B's recipe plus `o_proj` in int4
@@ -53,3 +68,124 @@ the staging area cannot hold the rows. The card gate reads each term.
 - A drafter on CPU, in parallel with the GPU, once the CPU Tetra branch has a matvec.
 - The down's rows shared beyond the staging area (the rotated input held in L2), and the verify prologues shared.
 - Feeding the drafter's missing token inside its next launch instead of a catch-up launch.
+
+## Gate 1, the integer-dot verify rows (2026-11-08)
+
+[spec-micro](mesures/spec-micro-2026-11-08.txt), one L40S, the 4B's 252 Tetra matrices at 4E's geometry. An extra
+verify row with B1's integer dot costs f = 0.187 of 4E's Tetra row (0.173, 0.187 and 0.201 at K = 2, 3 and 4), against
+0.381 for a second f32 row (*measured*). That is BETWEEN on the prereg: PASS needed 0.15. In situ, the Tetra part of an
+extra row is about 0.34 ms at 4B (*estimated*, f x 1.81 ms). The integer dot keeps 91.6 % of the rows identical to the
+served rows and the rest one binary16 ulp away (*measured*), so it changes tokens: the single-token path must carry it
+too, under the ±0.12 % perplexity band, for the verify to keep the greedy tokens. The prereg's gate 4 was checked on one
+activation of four (deviation 3).
+
+Decode rates a speculative round would reach on these terms, batch 1, L40S, best k ≤ 4 (*estimated*). They are
+decode alone after a short prompt (T1 is the greedy decode step); end to end on a long prompt, prefill pulls every
+figure toward greedy's door (4B summary: 60.7 tok/s at the door against 212.3 decode, spec-final). δ is the extra row:
+its Tetra part f x the Tetra rows (0.34, 0.68, 1.16 ms), plus the rest of the row (int4, head, attention, norms) at
+0.30 ms at 4B, scaled with the door; the bracket puts that rest at 0.15 and 0.45. Greedy door T1 = 4.51, 7.02 and
+11.59 ms. A draft step costs 0.02 ms for prompt lookup and 0.18, 0.29 and 0.40 ms for a one-layer head.
+
+| drafter | α a token | 4B | 8B | 14B |
+|---|---|---|---|---|
+| greedy today (*measured*, served-v9) | | 221.5 | 142.5 | 86.3 |
+| prompt lookup, chat (measured t) | 0.17 / 0.10 / 0.08 | 219 [212-225] | 133 | 78 |
+| prompt lookup, GSM8K (measured t) | 0.35 / 0.33 / 0.33 | 253 [246-261] | 159 | 95 |
+| prompt lookup, code edit (measured t) | 0.71 / 0.70 / 0.54 | 395 [369-424] | 241 | 115 |
+| prompt lookup, retrieval answer (measured t) | 0.82 / 0.92 / 0.72 | 469 [438-504] | 334 | 150 |
+| EAGLE-3 head | 0.5 | 284 [274-299] | 177 [173-186] | 108 [105-113] |
+| EAGLE-3 head | 0.6 | 319 [304-335] | 198 [189-208] | 121 [115-127] |
+| EAGLE-3 head | 0.7 | 363 [341-388] | 223 [211-238] | 136 [129-145] |
+
+- A 2-row pass costs 1.14, 1.16 and 1.17 greedy tokens at the central rest (*estimated*), at the study's 1.15 gate
+  and under ETAT §6's 1.4.
+- Prompt lookup's rows use the tokens a verify each size measured by workload
+  ([spec-lookup](mesures/spec-lookup-2026-11-08.txt)); α reads 4B / 8B / 14B, the 8B and 14B doors at the central δ. They charge a round with no match the k extra rows; routed to 4E's
+  single-token step instead, those rounds would cost a greedy token and free text would sit at greedy's door, not
+  under it. Code (α 0.29) and summary (0.15) read like chat and GSM8K.
+- The table assumes B1 in the verify only. B1 in the single-token path as well would lower T1 too (i16 reads x1.143
+  over v2 alone); two stacked estimates are not printed.
+- What it costs to get there: B1's integer dot ported into `pers_4ev.cu` and into 4E's single-token row, the
+  perplexity gate, then a prompt mix on the card. Weeks of kernel work (the study's 3 to 4 weeks for lookup).
+
+## Prompt lookup (2026-11-08)
+
+The drafter is the context itself: the tokens that followed the latest earlier occurrence of the context's last
+n-gram, n from 3 down to 1 (`speculative::lookup_draft`). No model, no memory, no training. A round with no match
+goes to 4E's token launch, the served symbol (since spec-final; before, it verified one row at x1.25 of 4E).
+`LookupPolicy` sets the shortest n-gram and a probe: one draft a round until `probe` drafts in a row were kept. `speculative::lookup_greedy` is the loop, tested against the greedy loop;
+`Decoder::continue_lookup` runs it on one 4E engine and its verify pass; `specrun <sealed> lookup [ks] [what]` times
+it on chat, code, summary, a code edit and a retrieval answer.
+
+On the card (4B, 8B and 14B, today's verify, [spec-lookup](mesures/spec-lookup-2026-11-08.txt), *measured*): the
+greedy tokens on six prompts and 50 GSM8K problems in every round, at the three sizes. Tokens a verify at k = 3, 4B /
+8B / 14B: chat 1.21 / 1.11 / 1.09, code 1.40 / 1.36 / 1.35, summary 1.18 / 1.17 / 1.29, GSM8K 1.51 / 1.48 / 1.47,
+code edit 2.56 / 2.54 / 1.98, retrieval answer 3.04 / 3.52 / 2.61. The decode stays under greedy everywhere except
+retrieval at 4B and 8B (x1.012, x1.008). The verify pass adds +0.002 GB.
+
+Under the policy n-grams 3 only, probe 1, no-draft rounds on 4E ([spec-final](mesures/spec-final-2026-11-08.txt),
+*measured*, k = 3), decode over greedy at 4B / 8B / 14B: chat x0.937 / 0.976 / 0.935, code x0.959 / 0.903 / 0.868,
+summary x0.917 / 0.931 / 0.843, GSM8K x0.882 / 0.849 / 0.815, edit x0.921 / 0.917 / 0.787, retrieval x1.108 / 1.009 /
+0.901. End to end at the door the ratios sit nearer x1.00, because prefill weighs on the long prompts: 4B retrieval
+46.4 against 45.5 tok/s (x1.021), summary 59.3 against 60.7. The looping house prompt reaches 250.4 tok/s at the 4B's
+door (x1.136). The policy halves the loss on free text against the plain one by drafting less; it never pays where
+nothing repeats. Rule B (x1.00 on free text and x1.10 on a copy at every size) is not met: prompt lookup closes.
+
+## Where a verify row's time goes (2026-11-09)
+
+Phase stamps in `pers_4ev.cu` (one `%globaltimer` per CTA at each grid wait, `pers::p4v_phases`), read at 62 and 362
+positions ([spec-final](mesures/spec-final-2026-11-08.txt), *measured*). An extra row, from 1 to 4 rows over 3:
+
+| size | 4E token | extra row | qkv | o | gateup | down | head | attention + RoPE |
+|---|---|---|---|---|---|---|---|---|
+| 4B | 4.42 ms | 3.26 ms, x0.74 | 16 % | 8 % | 40 % | 29 % | 7 % | 0.2 % |
+| 8B | 6.94 ms | 6.18 ms, x0.89 | 13 % | 4 % | 39 % | 38 % | 6 % | 0.1 % |
+| 14B | 11.00 ms | 10.80 ms, x0.98 | 11 % | 8 % | 34 % | 43 % | 5 % | 0.0 % |
+
+- Chat context; the retrieval context reads the same shares. One verify row alone costs x1.20 to x1.29 of 4E.
+- The row phases of an extra row take 0.90 of 4E's own row phases at 4B, against the 0.378 shaker-4e measured for a
+  second row in its bench (*computed*): the verify's K-row loop shares little of a row's cost across rows.
+- Attention and the prologues are not the lever below 500 positions. The head and attention add 0.24 ms a row at 4B
+  (*computed*), inside the 0.15 to 0.45 ms bracket the B1 table below gives the rest of a row.
+
+## Published EAGLE heads for Qwen3 (2026-11-08)
+
+A one-layer head that reads the target's hidden states is the drafter the study ranks first (`recherche-debit-maths.md`
+§11.3). Three published heads fit our family with a clean license. Nothing here was run; revisions pinned on
+2026-11-08.
+
+| size | repo | revision | license | file | head params | reported acceptance |
+|---|---|---|---|---|---|---|
+| 4B | `AngelSlim/Qwen3-4B_eagle3` | `fd331e59626c8e95c392381a16ee59d518727fbb` | Apache-2.0 | 436,899,680 B, BF16, draft vocab 32k | 218 M | 2.08 tokens a round at k = 2 |
+| 8B | `RedHatAI/Qwen3-8B-speculator.eagle3` | `08610ffa01dd9f16731fe8f627b85905b6aa51c4` | Apache-2.0 | 2,044,116,968 B, BF16, its own copy of the embedding | 400 M | 2.17 to 2.81 at T = 0.6, k = 2 to 7, thinking off |
+| 14B | `RedHatAI/Qwen3-14B-speculator.eagle3` | `2d489f5a8e490507e4fba701a5515e291f211fdc` | Apache-2.0 | 2,775,244,776 B, BF16, its own copy of the embedding | 610 M | about 2.2 to 2.76 at T = 0.6 |
+
+- Head params: the file's bytes over two, less the embedding the RedHat heads copy from the target (*computed*).
+- Acceptance: as the repositories report it, on BF16 targets, at their temperature (*reported*, not ours). The
+  4B's figure is at k = 2; at a per-token α it reads about 0.55. The RedHat range reads α 0.55 to 0.7.
+- Stronger heads exist without a license (DCore, greedy τ 3.2 to 4.9) or under CC-BY-NC-SA (WhiFlash); MIT heads of
+  five layers over the full vocabulary are too heavy to be a one-layer drafter. None is retained.
+
+**Memory, whole model.** As published, in BF16: +0.87, +0.78 and +0.66 b/param at 4B, 8B and 14B, the embedding read
+from the target (*computed*). That is a third of the served model's bytes, so a head runs in int8 (+0.45, +0.40, +0.34)
+or int4 g64 (+0.24, +0.22, +0.19 b/param, 123, 225 and 343 MB) (*computed*). Int4 g64 matches the study's +0.21 /
+0.20 / 0.17. The head's quantization is a second unknown on the acceptance.
+
+**Acceptance on Tetra, measured (2026-11-08).** The 4B head on the sealed 4B through the MLX door, greedy replay
+([eagle-alpha](mesures/eagle-alpha-2026-11-08.txt), *measured*, $0): tokens a verify at k = 3 chat 1.69, code 2.04,
+summary 1.74, GSM8K 2.42, edit 2.44, retrieval 3.00; α 0.43 to 0.61 on free text, 0.67 to 0.81 on GSM8K and copies.
+The states the head reads are the decode's (teacher-forced agreement 100 % and 99.94 %). On today's verify the
+projection reads x0.72 on chat and x0.77 on code; at an f32 floor x1.04 and x1.13; with B1 (*estimated* row cost)
+x1.25 to x1.52 on free text and x1.6 to x1.8 on GSM8K (*computed*). No card job was run for it.
+
+**Expected acceptance on Tetra (before the measurement).** The 0.6B drafter on our targets accepted 0.43
+to 0.69 a token at k = 1 on chat, code and summary (spec-gate, *measured*); a head trained on the BF16 target's
+features reads Tetra's features, a shift of the same order as the target's own quantization. Range α 0.5 to 0.7
+(*estimated*): 1.88 to 2.53 tokens a round at k = 3. Evidence on quantized targets is mixed: rotations matter where
+they change the features the head reads (vllm-ascend #6914). Ours are applied inside each projection, so the residual
+stream the head reads should be the unrotated one; this has to be checked on the code before any port.
+
+**What a port needs.** 4E would emit the three hidden states EAGLE-3 reads (low, middle and high layers), run the
+head's layer and its 32k head as a second pass a draft step, and map the draft vocabulary to the target's. Weeks of
+kernel work, $0 of training. Training our own heads on Tetra features is the alternative: about one to two GPU-days a
+size (*estimated*), never without the operator's go.

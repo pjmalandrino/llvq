@@ -1,0 +1,52 @@
+specrun 4b exit 0
+card memory: 1.980 GB used after the target's load and its 4E install (cuMemGetInfo)
+4E verify: module 287744 bytes, sha256 ab162e7fca4a1b5130170931eda22194cc7514c15fa64a52829f33a728ddd2fd, row form 7 and pers_4ev.cu, its own module
+4E verify: 20576 floats of staging, 101376 B shared; rows a group at most 4: 4 at hidden 2560, 4 at the context 4096, 2 at inter 9728
+4E verify: pers_4ev_rows_f1: 80 registers, 272 B local, 101376 B shared, 1 resident a SM
+4E verify: pers_4ev_rows_f1_t512: 128 registers, 144 B local, 101376 B shared, 1 resident a SM
+4E verify: 512 threads; 0.002 GB of row buffers on the card
+card memory: 1.982 GB used after the drafter's load, its 4E install and the target's verify pass (cuMemGetInfo): +0.002 GB
+weights: target 1.377 GB, drafter 0.000 GB (runtime and carried bytes)
+== chat: 62 prompt tokens, greedy reference 256 tokens, fingerprint 50ba019fce0d74e5
+chat: every arm made the greedy tokens in every round, 256 of 256
+  chat greedy: door   184.7 tok/s [184.5-184.8], decode   222.3 [222.1-222.5]
+  chat k = 1  : door   140.1 tok/s [140.0-140.2], decode   160.6 [160.5-160.6], / greedy round by round: door x0.759 [0.759-0.759], decode x0.722 [0.722-0.723]; acceptance 0.300 (30 of 100), 1.13 tokens a verify, 0 catch-ups; verify 7.059 ms a pass (x1.569 a greedy token), drafter 0.004 ms a launch
+  chat k = 2  : door   127.5 tok/s [127.4-127.6], decode   144.2 [144.0-144.2], / greedy round by round: door x0.691 [0.690-0.691], decode x0.649 [0.648-0.649]; acceptance 0.223 (40 of 179), 1.19 tokens a verify, 0 catch-ups; verify 8.232 ms a pass (x1.830 a greedy token), drafter 0.005 ms a launch
+  chat k = 3  : door   113.0 tok/s [113.0-113.1], decode   125.9 [125.9-125.9], / greedy round by round: door x0.612 [0.612-0.613], decode x0.566 [0.566-0.567]; acceptance 0.172 (44 of 256), 1.21 tokens a verify, 0 catch-ups; verify 9.599 ms a pass (x2.133 a greedy token), drafter 0.005 ms a launch
+== code: 62 prompt tokens, greedy reference 256 tokens, fingerprint a21f889852154ec9
+code: every arm made the greedy tokens in every round, 256 of 256
+  code greedy: door   184.1 tok/s [184.0-184.4], decode   221.6 [221.4-222.0]
+  code k = 1  : door   143.4 tok/s [143.4-143.4], decode   164.9 [164.9-165.0], / greedy round by round: door x0.779 [0.778-0.780], decode x0.744 [0.743-0.745]; acceptance 0.413 (52 of 126), 1.26 tokens a verify, 0 catch-ups; verify 7.613 ms a pass (x1.687 a greedy token), drafter 0.003 ms a launch
+  code k = 2  : door   126.6 tok/s [126.6-126.6], decode   143.1 [143.0-143.1], / greedy round by round: door x0.688 [0.687-0.688], decode x0.646 [0.644-0.646]; acceptance 0.282 (64 of 227), 1.34 tokens a verify, 0 catch-ups; verify 9.331 ms a pass (x2.068 a greedy token), drafter 0.003 ms a launch
+  code k = 3  : door   112.1 tok/s [112.1-112.1], decode   124.8 [124.7-124.8], / greedy round by round: door x0.609 [0.608-0.609], decode x0.563 [0.562-0.564]; acceptance 0.234 (73 of 312), 1.40 tokens a verify, 0 catch-ups; verify 11.228 ms a pass (x2.488 a greedy token), drafter 0.003 ms a launch
+== summary: 341 prompt tokens, greedy reference 109 tokens, fingerprint 848282257492c092
+summary: every arm made the greedy tokens in every round, 109 of 109
+  summary greedy: door    60.8 tok/s [60.8-60.9], decode   213.1 [213.0-213.2]
+  summary k = 1  : door    53.5 tok/s [53.4-53.6], decode   144.1 [144.0-144.1], / greedy round by round: door x0.880 [0.878-0.881], decode x0.676 [0.675-0.676]; acceptance 0.227 (15 of 66), 1.16 tokens a verify, 0 catch-ups; verify 7.969 ms a pass (x1.698 a greedy token), drafter 0.005 ms a launch
+  summary k = 2  : door    49.0 tok/s [49.0-49.1], decode   115.3 [115.3-115.3], / greedy round by round: door x0.807 [0.803-0.807], decode x0.541 [0.541-0.541]; acceptance 0.123 (16 of 130), 1.17 tokens a verify, 0 catch-ups; verify 10.069 ms a pass (x2.146 a greedy token), drafter 0.005 ms a launch
+  summary k = 3  : door    44.7 tok/s [44.6-44.7], decode    93.7 [93.6-93.7], / greedy round by round: door x0.735 [0.734-0.736], decode x0.439 [0.439-0.440]; acceptance 0.089 (17 of 192), 1.18 tokens a verify, 0 catch-ups; verify 12.530 ms a pass (x2.670 a greedy token), drafter 0.005 ms a launch
+== edit: 127 prompt tokens, greedy reference 85 tokens, fingerprint e7c9554555aee404
+edit: every arm made the greedy tokens in every round, 85 of 85
+  edit greedy: door    98.5 tok/s [98.4-98.6], decode   219.9 [219.9-220.1]
+  edit k = 1  : door    92.4 tok/s [92.2-92.5], decode   191.8 [191.7-191.9], / greedy round by round: door x0.938 [0.937-0.940], decode x0.872 [0.872-0.872]; acceptance 0.729 (35 of 48), 1.69 tokens a verify, 0 catch-ups; verify 8.584 ms a pass (x1.888 a greedy token), drafter 0.001 ms a launch
+  edit k = 2  : door    91.0 tok/s [91.0-91.0], decode   185.4 [185.4-185.4], / greedy round by round: door x0.924 [0.923-0.925], decode x0.843 [0.842-0.843]; acceptance 0.622 (46 of 74), 2.15 tokens a verify, 0 catch-ups; verify 11.322 ms a pass (x2.490 a greedy token), drafter 0.001 ms a launch
+  edit k = 3  : door    87.2 tok/s [87.1-87.3], decode   170.4 [170.4-170.4], / greedy round by round: door x0.885 [0.885-0.887], decode x0.775 [0.774-0.775]; acceptance 0.570 (53 of 93), 2.56 tokens a verify, 0 catch-ups; verify 14.499 ms a pass (x3.189 a greedy token), drafter 0.001 ms a launch
+== rag: 362 prompt tokens, greedy reference 79 tokens, fingerprint 10f0792e123e79a2
+rag: every arm made the greedy tokens in every round, 79 of 79
+  rag greedy: door    45.6 tok/s [45.5-45.6], decode   212.4 [212.3-212.4]
+  rag k = 1  : door    45.2 tok/s [45.1-45.2], decode   204.2 [204.2-204.3], / greedy round by round: door x0.992 [0.991-0.993], decode x0.962 [0.961-0.962]; acceptance 0.854 (35 of 41), 1.80 tokens a verify, 0 catch-ups; verify 8.678 ms a pass (x1.843 a greedy token), drafter 0.001 ms a launch
+  rag k = 2  : door    45.7 tok/s [45.6-45.7], decode   215.0 [214.9-215.1], / greedy round by round: door x1.003 [1.002-1.003], decode x1.012 [1.012-1.013]; acceptance 0.810 (47 of 58), 2.47 tokens a verify, 0 catch-ups; verify 11.331 ms a pass (x2.406 a greedy token), drafter 0.002 ms a launch
+  rag k = 3  : door    45.4 tok/s [45.4-45.5], decode   208.9 [208.9-209.0], / greedy round by round: door x0.996 [0.996-0.999], decode x0.984 [0.984-0.984]; acceptance 0.768 (53 of 69), 3.04 tokens a verify, 0 catch-ups; verify 14.355 ms a pass (x3.048 a greedy token), drafter 0.002 ms a launch
+== door: 5 prompt tokens, greedy reference 256 tokens, fingerprint 61d0654532d35120
+door: every arm made the greedy tokens in every round, 256 of 256
+  door greedy: door   222.4 tok/s [222.3-222.4], decode   226.2 [226.1-226.2]
+  door k = 1  : door   224.1 tok/s [223.9-224.1], decode   228.0 [227.8-228.0], / greedy round by round: door x1.008 [1.007-1.008], decode x1.008 [1.007-1.008]; acceptance 0.992 (124 of 125), 1.95 tokens a verify, 0 catch-ups; verify 8.538 ms a pass (x1.931 a greedy token), drafter 0.000 ms a launch
+  door k = 2  : door   248.9 tok/s [248.8-248.9], decode   253.8 [253.7-253.9], / greedy round by round: door x1.119 [1.119-1.120], decode x1.122 [1.122-1.122]; acceptance 1.000 (166 of 166), 2.87 tokens a verify, 0 catch-ups; verify 11.285 ms a pass (x2.552 a greedy token), drafter 0.000 ms a launch
+  door k = 3  : door   252.7 tok/s [252.7-252.7], decode   257.8 [257.8-257.8], / greedy round by round: door x1.136 [1.136-1.137], decode x1.140 [1.140-1.140]; acceptance 0.995 (186 of 187), 3.70 tokens a verify, 0 catch-ups; verify 14.335 ms a pass (x3.242 a greedy token), drafter 0.000 ms a launch
+== gsm8k: 50 problems of 1319, revision 740312add88f781978c0658806c59bc2815b9866, max_new 1024, reasoning off
+  gsm8k greedy: 40 of 50 correct, decode 218.0 tok/s over 15701 tokens
+  gsm8k greedy completions fingerprint b56932d555985df9
+  gsm8k k = 1: 40 of 50 correct, decode 163.5 tok/s over 15701 tokens; completions identical to greedy 50 of 50; acceptance 0.426 (3748 of 8794), 1.31 tokens a verify; verify 7.997 ms a pass (x1.743 a greedy token), drafter 0.003 ms a launch
+  gsm8k k = 2: 40 of 50 correct, decode 142.5 tok/s over 15701 tokens; completions identical to greedy 50 of 50; acceptance 0.309 (4787 of 15490), 1.44 tokens a verify; verify 10.046 ms a pass (x2.190 a greedy token), drafter 0.003 ms a launch
+  gsm8k k = 3: 40 of 50 correct, decode 121.2 tok/s over 15701 tokens; completions identical to greedy 50 of 50; acceptance 0.246 (5306 of 21613), 1.51 tokens a verify; verify 12.402 ms a pass (x2.703 a greedy token), drafter 0.003 ms a launch
+4b PASS: modules, the served door's greedy tokens, identity at the six prompts and on the 50 GSM8K problems

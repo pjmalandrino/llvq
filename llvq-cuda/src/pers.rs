@@ -1356,10 +1356,52 @@ pub struct P4vLaunch {
     /// Floats of one row's split states: n_kv x ceil(cap / 256) x groups x 130.
     pub part_stride: u32,
     pub pad: u32,
+    /// 0, or `[1 + n_bar_4e][grid]` u64 phase clocks ([`p4v_phases`]).
+    pub stamps: u64,
 }
 
 /// `sizeof(Pers4vLaunch)`.
-pub const P4V_LAUNCH_BYTES: usize = 128;
+pub const P4V_LAUNCH_BYTES: usize = 136;
+
+/// The verify pass's phases, in the order of its waits within a layer.
+pub const P4V_PHASES: [&str; 8] = ["embed", "qkv", "rope", "attn", "o", "gateup", "down", "head"];
+
+/// A stamped verify launch's time by phase, nanoseconds, summed over the
+/// layers: `stamps` is `[1 + n_bar_4e(n_layers)][grid]` (event 0 each CTA's
+/// start, event e after its e-th wait). Event e's time is the median over
+/// the CTAs, and phase e lasts from event e - 1 to event e. Returns the
+/// totals in the order of [`P4V_PHASES`], or an error when the buffer does
+/// not have that shape or a CTA never wrote an event.
+pub fn p4v_phases(stamps: &[u64], n_layers: u32, grid: u32) -> Result<[f64; 8], String> {
+    let events = 1 + n_bar_4e(n_layers) as usize;
+    let g = grid as usize;
+    if g == 0 || stamps.len() != events * g {
+        return Err(format!("verify stamps: {} values for {events} events of {g} CTAs", stamps.len()));
+    }
+    if stamps.contains(&0) {
+        return Err("verify stamps: a CTA wrote no clock at some event".into());
+    }
+    let med = |e: usize| {
+        let mut v: Vec<u64> = stamps[e * g..(e + 1) * g].to_vec();
+        v.sort_unstable();
+        v[g / 2] as f64
+    };
+    let t: Vec<f64> = (0..events).map(med).collect();
+    let mut out = [0.0f64; 8];
+    for e in 1..events {
+        // wait 1 ends the embedding, waits 2..=1 + 6L the layers' six
+        // phases, the last the head
+        let kind = if e == 1 {
+            0
+        } else if e == events - 1 {
+            7
+        } else {
+            1 + (e - 2) % 6
+        };
+        out[kind] += t[e] - t[e - 1];
+    }
+    Ok(out)
+}
 
 /// The verify kernel's symbol for a RoPE form and a block size.
 pub fn p4v_symbol(form: u32, threads: u32) -> Result<&'static str, String> {
@@ -1746,6 +1788,173 @@ pub fn trows_unit_text(tile_define: &str) -> String {
     )
 }
 
+/// The verify-row microbenchmark's module (`pers_vrows.cu`): the row-loop
+/// unit, then the verify rows. Its own module, so neither 4E's nor the row
+/// loops' change bytes.
+pub fn vrows_unit_text(tile_define: &str) -> String {
+    format!("{}\n{}", trows_unit_text(tile_define), include_str!("../kernels/pers_vrows.cu"))
+}
+
+/// What a verify-row arm owes (`pers_vrows.cu`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VrowsOwes {
+    /// The served rows on each of its activations, bit for bit.
+    Served,
+    /// Nothing: a diagnostic (`pword`).
+    Nothing,
+    /// The rows of `i16` (K = 1) on each activation, bit for bit, and those
+    /// within [`VROWS_I16_TOL`] of the served rows.
+    I16,
+}
+
+/// The verify-row arms: name, symbol, activations a pass (K), what they owe.
+/// `v2` is the control every speed is formed against; `k2` replicates
+/// shaker-4e's second-token cost in f32; `i16` to `i16k4` are B1's row with
+/// one decode for K activations.
+pub const VROWS_ARMS: [(&str, &str, u32, VrowsOwes); 9] = [
+    ("v2", "tv_vrows_v2", 1, VrowsOwes::Served),
+    ("k2", "tv_vrows_k2", 2, VrowsOwes::Served),
+    ("pword", "tv_vrows_pword", 1, VrowsOwes::Nothing),
+    ("lean", "tv_vrows_lean", 1, VrowsOwes::Served),
+    ("rot", "tv_vrows_rot", 1, VrowsOwes::Served),
+    ("i16", "tv_vrows_i16k1", 1, VrowsOwes::I16),
+    ("i16k2", "tv_vrows_i16k2", 2, VrowsOwes::I16),
+    ("i16k3", "tv_vrows_i16k3", 3, VrowsOwes::I16),
+    ("i16k4", "tv_vrows_i16k4", 4, VrowsOwes::I16),
+];
+
+/// Whether an arm reads the relabeled words (`tv_vrows_lean_relayout`).
+pub fn vrows_lean(name: &str) -> bool {
+    name == "lean" || name.starts_with("i16")
+}
+
+/// The integer dot's tolerance against the served rows, on the binary16 rows
+/// the card returns: a row passes when it is within one binary16 ulp of the
+/// served row, or within this share of its site's rms (a row near zero, where
+/// an ulp is finer than the rounding). The activation's rounding moves a
+/// matvec output by about 2e-5 of its scale (docs/recherche-debit-maths.md
+/// §4), under the binary16 ulp of 4.9e-4 to 9.8e-4.
+pub const VROWS_I16_TOL: f64 = 1e-3;
+
+/// What the integer dot's rows say against the served rows.
+#[derive(Clone, Debug, PartialEq)]
+pub struct I16Check {
+    pub rows: usize,
+    /// Rows equal to the served row, bit for bit.
+    pub same: usize,
+    /// Rows one binary16 ulp away.
+    pub one_ulp: usize,
+    /// Rows two ulps or more away, within the rms bound.
+    pub within_rms: usize,
+    /// Rows that pass neither the ulp nor the rms bound.
+    pub out: usize,
+    /// The largest |row - served row| over its site's rms.
+    pub worst: f64,
+}
+
+/// Binary16 bits as an integer ordered like the values (+0 and -0 both 0).
+fn f16_ordered(h: u16) -> i32 {
+    let m = i32::from(h & 0x7fff);
+    if h & 0x8000 != 0 { -m } else { m }
+}
+
+/// The check of [`VROWS_I16_TOL`], site by site (`d_outs`, in order).
+pub fn vrows_i16_check(got: &[u16], want: &[u16], d_outs: &[u32]) -> I16Check {
+    assert_eq!(got.len(), want.len());
+    assert_eq!(d_outs.iter().map(|&d| d as usize).sum::<usize>(), want.len());
+    let mut c = I16Check { rows: want.len(), same: 0, one_ulp: 0, within_rms: 0, out: 0, worst: 0.0 };
+    let mut at = 0usize;
+    for &d in d_outs {
+        let r = at..at + d as usize;
+        let rms = (want[r.clone()].iter().map(|&h| f64::from(crate::attn_ref::h2f(h)).powi(2)).sum::<f64>() / f64::from(d)).sqrt();
+        for (&g, &w) in got[r.clone()].iter().zip(&want[r]) {
+            let ulp = (f16_ordered(g) - f16_ordered(w)).unsigned_abs();
+            let e = (f64::from(crate::attn_ref::h2f(g)) - f64::from(crate::attn_ref::h2f(w))).abs() / rms.max(f64::MIN_POSITIVE);
+            c.worst = c.worst.max(e);
+            match ulp {
+                0 => c.same += 1,
+                1 => c.one_ulp += 1,
+                _ if e <= VROWS_I16_TOL => c.within_rms += 1,
+                _ => c.out += 1,
+            }
+        }
+        at += d as usize;
+    }
+    c
+}
+
+/// `VROWS_TABLE_BYTES` of the kernel: rows, prefixes, branches, suffixes, GA,
+/// GB, invnorm.
+pub const VROWS_TABLE_BYTES: u32 = 16_384 + 128 + 2_048 + 128 + 256 + 512 + 128;
+
+/// `vrows_area_bytes`: one int16 activation of `nb` blocks, its bf16 scales,
+/// padded to 16, and 64 bytes of f32 tail.
+pub fn vrows_area_bytes(nb: u32) -> u32 {
+    ((50 * nb + 15) & !15) + 64
+}
+
+/// Dynamic shared bytes of a `tv_vrows_*` launch at the widest d_in.
+pub fn vrows_smem_bytes(name: &str, k: u32, max_d_in: u32) -> u32 {
+    let act = if name.starts_with("i16") {
+        k * vrows_area_bytes(max_d_in / 24)
+    } else if name == "k2" {
+        4 * (9728 + max_d_in)
+    } else {
+        4 * max_d_in
+    };
+    SMEM_HEADER + VROWS_TABLE_BYTES + act
+}
+
+/// One `tv_vrows_*` site (`VROWS_SITE_WORDS`): the rows on activation a at
+/// `y_f16[a]` (0 past the arm's K), no f32 output on the card.
+#[allow(clippy::too_many_arguments)]
+pub fn vrows_site_words(
+    words: u64,
+    gscale: u64,
+    rscale: u64,
+    tail_f16: u64,
+    y_f16: [u64; 4],
+    d_out: u32,
+    nblocks: u32,
+    tail_w: u32,
+    stride_u32: u32,
+) -> [u64; 14] {
+    [
+        words,
+        gscale,
+        rscale,
+        tail_f16,
+        y_f16[0],
+        y_f16[1],
+        y_f16[2],
+        y_f16[3],
+        u64::from(d_out) | (u64::from(nblocks) << 32),
+        u64::from(tail_w) | (u64::from(stride_u32) << 32),
+        0,
+        0,
+        0,
+        0,
+    ]
+}
+
+/// The verify gate's rule (proofs/preregistration-spec-micro-2026-11-08.md):
+/// the cost of an extra row, f = (t(i16kK) - t(i16)) / ((K - 1) t(v2)), the
+/// median over K of the medians over rounds. At or under PASS the Tetra part
+/// of the extra row leaves the 1.15-token verify of the study's rank 1 in
+/// reach; over FAIL it cannot.
+pub const VROWS_PASS: f64 = 0.15;
+pub const VROWS_FAIL: f64 = 0.26;
+
+/// The levers' bars against v2 (docs/recherche-debit-maths.md §8): lean and
+/// rot ×1.05 each, B1's row (i16) ×1.15.
+pub fn vrows_lever_bar(name: &str) -> Option<f64> {
+    match name {
+        "lean" | "rot" => Some(1.05),
+        "i16" => Some(1.15),
+        _ => None,
+    }
+}
+
 /// The row-loop arms (`pers_trows.cu`): name, symbol, whether every row owes
 /// the served bits, CTAs a SM. The occupancy arm `v2_o2` runs V2 at two CTAs a
 /// SM on the sites of d_in 4,096 or less, beside `v2_s`, the same sites at one.
@@ -2049,6 +2258,31 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_verify_phases_sum_their_events() {
+        // two layers, three CTAs: 15 events; CTA 1 is the median at each
+        let (layers, g) = (2u32, 3usize);
+        let events = 1 + n_bar_4e(layers) as usize;
+        let mut st = vec![0u64; events * g];
+        let mut t = 100u64;
+        for e in 0..events {
+            t += 10 * (e as u64 + 1);
+            st[e * g] = t - 3;
+            st[e * g + 1] = t;
+            st[e * g + 2] = t + 50;
+        }
+        let p = p4v_phases(&st, layers, g as u32).unwrap();
+        // phase of event e lasts 10 (e + 1)
+        assert_eq!(p[0], 20.0);
+        assert_eq!(p[1], 30.0 + 90.0);
+        assert_eq!(p[6], 80.0 + 140.0);
+        assert_eq!(p[7], 150.0);
+        assert_eq!(p.iter().sum::<f64>(), (st[(events - 1) * g + 1] - st[1]) as f64);
+        assert!(p4v_phases(&st[1..], layers, g as u32).is_err());
+        st[5] = 0;
+        assert!(p4v_phases(&st, layers, g as u32).is_err());
+    }
+
+    #[test]
     fn the_trows_unit_carries_every_arm() {
         let t = trows_unit_text("#define TILE_BLOCKS 64u");
         assert!(t.starts_with(&pers_unit_text("#define TILE_BLOCKS 64u")), "4E's module bytes come first, unchanged");
@@ -2100,6 +2334,32 @@ mod tests {
         assert!(s.iter().all(|r| r.1 % 256 == 0));
         assert_eq!(ctr_expected("ctr8", 142, 3), [vec![24u32; 17], vec![18]].concat());
         assert_eq!(ctr_expected("bar", 142, 3), vec![426]);
+    }
+
+    #[test]
+    fn the_i16_check_reads_ulps_and_the_rms_bound() {
+        // site 1: 1.0, 2.0, -1.0 ; site 2: 0.5, 1e-4 (a row near zero)
+        let want = [0x3c00u16, 0x4000, 0xbc00, 0x3800, 0x068e];
+        let same = vrows_i16_check(&want, &want, &[3, 2]);
+        assert_eq!((same.same, same.one_ulp, same.within_rms, same.out), (5, 0, 0, 0));
+        // one ulp up on 1.0, two ulps on 2.0 (out: 2 ulps of 2.0 is 3.9e-3 of
+        // site 1's rms 1.41), a near-zero row moved by many ulps but 1e-4 of 0.35
+        let got = [0x3c01u16, 0x4002, 0xbc00, 0x3800, 0x0600];
+        let c = vrows_i16_check(&got, &want, &[3, 2]);
+        assert_eq!((c.same, c.one_ulp, c.within_rms, c.out), (2, 1, 1, 1), "{c:?}");
+        assert!(c.worst > 2e-3 && c.worst < 3e-3, "{c:?}");
+        // the two zeros are one value
+        assert_eq!(vrows_i16_check(&[0x8000], &[0x0000], &[1]).same, 1);
+        assert_eq!(vrows_i16_check(&[0x8000], &[0x0000], &[1]).out, 0);
+    }
+
+    #[test]
+    fn the_verify_row_shared_bytes_fit_one_cta() {
+        for (name, _, k, _) in VROWS_ARMS {
+            let b = vrows_smem_bytes(name, k, 9728);
+            assert!(b <= 101_376, "{name}: {b} B over the 101,376 a CTA may opt into on sm_89");
+        }
+        assert_eq!(vrows_smem_bytes("i16k4", 4, 9728), 256 + 19_584 + 4 * 20_320);
     }
 
     #[test]

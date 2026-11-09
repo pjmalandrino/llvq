@@ -121,6 +121,13 @@ impl Decoder {
     /// so it can be the target of [`Self::continue_speculative`]. Refused on
     /// the eager engine and below row form 7. Its install lines are appended
     /// to [`Self::lines`].
+    /// The 4E runtime, for a measurement binary that drives its launches
+    /// directly (specrun's phase stamps). None on the eager path.
+    #[cfg(all(target_os = "linux", feature = "cuda"))]
+    pub fn runtime_mut(&mut self) -> Option<&mut crate::persist4e_cuda::Runtime4e> {
+        self.rt.as_deref_mut()
+    }
+
     pub fn install_verify(&mut self) -> anyhow::Result<()> {
         #[cfg(all(target_os = "linux", feature = "cuda"))]
         if let Some(rt) = self.rt.as_mut() {
@@ -193,6 +200,55 @@ impl Decoder {
         }
         let _ = (caches, draft, draft_caches, first, offset, more, stops, k);
         anyhow::bail!("the speculative decode needs 4E on both the target and the drafter")
+    }
+
+    /// The greedy continuation by prompt lookup (`speculative::lookup_greedy`):
+    /// n-grams of `prompt` and of the text so far draft up to `k` tokens a
+    /// round, 4E's verify pass checks them, and every token is the target's
+    /// greedy token. No drafter, no memory. `caches` hold `prompt`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn continue_lookup(
+        &mut self,
+        caches: &mut [KvCache],
+        prompt: &[u32],
+        first: u32,
+        more: usize,
+        stops: &[u32],
+        k: usize,
+        policy: crate::speculative::LookupPolicy,
+    ) -> anyhow::Result<(Vec<u32>, bool, crate::speculative::SpecStats)> {
+        #[cfg(all(target_os = "linux", feature = "cuda"))]
+        if let Some(rt) = self.rt.as_mut() {
+            anyhow::ensure!(
+                k < llvq_cuda::pers::P4V_KMAX as usize,
+                "prompt lookup: {k} drafts a round, the verify pass carries {} rows",
+                llvq_cuda::pers::P4V_KMAX
+            );
+            let t = std::cell::RefCell::new((rt, caches));
+            return crate::speculative::lookup_greedy(
+                prompt,
+                first,
+                more,
+                stops,
+                k,
+                policy,
+                |pos, rows| {
+                    let mut g = t.borrow_mut();
+                    let (rt, c) = &mut *g;
+                    // A round with no draft is one greedy step: 4E's token
+                    // launch, the served symbol, not a verify pass of one row.
+                    if rows.len() == 1 { rt.decode(c, pos, rows[0], 1, u32::MAX) } else { rt.verify(c, pos, rows) }
+                },
+                |len| {
+                    for x in t.borrow_mut().1.iter_mut() {
+                        x.set_len(len)?;
+                    }
+                    Ok(())
+                },
+            );
+        }
+        let _ = (caches, prompt, first, more, stops, k, policy);
+        anyhow::bail!("prompt lookup needs 4E and its verify pass on the target")
     }
 
     /// `Qwen3::generate_timed` through this engine: `max_new` tokens after

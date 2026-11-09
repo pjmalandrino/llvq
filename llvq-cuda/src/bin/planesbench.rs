@@ -1417,11 +1417,12 @@ mod linux {
         let pers_flags = llvq_cuda::persbench::Flags::from_env(seg_tetra, union.has(arms::TETRA48))?;
         if pers_flags.any() || pers_flags.dump_cubin.is_some() {
             println!(
-                "Persistent sections: LLVQ_TETRA_OCC={} LLVQ_PERS_MICRO={} LLVQ_PERS_ARMS={} LLVQ_TROWS={} LLVQ_DUMP_CUBIN={}",
+                "Persistent sections: LLVQ_TETRA_OCC={} LLVQ_PERS_MICRO={} LLVQ_PERS_ARMS={} LLVQ_TROWS={} LLVQ_VROWS={} LLVQ_DUMP_CUBIN={}",
                 u8::from(pers_flags.tetra_occ),
                 u8::from(pers_flags.micro),
                 pers_flags.arms.iter().map(|&a| llvq_cuda::pers::PERS_ARMS[a].name).collect::<Vec<_>>().join(","),
                 u8::from(pers_flags.trows),
+                u8::from(pers_flags.vrows),
                 pers_flags.dump_cubin.as_ref().map_or("unset".to_string(), |d| d.display().to_string())
             );
         }
@@ -4549,7 +4550,7 @@ mod linux {
             // ---- the persistent sections (L1, L2): built after A4's proof,
             // timed in A4's rounds, the A3 grammar's same-round reference ----
             // The codec outlives the section, whose f64 references borrow it.
-            let codec = (pers_flags.tetra_occ || !pers_flags.arms.is_empty() || pers_flags.trows).then(llvq_search::tetra::Tetra::new);
+            let codec = (pers_flags.tetra_occ || !pers_flags.arms.is_empty() || pers_flags.trows || pers_flags.vrows).then(llvq_search::tetra::Tetra::new);
             let mut pers_sec = None;
             if pers_flags.any() || pers_flags.dump_cubin.is_some() {
                 let mut sec = llvq_cuda::persbench::Section::new(pers_flags.clone(), &cuda, &src.text, &tile.define())?;
@@ -4641,7 +4642,7 @@ mod linux {
                     sec.persall_setup(sites, tables, xp, shared)?;
                     std::mem::forget(zeros); // read by every timed launch; freed with the process
                 }
-                if !pers_flags.arms.is_empty() || pers_flags.trows {
+                if !pers_flags.arms.is_empty() || pers_flags.trows || pers_flags.vrows {
                     let mut sites = Vec::new();
                     for st in llvq_cuda::pers::served_4b_schedule() {
                         let proj = match st.proj {
@@ -4675,6 +4676,7 @@ mod linux {
                         });
                     }
                     sec.trows_setup(&sites, tables, xp, x.len(), &tile.define())?;
+                    sec.vrows_setup(&sites, tables, xp, x.len(), &tile.define())?;
                     sec.l2_setup(sites, tables, xp, x.len(), &tile.define())?;
                 }
                 pers_sec = Some((sec, tables, xp));

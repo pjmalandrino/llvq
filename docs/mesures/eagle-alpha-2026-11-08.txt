@@ -1,0 +1,50 @@
+EAGLE-3 acceptance on the sealed Tetra 4B, on the Mac, 2026-11-08. $0.
+Result: a published EAGLE-3 head reads our 2.7 b/param target at alpha 0.43 to 0.61 on free text and 0.67 to 0.90 on
+GSM8K and the copy-heavy prompts (*measured*, tokens a verify; alpha *computed* from them). That is above prompt lookup
+on free text (chat 1.69 against 1.21 tokens a verify at k = 3, GSM8K 2.42 against 1.51) and level with it on copies
+(edit 2.44 against 2.56, rag 3.00 against 3.04). With any f32 verify pass it cannot reach x1.10 of greedy on chat at
+4B, so the night's card job J3 does not run (rule D of proofs/preregistration-spec-final-2026-11-08.md, projection
+below, written before any card result).
+Script  : ops/eagle_alpha.py; raw output eagle-alpha-2026-11-08-brut/alpha-4b.txt. Mac M3 Max, 552 s.
+Target  : the sealed 4B (qwen3-4b-sealed.bin, 886391a8) through the MLX door, its hfpack ~/q4b-hf-2026-09-28: the
+          greedy completion, then one forward over prompt and completion for the inputs of layers 2, 18 and 33.
+          Teacher-forced argmax equals the generated token on 100 % of the five prompts' positions and 99.94 % of
+          GSM8K's (*measured*): the states are the decode's.
+Head    : AngelSlim/Qwen3-4B_eagle3 at fd331e59626c8e95c392381a16ee59d518727fbb, Apache-2.0, BF16 run in f32,
+          SpecForge's layout (fc 7,680 -> 2,560, one Llama layer over [norm(embedding), norm(state)], 32,000-token head
+          and d2t). Downloaded, nothing published.
+Method  : greedy makes acceptance a function of the greedy text. A round whose pending token is x[m] drafts from the
+          head's cache over positions 0..m-1 built from the target's states (what EAGLE-3 holds after a verify), then
+          its own steps; a draft is kept when it and every draft before it equal the greedy tokens. The rounds are
+          replayed as the loop runs them. Prompts: specrun's five, 256 new tokens; GSM8K: the 50 pilot problems,
+          1,024 at most, reasoning off.
+Tokens a verify (alpha it implies), k = 1 / 2 / 3 (*measured* / *computed*):
+  chat     1.49 (0.49)   1.62 (0.43)   1.69 (0.43)
+  code     1.61 (0.61)   1.89 (0.57)   2.04 (0.56)
+  summary  1.39 (0.39)   1.62 (0.43)   1.74 (0.45)
+  edit     1.72 (0.72)   2.33 (0.76)   2.44 (0.68)
+  rag      1.90 (0.90)   2.69 (0.89)   3.00 (0.81)
+  GSM8K    1.75 (0.75)   2.21 (0.71)   2.42 (0.67)
+  GSM8K conditional acceptance of drafts 1 / 2 / 3: 0.771 / 0.649 / 0.526.
+The head's card reports 2.08 tokens a round at k = 2 on its BF16 target (*reported*); ours reads 1.62 to 2.21 on free
+text and GSM8K at k = 2, inside the plan's estimate of alpha 0.5 to 0.7 except chat and summary (0.43).
+Projection, decode over greedy at the best k = 1..3, 4B (*computed*: t / (c_{k+1} + k D)); c the verify pass of k + 1
+rows in greedy tokens, D a head step (BF16: 0.11 of a token, 438 MB at the L40S's 864 GB/s; int4 g64: 0.04,
+*estimated*):
+  verify                      head   chat   code   summary  edit   rag    GSM8K
+  today, measured (spec-gate) BF16   x0.72  x0.78  x0.67    x0.83  x0.95  x0.85
+  f32 floor, 0.378 a row      BF16   x1.00  x1.08  x0.93    x1.18  x1.36  x1.18
+  f32 floor, 0.378 a row      int4   x1.05  x1.14  x0.98    x1.27  x1.47  x1.23
+  B1, 0.08 a row (estimated)  BF16   x1.25  x1.37  x1.17    x1.69  x1.95  x1.60
+  B1, 0.08 a row (estimated)  int4   x1.33  x1.52  x1.31    x1.88  x2.21  x1.78
+- The f32 floor is the row phases alone (shaker-4e); no f32 verify can cost less. At it, chat stays at x1.00 to x1.05:
+  rule D's x1.10 on chat and code is out of reach whatever spec-final measures, so J3 is not run.
+- B1's 0.08 a row is the plan's estimate (gate 1's f = 0.187 on the Tetra rows plus the rest of a row); B1 changes
+  the logits and needs a new served object (4E's single-token path and the verify on the integer dot, ppl and MMLU
+  gates at three sizes). That is the prize EAGLE-3 puts behind B1: x1.25 to x1.95 on decode at 4B (*computed* from
+  an *estimated* row cost).
+What this does not establish: any card number, the head's cost on the card, the 8B and 14B heads (RedHat, not run),
+a quantized head's acceptance, the MLX door's tokens against the CUDA door's beyond the agreement above.
+Correction, 2026-11-09: shaker-4e's 0.378 is a share of a row pass, not of a token. At 4B the f32 floor is about 0.27
+of a token a row plus the head (spec-final-2026-11-08.txt §1); its row then reads chat x1.04 and code x1.13 with the
+BF16 head at k = 1 (*computed*). Rule D still fails on chat, and on this night's measured verify (x0.72 / x0.77).

@@ -161,8 +161,14 @@ For an A/B on one file the bar is the paired interval, 0.43 pp of MMLU and 0.12 
 ## 5. Open decisions
 
 - **Throughput past v9.** At the bit the 4B tops out near 235 to 258 tok/s at the door (*estimated*,
-  [`plan-300.md`](plan-300.md)). Speculative decoding with the 0.6B draft is closed (§6). Next, on branches and not
-  on main: batching (PR #24) and a speculative route with a cheaper verify pass (PR #27).
+  [`plan-300.md`](plan-300.md)). Speculation closed on today's f32 verify (§6). An extra verify row costs 0.74 / 0.89 /
+  0.98 of a 4E token at 4B / 8B / 14B, 92 to 95 % of it in the row phases (*measured*,
+  [spec-final](mesures/spec-final-2026-11-08.txt)). Reopening it means a cheaper K-row loop: B1's integer dot (0.187
+  of a Tetra row an extra token, [spec-micro](mesures/spec-micro-2026-11-08.txt)), which changes the logits and needs
+  a new served object, or an f32 loop nearer its floor. With B1 an EAGLE-3 head, whose acceptance on Tetra is measured
+  (α 0.43 to 0.61 on free text, [eagle-alpha](mesures/eagle-alpha-2026-11-08.txt)), projects x1.25 to x1.52 of
+  greedy decode at 4B on free text (*computed* from an *estimated* row cost, [`plan-speculation.md`](plan-speculation.md)).
+  Weeks of kernel work; the operator decides.
 - **Card memory after an 8,192-token prompt.** The served prefill keeps one score tensor instead of three, bit for
   bit: 5.95 / 7.39 / 10.54 GB at 4B / 8B / 14B, from 11.48 / 12.66 / 17.09 in the duel, against 3.52 / 4.71 / 6.90 for
   llama.cpp IQ2_S (*measured*, L40S, [pic-vram-8k](mesures/pic-vram-8k-2026-11-08.txt)). The NOT SERVED
@@ -182,10 +188,9 @@ For an A/B on one file the bar is the paired interval, 0.43 pp of MMLU and 0.12 
 - **The next venue for paper 2.** No archive holds version 2 yet. Default if silent: preprint only.
 - **Upstream `transformers`.** `llvq-tetra` 0.1.0 is on PyPI and loads the 4B safetensors; the upstream issue and PR
   wait for the operator ([`plan-transformers.md`](plan-transformers.md)).
-- **Spend.** $304.05 over 301 jobs on 2026-11-08 (*computed*, [audit](archive/audit-bugs-2026-11-08.md) §3): $280.04
-  over 273 priced rows of 278 in `docs/data/jobs.csv` on `main`, $22.00 in the open PRs #24, #26 and #27, and $2.01 in
-  two jobs no pushed CSV prices yet (`rows-grid` $0.25, `spec-lookup-r1` $1.76). No cap is in force; one is owed before
-  the next paid job.
+- **Spend.** $307.13 over 303 jobs on 2026-11-09 (*computed*): the $304.05 over 301 jobs of the
+  [audit](archive/audit-bugs-2026-11-08.md) §3, then `pic-vram-8k` $2.04 and `spec-final` $1.04. No cap is in
+  force; one is owed before the next paid job.
 
 ## 6. Closed absent a new idea
 
@@ -201,7 +206,9 @@ For an A/B on one file the bar is the paired interval, 0.43 pp of MMLU and 0.12 
 | Euclidean gain rule | dead end to end | [HISTORIQUE](HISTORIQUE.md), 2026-09-15 |
 | 4E v5 | ×1.001 over v4; refused by name | [shaker-4e](mesures/shaker-4e-2026-11-05.txt) |
 | 4E row-loop arms (K4) | best arm ×1.002 over v2, under the ×1.15 bar | [step1-micro](mesures/step1-micro-2026-11-07.txt) |
-| Speculative decoding, the 0.6B drafting, 4E verifying | tokens identical to greedy at 4B, 8B and 14B, but decode ×0.595, ×0.629, ×0.625 of greedy at the best k (k = 1). Reopen when a 2-row verify pass costs under 1.4 greedy tokens and a draft token under 1 ms | [spec-gate](mesures/spec-gate-2026-11-07.txt) |
+| Speculative decoding, the 0.6B drafting, 4E verifying | tokens identical to greedy at 4B, 8B and 14B, but decode ×0.595, ×0.629, ×0.625 of greedy at the best k (k = 1). Reopen when a 2-row verify pass costs under 1.4 greedy tokens and a draft token under 1 ms. With B1's integer dot, the Tetra part of an extra row costs 0.187 of a row alone, between the 0.15 and 0.26 gates (2026-11-08), not yet a verify pass | [spec-gate](mesures/spec-gate-2026-11-07.txt), [spec-micro](mesures/spec-micro-2026-11-08.txt) |
+| Prompt lookup, 4E verifying | tokens identical to greedy at three sizes; best policy (n-grams 3, probe 1) decodes ×0.92 to ×0.96 of greedy on chat, code and summary at 4B, ×1.108 on retrieval, under its rule B. Reopen with the same condition as the 0.6B row | [spec-final](mesures/spec-final-2026-11-08.txt) |
+| EAGLE-3 head on the card | acceptance measured on Tetra at $0 (α 0.43 to 0.61 on free text), projection ×0.72 on chat at today's verify, ×1.04 at an f32 floor. Reopen with a verify row under 0.2 of a 4E token (B1) | [eagle-alpha](mesures/eagle-alpha-2026-11-08.txt) |
 | A mixed Tetra plus int4 bench arm | the bench compares formats; served files are timed end to end | operator, 2026-10-06 |
 | Batched GEMM at two CTAs a SM (K chunk halved, registers capped at 128) | 5.7 to 17.4 % below one CTA a SM at B = 32 to 128 on the 4B, both int4 orders | [batch-l40s-v4](mesures/batch-l40s-v4-2026-11-08.txt) |
 

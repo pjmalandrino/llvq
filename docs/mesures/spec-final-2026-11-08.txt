@@ -1,0 +1,105 @@
+Speculative route, last card job, 2026-11-08/09: where a verify row's time goes, and prompt lookup under a policy at
+the three sizes.
+
+Result: identity holds at every size, prompt and phase launch (*measured*). An extra verify row costs 0.70 to 0.74 of
+a one-token 4E launch at 4B, 0.86 to 0.89 at 8B, 0.94 to 0.98 at 14B, and 92 to 95 % of it is the row phases (qkv,
+o, gateup, down); attention and RoPE take under 0.5 % (*measured* / *computed*). Rule C points to the row loop itself:
+B1, or an f32 row loop nearer its floor. Prompt lookup under the probe policy loses less than the plain one but still
+loses to greedy on free text at every size: decode x0.94 / 0.96 / 0.92 / 0.88 on chat, code, summary and GSM8K at 4B
+(*measured*). Rule B is not met, so prompt lookup closes on today's verify. The served decode stays greedy 4E v9.
+
+Job      : 6af10840e6320c66fad79d7e, l40sx1 (NVIDIA L40S, 580.178.04), 34 min 33 s, $1.04 (*computed* at $1.80/h).
+           Ran 23:39 UTC on 2026-11-08 to 00:16 on 2026-11-09. The night's cap: $15; the prereg's worst case $2.25.
+Image    : Space sha e0d7fd4892e5137323e734a487114bc81da7a5b3, built from commit aa85d66 of claude/spec-4e-0058c6.
+Prereg   : proofs/preregistration-spec-final-2026-11-08.md (sha256 2f26e26a...), OpenTimestamps stamped and committed
+           (482a67f) before the launch. No deviation.
+Raw      : spec-final-2026-11-08-brut/ (spec-{4b,8b,14b}.txt, gates-*.txt, summary.txt, oracle.txt, gpu.txt,
+           files.sha256, job-log.txt).
+
+Gates (§4, all hold at the three sizes, *measured*): oracle MATCH on Qwen3-0.6B; the sealed files at 886391a8,
+7bdb9a55, 61db37fe; 4E v9 module 252,757 B at 1b422b62, row form 7; verify module 288,366 B at d7686d86; the drafter
+line names n-grams 3 to 3 and the probe of 1; the greedy doors at 61d0654532d35120, c817aeaf2f5d1116,
+dc4f9ab9aa24c4d3, the served v9 doors; phases at both contexts, 1 to 4 rows, every launch's tokens the greedy ones;
+identity at the six prompts in every round and on the 50 GSM8K completions. GSM8K 40 / 46 / 46 of 50 correct on both
+arms. Card memory: +0.002 GB for the verify pass at every size.
+
+1. Where an extra verify row goes (rule C). Increment of each phase from 1 to 4 rows, over 3, plain wall; share of
+   the increment by phase (*computed* from the stamped medians over 5 launches):
+   size ctx   4E token  extra row          qkv    o     gateup  down   head  attn  rope  embed  rows (qkv+o+gu+dn)
+   4B   chat  4416 us   3261 us = x0.738   16.3   7.5   40.1    28.6   7.3   0.4   -0.2  0.0    92.5 %
+   4B   rag   4682 us   3253 us = x0.695   16.3   7.5   40.3    28.7   7.3   0.1   -0.2  0.0    92.8 %
+   8B   chat  6945 us   6178 us = x0.890   13.4   4.2   38.8    37.5   6.1   0.2   -0.1  0.0    93.8 %
+   8B   rag   7227 us   6179 us = x0.855   13.4   4.2   38.8    37.5   6.1   0.0   -0.1  0.0    93.9 %
+   14B  chat  11002 us  10795 us = x0.981  10.5   7.7   33.7    42.7   5.4   0.1   -0.1  0.0    94.6 %
+   14B  rag   11484 us  10804 us = x0.941  10.5   7.6   33.7    42.8   5.4   0.1   -0.1  0.0    94.5 %
+   - The verify at 2 / 3 / 4 rows costs x1.970 / 2.646 / 3.463 of a 4E token at 4B chat, x2.098 / 2.864 / 3.866 at
+     8B, x2.324 / 3.207 / 4.233 at 14B (*measured*), within 4 % of spec-gate's 1.95 / 2.61 / 3.39, 2.05 / 2.81 /
+     3.79, 2.25 / 3.10 / 4.11. One verify row alone costs x1.20 to x1.29 of 4E: the no-draft round's routing to 4E's
+     token launch is worth it.
+   - Rule C: qkv + o + gateup + down at 92.5 to 94.6 %, over the 70 % bar at every size and context; attn + rope +
+     head + embed at 5.4 to 7.5 %, under its 40 %. A restructured attention or prologue would move at most 7 % of a
+     row. The row phases of an extra row take 3,014 us at 4B chat, 0.90 of 4E's own row phases (3,354 us a token in
+     its stamped report: q/k/v, o, MLP), against the 0.378 of a row pass that shaker-4e measured for a second row
+     (*computed*): the verify's K-row loop sits 2.4 times above that floor. Either B1 (integer dot, new served object)
+     or an f32 row loop nearer the floor; the second keeps the logits. Neither is tonight's work.
+   - Unit: shaker's 0.378 is a share of the row phases, not of a token. In tokens the floor is about 0.27 a row at 4B
+     (0.378 x 3,354 / 4,666, *computed*), plus the head's 7 %. eagle-alpha-2026-11-08.txt used 0.378 of a token; at
+     the right unit its f32-floor row reads chat x1.04 and code x1.13 at k = 1 (*computed*). Rule D asks both at
+     x1.10 and is stated on this job's verify, which reads x0.72 and x0.77: J3 stays out either way.
+   - The extra row grows with size, 0.74 to 0.98 of a token, the reverse of what speculation needs at 14B.
+
+2. Prompt lookup, policy n-grams 3 only, probe 1, k = 3, 1 + 5 rounds, medians and round-by-round ranges
+   (*measured*). Door = end to end, prefill included; decode = generated tokens over decode time.
+   size prompt   greedy door  decode   lookup door  decode   door / greedy  decode / greedy        tokens a verify
+   4B   chat     183.8        221.0    174.0        207.0    x0.947         x0.937 [0.936-0.937]   1.03
+   4B   code     183.5        220.5    177.1        211.5    x0.965         x0.959 [0.959-0.959]   1.18
+   4B   summary   60.7        212.3     59.3        194.8    x0.976         x0.917 [0.917-0.918]   1.02
+   4B   edit      98.1        218.9     94.6        201.5    x0.964         x0.921 [0.921-0.921]   1.89
+   4B   rag       45.5        210.9     46.4        233.9    x1.021         x1.108 [1.108-1.111]   2.67
+   4B   house    220.3        224.1    250.4        255.5    x1.136         x1.140 [1.139-1.141]   3.49
+   4B   GSM8K                 216.9                 191.3                   x0.882                 1.17
+   8B   chat     119.9        141.3    117.5        138.0    x0.980         x0.976 [0.976-0.977]   1.02
+   8B   code     119.5        140.8    109.5        127.1    x0.916         x0.903 [0.901-0.903]   1.12
+   8B   summary   47.2        136.2     46.0        126.8    x0.974         x0.931 [0.930-0.931]   1.02
+   8B   edit      69.5        137.6     66.5        126.2    x0.956         x0.917 [0.916-0.917]   2.14
+   8B   rag       32.3        135.5     32.4        136.8    x1.001         x1.009 [1.009-1.010]   3.00
+   8B   house    139.4        141.3    134.1        135.9    x0.962         x0.962 [0.961-0.962]   1.83
+   8B   GSM8K                 138.0                 117.1                   x0.849                 1.15
+   14B  chat      74.2         89.1     70.2         83.3    x0.946         x0.935 [0.935-0.936]   1.01
+   14B  code      73.5         88.2     65.3         76.5    x0.888         x0.868 [0.868-0.871]   1.12
+   14B  summary   26.1         85.3     24.7         71.9    x0.947         x0.843 [0.841-0.848]   1.04
+   14B  edit      42.8         88.1     37.8         69.3    x0.884         x0.787 [0.787-0.788]   1.55
+   14B  rag       19.8         85.3     19.3         76.8    x0.975         x0.901 [0.900-0.901]   2.15
+   14B  house     86.3         87.6     72.9         73.8    x0.841         x0.838 [0.837-0.844]   1.15
+   14B  GSM8K                  86.3                  70.3                   x0.815                 1.15
+   - Rule B (served only if x1.00 on chat, code, summary and GSM8K and x1.10 on edit or rag, at the three sizes): not
+     met. 4B chat reads x0.937. Prompt lookup closes on today's verify, with these numbers.
+   - The probe policy halves the loss on free text against the plain policy (4B chat x0.937 against x0.722,
+     spec-lookup) by drafting less (1.03 tokens a verify against 1.21); it still never pays where nothing repeats.
+   - End to end, prefill dominates the long prompts (summary 60.7 against 212.3 decode at 4B), so every ratio moves
+     toward x1.00 at the door. The best door figure is the looping house prompt at 4B, 250.4 tok/s, x1.136.
+
+3. Rule D (EAGLE-3 on the card, J3). With this job's verify costs at 4B chat (2 / 3 / 4 rows x1.970 / 2.646 / 3.463)
+   and the alpha measured on the Mac (eagle-alpha-2026-11-08.txt), the projection reads x0.72 on chat and x0.77 on
+   code (*computed*, BF16 head at 0.11 of a token a step), under the x1.10 bar. J3 is not run, as projected before
+   this job.
+
+Predictions (§7) against the result:
+   quantity                                          predicted              measured / computed   inside
+   identity                                          holds                  holds                 yes
+   extra row, 4B chat, in 4E tokens                  0.85 [0.55, 1.2]       0.738                 yes
+   extra row, 14B chat                               1.0 [0.65, 1.4]        0.981                 yes
+   rows share (qkv+o+gateup+down), 4B chat           75 % [55, 90]          92.5 %                no, above
+   attn + rope share, 4B chat                        10 % [3, 25]           0.2 %                 no, below
+   head share, 4B                                    12 % [5, 20]           7.3 %                 yes
+   lookup decode / greedy, 4B chat code summary GSM8K x0.95 [0.85, 1.02]    0.937 0.959 0.917 0.882  yes
+   lookup decode / greedy, 4B edit                   x0.95 [0.8, 1.1]       0.921                 yes
+   lookup decode / greedy, 4B rag                    x1.10 [0.95, 1.25]     1.108                 yes
+   lookup decode / greedy, 14B rag                   x0.92 [0.8, 1.05]      0.901                 yes
+   lookup door / greedy, 4B rag                      x1.04 [0.95, 1.12]     1.021                 yes
+   rule B                                            not met                not met               yes
+   The two misses go the same way: attention was thought to weigh in the extra row and does not at contexts under
+   500; the row loop holds it all.
+
+What this does not establish: what a rewritten f32 row loop or B1 would save (the phases say where the time is, not
+what a rewrite gains); a row's prologue against its dot inside a phase; contexts over 500, batches, any other card.

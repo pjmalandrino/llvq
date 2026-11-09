@@ -4,16 +4,31 @@
 //!
 //! Usage:
 //!   `LLVQ_CONFIG=<target config> specrun <target sealed> <draft config> <draft sealed> [ks] [what]`
+//!   `LLVQ_CONFIG=<target config> specrun <target sealed> lookup[-n<N>p<P>] [ks] [what]`
+//!
+//! `lookup` drafts by prompt lookup (`speculative::lookup_draft`): n-grams of
+//! the prompt and of the text so far, no drafter model, no memory. A round
+//! with no match is one greedy step on 4E's token launch. `lookup-n<N>p<P>`
+//! sets the policy (`speculative::LookupPolicy`): n-grams from 3 down to N
+//! only, and one draft a round until P drafted tokens in a row were kept.
 //!
 //! - `ks`: the draft lengths to run, comma-separated, each below
 //!   `pers::P4V_KMAX` (default `1,2,3`).
 //! - `what`: `all` (default), `load` (the install and the card memory only),
-//!   `door` (the four prompts) or `gsm8k` (the 50-problem pilot).
+//!   `phases`, `door` (the prompts) or `gsm8k` (the 50-problem pilot).
+//!
+//! `phases` (lookup only): where a verify pass's time goes. At two contexts
+//! (the chat and rag prompts), 4E's stamped token (`p4e_phase_report`), then
+//! the verify pass at 1 to `P4V_KMAX` rows on its stamped launch
+//! (`p4v_phases`) and on its plain one, each row the greedy token, 2
+//! discarded and 5 timed launches, medians.
 //!
 //! Both configs must name the persistent decode at row form 7 (v9). The
 //! target's verify pass is installed beside its 4E decode.
 //!
-//! Prompts (`door`): `chat`, `code` and `summary`, each one user turn through
+//! Prompts (`door`): `chat`, `code`, `summary`, `edit` (a function to return
+//! changed, most of it copied) and `rag` (a question to answer from a passage,
+//! quoting it), each one user turn through
 //! the chat template with reasoning off, then the house prompt of the served
 //! door ("The capital of France is", raw, the prompt every served tok/s ran),
 //! which loops and so flatters any drafter: it is printed, never the verdict.
@@ -41,6 +56,109 @@ fn main() -> anyhow::Result<()> {
     {
         anyhow::bail!("specrun: the speculative decode runs 4E, one cooperative CUDA launch; this build has no CUDA backend")
     }
+}
+
+/// `phases`: one-token 4E launches and 4E's stamped token, then the verify
+/// pass at 1 to `P4V_KMAX` rows, stamped and plain, at each context. Every
+/// launch's tokens must be the greedy ones, or the run is void.
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+fn phases(t: &mut Loaded, contexts: &[(&str, Vec<u32>)]) -> anyhow::Result<()> {
+    use llvq_cuda::pers::{p4e_phase_report, p4e_report_lines, p4v_phases, P4V_KMAX, P4V_PHASES};
+    use llvq_llm::boundary::median_range;
+    const DISCARD: usize = 2;
+    const TIMED: usize = 5;
+    let model = &t.f.model;
+    let rt = t.dec.runtime_mut().ok_or_else(|| anyhow::anyhow!("phases: the target has no 4E runtime"))?;
+    for (name, ids) in contexts {
+        let l = ids.len();
+        let mut caches = model.fresh_caches();
+        let first = model.prefill_next_in(ids, llvq_llm::model::MAX_PREFILL_ROWS, &mut caches)?;
+        model.device().synchronize()?;
+        let n_ref = 9u32;
+        let want = rt.decode(&mut caches, l, first, n_ref, u32::MAX)?;
+        anyhow::ensure!(want.len() == n_ref as usize, "phases, {name}: 4E made {} of {n_ref} tokens", want.len());
+        let trunc = |c: &mut [llvq_llm::model::KvCache]| -> anyhow::Result<()> {
+            for x in c.iter_mut() {
+                x.truncate(l)?;
+            }
+            Ok(())
+        };
+        println!("\n== phases, {name}: context {l}, rows from position {l}");
+        // One 4E token a launch, the greedy step a lookup round without a
+        // draft takes.
+        let mut one = Vec::new();
+        for round in 0..DISCARD + TIMED {
+            trunc(&mut caches)?;
+            rt.sync()?;
+            let t0 = Instant::now();
+            let made = rt.decode(&mut caches, l, first, 1, u32::MAX)?;
+            rt.sync()?;
+            let w = t0.elapsed().as_secs_f64() * 1e6;
+            anyhow::ensure!(made[..] == want[..1], "phases, {name}: a one-token 4E launch moved its token");
+            if round >= DISCARD {
+                one.push(w);
+            }
+        }
+        let (om, olo, ohi) = median_range(&one);
+        println!("  4E, one token a launch: {om:.1} us [{olo:.1}-{ohi:.1}] (host wall, launch to ring read)");
+        if rt.can_stamp() {
+            trunc(&mut caches)?;
+            let (made, stamps) = rt.decode_stamped(&mut caches, l, first, n_ref, u32::MAX)?;
+            anyhow::ensure!(made == want, "phases, {name}: the stamped 4E launch moved its tokens; its stamps are void");
+            let (layers, grid) = rt.stamp_shape();
+            let r = p4e_phase_report(&stamps, made.len() as u32, layers, grid).map_err(anyhow::Error::msg)?;
+            println!("  4E stamped, {} tokens a launch:", made.len());
+            for line in p4e_report_lines(&r) {
+                println!("{line}");
+            }
+        } else {
+            println!("  4E stamped: no stamp symbol at this geometry");
+        }
+        let (layers, grid) = rt.verify_stamp_shape();
+        let mut base = 0.0;
+        println!("  verify, each phase summed over the layers, us, median over {TIMED} launches (event clocks, the CTAs' median):");
+        println!("    rows{}   stamped span   plain wall   an extra row", P4V_PHASES.iter().map(|p| format!("{p:>8}")).collect::<String>());
+        for n in 1..=P4V_KMAX as usize {
+            let mut rows = vec![first];
+            rows.extend_from_slice(&want[..n - 1]);
+            let (mut per, mut span, mut wall) = (vec![Vec::new(); P4V_PHASES.len()], Vec::new(), Vec::new());
+            for round in 0..DISCARD + TIMED {
+                trunc(&mut caches)?;
+                let (made, st) = rt.verify_stamped(&mut caches, l, &rows)?;
+                anyhow::ensure!(made[..] == want[..n], "phases, {name}: a stamped verify of {n} rows moved its tokens ({made:?})");
+                trunc(&mut caches)?;
+                rt.sync()?;
+                let t0 = Instant::now();
+                let made = rt.verify(&mut caches, l, &rows)?;
+                rt.sync()?;
+                let w = t0.elapsed().as_secs_f64() * 1e6;
+                anyhow::ensure!(made[..] == want[..n], "phases, {name}: a verify of {n} rows moved its tokens ({made:?})");
+                if round >= DISCARD {
+                    let p = p4v_phases(&st, layers, grid).map_err(anyhow::Error::msg)?;
+                    for (v, x) in per.iter_mut().zip(p) {
+                        v.push(x / 1e3);
+                    }
+                    span.push(p.iter().sum::<f64>() / 1e3);
+                    wall.push(w);
+                }
+            }
+            let cells: String = per.iter().map(|v| format!("{:8.1}", median_range(v).0)).collect();
+            let (sm, slo, shi) = median_range(&span);
+            let (wm, wlo, whi) = median_range(&wall);
+            if n == 1 {
+                base = wm;
+            }
+            let extra = if n == 1 {
+                "-".to_string()
+            } else {
+                let e = (wm - base) / (n - 1) as f64;
+                format!("{e:.1} us, x{:.3} of a one-token 4E launch", e / om)
+            };
+            println!("    {n:4}{cells}   {sm:7.1} [{slo:.1}-{shi:.1}]   {wm:7.1} [{wlo:.1}-{whi:.1}] (x{:.3} of 4E)   {extra}", wm / om);
+        }
+        trunc(&mut caches)?;
+    }
+    Ok(())
 }
 
 #[cfg(all(target_os = "linux", feature = "cuda"))]
@@ -98,13 +216,21 @@ struct Arm {
 /// One generate: the target's prefill (and the drafter's when `k` is some),
 /// then 4E greedy or the speculative loop.
 #[cfg(all(target_os = "linux", feature = "cuda"))]
-fn generate(t: &mut Loaded, d: &mut Loaded, ids: &[u32], max_new: usize, stops: &[u32], k: Option<usize>) -> anyhow::Result<Arm> {
+fn generate(
+    t: &mut Loaded,
+    mut d: Option<&mut Loaded>,
+    ids: &[u32],
+    max_new: usize,
+    stops: &[u32],
+    k: Option<usize>,
+    policy: llvq_llm::speculative::LookupPolicy,
+) -> anyhow::Result<Arm> {
     let chunk = llvq_llm::model::MAX_PREFILL_ROWS;
     let t0 = Instant::now();
     let mut caches = t.f.model.fresh_caches();
     let first = t.f.model.prefill_next_in(ids, chunk, &mut caches)?;
     let mut dcaches = Vec::new();
-    if k.is_some() {
+    if let (Some(_), Some(d)) = (k, d.as_mut()) {
         dcaches = d.f.model.fresh_caches();
         let _ = d.f.model.prefill_next_in(ids, chunk, &mut dcaches)?;
     }
@@ -120,7 +246,10 @@ fn generate(t: &mut Loaded, d: &mut Loaded, ids: &[u32], max_new: usize, stops: 
                 (r, s)
             }
             Some(k) => {
-                let (r, s, st) = t.dec.continue_speculative(&mut caches, &mut d.dec, &mut dcaches, first, ids.len(), max_new - 1, stops, k)?;
+                let (r, s, st) = match d {
+                    Some(d) => t.dec.continue_speculative(&mut caches, &mut d.dec, &mut dcaches, first, ids.len(), max_new - 1, stops, k)?,
+                    None => t.dec.continue_lookup(&mut caches, ids, first, max_new - 1, stops, k, policy)?,
+                };
                 stats = st;
                 (r, s)
             }
@@ -155,26 +284,33 @@ fn run() -> anyhow::Result<()> {
     use llvq_llm::boundary::median_range;
     use llvq_llm::chatfmt::{open_assistant, turn, Marks};
     let a: Vec<String> = std::env::args().skip(1).collect();
-    let usage = "usage: LLVQ_CONFIG=<target config> specrun <target sealed> <draft config> <draft sealed> [ks] [all|load|door|gsm8k]";
+    let usage = "usage: LLVQ_CONFIG=<target config> specrun <target sealed> <draft config> <draft sealed> [ks] [all|load|door|gsm8k]\n       \
+                 LLVQ_CONFIG=<target config> specrun <target sealed> lookup[-n<N>p<P>] [ks] [all|load|phases|door|gsm8k]";
+    let parsed = a.get(1).and_then(|w| llvq_llm::speculative::LookupPolicy::parse(w));
+    let lookup = parsed.is_some();
+    let policy = parsed.unwrap_or(llvq_llm::speculative::LookupPolicy::PLAIN);
+    // Positional arguments after the drafter: one fewer with prompt lookup.
+    let rest = if lookup { 2 } else { 3 };
     let (tpath, dcfg_path, dpath) = match (a.first(), a.get(1), a.get(2)) {
+        (Some(t), Some(_), _) if lookup => (t.clone(), String::new(), String::new()),
         (Some(t), Some(c), Some(d)) => (t.clone(), c.clone(), d.clone()),
         _ => anyhow::bail!("{usage}"),
     };
     let ks: Vec<usize> = a
-        .get(3)
+        .get(rest)
         .map_or("1,2,3", String::as_str)
         .split(',')
         .map(|s| s.trim().parse::<usize>().map_err(|_| anyhow::anyhow!("ks: {s:?} is not a count")))
         .collect::<anyhow::Result<_>>()?;
     let kmax = llvq_cuda::pers::P4V_KMAX as usize;
     anyhow::ensure!(!ks.is_empty() && ks.iter().all(|&k| (1..kmax).contains(&k)), "ks {ks:?}: each in 1..{}", kmax - 1);
-    let what = a.get(4).map_or("all", String::as_str);
-    anyhow::ensure!(["all", "load", "door", "gsm8k"].contains(&what), "{usage}");
+    let what = a.get(rest + 1).map_or("all", String::as_str);
+    anyhow::ensure!(["all", "load", "phases", "door", "gsm8k"].contains(&what), "{usage}");
+    anyhow::ensure!(what != "phases" || lookup, "phases runs with prompt lookup only (no drafter); {usage}");
 
     let tcfg = llvq_llm::served::Served::from_env()
         .map_err(|e| anyhow::anyhow!("{e}"))?
         .ok_or_else(|| anyhow::anyhow!("LLVQ_CONFIG names the target's served config; {usage}"))?;
-    let dcfg = llvq_llm::served::Served::read(std::path::Path::new(&dcfg_path)).map_err(|e| anyhow::anyhow!("{e}"))?;
     let device = candle_core::Device::new_cuda(0)?;
 
     let t_load = Instant::now();
@@ -184,10 +320,22 @@ fn run() -> anyhow::Result<()> {
     }
     let used_target = card_used()?;
     println!("card memory: {used_target:.3} GB used after the target's load and its 4E install (cuMemGetInfo)");
-    let mut d = load(&dcfg, &dpath, &device, "drafter")?;
-    for line in d.dec.lines() {
-        println!("drafter {line}");
-    }
+    let mut d = if lookup {
+        println!(
+            "drafter: prompt lookup, n-grams {} to {} of the prompt and the text so far; no model; {}; a round with no draft on 4E's token launch",
+            llvq_llm::speculative::LOOKUP_MAX_N,
+            policy.min_n,
+            if policy.probe == 0 { "always up to k".to_string() } else { format!("one draft a round until {} kept in a row", policy.probe) }
+        );
+        None
+    } else {
+        let dcfg = llvq_llm::served::Served::read(std::path::Path::new(&dcfg_path)).map_err(|e| anyhow::anyhow!("{e}"))?;
+        let d = load(&dcfg, &dpath, &device, "drafter")?;
+        for line in d.dec.lines() {
+            println!("drafter {line}");
+        }
+        Some(d)
+    };
     let before = t.dec.lines().len();
     t.dec.install_verify()?;
     for line in &t.dec.lines()[before..] {
@@ -201,7 +349,7 @@ fn run() -> anyhow::Result<()> {
     println!(
         "weights: target {:.3} GB, drafter {:.3} GB (runtime and carried bytes)",
         (t.f.runtime_bytes + t.f.carried_bytes) as f64 / 1e9,
-        (d.f.runtime_bytes + d.f.carried_bytes) as f64 / 1e9
+        d.as_ref().map_or(0.0, |d| (d.f.runtime_bytes + d.f.carried_bytes) as f64 / 1e9)
     );
     println!("loaded in {:.1} s; draft lengths {ks:?}", t_load.elapsed().as_secs_f64());
     if what == "load" {
@@ -216,15 +364,21 @@ fn run() -> anyhow::Result<()> {
         Ok(ids)
     };
 
+    if lookup && (what == "all" || what == "phases") {
+        phases(&mut t, &[("chat", chat(CHAT)?), ("rag", chat(&format!("{RAG}\n\n{SUMMARY_TEXT}"))?)])?;
+    }
+
     if what == "all" || what == "door" {
         let prompts: Vec<(&str, Vec<u32>, Vec<u32>)> = vec![
             ("chat", chat(CHAT)?, stops.clone()),
             ("code", chat(CODE)?, stops.clone()),
             ("summary", chat(&format!("{SUMMARY}\n\n{SUMMARY_TEXT}"))?, stops.clone()),
+            ("edit", chat(&format!("{EDIT}\n\n{EDIT_CODE}"))?, stops.clone()),
+            ("rag", chat(&format!("{RAG}\n\n{SUMMARY_TEXT}"))?, stops.clone()),
             ("door", tok.encode(DOOR, false).map_err(|e| anyhow::anyhow!("{e}"))?.get_ids().to_vec(), Vec::new()),
         ];
         for (name, ids, st) in &prompts {
-            let want = generate(&mut t, &mut d, ids, N_NEW, st, None)?.tokens;
+            let want = generate(&mut t, d.as_mut(), ids, N_NEW, st, None, policy)?.tokens;
             println!(
                 "\n== {name}: {} prompt tokens, greedy reference {} tokens, fingerprint {:016x}",
                 ids.len(),
@@ -237,7 +391,7 @@ fn run() -> anyhow::Result<()> {
             let mut stats = vec![llvq_llm::speculative::SpecStats::default(); arms.len()];
             for round in 0..=ROUNDS_TIMED {
                 for (i, &k) in arms.iter().enumerate() {
-                    let g = generate(&mut t, &mut d, ids, N_NEW, st, k)?;
+                    let g = generate(&mut t, d.as_mut(), ids, N_NEW, st, k, policy)?;
                     if let Some(at) = first_divergence(&want, &g.tokens) {
                         anyhow::bail!(
                             "{name}, round {round}, {}: diverges from the greedy reference at token {at} ({} against {} tokens); the run is void",
@@ -279,6 +433,8 @@ fn run() -> anyhow::Result<()> {
                 println!("{line}");
             }
             println!("  text: {}", tok.decode(&want, true).unwrap_or_default().replace('\n', " "));
+            println!("  prompt ids: {ids:?}");
+            println!("  greedy ids: {want:?}");
         }
     }
 
@@ -295,7 +451,7 @@ fn run() -> anyhow::Result<()> {
             let mut st = llvq_llm::speculative::SpecStats::default();
             let mut all = Vec::with_capacity(prompts.len());
             for (j, ids) in prompts.iter().enumerate() {
-                let g = generate(&mut t, &mut d, ids, 1024, &stops, k)?;
+                let g = generate(&mut t, d.as_mut(), ids, 1024, &stops, k, policy)?;
                 if k.is_some() {
                     if let Some(at) = first_divergence(&greedy[j], &g.tokens) {
                         anyhow::bail!("gsm8k problem {}, k = {}: diverges from the greedy completion at token {at}; the run is void", picked[j], k.unwrap_or(0));
@@ -375,3 +531,27 @@ centre is getting worse. The council's engineer reported that the roof needs urg
 chosen, at an estimated cost of 1.2 million, and that the soil near the old fuel tanks must be cleaned before any \
 housing can be built. The mayor said no decision would be taken before a public consultation in the spring, and \
 asked each group to submit a detailed budget and timetable by the end of February.";
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+const EDIT: &str = "Rename the variable `buf` to `pending` everywhere in this function and add type hints to its \
+signature. Return the whole function, changed, and nothing else.";
+// Written for this gate (2026-11-08), not quoted from any source.
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+const EDIT_CODE: &str = "```python
+def batch_lines(lines, size, sep):
+    out = []
+    buf = []
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        buf.append(line)
+        if len(buf) >= size:
+            out.append(sep.join(buf))
+            buf = []
+    if buf:
+        out.append(sep.join(buf))
+    return out
+```";
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+const RAG: &str = "Answer from the text below only. What did the council's engineer report, and what did the mayor \
+decide? Quote the sentences of the text that support your answer.";

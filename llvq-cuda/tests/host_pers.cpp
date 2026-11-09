@@ -69,6 +69,7 @@ static inline unsigned short served_capture_f2h(float v) {
 #include "../kernels/pers_4ev.cu"
 #endif
 #include "../kernels/pers_trows.cu"
+#include "../kernels/pers_vrows.cu"
 #include "../kernels/pers_q4rows.cu"
 #include "../kernels/pers_ctr.cu"
 #include "../kernels/tetra48_persall.cu"
@@ -682,6 +683,97 @@ int main() {
 #endif
         wr(out);
         wr(outf);
+    } else if (tag == 'D') {
+        // VERIFY ROWS (pers_vrows.cu): arm (0 v2, 1 k2, 2 pword, 3 lean, 4 rot, 5..8 i16 at K = 1..4), grid,
+        // threads, x seed, nsites, then per site d_out, d_in, seed. Out: for each of the four activations every
+        // site's rows (binary16), then for each the f32 values. The served side gives all four; the persistent
+        // side the arm's K, the others left at 0xFFFF and -1.
+        const u32 arm = rd1<u32>(), grid = rd1<u32>(), threads = rd1<u32>();
+        const uint64_t xseed = rd1<uint64_t>();
+        const u32 nsites = rd1<u32>();
+        std::vector<TMat> mats;
+        u32 maxd = 0u, rows = 0u;
+        for (u32 s = 0; s < nsites; ++s) {
+            const u32 d_out = rd1<u32>(), d_in = rd1<u32>();
+            const uint64_t seed = rd1<uint64_t>();
+            mats.push_back(tmat(d_out, d_in, seed));
+            maxd = std::max(maxd, d_in);
+            rows += d_out;
+        }
+        std::vector<std::vector<float>> xa;
+        for (u32 a = 0; a < 4u; ++a) xa.push_back(act(maxd, xseed + a));
+        std::vector<unsigned short> out(4u * rows, 0xFFFFu);
+        std::vector<float> outf(4u * rows, -1.0f);
+#if PERS_SIDE == 0
+        (void)arm;
+        (void)grid;
+        (void)threads;
+        for (u32 a = 0; a < 4u; ++a) {
+            u32 at = a * rows;
+            for (const TMat& m : mats) {
+                const std::vector<float> xi(xa[a].begin(), xa[a].begin() + m.nblocks * 24u + m.tail_w);
+                const auto y = served_ref(m, xi, outf.data() + at);
+                std::copy(y.begin(), y.end(), out.begin() + at);
+                at += m.d_out;
+            }
+        }
+#else
+        static const u32 KOF[9] = {1u, 2u, 1u, 1u, 1u, 1u, 2u, 3u, 4u};
+        if (arm > 8u) std::abort();
+        const bool lean = arm == 3u || arm >= 5u;
+        // GA, GB and the linearity count, then the relabeled words, each through the harness like any kernel.
+        std::vector<u32> ga(64u, 0u), gb(128u, 0u), bad(1u, 0xFFFFFFFFu);
+        hostgrid::launch_seq(1, 32, [&] { tv_vrows_lean_tables(g_pref.data(), g_br.data(), g_suf.data(), ga.data(), gb.data(), bad.data()); });
+        if (bad[0] != 0u) {
+            std::fprintf(stderr, "host_pers: the Golay map is not linear on %u paths\n", bad[0]);
+            return 2;
+        }
+        std::vector<std::vector<u32>> lw(mats.size());
+        std::vector<unsigned long long> words;
+        u32 at = 0u;
+        for (size_t k = 0; k < mats.size(); ++k) {
+            const TMat& m = mats[k];
+            const u32* wp = m.words.data();
+            if (lean) {
+                lw[k].assign(m.words.size(), 0u);
+                hostgrid::launch_seq(3, 64, [&] { tv_vrows_lean_relayout(m.words.data(), m.stride, lw[k].data(), m.d_out, m.nblocks); });
+                wp = lw[k].data();
+            }
+            unsigned long long w[VROWS_SITE_WORDS] = {
+                (unsigned long long)(uintptr_t)wp, (unsigned long long)(uintptr_t)m.gscale.data(),
+                (unsigned long long)(uintptr_t)m.rscale.data(), (unsigned long long)(uintptr_t)m.tail.data(),
+                0ull, 0ull, 0ull, 0ull,
+                (unsigned long long)m.d_out | ((unsigned long long)m.nblocks << 32),
+                (unsigned long long)m.tail_w | ((unsigned long long)m.stride << 32),
+                0ull, 0ull, 0ull, 0ull};
+            for (u32 a = 0; a < KOF[arm]; ++a) {
+                w[4u + a] = (unsigned long long)(uintptr_t)(out.data() + a * rows + at);
+                w[10u + a] = (unsigned long long)(uintptr_t)(outf.data() + a * rows + at);
+            }
+            words.insert(words.end(), w, w + VROWS_SITE_WORDS);
+            at += m.d_out;
+        }
+        const u32 maxnb = maxd / 24u;
+        const size_t smem = PERS_SMEM_HEADER + VROWS_TABLE_BYTES +
+                            std::max<size_t>(4u * (VROWS_X2_AT + maxd), (size_t)4u * vrows_area_bytes(maxnb)) + 16u;
+        hostgrid::launch_coop(grid, threads, smem, xseed, [&] {
+            const auto* sp = words.data();
+            const float *x0 = xa[0].data(), *x1 = xa[1].data(), *x2 = xa[2].data(), *x3 = xa[3].data();
+            switch (arm) {
+            case 0: vrows_body<VROWS_V2, 1u>(sp, nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), ga.data(), gb.data(), g_inv.data(), x0, x1, x2, x3); break;
+            case 1: vrows_body<VROWS_K2, 2u>(sp, nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), ga.data(), gb.data(), g_inv.data(), x0, x1, x2, x3); break;
+            case 2: vrows_body<VROWS_PWORD, 1u>(sp, nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), ga.data(), gb.data(), g_inv.data(), x0, x1, x2, x3); break;
+            case 3: vrows_body<VROWS_LEAN, 1u>(sp, nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), ga.data(), gb.data(), g_inv.data(), x0, x1, x2, x3); break;
+            case 4: vrows_body<VROWS_ROT, 1u>(sp, nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), ga.data(), gb.data(), g_inv.data(), x0, x1, x2, x3); break;
+            case 5: vrows_body<VROWS_I16, 1u>(sp, nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), ga.data(), gb.data(), g_inv.data(), x0, x1, x2, x3); break;
+            case 6: vrows_body<VROWS_I16, 2u>(sp, nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), ga.data(), gb.data(), g_inv.data(), x0, x1, x2, x3); break;
+            case 7: vrows_body<VROWS_I16, 3u>(sp, nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), ga.data(), gb.data(), g_inv.data(), x0, x1, x2, x3); break;
+            default: vrows_body<VROWS_I16, 4u>(sp, nsites, g_rows.data(), g_pref.data(), g_br.data(), g_suf.data(), ga.data(), gb.data(), g_inv.data(), x0, x1, x2, x3); break;
+            }
+        });
+#endif
+        wr(out);
+        wr(outf);
     } else if (tag == 'T') {
         // TETRA ROWS: d_out, d_in, variant (0 natural/24, 1 natural/25, 2 trio/28, 3 trio/28 prefetch),
         // grid, threads, seed
@@ -1200,7 +1292,7 @@ int main() {
         o.push_back((u32)sizeof(Pers4vLaunch));
         OFF(Pers4vLaunch, act_floats); OFF(Pers4vLaunch, toks); OFF(Pers4vLaunch, ring); OFF(Pers4vLaunch, x_a);
         OFF(Pers4vLaunch, act); OFF(Pers4vLaunch, part); OFF(Pers4vLaunch, tickets); OFF(Pers4vLaunch, slots);
-        OFF(Pers4vLaunch, part_stride);
+        OFF(Pers4vLaunch, part_stride); OFF(Pers4vLaunch, stamps);
         o.push_back(P4V_KMAX);
 #undef OFF
 #endif

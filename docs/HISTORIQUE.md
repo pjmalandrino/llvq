@@ -1296,3 +1296,70 @@ read apart in one job ([batch-l40s-v4](mesures/batch-l40s-v4-2026-11-08.txt)); t
 - `"prefill_attention": "kernel"`, NOT SERVED, sends the prompt rows to the decode-attention kernel: no score tensor.
   On the card 4.77 / 7.15 / 9.30 GB against 3.67 / 5.20 / 7.81 computed, 1.14 to 1.21 times slower to the first
   token, its logits the same in chunks of 512 and of 4,096. Not proposed; the excess is not traced.
+
+## 2026-11-08. What the format's maths can buy in throughput
+
+A study at $0 ([`recherche-debit-maths.md`](recherche-debit-maths.md)). The eager Tetra loop's time is linear in its
+SASS count a block on the four F1 floor arms, within 2.5 % (*computed*, [sass-tetra-int8](mesures/sass-tetra-int8-2026-11-08.txt)).
+Rows at DRAM speed would cap the doors at 278, 196 and 121 tok/s (*estimated*). The int8 activation with `dp4a` takes
+the block from 237 to 152 instructions (*computed*), projected 248, 168 and 103 tok/s on the arithmetic (*estimated*),
+not at the bit. Two exact levers give 234, 151 and 90 at most. Nothing ran on a card.
+
+## 2026-11-08. Second pass on the throughput study
+
+The first pass gave in-situ Tetra rows the eager loop's instruction share, 64.3 %, which the stream floor forbids:
+bounded by the bytes at 671 to 864 GB/s the share is 36 to 51 % at 4B ([sass-tetra-lean](mesures/sass-tetra-lean-2026-11-08.txt)).
+The int8 lever drops from 248 / 168 / 103 to 235 / 154 / 94 tok/s at the central figure, and the decode-free ceilings
+from 278 / 196 / 121 to 260 / 174 / 105 (*estimated*). New: the word relabeled at load with the Golay patterns by
+linearity (237 to 207 instructions, exact), and an int16 dot through `dp2a` (145, rounding 2.0e-5). The best lever,
+both with lane rotation, projects 239 / 157 / 95. Turyn, hexacode, Walsh-Hadamard, table-of-dots and sublattice
+decodes are closed by computation.
+
+## 2026-11-08. Breaking the throughput ceiling: the budget of a token
+
+Section 11 of [`recherche-debit-maths.md`](recherche-debit-maths.md). At batch 1 the hard limit is the weight bytes,
+628 / 359 / 188 tok/s at 864 GB/s; the rest of the 4B's 4.51 ms door is implementation. The single-token floor of
+this engine is about 370 / 222 / 124 tok/s (*estimated*). Past it, only multi-token verification: with B1's integer
+dot shared across rows and a one-layer drafter, 454 / 288 / 171 at α = 0.7 (*estimated*), gated on a 2-row verify
+under 1.15 greedy tokens (spec-gate measured 1.95). The sealed 4B's Tetra words carry 47.4 bits of entropy of 48
+(*computed*, `bin/tetraentropy`): lossless coding above Tetra is closed, and so is self-speculation from the lattice.
+
+## 2026-11-08. The integer-dot verify rows on the card: between the gates
+
+[spec-micro](mesures/spec-micro-2026-11-08.txt), $0.48 over two runs, the first nul on a wiring panic. An extra verify
+row with B1's integer dot costs 0.187 of 4E's Tetra row, against 0.381 for a second f32 row (*measured*): BETWEEN the
+prereg's 0.15 and 0.26, about 0.34 ms in situ at 4B (*estimated*). The integer dot keeps 91.6 % of the rows identical
+to the served ones, the rest one binary16 ulp away. Alone, none of B1's levers clears its bar: i16 x1.143 for x1.15,
+lean x1.020, rotation x0.856. Projected doors with a one-layer EAGLE-3 head at α 0.6: 319 / 198 / 121 tok/s; with
+prompt lookup at α 0.3 to 0.5: 251-300 / 159-187 / 96-113 (*estimated*, `plan-speculation.md`). Three Apache-2.0
+EAGLE-3 heads exist for Qwen3 4B, 8B and 14B, +0.24 / 0.22 / 0.19 b/param in int4 (*computed*). The route goes on only
+on the operator's call.
+
+## 2026-11-08. Prompt lookup on the card: the copy-heavy prompts only
+
+[spec-lookup](mesures/spec-lookup-2026-11-08.txt), the 4B alone under the operator's $0.75 cap, $0.49. Prompt lookup
+keeps the greedy tokens on six prompts and 50 GSM8K problems. Tokens a verify at k = 3: 2.56 on a code edit and 3.04 on
+a retrieval answer (α 0.71 and 0.82), 1.18 to 1.51 on chat, code, summary and GSM8K (α 0.15 to 0.35) (*measured*,
+α *computed*). On today's verify the decode stays under greedy except on retrieval (x1.012). With the integer-dot
+verify the copy-heavy prompts would reach 395 and 469 tok/s at 4B, free text about greedy's door (*estimated*).
+
+The 8B and 14B the same day ($1.76 of the operator's $2.60): identity at both sizes. Tokens a verify at k = 3 on the
+code edit 2.54 and 1.98, on the retrieval answer 3.52 and 2.61, 1.09 to 1.48 on free text (*measured*). Projected with
+the integer-dot verify: 241 and 334 tok/s at 8B, 115 and 150 at 14B on those two prompts (*estimated*).
+
+## 2026-11-08 to 11-09. The speculative night: closed on today's verify, for $1.04
+
+The operator's go: finish speculation and its tests within $15. One card job and one Mac bench were enough.
+
+- [eagle-alpha](mesures/eagle-alpha-2026-11-08.txt), $0. The Apache-2.0 head `AngelSlim/Qwen3-4B_eagle3`, on the
+  sealed 4B through the MLX door, replayed on the greedy text. α 0.43 to 0.61 on free text, 0.67 to 0.81 on GSM8K and
+  copies (*measured* / *computed*). On today's verify it projects x0.72 on chat (*computed*). The conditional card job
+  J3 was not run.
+- [spec-final](mesures/spec-final-2026-11-08.txt), $1.04. Identity at 4B, 8B and 14B on every prompt, phase launch and
+  GSM8K completion. An extra verify row costs 0.74 / 0.89 / 0.98 of a 4E token, with 92 to 95 % in qkv, o, gateup and
+  down; attention and RoPE take under 0.5 % (*measured*). Prompt lookup with no-draft rounds on 4E and a trigram probe
+  policy reads x0.94 / 0.96 / 0.92 / 0.88 of greedy decode on chat, code, summary and GSM8K at 4B, x1.108 on
+  retrieval; the house prompt reaches 250.4 tok/s at the door (*measured*). Rule B is not met: lookup closes.
+- B1 was cut for the night: the integer dot changes the logits, so it needs a new served object (4E's single-token
+  path and the verify, perplexity and MMLU gates at three sizes), weeks of work, not a test.
+- The served decode stays greedy 4E v9. The next lever is the K-row loop, on the operator's go.

@@ -1,0 +1,89 @@
+target: served config: /out/spec-lookup-2026-11-08/qwen3-4b-tetra-e4-4e-v9.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention kernel from position 0 on grow(256), decode persistent (4E rows v9, one launch a token run)) — The qwen3-4b-tetra-e4 object (qwen3-4b-sealed.bin, sha256 886391a8), the v6 config with the v9 row loop and nothing else different: the kernel attention form on every decode row from position 0, decoded by 4E v9 (row form 7: v6, the launch's constants staged during the barriers, attention's steps in a cp.async ring, and the int4 rows v, o and the int4 downs read from tiled words; one cooperative launch a token run, 512 threads). Under this config the loader writes the int4 words tiled and holds them once on the card: the eager path, which prefills, reads the same words through tv_q4_hht, checked against tv_q4_hh on the file's order at every load. The file and its 2.7320 b/param do not move (a permutation inside each row, computed). Written on 2026-11-07 on the operator's go to serve v9 with one copy of the int4 bytes. In the measurement form v9 decodes 238.6 tok/s after a 5-token prompt against 213.3 for v6 (x1.118 round by round) and 163.5 at 8,192 against 154.2 (x1.060), the same 64 tokens as the eager path at both contexts (measured, step3-4e-2026-11-07, with the int4 bytes twice on the card). Not yet read at the served door: served-v9 (proofs/preregistration-served-v9-2026-11-07.md) reads it. Refused on Metal and on any object but the 4B.
+cudarc event tracking: off (one stream, ordered by issue)
+shared rotation: 1 (specrun), 96 rot_launches/token for 252 projections
+projection fusion: 0 (specrun), 252 matvec_launches/token for 252 projections (0 groups + 168 lone + 84 int4)
+fused layout: tetra48 (specrun), projections 1.16 GB on the card, 2.550 b/weight (INFERENCE accounting: KeepExact tail in binary16; the bench bills its own in f32)
+NVRTC source: 106947 bytes, sha256 e269ea5d11b7e40ba0682f536f52ed9f09abfaa9fd6f3185eb306edca5c60e53 (12 parts), tile 64 (served: measured optimum for sm_89), prefill 4x128 (served pair), 49152 B staged of 49152, target compute_89
+int4: tv_q4_hht equals tv_q4_ht bit for bit on model.layers.0.self_attn.v_proj.weight (1024 rows, d_in 2560)
+int4: tv_q4_hht on the tiled words equals tv_q4_hh on the file's order bit for bit on model.layers.0.self_attn.v_proj.weight (1024 rows, d_in 2560); the file-order copy is freed
+int4: tv_q4_hht on the tiled words equals tv_q4_hh on the file's order bit for bit on model.layers.0.self_attn.o_proj.weight (2560 rows, d_in 4096); the file-order copy is freed
+int4: tv_q4_hht on the tiled words equals tv_q4_hh on the file's order bit for bit on model.layers.12.mlp.down_proj.weight (2560 rows, d_in 9728); the file-order copy is freed
+int4 layout: tiled (specrun), 84 records, words 0.385 GB on the card, held once
+embedding: q4 g64 (specrun), 1 table (model.embed_tokens.weight, lm_head tied on it), 218.8 MB on the card (int4 194.5 + scales/biases 24.3)
+total expected on the card: 1.38 GB (projections 1.16 + carried 0.22)
+attn_dec.cu: embedded, sha256 c7b0d8d3f2e3066ba1a2b4331c0bb6c92f22182c78a31b7fb74e839330a1838d, target compute_89
+attn_dec_g4_u64: 160 registers, 0 B local (spill), 16384 B static shared, sm_89
+attn_dec_g4_u64: the card equals the CPU replay bit for bit on 103 calls (rows ending at 1, 255, 256, 257, 1000, 4096; k 1, 3, 8; eager and wide grids; verify rows alone; fresh rows) (1.2 s)
+4E: persistent module 252757 bytes, sha256 1b422b62328be6752df4add43280565fd2a49cfa20ee26953b301abe7a15c530, row form 7, own module on candle's stream
+4E: RoPE forms equal to candle's rope on this card: [1]; running form 1
+4E: pers_4e_tokens_f1_t512: 128 registers, 0 B local, 85952 B shared, 1 resident a SM
+4E: pers_4e_stamps_f1_t512: 128 registers, 32 B local, 1 resident a SM (phase stamps, outside the timed rounds)
+4E: head tied to the embedding's table (151936 rows)
+4E v9: the 76 prologue inputs are 16-byte aligned; the vector path runs on every layer
+4E v9: the int4 records are read in place, tiled at load and held once on the card (36 layers)
+4E: 36 layers, grid 142 x 512, 218 barriers a token
+card memory: 1.980 GB used after the target's load and its 4E install (cuMemGetInfo)
+drafter: prompt lookup, n-grams 3 to 1 of the prompt and the text so far; no model
+4E verify: module 287744 bytes, sha256 ab162e7fca4a1b5130170931eda22194cc7514c15fa64a52829f33a728ddd2fd, row form 7 and pers_4ev.cu, its own module
+4E verify: 20576 floats of staging, 101376 B shared; rows a group at most 4: 4 at hidden 2560, 4 at the context 4096, 2 at inter 9728
+4E verify: pers_4ev_rows_f1: 80 registers, 272 B local, 101376 B shared, 1 resident a SM
+4E verify: pers_4ev_rows_f1_t512: 128 registers, 144 B local, 101376 B shared, 1 resident a SM
+4E verify: 512 threads; 0.002 GB of row buffers on the card
+card memory: 1.982 GB used after the drafter's load, its 4E install and the target's verify pass (cuMemGetInfo): +0.002 GB
+weights: target 1.377 GB, drafter 0.000 GB (runtime and carried bytes)
+loaded in 212.2 s; draft lengths [1, 2, 3]
+
+== chat: 62 prompt tokens, greedy reference 256 tokens, fingerprint 50ba019fce0d74e5
+chat: every arm made the greedy tokens in every round, 256 of 256
+  chat greedy: door   184.7 tok/s [184.5-184.8], decode   222.3 [222.1-222.5]
+  chat k = 1  : door   140.1 tok/s [140.0-140.2], decode   160.6 [160.5-160.6], / greedy round by round: door x0.759 [0.759-0.759], decode x0.722 [0.722-0.723]; acceptance 0.300 (30 of 100), 1.13 tokens a verify, 0 catch-ups; verify 7.059 ms a pass (x1.569 a greedy token), drafter 0.004 ms a launch
+  chat k = 2  : door   127.5 tok/s [127.4-127.6], decode   144.2 [144.0-144.2], / greedy round by round: door x0.691 [0.690-0.691], decode x0.649 [0.648-0.649]; acceptance 0.223 (40 of 179), 1.19 tokens a verify, 0 catch-ups; verify 8.232 ms a pass (x1.830 a greedy token), drafter 0.005 ms a launch
+  chat k = 3  : door   113.0 tok/s [113.0-113.1], decode   125.9 [125.9-125.9], / greedy round by round: door x0.612 [0.612-0.613], decode x0.566 [0.566-0.567]; acceptance 0.172 (44 of 256), 1.21 tokens a verify, 0 catch-ups; verify 9.599 ms a pass (x2.133 a greedy token), drafter 0.005 ms a launch
+  text: Absolutely! Lisbon is a fantastic city for a three-day trip, especially in late autumn when the weather is pleasant and the city is full of charm. Here's a suggested three-day itinerary with walking, small museums, local food, and practical tips for your trip:  ---  ### **Day 1: Morning in Lisbon – Start with the Historic Center** **Walking Highlights:** - **Praça da República** – A grand square with a beautiful fountain and a statue of King Dom João I. - **Bairro da Ajazinha** – A charming neighborhood with narrow streets, historic buildings, and a great place to grab a coffee. - **Cais do Albator** – A seaside promenade with a view of the Tagus River and the city skyline. - **São Jorge Tower** – A 12th-century tower offering panoramic views of the city and the sea.  **Local Food Suggestions:** - **Pão de Almôndos** – A traditional bread with almond filling, often sold in street markets. - **Sardinha** – A type of fish that’s popular in Lisbon, often served with potatoes and a side of bread. - **Sous Plats** – A type of grilled meat dish, often found
+
+== code: 62 prompt tokens, greedy reference 256 tokens, fingerprint a21f889852154ec9
+code: every arm made the greedy tokens in every round, 256 of 256
+  code greedy: door   184.1 tok/s [184.0-184.4], decode   221.6 [221.4-222.0]
+  code k = 1  : door   143.4 tok/s [143.4-143.4], decode   164.9 [164.9-165.0], / greedy round by round: door x0.779 [0.778-0.780], decode x0.744 [0.743-0.745]; acceptance 0.413 (52 of 126), 1.26 tokens a verify, 0 catch-ups; verify 7.613 ms a pass (x1.687 a greedy token), drafter 0.003 ms a launch
+  code k = 2  : door   126.6 tok/s [126.6-126.6], decode   143.1 [143.0-143.1], / greedy round by round: door x0.688 [0.687-0.688], decode x0.646 [0.644-0.646]; acceptance 0.282 (64 of 227), 1.34 tokens a verify, 0 catch-ups; verify 9.331 ms a pass (x2.068 a greedy token), drafter 0.003 ms a launch
+  code k = 3  : door   112.1 tok/s [112.1-112.1], decode   124.8 [124.7-124.8], / greedy round by round: door x0.609 [0.608-0.609], decode x0.563 [0.562-0.564]; acceptance 0.234 (73 of 312), 1.40 tokens a verify, 0 catch-ups; verify 11.228 ms a pass (x2.488 a greedy token), drafter 0.003 ms a launch
+  text: ```python """ Merge intervals of [start, end] pairs, returning non-overlapping intervals sorted by start.  Args:     intervals: List of [start, end] pairs, where start <= end.  Returns:     List of [start, end] pairs, where intervals are non-overlapping and sorted by start. """  from typing import List  def merge_intervals(intervals: List[List[int]] -> List[List[int]]):     """     Merge overlapping intervals.      Args:         intervals: List of [start, end] pairs, where start <= end.      Returns:         List of [start, end] pairs, where intervals are non-overlapping and sorted by start.     """     if not intervals:         return []      # Sort intervals by start, then by end     intervals.sort(key=lambda x: (x[0], x[1]))      merged = []     current_start, current_end = intervals[0]      for start, end in intervals:         if start <= current_end:             # Overlapping, merge             current_end = max(current_end, end)         else:             # No overlap, add current interval and start new             merged.append([current_start, current_end])             current_start, current_end = start,
+
+== summary: 341 prompt tokens, greedy reference 109 tokens, fingerprint 848282257492c092
+summary: every arm made the greedy tokens in every round, 109 of 109
+  summary greedy: door    60.8 tok/s [60.8-60.9], decode   213.1 [213.0-213.2]
+  summary k = 1  : door    53.5 tok/s [53.4-53.6], decode   144.1 [144.0-144.1], / greedy round by round: door x0.880 [0.878-0.881], decode x0.676 [0.675-0.676]; acceptance 0.227 (15 of 66), 1.16 tokens a verify, 0 catch-ups; verify 7.969 ms a pass (x1.698 a greedy token), drafter 0.005 ms a launch
+  summary k = 2  : door    49.0 tok/s [49.0-49.1], decode   115.3 [115.3-115.3], / greedy round by round: door x0.807 [0.803-0.807], decode x0.541 [0.541-0.541]; acceptance 0.123 (16 of 130), 1.17 tokens a verify, 0 catch-ups; verify 10.069 ms a pass (x2.146 a greedy token), drafter 0.005 ms a launch
+  summary k = 3  : door    44.7 tok/s [44.6-44.7], decode    93.7 [93.6-93.7], / greedy round by round: door x0.735 [0.734-0.736], decode x0.439 [0.439-0.440]; acceptance 0.089 (17 of 192), 1.18 tokens a verify, 0 catch-ups; verify 12.530 ms a pass (x2.670 a greedy token), drafter 0.005 ms a launch
+  text: - The town council discussed three proposals for the old railway depot: affordable housing, a covered market, and a bus interchange.   - Residents are divided, with some prioritizing affordable homes and others supporting economic growth or reduced traffic.   - The building requires urgent repairs and soil cleanup, costing around £1.2 million regardless of the chosen option.   - A public consultation is planned for spring, with each group expected to submit detailed plans by February.   - The mayor emphasized the need for a decision after further community input and budget planning.
+
+== edit: 127 prompt tokens, greedy reference 85 tokens, fingerprint e7c9554555aee404
+edit: every arm made the greedy tokens in every round, 85 of 85
+  edit greedy: door    98.5 tok/s [98.4-98.6], decode   219.9 [219.9-220.1]
+  edit k = 1  : door    92.4 tok/s [92.2-92.5], decode   191.8 [191.7-191.9], / greedy round by round: door x0.938 [0.937-0.940], decode x0.872 [0.872-0.872]; acceptance 0.729 (35 of 48), 1.69 tokens a verify, 0 catch-ups; verify 8.584 ms a pass (x1.888 a greedy token), drafter 0.001 ms a launch
+  edit k = 2  : door    91.0 tok/s [91.0-91.0], decode   185.4 [185.4-185.4], / greedy round by round: door x0.924 [0.923-0.925], decode x0.843 [0.842-0.843]; acceptance 0.622 (46 of 74), 2.15 tokens a verify, 0 catch-ups; verify 11.322 ms a pass (x2.490 a greedy token), drafter 0.001 ms a launch
+  edit k = 3  : door    87.2 tok/s [87.1-87.3], decode   170.4 [170.4-170.4], / greedy round by round: door x0.885 [0.885-0.887], decode x0.775 [0.774-0.775]; acceptance 0.570 (53 of 93), 2.56 tokens a verify, 0 catch-ups; verify 14.499 ms a pass (x3.189 a greedy token), drafter 0.001 ms a launch
+  text: ```python def batch_lines(lines, size, sep):     out = []     pending = []     for line in lines:         line = line.strip()         if not line:             continue         pending.append(line)         if len(pending) >= size:             out.append(sep.join(pending))             pending = []     if pending:         out.append(sep.join(pending))     return out ```
+
+== rag: 362 prompt tokens, greedy reference 79 tokens, fingerprint 10f0792e123e79a2
+rag: every arm made the greedy tokens in every round, 79 of 79
+  rag greedy: door    45.6 tok/s [45.5-45.6], decode   212.4 [212.3-212.4]
+  rag k = 1  : door    45.2 tok/s [45.1-45.2], decode   204.2 [204.2-204.3], / greedy round by round: door x0.992 [0.991-0.993], decode x0.962 [0.961-0.962]; acceptance 0.854 (35 of 41), 1.80 tokens a verify, 0 catch-ups; verify 8.678 ms a pass (x1.843 a greedy token), drafter 0.001 ms a launch
+  rag k = 2  : door    45.7 tok/s [45.6-45.7], decode   215.0 [214.9-215.1], / greedy round by round: door x1.003 [1.002-1.003], decode x1.012 [1.012-1.013]; acceptance 0.810 (47 of 58), 2.47 tokens a verify, 0 catch-ups; verify 11.331 ms a pass (x2.406 a greedy token), drafter 0.002 ms a launch
+  rag k = 3  : door    45.4 tok/s [45.4-45.5], decode   208.9 [208.9-209.0], / greedy round by round: door x0.996 [0.996-0.999], decode x0.984 [0.984-0.984]; acceptance 0.768 (53 of 69), 3.04 tokens a verify, 0 catch-ups; verify 14.355 ms a pass (x3.048 a greedy token), drafter 0.002 ms a launch
+  text: The council's engineer reported that the roof needs urgent repairs whichever option is chosen, at an estimated cost of 1.2 million, and that the soil near the old fuel tanks must be cleaned before any housing can be built. The mayor decided not to make a decision before a public consultation in the spring, and asked each group to submit a detailed budget and timetable by the end of February.
+
+== door: 5 prompt tokens, greedy reference 256 tokens, fingerprint 61d0654532d35120
+door: every arm made the greedy tokens in every round, 256 of 256
+  door greedy: door   222.4 tok/s [222.3-222.4], decode   226.2 [226.1-226.2]
+  door k = 1  : door   224.1 tok/s [223.9-224.1], decode   228.0 [227.8-228.0], / greedy round by round: door x1.008 [1.007-1.008], decode x1.008 [1.007-1.008]; acceptance 0.992 (124 of 125), 1.95 tokens a verify, 0 catch-ups; verify 8.538 ms a pass (x1.931 a greedy token), drafter 0.000 ms a launch
+  door k = 2  : door   248.9 tok/s [248.8-248.9], decode   253.8 [253.7-253.9], / greedy round by round: door x1.119 [1.119-1.120], decode x1.122 [1.122-1.122]; acceptance 1.000 (166 of 166), 2.87 tokens a verify, 0 catch-ups; verify 11.285 ms a pass (x2.552 a greedy token), drafter 0.000 ms a launch
+  door k = 3  : door   252.7 tok/s [252.7-252.7], decode   257.8 [257.8-257.8], / greedy round by round: door x1.136 [1.136-1.137], decode x1.140 [1.140-1.140]; acceptance 0.995 (186 of 187), 3.70 tokens a verify, 0 catch-ups; verify 14.335 ms a pass (x3.242 a greedy token), drafter 0.000 ms a launch
+  text:  Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of Proofreading: The capital of France is Paris. The capital of
+
+== gsm8k: 50 problems of 1319, revision 740312add88f781978c0658806c59bc2815b9866, max_new 1024, reasoning off
+  gsm8k greedy: 40 of 50 correct, decode 218.0 tok/s over 15701 tokens
+  gsm8k greedy completions fingerprint b56932d555985df9
+  gsm8k k = 1: 40 of 50 correct, decode 163.5 tok/s over 15701 tokens; completions identical to greedy 50 of 50; acceptance 0.426 (3748 of 8794), 1.31 tokens a verify; verify 7.997 ms a pass (x1.743 a greedy token), drafter 0.003 ms a launch
+  gsm8k k = 2: 40 of 50 correct, decode 142.5 tok/s over 15701 tokens; completions identical to greedy 50 of 50; acceptance 0.309 (4787 of 15490), 1.44 tokens a verify; verify 10.046 ms a pass (x2.190 a greedy token), drafter 0.003 ms a launch
+  gsm8k k = 3: 40 of 50 correct, decode 121.2 tok/s over 15701 tokens; completions identical to greedy 50 of 50; acceptance 0.246 (5306 of 21613), 1.51 tokens a verify; verify 12.402 ms a pass (x2.703 a greedy token), drafter 0.003 ms a launch

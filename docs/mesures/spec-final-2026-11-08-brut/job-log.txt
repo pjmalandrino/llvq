@@ -1,0 +1,206 @@
+NVIDIA L40S, 8.9, 46068 MiB, 580.178.04, 2520 MHz
+== gate 1: oracle ==
+Qwen/Qwen3-0.6B on Cuda(CudaDevice(DeviceId(1))) — max |Δhidden| = 0.000e0   (relative to max|h| = 8.550e1) → 0.000e0
+MATCH — the observable forward reproduces candle's Qwen3
+== 4b: the object and its config ==
+886391a8c03f66dc269cc65c3598c6627dbdcd259180aff36604ef10d37371b8  /out/sealed-4b-2026-09-23/qwen3-4b-sealed.bin
+== 4b: specrun ==
+Sun Nov  8 23:42:13 UTC 2026
+Sun Nov  8 23:50:49 UTC 2026
+specrun 4b exit 0
+card memory: 1.980 GB used after the target's load and its 4E install (cuMemGetInfo)
+4E verify: module 288366 bytes, sha256 d7686d86b990b079c47a754ccb5675e090c0b9d19e1b3710558967614c3944e5, row form 7 and pers_4ev.cu, its own module
+4E verify: 20576 floats of staging, 101376 B shared; rows a group at most 4: 4 at hidden 2560, 4 at the context 4096, 2 at inter 9728
+4E verify: pers_4ev_rows_f1: 80 registers, 256 B local, 101376 B shared, 1 resident a SM
+4E verify: pers_4ev_rows_f1_t512: 128 registers, 144 B local, 101376 B shared, 1 resident a SM
+4E verify: 512 threads; 0.002 GB of row buffers on the card
+card memory: 1.982 GB used after the drafter's load, its 4E install and the target's verify pass (cuMemGetInfo): +0.002 GB
+weights: target 1.377 GB, drafter 0.000 GB (runtime and carried bytes)
+== phases, chat: context 62, rows from position 62
+  4E, one token a launch: 4416.1 us [4409.4-4429.0] (host wall, launch to ring read)
+  4E stamped, 9 tokens a launch:
+  verify, each phase summed over the layers, us, median over 5 launches (event clocks, the CTAs' median):
+       1     1.6   836.2   120.7   563.8   661.9  1560.8  1291.9   426.0    5461.3 [5457.8-5469.1]    5507.9 [5496.6-5516.5] (x1.247 of 4E)   -
+       2     1.8  1369.9   104.9   575.9   891.6  2926.0  2136.0   650.2    8654.5 [8650.9-8656.2]    8701.1 [8699.2-8706.1] (x1.970 of 4E)   3193.2 us, x0.723 of a one-token 4E launch
+       3     2.1  1802.6   101.3   590.6  1127.9  3891.4  3214.9   905.2   11636.4 [11631.7-11641.6]   11684.9 [11678.6-11692.1] (x2.646 of 4E)   3088.5 us, x0.699 of a one-token 4E launch
+       4     2.6  2428.0   101.8   601.0  1393.5  5484.3  4085.7  1140.8   15239.3 [15233.5-15241.6]   15291.5 [15283.6-15304.6] (x3.463 of 4E)   3261.2 us, x0.738 of a one-token 4E launch
+== phases, rag: context 362, rows from position 362
+  4E, one token a launch: 4682.3 us [4675.7-4696.5] (host wall, launch to ring read)
+  4E stamped, 9 tokens a launch:
+  verify, each phase summed over the layers, us, median over 5 launches (event clocks, the CTAs' median):
+       1     1.5   834.5   121.6   814.4   651.3  1563.9  1291.1   426.0    5703.6 [5701.6-5709.6]    5747.8 [5738.4-5748.4] (x1.228 of 4E)   -
+       2     1.7  1370.5   104.6   818.6   875.1  2923.3  2138.0   649.2    8880.6 [8875.5-8885.9]    8922.0 [8920.4-8926.9] (x1.905 of 4E)   3174.2 us, x0.678 of a one-token 4E launch
+       3     1.9  1800.6   101.8   818.4  1120.0  3886.6  3213.3   904.2   11851.4 [11848.1-11855.3]   11908.6 [11902.8-11915.6] (x2.543 of 4E)   3080.4 us, x0.658 of a one-token 4E launch
+       4     2.2  2424.8   102.5   823.6  1384.2  5493.6  4086.0  1140.7   15458.1 [15457.8-15464.4]   15506.7 [15502.3-15511.4] (x3.312 of 4E)   3253.0 us, x0.695 of a one-token 4E launch
+== chat: 62 prompt tokens, greedy reference 256 tokens, fingerprint 50ba019fce0d74e5
+chat: every arm made the greedy tokens in every round, 256 of 256
+  chat greedy: door   183.8 tok/s [183.7-184.1], decode   221.0 [220.8-221.3]
+  chat k = 3  : door   174.0 tok/s [174.0-174.2], decode   207.0 [206.9-207.1], / greedy round by round: door x0.947 [0.946-0.947], decode x0.937 [0.936-0.937]; acceptance 0.296 (8 of 27), 1.03 tokens a verify, 0 catch-ups; verify 4.988 ms a pass (x1.102 a greedy token), drafter 0.011 ms a launch
+== code: 62 prompt tokens, greedy reference 256 tokens, fingerprint a21f889852154ec9
+code: every arm made the greedy tokens in every round, 256 of 256
+  code greedy: door   183.5 tok/s [183.4-183.6], decode   220.5 [220.5-220.6]
+  code k = 3  : door   177.1 tok/s [177.1-177.2], decode   211.5 [211.3-211.5], / greedy round by round: door x0.965 [0.965-0.966], decode x0.959 [0.959-0.959]; acceptance 0.672 (39 of 58), 1.18 tokens a verify, 0 catch-ups; verify 5.585 ms a pass (x1.232 a greedy token), drafter 0.006 ms a launch
+== summary: 341 prompt tokens, greedy reference 109 tokens, fingerprint 848282257492c092
+summary: every arm made the greedy tokens in every round, 109 of 109
+  summary greedy: door    60.7 tok/s [60.7-60.8], decode   212.3 [212.2-212.4]
+  summary k = 3  : door    59.3 tok/s [59.2-59.4], decode   194.8 [194.7-194.8], / greedy round by round: door x0.976 [0.975-0.976], decode x0.917 [0.917-0.918]; acceptance 0.154 (2 of 13), 1.02 tokens a verify, 0 catch-ups; verify 5.182 ms a pass (x1.100 a greedy token), drafter 0.017 ms a launch
+== edit: 127 prompt tokens, greedy reference 85 tokens, fingerprint e7c9554555aee404
+edit: every arm made the greedy tokens in every round, 85 of 85
+  edit greedy: door    98.1 tok/s [98.1-98.2], decode   218.9 [218.8-218.9]
+  edit k = 3  : door    94.6 tok/s [94.5-94.7], decode   201.5 [201.5-201.6], / greedy round by round: door x0.964 [0.963-0.965], decode x0.921 [0.921-0.921]; acceptance 0.732 (41 of 56), 1.89 tokens a verify, 0 catch-ups; verify 9.062 ms a pass (x1.983 a greedy token), drafter 0.001 ms a launch
+== rag: 362 prompt tokens, greedy reference 79 tokens, fingerprint 10f0792e123e79a2
+rag: every arm made the greedy tokens in every round, 79 of 79
+  rag greedy: door    45.5 tok/s [45.4-45.6], decode   210.9 [210.4-211.2]
+  rag k = 3  : door    46.4 tok/s [46.4-46.5], decode   233.9 [233.8-234.0], / greedy round by round: door x1.021 [1.020-1.022], decode x1.108 [1.108-1.111]; acceptance 0.943 (50 of 53), 2.67 tokens a verify, 0 catch-ups; verify 11.116 ms a pass (x2.345 a greedy token), drafter 0.001 ms a launch
+== door: 5 prompt tokens, greedy reference 256 tokens, fingerprint 61d0654532d35120
+door: every arm made the greedy tokens in every round, 256 of 256
+  door greedy: door   220.3 tok/s [220.1-220.7], decode   224.1 [223.9-224.4]
+  door k = 3  : door   250.4 tok/s [250.3-250.6], decode   255.5 [255.3-255.6], / greedy round by round: door x1.136 [1.135-1.138], decode x1.140 [1.139-1.141]; acceptance 0.984 (182 of 185), 3.49 tokens a verify, 0 catch-ups; verify 13.674 ms a pass (x3.064 a greedy token), drafter 0.000 ms a launch
+== gsm8k: 50 problems of 1319, revision 740312add88f781978c0658806c59bc2815b9866, max_new 1024, reasoning off
+  gsm8k greedy: 40 of 50 correct, decode 216.9 tok/s over 15701 tokens
+  gsm8k greedy completions fingerprint b56932d555985df9
+  gsm8k k = 3: 40 of 50 correct, decode 191.3 tok/s over 15701 tokens; completions identical to greedy 50 of 50; acceptance 0.456 (2316 of 5074), 1.17 tokens a verify; verify 6.109 ms a pass (x1.325 a greedy token), drafter 0.004 ms a launch
+  gsm8k greedy: 40 of 50 correct, decode 216.9 tok/s over 15701 tokens
+  gsm8k greedy completions fingerprint b56932d555985df9
+  gsm8k k = 3: 40 of 50 correct, decode 191.3 tok/s over 15701 tokens; completions identical to greedy 50 of 50; acceptance 0.456 (2316 of 5074), 1.17 tokens a verify; verify 6.109 ms a pass (x1.325 a greedy token), drafter 0.004 ms a launch
+4b PASS: modules, phases, the served door's greedy tokens, identity at the six prompts and on the 50 GSM8K problems
+== 8b: the object and its config ==
+7bdb9a5503518081b1f652a93215250898caae5cc1b6a2f33ee9fb6094565c13  /out/sealed-8b27-2026-09-24/qwen3-8b-sealed-B.bin
+== 8b: specrun ==
+Sun Nov  8 23:51:11 UTC 2026
+Mon Nov  9 00:00:38 UTC 2026
+specrun 8b exit 0
+card memory: 3.356 GB used after the target's load and its 4E install (cuMemGetInfo)
+4E verify: module 288366 bytes, sha256 d7686d86b990b079c47a754ccb5675e090c0b9d19e1b3710558967614c3944e5, row form 7 and pers_4ev.cu, its own module
+4E verify: 20576 floats of staging, 101376 B shared; rows a group at most 4: 4 at hidden 4096, 4 at the context 4096, 1 at inter 12288
+4E verify: pers_4ev_rows_f1: 80 registers, 256 B local, 101376 B shared, 1 resident a SM
+4E verify: pers_4ev_rows_f1_t512: 128 registers, 144 B local, 101376 B shared, 1 resident a SM
+4E verify: 512 threads; 0.003 GB of row buffers on the card
+card memory: 3.358 GB used after the drafter's load, its 4E install and the target's verify pass (cuMemGetInfo): +0.002 GB
+weights: target 2.764 GB, drafter 0.000 GB (runtime and carried bytes)
+== phases, chat: context 62, rows from position 62
+  4E, one token a launch: 6944.8 us [6933.1-6947.1] (host wall, launch to ring read)
+  4E stamped, 9 tokens a launch:
+  verify, each phase summed over the layers, us, median over 5 launches (event clocks, the CTAs' median):
+       1     1.6  1158.0   117.3   568.9   685.9  2542.0  2520.9   672.8    8268.0 [8262.1-8276.3]    8315.9 [8304.1-8317.6] (x1.197 of 4E)   -
+       2     1.9  2012.7   104.2   584.9   935.0  5009.3  4845.3  1033.2   14527.1 [14474.2-14534.0]   14571.6 [14509.3-14586.2] (x2.098 of 4E)   6255.7 us, x0.901 of a one-token 4E launch
+       3     2.2  2666.9   102.3   595.0  1184.2  6725.6  7148.2  1421.3   19842.5 [19838.8-19843.7]   19892.9 [19883.3-19903.9] (x2.864 of 4E)   5788.5 us, x0.834 of a one-token 4E launch
+       4     2.6  3633.4   102.5   600.2  1458.6  9737.5  9465.3  1802.2   26806.0 [26795.0-26819.6]   26849.2 [26846.6-26855.4] (x3.866 of 4E)   6177.8 us, x0.890 of a one-token 4E launch
+== phases, rag: context 362, rows from position 362
+  4E, one token a launch: 7226.5 us [7216.2-7237.5] (host wall, launch to ring read)
+  4E stamped, 9 tokens a launch:
+  verify, each phase summed over the layers, us, median over 5 launches (event clocks, the CTAs' median):
+       1     1.7  1153.7   118.1   815.5   680.7  2542.9  2521.1   672.8    8507.6 [8501.9-8511.8]    8560.4 [8548.4-8570.8] (x1.185 of 4E)   -
+       2     1.9  2015.1   103.9   822.3   922.5  5018.8  4837.0  1032.2   14758.6 [14703.7-14762.3]   14800.4 [14739.6-14818.2] (x2.048 of 4E)   6240.0 us, x0.863 of a one-token 4E launch
+       3     2.3  2666.9   102.8   823.2  1184.8  6723.5  7149.3  1421.3   20072.2 [20067.8-20079.0]   20147.4 [20132.3-20172.1] (x2.788 of 4E)   5793.5 us, x0.802 of a one-token 4E launch
+       4     2.6  3633.5   104.1   822.7  1463.9  9739.6  9476.8  1802.2   27049.3 [27036.6-27055.6]   27098.2 [27088.6-27100.7] (x3.750 of 4E)   6179.3 us, x0.855 of a one-token 4E launch
+== chat: 62 prompt tokens, greedy reference 256 tokens, fingerprint 07d9415263cc79ef
+chat: every arm made the greedy tokens in every round, 256 of 256
+  chat greedy: door   119.9 tok/s [119.7-120.0], decode   141.3 [141.1-141.5]
+  chat k = 3  : door   117.5 tok/s [117.4-117.6], decode   138.0 [137.9-138.2], / greedy round by round: door x0.980 [0.980-0.980], decode x0.976 [0.976-0.977]; acceptance 0.500 (4 of 8), 1.02 tokens a verify, 0 catch-ups; verify 7.368 ms a pass (x1.041 a greedy token), drafter 0.034 ms a launch
+== code: 62 prompt tokens, greedy reference 256 tokens, fingerprint 58d851e84e297a89
+code: every arm made the greedy tokens in every round, 256 of 256
+  code greedy: door   119.5 tok/s [119.4-119.6], decode   140.8 [140.7-140.9]
+  code k = 3  : door   109.5 tok/s [109.3-109.6], decode   127.1 [126.9-127.2], / greedy round by round: door x0.916 [0.915-0.917], decode x0.903 [0.901-0.903]; acceptance 0.519 (27 of 52), 1.12 tokens a verify, 0 catch-ups; verify 8.814 ms a pass (x1.241 a greedy token), drafter 0.006 ms a launch
+== summary: 341 prompt tokens, greedy reference 128 tokens, fingerprint 90dc06134c370567
+summary: every arm made the greedy tokens in every round, 128 of 128
+  summary greedy: door    47.2 tok/s [47.1-47.3], decode   136.2 [135.7-136.6]
+  summary k = 3  : door    46.0 tok/s [45.8-46.1], decode   126.8 [126.2-127.2], / greedy round by round: door x0.974 [0.974-0.975], decode x0.931 [0.930-0.931]; acceptance 0.200 (2 of 10), 1.02 tokens a verify, 0 catch-ups; verify 7.986 ms a pass (x1.087 a greedy token), drafter 0.023 ms a launch
+== edit: 127 prompt tokens, greedy reference 93 tokens, fingerprint 7b71510dc3bc432d
+edit: every arm made the greedy tokens in every round, 93 of 93
+  edit greedy: door    69.5 tok/s [69.4-69.6], decode   137.6 [137.4-137.8]
+  edit k = 3  : door    66.5 tok/s [66.3-66.5], decode   126.2 [125.9-126.3], / greedy round by round: door x0.956 [0.955-0.956], decode x0.917 [0.916-0.917]; acceptance 0.833 (50 of 60), 2.14 tokens a verify, 0 catch-ups; verify 16.549 ms a pass (x2.277 a greedy token), drafter 0.001 ms a launch
+== rag: 362 prompt tokens, greedy reference 80 tokens, fingerprint d4aa6b8056839370
+rag: every arm made the greedy tokens in every round, 80 of 80
+  rag greedy: door    32.3 tok/s [32.3-32.3], decode   135.5 [135.4-135.5]
+  rag k = 3  : door    32.4 tok/s [32.3-32.4], decode   136.8 [136.7-136.9], / greedy round by round: door x1.001 [1.001-1.002], decode x1.009 [1.009-1.010]; acceptance 0.964 (54 of 56), 3.00 tokens a verify, 0 catch-ups; verify 21.392 ms a pass (x2.898 a greedy token), drafter 0.001 ms a launch
+== door: 5 prompt tokens, greedy reference 256 tokens, fingerprint c817aeaf2f5d1116
+door: every arm made the greedy tokens in every round, 256 of 256
+  door greedy: door   139.4 tok/s [139.2-139.6], decode   141.3 [141.1-141.5]
+  door k = 3  : door   134.1 tok/s [133.9-134.2], decode   135.9 [135.7-136.0], / greedy round by round: door x0.962 [0.961-0.962], decode x0.962 [0.961-0.962]; acceptance 0.892 (116 of 130), 1.83 tokens a verify, 0 catch-ups; verify 13.519 ms a pass (x1.910 a greedy token), drafter 0.001 ms a launch
+== gsm8k: 50 problems of 1319, revision 740312add88f781978c0658806c59bc2815b9866, max_new 1024, reasoning off
+  gsm8k greedy: 46 of 50 correct, decode 138.0 tok/s over 13922 tokens
+  gsm8k greedy completions fingerprint 56b3397ab694420d
+  gsm8k k = 3: 46 of 50 correct, decode 117.1 tok/s over 13922 tokens; completions identical to greedy 50 of 50; acceptance 0.441 (1862 of 4222), 1.15 tokens a verify; verify 9.816 ms a pass (x1.354 a greedy token), drafter 0.004 ms a launch
+  gsm8k greedy: 46 of 50 correct, decode 138.0 tok/s over 13922 tokens
+  gsm8k greedy completions fingerprint 56b3397ab694420d
+  gsm8k k = 3: 46 of 50 correct, decode 117.1 tok/s over 13922 tokens; completions identical to greedy 50 of 50; acceptance 0.441 (1862 of 4222), 1.15 tokens a verify; verify 9.816 ms a pass (x1.354 a greedy token), drafter 0.004 ms a launch
+8b PASS: modules, phases, the served door's greedy tokens, identity at the six prompts and on the 50 GSM8K problems
+== 14b: the object and its config ==
+61db37fe7ce8e6a57c5c59f257319c796574981ecb5e450a02c73dd3c17e2ca0  /out/sealed-14b-2026-09-23/qwen3-14b-sealed.bin
+== 14b: specrun ==
+Mon Nov  9 00:01:18 UTC 2026
+Mon Nov  9 00:16:15 UTC 2026
+specrun 14b exit 0
+card memory: 5.637 GB used after the target's load and its 4E install (cuMemGetInfo)
+4E verify: module 288366 bytes, sha256 d7686d86b990b079c47a754ccb5675e090c0b9d19e1b3710558967614c3944e5, row form 7 and pers_4ev.cu, its own module
+4E verify: 20576 floats of staging, 101376 B shared; rows a group at most 4: 3 at hidden 5120, 3 at the context 5120, 1 at inter 17408
+4E verify: pers_4ev_rows_f1: 80 registers, 256 B local, 101376 B shared, 1 resident a SM
+4E verify: pers_4ev_rows_f1_t512: 128 registers, 144 B local, 101376 B shared, 1 resident a SM
+4E verify: 512 threads; 0.003 GB of row buffers on the card
+card memory: 5.639 GB used after the drafter's load, its 4E install and the target's verify pass (cuMemGetInfo): +0.002 GB
+weights: target 5.044 GB, drafter 0.000 GB (runtime and carried bytes)
+== phases, chat: context 62, rows from position 62
+  4E, one token a launch: 11002.1 us [10998.1-11028.7] (host wall, launch to ring read)
+  4E stamped, 9 tokens a launch:
+  verify, each phase summed over the layers, us, median over 5 launches (event clocks, the CTAs' median):
+       1     1.6  1614.5   151.7   735.9  1488.0  4245.5  5039.3   855.0   14126.2 [14094.0-14152.2]   14181.4 [14147.7-14204.4] (x1.289 of 4E)   -
+       2     1.9  2864.5   132.9   737.5  2061.8  8795.1  9643.5  1285.2   25522.5 [25504.4-25528.5]   25569.6 [25479.9-25576.3] (x2.324 of 4E)   11388.2 us, x1.035 of a one-token 4E launch
+       3     2.2  3767.1   134.1   742.9  2736.4 11837.9 14241.8  1769.5   35233.3 [35210.1-35240.3]   35278.5 [35269.7-35290.2] (x3.207 of 4E)   10548.5 us, x0.959 of a one-token 4E launch
+       4     2.6  5024.3   133.3   753.7  3969.7 15152.7 18880.7  2602.0   46521.7 [46508.6-46529.4]   46567.3 [46561.4-46576.1] (x4.233 of 4E)   10795.3 us, x0.981 of a one-token 4E launch
+== phases, rag: context 362, rows from position 362
+  4E, one token a launch: 11483.7 us [11466.8-11516.7] (host wall, launch to ring read)
+  4E stamped, 9 tokens a launch:
+  verify, each phase summed over the layers, us, median over 5 launches (event clocks, the CTAs' median):
+       1     1.6  1630.4   154.0  1136.6  1504.9  4255.1  5041.3   853.0   14575.7 [14558.0-14581.4]   14619.1 [14602.4-14635.3] (x1.273 of 4E)   -
+       2     2.0  2869.3   134.1  1135.3  2064.2  8795.5  9656.4  1286.2   25938.6 [25873.2-25957.5]   25982.6 [25879.7-25997.1] (x2.263 of 4E)   11363.5 us, x0.990 of a one-token 4E launch
+       3     2.3  3765.9   135.9  1160.5  2735.6 11836.8 14258.3  1768.5   35672.5 [35662.2-35675.2]   35708.8 [35696.6-35734.5] (x3.110 of 4E)   10544.9 us, x0.918 of a one-token 4E launch
+       4     2.6  5028.7   137.6  1169.9  3969.0 15164.2 18898.2  2603.0   46974.0 [46961.0-46977.2]   47032.4 [47010.7-47055.5] (x4.096 of 4E)   10804.4 us, x0.941 of a one-token 4E launch
+== chat: 62 prompt tokens, greedy reference 256 tokens, fingerprint 37205c2f372d8bdc
+chat: every arm made the greedy tokens in every round, 256 of 256
+  chat greedy: door    74.2 tok/s [74.0-74.3], decode    89.1 [88.8-89.2]
+  chat k = 3  : door    70.2 tok/s [70.1-70.3], decode    83.3 [83.1-83.5], / greedy round by round: door x0.946 [0.945-0.946], decode x0.935 [0.935-0.936]; acceptance 0.188 (3 of 16), 1.01 tokens a verify, 0 catch-ups; verify 12.168 ms a pass (x1.084 a greedy token), drafter 0.021 ms a launch
+== code: 62 prompt tokens, greedy reference 256 tokens, fingerprint 73e90ee1d2b77b8d
+code: every arm made the greedy tokens in every round, 256 of 256
+  code greedy: door    73.5 tok/s [73.1-73.8], decode    88.2 [87.5-88.5]
+  code k = 3  : door    65.3 tok/s [65.0-65.5], decode    76.5 [76.1-76.8], / greedy round by round: door x0.888 [0.888-0.890], decode x0.868 [0.868-0.871]; acceptance 0.491 (27 of 55), 1.12 tokens a verify, 0 catch-ups; verify 14.695 ms a pass (x1.295 a greedy token), drafter 0.006 ms a launch
+== summary: 341 prompt tokens, greedy reference 118 tokens, fingerprint 5bf7695319a71239
+summary: every arm made the greedy tokens in every round, 118 of 118
+  summary greedy: door    26.1 tok/s [25.8-26.1], decode    85.3 [83.9-85.7]
+  summary k = 3  : door    24.7 tok/s [24.5-24.7], decode    71.9 [71.1-72.1], / greedy round by round: door x0.947 [0.947-0.949], decode x0.843 [0.841-0.848]; acceptance 0.190 (4 of 21), 1.04 tokens a verify, 0 catch-ups; verify 14.236 ms a pass (x1.214 a greedy token), drafter 0.012 ms a launch
+== edit: 127 prompt tokens, greedy reference 97 tokens, fingerprint 32a06e27e21e994b
+edit: every arm made the greedy tokens in every round, 97 of 97
+  edit greedy: door    42.8 tok/s [42.7-42.8], decode    88.1 [88.1-88.1]
+  edit k = 3  : door    37.8 tok/s [37.8-37.8], decode    69.3 [69.3-69.4], / greedy round by round: door x0.884 [0.883-0.885], decode x0.787 [0.787-0.788]; acceptance 0.673 (35 of 52), 1.55 tokens a verify, 0 catch-ups; verify 21.610 ms a pass (x1.904 a greedy token), drafter 0.002 ms a launch
+== rag: 362 prompt tokens, greedy reference 86 tokens, fingerprint 08ad4564d8223118
+rag: every arm made the greedy tokens in every round, 86 of 86
+  rag greedy: door    19.8 tok/s [19.7-19.8], decode    85.3 [84.8-85.4]
+  rag k = 3  : door    19.3 tok/s [19.2-19.3], decode    76.8 [76.5-77.0], / greedy round by round: door x0.975 [0.974-0.977], decode x0.901 [0.900-0.901]; acceptance 0.885 (46 of 52), 2.15 tokens a verify, 0 catch-ups; verify 27.782 ms a pass (x2.370 a greedy token), drafter 0.002 ms a launch
+== door: 5 prompt tokens, greedy reference 256 tokens, fingerprint dc4f9ab9aa24c4d3
+door: every arm made the greedy tokens in every round, 256 of 256
+  door greedy: door    86.3 tok/s [85.8-87.1], decode    87.6 [87.2-88.4]
+  door k = 3  : door    72.9 tok/s [72.6-73.1], decode    73.8 [73.5-74.0], / greedy round by round: door x0.841 [0.839-0.846], decode x0.838 [0.837-0.844]; acceptance 0.485 (33 of 68), 1.15 tokens a verify, 0 catch-ups; verify 15.565 ms a pass (x1.364 a greedy token), drafter 0.004 ms a launch
+== gsm8k: 50 problems of 1319, revision 740312add88f781978c0658806c59bc2815b9866, max_new 1024, reasoning off
+  gsm8k greedy: 46 of 50 correct, decode 86.3 tok/s over 14788 tokens
+  gsm8k greedy completions fingerprint 39f754083e236ea1
+  gsm8k k = 3: 46 of 50 correct, decode 70.3 tok/s over 14788 tokens; completions identical to greedy 50 of 50; acceptance 0.425 (1902 of 4479), 1.15 tokens a verify; verify 16.261 ms a pass (x1.403 a greedy token), drafter 0.005 ms a launch
+  gsm8k greedy: 46 of 50 correct, decode 86.3 tok/s over 14788 tokens
+  gsm8k greedy completions fingerprint 39f754083e236ea1
+  gsm8k k = 3: 46 of 50 correct, decode 70.3 tok/s over 14788 tokens; completions identical to greedy 50 of 50; acceptance 0.425 (1902 of 4479), 1.15 tokens a verify; verify 16.261 ms a pass (x1.403 a greedy token), drafter 0.005 ms a launch
+14b PASS: modules, phases, the served door's greedy tokens, identity at the six prompts and on the 50 GSM8K problems
+total 117
+drwxr-xr-x.   2 root   root        0 Nov  9 00:16 .
+drwxrwxrwx. 211 nobody nogroup     0 Nov  8 23:41 ..
+-rw-r--r--.   1 root   root      342 Nov  9 00:01 files.sha256
+-rw-r--r--.   1 root   root      113 Nov  9 00:16 gates-14b.txt
+-rw-r--r--.   1 root   root      113 Nov  8 23:50 gates-4b.txt
+-rw-r--r--.   1 root   root      113 Nov  9 00:00 gates-8b.txt
+-rw-r--r--.   1 root   root       50 Nov  8 23:41 gpu.txt
+-rw-r--r--.   1 root   root      377 Nov  8 23:42 oracle.txt
+-rw-r--r--.   1 root   root     1157 Nov  9 00:01 qwen3-14b-tetra-e4-4e-v9.json
+-rw-r--r--.   1 root   root     1436 Nov  8 23:42 qwen3-4b-tetra-e4-4e-v9.json
+-rw-r--r--.   1 root   root     1157 Nov  8 23:51 qwen3-8b-tetra-e4-4e-v9.json
+-rw-r--r--.   1 root   root    30406 Nov  9 00:01 spec-14b.txt
+-rw-r--r--.   1 root   root    30612 Nov  8 23:50 spec-4b.txt
+-rw-r--r--.   1 root   root    30519 Nov  9 00:00 spec-8b.txt
+-rw-r--r--.   1 root   root    19640 Nov  9 00:00 summary.txt

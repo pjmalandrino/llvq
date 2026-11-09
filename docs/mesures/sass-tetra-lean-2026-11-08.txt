@@ -1,0 +1,60 @@
+SECOND PASS: A RELABELED DECODER, AN INT16 DOT, AND THE IN-SITU STREAM FLOOR (2026-11-08)
+=========================================================================================
+Prereg: none (analysis at $0, no card). Deviations: none.
+Code: ops/tetra-sass-probe.sh, ops/tetra-sass-probe/probe.cu (second-pass kernels), ops/debit_maths.py parts 5 and 6.
+Nature: *computed*, devel nvcc/ptxas 12.4 for sm_89 on the Mac; inputs *measured* where cited.
+
+SETUP
+-----
+Three new variants of the Tetra block, counted like sass-tetra-int8-2026-11-08: the 48-bit word relabeled at load
+(a permutation of its fields) with the Golay patterns from two 64-entry tables, the same with an int8 dot, and the
+same with an int16 activation through `dp2a`. Then the projections of sass-tetra-int8 redone with a floor on in-situ
+row time.
+
+CONTROLS
+--------
+1. The Golay map (s8, b1, b2, b3) -> (c1, c2, c3) is linear with the twelve columns of llvq_f1rank_v2.cuh: two tables
+   GA[s8] and GB[b1, b2, b3] reproduce it on all 4,096 inputs, 4,096 distinct patterns, weights {0, 8, 12, 16, 24}.
+   Passes (Python, exhaustive).
+2. The relabeling permutes the 48 bits: R1 = r << 11 | i1, then i2, p, b1, b3, s8 in the low word; i3, b2, g in the
+   high half. Same bytes, same point, so the f32 form keeps the served bits. By construction; no host harness ran.
+3. Each Golay section restricts to 128 distinct bytes, and each quad to 16 nibbles. Passes (exhaustive).
+
+RESULT
+------
+Inner-loop SASS instructions a block:
+
+  variant          instr   what changes
+  row_f32           237    the served block (sass-tetra-int8)
+  row_lean_f32      207    relabeled word, Golay by two tables, gains in registers, trio staging, raw prmt (exact)
+  row_i16_best      158    int16 activation, twelve dp2a, the first pass's best decode
+  row_lean_i8       140    relabeled word and int8 dot
+  row_lean_i16      145    relabeled word and int16 dot
+
+Activation rounding a block of 24 (ops/debit_maths.py part 5): int8 5.0e-3 relative error on y, int16 2.0e-5,
+against 2.1e-4 for f16. Noise power over Tetra's weight error: 2.3e-4 and 3.6e-9.
+
+In-situ floor. The 4B's Tetra rows take 1.81 ms in situ for 0.770 GB of words, tails and scales. At 671 GB/s (q4read,
+step1-micro) the bytes alone take 1.15 ms, at 864 GB/s 0.89 ms. The instruction part is therefore 0.66 to 0.92 ms,
+36 to 51 % of row time, where sass-tetra-int8 gave it 64.3 %. Per instruction this is x0.72 to x1.00 of the eager
+slope. The first pass's x1.27 contradicted 4E's stamps (60 to 76 % issue in situ).
+
+Model residual: v1 against v3 measured 0.025 ms apart, the line predicts 0.118. A lever whose projected saving is
+under about 0.09 ms at 4B is under the model's resolution.
+
+Closure of the 8B and 14B tokens (bench = door x 0.928, int4 and head at the 4B's in-situ ms a GB, non-row by layers):
+Tetra rows 3.65 and 6.18 ms, 3 and 5 % under the first pass's scaling.
+
+VERDICT
+-------
+No decision rule: a study input. The instruction part of in-situ Tetra rows is bounded by the stream, which halves
+the first pass's projections for the int8 dot.
+
+WHAT THIS DOES NOT ESTABLISH
+----------------------------
+Any time of the variants on a card. The card's driver ptxas counts. That the in-situ stream reaches 671 GB/s on Tetra
+words. Any perplexity.
+
+PROVENANCE
+----------
+ops/tetra-sass-probe.sh writes the listings under target/tetra-sass-probe/; ops/debit_maths.py prints parts 5 and 6.
