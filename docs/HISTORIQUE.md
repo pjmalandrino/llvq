@@ -1384,3 +1384,14 @@ greedy tokens at 16 rows (*estimated*), and the 4B would decode about 352 tok/s 
 plan is [`plan-verify-tree.md`](plan-verify-tree.md); its first card job, about $0.30, is drafted and not
 timestamped. The int4 head's run was interrupted when the Mac froze and was dropped: a quantized head's acceptance
 stays unmeasured.
+
+## 2026-11-09. Tree verify S0: the kernel passes its host gates, $0
+
+[tree-verify-s0-host](mesures/tree-verify-s0-host-2026-11-09.txt). `pers_4et.cu` verifies a tree of up to 32 rows in
+one launch: projections on the tensor cores with d_in slices folded in order, prologues once a row, the row's keys in
+logical order, the accepted rows' K and V moved in the next launch. On the Mac, through `host_grid.h` and an MMA
+modelled from the PTX fragments: rows keep their bits at R = 1 to 32 and under slot permutations, a tree row equals
+the root it becomes, R = 1 sits within 1.1e-3 to 3.5e-3 relative RMS of 4E's logits with its argmax, and 10 mutants
+of 10 die (*measured*). The host fixture's SiLU table became SiLU itself for the closeness gate. A fold-order mutant
+first survived: the units were dealt slice after slice, so the last slice always arrived last; they are now dealt
+block after block. Nothing has run on a card; S1 still needs its Rust mirror, loader and bench.

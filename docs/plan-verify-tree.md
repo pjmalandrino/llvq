@@ -5,8 +5,10 @@ tokens a pass on chat and 3.15 on GSM8K at 3 head steps, against 1.69 and 2.42 f
 [eagle-tree](mesures/eagle-tree-2026-11-09.txt)). A verify pass that decodes each block once for R rows on tensor
 cores, with each prologue run once a row, would cost about 1.18 greedy tokens at 8 rows and 1.27 at 16 (*estimated*,
 section 2). With 16 rows the 4B would then decode about 352 tok/s on chat [275-435] and 484 on GSM8K [379-598],
-against 221 for greedy 4E (*computed*, section 4). Nothing has run on a card. The first card job, about $0.30,
-measures c_R (S1).
+against 221 for greedy 4E (*computed*, section 4). The kernel exists and passes its host gates: rows keep their bits
+at R = 1 to 32, R = 1 sits within 3.5e-3 relative RMS of 4E's logits, 10 mutants of 10 die (S0, *measured*,
+[tree-verify-s0-host](mesures/tree-verify-s0-host-2026-11-09.txt)). Nothing has run on a card. The first card job,
+about $0.30, measures c_R (S1).
 
 ## 1. Why a tree on tensor cores
 
@@ -130,9 +132,9 @@ reuse the 4B's τ: no head was run at those sizes. D is costed for an int4 head 
 
 | stage | what | gate | cost |
 |---|---|---|---|
-| S0 | the tree verify `pers_4et.cu`: MMA Tetra, int4 and head rows over K chunks, prologues once a row, tree-mask attention, KV move; host-checked through `host_cta.h` with the MMA modelled from the PTX fragments, as `tests/host_batch_gemm.cpp` does | row r bit for bit equal at R = 1 to 32 and under slot permutations; R = 1 within 1e-2 relative RMS of 4E's logits on the host fixture; mutants killed (row order, scale association, mask, fold order) | $0, 2 to 3 weeks |
+| S0 | the tree verify `pers_4et.cu`: MMA Tetra, int4 and head rows over K chunks, prologues once a row, tree-mask attention, KV move; host-checked through `host_grid.h` with the MMA modelled from the PTX fragments (`tests/host_mma.h`, `tests/tree_verify_host.rs`) | row r bit for bit equal at R = 1 to 32 and under slot permutations; R = 1 within 1e-2 relative RMS of 4E's logits on the host fixture; mutants killed (row order, scale association, mask, fold order) | $0; passes on the host, 2026-11-09 |
 | S0b | the head's int4 g64 rounding on the Mac, `ops/eagle_tree.py ... int4` | tokens a pass within 0.1 of the BF16 head on GSM8K | $0, not measured: interrupted on 2026-11-09, needs the operator's go to run alone on the Mac |
-| S1 | card microbench: R = 1, 2, 4, 8, 16, 32 verify passes beside the 4E token in one process, plus the row loops alone (v2, MMA at 1, 8, 16 rows) | c_16 ≤ 1.25 passes; c_16 ≤ 1.60 or c_8 ≤ 1.48 (4B chat still at x1.3) goes to the operator; prereg `proofs/BROUILLON-preregistration-verify-tree-s1.md` | about $0.30, cap $0.60 |
+| S1 | card microbench: R = 1, 2, 4, 8, 16, 32 verify passes beside the 4E token in one process, plus the row loops alone (v2, MMA at 1, 8, 16 rows); still to write: the Rust mirror of `Pers4tLaunch`, the module install, the bench and its job | c_16 ≤ 1.25 passes; c_16 ≤ 1.60 or c_8 ≤ 1.48 (4B chat still at x1.3) goes to the operator; prereg `proofs/BROUILLON-preregistration-verify-tree-s1.md` | about $0.30, cap $0.60 |
 | S2 | the verify arithmetic as a greedy decoder at 4B, 8B, 14B (R = 1 rounds) | paired perplexity within ±0.12 % of 4E at the three sizes, 50-problem GSM8K pilot (section 6) | about $1.5 |
 | S3 | the 4B door: int4 head and tree on the card, the round loop on the host | speculative tokens equal to the R = 1 verify decode's on 5 prompts and 50 GSM8K; 4B chat decode ≥ x1.3 of greedy 4E | about $1.5 |
 | S4 | the 8B and 14B heads (RedHat, pinned) on the card | tokens a pass measured; doors ≥ x1.2 of greedy on chat | about $2 |
@@ -151,7 +153,7 @@ draft included, so the served object is one function of the prompt.
 
 - **Identity.** The speculative decode's tokens equal the greedy decode of the R = 1 verify pass, bit for bit, at
   every prompt. That holds when row r's result depends only on row r: the K chunks, the d_in split and the fold order
-  must not depend on R or on the row's slot. S0 checks it on the host, S1 and S3 on the card.
+  must not depend on R or on the row's slot. It holds on the host (S0); S1 and S3 check it on the card.
 - **The band.** Paired perplexity of the R = 1 verify decode against 4E within ±0.12 % at 4B, 8B and 14B (16 × 2,048
   tokens, as batch-l40s-v2), the tolerance `ETAT.md` §4 gives the attention forms.
 - **GSM8K.** The 50-problem pilot through the verify decode: correct counts against 40 / 46 / 46 for 4E, discordant
@@ -176,6 +178,8 @@ draft included, so the served object is one function of the prompt.
 ## 8. What this plan does not establish
 
 - β: no MMA row loop has run inside 4E. The GEMM's single row is half 4E's speed.
+- The card's arithmetic. S0 models the tensor core's sum as a sequential f32 sum, and NVRTC has not compiled the
+  kernel's device branches. Identity on the card rests on each output element reading only its own column of B.
 - The tokens a pass on the card. They are measured through the MLX door, whose greedy text parts from the CUDA door's
   at token 243 of the house prompt; the verify arithmetic will part again. S3 measures them on the card.
 - Five of six workloads are one prompt each, 78 to 255 rounds. GSM8K, 50 problems, carries the weight.

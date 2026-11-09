@@ -19,6 +19,11 @@
 //!    tree mask, the fold order) has a mutant, applied to a copy of the
 //!    source with an exactly-once count, and each is killed by gate 1 or 2.
 //!
+//! Times on the dev Mac, one core: closeness 46 s, the rest about 28 minutes
+//! (R = 1 to 32 nine of them, the mutants thirteen). Those four are ignored in
+//! debug: `cargo test --release -p llvq-cuda --test tree_verify_host --
+//! --include-ignored --test-threads=1` runs them.
+//!
 //! What this does not establish: the card's tensor-core summation, which this
 //! model replaces with a sequential f32 sum (identity on the card is S1's and
 //! S3's), NVRTC compiling the device branches (the host build compiles none
@@ -65,9 +70,12 @@ fn host() -> &'static Path {
     B.get_or_init(|| build(&repo(), "v9"))
 }
 
+/// One edit of a mutant: the file, the text, its replacement.
+type Edit<'a> = (&'a str, &'a str, &'a str);
+
 /// A copy of the files the harness reads with each edit applied exactly once,
 /// built.
-fn mutant(tag: &str, edits: &[(&str, &str, &str)]) -> PathBuf {
+fn mutant(tag: &str, edits: &[Edit]) -> PathBuf {
     let root = std::env::temp_dir().join(format!("llvq_tree_mutant_{tag}_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     for dir in ["llvq-cuda/kernels", "llvq-cuda/tests", "llvq-llm/kernels"] {
@@ -511,7 +519,7 @@ fn gate_close(bin: &Path, f: &Fix, tok: u32, pos0: u32) -> Result<(f64, u32, u32
     let (t4e, l4e) = out.reference.unwrap();
     let row = &out.passes[0][0];
     let e = rel_rms(&row.logits, &l4e);
-    if !(e < 1e-2) {
+    if e.is_nan() || e >= 1e-2 {
         return Err(format!("form {}, variant {}: relative RMS {e:.3e} against 4E's logits", f.form, f.variant));
     }
     Ok((e, t4e, row.tok))
@@ -523,6 +531,7 @@ const FIX: Fix = Fix { form: 1, grid: 3, threads: 64, cap: 48, variant: 0, seed:
 
 /// Gate 1 at every R from 1 to 32 in one tree of 32 nodes, depth up to 7.
 #[test]
+#[cfg_attr(debug_assertions, ignore)]
 fn tree_rows_keep_their_bits_at_every_r_and_slot() {
     let t = tree(32, 7, 0x3e1);
     let sizes: Vec<usize> = (1..=31).collect();
@@ -533,6 +542,7 @@ fn tree_rows_keep_their_bits_at_every_r_and_slot() {
 /// the other RoPE forms, and a root past the first split (lengths 255 to
 /// 262).
 #[test]
+#[cfg_attr(debug_assertions, ignore)]
 fn tree_rows_keep_their_bits_across_grids_and_parts() {
     let t = tree(12, 4, 0x3e2);
     let b = Fix { grid: 5, threads: 96, ..FIX };
@@ -546,9 +556,12 @@ fn tree_rows_keep_their_bits_across_grids_and_parts() {
 /// Gate 1, the decode it serves: a row of a tree equals the same token
 /// decoded as a root after its ancestors were moved into the cache.
 #[test]
+#[cfg_attr(debug_assertions, ignore)]
 fn a_tree_row_is_the_root_it_becomes() {
     let t = tree(12, 4, 0x3e3);
     let check: Vec<usize> = (1..12).filter(|&i| t.depth[i] >= 2).take(4).chain([1]).collect();
+    assert_eq!(check.len(), 5, "four nodes at depth 2 or more, and node 1");
+    eprintln!("nodes {check:?} at depths {:?}", check.iter().map(|&i| t.depth[i]).collect::<Vec<_>>());
     gate_chain(host(), &FIX, &t, &check, 9).unwrap();
     let f = Fix { form: 2, variant: 16, cap: 288, ..FIX };
     gate_chain(host(), &f, &t, &check[..2], 254).unwrap();
@@ -578,10 +591,11 @@ fn gates(bin: &Path) -> Result<(), String> {
 
 /// Each guard has a mutant, killed by a gate (the error it fails names it).
 #[test]
+#[cfg_attr(debug_assertions, ignore)]
 fn tree_verify_mutants_are_killed() {
     gates(host()).expect("the unmutated pass passes the mutants' gates");
     let f = "llvq-cuda/kernels/pers_4et.cu";
-    let muts: &[(&str, &[(&str, &str, &str)])] = &[
+    let muts: &[(&str, &[Edit])] = &[
         // row order: a row's B column read from its neighbour's slot; the
         // activation rows staged in reverse
         ("row_b_column", &[(f, "const u32* xr = xs + (nt * 8u + gid) * P4T_XW + kw;", "const u32* xr = xs + (nt * 8u + (gid ^ 1u)) * P4T_XW + kw;")]),
@@ -592,11 +606,11 @@ fn tree_verify_mutants_are_killed() {
         ("scale_gscale", &[(f, "g.gscale[(hi16 >> 15) & 1u]", "g.gscale[(hi16 >> 14) & 1u]")]),
         ("scale_rscale", &[(f, "t_inv[m]), g.rscale[row]);", "t_inv[m]), g.rscale[row ^ 1u]);")]),
         ("scale_q4_bias", &[(f, "p4t_pack(pers_q4_deq((wv >> (8u * e)) & 0xfu, sb, bb),", "p4t_pack(pers_q4_deq((wv >> (8u * e)) & 0xfu, bb, sb),")]),
-        // the tree mask: ancestors read as if slot = depth; the row's length
-        // as the root's; the move's K from V
-        ("mask_slot_is_depth", &[(f, "(isk ? tkh : tvh) + (unsigned long long)path_r[p - pos0] * slot_stride", "(isk ? tkh : tvh) + (unsigned long long)(p - pos0) * slot_stride")]),
+        // the tree mask: ancestors read as the slots after the root's; the row's length
+        // as the root's; the move one position late
+        ("mask_contiguous", &[(f, "(isk ? tkh : tvh) + (unsigned long long)path_r[p - pos0] * slot_stride", "(isk ? tkh : tvh) + (unsigned long long)(path_r[0] + p - pos0) * slot_stride")]),
         ("mask_length", &[(f, "const u32 l = L.pos0 + L.depth[r] + 1u;", "const u32 l = L.pos0 + 1u;")]),
-        ("mask_move", &[(f, "Y.kc[at] = __ldcg(sk + e);", "Y.kc[at] = __ldcg(sv + e);")]),
+        ("mask_move", &[(f, "l = it - i * NL, pos = L.move_pos0 + i;", "l = it - i * NL, pos = L.move_pos0 + i + 1u;")]),
         // fold order: the folding warp starts from its own slice, so the
         // order follows the arrivals
         (
@@ -607,17 +621,13 @@ fn tree_verify_mutants_are_killed() {
             ],
         ),
     ];
-    let mut report = Vec::new();
     for (tag, edits) in muts {
         let b = mutant(tag, edits);
         let r = gates(&b);
         let _ = std::fs::remove_file(&b);
         match r {
-            Err(e) => report.push(format!("{tag}: killed by {}", e.lines().next().unwrap_or(""))),
+            Err(e) => eprintln!("{tag}: killed by {}", e.lines().next().unwrap_or("")),
             Ok(()) => panic!("tree verify mutant {tag} survived every gate"),
         }
-    }
-    for l in &report {
-        eprintln!("{l}");
     }
 }

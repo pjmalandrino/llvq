@@ -506,7 +506,12 @@ __device__ __forceinline__ void p4t_unit(const P4tSeg& g, u32 sl, u32 blk, const
 }
 
 // A projection phase over up to three projections: the units (projection,
-// block of tiles, slice) dealt over the grid, unit u on CTA u mod grid.
+// block of tiles, slice) dealt over the grid, unit u on CTA u mod grid. The
+// slices of a block are neighbouring units, so they run on neighbouring CTAs
+// at the same time and their tickets arrive in no fixed order: only the fold
+// itself fixes the order of the sum. Dealt slice after slice, the last slice
+// always arrived last, and the host gate could not see a fold that followed
+// the arrivals (tree-verify-s0-host-2026-11-09, mutant fold_arrival).
 __device__ __forceinline__ void p4t_phase(const P4tSeg& s0, const P4tSeg& s1, const P4tSeg& s2, u32 nseg,
                                           const Pers4tLaunch& L, const Pers4eArgs* A, const F1rTables& tab,
                                           const float* t_inv, u32* area, unsigned long long* cmax)
@@ -519,8 +524,7 @@ __device__ __forceinline__ void p4t_phase(const P4tSeg& s0, const P4tSeg& s1, co
         const u32 i = u < n0 ? 0u : (u < n0 + n1 ? 1u : 2u);
         const u32 lu = i == 0u ? u : (i == 1u ? u - n0 : u - n0 - n1);
         const P4tSeg& g = i == 0u ? s0 : (i == 1u ? s1 : s2);
-        const u32 nblk = p4t_nblk(g, NW);
-        p4t_unit(g, lu / nblk, lu % nblk, L, A, tab, t_inv, area, cmax);
+        p4t_unit(g, lu % g.S, lu / g.S, L, A, tab, t_inv, area, cmax);
     }
 }
 
