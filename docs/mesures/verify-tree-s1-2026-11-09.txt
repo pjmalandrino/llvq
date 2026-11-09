@@ -1,0 +1,73 @@
+VERIFY-TREE S1: THE R-ROW TREE PASS BESIDE 4E'S TOKEN, SEALED 4B, ONE L40S, 2026-11-09. $0.12.
+=================================================================================================
+Result: an extra row costs 0.0196 of a 4E token, inside the signed interval [0.005, 0.023], but the tree pass with
+ONE row already costs 2.798 4E tokens against a signed 1.09 [0.95, 1.25] (*measured*, chat context). c_16 reads 3.092
+and c_8 2.922: FAIL under the prereg's rule (c_16 > 1.60 and c_8 > 1.48). The rule reads the larger of the two
+contexts' values; the bench stopped after the chat context (deviation 1), and a second context can only raise the
+larger, so the outcome does not depend on it. Identity holds and the one-row pass makes 4E's token at 64 of 64
+positions. The rows are nearly free, as planned; the pass's fixed cost sinks the route.
+Prereg : proofs/preregistration-verify-tree-s1-2026-11-09.md, stamped before the job (.ots). Deviation 1 beside it, in
+         proofs/preregistration-verify-tree-s1-2026-11-09-ECARTS.md.
+Go     : the operator, 2026-11-09, "Oui lance s1", in session "LLVQ - Tetra décodage et vitesse de sortie", which launched
+         the job and told this branch's session before. Cap $0.60.
+Job    : 6af20dabab34849891a881f8, l40sx1, image hf.co/spaces/Pier-Jean/llvq-runner-cuda at Space sha 28188409 (its
+         COMMIT file names 001e7d6, uploaded perimeter clean), ops/jobs/verify-tree-s1.sh as committed. Queued from
+         18:15 to about 19:30 UTC waiting for an L40S (not billed), then 4 min billed, $0.12 (*measured*,
+         ops/run.py monitor). VRAM peak 2.912 GB. Registry $307.13 before, $307.25 after.
+Raw    : verify-tree-s1-2026-11-09-brut/: gpu.txt, oracle.txt, files.sha256, qwen3-4b-tetra-e4-4e-v9.json (sha256
+         29b3ef32, equal to configs/qwen3-4b-tetra-e4-4e-v9.json), vtree-4b.txt, summary.txt, monitor.txt.
+
+CONTROLS
+--------
+1. oracle on Qwen3-0.6B: MATCH, max |dhidden| 0. Sealed file sha256 886391a8 at its size. Config at its sha256. The job
+   body refuses any LLVQ_* in its environment. Holds.
+2. 4E module 252,757 bytes, sha256 1b422b62, row form 7: the served v9 module ("control 2: the served 4E v9 module").
+   Holds.
+Read by the decision rule, chat context only:
+- identity: every row equals its node in the 32-row pass, logits and argmax, 111 rows of 8 passes. Holds.
+- vt1 against 4E: the same argmax at 64 of 64 positions. Holds.
+- timed passes whose argmaxes differ from the 32-row pass's: 0 of 42.
+
+RESULT (*measured*, chat context of 62 tokens, 2 discarded and 5 timed rounds, ratios formed round by round)
+------
+4E, one token a launch: 4,398.2 us [4,396.3-4,402.9], host wall from launch to ring read.
+  rows   wall us, median [range]        c_R = t(vt R) / t(4e), median [range]
+     1   12,312.3 [12,297.2-12,316.2]   2.798 [2.796-2.801]
+     2   12,292.0 [12,269.1-12,317.3]   2.795 [2.789-2.801]
+     4   12,485.3 [12,472.0-12,497.8]   2.838 [2.837-2.839]
+     8   12,852.5 [12,827.9-12,876.6]   2.922 [2.917-2.927]
+    16   13,599.0 [13,579.4-13,634.5]   3.092 [3.088-3.099]
+    32   15,910.3 [15,890.7-15,988.6]   3.618 [3.612-3.634]
+An extra row: (c_16 - c_1) / 15 = 0.0196, (c_8 - c_1) / 7 = 0.0177 of a 4E token; from 16 to 32 rows, 0.033 a row.
+Tree module: 301,161 bytes, sha256 0701126a; pers_4et_rows_f1_t512: 128 registers, 736 B local, 89,984 B shared,
+1 resident a SM; d_in slices q/k/v 6, o 14, gate/up 2, down 14, head 1; 0.041 GB of row buffers.
+
+Against the signed prediction: the extra row (0.0196) sits inside [0.005, 0.023]; c_1 (2.80), c_2 (2.80), c_8 (2.92),
+c_16 (3.09) and c_32 (3.62) sit far above their intervals. The predicted outcome was BETWEEN; the outcome is FAIL.
+
+DECISION (the prereg's rule)
+--------
+c_16 3.092 > 1.60 and c_8 2.922 > 1.48: FAIL. "x1.3 on 4B chat is out of reach at the measured tokens a pass; the
+route stops." The reopening condition of ETAT.md section 6 (an extra row under 0.2 of a token, a 2-row pass under 1.4):
+the extra row meets it, c_2 2.795 does not. Reopening stays the operator's call.
+
+READING (not part of the decision)
+-------
+- The structure works: rows cost what the plan said, and every row keeps its bits across R and slots.
+- The fixed part is 1.7 tokens over the plan: a one-row pass costs 2.80 4E tokens against a planned 1.09, 12.3 ms
+  against 4.4 ms for 4E's token. Where it goes is not measured: the phase table of vt1 and vt16 came after 4E's
+  stamped token in the same step, and that token stopped the bench (deviation 1).
+  Suspects by reading only: 736 B of local memory a thread in the tree symbol (4E's token symbol has none), the
+  prologues' extra grid waits (3 a layer, 108 a pass), the d_in slicing of the rows and its reduction.
+- At the measured c_16, tok/s = 221.0 x tau / (3.092 + c_draft) (*computed*; greedy 4E v9 chat decode of spec-final).
+  EAGLE-3, tree of 16, 3 head steps at 0.05 (eagle-tree-2026-11-09): chat 155, GSM8K 215, both below greedy. DFlash,
+  c_draft 0.22 (dflash-alpha-2026-11-09, branch claude/dflash-sass-2026-11-09, not merged): tree of 16, chat 172,
+  code 354, GSM8K 438; rag chain of 15, 473. The drafter's acceptance carries math, code and retrieval above greedy
+  at today's pass; chat stays below.
+- A pass at the planned fixed cost with the measured increment would read c_16 near 1.1 + 15 x 0.0196 = 1.39
+  (*computed*), between the bounds.
+
+WHAT THIS DOES NOT ESTABLISH
+----------------------------
+The rag context (its identity, vt1 check and c_R). The phase tables. Where the pass's 1.7 extra tokens go. Any card but the
+L40S. The 8B and 14B. Any acceptance or tok/s at a door.

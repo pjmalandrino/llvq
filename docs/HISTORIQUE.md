@@ -1395,3 +1395,15 @@ the root it becomes, R = 1 sits within 1.1e-3 to 3.5e-3 relative RMS of 4E's log
 of 10 die (*measured*). The host fixture's SiLU table became SiLU itself for the closeness gate. A fold-order mutant
 first survived: the units were dealt slice after slice, so the last slice always arrived last; they are now dealt
 block after block. Nothing has run on a card; S1 still needs its Rust mirror, loader and bench.
+
+## 2026-11-09. Tree verify S1 on the card: the rows are nearly free, the pass is not; the route stops, $0.12
+
+[verify-tree-s1](mesures/verify-tree-s1-2026-11-09.txt). One L40S job (6af20dab, 4 min billed, registry $307.25), on
+the operator's go "Oui lance s1", launched from the session "Tetra décodage et vitesse de sortie". At the chat context
+an extra row costs 0.0196 of a 4E token, inside its signed interval, but a one-row pass costs 2.80 4E tokens against a
+signed 1.09, c_8 2.92 and c_16 3.09 (*measured*). The prereg's rule reads FAIL (c_16 > 1.60 and c_8 > 1.48): the route
+stops. Identity holds and the one-row pass makes 4E's token at 64 of 64 positions. The bench stopped at 4E's stamped
+token, which `p4e_phase_report` refuses below two tokens, so the rag context and the phase tables are missing
+(deviation 1); a second context can only raise the larger value the rule reads. Where the pass's fixed cost goes is
+not measured; the tree symbol's 736 B of local memory a thread and its 3 extra grid waits a layer are suspects by
+reading. A rerun with two stamped tokens would locate it, and needs the operator's go.

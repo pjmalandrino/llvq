@@ -1,14 +1,20 @@
 # Tree verify on 4E: plan
 
-Step A of the tree verify holds at $0 (2026-11-09). With the published EAGLE-3 head, a tree of 15 drafts emits 2.28
-tokens a pass on chat and 3.15 on GSM8K at 3 head steps, against 1.69 and 2.42 for the chain of 3 (*measured*,
-[eagle-tree](mesures/eagle-tree-2026-11-09.txt)). A verify pass that decodes each block once for R rows on tensor
-cores, with each prologue run once a row, would cost about 1.18 greedy tokens at 8 rows and 1.27 at 16 (*estimated*,
-section 2). With 16 rows the 4B would then decode about 352 tok/s on chat [275-435] and 484 on GSM8K [379-598],
-against 221 for greedy 4E (*computed*, section 4). The kernel exists and passes its host gates: rows keep their bits
+The tree verify fails its first card gate and the route stops (S1, 2026-11-09, $0.12). On the L40S at the chat
+context, a one-row pass costs 2.80 4E tokens and a 16-row pass 3.09, against a planned 1.09 and 1.27 (*measured*,
+[verify-tree-s1](mesures/verify-tree-s1-2026-11-09.txt)). An extra row costs 0.0196 of a token, as planned; the
+pass's fixed cost is the gap. Where that cost goes is not measured: the bench stopped before its phase table
+(deviation 1 of the prereg). Identity holds on the card, and the one-row pass makes 4E's token at 64 of 64 positions.
+At the measured c_16 the 4B with EAGLE-3 would decode about 155 tok/s on chat, below the 221 of greedy 4E
+(*computed*).
+
+The plan below is kept as written before S1. Step A held at $0: with the published EAGLE-3 head, a tree of 15 drafts
+emits 2.28 tokens a pass on chat and 3.15 on GSM8K at 3 head steps, against 1.69 and 2.42 for the chain of 3
+(*measured*, [eagle-tree](mesures/eagle-tree-2026-11-09.txt)). The kernel passes its host gates: rows keep their bits
 at R = 1 to 32, R = 1 sits within 3.5e-3 relative RMS of 4E's logits, 10 mutants of 10 die (S0, *measured*,
-[tree-verify-s0-host](mesures/tree-verify-s0-host-2026-11-09.txt)). Nothing has run on a card. The first card job,
-about $0.30, measures c_R (S1).
+[tree-verify-s0-host](mesures/tree-verify-s0-host-2026-11-09.txt)). The plan estimated the pass at 1.18 greedy tokens
+at 8 rows and 1.27 at 16 (*estimated*, section 2), hence about 352 tok/s on chat and 484 on GSM8K (*computed*,
+section 4); S1 measured 2.92 and 3.09.
 
 ## 1. Why a tree on tensor cores
 
@@ -134,7 +140,7 @@ reuse the 4B's τ: no head was run at those sizes. D is costed for an int4 head 
 |---|---|---|---|
 | S0 | the tree verify `pers_4et.cu`: MMA Tetra, int4 and head rows over K chunks, prologues once a row, tree-mask attention, KV move; host-checked through `host_grid.h` with the MMA modelled from the PTX fragments (`tests/host_mma.h`, `tests/tree_verify_host.rs`) | row r bit for bit equal at R = 1 to 32 and under slot permutations; R = 1 within 1e-2 relative RMS of 4E's logits on the host fixture; mutants killed (row order, scale association, mask, fold order) | $0; passes on the host, 2026-11-09 |
 | S0b | the head's int4 g64 rounding on the Mac, `ops/eagle_tree.py ... int4` | tokens a pass within 0.1 of the BF16 head on GSM8K | $0, not measured: interrupted on 2026-11-09, needs the operator's go to run alone on the Mac |
-| S1 | card microbench, `bin/vtreebench` (`ops/jobs/verify-tree-s1.sh`): R = 1, 2, 4, 8, 16, 32 tree passes beside the 4E token in one process, identity across R and slots, `vt1` against 4E on 64 positions, the phases of `vt1` and `vt16` | c_16 ≤ 1.25 passes; c_16 ≤ 1.60 or c_8 ≤ 1.48 (4B chat still at x1.3) goes to the operator; prereg `proofs/preregistration-verify-tree-s1-2026-11-09.md` | about $0.30, cap $0.60 |
+| S1 | card microbench, `bin/vtreebench` (`ops/jobs/verify-tree-s1.sh`): R = 1, 2, 4, 8, 16, 32 tree passes beside the 4E token in one process, identity across R and slots, `vt1` against 4E on 64 positions, the phases of `vt1` and `vt16` | c_16 ≤ 1.25 passes; c_16 ≤ 1.60 or c_8 ≤ 1.48 (4B chat still at x1.3) goes to the operator; prereg `proofs/preregistration-verify-tree-s1-2026-11-09.md` | $0.12; FAIL on 2026-11-09: c_16 3.092, c_8 2.922 at the chat context; rag context and phases not produced (deviation 1) |
 | S2 | the verify arithmetic as a greedy decoder at 4B, 8B, 14B (R = 1 rounds) | paired perplexity within ±0.12 % of 4E at the three sizes, 50-problem GSM8K pilot (section 6) | about $1.5 |
 | S3 | the 4B door: int4 head and tree on the card, the round loop on the host | speculative tokens equal to the R = 1 verify decode's on 5 prompts and 50 GSM8K; 4B chat decode ≥ x1.3 of greedy 4E | about $1.5 |
 | S4 | the 8B and 14B heads (RedHat, pinned) on the card | tokens a pass measured; doors ≥ x1.2 of greedy on chat | about $2 |
