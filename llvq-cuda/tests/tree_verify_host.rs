@@ -570,11 +570,69 @@ fn a_tree_row_is_the_root_it_becomes() {
 /// Gate 2: R = 1 within 1e-2 relative RMS of 4E's logits.
 #[test]
 fn one_row_is_close_to_4e() {
-    for (form, variant, tok, pos0) in [(1u32, 0u32, 7u32, 9u32), (0, 0, 517, 30), (2, 16, 1023, 9), (1, 16, 64, 270)] {
+    for (form, variant, tok, pos0) in [(1u32, 0u32, 7u32, 9u32), (0, 0, 517, 30), (2, 16, 1023, 9), (1, 16 | 64, 64, 270)] {
         let f = Fix { form, variant, cap: 288, ..FIX };
         let (e, t4e, tt) = gate_close(host(), &f, tok, pos0).unwrap();
         eprintln!("form {form}, variant {variant}, token {tok} at {pos0}: relative RMS {e:.3e}, argmax 4E {t4e}, tree {tt}");
     }
+}
+
+/// `pers.rs::P4tLaunch` against `Pers4tLaunch`: its size, every field's
+/// offset in order, and the row bound.
+#[test]
+fn the_tree_launch_mirror_matches_the_kernel() {
+    use std::mem::offset_of;
+    let out = run(host(), &(b't' as u32).to_le_bytes()).unwrap();
+    let got: Vec<u32> = out.chunks_exact(4).map(|c| u32::from_le_bytes(c.try_into().unwrap())).collect();
+    type L = pers::P4tLaunch;
+    let want: Vec<u32> = [
+        std::mem::size_of::<L>(),
+        offset_of!(L, bar_base),
+        offset_of!(L, pos0),
+        offset_of!(L, n_rows),
+        offset_of!(L, area_floats),
+        offset_of!(L, n_move),
+        offset_of!(L, move_pos0),
+        offset_of!(L, part_stride),
+        offset_of!(L, ldx),
+        offset_of!(L, split_qkv),
+        offset_of!(L, split_o),
+        offset_of!(L, split_gu),
+        offset_of!(L, split_dn),
+        offset_of!(L, split_head),
+        offset_of!(L, pad),
+        offset_of!(L, toks),
+        offset_of!(L, depth),
+        offset_of!(L, path),
+        offset_of!(L, mv),
+        offset_of!(L, ring),
+        offset_of!(L, logits),
+        offset_of!(L, x_a),
+        offset_of!(L, x_b),
+        offset_of!(L, xin),
+        offset_of!(L, xn),
+        offset_of!(L, q_raw),
+        offset_of!(L, k_raw),
+        offset_of!(L, v_raw),
+        offset_of!(L, q_out),
+        offset_of!(L, ctx),
+        offset_of!(L, g_raw),
+        offset_of!(L, u_raw),
+        offset_of!(L, tk),
+        offset_of!(L, tv),
+        offset_of!(L, part),
+        offset_of!(L, fpart),
+        offset_of!(L, tickets),
+        offset_of!(L, ftickets),
+        offset_of!(L, slots),
+        offset_of!(L, stamps),
+    ]
+    .into_iter()
+    .map(|v| v as u32)
+    .chain([pers::P4T_RMAX])
+    .collect();
+    assert_eq!(got, want, "Pers4tLaunch and pers::P4tLaunch disagree");
+    assert_eq!(std::mem::size_of::<L>(), pers::P4T_LAUNCH_BYTES);
 }
 
 // ---- gate 3: mutants -----------------------------------------------------------------

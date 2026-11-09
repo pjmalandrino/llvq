@@ -115,6 +115,7 @@ struct Pers4tLaunch {
     u32* tickets;                // [P4T_RMAX][n_kv] attention's split fold, zero at rest
     u32* ftickets;               // [d_out / 16] each projection of a phase: the slice fold's, zero at rest
     unsigned long long* slots;   // [P4T_RMAX] argmax keys, cleared at launch start
+    unsigned long long* stamps;  // null, or [1 + n_bar_4et][grid]: each CTA's clock at its start and after each wait
 };
 
 // The waits of one launch, for the host's barrier base.
@@ -761,10 +762,15 @@ __device__ __forceinline__ void pers_4et_body(const Pers4eArgs* __restrict__ A, 
     __syncthreads();
     const F1rTables tab{t_rows, t_pref, t_br, t_suf};
     u32 nb = 0u;
-#define P4T_WAIT()                                                                   \
-    do {                                                                             \
-        if (!pers_grid_wait(A->bar, L.bar_base + (++nb) * G, A->abort_flag)) return; \
+#define P4T_WAIT()                                                                              \
+    do {                                                                                        \
+        if (!pers_grid_wait(A->bar, L.bar_base + (++nb) * G, A->abort_flag)) return;            \
+        if (L.stamps != nullptr && threadIdx.x == 0u) L.stamps[(size_t)nb * G + c0] = pers_now(); \
     } while (0)
+    // Phase stamps (a measurement launch, L.stamps non-null): event 0 at the
+    // CTA's start, event e after its e-th wait, thread 0 of each CTA. Nothing
+    // a row computes reads the clock.
+    if (L.stamps != nullptr && threadIdx.x == 0u) L.stamps[c0] = pers_now();
     // The argmax keys and every ticket start at zero; the first wait's fence
     // orders these stores before any CTA's atomics.
     if (c0 == 0u) {

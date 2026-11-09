@@ -100,6 +100,8 @@ pub struct Runtime4e {
     inter: u32,
     /// The verify pass, once [`Runtime4e::install_verify`] has run.
     verify: Option<Verify4e>,
+    /// The tree verify pass, once [`Runtime4e::install_tree`] has run.
+    tree: Option<Tree4e>,
 }
 
 /// The card's barrier counter and flags, as [`pers::p4e_settle`] reads and
@@ -141,6 +143,44 @@ struct Verify4e {
     part: CudaSlice<f32>,
     tickets: CudaSlice<u32>,
     slots: CudaSlice<u64>,
+}
+
+/// The tree verify pass (`pers_4et.cu`, `docs/plan-verify-tree.md`): its own
+/// module (the v9 module and the tree kernel), its area and the model's
+/// slices, and buffers for `pers::P4T_RMAX` rows. Not a served path: S1
+/// measures it (`bin/vtreebench`).
+struct Tree4e {
+    _cuda: llvq_cuda::gpu::Cuda,
+    f: CudaFunction,
+    smem: u32,
+    area: u32,
+    splits: [u32; 5],
+    part_stride: u32,
+    ldx: u32,
+    n_ot: u32,
+    vocab: u32,
+    toks: CudaSlice<u32>,
+    depth: CudaSlice<u32>,
+    path: CudaSlice<u8>,
+    mv: CudaSlice<u32>,
+    ring: CudaSlice<u32>,
+    logits: CudaSlice<u16>,
+    /// x_a, x_b, xin, xn, q_raw, k_raw, v_raw, q_out, ctx, g_raw, u_raw, tk, tv
+    _held16: Vec<CudaSlice<u16>>,
+    held16_addr: [u64; 13],
+    part: CudaSlice<f32>,
+    fpart: CudaSlice<f32>,
+    tickets: CudaSlice<u32>,
+    ftickets: CudaSlice<u32>,
+    slots: CudaSlice<u64>,
+}
+
+/// What one tree launch returns: each row's argmax, its binary16 logits when
+/// asked (`[rows][vocab]`), the phase clocks when stamped.
+pub struct TreeOut {
+    pub ring: Vec<u32>,
+    pub logits: Vec<u16>,
+    pub stamps: Vec<u64>,
 }
 
 fn addr16(s: &CudaSlice<u16>, st: &candle_core::cuda_backend::cudarc::driver::CudaStream) -> u64 {
@@ -638,6 +678,7 @@ pub fn install_rows_as(
         tile_define: frt.tile_define(),
         inter,
         verify: None,
+        tree: None,
     })
 }
 
@@ -959,6 +1000,211 @@ impl Runtime4e {
             None => Vec::new(),
         };
         Ok((made, stamps))
+    }
+
+    /// Install the tree verify pass ([`Self::tree`]): its module (row form 7
+    /// and `pers_4et.cu`, its own module, so the served module's text does
+    /// not move), 512 threads, the area `pers::p4t_area_floats` gives for 32
+    /// rows, the model's slices on this grid (`pers::p4t_splits`), and
+    /// buffers for `pers::P4T_RMAX` rows. Refused below row form 7 and when
+    /// one CTA a SM does not fit.
+    pub fn install_tree(&mut self) -> anyhow::Result<()> {
+        if self.rows_form < 7 {
+            anyhow::bail!("4E tree: the pass reads the int4 rows on tiled words (row form 7, v9); this runtime is form {}", self.rows_form);
+        }
+        if self.tree.is_some() {
+            return Ok(());
+        }
+        let stream = self.cuda.stream().clone();
+        let text = pers::p4t_unit_text(&self.tile_define);
+        let src = llvq_cuda::gpu::KernelSource::new(&[text.as_str()]);
+        self.lines.push(format!("4E tree: module {} bytes, sha256 {}, row form 7 and pers_4et.cu, its own module", src.text.len(), src.sha256));
+        let cuda = llvq_cuda::gpu::Cuda::on_stream(stream.clone(), &src).map_err(anyhow::Error::msg)?;
+        let dev = cuda.device().map_err(anyhow::Error::msg)?;
+        let (hidden, n_heads, n_kv, groups, vocab) =
+            (self.args_host.hidden, self.args_host.n_heads, self.args_host.n_kv, self.args_host.groups, self.args_host.vocab);
+        let (d_ctx, inter, threads) = (n_heads * 128, self.inter, 512u32);
+        let nw = threads / 32;
+        let widest = hidden.max(inter).max(d_ctx);
+        let area = pers::p4t_area_floats(nw, 32, widest, groups);
+        let smem = pers::SMEM_HEADER + pers::TABLE_BYTES + 4 * area;
+        if smem > dev.shared_per_block_optin as u32 {
+            anyhow::bail!("4E tree: {smem} B of shared memory a CTA, the card allows {}", dev.shared_per_block_optin);
+        }
+        let sym = pers::p4t_symbol(self.form).map_err(anyhow::Error::msg)?;
+        let f = cuda.func_dynamic_shared(sym, smem).map_err(anyhow::Error::msg)?;
+        let r = cuda.report(sym).map_err(anyhow::Error::msg)?;
+        let occ = f
+            .occupancy_max_active_blocks_per_multiprocessor(threads, smem as usize, None)
+            .map_err(|e| anyhow::anyhow!("occupancy: {e}"))?;
+        self.lines.push(format!("4E tree: {sym}: {} registers, {} B local, {smem} B shared, {occ} resident a SM", r.num_regs, r.local_bytes));
+        if occ < 1 {
+            anyhow::bail!("4E tree: {sym} fits no CTA on a SM at {threads} threads and {smem} B");
+        }
+        let splits = pers::p4t_splits(hidden, inter, d_ctx, n_kv, vocab, nw, self.grid);
+        let n_ot = self.layers_host.iter().filter(|y| y.ot != 0).count() as u32;
+        let ldx = widest.next_multiple_of(8);
+        let rm = pers::P4T_RMAX;
+        let dkv = n_kv * 128;
+        let l = self.layers_host.len() as u32;
+        let sizes = [rm * hidden, rm * hidden, rm * ldx, rm * hidden, rm * d_ctx, rm * dkv, rm * dkv, rm * d_ctx, rm * d_ctx, rm * inter, rm * inter, l * rm * dkv, l * rm * dkv];
+        let mut held = Vec::with_capacity(sizes.len());
+        let mut held16_addr = [0u64; 13];
+        for (a, &n) in held16_addr.iter_mut().zip(&sizes) {
+            let b = cuda.zeros_u16(n as usize).map_err(anyhow::Error::msg)?;
+            *a = addr16(&b, &stream);
+            held.push(b);
+        }
+        let part_stride = n_kv * (MAX_CAP as u32).div_ceil(256) * groups * 130;
+        let fp = pers::p4t_fpart_floats(splits, hidden, inter, d_ctx, n_kv, vocab).max(1) as usize;
+        let nft = pers::p4t_ftickets(hidden, inter, d_ctx, n_kv, vocab) as usize;
+        let e32 = |r: Result<CudaSlice<u32>, String>| r.map_err(anyhow::Error::msg);
+        let part = cuda.zeros_f32((rm * part_stride) as usize).map_err(anyhow::Error::msg)?;
+        let fpart = cuda.zeros_f32(fp).map_err(anyhow::Error::msg)?;
+        let tickets = e32(cuda.up_u32(&vec![0u32; (rm * n_kv) as usize]))?;
+        let ftickets = e32(cuda.up_u32(&vec![0u32; nft]))?;
+        let slots = cuda.up_u64(&vec![0u64; rm as usize]).map_err(anyhow::Error::msg)?;
+        let toks = e32(cuda.up_u32(&vec![0u32; rm as usize]))?;
+        let depth = e32(cuda.up_u32(&vec![0u32; rm as usize]))?;
+        let mv = e32(cuda.up_u32(&vec![0u32; rm as usize]))?;
+        let ring = e32(cuda.up_u32(&vec![u32::MAX; rm as usize]))?;
+        let path = stream.alloc_zeros::<u8>((rm * rm) as usize).map_err(|e| anyhow::anyhow!("alloc: {e}"))?;
+        let logits = cuda.zeros_u16((rm * vocab) as usize).map_err(anyhow::Error::msg)?;
+        let bytes = 2 * sizes.iter().map(|&n| n as u64).sum::<u64>() + 4 * (rm * part_stride) as u64 + 4 * fp as u64 + 2 * (rm * vocab) as u64;
+        self.lines.push(format!(
+            "4E tree: {threads} threads, {area} floats of area; d_in slices q/k/v {}, o {}, gate/up {}, down {}, head {}; {:.3} GB of row buffers",
+            splits[0], splits[1], splits[2], splits[3], splits[4], bytes as f64 / 1e9
+        ));
+        self.tree = Some(Tree4e {
+            _cuda: cuda, f, smem, area, splits, part_stride, ldx, n_ot, vocab, toks, depth, path, mv, ring, logits,
+            _held16: held, held16_addr, part, fpart, tickets, ftickets, slots,
+        });
+        Ok(())
+    }
+
+    /// One tree launch: row r the token `toks[r]` at position `pos0 +
+    /// depth[r]`, `path[r][d]` its ancestor's row at depth d and
+    /// `path[r][depth[r]] = r`, the caches holding `pos0` positions, which the
+    /// launch reads and does not write (no move: the accepted rows stay in the
+    /// tree buffer). Each row's argmax, its logits when `logits`, the phase
+    /// clocks when `stamped` (`pers::p4t_phases`).
+    #[allow(clippy::too_many_arguments)]
+    pub fn tree(&mut self, caches: &mut [KvCache], pos0: usize, toks: &[u32], depth: &[u32], path: &[[u8; 32]], logits: bool, stamped: bool) -> anyhow::Result<TreeOut> {
+        let n = toks.len();
+        if n == 0 || n > pers::P4T_RMAX as usize || depth.len() != n || path.len() != n {
+            anyhow::bail!("4E tree: {n} rows, {} depths, {} paths; the pass carries 1 to {}", depth.len(), path.len(), pers::P4T_RMAX);
+        }
+        for r in 0..n {
+            let d = depth[r] as usize;
+            let ok = d < 32
+                && path[r][d] as usize == r
+                && (0..=d).all(|e| (path[r][e] as usize) < n && depth[path[r][e] as usize] as usize == e && path[path[r][e] as usize][..=e] == path[r][..=e]);
+            if !ok {
+                anyhow::bail!("4E tree: row {r}'s path {:?} at depth {d} is not a path of this tree", &path[r][..=d.min(31)]);
+            }
+        }
+        if self.tree.is_none() {
+            anyhow::bail!("4E tree: not installed (Runtime4e::install_tree)");
+        }
+        if caches.len() != self.layers_host.len() {
+            anyhow::bail!("4E: {} caches for {} layers", caches.len(), self.layers_host.len());
+        }
+        if pos0 < self.kernel_from {
+            anyhow::bail!("4E tree: a launch at position {pos0}, below the kernel threshold {}", self.kernel_from);
+        }
+        let span = 1 + *depth.iter().max().expect("n > 0") as usize;
+        if pos0 + span > MAX_CAP {
+            anyhow::bail!("4E tree: positions up to {}, the scratch holds {MAX_CAP}", pos0 + span);
+        }
+        self.prepare(caches, pos0, span)?;
+        let stream = self.cuda.stream().clone();
+        let v = self.tree.as_mut().expect("checked above");
+        stream.memcpy_htod(toks, &mut v.toks).map_err(|e| anyhow::anyhow!("H2D: {e}"))?;
+        stream.memcpy_htod(depth, &mut v.depth).map_err(|e| anyhow::anyhow!("H2D: {e}"))?;
+        let flat: Vec<u8> = path.iter().flat_map(|p| p.iter().copied()).collect();
+        stream.memcpy_htod(&flat, &mut v.path).map_err(|e| anyhow::anyhow!("H2D: {e}"))?;
+        stream.memcpy_htod(&vec![u32::MAX; pers::P4T_RMAX as usize], &mut v.ring).map_err(|e| anyhow::anyhow!("H2D: {e}"))?;
+        let n_bar = pers::n_bar_4et(self.n_layers, v.n_ot);
+        let stamps: Option<CudaSlice<u64>> = if stamped {
+            Some(stream.alloc_zeros::<u64>((1 + n_bar) as usize * self.grid as usize).map_err(|e| anyhow::anyhow!("alloc stamps: {e}"))?)
+        } else {
+            None
+        };
+        let a = v.held16_addr;
+        let launch = pers::P4tLaunch {
+            bar_base: self.bar_base,
+            pos0: pos0 as u32,
+            n_rows: n as u32,
+            area_floats: v.area,
+            n_move: 0,
+            move_pos0: 0,
+            part_stride: v.part_stride,
+            ldx: v.ldx,
+            split_qkv: v.splits[0],
+            split_o: v.splits[1],
+            split_gu: v.splits[2],
+            split_dn: v.splits[3],
+            split_head: v.splits[4],
+            pad: 0,
+            toks: v.toks.device_ptr(&stream).0,
+            depth: v.depth.device_ptr(&stream).0,
+            path: v.path.device_ptr(&stream).0,
+            mv: v.mv.device_ptr(&stream).0,
+            ring: v.ring.device_ptr(&stream).0,
+            logits: if logits { v.logits.device_ptr(&stream).0 } else { 0 },
+            x_a: a[0],
+            x_b: a[1],
+            xin: a[2],
+            xn: a[3],
+            q_raw: a[4],
+            k_raw: a[5],
+            v_raw: a[6],
+            q_out: a[7],
+            ctx: a[8],
+            g_raw: a[9],
+            u_raw: a[10],
+            tk: a[11],
+            tv: a[12],
+            part: v.part.device_ptr(&stream).0,
+            fpart: v.fpart.device_ptr(&stream).0,
+            tickets: v.tickets.device_ptr(&stream).0,
+            ftickets: v.ftickets.device_ptr(&stream).0,
+            slots: v.slots.device_ptr(&stream).0,
+            stamps: stamps.as_ref().map_or(0, |b| b.device_ptr(&stream).0),
+        };
+        let cfg = LaunchConfig { grid_dim: (self.grid, 1, 1), block_dim: (512, 1, 1), shared_mem_bytes: v.smem };
+        let mut b = stream.launch_builder(&v.f);
+        b.arg(&self.args).arg(&launch);
+        // SAFETY: the kernel's own signature (Pers4eArgs*, Pers4tLaunch), the
+        // layout checked on the host (tree_verify_host.rs); one CTA a SM, past
+        // the occupancy check at install.
+        unsafe { b.launch_cooperative(cfg) }.map_err(|e| anyhow::anyhow!("4E tree: {e}"))?;
+        let ring = stream.clone_dtoh(&v.ring).map_err(|e| anyhow::anyhow!("D2H: {e}"))?;
+        let lg = if logits {
+            let all = stream.clone_dtoh(&v.logits).map_err(|e| anyhow::anyhow!("D2H logits: {e}"))?;
+            all[..n * v.vocab as usize].to_vec()
+        } else {
+            Vec::new()
+        };
+        match self.settle()? {
+            Some(pers::P4eFault::Abort) => {
+                anyhow::bail!("4E tree: a barrier aborted on its watchdog; the counters are reset for the next launch")
+            }
+            Some(pers::P4eFault::Nan) => anyhow::bail!("4E tree: a NaN logit"),
+            None => {}
+        }
+        let made: Vec<u32> = ring[..n].to_vec();
+        if made.contains(&u32::MAX) {
+            let mut dev = Counters4e { cuda: &self.cuda, bar: &mut self.bar, abort: &mut self.abort, nan: &mut self.nan };
+            pers::p4e_reset(&mut dev, &mut self.bar_base).map_err(anyhow::Error::msg)?;
+            anyhow::bail!("4E tree: a row wrote no token ({made:?}); the counters are reset for the next launch");
+        }
+        self.bar_base = self.bar_base.wrapping_add(n_bar.wrapping_mul(self.grid));
+        let stamps = match stamps {
+            Some(d) => stream.clone_dtoh(&d).map_err(|e| anyhow::anyhow!("D2H stamps: {e}"))?,
+            None => Vec::new(),
+        };
+        Ok(TreeOut { ring: made, logits: lg, stamps })
     }
 
     /// The caches grown to hold a launch of `n` positions from `pos0`, and

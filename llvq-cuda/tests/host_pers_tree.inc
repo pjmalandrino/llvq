@@ -8,7 +8,9 @@
 // an untied head. The caches hold random values at every position. One
 // difference: the SiLU table is SiLU, not random draws.
 //
-// in : u32 form, grid, threads, cap, vocab, u64 seed, u32 variant,
+// in : u32 form, grid, threads, cap, vocab, u64 seed, u32 variant (16: the
+//      8B's parts; 64: every tree pass stamps its phases, and the command
+//      fails if a CTA left an event unwritten),
 //      three rotations (attention input at 2,560, MLP input at 2,560, down
 //      input at 9,728), each u32 m, k, f32 inv, u32 signs[n/32], f32
 //      small[1024], then with variant 16 the o rotation at 4,096,
@@ -247,7 +249,14 @@
         T.q_raw = tq.data(); T.k_raw = tkr.data(); T.v_raw = tvr.data(); T.q_out = tqo.data(); T.ctx = tctx.data();
         T.g_raw = tg.data(); T.u_raw = tu.data(); T.tk = tk.data(); T.tv = tv.data();
         T.part = tpart.data(); T.fpart = tfpart.data(); T.tickets = ttk.data(); T.ftickets = tft.data(); T.slots = tslots.data();
+        std::vector<unsigned long long> st((variant & 64u) ? (size_t)(1u + n_bar_4et(NL, n_ot)) * grid : 0u, 0ull);
+        if (variant & 64u) T.stamps = st.data();
         hostgrid::launch_coop(grid, threads, tsmem, pseed, [&] { tfn[form](&A, T); });
+        for (unsigned long long v : st)
+            if (v == 0ull) {
+                std::fprintf(stderr, "host_pers: tree pass %u left a phase stamp unwritten\n", pi);
+                std::exit(3);
+            }
         if (ab[0] != 0u || nan[0] != 0u) {
             std::fprintf(stderr, "host_pers: tree pass %u aborted (abort %u, NaN %u)\n", pi, ab[0], nan[0]);
             std::exit(3);

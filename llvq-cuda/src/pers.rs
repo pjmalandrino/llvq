@@ -1453,6 +1453,185 @@ pub fn p4v_unit_text(tile_define: &str) -> String {
 /// `pers_4ev.cu`, embedded so the Mac hashes what the card compiles.
 pub const P4V_PART: (&str, &str) = ("pers_4ev.cu", include_str!("../kernels/pers_4ev.cu"));
 
+// ---- the tree verify pass (`kernels/pers_4et.cu`, docs/plan-verify-tree.md) ----
+
+/// `P4T_RMAX` of `pers_4et.cu`: the rows one tree launch carries, at most.
+pub const P4T_RMAX: u32 = 32;
+
+/// `Pers4tLaunch`, passed by value: 14 words, 25 device pointers.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct P4tLaunch {
+    pub bar_base: u32,
+    /// The root's position.
+    pub pos0: u32,
+    pub n_rows: u32,
+    /// Floats of the area after the tables ([`p4t_area_floats`]), even.
+    pub area_floats: u32,
+    /// Rows of the previous launch moved into the cache, and the position of the first.
+    pub n_move: u32,
+    pub move_pos0: u32,
+    /// Floats of one row's attention split states: n_kv x ceil(cap / 256) x groups x 130.
+    pub part_stride: u32,
+    /// `xin`'s row stride in halves: at least every projection's d_in, a multiple of 8.
+    pub ldx: u32,
+    /// The d_in slices of q/k/v, o, gate/up, down and the head ([`p4t_splits`]).
+    pub split_qkv: u32,
+    pub split_o: u32,
+    pub split_gu: u32,
+    pub split_dn: u32,
+    pub split_head: u32,
+    pub pad: u32,
+    /// `[R]` tokens, `[R]` depths, `[R][P4T_RMAX]` u8 paths, `[n_move]` slots.
+    pub toks: u64,
+    pub depth: u64,
+    pub path: u64,
+    pub mv: u64,
+    /// `[R]` each row's argmax.
+    pub ring: u64,
+    /// 0, or `[R][vocab]` binary16 logits (a check).
+    pub logits: u64,
+    pub x_a: u64,
+    pub x_b: u64,
+    pub xin: u64,
+    pub xn: u64,
+    pub q_raw: u64,
+    pub k_raw: u64,
+    pub v_raw: u64,
+    pub q_out: u64,
+    pub ctx: u64,
+    pub g_raw: u64,
+    pub u_raw: u64,
+    /// `[layers][P4T_RMAX][n_kv x 128]` each slot's K and V.
+    pub tk: u64,
+    pub tv: u64,
+    pub part: u64,
+    /// The projections' slice partials ([`p4t_fpart_floats`]).
+    pub fpart: u64,
+    pub tickets: u64,
+    /// The slice folds' counters ([`p4t_ftickets`]), zero at rest.
+    pub ftickets: u64,
+    pub slots: u64,
+    /// 0, or `[1 + n_bar_4et][grid]` u64 phase clocks ([`p4t_phases`]).
+    pub stamps: u64,
+}
+
+/// `sizeof(Pers4tLaunch)`.
+pub const P4T_LAUNCH_BYTES: usize = 256;
+
+/// The waits of one tree launch: the embedding and move, 9 a layer, 1 more
+/// a layer with a Tetra o, the final norm, the head.
+pub fn n_bar_4et(layers: u32, tetra_o_layers: u32) -> u32 {
+    3 + 9 * layers + tetra_o_layers
+}
+
+/// `p4t_area_floats` of `pers_4et.cu`: the area at `nw` warps a CTA and `rs`
+/// staged activation rows (a multiple of 8, up to 32), `widest` the widest
+/// row a prologue holds, `groups` query heads a KV head (attention's share
+/// at row form 7).
+pub fn p4t_area_floats(nw: u32, rs: u32, widest: u32, groups: u32) -> u32 {
+    let attn = (16 * 1024 * p4e_attn_ring(7) + 4 * 4 * groups * 130 + 4 * groups * 128).div_ceil(4);
+    let mma = nw * 16 * 28 + 2 * (rs * 52 + 16 * nw * 14);
+    widest.max(attn).max(mma) + 2 * P4T_RMAX
+}
+
+/// The d_in slices of one projection phase: about one unit a CTA. `tiles`
+/// are its 16-row tiles summed over the phase's projections, `nw` the warps
+/// a CTA, `d_in` the phase's input width. At least 1, at most half the
+/// 48-column sub-steps (two sub-steps a slice at least). A property of the
+/// model and the grid, never of the rows a launch carries: identity needs
+/// it (plan section 6).
+pub fn p4t_split(tiles: u32, nw: u32, d_in: u32, grid: u32) -> u32 {
+    let blocks = tiles.div_ceil(nw).max(1);
+    let s = (grid + blocks / 2) / blocks;
+    s.clamp(1, (d_in.div_ceil(48) / 2).max(1))
+}
+
+/// The five phases' slices, q/k/v, o, gate/up, down, head, at the widths
+/// of a model.
+pub fn p4t_splits(hidden: u32, inter: u32, d_ctx: u32, n_kv: u32, vocab: u32, nw: u32, grid: u32) -> [u32; 5] {
+    let dkv = n_kv * 128;
+    [
+        p4t_split((d_ctx + 2 * dkv) / 16, nw, hidden, grid),
+        p4t_split(hidden / 16, nw, d_ctx, grid),
+        p4t_split(2 * inter / 16, nw, hidden, grid),
+        p4t_split(hidden / 16, nw, inter, grid),
+        p4t_split(vocab / 16, nw, hidden, grid),
+    ]
+}
+
+/// Floats of the slice partials: the largest phase's, `P4T_RMAX` rows.
+pub fn p4t_fpart_floats(splits: [u32; 5], hidden: u32, inter: u32, d_ctx: u32, n_kv: u32, vocab: u32) -> u64 {
+    let dkv = n_kv * 128;
+    let outs = [d_ctx + 2 * dkv, hidden, 2 * inter, hidden, vocab];
+    let rows = P4T_RMAX as u64;
+    splits.iter().zip(outs).map(|(&s, d)| if s > 1 { s as u64 * rows * d as u64 } else { 0 }).max().unwrap_or(0)
+}
+
+/// The slice folds' counters: the largest phase's 16-row tiles.
+pub fn p4t_ftickets(hidden: u32, inter: u32, d_ctx: u32, n_kv: u32, vocab: u32) -> u32 {
+    [d_ctx + 2 * n_kv * 128, hidden, 2 * inter, vocab].into_iter().max().unwrap_or(0) / 16
+}
+
+/// The tree pass's phases, in the order of its waits, for a model with no
+/// Tetra o.
+pub const P4T_PHASES: [&str; 12] =
+    ["embed", "ln1", "qkv", "rope", "attn", "o", "ln2", "gateup", "dn_in", "down", "norm", "head"];
+
+/// A stamped tree launch's time by phase, nanoseconds, summed over the
+/// layers (event e's time the median over the CTAs, phase e from event e - 1
+/// to event e), in the order of [`P4T_PHASES`]. A model with a Tetra o is
+/// refused (its layers carry one more wait).
+pub fn p4t_phases(stamps: &[u64], n_layers: u32, grid: u32) -> Result<[f64; 12], String> {
+    let events = 1 + n_bar_4et(n_layers, 0) as usize;
+    let g = grid as usize;
+    if g == 0 || stamps.len() != events * g {
+        return Err(format!("tree stamps: {} values for {events} events of {g} CTAs", stamps.len()));
+    }
+    if stamps.contains(&0) {
+        return Err("tree stamps: a CTA wrote no clock at some event".into());
+    }
+    let med = |e: usize| {
+        let mut v: Vec<u64> = stamps[e * g..(e + 1) * g].to_vec();
+        v.sort_unstable();
+        v[g / 2] as f64
+    };
+    let t: Vec<f64> = (0..events).map(med).collect();
+    let mut out = [0.0f64; 12];
+    for e in 1..events {
+        let kind = if e == 1 {
+            0
+        } else if e == events - 2 {
+            10
+        } else if e == events - 1 {
+            11
+        } else {
+            1 + (e - 2) % 9
+        };
+        out[kind] += t[e] - t[e - 1];
+    }
+    Ok(out)
+}
+
+/// The tree kernel's symbol for a RoPE form (512 threads only).
+pub fn p4t_symbol(form: u32) -> Result<&'static str, String> {
+    Ok(match form {
+        0 => "pers_4et_rows_f0_t512",
+        1 => "pers_4et_rows_f1_t512",
+        2 => "pers_4et_rows_f2_t512",
+        _ => return Err(format!("tree verify: no kernel for RoPE form {form}")),
+    })
+}
+
+/// The tree module's text: the 4E module of row form 7 and `pers_4et.cu`.
+/// Its own module, so the served 4E module keeps its text.
+pub fn p4t_unit_text(tile_define: &str) -> String {
+    format!("{}{}\n{}", p4e_rows_define(7).expect("form 7 exists"), pers_unit_text(tile_define), P4T_PART.1)
+}
+
+/// `pers_4et.cu`, embedded so the Mac hashes what the card compiles.
+pub const P4T_PART: (&str, &str) = ("pers_4et.cu", include_str!("../kernels/pers_4et.cu"));
+
 /// The token kernel's symbol for a RoPE form and a block size.
 pub fn p4e_symbol(form: u32, threads: u32) -> Result<&'static str, String> {
     Ok(match (form, threads) {
@@ -2255,6 +2434,41 @@ pub fn trows_clock_mhz(ends: &[u64]) -> f64 {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_tree_pass_fits_the_l40s_at_the_three_sizes() {
+        // 512 threads, 32 staged rows: under the L40S's 101,376 B with the
+        // header and the tables, at the 4B, 8B and 14B widths
+        for (hidden, inter, d_ctx, groups) in [(2560u32, 9728u32, 4096u32, 4u32), (4096, 12288, 4096, 4), (5120, 17408, 5120, 5)] {
+            let area = p4t_area_floats(16, 32, hidden.max(inter).max(d_ctx), groups);
+            assert!(SMEM_HEADER + TABLE_BYTES + 4 * area <= 101_376, "{hidden}: {area} floats");
+        }
+        assert_eq!(p4t_area_floats(16, 32, 9728, 4), 17_728);
+    }
+
+    #[test]
+    fn the_tree_splits_are_one_unit_a_cta_and_never_depend_on_rows() {
+        // the 4B on 142 SMs: q/k/v 24 blocks, o 10, gate/up 76, down 10, head 594
+        assert_eq!(p4t_splits(2560, 9728, 4096, 8, 151_936, 16, 142), [6, 14, 2, 14, 1]);
+        assert_eq!(p4t_split(160, 16, 96, 142), 1, "never past half the sub-steps");
+        assert!(p4t_fpart_floats([6, 14, 2, 14, 1], 2560, 9728, 4096, 8, 151_936) <= 2_000_000);
+        assert_eq!(p4t_ftickets(2560, 9728, 4096, 8, 151_936), 9496);
+        assert_eq!(n_bar_4et(36, 0), 327);
+    }
+
+    #[test]
+    fn the_tree_phases_sum_the_layers() {
+        let (layers, g) = (2u32, 3usize);
+        let events = 1 + n_bar_4et(layers, 0) as usize;
+        let st: Vec<u64> = (0..events).flat_map(|e| (0..g).map(move |c| 1000 * (e as u64 + 1) + c as u64)).collect();
+        let p = p4t_phases(&st, layers, g as u32).unwrap();
+        assert_eq!(p[0], 1000.0);
+        assert_eq!(p[1], 2000.0, "ln1 twice");
+        assert_eq!(p[10], 1000.0);
+        assert_eq!(p[11], 1000.0);
+        assert_eq!(p.iter().sum::<f64>(), 1000.0 * (events - 1) as f64);
+        assert!(p4t_phases(&st[1..], layers, g as u32).is_err());
+    }
+
     use super::*;
 
     #[test]

@@ -1306,6 +1306,22 @@ int main() {
 #undef OFF
 #endif
         wr(o);
+    } else if (tag == 't') {
+        // The tree verify's launch struct (pers_4et.cu): its size, the offset
+        // of every field in order, then P4T_RMAX, for pers.rs::P4tLaunch.
+        std::vector<u32> o;
+#if PERS_SIDE == 1 && PERS_4E_ROWS >= 7
+#define OFF(f) o.push_back((u32)offsetof(Pers4tLaunch, f))
+        o.push_back((u32)sizeof(Pers4tLaunch));
+        OFF(bar_base); OFF(pos0); OFF(n_rows); OFF(area_floats); OFF(n_move); OFF(move_pos0); OFF(part_stride);
+        OFF(ldx); OFF(split_qkv); OFF(split_o); OFF(split_gu); OFF(split_dn); OFF(split_head); OFF(pad);
+        OFF(toks); OFF(depth); OFF(path); OFF(mv); OFF(ring); OFF(logits); OFF(x_a); OFF(x_b); OFF(xin); OFF(xn);
+        OFF(q_raw); OFF(k_raw); OFF(v_raw); OFF(q_out); OFF(ctx); OFF(g_raw); OFF(u_raw); OFF(tk); OFF(tv);
+        OFF(part); OFF(fpart); OFF(tickets); OFF(ftickets); OFF(slots); OFF(stamps);
+        o.push_back(P4T_RMAX);
+#undef OFF
+#endif
+        wr(o);
     } else if (tag == 'y' || tag == 'c') {
 #include "host_pers_step1.inc"
     } else if (tag == 'K') {
