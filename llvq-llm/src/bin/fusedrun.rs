@@ -589,22 +589,6 @@ fn run_context_sweep(
     Ok(())
 }
 
-/// Two-sided 95 % Student quantile for `df` degrees of freedom, from the
-/// table for 1 to 30 and the normal value beyond.
-#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
-fn t95(df: usize) -> f64 {
-    const T: [f64; 30] = [
-        12.706, 4.303, 3.182, 2.776, 2.571, 2.447, 2.365, 2.306, 2.262, 2.228, 2.201, 2.179, 2.160,
-        2.145, 2.131, 2.120, 2.110, 2.101, 2.093, 2.086, 2.080, 2.074, 2.069, 2.064, 2.060, 2.056,
-        2.052, 2.048, 2.045, 2.042,
-    ];
-    match df {
-        0 => f64::NAN,
-        1..=30 => T[df - 1],
-        _ => 1.96,
-    }
-}
-
 /// Per-window differences of mean NLL, `b − a`, as `ppl_b / ppl_a − 1` in %:
 /// the median-free point `exp(mean) − 1` and its paired 95 % t interval.
 /// Every window scores the same number of tokens, so `exp(mean d)` is the
@@ -615,7 +599,7 @@ fn paired_ppl_pct(a: &[f64], b: &[f64]) -> (f64, f64, f64) {
     let n = d.len() as f64;
     let m = d.iter().sum::<f64>() / n;
     let sd = (d.iter().map(|x| (x - m).powi(2)).sum::<f64>() / (n - 1.0)).sqrt();
-    let h = t95(d.len().saturating_sub(1)) * sd / n.sqrt();
+    let h = llvq_llm::eval::t95(d.len().saturating_sub(1)) * sd / n.sqrt();
     let pct = |x: f64| x.exp_m1() * 100.0;
     (pct(m), pct(m - h), pct(m + h))
 }
@@ -3212,7 +3196,8 @@ fn main() -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{alone_in, first_divergence, paired_ppl_pct, parse_gqa_ppl, rate_stats, t95, GqaArm, GqaPplSpec, ALONE};
+    use super::{alone_in, first_divergence, paired_ppl_pct, parse_gqa_ppl, rate_stats, GqaArm, GqaPplSpec, ALONE};
+    use llvq_llm::eval::t95;
 
     fn env_of<'a>(set: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<String> + 'a {
         move |v| set.iter().find(|(k, _)| *k == v).map(|(_, x)| x.to_string())

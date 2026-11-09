@@ -120,14 +120,18 @@ fn gate(path: &str, dtype: DType, windows: usize, len: usize) -> anyhow::Result<
     }
     let mean = deltas.iter().sum::<f64>() / n as f64;
     let sdev = (deltas.iter().map(|d| (d - mean).powi(2)).sum::<f64>() / (n.max(2) - 1) as f64).sqrt();
-    let half = 1.96 * sdev / (n as f64).sqrt();
+    // Student's t at n - 1 degrees of freedom: 1.96 made the interval 38 %
+    // too narrow at 4 windows (t(3) = 3.182; audit 2026-11-08, section 4).
+    let t = llvq_llm::eval::t95(n.saturating_sub(1));
+    let half = t * sdev / (n as f64).sqrt();
     println!(
-        "pooled ppl tetra {:.4} dense {:.4} ({:+.4} %); per-window mean {mean:+.4} % [{:+.4} ; {:+.4}] (±1.96 s/√n)",
+        "pooled ppl tetra {:.4} dense {:.4} ({:+.4} %); per-window mean {mean:+.4} % [{:+.4} ; {:+.4}] (±t({}) s/√n, t = {t:.3})",
         (st / count as f64).exp(),
         (sd / count as f64).exp(),
         (((st - sd) / count as f64).exp() - 1.0) * 100.0,
         mean - half,
-        mean + half
+        mean + half,
+        n.saturating_sub(1)
     );
     Ok(())
 }

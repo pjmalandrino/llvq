@@ -56,6 +56,17 @@
         forced = rd<u32>(runs[runs.size() - 2] - 1u);
     }
     (void)act_floats;  // read by the verify launch, which only form 7 builds
+    // + 64: one launch faults. Read after the verify fields: u32 fault_run
+    // (the launch's index), u32 policy. That launch starts with the NaN flag
+    // raised, so every CTA leaves at its first token's head; then the host
+    // applies `policy` before the next launch: 0 the reset of
+    // pers::p4e_settle (counter, both flags and the host's barrier base to
+    // 0), 1 nothing (the code before audit 2026-11-08 §1.1), 2 the flags only,
+    // 3 the flags and the counter but not the base. The served side ignores it.
+    const bool faulty = (variant_raw & 64u) != 0u;
+    u32 fault_run = 0xFFFFFFFFu, policy = 0u;
+    if (faulty) { fault_run = rd1<u32>(); policy = rd1<u32>(); }
+    (void)fault_run; (void)policy;
     const u32 stamp = (variant == 1u || variant == 3u) ? 1u : 0u;
     size_t ring_len = 0;
     for (size_t i = 0; i < runs.size(); i += 3) ring_len += runs[i + 1];
@@ -288,6 +299,9 @@
     // them: the barrier base is the counter's value (no abort), a fresh ring.
     size_t ring_at = 0;
     u32 vtickets = 0u;
+    // The host's barrier base, as Runtime4e keeps it: the counter's value
+    // after a clean launch, left alone by a launch that faulted.
+    u32 host_base = bar[0];
     for (size_t run_i = 0; run_i < runs.size(); run_i += 3) {
         if (verify && run_i + 3 == runs.size()) {
 #if PERS_4E_ROWS >= 7
@@ -319,10 +333,19 @@
 #endif
             continue;
         }
-        const Pers4eLaunch L{bar[0], runs[run_i], runs[run_i + 1], runs[run_i + 2], eos, 0u, ring.data() + ring_at,
+        const bool fault_here = faulty && run_i / 3 == fault_run;
+        if (fault_here) nan[0] = 1u;
+        const Pers4eLaunch L{host_base, runs[run_i], runs[run_i + 1], runs[run_i + 2], eos, 0u, ring.data() + ring_at,
                              stamp ? stamps.data() + ring_at * n_ev * grid : nullptr};
         ring_at += runs[run_i + 1];
         hostgrid::launch_coop(grid, threads, smem, seed + run_i, [&] { table[variant][form](&A, L); });
+        if (ab[0] == 0u && nan[0] == 0u) {
+            host_base = bar[0];
+        } else if (fault_here) {
+            if (policy == 0u) { bar[0] = 0u; ab[0] = 0u; nan[0] = 0u; host_base = 0u; }
+            if (policy == 2u) { ab[0] = 0u; nan[0] = 0u; }
+            if (policy == 3u) { ab[0] = 0u; nan[0] = 0u; bar[0] = 0u; }
+        }
     }
     tail[0] = bar[0];
     tail[1] = ab[0] + vtickets;

@@ -51,7 +51,7 @@ impl Loader for DeviceLoader {
         let path = store.blob_path(&m.sha256);
         let path_s = path.to_str().ok_or_else(|| anyhow::anyhow!("{}: not UTF-8", path.display()))?;
         let backend = Backend::of_build();
-        let configs = crate::library::with_cpu_config(&m.configs, &m.sha256);
+        let configs = crate::library::served_configs(&m.configs, &m.sha256);
         let config = backend.config(&configs).map_err(|e| anyhow::anyhow!("{name}: {e}"))?;
         let config = config.ok_or_else(|| anyhow::anyhow!("{name}: no served config on {}", backend.label()))?;
         let text = crate::library::config_text(config)

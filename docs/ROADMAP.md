@@ -25,11 +25,12 @@ that, two levers change what a launch does rather than how fast it does it.
 
 - **Speculative decoding with a Qwen3-0.6B draft.** The draft proposes a few tokens, the 4B checks them in one pass,
   and greedy output stays the 4B's own. The second row of a 4E pass costs 0.378 of a row pass (*measured*,
-  [shaker-4e](mesures/shaker-4e-2026-11-05.txt)). Worked on branch `claude/spec-0p6b-96ba73`, not on main.
+  [shaker-4e](mesures/shaker-4e-2026-11-05.txt)). Read on 2026-11-07 and closed (ETAT §6): the tokens held, the decode
+  ran at x0.60 to x0.63 of greedy. The route continues with a cheaper verify pass and prompt lookup on PR #27.
   **Gate**: the served tokens unchanged, and a speed-up on a workload fixed before the run.
 - **Batching.** Decode several sequences per pass: the bytes are read once for all of them. vLLM's AWQ 4B reaches
   5,129 tok/s in aggregate at batch 32 on the L40S (*measured*, branch `claude/batching-eca5f1`, job 6aef873c).
-  Our batched Tetra matvec and attention are written on that branch, not on main. **Gate**: each sequence returns
+  Our batched decode and its continuous batching in `llvq serve` are on PR #24, not on main. **Gate**: each sequence returns
   its batch-1 tokens, or a stated tolerance; aggregate tok/s against AWQ at the same batch.
 
 ### 2.2 Score the served object
@@ -75,8 +76,8 @@ about 0.34 GB, and it is the only lead that reaches 300 tok/s at that context ([
 ### 2.8 Metal speed
 
 The MLX door serves the 4B; its own speed is not measured yet, and the door holds q and k words twice (about 0.12 GB).
-The Rust Metal path decodes 65.5 tok/s and the MLX prototype 93.9 (*measured*,
-[metal-nuit](mesures/metal-nuit-2026-11-06.txt)). The steps are in [`plan-metal-debit.md`](plan-metal-debit.md) §4.
+The Rust Metal path decodes 52.1 tok/s under a form `served.rs` accepts; its 65.5 tok/s arm uses the grouped form,
+which Metal refuses. The MLX prototype decodes 93.9 (*measured*, [metal-nuit](mesures/metal-nuit-2026-11-06.txt)). The steps are in [`plan-metal-debit.md`](plan-metal-debit.md) §4.
 **Cost**: $0, local.
 
 ### 2.9 `transformers` upstream

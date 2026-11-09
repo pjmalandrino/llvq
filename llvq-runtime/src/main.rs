@@ -225,11 +225,12 @@ fn show(client: &Client, model: &str) -> anyhow::Result<()> {
         true => client.send("POST", "/api/show", &json!({ "model": n.to_string() }))?,
         false => {
             let m = Store::from_env()?.get(&n)?.ok_or_else(|| anyhow::anyhow!("model '{n}' not found"))?;
+            let served = library::served_configs(&m.configs, &m.sha256);
             json!({ "details": { "family": m.family, "parameter_size": m.parameter_size,
                                   "quantization_level": format!("Tetra {} b/param", m.bits_per_param) },
                     "llvq": { "repo": m.repo, "revision": m.revision, "file": m.file, "sha256": m.sha256,
-                              "config_cuda": m.configs.cuda, "config_metal": m.configs.metal,
-                              "config_cpu": library::with_cpu_config(&m.configs, &m.sha256).cpu,
+                              "config_cuda": served.cuda, "config_metal": served.metal,
+                              "config_cpu": served.cpu,
                               "backend": Backend::of_build().label() } })
         }
     };
