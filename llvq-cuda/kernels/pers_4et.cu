@@ -58,6 +58,20 @@
 // copy (command 'Y' of host_pers.cpp). Built only with PERS_4E_ROWS 7, the
 // v9 module (it reads the int4 rows on 4E v9's tiled words), after
 // pers_4e.cu. Not in any served module.
+//
+// Tree-tiled weights (job N1, arm a2): a module that defines P4T_TILED 1
+// emits the pers_4et_tiled_* symbols, which read every projection's weights
+// from a copy laid out by p4t_tile_words: for a 16-row tile and a 48-column
+// sub-step, its rows' words contiguous (Tetra 48 u32: row r's two blocks at
+// 3 r, the row layout's 48-bit packing; int4 96 u32: row r's 6 logical words
+// at 6 r), so a warp's chunk is one stream copied in 16-byte cp.async.cg
+// pieces. Same words, same decode, same MMA: the tiled pass's bits are the
+// untiled pass's at the same slices. Without P4T_TILED the module emits the
+// untiled symbols only, whose code is S1's.
+
+#ifndef P4T_TILED
+#define P4T_TILED 0
+#endif
 
 #ifndef LLVQ_PERS_CUH
 #include "llvq_pers.cuh"
@@ -115,7 +129,8 @@ struct Pers4tLaunch {
     u32* tickets;                // [P4T_RMAX][n_kv] attention's split fold, zero at rest
     u32* ftickets;               // [d_out / 16] each projection of a phase: the slice fold's, zero at rest
     unsigned long long* slots;   // [P4T_RMAX] argmax keys, cleared at launch start
-    unsigned long long* stamps;  // null, or [1 + n_bar_4et][grid]: each CTA's clock at its start and after each wait
+    unsigned long long* stamps;  // null, or [1 + 2 n_bar_4et][grid]: each CTA's clock at its start (event 0),
+                                 // on reaching wait e (event 2e - 1) and on leaving it (event 2e)
 };
 
 // The waits of one launch, for the host's barrier base.
@@ -284,10 +299,40 @@ __device__ __forceinline__ u32 p4t_nblk(const P4tSeg& g, u32 nw)
     return ((g.d_out >> 4) + nw - 1u) / nw;
 }
 
+// u32 words of one tile's sub-step in the tree-tiled copy: Tetra 16 rows x 3,
+// int4 16 rows x 6.
+#define P4T_TSW 48u
+#define P4T_TSQ 96u
+
+// Word i of the tree-tiled copy of a projection: tile T = i / (nsub SW), its
+// sub-step s, element e. Tetra (kind 0): row 16 T + e / 3, word 3 s + e % 3
+// of the row layout (stride u32 a row); int4 (kind 1): row 16 T + e / 6,
+// logical word 6 s + e % 6 of the row's `stride` words, read at its tiled
+// place when `served_tiled` (4E v9's pers_q4_tile_index). Words past a row's
+// end are zero. The host twin builds its copies through this function, the
+// card through p4t_tile_words below.
+__device__ __forceinline__ u32 p4t_tile_word(const u32* src, u32 kind, u32 stride, u32 nsub, u32 served_tiled,
+                                             unsigned long long i)
+{
+    const u32 SW = kind == 0u ? P4T_TSW : P4T_TSQ;
+    const u32 e = (u32)(i % SW);
+    const unsigned long long ts = i / SW;
+    const u32 s = (u32)(ts % nsub), T = (u32)(ts / nsub);
+    const u32 per = kind == 0u ? 3u : 6u;
+    const u32 r = e / per, wi = per * s + e % per;
+    const u32 row = 16u * T + r;
+    if (wi >= stride) return 0u;
+    const u32 phys = (kind != 0u && served_tiled != 0u) ? pers_q4_tile_index(wi, stride) : wi;
+    return src[(unsigned long long)row * stride + phys];
+}
+
 // Sub-steps [sub0, sub0 + cnt) into a stage: the activation of the R rows
 // (16-byte pieces of 8 halves, rows past R and columns past d_in zero), then
 // the weight words of the unit's rows from urow0, in the row's logical word
-// order (an int4 word read at its tiled place).
+// order (an int4 word read at its tiled place). TILED: the weights from the
+// tree-tiled copy, each warp's tile a contiguous run of cnt sub-steps in
+// 16-byte pieces, staged in the copy's order at the warp's own place.
+template <bool TILED>
 __device__ __forceinline__ void p4t_issue(const P4tSeg& g, u32* stage, u32 sub0, u32 cnt, u32 urow0, u32 R, u32 RS)
 {
     const u32 t = threadIdx.x, T = blockDim.x, U = 16u * (T >> 5);
@@ -300,7 +345,18 @@ __device__ __forceinline__ void p4t_issue(const P4tSeg& g, u32* stage, u32 sub0,
         const unsigned short* src = g.x + (unsigned long long)(ok ? n : 0u) * g.ldx + (ok ? col : 0u);
         p4t_cp<16u>(xs + n * P4T_XW + 4u * p, src, ok);
     }
-    if (g.kind == 0u) {
+    if (TILED) {
+        const u32 SW = g.kind == 0u ? P4T_TSW : P4T_TSQ, PC = SW / 4u;
+        const u32 WS = 16u * (g.kind == 0u ? P4T_WWT : P4T_WWQ);
+        const u32 tsub = (g.d_in + P4T_SUB - 1u) / P4T_SUB, ntiles = g.d_out >> 4, tile0 = urow0 >> 4;
+        for (u32 i = t; i < (U >> 4) * P4T_CH * PC; i += T) {
+            const u32 w = i / (P4T_CH * PC), rem = i - w * (P4T_CH * PC), ks = rem / PC, p = rem - ks * PC;
+            const u32 tile = tile0 + w;
+            const bool ok = tile < ntiles && ks < cnt;
+            const u32* src = g.w + ((unsigned long long)(ok ? tile : 0u) * tsub + (ok ? sub0 + ks : 0u)) * SW + 4u * p;
+            p4t_cp<16u>(ws + w * WS + ks * SW + 4u * p, src, ok);
+        }
+    } else if (g.kind == 0u) {
         const u32 WC = 3u * P4T_CH;
         for (u32 i = t; i < U * WC; i += T) {
             const u32 r = i / WC, k = i - r * WC, row = urow0 + r, wi = 3u * sub0 + k;
@@ -322,7 +378,9 @@ __device__ __forceinline__ void p4t_issue(const P4tSeg& g, u32* stage, u32 sub0,
 // One sub-step of the warp's A tile: lane l decodes row l / 2, half l % 2 of
 // the 48 columns (one Tetra block or three int4 words), twelve binary16
 // pairs in column order. `wsw` is the warp's 16 staged rows, `ks` the
-// sub-step's index in its chunk.
+// sub-step's index in its chunk. TILED: `wsw` is the warp's tile in the
+// tree-tiled order, sub-step ks at P4T_TSW ks (Tetra) or P4T_TSQ ks (int4).
+template <bool TILED>
 __device__ __forceinline__ void p4t_decode(const P4tSeg& g, const F1rTables& tab, const float* t_inv, const u32* wsw,
                                            u32* aw, u32 sub, u32 ks, u32 wrow, u32 lane)
 {
@@ -332,7 +390,7 @@ __device__ __forceinline__ void p4t_decode(const P4tSeg& g, const F1rTables& tab
         const u32 j = 2u * sub + h;  // the row's block
         if (j < g.nblocks) {
             u32 lo, hi16;
-            f1r_load(wsw + r * P4T_WWT + 3u * ks, h, lo, hi16);
+            f1r_load(TILED ? wsw + P4T_TSW * ks + 3u * r : wsw + r * P4T_WWT + 3u * ks, h, lo, hi16);
             u32 q[6];
             f1r_v3_quads(lo, hi16, tab, q);
             const u32 m = (tetra48_n2(q) >> 4) & (TETRA48_SHELLS - 1u);
@@ -365,7 +423,7 @@ __device__ __forceinline__ void p4t_decode(const P4tSeg& g, const F1rTables& tab
         for (u32 k = 0; k < 3u; ++k) {
             const u32 col = col0 + 8u * k;
             if (col < g.d_in) {
-                const u32 wv = wsw[r * P4T_WWQ + 6u * ks + 3u * h + k];
+                const u32 wv = TILED ? wsw[P4T_TSQ * ks + 6u * r + 3u * h + k] : wsw[r * P4T_WWQ + 6u * ks + 3u * h + k];
                 const u32 gi = col >> g.gshift;
                 const u32 sb = sc[gi], bb = bi[gi];
 #pragma unroll
@@ -446,6 +504,7 @@ __device__ __forceinline__ void p4t_store(const P4tSeg& g, const Pers4tLaunch& L
 // last tile stages with the others and computes nothing), slice sl. The
 // slice's sub-steps run in chunks of P4T_CH through two stages, chunk c + 1
 // in flight while chunk c is decoded and multiplied.
+template <bool TILED>
 __device__ __forceinline__ void p4t_unit(const P4tSeg& g, u32 sl, u32 blk, const Pers4tLaunch& L,
                                          const Pers4eArgs* A, const F1rTables& tab, const float* t_inv, u32* area,
                                          unsigned long long* cmax)
@@ -467,14 +526,14 @@ __device__ __forceinline__ void p4t_unit(const P4tSeg& g, u32 sl, u32 blk, const
     for (u32 nt = 0; nt < 4u; ++nt)
 #pragma unroll
         for (u32 e = 0; e < 4u; ++e) acc[nt][e] = 0.0f;
-    if (nch > 0u) p4t_issue(g, st0, sub_lo, sub_hi - sub_lo < P4T_CH ? sub_hi - sub_lo : P4T_CH, urow0, R, RS);
+    if (nch > 0u) p4t_issue<TILED>(g, st0, sub_lo, sub_hi - sub_lo < P4T_CH ? sub_hi - sub_lo : P4T_CH, urow0, R, RS);
     for (u32 c = 0; c < nch; ++c) {
         const u32 sub0 = sub_lo + c * P4T_CH;
         const u32 cnt = sub_hi - sub0 < P4T_CH ? sub_hi - sub0 : P4T_CH;
         const u32* xs = st0 + (c & 1u) * STAGE;
         if (c + 1u < nch) {
             const u32 s1 = sub0 + P4T_CH;
-            p4t_issue(g, st0 + ((c + 1u) & 1u) * STAGE, s1, sub_hi - s1 < P4T_CH ? sub_hi - s1 : P4T_CH, urow0, R, RS);
+            p4t_issue<TILED>(g, st0 + ((c + 1u) & 1u) * STAGE, s1, sub_hi - s1 < P4T_CH ? sub_hi - s1 : P4T_CH, urow0, R, RS);
             p4t_cp_wait<1u>();
         } else {
             p4t_cp_wait<0u>();
@@ -482,7 +541,7 @@ __device__ __forceinline__ void p4t_unit(const P4tSeg& g, u32 sl, u32 blk, const
         __syncthreads();
         const u32* ws = xs + RS * P4T_XW + warp * 16u * WW;
         for (u32 ks = 0; ks < cnt; ++ks) {
-            if (has) p4t_decode(g, tab, t_inv, ws, aw, sub0 + ks, ks, wrow, lane);
+            if (has) p4t_decode<TILED>(g, tab, t_inv, ws, aw, sub0 + ks, ks, wrow, lane);
             __syncwarp();
             if (has) {
 #pragma unroll
@@ -513,6 +572,7 @@ __device__ __forceinline__ void p4t_unit(const P4tSeg& g, u32 sl, u32 blk, const
 // itself fixes the order of the sum. Dealt slice after slice, the last slice
 // always arrived last, and the host gate could not see a fold that followed
 // the arrivals (tree-verify-s0-host-2026-11-09, mutant fold_arrival).
+template <bool TILED>
 __device__ __forceinline__ void p4t_phase(const P4tSeg& s0, const P4tSeg& s1, const P4tSeg& s2, u32 nseg,
                                           const Pers4tLaunch& L, const Pers4eArgs* A, const F1rTables& tab,
                                           const float* t_inv, u32* area, unsigned long long* cmax)
@@ -525,7 +585,7 @@ __device__ __forceinline__ void p4t_phase(const P4tSeg& s0, const P4tSeg& s1, co
         const u32 i = u < n0 ? 0u : (u < n0 + n1 ? 1u : 2u);
         const u32 lu = i == 0u ? u : (i == 1u ? u - n0 : u - n0 - n1);
         const P4tSeg& g = i == 0u ? s0 : (i == 1u ? s1 : s2);
-        p4t_unit(g, lu % g.S, lu / g.S, L, A, tab, t_inv, area, cmax);
+        p4t_unit<TILED>(g, lu % g.S, lu / g.S, L, A, tab, t_inv, area, cmax);
     }
 }
 
@@ -725,7 +785,7 @@ __device__ __forceinline__ void p4t_attention(const Pers4eArgs* A, const Pers4tL
 
 // ---- the pass -------------------------------------------------------------------
 
-template <int FORM>
+template <int FORM, bool TILED>
 __device__ __forceinline__ void pers_4et_body(const Pers4eArgs* __restrict__ A, const Pers4tLaunch L)
 {
     unsigned char* base = PERS_SMEM_BASE();
@@ -762,14 +822,19 @@ __device__ __forceinline__ void pers_4et_body(const Pers4eArgs* __restrict__ A, 
     __syncthreads();
     const F1rTables tab{t_rows, t_pref, t_br, t_suf};
     u32 nb = 0u;
-#define P4T_WAIT()                                                                              \
-    do {                                                                                        \
-        if (!pers_grid_wait(A->bar, L.bar_base + (++nb) * G, A->abort_flag)) return;            \
-        if (L.stamps != nullptr && threadIdx.x == 0u) L.stamps[(size_t)nb * G + c0] = pers_now(); \
+#define P4T_WAIT()                                                                                   \
+    do {                                                                                             \
+        if (L.stamps != nullptr) {                                                                   \
+            __syncthreads();                                                                         \
+            if (threadIdx.x == 0u) L.stamps[(size_t)(2u * nb + 1u) * G + c0] = pers_now();           \
+        }                                                                                            \
+        if (!pers_grid_wait(A->bar, L.bar_base + (++nb) * G, A->abort_flag)) return;                 \
+        if (L.stamps != nullptr && threadIdx.x == 0u) L.stamps[(size_t)(2u * nb) * G + c0] = pers_now(); \
     } while (0)
     // Phase stamps (a measurement launch, L.stamps non-null): event 0 at the
-    // CTA's start, event e after its e-th wait, thread 0 of each CTA. Nothing
-    // a row computes reads the clock.
+    // CTA's start; for its e-th wait, event 2e - 1 once the whole CTA reached
+    // it (its work of the phase done) and event 2e on leaving it, thread 0 of
+    // each CTA. Nothing a row computes reads the clock.
     if (L.stamps != nullptr && threadIdx.x == 0u) L.stamps[c0] = pers_now();
     // The argmax keys and every ticket start at zero; the first wait's fence
     // orders these stores before any CTA's atomics.
@@ -820,7 +885,7 @@ __device__ __forceinline__ void pers_4et_body(const Pers4eArgs* __restrict__ A, 
             p4t_place(sq, L, po, to);
             p4t_place(sk, L, po, to);
             p4t_place(sv, L, po, to);
-            p4t_phase(sq, sk, sv, 3u, L, A, tab, t_inv, area, cmax);
+            p4t_phase<TILED>(sq, sk, sv, 3u, L, A, tab, t_inv, area, cmax);
         }
         P4T_WAIT();
         // q/k-norm and RoPE at the row's position; K and V into its slot
@@ -869,7 +934,7 @@ __device__ __forceinline__ void pers_4et_body(const Pers4eArgs* __restrict__ A, 
             unsigned long long po = 0ull;
             u32 to = 0u;
             p4t_place(so, L, po, to);
-            p4t_phase(so, so, so, 1u, L, A, tab, t_inv, area, cmax);
+            p4t_phase<TILED>(so, so, so, 1u, L, A, tab, t_inv, area, cmax);
         }
         P4T_WAIT();
         // ln2, signed and rotated: the gate and up rows' input
@@ -890,7 +955,7 @@ __device__ __forceinline__ void pers_4et_body(const Pers4eArgs* __restrict__ A, 
             u32 to = 0u;
             p4t_place(sg, L, po, to);
             p4t_place(su, L, po, to);
-            p4t_phase(sg, su, su, 2u, L, A, tab, t_inv, area, cmax);
+            p4t_phase<TILED>(sg, su, su, 2u, L, A, tab, t_inv, area, cmax);
         }
         P4T_WAIT();
         // the down's input: silu(g) u, signed and rotated for a Tetra down,
@@ -926,7 +991,7 @@ __device__ __forceinline__ void pers_4et_body(const Pers4eArgs* __restrict__ A, 
             unsigned long long po = 0ull;
             u32 to = 0u;
             p4t_place(sd, L, po, to);
-            p4t_phase(sd, sd, sd, 1u, L, A, tab, t_inv, area, cmax);
+            p4t_phase<TILED>(sd, sd, sd, 1u, L, A, tab, t_inv, area, cmax);
         }
         P4T_WAIT();
     }
@@ -943,7 +1008,7 @@ __device__ __forceinline__ void pers_4et_body(const Pers4eArgs* __restrict__ A, 
         unsigned long long po = 0ull;
         u32 to = 0u;
         p4t_place(sh, L, po, to);
-        p4t_phase(sh, sh, sh, 1u, L, A, tab, t_inv, area, cmax);
+        p4t_phase<TILED>(sh, sh, sh, 1u, L, A, tab, t_inv, area, cmax);
         __syncthreads();
         if (threadIdx.x < R && cmax[threadIdx.x] != 0ull) atomicMax(L.slots + threadIdx.x, cmax[threadIdx.x]);
     }
@@ -957,13 +1022,33 @@ __device__ __forceinline__ void pers_4et_body(const Pers4eArgs* __restrict__ A, 
 #undef P4T_WAIT
 }
 
-#define PERS_4ET(sym, FORM_, THREADS_)                                                                   \
+#define PERS_4ET(sym, FORM_, TILED_, THREADS_)                                                           \
     extern "C" __global__ void __launch_bounds__(THREADS_, 1) sym(const Pers4eArgs* __restrict__ A,      \
                                                                    const Pers4tLaunch L)                 \
     {                                                                                                    \
-        pers_4et_body<FORM_>(A, L);                                                                      \
+        pers_4et_body<FORM_, TILED_>(A, L);                                                              \
     }
 
-PERS_4ET(pers_4et_rows_f0_t512, 0, 512)
-PERS_4ET(pers_4et_rows_f1_t512, 1, 512)
-PERS_4ET(pers_4et_rows_f2_t512, 2, 512)
+#if !P4T_TILED || defined(LLVQ_HOST_BUILD)
+PERS_4ET(pers_4et_rows_f0_t512, 0, false, 512)
+PERS_4ET(pers_4et_rows_f1_t512, 1, false, 512)
+PERS_4ET(pers_4et_rows_f2_t512, 2, false, 512)
+#endif
+
+#if P4T_TILED || defined(LLVQ_HOST_BUILD)
+// The tiled stage of a warp holds its chunk in the place the untiled one had.
+static_assert(P4T_CH * P4T_TSW <= 16u * P4T_WWT && P4T_CH * P4T_TSQ <= 16u * P4T_WWQ, "a tiled chunk outgrows the stage");
+PERS_4ET(pers_4et_tiled_f0_t512, 0, true, 512)
+PERS_4ET(pers_4et_tiled_f1_t512, 1, true, 512)
+PERS_4ET(pers_4et_tiled_f2_t512, 2, true, 512)
+
+// The tree-tiled copy of a projection, built once on the card: n = tiles x
+// nsub x SW words (p4t_tile_word).
+extern "C" __global__ void p4t_tile_words(const u32* src, u32* dst, u32 kind, u32 stride, u32 nsub, u32 served_tiled,
+                                          unsigned long long n)
+{
+    for (unsigned long long i = (unsigned long long)blockIdx.x * blockDim.x + threadIdx.x; i < n;
+         i += (unsigned long long)gridDim.x * blockDim.x)
+        dst[i] = p4t_tile_word(src, kind, stride, nsub, served_tiled, i);
+}
+#endif

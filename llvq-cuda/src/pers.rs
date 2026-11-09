@@ -1579,11 +1579,19 @@ pub const P4T_PHASES: [&str; 12] =
     ["embed", "ln1", "qkv", "rope", "attn", "o", "ln2", "gateup", "dn_in", "down", "norm", "head"];
 
 /// A stamped tree launch's time by phase, nanoseconds, summed over the
-/// layers (event e's time the median over the CTAs, phase e from event e - 1
-/// to event e), in the order of [`P4T_PHASES`]. A model with a Tetra o is
-/// refused (its layers carry one more wait).
-pub fn p4t_phases(stamps: &[u64], n_layers: u32, grid: u32) -> Result<[f64; 12], String> {
-    let events = 1 + n_bar_4et(n_layers, 0) as usize;
+/// layers, in the order of [`P4T_PHASES`]. The stamps are `[1 + 2 n_bar][grid]`:
+/// event 0 a CTA's start, event 2e - 1 when the CTA reached wait e (its work
+/// of the phase done), event 2e when it left it. For each phase: `[0]` the
+/// wall, from the CTAs' median leaving of the previous wait to their median
+/// leaving of this one; `[1]`, `[2]`, `[3]` the minimum, median and maximum
+/// over the CTAs of a CTA's busy time (its arrival at the wait minus its
+/// leaving of the previous one), each CTA's summed over the layers first. A
+/// phase whose units run in two waves shows its maximum near twice its
+/// minimum. A model with a Tetra o is refused (its layers carry one more
+/// wait).
+pub fn p4t_phases(stamps: &[u64], n_layers: u32, grid: u32) -> Result<[[f64; 4]; 12], String> {
+    let n_bar = n_bar_4et(n_layers, 0) as usize;
+    let events = 1 + 2 * n_bar;
     let g = grid as usize;
     if g == 0 || stamps.len() != events * g {
         return Err(format!("tree stamps: {} values for {events} events of {g} CTAs", stamps.len()));
@@ -1591,26 +1599,109 @@ pub fn p4t_phases(stamps: &[u64], n_layers: u32, grid: u32) -> Result<[f64; 12],
     if stamps.contains(&0) {
         return Err("tree stamps: a CTA wrote no clock at some event".into());
     }
-    let med = |e: usize| {
-        let mut v: Vec<u64> = stamps[e * g..(e + 1) * g].to_vec();
-        v.sort_unstable();
-        v[g / 2] as f64
+    let at = |e: usize, c: usize| stamps[e * g + c] as f64;
+    let med = |v: &mut Vec<f64>| {
+        v.sort_by(f64::total_cmp);
+        v[v.len() / 2]
     };
-    let t: Vec<f64> = (0..events).map(med).collect();
-    let mut out = [0.0f64; 12];
-    for e in 1..events {
-        let kind = if e == 1 {
+    let kind = |w: usize| {
+        if w == 1 {
             0
-        } else if e == events - 2 {
+        } else if w == n_bar - 1 {
             10
-        } else if e == events - 1 {
+        } else if w == n_bar {
             11
         } else {
-            1 + (e - 2) % 9
-        };
-        out[kind] += t[e] - t[e - 1];
+            1 + (w - 2) % 9
+        }
+    };
+    let mut wall = [0.0f64; 12];
+    let mut busy = vec![[0.0f64; 12]; g];
+    for w in 1..=n_bar {
+        let k = kind(w);
+        let mut prev: Vec<f64> = (0..g).map(|c| at(2 * w - 2, c)).collect();
+        let mut leave: Vec<f64> = (0..g).map(|c| at(2 * w, c)).collect();
+        wall[k] += med(&mut leave) - med(&mut prev);
+        for (c, b) in busy.iter_mut().enumerate() {
+            b[k] += at(2 * w - 1, c) - at(2 * w - 2, c);
+        }
+    }
+    let mut out = [[0.0f64; 4]; 12];
+    for (k, (o, w)) in out.iter_mut().zip(wall).enumerate() {
+        let mut v: Vec<f64> = busy.iter().map(|b| b[k]).collect();
+        v.sort_by(f64::total_cmp);
+        *o = [w, v[0], v[g / 2], v[g - 1]];
     }
     Ok(out)
+}
+
+/// The units of each projection phase (q/k/v, o, gate/up, down, head) under
+/// `splits`, on `grid` CTAs of `nw` warps, as `pers_4et.cu`'s p4t_phase deals
+/// them (each projection's blocks of nw tiles, times its slices; unit u on
+/// CTA u mod grid): (units, waves, fill), fill = (units / grid) / waves, the
+/// share of the CTAs' unit slots the phase uses.
+#[allow(clippy::too_many_arguments)]
+pub fn p4t_plan(splits: [u32; 5], hidden: u32, inter: u32, d_ctx: u32, n_kv: u32, vocab: u32, nw: u32, grid: u32) -> [(u32, u32, f64); 5] {
+    let b = |d_out: u32| (d_out / 16).div_ceil(nw);
+    let dkv = n_kv * 128;
+    let blocks = [b(d_ctx) + 2 * b(dkv), b(hidden), 2 * b(inter), b(hidden), b(vocab)];
+    let mut out = [(0u32, 0u32, 0.0f64); 5];
+    for ((o, b), s) in out.iter_mut().zip(blocks).zip(splits) {
+        let u = b * s;
+        let w = u.div_ceil(grid);
+        *o = (u, w, u as f64 / grid as f64 / w as f64);
+    }
+    out
+}
+
+/// Job N1's balanced plan: `proposed` kept where q/k/v and gate/up fill at
+/// least 90 % of the grid's slots ([`p4t_plan`]); otherwise that phase's S
+/// in 1..=16 (at most half its sub-steps) with the largest fill, the
+/// smallest S on a tie. The other phases keep the proposal.
+#[allow(clippy::too_many_arguments)]
+pub fn p4t_splits_balanced(proposed: [u32; 5], hidden: u32, inter: u32, d_ctx: u32, n_kv: u32, vocab: u32, nw: u32, grid: u32) -> [u32; 5] {
+    let mut s = proposed;
+    for (i, d_in) in [(0usize, hidden), (2, hidden)] {
+        let fill = |x: u32| {
+            let mut t = s;
+            t[i] = x;
+            p4t_plan(t, hidden, inter, d_ctx, n_kv, vocab, nw, grid)[i].2
+        };
+        if fill(s[i]) < 0.9 {
+            let cap = (d_in.div_ceil(48) / 2).clamp(1, 16);
+            let mut best = 1;
+            for x in 2..=cap {
+                if fill(x) > fill(best) + 1e-12 {
+                    best = x;
+                }
+            }
+            s[i] = best;
+        }
+    }
+    s
+}
+
+/// The tree kernel's tiled symbol for a RoPE form (a module of
+/// [`p4t_tiled_unit_text`]).
+pub fn p4t_tiled_symbol(form: u32) -> Result<&'static str, String> {
+    Ok(match form {
+        0 => "pers_4et_tiled_f0_t512",
+        1 => "pers_4et_tiled_f1_t512",
+        2 => "pers_4et_tiled_f2_t512",
+        _ => return Err(format!("tree verify: no tiled kernel for RoPE form {form}")),
+    })
+}
+
+/// The tiled tree module's text: [`p4t_unit_text`] under `P4T_TILED 1`, which
+/// emits the tiled symbols and `p4t_tile_words` instead of the untiled ones.
+pub fn p4t_tiled_unit_text(tile_define: &str) -> String {
+    format!("#define P4T_TILED 1\n{}", p4t_unit_text(tile_define))
+}
+
+/// u32 words of a projection's tree-tiled copy: its 16-row tiles times its
+/// 48-column sub-steps times 48 (Tetra) or 96 (int4) words.
+pub fn p4t_tiled_words(int4: bool, d_out: u32, d_in: u32) -> u64 {
+    (d_out / 16) as u64 * d_in.div_ceil(48) as u64 * if int4 { 96 } else { 48 }
 }
 
 /// The tree kernel's symbol for a RoPE form (512 threads only).
@@ -2458,15 +2549,46 @@ mod tests {
     #[test]
     fn the_tree_phases_sum_the_layers() {
         let (layers, g) = (2u32, 3usize);
-        let events = 1 + n_bar_4et(layers, 0) as usize;
-        let st: Vec<u64> = (0..events).flat_map(|e| (0..g).map(move |c| 1000 * (e as u64 + 1) + c as u64)).collect();
+        let n_bar = n_bar_4et(layers, 0) as usize;
+        let events = 1 + 2 * n_bar;
+        // leaving wait w at 1000 (w + 1) + c, reaching it 10 (c + 1) earlier
+        let st: Vec<u64> = (0..events)
+            .flat_map(|e| {
+                (0..g).map(move |c| {
+                    let w = e.div_ceil(2) as u64;
+                    if e % 2 == 1 { 1000 * (w + 1) + c as u64 - 10 * (c as u64 + 1) } else { 1000 * (w + 1) + c as u64 }
+                })
+            })
+            .collect();
         let p = p4t_phases(&st, layers, g as u32).unwrap();
-        assert_eq!(p[0], 1000.0);
-        assert_eq!(p[1], 2000.0, "ln1 twice");
-        assert_eq!(p[10], 1000.0);
-        assert_eq!(p[11], 1000.0);
-        assert_eq!(p.iter().sum::<f64>(), 1000.0 * (events - 1) as f64);
+        assert_eq!(p[0][0], 1000.0);
+        assert_eq!(p[1][0], 2000.0, "ln1 twice");
+        assert_eq!(p[10][0], 1000.0);
+        assert_eq!(p[11][0], 1000.0);
+        assert_eq!(p.iter().map(|x| x[0]).sum::<f64>(), 1000.0 * n_bar as f64);
+        // busy: 1000 - 10 (c + 1) a wait, CTA 0 the longest
+        assert_eq!(p[0][3], 990.0);
+        assert_eq!(p[0][1], 970.0);
+        assert_eq!(p[1][2], 2.0 * 980.0);
         assert!(p4t_phases(&st[1..], layers, g as u32).is_err());
+    }
+
+    #[test]
+    fn the_n1_plan_fills_the_grid_at_the_4b() {
+        // S1's plan at the 4B on 142 SMs: q/k/v 144 units in two waves, gate/up 152
+        let s1 = p4t_plan([6, 14, 2, 14, 1], 2560, 9728, 4096, 8, 151_936, 16, 142);
+        assert_eq!((s1[0].0, s1[0].1), (144, 2));
+        assert_eq!((s1[2].0, s1[2].1), (152, 2));
+        let a1 = [11, 14, 7, 14, 1];
+        assert_eq!(p4t_splits_balanced(a1, 2560, 9728, 4096, 8, 151_936, 16, 142), a1, "a1 reads 90 % or more");
+        let p = p4t_plan(a1, 2560, 9728, 4096, 8, 151_936, 16, 142);
+        assert_eq!((p[0].0, p[0].1), (264, 2));
+        assert_eq!((p[2].0, p[2].1), (532, 4));
+        assert!(p[0].2 >= 0.9 && p[2].2 >= 0.9);
+        // a poor proposal is replaced by the best fill
+        assert_eq!(p4t_splits_balanced([6, 14, 2, 14, 1], 2560, 9728, 4096, 8, 151_936, 16, 142)[0], 11);
+        assert_eq!(p4t_tiled_words(false, 4096, 2560), 256 * 54 * 48);
+        assert_eq!(p4t_tiled_words(true, 151_936, 2560), 9496 * 54 * 96);
     }
 
     use super::*;

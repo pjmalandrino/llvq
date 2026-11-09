@@ -1,29 +1,39 @@
-//! Stage S1 of the tree verify (`docs/plan-verify-tree.md`): what a tree
-//! verify pass of R rows costs beside 4E's one-token launch, on the card.
+//! Stages S1 and N1 of the tree verify (`docs/plan-verify-tree.md`): what a
+//! tree verify pass of R rows costs beside 4E's one-token launch, on the
+//! card, for each arm of the pass.
 //!
-//! Usage: `LLVQ_CONFIG=<served v9 config> vtreebench <sealed>`
+//! Usage: `LLVQ_CONFIG=<served v9 config> vtreebench <sealed> [arms]`, arms a
+//! comma-separated subset of `a0,a1,a2` (default all three):
+//!
+//! * a0: S1's kernel and S1's slices (`pers::p4t_splits`);
+//! * a1: S1's kernel, the balanced slices q/k/v 11, o 14, gate/up 7, down
+//!   14, head 1 (`pers::p4t_splits_balanced` keeps them where q/k/v and
+//!   gate/up fill 90 % of the grid);
+//! * a2: a1's slices, the tiled kernel on tree-tiled copies (`P4T_TILED`).
 //!
 //! The served object loads as `specrun` loads it (4E v9 under its config),
 //! then the tree pass installs beside it (`Runtime4e::install_tree`, its own
-//! module). At two contexts, the chat and rag prompts of `specrun`:
+//! modules). At the chat context for every arm, then at the rag context for
+//! the arm with the lowest chat c_16:
 //!
 //! 1. 4E decodes 64 greedy tokens from the prompt.
-//! 2. `vt1` against 4E: the tree pass of one row at each of those 64
-//!    positions, its token the one 4E read there, the caches as 4E left
-//!    them; its argmax against 4E's next token. 4E writes no logits on the
-//!    card, so the argmax is the check (the RMS bound is the host's, S0).
-//! 3. Identity: a tree of 32 rows, each node's parent node (i - 1) / 4 (the
-//!    root, 4 children, 16, then 11: depths 0 to 3), tokens of the greedy
-//!    text. Passes of its first R nodes, R = 1, 2, 4, 8, 16, 32, then 16
-//!    and 32 nodes in a shuffled slot order. Every row's binary16 logits and
-//!    argmax must equal its node's in the 32-row pass, byte for byte.
-//! 4. Timing: 2 discarded and 5 timed rounds; each round runs one 4E token
-//!    launch then `vt1`, `vt2`, `vt4`, `vt8`, `vt16`, `vt32` on the same
-//!    tree's first R nodes, host wall from the launch to the ring read, as
-//!    `specrun` times its arms. c_R = t(vt R) / t(4e), formed round by round,
+//! 2. For each arm, `vt1` against 4E: the tree pass of one row at each of
+//!    those 64 positions, its token the one 4E read there; its argmax
+//!    against 4E's next token.
+//! 3. For each arm, identity: a tree of 32 rows (node i's parent (i - 1) /
+//!    4), passes of its first R nodes, R = 1, 2, 8, 16, then 16 and 32 nodes
+//!    in shuffled slot orders: every row's binary16 logits and argmax equal
+//!    its node's in the arm's 32-row pass. Across arms: a2's 32-row pass
+//!    equals a1's bit for bit (same slices, same arithmetic); a0's argmaxes
+//!    against a1's (another fold).
+//! 4. Timing: 2 discarded and 5 timed rounds; each round one 4E token
+//!    launch, then every arm's `vt1`, `vt2`, `vt8`, `vt16`, host wall from
+//!    the launch to the ring read. c_R = t(vt R) / t(4e) round by round,
 //!    median and range.
-//! 5. Phases: `vt1` and `vt16` stamped, 5 launches each, the CTAs' median
-//!    event clock, each phase summed over the layers (`pers::p4t_phases`).
+//! 5. Phases: 4E stamped over two tokens; each arm's `vt1` and `vt16`
+//!    stamped, 5 launches each: per phase the wall (the CTAs' median clocks)
+//!    and the spread of a CTA's busy time across the CTAs (min, median,
+//!    max), each summed over the layers (`pers::p4t_phases`).
 //!
 //! Every launch's caches are the prompt's: the tree pass reads them and does
 //! not write them.
@@ -47,9 +57,12 @@ const DISCARD: usize = 2;
 #[cfg(all(target_os = "linux", feature = "cuda"))]
 const TIMED: usize = 5;
 #[cfg(all(target_os = "linux", feature = "cuda"))]
-const ROWS: [usize; 6] = [1, 2, 4, 8, 16, 32];
+const ROWS: [usize; 4] = [1, 2, 8, 16];
 #[cfg(all(target_os = "linux", feature = "cuda"))]
 const N_REF: u32 = 64;
+/// a1's and a2's proposed slices at the 4B (job N1's prereg).
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+const BALANCED: [u32; 5] = [11, 14, 7, 14, 1];
 
 /// The 32-node tree: node i's parent (i - 1) / 4; returns (depth, path) of
 /// `nodes` in that slot order, every path in slots.
@@ -85,8 +98,18 @@ fn run() -> anyhow::Result<()> {
     use llvq_llm::boundary::median_range;
     use llvq_llm::chatfmt::{open_assistant, turn, Marks};
     let a: Vec<String> = std::env::args().skip(1).collect();
-    let usage = "usage: LLVQ_CONFIG=<served v9 config> vtreebench <sealed>";
+    let usage = "usage: LLVQ_CONFIG=<served v9 config> vtreebench <sealed> [a0,a1,a2]";
     let path = a.first().ok_or_else(|| anyhow::anyhow!("{usage}"))?.clone();
+    let want_arms: Vec<String> = a.get(1).map_or("a0,a1,a2", |s| s.as_str()).split(',').map(str::to_string).collect();
+    let mut specs: Vec<llvq_llm::persist4e_cuda::TreeArmSpec> = Vec::new();
+    for w in &want_arms {
+        specs.push(match w.as_str() {
+            "a0" => ("a0", None, false),
+            "a1" => ("a1", Some(BALANCED), false),
+            "a2" => ("a2", Some(BALANCED), true),
+            other => anyhow::bail!("vtreebench: unknown arm {other:?}; {usage}"),
+        });
+    }
     let cfg = llvq_llm::served::Served::from_env()
         .map_err(|e| anyhow::anyhow!("{e}"))?
         .ok_or_else(|| anyhow::anyhow!("LLVQ_CONFIG names the served config; {usage}"))?;
@@ -117,10 +140,12 @@ fn run() -> anyhow::Result<()> {
     }
     let rt = dec.runtime_mut().ok_or_else(|| anyhow::anyhow!("vtreebench: the config built no 4E runtime"))?;
     let before = rt.lines.len();
-    rt.install_tree()?;
+    rt.install_tree(&specs)?;
     for line in &rt.lines[before..] {
         println!("{line}");
     }
+    let arms = rt.tree_arms();
+    let na = arms.len();
     println!("loaded in {:.1} s", t_load.elapsed().as_secs_f64());
     let tok = f.tokenizer.clone();
     let marks = Marks::resolve(&tok)?;
@@ -131,8 +156,16 @@ fn run() -> anyhow::Result<()> {
     };
     let model = &f.model;
     let (layers, grid) = rt.stamp_shape();
-    let mut c16 = Vec::new();
+    let mut c16_chat: Vec<f64> = vec![f64::MAX; na];
+    let mut summary: Vec<String> = Vec::new();
     for (name, ids) in [("chat", chat(CHAT)?), ("rag", chat(&format!("{RAG}\n\n{SUMMARY_TEXT}"))?)] {
+        // chat: every arm; rag: the arm with the lowest chat c_16 only
+        let run_arms: Vec<usize> = if name == "chat" {
+            (0..na).collect()
+        } else {
+            let best = (0..na).min_by(|&x, &y| c16_chat[x].total_cmp(&c16_chat[y])).expect("an arm");
+            vec![best]
+        };
         let l = ids.len();
         let mut caches = model.fresh_caches();
         let first = model.prefill_next_in(&ids, llvq_llm::model::MAX_PREFILL_ROWS, &mut caches)?;
@@ -145,60 +178,86 @@ fn run() -> anyhow::Result<()> {
             }
             Ok(())
         };
-        println!("\n== tree, {name}: context {l}");
-        // 2. vt1 against 4E along 4E's greedy text
-        let mut same = 0usize;
-        let mut first_miss = None;
-        for i in 0..N_REF as usize {
-            let t_in = if i == 0 { first } else { want[i - 1] };
-            set(&mut caches, l + i)?;
-            let out = rt.tree(&mut caches, l + i, &[t_in], &[0], &[[0u8; 32]], false, false)?;
-            if out.ring[0] == want[i] {
-                same += 1;
-            } else if first_miss.is_none() {
-                first_miss = Some((i, out.ring[0], want[i]));
-            }
-        }
         println!(
-            "  vt1 against 4E: the same argmax at {same} of {N_REF} positions{}",
-            first_miss.map_or(String::new(), |(i, a, b)| format!(" (first difference at position {}: {a} against 4E's {b})", l + i))
+            "\n== tree, {name}: context {l}, arms {}",
+            run_arms.iter().map(|&k| arms[k].name.as_str()).collect::<Vec<_>>().join(", ")
         );
-        set(&mut caches, l)?;
-        // 3. identity across R and slots
         let node_tok = |i: usize| if i == 0 { first } else { want[(7 * i) % N_REF as usize] };
         let full: Vec<usize> = (0..32).collect();
         let (d32, p32) = tree_rows(&full);
         let toks32: Vec<u32> = full.iter().map(|&n| node_tok(n)).collect();
-        let base = rt.tree(&mut caches, l, &toks32, &d32, &p32, true, false)?;
-        let v = base.logits.len() / 32;
-        let mut shuffled16: Vec<usize> = (0..16).collect();
-        shuffled16.reverse();
-        let mut shuffled32: Vec<usize> = (0..32).map(|i| (i * 13 + 5) % 32).collect();
-        shuffled32.sort_by_key(|&i| (i * 7 + 3) % 32);
-        let mut sets: Vec<Vec<usize>> = ROWS.iter().map(|&r| (0..r).collect()).collect();
-        sets.push(shuffled16);
-        sets.push(shuffled32);
-        let (mut rows_cmp, mut bad) = (0usize, Vec::new());
-        for nodes in &sets {
-            let (d, p) = tree_rows(nodes);
-            let ts: Vec<u32> = nodes.iter().map(|&n| node_tok(n)).collect();
-            let o = rt.tree(&mut caches, l, &ts, &d, &p, true, false)?;
-            for (s, &n) in nodes.iter().enumerate() {
-                rows_cmp += 1;
-                if o.ring[s] != base.ring[n] || o.logits[s * v..(s + 1) * v] != base.logits[n * v..(n + 1) * v] {
-                    bad.push((nodes.len(), s, n));
+        let mut bases: Vec<Option<llvq_llm::persist4e_cuda::TreeOut>> = (0..na).map(|_| None).collect();
+        for &k in &run_arms {
+            let an = &arms[k].name;
+            // 2. vt1 against 4E along 4E's greedy text
+            let mut same = 0usize;
+            let mut first_miss = None;
+            for i in 0..N_REF as usize {
+                let t_in = if i == 0 { first } else { want[i - 1] };
+                set(&mut caches, l + i)?;
+                let out = rt.tree(k, &mut caches, l + i, &[t_in], &[0], &[[0u8; 32]], false, false)?;
+                if out.ring[0] == want[i] {
+                    same += 1;
+                } else if first_miss.is_none() {
+                    first_miss = Some((i, out.ring[0], want[i]));
+                }
+            }
+            println!(
+                "  {an} vt1 against 4E: the same argmax at {same} of {N_REF} positions{}",
+                first_miss.map_or(String::new(), |(i, a, b)| format!(" (first difference at position {}: {a} against 4E's {b})", l + i))
+            );
+            set(&mut caches, l)?;
+            // 3. identity across R and slots
+            let base = rt.tree(k, &mut caches, l, &toks32, &d32, &p32, true, false)?;
+            let v = base.logits.len() / 32;
+            let shuffled16: Vec<usize> = (0..16).rev().collect();
+            let mut shuffled32: Vec<usize> = (0..32).map(|i| (i * 13 + 5) % 32).collect();
+            shuffled32.sort_by_key(|&i| (i * 7 + 3) % 32);
+            let mut sets: Vec<Vec<usize>> = ROWS.iter().map(|&r| (0..r).collect()).collect();
+            sets.push(shuffled16);
+            sets.push(shuffled32);
+            let (mut rows_cmp, mut bad) = (0usize, Vec::new());
+            for nodes in &sets {
+                let (d, p) = tree_rows(nodes);
+                let ts: Vec<u32> = nodes.iter().map(|&n| node_tok(n)).collect();
+                let o = rt.tree(k, &mut caches, l, &ts, &d, &p, true, false)?;
+                for (s, &n) in nodes.iter().enumerate() {
+                    rows_cmp += 1;
+                    if o.ring[s] != base.ring[n] || o.logits[s * v..(s + 1) * v] != base.logits[n * v..(n + 1) * v] {
+                        bad.push((nodes.len(), s, n));
+                    }
+                }
+            }
+            if bad.is_empty() {
+                println!("  {an} identity: every row equals its node in the 32-row pass, logits and argmax, {rows_cmp} rows of {} passes", sets.len());
+            } else {
+                println!("  {an} identity FAILS: {} of {rows_cmp} rows differ, first (rows, slot, node) {:?}", bad.len(), bad[0]);
+            }
+            bases[k] = Some(base);
+        }
+        // across arms: same slices and arithmetic owe each other their bits
+        for x in 0..na {
+            for y in x + 1..na {
+                if let (Some(bx), Some(by)) = (&bases[x], &bases[y]) {
+                    let same_tok = bx.ring.iter().zip(&by.ring).filter(|(p, q)| p == q).count();
+                    if arms[x].splits == arms[y].splits {
+                        let ok = bx.ring == by.ring && bx.logits == by.logits;
+                        println!(
+                            "  {} against {} (same slices): the 32-row pass {} bit for bit, argmax at {same_tok} of 32 rows",
+                            arms[y].name,
+                            arms[x].name,
+                            if ok { "equal" } else { "DIFFERS" }
+                        );
+                    } else {
+                        println!("  {} against {} (other slices): the same argmax at {same_tok} of 32 rows", arms[y].name, arms[x].name);
+                    }
                 }
             }
         }
-        if bad.is_empty() {
-            println!("  identity: every row equals its node in the 32-row pass, logits and argmax, {rows_cmp} rows of {} passes", sets.len());
-        } else {
-            println!("  identity FAILS: {} of {rows_cmp} rows differ, first (rows, slot, node) {:?}", bad.len(), bad[0]);
-        }
         // 4. timing, rounds interleaved
         let mut one = Vec::new();
-        let mut walls: Vec<Vec<f64>> = vec![Vec::new(); ROWS.len()];
-        let mut ratios: Vec<Vec<f64>> = vec![Vec::new(); ROWS.len()];
+        let mut ratios: Vec<Vec<Vec<f64>>> = vec![vec![Vec::new(); ROWS.len()]; na];
+        let mut walls: Vec<Vec<Vec<f64>>> = vec![vec![Vec::new(); ROWS.len()]; na];
         let tree_of = |r: usize| {
             let nodes: Vec<usize> = (0..r).collect();
             let (d, p) = tree_rows(&nodes);
@@ -216,18 +275,21 @@ fn run() -> anyhow::Result<()> {
             let w4 = t0.elapsed().as_secs_f64() * 1e6;
             anyhow::ensure!(made[..] == want[..1], "{name}: a one-token 4E launch moved its token");
             set(&mut caches, l)?;
-            for (k, (ts, d, p)) in trees.iter().enumerate() {
-                rt.sync()?;
-                let t0 = Instant::now();
-                let o = rt.tree(&mut caches, l, ts, d, p, false, false)?;
-                rt.sync()?;
-                let w = t0.elapsed().as_secs_f64() * 1e6;
-                if o.ring != base.ring[..ts.len()] {
-                    moved += 1;
-                }
-                if round >= DISCARD {
-                    walls[k].push(w);
-                    ratios[k].push(w / w4);
+            for &k in &run_arms {
+                let base = bases[k].as_ref().expect("identity ran");
+                for (j, (ts, d, p)) in trees.iter().enumerate() {
+                    rt.sync()?;
+                    let t0 = Instant::now();
+                    let o = rt.tree(k, &mut caches, l, ts, d, p, false, false)?;
+                    rt.sync()?;
+                    let w = t0.elapsed().as_secs_f64() * 1e6;
+                    if o.ring != base.ring[..ts.len()] {
+                        moved += 1;
+                    }
+                    if round >= DISCARD {
+                        walls[k][j].push(w);
+                        ratios[k][j].push(w / w4);
+                    }
                 }
             }
             if round >= DISCARD {
@@ -236,55 +298,81 @@ fn run() -> anyhow::Result<()> {
         }
         let (om, olo, ohi) = median_range(&one);
         println!("  4E, one token a launch: {om:.1} us [{olo:.1}-{ohi:.1}] (host wall, launch to ring read)");
-        println!("  timed passes whose argmaxes differ from the 32-row pass's: {moved} of {}", (DISCARD + TIMED) * ROWS.len());
-        println!("  rows   wall us, median [range]     c_R = t(vt R) / t(4e), round by round, median [range]");
-        for (k, &r) in ROWS.iter().enumerate() {
-            let (wm, wlo, whi) = median_range(&walls[k]);
-            let (cm, clo, chi) = median_range(&ratios[k]);
-            println!("  {r:4}   {wm:8.1} [{wlo:.1}-{whi:.1}]   c_{r} {cm:.3} [{clo:.3}-{chi:.3}]");
-            if r == 16 {
-                c16.push((name, cm));
+        println!("  timed passes whose argmaxes differ from their arm's 32-row pass: {moved} of {}", (DISCARD + TIMED) * ROWS.len() * run_arms.len());
+        for &k in &run_arms {
+            let an = &arms[k].name;
+            println!("  {an}  rows   wall us, median [range]     c_R = t(vt R) / t(4e), round by round, median [range]");
+            for (j, &r) in ROWS.iter().enumerate() {
+                let (wm, wlo, whi) = median_range(&walls[k][j]);
+                let (cm, clo, chi) = median_range(&ratios[k][j]);
+                println!("  {an}  {r:4}   {wm:8.1} [{wlo:.1}-{whi:.1}]   c_{r} {cm:.3} [{clo:.3}-{chi:.3}]");
             }
+            let c = |j: usize| median_range(&ratios[k][j]).0;
+            println!(
+                "  {an} an extra row: (c_16 - c_1) / 15 = {:.4}, (c_8 - c_1) / 7 = {:.4} of a 4E token; c_2 {:.3}",
+                (c(3) - c(0)) / 15.0,
+                (c(2) - c(0)) / 7.0,
+                c(1)
+            );
+            if name == "chat" {
+                c16_chat[k] = c(3);
+            }
+            summary.push(format!("{name} {an}: c_1 {:.3}, c_2 {:.3}, c_8 {:.3}, c_16 {:.3}", c(0), c(1), c(2), c(3)));
         }
-        let (c1, _, _) = median_range(&ratios[0]);
-        let (c8, _, _) = median_range(&ratios[3]);
-        let (c16m, _, _) = median_range(&ratios[4]);
-        println!(
-            "  an extra row: (c_16 - c_1) / 15 = {:.4}, (c_8 - c_1) / 7 = {:.4} of a 4E token; c_2 {:.3}",
-            (c16m - c1) / 15.0,
-            (c8 - c1) / 7.0,
-            median_range(&ratios[1]).0
-        );
         // 5. phases
         if rt.can_stamp() {
             set(&mut caches, l)?;
-            let (made, stamps) = rt.decode_stamped(&mut caches, l, first, 1, u32::MAX)?;
-            anyhow::ensure!(made[..] == want[..1], "{name}: the stamped 4E launch moved its token");
-            let r = p4e_phase_report(&stamps, 1, layers, grid).map_err(anyhow::Error::msg)?;
-            println!("  4E stamped, one token:");
+            let (made, stamps) = rt.decode_stamped(&mut caches, l, first, 2, u32::MAX)?;
+            anyhow::ensure!(made[..] == want[..2], "{name}: the stamped 4E launch moved its tokens");
+            let r = p4e_phase_report(&stamps, 2, layers, grid).map_err(anyhow::Error::msg)?;
+            println!("  4E stamped, two tokens:");
             for line in p4e_report_lines(&r) {
                 println!("{line}");
             }
         }
-        println!("  tree, each phase summed over the layers, us, median over {TIMED} launches (event clocks, the CTAs' median):");
-        println!("    rows{}", P4T_PHASES.iter().map(|p| format!("{p:>8}")).collect::<String>());
-        for r in [1usize, 16] {
-            let (ts, d, p) = tree_of(r);
-            let mut per = vec![Vec::new(); P4T_PHASES.len()];
-            for _ in 0..TIMED {
-                set(&mut caches, l)?;
-                let o = rt.tree(&mut caches, l, &ts, &d, &p, false, true)?;
-                let ph = p4t_phases(&o.stamps, layers, grid).map_err(anyhow::Error::msg)?;
-                for (acc, x) in per.iter_mut().zip(ph) {
-                    acc.push(x / 1e3);
+        for &k in &run_arms {
+            let an = &arms[k].name;
+            for r in [1usize, 16] {
+                let (ts, d, p) = tree_of(r);
+                let mut per = vec![[Vec::new(), Vec::new(), Vec::new(), Vec::new()]; P4T_PHASES.len()];
+                for _ in 0..TIMED {
+                    set(&mut caches, l)?;
+                    let o = rt.tree(k, &mut caches, l, &ts, &d, &p, false, true)?;
+                    let ph = p4t_phases(&o.stamps, layers, grid).map_err(anyhow::Error::msg)?;
+                    for (acc, x) in per.iter_mut().zip(ph) {
+                        for (a, v) in acc.iter_mut().zip(x) {
+                            a.push(v / 1e3);
+                        }
+                    }
+                }
+                let m = |v: &Vec<f64>| median_range(v).0;
+                let total: f64 = per.iter().map(|x| m(&x[0])).sum();
+                let rows_ph: f64 = ["qkv", "o", "gateup", "down", "head"]
+                    .iter()
+                    .map(|n| m(&per[P4T_PHASES.iter().position(|p| p == n).expect("a phase")][0]))
+                    .sum();
+                println!(
+                    "  {an} vt{r} phases, us summed over the layers, median of {TIMED} stamped launches: wall {total:.1}, row phases {rows_ph:.1} ({:.1} %)",
+                    100.0 * rows_ph / total
+                );
+                println!("  {an} vt{r}   phase      wall   busy min   busy med   busy max");
+                for (i, ph) in P4T_PHASES.iter().enumerate() {
+                    println!(
+                        "  {an} vt{r}   {ph:>6} {:9.1} {:10.1} {:10.1} {:10.1}",
+                        m(&per[i][0]),
+                        m(&per[i][1]),
+                        m(&per[i][2]),
+                        m(&per[i][3])
+                    );
                 }
             }
-            println!("    {r:4}{}", per.iter().map(|v| format!("{:8.1}", median_range(v).0)).collect::<String>());
         }
         set(&mut caches, l)?;
     }
-    let worst = c16.iter().map(|c| c.1).fold(f64::MIN, f64::max);
-    println!("\nc_16: {}; the decision reads the larger, {worst:.3}", c16.iter().map(|(n, c)| format!("{n} {c:.3}")).collect::<Vec<_>>().join(", "));
+    println!("\nsummary");
+    for s in &summary {
+        println!("  {s}");
+    }
     Ok(())
 }
 

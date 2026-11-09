@@ -47,6 +47,9 @@ const VOCAB: u32 = 1024;
 /// down and q/k/v so a fold order that moved would change bits (two
 /// partials commute), one on gate/up for the direct store.
 const SPLIT: [u32; 5] = [3, 2, 1, 8, 2];
+/// A second plan for the tiled gate (job N1): a1 changes the slices, so the
+/// tiled pass is held to the untiled one at the same plan. Every phase folds.
+const SPLIT_N1: [u32; 5] = [5, 3, 4, 6, 3];
 
 fn repo() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).parent().expect("workspace root").to_path_buf()
@@ -291,6 +294,7 @@ struct Fix {
     cap: u32,
     variant: u32,
     seed: u64,
+    split: [u32; 5],
 }
 
 fn y_cmd(f: &Fix, reference: Option<(u32, u32)>, passes: &[Pass]) -> Vec<u8> {
@@ -307,7 +311,7 @@ fn y_cmd(f: &Fix, reference: Option<(u32, u32)>, passes: &[Pass]) -> Vec<u8> {
     if f.variant & 16 != 0 {
         put_rot(&mut c, &rot(4096, 54));
     }
-    for s in SPLIT {
+    for s in f.split {
         put(&mut c, s);
     }
     let (rp, rt) = reference.unwrap_or((u32::MAX, 0));
@@ -527,7 +531,7 @@ fn gate_close(bin: &Path, f: &Fix, tok: u32, pos0: u32) -> Result<(f64, u32, u32
 
 // ---- the fixtures -------------------------------------------------------------------
 
-const FIX: Fix = Fix { form: 1, grid: 3, threads: 64, cap: 48, variant: 0, seed: 0x7e5ed };
+const FIX: Fix = Fix { form: 1, grid: 3, threads: 64, cap: 48, variant: 0, seed: 0x7e5ed, split: SPLIT };
 
 /// Gate 1 at every R from 1 to 32 in one tree of 32 nodes, depth up to 7.
 #[test]
@@ -688,4 +692,81 @@ fn tree_verify_mutants_are_killed() {
             Ok(()) => panic!("tree verify mutant {tag} survived every gate"),
         }
     }
+}
+
+// ---- job N1: the tree-tiled weights (arm a2) ---------------------------------------
+
+/// Passes of `sizes` rows (ancestor-closed subsets in a random slot order),
+/// run by the untiled symbols on `untiled` and by the tiled symbols (variant
+/// 32) on `bin`, at the same slices: every row's argmax, logits, residual, K
+/// and V equal, bit for bit.
+fn gate_tiled(bin: &Path, untiled: &Path, f: &Fix, t: &Tree, sizes: &[usize], pos0: u32) -> Result<usize, String> {
+    let passes: Vec<Pass> =
+        sizes.iter().enumerate().map(|(i, &s)| Pass::of(t, &t.subset(s, 0x5d00 + i as u64), pos0, 0x7d00 + i as u64)).collect();
+    let u = exec(untiled, &Fix { variant: f.variant & !32, ..*f }, None, &passes)?;
+    let v = exec(bin, &Fix { variant: f.variant | 32, ..*f }, None, &passes)?;
+    let mut rows = 0;
+    for (pi, (a, b)) in u.passes.iter().zip(&v.passes).enumerate() {
+        for (s, (ra, rb)) in a.iter().zip(b).enumerate() {
+            rows += 1;
+            if let Some(what) = diff(rb, ra) {
+                return Err(format!("tiled against untiled, split {:?}, pass {pi} ({} rows), slot {s}: {what}", f.split, a.len()));
+            }
+        }
+    }
+    Ok(rows)
+}
+
+/// The tiled pass equals the untiled pass bit for bit at R = 1, 2, 8, 16, 32,
+/// under S0's slices and under a second plan; and on the 8B's parts (a
+/// Tetra o, an untied head) at RoPE form 2, R = 1 and 5.
+#[test]
+#[cfg_attr(debug_assertions, ignore)]
+fn tiled_rows_equal_untiled_rows_under_both_plans() {
+    let t = tree(32, 7, 0x3e5);
+    for split in [SPLIT, SPLIT_N1] {
+        let n = gate_tiled(host(), host(), &Fix { split, ..FIX }, &t, &[1, 2, 8, 16, 32], 9).unwrap();
+        eprintln!("split {split:?}: {n} rows of 5 passes, tiled equals untiled bit for bit");
+    }
+    let t = tree(12, 4, 0x3e6);
+    let f = Fix { form: 2, variant: 16, cap: 288, split: SPLIT_N1, ..FIX };
+    let n = gate_tiled(host(), host(), &f, &t, &[1, 5], 254).unwrap();
+    eprintln!("8B's parts, form 2: {n} rows, tiled equals untiled bit for bit");
+}
+
+/// Each guard of the tiling has a mutant, killed by the tiled gate against
+/// the unmutated untiled pass.
+#[test]
+#[cfg_attr(debug_assertions, ignore)]
+fn tiled_mutants_are_killed() {
+    let t = tree(12, 4, 0x3e7);
+    let f = Fix { split: SPLIT_N1, ..FIX };
+    gate_tiled(host(), host(), &f, &t, &[1, 9], 9).expect("the unmutated tiled pass passes its gate");
+    let k = "llvq-cuda/kernels/pers_4et.cu";
+    let muts: &[(&str, &[Edit])] = &[
+        // the copy's row: each lane's row taken from its neighbour's
+        ("tile_row", &[(k, "const u32 row = 16u * T + r;", "const u32 row = 16u * T + (r ^ 1u);")]),
+        // the reader's Tetra row
+        ("tile_read_row", &[(k, "wsw + P4T_TSW * ks + 3u * r :", "wsw + P4T_TSW * ks + 3u * (r ^ 1u) :")]),
+        // the int4 halves swapped
+        ("tile_q4_halves", &[(k, "wsw[P4T_TSQ * ks + 6u * r + 3u * h + k]", "wsw[P4T_TSQ * ks + 6u * r + 3u * (h ^ 1u) + k]")]),
+        // a tile's stride one sub-step short
+        ("tile_stride", &[(k, "* tsub + (ok ? sub0 + ks : 0u)) * SW", "* (tsub - 1u) + (ok ? sub0 + ks : 0u)) * SW")]),
+        // one int4 word offset
+        ("tile_q4_word", &[(k, "wsw[P4T_TSQ * ks + 6u * r + 3u * h + k]", "wsw[P4T_TSQ * ks + 6u * r + 3u * h + (k + 1u) % 3u]")]),
+    ];
+    let mut killed = 0;
+    for (tag, edits) in muts {
+        let b = mutant(tag, edits);
+        let r = gate_tiled(&b, host(), &f, &t, &[1, 9], 9);
+        let _ = std::fs::remove_file(&b);
+        match r {
+            Err(e) => {
+                killed += 1;
+                eprintln!("{tag}: killed by {}", e.lines().next().unwrap_or(""))
+            }
+            Ok(_) => panic!("tiled mutant {tag} survived its gate"),
+        }
+    }
+    eprintln!("tiled mutants: {killed} of {} killed", muts.len());
 }

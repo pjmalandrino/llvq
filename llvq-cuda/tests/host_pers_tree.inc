@@ -10,7 +10,9 @@
 //
 // in : u32 form, grid, threads, cap, vocab, u64 seed, u32 variant (16: the
 //      8B's parts; 64: every tree pass stamps its phases, and the command
-//      fails if a CTA left an event unwritten),
+//      fails if a CTA left an event unwritten; 32: the tree passes run the
+//      tiled symbols on tree-tiled copies of every projection, built by
+//      p4t_tile_word from the words 4E reads, as the card's install does),
 //      three rotations (attention input at 2,560, MLP input at 2,560, down
 //      input at 9,728), each u32 m, k, f32 inv, u32 signs[n/32], f32
 //      small[1024], then with variant 16 the o rotation at 4,096,
@@ -170,6 +172,45 @@
     A.n_layers = NL; A.vocab = vocab; A.hidden = H; A.emb_gpr = egpr; A.n_heads = NH; A.n_kv = NKV; A.groups = GRP; A.cap = cap;
     A.eps = eps; A.c = (float)((1.0 / std::sqrt(128.0)) * 1.4426950408889634);
     A.head_w = head_w.data(); A.head_s = head_s.data(); A.head_b = head_b.data();
+    // ---- variant 32: the tree-tiled copies and the arguments that point at them ----
+    const bool tiledv = (variant & 32u) != 0u;
+    std::vector<std::vector<u32>> tcopies;
+    auto tcopy = [&](const u32* src, u32 kind, u32 d_out, u32 stride, u32 d_in, u32 served) -> const u32* {
+        const u32 nsub = (d_in + P4T_SUB - 1u) / P4T_SUB;
+        const unsigned long long n = (unsigned long long)(d_out / 16u) * nsub * (kind == 0u ? P4T_TSW : P4T_TSQ);
+        std::vector<u32> t(n);
+        for (unsigned long long i = 0; i < n; ++i) t[i] = p4t_tile_word(src, kind, stride, nsub, served, i);
+        tcopies.push_back(std::move(t));
+        return tcopies.back().data();
+    };
+    auto tseg = [&](SegTetra t) {
+        t.words = tcopy(t.words, 0u, t.d_out, t.stride_u32, t.nblocks * 24u + t.tail_w, 0u);
+        return t;
+    };
+    std::vector<Pers4eLayer> PLt = PL;
+    std::vector<Pers4eOT> OTt = OT;
+    Pers4eArgs At = A;
+    if (tiledv) {
+        for (u32 l = 0; l < NL; ++l) {
+            Pers4eLayer& P = PLt[l];
+            Pers4eQkv& N = P.qkv;
+            N.qw = tcopy(N.qw, 0u, N.q_dout, N.q_stride, N.nblocks * 24u + N.tail_w, 0u);
+            N.kw = tcopy(N.kw, 0u, N.k_dout, N.k_stride, N.nblocks * 24u + N.tail_w, 0u);
+            N.vw = tcopy(N.vw, 1u, N.v_dout, N.d_in / 8u, N.d_in, 1u);
+            if (P.ot != nullptr) {
+                OTt[l].t = tseg(OTt[l].t);
+                P.ot = &OTt[l];
+            } else {
+                P.ow = tcopy(P.ow, 1u, H, dq / 8u, dq, 1u);
+            }
+            P.mlp.gate = tseg(P.mlp.gate);
+            P.mlp.up = tseg(P.mlp.up);
+            if (P.tetra_down) P.mlp.down = tseg(P.mlp.down);
+            else P.mlp.q4w = tcopy(P.mlp.q4w, 1u, H, I / 8u, I, 1u);
+        }
+        At.layers = PLt.data();
+        At.head_w = tcopy(A.head_w, 1u, vocab, H / 8u, H, 0u);
+    }
     u32 host_base = 0u;
     // ---- the reference: one 4E token, then its logits ----
     if (ref_pos != 0xFFFFFFFFu) {
@@ -228,6 +269,7 @@
     const size_t tsmem = PERS_SMEM_HEADER + 18816 + 4 * (size_t)area;
     typedef void (*Ft)(const Pers4eArgs*, const Pers4tLaunch);
     const Ft tfn[3] = {pers_4et_rows_f0_t512, pers_4et_rows_f1_t512, pers_4et_rows_f2_t512};
+    const Ft tfnt[3] = {pers_4et_tiled_f0_t512, pers_4et_tiled_f1_t512, pers_4et_tiled_f2_t512};
     const u32 n_pass = rd1<u32>();
     for (u32 pi = 0; pi < n_pass; ++pi) {
         const u32 pos0 = rd1<u32>(), R = rd1<u32>();
@@ -249,9 +291,9 @@
         T.q_raw = tq.data(); T.k_raw = tkr.data(); T.v_raw = tvr.data(); T.q_out = tqo.data(); T.ctx = tctx.data();
         T.g_raw = tg.data(); T.u_raw = tu.data(); T.tk = tk.data(); T.tv = tv.data();
         T.part = tpart.data(); T.fpart = tfpart.data(); T.tickets = ttk.data(); T.ftickets = tft.data(); T.slots = tslots.data();
-        std::vector<unsigned long long> st((variant & 64u) ? (size_t)(1u + n_bar_4et(NL, n_ot)) * grid : 0u, 0ull);
+        std::vector<unsigned long long> st((variant & 64u) ? (size_t)(1u + 2u * n_bar_4et(NL, n_ot)) * grid : 0u, 0ull);
         if (variant & 64u) T.stamps = st.data();
-        hostgrid::launch_coop(grid, threads, tsmem, pseed, [&] { tfn[form](&A, T); });
+        hostgrid::launch_coop(grid, threads, tsmem, pseed, [&] { if (tiledv) tfnt[form](&At, T); else tfn[form](&A, T); });
         for (unsigned long long v : st)
             if (v == 0ull) {
                 std::fprintf(stderr, "host_pers: tree pass %u left a phase stamp unwritten\n", pi);
