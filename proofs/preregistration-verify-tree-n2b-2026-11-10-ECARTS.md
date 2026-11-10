@@ -17,3 +17,7 @@ billed.
 - Cost of the twin at $8.30/h (*estimated*): about 9 min, $1.25; timeout 15 min, $2.08 at worst, under the night cap
   ($0.42 spent before N2b).
 - What can move: the host side of the timing on another node; c_R is a ratio taken on one machine in the same rounds.
+
+Outcome, written after the job: the l40sx1 job reached RUNNING first (04:28 CET, about 27 min after its submission);
+the l40sx4 twin, still SCHEDULING, was cancelled at 04:29:00 and never ran ($0). The measurement ran on the prereg's
+flavor, so deviation 1 touches no number.

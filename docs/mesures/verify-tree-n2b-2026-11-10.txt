@@ -1,0 +1,161 @@
+VERIFY-TREE N2b: a4 (STREAM UNIT, BATCHED FOLD, VECTOR PROLOGUES) BESIDE a3, SEALED 4B, ONE L40S, 2026-11-10. $0.26.
+====================================================================================================================
+Result: a4 is slower than a3, not faster. a4 reads c_1 2.259, c_2 2.263 and c_16 3.063 4E tokens on chat; a3 reads
+2.030, 2.025 and 2.912 (*measured*). Best arm a3, c_16 > 2.35: FAIL under the prereg's rule; the signed outcome was
+BETWEEN on a4. a4's guard holds (its 32-row pass equals a3's bit for bit) and its module compiled through NVRTC, at 816
+B of local memory a thread against a3's 744. The prologues barely move (ln1 + ln2 + dn_in 1,562 us in a4 against 1,677
+in a3; signed 650), and every row phase of a4's vt1 is slower than a3's (+1,583 us in all: o +402, down +497, q/k/v
++362, gate/up +308).
+Prereg : proofs/preregistration-verify-tree-n2b-2026-11-10.md (sha256 fb18b4c8), stamped before the job (.ots, commit
+         aaf5d5c). Deviation 1 beside it, in proofs/preregistration-verify-tree-n2b-2026-11-10-ECARTS.md.
+Go     : the operator, 2026-11-09 about 23:00 CET, session "LLVQ pistes débit": "Compute HF ok tu as 10$ pour la nuit
+         comme tu le sens". Night cap $10.
+Job    : 6af2890c9737d9a9e08eda49, l40sx1, image hf.co/spaces/Pier-Jean/llvq-runner-cuda at Space sha 6047cb0a (its
+         COMMIT file names aaf5d5c, published from a clean detached checkout of that commit, perimeter clean; kernel,
+         bench and runtime sources equal to 50aaf6e's), `STAGE=n2b ARMS=a3,a4 ops/jobs/verify-tree-n2.sh`. Submitted
+         04:01 CET, RUNNING at 04:28 (about 27 min of queue, not billed), COMPLETED by 04:38. 9 min billed, $0.26
+         (*measured*, ops/run.py monitor). VRAM: no metric received. Registry $307.67 before, $307.93 after; night spend
+         $0.68.
+         Deviation 1: a twin on l40sx4, 6af28cc09737d9a9e08edffb, submitted 04:17:21 CET after 15 min of queue for the
+         first; still SCHEDULING when the l40sx1 job started, cancelled at 04:29:00 (CANCELED, never ran, $0).
+Raw    : verify-tree-n2b-2026-11-10-brut/: gpu.txt (NVIDIA L40S, 8.9, 46,068 MiB, driver 580.178.04, 2,520 MHz),
+         oracle.txt, files.sha256, qwen3-4b-tetra-e4-4e-v9.json (sha256 29b3ef32, equal to
+         configs/qwen3-4b-tetra-e4-4e-v9.json), vtree-4b.txt, summary.txt, monitor.txt, race.txt (the twin watch).
+
+CONTROLS
+--------
+1. oracle on Qwen3-0.6B: MATCH. Sealed file sha256 886391a8 at its size. Config at its sha256. The job body refuses any
+   LLVQ_* in its environment. Holds.
+2. 4E module 252,757 bytes, sha256 1b422b62, row form 7: the served v9 module. Every one-token 4E launch made its
+   greedy token. Holds.
+3. a4's guard against a3 at the same slices [11, 14, 7, 28, 5]: "PASSES, the 32-row pass equal bit for bit". Holds.
+   a3's own guard against a2 is N2a's (a2 did not run here).
+Read by the decision rule:
+- identity, chat, both arms; rag, a3: every row equals its node in the arm's 32-row pass, logits and argmax, 75 rows
+  of 6 passes. Holds.
+- vt1 against 4E: the same argmax at 64 of 64 positions, a3 and a4 at chat, a3 at rag. Holds.
+- timed passes whose argmaxes differ from their arm's 32-row pass: 0 of 56 (chat), 0 of 28 (rag).
+
+MODULES (*measured*, printed at install)
+-------
+stream (a3): 330,604 bytes, sha256 69e7b937 (N2a's); pers_4et_stream_f1_t512: 128 registers, 744 B local, 89,984 B
+  shared, 1 resident a SM.
+a4: 360,561 bytes, sha256 515f02f4, P4T_A4 1 (F1, F2), P4T_STREAM 1 and P4T_TILED 1; pers_4et_a4_f1_t512: 128
+  registers, 816 B local, 89,984 B shared, 1 resident a SM. First NVRTC compile of this module: no error.
+1.308 GB of tree-tiled copies, 0.133 GB of row buffers. Load and install: 446.2 s.
+The stream plan on 142 CTAs, both arms: q/k/v 11 (264 units, 2 waves, 93.0 %), o 14 (140, 1, 98.6 %), gate/up 7 (532,
+4, 93.7 %), down 28 (280, 2, 98.6 %), head 5 (2,970, 21, 99.6 %).
+
+RESULT (*measured*, 2 discarded and 5 timed rounds, arms interleaved, ratios formed round by round, median [range];
+timed launches carry no stamps)
+------
+Chat, context 62. 4E, one token a launch: 4,403.5 us [4,393.4-4,415.5].
+  arm  rows   wall us                       c_R
+  a3      1    8,922.9 [8,917.1-8,961.5]    2.030 [2.025-2.031]
+  a3      2    8,919.9 [8,908.0-8,927.7]    2.025 [2.022-2.030]
+  a3      8   10,534.5 [10,523.9-10,551.3]  2.391 [2.390-2.397]
+  a3     16   12,817.5 [12,784.1-12,828.2]  2.912 [2.903-2.912]
+  a4      1    9,941.5 [9,931.7-9,954.7]    2.259 [2.251-2.262]
+  a4      2    9,964.0 [9,955.1-9,977.7]    2.263 [2.255-2.271]
+  a4      8   11,236.4 [11,227.6-11,250.7]  2.551 [2.546-2.561]
+  a4     16   13,483.7 [13,446.3-13,492.7]  3.063 [3.045-3.069]
+An extra row, (c_16 - c_1) / 15: a3 0.0588, a4 0.0536 of a 4E token; (c_8 - c_1) / 7: 0.0517, 0.0417.
+
+Rag, context 362, a3 only (lowest chat c_16). 4E: 4,672.0 us [4,662.0-4,676.8].
+  a3      1    9,207.1 [9,187.3-9,208.6]    1.970 [1.967-1.975]
+  a3      2    9,189.2 [9,175.2-9,202.0]    1.967 [1.964-1.971]
+  a3      8   10,815.0 [10,807.8-10,834.7]  2.316 [2.312-2.320]
+  a3     16   13,866.9 [13,849.6-13,870.8]  2.967 [2.964-2.975]
+An extra row: 0.0664 (c_16 - c_1) / 15, 0.0493 (c_8 - c_1) / 7.
+
+PHASES (*measured*, us summed over the 36 layers, median of 5 stamped launches; wall from the CTAs' median clocks;
+busy = a CTA's time from leaving the previous wait to reaching this one, min / median / max over the 142 CTAs; a4's
+stamped launches also carry the F3 part stamps)
+------
+Chat, vt1 (wall / busy min / med / max):
+  phase     a3                                   a4                                   a4 - a3 (wall)
+  embed        1.9 /    0.6 /    0.9 /    1.1       1.7 /    0.6 /    0.9 /    1.0      -0.2
+  ln1        447.0 /   16.6 /   25.2 /  402.7     367.6 /   19.4 /   24.5 /  324.8     -79.4
+  qkv       1713.4 /  952.2 / 1371.2 / 1596.2    2075.0 / 1285.8 / 1710.6 / 1996.0    +361.6
+  rope       132.8 /    6.4 /    8.4 /   91.7     146.9 /    7.0 /    9.1 /   99.2     +14.1
+  attn       601.1 /   11.3 /   13.8 /  579.6     637.1 /    8.5 /   10.0 /  620.1     +36.0
+  o          649.4 /   15.1 /  485.6 /  577.9    1051.1 /  307.4 /  873.0 /  993.6    +401.7
+  ln2        336.9 /    2.6 /    3.6 /  305.7     311.8 /    2.1 /    3.1 /  269.9     -25.1
+  gateup    2522.8 / 1653.2 / 2108.3 / 2361.4    2830.9 / 1916.6 / 2414.6 / 2672.8    +308.1
+  dn_in      893.3 /    2.3 /    3.8 /  851.6     883.1 /    3.6 /    5.2 /  839.9     -10.2
+  down      1128.4 /  494.0 /  938.0 / 1017.9    1625.6 /  794.7 / 1279.5 / 1431.3    +497.2
+  norm         4.1 /    0.2 /    0.3 /    3.1       3.1 /    0.2 /    0.2 /    2.3      -1.0
+  head       460.8 /  417.3 /  438.5 /  459.2     475.1 /  424.9 /  443.9 /  473.4     +14.3
+  total wall 8,892.0, row phases 6,474.8 (72.8 %)  10,409.1, row phases 8,057.8 (77.4 %)
+Chat, vt16:
+  embed        7.0 /    5.8 /    6.1 /    6.5       6.9 /    5.7 /    6.0 /    6.3      -0.1
+  ln1        465.2 /   23.7 /   33.0 /  427.7     377.4 /   22.5 /   27.7 /  334.8     -87.8
+  qkv       3033.9 / 1346.7 / 1898.0 / 2664.1    3088.9 / 1739.5 / 2218.3 / 2920.9     +55.0
+  rope       142.2 /   94.8 /  105.7 /  114.9     144.2 /   98.6 /  105.3 /  117.8      +2.0
+  attn       667.6 /   35.5 /  636.7 /  639.9     729.2 /   42.9 /  698.1 /  700.1     +61.6
+  o          889.0 /   18.2 /  539.0 /  774.1    1325.1 /  323.4 /  940.7 / 1271.6    +436.1
+  ln2        336.5 /    2.8 /    4.4 /  301.8     327.2 /    3.4 /    4.6 /  287.8      -9.3
+  gateup    4070.6 / 1981.2 / 2499.8 / 3710.0    4032.5 / 2337.7 / 2839.6 / 3749.1     -38.1
+  dn_in      866.3 /    3.3 /    4.9 /  826.4     837.2 /    5.2 /    6.7 /  796.7     -29.1
+  down      1781.3 /  543.6 / 1007.1 / 1427.7    2517.8 /  876.3 / 1376.1 / 1915.1    +736.5
+  norm         4.1 /    0.2 /    0.4 /    3.1       3.1 /    0.2 /    0.4 /    2.3      -1.0
+  head       528.4 /  439.0 /  463.8 /  527.0     559.1 /  448.8 /  470.2 /  557.8     +30.7
+  total wall 12,792.0, row phases 10,303.0 (80.5 %)  13,948.5, row phases 11,523.4 (82.6 %)
+Rag, a3: vt1 wall 9,176.7, row phases 70.9 % (attn 846.8); vt16 wall 13,845.7, row phases 74.5 % (attn 1,693.2).
+4E stamped over two tokens (chat): q/k/v 637.1, attention 791.8, o 337.1, MLP 2,351.0, head 369.0.
+
+F3 PARTS OF a4's ROW PHASES (*measured*, thread 0 of each CTA, us summed over the layers, median over the CTAs, median
+of 5 launches)
+------------------------------
+  vt1      setup  staging    loops    store    sum      busy med (phase table)
+  qkv       61.4     33.0    649.8    184.6    928.8    1710.6
+  o         69.2     23.0    477.8     67.3    637.3     873.0
+  gateup    76.3     46.9   1489.1    329.1   1941.4    2414.6
+  down      54.5     34.5    852.4    108.6   1050.0    1279.5
+  head       0.6      5.6    394.8     34.3    435.3     443.9
+  vt16     setup  staging    loops    store    sum      busy med (phase table)
+  qkv       74.8     52.0    810.0    269.8   1206.6    2218.3
+  o         68.1     32.7    510.9     79.2    690.9     940.7
+  gateup    93.2     93.3   1648.8    436.8   2272.1    2839.6
+  down      53.9     45.1    906.6    134.5   1140.1    1376.1
+  head       0.6     11.0    407.8     40.6    460.3     470.2
+The "sum" and "busy med" columns are each a median over the CTAs of a different quantity; their difference is not a
+measured part (*computed* columns, sum of the four medians).
+
+AGAINST THE SIGNED PREDICTION (chat)
+--------------------------------
+  quantity                              signed                 measured     inside
+  4E token                              4,400 [4,350, 4,450]   4,403.5      yes
+  a3 c_1                                2.035 [1.98, 2.09]     2.030        yes
+  a3 c_16                               2.92 [2.84, 3.00]      2.912        yes
+  a4 c_1                                1.81 [1.62, 2.00]      2.259        no, above
+  a4 c_2                                1.82 [1.62, 2.01]      2.263        no, above
+  a4 c_16                               2.15 [1.85, 2.50]      3.063        no, above
+  a4 extra row                          0.022 [0.010, 0.038]   0.0536       no, above
+  a3 prologues of vt1 (ln1+ln2+dn_in)   1,672 [1,600, 1,750]   1,677.2      yes
+  a4 prologues of vt1                   650 [450, 950]         1,562.5      no, above
+  outcome                               BETWEEN, on a4         FAIL, a3     no
+
+DECISION (the prereg's rule)
+--------
+Best arm whose guard and identity hold and whose vt1 makes 4E's argmax at 64 of 64: a3 (c_16 2.912; a4 reads 3.063).
+c_16 > 2.35: FAIL. The reopening condition of ETAT.md section 6 is not met (c_2 2.025 > 1.40).
+
+READING (not part of the decision; *computed* from the tables above)
+-------
+- F2 did not take the prologues down: ln1 -79, ln2 -25, dn_in -10 us at vt1. dn_in, the largest (883 us), barely moves.
+  Nothing on the card says whether the vector path or the scalar fallback ran; these times are the only witness, and
+  they read as if the fallback ran or as if the vector path does not shorten one CTA's walk over the row.
+- a4 is slower in every row phase at vt1, most in o (+402, busy min 307 against 15) and down (+497), the two phases
+  whose folds are deepest (S 14 and 28). a4's busy min in o is 307 us where a3's is 15: every CTA now spends time there,
+  as if the batched fold's loads or its local memory (816 B against 744) cost each CTA, not only the folding warp.
+- The F3 parts put most of a4's row-phase time in the loops (qkv 650, gate/up 1,489, down 852 at vt1), the store
+  second (gate/up 329, qkv 185). Setup and staging are small (under 80 us a phase).
+- a3 is stable across jobs: c_1 2.030 here against 2.035 in N2a, c_16 2.912 against 2.916.
+
+WHAT THIS DOES NOT ESTABLISH
+----------------------------
+Whether F2's vector path or its scalar fallback ran (same bits; the prologue times are the only witness). Which of F1
+and F2 costs a4 its 1.5 ms (they ship together). Whether the F3 stamps change a4's stamped phase times (the timed c_R
+come from unstamped launches). a4 at rag. R = 4 and 32. VRAM peak (no metric). Any card but the L40S. The 8B and 14B.
+Any acceptance or tok/s at a door.

@@ -1,0 +1,16 @@
+[metrics] the Job finished without a single sample being read
+[stage] COMPLETED 
+[9 min billed · 0.26 $]
+
+[end] COMPLETED: 0.14 h billed, 0.26 $
+
+[VRAM] no metric received. A Job launched with --detach and observed afterwards
+       has none: the stream is live and the endpoint 500s once the Job is done.
+[logs interrupted: peer closed connection without sending complete message body (incomplete chunked read)]
+Fatal Python error: _enter_buffered_busy: could not acquire lock for <_io.BufferedWriter name='<stdout>'> at interpreter shutdown, possibly due to daemon threads
+Python runtime state: finalizing (tstate=0x0000000104948df0)
+
+Current thread 0x00000001f54e6180 (most recent call first):
+  <no Python frame>
+
+Extension modules: yaml._yaml (total: 1)
