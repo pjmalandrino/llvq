@@ -139,7 +139,7 @@ speed above their intervals, rag's tree below its chain), the others hold.
 READING (not part of the decision; *computed* from the tables above)
 -------
 - Without the drafter's time the loop would run at x1.68 (chat) to x3.58 (rag) of greedy with the chain, and x1.97 to
-  x3.53 with the tree: the drafter takes 34 to 39 % of the loop's wall.
+  x3.53 with the tree: the drafter takes 37 to 40 % of the loop's wall.
 - The tree beats the chain on chat, code and math, by 0.5 to 1.1 accepted tokens a pass; on rag the chain accepts more
   (7.22 against 5.80), on a prompt whose answer quotes its context.
 
