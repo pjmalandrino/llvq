@@ -1993,6 +1993,73 @@ pub fn p4t_a10_symbol(form: u32) -> Result<&'static str, String> {
     })
 }
 
+/// The module text of arm a11 (`pers_4et_a11.cu`, a10 with the L2 prefetch
+/// in its wait gaps), after [`p4t_a10_unit_text`], which keeps its bytes.
+pub fn p4t_a11_unit_text(tile_define: &str) -> String {
+    format!("#define P4T_A11 1\n{}\n{}", p4t_a10_unit_text(tile_define), P4T_A11_PART.1)
+}
+
+/// The a11 symbol for a RoPE form.
+pub fn p4t_a11_symbol(form: u32) -> Result<&'static str, String> {
+    Ok(match form {
+        0 => "pers_4et_a11_f0_t512",
+        1 => "pers_4et_a11_f1_t512",
+        2 => "pers_4et_a11_f2_t512",
+        _ => return Err(format!("tree verify: no a11 kernel for RoPE form {form}")),
+    })
+}
+
+/// `pers_4et_a11.cu`, embedded so the Mac hashes what the card compiles.
+pub const P4T_A11_PART: (&str, &str) = ("pers_4et_a11.cu", include_str!("../kernels/pers_4et_a11.cu"));
+
+/// What a11 prefetches into L2 for one layer, per row phase (q/k/v, o,
+/// gate/up, down with `int4_down` or Tetra): the phase's bytes in all and the
+/// most one CTA asks in its gap, the tree-tiled streams of the units
+/// `pers_4et.cu`'s deal gives it (16-row tiles, 48-column sub-steps of 192
+/// bytes Tetra and 384 int4; whole lines, a stream rounded up to 128 bytes
+/// at each end). A model of the 4B's kinds: q, k, gate, up Tetra; v, o int4.
+#[allow(clippy::too_many_arguments)]
+pub fn p4t_prefetch_volume(splits: [u32; 5], hidden: u32, inter: u32, d_ctx: u32, n_kv: u32, int4_down: bool, nw: u32, grid: u32) -> [(u64, u64); 4] {
+    // (d_out, d_in, int4) of each projection of a phase
+    let dkv = n_kv * 128;
+    let phases: [Vec<(u32, u32, bool)>; 4] = [
+        vec![(d_ctx, hidden, false), (dkv, hidden, false), (dkv, hidden, true)],
+        vec![(hidden, d_ctx, true)],
+        vec![(inter, hidden, false), (inter, hidden, false)],
+        vec![(hidden, inter, int4_down)],
+    ];
+    let mut out = [(0u64, 0u64); 4];
+    for (i, segs) in phases.iter().enumerate() {
+        let s = splits[[0usize, 1, 2, 3][i]];
+        let mut per_cta = vec![0u64; grid as usize];
+        let mut total = 0u64;
+        let mut before = 0u32;
+        for &(d_out, d_in, int4) in segs {
+            let (ntiles, nsub, sw) = (d_out / 16, d_in.div_ceil(48), if int4 { 384u64 } else { 192 });
+            let nb = ntiles.div_ceil(nw);
+            for lu in 0..nb * s {
+                let (sl, blk) = (lu % s, lu / s);
+                let (lo, hi) = ((sl * nsub / s) as u64, ((sl + 1) * nsub / s) as u64);
+                let cta = ((before + lu) % grid) as usize;
+                for w in 0..nw {
+                    let tile = (blk * nw + w) as u64;
+                    if tile >= ntiles as u64 || hi == lo {
+                        continue;
+                    }
+                    let a = (tile * nsub as u64 + lo) * sw;
+                    let b = a + (hi - lo) * sw;
+                    let lines = (b.div_ceil(128) - a / 128) * 128;
+                    per_cta[cta] += lines;
+                    total += lines;
+                }
+            }
+            before += nb * s;
+        }
+        out[i] = (total, per_cta.into_iter().max().unwrap_or(0));
+    }
+    out
+}
+
 /// `pers_4et_a10.cu`, embedded so the Mac hashes what the card compiles.
 pub const P4T_A10_PART: (&str, &str) = ("pers_4et_a10.cu", include_str!("../kernels/pers_4et_a10.cu"));
 
@@ -3270,6 +3337,50 @@ mod tests {
             let off = (area - 2 * P4T_RMAX - 1840) & !3;
             eprintln!("area {area} floats at {nw} warps: the staged rotation at {off}, the prologue needs 9728");
             assert!(off >= 9728);
+        }
+    }
+
+    #[test]
+    fn the_a11_pass_is_a10s_with_prefetches_in_its_gaps() {
+        // a11's pass is a10's with prefetch calls inside wait gaps only: the
+        // same waits, and every a10 line outside the five rewritten sites kept
+        let src = P4T_A10_PART.1;
+        let c = src.find("template <int FORM>\n__device__ __forceinline__ void pers_4et_a10_body(").unwrap();
+        let end = "#undef P4T_WAIT\n}\n";
+        let d = c + src[c..].find(end).unwrap() + end.len();
+        let a10 = &src[c..d];
+        let a11s = P4T_A11_PART.1;
+        let e = a11s.find("template <int FORM>\n__device__ __forceinline__ void pers_4et_a11_body(").unwrap();
+        let f = e + a11s[e..].find(end).unwrap() + end.len();
+        let a11 = &a11s[e..f];
+        let waits = |t: &str| t.matches("P4T_WAIT();").count() + t.matches("P4T_WAIT_GAP(").count();
+        assert_eq!(waits(a10), waits(a11), "a11 keeps a10's waits");
+        assert_eq!(a11.matches("p4t_pf11_").count(), 5, "five prefetch calls");
+        for line in a11.lines().filter(|l| l.contains("p4t_pf11_")) {
+            assert!(!line.trim_start().starts_with("p4t_pf11_") || line.contains("));"), "a prefetch outside a gap: {line}");
+        }
+        let mut at = 0usize;
+        for line in a10.lines().filter(|l| !l.contains("pers_4et_a10_body(") && !l.contains("P4T_WAIT") && !l.contains("p4t_attention(") && !l.contains("pers_v7_stage_rot(v7a10, M.signs_i") && !l.contains("p4t_v7_zero_signs_a10") && !l.trim().starts_with("});")) {
+            let i = a11[at..].find(line).unwrap_or_else(|| panic!("a10's line {line:?} missing or out of order in a11's pass"));
+            at += i + line.len();
+        }
+        let t = p4t_a11_unit_text(SERVED_DEFINES_SM89);
+        assert!(t.contains(&p4t_a10_unit_text(SERVED_DEFINES_SM89)));
+        for f in 0..3 {
+            assert_eq!(t.matches(p4t_a11_symbol(f).unwrap()).count(), 1);
+        }
+        eprintln!("tree module a11 at SERVED_DEFINES_SM89: {} bytes, sha256 {}", t.len(), crate::sha256::sha256_hex(t.as_bytes()));
+        // the volumes at the 4B, plan [5, 14, 5, 28, 5], 142 CTAs of 16 warps
+        for int4_down in [false, true] {
+            let v = p4t_prefetch_volume([5, 14, 5, 28, 5], 2560, 9728, 4096, 8, int4_down, 16, 142);
+            let total: u64 = v.iter().map(|x| x.0).sum();
+            eprintln!(
+                "4B, {} down: q/k/v {:.2} MB (a CTA at most {:.1} KB), o {:.2} MB ({:.1} KB), gate/up {:.2} MB ({:.1} KB), down {:.2} MB ({:.1} KB); a layer {:.2} MB of the L40S's 96 MB L2",
+                if int4_down { "int4" } else { "Tetra" },
+                v[0].0 as f64 / 1e6, v[0].1 as f64 / 1e3, v[1].0 as f64 / 1e6, v[1].1 as f64 / 1e3,
+                v[2].0 as f64 / 1e6, v[2].1 as f64 / 1e3, v[3].0 as f64 / 1e6, v[3].1 as f64 / 1e3, total as f64 / 1e6
+            );
+            assert!(total < 96_000_000);
         }
     }
 

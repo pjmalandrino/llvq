@@ -1237,3 +1237,39 @@ fn a10_mutants_are_killed() {
     }
     eprintln!("a10 mutants: {killed} of {} killed", muts.len());
 }
+
+// ---- arm a11: a10 with the L2 prefetch in its wait gaps ----
+
+/// a11 equals a10 bit for bit at R = 1, 8, 32 under both stream plans, and
+/// on the 8B's parts (its Tetra o's stream prefetched too).
+#[test]
+#[cfg_attr(debug_assertions, ignore)]
+fn a11_rows_equal_a10_rows() {
+    let t = tree(32, 7, 0x401);
+    for split in [SPLIT_N2, SPLIT_N2B] {
+        let n = gate_pair(host(), host(), &Fix { split, ..FIX }, 524288, 131072, &t, &[1, 8, 32], 9).unwrap();
+        eprintln!("split {split:?}: {n} rows, a11 equals a10 bit for bit");
+    }
+    let t = tree(12, 4, 0x402);
+    let f = Fix { form: 2, variant: 16, cap: 288, split: SPLIT_N2B, ..FIX };
+    let n = gate_pair(host(), host(), &f, 524288, 131072, &t, &[1, 5], 254).unwrap();
+    eprintln!("8B's parts, form 2: {n} rows, a11 equals a10 bit for bit");
+}
+
+/// The prefetch is compiled in the twin and its ranges read there: a tile
+/// offset scaled far past the copies faults.
+#[test]
+#[cfg_attr(debug_assertions, ignore)]
+fn a11_prefetch_mutant_is_killed() {
+    let t = tree(12, 4, 0x403);
+    let f = Fix { split: SPLIT_N2B, ..FIX };
+    gate_pair(host(), host(), &f, 524288, 131072, &t, &[1, 9], 9).expect("the unmutated a11 pass passes its gate");
+    let k = "llvq-cuda/kernels/pers_4et_a11.cu";
+    let b = mutant("pf11_range", &[(k, "const u32* p = g.w + ((unsigned long long)tile * nsub + sub_lo) * SW;", "const u32* p = g.w + ((unsigned long long)tile * nsub * 1048576ull + sub_lo) * SW;")]);
+    let r = gate_pair(&b, host(), &f, 524288, 131072, &t, &[1, 9], 9);
+    let _ = std::fs::remove_file(&b);
+    match r {
+        Err(e) => eprintln!("pf11_range: killed by {}", e.lines().next().unwrap_or("")),
+        Ok(_) => panic!("a11 mutant pf11_range survived its gate"),
+    }
+}

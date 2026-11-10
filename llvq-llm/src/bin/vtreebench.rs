@@ -3,7 +3,7 @@
 //! the card, for each arm of the pass.
 //!
 //! Usage: `LLVQ_CONFIG=<served v9 config> vtreebench <sealed> [arms]`, arms a
-//! comma-separated list of `a0` .. `a10`, `a3f`, `a3p`, `a3t` (default `a0,a1,a2`):
+//! comma-separated list of `a0` .. `a11`, `a3f`, `a3p`, `a3t` (default `a0,a1,a2`):
 //!
 //! * a0: S1's kernel and S1's slices (`pers::p4t_splits`);
 //! * a1: S1's kernel, the balanced slices q/k/v 11, o 14, gate/up 7, down
@@ -38,6 +38,8 @@
 //! * a10: a9 with 4E's prologue path (vector loads, staged signs and
 //!   `small`, the unrolled shared mix) and silu(g) u in the gate/up fold
 //!   step; a9's waits and phase rows; a9 its guard.
+//! * a11: a10 with the L2 prefetch of the row phases' tree-tiled streams in
+//!   its wait gaps (4E's schedule); a10 its guard.
 //!
 //! Timing runs R = 1, 2 and 16. An arm a2 .. a7 or a3f takes an explicit plan, `a4@5.7.5.16.5` (S of q/k/v, o,
 //! gate/up, down, head), refused at install when an S is outside 1..=32 or
@@ -120,6 +122,7 @@ fn guard_of(name: &str) -> Option<String> {
         "a4" | "a6" | "a8" | "a9" => "a3",
         "a5" => "a4",
         "a10" => "a9",
+        "a11" => "a10",
         "a7" => "a6",
         _ => return None,
     };
@@ -144,7 +147,7 @@ fn parse_arms(want: &[String]) -> Result<Vec<ArmAsk>, String> {
                 (b, Some(arr))
             }
         };
-        if !matches!(base, "a0" | "a1" | "a2" | "a3" | "a4" | "a5" | "a6" | "a7" | "a8" | "a9" | "a10" | "a3f" | "a3p" | "a3t") {
+        if !matches!(base, "a0" | "a1" | "a2" | "a3" | "a4" | "a5" | "a6" | "a7" | "a8" | "a9" | "a10" | "a11" | "a3f" | "a3p" | "a3t") {
             return Err(format!("unknown arm {w:?}"));
         }
         if plan.is_some() && matches!(base, "a0" | "a1") {
@@ -203,7 +206,7 @@ fn run() -> anyhow::Result<()> {
     use llvq_llm::boundary::median_range;
     use llvq_llm::chatfmt::{open_assistant, turn, Marks};
     let a: Vec<String> = std::env::args().skip(1).collect();
-    let usage = "usage: LLVQ_CONFIG=<served v9 config> vtreebench <sealed> [arm,arm,...], an arm a0 .. a10, a3f, a3p or a3t, \
+    let usage = "usage: LLVQ_CONFIG=<served v9 config> vtreebench <sealed> [arm,arm,...], an arm a0 .. a11, a3f, a3p or a3t, \
                  every arm but a0 and a1 optionally with an explicit plan arm@qkv.o.gateup.down.head (e.g. a4@5.7.5.16.5)";
     let path = a.first().ok_or_else(|| anyhow::anyhow!("{usage}"))?.clone();
     let want_arms: Vec<String> = a.get(1).map_or("a0,a1,a2", |s| s.as_str()).split(',').map(str::to_string).collect();
@@ -224,6 +227,7 @@ fn run() -> anyhow::Result<()> {
                 "a8" => TreeForm::A8,
                 "a9" => TreeForm::A9,
                 "a10" => TreeForm::A10,
+                "a11" => TreeForm::A11,
                 "a3p" => TreeForm::A3p,
                 "a3t" => TreeForm::A3t,
                 _ => TreeForm::A3f,
@@ -514,7 +518,7 @@ fn run() -> anyhow::Result<()> {
             for r in [1usize, 16] {
                 let (ts, d, p) = tree_of(r);
                 // a9 has its own waits (a fold step after each row phase) and phase names
-                let a9 = matches!(arms[k].form, TreeForm::A9 | TreeForm::A10);
+                let a9 = matches!(arms[k].form, TreeForm::A9 | TreeForm::A10 | TreeForm::A11);
                 let names: Vec<&str> = if a9 { P4T_PHASES_A9.to_vec() } else { P4T_PHASES.to_vec() };
                 let mut per = vec![[Vec::new(), Vec::new(), Vec::new(), Vec::new()]; names.len()];
                 let mut parts = vec![[Vec::new(), Vec::new(), Vec::new(), Vec::new()]; P4T_ROW_PHASES.len()];
