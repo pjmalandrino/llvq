@@ -35,7 +35,7 @@ DRY=${DRY_RUN:-0}
 P4E_V9_SHA=1b422b62328be6752df4add43280565fd2a49cfa20ee26953b301abe7a15c530
 TIMEOUT=${TIMEOUT:-25m}
 ARMS=${ARMS:-a2,a3,a4}
-case "$ARMS" in a2,a3,a4|a2,a3) ;; *) echo "refused: ARMS=$ARMS (a2,a3,a4 or a2,a3: a2 is a3's guard, a3 is a4's)" >&2; exit 1;; esac
+case "$ARMS" in a2,a3,a4|a2,a3|a3,a4) ;; *) echo "refused: ARMS=$ARMS (a2,a3,a4, a2,a3 or a3,a4: a2 is a3's guard, a3 is a4's)" >&2; exit 1;; esac
 FLAVOR=${FLAVOR:-l40sx1}
 case "$FLAVOR" in
   l40sx1) FLAVOR_ARGS=(); DEV_PRE='' ;;
@@ -104,15 +104,17 @@ set -e
 date -u
 echo "vtreebench exit $rc" | tee "$O/summary.txt"
 grep -E '^4E: persistent module|^4E tree|^arm a[2-4]:|^== tree|^  (a[2-4] (vt1 against|identity|an extra row|vt(1|16) phases|guard)|a[2-4] against|4E, one|timed passes|a[2-4] +[0-9]+ +[0-9.]+ \[)|^  (chat|rag) a[2-4]:' "$O/vtree-4b.txt" | tee -a "$O/summary.txt"
+# the phase tables, and the F3 parts tables of the arms that print one (setup, staging, loops, store a row phase)
+grep -E '^  a[2-4] vt(1|16) ' "$O/vtree-4b.txt" | tee -a "$O/summary.txt" || true
 tail -3 "$O/vtree-4b.txt"
 # control 2: 4E is the served v9 module (its one-token launches are checked against its greedy tokens inside)
 grep -qF "4E: persistent module 252757 bytes, sha256 $P4E_V9_SHA, row form 7," "$O/vtree-4b.txt" \
   && echo "control 2: the served 4E v9 module" | tee -a "$O/summary.txt" \
   || echo "VOID: control 2, the 4E module is not the served v9 module" | tee -a "$O/summary.txt"
 grep -E '^4E tree[a-z0-9 ]*: pers_4et_[a-z0-9]+_f[0-9]_t512: [0-9]+ registers, [0-9]+ B local' "$O/vtree-4b.txt" | tee -a "$O/summary.txt" || true
-grep -q '^  a3 guard against a2 .*: PASSES' "$O/vtree-4b.txt" \
+case "$ARMS" in *a2*) grep -q '^  a3 guard against a2 .*: PASSES' "$O/vtree-4b.txt" \
   && echo "guard: a3 equals a2 bit for bit on the chat 32-row pass" | tee -a "$O/summary.txt" \
-  || echo "VOID: a3's guard against a2 did not pass; a3's numbers are void" | tee -a "$O/summary.txt"
+  || echo "VOID: a3's guard against a2 did not pass; a3's numbers are void" | tee -a "$O/summary.txt" ;; esac
 case "$ARMS" in *a4*) grep -q '^  a4 guard against a3 .*: PASSES' "$O/vtree-4b.txt" \
   && echo "guard: a4 equals a3 bit for bit on the chat 32-row pass" | tee -a "$O/summary.txt" \
   || echo "VOID: a4's guard against a3 did not pass; a4's numbers are void" | tee -a "$O/summary.txt" ;; esac
