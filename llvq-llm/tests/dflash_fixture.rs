@@ -41,3 +41,73 @@ fn drafter_matches_mlx_reference() {
     assert!(rep.hidden_rel < 1e-4, "{rep}");
     assert!(rep.table_abs < 1e-6, "{rep}");
 }
+
+/// The same fixture through the loop's `Drafter` contract: binary16 taps
+/// delivered incrementally, the root last in `tokens`. The fixture's taps are
+/// f16 values cast to f32 (the MLX door runs in f16), so the binary16 path
+/// sees the same numbers and must return the same chain and tree.
+#[test]
+#[ignore = "needs the fixture, the packed 4B table and the drafter's 1 GB of weights"]
+fn adapter_matches_mlx_reference() {
+    use llvq_llm::dflash_spec::spec::{DraftInput, Drafter};
+    use llvq_llm::dflash_spec::{DFlashSpec, Shape};
+    let fixture = home("llvq-dflash-fixture-2026-11-10.safetensors");
+    assert!(fixture.exists(), "missing {}: run ops/dflash_fixture.py", fixture.display());
+    let packed = home("q4b-hf-2026-09-28");
+    assert!(packed.join("model.safetensors").exists(), "missing {}", packed.display());
+    let dir = dflash::cached_snapshot()
+        .unwrap_or_else(|| panic!("missing {}@{} in the Hugging Face cache", dflash::REPO, dflash::REVISION));
+    let dev = Device::Cpu;
+    let fx = candle_core::safetensors::load(&fixture, &dev).unwrap();
+    let get = |k: String| fx.get(&k).unwrap_or_else(|| panic!("fixture: no {k}")).clone();
+    let vocab = dflash::vocab_from_packed(&packed, &dev, DType::F32).unwrap();
+    let hidden = vocab.table.dim(1).unwrap();
+    for shape in [Shape::Chain(15), Shape::Tree(15)] {
+        for p in 0..2 {
+            let mut s = DFlashSpec::new(
+                DFlashDrafter::load(&dir, &dev, DType::F32).unwrap(),
+                Box::new(dflash::DenseVocab { table: vocab.table.clone() }),
+                shape,
+            )
+            .unwrap();
+            let ids = get(format!("p{p}.ids")).to_dtype(DType::U32).unwrap().to_vec1::<u32>().unwrap();
+            let taps = get(format!("p{p}.taps")).to_dtype(DType::F16).unwrap();
+            let f32_back = taps.to_dtype(DType::F32).unwrap().flatten_all().unwrap().to_vec1::<f32>().unwrap();
+            let orig = get(format!("p{p}.taps")).flatten_all().unwrap().to_vec1::<f32>().unwrap();
+            assert_eq!(f32_back, orig, "the fixture's taps are not binary16 values");
+            let bits: Vec<u16> =
+                taps.flatten_all().unwrap().to_vec1::<half::f16>().unwrap().iter().map(|x| x.to_bits()).collect();
+            let w = 5 * hidden;
+            let mut done = 0;
+            for r in 0..3 {
+                let m = get(format!("p{p}.r{r}.m")).to_dtype(DType::U32).unwrap().to_vec1::<u32>().unwrap()[0] as usize;
+                let nodes = s.draft(&DraftInput {
+                    ctx_len: m,
+                    tokens: &ids[..=m],
+                    new_taps: &bits[done * w..m * w],
+                    hidden,
+                });
+                done = m;
+                assert!(s.last_error.is_none(), "{:?}", s.last_error);
+                let want: Vec<(u32, u8)> = match shape {
+                    Shape::Chain(_) => get(format!("p{p}.r{r}.argmax"))
+                        .to_dtype(DType::U32)
+                        .unwrap()
+                        .to_vec1::<u32>()
+                        .unwrap()
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, t)| (t, i as u8))
+                        .collect(),
+                    Shape::Tree(_) => {
+                        let t = get(format!("p{p}.r{r}.tree_tok")).to_dtype(DType::U32).unwrap().to_vec1::<u32>().unwrap();
+                        let q = get(format!("p{p}.r{r}.tree_parent")).to_dtype(DType::I64).unwrap().to_vec1::<i64>().unwrap();
+                        t.into_iter().zip(q).map(|(t, q)| (t, (q + 1) as u8)).collect()
+                    }
+                };
+                assert_eq!(nodes, want, "prompt {p} round {r} {shape:?}");
+            }
+            assert_eq!(s.skipped, 0);
+        }
+    }
+}
