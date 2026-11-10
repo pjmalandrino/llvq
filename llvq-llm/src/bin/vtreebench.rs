@@ -57,6 +57,8 @@
 //! and prints its symbols' registers, local and shared bytes, then exits:
 //! no model, no LLVQ_CONFIG.
 //!
+//! * a10t384, a10t256: a10 at 12 or 8 warps a CTA (its own area, slice cap
+//!   and plan at that warp count, launched at its threads); a10 their guard.
 //! * a10r8, a10r16: a10 for at most 8 or 16 rows a launch (fewer
 //!   accumulators); a10 their guard on the common rows; R past the cap is
 //!   neither timed nor checked.
@@ -116,11 +118,14 @@ const BALANCED: [u32; 5] = [11, 14, 7, 14, 1];
 
 /// An arm's module text and its symbol at each RoPE form, at a tile define.
 #[cfg(all(target_os = "linux", feature = "cuda"))]
-fn module_of(base: &str, define: &str) -> anyhow::Result<(String, [&'static str; 3])> {
+fn module_of(base: &str, define: &str) -> anyhow::Result<(String, [&'static str; 3], u32)> {
     use llvq_cuda::pers as p;
     let e = anyhow::Error::msg;
     let syms = |f: &dyn Fn(u32) -> Result<&'static str, String>| -> anyhow::Result<[&'static str; 3]> { Ok([f(0).map_err(e)?, f(1).map_err(e)?, f(2).map_err(e)?]) };
-    Ok(match base {
+    if let Some(t) = base.strip_prefix("a10t").and_then(|x| x.parse::<u32>().ok()) {
+        return Ok((p::p4t_a10t_unit_text(define, t), syms(&|f| p::p4t_a10t_symbol(t, f))?, t));
+    }
+    let (text, s) = match base {
         "a0" | "a1" => (p::p4t_unit_text(define), syms(&p::p4t_symbol)?),
         "a2" => (p::p4t_tiled_unit_text(define), syms(&p::p4t_tiled_symbol)?),
         "a3" => (p::p4t_stream_unit_text(define), syms(&p::p4t_stream_symbol)?),
@@ -135,7 +140,8 @@ fn module_of(base: &str, define: &str) -> anyhow::Result<(String, [&'static str;
         "a10r8" => (p::p4t_a10rc_unit_text(define, 8), syms(&|f| p::p4t_a10rc_symbol(8, f))?),
         "a10r16" => (p::p4t_a10rc_unit_text(define, 16), syms(&|f| p::p4t_a10rc_symbol(16, f))?),
         other => anyhow::bail!("vtreebench --res: no module for arm {other}"),
-    })
+    };
+    Ok((text, s, 512))
 }
 
 /// `vtreebench --res <arms>`: each named arm's module (plan suffixes ignored)
@@ -152,15 +158,15 @@ fn res_only(list: &str) -> anyhow::Result<()> {
     let probe = Cuda::new(&KernelSource::new(&["extern \"C\" __global__ void p4t_res_probe() {}"])).map_err(anyhow::Error::msg)?;
     let dev = probe.device().map_err(anyhow::Error::msg)?;
     let define = llvq_cuda::tile::resolve(dev.compute_cap).define();
-    let smem = p::SMEM_HEADER + p::TABLE_BYTES + 4 * p::p4t_area_floats(16, 32, 9728, 4);
-    println!("res: {} (sm_{}{}), tile define {:?}, dynamic shared {smem} B (the 4B's widths, 32 rows)", dev.name, dev.compute_cap.0, dev.compute_cap.1, define.trim());
+    println!("res: {} (sm_{}{}), tile define {:?}, dynamic shared at the 4B's widths and 32 rows", dev.name, dev.compute_cap.0, dev.compute_cap.1, define.trim());
     let mut seen: Vec<String> = Vec::new();
     for x in arms.iter().filter(|x| !x.guard_only) {
         if seen.contains(&x.base) {
             continue;
         }
         seen.push(x.base.clone());
-        let (text, syms) = module_of(&x.base, &define)?;
+        let (text, syms, threads) = module_of(&x.base, &define)?;
+        let smem = p::SMEM_HEADER + p::TABLE_BYTES + 4 * p::p4t_area_floats(threads / 32, 32, 9728, 4);
         let src = KernelSource::new(&[text.as_str()]);
         println!("res {}: module {} bytes, sha256 {}", x.base, src.text.len(), src.sha256);
         let cuda = match Cuda::new(&src) {
@@ -173,8 +179,8 @@ fn res_only(list: &str) -> anyhow::Result<()> {
         for sym in syms {
             match (cuda.report(sym), cuda.func_dynamic_shared(sym, smem)) {
                 (Ok(r), Ok(f)) => {
-                    let occ = f.occupancy_max_active_blocks_per_multiprocessor(512, smem as usize, None).map(|o| o.to_string()).unwrap_or_else(|e| format!("? ({e})"));
-                    println!("res {}: {sym}: {} registers, {} B local, {} B static shared, {occ} CTA a SM at 512 threads and {smem} B", x.base, r.num_regs, r.local_bytes, r.shared_bytes);
+                    let occ = f.occupancy_max_active_blocks_per_multiprocessor(threads, smem as usize, None).map(|o| o.to_string()).unwrap_or_else(|e| format!("? ({e})"));
+                    println!("res {}: {sym}: {} registers, {} B local, {} B static shared, {occ} CTA a SM at {threads} threads and {smem} B", x.base, r.num_regs, r.local_bytes, r.shared_bytes);
                 }
                 (Err(e1), _) | (_, Err(e1)) => println!("res {}: {sym}: {e1}", x.base),
             }
@@ -203,7 +209,7 @@ fn guard_of(name: &str) -> Option<String> {
         "a4" | "a6" | "a8" | "a9" => "a3",
         "a5" => "a4",
         "a10" => "a9",
-        "a11" | "a10r8" | "a10r16" => "a10",
+        "a11" | "a10r8" | "a10r16" | "a10t384" | "a10t256" => "a10",
         "a11i" => "a11",
         "a7" => "a6",
         _ => return None,
@@ -229,7 +235,7 @@ fn parse_arms(want: &[String]) -> Result<Vec<ArmAsk>, String> {
                 (b, Some(arr))
             }
         };
-        if !matches!(base, "a0" | "a1" | "a2" | "a3" | "a4" | "a5" | "a6" | "a7" | "a8" | "a9" | "a10" | "a11" | "a11i" | "a10r8" | "a10r16" | "a3f" | "a3p" | "a3t") {
+        if !matches!(base, "a0" | "a1" | "a2" | "a3" | "a4" | "a5" | "a6" | "a7" | "a8" | "a9" | "a10" | "a11" | "a11i" | "a10r8" | "a10r16" | "a10t384" | "a10t256" | "a3f" | "a3p" | "a3t") {
             return Err(format!("unknown arm {w:?}"));
         }
         if plan.is_some() && matches!(base, "a0" | "a1") {
@@ -297,7 +303,7 @@ fn run() -> anyhow::Result<()> {
         let list = a.get(1).ok_or_else(|| anyhow::anyhow!("usage: vtreebench --res <arm,arm,...>"))?;
         return res_only(list);
     }
-    let usage = "usage: LLVQ_CONFIG=<served v9 config> vtreebench <sealed> [arm,arm,...], an arm a0 .. a11, a3f, a3p or a3t, \
+    let usage = "usage: LLVQ_CONFIG=<served v9 config> vtreebench <sealed> [arm,arm,...], an arm a0 .. a11, a10r8, a10r16, a10t384, a10t256, a3f, a3p or a3t, \
                  every arm but a0 and a1 optionally with an explicit plan arm@qkv.o.gateup.down.head (e.g. a4@5.7.5.16.5)";
     let path = a.first().ok_or_else(|| anyhow::anyhow!("{usage}"))?.clone();
     let want_arms: Vec<String> = a.get(1).map_or("a0,a1,a2", |s| s.as_str()).split(',').map(str::to_string).collect();
@@ -322,6 +328,8 @@ fn run() -> anyhow::Result<()> {
                 "a11i" => TreeForm::A11i,
                 "a10r8" => TreeForm::A10r8,
                 "a10r16" => TreeForm::A10r16,
+                "a10t384" => TreeForm::A10t384,
+                "a10t256" => TreeForm::A10t256,
                 "a3p" => TreeForm::A3p,
                 "a3t" => TreeForm::A3t,
                 _ => TreeForm::A3f,
@@ -627,7 +635,7 @@ fn run() -> anyhow::Result<()> {
             for r in [1usize, (arms[k].form.rmax() as usize).min(16)] {
                 let (ts, d, p) = tree_of(r);
                 // a9 has its own waits (a fold step after each row phase) and phase names
-                let a9 = matches!(arms[k].form, TreeForm::A9 | TreeForm::A10 | TreeForm::A11 | TreeForm::A11i | TreeForm::A10r8 | TreeForm::A10r16);
+                let a9 = matches!(arms[k].form, TreeForm::A9 | TreeForm::A10 | TreeForm::A11 | TreeForm::A11i | TreeForm::A10r8 | TreeForm::A10r16 | TreeForm::A10t384 | TreeForm::A10t256);
                 let mut iparts: Vec<[[[f64; 3]; 6]; 5]> = Vec::new();
                 let mut classes: Vec<([[f64; 2]; 3], [f64; 4])> = Vec::new();
                 let names: Vec<&str> = if a9 { P4T_PHASES_A9.to_vec() } else { P4T_PHASES.to_vec() };

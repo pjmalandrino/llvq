@@ -1318,3 +1318,45 @@ fn a_row_cap_arm_refuses_rows_past_its_cap() {
         assert!(e.contains("aborted"), "variant {v}, {r} rows: {e}");
     }
 }
+
+// ---- arms a10t384 and a10t256: a10 at 12 and 8 warps a CTA ----
+
+/// a10 at `threads` (variant `v`) against a10 at 64 threads (variant 131072),
+/// the same slices: every row equal.
+fn gate_threads(f: &Fix, threads: u32, v: u32, t: &Tree, sizes: &[usize], pos0: u32) -> Result<usize, String> {
+    let passes: Vec<Pass> =
+        sizes.iter().enumerate().map(|(i, &s)| Pass::of(t, &t.subset(s, 0x6300 + i as u64), pos0, 0x7900 + i as u64)).collect();
+    let u = exec(host(), &Fix { variant: 131072, ..*f }, None, &passes)?;
+    let w = exec(host(), &Fix { variant: v, threads, ..*f }, None, &passes)?;
+    let mut rows = 0;
+    for (pi, (a, b)) in u.passes.iter().zip(&w.passes).enumerate() {
+        for (s, (ra, rb)) in a.iter().zip(b).enumerate() {
+            rows += 1;
+            if let Some(what) = diff(rb, ra) {
+                return Err(format!("{threads} threads against 64, split {:?}, pass {pi} ({} rows), slot {s}: {what}", f.split, a.len()));
+            }
+        }
+    }
+    Ok(rows)
+}
+
+/// a10t384 and a10t256 equal a10 bit for bit at R = 1, 8, 32 under two
+/// plans whose slices fit the stream cap at 12, 8 and 2 warps.
+#[test]
+#[cfg_attr(debug_assertions, ignore)]
+fn thread_count_rows_equal_a10_rows() {
+    let t = tree(32, 7, 0x406);
+    let plans = [[5u32, 8, 5, 19, 5], [6, 9, 6, 17, 6]];
+    for (threads, v) in [(384u32, 8388608u32), (256, 16777216)] {
+        for nw in [threads / 32, 2] {
+            let cap = pers::p4t_stream_cap(pers::p4t_area_floats(nw, 32, 9728, 4), nw);
+            for split in plans {
+                assert!(split.iter().zip([2560u32, 4096, 2560, 9728, 2560]).all(|(&s, d)| pers::p4t_slice_steps(d, s) <= cap), "{split:?} at {nw} warps");
+            }
+        }
+        for split in plans {
+            let n = gate_threads(&Fix { split, ..FIX }, threads, v, &t, &[1, 8, 32], 9).unwrap();
+            eprintln!("{threads} threads, split {split:?}: {n} rows, equal to a10 at 64 threads bit for bit");
+        }
+    }
+}

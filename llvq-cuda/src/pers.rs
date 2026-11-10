@@ -2135,6 +2135,29 @@ pub fn p4t_a10rc_symbol(rows: u32, form: u32) -> Result<&'static str, String> {
 /// `pers_4et_a10rc.cu`, embedded so the Mac hashes what the card compiles.
 pub const P4T_A10RC_PART: (&str, &str) = ("pers_4et_a10rc.cu", include_str!("../kernels/pers_4et_a10rc.cu"));
 
+/// The module text of the thread-count arms a10t384 and a10t256
+/// (`pers_4et_a10t.cu`: a10's pass under `__launch_bounds__(threads, 1)`),
+/// after [`p4t_a10_unit_text`], which keeps its bytes. `threads` 384 or 256.
+pub fn p4t_a10t_unit_text(tile_define: &str, threads: u32) -> String {
+    format!("#define P4T_A10T {threads}\n{}\n{}", p4t_a10_unit_text(tile_define), P4T_A10T_PART.1)
+}
+
+/// The thread-count arms' symbols.
+pub fn p4t_a10t_symbol(threads: u32, form: u32) -> Result<&'static str, String> {
+    Ok(match (threads, form) {
+        (384, 0) => "pers_4et_a10_f0_t384",
+        (384, 1) => "pers_4et_a10_f1_t384",
+        (384, 2) => "pers_4et_a10_f2_t384",
+        (256, 0) => "pers_4et_a10_f0_t256",
+        (256, 1) => "pers_4et_a10_f1_t256",
+        (256, 2) => "pers_4et_a10_f2_t256",
+        _ => return Err(format!("tree verify: no a10 kernel at {threads} threads and RoPE form {form}")),
+    })
+}
+
+/// `pers_4et_a10t.cu`, embedded so the Mac hashes what the card compiles.
+pub const P4T_A10T_PART: (&str, &str) = ("pers_4et_a10t.cu", include_str!("../kernels/pers_4et_a10t.cu"));
+
 /// `pers_4et_a11.cu`, embedded so the Mac hashes what the card compiles.
 pub const P4T_A11_PART: (&str, &str) = ("pers_4et_a11.cu", include_str!("../kernels/pers_4et_a11.cu"));
 
@@ -3581,6 +3604,37 @@ mod tests {
                 assert_eq!(t.matches(p4t_a10rc_symbol(rows, f).unwrap()).count(), 1);
             }
             eprintln!("tree module a10r{rows} at SERVED_DEFINES_SM89: {} bytes, sha256 {}", t.len(), crate::sha256::sha256_hex(t.as_bytes()));
+        }
+    }
+
+    #[test]
+    fn the_thread_count_arms_are_a10s_pass() {
+        // pers_4et_a10t.cu adds symbols around a10's body and nothing else
+        let t = P4T_A10T_PART.1;
+        assert_eq!(t.matches("pers_4et_a10_body<FORM_>(A, L);").count(), 1);
+        assert_eq!(t.matches("__device__").count(), 0, "no device function of its own");
+        for threads in [384u32, 256] {
+            let m = p4t_a10t_unit_text(SERVED_DEFINES_SM89, threads);
+            assert!(m.contains(&p4t_a10_unit_text(SERVED_DEFINES_SM89)));
+            for f in 0..3 {
+                assert_eq!(m.matches(p4t_a10t_symbol(threads, f).unwrap()).count(), 1);
+            }
+            // the 4B at this warp count: area, shared bytes, cap, the stream rule's plan
+            let nw = threads / 32;
+            let area = p4t_area_floats(nw, 32, 9728, 4);
+            let cap = p4t_stream_cap(area, nw);
+            let smem = SMEM_HEADER + TABLE_BYTES + 4 * area;
+            let rule = p4t_splits_stream(2560, 9728, 4096, 8, 151_936, nw, 142, cap).unwrap();
+            for (name, s) in [("[5, 14, 5, 28, 5]", [5u32, 14, 5, 28, 5]), ("the stream rule's", rule)] {
+                let p = p4t_plan(s, 2560, 9728, 4096, 8, 151_936, nw, 142);
+                let steps: Vec<u32> = s.iter().zip([2560u32, 4096, 2560, 9728, 2560]).map(|(&x, d)| p4t_slice_steps(d, x)).collect();
+                eprintln!(
+                    "4B at {threads} threads ({nw} warps): area {area} floats, {smem} B shared, cap {cap}; plan {name} {s:?}: units, waves, fill {:?}; sub-steps a slice {steps:?}",
+                    p.iter().map(|x| (x.0, x.1, (x.2 * 1000.0).round() / 10.0)).collect::<Vec<_>>()
+                );
+                assert!(steps.iter().all(|&x| x <= cap));
+            }
+            eprintln!("tree module a10t{threads} at SERVED_DEFINES_SM89: {} bytes, sha256 {}", m.len(), crate::sha256::sha256_hex(m.as_bytes()));
         }
     }
 

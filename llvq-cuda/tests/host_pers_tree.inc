@@ -182,8 +182,8 @@
     A.eps = eps; A.c = (float)((1.0 / std::sqrt(128.0)) * 1.4426950408889634);
     A.head_w = head_w.data(); A.head_s = head_s.data(); A.head_b = head_b.data();
     // ---- variant 32: the tree-tiled copies and the arguments that point at them ----
-    const u32 a6k = (variant & 1024u) ? 1u : (variant & 2048u) ? 2u : (variant & 4096u) ? 3u : (variant & 8192u) ? 4u : (variant & 16384u) ? 5u : (variant & 32768u) ? 6u : (variant & 65536u) ? 7u : (variant & 131072u) ? 8u : (variant & 524288u) ? 9u : (variant & 1048576u) ? 10u : (variant & 2097152u) ? 11u : (variant & 4194304u) ? 12u : 0u;
-    const bool a9v = (variant & (65536u | 131072u | 524288u | 1048576u | 2097152u | 4194304u)) != 0u;
+    const u32 a6k = (variant & 1024u) ? 1u : (variant & 2048u) ? 2u : (variant & 4096u) ? 3u : (variant & 8192u) ? 4u : (variant & 16384u) ? 5u : (variant & 32768u) ? 6u : (variant & 65536u) ? 7u : (variant & 131072u) ? 8u : (variant & 524288u) ? 9u : (variant & 1048576u) ? 10u : (variant & 2097152u) ? 11u : (variant & 4194304u) ? 12u : (variant & 8388608u) ? 13u : (variant & 16777216u) ? 14u : 0u;
+    const bool a9v = (variant & (65536u | 131072u | 524288u | 1048576u | 2097152u | 4194304u | 8388608u | 16777216u)) != 0u;
     const bool a11iv = (variant & 1048576u) != 0u;
     const bool a5v = (variant & 512u) != 0u || a6k != 0u;
     const bool a4v = (variant & 256u) != 0u || a5v;
@@ -288,7 +288,7 @@
     const Ft tfns[3] = {pers_4et_stream_f0_t512, pers_4et_stream_f1_t512, pers_4et_stream_f2_t512};
     const Ft tfn4[3] = {pers_4et_a4_f0_t512, pers_4et_a4_f1_t512, pers_4et_a4_f2_t512};
     const Ft tfn5[3] = {pers_4et_a5_f0_t512, pers_4et_a5_f1_t512, pers_4et_a5_f2_t512};
-    const Ft tfn6[12][3] = {{pers_4et_a6_f0_t512, pers_4et_a6_f1_t512, pers_4et_a6_f2_t512},
+    const Ft tfn6[14][3] = {{pers_4et_a6_f0_t512, pers_4et_a6_f1_t512, pers_4et_a6_f2_t512},
                            {pers_4et_a7_f0_t512, pers_4et_a7_f1_t512, pers_4et_a7_f2_t512},
                            {pers_4et_a3f_f0_t512, pers_4et_a3f_f1_t512, pers_4et_a3f_f2_t512},
                            {pers_4et_a3p_f0_t512, pers_4et_a3p_f1_t512, pers_4et_a3p_f2_t512},
@@ -299,7 +299,9 @@
                            {pers_4et_a11_f0_t512, pers_4et_a11_f1_t512, pers_4et_a11_f2_t512},
                            {pers_4et_a11i_f0_t512, pers_4et_a11i_f1_t512, pers_4et_a11i_f2_t512},
                            {pers_4et_a10r8_f0_t512, pers_4et_a10r8_f1_t512, pers_4et_a10r8_f2_t512},
-                           {pers_4et_a10r16_f0_t512, pers_4et_a10r16_f1_t512, pers_4et_a10r16_f2_t512}};
+                           {pers_4et_a10r16_f0_t512, pers_4et_a10r16_f1_t512, pers_4et_a10r16_f2_t512},
+                           {pers_4et_a10_f0_t384, pers_4et_a10_f1_t384, pers_4et_a10_f2_t384},
+                           {pers_4et_a10_f0_t256, pers_4et_a10_f1_t256, pers_4et_a10_f2_t256}};
     const u32 n_pass = rd1<u32>();
     for (u32 pi = 0; pi < n_pass; ++pi) {
         const u32 pos0 = rd1<u32>(), R = rd1<u32>();
