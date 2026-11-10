@@ -221,6 +221,9 @@ pub enum TreeForm {
     /// `pers_4et_a11_*` (`P4T_A11`): a10 with the L2 prefetch of the row
     /// phases' streams in its wait gaps (arm a11), bit for bit with a10.
     A11,
+    /// `pers_4et_a11i_*` (`P4T_A11I`): a11 with fine stamps (40 slots a CTA
+    /// after the phase events on a stamped launch), bit for bit with a11.
+    A11i,
 }
 
 /// Where an arm's d_in slices come from.
@@ -269,7 +272,7 @@ struct TreeTiled {
     /// The a5 symbol, when an a5 arm is installed.
     f5: Option<CudaFunction>,
     /// The a6, a7, a3f, a3p, a3t and a8 symbols, when such an arm is installed.
-    fx: [Option<CudaFunction>; 9],
+    fx: [Option<CudaFunction>; 10],
     _held: Vec<CudaSlice<u32>>,
     /// Each layer's q, k, v, o, gate, up and down words in the copies.
     swaps: Vec<[u64; 7]>,
@@ -1200,6 +1203,7 @@ impl Runtime4e {
                     TreeForm::A9 => "a9",
                     TreeForm::A10 => "a10",
                     TreeForm::A11 => "a11",
+                    TreeForm::A11i => "a11i (fine stamps)",
                 },
                 names
                     .iter()
@@ -1258,6 +1262,7 @@ impl Runtime4e {
             TreeForm::A9,
             TreeForm::A10,
             TreeForm::A11,
+            TreeForm::A11i,
         ]
         .map(|f| arm_v.iter().any(|a| a.form == f));
         let tiled = if want.iter().any(|&w| w) { Some(self.install_tiled(smem, threads, want)?) } else { None };
@@ -1279,6 +1284,7 @@ impl Runtime4e {
                     TreeForm::A9 => t.fx[6].is_some(),
                     TreeForm::A10 => t.fx[7].is_some(),
                     TreeForm::A11 => t.fx[8].is_some(),
+                    TreeForm::A11i => t.fx[9].is_some(),
                 };
                 if !built {
                     a.void = Some(format!("its {:?} module did not build", a.form));
@@ -1300,13 +1306,13 @@ impl Runtime4e {
     /// up, down, the head), built on the card by `p4t_tile_words` from the
     /// words 4E holds, once for both. A Tetra o is refused (no sealed file the
     /// job reads carries one).
-    fn install_tiled(&mut self, smem: u32, threads: u32, want: [bool; 13]) -> anyhow::Result<TreeTiled> {
+    fn install_tiled(&mut self, smem: u32, threads: u32, want: [bool; 14]) -> anyhow::Result<TreeTiled> {
         if self.layers_host.iter().any(|y| y.ot != 0) {
             anyhow::bail!("4E tree: the tiled and stream arms do not copy a Tetra o_proj; this model carries one");
         }
         let stream = self.cuda.stream().clone();
         let mut cudas = Vec::new();
-        let mut fns: [Option<CudaFunction>; 13] = Default::default();
+        let mut fns: [Option<CudaFunction>; 14] = Default::default();
         for (k, want) in want.into_iter().enumerate() {
             if !want {
                 continue;
@@ -1319,6 +1325,7 @@ impl Runtime4e {
                 10 => ("a9", pers::p4t_a9_unit_text(&self.tile_define), pers::p4t_a9_symbol(self.form), "P4T_A9 1 after a3's text"),
                 11 => ("a10", pers::p4t_a10_unit_text(&self.tile_define), pers::p4t_a10_symbol(self.form), "P4T_A10 1 after a9's text"),
                 12 => ("a11", pers::p4t_a11_unit_text(&self.tile_define), pers::p4t_a11_symbol(self.form), "P4T_A11 1 after a10's text"),
+                13 => ("a11i", pers::p4t_a11i_unit_text(&self.tile_define), pers::p4t_a11i_symbol(self.form), "P4T_A11I 1 after a11's text"),
                 7..=9 => {
                     let (arm, def) = match k {
                         7 => ("a3p", "P4T_A3P 1 after a3's text, a floor arm"),
@@ -1417,8 +1424,8 @@ impl Runtime4e {
         ));
         let layers = stream.clone_htod(&vec![0u8; pers::P4E_LAYER_BYTES * self.layers_host.len()]).map_err(|e| anyhow::anyhow!("H2D: {e}"))?;
         let args = stream.clone_htod(&vec![0u8; pers::P4E_ARGS_BYTES]).map_err(|e| anyhow::anyhow!("H2D: {e}"))?;
-        let [f, fs, f4, f5, f6, f7, f3f, f3p, f3t, f8, f9, f10, f11] = fns;
-        Ok(TreeTiled { _cudas: cudas, f, fs, f4, f5, fx: [f6, f7, f3f, f3p, f3t, f8, f9, f10, f11], _held: held, swaps, head, layers, args, seen: Vec::new() })
+        let [f, fs, f4, f5, f6, f7, f3f, f3p, f3t, f8, f9, f10, f11, f11i] = fns;
+        Ok(TreeTiled { _cudas: cudas, f, fs, f4, f5, fx: [f6, f7, f3f, f3p, f3t, f8, f9, f10, f11, f11i], _held: held, swaps, head, layers, args, seen: Vec::new() })
     }
 
     /// The arms installed, in the order [`Self::tree`] indexes them.
@@ -1510,10 +1517,14 @@ impl Runtime4e {
         stream.memcpy_htod(&flat, &mut v.path).map_err(|e| anyhow::anyhow!("H2D: {e}"))?;
         stream.memcpy_htod(&vec![u32::MAX; pers::P4T_RMAX as usize], &mut v.ring).map_err(|e| anyhow::anyhow!("H2D: {e}"))?;
         // a9 waits once more after each row phase: its count moves bar_base and sizes the stamps
-        let n_bar = if matches!(spec.form, TreeForm::A9 | TreeForm::A10 | TreeForm::A11) { pers::n_bar_a9(self.n_layers, v.n_ot) } else { pers::n_bar_4et(self.n_layers, v.n_ot) };
+        let n_bar = if matches!(spec.form, TreeForm::A9 | TreeForm::A10 | TreeForm::A11 | TreeForm::A11i) { pers::n_bar_a9(self.n_layers, v.n_ot) } else { pers::n_bar_4et(self.n_layers, v.n_ot) };
         let stamps: Option<CudaSlice<u64>> = if stamped {
             // an a4 launch adds its F3 slots after the phase events: 20 a CTA
-            let extra = if matches!(spec.form, TreeForm::A4 | TreeForm::A5) { 20 } else { 0 };
+            let extra = match spec.form {
+                TreeForm::A4 | TreeForm::A5 => 20,
+                TreeForm::A11i => 40,
+                _ => 0,
+            };
             Some(stream.alloc_zeros::<u64>((1 + 2 * n_bar + extra) as usize * self.grid as usize).map_err(|e| anyhow::anyhow!("alloc stamps: {e}"))?)
         } else {
             None
@@ -1570,12 +1581,13 @@ impl Runtime4e {
             (TreeForm::A6, Some(TreeTiled { fx: [Some(f), ..], args, .. })) => (f, args),
             (TreeForm::A7, Some(TreeTiled { fx: [_, Some(f), ..], args, .. })) => (f, args),
             (TreeForm::A3f, Some(TreeTiled { fx: [_, _, Some(f), ..], args, .. })) => (f, args),
-            (TreeForm::A3p, Some(TreeTiled { fx: [_, _, _, Some(f), _, _, _, _, _], args, .. })) => (f, args),
-            (TreeForm::A3t, Some(TreeTiled { fx: [_, _, _, _, Some(f), _, _, _, _], args, .. })) => (f, args),
-            (TreeForm::A8, Some(TreeTiled { fx: [_, _, _, _, _, Some(f), _, _, _], args, .. })) => (f, args),
-            (TreeForm::A9, Some(TreeTiled { fx: [_, _, _, _, _, _, Some(f), _, _], args, .. })) => (f, args),
-            (TreeForm::A10, Some(TreeTiled { fx: [_, _, _, _, _, _, _, Some(f), _], args, .. })) => (f, args),
-            (TreeForm::A11, Some(TreeTiled { fx: [.., Some(f)], args, .. })) => (f, args),
+            (TreeForm::A3p, Some(TreeTiled { fx: [_, _, _, Some(f), _, _, _, _, _, _], args, .. })) => (f, args),
+            (TreeForm::A3t, Some(TreeTiled { fx: [_, _, _, _, Some(f), _, _, _, _, _], args, .. })) => (f, args),
+            (TreeForm::A8, Some(TreeTiled { fx: [_, _, _, _, _, Some(f), _, _, _, _], args, .. })) => (f, args),
+            (TreeForm::A9, Some(TreeTiled { fx: [_, _, _, _, _, _, Some(f), _, _, _], args, .. })) => (f, args),
+            (TreeForm::A10, Some(TreeTiled { fx: [_, _, _, _, _, _, _, Some(f), _, _], args, .. })) => (f, args),
+            (TreeForm::A11, Some(TreeTiled { fx: [_, _, _, _, _, _, _, _, Some(f), _], args, .. })) => (f, args),
+            (TreeForm::A11i, Some(TreeTiled { fx: [.., Some(f)], args, .. })) => (f, args),
             (form, _) => anyhow::bail!("4E tree: arm {} is {form:?} and its module is not installed", spec.name),
         };
         let mut b = stream.launch_builder(func);

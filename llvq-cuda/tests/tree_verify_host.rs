@@ -1273,3 +1273,20 @@ fn a11_prefetch_mutant_is_killed() {
         Ok(_) => panic!("a11 mutant pf11_range survived its gate"),
     }
 }
+
+// ---- arm a11i: a11 with fine stamps ----
+
+/// a11i equals a11 bit for bit at R = 1, 8, 32 under both stream plans,
+/// unstamped and stamped (variant 64: its slots written after the events).
+#[test]
+#[cfg_attr(debug_assertions, ignore)]
+fn a11i_rows_equal_a11_rows_stamped_or_not() {
+    let t = tree(32, 7, 0x3ff);
+    for split in [SPLIT_N2, SPLIT_N2B] {
+        let f = Fix { split, ..FIX };
+        let n = gate_pair(host(), host(), &f, 1048576, 524288, &t, &[1, 8, 32], 9).unwrap();
+        eprintln!("split {split:?}: {n} rows, a11i equals a11 bit for bit");
+        let n = gate_pair(host(), host(), &Fix { variant: 64, ..f }, 1048576 | 64, 524288, &t, &[1, 8, 32], 9).unwrap();
+        eprintln!("split {split:?}: {n} rows, a11i stamped equals a11 bit for bit");
+    }
+}

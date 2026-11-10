@@ -40,6 +40,10 @@
 //!   step; a9's waits and phase rows; a9 its guard.
 //! * a11: a10 with the L2 prefetch of the row phases' tree-tiled streams in
 //!   its wait gaps (4E's schedule); a10 its guard.
+//! * a11i: a11 with fine stamps (per row phase the units, staging, the
+//!   fastest and slowest warp's loops, the closing-barrier wait, the time to
+//!   the arrival); a11 its guard. Every a9-family arm also prints its grid
+//!   waits by class and its prologues' busy time on the owner CTAs.
 //!
 //! Timing runs R = 1, 2 and 16. An arm a2 .. a7 or a3f takes an explicit plan, `a4@5.7.5.16.5` (S of q/k/v, o,
 //! gate/up, down, head), refused at install when an S is outside 1..=32 or
@@ -123,6 +127,7 @@ fn guard_of(name: &str) -> Option<String> {
         "a5" => "a4",
         "a10" => "a9",
         "a11" => "a10",
+        "a11i" => "a11",
         "a7" => "a6",
         _ => return None,
     };
@@ -147,7 +152,7 @@ fn parse_arms(want: &[String]) -> Result<Vec<ArmAsk>, String> {
                 (b, Some(arr))
             }
         };
-        if !matches!(base, "a0" | "a1" | "a2" | "a3" | "a4" | "a5" | "a6" | "a7" | "a8" | "a9" | "a10" | "a11" | "a3f" | "a3p" | "a3t") {
+        if !matches!(base, "a0" | "a1" | "a2" | "a3" | "a4" | "a5" | "a6" | "a7" | "a8" | "a9" | "a10" | "a11" | "a11i" | "a3f" | "a3p" | "a3t") {
             return Err(format!("unknown arm {w:?}"));
         }
         if plan.is_some() && matches!(base, "a0" | "a1") {
@@ -202,7 +207,10 @@ fn tree_rows(nodes: &[usize]) -> (Vec<u32>, Vec<[u8; 32]>) {
 
 #[cfg(all(target_os = "linux", feature = "cuda"))]
 fn run() -> anyhow::Result<()> {
-    use llvq_cuda::pers::{p4e_phase_report, p4e_report_lines, p4t_parts, p4t_phases, p4t_phases_a9, P4T_PHASES, P4T_PHASES_A9, P4T_ROW_PHASES};
+    use llvq_cuda::pers::{
+        p4e_phase_report, p4e_report_lines, p4t_iparts, p4t_parts, p4t_phases, p4t_phases_a9, p4t_wait_classes, P4T_IPARTS, P4T_PHASES,
+        P4T_PHASES_A9, P4T_ROW_PHASES,
+    };
     use llvq_llm::boundary::median_range;
     use llvq_llm::chatfmt::{open_assistant, turn, Marks};
     let a: Vec<String> = std::env::args().skip(1).collect();
@@ -228,6 +236,7 @@ fn run() -> anyhow::Result<()> {
                 "a9" => TreeForm::A9,
                 "a10" => TreeForm::A10,
                 "a11" => TreeForm::A11,
+                "a11i" => TreeForm::A11i,
                 "a3p" => TreeForm::A3p,
                 "a3t" => TreeForm::A3t,
                 _ => TreeForm::A3f,
@@ -518,7 +527,9 @@ fn run() -> anyhow::Result<()> {
             for r in [1usize, 16] {
                 let (ts, d, p) = tree_of(r);
                 // a9 has its own waits (a fold step after each row phase) and phase names
-                let a9 = matches!(arms[k].form, TreeForm::A9 | TreeForm::A10 | TreeForm::A11);
+                let a9 = matches!(arms[k].form, TreeForm::A9 | TreeForm::A10 | TreeForm::A11 | TreeForm::A11i);
+                let mut iparts: Vec<[[[f64; 3]; 6]; 5]> = Vec::new();
+                let mut classes: Vec<([[f64; 2]; 3], [f64; 4])> = Vec::new();
                 let names: Vec<&str> = if a9 { P4T_PHASES_A9.to_vec() } else { P4T_PHASES.to_vec() };
                 let mut per = vec![[Vec::new(), Vec::new(), Vec::new(), Vec::new()]; names.len()];
                 let mut parts = vec![[Vec::new(), Vec::new(), Vec::new(), Vec::new()]; P4T_ROW_PHASES.len()];
@@ -533,7 +544,13 @@ fn run() -> anyhow::Result<()> {
                     } else {
                         p4t_phases(&o.stamps[..n_ev], layers, grid).map_err(anyhow::Error::msg)?.to_vec()
                     };
-                    if o.stamps.len() > n_ev {
+                    if a9 {
+                        classes.push(p4t_wait_classes(&o.stamps[..n_ev], layers, grid, r as u32).map_err(anyhow::Error::msg)?);
+                    }
+                    if o.stamps.len() == n_ev + 40 * grid as usize {
+                        // an a11i launch's unit parts
+                        iparts.push(p4t_iparts(&o.stamps[n_ev..], grid).map_err(anyhow::Error::msg)?);
+                    } else if o.stamps.len() > n_ev {
                         // an a4 launch's F3 parts, each CTA's sum over the layers, median over the CTAs
                         let pp = p4t_parts(&o.stamps[n_ev..], grid).map_err(anyhow::Error::msg)?;
                         for (acc, x) in parts.iter_mut().zip(pp) {
@@ -570,6 +587,36 @@ fn run() -> anyhow::Result<()> {
                         m(&per[i][2]),
                         m(&per[i][3])
                     );
+                }
+                if !classes.is_empty() {
+                    let med = |f: &dyn Fn(&([[f64; 2]; 3], [f64; 4])) -> f64| {
+                        let v: Vec<f64> = classes.iter().map(f).collect();
+                        median_range(&v).0 / 1e3
+                    };
+                    println!("  {an} vt{r} grid waits, arrival to release, us summed over the layers (a CTA's), median of {TIMED} launches:");
+                    for (i, cn) in ["after a prologue", "after a row phase", "after a fold step"].iter().enumerate() {
+                        println!("  {an} vt{r}   {cn:>18}: median over CTAs {:9.1}, max {:9.1}", med(&|c| c.0[i][0]), med(&|c| c.0[i][1]));
+                    }
+                    println!(
+                        "  {an} vt{r}   prologues on the owner CTAs, busy us summed over the layers: ln1 {:.1}, ln2 {:.1}, dn_in {:.1}, norm {:.1}",
+                        med(&|c| c.1[0]),
+                        med(&|c| c.1[1]),
+                        med(&|c| c.1[2]),
+                        med(&|c| c.1[3])
+                    );
+                }
+                if !iparts.is_empty() {
+                    println!("  {an} vt{r} unit parts of the row phases (a11i), a CTA's sum over the layers, median [min-max] over the CTAs, median of {TIMED} launches; us except units");
+                    for (ph, pn) in P4T_ROW_PHASES.iter().enumerate() {
+                        let cells: Vec<String> = (0..6)
+                            .map(|p| {
+                                let sc = if p == 0 { 1.0 } else { 1e3 };
+                                let pick = |j: usize| median_range(&iparts.iter().map(|x| x[ph][p][j] / sc).collect::<Vec<_>>()).0;
+                                format!("{} {:.1} [{:.1}-{:.1}]", P4T_IPARTS[p], pick(0), pick(1), pick(2))
+                            })
+                            .collect();
+                        println!("  {an} vt{r}   {pn:>6}: {}", cells.join(", "));
+                    }
                 }
                 if !parts[0][0].is_empty() {
                     println!("  {an} vt{r} parts of the row phases, us summed over the layers, median over the CTAs, median of {TIMED} launches");

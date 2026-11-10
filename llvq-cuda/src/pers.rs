@@ -2009,6 +2009,108 @@ pub fn p4t_a11_symbol(form: u32) -> Result<&'static str, String> {
     })
 }
 
+/// The module text of arm a11i (`pers_4et_a11i.cu`, a11 with fine stamps),
+/// after [`p4t_a11_unit_text`], which keeps its bytes.
+pub fn p4t_a11i_unit_text(tile_define: &str) -> String {
+    format!("#define P4T_A11I 1\n{}\n{}", p4t_a11_unit_text(tile_define), P4T_A11I_PART.1)
+}
+
+/// The a11i symbol for a RoPE form.
+pub fn p4t_a11i_symbol(form: u32) -> Result<&'static str, String> {
+    Ok(match form {
+        0 => "pers_4et_a11i_f0_t512",
+        1 => "pers_4et_a11i_f1_t512",
+        2 => "pers_4et_a11i_f2_t512",
+        _ => return Err(format!("tree verify: no a11i kernel for RoPE form {form}")),
+    })
+}
+
+/// `pers_4et_a11i.cu`, embedded so the Mac hashes what the card compiles.
+pub const P4T_A11I_PART: (&str, &str) = ("pers_4et_a11i.cu", include_str!("../kernels/pers_4et_a11i.cu"));
+
+/// a11i's unit parts, in slot order (`pers_4et_a11i.cu`).
+pub const P4T_IPARTS: [&str; 6] = ["units", "staging", "loop fast", "loop slow", "close wait", "to arrival"];
+
+/// An a11i stamped launch's slots after the phase events, `[5][8][grid]`:
+/// per row phase ([`P4T_ROW_PHASES`]) and part ([`P4T_IPARTS`]), the
+/// median, minimum and maximum over the CTAs (units as counts, the rest in
+/// nanoseconds, each CTA's sum over the layers).
+pub fn p4t_iparts(tail: &[u64], grid: u32) -> Result<[[[f64; 3]; 6]; 5], String> {
+    let g = grid as usize;
+    if g == 0 || tail.len() != 40 * g {
+        return Err(format!("tree a11i slots: {} values for 40 slots of {g} CTAs", tail.len()));
+    }
+    let mut out = [[[0.0f64; 3]; 6]; 5];
+    for (ph, o) in out.iter_mut().enumerate() {
+        for (p, x) in o.iter_mut().enumerate() {
+            let mut v: Vec<f64> = tail[(8 * ph + p) * g..(8 * ph + p + 1) * g].iter().map(|&t| t as f64).collect();
+            v.sort_by(f64::total_cmp);
+            *x = [v[g / 2], v[0], v[g - 1]];
+        }
+    }
+    Ok(out)
+}
+
+/// From a stamped a9-family launch's phase events: per wait class (after a
+/// prologue: ln1, ln2, dn_in, norm; after a row phase; after a fold step) a
+/// CTA's arrival-to-release time summed over the layers, median and maximum
+/// over the CTAs; and each prologue's busy time on the CTAs that own rows
+/// 0 .. rows - 1 (CTA r mod grid), the maximum over them. Nanoseconds.
+pub fn p4t_wait_classes(stamps: &[u64], n_layers: u32, grid: u32, rows: u32) -> Result<([[f64; 2]; 3], [f64; 4]), String> {
+    let n_bar = n_bar_a9(n_layers, 0) as usize;
+    let g = grid as usize;
+    if g == 0 || stamps.len() != (1 + 2 * n_bar) * g {
+        return Err(format!("tree stamps (a9): {} values for {} events of {g} CTAs", stamps.len(), 1 + 2 * n_bar));
+    }
+    let name = |w: usize| -> &str {
+        let k = if w == 1 {
+            0
+        } else if w + 2 >= n_bar {
+            17 - (n_bar + 1 - w)
+        } else {
+            1 + (w - 2) % 13
+        };
+        P4T_PHASES_A9[k]
+    };
+    let at = |e: usize, c: usize| stamps[e * g + c] as f64;
+    let mut cls = vec![[0.0f64; 3]; g];
+    let mut pro = [0.0f64; 4];
+    let mut pro_c = vec![[0.0f64; 4]; g];
+    for w in 1..=n_bar {
+        let n = name(w);
+        let k = if n.ends_with("fold") {
+            Some(2)
+        } else if ["qkv", "o", "gateup", "down", "head"].contains(&n) {
+            Some(1)
+        } else if ["ln1", "ln2", "dn_in", "norm"].contains(&n) {
+            Some(0)
+        } else {
+            None
+        };
+        let pk = ["ln1", "ln2", "dn_in", "norm"].iter().position(|p| *p == n);
+        for c in 0..g {
+            if let Some(k) = k {
+                cls[c][k] += at(2 * w, c) - at(2 * w - 1, c);
+            }
+            if let Some(p) = pk {
+                pro_c[c][p] += at(2 * w - 1, c) - at(2 * w - 2, c);
+            }
+        }
+    }
+    for pc in pro_c.iter().take((rows as usize).min(g)) {
+        for (x, &y) in pro.iter_mut().zip(pc) {
+            *x = x.max(y);
+        }
+    }
+    let mut out = [[0.0f64; 2]; 3];
+    for (k, o) in out.iter_mut().enumerate() {
+        let mut v: Vec<f64> = cls.iter().map(|x| x[k]).collect();
+        v.sort_by(f64::total_cmp);
+        *o = [v[g / 2], v[g - 1]];
+    }
+    Ok((out, pro))
+}
+
 /// `pers_4et_a11.cu`, embedded so the Mac hashes what the card compiles.
 pub const P4T_A11_PART: (&str, &str) = ("pers_4et_a11.cu", include_str!("../kernels/pers_4et_a11.cu"));
 
@@ -3382,6 +3484,45 @@ mod tests {
             );
             assert!(total < 96_000_000);
         }
+    }
+
+    #[test]
+    fn the_a11i_pass_is_a11s_with_marks() {
+        // a11i's pass is a11's with its phase calls renamed; its unit is a9's
+        // with the marks only (every a9 unit line kept, in order)
+        let a10 = P4T_A11_PART.1;
+        let c = a10.find("template <int FORM>\n__device__ __forceinline__ void pers_4et_a11_body(").unwrap();
+        let end = "#undef P4T_WAIT\n}\n";
+        let d = c + a10[c..].find(end).unwrap() + end.len();
+        let body = a10[c..d].replacen("void pers_4et_a11_body(", "void pers_4et_a11i_body(", 1).replace("p4t_phase_a9(", "p4t_phase_a11i(");
+        assert_eq!(P4T_A11I_PART.1.matches(body.as_str()).count(), 1, "the a11i pass drifted from a11's");
+        let a9 = P4T_A9_PART.1;
+        let a = a9.find("// One unit: tiles [blk nw, blk nw + nw) of g").unwrap();
+        let b = a + a9[a..].find("// p4t_phase's deal, the stream unit.").unwrap();
+        let ui = P4T_A11I_PART.1;
+        let mut at = ui.find("// One unit: tiles [blk nw, blk nw + nw) of g").unwrap();
+        for line in a9[a..b].lines().filter(|l| !l.contains("p4t_unit_a9(") && !l.contains("u32* area, unsigned long long* cmax)")) {
+            let i = ui[at..].find(line).unwrap_or_else(|| panic!("a9's unit line {line:?} missing or out of order in a11i's"));
+            at += i + line.len();
+        }
+        let t = p4t_a11i_unit_text(SERVED_DEFINES_SM89);
+        assert!(t.contains(&p4t_a11_unit_text(SERVED_DEFINES_SM89)));
+        for f in 0..3 {
+            assert_eq!(t.matches(p4t_a11i_symbol(f).unwrap()).count(), 1);
+        }
+        eprintln!("tree module a11i at SERVED_DEFINES_SM89: {} bytes, sha256 {}", t.len(), crate::sha256::sha256_hex(t.as_bytes()));
+        // the wait classes: arrival 10 (c + 1) before leaving, busy 1000 - 10 (c + 1)
+        let (layers, g) = (2u32, 3usize);
+        let n_bar = n_bar_a9(layers, 0) as usize;
+        let st: Vec<u64> = (0..1 + 2 * n_bar)
+            .flat_map(|e| (0..g).map(move |c| { let w = e.div_ceil(2) as u64; if e % 2 == 1 { 1000 * (w + 1) - 10 * (c as u64 + 1) } else { 1000 * (w + 1) } }))
+            .collect();
+        let (cls, pro) = p4t_wait_classes(&st, layers, g as u32, 1).unwrap();
+        // 3 prologue waits a layer + the norm (7), 4 row waits a layer + the head (9), 4 folds + 1 (9)
+        assert_eq!(cls[0], [20.0 * 7.0, 30.0 * 7.0]);
+        assert_eq!(cls[1], [20.0 * 9.0, 30.0 * 9.0]);
+        assert_eq!(cls[2][1], 30.0 * 9.0);
+        assert_eq!(pro[0], 2.0 * 990.0, "ln1 on CTA 0, twice");
     }
 
     use super::*;

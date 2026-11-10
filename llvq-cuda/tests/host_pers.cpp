@@ -77,6 +77,7 @@ static inline unsigned short served_capture_f2h(float v) {
 #include "../kernels/pers_4et_a9.cu"
 #include "../kernels/pers_4et_a10.cu"
 #include "../kernels/pers_4et_a11.cu"
+#include "../kernels/pers_4et_a11i.cu"
 #endif
 #include "../kernels/pers_trows.cu"
 #include "../kernels/pers_vrows.cu"
