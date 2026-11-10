@@ -30,3 +30,6 @@ and cost $0.
 
 What it touches: no number. One copy ran, on the prereg's flavor l40sx1, and the other never started, so the measurement
 is the one deviation 1 names. The risk the watcher existed for (both copies billed) did not happen.
+
+Added on 2026-11-10 after the journal: the orchestrating session cancelled the l40sx4 copy 6af2ca85 itself at 10:34 CET,
+after seeing the l40sx1 copy COMPLETED.
