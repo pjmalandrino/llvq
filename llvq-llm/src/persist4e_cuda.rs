@@ -189,6 +189,9 @@ pub enum TreeForm {
     /// `pers_4et_stream_*` (`P4T_STREAM`): the tree-tiled copies streamed by
     /// each warp, the activation slice staged once a unit (arm a3).
     Stream,
+    /// `pers_4et_a4_*` (`P4T_A4`): the stream unit with the fold's loads
+    /// batched and the prologues on 16-byte vectors (arm a4).
+    A4,
 }
 
 /// Where an arm's d_in slices come from.
@@ -210,6 +213,8 @@ pub struct TreeArm {
     pub splits: [u32; 5],
     pub plan: TreePlan,
     pub form: TreeForm,
+    /// Why the arm cannot run (its module did not build), or None.
+    pub void: Option<String>,
 }
 
 /// An arm asked of [`Runtime4e::install_tree`]: its name, its plan, its
@@ -227,6 +232,8 @@ struct TreeTiled {
     f: Option<CudaFunction>,
     /// The stream symbol, when a stream arm is installed.
     fs: Option<CudaFunction>,
+    /// The a4 symbol, when an a4 arm is installed.
+    f4: Option<CudaFunction>,
     _held: Vec<CudaSlice<u32>>,
     /// Each layer's q, k, v, o, gate, up and down words in the copies.
     swaps: Vec<[u64; 7]>,
@@ -1123,7 +1130,7 @@ impl Runtime4e {
                 }
                 TreePlan::Stream => pers::p4t_splits_stream(hidden, inter, d_ctx, n_kv, vocab, nw, self.grid, cap).map_err(anyhow::Error::msg)?,
             };
-            if form == TreeForm::Stream && d_ins.iter().zip(splits).any(|(&d, s)| pers::p4t_slice_steps(d, s) > cap) {
+            if matches!(form, TreeForm::Stream | TreeForm::A4) && d_ins.iter().zip(splits).any(|(&d, s)| pers::p4t_slice_steps(d, s) > cap) {
                 anyhow::bail!("4E tree: arm {name}: slices {splits:?} exceed the stream unit's {cap} sub-steps a slice");
             }
             let plan = pers::p4t_plan(splits, hidden, inter, d_ctx, n_kv, vocab, nw, self.grid);
@@ -1139,6 +1146,7 @@ impl Runtime4e {
                     TreeForm::Rows => "rows",
                     TreeForm::Tiled => "tiled",
                     TreeForm::Stream => "stream",
+                    TreeForm::A4 => "a4",
                 },
                 names
                     .iter()
@@ -1148,9 +1156,9 @@ impl Runtime4e {
                     .collect::<Vec<_>>()
                     .join(", ")
             ));
-            arm_v.push(TreeArm { name: name.to_string(), splits, plan: prop, form });
+            arm_v.push(TreeArm { name: name.to_string(), splits, plan: prop, form, void: None });
         }
-        if arm_v.iter().any(|a| a.form == TreeForm::Stream) {
+        if arm_v.iter().any(|a| matches!(a.form, TreeForm::Stream | TreeForm::A4)) {
             self.lines.push(format!("4E tree: the stream unit's slices hold at most {cap} sub-steps (area {area} floats, {nw} warps, 32 staged rows)"));
         }
         let n_ot = self.layers_host.iter().filter(|y| y.ot != 0).count() as u32;
@@ -1183,8 +1191,23 @@ impl Runtime4e {
         let logits = cuda.zeros_u16((rm * vocab) as usize).map_err(anyhow::Error::msg)?;
         let bytes = 2 * sizes.iter().map(|&n| n as u64).sum::<u64>() + 4 * (rm * part_stride) as u64 + 4 * fp as u64 + 2 * (rm * vocab) as u64;
         self.lines.push(format!("4E tree: {threads} threads, {area} floats of area; {:.3} GB of row buffers", bytes as f64 / 1e9));
-        let (want_tiled, want_stream) = (arm_v.iter().any(|a| a.form == TreeForm::Tiled), arm_v.iter().any(|a| a.form == TreeForm::Stream));
-        let tiled = if want_tiled || want_stream { Some(self.install_tiled(smem, threads, want_tiled, want_stream)?) } else { None };
+        let want = [TreeForm::Tiled, TreeForm::Stream, TreeForm::A4].map(|f| arm_v.iter().any(|a| a.form == f));
+        let tiled = if want.iter().any(|&w| w) { Some(self.install_tiled(smem, threads, want)?) } else { None };
+        // an arm whose module did not build is void; the others run
+        if let Some(t) = &tiled {
+            for a in arm_v.iter_mut() {
+                let built = match a.form {
+                    TreeForm::Rows => true,
+                    TreeForm::Tiled => t.f.is_some(),
+                    TreeForm::Stream => t.fs.is_some(),
+                    TreeForm::A4 => t.f4.is_some(),
+                };
+                if !built {
+                    a.void = Some(format!("its {:?} module did not build", a.form));
+                    self.lines.push(format!("4E tree: arm {} VOID: its {:?} module did not build", a.name, a.form));
+                }
+            }
+        }
         self.tree = Some(Tree4e {
             _cuda: cuda, f, smem, area, arms: arm_v, tiled, part_stride, ldx, n_ot, vocab, toks, depth, path, mv, ring, logits,
             _held16: held, held16_addr, part, fpart, tickets, ftickets, slots,
@@ -1199,37 +1222,49 @@ impl Runtime4e {
     /// up, down, the head), built on the card by `p4t_tile_words` from the
     /// words 4E holds, once for both. A Tetra o is refused (no sealed file the
     /// job reads carries one).
-    fn install_tiled(&mut self, smem: u32, threads: u32, want_tiled: bool, want_stream: bool) -> anyhow::Result<TreeTiled> {
+    fn install_tiled(&mut self, smem: u32, threads: u32, want: [bool; 3]) -> anyhow::Result<TreeTiled> {
         if self.layers_host.iter().any(|y| y.ot != 0) {
             anyhow::bail!("4E tree: the tiled and stream arms do not copy a Tetra o_proj; this model carries one");
         }
         let stream = self.cuda.stream().clone();
         let mut cudas = Vec::new();
-        let mut fns: [Option<CudaFunction>; 2] = [None, None];
-        for (k, want) in [want_tiled, want_stream].into_iter().enumerate() {
+        let mut fns: [Option<CudaFunction>; 3] = [None, None, None];
+        for (k, want) in want.into_iter().enumerate() {
             if !want {
                 continue;
             }
-            let (tag, text, sym, def) = if k == 0 {
-                ("tiled", pers::p4t_tiled_unit_text(&self.tile_define), pers::p4t_tiled_symbol(self.form), "P4T_TILED 1")
-            } else {
-                ("stream", pers::p4t_stream_unit_text(&self.tile_define), pers::p4t_stream_symbol(self.form), "P4T_STREAM 1 and P4T_TILED 1")
+            let (tag, text, sym, def) = match k {
+                0 => ("tiled", pers::p4t_tiled_unit_text(&self.tile_define), pers::p4t_tiled_symbol(self.form), "P4T_TILED 1"),
+                1 => ("stream", pers::p4t_stream_unit_text(&self.tile_define), pers::p4t_stream_symbol(self.form), "P4T_STREAM 1 and P4T_TILED 1"),
+                _ => ("a4", pers::p4t_a4_unit_text(&self.tile_define, true, true), pers::p4t_a4_symbol(self.form), "P4T_A4 1 (F1, F2), P4T_STREAM 1 and P4T_TILED 1"),
             };
             let sym = sym.map_err(anyhow::Error::msg)?;
             let src = llvq_cuda::gpu::KernelSource::new(&[text.as_str()]);
             self.lines.push(format!("4E tree {tag}: module {} bytes, sha256 {}, {def}, its own module", src.text.len(), src.sha256));
-            let cuda = llvq_cuda::gpu::Cuda::on_stream(stream.clone(), &src).map_err(anyhow::Error::msg)?;
-            let f = cuda.func_dynamic_shared(sym, smem).map_err(anyhow::Error::msg)?;
-            let r = cuda.report(sym).map_err(anyhow::Error::msg)?;
-            let occ = f
-                .occupancy_max_active_blocks_per_multiprocessor(threads, smem as usize, None)
-                .map_err(|e| anyhow::anyhow!("occupancy: {e}"))?;
-            self.lines.push(format!("4E tree {tag}: {sym}: {} registers, {} B local, {smem} B shared, {occ} resident a SM", r.num_regs, r.local_bytes));
-            if occ < 1 {
-                anyhow::bail!("4E tree: {sym} fits no CTA on a SM at {threads} threads and {smem} B");
+            // a module that fails to build or to fit voids its arm only
+            let built = (|| -> anyhow::Result<(llvq_cuda::gpu::Cuda, CudaFunction)> {
+                let cuda = llvq_cuda::gpu::Cuda::on_stream(stream.clone(), &src).map_err(anyhow::Error::msg)?;
+                let f = cuda.func_dynamic_shared(sym, smem).map_err(anyhow::Error::msg)?;
+                let r = cuda.report(sym).map_err(anyhow::Error::msg)?;
+                let occ = f
+                    .occupancy_max_active_blocks_per_multiprocessor(threads, smem as usize, None)
+                    .map_err(|e| anyhow::anyhow!("occupancy: {e}"))?;
+                self.lines.push(format!("4E tree {tag}: {sym}: {} registers, {} B local, {smem} B shared, {occ} resident a SM", r.num_regs, r.local_bytes));
+                if occ < 1 {
+                    anyhow::bail!("{sym} fits no CTA on a SM at {threads} threads and {smem} B");
+                }
+                Ok((cuda, f))
+            })();
+            match built {
+                Ok((cuda, f)) => {
+                    fns[k] = Some(f);
+                    cudas.push(cuda);
+                }
+                Err(e) => self.lines.push(format!("4E tree {tag}: module FAILED, its arms are void: {e}")),
             }
-            fns[k] = Some(f);
-            cudas.push(cuda);
+        }
+        if cudas.is_empty() {
+            anyhow::bail!("4E tree: no tree-tiled module built; see the lines above");
         }
         let tile_f = cudas[0].func("p4t_tile_words").map_err(anyhow::Error::msg)?;
         let mut held: Vec<CudaSlice<u32>> = Vec::new();
@@ -1282,8 +1317,8 @@ impl Runtime4e {
         ));
         let layers = stream.clone_htod(&vec![0u8; pers::P4E_LAYER_BYTES * self.layers_host.len()]).map_err(|e| anyhow::anyhow!("H2D: {e}"))?;
         let args = stream.clone_htod(&vec![0u8; pers::P4E_ARGS_BYTES]).map_err(|e| anyhow::anyhow!("H2D: {e}"))?;
-        let [f, fs] = fns;
-        Ok(TreeTiled { _cudas: cudas, f, fs, _held: held, swaps, head, layers, args, seen: Vec::new() })
+        let [f, fs, f4] = fns;
+        Ok(TreeTiled { _cudas: cudas, f, fs, f4, _held: held, swaps, head, layers, args, seen: Vec::new() })
     }
 
     /// The arms installed, in the order [`Self::tree`] indexes them.
@@ -1376,7 +1411,9 @@ impl Runtime4e {
         stream.memcpy_htod(&vec![u32::MAX; pers::P4T_RMAX as usize], &mut v.ring).map_err(|e| anyhow::anyhow!("H2D: {e}"))?;
         let n_bar = pers::n_bar_4et(self.n_layers, v.n_ot);
         let stamps: Option<CudaSlice<u64>> = if stamped {
-            Some(stream.alloc_zeros::<u64>((1 + 2 * n_bar) as usize * self.grid as usize).map_err(|e| anyhow::anyhow!("alloc stamps: {e}"))?)
+            // an a4 launch adds its F3 slots after the phase events: 20 a CTA
+            let extra = if spec.form == TreeForm::A4 { 20 } else { 0 };
+            Some(stream.alloc_zeros::<u64>((1 + 2 * n_bar + extra) as usize * self.grid as usize).map_err(|e| anyhow::anyhow!("alloc stamps: {e}"))?)
         } else {
             None
         };
@@ -1427,6 +1464,7 @@ impl Runtime4e {
             (TreeForm::Rows, _) => (&v.f, &self.args),
             (TreeForm::Tiled, Some(TreeTiled { f: Some(f), args, .. })) => (f, args),
             (TreeForm::Stream, Some(TreeTiled { fs: Some(f), args, .. })) => (f, args),
+            (TreeForm::A4, Some(TreeTiled { f4: Some(f), args, .. })) => (f, args),
             (form, _) => anyhow::bail!("4E tree: arm {} is {form:?} and its module is not installed", spec.name),
         };
         let mut b = stream.launch_builder(func);

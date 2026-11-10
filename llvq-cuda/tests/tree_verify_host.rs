@@ -869,3 +869,97 @@ fn stream_mutants_are_killed() {
     }
     eprintln!("stream mutants: {killed} of {} killed", muts.len());
 }
+
+// ---- arm a4: the stream unit, the fold batched (F1), the prologues on vectors (F2) ----
+
+/// Passes of `sizes` rows run by the stream symbols (variant 128, arm a3)
+/// on `stream` and by the a4 symbols (variant 256) on `bin`, at the same
+/// slices: every row's argmax, logits, residual, K and V equal.
+fn gate_a4(bin: &Path, stream: &Path, f: &Fix, t: &Tree, sizes: &[usize], pos0: u32) -> Result<usize, String> {
+    let passes: Vec<Pass> =
+        sizes.iter().enumerate().map(|(i, &s)| Pass::of(t, &t.subset(s, 0x5f00 + i as u64), pos0, 0x7b00 + i as u64)).collect();
+    let u = exec(stream, &Fix { variant: (f.variant & !(32 | 256)) | 128, ..*f }, None, &passes)?;
+    let v = exec(bin, &Fix { variant: (f.variant & !(32 | 128)) | 256, ..*f }, None, &passes)?;
+    let mut rows = 0;
+    for (pi, (a, b)) in u.passes.iter().zip(&v.passes).enumerate() {
+        for (s, (ra, rb)) in a.iter().zip(b).enumerate() {
+            rows += 1;
+            if let Some(what) = diff(rb, ra) {
+                return Err(format!("a4 against stream, split {:?}, pass {pi} ({} rows), slot {s}: {what}", f.split, a.len()));
+            }
+        }
+    }
+    Ok(rows)
+}
+
+/// a4 equals a3 bit for bit at R = 1, 2, 8, 16, 32 under both stream plans,
+/// and on the 8B's parts at RoPE form 2, R = 1 and 5.
+#[test]
+#[cfg_attr(debug_assertions, ignore)]
+fn a4_rows_equal_stream_rows_under_both_plans() {
+    let t = tree(32, 7, 0x3ec);
+    for split in [SPLIT_N2, SPLIT_N2B] {
+        let n = gate_a4(host(), host(), &Fix { split, ..FIX }, &t, &[1, 2, 8, 16, 32], 9).unwrap();
+        eprintln!("split {split:?}: {n} rows of 5 passes, a4 equals stream bit for bit");
+    }
+    let t = tree(12, 4, 0x3ed);
+    let f = Fix { form: 2, variant: 16, cap: 288, split: SPLIT_N2B, ..FIX };
+    let n = gate_a4(host(), host(), &f, &t, &[1, 5], 254).unwrap();
+    eprintln!("8B's parts, form 2: {n} rows, a4 equals stream bit for bit");
+}
+
+/// Each guard of F1 and F2 has a mutant, killed by the a4 gate against the
+/// unmutated stream pass. A mutant of the vector path survives if the path
+/// never runs (a row or weight not 16-byte aligned), so their kills also
+/// show the twin takes it.
+#[test]
+#[cfg_attr(debug_assertions, ignore)]
+fn a4_mutants_are_killed() {
+    let t = tree(12, 4, 0x3ee);
+    let f = Fix { split: SPLIT_N2B, ..FIX };
+    gate_a4(host(), host(), &f, &t, &[1, 9], 9).expect("the unmutated a4 pass passes its gate");
+    let k = "llvq-cuda/kernels/pers_4et_a4.cu";
+    let muts: &[(&str, &[Edit])] = &[
+        // F1: a batch's adds in the reverse slice order
+        ("fold_order", &[(k, "                    const u32 j = jj;\n", "                    const u32 j = 7u - jj;\n")]),
+        // F1: the next batch starts one slice late, skipping slice 8 (the down in 19)
+        ("fold_skip", &[(k, "for (u32 k0 = 0; k0 < g.S; k0 += 8u) {", "for (u32 k0 = 0; k0 < g.S; k0 += 9u) {")]),
+        // F2: a loaded row vector widened one element off
+        ("vec_load", &[(k, "for (u32 e = 0; e < 8u; ++e) S[8u * q + e] = xf[e];", "for (u32 e = 0; e < 8u; ++e) S[8u * q + e] = xf[(e + 1u) & 7u];")]),
+        // F2: a stored vector one element off
+        ("vec_store", &[(k, "for (u32 e = 0; e < 8u; ++e) ho[e] = f2h(S[8u * q + e]);", "for (u32 e = 0; e < 8u; ++e) ho[e] = f2h(S[8u * q + ((e + 1u) & 7u)]);")]),
+        // F2: the down's input pairs the gate with the next up vector
+        ("dn_pair", &[(k, "ub[u] = __ldcg(uv + q);", "ub[u] = __ldcg(uv + (q ^ 1u));")]),
+    ];
+    let mut killed = 0;
+    for (tag, edits) in muts {
+        let b = mutant(tag, edits);
+        let r = gate_a4(&b, host(), &f, &t, &[1, 9], 9);
+        let _ = std::fs::remove_file(&b);
+        match r {
+            Err(e) => {
+                killed += 1;
+                eprintln!("{tag}: killed by {}", e.lines().next().unwrap_or(""))
+            }
+            Ok(_) => panic!("a4 mutant {tag} survived its gate"),
+        }
+    }
+    eprintln!("a4 mutants: {killed} of {} killed", muts.len());
+}
+
+/// F3 is stamps only: a4 stamped (variant 64, its parts written after the
+/// phase events) leaves every row's bits as the unstamped a4 pass.
+#[test]
+#[cfg_attr(debug_assertions, ignore)]
+fn a4_stamps_change_no_bit() {
+    let t = tree(12, 4, 0x3ef);
+    let f = Fix { split: SPLIT_N2B, variant: 256, ..FIX };
+    let passes: Vec<Pass> = [1usize, 9].iter().enumerate().map(|(i, &s)| Pass::of(&t, &t.subset(s, 0x5f80 + i as u64), 9, 0x7b80 + i as u64)).collect();
+    let u = exec(host(), &f, None, &passes).unwrap();
+    let v = exec(host(), &Fix { variant: 256 | 64, ..f }, None, &passes).unwrap();
+    for (pi, (a, b)) in u.passes.iter().zip(&v.passes).enumerate() {
+        for (s, (ra, rb)) in a.iter().zip(b).enumerate() {
+            assert!(diff(rb, ra).is_none(), "pass {pi}, slot {s}: the stamped a4 pass moved a bit");
+        }
+    }
+}

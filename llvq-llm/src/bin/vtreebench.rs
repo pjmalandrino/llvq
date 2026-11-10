@@ -3,7 +3,7 @@
 //! the card, for each arm of the pass.
 //!
 //! Usage: `LLVQ_CONFIG=<served v9 config> vtreebench <sealed> [arms]`, arms a
-//! comma-separated subset of `a0,a1,a2,a3` (default `a0,a1,a2`):
+//! comma-separated subset of `a0,a1,a2,a3,a4` (default `a0,a1,a2`):
 //!
 //! * a0: S1's kernel and S1's slices (`pers::p4t_splits`);
 //! * a1: S1's kernel, the balanced slices q/k/v 11, o 14, gate/up 7, down
@@ -15,7 +15,13 @@
 //! * a3: the stream unit (`P4T_STREAM`, `pers_4et_stream.cu`) on the same
 //!   copies, at the stream plan (`pers::p4t_splits_stream`). a2 is its guard:
 //!   a3's 32-row pass must equal a2's bit for bit, else a3's numbers are
-//!   void.
+//!   void;
+//! * a4: a3 with the slice fold's loads batched and the prologues on 16-byte
+//!   vectors (`P4T_A4`, `pers_4et_a4.cu`), at the stream plan; a3 is its
+//!   guard, bit for bit.
+//!
+//! An arm whose module does not build is void and skipped; the others run.
+//! An unknown arm is refused before anything loads.
 //!
 //! The served object loads as `specrun` loads it (4E v9 under its config),
 //! then the tree pass installs beside it (`Runtime4e::install_tree`, its own
@@ -100,15 +106,15 @@ fn tree_rows(nodes: &[usize]) -> (Vec<u32>, Vec<[u8; 32]>) {
 
 #[cfg(all(target_os = "linux", feature = "cuda"))]
 fn run() -> anyhow::Result<()> {
-    use llvq_cuda::pers::{p4e_phase_report, p4e_report_lines, p4t_phases, P4T_PHASES};
+    use llvq_cuda::pers::{p4e_phase_report, p4e_report_lines, p4t_parts, p4t_phases, P4T_PHASES, P4T_ROW_PHASES};
     use llvq_llm::boundary::median_range;
     use llvq_llm::chatfmt::{open_assistant, turn, Marks};
     let a: Vec<String> = std::env::args().skip(1).collect();
-    let usage = "usage: LLVQ_CONFIG=<served v9 config> vtreebench <sealed> [a0,a1,a2,a3]";
+    let usage = "usage: LLVQ_CONFIG=<served v9 config> vtreebench <sealed> [a0,a1,a2,a3,a4]";
     let path = a.first().ok_or_else(|| anyhow::anyhow!("{usage}"))?.clone();
     let want_arms: Vec<String> = a.get(1).map_or("a0,a1,a2", |s| s.as_str()).split(',').map(str::to_string).collect();
     use llvq_llm::persist4e_cuda::{TreeForm, TreePlan};
-    let with_a3 = want_arms.iter().any(|w| w == "a3");
+    let with_a3 = want_arms.iter().any(|w| w == "a3" || w == "a4");
     let mut specs: Vec<llvq_llm::persist4e_cuda::TreeArmSpec> = Vec::new();
     for w in &want_arms {
         if specs.iter().any(|s| s.0 == w.as_str()) {
@@ -120,6 +126,7 @@ fn run() -> anyhow::Result<()> {
             "a2" if with_a3 => ("a2", TreePlan::Stream, TreeForm::Tiled),
             "a2" => ("a2", TreePlan::Balanced(BALANCED), TreeForm::Tiled),
             "a3" => ("a3", TreePlan::Stream, TreeForm::Stream),
+            "a4" => ("a4", TreePlan::Stream, TreeForm::A4),
             other => anyhow::bail!("vtreebench: unknown arm {other:?}; {usage}"),
         });
     }
@@ -160,8 +167,16 @@ fn run() -> anyhow::Result<()> {
     let arms = rt.tree_arms();
     let na = arms.len();
     for a in &arms {
-        println!("arm {}: {:?} kernel, {:?} plan, slices {:?}", a.name, a.form, a.plan, a.splits);
+        println!(
+            "arm {}: {:?} kernel, {:?} plan, slices {:?}{}",
+            a.name,
+            a.form,
+            a.plan,
+            a.splits,
+            a.void.as_ref().map_or(String::new(), |v| format!(", VOID: {v}"))
+        );
     }
+    anyhow::ensure!(arms.iter().any(|a| a.void.is_none()), "vtreebench: every arm is void");
     println!("loaded in {:.1} s", t_load.elapsed().as_secs_f64());
     let tok = f.tokenizer.clone();
     let marks = Marks::resolve(&tok)?;
@@ -176,10 +191,11 @@ fn run() -> anyhow::Result<()> {
     let mut summary: Vec<String> = Vec::new();
     for (name, ids) in [("chat", chat(CHAT)?), ("rag", chat(&format!("{RAG}\n\n{SUMMARY_TEXT}"))?)] {
         // chat: every arm; rag: the arm with the lowest chat c_16 only
+        let live: Vec<usize> = (0..na).filter(|&k| arms[k].void.is_none()).collect();
         let run_arms: Vec<usize> = if name == "chat" {
-            (0..na).collect()
+            live
         } else {
-            let best = (0..na).min_by(|&x, &y| c16_chat[x].total_cmp(&c16_chat[y])).expect("an arm");
+            let best = live.iter().copied().min_by(|&x, &y| c16_chat[x].total_cmp(&c16_chat[y])).expect("an arm");
             vec![best]
         };
         let l = ids.len();
@@ -270,17 +286,21 @@ fn run() -> anyhow::Result<()> {
                 }
             }
         }
-        // a3's guard: a2 at the same plan, bit for bit
+        // the guards: a3 against a2, a4 against a3, at the same plan, bit for bit
         let at = |n: &str| arms.iter().position(|a| a.name == n);
-        if let (Some(i2), Some(i3)) = (at("a2"), at("a3")) {
-            if let (Some(b2), Some(b3)) = (&bases[i2], &bases[i3]) {
-                let ok = arms[i2].splits == arms[i3].splits && b2.ring == b3.ring && b2.logits == b3.logits;
-                println!(
-                    "  a3 guard against a2 (slices {:?} and {:?}): {}",
-                    arms[i2].splits,
-                    arms[i3].splits,
-                    if ok { "PASSES, the 32-row pass equal bit for bit" } else { "FAILS: a3's numbers are void" }
-                );
+        for (arm, guard) in [("a3", "a2"), ("a4", "a3")] {
+            if let (Some(ig), Some(ia)) = (at(guard), at(arm)) {
+                if let (Some(bg), Some(ba)) = (&bases[ig], &bases[ia]) {
+                    let ok = arms[ig].splits == arms[ia].splits && bg.ring == ba.ring && bg.logits == ba.logits;
+                    println!(
+                        "  {arm} guard against {guard} (slices {:?} and {:?}): {}",
+                        arms[ig].splits,
+                        arms[ia].splits,
+                        if ok { "PASSES, the 32-row pass equal bit for bit".to_string() } else { format!("FAILS: {arm}'s numbers are void") }
+                    );
+                } else if name == "chat" {
+                    println!("  {arm} guard against {guard}: not run (an arm is void), {arm}'s numbers are void");
+                }
             }
         }
         // 4. timing, rounds interleaved
@@ -364,10 +384,22 @@ fn run() -> anyhow::Result<()> {
             for r in [1usize, 16] {
                 let (ts, d, p) = tree_of(r);
                 let mut per = vec![[Vec::new(), Vec::new(), Vec::new(), Vec::new()]; P4T_PHASES.len()];
+                let mut parts = vec![[Vec::new(), Vec::new(), Vec::new(), Vec::new()]; P4T_ROW_PHASES.len()];
+                let n_ev = (1 + 2 * llvq_cuda::pers::n_bar_4et(layers, 0)) as usize * grid as usize;
                 for _ in 0..TIMED {
                     set(&mut caches, l)?;
                     let o = rt.tree(k, &mut caches, l, &ts, &d, &p, false, true)?;
-                    let ph = p4t_phases(&o.stamps, layers, grid).map_err(anyhow::Error::msg)?;
+                    anyhow::ensure!(o.stamps.len() >= n_ev, "{an}: {} stamps, the phases need {n_ev}", o.stamps.len());
+                    let ph = p4t_phases(&o.stamps[..n_ev], layers, grid).map_err(anyhow::Error::msg)?;
+                    if o.stamps.len() > n_ev {
+                        // an a4 launch's F3 parts, each CTA's sum over the layers, median over the CTAs
+                        let pp = p4t_parts(&o.stamps[n_ev..], grid).map_err(anyhow::Error::msg)?;
+                        for (acc, x) in parts.iter_mut().zip(pp) {
+                            for (a, v) in acc.iter_mut().zip(x) {
+                                a.push(v / 1e3);
+                            }
+                        }
+                    }
                     for (acc, x) in per.iter_mut().zip(ph) {
                         for (a, v) in acc.iter_mut().zip(x) {
                             a.push(v / 1e3);
@@ -393,6 +425,19 @@ fn run() -> anyhow::Result<()> {
                         m(&per[i][2]),
                         m(&per[i][3])
                     );
+                }
+                if !parts[0][0].is_empty() {
+                    println!("  {an} vt{r} parts of the row phases, us summed over the layers, median over the CTAs, median of {TIMED} launches");
+                    println!("  {an} vt{r}   phase      setup    staging      loops      store");
+                    for (i, ph) in P4T_ROW_PHASES.iter().enumerate() {
+                        println!(
+                            "  {an} vt{r}   {ph:>6} {:10.1} {:10.1} {:10.1} {:10.1}",
+                            m(&parts[i][0]),
+                            m(&parts[i][1]),
+                            m(&parts[i][2]),
+                            m(&parts[i][3])
+                        );
+                    }
                 }
             }
         }

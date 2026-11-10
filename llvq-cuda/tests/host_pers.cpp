@@ -70,6 +70,7 @@ static inline unsigned short served_capture_f2h(float v) {
 #include "host_mma.h"
 #include "../kernels/pers_4et.cu"
 #include "../kernels/pers_4et_stream.cu"
+#include "../kernels/pers_4et_a4.cu"
 #endif
 #include "../kernels/pers_trows.cu"
 #include "../kernels/pers_vrows.cu"

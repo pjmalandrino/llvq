@@ -1573,6 +1573,31 @@ pub fn p4t_ftickets(hidden: u32, inter: u32, d_ctx: u32, n_kv: u32, vocab: u32) 
     [d_ctx + 2 * n_kv * 128, hidden, 2 * inter, vocab].into_iter().max().unwrap_or(0) / 16
 }
 
+/// The four parts of a row phase an a4 launch times (F3), in slot order.
+pub const P4T_PARTS: [&str; 4] = ["setup", "staging", "loops", "store"];
+
+/// The row phases an a4 launch times (F3), in slot order.
+pub const P4T_ROW_PHASES: [&str; 5] = ["qkv", "o", "gateup", "down", "head"];
+
+/// An a4 stamped launch's F3 slots: `tail` is what follows the phase events,
+/// `[4 phase + part][grid]` nanoseconds, each CTA's sum over the layers.
+/// Per row phase and part, the median over the CTAs.
+pub fn p4t_parts(tail: &[u64], grid: u32) -> Result<[[f64; 4]; 5], String> {
+    let g = grid as usize;
+    if g == 0 || tail.len() != 20 * g {
+        return Err(format!("tree parts: {} values for 20 slots of {g} CTAs", tail.len()));
+    }
+    let mut out = [[0.0f64; 4]; 5];
+    for (ph, o) in out.iter_mut().enumerate() {
+        for (p, x) in o.iter_mut().enumerate() {
+            let mut v: Vec<f64> = tail[(4 * ph + p) * g..(4 * ph + p + 1) * g].iter().map(|&t| t as f64).collect();
+            v.sort_by(f64::total_cmp);
+            *x = v[g / 2];
+        }
+    }
+    Ok(out)
+}
+
 /// The tree pass's phases, in the order of its waits, for a model with no
 /// Tetra o.
 pub const P4T_PHASES: [&str; 12] =
@@ -1773,6 +1798,35 @@ pub fn p4t_stream_symbol(form: u32) -> Result<&'static str, String> {
         _ => return Err(format!("tree verify: no stream kernel for RoPE form {form}")),
     })
 }
+
+/// The a4 tree module's text: [`p4t_stream_unit_text`] under `P4T_A4 1`,
+/// then `pers_4et_a4.cu` (the stream unit with the batched fold, F1, and the
+/// vector prologues, F2), which emits the `pers_4et_a4_*` symbols. `fold`
+/// and `pro` false build a4 without F1 or F2 (`P4T_A4_FOLD 0`,
+/// `P4T_A4_PRO 0`). `pers_4et.cu` and `pers_4et_stream.cu` keep their bytes.
+pub fn p4t_a4_unit_text(tile_define: &str, fold: bool, pro: bool) -> String {
+    format!(
+        "#define P4T_A4 1\n#define P4T_A4_FOLD {}\n#define P4T_A4_PRO {}\n{}\n{}",
+        u32::from(fold),
+        u32::from(pro),
+        p4t_stream_unit_text(tile_define),
+        P4T_A4_PART.1
+    )
+}
+
+/// The tree kernel's a4 symbol for a RoPE form (a module of
+/// [`p4t_a4_unit_text`]).
+pub fn p4t_a4_symbol(form: u32) -> Result<&'static str, String> {
+    Ok(match form {
+        0 => "pers_4et_a4_f0_t512",
+        1 => "pers_4et_a4_f1_t512",
+        2 => "pers_4et_a4_f2_t512",
+        _ => return Err(format!("tree verify: no a4 kernel for RoPE form {form}")),
+    })
+}
+
+/// `pers_4et_a4.cu`, embedded so the Mac hashes what the card compiles.
+pub const P4T_A4_PART: (&str, &str) = ("pers_4et_a4.cu", include_str!("../kernels/pers_4et_a4.cu"));
 
 /// `pers_4et_stream.cu`, embedded so the Mac hashes what the card compiles.
 pub const P4T_STREAM_PART: (&str, &str) = ("pers_4et_stream.cu", include_str!("../kernels/pers_4et_stream.cu"));
@@ -2736,6 +2790,47 @@ mod tests {
                 std::fs::write(std::path::Path::new(&dir).join(format!("tree_{n}.cu")), &x).unwrap();
             }
         }
+    }
+
+    #[test]
+    fn the_a4_body_is_the_stream_body() {
+        // pers_4et_a4.cu carries pers_4et_stream.cu's unit, deal and pass with
+        // the substitutions below, and nothing else of them changed
+        let src = P4T_STREAM_PART.1;
+        let a = src.find("// One unit: tiles [blk nw, blk nw + nw) of g").unwrap();
+        let b = a + src[a..].find("// p4t_phase's deal, the stream unit.").unwrap();
+        let unit = src[a..b]
+            .replace("p4t_unit_stream(", "p4t_unit_a4(")
+            .replace(
+                "                                                u32* area, unsigned long long* cmax)\n",
+                "                                                u32* area, unsigned long long* cmax, unsigned long long* tm)\n",
+            )
+            .replace("    p4t_stream_stage(g, xs, sub_lo, ns, R, RS, XS);\n", "    P4T_A4_MARK(0);\n    p4t_stream_stage(g, xs, sub_lo, ns, R, RS, XS);\n")
+            .replace("    p4t_cp_wait<0u>();\n    __syncthreads();\n", "    p4t_cp_wait<0u>();\n    __syncthreads();\n    P4T_A4_MARK(1);\n")
+            .replace(
+                "    __syncthreads();\n    if (has) p4t_store(g, L, A, sl, acc, wrow, lane, cmax);\n",
+                "    __syncthreads();\n    P4T_A4_MARK(2);\n    if (has) p4t_store_a4(g, L, A, sl, acc, wrow, lane, cmax);\n    P4T_A4_MARK(3);\n",
+            );
+        let c = src.find("template <int FORM>\n__device__ __forceinline__ void pers_4et_stream_body(").unwrap();
+        let end = "#undef P4T_WAIT\n}\n";
+        let d = c + src[c..].find(end).unwrap() + end.len();
+        let dn = "            for (u32 i = threadIdx.x; i < I; i += blockDim.x) {\n                const unsigned short a = exact_silu_mul(M.silu, __ldcg(gr + i), __ldcg(ur + i));\n                if (Y.tetra_down) {\n                    const float f = h2f(a);\n                    S[i] = ((M.signs_i[i >> 5] >> (i & 31u)) & 1u) ? -f : f;\n                } else {\n                    dst[i] = a;\n                }\n            }\n";
+        assert_eq!(src[c..d].matches(dn).count(), 1);
+        let body = src[c..d]
+            .replacen("void pers_4et_stream_body(", "void pers_4et_a4_body(", 1)
+            .replace("p4t_phase_stream(", "p4t_phase_a4(")
+            .replace("p4t_ln(", "p4t_ln_a4(")
+            .replace("p4t_out(", "p4t_out_a4(")
+            .replace(dn, "            p4t_dn_in_a4(M, Y.tetra_down, gr, ur, dst, S, I);\n");
+        let both = format!("{unit}{body}");
+        assert_eq!(P4T_A4_PART.1.matches(both.as_str()).count(), 1, "the a4 pass drifted from the stream pass");
+        let t = p4t_a4_unit_text(SERVED_DEFINES_SM89, true, true);
+        assert!(t.contains(&p4t_stream_unit_text(SERVED_DEFINES_SM89)), "a3's text inside a4's, unchanged");
+        for f in 0..3 {
+            assert_eq!(t.matches(p4t_a4_symbol(f).unwrap()).count(), 1);
+            assert_eq!(p4t_stream_unit_text(SERVED_DEFINES_SM89).matches(p4t_a4_symbol(f).unwrap()).count(), 0);
+        }
+        eprintln!("tree module a4 at SERVED_DEFINES_SM89: {} bytes, sha256 {}", t.len(), crate::sha256::sha256_hex(t.as_bytes()));
     }
 
     use super::*;
