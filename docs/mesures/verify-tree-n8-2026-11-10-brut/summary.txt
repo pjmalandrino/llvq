@@ -1,0 +1,244 @@
+vtreebench exit 0
+4E: persistent module 252757 bytes, sha256 1b422b62328be6752df4add43280565fd2a49cfa20ee26953b301abe7a15c530, row form 7, own module on candle's stream
+4E tree: module 306060 bytes, sha256 ce1c354d2583eb178ae8622ff99e10f9b457543972bb5039ce89ede9eec31e44, row form 7 and pers_4et.cu, its own module
+4E tree: pers_4et_rows_f1_t512: 128 registers, 720 B local, 89984 B shared, 1 resident a SM
+4E tree: arm a10@5.14.5.28.5 (a10, an explicit plan): slices [5, 14, 5, 28, 5]; S, units, waves, fill, sub-steps a slice at most: q/k/v 5 120 1 84.5 % 11, o 14 140 1 98.6 % 7, gate/up 5 380 3 89.2 % 11, down 28 280 2 98.6 % 8, head 5 2970 21 99.6 % 11
+4E tree: arm a11i@5.14.5.28.5 (a11i (fine stamps), an explicit plan): slices [5, 14, 5, 28, 5]; S, units, waves, fill, sub-steps a slice at most: q/k/v 5 120 1 84.5 % 11, o 14 140 1 98.6 % 7, gate/up 5 380 3 89.2 % 11, down 28 280 2 98.6 % 8, head 5 2970 21 99.6 % 11
+4E tree: arm a9@5.14.5.28.5 (a9, an explicit plan): slices [5, 14, 5, 28, 5]; S, units, waves, fill, sub-steps a slice at most: q/k/v 5 120 1 84.5 % 11, o 14 140 1 98.6 % 7, gate/up 5 380 3 89.2 % 11, down 28 280 2 98.6 % 8, head 5 2970 21 99.6 % 11
+4E tree: arm a11@5.14.5.28.5 (a11, an explicit plan): slices [5, 14, 5, 28, 5]; S, units, waves, fill, sub-steps a slice at most: q/k/v 5 120 1 84.5 % 11, o 14 140 1 98.6 % 7, gate/up 5 380 3 89.2 % 11, down 28 280 2 98.6 % 8, head 5 2970 21 99.6 % 11
+4E tree: the stream unit's slices hold at most 13 sub-steps (area 17728 floats, 16 warps, 32 staged rows)
+4E tree: 512 threads, 17728 floats of area; 0.133 GB of row buffers
+4E tree a9: module 353866 bytes, sha256 51bd79b306c76517fc0169c714ea2cca2f4d5287e5548c1f38cbc0e1a64cbd25, P4T_A9 1 after a3's text, its own module
+4E tree a9: pers_4et_a9_f1_t512: 128 registers, 744 B local, 89984 B shared, 1 resident a SM
+4E tree a10: module 378415 bytes, sha256 b1d9ae83e7d86b87b26cbe6b4abd27ff27aadcc71fb65df8a5a8c62050439a70, P4T_A10 1 after a9's text, its own module
+4E tree a10: pers_4et_a10_f1_t512: 128 registers, 736 B local, 89984 B shared, 1 resident a SM
+4E tree a11: module 398483 bytes, sha256 ba28a72eee143f9589b5bb652326c495cdb1077c9cdc9250901c1b6301de6b75, P4T_A11 1 after a10's text, its own module
+4E tree a11: pers_4et_a11_f1_t512: 128 registers, 736 B local, 89984 B shared, 1 resident a SM
+4E tree a11i: module 420990 bytes, sha256 4c332409f187ebdb2a26eb3b94d56a2c65fbf68dc2499c73da63270c7d5658a5, P4T_A11I 1 after a11's text, its own module
+4E tree a11i: pers_4et_a11i_f1_t512: 128 registers, 824 B local, 89984 B shared, 1 resident a SM
+4E tree tiled: 253 tree-tiled copies (q, k, v, o, gate, up, down a layer, the head), 1.308 GB more on the card
+== tree, chat: context 62, arms a10@5.14.5.28.5, a11i@5.14.5.28.5
+  4E, one token a launch: 4399.9 us [4399.4-4405.9] (host wall, launch to ring read)
+  timed passes whose argmaxes differ from their arm's 32-row pass: 0 of 42
+== tree, rag: context 362, arms a10@5.14.5.28.5
+  4E, one token a launch: 4677.2 us [4662.1-4689.3] (host wall, launch to ring read)
+  timed passes whose argmaxes differ from their arm's 32-row pass: 0 of 21
+arm a9@5.14.5.28.5: added as a guard only (its 32-row pass, untimed)
+arm a11@5.14.5.28.5: added as a guard only (its 32-row pass, untimed)
+4E tree: module 306060 bytes, sha256 ce1c354d2583eb178ae8622ff99e10f9b457543972bb5039ce89ede9eec31e44, row form 7 and pers_4et.cu, its own module
+4E tree: pers_4et_rows_f1_t512: 128 registers, 720 B local, 89984 B shared, 1 resident a SM
+4E tree: arm a10@5.14.5.28.5 (a10, an explicit plan): slices [5, 14, 5, 28, 5]; S, units, waves, fill, sub-steps a slice at most: q/k/v 5 120 1 84.5 % 11, o 14 140 1 98.6 % 7, gate/up 5 380 3 89.2 % 11, down 28 280 2 98.6 % 8, head 5 2970 21 99.6 % 11
+4E tree: arm a11i@5.14.5.28.5 (a11i (fine stamps), an explicit plan): slices [5, 14, 5, 28, 5]; S, units, waves, fill, sub-steps a slice at most: q/k/v 5 120 1 84.5 % 11, o 14 140 1 98.6 % 7, gate/up 5 380 3 89.2 % 11, down 28 280 2 98.6 % 8, head 5 2970 21 99.6 % 11
+4E tree: arm a9@5.14.5.28.5 (a9, an explicit plan): slices [5, 14, 5, 28, 5]; S, units, waves, fill, sub-steps a slice at most: q/k/v 5 120 1 84.5 % 11, o 14 140 1 98.6 % 7, gate/up 5 380 3 89.2 % 11, down 28 280 2 98.6 % 8, head 5 2970 21 99.6 % 11
+4E tree: arm a11@5.14.5.28.5 (a11, an explicit plan): slices [5, 14, 5, 28, 5]; S, units, waves, fill, sub-steps a slice at most: q/k/v 5 120 1 84.5 % 11, o 14 140 1 98.6 % 7, gate/up 5 380 3 89.2 % 11, down 28 280 2 98.6 % 8, head 5 2970 21 99.6 % 11
+4E tree: the stream unit's slices hold at most 13 sub-steps (area 17728 floats, 16 warps, 32 staged rows)
+4E tree: 512 threads, 17728 floats of area; 0.133 GB of row buffers
+4E tree a9: module 353866 bytes, sha256 51bd79b306c76517fc0169c714ea2cca2f4d5287e5548c1f38cbc0e1a64cbd25, P4T_A9 1 after a3's text, its own module
+4E tree a9: pers_4et_a9_f1_t512: 128 registers, 744 B local, 89984 B shared, 1 resident a SM
+4E tree a10: module 378415 bytes, sha256 b1d9ae83e7d86b87b26cbe6b4abd27ff27aadcc71fb65df8a5a8c62050439a70, P4T_A10 1 after a9's text, its own module
+4E tree a10: pers_4et_a10_f1_t512: 128 registers, 736 B local, 89984 B shared, 1 resident a SM
+4E tree a11: module 398483 bytes, sha256 ba28a72eee143f9589b5bb652326c495cdb1077c9cdc9250901c1b6301de6b75, P4T_A11 1 after a10's text, its own module
+4E tree a11: pers_4et_a11_f1_t512: 128 registers, 736 B local, 89984 B shared, 1 resident a SM
+4E tree a11i: module 420990 bytes, sha256 4c332409f187ebdb2a26eb3b94d56a2c65fbf68dc2499c73da63270c7d5658a5, P4T_A11I 1 after a11's text, its own module
+4E tree a11i: pers_4et_a11i_f1_t512: 128 registers, 824 B local, 89984 B shared, 1 resident a SM
+4E tree tiled: 253 tree-tiled copies (q, k, v, o, gate, up, down a layer, the head), 1.308 GB more on the card
+arm a10@5.14.5.28.5: A10 kernel, Explicit([5, 14, 5, 28, 5]) plan, slices [5, 14, 5, 28, 5]
+arm a11i@5.14.5.28.5: A11i kernel, Explicit([5, 14, 5, 28, 5]) plan, slices [5, 14, 5, 28, 5]
+arm a9@5.14.5.28.5: A9 kernel, Explicit([5, 14, 5, 28, 5]) plan, slices [5, 14, 5, 28, 5]
+arm a11@5.14.5.28.5: A11 kernel, Explicit([5, 14, 5, 28, 5]) plan, slices [5, 14, 5, 28, 5]
+  a10@5.14.5.28.5 vt1 against 4E: the same argmax at 64 of 64 positions
+  a10@5.14.5.28.5 identity: every row equals its node in the 32-row pass, logits and argmax, 67 rows of 5 passes
+  a11i@5.14.5.28.5 vt1 against 4E: the same argmax at 64 of 64 positions
+  a11i@5.14.5.28.5 identity: every row equals its node in the 32-row pass, logits and argmax, 67 rows of 5 passes
+  a11i@5.14.5.28.5 against a10@5.14.5.28.5 (same slices): the 32-row pass equal bit for bit, argmax at 32 of 32 rows
+  a9@5.14.5.28.5 against a10@5.14.5.28.5 (same slices): the 32-row pass equal bit for bit, argmax at 32 of 32 rows
+  a11@5.14.5.28.5 against a10@5.14.5.28.5 (same slices): the 32-row pass equal bit for bit, argmax at 32 of 32 rows
+  a9@5.14.5.28.5 against a11i@5.14.5.28.5 (same slices): the 32-row pass equal bit for bit, argmax at 32 of 32 rows
+  a11@5.14.5.28.5 against a11i@5.14.5.28.5 (same slices): the 32-row pass equal bit for bit, argmax at 32 of 32 rows
+  a11@5.14.5.28.5 against a9@5.14.5.28.5 (same slices): the 32-row pass equal bit for bit, argmax at 32 of 32 rows
+  a10@5.14.5.28.5 guard against a9@5.14.5.28.5 (slices [5, 14, 5, 28, 5] and [5, 14, 5, 28, 5]): PASSES, the 32-row pass equal bit for bit
+  a11i@5.14.5.28.5 guard against a11@5.14.5.28.5 (slices [5, 14, 5, 28, 5] and [5, 14, 5, 28, 5]): PASSES, the 32-row pass equal bit for bit
+  a10@5.14.5.28.5  rows   wall us, median [range]     c_R = t(vt R) / t(4e), round by round, median [range]
+  a10@5.14.5.28.5     1     7730.4 [7725.3-7736.3]   c_1 1.757 [1.753-1.758]
+  a10@5.14.5.28.5     2     7785.0 [7770.4-7800.4]   c_2 1.769 [1.764-1.773]
+  a10@5.14.5.28.5    16     8546.4 [8528.6-8552.2]   c_16 1.942 [1.936-1.944]
+  a10@5.14.5.28.5 an extra row: (c_16 - c_1) / 15 = 0.0124 of a 4E token; c_2 1.769
+  a11i@5.14.5.28.5  rows   wall us, median [range]     c_R = t(vt R) / t(4e), round by round, median [range]
+  a11i@5.14.5.28.5     1     9335.9 [9315.0-9347.3]   c_1 2.120 [2.117-2.125]
+  a11i@5.14.5.28.5     2     9431.9 [9420.5-9456.0]   c_2 2.144 [2.138-2.149]
+  a11i@5.14.5.28.5    16    10145.2 [10136.1-10152.9]   c_16 2.305 [2.301-2.307]
+  a11i@5.14.5.28.5 an extra row: (c_16 - c_1) / 15 = 0.0123 of a 4E token; c_2 2.144
+  a10@5.14.5.28.5 vt1 phases, us summed over the layers, median of 5 stamped launches: wall 7704.9, row phases 6337.7 (82.3 %)
+  a10@5.14.5.28.5 vt1         phase      wall   busy min   busy med   busy max
+  a10@5.14.5.28.5 vt1         embed       2.3        0.8        0.9        1.0
+  a10@5.14.5.28.5 vt1           ln1     228.9        9.6       13.2      192.6
+  a10@5.14.5.28.5 vt1           qkv    1505.2      396.1     1257.0     1453.8
+  a10@5.14.5.28.5 vt1      qkv fold     151.1       12.7       14.8      107.8
+  a10@5.14.5.28.5 vt1          rope     142.4        6.6        7.8       95.4
+  a10@5.14.5.28.5 vt1          attn     606.4        8.9       10.7      585.7
+  a10@5.14.5.28.5 vt1             o     602.0       18.4      486.5      550.0
+  a10@5.14.5.28.5 vt1        o fold     121.0        3.3        4.7       87.9
+  a10@5.14.5.28.5 vt1           ln2     195.3        4.8        7.6      154.1
+  a10@5.14.5.28.5 vt1        gateup    2095.5     1417.0     1932.0     2032.0
+  a10@5.14.5.28.5 vt1   gateup fold     147.0        2.5        4.0       99.2
+  a10@5.14.5.28.5 vt1         dn_in     187.8        2.5        3.2      154.5
+  a10@5.14.5.28.5 vt1          down    1080.2      517.5      969.6     1013.1
+  a10@5.14.5.28.5 vt1     down fold     185.4        2.9        4.0      143.1
+  a10@5.14.5.28.5 vt1          norm       4.1        0.2        0.3        3.2
+  a10@5.14.5.28.5 vt1          head     445.4      413.2      434.9      444.1
+  a10@5.14.5.28.5 vt1     head fold       4.7        0.3        3.4        4.1
+  a10@5.14.5.28.5 vt1 grid waits, arrival to release, us summed over the layers (a CTA's), median of 5 launches:
+  a10@5.14.5.28.5 vt1     after a prologue: median over CTAs     595.7, max     615.0
+  a10@5.14.5.28.5 vt1    after a row phase: median over CTAs     658.1, max    2740.9
+  a10@5.14.5.28.5 vt1    after a fold step: median over CTAs     581.9, max     595.2
+  a10@5.14.5.28.5 vt1   prologues on the owner CTAs, busy us summed over the layers: ln1 192.6, ln2 154.1, dn_in 154.5, norm 3.2
+  a10@5.14.5.28.5 vt16 phases, us summed over the layers, median of 5 stamped launches: wall 8539.1, row phases 7126.4 (83.5 %)
+  a10@5.14.5.28.5 vt16         phase      wall   busy min   busy med   busy max
+  a10@5.14.5.28.5 vt16         embed       7.2        5.6        5.9        6.0
+  a10@5.14.5.28.5 vt16           ln1     227.8       10.2       13.7      192.4
+  a10@5.14.5.28.5 vt16           qkv    1795.2      533.8     1535.2     1745.0
+  a10@5.14.5.28.5 vt16      qkv fold     151.7       14.8       17.6      116.7
+  a10@5.14.5.28.5 vt16          rope     135.8       89.1       99.7      108.2
+  a10@5.14.5.28.5 vt16          attn     649.8       26.5      618.7      622.4
+  a10@5.14.5.28.5 vt16             o     633.7       17.7      516.6      578.0
+  a10@5.14.5.28.5 vt16        o fold     147.6        3.6        4.9       95.2
+  a10@5.14.5.28.5 vt16           ln2     185.4        2.1        4.5      154.5
+  a10@5.14.5.28.5 vt16        gateup    2406.2     1692.0     2211.5     2329.2
+  a10@5.14.5.28.5 vt16   gateup fold     163.4        3.7      102.2      121.5
+  a10@5.14.5.28.5 vt16         dn_in     202.6        2.6        3.4      155.7
+  a10@5.14.5.28.5 vt16          down    1110.1      538.5     1003.4     1049.7
+  a10@5.14.5.28.5 vt16     down fold     185.0        3.0        4.2      146.4
+  a10@5.14.5.28.5 vt16          norm       4.1        0.1        0.1        3.1
+  a10@5.14.5.28.5 vt16          head     481.2      443.2      467.6      480.2
+  a10@5.14.5.28.5 vt16     head fold      52.2       41.7       49.6       51.4
+  a10@5.14.5.28.5 vt16 grid waits, arrival to release, us summed over the layers (a CTA's), median of 5 launches:
+  a10@5.14.5.28.5 vt16     after a prologue: median over CTAs     593.5, max     625.5
+  a10@5.14.5.28.5 vt16    after a row phase: median over CTAs     721.1, max    2961.9
+  a10@5.14.5.28.5 vt16    after a fold step: median over CTAs     522.4, max     650.8
+  a10@5.14.5.28.5 vt16   prologues on the owner CTAs, busy us summed over the layers: ln1 192.4, ln2 154.5, dn_in 155.7, norm 3.1
+  a11i@5.14.5.28.5 vt1 phases, us summed over the layers, median of 5 stamped launches: wall 12329.5, row phases 10298.2 (83.5 %)
+  a11i@5.14.5.28.5 vt1         phase      wall   busy min   busy med   busy max
+  a11i@5.14.5.28.5 vt1         embed       4.3        0.8        0.9        1.0
+  a11i@5.14.5.28.5 vt1           ln1     307.5        9.3       22.6      189.6
+  a11i@5.14.5.28.5 vt1           qkv    2223.1     1333.2     1987.9     2174.2
+  a11i@5.14.5.28.5 vt1      qkv fold     302.3       22.3       24.3      260.9
+  a11i@5.14.5.28.5 vt1          rope     240.1        5.8        9.2      199.6
+  a11i@5.14.5.28.5 vt1          attn     913.7       13.8       18.3      832.5
+  a11i@5.14.5.28.5 vt1             o    1270.1      475.3     1091.9     1156.8
+  a11i@5.14.5.28.5 vt1        o fold     133.5        3.4        4.5       92.6
+  a11i@5.14.5.28.5 vt1           ln2     219.1        2.6        4.1      186.7
+  a11i@5.14.5.28.5 vt1        gateup    3461.8     2422.2     3214.3     3406.7
+  a11i@5.14.5.28.5 vt1   gateup fold     271.1        4.3        6.0      217.0
+  a11i@5.14.5.28.5 vt1         dn_in     342.6        2.4        9.5      189.1
+  a11i@5.14.5.28.5 vt1          down    1879.8     1102.0     1751.7     1803.4
+  a11i@5.14.5.28.5 vt1     down fold     198.5        4.1        5.5      163.8
+  a11i@5.14.5.28.5 vt1          norm       4.1        0.2        0.3        3.1
+  a11i@5.14.5.28.5 vt1          head     554.0      502.4      535.5      552.9
+  a11i@5.14.5.28.5 vt1     head fold       4.0        0.1        3.1        3.8
+  a11i@5.14.5.28.5 vt1 grid waits, arrival to release, us summed over the layers (a CTA's), median of 5 launches:
+  a11i@5.14.5.28.5 vt1     after a prologue: median over CTAs     840.4, max     847.4
+  a11i@5.14.5.28.5 vt1    after a row phase: median over CTAs     824.4, max    3546.0
+  a11i@5.14.5.28.5 vt1    after a fold step: median over CTAs     870.4, max     890.0
+  a11i@5.14.5.28.5 vt1   prologues on the owner CTAs, busy us summed over the layers: ln1 189.6, ln2 186.7, dn_in 189.1, norm 3.1
+  a11i@5.14.5.28.5 vt1 unit parts of the row phases (a11i), a CTA's sum over the layers, median [min-max] over the CTAs, median of 5 launches; us except units
+  a11i@5.14.5.28.5 vt1      qkv: units 36.0 [0.0-36.0], staging 217.5 [0.0-395.4], loop fast 485.7 [0.0-656.2], loop slow 810.9 [0.0-1138.2], close wait 162.3 [0.0-204.5], to arrival 157.4 [146.4-821.1]
+  a11i@5.14.5.28.5 vt1        o: units 36.0 [0.0-36.0], staging 182.9 [0.0-212.3], loop fast 356.9 [0.0-423.2], loop slow 559.9 [0.0-617.5], close wait 157.8 [0.0-174.1], to arrival 161.5 [153.0-383.8]
+  a11i@5.14.5.28.5 vt1   gateup: units 108.0 [72.0-108.0], staging 319.3 [230.8-426.5], loop fast 1382.0 [892.0-1513.3], loop slow 2115.3 [1399.5-2310.1], close wait 385.9 [259.5-460.9], to arrival 163.2 [150.3-214.4]
+  a11i@5.14.5.28.5 vt1     down: units 72.0 [36.0-72.0], staging 239.8 [164.9-279.4], loop fast 796.7 [397.4-848.2], loop slow 1164.0 [606.4-1206.4], close wait 271.7 [126.4-301.3], to arrival 162.0 [152.2-195.6]
+  a11i@5.14.5.28.5 vt1     head: units 21.0 [20.0-21.0], staging 38.0 [35.9-38.8], loop fast 363.9 [340.1-379.1], loop slow 445.8 [417.0-458.5], close wait 81.8 [70.1-90.8], to arrival 2.4 [2.3-6.8]
+  a11i@5.14.5.28.5 vt16 phases, us summed over the layers, median of 5 stamped launches: wall 13545.7, row phases 11497.2 (84.9 %)
+  a11i@5.14.5.28.5 vt16         phase      wall   busy min   busy med   busy max
+  a11i@5.14.5.28.5 vt16         embed       9.3        5.7        5.9        6.1
+  a11i@5.14.5.28.5 vt16           ln1     316.9        8.8       24.7      220.7
+  a11i@5.14.5.28.5 vt16           qkv    2531.4     1583.5     2289.2     2478.9
+  a11i@5.14.5.28.5 vt16      qkv fold     325.5       26.9       30.4      282.0
+  a11i@5.14.5.28.5 vt16          rope     230.1       85.6      100.2      111.1
+  a11i@5.14.5.28.5 vt16          attn     958.7       65.6      703.1      708.9
+  a11i@5.14.5.28.5 vt16             o    1311.8      793.0     1218.2     1431.4
+  a11i@5.14.5.28.5 vt16        o fold     147.9        3.6        4.6       97.3
+  a11i@5.14.5.28.5 vt16           ln2     220.7        2.0        3.8      196.0
+  a11i@5.14.5.28.5 vt16        gateup    3864.6     2795.6     3618.0     3834.7
+  a11i@5.14.5.28.5 vt16   gateup fold     308.0        9.8      123.0      171.6
+  a11i@5.14.5.28.5 vt16         dn_in     308.6        5.7       34.2      250.7
+  a11i@5.14.5.28.5 vt16          down    2076.1     1248.4     1925.0     2008.2
+  a11i@5.14.5.28.5 vt16     down fold     278.5        4.3        5.7      234.9
+  a11i@5.14.5.28.5 vt16          norm       4.1        0.1        0.1        3.3
+  a11i@5.14.5.28.5 vt16          head     602.1      545.2      589.4      601.0
+  a11i@5.14.5.28.5 vt16     head fold      51.2       37.3       47.5       50.5
+  a11i@5.14.5.28.5 vt16 grid waits, arrival to release, us summed over the layers (a CTA's), median of 5 launches:
+  a11i@5.14.5.28.5 vt16     after a prologue: median over CTAs     797.5, max     847.7
+  a11i@5.14.5.28.5 vt16    after a row phase: median over CTAs     783.3, max    3617.9
+  a11i@5.14.5.28.5 vt16    after a fold step: median over CTAs     910.6, max     994.4
+  a11i@5.14.5.28.5 vt16   prologues on the owner CTAs, busy us summed over the layers: ln1 220.7, ln2 196.0, dn_in 250.7, norm 3.3
+  a11i@5.14.5.28.5 vt16 unit parts of the row phases (a11i), a CTA's sum over the layers, median [min-max] over the CTAs, median of 5 launches; us except units
+  a11i@5.14.5.28.5 vt16      qkv: units 36.0 [0.0-36.0], staging 242.3 [0.0-558.3], loop fast 531.5 [0.0-676.3], loop slow 845.1 [0.0-1208.6], close wait 150.2 [0.0-210.8], to arrival 167.9 [154.1-1009.1]
+  a11i@5.14.5.28.5 vt16        o: units 36.0 [0.0-36.0], staging 194.5 [0.0-214.8], loop fast 389.7 [0.0-443.5], loop slow 586.8 [0.0-643.5], close wait 169.9 [0.0-187.1], to arrival 173.3 [157.8-468.9]
+  a11i@5.14.5.28.5 vt16   gateup: units 108.0 [72.0-108.0], staging 390.2 [267.4-659.2], loop fast 1471.5 [976.1-1572.6], loop slow 2326.7 [1487.3-2570.9], close wait 364.5 [232.7-446.8], to arrival 172.4 [155.8-239.0]
+  a11i@5.14.5.28.5 vt16     down: units 72.0 [36.0-72.0], staging 258.3 [172.1-302.3], loop fast 817.6 [427.6-872.1], loop slow 1220.5 [619.6-1277.6], close wait 265.8 [124.5-302.0], to arrival 172.7 [161.6-248.9]
+  a11i@5.14.5.28.5 vt16     head: units 21.0 [20.0-21.0], staging 43.4 [40.7-45.0], loop fast 371.1 [339.4-380.6], loop slow 489.2 [448.6-497.0], close wait 82.9 [72.0-92.2], to arrival 2.6 [2.3-7.9]
+  a10@5.14.5.28.5 vt1 against 4E: the same argmax at 64 of 64 positions
+  a10@5.14.5.28.5 identity: every row equals its node in the 32-row pass, logits and argmax, 67 rows of 5 passes
+  a10@5.14.5.28.5  rows   wall us, median [range]     c_R = t(vt R) / t(4e), round by round, median [range]
+  a10@5.14.5.28.5     1     8004.5 [7999.5-8015.2]   c_1 1.711 [1.709-1.716]
+  a10@5.14.5.28.5     2     8049.8 [8042.7-8071.1]   c_2 1.721 [1.717-1.727]
+  a10@5.14.5.28.5    16     9564.2 [9554.2-9574.0]   c_16 2.046 [2.038-2.052]
+  a10@5.14.5.28.5 an extra row: (c_16 - c_1) / 15 = 0.0223 of a 4E token; c_2 1.721
+  a10@5.14.5.28.5 vt1 phases, us summed over the layers, median of 5 stamped launches: wall 7974.7, row phases 6351.1 (79.6 %)
+  a10@5.14.5.28.5 vt1         phase      wall   busy min   busy med   busy max
+  a10@5.14.5.28.5 vt1         embed       2.3        0.7        0.8        0.9
+  a10@5.14.5.28.5 vt1           ln1     231.0        9.4       14.0      194.5
+  a10@5.14.5.28.5 vt1           qkv    1509.1      403.1     1262.0     1456.7
+  a10@5.14.5.28.5 vt1      qkv fold     152.0       13.5       15.2      107.8
+  a10@5.14.5.28.5 vt1          rope     142.8        6.8        7.8       96.3
+  a10@5.14.5.28.5 vt1          attn     855.2        8.9       10.6      838.9
+  a10@5.14.5.28.5 vt1             o     603.5       18.6      490.6      551.0
+  a10@5.14.5.28.5 vt1        o fold     120.4        3.7        4.8       87.9
+  a10@5.14.5.28.5 vt1           ln2     199.3        4.3        7.7      154.8
+  a10@5.14.5.28.5 vt1        gateup    2100.7     1423.9     1938.5     2036.2
+  a10@5.14.5.28.5 vt1   gateup fold     147.0        2.6        4.0       99.3
+  a10@5.14.5.28.5 vt1         dn_in     188.8        2.8        4.2      154.9
+  a10@5.14.5.28.5 vt1          down    1083.1      519.3      970.3     1014.8
+  a10@5.14.5.28.5 vt1     down fold     185.3        3.0        4.0      143.3
+  a10@5.14.5.28.5 vt1          norm       4.1        0.2        0.3        3.1
+  a10@5.14.5.28.5 vt1          head     445.4      414.0      435.7      444.2
+  a10@5.14.5.28.5 vt1     head fold       4.5        0.2        3.5        4.1
+  a10@5.14.5.28.5 vt1 grid waits, arrival to release, us summed over the layers (a CTA's), median of 5 launches:
+  a10@5.14.5.28.5 vt1     after a prologue: median over CTAs     597.5, max     618.2
+  a10@5.14.5.28.5 vt1    after a row phase: median over CTAs     652.8, max    2742.9
+  a10@5.14.5.28.5 vt1    after a fold step: median over CTAs     581.0, max     593.7
+  a10@5.14.5.28.5 vt1   prologues on the owner CTAs, busy us summed over the layers: ln1 194.5, ln2 154.8, dn_in 154.9, norm 3.1
+  a10@5.14.5.28.5 vt16 phases, us summed over the layers, median of 5 stamped launches: wall 9555.3, row phases 7125.4 (74.6 %)
+  a10@5.14.5.28.5 vt16         phase      wall   busy min   busy med   busy max
+  a10@5.14.5.28.5 vt16         embed       7.4        5.7        6.0        6.2
+  a10@5.14.5.28.5 vt16           ln1     229.7       10.4       13.7      194.2
+  a10@5.14.5.28.5 vt16           qkv    1811.3      528.6     1552.3     1759.3
+  a10@5.14.5.28.5 vt16      qkv fold     152.9       14.3       17.2      117.6
+  a10@5.14.5.28.5 vt16          rope     136.8       90.4      100.8      108.3
+  a10@5.14.5.28.5 vt16          attn    1662.7      689.5     1396.3     1623.1
+  a10@5.14.5.28.5 vt16             o     609.9       16.1      495.1      557.2
+  a10@5.14.5.28.5 vt16        o fold     147.6        3.6        4.5       94.8
+  a10@5.14.5.28.5 vt16           ln2     186.2        2.3        4.6      155.3
+  a10@5.14.5.28.5 vt16        gateup    2409.4     1687.2     2207.7     2327.8
+  a10@5.14.5.28.5 vt16   gateup fold     163.5        4.1      102.3      122.5
+  a10@5.14.5.28.5 vt16         dn_in     203.0        2.7        3.5      156.6
+  a10@5.14.5.28.5 vt16          down    1113.4      540.1     1006.6     1052.7
+  a10@5.14.5.28.5 vt16     down fold     186.0        2.9        4.1      146.4
+  a10@5.14.5.28.5 vt16          norm       4.1        0.1        0.1        3.2
+  a10@5.14.5.28.5 vt16          head     479.2      443.4      467.1      478.8
+  a10@5.14.5.28.5 vt16     head fold      52.2       41.8       49.8       51.6
+  a10@5.14.5.28.5 vt16 grid waits, arrival to release, us summed over the layers (a CTA's), median of 5 launches:
+  a10@5.14.5.28.5 vt16     after a prologue: median over CTAs     595.7, max     627.3
+  a10@5.14.5.28.5 vt16    after a row phase: median over CTAs     723.3, max    2956.0
+  a10@5.14.5.28.5 vt16    after a fold step: median over CTAs     524.0, max     657.0
+  a10@5.14.5.28.5 vt16   prologues on the owner CTAs, busy us summed over the layers: ln1 194.2, ln2 155.3, dn_in 156.6, norm 3.2
+  chat a10@5.14.5.28.5: c_1 1.757, c_2 1.769, c_16 1.942
+  chat a11i@5.14.5.28.5: c_1 2.120, c_2 2.144, c_16 2.305
+  rag a10@5.14.5.28.5: c_1 1.711, c_2 1.721, c_16 2.046
+guard: a10@5.14.5.28.5 guard against a9@5.14.5.28.5 (slices [5, 14, 5, 28, 5] and [5, 14, 5, 28, 5]): PASSES, the 32-row pass equal bit for bit
+guard: a11i@5.14.5.28.5 guard against a11@5.14.5.28.5 (slices [5, 14, 5, 28, 5] and [5, 14, 5, 28, 5]): PASSES, the 32-row pass equal bit for bit
+control 2: the served 4E v9 module
+4E tree: pers_4et_rows_f1_t512: 128 registers, 720 B local, 89984 B shared, 1 resident a SM
+4E tree a9: pers_4et_a9_f1_t512: 128 registers, 744 B local, 89984 B shared, 1 resident a SM
+4E tree a10: pers_4et_a10_f1_t512: 128 registers, 736 B local, 89984 B shared, 1 resident a SM
+4E tree a11: pers_4et_a11_f1_t512: 128 registers, 736 B local, 89984 B shared, 1 resident a SM
+4E tree a11i: pers_4et_a11i_f1_t512: 128 registers, 824 B local, 89984 B shared, 1 resident a SM
