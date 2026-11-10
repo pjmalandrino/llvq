@@ -25,7 +25,7 @@ REPO=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$REPO"
 
 STAGE=${STAGE:-n2}
-case "$STAGE" in n2|n2a|n2b|n3|n4) ;; *) echo "refused: STAGE=$STAGE (n2, n2a, n2b, n3 or n4)" >&2; exit 1;; esac
+case "$STAGE" in n2|n2a|n2b|n3|n4|n5) ;; *) echo "refused: STAGE=$STAGE (n2, n2a, n2b, n3, n4 or n5)" >&2; exit 1;; esac
 PREREG=${PREREG:-proofs/preregistration-verify-tree-$STAGE-2026-11-10.md}
 OUT_NAME=${OUT_NAME:-verify-tree-$STAGE-2026-11-10}
 IMAGE_SHA=${IMAGE_SHA:-}
@@ -35,11 +35,11 @@ DRY=${DRY_RUN:-0}
 P4E_V9_SHA=1b422b62328be6752df4add43280565fd2a49cfa20ee26953b301abe7a15c530
 TIMEOUT=${TIMEOUT:-25m}
 ARMS=${ARMS:-a2,a3,a4}
-case "$ARMS" in a2,a3,a4|a2,a3|a3,a4|'a3,a6,a6@5.14.5.28.5,a7,a3f'|'a3@5.14.5.28.5,a8@5.14.5.28.5,a3f@5.14.5.28.5,a3p@5.14.5.28.5,a3t@5.14.5.28.5,a3@5.7.5.16.5') ;;
+case "$ARMS" in a2,a3,a4|a2,a3|a3,a4|'a3,a6,a6@5.14.5.28.5,a7,a3f'|'a3@5.14.5.28.5,a8@5.14.5.28.5,a3f@5.14.5.28.5,a3p@5.14.5.28.5,a3t@5.14.5.28.5,a3@5.7.5.16.5'|'a3@5.14.5.28.5,a9@5.14.5.28.5,a9@11.14.7.28.5,a3f@5.14.5.28.5,a3p@5.14.5.28.5,a3t@5.14.5.28.5') ;;
   *) echo "refused: ARMS=$ARMS (not one of the stages' arm lists)" >&2; exit 1;; esac
 # the bench's own timeout inside the job: 20m, 25m for n3 (four tree-tiled modules through NVRTC, five timed arms)
 if [ -z "${INNER_TIMEOUT:-}" ]; then
-  if [ "$STAGE" = n4 ]; then INNER_TIMEOUT=27m; elif [ "$STAGE" = n3 ]; then INNER_TIMEOUT=25m; else INNER_TIMEOUT=20m; fi
+  if [ "$STAGE" = n5 ]; then INNER_TIMEOUT=29m; elif [ "$STAGE" = n4 ]; then INNER_TIMEOUT=27m; elif [ "$STAGE" = n3 ]; then INNER_TIMEOUT=25m; else INNER_TIMEOUT=20m; fi
 fi
 FLAVOR=${FLAVOR:-l40sx1}
 case "$FLAVOR" in
@@ -112,14 +112,15 @@ grep -E '^4E: persistent module|^4E tree|^arm a[2-4]:|^== tree|^  (a[2-4] (vt1 a
 # the phase tables, and the F3 parts tables of the arms that print one (setup, staging, loops, store a row phase)
 grep -E '^  a[2-4] vt(1|16) ' "$O/vtree-4b.txt" | tee -a "$O/summary.txt" || true
 # n3: every line of the arms a5..a7, a3f and the plan-suffixed arms (c_R, phases, guards, the floor arm's labels)
-case "$STAGE" in n3|n4)
-  grep -E '^4E tree|^arm |^  (a[3-8][fpt]?(@[0-9.]+)?( \(floor arm, values void\))? |(chat|rag) a)' "$O/vtree-4b.txt" \
+case "$STAGE" in n3|n4|n5)
+  grep -E '^4E tree|^arm |^  (a[3-9][fpt]?(@[0-9.]+)?( \(floor arm, values void\))? |(chat|rag) a)' "$O/vtree-4b.txt" \
     | grep -vE '^  a[2-4] vt(1|16) ' | tee -a "$O/summary.txt" || true
   grep -E '^  [a-z0-9@.]+ guard against ' "$O/vtree-4b.txt" | grep -v 'PASSES' \
     | sed 's/^/VOID: /' | tee -a "$O/summary.txt" || true
   grep -qE '^  a6 guard against a3 .*: PASSES' "$O/vtree-4b.txt" && echo "guard: a6 equals a3" | tee -a "$O/summary.txt" || true
   grep -qE '^  a7 guard against a6 .*: PASSES' "$O/vtree-4b.txt" && echo "guard: a7 equals a6" | tee -a "$O/summary.txt" || true
   grep -qE '^  a8(@[0-9.]+)? guard against a3(@[0-9.]+)? .*: PASSES' "$O/vtree-4b.txt" && echo "guard: a8 equals a3" | tee -a "$O/summary.txt" || true
+  grep -E '^  a9(@[0-9.]+)? guard against a3(@[0-9.]+)? .*: PASSES' "$O/vtree-4b.txt" | sed 's/^ */guard: /' | tee -a "$O/summary.txt" || true
   ;; esac
 tail -3 "$O/vtree-4b.txt"
 # control 2: 4E is the served v9 module (its one-token launches are checked against its greedy tokens inside)
