@@ -80,8 +80,8 @@ if [ "$DRY" != 1 ]; then
   echo "bucket copy verified by size; image $NOW"
 fi
 
-PRE=$(printf 'O=%q\nSEALED=%q\nSEALED_SHA=%q\nCFG_SHA=%q\nCFG_B64=%q\nP4E_V9_SHA=%q\nARMS=%q\nINNER_TIMEOUT=%q\nexport HF_HOME=/tmp/hf' \
-  "$O" "$SEALED" "$SEALED_SHA" "$CFG_SHA" "$CFG_B64" "$P4E_V9_SHA" "$ARMS" "$INNER_TIMEOUT")$DEV_PRE
+PRE=$(printf 'O=%q\nSEALED=%q\nSEALED_SHA=%q\nCFG_SHA=%q\nCFG_B64=%q\nP4E_V9_SHA=%q\nARMS=%q\nINNER_TIMEOUT=%q\nSTAGE=%q\nexport HF_HOME=/tmp/hf' \
+  "$O" "$SEALED" "$SEALED_SHA" "$CFG_SHA" "$CFG_B64" "$P4E_V9_SHA" "$ARMS" "$INNER_TIMEOUT" "$STAGE")$DEV_PRE
 
 IFS= read -r -d '' BODY <<'JOB' || true
 mkdir -p "$O"
