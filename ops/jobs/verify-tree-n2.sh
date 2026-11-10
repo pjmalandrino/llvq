@@ -12,6 +12,8 @@
 #
 #   DRY_RUN=1 bash ops/jobs/verify-tree-n2.sh             parses the job script, launches nothing
 #   IMAGE_SHA=<space sha> bash ops/jobs/verify-tree-n2.sh  launches
+#   STAGE=n2a ARMS=a2,a3 ...                               job N2a: its own prereg and output directory
+#     (PREREG and OUT_NAME override the paths STAGE derives)
 #   FLAVOR=l40sx4 RETRY=1 TIMEOUT=18m ...                  the twin on l40sx4, one device visible
 #   QUEUE_BEFORE_PREREG=1 / QUEUE_BEFORE_IMAGE=1           queue the job before the prereg and the image exist
 #     (the orchestrator's N2 submission only: the image that runs must carry arm a4, since an image without it
@@ -22,15 +24,18 @@ set -euo pipefail
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$REPO"
 
-PREREG=proofs/preregistration-verify-tree-n2-2026-11-10.md
+STAGE=${STAGE:-n2}
+case "$STAGE" in n2|n2a|n2b) ;; *) echo "refused: STAGE=$STAGE (n2, n2a or n2b)" >&2; exit 1;; esac
+PREREG=${PREREG:-proofs/preregistration-verify-tree-$STAGE-2026-11-10.md}
+OUT_NAME=${OUT_NAME:-verify-tree-$STAGE-2026-11-10}
 IMAGE_SHA=${IMAGE_SHA:-}
 BUCKET=Pier-Jean/jobs-artifacts
-O=/out/verify-tree-n2-2026-11-10${RETRY:+-r$RETRY}
+O=/out/$OUT_NAME${RETRY:+-r$RETRY}
 DRY=${DRY_RUN:-0}
 P4E_V9_SHA=1b422b62328be6752df4add43280565fd2a49cfa20ee26953b301abe7a15c530
 TIMEOUT=${TIMEOUT:-25m}
 ARMS=${ARMS:-a2,a3,a4}
-case "$ARMS" in a2,a3,a4) ;; *) echo "refused: ARMS=$ARMS (a2,a3,a4 only: a2 is a3's guard, a3 is a4's)" >&2; exit 1;; esac
+case "$ARMS" in a2,a3,a4|a2,a3) ;; *) echo "refused: ARMS=$ARMS (a2,a3,a4 or a2,a3: a2 is a3's guard, a3 is a4's)" >&2; exit 1;; esac
 FLAVOR=${FLAVOR:-l40sx1}
 case "$FLAVOR" in
   l40sx1) FLAVOR_ARGS=(); DEV_PRE='' ;;
@@ -108,9 +113,9 @@ grep -E '^4E tree[a-z0-9 ]*: pers_4et_[a-z0-9]+_f[0-9]_t512: [0-9]+ registers, [
 grep -q '^  a3 guard against a2 .*: PASSES' "$O/vtree-4b.txt" \
   && echo "guard: a3 equals a2 bit for bit on the chat 32-row pass" | tee -a "$O/summary.txt" \
   || echo "VOID: a3's guard against a2 did not pass; a3's numbers are void" | tee -a "$O/summary.txt"
-grep -q '^  a4 guard against a3 .*: PASSES' "$O/vtree-4b.txt" \
+case "$ARMS" in *a4*) grep -q '^  a4 guard against a3 .*: PASSES' "$O/vtree-4b.txt" \
   && echo "guard: a4 equals a3 bit for bit on the chat 32-row pass" | tee -a "$O/summary.txt" \
-  || echo "VOID: a4's guard against a3 did not pass; a4's numbers are void" | tee -a "$O/summary.txt"
+  || echo "VOID: a4's guard against a3 did not pass; a4's numbers are void" | tee -a "$O/summary.txt" ;; esac
 ls -la "$O"
 JOB
 
@@ -126,5 +131,5 @@ uv run ops/run.py bench \
   --image hf.co/spaces/Pier-Jean/llvq-runner-cuda \
   --flavor "$FLAVOR" ${FLAVOR_ARGS[@]+"${FLAVOR_ARGS[@]}"} --timeout "$TIMEOUT" \
   --bucket "$BUCKET" --out-mount /out \
-  --name "verify-tree-n2${RETRY:+-r$RETRY}" \
+  --name "verify-tree-$STAGE${RETRY:+-r$RETRY}" \
   "$PRE" "$BODY"
