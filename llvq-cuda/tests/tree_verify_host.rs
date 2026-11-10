@@ -775,8 +775,8 @@ fn tiled_mutants_are_killed() {
 
 /// The host twin's stream plan: `pers::p4t_splits_stream` at 3 CTAs of 2
 /// warps, whose area (attention's share) holds slices of 18 sub-steps; the
-/// q/k/v, gate/up and head slices at the cap, the head in 3.
-const SPLIT_N2: [u32; 5] = [3, 6, 3, 12, 3];
+/// head in 4.
+const SPLIT_N2: [u32; 5] = [4, 6, 4, 13, 4];
 /// A second plan within the cap, every phase cut otherwise, the head in 5.
 const SPLIT_N2B: [u32; 5] = [5, 8, 4, 19, 5];
 
@@ -801,7 +801,7 @@ fn gate_stream(bin: &Path, tiled: &Path, f: &Fix, t: &Tree, sizes: &[usize], pos
 }
 
 /// The stream pass equals the tiled pass bit for bit at R = 1, 2, 8, 16, 32
-/// under the twin's stream plan and a second plan, the head folded from 3
+/// under the twin's stream plan and a second plan, the head folded from 4
 /// and 5 slices; and on the 8B's parts (a Tetra o, an untied head) at RoPE
 /// form 2, R = 1 and 5.
 #[test]

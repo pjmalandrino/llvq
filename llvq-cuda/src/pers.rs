@@ -1721,11 +1721,14 @@ pub fn p4t_slice_steps(d_in: u32, s: u32) -> u32 {
     d_in.div_ceil(48).div_ceil(s)
 }
 
-/// Job N2's plan for the stream unit (arm a3, and a2 beside it): for each
-/// phase (q/k/v, o, gate/up, down, head) the smallest S whose slices fit
-/// `cap` sub-steps ([`p4t_stream_cap`]) is the floor; above it, S up to 32
-/// (and at most the phase's sub-steps) with the largest fill of
-/// [`p4t_plan`], the smaller S on a tie. Refused when no S up to 32 fits.
+/// Job N2's plan for the stream unit (arm a3, and a2 beside it). For each
+/// phase (q/k/v, o, gate/up, down, head) the floor is the smallest S whose
+/// slices fit `cap` sub-steps ([`p4t_stream_cap`]); from it, the smallest S
+/// whose fill ([`p4t_plan`]) reaches 90 %, then S + 1 or else S + 2 when
+/// that reaches 98 %. S at most 32 and at most the phase's sub-steps; when
+/// no S reaches 90 %, the best fill, the smaller S on a tie. Every slice
+/// costs a staged activation and a partial written and read back, so S
+/// stays as small as a filled grid allows. Refused when no S up to 32 fits.
 #[allow(clippy::too_many_arguments)]
 pub fn p4t_splits_stream(hidden: u32, inter: u32, d_ctx: u32, n_kv: u32, vocab: u32, nw: u32, grid: u32, cap: u32) -> Result<[u32; 5], String> {
     let d_ins = [hidden, d_ctx, hidden, inter, hidden];
@@ -1740,13 +1743,14 @@ pub fn p4t_splits_stream(hidden: u32, inter: u32, d_ctx: u32, n_kv: u32, vocab: 
             t[i] = x;
             p4t_plan(t, hidden, inter, d_ctx, n_kv, vocab, nw, grid)[i].2
         };
-        let mut best = lo;
-        for x in lo + 1..=top {
-            if fill(x) > fill(best) + 1e-12 {
-                best = x;
-            }
+        let mut pick = match (lo..=top).find(|&x| fill(x) >= 0.9) {
+            Some(x) => x,
+            None => (lo..=top).fold(lo, |b, x| if fill(x) > fill(b) + 1e-12 { x } else { b }),
+        };
+        if let Some(x) = [pick + 1, pick + 2].into_iter().find(|&x| x <= top && fill(x) >= 0.98) {
+            pick = x;
         }
-        s[i] = best;
+        s[i] = pick;
     }
     Ok(s)
 }
@@ -2684,8 +2688,10 @@ mod tests {
             );
             assert!(s[k] >= floor[k] && p4t_slice_steps(d_ins[k], s[k]) <= cap);
         }
-        assert_eq!(s, [29, 14, 28, 28, 27]);
-        eprintln!("slice partials {} floats", p4t_fpart_floats(s, h, i, d, kv, v));
+        assert_eq!(s, [11, 14, 7, 28, 5]);
+        let fp = p4t_fpart_floats(s, h, i, d, kv, v);
+        eprintln!("slice partials {fp} floats, {:.1} MB", 4.0 * fp as f64 / 1e6);
+        assert_eq!(fp, 5 * 32 * 151_936);
         // the host twin: 3 CTAs of 2 warps, its area the widest row's
         let ht = p4t_area_floats(2, 32, 9728, 4);
         let hcap = p4t_stream_cap(ht, 2);
@@ -2698,7 +2704,7 @@ mod tests {
                 names[k], hs[k], hp[k].0, hp[k].1, 100.0 * hp[k].2, p4t_slice_steps(d_ins[k], hs[k])
             );
         }
-        assert_eq!(hs, [3, 6, 3, 12, 3]);
+        assert_eq!(hs, [4, 6, 4, 13, 4]);
         assert!(p4t_splits_stream(h, i, d, kv, v, 16, 142, 3).is_err(), "the down needs S > 32 at 3 sub-steps a slice");
     }
 
