@@ -33,7 +33,8 @@ DREPO=z-lab/Qwen3-4B-DFlash-b16
 DREV=b74e3a329c4d963783143b1e970d95b002be72bd
 DCFG_SHA=2de97cdf48f429628074d229d024753f1ea02b575732983d6ed2bc882bbd63c8
 DMODEL_SHA=a21d0ffe5970c84e9a0710ccb12087d1a4bcbedf979e623476c92c9d005a9cd4
-NTOK=128
+NTOK=${NTOK:-128}
+case "$NTOK" in 128|64) ;; *) echo "refused: NTOK=$NTOK (128, or 64 for the rerun of deviation 1)" >&2; exit 1;; esac
 FLAVOR=${FLAVOR:-l40sx1}
 case "$FLAVOR" in
   l40sx1) FLAVOR_ARGS=(); DEV_PRE='' ;;
