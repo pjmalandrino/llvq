@@ -25,7 +25,7 @@ REPO=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$REPO"
 
 STAGE=${STAGE:-n2}
-case "$STAGE" in n2|n2a|n2b|n3|n4|n5|n6|n7|n8|n9|n10) ;; *) echo "refused: STAGE=$STAGE (n2 .. n10)" >&2; exit 1;; esac
+case "$STAGE" in n2|n2a|n2b|n3|n4|n5|n6|n7|n8|n9|n10|n11) ;; *) echo "refused: STAGE=$STAGE (n2 .. n11)" >&2; exit 1;; esac
 PREREG=${PREREG:-proofs/preregistration-verify-tree-$STAGE-2026-11-10.md}
 OUT_NAME=${OUT_NAME:-verify-tree-$STAGE-2026-11-10}
 IMAGE_SHA=${IMAGE_SHA:-}
@@ -35,11 +35,11 @@ DRY=${DRY_RUN:-0}
 P4E_V9_SHA=1b422b62328be6752df4add43280565fd2a49cfa20ee26953b301abe7a15c530
 TIMEOUT=${TIMEOUT:-25m}
 ARMS=${ARMS:-a2,a3,a4}
-case "$ARMS" in a2,a3,a4|a2,a3|a3,a4|'a3,a6,a6@5.14.5.28.5,a7,a3f'|'a3@5.14.5.28.5,a8@5.14.5.28.5,a3f@5.14.5.28.5,a3p@5.14.5.28.5,a3t@5.14.5.28.5,a3@5.7.5.16.5'|'a3@5.14.5.28.5,a9@5.14.5.28.5,a9@11.14.7.28.5,a3f@5.14.5.28.5,a3p@5.14.5.28.5,a3t@5.14.5.28.5'|'a9@5.14.5.28.5,a10@5.14.5.28.5'|'a10@5.14.5.28.5,a11@5.14.5.28.5'|'a10@5.14.5.28.5,a11i@5.14.5.28.5'|'a10@5.14.5.28.5,a10r16@5.14.5.28.5,a10r8@5.14.5.28.5'|'a10@5.14.5.28.5,a10t384@8.10.8.20.6,a10t256@5.14.5.28.5') ;;
+case "$ARMS" in a2,a3,a4|a2,a3|a3,a4|'a3,a6,a6@5.14.5.28.5,a7,a3f'|'a3@5.14.5.28.5,a8@5.14.5.28.5,a3f@5.14.5.28.5,a3p@5.14.5.28.5,a3t@5.14.5.28.5,a3@5.7.5.16.5'|'a3@5.14.5.28.5,a9@5.14.5.28.5,a9@11.14.7.28.5,a3f@5.14.5.28.5,a3p@5.14.5.28.5,a3t@5.14.5.28.5'|'a9@5.14.5.28.5,a10@5.14.5.28.5'|'a10@5.14.5.28.5,a11@5.14.5.28.5'|'a10@5.14.5.28.5,a11i@5.14.5.28.5'|'a10@5.14.5.28.5,a10r16@5.14.5.28.5,a10r8@5.14.5.28.5'|'a10@5.14.5.28.5,a10t384@8.10.8.20.6,a10t256@5.14.5.28.5'|'a10t384@8.10.8.20.6,a10t384r16@8.10.8.20.6,a10t448@9.11.8.22.6,a10t320@7.8.8.16.7,a10t384@5.14.5.28.5') ;;
   *) echo "refused: ARMS=$ARMS (not one of the stages' arm lists)" >&2; exit 1;; esac
 # the bench's own timeout inside the job: 20m, 25m for n3 (four tree-tiled modules through NVRTC, five timed arms)
 if [ -z "${INNER_TIMEOUT:-}" ]; then
-  if [ "$STAGE" = n10 ]; then INNER_TIMEOUT=25m; elif [ "$STAGE" = n8 ] || [ "$STAGE" = n9 ]; then INNER_TIMEOUT=23m; elif [ "$STAGE" = n6 ] || [ "$STAGE" = n7 ]; then INNER_TIMEOUT=21m; elif [ "$STAGE" = n5 ]; then INNER_TIMEOUT=29m; elif [ "$STAGE" = n4 ]; then INNER_TIMEOUT=27m; elif [ "$STAGE" = n3 ]; then INNER_TIMEOUT=25m; else INNER_TIMEOUT=20m; fi
+  if [ "$STAGE" = n11 ]; then INNER_TIMEOUT=31m; elif [ "$STAGE" = n10 ]; then INNER_TIMEOUT=25m; elif [ "$STAGE" = n8 ] || [ "$STAGE" = n9 ]; then INNER_TIMEOUT=23m; elif [ "$STAGE" = n6 ] || [ "$STAGE" = n7 ]; then INNER_TIMEOUT=21m; elif [ "$STAGE" = n5 ]; then INNER_TIMEOUT=29m; elif [ "$STAGE" = n4 ]; then INNER_TIMEOUT=27m; elif [ "$STAGE" = n3 ]; then INNER_TIMEOUT=25m; else INNER_TIMEOUT=20m; fi
 fi
 FLAVOR=${FLAVOR:-l40sx1}
 case "$FLAVOR" in
@@ -122,8 +122,8 @@ grep -E '^4E: persistent module|^4E tree|^arm a[2-4]:|^== tree|^  (a[2-4] (vt1 a
 # the phase tables, and the F3 parts tables of the arms that print one (setup, staging, loops, store a row phase)
 grep -E '^  a[2-4] vt(1|16) ' "$O/vtree-4b.txt" | tee -a "$O/summary.txt" || true
 # n3: every line of the arms a5..a7, a3f and the plan-suffixed arms (c_R, phases, guards, the floor arm's labels)
-case "$STAGE" in n3|n4|n5|n6|n7|n8|n9|n10)
-  grep -E '^4E tree|^arm |^  (a([3-9]|1[01])([fpti]|r8|r16|t384|t256)?(@[0-9.]+)?( \(floor arm, values void\))? |(chat|rag) a)' "$O/vtree-4b.txt" \
+case "$STAGE" in n3|n4|n5|n6|n7|n8|n9|n10|n11)
+  grep -E '^4E tree|^arm |^  (a([3-9]|1[01])([fpti]|r8|r16|t[0-9]{3}(r16)?)?(@[0-9.]+)?( \(floor arm, values void\))? |(chat|rag) a)' "$O/vtree-4b.txt" \
     | grep -vE '^  a[2-4] vt(1|16) ' | tee -a "$O/summary.txt" || true
   grep -E '^  [a-z0-9@.]+ guard against ' "$O/vtree-4b.txt" | grep -v 'PASSES' \
     | sed 's/^/VOID: /' | tee -a "$O/summary.txt" || true
@@ -134,7 +134,7 @@ case "$STAGE" in n3|n4|n5|n6|n7|n8|n9|n10)
   grep -E '^  a10(@[0-9.]+)? guard against a9(@[0-9.]+)? .*: PASSES' "$O/vtree-4b.txt" | sed 's/^ */guard: /' | tee -a "$O/summary.txt" || true
   grep -E '^  a11(@[0-9.]+)? guard against a10(@[0-9.]+)? .*: PASSES' "$O/vtree-4b.txt" | sed 's/^ */guard: /' | tee -a "$O/summary.txt" || true
   grep -E '^  a11i(@[0-9.]+)? guard against a11(@[0-9.]+)? .*: PASSES' "$O/vtree-4b.txt" | sed 's/^ */guard: /' | tee -a "$O/summary.txt" || true
-  grep -E '^  a10(r8|r16|t384|t256)(@[0-9.]+)? guard against a10(@[0-9.]+)? .*: PASSES' "$O/vtree-4b.txt" | sed 's/^ */guard: /' | tee -a "$O/summary.txt" || true
+  grep -E '^  a10(r8|r16|t[0-9]{3}(r16)?)(@[0-9.]+)? guard against a10(t[0-9]{3})?(@[0-9.]+)? .*: PASSES' "$O/vtree-4b.txt" | sed 's/^ */guard: /' | tee -a "$O/summary.txt" || true
   ;; esac
 tail -3 "$O/vtree-4b.txt"
 # control 2: 4E is the served v9 module (its one-token launches are checked against its greedy tokens inside)
