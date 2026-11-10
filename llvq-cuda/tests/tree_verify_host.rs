@@ -350,7 +350,12 @@ struct RowOut {
     logits: Vec<u16>,
     x: Vec<u16>,
     kv: Vec<u16>,
+    /// a12 only: the row's five tap slots, `[5][H]` (empty otherwise)
+    taps: Vec<u16>,
 }
+
+/// The variant bit of arm a12 (the taps).
+const A12: u32 = 268435456;
 
 struct Out {
     reference: Option<(u32, Vec<u16>)>,
@@ -372,12 +377,13 @@ impl Rd<'_> {
     }
 }
 
-fn parse(bytes: &[u8], reference: bool, passes: &[Pass]) -> Result<Out, String> {
+fn parse(bytes: &[u8], reference: bool, passes: &[Pass], taps: bool) -> Result<Out, String> {
     let v = VOCAB as usize;
+    let tw = if taps { 5 * H } else { 0 };
     let mut need = if reference { 4 + 2 * v } else { 0 } + 8;
     for p in passes {
         let r = p.toks.len();
-        need += r * (4 + 2 * v + 2 * H + 2 * 2 * NL * DKV);
+        need += r * (4 + 2 * v + 2 * H + 2 * tw + 2 * 2 * NL * DKV);
     }
     if bytes.len() != need {
         return Err(format!("output of {} bytes, expected {need}", bytes.len()));
@@ -390,6 +396,7 @@ fn parse(bytes: &[u8], reference: bool, passes: &[Pass]) -> Result<Out, String> 
         let ring = rd.u32s(r);
         let lg = rd.u16s(r * v);
         let x = rd.u16s(r * H);
+        let tp = rd.u16s(r * tw);
         let kv: Vec<Vec<u16>> = (0..2 * NL).map(|_| rd.u16s(r * DKV)).collect();
         out.push(
             (0..r)
@@ -398,6 +405,7 @@ fn parse(bytes: &[u8], reference: bool, passes: &[Pass]) -> Result<Out, String> 
                     logits: lg[s * v..(s + 1) * v].to_vec(),
                     x: x[s * H..(s + 1) * H].to_vec(),
                     kv: kv.iter().flat_map(|b| b[s * DKV..(s + 1) * DKV].iter().copied()).collect(),
+                    taps: tp[s * tw..(s + 1) * tw].to_vec(),
                 })
                 .collect(),
         );
@@ -407,7 +415,7 @@ fn parse(bytes: &[u8], reference: bool, passes: &[Pass]) -> Result<Out, String> 
 }
 
 fn exec(bin: &Path, f: &Fix, reference: Option<(u32, u32)>, passes: &[Pass]) -> Result<Out, String> {
-    let out = parse(&run(bin, &y_cmd(f, reference, passes))?, reference.is_some(), passes)?;
+    let out = parse(&run(bin, &y_cmd(f, reference, passes))?, reference.is_some(), passes, f.variant & A12 != 0)?;
     if out.tail[1] != 0 {
         return Err(format!("abort, NaN flag or tickets left: {}", out.tail[1]));
     }
@@ -1029,7 +1037,7 @@ fn a5_prefetch_mutant_is_killed() {
 /// slices: every row's argmax, logits, residual, K and V equal.
 #[allow(clippy::too_many_arguments)]
 fn gate_pair(bin: &Path, refb: &Path, f: &Fix, v: u32, r: u32, t: &Tree, sizes: &[usize], pos0: u32) -> Result<usize, String> {
-    let arms = 32 | 128 | 256 | 512 | 1024 | 2048 | 4096 | 8192 | 16384 | 32768 | 65536 | 131072 | 524288 | 1048576 | 2097152 | 4194304;
+    let arms = 32 | 128 | 256 | 512 | 1024 | 2048 | 4096 | 8192 | 16384 | 32768 | 65536 | 131072 | 524288 | 1048576 | 2097152 | 4194304 | A12;
     let passes: Vec<Pass> =
         sizes.iter().enumerate().map(|(i, &s)| Pass::of(t, &t.subset(s, 0x6100 + i as u64), pos0, 0x7a00 + i as u64)).collect();
     let u = exec(refb, &Fix { variant: (f.variant & !arms) | r, ..*f }, None, &passes)?;
@@ -1388,4 +1396,133 @@ fn the_t384r16_arm_refuses_17_rows() {
     let f = Fix { split: SPLIT_N2B, variant: 134217728, threads: 384, ..FIX };
     let e = exec(host(), &f, None, &[Pass::of(&t, &t.subset(17, 0x6400), 9, 0x7800)]).err().expect("17 rows run");
     assert!(e.contains("aborted"), "{e}");
+}
+
+// ---- arm a12: a10t384r16 with the drafter's taps ----
+
+/// a12 equals a10 bit for bit at R = 1, 8, 16 under both stream plans; its
+/// taps (layers 0, 1 and n_layers = 2 on the twin, first 0 and stride 1)
+/// hold, for every row, the final residual in the slot of layer 2 bit for
+/// bit, and the slots past the layers stay zero.
+#[test]
+#[cfg_attr(debug_assertions, ignore)]
+fn a12_rows_equal_a10_rows_and_its_taps_are_the_residual() {
+    let t = tree(16, 5, 0x409);
+    for split in [SPLIT_N2, SPLIT_N2B] {
+        let f = Fix { split, ..FIX };
+        let n = gate_pair(host(), host(), &f, A12, 131072, &t, &[1, 8, 16], 9).unwrap();
+        eprintln!("split {split:?}: {n} rows, a12 equals a10 bit for bit");
+        let n = gate_taps(host(), &f, &t, &[1, 8, 16]).unwrap();
+        eprintln!("split {split:?}: {n} rows, the layer-2 tap is the final residual, slots 3 and 4 zero");
+    }
+}
+
+/// The tap checks of [`a12_rows_equal_a10_rows_and_its_taps_are_the_residual`].
+fn gate_taps(bin: &Path, f: &Fix, t: &Tree, sizes: &[usize]) -> Result<usize, String> {
+    let passes: Vec<Pass> = sizes.iter().enumerate().map(|(i, &s)| Pass::of(t, &t.subset(s, 0x6500 + i as u64), 9, 0x7700 + i as u64)).collect();
+    let o = exec(bin, &Fix { variant: (f.variant & !131072) | A12, ..*f }, None, &passes)?;
+    let mut rows = 0;
+    for (pi, pass) in o.passes.iter().enumerate() {
+        for (s, row) in pass.iter().enumerate() {
+            rows += 1;
+            if row.taps.len() != 5 * H {
+                return Err(format!("pass {pi}, slot {s}: {} tap values", row.taps.len()));
+            }
+            if row.taps[2 * H..3 * H] != row.x[..] {
+                return Err(format!("pass {pi}, slot {s}: the layer-2 tap is not the final residual"));
+            }
+            if row.taps[3 * H..].iter().any(|&v| v != 0) || row.taps[..2 * H].iter().all(|&v| v == 0) {
+                return Err(format!("pass {pi}, slot {s}: a slot past the layers written, or the layer 0 and 1 slots empty"));
+            }
+        }
+    }
+    Ok(rows)
+}
+
+/// A tap taken one layer late is killed by the tap gate.
+#[test]
+#[cfg_attr(debug_assertions, ignore)]
+fn a12_tap_mutant_is_killed() {
+    let t = tree(12, 4, 0x40a);
+    let f = Fix { split: SPLIT_N2B, ..FIX };
+    gate_taps(host(), &f, &t, &[1, 9]).expect("the unmutated taps pass their gate");
+    let k = "llvq-cuda/kernels/pers_4et_a12.cu";
+    let b = mutant("tap_layer_off", &[(k, "    const u32 j = p4t_tap_slot_a12(L.pad, l);", "    const u32 j = p4t_tap_slot_a12(L.pad, l + 1u);")]);
+    let r = gate_taps(&b, &f, &t, &[1, 9]);
+    let _ = std::fs::remove_file(&b);
+    match r {
+        Err(e) => eprintln!("tap_layer_off: killed by {}", e.lines().next().unwrap_or("")),
+        Ok(_) => panic!("a12 mutant tap_layer_off survived its gate"),
+    }
+}
+
+// ---- the speculative loop (llvq_cuda::spec_loop) on the host twin ----
+
+/// The twin as a verifier: the tree buffer persists only within one command,
+/// so each call replays every launch so far and returns the last one's rows.
+struct TwinVerifier {
+    f: Fix,
+    history: Vec<Pass>,
+}
+
+impl llvq_cuda::spec_loop::Verifier for TwinVerifier {
+    fn verify(&mut self, l: &llvq_cuda::spec_loop::VerifyLaunch) -> Result<llvq_cuda::spec_loop::VerifyOut, String> {
+        self.history.push(Pass {
+            pos0: l.pos0 as u32,
+            seed: 0x7600 + self.history.len() as u64,
+            toks: l.toks.to_vec(),
+            depth: l.depth.to_vec(),
+            path: l.path.iter().zip(l.depth).map(|(p, &d)| p[..=d as usize].to_vec()).collect(),
+            move_pos0: l.move_pos0 as u32,
+            mv: l.mv.to_vec(),
+        });
+        let o = exec(host(), &self.f, None, &self.history)?;
+        let last = o.passes.last().expect("a pass");
+        Ok(llvq_cuda::spec_loop::VerifyOut {
+            ring: last.iter().map(|r| r.tok).collect(),
+            taps: last.iter().flat_map(|r| r.taps.iter().copied()).collect(),
+        })
+    }
+}
+
+/// The loop on the twin (a12 at 64 threads, its taps on): the null drafter
+/// gives the twin's greedy decode at R = 1 (one pass a token, each moving the
+/// previous root); the oracle at 1, 3 and 7 correct tokens a pass gives the
+/// same tokens in fewer passes, its accepted rows moved; the two faults
+/// (accept one node too many, move a rejected row) change the tokens.
+#[test]
+#[cfg_attr(debug_assertions, ignore)]
+fn the_loop_on_the_twin_is_the_greedy_decode() {
+    use llvq_cuda::spec_loop::{run, run_with_fault, Fault, NullDrafter, OracleDrafter};
+    let f = Fix { split: SPLIT_N2B, variant: A12, ..FIX };
+    let prompt: Vec<u32> = (0..9).collect();
+    let first = 517u32;
+    let n = 8usize;
+    let mut v = TwinVerifier { f, history: Vec::new() };
+    let greedy = run(&mut v, &mut NullDrafter, &prompt, first, &[], H, n, None).unwrap();
+    assert_eq!(greedy.tokens.len(), n);
+    assert_eq!(v.history.len(), n, "one pass a token");
+    assert!(v.history.iter().skip(1).all(|p| p.mv.len() == 1), "each pass moves the previous root");
+    eprintln!("twin greedy: {:?}", greedy.tokens);
+    let truth: Vec<u32> = std::iter::once(first).chain(greedy.tokens.iter().copied()).collect();
+    for correct in [1usize, 3, 7] {
+        let mut v = TwinVerifier { f, history: Vec::new() };
+        let mut d = OracleDrafter { prompt_len: prompt.len(), truth: truth.clone(), correct, vocab: VOCAB };
+        let o = run(&mut v, &mut d, &prompt, first, &[], H, n, None).unwrap();
+        assert_eq!(o.tokens, greedy.tokens, "oracle at {correct}");
+        assert!(v.history.len() < n, "oracle at {correct}: {} passes", v.history.len());
+        for w in v.history.windows(2) {
+            assert_eq!(w[1].move_pos0, w[0].pos0);
+            assert_eq!(w[1].pos0, w[0].pos0 + w[1].mv.len() as u32, "the accepted rows moved in");
+        }
+        assert!(o.accepted[..o.accepted.len() - 1].iter().all(|&a| a == correct), "oracle at {correct}: {:?}", o.accepted);
+        eprintln!("oracle at {correct}: {} passes, accepted {:?}", v.history.len(), o.accepted);
+    }
+    for fault in [Fault::AcceptOneMore, Fault::MoveRejected] {
+        let mut v = TwinVerifier { f, history: Vec::new() };
+        let mut d = OracleDrafter { prompt_len: prompt.len(), truth: truth.clone(), correct: 3, vocab: VOCAB };
+        let o = run_with_fault(&mut v, &mut d, &prompt, first, &[], H, n, None, fault).unwrap();
+        assert_ne!(o.tokens, greedy.tokens, "fault {fault:?} survived");
+        eprintln!("fault {fault:?}: killed, tokens {:?}", o.tokens);
+    }
 }

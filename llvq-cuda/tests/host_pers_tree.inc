@@ -182,8 +182,9 @@
     A.eps = eps; A.c = (float)((1.0 / std::sqrt(128.0)) * 1.4426950408889634);
     A.head_w = head_w.data(); A.head_s = head_s.data(); A.head_b = head_b.data();
     // ---- variant 32: the tree-tiled copies and the arguments that point at them ----
-    const u32 a6k = (variant & 1024u) ? 1u : (variant & 2048u) ? 2u : (variant & 4096u) ? 3u : (variant & 8192u) ? 4u : (variant & 16384u) ? 5u : (variant & 32768u) ? 6u : (variant & 65536u) ? 7u : (variant & 131072u) ? 8u : (variant & 524288u) ? 9u : (variant & 1048576u) ? 10u : (variant & 2097152u) ? 11u : (variant & 4194304u) ? 12u : (variant & 8388608u) ? 13u : (variant & 16777216u) ? 14u : (variant & 33554432u) ? 15u : (variant & 67108864u) ? 16u : (variant & 134217728u) ? 17u : 0u;
-    const bool a9v = (variant & (65536u | 131072u | 524288u | 1048576u | 2097152u | 4194304u | 8388608u | 16777216u | 33554432u | 67108864u | 134217728u)) != 0u;
+    const u32 a6k = (variant & 1024u) ? 1u : (variant & 2048u) ? 2u : (variant & 4096u) ? 3u : (variant & 8192u) ? 4u : (variant & 16384u) ? 5u : (variant & 32768u) ? 6u : (variant & 65536u) ? 7u : (variant & 131072u) ? 8u : (variant & 524288u) ? 9u : (variant & 1048576u) ? 10u : (variant & 2097152u) ? 11u : (variant & 4194304u) ? 12u : (variant & 8388608u) ? 13u : (variant & 16777216u) ? 14u : (variant & 33554432u) ? 15u : (variant & 67108864u) ? 16u : (variant & 134217728u) ? 17u : (variant & 268435456u) ? 18u : 0u;
+    const bool a12v = (variant & 268435456u) != 0u;
+    const bool a9v = (variant & (65536u | 131072u | 524288u | 1048576u | 2097152u | 4194304u | 8388608u | 16777216u | 33554432u | 67108864u | 134217728u | 268435456u)) != 0u;
     const bool a11iv = (variant & 1048576u) != 0u;
     const bool a5v = (variant & 512u) != 0u || a6k != 0u;
     const bool a4v = (variant & 256u) != 0u || a5v;
@@ -269,7 +270,8 @@
     // ---- the tree verify's buffers, sized for P4T_RMAX rows ----
     const u32 RM = P4T_RMAX, ldx = std::max(std::max(H, I), dq);
     const u32 pstride = NKV * ((cap + 255u) / 256u) * GRP * 130u;
-    std::vector<unsigned short> txa((size_t)RM * H), txb((size_t)RM * H), txin((size_t)RM * ldx), txn((size_t)RM * H),
+    // x_a's buffer carries a12's taps past its RM rows: [RM][5][H]
+    std::vector<unsigned short> txa((size_t)RM * H * 6), txb((size_t)RM * H), txin((size_t)RM * ldx), txn((size_t)RM * H),
         tq((size_t)RM * dq), tkr((size_t)RM * dkv), tvr((size_t)RM * dkv), tqo((size_t)RM * dq), tctx((size_t)RM * dq),
         tg((size_t)RM * I), tu((size_t)RM * I), tlog((size_t)RM * vocab), tk((size_t)NL * RM * dkv, 0u),
         tv((size_t)NL * RM * dkv, 0u);
@@ -288,7 +290,7 @@
     const Ft tfns[3] = {pers_4et_stream_f0_t512, pers_4et_stream_f1_t512, pers_4et_stream_f2_t512};
     const Ft tfn4[3] = {pers_4et_a4_f0_t512, pers_4et_a4_f1_t512, pers_4et_a4_f2_t512};
     const Ft tfn5[3] = {pers_4et_a5_f0_t512, pers_4et_a5_f1_t512, pers_4et_a5_f2_t512};
-    const Ft tfn6[17][3] = {{pers_4et_a6_f0_t512, pers_4et_a6_f1_t512, pers_4et_a6_f2_t512},
+    const Ft tfn6[18][3] = {{pers_4et_a6_f0_t512, pers_4et_a6_f1_t512, pers_4et_a6_f2_t512},
                            {pers_4et_a7_f0_t512, pers_4et_a7_f1_t512, pers_4et_a7_f2_t512},
                            {pers_4et_a3f_f0_t512, pers_4et_a3f_f1_t512, pers_4et_a3f_f2_t512},
                            {pers_4et_a3p_f0_t512, pers_4et_a3p_f1_t512, pers_4et_a3p_f2_t512},
@@ -304,7 +306,8 @@
                            {pers_4et_a10_f0_t256, pers_4et_a10_f1_t256, pers_4et_a10_f2_t256},
                            {pers_4et_a10_f0_t448, pers_4et_a10_f1_t448, pers_4et_a10_f2_t448},
                            {pers_4et_a10_f0_t320, pers_4et_a10_f1_t320, pers_4et_a10_f2_t320},
-                           {pers_4et_a10r16_f0_t384, pers_4et_a10r16_f1_t384, pers_4et_a10r16_f2_t384}};
+                           {pers_4et_a10r16_f0_t384, pers_4et_a10r16_f1_t384, pers_4et_a10r16_f2_t384},
+                           {pers_4et_a12_f0_t384, pers_4et_a12_f1_t384, pers_4et_a12_f2_t384}};
     const u32 n_pass = rd1<u32>();
     for (u32 pi = 0; pi < n_pass; ++pi) {
         const u32 pos0 = rd1<u32>(), R = rd1<u32>();
@@ -323,6 +326,9 @@
         T.toks = toks.data(); T.depth = depth.data(); T.path = path.data(); T.mv = mv.data();
         T.ring = ring.data(); T.logits = tlog.data();
         T.x_a = txa.data(); T.x_b = txb.data(); T.xin = txin.data(); T.xn = txn.data();
+        // a12: taps at layers 0, 1, ... (first 0, stride 1); the twin's last slot is the final residual
+        T.pad = a12v ? (1u << 16) : 0u;
+        if (a12v) std::fill(txa.begin() + (size_t)RM * H, txa.end(), (unsigned short)0);
         T.q_raw = tq.data(); T.k_raw = tkr.data(); T.v_raw = tvr.data(); T.q_out = tqo.data(); T.ctx = tctx.data();
         T.g_raw = tg.data(); T.u_raw = tu.data(); T.tk = tk.data(); T.tv = tv.data();
         T.part = tpart.data(); T.fpart = tfpart.data(); T.tickets = ttk.data(); T.ftickets = tft.data(); T.slots = tslots.data();
@@ -350,6 +356,7 @@
         wr(ring);
         wr(std::vector<unsigned short>(tlog.begin(), tlog.begin() + (size_t)R * vocab));
         wr(std::vector<unsigned short>(txa.begin(), txa.begin() + (size_t)R * H));
+        if (a12v) wr(std::vector<unsigned short>(txa.begin() + (size_t)RM * H, txa.begin() + (size_t)RM * H + (size_t)R * 5 * H));
         for (const auto* buf : {&tk, &tv})
             for (u32 l = 0; l < NL; ++l)
                 wr(std::vector<unsigned short>(buf->begin() + (size_t)l * RM * dkv, buf->begin() + ((size_t)l * RM + R) * dkv));

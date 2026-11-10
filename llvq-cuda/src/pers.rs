@@ -2187,6 +2187,26 @@ pub fn p4t_a10t2_symbol(arm: &str, form: u32) -> Result<&'static str, String> {
 /// `pers_4et_a10t2.cu`, embedded so the Mac hashes what the card compiles.
 pub const P4T_A10T2_PART: (&str, &str) = ("pers_4et_a10t2.cu", include_str!("../kernels/pers_4et_a10t2.cu"));
 
+/// The module text of arm a12 (`pers_4et_a12.cu`: a10t384r16 with the
+/// drafter's taps), after [`p4t_a10rc_unit_text`] at 16 rows, which keeps
+/// its bytes.
+pub fn p4t_a12_unit_text(tile_define: &str) -> String {
+    format!("#define P4T_A12 1\n{}\n{}", p4t_a10rc_unit_text(tile_define, 16), P4T_A12_PART.1)
+}
+
+/// The a12 symbol for a RoPE form (384 threads).
+pub fn p4t_a12_symbol(form: u32) -> Result<&'static str, String> {
+    Ok(match form {
+        0 => "pers_4et_a12_f0_t384",
+        1 => "pers_4et_a12_f1_t384",
+        2 => "pers_4et_a12_f2_t384",
+        _ => return Err(format!("tree verify: no a12 kernel for RoPE form {form}")),
+    })
+}
+
+/// `pers_4et_a12.cu`, embedded so the Mac hashes what the card compiles.
+pub const P4T_A12_PART: (&str, &str) = ("pers_4et_a12.cu", include_str!("../kernels/pers_4et_a12.cu"));
+
 /// `pers_4et_a10t.cu`, embedded so the Mac hashes what the card compiles.
 pub const P4T_A10T_PART: (&str, &str) = ("pers_4et_a10t.cu", include_str!("../kernels/pers_4et_a10t.cu"));
 
@@ -3698,6 +3718,30 @@ mod tests {
             }
             eprintln!("tree module {arm} at SERVED_DEFINES_SM89: {} bytes, sha256 {}", m.len(), crate::sha256::sha256_hex(m.as_bytes()));
         }
+    }
+
+    #[test]
+    fn the_a12_pass_is_the_row_cap_pass_with_taps() {
+        // pers_4et_a12.cu: pers_4et_rc_body renamed, two tap calls added
+        let rc = P4T_A10RC_PART.1;
+        let c = rc.find("template <int FORM, u32 RC>\n__device__ __forceinline__ void pers_4et_rc_body(").unwrap();
+        let end = "#undef P4T_WAIT\n}\n";
+        let d = c + rc[c..].find(end).unwrap() + end.len();
+        let body = rc[c..d]
+            .replacen("void pers_4et_rc_body(", "void pers_4et_a12_body(", 1)
+            .replacen(
+                "        // ln1: the natural values for the int4 v rows, the signed and\n",
+                "        p4t_taps_a12(L, H, R, l, c0, G);\n        // ln1: the natural values for the int4 v rows, the signed and\n",
+                1,
+            )
+            .replacen("    // the final norm, natural: the head's input\n", "    p4t_taps_a12(L, H, R, NL, c0, G);\n    // the final norm, natural: the head's input\n", 1);
+        assert_eq!(P4T_A12_PART.1.matches(body.as_str()).count(), 1, "the a12 pass drifted from the row-cap pass");
+        let t = p4t_a12_unit_text(SERVED_DEFINES_SM89);
+        assert!(t.contains(&p4t_a10rc_unit_text(SERVED_DEFINES_SM89, 16)));
+        for f in 0..3 {
+            assert_eq!(t.matches(p4t_a12_symbol(f).unwrap()).count(), 1);
+        }
+        eprintln!("tree module a12 at SERVED_DEFINES_SM89: {} bytes, sha256 {}", t.len(), crate::sha256::sha256_hex(t.as_bytes()));
     }
 
     use super::*;

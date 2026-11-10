@@ -129,6 +129,7 @@ fn module_of(base: &str, define: &str) -> anyhow::Result<(String, [&'static str;
             let t: u32 = if base == "a10t384" { 384 } else { 256 };
             return Ok((p::p4t_a10t_unit_text(define, t), syms(&|f| p::p4t_a10t_symbol(t, f))?, t));
         }
+        "a12" => return Ok((p::p4t_a12_unit_text(define), syms(&p::p4t_a12_symbol)?, 384)),
         "a10t448" | "a10t320" | "a10t384r16" => {
             let t: u32 = match base {
                 "a10t448" => 448,
@@ -225,6 +226,7 @@ fn guard_of(name: &str) -> Option<String> {
         "a10" => "a9",
         "a11" | "a10r8" | "a10r16" | "a10t384" | "a10t256" | "a10t448" | "a10t320" => "a10",
         "a10t384r16" => "a10t384",
+        "a12" => "a10t384r16",
         "a11i" => "a11",
         "a7" => "a6",
         _ => return None,
@@ -250,7 +252,7 @@ fn parse_arms(want: &[String]) -> Result<Vec<ArmAsk>, String> {
                 (b, Some(arr))
             }
         };
-        if !matches!(base, "a0" | "a1" | "a2" | "a3" | "a4" | "a5" | "a6" | "a7" | "a8" | "a9" | "a10" | "a11" | "a11i" | "a10r8" | "a10r16" | "a10t384" | "a10t256" | "a10t448" | "a10t320" | "a10t384r16" | "a3f" | "a3p" | "a3t") {
+        if !matches!(base, "a0" | "a1" | "a2" | "a3" | "a4" | "a5" | "a6" | "a7" | "a8" | "a9" | "a10" | "a11" | "a11i" | "a10r8" | "a10r16" | "a10t384" | "a10t256" | "a10t448" | "a10t320" | "a10t384r16" | "a12" | "a3f" | "a3p" | "a3t") {
             return Err(format!("unknown arm {w:?}"));
         }
         if plan.is_some() && matches!(base, "a0" | "a1") {
@@ -348,6 +350,7 @@ fn run() -> anyhow::Result<()> {
                 "a10t448" => TreeForm::A10t448,
                 "a10t320" => TreeForm::A10t320,
                 "a10t384r16" => TreeForm::A10t384r16,
+                "a12" => TreeForm::A12,
                 "a3p" => TreeForm::A3p,
                 "a3t" => TreeForm::A3t,
                 _ => TreeForm::A3f,
@@ -653,7 +656,7 @@ fn run() -> anyhow::Result<()> {
             for r in [1usize, (arms[k].form.rmax() as usize).min(16)] {
                 let (ts, d, p) = tree_of(r);
                 // a9 has its own waits (a fold step after each row phase) and phase names
-                let a9 = matches!(arms[k].form, TreeForm::A9 | TreeForm::A10 | TreeForm::A11 | TreeForm::A11i | TreeForm::A10r8 | TreeForm::A10r16 | TreeForm::A10t384 | TreeForm::A10t256 | TreeForm::A10t448 | TreeForm::A10t320 | TreeForm::A10t384r16);
+                let a9 = matches!(arms[k].form, TreeForm::A9 | TreeForm::A10 | TreeForm::A11 | TreeForm::A11i | TreeForm::A10r8 | TreeForm::A10r16 | TreeForm::A10t384 | TreeForm::A10t256 | TreeForm::A10t448 | TreeForm::A10t320 | TreeForm::A10t384r16 | TreeForm::A12);
                 let mut iparts: Vec<[[[f64; 3]; 6]; 5]> = Vec::new();
                 let mut classes: Vec<([[f64; 2]; 3], [f64; 4])> = Vec::new();
                 let names: Vec<&str> = if a9 { P4T_PHASES_A9.to_vec() } else { P4T_PHASES.to_vec() };

@@ -92,6 +92,42 @@ pub trait Capture {
     fn wants_activations(&self) -> bool {
         true
     }
+    /// The residual stream entering block `layer`, `(batch, seq, hidden)`:
+    /// HF's `hidden_states[layer]`. Called by [`Qwen3::hidden_cached`] only;
+    /// nothing by default.
+    fn on_residual(&mut self, _layer: usize, _x: &Tensor) -> Result<()> {
+        Ok(())
+    }
+}
+
+/// The residual entering each of `layers` at every position of a prefill,
+/// kept as binary16 (a drafter's taps, `llvq_cuda::spec_loop`). Reads no
+/// activation, so the blocks keep their fused paths.
+pub struct TapCapture {
+    pub layers: Vec<usize>,
+    /// One entry a chunk: `[layers][seq][hidden]` binary16 bits.
+    pub chunks: Vec<(usize, Vec<Vec<u16>>)>,
+}
+
+impl Capture for TapCapture {
+    fn on_activation(&mut self, _: usize, _: Act, _: &Tensor) -> Result<()> {
+        Ok(())
+    }
+    fn wants_activations(&self) -> bool {
+        false
+    }
+    fn on_residual(&mut self, layer: usize, x: &Tensor) -> Result<()> {
+        let Some(j) = self.layers.iter().position(|&l| l == layer) else { return Ok(()) };
+        let (_, l, _) = x.dims3()?;
+        let v: Vec<u16> = x.to_dtype(DType::F16)?.flatten_all()?.to_vec1::<half::f16>()?.into_iter().map(|h| h.to_bits()).collect();
+        if j == 0 {
+            self.chunks.push((l, vec![Vec::new(); self.layers.len()]));
+        }
+        if let Some(last) = self.chunks.last_mut() {
+            last.1[j] = v;
+        }
+        Ok(())
+    }
 }
 
 /// The do-nothing capture, for plain inference.
@@ -2750,6 +2786,43 @@ impl Qwen3 {
         argmax_last(&self.prefill_chunked(tokens, chunk, caches)?)
     }
 
+    /// [`Self::prefill_next_in`], keeping the residual entering each of
+    /// `layers` at every prompt position: the next token and the taps,
+    /// `[tokens][layers][hidden]` binary16 (eager arithmetic: the tree pass's
+    /// taps of the same positions agree to rounding, not to the bit). The
+    /// first layer must be tapped first: the layers in increasing order.
+    pub fn prefill_taps(&self, tokens: &[u32], chunk: usize, caches: &mut [KvCache], layers: &[usize]) -> Result<(u32, Vec<u16>)> {
+        if tokens.is_empty() || chunk == 0 || layers.is_empty() || layers.windows(2).any(|w| w[0] >= w[1]) {
+            candle_core::bail!("prefill_taps: {} tokens, chunks of {chunk}, layers {layers:?}", tokens.len());
+        }
+        let hdim = self.cfg.hidden_size;
+        let mut cap = TapCapture { layers: layers.to_vec(), chunks: Vec::new() };
+        let mut offset = 0;
+        let mut h = None;
+        for part in tokens.chunks(chunk) {
+            let input = Tensor::from_slice(part, (1, part.len()), &self.device)?;
+            drop(h.take());
+            h = Some(self.hidden_cached(&input, offset, caches, &mut cap)?);
+            offset += part.len();
+        }
+        let next = argmax_last(&self.logits_last(&h.expect("the prompt is not empty"))?)?;
+        let nl = layers.len();
+        let mut taps = vec![0u16; tokens.len() * nl * hdim];
+        let mut p0 = 0;
+        for (l, per) in &cap.chunks {
+            for (j, v) in per.iter().enumerate() {
+                if v.len() != l * hdim {
+                    candle_core::bail!("prefill_taps: layer {} tapped {} values for {l} positions", layers[j], v.len());
+                }
+                for p in 0..*l {
+                    taps[((p0 + p) * nl + j) * hdim..((p0 + p) * nl + j + 1) * hdim].copy_from_slice(&v[p * hdim..(p + 1) * hdim]);
+                }
+            }
+            p0 += l;
+        }
+        Ok((next, taps))
+    }
+
     /// Lower the threshold so a host test reaches the kernel in a short
     /// window. Test builds only: the served threshold is a constant.
     #[cfg(test)]
@@ -2811,6 +2884,7 @@ impl Qwen3 {
         let mask = self.step_mask(b, l, offset)?;
         let mut h = self.embed.forward(input)?;
         for (i, blk) in self.blocks.iter().enumerate() {
+            cap.on_residual(i, &h)?;
             h = blk.forward_cached(&h, &self.rotary, mask.as_ref(), RopeAt::Offset(offset), &mut caches[i], i, cap)?;
             if let Some(p) = &self.candle_probe {
                 p.affine(2.0, 1.0)?;
