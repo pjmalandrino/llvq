@@ -1,0 +1,25 @@
+drafter dtype for (b): f16
+dflashcheck-f16: drafter z-lab/Qwen3-4B-DFlash-b16@b74e3a32 (2149.7 MB f32), table [151936, 2560] from /out/sealed-4b-2026-09-23/qwen3-4b-sealed.bin, device Cuda(CudaDevice(DeviceId(1))), loaded in 8.7 s
+dflashcheck-f16: equivalence (f32): rounds 6: chain equal 6/6, tree equal 6/6; logits rel 3.62e-6, lse rel 1.88e-6, hidden rel 1.39e-6; smallest reference top-1 gap 0.020; table rows max abs 0.00e0
+dflashcheck-f16: equivalence PASS
+dflashcheck-f16: equivalence (F16): rounds 6: chain equal 6/6, tree equal 3/6; logits rel 1.72e-3, lse rel 5.56e-4, hidden rel 1.99e-3; smallest reference top-1 gap 0.020; table rows max abs 0.00e0
+dflashcheck-f16: equivalence (F16) PASS
+dflashcheck-f16: round at context 128 (F16): extend 4 0.56 ms [0.55-0.56], block + head + readout 4.20 ms [4.19-4.22], median of 20; context cache 7.9 MB
+dflashcheck-f16: round at context 512 (F16): extend 4 0.56 ms [0.56-0.57], block + head + readout 4.24 ms [4.22-4.28], median of 20; context cache 15.7 MB
+dflashcheck-f16: round at context 2048 (F16): extend 4 0.57 ms [0.57-0.58], block + head + readout 5.11 ms [5.09-5.31], median of 20; context cache 47.2 MB
+dflashcheck-f16: dflashcheck f16 exit 0
+4E: persistent module 252757 bytes, sha256 1b422b62328be6752df4add43280565fd2a49cfa20ee26953b301abe7a15c530, row form 7, own module on candle's stream
+4E tree: module 306060 bytes, sha256 ce1c354d2583eb178ae8622ff99e10f9b457543972bb5039ce89ede9eec31e44, row form 7 and pers_4et.cu, its own module
+4E tree: pers_4et_rows_f1_t512: 128 registers, 720 B local, 89984 B shared, 1 resident a SM
+4E tree: arm a12@8.10.8.20.6 (a12 (a10t384r16 with the taps), an explicit plan): slices [8, 10, 8, 20, 6]; S, units, waves, fill, sub-steps a slice at most: q/k/v 8 272 2 95.8 % 7, o 10 140 1 98.6 % 9, gate/up 8 816 6 95.8 % 7, down 20 280 2 98.6 % 11, head 6 4752 34 98.4 % 9
+4E tree: arm a12@8.10.8.20.6 at 384 threads (12 warps): area 14944 floats, 78848 B shared, 12 sub-steps a slice at most
+4E tree: the stream unit's slices hold at most 13 sub-steps (area 17728 floats, 16 warps, 32 staged rows)
+4E tree: 512 threads, 17728 floats of area; 0.153 GB of row buffers
+4E tree a12: module 416225 bytes, sha256 937f6c4005e380e6218400454e0ff167f0363e01fa6252ac7c4ded0a83041cb3, P4T_A12 1 after a10r16's text, its own module
+4E tree a12: pers_4et_a12_f1_t384: 168 registers, 736 B local, 78848 B shared, 1 resident a SM
+4E tree tiled: 253 tree-tiled copies (q, k, v, o, gate, up, down a layer, the head), 1.308 GB more on the card
+arm a12@8.10.8.20.6: A12 kernel, slices [8, 10, 8, 20, 6], 384 threads; taps on; N 128
+loaded in 419.5 s
+drafter /tmp/dflash-b74e3a329c4d963783143b1e970d95b002be72bd (1140.4 MB, F16), table [151936, 2560] from the sealed file, loaded in 7.0 s
+specbench exit 1
+control 2: the served 4E v9 module

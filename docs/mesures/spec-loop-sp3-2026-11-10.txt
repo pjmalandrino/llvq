@@ -1,0 +1,50 @@
+SPEC-LOOP SP3: DFLASH AFTER THE F16 FIX, SEALED 4B, ONE L40S, 2026-11-11. $0.24. THE LOOP DID NOT RUN.
+=====================================================================================================
+Result: only step (a) produced numbers. dflashcheck in f16 passes its new gate on the card: 6 of 6 chains and 3 of 6 trees
+equal to the fixture, logits within 1.72e-3 relative (*measured*); a round takes 4.20 ms at context 128. Step (b),
+specbench at N = 128, stopped before any timed pass: "Error: 4E: 128 tokens a launch, the runtime holds 64". specbench
+decodes 4E's greedy reference for a prompt in one launch of N tokens, and the 4E runtime it installs holds 64 tokens a
+launch. No equality line, no acceptance, no tok/s exists for this job. The prereg's rule is not read beyond (a).
+Prereg : proofs/preregistration-spec-loop-sp3-2026-11-10.md (sha256 14965231), stamped before the job (.ots, commit
+         5c0b0ea). No deviation was written before the job; this failure is recorded here and in the jobs.csv row.
+Go     : the operator, 2026-11-10 evening ("a real test on the card"), cap raised to $15 with leave to launch about 21:45
+         CET, relayed by the orchestrating session.
+Job    : 6af3a6799737d9a9e091f846, l40sx1, image hf.co/spaces/Pier-Jean/llvq-runner-cuda at Space sha 28e2bcc1 (its
+         COMMIT file names 5c0b0ea, published from a clean detached checkout of that commit, perimeter clean; kernel,
+         bench and runtime sources equal to ce8fb7f's), ops/jobs/spec-loop-sp3.sh, job timeout 32 min. Submitted
+         00:19 CET, RUNNING at 00:31, COMPLETED by 00:39 (the job body is non-fatal per step). 8 min billed, $0.24
+         (*measured*, ops/run.py monitor). Registry $312.14 before, $312.38 after; spend since the go $5.13 of $15.
+Raw    : spec-loop-sp3-2026-11-10-brut/: gpu.txt (NVIDIA L40S, 8.9, 46,068 MiB, driver 580.178.04, 2,520 MHz),
+         oracle.txt, files.sha256, drafter.sha256, qwen3-4b-tetra-e4-4e-v9.json, dflashcheck-f16.txt, spec.txt,
+         summary.txt, monitor.txt, queue.txt.
+
+CONTROLS
+--------
+1. oracle on Qwen3-0.6B: MATCH. Sealed file sha256 886391a8, fixture 636f664d, drafter config.json 2de97cdf and
+   model.safetensors a21d0ffe, config 29b3ef32. LLVQ_* refused in the job env. Holds.
+2. 4E's module 252,757 bytes, sha256 1b422b62, row form 7 ("control 2: the served 4E v9 module"). Holds.
+3. The image built. Holds.
+Hard gate (token equality): not reached; specbench stopped before its first prompt.
+
+(a) DFLASHCHECK ON CUDA, F16 (its new gate on the timed dtype)
+-------------------------------------------------------------
+  drafter z-lab/Qwen3-4B-DFlash-b16@b74e3a32 (2149.7 MB f32), table [151936, 2560] from the sealed file, loaded in 8.7 s
+  equivalence (f32): rounds 6: chain equal 6/6, tree equal 6/6; logits rel 3.62e-6, lse rel 1.88e-6, hidden rel 1.39e-6;
+    smallest reference top-1 gap 0.020; table rows max abs 0.00e0. equivalence PASS
+  equivalence (F16): rounds 6: chain equal 6/6, tree equal 3/6; logits rel 1.72e-3, lse rel 5.56e-4, hidden rel 1.99e-3;
+    smallest reference top-1 gap 0.020; table rows max abs 0.00e0. equivalence (F16) PASS
+  round at context 128 (F16): extend 4 0.56 ms, block + head + readout 4.20 ms (median of 20)
+  round at context 512 (F16): extend 4 0.56 ms, block + head + readout 4.24 ms
+  round at context 2,048 (F16): extend 4 0.57 ms, block + head + readout 5.11 ms
+Against the prediction: "passes its new gate, 6 of 6 chains expected": held (6 of 6 chains; trees 3 of 6, not signed).
+
+(b) SPECBENCH AT N = 128: NOT RUN
+--------------------------------
+After the install (a12: 168 registers, 736 B local, 78,848 B shared; loaded in 419.5 s; drafter 1,140.4 MB in F16,
+loaded in 7.0 s), the first greedy reference stopped: "Error: 4E: 128 tokens a launch, the runtime holds 64"
+(llvq-llm/src/persist4e_cuda.rs, the runtime's max_tokens; specbench decodes the reference in one launch of N).
+specbench exit 1. Every DFlash and stand-in line of the prereg is unmeasured.
+
+WHAT THIS DOES NOT ESTABLISH
+----------------------------
+Everything the prereg signed beyond (a): equality, acceptance, the drafter round in the loop, end-to-end speeds.
