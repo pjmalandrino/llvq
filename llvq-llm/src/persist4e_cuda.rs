@@ -1265,6 +1265,8 @@ impl Runtime4e {
             arm_v.push(TreeArm { name: name.to_string(), splits, plan: prop, form, void: None, threads: thr_a, area: area_a, smem: smem_a });
         }
         if arm_v.iter().any(|a| !matches!(a.form, TreeForm::Rows | TreeForm::Tiled)) {
+            // the 512-thread arms' cap; an arm at another warp count prints its own above
+            let cap = pers::p4t_stream_cap(area, nw);
             self.lines.push(format!("4E tree: the stream unit's slices hold at most {cap} sub-steps (area {area} floats, {nw} warps, 32 staged rows)"));
         }
         let n_ot = self.layers_host.iter().filter(|y| y.ot != 0).count() as u32;
