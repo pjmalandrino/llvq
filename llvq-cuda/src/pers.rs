@@ -2155,6 +2155,38 @@ pub fn p4t_a10t_symbol(threads: u32, form: u32) -> Result<&'static str, String> 
     })
 }
 
+/// The module text of arm a10t448, a10t320 or a10t384r16
+/// (`pers_4et_a10t2.cu`): after [`p4t_a10_unit_text`] for the first two,
+/// after [`p4t_a10rc_unit_text`] at 16 rows for the third; those keep their
+/// bytes.
+pub fn p4t_a10t2_unit_text(tile_define: &str, arm: &str) -> Result<String, String> {
+    Ok(match arm {
+        "a10t448" => format!("#define P4T_A10T2 448\n{}\n{}", p4t_a10_unit_text(tile_define), P4T_A10T2_PART.1),
+        "a10t320" => format!("#define P4T_A10T2 320\n{}\n{}", p4t_a10_unit_text(tile_define), P4T_A10T2_PART.1),
+        "a10t384r16" => format!("#define P4T_A10T2 38416\n{}\n{}", p4t_a10rc_unit_text(tile_define, 16), P4T_A10T2_PART.1),
+        _ => return Err(format!("tree verify: no module for arm {arm}")),
+    })
+}
+
+/// The symbols of arm a10t448, a10t320 or a10t384r16.
+pub fn p4t_a10t2_symbol(arm: &str, form: u32) -> Result<&'static str, String> {
+    Ok(match (arm, form) {
+        ("a10t448", 0) => "pers_4et_a10_f0_t448",
+        ("a10t448", 1) => "pers_4et_a10_f1_t448",
+        ("a10t448", 2) => "pers_4et_a10_f2_t448",
+        ("a10t320", 0) => "pers_4et_a10_f0_t320",
+        ("a10t320", 1) => "pers_4et_a10_f1_t320",
+        ("a10t320", 2) => "pers_4et_a10_f2_t320",
+        ("a10t384r16", 0) => "pers_4et_a10r16_f0_t384",
+        ("a10t384r16", 1) => "pers_4et_a10r16_f1_t384",
+        ("a10t384r16", 2) => "pers_4et_a10r16_f2_t384",
+        _ => return Err(format!("tree verify: no kernel for arm {arm} at RoPE form {form}")),
+    })
+}
+
+/// `pers_4et_a10t2.cu`, embedded so the Mac hashes what the card compiles.
+pub const P4T_A10T2_PART: (&str, &str) = ("pers_4et_a10t2.cu", include_str!("../kernels/pers_4et_a10t2.cu"));
+
 /// `pers_4et_a10t.cu`, embedded so the Mac hashes what the card compiles.
 pub const P4T_A10T_PART: (&str, &str) = ("pers_4et_a10t.cu", include_str!("../kernels/pers_4et_a10t.cu"));
 
@@ -3635,6 +3667,36 @@ mod tests {
                 assert!(steps.iter().all(|&x| x <= cap));
             }
             eprintln!("tree module a10t{threads} at SERVED_DEFINES_SM89: {} bytes, sha256 {}", m.len(), crate::sha256::sha256_hex(m.as_bytes()));
+        }
+    }
+
+    #[test]
+    fn the_second_thread_count_arms_are_a10s_passes() {
+        // pers_4et_a10t2.cu adds symbols around a10's and the row cap's bodies, nothing else
+        let t = P4T_A10T2_PART.1;
+        assert_eq!(t.matches("pers_4et_a10_body<FORM_>(A, L);").count(), 1);
+        assert_eq!(t.matches("pers_4et_rc_body<FORM_, 2u>(A, L);").count(), 1);
+        assert_eq!(t.matches("__device__").count(), 0);
+        for (arm, threads, base) in [("a10t448", 448u32, p4t_a10_unit_text(SERVED_DEFINES_SM89)), ("a10t320", 320, p4t_a10_unit_text(SERVED_DEFINES_SM89)), ("a10t384r16", 384, p4t_a10rc_unit_text(SERVED_DEFINES_SM89, 16))] {
+            let m = p4t_a10t2_unit_text(SERVED_DEFINES_SM89, arm).unwrap();
+            assert!(m.contains(&base));
+            for f in 0..3 {
+                assert_eq!(m.matches(p4t_a10t2_symbol(arm, f).unwrap()).count(), 1);
+            }
+            let nw = threads / 32;
+            let area = p4t_area_floats(nw, 32, 9728, 4);
+            let cap = p4t_stream_cap(area, nw);
+            let smem = SMEM_HEADER + TABLE_BYTES + 4 * area;
+            let rule = p4t_splits_stream(2560, 9728, 4096, 8, 151_936, nw, 142, cap).unwrap();
+            for (name, s) in [("[5, 14, 5, 28, 5]", [5u32, 14, 5, 28, 5]), ("[8, 10, 8, 20, 6]", [8, 10, 8, 20, 6]), ("the stream rule's", rule)] {
+                let p = p4t_plan(s, 2560, 9728, 4096, 8, 151_936, nw, 142);
+                let steps: Vec<u32> = s.iter().zip([2560u32, 4096, 2560, 9728, 2560]).map(|(&x, d)| p4t_slice_steps(d, x)).collect();
+                eprintln!(
+                    "4B, {arm} ({nw} warps): area {area} floats, {smem} B shared, cap {cap}; plan {name} {s:?}: units, waves, fill {:?}; sub-steps a slice {steps:?}",
+                    p.iter().map(|x| (x.0, x.1, (x.2 * 1000.0).round() / 10.0)).collect::<Vec<_>>()
+                );
+            }
+            eprintln!("tree module {arm} at SERVED_DEFINES_SM89: {} bytes, sha256 {}", m.len(), crate::sha256::sha256_hex(m.as_bytes()));
         }
     }
 

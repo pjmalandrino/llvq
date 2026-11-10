@@ -1360,3 +1360,32 @@ fn thread_count_rows_equal_a10_rows() {
         }
     }
 }
+
+// ---- arms a10t448, a10t320, a10t384r16 ----
+
+/// a10t448 and a10t320 equal a10 bit for bit at R = 1, 8, 32, a10t384r16 at
+/// R = 1, 8, 16, under two plans whose slices fit the cap at their warps.
+#[test]
+#[cfg_attr(debug_assertions, ignore)]
+fn second_thread_count_rows_equal_a10_rows() {
+    let t = tree(32, 7, 0x407);
+    let plans = [[5u32, 8, 5, 19, 5], [6, 9, 6, 17, 6]];
+    for (threads, v, sizes) in [(448u32, 33554432u32, &[1usize, 8, 32][..]), (320, 67108864, &[1, 8, 32][..]), (384, 134217728, &[1, 8, 16][..])] {
+        let nw = threads / 32;
+        let cap = pers::p4t_stream_cap(pers::p4t_area_floats(nw, 32, 9728, 4), nw);
+        for split in plans {
+            assert!(split.iter().zip([2560u32, 4096, 2560, 9728, 2560]).all(|(&s, d)| pers::p4t_slice_steps(d, s) <= cap), "{split:?} at {nw} warps");
+            let n = gate_threads(&Fix { split, ..FIX }, threads, v, &t, sizes, 9).unwrap();
+            eprintln!("variant {v} at {threads} threads, split {split:?}: {n} rows, equal to a10 at 64 threads bit for bit");
+        }
+    }
+}
+
+/// The 384-thread 16-row arm refuses 17 rows.
+#[test]
+fn the_t384r16_arm_refuses_17_rows() {
+    let t = tree(17, 5, 0x408);
+    let f = Fix { split: SPLIT_N2B, variant: 134217728, threads: 384, ..FIX };
+    let e = exec(host(), &f, None, &[Pass::of(&t, &t.subset(17, 0x6400), 9, 0x7800)]).err().expect("17 rows run");
+    assert!(e.contains("aborted"), "{e}");
+}

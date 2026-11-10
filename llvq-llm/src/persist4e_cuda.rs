@@ -233,6 +233,12 @@ pub enum TreeForm {
     A10t384,
     /// `pers_4et_a10_*_t256` (`P4T_A10T 256`): a10 at 8 warps a CTA.
     A10t256,
+    /// `pers_4et_a10_*_t448` (`P4T_A10T2 448`): a10 at 14 warps a CTA.
+    A10t448,
+    /// `pers_4et_a10_*_t320` (`P4T_A10T2 320`): a10 at 10 warps a CTA.
+    A10t320,
+    /// `pers_4et_a10r16_*_t384` (`P4T_A10T2 38416`): a10r16 at 12 warps.
+    A10t384r16,
 }
 
 impl TreeForm {
@@ -240,7 +246,7 @@ impl TreeForm {
     pub fn rmax(self) -> u32 {
         match self {
             TreeForm::A10r8 => 8,
-            TreeForm::A10r16 => 16,
+            TreeForm::A10r16 | TreeForm::A10t384r16 => 16,
             _ => pers::P4T_RMAX,
         }
     }
@@ -248,8 +254,10 @@ impl TreeForm {
     /// The threads of one CTA of this kernel.
     pub fn threads(self) -> u32 {
         match self {
-            TreeForm::A10t384 => 384,
+            TreeForm::A10t384 | TreeForm::A10t384r16 => 384,
             TreeForm::A10t256 => 256,
+            TreeForm::A10t448 => 448,
+            TreeForm::A10t320 => 320,
             _ => 512,
         }
     }
@@ -306,7 +314,7 @@ struct TreeTiled {
     /// The a5 symbol, when an a5 arm is installed.
     f5: Option<CudaFunction>,
     /// The a6, a7, a3f, a3p, a3t and a8 symbols, when such an arm is installed.
-    fx: [Option<CudaFunction>; 14],
+    fx: [Option<CudaFunction>; 17],
     _held: Vec<CudaSlice<u32>>,
     /// Each layer's q, k, v, o, gate, up and down words in the copies.
     swaps: Vec<[u64; 7]>,
@@ -1250,6 +1258,9 @@ impl Runtime4e {
                     TreeForm::A10r16 => "a10r16 (at most 16 rows)",
                     TreeForm::A10t384 => "a10t384 (12 warps)",
                     TreeForm::A10t256 => "a10t256 (8 warps)",
+                    TreeForm::A10t448 => "a10t448 (14 warps)",
+                    TreeForm::A10t320 => "a10t320 (10 warps)",
+                    TreeForm::A10t384r16 => "a10t384r16 (12 warps, at most 16 rows)",
                 },
                 names
                     .iter()
@@ -1318,6 +1329,9 @@ impl Runtime4e {
             TreeForm::A10r16,
             TreeForm::A10t384,
             TreeForm::A10t256,
+            TreeForm::A10t448,
+            TreeForm::A10t320,
+            TreeForm::A10t384r16,
         ]
         .map(|f| arm_v.iter().any(|a| a.form == f));
         let tiled = if want.iter().any(|&w| w) { Some(self.install_tiled(widest, groups, want)?) } else { None };
@@ -1344,6 +1358,9 @@ impl Runtime4e {
                     TreeForm::A10r16 => t.fx[11].is_some(),
                     TreeForm::A10t384 => t.fx[12].is_some(),
                     TreeForm::A10t256 => t.fx[13].is_some(),
+                    TreeForm::A10t448 => t.fx[14].is_some(),
+                    TreeForm::A10t320 => t.fx[15].is_some(),
+                    TreeForm::A10t384r16 => t.fx[16].is_some(),
                 };
                 if !built {
                     a.void = Some(format!("its {:?} module did not build", a.form));
@@ -1365,13 +1382,13 @@ impl Runtime4e {
     /// up, down, the head), built on the card by `p4t_tile_words` from the
     /// words 4E holds, once for both. A Tetra o is refused (no sealed file the
     /// job reads carries one).
-    fn install_tiled(&mut self, widest: u32, groups: u32, want: [bool; 18]) -> anyhow::Result<TreeTiled> {
+    fn install_tiled(&mut self, widest: u32, groups: u32, want: [bool; 21]) -> anyhow::Result<TreeTiled> {
         if self.layers_host.iter().any(|y| y.ot != 0) {
             anyhow::bail!("4E tree: the tiled and stream arms do not copy a Tetra o_proj; this model carries one");
         }
         let stream = self.cuda.stream().clone();
         let mut cudas = Vec::new();
-        let mut fns: [Option<CudaFunction>; 18] = Default::default();
+        let mut fns: [Option<CudaFunction>; 21] = Default::default();
         for (k, want) in want.into_iter().enumerate() {
             if !want {
                 continue;
@@ -1389,6 +1406,15 @@ impl Runtime4e {
                 15 => ("a10r16", pers::p4t_a10rc_unit_text(&self.tile_define, 16), pers::p4t_a10rc_symbol(16, self.form), "P4T_A10RC 16 after a10's text"),
                 16 => ("a10t384", pers::p4t_a10t_unit_text(&self.tile_define, 384), pers::p4t_a10t_symbol(384, self.form), "P4T_A10T 384 after a10's text"),
                 17 => ("a10t256", pers::p4t_a10t_unit_text(&self.tile_define, 256), pers::p4t_a10t_symbol(256, self.form), "P4T_A10T 256 after a10's text"),
+                18..=20 => {
+                    let arm = match k {
+                        18 => "a10t448",
+                        19 => "a10t320",
+                        _ => "a10t384r16",
+                    };
+                    let text = pers::p4t_a10t2_unit_text(&self.tile_define, arm).map_err(anyhow::Error::msg)?;
+                    (arm, text, pers::p4t_a10t2_symbol(arm, self.form), "P4T_A10T2 after a10's or a10r16's text")
+                }
                 7..=9 => {
                     let (arm, def) = match k {
                         7 => ("a3p", "P4T_A3P 1 after a3's text, a floor arm"),
@@ -1411,8 +1437,10 @@ impl Runtime4e {
             let sym = sym.map_err(anyhow::Error::msg)?;
             // the module's CTA: 384 or 256 threads for the thread-count arms, else 512
             let threads = match k {
-                16 => 384u32,
+                16 | 20 => 384u32,
                 17 => 256,
+                18 => 448,
+                19 => 320,
                 _ => 512,
             };
             let smem = pers::SMEM_HEADER + pers::TABLE_BYTES + 4 * pers::p4t_area_floats(threads / 32, 32, widest, groups);
@@ -1494,8 +1522,15 @@ impl Runtime4e {
         ));
         let layers = stream.clone_htod(&vec![0u8; pers::P4E_LAYER_BYTES * self.layers_host.len()]).map_err(|e| anyhow::anyhow!("H2D: {e}"))?;
         let args = stream.clone_htod(&vec![0u8; pers::P4E_ARGS_BYTES]).map_err(|e| anyhow::anyhow!("H2D: {e}"))?;
-        let [f, fs, f4, f5, f6, f7, f3f, f3p, f3t, f8, f9, f10, f11, f11i, fr8, fr16, ft384, ft256] = fns;
-        Ok(TreeTiled { _cudas: cudas, f, fs, f4, f5, fx: [f6, f7, f3f, f3p, f3t, f8, f9, f10, f11, f11i, fr8, fr16, ft384, ft256], _held: held, swaps, head, layers, args, seen: Vec::new() })
+        let [f, fs, f4, f5, f6, f7, f3f, f3p, f3t, f8, f9, f10, f11, f11i, fr8, fr16, ft384, ft256, ft448, ft320, ft384r16] = fns;
+        Ok(TreeTiled {
+            _cudas: cudas,
+            f,
+            fs,
+            f4,
+            f5,
+            fx: [f6, f7, f3f, f3p, f3t, f8, f9, f10, f11, f11i, fr8, fr16, ft384, ft256, ft448, ft320, ft384r16],
+            _held: held, swaps, head, layers, args, seen: Vec::new() })
     }
 
     /// The arms installed, in the order [`Self::tree`] indexes them.
@@ -1590,7 +1625,7 @@ impl Runtime4e {
         stream.memcpy_htod(&flat, &mut v.path).map_err(|e| anyhow::anyhow!("H2D: {e}"))?;
         stream.memcpy_htod(&vec![u32::MAX; pers::P4T_RMAX as usize], &mut v.ring).map_err(|e| anyhow::anyhow!("H2D: {e}"))?;
         // a9 waits once more after each row phase: its count moves bar_base and sizes the stamps
-        let n_bar = if matches!(spec.form, TreeForm::A9 | TreeForm::A10 | TreeForm::A11 | TreeForm::A11i | TreeForm::A10r8 | TreeForm::A10r16 | TreeForm::A10t384 | TreeForm::A10t256) { pers::n_bar_a9(self.n_layers, v.n_ot) } else { pers::n_bar_4et(self.n_layers, v.n_ot) };
+        let n_bar = if matches!(spec.form, TreeForm::A9 | TreeForm::A10 | TreeForm::A11 | TreeForm::A11i | TreeForm::A10r8 | TreeForm::A10r16 | TreeForm::A10t384 | TreeForm::A10t256 | TreeForm::A10t448 | TreeForm::A10t320 | TreeForm::A10t384r16) { pers::n_bar_a9(self.n_layers, v.n_ot) } else { pers::n_bar_4et(self.n_layers, v.n_ot) };
         let stamps: Option<CudaSlice<u64>> = if stamped {
             // an a4 launch adds its F3 slots after the phase events: 20 a CTA
             let extra = match spec.form {
@@ -1667,6 +1702,9 @@ impl Runtime4e {
             (TreeForm::A10r16, Some(TreeTiled { fx, args, .. })) if fx[11].is_some() => (fx[11].as_ref().expect("checked"), args),
             (TreeForm::A10t384, Some(TreeTiled { fx, args, .. })) if fx[12].is_some() => (fx[12].as_ref().expect("checked"), args),
             (TreeForm::A10t256, Some(TreeTiled { fx, args, .. })) if fx[13].is_some() => (fx[13].as_ref().expect("checked"), args),
+            (TreeForm::A10t448, Some(TreeTiled { fx, args, .. })) if fx[14].is_some() => (fx[14].as_ref().expect("checked"), args),
+            (TreeForm::A10t320, Some(TreeTiled { fx, args, .. })) if fx[15].is_some() => (fx[15].as_ref().expect("checked"), args),
+            (TreeForm::A10t384r16, Some(TreeTiled { fx, args, .. })) if fx[16].is_some() => (fx[16].as_ref().expect("checked"), args),
             (form, _) => anyhow::bail!("4E tree: arm {} is {form:?} and its module is not installed", spec.name),
         };
         let mut b = stream.launch_builder(func);
