@@ -1902,6 +1902,84 @@ pub fn p4t_a8_symbol(arm: &str, form: u32) -> Result<&'static str, String> {
     })
 }
 
+/// The module text of arm a9 (`pers_4et_a9.cu`, the fold after the phase's
+/// wait), after [`p4t_stream_unit_text`] (a3's), which keeps its bytes.
+pub fn p4t_a9_unit_text(tile_define: &str) -> String {
+    format!("#define P4T_A9 1\n{}\n{}", p4t_stream_unit_text(tile_define), P4T_A9_PART.1)
+}
+
+/// The a9 symbol for a RoPE form.
+pub fn p4t_a9_symbol(form: u32) -> Result<&'static str, String> {
+    Ok(match form {
+        0 => "pers_4et_a9_f0_t512",
+        1 => "pers_4et_a9_f1_t512",
+        2 => "pers_4et_a9_f2_t512",
+        _ => return Err(format!("tree verify: no a9 kernel for RoPE form {form}")),
+    })
+}
+
+/// `n_bar_a9` of `pers_4et_a9.cu`: a9's waits, a fold step's after each of
+/// the four row phases of a layer and after the head.
+pub fn n_bar_a9(layers: u32, tetra_o_layers: u32) -> u32 {
+    n_bar_4et(layers, tetra_o_layers) + 4 * layers + 1
+}
+
+/// An a9 launch's phases, in the order of its waits (no Tetra o).
+pub const P4T_PHASES_A9: [&str; 17] = [
+    "embed", "ln1", "qkv", "qkv fold", "rope", "attn", "o", "o fold", "ln2", "gateup", "gateup fold", "dn_in", "down",
+    "down fold", "norm", "head", "head fold",
+];
+
+/// [`p4t_phases`] for an a9 launch: per phase of [`P4T_PHASES_A9`], the wall
+/// and the spread of a CTA's busy time, summed over the layers.
+pub fn p4t_phases_a9(stamps: &[u64], n_layers: u32, grid: u32) -> Result<Vec<[f64; 4]>, String> {
+    let n_bar = n_bar_a9(n_layers, 0) as usize;
+    let events = 1 + 2 * n_bar;
+    let g = grid as usize;
+    if g == 0 || stamps.len() != events * g {
+        return Err(format!("tree stamps (a9): {} values for {events} events of {g} CTAs", stamps.len()));
+    }
+    if stamps.contains(&0) {
+        return Err("tree stamps (a9): a CTA wrote no clock at some event".into());
+    }
+    let at = |e: usize, c: usize| stamps[e * g + c] as f64;
+    let med = |v: &mut Vec<f64>| {
+        v.sort_by(f64::total_cmp);
+        v[v.len() / 2]
+    };
+    let kind = |w: usize| {
+        if w == 1 {
+            0
+        } else if w + 2 >= n_bar {
+            17 - (n_bar + 1 - w)
+        } else {
+            1 + (w - 2) % 13
+        }
+    };
+    let np = P4T_PHASES_A9.len();
+    let mut wall = vec![0.0f64; np];
+    let mut busy = vec![vec![0.0f64; np]; g];
+    for w in 1..=n_bar {
+        let k = kind(w);
+        let mut prev: Vec<f64> = (0..g).map(|c| at(2 * w - 2, c)).collect();
+        let mut leave: Vec<f64> = (0..g).map(|c| at(2 * w, c)).collect();
+        wall[k] += med(&mut leave) - med(&mut prev);
+        for (c, b) in busy.iter_mut().enumerate() {
+            b[k] += at(2 * w - 1, c) - at(2 * w - 2, c);
+        }
+    }
+    Ok((0..np)
+        .map(|k| {
+            let mut v: Vec<f64> = busy.iter().map(|b| b[k]).collect();
+            v.sort_by(f64::total_cmp);
+            [wall[k], v[0], v[g / 2], v[g - 1]]
+        })
+        .collect())
+}
+
+/// `pers_4et_a9.cu`, embedded so the Mac hashes what the card compiles.
+pub const P4T_A9_PART: (&str, &str) = ("pers_4et_a9.cu", include_str!("../kernels/pers_4et_a9.cu"));
+
 /// `pers_4et_a8.cu`, embedded so the Mac hashes what the card compiles.
 pub const P4T_A8_PART: (&str, &str) = ("pers_4et_a8.cu", include_str!("../kernels/pers_4et_a8.cu"));
 
@@ -3012,6 +3090,57 @@ mod tests {
             }
             eprintln!("tree module {tag} at SERVED_DEFINES_SM89: {} bytes, sha256 {}", t.len(), crate::sha256::sha256_hex(t.as_bytes()));
         }
+    }
+
+    #[test]
+    fn the_a9_body_is_the_stream_body() {
+        // pers_4et_a9.cu carries a3's unit with a9's store and a3's pass with a
+        // wait and a fold step after each row phase
+        let src = P4T_STREAM_PART.1;
+        let c = src.find("template <int FORM>\n__device__ __forceinline__ void pers_4et_stream_body(").unwrap();
+        let end = "#undef P4T_WAIT\n}\n";
+        let d = c + src[c..].find(end).unwrap() + end.len();
+        let a = src.find("// One unit: tiles [blk nw, blk nw + nw) of g").unwrap();
+        let b = a + src[a..].find("// ---- the pass:").unwrap();
+        let u = src[a..b]
+            .replace("p4t_unit_stream(", "p4t_unit_a9(")
+            .replace("p4t_phase_stream(", "p4t_phase_a9(")
+            .replace("    if (has) p4t_store(g, L, A, sl, acc, wrow, lane, cmax);\n", "    if (has) p4t_store_a9(g, L, A, sl, acc, wrow, lane, cmax);\n");
+        let mut bd = src[c..d].replacen("void pers_4et_stream_body(", "void pers_4et_a9_body(", 1);
+        for segs in ["sq, sk, sv, 3u", "so, so, so, 1u", "sg, su, su, 2u", "sd, sd, sd, 1u"] {
+            let x = format!("            p4t_phase_stream({segs}, L, A, tab, t_inv, area, cmax);\n        }}\n");
+            assert_eq!(bd.matches(x.as_str()).count(), 1);
+            bd = bd.replace(
+                &x,
+                &format!("            p4t_phase_a9({segs}, L, A, tab, t_inv, area, cmax);\n            P4T_WAIT();\n            p4t_fold_a9({segs}, L, A, cmax);\n        }}\n"),
+            );
+        }
+        let fl = "        if (threadIdx.x < R && cmax[threadIdx.x] != 0ull) atomicMax(L.slots + threadIdx.x, cmax[threadIdx.x]);\n";
+        let x = format!("        p4t_phase_stream(sh, sh, sh, 1u, L, A, tab, t_inv, area, cmax);\n        __syncthreads();\n{fl}");
+        assert_eq!(bd.matches(x.as_str()).count(), 1);
+        bd = bd.replace(
+            &x,
+            &format!("        p4t_phase_a9(sh, sh, sh, 1u, L, A, tab, t_inv, area, cmax);\n        __syncthreads();\n{fl}        P4T_WAIT();\n        p4t_fold_a9(sh, sh, sh, 1u, L, A, cmax);\n        __syncthreads();\n{fl}"),
+        );
+        assert_eq!(P4T_A9_PART.1.matches(format!("{u}{bd}").as_str()).count(), 1, "the a9 pass drifted from the stream pass");
+        assert_eq!(bd.matches("P4T_WAIT();").count(), src[c..d].matches("P4T_WAIT();").count() + 5);
+        let t = p4t_a9_unit_text(SERVED_DEFINES_SM89);
+        assert!(t.contains(&p4t_stream_unit_text(SERVED_DEFINES_SM89)));
+        for f in 0..3 {
+            assert_eq!(t.matches(p4t_a9_symbol(f).unwrap()).count(), 1);
+        }
+        eprintln!("tree module a9 at SERVED_DEFINES_SM89: {} bytes, sha256 {}", t.len(), crate::sha256::sha256_hex(t.as_bytes()));
+        // the waits: 13 a layer, 3 + 1 at the ends; the phases sum the layers
+        assert_eq!(n_bar_a9(36, 0), 327 + 145);
+        let (layers, g) = (2u32, 3usize);
+        let n_bar = n_bar_a9(layers, 0) as usize;
+        let st: Vec<u64> = (0..1 + 2 * n_bar).flat_map(|e| (0..g).map(move |c| 1000 * (e as u64 + 1) + c as u64)).collect();
+        let p = p4t_phases_a9(&st, layers, g as u32).unwrap();
+        assert_eq!(p.len(), 17);
+        assert_eq!(p[3][0], 2.0 * 2000.0, "qkv fold twice");
+        assert_eq!(p[16][0], 2000.0, "head fold once");
+        assert_eq!(p[14][0], 2000.0, "norm once");
+        assert_eq!(p.iter().map(|x| x[0]).sum::<f64>(), 2000.0 * n_bar as f64);
     }
 
     use super::*;

@@ -17,7 +17,8 @@
 //      256: the a4 symbols of pers_4et_a4.cu on those same copies;
 //      512: the a5 symbols of pers_4et_a5.cu on those same copies;
 //      1024, 2048, 4096: a6, a7, a3f of pers_4et_a6.cu on those same copies;
-//      8192, 16384, 32768: a3p, a3t, a8 of pers_4et_a8.cu on those same copies),
+//      8192, 16384, 32768: a3p, a3t, a8 of pers_4et_a8.cu on those same copies;
+//      65536: a9 of pers_4et_a9.cu on those same copies, n_bar_a9 waits),
 //      three rotations (attention input at 2,560, MLP input at 2,560, down
 //      input at 9,728), each u32 m, k, f32 inv, u32 signs[n/32], f32
 //      small[1024], then with variant 16 the o rotation at 4,096,
@@ -178,7 +179,8 @@
     A.eps = eps; A.c = (float)((1.0 / std::sqrt(128.0)) * 1.4426950408889634);
     A.head_w = head_w.data(); A.head_s = head_s.data(); A.head_b = head_b.data();
     // ---- variant 32: the tree-tiled copies and the arguments that point at them ----
-    const u32 a6k = (variant & 1024u) ? 1u : (variant & 2048u) ? 2u : (variant & 4096u) ? 3u : (variant & 8192u) ? 4u : (variant & 16384u) ? 5u : (variant & 32768u) ? 6u : 0u;
+    const u32 a6k = (variant & 1024u) ? 1u : (variant & 2048u) ? 2u : (variant & 4096u) ? 3u : (variant & 8192u) ? 4u : (variant & 16384u) ? 5u : (variant & 32768u) ? 6u : (variant & 65536u) ? 7u : 0u;
+    const bool a9v = (variant & 65536u) != 0u;
     const bool a5v = (variant & 512u) != 0u || a6k != 0u;
     const bool a4v = (variant & 256u) != 0u || a5v;
     const bool streamv = (variant & 128u) != 0u;
@@ -282,12 +284,13 @@
     const Ft tfns[3] = {pers_4et_stream_f0_t512, pers_4et_stream_f1_t512, pers_4et_stream_f2_t512};
     const Ft tfn4[3] = {pers_4et_a4_f0_t512, pers_4et_a4_f1_t512, pers_4et_a4_f2_t512};
     const Ft tfn5[3] = {pers_4et_a5_f0_t512, pers_4et_a5_f1_t512, pers_4et_a5_f2_t512};
-    const Ft tfn6[6][3] = {{pers_4et_a6_f0_t512, pers_4et_a6_f1_t512, pers_4et_a6_f2_t512},
+    const Ft tfn6[7][3] = {{pers_4et_a6_f0_t512, pers_4et_a6_f1_t512, pers_4et_a6_f2_t512},
                            {pers_4et_a7_f0_t512, pers_4et_a7_f1_t512, pers_4et_a7_f2_t512},
                            {pers_4et_a3f_f0_t512, pers_4et_a3f_f1_t512, pers_4et_a3f_f2_t512},
                            {pers_4et_a3p_f0_t512, pers_4et_a3p_f1_t512, pers_4et_a3p_f2_t512},
                            {pers_4et_a3t_f0_t512, pers_4et_a3t_f1_t512, pers_4et_a3t_f2_t512},
-                           {pers_4et_a8_f0_t512, pers_4et_a8_f1_t512, pers_4et_a8_f2_t512}};
+                           {pers_4et_a8_f0_t512, pers_4et_a8_f1_t512, pers_4et_a8_f2_t512},
+                           {pers_4et_a9_f0_t512, pers_4et_a9_f1_t512, pers_4et_a9_f2_t512}};
     const u32 n_pass = rd1<u32>();
     for (u32 pi = 0; pi < n_pass; ++pi) {
         const u32 pos0 = rd1<u32>(), R = rd1<u32>();
@@ -310,7 +313,8 @@
         T.g_raw = tg.data(); T.u_raw = tu.data(); T.tk = tk.data(); T.tv = tv.data();
         T.part = tpart.data(); T.fpart = tfpart.data(); T.tickets = ttk.data(); T.ftickets = tft.data(); T.slots = tslots.data();
         // a4 adds its F3 slots after the phase events: 20 a CTA
-        const size_t n_ev = (size_t)(1u + 2u * n_bar_4et(NL, n_ot)) * grid;
+        const u32 nbar = a9v ? n_bar_a9(NL, n_ot) : n_bar_4et(NL, n_ot);
+        const size_t n_ev = (size_t)(1u + 2u * nbar) * grid;
         std::vector<unsigned long long> st((variant & 64u) ? n_ev + (a4v ? 20u * (size_t)grid : 0u) : 0u, 0ull);
         if (variant & 64u) T.stamps = st.data();
         hostgrid::launch_coop(grid, threads, tsmem, pseed, [&] { if (a6k != 0u) tfn6[a6k - 1u][form](&At, T); else if (a5v) tfn5[form](&At, T); else if (a4v) tfn4[form](&At, T); else if (streamv) tfns[form](&At, T); else if (tiledv) tfnt[form](&At, T); else tfn[form](&A, T); });
@@ -323,9 +327,9 @@
             std::fprintf(stderr, "host_pers: tree pass %u aborted (abort %u, NaN %u)\n", pi, ab[0], nan[0]);
             std::exit(3);
         }
-        if (bar[0] != host_base + n_bar_4et(NL, n_ot) * grid) {
+        if (bar[0] != host_base + nbar * grid) {
             std::fprintf(stderr, "host_pers: tree pass %u: barrier count %u, expected %u\n", pi, bar[0],
-                         host_base + n_bar_4et(NL, n_ot) * grid);
+                         host_base + nbar * grid);
             std::exit(3);
         }
         host_base = bar[0];

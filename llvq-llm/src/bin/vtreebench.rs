@@ -3,7 +3,7 @@
 //! the card, for each arm of the pass.
 //!
 //! Usage: `LLVQ_CONFIG=<served v9 config> vtreebench <sealed> [arms]`, arms a
-//! comma-separated list of `a0` .. `a8`, `a3f`, `a3p`, `a3t` (default `a0,a1,a2`):
+//! comma-separated list of `a0` .. `a9`, `a3f`, `a3p`, `a3t` (default `a0,a1,a2`):
 //!
 //! * a0: S1's kernel and S1's slices (`pers::p4t_splits`);
 //! * a1: S1's kernel, the balanced slices q/k/v 11, o 14, gate/up 7, down
@@ -33,6 +33,8 @@
 //! * a8: a3 with the slice fold reading 16-byte quarters; a3 its guard.
 //! * a3p, a3t: FLOOR arms like a3f (timing only, values void): a3p adds every
 //!   slice's partial store to a3f, a3t adds the fences and tickets (no fold).
+//! * a9: a3 with the slice fold after the phase's grid wait, its own phase
+//!   rows ("qkv fold", ...); a3 its guard.
 //!
 //! Timing runs R = 1, 2 and 16. An arm a2 .. a7 or a3f takes an explicit plan, `a4@5.7.5.16.5` (S of q/k/v, o,
 //! gate/up, down, head), refused at install when an S is outside 1..=32 or
@@ -112,7 +114,7 @@ fn guard_of(name: &str) -> Option<String> {
     let (base, suffix) = name.split_once('@').map_or((name, String::new()), |(b, p)| (b, format!("@{p}")));
     let g = match base {
         "a3" => "a2",
-        "a4" | "a6" | "a8" => "a3",
+        "a4" | "a6" | "a8" | "a9" => "a3",
         "a5" => "a4",
         "a7" => "a6",
         _ => return None,
@@ -138,7 +140,7 @@ fn parse_arms(want: &[String]) -> Result<Vec<ArmAsk>, String> {
                 (b, Some(arr))
             }
         };
-        if !matches!(base, "a0" | "a1" | "a2" | "a3" | "a4" | "a5" | "a6" | "a7" | "a8" | "a3f" | "a3p" | "a3t") {
+        if !matches!(base, "a0" | "a1" | "a2" | "a3" | "a4" | "a5" | "a6" | "a7" | "a8" | "a9" | "a3f" | "a3p" | "a3t") {
             return Err(format!("unknown arm {w:?}"));
         }
         if plan.is_some() && matches!(base, "a0" | "a1") {
@@ -193,11 +195,11 @@ fn tree_rows(nodes: &[usize]) -> (Vec<u32>, Vec<[u8; 32]>) {
 
 #[cfg(all(target_os = "linux", feature = "cuda"))]
 fn run() -> anyhow::Result<()> {
-    use llvq_cuda::pers::{p4e_phase_report, p4e_report_lines, p4t_parts, p4t_phases, P4T_PHASES, P4T_ROW_PHASES};
+    use llvq_cuda::pers::{p4e_phase_report, p4e_report_lines, p4t_parts, p4t_phases, p4t_phases_a9, P4T_PHASES, P4T_PHASES_A9, P4T_ROW_PHASES};
     use llvq_llm::boundary::median_range;
     use llvq_llm::chatfmt::{open_assistant, turn, Marks};
     let a: Vec<String> = std::env::args().skip(1).collect();
-    let usage = "usage: LLVQ_CONFIG=<served v9 config> vtreebench <sealed> [arm,arm,...], an arm a0 .. a8, a3f, a3p or a3t, \
+    let usage = "usage: LLVQ_CONFIG=<served v9 config> vtreebench <sealed> [arm,arm,...], an arm a0 .. a9, a3f, a3p or a3t, \
                  every arm but a0 and a1 optionally with an explicit plan arm@qkv.o.gateup.down.head (e.g. a4@5.7.5.16.5)";
     let path = a.first().ok_or_else(|| anyhow::anyhow!("{usage}"))?.clone();
     let want_arms: Vec<String> = a.get(1).map_or("a0,a1,a2", |s| s.as_str()).split(',').map(str::to_string).collect();
@@ -216,6 +218,7 @@ fn run() -> anyhow::Result<()> {
                 "a6" => TreeForm::A6,
                 "a7" => TreeForm::A7,
                 "a8" => TreeForm::A8,
+                "a9" => TreeForm::A9,
                 "a3p" => TreeForm::A3p,
                 "a3t" => TreeForm::A3t,
                 _ => TreeForm::A3f,
@@ -505,14 +508,22 @@ fn run() -> anyhow::Result<()> {
             let an = &disp[k];
             for r in [1usize, 16] {
                 let (ts, d, p) = tree_of(r);
-                let mut per = vec![[Vec::new(), Vec::new(), Vec::new(), Vec::new()]; P4T_PHASES.len()];
+                // a9 has its own waits (a fold step after each row phase) and phase names
+                let a9 = arms[k].form == TreeForm::A9;
+                let names: Vec<&str> = if a9 { P4T_PHASES_A9.to_vec() } else { P4T_PHASES.to_vec() };
+                let mut per = vec![[Vec::new(), Vec::new(), Vec::new(), Vec::new()]; names.len()];
                 let mut parts = vec![[Vec::new(), Vec::new(), Vec::new(), Vec::new()]; P4T_ROW_PHASES.len()];
-                let n_ev = (1 + 2 * llvq_cuda::pers::n_bar_4et(layers, 0)) as usize * grid as usize;
+                let nb = if a9 { llvq_cuda::pers::n_bar_a9(layers, 0) } else { llvq_cuda::pers::n_bar_4et(layers, 0) };
+                let n_ev = (1 + 2 * nb) as usize * grid as usize;
                 for _ in 0..TIMED {
                     set(&mut caches, l)?;
                     let o = rt.tree(k, &mut caches, l, &ts, &d, &p, false, true)?;
                     anyhow::ensure!(o.stamps.len() >= n_ev, "{an}: {} stamps, the phases need {n_ev}", o.stamps.len());
-                    let ph = p4t_phases(&o.stamps[..n_ev], layers, grid).map_err(anyhow::Error::msg)?;
+                    let ph: Vec<[f64; 4]> = if a9 {
+                        p4t_phases_a9(&o.stamps[..n_ev], layers, grid).map_err(anyhow::Error::msg)?
+                    } else {
+                        p4t_phases(&o.stamps[..n_ev], layers, grid).map_err(anyhow::Error::msg)?.to_vec()
+                    };
                     if o.stamps.len() > n_ev {
                         // an a4 launch's F3 parts, each CTA's sum over the layers, median over the CTAs
                         let pp = p4t_parts(&o.stamps[n_ev..], grid).map_err(anyhow::Error::msg)?;
@@ -530,18 +541,21 @@ fn run() -> anyhow::Result<()> {
                 }
                 let m = |v: &Vec<f64>| median_range(v).0;
                 let total: f64 = per.iter().map(|x| m(&x[0])).sum();
-                let rows_ph: f64 = ["qkv", "o", "gateup", "down", "head"]
+                // the row phases, with a9's fold steps
+                let rows_ph: f64 = names
                     .iter()
-                    .map(|n| m(&per[P4T_PHASES.iter().position(|p| p == n).expect("a phase")][0]))
+                    .enumerate()
+                    .filter(|(_, n)| ["qkv", "o", "gateup", "down", "head"].iter().any(|r| n.split(' ').next() == Some(*r)))
+                    .map(|(i, _)| m(&per[i][0]))
                     .sum();
                 println!(
                     "  {an} vt{r} phases, us summed over the layers, median of {TIMED} stamped launches: wall {total:.1}, row phases {rows_ph:.1} ({:.1} %)",
                     100.0 * rows_ph / total
                 );
-                println!("  {an} vt{r}   phase      wall   busy min   busy med   busy max");
-                for (i, ph) in P4T_PHASES.iter().enumerate() {
+                println!("  {an} vt{r}   {:>11}      wall   busy min   busy med   busy max", "phase");
+                for (i, ph) in names.iter().enumerate() {
                     println!(
-                        "  {an} vt{r}   {ph:>6} {:9.1} {:10.1} {:10.1} {:10.1}",
+                        "  {an} vt{r}   {ph:>11} {:9.1} {:10.1} {:10.1} {:10.1}",
                         m(&per[i][0]),
                         m(&per[i][1]),
                         m(&per[i][2]),

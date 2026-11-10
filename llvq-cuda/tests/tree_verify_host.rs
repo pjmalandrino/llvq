@@ -1029,7 +1029,7 @@ fn a5_prefetch_mutant_is_killed() {
 /// slices: every row's argmax, logits, residual, K and V equal.
 #[allow(clippy::too_many_arguments)]
 fn gate_pair(bin: &Path, refb: &Path, f: &Fix, v: u32, r: u32, t: &Tree, sizes: &[usize], pos0: u32) -> Result<usize, String> {
-    let arms = 32 | 128 | 256 | 512 | 1024 | 2048 | 4096 | 8192 | 16384 | 32768;
+    let arms = 32 | 128 | 256 | 512 | 1024 | 2048 | 4096 | 8192 | 16384 | 32768 | 65536;
     let passes: Vec<Pass> =
         sizes.iter().enumerate().map(|(i, &s)| Pass::of(t, &t.subset(s, 0x6100 + i as u64), pos0, 0x7a00 + i as u64)).collect();
     let u = exec(refb, &Fix { variant: (f.variant & !arms) | r, ..*f }, None, &passes)?;
@@ -1132,4 +1132,58 @@ fn the_protocol_floor_arms_run() {
         let o = exec(host(), &f, None, &[Pass::of(&t, &t.subset(9, 0x6190), 9, 0x7a90)]).unwrap();
         assert!(o.passes[0].iter().all(|r| r.tok < VOCAB), "variant {v}: a floor row wrote no argmax");
     }
+}
+
+// ---- arm a9: a3 with the fold after the phase's grid wait ----
+
+/// a9 equals a3 bit for bit at R = 1, 2, 8, 16, 32 under both stream plans
+/// (the head folded from 4 and 5 slices), and on the 8B's parts at form 2.
+#[test]
+#[cfg_attr(debug_assertions, ignore)]
+fn a9_rows_equal_stream_rows() {
+    let t = tree(32, 7, 0x3f9);
+    for split in [SPLIT_N2, SPLIT_N2B] {
+        let n = gate_pair(host(), host(), &Fix { split, ..FIX }, 65536, 128, &t, &[1, 2, 8, 16, 32], 9).unwrap();
+        eprintln!("split {split:?}: {n} rows, a9 equals a3 bit for bit");
+    }
+    let t = tree(12, 4, 0x3fa);
+    let f = Fix { form: 2, variant: 16, cap: 288, split: SPLIT_N2B, ..FIX };
+    let n = gate_pair(host(), host(), &f, 65536, 128, &t, &[1, 5], 254).unwrap();
+    eprintln!("8B's parts, form 2: {n} rows, a9 equals a3 bit for bit");
+}
+
+/// Each guard of the fold step has a mutant, killed by a9's gate against a3.
+#[test]
+#[cfg_attr(debug_assertions, ignore)]
+fn a9_mutants_are_killed() {
+    let t = tree(12, 4, 0x3fb);
+    let f = Fix { split: SPLIT_N2B, ..FIX };
+    gate_pair(host(), host(), &f, 65536, 128, &t, &[1, 9], 9).expect("the unmutated a9 pass passes its gate");
+    let k = "llvq-cuda/kernels/pers_4et_a9.cu";
+    let muts: &[(&str, &[Edit])] = &[
+        // the slices added from the last down
+        ("fold_order", &[(k, "                const u32 ks = k;\n", "                const u32 ks = g.S - k;\n")]),
+        // slice 1 skipped
+        ("fold_skip", &[(k, "for (u32 k = 1u; k < g.S; ++k) {\n                const u32 ks = k;", "for (u32 k = 2u; k < g.S; ++k) {\n                const u32 ks = k;")]),
+        // the last pair of each projection dealt to nobody
+        ("pair_nobody", &[(k, "p < np; p += T) {", "p + 1u < np; p += T) {")]),
+        // a pair's residual read from the neighbour row
+        ("resid_row", &[(k, "g.res + (unsigned long long)n * g.ldy + row);", "g.res + (unsigned long long)n * g.ldy + (row ^ 1u));")]),
+        // the q/k/v fold step's wait removed
+        ("wait_removed", &[(k, "            P4T_WAIT();\n            p4t_fold_a9(sq, sk, sv", "            p4t_fold_a9(sq, sk, sv")]),
+    ];
+    let mut killed = 0;
+    for (tag, edits) in muts {
+        let b = mutant(tag, edits);
+        let r = gate_pair(&b, host(), &f, 65536, 128, &t, &[1, 9], 9);
+        let _ = std::fs::remove_file(&b);
+        match r {
+            Err(e) => {
+                killed += 1;
+                eprintln!("{tag}: killed by {}", e.lines().next().unwrap_or(""))
+            }
+            Ok(_) => panic!("a9 mutant {tag} survived its gate"),
+        }
+    }
+    eprintln!("a9 mutants: {killed} of {} killed", muts.len());
 }
