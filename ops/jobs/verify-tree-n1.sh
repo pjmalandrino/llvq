@@ -25,6 +25,13 @@ DRY=${DRY_RUN:-0}
 P4E_V9_SHA=1b422b62328be6752df4add43280565fd2a49cfa20ee26953b301abe7a15c530
 TIMEOUT=${TIMEOUT:-25m}
 ARMS=${ARMS:-a0,a1,a2}
+# FLAVOR: l40sx1 (the prereg's); l40sx4 is deviation 1 (ECARTS), one device visible
+FLAVOR=${FLAVOR:-l40sx1}
+case "$FLAVOR" in
+  l40sx1) FLAVOR_ARGS=(); DEV_PRE='' ;;
+  l40sx4) FLAVOR_ARGS=(--any-flavor); DEV_PRE=$'\nexport CUDA_VISIBLE_DEVICES=0' ;;
+  *) echo "refused: FLAVOR=$FLAVOR (l40sx1 or l40sx4)" >&2; exit 1 ;;
+esac
 case "$ARMS" in a0,a1,a2|a0,a1) ;; *) echo "refused: ARMS=$ARMS (a0,a1,a2 or a0,a1)" >&2; exit 1;; esac
 SEALED="sealed-4b-2026-09-23/qwen3-4b-sealed.bin:1418224685"
 SEALED_SHA=886391a8c03f66dc269cc65c3598c6627dbdcd259180aff36604ef10d37371b8
@@ -52,7 +59,7 @@ if [ "$DRY" != 1 ]; then
 fi
 
 PRE=$(printf 'O=%q\nSEALED=%q\nSEALED_SHA=%q\nCFG_SHA=%q\nCFG_B64=%q\nP4E_V9_SHA=%q\nARMS=%q\nexport HF_HOME=/tmp/hf' \
-  "$O" "$SEALED" "$SEALED_SHA" "$CFG_SHA" "$CFG_B64" "$P4E_V9_SHA" "$ARMS")
+  "$O" "$SEALED" "$SEALED_SHA" "$CFG_SHA" "$CFG_B64" "$P4E_V9_SHA" "$ARMS")$DEV_PRE
 
 IFS= read -r -d '' BODY <<'JOB' || true
 mkdir -p "$O"
@@ -97,7 +104,7 @@ fi
 
 uv run ops/run.py bench \
   --image hf.co/spaces/Pier-Jean/llvq-runner-cuda \
-  --flavor l40sx1 --timeout "$TIMEOUT" \
+  --flavor "$FLAVOR" ${FLAVOR_ARGS[@]+"${FLAVOR_ARGS[@]}"} --timeout "$TIMEOUT" \
   --bucket "$BUCKET" --out-mount /out \
   --name "verify-tree-n1${RETRY:+-r$RETRY}" \
   "$PRE" "$BODY"
