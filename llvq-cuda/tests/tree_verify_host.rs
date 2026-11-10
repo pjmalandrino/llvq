@@ -1029,7 +1029,7 @@ fn a5_prefetch_mutant_is_killed() {
 /// slices: every row's argmax, logits, residual, K and V equal.
 #[allow(clippy::too_many_arguments)]
 fn gate_pair(bin: &Path, refb: &Path, f: &Fix, v: u32, r: u32, t: &Tree, sizes: &[usize], pos0: u32) -> Result<usize, String> {
-    let arms = 32 | 128 | 256 | 512 | 1024 | 2048 | 4096 | 8192 | 16384 | 32768 | 65536 | 131072;
+    let arms = 32 | 128 | 256 | 512 | 1024 | 2048 | 4096 | 8192 | 16384 | 32768 | 65536 | 131072 | 524288 | 1048576 | 2097152 | 4194304;
     let passes: Vec<Pass> =
         sizes.iter().enumerate().map(|(i, &s)| Pass::of(t, &t.subset(s, 0x6100 + i as u64), pos0, 0x7a00 + i as u64)).collect();
     let u = exec(refb, &Fix { variant: (f.variant & !arms) | r, ..*f }, None, &passes)?;
@@ -1288,5 +1288,33 @@ fn a11i_rows_equal_a11_rows_stamped_or_not() {
         eprintln!("split {split:?}: {n} rows, a11i equals a11 bit for bit");
         let n = gate_pair(host(), host(), &Fix { variant: 64, ..f }, 1048576 | 64, 524288, &t, &[1, 8, 32], 9).unwrap();
         eprintln!("split {split:?}: {n} rows, a11i stamped equals a11 bit for bit");
+    }
+}
+
+// ---- arms a10r8 and a10r16: a10 for at most 8 and 16 rows a launch ----
+
+/// a10r8 at R = 1 and 8, a10r16 at R = 1, 8 and 16: bit for bit with a10 at
+/// the same rows, under both stream plans.
+#[test]
+#[cfg_attr(debug_assertions, ignore)]
+fn row_cap_rows_equal_a10_rows() {
+    let t = tree(16, 5, 0x404);
+    for split in [SPLIT_N2, SPLIT_N2B] {
+        let f = Fix { split, ..FIX };
+        let n = gate_pair(host(), host(), &f, 2097152, 131072, &t, &[1, 8], 9).unwrap();
+        eprintln!("split {split:?}: {n} rows, a10r8 equals a10 bit for bit");
+        let n = gate_pair(host(), host(), &f, 4194304, 131072, &t, &[1, 8, 16], 9).unwrap();
+        eprintln!("split {split:?}: {n} rows, a10r16 equals a10 bit for bit");
+    }
+}
+
+/// Above its cap a row-cap arm refuses the launch (the abort flag).
+#[test]
+fn a_row_cap_arm_refuses_rows_past_its_cap() {
+    let t = tree(17, 5, 0x405);
+    for (v, r) in [(2097152u32, 9usize), (4194304, 17)] {
+        let f = Fix { split: SPLIT_N2B, variant: v, ..FIX };
+        let e = exec(host(), &f, None, &[Pass::of(&t, &t.subset(r, 0x6200), 9, 0x7a40)]).err().expect("a launch past the cap runs");
+        assert!(e.contains("aborted"), "variant {v}, {r} rows: {e}");
     }
 }

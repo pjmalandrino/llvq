@@ -53,6 +53,14 @@
 //! An arm whose module does not build is void and skipped; the others run.
 //! An unknown arm is refused before anything loads.
 //!
+//! `vtreebench --res <arms>` compiles each named arm's module through NVRTC
+//! and prints its symbols' registers, local and shared bytes, then exits:
+//! no model, no LLVQ_CONFIG.
+//!
+//! * a10r8, a10r16: a10 for at most 8 or 16 rows a launch (fewer
+//!   accumulators); a10 their guard on the common rows; R past the cap is
+//!   neither timed nor checked.
+//!
 //! The served object loads as `specrun` loads it (4E v9 under its config),
 //! then the tree pass installs beside it (`Runtime4e::install_tree`, its own
 //! modules). At the chat context for every arm, then at the rag context for
@@ -99,12 +107,81 @@ const DISCARD: usize = 2;
 #[cfg(all(target_os = "linux", feature = "cuda"))]
 const TIMED: usize = 5;
 #[cfg(all(target_os = "linux", feature = "cuda"))]
-const ROWS: [usize; 3] = [1, 2, 16];
+const ROWS: [usize; 4] = [1, 2, 8, 16];
 #[cfg(all(target_os = "linux", feature = "cuda"))]
 const N_REF: u32 = 64;
 /// a1's and a2's proposed slices at the 4B (job N1's prereg).
 #[cfg(all(target_os = "linux", feature = "cuda"))]
 const BALANCED: [u32; 5] = [11, 14, 7, 14, 1];
+
+/// An arm's module text and its symbol at each RoPE form, at a tile define.
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+fn module_of(base: &str, define: &str) -> anyhow::Result<(String, [&'static str; 3])> {
+    use llvq_cuda::pers as p;
+    let e = anyhow::Error::msg;
+    let syms = |f: &dyn Fn(u32) -> Result<&'static str, String>| -> anyhow::Result<[&'static str; 3]> { Ok([f(0).map_err(e)?, f(1).map_err(e)?, f(2).map_err(e)?]) };
+    Ok(match base {
+        "a0" | "a1" => (p::p4t_unit_text(define), syms(&p::p4t_symbol)?),
+        "a2" => (p::p4t_tiled_unit_text(define), syms(&p::p4t_tiled_symbol)?),
+        "a3" => (p::p4t_stream_unit_text(define), syms(&p::p4t_stream_symbol)?),
+        "a4" => (p::p4t_a4_unit_text(define, true, true), syms(&p::p4t_a4_symbol)?),
+        "a5" => (p::p4t_a5_unit_text(define), syms(&p::p4t_a5_symbol)?),
+        "a6" | "a7" | "a3f" => (p::p4t_a6_unit_text(base, define).map_err(e)?, syms(&|f| p::p4t_a6_symbol(base, f))?),
+        "a8" | "a3p" | "a3t" => (p::p4t_a8_unit_text(base, define).map_err(e)?, syms(&|f| p::p4t_a8_symbol(base, f))?),
+        "a9" => (p::p4t_a9_unit_text(define), syms(&p::p4t_a9_symbol)?),
+        "a10" => (p::p4t_a10_unit_text(define), syms(&p::p4t_a10_symbol)?),
+        "a11" => (p::p4t_a11_unit_text(define), syms(&p::p4t_a11_symbol)?),
+        "a11i" => (p::p4t_a11i_unit_text(define), syms(&p::p4t_a11i_symbol)?),
+        "a10r8" => (p::p4t_a10rc_unit_text(define, 8), syms(&|f| p::p4t_a10rc_symbol(8, f))?),
+        "a10r16" => (p::p4t_a10rc_unit_text(define, 16), syms(&|f| p::p4t_a10rc_symbol(16, f))?),
+        other => anyhow::bail!("vtreebench --res: no module for arm {other}"),
+    })
+}
+
+/// `vtreebench --res <arms>`: each named arm's module (plan suffixes ignored)
+/// compiled through NVRTC on device 0 at the card's tile define; for each
+/// symbol its registers, local bytes, static shared bytes and the CTAs a SM
+/// at 512 threads and the 4B's dynamic shared bytes. A module that does not
+/// build is reported and the others go on. No model is loaded.
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+fn res_only(list: &str) -> anyhow::Result<()> {
+    use llvq_cuda::gpu::{Cuda, KernelSource};
+    use llvq_cuda::pers as p;
+    let want: Vec<String> = list.split(',').map(str::to_string).collect();
+    let arms = parse_arms(&want).map_err(|e| anyhow::anyhow!("vtreebench --res: {e}"))?;
+    let probe = Cuda::new(&KernelSource::new(&["extern \"C\" __global__ void p4t_res_probe() {}"])).map_err(anyhow::Error::msg)?;
+    let dev = probe.device().map_err(anyhow::Error::msg)?;
+    let define = llvq_cuda::tile::resolve(dev.compute_cap).define();
+    let smem = p::SMEM_HEADER + p::TABLE_BYTES + 4 * p::p4t_area_floats(16, 32, 9728, 4);
+    println!("res: {} (sm_{}{}), tile define {:?}, dynamic shared {smem} B (the 4B's widths, 32 rows)", dev.name, dev.compute_cap.0, dev.compute_cap.1, define.trim());
+    let mut seen: Vec<String> = Vec::new();
+    for x in arms.iter().filter(|x| !x.guard_only) {
+        if seen.contains(&x.base) {
+            continue;
+        }
+        seen.push(x.base.clone());
+        let (text, syms) = module_of(&x.base, &define)?;
+        let src = KernelSource::new(&[text.as_str()]);
+        println!("res {}: module {} bytes, sha256 {}", x.base, src.text.len(), src.sha256);
+        let cuda = match Cuda::new(&src) {
+            Ok(c) => c,
+            Err(err) => {
+                println!("res {}: module FAILED: {}", x.base, err.lines().next().unwrap_or(""));
+                continue;
+            }
+        };
+        for sym in syms {
+            match (cuda.report(sym), cuda.func_dynamic_shared(sym, smem)) {
+                (Ok(r), Ok(f)) => {
+                    let occ = f.occupancy_max_active_blocks_per_multiprocessor(512, smem as usize, None).map(|o| o.to_string()).unwrap_or_else(|e| format!("? ({e})"));
+                    println!("res {}: {sym}: {} registers, {} B local, {} B static shared, {occ} CTA a SM at 512 threads and {smem} B", x.base, r.num_regs, r.local_bytes, r.shared_bytes);
+                }
+                (Err(e1), _) | (_, Err(e1)) => println!("res {}: {sym}: {e1}", x.base),
+            }
+        }
+    }
+    Ok(())
+}
 
 /// One arm asked: its name as given, its kernel (`a0` .. `a5`), its explicit
 /// plan, and whether it was added only as another arm's guard.
@@ -126,7 +203,7 @@ fn guard_of(name: &str) -> Option<String> {
         "a4" | "a6" | "a8" | "a9" => "a3",
         "a5" => "a4",
         "a10" => "a9",
-        "a11" => "a10",
+        "a11" | "a10r8" | "a10r16" => "a10",
         "a11i" => "a11",
         "a7" => "a6",
         _ => return None,
@@ -152,7 +229,7 @@ fn parse_arms(want: &[String]) -> Result<Vec<ArmAsk>, String> {
                 (b, Some(arr))
             }
         };
-        if !matches!(base, "a0" | "a1" | "a2" | "a3" | "a4" | "a5" | "a6" | "a7" | "a8" | "a9" | "a10" | "a11" | "a11i" | "a3f" | "a3p" | "a3t") {
+        if !matches!(base, "a0" | "a1" | "a2" | "a3" | "a4" | "a5" | "a6" | "a7" | "a8" | "a9" | "a10" | "a11" | "a11i" | "a10r8" | "a10r16" | "a3f" | "a3p" | "a3t") {
             return Err(format!("unknown arm {w:?}"));
         }
         if plan.is_some() && matches!(base, "a0" | "a1") {
@@ -214,6 +291,12 @@ fn run() -> anyhow::Result<()> {
     use llvq_llm::boundary::median_range;
     use llvq_llm::chatfmt::{open_assistant, turn, Marks};
     let a: Vec<String> = std::env::args().skip(1).collect();
+    // compile-only: each arm's module through NVRTC, its symbols' registers,
+    // local and shared bytes, then exit; no model, no LLVQ_CONFIG
+    if a.first().map(String::as_str) == Some("--res") {
+        let list = a.get(1).ok_or_else(|| anyhow::anyhow!("usage: vtreebench --res <arm,arm,...>"))?;
+        return res_only(list);
+    }
     let usage = "usage: LLVQ_CONFIG=<served v9 config> vtreebench <sealed> [arm,arm,...], an arm a0 .. a11, a3f, a3p or a3t, \
                  every arm but a0 and a1 optionally with an explicit plan arm@qkv.o.gateup.down.head (e.g. a4@5.7.5.16.5)";
     let path = a.first().ok_or_else(|| anyhow::anyhow!("{usage}"))?.clone();
@@ -237,6 +320,8 @@ fn run() -> anyhow::Result<()> {
                 "a10" => TreeForm::A10,
                 "a11" => TreeForm::A11,
                 "a11i" => TreeForm::A11i,
+                "a10r8" => TreeForm::A10r8,
+                "a10r16" => TreeForm::A10r16,
                 "a3p" => TreeForm::A3p,
                 "a3t" => TreeForm::A3t,
                 _ => TreeForm::A3f,
@@ -373,15 +458,17 @@ fn run() -> anyhow::Result<()> {
                 first_miss.map_or(String::new(), |(i, a, b)| format!(" (first difference at position {}: {a} against 4E's {b})", l + i))
             );
             set(&mut caches, l)?;
-            // 3. identity across R and slots
-            let base = rt.tree(k, &mut caches, l, &toks32, &d32, &p32, true, false)?;
-            let v = base.logits.len() / 32;
-            let shuffled16: Vec<usize> = (0..16).rev().collect();
-            let mut shuffled32: Vec<usize> = (0..32).map(|i| (i * 13 + 5) % 32).collect();
-            shuffled32.sort_by_key(|&i| (i * 7 + 3) % 32);
-            let mut sets: Vec<Vec<usize>> = ROWS.iter().map(|&r| (0..r).collect()).collect();
-            sets.push(shuffled16);
-            sets.push(shuffled32);
+            // 3. identity across R and slots, within the arm's row cap (its
+            // base pass is the first `cap` nodes: their ancestors are among them)
+            let cap = arms[k].form.rmax() as usize;
+            let base = rt.tree(k, &mut caches, l, &toks32[..cap], &d32[..cap], &p32[..cap], true, false)?;
+            let v = base.logits.len() / cap;
+            let half: Vec<usize> = (0..cap.min(16)).rev().collect();
+            let mut shuffled: Vec<usize> = (0..cap).map(|i| (i * 13 + 5) % cap).collect();
+            shuffled.sort_by_key(|&i| (i * 7 + 3) % cap);
+            let mut sets: Vec<Vec<usize>> = ROWS.iter().filter(|&&r| r <= cap).map(|&r| (0..r).collect()).collect();
+            sets.push(half);
+            sets.push(shuffled);
             let (mut rows_cmp, mut bad) = (0usize, Vec::new());
             for nodes in &sets {
                 let (d, p) = tree_rows(nodes);
@@ -395,7 +482,7 @@ fn run() -> anyhow::Result<()> {
                 }
             }
             if bad.is_empty() {
-                println!("  {an} identity: every row equals its node in the 32-row pass, logits and argmax, {rows_cmp} rows of {} passes", sets.len());
+                println!("  {an} identity: every row equals its node in the {cap}-row pass, logits and argmax, {rows_cmp} rows of {} passes", sets.len());
             } else {
                 println!("  {an} identity FAILS: {} of {rows_cmp} rows differ, first (rows, slot, node) {:?}", bad.len(), bad[0]);
             }
@@ -412,11 +499,13 @@ fn run() -> anyhow::Result<()> {
         for x in 0..na {
             for y in x + 1..na {
                 if let (Some(bx), Some(by)) = (&bases[x], &bases[y]) {
+                    let nr = bx.ring.len().min(by.ring.len());
+                    let vx = bx.logits.len() / bx.ring.len();
                     let same_tok = bx.ring.iter().zip(&by.ring).filter(|(p, q)| p == q).count();
                     if arms[x].splits == arms[y].splits {
-                        let ok = bx.ring == by.ring && bx.logits == by.logits;
+                        let ok = bx.ring[..nr] == by.ring[..nr] && bx.logits[..nr * vx] == by.logits[..nr * vx];
                         println!(
-                            "  {} against {} (same slices): the 32-row pass {} bit for bit, argmax at {same_tok} of 32 rows",
+                            "  {} against {} (same slices): the first {nr} rows {} bit for bit, argmax at {same_tok} of {nr} rows",
                             arms[y].name,
                             arms[x].name,
                             if ok { "equal" } else { "DIFFERS" }
@@ -435,12 +524,15 @@ fn run() -> anyhow::Result<()> {
             let (arm, guard) = (x.name.as_str(), gname.as_str());
             if let (Some(ig), Some(ia)) = (at(guard), at(arm)) {
                 if let (Some(bg), Some(ba)) = (&bases[ig], &bases[ia]) {
-                    let ok = arms[ig].splits == arms[ia].splits && bg.ring == ba.ring && bg.logits == ba.logits;
+                    // a row-cap arm's base pass has fewer rows: the common rows owe each other their bits
+                    let nr = bg.ring.len().min(ba.ring.len());
+                    let vg = bg.logits.len() / bg.ring.len();
+                    let ok = arms[ig].splits == arms[ia].splits && bg.ring[..nr] == ba.ring[..nr] && bg.logits[..nr * vg] == ba.logits[..nr * vg];
                     println!(
                         "  {arm} guard against {guard} (slices {:?} and {:?}): {}",
                         arms[ig].splits,
                         arms[ia].splits,
-                        if ok { "PASSES, the 32-row pass equal bit for bit".to_string() } else { format!("FAILS: {arm}'s numbers are void") }
+                        if ok { format!("PASSES, the first {nr} rows of the base pass equal bit for bit") } else { format!("FAILS: {arm}'s numbers are void") }
                     );
                 } else if name == "chat" {
                     println!("  {arm} guard against {guard}: not run (an arm is void), {arm}'s numbers are void");
@@ -471,6 +563,9 @@ fn run() -> anyhow::Result<()> {
             for &k in &run_arms {
                 let base = bases[k].as_ref();
                 for (j, (ts, d, p)) in trees.iter().enumerate() {
+                    if ts.len() > arms[k].form.rmax() as usize {
+                        continue;
+                    }
                     rt.sync()?;
                     let t0 = Instant::now();
                     let o = rt.tree(k, &mut caches, l, ts, d, p, false, false)?;
@@ -496,20 +591,25 @@ fn run() -> anyhow::Result<()> {
             let an = &disp[k];
             println!("  {an}  rows   wall us, median [range]     c_R = t(vt R) / t(4e), round by round, median [range]");
             for (j, &r) in ROWS.iter().enumerate() {
+                if walls[k][j].is_empty() {
+                    println!("  {an}  {r:4}   past the arm's row cap, not run");
+                    continue;
+                }
                 let (wm, wlo, whi) = median_range(&walls[k][j]);
                 let (cm, clo, chi) = median_range(&ratios[k][j]);
                 println!("  {an}  {r:4}   {wm:8.1} [{wlo:.1}-{whi:.1}]   c_{r} {cm:.3} [{clo:.3}-{chi:.3}]");
             }
-            let c = |j: usize| median_range(&ratios[k][j]).0;
+            let c = |j: usize| if ratios[k][j].is_empty() { f64::NAN } else { median_range(&ratios[k][j]).0 };
             println!(
-                "  {an} an extra row: (c_16 - c_1) / 15 = {:.4} of a 4E token; c_2 {:.3}",
-                (c(2) - c(0)) / 15.0,
+                "  {an} an extra row: (c_16 - c_1) / 15 = {:.4}, (c_8 - c_1) / 7 = {:.4} of a 4E token; c_2 {:.3}",
+                (c(3) - c(0)) / 15.0,
+                (c(2) - c(0)) / 7.0,
                 c(1)
             );
-            if name == "chat" && !floor[k] {
-                c16_chat[k] = c(2);
+            if name == "chat" && !floor[k] && !c(3).is_nan() {
+                c16_chat[k] = c(3);
             }
-            summary.push(format!("{name} {an}: c_1 {:.3}, c_2 {:.3}, c_16 {:.3}", c(0), c(1), c(2)));
+            summary.push(format!("{name} {an}: c_1 {:.3}, c_2 {:.3}, c_8 {:.3}, c_16 {:.3}", c(0), c(1), c(2), c(3)));
         }
         // 5. phases
         if rt.can_stamp() {
@@ -524,10 +624,10 @@ fn run() -> anyhow::Result<()> {
         }
         for &k in &run_arms {
             let an = &disp[k];
-            for r in [1usize, 16] {
+            for r in [1usize, (arms[k].form.rmax() as usize).min(16)] {
                 let (ts, d, p) = tree_of(r);
                 // a9 has its own waits (a fold step after each row phase) and phase names
-                let a9 = matches!(arms[k].form, TreeForm::A9 | TreeForm::A10 | TreeForm::A11 | TreeForm::A11i);
+                let a9 = matches!(arms[k].form, TreeForm::A9 | TreeForm::A10 | TreeForm::A11 | TreeForm::A11i | TreeForm::A10r8 | TreeForm::A10r16);
                 let mut iparts: Vec<[[[f64; 3]; 6]; 5]> = Vec::new();
                 let mut classes: Vec<([[f64; 2]; 3], [f64; 4])> = Vec::new();
                 let names: Vec<&str> = if a9 { P4T_PHASES_A9.to_vec() } else { P4T_PHASES.to_vec() };

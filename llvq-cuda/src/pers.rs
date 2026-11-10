@@ -2111,6 +2111,30 @@ pub fn p4t_wait_classes(stamps: &[u64], n_layers: u32, grid: u32, rows: u32) -> 
     Ok((out, pro))
 }
 
+/// The module text of the row-cap arms a10r8 and a10r16
+/// (`pers_4et_a10rc.cu`, a10 for at most 8 or 16 rows a launch), after
+/// [`p4t_a10_unit_text`], which keeps its bytes. `rows` 8 or 16: the
+/// module emits that arm's symbols only.
+pub fn p4t_a10rc_unit_text(tile_define: &str, rows: u32) -> String {
+    format!("#define P4T_A10RC {rows}\n{}\n{}", p4t_a10_unit_text(tile_define), P4T_A10RC_PART.1)
+}
+
+/// The row-cap arms' symbols: `rows` 8 or 16, a RoPE form.
+pub fn p4t_a10rc_symbol(rows: u32, form: u32) -> Result<&'static str, String> {
+    Ok(match (rows, form) {
+        (8, 0) => "pers_4et_a10r8_f0_t512",
+        (8, 1) => "pers_4et_a10r8_f1_t512",
+        (8, 2) => "pers_4et_a10r8_f2_t512",
+        (16, 0) => "pers_4et_a10r16_f0_t512",
+        (16, 1) => "pers_4et_a10r16_f1_t512",
+        (16, 2) => "pers_4et_a10r16_f2_t512",
+        _ => return Err(format!("tree verify: no row-cap kernel for {rows} rows at RoPE form {form}")),
+    })
+}
+
+/// `pers_4et_a10rc.cu`, embedded so the Mac hashes what the card compiles.
+pub const P4T_A10RC_PART: (&str, &str) = ("pers_4et_a10rc.cu", include_str!("../kernels/pers_4et_a10rc.cu"));
+
 /// `pers_4et_a11.cu`, embedded so the Mac hashes what the card compiles.
 pub const P4T_A11_PART: (&str, &str) = ("pers_4et_a11.cu", include_str!("../kernels/pers_4et_a11.cu"));
 
@@ -3523,6 +3547,41 @@ mod tests {
         assert_eq!(cls[1], [20.0 * 9.0, 30.0 * 9.0]);
         assert_eq!(cls[2][1], 30.0 * 9.0);
         assert_eq!(pro[0], 2.0 * 990.0, "ln1 on CTA 0, twice");
+    }
+
+    #[test]
+    fn the_row_cap_passes_are_a10s() {
+        // pers_4et_a10rc.cu: a9's unit and deal over RC n8 tiles, a10's pass
+        // with the row cap; nothing else of them changed
+        let a9 = P4T_A9_PART.1;
+        let a = a9.find("// One unit: tiles [blk nw, blk nw + nw) of g").unwrap();
+        let b = a + a9[a..].find("template <int FORM>\n__device__ __forceinline__ void pers_4et_a9_body(").unwrap();
+        let unit = a9[a..b]
+            .replacen("__device__ __forceinline__ void p4t_unit_a9(", "template <u32 RC>\n__device__ __forceinline__ void p4t_unit_rc(", 1)
+            .replacen("    float acc[4][4];\n#pragma unroll\n    for (u32 nt = 0; nt < 4u; ++nt)", "    float acc[RC][4];\n#pragma unroll\n    for (u32 nt = 0; nt < RC; ++nt)", 1)
+            .replacen("                for (u32 nt = 0; nt < 4u; ++nt) {", "                for (u32 nt = 0; nt < RC; ++nt) {", 1)
+            .replacen("    if (has) p4t_store_a9(g, L, A, sl, acc, wrow, lane, cmax);\n", "    if (has) p4t_store_rc<RC>(g, L, A, sl, acc, wrow, lane, cmax);\n", 1)
+            .replacen("__device__ __forceinline__ void p4t_phase_a9(", "template <u32 RC>\n__device__ __forceinline__ void p4t_phase_rc(", 1)
+            .replacen("        p4t_unit_a9(g, lu % g.S, lu / g.S, L, A, tab, t_inv, area, cmax);", "        p4t_unit_rc<RC>(g, lu % g.S, lu / g.S, L, A, tab, t_inv, area, cmax);", 1);
+        assert!(!unit.contains("nt < 4u"), "every n8-tile loop of the unit is over RC");
+        let a10 = P4T_A10_PART.1;
+        let c = a10.find("template <int FORM>\n__device__ __forceinline__ void pers_4et_a10_body(").unwrap();
+        let end = "#undef P4T_WAIT\n}\n";
+        let d = c + a10[c..].find(end).unwrap() + end.len();
+        assert_eq!(a10[c..d].matches("if (R == 0u || R > P4T_RMAX ||").count(), 1);
+        let body = a10[c..d]
+            .replacen("template <int FORM>\n__device__ __forceinline__ void pers_4et_a10_body(", "template <int FORM, u32 RC>\n__device__ __forceinline__ void pers_4et_rc_body(", 1)
+            .replace("p4t_phase_a9(", "p4t_phase_rc<RC>(")
+            .replacen("if (R == 0u || R > P4T_RMAX ||", "if (R == 0u || R > 8u * RC ||", 1);
+        assert_eq!(P4T_A10RC_PART.1.matches(format!("{unit}{body}").as_str()).count(), 1, "the row-cap pass drifted from a10's");
+        for rows in [8, 16] {
+            let t = p4t_a10rc_unit_text(SERVED_DEFINES_SM89, rows);
+            assert!(t.contains(&p4t_a10_unit_text(SERVED_DEFINES_SM89)));
+            for f in 0..3 {
+                assert_eq!(t.matches(p4t_a10rc_symbol(rows, f).unwrap()).count(), 1);
+            }
+            eprintln!("tree module a10r{rows} at SERVED_DEFINES_SM89: {} bytes, sha256 {}", t.len(), crate::sha256::sha256_hex(t.as_bytes()));
+        }
     }
 
     use super::*;
