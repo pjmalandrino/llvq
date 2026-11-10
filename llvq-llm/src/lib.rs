@@ -28,6 +28,7 @@ pub mod repl;
 pub mod session;
 pub mod corpus;
 pub mod device;
+pub mod dflash;
 pub mod digest;
 pub mod embedquant;
 pub mod errmodel;
