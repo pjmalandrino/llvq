@@ -6,7 +6,8 @@
 //!
 //! `fixture`: written by `ops/dflash_fixture.py`. `packed_dir`: the hfpack
 //! directory whose int4 g64 table the fixture's reference used (default
-//! `~/q4b-hf-2026-09-28`). `drafter_dir`: the snapshot of
+//! `~/q4b-hf-2026-09-28`), or the sealed file itself, whose table is the same
+//! (read through its records, `dflash::vocab_from_sealed`): on the card. `drafter_dir`: the snapshot of
 //! `z-lab/Qwen3-4B-DFlash-b16` at the pinned revision (default: the local
 //! Hugging Face cache; never downloads). The equivalence runs in f32 whatever
 //! the last argument, which sets the dtype of the timed rounds only.
@@ -43,7 +44,11 @@ fn main() -> anyhow::Result<()> {
 
     let t0 = Instant::now();
     let drafter = DFlashDrafter::load(&ddir, &device, DType::F32)?;
-    let vocab = dflash::vocab_from_packed(&packed, &device, DType::F32)?;
+    let vocab = if packed.is_file() {
+        dflash::vocab_from_sealed(&packed, &device, DType::F32)?
+    } else {
+        dflash::vocab_from_packed(&packed, &device, DType::F32)?
+    };
     println!(
         "drafter {}@{} ({:.1} MB f32), table {:?} from {}, device {:?}, loaded in {:.1} s",
         dflash::REPO,

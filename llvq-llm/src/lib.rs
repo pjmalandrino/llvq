@@ -29,6 +29,8 @@ pub mod session;
 pub mod corpus;
 pub mod device;
 pub mod dflash;
+// the drafter behind `llvq_cuda::spec_loop`'s contract: where `llvq-cuda` is a dependency
+#[cfg(any(feature = "cuda", target_os = "macos"))]
 pub mod dflash_spec;
 pub mod digest;
 pub mod embedquant;

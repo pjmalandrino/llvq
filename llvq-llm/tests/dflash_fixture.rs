@@ -1,3 +1,4 @@
+#![cfg(any(target_os = "macos", feature = "cuda"))]
 //! The DFlash drafter port (`llvq_llm::dflash`) against the MLX reference.
 //!
 //! The fixture is written by `ops/dflash_fixture.py` from the sealed 4B
@@ -49,7 +50,7 @@ fn drafter_matches_mlx_reference() {
 #[test]
 #[ignore = "needs the fixture, the packed 4B table and the drafter's 1 GB of weights"]
 fn adapter_matches_mlx_reference() {
-    use llvq_llm::dflash_spec::spec::{DraftInput, Drafter};
+    use llvq_cuda::spec_loop::{DraftInput, Drafter};
     use llvq_llm::dflash_spec::{DFlashSpec, Shape};
     let fixture = home("llvq-dflash-fixture-2026-11-10.safetensors");
     assert!(fixture.exists(), "missing {}: run ops/dflash_fixture.py", fixture.display());
@@ -110,4 +111,43 @@ fn adapter_matches_mlx_reference() {
             assert_eq!(s.skipped, 0);
         }
     }
+}
+
+/// The card's table (`dflash::vocab_from_sealed`): the sealed file's int4
+/// table is the packed directory's byte for byte, and its dequantized rows
+/// are the fixture's rows exactly.
+#[test]
+#[ignore = "needs the sealed 4B, the packed 4B table and the fixture"]
+fn the_sealed_table_is_the_packed_table_and_the_fixture_rows() {
+    let sealed = home("q4b-sealed-2026-09-23/qwen3-4b-sealed.bin");
+    assert!(sealed.exists(), "missing {}", sealed.display());
+    let packed_dir = home("q4b-hf-2026-09-28");
+    let fixture = home("llvq-dflash-fixture-2026-11-10.safetensors");
+    assert!(fixture.exists(), "missing {}", fixture.display());
+    let (packed, scales, biases, vocab, hidden) = dflash::sealed_q4_table(&sealed).unwrap();
+    eprintln!("sealed table: {vocab} x {hidden}, {} packed bytes, {} scales", packed.len(), scales.len());
+    // SAFETY: a read-only mmap of a file nothing in this process writes.
+    let st = unsafe { candle_core::safetensors::MmapedSafetensors::new(packed_dir.join("model.safetensors")) }.unwrap();
+    let get = |k: &str| st.load(k, &Device::Cpu).unwrap();
+    let q = get("model.embed_tokens.qweight").flatten_all().unwrap().to_vec1::<u8>().unwrap();
+    let s: Vec<u16> = get("model.embed_tokens.scales").flatten_all().unwrap().to_vec1::<half::f16>().unwrap().iter().map(|x| x.to_bits()).collect();
+    let b: Vec<u16> = get("model.embed_tokens.biases").flatten_all().unwrap().to_vec1::<half::f16>().unwrap().iter().map(|x| x.to_bits()).collect();
+    assert!(q == packed && s == scales && b == biases, "the sealed table and the packed directory's differ");
+    eprintln!("the sealed file's table and the packed directory's are the same bytes");
+    let fx = candle_core::safetensors::load(&fixture, &Device::Cpu).unwrap();
+    let ids = fx["table.ids"].to_dtype(DType::U32).unwrap().to_vec1::<u32>().unwrap();
+    let want = fx["table.rows"].flatten_all().unwrap().to_vec1::<f32>().unwrap();
+    let groups = scales.len() / vocab;
+    for (i, &id) in ids.iter().enumerate() {
+        let r = id as usize;
+        let row = dflash::dequant_q4_f16(
+            &packed[r * hidden / 2..(r + 1) * hidden / 2],
+            &scales[r * groups..(r + 1) * groups],
+            &biases[r * groups..(r + 1) * groups],
+            hidden,
+        );
+        let got: Vec<f32> = row.iter().map(|x| x.to_f32()).collect();
+        assert_eq!(got, want[i * hidden..(i + 1) * hidden], "row {id}");
+    }
+    eprintln!("{} fixture rows equal bit for bit", ids.len());
 }

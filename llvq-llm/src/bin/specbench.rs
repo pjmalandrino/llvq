@@ -4,14 +4,22 @@
 //! and the loop's time split into the verify launches, the drafter calls and
 //! the rest of the host.
 //!
-//! Usage: `LLVQ_CONFIG=<served v9 config> specbench <sealed> <arm> <drafters> [N]`
+//! Usage: `LLVQ_CONFIG=<served v9 config> specbench <sealed> <arm> <drafters> [N] [drafter_dir] [f16|f32]`
 //!
 //! * `<arm>`: the verify pass, `a12` (taps on) or `a10t384r16` (no taps), with
 //!   an optional plan suffix `@q.o.g.d.h` (else the stream plan at its warps);
 //! * `<drafters>`: comma-separated, `null` (R = 1 decoding) and `oracle:K`
 //!   (K = 0 .. 14: K correct tokens of 4E's greedy continuation then a wrong
 //!   one, a pass of K + 2 rows accepting K);
-//! * `N`: tokens a prompt, default 64.
+//!   and `dflash:chain` / `dflash:tree` (z-lab/Qwen3-4B-DFlash-b16 at
+//!   b74e3a32, `llvq_llm::dflash_spec`: the argmax chain of 15, or the tree
+//!   of 15 nodes; it reads the arm's taps, so an arm without them leaves it
+//!   skipping every round);
+//! * `N`: tokens a prompt, default 64;
+//! * `drafter_dir`: the drafter's snapshot (default: the local Hugging Face
+//!   cache); `f16` (default) or `f32`: the drafter's dtype on the card. Its
+//!   head and embedding are the sealed file's own int4 table dequantized once
+//!   to a dense table in that dtype (`dflash::vocab_from_sealed`).
 //!
 //! Prompts: specrun's chat prompt and the rag prompt of vtreebench, and two
 //! written here (code and grade-school arithmetic); the DFlash journal's
@@ -67,7 +75,7 @@ fn run() -> anyhow::Result<()> {
     use llvq_llm::boundary::median_range;
     use llvq_llm::chatfmt::{open_assistant, turn, Marks};
     use llvq_llm::persist4e_cuda::{TreeForm, TreePlan};
-    let usage = "usage: LLVQ_CONFIG=<served v9 config> specbench <sealed> <a12|a10t384r16>[@q.o.g.d.h] <null,oracle:K,...> [N]";
+    let usage = "usage: LLVQ_CONFIG=<served v9 config> specbench <sealed> <a12|a10t384r16>[@q.o.g.d.h] <null,oracle:K,dflash:chain,dflash:tree,...> [N] [drafter_dir] [f16|f32]";
     let a: Vec<String> = std::env::args().skip(1).collect();
     let path = a.first().ok_or_else(|| anyhow::anyhow!("{usage}"))?.clone();
     let arm_s = a.get(1).ok_or_else(|| anyhow::anyhow!("{usage}"))?.clone();
@@ -87,19 +95,33 @@ fn run() -> anyhow::Result<()> {
         other => anyhow::bail!("specbench: arm {other:?} not served here; {usage}"),
     };
     let taps = form == TreeForm::A12;
-    // drafters: (name, oracle K or None)
-    let mut drafters: Vec<(String, Option<usize>)> = Vec::new();
+    // drafters
+    #[derive(Clone, Copy)]
+    enum Kind {
+        Null,
+        Oracle(usize),
+        DFlash(llvq_llm::dflash_spec::Shape),
+    }
+    let mut drafters: Vec<(String, Kind)> = Vec::new();
     for d in drafters_s.split(',') {
         match d.split_once(':') {
-            None if d == "null" => drafters.push(("null".into(), None)),
+            None if d == "null" => drafters.push(("null".into(), Kind::Null)),
             Some(("oracle", k)) => {
                 let k: usize = k.parse().map_err(|e| anyhow::anyhow!("oracle:{k}: {e}; {usage}"))?;
                 anyhow::ensure!(k + 2 <= 16, "oracle:{k}: a pass of {} rows, the arm carries 16", k + 2);
-                drafters.push((d.to_string(), Some(k)));
+                drafters.push((d.to_string(), Kind::Oracle(k)));
             }
+            Some(("dflash", "chain")) => drafters.push((d.to_string(), Kind::DFlash(llvq_llm::dflash_spec::Shape::Chain(15)))),
+            Some(("dflash", "tree")) => drafters.push((d.to_string(), Kind::DFlash(llvq_llm::dflash_spec::Shape::Tree(15)))),
             _ => anyhow::bail!("specbench: unknown drafter {d:?}; {usage}"),
         }
     }
+    let want_dflash = drafters.iter().any(|(_, k)| matches!(k, Kind::DFlash(_)));
+    let ddtype = match a.get(5).map(String::as_str).unwrap_or("f16") {
+        "f16" => candle_core::DType::F16,
+        "f32" => candle_core::DType::F32,
+        o => anyhow::bail!("specbench: drafter dtype {o}: f16 or f32; {usage}"),
+    };
     let cfg = llvq_llm::served::Served::from_env()
         .map_err(|e| anyhow::anyhow!("{e}"))?
         .ok_or_else(|| anyhow::anyhow!("LLVQ_CONFIG names the served config; {usage}"))?;
@@ -147,6 +169,29 @@ fn run() -> anyhow::Result<()> {
     };
     let model = &f.model;
     let hidden = model.config().hidden_size;
+    // the drafter, once: its weights from the snapshot, its table the sealed file's own
+    let mut dspec = if want_dflash {
+        let ddir = match a.get(4) {
+            Some(d) => std::path::PathBuf::from(d),
+            None => llvq_llm::dflash::cached_snapshot()
+                .ok_or_else(|| anyhow::anyhow!("specbench: {}@{} is not in the local cache; give its directory", llvq_llm::dflash::REPO, llvq_llm::dflash::REVISION))?,
+        };
+        let t0 = Instant::now();
+        let drafter = llvq_llm::dflash::DFlashDrafter::load(&ddir, &device, ddtype)?;
+        let vocab = llvq_llm::dflash::vocab_from_sealed(std::path::Path::new(&path), &device, ddtype)?;
+        println!(
+            "drafter {} ({:.1} MB, {ddtype:?}), table {:?} from the sealed file, loaded in {:.1} s",
+            ddir.display(),
+            drafter.weight_bytes() as f64 / 1e6,
+            vocab.table.dims(),
+            t0.elapsed().as_secs_f64()
+        );
+        let mut sp = llvq_llm::dflash_spec::DFlashSpec::new(drafter, Box::new(vocab), llvq_llm::dflash_spec::Shape::Chain(15))?;
+        sp.timing = true;
+        Some(sp)
+    } else {
+        None
+    };
     let tap_layers = [2usize, 10, 18, 26, 34];
     let set = |c: &mut [llvq_llm::model::KvCache], n: usize| -> anyhow::Result<()> {
         for x in c.iter_mut() {
@@ -214,25 +259,55 @@ fn run() -> anyhow::Result<()> {
             }
             Ok(median_range(&ratios).0)
         };
-        for (dname, k) in &drafters {
+        for (dname, kind) in &drafters {
+            let kind = *kind;
+            let k = match kind {
+                Kind::Oracle(k) => Some(k),
+                _ => None,
+            };
             let mut acc_runs = Vec::new();
+            let (mut d_ext, mut d_block, mut d_head, mut d_read) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+            let (mut skipped, mut last_error) = (0usize, None::<String>);
             let (mut tps, mut tps_nodraft, mut verify_ms, mut draft_ms, mut host_ms, mut passes) = (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
             for round in 0..=ROUNDS {
                 set(&mut caches, l)?;
-                let mut d: Box<dyn Drafter> = match k {
-                    None => Box::new(NullDrafter),
-                    Some(k) => Box::new(OracleDrafter {
-                        prompt_len: l,
-                        truth: std::iter::once(first).chain(want.iter().copied()).collect(),
-                        correct: *k,
-                        vocab: model.config().vocab_size as u32,
-                    }),
+                let mut null = NullDrafter;
+                let mut oracle;
+                let d: &mut dyn Drafter = match kind {
+                    Kind::Null => &mut null,
+                    Kind::Oracle(k) => {
+                        oracle = OracleDrafter {
+                            prompt_len: l,
+                            truth: std::iter::once(first).chain(want.iter().copied()).collect(),
+                            correct: k,
+                            vocab: model.config().vocab_size as u32,
+                        };
+                        &mut oracle
+                    }
+                    Kind::DFlash(shape) => {
+                        let sp = dspec.as_mut().ok_or_else(|| anyhow::anyhow!("specbench: no drafter loaded"))?;
+                        sp.shape = shape;
+                        sp.reset()?;
+                        sp
+                    }
                 };
                 rt.sync()?;
                 let o = {
                     let mut v = CardVerifier { rt: &mut *rt, caches: &mut caches, arm: 0, taps };
-                    spec_run(&mut v, d.as_mut(), ids, first, &prompt_taps, hidden, n_tok, None).map_err(anyhow::Error::msg)?
+                    spec_run(&mut v, d, ids, first, &prompt_taps, hidden, n_tok, None).map_err(anyhow::Error::msg)?
                 };
+                if let (Kind::DFlash(_), Some(sp)) = (kind, dspec.as_ref()) {
+                    if round > 0 {
+                        d_ext.push(sp.t_extend.iter().sum::<f64>() * 1e3);
+                        d_block.push(sp.t_block.iter().sum::<f64>() * 1e3);
+                        d_head.push(sp.t_head.iter().sum::<f64>() * 1e3);
+                        d_read.push(sp.t_readout.iter().sum::<f64>() * 1e3);
+                    }
+                    skipped = skipped.max(sp.skipped);
+                    if sp.last_error.is_some() {
+                        last_error = sp.last_error.clone();
+                    }
+                }
                 anyhow::ensure!(o.tokens == want, "{pname} {dname}: the loop's tokens differ from 4E's greedy (first at {:?})", o.tokens.iter().zip(&want).position(|(a, b)| a != b));
                 if round == 0 {
                     continue;
@@ -259,13 +334,23 @@ fn run() -> anyhow::Result<()> {
                 m(&host_ms).0,
                 t_m / g_med
             );
+            if !d_ext.is_empty() {
+                println!(
+                    "  {dname:>9}: drafter wall a generation, ms (median): context extension {:.1}, block {:.1}, head {:.1}, readout {:.1}; skipped rounds {skipped}{}",
+                    m(&d_ext).0,
+                    m(&d_block).0,
+                    m(&d_head).0,
+                    m(&d_read).0,
+                    last_error.as_ref().map_or(String::new(), |e| format!("; last_error: {e}"))
+                );
+            }
             if let Some(k) = k {
                 let r = k + 2;
                 let c = c_of(&mut *rt, &mut caches, r)?;
                 println!(
                     "  {dname:>9}: check, greedy x (K + 1) / c_{r} = {g_med:.1} x {} / {c:.3} = {:.1} tok/s, measured {t_m:.1} without the drafter {n_m:.1}",
                     k + 1,
-                    g_med * (*k as f64 + 1.0) / c
+                    g_med * (k as f64 + 1.0) / c
                 );
             }
             summary.push(format!("{pname} {dname}: {t_m:.1} tok/s, x{:.3} of 4E greedy {g_med:.1}", t_m / g_med));

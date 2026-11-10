@@ -194,6 +194,74 @@ pub fn dequant_q4(qweight: &[u8], scales: &[half::f16], biases: &[half::f16], hi
     out
 }
 
+/// The packed bytes, scales and biases (binary16 bits), vocabulary and
+/// hidden width of an int4 g64 table ([`sealed_q4_table`]).
+pub type Q4Table = (Vec<u8>, Vec<u16>, Vec<u16>, usize, usize);
+
+/// The sealed file's tied embedding table (`model.embed_tokens.weight`,
+/// int4 g64): the packed bytes (two values a byte, the low nibble first, the
+/// `hfpack` `qweight` layout), the scales and biases as binary16 bits, the
+/// vocabulary and the hidden width. Reads the file through its records once;
+/// loads no model.
+pub fn sealed_q4_table(path: &Path) -> anyhow::Result<Q4Table> {
+    use std::io::Read;
+    let f = std::fs::File::open(path).with_context(|| format!("open {}", path.display()))?;
+    let mut r = std::io::BufReader::with_capacity(1 << 20, f);
+    let head = llvq_artifact::read_header(&mut r)?;
+    anyhow::ensure!(head.is_self_contained(), "{} is not a sealed file", path.display());
+    for _ in 0..head.matrices {
+        llvq_artifact::read_record(&mut r, head.version)?;
+    }
+    let mut b4 = [0u8; 4];
+    r.read_exact(&mut b4)?;
+    for _ in 0..u32::from_le_bytes(b4) {
+        let t = llvq_artifact::read_raw(&mut r, head.version)?;
+        if t.name != "model.embed_tokens.weight" {
+            continue;
+        }
+        let (vocab, hidden) = match t.dims[..] {
+            [v, h] => (v, h),
+            _ => anyhow::bail!("{}: dims {:?}", t.name, t.dims),
+        };
+        return match t.data {
+            llvq_artifact::RawData::Quant(q) if q.bits == 4 && hidden % q.group == 0 => Ok((q.packed, q.scales, q.biases, vocab, hidden)),
+            llvq_artifact::RawData::Quant(q) => anyhow::bail!("{}: int{} g{}, the drafter's table is int4", t.name, q.bits, q.group),
+            llvq_artifact::RawData::F16(_) => anyhow::bail!("{}: f16, not the served int4 table", t.name),
+        };
+    }
+    anyhow::bail!("{}: no model.embed_tokens.weight", path.display())
+}
+
+/// [`dequant_q4`] into binary16: the same value a weight, `f16(q * scale +
+/// bias)` with the product and the sum in f32, without the f32 copy.
+pub fn dequant_q4_f16(packed: &[u8], scales: &[u16], biases: &[u16], hidden: usize) -> Vec<half::f16> {
+    let rows = packed.len() * 2 / hidden;
+    let groups = scales.len() / rows;
+    let g = hidden / groups;
+    let mut out = Vec::with_capacity(rows * hidden);
+    for r in 0..rows {
+        let q = &packed[r * hidden / 2..(r + 1) * hidden / 2];
+        for j in 0..hidden {
+            let nib = (q[j / 2] >> ((j % 2) * 4)) & 0xf;
+            let s = half::f16::from_bits(scales[r * groups + j / g]).to_f32();
+            let b = half::f16::from_bits(biases[r * groups + j / g]).to_f32();
+            out.push(half::f16::from_f32(nib as f32 * s + b));
+        }
+    }
+    out
+}
+
+/// The sealed file's own tied table, dequantized once on the host to
+/// binary16 and moved to `device` in `dtype`: the card's [`TargetVocab`]
+/// (0.78 GB in f16 at the 4B), built from what the bench already holds.
+pub fn vocab_from_sealed(path: &Path, device: &Device, dtype: DType) -> anyhow::Result<DenseVocab> {
+    let (packed, scales, biases, vocab, hidden) = sealed_q4_table(path)?;
+    let w = dequant_q4_f16(&packed, &scales, &biases, hidden);
+    drop(packed);
+    let table = Tensor::from_vec(w, (vocab, hidden), &Device::Cpu)?.to_dtype(dtype)?.to_device(device)?;
+    Ok(DenseVocab { table })
+}
+
 /// The tied table of a packed directory (`hfpack` output, e.g.
 /// `~/q4b-hf-2026-09-28`), dequantized to `dtype` on `device`. This is the
 /// table the reference fed the drafter (the MLX door's int4 g64 table).

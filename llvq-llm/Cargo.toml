@@ -42,6 +42,8 @@ llvq-cuda = { path = "../llvq-cuda", optional = true }
 # `llvq-metal` is NOT usable here: it pins metal-rs 0.29, whose Buffer is a
 # different type from candle's.
 [target.'cfg(target_os = "macos")'.dependencies]
+# `llvq_cuda::spec_loop`, portable, for `dflash_spec` (cudarc is gated inside).
+llvq-cuda = { path = "../llvq-cuda" }
 candle-metal-kernels = { version = "0.9.2", optional = true }
 objc2-metal = { version = "0.3", optional = true }
 

@@ -1,9 +1,8 @@
 //! The DFlash drafter behind the speculative loop's `Drafter` trait.
 //!
-//! `spec` holds a local copy of `MAX_DRAFT`, `DraftInput` and `Drafter` from
-//! `llvq_cuda::spec_loop` (branch `claude/arbre-nuit-2026-11-10`, 5e65b12), so
-//! this crate does not depend on `llvq-cuda` on a Mac; the merge points the
-//! `use` below at `llvq_cuda::spec_loop` and deletes the copy.
+//! The contract is `llvq_cuda::spec_loop`'s (`MAX_DRAFT`, `TAPS`,
+//! `DraftInput`, `Drafter`), portable: `llvq-cuda` is a dependency of this
+//! crate on the card (feature `cuda`) and on the Mac (no cudarc there).
 //!
 //! Conventions, the reference's (`ops/dflash_alpha.py`): with `m =
 //! tokens.len() - 1`, the root `tokens[m]` sits at position m and the drafter
@@ -19,22 +18,7 @@ use candle_core::{DType, Tensor};
 
 use crate::dflash::{self, DFlashDrafter, DraftContext, TargetVocab, DRAFTS};
 
-/// Local copy of `llvq_cuda::spec_loop`'s contract (5e65b12).
-pub mod spec {
-    pub const MAX_DRAFT: usize = 15;
-    pub const TAPS: usize = 5;
-    pub struct DraftInput<'a> {
-        pub ctx_len: usize,
-        pub tokens: &'a [u32],
-        pub new_taps: &'a [u16],
-        pub hidden: usize,
-    }
-    pub trait Drafter {
-        fn draft(&mut self, input: &DraftInput) -> Vec<(u32, u8)>;
-    }
-}
-
-use spec::{DraftInput, Drafter, MAX_DRAFT, TAPS};
+use llvq_cuda::spec_loop::{DraftInput, Drafter, MAX_DRAFT, TAPS};
 
 /// What a round returns: the argmax chain of the first `k` drafts, or the
 /// tree of `n` nodes drawn from the same pass.
@@ -55,12 +39,52 @@ pub struct DFlashSpec {
     /// The last error a round hit (the trait has no error path; the round then
     /// returns no node).
     pub last_error: Option<String>,
+    /// When set, each round's stages are timed apart, the device synchronised
+    /// between them: seconds a round in the four vectors below.
+    pub timing: bool,
+    pub t_extend: Vec<f64>,
+    pub t_block: Vec<f64>,
+    pub t_head: Vec<f64>,
+    pub t_readout: Vec<f64>,
 }
 
 impl DFlashSpec {
     pub fn new(drafter: DFlashDrafter, vocab: Box<dyn TargetVocab>, shape: Shape) -> anyhow::Result<Self> {
         let ctx = drafter.new_context(4096)?;
-        Ok(Self { drafter, vocab, shape, ctx, skipped: 0, dead: false, last_error: None })
+        Ok(Self {
+            drafter,
+            vocab,
+            shape,
+            ctx,
+            skipped: 0,
+            dead: false,
+            last_error: None,
+            timing: false,
+            t_extend: Vec::new(),
+            t_block: Vec::new(),
+            t_head: Vec::new(),
+            t_readout: Vec::new(),
+        })
+    }
+
+    /// A fresh context and counters, for the next generation.
+    pub fn reset(&mut self) -> anyhow::Result<()> {
+        self.ctx = self.drafter.new_context(4096)?;
+        self.skipped = 0;
+        self.dead = false;
+        self.last_error = None;
+        self.t_extend.clear();
+        self.t_block.clear();
+        self.t_head.clear();
+        self.t_readout.clear();
+        Ok(())
+    }
+
+    fn sync(&self) -> anyhow::Result<()> {
+        if self.timing {
+            self.drafter.device().synchronize()?;
+        }
+        Ok(())
     }
 
     fn round(&mut self, input: &DraftInput) -> anyhow::Result<Vec<(u32, u8)>> {
@@ -77,10 +101,16 @@ impl DFlashSpec {
             return Ok(Vec::new());
         }
         let n = input.new_taps.len() / w;
+        self.sync()?;
+        let t0 = std::time::Instant::now();
         if n > 0 {
             let bits: Vec<half::f16> = input.new_taps.iter().map(|&b| half::f16::from_bits(b)).collect();
             let taps = Tensor::from_vec(bits, (n, w), self.drafter.device())?.to_dtype(DType::F32)?;
             self.drafter.extend(&mut self.ctx, &taps)?;
+        }
+        self.sync()?;
+        if self.timing {
+            self.t_extend.push(t0.elapsed().as_secs_f64());
         }
         let m = input.tokens.len().checked_sub(1).ok_or_else(|| anyhow::anyhow!("no root"))?;
         if self.ctx.len() != m {
@@ -89,7 +119,20 @@ impl DFlashSpec {
             self.skipped += 1;
             return Ok(Vec::new());
         }
-        let out = self.drafter.draft(&self.ctx, input.tokens[m], self.vocab.as_ref())?;
+        // the drafter's own draft (block, head, readout), its stages timed apart
+        let t1 = std::time::Instant::now();
+        let hidden = self.drafter.block_hidden(&self.ctx, input.tokens[m], self.vocab.as_ref())?;
+        self.sync()?;
+        let t2 = std::time::Instant::now();
+        let logits = self.vocab.logits(&hidden)?;
+        self.sync()?;
+        let t3 = std::time::Instant::now();
+        let out = dflash::readout(&logits)?;
+        if self.timing {
+            self.t_block.push((t2 - t1).as_secs_f64());
+            self.t_head.push((t3 - t2).as_secs_f64());
+            self.t_readout.push(t3.elapsed().as_secs_f64());
+        }
         Ok(match self.shape {
             Shape::Chain(k) => {
                 let k = k.min(DRAFTS).min(MAX_DRAFT);
