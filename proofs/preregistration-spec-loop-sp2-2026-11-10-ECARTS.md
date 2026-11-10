@@ -18,3 +18,10 @@ billed.
   before SP2: if the l40sx4 copy runs to its estimate, the night stands at $8.49; if it ran to its timeout, $9.87, under
   the cap of $10. Only one copy is to run, and the l40sx1 copy is cancelled the moment the twin is seen RUNNING.
 - What can move: the host side of the timing on another node; every ratio is taken on one machine in the same rounds.
+
+## Deviation 2: the l40sx4 twin cancelled in the queue; no further twin
+
+Written on 2026-11-10 at about 21:40 CET, before any measurement. At 21:35 CET the orchestrating session cancelled the
+l40sx4 twin `6af37087ab34849891acb5f6` (submitted 20:29, never started, $0): a 30-minute job on l40sx4 costs about $4.15
+and would leave no room under the $10 cap, with $4.34 spent. The l40sx1 copy `6af36ba99737d9a9e0915bf2` stays queued and
+is the measurement whenever it runs; no other twin is submitted for this job, however long the queue.
