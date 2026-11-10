@@ -1,0 +1,63 @@
+vtreebench exit 0
+4E: persistent module 252757 bytes, sha256 1b422b62328be6752df4add43280565fd2a49cfa20ee26953b301abe7a15c530, row form 7, own module on candle's stream
+4E tree: module 306060 bytes, sha256 ce1c354d2583eb178ae8622ff99e10f9b457543972bb5039ce89ede9eec31e44, row form 7 and pers_4et.cu, its own module
+4E tree: pers_4et_rows_f1_t512: 128 registers, 720 B local, 89984 B shared, 1 resident a SM
+4E tree: arm a0: slices [6, 14, 2, 14, 1]; units, waves, fill: q/k/v 144 2 50.7 %, o 140 1 98.6 %, gate/up 152 2 53.5 %, down 140 1 98.6 %, head 594 5 83.7 %
+4E tree: arm a1: slices [11, 14, 7, 14, 1]; units, waves, fill: q/k/v 264 2 93.0 %, o 140 1 98.6 %, gate/up 532 4 93.7 %, down 140 1 98.6 %, head 594 5 83.7 %
+4E tree: arm a2 (tiled): slices [11, 14, 7, 14, 1]; units, waves, fill: q/k/v 264 2 93.0 %, o 140 1 98.6 %, gate/up 532 4 93.7 %, down 140 1 98.6 %, head 594 5 83.7 %
+4E tree: 512 threads, 17728 floats of area; 0.053 GB of row buffers
+4E tree tiled: module 306080 bytes, sha256 ae5c5ef2851fc04948e80c6c34c13ce4db890c08048610cf9c6611ef607846f7, P4T_TILED 1, its own module
+4E tree tiled: pers_4et_tiled_f1_t512: 128 registers, 728 B local, 89984 B shared, 1 resident a SM
+4E tree tiled: 253 tree-tiled copies (q, k, v, o, gate, up, down a layer, the head), 1.308 GB more on the card
+== tree, chat: context 62, arms a0, a1, a2
+  a0 vt1 against 4E: the same argmax at 64 of 64 positions
+  a0 identity: every row equals its node in the 32-row pass, logits and argmax, 75 rows of 6 passes
+  a1 vt1 against 4E: the same argmax at 64 of 64 positions
+  a1 identity: every row equals its node in the 32-row pass, logits and argmax, 75 rows of 6 passes
+  a2 vt1 against 4E: the same argmax at 64 of 64 positions
+  a2 identity: every row equals its node in the 32-row pass, logits and argmax, 75 rows of 6 passes
+  a1 against a0 (other slices): the same argmax at 32 of 32 rows
+  a2 against a0 (other slices): the same argmax at 32 of 32 rows
+  a2 against a1 (same slices): the 32-row pass equal bit for bit, argmax at 32 of 32 rows
+  4E, one token a launch: 4396.8 us [4394.9-4400.6] (host wall, launch to ring read)
+  timed passes whose argmaxes differ from their arm's 32-row pass: 0 of 84
+  a0     1    12178.0 [12157.9-12194.2]   c_1 2.768 [2.765-2.774]
+  a0     2    12115.6 [12111.8-12143.2]   c_2 2.756 [2.753-2.763]
+  a0     8    12704.6 [12674.1-12708.1]   c_8 2.888 [2.883-2.891]
+  a0    16    13486.4 [13465.5-13500.4]   c_16 3.068 [3.061-3.069]
+  a0 an extra row: (c_16 - c_1) / 15 = 0.0200, (c_8 - c_1) / 7 = 0.0171 of a 4E token; c_2 2.756
+  a1     1    10431.8 [10428.2-10451.5]   c_1 2.373 [2.370-2.378]
+  a1     2    10414.1 [10391.1-10419.1]   c_2 2.367 [2.364-2.371]
+  a1     8    11828.7 [11817.8-11846.4]   c_8 2.691 [2.686-2.693]
+  a1    16    13842.0 [13833.6-13852.1]   c_16 3.148 [3.145-3.151]
+  a1 an extra row: (c_16 - c_1) / 15 = 0.0517, (c_8 - c_1) / 7 = 0.0455 of a 4E token; c_2 2.367
+  a2     1     9326.8 [9319.2-9334.6]   c_1 2.121 [2.119-2.122]
+  a2     2     9302.2 [9295.2-9308.0]   c_2 2.116 [2.112-2.118]
+  a2     8    10808.9 [10781.6-10822.9]   c_8 2.457 [2.453-2.462]
+  a2    16    12765.0 [12742.3-12781.7]   c_16 2.903 [2.896-2.908]
+  a2 an extra row: (c_16 - c_1) / 15 = 0.0521, (c_8 - c_1) / 7 = 0.0480 of a 4E token; c_2 2.116
+  a0 vt1 phases, us summed over the layers, median of 5 stamped launches: wall 12143.1, row phases 9784.4 (80.6 %)
+  a0 vt16 phases, us summed over the layers, median of 5 stamped launches: wall 13449.1, row phases 11089.3 (82.5 %)
+  a1 vt1 phases, us summed over the layers, median of 5 stamped launches: wall 10412.9, row phases 8052.0 (77.3 %)
+  a1 vt16 phases, us summed over the layers, median of 5 stamped launches: wall 13813.8, row phases 11409.0 (82.6 %)
+  a2 vt1 phases, us summed over the layers, median of 5 stamped launches: wall 9292.4, row phases 6880.4 (74.0 %)
+  a2 vt16 phases, us summed over the layers, median of 5 stamped launches: wall 12716.3, row phases 10273.8 (80.8 %)
+== tree, rag: context 362, arms a2
+  a2 vt1 against 4E: the same argmax at 64 of 64 positions
+  a2 identity: every row equals its node in the 32-row pass, logits and argmax, 75 rows of 6 passes
+  4E, one token a launch: 4658.5 us [4651.9-4661.2] (host wall, launch to ring read)
+  timed passes whose argmaxes differ from their arm's 32-row pass: 0 of 28
+  a2     1     9603.0 [9585.5-9618.8]   c_1 2.062 [2.059-2.064]
+  a2     2     9580.4 [9562.4-9590.7]   c_2 2.056 [2.055-2.061]
+  a2     8    11096.1 [11081.5-11106.4]   c_8 2.382 [2.379-2.386]
+  a2    16    13832.7 [13830.4-13838.5]   c_16 2.969 [2.969-2.974]
+  a2 an extra row: (c_16 - c_1) / 15 = 0.0605, (c_8 - c_1) / 7 = 0.0458 of a 4E token; c_2 2.056
+  a2 vt1 phases, us summed over the layers, median of 5 stamped launches: wall 9570.5, row phases 6887.5 (72.0 %)
+  a2 vt16 phases, us summed over the layers, median of 5 stamped launches: wall 13815.6, row phases 10321.4 (74.7 %)
+  chat a0: c_1 2.768, c_2 2.756, c_8 2.888, c_16 3.068
+  chat a1: c_1 2.373, c_2 2.367, c_8 2.691, c_16 3.148
+  chat a2: c_1 2.121, c_2 2.116, c_8 2.457, c_16 2.903
+  rag a2: c_1 2.062, c_2 2.056, c_8 2.382, c_16 2.969
+control 2: the served 4E v9 module
+4E tree: pers_4et_rows_f1_t512: 128 registers, 720 B local, 89984 B shared, 1 resident a SM
+4E tree tiled: pers_4et_tiled_f1_t512: 128 registers, 728 B local, 89984 B shared, 1 resident a SM

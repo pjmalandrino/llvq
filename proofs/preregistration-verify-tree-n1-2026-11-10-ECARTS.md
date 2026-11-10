@@ -23,3 +23,7 @@ about 102 minutes in the queue for an L40S, never started, never billed.
   a ratio on one machine. The 4E token's signed interval [4,350, 4,450] us was set on an l40sx1 node; a value
   outside it on l40sx4 is read with this deviation in mind. The vtreebench timeout inside the body stays 20 min;
   the job timeout of 18 min ends it first.
+
+Outcome, written after the job: the l40sx1 job reached RUNNING first (02:11:42 CET, about 122 min after its
+submission); the l40sx4 twin, still SCHEDULING, was cancelled at 02:11:58 and never ran ($0). The measurement ran on
+the prereg's flavor, so deviation 1 touches no number.
