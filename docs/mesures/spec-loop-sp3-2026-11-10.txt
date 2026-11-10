@@ -48,3 +48,103 @@ specbench exit 1. Every DFlash and stand-in line of the prereg is unmeasured.
 WHAT THIS DOES NOT ESTABLISH
 ----------------------------
 Everything the prereg signed beyond (a): equality, acceptance, the drafter round in the loop, end-to-end speeds.
+
+
+RERUN (DEVIATION 1): 64 TOKENS A PROMPT, 2026-11-11. $0.25.
+==========================================================
+Result: DFlash runs above 4E's greedy decode on every prompt (*measured*): the tree at x1.199 (chat), x1.846 (code),
+x2.114 (math) and x2.030 (rag); the chain at x1.039, x1.541, x1.777 and x2.230. Token equality with 4E's greedy tokens
+holds, 64 of 64, on every prompt for every drafter. Drafted tokens accepted a pass, chain: chat 2.05, code 3.64, math
+4.92, rag 7.22; tree: 2.56, 4.42, 6.00, 5.80. The f16 fix holds: dflashcheck f16 passes its gate again (6 of 6 chains).
+Of the signed values, rag's acceptance and speed sit above their intervals and rag's tree falls below its chain by more
+than 0.1; the predicted outcome (code and math above greedy, chat near it) holds.
+Prereg : as above; deviation 1 in preregistration-spec-loop-sp3-2026-11-10-ECARTS.md (written before the rerun): the
+         same code ce8fb7f and image, step (a) kept, 64 tokens a prompt, every "128" read as "64".
+Job    : 6af3ab929737d9a9e0920606, l40sx1, image Space sha 28e2bcc1 (COMMIT 5c0b0ea), `NTOK=64 RETRY=1` of
+         ops/jobs/spec-loop-sp3.sh (commit ad918ba), job timeout 28 min. Submitted 00:41 CET, RUNNING at 00:46, COMPLETED
+         by 00:54. 8 min billed, $0.25 (*measured*, ops/run.py monitor). Registry $312.38 before, $312.63 after; spend
+         since the go $5.38 of $15. No twin.
+Raw    : spec-loop-sp3-2026-11-10-r1-brut/: gpu.txt, oracle.txt, files.sha256, drafter.sha256,
+         qwen3-4b-tetra-e4-4e-v9.json, dflashcheck-f16.txt, spec.txt, summary.txt, monitor.txt, queue.txt.
+
+CONTROLS
+--------
+1. oracle MATCH; sealed file 886391a8, fixture 636f664d, drafter config.json 2de97cdf and model.safetensors a21d0ffe,
+   config 29b3ef32; LLVQ_* refused. Holds.
+2. 4E's module 252,757 bytes, sha256 1b422b62, row form 7. Holds.
+Hard gate: "tokens equal to 4E's over 64" on chat, rag, code and math for null, oracle:3, dflash:chain and dflash:tree.
+Holds everywhere.
+
+(a) DFLASHCHECK ON CUDA, F16
+---------------------------
+  equivalence (f32): rounds 6: chain equal 6/6, tree equal 6/6; logits rel 3.62e-6, lse rel 1.88e-6, hidden rel 1.39e-6;
+    smallest reference top-1 gap 0.020; table rows max abs 0.00e0. equivalence PASS
+  equivalence (F16): rounds 6: chain equal 6/6, tree equal 3/6; logits rel 1.72e-3, lse rel 5.56e-4, hidden rel 1.99e-3;
+    smallest reference top-1 gap 0.020; table rows max abs 0.00e0. equivalence (F16) PASS
+  rounds (F16), median of 20, extend 4 / block + head + readout: context 128 0.55 / 4.21 ms; 512 0.56 / 4.24 ms;
+    2,048 0.57 / 5.13 ms. dflashcheck f16 exit 0; (b) ran the drafter in f16 (1,140.4 MB, loaded in 6.9 s).
+
+(b) SPECBENCH, a12@[8, 10, 8, 20, 6], 64 TOKENS, 1 DISCARDED AND 3 TIMED RUNS, MEDIANS
+-------------------------------------------------------------------------------------
+  prompt (ctx)  drafter       acc/pass  passes  verify ms  drafter ms  other ms  tok/s e2e  w/o drafter  greedy  x greedy
+  chat (62)     null          0.00      64      451.0      0.00        0.3       141.8      141.8        227.5   0.623
+                oracle:3      3.00      16      115.5      0.00        0.3       552.7      552.7        227.5   2.429
+                dflash:chain  2.05      21      166.9      103.49      0.3       236.5      382.7        227.5   1.039
+                dflash:tree   2.56      18      142.8      91.51       0.3       272.8      447.3        227.5   1.199
+  rag (362)     null          0.00      64      468.6      0.00        1.1       136.3      136.3        216.3   0.630
+                oracle:3      3.00      16      119.7      0.00        0.9       530.7      530.7        216.3   2.453
+                dflash:chain  7.22      9       81.6       50.09       1.0       482.4      775.0        216.3   2.230
+                dflash:tree   5.80      10      90.6       54.24       1.0       439.0      699.2        216.3   2.030
+  code (49)     null          0.00      64      451.3      0.00        0.3       141.7      141.7        228.0   0.621
+                oracle:3      3.00      16      115.7      0.00        0.2       552.3      552.3        228.0   2.422
+                dflash:chain  3.64      14      111.4      70.48       0.2       351.5      573.3        228.0   1.541
+                dflash:tree   4.42      12      95.4       56.19       0.3       421.0      668.9        228.0   1.846
+  math (68)     null          0.00      64      453.0      0.00        0.4       141.2      141.2        226.5   0.623
+                oracle:3      3.00      16      116.1      0.00        0.2       550.3      550.3        226.5   2.429
+                dflash:chain  4.92      12      95.7       63.02       0.3       402.4      666.1        226.5   1.777
+                dflash:tree   6.00      10      79.7       53.71       0.3       478.8      800.4        226.5   2.114
+Drafter wall a generation of 64 tokens, ms (median): context extension / block / head / readout; skipped rounds:
+  chat  chain 16.9 / 44.3 / 23.6 / 17.0, 0;  tree 17.4 / 37.8 / 20.2 / 14.6, 0
+  rag   chain 11.2 / 19.6 / 10.1 / 8.3, 0;   tree 11.5 / 21.6 / 11.2 / 9.0, 0
+  code  chain 13.0 / 29.4 / 15.8 / 11.5, 0;  tree 7.1 / 25.4 / 13.5 / 9.8, 0
+  math  chain 12.3 / 25.5 / 13.5 / 10.8, 0;  tree 11.5 / 21.1 / 11.3 / 9.0, 0
+Oracle:3 check lines, greedy x 4 / c_5: chat 227.5 x 4 / 1.600 = 568.9, measured 552.7 (0.972); rag 216.3 x 4 / 1.571 =
+  550.7, 530.7 (0.964); code 228.0 x 4 / 1.611 = 566.1, 552.3 (0.976); math 226.5 x 4 / 1.601 = 565.8, 550.3 (0.973).
+One drafter round, chain (*computed*: drafter wall over passes): chat 4.93 ms, code 5.03, math 5.25, rag 5.57.
+
+AGAINST THE SIGNED PREDICTION (every "128" read as "64", deviation 1)
+--------------------------------------------------------------------
+  quantity                                          signed                 measured                       inside
+  dflashcheck f16 passes its gate                   6 of 6 chains          6 of 6 chains (trees 3 of 6)   yes
+  token equality, every prompt, every drafter       64 of 64               64 of 64                       yes
+  skipped rounds                                    0                      0                              yes
+  same token 15 times on at most 5 % of rounds      no NaN                 not printed by the bench; acceptance > 0 on every prompt
+  accepted a pass, chain, chat                      2.2 [1.2, 3.4]         2.05                           yes
+  same, code                                        4.0 [2.3, 6.2]         3.64                           yes
+  same, math                                        4.8 [2.8, 7.2]         4.92                           yes
+  same, rag                                         3.0 [1.4, 5.2]         7.22                           no, above
+  tree at least the chain minus 0.1                 every prompt           chat, code, math yes; rag 5.80 against 7.22   no (rag)
+  one drafter round                                 4.8 ms [4.2, 6.2]      4.93 (chat) to 5.57 (rag)      yes
+  end to end over greedy, chain, chat               x1.10 [0.78, 1.50]     x1.039                         yes
+  same, code                                        x1.70 [1.10, 2.45]     x1.541                         yes
+  same, math                                        x1.95 [1.25, 2.75]     x1.777                         yes
+  same, rag                                         x1.30 [0.80, 2.00]     x2.230                         no, above
+  outcome                                           code and math above greedy; chat near   x1.54, x1.78; chat x1.04   yes
+
+DECISION (the prereg's rule)
+--------
+Equality holds everywhere; the DFlash lines are read against their predictions above: three fail (rag's acceptance and
+speed above their intervals, rag's tree below its chain), the others hold.
+
+READING (not part of the decision; *computed* from the tables above)
+-------
+- Without the drafter's time the loop would run at x1.68 (chat) to x3.58 (rag) of greedy with the chain, and x1.97 to
+  x3.53 with the tree: the drafter takes 34 to 39 % of the loop's wall.
+- The tree beats the chain on chat, code and math, by 0.5 to 1.1 accepted tokens a pass; on rag the chain accepts more
+  (7.22 against 5.80), on a prompt whose answer quotes its context.
+
+WHAT THIS DOES NOT ESTABLISH
+----------------------------
+A served rate; acceptance on standard benchmarks (four house prompts of 64 tokens); 8B, 14B; long context; whether the
+pass's own taps equal the prefill's beyond what the acceptance shows. Whether the drafter ever proposes the same token 15
+times (the bench does not print it).

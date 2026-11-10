@@ -1,0 +1,7 @@
+[stage] COMPLETED 
+[8 min billed · 0.25 $]
+
+[end] COMPLETED: 0.14 h billed, 0.25 $
+
+[VRAM] no metric received. A Job launched with --detach and observed afterwards
+       has none: the stream is live and the endpoint 500s once the Job is done.
