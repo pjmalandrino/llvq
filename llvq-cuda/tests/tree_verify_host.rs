@@ -1022,3 +1022,71 @@ fn a5_prefetch_mutant_is_killed() {
         Ok(_) => panic!("a5 mutant pf_range survived its gate"),
     }
 }
+
+// ---- arms a6, a7 (a3 with the int4 down's input over the grid, a7 also prefetching) ----
+
+/// Arm `v` (variant bit) on `bin` against arm `r` on `refb`, at the same
+/// slices: every row's argmax, logits, residual, K and V equal.
+#[allow(clippy::too_many_arguments)]
+fn gate_pair(bin: &Path, refb: &Path, f: &Fix, v: u32, r: u32, t: &Tree, sizes: &[usize], pos0: u32) -> Result<usize, String> {
+    let arms = 32 | 128 | 256 | 512 | 1024 | 2048 | 4096;
+    let passes: Vec<Pass> =
+        sizes.iter().enumerate().map(|(i, &s)| Pass::of(t, &t.subset(s, 0x6100 + i as u64), pos0, 0x7a00 + i as u64)).collect();
+    let u = exec(refb, &Fix { variant: (f.variant & !arms) | r, ..*f }, None, &passes)?;
+    let w = exec(bin, &Fix { variant: (f.variant & !arms) | v, ..*f }, None, &passes)?;
+    let mut rows = 0;
+    for (pi, (a, b)) in u.passes.iter().zip(&w.passes).enumerate() {
+        for (s, (ra, rb)) in a.iter().zip(b).enumerate() {
+            rows += 1;
+            if let Some(what) = diff(rb, ra) {
+                return Err(format!("variant {v} against {r}, split {:?}, pass {pi} ({} rows), slot {s}: {what}", f.split, a.len()));
+            }
+        }
+    }
+    Ok(rows)
+}
+
+/// a6 equals a3 and a7 equals a6, bit for bit, at R = 1, 8, 32 under both
+/// stream plans (the twin's layer 1 has an int4 down, layer 0 a Tetra one).
+#[test]
+#[cfg_attr(debug_assertions, ignore)]
+fn a6_and_a7_rows_equal_their_guards() {
+    let t = tree(32, 7, 0x3f3);
+    for split in [SPLIT_N2, SPLIT_N2B] {
+        let f = Fix { split, ..FIX };
+        let n = gate_pair(host(), host(), &f, 1024, 128, &t, &[1, 8, 32], 9).unwrap();
+        eprintln!("split {split:?}: {n} rows, a6 equals a3 bit for bit");
+        let n = gate_pair(host(), host(), &f, 2048, 1024, &t, &[1, 8, 32], 9).unwrap();
+        eprintln!("split {split:?}: {n} rows, a7 equals a6 bit for bit");
+    }
+}
+
+/// The grid deal of the down's input: a deal that skips the last piece is
+/// killed by a6's gate against a3.
+#[test]
+#[cfg_attr(debug_assertions, ignore)]
+fn a6_mutant_is_killed() {
+    let t = tree(12, 4, 0x3f4);
+    let f = Fix { split: SPLIT_N2B, ..FIX };
+    gate_pair(host(), host(), &f, 1024, 128, &t, &[1, 9], 9).expect("the unmutated a6 pass passes its gate");
+    let k = "llvq-cuda/kernels/pers_4et_a6.cu";
+    let b = mutant("dn_skip_last", &[(k, "p < total; p += T) {", "p + 1u < total; p += T) {")]);
+    let r = gate_pair(&b, host(), &f, 1024, 128, &t, &[1, 9], 9);
+    let _ = std::fs::remove_file(&b);
+    match r {
+        Err(e) => eprintln!("dn_skip_last: killed by {}", e.lines().next().unwrap_or("")),
+        Ok(_) => panic!("a6 mutant dn_skip_last survived its gate"),
+    }
+}
+
+/// The floor arm a3f runs to its end on the twin (no abort, no ticket left,
+/// every row an argmax); its values are void by design and not compared.
+#[test]
+#[cfg_attr(debug_assertions, ignore)]
+fn the_floor_arm_runs() {
+    let t = tree(12, 4, 0x3f5);
+    let f = Fix { split: SPLIT_N2B, variant: 4096, ..FIX };
+    let passes = [Pass::of(&t, &t.subset(9, 0x6180), 9, 0x7a80)];
+    let o = exec(host(), &f, None, &passes).unwrap();
+    assert!(o.passes[0].iter().all(|r| r.tok < VOCAB), "a floor row wrote no argmax");
+}

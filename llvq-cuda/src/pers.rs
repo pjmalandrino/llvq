@@ -1844,6 +1844,38 @@ pub fn p4t_a5_symbol(form: u32) -> Result<&'static str, String> {
     })
 }
 
+/// The module text of arm a6, a7 or a3f (`pers_4et_a6.cu`): a6 and a3f after
+/// [`p4t_stream_unit_text`] (a3's), a7 after [`p4t_a5_unit_text`] (for
+/// a5's prefetch helpers). a3f is a floor arm, timing only: its values are
+/// void by design. The earlier files keep their bytes.
+pub fn p4t_a6_unit_text(arm: &str, tile_define: &str) -> Result<String, String> {
+    Ok(match arm {
+        "a6" => format!("#define P4T_A6 1\n{}\n{}", p4t_stream_unit_text(tile_define), P4T_A6_PART.1),
+        "a7" => format!("#define P4T_A7 1\n{}\n{}", p4t_a5_unit_text(tile_define), P4T_A6_PART.1),
+        "a3f" => format!("#define P4T_A3F 1\n{}\n{}", p4t_stream_unit_text(tile_define), P4T_A6_PART.1),
+        _ => return Err(format!("tree verify: no module for arm {arm}")),
+    })
+}
+
+/// The symbol of arm a6, a7 or a3f for a RoPE form.
+pub fn p4t_a6_symbol(arm: &str, form: u32) -> Result<&'static str, String> {
+    Ok(match (arm, form) {
+        ("a6", 0) => "pers_4et_a6_f0_t512",
+        ("a6", 1) => "pers_4et_a6_f1_t512",
+        ("a6", 2) => "pers_4et_a6_f2_t512",
+        ("a7", 0) => "pers_4et_a7_f0_t512",
+        ("a7", 1) => "pers_4et_a7_f1_t512",
+        ("a7", 2) => "pers_4et_a7_f2_t512",
+        ("a3f", 0) => "pers_4et_a3f_f0_t512",
+        ("a3f", 1) => "pers_4et_a3f_f1_t512",
+        ("a3f", 2) => "pers_4et_a3f_f2_t512",
+        _ => return Err(format!("tree verify: no kernel for arm {arm} at RoPE form {form}")),
+    })
+}
+
+/// `pers_4et_a6.cu`, embedded so the Mac hashes what the card compiles.
+pub const P4T_A6_PART: (&str, &str) = ("pers_4et_a6.cu", include_str!("../kernels/pers_4et_a6.cu"));
+
 /// `pers_4et_a5.cu`, embedded so the Mac hashes what the card compiles.
 pub const P4T_A5_PART: (&str, &str) = ("pers_4et_a5.cu", include_str!("../kernels/pers_4et_a5.cu"));
 
@@ -2879,6 +2911,48 @@ mod tests {
             assert_eq!(t.matches(p4t_a5_symbol(f).unwrap()).count(), 1);
         }
         eprintln!("tree module a5 at SERVED_DEFINES_SM89: {} bytes, sha256 {}", t.len(), crate::sha256::sha256_hex(t.as_bytes()));
+    }
+
+    #[test]
+    fn the_a6_family_is_the_stream_body() {
+        // pers_4et_a6.cu carries a3's pass three times with the substitutions below
+        let src = P4T_STREAM_PART.1;
+        let c = src.find("template <int FORM>\n__device__ __forceinline__ void pers_4et_stream_body(").unwrap();
+        let end = "#undef P4T_WAIT\n}\n";
+        let d = c + src[c..].find(end).unwrap() + end.len();
+        let body = &src[c..d];
+        let dn = "        for (u32 r = c0; r < R; r += G) {\n            const unsigned short* gr = L.g_raw";
+        assert_eq!(body.matches(dn).count(), 1);
+        let b6 = body.replacen("void pers_4et_stream_body(", "void pers_4et_a6_body(", 1).replacen(
+            dn,
+            "        if (!Y.tetra_down && (I & 7u) == 0u) p4t_dn_in_grid(M, L, R, I);\n        else for (u32 r = c0; r < R; r += G) {\n            const unsigned short* gr = L.g_raw",
+            1,
+        );
+        let mut b7 = b6.replacen("void pers_4et_a6_body(", "void pers_4et_a7_body(", 1);
+        for (x, y) in [
+            ("        unsigned short* tv_l = L.tv + (unsigned long long)l * P4T_RMAX * dkv;\n", "        p4t_pf_qkv(Y, L);\n"),
+            ("        p4t_attention(A, L, Y.kc, Y.vc, tk_l, tv_l, reinterpret_cast<unsigned char*>(S));\n", "        p4t_pf_o_gu(Y, L, H, dq);\n"),
+            ("            p4t_phase_stream(sg, su, su, 2u, L, A, tab, t_inv, area, cmax);\n", "            p4t_pf_down(Y, L, H);\n"),
+        ] {
+            assert_eq!(b7.matches(x).count(), 1, "{x}");
+            b7 = b7.replacen(x, &format!("{x}{y}"), 1);
+        }
+        let a = src.find("// One unit: tiles [blk nw, blk nw + nw) of g").unwrap();
+        let b = a + src[a..].find("// ---- the pass:").unwrap();
+        let uf = src[a..b]
+            .replace("p4t_unit_stream(", "p4t_unit_floor(")
+            .replace("p4t_phase_stream(", "p4t_phase_floor(")
+            .replace("    if (has) p4t_store(g, L, A, sl, acc, wrow, lane, cmax);\n", "    if (has) p4t_store_floor(g, L, A, sl, acc, wrow, lane, cmax);\n");
+        let bf = body.replacen("void pers_4et_stream_body(", "void pers_4et_a3f_body(", 1).replace("p4t_phase_stream(", "p4t_phase_floor(");
+        for (n, x) in [("a6", b6.clone()), ("a7", b7), ("a3f", format!("{uf}{bf}"))] {
+            assert_eq!(P4T_A6_PART.1.matches(x.as_str()).count(), 1, "the {n} pass drifted from the stream pass");
+            let t = p4t_a6_unit_text(n, SERVED_DEFINES_SM89).unwrap();
+            for f in 0..3 {
+                assert_eq!(t.matches(p4t_a6_symbol(n, f).unwrap()).count(), 1);
+            }
+            eprintln!("tree module {n} at SERVED_DEFINES_SM89: {} bytes, sha256 {}", t.len(), crate::sha256::sha256_hex(t.as_bytes()));
+        }
+        assert!(p4t_a6_unit_text("a6", SERVED_DEFINES_SM89).unwrap().contains(&p4t_stream_unit_text(SERVED_DEFINES_SM89)));
     }
 
     use super::*;
