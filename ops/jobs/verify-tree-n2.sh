@@ -25,7 +25,7 @@ REPO=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$REPO"
 
 STAGE=${STAGE:-n2}
-case "$STAGE" in n2|n2a|n2b) ;; *) echo "refused: STAGE=$STAGE (n2, n2a or n2b)" >&2; exit 1;; esac
+case "$STAGE" in n2|n2a|n2b|n3) ;; *) echo "refused: STAGE=$STAGE (n2, n2a, n2b or n3)" >&2; exit 1;; esac
 PREREG=${PREREG:-proofs/preregistration-verify-tree-$STAGE-2026-11-10.md}
 OUT_NAME=${OUT_NAME:-verify-tree-$STAGE-2026-11-10}
 IMAGE_SHA=${IMAGE_SHA:-}
@@ -35,7 +35,10 @@ DRY=${DRY_RUN:-0}
 P4E_V9_SHA=1b422b62328be6752df4add43280565fd2a49cfa20ee26953b301abe7a15c530
 TIMEOUT=${TIMEOUT:-25m}
 ARMS=${ARMS:-a2,a3,a4}
-case "$ARMS" in a2,a3,a4|a2,a3|a3,a4) ;; *) echo "refused: ARMS=$ARMS (a2,a3,a4, a2,a3 or a3,a4: a2 is a3's guard, a3 is a4's)" >&2; exit 1;; esac
+case "$ARMS" in a2,a3,a4|a2,a3|a3,a4|'a3,a6,a6@5.14.5.28.5,a7,a3f') ;;
+  *) echo "refused: ARMS=$ARMS (a2,a3,a4, a2,a3, a3,a4 or a3,a6,a6@5.14.5.28.5,a7,a3f)" >&2; exit 1;; esac
+# the bench's own timeout inside the job: 20m, 25m for n3 (four tree-tiled modules through NVRTC, five timed arms)
+INNER_TIMEOUT=${INNER_TIMEOUT:-$([ "$STAGE" = n3 ] && echo 25m || echo 20m)}
 FLAVOR=${FLAVOR:-l40sx1}
 case "$FLAVOR" in
   l40sx1) FLAVOR_ARGS=(); DEV_PRE='' ;;
@@ -77,8 +80,8 @@ if [ "$DRY" != 1 ]; then
   echo "bucket copy verified by size; image $NOW"
 fi
 
-PRE=$(printf 'O=%q\nSEALED=%q\nSEALED_SHA=%q\nCFG_SHA=%q\nCFG_B64=%q\nP4E_V9_SHA=%q\nARMS=%q\nexport HF_HOME=/tmp/hf' \
-  "$O" "$SEALED" "$SEALED_SHA" "$CFG_SHA" "$CFG_B64" "$P4E_V9_SHA" "$ARMS")$DEV_PRE
+PRE=$(printf 'O=%q\nSEALED=%q\nSEALED_SHA=%q\nCFG_SHA=%q\nCFG_B64=%q\nP4E_V9_SHA=%q\nARMS=%q\nINNER_TIMEOUT=%q\nexport HF_HOME=/tmp/hf' \
+  "$O" "$SEALED" "$SEALED_SHA" "$CFG_SHA" "$CFG_B64" "$P4E_V9_SHA" "$ARMS" "$INNER_TIMEOUT")$DEV_PRE
 
 IFS= read -r -d '' BODY <<'JOB' || true
 mkdir -p "$O"
@@ -98,7 +101,7 @@ test "$(sha256sum "$PT" | cut -d' ' -f1)" = "$CFG_SHA"
 echo '== vtreebench =='
 date -u
 set +e
-LLVQ_CONFIG="$PT" timeout 20m vtreebench "$S" "$ARMS" > "$O/vtree-4b.txt" 2>&1
+LLVQ_CONFIG="$PT" timeout "$INNER_TIMEOUT" vtreebench "$S" "$ARMS" > "$O/vtree-4b.txt" 2>&1
 rc=$?
 set -e
 date -u
@@ -106,6 +109,15 @@ echo "vtreebench exit $rc" | tee "$O/summary.txt"
 grep -E '^4E: persistent module|^4E tree|^arm a[2-4]:|^== tree|^  (a[2-4] (vt1 against|identity|an extra row|vt(1|16) phases|guard)|a[2-4] against|4E, one|timed passes|a[2-4] +[0-9]+ +[0-9.]+ \[)|^  (chat|rag) a[2-4]:' "$O/vtree-4b.txt" | tee -a "$O/summary.txt"
 # the phase tables, and the F3 parts tables of the arms that print one (setup, staging, loops, store a row phase)
 grep -E '^  a[2-4] vt(1|16) ' "$O/vtree-4b.txt" | tee -a "$O/summary.txt" || true
+# n3: every line of the arms a5..a7, a3f and the plan-suffixed arms (c_R, phases, guards, the floor arm's labels)
+case "$STAGE" in n3)
+  grep -E '^4E tree|^arm |^  (a[3-7]f?(@[0-9.]+)?( \(floor arm, values void\))? |(chat|rag) a)' "$O/vtree-4b.txt" \
+    | grep -vE '^  a[2-4] vt(1|16) ' | tee -a "$O/summary.txt" || true
+  grep -E '^  [a-z0-9@.]+ guard against ' "$O/vtree-4b.txt" | grep -v 'PASSES' \
+    | sed 's/^/VOID: /' | tee -a "$O/summary.txt" || true
+  grep -qE '^  a6 guard against a3 .*: PASSES' "$O/vtree-4b.txt" && echo "guard: a6 equals a3" | tee -a "$O/summary.txt" || true
+  grep -qE '^  a7 guard against a6 .*: PASSES' "$O/vtree-4b.txt" && echo "guard: a7 equals a6" | tee -a "$O/summary.txt" || true
+  ;; esac
 tail -3 "$O/vtree-4b.txt"
 # control 2: 4E is the served v9 module (its one-token launches are checked against its greedy tokens inside)
 grep -qF "4E: persistent module 252757 bytes, sha256 $P4E_V9_SHA, row form 7," "$O/vtree-4b.txt" \
