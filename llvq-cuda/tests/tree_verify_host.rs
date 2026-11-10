@@ -1029,7 +1029,7 @@ fn a5_prefetch_mutant_is_killed() {
 /// slices: every row's argmax, logits, residual, K and V equal.
 #[allow(clippy::too_many_arguments)]
 fn gate_pair(bin: &Path, refb: &Path, f: &Fix, v: u32, r: u32, t: &Tree, sizes: &[usize], pos0: u32) -> Result<usize, String> {
-    let arms = 32 | 128 | 256 | 512 | 1024 | 2048 | 4096;
+    let arms = 32 | 128 | 256 | 512 | 1024 | 2048 | 4096 | 8192 | 16384 | 32768;
     let passes: Vec<Pass> =
         sizes.iter().enumerate().map(|(i, &s)| Pass::of(t, &t.subset(s, 0x6100 + i as u64), pos0, 0x7a00 + i as u64)).collect();
     let u = exec(refb, &Fix { variant: (f.variant & !arms) | r, ..*f }, None, &passes)?;
@@ -1089,4 +1089,47 @@ fn the_floor_arm_runs() {
     let passes = [Pass::of(&t, &t.subset(9, 0x6180), 9, 0x7a80)];
     let o = exec(host(), &f, None, &passes).unwrap();
     assert!(o.passes[0].iter().all(|r| r.tok < VOCAB), "a floor row wrote no argmax");
+}
+
+// ---- arms a8 (a3 with the lean fold), a3p and a3t (floor arms) ----
+
+/// a8 equals a3 bit for bit at R = 1, 8, 32 under both stream plans.
+#[test]
+#[cfg_attr(debug_assertions, ignore)]
+fn a8_rows_equal_stream_rows() {
+    let t = tree(32, 7, 0x3f6);
+    for split in [SPLIT_N2, SPLIT_N2B] {
+        let n = gate_pair(host(), host(), &Fix { split, ..FIX }, 32768, 128, &t, &[1, 8, 32], 9).unwrap();
+        eprintln!("split {split:?}: {n} rows, a8 equals a3 bit for bit");
+    }
+}
+
+/// A quarter read one element off is killed by a8's gate against a3.
+#[test]
+#[cfg_attr(debug_assertions, ignore)]
+fn a8_mutant_is_killed() {
+    let t = tree(12, 4, 0x3f7);
+    let f = Fix { split: SPLIT_N2B, ..FIX };
+    gate_pair(host(), host(), &f, 32768, 128, &t, &[1, 9], 9).expect("the unmutated a8 pass passes its gate");
+    let k = "llvq-cuda/kernels/pers_4et_a8.cu";
+    let b = mutant("quarter_off", &[(k, "p4t_epi(g, L, A, n, wrow + 4u * q + e, vq[e], cmax);", "p4t_epi(g, L, A, n, wrow + 4u * q + e, vq[(e + 1u) & 3u], cmax);")]);
+    let r = gate_pair(&b, host(), &f, 32768, 128, &t, &[1, 9], 9);
+    let _ = std::fs::remove_file(&b);
+    match r {
+        Err(e) => eprintln!("quarter_off: killed by {}", e.lines().next().unwrap_or("")),
+        Ok(_) => panic!("a8 mutant quarter_off survived its gate"),
+    }
+}
+
+/// The floor arms a3p and a3t run to their end on the twin (no abort, no
+/// ticket left, every row an argmax); their values are void and not compared.
+#[test]
+#[cfg_attr(debug_assertions, ignore)]
+fn the_protocol_floor_arms_run() {
+    let t = tree(12, 4, 0x3f8);
+    for v in [8192u32, 16384] {
+        let f = Fix { split: SPLIT_N2B, variant: v, ..FIX };
+        let o = exec(host(), &f, None, &[Pass::of(&t, &t.subset(9, 0x6190), 9, 0x7a90)]).unwrap();
+        assert!(o.passes[0].iter().all(|r| r.tok < VOCAB), "variant {v}: a floor row wrote no argmax");
+    }
 }

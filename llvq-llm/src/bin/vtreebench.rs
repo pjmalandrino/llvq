@@ -3,7 +3,7 @@
 //! the card, for each arm of the pass.
 //!
 //! Usage: `LLVQ_CONFIG=<served v9 config> vtreebench <sealed> [arms]`, arms a
-//! comma-separated list of `a0` .. `a7`, `a3f` (default `a0,a1,a2`):
+//! comma-separated list of `a0` .. `a8`, `a3f`, `a3p`, `a3t` (default `a0,a1,a2`):
 //!
 //! * a0: S1's kernel and S1's slices (`pers::p4t_splits`);
 //! * a1: S1's kernel, the balanced slices q/k/v 11, o 14, gate/up 7, down
@@ -29,6 +29,10 @@
 //!   (slice 0 stored as if S were 1, the others nothing). Its values are void
 //!   by design; it runs no vt1 check, no identity and no guard, and every
 //!   line of it says "floor arm, values void".
+//!
+//! * a8: a3 with the slice fold reading 16-byte quarters; a3 its guard.
+//! * a3p, a3t: FLOOR arms like a3f (timing only, values void): a3p adds every
+//!   slice's partial store to a3f, a3t adds the fences and tickets (no fold).
 //!
 //! Timing runs R = 1, 2 and 16. An arm a2 .. a7 or a3f takes an explicit plan, `a4@5.7.5.16.5` (S of q/k/v, o,
 //! gate/up, down, head), refused at install when an S is outside 1..=32 or
@@ -108,7 +112,7 @@ fn guard_of(name: &str) -> Option<String> {
     let (base, suffix) = name.split_once('@').map_or((name, String::new()), |(b, p)| (b, format!("@{p}")));
     let g = match base {
         "a3" => "a2",
-        "a4" | "a6" => "a3",
+        "a4" | "a6" | "a8" => "a3",
         "a5" => "a4",
         "a7" => "a6",
         _ => return None,
@@ -134,7 +138,7 @@ fn parse_arms(want: &[String]) -> Result<Vec<ArmAsk>, String> {
                 (b, Some(arr))
             }
         };
-        if !matches!(base, "a0" | "a1" | "a2" | "a3" | "a4" | "a5" | "a6" | "a7" | "a3f") {
+        if !matches!(base, "a0" | "a1" | "a2" | "a3" | "a4" | "a5" | "a6" | "a7" | "a8" | "a3f" | "a3p" | "a3t") {
             return Err(format!("unknown arm {w:?}"));
         }
         if plan.is_some() && matches!(base, "a0" | "a1") {
@@ -149,6 +153,7 @@ fn parse_arms(want: &[String]) -> Result<Vec<ArmAsk>, String> {
     for (name, plan) in asked {
         // a3's guard a2 runs only when asked (a3 was guarded in N2a and N2b)
         if let Some(g) = guard_of(&name).filter(|_| !name.starts_with("a3")) {
+            // an arm already asked at that plan serves (a3@5.14.5.28.5 for a8@5.14.5.28.5)
             if !out.iter().any(|x| x.name == g) {
                 let base = g.split('@').next().unwrap_or("").to_string();
                 out.push(ArmAsk { name: g, base, plan, guard_only: true });
@@ -192,8 +197,8 @@ fn run() -> anyhow::Result<()> {
     use llvq_llm::boundary::median_range;
     use llvq_llm::chatfmt::{open_assistant, turn, Marks};
     let a: Vec<String> = std::env::args().skip(1).collect();
-    let usage = "usage: LLVQ_CONFIG=<served v9 config> vtreebench <sealed> [arm,arm,...], an arm a0 .. a7 or a3f, \
-                 a2 .. a7 and a3f optionally with an explicit plan arm@qkv.o.gateup.down.head (e.g. a4@5.7.5.16.5)";
+    let usage = "usage: LLVQ_CONFIG=<served v9 config> vtreebench <sealed> [arm,arm,...], an arm a0 .. a8, a3f, a3p or a3t, \
+                 every arm but a0 and a1 optionally with an explicit plan arm@qkv.o.gateup.down.head (e.g. a4@5.7.5.16.5)";
     let path = a.first().ok_or_else(|| anyhow::anyhow!("{usage}"))?.clone();
     let want_arms: Vec<String> = a.get(1).map_or("a0,a1,a2", |s| s.as_str()).split(',').map(str::to_string).collect();
     use llvq_llm::persist4e_cuda::{TreeForm, TreePlan};
@@ -210,6 +215,9 @@ fn run() -> anyhow::Result<()> {
                 "a5" => TreeForm::A5,
                 "a6" => TreeForm::A6,
                 "a7" => TreeForm::A7,
+                "a8" => TreeForm::A8,
+                "a3p" => TreeForm::A3p,
+                "a3t" => TreeForm::A3t,
                 _ => TreeForm::A3f,
             };
             let plan = match (x.base.as_str(), x.plan) {
@@ -274,7 +282,7 @@ fn run() -> anyhow::Result<()> {
     }
     anyhow::ensure!(arms.iter().any(|a| a.void.is_none()), "vtreebench: every arm is void");
     // a3f is a floor arm: timing only, values void, never checked or guarded
-    let floor: Vec<bool> = arms.iter().map(|a| a.form == TreeForm::A3f).collect();
+    let floor: Vec<bool> = arms.iter().map(|a| matches!(a.form, TreeForm::A3f | TreeForm::A3p | TreeForm::A3t)).collect();
     let disp: Vec<String> =
         arms.iter().zip(&floor).map(|(a, &f)| if f { format!("{} (floor arm, values void)", a.name) } else { a.name.clone() }).collect();
     println!("loaded in {:.1} s", t_load.elapsed().as_secs_f64());
