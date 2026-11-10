@@ -1,0 +1,7 @@
+res: NVIDIA L40S (sm_89), tile define "#define TILE_BLOCKS 64u", dynamic shared 89984 B (the 4B's widths, 32 rows)
+res a10: module 378415 bytes, sha256 b1d9ae83e7d86b87b26cbe6b4abd27ff27aadcc71fb65df8a5a8c62050439a70
+res a10: pers_4et_a10_f0_t512: 128 registers, 736 B local, 0 B static shared, 1 CTA a SM at 512 threads and 89984 B
+res a10: pers_4et_a10_f1_t512: 128 registers, 736 B local, 0 B static shared, 1 CTA a SM at 512 threads and 89984 B
+res a10: pers_4et_a10_f2_t512: 128 registers, 736 B local, 0 B static shared, 1 CTA a SM at 512 threads and 89984 B
+res a10r16: module 399175 bytes, sha256 88e3450ea3e90fb101589af0c80a2d5e2629108facec40b0169b733c05883d41
+vtreebench --res exit 124

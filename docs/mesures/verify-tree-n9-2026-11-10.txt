@@ -1,0 +1,184 @@
+VERIFY-TREE N9: a10 WITH FEWER ACCUMULATORS (a10r16, a10r8), SEALED 4B, ONE L40S, 2026-11-10. $0.52.
+====================================================================================================
+Result: BETWEEN under the prereg's rule, as predicted (*measured*, chat context). The best arm allowing 16 rows is a10r16:
+c_1 1.668, c_2 1.689, c_8 1.760, c_16 1.891. a10 reads 1.741, 1.752, 1.816, 1.922; a10r8 reads c_1 1.654, c_2 1.665, c_8
+1.739. The hypothesis under test fails: a10r8's local memory equals a10's (736 B a thread), yet its c_1 is 0.087 of a token
+lower, not within 0.02. a10r16 holds 728 B. The row cap buys its time in the row phases (vt1: o -73, gate/up -137, down
+-125 us for a10r8 against a10), not through the local memory the install reports. Every guard and identity holds; all 15
+signed values fall inside their intervals except the hypothesis, which is refuted.
+Prereg : proofs/preregistration-verify-tree-n9-2026-11-10.md (sha256 eadf084d), stamped before the job (.ots, commit
+         e0d0e22). No deviation.
+Go     : the operator, 2026-11-09 about 23:00 CET, session "LLVQ pistes débit": "Compute HF ok tu as 10$ pour la nuit
+         comme tu le sens"; on 2026-11-10 "continue", then "go" (relayed by the orchestrating session). Cap $10.
+Job    : 6af31bb49737d9a9e09080b7, l40sx1, image hf.co/spaces/Pier-Jean/llvq-runner-cuda at Space sha 4d64f1a0 (its
+         COMMIT file names e0d0e22, published from a clean detached checkout of that commit, perimeter clean; kernel,
+         bench and runtime sources equal to baf5e57's), `STAGE=n9 ARMS='a10@5.14.5.28.5,a10r16@5.14.5.28.5,
+         a10r8@5.14.5.28.5' ops/jobs/verify-tree-n2.sh`, job timeout 26 min, the bench's 23 min. Submitted 14:27 CET,
+         RUNNING at 14:35 (about 8 min of queue, not billed; no twin), COMPLETED by 14:52. 17 min billed, $0.52
+         (*measured*, ops/run.py monitor). VRAM: no metric received. Registry $309.96 before, $310.48 after; spend since
+         the go $3.23.
+Raw    : verify-tree-n9-2026-11-10-brut/: gpu.txt (NVIDIA L40S, 8.9, 46,068 MiB, driver 580.178.04, 2,520 MHz),
+         oracle.txt, files.sha256, qwen3-4b-tetra-e4-4e-v9.json (sha256 29b3ef32, equal to
+         configs/qwen3-4b-tetra-e4-4e-v9.json), res.txt, vtree-4b.txt, summary.txt, monitor.txt, queue.txt.
+
+CONTROLS
+--------
+1. oracle on Qwen3-0.6B: MATCH. Sealed file sha256 886391a8 at its size. Config at its sha256. The job body refuses any
+   LLVQ_* in its environment. Holds.
+2. 4E module 252,757 bytes, sha256 1b422b62, row form 7: the served v9 module. Every one-token 4E launch made its
+   greedy token. Holds.
+3. Guards, each "PASSES": a10r16@P against a10@P, the first 16 rows of the base pass equal bit for bit; a10r8@P against
+   a10@P, the first 8 rows. a10@P's own guard against a9@P (untimed): the first 32 rows. Hold. All modules compiled
+   through NVRTC.
+Read by the decision rule:
+- identity, chat: a10 75 rows of 6 passes (32-row base), a10r16 59 rows of 6 passes (16-row base), a10r8 27 rows of 5
+  passes (8-row base); a10r16 at rag. Holds.
+- vt1 against 4E: the same argmax at 64 of 64 positions, the three arms at chat, a10r16 at rag. Holds.
+- timed passes whose argmaxes differ from their arm's base pass: 0 of 84 (chat), 0 of 28 (rag).
+
+THE COMPILE-ONLY STEP (vtreebench --res, 3 min timeout; its failure voids nothing, prereg)
+---------------------
+It timed out (exit 124) after a10's module and while compiling a10r16's: three timeouts' worth of NVRTC did not fit in 3
+min. Its lines, verbatim:
+res: NVIDIA L40S (sm_89), tile define "#define TILE_BLOCKS 64u", dynamic shared 89984 B (the 4B's widths, 32 rows)
+res a10: module 378415 bytes, sha256 b1d9ae83e7d86b87b26cbe6b4abd27ff27aadcc71fb65df8a5a8c62050439a70
+res a10: pers_4et_a10_f0_t512: 128 registers, 736 B local, 0 B static shared, 1 CTA a SM at 512 threads and 89984 B
+res a10: pers_4et_a10_f1_t512: 128 registers, 736 B local, 0 B static shared, 1 CTA a SM at 512 threads and 89984 B
+res a10: pers_4et_a10_f2_t512: 128 registers, 736 B local, 0 B static shared, 1 CTA a SM at 512 threads and 89984 B
+res a10r16: module 399175 bytes, sha256 88e3450ea3e90fb101589af0c80a2d5e2629108facec40b0169b733c05883d41
+vtreebench --res exit 124
+
+MODULES (*measured*, the install lines; all 128 registers, 89,984 B shared, 1 resident a SM)
+-------
+a10: 378,415 bytes, sha256 b1d9ae83; pers_4et_a10_f1_t512: 736 B local.
+a10r16: 399,175 bytes, sha256 88e3450e; pers_4et_a10r16_f1_t512: 728 B local.
+a10r8: 399,174 bytes, sha256 57b716f3; pers_4et_a10r8_f1_t512: 736 B local.
+Load and install: 822.4 s.
+
+RESULT (*measured*, 2 discarded and 5 timed rounds, arms interleaved, ratios formed round by round, median [range];
+R = 1, 2, 8, 16 within each arm's cap; P = [5, 14, 5, 28, 5])
+------
+Chat, context 62. 4E, one token a launch: 4,466.3 us [4,460.3-4,474.1].
+  arm       rows   wall us                       c_R                   extra row
+  a10@P        1    7,776.5 [7,769.5-7,778.1]    1.741 [1.738-1.743]
+               2    7,828.2 [7,819.2-7,840.6]    1.752 [1.749-1.757]
+               8    8,112.8 [8,111.5-8,120.5]    1.816 [1.813-1.820]
+              16    8,575.9 [8,574.4-8,592.6]    1.922 [1.919-1.924]   0.0120
+  a10r16@P     1    7,457.1 [7,449.9-7,458.0]    1.668 [1.665-1.672]
+               2    7,542.6 [7,535.5-7,555.0]    1.689 [1.686-1.692]
+               8    7,860.1 [7,853.0-7,872.6]    1.760 [1.757-1.763]
+              16    8,440.7 [8,422.8-8,451.8]    1.891 [1.886-1.891]   0.0148
+  a10r8@P      1    7,389.2 [7,385.4-7,395.0]    1.654 [1.651-1.658]
+               2    7,433.5 [7,425.5-7,440.3]    1.665 [1.660-1.666]
+               8    7,764.8 [7,746.8-7,813.3]    1.739 [1.735-1.746]   0.0121 (c_8 - c_1) / 7
+Rag, context 362, a10r16@P only (lowest chat c_16 of the arms allowing 16 rows). 4E: 4,736.5 us [4,731.8-4,743.4].
+  a10r16@P: c_1 1.636, c_2 1.657, c_8 1.725, c_16 2.017 [2.013-2.020], extra row 0.0254.
+
+PHASES (*measured*, chat, us summed over the 36 layers, median of 5 stamped launches; wall (busy min / med / max over
+the 142 CTAs, rounded); a10r8 stamped at vt1 and vt8)
+------
+vt1: a10 wall 7754.9, row phases 6384.7 (82.3 %); a10r16 wall 7423.1, row phases 6087.6 (82.0 %); a10r8 wall 7349.8, row phases 6003.6 (81.7 %)
+  phase        a10 wall (busy min/med/max)       a10r16 wall (busy min/med/max)    a10r8 wall (busy min/med/max)     
+  embed             2.3 (1/1/1)                       2.3 (1/1/1)                       2.3 (1/1/1)                  
+  ln1             239.6 (10/14/196)                 222.0 (16/17/179)                 221.4 (8/10/180)               
+  qkv            1508.3 (396/1259/1453)            1477.5 (399/1236/1431)            1475.5 (401/1231/1424)          
+  qkv fold        150.0 (12/15/110)                 150.5 (8/14/117)                  148.8 (11/13/116)              
+  rope            142.6 (7/8/96)                    136.9 (6/10/96)                   115.2 (6/7/90)                 
+  attn            604.4 (9/11/588)                  593.6 (8/9/576)                   594.7 (10/11/560)              
+  o               609.9 (19/494/556)                561.8 (14/457/506)                537.0 (18/440/488)             
+  o fold          145.4 (3/4/89)                    139.7 (3/3/89)                    137.7 (4/5/89)                 
+  ln2             187.7 (3/4/157)                   187.2 (3/4/148)                   193.6 (2/3/162)                
+  gateup         2105.9 (1409/1938/2037)           1981.4 (1359/1822/1910)           1969.2 (1344/1803/1908)         
+  gateup fold     147.9 (2/4/100)                   149.3 (2/3/102)                   148.4 (3/4/104)                
+  dn_in           189.5 (3/3/156)                   189.3 (2/3/156)                   214.9 (2/4/180)                
+  down           1082.2 (516/969/1016)              993.6 (477/896/936)               956.9 (449/853/894)            
+  down fold       184.4 (3/4/145)                   185.9 (3/4/149)                   183.4 (3/3/148)                
+  norm              4.1 (0/0/3)                       4.1 (0/0/3)                       4.1 (0/0/3)                  
+  head            446.4 (412/436/445)               443.4 (408/432/443)               442.3 (406/432/441)            
+  head fold         4.4 (0/3/4)                       4.5 (0/3/4)                       4.5 (0/4/4)                  
+  four row phases qkv+o+gateup+down, a10: 5306.3
+  four row phases qkv+o+gateup+down, a10r16: 5014.3
+  four row phases qkv+o+gateup+down, a10r8: 4938.6
+vt8: a10r8 wall 7742.8, row phases 6378.6 (82.4 %)
+  phase        a10 wall (busy min/med/max)       a10r16 wall (busy min/med/max)    a10r8 wall (busy min/med/max)     
+  embed               -                                 -                               4.5 (3/3/3)                  
+  ln1                 -                                 -                             221.1 (9/14/182)               
+  qkv                 -                                 -                            1618.8 (466/1374/1567)          
+  qkv fold            -                                 -                             159.1 (13/15/123)              
+  rope                -                                 -                             120.4 (30/87/93)               
+  attn                -                                 -                             621.8 (14/21/577)              
+  o                   -                                 -                             545.4 (20/452/500)             
+  o fold              -                                 -                             147.2 (4/5/96)                 
+  ln2                 -                                 -                             185.5 (3/4/160)                
+  gateup              -                                 -                            2124.3 (1482/1946/2060)         
+  gateup fold         -                                 -                             145.9 (4/5/104)                
+  dn_in               -                                 -                             206.9 (2/3/173)                
+  down                -                                 -                             971.9 (466/872/917)            
+  down fold           -                                 -                             185.9 (3/4/148)                
+  norm                -                                 -                               4.1 (0/0/3)                  
+  head                -                                 -                             455.7 (420/443/455)            
+  head fold           -                                 -                              24.6 (12/21/23)               
+  four row phases qkv+o+gateup+down, a10r8: 5260.4
+vt16: a10 wall 8556.1, row phases 7143.7 (83.5 %); a10r16 wall 8413.9, row phases 6963.1 (82.8 %)
+  phase        a10 wall (busy min/med/max)       a10r16 wall (busy min/med/max)    a10r8 wall (busy min/med/max)     
+  embed             7.2 (6/6/6)                       7.3 (6/6/6)                         -                          
+  ln1             227.0 (11/14/193)                 230.8 (10/16/196)                     -                          
+  qkv            1798.0 (526/1539/1744)            1772.5 (526/1521/1722)                 -                          
+  qkv fold        151.7 (15/18/117)                 170.0 (15/18/130)                     -                          
+  rope            136.7 (91/101/108)                146.8 (96/109/121)                    -                          
+  attn            649.5 (26/619/622)                674.8 (39/641/643)                    -                          
+  o               639.5 (18/521/584)                610.0 (20/511/558)                    -                          
+  o fold          147.6 (4/5/97)                    147.7 (3/4/94)                        -                          
+  ln2             185.2 (2/5/155)                   185.8 (2/4/154)                       -                          
+  gateup         2417.6 (1693/2218/2342)           2324.7 (1650/2139/2234)                -                          
+  gateup fold     162.7 (4/101/122)                 167.6 (4/107/126)                     -                          
+  dn_in           202.7 (2/3/155)                   201.2 (2/3/166)                       -                          
+  down           1106.7 (533/1002/1050)            1053.3 (529/958/1004)                  -                          
+  down fold       185.5 (3/4/147)                   188.9 (3/4/155)                       -                          
+  norm              4.1 (0/0/3)                       4.1 (0/0/3)                         -                          
+  head            481.3 (442/468/481)               476.1 (439/462/475)                   -                          
+  head fold        53.2 (42/50/52)                   52.2 (38/47/51)                      -                          
+  four row phases qkv+o+gateup+down, a10: 5961.8
+  four row phases qkv+o+gateup+down, a10r16: 5760.5
+4E stamped over two tokens (chat): q/k/v 663.4, attention 793.7, o 339.3, MLP 2,392.0, head 368.0.
+
+AGAINST THE SIGNED PREDICTION (chat)
+--------------------------------
+  quantity                              signed                 measured     inside
+  4E token                              4,420 [4,350, 4,500]   4,466.3      yes
+  a10 local memory                      736 B                  736 B        yes
+  a10r16 local memory                   690 [600, 736] B       728 B        yes
+  a10r8 local memory                    650 [520, 736] B       736 B        yes (at the edge)
+  registers, all three                  128                    128          yes
+  a10 c_1                               1.757 [1.72, 1.79]     1.741        yes
+  a10 c_8                               1.84 [1.80, 1.89]      1.816        yes
+  a10 c_16                              1.94 [1.89, 1.99]      1.922        yes
+  a10r16 c_1                            1.70 [1.55, 1.78]      1.668        yes
+  a10r16 c_8                            1.78 [1.62, 1.87]      1.760        yes
+  a10r16 c_16                           1.87 [1.70, 1.96]      1.891        yes
+  a10r8 c_1                             1.65 [1.45, 1.78]      1.654        yes
+  a10r8 c_8                             1.73 [1.52, 1.87]      1.739        yes
+  hypothesis: equal local memory,       c_R within 0.02        a10r8: 736 B, c_1 -0.087, c_8 -0.077   REFUTED
+   equal c_R
+  outcome                               BETWEEN                BETWEEN      yes
+
+DECISION (the prereg's rule, arms allowing 16 rows)
+--------
+Best of a10@P and a10r16@P (guard and identity hold, vt1 at 64 of 64): a10r16@5.14.5.28.5, c_16 1.891: 1.60 < c_16 <=
+2.35, BETWEEN. a10r8 is not read by the rule. The reopening condition of ETAT.md section 6 is not met (c_2 1.689 >
+1.40).
+
+READING (not part of the decision; *computed* from the tables above)
+-------
+- The row cap pays at vt1 in the row phases: the four (q/k/v, o, gate/up, down) read 5,306 us in a10, 5,014 in a10r16
+  and 4,939 in a10r8. o, gate/up and down account for most of it; q/k/v barely moves (-33 us).
+- The local memory the install reports does not track it: a10r8 has a10's 736 B and is the fastest. N8's slowdown is
+  therefore not explained by the local-memory figure alone either; what the row cap changes in the code (unrolling,
+  accumulator count, register use behind the same 128) is the candidate, not established here.
+- a10r16 keeps a10's extra row (0.0148 against 0.0120); its gain is in the fixed part (c_1 -0.073).
+
+WHAT THIS DOES NOT ESTABLISH
+----------------------------
+What in the row-capped code buys the time (the local-memory figure is ruled out as the sole witness). a10r16 and a10r8 at
+32 rows (they do not allow it). The compile-only step's lines for a10r16, a10r8, a3 and a9 (it timed out). R = 4 and
+32. VRAM peak (no metric). Any card but the L40S. The 8B and 14B. Any acceptance or tok/s at a door.
