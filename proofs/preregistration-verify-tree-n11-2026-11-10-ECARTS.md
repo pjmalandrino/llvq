@@ -18,3 +18,13 @@ billed.
   before N11 and at most $1.02 on the l40sx1 copy, the worst case if both were billed to their timeouts is $9.43, under
   the cap of $10; only one copy is to run.
 - What can move: the host side of the timing on another node; c_R is a ratio taken on one machine in the same rounds.
+
+## Deviation 2: the l40sx1 copy ran while the watcher was blind; the l40sx4 copy was cancelled by hand after it
+
+Written on 2026-11-10 at about 18:40 CET, after the job. The race watcher's log has no check between 17:24:58 and 18:28
+CET: the Mac made no check in that window. The l40sx1 copy ran inside it, from about 17:42 to 18:04 CET (the bucket's
+file times), and was seen COMPLETED at 18:28. The l40sx4 copy was therefore not cancelled when the l40sx1 copy started.
+It stayed SCHEDULING at every check, and at 18:38 CET it was cancelled by hand and confirmed CANCELED; it never ran and
+cost $0.
+
+What it touches: no number. One copy ran, on the prereg's flavor l40sx1; the other never started.

@@ -1,0 +1,14 @@
+[stage] COMPLETED 
+[metrics] the Job finished without a single sample being read
+[21 min billed · 0.63 $]
+NVIDIA L40S, 8.9, 46068 MiB, 580.178.04, 2520 MHz
+
+[end] COMPLETED: 0.35 h billed, 0.63 $
+
+[VRAM] no metric received. A Job launched with --detach and observed afterwards
+       has none: the stream is live and the endpoint 500s once the Job is done.
+== control 1: oracle ==
+Qwen/Qwen3-0.6B on Cuda(CudaDevice(DeviceId(1))) — max |Δhidden| = 0.000e0   (relative to max|h| = 8.550e1) → 0.000e0
+MATCH — the observable forward reproduces candle's Qwen3
+== control 1: the object and its config ==
+[logs interrupted: [Errno 9] Bad file descriptor]
