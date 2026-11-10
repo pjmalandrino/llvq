@@ -51,7 +51,7 @@ ENV CARGO_BUILD_JOBS=2
 # différence entre une mesure et une anecdote.
 RUN cargo build --release --locked -p llvq-llm --features ${FEATURES} \
       --bin smoke --bin ppl --bin oracle --bin mmlu --bin gbench --bin fusedrun \
-      --bin chat --bin gsm8k --bin gsm8kpair --bin batchrun --bin specrun --bin vtreebench --bin specbench
+      --bin chat --bin gsm8k --bin gsm8kpair --bin batchrun --bin specrun --bin vtreebench --bin specbench --bin dflashcheck
 # The runtime, for the client-side bench of the batched decode (`llvq serve`
 # under LLVQ_BATCH, ops/batch_serve_bench.py). Its own package, with only the
 # `cuda` feature it carries through to llvq-llm.
@@ -148,6 +148,7 @@ COPY --from=build \
       /src/target/release/specrun \
       /src/target/release/vtreebench \
       /src/target/release/specbench \
+      /src/target/release/dflashcheck \
       /src/target/release/llvq \
       /src/target/release/seal \
       /src/target/release/embedq \
