@@ -12,6 +12,10 @@
 #
 #   DRY_RUN=1 bash ops/jobs/verify-tree-n2.sh             parses the job script, launches nothing
 #   IMAGE_SHA=<space sha> bash ops/jobs/verify-tree-n2.sh  launches
+#   FLAVOR=l40sx4 RETRY=1 TIMEOUT=18m ...                  the twin on l40sx4, one device visible
+#   QUEUE_BEFORE_PREREG=1 / QUEUE_BEFORE_IMAGE=1           queue the job before the prereg and the image exist
+#     (the orchestrator's N2 submission only: the image that runs must carry arm a4, since an image without it
+#     refuses the arm list a2,a3,a4 before any timed pass; the prereg's ECARTS or its own paragraph says so)
 #
 # Cost, estimated (l40sx1 $1.80/h): two arms where N1 ran three, about 10 min, $0.30; timeout 25m, $0.75.
 set -euo pipefail
@@ -25,8 +29,16 @@ O=/out/verify-tree-n2-2026-11-10${RETRY:+-r$RETRY}
 DRY=${DRY_RUN:-0}
 P4E_V9_SHA=1b422b62328be6752df4add43280565fd2a49cfa20ee26953b301abe7a15c530
 TIMEOUT=${TIMEOUT:-25m}
-ARMS=${ARMS:-a2,a3}
-case "$ARMS" in a2,a3) ;; *) echo "refused: ARMS=$ARMS (a2,a3 only: a2 is a3's guard)" >&2; exit 1;; esac
+ARMS=${ARMS:-a2,a3,a4}
+case "$ARMS" in a2,a3,a4) ;; *) echo "refused: ARMS=$ARMS (a2,a3,a4 only: a2 is a3's guard, a3 is a4's)" >&2; exit 1;; esac
+FLAVOR=${FLAVOR:-l40sx1}
+case "$FLAVOR" in
+  l40sx1) FLAVOR_ARGS=(); DEV_PRE='' ;;
+  l40sx4) FLAVOR_ARGS=(--any-flavor); DEV_PRE=$'\nexport CUDA_VISIBLE_DEVICES=0' ;;
+  *) echo "refused: FLAVOR=$FLAVOR (l40sx1 or l40sx4)" >&2; exit 1 ;;
+esac
+SKIP_PREREG=${QUEUE_BEFORE_PREREG:-0}
+SKIP_IMAGE=${QUEUE_BEFORE_IMAGE:-0}
 SEALED="sealed-4b-2026-09-23/qwen3-4b-sealed.bin:1418224685"
 SEALED_SHA=886391a8c03f66dc269cc65c3598c6627dbdcd259180aff36604ef10d37371b8
 C=configs/qwen3-4b-tetra-e4-4e-v9.json
@@ -37,7 +49,11 @@ CFG_SHA=$(shasum -a 256 < "$C" | cut -d' ' -f1)
 CFG_B64=$(base64 < "$C" | tr -d '\n')
 
 if [ "$DRY" != 1 ]; then
-  { test -f "$PREREG" && test -f "$PREREG.ots"; } || { echo "refused: $PREREG(.ots) missing" >&2; exit 1; }
+  if [ "$SKIP_PREREG" = 1 ]; then
+    echo "!!!!! QUEUE_BEFORE_PREREG=1: the prereg/.ots refusal is SKIPPED for this submission ($(date)) !!!!!" >&2
+  else
+    { test -f "$PREREG" && test -f "$PREREG.ots"; } || { echo "refused: $PREREG(.ots) missing" >&2; exit 1; }
+  fi
   path=${SEALED%%:*}; bytes=${SEALED##*:}
   REMOTE=$(hf buckets ls "hf://buckets/$BUCKET/${path%/*}/" 2>/dev/null \
     | awk -v n="/${path##*/}" 'substr($NF, length($NF) - length(n) + 1) == n {print $1}' || true)
@@ -45,15 +61,19 @@ if [ "$DRY" != 1 ]; then
   if hf buckets ls "hf://buckets/$BUCKET/${O#/out/}/" 2>/dev/null | grep -v '^(empty)$' | grep -q .; then
     echo "refused: ${O#/out/}/ already exists" >&2; exit 1
   fi
-  IMAGE_SHA=${IMAGE_SHA:?IMAGE_SHA=<the Space sha of the rebuild that carries this branch>}
   NOW=$(uv run --quiet --with huggingface_hub python -c \
     'from huggingface_hub import HfApi; print(HfApi().space_info("Pier-Jean/llvq-runner-cuda").sha)')
-  [ "$NOW" = "$IMAGE_SHA" ] || { echo "refused: the Space is at $NOW, expected $IMAGE_SHA" >&2; exit 1; }
+  if [ "$SKIP_IMAGE" = 1 ]; then
+    echo "!!!!! QUEUE_BEFORE_IMAGE=1: the Space sha refusal is SKIPPED; the Space is at $NOW now ($(date)) !!!!!" >&2
+  else
+    IMAGE_SHA=${IMAGE_SHA:?IMAGE_SHA=<the Space sha of the rebuild that carries this branch>}
+    [ "$NOW" = "$IMAGE_SHA" ] || { echo "refused: the Space is at $NOW, expected $IMAGE_SHA" >&2; exit 1; }
+  fi
   echo "bucket copy verified by size; image $NOW"
 fi
 
 PRE=$(printf 'O=%q\nSEALED=%q\nSEALED_SHA=%q\nCFG_SHA=%q\nCFG_B64=%q\nP4E_V9_SHA=%q\nARMS=%q\nexport HF_HOME=/tmp/hf' \
-  "$O" "$SEALED" "$SEALED_SHA" "$CFG_SHA" "$CFG_B64" "$P4E_V9_SHA" "$ARMS")
+  "$O" "$SEALED" "$SEALED_SHA" "$CFG_SHA" "$CFG_B64" "$P4E_V9_SHA" "$ARMS")$DEV_PRE
 
 IFS= read -r -d '' BODY <<'JOB' || true
 mkdir -p "$O"
@@ -78,16 +98,19 @@ rc=$?
 set -e
 date -u
 echo "vtreebench exit $rc" | tee "$O/summary.txt"
-grep -E '^4E: persistent module|^4E tree|^arm a[2-3]:|^== tree|^  (a[2-3] (vt1 against|identity|an extra row|vt(1|16) phases|guard)|a[2-3] against|4E, one|timed passes|a[2-3] +[0-9]+ +[0-9.]+ \[)|^  (chat|rag) a[2-3]:' "$O/vtree-4b.txt" | tee -a "$O/summary.txt"
+grep -E '^4E: persistent module|^4E tree|^arm a[2-4]:|^== tree|^  (a[2-4] (vt1 against|identity|an extra row|vt(1|16) phases|guard)|a[2-4] against|4E, one|timed passes|a[2-4] +[0-9]+ +[0-9.]+ \[)|^  (chat|rag) a[2-4]:' "$O/vtree-4b.txt" | tee -a "$O/summary.txt"
 tail -3 "$O/vtree-4b.txt"
 # control 2: 4E is the served v9 module (its one-token launches are checked against its greedy tokens inside)
 grep -qF "4E: persistent module 252757 bytes, sha256 $P4E_V9_SHA, row form 7," "$O/vtree-4b.txt" \
   && echo "control 2: the served 4E v9 module" | tee -a "$O/summary.txt" \
   || echo "VOID: control 2, the 4E module is not the served v9 module" | tee -a "$O/summary.txt"
-grep -E '^4E tree( tiled| stream)?: pers_4et_(rows|tiled|stream)_f[0-9]_t512: [0-9]+ registers, [0-9]+ B local' "$O/vtree-4b.txt" | tee -a "$O/summary.txt" || true
+grep -E '^4E tree[a-z0-9 ]*: pers_4et_[a-z0-9]+_f[0-9]_t512: [0-9]+ registers, [0-9]+ B local' "$O/vtree-4b.txt" | tee -a "$O/summary.txt" || true
 grep -q '^  a3 guard against a2 .*: PASSES' "$O/vtree-4b.txt" \
   && echo "guard: a3 equals a2 bit for bit on the chat 32-row pass" | tee -a "$O/summary.txt" \
   || echo "VOID: a3's guard against a2 did not pass; a3's numbers are void" | tee -a "$O/summary.txt"
+grep -q '^  a4 guard against a3 .*: PASSES' "$O/vtree-4b.txt" \
+  && echo "guard: a4 equals a3 bit for bit on the chat 32-row pass" | tee -a "$O/summary.txt" \
+  || echo "VOID: a4's guard against a3 did not pass; a4's numbers are void" | tee -a "$O/summary.txt"
 ls -la "$O"
 JOB
 
@@ -101,7 +124,7 @@ fi
 
 uv run ops/run.py bench \
   --image hf.co/spaces/Pier-Jean/llvq-runner-cuda \
-  --flavor l40sx1 --timeout "$TIMEOUT" \
+  --flavor "$FLAVOR" ${FLAVOR_ARGS[@]+"${FLAVOR_ARGS[@]}"} --timeout "$TIMEOUT" \
   --bucket "$BUCKET" --out-mount /out \
   --name "verify-tree-n2${RETRY:+-r$RETRY}" \
   "$PRE" "$BODY"
