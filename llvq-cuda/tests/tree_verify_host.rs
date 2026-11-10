@@ -963,3 +963,62 @@ fn a4_stamps_change_no_bit() {
         }
     }
 }
+
+// ---- arm a5: a4 with the L2 prefetch of the next row phase's tile streams ----
+
+/// a5 (variant 512) against a4 (variant 256) on `a4b`, at the same slices:
+/// every row equal. The prefetch writes nothing; on the twin it reads each
+/// range's first and last words, so a range outside the copies faults.
+fn gate_a5(bin: &Path, a4b: &Path, f: &Fix, t: &Tree, sizes: &[usize], pos0: u32) -> Result<usize, String> {
+    let passes: Vec<Pass> =
+        sizes.iter().enumerate().map(|(i, &s)| Pass::of(t, &t.subset(s, 0x6000 + i as u64), pos0, 0x7a80 + i as u64)).collect();
+    let u = exec(a4b, &Fix { variant: (f.variant & !(32 | 128 | 512)) | 256, ..*f }, None, &passes)?;
+    let v = exec(bin, &Fix { variant: (f.variant & !(32 | 128 | 256)) | 512, ..*f }, None, &passes)?;
+    let mut rows = 0;
+    for (pi, (a, b)) in u.passes.iter().zip(&v.passes).enumerate() {
+        for (s, (ra, rb)) in a.iter().zip(b).enumerate() {
+            rows += 1;
+            if let Some(what) = diff(rb, ra) {
+                return Err(format!("a5 against a4, split {:?}, pass {pi} ({} rows), slot {s}: {what}", f.split, a.len()));
+            }
+        }
+    }
+    Ok(rows)
+}
+
+/// a5 equals a4 bit for bit at R = 1, 8, 32 under both stream plans, and on
+/// the 8B's parts (a Tetra o, whose stream a5 also prefetches) at form 2.
+#[test]
+#[cfg_attr(debug_assertions, ignore)]
+fn a5_rows_equal_a4_rows() {
+    let t = tree(32, 7, 0x3f0);
+    for split in [SPLIT_N2, SPLIT_N2B] {
+        let n = gate_a5(host(), host(), &Fix { split, ..FIX }, &t, &[1, 8, 32], 9).unwrap();
+        eprintln!("split {split:?}: {n} rows of 3 passes, a5 equals a4 bit for bit");
+    }
+    let t = tree(12, 4, 0x3f1);
+    let f = Fix { form: 2, variant: 16, cap: 288, split: SPLIT_N2B, ..FIX };
+    let n = gate_a5(host(), host(), &f, &t, &[1, 5], 254).unwrap();
+    eprintln!("8B's parts, form 2: {n} rows, a5 equals a4 bit for bit");
+}
+
+/// The prefetch is compiled in the twin and its ranges are read there: a
+/// tile offset scaled far past the copies faults.
+#[test]
+#[cfg_attr(debug_assertions, ignore)]
+fn a5_prefetch_mutant_is_killed() {
+    let t = tree(12, 4, 0x3f2);
+    let f = Fix { split: SPLIT_N2B, ..FIX };
+    gate_a5(host(), host(), &f, &t, &[1, 9], 9).expect("the unmutated a5 pass passes its gate");
+    let k = "llvq-cuda/kernels/pers_4et_a5.cu";
+    let b = mutant(
+        "pf_range",
+        &[(k, "p4t_pf_lines(g.w + ((unsigned long long)tile * nsub + sub_lo) * SW,", "p4t_pf_lines(g.w + ((unsigned long long)tile * nsub * 1048576ull + sub_lo) * SW,")],
+    );
+    let r = gate_a5(&b, host(), &f, &t, &[1, 9], 9);
+    let _ = std::fs::remove_file(&b);
+    match r {
+        Err(e) => eprintln!("pf_range: killed by {}", e.lines().next().unwrap_or("")),
+        Ok(_) => panic!("a5 mutant pf_range survived its gate"),
+    }
+}

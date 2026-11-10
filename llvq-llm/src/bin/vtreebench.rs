@@ -3,7 +3,7 @@
 //! the card, for each arm of the pass.
 //!
 //! Usage: `LLVQ_CONFIG=<served v9 config> vtreebench <sealed> [arms]`, arms a
-//! comma-separated subset of `a0,a1,a2,a3,a4` (default `a0,a1,a2`):
+//! comma-separated list of `a0` .. `a5` (default `a0,a1,a2`):
 //!
 //! * a0: S1's kernel and S1's slices (`pers::p4t_splits`);
 //! * a1: S1's kernel, the balanced slices q/k/v 11, o 14, gate/up 7, down
@@ -20,6 +20,14 @@
 //!   vectors (`P4T_A4`, `pers_4et_a4.cu`), at the stream plan; a3 is its
 //!   guard, bit for bit.
 //!
+//! * a5: a4 with the L2 prefetch of the next row phase's tile streams on
+//!   4E's schedule (`P4T_A5`, `pers_4et_a5.cu`); a4 is its guard.
+//!
+//! An arm a2 .. a5 takes an explicit plan, `a4@5.7.5.16.5` (S of q/k/v, o,
+//! gate/up, down, head), refused at install when an S is outside 1..=32 or
+//! under the stream unit's floor. Its guard is the previous kernel of the
+//! family at the same plan (`a3@5.7.5.16.5`), added as an untimed guard-only
+//! arm when not asked; likewise a3's a2, a4's a3 and a5's a4 without a plan.
 //! An arm whose module does not build is void and skipped; the others run.
 //! An unknown arm is refused before anything loads.
 //!
@@ -76,6 +84,71 @@ const N_REF: u32 = 64;
 #[cfg(all(target_os = "linux", feature = "cuda"))]
 const BALANCED: [u32; 5] = [11, 14, 7, 14, 1];
 
+/// One arm asked: its name as given, its kernel (`a0` .. `a5`), its explicit
+/// plan, and whether it was added only as another arm's guard.
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+struct ArmAsk {
+    name: String,
+    base: String,
+    plan: Option<[u32; 5]>,
+    guard_only: bool,
+}
+
+/// The guard of an arm: the previous kernel of the family at the same plan
+/// (a3 for a4, a4 for a5, a2 for a3), with the same suffix.
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+fn guard_of(name: &str) -> Option<String> {
+    let (base, suffix) = name.split_once('@').map_or((name, String::new()), |(b, p)| (b, format!("@{p}")));
+    let g = match base {
+        "a3" => "a2",
+        "a4" => "a3",
+        "a5" => "a4",
+        _ => return None,
+    };
+    Some(format!("{g}{suffix}"))
+}
+
+/// The arms asked, `arm` or `arm@q.o.g.d.h` (a2 .. a5 only, each S in 1..=32;
+/// the stream unit's floor is checked at install), then each guard not asked
+/// added as a guard-only arm. Refuses an unknown or repeated arm.
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+fn parse_arms(want: &[String]) -> Result<Vec<ArmAsk>, String> {
+    let mut out: Vec<ArmAsk> = Vec::new();
+    for w in want {
+        let (base, plan) = match w.split_once('@') {
+            None => (w.as_str(), None),
+            Some((b, p)) => {
+                let v: Vec<u32> = p.split('.').map(|x| x.parse::<u32>().map_err(|_| format!("arm {w}: {x:?} is not a slice count"))).collect::<Result<_, _>>()?;
+                let arr: [u32; 5] = v.try_into().map_err(|_| format!("arm {w}: a plan has five slice counts"))?;
+                if arr.iter().any(|&s| s == 0 || s > 32) {
+                    return Err(format!("arm {w}: every S in 1..=32"));
+                }
+                (b, Some(arr))
+            }
+        };
+        if !matches!(base, "a0" | "a1" | "a2" | "a3" | "a4" | "a5") {
+            return Err(format!("unknown arm {w:?}"));
+        }
+        if plan.is_some() && matches!(base, "a0" | "a1") {
+            return Err(format!("arm {w}: a0 and a1 take no explicit plan"));
+        }
+        if out.iter().any(|x| x.name == *w) {
+            return Err(format!("arm {w} asked twice"));
+        }
+        out.push(ArmAsk { name: w.clone(), base: base.to_string(), plan, guard_only: false });
+    }
+    let asked: Vec<(String, Option<[u32; 5]>)> = out.iter().map(|x| (x.name.clone(), x.plan)).collect();
+    for (name, plan) in asked {
+        if let Some(g) = guard_of(&name) {
+            if !out.iter().any(|x| x.name == g) {
+                let base = g.split('@').next().unwrap_or("").to_string();
+                out.push(ArmAsk { name: g, base, plan, guard_only: true });
+            }
+        }
+    }
+    Ok(out)
+}
+
 /// The 32-node tree: node i's parent (i - 1) / 4; returns (depth, path) of
 /// `nodes` in that slot order, every path in slots.
 #[cfg(all(target_os = "linux", feature = "cuda"))]
@@ -110,25 +183,36 @@ fn run() -> anyhow::Result<()> {
     use llvq_llm::boundary::median_range;
     use llvq_llm::chatfmt::{open_assistant, turn, Marks};
     let a: Vec<String> = std::env::args().skip(1).collect();
-    let usage = "usage: LLVQ_CONFIG=<served v9 config> vtreebench <sealed> [a0,a1,a2,a3,a4]";
+    let usage = "usage: LLVQ_CONFIG=<served v9 config> vtreebench <sealed> [arm,arm,...], an arm a0 .. a5, \
+                 a2 .. a5 optionally with an explicit plan arm@qkv.o.gateup.down.head (e.g. a4@5.7.5.16.5)";
     let path = a.first().ok_or_else(|| anyhow::anyhow!("{usage}"))?.clone();
     let want_arms: Vec<String> = a.get(1).map_or("a0,a1,a2", |s| s.as_str()).split(',').map(str::to_string).collect();
     use llvq_llm::persist4e_cuda::{TreeForm, TreePlan};
-    let with_a3 = want_arms.iter().any(|w| w == "a3" || w == "a4");
-    let mut specs: Vec<llvq_llm::persist4e_cuda::TreeArmSpec> = Vec::new();
-    for w in &want_arms {
-        if specs.iter().any(|s| s.0 == w.as_str()) {
-            anyhow::bail!("vtreebench: arm {w} asked twice; {usage}");
-        }
-        specs.push(match w.as_str() {
-            "a0" => ("a0", TreePlan::S1, TreeForm::Rows),
-            "a1" => ("a1", TreePlan::Balanced(BALANCED), TreeForm::Rows),
-            "a2" if with_a3 => ("a2", TreePlan::Stream, TreeForm::Tiled),
-            "a2" => ("a2", TreePlan::Balanced(BALANCED), TreeForm::Tiled),
-            "a3" => ("a3", TreePlan::Stream, TreeForm::Stream),
-            "a4" => ("a4", TreePlan::Stream, TreeForm::A4),
-            other => anyhow::bail!("vtreebench: unknown arm {other:?}; {usage}"),
-        });
+    let arm_list = parse_arms(&want_arms).map_err(|e| anyhow::anyhow!("vtreebench: {e}; {usage}"))?;
+    let any_stream = arm_list.iter().any(|x| matches!(x.base.as_str(), "a3" | "a4" | "a5") && x.plan.is_none());
+    let specs: Vec<llvq_llm::persist4e_cuda::TreeArmSpec> = arm_list
+        .iter()
+        .map(|x| {
+            let form = match x.base.as_str() {
+                "a0" | "a1" => TreeForm::Rows,
+                "a2" => TreeForm::Tiled,
+                "a3" => TreeForm::Stream,
+                "a4" => TreeForm::A4,
+                _ => TreeForm::A5,
+            };
+            let plan = match (x.base.as_str(), x.plan) {
+                (_, Some(p)) => TreePlan::Explicit(p),
+                ("a0", None) => TreePlan::S1,
+                ("a1", None) => TreePlan::Balanced(BALANCED),
+                ("a2", None) if !any_stream => TreePlan::Balanced(BALANCED),
+                _ => TreePlan::Stream,
+            };
+            (x.name.as_str(), plan, form)
+        })
+        .collect();
+    let guard_only: Vec<String> = arm_list.iter().filter(|x| x.guard_only).map(|x| x.name.clone()).collect();
+    for g in &guard_only {
+        println!("arm {g}: added as a guard only (its 32-row pass, untimed)");
     }
     let cfg = llvq_llm::served::Served::from_env()
         .map_err(|e| anyhow::anyhow!("{e}"))?
@@ -191,7 +275,8 @@ fn run() -> anyhow::Result<()> {
     let mut summary: Vec<String> = Vec::new();
     for (name, ids) in [("chat", chat(CHAT)?), ("rag", chat(&format!("{RAG}\n\n{SUMMARY_TEXT}"))?)] {
         // chat: every arm; rag: the arm with the lowest chat c_16 only
-        let live: Vec<usize> = (0..na).filter(|&k| arms[k].void.is_none()).collect();
+        let live: Vec<usize> = (0..na).filter(|&k| arms[k].void.is_none() && !guard_only.contains(&arms[k].name)).collect();
+        let guards: Vec<usize> = (0..na).filter(|&k| arms[k].void.is_none() && guard_only.contains(&arms[k].name)).collect();
         let run_arms: Vec<usize> = if name == "chat" {
             live
         } else {
@@ -267,6 +352,13 @@ fn run() -> anyhow::Result<()> {
             }
             bases[k] = Some(base);
         }
+        // the guard-only arms: their 32-row pass, untimed (chat only)
+        if name == "chat" {
+            for &k in &guards {
+                set(&mut caches, l)?;
+                bases[k] = Some(rt.tree(k, &mut caches, l, &toks32, &d32, &p32, true, false)?);
+            }
+        }
         // across arms: same slices and arithmetic owe each other their bits
         for x in 0..na {
             for y in x + 1..na {
@@ -286,9 +378,12 @@ fn run() -> anyhow::Result<()> {
                 }
             }
         }
-        // the guards: a3 against a2, a4 against a3, at the same plan, bit for bit
+        // the guards: a3 against a2, a4 against a3, a5 against a4, each at
+        // the same plan (an explicit plan's guard carries the same suffix), bit for bit
         let at = |n: &str| arms.iter().position(|a| a.name == n);
-        for (arm, guard) in [("a3", "a2"), ("a4", "a3")] {
+        for x in arm_list.iter().filter(|x| !x.guard_only) {
+            let Some(gname) = guard_of(&x.name) else { continue };
+            let (arm, guard) = (x.name.as_str(), gname.as_str());
             if let (Some(ig), Some(ia)) = (at(guard), at(arm)) {
                 if let (Some(bg), Some(ba)) = (&bases[ig], &bases[ia]) {
                     let ok = arms[ig].splits == arms[ia].splits && bg.ring == ba.ring && bg.logits == ba.logits;

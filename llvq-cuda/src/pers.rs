@@ -1825,6 +1825,28 @@ pub fn p4t_a4_symbol(form: u32) -> Result<&'static str, String> {
     })
 }
 
+/// The a5 tree module's text: [`p4t_a4_unit_text`] (F1 and F2 on) under
+/// `P4T_A5 1`, then `pers_4et_a5.cu` (a4 with the L2 prefetch of the next
+/// row phase's tile streams), which emits the `pers_4et_a5_*` symbols.
+/// `pers_4et.cu`, `pers_4et_stream.cu` and `pers_4et_a4.cu` keep their bytes.
+pub fn p4t_a5_unit_text(tile_define: &str) -> String {
+    format!("#define P4T_A5 1\n{}\n{}", p4t_a4_unit_text(tile_define, true, true), P4T_A5_PART.1)
+}
+
+/// The tree kernel's a5 symbol for a RoPE form (a module of
+/// [`p4t_a5_unit_text`]).
+pub fn p4t_a5_symbol(form: u32) -> Result<&'static str, String> {
+    Ok(match form {
+        0 => "pers_4et_a5_f0_t512",
+        1 => "pers_4et_a5_f1_t512",
+        2 => "pers_4et_a5_f2_t512",
+        _ => return Err(format!("tree verify: no a5 kernel for RoPE form {form}")),
+    })
+}
+
+/// `pers_4et_a5.cu`, embedded so the Mac hashes what the card compiles.
+pub const P4T_A5_PART: (&str, &str) = ("pers_4et_a5.cu", include_str!("../kernels/pers_4et_a5.cu"));
+
 /// `pers_4et_a4.cu`, embedded so the Mac hashes what the card compiles.
 pub const P4T_A4_PART: (&str, &str) = ("pers_4et_a4.cu", include_str!("../kernels/pers_4et_a4.cu"));
 
@@ -2831,6 +2853,32 @@ mod tests {
             assert_eq!(p4t_stream_unit_text(SERVED_DEFINES_SM89).matches(p4t_a4_symbol(f).unwrap()).count(), 0);
         }
         eprintln!("tree module a4 at SERVED_DEFINES_SM89: {} bytes, sha256 {}", t.len(), crate::sha256::sha256_hex(t.as_bytes()));
+    }
+
+    #[test]
+    fn the_a5_body_is_the_a4_body() {
+        // pers_4et_a5.cu carries pers_4et_a4.cu's pass with three prefetch
+        // calls inserted, and nothing else of it changed
+        let src = P4T_A4_PART.1;
+        let c = src.find("template <int FORM>\n__device__ __forceinline__ void pers_4et_a4_body(").unwrap();
+        let end = "#undef P4T_WAIT\n}\n";
+        let d = c + src[c..].find(end).unwrap() + end.len();
+        let mut body = src[c..d].replacen("void pers_4et_a4_body(", "void pers_4et_a5_body(", 1);
+        for (x, y) in [
+            ("        unsigned short* tv_l = L.tv + (unsigned long long)l * P4T_RMAX * dkv;\n", "        p4t_pf_qkv(Y, L);\n"),
+            ("        p4t_attention(A, L, Y.kc, Y.vc, tk_l, tv_l, reinterpret_cast<unsigned char*>(S));\n", "        p4t_pf_o_gu(Y, L, H, dq);\n"),
+            ("            p4t_phase_a4(sg, su, su, 2u, L, A, tab, t_inv, area, cmax);\n", "            p4t_pf_down(Y, L, H);\n"),
+        ] {
+            assert_eq!(body.matches(x).count(), 1, "{x}");
+            body = body.replacen(x, &format!("{x}{y}"), 1);
+        }
+        assert_eq!(P4T_A5_PART.1.matches(body.as_str()).count(), 1, "the a5 pass drifted from the a4 pass");
+        let t = p4t_a5_unit_text(SERVED_DEFINES_SM89);
+        assert!(t.contains(&p4t_a4_unit_text(SERVED_DEFINES_SM89, true, true)), "a4's text inside a5's, unchanged");
+        for f in 0..3 {
+            assert_eq!(t.matches(p4t_a5_symbol(f).unwrap()).count(), 1);
+        }
+        eprintln!("tree module a5 at SERVED_DEFINES_SM89: {} bytes, sha256 {}", t.len(), crate::sha256::sha256_hex(t.as_bytes()));
     }
 
     use super::*;

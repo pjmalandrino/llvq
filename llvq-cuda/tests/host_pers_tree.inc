@@ -14,7 +14,8 @@
 //      tiled symbols on tree-tiled copies of every projection, built by
 //      p4t_tile_word from the words 4E reads, as the card's install does;
 //      128: the stream symbols of pers_4et_stream.cu on those same copies;
-//      256: the a4 symbols of pers_4et_a4.cu on those same copies),
+//      256: the a4 symbols of pers_4et_a4.cu on those same copies;
+//      512: the a5 symbols of pers_4et_a5.cu on those same copies),
 //      three rotations (attention input at 2,560, MLP input at 2,560, down
 //      input at 9,728), each u32 m, k, f32 inv, u32 signs[n/32], f32
 //      small[1024], then with variant 16 the o rotation at 4,096,
@@ -175,7 +176,8 @@
     A.eps = eps; A.c = (float)((1.0 / std::sqrt(128.0)) * 1.4426950408889634);
     A.head_w = head_w.data(); A.head_s = head_s.data(); A.head_b = head_b.data();
     // ---- variant 32: the tree-tiled copies and the arguments that point at them ----
-    const bool a4v = (variant & 256u) != 0u;
+    const bool a5v = (variant & 512u) != 0u;
+    const bool a4v = (variant & 256u) != 0u || a5v;
     const bool streamv = (variant & 128u) != 0u;
     const bool tiledv = (variant & 32u) != 0u || streamv || a4v;
     std::vector<std::vector<u32>> tcopies;
@@ -276,6 +278,7 @@
     const Ft tfnt[3] = {pers_4et_tiled_f0_t512, pers_4et_tiled_f1_t512, pers_4et_tiled_f2_t512};
     const Ft tfns[3] = {pers_4et_stream_f0_t512, pers_4et_stream_f1_t512, pers_4et_stream_f2_t512};
     const Ft tfn4[3] = {pers_4et_a4_f0_t512, pers_4et_a4_f1_t512, pers_4et_a4_f2_t512};
+    const Ft tfn5[3] = {pers_4et_a5_f0_t512, pers_4et_a5_f1_t512, pers_4et_a5_f2_t512};
     const u32 n_pass = rd1<u32>();
     for (u32 pi = 0; pi < n_pass; ++pi) {
         const u32 pos0 = rd1<u32>(), R = rd1<u32>();
@@ -301,7 +304,7 @@
         const size_t n_ev = (size_t)(1u + 2u * n_bar_4et(NL, n_ot)) * grid;
         std::vector<unsigned long long> st((variant & 64u) ? n_ev + (a4v ? 20u * (size_t)grid : 0u) : 0u, 0ull);
         if (variant & 64u) T.stamps = st.data();
-        hostgrid::launch_coop(grid, threads, tsmem, pseed, [&] { if (a4v) tfn4[form](&At, T); else if (streamv) tfns[form](&At, T); else if (tiledv) tfnt[form](&At, T); else tfn[form](&A, T); });
+        hostgrid::launch_coop(grid, threads, tsmem, pseed, [&] { if (a5v) tfn5[form](&At, T); else if (a4v) tfn4[form](&At, T); else if (streamv) tfns[form](&At, T); else if (tiledv) tfnt[form](&At, T); else tfn[form](&A, T); });
         for (size_t i = 0; i < std::min(st.size(), n_ev); ++i)
             if (st[i] == 0ull) {
                 std::fprintf(stderr, "host_pers: tree pass %u left a phase stamp unwritten\n", pi);

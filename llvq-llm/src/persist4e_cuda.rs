@@ -192,6 +192,9 @@ pub enum TreeForm {
     /// `pers_4et_a4_*` (`P4T_A4`): the stream unit with the fold's loads
     /// batched and the prologues on 16-byte vectors (arm a4).
     A4,
+    /// `pers_4et_a5_*` (`P4T_A5`): a4 with the L2 prefetch of the next row
+    /// phase's tile streams on 4E's schedule (arm a5).
+    A5,
 }
 
 /// Where an arm's d_in slices come from.
@@ -203,6 +206,9 @@ pub enum TreePlan {
     Balanced([u32; 5]),
     /// `pers::p4t_splits_stream` at the stream unit's cap (job N2).
     Stream,
+    /// Slices given by the bench (`arm@q.o.g.d.h`), refused when a slice
+    /// exceeds the stream unit's cap or an S is outside 1..=32.
+    Explicit([u32; 5]),
 }
 
 /// One arm of the tree pass: the d_in slices of q/k/v, o, gate/up, down and
@@ -234,6 +240,8 @@ struct TreeTiled {
     fs: Option<CudaFunction>,
     /// The a4 symbol, when an a4 arm is installed.
     f4: Option<CudaFunction>,
+    /// The a5 symbol, when an a5 arm is installed.
+    f5: Option<CudaFunction>,
     _held: Vec<CudaSlice<u32>>,
     /// Each layer's q, k, v, o, gate, up and down words in the copies.
     swaps: Vec<[u64; 7]>,
@@ -1129,8 +1137,14 @@ impl Runtime4e {
                     b
                 }
                 TreePlan::Stream => pers::p4t_splits_stream(hidden, inter, d_ctx, n_kv, vocab, nw, self.grid, cap).map_err(anyhow::Error::msg)?,
+                TreePlan::Explicit(p) => {
+                    if p.iter().any(|&x| x == 0 || x > 32) || d_ins.iter().zip(p).any(|(&d, x)| pers::p4t_slice_steps(d, x) > cap) {
+                        anyhow::bail!("4E tree: arm {name}: the explicit plan {p:?} has an S outside 1..=32 or under the stream unit's floor ({cap} sub-steps a slice)");
+                    }
+                    p
+                }
             };
-            if matches!(form, TreeForm::Stream | TreeForm::A4) && d_ins.iter().zip(splits).any(|(&d, s)| pers::p4t_slice_steps(d, s) > cap) {
+            if matches!(form, TreeForm::Stream | TreeForm::A4 | TreeForm::A5) && d_ins.iter().zip(splits).any(|(&d, s)| pers::p4t_slice_steps(d, s) > cap) {
                 anyhow::bail!("4E tree: arm {name}: slices {splits:?} exceed the stream unit's {cap} sub-steps a slice");
             }
             let plan = pers::p4t_plan(splits, hidden, inter, d_ctx, n_kv, vocab, nw, self.grid);
@@ -1139,6 +1153,7 @@ impl Runtime4e {
                 TreePlan::S1 => "S1's plan",
                 TreePlan::Balanced(_) => "the balanced plan",
                 TreePlan::Stream => "the stream plan",
+                TreePlan::Explicit(_) => "an explicit plan",
             };
             self.lines.push(format!(
                 "4E tree: arm {name} ({}, {plan_name}): slices {splits:?}; S, units, waves, fill, sub-steps a slice at most: {}",
@@ -1147,6 +1162,7 @@ impl Runtime4e {
                     TreeForm::Tiled => "tiled",
                     TreeForm::Stream => "stream",
                     TreeForm::A4 => "a4",
+                    TreeForm::A5 => "a5",
                 },
                 names
                     .iter()
@@ -1158,7 +1174,7 @@ impl Runtime4e {
             ));
             arm_v.push(TreeArm { name: name.to_string(), splits, plan: prop, form, void: None });
         }
-        if arm_v.iter().any(|a| matches!(a.form, TreeForm::Stream | TreeForm::A4)) {
+        if arm_v.iter().any(|a| matches!(a.form, TreeForm::Stream | TreeForm::A4 | TreeForm::A5)) {
             self.lines.push(format!("4E tree: the stream unit's slices hold at most {cap} sub-steps (area {area} floats, {nw} warps, 32 staged rows)"));
         }
         let n_ot = self.layers_host.iter().filter(|y| y.ot != 0).count() as u32;
@@ -1191,7 +1207,7 @@ impl Runtime4e {
         let logits = cuda.zeros_u16((rm * vocab) as usize).map_err(anyhow::Error::msg)?;
         let bytes = 2 * sizes.iter().map(|&n| n as u64).sum::<u64>() + 4 * (rm * part_stride) as u64 + 4 * fp as u64 + 2 * (rm * vocab) as u64;
         self.lines.push(format!("4E tree: {threads} threads, {area} floats of area; {:.3} GB of row buffers", bytes as f64 / 1e9));
-        let want = [TreeForm::Tiled, TreeForm::Stream, TreeForm::A4].map(|f| arm_v.iter().any(|a| a.form == f));
+        let want = [TreeForm::Tiled, TreeForm::Stream, TreeForm::A4, TreeForm::A5].map(|f| arm_v.iter().any(|a| a.form == f));
         let tiled = if want.iter().any(|&w| w) { Some(self.install_tiled(smem, threads, want)?) } else { None };
         // an arm whose module did not build is void; the others run
         if let Some(t) = &tiled {
@@ -1201,6 +1217,7 @@ impl Runtime4e {
                     TreeForm::Tiled => t.f.is_some(),
                     TreeForm::Stream => t.fs.is_some(),
                     TreeForm::A4 => t.f4.is_some(),
+                    TreeForm::A5 => t.f5.is_some(),
                 };
                 if !built {
                     a.void = Some(format!("its {:?} module did not build", a.form));
@@ -1222,13 +1239,13 @@ impl Runtime4e {
     /// up, down, the head), built on the card by `p4t_tile_words` from the
     /// words 4E holds, once for both. A Tetra o is refused (no sealed file the
     /// job reads carries one).
-    fn install_tiled(&mut self, smem: u32, threads: u32, want: [bool; 3]) -> anyhow::Result<TreeTiled> {
+    fn install_tiled(&mut self, smem: u32, threads: u32, want: [bool; 4]) -> anyhow::Result<TreeTiled> {
         if self.layers_host.iter().any(|y| y.ot != 0) {
             anyhow::bail!("4E tree: the tiled and stream arms do not copy a Tetra o_proj; this model carries one");
         }
         let stream = self.cuda.stream().clone();
         let mut cudas = Vec::new();
-        let mut fns: [Option<CudaFunction>; 3] = [None, None, None];
+        let mut fns: [Option<CudaFunction>; 4] = [None, None, None, None];
         for (k, want) in want.into_iter().enumerate() {
             if !want {
                 continue;
@@ -1236,7 +1253,8 @@ impl Runtime4e {
             let (tag, text, sym, def) = match k {
                 0 => ("tiled", pers::p4t_tiled_unit_text(&self.tile_define), pers::p4t_tiled_symbol(self.form), "P4T_TILED 1"),
                 1 => ("stream", pers::p4t_stream_unit_text(&self.tile_define), pers::p4t_stream_symbol(self.form), "P4T_STREAM 1 and P4T_TILED 1"),
-                _ => ("a4", pers::p4t_a4_unit_text(&self.tile_define, true, true), pers::p4t_a4_symbol(self.form), "P4T_A4 1 (F1, F2), P4T_STREAM 1 and P4T_TILED 1"),
+                2 => ("a4", pers::p4t_a4_unit_text(&self.tile_define, true, true), pers::p4t_a4_symbol(self.form), "P4T_A4 1 (F1, F2), P4T_STREAM 1 and P4T_TILED 1"),
+                _ => ("a5", pers::p4t_a5_unit_text(&self.tile_define), pers::p4t_a5_symbol(self.form), "P4T_A5 1, P4T_A4 1 (F1, F2), P4T_STREAM 1 and P4T_TILED 1"),
             };
             let sym = sym.map_err(anyhow::Error::msg)?;
             let src = llvq_cuda::gpu::KernelSource::new(&[text.as_str()]);
@@ -1317,8 +1335,8 @@ impl Runtime4e {
         ));
         let layers = stream.clone_htod(&vec![0u8; pers::P4E_LAYER_BYTES * self.layers_host.len()]).map_err(|e| anyhow::anyhow!("H2D: {e}"))?;
         let args = stream.clone_htod(&vec![0u8; pers::P4E_ARGS_BYTES]).map_err(|e| anyhow::anyhow!("H2D: {e}"))?;
-        let [f, fs, f4] = fns;
-        Ok(TreeTiled { _cudas: cudas, f, fs, f4, _held: held, swaps, head, layers, args, seen: Vec::new() })
+        let [f, fs, f4, f5] = fns;
+        Ok(TreeTiled { _cudas: cudas, f, fs, f4, f5, _held: held, swaps, head, layers, args, seen: Vec::new() })
     }
 
     /// The arms installed, in the order [`Self::tree`] indexes them.
@@ -1412,7 +1430,7 @@ impl Runtime4e {
         let n_bar = pers::n_bar_4et(self.n_layers, v.n_ot);
         let stamps: Option<CudaSlice<u64>> = if stamped {
             // an a4 launch adds its F3 slots after the phase events: 20 a CTA
-            let extra = if spec.form == TreeForm::A4 { 20 } else { 0 };
+            let extra = if matches!(spec.form, TreeForm::A4 | TreeForm::A5) { 20 } else { 0 };
             Some(stream.alloc_zeros::<u64>((1 + 2 * n_bar + extra) as usize * self.grid as usize).map_err(|e| anyhow::anyhow!("alloc stamps: {e}"))?)
         } else {
             None
@@ -1465,6 +1483,7 @@ impl Runtime4e {
             (TreeForm::Tiled, Some(TreeTiled { f: Some(f), args, .. })) => (f, args),
             (TreeForm::Stream, Some(TreeTiled { fs: Some(f), args, .. })) => (f, args),
             (TreeForm::A4, Some(TreeTiled { f4: Some(f), args, .. })) => (f, args),
+            (TreeForm::A5, Some(TreeTiled { f5: Some(f), args, .. })) => (f, args),
             (form, _) => anyhow::bail!("4E tree: arm {} is {form:?} and its module is not installed", spec.name),
         };
         let mut b = stream.launch_builder(func);
