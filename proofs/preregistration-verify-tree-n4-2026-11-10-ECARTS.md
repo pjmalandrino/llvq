@@ -20,3 +20,15 @@ billed.
   Load and install (800 to 850 s expected) leave about 8 min of the twin's 24 for the measurement, against 15 for the
   bench's own 27-min limit on l40sx1: if the twin runs and its job timeout ends the bench first, the context it had
   not reached is missing, and that is written in the journal.
+
+## Deviation 2: N4 never started; superseded by N5
+
+Written on 2026-11-10 at 08:15 CET. Neither copy ever left the queue: the l40sx1 job `6af2a8119737d9a9e08ef3a4` waited
+from 06:13 to 08:15 CET (about 2 h 1 min), the l40sx4 twin `6af2abc8ab34849891aa5b16` from 06:29 to 08:15 (about 1 h 45
+min). Both were cancelled at 08:15 on the orchestrating session's instruction, after the operator said to continue;
+both read CANCELED, never ran, $0. No number of this prereg was measured.
+
+N4 is superseded by N5 (`preregistration-verify-tree-n5-2026-11-10.md`), which carries N4's ladder arms a3f, a3p and
+a3t at the plan [5, 14, 5, 28, 5] under their N4 predictions, and a3@[5, 14, 5, 28, 5]. a8 and a3@[5, 7, 5, 16, 5] are
+not rerun. As for the twins cancelled in the queue earlier tonight, no row goes to docs/data/jobs.csv for a job that
+never ran and cost $0.
