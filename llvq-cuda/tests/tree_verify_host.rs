@@ -1029,7 +1029,7 @@ fn a5_prefetch_mutant_is_killed() {
 /// slices: every row's argmax, logits, residual, K and V equal.
 #[allow(clippy::too_many_arguments)]
 fn gate_pair(bin: &Path, refb: &Path, f: &Fix, v: u32, r: u32, t: &Tree, sizes: &[usize], pos0: u32) -> Result<usize, String> {
-    let arms = 32 | 128 | 256 | 512 | 1024 | 2048 | 4096 | 8192 | 16384 | 32768 | 65536;
+    let arms = 32 | 128 | 256 | 512 | 1024 | 2048 | 4096 | 8192 | 16384 | 32768 | 65536 | 131072;
     let passes: Vec<Pass> =
         sizes.iter().enumerate().map(|(i, &s)| Pass::of(t, &t.subset(s, 0x6100 + i as u64), pos0, 0x7a00 + i as u64)).collect();
     let u = exec(refb, &Fix { variant: (f.variant & !arms) | r, ..*f }, None, &passes)?;
@@ -1186,4 +1186,54 @@ fn a9_mutants_are_killed() {
         }
     }
     eprintln!("a9 mutants: {killed} of {} killed", muts.len());
+}
+
+// ---- arm a10: a9 with 4E's prologue path ----
+
+/// a10 equals a9 bit for bit at R = 1, 2, 8, 16, 32 under both stream plans,
+/// and on the 8B's parts at form 2.
+#[test]
+#[cfg_attr(debug_assertions, ignore)]
+fn a10_rows_equal_a9_rows() {
+    let t = tree(32, 7, 0x3fc);
+    for split in [SPLIT_N2, SPLIT_N2B] {
+        let n = gate_pair(host(), host(), &Fix { split, ..FIX }, 131072, 65536, &t, &[1, 2, 8, 16, 32], 9).unwrap();
+        eprintln!("split {split:?}: {n} rows, a10 equals a9 bit for bit");
+    }
+    let t = tree(12, 4, 0x3fd);
+    let f = Fix { form: 2, variant: 16, cap: 288, split: SPLIT_N2B, ..FIX };
+    let n = gate_pair(host(), host(), &f, 131072, 65536, &t, &[1, 5], 254).unwrap();
+    eprintln!("8B's parts, form 2: {n} rows, a10 equals a9 bit for bit");
+}
+
+/// Each guard of the staged prologues and of the silu in the fold step has a
+/// mutant, killed by a10's gate against a9. The twin's layers share their
+/// rotations, so "a stale small" is ln2 staged with ln1's rows.
+#[test]
+#[cfg_attr(debug_assertions, ignore)]
+fn a10_mutants_are_killed() {
+    let t = tree(12, 4, 0x3fe);
+    let f = Fix { split: SPLIT_N2B, ..FIX };
+    gate_pair(host(), host(), &f, 131072, 65536, &t, &[1, 9], 9).expect("the unmutated a10 pass passes its gate");
+    let k = "llvq-cuda/kernels/pers_4et_a10.cu";
+    let muts: &[(&str, &[Edit])] = &[
+        ("stale_small", &[(k, "pers_v7_stage_rot(v7a10, M.signs_h, H, M.small_h, M.k_h)", "pers_v7_stage_rot(v7a10, M.signs_h, H, Y.small_a, M.k_h)")]),
+        ("sign_word", &[(k, "pers_v7_stage_rot(v7a10, M.signs_h, H, M.small_h, M.k_h)", "pers_v7_stage_rot(v7a10, M.signs_h + 1, H, M.small_h, M.k_h)")]),
+        ("silu_pairing", &[(k, "su.part + (unsigned long long)n * su.d_out + row0));", "su.part + (unsigned long long)n * su.d_out + (row0 ^ 4u)));")]),
+        ("rows_short", &[(k, "M.small_i, M.k_i));", "M.small_i, M.k_i - 1u));")]),
+    ];
+    let mut killed = 0;
+    for (tag, edits) in muts {
+        let b = mutant(tag, edits);
+        let r = gate_pair(&b, host(), &f, 131072, 65536, &t, &[1, 9], 9);
+        let _ = std::fs::remove_file(&b);
+        match r {
+            Err(e) => {
+                killed += 1;
+                eprintln!("{tag}: killed by {}", e.lines().next().unwrap_or(""))
+            }
+            Ok(_) => panic!("a10 mutant {tag} survived its gate"),
+        }
+    }
+    eprintln!("a10 mutants: {killed} of {} killed", muts.len());
 }

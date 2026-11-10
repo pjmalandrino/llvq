@@ -1977,6 +1977,25 @@ pub fn p4t_phases_a9(stamps: &[u64], n_layers: u32, grid: u32) -> Result<Vec<[f6
         .collect())
 }
 
+/// The module text of arm a10 (`pers_4et_a10.cu`, a9 with 4E's prologues),
+/// after [`p4t_a9_unit_text`], which keeps its bytes. Same waits as a9.
+pub fn p4t_a10_unit_text(tile_define: &str) -> String {
+    format!("#define P4T_A10 1\n{}\n{}", p4t_a9_unit_text(tile_define), P4T_A10_PART.1)
+}
+
+/// The a10 symbol for a RoPE form.
+pub fn p4t_a10_symbol(form: u32) -> Result<&'static str, String> {
+    Ok(match form {
+        0 => "pers_4et_a10_f0_t512",
+        1 => "pers_4et_a10_f1_t512",
+        2 => "pers_4et_a10_f2_t512",
+        _ => return Err(format!("tree verify: no a10 kernel for RoPE form {form}")),
+    })
+}
+
+/// `pers_4et_a10.cu`, embedded so the Mac hashes what the card compiles.
+pub const P4T_A10_PART: (&str, &str) = ("pers_4et_a10.cu", include_str!("../kernels/pers_4et_a10.cu"));
+
 /// `pers_4et_a9.cu`, embedded so the Mac hashes what the card compiles.
 pub const P4T_A9_PART: (&str, &str) = ("pers_4et_a9.cu", include_str!("../kernels/pers_4et_a9.cu"));
 
@@ -3141,6 +3160,117 @@ mod tests {
         assert_eq!(p[16][0], 2000.0, "head fold once");
         assert_eq!(p[14][0], 2000.0, "norm once");
         assert_eq!(p.iter().map(|x| x[0]).sum::<f64>(), 2000.0 * n_bar as f64);
+    }
+
+    #[test]
+    fn the_a10_body_is_the_a9_body() {
+        // pers_4et_a10.cu carries a9's pass with the prologue and fold-step
+        // substitutions; the waits are a9's (P4T_WAIT_GAP counts as one)
+        let src = P4T_A9_PART.1;
+        let c = src.find("template <int FORM>\n__device__ __forceinline__ void pers_4et_a9_body(").unwrap();
+        let end = "#undef P4T_WAIT\n}\n";
+        let d = c + src[c..].find(end).unwrap() + end.len();
+        let a9 = &src[c..d];
+        // the generator's substitutions, replayed (scratch gen_a10.py's pairs)
+        let gap = r##"#define P4T_WAIT_GAP(...)                                                                            \
+    do {                                                                                             \
+        if (L.stamps != nullptr) {                                                                   \
+            __syncthreads();                                                                         \
+            if (threadIdx.x == 0u) L.stamps[(size_t)(2u * nb + 1u) * G + c0] = pers_now();           \
+        }                                                                                            \
+        if (!pers_grid_wait_gap(A->bar, L.bar_base + (++nb) * G, A->abort_flag, [&] { __VA_ARGS__; })) return; \
+        if (L.stamps != nullptr && threadIdx.x == 0u) L.stamps[(size_t)(2u * nb) * G + c0] = pers_now(); \
+    } while (0)
+    // a10: the staged rotation area (null: the prologues keep a9's path)
+    float* const v7a10 = p4t_v7_a10(S, L.area_floats, 2u * H > A->layers[0].mlp.inter ? 2u * H : A->layers[0].mlp.inter);
+"##;
+        let dn0 = a9.find("        for (u32 r = c0; r < R; r += G) {\n            const unsigned short* gr = L.g_raw").unwrap();
+        let dn_end = "            } else {\n                __syncthreads();\n            }\n        }\n";
+        let dn1 = dn0 + a9[dn0..].find(dn_end).unwrap() + dn_end.len();
+        let dn_old = &a9[dn0..dn1];
+        let pairs: Vec<(String, String)> = vec![
+            ("void pers_4et_a9_body(".into(), "void pers_4et_a10_body(".into()),
+            ("    } while (0)\n".into(), format!("    }} while (0)\n{gap}")),
+            (r##"                   H * (c0 + 1u) / G);
+    P4T_WAIT();
+    for (u32 l = 0; l < NL; ++l) {
+"##.into(),
+             r##"                   H * (c0 + 1u) / G);
+    P4T_WAIT_GAP(if (v7a10 != nullptr) pers_v7_stage_rot(v7a10, A->layers[0].signs_a, H, A->layers[0].small_a, A->layers[0].k_a));
+    for (u32 l = 0; l < NL; ++l) {
+"##.into()),
+            (r##"            p4t_ln(L.x_a + (size_t)r * H, Y.ln1, Y.signs_a, A->eps, H, S, L.xn + (size_t)r * H);
+            pers_rot_finish(S, Y.small_a, H, Y.m_a, Y.k_a, Y.inv_a);
+            p4t_out(S, H, L.xin + (size_t)r * L.ldx);
+"##.into(),
+             r##"            p4t_ln_rot_a10(L.x_a + (size_t)r * H, Y.ln1, Y.signs_a, Y.small_a, A->eps, H, Y.m_a, Y.k_a, Y.inv_a, S, v7a10,
+                           L.xn + (size_t)r * H, L.xin + (size_t)r * L.ldx);
+"##.into()),
+            (r##"            p4t_fold_a9(so, so, so, 1u, L, A, cmax);
+        }
+        P4T_WAIT();
+"##.into(),
+             r##"            p4t_fold_a9(so, so, so, 1u, L, A, cmax);
+        }
+        P4T_WAIT_GAP(if (v7a10 != nullptr) pers_v7_stage_rot(v7a10, M.signs_h, H, M.small_h, M.k_h));
+"##.into()),
+            (r##"            p4t_ln(L.x_b + (size_t)r * H, M.alpha, M.signs_h, M.eps, H, S, nullptr);
+            pers_rot_finish(S, M.small_h, H, M.m_h, M.k_h, M.inv_h);
+            p4t_out(S, H, L.xin + (size_t)r * L.ldx);
+"##.into(),
+             r##"            p4t_ln_rot_a10(L.x_b + (size_t)r * H, M.alpha, M.signs_h, M.small_h, M.eps, H, M.m_h, M.k_h, M.inv_h, S, v7a10,
+                           nullptr, L.xin + (size_t)r * L.ldx);
+"##.into()),
+            (r##"            p4t_fold_a9(sg, su, su, 2u, L, A, cmax);
+        }
+        P4T_WAIT();
+"##.into(),
+             r##"            p4t_fold_gu_a10(sg, su, M, L);
+        }
+        P4T_WAIT_GAP(if (v7a10 != nullptr && Y.tetra_down) pers_v7_stage_rot(v7a10, M.signs_i, I, M.small_i, M.k_i));
+"##.into()),
+            (dn_old.to_string(), r##"        for (u32 r = c0; r < R; r += G) p4t_dn_in_a10(M, Y.tetra_down, L.xin + (size_t)r * L.ldx, S, I, v7a10);
+"##.into()),
+            (r##"            p4t_fold_a9(sd, sd, sd, 1u, L, A, cmax);
+        }
+        P4T_WAIT();
+    }
+"##.into(),
+             r##"            p4t_fold_a9(sd, sd, sd, 1u, L, A, cmax);
+        }
+        P4T_WAIT_GAP(if (v7a10 != nullptr) {
+            if (l + 1u < NL) pers_v7_stage_rot(v7a10, A->layers[l + 1u].signs_a, H, A->layers[l + 1u].small_a, A->layers[l + 1u].k_a);
+            else p4t_v7_zero_signs_a10(v7a10, H);
+        });
+    }
+"##.into()),
+            (r##"        p4t_ln(L.x_a + (size_t)r * H, A->final_norm, nullptr, A->eps, H, S, L.xin + (size_t)r * L.ldx);
+"##.into(),
+             r##"        p4t_ln_final_a10(L.x_a + (size_t)r * H, A->final_norm, A->eps, H, S, v7a10, L.xin + (size_t)r * L.ldx);
+"##.into()),
+            ("#undef P4T_WAIT\n}\n".into(), "#undef P4T_WAIT_GAP\n#undef P4T_WAIT\n}\n".into()),
+        ];
+        let mut b10 = a9.to_string();
+        for (x, y) in &pairs {
+            assert_eq!(b10.matches(x.as_str()).count(), 1, "{}", &x[..x.len().min(60)]);
+            b10 = b10.replacen(x.as_str(), y, 1);
+        }
+        assert_eq!(P4T_A10_PART.1.matches(b10.as_str()).count(), 1, "the a10 pass drifted from the a9 pass");
+        let waits = |t: &str| t.matches("P4T_WAIT();").count() + t.matches("P4T_WAIT_GAP(if").count();
+        assert_eq!(waits(a9), waits(&b10), "a10 keeps a9's waits");
+        let t = p4t_a10_unit_text(SERVED_DEFINES_SM89);
+        assert!(t.contains(&p4t_a9_unit_text(SERVED_DEFINES_SM89)));
+        for f in 0..3 {
+            assert_eq!(t.matches(p4t_a10_symbol(f).unwrap()).count(), 1);
+        }
+        eprintln!("tree module a10 at SERVED_DEFINES_SM89: {} bytes, sha256 {}", t.len(), crate::sha256::sha256_hex(t.as_bytes()));
+        // the staged area fits above the widest prologue row at the 4B and on the twin
+        for (nw, widest) in [(16u32, 9728u32), (2, 9728)] {
+            let area = p4t_area_floats(nw, 32, widest, 4);
+            let off = (area - 2 * P4T_RMAX - 1840) & !3;
+            eprintln!("area {area} floats at {nw} warps: the staged rotation at {off}, the prologue needs 9728");
+            assert!(off >= 9728);
+        }
     }
 
     use super::*;
