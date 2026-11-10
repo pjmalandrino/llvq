@@ -305,7 +305,17 @@ fn lin(x: &Tensor, w: &Tensor) -> candle_core::Result<Tensor> {
     x.matmul(&w.t()?)
 }
 
-/// The drafter's weights on one device, in one dtype.
+/// The drafter's weights on one device, in one dtype, except `fc` and
+/// `hidden_norm`, always f32.
+///
+/// Why f32 there: the taps of target layer 34 reach 15,352 on the fixture's
+/// chat prompt, and `fc` sums 12,800 of them; its output passed 65,504 on 5
+/// values of 64 positions in binary16 (*measured* on Metal, 2026-11-10).
+/// `hidden_norm` turns each such row into NaN, which the cached context
+/// carries into every block: the f16 drafter proposed token 151551 fifteen
+/// times on every round, and the card accepted 0.00 to 0.02 drafts a pass
+/// (SP2). bf16 has the range; f16 does not. The output of `hidden_norm` is
+/// bounded, so the rest runs in the drafter's dtype.
 pub struct DFlashDrafter {
     pub cfg: DFlashConfig,
     fc: Tensor,
@@ -373,11 +383,11 @@ impl DFlashDrafter {
             let t = w.remove(k).with_context(|| format!("drafter: no `{k}`"))?;
             Ok(t.to_dtype(dtype)?.to_device(device)?)
         };
-        let fc = take("fc.weight")?;
+        let fc = take("fc.weight")?.to_dtype(DType::F32)?;
         if fc.dims() != [cfg.hidden, TAP_LAYERS.len() * cfg.hidden] {
             bail!("fc.weight {:?}", fc.dims());
         }
-        let hidden_norm = take("hidden_norm.weight")?;
+        let hidden_norm = take("hidden_norm.weight")?.to_dtype(DType::F32)?;
         let norm = take("norm.weight")?;
         let mut layers = Vec::with_capacity(cfg.layers);
         for i in 0..cfg.layers {
@@ -414,13 +424,13 @@ impl DFlashDrafter {
 
     /// Bytes of the drafter's weights in its dtype.
     pub fn weight_bytes(&self) -> usize {
-        let mut n = self.fc.elem_count() + self.hidden_norm.elem_count() + self.norm.elem_count();
+        let mut n = self.norm.elem_count();
         for l in &self.layers {
             for t in [&l.q, &l.k, &l.v, &l.o, &l.q_norm, &l.k_norm, &l.ln1, &l.ln2, &l.gate, &l.up, &l.down] {
                 n += t.elem_count();
             }
         }
-        n * self.dtype.size_in_bytes()
+        n * self.dtype.size_in_bytes() + (self.fc.elem_count() + self.hidden_norm.elem_count()) * 4
     }
 
     /// An empty context with room for `cap` positions (it grows by doubling).
@@ -476,8 +486,9 @@ impl DFlashDrafter {
             }
             ctx.cap = cap;
         }
-        let taps = taps.to_device(&self.device)?.to_dtype(self.dtype)?;
-        let c = self.rms(&lin(&taps, &self.fc)?, &self.hidden_norm)?;
+        // fc and hidden_norm in f32 whatever the dtype: see the struct's note
+        let taps = taps.to_device(&self.device)?.to_dtype(DType::F32)?;
+        let c = self.rms(&lin(&taps, &self.fc)?, &self.hidden_norm)?.to_dtype(self.dtype)?;
         let (cos, sin) = self.rope_tables(ctx.len, n)?;
         for (li, l) in self.layers.iter().enumerate() {
             let k = self.rms(&lin(&c, &l.k)?.reshape((n, kvh, dh))?, &l.k_norm)?;

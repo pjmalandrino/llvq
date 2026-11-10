@@ -71,6 +71,18 @@ fn main() -> anyhow::Result<()> {
         drop(drafter);
         (DFlashDrafter::load(&ddir, &device, dtype)?, v)
     };
+    // The timed dtype must draft too: the f16 drafter overflowed in fc and drafted NaN (SP2,
+    // 2026-11-10) while the f32 check above passed. Below f32 the tokens may part on near-ties,
+    // so the gate is the logits' error (NaN fails it) and at least half the rounds' chains.
+    let ok = if dtype == DType::F32 {
+        ok
+    } else {
+        let low = dflash::check_fixture(&fixture, &drafter, &vocab)?;
+        println!("equivalence ({dtype:?}): {low}");
+        let pass = low.logit_rel < 5e-2 && 2 * low.chain_equal >= low.rounds;
+        println!("equivalence ({dtype:?}) {}", if pass { "PASS" } else { "FAIL" });
+        ok && pass
+    };
     let fx = candle_core::safetensors::load(&fixture, &candle_core::Device::Cpu)?;
     let taps = fx.get("p0.taps").context("fixture: no p0.taps")?.to_device(&device)?;
     let n = taps.dim(0)?;
