@@ -1,0 +1,327 @@
+arm a3@5.14.5.28.5: added as a guard only (its 32-row pass, untimed)
+target: served config: /out/verify-tree-n3-2026-11-10/qwen3-4b-tetra-e4-4e-v9.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention kernel from position 0 on grow(256), decode persistent (4E rows v9, one launch a token run)) — The qwen3-4b-tetra-e4 object (qwen3-4b-sealed.bin, sha256 886391a8), the v6 config with the v9 row loop and nothing else different: the kernel attention form on every decode row from position 0, decoded by 4E v9 (row form 7: v6, the launch's constants staged during the barriers, attention's steps in a cp.async ring, and the int4 rows v, o and the int4 downs read from tiled words; one cooperative launch a token run, 512 threads). Under this config the loader writes the int4 words tiled and holds them once on the card: the eager path, which prefills, reads the same words through tv_q4_hht, checked against tv_q4_hh on the file's order at every load. The file and its 2.7320 b/param do not move (a permutation inside each row, computed). Written on 2026-11-07 on the operator's go to serve v9 with one copy of the int4 bytes. In the measurement form v9 decodes 238.6 tok/s after a 5-token prompt against 213.3 for v6 (x1.118 round by round) and 163.5 at 8,192 against 154.2 (x1.060), the same 64 tokens as the eager path at both contexts (measured, step3-4e-2026-11-07, with the int4 bytes twice on the card). Not yet read at the served door: served-v9 (proofs/preregistration-served-v9-2026-11-07.md) reads it. Refused on Metal and on any object but the 4B.
+cudarc event tracking: off (one stream, ordered by issue)
+shared rotation: 1 (vtreebench), 96 rot_launches/token for 252 projections
+projection fusion: 0 (vtreebench), 252 matvec_launches/token for 252 projections (0 groups + 168 lone + 84 int4)
+fused layout: tetra48 (vtreebench), projections 1.16 GB on the card, 2.550 b/weight (INFERENCE accounting: KeepExact tail in binary16; the bench bills its own in f32)
+NVRTC source: 106947 bytes, sha256 e269ea5d11b7e40ba0682f536f52ed9f09abfaa9fd6f3185eb306edca5c60e53 (12 parts), tile 64 (served: measured optimum for sm_89), prefill 4x128 (served pair), 49152 B staged of 49152, target compute_89
+int4: tv_q4_hht equals tv_q4_ht bit for bit on model.layers.0.self_attn.v_proj.weight (1024 rows, d_in 2560)
+int4: tv_q4_hht on the tiled words equals tv_q4_hh on the file's order bit for bit on model.layers.0.self_attn.v_proj.weight (1024 rows, d_in 2560); the file-order copy is freed
+int4: tv_q4_hht on the tiled words equals tv_q4_hh on the file's order bit for bit on model.layers.0.self_attn.o_proj.weight (2560 rows, d_in 4096); the file-order copy is freed
+int4: tv_q4_hht on the tiled words equals tv_q4_hh on the file's order bit for bit on model.layers.12.mlp.down_proj.weight (2560 rows, d_in 9728); the file-order copy is freed
+int4 layout: tiled (vtreebench), 84 records, words 0.385 GB on the card, held once
+embedding: q4 g64 (vtreebench), 1 table (model.embed_tokens.weight, lm_head tied on it), 218.8 MB on the card (int4 194.5 + scales/biases 24.3)
+total expected on the card: 1.38 GB (projections 1.16 + carried 0.22)
+attn_dec.cu: embedded, sha256 c7b0d8d3f2e3066ba1a2b4331c0bb6c92f22182c78a31b7fb74e839330a1838d, target compute_89
+attn_dec_g4_u64: 160 registers, 0 B local (spill), 16384 B static shared, sm_89
+attn_dec_g4_u64: the card equals the CPU replay bit for bit on 103 calls (rows ending at 1, 255, 256, 257, 1000, 4096; k 1, 3, 8; eager and wide grids; verify rows alone; fresh rows) (1.2 s)
+4E: persistent module 252757 bytes, sha256 1b422b62328be6752df4add43280565fd2a49cfa20ee26953b301abe7a15c530, row form 7, own module on candle's stream
+4E: RoPE forms equal to candle's rope on this card: [1]; running form 1
+4E: pers_4e_tokens_f1_t512: 128 registers, 0 B local, 85952 B shared, 1 resident a SM
+4E: pers_4e_stamps_f1_t512: 128 registers, 32 B local, 1 resident a SM (phase stamps, outside the timed rounds)
+4E: head tied to the embedding's table (151936 rows)
+4E v9: the 76 prologue inputs are 16-byte aligned; the vector path runs on every layer
+4E v9: the int4 records are read in place, tiled at load and held once on the card (36 layers)
+4E: 36 layers, grid 142 x 512, 218 barriers a token
+4E tree: module 306060 bytes, sha256 ce1c354d2583eb178ae8622ff99e10f9b457543972bb5039ce89ede9eec31e44, row form 7 and pers_4et.cu, its own module
+4E tree: pers_4et_rows_f1_t512: 128 registers, 720 B local, 89984 B shared, 1 resident a SM
+4E tree: arm a3 (stream, the stream plan): slices [11, 14, 7, 28, 5]; S, units, waves, fill, sub-steps a slice at most: q/k/v 11 264 2 93.0 % 5, o 14 140 1 98.6 % 7, gate/up 7 532 4 93.7 % 8, down 28 280 2 98.6 % 8, head 5 2970 21 99.6 % 11
+4E tree: arm a6 (a6, the stream plan): slices [11, 14, 7, 28, 5]; S, units, waves, fill, sub-steps a slice at most: q/k/v 11 264 2 93.0 % 5, o 14 140 1 98.6 % 7, gate/up 7 532 4 93.7 % 8, down 28 280 2 98.6 % 8, head 5 2970 21 99.6 % 11
+4E tree: arm a6@5.14.5.28.5 (a6, an explicit plan): slices [5, 14, 5, 28, 5]; S, units, waves, fill, sub-steps a slice at most: q/k/v 5 120 1 84.5 % 11, o 14 140 1 98.6 % 7, gate/up 5 380 3 89.2 % 11, down 28 280 2 98.6 % 8, head 5 2970 21 99.6 % 11
+4E tree: arm a7 (a7, the stream plan): slices [11, 14, 7, 28, 5]; S, units, waves, fill, sub-steps a slice at most: q/k/v 11 264 2 93.0 % 5, o 14 140 1 98.6 % 7, gate/up 7 532 4 93.7 % 8, down 28 280 2 98.6 % 8, head 5 2970 21 99.6 % 11
+4E tree: arm a3f (a3f (floor, values void), the stream plan): slices [11, 14, 7, 28, 5]; S, units, waves, fill, sub-steps a slice at most: q/k/v 11 264 2 93.0 % 5, o 14 140 1 98.6 % 7, gate/up 7 532 4 93.7 % 8, down 28 280 2 98.6 % 8, head 5 2970 21 99.6 % 11
+4E tree: arm a3@5.14.5.28.5 (stream, an explicit plan): slices [5, 14, 5, 28, 5]; S, units, waves, fill, sub-steps a slice at most: q/k/v 5 120 1 84.5 % 11, o 14 140 1 98.6 % 7, gate/up 5 380 3 89.2 % 11, down 28 280 2 98.6 % 8, head 5 2970 21 99.6 % 11
+4E tree: the stream unit's slices hold at most 13 sub-steps (area 17728 floats, 16 warps, 32 staged rows)
+4E tree: 512 threads, 17728 floats of area; 0.133 GB of row buffers
+4E tree stream: module 330604 bytes, sha256 69e7b937fa44e30310e65009c81039d6235033f2c9b9674e06a4ec865d894057, P4T_STREAM 1 and P4T_TILED 1, its own module
+4E tree stream: pers_4et_stream_f1_t512: 128 registers, 744 B local, 89984 B shared, 1 resident a SM
+4E tree a6: module 378250 bytes, sha256 470b751304e2e265e22605d29b2295270b111de1186c4117633bead85f38b80c, P4T_A6 1 after a3's text, its own module
+4E tree a6: pers_4et_a6_f1_t512: 128 registers, 744 B local, 89984 B shared, 1 resident a SM
+4E tree a7: module 426757 bytes, sha256 5b7485bc7970d52c894b598bb4e697155634688467a8b80b285cece7f9749386, P4T_A7 1 after a5's text, its own module
+4E tree a7: pers_4et_a7_f1_t512: 128 registers, 1464 B local, 89984 B shared, 1 resident a SM
+4E tree a3f: module 378251 bytes, sha256 46fa12897e77dc81161cbc53a9ed1d1c8c3cde748881d838909d71a499e81f33, P4T_A3F 1 after a3's text, a floor arm, its own module
+4E tree a3f: pers_4et_a3f_f1_t512: 128 registers, 744 B local, 89984 B shared, 1 resident a SM
+4E tree tiled: 253 tree-tiled copies (q, k, v, o, gate, up, down a layer, the head), 1.308 GB more on the card
+arm a3: Stream kernel, Stream plan, slices [11, 14, 7, 28, 5]
+arm a6: A6 kernel, Stream plan, slices [11, 14, 7, 28, 5]
+arm a6@5.14.5.28.5: A6 kernel, Explicit([5, 14, 5, 28, 5]) plan, slices [5, 14, 5, 28, 5]
+arm a7: A7 kernel, Stream plan, slices [11, 14, 7, 28, 5]
+arm a3f: A3f kernel, Stream plan, slices [11, 14, 7, 28, 5]
+arm a3@5.14.5.28.5: Stream kernel, Explicit([5, 14, 5, 28, 5]) plan, slices [5, 14, 5, 28, 5]
+loaded in 737.7 s
+
+== tree, chat: context 62, arms a3, a6, a6@5.14.5.28.5, a7, a3f
+  a3 vt1 against 4E: the same argmax at 64 of 64 positions
+  a3 identity: every row equals its node in the 32-row pass, logits and argmax, 67 rows of 5 passes
+  a6 vt1 against 4E: the same argmax at 64 of 64 positions
+  a6 identity: every row equals its node in the 32-row pass, logits and argmax, 67 rows of 5 passes
+  a6@5.14.5.28.5 vt1 against 4E: the same argmax at 64 of 64 positions
+  a6@5.14.5.28.5 identity: every row equals its node in the 32-row pass, logits and argmax, 67 rows of 5 passes
+  a7 vt1 against 4E: the same argmax at 64 of 64 positions
+  a7 identity: every row equals its node in the 32-row pass, logits and argmax, 67 rows of 5 passes
+  a3f (floor arm, values void): no vt1 check, no identity, no guard
+  a6 against a3 (same slices): the 32-row pass equal bit for bit, argmax at 32 of 32 rows
+  a6@5.14.5.28.5 against a3 (other slices): the same argmax at 32 of 32 rows
+  a7 against a3 (same slices): the 32-row pass equal bit for bit, argmax at 32 of 32 rows
+  a3@5.14.5.28.5 against a3 (other slices): the same argmax at 32 of 32 rows
+  a6@5.14.5.28.5 against a6 (other slices): the same argmax at 32 of 32 rows
+  a7 against a6 (same slices): the 32-row pass equal bit for bit, argmax at 32 of 32 rows
+  a3@5.14.5.28.5 against a6 (other slices): the same argmax at 32 of 32 rows
+  a7 against a6@5.14.5.28.5 (other slices): the same argmax at 32 of 32 rows
+  a3@5.14.5.28.5 against a6@5.14.5.28.5 (same slices): the 32-row pass equal bit for bit, argmax at 32 of 32 rows
+  a3@5.14.5.28.5 against a7 (other slices): the same argmax at 32 of 32 rows
+  a6 guard against a3 (slices [11, 14, 7, 28, 5] and [11, 14, 7, 28, 5]): PASSES, the 32-row pass equal bit for bit
+  a6@5.14.5.28.5 guard against a3@5.14.5.28.5 (slices [5, 14, 5, 28, 5] and [5, 14, 5, 28, 5]): PASSES, the 32-row pass equal bit for bit
+  a7 guard against a6 (slices [11, 14, 7, 28, 5] and [11, 14, 7, 28, 5]): PASSES, the 32-row pass equal bit for bit
+  4E, one token a launch: 4435.4 us [4432.8-4444.9] (host wall, launch to ring read)
+  timed passes whose argmaxes differ from their arm's 32-row pass: 0 of 105
+  a3  rows   wall us, median [range]     c_R = t(vt R) / t(4e), round by round, median [range]
+  a3     1     9158.5 [9149.2-9168.7]   c_1 2.065 [2.058-2.068]
+  a3     2     9164.8 [9147.8-9181.5]   c_2 2.065 [2.063-2.067]
+  a3    16    12903.5 [12871.1-12916.1]   c_16 2.903 [2.902-2.914]
+  a3 an extra row: (c_16 - c_1) / 15 = 0.0559 of a 4E token; c_2 2.065
+  a6  rows   wall us, median [range]     c_R = t(vt R) / t(4e), round by round, median [range]
+  a6     1     9237.9 [9235.0-9266.3]   c_1 2.082 [2.078-2.090]
+  a6     2     9222.2 [9217.6-9254.2]   c_2 2.078 [2.074-2.088]
+  a6    16    13029.8 [12988.6-13045.2]   c_16 2.932 [2.926-2.943]
+  a6 an extra row: (c_16 - c_1) / 15 = 0.0566 of a 4E token; c_2 2.078
+  a6@5.14.5.28.5  rows   wall us, median [range]     c_R = t(vt R) / t(4e), round by round, median [range]
+  a6@5.14.5.28.5     1     8999.7 [8986.2-9012.3]   c_1 2.028 [2.022-2.031]
+  a6@5.14.5.28.5     2     9012.5 [8995.4-9029.1]   c_2 2.032 [2.024-2.037]
+  a6@5.14.5.28.5    16    11383.6 [11374.7-11393.8]   c_16 2.567 [2.559-2.570]
+  a6@5.14.5.28.5 an extra row: (c_16 - c_1) / 15 = 0.0359 of a 4E token; c_2 2.032
+  a7  rows   wall us, median [range]     c_R = t(vt R) / t(4e), round by round, median [range]
+  a7     1    14262.8 [14233.5-14279.1]   c_1 3.212 [3.209-3.220]
+  a7     2    14196.3 [14185.9-14243.4]   c_2 3.199 [3.192-3.213]
+  a7    16    17790.3 [17779.9-17804.7]   c_16 4.009 [4.003-4.016]
+  a7 an extra row: (c_16 - c_1) / 15 = 0.0531 of a 4E token; c_2 3.199
+  a3f (floor arm, values void)  rows   wall us, median [range]     c_R = t(vt R) / t(4e), round by round, median [range]
+  a3f (floor arm, values void)     1     8186.6 [8169.0-8198.2]   c_1 1.842 [1.841-1.849]
+  a3f (floor arm, values void)     2     8185.2 [8165.3-8186.1]   c_2 1.842 [1.838-1.847]
+  a3f (floor arm, values void)    16     8451.5 [8442.9-8454.6]   c_16 1.904 [1.901-1.907]
+  a3f (floor arm, values void) an extra row: (c_16 - c_1) / 15 = 0.0041 of a 4E token; c_2 1.842
+  4E stamped, two tokens:
+  phase stamps: 1 tokens read, clock grain 32 ns; us a token, median [range] over tokens
+    phase                                  wall       slowest CTA's work          mean CTA's work  share  slowest CTA
+    embedding               2.8 [2.8-2.8]      1.9 [1.9-1.9]      1.3 [1.3-1.3]   0.1%   134 (100%)
+    q/k/v                 667.2 [667.2-667.2]    692.4 [692.4-692.4]    652.5 [652.5-652.5]  14.3%   132 (19%)
+    norm/RoPE/append      124.8 [124.8-124.8]     74.6 [74.6-74.6]     22.0 [22.0-22.0]   2.7%    25 (11%)
+    attention             796.2 [796.2-796.2]    789.1 [789.1-789.1]    153.3 [153.3-153.3]  17.1%     2 (31%)
+    o                     341.1 [341.1-341.1]    292.5 [292.5-292.5]    260.7 [260.7-260.7]   7.3%    79 (8%)
+    MLP                  2362.2 [2362.2-2362.2]   2286.8 [2286.8-2286.8]   2244.9 [2244.9-2244.9]  50.7%     0 (6%)
+    head                  368.1 [368.1-368.1]    368.4 [368.4-368.4]    367.6 [367.6-367.6]   7.9%     1 (100%)
+    token                4662.4 [4662.4-4662.4]
+    inside q/k/v and MLP (CTA work, no wall)
+      q/k/v: ln1+rotation       254.4 [254.4-254.4]    234.9 [234.9-234.9]    25 (11%)
+      q/k/v: rows               447.6 [447.6-447.6]    417.5 [417.5-417.5]     2 (6%)
+      MLP: ln2+rotation         153.2 [153.2-153.2]    141.9 [141.9-141.9]   108 (14%)
+      MLP: gate/up rows        1441.2 [1441.2-1441.2]   1306.7 [1306.7-1306.7]   120 (8%)
+      MLP: inner wait           389.7 [389.7-389.7]    187.3 [187.3-187.3]     0 (19%)
+      MLP: down input           164.3 [164.3-164.3]    152.0 [152.0-152.0]     2 (14%)
+      MLP: down rows            490.8 [490.8-490.8]    457.0 [457.0-457.0]    21 (6%)
+  a3 vt1 phases, us summed over the layers, median of 5 stamped launches: wall 9137.4, row phases 6767.9 (74.1 %)
+  a3 vt1   phase      wall   busy min   busy med   busy max
+  a3 vt1    embed       1.8        0.6        0.8        1.0
+  a3 vt1      ln1     410.9       16.3       26.9      372.2
+  a3 vt1      qkv    1905.9     1138.6     1562.2     1741.2
+  a3 vt1     rope     125.2        6.4        8.6       87.8
+  a3 vt1     attn     593.4       12.0       13.7      570.7
+  a3 vt1        o     637.4       14.7      476.1      572.3
+  a3 vt1      ln2     333.7        2.6        3.6      298.7
+  a3 vt1   gateup    2621.3     1756.4     2205.6     2448.8
+  a3 vt1    dn_in     900.5        2.3        3.8      861.7
+  a3 vt1     down    1140.5      511.5      952.9     1018.7
+  a3 vt1     norm       4.1        0.2        0.2        3.2
+  a3 vt1     head     462.8      416.5      441.5      461.4
+  a3 vt16 phases, us summed over the layers, median of 5 stamped launches: wall 12867.0, row phases 10465.2 (81.3 %)
+  a3 vt16   phase      wall   busy min   busy med   busy max
+  a3 vt16    embed       7.0        5.7        6.0        6.6
+  a3 vt16      ln1     426.1       23.8       33.0      379.7
+  a3 vt16      qkv    3164.6     1490.2     1983.4     2731.6
+  a3 vt16     rope     135.5       80.6       99.3      107.1
+  a3 vt16     attn     640.9       22.4      607.4      612.6
+  a3 vt16        o     866.2       17.0      499.2      766.6
+  a3 vt16      ln2     331.4        2.5        4.2      296.4
+  a3 vt16   gateup    4105.2     2032.4     2541.4     3833.9
+  a3 vt16    dn_in     856.9        2.8        4.4      815.1
+  a3 vt16     down    1794.7      543.2     1016.5     1412.6
+  a3 vt16     norm       4.1        0.2        0.3        3.2
+  a3 vt16     head     534.5      442.3      467.6      532.8
+  a6 vt1 phases, us summed over the layers, median of 5 stamped launches: wall 9198.3, row phases 6772.9 (73.6 %)
+  a6 vt1   phase      wall   busy min   busy med   busy max
+  a6 vt1    embed       1.7        0.6        0.7        1.2
+  a6 vt1      ln1     444.1       17.9       27.3      406.7
+  a6 vt1      qkv    1909.0     1149.9     1566.8     1758.7
+  a6 vt1     rope     145.9        6.4       10.5       94.1
+  a6 vt1     attn     606.4        9.4       12.9      591.2
+  a6 vt1        o     645.5       14.3      485.4      576.4
+  a6 vt1      ln2     348.3        2.7        3.6      304.1
+  a6 vt1   gateup    2609.9     1739.6     2191.6     2459.1
+  a6 vt1    dn_in     875.0        7.9        9.4      834.5
+  a6 vt1     down    1143.6      508.9      951.3     1018.5
+  a6 vt1     norm       4.1        0.2        0.2        3.3
+  a6 vt1     head     464.9      415.9      441.8      463.2
+  a6 vt16 phases, us summed over the layers, median of 5 stamped launches: wall 12987.5, row phases 10547.7 (81.2 %)
+  a6 vt16   phase      wall   busy min   busy med   busy max
+  a6 vt16    embed       6.9        5.6        6.0        6.4
+  a6 vt16      ln1     437.7       23.6       33.4      400.2
+  a6 vt16      qkv    3171.0     1514.8     1995.7     2763.6
+  a6 vt16     rope     139.9       91.1       99.6      107.1
+  a6 vt16     attn     676.8       44.5      645.4      646.4
+  a6 vt16        o     893.0       18.7      538.1      781.2
+  a6 vt16      ln2     335.8        2.7        4.1      304.0
+  a6 vt16   gateup    4119.7     2049.0     2569.8     3855.1
+  a6 vt16    dn_in     838.6       10.4       12.3      799.4
+  a6 vt16     down    1830.5      570.0     1044.6     1414.6
+  a6 vt16     norm       4.1        0.2        0.3        3.1
+  a6 vt16     head     533.5      443.0      468.5      532.2
+  a6@5.14.5.28.5 vt1 phases, us summed over the layers, median of 5 stamped launches: wall 8954.0, row phases 6528.2 (72.9 %)
+  a6@5.14.5.28.5 vt1   phase      wall   busy min   busy med   busy max
+  a6@5.14.5.28.5 vt1    embed       1.7        0.6        0.8        1.1
+  a6@5.14.5.28.5 vt1      ln1     444.0       18.3       26.8      405.3
+  a6@5.14.5.28.5 vt1      qkv    1794.1      580.5     1496.5     1716.2
+  a6@5.14.5.28.5 vt1     rope     144.0        6.5        9.9       94.3
+  a6@5.14.5.28.5 vt1     attn     608.6        9.3       13.0      591.7
+  a6@5.14.5.28.5 vt1        o     647.9       14.3      487.6      583.6
+  a6@5.14.5.28.5 vt1      ln2     350.2        2.6        3.5      303.7
+  a6@5.14.5.28.5 vt1   gateup    2475.8     1587.6     2164.6     2376.5
+  a6@5.14.5.28.5 vt1    dn_in     873.1        7.5        9.1      834.8
+  a6@5.14.5.28.5 vt1     down    1147.6      510.5      952.9     1019.3
+  a6@5.14.5.28.5 vt1     norm       4.1        0.2        0.2        3.2
+  a6@5.14.5.28.5 vt1     head     462.8      414.8      440.7      461.6
+  a6@5.14.5.28.5 vt16 phases, us summed over the layers, median of 5 stamped launches: wall 11358.5, row phases 8944.3 (78.7 %)
+  a6@5.14.5.28.5 vt16   phase      wall   busy min   busy med   busy max
+  a6@5.14.5.28.5 vt16    embed       6.9        5.7        6.0        6.4
+  a6@5.14.5.28.5 vt16      ln1     429.6       22.9       31.2      390.9
+  a6@5.14.5.28.5 vt16      qkv    2314.9      728.2     1814.2     2161.2
+  a6@5.14.5.28.5 vt16     rope     138.5       88.4       98.6      105.7
+  a6@5.14.5.28.5 vt16     attn     671.8       42.5      639.5      641.8
+  a6@5.14.5.28.5 vt16        o     897.6       17.5      541.0      783.9
+  a6@5.14.5.28.5 vt16      ln2     328.6        2.5        3.8      293.9
+  a6@5.14.5.28.5 vt16   gateup    3379.3     1785.8     2395.9     3182.6
+  a6@5.14.5.28.5 vt16    dn_in     834.6        9.4       11.5      794.3
+  a6@5.14.5.28.5 vt16     down    1818.0      564.1     1037.6     1356.4
+  a6@5.14.5.28.5 vt16     norm       4.1        0.2        0.3        3.1
+  a6@5.14.5.28.5 vt16     head     534.5      442.2      469.3      533.6
+  a7 vt1 phases, us summed over the layers, median of 5 stamped launches: wall 14210.3, row phases 8314.1 (58.5 %)
+  a7 vt1   phase      wall   busy min   busy med   busy max
+  a7 vt1    embed       1.7        0.6        0.8        1.0
+  a7 vt1      ln1    2226.3     1193.2     1630.9     2180.6
+  a7 vt1      qkv    3082.8     2368.4     2725.5     2958.2
+  a7 vt1     rope     147.0        6.4        8.4      110.4
+  a7 vt1     attn    2240.7     1201.6     1851.4     2183.5
+  a7 vt1        o     667.7       38.5      520.6      609.7
+  a7 vt1      ln2     373.7        3.0        4.0      341.3
+  a7 vt1   gateup    3022.7     2107.2     2556.5     2832.3
+  a7 vt1    dn_in     901.8        8.8       10.7      853.2
+  a7 vt1     down    1075.0      456.0      874.7      962.0
+  a7 vt1     norm       5.1        0.2        0.8        3.7
+  a7 vt1     head     465.9      419.6      443.8      464.5
+  a7 vt16 phases, us summed over the layers, median of 5 stamped launches: wall 17781.5, row phases 11756.4 (66.1 %)
+  a7 vt16   phase      wall   busy min   busy med   busy max
+  a7 vt16    embed       7.2        5.8        6.1        6.5
+  a7 vt16      ln1    2194.3     1169.5     1660.9     2152.1
+  a7 vt16      qkv    4038.9     2423.2     2911.4     3624.4
+  a7 vt16     rope     145.1      104.8      110.9      118.8
+  a7 vt16     attn    2463.9      231.1     2265.0     2372.2
+  a7 vt16        o    1027.8       47.3      661.7      905.9
+  a7 vt16      ln2     360.4        2.8        4.2      326.6
+  a7 vt16   gateup    4422.6     2320.3     2879.4     3927.8
+  a7 vt16    dn_in     850.2       11.0       12.7      808.3
+  a7 vt16     down    1731.5      511.6      959.6     1369.3
+  a7 vt16     norm       4.1        0.3        0.9        3.4
+  a7 vt16     head     535.6      444.5      468.8      534.7
+  a3f (floor arm, values void) vt1 phases, us summed over the layers, median of 5 stamped launches: wall 8142.9, row phases 5929.0 (72.8 %)
+  a3f (floor arm, values void) vt1   phase      wall   busy min   busy med   busy max
+  a3f (floor arm, values void) vt1    embed       1.8        0.6        0.8        1.1
+  a3f (floor arm, values void) vt1      ln1     409.3       17.9       25.5      372.9
+  a3f (floor arm, values void) vt1      qkv    1653.1     1113.5     1482.3     1579.3
+  a3f (floor arm, values void) vt1     rope     134.0        6.3        9.3       90.3
+  a3f (floor arm, values void) vt1     attn     604.0       14.9       16.8      576.5
+  a3f (floor arm, values void) vt1        o     576.9       14.6      452.2      518.4
+  a3f (floor arm, values void) vt1      ln2     344.8        2.6        3.6      310.5
+  a3f (floor arm, values void) vt1   gateup    2224.0     1683.7     2071.6     2158.9
+  a3f (floor arm, values void) vt1    dn_in     715.8        2.3        3.3      677.6
+  a3f (floor arm, values void) vt1     down    1028.5      492.3      925.2      960.4
+  a3f (floor arm, values void) vt1     norm       4.1        0.2        0.3        3.1
+  a3f (floor arm, values void) vt1     head     446.5      410.8      434.7      445.2
+  a3f (floor arm, values void) vt16 phases, us summed over the layers, median of 5 stamped launches: wall 8427.0, row phases 6215.4 (73.8 %)
+  a3f (floor arm, values void) vt16   phase      wall   busy min   busy med   busy max
+  a3f (floor arm, values void) vt16    embed       6.9        5.6        6.0        6.3
+  a3f (floor arm, values void) vt16      ln1     401.0       19.5       26.5      362.3
+  a3f (floor arm, values void) vt16      qkv    1727.9     1191.5     1549.5     1653.9
+  a3f (floor arm, values void) vt16     rope     130.3       81.3       92.7      100.5
+  a3f (floor arm, values void) vt16     attn     647.7       26.3      610.8      616.3
+  a3f (floor arm, values void) vt16        o     614.2       16.1      482.9      545.3
+  a3f (floor arm, values void) vt16      ln2     349.0        2.8        4.0      315.5
+  a3f (floor arm, values void) vt16   gateup    2358.4     1773.0     2172.6     2314.6
+  a3f (floor arm, values void) vt16    dn_in     672.6        3.0        4.5      634.7
+  a3f (floor arm, values void) vt16     down    1060.3      505.2      955.3     1006.0
+  a3f (floor arm, values void) vt16     norm       4.1        0.2        0.4        3.0
+  a3f (floor arm, values void) vt16     head     454.7      413.8      444.4      453.7
+
+== tree, rag: context 362, arms a6@5.14.5.28.5
+  a6@5.14.5.28.5 vt1 against 4E: the same argmax at 64 of 64 positions
+  a6@5.14.5.28.5 identity: every row equals its node in the 32-row pass, logits and argmax, 67 rows of 5 passes
+  4E, one token a launch: 4743.4 us [4739.8-4754.5] (host wall, launch to ring read)
+  timed passes whose argmaxes differ from their arm's 32-row pass: 0 of 21
+  a6@5.14.5.28.5  rows   wall us, median [range]     c_R = t(vt R) / t(4e), round by round, median [range]
+  a6@5.14.5.28.5     1     9266.5 [9253.4-9278.6]   c_1 1.952 [1.949-1.958]
+  a6@5.14.5.28.5     2     9288.2 [9281.0-9312.7]   c_2 1.958 [1.952-1.964]
+  a6@5.14.5.28.5    16    12433.4 [12414.4-12451.5]   c_16 2.619 [2.617-2.625]
+  a6@5.14.5.28.5 an extra row: (c_16 - c_1) / 15 = 0.0445 of a 4E token; c_2 1.958
+  4E stamped, two tokens:
+  phase stamps: 1 tokens read, clock grain 32 ns; us a token, median [range] over tokens
+    phase                                  wall       slowest CTA's work          mean CTA's work  share  slowest CTA
+    embedding               2.9 [2.9-2.9]      1.8 [1.8-1.8]      1.2 [1.2-1.2]   0.1%   134 (100%)
+    q/k/v                 674.9 [674.9-674.9]    691.2 [691.2-691.2]    650.8 [650.8-650.8]  13.7%   127 (11%)
+    norm/RoPE/append      118.9 [118.9-118.9]     75.7 [75.7-75.7]     22.7 [22.7-22.7]   2.4%    19 (11%)
+    attention            1088.2 [1088.2-1088.2]   1073.4 [1073.4-1073.4]    248.5 [248.5-248.5]  22.1%     7 (61%)
+    o                     336.4 [336.4-336.4]    286.4 [286.4-286.4]    262.1 [262.1-262.1]   6.8%    91 (14%)
+    MLP                  2335.8 [2335.8-2335.8]   2268.7 [2268.7-2268.7]   2232.8 [2232.8-2232.8]  47.4%    71 (11%)
+    head                  369.5 [369.5-369.5]    369.7 [369.7-369.7]    369.0 [369.0-369.0]   7.5%    39 (100%)
+    token                4926.5 [4926.5-4926.5]
+    inside q/k/v and MLP (CTA work, no wall)
+      q/k/v: ln1+rotation       257.6 [257.6-257.6]    236.5 [236.5-236.5]    26 (8%)
+      q/k/v: rows               443.4 [443.4-443.4]    414.3 [414.3-414.3]    14 (6%)
+      MLP: ln2+rotation         154.2 [154.2-154.2]    144.0 [144.0-144.0]    50 (8%)
+      MLP: gate/up rows        1424.9 [1424.9-1424.9]   1288.1 [1288.1-1288.1]   108 (11%)
+      MLP: inner wait           391.0 [391.0-391.0]    189.4 [189.4-189.4]    11 (22%)
+      MLP: down input           166.2 [166.2-166.2]    154.6 [154.6-154.6]    36 (17%)
+      MLP: down rows            483.3 [483.3-483.3]    456.6 [456.6-456.6]    72 (8%)
+  a6@5.14.5.28.5 vt1 phases, us summed over the layers, median of 5 stamped launches: wall 9238.6, row phases 6556.8 (71.0 %)
+  a6@5.14.5.28.5 vt1   phase      wall   busy min   busy med   busy max
+  a6@5.14.5.28.5 vt1    embed       1.7        0.5        0.7        0.9
+  a6@5.14.5.28.5 vt1      ln1     447.2       19.5       27.8      408.8
+  a6@5.14.5.28.5 vt1      qkv    1792.0      579.5     1499.0     1711.1
+  a6@5.14.5.28.5 vt1     rope     146.3        8.3       10.1       98.0
+  a6@5.14.5.28.5 vt1     attn     857.2        9.2       12.8      837.5
+  a6@5.14.5.28.5 vt1        o     650.6       13.5      491.5      593.9
+  a6@5.14.5.28.5 vt1      ln2     350.2        2.6        3.5      305.7
+  a6@5.14.5.28.5 vt1   gateup    2488.2     1606.5     2178.2     2383.2
+  a6@5.14.5.28.5 vt1    dn_in     875.0        8.1        9.7      834.7
+  a6@5.14.5.28.5 vt1     down    1161.2      521.6      968.6     1042.5
+  a6@5.14.5.28.5 vt1     norm       4.1        0.2        0.2        3.2
+  a6@5.14.5.28.5 vt1     head     464.9      416.2      441.3      463.9
+  a6@5.14.5.28.5 vt16 phases, us summed over the layers, median of 5 stamped launches: wall 12406.7, row phases 8954.1 (72.2 %)
+  a6@5.14.5.28.5 vt16   phase      wall   busy min   busy med   busy max
+  a6@5.14.5.28.5 vt16    embed       6.9        5.7        6.0        6.2
+  a6@5.14.5.28.5 vt16      ln1     432.9       23.3       32.8      393.9
+  a6@5.14.5.28.5 vt16      qkv    2324.1      747.2     1818.4     2174.0
+  a6@5.14.5.28.5 vt16     rope     139.9       88.5       98.8      107.0
+  a6@5.14.5.28.5 vt16     attn    1700.5      718.2     1420.4     1657.0
+  a6@5.14.5.28.5 vt16        o     876.8       15.6      526.6      799.2
+  a6@5.14.5.28.5 vt16      ln2     330.6        2.7        3.9      296.1
+  a6@5.14.5.28.5 vt16   gateup    3394.7     1804.7     2415.5     3175.8
+  a6@5.14.5.28.5 vt16    dn_in     837.7        9.9       11.7      794.3
+  a6@5.14.5.28.5 vt16     down    1825.0      560.6     1043.1     1404.2
+  a6@5.14.5.28.5 vt16     norm       4.1        0.2        0.4        3.2
+  a6@5.14.5.28.5 vt16     head     533.5      441.9      467.9      532.8
+
+summary
+  chat a3: c_1 2.065, c_2 2.065, c_16 2.903
+  chat a6: c_1 2.082, c_2 2.078, c_16 2.932
+  chat a6@5.14.5.28.5: c_1 2.028, c_2 2.032, c_16 2.567
+  chat a7: c_1 3.212, c_2 3.199, c_16 4.009
+  chat a3f (floor arm, values void): c_1 1.842, c_2 1.842, c_16 1.904
+  rag a6@5.14.5.28.5: c_1 1.952, c_2 1.958, c_16 2.619

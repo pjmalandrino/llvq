@@ -1,0 +1,159 @@
+VERIFY-TREE N3: THE DOWN'S INPUT, THE L2 PREFETCH AND THE FOLD PROTOCOL ON THE STREAM UNIT, SEALED 4B, ONE L40S, 2026-11-10. $0.40.
+=================================================================================================================================
+Result: no valid arm comes under c_16 2.35: FAIL, as predicted (*measured*, chat context). The best valid arm is a6 at
+the plan [5, 14, 5, 28, 5]: c_1 2.028, c_2 2.032, c_16 2.567, an extra row 0.036 of a 4E token. Of the three levers:
+- the down's input dealt over the grid (a6 against a3) moves nothing: c_16 2.932 against 2.903, dn_in 875 against 901
+  us. Only the 12 int4-down layers take the new path; the 24 Tetra-down layers keep a3's;
+- the L2 prefetch (a7 against a6) costs 1.13 tokens at R = 1 (c_1 3.212 against 2.082): ln1 and attention grow from
+  about 440 and 600 us to 2,226 and 2,241, every CTA busy over 1.19 ms in each, and the symbol carries 1,464 B of local
+  memory a thread;
+- the partial-ticket-fold protocol (a3 against the floor arm a3f) is worth 0.22 of a token at R = 1 (c_1 2.065
+  against 1.842) and 1.00 at R = 16 (c_16 2.903 against 1.904): the extra row falls from 0.056 to 0.004 without it. a3f's
+  values are void by design; its time is a floor, not a served number.
+The fewer slices of a6@5.14.5.28.5 (q/k/v 5, gate/up 5) take c_16 from 2.932 to 2.567 at the same arithmetic.
+Prereg : proofs/preregistration-verify-tree-n3-2026-11-10.md (sha256 5c17f7b1), stamped before the job (.ots, commit
+         891973d). Deviation 1 beside it, in proofs/preregistration-verify-tree-n3-2026-11-10-ECARTS.md: the job ended
+         ERROR in its summary step, after the bench had finished with exit 0.
+Go     : the operator, 2026-11-09 about 23:00 CET, session "LLVQ pistes débit": "Compute HF ok tu as 10$ pour la nuit
+         comme tu le sens". Night cap $10.
+Job    : 6af29bba9737d9a9e08eeaa5, l40sx1, image hf.co/spaces/Pier-Jean/llvq-runner-cuda at Space sha 09f3c1b3 (its
+         COMMIT file names 891973d, published from a clean detached checkout of that commit, perimeter clean; kernel,
+         bench and runtime sources equal to 6238370's), `STAGE=n3 ARMS='a3,a6,a6@5.14.5.28.5,a7,a3f'
+         ops/jobs/verify-tree-n2.sh`, job timeout 28 min, the bench's 25 min. Submitted 05:21 CET, RUNNING at 05:22 (no
+         queue, no twin), ERROR at 05:35 (deviation 1). 13 min billed, $0.40 (*measured*, ops/run.py monitor). VRAM: no
+         metric received. Registry $307.93 before, $308.33 after; night spend $1.08.
+Raw    : verify-tree-n3-2026-11-10-brut/: gpu.txt (NVIDIA L40S, 8.9, 46,068 MiB, driver 580.178.04, 2,520 MHz),
+         oracle.txt, files.sha256, qwen3-4b-tetra-e4-4e-v9.json (sha256 29b3ef32, equal to
+         configs/qwen3-4b-tetra-e4-4e-v9.json), vtree-4b.txt (complete, the bench's exit 0 in summary.txt), summary.txt
+         (cut short by deviation 1), joblog-tail.txt (the error line), monitor.txt, queue.txt.
+
+CONTROLS
+--------
+1. oracle on Qwen3-0.6B: MATCH. Sealed file sha256 886391a8 at its size. Config at its sha256. The job body refuses any
+   LLVQ_* in its environment. Holds.
+2. 4E module 252,757 bytes, sha256 1b422b62, row form 7: the served v9 module, read from vtree-4b.txt (the summary's
+   own control-2 line was not reached, deviation 1). Every one-token 4E launch made its greedy token (the bench ran to
+   its end). Holds.
+3. Guards, read from vtree-4b.txt, each "PASSES, the 32-row pass equal bit for bit":
+   a6 against a3 at [11, 14, 7, 28, 5]; a6@5.14.5.28.5 against a3@5.14.5.28.5 at [5, 14, 5, 28, 5]; a7 against a6 at
+   [11, 14, 7, 28, 5]. Hold. Every module compiled through NVRTC; no arm is void.
+Read by the decision rule:
+- identity, chat, a3, a6, a6@5.14.5.28.5, a7: every row equals its node in the arm's 32-row pass, logits and argmax, 67
+  rows of 5 passes; and a6@5.14.5.28.5 at rag. Holds. a3f: no identity, no guard, no vt1 check (floor arm).
+- vt1 against 4E: the same argmax at 64 of 64 positions, the four valid arms at chat, a6@5.14.5.28.5 at rag. Holds.
+- timed passes whose argmaxes differ from their arm's 32-row pass: 0 of 105 (chat), 0 of 21 (rag).
+
+MODULES (*measured*, printed at install; every symbol 128 registers, 89,984 B shared, 1 resident a SM)
+-------
+stream (a3, a3@5.14.5.28.5): 330,604 bytes, sha256 69e7b937; pers_4et_stream_f1_t512: 744 B local.
+a6 (a6, a6@5.14.5.28.5): 378,250 bytes, sha256 470b7513; pers_4et_a6_f1_t512: 744 B local.
+a7: 426,757 bytes, sha256 5b7485bc; pers_4et_a7_f1_t512: 1,464 B local.
+a3f: 378,251 bytes, sha256 46fa1289; pers_4et_a3f_f1_t512: 744 B local.
+1.308 GB of tree-tiled copies, 0.133 GB of row buffers. Load and install, four tree-tiled modules: 737.7 s.
+Plans on 142 CTAs (S, units, waves, fill): stream plan q/k/v 11 (264, 2, 93.0 %), o 14 (140, 1, 98.6 %), gate/up 7
+(532, 4, 93.7 %), down 28 (280, 2, 98.6 %), head 5 (2,970, 21, 99.6 %); [5, 14, 5, 28, 5]: q/k/v 5 (120, 1, 84.5 %),
+gate/up 5 (380, 3, 89.2 %), the others the same.
+
+RESULT (*measured*, 2 discarded and 5 timed rounds, arms interleaved, ratios formed round by round, median [range];
+R = 1, 2, 16)
+------
+Chat, context 62. 4E, one token a launch: 4,435.4 us [4,432.8-4,444.9].
+  arm                rows   wall us                       c_R                   extra row
+  a3                    1    9,158.5 [9,149.2-9,168.7]    2.065 [2.058-2.068]
+                        2    9,164.8 [9,147.8-9,181.5]    2.065 [2.063-2.067]
+                       16   12,903.5 [12,871.1-12,916.1]  2.903 [2.902-2.914]   0.0559
+  a6                    1    9,237.9 [9,235.0-9,266.3]    2.082 [2.078-2.090]
+                        2    9,222.2 [9,217.6-9,254.2]    2.078 [2.074-2.088]
+                       16   13,029.8 [12,988.6-13,045.2]  2.932 [2.926-2.943]   0.0566
+  a6@5.14.5.28.5        1    8,999.7 [8,986.2-9,012.3]    2.028 [2.022-2.031]
+                        2    9,012.5 [8,995.4-9,029.1]    2.032 [2.024-2.037]
+                       16   11,383.6 [11,374.7-11,393.8]  2.567 [2.559-2.570]   0.0359
+  a7                    1   14,262.8 [14,233.5-14,279.1]  3.212 [3.209-3.220]
+                        2   14,196.3 [14,185.9-14,243.4]  3.199 [3.192-3.213]
+                       16   17,790.3 [17,779.9-17,804.7]  4.009 [4.003-4.016]   0.0531
+  a3f (floor arm,       1    8,186.6 [8,169.0-8,198.2]    1.842 [1.841-1.849]
+   values void)         2    8,185.2 [8,165.3-8,186.1]    1.842 [1.838-1.847]
+                       16    8,451.5 [8,442.9-8,454.6]    1.904 [1.901-1.907]   0.0041
+Rag, context 362, a6@5.14.5.28.5 only (lowest chat c_16 of the valid arms). 4E: 4,743.4 us [4,739.8-4,754.5].
+  a6@5.14.5.28.5: c_1 1.952 [1.949-1.958], c_2 1.958 [1.952-1.964], c_16 2.619 [2.617-2.625], extra row 0.0445.
+
+PHASES (*measured*, chat, us summed over the 36 layers, median of 5 stamped launches; wall (busy min / med / max over
+the 142 CTAs))
+------
+vt1. Totals: a3 wall 9,137.4, row phases 6,767.9 (74.1 %); a6 9,198.3, 6,772.9 (73.6 %); a6@5.14.5.28.5 8,954.0,
+6,528.2 (72.9 %); a7 14,210.3, 8,314.1 (58.5 %); a3f 8,142.9, 5,929.0 (72.8 %).
+  phase   a3                        a6                        a6@5.14.5.28.5            a7                           a3f (floor, void)
+  embed   1.8 (0.6/0.8/1.0)         1.7 (0.6/0.7/1.2)         1.7 (0.6/0.8/1.1)         1.7 (0.6/0.8/1.0)            1.8 (0.6/0.8/1.1)
+  ln1     410.9 (16.3/26.9/372.2)   444.1 (17.9/27.3/406.7)   444.0 (18.3/26.8/405.3)   2226.3 (1193.2/1630.9/2180.6) 409.3 (17.9/25.5/372.9)
+  qkv     1905.9 (1139/1562/1741)   1909.0 (1150/1567/1759)   1794.1 (581/1497/1716)    3082.8 (2368/2726/2958)      1653.1 (1114/1482/1579)
+  rope    125.2 (6.4/8.6/87.8)      145.9 (6.4/10.5/94.1)     144.0 (6.5/9.9/94.3)      147.0 (6.4/8.4/110.4)        134.0 (6.3/9.3/90.3)
+  attn    593.4 (12.0/13.7/570.7)   606.4 (9.4/12.9/591.2)    608.6 (9.3/13.0/591.7)    2240.7 (1201.6/1851.4/2183.5) 604.0 (14.9/16.8/576.5)
+  o       637.4 (14.7/476.1/572.3)  645.5 (14.3/485.4/576.4)  647.9 (14.3/487.6/583.6)  667.7 (38.5/520.6/609.7)     576.9 (14.6/452.2/518.4)
+  ln2     333.7 (2.6/3.6/298.7)     348.3 (2.7/3.6/304.1)     350.2 (2.6/3.5/303.7)     373.7 (3.0/4.0/341.3)        344.8 (2.6/3.6/310.5)
+  gateup  2621.3 (1756/2206/2449)   2609.9 (1740/2192/2459)   2475.8 (1588/2165/2377)   3022.7 (2107/2557/2832)      2224.0 (1684/2072/2159)
+  dn_in   900.5 (2.3/3.8/861.7)     875.0 (7.9/9.4/834.5)     873.1 (7.5/9.1/834.8)     901.8 (8.8/10.7/853.2)       715.8 (2.3/3.3/677.6)
+  down    1140.5 (511.5/952.9/1018.7) 1143.6 (508.9/951.3/1018.5) 1147.6 (510.5/952.9/1019.3) 1075.0 (456.0/874.7/962.0) 1028.5 (492.3/925.2/960.4)
+  norm    4.1 (0.2/0.2/3.2)         4.1 (0.2/0.2/3.3)         4.1 (0.2/0.2/3.2)         5.1 (0.2/0.8/3.7)            4.1 (0.2/0.3/3.1)
+  head    462.8 (416.5/441.5/461.4) 464.9 (415.9/441.8/463.2) 462.8 (414.8/440.7/461.6) 465.9 (419.6/443.8/464.5)    446.5 (410.8/434.7/445.2)
+vt16. Totals: a3 wall 12,867.0, row phases 10,465.2 (81.3 %); a6 12,987.5, 10,547.7 (81.2 %); a6@5.14.5.28.5 11,358.5,
+8,944.3 (78.7 %); a7 17,781.5, 11,756.4 (66.1 %); a3f 8,427.0, 6,215.4 (73.8 %).
+  phase   a3                        a6                        a6@5.14.5.28.5            a7                           a3f (floor, void)
+  embed   7.0 (5.7/6.0/6.6)         6.9 (5.6/6.0/6.4)         6.9 (5.7/6.0/6.4)         7.2 (5.8/6.1/6.5)            6.9 (5.6/6.0/6.3)
+  ln1     426.1 (23.8/33.0/379.7)   437.7 (23.6/33.4/400.2)   429.6 (22.9/31.2/390.9)   2194.3 (1169.5/1660.9/2152.1) 401.0 (19.5/26.5/362.3)
+  qkv     3164.6 (1490/1983/2732)   3171.0 (1515/1996/2764)   2314.9 (728/1814/2161)    4038.9 (2423/2911/3624)      1727.9 (1192/1550/1654)
+  rope    135.5 (80.6/99.3/107.1)   139.9 (91.1/99.6/107.1)   138.5 (88.4/98.6/105.7)   145.1 (104.8/110.9/118.8)    130.3 (81.3/92.7/100.5)
+  attn    640.9 (22.4/607.4/612.6)  676.8 (44.5/645.4/646.4)  671.8 (42.5/639.5/641.8)  2463.9 (231.1/2265.0/2372.2) 647.7 (26.3/610.8/616.3)
+  o       866.2 (17.0/499.2/766.6)  893.0 (18.7/538.1/781.2)  897.6 (17.5/541.0/783.9)  1027.8 (47.3/661.7/905.9)    614.2 (16.1/482.9/545.3)
+  ln2     331.4 (2.5/4.2/296.4)     335.8 (2.7/4.1/304.0)     328.6 (2.5/3.8/293.9)     360.4 (2.8/4.2/326.6)        349.0 (2.8/4.0/315.5)
+  gateup  4105.2 (2032/2541/3834)   4119.7 (2049/2570/3855)   3379.3 (1786/2396/3183)   4422.6 (2320/2879/3928)      2358.4 (1773/2173/2315)
+  dn_in   856.9 (2.8/4.4/815.1)     838.6 (10.4/12.3/799.4)   834.6 (9.4/11.5/794.3)    850.2 (11.0/12.7/808.3)      672.6 (3.0/4.5/634.7)
+  down    1794.7 (543.2/1016.5/1412.6) 1830.5 (570.0/1044.6/1414.6) 1818.0 (564.1/1037.6/1356.4) 1731.5 (511.6/959.6/1369.3) 1060.3 (505.2/955.3/1006.0)
+  norm    4.1 (0.2/0.3/3.2)         4.1 (0.2/0.3/3.1)         4.1 (0.2/0.3/3.1)         4.1 (0.3/0.9/3.4)            4.1 (0.2/0.4/3.0)
+  head    534.5 (442.3/467.6/532.8) 533.5 (443.0/468.5/532.2) 534.5 (442.2/469.3/533.6) 535.6 (444.5/468.8/534.7)    454.7 (413.8/444.4/453.7)
+4E stamped over two tokens (chat): q/k/v 667.2, attention 796.2, o 341.1, MLP 2,362.2, head 368.1.
+
+AGAINST THE SIGNED PREDICTION (chat)
+--------------------------------
+  quantity                              signed                 measured     inside
+  4E token                              4,400 [4,350, 4,450]   4,435.4      yes
+  a3 c_1                                2.03 [1.98, 2.09]      2.065        yes
+  a3 c_16                               2.91 [2.84, 3.00]      2.903        yes
+  a3 dn_in of vt1                       890 [860, 920]         900.5        yes
+  a3 down of vt1                        1,128 [1,050, 1,200]   1,140.5      yes
+  a6 c_1                                1.86 [1.78, 2.00]      2.082        no, above
+  a6 c_16                               2.74 [2.62, 2.92]      2.932        no, above
+  a6 dn_in of vt1                       150 [60, 400]          875.0        no, above
+  a6@5.14.5.28.5 c_1                    1.76 [1.62, 1.95]      2.028        no, above
+  a6@5.14.5.28.5 c_16                   2.70 [2.45, 2.95]      2.567        yes
+  a7 c_1                                1.76 [1.60, 1.90]      3.212        no, above
+  a7 c_16                               2.64 [2.45, 2.90]      4.009        no, above
+  a7 down of vt1                        780 [600, 1,000]       1,075.0      no, above
+  a3f c_1 (floor, timing only)          1.60 [1.35, 1.90]      1.842        yes
+  a3f c_16 (floor, timing only)         2.00 [1.60, 2.45]      1.904        yes
+  outcome                               FAIL                   FAIL         yes
+
+DECISION (the prereg's rule, valid arms only)
+--------
+Best valid arm (guard and identity hold, vt1 at 64 of 64): a6@5.14.5.28.5, c_16 2.567 > 2.35: FAIL. a3f is not read.
+The reopening condition of ETAT.md section 6 is not met (c_2 2.032 > 1.40).
+
+READING (not part of the decision; *computed* from the tables above)
+-------
+- dn_in hardly moves in a6 because the 4B's downs are mostly Tetra: 24 layers keep a3's one-CTA path, and their maximum
+  busy time (834 us of 875) still sets the phase. The busy median rises from 3.8 to 9.4 us: the int4 layers' work is now
+  spread.
+- a7's cost sits in ln1 and attention, two phases with no projection, where every CTA's busy time exceeds 1.19 ms
+  (a6: under 30 us at the median). The prefetch calls appear to run in phases that do not use what they fetch, or to
+  serialise behind the grid wait; the 1,464 B of local memory is a second suspect. a7's down phase (1,075 against
+  1,144 us) is the only phase it improves.
+- The fold protocol is the extra row. a3f keeps a3's row loops and stores slice 0 only: its extra row is 0.004 of a
+  token against a3's 0.056, and its vt16 gate/up, q/k/v and down shrink by 1,747, 1,437 and 734 us. A design that keeps
+  the row loops and folds the slices more cheaply sits between a3 and a3f; a3f is its floor, not a served number.
+- Fewer slices help at R = 16: a6@5.14.5.28.5 against a6, vt16 q/k/v 2,315 against 3,171 and gate/up 3,379 against
+  4,120, at a q/k/v fill of 84.5 % in one wave.
+
+WHAT THIS DOES NOT ESTABLISH
+----------------------------
+a3f's values are void, so its time is a floor for a design that keeps the row loops and drops the protocol, not a
+served number. Which of a7's three prefetch points costs what. a6's lever on a Tetra down (those layers keep a3's path).
+R = 4, 8 and 32. VRAM peak (no metric). Any card but the L40S. The 8B and 14B. Any acceptance or tok/s at a door.
