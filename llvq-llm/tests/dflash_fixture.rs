@@ -38,6 +38,7 @@ fn drafter_matches_mlx_reference() {
     assert_eq!(rep.rounds, 6, "{rep}");
     assert_eq!(rep.chain_equal, rep.rounds, "{rep}");
     assert_eq!(rep.tree_equal, rep.rounds, "{rep}");
+    assert_eq!(rep.readouts_equal, rep.rounds, "{rep}");
     assert!(rep.logit_rel < 1e-4, "{rep}");
     assert!(rep.hidden_rel < 1e-4, "{rep}");
     assert!(rep.table_abs < 1e-6, "{rep}");

@@ -46,6 +46,13 @@ pub struct DFlashSpec {
     pub t_block: Vec<f64>,
     pub t_head: Vec<f64>,
     pub t_readout: Vec<f64>,
+    /// Of `t_extend`, the host conversion and upload of `new_taps` (to the
+    /// f32 tensor on the device, synchronised), timed when `timing` is set.
+    pub t_upload: Vec<f64>,
+    /// The readout of e3bbaee ([`dflash::readout_chunked`], a host hop
+    /// mid-round) instead of [`dflash::DeviceReadout`], for comparison.
+    pub chunked_readout: bool,
+    readout: Option<dflash::DeviceReadout>,
 }
 
 impl DFlashSpec {
@@ -64,6 +71,9 @@ impl DFlashSpec {
             t_block: Vec::new(),
             t_head: Vec::new(),
             t_readout: Vec::new(),
+            t_upload: Vec::new(),
+            chunked_readout: false,
+            readout: None,
         })
     }
 
@@ -77,6 +87,7 @@ impl DFlashSpec {
         self.t_block.clear();
         self.t_head.clear();
         self.t_readout.clear();
+        self.t_upload.clear();
         Ok(())
     }
 
@@ -106,6 +117,10 @@ impl DFlashSpec {
         if n > 0 {
             let bits: Vec<half::f16> = input.new_taps.iter().map(|&b| half::f16::from_bits(b)).collect();
             let taps = Tensor::from_vec(bits, (n, w), self.drafter.device())?.to_dtype(DType::F32)?;
+            if self.timing {
+                self.drafter.device().synchronize()?;
+                self.t_upload.push(t0.elapsed().as_secs_f64());
+            }
             self.drafter.extend(&mut self.ctx, &taps)?;
         }
         self.sync()?;
@@ -127,7 +142,15 @@ impl DFlashSpec {
         let logits = self.vocab.logits(&hidden)?;
         self.sync()?;
         let t3 = std::time::Instant::now();
-        let out = dflash::readout(&logits)?;
+        let out = if self.chunked_readout {
+            dflash::readout_chunked(&logits)?
+        } else {
+            let (rows, vocab) = logits.dims2()?;
+            if self.readout.is_none() {
+                self.readout = Some(dflash::DeviceReadout::new(rows, vocab, logits.device())?);
+            }
+            self.readout.as_ref().expect("made above").run(&logits)?
+        };
         if self.timing {
             self.t_block.push((t2 - t1).as_secs_f64());
             self.t_head.push((t3 - t2).as_secs_f64());

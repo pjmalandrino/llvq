@@ -187,9 +187,34 @@ fn loop_rounds(fixture: &std::path::Path, device: &candle_core::Device, drafter:
     let w = TAPS * hidden;
     let bits: Vec<u16> = taps.flatten_all()?.to_vec1::<f32>()?.iter().map(|&x| half::f16::from_f32(x).to_bits()).collect();
     let rows = bits.len() / w;
+    let l = drafter.launches();
+    println!(
+        "device operations a round, counted from the code: extend {}, block {}, head {}, readout {} ({} with the chunked one); \
+         device-to-host transfers: {} ({} with the chunked one, plus its upload)",
+        l.extend, l.block, l.head, l.readout, 5, l.syncs, 2
+    );
+    // the readout alone, on logits of the head's shape, each call ending in its transfer
+    let z = candle_core::Tensor::randn(0f32, 4f32, (dflash::DRAFTS, vocab.table.dim(0)?), device)?;
+    let dr = dflash::DeviceReadout::new(dflash::DRAFTS, vocab.table.dim(0)?, device)?;
+    for chunked in [false, true] {
+        let mut t = Vec::new();
+        for i in 0..60 {
+            device.synchronize()?;
+            let t0 = Instant::now();
+            let _ = if chunked { dflash::readout_chunked(&z)? } else { dr.run(&z)? };
+            device.synchronize()?;
+            if i >= 10 {
+                t.push(t0.elapsed().as_secs_f64() * 1e3);
+            }
+        }
+        t.sort_by(f64::total_cmp);
+        println!("readout alone ({}): {:.3} ms [{:.3}-{:.3}], median of 50", if chunked { "chunked, e3bbaee" } else { "device" }, t[t.len() / 2], t[0], t[t.len() - 1]);
+    }
     let mut sp = DFlashSpec::new(drafter, Box::new(vocab), Shape::Chain(15))?;
     let ctx0 = 512;
-    for shape in [Shape::Chain(15), Shape::Tree(15)] {
+    for (chunked, shape) in [(false, Shape::Chain(15)), (false, Shape::Tree(15)), (true, Shape::Tree(15))] {
+        sp.chunked_readout = chunked;
+        let tag = if chunked { " (chunked readout)" } else { "" };
         for n in [1usize, 4, 8] {
             for split in [false, true] {
                 sp.shape = shape;
@@ -228,11 +253,11 @@ fn loop_rounds(fixture: &std::path::Path, device: &candle_core::Device, drafter:
                     // the last 50 rounds of each stage vector
                     let tail = |v: &Vec<f64>| v[v.len().saturating_sub(50)..].to_vec();
                     println!(
-                        "loop round {shape:?} n {n}, synchronised between stages: total {:.2} ms; extend {:.2}, block {:.2}, head {:.2}, readout {:.2} (ms, medians of 50)",
-                        t[t.len() / 2], med(&tail(&sp.t_extend)), med(&tail(&sp.t_block)), med(&tail(&sp.t_head)), med(&tail(&sp.t_readout))
+                        "loop round{tag} {shape:?} n {n}, synchronised between stages: total {:.2} ms; extend {:.2} (of which host conversion and upload {:.2}), block {:.2}, head {:.2}, readout {:.2} (ms, medians of 50)",
+                        t[t.len() / 2], med(&tail(&sp.t_extend)), med(&tail(&sp.t_upload)), med(&tail(&sp.t_block)), med(&tail(&sp.t_head)), med(&tail(&sp.t_readout))
                     );
                 } else {
-                    println!("loop round {shape:?} n {n}: {:.2} ms [{:.2}-{:.2}], median of 50 after 10, one synchronisation", t[t.len() / 2], t[0], t[t.len() - 1]);
+                    println!("loop round{tag} {shape:?} n {n}: {:.2} ms [{:.2}-{:.2}], median of 50 after 10, one synchronisation", t[t.len() / 2], t[0], t[t.len() - 1]);
                 }
             }
         }
