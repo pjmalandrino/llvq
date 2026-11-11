@@ -58,9 +58,13 @@ J4, D1 read, 2026-11-11 (job 6af486a5, 19 min, $0.57, spend $12.08 of $25). The 
 for a group of 4 rows. It equals a12ip bit for bit at 1,024, 4,096 and 8,191 tokens (logits, K, V), 47 texts of 47,
 at the same phase peaks (2.318 / 2.855 / 3.560 GB). First token: 0.731 s against 0.702 at 1,024 (x0.96, a loss),
 3.904 against 4.306 at 4,096 (x1.10), 10.262 against 13.361 at 8,191 (x1.30). The 8k pass falls from 44.5 to 26.8 ms
-and its attention from 34.4 to 16.8 ms. The three signed first-token figures (0.63, 2.7 and 6.2 s) are missed: they
-assumed one read for the 16 rows, the arm shares by 4, and attention time does not fall with the bytes.
-Journal: on branch claude/arbre-prefill-2026-11-11, large-prefill-d1-2026-11-11.
+(host wall; 44.2 to 26.5 ms as the prereg's summed phases) and its attention from 34.4 to 16.8 ms. Under the prereg's
+rule D1 FAILS for speed: it asked x1.5 at 8,191 and got x1.302. The three signed first-token figures (0.63, 2.7 and
+6.2 s) are missed. The design already shared by groups of 4; the miss is that attention time fell to 0.49 of
+a12ip's where the bytes fell to about a quarter (8 to 11 ms of a12ipg's attention unexplained, computed), and that
+the saving shrinks with the context (-0.45 ms a pass at 1,024, +1.57 at 4,096, +6.05 at 8,191, computed).
+Journal: on branch claude/arbre-prefill-2026-11-11 (c525d03), large-prefill-d1-2026-11-11. The test
+the_a12_pass_is_the_row_cap_pass_with_taps, stale since 96c501a, is fixed there (4fa7cab).
 
 J4 closed, 2026-11-11. What stops speed, at constant criteria?
   Decode: the memory wall. 4E's row phases are bound by DRAM traffic, a cut moves time and does not remove it (E1).
