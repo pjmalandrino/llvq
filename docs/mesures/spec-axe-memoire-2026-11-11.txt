@@ -1,0 +1,32 @@
+Speculative loop, memory axis. Opened 2026-11-11 on the operator's word.
+
+Decision (operator, 2026-11-11): the speculative work is reoriented to preserve memory. Memory comes before speed.
+Every step below is judged on VRAM and on b/param for the whole model first, on tok/s second.
+
+Starting point (spec-memoire-2026-11-11.txt, spec-loop-sp8-2026-11-11.txt), Qwen3-4B, L40S, greedy:
+  served 4E          2.01 GB at a short context (measured), 5.95 GB at 8k (measured), 2.73 b/param (file)
+  speculative today  ~4.78 GB at a short context (computed), ~8.69 GB at 8k (computed), 4.87 b/param whole model
+                     with the f16 drafter (computed); 502.1 tok/s on GSM8K-200 against 218.8 (measured)
+  extra bytes        tree-tiled weight copies 1.308 GB (counted by the loader), f16 drafter 1.193 GB (counted),
+                     row buffers, drafter cache and transients 0.27 GB (computed)
+  never measured     the peak VRAM of the loop, at any context
+
+Targets (estimated, to be replaced by measurements):
+  short context      about 2.5 GB, x1.25 of served
+  whole model        about 3.1 b/param with a coded drafter
+  speed              no loss against 502 tok/s on GSM8K-200 and 343 tok/s on the house set
+
+Steps, in order. Each has a gate; a step that fails its gate is written here with its number.
+  M1  One copy of the tiled words. 4E's single row, the eager prefill and the embedding gather read the tiled
+      order, as v9 already does for the int4 words. Gate: same tokens as today on the card, bit for bit, and
+      the loader's count drops by 1.308 GB.
+  M2  Drafter in int4. Acceptance measured on the Mac first, $0, against the f16 drafter on the same text.
+      Gate: accepted tokens a pass within 3 % of today's on GSM8K-200 and on the house set.
+  M3  One card job: peak VRAM by nvidia-smi sampling at a short context and at 8k, with tok/s and
+      self-consistency. Prereg stamped before it. About $1 (estimated).
+  M4  Drafter at Tetra's rate, only if M2 passes and the int4 drafter leaves more than 0.2 b/param to gain.
+
+Parked behind this axis: the drafter block (108 launches) and its CUDA graph question, the verify pass's fixed
+cost, Domino. Closed on 2026-11-11: the 32-row tree (spec-arbre32-mac-2026-11-11.txt).
+
+Results are appended below, one dated entry a step.
