@@ -1,0 +1,114 @@
+PROFILE on Cuda(CudaDevice(DeviceId(1))), drafter F32: every operation alone, a device synchronisation after each, median of 30 after 5. 
+context 512 positions, extension of 4
+  extend     host u16 -> f16, from_vec (upload)                0.025 ms [0.024-0.027]  [4, 12800] host u16
+  extend     to_dtype f32 (adapter)                            0.010 ms [0.009-0.011]  [4, 12800] F16
+  extend     matmul fc (f32)                                   0.220 ms [0.219-0.222]  [4, 12800] F32 x [2560, 12800] F32
+  extend     rms_norm hidden_norm (f32)                        0.011 ms [0.010-0.034]  [4, 2560] F32
+  extend     to_dtype drafter dtype                            0.001 ms [0.001-0.001]  [4, 2560] F32
+  extend     matmul k_all                                      0.044 ms [0.043-0.053]  [4, 2560] F32 x [5120, 2560] F32
+  extend     rms_norm (unit) k                                 0.011 ms [0.009-0.011]  [4, 40, 128] F32
+  extend     broadcast_mul k_norm_all                          0.013 ms [0.013-0.014]  [4, 40, 128] F32 x [40, 128] F32
+  extend     transpose + contiguous (copy)                     0.012 ms [0.011-0.023]  [4, 40, 128] F32
+  extend     rope k                                            0.010 ms [0.009-0.011]  [1, 40, 4, 128] F32
+  extend     matmul v_all                                      0.045 ms [0.043-0.046]  [4, 2560] F32 x [5120, 2560] F32
+  extend     v transpose + contiguous (copy)                   0.012 ms [0.011-0.013]  [40, 4, 128] F32 strided
+  extend     slice_set k                                       0.007 ms [0.007-0.007]  [40, 4, 128] F32
+  extend     slice_set v                                       0.007 ms [0.007-0.007]  [40, 4, 128] F32
+  extend     SUM of the lines above                            0.430 ms;  whole, one synchronisation at the end: 0.458 ms [0.457-0.468]
+  layer0     rms_norm ln1                                      0.011 ms [0.010-0.012]  [16, 2560] F32
+  layer0     matmul qkv                                        0.058 ms [0.056-0.063]  [16, 2560] F32 x [6144, 2560] F32
+  layer0     rms_norm (unit) q/k/v heads                       0.011 ms [0.010-0.012]  [16, 48, 128] F32
+  layer0     broadcast_mul qkv_norm                            0.013 ms [0.013-0.014]  [16, 48, 128] F32 x [48, 128] F32
+  layer0     transpose + contiguous (copy)                     0.013 ms [0.011-0.015]  [16, 48, 128] F32
+  layer0     rope q and k                                      0.011 ms [0.009-0.011]  [1, 40, 16, 128] F32
+  layer0     slice_set k into the cache                        0.007 ms [0.007-0.008]  [8, 16, 128] F32
+  layer0     v transpose + contiguous (copy)                   0.013 ms [0.011-0.020]  [8, 16, 128] F32 strided
+  layer0     slice_set v into the cache                        0.007 ms [0.007-0.008]  [8, 16, 128] F32
+  layer0     matmul scores q k^T                               0.025 ms [0.024-0.027]  [8, 64, 128] F32 x [8, 128, 528] F32 strided
+  layer0     softmax_last_dim scores                           0.012 ms [0.011-0.012]  [8, 64, 528] F32
+  layer0     matmul p v                                        0.057 ms [0.055-0.072]  [8, 64, 528] F32 x [8, 528, 128] F32 strided
+  layer0     transpose + reshape (copy)                        0.013 ms [0.011-0.014]  [16, 32, 128] F32 strided
+  layer0     matmul o                                          0.039 ms [0.037-0.083]  [16, 4096] F32 x [2560, 4096] F32
+  layer0     add residual                                      0.010 ms [0.009-0.010]  [16, 2560] F32 x [16, 2560] F32
+  layer0     rms_norm ln2                                      0.011 ms [0.009-0.012]  [16, 2560] F32
+  layer0     matmul gate_up                                    0.324 ms [0.322-0.329]  [16, 2560] F32 x [19456, 2560] F32
+  layer0     silu gate                                         0.013 ms [0.013-0.014]  [16, 9728] F32 strided
+  layer0     mul silu(gate) up                                 0.014 ms [0.013-0.015]  [16, 9728] F32 x [16, 9728] F32 strided
+  layer0     matmul down                                       0.080 ms [0.076-0.084]  [16, 9728] F32 x [2560, 9728] F32
+  layer0     add residual                                      0.010 ms [0.009-0.010]  [16, 2560] F32 x [16, 2560] F32
+  layer0     SUM of the lines above                            0.750 ms
+  block      per layer, sum of its lines: 0.750, 0.729, 0.740, 0.756, 0.732; five layers 3.706 ms
+  block      from_vec block ids (upload)                       0.007 ms [0.007-0.009]  [16] host u32
+  block      embed (index_select)                              0.013 ms [0.012-0.014]  [16] U32
+  block      to_dtype drafter dtype (no-op if equal)           0.001 ms [0.001-0.001]  [16, 2560] F32
+  block      rms_norm final (rows 1..15)                       0.010 ms [0.010-0.015]  [15, 2560] F32
+  block      SUM of the lines above                            0.031 ms
+  block      SUM block lines + five layers                       3.737 ms;  whole, one synchronisation at the end: 3.984 ms [3.974-3.995]
+  head       vocab.logits (matmul + to_dtype f32)              2.392 ms [2.388-2.405]  [15, 2560] F32
+  head       SUM of the lines above                            2.392 ms;  whole, one synchronisation at the end: 2.391 ms [2.388-2.404]
+  rd-device  to_dtype f32 (no-op on f32 logits)                0.001 ms [0.001-0.002]  [15, 151936] F32
+  rd-device  argmax_keepdim #0                                 0.090 ms [0.089-0.091]  [15, 151936] F32
+  rd-device  broadcast_eq arange #0                            0.662 ms [0.035-0.666]  [1, 151936] U32 x [15, 1] U32
+  rd-device  where_cond -inf #0                                0.033 ms [0.033-0.035]  [15, 151936] U8 x [15, 151936] F32 x [15, 151936] F32
+  rd-device  argmax_keepdim #1                                 0.090 ms [0.089-0.096]  [15, 151936] F32
+  rd-device  broadcast_eq arange #1                            0.031 ms [0.030-0.040]  [1, 151936] U32 x [15, 1] U32
+  rd-device  where_cond -inf #1                                0.033 ms [0.033-0.034]  [15, 151936] U8 x [15, 151936] F32 x [15, 151936] F32
+  rd-device  argmax_keepdim #2                                 0.090 ms [0.089-0.091]  [15, 151936] F32
+  rd-device  broadcast_eq arange #2                            0.030 ms [0.030-0.031]  [1, 151936] U32 x [15, 1] U32
+  rd-device  where_cond -inf #2                                0.033 ms [0.033-0.035]  [15, 151936] U8 x [15, 151936] F32 x [15, 151936] F32
+  rd-device  argmax_keepdim #3                                 0.090 ms [0.089-0.097]  [15, 151936] F32
+  rd-device  cat ids                                           0.017 ms [0.017-0.019]  [15, 1] U32
+  rd-device  gather logits                                     0.009 ms [0.009-0.011]  [15, 151936] F32 x [15, 4] U32
+  rd-device  softmax_last_dim (full vocabulary)                1.483 ms [1.481-1.489]  [15, 151936] F32
+  rd-device  gather probabilities                              0.009 ms [0.009-0.010]  [15, 151936] F32 x [15, 4] U32
+  rd-device  to_dtype ids u32 -> f32                           0.009 ms [0.009-0.009]  [15, 4] U32
+  rd-device  cat packed                                        0.014 ms [0.014-0.015]  [15, 4] F32 x [15, 4] F32 x [15, 4] F32
+  rd-device  to_vec2 (device-to-host)                          0.009 ms [0.008-0.009]  [15, 12] F32
+  rd-device  SUM of the lines above                            2.734 ms;  whole, one synchronisation at the end: 2.472 ms [2.466-2.488]
+  rd-chunked max over chunks of 128                            0.027 ms [0.027-0.028]  [15, 1187, 128] F32
+  rd-chunked to_vec2 chunk maxima (device-to-host)             0.023 ms [0.022-0.024]  [15, 1187] F32
+  rd-chunked host: 4 best chunks a row                         0.070 ms [0.070-0.082]  [15, 1187] host
+  rd-chunked from_vec gather index (upload)                    0.011 ms [0.011-0.012]  [15, 4, 128] host u32
+  rd-chunked softmax_last_dim (full vocabulary)                2.115 ms [1.483-2.119]  [15, 151936] F32
+  rd-chunked gather logits                                     0.010 ms [0.009-0.010]  [15, 1187, 128] F32 x [15, 4, 128] U32
+  rd-chunked gather probabilities                              0.010 ms [0.009-0.010]  [15, 1187, 128] F32 x [15, 4, 128] U32
+  rd-chunked cat                                               0.011 ms [0.011-0.012]  [15, 4, 128] F32 x [15, 4, 128] F32
+  rd-chunked to_vec3 (device-to-host)                          0.023 ms [0.022-0.025]  [15, 8, 128] F32
+  rd-chunked SUM of the lines above                            2.301 ms;  whole, one synchronisation at the end: 2.458 ms [2.448-2.468]
+  cand-a     max_keepdim (f32)                                 0.085 ms [0.084-0.086]  [15, 151936] F32
+  cand-a     argmax_keepdim (f32)                              0.090 ms [0.089-0.091]  [15, 151936] F32
+  cand-a     to_vec2 argmax (device-to-host)                   0.008 ms [0.008-0.009]  [15, 1] U32
+  cand-a     max_keepdim (f16)                                 0.087 ms [0.086-0.115]  [15, 151936] F16
+  cand-a     argmax_keepdim (f16)                              0.090 ms [0.089-0.091]  [15, 151936] F16
+  cand-a     SUM of the lines above                            0.360 ms;  whole, one synchronisation at the end: 0.188 ms [0.185-0.192]
+  cand-b     argmax_keepdim f16 #0                             0.090 ms [0.090-0.092]  [15, 151936] F16
+  cand-b     broadcast_eq arange #0                            0.031 ms [0.030-0.032]  [1, 151936] U32 x [15, 1] U32
+  cand-b     where_cond -inf f16 #0                            0.033 ms [0.033-0.034]  [15, 151936] U8 x [15, 151936] F16 x [15, 151936] F16
+  cand-b     argmax_keepdim f16 #1                             0.090 ms [0.089-0.094]  [15, 151936] F16
+  cand-b     broadcast_eq arange #1                            0.031 ms [0.030-0.040]  [1, 151936] U32 x [15, 1] U32
+  cand-b     where_cond -inf f16 #1                            0.033 ms [0.032-0.034]  [15, 151936] U8 x [15, 151936] F16 x [15, 151936] F16
+  cand-b     argmax_keepdim f16 #2                             0.090 ms [0.089-0.091]  [15, 151936] F16
+  cand-b     broadcast_eq arange #2                            0.031 ms [0.030-0.032]  [1, 151936] U32 x [15, 1] U32
+  cand-b     where_cond -inf f16 #2                            0.033 ms [0.033-0.034]  [15, 151936] U8 x [15, 151936] F16 x [15, 151936] F16
+  cand-b     argmax_keepdim f16 #3                             0.090 ms [0.089-0.109]  [15, 151936] F16
+  cand-b     gather logits f16                                 0.009 ms [0.009-0.010]  [15, 151936] F16 x [15, 4] U32
+  cand-b     lse f32: max_keepdim                              0.085 ms [0.084-0.087]  [15, 151936] F32
+  cand-b     lse f32: broadcast_sub                            0.031 ms [0.030-0.031]  [15, 151936] F32 x [15, 1] F32
+  cand-b     lse f32: exp                                      0.649 ms [0.016-0.652]  [15, 151936] F32
+  cand-b     lse f32: sum_keepdim                              0.086 ms [0.085-0.089]  [15, 151936] F32
+  cand-b     lse f32: log                                      0.009 ms [0.008-0.009]  [15, 1] F32
+  cand-b     lse f32: add                                      0.009 ms [0.009-0.009]  [15, 1] F32 x [15, 1] F32
+  cand-b     lse f16 (sum may overflow past 65,504): max_keepdim    0.087 ms [0.086-0.089]  [15, 151936] F16
+  cand-b     lse f16 (sum may overflow past 65,504): broadcast_sub    0.031 ms [0.030-0.032]  [15, 151936] F16 x [15, 1] F16
+  cand-b     lse f16 (sum may overflow past 65,504): exp       0.016 ms [0.015-0.018]  [15, 151936] F16
+  cand-b     lse f16 (sum may overflow past 65,504): sum_keepdim    0.086 ms [0.085-0.089]  [15, 151936] F16
+  cand-b     lse f16 (sum may overflow past 65,504): log       0.009 ms [0.008-0.013]  [15, 1] F16
+  cand-b     lse f16 (sum may overflow past 65,504): add       0.008 ms [0.008-0.009]  [15, 1] F16 x [15, 1] F16
+  cand-b     SUM of the lines above                            1.665 ms;  whole, one synchronisation at the end: 0.838 ms [0.835-0.857]
+  cand-b     whole = top 4 on the f16 logits, lse on f32 (max, sub, exp, sum, log, add), one transfer
+  cand-c     arange vocab (made each call)                     0.182 ms [0.170-0.207]  [151936] u32
+  cand-c     full -inf (made each call)                        0.014 ms [0.012-0.020]  [15, 151936] F32
+  cand-c     SUM of the lines above                            0.196 ms;  whole, one synchronisation at the end: 1.321 ms [1.315-1.420]
+  cand-c     whole = the readout of 1db1acb..e3bbaee^ as it was (lse by six operations, 4 argmax + gather, 3 masks, 3 transfers)
+profile done in 1.0 s
+dflashcheck profile f32 exit 0
