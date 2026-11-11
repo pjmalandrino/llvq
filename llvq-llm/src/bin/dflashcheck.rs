@@ -1,8 +1,13 @@
 //! The DFlash drafter against its MLX fixture, then the time of one round.
 //!
 //! ```text
-//! dflashcheck <fixture.safetensors> [cpu|metal|cuda] [packed_dir] [drafter_dir] [f32|f16|bf16]
+//! dflashcheck <fixture.safetensors> [cpu|metal|cuda] [packed_dir] [drafter_dir] [f32|f16|bf16] [dump=<file>|against=<file>]
 //! ```
+//!
+//! `dump=<file>` writes the timed dtype's logits of the six fixture rounds;
+//! `against=<file>` requires them within 1e-3 relative (max |dz| / max |z| a
+//! round) of such a dump: the gate of a change that must not move what the
+//! drafter drafts beyond its dtype's noise.
 //!
 //! `fixture`: written by `ops/dflash_fixture.py`. `packed_dir`: the hfpack
 //! directory whose int4 g64 table the fixture's reference used (default
@@ -16,6 +21,12 @@
 //! projections), then the block of 16 rows through the five layers, the head
 //! over 15 rows and the readout (argmax, top 4, logsumexp). Median of 20 after
 //! 3 warm-up rounds, at contexts of 128, 512 and 2,048 positions.
+//!
+//! Then the round as the loop pays it (`DFlashSpec::draft`, binary16 taps from
+//! the host): one extension of n positions (n = 1, 4, 8) and one draft, chain
+//! and tree, no synchronisation between stages, one at the end; median of 50
+//! after 10 discarded, from a context of 512. And the same rounds with a
+//! synchronisation between the stages, for the split.
 
 use std::path::PathBuf;
 use std::time::Instant;
@@ -122,8 +133,109 @@ fn main() -> anyhow::Result<()> {
             ctx.bytes() as f64 / 1e6
         );
     }
+    let mut ok = ok;
+    if let Some(arg) = a.get(6) {
+        let logits = dflash::fixture_logits(&fixture, &drafter, &vocab)?;
+        if let Some(file) = arg.strip_prefix("dump=") {
+            let map: std::collections::HashMap<String, candle_core::Tensor> =
+                logits.into_iter().enumerate().map(|(i, t)| (format!("r{i}"), t)).collect();
+            candle_core::safetensors::save(&map, file)?;
+            println!("logits ({dtype:?}) of {} rounds written to {file}", map.len());
+        } else if let Some(file) = arg.strip_prefix("against=") {
+            let base = candle_core::safetensors::load(file, &candle_core::Device::Cpu)?;
+            let mut worst = 0f64;
+            for (i, t) in logits.iter().enumerate() {
+                let b = base.get(&format!("r{i}")).with_context(|| format!("{file}: no r{i}"))?;
+                let d = (t - b)?.abs()?.max_all()?.to_scalar::<f32>()? as f64;
+                let s = b.abs()?.max_all()?.to_scalar::<f32>()? as f64;
+                worst = worst.max(d / s);
+            }
+            let pass = worst < 1e-3 && worst.is_finite() && logits.len() == base.len();
+            println!("logits ({dtype:?}) against {file}: max rel {worst:.2e} over {} rounds: {}", logits.len(), if pass { "PASS" } else { "FAIL" });
+            // The f16 noise floor, for reading the line above: both against the f32 logits of this build.
+            let f32d = DFlashDrafter::load(&ddir, &device, DType::F32)?;
+            let f32v = DenseVocab { table: vocab.table.to_dtype(DType::F32)? };
+            let truth = dflash::fixture_logits(&fixture, &f32d, &f32v)?;
+            drop((f32d, f32v));
+            let (mut now, mut then) = (0f64, 0f64);
+            for (i, t) in truth.iter().enumerate() {
+                let b = base.get(&format!("r{i}")).with_context(|| format!("{file}: no r{i}"))?;
+                let s = t.abs()?.max_all()?.to_scalar::<f32>()? as f64;
+                now = now.max((&logits[i] - t)?.abs()?.max_all()?.to_scalar::<f32>()? as f64 / s);
+                then = then.max((b - t)?.abs()?.max_all()?.to_scalar::<f32>()? as f64 / s);
+            }
+            println!("logits ({dtype:?}) against the f32 logits: this build {now:.2e}, the dump {then:.2e}");
+            ok &= pass;
+        } else {
+            anyhow::bail!("sixth argument {arg}: dump=<file> or against=<file>");
+        }
+    }
+    loop_rounds(&fixture, &device, drafter, vocab)?;
     if !ok {
         std::process::exit(1);
+    }
+    Ok(())
+}
+
+/// The round as the loop pays it, through `DFlashSpec`.
+fn loop_rounds(fixture: &std::path::Path, device: &candle_core::Device, drafter: DFlashDrafter, vocab: DenseVocab) -> anyhow::Result<()> {
+    use llvq_cuda::spec_loop::{DraftInput, Drafter, TAPS};
+    use llvq_llm::dflash_spec::{DFlashSpec, Shape};
+    let fx = candle_core::safetensors::load(fixture, &candle_core::Device::Cpu)?;
+    let taps = fx.get("p0.taps").context("fixture: no p0.taps")?;
+    let hidden = drafter.cfg.hidden;
+    let w = TAPS * hidden;
+    let bits: Vec<u16> = taps.flatten_all()?.to_vec1::<f32>()?.iter().map(|&x| half::f16::from_f32(x).to_bits()).collect();
+    let rows = bits.len() / w;
+    let mut sp = DFlashSpec::new(drafter, Box::new(vocab), Shape::Chain(15))?;
+    let ctx0 = 512;
+    for shape in [Shape::Chain(15), Shape::Tree(15)] {
+        for n in [1usize, 4, 8] {
+            for split in [false, true] {
+                sp.shape = shape;
+                sp.reset()?;
+                sp.timing = split;
+                let mut tokens: Vec<u32> = (0..=ctx0 as u32).map(|i| 1000 + i % 5000).collect();
+                // the first call takes the prompt's 512 positions
+                let mut feed: Vec<u16> = Vec::with_capacity(ctx0 * w);
+                while feed.len() < ctx0 * w {
+                    let k = ((ctx0 * w - feed.len()) / w).min(rows);
+                    feed.extend_from_slice(&bits[..k * w]);
+                }
+                sp.draft(&DraftInput { ctx_len: ctx0, tokens: &tokens, new_taps: &feed, hidden });
+                let mut t = Vec::new();
+                for i in 0..60 {
+                    for _ in 0..n {
+                        tokens.push(1000 + tokens.len() as u32 % 5000);
+                    }
+                    let new = &bits[(i % (rows - 8)) * w..(i % (rows - 8) + n) * w];
+                    device.synchronize()?;
+                    let t0 = Instant::now();
+                    let nodes = sp.draft(&DraftInput { ctx_len: tokens.len() - 1, tokens: &tokens, new_taps: new, hidden });
+                    device.synchronize()?;
+                    if i >= 10 {
+                        t.push(t0.elapsed().as_secs_f64() * 1e3);
+                    }
+                    anyhow::ensure!(!nodes.is_empty() && sp.last_error.is_none(), "round {i}: {:?}", sp.last_error);
+                }
+                t.sort_by(f64::total_cmp);
+                let med = |v: &[f64]| {
+                    let mut v = v.to_vec();
+                    v.sort_by(f64::total_cmp);
+                    if v.is_empty() { f64::NAN } else { v[v.len() / 2] * 1e3 }
+                };
+                if split {
+                    // the last 50 rounds of each stage vector
+                    let tail = |v: &Vec<f64>| v[v.len().saturating_sub(50)..].to_vec();
+                    println!(
+                        "loop round {shape:?} n {n}, synchronised between stages: total {:.2} ms; extend {:.2}, block {:.2}, head {:.2}, readout {:.2} (ms, medians of 50)",
+                        t[t.len() / 2], med(&tail(&sp.t_extend)), med(&tail(&sp.t_block)), med(&tail(&sp.t_head)), med(&tail(&sp.t_readout))
+                    );
+                } else {
+                    println!("loop round {shape:?} n {n}: {:.2} ms [{:.2}-{:.2}], median of 50 after 10, one synchronisation", t[t.len() / 2], t[0], t[t.len() - 1]);
+                }
+            }
+        }
     }
     Ok(())
 }

@@ -286,17 +286,18 @@ pub fn vocab_from_packed(dir: &Path, device: &Device, dtype: DType) -> anyhow::R
     Ok(DenseVocab { table })
 }
 
+/// One layer's weights, fused for the block pass: `qkv` stacks q, k and v
+/// [4,096 + 1,024 + 1,024, hidden]; `qkv_norm` [48, 128] holds per head the
+/// norm weight of q (times 1/sqrt(head_dim), the attention scale, folded in:
+/// RoPE is linear), of k, and ones for v (whose normed copy is never read);
+/// `gate_up` stacks gate and up.
 struct Layer {
-    q: Tensor,
-    k: Tensor,
-    v: Tensor,
+    qkv: Tensor,
+    qkv_norm: Tensor,
     o: Tensor,
-    q_norm: Tensor,
-    k_norm: Tensor,
     ln1: Tensor,
     ln2: Tensor,
-    gate: Tensor,
-    up: Tensor,
+    gate_up: Tensor,
     down: Tensor,
 }
 
@@ -316,22 +317,40 @@ fn lin(x: &Tensor, w: &Tensor) -> candle_core::Result<Tensor> {
 /// times on every round, and the card accepted 0.00 to 0.02 drafts a pass
 /// (SP2). bf16 has the range; f16 does not. The output of `hidden_norm` is
 /// bounded, so the rest runs in the drafter's dtype.
+///
+/// Launches. A round is about 125 device operations (counted from this code,
+/// 2026-11-11), against about 250 before: the extension projects every
+/// layer's keys and values in two matmuls (`k_all`, `v_all`) and stores them
+/// in two copies; a block layer is 21 operations; the readout is 5 and two
+/// small transfers. See [`DFlashDrafter::launches`].
 pub struct DFlashDrafter {
     pub cfg: DFlashConfig,
     fc: Tensor,
     hidden_norm: Tensor,
     norm: Tensor,
     layers: Vec<Layer>,
+    /// Every layer's k_proj, then every layer's v_proj: [layers x kv x dh, hidden] each.
+    k_all: Tensor,
+    v_all: Tensor,
+    /// Every layer's k_norm, repeated over its KV heads: [layers x kv, dh].
+    k_norm_all: Tensor,
+    ones: Tensor,
     inv_freq: Tensor,
     device: Device,
     dtype: DType,
 }
 
-/// The drafter's cached context: per layer the keys (normed, rotated) and
-/// values of positions 0..len, [kv_heads, cap, head_dim].
+/// The drafter's cached context: the keys (normed, rotated) and values of
+/// positions 0..len for every layer, [layers x kv_heads, cap, head_dim]
+/// (layer l is heads l x kv..(l + 1) x kv), and the RoPE tables of positions
+/// 0..cap. A block writes its own keys and values at len..len + 16, past the
+/// held positions, which the next extension overwrites: `cap` always leaves
+/// that room.
 pub struct DraftContext {
-    k: Vec<Tensor>,
-    v: Vec<Tensor>,
+    k: Tensor,
+    v: Tensor,
+    cos: Tensor,
+    sin: Tensor,
     len: usize,
     cap: usize,
 }
@@ -350,7 +369,7 @@ impl DraftContext {
     }
     /// Bytes the cache holds at its current capacity.
     pub fn bytes(&self) -> usize {
-        self.k.iter().chain(&self.v).map(|t| t.elem_count() * t.dtype().size_in_bytes()).sum()
+        [&self.k, &self.v, &self.cos, &self.sin].iter().map(|t| t.elem_count() * t.dtype().size_in_bytes()).sum()
     }
 }
 
@@ -366,6 +385,18 @@ pub struct DraftOut {
     pub lse: Vec<f32>,
 }
 
+/// Device operations a round issues, counted from the code: what a launch
+/// count on the card should read, give or take candle's own copies.
+#[derive(Debug, Clone, Copy)]
+pub struct Launches {
+    pub extend: usize,
+    pub block: usize,
+    pub head: usize,
+    pub readout: usize,
+    /// Device-to-host transfers, each a synchronisation.
+    pub syncs: usize,
+}
+
 impl DFlashDrafter {
     /// Load `config.json` and `model.safetensors` from `dir` (a snapshot
     /// directory, see [`cached_snapshot`]).
@@ -379,40 +410,58 @@ impl DFlashDrafter {
         if w.len() != expected {
             bail!("{} tensors in the drafter, expected {expected}", w.len());
         }
+        // Everything is assembled in f32 on the host, then cast once.
         let mut take = |k: &str| -> anyhow::Result<Tensor> {
-            let t = w.remove(k).with_context(|| format!("drafter: no `{k}`"))?;
-            Ok(t.to_dtype(dtype)?.to_device(device)?)
+            Ok(w.remove(k).with_context(|| format!("drafter: no `{k}`"))?.to_dtype(DType::F32)?)
         };
-        let fc = take("fc.weight")?.to_dtype(DType::F32)?;
+        let put = |t: Tensor, dt: DType| -> anyhow::Result<Tensor> { Ok(t.to_dtype(dt)?.to_device(device)?) };
+        let fc = take("fc.weight")?;
         if fc.dims() != [cfg.hidden, TAP_LAYERS.len() * cfg.hidden] {
             bail!("fc.weight {:?}", fc.dims());
         }
-        let hidden_norm = take("hidden_norm.weight")?.to_dtype(DType::F32)?;
-        let norm = take("norm.weight")?;
+        let fc = put(fc, DType::F32)?;
+        let hidden_norm = put(take("hidden_norm.weight")?, DType::F32)?;
+        let norm = put(take("norm.weight")?, dtype)?;
+        let (hq, kvh, dh) = (cfg.heads, cfg.kv_heads, cfg.head_dim);
+        let scale = (dh as f64).powf(-0.5);
         let mut layers = Vec::with_capacity(cfg.layers);
+        let (mut ks, mut vs, mut kns) = (Vec::new(), Vec::new(), Vec::new());
         for i in 0..cfg.layers {
             let mut t = |n: &str| take(&format!("layers.{i}.{n}.weight"));
+            let (q, k, v) = (t("self_attn.q_proj")?, t("self_attn.k_proj")?, t("self_attn.v_proj")?);
+            let (qn, kn) = (t("self_attn.q_norm")?, t("self_attn.k_norm")?);
+            let qkv = Tensor::cat(&[&q, &k, &v], 0)?;
+            let qkv_norm = Tensor::cat(
+                &[
+                    &(qn.unsqueeze(0)?.repeat((hq, 1))? * scale)?,
+                    &kn.unsqueeze(0)?.repeat((kvh, 1))?,
+                    &Tensor::ones((kvh, dh), DType::F32, &Device::Cpu)?,
+                ],
+                0,
+            )?;
+            kns.push(kn.unsqueeze(0)?.repeat((kvh, 1))?);
+            ks.push(k);
+            vs.push(v);
+            let gate_up = Tensor::cat(&[&t("mlp.gate_proj")?, &t("mlp.up_proj")?], 0)?;
             layers.push(Layer {
-                q: t("self_attn.q_proj")?,
-                k: t("self_attn.k_proj")?,
-                v: t("self_attn.v_proj")?,
-                o: t("self_attn.o_proj")?,
-                q_norm: t("self_attn.q_norm")?,
-                k_norm: t("self_attn.k_norm")?,
-                ln1: t("input_layernorm")?,
-                ln2: t("post_attention_layernorm")?,
-                gate: t("mlp.gate_proj")?,
-                up: t("mlp.up_proj")?,
-                down: t("mlp.down_proj")?,
+                qkv: put(qkv, dtype)?,
+                qkv_norm: put(qkv_norm, dtype)?,
+                o: put(t("self_attn.o_proj")?, dtype)?,
+                ln1: put(t("input_layernorm")?, dtype)?,
+                ln2: put(t("post_attention_layernorm")?, dtype)?,
+                gate_up: put(gate_up, dtype)?,
+                down: put(t("mlp.down_proj")?, dtype)?,
             });
         }
+        let k_all = put(Tensor::cat(&ks, 0)?, dtype)?;
+        let v_all = put(Tensor::cat(&vs, 0)?, dtype)?;
+        let k_norm_all = put(Tensor::cat(&kns, 0)?, dtype)?;
+        let ones = Tensor::ones(dh, dtype, device)?;
         // As the reference: 1 / theta^(i / d) for even i, in f32.
-        let half = cfg.head_dim / 2;
-        let inv: Vec<f32> = (0..half)
-            .map(|i| 1.0f32 / (cfg.theta as f32).powf((2 * i) as f32 / cfg.head_dim as f32))
-            .collect();
+        let half = dh / 2;
+        let inv: Vec<f32> = (0..half).map(|i| 1.0f32 / (cfg.theta as f32).powf((2 * i) as f32 / dh as f32)).collect();
         let inv_freq = Tensor::from_vec(inv, (1, half), device)?;
-        Ok(Self { cfg, fc, hidden_norm, norm, layers, inv_freq, device: device.clone(), dtype })
+        Ok(Self { cfg, fc, hidden_norm, norm, layers, k_all, v_all, k_norm_all, ones, inv_freq, device: device.clone(), dtype })
     }
 
     pub fn device(&self) -> &Device {
@@ -422,46 +471,81 @@ impl DFlashDrafter {
         self.dtype
     }
 
-    /// Bytes of the drafter's weights in its dtype.
+    /// Bytes of the drafter's weights as held (the k and v projections twice:
+    /// fused per layer for the block, stacked over layers for the extension).
     pub fn weight_bytes(&self) -> usize {
-        let mut n = self.norm.elem_count();
+        let mut n = self.norm.elem_count() + self.k_all.elem_count() + self.v_all.elem_count() + self.k_norm_all.elem_count();
         for l in &self.layers {
-            for t in [&l.q, &l.k, &l.v, &l.o, &l.q_norm, &l.k_norm, &l.ln1, &l.ln2, &l.gate, &l.up, &l.down] {
+            for t in [&l.qkv, &l.qkv_norm, &l.o, &l.ln1, &l.ln2, &l.gate_up, &l.down] {
                 n += t.elem_count();
             }
         }
         n * self.dtype.size_in_bytes() + (self.fc.elem_count() + self.hidden_norm.elem_count()) * 4
     }
 
+    /// Device operations of a round that extends the context by any n > 0
+    /// positions, counted from the code (2026-11-11).
+    pub fn launches(&self) -> Launches {
+        // extend: f32 cast, fc, hidden_norm, cast, k, v, rms, norm mul, transpose, rope, 2 stores, v transpose
+        // block: embed, cast; a layer: ln1, qkv, rms, norm mul, transpose, rope, k store, v transpose,
+        //        v store, scores, softmax, values, transpose, o, add, ln2, gate_up, silu, mul, down, add;
+        //        then the final norm
+        // head: matmul, f32 cast; readout: softmax, chunk max, two gathers, cat
+        Launches { extend: 13, block: 2 + 21 * self.cfg.layers + 1, head: 2, readout: 5, syncs: 2 }
+    }
+
     /// An empty context with room for `cap` positions (it grows by doubling).
     pub fn new_context(&self, cap: usize) -> anyhow::Result<DraftContext> {
-        let cap = cap.max(BLOCK);
-        let shape = (self.cfg.kv_heads, cap, self.cfg.head_dim);
-        let z = || Tensor::zeros(shape, self.dtype, &self.device);
-        let mut k = Vec::new();
-        let mut v = Vec::new();
-        for _ in 0..self.cfg.layers {
-            k.push(z()?);
-            v.push(z()?);
-        }
-        Ok(DraftContext { k, v, len: 0, cap })
+        let cap = cap.max(2 * BLOCK);
+        let shape = (self.cfg.layers * self.cfg.kv_heads, cap, self.cfg.head_dim);
+        let (cos, sin) = self.rope_tables(cap)?;
+        Ok(DraftContext {
+            k: Tensor::zeros(shape, self.dtype, &self.device)?,
+            v: Tensor::zeros(shape, self.dtype, &self.device)?,
+            cos,
+            sin,
+            len: 0,
+            cap,
+        })
     }
 
     fn rms(&self, x: &Tensor, w: &Tensor) -> candle_core::Result<Tensor> {
         candle_nn::ops::rms_norm(&x.contiguous()?, w, self.cfg.eps as f32)
     }
 
-    /// cos and sin [n, head_dim / 2] at positions start..start+n.
-    fn rope_tables(&self, start: usize, n: usize) -> candle_core::Result<(Tensor, Tensor)> {
-        let pos: Vec<f32> = (start..start + n).map(|p| p as f32).collect();
+    /// cos and sin [n, head_dim / 2] at positions 0..n, in the drafter's dtype.
+    fn rope_tables(&self, n: usize) -> candle_core::Result<(Tensor, Tensor)> {
+        let pos: Vec<f32> = (0..n).map(|p| p as f32).collect();
         let pos = Tensor::from_vec(pos, (n, 1), &self.device)?;
         let ang = pos.broadcast_mul(&self.inv_freq)?;
         Ok((ang.cos()?.to_dtype(self.dtype)?, ang.sin()?.to_dtype(self.dtype)?))
     }
 
-    /// `x` [heads, n, d] contiguous, rotated.
-    fn rope(x: &Tensor, cos: &Tensor, sin: &Tensor) -> candle_core::Result<Tensor> {
-        candle_nn::rotary_emb::rope(&x.unsqueeze(0)?, cos, sin)?.squeeze(0)
+    /// `x` [1, heads, n, d] contiguous, rotated at positions start..start+n.
+    fn rope(ctx: &DraftContext, x: &Tensor, start: usize) -> candle_core::Result<Tensor> {
+        let n = x.dim(2)?;
+        candle_nn::rotary_emb::rope(x, &ctx.cos.narrow(0, start, n)?, &ctx.sin.narrow(0, start, n)?)
+    }
+
+    /// Room for `need` positions: grow the cache and the tables by doubling.
+    fn reserve(&self, ctx: &mut DraftContext, need: usize) -> anyhow::Result<()> {
+        if need <= ctx.cap {
+            return Ok(());
+        }
+        let cap = need.next_power_of_two().max(2 * ctx.cap);
+        let shape = (self.cfg.layers * self.cfg.kv_heads, cap, self.cfg.head_dim);
+        for t in [&mut ctx.k, &mut ctx.v] {
+            let g = Tensor::zeros(shape, self.dtype, &self.device)?;
+            if ctx.len > 0 {
+                g.slice_set(&t.narrow(1, 0, ctx.len)?.contiguous()?, 1, 0)?;
+            }
+            *t = g;
+        }
+        let (cos, sin) = self.rope_tables(cap)?;
+        ctx.cos = cos;
+        ctx.sin = sin;
+        ctx.cap = cap;
+        Ok(())
     }
 
     /// Append the target's tap states of the next `n` positions, [n, 5 x hidden]
@@ -474,29 +558,18 @@ impl DFlashDrafter {
         if n == 0 {
             return Ok(());
         }
-        let (kvh, dh) = (self.cfg.kv_heads, self.cfg.head_dim);
-        if ctx.len + n > ctx.cap {
-            let cap = (ctx.len + n).next_power_of_two().max(2 * ctx.cap);
-            for t in ctx.k.iter_mut().chain(ctx.v.iter_mut()) {
-                let g = Tensor::zeros((kvh, cap, dh), self.dtype, &self.device)?;
-                if ctx.len > 0 {
-                    g.slice_set(&t.narrow(1, 0, ctx.len)?.contiguous()?, 1, 0)?;
-                }
-                *t = g;
-            }
-            ctx.cap = cap;
-        }
+        let heads = self.cfg.layers * self.cfg.kv_heads;
+        let dh = self.cfg.head_dim;
+        self.reserve(ctx, ctx.len + n + BLOCK)?;
         // fc and hidden_norm in f32 whatever the dtype: see the struct's note
         let taps = taps.to_device(&self.device)?.to_dtype(DType::F32)?;
         let c = self.rms(&lin(&taps, &self.fc)?, &self.hidden_norm)?.to_dtype(self.dtype)?;
-        let (cos, sin) = self.rope_tables(ctx.len, n)?;
-        for (li, l) in self.layers.iter().enumerate() {
-            let k = self.rms(&lin(&c, &l.k)?.reshape((n, kvh, dh))?, &l.k_norm)?;
-            let k = Self::rope(&k.transpose(0, 1)?.contiguous()?, &cos, &sin)?;
-            let v = lin(&c, &l.v)?.reshape((n, kvh, dh))?.transpose(0, 1)?.contiguous()?;
-            ctx.k[li].slice_set(&k, 1, ctx.len)?;
-            ctx.v[li].slice_set(&v, 1, ctx.len)?;
-        }
+        let k = lin(&c, &self.k_all)?.reshape((n, heads, dh))?;
+        let k = self.rms(&k, &self.ones)?.broadcast_mul(&self.k_norm_all)?;
+        let k = Self::rope(ctx, &k.transpose(0, 1)?.contiguous()?.unsqueeze(0)?, ctx.len)?.squeeze(0)?;
+        let v = lin(&c, &self.v_all)?.reshape((n, heads, dh))?.transpose(0, 1)?.contiguous()?;
+        ctx.k.slice_set(&k, 1, ctx.len)?;
+        ctx.v.slice_set(&v, 1, ctx.len)?;
         ctx.len += n;
         Ok(())
     }
@@ -508,40 +581,40 @@ impl DFlashDrafter {
         let (hq, kvh, dh) = (cfg.heads, cfg.kv_heads, cfg.head_dim);
         let rep = hq / kvh;
         let m = ctx.len;
+        if m + BLOCK > ctx.cap {
+            bail!("context capacity {} below {} + {BLOCK}", ctx.cap, m);
+        }
         let mut ids = vec![MASK_ID; BLOCK];
         ids[0] = last;
         let ids = Tensor::from_vec(ids, BLOCK, &self.device)?;
         let mut h = vocab.embed(&ids)?.to_dtype(self.dtype)?;
-        let (cos, sin) = self.rope_tables(m, BLOCK)?;
-        let scale = (dh as f64).powf(-0.5);
+        let all = hq + 2 * kvh;
         for (li, l) in self.layers.iter().enumerate() {
             let hn = self.rms(&h, &l.ln1)?;
-            let q = self.rms(&lin(&hn, &l.q)?.reshape((BLOCK, hq, dh))?, &l.q_norm)?;
-            let q = Self::rope(&q.transpose(0, 1)?.contiguous()?, &cos, &sin)?;
+            let qkv = lin(&hn, &l.qkv)?.reshape((BLOCK, all, dh))?;
+            let nq = self.rms(&qkv, &self.ones)?.broadcast_mul(&l.qkv_norm)?;
+            let nq = nq.transpose(0, 1)?.contiguous()?;
+            // q (scaled) and k rotated together, v left as projected
+            let r = Self::rope(ctx, &nq.narrow(0, 0, hq + kvh)?.unsqueeze(0)?, m)?.squeeze(0)?;
             // Query head j reads KV head j / rep: group the rep heads of a KV head as rows.
-            let q = q.reshape((kvh, rep * BLOCK, dh))?;
-            let kb = self.rms(&lin(&hn, &l.k)?.reshape((BLOCK, kvh, dh))?, &l.k_norm)?;
-            let kb = Self::rope(&kb.transpose(0, 1)?.contiguous()?, &cos, &sin)?;
-            let vb = lin(&hn, &l.v)?.reshape((BLOCK, kvh, dh))?.transpose(0, 1)?.contiguous()?;
-            let sb = (q.matmul(&kb.t()?)? * scale)?;
-            let att = if m == 0 {
-                candle_nn::ops::softmax_last_dim(&sb)?.matmul(&vb)?
-            } else {
-                let kc = ctx.k[li].narrow(1, 0, m)?;
-                let vc = ctx.v[li].narrow(1, 0, m)?;
-                let sc = (q.matmul(&kc.t()?)? * scale)?;
-                let p = candle_nn::ops::softmax_last_dim(&Tensor::cat(&[&sc, &sb], 2)?)?;
-                let pc = p.narrow(2, 0, m)?.contiguous()?;
-                let pb = p.narrow(2, m, BLOCK)?.contiguous()?;
-                (pc.matmul(&vc)? + pb.matmul(&vb)?)?
-            };
+            let q = r.narrow(0, 0, hq)?.reshape((kvh, rep * BLOCK, dh))?;
+            let kc = ctx.k.narrow(0, li * kvh, kvh)?;
+            let vc = ctx.v.narrow(0, li * kvh, kvh)?;
+            kc.slice_set(&r.narrow(0, hq, kvh)?, 1, m)?;
+            vc.slice_set(&qkv.narrow(1, hq + kvh, kvh)?.transpose(0, 1)?.contiguous()?, 1, m)?;
+            let kc = kc.narrow(1, 0, m + BLOCK)?;
+            let vc = vc.narrow(1, 0, m + BLOCK)?;
+            let p = candle_nn::ops::softmax_last_dim(&q.matmul(&kc.t()?)?)?;
+            let att = p.matmul(&vc)?;
             let att = att.reshape((hq, BLOCK, dh))?.transpose(0, 1)?.reshape((BLOCK, hq * dh))?;
             h = (h + lin(&att, &l.o)?)?;
             let m2 = self.rms(&h, &l.ln2)?;
-            let mlp = lin(&(candle_nn::ops::silu(&lin(&m2, &l.gate)?)? * lin(&m2, &l.up)?)?, &l.down)?;
+            let gu = lin(&m2, &l.gate_up)?;
+            let f = cfg.intermediate;
+            let mlp = lin(&(candle_nn::ops::silu(&gu.narrow(1, 0, f)?)? * gu.narrow(1, f, f)?)?, &l.down)?;
             h = (h + mlp)?;
         }
-        Ok(self.rms(&h, &self.norm)?.narrow(0, 1, DRAFTS)?)
+        Ok(self.rms(&h.narrow(0, 1, DRAFTS)?, &self.norm)?)
     }
 
     /// The logits of the 15 drafted rows, [15, vocab] f32.
@@ -555,35 +628,71 @@ impl DFlashDrafter {
     }
 }
 
-/// Argmax, top [`TREE_TOPK`] and logsumexp of logits [rows, vocab], computed
-/// on the logits' device; only rows x (2 x TOPK + 1) numbers leave it.
+/// Argmax, top [`TREE_TOPK`] and logsumexp of logits [rows, vocab].
+///
+/// Five device operations and two small transfers: the maximum logit of
+/// every chunk of 128 ids; on the host the [`TREE_TOPK`] best chunks a row
+/// (any id of the top 4 lies in one: four chunks above its own would hold
+/// four ids above it); then those chunks' logits and their softmax
+/// probabilities, from which the host takes the top 4. The logsumexp is
+/// `z - ln p` of the best id (whose p is at least 1 / vocab, so no
+/// underflow), and a log probability `z - lse`, as before.
 pub fn readout(logits: &Tensor) -> anyhow::Result<DraftOut> {
     let z = logits.to_dtype(DType::F32)?;
     let (rows, vocab) = z.dims2()?;
-    let mx = z.max_keepdim(D::Minus1)?;
-    let lse = (z.broadcast_sub(&mx)?.exp()?.sum_keepdim(D::Minus1)?.log()? + &mx)?;
-    let ar = Tensor::arange(0u32, vocab as u32, z.device())?.unsqueeze(0)?;
-    let ninf = Tensor::full(f32::NEG_INFINITY, (rows, vocab), z.device())?;
-    let mut work = z.clone();
-    let mut ids = Vec::with_capacity(TREE_TOPK);
-    let mut vals = Vec::with_capacity(TREE_TOPK);
-    for k in 0..TREE_TOPK {
-        let i = work.argmax_keepdim(D::Minus1)?;
-        vals.push(work.gather(&i, D::Minus1)?);
-        if k + 1 < TREE_TOPK {
-            work = ar.broadcast_eq(&i)?.where_cond(&ninf, &work)?;
+    let c = [128usize, 64, 32, 16, 8, 4, 2, 1].into_iter().find(|c| vocab.is_multiple_of(*c)).unwrap_or(1);
+    let nch = vocab / c;
+    let zc = z.reshape((rows, nch, c))?;
+    let cmax = zc.max(D::Minus1)?.to_vec2::<f32>()?;
+    let mut pick = Vec::with_capacity(rows * TREE_TOPK * c);
+    let mut chunks = Vec::with_capacity(rows);
+    for row in &cmax {
+        let mut best: Vec<u32> = Vec::with_capacity(TREE_TOPK);
+        for _ in 0..TREE_TOPK.min(nch) {
+            let mut b = None;
+            for (i, &x) in row.iter().enumerate() {
+                if best.contains(&(i as u32)) {
+                    continue;
+                }
+                if b.is_none_or(|(_, y)| x > y) {
+                    b = Some((i, x));
+                }
+            }
+            best.push(b.expect("a chunk").0 as u32);
         }
-        ids.push(i);
+        while best.len() < TREE_TOPK {
+            best.push(best[0]);
+        }
+        for &ch in &best {
+            pick.extend(std::iter::repeat_n(ch, c));
+        }
+        chunks.push(best);
     }
-    let ids = Tensor::cat(&ids, 1)?.to_vec2::<u32>()?;
-    let vals = Tensor::cat(&vals, 1)?.broadcast_sub(&lse)?.to_vec2::<f32>()?;
-    let lse = lse.squeeze(1)?.to_vec1::<f32>()?;
-    let mut out = DraftOut { chain: Vec::new(), top_ids: Vec::new(), top_logp: Vec::new(), lse };
+    let idx = Tensor::from_vec(pick, (rows, TREE_TOPK, c), z.device())?;
+    let p = candle_nn::ops::softmax_last_dim(&z)?.reshape((rows, nch, c))?;
+    let both = Tensor::cat(&[&zc.gather(&idx, 1)?, &p.gather(&idx, 1)?], 1)?.to_vec3::<f32>()?;
+    let mut out = DraftOut { chain: Vec::new(), top_ids: Vec::new(), top_logp: Vec::new(), lse: Vec::new() };
     for r in 0..rows {
+        // (z, id, p): best logit first, the lower id on a tie
+        let mut cand: Vec<(f32, u32, f32)> = Vec::with_capacity(TREE_TOPK * c);
+        for (j, &ch) in chunks[r].iter().enumerate() {
+            if chunks[r][..j].contains(&ch) {
+                continue;
+            }
+            for (k, (&zk, &pk)) in both[r][j].iter().zip(&both[r][TREE_TOPK + j]).enumerate() {
+                cand.push((zk, ch * c as u32 + k as u32, pk));
+            }
+        }
+        cand.sort_by(|a, b| b.0.total_cmp(&a.0).then(a.1.cmp(&b.1)));
+        let lse = cand[0].0 - cand[0].2.ln();
         let mut a = [0u32; TREE_TOPK];
         let mut b = [0f32; TREE_TOPK];
-        a.copy_from_slice(&ids[r]);
-        b.copy_from_slice(&vals[r]);
+        for k in 0..TREE_TOPK {
+            let (zk, id, _) = cand[k.min(cand.len() - 1)];
+            a[k] = id;
+            b[k] = zk - lse;
+        }
+        out.lse.push(lse);
         out.chain.push(a[0]);
         out.top_ids.push(a);
         out.top_logp.push(b);
@@ -678,6 +787,31 @@ impl std::fmt::Display for FixtureReport {
             self.table_abs
         )
     }
+}
+
+/// The logits [15, vocab] f32 of every fixture round, in the order
+/// [`check_fixture`] runs them (prompt-major), the context extended round by
+/// round: what a before/after comparison of a change to the drafter reads.
+pub fn fixture_logits(path: &Path, drafter: &DFlashDrafter, vocab: &dyn TargetVocab) -> anyhow::Result<Vec<Tensor>> {
+    let fx = candle_core::safetensors::load(path, &Device::Cpu).with_context(|| format!("{}", path.display()))?;
+    let get = |k: &str| fx.get(k).with_context(|| format!("fixture: no `{k}`"));
+    let mut out = Vec::new();
+    let mut p = 0;
+    while fx.contains_key(&format!("p{p}.ids")) {
+        let ids = get(&format!("p{p}.ids"))?.to_dtype(DType::U32)?.to_vec1::<u32>()?;
+        let taps = get(&format!("p{p}.taps"))?;
+        let mut ctx = drafter.new_context(64)?;
+        let mut r = 0;
+        while fx.contains_key(&format!("p{p}.r{r}.m")) {
+            let m = get(&format!("p{p}.r{r}.m"))?.to_dtype(DType::U32)?.to_vec1::<u32>()?[0] as usize;
+            let len = ctx.len();
+            drafter.extend(&mut ctx, &taps.narrow(0, len, m - len)?)?;
+            out.push(drafter.block_logits(&ctx, ids[m], vocab)?.to_dtype(DType::F32)?.to_device(&Device::Cpu)?);
+            r += 1;
+        }
+        p += 1;
+    }
+    Ok(out)
 }
 
 /// Run every round of the fixture through `drafter`, with the context
