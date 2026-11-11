@@ -24,7 +24,9 @@
 //      L2 prefetch in its wait gaps), a9's waits; 268435456: a12, a10r16 at
 //      384 threads with the taps; 536870912: a12ip, a12 on the words 4E
 //      reads, in place, no copy, after the install's load check
-//      p4t_ip_check on every matrix against its tree-tiled copy),
+//      p4t_ip_check on every matrix against its tree-tiled copy;
+//      1073741824: beside a12 or a12ip, every pass but the command's last
+//      launched with split_head 0, no final norm and no head),
 //      three rotations (attention input at 2,560, MLP input at 2,560, down
 //      input at 9,728), each u32 m, k, f32 inv, u32 signs[n/32], f32
 //      small[1024], then with variant 16 the o rotation at 4,096,
@@ -356,6 +358,8 @@
         T.bar_base = host_base; T.pos0 = pos0; T.n_rows = R; T.area_floats = area;
         T.n_move = n_move; T.move_pos0 = move_pos0; T.part_stride = pstride; T.ldx = ldx;
         T.split_qkv = split[0]; T.split_o = split[1]; T.split_gu = split[2]; T.split_dn = split[3]; T.split_head = split[4];
+        // variant 1073741824 (the chain prefill): the head only on the command's last pass, split_head 0 before it
+        if ((variant & 1073741824u) != 0u && pi + 1u != n_pass) T.split_head = 0u;
         T.toks = toks.data(); T.depth = depth.data(); T.path = path.data(); T.mv = mv.data();
         T.ring = ring.data(); T.logits = tlog.data();
         T.x_a = txa.data(); T.x_b = txb.data(); T.xin = txin.data(); T.xn = txn.data();

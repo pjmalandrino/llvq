@@ -274,9 +274,118 @@ pub fn run_with_fault(
     Ok(out)
 }
 
+// ---- the chain prefill (docs/mesures/large-prefill-contexte-2026-11-11.txt) ----
+
+/// Row `r`'s path in a chain: its ancestors 0, 1, ..., r - 1, then r.
+pub fn chain_path(r: usize) -> [u8; 32] {
+    let mut p = [0u8; 32];
+    for (d, x) in p.iter_mut().enumerate().take(r + 1) {
+        *x = d as u8;
+    }
+    p
+}
+
+/// A fault the chain prefill's host gate injects; `None` in every real run.
+#[doc(hidden)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ChainFault {
+    None,
+    /// Each row past the first names, at every depth d from 1 to its own
+    /// minus one, the slot d - 1 as its ancestor: the path off by one.
+    PathOffByOne,
+}
+
+/// One launch of a chain prefill: the tokens `toks` at `pos0`, row r at depth
+/// r, and the previous launch's rows `mv` moved into the cache at
+/// `move_pos0`, `move_pos0 + 1`, ... first (as [`VerifyLaunch`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChainLaunch {
+    pub pos0: usize,
+    pub toks: Vec<u32>,
+    pub depth: Vec<u32>,
+    pub path: Vec<[u8; 32]>,
+    pub mv: Vec<u32>,
+    pub move_pos0: usize,
+}
+
+/// The chain prefill of `toks`, the cache holding `pos0` positions and no
+/// pending move: chunks of at most `r` known tokens a launch, each launch
+/// moving the previous one's rows in first. Every row is accepted, so the
+/// prompt's K and V are its rows', and the last launch's last row gives the
+/// first answer token. Returns the launches and the move still pending after
+/// the last one (its rows, root first, and their first position), which the
+/// next launch, [`chain_handover`] or a decode step's own, must carry.
+pub fn chain_launches(toks: &[u32], pos0: usize, r: usize, fault: ChainFault) -> Result<(Vec<ChainLaunch>, Vec<u32>, usize), String> {
+    if toks.is_empty() || r == 0 || r > 32 {
+        return Err(format!("chain prefill: {} tokens in chunks of {r}; 1 to 32 rows a launch", toks.len()));
+    }
+    let mut out = Vec::with_capacity(toks.len().div_ceil(r));
+    let (mut mv, mut move_pos0): (Vec<u32>, usize) = (Vec::new(), 0);
+    let mut p = pos0;
+    for chunk in toks.chunks(r) {
+        let n = chunk.len();
+        let mut path: Vec<[u8; 32]> = (0..n).map(chain_path).collect();
+        if fault == ChainFault::PathOffByOne {
+            for (i, row) in path.iter_mut().enumerate().skip(2) {
+                for (d, x) in row.iter_mut().enumerate().take(i).skip(1) {
+                    *x = (d - 1) as u8;
+                }
+            }
+        }
+        out.push(ChainLaunch { pos0: p, toks: chunk.to_vec(), depth: (0..n as u32).collect(), path, mv: mv.clone(), move_pos0 });
+        mv = (0..n as u32).collect();
+        move_pos0 = p;
+        p += n;
+    }
+    Ok((out, mv, move_pos0))
+}
+
+/// The one-row launch that hands a chain prefill over to another decoder:
+/// it moves the pending rows `mv` into the cache at `move_pos0` and runs the
+/// first answer token `first` at the position after them (its row stays in
+/// the tree buffer, never moved: the decoder that takes over computes that
+/// position again).
+pub fn chain_handover(first: u32, mv: &[u32], move_pos0: usize) -> ChainLaunch {
+    ChainLaunch { pos0: move_pos0 + mv.len(), toks: vec![first], depth: vec![0], path: vec![chain_path(0)], mv: mv.to_vec(), move_pos0 }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn chain_launches_cover_the_prompt_and_move_each_chunk() {
+        let toks: Vec<u32> = (100..137).collect();
+        for r in [1usize, 5, 16, 32] {
+            let (ls, mv, mp) = chain_launches(&toks, 7, r, ChainFault::None).unwrap();
+            assert_eq!(ls.len(), toks.len().div_ceil(r));
+            let mut pos = 7;
+            for (i, l) in ls.iter().enumerate() {
+                assert_eq!(l.pos0, pos);
+                assert_eq!(l.toks, toks[pos - 7..pos - 7 + l.toks.len()]);
+                for (k, p) in l.path.iter().enumerate() {
+                    assert_eq!(l.depth[k] as usize, k);
+                    assert!(p[..=k].iter().enumerate().all(|(d, &s)| s as usize == d), "row {k} of launch {i}");
+                }
+                if i == 0 {
+                    assert!(l.mv.is_empty());
+                } else {
+                    assert_eq!(l.move_pos0 + l.mv.len(), l.pos0, "the move ends at the root");
+                    assert_eq!(l.mv, (0..ls[i - 1].toks.len() as u32).collect::<Vec<_>>());
+                }
+                pos += l.toks.len();
+            }
+            assert_eq!(pos, 7 + toks.len());
+            assert_eq!(mp + mv.len(), pos, "the pending move ends at the prompt's end");
+            let h = chain_handover(9, &mv, mp);
+            assert_eq!((h.pos0, h.toks.as_slice(), h.mv.as_slice()), (pos, &[9u32][..], mv.as_slice()));
+        }
+        let (bad, _, _) = chain_launches(&toks, 0, 16, ChainFault::PathOffByOne).unwrap();
+        let (good, _, _) = chain_launches(&toks, 0, 16, ChainFault::None).unwrap();
+        assert_ne!(bad, good, "the fault changes a path");
+        assert!(chain_launches(&toks, 0, 33, ChainFault::None).is_err());
+        assert!(chain_launches(&[], 0, 16, ChainFault::None).is_err());
+    }
 
     /// A verifier whose argmax at a row is a function of the row's token
     /// alone (the "greedy model" tok -> tok * 7 + 3 mod 1000): the loop must

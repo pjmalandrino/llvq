@@ -1702,7 +1702,64 @@ impl Runtime4e {
         stamped: bool,
         taps: bool,
     ) -> anyhow::Result<TreeOut> {
+        self.tree_launch(arm, caches, pos0, toks, depth, path, mv, move_pos0, logits, stamped, taps, true)
+    }
+
+    /// One launch of the chain prefill (`llvq_cuda::spec_loop::chain_launches`,
+    /// docs/mesures/large-prefill-contexte-2026-11-11.txt): the known tokens
+    /// `toks` as a chain at `pos0` (row r at depth r, its path 0..=r), the
+    /// previous launch's rows `mv` moved in first, as [`Self::tree_moved`].
+    /// `head` false skips the final norm and the head (the launch's
+    /// `split_head` is 0, an a12 or a12ip arm only): the ring is then
+    /// meaningless and returned empty, and `logits` is refused. Taps off.
+    #[allow(clippy::too_many_arguments)]
+    pub fn tree_chain(
+        &mut self,
+        arm: usize,
+        caches: &mut [KvCache],
+        pos0: usize,
+        toks: &[u32],
+        mv: &[u32],
+        move_pos0: usize,
+        head: bool,
+        logits: bool,
+        stamped: bool,
+    ) -> anyhow::Result<TreeOut> {
         let n = toks.len();
+        if n == 0 || n > pers::P4T_RMAX as usize {
+            anyhow::bail!("4E tree chain: {n} rows, the pass carries 1 to {}", pers::P4T_RMAX);
+        }
+        let depth: Vec<u32> = (0..n as u32).collect();
+        let path: Vec<[u8; 32]> = (0..n).map(llvq_cuda::spec_loop::chain_path).collect();
+        self.tree_launch(arm, caches, pos0, toks, &depth, &path, mv, move_pos0, logits, stamped, false, head)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn tree_launch(
+        &mut self,
+        arm: usize,
+        caches: &mut [KvCache],
+        pos0: usize,
+        toks: &[u32],
+        depth: &[u32],
+        path: &[[u8; 32]],
+        mv: &[u32],
+        move_pos0: usize,
+        logits: bool,
+        stamped: bool,
+        taps: bool,
+        head: bool,
+    ) -> anyhow::Result<TreeOut> {
+        let n = toks.len();
+        if !head {
+            if logits {
+                anyhow::bail!("4E tree: logits asked of a launch without the head");
+            }
+            let form = self.tree.as_ref().and_then(|t| t.arms.get(arm)).map(|a| a.form);
+            if !matches!(form, Some(TreeForm::A12 | TreeForm::A12ip)) {
+                anyhow::bail!("4E tree: a launch without the head runs on an a12 or a12ip arm only, arm {arm} is {form:?}");
+            }
+        }
         if !mv.is_empty() {
             if mv.len() > pers::P4T_RMAX as usize || move_pos0 + mv.len() != pos0 || mv.iter().any(|&s| s >= pers::P4T_RMAX) {
                 anyhow::bail!("4E tree: a move of {} rows {mv:?} from position {move_pos0} to a root at {pos0}", mv.len());
@@ -1791,7 +1848,8 @@ impl Runtime4e {
             split_o: spec.splits[1],
             split_gu: spec.splits[2],
             split_dn: spec.splits[3],
-            split_head: spec.splits[4],
+            // 0: the a12 body skips the final norm and the head, every wait kept
+            split_head: if head { spec.splits[4] } else { 0 },
             // a12 with taps: first tapped layer 2, stride 8 (layers 2, 10, 18, 26, 34)
             pad: if taps && matches!(spec.form, TreeForm::A12 | TreeForm::A12ip) { (8 << 16) | 2 } else { 0 },
             toks: v.toks.device_ptr(&stream).0,
@@ -1870,7 +1928,7 @@ impl Runtime4e {
             Some(pers::P4eFault::Nan) => anyhow::bail!("4E tree: a NaN logit"),
             None => {}
         }
-        let made: Vec<u32> = ring[..n].to_vec();
+        let made: Vec<u32> = if head { ring[..n].to_vec() } else { Vec::new() };
         if made.contains(&u32::MAX) {
             let mut dev = Counters4e { cuda: &self.cuda, bar: &mut self.bar, abort: &mut self.abort, nan: &mut self.nan };
             pers::p4e_reset(&mut dev, &mut self.bar_base).map_err(anyhow::Error::msg)?;

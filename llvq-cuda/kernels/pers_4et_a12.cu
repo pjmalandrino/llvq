@@ -270,24 +270,32 @@ __device__ __forceinline__ void pers_4et_a12_body(const Pers4eArgs* __restrict__
         });
     }
     p4t_taps_a12(L, H, R, NL, c0, G);
+    // A launch with L.split_head == 0 (the chain prefill's passes before the
+    // prompt's last, docs/mesures/large-prefill-contexte-2026-11-11.txt) skips
+    // the final norm and the head, every wait kept: no logits, no argmax (the
+    // ring reads u32 max), the rows' residuals, K, V and taps untouched.
+    const bool head_on = L.split_head != 0u;
     // the final norm, natural: the head's input
-    for (u32 r = c0; r < R; r += G)
-        p4t_ln_final_a10(L.x_a + (size_t)r * H, A->final_norm, A->eps, H, S, v7a10, L.xin + (size_t)r * L.ldx);
+    if (head_on)
+        for (u32 r = c0; r < R; r += G)
+            p4t_ln_final_a10(L.x_a + (size_t)r * H, A->final_norm, A->eps, H, S, v7a10, L.xin + (size_t)r * L.ldx);
     P4T_WAIT();
     // the head: each row's argmax key through the CTA's maxima
     {
         for (u32 i = threadIdx.x; i < P4T_RMAX; i += blockDim.x) cmax[i] = 0ull;
         __syncthreads();
         P4tSeg sh = p4t_seg_q4(A->head_w, A->head_s, A->head_b, H, A->vocab, 6u, 0u);
-        p4t_io(sh, L.xin, L.ldx, nullptr, 0u, nullptr, P4T_HEAD, L.split_head);
-        unsigned long long po = 0ull;
-        u32 to = 0u;
-        p4t_place(sh, L, po, to);
-        p4t_phase_rc<RC, IP>(sh, sh, sh, 1u, L, A, tab, t_inv, area, cmax);
+        if (head_on) {
+            p4t_io(sh, L.xin, L.ldx, nullptr, 0u, nullptr, P4T_HEAD, L.split_head);
+            unsigned long long po = 0ull;
+            u32 to = 0u;
+            p4t_place(sh, L, po, to);
+            p4t_phase_rc<RC, IP>(sh, sh, sh, 1u, L, A, tab, t_inv, area, cmax);
+        }
         __syncthreads();
         if (threadIdx.x < R && cmax[threadIdx.x] != 0ull) atomicMax(L.slots + threadIdx.x, cmax[threadIdx.x]);
         P4T_WAIT();
-        p4t_fold_a9(sh, sh, sh, 1u, L, A, cmax);
+        if (head_on) p4t_fold_a9(sh, sh, sh, 1u, L, A, cmax);
         __syncthreads();
         if (threadIdx.x < R && cmax[threadIdx.x] != 0ull) atomicMax(L.slots + threadIdx.x, cmax[threadIdx.x]);
     }
