@@ -792,10 +792,12 @@ pub fn q4_tile_words(words: &[u32], d_out: usize, nwords: usize) -> Result<Vec<u
 //          rows: nothing else;
 //   "v9mv" "v9np" with layer l + 1's q/k/v and o rows asked of L2 during
 //          layer l's gate/up rows (after ln2), layer 0's before its ln1.
+//   "v9ft" "v9" with the attention tile's full-tile path ([`pers_ft_edit`],
+//          docs/mesures/large-attn-tuile-pleine-mac-2026-11-11.txt).
 // ---------------------------------------------------------------------------
 
 /// The E1 arms, the first the reference of the others.
-pub const P4E_E1_ARMS: [&str; 3] = ["v9", "v9np", "v9mv"];
+pub const P4E_E1_ARMS: [&str; 4] = ["v9", "v9np", "v9mv", "v9ft"];
 
 /// The mv arm's helpers (`pers_4e_e1.cuh`), inserted at the head of
 /// `pers_segment.cu`'s text in that arm's module only.
@@ -858,6 +860,8 @@ pub fn p4e_e1_edits(arm: &str) -> Result<Vec<(&'static str, String, String)>, St
     ];
     match arm {
         "v9" => {}
+        // the attention tile's full-tile path (pers_ft_edit), nothing else
+        "v9ft" => v.push(pers_ft_edit()),
         "v9np" => v.extend(np),
         "v9mv" => {
             v.extend(np);
@@ -2482,6 +2486,61 @@ pub fn p4t_a12ipg32_symbol(form: u32) -> Result<&'static str, String> {
 /// `pers_4et_a12g32.cu`, embedded so the Mac hashes what the card compiles.
 pub const P4T_A12G32_PART: (&str, &str) = ("pers_4et_a12g32.cu", include_str!("../kernels/pers_4et_a12g32.cu"));
 
+// ---------------------------------------------------------------------------
+// The attention tile's full-tile path (ft arms,
+// docs/mesures/large-attn-tuile-pleine-mac-2026-11-11.txt): a module text with
+// `pers_attn_full.cuh` inserted before `pers_attn_tile` and a branch at the
+// head of `pers_attn_tile` that runs it when the tile holds PERS_TT
+// positions. A text edit of the parent module, so a12ip, a12ipg, a12ipg32
+// and 4E v9 keep their bytes.
+// ---------------------------------------------------------------------------
+
+/// `pers_attn_full.cuh`, inserted by [`pers_ft_edit`] in the ft arms only.
+pub const PERS_FT_PART: (&str, &str) = ("pers_attn_full.cuh", include_str!("../kernels/pers_attn_full.cuh"));
+
+/// `pers_attn_tile`'s head in `llvq_pers.cuh`, the ft edit's anchor.
+const PERS_FT_ANCHOR: &str = "__device__ __forceinline__ void pers_attn_tile(const float* qrow, float* row, bool own, const uint4* ks,
+                                               const uint4* vs, u32 nv, float c, u32 lane)
+{
+";
+
+/// The ft edit: (part, text, replacement), the text present exactly once in
+/// `llvq_pers.cuh` and in every module that carries it once.
+pub fn pers_ft_edit() -> (&'static str, String, String) {
+    (
+        "llvq_pers.cuh",
+        PERS_FT_ANCHOR.to_string(),
+        format!(
+            "{}\n{PERS_FT_ANCHOR}    if (nv == PERS_TT) {{  // ft: a full tile, its positions with no guard between them\n        \
+             pers_attn_tile_full(qrow, row, own, ks, vs, c, lane);\n        return;\n    }}\n",
+            PERS_FT_PART.1
+        ),
+    )
+}
+
+/// A module text with the ft edit applied; refuses a text that does not hold
+/// `pers_attn_tile`'s head exactly once.
+pub fn pers_ft_apply(text: &str) -> Result<String, String> {
+    let (_, from, to) = pers_ft_edit();
+    let n = text.matches(from.as_str()).count();
+    if n != 1 {
+        return Err(format!("ft: {n} sites of pers_attn_tile's head, expected exactly one"));
+    }
+    Ok(text.replacen(from.as_str(), &to, 1))
+}
+
+/// The module text of a full-tile tree arm: "a12ipft", "a12ipgft" or
+/// "a12ipg32ft", its parent's text with the ft edit. Same symbols as the parent.
+pub fn p4t_ft_unit_text(tile_define: &str, arm: &str) -> Result<String, String> {
+    let parent = match arm {
+        "a12ipft" => p4t_a12ip_unit_text(tile_define),
+        "a12ipgft" => p4t_a12ipg_unit_text(tile_define),
+        "a12ipg32ft" => p4t_a12ipg32_unit_text(tile_define),
+        _ => return Err(format!("ft: no tree arm {arm:?}; the arms are a12ipft, a12ipgft, a12ipg32ft")),
+    };
+    pers_ft_apply(&parent)
+}
+
 /// Rows a shared attention job of a12ipg serves (`P4G_RG`).
 pub const P4G_RG: u32 = 4;
 
@@ -4103,6 +4162,53 @@ mod tests {
             ("4E tree", p4t_unit_text(CARD_TILE_SM89), "ce1c354d2583eb178ae8622ff99e10f9b457543972bb5039ce89ede9eec31e44"),
             ("a12ip", p4t_a12ip_unit_text(CARD_TILE_SM89), "63155df95ef832aabbff328bd92062b6981763ed57358e32dc118d150df7c6ad"),
             ("a12ipg", p4t_a12ipg_unit_text(CARD_TILE_SM89), "246e99b18895a7f9452411372b8ff4bbb686276408318e547656fb809b722da8"),
+            // the 32-row arm (large-prefill-r32-mac) and the served 4E v9 module
+            ("a12ipg32", p4t_a12ipg32_unit_text(CARD_TILE_SM89), "a35f2b83061dc8a22ee65e6805c9e73454a93ec773ec919a14afc80fcf60aa8f"),
+            ("4E v9", format!("{}{}", p4e_rows_define(7).unwrap(), pers_unit_text(CARD_TILE_SM89)), "1b422b62328be6752df4add43280565fd2a49cfa20ee26953b301abe7a15c530"),
+        ] {
+            assert_eq!(crate::sha256::sha256_hex(text.as_bytes()), sha, "{name}: {} bytes", text.len());
+        }
+    }
+
+    /// Each full-tile module is its parent's text with the ft edit and nothing
+    /// else: the anchor once in the parent, the inserted part before it and
+    /// one branch after it; taking both out gives the parent back. v9ft is
+    /// E1's v9 module with the same edit. The edit is refused on a text
+    /// without the anchor or with two.
+    #[test]
+    fn the_ft_modules_are_their_parents_with_the_full_tile_branch() {
+        let (_, from, to) = pers_ft_edit();
+        assert!(to.starts_with(PERS_FT_PART.1) && to.ends_with("        return;\n    }\n"));
+        assert_eq!(to.matches("pers_attn_tile_full(").count(), 2, "one definition, one call");
+        assert_eq!(to.matches("if (nv == PERS_TT) {").count(), 1);
+        for (arm, parent) in [
+            ("a12ipft", p4t_a12ip_unit_text(CARD_TILE_SM89)),
+            ("a12ipgft", p4t_a12ipg_unit_text(CARD_TILE_SM89)),
+            ("a12ipg32ft", p4t_a12ipg32_unit_text(CARD_TILE_SM89)),
+        ] {
+            let ft = p4t_ft_unit_text(CARD_TILE_SM89, arm).unwrap();
+            assert_eq!(parent.matches(from.as_str()).count(), 1, "{arm}");
+            assert_eq!(ft.replacen(to.as_str(), &from, 1), parent, "{arm}: the parent and the ft edit, nothing else");
+        }
+        let v9 = p4e_e1_unit_text(CARD_TILE_SM89, "v9").unwrap();
+        let v9ft = p4e_e1_unit_text(CARD_TILE_SM89, "v9ft").unwrap();
+        assert_eq!(v9ft.replacen(to.as_str(), &from, 1), v9, "v9ft: E1's v9 and the ft edit, nothing else");
+        assert!(p4t_ft_unit_text(CARD_TILE_SM89, "a12ft").is_err());
+        assert!(pers_ft_apply("no tile here").is_err());
+        assert!(pers_ft_apply(&format!("{from}{from}")).is_err());
+    }
+
+    /// The ft modules at the card's tile define, at the sha256 the job scripts
+    /// check (ops/jobs/large-prefill-ft.sh, ops/jobs/large-attn-ft-4e.sh): an
+    /// edit to pers_attn_full.cuh moves these and must move the scripts too.
+    #[test]
+    fn the_ft_modules_keep_their_bytes() {
+        for (name, text, sha) in [
+            ("a12ipft", p4t_ft_unit_text(CARD_TILE_SM89, "a12ipft").unwrap(), "544f1dd5ff2dd0b7eb52ecb60002af677748dbf402182ea3d526a0ccabd73132"),
+            ("a12ipgft", p4t_ft_unit_text(CARD_TILE_SM89, "a12ipgft").unwrap(), "e0fd30be4318032e371854eb4f485c14b232292481603ee2810001c0415086f2"),
+            ("a12ipg32ft", p4t_ft_unit_text(CARD_TILE_SM89, "a12ipg32ft").unwrap(), "19b734a3fb6029848d87339c7d505e9bcfc612f182256793026ea964d09853e2"),
+            ("4E v9ft", p4e_e1_unit_text(CARD_TILE_SM89, "v9ft").unwrap(), "22ff8320cb881b39690cbbfe6f1fd9ee8c1715142adfb4ee1ffbe932b061619a"),
+            ("4E E1 v9", p4e_e1_unit_text(CARD_TILE_SM89, "v9").unwrap(), "d55a097b146e8b962829045dfea6975470b408b942c1e0c22c038ad4d9d00860"),
         ] {
             assert_eq!(crate::sha256::sha256_hex(text.as_bytes()), sha, "{name}: {} bytes", text.len());
         }
@@ -4121,6 +4227,11 @@ mod tests {
             ("a12ip", p4t_a12ip_unit_text(CARD_TILE_SM89)),
             ("a12ipg", p4t_a12ipg_unit_text(CARD_TILE_SM89)),
             ("a12ipg32", p4t_a12ipg32_unit_text(CARD_TILE_SM89)),
+            ("a12ipft", p4t_ft_unit_text(CARD_TILE_SM89, "a12ipft").unwrap()),
+            ("a12ipgft", p4t_ft_unit_text(CARD_TILE_SM89, "a12ipgft").unwrap()),
+            ("a12ipg32ft", p4t_ft_unit_text(CARD_TILE_SM89, "a12ipg32ft").unwrap()),
+            ("4e-v9ft", p4e_e1_unit_text(CARD_TILE_SM89, "v9ft").unwrap()),
+            ("4e-v9e1", p4e_e1_unit_text(CARD_TILE_SM89, "v9").unwrap()),
         ] {
             std::fs::write(dir.join(format!("{name}.cu")), &text).unwrap();
             eprintln!("{name}: {} bytes, sha256 {}", text.len(), crate::sha256::sha256_hex(text.as_bytes()));

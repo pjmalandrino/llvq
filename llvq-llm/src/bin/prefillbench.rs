@@ -7,8 +7,8 @@
 //!
 //! Usage: `LLVQ_CONFIG=<served v9 config> prefillbench --form eager|chain --long <file.jsonl> [--lengths 1024,4096,8191]
 //! [--new <n>] [--prompts <file.jsonl>] [--dump <texts.jsonl>] [--pair-texts <texts.jsonl>] [--ppl <ctx>,<windows>]
-//! [--ppl-dump <nll.jsonl>] [--pair-ppl <nll.jsonl>] [--arm a12ip|a12ipg|a12ipg32@q.o.g.d.h[/R]]
-//! [--against a12ip|a12ipg|a12ipg32@q.o.g.d.h[/R]]... [--dump-against <texts.jsonl>]... [--r <rows>] <sealed>`
+//! [--ppl-dump <nll.jsonl>] [--pair-ppl <nll.jsonl>] [--arm a12ip|a12ipg|a12ipg32[ft]@q.o.g.d.h[/R]]
+//! [--against a12ip|a12ipg|a12ipg32[ft]@q.o.g.d.h[/R]]... [--dump-against <texts.jsonl>]... [--r <rows>] <sealed>`
 //!
 //! * an arm's rows a pass: its `/R` suffix, else `--r` (default 16); refused
 //!   by name above the arm's row cap (`TreeForm::rmax`: 16 for a12ip and
@@ -194,7 +194,7 @@ fn run() -> anyhow::Result<()> {
     use llvq_llm::boundary::median_range;
     use llvq_llm::chatfmt::{open_assistant, turn, Marks};
     use llvq_llm::persist4e_cuda::{TreeForm, TreePlan};
-    let usage = "usage: LLVQ_CONFIG=<served v9 config> prefillbench --form eager|chain --long <file.jsonl> [--lengths 1024,4096,8191] [--new <n>] [--prompts <file.jsonl>] [--dump <texts.jsonl>] [--pair-texts <texts.jsonl>] [--ppl <ctx>,<windows>] [--ppl-dump <nll.jsonl>] [--pair-ppl <nll.jsonl>] [--arm a12ip|a12ipg|a12ipg32@q.o.g.d.h[/R]] [--against a12ip|a12ipg|a12ipg32@q.o.g.d.h[/R]]... [--dump-against <texts.jsonl>]... [--r <rows>] <sealed>";
+    let usage = "usage: LLVQ_CONFIG=<served v9 config> prefillbench --form eager|chain --long <file.jsonl> [--lengths 1024,4096,8191] [--new <n>] [--prompts <file.jsonl>] [--dump <texts.jsonl>] [--pair-texts <texts.jsonl>] [--ppl <ctx>,<windows>] [--ppl-dump <nll.jsonl>] [--pair-ppl <nll.jsonl>] [--arm a12ip|a12ipg|a12ipg32[ft]@q.o.g.d.h[/R]] [--against a12ip|a12ipg|a12ipg32[ft]@q.o.g.d.h[/R]]... [--dump-against <texts.jsonl>]... [--r <rows>] <sealed>";
     let mut a: Vec<String> = Vec::new();
     let mut form_s: Option<String> = None;
     let (mut long_file, mut prompts_file, mut dump_file, mut pair_texts) = (None::<String>, None::<String>, None::<String>, None::<String>);
@@ -242,7 +242,9 @@ fn run() -> anyhow::Result<()> {
     anyhow::ensure!(!lengths.is_empty() && lengths.windows(2).all(|w| w[0] < w[1]), "--lengths: increasing");
     anyhow::ensure!(chain || (pair_texts.is_none() && pair_ppl.is_none()),"--pair-*: the chain form pairs against the eager form's dumps");
     // an arm by name: a12ip, a12ipg (D1, a12ip with the grouped attention) or
-    // a12ipg32 (a12ipg at 32 rows a launch); nothing else. Its rows a pass:
+    // a12ipg32 (a12ipg at 32 rows a launch), or one of the three with the
+    // attention tile's full-tile path (a12ipft, a12ipgft, a12ipg32ft);
+    // nothing else. Its rows a pass:
     // the `/R` suffix, else --r, refused above the arm's row cap.
     let parse_arm = |s: &str| -> anyhow::Result<(TreeForm, TreePlan, usize)> {
         let (s, r) = match s.split_once('/') {
@@ -260,7 +262,12 @@ fn run() -> anyhow::Result<()> {
             "a12ip" => TreeForm::A12ip,
             "a12ipg" => TreeForm::A12ipg,
             "a12ipg32" => TreeForm::A12ipg32,
-            _ => anyhow::bail!("prefillbench: arm {base:?}; the chain prefill runs a12ip, a12ipg or a12ipg32 (the served words read in place)"),
+            "a12ipft" => TreeForm::A12ipFt,
+            "a12ipgft" => TreeForm::A12ipgFt,
+            "a12ipg32ft" => TreeForm::A12ipg32Ft,
+            _ => anyhow::bail!(
+                "prefillbench: arm {base:?}; the chain prefill runs a12ip, a12ipg, a12ipg32 (the served words read in place) or their full-tile forms a12ipft, a12ipgft, a12ipg32ft"
+            ),
         };
         anyhow::ensure!(
             (1..=form.rmax() as usize).contains(&r),

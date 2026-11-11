@@ -2199,6 +2199,31 @@ fn the_4e_e1_mv_slot_mutant_is_killed() {
     assert!(got.is_none_or(|o| o[..o.len() - 8] != want[..want.len() - 8]), "E1 mv mutant slot_on_v7 survived");
 }
 
+/// The two ft mutants of tree_verify_host.rs on arm v9ft, one site each in
+/// the ft text (`persistent_e1` counts it): the full-tile body taken on a
+/// tile of 7, and position 3's chain reading position 4's K. Each moves the
+/// served chain on a run whose tiles hold 6, 7 and 8 positions (from 5) or
+/// 7, 8 and 1 after 33 full ones (from 270, across the split at 256).
+#[test]
+fn the_4e_v9ft_mutants_are_killed() {
+    let cmds: Vec<(Vec<u8>, Vec<u8>)> = [g_cmd_variant(1, 3, 128, &[(5, 3, 7)], 16, u32::MAX, 0x9e70, 2), g_cmd_variant(1, 3, 128, &[(270, 3, 7)], 288, u32::MAX, 0x9e71, 2)]
+        .into_iter()
+        .map(|c| {
+            let want = run(served(), &c);
+            (c, want)
+        })
+        .collect();
+    for (tag, from, to) in [
+        ("v9ft_taken_at_7", "    if (nv == PERS_TT) {", "    if (nv + 1u >= PERS_TT) {"),
+        ("v9ft_neighbour_k", "for (u32 j = 0; j < PERS_TT; ++j) kw[j] = ks[j * 16u + l16];", "for (u32 j = 0; j < PERS_TT; ++j) kw[j] = ks[(j == 3u ? 4u : j) * 16u + l16];"),
+    ] {
+        let b = persistent_e1("v9ft", tag, Some((from, to)));
+        let killed = cmds.iter().any(|(c, w)| run_mutant(&b, c).is_none_or(|o| o[..o.len().saturating_sub(8)] != w[..w.len() - 8]));
+        assert!(killed, "v9ft mutant {tag} survived");
+        eprintln!("v9ft mutant {tag}: killed");
+    }
+}
+
 // ---- One copy of the int4 bytes: the eager readers on 4E v9's tiled words ---
 
 /// The served side built from a mutated copy of the sources, each edit

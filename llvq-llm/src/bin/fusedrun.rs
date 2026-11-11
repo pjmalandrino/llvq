@@ -3339,6 +3339,7 @@ mod tests {
         assert_eq!(parse_pers_4e("64"), Ok((64, vec![])));
         assert_eq!(parse_pers_4e("64:v9,v9np,v9mv"), Ok((64, vec!["v9", "v9np", "v9mv"])));
         assert_eq!(parse_pers_4e("64:v9mv"), Ok((64, vec!["v9mv"])));
+        assert_eq!(parse_pers_4e("64:v9,v9ft"), Ok((64, vec!["v9", "v9ft"])));
         for bad in ["1", "257", "x", "64:", "64:v9,v9", "64:v8", "64:v9 ,v9np", ":v9"] {
             assert!(parse_pers_4e(bad).is_err(), "{bad}");
         }
