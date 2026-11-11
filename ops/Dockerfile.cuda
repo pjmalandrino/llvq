@@ -191,6 +191,8 @@ COPY --from=build /src/configs/ /usr/local/share/llvq/configs/
 COPY --from=build /src/ops/data/spec-prompts-v1.jsonl /usr/local/share/llvq/spec-prompts-v1.jsonl
 # The 200 GSM8K test rows of the speculative loop's quality run (`specbench --prompts`, `ops/spec_grade.py`), same trap.
 COPY --from=build /src/ops/data/spec-gsm8k-200.jsonl /usr/local/share/llvq/spec-gsm8k-200.jsonl
+# One 8,191-token prompt for the speculative loop's memory step M3 (`specbench --prompts`), same trap.
+COPY --from=build /src/ops/data/spec-long-8k-v1.jsonl /usr/local/share/llvq/spec-long-8k-v1.jsonl
 # And the one the runbook names, checked by name: a `COPY` of an empty or
 # absent directory does not fail, it produces an empty directory, and the
 # failure would then move from this build to a billed job at

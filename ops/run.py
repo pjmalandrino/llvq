@@ -759,6 +759,7 @@ UPLOAD_ALLOW = (
     # image by ops/Dockerfile.cuda (the same two-lists trap as above).
     "ops/data/spec-prompts-v1.jsonl",
     "ops/data/spec-gsm8k-200.jsonl",
+    "ops/data/spec-long-8k-v1.jsonl",
 )
 # `llvq-*/**` also matches `llvq-tetra/`, a Python package that no recipe
 # builds, with a 750 MB virtualenv inside. On 2026-10-06 a publish pushed its

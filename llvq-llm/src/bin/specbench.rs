@@ -278,7 +278,14 @@ fn run() -> anyhow::Result<()> {
             drafter.weight_bytes() as f64 / 1e6,
             t0.elapsed().as_secs_f64()
         );
-        let mut sp = llvq_llm::dflash_spec::DFlashSpec::new(drafter, vocab, llvq_llm::dflash_spec::Shape::Chain(15))?;
+        let (free, total) = candle_core::cuda_backend::cudarc::driver::result::mem_get_info()
+            .map_err(|e| anyhow::anyhow!("cuMemGetInfo: {e}"))?;
+        println!(
+            "card memory: {:.3} GB used of {:.3} GB after the drafter's load, before the first prompt (cuMemGetInfo)",
+            (total - free) as f64 / 1e9,
+            total as f64 / 1e9
+        );
+        let mut sp =llvq_llm::dflash_spec::DFlashSpec::new(drafter, vocab, llvq_llm::dflash_spec::Shape::Chain(15))?;
         sp.timing = true;
         sp.chunked_readout = chunked;
         Some(sp)
