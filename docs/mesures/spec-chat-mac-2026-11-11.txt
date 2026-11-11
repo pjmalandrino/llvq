@@ -1,0 +1,189 @@
+CHAT ACCEPTANCE AND FALLBACK GATES, MT-BENCH 80, SEALED TETRA 4B, ON THE MAC, 2026-11-11. $0.
+=========================================================================================
+Result: on the 80 MT-Bench first turns the DFlash tree of 15 accepts 2.896 drafted tokens a pass (*measured*), against
+1.937 on the house set's 10 chat prompts in the same run (card 1.92). The gap is the mix: MT-Bench carries math (6.25),
+extraction (5.51) and coding (4.19); its conversational categories read writing 1.89, humanities 2.06, roleplay 2.14,
+stem 2.47, as low as the house set. Projected tok/s (*estimated*, greedy 224.2):
+- DFlash int4 (3.30 b/param), arm a12: 305.0 on MT-80 (x1.36) ungated; best gate (depth-1 top-1 log prob, pre-check)
+  299.1 on the held-out half against 294.9 ungated (+1.4 %). On writing, roleplay, humanities, house chat: x1.00 to
+  x1.12 whatever the policy.
+- DFlash int4, arm a12ip (no extra copy): 257.7 (x1.15) ungated, 36 of 90 prompts slower than greedy; best realistic
+  gate 258.3 on test (+3.7 %), still 34 of 90 slower.
+- Tables (2.73 b/param), lookup spine + warm recycling k 4 with a lookup gate n >= 3 (a12) or n >= 4 (a12ip): 235.5
+  and 228.7 on test (x1.050 and x1.020). Ungated it loses: 198.3 and 158.8. Worst prompt x0.943 and x0.929.
+No realistic policy makes conversational chat gain 10 %, and none makes every prompt at least break even. A perfect gate
+(the accepted count known before the pass) would: +19 to +43 % on the conversational categories, 0 of 90 prompts slower (*computed*
+bound). The drafters' own confidence and the target's confidence capture a small part of that bound.
+Adaptive tree size (1, 3, 7, 15 drafted rows) never picks a small tree: the a12ip pass costs 9.56 ms at 1 row and 10.9
+at 16, so dropping rows saves almost nothing, and the search collapses to the plain gate.
+
+Prereg : none (analysis at $0 on the Mac, as arbre32, M2 and sans-poids). Orchestrator's instruction, 2026-11-11.
+Script : ops/spec_chat.py (modes dflash and tables; imports dflash_arbre32, dflash_brouillon_int4, spec_sans_poids),
+         ops/spec_chat_report.py (stdlib: replay, gates, cost model). No Rust change.
+Data   : ops/data/spec-chat-mtbench-v1.jsonl, the 80 first turns of MT-Bench, category kept. Source
+         https://raw.githubusercontent.com/lm-sys/FastChat/b494d0c6b4e7935f1764f8439e75da3e66beccc7/fastchat/llm_judge/data/mt_bench/question.jsonl
+         (lm-sys/FastChat commit b494d0c6, the file's only commit, equal to main on 2026-11-11), sha256
+         119565adbab82227089cefdb44c8d7e2cf04dc0a0ec233634c82e7d4e2a944f7, Apache-2.0. 10 prompts a category.
+Machine: M3 Max, both model runs under ~/.llvq-guard/heavy.sh (nice 15), one at a time, memory_pressure 93 % and 92 %
+         free before loading. Mac time 24.3 min of the 75 budgeted: dflash 12:40:55-12:50:29, tables 12:50:34-13:05:18
+         (guard log). Report runs: single core, 20 s to 2 min each.
+Raw    : spec-chat-mac-2026-11-11-brut/
+           dflash/run.txt, rows.json, mac-greedy.json (the 90 texts), positions.json.gz (per position and drafter:
+             accepted depth of trees 1, 3, 7, 15 and of the depth-15 chain, lp1, lp2, expected counts, target p1)
+           tables/run.txt, rows.json, meta.json (gate check, arms), passes.json.gz (per pass: rows, accepted, lookup n)
+           report.txt (every table below, and more)
+Cut    : nothing. Every arm asked for ran on all 90 prompts.
+
+COMMANDS
+--------
+B=docs/mesures/spec-chat-mac-2026-11-11-brut
+LLVQ_THREADS=12 ~/.llvq-guard/heavy.sh "chat: dflash f16+int4 on MT-Bench 80 + house chat 10 (MLX)" uv run \
+  ops/spec_chat.py dflash ~/q4b-hf-2026-09-28 ops/data/spec-chat-mtbench-v1.jsonl ops/data/spec-prompts-v1.jsonl \
+  docs/mesures/spec-arbre32-mac-2026-11-11-brut $B/dflash
+LLVQ_THREADS=12 ~/.llvq-guard/heavy.sh "chat: weightless comb4w/look gated, MT-Bench 80 + house chat 10 (MLX)" uv run \
+  ops/spec_chat.py tables <same four paths> $B/tables
+python3 ops/spec_chat_report.py $B docs/mesures/spec-mem-m3-2026-11-11-brut/spec-house-a12ip.txt > $B/report.txt
+
+METHOD
+------
+Text. No card text exists for MT-Bench: the text is the MLX door's own greedy decode, 256 tokens after `first`,
+<|im_end|> included, Qwen3 chat template with an empty reasoning block (thinking off), one user message, prompt ids as
+specbench builds them. The house chat text is arbre32's mac-greedy.json, unchanged. 17,145 MT-Bench tokens; teacher-
+forced agreement of the capture with the text at least 0.9883 a prompt (*measured*).
+DFlash: arbre32's drafter forward and draft_tree_scored construction, top 4 a depth, at every pending position; "ref"
+= checkpoint widened to f32 (the card runs f16, M2 shows f16 moves 0 prompts), "int4" = int4 g128 on the 35 linear
+weights and fc (M2's passing arm, 3.300 b/param). Chains of depth c accept min(depth-15 chain, c). Check: house chat
+ref tree 15 1.937 on the Mac against 1.92 on the card (M3 a12ip log); chat-00 1.695 against 1.69.
+Tables: spec_sans_poids's comb (lookup spine when its match n >= 2, the rest from a warm recycling table, k 4, shape
+`mid`, q 0.9) and look (lookup chain alone), verify rows exact (tree forward of the target; gate 24/24 text rows and
+9/9 off-text rows top-1, top-8 overlap 1.000, *measured*). Tables warm across prompts in file order, MT-Bench and house
+separate. comb with k 4 was not run before (k 8 read 0.605 on house chat; k 4 reads 0.580 here).
+Gate. Below a threshold no verify pass runs: the served 4E emits one token, 4.46 ms. Three costs for that token:
+- round: the feature comes from the DFlash round, which already ran: 4.46 + 4.04 = 8.50 ms.
+- pre-check: a depth-1-only drafter readout. The card's drafter wall on chat (a12ip, measured) is context 522, block
+  1,461, head 581, readout 394 ms: a depth-1 readout still pays context and the whole block (the block attends over
+  all 16 positions), 0.692 of the round = 2.80 ms (*computed*). Token cost 7.26 ms. When the pre-check says yes the
+  round costs 4.04 as before.
+- free: the target's top-1 probability at the row that produced the root, read from the previous pass. Token cost
+  4.46 ms. Caveat: 4E emits no taps, so the drafter's context misses every 4E token; the card would need 4E to emit
+  the five tap rows, or the next pass to recompute them. Not costed.
+For tables the gate is the lookup match length n, a host check: free, no tap issue. The 4E token's row feeds the
+recycling table its top 4 (assumes 4E returns a top 4; it returns an argmax today).
+Halves: MT-Bench even file index = train (questions 81, 83, ...), odd = test, 5 a category each. Thresholds chosen on
+train for the highest tok/s (41 quantiles of the feature), frozen, reported on test; house chat 10 is a second
+held-out set. EMA policy: speculate while an EMA (alpha 0.5) of accepted counts stays >= theta, else `probe` 4E tokens
+then one probe pass, no drafter round on 4E tokens (same tap caveat).
+Costs (card, L40S, M3 2026-11-11, *measured*): 4E 4.46 ms a token (224.2 tok/s; chat greedy measured 224.0); DFlash
+round 4.04 ms; table drafter 0.75 ms; a12ip 9.56 ms a 1-row pass, 10.9 ms a 16-row pass; a12 8.58 ms a 16-row pass.
+A pass of R rows is a linear interpolation between 1 and 16 rows (*interpolation*; M3's oracle:3, 4 rows, read 9.69 ms
+against 9.83 interpolated). a12 at 1 row was never measured: 9.56 x 8.58 / 10.9 = 7.52 ms (*estimated*).
+Break-even accepted a pass at 16 rows (*computed*): DFlash 1.83 (a12), 2.35 (a12ip); tables 1.09 (a12), 1.61 (a12ip).
+Check of the cost model: house chat ref tree 15 projects 232.7 (a12) and 196.6 (a12ip) against 240.3 and 200.2
+measured on the card: the projection reads 1.8 to 3.2 % low.
+
+ACCEPTANCE (*measured*, accepted drafted tokens a pass; per-prompt median [range])
+----------
+  arm (ref unless int4)   MT-80                       house chat 10
+  tree 15                 2.896  2.947 [1.311-9.500]  1.937
+  tree 15 int4            2.849  2.842 [1.261-9.000]  1.883
+  tree 7                  2.434  2.531 [1.122-5.800]  1.675
+  tree 3                  1.655  1.772 [0.914-2.782]  1.236
+  chain 1 (= tree 1)      0.755  0.778 [0.529-1.000]  0.622
+  chain 2                 1.250  1.317 [0.734-1.930]  0.929
+  chain 3                 1.569  1.667 [0.795-2.778]  1.090
+  chain 7                 2.022  2.103 [0.827-5.800]  1.224
+  chain 15                2.153  2.214 [0.827-9.000]  1.240
+  comb4w (tables)         0.822  0.809 [0.257-3.640]  0.580
+  look (tables)           0.312  0.280 [0.022-3.640]  0.207
+
+  By MT-Bench category, tree 15 ref / int4 / comb4w; ref per-prompt median [range]
+  writing      1.885 / 1.837 / 0.478   1.808 [1.446-4.375]
+  roleplay     2.143 / 2.134 / 0.764   1.926 [1.311-4.689]
+  reasoning    3.065 / 3.050 / 0.892   2.917 [2.282-4.565]
+  math         6.252 / 6.101 / 1.249   6.224 [4.600-9.500]
+  coding       4.193 / 4.172 / 0.887   4.022 [3.197-5.564]
+  extraction   5.508 / 5.459 / 1.736   4.583 [3.462-8.273]
+  stem         2.474 / 2.382 / 0.706   2.507 [1.977-3.129]
+  humanities   2.055 / 2.026 / 0.671   1.995 [1.753-2.710]
+  house chat   1.937 / 1.883 / 0.580   1.896 [1.238-2.657]
+  Chains and trees by category: report.txt. Chains never beat the tree of the same depth: chain 15 2.153 against tree
+  15 2.896.
+
+  Histograms 0..15, MT-80 (passes):
+  tree 15 ref   [528, 944, 1032, 733, 405, 225, 133, 92, 82, 53, 35, 28, 17, 17, 21, 56]
+  tree 15 int4  [530, 998, 1026, 744, 395, 233, 142, 92, 82, 48, 33, 23, 23, 21, 12, 52]
+  comb4w        [5337, 2119, 1117, 510, 132, 100, 23, 20, 4, 10, 15, 6, 13, 4, 0, 0]
+  comb4w by lookup match n at the pass: n 0 0.487 (4,727 passes), 1 0.947 (3,438), 2 1.372 (698), 3 1.736 (235),
+  4 1.725 (167), 5 2.323 (62), 6+ 4.602 (83).
+
+PROJECTED TOK/S (*estimated*), greedy 224.2
+-----------------
+Fixed arms, MT-80 and house chat 10, a12 / a12ip:
+  tree 15 ref (4.87)    308.7 / 260.8   232.7 / 196.6
+  tree 15 int4 (3.30)   305.0 / 257.7   228.5 / 193.0
+  tree 7 ref            284.8 / 241.4   221.8 / 188.0
+  tree 3 ref            225.4 / 191.4   189.8 / 161.2
+  chain 1 ref           150.9 / 128.2   139.4 / 118.5
+  chain 3 ref           218.1 / 185.2   177.5 / 150.7
+  chain 7 ref           250.7 / 212.5   184.5 / 156.4
+  chain 15 ref          249.8 / 211.0   177.5 / 149.9
+  comb4w (2.73)         198.3 / 158.8   175.3 / 140.5
+
+Gates, threshold frozen on train, TEST half (40 prompts) against ungated, house chat 10 (full table in report.txt):
+  drafter verify  gate (cost of a 4E token)         thr        test   ungated  4E share  house10
+  ref     a12     lp1 (round, 8.50)                 -1.332     298.5  297.0     7.2 %    234.4
+  ref     a12     lp1 (pre-check, 7.26)             -1.332     300.7  297.0     7.2 %    237.9
+  ref     a12     tgt_p1 (free, 4.46)                0.587     297.3  297.0    26.8 %    240.8
+  ref     a12ip   lp1 (pre-check)                   -0.658     259.3  250.9    29.6 %    203.2
+  ref     a12ip   tgt_p1 (free)                      0.990     267.9  250.9    70.3 %    226.3
+  int4    a12     lp1 (pre-check)                   -1.025     299.1  294.9    14.2 %    232.3
+  int4    a12     tgt_p1 (free)                      0.762     296.1  294.9    41.3 %    242.7
+  int4    a12ip   lp1 (round)                       -1.025     252.9  249.1    14.2 %    196.6
+  int4    a12ip   lp1 (pre-check)                   -0.672     258.3  249.1    28.4 %    202.4
+  int4    a12ip   tgt_p1 (free)                      0.990     266.1  249.1    70.3 %    225.6
+  int4    a12ip   EMA theta 1.5, probe 32 (free)               261.3  249.1    76.2 %    222.2
+  The margin (top-1 minus top-2 at depth 1) and the expected counts (tree, chain) do no better than lp1 (report.txt).
+  tables  a12     lookup n >= 3 (free)                         235.5  198.3    92.3 %    233.8
+  tables  a12ip   lookup n >= 4 (free)                         228.7  158.8    95.6 %    231.1
+
+Per category and per prompt, frozen policy on all 90 prompts, x against greedy (train half included):
+  policy                          writing roleplay humanities stem  house  MT-80  prompts slower  worst
+  int4 a12 ungated                 1.003   1.108    1.069    1.195  1.019  1.360   19/90          0.755
+  int4 a12 lp1 pre-check           1.020   1.123    1.097    1.217  1.036  1.378   14/90          0.765
+  int4 a12 tgt_p1 free             1.018   1.110    1.109    1.233  1.082  1.370   11/90          0.843
+  int4 a12ip ungated               0.847   0.936    0.903    1.010  0.861  1.149   36/90          0.638
+  int4 a12ip tgt_p1 free           0.960   1.050    1.033    1.083  1.006  1.226   22/90          0.794
+  int4 a12ip EMA 1.5/32            0.993   1.026    0.992    1.050  0.991  1.208   32/90          0.902
+  int4 a12 PERFECT gate (bound)    1.251   1.358    1.315    1.434  1.280  1.595    0/90          1.107
+  int4 a12ip PERFECT gate (bound)  1.187   1.264    1.223    1.320  1.199  1.464    0/90          1.021
+  tables a12 lookup n >= 3         1.013   1.112    1.011    1.006  1.043  1.050*  29/90          0.943
+  tables a12ip lookup n >= 4       1.004   1.088    0.999    0.991  1.031  1.020*  43/90          0.929
+  * test half; the ref drafter's rows (4.87 b/param) and reasoning, math, coding, extraction are in report.txt.
+  The bound: a pass runs only when its accepted count is at least the break-even, else a free 4E token.
+
+READING
+-------
+- Chat is not one number. MT-Bench's conversational half (writing, roleplay, humanities, stem) accepts 1.9 to 2.5 a
+  pass, the house set's level; its task half (reasoning, math, coding, extraction) 3.1 to 6.3. The 10 house prompts
+  were not unlucky; they were all of the conversational kind.
+- On the conversational half the 16-row pass at a12 sits at break-even (1.83) and at a12ip under it (2.35). Gates
+  move the result by 1 to 7 %: the drafter's depth-1 confidence and the target's confidence separate good passes from
+  bad ones poorly. The perfect-gate bound (+19 to +43 % there) shows the room is real; a feature that captures it is not
+  in hand.
+- The "free" target gate is the best on a12ip (+7 % on test) but only because 70 % of tokens go to 4E: it is close to
+  "do not speculate on chat", and it needs taps from 4E to be deployable.
+- At 2.73 b/param the lookup gate is the only policy that does not lose on average: it speculates on 4 to 8 % of
+  passes, where a long n-gram match makes the pass pay, and leaves the rest to 4E. Worst prompt -6 to -7 %.
+- int4 against f16 drafter: -0.05 accepted a pass on MT-80 (-1.6 %), -1.2 % tok/s; M2's verdict holds on chat.
+- Smaller trees and chains do not pay on this verify pass: its cost is nearly flat in rows.
+
+NOT DONE
+--------
+- No card run: every tok/s is a projection from card costs; the model reads 1.8 to 3.2 % low on the house chat.
+- The pass at a12 for fewer than 16 rows was never measured (estimated by a12ip's ratio). It matters only for the
+  adaptive tree, which never picks a small tree anyway.
+- MT-Bench's second turns (multi-turn context) were not run.
+- The texts are the Mac target's greedy, not the card's; the house check (1.937 against 1.92) says the replay matches
+  the card where both exist.
+- A gate feature beyond the ones asked (e.g. a learned predictor of the accepted count from the drafter's 15 depths,
+  or the rejection history) was not tried.

@@ -1,0 +1,152 @@
+card drafter wall, chat 10, a12ip (measured): context 522.2, block 1460.6, head 581.3, readout 394.1 ms; a depth-1-only pre-check keeps context + block + 1/15 of head and readout = 0.692 of the round (computed), 2.80 ms of 4.04
+texts: MT-Bench 80 prompts, 17145 tokens after `first`; teacher-forced agreement min 0.9883; house chat 10
+
+== FIXED ARMS: accepted drafted tokens a pass (measured), tok/s (estimated: a12 / a12ip)
+greedy 4E: 224.2 tok/s (card, chat, measured 224.0)
+ref  tree15  MT80 2.896 med 2.947 [1.311-9.500]   308.7 /  260.8   house10 1.937  232.7 /  196.6  b/param 4.87
+int4 tree15  MT80 2.849 med 2.842 [1.261-9.000]   305.0 /  257.7   house10 1.883  228.5 /  193.0  b/param 3.3
+ref  tree7   MT80 2.434 med 2.531 [1.122-5.800]   284.8 /  241.4   house10 1.675  221.8 /  188.0  b/param 4.87
+ref  tree3   MT80 1.655 med 1.772 [0.914-2.782]   225.4 /  191.4   house10 1.236  189.8 /  161.2  b/param 4.87
+ref  tree1   MT80 0.755 med 0.778 [0.529-1.000]   150.9 /  128.2   house10 0.622  139.4 /  118.5  b/param 4.87
+ref  chain1  MT80 0.755 med 0.778 [0.529-1.000]   150.9 /  128.2   house10 0.622  139.4 /  118.5  b/param 4.87
+ref  chain2  MT80 1.250 med 1.317 [0.734-1.930]   192.2 /  163.3   house10 0.929  164.8 /  140.0  b/param 4.87
+ref  chain3  MT80 1.569 med 1.667 [0.795-2.778]   218.1 /  185.2   house10 1.090  177.5 /  150.7  b/param 4.87
+ref  chain7  MT80 2.022 med 2.103 [0.827-5.800]   250.7 /  212.5   house10 1.224  184.5 /  156.4  b/param 4.87
+ref  chain15 MT80 2.153 med 2.214 [0.827-9.000]   249.8 /  211.0   house10 1.240  177.5 /  149.9  b/param 4.87
+
+ref tree15 by category: acc a pass, per-prompt median [range], tok/s a12 / a12ip
+  writing     1.885  1.808 [1.446-4.375]   228.6 /  193.1
+  roleplay    2.143  1.926 [1.311-4.689]   249.1 /  210.4
+  reasoning   3.065  2.917 [2.282-4.565]   322.1 /  272.1
+  math        6.252  6.224 [4.600-9.500]   574.6 /  485.4
+  coding      4.193  4.022 [3.197-5.564]   411.5 /  347.6
+  extraction  5.508  4.583 [3.462-8.273]   515.7 /  435.6
+  stem        2.474  2.507 [1.977-3.129]   275.2 /  232.5
+  humanities  2.055  1.995 [1.753-2.710]   242.1 /  204.5
+  house-chat  1.937  1.896 [1.238-2.657]   232.7 /  196.6
+  histogram 0..15, MT80: [528, 944, 1032, 733, 405, 225, 133, 92, 82, 53, 35, 28, 17, 17, 21, 56]
+
+int4 tree15 by category: acc a pass, per-prompt median [range], tok/s a12 / a12ip
+  writing     1.837  1.768 [1.393-4.733]   224.8 /  189.9
+  roleplay    2.134  1.943 [1.261-4.333]   248.3 /  209.8
+  reasoning   3.050  3.001 [2.282-4.565]   320.9 /  271.1
+  math        6.101  6.262 [3.828-9.000]   562.7 /  475.3
+  coding      4.172  4.022 [3.414-5.400]   409.8 /  346.2
+  extraction  5.459  4.692 [3.462-8.273]   511.8 /  432.3
+  stem        2.382  2.413 [1.844-3.063]   268.0 /  226.4
+  humanities  2.026  1.943 [1.783-2.765]   239.8 /  202.5
+  house-chat  1.883  1.850 [1.136-2.507]   228.5 /  193.0
+  histogram 0..15, MT80: [530, 998, 1026, 744, 395, 233, 142, 92, 82, 48, 33, 23, 23, 21, 12, 52]
+
+chains and small trees by category (ref), acc a pass:
+    tree7   tree3   tree1  chain1  chain2  chain3  chain7 chain15
+  writing       1.670   1.214   0.635   0.635   0.936   1.094   1.243   1.262
+  roleplay      1.840   1.368   0.665   0.665   1.052   1.251   1.440   1.480
+  reasoning     2.587   1.777   0.797   0.797   1.320   1.718   2.192   2.327
+  math          4.426   2.394   0.914   0.914   1.704   2.361   4.168   5.398
+  coding        3.267   2.033   0.851   0.851   1.510   1.994   2.932   3.324
+  extraction    4.437   2.450   0.913   0.913   1.736   2.409   4.206   5.136
+  stem          2.141   1.522   0.729   0.729   1.164   1.469   1.753   1.783
+  humanities    1.813   1.321   0.653   0.653   1.035   1.199   1.408   1.415
+  house-chat    1.675   1.236   0.622   0.622   0.929   1.090   1.224   1.240
+  histograms MT80 (ref): chain1 [2389, 7378, 0, 0, 0, 0, 0, 0]; chain3 [1788, 1584, 1019, 2283, 0, 0, 0, 0]; chain7 [1649, 1435, 894, 547, 298, 186, 162, 502]; tree7 [645, 1282, 1176, 749, 364, 240, 136, 400]
+
+== GATE (no speculation below a threshold: one 4E token). Threshold chosen on train (MT-Bench even), frozen, reported on test (odd) and house 10. tok/s estimated; no-spec cost per variant: round 8.50 ms, precheck 7.26 ms, free 4.46 ms
+  ref  a12   lp1         round    thr  -1.3321: train  322.5  TEST  298.5 (ungated  297.0,  7.2 % 4E tokens)  house10  234.4  MT80  310.3
+  ref  a12   lp1         precheck thr  -1.3321: train  325.1  TEST  300.7 (ungated  297.0,  7.2 % 4E tokens)  house10  237.9  MT80  312.7
+  ref  a12   margin      round    thr   0.0001: train  320.9  TEST  297.0 (ungated  297.0,  0.0 % 4E tokens)  house10  232.7  MT80  308.7
+  ref  a12   margin      precheck thr   0.0874: train  321.1  TEST  297.4 (ungated  297.0,  3.1 % 4E tokens)  house10  231.3  MT80  309.0
+  ref  a12   exp_tree15  round    thr   0.7314: train  322.2  TEST  297.8 (ungated  297.0,  3.3 % 4E tokens)  house10  235.0  MT80  309.8
+  ref  a12   exp_chain15 round    thr   0.2831: train  322.3  TEST  297.9 (ungated  297.0,  3.4 % 4E tokens)  house10  235.7  MT80  309.8
+  ref  a12   tgt_p1      free     thr   0.5869: train  324.8  TEST  297.3 (ungated  297.0, 26.8 % 4E tokens)  house10  240.8  MT80  310.7
+  ref  a12ip lp1         round    thr  -1.3321: train  274.8  TEST  254.2 (ungated  250.9,  7.2 % 4E tokens)  house10  201.2  MT80  264.3
+  ref  a12ip lp1         precheck thr  -0.6577: train  279.2  TEST  259.3 (ungated  250.9, 29.6 % 4E tokens)  house10  203.2  MT80  269.1
+  ref  a12ip margin      round    thr   0.0874: train  271.3  TEST  251.3 (ungated  250.9,  3.1 % 4E tokens)  house10  195.5  MT80  261.1
+  ref  a12ip margin      precheck thr   0.7387: train  275.0  TEST  255.1 (ungated  250.9, 23.5 % 4E tokens)  house10  200.2  MT80  264.9
+  ref  a12ip exp_tree15  round    thr   1.0958: train  274.5  TEST  254.5 (ungated  250.9, 13.0 % 4E tokens)  house10  200.0  MT80  264.3
+  ref  a12ip exp_chain15 round    thr   0.4807: train  274.3  TEST  253.5 (ungated  250.9, 12.1 % 4E tokens)  house10  199.2  MT80  263.7
+  ref  a12ip tgt_p1      free     thr   0.9901: train  286.4  TEST  267.9 (ungated  250.9, 70.3 % 4E tokens)  house10  226.3  MT80  277.0
+  int4 a12   lp1         round    thr  -1.6302: train  315.7  TEST  295.4 (ungated  294.9,  3.5 % 4E tokens)  house10  231.7  MT80  305.4
+  int4 a12   lp1         precheck thr  -1.0251: train  318.9  TEST  299.1 (ungated  294.9, 14.2 % 4E tokens)  house10  232.3  MT80  308.9
+  int4 a12   margin      round    thr   0.0002: train  315.5  TEST  294.9 (ungated  294.9,  0.0 % 4E tokens)  house10  228.5  MT80  305.0
+  int4 a12   margin      precheck thr   0.0002: train  315.5  TEST  294.9 (ungated  294.9,  0.0 % 4E tokens)  house10  228.5  MT80  305.0
+  int4 a12   exp_tree15  round    thr   0.9065: train  315.9  TEST  295.4 (ungated  294.9,  6.8 % 4E tokens)  house10  229.6  MT80  305.5
+  int4 a12   exp_chain15 round    thr   0.2708: train  315.9  TEST  295.2 (ungated  294.9,  3.2 % 4E tokens)  house10  231.0  MT80  305.4
+  int4 a12   tgt_p1      free     thr   0.7624: train  318.6  TEST  296.1 (ungated  294.9, 41.3 % 4E tokens)  house10  242.7  MT80  307.2
+  int4 a12ip lp1         round    thr  -1.0251: train  269.6  TEST  252.9 (ungated  249.1, 14.2 % 4E tokens)  house10  196.6  MT80  261.2
+  int4 a12ip lp1         precheck thr  -0.6715: train  273.8  TEST  258.3 (ungated  249.1, 28.4 % 4E tokens)  house10  202.4  MT80  265.9
+  int4 a12ip margin      round    thr   0.0002: train  266.5  TEST  249.1 (ungated  249.1,  0.0 % 4E tokens)  house10  193.0  MT80  257.7
+  int4 a12ip margin      precheck thr   0.8449: train  269.7  TEST  252.8 (ungated  249.1, 26.2 % 4E tokens)  house10  199.9  MT80  261.1
+  int4 a12ip exp_tree15  round    thr   1.0639: train  269.6  TEST  251.8 (ungated  249.1, 12.1 % 4E tokens)  house10  198.5  MT80  260.6
+  int4 a12ip exp_chain15 round    thr   0.4637: train  269.4  TEST  251.7 (ungated  249.1, 11.4 % 4E tokens)  house10  197.9  MT80  260.5
+  int4 a12ip tgt_p1      free     thr   0.9901: train  283.9  TEST  266.1 (ungated  249.1, 70.3 % 4E tokens)  house10  225.6  MT80  274.8
+
+== EMA PROBE POLICY (tree 15 while the EMA (alpha 0.5) of accepted counts >= theta, else `probe` 4E tokens then one probe pass; no drafter round on 4E tokens; theta and probe chosen on train)
+  ref  a12   theta 1.0 probe 2: train  323.3  TEST  298.2 (13.9 % 4E passes)  house10  234.4
+  ref  a12ip theta 1.5 probe 16: train  282.6  TEST  263.2 (68.6 % 4E passes)  house10  217.6
+  int4 a12   theta 1.0 probe 4: train  318.6  TEST  296.1 (22.1 % 4E passes)  house10  232.6
+  int4 a12ip theta 1.5 probe 32: train  280.5  TEST  261.3 (76.2 % 4E passes)  house10  222.2
+
+break-even accepted a pass, tree 15, a12: DFlash 1.83, tables 1.09 (computed)
+
+break-even accepted a pass, tree 15, a12ip: DFlash 2.35, tables 1.61 (computed)
+
+== PER CATEGORY AND PER PROMPT, frozen policies on all 90 prompts (tok/s estimated; x = against greedy 224.2); 'slower' = prompts under greedy
+  policy                              writin rolepl reason   math coding extrac   stem humani house-  MT80  slower  min x
+  ref a12 ungated                      1.020  1.111  1.436  2.563  1.835  2.300  1.228  1.080  1.038 1.377  15/90  0.791
+  ref a12 tgt_p1>=0.587 free           1.040  1.122  1.422  2.546  1.807  2.315  1.234  1.106  1.074 1.386  11/90  0.811
+  ref a12 lp1>=-1.332 precheck         1.041  1.129  1.446  2.566  1.838  2.300  1.237  1.109  1.061 1.395  10/90  0.785
+  ref a12 ORACLE gate (bound)          1.274  1.366  1.605  2.681  1.963  2.538  1.451  1.323  1.296 1.611   0/90  1.114
+  ref a12 ema 1.0/2                    1.027  1.122  1.435  2.563  1.834  2.300  1.237  1.092  1.046 1.385  13/90  0.809
+  ref a12ip ungated                    0.861  0.938  1.213  2.165  1.550  1.943  1.037  0.912  0.877 1.163  35/90  0.668
+  ref a12ip tgt_p1>=0.990 free         0.969  1.060  1.238  2.063  1.472  1.995  1.087  1.040  1.009 1.236  22/90  0.785
+  ref a12ip lp1>=-0.658 precheck       0.896  0.984  1.236  2.175  1.572  1.974  1.060  0.961  0.906 1.200  35/90  0.691
+  ref a12ip ORACLE gate (bound)        1.197  1.274  1.460  2.346  1.756  2.231  1.328  1.235  1.214 1.476   0/90  1.021
+  ref a12ip ema 1.5/16                 0.982  1.020  1.183  2.165  1.516  1.878  1.073  0.987  0.971 1.216  32/90  0.879
+  int4 a12 ungated                     1.003  1.108  1.431  2.510  1.828  2.283  1.195  1.069  1.019 1.360  19/90  0.755
+  int4 a12 tgt_p1>=0.762 free          1.018  1.110  1.406  2.450  1.769  2.288  1.233  1.109  1.082 1.370  11/90  0.843
+  int4 a12 lp1>=-1.025 precheck        1.020  1.123  1.433  2.506  1.826  2.297  1.217  1.097  1.036 1.378  14/90  0.765
+  int4 a12 ORACLE gate (bound)         1.251  1.358  1.593  2.651  1.957  2.457  1.434  1.315  1.280 1.595   0/90  1.107
+  int4 a12 ema 1.0/4                   1.023  1.118  1.432  2.510  1.818  2.283  1.197  1.086  1.038 1.370  15/90  0.828
+  int4 a12ip ungated                   0.847  0.936  1.209  2.120  1.544  1.928  1.010  0.903  0.861 1.149  36/90  0.638
+  int4 a12ip tgt_p1>=0.990 free        0.960  1.050  1.239  2.028  1.459  1.930  1.083  1.033  1.006 1.226  22/90  0.794
+  int4 a12ip lp1>=-0.671 precheck      0.878  0.973  1.233  2.104  1.560  1.974  1.051  0.952  0.903 1.186  34/90  0.674
+  int4 a12ip ORACLE gate (bound)       1.187  1.264  1.449  2.329  1.747  2.186  1.320  1.223  1.199 1.464   0/90  1.021
+  int4 a12ip ema 1.5/32                0.993  1.026  1.189  2.079  1.498  1.735  1.050  0.992  0.991 1.208  32/90  0.902
+
+== ADAPTIVE TREE (0 = 4E token, else 1, 3, 7 or 15 drafted rows by the same feature; thresholds on train)
+  ref  a12   exp_tree15 round    thr [-inf, -inf, -inf, -inf]: train  320.9  TEST  297.0  house10  232.7  test passes by N 0/1/3/7/15 [0, 0, 0, 0, 2244]
+  ref  a12   tgt_p1     free     thr [0.587, 0.587, 0.587, 0.587]: train  324.8  TEST  297.3  house10  240.8  test passes by N 0/1/3/7/15 [725, 0, 0, 0, 1985]
+  ref  a12   lp1        precheck thr [-0.895, -0.895, -0.895, -0.895]: train  324.2  TEST  300.7  house10  232.9  test passes by N 0/1/3/7/15 [460, 0, 0, 0, 1952]
+  ref  a12ip exp_tree15 round    thr [1.31, 1.31, 1.31, 1.31]: train  273.0  TEST  252.9  house10  198.0  test passes by N 0/1/3/7/15 [540, 0, 0, 0, 1919]
+  ref  a12ip tgt_p1     free     thr [0.99, 0.99, 0.99, 0.99]: train  286.4  TEST  267.9  house10  226.3  test passes by N 0/1/3/7/15 [2918, 0, 0, 0, 1230]
+  ref  a12ip lp1        precheck thr [-0.895, -0.895, -0.895, -0.895]: train  278.9  TEST  258.8  house10  203.1  test passes by N 0/1/3/7/15 [460, 0, 0, 0, 1952]
+  int4 a12   exp_tree15 round    thr [-inf, -inf, -inf, -inf]: train  315.5  TEST  294.9  house10  228.5  test passes by N 0/1/3/7/15 [0, 0, 0, 0, 2260]
+  int4 a12   tgt_p1     free     thr [0.587, 0.587, 0.587, 0.587]: train  318.2  TEST  296.3  house10  236.8  test passes by N 0/1/3/7/15 [734, 0, 0, 0, 1990]
+  int4 a12   lp1        precheck thr [-0.919, -0.919, -0.919, -0.919]: train  318.1  TEST  299.0  house10  230.4  test passes by N 0/1/3/7/15 [428, 0, 0, 0, 1983]
+  int4 a12ip exp_tree15 round    thr [1.273, 1.273, 1.273, 1.273]: train  269.2  TEST  251.9  house10  196.6  test passes by N 0/1/3/7/15 [531, 0, 0, 0, 1933]
+  int4 a12ip tgt_p1     free     thr [0.99, 0.99, 0.99, 0.99]: train  283.9  TEST  266.1  house10  225.6  test passes by N 0/1/3/7/15 [2937, 0, 0, 0, 1239]
+  int4 a12ip lp1        precheck thr [-0.919, -0.919, -0.919, -0.919]: train  273.8  TEST  256.9  house10  200.7  test passes by N 0/1/3/7/15 [428, 0, 0, 0, 1983]
+
+== TABLE DRAFTERS (exact verify rows; drafter 0.75 ms a pass, gated token 4.46 ms). b/param 2.73
+  comb4w     MT80 acc/spec-pass 0.822 med 0.809 [0.257-3.640] mean rows 14.00  4E share  0.0 %  tok/s a12  198.3 a12ip  158.8  house10 acc 0.580  175.3 /  140.5
+  comb4w-g1  MT80 acc/spec-pass 0.996 med 0.939 [0.341-5.343] mean rows 15.78  4E share 49.7 %  tok/s a12  217.5 a12ip  186.1  house10 acc 0.844  208.7 /  181.6
+  comb4w-g2  MT80 acc/spec-pass 1.471 med 1.288 [0.000-8.227] mean rows 16.00  4E share 83.7 %  tok/s a12  236.0 a12ip  220.1  house10 acc 1.417  231.1 /  220.3
+  comb4w-g3  MT80 acc/spec-pass 1.908 med 1.458 [0.000-8.333] mean rows 16.00  4E share 92.3 %  tok/s a12  237.1 a12ip  228.7  house10 acc 2.064  233.8 /  228.6
+  comb4w-g4  MT80 acc/spec-pass 2.272 med 1.569 [0.000-9.000] mean rows 16.00  4E share 95.6 %  tok/s a12  235.2 a12ip  230.2  house10 acc 2.940  234.0 /  231.1
+  comb4w-g6  MT80 acc/spec-pass 2.945 med 1.000 [0.000-11.000] mean rows 16.00  4E share 98.2 %  tok/s a12  231.5 a12ip  229.4  house10 acc 3.400  230.2 /  228.8
+  look       MT80 acc/spec-pass 0.312 med 0.280 [0.022-3.640] mean rows  7.55  4E share  0.0 %  tok/s a12  150.2 a12ip  120.4  house10 acc 0.207  139.3 /  111.7
+  look-g1    MT80 acc/spec-pass 0.628 med 0.554 [0.067-5.500] mean rows 14.19  4E share 50.3 %  tok/s a12  192.5 a12ip  165.0  house10 acc 0.499  187.6 /  163.5
+  look-g2    MT80 acc/spec-pass 1.225 med 1.000 [0.000-8.667] mean rows 15.09  4E share 83.5 %  tok/s a12  228.8 a12ip  213.4  house10 acc 1.235  227.5 /  216.6
+  look-g3    MT80 acc/spec-pass 1.719 med 1.209 [0.000-10.273] mean rows 15.34  4E share 92.3 %  tok/s a12  234.4 a12ip  226.1  house10 acc 1.968  233.0 /  227.7
+  look-g4    MT80 acc/spec-pass 2.143 med 1.431 [0.000-9.636] mean rows 15.55  4E share 95.7 %  tok/s a12  234.0 a12ip  229.1  house10 acc 2.804  233.4 /  230.5
+  look-g6    MT80 acc/spec-pass 2.950 med 1.000 [0.000-13.000] mean rows 15.67  4E share 98.3 %  tok/s a12  231.3 a12ip  229.3  house10 acc 3.400  230.2 /  228.8
+  comb4w histogram MT80: [5337, 2119, 1117, 510, 132, 100, 23, 20, 4, 10, 15, 6, 13, 4, 0, 0]
+  comb4w acc a pass by lookup match length n (MT80): n=0 0.487 (4727), n=1 0.947 (3438), n=2 1.372 (698), n=3 1.736 (235), n=4 1.725 (167), n=5 2.323 (62), n=6+ 4.602 (83)
+  comb4w by category: writing 0.478, roleplay 0.764, reasoning 0.892, math 1.249, coding 0.887, extraction 1.736, stem 0.706, humanities 0.671, house-chat 0.580
+  gate chosen on train, a12: comb4w-g3 (train 238.7) -> TEST 235.5, house10 233.8; ungated comb4w TEST 198.3
+    comb4w     x by category writin 0.733 rolepl 0.858 reason 0.915 math 1.080 coding 0.912 extrac 1.323 stem 0.827 humani 0.809 house- 0.782; slower 72/90, min x 0.628
+    comb4w-g3  x by category writin 1.013 rolepl 1.112 reason 1.062 math 1.099 coding 1.041 extrac 1.320 stem 1.006 humani 1.011 house- 1.043; slower 29/90, min x 0.943
+  gate chosen on train, a12ip: comb4w-g4 (train 231.7) -> TEST 228.7, house10 231.1; ungated comb4w TEST 158.8
+    comb4w     x by category writin 0.587 rolepl 0.687 reason 0.733 math 0.865 coding 0.730 extrac 1.059 stem 0.662 humani 0.648 house- 0.626; slower 85/90, min x 0.503
+    comb4w-g4  x by category writin 1.004 rolepl 1.088 reason 1.023 math 1.034 coding 1.008 extrac 1.202 stem 0.991 humani 0.999 house- 1.031; slower 43/90, min x 0.929

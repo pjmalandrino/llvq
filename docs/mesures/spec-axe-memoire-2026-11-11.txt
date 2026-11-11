@@ -121,3 +121,13 @@ ones, *measured*). The price is speed: reading the served order makes the verify
 the drafter round unchanged; GSM8K 424.9 tok/s against 502.1, house 289.3 against 340.0, chat x0.892 of greedy. At
 8,191 tokens the tree reads 49.7 tok/s against 4E's 162.7, its pass 48.2 ms, cause not established. The operator
 decides between the 1.28 GB and the 2.4 ms a pass.
+
+2026-11-11, chat measured on MT-Bench 80 (spec-chat-mac-2026-11-11.txt, $0, Mac, 24 min). Operator's priority: chat
+never loses, gains what it can. DFlash tree of 15 accepts 2.896 a pass on the 80 MT-Bench first turns against 1.937 on
+the house chat 10 (*measured*); the conversational categories (writing, roleplay, humanities, stem) read 1.9 to 2.5,
+the house level. Projected (*estimated*, greedy 224.2): DFlash int4 (3.30 b/param) 305.0 tok/s at a12 and 257.7 at
+a12ip on MT-80, but x1.00 to x1.12 (a12) and x0.85 to x1.01 (a12ip) on the conversational categories. Best gates add
+1 to 7 % on the held-out half; a perfect gate would add +19 to +43 % (*computed* bound), so the room exists and no
+confidence feature tried reaches it. Tables (2.73 b/param) gated on a lookup match n >= 3 or 4: 235.5 and 228.7 on
+test (x1.05, x1.02), worst prompt -6 to -7 %; ungated they lose 12 to 29 %. Adaptive tree size never picks a small
+tree: the verify pass is nearly flat in rows. No policy makes conversational chat gain 10 %.
