@@ -22,8 +22,12 @@
 //!   grading offline;
 //! * `--runs`: timed runs a prompt; by default 1 discarded and 3 timed for
 //!   four prompts or fewer, 1 timed and none discarded above;
-//! * `<arm>`: the verify pass, `a12` (taps on) or `a10t384r16` (no taps), with
-//!   an optional plan suffix `@q.o.g.d.h` (else the stream plan at its warps);
+//! * `<arm>`: the verify pass, `a12` (taps on), `a12ip` (a12 on the words 4E
+//!   holds, read in place: no tree-tiled copy, the weights once on the card,
+//!   step M1 of the memory axis) or `a10t384r16` (no taps), with an optional
+//!   plan suffix `@q.o.g.d.h` (else the stream plan at its warps). After the
+//!   install the card's memory in use is printed (cuMemGetInfo), so two runs
+//!   of the same prompts read what the copies cost;
 //! * `<drafters>`: comma-separated, `null` (R = 1 decoding) and `oracle:K`
 //!   (K = 0 .. 14: K correct tokens of the pass's greedy continuation then a wrong
 //!   one, a pass of K + 2 rows accepting K);
@@ -108,7 +112,7 @@ fn run() -> anyhow::Result<()> {
     use llvq_llm::boundary::median_range;
     use llvq_llm::chatfmt::{open_assistant, turn, Marks};
     use llvq_llm::persist4e_cuda::{TreeForm, TreePlan};
-    let usage = "usage: LLVQ_CONFIG=<served v9 config> specbench [--prompts <file.jsonl>] [--runs <k>] [--vocab dense|q4] [--readout device|chunked] [--dump <file.jsonl>] <sealed> <a12|a10t384r16>[@q.o.g.d.h] <null,oracle:K,dflash:chain,dflash:tree,...> [N <= 1024] [drafter_dir] [f16|f32]";
+    let usage = "usage: LLVQ_CONFIG=<served v9 config> specbench [--prompts <file.jsonl>] [--runs <k>] [--vocab dense|q4] [--readout device|chunked] [--dump <file.jsonl>] <sealed> <a12|a12ip|a10t384r16>[@q.o.g.d.h] <null,oracle:K,dflash:chain,dflash:tree,...> [N <= 1024] [drafter_dir] [f16|f32]";
     // flags first: --prompts <file.jsonl>, --runs <timed runs a prompt>
     let mut a: Vec<String> = Vec::new();
     let (mut prompts_file, mut runs): (Option<String>, Option<usize>) = (None, None);
@@ -156,10 +160,11 @@ fn run() -> anyhow::Result<()> {
     };
     let form = match base {
         "a12" => TreeForm::A12,
+        "a12ip" => TreeForm::A12ip,
         "a10t384r16" => TreeForm::A10t384r16,
         other => anyhow::bail!("specbench: arm {other:?} not served here; {usage}"),
     };
-    let taps = form == TreeForm::A12;
+    let taps = matches!(form, TreeForm::A12 | TreeForm::A12ip);
     // drafters
     #[derive(Clone, Copy)]
     enum Kind {
@@ -220,6 +225,15 @@ fn run() -> anyhow::Result<()> {
     rt.install_tree(&[(arm_s.as_str(), plan, form)])?;
     for line in &rt.lines[before..] {
         println!("{line}");
+    }
+    {
+        let (free, total) = candle_core::cuda_backend::cudarc::driver::result::mem_get_info()
+            .map_err(|e| anyhow::anyhow!("cuMemGetInfo: {e}"))?;
+        println!(
+            "card memory: {:.3} GB used of {:.3} GB after the target's load, its 4E install and the verify pass's install, before the drafter (cuMemGetInfo)",
+            (total - free) as f64 / 1e9,
+            total as f64 / 1e9
+        );
     }
     let arm0 = rt.tree_arms().into_iter().next().ok_or_else(|| anyhow::anyhow!("specbench: no arm installed"))?;
     anyhow::ensure!(arm0.void.is_none(), "specbench: arm {} is void: {:?}", arm0.name, arm0.void);

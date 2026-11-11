@@ -40,3 +40,61 @@ same text as arbre32, paired against the unquantized drafter (5.368 GSM8K-200, 3
   int3 g64: -4.51 % and -5.55 %, fails.
 M4 opens by 0.027: 3.300 against 3.073 at Tetra's rate, 0.227 b/param to gain (computed). The fc overflow is in its
 output, so fc's arithmetic stays f32 on the card whatever its weights.
+
+M1, 2026-11-11: code written and checked on the Mac, not run on a card
+----------------------------------------------------------------------
+Result: arm a12ip holds the weights once. It is a12 reading the words 4E and the eager path already hold, in place,
+so the install builds none of the 253 tree-tiled copies: 1,307,547,648 B = 1.308 GB less on the card (computed from
+pers::p4t_tiled_words over the 4B's shapes; equal to the loader's 1.308 of spec-loop-sp8-2026-11-11-brut/
+spec-house.txt:33). Same tokens by construction, held on the host twin bit for bit; the card gate is open.
+
+Design. The served readers were not taught the tree order; the tree pass was taught the served order.
+- 4E's row loop (pers_4e.cu), the eager prefill (tv_tetra48_h, tv_q4_hht), the embedding gather and the drafter's q4
+  vocabulary read a row's words contiguous. In the tree order a row's words are 12 B every 192 B (Tetra) and 24 B
+  every 384 B (int4). Teaching them means rewriting the served module's inner loops and the eager kernels: refused,
+  the served path must not move.
+- The tree pass's stream unit already reads, a lane, its own row's words a sub-step (two Tetra, three int4). The copy
+  only puts a tile's 16 rows of a sub-step side by side. So one order serves every reader: the served one.
+- pers_4et_a10rc.cu: p4t_unit_rc and p4t_phase_rc take a template flag IP (default false). Under IP a lane reads
+  logical words 3 sa + h and + 1 (Tetra) or 6 sa + 3 h + k (int4) of its row, zero past the row's end, an int4 word at
+  its 4E v9 place when the segment says so: p4t_tile_word's rule, word for word.
+- pers_4et_a12.cu: the a12 body takes IP; a module under P4T_A12IP 1 emits pers_4et_a12ip_f{0,1,2}_t384 and the load
+  check p4t_ip_check, not the a12 symbols. pers.rs: p4t_a12ip_unit_text, p4t_a12ip_symbol, p4t_served_words.
+- persist4e_cuda.rs: TreeForm::A12ip launches on 4E's own images (as the rows arm does). At install, projection by
+  projection, the copy is built, p4t_ip_check compares every lane's words read in place with it (every word of the
+  copy is some lane's), the copy is freed; a nonzero count refuses the install. The v9 load check's pattern.
+- specbench: arm `a12ip` (taps on), and a cuMemGetInfo line after the verify pass's install, before the drafter.
+- Selected by the arm name only. No config changes; a12 and every served path are as before.
+
+What cannot be freed: nothing of the 1.308 GB on the 4B. What stays is the served object (projections 1.16 GB,
+carried 0.22 GB), the tree's row buffers 0.153 GB, the drafter 1.193 GB and its cache. A Tetra o_proj (the 8B) is
+refused by a12ip as by a12.
+
+Module texts. pers_4et_a10rc.cu and pers_4et_a12.cu changed, so the a10r8, a10r16, a10t384r16 and a12 modules have a
+new sha256 for the same code (IP = false folds away; the drift tests the_row_cap_passes_are_a10s and
+the_a12_pass_is_the_row_cap_pass_with_taps pin the edits). The served 4E module and the eager kernels include neither
+file: their text does not move.
+
+Checked on the Mac ($0):
+- host twin (tree_verify_host.rs, release): a12ip_rows_equal_a12_rows_on_the_served_words, every row's argmax,
+  logits, residual, K, V and taps bit for bit with a12 at R = 1, 8, 16, both stream plans, the 4B's parts and the
+  8B's (Tetra o, untied head), the load check passing on every matrix first. a12_rows_equal_a10_rows and
+  a12_tap_mutant_is_killed still pass. 4 tests, 456 s.
+- mutant ip_no_v9_order (the int4 v9 permutation dropped from the read in place, one site counted by the harness,
+  applied to a temp copy): killed by the load check, 2,032,640 lanes differ. A first form (`return rowp[wi]`) did not
+  compile under -Werror (unused g) and was replaced.
+- clippy: llvq-cuda for x86_64-unknown-linux-gnu, zero warnings; llvq-llm --features cuda through
+  ops/check-linux-cuda.sh, zero warnings in this change; two older ones remain (specbench.rs:547 drop, from f838b8b;
+  vtreebench.rs:721 complex type, from a6d86a21).
+
+Waits for the card:
+- NVRTC compiling the a12ip module, its registers and occupancy at 384 threads.
+- The load check on the real 253 projections, and the loader's lines: "0 tree-tiled copies ... 0.000 GB more on the
+  card" and "a12ip: 253 projections read in place".
+- Same tokens: a12ip's GSM8K-200 dump against SP8's gsm200.jsonl token for token.
+- The card memory line under a12 and under a12ip; the drop should read about 1.31 GB (estimated, a pool may keep
+  freed check copies).
+- Speed. DRAM bytes are the same (computed); a warp's load touches 16 rows' sectors instead of one 192 B or 384 B
+  run, so the verify launches may slow down. Unknown until measured; memory comes first on this axis.
+Card job, proposed, not launched: SP8's step (c) with arm a12ip@8.10.8.20.6 and --dump, plus step (b) once with a12
+and once with a12ip for the two memory lines.

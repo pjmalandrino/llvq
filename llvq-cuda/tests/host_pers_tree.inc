@@ -21,7 +21,10 @@
 //      65536: a9 of pers_4et_a9.cu on those same copies, n_bar_a9 waits;
 //      1048576: a11i (a11 with fine stamps, its 40 slots a CTA after the phase
 //      events when stamped); 131072: a10 of pers_4et_a10.cu, a9's waits; 524288: a11 (a10 with the
-//      L2 prefetch in its wait gaps), a9's waits),
+//      L2 prefetch in its wait gaps), a9's waits; 268435456: a12, a10r16 at
+//      384 threads with the taps; 536870912: a12ip, a12 on the words 4E
+//      reads, in place, no copy, after the install's load check
+//      p4t_ip_check on every matrix against its tree-tiled copy),
 //      three rotations (attention input at 2,560, MLP input at 2,560, down
 //      input at 9,728), each u32 m, k, f32 inv, u32 signs[n/32], f32
 //      small[1024], then with variant 16 the o rotation at 4,096,
@@ -182,14 +185,16 @@
     A.eps = eps; A.c = (float)((1.0 / std::sqrt(128.0)) * 1.4426950408889634);
     A.head_w = head_w.data(); A.head_s = head_s.data(); A.head_b = head_b.data();
     // ---- variant 32: the tree-tiled copies and the arguments that point at them ----
-    const u32 a6k = (variant & 1024u) ? 1u : (variant & 2048u) ? 2u : (variant & 4096u) ? 3u : (variant & 8192u) ? 4u : (variant & 16384u) ? 5u : (variant & 32768u) ? 6u : (variant & 65536u) ? 7u : (variant & 131072u) ? 8u : (variant & 524288u) ? 9u : (variant & 1048576u) ? 10u : (variant & 2097152u) ? 11u : (variant & 4194304u) ? 12u : (variant & 8388608u) ? 13u : (variant & 16777216u) ? 14u : (variant & 33554432u) ? 15u : (variant & 67108864u) ? 16u : (variant & 134217728u) ? 17u : (variant & 268435456u) ? 18u : 0u;
-    const bool a12v = (variant & 268435456u) != 0u;
-    const bool a9v = (variant & (65536u | 131072u | 524288u | 1048576u | 2097152u | 4194304u | 8388608u | 16777216u | 33554432u | 67108864u | 134217728u | 268435456u)) != 0u;
+    const u32 a6k = (variant & 1024u) ? 1u : (variant & 2048u) ? 2u : (variant & 4096u) ? 3u : (variant & 8192u) ? 4u : (variant & 16384u) ? 5u : (variant & 32768u) ? 6u : (variant & 65536u) ? 7u : (variant & 131072u) ? 8u : (variant & 524288u) ? 9u : (variant & 1048576u) ? 10u : (variant & 2097152u) ? 11u : (variant & 4194304u) ? 12u : (variant & 8388608u) ? 13u : (variant & 16777216u) ? 14u : (variant & 33554432u) ? 15u : (variant & 67108864u) ? 16u : (variant & 134217728u) ? 17u : (variant & 268435456u) ? 18u : (variant & 536870912u) ? 19u : 0u;
+    // 536870912: a12ip, a12 reading the words in place (no tree-tiled copy; the load check first)
+    const bool ipv = (variant & 536870912u) != 0u;
+    const bool a12v = (variant & (268435456u | 536870912u)) != 0u;
+    const bool a9v = (variant & (65536u | 131072u | 524288u | 1048576u | 2097152u | 4194304u | 8388608u | 16777216u | 33554432u | 67108864u | 134217728u | 268435456u | 536870912u)) != 0u;
     const bool a11iv = (variant & 1048576u) != 0u;
     const bool a5v = (variant & 512u) != 0u || a6k != 0u;
     const bool a4v = (variant & 256u) != 0u || a5v;
     const bool streamv = (variant & 128u) != 0u;
-    const bool tiledv = (variant & 32u) != 0u || streamv || a4v;
+    const bool tiledv = !ipv && ((variant & 32u) != 0u || streamv || a4v);
     std::vector<std::vector<u32>> tcopies;
     auto tcopy = [&](const u32* src, u32 kind, u32 d_out, u32 stride, u32 d_in, u32 served) -> const u32* {
         const u32 nsub = (d_in + P4T_SUB - 1u) / P4T_SUB;
@@ -226,6 +231,33 @@
         }
         At.layers = PLt.data();
         At.head_w = tcopy(A.head_w, 1u, vocab, H / 8u, H, 0u);
+    }
+    // ---- variant 536870912 (a12ip): the card install's load check, every matrix ----
+    if (ipv) {
+        std::vector<u32> bad(1, 0u);
+        auto check = [&](const u32* w, u32 kind, u32 d_out, u32 stride, u32 d_in, u32 served) {
+            const u32* c = tcopy(w, kind, d_out, stride, d_in, served);
+            hostgrid::launch_coop(4, 64, 0, seed + 0x1c, [&] { p4t_ip_check(w, c, kind, stride, d_in, d_out, served, bad.data()); });
+        };
+        auto check_t = [&](const SegTetra& t) { check(t.words, 0u, t.d_out, t.stride_u32, t.nblocks * 24u + t.tail_w, 0u); };
+        for (u32 l = 0; l < NL; ++l) {
+            const Pers4eLayer& P = PL[l];
+            const Pers4eQkv& N = P.qkv;
+            check(N.qw, 0u, N.q_dout, N.q_stride, N.nblocks * 24u + N.tail_w, 0u);
+            check(N.kw, 0u, N.k_dout, N.k_stride, N.nblocks * 24u + N.tail_w, 0u);
+            check(N.vw, 1u, N.v_dout, N.d_in / 8u, N.d_in, 1u);
+            if (P.ot != nullptr) check_t(P.ot->t);
+            else check(P.ow, 1u, H, dq / 8u, dq, 1u);
+            check_t(P.mlp.gate);
+            check_t(P.mlp.up);
+            if (P.tetra_down) check_t(P.mlp.down);
+            else check(P.mlp.q4w, 1u, H, I / 8u, I, 1u);
+        }
+        check(A.head_w, 1u, vocab, H / 8u, H, 0u);
+        if (bad[0] != 0u) {
+            std::fprintf(stderr, "host_pers: a12ip load check: %u lanes read in place differ from the tree-tiled copy\n", bad[0]);
+            std::exit(3);
+        }
     }
     u32 host_base = 0u;
     // ---- the reference: one 4E token, then its logits ----
@@ -290,7 +322,7 @@
     const Ft tfns[3] = {pers_4et_stream_f0_t512, pers_4et_stream_f1_t512, pers_4et_stream_f2_t512};
     const Ft tfn4[3] = {pers_4et_a4_f0_t512, pers_4et_a4_f1_t512, pers_4et_a4_f2_t512};
     const Ft tfn5[3] = {pers_4et_a5_f0_t512, pers_4et_a5_f1_t512, pers_4et_a5_f2_t512};
-    const Ft tfn6[18][3] = {{pers_4et_a6_f0_t512, pers_4et_a6_f1_t512, pers_4et_a6_f2_t512},
+    const Ft tfn6[19][3] = {{pers_4et_a6_f0_t512, pers_4et_a6_f1_t512, pers_4et_a6_f2_t512},
                            {pers_4et_a7_f0_t512, pers_4et_a7_f1_t512, pers_4et_a7_f2_t512},
                            {pers_4et_a3f_f0_t512, pers_4et_a3f_f1_t512, pers_4et_a3f_f2_t512},
                            {pers_4et_a3p_f0_t512, pers_4et_a3p_f1_t512, pers_4et_a3p_f2_t512},
@@ -307,7 +339,8 @@
                            {pers_4et_a10_f0_t448, pers_4et_a10_f1_t448, pers_4et_a10_f2_t448},
                            {pers_4et_a10_f0_t320, pers_4et_a10_f1_t320, pers_4et_a10_f2_t320},
                            {pers_4et_a10r16_f0_t384, pers_4et_a10r16_f1_t384, pers_4et_a10r16_f2_t384},
-                           {pers_4et_a12_f0_t384, pers_4et_a12_f1_t384, pers_4et_a12_f2_t384}};
+                           {pers_4et_a12_f0_t384, pers_4et_a12_f1_t384, pers_4et_a12_f2_t384},
+                           {pers_4et_a12ip_f0_t384, pers_4et_a12ip_f1_t384, pers_4et_a12ip_f2_t384}};
     const u32 n_pass = rd1<u32>();
     for (u32 pi = 0; pi < n_pass; ++pi) {
         const u32 pos0 = rd1<u32>(), R = rd1<u32>();

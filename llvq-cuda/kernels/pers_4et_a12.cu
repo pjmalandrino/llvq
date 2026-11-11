@@ -21,6 +21,15 @@
 #define P4T_A12 0
 #endif
 
+// Arm a12ip (step M1 of the memory axis, docs/mesures/spec-axe-memoire-
+// 2026-11-11.txt): the same pass on the words 4E and the eager path hold,
+// read in place (pers_4et_a10rc.cu, p4t_ip_load), so the install builds no
+// tree-tiled copy. A module that defines P4T_A12IP 1 beside P4T_A12 1 emits
+// the a12ip symbols and the load check p4t_ip_check instead of the a12 ones.
+#ifndef P4T_A12IP
+#define P4T_A12IP 0
+#endif
+
 #if P4T_A12 || defined(LLVQ_HOST_BUILD)
 
 // The tap slot of layer l under L.pad, or 5 when l is not tapped.
@@ -48,7 +57,7 @@ __device__ __forceinline__ void p4t_taps_a12(const Pers4tLaunch& L, u32 H, u32 R
 
 // ---- a12: the row-cap pass with the taps ----
 
-template <int FORM, u32 RC>
+template <int FORM, u32 RC, bool IP = false>
 __device__ __forceinline__ void pers_4et_a12_body(const Pers4eArgs* __restrict__ A, const Pers4tLaunch L)
 {
     unsigned char* base = PERS_SMEM_BASE();
@@ -159,7 +168,7 @@ __device__ __forceinline__ void pers_4et_a12_body(const Pers4eArgs* __restrict__
             p4t_place(sq, L, po, to);
             p4t_place(sk, L, po, to);
             p4t_place(sv, L, po, to);
-            p4t_phase_rc<RC>(sq, sk, sv, 3u, L, A, tab, t_inv, area, cmax);
+            p4t_phase_rc<RC, IP>(sq, sk, sv, 3u, L, A, tab, t_inv, area, cmax);
             P4T_WAIT();
             p4t_fold_a9(sq, sk, sv, 3u, L, A, cmax);
         }
@@ -210,7 +219,7 @@ __device__ __forceinline__ void pers_4et_a12_body(const Pers4eArgs* __restrict__
             unsigned long long po = 0ull;
             u32 to = 0u;
             p4t_place(so, L, po, to);
-            p4t_phase_rc<RC>(so, so, so, 1u, L, A, tab, t_inv, area, cmax);
+            p4t_phase_rc<RC, IP>(so, so, so, 1u, L, A, tab, t_inv, area, cmax);
             P4T_WAIT();
             p4t_fold_a9(so, so, so, 1u, L, A, cmax);
         }
@@ -232,7 +241,7 @@ __device__ __forceinline__ void pers_4et_a12_body(const Pers4eArgs* __restrict__
             u32 to = 0u;
             p4t_place(sg, L, po, to);
             p4t_place(su, L, po, to);
-            p4t_phase_rc<RC>(sg, su, su, 2u, L, A, tab, t_inv, area, cmax);
+            p4t_phase_rc<RC, IP>(sg, su, su, 2u, L, A, tab, t_inv, area, cmax);
             P4T_WAIT();
             p4t_fold_gu_a10(sg, su, M, L);
         }
@@ -251,7 +260,7 @@ __device__ __forceinline__ void pers_4et_a12_body(const Pers4eArgs* __restrict__
             unsigned long long po = 0ull;
             u32 to = 0u;
             p4t_place(sd, L, po, to);
-            p4t_phase_rc<RC>(sd, sd, sd, 1u, L, A, tab, t_inv, area, cmax);
+            p4t_phase_rc<RC, IP>(sd, sd, sd, 1u, L, A, tab, t_inv, area, cmax);
             P4T_WAIT();
             p4t_fold_a9(sd, sd, sd, 1u, L, A, cmax);
         }
@@ -274,7 +283,7 @@ __device__ __forceinline__ void pers_4et_a12_body(const Pers4eArgs* __restrict__
         unsigned long long po = 0ull;
         u32 to = 0u;
         p4t_place(sh, L, po, to);
-        p4t_phase_rc<RC>(sh, sh, sh, 1u, L, A, tab, t_inv, area, cmax);
+        p4t_phase_rc<RC, IP>(sh, sh, sh, 1u, L, A, tab, t_inv, area, cmax);
         __syncthreads();
         if (threadIdx.x < R && cmax[threadIdx.x] != 0ull) atomicMax(L.slots + threadIdx.x, cmax[threadIdx.x]);
         P4T_WAIT();
@@ -300,8 +309,57 @@ __device__ __forceinline__ void pers_4et_a12_body(const Pers4eArgs* __restrict__
         pers_4et_a12_body<FORM_, 2u>(A, L);                                                             \
     }
 
+#if !P4T_A12IP || defined(LLVQ_HOST_BUILD)
 PERS_4ET_A12(pers_4et_a12_f0_t384, 0, 384)
 PERS_4ET_A12(pers_4et_a12_f1_t384, 1, 384)
 PERS_4ET_A12(pers_4et_a12_f2_t384, 2, 384)
+#endif
+
+#if P4T_A12IP || defined(LLVQ_HOST_BUILD)
+
+#define PERS_4ET_A12IP(sym, FORM_, THREADS_)                                                            \
+    extern "C" __global__ void __launch_bounds__(THREADS_, 1) sym(const Pers4eArgs* __restrict__ A,     \
+                                                                   const Pers4tLaunch L)                \
+    {                                                                                                   \
+        pers_4et_a12_body<FORM_, 2u, true>(A, L);                                                       \
+    }
+
+PERS_4ET_A12IP(pers_4et_a12ip_f0_t384, 0, 384)
+PERS_4ET_A12IP(pers_4et_a12ip_f1_t384, 1, 384)
+PERS_4ET_A12IP(pers_4et_a12ip_f2_t384, 2, 384)
+
+// The load check of a12ip, one projection: for every tile, sub-step and
+// lane, the words p4t_ip_load reads in place from `w` against the words
+// p4t_stream_load reads at the lane's offset of `copy`, the tree-tiled copy
+// p4t_tile_words built from the same words. Every word of the copy is some
+// lane's (Tetra 3 r + h and + 1, int4 6 r + 3 h + k), so a zero count is the
+// permutation check of the whole matrix. bad[0] counts the lanes that differ.
+// The install runs it on every projection and refuses a nonzero count.
+extern "C" __global__ void p4t_ip_check(const u32* w, const u32* copy, u32 kind, u32 stride, u32 d_in, u32 d_out,
+                                        u32 tiled, u32* bad)
+{
+    P4tSeg g{};
+    g.w = w;
+    g.kind = kind;
+    g.stride = stride;
+    g.d_in = d_in;
+    g.d_out = d_out;
+    g.tiled = tiled;
+    const u32 nsub = (d_in + P4T_SUB - 1u) / P4T_SUB, SW = kind == 0u ? P4T_TSW : P4T_TSQ;
+    const unsigned long long n = (unsigned long long)(d_out >> 4) * nsub * 32u;
+    for (unsigned long long i = (unsigned long long)blockIdx.x * blockDim.x + threadIdx.x; i < n;
+         i += (unsigned long long)gridDim.x * blockDim.x) {
+        const u32 lane = (u32)(i & 31u), r = lane >> 1, h = lane & 1u;
+        const unsigned long long ts = i >> 5;
+        const u32 sa = (u32)(ts % nsub), tile = (u32)(ts / nsub);
+        u32 c0, c1, c2, t0, t1, t2;
+        p4t_ip_load(g, p4t_ip_row(g, 16u * tile + r), sa, h, c0, c1, c2);
+        p4t_stream_load(kind, copy + ((unsigned long long)tile * nsub + sa) * SW + (kind == 0u ? 3u * r + h : 6u * r + 3u * h),
+                        t0, t1, t2);
+        if (c0 != t0 || c1 != t1 || c2 != t2) atomicAdd(bad, 1u);
+    }
+}
+
+#endif
 
 #endif

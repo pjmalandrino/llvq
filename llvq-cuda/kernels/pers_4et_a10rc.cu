@@ -43,12 +43,57 @@ __device__ __forceinline__ void p4t_store_rc(const P4tSeg& g, const Pers4tLaunch
         }
 }
 
+// ---- the served words read in place (arm a12ip, step M1 of the memory axis) ----
+//
+// The stream unit's lane reads, for each sub-step, its own row's words: the
+// tree-tiled copy only puts a tile's 16 rows of a sub-step side by side. So
+// the unit can read the words where 4E and the eager path hold them, the
+// row layout (Tetra, g.stride words a row) and 4E v9's int4 order (d_in / 8
+// words a row, pers_q4_tile_index when g.tiled, the file's order for the
+// head), and the copies are not needed. Each read returns the word
+// p4t_tile_word writes at the lane's offset of the copy: the same words into
+// the same decode, so the same bits. Under IP = false the unit is a10r16's,
+// unchanged.
+
+// u32 words of a row in the served order.
+__device__ __forceinline__ u32 p4t_ip_stride(const P4tSeg& g)
+{
+    return g.kind == 0u ? g.stride : (g.d_in >> 3);
+}
+
+// Row `row` of g in the served order.
+__device__ __forceinline__ const u32* p4t_ip_row(const P4tSeg& g, u32 row)
+{
+    return g.w + (unsigned long long)row * p4t_ip_stride(g);
+}
+
+// Logical word wi of a row read in place: zero past the row's end, an int4
+// word at its 4E v9 place when g.tiled (p4t_tile_word's rule).
+__device__ __forceinline__ u32 p4t_ip_word(const P4tSeg& g, const u32* rowp, u32 sw, u32 wi)
+{
+    if (wi >= sw) return 0u;
+    return rowp[(g.kind != 0u && g.tiled != 0u) ? pers_q4_tile_index(wi, sw) : wi];
+}
+
+// A lane's words of sub-step sa, half h of its row: what p4t_stream_load reads
+// at the lane's offset of the copy. Tetra: logical words 3 sa + h and
+// 3 sa + h + 1; int4: 6 sa + 3 h + k, k < 3.
+__device__ __forceinline__ void p4t_ip_load(const P4tSeg& g, const u32* rowp, u32 sa, u32 h, u32& c0, u32& c1, u32& c2)
+{
+    const u32 sw = p4t_ip_stride(g);
+    const u32 w0 = g.kind == 0u ? 3u * sa + h : 6u * sa + 3u * h;
+    c0 = p4t_ip_word(g, rowp, sw, w0);
+    c1 = p4t_ip_word(g, rowp, sw, w0 + 1u);
+    c2 = g.kind == 0u ? 0u : p4t_ip_word(g, rowp, sw, w0 + 2u);
+}
+
 // ---- a9's unit and deal over RC tiles, a10's pass ----
 
 // One unit: tiles [blk nw, blk nw + nw) of g (one a warp; a warp past the
 // last tile stages with the others and computes nothing), slice sl, staged
-// once and streamed by each warp alone.
-template <u32 RC>
+// once and streamed by each warp alone. IP: the words read in place, from
+// the served order (p4t_ip_load), instead of the tree-tiled copy.
+template <u32 RC, bool IP = false>
 __device__ __forceinline__ void p4t_unit_rc(const P4tSeg& g, u32 sl, u32 blk, const Pers4tLaunch& L,
                                                 const Pers4eArgs* A, const F1rTables& tab, const float* t_inv,
                                                 u32* area, unsigned long long* cmax)
@@ -79,12 +124,18 @@ __device__ __forceinline__ void p4t_unit_rc(const P4tSeg& g, u32 sl, u32 blk, co
     if (has && ns > 0u) {
         const u32 SW = g.kind == 0u ? P4T_TSW : P4T_TSQ;
         const u32 r = lane >> 1, h = lane & 1u;
-        const u32* wp = g.w + ((unsigned long long)tile * nsub + sub_lo) * SW + (g.kind == 0u ? 3u * r + h : 6u * r + 3u * h);
+        const u32* wp = IP ? p4t_ip_row(g, wrow + r)
+                           : g.w + ((unsigned long long)tile * nsub + sub_lo) * SW + (g.kind == 0u ? 3u * r + h : 6u * r + 3u * h);
         u32 c0, c1, c2;
-        p4t_stream_load(g.kind, wp, c0, c1, c2);
+        if (IP) p4t_ip_load(g, wp, sub_lo, h, c0, c1, c2);
+        else p4t_stream_load(g.kind, wp, c0, c1, c2);
         for (u32 s = 0; s < ns; ++s) {
             u32 n0 = 0u, n1 = 0u, n2 = 0u;
-            if (s + 1u < ns) p4t_stream_load(g.kind, wp + SW, n0, n1, n2);
+            if (IP) {
+                if (s + 1u < ns) p4t_ip_load(g, wp, sub_lo + s + 1u, h, n0, n1, n2);
+            } else if (s + 1u < ns) {
+                p4t_stream_load(g.kind, wp + SW, n0, n1, n2);
+            }
             p4t_decode_stream(g, tab, t_inv, c0, c1, c2, aw, sub_lo + s, wrow, lane);
             __syncwarp();
 #pragma unroll
@@ -101,7 +152,7 @@ __device__ __forceinline__ void p4t_unit_rc(const P4tSeg& g, u32 sl, u32 blk, co
                 }
             }
             __syncwarp();
-            wp += SW;
+            if (!IP) wp += SW;
             c0 = n0;
             c1 = n1;
             c2 = n2;
@@ -112,7 +163,7 @@ __device__ __forceinline__ void p4t_unit_rc(const P4tSeg& g, u32 sl, u32 blk, co
 }
 
 // p4t_phase's deal, the stream unit.
-template <u32 RC>
+template <u32 RC, bool IP = false>
 __device__ __forceinline__ void p4t_phase_rc(const P4tSeg& s0, const P4tSeg& s1, const P4tSeg& s2, u32 nseg,
                                                  const Pers4tLaunch& L, const Pers4eArgs* A, const F1rTables& tab,
                                                  const float* t_inv, u32* area, unsigned long long* cmax)
@@ -125,7 +176,7 @@ __device__ __forceinline__ void p4t_phase_rc(const P4tSeg& s0, const P4tSeg& s1,
         const u32 i = u < n0 ? 0u : (u < n0 + n1 ? 1u : 2u);
         const u32 lu = i == 0u ? u : (i == 1u ? u - n0 : u - n0 - n1);
         const P4tSeg& g = i == 0u ? s0 : (i == 1u ? s1 : s2);
-        p4t_unit_rc<RC>(g, lu % g.S, lu / g.S, L, A, tab, t_inv, area, cmax);
+        p4t_unit_rc<RC, IP>(g, lu % g.S, lu / g.S, L, A, tab, t_inv, area, cmax);
     }
 }
 

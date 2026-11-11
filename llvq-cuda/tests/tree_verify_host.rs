@@ -356,6 +356,9 @@ struct RowOut {
 
 /// The variant bit of arm a12 (the taps).
 const A12: u32 = 268435456;
+/// The variant bit of arm a12ip: a12 reading the words in place, no copy
+/// (step M1 of the memory axis).
+const A12IP: u32 = 536870912;
 
 struct Out {
     reference: Option<(u32, Vec<u16>)>,
@@ -415,7 +418,7 @@ fn parse(bytes: &[u8], reference: bool, passes: &[Pass], taps: bool) -> Result<O
 }
 
 fn exec(bin: &Path, f: &Fix, reference: Option<(u32, u32)>, passes: &[Pass]) -> Result<Out, String> {
-    let out = parse(&run(bin, &y_cmd(f, reference, passes))?, reference.is_some(), passes, f.variant & A12 != 0)?;
+    let out = parse(&run(bin, &y_cmd(f, reference, passes))?, reference.is_some(), passes, f.variant & (A12 | A12IP) != 0)?;
     if out.tail[1] != 0 {
         return Err(format!("abort, NaN flag or tickets left: {}", out.tail[1]));
     }
@@ -1037,7 +1040,7 @@ fn a5_prefetch_mutant_is_killed() {
 /// slices: every row's argmax, logits, residual, K and V equal.
 #[allow(clippy::too_many_arguments)]
 fn gate_pair(bin: &Path, refb: &Path, f: &Fix, v: u32, r: u32, t: &Tree, sizes: &[usize], pos0: u32) -> Result<usize, String> {
-    let arms = 32 | 128 | 256 | 512 | 1024 | 2048 | 4096 | 8192 | 16384 | 32768 | 65536 | 131072 | 524288 | 1048576 | 2097152 | 4194304 | A12;
+    let arms = 32 | 128 | 256 | 512 | 1024 | 2048 | 4096 | 8192 | 16384 | 32768 | 65536 | 131072 | 524288 | 1048576 | 2097152 | 4194304 | A12 | A12IP;
     let passes: Vec<Pass> =
         sizes.iter().enumerate().map(|(i, &s)| Pass::of(t, &t.subset(s, 0x6100 + i as u64), pos0, 0x7a00 + i as u64)).collect();
     let u = exec(refb, &Fix { variant: (f.variant & !arms) | r, ..*f }, None, &passes)?;
@@ -1453,6 +1456,69 @@ fn a12_tap_mutant_is_killed() {
     match r {
         Err(e) => eprintln!("tap_layer_off: killed by {}", e.lines().next().unwrap_or("")),
         Ok(_) => panic!("a12 mutant tap_layer_off survived its gate"),
+    }
+}
+
+// ---- arm a12ip: a12 on the served words, read in place (memory axis, M1) ----
+
+/// a12ip against a12 on the same passes: every row's argmax, logits,
+/// residual, K, V and taps bit for bit. a12 reads the tree-tiled copies,
+/// a12ip the words 4E reads; the twin runs the install's load check
+/// (p4t_ip_check on every matrix against its copy) before the passes.
+fn gate_ip(bin: &Path, f: &Fix, t: &Tree, sizes: &[usize]) -> Result<usize, String> {
+    let passes: Vec<Pass> = sizes.iter().enumerate().map(|(i, &s)| Pass::of(t, &t.subset(s, 0x6600 + i as u64), 9, 0x7600 + i as u64)).collect();
+    let u = exec(host(), &Fix { variant: f.variant | A12, ..*f }, None, &passes)?;
+    let w = exec(bin, &Fix { variant: f.variant | A12IP, ..*f }, None, &passes)?;
+    let mut rows = 0;
+    for (pi, (a, b)) in u.passes.iter().zip(&w.passes).enumerate() {
+        for (s, (ra, rb)) in a.iter().zip(b).enumerate() {
+            rows += 1;
+            if let Some(what) = diff(rb, ra) {
+                return Err(format!("a12ip against a12, split {:?}, variant {}, pass {pi} ({} rows), slot {s}: {what}", f.split, f.variant, a.len()));
+            }
+            if rb.taps != ra.taps {
+                return Err(format!("a12ip against a12, split {:?}, variant {}, pass {pi}, slot {s}: taps", f.split, f.variant));
+            }
+        }
+    }
+    Ok(rows)
+}
+
+/// a12ip equals a12 bit for bit at R = 1, 8, 16 under both stream plans,
+/// on the 4B's shapes (layer 0 a Tetra down, layer 1 an int4 one, the tied
+/// head) and with the 8B's parts (a Tetra o, an untied head), and its load
+/// check passes on every matrix.
+#[test]
+#[cfg_attr(debug_assertions, ignore)]
+fn a12ip_rows_equal_a12_rows_on_the_served_words() {
+    let t = tree(16, 5, 0x40b);
+    for split in [SPLIT_N2, SPLIT_N2B] {
+        for ext in [0u32, 16] {
+            let f = Fix { split, variant: ext, ..FIX };
+            let n = gate_ip(host(), &f, &t, &[1, 8, 16]).unwrap();
+            eprintln!("split {split:?}, variant {ext}: {n} rows, a12ip equals a12 bit for bit, taps included");
+        }
+    }
+}
+
+/// A read in place that drops 4E v9's int4 order (the permutation inside
+/// each row) is killed: by the load check, or by the rows.
+#[test]
+#[cfg_attr(debug_assertions, ignore)]
+fn a12ip_permutation_mutant_is_killed() {
+    let t = tree(12, 4, 0x40c);
+    let f = Fix { split: SPLIT_N2B, ..FIX };
+    gate_ip(host(), &f, &t, &[1, 9]).expect("the unmutated a12ip passes its gate");
+    let k = "llvq-cuda/kernels/pers_4et_a10rc.cu";
+    let b = mutant(
+        "ip_no_v9_order",
+        &[(k, "    return rowp[(g.kind != 0u && g.tiled != 0u) ? pers_q4_tile_index(wi, sw) : wi];", "    return rowp[(g.kind != 0u && g.tiled == 2u) ? pers_q4_tile_index(wi, sw) : wi];")],
+    );
+    let r = gate_ip(&b, &f, &t, &[1, 9]);
+    let _ = std::fs::remove_file(&b);
+    match r {
+        Err(e) => eprintln!("ip_no_v9_order: killed by {}", e.lines().next().unwrap_or("")),
+        Ok(_) => panic!("a12ip mutant ip_no_v9_order survived its gate"),
     }
 }
 

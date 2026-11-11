@@ -2204,6 +2204,31 @@ pub fn p4t_a12_symbol(form: u32) -> Result<&'static str, String> {
     })
 }
 
+/// The module text of arm a12ip (step M1 of the memory axis): a12's pass on
+/// the words 4E holds, read in place, and the install's load check
+/// `p4t_ip_check`; [`p4t_a12_unit_text`] under `P4T_A12IP 1`, which emits
+/// those symbols instead of a12's.
+pub fn p4t_a12ip_unit_text(tile_define: &str) -> String {
+    format!("#define P4T_A12IP 1\n{}", p4t_a12_unit_text(tile_define))
+}
+
+/// The a12ip symbol for a RoPE form (384 threads).
+pub fn p4t_a12ip_symbol(form: u32) -> Result<&'static str, String> {
+    Ok(match form {
+        0 => "pers_4et_a12ip_f0_t384",
+        1 => "pers_4et_a12ip_f1_t384",
+        2 => "pers_4et_a12ip_f2_t384",
+        _ => return Err(format!("tree verify: no a12ip kernel for RoPE form {form}")),
+    })
+}
+
+/// u32 words of a projection in the served order, as the tree pass reads it
+/// in place: Tetra `stride_u32` a row, int4 d_in / 8. The bytes a12ip reads
+/// where a12 reads [`p4t_tiled_words`].
+pub fn p4t_served_words(int4: bool, d_out: u32, stride_u32: u32, d_in: u32) -> u64 {
+    d_out as u64 * if int4 { (d_in / 8) as u64 } else { stride_u32 as u64 }
+}
+
 /// `pers_4et_a12.cu`, embedded so the Mac hashes what the card compiles.
 pub const P4T_A12_PART: (&str, &str) = ("pers_4et_a12.cu", include_str!("../kernels/pers_4et_a12.cu"));
 
@@ -3632,12 +3657,29 @@ mod tests {
         let a = a9.find("// One unit: tiles [blk nw, blk nw + nw) of g").unwrap();
         let b = a + a9[a..].find("template <int FORM>\n__device__ __forceinline__ void pers_4et_a9_body(").unwrap();
         let unit = a9[a..b]
-            .replacen("__device__ __forceinline__ void p4t_unit_a9(", "template <u32 RC>\n__device__ __forceinline__ void p4t_unit_rc(", 1)
+            .replacen("__device__ __forceinline__ void p4t_unit_a9(", "template <u32 RC, bool IP = false>\n__device__ __forceinline__ void p4t_unit_rc(", 1)
+            // a12ip (M1): the words read in place under IP, the copy otherwise
+            .replacen(
+                "// once and streamed by each warp alone.\n",
+                "// once and streamed by each warp alone. IP: the words read in place, from\n// the served order (p4t_ip_load), instead of the tree-tiled copy.\n",
+                1,
+            )
+            .replacen(
+                "        const u32* wp = g.w + ((unsigned long long)tile * nsub + sub_lo) * SW + (g.kind == 0u ? 3u * r + h : 6u * r + 3u * h);\n        u32 c0, c1, c2;\n        p4t_stream_load(g.kind, wp, c0, c1, c2);\n",
+                "        const u32* wp = IP ? p4t_ip_row(g, wrow + r)\n                           : g.w + ((unsigned long long)tile * nsub + sub_lo) * SW + (g.kind == 0u ? 3u * r + h : 6u * r + 3u * h);\n        u32 c0, c1, c2;\n        if (IP) p4t_ip_load(g, wp, sub_lo, h, c0, c1, c2);\n        else p4t_stream_load(g.kind, wp, c0, c1, c2);\n",
+                1,
+            )
+            .replacen(
+                "            if (s + 1u < ns) p4t_stream_load(g.kind, wp + SW, n0, n1, n2);\n",
+                "            if (IP) {\n                if (s + 1u < ns) p4t_ip_load(g, wp, sub_lo + s + 1u, h, n0, n1, n2);\n            } else if (s + 1u < ns) {\n                p4t_stream_load(g.kind, wp + SW, n0, n1, n2);\n            }\n",
+                1,
+            )
+            .replacen("            wp += SW;\n", "            if (!IP) wp += SW;\n", 1)
             .replacen("    float acc[4][4];\n#pragma unroll\n    for (u32 nt = 0; nt < 4u; ++nt)", "    float acc[RC][4];\n#pragma unroll\n    for (u32 nt = 0; nt < RC; ++nt)", 1)
             .replacen("                for (u32 nt = 0; nt < 4u; ++nt) {", "                for (u32 nt = 0; nt < RC; ++nt) {", 1)
             .replacen("    if (has) p4t_store_a9(g, L, A, sl, acc, wrow, lane, cmax);\n", "    if (has) p4t_store_rc<RC>(g, L, A, sl, acc, wrow, lane, cmax);\n", 1)
-            .replacen("__device__ __forceinline__ void p4t_phase_a9(", "template <u32 RC>\n__device__ __forceinline__ void p4t_phase_rc(", 1)
-            .replacen("        p4t_unit_a9(g, lu % g.S, lu / g.S, L, A, tab, t_inv, area, cmax);", "        p4t_unit_rc<RC>(g, lu % g.S, lu / g.S, L, A, tab, t_inv, area, cmax);", 1);
+            .replacen("__device__ __forceinline__ void p4t_phase_a9(", "template <u32 RC, bool IP = false>\n__device__ __forceinline__ void p4t_phase_rc(", 1)
+            .replacen("        p4t_unit_a9(g, lu % g.S, lu / g.S, L, A, tab, t_inv, area, cmax);", "        p4t_unit_rc<RC, IP>(g, lu % g.S, lu / g.S, L, A, tab, t_inv, area, cmax);", 1);
         assert!(!unit.contains("nt < 4u"), "every n8-tile loop of the unit is over RC");
         let a10 = P4T_A10_PART.1;
         let c = a10.find("template <int FORM>\n__device__ __forceinline__ void pers_4et_a10_body(").unwrap();
@@ -3725,10 +3767,12 @@ mod tests {
         // pers_4et_a12.cu: pers_4et_rc_body renamed, two tap calls added
         let rc = P4T_A10RC_PART.1;
         let c = rc.find("template <int FORM, u32 RC>\n__device__ __forceinline__ void pers_4et_rc_body(").unwrap();
+        // the a12ip edits (M1): IP threaded through the body's five phases, nothing else
         let end = "#undef P4T_WAIT\n}\n";
         let d = c + rc[c..].find(end).unwrap() + end.len();
         let body = rc[c..d]
-            .replacen("void pers_4et_rc_body(", "void pers_4et_a12_body(", 1)
+            .replacen("template <int FORM, u32 RC>\n__device__ __forceinline__ void pers_4et_rc_body(", "template <int FORM, u32 RC, bool IP = false>\n__device__ __forceinline__ void pers_4et_a12_body(", 1)
+            .replace("p4t_phase_rc<RC>(", "p4t_phase_rc<RC, IP>(")
             .replacen(
                 "        // ln1: the natural values for the int4 v rows, the signed and\n",
                 "        p4t_taps_a12(L, H, R, l, c0, G);\n        // ln1: the natural values for the int4 v rows, the signed and\n",
@@ -3742,6 +3786,17 @@ mod tests {
             assert_eq!(t.matches(p4t_a12_symbol(f).unwrap()).count(), 1);
         }
         eprintln!("tree module a12 at SERVED_DEFINES_SM89: {} bytes, sha256 {}", t.len(), crate::sha256::sha256_hex(t.as_bytes()));
+        // a12ip: a12's text under one more define; its symbols and the load
+        // check, and not a12's
+        let ip = p4t_a12ip_unit_text(SERVED_DEFINES_SM89);
+        assert_eq!(ip, format!("#define P4T_A12IP 1\n{t}"));
+        assert_eq!(P4T_A12_PART.1.matches("pers_4et_a12_body<FORM_, 2u, true>(A, L);").count(), 1);
+        assert_eq!(P4T_A12_PART.1.matches("extern \"C\" __global__ void p4t_ip_check(").count(), 1);
+        for f in 0..3 {
+            assert_eq!(ip.matches(p4t_a12ip_symbol(f).unwrap()).count(), 1);
+        }
+        assert!(p4t_a12ip_symbol(3).is_err());
+        eprintln!("tree module a12ip at SERVED_DEFINES_SM89: {} bytes, sha256 {}", ip.len(), crate::sha256::sha256_hex(ip.as_bytes()));
     }
 
     use super::*;
