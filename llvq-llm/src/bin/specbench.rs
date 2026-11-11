@@ -4,11 +4,15 @@
 //! and the loop's time split into the verify launches, the drafter calls and
 //! the rest of the host.
 //!
-//! Usage: `LLVQ_CONFIG=<served v9 config> specbench [--prompts <file.jsonl>] [--runs <k>] <sealed> <arm> <drafters> [N] [drafter_dir] [f16|f32]`
+//! Usage: `LLVQ_CONFIG=<served v9 config> specbench [--prompts <file.jsonl>] [--runs <k>] [--vocab dense|q4] <sealed> <arm> <drafters> [N] [drafter_dir] [f16|f32]`
 //!
 //! * `--prompts`: a JSONL prompt file (`llvq_llm::spec_prompts`, the house
 //!   set is `ops/data/spec-prompts-v1.jsonl`), each through the same chat
 //!   template, thinking off; absent, the four built-in prompts below;
+//! * `--vocab`: the drafter's embedding and head, `dense` (default: the sealed
+//!   table dequantized once to a dense copy on the card) or `q4` (the
+//!   target's own int4 g64 table through its gather and the batched head,
+//!   `llvq_llm::dflash_q4`, no copy);
 //! * `--runs`: timed runs a prompt; by default 1 discarded and 3 timed for
 //!   four prompts or fewer, 1 timed and none discarded above;
 //! * `<arm>`: the verify pass, `a12` (taps on) or `a10t384r16` (no taps), with
@@ -86,15 +90,25 @@ fn run() -> anyhow::Result<()> {
     use llvq_llm::boundary::median_range;
     use llvq_llm::chatfmt::{open_assistant, turn, Marks};
     use llvq_llm::persist4e_cuda::{TreeForm, TreePlan};
-    let usage = "usage: LLVQ_CONFIG=<served v9 config> specbench [--prompts <file.jsonl>] [--runs <k>] <sealed> <a12|a10t384r16>[@q.o.g.d.h] <null,oracle:K,dflash:chain,dflash:tree,...> [N <= 1024] [drafter_dir] [f16|f32]";
+    let usage = "usage: LLVQ_CONFIG=<served v9 config> specbench [--prompts <file.jsonl>] [--runs <k>] [--vocab dense|q4] <sealed> <a12|a10t384r16>[@q.o.g.d.h] <null,oracle:K,dflash:chain,dflash:tree,...> [N <= 1024] [drafter_dir] [f16|f32]";
     // flags first: --prompts <file.jsonl>, --runs <timed runs a prompt>
     let mut a: Vec<String> = Vec::new();
     let (mut prompts_file, mut runs): (Option<String>, Option<usize>) = (None, None);
+    // the drafter's vocabulary: dense (the sealed table dequantized to a copy)
+    // until q4 (the target's own int4 table) passes on the card
+    let mut vocab_q4 = false;
     let mut it = std::env::args().skip(1);
     while let Some(x) = it.next() {
         match x.as_str() {
             "--prompts" => prompts_file = Some(it.next().ok_or_else(|| anyhow::anyhow!("--prompts <file.jsonl>; {usage}"))?),
             "--runs" => runs = Some(it.next().ok_or_else(|| anyhow::anyhow!("--runs <k>; {usage}"))?.parse().map_err(|e| anyhow::anyhow!("--runs: {e}"))?),
+            "--vocab" => {
+                vocab_q4 = match it.next().as_deref() {
+                    Some("dense") => false,
+                    Some("q4") => true,
+                    o => anyhow::bail!("--vocab {o:?}: dense or q4; {usage}"),
+                }
+            }
             _ => a.push(x),
         }
     }
@@ -195,15 +209,33 @@ fn run() -> anyhow::Result<()> {
         };
         let t0 = Instant::now();
         let drafter = llvq_llm::dflash::DFlashDrafter::load(&ddir, &device, ddtype)?;
-        let vocab = llvq_llm::dflash::vocab_from_sealed(std::path::Path::new(&path), &device, ddtype)?;
+        let (vocab, vline): (Box<dyn llvq_llm::dflash::TargetVocab>, String) = if vocab_q4 {
+            let cfg_m = model.config();
+            let v = llvq_llm::dflash_q4::Q4Vocab::new(model, cfg_m.num_attention_heads / cfg_m.num_key_value_heads)?;
+            for line in v.provenance() {
+                println!("{line}");
+            }
+            let line = format!(
+                "vocab q4: the target's int4 g64 table ({:.1} MB, already resident), gather emb_q4_gather, head tv_q4_mma; no dense copy",
+                v.table_bytes as f64 / 1e6
+            );
+            (Box::new(v), line)
+        } else {
+            let v = llvq_llm::dflash::vocab_from_sealed(std::path::Path::new(&path), &device, ddtype)?;
+            let (rows, cols) = v.table.dims2()?;
+            let line = format!(
+                "vocab dense: table {rows}x{cols} {ddtype:?} from the sealed file, {:.1} MB of VRAM beside the target's",
+                (rows * cols * ddtype.size_in_bytes()) as f64 / 1e6
+            );
+            (Box::new(v), line)
+        };
         println!(
-            "drafter {} ({:.1} MB, {ddtype:?}), table {:?} from the sealed file, loaded in {:.1} s",
+            "drafter {} ({:.1} MB, {ddtype:?}), loaded in {:.1} s; {vline}",
             ddir.display(),
             drafter.weight_bytes() as f64 / 1e6,
-            vocab.table.dims(),
             t0.elapsed().as_secs_f64()
         );
-        let mut sp = llvq_llm::dflash_spec::DFlashSpec::new(drafter, Box::new(vocab), llvq_llm::dflash_spec::Shape::Chain(15))?;
+        let mut sp = llvq_llm::dflash_spec::DFlashSpec::new(drafter, vocab, llvq_llm::dflash_spec::Shape::Chain(15))?;
         sp.timing = true;
         Some(sp)
     } else {
@@ -444,7 +476,7 @@ fn run() -> anyhow::Result<()> {
     println!("\naggregates (tok/s = total tokens over total wall; x greedy likewise; median over prompts with its range)");
     for (di, (dname, kind_d)) in drafters.iter().enumerate() {
         let (rev, dtype_s, shape_s) = match kind_d {
-            Kind::DFlash(s) => (llvq_llm::dflash::REVISION.to_string(), format!("{ddtype:?}"), format!("{s:?}")),
+            Kind::DFlash(s) => (llvq_llm::dflash::REVISION.to_string(), format!("{ddtype:?}, vocab {}", if vocab_q4 { "q4" } else { "dense" }), format!("{s:?}")),
             Kind::Oracle(k) => ("-".into(), "-".into(), format!("oracle chain of {} ({k} correct)", k + 1)),
             Kind::Null => ("-".into(), "-".into(), "none (R = 1)".into()),
         };
