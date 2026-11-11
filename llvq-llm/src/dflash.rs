@@ -490,8 +490,8 @@ impl DFlashDrafter {
         // block: embed, cast; a layer: ln1, qkv, rms, norm mul, transpose, rope, k store, v transpose,
         //        v store, scores, softmax, values, transpose, o, add, ln2, gate_up, silu, mul, down, add;
         //        then the final norm
-        // head: matmul, f32 cast; readout: softmax, chunk max, two gathers, cat
-        Launches { extend: 13, block: 2 + 21 * self.cfg.layers + 1, head: 2, readout: 5, syncs: 2 }
+        // head: matmul, f32 cast; readout: DeviceReadout::LAUNCHES, one transfer at the end
+        Launches { extend: 13, block: 2 + 21 * self.cfg.layers + 1, head: 2, readout: DeviceReadout::LAUNCHES, syncs: 1 }
     }
 
     /// An empty context with room for `cap` positions (it grows by doubling).
@@ -628,7 +628,86 @@ impl DFlashDrafter {
     }
 }
 
-/// Argmax, top [`TREE_TOPK`] and logsumexp of logits [rows, vocab].
+/// Argmax, top [`TREE_TOPK`] and logsumexp of logits [rows, vocab], all on
+/// the device, with one transfer at the end.
+///
+/// 16 launches: four `argmax`, three masks (`broadcast_eq`, `where_cond`) of
+/// the ids already taken, one `cat` of the ids, one `gather` of their logits,
+/// one softmax and one `gather` of their probabilities, one cast of the ids
+/// to f32 (exact below 2^24) and one `cat` into [rows, 3 x TOPK], which is
+/// the single device-to-host transfer. The host computes the logsumexp as
+/// `z - ln p` of the best id and the log probabilities as `z - lse`. The
+/// `arange` and the -inf buffer are made once, here, not a round.
+pub struct DeviceReadout {
+    rows: usize,
+    vocab: usize,
+    arange: Tensor,
+    ninf: Tensor,
+}
+
+impl DeviceReadout {
+    pub fn new(rows: usize, vocab: usize, device: &Device) -> candle_core::Result<Self> {
+        Ok(Self {
+            rows,
+            vocab,
+            arange: Tensor::arange(0u32, vocab as u32, device)?.unsqueeze(0)?,
+            ninf: Tensor::full(f32::NEG_INFINITY, (rows, vocab), device)?,
+        })
+    }
+
+    /// Launches a call issues (the cast of `logits` to f32 excepted, a no-op on f32 logits).
+    pub const LAUNCHES: usize = 4 + 2 * (TREE_TOPK - 1) + 6;
+
+    pub fn run(&self, logits: &Tensor) -> anyhow::Result<DraftOut> {
+        let z = logits.to_dtype(DType::F32)?;
+        let (rows, vocab) = z.dims2()?;
+        if (rows, vocab) != (self.rows, self.vocab) {
+            bail!("readout built for {}x{}, logits {rows}x{vocab}", self.rows, self.vocab);
+        }
+        let mut work = z.clone();
+        let mut ids = Vec::with_capacity(TREE_TOPK);
+        for k in 0..TREE_TOPK {
+            let i = work.argmax_keepdim(D::Minus1)?;
+            if k + 1 < TREE_TOPK {
+                work = self.arange.broadcast_eq(&i)?.where_cond(&self.ninf, &work)?;
+            }
+            ids.push(i);
+        }
+        let ids = Tensor::cat(&ids, 1)?;
+        let zv = z.gather(&ids, 1)?;
+        let pv = candle_nn::ops::softmax_last_dim(&z)?.gather(&ids, 1)?;
+        let packed = Tensor::cat(&[&ids.to_dtype(DType::F32)?, &zv, &pv], 1)?.to_vec2::<f32>()?;
+        let mut out = DraftOut { chain: Vec::new(), top_ids: Vec::new(), top_logp: Vec::new(), lse: Vec::new() };
+        for row in &packed {
+            let lse = row[TREE_TOPK] - row[2 * TREE_TOPK].ln();
+            let mut a = [0u32; TREE_TOPK];
+            let mut b = [0f32; TREE_TOPK];
+            for k in 0..TREE_TOPK {
+                a[k] = row[k] as u32;
+                b[k] = row[TREE_TOPK + k] - lse;
+            }
+            out.lse.push(lse);
+            out.chain.push(a[0]);
+            out.top_ids.push(a);
+            out.top_logp.push(b);
+        }
+        Ok(out)
+    }
+}
+
+/// [`DeviceReadout`], its buffers made for this call.
+pub fn readout(logits: &Tensor) -> anyhow::Result<DraftOut> {
+    let (rows, vocab) = logits.dims2()?;
+    DeviceReadout::new(rows, vocab, logits.device())?.run(logits)
+}
+
+/// The readout of 2026-11-11 (e3bbaee), kept behind
+/// `DFlashSpec::chunked_readout` so the card can compare: argmax, top
+/// [`TREE_TOPK`] and logsumexp of logits [rows, vocab].
+///
+/// SLOW ON CUDA: its first transfer lands mid-round and forces a
+/// synchronisation, then an upload and a second transfer; 1.96 to 2.05 ms on
+/// the L40S (SP5) against about 1.3 ms on Metal. [`DeviceReadout`] replaces it.
 ///
 /// Five device operations and two small transfers: the maximum logit of
 /// every chunk of 128 ids; on the host the [`TREE_TOPK`] best chunks a row
@@ -637,7 +716,7 @@ impl DFlashDrafter {
 /// probabilities, from which the host takes the top 4. The logsumexp is
 /// `z - ln p` of the best id (whose p is at least 1 / vocab, so no
 /// underflow), and a log probability `z - lse`, as before.
-pub fn readout(logits: &Tensor) -> anyhow::Result<DraftOut> {
+pub fn readout_chunked(logits: &Tensor) -> anyhow::Result<DraftOut> {
     let z = logits.to_dtype(DType::F32)?;
     let (rows, vocab) = z.dims2()?;
     let c = [128usize, 64, 32, 16, 8, 4, 2, 1].into_iter().find(|c| vocab.is_multiple_of(*c)).unwrap_or(1);
@@ -767,6 +846,9 @@ pub struct FixtureReport {
     pub min_gap: f64,
     /// Max |d| over the dequantized table rows the fixture holds.
     pub table_abs: f64,
+    /// Rounds whose chain and tree of 15 from [`readout`] equal those from
+    /// [`readout_chunked`] on the same logits.
+    pub readouts_equal: usize,
 }
 
 impl std::fmt::Display for FixtureReport {
@@ -774,7 +856,7 @@ impl std::fmt::Display for FixtureReport {
         write!(
             f,
             "rounds {}: chain equal {}/{}, tree equal {}/{}; logits rel {:.2e}, lse rel {:.2e}, hidden rel {:.2e}; \
-             smallest reference top-1 gap {:.3}; table rows max abs {:.2e}",
+             smallest reference top-1 gap {:.3}; table rows max abs {:.2e}; device and chunked readouts equal {}/{}",
             self.rounds,
             self.chain_equal,
             self.rounds,
@@ -784,7 +866,9 @@ impl std::fmt::Display for FixtureReport {
             self.lse_rel,
             self.hidden_rel,
             self.min_gap,
-            self.table_abs
+            self.table_abs,
+            self.readouts_equal,
+            self.rounds
         )
     }
 }
@@ -843,6 +927,8 @@ pub fn check_fixture(path: &Path, drafter: &DFlashDrafter, vocab: &dyn TargetVoc
             let hidden = drafter.block_hidden(&ctx, ids[m], vocab)?;
             let z = vocab.logits(&hidden)?;
             let out = readout(&z)?;
+            let prev = readout_chunked(&z)?;
+            rep.readouts_equal += usize::from(out.chain == prev.chain && draft_tree(&out, 15) == draft_tree(&prev, 15));
             rep.rounds += 1;
             let h_ref = get(&format!("{k}.out"))?.flatten_all()?.to_vec1::<f32>()?;
             let h = hidden.to_dtype(DType::F32)?.to_device(&Device::Cpu)?.flatten_all()?.to_vec1::<f32>()?;
