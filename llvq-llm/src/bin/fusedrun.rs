@@ -1227,15 +1227,32 @@ fn served_door_4e(
     Ok(())
 }
 
+/// The prompt lengths `LLVQ_PERS_4E` runs after the seed prompt when its
+/// value names none: 8,192, the long context of every reading before
+/// 2026-11-11.
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+const PERS_4E_LONG: [usize; 1] = [8192];
+
 /// `LLVQ_PERS_4E`'s value: a token count, 2 to 256, alone (the bench forms,
 /// `pers::P4E_BENCH_FORMS`) or followed by `:` and E1 arms
 /// (`pers::P4E_E1_ARMS`), comma-separated, each once, which replace the
-/// bench forms.
+/// bench forms; then optionally `:` and the prompt lengths run after the seed
+/// prompt, comma-separated, strictly ascending, each 64 to 8,192 (default
+/// [`PERS_4E_LONG`]).
 #[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
-fn parse_pers_4e(v: &str) -> Result<(usize, Vec<&'static str>), String> {
-    let (count, arms) = match v.split_once(':') {
-        Some((c, a)) => (c, Some(a)),
-        None => (v, None),
+fn parse_pers_4e(v: &str) -> Result<(usize, Vec<&'static str>, Vec<usize>), String> {
+    let mut fields = v.splitn(3, ':');
+    let count = fields.next().unwrap_or_default();
+    let arms = fields.next();
+    let lengths = match fields.next() {
+        None => PERS_4E_LONG.to_vec(),
+        Some(l) => {
+            let lengths = parse_lengths("LLVQ_PERS_4E", l)?;
+            if lengths.iter().any(|n| !(64..=8192).contains(n)) || lengths.windows(2).any(|w| w[0] >= w[1]) {
+                return Err(format!("LLVQ_PERS_4E={v:?}: lengths strictly ascending, each 64 to 8192"));
+            }
+            lengths
+        }
     };
     let n: usize = count.parse().map_err(|_| format!("LLVQ_PERS_4E={v:?}: a token count, 2 to 256, then optionally :<E1 arms>"))?;
     if !(2..=256).contains(&n) {
@@ -1254,7 +1271,7 @@ fn parse_pers_4e(v: &str) -> Result<(usize, Vec<&'static str>), String> {
             out.push(arm);
         }
     }
-    Ok((n, out))
+    Ok((n, out, lengths))
 }
 
 #[cfg(all(target_os = "linux", feature = "cuda"))]
@@ -1974,9 +1991,11 @@ fn main() -> anyhow::Result<()> {
         // docs/mesures/large-4e-budget-2026-11-11.txt): the E1 arms named,
         // comma-separated from pers::P4E_E1_ARMS, instead of the bench forms,
         // each with its logits symbol; the logits of every arm are compared
-        // with the first's, bit for bit, at both contexts.
+        // with the first's, bit for bit, at every context. A third field,
+        // `<count>:<arms>:<lengths>`, names the prompt lengths after the seed
+        // prompt (8,192 when absent).
         if let Ok(v) = std::env::var("LLVQ_PERS_4E") {
-            let (count, e1_arms) = parse_pers_4e(&v).map_err(|e| anyhow::anyhow!("{e}"))?;
+            let (count, e1_arms, long) = parse_pers_4e(&v).map_err(|e| anyhow::anyhow!("{e}"))?;
             let n_new: usize = count;
             if !(2..=256).contains(&n_new) {
                 anyhow::bail!("LLVQ_PERS_4E={n_new}: 2 to 256 tokens a run");
@@ -2057,7 +2076,7 @@ fn main() -> anyhow::Result<()> {
             }
             println!("loaded and checked in {:.1} s", t.elapsed().as_secs_f64());
             let base = f.tokenizer.encode(PROMPT, false).map_err(|e| anyhow::anyhow!("{e}"))?.get_ids().to_vec();
-            for len in [base.len(), 8192] {
+            for len in std::iter::once(base.len()).chain(long) {
                 let prompt: Vec<u32> = base.iter().copied().cycle().take(len).collect();
                 run_pers_4e(&mut f.model, &mut rts, &prompt, n_new)?;
             }
@@ -3333,14 +3352,19 @@ mod tests {
     use llvq_llm::eval::t95;
 
     /// `LLVQ_PERS_4E`: a count alone keeps the bench forms; a count and E1
-    /// arms names those arms in order; anything else is refused.
+    /// arms names those arms in order, then optionally the long prompt
+    /// lengths (8,192 alone when absent); anything else is refused.
     #[test]
     fn pers_4e_takes_a_count_and_optional_e1_arms() {
-        assert_eq!(parse_pers_4e("64"), Ok((64, vec![])));
-        assert_eq!(parse_pers_4e("64:v9,v9np,v9mv"), Ok((64, vec!["v9", "v9np", "v9mv"])));
-        assert_eq!(parse_pers_4e("64:v9mv"), Ok((64, vec!["v9mv"])));
-        assert_eq!(parse_pers_4e("64:v9,v9ft"), Ok((64, vec!["v9", "v9ft"])));
-        for bad in ["1", "257", "x", "64:", "64:v9,v9", "64:v8", "64:v9 ,v9np", ":v9"] {
+        assert_eq!(parse_pers_4e("64"), Ok((64, vec![], vec![8192])));
+        assert_eq!(parse_pers_4e("64:v9,v9np,v9mv"), Ok((64, vec!["v9", "v9np", "v9mv"], vec![8192])));
+        assert_eq!(parse_pers_4e("64:v9mv"), Ok((64, vec!["v9mv"], vec![8192])));
+        assert_eq!(parse_pers_4e("64:v9,v9ft"), Ok((64, vec!["v9", "v9ft"], vec![8192])));
+        assert_eq!(parse_pers_4e("64:v9,v9ft:1024,4096,8192"), Ok((64, vec!["v9", "v9ft"], vec![1024, 4096, 8192])));
+        for bad in [
+            "1", "257", "x", "64:", "64:v9,v9", "64:v8", "64:v9 ,v9np", ":v9", "64:v9:", "64::8192", "64:v9:8192,4096",
+            "64:v9:4096,4096", "64:v9:8193", "64:v9:5", "64:v9:0", "64:v9:1024:4096",
+        ] {
             assert!(parse_pers_4e(bad).is_err(), "{bad}");
         }
     }

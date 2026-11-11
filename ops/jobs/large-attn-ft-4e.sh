@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
-# Job FT-4E of the attention tile's full-tile path (docs/mesures/large-attn-tuile-pleine-mac-2026-11-11.txt; prereg to
-# come, proofs/preregistration-large-attn-ft-4e-2026-11-11.md): on one L40S, the sealed 4B, 4E v9 against v9ft, the same
+# Job FT-4E of the attention tile's full-tile path (docs/mesures/large-attn-tuile-pleine-mac-2026-11-11.txt; prereg
+# proofs/preregistration-large-attn-ft-4e-2026-11-11.md): on one L40S, the sealed 4B, 4E v9 against v9ft, the same
 # module with pers_attn_full.cuh and a branch that runs it on a full tile of 8 positions (pers.rs::p4e_e1_edits "v9ft",
 # through E1's mechanism). Each call is its own process; each step writes its own files and is non-fatal for the next:
 #   (0) the served v9 config at the door, `LLVQ_CONFIG=<v9> LLVQ_CONTEXTS=5 fusedrun <sealed> 64`, under the 100 ms
 #       nvidia-smi sampler: control 2 (the served v9 module) and the served short-context peak;
-#   (a) `LLVQ_PERS_4E=64:v9,v9ft fusedrun <sealed> 64` (the served flags on the command line, as E1): both modules in
-#       one process, at a 5-token prompt and at 8,192, 2 + 5 interleaved rounds (eager and both arms each round),
+#   (a) `LLVQ_PERS_4E=64:v9,v9ft:1024,4096,8192 fusedrun <sealed> 64` (the served flags on the command line, as E1):
+#       both modules in one process, at a 5-token prompt and at 1,024, 4,096 and 8,192 (the chat lengths added to E1's
+#       two), 2 + 5 interleaved rounds (eager and both arms each round),
 #       medians and round-by-round ratios, the 64 tokens against the eager path, one stamped launch an arm (phase
 #       walls), one logits launch an arm (64 positions x 151,936 binary16 logits of v9ft against e1:v9's, bit for bit);
-#   (b) `LLVQ_PERS_4E=64:<arm> fusedrun <sealed> 64`, one process an arm (v9, v9ft), each under the sampler: the peak
-#       VRAM of each arm, and its logits fingerprints for a second, cross-process comparison.
+#   (b) `LLVQ_PERS_4E=64:<arm>:1024,4096,8192 fusedrun <sealed> 64`, one process an arm (v9, v9ft), under the
+#       sampler: the peak VRAM of each arm, and its logits fingerprints for a second, cross-process comparison.
 # Control 3: the E1 reference module (v9 and the logits symbols, d55a097b) and v9ft's module (22ff8320) at the card's
 # tile define, as pers.rs builds them on the Mac (dump_tree_modules).
 # l40sx1 only: no twin. Nothing is added to the image: the edit is text in the binary (include_str!).
@@ -19,7 +20,9 @@
 #   IMAGE_SHA=<space sha> bash ops/jobs/large-attn-ft-4e.sh  launches
 #
 # Cost, estimated (l40sx1 $1.80/h) from E1 (job 6af46f1d, 19 min billed for 7 module loads in 5 processes): 5 module
-# loads in 4 processes, about 14 min, $0.42; timeout 20m, $0.60.
+# loads in 4 processes, about 14 min at two contexts. The two added contexts, from E1's sampler walls (a one-arm process
+# 163 s, 70 s of it the load; the three-arm one 457 s, 351 s of load), cost about 55 s a process, 1,024 about a quarter
+# of 8,192's share and 4,096 about a half: about 3 min for the three processes. About 17 min, $0.51; timeout 25m, $0.75.
 set -euo pipefail
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$REPO"
@@ -34,8 +37,10 @@ P4E_V9_SHA=1b422b62328be6752df4add43280565fd2a49cfa20ee26953b301abe7a15c530
 # the E1 reference module (v9 with the logits symbols) and v9ft's, at the card's tile define (pers.rs dump_tree_modules)
 E1_V9_SHA=d55a097b146e8b962829045dfea6975470b408b942c1e0c22c038ad4d9d00860
 V9FT_SHA=22ff8320cb881b39690cbbfe6f1fd9ee8c1715142adfb4ee1ffbe932b061619a
-TIMEOUT=${TIMEOUT:-20m}
+TIMEOUT=${TIMEOUT:-25m}
 NTOK=64
+# the prompt lengths after the 5-token seed (fusedrun LLVQ_PERS_4E third field)
+LONG=1024,4096,8192
 FLAVOR=${FLAVOR:-l40sx1}
 case "$FLAVOR" in
   l40sx1) FLAVOR_ARGS=() ;;
@@ -64,8 +69,8 @@ if [ "$DRY" != 1 ]; then
   echo "bucket copy verified by size; image $NOW"
 fi
 
-PRE=$(printf 'O=%q\nSEALED=%q\nSEALED_SHA=%q\nCFG_SHA=%q\nCFG_B64=%q\nP4E_V9_SHA=%q\nE1_V9_SHA=%q\nV9FT_SHA=%q\nNTOK=%q\nexport HF_HOME=/tmp/hf' \
-  "$O" "$SEALED" "$SEALED_SHA" "$CFG_SHA" "$CFG_B64" "$P4E_V9_SHA" "$E1_V9_SHA" "$V9FT_SHA" "$NTOK")
+PRE=$(printf 'O=%q\nSEALED=%q\nSEALED_SHA=%q\nCFG_SHA=%q\nCFG_B64=%q\nP4E_V9_SHA=%q\nE1_V9_SHA=%q\nV9FT_SHA=%q\nNTOK=%q\nLONG=%q\nexport HF_HOME=/tmp/hf' \
+  "$O" "$SEALED" "$SEALED_SHA" "$CFG_SHA" "$CFG_B64" "$P4E_V9_SHA" "$E1_V9_SHA" "$V9FT_SHA" "$NTOK" "$LONG")
 
 IFS= read -r -d '' BODY <<'JOB' || true
 mkdir -p "$O"
@@ -102,14 +107,14 @@ vram served-v9 env LLVQ_CONFIG="$PT" LLVQ_CONTEXTS=5 timeout 5m fusedrun "$S" "$
 echo "fusedrun served v9 exit $?" >> "$O/served-v9.txt"
 echo "== (a) v9 and v9ft, interleaved =="
 date -u
-vram e1-all env LLVQ_FUSED_LAYOUT=tetra48 LLVQ_EMBED=q4 LLVQ_ROT_SHARE=1 LLVQ_FUSE=0 LLVQ_PERS_4E="$NTOK:v9,v9ft" \
-  timeout 7m fusedrun "$S" "$NTOK" > "$O/e1-all.txt" 2>&1
+vram e1-all env LLVQ_FUSED_LAYOUT=tetra48 LLVQ_EMBED=q4 LLVQ_ROT_SHARE=1 LLVQ_FUSE=0 LLVQ_PERS_4E="$NTOK:v9,v9ft:$LONG" \
+  timeout 9m fusedrun "$S" "$NTOK" > "$O/e1-all.txt" 2>&1
 echo "fusedrun e1 all exit $?" >> "$O/e1-all.txt"
 for arm in v9 v9ft; do
   echo "== (b) $arm alone, under the sampler =="
   date -u
-  vram "e1-$arm" env LLVQ_FUSED_LAYOUT=tetra48 LLVQ_EMBED=q4 LLVQ_ROT_SHARE=1 LLVQ_FUSE=0 LLVQ_PERS_4E="$NTOK:$arm" \
-    timeout 4m fusedrun "$S" "$NTOK" > "$O/e1-$arm.txt" 2>&1
+  vram "e1-$arm" env LLVQ_FUSED_LAYOUT=tetra48 LLVQ_EMBED=q4 LLVQ_ROT_SHARE=1 LLVQ_FUSE=0 LLVQ_PERS_4E="$NTOK:$arm:$LONG" \
+    timeout 5m fusedrun "$S" "$NTOK" > "$O/e1-$arm.txt" 2>&1
   echo "fusedrun e1 $arm exit $?" >> "$O/e1-$arm.txt"
 done
 date -u
