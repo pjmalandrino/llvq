@@ -1,0 +1,70 @@
+target: served config: /out/large-prefill-2026-11-11/qwen3-4b-tetra-e4-4e-v9.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention kernel from position 0 on grow(256), decode persistent (4E rows v9, one launch a token run)) — The qwen3-4b-tetra-e4 object (qwen3-4b-sealed.bin, sha256 886391a8), the v6 config with the v9 row loop and nothing else different: the kernel attention form on every decode row from position 0, decoded by 4E v9 (row form 7: v6, the launch's constants staged during the barriers, attention's steps in a cp.async ring, and the int4 rows v, o and the int4 downs read from tiled words; one cooperative launch a token run, 512 threads). Under this config the loader writes the int4 words tiled and holds them once on the card: the eager path, which prefills, reads the same words through tv_q4_hht, checked against tv_q4_hh on the file's order at every load. The file and its 2.7320 b/param do not move (a permutation inside each row, computed). Written on 2026-11-07 on the operator's go to serve v9 with one copy of the int4 bytes. In the measurement form v9 decodes 238.6 tok/s after a 5-token prompt against 213.3 for v6 (x1.118 round by round) and 163.5 at 8,192 against 154.2 (x1.060), the same 64 tokens as the eager path at both contexts (measured, step3-4e-2026-11-07, with the int4 bytes twice on the card). Not yet read at the served door: served-v9 (proofs/preregistration-served-v9-2026-11-07.md) reads it. Refused on Metal and on any object but the 4B.
+form eager: the served eager prefill (Qwen3::prefill_next_in, chunks of 4096), then 4E
+mark load begin 1794402505.639
+cudarc event tracking: off (one stream, ordered by issue)
+shared rotation: 1 (prefillbench), 96 rot_launches/token for 252 projections
+projection fusion: 0 (prefillbench), 252 matvec_launches/token for 252 projections (0 groups + 168 lone + 84 int4)
+fused layout: tetra48 (prefillbench), projections 1.16 GB on the card, 2.550 b/weight (INFERENCE accounting: KeepExact tail in binary16; the bench bills its own in f32)
+NVRTC source: 106947 bytes, sha256 e269ea5d11b7e40ba0682f536f52ed9f09abfaa9fd6f3185eb306edca5c60e53 (12 parts), tile 64 (served: measured optimum for sm_89), prefill 4x128 (served pair), 49152 B staged of 49152, target compute_89
+int4: tv_q4_hht equals tv_q4_ht bit for bit on model.layers.0.self_attn.v_proj.weight (1024 rows, d_in 2560)
+int4: tv_q4_hht on the tiled words equals tv_q4_hh on the file's order bit for bit on model.layers.0.self_attn.v_proj.weight (1024 rows, d_in 2560); the file-order copy is freed
+int4: tv_q4_hht on the tiled words equals tv_q4_hh on the file's order bit for bit on model.layers.0.self_attn.o_proj.weight (2560 rows, d_in 4096); the file-order copy is freed
+int4: tv_q4_hht on the tiled words equals tv_q4_hh on the file's order bit for bit on model.layers.12.mlp.down_proj.weight (2560 rows, d_in 9728); the file-order copy is freed
+int4 layout: tiled (prefillbench), 84 records, words 0.385 GB on the card, held once
+embedding: q4 g64 (prefillbench), 1 table (model.embed_tokens.weight, lm_head tied on it), 218.8 MB on the card (int4 194.5 + scales/biases 24.3)
+total expected on the card: 1.38 GB (projections 1.16 + carried 0.22)
+attn_dec.cu: embedded, sha256 c7b0d8d3f2e3066ba1a2b4331c0bb6c92f22182c78a31b7fb74e839330a1838d, target compute_89
+attn_dec_g4_u64: 160 registers, 0 B local (spill), 16384 B static shared, sm_89
+attn_dec_g4_u64: the card equals the CPU replay bit for bit on 103 calls (rows ending at 1, 255, 256, 257, 1000, 4096; k 1, 3, 8; eager and wide grids; verify rows alone; fresh rows) (1.2 s)
+4E: persistent module 252757 bytes, sha256 1b422b62328be6752df4add43280565fd2a49cfa20ee26953b301abe7a15c530, row form 7, own module on candle's stream
+4E: RoPE forms equal to candle's rope on this card: [1]; running form 1
+4E: pers_4e_tokens_f1_t512: 128 registers, 0 B local, 85952 B shared, 1 resident a SM
+4E: pers_4e_stamps_f1_t512: 128 registers, 32 B local, 1 resident a SM (phase stamps, outside the timed rounds)
+4E: head tied to the embedding's table (151936 rows)
+4E v9: the 76 prologue inputs are 16-byte aligned; the vector path runs on every layer
+4E v9: the int4 records are read in place, tiled at load and held once on the card (36 layers)
+4E: 36 layers, grid 142 x 512, 218 barriers a token
+card memory: 1.980 GB used of 47.666 GB after the target's load and its 4E install (cuMemGetInfo)
+mark load end 1794402606.248
+loaded in 100.6 s
+long prompts: wikitext2-test-8k (8191 tokens in full), cut to [1024, 4096, 8191] tokens (template kept, the first content tokens)
+
+timing: 256 tokens after each prompt (4E greedy, no stop), 1 discarded + 3 timed rounds; median [range] over the timed rounds
+  prompt   first token, s           prefill to hand-over, s    decode tok/s after the first token
+mark time-1024 begin 1794402606.298
+mark time-1024 end 1794402626.910
+    1024     3.951 [3.942-3.951]      3.951 [3.942-3.951]         214.6 [214.6-214.7]
+card memory: 2.221 GB used of 47.666 GB after the 1024-token rounds (cuMemGetInfo)
+mark time-4096 begin 1794402626.910
+mark time-4096 end 1794402702.690
+    4096    17.641 [17.589-17.654]     17.641 [17.589-17.654]         194.3 [194.0-194.6]
+card memory: 2.691 GB used of 47.666 GB after the 4096-token rounds (cuMemGetInfo)
+mark time-8191 begin 1794402702.691
+mark time-8191 end 1794402857.320
+    8191    37.037 [37.029-37.081]     37.037 [37.029-37.081]         159.3 [159.3-159.9]
+card memory: 3.496 GB used of 47.666 GB after the 8191-token rounds (cuMemGetInfo)
+mark texts begin 1794402857.320
+mark texts end 1794402941.462
+
+house prompts: 44 through the eager prefill; prefill 0.246 s [0.112-6.564], decode 219.4 tok/s [208.0-221.7], median [range] over prompts
+dump: /out/large-prefill-2026-11-11/texts-eager.jsonl, 47 texts
+mark ppl begin 1794402941.466
+
+perplexity: wikitext2 test, 12 windows of 2048 from window 0 (tokens 0187dcaf4216b05d), Qwen3::window_nll, the published prefill path
+  window   1/12: mean nll 2.355355446 (9 s)
+  window   2/12: mean nll 2.840901891 (18 s)
+  window   3/12: mean nll 3.028576022 (27 s)
+  window   4/12: mean nll 2.932955430 (35 s)
+  window   5/12: mean nll 2.612042776 (44 s)
+  window   6/12: mean nll 2.048618453 (53 s)
+  window   7/12: mean nll 1.802195286 (62 s)
+  window   8/12: mean nll 2.418010732 (71 s)
+  window   9/12: mean nll 2.634578136 (80 s)
+  window  10/12: mean nll 2.843158910 (88 s)
+  window  11/12: mean nll 2.665762062 (97 s)
+  window  12/12: mean nll 2.708211521 (106 s)
+mark ppl end 1794403048.114
+  perplexity 13.1208 (exp of the mean of the window means)
+card memory: 6.485 GB used of 47.666 GB at the end (cuMemGetInfo)
+vram eager idle 0 MiB peak 6185 MiB
+prefillbench eager exit 0

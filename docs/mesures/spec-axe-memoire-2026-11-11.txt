@@ -121,3 +121,11 @@ ones, *measured*). The price is speed: reading the served order makes the verify
 the drafter round unchanged; GSM8K 424.9 tok/s against 502.1, house 289.3 against 340.0, chat x0.892 of greedy. At
 8,191 tokens the tree reads 49.7 tok/s against 4E's 162.7, its pass 48.2 ms, cause not established. The operator
 decides between the 1.28 GB and the 2.4 ms a pass.
+
+2026-11-11, large-prefill on the card (large-prefill-2026-11-11.txt, job 6af4688d, 21 min, $0.63). The prompt through
+a12ip as chains of 16 PASSES for speed: first token 0.702 / 4.312 / 13.372 s against the eager prefill's 3.951 /
+17.641 / 37.037 s at 1,024 / 4,096 / 8,191 tokens (*measured*), at a 3.560 GB phase peak at 8,191 against 5.946. The
+chain equals the pass's one-row path bit for bit on the card. Paired perplexity +0.0007 % [-0.0078, +0.0092], inside
++-0.12 %; 41 of 47 texts identical, the six others split on near-ties. A 256-token chat turn takes 1.90 / 5.64 / 14.97 s
+against 5.14 / 18.95 / 38.64 (*computed*). The chain load takes 419.5 s against 100.6, most likely NVRTC on the two
+tree modules (*estimated*). No served path calls it; GSM8K-200 remains before serving.
