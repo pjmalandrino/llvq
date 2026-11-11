@@ -53,3 +53,22 @@ J4, E1 closed, 2026-11-11. Removing 4E's L2 prefetch from the attention phase ke
 shortens that phase by 201 us at 5 tokens and 252 at 8,192, but o and the gate/up rows give the time back: x1.003
 and x0.996 of v9 (measured). Moving it into the gate/up rows costs them 256 us: x0.978 at both contexts. Neither arm
 passes; v9 stays; 19 min, $0.57, spend $11.51 of $25. Journal: large-4e-e1.
+
+J4, D1 read, 2026-11-11 (job 6af486a5, 19 min, $0.57, spend $12.08 of $25). The arm a12ipg reads the K/V cache once
+for a group of 4 rows. It equals a12ip bit for bit at 1,024, 4,096 and 8,191 tokens (logits, K, V), 47 texts of 47,
+at the same phase peaks (2.318 / 2.855 / 3.560 GB). First token: 0.731 s against 0.702 at 1,024 (x0.96, a loss),
+3.904 against 4.306 at 4,096 (x1.10), 10.262 against 13.361 at 8,191 (x1.30). The 8k pass falls from 44.5 to 26.8 ms
+and its attention from 34.4 to 16.8 ms. The three signed first-token figures (0.63, 2.7 and 6.2 s) are missed: they
+assumed one read for the 16 rows, the arm shares by 4, and attention time does not fall with the bytes.
+Journal: on branch claude/arbre-prefill-2026-11-11, large-prefill-d1-2026-11-11.
+
+J4 closed, 2026-11-11. What stops speed, at constant criteria?
+  Decode: the memory wall. 4E's row phases are bound by DRAM traffic, a cut moves time and does not remove it (E1).
+  A few percent are left in small uncertain cuts. Decode stays 224 tok/s in chat.
+  First token: still the lever. Best chain arm by length against the served eager prefill: 0.70 s against 3.95 at
+  1,024 (x5.6), 3.90 against 17.64 at 4,096 (x4.5), 10.26 against 37.04 at 8,191 (x3.6). A chat turn of 256 answer
+  tokens: 1.89 s against 5.14, 5.21 against 18.95, 11.86 against 38.64 (computed from the two measured parts).
+  Criteria against base Tetra: quality inside the served tolerance (paired ppl +0.0007 %, GSM8K pairing owed);
+  2.73 b/param; peak 2.32 GB against 2.36 at 1,024 and 3.56 against 5.95 at 8k. A bench, not the served door.
+  Next lead, opened as a $0 study: a pass is almost all fixed cost (16 rows 10.9 ms, 1 row 9.56 ms), so more than 16
+  known tokens a pass would cut the 4.97 s that the 8k prefill spends outside attention.
