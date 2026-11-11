@@ -8,6 +8,8 @@
 #       pic-vram-8k form): no drafter, no tree pass; base peak VRAM and decode tok/s on the same card and image;
 #   (a) house 44, 256 tokens, `--vocab q4 --readout device`, drafter dflash:tree f16: once a12@8.10.8.20.6, once
 #       a12ip@8.10.8.20.6;
+#   (a') house 44, 256 tokens, a12ip@8.10.8.20.6 with drafters `null,oracle:3` only: no DFlash weights and no drafter
+#       vocabulary are loaded (specbench loads the drafter only for a dflash:* drafter); the weightless configuration;
 #   (b) GSM8K-200 at 768 tokens with a12ip, dump gsm200-ip.jsonl, compared with SP8's dump (in the bucket at
 #       spec-loop-sp8-2026-11-11/gsm200.jsonl, checked against the journal's copy by sha256);
 #   (c) one 8,191-token prompt (ops/data/spec-long-8k-v1.jsonl) with a12ip, 256 tokens.
@@ -16,7 +18,7 @@
 #   DRY_RUN=1 bash ops/jobs/spec-mem-m3.sh             parses the job script, launches nothing
 #   IMAGE_SHA=<space sha> bash ops/jobs/spec-mem-m3.sh  launches
 #
-# Cost, estimated (l40sx1 $1.80/h, prereg deviation E1): about 58 min, $1.74; timeout 85m, $2.55.
+# Cost, estimated (l40sx1 $1.80/h, prereg deviations E1, E3): about 66 min, $1.98; timeout 86m, $2.58.
 set -euo pipefail
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$REPO"
@@ -28,7 +30,7 @@ BUCKET=Pier-Jean/jobs-artifacts
 O=/out/$OUT_NAME${RETRY:+-r$RETRY}
 DRY=${DRY_RUN:-0}
 P4E_V9_SHA=1b422b62328be6752df4add43280565fd2a49cfa20ee26953b301abe7a15c530
-TIMEOUT=${TIMEOUT:-85m}
+TIMEOUT=${TIMEOUT:-86m}
 ARM_A='a12@8.10.8.20.6'
 ARM_B='a12ip@8.10.8.20.6'
 DRAFTERS='dflash:tree'
@@ -150,6 +152,10 @@ echo "== (a) specbench, house 44, $ARM_B =="
 date -u
 vram house-a12ip env LLVQ_CONFIG="$PT" timeout 16m specbench --prompts "$PROMPTS" --vocab q4 --readout device "$S" "$ARM_B" "$DRAFTERS" "$NTOK" "$DD" f16 > "$O/spec-house-a12ip.txt" 2>&1
 echo "specbench house a12ip exit $?" >> "$O/spec-house-a12ip.txt"
+echo "== (a') specbench, house 44, $ARM_B, drafters null,oracle:3, no drafter model =="
+date -u
+vram house-null-a12ip env LLVQ_CONFIG="$PT" timeout 14m specbench --prompts "$PROMPTS" "$S" "$ARM_B" null,oracle:3 "$NTOK" > "$O/spec-house-null-a12ip.txt" 2>&1
+echo "specbench house null a12ip exit $?" >> "$O/spec-house-null-a12ip.txt"
 echo "== (b) specbench, gsm8k 200, $ARM_B, dump =="
 date -u
 vram gsm200-a12ip env LLVQ_CONFIG="$PT" timeout 30m specbench --prompts "$GSM" --vocab q4 --readout device --dump "$O/gsm200-ip.jsonl" "$S" "$ARM_B" "$DRAFTERS" "$NTOK_GSM" "$DD" f16 > "$O/spec-gsm200-ip.txt" 2>&1
@@ -180,7 +186,7 @@ date -u
 # line, total tokens over total wall; its "x greedy" is against specbench's own 4E greedy on the same text.
 peak_gb() { awk -v t="$1" '$1 == "vram" && $2 == t { printf "%.3f", $7 * 1048576 / 1e9 }' "$O/vram.txt"; }
 base_tps() { sed -nE "s/^ +$1 +[0-9.]+ \[[^]]*\] +([0-9.]+) \[.*/\1/p" "$2" | head -1; }
-spec_tps() { grep -E 'dflash:tree +(all|rag):' "$1" | tail -1 | sed -nE 's/.* ([0-9.]+) tok\/s, greedy ([0-9.]+), x([0-9.]+);.*/\1 \2 \3/p'; }
+spec_tps() { grep -E "${2:-dflash:tree} +(all|rag):" "$1" | tail -1 | sed -nE 's/.* ([0-9.]+) tok\/s, greedy ([0-9.]+), x([0-9.]+);.*/\1 \2 \3/p'; }
 BS_P=$(peak_gb base-short); BS_T=$(base_tps 5 "$O/base-short.txt")
 BL_P=$(peak_gb base-8k); BL_T=$(base_tps 8192 "$O/base-8k.txt")
 {
@@ -194,6 +200,13 @@ BL_P=$(peak_gb base-8k); BL_T=$(base_tps 8192 "$O/base-8k.txt")
     awk -v tag="$tag" -v b="$b" -v p="${p:-nan}" -v t="${t:-nan}" -v g="${g:-nan}" -v x="${x:-nan}" -v bp="${bp:-nan}" -v bt="${bt:-nan}" \
       'BEGIN { printf "  %-13s peak %s GB, %s tok/s | base %s: %+.3f GB, x%.3f tok/s | against specbench 4E greedy on the same text (%s tok/s): x%s\n", tag, p, t, b, p - bp, t / bt, g, x }'
   done
+  # the weightless configuration: no drafter model; the null drafter is one token a verify pass, so ms a pass = 1000 / tok/s
+  p=$(peak_gb house-null-a12ip)
+  for d in null oracle:3; do
+    read -r t g x <<< "$(spec_tps "$O/spec-house-null-a12ip.txt" "$d")"
+    awk -v d="$d" -v p="${p:-nan}" -v t="${t:-nan}" -v g="${g:-nan}" -v x="${x:-nan}" -v bp="${BS_P:-nan}" -v bt="${BS_T:-nan}" \
+      'BEGIN { printf "  house-null-a12ip %-8s peak %s GB, %s tok/s%s | base short: %+.3f GB, x%.3f tok/s | against specbench 4E greedy on the same text (%s tok/s): x%s\n", d, p, t, (d == "null" ? sprintf(" (verify pass %.2f ms)", 1000 / t) : ""), p - bp, t / bt, g, x }'
+  done
 } > "$O/pairs.txt" 2>&1
 cat "$O/pairs.txt"
 set -e
@@ -204,13 +217,13 @@ set -e
   for f in base-short base-8k; do
     grep -E '^ +(5|8192) +[0-9.]+ \[|^  prompt |exit ' "$O/$f.txt" | sed "s/^/$f: /" || true
   done
-  for f in spec-house-a12 spec-house-a12ip spec-gsm200-ip spec-long8k-a12ip; do
+  for f in spec-house-a12 spec-house-a12ip spec-house-null-a12ip spec-gsm200-ip spec-long8k-a12ip; do
     grep -E '^(card memory|4E tree|loaded in|arm |drafter )' "$O/$f.txt" | sed "s/^/$f: /" || true
     grep -vE '^(target|cudarc|shared rotation|projection fusion|fused layout|NVRTC|int4|embedding|total expected|attn_dec|4E|batch|tv_|attn_|card memory|loaded in|arm |drafter |== |  4E agreement)' "$O/$f.txt" | sed "s/^/$f: /" || true
   done
 } > "$O/summary.txt"
 tail -80 "$O/summary.txt"
-for f in base-short base-8k spec-house-a12 spec-house-a12ip spec-gsm200-ip spec-long8k-a12ip; do
+for f in base-short base-8k spec-house-a12 spec-house-a12ip spec-house-null-a12ip spec-gsm200-ip spec-long8k-a12ip; do
   grep -qF "4E: persistent module 252757 bytes, sha256 $P4E_V9_SHA, row form 7," "$O/$f.txt" \
     && echo "control 2 ($f): the served 4E v9 module" | tee -a "$O/summary.txt" \
     || echo "VOID: control 2 ($f), the 4E module is not the served v9 module" | tee -a "$O/summary.txt"
