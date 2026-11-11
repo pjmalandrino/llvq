@@ -1,0 +1,30 @@
+drafter z-lab/Qwen3-4B-DFlash-b16@b74e3a32 (2254.7 MB f32), table [151936, 2560] from /out/sealed-4b-2026-09-23/qwen3-4b-sealed.bin, device Cuda(CudaDevice(DeviceId(1))), loaded in 9.5 s
+equivalence (f32): rounds 6: chain equal 6/6, tree equal 6/6; logits rel 3.52e-6, lse rel 1.88e-6, hidden rel 1.33e-6; smallest reference top-1 gap 0.020; table rows max abs 0.00e0; device and chunked readouts equal 6/6
+equivalence PASS
+equivalence (F16): rounds 6: chain equal 6/6, tree equal 4/6; logits rel 1.87e-3, lse rel 6.87e-4, hidden rel 1.99e-3; smallest reference top-1 gap 0.020; table rows max abs 0.00e0; device and chunked readouts equal 6/6
+equivalence (F16) PASS
+round at context 128 (F16): extend 4 0.43 ms [0.43-0.45], block + head + readout 5.83 ms [5.82-5.87], median of 20; context cache 8.0 MB
+round at context 512 (F16): extend 4 0.42 ms [0.42-0.43], block + head + readout 5.18 ms [5.16-5.21], median of 20; context cache 15.9 MB
+round at context 2048 (F16): extend 4 0.42 ms [0.42-0.43], block + head + readout 5.30 ms [5.27-5.68], median of 20; context cache 47.8 MB
+device operations a round, counted from the code: extend 13, block 108, head 2, readout 16 (5 with the chunked one); device-to-host transfers: 1 (2 with the chunked one, plus its upload)
+readout alone (device): 2.020 ms [2.012-2.037], median of 50
+readout alone (chunked, e3bbaee): 1.903 ms [1.891-1.951], median of 50
+loop round Chain(15) n 1: 5.35 ms [5.33-5.38], median of 50 after 10, one synchronisation
+loop round Chain(15) n 1, synchronised between stages: total 5.55 ms; extend 0.35 (of which host conversion and upload 0.03), block 2.00, head 1.13, readout 2.01 (ms, medians of 50)
+loop round Chain(15) n 4: 5.42 ms [5.40-5.45], median of 50 after 10, one synchronisation
+loop round Chain(15) n 4, synchronised between stages: total 5.48 ms; extend 0.44 (of which host conversion and upload 0.04), block 1.91, head 1.12, readout 2.00 (ms, medians of 50)
+loop round Chain(15) n 8: 5.44 ms [5.41-5.45], median of 50 after 10, one synchronisation
+loop round Chain(15) n 8, synchronised between stages: total 5.52 ms; extend 0.45 (of which host conversion and upload 0.05), block 1.92, head 1.12, readout 2.00 (ms, medians of 50)
+loop round Tree(15) n 1: 5.37 ms [5.33-5.42], median of 50 after 10, one synchronisation
+loop round Tree(15) n 1, synchronised between stages: total 5.56 ms; extend 0.35 (of which host conversion and upload 0.03), block 2.00, head 1.12, readout 2.01 (ms, medians of 50)
+loop round Tree(15) n 4: 5.43 ms [5.41-5.47], median of 50 after 10, one synchronisation
+loop round Tree(15) n 4, synchronised between stages: total 5.49 ms; extend 0.44 (of which host conversion and upload 0.04), block 1.91, head 1.12, readout 2.00 (ms, medians of 50)
+loop round Tree(15) n 8: 5.45 ms [5.42-5.49], median of 50 after 10, one synchronisation
+loop round Tree(15) n 8, synchronised between stages: total 5.62 ms; extend 0.47 (of which host conversion and upload 0.06), block 1.92, head 1.12, readout 2.00 (ms, medians of 50)
+loop round (chunked readout) Tree(15) n 1: 5.28 ms [5.25-5.39], median of 50 after 10, one synchronisation
+loop round (chunked readout) Tree(15) n 1, synchronised between stages: total 5.33 ms; extend 0.31 (of which host conversion and upload 0.02), block 1.95, head 1.12, readout 1.93 (ms, medians of 50)
+loop round (chunked readout) Tree(15) n 4: 5.33 ms [5.31-5.50], median of 50 after 10, one synchronisation
+loop round (chunked readout) Tree(15) n 4, synchronised between stages: total 5.38 ms; extend 0.41 (of which host conversion and upload 0.04), block 1.91, head 1.12, readout 1.93 (ms, medians of 50)
+loop round (chunked readout) Tree(15) n 8: 5.37 ms [5.32-5.59], median of 50 after 10, one synchronisation
+loop round (chunked readout) Tree(15) n 8, synchronised between stages: total 5.45 ms; extend 0.43 (of which host conversion and upload 0.06), block 1.93, head 1.13, readout 1.94 (ms, medians of 50)
+dflashcheck f16 exit 0
