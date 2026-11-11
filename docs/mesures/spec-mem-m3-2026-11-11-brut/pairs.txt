@@ -1,0 +1,9 @@
+pairs (peak VRAM GB by nvidia-smi, tok/s) against base Tetra, the served 4E config alone (fusedrun):
+  base short (5-token prompt): peak 2.014 GB, decode 227.7 tok/s
+  base 8k (8,192-token prompt): peak 6.014 GB, decode 156.4 tok/s
+  house-a12     peak 5.414 GB, 340.0 tok/s | base short: +3.400 GB, x1.493 tok/s | against specbench 4E greedy on the same text (221.1 tok/s): x1.538
+  house-a12ip   peak 4.139 GB, 289.3 tok/s | base short: +2.125 GB, x1.271 tok/s | against specbench 4E greedy on the same text (221.3 tok/s): x1.307
+  gsm200-a12ip  peak 3.669 GB, 424.9 tok/s | base short: +1.655 GB, x1.866 tok/s | against specbench 4E greedy on the same text (219.0 tok/s): x1.940
+  long8k-a12ip  peak 7.425 GB, 49.7 tok/s | base 8k: +1.411 GB, x0.318 tok/s | against specbench 4E greedy on the same text (162.7 tok/s): x0.305
+  house-null-a12ip null     peak 2.828 GB, 104.6 tok/s (verify pass 9.56 ms) | base short: +0.814 GB, x0.459 tok/s | against specbench 4E greedy on the same text (221.0 tok/s): x0.473
+  house-null-a12ip oracle:3 peak 2.828 GB, 405.1 tok/s | base short: +0.814 GB, x1.779 tok/s | against specbench 4E greedy on the same text (221.0 tok/s): x1.834

@@ -1,0 +1,7 @@
+vram base-short idle 0 MiB peak 1921 MiB
+vram base-8k idle 0 MiB peak 5735 MiB
+vram house-a12 idle 0 MiB peak 5163 MiB
+vram house-a12ip idle 0 MiB peak 3947 MiB
+vram house-null-a12ip idle 0 MiB peak 2697 MiB
+vram gsm200-a12ip idle 0 MiB peak 3499 MiB
+vram long8k-a12ip idle 0 MiB peak 7081 MiB

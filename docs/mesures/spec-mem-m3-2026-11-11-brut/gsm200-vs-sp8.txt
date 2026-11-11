@@ -1,0 +1,6 @@
+dump against SP8's (spec-loop-sp8-2026-11-11/gsm200.jsonl, sha256 346880b01bd28fd538c576c624fd475e91a0e60db48d81d788004e22d545dc73):
+cmp: byte for byte identical
+decoder pass: 200 of 200 prompts identical to SP8
+decoder dflash:tree: 200 of 200 prompts identical to SP8
+decoder 4e: 200 of 200 prompts identical to SP8
+prompts identical to SP8 on every decoder: 200 of 200

@@ -112,3 +112,12 @@ gated 33/33 top-1 against full forwards). Best: lookup spine + warm recycling ta
 40-99 and 0.930 on the house set (*measured*), against DFlash 5.376 and 3.316. Projected 244 and 207 tok/s against
 greedy 218.8 and 220.4 and DFlash 502 (*estimated*), at 2.742 b/param (*computed*). A weightless drafter keeps the
 memory and loses the speed: it does not replace the drafter on this axis.
+
+2026-11-11, M3 on the card (spec-mem-m3-2026-11-11.txt, job 6af434aa, 66 min, $1.98). M1 PASSES its gate: a12ip's
+GSM8K-200 dump is SP8's byte for byte, and its house peak is 1.275 GB under a12's, 4.139 against 5.414 GB (*measured*,
+nvidia-smi). The weightless configuration (a12ip, no drafter model) peaks at 2.828 GB against base Tetra's 2.014; the
+tree pass itself is 0.13 to 0.15 GB of it, and the rest is the house set's RAG prompts (2.190 GB through the short
+ones, *measured*). The price is speed: reading the served order makes the verify pass 10.91 ms against 8.53 (x1.27),
+the drafter round unchanged; GSM8K 424.9 tok/s against 502.1, house 289.3 against 340.0, chat x0.892 of greedy. At
+8,191 tokens the tree reads 49.7 tok/s against 4E's 162.7, its pass 48.2 ms, cause not established. The operator
+decides between the 1.28 GB and the 2.4 ms a pass.

@@ -1,0 +1,191 @@
+SPEC-MEM M3: THE VERIFY PASS READ IN PLACE (a12ip), PEAK VRAM AND TOKENS, SEALED 4B, ONE L40S, 2026-11-11. $1.98.
+==================================================================================================================
+M1 PASSES under the prereg's rule. a12ip gives the same tokens as SP8, and its house peak is 1.275 GB under a12's
+(*measured*, gate 1.0 GB). The speed loss is reported with it, and the operator decides.
+
+Tokens (*measured*):
+- The GSM8K-200 dump of a12ip is byte for byte SP8's (cmp, sha256 346880b0): 200 of 200 prompts identical on each of
+  the three decoders (4e, pass, dflash:tree).
+- Self-consistency holds on every run: 44 of 44 under a12, a12ip, null and oracle:3; 200 of 200 on GSM8K; 1 of 1 at 8k.
+- The grading is therefore SP8's: 4E 166, pass 167, tree 167 correct of 200 (not rerun, the bytes are the same).
+
+Memory (*measured*, nvidia-smi peak, MiB x 1,048,576 / 1e9):
+- a12 5.414 GB, a12ip 4.139 GB on the house set: 1.275 GB less.
+- cuMemGetInfo after the verify pass's install: 3.425 GB under a12, 2.116 under a12ip, 1.309 GB less.
+- The weightless configuration (a12ip, no drafter model) peaks at 2.828 GB, base Tetra at 2.014.
+- All four house peaks come from the four RAG prompts (1,214 to 1,646 tokens), not from the short ones.
+
+Speed (*measured*): reading the served order costs the verify pass 2.36 ms, x1.27 (8.60 to 10.96 ms a pass on the
+house set, 8.53 to 10.91 on GSM8K). The drafter round does not move. The house tree falls from 340.0 to 289.3 tok/s,
+GSM8K from SP8's 502.1 to 424.9. Chat under a12ip is x0.892 of greedy, slower than no speculation.
+
+Predictions: tokens, the drop, both base peaks, the 8k peak and the accepted lengths hold. Out: the a12 peak (by
+0.014 GB), the a12ip peak, a12ip minus base, the weightless peak, and all three speed predictions.
+
+Prereg : proofs/preregistration-spec-mem-m3-2026-11-11.md, stamped before the job (.ots, commit cf903db).
+         Deviations, stamped before submission and not edited:
+         - preregistration-spec-mem-m3-2026-11-11-ECARTS.md (E1 base Tetra through fusedrun, E2 cost; commit 5b6c84a);
+         - preregistration-spec-mem-m3-2026-11-11-ECARTS-E3.md (E3 the weightless configuration; commit bd67491).
+         No further deviation of the run.
+Go     : the operator, 2026-11-11, for this one job; cap $15; relayed by the orchestrating session.
+Job    : 6af434aaab34849891adf4dc, l40sx1.
+         - Image hf.co/spaces/Pier-Jean/llvq-runner-cuda; the job script is ops/jobs/spec-mem-m3.sh as embedded in
+           job-inspect.txt. The Space sha is not printed by inspect.
+         - Created 09:26:02 UTC, RUNNING at 10:29:35 UTC after 3,812 s of scheduling, COMPLETED at 11:35:00 UTC.
+         - running_secs 3,924: 66 min billed, $1.98 (*measured*, minutes rounded up, $1.80/h). Estimated $1.98 by E3.
+         - Registry $315.58 before, $317.56 after; spend since the go $10.31 of $15.
+Raw    : spec-mem-m3-2026-11-11-brut/, every file of the bucket folder, fetched one by one with hf buckets cp:
+         gpu.txt, oracle.txt, files.sha256, drafter.sha256, qwen3-4b-tetra-e4-4e-v9.json, base-short.txt, base-8k.txt,
+         spec-house-a12.txt, spec-house-a12ip.txt, spec-house-null-a12ip.txt, spec-gsm200-ip.txt,
+         spec-long8k-a12ip.txt, gsm200-ip.jsonl, gsm200-vs-sp8.txt, pairs.txt, summary.txt, vram.txt and the seven
+         samplers vram-*.csv. Added on the Mac: job-inspect.txt (hf jobs inspect, verbatim).
+
+CONTROLS
+--------
+1. Inputs and environment. Holds.
+   - Card: L40S, sm 8.9, 46,068 MiB, driver 580.178.04.
+   - oracle on Qwen3-0.6B: MATCH, max |dhidden| 0.
+   - At their sha256: sealed file 886391a8, config 29b3ef32, drafter files 2de97cdf and a21d0ffe, house set f749eb35,
+     GSM8K set 9e778f58, the 8k prompt da4edbd6, SP8's dump 346880b0.
+   - No LLVQ_* in the job environment (the job refuses one).
+2. 4E's module is the served v9 module (252,757 bytes, sha256 1b422b62) in all seven processes, the two fusedrun runs
+   included. Holds.
+3. The image built. Holds.
+In each of the five specbench runs, one 64-token 4E launch equals two chained 32-token launches.
+
+THE LOADER (verbatim lines, the a12ip runs identical)
+-----------------------------------------------------
+a12  : 4E tree tiled: 253 tree-tiled copies (q, k, v, o, gate, up, down a layer, the head), 1.308 GB more on the card
+       card memory: 3.425 GB used of 47.666 GB after the target's load, its 4E install and the verify pass's install, before the drafter (cuMemGetInfo)
+       card memory: 4.599 GB used of 47.666 GB after the drafter's load, before the first prompt (cuMemGetInfo)
+a12ip: 4E tree tiled: 0 tree-tiled copies (q, k, v, o, gate, up, down a layer, the head), 0.000 GB more on the card
+       4E tree a12ip: 253 projections read in place, 1.295 GB, the words 4E and the eager path hold; every lane's words equal to the tree-tiled copy's on each (p4t_ip_check, each copy freed after its check); 0 copies held for the other arms
+       4E tree a12ip: pers_4et_a12ip_f1_t384: 168 registers, 744 B local, 78848 B shared, 1 resident a SM
+       card memory: 2.116 GB used of 47.666 GB after the target's load, its 4E install and the verify pass's install, before the drafter (cuMemGetInfo)
+       card memory: 3.324 GB used of 47.666 GB after the drafter's load, before the first prompt (cuMemGetInfo)
+a12's kernel line reads 168 registers, 736 B local, the same shared memory and occupancy.
+The weightless run prints the first card memory line only (2.116 GB), as E3 says.
+
+PEAKS AND SPEED BESIDE BASE TETRA (pairs.txt, verbatim)
+-------------------------------------------------------
+  base short (5-token prompt): peak 2.014 GB, decode 227.7 tok/s
+  base 8k (8,192-token prompt): peak 6.014 GB, decode 156.4 tok/s
+  house-a12     peak 5.414 GB, 340.0 tok/s | base short: +3.400 GB, x1.493 tok/s | against specbench 4E greedy on the same text (221.1 tok/s): x1.538
+  house-a12ip   peak 4.139 GB, 289.3 tok/s | base short: +2.125 GB, x1.271 tok/s | against specbench 4E greedy on the same text (221.3 tok/s): x1.307
+  gsm200-a12ip  peak 3.669 GB, 424.9 tok/s | base short: +1.655 GB, x1.866 tok/s | against specbench 4E greedy on the same text (219.0 tok/s): x1.940
+  long8k-a12ip  peak 7.425 GB, 49.7 tok/s | base 8k: +1.411 GB, x0.318 tok/s | against specbench 4E greedy on the same text (162.7 tok/s): x0.305
+  house-null-a12ip null     peak 2.828 GB, 104.6 tok/s (verify pass 9.56 ms) | base short: +0.814 GB, x0.459 tok/s | against specbench 4E greedy on the same text (221.0 tok/s): x0.473
+  house-null-a12ip oracle:3 peak 2.828 GB, 405.1 tok/s | base short: +0.814 GB, x1.779 tok/s | against specbench 4E greedy on the same text (221.0 tok/s): x1.834
+From the MiB, a12 minus base is 3,242 MiB, 3.399 GB (*computed*); pairs.txt subtracts rounded GB and prints 3.400.
+The base ratio divides two harnesses on two texts (E1); it is reported, not gated.
+
+THE PASS AND THE DRAFTER ROUND, BY SET (*computed*: per-prompt walls summed, over the passes, as in SP8)
+---------------------------------------------------------------------------------------------------
+  set      arm     passes  tok/s   verify ms a pass  drafter ms a round  ext    block  head   readout
+  chat     a12       779   240.3   8.111             3.913               0.684  1.874  0.748  0.527
+  chat     a12ip     779   200.2   10.461            3.977               0.670  1.875  0.746  0.506
+  code     a12       626   329.4   8.178             4.220               0.844  1.877  0.749  0.510
+  code     a12ip     626   284.2   10.533            3.842               0.638  1.876  0.750  0.507
+  math     a12       854   457.1   8.314             4.279               0.830  1.891  0.761  0.508
+  math     a12ip     854   390.6   10.670            4.072               0.801  1.890  0.746  0.513
+  rag      a12       189   265.0   13.266            3.947               0.641  2.038  0.746  0.503
+  rag      a12ip     189   229.0   15.674            4.256               0.885  2.033  0.746  0.522
+  all      a12     2,448   340.0   8.597             4.122               0.772  1.894  0.752  0.514
+  all      a12ip   2,448   289.3   10.955            3.997               0.724  1.893  0.747  0.510
+  GSM8K    a12ip   9,948   424.9   10.912            4.078               0.752  1.879  0.760  0.504
+  GSM8K    SP8 a12 9,948   502.1   8.530             4.148               0.797  1.882  0.757  0.508
+  8k       a12ip      92    49.7   48.155            6.448               2.265  2.910  0.747  0.503
+Reading:
+- The pass counts and acceptance histograms are SP8's to the unit on both sets: the drafts are the same.
+- a12ip adds 2.35 to 2.41 ms to every pass on every set, x1.27 to x1.29 (x1.18 on RAG, whose pass is longer).
+- The drafter round is within 0.4 ms either way, set by set. The loss is all in the verify pass.
+- a12 on the house set reproduces SP8 (8.597 against 8.584 ms a pass, 340.0 against 343.1 tok/s).
+- The weightless run: the null drafter's one-row pass 9.559 ms, oracle:3's four-row pass 9.851 ms (*computed*, same
+  method). 4E's greedy on the same text is 4.52 ms a token (1000 / 221.0, *computed*): the one-row pass is x2.11.
+- 8k: the file prints no split of the pass by phase, only verify, drafter and host walls. The pass is 48.2 ms against
+  10.9 at a short context and against 4E's 6.15 ms a token at 8k (1000 / 162.7, *computed*). Its cause is not
+  established. The drafter round grows to 6.45 ms, mostly in the extension (2.27) and the block (2.91). The host
+  outside both reads 125.7 ms over 92 passes. Accepted 1.80 a pass. The pass's greedy leaves 4E's at token 28 with a
+  logit margin of 0.0156 (reported, not a gate).
+
+ATTRIBUTION OF THE WEIGHTLESS PEAK, 2.828 GB
+--------------------------------------------
+Read from vram-house-null-a12ip.csv against vram-base-short.csv (GB = 1e9 B; KV a position 36 x 2 x 8 x 128 x 2 B =
+147,456 B, KvCache Grow(256), as in pic-vram-8k-2026-11-08 §2):
+  item                                                            GB      label
+  target, 4E and fixed buffers, loaded, before any prompt         1.981   measured  1,889 MiB plateau, same in base-short
+  verify pass row buffers (loader: "0.153 GB of row buffers")     0.153   computed  plateau step to 2,017 MiB, +0.134 measured
+  = after install                                                 2.115   measured  2.116 by cuMemGetInfo
+  KV cache at 512 positions (short prompts: <= 138 + 256 + 16)    0.075   computed  plateau step to 2,089 MiB, +0.0755 measured
+  = level through the 40 short prompts                            2.190   measured
+  RAG prompt (rag-02, 1,646 tokens), on top:
+    KV cache from 512 to 2,048 positions                          0.226   computed
+    one f16 score tensor, 32 heads x 1,646 x 1,646 x 2 B          0.173   computed  served eager prefill, one chunk
+    attention locals at 1,646 rows (pic-vram-8k's 0.18 scaled)    0.072   computed
+    causal mask f16 and its f32 copy                              0.016   computed
+  sum: the measured level plus the computed items                 2.677
+  measured peak                                                   2.828
+  unattributed                                                    0.151   probably the stream-ordered pool's leftovers (estimated)
+Reading:
+- The tree pass itself costs 0.134 to 0.153 GB over base Tetra; nothing else of the weightless arm is speculative.
+- The rest of the 0.814 GB over base-short is context: base-short ran a 5-token prompt, the house set four prompts of
+  up to 1,646 tokens. Base Tetra at 1,646 tokens was not measured.
+- Through the 40 short prompts the weightless arm sits at 2.190 GB, inside E3's band (*measured*). The rule reads the
+  run's peak, 2.828, which is outside it.
+- In the series each RAG prompt climbs in 32 MiB steps over about 4 s to its top, then falls back to a plateau
+  (2,377 to 2,505 MiB).
+
+WHY THE HOUSE PEAK OF a12ip (4.139) EXCEEDS ITS GSM8K PEAK (3.669)
+------------------------------------------------------------------
+Same arm, same drafter, same install (3.324 GB after the drafter's load in both runs, *measured*).
+- GSM8K prompts are 51 to 161 tokens. With 768 new tokens and a 16-row tree the KV stays under 1,024 positions
+  (0.151 GB, *computed*). The sampler holds 3,403 MiB for most of the run and touches 3,499 MiB (3.669 GB).
+- The house set holds the same 3,371 to 3,403 MiB through its 40 short prompts. Its four RAG prompts then climb to
+  3,947 MiB (4.139 GB), 544 MiB (0.570 GB) above that plateau (*measured*).
+- That climb is the RAG prefill and its KV cache, as in the weightless run (+0.638 GB there, attributed above). Under
+  a12ip the drafter's own context cache also grows; it is not attributed separately.
+- The same holds for a12: 4,619 MiB plateau, 5,163 MiB at the RAG prompts.
+So the "short context" peaks of the prereg are RAG-prompt peaks. Their pre-RAG plateaus are 4.843 GB (a12), 3.568
+(a12ip) and 2.190 (weightless) (*measured*).
+
+THE 8K PEAK, 7.425 GB
+---------------------
+7.425 - 6.014 = 1.411 GB over base Tetra at 8k (*measured*). The drafter's load adds 1.208 GB (3.324 - 2.116, cuMemGetInfo,
+*measured*); the row buffers 0.153 (*computed*). 0.050 GB stays unattributed.
+
+AGAINST THE SIGNED PREDICTION
+-----------------------------
+  quantity                                         signed                    measured                     inside
+  NVRTC compiles a12ip, load check passes          yes                       yes                          yes
+  tree-tiled copies: a12ip / a12                   0 / 1.308 GB              0 / 1.308 GB                 yes
+  dump against SP8                                 200 of 200                200 of 200, byte for byte    yes
+  self-consistency, house / GSM8K                  44/44, 200/200            44/44, 200/200               yes
+  peak a12, house                                  4.9 GB [4.5, 5.4]         5.414 GB                     no (+0.014)
+  peak a12ip, house                                3.6 GB [3.2, 4.1]         4.139 GB                     no (+0.039)
+  peak difference a12 - a12ip                      1.31 GB [1.0, 1.5]        1.275 GB                     yes
+  verify pass, a12ip                               9.8 ms [8.6, 10.6]        10.912 ms GSM8K, 10.955 house no
+  GSM8K-200 tok/s, a12ip                           459 [435, 500]            424.9                        no
+  house all tok/s, a12ip                           318 [300, 343]            289.3                        no
+  accepted a pass                                  5.41 unchanged            5.41 GSM8K, 3.39 house       yes
+  8k peak                                          7.4 GB [6.9, 8.2]         7.425 GB                     yes
+  E1 base peak, short                              2.01 GB [1.9, 2.2]        2.014 GB                     yes
+  E1 base peak, 8k                                 5.95 GB [5.7, 6.2]        6.014 GB                     yes
+  E1 a12ip - base, short                           +1.6 GB [1.2, 2.0]        +2.125 GB                    no
+  E1 a12 - base                                    +2.9 GB [2.5, 3.4]        +3.399 GB                    yes (at the top)
+  E3 weightless peak, short                        2.3 GB [2.1, 2.6]         2.828 GB                     no
+  E3 weightless - base                             +0.25 GB [0.1, 0.5]       +0.814 GB                    no
+Every peak miss is the RAG prompts: the predictions read "short context", and the house set's peak comes from
+1,646-token prompts. The speed misses are the verify pass: +2.4 ms a pass against the +1.3 signed.
+
+VERDICT
+-------
+Decision rule of the prereg: tokens identical (200 of 200, 44/44, 200/200) and the house peak of a12ip at least 1.0 GB
+under a12's (1.275). M1 PASSES.
+The speed loss goes with it: the verify pass x1.27, house x1.307 of greedy against x1.538, GSM8K 424.9 tok/s against
+502.1. The operator decides.
+
+NOT ESTABLISHED
+---------------
+A served rate; 8B, 14B; thinking mode; the drafter in int4. Base Tetra at a 1,646-token prompt. The split of the 8k
+pass by phase and the cause of its 48 ms. The 0.151 GB of the weightless peak and the 0.050 GB of the 8k peak that
+stay unattributed. Why reading the served order costs 2.4 ms a pass.

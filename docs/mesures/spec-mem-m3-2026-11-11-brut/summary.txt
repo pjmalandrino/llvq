@@ -1,0 +1,1247 @@
+vram base-short idle 0 MiB peak 1921 MiB
+vram base-8k idle 0 MiB peak 5735 MiB
+vram house-a12 idle 0 MiB peak 5163 MiB
+vram house-a12ip idle 0 MiB peak 3947 MiB
+vram house-null-a12ip idle 0 MiB peak 2697 MiB
+vram gsm200-a12ip idle 0 MiB peak 3499 MiB
+vram long8k-a12ip idle 0 MiB peak 7081 MiB
+pairs (peak VRAM GB by nvidia-smi, tok/s) against base Tetra, the served 4E config alone (fusedrun):
+  base short (5-token prompt): peak 2.014 GB, decode 227.7 tok/s
+  base 8k (8,192-token prompt): peak 6.014 GB, decode 156.4 tok/s
+  house-a12     peak 5.414 GB, 340.0 tok/s | base short: +3.400 GB, x1.493 tok/s | against specbench 4E greedy on the same text (221.1 tok/s): x1.538
+  house-a12ip   peak 4.139 GB, 289.3 tok/s | base short: +2.125 GB, x1.271 tok/s | against specbench 4E greedy on the same text (221.3 tok/s): x1.307
+  gsm200-a12ip  peak 3.669 GB, 424.9 tok/s | base short: +1.655 GB, x1.866 tok/s | against specbench 4E greedy on the same text (219.0 tok/s): x1.940
+  long8k-a12ip  peak 7.425 GB, 49.7 tok/s | base 8k: +1.411 GB, x0.318 tok/s | against specbench 4E greedy on the same text (162.7 tok/s): x0.305
+  house-null-a12ip null     peak 2.828 GB, 104.6 tok/s (verify pass 9.56 ms) | base short: +0.814 GB, x0.459 tok/s | against specbench 4E greedy on the same text (221.0 tok/s): x0.473
+  house-null-a12ip oracle:3 peak 2.828 GB, 405.1 tok/s | base short: +0.814 GB, x1.779 tok/s | against specbench 4E greedy on the same text (221.0 tok/s): x1.834
+dump against SP8's (spec-loop-sp8-2026-11-11/gsm200.jsonl, sha256 346880b01bd28fd538c576c624fd475e91a0e60db48d81d788004e22d545dc73):
+cmp: byte for byte identical
+decoder pass: 200 of 200 prompts identical to SP8
+decoder dflash:tree: 200 of 200 prompts identical to SP8
+decoder 4e: 200 of 200 prompts identical to SP8
+prompts identical to SP8 on every decoder: 200 of 200
+base-short:   prompt    to first token, s       decode tok/s [range]      ms a decode token
+base-short:   prompt 5: 4E tokens equal the eager path's under this config, 256 of 256
+base-short:   prompt 5: last-position logits fingerprint e12199ba424a9b02 (prefill in chunks of 4096, softmax in place)
+base-short:        5       0.02 [0.02–0.03]      227.7 [227.7–227.7]       4.39
+base-short: fusedrun base short exit 0
+base-8k:   prompt    to first token, s       decode tok/s [range]      ms a decode token
+base-8k:   prompt 8192: 4E tokens equal the eager path's under this config, 256 of 256
+base-8k:   prompt 8192: last-position logits fingerprint cac41130853d8eba (prefill in chunks of 4096, softmax in place)
+base-8k:     8192      36.39 [36.36–36.42]      156.4 [156.2–156.7]       6.39
+base-8k: fusedrun base 8k exit 0
+spec-house-a12: 4E tree: module 306060 bytes, sha256 ce1c354d2583eb178ae8622ff99e10f9b457543972bb5039ce89ede9eec31e44, row form 7 and pers_4et.cu, its own module
+spec-house-a12: 4E tree: pers_4et_rows_f1_t512: 128 registers, 720 B local, 89984 B shared, 1 resident a SM
+spec-house-a12: 4E tree: arm a12@8.10.8.20.6 (a12 (a10t384r16 with the taps), an explicit plan): slices [8, 10, 8, 20, 6]; S, units, waves, fill, sub-steps a slice at most: q/k/v 8 272 2 95.8 % 7, o 10 140 1 98.6 % 9, gate/up 8 816 6 95.8 % 7, down 20 280 2 98.6 % 11, head 6 4752 34 98.4 % 9
+spec-house-a12: 4E tree: arm a12@8.10.8.20.6 at 384 threads (12 warps): area 14944 floats, 78848 B shared, 12 sub-steps a slice at most
+spec-house-a12: 4E tree: the stream unit's slices hold at most 13 sub-steps (area 17728 floats, 16 warps, 32 staged rows)
+spec-house-a12: 4E tree: 512 threads, 17728 floats of area; 0.153 GB of row buffers
+spec-house-a12: 4E tree a12: module 421551 bytes, sha256 053541de8c4a1c62f2e0fab7b4ace2d6baa135008bf1863546f684f1080d5aae, P4T_A12 1 after a10r16's text, its own module
+spec-house-a12: 4E tree a12: pers_4et_a12_f1_t384: 168 registers, 736 B local, 78848 B shared, 1 resident a SM
+spec-house-a12: 4E tree tiled: 253 tree-tiled copies (q, k, v, o, gate, up, down a layer, the head), 1.308 GB more on the card
+spec-house-a12: card memory: 3.425 GB used of 47.666 GB after the target's load, its 4E install and the verify pass's install, before the drafter (cuMemGetInfo)
+spec-house-a12: arm a12@8.10.8.20.6: A12 kernel, slices [8, 10, 8, 20, 6], 384 threads, row cap 16; taps on; N 256
+spec-house-a12: loaded in 382.5 s
+spec-house-a12: drafter /tmp/dflash-b74e3a329c4d963783143b1e970d95b002be72bd (1192.9 MB, F16), loaded in 20.2 s; vocab q4: the target's int4 g64 table (218.8 MB, already resident), gather emb_q4_gather, head tv_q4_mma; no dense copy
+spec-house-a12: card memory: 4.599 GB used of 47.666 GB after the drafter's load, before the first prompt (cuMemGetInfo)
+spec-house-a12: template: the assistant opening with thinking off is [151644, 77091, 198, 151667, 271, 151668, 271]; the HF tokenizer on the rendered Qwen3 template (the served door's) gives <think>, 271, </think>, 271 (151667 271 151668 271), not 198 198; eos 151645 (<|im_end|>)
+spec-house-a12: prompts: 44 from /usr/local/share/llvq/spec-prompts-v1.jsonl; 0 discarded and 1 timed runs a prompt
+spec-house-a12: equality: every drafter against the pass's own greedy (the null drafter, R = 1), a hard gate; the pass's greedy against 4E's greedy, reported only. Past a divergence from 4E the texts differ, and tok/s and acceptance there are measured on the pass's own text
+spec-house-a12: control: one 64-token 4E launch against two chained 32-token launches on gsm8k-test-0000: the same 64 tokens
+spec-house-a12: 
+spec-house-a12:    dflash:tree: 256 tokens, equal to the pass's greedy; 5.40 drafted tokens accepted a pass, 40 passes; verify 331.8 ms, drafter 207.8 ms, rest of the host 0.8 ms; 473.7 tok/s against 4E's 221.2 (x2.141)
+spec-house-a12:    dflash:tree: drafter wall, ms: context extension 46.3, block 77.0, head 33.6, readout 20.6; skipped rounds 0
+spec-house-a12: 
+spec-house-a12:    dflash:tree: 192 tokens, equal to the pass's greedy; 4.39 drafted tokens accepted a pass, 36 passes; verify 287.8 ms, drafter 150.5 ms, rest of the host 0.5 ms; 437.5 tok/s against 4E's 225.1 (x1.943)
+spec-house-a12:    dflash:tree: drafter wall, ms: context extension 33.9, block 68.3, head 26.9, readout 18.2; skipped rounds 0
+spec-house-a12: 
+spec-house-a12:    dflash:tree: 256 tokens, equal to the pass's greedy; 3.98 drafted tokens accepted a pass, 52 passes; verify 432.3 ms, drafter 251.4 ms, rest of the host 1.0 ms; 374.0 tok/s against 4E's 221.6 (x1.688)
+spec-house-a12:    dflash:tree: drafter wall, ms: context extension 46.9, block 99.2, head 39.0, readout 26.2; skipped rounds 0
+spec-house-a12: 
+spec-house-a12:    dflash:tree: 146 tokens, equal to the pass's greedy; 4.10 drafted tokens accepted a pass, 29 passes; verify 231.5 ms, drafter 104.4 ms, rest of the host 0.6 ms; 433.9 tok/s against 4E's 225.5 (x1.925)
+spec-house-a12:    dflash:tree: drafter wall, ms: context extension 12.7, block 55.0, head 21.7, readout 14.5; skipped rounds 0
+spec-house-a12: 
+spec-house-a12:    dflash:tree: 256 tokens, equal to the pass's greedy; 4.82 drafted tokens accepted a pass, 44 passes; verify 373.5 ms, drafter 216.5 ms, rest of the host 0.9 ms; 433.2 tok/s against 4E's 219.3 (x1.975)
+spec-house-a12:    dflash:tree: drafter wall, ms: context extension 44.2, block 83.7, head 33.0, readout 22.2; skipped rounds 0
+spec-house-a12: 
+spec-house-a12:    dflash:tree: 256 tokens, equal to the pass's greedy; 5.19 drafted tokens accepted a pass, 43 passes; verify 353.1 ms, drafter 154.4 ms, rest of the host 0.9 ms; 503.6 tok/s against 4E's 221.5 (x2.273)
+spec-house-a12:    dflash:tree: drafter wall, ms: context extension 18.6, block 81.4, head 32.1, readout 21.5; skipped rounds 0
+spec-house-a12: 
+spec-house-a12:    dflash:tree: 256 tokens, equal to the pass's greedy; 6.40 drafted tokens accepted a pass, 35 passes; verify 290.2 ms, drafter 150.9 ms, rest of the host 0.9 ms; 579.2 tok/s against 4E's 222.1 (x2.607)
+spec-house-a12:    dflash:tree: drafter wall, ms: context extension 33.1, block 65.9, head 26.1, readout 17.6; skipped rounds 0
+spec-house-a12: 
+spec-house-a12:    dflash:tree: 256 tokens, equal to the pass's greedy; 3.65 drafted tokens accepted a pass, 55 passes; verify 465.9 ms, drafter 228.9 ms, rest of the host 1.0 ms; 367.9 tok/s against 4E's 220.6 (x1.668)
+spec-house-a12:    dflash:tree: drafter wall, ms: context extension 51.0, block 104.1, head 41.1, readout 27.6; skipped rounds 0
+spec-house-a12: 
+spec-house-a12:    dflash:tree: 256 tokens, equal to the pass's greedy; 4.45 drafted tokens accepted a pass, 47 passes; verify 400.8 ms, drafter 170.1 ms, rest of the host 1.2 ms; 447.5 tok/s against 4E's 219.0 (x2.043)
+spec-house-a12:    dflash:tree: drafter wall, ms: context extension 20.5, block 89.9, head 35.1, readout 23.6; skipped rounds 0
+spec-house-a12: 
+spec-house-a12:    dflash:tree: 256 tokens, equal to the pass's greedy; 4.45 drafted tokens accepted a pass, 47 passes; verify 390.7 ms, drafter 196.6 ms, rest of the host 0.9 ms; 435.2 tok/s against 4E's 221.0 (x1.969)
+spec-house-a12:    dflash:tree: drafter wall, ms: context extension 43.4, block 88.8, head 35.1, readout 23.6; skipped rounds 0
+spec-house-a12: 
+spec-house-a12:    dflash:tree: 256 tokens, equal to the pass's greedy; 6.00 drafted tokens accepted a pass, 38 passes; verify 318.8 ms, drafter 159.5 ms, rest of the host 0.9 ms; 534.3 tok/s against 4E's 221.1 (x2.417)
+spec-house-a12:    dflash:tree: drafter wall, ms: context extension 36.1, block 71.4, head 29.3, readout 19.1; skipped rounds 0
+spec-house-a12: 
+spec-house-a12:    dflash:tree: 256 tokens, equal to the pass's greedy; 7.48 drafted tokens accepted a pass, 31 passes; verify 256.2 ms, drafter 111.4 ms, rest of the host 0.8 ms; 695.1 tok/s against 4E's 220.3 (x3.155)
+spec-house-a12:    dflash:tree: drafter wall, ms: context extension 14.0, block 58.1, head 23.1, readout 15.5; skipped rounds 0
+spec-house-a12: 
+spec-house-a12:    dflash:tree: 256 tokens, equal to the pass's greedy; 4.93 drafted tokens accepted a pass, 45 passes; verify 374.4 ms, drafter 188.6 ms, rest of the host 0.9 ms; 454.0 tok/s against 4E's 220.4 (x2.059)
+spec-house-a12:    dflash:tree: drafter wall, ms: context extension 43.4, block 84.7, head 33.5, readout 22.6; skipped rounds 0
+spec-house-a12: 
+spec-house-a12:    dflash:tree: 256 tokens, equal to the pass's greedy; 4.69 drafted tokens accepted a pass, 45 passes; verify 375.6 ms, drafter 161.3 ms, rest of the host 0.9 ms; 476.0 tok/s against 4E's 220.7 (x2.157)
+spec-house-a12:    dflash:tree: drafter wall, ms: context extension 19.6, block 84.7, head 33.5, readout 22.6; skipped rounds 0
+spec-house-a12: 
+spec-house-a12:    dflash:tree: 256 tokens, equal to the pass's greedy; 5.29 drafted tokens accepted a pass, 41 passes; verify 338.4 ms, drafter 201.3 ms, rest of the host 0.9 ms; 473.6 tok/s against 4E's 220.9 (x2.144)
+spec-house-a12:    dflash:tree: drafter wall, ms: context extension 37.1, block 77.5, head 34.4, readout 20.8; skipped rounds 0
+spec-house-a12: 
+spec-house-a12:    dflash:tree: 256 tokens, equal to the pass's greedy; 4.24 drafted tokens accepted a pass, 50 passes; verify 418.4 ms, drafter 208.4 ms, rest of the host 1.0 ms; 407.8 tok/s against 4E's 218.9 (x1.863)
+spec-house-a12:    dflash:tree: drafter wall, ms: context extension 44.7, block 94.7, head 37.5, readout 26.7; skipped rounds 0
+spec-house-a12: 
+spec-house-a12:    dflash:tree: 234 tokens, equal to the pass's greedy; 5.69 drafted tokens accepted a pass, 35 passes; verify 291.8 ms, drafter 174.5 ms, rest of the host 0.8 ms; 500.9 tok/s against 4E's 221.3 (x2.264)
+spec-house-a12:    dflash:tree: drafter wall, ms: context extension 34.3, block 65.7, head 29.4, readout 17.7; skipped rounds 0
+spec-house-a12: 
+spec-house-a12:    dflash:tree: 256 tokens, equal to the pass's greedy; 5.33 drafted tokens accepted a pass, 42 passes; verify 347.5 ms, drafter 175.8 ms, rest of the host 0.9 ms; 488.4 tok/s against 4E's 220.6 (x2.214)
+spec-house-a12:    dflash:tree: drafter wall, ms: context extension 38.1, block 78.9, head 31.4, readout 23.7; skipped rounds 0
+spec-house-a12: 
+spec-house-a12:    dflash:tree: 256 tokens, equal to the pass's greedy; 4.40 drafted tokens accepted a pass, 48 passes; verify 393.9 ms, drafter 231.4 ms, rest of the host 0.8 ms; 408.9 tok/s against 4E's 221.9 (x1.843)
+spec-house-a12:    dflash:tree: drafter wall, ms: context extension 43.9, block 90.4, head 35.9, readout 24.3; skipped rounds 0
+spec-house-a12: 
+spec-house-a12:    dflash:tree: 256 tokens, equal to the pass's greedy; 4.14 drafted tokens accepted a pass, 51 passes; verify 427.2 ms, drafter 210.9 ms, rest of the host 1.0 ms; 400.6 tok/s against 4E's 220.2 (x1.819)
+spec-house-a12:    dflash:tree: drafter wall, ms: context extension 46.7, block 95.9, head 38.2, readout 25.5; skipped rounds 0
+spec-house-a12: 
+spec-house-a12:    dflash:tree: 256 tokens, equal to the pass's greedy; 4.21 drafted tokens accepted a pass, 52 passes; verify 424.2 ms, drafter 251.6 ms, rest of the host 0.9 ms; 378.3 tok/s against 4E's 222.7 (x1.699)
+spec-house-a12:    dflash:tree: drafter wall, ms: context extension 47.4, block 98.0, head 39.0, readout 26.2; skipped rounds 0
+spec-house-a12: 
+spec-house-a12:    dflash:tree: 256 tokens, equal to the pass's greedy; 3.02 drafted tokens accepted a pass, 64 passes; verify 520.3 ms, drafter 256.4 ms, rest of the host 0.9 ms; 329.2 tok/s against 4E's 222.2 (x1.481)
+spec-house-a12:    dflash:tree: drafter wall, ms: context extension 51.2, block 119.7, head 47.8, readout 32.0; skipped rounds 0
+spec-house-a12: 
+spec-house-a12:    dflash:tree: 256 tokens, equal to the pass's greedy; 2.63 drafted tokens accepted a pass, 71 passes; verify 584.2 ms, drafter 339.0 ms, rest of the host 0.9 ms; 277.0 tok/s against 4E's 222.4 (x1.246)
+spec-house-a12:    dflash:tree: drafter wall, ms: context extension 59.5, block 133.8, head 53.3, readout 35.9; skipped rounds 0
+spec-house-a12: 
+spec-house-a12:    dflash:tree: 256 tokens, equal to the pass's greedy; 2.24 drafted tokens accepted a pass, 79 passes; verify 650.1 ms, drafter 317.9 ms, rest of the host 1.1 ms; 264.2 tok/s against 4E's 221.9 (x1.190)
+spec-house-a12:    dflash:tree: drafter wall, ms: context extension 61.5, block 149.1, head 59.1, readout 39.7; skipped rounds 0
+spec-house-a12: 
+spec-house-a12:    dflash:tree: 256 tokens, equal to the pass's greedy; 4.55 drafted tokens accepted a pass, 47 passes; verify 387.6 ms, drafter 194.9 ms, rest of the host 0.9 ms; 438.8 tok/s against 4E's 221.3 (x1.982)
+spec-house-a12:    dflash:tree: drafter wall, ms: context extension 43.9, block 88.0, head 35.2, readout 23.6; skipped rounds 0
+spec-house-a12: 
+spec-house-a12:    dflash:tree: 256 tokens, equal to the pass's greedy; 4.72 drafted tokens accepted a pass, 47 passes; verify 388.3 ms, drafter 197.8 ms, rest of the host 0.9 ms; 436.1 tok/s against 4E's 221.3 (x1.971)
+spec-house-a12:    dflash:tree: drafter wall, ms: context extension 45.0, block 87.9, head 35.2, readout 23.5; skipped rounds 0
+spec-house-a12: 
+spec-house-a12:    dflash:tree: 256 tokens, equal to the pass's greedy; 2.62 drafted tokens accepted a pass, 72 passes; verify 586.7 ms, drafter 293.6 ms, rest of the host 1.0 ms; 290.5 tok/s against 4E's 222.3 (x1.307)
+spec-house-a12:    dflash:tree: drafter wall, ms: context extension 59.3, block 135.1, head 53.9, readout 36.2; skipped rounds 0
+spec-house-a12: 
+spec-house-a12:    dflash:tree: 256 tokens, equal to the pass's greedy; 3.06 drafted tokens accepted a pass, 63 passes; verify 511.3 ms, drafter 255.3 ms, rest of the host 0.9 ms; 333.5 tok/s against 4E's 223.0 (x1.496)
+spec-house-a12:    dflash:tree: drafter wall, ms: context extension 51.4, block 118.1, head 47.1, readout 31.6; skipped rounds 0
+spec-house-a12: 
+spec-house-a12:    dflash:tree: 256 tokens, equal to the pass's greedy; 2.89 drafted tokens accepted a pass, 66 passes; verify 538.4 ms, drafter 269.7 ms, rest of the host 1.0 ms; 316.4 tok/s against 4E's 222.5 (x1.422)
+spec-house-a12:    dflash:tree: drafter wall, ms: context extension 57.1, block 123.7, head 49.4, readout 33.2; skipped rounds 0
+spec-house-a12: 
+spec-house-a12:    dflash:tree: 256 tokens, equal to the pass's greedy; 2.97 drafted tokens accepted a pass, 65 passes; verify 528.5 ms, drafter 265.6 ms, rest of the host 0.9 ms; 322.0 tok/s against 4E's 222.7 (x1.446)
+spec-house-a12:    dflash:tree: drafter wall, ms: context extension 52.2, block 121.7, head 48.6, readout 37.1; skipped rounds 0
+spec-house-a12: 
+spec-house-a12:    dflash:tree: 256 tokens, equal to the pass's greedy; 1.69 drafted tokens accepted a pass, 95 passes; verify 771.6 ms, drafter 374.1 ms, rest of the host 1.0 ms; 223.3 tok/s against 4E's 223.8 (x0.997)
+spec-house-a12:    dflash:tree: drafter wall, ms: context extension 68.3, block 178.2, head 71.1, readout 47.8; skipped rounds 0
+spec-house-a12: 
+spec-house-a12:    dflash:tree: 256 tokens, equal to the pass's greedy; 2.66 drafted tokens accepted a pass, 70 passes; verify 569.0 ms, drafter 288.2 ms, rest of the host 1.1 ms; 298.3 tok/s against 4E's 222.6 (x1.340)
+spec-house-a12:    dflash:tree: drafter wall, ms: context extension 58.8, block 131.7, head 52.6, readout 35.3; skipped rounds 0
+spec-house-a12: 
+spec-house-a12:    dflash:tree: 247 tokens, equal to the pass's greedy; 1.87 drafted tokens accepted a pass, 87 passes; verify 705.5 ms, drafter 344.1 ms, rest of the host 0.9 ms; 235.1 tok/s against 4E's 224.1 (x1.049)
+spec-house-a12:    dflash:tree: drafter wall, ms: context extension 64.3, block 163.2, head 65.1, readout 43.6; skipped rounds 0
+spec-house-a12: 
+spec-house-a12:    dflash:tree: 256 tokens, equal to the pass's greedy; 2.27 drafted tokens accepted a pass, 80 passes; verify 650.3 ms, drafter 323.7 ms, rest of the host 1.0 ms; 262.6 tok/s against 4E's 223.8 (x1.173)
+spec-house-a12:    dflash:tree: drafter wall, ms: context extension 64.5, block 149.8, head 59.7, readout 42.3; skipped rounds 0
+spec-house-a12: 
+spec-house-a12:    dflash:tree: 256 tokens, equal to the pass's greedy; 2.29 drafted tokens accepted a pass, 79 passes; verify 648.4 ms, drafter 323.9 ms, rest of the host 1.0 ms; 263.0 tok/s against 4E's 222.8 (x1.181)
+spec-house-a12:    dflash:tree: drafter wall, ms: context extension 62.0, block 148.0, head 59.1, readout 47.5; skipped rounds 0
+spec-house-a12: 
+spec-house-a12:    dflash:tree: 167 tokens, equal to the pass's greedy; 1.67 drafted tokens accepted a pass, 63 passes; verify 502.2 ms, drafter 222.2 ms, rest of the host 0.7 ms; 230.3 tok/s against 4E's 226.0 (x1.019)
+spec-house-a12:    dflash:tree: drafter wall, ms: context extension 24.9, block 117.9, head 47.0, readout 31.4; skipped rounds 0
+spec-house-a12: 
+spec-house-a12:    dflash:tree: 256 tokens, equal to the pass's greedy; 2.10 drafted tokens accepted a pass, 83 passes; verify 673.2 ms, drafter 335.5 ms, rest of the host 1.0 ms; 253.6 tok/s against 4E's 223.9 (x1.133)
+spec-house-a12:    dflash:tree: drafter wall, ms: context extension 66.5, block 155.4, head 62.1, readout 43.8; skipped rounds 0
+spec-house-a12: 
+spec-house-a12:    dflash:tree: 256 tokens, equal to the pass's greedy; 1.29 drafted tokens accepted a pass, 112 passes; verify 907.8 ms, drafter 394.4 ms, rest of the host 1.0 ms; 196.4 tok/s against 4E's 224.4 (x0.875)
+spec-house-a12:    dflash:tree: drafter wall, ms: context extension 43.2, block 209.8, head 83.5, readout 56.0; skipped rounds 0
+spec-house-a12: 
+spec-house-a12:    dflash:tree: 256 tokens, equal to the pass's greedy; 1.90 drafted tokens accepted a pass, 89 passes; verify 725.5 ms, drafter 360.3 ms, rest of the host 1.0 ms; 235.6 tok/s against 4E's 223.9 (x1.052)
+spec-house-a12:    dflash:tree: drafter wall, ms: context extension 66.4, block 166.8, head 66.6, readout 52.3; skipped rounds 0
+spec-house-a12: 
+spec-house-a12:    dflash:tree: 47 tokens, equal to the pass's greedy; 1.57 drafted tokens accepted a pass, 21 passes; verify 164.7 ms, drafter 81.7 ms, rest of the host 0.3 ms; 190.5 tok/s against 4E's 232.8 (x0.818)
+spec-house-a12:    dflash:tree: drafter wall, ms: context extension 14.0, block 39.3, head 15.7, readout 10.9; skipped rounds 0
+spec-house-a12: 
+spec-house-a12:    dflash:tree: 256 tokens, equal to the pass's greedy; 4.84 drafted tokens accepted a pass, 44 passes; verify 549.1 ms, drafter 172.3 ms, rest of the host 2.4 ms; 353.7 tok/s against 4E's 213.5 (x1.657)
+spec-house-a12:    dflash:tree: drafter wall, ms: context extension 27.8, block 88.6, head 32.8, readout 22.1; skipped rounds 0
+spec-house-a12: 
+spec-house-a12:    dflash:tree: 154 tokens, equal to the pass's greedy; 2.88 drafted tokens accepted a pass, 40 passes; verify 495.1 ms, drafter 157.1 ms, rest of the host 2.4 ms; 235.3 tok/s against 4E's 213.4 (x1.102)
+spec-house-a12:    dflash:tree: drafter wall, ms: context extension 26.4, block 79.9, head 29.9, readout 20.1; skipped rounds 0
+spec-house-a12: 
+spec-house-a12:    dflash:tree: 256 tokens, equal to the pass's greedy; 5.05 drafted tokens accepted a pass, 44 passes; verify 616.2 ms, drafter 177.3 ms, rest of the host 3.1 ms; 321.4 tok/s against 4E's 209.6 (x1.534)
+spec-house-a12:    dflash:tree: drafter wall, ms: context extension 30.9, block 90.6, head 32.8, readout 22.2; skipped rounds 0
+spec-house-a12: 
+spec-house-a12:    dflash:tree: 199 tokens, equal to the pass's greedy; 2.28 drafted tokens accepted a pass, 61 passes; verify 846.9 ms, drafter 239.3 ms, rest of the host 3.0 ms; 182.7 tok/s against 4E's 209.6 (x0.872)
+spec-house-a12:    dflash:tree: drafter wall, ms: context extension 36.0, block 126.0, head 45.5, readout 30.6; skipped rounds 0
+spec-house-a12: 
+spec-house-a12: agreement of the pass's greedy with 4E's greedy (reported, not a gate)
+spec-house-a12:    chat: 7 of 10 prompts in full agreement; 1756 of 2253 tokens before the first divergence
+spec-house-a12:    code: 10 of 10 prompts in full agreement; 2560 of 2560 tokens before the first divergence
+spec-house-a12:    math: 19 of 20 prompts in full agreement; 4919 of 4924 tokens before the first divergence
+spec-house-a12:     rag: 4 of 4 prompts in full agreement; 865 of 865 tokens before the first divergence
+spec-house-a12:     all: 40 of 44 prompts in full agreement; 10100 of 10602 tokens before the first divergence
+spec-house-a12:   gsm8k-test-0004: at 251: the pass's logits: 31.09375 for 11, 31.09375 for 279, margin 0.0000
+spec-house-a12:   chat-02: at 84: the pass's logits: 33 for 11, 32.96875 for 518, margin 0.0312
+spec-house-a12:   chat-03: at 107: the pass's logits: 27.59375 for 4751, 27.578125 for 382, margin 0.0156
+spec-house-a12:   chat-07: at 71: the pass's logits: 24.859375 for 326, 24.859375 for 6185, margin 0.0000
+spec-house-a12: 
+spec-house-a12: aggregates (tok/s = total tokens over total wall; x greedy likewise, against 4E's greedy on its own text; median over prompts with its range)
+spec-house-a12: config dflash:tree: arm a12@8.10.8.20.6 (A12), plan [8, 10, 8, 20, 6], 384 threads, row cap 16, drafter revision b74e3a329c4d963783143b1e970d95b002be72bd, dtype F16, vocab q4, readout device, shape Tree(15), N 256
+spec-house-a12:    dflash:tree  chat: 10 prompts, 2253 tokens, 10 of 10 equal to the pass's greedy; 1.92 accepted a pass, histogram 0..15 [144, 195, 226, 112, 54, 23, 12, 4, 4, 2, 1, 0, 2, 0, 0, 0]; 240.3 tok/s, greedy 224.0, x1.073; per prompt x1.051 [0.818-1.340]; verify 67 %, drafter 33 % of the wall
+spec-house-a12:    dflash:tree  code: 10 prompts, 2560 tokens, 10 of 10 equal to the pass's greedy; 3.16 accepted a pass, histogram 0..15 [61, 121, 130, 101, 72, 46, 40, 11, 9, 11, 9, 4, 1, 3, 2, 5]; 329.4 tok/s, greedy 222.2, x1.482; per prompt x1.463 [1.190-1.982]; verify 66 %, drafter 34 % of the wall
+spec-house-a12:    dflash:tree  math: 20 prompts, 4924 tokens, 20 of 20 equal to the pass's greedy; 4.85 accepted a pass, histogram 0..15 [29, 102, 140, 120, 135, 56, 59, 46, 28, 25, 19, 12, 22, 18, 7, 36]; 457.1 tok/s, greedy 221.0, x2.068; per prompt x2.051 [1.668-3.155]; verify 66 %, drafter 34 % of the wall
+spec-house-a12:    dflash:tree   rag: 4 prompts, 865 tokens, 4 of 4 equal to the pass's greedy; 3.65 accepted a pass, histogram 0..15 [15, 34, 40, 26, 22, 9, 11, 3, 11, 7, 4, 3, 1, 1, 2, 0]; 265.0 tok/s, greedy 211.4, x1.254; per prompt x1.318 [0.872-1.657]; verify 77 %, drafter 23 % of the wall
+spec-house-a12:    dflash:tree   all: 44 prompts, 10602 tokens, 44 of 44 equal to the pass's greedy; 3.39 accepted a pass, histogram 0..15 [249, 452, 536, 359, 283, 134, 122, 64, 52, 45, 33, 19, 26, 22, 11, 41]; 340.0 tok/s, greedy 221.1, x1.538; per prompt x1.678 [0.818-3.155]; verify 67 %, drafter 32 % of the wall
+spec-house-a12: vram house-a12 idle 0 MiB peak 5163 MiB
+spec-house-a12: specbench house a12 exit 0
+spec-house-a12ip: 4E tree: module 306060 bytes, sha256 ce1c354d2583eb178ae8622ff99e10f9b457543972bb5039ce89ede9eec31e44, row form 7 and pers_4et.cu, its own module
+spec-house-a12ip: 4E tree: pers_4et_rows_f1_t512: 128 registers, 720 B local, 89984 B shared, 1 resident a SM
+spec-house-a12ip: 4E tree: arm a12ip@8.10.8.20.6 (a12ip (a12 on the served words, read in place, no copy), an explicit plan): slices [8, 10, 8, 20, 6]; S, units, waves, fill, sub-steps a slice at most: q/k/v 8 272 2 95.8 % 7, o 10 140 1 98.6 % 9, gate/up 8 816 6 95.8 % 7, down 20 280 2 98.6 % 11, head 6 4752 34 98.4 % 9
+spec-house-a12ip: 4E tree: arm a12ip@8.10.8.20.6 at 384 threads (12 warps): area 14944 floats, 78848 B shared, 12 sub-steps a slice at most
+spec-house-a12ip: 4E tree: the stream unit's slices hold at most 13 sub-steps (area 17728 floats, 16 warps, 32 staged rows)
+spec-house-a12ip: 4E tree: 512 threads, 17728 floats of area; 0.153 GB of row buffers
+spec-house-a12ip: 4E tree a12ip: module 421571 bytes, sha256 5b283349cf4c7c7dbc1b4db1dbaec875447e3a3e54715fa6c38aad9f8729c7f9, P4T_A12IP 1 beside a12's text, its own module
+spec-house-a12ip: 4E tree a12ip: pers_4et_a12ip_f1_t384: 168 registers, 744 B local, 78848 B shared, 1 resident a SM
+spec-house-a12ip: 4E tree tiled: 0 tree-tiled copies (q, k, v, o, gate, up, down a layer, the head), 0.000 GB more on the card
+spec-house-a12ip: 4E tree a12ip: 253 projections read in place, 1.295 GB, the words 4E and the eager path hold; every lane's words equal to the tree-tiled copy's on each (p4t_ip_check, each copy freed after its check); 0 copies held for the other arms
+spec-house-a12ip: card memory: 2.116 GB used of 47.666 GB after the target's load, its 4E install and the verify pass's install, before the drafter (cuMemGetInfo)
+spec-house-a12ip: arm a12ip@8.10.8.20.6: A12ip kernel, slices [8, 10, 8, 20, 6], 384 threads, row cap 16; taps on; N 256
+spec-house-a12ip: loaded in 343.8 s
+spec-house-a12ip: drafter /tmp/dflash-b74e3a329c4d963783143b1e970d95b002be72bd (1192.9 MB, F16), loaded in 13.1 s; vocab q4: the target's int4 g64 table (218.8 MB, already resident), gather emb_q4_gather, head tv_q4_mma; no dense copy
+spec-house-a12ip: card memory: 3.324 GB used of 47.666 GB after the drafter's load, before the first prompt (cuMemGetInfo)
+spec-house-a12ip: template: the assistant opening with thinking off is [151644, 77091, 198, 151667, 271, 151668, 271]; the HF tokenizer on the rendered Qwen3 template (the served door's) gives <think>, 271, </think>, 271 (151667 271 151668 271), not 198 198; eos 151645 (<|im_end|>)
+spec-house-a12ip: prompts: 44 from /usr/local/share/llvq/spec-prompts-v1.jsonl; 0 discarded and 1 timed runs a prompt
+spec-house-a12ip: equality: every drafter against the pass's own greedy (the null drafter, R = 1), a hard gate; the pass's greedy against 4E's greedy, reported only. Past a divergence from 4E the texts differ, and tok/s and acceptance there are measured on the pass's own text
+spec-house-a12ip: control: one 64-token 4E launch against two chained 32-token launches on gsm8k-test-0000: the same 64 tokens
+spec-house-a12ip: 
+spec-house-a12ip:    dflash:tree: 256 tokens, equal to the pass's greedy; 5.40 drafted tokens accepted a pass, 40 passes; verify 426.6 ms, drafter 178.6 ms, rest of the host 0.8 ms; 422.4 tok/s against 4E's 221.1 (x1.911)
+spec-house-a12ip:    dflash:tree: drafter wall, ms: context extension 47.4, block 77.2, head 29.9, readout 20.2; skipped rounds 0
+spec-house-a12ip: 
+spec-house-a12ip:    dflash:tree: 192 tokens, equal to the pass's greedy; 4.39 drafted tokens accepted a pass, 36 passes; verify 372.6 ms, drafter 129.9 ms, rest of the host 0.6 ms; 381.6 tok/s against 4E's 225.0 (x1.696)
+spec-house-a12ip:    dflash:tree: drafter wall, ms: context extension 15.8, block 68.5, head 26.9, readout 18.1; skipped rounds 0
+spec-house-a12ip: 
+spec-house-a12ip:    dflash:tree: 256 tokens, equal to the pass's greedy; 3.98 drafted tokens accepted a pass, 52 passes; verify 554.6 ms, drafter 187.3 ms, rest of the host 0.9 ms; 344.7 tok/s against 4E's 221.4 (x1.557)
+spec-house-a12ip:    dflash:tree: drafter wall, ms: context extension 22.4, block 99.0, head 38.8, readout 26.1; skipped rounds 0
+spec-house-a12ip: 
+spec-house-a12ip:    dflash:tree: 146 tokens, equal to the pass's greedy; 4.10 drafted tokens accepted a pass, 29 passes; verify 299.5 ms, drafter 123.9 ms, rest of the host 0.5 ms; 344.5 tok/s against 4E's 225.4 (x1.528)
+spec-house-a12ip:    dflash:tree: drafter wall, ms: context extension 26.7, block 54.8, head 21.6, readout 14.6; skipped rounds 0
+spec-house-a12ip: 
+spec-house-a12ip:    dflash:tree: 256 tokens, equal to the pass's greedy; 4.82 drafted tokens accepted a pass, 44 passes; verify 478.2 ms, drafter 186.6 ms, rest of the host 1.0 ms; 384.5 tok/s against 4E's 218.9 (x1.756)
+spec-house-a12ip:    dflash:tree: drafter wall, ms: context extension 44.1, block 83.6, head 32.9, readout 22.0; skipped rounds 0
+spec-house-a12ip: 
+spec-house-a12ip:    dflash:tree: 256 tokens, equal to the pass's greedy; 5.19 drafted tokens accepted a pass, 43 passes; verify 454.3 ms, drafter 154.2 ms, rest of the host 0.8 ms; 420.1 tok/s against 4E's 221.4 (x1.897)
+spec-house-a12ip:    dflash:tree: drafter wall, ms: context extension 18.5, block 81.3, head 32.1, readout 21.5; skipped rounds 0
+spec-house-a12ip: 
+spec-house-a12ip:    dflash:tree: 256 tokens, equal to the pass's greedy; 6.40 drafted tokens accepted a pass, 35 passes; verify 372.7 ms, drafter 146.1 ms, rest of the host 0.7 ms; 492.8 tok/s against 4E's 222.0 (x2.220)
+spec-house-a12ip:    dflash:tree: drafter wall, ms: context extension 33.1, block 66.1, head 26.1, readout 17.6; skipped rounds 0
+spec-house-a12ip: 
+spec-house-a12ip:    dflash:tree: 256 tokens, equal to the pass's greedy; 3.65 drafted tokens accepted a pass, 55 passes; verify 594.8 ms, drafter 230.1 ms, rest of the host 0.9 ms; 310.0 tok/s against 4E's 220.8 (x1.404)
+spec-house-a12ip:    dflash:tree: drafter wall, ms: context extension 51.0, block 104.1, head 40.9, readout 29.0; skipped rounds 0
+spec-house-a12ip: 
+spec-house-a12ip:    dflash:tree: 256 tokens, equal to the pass's greedy; 4.45 drafted tokens accepted a pass, 47 passes; verify 510.8 ms, drafter 168.9 ms, rest of the host 1.0 ms; 376.1 tok/s against 4E's 219.2 (x1.715)
+spec-house-a12ip:    dflash:tree: drafter wall, ms: context extension 20.2, block 89.3, head 35.0, readout 23.5; skipped rounds 0
+spec-house-a12ip: 
+spec-house-a12ip:    dflash:tree: 256 tokens, equal to the pass's greedy; 4.45 drafted tokens accepted a pass, 47 passes; verify 502.1 ms, drafter 196.1 ms, rest of the host 1.0 ms; 366.1 tok/s against 4E's 221.0 (x1.657)
+spec-house-a12ip:    dflash:tree: drafter wall, ms: context extension 43.5, block 89.0, head 35.1, readout 23.7; skipped rounds 0
+spec-house-a12ip: 
+spec-house-a12ip:    dflash:tree: 256 tokens, equal to the pass's greedy; 6.00 drafted tokens accepted a pass, 38 passes; verify 408.4 ms, drafter 135.9 ms, rest of the host 0.8 ms; 469.7 tok/s against 4E's 220.9 (x2.126)
+spec-house-a12ip:    dflash:tree: drafter wall, ms: context extension 16.7, block 71.3, head 28.3, readout 19.0; skipped rounds 0
+spec-house-a12ip: 
+spec-house-a12ip:    dflash:tree: 256 tokens, equal to the pass's greedy; 7.48 drafted tokens accepted a pass, 31 passes; verify 328.8 ms, drafter 111.3 ms, rest of the host 0.7 ms; 580.7 tok/s against 4E's 220.6 (x2.632)
+spec-house-a12ip:    dflash:tree: drafter wall, ms: context extension 14.0, block 58.1, head 23.1, readout 15.5; skipped rounds 0
+spec-house-a12ip: 
+spec-house-a12ip:    dflash:tree: 256 tokens, equal to the pass's greedy; 4.93 drafted tokens accepted a pass, 45 passes; verify 480.2 ms, drafter 188.1 ms, rest of the host 0.8 ms; 382.6 tok/s against 4E's 220.6 (x1.734)
+spec-house-a12ip:    dflash:tree: drafter wall, ms: context extension 43.2, block 84.3, head 33.5, readout 22.6; skipped rounds 0
+spec-house-a12ip: 
+spec-house-a12ip:    dflash:tree: 256 tokens, equal to the pass's greedy; 4.69 drafted tokens accepted a pass, 45 passes; verify 482.4 ms, drafter 188.9 ms, rest of the host 0.7 ms; 380.9 tok/s against 4E's 220.7 (x1.726)
+spec-house-a12ip:    dflash:tree: drafter wall, ms: context extension 42.6, block 84.6, head 33.6, readout 23.5; skipped rounds 0
+spec-house-a12ip: 
+spec-house-a12ip:    dflash:tree: 256 tokens, equal to the pass's greedy; 5.29 drafted tokens accepted a pass, 41 passes; verify 434.8 ms, drafter 174.2 ms, rest of the host 0.8 ms; 419.8 tok/s against 4E's 221.0 (x1.899)
+spec-house-a12ip:    dflash:tree: drafter wall, ms: context extension 37.0, block 77.3, head 30.6, readout 25.4; skipped rounds 0
+spec-house-a12ip: 
+spec-house-a12ip:    dflash:tree: 256 tokens, equal to the pass's greedy; 4.24 drafted tokens accepted a pass, 50 passes; verify 535.6 ms, drafter 212.7 ms, rest of the host 1.0 ms; 341.7 tok/s against 4E's 219.1 (x1.559)
+spec-house-a12ip:    dflash:tree: drafter wall, ms: context extension 44.7, block 94.4, head 37.2, readout 26.4; skipped rounds 0
+spec-house-a12ip: 
+spec-house-a12ip:    dflash:tree: 234 tokens, equal to the pass's greedy; 5.69 drafted tokens accepted a pass, 35 passes; verify 374.5 ms, drafter 146.9 ms, rest of the host 0.7 ms; 448.2 tok/s against 4E's 221.4 (x2.025)
+spec-house-a12ip:    dflash:tree: drafter wall, ms: context extension 34.2, block 65.8, head 26.1, readout 17.6; skipped rounds 0
+spec-house-a12ip: 
+spec-house-a12ip:    dflash:tree: 256 tokens, equal to the pass's greedy; 5.33 drafted tokens accepted a pass, 42 passes; verify 446.3 ms, drafter 174.5 ms, rest of the host 0.7 ms; 411.9 tok/s against 4E's 220.6 (x1.867)
+spec-house-a12ip:    dflash:tree: drafter wall, ms: context extension 38.2, block 78.9, head 31.4, readout 22.1; skipped rounds 0
+spec-house-a12ip: 
+spec-house-a12ip:    dflash:tree: 256 tokens, equal to the pass's greedy; 4.40 drafted tokens accepted a pass, 48 passes; verify 507.3 ms, drafter 232.0 ms, rest of the host 0.7 ms; 346.0 tok/s against 4E's 221.8 (x1.560)
+spec-house-a12ip:    dflash:tree: drafter wall, ms: context extension 43.8, block 90.5, head 35.9, readout 24.3; skipped rounds 0
+spec-house-a12ip: 
+spec-house-a12ip:    dflash:tree: 256 tokens, equal to the pass's greedy; 4.14 drafted tokens accepted a pass, 51 passes; verify 547.9 ms, drafter 211.1 ms, rest of the host 0.8 ms; 337.0 tok/s against 4E's 220.0 (x1.531)
+spec-house-a12ip:    dflash:tree: drafter wall, ms: context extension 46.8, block 96.0, head 38.1, readout 25.6; skipped rounds 0
+spec-house-a12ip: 
+spec-house-a12ip:    dflash:tree: 256 tokens, equal to the pass's greedy; 4.21 drafted tokens accepted a pass, 52 passes; verify 547.5 ms, drafter 218.2 ms, rest of the host 0.8 ms; 334.0 tok/s against 4E's 222.4 (x1.502)
+spec-house-a12ip:    dflash:tree: drafter wall, ms: context extension 47.2, block 98.0, head 39.2, readout 26.1; skipped rounds 0
+spec-house-a12ip: 
+spec-house-a12ip:    dflash:tree: 256 tokens, equal to the pass's greedy; 3.02 drafted tokens accepted a pass, 64 passes; verify 672.6 ms, drafter 257.7 ms, rest of the host 0.8 ms; 274.9 tok/s against 4E's 222.0 (x1.238)
+spec-house-a12ip:    dflash:tree: drafter wall, ms: context extension 51.5, block 120.0, head 47.9, readout 32.2; skipped rounds 0
+spec-house-a12ip: 
+spec-house-a12ip:    dflash:tree: 256 tokens, equal to the pass's greedy; 2.63 drafted tokens accepted a pass, 71 passes; verify 751.4 ms, drafter 289.4 ms, rest of the host 0.8 ms; 245.8 tok/s against 4E's 222.3 (x1.105)
+spec-house-a12ip:    dflash:tree: drafter wall, ms: context extension 59.1, block 133.2, head 55.0, readout 35.6; skipped rounds 0
+spec-house-a12ip: 
+spec-house-a12ip:    dflash:tree: 256 tokens, equal to the pass's greedy; 2.24 drafted tokens accepted a pass, 79 passes; verify 835.5 ms, drafter 318.8 ms, rest of the host 0.8 ms; 221.6 tok/s against 4E's 222.1 (x0.998)
+spec-house-a12ip:    dflash:tree: drafter wall, ms: context extension 61.4, block 148.0, head 59.1, readout 41.6; skipped rounds 0
+spec-house-a12ip: 
+spec-house-a12ip:    dflash:tree: 256 tokens, equal to the pass's greedy; 4.55 drafted tokens accepted a pass, 47 passes; verify 498.2 ms, drafter 167.2 ms, rest of the host 0.6 ms; 384.3 tok/s against 4E's 221.8 (x1.733)
+spec-house-a12ip:    dflash:tree: drafter wall, ms: context extension 20.2, block 87.7, head 35.0, readout 23.5; skipped rounds 0
+spec-house-a12ip: 
+spec-house-a12ip:    dflash:tree: 256 tokens, equal to the pass's greedy; 4.72 drafted tokens accepted a pass, 47 passes; verify 498.6 ms, drafter 168.0 ms, rest of the host 0.7 ms; 383.6 tok/s against 4E's 221.8 (x1.730)
+spec-house-a12ip:    dflash:tree: drafter wall, ms: context extension 20.5, block 88.1, head 35.1, readout 23.5; skipped rounds 0
+spec-house-a12ip: 
+spec-house-a12ip:    dflash:tree: 256 tokens, equal to the pass's greedy; 2.62 drafted tokens accepted a pass, 72 passes; verify 755.9 ms, drafter 255.4 ms, rest of the host 0.8 ms; 252.9 tok/s against 4E's 222.8 (x1.135)
+spec-house-a12ip:    dflash:tree: drafter wall, ms: context extension 29.5, block 135.0, head 53.6, readout 36.0; skipped rounds 0
+spec-house-a12ip: 
+spec-house-a12ip:    dflash:tree: 256 tokens, equal to the pass's greedy; 3.06 drafted tokens accepted a pass, 63 passes; verify 660.0 ms, drafter 224.6 ms, rest of the host 0.8 ms; 289.1 tok/s against 4E's 223.4 (x1.294)
+spec-house-a12ip:    dflash:tree: drafter wall, ms: context extension 26.2, block 118.6, head 47.0, readout 31.7; skipped rounds 0
+spec-house-a12ip: 
+spec-house-a12ip:    dflash:tree: 256 tokens, equal to the pass's greedy; 2.89 drafted tokens accepted a pass, 66 passes; verify 693.3 ms, drafter 275.2 ms, rest of the host 0.9 ms; 264.1 tok/s against 4E's 223.1 (x1.184)
+spec-house-a12ip:    dflash:tree: drafter wall, ms: context extension 57.1, block 124.1, head 49.4, readout 34.5; skipped rounds 0
+spec-house-a12ip: 
+spec-house-a12ip:    dflash:tree: 256 tokens, equal to the pass's greedy; 2.97 drafted tokens accepted a pass, 65 passes; verify 680.8 ms, drafter 230.4 ms, rest of the host 0.8 ms; 280.7 tok/s against 4E's 223.2 (x1.257)
+spec-house-a12ip:    dflash:tree: drafter wall, ms: context extension 26.9, block 121.4, head 48.5, readout 32.5; skipped rounds 0
+spec-house-a12ip: 
+spec-house-a12ip:    dflash:tree: 256 tokens, equal to the pass's greedy; 1.69 drafted tokens accepted a pass, 95 passes; verify 994.3 ms, drafter 335.3 ms, rest of the host 0.9 ms; 192.4 tok/s against 4E's 224.4 (x0.858)
+spec-house-a12ip:    dflash:tree: drafter wall, ms: context extension 37.3, block 177.9, head 70.9, readout 47.5; skipped rounds 0
+spec-house-a12ip: 
+spec-house-a12ip:    dflash:tree: 256 tokens, equal to the pass's greedy; 2.66 drafted tokens accepted a pass, 70 passes; verify 733.3 ms, drafter 284.2 ms, rest of the host 0.8 ms; 251.4 tok/s against 4E's 223.0 (x1.127)
+spec-house-a12ip:    dflash:tree: drafter wall, ms: context extension 58.7, block 131.0, head 52.1, readout 35.2; skipped rounds 0
+spec-house-a12ip: 
+spec-house-a12ip:    dflash:tree: 247 tokens, equal to the pass's greedy; 1.87 drafted tokens accepted a pass, 87 passes; verify 910.3 ms, drafter 345.9 ms, rest of the host 0.8 ms; 196.5 tok/s against 4E's 224.7 (x0.875)
+spec-house-a12ip:    dflash:tree: drafter wall, ms: context extension 64.6, block 163.4, head 64.8, readout 43.5; skipped rounds 0
+spec-house-a12ip: 
+spec-house-a12ip:    dflash:tree: 256 tokens, equal to the pass's greedy; 2.27 drafted tokens accepted a pass, 80 passes; verify 837.9 ms, drafter 321.6 ms, rest of the host 0.9 ms; 220.6 tok/s against 4E's 224.3 (x0.983)
+spec-house-a12ip:    dflash:tree: drafter wall, ms: context extension 64.8, block 149.6, head 59.7, readout 40.1; skipped rounds 0
+spec-house-a12ip: 
+spec-house-a12ip:    dflash:tree: 256 tokens, equal to the pass's greedy; 2.29 drafted tokens accepted a pass, 79 passes; verify 834.9 ms, drafter 318.2 ms, rest of the host 0.8 ms; 221.9 tok/s against 4E's 223.3 (x0.993)
+spec-house-a12ip:    dflash:tree: drafter wall, ms: context extension 62.3, block 148.1, head 58.9, readout 41.6; skipped rounds 0
+spec-house-a12ip: 
+spec-house-a12ip:    dflash:tree: 167 tokens, equal to the pass's greedy; 1.67 drafted tokens accepted a pass, 63 passes; verify 650.5 ms, drafter 249.5 ms, rest of the host 0.6 ms; 185.4 tok/s against 4E's 226.4 (x0.819)
+spec-house-a12ip:    dflash:tree: drafter wall, ms: context extension 46.8, block 118.4, head 46.9, readout 31.5; skipped rounds 0
+spec-house-a12ip: 
+spec-house-a12ip:    dflash:tree: 256 tokens, equal to the pass's greedy; 2.10 drafted tokens accepted a pass, 83 passes; verify 868.1 ms, drafter 293.5 ms, rest of the host 0.8 ms; 220.2 tok/s against 4E's 224.4 (x0.982)
+spec-house-a12ip:    dflash:tree: drafter wall, ms: context extension 33.5, block 155.1, head 61.9, readout 41.5; skipped rounds 0
+spec-house-a12ip: 
+spec-house-a12ip:    dflash:tree: 256 tokens, equal to the pass's greedy; 1.29 drafted tokens accepted a pass, 112 passes; verify 1171.5 ms, drafter 513.9 ms, rest of the host 1.0 ms; 151.8 tok/s against 4E's 225.1 (x0.674)
+spec-house-a12ip:    dflash:tree: drafter wall, ms: context extension 73.7, block 210.8, head 83.9, readout 56.4; skipped rounds 0
+spec-house-a12ip: 
+spec-house-a12ip:    dflash:tree: 256 tokens, equal to the pass's greedy; 1.90 drafted tokens accepted a pass, 89 passes; verify 934.7 ms, drafter 354.2 ms, rest of the host 0.9 ms; 198.5 tok/s against 4E's 224.3 (x0.885)
+spec-house-a12ip:    dflash:tree: drafter wall, ms: context extension 66.4, block 167.0, head 66.5, readout 46.2; skipped rounds 0
+spec-house-a12ip: 
+spec-house-a12ip:    dflash:tree: 47 tokens, equal to the pass's greedy; 1.57 drafted tokens accepted a pass, 21 passes; verify 213.8 ms, drafter 81.6 ms, rest of the host 0.2 ms; 159.0 tok/s against 4E's 233.5 (x0.681)
+spec-house-a12ip:    dflash:tree: drafter wall, ms: context extension 14.1, block 39.3, head 15.7, readout 10.6; skipped rounds 0
+spec-house-a12ip: 
+spec-house-a12ip:    dflash:tree: 256 tokens, equal to the pass's greedy; 4.84 drafted tokens accepted a pass, 44 passes; verify 655.0 ms, drafter 170.5 ms, rest of the host 2.5 ms; 309.2 tok/s against 4E's 213.8 (x1.446)
+spec-house-a12ip:    dflash:tree: drafter wall, ms: context extension 26.5, block 88.4, head 32.8, readout 22.0; skipped rounds 0
+spec-house-a12ip: 
+spec-house-a12ip:    dflash:tree: 154 tokens, equal to the pass's greedy; 2.88 drafted tokens accepted a pass, 40 passes; verify 591.1 ms, drafter 155.9 ms, rest of the host 2.5 ms; 205.5 tok/s against 4E's 214.1 (x0.960)
+spec-house-a12ip:    dflash:tree: drafter wall, ms: context extension 25.6, block 79.6, head 29.9, readout 20.0; skipped rounds 0
+spec-house-a12ip: 
+spec-house-a12ip:    dflash:tree: 256 tokens, equal to the pass's greedy; 5.05 drafted tokens accepted a pass, 44 passes; verify 722.4 ms, drafter 206.3 ms, rest of the host 3.1 ms; 274.7 tok/s against 4E's 211.0 (x1.302)
+spec-house-a12ip:    dflash:tree: drafter wall, ms: context extension 54.8, block 90.7, head 32.8, readout 22.3; skipped rounds 0
+spec-house-a12ip: 
+spec-house-a12ip:    dflash:tree: 199 tokens, equal to the pass's greedy; 2.28 drafted tokens accepted a pass, 61 passes; verify 993.8 ms, drafter 271.7 ms, rest of the host 3.1 ms; 156.9 tok/s against 4E's 210.8 (x0.744)
+spec-house-a12ip:    dflash:tree: drafter wall, ms: context extension 60.4, block 125.6, head 45.5, readout 34.4; skipped rounds 0
+spec-house-a12ip: 
+spec-house-a12ip: agreement of the pass's greedy with 4E's greedy (reported, not a gate)
+spec-house-a12ip:    chat: 7 of 10 prompts in full agreement; 1756 of 2253 tokens before the first divergence
+spec-house-a12ip:    code: 10 of 10 prompts in full agreement; 2560 of 2560 tokens before the first divergence
+spec-house-a12ip:    math: 19 of 20 prompts in full agreement; 4919 of 4924 tokens before the first divergence
+spec-house-a12ip:     rag: 4 of 4 prompts in full agreement; 865 of 865 tokens before the first divergence
+spec-house-a12ip:     all: 40 of 44 prompts in full agreement; 10100 of 10602 tokens before the first divergence
+spec-house-a12ip:   gsm8k-test-0004: at 251: the pass's logits: 31.09375 for 11, 31.09375 for 279, margin 0.0000
+spec-house-a12ip:   chat-02: at 84: the pass's logits: 33 for 11, 32.96875 for 518, margin 0.0312
+spec-house-a12ip:   chat-03: at 107: the pass's logits: 27.59375 for 4751, 27.578125 for 382, margin 0.0156
+spec-house-a12ip:   chat-07: at 71: the pass's logits: 24.859375 for 326, 24.859375 for 6185, margin 0.0000
+spec-house-a12ip: 
+spec-house-a12ip: aggregates (tok/s = total tokens over total wall; x greedy likewise, against 4E's greedy on its own text; median over prompts with its range)
+spec-house-a12ip: config dflash:tree: arm a12ip@8.10.8.20.6 (A12ip), plan [8, 10, 8, 20, 6], 384 threads, row cap 16, drafter revision b74e3a329c4d963783143b1e970d95b002be72bd, dtype F16, vocab q4, readout device, shape Tree(15), N 256
+spec-house-a12ip:    dflash:tree  chat: 10 prompts, 2253 tokens, 10 of 10 equal to the pass's greedy; 1.92 accepted a pass, histogram 0..15 [144, 195, 226, 112, 54, 23, 12, 4, 4, 2, 1, 0, 2, 0, 0, 0]; 200.2 tok/s, greedy 224.5, x0.892; per prompt x0.880 [0.674-1.127]; verify 72 %, drafter 28 % of the wall
+spec-house-a12ip:    dflash:tree  code: 10 prompts, 2560 tokens, 10 of 10 equal to the pass's greedy; 3.16 accepted a pass, histogram 0..15 [61, 121, 130, 101, 72, 46, 40, 11, 9, 11, 9, 4, 1, 3, 2, 5]; 284.2 tok/s, greedy 222.5, x1.277; per prompt x1.248 [0.998-1.733]; verify 73 %, drafter 27 % of the wall
+spec-house-a12ip:    dflash:tree  math: 20 prompts, 4924 tokens, 20 of 20 equal to the pass's greedy; 4.85 accepted a pass, histogram 0..15 [29, 102, 140, 120, 135, 56, 59, 46, 28, 25, 19, 12, 22, 18, 7, 36]; 390.6 tok/s, greedy 221.0, x1.768; per prompt x1.730 [1.404-2.632]; verify 72 %, drafter 28 % of the wall
+spec-house-a12ip:    dflash:tree   rag: 4 prompts, 865 tokens, 4 of 4 equal to the pass's greedy; 3.65 accepted a pass, histogram 0..15 [15, 34, 40, 26, 22, 9, 11, 3, 11, 7, 4, 3, 1, 1, 2, 0]; 229.0 tok/s, greedy 212.3, x1.078; per prompt x1.131 [0.744-1.446]; verify 78 %, drafter 21 % of the wall
+spec-house-a12ip:    dflash:tree   all: 44 prompts, 10602 tokens, 44 of 44 equal to the pass's greedy; 3.39 accepted a pass, histogram 0..15 [249, 452, 536, 359, 283, 134, 122, 64, 52, 45, 33, 19, 26, 22, 11, 41]; 289.3 tok/s, greedy 221.3, x1.307; per prompt x1.474 [0.674-2.632]; verify 73 %, drafter 27 % of the wall
+spec-house-a12ip: vram house-a12ip idle 0 MiB peak 3947 MiB
+spec-house-a12ip: specbench house a12ip exit 0
+spec-house-null-a12ip: 4E tree: module 306060 bytes, sha256 ce1c354d2583eb178ae8622ff99e10f9b457543972bb5039ce89ede9eec31e44, row form 7 and pers_4et.cu, its own module
+spec-house-null-a12ip: 4E tree: pers_4et_rows_f1_t512: 128 registers, 720 B local, 89984 B shared, 1 resident a SM
+spec-house-null-a12ip: 4E tree: arm a12ip@8.10.8.20.6 (a12ip (a12 on the served words, read in place, no copy), an explicit plan): slices [8, 10, 8, 20, 6]; S, units, waves, fill, sub-steps a slice at most: q/k/v 8 272 2 95.8 % 7, o 10 140 1 98.6 % 9, gate/up 8 816 6 95.8 % 7, down 20 280 2 98.6 % 11, head 6 4752 34 98.4 % 9
+spec-house-null-a12ip: 4E tree: arm a12ip@8.10.8.20.6 at 384 threads (12 warps): area 14944 floats, 78848 B shared, 12 sub-steps a slice at most
+spec-house-null-a12ip: 4E tree: the stream unit's slices hold at most 13 sub-steps (area 17728 floats, 16 warps, 32 staged rows)
+spec-house-null-a12ip: 4E tree: 512 threads, 17728 floats of area; 0.153 GB of row buffers
+spec-house-null-a12ip: 4E tree a12ip: module 421571 bytes, sha256 5b283349cf4c7c7dbc1b4db1dbaec875447e3a3e54715fa6c38aad9f8729c7f9, P4T_A12IP 1 beside a12's text, its own module
+spec-house-null-a12ip: 4E tree a12ip: pers_4et_a12ip_f1_t384: 168 registers, 744 B local, 78848 B shared, 1 resident a SM
+spec-house-null-a12ip: 4E tree tiled: 0 tree-tiled copies (q, k, v, o, gate, up, down a layer, the head), 0.000 GB more on the card
+spec-house-null-a12ip: 4E tree a12ip: 253 projections read in place, 1.295 GB, the words 4E and the eager path hold; every lane's words equal to the tree-tiled copy's on each (p4t_ip_check, each copy freed after its check); 0 copies held for the other arms
+spec-house-null-a12ip: card memory: 2.116 GB used of 47.666 GB after the target's load, its 4E install and the verify pass's install, before the drafter (cuMemGetInfo)
+spec-house-null-a12ip: arm a12ip@8.10.8.20.6: A12ip kernel, slices [8, 10, 8, 20, 6], 384 threads, row cap 16; taps on; N 256
+spec-house-null-a12ip: loaded in 241.0 s
+spec-house-null-a12ip: template: the assistant opening with thinking off is [151644, 77091, 198, 151667, 271, 151668, 271]; the HF tokenizer on the rendered Qwen3 template (the served door's) gives <think>, 271, </think>, 271 (151667 271 151668 271), not 198 198; eos 151645 (<|im_end|>)
+spec-house-null-a12ip: prompts: 44 from /usr/local/share/llvq/spec-prompts-v1.jsonl; 0 discarded and 1 timed runs a prompt
+spec-house-null-a12ip: equality: every drafter against the pass's own greedy (the null drafter, R = 1), a hard gate; the pass's greedy against 4E's greedy, reported only. Past a divergence from 4E the texts differ, and tok/s and acceptance there are measured on the pass's own text
+spec-house-null-a12ip: control: one 64-token 4E launch against two chained 32-token launches on gsm8k-test-0000: the same 64 tokens
+spec-house-null-a12ip: 
+spec-house-null-a12ip:           null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2449.4 ms, drafter 0.0 ms, rest of the host 1.2 ms; 104.5 tok/s against 4E's 221.1 (x0.472)
+spec-house-null-a12ip:       oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 625.2 ms, drafter 0.0 ms, rest of the host 0.7 ms; 409.0 tok/s against 4E's 221.1 (x1.850)
+spec-house-null-a12ip: 
+spec-house-null-a12ip:           null: 192 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 192 passes; verify 1816.0 ms, drafter 0.0 ms, rest of the host 0.7 ms; 105.7 tok/s against 4E's 225.1 (x0.470)
+spec-house-null-a12ip:       oracle:3: 192 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 48 passes; verify 464.3 ms, drafter 0.0 ms, rest of the host 0.4 ms; 413.1 tok/s against 4E's 225.1 (x1.835)
+spec-house-null-a12ip: 
+spec-house-null-a12ip:           null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2443.8 ms, drafter 0.0 ms, rest of the host 1.1 ms; 104.7 tok/s against 4E's 221.4 (x0.473)
+spec-house-null-a12ip:       oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 623.9 ms, drafter 0.0 ms, rest of the host 0.7 ms; 409.9 tok/s against 4E's 221.4 (x1.851)
+spec-house-null-a12ip: 
+spec-house-null-a12ip:           null: 146 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 146 passes; verify 1380.3 ms, drafter 0.0 ms, rest of the host 0.7 ms; 105.7 tok/s against 4E's 225.2 (x0.470)
+spec-house-null-a12ip:       oracle:3: 146 tokens, equal to the pass's greedy; 2.97 drafted tokens accepted a pass, 37 passes; verify 357.9 ms, drafter 0.0 ms, rest of the host 0.5 ms; 407.4 tok/s against 4E's 225.2 (x1.809)
+spec-house-null-a12ip: 
+spec-house-null-a12ip:           null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2462.9 ms, drafter 0.0 ms, rest of the host 1.2 ms; 103.9 tok/s against 4E's 218.8 (x0.475)
+spec-house-null-a12ip:       oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 628.7 ms, drafter 0.0 ms, rest of the host 0.8 ms; 406.6 tok/s against 4E's 218.8 (x1.858)
+spec-house-null-a12ip: 
+spec-house-null-a12ip:           null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2444.6 ms, drafter 0.0 ms, rest of the host 1.1 ms; 104.7 tok/s against 4E's 221.0 (x0.474)
+spec-house-null-a12ip:       oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 624.2 ms, drafter 0.0 ms, rest of the host 0.6 ms; 409.7 tok/s against 4E's 221.0 (x1.854)
+spec-house-null-a12ip: 
+spec-house-null-a12ip:           null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2441.6 ms, drafter 0.0 ms, rest of the host 1.0 ms; 104.8 tok/s against 4E's 221.7 (x0.473)
+spec-house-null-a12ip:       oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 623.5 ms, drafter 0.0 ms, rest of the host 0.6 ms; 410.2 tok/s against 4E's 221.7 (x1.850)
+spec-house-null-a12ip: 
+spec-house-null-a12ip:           null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2455.5 ms, drafter 0.0 ms, rest of the host 1.0 ms; 104.2 tok/s against 4E's 220.2 (x0.473)
+spec-house-null-a12ip:       oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 627.0 ms, drafter 0.0 ms, rest of the host 0.7 ms; 407.8 tok/s against 4E's 220.2 (x1.852)
+spec-house-null-a12ip: 
+spec-house-null-a12ip:           null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2464.2 ms, drafter 0.0 ms, rest of the host 1.1 ms; 103.8 tok/s against 4E's 218.8 (x0.475)
+spec-house-null-a12ip:       oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 629.3 ms, drafter 0.0 ms, rest of the host 0.7 ms; 406.4 tok/s against 4E's 218.8 (x1.857)
+spec-house-null-a12ip: 
+spec-house-null-a12ip:           null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2452.3 ms, drafter 0.0 ms, rest of the host 1.2 ms; 104.3 tok/s against 4E's 220.7 (x0.473)
+spec-house-null-a12ip:       oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 626.0 ms, drafter 0.0 ms, rest of the host 0.6 ms; 408.5 tok/s against 4E's 220.7 (x1.851)
+spec-house-null-a12ip: 
+spec-house-null-a12ip:           null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2445.6 ms, drafter 0.0 ms, rest of the host 1.1 ms; 104.6 tok/s against 4E's 220.8 (x0.474)
+spec-house-null-a12ip:       oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 624.5 ms, drafter 0.0 ms, rest of the host 0.7 ms; 409.5 tok/s against 4E's 220.8 (x1.854)
+spec-house-null-a12ip: 
+spec-house-null-a12ip:           null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2450.4 ms, drafter 0.0 ms, rest of the host 1.0 ms; 104.4 tok/s against 4E's 220.6 (x0.473)
+spec-house-null-a12ip:       oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 626.2 ms, drafter 0.0 ms, rest of the host 0.8 ms; 408.3 tok/s against 4E's 220.6 (x1.851)
+spec-house-null-a12ip: 
+spec-house-null-a12ip:           null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2454.6 ms, drafter 0.0 ms, rest of the host 1.0 ms; 104.3 tok/s against 4E's 220.3 (x0.473)
+spec-house-null-a12ip:       oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 626.6 ms, drafter 0.0 ms, rest of the host 0.6 ms; 408.1 tok/s against 4E's 220.3 (x1.853)
+spec-house-null-a12ip: 
+spec-house-null-a12ip:           null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2445.7 ms, drafter 0.0 ms, rest of the host 1.1 ms; 104.6 tok/s against 4E's 220.9 (x0.474)
+spec-house-null-a12ip:       oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 624.6 ms, drafter 0.0 ms, rest of the host 0.8 ms; 409.3 tok/s against 4E's 220.9 (x1.853)
+spec-house-null-a12ip: 
+spec-house-null-a12ip:           null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2447.5 ms, drafter 0.0 ms, rest of the host 1.0 ms; 104.6 tok/s against 4E's 221.0 (x0.473)
+spec-house-null-a12ip:       oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 624.9 ms, drafter 0.0 ms, rest of the host 0.6 ms; 409.2 tok/s against 4E's 221.0 (x1.852)
+spec-house-null-a12ip: 
+spec-house-null-a12ip:           null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2455.8 ms, drafter 0.0 ms, rest of the host 1.1 ms; 104.2 tok/s against 4E's 219.1 (x0.475)
+spec-house-null-a12ip:       oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 627.1 ms, drafter 0.0 ms, rest of the host 0.7 ms; 407.8 tok/s against 4E's 219.1 (x1.861)
+spec-house-null-a12ip: 
+spec-house-null-a12ip:           null: 234 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 234 passes; verify 2231.9 ms, drafter 0.0 ms, rest of the host 1.0 ms; 104.8 tok/s against 4E's 221.4 (x0.473)
+spec-house-null-a12ip:       oracle:3: 234 tokens, equal to the pass's greedy; 2.98 drafted tokens accepted a pass, 59 passes; verify 574.8 ms, drafter 0.0 ms, rest of the host 0.7 ms; 406.6 tok/s against 4E's 221.4 (x1.837)
+spec-house-null-a12ip: 
+spec-house-null-a12ip:           null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2449.0 ms, drafter 0.0 ms, rest of the host 1.1 ms; 104.5 tok/s against 4E's 220.5 (x0.474)
+spec-house-null-a12ip:       oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 626.0 ms, drafter 0.0 ms, rest of the host 0.8 ms; 408.4 tok/s against 4E's 220.5 (x1.852)
+spec-house-null-a12ip: 
+spec-house-null-a12ip:           null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2438.3 ms, drafter 0.0 ms, rest of the host 1.1 ms; 104.9 tok/s against 4E's 221.9 (x0.473)
+spec-house-null-a12ip:       oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 623.2 ms, drafter 0.0 ms, rest of the host 0.7 ms; 410.3 tok/s against 4E's 221.9 (x1.849)
+spec-house-null-a12ip: 
+spec-house-null-a12ip:           null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2452.4 ms, drafter 0.0 ms, rest of the host 1.1 ms; 104.3 tok/s against 4E's 220.1 (x0.474)
+spec-house-null-a12ip:       oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 626.2 ms, drafter 0.0 ms, rest of the host 0.7 ms; 408.4 tok/s against 4E's 220.1 (x1.855)
+spec-house-null-a12ip: 
+spec-house-null-a12ip:           null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2437.2 ms, drafter 0.0 ms, rest of the host 0.9 ms; 105.0 tok/s against 4E's 222.4 (x0.472)
+spec-house-null-a12ip:       oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 623.5 ms, drafter 0.0 ms, rest of the host 0.6 ms; 410.1 tok/s against 4E's 222.4 (x1.845)
+spec-house-null-a12ip: 
+spec-house-null-a12ip:           null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2438.8 ms, drafter 0.0 ms, rest of the host 0.9 ms; 104.9 tok/s against 4E's 221.7 (x0.473)
+spec-house-null-a12ip:       oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 623.5 ms, drafter 0.0 ms, rest of the host 0.7 ms; 410.2 tok/s against 4E's 221.7 (x1.850)
+spec-house-null-a12ip: 
+spec-house-null-a12ip:           null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2433.8 ms, drafter 0.0 ms, rest of the host 1.0 ms; 105.1 tok/s against 4E's 221.2 (x0.475)
+spec-house-null-a12ip:       oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 621.8 ms, drafter 0.0 ms, rest of the host 0.6 ms; 411.3 tok/s against 4E's 221.2 (x1.859)
+spec-house-null-a12ip: 
+spec-house-null-a12ip:           null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2437.2 ms, drafter 0.0 ms, rest of the host 1.0 ms; 105.0 tok/s against 4E's 220.1 (x0.477)
+spec-house-null-a12ip:       oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 622.6 ms, drafter 0.0 ms, rest of the host 0.6 ms; 410.8 tok/s against 4E's 220.1 (x1.867)
+spec-house-null-a12ip: 
+spec-house-null-a12ip:           null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2438.9 ms, drafter 0.0 ms, rest of the host 0.9 ms; 104.9 tok/s against 4E's 219.3 (x0.478)
+spec-house-null-a12ip:       oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 623.0 ms, drafter 0.0 ms, rest of the host 0.6 ms; 410.5 tok/s against 4E's 219.3 (x1.872)
+spec-house-null-a12ip: 
+spec-house-null-a12ip:           null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2439.8 ms, drafter 0.0 ms, rest of the host 1.0 ms; 104.9 tok/s against 4E's 220.1 (x0.476)
+spec-house-null-a12ip:       oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 623.3 ms, drafter 0.0 ms, rest of the host 0.6 ms; 410.4 tok/s against 4E's 220.1 (x1.864)
+spec-house-null-a12ip: 
+spec-house-null-a12ip:           null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2438.0 ms, drafter 0.0 ms, rest of the host 1.0 ms; 105.0 tok/s against 4E's 221.5 (x0.474)
+spec-house-null-a12ip:       oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 623.2 ms, drafter 0.0 ms, rest of the host 0.6 ms; 410.4 tok/s against 4E's 221.5 (x1.853)
+spec-house-null-a12ip: 
+spec-house-null-a12ip:           null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2432.2 ms, drafter 0.0 ms, rest of the host 0.9 ms; 105.2 tok/s against 4E's 222.9 (x0.472)
+spec-house-null-a12ip:       oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 620.7 ms, drafter 0.0 ms, rest of the host 0.4 ms; 412.1 tok/s against 4E's 222.9 (x1.849)
+spec-house-null-a12ip: 
+spec-house-null-a12ip:           null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2432.4 ms, drafter 0.0 ms, rest of the host 1.0 ms; 105.2 tok/s against 4E's 222.8 (x0.472)
+spec-house-null-a12ip:       oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 621.5 ms, drafter 0.0 ms, rest of the host 0.5 ms; 411.6 tok/s against 4E's 222.8 (x1.847)
+spec-house-null-a12ip: 
+spec-house-null-a12ip:           null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2432.6 ms, drafter 0.0 ms, rest of the host 1.0 ms; 105.2 tok/s against 4E's 223.0 (x0.472)
+spec-house-null-a12ip:       oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 621.7 ms, drafter 0.0 ms, rest of the host 0.5 ms; 411.4 tok/s against 4E's 223.0 (x1.845)
+spec-house-null-a12ip: 
+spec-house-null-a12ip:           null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2425.2 ms, drafter 0.0 ms, rest of the host 0.9 ms; 105.5 tok/s against 4E's 224.1 (x0.471)
+spec-house-null-a12ip:       oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 619.9 ms, drafter 0.0 ms, rest of the host 0.5 ms; 412.7 tok/s against 4E's 224.1 (x1.841)
+spec-house-null-a12ip: 
+spec-house-null-a12ip:           null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2433.7 ms, drafter 0.0 ms, rest of the host 1.0 ms; 105.1 tok/s against 4E's 222.7 (x0.472)
+spec-house-null-a12ip:       oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 621.6 ms, drafter 0.0 ms, rest of the host 0.5 ms; 411.5 tok/s against 4E's 222.7 (x1.848)
+spec-house-null-a12ip: 
+spec-house-null-a12ip:           null: 247 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 247 passes; verify 2338.3 ms, drafter 0.0 ms, rest of the host 0.9 ms; 105.6 tok/s against 4E's 224.4 (x0.471)
+spec-house-null-a12ip:       oracle:3: 247 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 62 passes; verify 600.3 ms, drafter 0.0 ms, rest of the host 0.4 ms; 411.2 tok/s against 4E's 224.4 (x1.832)
+spec-house-null-a12ip: 
+spec-house-null-a12ip:           null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2426.6 ms, drafter 0.0 ms, rest of the host 0.9 ms; 105.5 tok/s against 4E's 223.9 (x0.471)
+spec-house-null-a12ip:       oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 619.8 ms, drafter 0.0 ms, rest of the host 0.5 ms; 412.7 tok/s against 4E's 223.9 (x1.843)
+spec-house-null-a12ip: 
+spec-house-null-a12ip:           null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2435.7 ms, drafter 0.0 ms, rest of the host 1.0 ms; 105.1 tok/s against 4E's 223.1 (x0.471)
+spec-house-null-a12ip:       oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 622.2 ms, drafter 0.0 ms, rest of the host 0.5 ms; 411.1 tok/s against 4E's 223.1 (x1.843)
+spec-house-null-a12ip: 
+spec-house-null-a12ip:           null: 167 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 167 passes; verify 1574.3 ms, drafter 0.0 ms, rest of the host 0.6 ms; 106.0 tok/s against 4E's 226.3 (x0.469)
+spec-house-null-a12ip:       oracle:3: 167 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 42 passes; verify 404.9 ms, drafter 0.0 ms, rest of the host 0.4 ms; 412.0 tok/s against 4E's 226.3 (x1.821)
+spec-house-null-a12ip: 
+spec-house-null-a12ip:           null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2424.8 ms, drafter 0.0 ms, rest of the host 0.8 ms; 105.5 tok/s against 4E's 224.1 (x0.471)
+spec-house-null-a12ip:       oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 620.2 ms, drafter 0.0 ms, rest of the host 0.5 ms; 412.4 tok/s against 4E's 224.1 (x1.841)
+spec-house-null-a12ip: 
+spec-house-null-a12ip:           null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2426.4 ms, drafter 0.0 ms, rest of the host 1.0 ms; 105.5 tok/s against 4E's 224.7 (x0.469)
+spec-house-null-a12ip:       oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 620.1 ms, drafter 0.0 ms, rest of the host 0.5 ms; 412.5 tok/s against 4E's 224.7 (x1.836)
+spec-house-null-a12ip: 
+spec-house-null-a12ip:           null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2425.2 ms, drafter 0.0 ms, rest of the host 0.9 ms; 105.5 tok/s against 4E's 224.2 (x0.471)
+spec-house-null-a12ip:       oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 620.1 ms, drafter 0.0 ms, rest of the host 0.5 ms; 412.5 tok/s against 4E's 224.2 (x1.840)
+spec-house-null-a12ip: 
+spec-house-null-a12ip:           null: 47 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 47 passes; verify 437.0 ms, drafter 0.0 ms, rest of the host 0.2 ms; 107.5 tok/s against 4E's 233.2 (x0.461)
+spec-house-null-a12ip:       oracle:3: 47 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 12 passes; verify 114.1 ms, drafter 0.0 ms, rest of the host 0.2 ms; 411.2 tok/s against 4E's 233.2 (x1.764)
+spec-house-null-a12ip: 
+spec-house-null-a12ip:           null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2522.2 ms, drafter 0.0 ms, rest of the host 3.0 ms; 101.4 tok/s against 4E's 213.6 (x0.475)
+spec-house-null-a12ip:       oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 698.6 ms, drafter 0.0 ms, rest of the host 2.4 ms; 365.2 tok/s against 4E's 213.6 (x1.710)
+spec-house-null-a12ip: 
+spec-house-null-a12ip:           null: 154 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 154 passes; verify 1517.7 ms, drafter 0.0 ms, rest of the host 2.5 ms; 101.3 tok/s against 4E's 213.7 (x0.474)
+spec-house-null-a12ip:       oracle:3: 154 tokens, equal to the pass's greedy; 2.97 drafted tokens accepted a pass, 39 passes; verify 425.2 ms, drafter 0.0 ms, rest of the host 2.2 ms; 360.3 tok/s against 4E's 213.7 (x1.686)
+spec-house-null-a12ip: 
+spec-house-null-a12ip:           null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2539.6 ms, drafter 0.0 ms, rest of the host 3.3 ms; 100.7 tok/s against 4E's 210.2 (x0.479)
+spec-house-null-a12ip:       oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 728.4 ms, drafter 0.0 ms, rest of the host 3.1 ms; 350.0 tok/s against 4E's 210.2 (x1.665)
+spec-house-null-a12ip: 
+spec-house-null-a12ip:           null: 199 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 199 passes; verify 1972.2 ms, drafter 0.0 ms, rest of the host 3.1 ms; 100.7 tok/s against 4E's 210.2 (x0.479)
+spec-house-null-a12ip:       oracle:3: 199 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 50 passes; verify 559.4 ms, drafter 0.0 ms, rest of the host 2.9 ms; 353.9 tok/s against 4E's 210.2 (x1.684)
+spec-house-null-a12ip: 
+spec-house-null-a12ip: agreement of the pass's greedy with 4E's greedy (reported, not a gate)
+spec-house-null-a12ip:    chat: 7 of 10 prompts in full agreement; 1756 of 2253 tokens before the first divergence
+spec-house-null-a12ip:    code: 10 of 10 prompts in full agreement; 2560 of 2560 tokens before the first divergence
+spec-house-null-a12ip:    math: 19 of 20 prompts in full agreement; 4919 of 4924 tokens before the first divergence
+spec-house-null-a12ip:     rag: 4 of 4 prompts in full agreement; 865 of 865 tokens before the first divergence
+spec-house-null-a12ip:     all: 40 of 44 prompts in full agreement; 10100 of 10602 tokens before the first divergence
+spec-house-null-a12ip:   gsm8k-test-0004: at 251: the pass's logits: 31.09375 for 11, 31.09375 for 279, margin 0.0000
+spec-house-null-a12ip:   chat-02: at 84: the pass's logits: 33 for 11, 32.96875 for 518, margin 0.0312
+spec-house-null-a12ip:   chat-03: at 107: the pass's logits: 27.59375 for 4751, 27.578125 for 382, margin 0.0156
+spec-house-null-a12ip:   chat-07: at 71: the pass's logits: 24.859375 for 326, 24.859375 for 6185, margin 0.0000
+spec-house-null-a12ip: 
+spec-house-null-a12ip: aggregates (tok/s = total tokens over total wall; x greedy likewise, against 4E's greedy on its own text; median over prompts with its range)
+spec-house-null-a12ip: config null: arm a12ip@8.10.8.20.6 (A12ip), plan [8, 10, 8, 20, 6], 384 threads, row cap 16, drafter revision -, dtype -, shape none (R = 1), N 256
+spec-house-null-a12ip:           null  chat: 10 prompts, 2253 tokens, 10 of 10 equal to the pass's greedy; 0.00 accepted a pass, histogram 0..15 [2253, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; 105.5 tok/s, greedy 224.3, x0.470; per prompt x0.471 [0.461-0.472]; verify 100 %, drafter 0 % of the wall
+spec-house-null-a12ip:           null  code: 10 prompts, 2560 tokens, 10 of 10 equal to the pass's greedy; 0.00 accepted a pass, histogram 0..15 [2560, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; 105.0 tok/s, greedy 221.5, x0.474; per prompt x0.474 [0.472-0.478]; verify 100 %, drafter 0 % of the wall
+spec-house-null-a12ip:           null  math: 20 prompts, 4924 tokens, 20 of 20 equal to the pass's greedy; 0.00 accepted a pass, histogram 0..15 [4924, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; 104.5 tok/s, greedy 220.9, x0.473; per prompt x0.473 [0.470-0.475]; verify 100 %, drafter 0 % of the wall
+spec-house-null-a12ip:           null   rag: 4 prompts, 865 tokens, 4 of 4 equal to the pass's greedy; 0.00 accepted a pass, histogram 0..15 [865, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; 101.0 tok/s, greedy 211.8, x0.477; per prompt x0.477 [0.474-0.479]; verify 100 %, drafter 0 % of the wall
+spec-house-null-a12ip:           null   all: 44 prompts, 10602 tokens, 44 of 44 equal to the pass's greedy; 0.00 accepted a pass, histogram 0..15 [10602, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; 104.6 tok/s, greedy 221.0, x0.473; per prompt x0.473 [0.461-0.479]; verify 100 %, drafter 0 % of the wall
+spec-house-null-a12ip: config oracle:3: arm a12ip@8.10.8.20.6 (A12ip), plan [8, 10, 8, 20, 6], 384 threads, row cap 16, drafter revision -, dtype -, shape oracle chain of 4 (3 correct), N 256
+spec-house-null-a12ip:       oracle:3  chat: 10 prompts, 2253 tokens, 10 of 10 equal to the pass's greedy; 3.00 accepted a pass, histogram 0..15 [0, 0, 0, 564, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; 412.1 tok/s, greedy 224.3, x1.837; per prompt x1.840 [1.764-1.848]; verify 100 %, drafter 0 % of the wall
+spec-house-null-a12ip:       oracle:3  code: 10 prompts, 2560 tokens, 10 of 10 equal to the pass's greedy; 3.00 accepted a pass, histogram 0..15 [0, 0, 0, 640, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; 410.9 tok/s, greedy 221.5, x1.855; per prompt x1.851 [1.845-1.872]; verify 100 %, drafter 0 % of the wall
+spec-house-null-a12ip:       oracle:3  math: 20 prompts, 4924 tokens, 20 of 20 equal to the pass's greedy; 3.00 accepted a pass, histogram 0..15 [0, 0, 2, 1230, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; 408.7 tok/s, greedy 220.9, x1.850; per prompt x1.852 [1.809-1.861]; verify 100 %, drafter 0 % of the wall
+spec-house-null-a12ip:       oracle:3   rag: 4 prompts, 865 tokens, 4 of 4 equal to the pass's greedy; 3.00 accepted a pass, histogram 0..15 [0, 0, 1, 216, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; 357.1 tok/s, greedy 211.8, x1.686; per prompt x1.685 [1.665-1.710]; verify 100 %, drafter 0 % of the wall
+spec-house-null-a12ip:       oracle:3   all: 44 prompts, 10602 tokens, 44 of 44 equal to the pass's greedy; 3.00 accepted a pass, histogram 0..15 [0, 0, 3, 2650, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; 405.1 tok/s, greedy 221.0, x1.834; per prompt x1.849 [1.665-1.872]; verify 100 %, drafter 0 % of the wall
+spec-house-null-a12ip: vram house-null-a12ip idle 0 MiB peak 2697 MiB
+spec-house-null-a12ip: specbench house null a12ip exit 0
+spec-gsm200-ip: 4E tree: module 306060 bytes, sha256 ce1c354d2583eb178ae8622ff99e10f9b457543972bb5039ce89ede9eec31e44, row form 7 and pers_4et.cu, its own module
+spec-gsm200-ip: 4E tree: pers_4et_rows_f1_t512: 128 registers, 720 B local, 89984 B shared, 1 resident a SM
+spec-gsm200-ip: 4E tree: arm a12ip@8.10.8.20.6 (a12ip (a12 on the served words, read in place, no copy), an explicit plan): slices [8, 10, 8, 20, 6]; S, units, waves, fill, sub-steps a slice at most: q/k/v 8 272 2 95.8 % 7, o 10 140 1 98.6 % 9, gate/up 8 816 6 95.8 % 7, down 20 280 2 98.6 % 11, head 6 4752 34 98.4 % 9
+spec-gsm200-ip: 4E tree: arm a12ip@8.10.8.20.6 at 384 threads (12 warps): area 14944 floats, 78848 B shared, 12 sub-steps a slice at most
+spec-gsm200-ip: 4E tree: the stream unit's slices hold at most 13 sub-steps (area 17728 floats, 16 warps, 32 staged rows)
+spec-gsm200-ip: 4E tree: 512 threads, 17728 floats of area; 0.153 GB of row buffers
+spec-gsm200-ip: 4E tree a12ip: module 421571 bytes, sha256 5b283349cf4c7c7dbc1b4db1dbaec875447e3a3e54715fa6c38aad9f8729c7f9, P4T_A12IP 1 beside a12's text, its own module
+spec-gsm200-ip: 4E tree a12ip: pers_4et_a12ip_f1_t384: 168 registers, 744 B local, 78848 B shared, 1 resident a SM
+spec-gsm200-ip: 4E tree tiled: 0 tree-tiled copies (q, k, v, o, gate, up, down a layer, the head), 0.000 GB more on the card
+spec-gsm200-ip: 4E tree a12ip: 253 projections read in place, 1.295 GB, the words 4E and the eager path hold; every lane's words equal to the tree-tiled copy's on each (p4t_ip_check, each copy freed after its check); 0 copies held for the other arms
+spec-gsm200-ip: card memory: 2.116 GB used of 47.666 GB after the target's load, its 4E install and the verify pass's install, before the drafter (cuMemGetInfo)
+spec-gsm200-ip: arm a12ip@8.10.8.20.6: A12ip kernel, slices [8, 10, 8, 20, 6], 384 threads, row cap 16; taps on; N 768
+spec-gsm200-ip: loaded in 241.6 s
+spec-gsm200-ip: drafter /tmp/dflash-b74e3a329c4d963783143b1e970d95b002be72bd (1192.9 MB, F16), loaded in 13.1 s; vocab q4: the target's int4 g64 table (218.8 MB, already resident), gather emb_q4_gather, head tv_q4_mma; no dense copy
+spec-gsm200-ip: card memory: 3.324 GB used of 47.666 GB after the drafter's load, before the first prompt (cuMemGetInfo)
+spec-gsm200-ip: template: the assistant opening with thinking off is [151644, 77091, 198, 151667, 271, 151668, 271]; the HF tokenizer on the rendered Qwen3 template (the served door's) gives <think>, 271, </think>, 271 (151667 271 151668 271), not 198 198; eos 151645 (<|im_end|>)
+spec-gsm200-ip: prompts: 200 from /usr/local/share/llvq/spec-gsm8k-200.jsonl; 0 discarded and 1 timed runs a prompt
+spec-gsm200-ip: equality: every drafter against the pass's own greedy (the null drafter, R = 1), a hard gate; the pass's greedy against 4E's greedy, reported only. Past a divergence from 4E the texts differ, and tok/s and acceptance there are measured on the pass's own text
+spec-gsm200-ip: control: one 64-token 4E launch against two chained 32-token launches on gsm8k-test-0000: the same 64 tokens
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 325 tokens, equal to the pass's greedy; 5.15 drafted tokens accepted a pass, 53 passes; verify 574.6 ms, drafter 229.8 ms, rest of the host 1.1 ms; 403.5 tok/s against 4E's 220.2 (x1.833)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 57.1, block 101.5, head 39.6, readout 26.7; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 192 tokens, equal to the pass's greedy; 4.39 drafted tokens accepted a pass, 36 passes; verify 372.7 ms, drafter 129.9 ms, rest of the host 0.7 ms; 381.5 tok/s against 4E's 225.0 (x1.695)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 15.8, block 68.5, head 26.8, readout 18.1; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 761 tokens, equal to the pass's greedy; 5.10 drafted tokens accepted a pass, 125 passes; verify 1439.0 ms, drafter 447.8 ms, rest of the host 1.9 ms; 402.9 tok/s against 4E's 217.9 (x1.849)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 52.7, block 237.5, head 93.1, readout 62.3; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 146 tokens, equal to the pass's greedy; 4.10 drafted tokens accepted a pass, 29 passes; verify 299.4 ms, drafter 103.6 ms, rest of the host 0.5 ms; 361.8 tok/s against 4E's 225.3 (x1.606)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 12.6, block 54.4, head 21.6, readout 14.4; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 325 tokens, equal to the pass's greedy; 5.15 drafted tokens accepted a pass, 53 passes; verify 581.0 ms, drafter 190.1 ms, rest of the host 1.0 ms; 420.9 tok/s against 4E's 218.1 (x1.930)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 23.0, block 100.2, head 39.5, readout 26.4; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 574 tokens, equal to the pass's greedy; 5.70 drafted tokens accepted a pass, 86 passes; verify 963.5 ms, drafter 363.8 ms, rest of the host 1.7 ms; 431.9 tok/s against 4E's 218.3 (x1.978)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 83.4, block 164.3, head 64.4, readout 43.6; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 275 tokens, equal to the pass's greedy; 6.49 drafted tokens accepted a pass, 37 passes; verify 395.9 ms, drafter 154.3 ms, rest of the host 0.9 ms; 499.1 tok/s against 4E's 221.2 (x2.257)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 35.2, block 69.4, head 27.7, readout 18.6; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 455 tokens, equal to the pass's greedy; 3.76 drafted tokens accepted a pass, 96 passes; verify 1071.9 ms, drafter 344.1 ms, rest of the host 1.6 ms; 321.0 tok/s against 4E's 218.1 (x1.472)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 40.3, block 182.6, head 71.6, readout 47.9; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 466 tokens, equal to the pass's greedy; 5.31 drafted tokens accepted a pass, 74 passes; verify 833.0 ms, drafter 306.9 ms, rest of the host 1.6 ms; 408.2 tok/s against 4E's 217.0 (x1.881)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 67.6, block 140.4, head 55.3, readout 36.9; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 319 tokens, equal to the pass's greedy; 4.84 drafted tokens accepted a pass, 55 passes; verify 595.3 ms, drafter 254.8 ms, rest of the host 1.1 ms; 374.8 tok/s against 4E's 219.2 (x1.709)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 51.2, block 104.1, head 41.3, readout 27.7; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 351 tokens, equal to the pass's greedy; 6.35 drafted tokens accepted a pass, 48 passes; verify 523.4 ms, drafter 171.9 ms, rest of the host 1.0 ms; 504.1 tok/s against 4E's 218.9 (x2.303)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 21.1, block 90.1, head 35.8, readout 24.1; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 288 tokens, equal to the pass's greedy; 7.06 drafted tokens accepted a pass, 36 passes; verify 386.6 ms, drafter 152.4 ms, rest of the host 0.9 ms; 533.4 tok/s against 4E's 219.3 (x2.432)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 36.5, block 67.5, head 27.0, readout 18.1; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 424 tokens, equal to the pass's greedy; 4.90 drafted tokens accepted a pass, 72 passes; verify 791.7 ms, drafter 257.3 ms, rest of the host 1.2 ms; 403.7 tok/s against 4E's 216.9 (x1.861)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 30.8, block 135.6, head 53.7, readout 35.9; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 727 tokens, equal to the pass's greedy; 6.52 drafted tokens accepted a pass, 97 passes; verify 1110.2 ms, drafter 349.3 ms, rest of the host 2.0 ms; 497.4 tok/s against 4E's 215.7 (x2.306)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 42.2, block 184.4, head 72.3, readout 48.5; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 336 tokens, equal to the pass's greedy; 5.63 drafted tokens accepted a pass, 51 passes; verify 548.7 ms, drafter 182.0 ms, rest of the host 1.1 ms; 459.1 tok/s against 4E's 219.5 (x2.091)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 22.2, block 95.5, head 38.0, readout 25.5; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 430 tokens, equal to the pass's greedy; 5.00 drafted tokens accepted a pass, 72 passes; verify 792.5 ms, drafter 297.9 ms, rest of the host 1.4 ms; 393.8 tok/s against 4E's 217.5 (x1.811)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 65.2, block 135.5, head 53.7, readout 36.1; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 234 tokens, equal to the pass's greedy; 5.69 drafted tokens accepted a pass, 35 passes; verify 374.3 ms, drafter 173.2 ms, rest of the host 0.9 ms; 426.7 tok/s against 4E's 221.5 (x1.926)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 34.4, block 65.6, head 29.3, readout 17.6; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 337 tokens, equal to the pass's greedy; 5.78 drafted tokens accepted a pass, 50 passes; verify 537.1 ms, drafter 178.6 ms, rest of the host 1.1 ms; 470.2 tok/s against 4E's 219.7 (x2.140)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 21.5, block 93.9, head 37.3, readout 25.0; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 447 tokens, equal to the pass's greedy; 3.77 drafted tokens accepted a pass, 94 passes; verify 1032.0 ms, drafter 461.6 ms, rest of the host 1.5 ms; 299.0 tok/s against 4E's 219.5 (x1.362)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 85.5, block 177.5, head 78.8, readout 47.2; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 436 tokens, equal to the pass's greedy; 5.17 drafted tokens accepted a pass, 71 passes; verify 777.3 ms, drafter 351.4 ms, rest of the host 1.5 ms; 385.8 tok/s against 4E's 218.8 (x1.763)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 66.5, block 133.6, head 61.0, readout 35.7; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 635 tokens, equal to the pass's greedy; 4.78 drafted tokens accepted a pass, 110 passes; verify 1250.3 ms, drafter 393.8 ms, rest of the host 1.8 ms; 385.8 tok/s against 4E's 218.1 (x1.769)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 46.8, block 208.0, head 82.1, readout 54.8; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 538 tokens, equal to the pass's greedy; 4.56 drafted tokens accepted a pass, 97 passes; verify 1088.9 ms, drafter 346.9 ms, rest of the host 1.7 ms; 374.3 tok/s against 4E's 219.3 (x1.707)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 41.2, block 183.2, head 72.3, readout 48.5; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 243 tokens, equal to the pass's greedy; 5.62 drafted tokens accepted a pass, 37 passes; verify 398.6 ms, drafter 155.0 ms, rest of the host 0.8 ms; 438.3 tok/s against 4E's 221.6 (x1.978)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 34.5, block 69.4, head 27.6, readout 20.2; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 299 tokens, equal to the pass's greedy; 5.00 drafted tokens accepted a pass, 50 passes; verify 536.2 ms, drafter 178.8 ms, rest of the host 1.0 ms; 417.6 tok/s against 4E's 221.3 (x1.887)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 21.7, block 93.7, head 37.3, readout 25.1; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 214 tokens, equal to the pass's greedy; 6.17 drafted tokens accepted a pass, 30 passes; verify 314.3 ms, drafter 128.0 ms, rest of the host 0.7 ms; 482.9 tok/s against 4E's 223.1 (x2.165)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 28.6, block 56.1, head 22.5, readout 15.6; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 768 tokens, equal to the pass's greedy; 7.12 drafted tokens accepted a pass, 95 passes; verify 1093.9 ms, drafter 341.3 ms, rest of the host 1.9 ms; 534.4 tok/s against 4E's 217.6 (x2.456)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 41.4, block 179.8, head 70.8, readout 47.4; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 267 tokens, equal to the pass's greedy; 5.87 drafted tokens accepted a pass, 39 passes; verify 419.8 ms, drafter 139.6 ms, rest of the host 0.8 ms; 476.6 tok/s against 4E's 220.7 (x2.160)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 17.1, block 73.1, head 29.0, readout 19.5; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 282 tokens, equal to the pass's greedy; 5.02 drafted tokens accepted a pass, 47 passes; verify 503.6 ms, drafter 168.0 ms, rest of the host 0.9 ms; 419.3 tok/s against 4E's 220.8 (x1.899)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 20.5, block 88.0, head 35.1, readout 23.6; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 238 tokens, equal to the pass's greedy; 6.47 drafted tokens accepted a pass, 32 passes; verify 339.4 ms, drafter 114.6 ms, rest of the host 0.8 ms; 523.3 tok/s against 4E's 222.1 (x2.356)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 14.3, block 59.8, head 23.9, readout 16.0; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 221 tokens, equal to the pass's greedy; 5.53 drafted tokens accepted a pass, 34 passes; verify 359.0 ms, drafter 121.4 ms, rest of the host 0.7 ms; 459.4 tok/s against 4E's 221.6 (x2.073)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 15.0, block 63.4, head 25.4, readout 16.9; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 277 tokens, equal to the pass's greedy; 7.72 drafted tokens accepted a pass, 32 passes; verify 339.9 ms, drafter 138.3 ms, rest of the host 0.8 ms; 578.2 tok/s against 4E's 221.8 (x2.607)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 33.1, block 59.7, head 23.9, readout 16.0; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 359 tokens, equal to the pass's greedy; 5.94 drafted tokens accepted a pass, 52 passes; verify 564.1 ms, drafter 217.3 ms, rest of the host 1.1 ms; 458.8 tok/s against 4E's 219.7 (x2.088)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 49.1, block 97.6, head 38.9, readout 26.9; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 217 tokens, equal to the pass's greedy; 4.32 drafted tokens accepted a pass, 41 passes; verify 429.4 ms, drafter 202.0 ms, rest of the host 0.7 ms; 343.3 tok/s against 4E's 223.1 (x1.539)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 39.1, block 76.5, head 34.3, readout 20.6; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 268 tokens, equal to the pass's greedy; 7.18 drafted tokens accepted a pass, 33 passes; verify 349.9 ms, drafter 163.2 ms, rest of the host 0.8 ms; 521.5 tok/s against 4E's 222.1 (x2.348)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 32.4, block 61.5, head 27.7, readout 16.6; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 210 tokens, equal to the pass's greedy; 6.28 drafted tokens accepted a pass, 29 passes; verify 304.4 ms, drafter 140.5 ms, rest of the host 0.7 ms; 471.3 tok/s against 4E's 223.2 (x2.111)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 28.2, block 54.2, head 21.7, readout 14.6; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 294 tokens, equal to the pass's greedy; 5.58 drafted tokens accepted a pass, 45 passes; verify 483.2 ms, drafter 225.7 ms, rest of the host 1.1 ms; 414.1 tok/s against 4E's 220.8 (x1.875)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 43.6, block 84.7, head 40.1, readout 22.7; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 265 tokens, equal to the pass's greedy; 5.19 drafted tokens accepted a pass, 43 passes; verify 459.8 ms, drafter 211.8 ms, rest of the host 0.8 ms; 394.1 tok/s against 4E's 221.7 (x1.778)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 40.1, block 80.2, head 37.1, readout 21.6; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 338 tokens, equal to the pass's greedy; 3.99 drafted tokens accepted a pass, 68 passes; verify 745.3 ms, drafter 335.6 ms, rest of the host 1.1 ms; 312.4 tok/s against 4E's 219.9 (x1.421)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 59.4, block 127.7, head 56.9, readout 34.0; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 491 tokens, equal to the pass's greedy; 5.32 drafted tokens accepted a pass, 78 passes; verify 865.1 ms, drafter 329.1 ms, rest of the host 1.4 ms; 410.7 tok/s against 4E's 218.9 (x1.876)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 78.1, block 146.6, head 58.2, readout 38.9; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 525 tokens, equal to the pass's greedy; 5.67 drafted tokens accepted a pass, 79 passes; verify 883.6 ms, drafter 283.4 ms, rest of the host 1.5 ms; 449.3 tok/s against 4E's 218.2 (x2.059)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 34.1, block 149.3, head 58.9, readout 39.5; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 252 tokens, equal to the pass's greedy; 5.84 drafted tokens accepted a pass, 37 passes; verify 390.8 ms, drafter 132.4 ms, rest of the host 0.7 ms; 481.0 tok/s against 4E's 221.9 (x2.168)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 16.5, block 69.0, head 27.6, readout 18.5; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 411 tokens, equal to the pass's greedy; 4.64 drafted tokens accepted a pass, 73 passes; verify 819.3 ms, drafter 261.6 ms, rest of the host 1.4 ms; 379.7 tok/s against 4E's 217.4 (x1.747)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 31.4, block 137.9, head 54.4, readout 36.6; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 219 tokens, equal to the pass's greedy; 5.47 drafted tokens accepted a pass, 34 passes; verify 362.9 ms, drafter 146.2 ms, rest of the host 0.8 ms; 429.5 tok/s against 4E's 220.7 (x1.946)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 33.4, block 64.0, head 28.5, readout 17.1; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 415 tokens, equal to the pass's greedy; 4.86 drafted tokens accepted a pass, 71 passes; verify 778.4 ms, drafter 252.7 ms, rest of the host 1.1 ms; 402.1 tok/s against 4E's 218.8 (x1.837)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 30.3, block 132.8, head 52.9, readout 35.4; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 341 tokens, equal to the pass's greedy; 5.00 drafted tokens accepted a pass, 57 passes; verify 623.4 ms, drafter 238.8 ms, rest of the host 1.1 ms; 395.0 tok/s against 4E's 218.9 (x1.804)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 55.0, block 107.1, head 42.5, readout 28.7; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 315 tokens, equal to the pass's greedy; 5.32 drafted tokens accepted a pass, 50 passes; verify 545.9 ms, drafter 210.0 ms, rest of the host 1.1 ms; 416.1 tok/s against 4E's 218.5 (x1.905)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 48.4, block 94.1, head 37.4, readout 25.2; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 370 tokens, equal to the pass's greedy; 4.55 drafted tokens accepted a pass, 67 passes; verify 738.4 ms, drafter 329.3 ms, rest of the host 1.3 ms; 346.1 tok/s against 4E's 218.0 (x1.587)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 61.2, block 126.4, head 56.3, readout 33.6; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 437 tokens, equal to the pass's greedy; 7.78 drafted tokens accepted a pass, 50 passes; verify 551.3 ms, drafter 249.5 ms, rest of the host 1.3 ms; 544.8 tok/s against 4E's 219.0 (x2.488)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 50.1, block 94.0, head 41.9, readout 25.1; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 200 tokens, equal to the pass's greedy; 4.91 drafted tokens accepted a pass, 34 passes; verify 353.3 ms, drafter 144.4 ms, rest of the host 0.6 ms; 401.4 tok/s against 4E's 223.2 (x1.798)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 32.0, block 63.4, head 25.3, readout 17.0; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 239 tokens, equal to the pass's greedy; 8.60 drafted tokens accepted a pass, 25 passes; verify 264.6 ms, drafter 105.6 ms, rest of the host 0.7 ms; 644.5 tok/s against 4E's 221.6 (x2.908)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 25.3, block 46.7, head 18.7, readout 12.6; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 227 tokens, equal to the pass's greedy; 3.65 drafted tokens accepted a pass, 49 passes; verify 515.4 ms, drafter 237.7 ms, rest of the host 0.8 ms; 301.1 tok/s against 4E's 222.3 (x1.355)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 45.2, block 91.6, head 36.7, readout 24.8; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 274 tokens, equal to the pass's greedy; 5.13 drafted tokens accepted a pass, 45 passes; verify 480.8 ms, drafter 221.6 ms, rest of the host 0.9 ms; 389.6 tok/s against 4E's 220.5 (x1.767)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 42.7, block 84.4, head 37.7, readout 22.6; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 439 tokens, equal to the pass's greedy; 5.88 drafted tokens accepted a pass, 64 passes; verify 710.0 ms, drafter 312.3 ms, rest of the host 1.2 ms; 428.9 tok/s against 4E's 217.9 (x1.969)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 63.1, block 120.2, head 47.9, readout 32.2; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 288 tokens, equal to the pass's greedy; 5.74 drafted tokens accepted a pass, 43 passes; verify 472.3 ms, drafter 154.3 ms, rest of the host 1.0 ms; 458.8 tok/s against 4E's 218.3 (x2.102)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 18.9, block 80.8, head 32.1, readout 21.6; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 292 tokens, equal to the pass's greedy; 4.43 drafted tokens accepted a pass, 54 passes; verify 590.5 ms, drafter 227.0 ms, rest of the host 1.1 ms; 356.7 tok/s against 4E's 217.7 (x1.638)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 51.1, block 101.2, head 42.7, readout 27.1; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 179 tokens, equal to the pass's greedy; 5.00 drafted tokens accepted a pass, 30 passes; verify 312.7 ms, drafter 107.4 ms, rest of the host 0.6 ms; 425.5 tok/s against 4E's 221.8 (x1.919)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 13.3, block 56.1, head 22.4, readout 15.0; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 147 tokens, equal to the pass's greedy; 3.97 drafted tokens accepted a pass, 30 passes; verify 311.4 ms, drafter 106.9 ms, rest of the host 0.5 ms; 351.0 tok/s against 4E's 222.1 (x1.580)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 13.0, block 56.0, head 22.3, readout 15.0; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 389 tokens, equal to the pass's greedy; 6.22 drafted tokens accepted a pass, 54 passes; verify 594.0 ms, drafter 226.2 ms, rest of the host 1.1 ms; 473.6 tok/s against 4E's 216.3 (x2.189)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 52.6, block 101.3, head 40.4, readout 27.0; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 280 tokens, equal to the pass's greedy; 5.27 drafted tokens accepted a pass, 45 passes; verify 489.1 ms, drafter 228.6 ms, rest of the host 1.1 ms; 389.6 tok/s against 4E's 217.0 (x1.795)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 44.5, block 84.4, head 37.8, readout 22.7; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 221 tokens, equal to the pass's greedy; 5.34 drafted tokens accepted a pass, 35 passes; verify 366.5 ms, drafter 125.2 ms, rest of the host 0.6 ms; 448.9 tok/s against 4E's 220.2 (x2.039)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 15.5, block 65.4, head 26.1, readout 17.6; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 396 tokens, equal to the pass's greedy; 5.73 drafted tokens accepted a pass, 59 passes; verify 643.5 ms, drafter 250.8 ms, rest of the host 1.2 ms; 442.2 tok/s against 4E's 217.3 (x2.035)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 57.9, block 110.6, head 44.2, readout 29.7; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 183 tokens, equal to the pass's greedy; 5.38 drafted tokens accepted a pass, 29 passes; verify 306.5 ms, drafter 119.9 ms, rest of the host 0.7 ms; 428.5 tok/s against 4E's 221.0 (x1.939)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 26.9, block 54.3, head 21.6, readout 14.5; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 579 tokens, equal to the pass's greedy; 5.38 drafted tokens accepted a pass, 91 passes; verify 1038.2 ms, drafter 383.0 ms, rest of the host 1.6 ms; 407.0 tok/s against 4E's 216.6 (x1.879)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 86.8, block 171.9, head 67.9, readout 47.1; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 389 tokens, equal to the pass's greedy; 5.72 drafted tokens accepted a pass, 58 passes; verify 635.9 ms, drafter 244.4 ms, rest of the host 1.1 ms; 441.4 tok/s against 4E's 218.2 (x2.022)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 55.4, block 108.8, head 43.3, readout 31.6; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 269 tokens, equal to the pass's greedy; 6.32 drafted tokens accepted a pass, 37 passes; verify 400.9 ms, drafter 182.1 ms, rest of the host 0.9 ms; 460.7 tok/s against 4E's 218.9 (x2.104)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 36.3, block 69.4, head 27.6, readout 18.6; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 237 tokens, equal to the pass's greedy; 4.83 drafted tokens accepted a pass, 41 passes; verify 432.6 ms, drafter 169.8 ms, rest of the host 1.0 ms; 392.8 tok/s against 4E's 221.6 (x1.772)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 38.0, block 76.7, head 30.5, readout 20.6; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 312 tokens, equal to the pass's greedy; 5.41 drafted tokens accepted a pass, 49 passes; verify 531.8 ms, drafter 205.1 ms, rest of the host 1.0 ms; 422.8 tok/s against 4E's 219.8 (x1.924)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 47.8, block 91.8, head 36.7, readout 24.5; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 303 tokens, equal to the pass's greedy; 6.82 drafted tokens accepted a pass, 39 passes; verify 420.8 ms, drafter 188.5 ms, rest of the host 0.9 ms; 496.6 tok/s against 4E's 220.1 (x2.256)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 37.2, block 72.9, head 29.1, readout 19.6; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 275 tokens, equal to the pass's greedy; 7.66 drafted tokens accepted a pass, 32 passes; verify 344.4 ms, drafter 159.1 ms, rest of the host 0.7 ms; 545.4 tok/s against 4E's 221.4 (x2.463)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 32.1, block 59.9, head 26.8, readout 16.2; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 218 tokens, equal to the pass's greedy; 5.64 drafted tokens accepted a pass, 33 passes; verify 346.3 ms, drafter 138.6 ms, rest of the host 0.8 ms; 448.9 tok/s against 4E's 221.9 (x2.023)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 32.2, block 62.0, head 24.7, readout 16.7; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 385 tokens, equal to the pass's greedy; 4.13 drafted tokens accepted a pass, 75 passes; verify 810.2 ms, drafter 266.2 ms, rest of the host 1.1 ms; 357.3 tok/s against 4E's 219.0 (x1.631)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 31.5, block 140.2, head 55.8, readout 37.4; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 195 tokens, equal to the pass's greedy; 5.53 drafted tokens accepted a pass, 30 passes; verify 314.3 ms, drafter 107.2 ms, rest of the host 0.6 ms; 462.0 tok/s against 4E's 222.9 (x2.073)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 13.4, block 55.9, head 22.4, readout 15.0; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 202 tokens, equal to the pass's greedy; 6.03 drafted tokens accepted a pass, 29 passes; verify 304.5 ms, drafter 103.6 ms, rest of the host 0.7 ms; 494.1 tok/s against 4E's 222.5 (x2.221)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 12.9, block 54.1, head 21.6, readout 14.5; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 393 tokens, equal to the pass's greedy; 5.35 drafted tokens accepted a pass, 62 passes; verify 674.2 ms, drafter 220.6 ms, rest of the host 1.1 ms; 438.7 tok/s against 4E's 219.2 (x2.002)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 26.6, block 115.8, head 46.2, readout 31.0; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 305 tokens, equal to the pass's greedy; 6.09 drafted tokens accepted a pass, 43 passes; verify 476.5 ms, drafter 182.6 ms, rest of the host 1.0 ms; 462.0 tok/s against 4E's 217.8 (x2.121)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 43.4, block 80.9, head 32.0, readout 22.4; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 333 tokens, equal to the pass's greedy; 5.82 drafted tokens accepted a pass, 49 passes; verify 531.4 ms, drafter 175.2 ms, rest of the host 1.0 ms; 470.6 tok/s against 4E's 219.3 (x2.146)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 21.4, block 91.9, head 36.5, readout 24.4; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 329 tokens, equal to the pass's greedy; 5.11 drafted tokens accepted a pass, 54 passes; verify 593.0 ms, drafter 228.8 ms, rest of the host 1.2 ms; 399.8 tok/s against 4E's 218.7 (x1.828)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 52.5, block 101.7, head 40.3, readout 29.1; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 323 tokens, equal to the pass's greedy; 8.56 drafted tokens accepted a pass, 34 passes; verify 366.2 ms, drafter 143.5 ms, rest of the host 0.9 ms; 632.6 tok/s against 4E's 220.2 (x2.873)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 34.0, block 63.7, head 25.5, readout 17.1; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 277 tokens, equal to the pass's greedy; 5.07 drafted tokens accepted a pass, 46 passes; verify 491.1 ms, drafter 219.8 ms, rest of the host 0.9 ms; 389.2 tok/s against 4E's 220.9 (x1.762)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 40.6, block 86.2, head 34.5, readout 23.2; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 150 tokens, equal to the pass's greedy; 5.33 drafted tokens accepted a pass, 24 passes; verify 249.0 ms, drafter 120.3 ms, rest of the host 0.8 ms; 405.3 tok/s against 4E's 223.7 (x1.812)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 24.4, block 45.1, head 20.3, readout 12.2; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 324 tokens, equal to the pass's greedy; 4.75 drafted tokens accepted a pass, 57 passes; verify 612.9 ms, drafter 274.4 ms, rest of the host 1.0 ms; 364.8 tok/s against 4E's 220.4 (x1.655)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 52.9, block 106.7, head 42.6, readout 28.6; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 261 tokens, equal to the pass's greedy; 5.26 drafted tokens accepted a pass, 42 passes; verify 450.1 ms, drafter 208.3 ms, rest of the host 1.0 ms; 395.8 tok/s against 4E's 220.6 (x1.794)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 39.9, block 79.1, head 35.5, readout 21.3; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 227 tokens, equal to the pass's greedy; 6.12 drafted tokens accepted a pass, 32 passes; verify 334.8 ms, drafter 155.0 ms, rest of the host 0.6 ms; 462.9 tok/s against 4E's 222.7 (x2.078)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 31.2, block 59.7, head 24.0, readout 16.1; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 172 tokens, equal to the pass's greedy; 6.86 drafted tokens accepted a pass, 22 passes; verify 227.8 ms, drafter 91.0 ms, rest of the host 0.6 ms; 538.5 tok/s against 4E's 224.3 (x2.400)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 20.3, block 41.2, head 16.4, readout 11.1; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 225 tokens, equal to the pass's greedy; 6.32 drafted tokens accepted a pass, 31 passes; verify 323.8 ms, drafter 110.9 ms, rest of the host 0.6 ms; 516.9 tok/s against 4E's 223.1 (x2.317)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 13.9, block 57.8, head 23.1, readout 15.5; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 187 tokens, equal to the pass's greedy; 3.27 drafted tokens accepted a pass, 44 passes; verify 465.6 ms, drafter 156.3 ms, rest of the host 0.8 ms; 300.3 tok/s against 4E's 221.4 (x1.356)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 18.7, block 82.0, head 32.8, readout 22.0; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 428 tokens, equal to the pass's greedy; 4.88 drafted tokens accepted a pass, 73 passes; verify 808.6 ms, drafter 260.2 ms, rest of the host 1.4 ms; 399.9 tok/s against 4E's 217.4 (x1.840)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 31.1, block 137.0, head 54.5, readout 36.3; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 613 tokens, equal to the pass's greedy; 4.43 drafted tokens accepted a pass, 113 passes; verify 1287.3 ms, drafter 469.6 ms, rest of the host 1.8 ms; 348.6 tok/s against 4E's 217.0 (x1.606)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 104.9, block 213.5, head 84.2, readout 56.4; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 203 tokens, equal to the pass's greedy; 6.03 drafted tokens accepted a pass, 29 passes; verify 304.5 ms, drafter 103.6 ms, rest of the host 0.6 ms; 496.7 tok/s against 4E's 222.5 (x2.233)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 12.9, block 54.0, head 21.6, readout 14.5; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 217 tokens, equal to the pass's greedy; 4.29 drafted tokens accepted a pass, 41 passes; verify 431.2 ms, drafter 170.4 ms, rest of the host 0.8 ms; 360.2 tok/s against 4E's 221.4 (x1.627)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 39.0, block 76.6, head 30.5, readout 20.6; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 320 tokens, equal to the pass's greedy; 5.42 drafted tokens accepted a pass, 50 passes; verify 544.6 ms, drafter 206.8 ms, rest of the host 1.1 ms; 425.3 tok/s against 4E's 217.4 (x1.957)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 45.7, block 94.0, head 37.4, readout 25.1; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 270 tokens, equal to the pass's greedy; 6.77 drafted tokens accepted a pass, 35 passes; verify 373.9 ms, drafter 171.6 ms, rest of the host 0.7 ms; 494.3 tok/s against 4E's 219.9 (x2.248)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 35.5, block 65.2, head 26.1, readout 17.7; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 374 tokens, equal to the pass's greedy; 7.74 drafted tokens accepted a pass, 43 passes; verify 471.1 ms, drafter 181.4 ms, rest of the host 1.1 ms; 572.2 tok/s against 4E's 217.7 (x2.629)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 42.8, block 80.8, head 32.2, readout 21.6; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 429 tokens, equal to the pass's greedy; 4.89 drafted tokens accepted a pass, 73 passes; verify 812.4 ms, drafter 261.1 ms, rest of the host 1.4 ms; 399.1 tok/s against 4E's 216.6 (x1.843)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 31.3, block 137.4, head 54.5, readout 36.5; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 394 tokens, equal to the pass's greedy; 6.45 drafted tokens accepted a pass, 53 passes; verify 578.7 ms, drafter 222.2 ms, rest of the host 1.1 ms; 491.3 tok/s against 4E's 216.4 (x2.270)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 52.2, block 99.3, head 39.4, readout 26.4; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 313 tokens, equal to the pass's greedy; 8.55 drafted tokens accepted a pass, 33 passes; verify 355.8 ms, drafter 140.3 ms, rest of the host 0.8 ms; 629.8 tok/s against 4E's 218.0 (x2.888)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 34.2, block 61.8, head 24.7, readout 16.6; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 144 tokens, equal to the pass's greedy; 5.95 drafted tokens accepted a pass, 21 passes; verify 217.7 ms, drafter 90.1 ms, rest of the host 0.5 ms; 467.1 tok/s against 4E's 222.9 (x2.095)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 21.1, block 39.1, head 17.5, readout 10.5; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 369 tokens, equal to the pass's greedy; 4.07 drafted tokens accepted a pass, 73 passes; verify 807.3 ms, drafter 259.8 ms, rest of the host 1.0 ms; 345.5 tok/s against 4E's 218.0 (x1.585)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 31.0, block 136.8, head 54.4, readout 36.3; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 347 tokens, equal to the pass's greedy; 5.33 drafted tokens accepted a pass, 55 passes; verify 607.4 ms, drafter 196.2 ms, rest of the host 1.1 ms; 431.2 tok/s against 4E's 216.8 (x1.989)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 23.7, block 103.3, head 41.0, readout 27.3; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 232 tokens, equal to the pass's greedy; 4.44 drafted tokens accepted a pass, 43 passes; verify 464.9 ms, drafter 177.0 ms, rest of the host 1.0 ms; 360.9 tok/s against 4E's 218.8 (x1.649)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 38.7, block 80.6, head 32.1, readout 21.6; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 423 tokens, equal to the pass's greedy; 6.44 drafted tokens accepted a pass, 57 passes; verify 631.5 ms, drafter 203.7 ms, rest of the host 1.2 ms; 505.7 tok/s against 4E's 216.3 (x2.338)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 24.9, block 106.8, head 42.5, readout 28.5; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 189 tokens, equal to the pass's greedy; 5.55 drafted tokens accepted a pass, 29 passes; verify 306.9 ms, drafter 103.6 ms, rest of the host 0.7 ms; 459.7 tok/s against 4E's 220.1 (x2.088)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 12.9, block 54.0, head 21.6, readout 14.5; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 260 tokens, equal to the pass's greedy; 3.66 drafted tokens accepted a pass, 56 passes; verify 597.6 ms, drafter 198.6 ms, rest of the host 0.8 ms; 326.2 tok/s against 4E's 218.6 (x1.492)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 23.3, block 104.7, head 41.7, readout 27.9; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 316 tokens, equal to the pass's greedy; 6.04 drafted tokens accepted a pass, 45 passes; verify 489.0 ms, drafter 161.7 ms, rest of the host 0.9 ms; 484.9 tok/s against 4E's 218.3 (x2.221)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 20.1, block 84.6, head 33.6, readout 22.6; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 277 tokens, equal to the pass's greedy; 5.47 drafted tokens accepted a pass, 43 passes; verify 461.5 ms, drafter 179.1 ms, rest of the host 0.9 ms; 431.8 tok/s against 4E's 219.4 (x1.969)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 40.6, block 80.7, head 32.2, readout 21.6; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 157 tokens, equal to the pass's greedy; 5.36 drafted tokens accepted a pass, 25 passes; verify 259.2 ms, drafter 104.1 ms, rest of the host 0.5 ms; 431.5 tok/s against 4E's 223.5 (x1.931)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 23.3, block 46.7, head 18.7, readout 13.2; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 337 tokens, equal to the pass's greedy; 6.21 drafted tokens accepted a pass, 47 passes; verify 509.8 ms, drafter 168.0 ms, rest of the host 0.9 ms; 496.5 tok/s against 4E's 218.4 (x2.273)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 20.5, block 88.1, head 35.0, readout 23.5; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 376 tokens, equal to the pass's greedy; 5.37 drafted tokens accepted a pass, 59 passes; verify 651.4 ms, drafter 250.1 ms, rest of the host 1.3 ms; 416.5 tok/s against 4E's 215.8 (x1.930)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 59.0, block 111.1, head 44.0, readout 29.5; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 258 tokens, equal to the pass's greedy; 5.17 drafted tokens accepted a pass, 42 passes; verify 448.6 ms, drafter 149.9 ms, rest of the host 0.9 ms; 430.4 tok/s against 4E's 218.1 (x1.973)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 18.3, block 78.7, head 31.3, readout 20.9; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 272 tokens, equal to the pass's greedy; 6.38 drafted tokens accepted a pass, 37 passes; verify 401.5 ms, drafter 156.5 ms, rest of the host 0.8 ms; 486.8 tok/s against 4E's 218.5 (x2.228)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 37.5, block 69.5, head 27.6, readout 18.6; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 231 tokens, equal to the pass's greedy; 4.97 drafted tokens accepted a pass, 39 passes; verify 422.4 ms, drafter 139.7 ms, rest of the host 0.9 ms; 410.3 tok/s against 4E's 217.9 (x1.883)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 16.9, block 73.5, head 29.1, readout 19.5; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 388 tokens, equal to the pass's greedy; 5.61 drafted tokens accepted a pass, 59 passes; verify 649.4 ms, drafter 211.1 ms, rest of the host 1.3 ms; 450.2 tok/s against 4E's 216.2 (x2.083)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 25.5, block 110.9, head 44.0, readout 29.5; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 212 tokens, equal to the pass's greedy; 5.45 drafted tokens accepted a pass, 33 passes; verify 350.2 ms, drafter 138.1 ms, rest of the host 0.7 ms; 433.6 tok/s against 4E's 218.7 (x1.983)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 32.1, block 61.8, head 24.6, readout 16.5; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 112 tokens, equal to the pass's greedy; 5.65 drafted tokens accepted a pass, 17 passes; verify 176.0 ms, drafter 71.5 ms, rest of the host 0.4 ms; 451.6 tok/s against 4E's 223.0 (x2.026)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 16.9, block 31.7, head 12.7, readout 8.6; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 376 tokens, equal to the pass's greedy; 6.25 drafted tokens accepted a pass, 52 passes; verify 575.5 ms, drafter 228.0 ms, rest of the host 1.4 ms; 467.1 tok/s against 4E's 216.5 (x2.158)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 51.4, block 98.0, head 38.8, readout 26.2; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 604 tokens, equal to the pass's greedy; 4.71 drafted tokens accepted a pass, 106 passes; verify 1204.0 ms, drafter 443.6 ms, rest of the host 1.8 ms; 366.2 tok/s against 4E's 215.7 (x1.697)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 100.9, block 200.0, head 79.1, readout 53.0; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 336 tokens, equal to the pass's greedy; 5.48 drafted tokens accepted a pass, 52 passes; verify 564.1 ms, drafter 217.8 ms, rest of the host 1.0 ms; 429.2 tok/s against 4E's 219.3 (x1.957)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 49.3, block 97.6, head 38.9, readout 27.1; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 165 tokens, equal to the pass's greedy; 5.11 drafted tokens accepted a pass, 27 passes; verify 279.4 ms, drafter 110.7 ms, rest of the host 0.5 ms; 422.5 tok/s against 4E's 224.3 (x1.883)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 24.0, block 50.5, head 20.2, readout 13.5; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 341 tokens, equal to the pass's greedy; 6.43 drafted tokens accepted a pass, 46 passes; verify 501.5 ms, drafter 198.7 ms, rest of the host 1.2 ms; 486.2 tok/s against 4E's 218.7 (x2.223)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 47.3, block 86.2, head 34.4, readout 26.5; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 768 tokens, equal to the pass's greedy; 4.45 drafted tokens accepted a pass, 141 passes; verify 1670.6 ms, drafter 598.2 ms, rest of the host 2.3 ms; 338.2 tok/s against 4E's 216.6 (x1.561)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 134.5, block 268.3, head 108.1, readout 70.8; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 253 tokens, equal to the pass's greedy; 5.20 drafted tokens accepted a pass, 41 passes; verify 433.5 ms, drafter 146.7 ms, rest of the host 0.8 ms; 435.4 tok/s against 4E's 221.5 (x1.966)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 18.0, block 76.7, head 30.6, readout 20.7; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 268 tokens, equal to the pass's greedy; 6.30 drafted tokens accepted a pass, 37 passes; verify 397.6 ms, drafter 155.5 ms, rest of the host 0.9 ms; 483.7 tok/s against 4E's 220.7 (x2.192)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 34.5, block 69.5, head 27.6, readout 20.5; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 223 tokens, equal to the pass's greedy; 5.25 drafted tokens accepted a pass, 36 passes; verify 381.8 ms, drafter 128.3 ms, rest of the host 0.8 ms; 436.5 tok/s against 4E's 221.3 (x1.972)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 15.8, block 67.1, head 26.8, readout 17.9; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 367 tokens, equal to the pass's greedy; 6.10 drafted tokens accepted a pass, 52 passes; verify 558.9 ms, drafter 218.6 ms, rest of the host 1.1 ms; 471.3 tok/s against 4E's 219.9 (x2.143)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 49.2, block 97.3, head 38.9, readout 27.5; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 318 tokens, equal to the pass's greedy; 4.80 drafted tokens accepted a pass, 55 passes; verify 597.9 ms, drafter 196.5 ms, rest of the host 1.0 ms; 399.8 tok/s against 4E's 219.1 (x1.825)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 23.7, block 103.3, head 41.0, readout 27.5; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 172 tokens, equal to the pass's greedy; 4.09 drafted tokens accepted a pass, 34 passes; verify 362.6 ms, drafter 141.8 ms, rest of the host 0.9 ms; 340.4 tok/s against 4E's 219.6 (x1.550)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 31.5, block 63.8, head 25.4, readout 17.1; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 206 tokens, equal to the pass's greedy; 5.68 drafted tokens accepted a pass, 31 passes; verify 326.6 ms, drafter 129.3 ms, rest of the host 0.7 ms; 451.2 tok/s against 4E's 222.0 (x2.032)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 30.0, block 58.0, head 23.1, readout 15.5; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 207 tokens, equal to the pass's greedy; 5.33 drafted tokens accepted a pass, 33 passes; verify 343.6 ms, drafter 135.1 ms, rest of the host 0.7 ms; 431.7 tok/s against 4E's 223.1 (x1.935)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 29.4, block 61.6, head 24.6, readout 16.5; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 335 tokens, equal to the pass's greedy; 6.81 drafted tokens accepted a pass, 43 passes; verify 469.6 ms, drafter 181.5 ms, rest of the host 1.1 ms; 513.6 tok/s against 4E's 218.6 (x2.350)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 42.5, block 80.7, head 32.1, readout 22.3; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 531 tokens, equal to the pass's greedy; 5.58 drafted tokens accepted a pass, 81 passes; verify 902.4 ms, drafter 339.1 ms, rest of the host 1.7 ms; 427.1 tok/s against 4E's 217.7 (x1.962)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 73.7, block 153.2, head 60.4, readout 44.0; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 237 tokens, equal to the pass's greedy; 4.67 drafted tokens accepted a pass, 42 passes; verify 446.9 ms, drafter 176.6 ms, rest of the host 0.8 ms; 379.6 tok/s against 4E's 221.2 (x1.716)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 38.3, block 78.5, head 35.1, readout 21.0; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 216 tokens, equal to the pass's greedy; 4.84 drafted tokens accepted a pass, 37 passes; verify 385.1 ms, drafter 152.1 ms, rest of the host 0.7 ms; 401.6 tok/s against 4E's 222.7 (x1.804)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 33.0, block 69.3, head 27.7, readout 18.6; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 297 tokens, equal to the pass's greedy; 5.95 drafted tokens accepted a pass, 43 passes; verify 463.0 ms, drafter 154.1 ms, rest of the host 0.9 ms; 480.6 tok/s against 4E's 219.8 (x2.187)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 18.9, block 80.6, head 32.1, readout 21.7; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 282 tokens, equal to the pass's greedy; 6.28 drafted tokens accepted a pass, 39 passes; verify 415.1 ms, drafter 139.8 ms, rest of the host 0.9 ms; 507.4 tok/s against 4E's 220.5 (x2.301)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 17.3, block 73.1, head 29.1, readout 19.6; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 174 tokens, equal to the pass's greedy; 4.47 drafted tokens accepted a pass, 32 passes; verify 331.6 ms, drafter 133.3 ms, rest of the host 0.6 ms; 373.7 tok/s against 4E's 224.2 (x1.667)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 29.8, block 59.7, head 24.0, readout 16.8; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 231 tokens, equal to the pass's greedy; 4.68 drafted tokens accepted a pass, 41 passes; verify 430.8 ms, drafter 145.8 ms, rest of the host 0.8 ms; 400.1 tok/s against 4E's 221.5 (x1.806)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 17.6, block 76.4, head 30.5, readout 20.5; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 214 tokens, equal to the pass's greedy; 6.17 drafted tokens accepted a pass, 30 passes; verify 315.9 ms, drafter 128.3 ms, rest of the host 0.7 ms; 481.1 tok/s against 4E's 222.1 (x2.166)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 28.4, block 56.0, head 22.4, readout 15.1; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 393 tokens, equal to the pass's greedy; 5.79 drafted tokens accepted a pass, 58 passes; verify 639.7 ms, drafter 240.2 ms, rest of the host 1.2 ms; 446.0 tok/s against 4E's 217.7 (x2.048)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 53.5, block 109.1, head 43.3, readout 29.0; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 443 tokens, equal to the pass's greedy; 6.18 drafted tokens accepted a pass, 62 passes; verify 690.0 ms, drafter 258.6 ms, rest of the host 1.3 ms; 466.3 tok/s against 4E's 217.5 (x2.144)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 59.4, block 116.5, head 46.3, readout 31.0; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 190 tokens, equal to the pass's greedy; 7.30 drafted tokens accepted a pass, 23 passes; verify 240.8 ms, drafter 114.2 ms, rest of the host 0.7 ms; 534.1 tok/s against 4E's 221.7 (x2.409)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 23.4, block 43.0, head 19.3, readout 11.5; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 187 tokens, equal to the pass's greedy; 4.56 drafted tokens accepted a pass, 34 passes; verify 354.4 ms, drafter 163.6 ms, rest of the host 0.8 ms; 360.5 tok/s against 4E's 222.0 (x1.624)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 31.4, block 63.8, head 25.5, readout 17.2; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 302 tokens, equal to the pass's greedy; 7.00 drafted tokens accepted a pass, 38 passes; verify 409.7 ms, drafter 188.4 ms, rest of the host 0.9 ms; 504.2 tok/s against 4E's 218.8 (x2.304)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 37.5, block 71.1, head 31.9, readout 19.1; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 212 tokens, equal to the pass's greedy; 4.20 drafted tokens accepted a pass, 41 passes; verify 432.3 ms, drafter 145.8 ms, rest of the host 0.7 ms; 366.2 tok/s against 4E's 220.4 (x1.662)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 17.6, block 76.4, head 30.5, readout 20.5; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 381 tokens, equal to the pass's greedy; 5.25 drafted tokens accepted a pass, 61 passes; verify 667.8 ms, drafter 263.9 ms, rest of the host 1.1 ms; 408.4 tok/s against 4E's 216.0 (x1.891)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 59.3, block 114.7, head 51.1, readout 30.6; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 301 tokens, equal to the pass's greedy; 4.63 drafted tokens accepted a pass, 54 passes; verify 597.3 ms, drafter 225.0 ms, rest of the host 1.2 ms; 365.5 tok/s against 4E's 215.6 (x1.695)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 50.2, block 101.6, head 40.4, readout 27.1; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 282 tokens, equal to the pass's greedy; 4.80 drafted tokens accepted a pass, 49 passes; verify 526.0 ms, drafter 175.1 ms, rest of the host 0.9 ms; 401.7 tok/s against 4E's 219.2 (x1.833)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 21.2, block 92.0, head 36.5, readout 24.5; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 280 tokens, equal to the pass's greedy; 5.24 drafted tokens accepted a pass, 45 passes; verify 486.6 ms, drafter 186.3 ms, rest of the host 1.0 ms; 415.5 tok/s against 4E's 218.1 (x1.905)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 41.3, block 84.6, head 33.8, readout 22.5; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 768 tokens, equal to the pass's greedy; 5.17 drafted tokens accepted a pass, 126 passes; verify 1500.3 ms, drafter 453.0 ms, rest of the host 2.2 ms; 392.7 tok/s against 4E's 216.0 (x1.818)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 54.0, block 240.3, head 93.9, readout 62.6; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 268 tokens, equal to the pass's greedy; 3.82 drafted tokens accepted a pass, 56 passes; verify 600.3 ms, drafter 200.0 ms, rest of the host 1.0 ms; 334.5 tok/s against 4E's 220.0 (x1.520)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 23.8, block 105.3, head 41.8, readout 28.0; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 239 tokens, equal to the pass's greedy; 5.86 drafted tokens accepted a pass, 35 passes; verify 371.1 ms, drafter 125.2 ms, rest of the host 0.7 ms; 480.9 tok/s against 4E's 221.9 (x2.168)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 15.5, block 65.5, head 26.1, readout 17.5; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 446 tokens, equal to the pass's greedy; 5.59 drafted tokens accepted a pass, 68 passes; verify 757.7 ms, drafter 243.5 ms, rest of the host 1.4 ms; 444.8 tok/s against 4E's 217.6 (x2.045)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 29.4, block 128.1, head 50.7, readout 34.0; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 318 tokens, equal to the pass's greedy; 4.91 drafted tokens accepted a pass, 54 passes; verify 588.7 ms, drafter 227.1 ms, rest of the host 1.2 ms; 389.2 tok/s against 4E's 218.7 (x1.780)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 48.3, block 101.6, head 45.2, readout 27.1; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 260 tokens, equal to the pass's greedy; 5.24 drafted tokens accepted a pass, 42 passes; verify 446.6 ms, drafter 149.8 ms, rest of the host 0.8 ms; 435.3 tok/s against 4E's 221.5 (x1.965)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 18.3, block 78.4, head 31.3, readout 21.0; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 610 tokens, equal to the pass's greedy; 5.57 drafted tokens accepted a pass, 93 passes; verify 1063.3 ms, drafter 332.7 ms, rest of the host 1.8 ms; 436.4 tok/s against 4E's 216.7 (x2.014)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 39.9, block 175.5, head 69.3, readout 46.3; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 320 tokens, equal to the pass's greedy; 5.42 drafted tokens accepted a pass, 50 passes; verify 539.0 ms, drafter 209.1 ms, rest of the host 1.2 ms; 427.1 tok/s against 4E's 219.2 (x1.948)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 47.9, block 94.0, head 37.3, readout 25.2; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 398 tokens, equal to the pass's greedy; 5.23 drafted tokens accepted a pass, 64 passes; verify 706.8 ms, drafter 228.3 ms, rest of the host 1.3 ms; 425.0 tok/s against 4E's 218.3 (x1.947)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 27.4, block 120.1, head 47.7, readout 31.9; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 305 tokens, equal to the pass's greedy; 5.82 drafted tokens accepted a pass, 45 passes; verify 489.1 ms, drafter 161.0 ms, rest of the host 1.0 ms; 468.4 tok/s against 4E's 219.4 (x2.135)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 19.7, block 84.4, head 33.5, readout 22.6; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 478 tokens, equal to the pass's greedy; 4.91 drafted tokens accepted a pass, 81 passes; verify 915.8 ms, drafter 345.7 ms, rest of the host 1.5 ms; 378.5 tok/s against 4E's 217.2 (x1.742)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 77.8, block 153.2, head 60.6, readout 42.4; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 209 tokens, equal to the pass's greedy; 5.18 drafted tokens accepted a pass, 34 passes; verify 356.1 ms, drafter 141.3 ms, rest of the host 0.8 ms; 419.5 tok/s against 4E's 222.2 (x1.888)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 31.4, block 63.5, head 25.4, readout 18.0; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 213 tokens, equal to the pass's greedy; 4.10 drafted tokens accepted a pass, 42 passes; verify 444.2 ms, drafter 176.3 ms, rest of the host 0.9 ms; 342.7 tok/s against 4E's 221.7 (x1.546)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 39.5, block 78.8, head 31.4, readout 22.7; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 209 tokens, equal to the pass's greedy; 5.39 drafted tokens accepted a pass, 33 passes; verify 349.0 ms, drafter 163.3 ms, rest of the host 0.8 ms; 407.3 tok/s against 4E's 222.0 (x1.835)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 32.3, block 61.7, head 27.7, readout 16.6; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 320 tokens, equal to the pass's greedy; 7.26 drafted tokens accepted a pass, 39 passes; verify 422.5 ms, drafter 164.3 ms, rest of the host 1.1 ms; 544.4 tok/s against 4E's 219.2 (x2.483)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 37.8, block 73.4, head 29.2, readout 20.3; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 396 tokens, equal to the pass's greedy; 4.82 drafted tokens accepted a pass, 68 passes; verify 738.0 ms, drafter 281.4 ms, rest of the host 1.2 ms; 388.0 tok/s against 4E's 219.1 (x1.771)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 63.1, block 127.3, head 50.8, readout 34.0; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 302 tokens, equal to the pass's greedy; 5.06 drafted tokens accepted a pass, 50 passes; verify 541.3 ms, drafter 179.0 ms, rest of the host 1.2 ms; 418.6 tok/s against 4E's 219.9 (x1.904)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 21.8, block 93.9, head 37.3, readout 25.0; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 246 tokens, equal to the pass's greedy; 4.39 drafted tokens accepted a pass, 46 passes; verify 495.1 ms, drafter 192.3 ms, rest of the host 1.0 ms; 357.4 tok/s against 4E's 220.4 (x1.622)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 44.3, block 86.0, head 34.5, readout 23.2; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 202 tokens, equal to the pass's greedy; 4.49 drafted tokens accepted a pass, 37 passes; verify 404.3 ms, drafter 133.1 ms, rest of the host 1.0 ms; 375.2 tok/s against 4E's 219.0 (x1.713)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 16.6, block 69.6, head 27.6, readout 18.6; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 268 tokens, equal to the pass's greedy; 4.27 drafted tokens accepted a pass, 51 passes; verify 548.4 ms, drafter 215.1 ms, rest of the host 1.0 ms; 350.6 tok/s against 4E's 220.0 (x1.594)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 45.7, block 95.8, head 42.8, readout 25.6; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 263 tokens, equal to the pass's greedy; 6.57 drafted tokens accepted a pass, 35 passes; verify 371.0 ms, drafter 177.9 ms, rest of the host 0.8 ms; 478.4 tok/s against 4E's 221.6 (x2.159)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 35.6, block 65.6, head 29.3, readout 17.6; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 171 tokens, equal to the pass's greedy; 5.41 drafted tokens accepted a pass, 27 passes; verify 279.5 ms, drafter 112.8 ms, rest of the host 0.6 ms; 435.3 tok/s against 4E's 224.3 (x1.940)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 26.5, block 50.3, head 20.1, readout 13.5; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 197 tokens, equal to the pass's greedy; 4.10 drafted tokens accepted a pass, 39 passes; verify 407.4 ms, drafter 162.0 ms, rest of the host 0.7 ms; 345.6 tok/s against 4E's 223.3 (x1.548)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 35.1, block 72.8, head 29.2, readout 19.6; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 281 tokens, equal to the pass's greedy; 6.26 drafted tokens accepted a pass, 39 passes; verify 418.5 ms, drafter 163.1 ms, rest of the host 1.0 ms; 482.4 tok/s against 4E's 219.9 (x2.193)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 37.8, block 72.9, head 29.1, readout 19.6; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 252 tokens, equal to the pass's greedy; 7.72 drafted tokens accepted a pass, 29 passes; verify 310.3 ms, drafter 103.9 ms, rest of the host 0.8 ms; 607.2 tok/s against 4E's 220.4 (x2.755)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 13.2, block 54.2, head 21.6, readout 14.5; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 466 tokens, equal to the pass's greedy; 6.80 drafted tokens accepted a pass, 60 passes; verify 666.4 ms, drafter 255.3 ms, rest of the host 1.6 ms; 504.7 tok/s against 4E's 216.8 (x2.328)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 58.9, block 113.1, head 44.9, readout 32.0; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 379 tokens, equal to the pass's greedy; 4.85 drafted tokens accepted a pass, 65 passes; verify 713.4 ms, drafter 268.8 ms, rest of the host 1.3 ms; 385.4 tok/s against 4E's 216.8 (x1.777)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 59.3, block 122.2, head 48.5, readout 32.6; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 267 tokens, equal to the pass's greedy; 4.72 drafted tokens accepted a pass, 47 passes; verify 510.7 ms, drafter 195.6 ms, rest of the host 1.0 ms; 377.5 tok/s against 4E's 217.0 (x1.739)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 44.7, block 88.2, head 35.1, readout 23.4; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 393 tokens, equal to the pass's greedy; 5.35 drafted tokens accepted a pass, 62 passes; verify 680.8 ms, drafter 263.6 ms, rest of the host 1.3 ms; 415.6 tok/s against 4E's 216.6 (x1.918)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 61.4, block 116.7, head 46.3, readout 31.1; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 197 tokens, equal to the pass's greedy; 6.33 drafted tokens accepted a pass, 27 passes; verify 283.0 ms, drafter 96.4 ms, rest of the host 0.7 ms; 518.4 tok/s against 4E's 220.4 (x2.352)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 12.2, block 50.2, head 20.1, readout 13.5; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 383 tokens, equal to the pass's greedy; 5.42 drafted tokens accepted a pass, 60 passes; verify 666.0 ms, drafter 215.2 ms, rest of the host 1.3 ms; 433.9 tok/s against 4E's 215.8 (x2.011)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 26.1, block 113.2, head 44.7, readout 30.1; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 297 tokens, equal to the pass's greedy; 7.54 drafted tokens accepted a pass, 35 passes; verify 376.5 ms, drafter 171.2 ms, rest of the host 0.9 ms; 541.3 tok/s against 4E's 218.4 (x2.479)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 35.5, block 65.3, head 26.2, readout 17.7; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 182 tokens, equal to the pass's greedy; 6.32 drafted tokens accepted a pass, 25 passes; verify 259.7 ms, drafter 89.9 ms, rest of the host 0.7 ms; 519.7 tok/s against 4E's 221.3 (x2.348)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 11.2, block 46.9, head 18.7, readout 12.6; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 188 tokens, equal to the pass's greedy; 6.00 drafted tokens accepted a pass, 27 passes; verify 282.9 ms, drafter 131.8 ms, rest of the host 0.7 ms; 452.6 tok/s against 4E's 220.9 (x2.049)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 26.0, block 50.4, head 20.2, readout 13.5; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 415 tokens, equal to the pass's greedy; 5.60 drafted tokens accepted a pass, 63 passes; verify 705.3 ms, drafter 318.2 ms, rest of the host 1.4 ms; 404.9 tok/s against 4E's 215.6 (x1.879)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 60.1, block 118.8, head 52.8, readout 31.6; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 358 tokens, equal to the pass's greedy; 5.67 drafted tokens accepted a pass, 54 passes; verify 580.4 ms, drafter 226.9 ms, rest of the host 1.1 ms; 442.9 tok/s against 4E's 217.7 (x2.034)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 51.0, block 101.1, head 40.3, readout 26.9; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 350 tokens, equal to the pass's greedy; 5.77 drafted tokens accepted a pass, 52 passes; verify 577.8 ms, drafter 218.7 ms, rest of the host 1.2 ms; 438.7 tok/s against 4E's 214.8 (x2.042)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 50.8, block 98.1, head 38.9, readout 26.1; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 446 tokens, equal to the pass's greedy; 6.23 drafted tokens accepted a pass, 62 passes; verify 682.7 ms, drafter 263.5 ms, rest of the host 1.2 ms; 470.7 tok/s against 4E's 216.4 (x2.176)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 62.2, block 116.7, head 46.5, readout 31.1; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 219 tokens, equal to the pass's greedy; 6.59 drafted tokens accepted a pass, 29 passes; verify 304.5 ms, drafter 123.5 ms, rest of the host 0.7 ms; 510.8 tok/s against 4E's 220.3 (x2.319)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 29.9, block 54.1, head 21.7, readout 15.2; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 575 tokens, equal to the pass's greedy; 6.38 drafted tokens accepted a pass, 78 passes; verify 896.1 ms, drafter 328.6 ms, rest of the host 1.5 ms; 468.9 tok/s against 4E's 215.2 (x2.179)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 77.4, block 147.1, head 58.2, readout 38.9; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 357 tokens, equal to the pass's greedy; 4.51 drafted tokens accepted a pass, 65 passes; verify 702.6 ms, drafter 312.4 ms, rest of the host 1.1 ms; 351.3 tok/s against 4E's 218.5 (x1.608)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 57.6, block 121.7, head 48.6, readout 32.6; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 296 tokens, equal to the pass's greedy; 5.46 drafted tokens accepted a pass, 46 passes; verify 498.9 ms, drafter 164.5 ms, rest of the host 1.0 ms; 445.5 tok/s against 4E's 218.4 (x2.039)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 20.1, block 86.3, head 34.4, readout 23.0; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 330 tokens, equal to the pass's greedy; 6.04 drafted tokens accepted a pass, 47 passes; verify 513.1 ms, drafter 196.1 ms, rest of the host 1.0 ms; 464.7 tok/s against 4E's 218.2 (x2.130)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 44.9, block 88.3, head 35.1, readout 23.5; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 191 tokens, equal to the pass's greedy; 6.11 drafted tokens accepted a pass, 27 passes; verify 280.1 ms, drafter 96.8 ms, rest of the host 0.6 ms; 506.0 tok/s against 4E's 223.0 (x2.269)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 12.2, block 50.3, head 20.2, readout 13.6; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 239 tokens, equal to the pass's greedy; 5.34 drafted tokens accepted a pass, 38 passes; verify 402.6 ms, drafter 158.5 ms, rest of the host 0.7 ms; 425.4 tok/s against 4E's 221.2 (x1.923)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 35.9, block 71.0, head 28.4, readout 19.8; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 383 tokens, equal to the pass's greedy; 5.64 drafted tokens accepted a pass, 58 passes; verify 634.6 ms, drafter 207.5 ms, rest of the host 1.0 ms; 454.2 tok/s against 4E's 218.0 (x2.083)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 25.3, block 109.0, head 43.2, readout 29.0; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 314 tokens, equal to the pass's greedy; 4.62 drafted tokens accepted a pass, 56 passes; verify 620.3 ms, drafter 200.7 ms, rest of the host 1.1 ms; 382.0 tok/s against 4E's 217.0 (x1.761)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 24.4, block 105.4, head 41.8, readout 28.1; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 114 tokens, equal to the pass's greedy; 3.14 drafted tokens accepted a pass, 28 passes; verify 289.9 ms, drafter 114.9 ms, rest of the host 0.5 ms; 281.3 tok/s against 4E's 224.0 (x1.256)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 25.2, block 52.2, head 20.9, readout 14.1; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 260 tokens, equal to the pass's greedy; 6.91 drafted tokens accepted a pass, 33 passes; verify 352.4 ms, drafter 118.1 ms, rest of the host 0.7 ms; 551.8 tok/s against 4E's 220.4 (x2.504)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 14.6, block 61.7, head 24.6, readout 16.5; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 192 tokens, equal to the pass's greedy; 6.46 drafted tokens accepted a pass, 26 passes; verify 271.9 ms, drafter 109.1 ms, rest of the host 0.6 ms; 503.2 tok/s against 4E's 222.1 (x2.266)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 25.6, block 48.6, head 19.4, readout 13.1; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 223 tokens, equal to the pass's greedy; 5.79 drafted tokens accepted a pass, 33 passes; verify 347.9 ms, drafter 163.3 ms, rest of the host 0.7 ms; 435.7 tok/s against 4E's 220.5 (x1.976)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 29.9, block 61.7, head 27.5, readout 16.6; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 363 tokens, equal to the pass's greedy; 5.64 drafted tokens accepted a pass, 55 passes; verify 601.1 ms, drafter 270.0 ms, rest of the host 1.0 ms; 416.3 tok/s against 4E's 217.6 (x1.913)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 53.1, block 103.5, head 43.3, readout 28.2; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip:    dflash:tree: 391 tokens, equal to the pass's greedy; 5.76 drafted tokens accepted a pass, 58 passes; verify 634.6 ms, drafter 286.7 ms, rest of the host 1.2 ms; 423.8 tok/s against 4E's 216.8 (x1.955)
+spec-gsm200-ip:    dflash:tree: drafter wall, ms: context extension 55.6, block 109.0, head 48.7, readout 29.2; skipped rounds 0
+spec-gsm200-ip: 
+spec-gsm200-ip: dump: /out/spec-mem-m3-2026-11-11/gsm200-ip.jsonl
+spec-gsm200-ip: 
+spec-gsm200-ip: agreement of the pass's greedy with 4E's greedy (reported, not a gate)
+spec-gsm200-ip:    math: 177 of 200 prompts in full agreement; 58101 of 63441 tokens before the first divergence
+spec-gsm200-ip:     all: 177 of 200 prompts in full agreement; 58101 of 63441 tokens before the first divergence
+spec-gsm200-ip:   gsm8k-test-0004: at 251: the pass's logits: 31.09375 for 11, 31.09375 for 279, margin 0.0000
+spec-gsm200-ip:   gsm8k-test-0015: at 318: the pass's logits: 27.328125 for 1124, 27.328125 for 220, margin 0.0000
+spec-gsm200-ip:   gsm8k-test-0021: at 82: the pass's logits: 22.6875 for 3070, 22.671875 for 62808, margin 0.0156
+spec-gsm200-ip:   gsm8k-test-0043: at 197: the pass's logits: 27.71875 for 334, 27.71875 for 315, margin 0.0000
+spec-gsm200-ip:   gsm8k-test-0047: at 61: the pass's logits: 29.3125 for 1246, 29.296875 for 700, margin 0.0156
+spec-gsm200-ip:   gsm8k-test-0053: at 48: the pass's logits: 28.78125 for 24768, 28.78125 for 1124, margin 0.0000
+spec-gsm200-ip:   gsm8k-test-0054: at 53: the pass's logits: 26.703125 for 82090, 26.703125 for 17827, margin 0.0000
+spec-gsm200-ip:   gsm8k-test-0072: at 30: the pass's logits: 29.1875 for 12957, 29.1875 for 279, margin 0.0000
+spec-gsm200-ip:   gsm8k-test-0085: at 31: the pass's logits: 24.265625 for 60736, 24.265625 for 2504, margin 0.0000
+spec-gsm200-ip:   gsm8k-test-0093: at 106: the pass's logits: 20.828125 for 54257, 20.828125 for 279, margin 0.0000
+spec-gsm200-ip:   gsm8k-test-0094: at 153: the pass's logits: 22.484375 for 5025, 22.46875 for 2661, margin 0.0156
+spec-gsm200-ip:   gsm8k-test-0097: at 219: the pass's logits: 25.53125 for 421, 25.515625 for 369, margin 0.0156
+spec-gsm200-ip:   gsm8k-test-0102: at 162: the pass's logits: 28.1875 for 701, 28.171875 for 8, margin 0.0156
+spec-gsm200-ip:   gsm8k-test-0115: at 244: the pass's logits: 27.75 for 476, 27.75 for 323, margin 0.0000
+spec-gsm200-ip:   gsm8k-test-0119: at 468: the pass's logits: 22.640625 for 9658, 22.640625 for 646, margin 0.0000
+spec-gsm200-ip:   gsm8k-test-0123: at 156: the pass's logits: 29.546875 for 334, 29.546875 for 97219, margin 0.0000
+spec-gsm200-ip:   gsm8k-test-0143: at 168: the pass's logits: 28.296875 for 95518, 28.296875 for 25, margin 0.0000
+spec-gsm200-ip:   gsm8k-test-0147: at 308: the pass's logits: 27.796875 for 334, 27.796875 for 279, margin 0.0000
+spec-gsm200-ip:   gsm8k-test-0150: at 202: the pass's logits: 27.359375 for 37018, 27.359375 for 1318, margin 0.0000
+spec-gsm200-ip:   gsm8k-test-0166: at 169: the pass's logits: 30.234375 for 2679, 30.21875 for 12549, margin 0.0156
+spec-gsm200-ip:   gsm8k-test-0175: at 144: the pass's logits: 27.90625 for 400, 27.890625 for 8672, margin 0.0156
+spec-gsm200-ip:   gsm8k-test-0197: at 122: the pass's logits: 27.96875 for 1372, 27.96875 for 7042, margin 0.0000
+spec-gsm200-ip:   gsm8k-test-0198: at 115: the pass's logits: 28.96875 for 25, 28.953125 for 284, margin 0.0156
+spec-gsm200-ip: 
+spec-gsm200-ip: aggregates (tok/s = total tokens over total wall; x greedy likewise, against 4E's greedy on its own text; median over prompts with its range)
+spec-gsm200-ip: config dflash:tree: arm a12ip@8.10.8.20.6 (A12ip), plan [8, 10, 8, 20, 6], 384 threads, row cap 16, drafter revision b74e3a329c4d963783143b1e970d95b002be72bd, dtype F16, vocab q4, readout device, shape Tree(15), N 768
+spec-gsm200-ip:    dflash:tree  math: 200 prompts, 63441 tokens, 200 of 200 equal to the pass's greedy; 5.41 accepted a pass, histogram 0..15 [320, 981, 1430, 1344, 1198, 877, 699, 574, 473, 372, 314, 241, 228, 209, 175, 513]; 424.9 tok/s, greedy 219.0, x1.940; per prompt x1.959 [1.256-2.908]; verify 73 %, drafter 27 % of the wall
+spec-gsm200-ip:    dflash:tree   all: 200 prompts, 63441 tokens, 200 of 200 equal to the pass's greedy; 5.41 accepted a pass, histogram 0..15 [320, 981, 1430, 1344, 1198, 877, 699, 574, 473, 372, 314, 241, 228, 209, 175, 513]; 424.9 tok/s, greedy 219.0, x1.940; per prompt x1.959 [1.256-2.908]; verify 73 %, drafter 27 % of the wall
+spec-gsm200-ip: vram gsm200-a12ip idle 0 MiB peak 3499 MiB
+spec-gsm200-ip: specbench gsm200 a12ip exit 0
+spec-long8k-a12ip: 4E tree: module 306060 bytes, sha256 ce1c354d2583eb178ae8622ff99e10f9b457543972bb5039ce89ede9eec31e44, row form 7 and pers_4et.cu, its own module
+spec-long8k-a12ip: 4E tree: pers_4et_rows_f1_t512: 128 registers, 720 B local, 89984 B shared, 1 resident a SM
+spec-long8k-a12ip: 4E tree: arm a12ip@8.10.8.20.6 (a12ip (a12 on the served words, read in place, no copy), an explicit plan): slices [8, 10, 8, 20, 6]; S, units, waves, fill, sub-steps a slice at most: q/k/v 8 272 2 95.8 % 7, o 10 140 1 98.6 % 9, gate/up 8 816 6 95.8 % 7, down 20 280 2 98.6 % 11, head 6 4752 34 98.4 % 9
+spec-long8k-a12ip: 4E tree: arm a12ip@8.10.8.20.6 at 384 threads (12 warps): area 14944 floats, 78848 B shared, 12 sub-steps a slice at most
+spec-long8k-a12ip: 4E tree: the stream unit's slices hold at most 13 sub-steps (area 17728 floats, 16 warps, 32 staged rows)
+spec-long8k-a12ip: 4E tree: 512 threads, 17728 floats of area; 0.153 GB of row buffers
+spec-long8k-a12ip: 4E tree a12ip: module 421571 bytes, sha256 5b283349cf4c7c7dbc1b4db1dbaec875447e3a3e54715fa6c38aad9f8729c7f9, P4T_A12IP 1 beside a12's text, its own module
+spec-long8k-a12ip: 4E tree a12ip: pers_4et_a12ip_f1_t384: 168 registers, 744 B local, 78848 B shared, 1 resident a SM
+spec-long8k-a12ip: 4E tree tiled: 0 tree-tiled copies (q, k, v, o, gate, up, down a layer, the head), 0.000 GB more on the card
+spec-long8k-a12ip: 4E tree a12ip: 253 projections read in place, 1.295 GB, the words 4E and the eager path hold; every lane's words equal to the tree-tiled copy's on each (p4t_ip_check, each copy freed after its check); 0 copies held for the other arms
+spec-long8k-a12ip: card memory: 2.116 GB used of 47.666 GB after the target's load, its 4E install and the verify pass's install, before the drafter (cuMemGetInfo)
+spec-long8k-a12ip: arm a12ip@8.10.8.20.6: A12ip kernel, slices [8, 10, 8, 20, 6], 384 threads, row cap 16; taps on; N 256
+spec-long8k-a12ip: loaded in 240.8 s
+spec-long8k-a12ip: drafter /tmp/dflash-b74e3a329c4d963783143b1e970d95b002be72bd (1192.9 MB, F16), loaded in 13.2 s; vocab q4: the target's int4 g64 table (218.8 MB, already resident), gather emb_q4_gather, head tv_q4_mma; no dense copy
+spec-long8k-a12ip: card memory: 3.324 GB used of 47.666 GB after the drafter's load, before the first prompt (cuMemGetInfo)
+spec-long8k-a12ip: template: the assistant opening with thinking off is [151644, 77091, 198, 151667, 271, 151668, 271]; the HF tokenizer on the rendered Qwen3 template (the served door's) gives <think>, 271, </think>, 271 (151667 271 151668 271), not 198 198; eos 151645 (<|im_end|>)
+spec-long8k-a12ip: prompts: 1 from /usr/local/share/llvq/spec-long-8k-v1.jsonl; 1 discarded and 3 timed runs a prompt
+spec-long8k-a12ip: equality: every drafter against the pass's own greedy (the null drafter, R = 1), a hard gate; the pass's greedy against 4E's greedy, reported only. Past a divergence from 4E the texts differ, and tok/s and acceptance there are measured on the pass's own text
+spec-long8k-a12ip: control: one 64-token 4E launch against two chained 32-token launches on wikitext2-test-8k: the same 64 tokens
+spec-long8k-a12ip: 
+spec-long8k-a12ip:    dflash:tree: 256 tokens, equal to the pass's greedy; 1.80 drafted tokens accepted a pass, 92 passes; verify 4430.3 ms, drafter 593.2 ms, rest of the host 125.7 ms; 49.7 tok/s against 4E's 162.7 (x0.305)
+spec-long8k-a12ip:    dflash:tree: drafter wall, ms: context extension 208.4, block 267.7, head 68.7, readout 46.3; skipped rounds 0
+spec-long8k-a12ip: 
+spec-long8k-a12ip: agreement of the pass's greedy with 4E's greedy (reported, not a gate)
+spec-long8k-a12ip:     rag: 0 of 1 prompts in full agreement; 28 of 256 tokens before the first divergence
+spec-long8k-a12ip:     all: 0 of 1 prompts in full agreement; 28 of 256 tokens before the first divergence
+spec-long8k-a12ip:   wikitext2-test-8k: at 28: the pass's logits: 28.71875 for 353, 28.703125 for 576, margin 0.0156
+spec-long8k-a12ip: 
+spec-long8k-a12ip: aggregates (tok/s = total tokens over total wall; x greedy likewise, against 4E's greedy on its own text; median over prompts with its range)
+spec-long8k-a12ip: config dflash:tree: arm a12ip@8.10.8.20.6 (A12ip), plan [8, 10, 8, 20, 6], 384 threads, row cap 16, drafter revision b74e3a329c4d963783143b1e970d95b002be72bd, dtype F16, vocab q4, readout device, shape Tree(15), N 256
+spec-long8k-a12ip:    dflash:tree   rag: 1 prompts, 256 tokens, 1 of 1 equal to the pass's greedy; 1.80 accepted a pass, histogram 0..15 [39, 90, 75, 48, 9, 12, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0]; 49.7 tok/s, greedy 162.7, x0.305; per prompt x0.305 [0.305-0.305]; verify 86 %, drafter 12 % of the wall
+spec-long8k-a12ip:    dflash:tree   all: 1 prompts, 256 tokens, 1 of 1 equal to the pass's greedy; 1.80 accepted a pass, histogram 0..15 [39, 90, 75, 48, 9, 12, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0]; 49.7 tok/s, greedy 162.7, x0.305; per prompt x0.305 [0.305-0.305]; verify 86 %, drafter 12 % of the wall
+spec-long8k-a12ip: vram long8k-a12ip idle 0 MiB peak 7081 MiB
+spec-long8k-a12ip: specbench long8k a12ip exit 0
+control 2 (base-short): the served 4E v9 module
+control 2 (base-8k): the served 4E v9 module
+control 2 (spec-house-a12): the served 4E v9 module
+control 2 (spec-house-a12ip): the served 4E v9 module
+control 2 (spec-house-null-a12ip): the served 4E v9 module
+control 2 (spec-gsm200-ip): the served 4E v9 module
+control 2 (spec-long8k-a12ip): the served 4E v9 module

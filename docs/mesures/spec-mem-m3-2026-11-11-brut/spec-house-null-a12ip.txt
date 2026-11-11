@@ -1,0 +1,288 @@
+target: served config: /out/spec-mem-m3-2026-11-11/qwen3-4b-tetra-e4-4e-v9.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention kernel from position 0 on grow(256), decode persistent (4E rows v9, one launch a token run)) — The qwen3-4b-tetra-e4 object (qwen3-4b-sealed.bin, sha256 886391a8), the v6 config with the v9 row loop and nothing else different: the kernel attention form on every decode row from position 0, decoded by 4E v9 (row form 7: v6, the launch's constants staged during the barriers, attention's steps in a cp.async ring, and the int4 rows v, o and the int4 downs read from tiled words; one cooperative launch a token run, 512 threads). Under this config the loader writes the int4 words tiled and holds them once on the card: the eager path, which prefills, reads the same words through tv_q4_hht, checked against tv_q4_hh on the file's order at every load. The file and its 2.7320 b/param do not move (a permutation inside each row, computed). Written on 2026-11-07 on the operator's go to serve v9 with one copy of the int4 bytes. In the measurement form v9 decodes 238.6 tok/s after a 5-token prompt against 213.3 for v6 (x1.118 round by round) and 163.5 at 8,192 against 154.2 (x1.060), the same 64 tokens as the eager path at both contexts (measured, step3-4e-2026-11-07, with the int4 bytes twice on the card). Not yet read at the served door: served-v9 (proofs/preregistration-served-v9-2026-11-07.md) reads it. Refused on Metal and on any object but the 4B.
+cudarc event tracking: off (one stream, ordered by issue)
+shared rotation: 1 (specbench), 96 rot_launches/token for 252 projections
+projection fusion: 0 (specbench), 252 matvec_launches/token for 252 projections (0 groups + 168 lone + 84 int4)
+fused layout: tetra48 (specbench), projections 1.16 GB on the card, 2.550 b/weight (INFERENCE accounting: KeepExact tail in binary16; the bench bills its own in f32)
+NVRTC source: 106947 bytes, sha256 e269ea5d11b7e40ba0682f536f52ed9f09abfaa9fd6f3185eb306edca5c60e53 (12 parts), tile 64 (served: measured optimum for sm_89), prefill 4x128 (served pair), 49152 B staged of 49152, target compute_89
+int4: tv_q4_hht equals tv_q4_ht bit for bit on model.layers.0.self_attn.v_proj.weight (1024 rows, d_in 2560)
+int4: tv_q4_hht on the tiled words equals tv_q4_hh on the file's order bit for bit on model.layers.0.self_attn.v_proj.weight (1024 rows, d_in 2560); the file-order copy is freed
+int4: tv_q4_hht on the tiled words equals tv_q4_hh on the file's order bit for bit on model.layers.0.self_attn.o_proj.weight (2560 rows, d_in 4096); the file-order copy is freed
+int4: tv_q4_hht on the tiled words equals tv_q4_hh on the file's order bit for bit on model.layers.12.mlp.down_proj.weight (2560 rows, d_in 9728); the file-order copy is freed
+int4 layout: tiled (specbench), 84 records, words 0.385 GB on the card, held once
+embedding: q4 g64 (specbench), 1 table (model.embed_tokens.weight, lm_head tied on it), 218.8 MB on the card (int4 194.5 + scales/biases 24.3)
+total expected on the card: 1.38 GB (projections 1.16 + carried 0.22)
+attn_dec.cu: embedded, sha256 c7b0d8d3f2e3066ba1a2b4331c0bb6c92f22182c78a31b7fb74e839330a1838d, target compute_89
+attn_dec_g4_u64: 160 registers, 0 B local (spill), 16384 B static shared, sm_89
+attn_dec_g4_u64: the card equals the CPU replay bit for bit on 103 calls (rows ending at 1, 255, 256, 257, 1000, 4096; k 1, 3, 8; eager and wide grids; verify rows alone; fresh rows) (1.3 s)
+4E: persistent module 252757 bytes, sha256 1b422b62328be6752df4add43280565fd2a49cfa20ee26953b301abe7a15c530, row form 7, own module on candle's stream
+4E: RoPE forms equal to candle's rope on this card: [1]; running form 1
+4E: pers_4e_tokens_f1_t512: 128 registers, 0 B local, 85952 B shared, 1 resident a SM
+4E: pers_4e_stamps_f1_t512: 128 registers, 32 B local, 1 resident a SM (phase stamps, outside the timed rounds)
+4E: head tied to the embedding's table (151936 rows)
+4E v9: the 76 prologue inputs are 16-byte aligned; the vector path runs on every layer
+4E v9: the int4 records are read in place, tiled at load and held once on the card (36 layers)
+4E: 36 layers, grid 142 x 512, 218 barriers a token
+4E tree: module 306060 bytes, sha256 ce1c354d2583eb178ae8622ff99e10f9b457543972bb5039ce89ede9eec31e44, row form 7 and pers_4et.cu, its own module
+4E tree: pers_4et_rows_f1_t512: 128 registers, 720 B local, 89984 B shared, 1 resident a SM
+4E tree: arm a12ip@8.10.8.20.6 (a12ip (a12 on the served words, read in place, no copy), an explicit plan): slices [8, 10, 8, 20, 6]; S, units, waves, fill, sub-steps a slice at most: q/k/v 8 272 2 95.8 % 7, o 10 140 1 98.6 % 9, gate/up 8 816 6 95.8 % 7, down 20 280 2 98.6 % 11, head 6 4752 34 98.4 % 9
+4E tree: arm a12ip@8.10.8.20.6 at 384 threads (12 warps): area 14944 floats, 78848 B shared, 12 sub-steps a slice at most
+4E tree: the stream unit's slices hold at most 13 sub-steps (area 17728 floats, 16 warps, 32 staged rows)
+4E tree: 512 threads, 17728 floats of area; 0.153 GB of row buffers
+4E tree a12ip: module 421571 bytes, sha256 5b283349cf4c7c7dbc1b4db1dbaec875447e3a3e54715fa6c38aad9f8729c7f9, P4T_A12IP 1 beside a12's text, its own module
+4E tree a12ip: pers_4et_a12ip_f1_t384: 168 registers, 744 B local, 78848 B shared, 1 resident a SM
+4E tree tiled: 0 tree-tiled copies (q, k, v, o, gate, up, down a layer, the head), 0.000 GB more on the card
+4E tree a12ip: 253 projections read in place, 1.295 GB, the words 4E and the eager path hold; every lane's words equal to the tree-tiled copy's on each (p4t_ip_check, each copy freed after its check); 0 copies held for the other arms
+card memory: 2.116 GB used of 47.666 GB after the target's load, its 4E install and the verify pass's install, before the drafter (cuMemGetInfo)
+arm a12ip@8.10.8.20.6: A12ip kernel, slices [8, 10, 8, 20, 6], 384 threads, row cap 16; taps on; N 256
+loaded in 241.0 s
+template: the assistant opening with thinking off is [151644, 77091, 198, 151667, 271, 151668, 271]; the HF tokenizer on the rendered Qwen3 template (the served door's) gives <think>, 271, </think>, 271 (151667 271 151668 271), not 198 198; eos 151645 (<|im_end|>)
+prompts: 44 from /usr/local/share/llvq/spec-prompts-v1.jsonl; 0 discarded and 1 timed runs a prompt
+equality: every drafter against the pass's own greedy (the null drafter, R = 1), a hard gate; the pass's greedy against 4E's greedy, reported only. Past a divergence from 4E the texts differ, and tok/s and acceptance there are measured on the pass's own text
+control: one 64-token 4E launch against two chained 32-token launches on gsm8k-test-0000: the same 64 tokens
+
+== gsm8k-test-0000 (math): prompt 92 tokens; 4E greedy 256 tokens, 221.1 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+          null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2449.4 ms, drafter 0.0 ms, rest of the host 1.2 ms; 104.5 tok/s against 4E's 221.1 (x0.472)
+      oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 625.2 ms, drafter 0.0 ms, rest of the host 0.7 ms; 409.0 tok/s against 4E's 221.1 (x1.850)
+
+== gsm8k-test-0001 (math): prompt 53 tokens; 4E greedy 192 tokens, 225.1 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 192 tokens
+          null: 192 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 192 passes; verify 1816.0 ms, drafter 0.0 ms, rest of the host 0.7 ms; 105.7 tok/s against 4E's 225.1 (x0.470)
+      oracle:3: 192 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 48 passes; verify 464.3 ms, drafter 0.0 ms, rest of the host 0.4 ms; 413.1 tok/s against 4E's 225.1 (x1.835)
+
+== gsm8k-test-0002 (math): prompt 84 tokens; 4E greedy 256 tokens, 221.4 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+          null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2443.8 ms, drafter 0.0 ms, rest of the host 1.1 ms; 104.7 tok/s against 4E's 221.4 (x0.473)
+      oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 623.9 ms, drafter 0.0 ms, rest of the host 0.7 ms; 409.9 tok/s against 4E's 221.4 (x1.851)
+
+== gsm8k-test-0003 (math): prompt 62 tokens; 4E greedy 146 tokens, 225.2 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 146 tokens
+          null: 146 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 146 passes; verify 1380.3 ms, drafter 0.0 ms, rest of the host 0.7 ms; 105.7 tok/s against 4E's 225.2 (x0.470)
+      oracle:3: 146 tokens, equal to the pass's greedy; 2.97 drafted tokens accepted a pass, 37 passes; verify 357.9 ms, drafter 0.0 ms, rest of the host 0.5 ms; 407.4 tok/s against 4E's 225.2 (x1.809)
+
+== gsm8k-test-0004 (math): prompt 138 tokens; 4E greedy 256 tokens, 218.8 tok/s
+  4E agreement: first divergence at generated token 251 (251 tokens equal before it): the pass Some(11), 4E Some(279); the pass's logits: 31.09375 for 11, 31.09375 for 279, margin 0.0000
+          null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2462.9 ms, drafter 0.0 ms, rest of the host 1.2 ms; 103.9 tok/s against 4E's 218.8 (x0.475)
+      oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 628.7 ms, drafter 0.0 ms, rest of the host 0.8 ms; 406.6 tok/s against 4E's 218.8 (x1.858)
+
+== gsm8k-test-0005 (math): prompt 83 tokens; 4E greedy 256 tokens, 221.0 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+          null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2444.6 ms, drafter 0.0 ms, rest of the host 1.1 ms; 104.7 tok/s against 4E's 221.0 (x0.474)
+      oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 624.2 ms, drafter 0.0 ms, rest of the host 0.6 ms; 409.7 tok/s against 4E's 221.0 (x1.854)
+
+== gsm8k-test-0006 (math): prompt 69 tokens; 4E greedy 256 tokens, 221.7 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+          null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2441.6 ms, drafter 0.0 ms, rest of the host 1.0 ms; 104.8 tok/s against 4E's 221.7 (x0.473)
+      oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 623.5 ms, drafter 0.0 ms, rest of the host 0.6 ms; 410.2 tok/s against 4E's 221.7 (x1.850)
+
+== gsm8k-test-0007 (math): prompt 97 tokens; 4E greedy 256 tokens, 220.2 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+          null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2455.5 ms, drafter 0.0 ms, rest of the host 1.0 ms; 104.2 tok/s against 4E's 220.2 (x0.473)
+      oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 627.0 ms, drafter 0.0 ms, rest of the host 0.7 ms; 407.8 tok/s against 4E's 220.2 (x1.852)
+
+== gsm8k-test-0008 (math): prompt 131 tokens; 4E greedy 256 tokens, 218.8 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+          null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2464.2 ms, drafter 0.0 ms, rest of the host 1.1 ms; 103.8 tok/s against 4E's 218.8 (x0.475)
+      oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 629.3 ms, drafter 0.0 ms, rest of the host 0.7 ms; 406.4 tok/s against 4E's 218.8 (x1.857)
+
+== gsm8k-test-0009 (math): prompt 87 tokens; 4E greedy 256 tokens, 220.7 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+          null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2452.3 ms, drafter 0.0 ms, rest of the host 1.2 ms; 104.3 tok/s against 4E's 220.7 (x0.473)
+      oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 626.0 ms, drafter 0.0 ms, rest of the host 0.6 ms; 408.5 tok/s against 4E's 220.7 (x1.851)
+
+== gsm8k-test-0010 (math): prompt 87 tokens; 4E greedy 256 tokens, 220.8 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+          null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2445.6 ms, drafter 0.0 ms, rest of the host 1.1 ms; 104.6 tok/s against 4E's 220.8 (x0.474)
+      oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 624.5 ms, drafter 0.0 ms, rest of the host 0.7 ms; 409.5 tok/s against 4E's 220.8 (x1.854)
+
+== gsm8k-test-0011 (math): prompt 92 tokens; 4E greedy 256 tokens, 220.6 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+          null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2450.4 ms, drafter 0.0 ms, rest of the host 1.0 ms; 104.4 tok/s against 4E's 220.6 (x0.473)
+      oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 626.2 ms, drafter 0.0 ms, rest of the host 0.8 ms; 408.3 tok/s against 4E's 220.6 (x1.851)
+
+== gsm8k-test-0012 (math): prompt 94 tokens; 4E greedy 256 tokens, 220.3 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+          null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2454.6 ms, drafter 0.0 ms, rest of the host 1.0 ms; 104.3 tok/s against 4E's 220.3 (x0.473)
+      oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 626.6 ms, drafter 0.0 ms, rest of the host 0.6 ms; 408.1 tok/s against 4E's 220.3 (x1.853)
+
+== gsm8k-test-0013 (math): prompt 85 tokens; 4E greedy 256 tokens, 220.9 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+          null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2445.7 ms, drafter 0.0 ms, rest of the host 1.1 ms; 104.6 tok/s against 4E's 220.9 (x0.474)
+      oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 624.6 ms, drafter 0.0 ms, rest of the host 0.8 ms; 409.3 tok/s against 4E's 220.9 (x1.853)
+
+== gsm8k-test-0014 (math): prompt 79 tokens; 4E greedy 256 tokens, 221.0 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+          null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2447.5 ms, drafter 0.0 ms, rest of the host 1.0 ms; 104.6 tok/s against 4E's 221.0 (x0.473)
+      oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 624.9 ms, drafter 0.0 ms, rest of the host 0.6 ms; 409.2 tok/s against 4E's 221.0 (x1.852)
+
+== gsm8k-test-0015 (math): prompt 121 tokens; 4E greedy 256 tokens, 219.1 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+          null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2455.8 ms, drafter 0.0 ms, rest of the host 1.1 ms; 104.2 tok/s against 4E's 219.1 (x0.475)
+      oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 627.1 ms, drafter 0.0 ms, rest of the host 0.7 ms; 407.8 tok/s against 4E's 219.1 (x1.861)
+
+== gsm8k-test-0016 (math): prompt 80 tokens; 4E greedy 234 tokens, 221.4 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 234 tokens
+          null: 234 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 234 passes; verify 2231.9 ms, drafter 0.0 ms, rest of the host 1.0 ms; 104.8 tok/s against 4E's 221.4 (x0.473)
+      oracle:3: 234 tokens, equal to the pass's greedy; 2.98 drafted tokens accepted a pass, 59 passes; verify 574.8 ms, drafter 0.0 ms, rest of the host 0.7 ms; 406.6 tok/s against 4E's 221.4 (x1.837)
+
+== gsm8k-test-0017 (math): prompt 85 tokens; 4E greedy 256 tokens, 220.5 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+          null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2449.0 ms, drafter 0.0 ms, rest of the host 1.1 ms; 104.5 tok/s against 4E's 220.5 (x0.474)
+      oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 626.0 ms, drafter 0.0 ms, rest of the host 0.8 ms; 408.4 tok/s against 4E's 220.5 (x1.852)
+
+== gsm8k-test-0018 (math): prompt 56 tokens; 4E greedy 256 tokens, 221.9 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+          null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2438.3 ms, drafter 0.0 ms, rest of the host 1.1 ms; 104.9 tok/s against 4E's 221.9 (x0.473)
+      oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 623.2 ms, drafter 0.0 ms, rest of the host 0.7 ms; 410.3 tok/s against 4E's 221.9 (x1.849)
+
+== gsm8k-test-0019 (math): prompt 92 tokens; 4E greedy 256 tokens, 220.1 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+          null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2452.4 ms, drafter 0.0 ms, rest of the host 1.1 ms; 104.3 tok/s against 4E's 220.1 (x0.474)
+      oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 626.2 ms, drafter 0.0 ms, rest of the host 0.7 ms; 408.4 tok/s against 4E's 220.1 (x1.855)
+
+== code-00 (code): prompt 43 tokens; 4E greedy 256 tokens, 222.4 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+          null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2437.2 ms, drafter 0.0 ms, rest of the host 0.9 ms; 105.0 tok/s against 4E's 222.4 (x0.472)
+      oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 623.5 ms, drafter 0.0 ms, rest of the host 0.6 ms; 410.1 tok/s against 4E's 222.4 (x1.845)
+
+== code-01 (code): prompt 47 tokens; 4E greedy 256 tokens, 221.7 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+          null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2438.8 ms, drafter 0.0 ms, rest of the host 0.9 ms; 104.9 tok/s against 4E's 221.7 (x0.473)
+      oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 623.5 ms, drafter 0.0 ms, rest of the host 0.7 ms; 410.2 tok/s against 4E's 221.7 (x1.850)
+
+== code-02 (code): prompt 44 tokens; 4E greedy 256 tokens, 221.2 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+          null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2433.8 ms, drafter 0.0 ms, rest of the host 1.0 ms; 105.1 tok/s against 4E's 221.2 (x0.475)
+      oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 621.8 ms, drafter 0.0 ms, rest of the host 0.6 ms; 411.3 tok/s against 4E's 221.2 (x1.859)
+
+== code-03 (code): prompt 51 tokens; 4E greedy 256 tokens, 220.1 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+          null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2437.2 ms, drafter 0.0 ms, rest of the host 1.0 ms; 105.0 tok/s against 4E's 220.1 (x0.477)
+      oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 622.6 ms, drafter 0.0 ms, rest of the host 0.6 ms; 410.8 tok/s against 4E's 220.1 (x1.867)
+
+== code-04 (code): prompt 58 tokens; 4E greedy 256 tokens, 219.3 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+          null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2438.9 ms, drafter 0.0 ms, rest of the host 0.9 ms; 104.9 tok/s against 4E's 219.3 (x0.478)
+      oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 623.0 ms, drafter 0.0 ms, rest of the host 0.6 ms; 410.5 tok/s against 4E's 219.3 (x1.872)
+
+== code-05 (code): prompt 64 tokens; 4E greedy 256 tokens, 220.1 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+          null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2439.8 ms, drafter 0.0 ms, rest of the host 1.0 ms; 104.9 tok/s against 4E's 220.1 (x0.476)
+      oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 623.3 ms, drafter 0.0 ms, rest of the host 0.6 ms; 410.4 tok/s against 4E's 220.1 (x1.864)
+
+== code-06 (code): prompt 45 tokens; 4E greedy 256 tokens, 221.5 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+          null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2438.0 ms, drafter 0.0 ms, rest of the host 1.0 ms; 105.0 tok/s against 4E's 221.5 (x0.474)
+      oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 623.2 ms, drafter 0.0 ms, rest of the host 0.6 ms; 410.4 tok/s against 4E's 221.5 (x1.853)
+
+== code-07 (code): prompt 38 tokens; 4E greedy 256 tokens, 222.9 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+          null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2432.2 ms, drafter 0.0 ms, rest of the host 0.9 ms; 105.2 tok/s against 4E's 222.9 (x0.472)
+      oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 620.7 ms, drafter 0.0 ms, rest of the host 0.4 ms; 412.1 tok/s against 4E's 222.9 (x1.849)
+
+== code-08 (code): prompt 43 tokens; 4E greedy 256 tokens, 222.8 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+          null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2432.4 ms, drafter 0.0 ms, rest of the host 1.0 ms; 105.2 tok/s against 4E's 222.8 (x0.472)
+      oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 621.5 ms, drafter 0.0 ms, rest of the host 0.5 ms; 411.6 tok/s against 4E's 222.8 (x1.847)
+
+== code-09 (code): prompt 42 tokens; 4E greedy 256 tokens, 223.0 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+          null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2432.6 ms, drafter 0.0 ms, rest of the host 1.0 ms; 105.2 tok/s against 4E's 223.0 (x0.472)
+      oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 621.7 ms, drafter 0.0 ms, rest of the host 0.5 ms; 411.4 tok/s against 4E's 223.0 (x1.845)
+
+== chat-00 (chat): prompt 29 tokens; 4E greedy 256 tokens, 224.1 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+          null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2425.2 ms, drafter 0.0 ms, rest of the host 0.9 ms; 105.5 tok/s against 4E's 224.1 (x0.471)
+      oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 619.9 ms, drafter 0.0 ms, rest of the host 0.5 ms; 412.7 tok/s against 4E's 224.1 (x1.841)
+
+== chat-01 (chat): prompt 46 tokens; 4E greedy 256 tokens, 222.7 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+          null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2433.7 ms, drafter 0.0 ms, rest of the host 1.0 ms; 105.1 tok/s against 4E's 222.7 (x0.472)
+      oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 621.6 ms, drafter 0.0 ms, rest of the host 0.5 ms; 411.5 tok/s against 4E's 222.7 (x1.848)
+
+== chat-02 (chat): prompt 29 tokens; 4E greedy 248 tokens, 224.4 tok/s
+  4E agreement: first divergence at generated token 84 (84 tokens equal before it): the pass Some(11), 4E Some(518); the pass's logits: 33 for 11, 32.96875 for 518, margin 0.0312
+          null: 247 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 247 passes; verify 2338.3 ms, drafter 0.0 ms, rest of the host 0.9 ms; 105.6 tok/s against 4E's 224.4 (x0.471)
+      oracle:3: 247 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 62 passes; verify 600.3 ms, drafter 0.0 ms, rest of the host 0.4 ms; 411.2 tok/s against 4E's 224.4 (x1.832)
+
+== chat-03 (chat): prompt 31 tokens; 4E greedy 256 tokens, 223.9 tok/s
+  4E agreement: first divergence at generated token 107 (107 tokens equal before it): the pass Some(4751), 4E Some(382); the pass's logits: 27.59375 for 4751, 27.578125 for 382, margin 0.0156
+          null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2426.6 ms, drafter 0.0 ms, rest of the host 0.9 ms; 105.5 tok/s against 4E's 223.9 (x0.471)
+      oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 619.8 ms, drafter 0.0 ms, rest of the host 0.5 ms; 412.7 tok/s against 4E's 223.9 (x1.843)
+
+== chat-04 (chat): prompt 41 tokens; 4E greedy 256 tokens, 223.1 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+          null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2435.7 ms, drafter 0.0 ms, rest of the host 1.0 ms; 105.1 tok/s against 4E's 223.1 (x0.471)
+      oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 622.2 ms, drafter 0.0 ms, rest of the host 0.5 ms; 411.1 tok/s against 4E's 223.1 (x1.843)
+
+== chat-05 (chat): prompt 35 tokens; 4E greedy 167 tokens, 226.3 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 167 tokens
+          null: 167 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 167 passes; verify 1574.3 ms, drafter 0.0 ms, rest of the host 0.6 ms; 106.0 tok/s against 4E's 226.3 (x0.469)
+      oracle:3: 167 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 42 passes; verify 404.9 ms, drafter 0.0 ms, rest of the host 0.4 ms; 412.0 tok/s against 4E's 226.3 (x1.821)
+
+== chat-06 (chat): prompt 29 tokens; 4E greedy 256 tokens, 224.1 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+          null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2424.8 ms, drafter 0.0 ms, rest of the host 0.8 ms; 105.5 tok/s against 4E's 224.1 (x0.471)
+      oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 620.2 ms, drafter 0.0 ms, rest of the host 0.5 ms; 412.4 tok/s against 4E's 224.1 (x1.841)
+
+== chat-07 (chat): prompt 29 tokens; 4E greedy 238 tokens, 224.7 tok/s
+  4E agreement: first divergence at generated token 71 (71 tokens equal before it): the pass Some(326), 4E Some(6185); the pass's logits: 24.859375 for 326, 24.859375 for 6185, margin 0.0000
+          null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2426.4 ms, drafter 0.0 ms, rest of the host 1.0 ms; 105.5 tok/s against 4E's 224.7 (x0.469)
+      oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 620.1 ms, drafter 0.0 ms, rest of the host 0.5 ms; 412.5 tok/s against 4E's 224.7 (x1.836)
+
+== chat-08 (chat): prompt 29 tokens; 4E greedy 256 tokens, 224.2 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+          null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2425.2 ms, drafter 0.0 ms, rest of the host 0.9 ms; 105.5 tok/s against 4E's 224.2 (x0.471)
+      oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 620.1 ms, drafter 0.0 ms, rest of the host 0.5 ms; 412.5 tok/s against 4E's 224.2 (x1.840)
+
+== chat-09 (chat): prompt 28 tokens; 4E greedy 47 tokens, 233.2 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 47 tokens
+          null: 47 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 47 passes; verify 437.0 ms, drafter 0.0 ms, rest of the host 0.2 ms; 107.5 tok/s against 4E's 233.2 (x0.461)
+      oracle:3: 47 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 12 passes; verify 114.1 ms, drafter 0.0 ms, rest of the host 0.2 ms; 411.2 tok/s against 4E's 233.2 (x1.764)
+
+== rag-00 (rag): prompt 1221 tokens; 4E greedy 256 tokens, 213.6 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+          null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2522.2 ms, drafter 0.0 ms, rest of the host 3.0 ms; 101.4 tok/s against 4E's 213.6 (x0.475)
+      oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 698.6 ms, drafter 0.0 ms, rest of the host 2.4 ms; 365.2 tok/s against 4E's 213.6 (x1.710)
+
+== rag-01 (rag): prompt 1214 tokens; 4E greedy 154 tokens, 213.7 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 154 tokens
+          null: 154 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 154 passes; verify 1517.7 ms, drafter 0.0 ms, rest of the host 2.5 ms; 101.3 tok/s against 4E's 213.7 (x0.474)
+      oracle:3: 154 tokens, equal to the pass's greedy; 2.97 drafted tokens accepted a pass, 39 passes; verify 425.2 ms, drafter 0.0 ms, rest of the host 2.2 ms; 360.3 tok/s against 4E's 213.7 (x1.686)
+
+== rag-02 (rag): prompt 1646 tokens; 4E greedy 256 tokens, 210.2 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+          null: 256 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 256 passes; verify 2539.6 ms, drafter 0.0 ms, rest of the host 3.3 ms; 100.7 tok/s against 4E's 210.2 (x0.479)
+      oracle:3: 256 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 64 passes; verify 728.4 ms, drafter 0.0 ms, rest of the host 3.1 ms; 350.0 tok/s against 4E's 210.2 (x1.665)
+
+== rag-03 (rag): prompt 1637 tokens; 4E greedy 199 tokens, 210.2 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 199 tokens
+          null: 199 tokens, equal to the pass's greedy; 0.00 drafted tokens accepted a pass, 199 passes; verify 1972.2 ms, drafter 0.0 ms, rest of the host 3.1 ms; 100.7 tok/s against 4E's 210.2 (x0.479)
+      oracle:3: 199 tokens, equal to the pass's greedy; 3.00 drafted tokens accepted a pass, 50 passes; verify 559.4 ms, drafter 0.0 ms, rest of the host 2.9 ms; 353.9 tok/s against 4E's 210.2 (x1.684)
+
+agreement of the pass's greedy with 4E's greedy (reported, not a gate)
+   chat: 7 of 10 prompts in full agreement; 1756 of 2253 tokens before the first divergence
+   code: 10 of 10 prompts in full agreement; 2560 of 2560 tokens before the first divergence
+   math: 19 of 20 prompts in full agreement; 4919 of 4924 tokens before the first divergence
+    rag: 4 of 4 prompts in full agreement; 865 of 865 tokens before the first divergence
+    all: 40 of 44 prompts in full agreement; 10100 of 10602 tokens before the first divergence
+  gsm8k-test-0004: at 251: the pass's logits: 31.09375 for 11, 31.09375 for 279, margin 0.0000
+  chat-02: at 84: the pass's logits: 33 for 11, 32.96875 for 518, margin 0.0312
+  chat-03: at 107: the pass's logits: 27.59375 for 4751, 27.578125 for 382, margin 0.0156
+  chat-07: at 71: the pass's logits: 24.859375 for 326, 24.859375 for 6185, margin 0.0000
+
+aggregates (tok/s = total tokens over total wall; x greedy likewise, against 4E's greedy on its own text; median over prompts with its range)
+config null: arm a12ip@8.10.8.20.6 (A12ip), plan [8, 10, 8, 20, 6], 384 threads, row cap 16, drafter revision -, dtype -, shape none (R = 1), N 256
+          null  chat: 10 prompts, 2253 tokens, 10 of 10 equal to the pass's greedy; 0.00 accepted a pass, histogram 0..15 [2253, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; 105.5 tok/s, greedy 224.3, x0.470; per prompt x0.471 [0.461-0.472]; verify 100 %, drafter 0 % of the wall
+          null  code: 10 prompts, 2560 tokens, 10 of 10 equal to the pass's greedy; 0.00 accepted a pass, histogram 0..15 [2560, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; 105.0 tok/s, greedy 221.5, x0.474; per prompt x0.474 [0.472-0.478]; verify 100 %, drafter 0 % of the wall
+          null  math: 20 prompts, 4924 tokens, 20 of 20 equal to the pass's greedy; 0.00 accepted a pass, histogram 0..15 [4924, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; 104.5 tok/s, greedy 220.9, x0.473; per prompt x0.473 [0.470-0.475]; verify 100 %, drafter 0 % of the wall
+          null   rag: 4 prompts, 865 tokens, 4 of 4 equal to the pass's greedy; 0.00 accepted a pass, histogram 0..15 [865, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; 101.0 tok/s, greedy 211.8, x0.477; per prompt x0.477 [0.474-0.479]; verify 100 %, drafter 0 % of the wall
+          null   all: 44 prompts, 10602 tokens, 44 of 44 equal to the pass's greedy; 0.00 accepted a pass, histogram 0..15 [10602, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; 104.6 tok/s, greedy 221.0, x0.473; per prompt x0.473 [0.461-0.479]; verify 100 %, drafter 0 % of the wall
+config oracle:3: arm a12ip@8.10.8.20.6 (A12ip), plan [8, 10, 8, 20, 6], 384 threads, row cap 16, drafter revision -, dtype -, shape oracle chain of 4 (3 correct), N 256
+      oracle:3  chat: 10 prompts, 2253 tokens, 10 of 10 equal to the pass's greedy; 3.00 accepted a pass, histogram 0..15 [0, 0, 0, 564, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; 412.1 tok/s, greedy 224.3, x1.837; per prompt x1.840 [1.764-1.848]; verify 100 %, drafter 0 % of the wall
+      oracle:3  code: 10 prompts, 2560 tokens, 10 of 10 equal to the pass's greedy; 3.00 accepted a pass, histogram 0..15 [0, 0, 0, 640, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; 410.9 tok/s, greedy 221.5, x1.855; per prompt x1.851 [1.845-1.872]; verify 100 %, drafter 0 % of the wall
+      oracle:3  math: 20 prompts, 4924 tokens, 20 of 20 equal to the pass's greedy; 3.00 accepted a pass, histogram 0..15 [0, 0, 2, 1230, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; 408.7 tok/s, greedy 220.9, x1.850; per prompt x1.852 [1.809-1.861]; verify 100 %, drafter 0 % of the wall
+      oracle:3   rag: 4 prompts, 865 tokens, 4 of 4 equal to the pass's greedy; 3.00 accepted a pass, histogram 0..15 [0, 0, 1, 216, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; 357.1 tok/s, greedy 211.8, x1.686; per prompt x1.685 [1.665-1.710]; verify 100 %, drafter 0 % of the wall
+      oracle:3   all: 44 prompts, 10602 tokens, 44 of 44 equal to the pass's greedy; 3.00 accepted a pass, histogram 0..15 [0, 0, 3, 2650, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; 405.1 tok/s, greedy 221.0, x1.834; per prompt x1.849 [1.665-1.872]; verify 100 %, drafter 0 % of the wall
+vram house-null-a12ip idle 0 MiB peak 2697 MiB
+specbench house null a12ip exit 0
