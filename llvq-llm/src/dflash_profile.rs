@@ -15,7 +15,7 @@ use std::time::Instant;
 use anyhow::Result;
 use candle_core::{DType, Device, Tensor, D};
 
-use super::{readout_chunked, DFlashDrafter, DeviceReadout, DraftContext, TargetVocab, BLOCK, DRAFTS, MASK_ID, TREE_TOPK};
+use super::{readout_chunked, DFlashDrafter, DeviceReadout, DraftContext, LseReadout, TargetVocab, BLOCK, DRAFTS, MASK_ID, TREE_TOPK};
 
 const WARM: usize = 5;
 const TIMED: usize = 30;
@@ -270,6 +270,42 @@ pub fn run(d: &DFlashDrafter, vocab: &dyn TargetVocab, ctx0_taps: &Tensor, new_t
     let z = logits.to_dtype(DType::F32)?;
     let z16 = z.to_dtype(DType::F16)?;
     let (rows, vocab_n) = z.dims2()?;
+
+    // READOUT, no softmax (LseReadout, unrolled): the served one
+    let st = "rd-lse";
+    let lr = LseReadout::new(rows, &dev)?;
+    let i0 = p.op(st, "argmax_keepdim #0", sh(&[&z]), || Ok(z.argmax_keepdim(D::Minus1)?))?;
+    let work = p.op(st, "affine(1, 0): a copy for the in-place masks", sh(&[&z]), || Ok(z.affine(1.0, 0.0)?))?;
+    let mut idv = vec![i0];
+    for k in 1..TREE_TOPK {
+        let prev = idv[k - 1].clone();
+        // the mask is idempotent, so repeating it for the timing leaves the same tensor
+        p.op(st, &format!("scatter_set -inf #{}", k - 1), sh(&[&work, &prev, &lr.ninf]), || Ok(work.scatter_set(&prev, &lr.ninf, 1)?))?;
+        let i = p.op(st, &format!("argmax_keepdim #{k}"), sh(&[&work]), || Ok(work.argmax_keepdim(D::Minus1)?))?;
+        idv.push(i);
+    }
+    let ids4 = p.op(st, "cat ids", sh(&[&idv[0]]), || Ok(Tensor::cat(&idv, 1)?))?;
+    let zv = p.op(st, "gather logits", sh(&[&z, &ids4]), || Ok(z.gather(&ids4, 1)?))?;
+    let mx = zv.narrow(1, 0, 1)?;
+    let sb = p.op(st, "broadcast_sub row max (gathered, a view)", sh(&[&z, &mx]), || Ok(z.broadcast_sub(&mx)?))?;
+    let ex = p.op(st, "exp", sh(&[&sb]), || Ok(sb.exp()?))?;
+    let su = p.op(st, "sum_keepdim", sh(&[&ex]), || Ok(ex.sum_keepdim(D::Minus1)?))?;
+    let idf = p.op(st, "to_dtype ids u32 -> f32", sh(&[&ids4]), || Ok(ids4.to_dtype(DType::F32)?))?;
+    let packed = p.op(st, "cat packed", sh(&[&idf, &zv, &su]), || Ok(Tensor::cat(&[&idf, &zv, &su], 1)?))?;
+    p.op(st, "to_vec2 (device-to-host)", sh(&[&packed]), || Ok(packed.to_vec2::<f32>()?))?;
+    let whole = p.whole(|| {
+        lr.tree(&z)?;
+        Ok(())
+    })?;
+    p.print(st, Some(whole));
+    let st = "rd-lse-ch";
+    let am = p.op(st, "argmax (chain)", sh(&[&z]), || Ok(z.argmax(D::Minus1)?))?;
+    p.op(st, "to_vec1 (device-to-host)", sh(&[&am]), || Ok(am.to_vec1::<u32>()?))?;
+    let whole = p.whole(|| {
+        lr.chain(&z)?;
+        Ok(())
+    })?;
+    p.print(st, Some(whole));
 
     // READOUT, device (DeviceReadout::run, unrolled)
     let st = "rd-device";
