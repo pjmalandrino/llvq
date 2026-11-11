@@ -1,0 +1,223 @@
+LARGE-PREFILL: THE PREFILL'S ATTENTION ON THE TENSOR CORES (D2 MMA), DESIGN STUDY, 2026-11-11. $0.
+=====================================================================================================
+Result: an MMA attention cannot keep the bits. The scalar tile fixes every rounding of a score and of a weighted V
+sum; mma.sync sums 16 products in the tensor core's own order and precision, and PV needs P in binary16. The gate
+becomes the served attention tolerance (paired perplexity within +-0.12 %), as for the grouped and kernel forms.
+What it would give (*estimated*): attention of a 32-row pass at 8k 5 ms [3, 10] against 34.3 ms *measured* for
+a12ipg32 and 13 to 21 ms *estimated* for the full tile. First token 0.39 s [0.36, 0.43] at 1,024, 1.64 s [1.5, 1.9] at
+4,096, 3.55 s [3.2, 4.5] at 8,191, against 0.448 / 2.681 / 7.800 s *measured* for a12ipg32. No byte added on the card.
+Recommendation: stop at the full tile now. Measure it ($0.84, job written). Build the MMA attention only if the full
+tile's 8k pass still spends more than 15 ms in attention and long prompts are a served target.
+Nature: read only. Code and journals of claude/arbre-prefill-2026-11-11 (653062b) and claude/arbre-r32-2026-11-11.
+No job, no build, no model loaded.
+
+0. WHAT THIS STANDS ON
+----------------------
+*Measured*, L40S, sealed 4B (large-prefill-r32-2026-11-11.txt unless named):
+- a12ipg32 first token 0.448 / 2.681 / 7.800 s at 1,024 / 4,096 / 8,191; phase peaks 2.318 / 2.855 / 3.560 GB.
+- 32-row pass at 8k: 45.149 ms, attention 34.310 ms, the rest 10.839 ms (medians of 2 stamped passes).
+- Served eager phase peaks 2.356 GB at 1,024, 5.946 GB at 8,191 (large-prefill-2026-11-11.txt).
+- D1's attention model: a step costs F = 2.92 us plus V = 1.22 us a row; F matches 142 CTAs x 16 KB at 864 GB/s
+  (2.69 us). F and V add, they do not overlap (rows study section 5, *computed* from measured stamps).
+- Chain against eager, paired ppl +0.0007 % [-0.0078, +0.0092], 12 windows of 2,048 (large-prefill-2026-11-11.txt).
+*Computed*:
+- KV bytes a position a layer: 8 KV heads x 128 x 2 B x 2 = 4,096 B. At 8,192 positions, 36 layers: 1.208 GB.
+- m16n8k16 is 2,048 MAC. The L40S's 362 TFLOPS dense f16 with f32 accumulation is 128 MAC a clock a sub-partition
+  at 2.52 GHz: 16 cycles an MMA, the audit's 16.2.
+
+1. HOW THE SCALAR TILE COMPUTES TODAY, AND IN WHAT ORDER
+--------------------------------------------------------
+Read in llvq_pers.cuh (pers_attn_tile, pers_attn_merge1, pers_attention) and pers_4et_a12g.cu (p4g_attention).
+Geometry: positions in 8-position tiles aligned to absolute positions, 64-position units, 256-position splits. A
+warp holds two query heads, one a half-warp; lane l16 of a half owns dimensions 8 l16 .. 8 l16 + 7.
+Per tile, for one query head:
+- score j: t = fma(q_i, k_ji, t) for i = 0..7 from 0 on each lane, then t += shfl_xor(t, off) for off = 8, 4, 2, 1,
+  then s_j = t x c. Every add is one RN in f32, in that tree.
+- tile max: s_0, then fmaxf over j = 1..7. New max mn = fmaxf(m, mt). carry = ex2(m - mn), the fixed polynomial
+  pers_ex2 (6 FMA), never the hardware ex2.
+- p_j = ex2(s_j - mn) in f32; ts summed j = 0..7 in order; d' = d x carry + ts.
+- a_i = a_i x carry, then a_i = fma(p_j, v_ji, a_i) for j = 0..7 in order. p_j stays f32.
+Then:
+- units: each of the split's 4 units runs its 8 tiles in order into its own state (m, d, a[128]);
+- split: the 4 unit states folded in unit order by pers_attn_merge1 (two ex2, two products, one add each);
+- row: the split states written to `part`, and the job that draws the last ticket of (row, KV head) folds the splits
+  in ascending order, 8 a round trip, then out = f2h(a / d).
+Each row's bits are a function of its length alone. That is why D1 (groups of 4 rows) and R = 32 kept them.
+
+What an MMA formulation changes, and why no form keeps the bits:
+- Score: S = Q K^T by m16n8k16 over 8 k-steps of 16 dimensions. Inside one MMA the 16 products are summed by the
+  tensor core in its own fused order and precision (not documented; llvq-cuda/tests/host_mma.h says the same and
+  models only which operands meet). Today's score is a fixed tree of 8 sequential fma and 4 butterfly adds. No
+  sequence of MMAs reproduces that tree's roundings.
+- PV: the A operand of the second MMA is P in binary16. Today p_j enters the fma in f32. Rounding p to binary16 is a
+  relative error up to 2^-11 a weight that today's path never makes. A hi/lo split (P = hi + lo, two binary16, two
+  MMAs) brings it near 2^-22, still not zero.
+- Softmax order: the max and the sum run over the MMA tile's keys, held 2 a lane across a quad, then reduced by quad
+  shuffles. The online rescale moves from every 8 positions to every MMA tile.
+- An exact dot product (integer MMA on split mantissas) would round once; today's chain rounds 12 times. Exact is
+  not today's bits either.
+Verdict: no. Identity with a12ipg32 is out of reach for any MMA form. What can be kept: the split fold, its order and
+its function, and the arm's own identity across R and job shapes (section 4, gate C1).
+
+2. THE GATE: THE SERVED ATTENTION TOLERANCE
+-------------------------------------------
+Precedent (docs/ETAT.md section 4, operator's gate of 2026-11-01): forms not bit for bit with `expanded` are served
+under paired WikiText-2 perplexity within +-0.12 %. Grouped against expanded read +0.0095 % [-0.0048, +0.0238] by
+decode over 12 windows of 4,096 (gqa-ppl-2026-11-01, LLVQ_GQA_PPL=4096,12 in fusedrun: the same windows scored by both
+forms, by prefill and by teacher-forced decode, window NLLs paired, 95 % t interval). The kernel form (attn_dec.cu's
+scalar arithmetic, the one this tile reproduces) read +0.0018 % against grouped over 12 windows of 4,096
+(attn-t8-below). The closest precedent is that one: a different attention arithmetic, same band.
+What an MMA prefill attention must pass, with prefillbench (no new binary):
+- Q1. --ppl 2048,12 --pair-ppl against the existing eager dump (large-prefill-2026-11-11-brut/nll-eager.jsonl, same
+  sealed file, config and windows). The chain read +0.0007 % there. Whole interval inside +-0.12 %.
+- Q2. --ppl 4096,12 for the MMA arm and for a12ipg32, paired. 2,048 never reaches the long splits where the new
+  summation runs over thousands of keys; 4,096 is the precedent's length. Whole interval inside +-0.12 %. a12ipg32
+  is the reference here because it is the chain's bits and its process peak stays low (eager's window_nll took
+  6.485 GB at 2,048).
+- Q3. The 47 texts paired with a12ipg32's (--pair-texts): every divergence at a near-tie, margin at most 0.25 in
+  logit, the definition of the first prefill prereg. Expect some divergences: identity no longer holds.
+- Q4. GSM8K-200, 4E decoding after an MMA chain prefill against the eager prefill, exact McNemar, not separated.
+  This pairing is owed by the chain anyway (r32 journal, WHAT IS OWED); run it once, on the arm that will be served.
+  It needs a door: the chain prefill is not wired to the gsm8k binary today.
+- Reading, not gate: max |dlogit| of the last row against a12ipg32. The grouped form's prediction on that reading
+  missed by x100 (13.13 against 0.12) inside a passing ppl band; sign no interval on it.
+
+3. TWO DESIGNS
+--------------
+Design A, in the persistent kernel, a new arm a12ipg32m (a text edit of a12ipg32 like ft: p4g_attention replaced by
+p4m_attention, the rest of the pass untouched, its module digest pinned beside its parent's).
+- Job: (split s of 256 positions, KV head h), every row of the pass in it. At R = 32 and 4 query heads a KV head the
+  query block is 128 x 128, binary16 (q_out is binary16 already, so staging it is exact). At 8k: 32 x 8 = 256 jobs a
+  layer, 2 rounds over 142 CTAs, 16 steps a CTA a layer.
+- Warps: 8 compute warps, each owns 16 query vectors (4 rows x 4 heads) for the whole split; 4 warps issue the
+  cp.async of the next stage, as the ring does today. At R < 32 the idle tiles are skipped.
+- Step: 32 keys staged, K then V, 16 KB, a 2-stage ring: today's PERS_STAGE and its bytes.
+  QK: A = Q from shared (ldmatrix), B = K, which is column-major as stored ([pos][128]): 4 n8 tiles x 8 k-steps = 32
+  MMA a warp. Scale by c in f32 (today's s = t x c). Tile max per query: 2 values a lane, 2 quad shuffles. New max,
+  carry = pers_ex2_sel(m - mn) (the same polynomial as today). p = pers_ex2_sel(s - mn) in f32, row sum in f32, then
+  P packed to binary16. The S accumulator's layout is the A fragment of the next MMA (register reuse, FlashAttention-2
+  style). PV: B = V by ldmatrix.trans, 16 n8 tiles x 2 k-steps = 32 MMA a warp.
+- f16 inputs, f32 accumulation (mma.sync.m16n8k16.f32.f16.f16.f32, the weight rows' instruction, p4t_mma).
+- Registers a compute lane: O 16 x 128 f32 = 64, S 16 x 32 f32 = 16, P 8, max and sum 4, transient fragments and
+  addresses about 25: about 120 of 168 (*estimated*). The kernel is one symbol, so its count is the max over phases:
+  the risk is spills elsewhere, not here. Q is read from shared each step, not held (32 registers saved).
+- Shared: Q 128 x 136 halves (padded) 34,816 B, 2 stages of 32 keys x 2 x 136 halves 34,816 B, the 32-row visibility
+  mask 128 B: 69,760 B, inside a12ipg32's 74,240 B attention area. The dynamic area stays 93,568 B of 101,376.
+- Causal mask inside the pass: the job of the split that holds pos0 stages positions [base, pos0) from the cache and
+  the pass's tree slots [0, R) from tk_l / tv_l once (not per row as p4t_attn_issue does today). Row r sees slot j iff
+  j is on its path (chain: j <= depth[r]), a 32-bit mask a row built from L.path. Masked scores are set to -inf before
+  the max. A tile row fully masked keeps m = -inf; the ex2 argument then uses 0, so P = 0 and no NaN.
+- Fold: each (row, head) split state written to `part` in today's layout ([row][n_kv][split][groups][130] floats,
+  already sized for 32 rows). Today the last ticket of (row, h) folds. Here one job carries all 32 rows of h, so the
+  8 jobs of the last split would draw every last ticket and fold 32 rows each on 8 CTAs: about 6.9 ms a pass
+  (*estimated*, 32 folds x 6 us x 36 layers). So the fold becomes its own sub-phase after one grid wait: 256 (row, h)
+  folds a layer dealt over 142 CTAs, pers_attn_merge1 in ascending split order and f2h(a / d) as today. Its function
+  and order are kept; its inputs are not.
+- Short context: at pos0 below 2,048 a layer has at most 64 jobs, under 142 CTAs. Fix: at few splits, a job takes a
+  group of query tiles instead of all 8, the group count a function of pos0 only. Bytes rise there, where they are
+  small. Each query's own operations do not depend on which tiles share its job (gate C1 checks it).
+- Bytes on the card: none. No buffer moves, no new allocation. Peaks 2.318 / 2.855 / 3.560 GB expected, at or under
+  eager's 2.356 / 5.946 GB.
+
+Design B, A with P split hi + lo: two PV MMAs, +8 registers, PV's error from 2^-11 to about 2^-22 relative. MMA work
+x1.5. Build it as a compile flag of A and run both in Q2 if A's interval is not well inside the band.
+
+Rejected: the attention as its own launch between phases. The pass is one persistent launch; cutting it at every
+layer's attention adds 72 launches and restarts a pass (no CUDA Graphs here). About 0.3 to 0.7 ms a pass of launches
+alone (*estimated* at 4 to 10 us each), and the cost is paid at every context. It would free registers (own symbol,
+up to 255). Fallback only if A spills.
+
+4. ESTIMATE (*estimated* unless labelled)
+----------------------------------------
+A 32-row pass at pos0 8,096, design A. Per CTA a layer: 2 jobs x 8 steps = 16 steps; 576 steps a pass.
+  term                                       arithmetic                                                     ms a pass
+  bytes                                      1.208 GB once a pass (*computed*); 576 steps x F 2.92 us          1.68
+  MMA                                        per step a sub-partition 2 warps x 64 MMA x 16 cycles = 0.81 us;
+                                             x1.5 for design B; 576 steps                                     0.47-0.70
+  softmax and rescale                        128 x 32 scores a step x about 18 instructions = 2,304 warp
+                                             instructions over 4 sub-partitions, x3 for latency: 0.7 us       0.40
+  job setup (q 32 KB from L2, states)        72 jobs a CTA a pass x 2 to 4 us                                  0.15-0.30
+  split fold sub-phase                       36 x (one grid wait about 4 us + 2 rounds x 6 us)                0.5-1.0
+  phase floor (barriers, last split, mask)   from the short-context attention of today's pass, 1 to 2 ms,
+                                             of which the per-row part goes                                   0.3-1.0
+Sum: 2.6 to 4.0 ms if MMA and softmax overlap the bytes, 3.5 to 5.1 ms if they add as D1's F and V do. Point 5 ms,
+the additive upper end. Interval
+[3, 10] ms: earlier estimates on this pass were too optimistic three times in five, D1's V by x2.6, so the upper edge
+is twice the point.
+Against: a12ipg32 34.3 ms (*measured*, x6.9 at the point, x3.4 at the upper edge); full tile 13 to 21 ms (*estimated*,
+x2.6 to x4.2).
+
+First token. Model: first token = passes x rest + sum over passes of attention(pos), attention = f + (A8k - f) x
+pos / 8,128, f the floor at short context. Rest = 10.839 ms a pass (*measured*), so 0.347 / 1.387 / 2.775 s for
+32 / 128 / 256 passes; mean pos / 8,128 is 0.061 / 0.250 / 0.502. Point A8k = 5, f = 1; low 3 and 0.5; high 10 and 2.
+  prompt  passes  MMA attention, s        MMA first token, s    a12ipg32 (*measured*)   full tile (*estimated*)
+  1,024     32    0.040 [0.021, 0.080]    0.39 [0.36, 0.43]     0.448                   0.39-0.41
+  4,096    128    0.256 [0.144, 0.512]    1.64 [1.5, 1.9]       2.681                   1.9-2.2
+  8,191    256    0.770 [0.449, 1.540]    3.55 [3.2, 4.5]       7.800                   4.7-5.9
+The full-tile column is today's attention over the prompt (0.101 / 1.294 / 5.025 s, *computed* as measured first
+token less rest) scaled by 13/34.3 to 21/34.3. The full-tile note's own figure at 8k, 5.7 to 6.7 s, used the older
+8.16 s base.
+Gain of MMA over the full tile: about 0 at 1,024, 0.3 to 0.5 s at 4,096, 1.2 to 2.4 s at 8,191. The 8k chat turn
+(hand-over plus 255 / 158.2 tok/s): 9.42 s today, 6.3 to 7.5 s with the full tile, 4.8 to 6.1 s with MMA.
+What would make it wrong:
+- F was fitted on D1's steps; one job serving 32 rows may run its compute serially behind the loads (the high edge
+  assumes so) or worse if the 2-stage ring starves.
+- the fold sub-phase and its grid wait are priced, never measured; `part` traffic (17 MB a layer at 32 rows, 1.2 GB
+  a pass written and read) is assumed L2-resident;
+- register spills of the one symbol at 168 of 170; ldmatrix bank conflicts; the driver ptxas's schedule;
+- the short-context floor f: at 1,024 it decides whether MMA beats a12ipg32 at all;
+- the 362 TFLOPS rate is a datasheet figure. Even at half rate the MMA term stays under the byte term.
+Unmeasured terms: the fold sub-phase, the softmax's latency factor, f, the overlap of compute and loads.
+
+5. THE ONE-ROW 4E DECODE AT LONG CONTEXT
+----------------------------------------
+No. One row has 4 query vectors a KV head: an m16 tile would be 25 % filled, and nothing else can share the staged
+keys. The decode reads each cache byte once a token already. Its long-context cost is bytes: 1.208 GB at 8,192 is
+1.40 ms at 864 GB/s against a growth of 1.985 ms from 5 to 8,192 positions (*computed* from 236.6 and 161.0 tok/s).
+The ceiling at full bandwidth is about 178 tok/s at 8,192 (*computed*). The full tile (4E v9ft, job written) already
+aims there; the full-tile note's upper edge, 190 tok/s, is above that ceiling and cannot hold. MMA would also take
+the served decode off its bits for no byte saved.
+
+6. COST, GATES, JOBS
+--------------------
+Build, design A with B as a flag: 14 to 18 agent-hours (*estimated*).
+- p4m_attention (MMA steps, mask, online softmax, fold sub-phase, short-context grouping): 6 to 7 h.
+- arm a12ipg32m, TreeForm, module slot, digests, prefillbench names: 1.5 h.
+- host twin: host_mma.h gives the operand map, not the card's sums. Add an ldmatrix model, or load fragments with LDS
+  (simpler, a little slower): 3 to 4 h.
+- mutants and compile probe: 2.5 h. Prereg and job scripts: 1.5 h.
+Mac gates ($0):
+- M1. Compile probe (ops/tree-sass-probe.sh, sm_89): at most 170 registers at 384 threads, no local operation inside
+  the attention loop, local no larger than a12ipg32's 728 B, shared at most 101,376 B. HMMA count as written.
+- M2. Host twin against a12ipg32 at R = 1, 5, 16, 32 and pos0 9, 250, 500, 1,000: every row's attention output
+  within a relative bound (proposed 2^-9 of the output's scale), argmax equal on the logits. Not identity: the host
+  MMA sums in RN order, which the card does not.
+- M3. Host twin against itself: R = 32 equals R = 16 equals R = 1 bit for bit, and the short-context grouping at two
+  group counts gives the same rows.
+- M4. Mutants, each one site, counted: mask off by one (slot j visible to depth j - 1); P not rescaled by carry;
+  V fragment read with K's layout (no .trans); fold in descending split order. Each must break M2 or M3.
+Card jobs (l40sx1 at $1.80/h, *estimated* from D1 and R32's 19 min with three modules):
+- C1 speed and closeness: a12ipg32m (and its B flag) against a12ipg32 at 1,024 / 4,096 / 8,191, 3 timed rounds, the
+  8k phase stamps, the phase peaks, the 47 texts paired, the arm's own identity R = 32 against R = 16 on the card
+  (the tensor core's sums are deterministic for a fixed tile; the card must show that a query's bits do not depend on
+  the other rows of its tile). About 25 min, $0.75, timeout 30 min ($0.90).
+- C2 quality: Q1 and Q2 (--ppl 2048,12 and 4096,12, two arms, two processes). About 25 min, $0.75.
+- C3 GSM8K-200 (Q4), once a door exists, on the arm to serve. About 25 min, $0.75.
+Total about $2.25, $2.70 at worst, over 3 jobs.
+Speed gate to sign: first token at 8,191 at most 4.5 s, and at most the full tile's measured first token less 1 s.
+
+7. RECOMMENDATION
+-----------------
+Stop at the full tile now, and run its job (large-prefill-ft.sh, $0.84). Reasons:
+- the full tile keeps the bits and is built and gated; MMA gives up identity for the whole prefill and needs Q1 to
+  Q4 and a door before it can be served;
+- at 1,024 tokens MMA gains nothing over the full tile, and most chat prompts are short;
+- the gain over the full tile is 1.2 to 2.4 s at 8,191 only, and this note's interval is not measured.
+Build MMA if the full tile's job shows its 8k 32-row pass still above 15 ms of attention, and the operator wants
+long prompts (4k and up) served. Then design A, with B ready as a flag.
+
+NOT ESTABLISHED
+---------------
+Any card time of an MMA attention. The tensor core's summation on sm_89 (assumed deterministic for a fixed tile,
+unknown order). The fold sub-phase's cost. Whether design A fits 168 registers without spills elsewhere. The
+short-context floor. Any model but the 4B, any card but the L40S.
