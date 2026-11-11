@@ -3812,7 +3812,25 @@ mod tests {
                 "        p4t_taps_a12(L, H, R, l, c0, G);\n        // ln1: the natural values for the int4 v rows, the signed and\n",
                 1,
             )
-            .replacen("    // the final norm, natural: the head's input\n", "    p4t_taps_a12(L, H, R, NL, c0, G);\n    // the final norm, natural: the head's input\n", 1);
+            .replacen(
+                "    // the final norm, natural: the head's input\n",
+                "    p4t_taps_a12(L, H, R, NL, c0, G);\n    // A launch with L.split_head == 0 (the chain prefill's passes before the\n    // prompt's last, docs/mesures/large-prefill-contexte-2026-11-11.txt) skips\n    // the final norm and the head, every wait kept: no logits, no argmax (the\n    // ring reads u32 max), the rows' residuals, K, V and taps untouched.\n    const bool head_on = L.split_head != 0u;\n    // the final norm, natural: the head's input\n",
+                1,
+            )
+            // the head switch (96c501a): the final norm, the head's phase and
+            // its fold run only when split_head is not 0; every wait and
+            // every slot write stay unconditional
+            .replacen(
+                "    for (u32 r = c0; r < R; r += G)\n        p4t_ln_final_a10(",
+                "    if (head_on)\n        for (u32 r = c0; r < R; r += G)\n            p4t_ln_final_a10(",
+                1,
+            )
+            .replacen(
+                "        p4t_io(sh, L.xin, L.ldx, nullptr, 0u, nullptr, P4T_HEAD, L.split_head);\n        unsigned long long po = 0ull;\n        u32 to = 0u;\n        p4t_place(sh, L, po, to);\n        p4t_phase_rc<RC, IP>(sh, sh, sh, 1u, L, A, tab, t_inv, area, cmax);\n",
+                "        if (head_on) {\n            p4t_io(sh, L.xin, L.ldx, nullptr, 0u, nullptr, P4T_HEAD, L.split_head);\n            unsigned long long po = 0ull;\n            u32 to = 0u;\n            p4t_place(sh, L, po, to);\n            p4t_phase_rc<RC, IP>(sh, sh, sh, 1u, L, A, tab, t_inv, area, cmax);\n        }\n",
+                1,
+            )
+            .replacen("        p4t_fold_a9(sh, sh, sh, 1u, L, A, cmax);\n", "        if (head_on) p4t_fold_a9(sh, sh, sh, 1u, L, A, cmax);\n", 1);
         assert_eq!(P4T_A12_PART.1.matches(body.as_str()).count(), 1, "the a12 pass drifted from the row-cap pass");
         let t = p4t_a12_unit_text(SERVED_DEFINES_SM89);
         assert!(t.contains(&p4t_a10rc_unit_text(SERVED_DEFINES_SM89, 16)));
