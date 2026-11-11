@@ -1,10 +1,11 @@
 //! The speculative decode loop end to end on the card (`llvq_cuda::spec_loop`
-//! around the tree verify pass): for each prompt, N greedy tokens by 4E and
-//! by the loop with each drafter asked, token equality asserted over all N,
-//! and the loop's time split into the verify launches, the drafter calls and
+//! around the tree verify pass): for each prompt, N greedy tokens by 4E, by
+//! the pass alone (the loop with the null drafter) and by the loop with each
+//! drafter asked, every drafter's tokens asserted equal to the pass's own,
+//! the pass's agreement with 4E reported, and the loop's time split into the verify launches, the drafter calls and
 //! the rest of the host.
 //!
-//! Usage: `LLVQ_CONFIG=<served v9 config> specbench [--prompts <file.jsonl>] [--runs <k>] [--vocab dense|q4] <sealed> <arm> <drafters> [N] [drafter_dir] [f16|f32]`
+//! Usage: `LLVQ_CONFIG=<served v9 config> specbench [--prompts <file.jsonl>] [--runs <k>] [--vocab dense|q4] [--dump <file.jsonl>] <sealed> <arm> <drafters> [N] [drafter_dir] [f16|f32]`
 //!
 //! * `--prompts`: a JSONL prompt file (`llvq_llm::spec_prompts`, the house
 //!   set is `ops/data/spec-prompts-v1.jsonl`), each through the same chat
@@ -13,12 +14,15 @@
 //!   table dequantized once to a dense copy on the card) or `q4` (the
 //!   target's own int4 g64 table through its gather and the batched head,
 //!   `llvq_llm::dflash_q4`, no copy);
+//! * `--dump`: one JSON line a prompt and decoder (`4e`, `pass`, each
+//!   drafter's last run): id, kind, decoder, token ids and decoded text, for
+//!   grading offline;
 //! * `--runs`: timed runs a prompt; by default 1 discarded and 3 timed for
 //!   four prompts or fewer, 1 timed and none discarded above;
 //! * `<arm>`: the verify pass, `a12` (taps on) or `a10t384r16` (no taps), with
 //!   an optional plan suffix `@q.o.g.d.h` (else the stream plan at its warps);
 //! * `<drafters>`: comma-separated, `null` (R = 1 decoding) and `oracle:K`
-//!   (K = 0 .. 14: K correct tokens of 4E's greedy continuation then a wrong
+//!   (K = 0 .. 14: K correct tokens of the pass's greedy continuation then a wrong
 //!   one, a pass of K + 2 rows accepting K);
 //!   and `dflash:chain` / `dflash:tree` (z-lab/Qwen3-4B-DFlash-b16 at
 //!   b74e3a32, `llvq_llm::dflash_spec`: the argmax chain of 15, or the tree
@@ -35,9 +39,20 @@
 //! `max_tokens` (`Runtime4e::decode_chunks`); a control line on the first
 //! prompt compares one 64-token launch with two chained 32-token ones.
 //!
-//! Per prompt and drafter: equality with 4E over every generated token (a
-//! mismatch prints its position, both tokens and the pass's logits for them
-//! there, and the run exits non-zero at the end), accepted drafted tokens a
+//! The hard gate is self-consistency: every drafter's tokens equal the
+//! pass's own greedy (the null drafter, run once a prompt untimed as the
+//! reference) over every generated token; a mismatch prints its position,
+//! both tokens and the pass's logits for them there, and the run exits
+//! non-zero at the end. Agreement with 4E is reported, not a gate: the
+//! pass's arithmetic is not 4E's (S0: logits within 3.5e-3 relative RMS),
+//! so a near tie can flip. Per prompt, the first divergence (or none), both
+//! tokens, the pass's logits and margin, the tokens before it; in aggregate,
+//! prompts in full agreement and tokens before the first divergence. Past a
+//! divergence the texts differ, and tok/s and acceptance there are measured
+//! on the pass's own text. Both 4E and the pass break an exact f16 tie with
+//! the same key (`pers_tie_key`, candle's order), row by row.
+//!
+//! Per prompt and drafter: accepted drafted tokens a
 //! pass, passes, the walls (verify launches, drafter calls, the rest of the
 //! host), tok/s end to end against 4E's greedy tok/s. Per drafter, a config
 //! line, then aggregates per kind and overall: tokens, equal prompts, accepted
@@ -90,18 +105,20 @@ fn run() -> anyhow::Result<()> {
     use llvq_llm::boundary::median_range;
     use llvq_llm::chatfmt::{open_assistant, turn, Marks};
     use llvq_llm::persist4e_cuda::{TreeForm, TreePlan};
-    let usage = "usage: LLVQ_CONFIG=<served v9 config> specbench [--prompts <file.jsonl>] [--runs <k>] [--vocab dense|q4] <sealed> <a12|a10t384r16>[@q.o.g.d.h] <null,oracle:K,dflash:chain,dflash:tree,...> [N <= 1024] [drafter_dir] [f16|f32]";
+    let usage = "usage: LLVQ_CONFIG=<served v9 config> specbench [--prompts <file.jsonl>] [--runs <k>] [--vocab dense|q4] [--dump <file.jsonl>] <sealed> <a12|a10t384r16>[@q.o.g.d.h] <null,oracle:K,dflash:chain,dflash:tree,...> [N <= 1024] [drafter_dir] [f16|f32]";
     // flags first: --prompts <file.jsonl>, --runs <timed runs a prompt>
     let mut a: Vec<String> = Vec::new();
     let (mut prompts_file, mut runs): (Option<String>, Option<usize>) = (None, None);
     // the drafter's vocabulary: dense (the sealed table dequantized to a copy)
     // until q4 (the target's own int4 table) passes on the card
     let mut vocab_q4 = false;
+    let mut dump_file: Option<String> = None;
     let mut it = std::env::args().skip(1);
     while let Some(x) = it.next() {
         match x.as_str() {
             "--prompts" => prompts_file = Some(it.next().ok_or_else(|| anyhow::anyhow!("--prompts <file.jsonl>; {usage}"))?),
-            "--runs" => runs = Some(it.next().ok_or_else(|| anyhow::anyhow!("--runs <k>; {usage}"))?.parse().map_err(|e| anyhow::anyhow!("--runs: {e}"))?),
+            "--runs" => runs = Some(it.next().ok_or_else(|| anyhow::anyhow!("--runs <k>; {usage}"))?.parse::<usize>().map_err(|e| anyhow::anyhow!("--runs: {e}"))?),
+            "--dump" => dump_file = Some(it.next().ok_or_else(|| anyhow::anyhow!("--dump <file.jsonl>; {usage}"))?),
             "--vocab" => {
                 vocab_q4 = match it.next().as_deref() {
                     Some("dense") => false,
@@ -305,9 +322,36 @@ fn run() -> anyhow::Result<()> {
         greedy_tokens: usize,
         greedy_wall: f64,
     }
+    // the pass's greedy against 4E's, a prompt: (kind, tokens before the first
+    // divergence or all, pass tokens, divergence margin if any)
+    struct Agree {
+        kind: String,
+        before: usize,
+        generated: usize,
+        margin: Option<String>,
+    }
     let mut rows: Vec<Row> = Vec::new();
+    let mut agree: Vec<Agree> = Vec::new();
     let mut mismatches = 0usize;
     let mut control_done = false;
+    let mut dump_w = match &dump_file {
+        Some(p) => Some(std::io::BufWriter::new(std::fs::File::create(p).map_err(|e| anyhow::anyhow!("{p}: {e}"))?)),
+        None => None,
+    };
+    let mut dump = |pid: &str, kind: &str, decoder: &str, toks: &[u32]| -> anyhow::Result<()> {
+        if let Some(w) = dump_w.as_mut() {
+            use std::io::Write;
+            let text = tok.decode(toks, false).map_err(|e| anyhow::anyhow!("decode: {e}"))?;
+            let line = serde_json::json!({ "id": pid, "kind": kind, "decoder": decoder, "tokens": toks, "text": text });
+            writeln!(w, "{line}")?;
+        }
+        Ok(())
+    };
+    println!(
+        "equality: every drafter against the pass's own greedy (the null drafter, R = 1), a hard gate; \
+         the pass's greedy against 4E's greedy, reported only. Past a divergence from 4E the texts differ, \
+         and tok/s and acceptance there are measured on the pass's own text"
+    );
     for (pid, kind, ids) in &prompts {
         let l = ids.len();
         let mut caches = model.fresh_caches();
@@ -345,11 +389,37 @@ fn run() -> anyhow::Result<()> {
         }
         let greedy_wall = t4e.iter().sum::<f64>() / t4e.len() as f64;
         println!("\n== {pid} ({kind}): prompt {l} tokens; 4E greedy {} tokens, {:.1} tok/s", want.len(), want.len() as f64 / greedy_wall);
+        dump(pid.as_str(), kind.as_str(), "4e", &want)?;
+        // the pass's own greedy: the loop with the null drafter, untimed, the
+        // reference every drafter must equal
+        set(&mut caches, l)?;
+        let pass = {
+            let mut v = CardVerifier { rt: &mut *rt, caches: &mut caches, arm: 0, taps };
+            let mut null = NullDrafter;
+            spec_run(&mut v, &mut null, ids, first, &prompt_taps, hidden, n_tok, Some(eos)).map_err(anyhow::Error::msg)?.tokens
+        };
+        dump(pid.as_str(), kind.as_str(), "pass", &pass)?;
+        // agreement with 4E, reported: the caches hold the pass's text, equal
+        // to 4E's before the first divergence
+        let div = pass.iter().zip(&want).position(|(a, b)| a != b).or(if pass.len() != want.len() { Some(pass.len().min(want.len())) } else { None });
+        match div {
+            None => {
+                println!("  4E agreement: the pass's greedy equals 4E's over all {} tokens", pass.len());
+                agree.push(Agree { kind: kind.clone(), before: pass.len(), generated: pass.len(), margin: None });
+            }
+            Some(p) => {
+                let (a, b) = (pass.get(p).copied(), want.get(p).copied());
+                let m = margin_at(&mut *rt, &mut caches, ids, first, &pass, p, a, b)?;
+                println!("  4E agreement: first divergence at generated token {p} ({p} tokens equal before it): the pass {a:?}, 4E {b:?}; {m}");
+                agree.push(Agree { kind: kind.clone(), before: p, generated: pass.len(), margin: Some(m) });
+            }
+        }
         for (di, (dname, kind_d)) in drafters.iter().enumerate() {
             let kind_d = *kind_d;
             let (mut wall, mut verify, mut draft, mut accepted, mut ntok, mut equal) = (Vec::new(), Vec::new(), Vec::new(), Vec::new(), 0usize, true);
             let (mut d_ext, mut d_block, mut d_head, mut d_read) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
             let (mut skipped, mut last_error) = (0usize, None::<String>);
+            let mut last = Vec::new();
             for run in 0..discard + timed {
                 set(&mut caches, l)?;
                 let mut null = NullDrafter;
@@ -357,7 +427,7 @@ fn run() -> anyhow::Result<()> {
                 let d: &mut dyn Drafter = match kind_d {
                     Kind::Null => &mut null,
                     Kind::Oracle(k) => {
-                        oracle = OracleDrafter { prompt_len: l, truth: std::iter::once(first).chain(want.iter().copied()).collect(), correct: k, vocab: model.config().vocab_size as u32 };
+                        oracle = OracleDrafter { prompt_len: l, truth: std::iter::once(first).chain(pass.iter().copied()).collect(), correct: k, vocab: model.config().vocab_size as u32 };
                         &mut oracle
                     }
                     Kind::DFlash(shape) => {
@@ -384,40 +454,13 @@ fn run() -> anyhow::Result<()> {
                         last_error = sp.last_error.clone();
                     }
                 }
-                if o.tokens != want && equal {
+                if o.tokens != pass && equal {
                     equal = false;
                     mismatches += 1;
-                    let p = o.tokens.iter().zip(&want).position(|(a, b)| a != b).unwrap_or(o.tokens.len().min(want.len()));
-                    let (got, exp) = (o.tokens.get(p).copied(), want.get(p).copied());
-                    // the pass's logit margin there: the row of position q = l + p over the loop's cache
-                    let seq: Vec<u32> = ids.iter().copied().chain(std::iter::once(first)).chain(o.tokens.iter().copied()).collect();
-                    let q = l + p;
-                    let c = caches[0].len();
-                    let margin = match (got, exp) {
-                        (Some(g), Some(e)) if q < seq.len() && (c >= q || q - c < 16) => {
-                            let start = c.min(q);
-                            set(&mut caches, start)?;
-                            let toks: Vec<u32> = seq[start..=q].to_vec();
-                            let r = toks.len();
-                            let depth: Vec<u32> = (0..r as u32).collect();
-                            let path: Vec<[u8; 32]> = (0..r)
-                                .map(|i| {
-                                    let mut pp = [0u8; 32];
-                                    for (dd, x) in pp.iter_mut().enumerate().take(i + 1) {
-                                        *x = dd as u8;
-                                    }
-                                    pp
-                                })
-                                .collect();
-                            let out = rt.tree(0, &mut caches, start, &toks, &depth, &path, true, false)?;
-                            let vv = out.logits.len() / r;
-                            let row = &out.logits[(r - 1) * vv..r * vv];
-                            let lg = |t: u32| half::f16::from_bits(row[t as usize]).to_f32();
-                            format!("logit {} for the loop's {g}, {} for 4E's {e}: margin {:.4}", lg(g), lg(e), lg(g) - lg(e))
-                        }
-                        _ => "margin not computed (a sequence ended first, or the position is past the rows a pass carries)".to_string(),
-                    };
-                    println!("  {dname:>12}: MISMATCH at generated token {p}: the loop {got:?}, 4E {exp:?}; {margin}");
+                    let p = o.tokens.iter().zip(&pass).position(|(a, b)| a != b).unwrap_or(o.tokens.len().min(pass.len()));
+                    let (got, exp) = (o.tokens.get(p).copied(), pass.get(p).copied());
+                    let m = margin_at(&mut *rt, &mut caches, ids, first, &o.tokens, p, got, exp)?;
+                    println!("  {dname:>12}: MISMATCH with the pass's own greedy at generated token {p}: the loop {got:?}, the null drafter {exp:?}; {m}");
                 }
                 if run >= discard {
                     wall.push(o.t_total);
@@ -426,7 +469,9 @@ fn run() -> anyhow::Result<()> {
                     accepted.extend(o.accepted.iter().copied());
                     ntok = o.tokens.len();
                 }
+                last = o.tokens;
             }
+            dump(pid.as_str(), kind.as_str(), dname.as_str(), &last)?;
             let mean = |v: &Vec<f64>| v.iter().sum::<f64>() / v.len().max(1) as f64;
             let (w, tv, td) = (mean(&wall), mean(&verify), mean(&draft));
             let passes = accepted.len() as f64 / timed as f64;
@@ -434,7 +479,7 @@ fn run() -> anyhow::Result<()> {
             println!(
                 "  {dname:>12}: {} tokens{}; {acc_mean:.2} drafted tokens accepted a pass, {passes:.0} passes; verify {:.1} ms, drafter {:.1} ms, rest of the host {:.1} ms; {:.1} tok/s against 4E's {:.1} (x{:.3})",
                 ntok,
-                if equal { ", equal to 4E's" } else { ", NOT equal to 4E's" },
+                if equal { ", equal to the pass's greedy" } else { ", NOT equal to the pass's greedy" },
                 tv * 1e3,
                 td * 1e3,
                 (w - tv - td) * 1e3,
@@ -454,7 +499,7 @@ fn run() -> anyhow::Result<()> {
             }
             if let (Kind::Oracle(k), false) = (kind_d, many) {
                 let r = k + 2;
-                let c = c_of(&mut *rt, &mut caches, l, first, &want, r)?;
+                let c = c_of(&mut *rt, &mut caches, l, first, &pass, r)?;
                 let g = want.len() as f64 / greedy_wall;
                 println!("  {dname:>12}: check, greedy x (K + 1) / c_{r} = {g:.1} x {} / {c:.3} = {:.1} tok/s, measured {:.1}", k + 1, g * (k as f64 + 1.0) / c, ntok as f64 / w);
             }
@@ -472,8 +517,30 @@ fn run() -> anyhow::Result<()> {
             });
         }
     }
+    drop(dump);
+    if let Some(mut w) = dump_w {
+        use std::io::Write;
+        w.flush()?;
+        println!("\ndump: {}", dump_file.as_deref().unwrap_or(""));
+    }
+    // agreement with 4E: reported, not a gate
+    println!("\nagreement of the pass's greedy with 4E's greedy (reported, not a gate)");
+    let mut groups_a: Vec<&str> = llvq_llm::spec_prompts::KINDS.iter().copied().filter(|k| agree.iter().any(|a| a.kind == *k)).collect();
+    groups_a.push("all");
+    for g in groups_a {
+        let sel: Vec<&Agree> = agree.iter().filter(|a| g == "all" || a.kind == g).collect();
+        let full = sel.iter().filter(|a| a.margin.is_none()).count();
+        let before: usize = sel.iter().map(|a| a.before).sum();
+        let generated: usize = sel.iter().map(|a| a.generated).sum();
+        println!("  {g:>5}: {full} of {} prompts in full agreement; {before} of {generated} tokens before the first divergence", sel.len());
+    }
+    for (a, (pid, _, _)) in agree.iter().zip(&prompts) {
+        if let Some(m) = &a.margin {
+            println!("  {pid}: at {}: {m}", a.before);
+        }
+    }
     // aggregates, per drafter: per kind, then overall
-    println!("\naggregates (tok/s = total tokens over total wall; x greedy likewise; median over prompts with its range)");
+    println!("\naggregates (tok/s = total tokens over total wall; x greedy likewise, against 4E's greedy on its own text; median over prompts with its range)");
     for (di, (dname, kind_d)) in drafters.iter().enumerate() {
         let (rev, dtype_s, shape_s) = match kind_d {
             Kind::DFlash(s) => (llvq_llm::dflash::REVISION.to_string(), format!("{ddtype:?}, vocab {}", if vocab_q4 { "q4" } else { "dense" }), format!("{s:?}")),
@@ -501,7 +568,7 @@ fn run() -> anyhow::Result<()> {
             let ratios: Vec<f64> = sel.iter().map(|r| (r.tokens as f64 / r.wall) / (r.greedy_tokens as f64 / r.greedy_wall)).collect();
             let (rm, rlo, rhi) = median_range(&ratios);
             println!(
-                "  {dname:>12} {g:>5}: {} prompts, {tokens} tokens, {} of {} equal; {:.2} accepted a pass, histogram 0..15 {hist:?}; {:.1} tok/s, greedy {:.1}, x{:.3}; per prompt x{rm:.3} [{rlo:.3}-{rhi:.3}]; verify {:.0} %, drafter {:.0} % of the wall",
+                "  {dname:>12} {g:>5}: {} prompts, {tokens} tokens, {} of {} equal to the pass's greedy; {:.2} accepted a pass, histogram 0..15 {hist:?}; {:.1} tok/s, greedy {:.1}, x{:.3}; per prompt x{rm:.3} [{rlo:.3}-{rhi:.3}]; verify {:.0} %, drafter {:.0} % of the wall",
                 sel.len(),
                 sel.iter().filter(|r| r.equal).count(),
                 sel.len(),
@@ -514,8 +581,58 @@ fn run() -> anyhow::Result<()> {
             );
         }
     }
-    anyhow::ensure!(mismatches == 0, "specbench: {mismatches} prompt and drafter pairs whose tokens differ from 4E's greedy");
+    anyhow::ensure!(mismatches == 0, "specbench: {mismatches} prompt and drafter pairs whose tokens differ from the pass's own greedy (the null drafter)");
     Ok(())
+}
+
+/// The pass's logits at generated token `p` of `toks` for the tokens `got`
+/// and `exp`, and their margin. The caches hold the run that made `toks`
+/// (positions before `p` are `toks`' own); the row of position `l + p` is
+/// recomputed by one tree launch of chained rows from the caches' length, at
+/// most 16 rows.
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+#[allow(clippy::too_many_arguments)]
+fn margin_at(
+    rt: &mut llvq_llm::persist4e_cuda::Runtime4e,
+    caches: &mut [llvq_llm::model::KvCache],
+    ids: &[u32],
+    first: u32,
+    toks: &[u32],
+    p: usize,
+    got: Option<u32>,
+    exp: Option<u32>,
+) -> anyhow::Result<String> {
+    let l = ids.len();
+    let seq: Vec<u32> = ids.iter().copied().chain(std::iter::once(first)).chain(toks.iter().copied()).collect();
+    let q = l + p;
+    let c = caches[0].len();
+    let (Some(g), Some(e)) = (got, exp) else {
+        return Ok("margin not computed: one sequence ended first".to_string());
+    };
+    if q >= seq.len() || (c < q && q - c >= 16) {
+        return Ok(format!("margin not computed: position {q} is past the rows a pass carries from the cache's {c}"));
+    }
+    let start = c.min(q);
+    for x in caches.iter_mut() {
+        x.set_len(start)?;
+    }
+    let rows: Vec<u32> = seq[start..=q].to_vec();
+    let r = rows.len();
+    let depth: Vec<u32> = (0..r as u32).collect();
+    let path: Vec<[u8; 32]> = (0..r)
+        .map(|i| {
+            let mut pp = [0u8; 32];
+            for (dd, x) in pp.iter_mut().enumerate().take(i + 1) {
+                *x = dd as u8;
+            }
+            pp
+        })
+        .collect();
+    let out = rt.tree(0, caches, start, &rows, &depth, &path, true, false)?;
+    let vv = out.logits.len() / r;
+    let row = &out.logits[(r - 1) * vv..r * vv];
+    let lg = |t: u32| half::f16::from_bits(row[t as usize]).to_f32();
+    Ok(format!("the pass's logits: {} for {g}, {} for {e}, margin {:.4}", lg(g), lg(e), lg(g) - lg(e)))
 }
 
 /// One 4E token and a tree launch of `r` chained rows, round by round: the
