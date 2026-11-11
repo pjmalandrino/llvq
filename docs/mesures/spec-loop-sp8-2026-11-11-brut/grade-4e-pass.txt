@@ -1,0 +1,13 @@
+$ uv run ops/spec_grade.py docs/mesures/spec-loop-sp8-2026-11-11-brut/gsm200.jsonl --prompts ops/data/spec-gsm8k-200.jsonl --pair 4e pass
+200 math prompts, 200 with a gold
+              4e: 200 prompts, 198 closed boxes, 166 of 200 correct
+            pass: 200 prompts, 197 closed boxes, 167 of 200 correct
+     dflash:tree: 200 prompts, 197 closed boxes, 167 of 200 correct
+paired 4e / pass on 200 graded prompts: both right 165, both wrong 32, only 4e right 1, only pass right 2; exact McNemar p = 1
+answers differ on 6 prompts:
+  gsm8k-test-0021: 4e 14 (boxed), pass 60 (boxed), gold 14
+  gsm8k-test-0102: 4e 28 (boxed), pass 26 (boxed), gold 26
+  gsm8k-test-0119: 4e 30769.23 (last), pass 40 (last), gold 95200
+  gsm8k-test-0143: 4e 16.3 (boxed), pass 15 (boxed), gold 16
+  gsm8k-test-0147: 4e 15 (boxed), pass 60 (last), gold 75
+  gsm8k-test-0150: 4e 40 (boxed), pass 4 (boxed), gold 4

@@ -1,0 +1,38 @@
+drafter z-lab/Qwen3-4B-DFlash-b16@b74e3a32 (2254.7 MB f32), table [151936, 2560] from /out/sealed-4b-2026-09-23/qwen3-4b-sealed.bin, device Cuda(CudaDevice(DeviceId(1))), loaded in 9.7 s
+equivalence (f32): rounds 6: chain equal 6/6, tree equal 6/6; logits rel 3.52e-6, lse rel 1.88e-6, hidden rel 1.33e-6; smallest reference top-1 gap 0.020; table rows max abs 0.00e0; readouts (no softmax, softmax, chunked) equal 6/6, tree scores against the softmax path within 6.87e-5
+equivalence PASS
+equivalence (F16): rounds 6: chain equal 6/6, tree equal 4/6; logits rel 1.87e-3, lse rel 6.87e-4, hidden rel 1.99e-3; smallest reference top-1 gap 0.020; table rows max abs 0.00e0; readouts (no softmax, softmax, chunked) equal 6/6, tree scores against the softmax path within 6.87e-5
+equivalence (F16) PASS
+round at context 128 (F16): extend 4 0.43 ms [0.43-0.44], block + head + readout 4.27 ms [4.26-4.43], median of 20; context cache 8.0 MB
+round at context 512 (F16): extend 4 0.42 ms [0.42-0.43], block + head + readout 3.61 ms [3.60-3.72], median of 20; context cache 15.9 MB
+round at context 2048 (F16): extend 4 0.42 ms [0.42-0.43], block + head + readout 3.74 ms [3.71-3.88], median of 20; context cache 47.8 MB
+device operations a round, counted from the code: extend 13, block 108, head 2, readout 15 for a tree, 1 for a chain (16 with the softmax readout, 5 with the chunked one); device-to-host transfers: 1 (2 with the chunked one, plus its upload)
+readout alone (no softmax, tree): 0.830 ms [0.826-3.110], median of 50
+readout alone (no softmax, chain): 0.101 ms [0.100-0.111], median of 50
+readout alone (softmax, 077aa5b): 2.018 ms [2.013-2.043], median of 50
+readout alone (chunked, e3bbaee): 1.943 ms [1.922-2.209], median of 50
+loop round (no-softmax readout) Chain(15) n 1: 3.42 ms [3.39-3.50], median of 50 after 10, one synchronisation
+loop round (no-softmax readout) Chain(15) n 1, synchronised between stages: total 3.69 ms; extend 0.33 (of which host conversion and upload 0.02), block 1.96, head 1.22, readout 0.10 (ms, medians of 50)
+loop round (no-softmax readout) Chain(15) n 4: 3.48 ms [3.46-3.50], median of 50 after 10, one synchronisation
+loop round (no-softmax readout) Chain(15) n 4, synchronised between stages: total 4.21 ms; extend 1.00 (of which host conversion and upload 0.64), block 1.91, head 1.13, readout 0.10 (ms, medians of 50)
+loop round (no-softmax readout) Chain(15) n 8: 3.49 ms [3.48-3.54], median of 50 after 10, one synchronisation
+loop round (no-softmax readout) Chain(15) n 8, synchronised between stages: total 4.24 ms; extend 1.01 (of which host conversion and upload 0.65), block 1.92, head 1.13, readout 0.10 (ms, medians of 50)
+loop round (no-softmax readout) Tree(15) n 1: 3.87 ms [3.84-3.92], median of 50 after 10, one synchronisation
+loop round (no-softmax readout) Tree(15) n 1, synchronised between stages: total 4.04 ms; extend 0.32 (of which host conversion and upload 0.03), block 1.99, head 1.13, readout 0.52 (ms, medians of 50)
+loop round (no-softmax readout) Tree(15) n 4: 5.28 ms [5.26-5.37], median of 50 after 10, one synchronisation
+loop round (no-softmax readout) Tree(15) n 4, synchronised between stages: total 4.71 ms; extend 1.05 (of which host conversion and upload 0.63), block 1.91, head 1.13, readout 0.53 (ms, medians of 50)
+loop round (no-softmax readout) Tree(15) n 8: 5.31 ms [5.27-7.65], median of 50 after 10, one synchronisation
+loop round (no-softmax readout) Tree(15) n 8, synchronised between stages: total 4.73 ms; extend 1.06 (of which host conversion and upload 0.64), block 1.92, head 1.13, readout 0.53 (ms, medians of 50)
+loop round (softmax readout) Tree(15) n 1: 5.47 ms [5.44-5.53], median of 50 after 10, one synchronisation
+loop round (softmax readout) Tree(15) n 1, synchronised between stages: total 5.42 ms; extend 0.31 (of which host conversion and upload 0.02), block 1.97, head 1.13, readout 2.00 (ms, medians of 50)
+loop round (softmax readout) Tree(15) n 4: 6.08 ms [6.07-6.14], median of 50 after 10, one synchronisation
+loop round (softmax readout) Tree(15) n 4, synchronised between stages: total 5.50 ms; extend 0.44 (of which host conversion and upload 0.04), block 1.91, head 1.13, readout 2.01 (ms, medians of 50)
+loop round (softmax readout) Tree(15) n 8: 6.10 ms [6.08-13.09], median of 50 after 10, one synchronisation
+loop round (softmax readout) Tree(15) n 8, synchronised between stages: total 5.61 ms; extend 0.47 (of which host conversion and upload 0.06), block 1.92, head 1.12, readout 2.00 (ms, medians of 50)
+loop round (chunked readout) Tree(15) n 1: 5.30 ms [5.27-5.61], median of 50 after 10, one synchronisation
+loop round (chunked readout) Tree(15) n 1, synchronised between stages: total 5.36 ms; extend 0.31 (of which host conversion and upload 0.02), block 1.95, head 1.13, readout 1.96 (ms, medians of 50)
+loop round (chunked readout) Tree(15) n 4: 5.36 ms [5.34-5.58], median of 50 after 10, one synchronisation
+loop round (chunked readout) Tree(15) n 4, synchronised between stages: total 5.43 ms; extend 0.41 (of which host conversion and upload 0.04), block 1.91, head 1.13, readout 1.96 (ms, medians of 50)
+loop round (chunked readout) Tree(15) n 8: 5.38 ms [5.35-5.70], median of 50 after 10, one synchronisation
+loop round (chunked readout) Tree(15) n 8, synchronised between stages: total 5.47 ms; extend 0.43 (of which host conversion and upload 0.05), block 1.93, head 1.13, readout 1.96 (ms, medians of 50)
+dflashcheck f16 exit 0
