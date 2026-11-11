@@ -1,6 +1,6 @@
 # History
 
-The project's chronological thread, one entry per period, from 2026-07-24 to 2026-11-06. The current state is in [ETAT.md](ETAT.md), the lab rules in [METHODE.md](METHODE.md), the writing rules in [STYLE.md](STYLE.md). Entries are appended at the bottom and the past is not rewritten.
+The project's chronological thread, one entry per period, from 2026-07-24 to 2026-11-11. The current state is in [ETAT.md](ETAT.md), the lab rules in [METHODE.md](METHODE.md), the writing rules in [STYLE.md](STYLE.md). Entries are appended at the bottom and the past is not rewritten.
 
 ## 2026-07-24 to 07-28. Foundations, G1 to G4
 
@@ -1407,3 +1407,27 @@ token, which `p4e_phase_report` refuses below two tokens, so the rag context and
 (deviation 1); a second context can only raise the larger value the rule reads. Where the pass's fixed cost goes is
 not measured; the tree symbol's 736 B of local memory a thread and its 3 extra grid waits a layer are suspects by
 reading. A rerun with two stamped tokens would locate it, and needs the operator's go.
+
+## 2026-11-10 to 11-11. The tree pass repaired, the speculative loop set aside, the chain prefill read in place; nothing served changes, $13.96
+
+On the operator's go of 2026-11-09 and its $25 cap: 27 card jobs, $13.96 of the cap, registry $321.21 (*computed*).
+The milestones are in [jalons-debit](mesures/jalons-debit-2026-11-11.txt).
+
+- Tree verify pass, N1 to N11 ([verify-tree-n11](mesures/verify-tree-n11-2026-11-10.txt)). A 16-row pass costs 1.73
+  tokens of 4E at the chat context, from 3.07 (*measured*). Identity holds on every arm.
+- Speculative loop, SP2 to SP8 ([spec-loop-sp8](mesures/spec-loop-sp8-2026-11-11.txt)). With the DFlash drafter the
+  4B decodes 502 tok/s on GSM8K-200 (x2.30), 343 on the house set (x1.56), 242 in chat (x1.09); GSM8K 167 right
+  against 166, p = 1 (*measured*). It peaks at 5.41 GB against 2.01 (*measured*,
+  [spec-mem-m3](mesures/spec-mem-m3-2026-11-11.txt)), at 4.87 b/param with the f16 drafter (*computed*,
+  [spec-memoire](mesures/spec-memoire-2026-11-11.txt)). The operator set it aside as a fast profile; the default stays
+  at 2.73 b/param.
+- Chain prefill: the prompt as known tokens through the tree pass, reading the served words in place, no copy. First
+  token at 1,024 / 4,096 / 8,191 tokens: eager 3.951 / 17.641 / 37.037 s, 16 rows a pass 0.702 / 4.317 / 13.368, 32
+  rows 0.449 / 2.720 / 7.679, 32 rows with the full attention tile 0.420 / 2.393 / 6.485 (*measured*,
+  [large-prefill](mesures/large-prefill-2026-11-11.txt), [large-prefill-ft](mesures/large-prefill-ft-2026-11-11.txt)).
+  The 32-row forms equal the 16-row form bit for bit (argmax, logits, K and V); paired perplexity of the 16-row form
+  +0.0007 % against eager. A bench, not served.
+- Refuted or failed: E1, 4E's L2 prefetch removed or moved, x1.003 and x0.978 ([large-4e-e1](mesures/large-4e-e1-2026-11-11.txt));
+  D1, one K/V read for 4 rows, x1.302 at 8,191 for a x1.5 gate ([large-prefill-d1](mesures/large-prefill-d1-2026-11-11.txt));
+  v9ft, the full tile in 4E, x1.004 at 8,192 for x1.05 ([large-attn-ft-4e](mesures/large-attn-ft-4e-2026-11-11.txt)).
+- Nothing served changes: no config, no served module, no Hub file. 4E v9 stays the served decode.

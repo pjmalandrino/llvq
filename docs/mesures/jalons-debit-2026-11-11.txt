@@ -89,3 +89,15 @@ J5, opened and settled the same evening, 2026-11-11. Can a pass carry more than 
   The SASS of the attention tile (Mac, $0) refutes the binary16 widening and shows the tile serialised by its nv
   guards; the served 4E has the same tile. A guard-free full tile is being built on the Mac, same bits.
   Journal: on branch claude/arbre-r32-2026-11-11, large-prefill-r32-2026-11-11.
+
+J5, the full attention tile, closed 2026-11-11 night. Does a guard-free tile of 8 positions speed the prefill and 4E?
+  The prefill, yes; 4E, no. Prefill arm a12ipg32ft (job 6af4e8a2, $0.82): bit for bit against a12ip at 16 rows at
+  1,024, 4,096 and 8,191 tokens, 47 texts of 47, same phase peaks. First token 0.420 / 2.393 / 6.485 s against 0.449 /
+  2.720 / 7.679 for a12ipg32 (x1.069, x1.137, x1.184 round by round): PASSES. The 8k 32-row pass spends 24.58 ms in
+  attention against 32.84. Against the served eager prefill (cross-job): x9.4, x7.4, x5.7. A chat turn of 256 answer
+  tokens: 1.624 / 3.735 / 8.097 s (computed). 4E arm v9ft (job 6af4f42b, $0.48): logits bit for bit at 5, 1,024,
+  4,096 and 8,192; x1.009, x1.027, x0.997, x1.004 of v9: FAILS at 8,192 (gate x1.05). The stamps show attention 92 us
+  shorter at 8k; the timed token keeps 22. v9 stays served.
+  Criteria against base Tetra: 2.73 b/param, peak 3.56 GB against 5.95 at 8k, quality as the 16-row form (GSM8K
+  pairing owed). A bench, not the served door. Spend $13.96 of $25.
+  Journals: large-prefill-ft-2026-11-11, large-attn-ft-4e-2026-11-11.

@@ -186,6 +186,14 @@ For an A/B on one file the bar is the paired interval, 0.43 pp of MMLU and 0.12 
   llama.cpp IQ2_S (*measured*, L40S, [pic-vram-8k](mesures/pic-vram-8k-2026-11-08.txt)). The NOT SERVED
   `prefill_attention: kernel` measured 4.77 / 7.15 / 9.30, about 1 to 2 GB over its computed peak, and 1.14 to 1.21
   times slower to the first token: not proposed. Open: the excess it holds layer by layer is not traced.
+- **The chain prefill, a bench, not served.** `prefillbench --form chain` feeds the prompt as known tokens through
+  the tree verify pass, 32 rows a pass, on the served words read in place. The 4B's first token comes after 0.420 /
+  2.393 / 6.485 s at 1,024 / 4,096 / 8,191 tokens, against 3.951 / 17.641 / 37.037 for the served eager prefill
+  (*measured*, L40S, two jobs, [large-prefill-ft](mesures/large-prefill-ft-2026-11-11.txt),
+  [large-prefill](mesures/large-prefill-2026-11-11.txt)). It equals its own 16-row form bit for bit (argmax, logits,
+  K and V); the 16-row form reads +0.0007 % of paired perplexity against eager, 41 of 47 texts identical. No door
+  calls it. Owed before serving: a GSM8K-200 pairing, cached compiled modules (NVRTC takes 1,127 s of the bench's
+  load), and the operator's decision. The operator's ruling of 2026-11-11 packages the prefill later, all at once.
 - **Scores through the served kernel.** MMLU and perplexity are scored on the dense reconstruction with f16 tables;
   the b/param count int4 tables. About $20 by the mixed route, $70 for the full census at three sizes (*estimated*,
   [`ROADMAP.md`](ROADMAP.md)). `ppl` does not read `LLVQ_CONFIG` yet.
