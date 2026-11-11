@@ -782,6 +782,224 @@ pub fn q4_tile_words(words: &[u32], d_out: usize, nwords: usize) -> Result<Vec<u
     Ok(out)
 }
 
+// ---------------------------------------------------------------------------
+// Experiment E1 (docs/mesures/large-4e-budget-2026-11-11.txt, cut 1): where
+// 4E v9 asks L2 for later rows. Three bench modules, each 4E v9's text with
+// edits applied as text, so the served v9 module (pinned below,
+// `the_4e_v9_module_is_the_one_the_doors_gate_on`) does not move:
+//   "v9"   v9 and a logits symbol (the reference the arms are compared with);
+//   "v9np" "v9" without the attention phase's prefetch of the o and gate/up
+//          rows: nothing else;
+//   "v9mv" "v9np" with layer l + 1's q/k/v and o rows asked of L2 during
+//          layer l's gate/up rows (after ln2), layer 0's before its ln1.
+// ---------------------------------------------------------------------------
+
+/// The E1 arms, the first the reference of the others.
+pub const P4E_E1_ARMS: [&str; 3] = ["v9", "v9np", "v9mv"];
+
+/// The mv arm's helpers (`pers_4e_e1.cuh`), inserted at the head of
+/// `pers_segment.cu`'s text in that arm's module only.
+pub const P4E_E1_PRE: (&str, &str) = ("pers_4e_e1.cuh", include_str!("../kernels/pers_4e_e1.cuh"));
+
+/// The logits symbols every E1 module carries: `pers_4e_body` with a
+/// fourth template parameter, false by default (the token and stamp symbols
+/// keep their code), true in these symbols, which write the head's binary16
+/// logits of token t at `stamps + t x vocab` (the launch's stamp pointer,
+/// read as a buffer of `n_tokens x vocab` binary16).
+const P4E_E1_LOGITS_SYMBOLS: &str = "// e1-logits: the head's binary16 logits of every token of the launch, written at
+// L.stamps + t x vocab (a measurement symbol, outside the timed rounds)
+#define PERS_4E_LOGITS(sym, FORM_)                                                                       \\
+    extern \"C\" __global__ void __launch_bounds__(512, 1) sym(const Pers4eArgs* __restrict__ A,          \\
+                                                             const Pers4eLaunch L)                        \\
+    {                                                                                                    \\
+        pers_4e_body<FORM_, false, true, true>(A, L);                                                    \\
+    }
+
+PERS_4E_LOGITS(pers_4e_logits_f0_t512, 0)
+PERS_4E_LOGITS(pers_4e_logits_f1_t512, 1)
+PERS_4E_LOGITS(pers_4e_logits_f2_t512, 2)
+";
+
+/// The edits of an E1 arm: (part of [`PERS_UNIT_PARTS`], text, replacement),
+/// each text present exactly once in its part. Every arm carries the logits
+/// edits; np and mv add theirs. `tests/pers_matches_served.rs` builds the
+/// host twin of each arm from the same edits.
+pub fn p4e_e1_edits(arm: &str) -> Result<Vec<(&'static str, String, String)>, String> {
+    let e4 = "pers_4e.cu";
+    let seg = "pers_segment.cu";
+    let mut v: Vec<(&'static str, String, String)> = vec![
+        (
+            e4,
+            "template <int FORM, bool STAMP, bool PF>\n__device__ __forceinline__ void pers_4e_body(".into(),
+            "template <int FORM, bool STAMP, bool PF, bool LOGITS = false>\n__device__ __forceinline__ void pers_4e_body(".into(),
+        ),
+        (
+            e4,
+            "PERS_BAR(), A->abort_flag, nullptr);".into(),
+            "PERS_BAR(), A->abort_flag,\n                                          \
+             LOGITS ? reinterpret_cast<unsigned short*>(L.stamps) + (size_t)t * A->vocab : nullptr);"
+                .into(),
+        ),
+        (
+            e4,
+            "PERS_4E(pers_4e_stamps_f2_t768, 2, 768, true, false)\n".into(),
+            format!("PERS_4E(pers_4e_stamps_f2_t768, 2, 768, true, false)\n\n{P4E_E1_LOGITS_SYMBOLS}"),
+        ),
+    ];
+    let np = [
+        (
+            e4,
+            "            if (c0 >= attn_jobs) prefetch_next();\n".to_string(),
+            "            (void)attn_jobs;  // e1-pf: no o or gate/up row is asked of L2 in this phase\n            \
+             (void)prefetch_next;  // e1-pf\n"
+                .to_string(),
+        ),
+        (e4, "            if (c0 < attn_jobs) prefetch_next();\n".to_string(), String::new()),
+    ];
+    match arm {
+        "v9" => {}
+        "v9np" => v.extend(np),
+        "v9mv" => {
+            v.extend(np);
+            v.extend([
+                (seg, "struct SegTetra {\n".to_string(), format!("{}\nstruct SegTetra {{\n", P4E_E1_PRE.1)),
+                (
+                    seg,
+                    "    PERS_SEG_SUB(0u);\n".to_string(),
+                    "    PERS_SEG_SUB(0u);\n    \
+                     if (IN4E) pers_e1_prefetch_staged();  // e1-pf: layer l + 1's q/k/v and o rows, during these gate/up rows\n"
+                        .to_string(),
+                ),
+                (
+                    e4,
+                    "        pers_v7_stage_rot(area, g->signs_a, Ag->hidden, g->small_a, g->k_a);\n    };\n".to_string(),
+                    "        pers_v7_stage_rot(area, g->signs_a, Ag->hidden, g->small_a, g->k_a);\n        \
+                     pers_e1_stage_next(Ag->layers, l + 1u, Ag->n_layers, Ag->hidden, Ag->n_heads);  // e1-pf: layer l + 1's shares\n    };\n"
+                        .to_string(),
+                ),
+                (
+                    e4,
+                    "            if (PF) {\n                const Pers4eQkv& N = Y.qkv;\n".to_string(),
+                    "            if (l == 0u) {  // e1-pf: layer 0's q/k/v here, every later layer's during the gate/up rows before it\n            \
+                     if (PF) {\n                const Pers4eQkv& N = Y.qkv;\n"
+                        .to_string(),
+                ),
+                (
+                    e4,
+                    "            }\n            // ln1, the q/k rotation, the q/k/v rows\n".to_string(),
+                    "            }\n            pers_e1_prefetch_o(Y, H, A->n_heads);  // e1-pf: and layer 0's o rows\n            \
+                     }  // e1-pf\n            // ln1, the q/k rotation, the q/k/v rows\n"
+                        .to_string(),
+                ),
+            ]);
+        }
+        _ => return Err(format!("4E E1: no arm {arm:?}; the arms are {P4E_E1_ARMS:?}")),
+    }
+    Ok(v)
+}
+
+/// The module text of an E1 arm at a tile: row form 7's define, then
+/// [`PERS_UNIT_PARTS`] with the arm's edits ([`p4e_e1_edits`]), joined as
+/// [`pers_unit_text`] joins them. Refuses an edit whose text is not in its
+/// part exactly once.
+pub fn p4e_e1_unit_text(tile_define: &str, arm: &str) -> Result<String, String> {
+    let mut parts: Vec<(&str, String)> = PERS_UNIT_PARTS.iter().map(|p| (p.0, p.1.to_string())).collect();
+    for (file, from, to) in p4e_e1_edits(arm)? {
+        let part = parts.iter_mut().find(|p| p.0 == file).ok_or_else(|| format!("4E E1 {arm}: no part {file}"))?;
+        let n = part.1.matches(from.as_str()).count();
+        if n != 1 {
+            return Err(format!("4E E1 {arm}: {n} sites in {file} for {from:?}, expected exactly one"));
+        }
+        part.1 = part.1.replacen(from.as_str(), &to, 1);
+    }
+    let body = std::iter::once(tile_define.to_string()).chain(parts.into_iter().map(|p| p.1)).collect::<Vec<_>>().join("\n");
+    Ok(format!("{}{body}", p4e_rows_define(7)?))
+}
+
+/// The logits symbol of an E1 module for a RoPE form (512 threads).
+pub fn p4e_logits_symbol(form: u32) -> Result<&'static str, String> {
+    Ok(match form {
+        0 => "pers_4e_logits_f0_t512",
+        1 => "pers_4e_logits_f1_t512",
+        2 => "pers_4e_logits_f2_t512",
+        _ => return Err(format!("4E E1: no logits symbol for RoPE form {form}")),
+    })
+}
+
+/// A line E1 may add, drop or change: a prefetch statement or the code that
+/// steers one. It names a prefetch, or carries the `e1-pf` tag; and it
+/// assigns nothing (no ` = ` outside a declaration of a prefetch helper).
+fn p4e_e1_prefetch_line(l: &str) -> bool {
+    let t = l.trim();
+    (t.contains("prefetch") || t.contains("e1-pf"))
+        && (!t.split("//").next().unwrap_or("").contains(" = ") || t.starts_with("const auto prefetch_next = "))
+}
+
+/// The structural check of an E1 arm against its reference (`"v9"`'s text):
+/// with every prefetch line ([`p4e_e1_prefetch_line`]) and the mv helpers'
+/// block (`// e1-pf begin` .. `// e1-pf end`) taken out of both, the two
+/// texts are the same lines in the same order. The block itself may hold no
+/// kernel, no atomic, no barrier, no grid wait, and may store only to its
+/// header slots (`s[i] = ...`).
+pub fn p4e_e1_structure(reference: &str, arm: &str) -> Result<(), String> {
+    fn strip(t: &str) -> Result<Vec<&str>, String> {
+        let mut out = Vec::new();
+        let mut inside = false;
+        for l in t.lines() {
+            let s = l.trim();
+            if s == "// e1-pf begin" {
+                inside = true;
+                continue;
+            }
+            if s == "// e1-pf end" {
+                inside = false;
+                continue;
+            }
+            if inside {
+                for bad in ["__global__", "atomic", "__syncthreads", "pers_grid_wait", "PERS_BAR", "A->", "L."] {
+                    if s.contains(bad) {
+                        return Err(format!("E1 helpers: {bad:?} in {s:?}"));
+                    }
+                }
+                // every assignment's target: a local being declared, or a slot
+                let code = s.split("//").next().unwrap_or("");
+                for (i, _) in code.match_indices(" = ") {
+                    let before = &code[..i];
+                    let cut = before.rfind([';', ',', '{']).map_or(0, |k| k + 1);
+                    let mut lhs = before[cut..].trim();
+                    lhs = lhs.strip_prefix("for (").unwrap_or(lhs);
+                    if let Some(k) = lhs.rfind(") ") {
+                        lhs = lhs[k + 2..].trim();
+                    }
+                    if (lhs.contains('[') && !lhs.starts_with("s[")) || lhs.starts_with('*') || lhs.contains("->") || lhs.contains('.') {
+                        return Err(format!("E1 helpers: a store that is not a slot: {s:?}"));
+                    }
+                }
+                continue;
+            }
+            // comments and blank lines are not code
+            if s.is_empty() || s.starts_with("//") {
+                continue;
+            }
+            if !p4e_e1_prefetch_line(l) {
+                out.push(l);
+            }
+        }
+        if inside {
+            return Err("E1 helpers: a block opened and never closed".into());
+        }
+        Ok(out)
+    }
+    let (a, b) = (strip(reference)?, strip(arm)?);
+    if let Some(i) = (0..a.len().min(b.len())).find(|&i| a[i] != b[i]) {
+        return Err(format!("E1: past the prefetch lines, line {i} differs: {:?} against {:?}", a[i], b[i]));
+    }
+    if a.len() != b.len() {
+        return Err(format!("E1: past the prefetch lines, {} lines against {}", a.len(), b.len()));
+    }
+    Ok(())
+}
+
 /// The shared scratch after the activation staging (`PERS_4E_SCRATCH`):
 /// form 3's split rows, form 4's staged rows of the rotations' `small`,
 /// form 5's v7 area (`PERS_V7_FLOATS` floats: `small`, the argument structs,
@@ -4573,6 +4791,82 @@ mod tests {
             "1b422b62328be6752df4add43280565fd2a49cfa20ee26953b301abe7a15c530",
             "the 4E v9 module moved: the served-v9 doors gate on this digest"
         );
+    }
+
+    /// E1's reference module is the served v9 text with the logits edits
+    /// only: the token and stamp symbols' text is v9's, the template
+    /// parameter defaults to false, and three logits symbols follow.
+    #[test]
+    fn the_e1_reference_is_v9_and_its_logits_symbols() {
+        let tile = "#define TILE_BLOCKS 64u\n";
+        let v9 = format!("{}{}", p4e_rows_define(7).unwrap(), pers_unit_text(tile));
+        let r = p4e_e1_unit_text(tile, "v9").unwrap();
+        assert_ne!(r, v9);
+        // the reference minus the logits edits is v9 byte for byte
+        let mut back = r.clone();
+        for (_, from, to) in p4e_e1_edits("v9").unwrap() {
+            assert_eq!(back.matches(to.as_str()).count(), 1, "{to:?}");
+            back = back.replacen(to.as_str(), &from, 1);
+        }
+        assert_eq!(back, v9, "the E1 reference is v9 and the logits edits, nothing else");
+        for f in 0..3 {
+            assert!(r.contains(&format!("PERS_4E_LOGITS({}, {f})", p4e_logits_symbol(f).unwrap())));
+        }
+        assert!(p4e_logits_symbol(3).is_err());
+        assert!(p4e_e1_unit_text(tile, "v9x").is_err());
+    }
+
+    /// The arms differ from the reference in prefetch lines only
+    /// ([`p4e_e1_structure`]), and each does what it says: np issues no
+    /// prefetch in the attention phase, mv issues its own and keeps v9's
+    /// down prefetch and layer 0's q/k/v prefetch.
+    #[test]
+    fn the_e1_arms_differ_from_v9_in_prefetch_lines_only() {
+        let tile = "#define TILE_BLOCKS 64u\n";
+        let r = p4e_e1_unit_text(tile, "v9").unwrap();
+        let np = p4e_e1_unit_text(tile, "v9np").unwrap();
+        let mv = p4e_e1_unit_text(tile, "v9mv").unwrap();
+        p4e_e1_structure(&r, &r).unwrap();
+        p4e_e1_structure(&r, &np).unwrap();
+        p4e_e1_structure(&r, &mv).unwrap();
+        assert_eq!(r.matches("prefetch_next();").count(), 2);
+        for t in [&np, &mv] {
+            assert_eq!(t.matches("prefetch_next();").count(), 0, "no o or gate/up prefetch in the attention phase");
+            assert_eq!(t.matches("pers_l2_prefetch(A->down.words").count(), 1, "the down prefetch stays");
+        }
+        assert!(!np.contains("pers_e1_"));
+        assert_eq!(mv.matches("if (IN4E) pers_e1_prefetch_staged();").count(), 1);
+        assert_eq!(mv.matches("pers_e1_stage_next(Ag->layers, l + 1u,").count(), 1);
+        assert_eq!(mv.matches("if (l == 0u) {  // e1-pf").count(), 1);
+        // the served v9 module's digest is pinned by
+        // the_4e_v9_module_is_the_one_the_doors_gate_on, which this does not touch
+    }
+
+    /// The structural check kills what it must: a line of arithmetic added
+    /// untagged or tagged, a line dropped, a barrier or a foreign store in
+    /// the helpers' block.
+    #[test]
+    fn the_e1_structure_check_kills_its_mutants() {
+        let tile = "#define TILE_BLOCKS 64u\n";
+        let r = p4e_e1_unit_text(tile, "v9").unwrap();
+        let mv = p4e_e1_unit_text(tile, "v9mv").unwrap();
+        let once = |t: &str, from: &str, to: &str| {
+            assert_eq!(t.matches(from).count(), 1, "{from:?}");
+            t.replacen(from, to, 1)
+        };
+        let anchor = "            PERS_WAIT(e0 + 5u);\n";
+        for (tag, m) in [
+            ("untagged", once(&mv, anchor, &format!("{anchor}            v[0] = 0.0f;\n"))),
+            ("tagged store", once(&mv, anchor, &format!("{anchor}            v[0] = 0.0f;  // e1-pf\n"))),
+            ("tagged prefetch store", once(&mv, anchor, &format!("{anchor}            v[0] = 0.0f;  // prefetch\n"))),
+            ("dropped line", once(&mv, anchor, "")),
+            ("helper barrier", once(&mv, "    if (l >= n_layers) return;\n", "    if (l >= n_layers) return;\n    __syncthreads();\n")),
+            ("helper store", once(&mv, "    if (l >= n_layers) return;\n", "    if (l >= n_layers) return;\n    layers[0].qkv.q[0] = 0u;\n")),
+            ("helper deref store", once(&mv, "    if (l >= n_layers) return;\n", "    if (l >= n_layers) return;\n    *pers_hdr() = 0u;\n")),
+            ("helper open", once(&mv, "// e1-pf end\n", "")),
+        ] {
+            assert!(p4e_e1_structure(&r, &m).is_err(), "structure mutant {tag} survived");
+        }
     }
 
     /// The verify pass's module at the L40S's tile: the 4E v9 module the

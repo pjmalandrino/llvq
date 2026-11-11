@@ -1227,6 +1227,36 @@ fn served_door_4e(
     Ok(())
 }
 
+/// `LLVQ_PERS_4E`'s value: a token count, 2 to 256, alone (the bench forms,
+/// `pers::P4E_BENCH_FORMS`) or followed by `:` and E1 arms
+/// (`pers::P4E_E1_ARMS`), comma-separated, each once, which replace the
+/// bench forms.
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+fn parse_pers_4e(v: &str) -> Result<(usize, Vec<&'static str>), String> {
+    let (count, arms) = match v.split_once(':') {
+        Some((c, a)) => (c, Some(a)),
+        None => (v, None),
+    };
+    let n: usize = count.parse().map_err(|_| format!("LLVQ_PERS_4E={v:?}: a token count, 2 to 256, then optionally :<E1 arms>"))?;
+    if !(2..=256).contains(&n) {
+        return Err(format!("LLVQ_PERS_4E={v:?}: 2 to 256 tokens a run"));
+    }
+    let mut out: Vec<&'static str> = Vec::new();
+    if let Some(a) = arms {
+        for name in a.split(',') {
+            let arm = llvq_cuda::pers::P4E_E1_ARMS
+                .iter()
+                .find(|x| **x == name)
+                .ok_or_else(|| format!("LLVQ_PERS_4E={v:?}: no E1 arm {name:?}; the arms are {:?}", llvq_cuda::pers::P4E_E1_ARMS))?;
+            if out.contains(arm) {
+                return Err(format!("LLVQ_PERS_4E={v:?}: arm {name} named twice"));
+            }
+            out.push(arm);
+        }
+    }
+    Ok((n, out))
+}
+
 #[cfg(all(target_os = "linux", feature = "cuda"))]
 /// `LLVQ_PERS_4E` at one prompt length: the reference tokens of the eager
 /// path, each 4E geometry's after the same prefill (identical or void), the
@@ -1396,6 +1426,48 @@ fn run_pers_4e(
         }
         let (m4e, _, _) = median_range(&rate[1 + k]);
         println!("  stamped token {:.1} us against the timed 4E's {:.1} us (the stamps' own cost)", r.token.0 / 1e3, 1e6 / m4e);
+    }
+    // E1: one launch a runtime on its logits symbol, outside the timed
+    // rounds, n_new tokens from the first: the same tokens as the eager path
+    // (the first n_new - 1), and the head's binary16 logits of every position,
+    // compared bit for bit with the first runtime's (the reference arm).
+    let mut reference: Option<(String, Vec<u16>)> = None;
+    for rt in rts.iter_mut().filter(|r| r.can_logits()) {
+        for c in caches.iter_mut() {
+            c.truncate(prompt.len())?;
+        }
+        let (made, logits) = rt.decode_logits(&mut caches, prompt.len(), first, n_new as u32, u32::MAX)?;
+        let label = rt.label();
+        if made.len() != n_new || made[..n_new - 1] != want[1..] {
+            anyhow::bail!("context {}: the logits launch of 4E {label} moved its tokens; its logits are void", prompt.len());
+        }
+        let bits: Vec<u32> = logits.iter().map(|&x| u32::from(x)).collect();
+        println!(
+            "  logits, 4E {label}: {} positions x {} rows, fingerprint {:016x}, last token {}",
+            made.len(),
+            logits.len() / made.len(),
+            llvq_llm::eval::token_fingerprint(&bits),
+            made[n_new - 1]
+        );
+        let Some((rl, rv)) = reference.as_ref() else {
+            reference = Some((label, logits));
+            continue;
+        };
+        let differ = rv.iter().zip(&logits).filter(|(a, b)| a != b).count();
+        let first_at = rv.iter().zip(&logits).position(|(a, b)| a != b);
+        if differ == 0 && rv.len() == logits.len() {
+            println!("  logits, 4E {label} against 4E {rl}: bit for bit, {} values", logits.len());
+        } else {
+            let vocab = logits.len() / made.len();
+            println!(
+                "  logits, 4E {label} against 4E {rl}: DIFFER, {differ} of {} values (lengths {} and {}), the first at position {} row {}",
+                logits.len(),
+                rv.len(),
+                logits.len(),
+                first_at.map_or(0, |i| i / vocab),
+                first_at.map_or(0, |i| i % vocab)
+            );
+        }
     }
     for rt in rts.iter_mut() {
         rt.set_kernel_from_for_measurement(from);
@@ -1898,8 +1970,14 @@ fn main() -> anyhow::Result<()> {
         // rounds of the decode, eager and every geometry, tok/s and the
         // ratios round by round, then one stamped launch a geometry. Value:
         // the tokens a run, 2 to 256.
+        // `<count>:<arms>` (experiment E1 of
+        // docs/mesures/large-4e-budget-2026-11-11.txt): the E1 arms named,
+        // comma-separated from pers::P4E_E1_ARMS, instead of the bench forms,
+        // each with its logits symbol; the logits of every arm are compared
+        // with the first's, bit for bit, at both contexts.
         if let Ok(v) = std::env::var("LLVQ_PERS_4E") {
-            let n_new: usize = v.parse().map_err(|_| anyhow::anyhow!("LLVQ_PERS_4E={v:?}: a token count, 2 to 256"))?;
+            let (count, e1_arms) = parse_pers_4e(&v).map_err(|e| anyhow::anyhow!("{e}"))?;
+            let n_new: usize = count;
             if !(2..=256).contains(&n_new) {
                 anyhow::bail!("LLVQ_PERS_4E={n_new}: 2 to 256 tokens a run");
             }
@@ -1935,7 +2013,18 @@ fn main() -> anyhow::Result<()> {
             // pers::P4E_BENCH_FORMS, v4 (the served form), v6, v7, v8 and
             // v9, then v6s. Each owes the eager path's tokens.
             let mut rts = Vec::new();
-            for (form, label) in llvq_cuda::pers::P4E_BENCH_FORMS {
+            for arm in &e1_arms {
+                match llvq_llm::persist4e_cuda::install_e1(&f.model, &device, n_new as u32, arm) {
+                    Ok(rt) => {
+                        for line in &rt.lines {
+                            println!("{line}");
+                        }
+                        rts.push(rt);
+                    }
+                    Err(e) => println!("4E e1:{arm} at 512 threads: not run: {e}"),
+                }
+            }
+            for (form, label) in llvq_cuda::pers::P4E_BENCH_FORMS.into_iter().filter(|_| e1_arms.is_empty()) {
                 match llvq_llm::persist4e_cuda::install_rows(&f.model, &device, n_new as u32, Some(512), form) {
                     Ok(rt) => {
                         for line in &rt.lines {
@@ -1949,14 +2038,16 @@ fn main() -> anyhow::Result<()> {
             // v6s: v6's module asking for v8's shared bytes, the same code and
             // bits under v8's L1/shared carve-out (plan-300 step 3's
             // diagnostic of v8's slower rows).
-            match llvq_llm::persist4e_cuda::install_rows_as(&f.model, &device, n_new as u32, Some(512), 4, Some(6)) {
-                Ok(rt) => {
-                    for line in &rt.lines {
-                        println!("{line}");
+            if e1_arms.is_empty() {
+                match llvq_llm::persist4e_cuda::install_rows_as(&f.model, &device, n_new as u32, Some(512), 4, Some(6)) {
+                    Ok(rt) => {
+                        for line in &rt.lines {
+                            println!("{line}");
+                        }
+                        rts.push(rt);
                     }
-                    rts.push(rt);
+                    Err(e) => println!("4E v6s at 512 threads: not run: {e}"),
                 }
-                Err(e) => println!("4E v6s at 512 threads: not run: {e}"),
             }
             if rts.is_empty() {
                 anyhow::bail!("LLVQ_PERS_4E: no 4E geometry loads on this card");
@@ -3238,8 +3329,20 @@ fn main() -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{alone_in, first_divergence, paired_ppl_pct, parse_gqa_ppl, rate_stats, GqaArm, GqaPplSpec, ALONE};
+    use super::{alone_in, first_divergence, paired_ppl_pct, parse_gqa_ppl, parse_pers_4e, rate_stats, GqaArm, GqaPplSpec, ALONE};
     use llvq_llm::eval::t95;
+
+    /// `LLVQ_PERS_4E`: a count alone keeps the bench forms; a count and E1
+    /// arms names those arms in order; anything else is refused.
+    #[test]
+    fn pers_4e_takes_a_count_and_optional_e1_arms() {
+        assert_eq!(parse_pers_4e("64"), Ok((64, vec![])));
+        assert_eq!(parse_pers_4e("64:v9,v9np,v9mv"), Ok((64, vec!["v9", "v9np", "v9mv"])));
+        assert_eq!(parse_pers_4e("64:v9mv"), Ok((64, vec!["v9mv"])));
+        for bad in ["1", "257", "x", "64:", "64:v9,v9", "64:v8", "64:v9 ,v9np", ":v9"] {
+            assert!(parse_pers_4e(bad).is_err(), "{bad}");
+        }
+    }
 
     fn env_of<'a>(set: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<String> + 'a {
         move |v| set.iter().find(|(k, _)| *k == v).map(|(_, x)| x.to_string())
