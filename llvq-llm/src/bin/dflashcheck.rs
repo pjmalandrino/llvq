@@ -1,13 +1,20 @@
 //! The DFlash drafter against its MLX fixture, then the time of one round.
 //!
 //! ```text
-//! dflashcheck <fixture.safetensors> [cpu|metal|cuda] [packed_dir] [drafter_dir] [f32|f16|bf16] [dump=<file>|against=<file>]
+//! dflashcheck <fixture.safetensors> [cpu|metal|cuda] [packed_dir] [drafter_dir] [f32|f16|bf16] [dump=<file>|against=<file>|profile]
 //! ```
 //!
 //! `dump=<file>` writes the timed dtype's logits of the six fixture rounds;
 //! `against=<file>` requires them within 1e-3 relative (max |dz| / max |z| a
 //! round) of such a dump: the gate of a change that must not move what the
 //! drafter drafts beyond its dtype's noise.
+//!
+//! `profile` (measurement only, nothing else runs): every operation of a round
+//! alone, a device synchronisation after each, median of 30 after 5, for the
+//! extension of 4 positions at a context of 512, one block layer in detail
+//! and the five layers' sums, the head, both readouts, and three candidates
+//! (argmax only; top 4 on f16 logits with lse by six operations; the readout
+//! before e3bbaee); each stage also whole, one synchronisation at its end.
 //!
 //! `fixture`: written by `ops/dflash_fixture.py`. `packed_dir`: the hfpack
 //! directory whose int4 g64 table the fixture's reference used (default
@@ -53,6 +60,27 @@ fn main() -> anyhow::Result<()> {
         o => anyhow::bail!("dtype {o}: f32, f16 or bf16"),
     };
 
+    if a.get(6).map(String::as_str) == Some("profile") {
+        // Measurement only: every operation of a round alone (dflash::profile), in the timed dtype.
+        let drafter = DFlashDrafter::load(&ddir, &device, dtype)?;
+        let vocab = if packed.is_file() {
+            dflash::vocab_from_sealed(&packed, &device, dtype)?
+        } else {
+            dflash::vocab_from_packed(&packed, &device, dtype)?
+        };
+        let fx = candle_core::safetensors::load(&fixture, &candle_core::Device::Cpu)?;
+        let taps = fx.get("p0.taps").context("fixture: no p0.taps")?;
+        let rows = taps.dim(0)?;
+        // a context of 512 positions from the fixture's taps, repeated
+        let reps: Vec<candle_core::Tensor> = (0..512usize.div_ceil(rows)).map(|_| taps.clone()).collect();
+        let ctx0 = candle_core::Tensor::cat(&reps, 0)?.narrow(0, 0, 512)?.to_device(&device)?;
+        let n = 4;
+        let new: Vec<u16> = taps.narrow(0, 0, n)?.flatten_all()?.to_vec1::<f32>()?.iter().map(|&x| half::f16::from_f32(x).to_bits()).collect();
+        let t = Instant::now();
+        dflash::profile::run(&drafter, &vocab, &ctx0, &new, n)?;
+        println!("profile done in {:.1} s", t.elapsed().as_secs_f64());
+        return Ok(());
+    }
     let t0 = Instant::now();
     let drafter = DFlashDrafter::load(&ddir, &device, DType::F32)?;
     let vocab = if packed.is_file() {

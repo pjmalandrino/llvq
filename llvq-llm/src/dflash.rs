@@ -57,6 +57,10 @@ use std::path::{Path, PathBuf};
 use anyhow::{bail, Context as _};
 use candle_core::{DType, Device, Tensor, D};
 
+/// Per-operation timing of a round (`dflashcheck ... profile`), measurement only.
+#[path = "dflash_profile.rs"]
+pub mod profile;
+
 /// The drafter repository and the pinned revision the reference measured.
 pub const REPO: &str = "z-lab/Qwen3-4B-DFlash-b16";
 pub const REVISION: &str = "b74e3a329c4d963783143b1e970d95b002be72bd";
