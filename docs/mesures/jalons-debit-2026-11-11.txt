@@ -44,3 +44,7 @@ J4, open. Two measurements in flight.
 
 Spend under the operator's cap of $25, counted from the go of 2026-11-09: $10.94 after the prefill job; E1 running,
 cap $0.87; D1 to come, cap $1.00.
+
+Operator's answers to J3, 2026-11-11. (1) The prefill is not served now: it is kept to be packaged once, with the
+rest of what this work yields. (2) The fast profile (DFlash int4) is set aside: everything needed to build it is on
+record, it is built when wanted. (3) No 8B point yet: progress further on the 4B first.
