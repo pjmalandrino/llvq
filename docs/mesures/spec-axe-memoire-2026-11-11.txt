@@ -30,3 +30,13 @@ Parked behind this axis: the drafter block (108 launches) and its CUDA graph que
 cost, Domino. Closed on 2026-11-11: the 32-row tree (spec-arbre32-mac-2026-11-11.txt).
 
 Results are appended below, one dated entry a step.
+
+2026-11-11, M2 PASSES (spec-brouillon-int4-mac-2026-11-11.txt, $0, Mac, 60.6 min). Drafter weights fake-quantized
+with quantize_affine (the target's int4 records), round-to-nearest, no calibration; f32 arithmetic; tree of 15 on the
+same text as arbre32, paired against the unquantized drafter (5.368 GSM8K-200, 3.316 house, measured).
+  int4 g128 on the 35 linear weights and fc: 5.255 (-2.12 %) and 3.262 (-1.63 %) measured; 0.286 GB, 4.25 b a
+  drafter parameter, whole model 3.300 b/param against 4.870 (computed). Smallest arm that passes.
+  int4 g64: -0.86 % and -0.79 %, 0.350 GB, 3.427 b/param. int8 g64: -0.10 % and +0.05 %. f16: 0 prompts move.
+  int3 g64: -4.51 % and -5.55 %, fails.
+M4 opens by 0.027: 3.300 against 3.073 at Tetra's rate, 0.227 b/param to gain (computed). The fc overflow is in its
+output, so fc's arithmetic stays f32 on the card whatever its weights.

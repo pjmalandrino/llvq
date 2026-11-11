@@ -1,0 +1,129 @@
+DFLASH DRAFTER WITH QUANTIZED WEIGHTS, TREE OF 15, SEALED TETRA 4B, ON THE MAC, 2026-11-11. $0. STEP M2.
+=======================================================================================================
+Result: the drafter in int4 g128, `fc` included, keeps 97.9 % of today's acceptance on GSM8K-200 (5.255 against
+5.368 drafted tokens a pass, -2.12 %) and 98.4 % on the house set (3.262 against 3.316, -1.63 %) (*measured*). It
+passes the M2 gate of 3 % on both sets. It weighs 0.286 GB against 1.075 GB in f16 (*computed*), and takes the whole
+model from 4.870 to 3.300 b/param (*computed*). Every int4 and int8 arm passes; int3 g64 fails (-4.51 % and -5.55 %).
+f16 rounding of the weights changes nothing: 0 prompts of 244 move.
+Plain round-to-nearest, no calibration data, no GPTQ. A calibrated encoder could only do better.
+Prereg : none (analysis at $0 on the Mac, as spec-arbre32-mac-2026-11-11). Orchestrator's instruction, 2026-11-11,
+         step M2 of spec-axe-memoire-2026-11-11.txt.
+Script : ops/dflash_brouillon_int4.py (imports the harness of ops/dflash_arbre32.py: prompts, text, capture, tree of
+         15, replay; only the drafter's weights change), ops/dflash_brouillon_int4_report.py (stdlib tables).
+         No Rust change.
+Machine: M3 Max, under ~/.llvq-guard/heavy.sh (nice 15), memory_pressure 90 % free before loading. Wall 60.6 min
+         (guard log 08:41:48 to 09:42:26), "done in 3633 s", about 433 s of drafter a arm. A 3-problem pilot ran first
+         (08:40 to 08:41, 76 s), output in the scratchpad, not kept.
+Raw    : spec-brouillon-int4-mac-2026-11-11-brut/: run.txt (one JSON line a prompt, every arm), rows.json (per prompt
+         and arm: passes, accepted, histogram 0..15), meta.json (arms, weight errors, seconds a arm),
+         accept-depths.json.gz (accepted depth at every pending position, every arm), mac-greedy.json (copied from
+         spec-arbre32-mac-2026-11-11-brut, the text of chat, code, rag), report.txt.
+
+COMMANDS
+--------
+LLVQ_THREADS=12 ~/.llvq-guard/heavy.sh "m2: drafter quant arms x8, house + GSM8K-200 (MLX)" uv run \
+  ops/dflash_brouillon_int4.py ~/q4b-hf-2026-09-28 ops/data/spec-prompts-v1.jsonl ops/data/spec-gsm8k-200.jsonl \
+  docs/mesures/spec-loop-sp8-2026-11-11-brut docs/mesures/spec-arbre32-mac-2026-11-11-brut \
+  docs/mesures/spec-brouillon-int4-mac-2026-11-11-brut 200
+python3 ops/dflash_brouillon_int4_report.py docs/mesures/spec-brouillon-int4-mac-2026-11-11-brut/rows.json \
+  docs/mesures/spec-arbre32-mac-2026-11-11-brut/rows.json
+
+SETUP
+-----
+Same text, prompts and tree as spec-arbre32-mac-2026-11-11: GSM8K rows 0-199 and the house set's 20 math prompts on
+the card's own greedy text (SP8's gsm200.jsonl, decoder `pass`); house chat, code, rag on the MLX door's greedy text
+(the arbre32 cache, copied). Target: sealed 4B through the MLX door; the drafter's embedding and tied head are the
+target's int4 g64 table, as on the card (--vocab q4), in every arm. One target capture a prompt, read by every arm,
+so the arms are paired prompt by prompt.
+Reference ("ref"): the drafter checkpoint z-lab/Qwen3-4B-DFlash-b16 at b74e3a32, stored bf16, widened to f32. It
+reproduces the arbre32 run's tree of 15 on 244 of 244 prompts, accepted and passes identical (*measured*).
+Arithmetic: f32 in every arm. Weights: fake quantization, quantize then dequantize each matrix once.
+Quantizer matched: llvq_llm::embedquant::quantize_affine, the function int4_record (the target's int4 g128 records,
+int4swap) and embedq (the int4 g64 embedding) both call. Matrix narrowed to f16; per group of g consecutive weights
+along the input dimension, scale = f16((max - min) / qmax), bias = f16(min), q = round((w - bias) / scale) clamped
+to [0, qmax], w' = bias + q * scale; a group whose f16 scale is 0 keeps q = 0. Size b + 32/g bits a weight
+(embedquant::bits_per_weight). int3 uses the same formula with qmax = 7; the Rust function refuses 3 bits.
+Arms:
+  ref          checkpoint bf16 -> f32
+  f16          the 35 linear weights and the norms rounded to f16; fc and hidden_norm kept f32 (the card's form)
+  int8g64      the 35 linear weights of the 5 layers (q, k, v, o, gate, up, down) int8 g64; the rest as ref
+  int4g128     same, int4 g128
+  int4g64      same, int4 g64
+  int4g128+fc  int4 g128 on the linear weights and on fc
+  int4g64+fc   int4 g64 on the linear weights and on fc
+  int3g64      int3 g64 on the linear weights
+Relative weight error, sum of squared error over sum of squares (*measured*, meta.json): f16 1.2e-18, int8g64
+2.8e-5, int4g128 1.00e-2, int4g64 8.1e-3, int3g64 3.7e-2; fc 1.17e-2 at g128 and 8.9e-3 at g64.
+fc: quantizing its weights is a storage question. The binary16 overflow of commit ce8fb7f is in fc's output (taps of
+layer 34 up to 15,352 summed over 12,800 inputs), so the card must keep fc's arithmetic in f32 whatever the weights.
+
+RESULT (*measured*, accepted drafts a pass, tree of 15; relative change against ref *computed*)
+------
+  arm          gsm8k-200        house            math             code             rag              chat
+  ref          5.368            3.316            4.759            2.951            3.553            1.937
+  f16          5.368  +0.00 %   3.316  +0.00 %   4.759  +0.00 %   2.951  +0.00 %   3.553  +0.00 %   1.937  +0.00 %
+  int8g64      5.363  -0.10 %   3.317  +0.05 %   4.766  +0.14 %   2.945  -0.21 %   3.553  +0.00 %   1.940  +0.20 %
+  int4g128     5.293  -1.40 %   3.277  -1.16 %   4.692  -1.40 %   2.957  +0.21 %   3.436  -3.29 %   1.906  -1.59 %
+  int4g64      5.322  -0.86 %   3.289  -0.79 %   4.739  -0.42 %   2.938  -0.41 %   3.482  -1.99 %   1.910  -1.39 %
+  int4g128+fc  5.255  -2.12 %   3.262  -1.63 %   4.673  -1.81 %   2.963  +0.41 %   3.413  -3.92 %   1.883  -2.76 %
+  int4g64+fc   5.294  -1.39 %   3.260  -1.68 %   4.746  -0.28 %   2.891  -2.03 %   3.413  -3.92 %   1.883  -2.76 %
+  int3g64      5.126  -4.51 %   3.132  -5.55 %   4.459  -6.31 %   2.873  -2.63 %   3.347  -5.80 %   1.789  -7.62 %
+House = 44 prompts: math 20, code 10, chat 10, rag 4. rag has 4 prompts; its -3.9 % is one or two passes.
+
+Paired per prompt, arm - ref, accepted a pass (*computed*): mean, sd, median [min, max], prompts changed
+  GSM8K-200
+    f16          +0.000  sd 0.000  median +0.000 [+0.00, +0.00]  changed 0/200
+    int8g64      -0.006  sd 0.090  median +0.000 [-0.51, +0.28]  changed 47/200
+    int4g128     -0.076  sd 0.230  median -0.074 [-0.74, +0.82]  changed 147/200
+    int4g64      -0.039  sd 0.227  median +0.000 [-0.74, +0.83]  changed 144/200
+    int4g128+fc  -0.114  sd 0.254  median -0.114 [-0.96, +0.56]  changed 159/200
+    int4g64+fc   -0.066  sd 0.249  median +0.000 [-0.69, +0.83]  changed 147/200
+    int3g64      -0.244  sd 0.297  median -0.232 [-1.17, +0.78]  changed 179/200
+  house
+    f16          +0.000  sd 0.000  median +0.000 [+0.00, +0.00]  changed 0/44
+    int8g64      +0.002  sd 0.035  median +0.000 [-0.14, +0.13]  changed 5/44
+    int4g128     -0.048  sd 0.171  median -0.045 [-0.46, +0.57]  changed 31/44
+    int4g64      -0.029  sd 0.144  median -0.016 [-0.43, +0.34]  changed 35/44
+    int4g128+fc  -0.069  sd 0.158  median -0.028 [-0.58, +0.20]  changed 33/44
+    int4g64+fc   -0.040  sd 0.134  median -0.047 [-0.36, +0.28]  changed 35/44
+    int3g64      -0.226  sd 0.266  median -0.180 [-0.93, +0.33]  changed 42/44
+On GSM8K the standard error of the paired mean is sd / sqrt(200), about 0.018 for the int4 arms: int4g128+fc's
+-0.114 is about 6 standard errors from zero, a real loss, inside the gate (*computed*).
+
+GATE OF M2: within 3 % of ref on GSM8K-200 and on the house set
+  f16          +0.00 %  +0.00 %  PASS
+  int8g64      -0.10 %  +0.05 %  PASS
+  int4g128     -1.40 %  -1.16 %  PASS
+  int4g64      -0.86 %  -0.79 %  PASS
+  int4g128+fc  -2.12 %  -1.63 %  PASS   smallest drafter that passes
+  int4g64+fc   -1.39 %  -1.68 %  PASS
+  int3g64      -4.51 %  -5.55 %  FAIL
+
+SIZE (*computed*)
+----
+Drafter 537,427,200 parameters: linear weights of the 5 layers 504,627,200, fc 32,768,000, norms 32,000. Stored with
+the linear weights at the arm's rate, fc at that rate when quantized and f16 otherwise, norms f16. Whole model =
+sealed target 2.7320 b/param + drafter bits over the target's 4,022,468,096 parameters (spec-memoire-2026-11-11.txt).
+  arm          drafter GB   b/drafter param   whole model b/param   against f16
+  ref, f16     1.0749       16.000            4.870                  0
+  int8g64      0.6018        8.958            3.929                 -0.473 GB
+  int4g128     0.3337        4.967            3.396                 -0.741 GB
+  int4g64      0.3495        5.202            3.427                 -0.725 GB
+  int4g128+fc  0.2856        4.251            3.300                 -0.789 GB
+  int4g64+fc   0.3023        4.501            3.333                 -0.773 GB
+  int3g64      0.2864        4.263            3.302                 -0.789 GB (fails the gate)
+On the card today the drafter holds 1.193 GB (spec-memoire: fc and hidden_norm f32, k and v twice). In int4
+g128 + fc the second k, v copy (26,214,400 weights) would add 0.014 GB at 4.25 b, so about 0.30 GB held
+(*estimated*, assumes the card keeps the two copies and stores fc's weights in int4 with f32 arithmetic).
+M4 condition (*computed*): int4g128+fc gives 3.300 b/param; the drafter at Tetra's 2.55 b/weight would give 3.073
+(spec-memoire (b)). The gap is 0.227 b/param, just over the 0.2 that opens M4.
+Speed, for reference only (*estimated*, SP8's costs, verify 8.53 ms + drafter 4.15 ms, drafter time assumed unchanged
+by an int4 kernel): 502 tok/s for ref, 493 for int4g128+fc, 499 for int4g64 on GSM8K.
+
+WHAT THIS DOES NOT ESTABLISH
+----------------------------
+- The card: the drafter there runs f16 arithmetic with an int4 kernel that does not exist yet. f16 weight rounding is
+  shown harmless here; f16 activations beyond fc are what the card already runs.
+- The card's text for chat, code, rag (no token dump; the MLX door's text, as in arbre32).
+- A calibrated or GPTQ encoder of the drafter, and the drafter at Tetra's rate (M4).
+- Wall time: the full run took 60.6 min against about 60 budgeted; no arm and no problem was dropped.
