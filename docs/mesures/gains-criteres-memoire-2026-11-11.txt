@@ -1,0 +1,127 @@
+GAINS ON THE MEMORY CRITERIA WITH NO TRADE-OFF, SEALED 4B, 2026-11-11. $0, read only.
+-------------------------------------------------------------------------------------
+
+Result: one memory gain is certain and keeps every bit: the file can lose about 38 MB, 2.8206 to about 2.745 b/param
+of file bytes, with the card unchanged (*computed*). The VRAM gains that keep every bit are uncertain, 0 to 0.55 GB,
+because 0.53 GB of the 1.98 GB after load is fixed overhead nobody has split (*computed* as a difference). The only
+large VRAM gain is the chain prefill: 5.95 to 3.56 GB at 8k and a first token 2.8 to 4.7 times sooner (*measured*,
+bench). It does not keep the text: 41 of 47 texts identical, It is a gated change.
+
+Nature: read-only study. No job, no build, no test, no model load. Code read at 435d48f (worktree arbre-nuit), journals
+named on each line. GB = 1e9 B. Parameters 4,022,468,096 (rtbits). Labels: *measured* (a journal), *computed*
+(arithmetic on measured or code inputs), *estimated* (judgement, or one estimated input).
+
+1. WHERE THE BYTES ARE, SERVED 4B (v9 config, 4E decode, eager prefill)
+-----------------------------------------------------------------------
+Short context (5-token prompt, 256 decoded):
+  item                                              GB       label       source
+  Tetra lattice stream, 168 matrices                0.712    computed    rtbits-sealed.txt: 2,862,612,480 w x 1.9898 b
+  Tetra side data on the card: tail f16 0.029,      0.033    computed    fused_cuda.rs:160-174 (tail u16, rscale f32);
+    row scales f32 0.004, gain pairs ~0                                  14,647,296 tail values, 946,176 rows
+  int4 records, 84 (v, o, down 12-23)               0.409    measured /  door.txt: words 0.385 held once; scales and
+                                                             computed    biases 6,021,120 groups x 4 B = 0.024
+  embedding int4 g64, head tied on it               0.219    measured    door.txt "218.8 MB", one table
+  norms 0.0004, RoPE cos and sin 0.0105             0.011    computed    model.rs:243-258, 40,960 x 64 x 2 x 2 B
+  weights and tables, the door's count              1.38     computed    door.txt "total expected on the card"
+  CUDA context, cuBLAS, local-memory reservation,   0.53     computed    1.912 GB (1,823 MiB) with the weights loaded
+    allocator, before 4E's install                                       and nothing else, large-prefill vram-eager-t
+  4E install: NVRTC modules, 4E buffers, rest       0.068    measured    1,823 to 1,889 MiB, same sampler; 4E's own
+                                                                         buffers are under 2 MB (persist4e_cuda.rs:
+                                                                         600-624, scratch 32 x 34 x 130 x 4 B)
+  after load                                        1.980    measured    cuMemGetInfo, served-v9 door.txt
+  KV cache, Grow(256), 256 positions                0.038    computed    36 x 2 x 8 x 128 x 2 B = 147,456 B a position
+  peak at 5 tokens                                  2.014    measured    spec-mem-m3 base-short; pic-vram-8k (1,921 MiB)
+
+Why 1.98 GB after load for a 1.38 GB model: 0.60 GB of fixed overhead, the same at every size. The 8B reads 3.356 for
+2.76 and the 14B 5.637 for 5.04 (*measured*, served-v9 jobs): the gap is 0.60 at all three, so it scales with nothing
+the model holds. Of it, 0.53 is there before 4E is installed, It belongs to the context and the libraries.
+Nobody has measured the context alone (no cuMemGetInfo before the weights exists in any journal).
+
+File against card: the file is 1,418,224,685 B, 2.8206 b/param (*measured*, ~/q4b-sealed-2026-09-23 listing; duel-iq2
+uses this figure). The card holds 1.38 GB, 2.73 b/param. The file carries three things the card does not: the tail in
+f32 (+29.3 MB over the card's f16), the row scales in f64 (+3.8 MB over the card's f32), and config.json plus
+tokenizer.json verbatim (about 11.4 MB, the remainder after rtbits' 2.7903 at an f32 tail) (*computed*,
+format.rs:680-690, llvq-artifact/src/sealed.rs:15).
+
+Nothing is held twice at steady state (*computed* from the code). The int4 words are tiled once and the file-order
+copy is freed (door.txt). 4E addresses the eager path's Tetra streams, rotations and norms in place (seg_tetra,
+frt.rot_view, tensor_addr in persist4e_cuda.rs:640-720). The head is tied to the embedding (door.txt). The tree-tiled
+copies (1.30 GB) exist only in the speculative and tree benches, never in the served config.
+
+8,192-token prompt (served eager prefill, chunks of 4,096):
+  base after load, 5-token peak                    2.01     measured    above
+  KV cache, 8,192 positions                        1.208    computed    147,456 B x 8,192
+  one f16 score tensor, 32 x 4,096 x 8,192 x 2 B   2.147    computed    pic-vram-8k section 2 (softmax in place)
+  activations at the attention, f16 mask           0.25     computed    pic-vram-8k section 2 (0.18 + 0.07)
+  sum                                              5.62     computed
+  peak                                             5.95     measured    pic-vram-8k section 7, 11.8 b/param
+  residue not explained                            0.33     computed    peak minus sum
+The residue survives the prompt. After the 8,191-token rounds cuMemGetInfo reads 3.496 GB, against 1.980 + 1.246 of
+KV at 8,448 positions = 3.226, so 0.27 GB stays held (*measured* and *computed*, large-prefill "cuMemGetInfo after the
+8,191 rounds"). The chain arm shows the same kind of residue: 3.560 at 8k against 2.117 + 1.208 = 3.325, so 0.235.
+
+2. CANDIDATES, RANKED
+---------------------
+Precondition, $0, rides the next card job: print cuMemGetInfo at six points (device created, cuBLAS handle made,
+weights loaded, 4E installed, after chunk 1 of an 8k prompt, after the rounds), the stack limit
+(cuCtxGetLimit STACK_SIZE) and each launched function's LOCAL_SIZE_BYTES. It saves nothing itself. It decides rows 3
+and 4. About 2 agent-hours.
+
+  #  what changes                       bytes saved             why the other criteria hold                 cost                 gate                         risk                         class
+  1  File: tail written f16, config     file -38 to -39 MB,     every loader already narrows the tail to   $0 Mac + ~$0.3 card  oracle, door 256/256 tokens,  format revision (v6 or a     easy
+     and tokenizer blobs compressed     2.8206 -> 2.745-2.743   f16 (fused.rs:1356 tail_f16_bits; u16 in   gate riding a job;   logits fingerprint equal,     tail-width flag): full suite,
+     (zstd or deflate in-crate)         b/param of file bytes;  fused_cpu.rs:379, fused_metal.rs:371;      ~1 agent-day         card bytes equal, the hfpack  new sha; the three cited
+                                        card 0                  sealed::load for ppl and mmlu,                                  bit gate (llvq_hf_check)      files stay frozen
+                                                                ROADMAP-QUALITY row 7). The card bytes,
+                                                                the logits and the text cannot move
+  2  Chain prefill (a12ipg32, R = 32)   8k peak -2.39 GB        decode after hand-over +0.05 to +0.69 %;   ~$2-3 card (GSM8K-   GSM8K-200 pairing (named in   NOT identity: 6 of 47 texts   pays well,
+     as the served door's prefill       (5.946 -> 3.560,        first token x2.77 (R 16) to x4.75 (R 32)   200 pair, door at 5  large-prefill), door peak at  differ on near-ties, ppl      gated
+                                        measured, bench);       sooner. Quality: ppl +0.0007 % [-0.0078,   and 8,192 tokens);   5 and 8,192, same-text count  +0.0007 % inside +-0.12 %.
+                                        short context +0.13 to  +0.0092], texts 41/47, so it rides the     2-3 agent-days       against the eager door        Short-context peak rises
+                                        +0.15 GB unless the     +-0.12 % band the operator took for                                                           unless row buffers are per
+                                        row buffers are made    attention forms, not identity                                                                 prefill; NVRTC +320 s at
+                                        per prefill and sized                                                                                                 load unless cubins cached
+                                        by rows (estimated)
+  3  Find and free the 8k residue       8k peak 0 to -0.33 GB;  freeing or not reserving memory moves no   $0 trace (riding)    door tokens and fingerprint   it may be the local-memory    easy if ours
+                                        after a long prompt     bit; prefill and decode do the same work   + ~$0.3 gate;        unchanged, cuMemGetInfo after reservation grown by a
+                                        0 to -0.27 GB           in the same order                          0.5-1 agent-day      the rounds, 8k peak           library kernel: then nothing
+  4  Local-memory reservation of the    0 to -0.22 GB at every  a stack limit is not arithmetic; a kernel  same job as #3       same, plus 4E decode speed    the driver keeps the largest  easy if the
+     context (CU_LIMIT_STACK_SIZE set   context (1 KB x 142 SMs that needs more grows it or fails by name                       inside its round range        reservation any kernel asked  precondition
+     to the largest LOCAL_SIZE_BYTES    x 1,536 threads = 0.223,                                                                                              for; the tree kernels need    says so
+     of the served kernels)             estimated)                                                                                                            744 B a thread
+  5  Batch pool's KV allocated per      batch configs only:     same slot layout, so the GEMM and its      ~$1 card; 2-4        every pool row equal to batch nothing served by default     pays well for
+     slot on admission                  19.3 GB at load ->      attention read the same bytes at the same  agent-days           1 (the existing gate), ppl    uses it; a slot table in      the batch door
+                                        0.30 GB a live slot     offsets; only the base address moves                            within +-0.01 % as before     tv_batch_gemm.cu
+  6  int4 nibbles entropy-coded in the  file -30 to -70 MB,     decoded to the same nibbles at load, so    $0 histogram on the  decode equal byte for byte;   load time; a codec written    pays, file only
+     file (embedding 194.5 MB + records -0.06 to -0.14 b/param  the card bytes are equal                   Mac first; 2-3       card bytes equal              in-crate (no dependency in
+     385.4 MB)                          (estimated: affine 4-bit                                           agent-days                                         llvq-artifact). Tetra words
+                                        of a near-Gaussian, 3.5                                                                                               are closed (47.4 of 48 bits,
+                                        to 3.8 bits of entropy)                                                                                               HISTORIQUE 2026-11-08); the
+                                                                                                                                                              int4 part is not
+  7  Row scales written f32             file -3.8 MB,           the card uses `v as f32` already           with #1              with #1                       breaks the dense f64          operator
+                                        -0.0075 b/param         (fused.rs:2508)                                                                               reconstruction proof
+                                                                                                                                                              (fiche-4b); dense ppl and
+                                                                                                                                                              MMLU could move in last bits
+  8  RoPE tables sized to the config's  -8.3 MB at every        the same values, narrowed                  with #3              with #3                       eager and batch past 8,704    trivial
+     cap (40,960 -> 8,704 positions)    context                                                                                                               need the full table
+
+Left out, with the reason:
+- Eager prefill in chunks of 2,048: -1.07 GB at 8k, but cuBLAS rounds by shape (gqa-ab-2026-11-01), so the bits move.
+- Kernel prefill (`prefill_attention: kernel`): 4.77 GB at 8k, over its band, first token x1.14 to x1.21 slower
+  (pic-vram-8k G3). Not served, and #2 dominates it.
+- KV cache in int8 or int4: touches quality (ETAT section 5). The f16 KV is 1.21 GB of the 8k peak and stays.
+- KV growth policy: Grow(256) leaves at most 37.7 MB unused, and a growth copies one layer at a time and syncs
+  (model.rs:474-489). Nothing to gain.
+- Embedding and head tie: already one table on the card.
+- Duplicates between eager and 4E: none at steady state (section 1).
+- Lossless coding of the Tetra words: closed (47.4 bits of entropy of 48).
+
+3. WHAT I WOULD DO FIRST
+------------------------
+First, the file trim (#1). It is the only gain that is both certain and identical on every door: about -0.076 b/param
+of file bytes, which turns today's tie with llama.cpp IQ2_S on the duel's accounting (2.8206 against 2.8188) into a
+lead of about 0.07. It costs a format revision and a riding gate. Second, the $0 ledger riding the next card job, then
+#3 and #4 if it points at them. Those are the only VRAM gains that keep every bit, worth 0 to 0.55 GB, and nobody knows
+which end of that range is real until the ledger runs. No VRAM gain that keeps the text is certain today. The large
+one, the chain prefill (#2), is worth doing for the first token as much as for memory, but it changes 6 texts in 47 on
+near-ties: it is the operator's call whether the +-0.12 % band counts as "no trade-off".
