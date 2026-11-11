@@ -1,0 +1,141 @@
+SPEC-LOOP SP5: THE LIGHTER DRAFTER, ITS INT4 VOCABULARY AND THE SELF-CONSISTENCY GATE, 44 HOUSE PROMPTS, SEALED 4B, ONE L40S, 2026-11-11. $0.62.
+=====================================================================================================================================
+VALID under the prereg's rule: the self-consistency gate holds on every run, 44 of 44 prompts for the null drafter, for
+the tree on the dense vocabulary and for the tree on the q4 vocabulary (*measured*). Agreement with 4E's greedy is 40 of
+44 in both runs, first divergences at the four places SP4 found (gsm8k-test-0004 token 251, chat-02 84, chat-03 107,
+chat-07 71), as predicted. Accepted tokens are unchanged by the q4 vocabulary (3.39 a pass in both runs) and the q4 run
+drops the dense table's 777.9 MB. But the drafter round costs more than predicted: 5.67 ms (dense) and 5.31 ms (q4) a
+round as the loop pays it, against a signed 3.4 and 2.7. The tree runs at x1.395 (dense) and x1.430 (q4) of 4E's greedy
+over all prompts, below its signed intervals (x1.63 and x1.72); of the q4 kinds only rag sits inside its interval.
+Prereg : proofs/preregistration-spec-loop-sp5-2026-11-11.md (sha256 49f6513b), stamped before the job (.ots, commit
+         42639a0). The gate restated after SP4 (SP4's ECARTS, deviation 1). No deviation of SP5.
+Go     : the operator, 2026-11-10 evening ("a real test on the card"); cap $15 with leave to launch from about 21:45 CET;
+         relayed by the orchestrating session.
+Job    : 6af3c7c8ab34849891ad95d3, l40sx1, image hf.co/spaces/Pier-Jean/llvq-runner-cuda at Space sha 6741f609 (its
+         COMMIT file names 42639a0, published from a clean detached checkout of that commit, perimeter clean, 530 files;
+         kernel, bench and runtime sources equal to f838b8b's), ops/jobs/spec-loop-sp5.sh, job timeout 54 min. Submitted
+         02:41 CET, RUNNING at 02:42 (no queue), COMPLETED by 03:02. 21 min billed, $0.62 (*measured*, ops/run.py
+         monitor). Registry $312.95 before, $313.57 after; spend since the go $6.32 of $15.
+Raw    : spec-loop-sp5-2026-11-11-brut/: gpu.txt, oracle.txt, files.sha256 (sealed file, fixture, drafter files, prompt
+         set), drafter.sha256, qwen3-4b-tetra-e4-4e-v9.json, dflashcheck-f16.txt, spec-dense.txt, spec-q4.txt,
+         dense.jsonl and q4.jsonl (the dumps: every decoder's token ids and texts), summary.txt, monitor.txt, queue.txt.
+
+CONTROLS
+--------
+1. oracle on Qwen3-0.6B: MATCH. Sealed file 886391a8, fixture 636f664d, drafter config.json 2de97cdf and
+   model.safetensors a21d0ffe, prompt set f749eb35 (in the image), config 29b3ef32. LLVQ_* refused. Holds.
+2. 4E's module 252,757 bytes, sha256 1b422b62, row form 7, in both specbench runs. Holds.
+3. The image built (the first compile of dflash_q4.rs and the new specbench.rs). Holds.
+The control line holds in both runs: one 64-token 4E launch equals two chained 32-token launches on gsm8k-test-0000.
+
+(a) DFLASHCHECK ON CUDA, F16 (verbatim)
+--------------------------------------
+drafter z-lab/Qwen3-4B-DFlash-b16@b74e3a32 (2254.7 MB f32), table [151936, 2560] from /out/sealed-4b-2026-09-23/qwen3-4b-sealed.bin, device Cuda(CudaDevice(DeviceId(1))), loaded in 9.4 s
+equivalence (f32): rounds 6: chain equal 6/6, tree equal 6/6; logits rel 3.52e-6, lse rel 1.88e-6, hidden rel 1.33e-6; smallest reference top-1 gap 0.020; table rows max abs 0.00e0
+equivalence PASS
+equivalence (F16): rounds 6: chain equal 6/6, tree equal 4/6; logits rel 1.87e-3, lse rel 6.87e-4, hidden rel 1.99e-3; smallest reference top-1 gap 0.020; table rows max abs 0.00e0
+equivalence (F16) PASS
+round at context 128 (F16): extend 4 0.40 ms [0.40-0.40], block + head + readout 5.05 ms [5.04-5.11], median of 20; context cache 8.0 MB
+round at context 512 (F16): extend 4 0.38 ms [0.37-0.38], block + head + readout 5.01 ms [4.98-5.27], median of 20; context cache 15.9 MB
+round at context 2048 (F16): extend 4 0.38 ms [0.37-0.38], block + head + readout 5.11 ms [5.09-5.16], median of 20; context cache 47.8 MB
+loop round Chain(15) n 1: 5.39 ms [5.36-5.43], median of 50 after 10, one synchronisation
+loop round Chain(15) n 1, synchronised between stages: total 5.56 ms; extend 0.35, block 1.96, head 1.13, readout 2.05 (ms, medians of 50)
+loop round Chain(15) n 4: 6.01 ms [5.99-6.72], median of 50 after 10, one synchronisation
+loop round Chain(15) n 4, synchronised between stages: total 5.42 ms; extend 0.40, block 1.91, head 1.13, readout 1.96 (ms, medians of 50)
+loop round Chain(15) n 8: 6.04 ms [6.00-6.12], median of 50 after 10, one synchronisation
+loop round Chain(15) n 8, synchronised between stages: total 5.43 ms; extend 0.41, block 1.92, head 1.13, readout 1.96 (ms, medians of 50)
+loop round Tree(15) n 1: 5.40 ms [5.37-5.51], median of 50 after 10, one synchronisation
+loop round Tree(15) n 1, synchronised between stages: total 5.36 ms; extend 0.31, block 1.95, head 1.13, readout 1.96 (ms, medians of 50)
+loop round Tree(15) n 4: 6.02 ms [6.00-6.17], median of 50 after 10, one synchronisation
+loop round Tree(15) n 4, synchronised between stages: total 5.42 ms; extend 0.40, block 1.91, head 1.13, readout 1.96 (ms, medians of 50)
+loop round Tree(15) n 8: 6.04 ms [6.01-10.49], median of 50 after 10, one synchronisation
+loop round Tree(15) n 8, synchronised between stages: total 5.46 ms; extend 0.42, block 1.93, head 1.13, readout 1.97 (ms, medians of 50)
+dflashcheck f16 exit 0
+
+SELF-CONSISTENCY (the hard gate) AND AGREEMENT WITH 4E (reported)
+---------------------------------------------------------------
+Self-consistency: null 44 of 44, tree dense 44 of 44, tree q4 44 of 44 ("equal to the pass's greedy" on every prompt).
+Holds. Agreement with 4E, dense run (the q4 run gives the same lines):
+4E agreement: first divergence at generated token 251 (251 tokens equal before it): the pass Some(11), 4E Some(279); the pass's logits: 31.09375 for 11, 31.09375 for 279, margin 0.0000
+4E agreement: first divergence at generated token 84 (84 tokens equal before it): the pass Some(11), 4E Some(518); the pass's logits: 33 for 11, 32.96875 for 518, margin 0.0312
+4E agreement: first divergence at generated token 107 (107 tokens equal before it): the pass Some(4751), 4E Some(382); the pass's logits: 27.59375 for 4751, 27.578125 for 382, margin 0.0156
+4E agreement: first divergence at generated token 71 (71 tokens equal before it): the pass Some(326), 4E Some(6185); the pass's logits: 24.859375 for 326, 24.859375 for 6185, margin 0.0000
+chat: 7 of 10 prompts in full agreement; 1756 of 2253 tokens before the first divergence
+code: 10 of 10 prompts in full agreement; 2560 of 2560 tokens before the first divergence
+math: 19 of 20 prompts in full agreement; 4919 of 4924 tokens before the first divergence
+rag: 4 of 4 prompts in full agreement; 865 of 865 tokens before the first divergence
+all: 40 of 44 prompts in full agreement; 10100 of 10602 tokens before the first divergence
+
+AGGREGATES, DENSE RUN (verbatim)
+-------------------------------
+aggregates (tok/s = total tokens over total wall; x greedy likewise, against 4E's greedy on its own text; median over prompts with its range)
+config null: arm a12@8.10.8.20.6 (A12), plan [8, 10, 8, 20, 6], 384 threads, row cap 16, drafter revision -, dtype -, shape none (R = 1), N 256
+          null  chat: 10 prompts, 2253 tokens, 10 of 10 equal to the pass's greedy; 0.00 accepted a pass, histogram 0..15 [2253, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; 140.2 tok/s, greedy 219.1, x0.640; per prompt x0.640 [0.632-0.641]; verify 100 %, drafter 0 % of the wall
+          null  code: 10 prompts, 2560 tokens, 10 of 10 equal to the pass's greedy; 0.00 accepted a pass, histogram 0..15 [2560, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; 139.8 tok/s, greedy 218.5, x0.640; per prompt x0.640 [0.639-0.641]; verify 100 %, drafter 0 % of the wall
+          null  math: 20 prompts, 4924 tokens, 20 of 20 equal to the pass's greedy; 0.00 accepted a pass, histogram 0..15 [4924, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; 139.0 tok/s, greedy 217.9, x0.638; per prompt x0.638 [0.633-0.641]; verify 100 %, drafter 0 % of the wall
+          null   rag: 4 prompts, 865 tokens, 4 of 4 equal to the pass's greedy; 0.00 accepted a pass, histogram 0..15 [865, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; 133.5 tok/s, greedy 207.2, x0.644; per prompt x0.644 [0.641-0.647]; verify 100 %, drafter 0 % of the wall
+          null   all: 44 prompts, 10602 tokens, 44 of 44 equal to the pass's greedy; 0.00 accepted a pass, histogram 0..15 [10602, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; 138.9 tok/s, greedy 217.4, x0.639; per prompt x0.639 [0.632-0.647]; verify 100 %, drafter 0 % of the wall
+config dflash:tree: arm a12@8.10.8.20.6 (A12), plan [8, 10, 8, 20, 6], 384 threads, row cap 16, drafter revision b74e3a329c4d963783143b1e970d95b002be72bd, dtype F16, vocab dense, shape Tree(15), N 256
+   dflash:tree  chat: 10 prompts, 2253 tokens, 10 of 10 equal to the pass's greedy; 1.92 accepted a pass, histogram 0..15 [145, 194, 226, 110, 56, 23, 12, 5, 3, 2, 1, 0, 2, 0, 0, 0]; 210.5 tok/s, greedy 219.1, x0.961; per prompt x0.966 [0.743-1.199]; verify 59 %, drafter 41 % of the wall
+   dflash:tree  code: 10 prompts, 2560 tokens, 10 of 10 equal to the pass's greedy; 3.16 accepted a pass, histogram 0..15 [61, 121, 130, 101, 72, 46, 40, 11, 9, 11, 9, 4, 1, 3, 2, 5]; 295.8 tok/s, greedy 218.5, x1.354; per prompt x1.346 [1.093-1.835]; verify 59 %, drafter 41 % of the wall
+   dflash:tree  math: 20 prompts, 4924 tokens, 20 of 20 equal to the pass's greedy; 4.85 accepted a pass, histogram 0..15 [29, 102, 140, 121, 136, 56, 59, 45, 29, 24, 19, 12, 22, 18, 7, 36]; 409.9 tok/s, greedy 217.9, x1.881; per prompt x1.832 [1.544-2.660]; verify 59 %, drafter 41 % of the wall
+   dflash:tree   rag: 4 prompts, 865 tokens, 4 of 4 equal to the pass's greedy; 3.65 accepted a pass, histogram 0..15 [15, 34, 40, 26, 22, 9, 11, 3, 11, 7, 4, 3, 1, 1, 2, 0]; 240.1 tok/s, greedy 207.2, x1.159; per prompt x1.220 [0.805-1.529]; verify 70 %, drafter 30 % of the wall
+   dflash:tree   all: 44 prompts, 10602 tokens, 44 of 44 equal to the pass's greedy; 3.39 accepted a pass, histogram 0..15 [250, 451, 536, 358, 286, 134, 122, 64, 52, 44, 33, 19, 26, 22, 11, 41]; 303.2 tok/s, greedy 217.4, x1.395; per prompt x1.569 [0.743-2.660]; verify 60 %, drafter 40 % of the wall
+
+AGGREGATES, Q4 RUN (verbatim)
+----------------------------
+aggregates (tok/s = total tokens over total wall; x greedy likewise, against 4E's greedy on its own text; median over prompts with its range)
+config dflash:tree: arm a12@8.10.8.20.6 (A12), plan [8, 10, 8, 20, 6], 384 threads, row cap 16, drafter revision b74e3a329c4d963783143b1e970d95b002be72bd, dtype F16, vocab q4, shape Tree(15), N 256
+   dflash:tree  chat: 10 prompts, 2253 tokens, 10 of 10 equal to the pass's greedy; 1.92 accepted a pass, histogram 0..15 [145, 194, 226, 110, 56, 23, 12, 5, 3, 2, 1, 0, 2, 0, 0, 0]; 217.7 tok/s, greedy 219.8, x0.991; per prompt x0.959 [0.765-1.277]; verify 61 %, drafter 39 % of the wall
+   dflash:tree  code: 10 prompts, 2560 tokens, 10 of 10 equal to the pass's greedy; 3.16 accepted a pass, histogram 0..15 [61, 121, 130, 101, 72, 46, 40, 11, 9, 11, 9, 4, 1, 3, 2, 5]; 304.4 tok/s, greedy 218.9, x1.390; per prompt x1.355 [1.124-1.885]; verify 61 %, drafter 39 % of the wall
+   dflash:tree  math: 20 prompts, 4924 tokens, 20 of 20 equal to the pass's greedy; 4.85 accepted a pass, histogram 0..15 [29, 102, 140, 120, 135, 56, 59, 46, 28, 25, 19, 12, 22, 18, 7, 36]; 418.8 tok/s, greedy 218.1, x1.920; per prompt x1.885 [1.583-2.858]; verify 60 %, drafter 40 % of the wall
+   dflash:tree   rag: 4 prompts, 865 tokens, 4 of 4 equal to the pass's greedy; 3.65 accepted a pass, histogram 0..15 [15, 34, 40, 26, 22, 9, 11, 3, 11, 7, 4, 3, 1, 1, 2, 0]; 245.0 tok/s, greedy 207.4, x1.181; per prompt x1.242 [0.821-1.561]; verify 71 %, drafter 29 % of the wall
+   dflash:tree   all: 44 prompts, 10602 tokens, 44 of 44 equal to the pass's greedy; 3.39 accepted a pass, histogram 0..15 [250, 451, 536, 357, 285, 134, 122, 65, 51, 45, 33, 19, 26, 22, 11, 41]; 311.4 tok/s, greedy 217.7, x1.430; per prompt x1.598 [0.765-2.858]; verify 62 %, drafter 38 % of the wall
+
+THE DRAFTER AS THE LOOP PAYS IT (*computed* from the per-prompt lines: drafter wall and stage walls over passes)
+-------------------------------------------------------------------------------------------------------
+spec-dense.txt prompts 44 passes 2449 drafter ms 13894.8 round ms 5.674 stages per round (ext, block, head, readout) ms [0.629, 1.895, 1.136, 1.953] sum 5.613
+spec-q4.txt prompts 44 passes 2448 drafter ms 12992.6 round ms 5.307 stages per round (ext, block, head, readout) ms [0.648, 1.895, 0.757, 1.95] sum 5.249
+VRAM, as each process reports it: the dense run holds the drafter's table, "151936x2560 F16 from the sealed file, 777.9
+MB of VRAM beside the target's"; the q4 run reads "the target's int4 g64 table (218.8 MB, already resident), gather
+emb_q4_gather, head tv_q4_mma; no dense copy". The drafter itself is 1,192.9 MB in F16 in both.
+
+AGAINST THE SIGNED PREDICTION
+-----------------------------
+  quantity                                          signed                 measured                       inside
+  self-consistency: null, tree dense, tree q4       44 of 44 each          44, 44, 44                     yes
+  agreement with 4E, both runs                      40 of 44 at the four places   40 of 44, same four places   yes
+  drafter round as the loop pays it, dense          3.4 ms [2.8, 4.3]      5.67 ms                        no, above
+  same, q4                                          2.7 ms [2.1, 3.6]      5.31 ms                        no, above
+  head stage a round, dense                         1.1 ms [0.9, 1.3]      1.14 ms                        yes
+  same, q4                                          0.45 ms [0.20, 0.80]   0.76 ms                        yes
+  accepted a pass, all, dense                       3.39 [3.20, 3.55]      3.39                           yes
+  same, q4                                          3.35 [3.05, 3.55]      3.39                           yes
+  null over greedy                                  x0.62 [0.58, 0.66]     x0.639                         yes
+  tree dense, all                                   x1.63 [1.50, 1.76]     x1.395                         no, below
+  tree q4, all                                      x1.72 [1.55, 1.90]     x1.430                         no, below
+  tree q4, math                                     x2.30 [2.05, 2.55]     x1.920                         no, below
+  tree q4, code                                     x1.68 [1.48, 1.88]     x1.390                         no, below
+  tree q4, chat                                     x1.17 [1.04, 1.30]     x0.991                         no, below
+  tree q4, rag                                      x1.30 [1.12, 1.52]     x1.181                         yes
+  VRAM, q4 against dense                            about 0.78 GB less     777.9 MB less (the dense table)   yes
+
+DECISION (the prereg's rule)
+--------
+VALID: the self-consistency gate holds on every run. The aggregates are read against their predictions above: the
+acceptance, the head stage, the null drafter and the VRAM hold; the drafter round and the speeds (but rag on q4) fail.
+
+READING (not part of the decision; *computed*)
+-------
+- The q4 vocabulary changes nothing the pass sees: the same tokens and the same accepted counts as dense, prompt by
+  prompt, within one or two rounds in the histogram. It takes 0.38 ms off the head stage a round and 777.9 MB of VRAM.
+- The drafter round does not follow the halved device operations: 5.67 ms a round in the loop (dense), against SP3's
+  4.9 ms. The readout (1.95 ms) and the block (1.90 ms) are the larger stages; dflashcheck's loop-like lines put one
+  round at 5.4 to 6.0 ms with one synchronisation, 5.4 ms with a synchronisation between stages.
+- Against SP4 (the older drafter, tree x1.470 over all prompts, 36 % of the wall), the tree on the dense vocabulary reads
+  x1.395 at 40 % of the wall: the same acceptance, a dearer round.
+
+WHAT THIS DOES NOT ESTABLISH
+----------------------------
+The quality of the pass's text against 4E's beyond the agreement counts (the dumps allow a grading afterwards). Why the
+lighter round is not cheaper on the card. A served rate; a standard benchmark; 8B, 14B; thinking mode.
