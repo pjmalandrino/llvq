@@ -249,6 +249,12 @@ pub enum TreeForm {
     /// (`p4t_ip_check`), each copy freed after its check. Bit for bit with
     /// a12 by construction (the same words into the same decode).
     A12ip,
+    /// `pers_4et_a12ipg_*_t384` (`P4T_A12IPG`): a12ip whose attention reads
+    /// each split that ends at or below pos0 once for a group of
+    /// `pers::P4G_RG` rows (D1 of the large-prefill study), bit for bit with
+    /// a12ip; the same words read in place, the same load check, a larger
+    /// shared area (`pers::p4g_area_floats`).
+    A12ipg,
 }
 
 impl TreeForm {
@@ -256,7 +262,7 @@ impl TreeForm {
     pub fn rmax(self) -> u32 {
         match self {
             TreeForm::A10r8 => 8,
-            TreeForm::A10r16 | TreeForm::A10t384r16 | TreeForm::A12 | TreeForm::A12ip => 16,
+            TreeForm::A10r16 | TreeForm::A10t384r16 | TreeForm::A12 | TreeForm::A12ip | TreeForm::A12ipg => 16,
             _ => pers::P4T_RMAX,
         }
     }
@@ -264,7 +270,7 @@ impl TreeForm {
     /// The threads of one CTA of this kernel.
     pub fn threads(self) -> u32 {
         match self {
-            TreeForm::A10t384 | TreeForm::A10t384r16 | TreeForm::A12 | TreeForm::A12ip => 384,
+            TreeForm::A10t384 | TreeForm::A10t384r16 | TreeForm::A12 | TreeForm::A12ip | TreeForm::A12ipg => 384,
             TreeForm::A10t256 => 256,
             TreeForm::A10t448 => 448,
             TreeForm::A10t320 => 320,
@@ -323,8 +329,8 @@ struct TreeTiled {
     f4: Option<CudaFunction>,
     /// The a5 symbol, when an a5 arm is installed.
     f5: Option<CudaFunction>,
-    /// The a6 to a12ip symbols, when such an arm is installed.
-    fx: [Option<CudaFunction>; 19],
+    /// The a6 to a12ipg symbols, when such an arm is installed.
+    fx: [Option<CudaFunction>; 20],
     _held: Vec<CudaSlice<u32>>,
     /// Each layer's q, k, v, o, gate, up and down words in the copies.
     swaps: Vec<[u64; 7]>,
@@ -1241,7 +1247,7 @@ impl Runtime4e {
         for &(name, prop, form) in arms {
             // the arm's own geometry: its warps set its area, its slice cap and its plan
             let (thr_a, nw) = (form.threads(), form.threads() / 32);
-            let area_a = pers::p4t_area_floats(nw, 32, widest, groups);
+            let area_a = if form == TreeForm::A12ipg { pers::p4g_area_floats(nw, 32, widest, groups) } else { pers::p4t_area_floats(nw, 32, widest, groups) };
             let smem_a = pers::SMEM_HEADER + pers::TABLE_BYTES + 4 * area_a;
             if smem_a > dev.shared_per_block_optin as u32 {
                 anyhow::bail!("4E tree: arm {name}: {smem_a} B of shared memory a CTA, the card allows {}", dev.shared_per_block_optin);
@@ -1303,6 +1309,7 @@ impl Runtime4e {
                     TreeForm::A10t384r16 => "a10t384r16 (12 warps, at most 16 rows)",
                     TreeForm::A12 => "a12 (a10t384r16 with the taps)",
                     TreeForm::A12ip => "a12ip (a12 on the served words, read in place, no copy)",
+                    TreeForm::A12ipg => "a12ipg (a12ip, the cache read once for a group of rows)",
                 },
                 names
                     .iter()
@@ -1377,6 +1384,7 @@ impl Runtime4e {
             TreeForm::A10t384r16,
             TreeForm::A12,
             TreeForm::A12ip,
+            TreeForm::A12ipg,
         ]
         .map(|f| arm_v.iter().any(|a| a.form == f));
         let tiled = if want.iter().any(|&w| w) { Some(self.install_tiled(widest, groups, want)?) } else { None };
@@ -1408,6 +1416,7 @@ impl Runtime4e {
                     TreeForm::A10t384r16 => t.fx[16].is_some(),
                     TreeForm::A12 => t.fx[17].is_some(),
                     TreeForm::A12ip => t.fx[18].is_some(),
+                    TreeForm::A12ipg => t.fx[19].is_some(),
                 };
                 if !built {
                     a.void = Some(format!("its {:?} module did not build", a.form));
@@ -1429,13 +1438,13 @@ impl Runtime4e {
     /// up, down, the head), built on the card by `p4t_tile_words` from the
     /// words 4E holds, once for both. A Tetra o is refused (no sealed file the
     /// job reads carries one).
-    fn install_tiled(&mut self, widest: u32, groups: u32, want: [bool; 23]) -> anyhow::Result<TreeTiled> {
+    fn install_tiled(&mut self, widest: u32, groups: u32, want: [bool; 24]) -> anyhow::Result<TreeTiled> {
         if self.layers_host.iter().any(|y| y.ot != 0) {
             anyhow::bail!("4E tree: the tiled and stream arms do not copy a Tetra o_proj; this model carries one");
         }
         let stream = self.cuda.stream().clone();
         let mut cudas = Vec::new();
-        let mut fns: [Option<CudaFunction>; 23] = Default::default();
+        let mut fns: [Option<CudaFunction>; 24] = Default::default();
         // the a12ip module's place in `cudas`: its load check lives there
         let mut ip_module: Option<usize> = None;
         for (k, want) in want.into_iter().enumerate() {
@@ -1457,6 +1466,7 @@ impl Runtime4e {
                 17 => ("a10t256", pers::p4t_a10t_unit_text(&self.tile_define, 256), pers::p4t_a10t_symbol(256, self.form), "P4T_A10T 256 after a10's text"),
                 21 => ("a12", pers::p4t_a12_unit_text(&self.tile_define), pers::p4t_a12_symbol(self.form), "P4T_A12 1 after a10r16's text"),
                 22 => ("a12ip", pers::p4t_a12ip_unit_text(&self.tile_define), pers::p4t_a12ip_symbol(self.form), "P4T_A12IP 1 beside a12's text"),
+                23 => ("a12ipg", pers::p4t_a12ipg_unit_text(&self.tile_define), pers::p4t_a12ipg_symbol(self.form), "P4T_A12IPG 1 after a12ip's text"),
                 18..=20 => {
                     let arm = match k {
                         18 => "a10t448",
@@ -1488,13 +1498,14 @@ impl Runtime4e {
             let sym = sym.map_err(anyhow::Error::msg)?;
             // the module's CTA: 384 or 256 threads for the thread-count arms, else 512
             let threads = match k {
-                16 | 20..=22 => 384u32,
+                16 | 20..=23 => 384u32,
                 17 => 256,
                 18 => 448,
                 19 => 320,
                 _ => 512,
             };
-            let smem = pers::SMEM_HEADER + pers::TABLE_BYTES + 4 * pers::p4t_area_floats(threads / 32, 32, widest, groups);
+            let area_k = if k == 23 { pers::p4g_area_floats(threads / 32, 32, widest, groups) } else { pers::p4t_area_floats(threads / 32, 32, widest, groups) };
+            let smem = pers::SMEM_HEADER + pers::TABLE_BYTES + 4 * area_k;
             let src = llvq_cuda::gpu::KernelSource::new(&[text.as_str()]);
             self.lines.push(format!("4E tree {tag}: module {} bytes, sha256 {}, {def}, its own module", src.text.len(), src.sha256));
             // a module that fails to build or to fit voids its arm only
@@ -1514,7 +1525,8 @@ impl Runtime4e {
             match built {
                 Ok((cuda, f)) => {
                     fns[k] = Some(f);
-                    if k == 22 {
+                    // a12ip's or a12ipg's module: both carry the load check
+                    if (k == 22 || k == 23) && ip_module.is_none() {
                         ip_module = Some(cudas.len());
                     }
                     cudas.push(cuda);
@@ -1527,7 +1539,7 @@ impl Runtime4e {
         }
         let tile_f = cudas[0].func("p4t_tile_words").map_err(anyhow::Error::msg)?;
         // Copies are held only for the arms that read them (every tiled form
-        // but a12ip). a12ip reads the words in place; its load check builds
+        // but a12ip and a12ipg). a12ip reads the words in place; its load check builds
         // each projection's copy, compares every lane's words read in place
         // with it (p4t_ip_check), and frees it before the next one.
         let keep = want[..22].iter().any(|&w| w);
@@ -1619,14 +1631,14 @@ impl Runtime4e {
         }
         let layers = stream.clone_htod(&vec![0u8; pers::P4E_LAYER_BYTES * self.layers_host.len()]).map_err(|e| anyhow::anyhow!("H2D: {e}"))?;
         let args = stream.clone_htod(&vec![0u8; pers::P4E_ARGS_BYTES]).map_err(|e| anyhow::anyhow!("H2D: {e}"))?;
-        let [f, fs, f4, f5, f6, f7, f3f, f3p, f3t, f8, f9, f10, f11, f11i, fr8, fr16, ft384, ft256, ft448, ft320, ft384r16, f12, f12ip] = fns;
+        let [f, fs, f4, f5, f6, f7, f3f, f3p, f3t, f8, f9, f10, f11, f11i, fr8, fr16, ft384, ft256, ft448, ft320, ft384r16, f12, f12ip, f12ipg] = fns;
         Ok(TreeTiled {
             _cudas: cudas,
             f,
             fs,
             f4,
             f5,
-            fx: [f6, f7, f3f, f3p, f3t, f8, f9, f10, f11, f11i, fr8, fr16, ft384, ft256, ft448, ft320, ft384r16, f12, f12ip],
+            fx: [f6, f7, f3f, f3p, f3t, f8, f9, f10, f11, f11i, fr8, fr16, ft384, ft256, ft448, ft320, ft384r16, f12, f12ip, f12ipg],
             _held: held, swaps, head, layers, args, seen: Vec::new() })
     }
 
@@ -1756,8 +1768,8 @@ impl Runtime4e {
                 anyhow::bail!("4E tree: logits asked of a launch without the head");
             }
             let form = self.tree.as_ref().and_then(|t| t.arms.get(arm)).map(|a| a.form);
-            if !matches!(form, Some(TreeForm::A12 | TreeForm::A12ip)) {
-                anyhow::bail!("4E tree: a launch without the head runs on an a12 or a12ip arm only, arm {arm} is {form:?}");
+            if !matches!(form, Some(TreeForm::A12 | TreeForm::A12ip | TreeForm::A12ipg)) {
+                anyhow::bail!("4E tree: a launch without the head runs on an a12, a12ip or a12ipg arm only, arm {arm} is {form:?}");
             }
         }
         if !mv.is_empty() {
@@ -1807,8 +1819,8 @@ impl Runtime4e {
             anyhow::bail!("4E tree: arm {} carries at most {} rows a launch, {n} asked", spec.name, spec.form.rmax());
         }
         self.prepare(caches, pos0, span)?;
-        // Rows and a12ip read the words 4E holds, through 4E's own images
-        if !matches!(spec.form, TreeForm::Rows | TreeForm::A12ip) {
+        // Rows, a12ip and a12ipg read the words 4E holds, through 4E's own images
+        if !matches!(spec.form, TreeForm::Rows | TreeForm::A12ip | TreeForm::A12ipg) {
             self.sync_tiled()?;
         }
         let stream = self.cuda.stream().clone();
@@ -1822,7 +1834,7 @@ impl Runtime4e {
         stream.memcpy_htod(&flat, &mut v.path).map_err(|e| anyhow::anyhow!("H2D: {e}"))?;
         stream.memcpy_htod(&vec![u32::MAX; pers::P4T_RMAX as usize], &mut v.ring).map_err(|e| anyhow::anyhow!("H2D: {e}"))?;
         // a9 waits once more after each row phase: its count moves bar_base and sizes the stamps
-        let n_bar = if matches!(spec.form, TreeForm::A9 | TreeForm::A10 | TreeForm::A11 | TreeForm::A11i | TreeForm::A10r8 | TreeForm::A10r16 | TreeForm::A10t384 | TreeForm::A10t256 | TreeForm::A10t448 | TreeForm::A10t320 | TreeForm::A10t384r16 | TreeForm::A12 | TreeForm::A12ip) { pers::n_bar_a9(self.n_layers, v.n_ot) } else { pers::n_bar_4et(self.n_layers, v.n_ot) };
+        let n_bar = if matches!(spec.form, TreeForm::A9 | TreeForm::A10 | TreeForm::A11 | TreeForm::A11i | TreeForm::A10r8 | TreeForm::A10r16 | TreeForm::A10t384 | TreeForm::A10t256 | TreeForm::A10t448 | TreeForm::A10t320 | TreeForm::A10t384r16 | TreeForm::A12 | TreeForm::A12ip | TreeForm::A12ipg) { pers::n_bar_a9(self.n_layers, v.n_ot) } else { pers::n_bar_4et(self.n_layers, v.n_ot) };
         let stamps: Option<CudaSlice<u64>> = if stamped {
             // an a4 launch adds its F3 slots after the phase events: 20 a CTA
             let extra = match spec.form {
@@ -1851,7 +1863,7 @@ impl Runtime4e {
             // 0: the a12 body skips the final norm and the head, every wait kept
             split_head: if head { spec.splits[4] } else { 0 },
             // a12 with taps: first tapped layer 2, stride 8 (layers 2, 10, 18, 26, 34)
-            pad: if taps && matches!(spec.form, TreeForm::A12 | TreeForm::A12ip) { (8 << 16) | 2 } else { 0 },
+            pad: if taps && matches!(spec.form, TreeForm::A12 | TreeForm::A12ip | TreeForm::A12ipg) { (8 << 16) | 2 } else { 0 },
             toks: v.toks.device_ptr(&stream).0,
             depth: v.depth.device_ptr(&stream).0,
             path: v.path.device_ptr(&stream).0,
@@ -1906,6 +1918,7 @@ impl Runtime4e {
             (TreeForm::A10t384r16, Some(TreeTiled { fx, args, .. })) if fx[16].is_some() => (fx[16].as_ref().expect("checked"), args),
             (TreeForm::A12, Some(TreeTiled { fx, args, .. })) if fx[17].is_some() => (fx[17].as_ref().expect("checked"), args),
             (TreeForm::A12ip, Some(TreeTiled { fx, .. })) if fx[18].is_some() => (fx[18].as_ref().expect("checked"), &self.args),
+            (TreeForm::A12ipg, Some(TreeTiled { fx, .. })) if fx[19].is_some() => (fx[19].as_ref().expect("checked"), &self.args),
             (form, _) => anyhow::bail!("4E tree: arm {} is {form:?} and its module is not installed", spec.name),
         };
         let mut b = stream.launch_builder(func);
@@ -1939,7 +1952,7 @@ impl Runtime4e {
             Some(d) => stream.clone_dtoh(&d).map_err(|e| anyhow::anyhow!("D2H stamps: {e}"))?,
             None => Vec::new(),
         };
-        let taps_out = if taps && matches!(spec.form, TreeForm::A12 | TreeForm::A12ip) {
+        let taps_out = if taps && matches!(spec.form, TreeForm::A12 | TreeForm::A12ip | TreeForm::A12ipg) {
             // [rows][5][hidden] past x_a's P4T_RMAX rows (held16 0 is x_a)
             let v = self.tree.as_ref().expect("checked above");
             let h = self.args_host.hidden as usize;

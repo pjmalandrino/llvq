@@ -359,6 +359,10 @@ const A12: u32 = 268435456;
 /// The variant bit of arm a12ip: a12 reading the words in place, no copy
 /// (step M1 of the memory axis).
 const A12IP: u32 = 536870912;
+/// The variant bit of arm a12ipg: a12ip whose attention reads each split
+/// that ends at or below pos0 once for a group of rows (D1 of the
+/// large-prefill study, `kernels/pers_4et_a12g.cu`).
+const A12IPG: u32 = 2147483648;
 
 struct Out {
     reference: Option<(u32, Vec<u16>)>,
@@ -418,7 +422,7 @@ fn parse(bytes: &[u8], reference: bool, passes: &[Pass], taps: bool) -> Result<O
 }
 
 fn exec(bin: &Path, f: &Fix, reference: Option<(u32, u32)>, passes: &[Pass]) -> Result<Out, String> {
-    let out = parse(&run(bin, &y_cmd(f, reference, passes))?, reference.is_some(), passes, f.variant & (A12 | A12IP) != 0)?;
+    let out = parse(&run(bin, &y_cmd(f, reference, passes))?, reference.is_some(), passes, f.variant & (A12 | A12IP | A12IPG) != 0)?;
     if out.tail[1] != 0 {
         return Err(format!("abort, NaN flag or tickets left: {}", out.tail[1]));
     }
@@ -1724,5 +1728,128 @@ fn chain_prefill_mutants_are_killed() {
     match r {
         Err(e) => eprintln!("head_never_skipped: killed by {}", e.lines().next().unwrap_or("")),
         Ok(_) => panic!("chain mutant head_never_skipped survived its gate"),
+    }
+}
+
+// ---- arm a12ipg: the cache read once for a group of rows (large prefill, D1) ----
+
+/// A chain of `toks` at `pos0` (row r at depth r, its path 0..=r), nothing moved.
+fn chain_at(toks: &[u32], pos0: u32, seed: u64) -> Pass {
+    let n = toks.len();
+    Pass { pos0, seed, toks: toks.to_vec(), depth: (0..n as u32).collect(), path: (0..n).map(|r| (0..=r as u8).collect()).collect(), move_pos0: 0, mv: vec![] }
+}
+
+/// a12ipg (on `bin`) against a12ip (on the unmutated twin) on the same
+/// passes: every row's argmax, logits, residual, K, V and taps bit for bit.
+fn gate_ipg(bin: &Path, f: &Fix, passes: &[Pass]) -> Result<usize, String> {
+    let u = exec(host(), &Fix { variant: f.variant | A12IP, ..*f }, None, passes)?;
+    let w = exec(bin, &Fix { variant: f.variant | A12IPG, ..*f }, None, passes)?;
+    let mut rows = 0;
+    for (pi, (a, b)) in u.passes.iter().zip(&w.passes).enumerate() {
+        for (s, (ra, rb)) in a.iter().zip(b).enumerate() {
+            rows += 1;
+            if let Some(what) = diff(rb, ra) {
+                return Err(format!("a12ipg against a12ip, pass {pi} (pos0 {}, {} rows), slot {s}: {what}", passes[pi].pos0, a.len()));
+            }
+            if rb.taps != ra.taps {
+                return Err(format!("a12ipg against a12ip, pass {pi}, slot {s}: taps"));
+            }
+        }
+    }
+    Ok(rows)
+}
+
+/// The D1 passes: chains of 1, 5 and 16 rows at a short cache (pos0 9, no
+/// split below pos0, every job a12ip's) and at two long ones (pos0 500: one
+/// shared split, the rows' lengths crossing 512 inside a group; pos0 1000:
+/// three shared splits), and a branching tree of 16 at pos0 1000. The twin's
+/// caches hold random values at every position.
+fn ipg_passes(sizes: &[usize], pos0s: &[u32]) -> Vec<Pass> {
+    let mut g = Lcg(0x8d1);
+    let toks: Vec<u32> = (0..16).map(|_| (g.next() % VOCAB as u64) as u32).collect();
+    let mut v = Vec::new();
+    for (i, &p) in pos0s.iter().enumerate() {
+        for (j, &r) in sizes.iter().enumerate() {
+            v.push(chain_at(&toks[..r], p, 0x8d00 + 16 * i as u64 + j as u64));
+        }
+    }
+    v
+}
+
+const FIX_LONG: Fix = Fix { cap: 1040, split: SPLIT_N2B, ..FIX };
+
+/// a12ipg equals a12ip bit for bit at R = 1, 5, 16, at a short and two long
+/// caches, on chains and on a branching tree, with the 4B's shapes and with
+/// the 8B's parts.
+#[test]
+#[cfg_attr(debug_assertions, ignore)]
+fn a12ipg_rows_equal_a12ip_rows_at_short_and_long_caches() {
+    let t = tree(16, 5, 0x8d2);
+    for ext in [0u32, 16] {
+        let f = Fix { variant: ext, ..FIX_LONG };
+        let mut passes = ipg_passes(&[1, 5, 16], &[9, 500, 1000]);
+        passes.push(Pass::of(&t, &t.subset(16, 0x8d3), 1000, 0x8d4));
+        let n = gate_ipg(host(), &f, &passes).unwrap();
+        eprintln!("variant {ext}: {n} rows over {} passes (pos0 9, 500, 1000; R 1, 5, 16; a tree of 16), a12ipg equals a12ip bit for bit, taps included", passes.len());
+    }
+}
+
+/// The chain prefill of `toks` from `pos0` at `r` rows a pass, then the
+/// hand-over row.
+fn chain_passes_at(toks: &[u32], pos0: usize, r: usize, first: u32) -> Vec<Pass> {
+    use llvq_cuda::spec_loop::{chain_handover, chain_launches, ChainFault};
+    let (ls, mv, mp) = chain_launches(toks, pos0, r, ChainFault::None).unwrap();
+    let mut v: Vec<Pass> = ls.iter().enumerate().map(|(i, l)| pass_of(l, 0x8e00 + 64 * r as u64 + i as u64)).collect();
+    v.push(pass_of(&chain_handover(first, &mv, mp), 0x8eff));
+    v
+}
+
+/// The chain prefill of 37 tokens after 600 cached positions: a12ipg at
+/// R = 16 and R = 5 equals a12ip's one-row path (R = 1, each pass moving the
+/// previous row) on every row and on the hand-over row.
+#[test]
+#[cfg_attr(debug_assertions, ignore)]
+fn a12ipg_chain_prefill_equals_the_one_row_path() {
+    let mut g = Lcg(0x8e1);
+    let toks: Vec<u32> = (0..37).map(|_| (g.next() % VOCAB as u64) as u32).collect();
+    let f = FIX_LONG;
+    let one = exec(host(), &Fix { variant: A12IP, ..f }, None, &chain_passes_at(&toks, 600, 1, 611)).unwrap();
+    for r in [16usize, 5] {
+        let o = exec(host(), &Fix { variant: A12IPG, ..f }, None, &chain_passes_at(&toks, 600, r, 611)).unwrap();
+        let n = gate_chain_rows(&o, &one, &format!("a12ipg R = {r} against a12ip R = 1")).unwrap();
+        eprintln!("a12ipg chain from 600, R = {r}: {n} rows equal to a12ip's R = 1 bit for bit");
+    }
+}
+
+/// Two mutants of the grouped attention, each applied at exactly one site
+/// (the builder refuses any other count): a row of a group scoring with its
+/// neighbour's staged q, and one split too many read as shared (the split
+/// that holds pos0, whose tree positions then come from the cache). Each is
+/// killed by the a12ip gate.
+#[test]
+#[cfg_attr(debug_assertions, ignore)]
+fn a12ipg_mutants_are_killed() {
+    let f = FIX_LONG;
+    let passes = ipg_passes(&[5, 16], &[500, 1000]);
+    gate_ipg(host(), &f, &passes).expect("the unmutated a12ipg passes its gate");
+    let k = "llvq-cuda/kernels/pers_4et_a12g.cu";
+    let muts: [(&str, &str, &str); 2] = [
+        (
+            "ipg_neighbour_q",
+            "                const float* qrow = qs0 + ri * qs_row + ge * PERS_HD;",
+            "                const float* qrow = qs0 + ((ri + 1u) % nr) * qs_row + ge * PERS_HD;",
+        ),
+        ("ipg_split_past_pos0", "    return pos0 / PERS_SPLIT;", "    return pos0 / PERS_SPLIT + (pos0 >= PERS_SPLIT ? 1u : 0u);"),
+    ];
+    for (tag, from, to) in muts {
+        let text = std::fs::read_to_string(repo().join(k)).unwrap();
+        eprintln!("{tag}: {} site(s) in {k}", text.matches(from).count());
+        let b = mutant(tag, &[(k, from, to)]);
+        let r = gate_ipg(&b, &f, &passes);
+        let _ = std::fs::remove_file(&b);
+        match r {
+            Err(e) => eprintln!("{tag}: killed by {}", e.lines().next().unwrap_or("")),
+            Ok(_) => panic!("a12ipg mutant {tag} survived its gate"),
+        }
     }
 }

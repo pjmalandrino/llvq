@@ -2222,6 +2222,40 @@ pub fn p4t_a12ip_symbol(form: u32) -> Result<&'static str, String> {
     })
 }
 
+/// The module text of arm a12ipg (D1 of
+/// docs/mesures/large-prefill-contexte-2026-11-11.txt): a12ip's pass whose
+/// attention reads each split that ends at or below pos0 once for a group of
+/// [`P4G_RG`] rows (`pers_4et_a12g.cu`), appended after
+/// [`p4t_a12ip_unit_text`], which keeps its bytes. The module also carries
+/// a12ip's symbols and its load check `p4t_ip_check`.
+pub fn p4t_a12ipg_unit_text(tile_define: &str) -> String {
+    format!("#define P4T_A12IPG 1\n{}\n{}", p4t_a12ip_unit_text(tile_define), P4T_A12G_PART.1)
+}
+
+/// The a12ipg symbol for a RoPE form (384 threads).
+pub fn p4t_a12ipg_symbol(form: u32) -> Result<&'static str, String> {
+    Ok(match form {
+        0 => "pers_4et_a12ipg_f0_t384",
+        1 => "pers_4et_a12ipg_f1_t384",
+        2 => "pers_4et_a12ipg_f2_t384",
+        _ => return Err(format!("tree verify: no a12ipg kernel for RoPE form {form}")),
+    })
+}
+
+/// Rows a shared attention job of a12ipg serves (`P4G_RG`).
+pub const P4G_RG: u32 = 4;
+
+/// `p4g_area_floats` of `pers_4et_a12g.cu`: a12ip's area, or the grouped
+/// attention's (two stages, then each of [`P4G_RG`] rows' unit states and q)
+/// with the maxima, whichever is larger.
+pub fn p4g_area_floats(nw: u32, rs: u32, widest: u32, groups: u32) -> u32 {
+    let g = (16 * 1024 * 2 + P4G_RG * (4 * 4 * groups * 130 + 4 * groups * 128)).div_ceil(4) + 2 * P4T_RMAX;
+    p4t_area_floats(nw, rs, widest, groups).max(g)
+}
+
+/// `pers_4et_a12g.cu`, embedded so the Mac hashes what the card compiles.
+pub const P4T_A12G_PART: (&str, &str) = ("pers_4et_a12g.cu", include_str!("../kernels/pers_4et_a12g.cu"));
+
 /// u32 words of a projection in the served order, as the tree pass reads it
 /// in place: Tetra `stride_u32` a row, int4 d_in / 8. The bytes a12ip reads
 /// where a12 reads [`p4t_tiled_words`].
@@ -3797,6 +3831,38 @@ mod tests {
         }
         assert!(p4t_a12ip_symbol(3).is_err());
         eprintln!("tree module a12ip at SERVED_DEFINES_SM89: {} bytes, sha256 {}", ip.len(), crate::sha256::sha256_hex(ip.as_bytes()));
+    }
+
+    #[test]
+    fn the_a12ipg_pass_is_a12ip_with_the_grouped_attention() {
+        // pers_4et_a12g.cu: a12's body renamed, its area check and its
+        // attention call swapped for the grouped ones, nothing else
+        let a12 = P4T_A12_PART.1;
+        let head = "template <int FORM, u32 RC, bool IP = false>\n__device__ __forceinline__ void pers_4et_a12_body(";
+        let c = a12.find(head).unwrap();
+        let end = "#undef P4T_WAIT\n}\n";
+        let d = c + a12[c..].find(end).unwrap() + end.len();
+        let body = a12[c..d]
+            .replacen(head, "template <int FORM, u32 RC, bool IP>\n__device__ __forceinline__ void pers_4et_a12g_body(", 1)
+            .replacen("L.area_floats < p4t_area_floats(", "L.area_floats < p4g_area_floats(", 1)
+            .replacen("        p4t_attention(A, L,", "        p4g_attention(A, L,", 1);
+        assert_eq!(P4T_A12G_PART.1.matches(body.as_str()).count(), 1, "the a12ipg pass drifted from a12's");
+        assert_eq!(P4T_A12G_PART.1.matches("pers_4et_a12g_body<FORM_, 2u, true>(A, L);").count(), 1);
+        assert_eq!(P4T_A12G_PART.1.matches("#define P4G_RG 4u ").count(), 1, "P4G_RG mirrors the kernel's");
+        let ip = p4t_a12ip_unit_text(SERVED_DEFINES_SM89);
+        let g = p4t_a12ipg_unit_text(SERVED_DEFINES_SM89);
+        assert_eq!(g, format!("#define P4T_A12IPG 1\n{ip}\n{}", P4T_A12G_PART.1));
+        for f in 0..3 {
+            assert_eq!(g.matches(p4t_a12ipg_symbol(f).unwrap()).count(), 1);
+            assert_eq!(ip.matches(p4t_a12ipg_symbol(f).unwrap()).count(), 0, "a12ip's text carries no a12ipg symbol");
+        }
+        assert!(p4t_a12ipg_symbol(3).is_err());
+        // the 4B at 12 warps: 18,624 floats, 93,568 B a CTA with the tables, under sm_89's 101,376
+        let a = p4g_area_floats(12, 32, 9728, 4);
+        assert_eq!(a, 18_624);
+        assert_eq!(a, p4t_area_floats(12, 32, 9728, 4) + 3_680);
+        assert!(SMEM_HEADER + TABLE_BYTES + 4 * a <= 101_376, "{} B", SMEM_HEADER + TABLE_BYTES + 4 * a);
+        eprintln!("tree module a12ipg at SERVED_DEFINES_SM89: {} bytes, sha256 {}; area {a} floats, {} B shared", g.len(), crate::sha256::sha256_hex(g.as_bytes()), SMEM_HEADER + TABLE_BYTES + 4 * a);
     }
 
     use super::*;
