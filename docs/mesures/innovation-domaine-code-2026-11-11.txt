@@ -1,0 +1,179 @@
+INVENTION STUDY: COMPUTING THE MATVEC IN THE CODE DOMAIN (TABLES OF PARTIAL DOTS SHARED BY ROWS), SEALED 4B, L40S,
+2026-11-11. $0.
+=================================================================================================================
+Verdict: NOT over the bar. No code-domain mechanism reaches x1.3 at a short context, and no mechanism confined to the
+Tetra rows can. With the Tetra rows reading their 750.0 MB at the card's full 864 GB/s and spending zero instructions,
+the token falls from 4,467 to 3,525 us: 283.7 tok/s, x1.267 (*computed*). x1.3 needs a 1,031 us cut; the Tetra rows
+can give at most 942. At 85 % of the peak, the best rate any of our rows reach on this card being 648 GB/s, the
+ceiling is x1.214 (271.8 tok/s). The best code-domain item kept is an exact identity worth about 8 to 10 instructions
+of a 145-instruction block on B1's integer path, under 0.05 ms a token (*estimated*). Tables of partial dots, the
+seed ideas (a) and (b), are dead by count: a section of the Tetra word has a 20-bit key, so a table costs 162 to
+1,229 entries per word it would serve (*computed*).
+Nature: desk study. No job, no build, no model load. One pure-Python script on the Mac (under a second): the identity
+checked against the served byte tables, the table counts, the Amdahl arithmetic. Web sources fetched tonight.
+Read: llvq-cuda/kernels/llvq_tetra48.cuh, llvq_f1rank_v3.cuh (worktree arbre-prefill, 36230ff); docs/format-noyau.md;
+docs/recherche-debit-maths.md §1-7; docs/mesures/large-4e-budget-2026-11-11.txt, large-4e-e1-2026-11-11.txt,
+recherche-structure-leech-format-2026-11-11.txt, recherche-runtime-inference-2026-11-11.txt.
+Labels: *measured* (a journal), *computed* (arithmetic on code or measured inputs), *estimated* (judgement),
+*reported* (a third party's figure, URL given).
+
+1. THE CEILING, BEFORE ANY MECHANISM
+------------------------------------
+A code-domain dot changes how a Tetra row turns its words into a sum. It changes no byte, no int4 row, no byte-free
+phase. Its ceiling is therefore the token with the Tetra rows at their byte floor.
+
+  input                                                     value         source
+  token at chat context, timed                              4,467.2 us    *measured*, verify-tree-n11
+  Tetra rows in situ                                        1.81 ms       *computed*, plan-300 §4
+  Tetra bytes a token (q, k 123.6; gate, up 469.8;          750.0 MB      *computed*, large-4e-budget
+    24 Tetra downs 156.6)
+  int4 rows and head, untouched                             628.2 MB      *computed*, same
+
+  Tetra rows at   floor     token      tok/s    over today
+  671 GB/s        1,118 us  3,775 us   264.9    x1.183
+  734 (85 %)      1,022     3,679      271.8    x1.214
+  864 (peak)        868     3,525      283.7    x1.267
+  zero time           0     2,657      376.3    x1.681, not physical: the bytes must be read
+
+All *computed*. The stamped phase split agrees. gate/up rows 1,305.3 us, the Tetra share of the q/k/v rows about 336,
+the Tetra share of the down rows about 243 (the int4 parts at their phase rates): about 1,884 us of a 4,677 us stamped
+token (*estimated* split of *measured* phases). x1.3 asks a 1,079 us cut; the peak floor gives 1,016, plus at most the
+130 us the row phases spend above their mean. The bar is touched only by rows at the DRAM peak with zero decode and no
+imbalance, a corner no kernel of ours approaches: int4 rows, which decode almost nothing, read 587 to 648 GB/s
+(*measured*, large-4e-budget).
+Consequence: x1.3 at a short context needs, beyond any Tetra-row gain, about 90 to 250 us cut from the 1,757 us of
+byte-free phases or from the int4 rows and head. Computing in the code domain touches neither.
+
+2. THE TETRA WORD, AS THE DECODER SEES IT
+-----------------------------------------
+48 bits: p (1), r (1), s8 (6), b1 (1), i1 (11), b2 (4), i2 (11), b3 (1), i3 (11), gain (1) (llvq_f1rank_v3.cuh,
+f1r_v3_fetch). The 12 bits s8, b1, b2, b3 carry the Golay codeword c, read as three pattern bytes c1, c2, c3, one per
+octad of the trio. Each octad k has a rank row: 8 nibbles from a 4,096-entry table at (r_k, i_k), with r3 derived from
+p, r and i2. Coordinate j takes val(o_j, rho_j), o_j = p + 2 c_j.
+The served decoder already computes in a code domain of its own: each quad of values is two 8-entry byte tables held
+in registers, read by `prmt` at the rank nibbles, selected by the Golay bits (one LOP3), no shared memory. That is the
+GPU form of the register lookup T-MAC builds with `vpshufb` (section 6).
+
+3. IDEA (a): SUB-WORD TABLES OF PARTIAL DOTS. DEAD.
+---------------------------------------------------
+Algorithm. Per column block and per token, tabulate for each field value its partial dot with the 24 activations;
+each row sums k table reads.
+Separability. A table works only on a field that fixes its coordinates' values up to an additive term from other
+fields. In Tetra, the smallest such field is an octad section: (p, c_k, r_k, i_k). c_k has 128 values given the trellis
+(recherche-debit-maths §6), so a section key is 1 + 7 + 1 + 11 = 20 bits, 2^20 entries; three sections a block.
+Narrower fields do not separate. The rank row i_k is joint over 8 coordinates (11 bits for 8 ranks), not a product
+of quad fields, so a quad has no field of its own. Fields built from decoded values (pairs, quads) need the decode
+first; they replace one FMA with one table read, which is slower on the card.
+Count, *computed* on the served 4B's Tetra shapes (d_in 2,560 is 107 blocks a row, 9,728 is 406), rows that share one
+activation grouped as 4E groups them:
+
+  projection     d_out    words      section-key entries a word   rank-row-only entries a word   reuse of a
+                 shared   a matrix   (fill cost per word served)  (lower bound, coupling ignored)  20-bit key
+  q + k          5,120    0.55 M     614.4                        2.40                          1.002
+  gate + up      19,456   2.08 M     161.7                        0.63                          1.009
+  down (24)      2,560    1.04 M     1,228.8                      4.80                          1.001
+
+A table pays when its fill costs less than what it saves per word, and each entry costs at least one add. Today's
+block is 237 instructions, B1's 145 (*computed*, recherche-debit-maths). At 162 to 1,229 entries a word, the fill
+alone costs more than the whole decode. The reuse column (expected distinct keys among d_out uniform draws, the
+fields being near uniform: 47.4 bits of entropy in 48, *computed*, recherche-structure) says no deduplication
+rescues it.
+The rank-row-only table (A_k(row) = sum of w_j x_j, 4,096 entries a section, 48 KiB a column block) is the one form
+with fewer entries than words, on gate + up only. It is still dead for two reasons. Memory: 48 KiB a column block,
+5.0 MiB for the 107 blocks of one matrix, against 101,376 B of shared memory a CTA; only a split-K geometry (each CTA
+owns two column blocks for all 19,456 rows) fits, and split-K changes every row's summation order and adds a cross-CTA
+reduction of 19,456 x 54 partials a layer. Coupling: the Golay signs multiply the rank values coordinate by
+coordinate (section 5), so A_k(row) does not give the section's dot; the per-coordinate work remains.
+Memory on card: tables per activation are transient, 48 KiB to 5 MiB, inside the "few tens of MB" (*computed*).
+It does not matter: the count kills it first.
+Prefill of 32 rows: a table is per activation vector, so its fill multiplies by 32, while today's decode is done once
+for the 32 rows (`tetra48_dot_rows`). The code domain is strictly worse there.
+Kill test: done, the script of this note. Gate was entries per word under 1 for a section key on any projection; the
+lowest is 161.7.
+
+4. IDEA (b): SHAPE AND SIGN FACTORISATION, WALSH-HADAMARD OVER THE 4,096 CODEWORDS. DEAD AS A SPEEDUP.
+-------------------------------------------------------------------------------------------------------
+Exact identity, new in this form and checked on all 64 (p, c, rho) entries of the served byte tables, ranks 0 to 7,
+0 mismatches (*computed*):
+
+  y_j = (1 - p) + (-1)^p * sigma_j * v(rho_j),   sigma_j = 1 - 2 c_j,   v(rho) = (-1)^(rho+1) * (2 rho + 1)
+
+Every coordinate is an offset fixed by the block's parity plus a Golay sign times an odd, never-zero magnitude from
+the rank row (|v| = 1, 3, 5, ..., 15). So
+
+  y . x = (1 - p) * S + (-1)^p * sum_j sigma_j v(rho_j) x_j,   S = sum of the block's 24 activations.
+
+Proof: substitute the identity in the dot; S is the sum over j of (1 - p) x_j.
+What it buys for (b). The Golay-only part is (1 - p) S: one number a column block, shared by every row. A
+Walsh-Hadamard transform over the 12 information bits (49,152 adds a column block) would give the 4,096 sums
+sum_j sigma_j x_j for every codeword. They are useless: the magnitudes v(rho_j) weight each signed coordinate
+differently, so sigma and rho never separate into a codeword term and a rank term. The coupled sum
+sum_j sigma_j v_j x_j is a weighted sum, not a codeword sum. Today's byte tables already fold sigma into the values
+at zero cost (the LOP3 select). Saving from (b): zero; cost: 49,152 adds a column block, 5.3 M a matrix (*computed*).
+Kill test: by algebra, above.
+
+5. IDEA (c): THE ODD-MAGNITUDE FORM ON B1'S INTEGER PATH. KEPT, FAR UNDER THE BAR.
+----------------------------------------------------------------------------------
+Algorithm. On B1's path (int16 activation, int8 lattice values, `dp2a`), build each quad's bytes from one table, v,
+instead of two tables chosen by p. One `prmt` of the 8-entry v table (one register pair, ranks 0 to 7) at the rank
+nibbles; negate the bytes where sigma_j = -1 with (b XOR k) + (k AND 0x01010101), k the byte mask of the c bits. No
+byte overflows: v is never 0, so no negated byte carries into its neighbour. The block's integer dot gets
+(-1)^p and (1 - p) S as one integer multiply-add, S per column block computed once a token (107 or 406 adds a matrix).
+Exactness. On the integer path every partial sum is an exact int32 (|y| <= 15 here, 24 x 15 x 32,767 = 1.2 M), so
+the dot equals B1's to the bit, whatever the order. Against today's f32 chain it is not bit for bit: it carries B1's
+activation rounding, 2.0e-5 relative (*computed*, recherche-debit-maths §4), and is served under the same gate:
+paired WikiText-2 perplexity within +-0.12 % (ETAT §4), then the GSM8K pilot.
+Count per block, against B1's lean decoder (145 instructions, *computed* there). Removed: the four p selects of the
+two table pairs (4 SEL) and one `prmt` a quad (6). Added: one IADD a quad (6, the negation's second half replaces
+the select's LOP3 one for one) and one IMAD a block for the parity term. Net about -3 to -10 instructions a block,
+2 to 7 % (*estimated*: the range covers the compiler keeping or merging the SEL; no SASS read).
+Ceiling. The block-count time model gives 0.66 to 0.92 ms of instruction time to the Tetra rows (recherche-debit-
+maths §3); 2 to 7 % of B1's share is 0.01 to 0.05 ms a token, under the model's own 0.09 ms residual. Unresolvable
+alone. It composes with B1, which stays the lever (239 tok/s central, *estimated*).
+Prefill of 32 rows: the bytes are built once and serve 32 rows, as today; it saves the same per block, nothing per
+row. int4 rows: untouched.
+Memory: none. Same file, same VRAM, same b/param.
+Kill test, $0 this week: host twin of the quad (the C++ harness that already checks `__byte_perm` on 16 cases) over
+all 2^12 codewords x 4,096 rank rows x both parities, against `decode_word`; gate: identical int8 bytes. Then a SASS
+count of `lean_i16` with and without, at the next card job that compiles it; gate: at least 8 instructions fewer a
+block, otherwise drop it.
+
+6. PRIOR ART: WHY TABLES PAY ELSEWHERE AND NOT HERE
+---------------------------------------------------
+Every table-of-dots method has a small codebook per field, 2^4 to 2^16, against thousands of rows.
+- LUT-GEMM: tables of 2^mu partial sums of activation sub-vectors in shared memory, amortized when rows >> 2^mu, about
+  1 KB a group of 8 dimensions; 2.1x over OPTQ's dequantizing kernel on OPT-175B at 3 bits, one GPU (*reported*,
+  https://arxiv.org/abs/2206.09557, https://arxiv.org/html/2206.09557). Binary-coded weights: one bit a field.
+- T-MAC: bit-plane lookups on CPUs, up to 4x the throughput of llama.cpp (*reported*,
+  https://arxiv.org/abs/2407.00088). CPU only; its tables live in SIMD registers, read by shuffle.
+- AQLM: 2x8 codebooks run gate_proj 1.57x, 1.82x, 3.05x faster than FP16 at 7B, 13B, 70B on an RTX 3090, the 1x16
+  code 1.31x, 1.20x, 1.20x; on CPU, 8-bit codebooks give 2.75x to 4.07x over FP32 because "additive quantization can
+  compute dot products efficiently if the codebook size is small" (*reported*, https://arxiv.org/html/2401.06118).
+  AQLM itself had to shrink 16-bit codebooks to 8-bit ones, at a quality cost, to make lookups pay.
+- Bolt: up to 10x on approximate distances and dot products, with small per-subspace codebooks (*reported*,
+  https://arxiv.org/abs/1706.10283).
+- FLUTE: 2 to 4x over existing GEMM kernels below batch 32, 1.5 to 2x end to end on LLaMA3, with the table
+  vectorised and duplicated in shared memory to cope with its bandwidth (*reported*,
+  https://arxiv.org/abs/2407.10960). It dequantizes through the table; it does not tabulate dots.
+- QuIP#'s E8P (https://arxiv.org/abs/2402.04396) and QTIP (https://arxiv.org/abs/2406.11235): decode, not dot tables.
+  E8P's 256-entry absolute table plus signs and parity is the same shape as Tetra's rank row, Golay byte and p.
+- Lattice decoding (Conway and Sloane, Vardy and Be'ery): nearest-point search, the encoder's side.
+The common condition is a field of at most 16 bits that separates. The Leech code's octad section is 20 bits and the
+rank row does not split. That is the price of the lattice's density, not an implementation gap.
+
+7. WHAT WOULD BE NEEDED TO CLEAR x1.3, FOR THE RECORD
+-----------------------------------------------------
+- The Tetra rows at the DRAM peak (B1 plus B3's hand-scheduled ~90-instruction block, recherche-debit-maths §4) give
+  at most x1.27. Another 90 to 250 us must come from the byte-free phases (1,757 us, large-4e-budget). E1 showed
+  moving the prefetch recovers nothing.
+- Reading each weight once for several tokens (speculation) is the only mechanism with a ceiling above x1.3 at batch 1
+  (recherche-debit-maths §11). The code domain makes it worse: tables multiply with the rows, decode does not.
+- A file whose fields separate (2^8-entry codebooks, AQLM 2x8 style) would let tables pay, and it is a re-encode:
+  quality and b/param move. Out of this study's rule.
+
+WHAT THIS NOTE DOES NOT ESTABLISH
+---------------------------------
+The 1.81 ms in-situ Tetra row time is plan-300's estimate, and the stamped split of q/k/v and down rows into Tetra and
+int4 parts is mine (*estimated*). The real distribution of section keys was not read from the sealed file: the reuse
+column assumes uniform fields, which the 47.4-bit entropy supports but does not prove; a skew 160 times stronger
+would be needed to change the verdict. The count of idea (c) is by hand, not from SASS. No other card.
