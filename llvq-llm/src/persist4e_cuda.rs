@@ -845,6 +845,33 @@ impl Runtime4e {
         Ok(self.launch(caches, pos0, tok, n, eos, false)?.0)
     }
 
+    /// [`Self::decode`] past one launch's `max_tokens`: launches of at most
+    /// `chunk` tokens (0: `max_tokens`), each starting where the previous
+    /// left off, at its last token and the position after its last cached
+    /// one. A 4E launch computes every token from the cache and its own
+    /// input alone, and leaves the cache exactly as a longer launch would
+    /// after the same tokens (`launch` sets the length to the positions it
+    /// wrote); only the ring and the barrier base, which the host carries,
+    /// differ between one launch and two. Stops at `eos` or when a launch
+    /// makes fewer tokens than asked.
+    pub fn decode_chunks(&mut self, caches: &mut [KvCache], pos0: usize, tok: u32, n: usize, eos: u32, chunk: u32) -> anyhow::Result<Vec<u32>> {
+        let step = if chunk == 0 { self.max_tokens } else { chunk.min(self.max_tokens) };
+        let mut out: Vec<u32> = Vec::with_capacity(n);
+        let (mut pos, mut t) = (pos0, tok);
+        while out.len() < n {
+            let k = (n - out.len()).min(step as usize) as u32;
+            let made = self.decode(caches, pos, t, k, eos)?;
+            let got = made.len();
+            out.extend_from_slice(&made);
+            if got < k as usize || made.contains(&eos) || got == 0 {
+                break;
+            }
+            pos += got;
+            t = *made.last().expect("got > 0");
+        }
+        Ok(out)
+    }
+
     /// The form and the geometry, as the measurement prints them: "v4 at 512
     /// threads".
     pub fn label(&self) -> String {
