@@ -1,0 +1,174 @@
+INVENTION STUDY: THE LEECH LATTICE OUTSIDE THE WEIGHT MATRICES IT ALREADY CODES, SEALED 4B, 2026-11-11. $0.
+=========================================================================================================
+Result: no idea of this mechanism clears the bar on the strength of the lattice. The lattice buys 0.8 dB of
+signal-to-noise over a uniform scalar quantizer at equal rate in the KV regime (*computed*, section 2), which is
+0.14 b/dim. On the 8k KV cache that is about 11 MB. One idea keeps a large effect, the KV cache cut to 4.7 to 5.6 b/dim
+after a Hadamard rotation, and its lever is the rotation and the bits, not the lattice. Stacked with the chain prefill
+and the freed 8k residue it reaches 2.47 to 2.54 GB at 8k, -29 to -31 % against the chain's 3.56 and -57 to -58 %
+against the served 5.95 (*estimated*). It sits on the bar, not over it. The other seeds fall under it: the int4
+projections moved to a lattice member save 0.06 to 0.12 b/param at 4B, the tied table cannot go below int4 without
+a quality loss, the rate ladder moves no criterion, and the 0.60 GB overhead is not a lattice question.
+
+Nature: desk study. No job, no build, no model load. One numpy script on the Mac (7.5 s and 3 min of one core, nice
+10): an exact nearest-point search in a Leech box code over all 8,192 Golay cosets, against scalar quantizers, on
+synthetic sources. Web sources fetched tonight, each with its URL. Read: format-noyau.md §1-4, how-it-works.md §6-9,
+ETAT.md §4-6, llvq-paper-notes.md, llvq-llm/src/kvq.rs, mesures/kvq8-4b-2026-08-15.txt, and tonight's
+gains-criteres-memoire, recherche-structure-leech-format, recherche-runtime-inference and
+recherche-methode-quantification. Labels: *measured* (a journal), *computed* (arithmetic on measured or code inputs,
+or the numpy script), *estimated* (judgement, or one estimated input), *reported* (a third party, URL given).
+
+1. THE STARTING POINT
+---------------------
+- KV bytes a position at 4B: 36 x 2 x 8 x 128 x 2 B = 147,456 B, 73,728 values (*computed*). 1.208 GB at 8,192.
+- 8k peak served 5.95 GB: base 2.01, KV 1.208, one score tensor 2.147, activations 0.25, residue 0.33. Chain prefill
+  3.56 GB: 2.117 + 1.208 + residue 0.235 (*measured* and *computed*, gains-criteres-memoire §1).
+- Decode at 8,192: 161.5 tok/s against 226.2 at 5 tokens (*measured*, served-v9). 6.19 ms against 4.42 ms. The 1.77 ms
+  gap is mostly the KV read, 1.208 GB at about 733 GB/s = 1.65 ms (*estimated*, large-4e-budget).
+- The int8 KV that exists (kvq.rs) is group-affine, 64 values along head_dim, f16 scale and bias, 8.5 b/value, no
+  rotation. Its paired perplexity read +0.0494 % [-0.0713, +0.1703] on 12 windows of 4,096 (*measured*, kvq8-4b).
+  "Short context only" in CLAUDE.md means its throughput series at 1,024 new tokens was abandoned, not that it failed
+  at long context.
+
+2. WHAT THE LATTICE BUYS ON A KV-LIKE SOURCE (numpy, tonight)
+------------------------------------------------------------
+Code. The Leech box code LB_b keeps the served construction x = p + 2c + 4k (Golay codeword c, parity p, Σk ≡ p mod 2)
+and stores each coordinate's rank directly in b bits, from the value lists of how-it-works §7. A block of 24 costs
+13 + 24b bits: 1.542 / 2.542 / 3.542 b/dim at b = 1 / 2 / 3. The search is exact: per coset, the best value of each
+parity per coordinate, then the cheapest parity repair. One global scale is tuned per rate; each 128-dim vector
+carries an f16 gain (+0.125 b/dim). Source: 128-dim Gaussian vectors normalised to unit rms, 600 vectors, the first
+120 dims coded as 5 blocks of 24.
+
+  code                                         b/dim     SQNR dB   label
+  LB_1 + gain                                  1.667     7.64      computed
+  LB_2 + gain                                  2.667    12.78      computed
+  LB_3 + gain                                  3.667    17.84      computed
+  uniform scalar 2 / 3 / 4 b + gain            2.125 / 3.125 / 4.125     9.26 / 14.26 / 19.34   computed
+  uniform scalar interpolated at 2.667         2.667    11.97      computed
+  uniform scalar interpolated at 3.667         3.667    17.01      computed
+  int4 g128 min-max (the int4 records' form)   4.250    19.95      computed
+  int8 g64 min-max (the shipped q8)            8.500    45.51      computed
+
+The lattice gains 0.81 and 0.83 dB over the uniform scalar quantizer at equal rate, 0.14 b/dim (*computed*). Theory
+caps it near 1.03 dB of granular gain plus at most 1.53 dB of shaping that a box code does not collect (Conway and
+Sloane, Agrell and Allen, cited in recherche-structure-leech-format). A better shaped Leech code (a Voronoi code
+Λ/2^rΛ, as NestQuant does with E8) reaches at most about 2.5 dB, 0.42 b/dim, and its decoder needs a nearest-point
+search at every read (section 4).
+
+Rotation dominates. A synthetic key source with 2 of 128 channels at 15 times the rms of the rest:
+  int4 g64 min-max, no rotation (4.5 b)                16.42 dB
+  Hadamard per head, then int4 g64 min-max (4.5 b)     22.54 dB   (+6.1 dB)
+  Hadamard, uniform 4 b + gain (4.125 b)                20.66 dB
+  Hadamard, LB_3 + gain (3.667 b)                       19.06 dB
+  int8 g64 min-max, no rotation (8.5 b)                 41.04 dB
+(*computed*, synthetic; the real outlier ratio of Qwen3 keys is not measured here.) The rotation is worth six times
+what the lattice is worth. A rotated scalar quantizer gets almost everything a rotated lattice gets.
+
+3. THE QUALITY GATE FIXES THE RATE, AND IT IS HIGH
+--------------------------------------------------
+The int8 interval failed the ±0.12 % band by its width. At 41 to 45 dB of SQNR its true effect is far below the
+noise of 12 windows. A 4-bit KV is 100 to 300 times more noise. External figures at that rate:
+- NestQuant, E8 nested lattice, Hadamard on queries and keys, Llama-3-8B, WikiText-2 at 2,048: weights alone 6.308,
+  weights + KV 6.379 at q = 14 (3.81 b + scales), 6.475 at q = 12, 6.640 at q = 10, 6.968 at q = 8 (*reported*,
+  https://arxiv.org/html/2502.09720, Table 3). The KV adds +1.13 % at about 3.8 b and +10.5 % at about 3.0 b.
+- CommVQ, learned additive VQ commuting with RoPE, Llama-3.1-8B: LongBench 47.98 against 48.05 at 2 b, yet
+  in-domain perplexity 11.54 against 10.17, +13.5 % (*reported*, https://arxiv.org/html/2506.18879v1). Task averages
+  hide what our band measures.
+- TurboQuant: "quality neutral" at 3.5 b on LongBench, a task average (*reported*, recherche-runtime-inference §1).
+From NestQuant's ladder, the KV excess grows about as the square of the MSE (+10.5 / +1.13 = 9.3 for an MSE ratio of
+(14/8)² = 3.06, *computed*). To bring +1.13 % under +0.12 % needs 9.4 times less excess: 1.75 to 9.4 times less MSE,
++0.8 to +1.6 b/dim. The band therefore asks 4.6 to 5.4 b/dim plus the gain, 4.7 to 5.6 b/dim (*estimated*: one model
+family, quantized weights, a different corpus window). At that rate the lattice's 0.14 b/dim is 3 % of the rate.
+
+4. THE ENCODE COST AT DECODE TIME
+---------------------------------
+Blocks a token: 36 layers x 8 KV heads x 2 x 5 = 2,880 Λ24 blocks, plus 576 E8 blocks for the 8 dims left of each
+head (128 = 5 x 24 + 8) (*computed*).
+- The weight encoder: 290 to 329 µs a block on one core (*measured*, trioencbench, HISTORIQUE 2026-09-05).
+  2,880 x 290 µs = 0.835 s of one core a token, 190 times the 4.42 ms token. Not affordable, on any CPU count.
+- Exact coset enumeration on the card: 8,192 cosets x 24 coordinates x about 1 op = 2.0e5 ops a block, 5.7e8 a token.
+  At 30 to 50 % of the L40S's 4.5e13 lane-ops a second: 25 to 42 µs a token, 0.6 to 1 % of a token (*computed*,
+  *estimated* efficiency). A prompt of 8,192 positions: 0.21 to 0.35 s, 3 to 4 % of the chain's 7.8 s first token.
+- A bounded-distance Leech decoder (Vardy and Be'ery's maximum-likelihood decoder is known at a few thousand real
+  operations, not re-checked tonight) cuts that 50 times. Not needed at this budget.
+- The decode in attention: LB_3 needs the 12-bit Golay word (two 6-bit edge tables, as Tetra), then about 4 ops a
+  coordinate, about 110 ops a block, plus 96 FMAs for the 4 query heads of a KV head. At 8,192 positions 23.6 M blocks
+  a token, 5e9 ops, 0.11 ms at the card's peak, 0.3 to 0.5 ms realistic (*estimated*). A rotated int5 decode costs about
+  2 ops a value, three times less. A Voronoi decode adds a Leech nearest-point search per block read: about 2 ms a token
+  at 8k, which closes that form.
+
+5. THE KEPT IDEA
+----------------
+K1. A rotated KV cache at the rate the band allows, with the lattice as an optional 0.8 dB.
+Design. After RoPE, each key head vector is rotated by a 128-point Hadamard with fixed signs, normalised to unit rms,
+the f16 gain kept, and coded: arm S, uniform scalar at b bits; arm L, LB_3 on 5 blocks and E8 or scalar on the 8-dim
+tail. The query is rotated the same way, so q·k is unchanged. Values are coded the same way; the attention output is
+rotated back once per head, 32 FWHTs of 128 a layer and token. The grouping stays inside one token, so prefill and
+decode write the same bytes (the kvq.rs invariant). Positions are never re-quantized: the error does not accumulate.
+Why the lattice: it does not need it. Arm L is +0.8 dB at equal bytes, 0.14 b/dim, and costs about three times the
+decode instructions of arm S. Arm L is kept only as the measurement that settles it on real keys.
+Bytes, at 4.7 to 5.6 b/dim with the gain: 34,700 to 51,600 B a position against 147,456 (*computed*).
+  KV at 8,192: 1.208 GB to 0.355 to 0.423 GB, -0.785 to -0.853 GB.
+  8k peak, served eager prefill: 5.95 to 5.10 to 5.17 GB, -13 to -14 %. Under the bar.
+  8k peak, chain prefill: 3.56 to 2.71 to 2.78 GB, -22 to -24 %. Under the bar.
+  Chain prefill plus the 0.235 GB residue freed (gains-criteres-memoire #3): 2.47 to 2.54 GB, -29 to -31 % against the
+  chain, -57 to -58 % against today's door. On the bar.
+  Short context: KV 0.038 GB at 256 positions. Nothing.
+  b/param: nothing; the cache is not a parameter.
+  At 32,768 positions, outside the bar: KV 4.83 GB to 1.42 to 1.69 GB.
+Time. Decode at 8,192: 1.1 ms less read, 0.1 to 0.5 ms more decode, 6.19 ms to 5.4 to 5.7 ms, +9 to +15 % (arm L) or
++14 to +20 % (arm S) (*estimated*). Short-context decode: the FWHTs cost under 1 % (*estimated*). First token: arm S
+nothing measurable, arm L +3 to +4 % at 8k by enumeration.
+Gate. Paired WikiText-2 perplexity within ±0.12 % on 24 windows of 4,096 in f16 against the f16 cache, then the
+47 near-tie texts and GSM8K-200 not separated. Prefill-decode byte identity (LLVQ_VERIFY_CACHE=1), a mutant that
+drops the rotation of the query killed.
+What makes it wrong. Qwen3's KV excess grows faster than NestQuant's ladder, so the band asks 6 to 8 b: then the
+saving is 0.60 to 0.75 GB and the stack lands at -24 to -27 % against the chain. The rotation does not spread Qwen3's
+key outliers because some sit in the RoPE pairs' low frequencies (KVQuant's pre-RoPE finding); then keys need a
+pre-RoPE path, which 4E's cache layout does not have.
+Cost to build. Eager quality arm on the Mac: about half a day (a KvMode beside Q8, a round trip like
+quantize_dequantize). 4E and the chain prefill: 1 to 2 weeks for a cache read in a new dtype in two kernels, then a
+card gate of about $1 to $2.
+Cheapest kill test, Mac, $0, needs a go for local compute. KvMode round trips at S5, S6, S8 and L3 on the sealed 4B,
+paired against f16 over 24 windows of 4,096 (about 11 min an arm, from kvq8's 5 min 43 s for 12 windows: about 1 h).
+Kill if S6's interval is not inside ±0.12 %. Drop arm L if it does not beat S at equal bytes by more than the paired
+noise. A first pass on Qwen3-0.6B, 12 windows, takes minutes. Verdict: on the bar only with the chain prefill and the
+residue, and not a lattice idea. It belongs in the operator's KV decision of ETAT §5 ("touches quality").
+
+6. THE SEEDS THAT FALL, WITH THE ARITHMETIC
+-------------------------------------------
+(b) Embedding and head on the lattice. The tied 4B table is 388.96 M weights at 4.5 b, 0.219 GB, 0.233 b/param over
+the Tetra rate (*computed*, recherche-structure-leech-format). Tetra on it would give 2.73 to 2.50 b/param. Its q8 to
+q4 step already cost +1.52 % of perplexity (*measured*, ROADMAP-QUALITY row 4), and practitioners keep the head at
+5 to 6 bits. A 2-bit head fails "same quality" by an order of magnitude. A two-pass head (coarse lattice pass, exact
+refine) moves bytes read, not bytes held, and it is speed. The untied input embedding of the 8B and 14B is the
+structure note's S3, -0.18 and -0.13 b/param; nothing to add.
+(c) The int4 projections back onto the lattice. At 3.54 b/dim LB_3 sits 2.1 dB below int4 g128 min-max at 4.25 b
+(17.84 against 19.95 dB, section 2). Matching int4 needs about 3.9 b with this code, 3.6 to 3.7 b with an ideal Leech
+Voronoi code whose decode costs a search per block. Saving 0.35 to 0.6 b on 770.9 M weights: 0.067 to 0.115 b/param
+at 4B, 2.73 to 2.62 at best (*computed*). With S3 stacked: 8B 1,007 M x 0.35 to 0.6 / 8,193 M = 0.043 to 0.074, plus
+0.186, 2.70 to 2.44 to 2.47; 14B 2,952 M x 0.35 to 0.6 / 14,793 M = 0.070 to 0.120, plus 0.130, 2.73 to 2.48 to 2.53.
+None reaches 2.4. GPTQ feedback, which the RTN int4 records lack, is the only credit left; it applies as well to an
+int3 GPTQ record with no lattice. The structure note's S5 estimate of 3.15 to 3.55 b assumed a code 0.222 b/dim from
+the bound. The box code measured tonight is 0.58 b/dim from it at 3.54 b (3.5 dB).
+(d) Nested shells as a rate ladder. A prefix of the file serving a smaller model moves none of the criteria: the
+served object keeps its bytes and its quality. Scalar quantizers are also embedded (drop the low bits), so the ladder
+is not specific to the lattice either.
+(e) The 0.60 GB fixed overhead. It is the CUDA context, cuBLAS, the local-memory reservation and 4E's install
+(gains-criteres-memoire §1). No code changes it. The ledger that splits it rides the next card job (same note,
+precondition and rows 3 and 4).
+(f) Searched and not found. Integer lattice keys allow attention scores in integer arithmetic (dp4a on coordinates of
+|x| ≤ 15 against an int8 query). That is order-free and batch-invariant, but it changes the query's values, it is a
+speed and determinism lever, and it does not move memory.
+
+7. WHAT THIS NOTE DID NOT CHECK
+-------------------------------
+- Real Qwen3 keys and values. Every SQNR here is on synthetic sources; the outlier ratio of Qwen3 keys is unmeasured.
+- The KV rate the band allows is extrapolated from one Llama-3-8B ladder.
+- The box code's scale is one global value on a coarse grid, with no per-block gain; a better encoder could add a few
+  tenths of a dB, which leaves the verdict unchanged.
+- Vardy and Be'ery's operation count, and the Leech Voronoi shaping gain, were not re-derived.
+- NestQuant and CommVQ figures are theirs, on their models, read through the fetch tool.
+
+Script: an exact Leech box nearest-point search over the 2 x 4,096 Golay cosets, the extended Golay code built from
+g(x) = x^11 + x^10 + x^6 + x^5 + x^4 + x^2 + 1 and checked at 759 octads. Kept in the session scratchpad, not
+committed.

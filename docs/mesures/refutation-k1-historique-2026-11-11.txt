@@ -1,0 +1,191 @@
+REFUTATION OF K1 (LATTICE-STEP DISTILLATION) AND K2 AGAINST THE REPOSITORY'S HISTORY (2026-11-11)
+=================================================================================================
+Nature: skeptic's review, $0. No HF job, no model load, no build. Read only.
+Target: docs/mesures/innovation-encodeur-reseau-2026-11-11.txt (commit c98960e), sections K1, K2, THE STACK.
+Read:   docs/ETAT.md (with §6), docs/ROADMAP-QUALITY.md (rows 14, 17, 21, 22, L28, the adversarial pass),
+        docs/METHODE.md §3, docs/HISTORIQUE.md 2026-09-19 to 09-24, paper2/sections (model, experiments,
+        limitations), docs/data/jobs.csv, ops/llvqtune/README.md, the journals tetranu-rowscales-2026-09-19,
+        dclm-rowscales-2026-09-20, dclm-8b-rowscales-2026-09-21, dclm-14b-rowscales-2026-09-22,
+        sealed-rownorms-2026-09-23, tetra-directions-2026-09-16, gsm8k-wave1/2-2026-09-26, the mmlu-aux prereg and
+        its ECARTS, docs/archive/pistes-qualite-60-2026-09-12.md, docs/archive/revue-structurelle-2026-10-20.md
+        (untracked in the main checkout), tonight's recherche-methode-quantification and gains-criteres-qualite.
+        The branch fine-tuning-cost-mmlu-gain-kic9ua exists in no ref of this checkout or of origin; its survey is
+        read from docs/archive/pistes-qualite-60-2026-09-12.md.
+Labels: *measured* (a journal), *computed* (arithmetic here), *estimated* (judgement).
+
+THE VERDICT
+-----------
+Refuted as proposed. It survives only as a $0 Stage 0 on the Mac, under a go.
+
+The continuous half of K1 has already run on the sealed 4B and moved MMLU by +0.02 pp. The claim therefore rests
+entirely on two things nobody has measured: the Tetra membership rate of a lattice step, and a corpus effect that
+the same night's P3 estimates at -0.5 to +1.0 MMLU. The cost is understated by a factor of 2 to 4, because the 4B
+does not fit an L40S with weight gradients and the 14B does not fit one H200. The Stage 2 gate as written cannot
+credit the lattice step and does not enforce the no-trade-off rule. My interval is MMLU 0 to +1.5 and GSM8K -1 to
++4 at 4B. Neither reaches the note's own bar of +3.4 MMLU or +4.8 GSM8K.
+
+1. ALREADY TRIED OR CLOSED?  Holds on the letter, refuted on the substance.
+---------------------------------------------------------------------------
+- No form of code-moving training was ever run. llvqtune's invariant forbids it: "the gradient never reaches the
+  decoded directions" (ops/llvqtune/README.md:63). K1 is new on that axis.
+- CLAUDE.md rule 3 does not forbid it. PV-tuning and Block-AP are discarded in ROADMAP-QUALITY rows 21 and 22
+  (lines 80-81), not in ETAT §6 (lines 208-228). No §6 row covers code moves or the training corpus.
+- End-to-end KL training of the continuous parameters on the sealed 4B was measured. Row scales plus the 73 RMSNorm
+  vectors took the KL from 0.2622 to about 0.20 and moved MMLU +0.02 pp [-0.31, +0.36], p = 0.93 (*measured*,
+  sealed-rownorms-2026-09-23.txt:19-45). K1's P phase is that run plus centroids and tails. Its continuous half is
+  measured null on the very file K1 starts from.
+- Training on non-generic text was prepared once and never run. The operator cancelled the mmlu-aux arm in
+  SCHEDULING on 2026-09-23, billed $0.00. The reason written was priority, not contamination: "the operator's target
+  is memory, not the training corpus" (proofs/preregistration-mmluaux-4b-rowscales-2026-09-23-ECARTS.md:12-13).
+  The objection applies unchanged to a self-generated corpus. K1 is a training-corpus lever, and it buys no byte.
+- The frame in force since 2026-11-11 is throughput, with quality, b/param and VRAM held fixed (operator memory
+  cadre-debit-voir-large). A quality campaign is outside it. Tonight's P3 calls the corpus "the model's own generic
+  output" (recherche-methode-quantification-2026-11-11.txt:204-206). It is distillation text aimed at GSM8K, which
+  the same frame says never to report alone.
+
+2. THE NO-TRADE-OFF RULE.  Unproven, and the gate as written is refuted.
+------------------------------------------------------------------------
+Every time the training text or the trained set changed, the metrics moved apart.
+- DCLM row scales: perplexity to 1.0074 x f16 while MMLU stays nine points under (*measured*,
+  dclm-rowscales-2026-09-20.txt:129-147). Both rose, by unrelated amounts.
+- Second training of the sealed file: KL -23 %, MMLU +0.02 (sealed-rownorms:39-44).
+- L01 radial constant: MMLU +1.23 stratified, +0.13 unweighted, perplexity +9.5 % (ROADMAP-QUALITY:152).
+- int4 embedding: MMLU -0.35, perplexity +1.52 % (ROADMAP-QUALITY:63).
+- Calibration seed 1: worst perplexity, best MMLU (ROADMAP-QUALITY:68).
+- Our 4B reads 6.9 % under AWQ in perplexity and 4.76 MMLU under it (ETAT:101-102, 92).
+No case of MMLU rising while GSM8K falls is resolved in the repository. GSM8K was never read before and after any
+training run, so the cross-metric risk of a GSM8K-aimed corpus is unmeasured in both directions.
+
+The note contradicts its neighbour. K1 credits the corpus with +0.5 to +1.5 MMLU (centre +1.8 minus the discrete
++0.5 to +1.5, innovation-encodeur-reseau:102-104). P3, written the same night on the same corpus, estimates
+MMLU -0.5 to +1.0 (recherche-methode-quantification:193). Two thirds chat and reasoning text also moves the
+student off WikiText-2, the perplexity column of ETAT §2. Nothing bounds that move.
+
+Selection contamination is measured here. Paper 2's one held-out check of a test-selected choice read +3.12 on the
+2,280 questions that selected it and +1.55 on the 11,762 others (paper2/sections/experiments.tex:305-317). A
+recipe with τ, V-phase period, mix ratio and step count tuned on MMLU or GSM8K test would inherit up to that factor
+of two. The prompt pool has no overlap gate against GSM8K test; ops/mmlu_aux_overlap.py covers MMLU only. The
+format lever is small: 8 cap stops and 7 last-number extractions on 1,319 (*measured*, jobs.csv gsm8k-4b-served),
+so at most about 1.1 pp of GSM8K is formatting.
+
+The Stage 2 bar reads "+4.8 GSM8K **or** +3.4 MMLU" (innovation-encodeur-reseau:153). That is a best-of-two
+criterion, and it admits a file that gains GSM8K and loses MMLU or perplexity.
+
+Honest protocol. Freeze every hyper-parameter on the 0.6B by held-out KL. Gate the prompt pool against GSM8K test
+and MMLU test, dev and validation by n-gram overlap before generation. Select only on MMLU validation (1,531
+questions, which no harness reads today: mmlu.rs:668-669 loads test and dev) and a held-out slice of GSM8K train.
+Touch the test splits once. Adopt only if all hold: MMLU paired lower bound >= 0, GSM8K paired lower bound >= 0,
+WikiText-2 paired perplexity not above +0.5 %, held-out chat KL not above the sealed file's. Cost of the
+validation code: about a day, $0. Validation scoring adds about $0.10 an arm (*estimated*, 1,531 / 14,042 of
+$0.70).
+
+3. NOISE.  Refuted as designed.
+-------------------------------
+- Pairing against the sealed file is valid for one claim: this file beats that file. The paired CI95 half-width is
+  about 0.6 pp of MMLU (*measured*, embed-q4-swap; gains-criteres-qualite:22-25) and 1.3 to 1.9 of GSM8K.
+- It is not valid for the recipe. METHODE §3 (lines 62-65) reads anything that recalibrates against the draw's σ,
+  and asks for two draws for a smaller effect. K1 moves codes and re-encodes up to 1 % of blocks a V phase with the
+  production encoder. The draw σ is 1.7 pp on the served DCLM recipe on one degree of freedom, 2.92 on Planes14
+  (revue-structurelle-2026-10-20:36-40; bruit-mmlu-graines). K1's own Stage 1 admits it: "the three draws say
+  whether the effect survives a change of encoding, which one encode cannot" (innovation-encodeur-reseau:148).
+  Stage 2 then drops the draws at 4B.
+- The training-seed spread of llvqtune is unknown. Every training journal says "one seed, one draw"
+  (sealed-rownorms:66). The only bracket: a retraining of scales and norms flipped 4.2 % of answers, which cancelled
+  (SE 0.17), and two encodings of one recipe flipped 28.1 % (σ 1.7). A file whose codes move sits between.
+- What it takes to credit the lattice step, B - A > 0 at CI95, with n seeds a arm (*computed*, two-sided,
+  SE = σ_s √(2/n)): at σ_s = 0.3, n = 1 resolves +1 pp. At σ_s = 0.5, n = 2. At σ_s = 1.0, n = 8. The note's
+  "second seed of arm A when B - A lies under 1 pp" measures nothing about B's spread.
+- Cost of that: a B arm is $14 to $22 and an A arm about $6 (section 4), plus $2.83 of MMLU and GSM8K a file. Three
+  seeds a arm: about $80 to $105 at 4B. Eight: about $200 to $280.
+
+4. COST AND TIME.  Refuted.
+---------------------------
+- The l40sx1 rate is $1.80 an hour (130 min billed for $3.90, tetranu-rowscales row of jobs.csv). The h200 is $4.97
+  an hour (118 min for $9.78, dclm-14b-rowscales). At $1.80, 4.5 h is $8.1, which matches the note. The note
+  prices it on the L40S.
+- The 4B does not fit an L40S with weight gradients. Measured row-scale peaks: 72.65 GB at 8B, 119.4 GB at 14B, at
+  2,048 tokens a step (dclm-8b-rowscales:74; dclm-14b-rowscales:111). A line through them gives about 43 GB at 4B
+  (*computed*). The note adds three bf16 buffers on 2.86 G Tetra weights, 17.2 GB, so about 60 GB of 48. The
+  note's 39 GB assumes activation checkpointing. llvqtune's --grad-checkpoint flag is inert, since the model stays
+  in eval() (ops/jobs/dclm-14b-rowscales.sh:63), so every measured peak ran without it. Making it work adds one
+  forward a step, so it costs time either way.
+- On an H200 the 4B costs about $14 to $22 for training alone (*computed*, 2.8 to 4.5 h at $4.97), against the
+  note's $8 to $9. The V phases are host-bound and do not shrink on a faster card.
+- The on-policy phase, "the student writes, the teacher scores", generates from a dense f16 export in
+  transformers. It is not priced.
+- The 14B does not fit one H200: 119.4 GB plus 3 x 26.4 GB of buffers on about 13.2 G Tetra weights is about 198
+  GB of 141 to 150 (*computed*). Offline teacher logits remove about 29.5 GB and leave about 169. The note's $36 is
+  for a run that cannot start on its flavor. The 32B needs two cards or host offload, and it has never been
+  encoded (ETAT:143-145). The bar's "carries to larger models" fails at 14B on a single card.
+- Reference chains: row scales alone cost $4.00 at 4B (9,507 steps, 1.71 h), $5.66 at 8B (9,507 steps, 3,797 s on
+  h200) and $9.78 at 14B (9,507 steps, 7,040 s). The 8B chain was $10.19 with its census. The 14B chain was $32.17,
+  of which encoding $15.35, training $9.78, census $1.95 (jobs.csv; HISTORIQUE 2026-09-22 and 23).
+- The row-scale gain was acquired before step 1,210 of 9,681 (tetranu-rowscales:52-53) and the second training's KL
+  flattened inside the first eighth (sealed-rownorms:39-41). Ten thousand steps buys V phases, not continuous gain.
+- Build. llvqtune has row_scales, row_norms, free_params (scales and tails, never run) and low_rank
+  (ops/llvqtune/README.md:23-30). Centroids are not trainable there. K1 needs gradient EMAs on the weights, a
+  tangent projection, a V-phase driver, a Rust closed-form screen, membership, a Newton re-encode driver and a
+  `codeswap` binary, none of which exist. The trainer split columns in the natural basis against a rotated tail
+  once already (E8, dclm-rowscales:118-120). Two to three weeks is plausible for the code. It excludes the
+  0.6B gates and the mutant suites METHODE requires.
+- The spend cap in force is $25 from the go of 2026-11-09, with $12.66 spent on 2026-11-11 evening (operator memory
+  cadre-debit-voir-large). The 4B program at the note's own $25 to $40 exceeds what is left.
+
+5. DOES ANYTHING ELSE MOVE?  Holds for serving, refuted for production and publication.
+---------------------------------------------------------------------------------------
+- Byte widths are unchanged, so b/param, VRAM, decode speed and first token do not move by construction. The
+  codebook_fingerprint pins the index map, not the word values, and survives. The S grid needs c1/c0 in
+  [1/3.14, 3.14]; the note clamps it. These hold.
+- The object changes. A moved code is a new sha256. Paper 2 cites three repositories and three digests that never
+  move (operator memory perimetre-publication-4b; ETAT:61-63). A K1 file supersedes nothing published. It becomes a
+  fourth object beside the cited ones, on the overwritable -served repository only.
+- Every downstream artifact is rebuilt per size: the sealed file, hfpack safetensors and its bit-for-bit gate, the
+  MLX door, the 50-problem served pilots, the MMLU and GSM8K census, the WikiText-2 perplexity, the Hub card. ETAT §2
+  then reports a different object from paper 2's tables.
+- Cost of producing the object is one of the six criteria. Today it is about $4 at 4B, $10 at 8B and $32 at 14B
+  with encoding. K1 adds $15 to $25 at 4B by the note's figures and $28 to $39 by mine. At 14B it cannot be priced on
+  one card. That is a trade-off on the sixth criterion, and the note's "every other criterion unchanged" omits it.
+
+6. THE SIZE OF THE CLAIM AGAINST THE GAP.  Refuted.
+--------------------------------------------------
+Gap to FP16 at 4B: 6.77 MMLU [6.05, 7.50] and 9.63 GSM8K [7.69, 11.57] (ETAT:92).
+What the repository says post-hoc training recovers:
+- Row scales from an untrained base: +3.15 / +3.29 / +1.67 MMLU at 4B / 8B / 14B (ETAT:147-149). The sealed file
+  already holds them.
+- A second continuous training on the sealed file: +0.02 (sealed-rownorms).
+- Row scales keep 0.66 to 0.76 of a base gap (revue-structurelle-2026-10-20:43-44).
+- Sub-additivity 0.62 to 0.79 over seven arms, 0.56 across families (ROADMAP-QUALITY:46-47).
+- The note's discrete evidence is PV-tuning on Llama 2 at AQLM 2.01 bits: +1.2 to +1.6 of zero-shot average above
+  a continuous step that trains learned codebooks (innovation-encodeur-reseau:92-94). No MMLU, no Qwen3, no lattice.
+  This repository has six dissociations between proxy and MMLU.
+- The repository's only discrete-choice experiment on Tetra lost when chained: +2.393 % local, +0.911 % chained,
+  -8.763 % on reserved activations (tetra-directions-2026-09-16.txt:62-66). K1 scores moves by a diagonal Fisher
+  model and accepts many at once.
+My interval at 4B (*estimated*): MMLU 0 to +1.5, centre +0.5. GSM8K -1 to +4, centre +1.5. The MMLU centre is P3's
+corpus centre, plus a discrete part discounted by sub-additivity and by an unknown membership rate. The GSM8K range
+keeps P3's corpus effect and halves the discrete part. K2 adds at most P1's range, +0.5 to +1.7 MMLU, which the
+2026-10-20 review computed for YAQA proper (lines 71-73). K2 is a local descent from GPTQ codes, below that.
+
+THE WEAKEST POINT
+-----------------
+The continuous half of K1 is measured null on the sealed 4B (+0.02 pp, sealed-rownorms). Everything claimed rests
+on a lattice step whose Tetra membership rate is unmeasured, and on a corpus effect its sibling note puts at -0.5
+to +1.0 MMLU.
+
+THE DECISIVE TEST AND ITS PRICE
+-------------------------------
+Step 0, $0, Mac, under a go, about one hour at LLVQ_THREADS ncpu-4 and nice 10. Qwen3-0.6B, one existing Tetra
+  encoding. Measure the membership rate of the best move and Spearman of predicted against realised held-out KL
+  change over 20 move batches. Kill if membership < 20 %, Spearman < 0.3, or held-out KL rises. The note's Stage 0
+  as written; it is sound.
+Step 1, about $9, before any code-moving build. P3's constant-code arm: retrain the 4B row scales on the mixed
+  corpus from the pre-row-scale DCLM codes, scored on MMLU, GSM8K and WikiText-2 (recherche-methode-quantification:
+  200-203). If the corpus alone does not lift GSM8K with MMLU and perplexity held, K1's GSM8K centre falls to its
+  discrete part, +1 to +3, under the bar.
+Step 2, about $80 to $105, only after both pass and with a new cap. The sealed 4B, arms A (continuous, mixed
+  corpus, l40sx1) and B (A plus V phases, h200), three training seeds each, hyper-parameters frozen from the 0.6B.
+  Selection on MMLU validation and a GSM8K-train slice only, test touched once. Adoption needs all four gates of
+  section 2. Credit to the lattice step needs B - A > 0 at CI95 over the seeds. A second calibration draw is what
+  METHODE asks before the gain is called a recipe: encode $0 on the Mac, its row scales $4, one B arm and its
+  scoring, about $20 to $30 more (*computed* from the prices above).
+Without Step 0 and Step 1 green, nothing above $0 is justified.

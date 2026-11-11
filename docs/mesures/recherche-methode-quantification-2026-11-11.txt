@@ -1,0 +1,363 @@
+THE QUANTIZATION METHOD ITSELF: WHAT THE FIELD DOES AT 2 TO 3 BITS, AND EIGHT CHANGES FOR LLVQ (2026-11-11)
+===========================================================================================================
+Nature: desk review with web access, $0. No job, no model load, no build, no test.
+Read:   docs/ETAT.md, docs/ROADMAP-QUALITY.md, docs/how-it-works.md, docs/STYLE.md,
+        docs/archive/revue-structurelle-2026-10-20.md, docs/mesures/gains-criteres-qualite-2026-11-11.txt,
+        docs/data/jobs.csv, ops/llvqtune/README.md, llvq-bench/src/bin/rtbits.rs (header).
+Ask:    method changes that last for every future model (larger Qwen, other families, MoE), on the
+        fundamental criteria: quality, whole-model b/param, VRAM, decode speed, time to first token,
+        cost of producing the object. Improving one criterion must not trade off another.
+Labels: *measured* (this repository), *computed* (arithmetic here or in a cited note), *estimated*
+        (judgement), *reported* (a primary source, URL in the source list at the end, [S1] to [S24]).
+
+THE ANSWER
+-----------
+Three changes carry most of the expected value, and none changes the served kernel. First, the
+encoder objective: YAQA's output-aware Kronecker Hessian reports +2.1 MMLU and +7.5 GSM8K on Qwen3-8B
+at 2 bits for 2 GPU-hours [S1]. Second, calibration designed for the served use: GPTQ is the method most
+sensitive to the calibration domain, and self-generated reasoning text moved a 3-bit GSM8K from 57.5 to
+75.7 [S10]. Third, a sensitivity-driven rate allocation over a ladder of lattice rates: HIGGS reports
++4.06 MMLU at 3.25 bits from allocation alone [S8]. One change is certain and small: coding the f32 tail
+columns inside the lattice takes the 4B from 2.164 to 2.016 kernel b/weight (*computed* below). End-to-end
+training with codes that move (PV-Tuning, QAT) is where the 2-bit leaders get their last points. It is
+feasible for us only in a narrow form, and full QAT is out of a $100 budget at 4B and above. Entropy coding
+of the indices is the one daring lead I advise against: it buys nothing on VRAM at our decode speed.
+
+WHAT THE FIELD REPORTS, BY LEVER
+---------------------------------
+Numbers are *reported* by the source named. Protocols differ from ours (zero-shot averages, MMLU-Redux,
+perplexity at other contexts), so no row is comparable to ETAT §3 without a rerun.
+
+1. Encoder objective with output curvature (YAQA, ICML 2026) [S1]
+   - Qwen3-8B, QTIP 2-bit, no fine-tuning. LDLQ (4K sequences, 1.5 GPU-h): MMLU 63.94, GSM8K 56.31,
+     KL 0.285. YAQA-B 2K sequences (1 GPU-h): 65.74, 62.14, 0.227. 4K (2 GPU-h): 66.04, 63.82, 0.221.
+     64K (30 GPU-h): 66.75, 66.07, 0.205. FP16: 72.99, 84.31.
+   - Qwen3-8B at 3 bits: MMLU 70.40 to 71.36, GSM8K 80.81 to 82.55, KL 0.0681 to 0.0479.
+   - With QuIP#-style recovery fine-tuning (Llama 3.1 8B, 2 bits): KL 0.185 to 0.147 (YAQA-B), zero-shot
+     average 65.44 to 67.54 (YAQA-A). Fine-tuning narrows the gap; YAQA keeps 10 to 20 % lower KL.
+   - The quantizer, the codebook and inference are unchanged. Hessian storage roughly doubles.
+   - Third party: on Qwen3-8B 2-bit, YAQA reads 72.14 zero-shot average against 72.04 for QTIP and 74.12
+     for FP16 [S20].
+   - GPTAQ (asymmetric target, ICML 2025) and GuidedQuant (end-loss gradient, ICML 2025) are the cheaper
+     cousins [S6] [S7]. Neither abstract gives a 2-bit MMLU.
+
+2. Fine-tuning after rounding [S2] [S3] [S4] [S5]
+   - QuIP# 2-bit, WikiText-2 at 4K: Llama 2 7B 8.22 to 6.19 with fine-tuning, 13B 6.06 to 5.35, 70B 4.16
+     to 3.91 [S4]. The blockwise stage fine-tunes the not-yet-quantized layers of a block to compensate for
+     the quantized ones, then trains the remaining continuous parameters end to end. About 50 GPU-hours
+     at 70B.
+   - PV-Tuning, AQLM 2.01 bits, Llama 2 7B: calibration only 7.38 ppl and 53.2 average accuracy;
+     continuous parameters only 6.69 and 56.57; straight-through 6.41 and 57.04; PV with STE 5.90 and
+     58.19 [S2]. At 2 bits the gain over AQLM is +4.88 / +4.33 / +1.97 average accuracy at 7B / 13B /
+     70B. The V step re-encodes only the weights with the largest update, under a trust ratio of 0.01.
+     Longest run: 2 days on 8 GPUs to beat the baselines.
+   - EfficientQAT: Llama-2-70B at 2 bits in 41 hours on one A100-80GB, 69.48 against 72.41 [S5].
+   - QTIP: computed codes are not tunable and are not fine-tuned; only its hybrid code is [S3].
+   - mlx-lm ships the frozen-code form as DWQ: scales and biases distilled from the unquantized teacher,
+     best at 2 to 4 bits, no figure given [S17].
+
+3. Calibration data [S10] [S11] [S12] [S13] [S18]
+   - DeepSeek-R1-Distill-Qwen-1.5B, 3-bit weights: GPTQ on WikiText-2 reads GSM8K 57.5, average 28.3; on
+     self-generated reasoning traces 75.7 and 38.1 (+9.8). AWQ moves +1.8 only [S10].
+   - Calibrating on the target task alone can hurt; adding general data stabilises it, and perplexity
+     sensitivity is uncorrelated with reasoning sensitivity (Kendall tau near 0) [S11].
+   - Ternary PTQ of Qwen3: the full-precision model's own reasoning traces as calibration context give
+     +8.97 % at 4B, with 4 M calibration tokens [S12].
+   - Self-calibration (model-generated text) often beats real data (NAACL 2025) [S13].
+   - EXL3 calibrates its final conversion on a self-generated trace, 250 rows of 2,048 tokens [S18].
+   - MoE: expert-balanced self-sampling gains more than 10 HumanEval points at 4 bits on DeepSeekMoE-16B
+     [S14].
+
+4. Rate allocation across tensors [S8] [S9] [S18] [S11]
+   - HIGGS linearity theorem: perplexity increase is close to the sum over layers of alpha_l times the
+     relative MSE of layer l [S8]. Llama 3.1 8B at 3.25 bits: uniform HIGGS 7.110 ppl and 57.56 MMLU,
+     dynamic data-free 6.388 and 61.62 (+4.06), uniform GPTQ 58.37.
+   - EXL3 measures each tensor's KL sensitivity with noise shaped like the quantizer's error, fits
+     KL = S_t * rfn_t(K)^alpha with alpha near 2, and solves the byte budget greedily. Shaped noise ranks
+     tensors at Spearman 0.84 against real swaps, isotropic noise 0.61. About two hours for a 27B [S18].
+   - Q-Palette: fractional-bit trellis quantizers plus a knapsack allocator, NeurIPS 2025 [S9].
+   - Residual VQ is how QuIP# reaches 3 and 4 bits: the 2-bit E8P codebook applied twice gives 4 bits.
+     Llama 2 7B at 4K context: 6.19 / 5.41 / 5.19 ppl at 2 / 3 / 4 bits [S4].
+
+5. Codes trained (QAT) [S15] [S16] [S19] [S20] [S21]
+   - LC-QAT (ICML 2026): codewords c = Az + B over z in {0..3}^4, trained with a gradient estimator.
+     Qwen3-8B 2-bit: 10.23 ppl and 72.18 average against 74.12 for FP16. Llama-3-8B: 73.42 with 4 B tokens
+     against ParetoQ's 72.07 with 30 B tokens. Wall clock 61 h on 8 A800 for the 8B, PTQ included [S20].
+   - ParetoQ (NeurIPS 2025): a learning transition between 2 and 3 bits; below it, representations
+     change drastically, so 2-bit QAT is closer to retraining than to calibration [S15].
+   - BitNet b1.58 2B4T: ternary, trained from scratch on 4 trillion tokens [S16].
+   - PrismML Bonsai 8B (Qwen3-8B architecture): 1.125 b/weight embeddings included, 1.15 GB. MMLU-Redux
+     65.7 against 83 for Qwen3-8B, GSM8K 88 against 93, their harness [S19]. The recipe is not published.
+   - UniSVQ: affine maps of integer lattices plus blockwise fine-tuning, ICML 2026 [S21].
+
+6. Entropy coding [S22] [S23]
+   - EntQuant (2026): FP8 or int8 weights with rate-regularised scales, ANS-coded with nvCOMP. Llama-2-70B
+     at 2.1 effective bits: 4.52 ppl and 68.6 average against 3.32 and 72.8 for BF16; QuIP# 2-bit reads
+     4.16 and 70.9 in the same table. Inference 1.5 to 2x slower than BF16, decoding block by block [S22].
+   - Lossless coders (DFloat11, ECF8, EntroLLM) target 8 to 16-bit weights or edge CPUs [S23].
+
+7. Lattices and transforms [S24] [S4]
+   - NestQuant (ICML 2025): nested Gosset lattices for weights, activations and KV at 4 bits, Llama-3-8B
+     6.6 ppl against 6.14 FP16 and 7.3 for SpinQuant [S24].
+   - QuIP# trains its Hadamard sign vectors as real vectors during fine-tuning [S4].
+
+WHERE LLVQ STANDS ON THESE AXES
+--------------------------------
+- Objective: GPTQ minimises tr(E H_in E') row by row; no output information enters (review 2026-10-20 §1.2).
+- Fine-tuning: one continuous lever, row scales, trained against the f16 teacher with codes frozen:
+  +3.15 / +3.29 / +1.67 MMLU at 4B / 8B / 14B (*measured*, ETAT §4). The free_params mode exists and never
+  ran. Codes never move after encoding.
+- Calibration: DCLM-edu, 64 x 2,048 tokens per encode; the seeded draw samples a buffer of about 127
+  documents with 27 % duplicates (audit ML 2026-11-02). Draw sigma 1.7 to 2.92 MMLU pp (*measured*).
+- Allocation: two tiers, Tetra at 2.150 kernel b/weight and int4 g128 at 4.25 (*computed*, ROADMAP-QUALITY:
+  +2.10 per weight moved). The int4 records are min/max RTN from the checkpoint, outside GPTQ and outside
+  the row-scale training. The choice is by projection type and layer window, set by hand.
+- Codebook: on Gaussian blocks Tetra keeps 88.89 % of the signal, the 47-bit ball 92.00 % (how-it-works
+  §7). The Gaussian rate-distortion bound at 2 bits is 1 - 2^-4 = 93.75 %. Read as 1 - relative MSE, Tetra
+  sits 2.5 dB, about 0.4 b/weight, from the bound, the ball 1.1 dB (*computed*). The repository measured
+  that the codebook choice does not move MMLU beyond noise (leech0c13, ROADMAP-QUALITY row 3).
+- Tail: d_in mod 24 columns per row, stored f32 on disk and counted f32 by rtbits, f16 on the card.
+
+The gaps to FP16 (6.77 MMLU and 9.63 GSM8K at 4B, ETAT §3) are largest on reasoning, and the field's
+largest reported levers on reasoning are the objective (YAQA, GSM8K +7.5) and the calibration domain.
+
+THE EIGHT PROPOSALS, RANKED BY SOLIDITY
+----------------------------------------
+Noise floors used: MMLU paired CI95 about 0.6 pp between two files on the full split; draw sigma 1.7 to
+2.92 pp as soon as an arm re-encodes; GSM8K paired half-width 1.3 to 1.9 pp; perplexity 0.12 % at
+constant file; KL to f16 on 12 windows, noise under 2 % (review §1.2). Prices *measured* in jobs.csv:
+4B row scales $4.00, 14B row scales $9.78 (h200), MMLU $0.70 / $1.00 / $1.60-1.95, GSM8K $2.13 / $2.37 /
+$4.24, 14B encode on card $15.35, 14B chain about $32. An l40sx1 hour is $1.80.
+
+P1. YAQA: an output-aware Kronecker Hessian in the encoder objective
+   What:     replace the per-row objective tr(E H_in E') by tr(H_O E H_in E'), H_O dense over output rows,
+             sketched from one torch backward over the calibration set (YAQA sketch B). The block-of-24
+             sweep keeps its H_in feedback within a row and adds feedback across rows through H_O.
+             Codebook, format, kernel and file width unchanged. Row scales train on top as today.
+   Evidence: Qwen3-8B 2-bit, the closest published object to ours: MMLU +2.10 and GSM8K +7.51 at 4K
+             sequences, KL -22 % [S1]. After recovery fine-tuning the KL gain is still 10 to 20 %. The
+             method is quantizer-agnostic by construction; it chooses a point within the quantized space.
+             Transfer to a 24-dim lattice: the sweep is new code (both axes), the search is unchanged.
+   Effect:   MMLU +0.5 to +1.7 pp at 4B, +0.3 to +0.9 at 14B; GSM8K +1 to +5 pp at 4B (*estimated*: the
+             review's +0.9 to +1.7 transfer, widened for our row-scale stage absorbing part of the gain,
+             and the measured sub-additivity 0.62 to 0.79). Wrong if row scales already recover what the
+             output metric adds; the KL gate below detects that before any MMLU spend.
+   Others:   b/param, VRAM, decode, first token: unchanged, same file format and byte count. Production
+             cost rises: the sketch is 1 to 2 L40S hours at 4B ($2 to $4) and 4 to 8 at 14B ($7 to $15),
+             encoding time x1.2 to x2, H_O storage about 31 GB at 4B and 97 GB at 14B in f32 (*estimated*,
+             d_out squared per matrix). That is a small move on the cost axis, inside a $100 budget.
+   Build:    5 to 10 agent-days (review §3). Recurs per model at the sketch price only.
+   Settle:   Qwen3-1.7B, three calibration draws x {GPTQ, YAQA}, Mac encodes at $0 under a go, KL to f16
+             on 12 windows. Gate: KL lower by 10 % or more in all three pairs. Then the 4B chain (encode,
+             row scales $4, MMLU $0.70, GSM8K $2.13): gate MMLU or GSM8K paired gain above 0 at CI95, the
+             other not below -0.6.
+   Closed:   none. L10 (ROADMAP-QUALITY) scored it 0 on a misreading (review §1.2). The closed Spherical
+             GPTQ feedback is a different objective.
+   Small team, $25-100: feasible at 4B and 8B; 14B fits at about $40 with the chain.
+
+P2. The tail coded inside the lattice
+   What:     pad each row's d_in mod 24 columns into one more Tetra block, the activation padded with zeros.
+             The padded coordinates multiply zero, so the encoder searches with H zero on them: 48 bits
+             carry 16 real weights (2560-wide inputs) or 8 (5120 and 17408). The f32 tail disappears from
+             the file and the f16 tail from the card.
+   Evidence: arithmetic, no literature needed. On the 4B Tetra set (q, k, gate, up in 36 layers, down in 24)
+             the tail holds 14.65 M weights; kernel b/weight goes from 2.164 to 2.016 (*computed*, rtbits
+             accounting with f32 tail and row scales; the published 2.150 counts a slightly different set).
+   Effect:   whole-model b/param -0.105 at 4B, -0.061 at 8B, -0.026 at 14B in rtbits accounting; card
+             bytes -23.6 / -27.8 / -18.4 MB (*computed*, f16 tail on the card). Quality 0 to -0.3 MMLU pp
+             (*estimated*: 0.5 % of the weights at 3 to 6 b/weight in a rotated basis where no column is
+             salient, ROADMAP-QUALITY row 13). Wrong if the tail carries the rotation's Kronecker remainder
+             with structure; the free arm below measures it.
+   Others:   decode: fewer bytes and no tail epilogue, so neutral or faster (*estimated*). First token:
+             the prefill path reads the same block type. Production cost unchanged.
+   Build:    1 to 2 days encoder side, 3 to 5 days format v2 and the CUDA, Metal and CPU decoders, oracle
+             on every backend. Breaks format v1: the full suite runs before the commit.
+   Settle:   $0 then $0.70: code the 4B tails on the Mac into a RESTORE-style dense arm, paired perplexity
+             (bar 0.12 %), then a full-split MMLU. Gate: MMLU paired within +-0.6 and perplexity within
+             +0.3 %. Only then the format.
+   Closed:   none. ROADMAP-QUALITY row 7 (f32 to f16 tail) is accounting only; row 13 permutes columns.
+   Small team: yes, cheapest of the eight. It is a one-time format change that serves every model whose
+             widths are not multiples of 24, and the gain shrinks with width.
+
+P3. Calibration as a designed object: self-generated, mixed, deduplicated
+   What:     build the calibration set from the model's own chat-template generations (thinking on and
+             off) on a broad prompt pool with math and code, mixed with DCLM-edu, deduplicated, with a
+             fixed buffer and Hessian shrinkage rho in [0.7, 0.9]. Use it twice: for H_in (and H_O under
+             P1) in the encoder, and as the corpus of the row-scale distillation. For MoE, balance the
+             tokens across experts (EBSS [S14]). No benchmark split enters; a contamination gate like
+             ops/mmlu_aux_overlap.py runs first.
+   Evidence: GPTQ 3-bit GSM8K 57.5 to 75.7 on a 1.5B reasoning model with self-generated traces [S10];
+             target-only data can hurt, the mix helps [S11]; EXL3 and AYOT calibrate on self-generated
+             traces [S18] [S12]. All of it is on scalar or ternary quantizers and on reasoning-distilled
+             models; our encoder is GPTQ-like, the most domain-sensitive family in [S10].
+   Effect:   GSM8K +1 to +5 pp at 4B, MMLU -0.5 to +1.0 (*estimated*). Shrinkage alone: -31 % median
+             perplexity at 0.6B (*measured*, m1-hessienne-shrink), MMLU never measured. Wrong if DCLM-edu
+             already spans what the chat traces add; the constant-code arm below isolates the distillation
+             half.
+   Others:   format, kernel, VRAM, decode and first token unchanged. Production cost: generating 20 M
+             tokens with vLLM on an L40S, $1 to $3 at 4B (*estimated*).
+   Build:    2 to 4 days (generation script, mix, dedup, seed buffer fix). Recurs per model at a few dollars.
+   Settle:   constant codes first: retrain the 4B row scales from the pre-row-scale DCLM codes on the mix
+             instead of DCLM ($4 + MMLU $0.70 + GSM8K $2.13 + generation $2, about $9). Gate: GSM8K paired
+             gain above 0, MMLU paired not below -0.6, perplexity not above +0.5 %. The Hessian half comes
+             after, read in KL on a held-out chat set and on WikiText-2, three draws.
+   Closed:   none in ETAT §6. The operator declined the mmlu-aux corpus on 2026-09-23: that was benchmark-
+             format text; this is the model's own generic output. ROADMAP-QUALITY row 6 (volume) is the
+             same family and stays open.
+   Small team: yes.
+
+P4. Rate allocation by measured sensitivity, over a ladder of lattice rates
+   What:     two steps. (a) An allocator: measure each tensor's KL sensitivity on the f16 model (EXL3's
+             shaped noise, or a swap per tensor), fit KL = S_t * rfn(K)^alpha, and solve the byte budget
+             per tensor, not per type window. Every tier goes through the same Hessian encoder and the same
+             distillation, so the int4 records stop being RTN. (b) A rate ladder inside the lattice:
+             residual Tetra, the same 48-bit word applied twice at 4 b/weight as QuIP# does with E8P [S4],
+             with the allocator choosing among Tetra-2, Tetra-4 and int4 for compatibility.
+   Evidence: HIGGS +4.06 MMLU at 3.25 bits from allocation, Llama 3.1 8B [S8]; EXL3 per-tensor optimizer
+             in production [S18]; Q-Palette knapsack [S9]; perplexity sensitivity misses reasoning
+             sensitivity [S11]. Ours: v_proj to int4 gained +3.47 MMLU for +0.0493 b/param, and at 8B
+             moving int4 from o_proj to down_proj gained +0.77 for fewer bytes (*measured*,
+             ROADMAP-QUALITY row 1, sealed-8b-27). Allocation is already our largest lever after row
+             scales, chosen by hand.
+   Effect:   at constant 2.73 b/param, MMLU +0.5 to +2.5 pp at 4B, GSM8K +1 to +4 (*estimated*); or the
+             same quality at 2.55 to 2.65 b/param. Wrong if the hand allocation is already near the
+             knapsack optimum; step (a) prices that for about $2 before any format work.
+   Others:   b/param and VRAM equal or lower by construction of the budget. Decode: step (a) keeps today's
+             two kernels; step (b) adds a word type whose decode costs about twice Tetra's per block,
+             +-5 % tok/s (*estimated*), gated. First token: the GEMM prefill needs the new word type too.
+   Build:    (a) 3 to 5 days, Python plus int4swap. (b) 3 to 5 weeks: encoder residual stage, format v2
+             record kind, CUDA, Metal and CPU decoders, 4E rows. Sensitivity recurs per model, $1 to $4.
+   Settle:   (a) on the 4B: per-tensor sensitivity on 12 windows (one L40S hour, $1.80), knapsack at the
+             served byte count with tiers {Tetra, int4}, then the file by int4swap and MMLU + GSM8K ($3).
+             Gate: predicted KL down by 10 % or more against the served allocation, then MMLU paired gain
+             above 0 at CI95 and GSM8K not below 0.
+   Closed:   E3 and Golay70 are single-rate layouts; group_scales and design C are not allocation. None
+             applies. The operator's "no int4 tweaks" concerns hand moves; this is the rule that makes them
+             automatic for every model.
+   Small team: (a) yes. (b) yes in time, weeks of kernel work, run cost small.
+
+P5. Blockwise compensation fine-tuning during encoding
+   What:     inside each transformer block, after q/k/v are coded, train the block's still-f16 matrices
+             (o, gate, up, down) for a few hundred steps to restore the f16 block output on calibration
+             activations, then code them; at the block's end, train its row scales and norms to the block
+             output. Codes never move inside the loop, so no re-encoding sits in a gradient step.
+   Evidence: QuIP# fine-tuning, 2-bit Llama 2 7B 8.22 to 6.19 ppl (blockwise plus end-to-end, not
+             separated) [S4]; EfficientQAT Block-AP and UniSVQ use a blockwise stage [S5] [S21]. Ours: the
+             intra-block calibration defect of ROADMAP-QUALITY row C (o_proj and down_proj calibrated on
+             unquantized inputs, 35 % of the file).
+   Effect:   MMLU +0.5 to +2 pp at 4B on top of today's row scales, GSM8K +1 to +4 (*estimated*). Wrong if
+             the end-to-end row-scale stage already recovers the blockwise gain; QuIP# does not separate
+             the two halves.
+   Others:   format and kernel unchanged. Production: the training is seconds per block on a card
+             (6 x 100 M parameters x 131 k tokens is about 8e16 FLOP an epoch, *computed*); the cost is moving
+             the Rust encoder and a torch trainer into one card job, about the 14B encode's $15 at 14B and
+             $3 to $6 at 4B (*estimated*).
+   Build:    1 to 2 weeks (Rust-torch hand-off per matrix, resume, journal). Recurs per model.
+   Settle:   0.6B, 28 blocks, three draws, KL to f16 on 12 windows, then row scales on both arms. Gate: KL
+             lower by 10 % after row scales on all three pairs.
+   Closed:   ROADMAP-QUALITY row 21 discarded Block-AP because it re-encodes inside the loop; this variant
+             does not. Row C is its first step.
+   Small team: yes.
+
+P6. Codes that move: continuous distillation plus a PV-style discrete step
+   What:     phase 1, the existing free_params mode (row scales, f16 tails or P2's tail codes, centroids,
+             norms) on a mixed corpus. Phase 2, the V step: from the end-to-end gradient on the decoded
+             weights, select the 1 % of blocks with the largest update and re-encode each toward
+             W - grad / L with the Tetra search, then return to phase 1.
+   Evidence: on AQLM 2 bits, continuous parameters alone take 53.2 to 56.57 average accuracy, PV with STE
+             to 58.19 [S2]: the discrete step is worth about as much again as the continuous one. On
+             Qwen3-8B, PV-Tuning reads 70.99 against 72.14 for YAQA without fine-tuning [S20], so P1 comes
+             first.
+   Effect:   MMLU +0.5 to +2 pp at 4B above P1 and P5, GSM8K +1 to +4 (*estimated*, wide). Wrong if the
+             fixed lattice leaves the V step only moves that GPTQ already found.
+   Others:   format and kernel unchanged. Production: the V step at 1 % of 119 M Tetra blocks costs about
+             357 core-seconds at 300 us a block (*computed*), a few seconds on a 64-core host; 500 steps
+             plus training is $15 to $40 at 4B and $60 to $150 at 14B (*estimated*).
+   Build:    3 to 5 weeks. Recurs per model.
+   Settle:   phase 1 alone on the sealed 4B: $3.10 training + MMLU $0.70 + GSM8K $2.13, as in the quality
+             note's row 5. The V step on 0.6B in KL, three draws.
+   Closed:   ROADMAP-QUALITY row 22 discarded PV-Tuning because the P step has little to move on a fixed
+             lattice. That holds for P; the V step changes codes and was not assessed. Not an ETAT §6 lead.
+   Small team: 4B within $100, 14B at the edge.
+
+P7. Quantization-aware training proper (latent weights, codes every step)
+   What:     train latent f16 weights with the lattice quantizer in the forward pass (STE, or an LC-QAT-like
+             relaxation over the integer coordinates x = p + 2c + 4k), on 0.5 to 4 B tokens.
+   Evidence: LC-QAT Qwen3-8B 2-bit 72.18 against 74.12 FP16, 61 h on 8 A800 [S20]; ParetoQ 30 B tokens
+             [S15]; BitNet 4 T [S16]; Bonsai, recipe unpublished [S19]. QAT is where the 1 to 2-bit models
+             get their retention.
+   Effect:   possibly half the remaining gap (*estimated*, uncertain). Production cost: about 488 A800-hours
+             for an 8B in LC-QAT's setting, $500 to $1,500 at our prices (*estimated*); a GPU Tetra encoder
+             does not exist and STE needs one at every step.
+   Others:   the object is unchanged; only the cost axis moves, by a factor of 10 to 50.
+   Settle:   a Qwen3-0.6B pilot under a cap of $30, KL and GSM8K against P1 to P6 on the same model. It
+             prices the ceiling; it does not serve.
+   Closed:   none, out of budget (Bonsai memory: QAT at 4B about $1,000 to $2,000, *estimated*).
+   Small team, $25-100: no, at 4B and above.
+
+P8. Entropy-coded or entropy-constrained indices to go under 2.15 b/weight
+   What:     code the 48-bit words with ANS, or encode with a Lagrangian rate term so that frequent classes
+             get short codes.
+   Evidence: the marginal entropy of the sealed 4B word is 47.5 of 48 bits (agent measure, not journaled,
+             review §2), so plain coding saves about 1 %. EntQuant reaches 2.1 effective bits but decodes
+             1.5 to 2x slower than BF16, block by block into a buffer [S22]. A variable-length word breaks
+             the random access of the fused kernel and 4E's row loop.
+   Effect:   b/param -0.01 to -0.15 (*estimated*) against decode speed down 30 to 50 % if decoded on the
+             card, or zero VRAM gain if decoded at load. That trades one criterion for another.
+   Verdict:  not proposed for VRAM. Disk and download size only, where it costs nothing at run time and is
+             not a fundamental criterion here. P2 reaches 2.016 kernel b/weight at 4B without it.
+   Small team: feasible, not worth it.
+
+NOT PROPOSED, AND WHY
+----------------------
+- A learned transform before the lattice: QuIP#'s real-valued sign vectors are the input-side diagonal our
+  RMSNorm training already covers, +0.02 MMLU (*measured*, sealed-rownorms); output rotation is about 0
+  across the paper's Table 9 (ROADMAP-QUALITY, Discarded); the 2026 transform survey shows the best
+  transform depends on the format and gives no lattice case [S24b].
+- Another codebook (trellis or a larger shaping region): Tetra sits about 0.4 b/weight from the Gaussian
+  bound (*computed* above), but leech0c13 measured that a 21.5 % perplexity spread between codebooks leaves
+  MMLU in the noise, and the review closed the trellis switch.
+- Best-of-N draw selection on a held-out split: it is a measurement design, already row 2 of the quality
+  note of the same day.
+
+TOP THREE, BY EXPECTED VALUE TIMES SOLIDITY
+--------------------------------------------
+1. P1, YAQA. First experiment: Qwen3-1.7B, three draws x {GPTQ, YAQA}, KL to f16 on 12 windows, $0 on the
+   Mac under a go plus a $2 sketch. Gate: KL -10 % in every pair. Then the 4B chain at about $9.
+2. P3, calibration. First experiment: the 4B row scales retrained on the self-generated mix at constant
+   codes, about $9. Gate: GSM8K paired gain above 0, MMLU not below -0.6, perplexity not above +0.5 %.
+3. P4 (a), the allocator. First experiment: per-tensor KL sensitivity of the 4B ($1.80), knapsack at the
+   served byte count, then the file by int4swap and MMLU + GSM8K ($3). Gate: predicted KL -10 %, then
+   MMLU paired above 0 at CI95.
+P2 rides beside them: it is the most certain gain and the smallest, settled by a $0.70 arm.
+Every re-encoding arm is read first in KL against the draw noise, never by one MMLU pair.
+
+SOURCES (all fetched 2026-11-11)
+---------------------------------
+[S1]  YAQA, Model-Preserving Adaptive Rounding, ICML 2026: https://arxiv.org/abs/2505.22988 (tables in
+      https://arxiv.org/html/2505.22988, Table 9 for Qwen3-8B)
+[S2]  PV-Tuning: https://arxiv.org/abs/2405.14852 (Tables 1 and 2 in https://arxiv.org/html/2405.14852)
+[S3]  QTIP, NeurIPS 2024: https://arxiv.org/abs/2406.11235
+[S4]  QuIP#: https://arxiv.org/html/2402.04396 (Table 4 fine-tuning ablation, RVQ at 3 and 4 bits)
+[S5]  EfficientQAT: https://arxiv.org/abs/2407.11062
+[S6]  GPTAQ, ICML 2025: https://arxiv.org/abs/2504.02692
+[S7]  GuidedQuant, ICML 2025: https://arxiv.org/abs/2505.07004
+[S8]  HIGGS and the linearity theorem: https://arxiv.org/html/2411.17525 (Tables 3 and 4)
+[S9]  Q-Palette, NeurIPS 2025: https://arxiv.org/abs/2509.20214
+[S10] Quantization Hurts Reasoning?, COLM 2025: https://arxiv.org/html/2504.04823 (Table 2)
+[S11] TASA, alignment-diversity trade-off: https://arxiv.org/abs/2607.00908
+[S12] AYOT / ScaleQ-1.58: https://arxiv.org/abs/2608.01078
+[S13] Self-calibration, NAACL 2025: https://arxiv.org/abs/2410.17170
+[S14] MoEQuant: https://arxiv.org/abs/2505.03804
+[S15] ParetoQ, NeurIPS 2025: https://arxiv.org/abs/2502.02631
+[S16] BitNet b1.58 2B4T: https://arxiv.org/abs/2504.12285
+[S17] mlx-lm learned quants (DWQ, dynamic): https://github.com/ml-explore/mlx-lm/blob/main/mlx_lm/LEARNED_QUANTS.md
+[S18] EXL3 self-calibration and optimizer: https://github.com/turboderp-org/exllamav3/blob/master/doc/optimize.md
+      and https://github.com/turboderp-org/exllamav3
+[S19] PrismML Bonsai 8B model card: https://huggingface.co/prism-ml/Bonsai-8B-gguf
+[S20] LC-QAT, ICML 2026: https://arxiv.org/html/2606.10531v3 (Tables 1, 2, 7)
+[S21] UniSVQ, ICML 2026: https://arxiv.org/abs/2606.10520
+[S22] EntQuant, Float8@2bits: https://arxiv.org/html/2601.22787 (Table 4)
+[S23] ECF8: https://arxiv.org/html/2510.02676v1 ; EntroLLM: arXiv 2505.02380 (abstract via search only)
+[S24] NestQuant, ICML 2025: https://arxiv.org/abs/2502.09720
+[S24b] Transforms for LLM Quantization, the Great Inversion: https://arxiv.org/abs/2608.25188

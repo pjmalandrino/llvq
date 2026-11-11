@@ -76,3 +76,16 @@ J4 closed, 2026-11-11. What stops speed, at constant criteria?
   2.73 b/param; peak 2.32 GB against 2.36 at 1,024 and 3.56 against 5.95 at 8k. A bench, not the served door.
   Next lead, opened as a $0 study: a pass is almost all fixed cost (16 rows 10.9 ms, 1 row 9.56 ms), so more than 16
   known tokens a pass would cut the 4.97 s that the 8k prefill spends outside attention.
+
+J5, opened and settled the same evening, 2026-11-11. Can a pass carry more than 16 known tokens at the same bits?
+  Yes, 32. The cap of 16 was a compile choice (RC = 2), not the registers; 64 stops at shared memory. Arm a12ipg32
+  (job 6af4beaf, 19 min, $0.58, spend $12.66 of $25; prereg stamped, nine signed predictions, all inside): bit for bit
+  against a12ip at 16 rows at 1,024, 4,096 and 8,191 tokens, 47 texts of 47, same phase peaks (2.318 / 2.855 /
+  3.560 GB), no byte added. First token 0.448 s against 0.702 at 1,024 (x1.57), 2.681 against 4.310 at 4,096 (x1.61),
+  7.800 against 13.395 at 8,191 (x1.72). Against the served eager prefill (cross-job): x8.8, x6.6, x4.7. A chat turn
+  of 256 answer tokens, hand-over plus 255 decoded tokens: 1.645 s against 5.14, 4.008 against 18.95, 9.424 against
+  38.64 (computed; x3.12, x4.73, x4.10). Decode after the
+  hand-over unchanged. At 8k attention is 76 % of a 32-row pass (34.3 of 45.1 ms): it is the wall of the long prefill.
+  The SASS of the attention tile (Mac, $0) refutes the binary16 widening and shows the tile serialised by its nv
+  guards; the served 4E has the same tile. A guard-free full tile is being built on the Mac, same bits.
+  Journal: on branch claude/arbre-r32-2026-11-11, large-prefill-r32-2026-11-11.
