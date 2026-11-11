@@ -5,7 +5,7 @@
 //! the pass's agreement with 4E reported, and the loop's time split into the verify launches, the drafter calls and
 //! the rest of the host.
 //!
-//! Usage: `LLVQ_CONFIG=<served v9 config> specbench [--prompts <file.jsonl>] [--runs <k>] [--vocab dense|q4] [--dump <file.jsonl>] <sealed> <arm> <drafters> [N] [drafter_dir] [f16|f32]`
+//! Usage: `LLVQ_CONFIG=<served v9 config> specbench [--prompts <file.jsonl>] [--runs <k>] [--vocab dense|q4] [--readout device|chunked] [--dump <file.jsonl>] <sealed> <arm> <drafters> [N] [drafter_dir] [f16|f32]`
 //!
 //! * `--prompts`: a JSONL prompt file (`llvq_llm::spec_prompts`, the house
 //!   set is `ops/data/spec-prompts-v1.jsonl`), each through the same chat
@@ -14,6 +14,9 @@
 //!   table dequantized once to a dense copy on the card) or `q4` (the
 //!   target's own int4 g64 table through its gather and the batched head,
 //!   `llvq_llm::dflash_q4`, no copy);
+//! * `--readout`: the drafter's readout, `device` (default: on the card, one
+//!   small transfer at the end of the round) or `chunked` (per-chunk maxima,
+//!   `DFlashSpec::chunked_readout`);
 //! * `--dump`: one JSON line a prompt and decoder (`4e`, `pass`, each
 //!   drafter's last run): id, kind, decoder, token ids and decoded text, for
 //!   grading offline;
@@ -105,7 +108,7 @@ fn run() -> anyhow::Result<()> {
     use llvq_llm::boundary::median_range;
     use llvq_llm::chatfmt::{open_assistant, turn, Marks};
     use llvq_llm::persist4e_cuda::{TreeForm, TreePlan};
-    let usage = "usage: LLVQ_CONFIG=<served v9 config> specbench [--prompts <file.jsonl>] [--runs <k>] [--vocab dense|q4] [--dump <file.jsonl>] <sealed> <a12|a10t384r16>[@q.o.g.d.h] <null,oracle:K,dflash:chain,dflash:tree,...> [N <= 1024] [drafter_dir] [f16|f32]";
+    let usage = "usage: LLVQ_CONFIG=<served v9 config> specbench [--prompts <file.jsonl>] [--runs <k>] [--vocab dense|q4] [--readout device|chunked] [--dump <file.jsonl>] <sealed> <a12|a10t384r16>[@q.o.g.d.h] <null,oracle:K,dflash:chain,dflash:tree,...> [N <= 1024] [drafter_dir] [f16|f32]";
     // flags first: --prompts <file.jsonl>, --runs <timed runs a prompt>
     let mut a: Vec<String> = Vec::new();
     let (mut prompts_file, mut runs): (Option<String>, Option<usize>) = (None, None);
@@ -113,12 +116,21 @@ fn run() -> anyhow::Result<()> {
     // until q4 (the target's own int4 table) passes on the card
     let mut vocab_q4 = false;
     let mut dump_file: Option<String> = None;
+    // the drafter's readout: on the device (default) or the chunked one
+    let mut chunked = false;
     let mut it = std::env::args().skip(1);
     while let Some(x) = it.next() {
         match x.as_str() {
             "--prompts" => prompts_file = Some(it.next().ok_or_else(|| anyhow::anyhow!("--prompts <file.jsonl>; {usage}"))?),
             "--runs" => runs = Some(it.next().ok_or_else(|| anyhow::anyhow!("--runs <k>; {usage}"))?.parse::<usize>().map_err(|e| anyhow::anyhow!("--runs: {e}"))?),
             "--dump" => dump_file = Some(it.next().ok_or_else(|| anyhow::anyhow!("--dump <file.jsonl>; {usage}"))?),
+            "--readout" => {
+                chunked = match it.next().as_deref() {
+                    Some("device") => false,
+                    Some("chunked") => true,
+                    o => anyhow::bail!("--readout {o:?}: device or chunked; {usage}"),
+                }
+            }
             "--vocab" => {
                 vocab_q4 = match it.next().as_deref() {
                     Some("dense") => false,
@@ -254,6 +266,7 @@ fn run() -> anyhow::Result<()> {
         );
         let mut sp = llvq_llm::dflash_spec::DFlashSpec::new(drafter, vocab, llvq_llm::dflash_spec::Shape::Chain(15))?;
         sp.timing = true;
+        sp.chunked_readout = chunked;
         Some(sp)
     } else {
         None
@@ -543,7 +556,7 @@ fn run() -> anyhow::Result<()> {
     println!("\naggregates (tok/s = total tokens over total wall; x greedy likewise, against 4E's greedy on its own text; median over prompts with its range)");
     for (di, (dname, kind_d)) in drafters.iter().enumerate() {
         let (rev, dtype_s, shape_s) = match kind_d {
-            Kind::DFlash(s) => (llvq_llm::dflash::REVISION.to_string(), format!("{ddtype:?}, vocab {}", if vocab_q4 { "q4" } else { "dense" }), format!("{s:?}")),
+            Kind::DFlash(s) => (llvq_llm::dflash::REVISION.to_string(), format!("{ddtype:?}, vocab {}, readout {}", if vocab_q4 { "q4" } else { "dense" }, if chunked { "chunked" } else { "device" }), format!("{s:?}")),
             Kind::Oracle(k) => ("-".into(), "-".into(), format!("oracle chain of {} ({k} correct)", k + 1)),
             Kind::Null => ("-".into(), "-".into(), "none (R = 1)".into()),
         };
