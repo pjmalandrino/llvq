@@ -1,0 +1,902 @@
+[
+ {
+  "set": "mtbench",
+  "id": "mtbench-081",
+  "category": "writing",
+  "prompt": 34,
+  "tokens": 256,
+  "tf_agree": 1.0,
+  "ref_tree15": 1.695,
+  "int4_tree15": 1.639
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-082",
+  "category": "writing",
+  "prompt": 58,
+  "tokens": 87,
+  "tf_agree": 1.0,
+  "ref_tree15": 2.955,
+  "int4_tree15": 2.625
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-083",
+  "category": "writing",
+  "prompt": 69,
+  "tokens": 171,
+  "tf_agree": 1.0,
+  "ref_tree15": 1.803,
+  "int4_tree15": 1.803
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-084",
+  "category": "writing",
+  "prompt": 51,
+  "tokens": 256,
+  "tf_agree": 1.0,
+  "ref_tree15": 1.813,
+  "int4_tree15": 1.753
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-085",
+  "category": "writing",
+  "prompt": 34,
+  "tokens": 137,
+  "tf_agree": 1.0,
+  "ref_tree15": 1.446,
+  "int4_tree15": 1.404
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-086",
+  "category": "writing",
+  "prompt": 42,
+  "tokens": 201,
+  "tf_agree": 0.9901,
+  "ref_tree15": 1.451,
+  "int4_tree15": 1.393
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-087",
+  "category": "writing",
+  "prompt": 44,
+  "tokens": 256,
+  "tf_agree": 1.0,
+  "ref_tree15": 1.844,
+  "int4_tree15": 1.783
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-088",
+  "category": "writing",
+  "prompt": 42,
+  "tokens": 158,
+  "tf_agree": 0.9937,
+  "ref_tree15": 1.508,
+  "int4_tree15": 1.548
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-089",
+  "category": "writing",
+  "prompt": 53,
+  "tokens": 256,
+  "tf_agree": 0.9961,
+  "ref_tree15": 2.657,
+  "int4_tree15": 2.556
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-090",
+  "category": "writing",
+  "prompt": 108,
+  "tokens": 86,
+  "tf_agree": 1.0,
+  "ref_tree15": 4.375,
+  "int4_tree15": 4.733
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-091",
+  "category": "roleplay",
+  "prompt": 44,
+  "tokens": 256,
+  "tf_agree": 1.0,
+  "ref_tree15": 4.689,
+  "int4_tree15": 4.333
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-092",
+  "category": "roleplay",
+  "prompt": 62,
+  "tokens": 256,
+  "tf_agree": 0.9961,
+  "ref_tree15": 1.876,
+  "int4_tree15": 1.783
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-093",
+  "category": "roleplay",
+  "prompt": 84,
+  "tokens": 256,
+  "tf_agree": 0.9961,
+  "ref_tree15": 2.368,
+  "int4_tree15": 2.459
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-094",
+  "category": "roleplay",
+  "prompt": 103,
+  "tokens": 256,
+  "tf_agree": 0.9961,
+  "ref_tree15": 1.943,
+  "int4_tree15": 2.012
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-095",
+  "category": "roleplay",
+  "prompt": 105,
+  "tokens": 145,
+  "tf_agree": 0.9932,
+  "ref_tree15": 1.636,
+  "int4_tree15": 1.636
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-096",
+  "category": "roleplay",
+  "prompt": 72,
+  "tokens": 256,
+  "tf_agree": 1.0,
+  "ref_tree15": 1.943,
+  "int4_tree15": 1.943
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-097",
+  "category": "roleplay",
+  "prompt": 85,
+  "tokens": 256,
+  "tf_agree": 1.0,
+  "ref_tree15": 2.657,
+  "int4_tree15": 2.657
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-098",
+  "category": "roleplay",
+  "prompt": 52,
+  "tokens": 109,
+  "tf_agree": 1.0,
+  "ref_tree15": 1.595,
+  "int4_tree15": 1.595
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-099",
+  "category": "roleplay",
+  "prompt": 52,
+  "tokens": 104,
+  "tf_agree": 1.0,
+  "ref_tree15": 1.311,
+  "int4_tree15": 1.261
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-100",
+  "category": "roleplay",
+  "prompt": 63,
+  "tokens": 256,
+  "tf_agree": 1.0,
+  "ref_tree15": 1.909,
+  "int4_tree15": 1.943
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-101",
+  "category": "reasoning",
+  "prompt": 50,
+  "tokens": 184,
+  "tf_agree": 1.0,
+  "ref_tree15": 2.833,
+  "int4_tree15": 2.755
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-102",
+  "category": "reasoning",
+  "prompt": 48,
+  "tokens": 255,
+  "tf_agree": 1.0,
+  "ref_tree15": 2.75,
+  "int4_tree15": 2.806
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-103",
+  "category": "reasoning",
+  "prompt": 34,
+  "tokens": 256,
+  "tf_agree": 1.0,
+  "ref_tree15": 2.282,
+  "int4_tree15": 2.282
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-104",
+  "category": "reasoning",
+  "prompt": 31,
+  "tokens": 243,
+  "tf_agree": 1.0,
+  "ref_tree15": 2.627,
+  "int4_tree15": 2.574
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-105",
+  "category": "reasoning",
+  "prompt": 212,
+  "tokens": 256,
+  "tf_agree": 1.0,
+  "ref_tree15": 4.565,
+  "int4_tree15": 4.565
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-106",
+  "category": "reasoning",
+  "prompt": 84,
+  "tokens": 249,
+  "tf_agree": 1.0,
+  "ref_tree15": 4.413,
+  "int4_tree15": 4.298
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-107",
+  "category": "reasoning",
+  "prompt": 35,
+  "tokens": 97,
+  "tf_agree": 1.0,
+  "ref_tree15": 3.409,
+  "int4_tree15": 3.217
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-108",
+  "category": "reasoning",
+  "prompt": 30,
+  "tokens": 147,
+  "tf_agree": 0.9932,
+  "ref_tree15": 3.455,
+  "int4_tree15": 3.2
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-109",
+  "category": "reasoning",
+  "prompt": 64,
+  "tokens": 256,
+  "tf_agree": 1.0,
+  "ref_tree15": 3.0,
+  "int4_tree15": 3.197
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-110",
+  "category": "reasoning",
+  "prompt": 147,
+  "tokens": 256,
+  "tf_agree": 1.0,
+  "ref_tree15": 2.71,
+  "int4_tree15": 2.71
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-111",
+  "category": "math",
+  "prompt": 47,
+  "tokens": 256,
+  "tf_agree": 1.0,
+  "ref_tree15": 8.143,
+  "int4_tree15": 7.828
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-112",
+  "category": "math",
+  "prompt": 62,
+  "tokens": 140,
+  "tf_agree": 1.0,
+  "ref_tree15": 4.6,
+  "int4_tree15": 3.828
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-113",
+  "category": "math",
+  "prompt": 81,
+  "tokens": 256,
+  "tf_agree": 1.0,
+  "ref_tree15": 5.737,
+  "int4_tree15": 5.919
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-114",
+  "category": "math",
+  "prompt": 34,
+  "tokens": 256,
+  "tf_agree": 1.0,
+  "ref_tree15": 4.818,
+  "int4_tree15": 4.689
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-115",
+  "category": "math",
+  "prompt": 88,
+  "tokens": 256,
+  "tf_agree": 1.0,
+  "ref_tree15": 5.095,
+  "int4_tree15": 4.953
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-116",
+  "category": "math",
+  "prompt": 33,
+  "tokens": 256,
+  "tf_agree": 0.9961,
+  "ref_tree15": 7.258,
+  "int4_tree15": 7.828
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-117",
+  "category": "math",
+  "prompt": 32,
+  "tokens": 256,
+  "tf_agree": 1.0,
+  "ref_tree15": 5.919,
+  "int4_tree15": 5.564
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-118",
+  "category": "math",
+  "prompt": 42,
+  "tokens": 256,
+  "tf_agree": 1.0,
+  "ref_tree15": 6.529,
+  "int4_tree15": 7.0
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-119",
+  "category": "math",
+  "prompt": 80,
+  "tokens": 251,
+  "tf_agree": 1.0,
+  "ref_tree15": 7.097,
+  "int4_tree15": 6.606
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-120",
+  "category": "math",
+  "prompt": 40,
+  "tokens": 210,
+  "tf_agree": 0.9953,
+  "ref_tree15": 9.5,
+  "int4_tree15": 9.0
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-121",
+  "category": "coding",
+  "prompt": 38,
+  "tokens": 256,
+  "tf_agree": 1.0,
+  "ref_tree15": 5.244,
+  "int4_tree15": 4.818
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-122",
+  "category": "coding",
+  "prompt": 26,
+  "tokens": 256,
+  "tf_agree": 1.0,
+  "ref_tree15": 5.564,
+  "int4_tree15": 5.4
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-123",
+  "category": "coding",
+  "prompt": 39,
+  "tokens": 256,
+  "tf_agree": 1.0,
+  "ref_tree15": 4.953,
+  "int4_tree15": 4.818
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-124",
+  "category": "coding",
+  "prompt": 191,
+  "tokens": 256,
+  "tf_agree": 1.0,
+  "ref_tree15": 3.655,
+  "int4_tree15": 3.491
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-125",
+  "category": "coding",
+  "prompt": 34,
+  "tokens": 256,
+  "tf_agree": 1.0,
+  "ref_tree15": 4.12,
+  "int4_tree15": 3.923
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-126",
+  "category": "coding",
+  "prompt": 40,
+  "tokens": 256,
+  "tf_agree": 1.0,
+  "ref_tree15": 3.197,
+  "int4_tree15": 3.414
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-127",
+  "category": "coding",
+  "prompt": 35,
+  "tokens": 256,
+  "tf_agree": 1.0,
+  "ref_tree15": 4.818,
+  "int4_tree15": 4.818
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-128",
+  "category": "coding",
+  "prompt": 51,
+  "tokens": 256,
+  "tf_agree": 1.0,
+  "ref_tree15": 3.923,
+  "int4_tree15": 4.12
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-129",
+  "category": "coding",
+  "prompt": 45,
+  "tokens": 256,
+  "tf_agree": 1.0,
+  "ref_tree15": 3.741,
+  "int4_tree15": 3.923
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-130",
+  "category": "coding",
+  "prompt": 30,
+  "tokens": 256,
+  "tf_agree": 1.0,
+  "ref_tree15": 3.741,
+  "int4_tree15": 3.741
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-131",
+  "category": "extraction",
+  "prompt": 184,
+  "tokens": 18,
+  "tf_agree": 1.0,
+  "ref_tree15": 3.5,
+  "int4_tree15": 3.5
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-132",
+  "category": "extraction",
+  "prompt": 211,
+  "tokens": 15,
+  "tf_agree": 1.0,
+  "ref_tree15": 4.0,
+  "int4_tree15": 4.0
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-133",
+  "category": "extraction",
+  "prompt": 368,
+  "tokens": 79,
+  "tf_agree": 1.0,
+  "ref_tree15": 7.778,
+  "int4_tree15": 6.182
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-134",
+  "category": "extraction",
+  "prompt": 221,
+  "tokens": 154,
+  "tf_agree": 1.0,
+  "ref_tree15": 4.704,
+  "int4_tree15": 4.923
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-135",
+  "category": "extraction",
+  "prompt": 170,
+  "tokens": 102,
+  "tf_agree": 1.0,
+  "ref_tree15": 8.273,
+  "int4_tree15": 8.273
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-136",
+  "category": "extraction",
+  "prompt": 273,
+  "tokens": 58,
+  "tf_agree": 1.0,
+  "ref_tree15": 3.462,
+  "int4_tree15": 3.462
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-137",
+  "category": "extraction",
+  "prompt": 218,
+  "tokens": 71,
+  "tf_agree": 1.0,
+  "ref_tree15": 4.462,
+  "int4_tree15": 4.462
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-138",
+  "category": "extraction",
+  "prompt": 345,
+  "tokens": 38,
+  "tf_agree": 1.0,
+  "ref_tree15": 3.75,
+  "int4_tree15": 3.75
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-139",
+  "category": "extraction",
+  "prompt": 157,
+  "tokens": 208,
+  "tf_agree": 1.0,
+  "ref_tree15": 7.0,
+  "int4_tree15": 7.0
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-140",
+  "category": "extraction",
+  "prompt": 354,
+  "tokens": 116,
+  "tf_agree": 1.0,
+  "ref_tree15": 5.444,
+  "int4_tree15": 5.444
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-141",
+  "category": "stem",
+  "prompt": 38,
+  "tokens": 256,
+  "tf_agree": 1.0,
+  "ref_tree15": 2.938,
+  "int4_tree15": 3.0
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-142",
+  "category": "stem",
+  "prompt": 55,
+  "tokens": 256,
+  "tf_agree": 1.0,
+  "ref_tree15": 2.507,
+  "int4_tree15": 2.413
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-143",
+  "category": "stem",
+  "prompt": 54,
+  "tokens": 256,
+  "tf_agree": 1.0,
+  "ref_tree15": 2.71,
+  "int4_tree15": 2.606
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-144",
+  "category": "stem",
+  "prompt": 31,
+  "tokens": 256,
+  "tf_agree": 1.0,
+  "ref_tree15": 2.507,
+  "int4_tree15": 2.413
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-145",
+  "category": "stem",
+  "prompt": 69,
+  "tokens": 256,
+  "tf_agree": 1.0,
+  "ref_tree15": 3.129,
+  "int4_tree15": 3.063
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-146",
+  "category": "stem",
+  "prompt": 50,
+  "tokens": 256,
+  "tf_agree": 1.0,
+  "ref_tree15": 3.063,
+  "int4_tree15": 2.879
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-147",
+  "category": "stem",
+  "prompt": 74,
+  "tokens": 256,
+  "tf_agree": 0.9883,
+  "ref_tree15": 2.048,
+  "int4_tree15": 1.943
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-148",
+  "category": "stem",
+  "prompt": 48,
+  "tokens": 256,
+  "tf_agree": 0.9961,
+  "ref_tree15": 1.977,
+  "int4_tree15": 1.844
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-149",
+  "category": "stem",
+  "prompt": 44,
+  "tokens": 256,
+  "tf_agree": 1.0,
+  "ref_tree15": 2.368,
+  "int4_tree15": 2.241
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-150",
+  "category": "stem",
+  "prompt": 32,
+  "tokens": 256,
+  "tf_agree": 1.0,
+  "ref_tree15": 1.977,
+  "int4_tree15": 1.943
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-151",
+  "category": "humanities",
+  "prompt": 40,
+  "tokens": 256,
+  "tf_agree": 1.0,
+  "ref_tree15": 2.71,
+  "int4_tree15": 2.606
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-152",
+  "category": "humanities",
+  "prompt": 26,
+  "tokens": 256,
+  "tf_agree": 1.0,
+  "ref_tree15": 2.048,
+  "int4_tree15": 2.048
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-153",
+  "category": "humanities",
+  "prompt": 38,
+  "tokens": 256,
+  "tf_agree": 1.0,
+  "ref_tree15": 2.084,
+  "int4_tree15": 1.909
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-154",
+  "category": "humanities",
+  "prompt": 67,
+  "tokens": 256,
+  "tf_agree": 1.0,
+  "ref_tree15": 2.71,
+  "int4_tree15": 2.765
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-155",
+  "category": "humanities",
+  "prompt": 34,
+  "tokens": 256,
+  "tf_agree": 0.9961,
+  "ref_tree15": 1.876,
+  "int4_tree15": 1.909
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-156",
+  "category": "humanities",
+  "prompt": 33,
+  "tokens": 256,
+  "tf_agree": 1.0,
+  "ref_tree15": 1.813,
+  "int4_tree15": 1.813
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-157",
+  "category": "humanities",
+  "prompt": 24,
+  "tokens": 256,
+  "tf_agree": 0.9961,
+  "ref_tree15": 2.16,
+  "int4_tree15": 1.977
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-158",
+  "category": "humanities",
+  "prompt": 27,
+  "tokens": 256,
+  "tf_agree": 0.9961,
+  "ref_tree15": 1.753,
+  "int4_tree15": 1.783
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-159",
+  "category": "humanities",
+  "prompt": 24,
+  "tokens": 256,
+  "tf_agree": 0.9961,
+  "ref_tree15": 1.943,
+  "int4_tree15": 1.977
+ },
+ {
+  "set": "mtbench",
+  "id": "mtbench-160",
+  "category": "humanities",
+  "prompt": 29,
+  "tokens": 256,
+  "tf_agree": 1.0,
+  "ref_tree15": 1.783,
+  "int4_tree15": 1.783
+ },
+ {
+  "set": "house",
+  "id": "chat-00",
+  "category": "house-chat",
+  "prompt": 29,
+  "tokens": 256,
+  "tf_agree": 1.0,
+  "ref_tree15": 1.695,
+  "int4_tree15": 1.639
+ },
+ {
+  "set": "house",
+  "id": "chat-01",
+  "category": "house-chat",
+  "prompt": 46,
+  "tokens": 256,
+  "tf_agree": 1.0,
+  "ref_tree15": 2.657,
+  "int4_tree15": 2.507
+ },
+ {
+  "set": "house",
+  "id": "chat-02",
+  "category": "house-chat",
+  "prompt": 29,
+  "tokens": 248,
+  "tf_agree": 1.0,
+  "ref_tree15": 1.884,
+  "int4_tree15": 1.918
+ },
+ {
+  "set": "house",
+  "id": "chat-03",
+  "category": "house-chat",
+  "prompt": 31,
+  "tokens": 256,
+  "tf_agree": 0.9922,
+  "ref_tree15": 2.2,
+  "int4_tree15": 2.084
+ },
+ {
+  "set": "house",
+  "id": "chat-04",
+  "category": "house-chat",
+  "prompt": 41,
+  "tokens": 256,
+  "tf_agree": 0.9922,
+  "ref_tree15": 2.282,
+  "int4_tree15": 2.282
+ },
+ {
+  "set": "house",
+  "id": "chat-05",
+  "category": "house-chat",
+  "prompt": 35,
+  "tokens": 133,
+  "tf_agree": 0.9925,
+  "ref_tree15": 1.83,
+  "int4_tree15": 1.771
+ },
+ {
+  "set": "house",
+  "id": "chat-06",
+  "category": "house-chat",
+  "prompt": 29,
+  "tokens": 256,
+  "tf_agree": 1.0,
+  "ref_tree15": 2.084,
+  "int4_tree15": 1.977
+ },
+ {
+  "set": "house",
+  "id": "chat-07",
+  "category": "house-chat",
+  "prompt": 29,
+  "tokens": 256,
+  "tf_agree": 1.0,
+  "ref_tree15": 1.37,
+  "int4_tree15": 1.415
+ },
+ {
+  "set": "house",
+  "id": "chat-08",
+  "category": "house-chat",
+  "prompt": 29,
+  "tokens": 256,
+  "tf_agree": 1.0,
+  "ref_tree15": 1.909,
+  "int4_tree15": 1.783
+ },
+ {
+  "set": "house",
+  "id": "chat-09",
+  "category": "house-chat",
+  "prompt": 28,
+  "tokens": 47,
+  "tf_agree": 1.0,
+  "ref_tree15": 1.238,
+  "int4_tree15": 1.136
+ }
+]

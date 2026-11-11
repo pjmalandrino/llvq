@@ -214,3 +214,5 @@ That the attention wall is the prefetch: one cross-design pair (4E against the t
 with it, nothing isolates it; E1's v9p0 arm does. The 8,192 attention time, taken from the door sweep, not stamped.
 Whether gate/up rows lose speed without L2 residency in situ. L2 retention of prefetched lines under the KV stream.
 The head's prune rate. Any 8B, 14B or other card.
+Tested on 2026-11-11 (cut 1, E1): large-4e-e1-2026-11-11.txt. The prefetch does lengthen attention; removing or
+moving it recovers no time.

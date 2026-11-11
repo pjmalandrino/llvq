@@ -1,0 +1,173 @@
+LARGE PREFILL, MORE ROWS A PASS: WHY THE CAP IS 16, WHAT 32 OR 64 COSTS, SEALED 4B, L40S SHAPES, 2026-11-11. $0.
+================================================================================================================
+Result: a pass of 32 known tokens is buildable with no new buffer and no new kernel code, only a12ipg's body compiled
+at RC = 4 instead of 2. It keeps the 16-row chain's bits by the pass's identity contract. Estimated pass outside
+attention 11.2 ms [10.7, 12.0] against 9.71 at 16 rows (*measured*, large-prefill-d1), so the non-attention part of the
+prefill falls x1.73 [1.62, 1.81]. First token 0.47 / 2.85 / 8.16 s at 1,024 / 4,096 / 8,191 tokens against 0.731 /
+3.904 / 10.262 today with a12ipg (*estimated*, intervals in section 4). The 8k gain is small because attention is 52 %
+of that first token and a row past 16 changes no attention work per token. R = 64 is out at the fixed slices: the
+down's staged activation for 64 rows does not fit in shared memory (section 3). Rows past 16 are not dearer than rows
+2 to 16 on any term the code shows, but rows 17 to 32 have never been timed on a card.
+Nature: read only. No build, no run, no job, no model loaded. Code read at b02db6c of claude/arbre-prefill-2026-11-11:
+llvq-cuda/kernels/pers_4et.cu, pers_4et_stream.cu, pers_4et_a9.cu, pers_4et_a10.cu, pers_4et_a10rc.cu,
+pers_4et_a12.cu, pers_4et_a12g.cu, llvq_pers.cuh; llvq-llm/src/persist4e_cuda.rs; llvq-cuda/src/spec_loop.rs and
+pers.rs. Journals: large-prefill-d1 (summary and phase stamps), large-prefill, spec-mem-m3, verify-tree-n9, n10, n11,
+and the notes spec-cout-fixe-audit, spec-passe-4e-r-etude, large-prefill-contexte, large-4e-budget.
+
+1. WHY THE CAP IS 16
+--------------------
+The cap is a compile-time choice of accumulator width, not a register wall.
+- p4t_unit_rc<RC, IP> (pers_4et_a10rc.cu) keeps each lane's accumulators as float acc[RC][4]: RC n8 tiles of the
+  mma.m16n8k16 B operand, 8 RC activation rows. The MMA loop runs nt < RC under nt < NT, and p4t_store_rc stores the
+  same RC tiles.
+- pers_4et_a12_body and pers_4et_a12g_body refuse R > 8 RC through the abort flag (line 81 of pers_4et_a12.cu, 261 of
+  pers_4et_a12g.cu). Every a12 symbol is instantiated at RC = 2: 16 rows.
+- RC = 4 compiles at 384 threads. a10t384 is that build: 168 registers, 736 B local, 78,848 B shared, its 32-row guard
+  bit for bit (*measured*, verify-tree-n10). a10 at 512 threads holds RC = 4 at 128 registers and 736 B local
+  (*measured*, n9). The 736 to 744 B of local memory do not move with the register budget: an array kept in local
+  memory, not a spill (n10's reading).
+- RC = 2 was chosen for speed. RC = 4 costs 0.073 of a 4E token at R = 1 and 0.031 at R = 16 against RC = 2 in the same
+  job at 512 threads (n9), and 0.088 and 0.075 at 384 threads across two jobs (n10 against n11): 0.14 to 0.39 ms a pass
+  (*computed* from those *measured* c_R at 4.467 ms a token).
+- The hard ceiling at 32 is P4T_RMAX = 32 (pers_4et.cu line 84). It sizes every row buffer (persist4e_cuda.rs lines
+  1334 to 1361), the path rows u8 [R][32], the tickets, the slots, the move, and p4t_stream_cap, which computes the
+  longest slice at 32 staged rows. chain_launches already takes 1 to 32 rows (spec_loop.rs line 318).
+
+2. WHAT THE 9.5 MS OF A PASS IS MADE OF
+--------------------------------------
+Paid once a pass whatever R (the audits' ledger at R = 1, chat context):
+- 4E's own work on the same words, 4.47 ms (*measured*, n11): the decode of every weight word, the int4 rows, 218 of
+  the waits.
+- The tree's overhead over 4E, 2.43 ms (*measured* total, spec-cout-fixe-audit): fold phases 0.60 ms over 145 grid
+  waits, decode and MMA loop at x1.27 0.77 ms, unit starts and closes about 0.34 ms (*estimated*), f32 partial stores
+  about 0.12 ms (*estimated*), 0.45 ms unexplained. 472 grid waits a pass against 218.
+- Reading the served words in place, 2.36 ms (*measured*, spec-mem-m3: x1.27, 8.53 to 10.91 ms a pass).
+- These sum to 9.26 ms against the 9.56 ms of an a12ip pass at R = 1 (*computed* against *measured*).
+At 16 rows and 8,191 tokens the part outside attention reads 9.71 ms (*measured*, d1 stamps, head off): q/k/v 1.98, o
+0.95, gate/up 3.55, down 1.56 (projections 8.04, 83 %), folds 0.70, prologues ln1 + ln2 + down input 0.81, norm and
+RoPE 0.14, embedding 0.02.
+What scales with R, read in the code:
+- MMA work: NT = ceil(R / 8) n8 tiles, 3 HMMA and 6 LDS.32 of B a tile a sub-step. Tensor pipe at NT = 4, 0.64 ms a
+  sub-partition a pass, against a projection wall of 8.04 ms (*computed*, the audit's 16.2 cycles an MMA).
+- Staging: each unit stages R rows of its slice. 39 MB a row a pass from L2 (*computed* from the unit counts).
+- f32 slice partials: 1.13 MB a row a layer written and folded, 40.5 MB a row a pass, L2-resident (19.9 MB for the
+  gate/up phase at 32 rows, against a 96 MB L2).
+- Folds: d_out / 4 pairs a row dealt over the grid's 54,528 threads. At 32 rows gate/up needs 77,824 pairs, two rounds;
+  q/k/v, o and down stay at one.
+- Prologues: row r on CTA r mod 142. Flat up to 142 rows.
+- Attention: per row, a fixed amount a token across the prompt.
+Measured slope: 0.091 ms a row from 1 to 16 (a12ip, head on every row, spec-mem-m3); 0.048 ms from 1 to 8 and 0.059
+from 8 to 16 on a10 at RC = 4 (*computed* from n9's c_R). No knee where NT goes from 1 to 2. That is the basis for
+pricing rows 17 to 32 at 0.05 to 0.12 ms each, widened upward for the second fold round and two more n8 tiles.
+
+3. THREE DESIGNS
+----------------
+A. a12ipg at RC = 4, R = 32 (the one to build).
+   Kernel: one more symbol, pers_4et_a12g_body<FORM, 4u, true> at 384 threads. No other line changes. The unit,
+   p4t_store_rc, the folds, the prologues and p4g_attention are templated or loop over R already.
+   Host: a TreeForm whose rmax() is 32 (persist4e_cuda.rs line 266 lists a12ipg at 16), its module text and install
+   line, prefillbench and the chain driver given R = 32. chain_launches, tree_chain and the move take 32 today.
+   Bits: equal to the 16-row chain. Row n of a projection is column n of the MMA's B and D, so no other row enters it;
+   the slices S are fixed by the plan [8, 10, 8, 20, 6], never by R; each tile folds its slices in order 0 .. S - 1.
+   Attention keeps each row's tiles, units, splits and fold order, all functions of the row's length. A position below
+   pos0 is read from the cache and one at or above from the tree slot: the same binary16 bits, since the move copies
+   them. Under a12ipg a split is shared when it ends at or below pos0, so moving pos0 from a multiple of 16 to a
+   multiple of 32 changes which splits run as group jobs. D1 measured that a group job and a row job give the same
+   bits (identity HOLDS at 1,024, 4,096 and 8,191).
+   Registers: 168 to 170 at 384 threads (*estimated* from a10t384's 168 at RC = 4). Local memory may rise above 744 B
+   if the in-place loads and the grouped attention push it past 170: the Mac compile probe below reads it.
+   Shared memory: unchanged, 93,568 B. p4g_area_floats at 32 staged rows is 18,624 floats, the attention's bound. The
+   down's 11 sub-steps at 32 rows stage 8,576 floats plus 5,376 of A tiles, under the area (*computed*).
+   Card bytes: none added. Every row buffer is already sized for P4T_RMAX = 32 rows, 0.153 GB (*measured*, d1 loader),
+   so the phase peaks stay 2.318 / 2.855 / 3.560 GB at 1,024 / 4,096 / 8,191 (*measured* for R = 16, *computed*
+   unchanged), under the eager 2.356 and 5.946.
+   Causal order inside the pass: the norm/RoPE phase writes every row's K and V into its tree slot, a grid wait
+   follows, and attention row r reads positions pos0 .. pos0 + r from slots path[r][0 .. r]. 32 rows use slots 0 to 31,
+   which exist.
+B. R = 64 by raising P4T_RMAX. Stops at shared memory.
+   With the slices fixed, a unit stages its whole slice for all rows before its loop. The down's 11 sub-steps at 64
+   rows need 64 x 268 = 17,152 floats, plus 5,376 floats of A tiles and 128 of maxima: 90.6 KB of area, 109.7 KB with
+   the 19.1 KB of header and tables, against 101,376 B (*computed*). At 8 warps it is 102.5 KB, still over. Fewer
+   slices would fit but change the fold order, so the bits. Staging in chunks (a2's double-buffered unit) would fit and
+   keep the bits, but that unit was replaced by the stream unit for speed, and P4T_RMAX = 64 also changes path rows,
+   chain_path's type and every arm's buffers. Not built here; no estimate is signed for it.
+C. Accumulators in shared memory, any R. Stops at shared memory too.
+   The f32 values round-trip exactly, so loading C from shared before each MMA and storing D after keeps the bits. A
+   warp's 16 output rows times 64 activation rows are 4 KB, 48 KB for 12 warps, on top of the staged slice. Registers
+   were never the binding limit (section 1); the staged activation is, and C does not shrink it.
+A wider launch (512 threads at 128 registers) is a10's measured geometry: at 32 rows it reads like 384 threads (c_1
+1.744 against 1.755 at the same plan, n10). It is the fallback if A spills at 384, with the stream cap still at 14
+sub-steps (*computed*, 16 warps).
+
+4. ESTIMATE FOR DESIGN A (*estimated*, signed form)
+---------------------------------------------------
+Model: first token = passes x T_rest(R) + attention, with attention a token unchanged by R.
+- T_rest(16) = 9.71 ms (*measured*, stamped).
+- T_rest(32) = 9.71 + RC penalty [0.14, 0.39] + 16 rows x [0.05, 0.12] = 11.2 ms [10.7, 12.0].
+- Attention over a prompt, from the measured first tokens of a12ipg less 64 / 256 / 512 x 9.71 ms: 0.110 / 1.418 /
+  5.290 s at 1,024 / 4,096 / 8,191 (*computed*). Taken at x[0.95, 1.00] at R = 32: the same jobs and bytes a row, half
+  the attention phases.
+Pass at R = 32: short context, head off, 12.7 ms [11.7, 14.0] (attention 1 to 2 ms, from about 0.03 to 0.06 ms a row
+below 256 positions). At 8,191: 44.8 ms [42.6, 45.6], attention 33.6 of it (twice d1's 16.8).
+  prompt   passes   rest, s                attention, s     first token, s          today a12ipg   gain
+  1,024    32       0.359 [0.341, 0.385]   0.110            0.47 [0.45, 0.50]       0.731          x1.56
+  4,096    128      1.435 [1.363, 1.539]   1.418            2.85 [2.71, 2.96]       3.904          x1.37
+  8,191    256      2.870 [2.726, 3.077]   5.290            8.16 [7.76, 8.37]       10.262         x1.26
+At 1,024 a12ip's attention is faster (0.081 s): 0.44 s [0.42, 0.47] if the arm switches by length.
+With the attention change of section 5 (groups of 6), attention x[0.85, 1.00]: 2.67 s [2.57, 2.96] at 4,096 and 7.47 s
+[7.22, 8.37] at 8,191.
+Measured ratios relied on: the RC penalty (n9, n10 against n11); the 1-to-16 row slope (spec-mem-m3, n9); d1's 9.71 ms
+rest and the attention left by subtraction. Not measured: the cost of rows 17 to 32, and whether RC = 4 on the
+in-place, grouped body keeps a10t384's registers. Earlier estimates on this pass were optimistic where they priced
+work nobody had timed: D1's attention (6 to 10 ms signed, 16.8 measured) and M3's in-place speed. The terms above that
+are measured carry most of the total; the 16 x [0.05, 0.12] term is the one at risk.
+What makes it wrong: a spill at RC = 4 (the sub-step loop then touches local memory, possibly +1 ms or more); a row
+slope above 0.15 ms past 16, which no code term predicts; L2 eviction of the partials when weights and 32-row partials
+share it.
+
+5. THE 16.8 MS ATTENTION OF A12IPG AT 8K
+----------------------------------------
+Most of it is per-row scalar arithmetic, not bytes.
+Split under the model step = F + rows x V, with step counts from the code (*computed*):
+- a12ip at pos0 8,144: 4,096 jobs a layer of 8 steps, 230.8 one-row steps a CTA a layer, 34.43 ms: 4.14 us a step.
+- a12ipg: 992 group jobs and 128 row jobs a layer, 55.9 four-row and 7.2 one-row steps a CTA, 16.76 ms.
+- Solving: F = 2.92 us a step, V = 1.22 us a row-step. Per pass: V terms 10.1 ms, F terms 6.6 ms (*computed*).
+- F matches the bytes: 142 CTAs x 16 KB a step at 864 GB/s is 2.69 us, and 5.28 GB a pass. The two terms add rather
+  than overlap.
+What V is made of, per call of pers_attn_tile (8 positions, one row, two query heads a warp), read in the code:
+- 128 binary16 widenings (h2f on 8 K and 8 V vectors of 8), redone for each row of the group on the same staged bytes;
+- 64 FFMA for QK, 32 SHFL with 32 dependent FADD for the reductions, 64 FFMA for PV;
+- 9 software ex2 (pers_ex2: FRND, F2I and a 6-FMA chain each);
+- 16 LDS.128 of K and V, 4 of q, 4 of the unit state and 2 STS.128 back.
+About 550 warp instructions a call, 9.44 M calls a pass: 5.2 G instructions, 3.8 ms at full issue on 142 SMs
+(*computed*).
+The measured V is 2.6 times that. The suspect to check first: if ptxas lowers cvt.f32.f16 to F2F (16 results a clock
+an SM on sm_89) rather than HADD2.F32 on the FMA pipe, the widenings alone are about 7 ms a pass (*computed*). The SASS
+of the a12ipg module answers it on the Mac at $0. Widening is exact, so a bit-exact replacement exists, but it is a
+separate study.
+Groups above 4: P4G_RG = 5 at two stages needs 103,936 B (the file's own count). Staging half a step (2 of 4 units, 8
+KB a stage) or a one-stage ring frees 16 KB: 16,384 + 6 x 10,368 + 256 B of maxima = 78,848 B of area,
+97,920 B with header and tables: RG = 6 fits, RG = 7 does not. With q held in registers instead of shared (8,320 B a
+row), RG = 7 fits under half-step staging, RG = 8 does not (102,272 B). Larger groups only shrink F: at RG = 6 about
+-2.2 ms of 16.8 at 8k (*estimated*, [0, -2.5]); the 10 ms of V stay.
+
+6. COST AND GATES OF DESIGN A
+-----------------------------
+Build: about 6 agent-hours (*estimated*): symbol and TreeForm 1 h, install and prefillbench 1.5 h, host twin and
+mutants 2 h, compile probe 0.5 h, prereg and job script 1 h.
+Mac gates ($0, after the operator's go, one heavy job at a time):
+- Compile probe (ops/tetra-sass-probe.sh, sm_89): the RC = 4 a12ipg symbol at most 170 registers and at most 744 B
+  local. Above that, rebuild at 512 threads before any card time.
+- Host twin: a chain prefill at R = 32 equals R = 16 and R = 1 bit for bit (each layer's K and V, the last row's
+  logits), on a prompt whose length is not a multiple of 32 and that crosses at least two 256-position splits, so the
+  group and row jobs fall differently at 16 and 32. The existing twins (R = 16 and R = 5 equal R = 1) still pass.
+- Mutants, each must kill the twin: n8 tiles 2 and 3 stored at nt 0 and 1's columns; acc of tiles 2 and 3 not zeroed;
+  the row cap left at 16 in the guard (the launch must abort, not run 16 rows). Count the sites each mutant changes.
+Card: one l40sx1 job like d1, a12ipg at 32 against a12ipg at 16 in one process, identity at every length, first token
+round by round, the 8k phase split, peak VRAM, the 47 texts. About 19 to 21 min, $0.57 to $0.63 (*estimated* from d1's
+19 min and $0.57).
+
+NOT ESTABLISHED
+---------------
+Any time of a 32-row pass on a card. The registers of the RC = 4 a12ipg symbol. Whether h2f lowers to F2F or HADD2.F32
+in this module. The split of V between issue, pipes and latency. Any 8B or 14B shape. Any card but the L40S.

@@ -61,6 +61,12 @@ pub struct Runtime4e {
     /// The phase-stamp symbol of the same form and block size, when one
     /// exists (512 threads): [`Runtime4e::decode_stamped`].
     f_stamp: Option<CudaFunction>,
+    /// The logits symbol of an E1 module ([`install_e1`]): the token loop
+    /// writing the head's binary16 logits ([`Runtime4e::decode_logits`]).
+    f_logits: Option<CudaFunction>,
+    /// The E1 arm of the module (`pers::P4E_E1_ARMS`), or none for a form's
+    /// own module.
+    pub e1_arm: Option<&'static str>,
     pub threads: u32,
     /// The module's row form (`pers::P4E_ROWS_FORMS`).
     pub rows_form: u32,
@@ -102,6 +108,15 @@ pub struct Runtime4e {
     verify: Option<Verify4e>,
     /// The tree verify pass, once [`Runtime4e::install_tree`] has run.
     tree: Option<Tree4e>,
+}
+
+/// Which symbol a launch runs: the token loop, its phase stamps, or an E1
+/// module's logits.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Mode4e {
+    Plain,
+    Stamped,
+    Logits,
 }
 
 /// The card's barrier counter and flags, as [`pers::p4e_settle`] reads and
@@ -437,6 +452,30 @@ pub fn install_rows_as(
     rows_form: u32,
     smem_of: Option<u32>,
 ) -> anyhow::Result<Runtime4e> {
+    install_inner(model, device, max_tokens, threads, rows_form, smem_of, None)
+}
+
+/// An E1 arm (`pers::P4E_E1_ARMS`: "v9", "v9np", "v9mv"), a measurement:
+/// row form 7's module with the arm's edits (`pers::p4e_e1_unit_text`; the
+/// served v9 module's text does not move), at 512 threads, with its logits
+/// symbol. Experiment E1 of `docs/mesures/large-4e-budget-2026-11-11.txt`.
+pub fn install_e1(model: &Qwen3, device: &Device, max_tokens: u32, arm: &str) -> anyhow::Result<Runtime4e> {
+    let arm = *pers::P4E_E1_ARMS
+        .iter()
+        .find(|a| **a == arm)
+        .ok_or_else(|| anyhow::anyhow!("4E E1: no arm {arm:?}; the arms are {:?}", pers::P4E_E1_ARMS))?;
+    install_inner(model, device, max_tokens, Some(512), 7, None, Some(arm))
+}
+
+fn install_inner(
+    model: &Qwen3,
+    device: &Device,
+    max_tokens: u32,
+    threads: Option<u32>,
+    rows_form: u32,
+    smem_of: Option<u32>,
+    e1_arm: Option<&'static str>,
+) -> anyhow::Result<Runtime4e> {
     let dev = device.as_cuda_device()?;
     let stream = dev.cuda_stream();
     let mut lines = Vec::new();
@@ -453,12 +492,16 @@ pub fn install_rows_as(
     let tables = frt.table_view().ok_or_else(|| anyhow::anyhow!("4E: no Tetra tables"))?;
     let (hidden, inter) = (qv0.d_in, cfg.intermediate_size as u32);
 
-    let text = format!("{}{}", pers::p4e_rows_define(rows_form).map_err(anyhow::Error::msg)?, pers::pers_unit_text(&frt.tile_define()));
+    let text = match e1_arm {
+        None => format!("{}{}", pers::p4e_rows_define(rows_form).map_err(anyhow::Error::msg)?, pers::pers_unit_text(&frt.tile_define())),
+        Some(arm) => pers::p4e_e1_unit_text(&frt.tile_define(), arm).map_err(anyhow::Error::msg)?,
+    };
     let src = llvq_cuda::gpu::KernelSource::new(&[text.as_str()]);
     lines.push(format!(
-        "4E: persistent module {} bytes, sha256 {}, row form {rows_form}, own module on candle's stream",
+        "4E: persistent module {} bytes, sha256 {}, row form {rows_form}{}, own module on candle's stream",
         src.text.len(),
-        src.sha256
+        src.sha256,
+        e1_arm.map_or(String::new(), |a| format!(", E1 arm {a}"))
     ));
     let cuda = llvq_cuda::gpu::Cuda::on_stream(stream.clone(), &src).map_err(anyhow::Error::msg)?;
 
@@ -513,6 +556,24 @@ pub fn install_rows_as(
         Err(e) => {
             lines.push(e);
             None
+        }
+    };
+    // An E1 module's logits symbol, at 512 threads only. Like the stamp
+    // symbol it runs outside the timed rounds and may hold local memory.
+    let f_logits = match e1_arm {
+        None => None,
+        Some(arm) => {
+            if threads != 512 {
+                anyhow::bail!("4E E1 {arm}: the logits symbol is at 512 threads, the runtime at {threads}");
+            }
+            let sym = pers::p4e_logits_symbol(form).map_err(anyhow::Error::msg)?;
+            let fl = cuda.func_dynamic_shared(sym, smem).map_err(anyhow::Error::msg)?;
+            let r = cuda.report(sym).map_err(anyhow::Error::msg)?;
+            let occ = fl
+                .occupancy_max_active_blocks_per_multiprocessor(threads, smem as usize, None)
+                .map_err(|e| anyhow::anyhow!("occupancy: {e}"))?;
+            lines.push(format!("4E: {sym}: {} registers, {} B local, {occ} resident a SM (logits, outside the timed rounds)", r.num_regs, r.local_bytes));
+            (occ >= 1).then_some(fl)
         }
     };
     let grid = cuda.device().map_err(anyhow::Error::msg)?.sm_count as u32;
@@ -819,6 +880,8 @@ pub fn install_rows_as(
         cuda,
         f,
         f_stamp,
+        f_logits,
+        e1_arm,
         threads,
         rows_form,
         grid,
@@ -860,7 +923,7 @@ impl Runtime4e {
     /// holding `pos0` positions, stopping after `eos`. Returns the tokens
     /// made; the caches hold `pos0 + made` positions after.
     pub fn decode(&mut self, caches: &mut [KvCache], pos0: usize, tok: u32, n: u32, eos: u32) -> anyhow::Result<Vec<u32>> {
-        Ok(self.launch(caches, pos0, tok, n, eos, false)?.0)
+        Ok(self.launch(caches, pos0, tok, n, eos, Mode4e::Plain)?.0)
     }
 
     /// [`Self::decode`] past one launch's `max_tokens`: launches of at most
@@ -893,6 +956,9 @@ impl Runtime4e {
     /// The form and the geometry, as the measurement prints them: "v4 at 512
     /// threads".
     pub fn label(&self) -> String {
+        if let Some(arm) = self.e1_arm {
+            return format!("e1:{arm} at {} threads", self.threads);
+        }
         let form = pers::P4E_ROWS_FORMS.iter().find(|f| f.0 == self.rows_form).map_or("v?", |f| f.1);
         let pad = if self.padded { "s" } else { "" };
         format!("{form}{pad} at {} threads", self.threads)
@@ -930,7 +996,21 @@ impl Runtime4e {
     /// tokens, and the stamps `[made][p4e_events][grid]` of the grid clock,
     /// in ns, for `pers::p4e_phase_report`.
     pub fn decode_stamped(&mut self, caches: &mut [KvCache], pos0: usize, tok: u32, n: u32, eos: u32) -> anyhow::Result<(Vec<u32>, Vec<u64>)> {
-        self.launch(caches, pos0, tok, n, eos, true)
+        let (made, stamps, _) = self.launch(caches, pos0, tok, n, eos, Mode4e::Stamped)?;
+        Ok((made, stamps))
+    }
+
+    /// Does this runtime carry an E1 logits symbol?
+    pub fn can_logits(&self) -> bool {
+        self.f_logits.is_some()
+    }
+
+    /// [`Self::decode`] on an E1 module's logits symbol (a measurement): the
+    /// same tokens, and the head's binary16 logits of each token made,
+    /// `[made][vocab]`, as bits.
+    pub fn decode_logits(&mut self, caches: &mut [KvCache], pos0: usize, tok: u32, n: u32, eos: u32) -> anyhow::Result<(Vec<u32>, Vec<u16>)> {
+        let (made, _, logits) = self.launch(caches, pos0, tok, n, eos, Mode4e::Logits)?;
+        Ok((made, logits))
     }
 
     /// The layers and the grid a stamp buffer is laid out by.
@@ -946,9 +1026,13 @@ impl Runtime4e {
         pers::p4e_settle(&mut dev, &mut self.bar_base).map_err(anyhow::Error::msg)
     }
 
-    fn launch(&mut self, caches: &mut [KvCache], pos0: usize, tok: u32, n: u32, eos: u32, stamped: bool) -> anyhow::Result<(Vec<u32>, Vec<u64>)> {
+    fn launch(&mut self, caches: &mut [KvCache], pos0: usize, tok: u32, n: u32, eos: u32, mode: Mode4e) -> anyhow::Result<(Vec<u32>, Vec<u64>, Vec<u16>)> {
+        let stamped = mode == Mode4e::Stamped;
         if stamped && self.f_stamp.is_none() {
             anyhow::bail!("4E: no phase-stamp symbol at {} threads", self.threads);
+        }
+        if mode == Mode4e::Logits && self.f_logits.is_none() {
+            anyhow::bail!("4E: no logits symbol (an E1 module at 512 threads carries one)");
         }
         if n == 0 || n > self.max_tokens {
             anyhow::bail!("4E: {n} tokens a launch, the runtime holds {}", self.max_tokens);
@@ -974,6 +1058,13 @@ impl Runtime4e {
         } else {
             None
         };
+        // The logits symbol reads the stamp pointer as [n][vocab] binary16.
+        let vocab = self.args_host.vocab as usize;
+        let logits: Option<CudaSlice<u16>> = if mode == Mode4e::Logits {
+            Some(stream.alloc_zeros::<u16>(n as usize * vocab).map_err(|e| anyhow::anyhow!("alloc logits: {e}"))?)
+        } else {
+            None
+        };
         let launch = pers::P4eLaunch {
             bar_base: self.bar_base,
             pos0: pos0 as u32,
@@ -982,10 +1073,18 @@ impl Runtime4e {
             eos,
             pad: 0,
             ring: self.ring.device_ptr(&stream).0,
-            stamps: stamps.as_ref().map_or(0, |b| b.device_ptr(&stream).0),
+            stamps: match (&stamps, &logits) {
+                (Some(b), _) => b.device_ptr(&stream).0,
+                (None, Some(b)) => b.device_ptr(&stream).0,
+                (None, None) => 0,
+            },
         };
         let cfg = LaunchConfig { grid_dim: (self.grid, 1, 1), block_dim: (self.threads, 1, 1), shared_mem_bytes: self.smem };
-        let f = if stamped { self.f_stamp.as_ref().expect("checked above") } else { &self.f };
+        let f = match mode {
+            Mode4e::Plain => &self.f,
+            Mode4e::Stamped => self.f_stamp.as_ref().expect("checked above"),
+            Mode4e::Logits => self.f_logits.as_ref().expect("checked above"),
+        };
         let mut b = stream.launch_builder(f);
         b.arg(&self.args).arg(&launch);
         // SAFETY: the kernel's own signature (Pers4eArgs*, Pers4eLaunch), the
@@ -1011,7 +1110,14 @@ impl Runtime4e {
             }
             None => Vec::new(),
         };
-        Ok((made, stamps))
+        let logits = match logits {
+            Some(d) => {
+                let all = stream.clone_dtoh(&d).map_err(|e| anyhow::anyhow!("D2H logits: {e}"))?;
+                all[..made.len() * vocab].to_vec()
+            }
+            None => Vec::new(),
+        };
+        Ok((made, stamps, logits))
     }
 
     /// Install the verify pass ([`Self::verify`]): its module (row form 7

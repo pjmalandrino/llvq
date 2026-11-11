@@ -1,0 +1,78 @@
+Throughput work on the sealed Qwen3-4B Tetra object, L40S: the milestones.
+
+Rule of the work (operator, 2026-11-11): raise speed while quality, whole-model b/param and VRAM stay where the served
+object has them. The scope is open, the served 4E kernel included. A milestone is one question settled by a
+measurement. Each one closes with the table of the fundamental criteria against base Tetra and what is still owed.
+Every figure is measured unless it says computed or estimated.
+
+Base Tetra (served 4E, config v9): 2.73 b/param; 2.01 GB at a short context, 5.95 GB at 8k; decode 224 tok/s in chat,
+221 on the house set, 219 on GSM8K-200, 159 at 8k; first token after 3.95 s at 1,024 prompt tokens, 17.6 s at 4,096,
+37.0 s at 8,191.
+
+J1, 2026-11-10 night to 2026-11-11 06:00. Can one pass verify 16 rows and pay with a public drafter?
+  Yes for speed, no for memory. Tree pass repaired from 3.07 to 1.73 tokens of 4E for 16 rows. With the DFlash drafter:
+  502 tok/s on GSM8K-200 (x2.30), 343 on the house set (x1.56), chat 242 (x1.09). Quality: GSM8K 167 correct against
+  166, p = 1; text equal to 4E's on 177 of 200. Memory, counted after the fact: 5.41 GB against 2.01 and 4.87 b/param
+  with the f16 drafter. Journals: verify-tree-n1..n11, spec-loop-sp2..sp8.
+
+J2, 2026-11-11 morning. What does the speculative mode cost in memory, and can it be had at 2.73 b/param?
+  Not usefully. Reading the weights in place gives back 1.28 GB and costs 15 % of speed (house set 340 to 289 tok/s,
+  chat 240 to 200, below base). An int4 drafter keeps acceptance within 2 % at 0.29 GB, whole model 3.30 b/param
+  (Mac, not built on the card). A drafter with no weights accepts 1.27 tokens a pass on GSM8K and 0.93 on the house
+  set: +12 % and -6 % (estimated). On MT-Bench's 80 first turns conversational chat gains 2 to 22 % at best and some
+  prompts lose under every gate tried. At 8k the speculative pass is 3 times slower than base. Operator ruling: two
+  profiles, the default at 2.73 b/param, DFlash kept for deployments with memory to spare.
+  Journals: spec-memoire, spec-arbre32-mac, spec-brouillon-int4-mac, spec-brouillon-sans-poids-mac, spec-chat-mac,
+  spec-mem-m3, spec-cout-fixe-audit, spec-passe-4e-r-etude.
+
+J3, 2026-11-11 afternoon. Looking wide: where is speed available with every criterion held?
+  In the prefill. The prompt was prefilled at about 4 ms a token, 77 to 93 % of a chat turn from 1k tokens up. Through
+  the 16-row pass read in place, with no drafter and no copy: first token after 0.70 s at 1,024 (x5.6), 4.31 s at
+  4,096 (x4.1), 13.37 s at 8,191 (x2.8). Peak at 8k 5.95 to 3.56 GB. Paired perplexity +0.0007 % [-0.008, +0.009],
+  inside the served +-0.12 %; 41 of 47 texts identical, the six others split on near-ties; decode after the hand-over
+  unchanged. A bench, not the served door. Owed before serving: a GSM8K-200 pairing, cached compiled modules (load
+  419 s against 100 s), the operator's decision.
+  Also established: 4E spends 1.76 of its 4.47 ms a token reading no weights; three bit-identical cuts are worth 5 to
+  11 % at a short context and 11 to 17 % at 8k (estimated). Batches of users: no gain over the pool already on main
+  without the weight copies.
+  Journals: large-4e-budget, large-prefill-contexte, large-lots; on branch claude/arbre-prefill-2026-11-11:
+  large-prefill-2026-11-11.
+
+J4, open. Two measurements in flight.
+  D1: one read of the K/V cache for a group of rows, same bits. Signed: first token at 8,191 near 6 s instead of 13.4.
+  E1: 4E's L2 prefetch removed, then moved, logits bit for bit. Signed: +1 to +3 % at a short context, +4 to +8 % at 8k.
+
+Spend under the operator's cap of $25, counted from the go of 2026-11-09: $10.94 after the prefill job; E1 running,
+cap $0.87; D1 to come, cap $1.00.
+
+Operator's answers to J3, 2026-11-11. (1) The prefill is not served now: it is kept to be packaged once, with the
+rest of what this work yields. (2) The fast profile (DFlash int4) is set aside: everything needed to build it is on
+record, it is built when wanted. (3) No 8B point yet: progress further on the 4B first.
+
+J4, E1 closed, 2026-11-11. Removing 4E's L2 prefetch from the attention phase keeps the logits bit for bit and
+shortens that phase by 201 us at 5 tokens and 252 at 8,192, but o and the gate/up rows give the time back: x1.003
+and x0.996 of v9 (measured). Moving it into the gate/up rows costs them 256 us: x0.978 at both contexts. Neither arm
+passes; v9 stays; 19 min, $0.57, spend $11.51 of $25. Journal: large-4e-e1.
+
+J4, D1 read, 2026-11-11 (job 6af486a5, 19 min, $0.57, spend $12.08 of $25). The arm a12ipg reads the K/V cache once
+for a group of 4 rows. It equals a12ip bit for bit at 1,024, 4,096 and 8,191 tokens (logits, K, V), 47 texts of 47,
+at the same phase peaks (2.318 / 2.855 / 3.560 GB). First token: 0.731 s against 0.702 at 1,024 (x0.96, a loss),
+3.904 against 4.306 at 4,096 (x1.10), 10.262 against 13.361 at 8,191 (x1.30). The 8k pass falls from 44.5 to 26.8 ms
+(host wall; 44.2 to 26.5 ms as the prereg's summed phases) and its attention from 34.4 to 16.8 ms. Under the prereg's
+rule D1 FAILS for speed: it asked x1.5 at 8,191 and got x1.302. The three signed first-token figures (0.63, 2.7 and
+6.2 s) are missed. The design already shared by groups of 4; the miss is that attention time fell to 0.49 of
+a12ip's where the bytes fell to about a quarter (8 to 11 ms of a12ipg's attention unexplained, computed), and that
+the saving shrinks with the context (-0.45 ms a pass at 1,024, +1.57 at 4,096, +6.05 at 8,191, computed).
+Journal: on branch claude/arbre-prefill-2026-11-11 (c525d03), large-prefill-d1-2026-11-11. The test
+the_a12_pass_is_the_row_cap_pass_with_taps, stale since 96c501a, is fixed there (4fa7cab).
+
+J4 closed, 2026-11-11. What stops speed, at constant criteria?
+  Decode: the memory wall. 4E's row phases are bound by DRAM traffic, a cut moves time and does not remove it (E1).
+  A few percent are left in small uncertain cuts. Decode stays 224 tok/s in chat.
+  First token: still the lever. Best chain arm by length against the served eager prefill: 0.70 s against 3.95 at
+  1,024 (x5.6), 3.90 against 17.64 at 4,096 (x4.5), 10.26 against 37.04 at 8,191 (x3.6). A chat turn of 256 answer
+  tokens: 1.89 s against 5.14, 5.21 against 18.95, 11.86 against 38.64 (computed from the two measured parts).
+  Criteria against base Tetra: quality inside the served tolerance (paired ppl +0.0007 %, GSM8K pairing owed);
+  2.73 b/param; peak 2.32 GB against 2.36 at 1,024 and 3.56 against 5.95 at 8k. A bench, not the served door.
+  Next lead, opened as a $0 study: a pass is almost all fixed cost (16 rows 10.9 ms, 1 row 9.56 ms), so more than 16
+  known tokens a pass would cut the 4.97 s that the 8k prefill spends outside attention.

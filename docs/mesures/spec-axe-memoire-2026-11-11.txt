@@ -129,3 +129,13 @@ chain equals the pass's one-row path bit for bit on the card. Paired perplexity 
 +-0.12 %; 41 of 47 texts identical, the six others split on near-ties. A 256-token chat turn takes 1.90 / 5.64 / 14.97 s
 against 5.14 / 18.95 / 38.64 (*computed*). The chain load takes 419.5 s against 100.6, most likely NVRTC on the two
 tree modules (*estimated*). No served path calls it; GSM8K-200 remains before serving.
+
+2026-11-11, chat measured on MT-Bench 80 (spec-chat-mac-2026-11-11.txt, $0, Mac, 24 min). Operator's priority: chat
+never loses, gains what it can. DFlash tree of 15 accepts 2.896 a pass on the 80 MT-Bench first turns against 1.937 on
+the house chat 10 (*measured*); the conversational categories (writing, roleplay, humanities, stem) read 1.9 to 2.5,
+the house level. Projected (*estimated*, greedy 224.2): DFlash int4 (3.30 b/param) 305.0 tok/s at a12 and 257.7 at
+a12ip on MT-80, but x1.00 to x1.12 (a12) and x0.85 to x1.01 (a12ip) on the conversational categories. Best gates add
+1 to 7 % on the held-out half; a perfect gate would add +19 to +43 % (*computed* bound), so the room exists and no
+confidence feature tried reaches it. Tables (2.73 b/param) gated on a lookup match n >= 3 or 4: 235.5 and 228.7 on
+test (x1.05, x1.02), worst prompt -6 to -7 %; ungated they lose 12 to 29 %. Adaptive tree size never picks a small
+tree: the verify pass is nearly flat in rows. No policy makes conversational chat gain 10 %.

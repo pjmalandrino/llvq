@@ -1,0 +1,84 @@
+{
+ "gate": {
+  "text_rows": 24,
+  "text_top1_agree": 24,
+  "text_top8_overlap": 1.0,
+  "off_rows": 9,
+  "off_top1_agree": 9,
+  "off_top8_overlap": 1.0
+ },
+ "arms": [
+  [
+   "comb4w",
+   "comb",
+   0
+  ],
+  [
+   "comb4w-g1",
+   "comb",
+   1
+  ],
+  [
+   "comb4w-g2",
+   "comb",
+   2
+  ],
+  [
+   "comb4w-g3",
+   "comb",
+   3
+  ],
+  [
+   "comb4w-g4",
+   "comb",
+   4
+  ],
+  [
+   "comb4w-g6",
+   "comb",
+   6
+  ],
+  [
+   "look",
+   "look",
+   0
+  ],
+  [
+   "look-g1",
+   "look",
+   1
+  ],
+  [
+   "look-g2",
+   "look",
+   2
+  ],
+  [
+   "look-g3",
+   "look",
+   3
+  ],
+  [
+   "look-g4",
+   "look",
+   4
+  ],
+  [
+   "look-g6",
+   "look",
+   6
+  ]
+ ],
+ "shape": [
+  0.55,
+  0.18,
+  0.09,
+  0.06
+ ],
+ "q": 0.9,
+ "stats": {
+  "fwd_s": 795.6,
+  "rows": 240027,
+  "fwds": 12642
+ }
+}
