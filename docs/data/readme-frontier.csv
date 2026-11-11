@@ -1,0 +1,13 @@
+model,params,arm,engine,bparam,mmlu,source
+Qwen3-4B,4022468096,tetra,ours (4E v9),2.8206,63.37,duel-iq2-2026-11-08
+Qwen3-4B,4022468096,iq2s,llama.cpp cd959bae9,2.8188,54.29,duel-iq2-2026-11-08
+Qwen3-4B,4022468096,awq,vLLM 0.26.0,5.30,68.14,paper2-results.csv
+Qwen3-4B,4022468096,fp16,vLLM 0.26.0,16.00,70.14,paper2-results.csv
+Qwen3-8B,8190735360,tetra,ours (4E v9),2.7495,69.58,duel-iq2-2026-11-08
+Qwen3-8B,8190735360,iq2s,llama.cpp cd959bae9,2.7980,65.45,duel-iq2-2026-11-08
+Qwen3-8B,8190735360,awq,vLLM 0.26.0,5.96,73.79,paper2-results.csv
+Qwen3-8B,8190735360,fp16,vLLM 0.26.0,16.00,75.05,paper2-results.csv
+Qwen3-14B,14768307200,tetra,ours (4E v9),2.7556,75.66,duel-iq2-2026-11-08
+Qwen3-14B,14768307200,iq2s,llama.cpp cd959bae9,2.6886,72.77,duel-iq2-2026-11-08
+Qwen3-14B,14768307200,awq,vLLM 0.26.0,5.40,78.12,paper2-results.csv
+Qwen3-14B,14768307200,fp16,vLLM 0.26.0,16.00,78.88,paper2-results.csv
