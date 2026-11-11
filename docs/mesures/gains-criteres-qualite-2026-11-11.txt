@@ -1,0 +1,174 @@
+QUALITY GAINS AT CONSTANT BITS, VRAM AND SPEED: EIGHT CANDIDATES, TWO EASY (2026-11-11)
+=====================================================================================
+Nature: desk review, $0. No job, no model load, no build, no test.
+Read:   docs/ETAT.md, docs/ROADMAP.md, docs/ROADMAP-QUALITY.md, docs/HISTORIQUE.md,
+        docs/archive/revue-structurelle-2026-10-20.md (untracked in the main checkout),
+        docs/data/jobs.csv, ops/llvqtune/README.md, the journals cited below, the audit ML
+        of 2026-11-02 (operator memory, report not in the repository).
+Rule:   a candidate improves MMLU or GSM8K and moves none of whole-model b/param, VRAM,
+        decode tok/s, time to first token, or perplexity in the wrong direction. Every
+        candidate below keeps the served file format and its byte count, or lowers it.
+
+THE ANSWER
+-----------
+Two candidates are easy, under $5 and a day: the int4 reallocation at 4B (row 1) and
+MSE clipping of the int4 records (row 3). Neither has a measured gain at 4B. The largest
+expected gains, held-out draw selection and YAQA rounding, are not easy: $11 to $14 and
+two days, and 5 to 10 days. No candidate here crosses the f16 gap. The best of them closes
+1 to 2 of the 6.77 MMLU points the 4B sits below f16 (ETAT §3).
+
+NOISE FLOORS USED BELOW
+------------------------
+- MMLU, two files on the full split (14,042 questions), paired: SE 0.31 pp, CI95
+  half-width about 0.6 pp (*measured*, embed-q4-swap-2026-09-23.txt; sealed-8b-27
+  reads half-widths of 0.49 to 0.51). This is the floor for every constant-recipe arm.
+  The 0.43 pp quoted in ETAT §4 is the SE of one pair, not a criterion (audit ML).
+- MMLU across re-encodings (calibration draw): sd 2.92 pp on the August Planes14 file
+  (*measured*, bruit-mmlu-graines-4b-2026-08-25.txt). On the served DCLM recipe, two
+  draws read 57.95 and 55.53, sd about 1.7 pp on one degree of freedom (*computed*,
+  review 2026-10-20). The seeded draw samples a buffer of about 127 DCLM documents with
+  27 % duplicates (audit ML 2026-11-02), so that 1.7 does not yet measure a draw.
+- GSM8K, paired against FP16, CI95 half-width 1.94 pp at 4B and 1.33 pp at 14B
+  (*computed* from the measured intervals of ETAT §3). Two close files pair tighter.
+- Perplexity at constant file: paired 0.12 % (*measured*, kvq8-4b-2026-08-15.txt).
+
+Prices (*measured*, docs/data/jobs.csv): MMLU census $0.69 to $0.72 at 4B, $1.00 at 8B,
+$1.59 to $1.95 at 14B; GSM8K through the kernel $2.13 / $2.37 / $4.24; row-scale
+training $4.00 at 4B (l40sx1), $5.66 at 8B and $9.78 at 14B (h200); 14B encode $15.35;
+retraining on a sealed file plus its MMLU $3.09 + $0.69. 4B encode on the Mac: 2 h 27, $0,
+and any local compute needs a go.
+
+THE TABLE
+----------
+Ranked by expected gain per dollar, discounted by risk.
+
+1. int4 budget moved from o_proj to down_proj, at 4B then 14B
+   What:  rebuild the sealed file with int4swap + embedq. Drop the 36 int4 o_proj back to
+          Tetra and give their bytes to about 15 more down_proj (377.5 M weights of o_proj
+          against 24.9 M per down_proj, *computed*). Pick the window so the file is no
+          larger than qwen3-4b-sealed.bin.
+   Gain:  at 8B the same move scored +0.77 pp [+0.26 ; +1.28] with fewer bytes (*measured*,
+          sealed-8b-27-2026-09-24.txt). At 4B and 14B, 0 to +1.0 pp MMLU (*estimated*).
+          GSM8K unknown.
+   Moves: b/param equal or lower by construction. VRAM equal or lower. Decode speed and
+          prefill are NOT guaranteed: the same bytes pass through a different kernel mix,
+          and arm A of the 8B was never timed. Unmeasured, +-3 % (*estimated*). The Metal
+          int4 wall at d_in 8,192 already applies to the served file; nothing new.
+   Cost:  4B: build on the Mac $0, MMLU $0.70, GSM8K $2.13, speed check about $0.30
+          (*estimated*), so about $3.15, 4 to 6 agent-hours with prereg and journal.
+          14B: about $6 more.
+   Gate:  MMLU paired gain > 0 at CI95 on the full split; GSM8K paired not below 0;
+          tok/s inside the five-round range of the expanded served 4B (121.5 [121.1-121.6],
+          served-grouped-2026-11-02.txt); bytes no larger.
+   Risk:  the 4B prior ran the other way, and 8B's answer may not transfer. The speed
+          gate can fail.
+   Class: EASY at 4B. ROADMAP §2.2, not a closed lead.
+
+2. Held-out draw selection: two more encodings of the served recipe, pick on a split
+   the score never sees
+   What:  fix the seed buffer (audit ML), teach mmlu.rs the 1,531-question validation
+          split, encode the 4B recipe at two more seeds, run the full chain on each
+          (row scales, swap, q4 tables), select on validation, score on test.
+   Gain:  +0.8 to +1.8 pp MMLU at 4B (*computed*, review 2026-10-20 §1.1: half-split
+          selection on three Planes14 draws returned +2.68 pp, sd 1.20 over 4,000 cuts;
+          row scales keep 0.66 to 0.76 of a base gap). 8B and 14B: sigma not measured.
+   Moves: nothing. Same recipe, same format, same byte count. A new digest, so the frozen
+          Hub repositories stay as they are and the new file goes to -served.
+   Cost:  4B: two encodes on the Mac $0, two trainings $8.00, two validation+test MMLU
+          $1.40, GSM8K on the winner $2.13, so about $11.50, 1.5 to 2 agent-days. 14B: about
+          $27 a draw.
+   Gate:  the selected file beats the sealed one on test, paired CI95 > 0; GSM8K paired
+          not below 0. The sigma itself is the first output; under 1 pp, stop.
+   Risk:  one degree of freedom behind the 1.7 pp; selection on MMLU may cost GSM8K.
+          ROADMAP-QUALITY row 9 calls best-of-N an artefact. The review shows that holds for
+          publishing a max, not for held-out selection. Row 9 is not an ETAT §6 lead.
+   Class: PAYS WELL. Not easy.
+
+3. Better rounding of the int4 records: MSE-optimal clipping, then H-aware rounding
+   What:  the int4 g128 records (v_proj, o_proj, down_proj@12-23 at 4B, about 770 M
+          weights, 21 % of the projections, *computed*) are min/max RTN from the
+          checkpoint. Search the clip per group; in a second step, round with GPTQ
+          against H from hcapture, which exists (L36).
+   Gain:  +0.1 to +0.5 pp MMLU (*estimated*; L33 put +0.15 [-0.1 ; +0.4] on v_proj alone,
+          and the int4 set has grown from 94 M to about 770 M weights, *computed*).
+   Moves: nothing. Same codes width, same scale and offset per group, same kernel.
+   Cost:  clip: half a day of code, build $0, MMLU $0.70, GSM8K $2.13, about $2.85.
+          GPTQ step: 1 to 2 days more, same run cost.
+   Gate:  paired MMLU on the full split, constant recipe; GSM8K paired not below 0.
+   Risk:  the expected gain sits at the noise floor and may end "not resolved".
+          quantize_dequantize_q4 is a pinned instrument and must not change.
+   Class: EASY (clip). It can ride in the same job as row 1, as a separate arm.
+
+4. YAQA rounding: a Kronecker output factor in the encoder objective
+   What:  GPTQ today minimises tr(E H_in E') row by row. YAQA adds a dense output factor
+          H_O, from one torch backward (ops/llvqtune has one). Codebook, decoder and file
+          unchanged.
+   Gain:  +0.9 to +1.7 pp MMLU at 4B, +0.5 to +0.9 at 14B (*computed* by the review from
+          YAQA's reported +1.80 to +2.81 MMLU and +5.83 to +9.76 GSM8K on QTIP 2-bit
+          Qwen3-8B). GSM8K is the axis where it reports most.
+   Moves: nothing on the object. Encoding time rises (factor cost, *estimated* x1.2 to x2).
+   Cost:  5 to 10 agent-days, $2 to $6 at 4B (*estimated*, review §3), then the chain.
+   Gate:  first KL to f16 on 12 windows at the same calibration tokens (noise under 2 %);
+          MMLU only after that, paired against an encode at the same draw.
+   Risk:  re-encoding drags the draw noise in; five local readings in this repository
+          composed worse once the gain was coded. Spherical GPTQ feedback is the closed
+          lead of ETAT §6; this is a different objective, so its condition does not apply.
+          ROADMAP-QUALITY L10 scored it 0 on a misreading (review §1.2).
+   Class: PAYS WELL if it holds. Not easy.
+
+5. Train the free parameters already in the file (llvqtune free_params, Q6a)
+   What:  same loop as the row scales, also training the f16 tails. About 18 M values,
+          widths unchanged. Code and tests exist; the mode never ran.
+   Gain:  0 to +0.5 pp MMLU (*estimated*). The row scales saturated before step 1,210 of
+          9,681 (*measured*, tetranu-rowscales-2026-09-19.txt), and adding the RMSNorm
+          vectors gave +0.02 [-0.31 ; +0.36] (*measured*, sealed-rownorms-2026-09-23.txt).
+   Moves: nothing. Values only.
+   Cost:  retraining on the sealed 4B about $3.10, MMLU $0.70, GSM8K $2.13, about $5.95,
+          half a day.
+   Gate:  paired MMLU full split; GSM8K and perplexity paired not worse.
+   Risk:  the same KL loss that moved nothing last time.
+   Class: near easy, $1 over the line.
+
+6. Row scales trained on MMLU-format text (llvqtune --corpus mmlu-aux or mix)
+   What:  the preregistered arm of 2026-09-23, cancelled in scheduling for $0.
+   Gain:  +0.5 pp [-1.0 ; +2.0] MMLU (*estimated*, the signed prediction of
+          preregistration-mmluaux-4b-rowscales-2026-09-23.md). Contamination measured at
+          0 overlapping items.
+   Moves: the prereg predicts perplexity rises. That breaks the rule unless the mix
+          corpus holds it. GSM8K may fall.
+   Cost:  $4.72 as preregistered, plus GSM8K $2.13 and a ppl run.
+   Gate:  MMLU paired gain with GSM8K and perplexity paired not worse.
+   Risk:  a gain on the trained format only. The operator declined it on 2026-09-23.
+   Class: cheap, but the likely perplexity cost disqualifies the pure arm.
+
+7. Hessian shrinkage at 4B (LLVQ_H_SHRINK, L05)
+   What:  re-encode with rho in [0.7 ; 0.9]; the 4B ran at rho = 1.
+   Gain:  no MMLU figure. -31 % median perplexity at 0.6B on one seed (*measured*,
+          m1-hessienne-shrink-2026-09-02.txt), MMLU 0 to +1.5 pp (*estimated*).
+   Moves: nothing on the object.
+   Cost:  three seeds x two arms on the Mac, about 15 h, $0, read in paired perplexity;
+          then $4.70 for the chain on the winner.
+   Risk:  perplexity and MMLU have dissociated six times here; it needs the seed fix first.
+   Class: free to screen, slow.
+
+8. Intra-block sequencing (ROADMAP-QUALITY row C)
+   What:  capture the o_proj and down_proj Hessians on the already quantized q/k/v and
+          gate/up, so 35 % of the file is calibrated on what the served model sees.
+   Gain:  unknown on both axes; 0 to +1 pp MMLU (*estimated*).
+   Moves: nothing on the object; encode 2 h 27 to about 3 h 15.
+   Cost:  1 to 2 days of code, Mac re-encode $0, chain $4.70.
+   Risk:  a re-encode, so it is read against the draw noise.
+   Class: not easy, unpriced gain.
+
+WHAT I WOULD DO FIRST
+----------------------
+Row 1, then row 2. Row 1 is the only lead with a measured gain on this object family,
++0.77 pp at 8B for fewer bytes, and it costs about $3 at 4B with no new code; its one
+real risk, speed, is gated in the same job. Row 3's clip arm rides in that job for
+$2.85 more. Row 2 carries the largest computed gain at zero bits, +0.8 to +1.8 pp, and
+its first output is owed anyway: the sigma of the served recipe, which every
+re-encoding lead (rows 4, 7, 8) needs before its own result means anything. Its code
+debts, the seed buffer and the validation split, are the same ones.
+
+Every new 4B arm is scored under the expanded attention, to pair with the published
+dumps. The grouped-attention task scores of ETAT §5 remain a separate debt.
