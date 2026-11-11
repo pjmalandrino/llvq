@@ -105,3 +105,10 @@ spec-brouillon-sans-poids-mac-2026-11-11.txt. DFlash is kept as a second profile
 the constraint; its int4 form (M2, 3.30 b/param) is the one to build when that profile is taken up. Order of work:
 the weightless profile first, the DFlash profile after it. Every speed figure names its profile, its b/param and its
 VRAM.
+
+2026-11-11, weightless drafters on the Mac (spec-brouillon-sans-poids-mac-2026-11-11.txt, $0, 52 min). Token
+recycling, prompt lookup and the two combined on the 16-row tree, verify rows exact (tree forward of the target,
+gated 33/33 top-1 against full forwards). Best: lookup spine + warm recycling table, 1.268 accepted a pass on GSM8K
+40-99 and 0.930 on the house set (*measured*), against DFlash 5.376 and 3.316. Projected 244 and 207 tok/s against
+greedy 218.8 and 220.4 and DFlash 502 (*estimated*), at 2.742 b/param (*computed*). A weightless drafter keeps the
+memory and loses the speed: it does not replace the drafter on this axis.
