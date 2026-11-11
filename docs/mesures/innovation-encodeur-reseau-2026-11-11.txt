@@ -1,0 +1,237 @@
+WHAT THE LATTICE ALLOWS IN THE ENCODER AND IN TRAINING: ONE MECHANISM KEPT, ONE STACK PART, TWO REJECTED (2026-11-11)
+=====================================================================================================================
+Nature: invention study, $0. No HF job, no model load, no cargo build. One numpy script on the Mac, under one second
+        (the 196,560 minimal vectors of the scaled Leech lattice, their membership, their alignment with random
+        gradients, and a closed-form search over them checked against brute force). Web access for prior art.
+Read:   docs/llvq-paper-notes.md (not the PDF), docs/ETAT.md (with §6), docs/ROADMAP-QUALITY.md, docs/how-it-works.md
+        §3-8, llvq-quant/src/gptq.rs, llvq-search/src/tetra/encoder.rs (header), ops/llvqtune/README.md,
+        docs/data/jobs.csv (row-scale rows), and the journals tetra-directions-2026-09-16, l36-capture-2026-09-13,
+        artstat-4b-2026-11-04, dclm-rowscales-2026-09-20, tetranu-rowscales-2026-09-19; tonight's notes
+        recherche-methode-quantification, gains-criteres-qualite, recherche-structure-leech-format.
+Bar:    close half the FP16 gap at 4B, so +3.4 MMLU or +4.8 GSM8K, at the same file format and byte count, with an
+        encoding cost under about $100 for a 4B, by a method that carries to larger models.
+Labels: *measured* (a journal of this repository), *computed* (arithmetic, or the numpy script here), *estimated*
+        (judgement), *reported* (a paper, URL in the source list).
+
+THE VERDICT
+-----------
+No idea clears the bar alone at its central estimate. One comes close on GSM8K and is new: training with codes that
+move, where the move is a step to an adjacent Voronoi cell of Λ24 chosen exactly among the 196,560 minimal vectors.
+That search is a closed form plus a soft-decision Golay decode, so it costs a few seconds for every block of a 4B. No
+other codebook family has a local move set like it, and the repository has never moved a code after encoding.
+Alone, with a distillation corpus designed for reasoning, it is *estimated* at +1 to +3 MMLU and +2 to +8 GSM8K at 4B,
+centres +1.8 and +4.5. Stacked with K2 below, the GSM8K centre is about +5, at the bar with roughly even odds. The
+MMLU centre stays near +2 and does not clear +3.4. Seed idea (b), a Hessian-metric block search, is rejected on the
+repository's own measurement. Seed idea (c), joint coding across blocks or rows, needs a format change or reduces to
+the row scales already trained.
+
+The gap that is left is mostly invisible to generic-text KL. After row scales the 4B reads 1.0074 times the FP16
+perplexity and still sits nine MMLU points under it on that base (*measured*, dclm-rowscales: ppl 16.2509 to 12.3268).
+A KL fall of 3.8 % on DCLM bought +3.15 MMLU (*measured*, same journal). Any training lever is therefore only as good as
+the text it is trained on, and every estimate below assumes a corpus built for chat and reasoning.
+
+FACTS THE STUDY RESTS ON
+------------------------
+F1. The minimal vectors. In the integer scaling √8·Λ24 they have norm² 32 and three shapes: (±2)^8 on an octad with an
+    even number of minus signs, 97,152; (∓3, ±1^23) with the signs of a Golay codeword, 98,304; (±4, ±4, 0^22), 1,104.
+    The script builds all 196,560 and every one passes the three conditions of `Leech::contains` (*computed*).
+F2. Alignment with a gradient. For 2,000 random gradient directions in 24 dimensions, the best minimal vector has
+    cosine 0.774 at the median, 0.747 at p5, 0.731 at worst. The best single-coordinate step ±e_i, which is what an
+    adjacent-cell move is for a scalar grid, reads 0.453, 0.369 and 0.319. The 1,104 vectors of the third shape alone
+    read 0.595 (*computed*). One lattice step captures 0.774² = 60 % of the first-order descent of a block, a scalar
+    step 20 %.
+F3. Exact search in closed form. The best of the 196,560 for a linear score ⟨g, v⟩ splits by shape. Shape 1: for each
+    of 759 octads, the signs of g, and if the minus count is odd, flip the smallest |g_i|. Shape 3: the two largest
+    |g_i|. Shape 2: for each of the 24 positions, a soft-decision maximum-likelihood decode of the Golay code with
+    input g where g_i is multiplied by -3. Tetra already ships that code as a 64-state trellis over the trio. The
+    script checks the closed form against brute force over all 196,560 on 200 gradients: largest difference 3.6e-15
+    (*computed*). The cost is about 10^4 to 10^5 operations a block instead of 9.4·10^6 for the brute product.
+F4. Step size. A minimal vector has norm √32. A Tetra point of shell m has norm √(16 m). A step orthogonal to y turns
+    the block's direction by atan(√(2/m)): 26.6° at m = 8, 22.2° at m = 12, 19.5° at m = 16 (*computed*). Tetra's
+    quantization error on Gaussian blocks has angle acos(√0.8889) = 19.5° (*computed* from how-it-works §7). One
+    lattice step is about one cell. The shell histogram of the sealed 4B is not in any journal, so m is a range here.
+F5. The repository's codes never move after encoding. llvqtune holds the invariant "the gradient never reaches the
+    decoded directions" (ops/llvqtune/README.md). Row scales are the one trained lever: +3.15 / +3.29 / +1.67 MMLU at
+    4B / 8B / 14B (*measured*, ETAT §4).
+F6. A local metric search was measured here and collapses when chained. Re-choosing a block's direction under the
+    conditional Hessian metric gained 2.393 % of conditional cost at a fixed state, 0.911 % when chained, and
+    -8.763 % on reserved activations, on 48 rows of the 4B (*measured*, tetra-directions-2026-09-16).
+
+K1. LATTICE-STEP DISTILLATION: CODES THAT MOVE BY ONE VORONOI NEIGHBOUR
+-----------------------------------------------------------------------
+Algorithm.
+  Start from the sealed file: codes, two centroids a matrix, row scales, tails, norms. The student forward uses the
+  decoded f16 weights, as llvqtune does today. The teacher is the FP16 checkpoint, or its top-64 logits stored offline.
+  Loss: token KL to the teacher on a mixed corpus. One third DCLM-edu, two thirds the teacher's own chat completions
+  with thinking on and off over a broad prompt pool with math and code. A last phase regenerates that part on policy:
+  the student writes, the teacher scores.
+  P phase (continuous, every step): Adam on row scales, RMSNorm weights, centroids and tails, the free_params mode that
+  exists and never ran. Beside it, accumulate for every Tetra weight an EMA of the gradient g and of g², the diagonal
+  Fisher F. The gradient is taken on the natural-basis export and rotated into the coded basis by the matrix's own
+  Hadamard and signs.
+  V phase (every 100 to 200 steps):
+    1. For every Tetra block, project g on the tangent of the unit sphere at the decoded direction ŷ, since the decoder
+       rebuilds c_g · rscale · y/‖y‖. Score the 196,560 moves y → y + v by the closed form of F3, and the gain-bit flip.
+       Keep the best 8 per block (list Viterbi on the shape-2 decode).
+    2. Evaluate each kept move exactly under the second-order model ΔL = ⟨g, Δw⟩ + ½ Σ F Δw², with Δw the true change of
+       the 24 decoded weights after normalisation. Test membership of y + v in Tetra with `Tetra::encode`, which returns
+       the word or None.
+    3. Accept the moves of most negative predicted ΔL, under PV-Tuning's trust rule: ‖ΔW‖/‖W‖ ≤ 1 % a matrix a V phase.
+    4. A second move type, for the 0.1 to 1 % of blocks with the largest predicted gain: re-encode the Newton target
+       x - g/F with the production encoder (329 µs a block, *measured*, HISTORIQUE 2026-09-05). This is PV-Tuning's own
+       V step; the lattice step is the cheap exhaustive one beside it.
+    5. Re-decode the changed rows, rotate back, write them into the student, reset their EMAs.
+  Write-back: a `codeswap` binary in the manner of `rowscale` replaces words in the sealed file. Same widths.
+Why it is specific to the lattice.
+  The move set is the same for every block of every matrix, it is the set of Voronoi-relevant vectors of smallest norm,
+  and its best element is found exactly by the Golay trellis Tetra already holds (F1, F3). AQLM's V step needs a beam
+  search per block over learned codebooks, the expensive half of PV-Tuning [S2]. QTIP's computed codes are not tuned
+  at all [S3]: one bit of a trellis word changes many weights. A scalar grid moves one coordinate at a time with 20 %
+  of the descent captured, against 60 % here (F2).
+Evidence.
+  - PV-Tuning, Llama 2 7B, AQLM 2.01 bits, average zero-shot: calibration only 53.2, continuous only 56.57, STE 57.04,
+    PV 57.81, PV plus STE 58.19 [S2]. The discrete step is worth +1.2 to +1.6 above the continuous one on a strong base,
+    and +5.9 on a GPTQ base (46.27 to 52.17). Llama 3 8B at 2.01 bits: 64.36 against 68.61 FP16 [S2]. No MMLU there.
+  - Ours: the continuous half alone gave +3.15 MMLU at 4B for zero bits (F5).
+  - Corpus: GPTQ at 3 bits, GSM8K 57.5 to 75.7 by calibrating on self-generated reasoning [S10]. Teacher-forced
+    distillation leaves math impaired; on-policy distillation, Qwen3-1.7B at W2.79, GSM8K 54.28 against 44.28 for
+    continued QAD [S26]. The last phase of K1 is that on-policy form.
+  - Prior art: no published method moving LLM weight codes along lattice minimal vectors was found (searches of
+    2026-11-11). GLQ and QuIP# use E8 codes with frozen indices after encoding [S4] [S27].
+Expected gain at 4B (*estimated*).
+  MMLU +1 to +3, centre +1.8. GSM8K +2 to +8, centre +4.5. Of that, the discrete part is +0.5 to +1.5 MMLU and +1 to +3
+  GSM8K; the rest is the corpus, which a continuous-only arm on the same corpus also buys (tonight's P3). The GSM8K
+  range is wider because its gap is wider (9.63 against 6.77) and because the corpus is aimed at it.
+  Wrong if: (1) fewer than a fifth of the best moves are Tetra members, so the cheap step rarely applies; (2) the
+  second-order model predicts gains the forward pass does not realise, as F6's chained collapse did for a local proxy;
+  (3) held-out KL falls and MMLU does not move, the seventh dissociation; (4) GSM8K stays put because of exposure bias
+  despite the on-policy phase.
+Why the served object does not move.
+  A move changes a 48-bit word's value, never its width. Centroid count, row-scale count and tails keep their widths.
+  The byte count is identical, so b/param and VRAM are identical. Decode cost does not depend on the word's value, so
+  tok/s and first token are unchanged. One guard: the centroids may train, and the served S grid needs
+  c1/c0 in [1/3.14, 3.14] (artstat-4b reads 1.2610 to 2.0106 today); the trainer clamps the ratio. The int4 records
+  are left alone by K1. They can take ±1 nibble moves by the same loop, a scalar rider that is not part of this claim.
+Cost.
+  - Step time: the weight-gradient GEMMs add about a third to today's student plus teacher step, 0.74 s on l40sx1
+    (*measured*, tetranu-rowscales), so about 1.0 s (*estimated*). 10,000 steps: 2.8 h.
+  - V phase at 4B, 118,665,216 Tetra blocks (*measured*, artstat-4b): the brute product is 1.12·10^15 operations
+    (*computed*), about 12 s of tensor cores, and its top-k streams about 47 TB if the scores are materialised, about
+    55 s at 864 GB/s (*computed*). The closed form of F3 avoids both. Exact evaluation and membership on 8 candidates a
+    block on the host: minutes. 50 V phases: about 1.7 h (*estimated*).
+  - Memory on l40sx1: student 8 GB, teacher 8 GB or offline logits, gradient and two EMAs on the 2.86 G Tetra weights
+    in bf16, 3 × 5.7 GB, activations with checkpointing about 6 GB: about 39 GB of 48 (*estimated*).
+  - Per 4B object: corpus generation $2 to $3, training about 4.5 h, $8 to $9, MMLU $0.70, GSM8K $2.13: about $15.
+    The 4B program with its control arm and both evaluations: about $25 (*estimated* on the prices of jobs.csv).
+  - 14B on one h200 ($9.78 for 118 min, *measured*): teacher logits offline, about 5 h of training, corpus $5,
+    MMLU $1.95, GSM8K $4.24: about $36 (*estimated*). 32B: the gradient buffers exceed one h200; two cards or
+    gradient EMAs offloaded a layer at a time.
+  - Build: 2 to 3 weeks. Torch side (gradient EMAs, tangent projection, V-phase driver), Rust side (closed-form
+    screen, membership and word packing by `Tetra::encode`, Newton re-encode, `codeswap`), and the decoder identity of
+    every written word checked against the sealed file's untouched words.
+Why it is not a closed lead.
+  - ROADMAP-QUALITY row 22 discarded PV-Tuning: its P step has little to move on a fixed lattice, and it priced 1 to 2
+    months and $270 to $1,250. K1's P step is the row-scale training that already exists and was measured. The V step
+    is new and cheap because of F3, with no latent weights and no Adam state on the weights.
+  - Row 21 discarded Block-AP because it re-encodes inside the loop. K1 re-encodes at most 1 % of blocks in a V phase.
+  - Row 15 noted that the gradient never crosses the decoder. The V step is the crossing.
+  - Spherical GPTQ feedback (ETAT §6) changed the encoder's feedback. K1 does not touch the encoder.
+  - Row 12 and F6 are local proxies. K1's objective is the end-to-end KL, read on held-out text.
+Cheapest test that can kill it.
+  Stage 0, $0 on the Mac under a go, about one hour. Qwen3-0.6B, one existing Tetra encoding, gradient and Fisher of
+  the KL over 64 windows of 2,048 tokens of the mixed corpus, one V phase at τ = 0.5 % of blocks. Read: the Tetra
+  membership rate of the best move; predicted against realised KL change on 12 held-out windows, over 20 batches of
+  moves. Kill if membership is under 20 %, or the Spearman correlation is under 0.3, or held-out KL rises.
+  Stage 1, under $3 on l40sx1. Qwen3-0.6B at three calibration draws. Arm A: continuous training on the mixed corpus,
+  2,000 steps. Arm B: A plus a V phase every 100 steps. Same codes at the start, same data order, same seed, so the
+  draw noise cancels inside each pair. Gate: held-out KL of B at least 10 % under A on chat text and on WikiText-2, in
+  3 pairs of 3. The three draws say whether the effect survives a change of encoding, which one encode cannot.
+  Stage 2, about $25. The sealed 4B, arms A and B as above at full length, MMLU on 14,042 questions and GSM8K on 1,319,
+  both paired against the sealed file and against each other. Both arms start from the sealed codes, so the
+  re-encoding sd of 1.7 to 2.9 pp does not enter A against B or B against sealed. The floor is the paired interval,
+  about 0.6 pp of MMLU and 1.3 to 1.9 of GSM8K, plus the training-seed spread, which is not measured; a second seed of
+  arm A ($5) prices it when B - A lies under 1 pp. Bar: B - sealed at least +4.8 GSM8K or +3.4 MMLU with the lower
+  bound above 0. Credit to the lattice step: B - A above 0 at CI95 on either axis.
+Verdict: under the bar alone on its centres, inside it on the top of the GSM8K range. The only seed with a path there.
+
+K2. KRONECKER-METRIC DESCENT FROM THE SEALED CODES: YAQA'S OBJECTIVE, SOLVED BY LATTICE STEPS
+--------------------------------------------------------------------------------------------
+Algorithm.
+  The layer objective with output curvature is L = tr(H_O E H_in Eᵀ), E = Ŵ - W, H_in captured as today (hcapture),
+  H_O sketched from one backward over the calibration set (YAQA sketch B [S1]). Start from the sealed codes, no
+  re-encode. Each round: G = 2 H_O E H_in, two products a matrix; per block, the same screen as K1 on the tangent part
+  of G, exact ΔL from the Kronecker diagonal terms, membership, and acceptance of a small non-interacting set (one block
+  per row and per column block a round). 20 to 50 rounds, then row scales retrained as today.
+Why it is specific to the lattice. It reuses F3. YAQA as published needs its rounding sweep rewritten on two axes,
+  5 to 10 agent-days for us (tonight's P1). Here the solver is the same closed-form neighbour search for every metric.
+Evidence. YAQA, Qwen3-8B at 2 bits on QTIP, no fine-tuning: MMLU 63.94 to 66.04 and GSM8K 56.31 to 63.82, KL -22 %
+  [S1]. Its gain over LDLQ survives recovery fine-tuning at 10 to 20 % lower KL [S1].
+Expected gain at 4B (*estimated*): MMLU +0.5 to +1.7, GSM8K +1 to +5, tonight's P1 range. A descent from a GPTQ point
+  may stop in a local minimum short of YAQA's sweep; that is the main way it falls short.
+The served object: same as K1, words change and nothing else.
+Cost: H_O sketch $2 to $4 on l40sx1 (tonight's P1). The rounds on the Mac: G for the 168 Tetra matrices is about
+  5·10^13 flop a round, 10 to 20 s; 50 rounds well under an hour (*estimated*). Storage of H_O about 31 GB in f32 at 4B.
+  Then row scales $4, MMLU $0.70, GSM8K $2.13: about $11 at 4B, about $25 at 14B.
+Its advantage in measurement: it starts from the sealed codes. A YAQA re-encode drags in the draw sd of 1.7 to 2.9 pp;
+  this post-pass is paired against the sealed file at constant initial codes.
+Kill test: Qwen3-0.6B on the Mac under a go, three existing encodings, sketch in torch, KL to f16 on 12 held-out
+  windows before and after the post-pass. Gate: KL at least 10 % lower in 3 pairs of 3, against YAQA's 22 %. Kill if
+  any pair rises, the F6 pattern.
+Verdict: under the bar alone. A stack part, and the cheaper of the two to settle.
+
+THE STACK
+---------
+K2 first, then K1 trained from K2's codes on the designed corpus. Centres K1 +1.8 / +4.5, K2 +1.0 / +2.5 (MMLU /
+GSM8K). With the sub-additivity this repository measured, 0.62 to 0.79, the stack reads MMLU +1.7 to +2.2 and GSM8K
++4.3 to +5.5 (*computed* from the *estimated* centres). GSM8K reaches the +4.8 bar at its centre, MMLU does not.
+Tonight's P4 (a), sensitivity allocation of the int4 tier, is independent of both and adds its own +0.3 to +1.5 MMLU
+estimate before discount; with it the MMLU centre rises to about +2.5, still short of +3.4.
+Total at 4B: about $40 with both kill stages, both control arms and all evaluations. At 14B: about $65.
+
+REJECTED SEEDS
+--------------
+(b) Babai or sphere decoding under the block Hessian metric.
+  The repository measured it in the form that matters. A metric-aware choice among the encoder's candidates gained
+  2.393 % of conditional cost locally, 0.911 % chained and -8.763 % on reserved activations (F6). The metric's spread
+  bounds what any exact search can win. The rotated diagonal per block reads max/min 1.93 to 3.98, CV 0.17 to 0.40, on a
+  256-token wiring dump that is not a measurement (l36-capture). If it held, the shaping gain of a diagonal metric is
+  the ratio of arithmetic to geometric mean, exp(σ²/2) for a log-normal spread: 1.4 % to 7.7 % of the layer proxy,
+  0.06 to 0.32 dB (*computed*). Outside, GPTQ is Babai's nearest plane [S28], and OJBKQ's randomized K-best Babai
+  moves Qwen3-4B at 3 bits from 61.76 to 62.03 zero-shot average [S29]. Under the bar by a factor of ten. GPTQ leaves
+  little on the table per block because the error feedback already spends the off-diagonal coupling. If ever wanted,
+  F3's screen solves it at no extra cost.
+(c) Joint coding across blocks or rows.
+  Cosets, gluing two blocks into 48 dimensions, or a shared shift per column block need a new word type or side data:
+  a format change, outside the brief. Λ24 x Λ24 is also the best known quantizer in 48 dimensions, so gluing buys no
+  density (Agrell and Allen, cited in recherche-structure-leech-format). A shared gain per row from shell statistics
+  is the row scale, already trained (F5); its closed-form constant moved +0.13 pp unweighted (L01). Coupling across
+  rows through H_O is K2.
+(d) Other leads considered.
+  Training the rotation signs re-encodes everything, which is K1 at full width and full cost. Per-matrix crossover of
+  several calibration draws, chosen on a held-out split, is real but not lattice-specific; it belongs with tonight's
+  draw-selection row.
+
+WHAT THIS NOTE DID NOT CHECK
+----------------------------
+- Membership of y + v in Tetra. Tetra names a 2^47 subset of Λ24 with ranks at most 4 and the best 2,048 rank vectors a
+  class. Shape-3 and shape-1 moves change a few ranks; shape-2 moves change the parity of every coordinate and may
+  fail often. Stage 0 measures it.
+- The sealed 4B's shell histogram, which fixes F4's step angle.
+- The training-seed spread of llvqtune at 4B.
+- MMLU or GSM8K evidence for a discrete step on any Qwen3 model: PV-Tuning reports zero-shot averages and perplexity
+  only, on Llama.
+- The on-policy result [S26] was read from its abstract page; its tables and its quantizer were not.
+
+SOURCES (fetched 2026-11-11)
+----------------------------
+[S1]  YAQA: https://arxiv.org/abs/2505.22988 (Qwen3-8B tables via tonight's recherche-methode-quantification note)
+[S2]  PV-Tuning: https://arxiv.org/html/2405.14852 (Tables 1 and 2)
+[S3]  QTIP: https://arxiv.org/abs/2406.11235
+[S4]  QuIP#: https://arxiv.org/abs/2402.04396
+[S10] Quantization Hurts Reasoning?: https://arxiv.org/html/2504.04823
+[S26] Train Where the Quantized Model Goes, on-policy distillation for low-bit reasoning:
+      https://www.alphaxiv.org/abs/2609.26708
+[S27] GLQ, E8 codebook quantization: https://pypi.org/project/glq/
+[S28] GPTQ as Babai's nearest plane algorithm, ICLR 2026: https://arxiv.org/abs/2507.18553
+[S29] OJBKQ, Objective-Joint Babai-Klein Quantization: https://arxiv.org/html/2602.08376
+Also read, not cited for a number: Reasoning-QAT, https://arxiv.org/abs/2601.14888 (abstract only).
