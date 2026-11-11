@@ -1,0 +1,258 @@
+STRUCTURAL LEADS IN THE LEECH FORMAT: WHOLE-MODEL BITS, RATE, DISTORTION, WALLS, PRODUCTION COST (2026-11-11)
+================================================================================================================
+Nature: desk study, $0. No job, no model load, no build, no test. One 20-line numpy script on the Mac (int4 RTN on
+        4 M Gaussian and Student-t samples, under a second). Web sources fetched tonight, each quoted with its URL.
+Read:   docs/ETAT.md, format-noyau.md §1-3, §5 bis, §8, how-it-works.md §4-10, ROADMAP.md, ROADMAP-QUALITY.md,
+        plan-300.md §2-3, HISTORIQUE.md 2026-11-08, archive/revue-structurelle-2026-10-20.md and
+        archive/revue-compression-2026-11-06.md (both untracked in the main checkout), tonight's sister notes
+        gains-criteres-qualite, -memoire and -debit, and the journals encode-14b-2026-09-22,
+        tetranu-rowscales-2026-09-19, artstat-4b-2026-11-04, moe-routing-gptoss20b-2026-08-12, docs/data/jobs.csv.
+Scope:  where the object's own structure leaves value. Leads already argued in revue-compression (P1 to P9) and in
+        the sister notes are cited, not derived again.
+Labels: *measured* (a journal), *computed* (arithmetic on measured or code inputs), *estimated* (judgement),
+        *reported* (a paper or a repository, URL given, fetched 2026-11-11).
+
+THE ANSWER
+----------
+The lattice and the code are not where the value is. Λ24 is the best lattice quantizer known up to 48 dimensions, the
+Tetra words are 47.4 bits of entropy in 48, and decode at batch 1 runs at 35 % of the byte bound, so a denser or
+entropy-coded stream would add work to the resource that already limits. The value sits in three places: the
+allocation of rates across matrices (today a hand-picked binary choice), the input embedding of untied models, and
+the cost of producing an object (a 14B chain spends about $25, of which the encoder runs 7 to 14 times its own floor).
+Every one of the three applies unchanged to a larger Qwen, another family and an MoE. The MoE needs one more thing,
+a calibration policy for rarely routed experts, and the published 2-bit evidence says it is not optional.
+
+FIVE VERDICTS, WITH THEIR ARITHMETIC
+------------------------------------
+1. The 0.58 b/param between 2.150 and 2.73.
+   The 2.150 is a kernel figure that bills the tail and row scales in f32. In whole-model accounting the Tetra
+   matrices stand at 2.083 b/weight on the 4B (1.482 b/param over 2,862.6 M of 4,022.5 M parameters, *computed* from
+   revue-compression §1). The excess over that is 0.649 b/param:
+     4B   int4 records 770.9 M x (4.25 - 2.083) / 4,022.5 M = 0.417 (64 %)   tied embedding-head 388.96 M x 2.417 = 0.233
+     8B   int4 0.270 (1,007 M weights)   embedding + untied head 0.372 (1,244.6 M)   Tetra at 2.053 b/weight
+     14B  int4 0.444 (2,952 M)            embedding + untied head 0.261 (1,555.8 M)   Tetra at 2.025 b/weight
+   (*computed*, same parts.) The part with the best evidence of no quality loss is the input embedding of the
+   untied models: a gather, so any rate costs no decode time. At Tetra's rate it removes 0.184 b/param at 8B and
+   0.127 at 14B (*computed*). The int4 records are the larger pot, 0.13 to 0.22 b/param (proposal S5), but every code
+   cheaper than int4 in bits so far decodes slower per weight than int4 rows on this card, so that pot is gated on
+   speed. The head stays where it is: llama.cpp keeps `output.weight` at Q5_K even for IQ2_XXS (*reported*,
+   https://github.com/ggml-org/llama.cpp/blob/master/src/llama-quant.cpp, read on master), and our own q8 to q4 step on
+   the tied 4B table cost +1.52 % of perplexity (*measured*, ROADMAP-QUALITY row 4). Tying an untied head, or
+   factorising the table, changes the model: it needs training and is out of a PTQ budget.
+
+2. Rate. A compressed or shaped stream read by the kernel would not pay, and the reason is measured.
+   - Lossless: the sum of the marginal field entropies of the sealed 4B's words is 47.4 bits of 48 (*computed*,
+     `bin/tetraentropy`, HISTORIQUE 2026-11-08). The gain bit sits at 52.2 % on level 1 (*measured*, artstat-4b),
+     0.9986 bit of entropy (*computed*). At most 0.025 b/weight is there.
+   - Lossy, at the same distortion on a Gaussian source: Tetra keeps 88.89 % (SQNR 1.778 bits at rate 2), 0.222 b/dim
+     above the rate-distortion bound; the ball 0.160; QTIP's trellis 0.069 MSE, 0.071 b/dim (*computed* from
+     how-it-works §7 and from QTIP Table 1, *reported*, https://arxiv.org/html/2406.11235: E8P 0.089, 1MAD and 3INST
+     0.069, bound 0.063). An entropy-coded uniform Leech code sits at its space-filling loss, 0.0839 b/dim at high rate
+     (*computed* from G = 0.065771). The ceiling of any rate trick is therefore 0.14 to 0.15 b/dim, 0.10 b/param on
+     the 4B's Tetra share, before any decode cost (*computed*).
+   - The wall is not DRAM. 221.5 tok/s x 1.378 GB a token = 305 GB/s, 35 % of the L40S's 864 (*computed*, ETAT §2,
+     recherche-debit-maths). Inside 4E, Tetra rows stream at 379 GB/s and int4 rows at 587 (*measured*, plan-300 §3,
+     pers-4e-v3). Tetra rows are decode-bound; a variable-rate code adds instructions exactly there.
+   - What a kernel would need: per-row byte offsets (4 B a row, 3.8 MB at 4B), a per-32-block prefix so every lane
+     starts at a known bit (0.04 b/weight), and a table decode per symbol. EntQuant, which entropy-codes with nvCOMP
+     ANS and inflates a block at a time, reports 1.5 to 2 times slower than BF16 at batch 4 on Llama-2 7B
+     (*reported*, https://arxiv.org/html/2601.22787v2 §3.4). Verdict: closed in VRAM. Entropy coding belongs to the
+     file only, where the int4 nibbles still carry slack (memoire note, row 6).
+
+3. Distortion at the same rate. No better lattice exists in reach, and the codebook has not been the bottleneck.
+   - Agrell and Allen, Table I (*reported*, https://arxiv.org/abs/2202.09605, IEEE Trans. IT 2023): Λ24 G = 0.06577,
+     Λ16 (Barnes-Wall) 0.06830, E8 0.071682, best known in dimension 32 the product Λ24 x E8 at 0.06720, and in
+     dimension 48 Λ24 x Λ24 at 0.06577. Nothing up to 48 dimensions beats Λ24. Moving to BW16 costs 0.027 b/dim, to E8
+     0.062, to the 32-dimensional product 0.016 (*computed*, ½ log2 of the G ratios).
+   - The trellis's 0.15 b/dim over Tetra on Gaussian data has not transferred to this model family: three 48-bit
+     codebooks 21.5 % apart in perplexity read the same MMLU (*measured*, leech0c13), and Tetra beat the ball, which is
+     0.06 b/dim better on Gaussian data, by 4.64 % of perplexity on the real 4B (*measured*, tetra-4b).
+   - A learned linear transform per group before the lattice has no published win for weight-only VQ at 2 bits
+     (revue-compression §6), and it adds a transform per group to a rotation path that is already a phase of its own.
+   - Per-block rate inside a matrix gains little after the Hadamard rotation, which flattens column sensitivity by
+     design. Per-matrix allocation keeps what the rotation cannot flatten. Q-Palette decomposes its gap to the ideal
+     on Llama-3.1-8B at 3.25 bits: TCQ at widths {2, 3, 4} totals 0.0327, TCQ at every half-bit 0.0168, and the
+     paper attributes that difference to bit granularity (*reported*, https://arxiv.org/html/2509.20214v2, Table 6).
+     That is where the distortion is left: in the allocation (S2, S5) and in the encoder objective (YAQA, quality
+     note row 4).
+
+4. The walls.
+   - The `rot_apply` wall is already lifted on the card. `rot_apply_dev` and `tv_q4_hs` return the host's bytes at
+     width 25,600, the 32B's `down_proj` input, on the L40S (*measured*, lot1-4b-2026-11-04, format-noyau §8, ETAT §4).
+     The line in CLAUDE.md that says the wall closes the path "whatever the format" is stale; this note does not edit
+     it. What still blocks the 32B: no encode ($62, 11.4 h on rtx-pro-6000x2, *estimated*, ROADMAP §4), no wide
+     kernel run inside a model, and 4E built for the three sealed shapes only.
+   - MoE has no width problem. Qwen3-30B-A3B has hidden 2,048, expert width 768 = 256 x 3, 128 experts, 8 routed,
+     48 layers (*reported*, https://huggingface.co/Qwen/Qwen3-30B-A3B/raw/main/config.json). Its blocker is the
+     calibration. 131,072 tokens x 8 / 128 = 8,192 routed tokens per expert and layer on average, against
+     d_in = 2,048 for gate and up (*computed*). On gpt-oss-20b our own histogram put the least loaded expert of layer 0
+     at 0.206 of the uniform load (*measured*, moe-routing-gptoss20b); at that ratio an expert of the 30B gets about
+     1,690 tokens and a rank-deficient Hessian (*computed*). BitsMoE reports plain GPTQ at 2 bits on
+     Qwen3-30B-A3B-Base at 34.08 average accuracy over seven tasks, against 61.91 for its own method and 52.21 for
+     MoEQuant (*reported*, https://huggingface.co/papers/2606.00079.md). Naive 2-bit GPTQ collapses on this model.
+
+5. Production cost. A 14B chain spends about $25 to make the object: encode $15.03 in two segments, re-export $0.32,
+   row-scale training $9.78; its three censuses add $5.49 (*measured*, docs/data/jobs.csv rows of 2026-09-22/23).
+   - The encode's quantization phase is 81.2 % of 16,194 s, about 13,150 s on 192 cores (*computed*, encode-14b).
+     The Tetra encoder measures 329 µs a block on one core (*measured*, `trioencbench`, HISTORIQUE 2026-09-05). About
+     542 M Tetra blocks at 329 µs over 192 threads is 929 s, or 1,860 s if the 192 are 96 physical cores (*computed*).
+     The phase runs 7 to 14 times its single-pass floor. No journal names the cause.
+   - Row-scale training: on the 4B the KL is acquired before step 1,210 of 9,681 (*measured*, tetranu-rowscales). The
+     MMLU was read only at the end, so whether it is acquired at the same step is not known.
+
+THE PROPOSALS, RANKED BY SOLIDITY
+---------------------------------
+Every effect is *estimated* unless labelled. "Criteria" are MMLU and GSM8K, whole-model b/param, VRAM, decode tok/s,
+time to first token (TTFT), cost of producing the object.
+
+S1. A cheap, repeatable chain. Engineering, known outcome.
+    Change:   (a) row-scale training stops on a held-out signal instead of a fixed 9,681 steps; (b) instrument the
+              quantization phase (encoder calls per block, thread occupancy, f64 update share) and fix what it names;
+              (c) a GPU Tetra encoder. Within one 24-column step of GPTQ every row is independent, and the per-block
+              search is a 64-state trellis pass over three sections, the shape QTIP already runs on GPUs.
+    Evidence: the two facts of verdict 5.
+    Effect:   cost of a 14B object $25 to $5-12, of a 32B $62 to $15-30. Every other criterion unchanged: (a) and (b)
+              keep the codes; (c) must reproduce them. Cheaper encodes also make the held-out draw selection of the
+              quality note (row 2, +0.8 to +1.8 pp at 4B) affordable at 14B and above.
+    Wrong if: MMLU keeps moving after the KL is flat (the 4B curve was flat while MMLU moved 4.30 pp). Then the stop
+              signal is MMLU on the 1,531-question validation split, which `mmlu.rs` does not load yet.
+    Format:   none.
+    Cost:     (a) half a day; (b) one to two days; (c) one to two weeks and a bit-identity gate on a sample of matrices.
+    First:    $0. Look for the 48 checkpoints of tetranu or dclm-4b in the bucket (`hf buckets ls`, rule 9); score the
+              step-1,210 checkpoint on the full split on the Mac. Gate: paired against the final scales, the interval
+              contains 0 and its half-width is under 0.6 pp. If the checkpoints are gone, a 1,210-step training is about
+              $0.55 on l40sx1 (0.6367 s a step plus load).
+    Closed:   none touched.
+
+S2. Allocate the rates the file already has by measured sensitivity, under a fixed byte budget. Engineering on a
+    published method; the gain is a bet with a measured prior.
+    Change:   estimate one coefficient a_l per matrix by noise injection shaped like each kind's real error, with KL to
+              the f16 model as the loss (HIGGS linearity theorem), then solve a multiple-choice knapsack over
+              {Tetra, int4 g128} per matrix at the sealed file's byte count. This replaces the hand-picked windows
+              (`o_proj` everywhere, `down_proj` at 12-23 on the 4B). The same solver takes more kinds later (S3, S5).
+    Evidence: HIGGS on Llama-3.1-8B, WikiText-2: dynamic 6.388 against uniform 6.643 at 3.25 bits, 5.910 against 6.015
+              at 4.00 (*reported*, https://arxiv.org/html/2411.17525v1, Table 3; a_l from 15 noise levels a layer).
+              Q-Palette data-free at 3 bits: 6.28 mixed against 6.81 for uniform QTIP (*reported*,
+              https://arxiv.org/html/2509.20214v2). Ours: at 8B, `down_proj` in place of `o_proj` scored +0.77 [+0.26, +1.28] with fewer bytes
+              (*measured*, sealed-8b-27); `v_proj` in int4 bought 70.4 MMLU points per b/param (*measured*, q5-tetra).
+    Effect:   MMLU +0.3 to +1.5 at 4B and 14B at equal bytes, or -0.05 to -0.15 b/param at equal MMLU. VRAM equal or
+              lower. Decode: a Tetra weight costs 0.687 ps of row time in 4E against 0.905 for an int4 weight
+              (*computed*: 0.2604 B at 379 GB/s, 0.531 B at 587), so every int4 matrix the solver returns to Tetra
+              speeds decode and every one it adds slows it; the gate holds tok/s inside the served range. TTFT
+              unchanged. Production: one $0 map per model.
+    Wrong if: the linear model fails at our rates (HIGGS reports its predictions diverging below about 3 bits for
+              uniform quantization). Fallback: the data-aware mode, one measured KL per candidate swap.
+    Format:   none. Both kinds exist (`kind_tag` 2 beside Tetra, format-noyau §5 bis).
+    Cost:     2 to 3 days of code; the map on the Mac; a census per size $0.70 / $1.00 / $1.59 to $1.95, GSM8K
+              $2.13 / $2.37 / $4.24 (*measured* prices, quality note).
+    First:    $0 on the Mac (needs a go for local compute), 4B: a_l for the 252 matrices, KL on 4 windows of 512 tokens.
+              Gate: the map ranks the measured 4B swaps as the censuses did: `down_proj` above `o_proj` (+3.79
+              [+1.52, +6.11] against +2.77, q5-alloc-int4) and `v_proj` first per byte (70.4 points per b/param,
+              q5-tetra). A map that misorders them is not used.
+    Closed:   none. It generalizes ROADMAP §2.4 and revue-compression P5 with no kernel.
+
+S3. Take the input embedding of untied models out of int4, and optionally out of VRAM. Engineering; the quality
+    outcome has external evidence on a sibling family.
+    Change:   the input table (a gather) stored as Tetra at about 2.08 b/weight, or as int3 g64 (3.5 b), decoded one
+              row a token. The head stays int4 g64. Option: the table lives in host RAM and one row crosses PCIe a
+              token (8 or 10 KB at 8B or 14B in f16).
+    Evidence: CARVQ, input embedding only, WikiText-2 ppl (*reported*, https://arxiv.org/html/2510.12721, Table 1):
+              Qwen2.5-7B FP16 6.85, INT3 6.86, INT2 7.44, CARVQ at 2.38 b 6.87; Llama-3.1-8B 6.24, 6.33, 8.65, 6.55.
+              llama.cpp's IQ2_S puts an untied `token_embd` at IQ3_S and IQ2_XXS at Q2_K (*reported*, llama-quant.cpp).
+    Effect:   b/param -0.184 at 8B and -0.127 at 14B in Tetra, -0.076 and -0.053 in int3 g64; -0.057 on a 32B, where
+              the table is 2.4 % of 32.8 G parameters (*computed*). Host residency instead: VRAM -0.35 GB at 8B, -0.44 at
+              14B, file unchanged (*computed*). Decode and TTFT: nothing measurable in VRAM (a gather of one row); a
+              PCIe read of about 10 KB a token from host RAM. Quality: perplexity +0 to +1 % (*estimated* from the
+              Qwen2.5 rows).
+    Wrong if: Qwen3's input table is as fragile as Llama-3.1's (+5 % at 2.38 b). The 4B gives no test: its table is
+              tied to the head.
+    Format:   a Tetra or int3 record on the gather path; a reader branch, no new decoder; v1 untouched.
+    Cost:     1 to 2 days; ppl on the Mac; one census per size ($1.00 / $1.59 to $1.95) and GSM8K.
+    First:    $0 on the Mac (go needed): Qwen3-8B f16 with only the input table swapped through `embedq` (int4 g64,
+              int3 g64, Tetra), paired perplexity over 12 windows of 4,096 in f16. Gate: Tetra or int3 within
+              +0.12 % of int4 g64, the band of a one-file A/B (ETAT §4).
+    Closed:   none.
+
+S4. MoE readiness: route every calibration token through every expert, weighted by the router. Engineering for the
+    Hessians; the quality is a research bet with strong published motivation.
+    Change:   for expert e, H_e = Σ_t (π_te + ε) z_te z_teᵀ over all calibration tokens, π_te the router probability,
+              z_te the expert's input (the shared hidden state for gate and up, the expert's own act(gate)·up for down,
+              computed for every token offline), with the existing shrinkage (`LLVQ_H_SHRINK`) toward the diagonal.
+              S2 then allocates per expert, with routing frequency in its coefficient. 4E gains an expert phase.
+    Evidence: verdict 4 (BitsMoE: GPTQ 34.08 against 61.91 at 2 bits on this model). MoEQuant reports more than 10
+              points of HumanEval on DeepSeekMoE-16B at 4 bits from expert-balanced sampling and affinity weighting
+              (*reported*, https://arxiv.org/abs/2505.03804). EAQuant's balancing alone gives +0.35 (W3A4) and +1.09
+              (W4A4) on OLMoE (*reported*, https://arxiv.org/html/2506.13329v3).
+    Effect:   the object, *computed* from the config: 30.53 G parameters; experts and attention in Tetra, embedding and
+              head int4 g64, router f16: 2.14 b/param, 8.2 GB. A token reads 8 of 128 experts: 0.91 GB a token against
+              the 4B's 1.378, a byte bound of 952 tok/s at 864 GB/s. Served speed unknown until 4E has an expert phase.
+              Quality: unknown; the policy is what keeps it off the BitsMoE floor.
+    Wrong if: router-weighted Hessians over-trust tokens the expert never sees in service. EAQuant's oversampling
+              (extra data until each expert clears 2 x its uniform share) is the fallback.
+    Format:   none for the codes; the file needs expert records and a router, a reader change.
+    Cost:     H capture: 131,072 x 128 x 3 x 768 x 2,048 x 2 x 48 = 7.6 PFLOP (*computed*), minutes to hours on one
+              card. Encode about twice a 14B by weight count, $30 today, $5 to $10 after S1. 4E expert phase 2 to 4
+              weeks. Opening the lead is the operator's call (ROADMAP §4: on hold, about $1.4 to open).
+    First:    $0 on the Mac, a heavy local job that needs a go: the routing histogram of Qwen3-30B-A3B on the 131,072
+              DCLM calibration tokens, streamed a layer at a time with the gpt-oss tool. Gate: if more than 1 % of
+              (layer, expert) pairs receive fewer routed tokens than d_in = 2,048, the all-token policy is a
+              precondition of any encode.
+    Closed:   MoE is on hold, not closed. gpt-oss stays ruled out.
+
+S5. One decoder, several rates: a Tetra family. Research bet.
+    Change:   keep the trio, the 64-state trellis and the Golay path (14 bits a block). The rank table is sorted by
+              cost, so its first 2^r rows are the best r-bit table: section i reads a prefix of r_i bits. A word is
+              14 + r1 + r2 + r3 + g bits. r = 11 is today's 48. With r_max = 13 the one table is 2 x 2^13 x 4 B = 64 KiB,
+              and the members run from 36 bits (1.50 b/weight) to 55 (2.29). For 2.6 to 3.6 b/weight, a member with no
+              rank table: each coordinate's rank stored directly in 2 or 3 bits, so 1 + 1 + 12 + 48 + 1 = 63 bits
+              (2.63 b) or 87 bits (3.63 b), decoded by shifts, the class parity left to the encoder.
+    Evidence: verdict 3 (granularity carries half of Q-Palette's gap). int4 g128 RTN has the distortion of an ideal
+              code at 3.32 b on Gaussian samples and 2.92 b on Student-t5 samples (*computed*, the numpy script,
+              4,194,304 samples: relative MSE 0.00997 and 0.01738). A code 0.222 b/dim above the bound, as Tetra is,
+              matches it at 3.15 to 3.55 b/weight, before any credit for GPTQ feedback, which the int4 records lack.
+    Effect:   b/param -0.13 to -0.21 at 4B, -0.09 to -0.14 at 8B, -0.14 to -0.22 at 14B if the int4 records move to
+              such a member at int4's distortion (*computed* from the parts of verdict 1). Fractional rates for S2.
+              Decode: the risk. The direct-rank member must cost no more row time per weight than an int4 weight
+              (0.905 ps); a 64 KiB table takes L1 from the activation tile that gave Tetra 17.6 % (banc-252).
+              TTFT moves with the same row costs. Production: encoder work per member.
+    Wrong if: Gaussian retention misleads again (88.89 % predicted Tetra worse than the ball; it was better), or the
+              direct-rank decode is slower than int4 rows.
+    Format:   new kinds, each with its own fingerprint beside the Trio one; format v1, its `codebook_fingerprint` and
+              Tetra48 untouched. A v2 header needs a rate field per matrix.
+    Cost:     encoder generalization 3 to 5 days at $0; kernels 1 to 2 weeks; a card bench about $0.5.
+    First:    $0 on the Mac, `llvq-bench`: Gaussian retention of each member (prefixes r = 7 to 13, direct ranks of
+              2 and 3 bits) at its own rate. Gate: every prefix member within 0.25 b/dim of the bound, and the 87-bit
+              member at relative MSE no worse than int4 g128 RTN's 0.00997. Then the H-weighted error on the 84 int4
+              matrices of the 4B (revue-compression measure 2) before any kernel.
+    Closed:   none. E3, `Golay70` and E1v decoded the ball's index; this keeps Tetra's decoder.
+
+REJECTED, WITH THE REASON
+-------------------------
+- Entropy-coded or shaped Tetra in VRAM: 0.025 b/weight of lossless slack and at most 0.10 b/param of lossy gain,
+  paid in decode instructions on rows that are decode-bound (verdict 2).
+- Another lattice or a trellis code: Λ24 has the smallest G known up to dimension 48, and codebook changes did not
+  move MMLU here (verdict 3).
+- Per-block rate inside a matrix: the rotation flattens what it would exploit (verdict 3).
+- Tying or factorising the embedding and the head: needs training.
+- Head below int4: every practitioner keeps it at 5 to 6 bits; the speed lever on the head is plan-300's K5, at the
+  same bits.
+
+TOP THREE AND THEIR FIRST EXPERIMENT
+------------------------------------
+1. S1, the cheap chain. Look for the row-scale checkpoints in the bucket, then score step 1,210 against the final
+   scales on the 4B, on the Mac at $0. Gate: paired interval contains 0, half-width under 0.6 pp.
+2. S2, sensitivity allocation on the kinds the file has. The 4B's 252 coefficients on the Mac at $0. Gate: the map
+   ranks the measured 4B swaps as the censuses did.
+3. S3, the untied input embedding. Qwen3-8B f16 with only that table swapped, paired perplexity on the Mac at $0.
+   Gate: within +0.12 % of int4 g64.
+Each local run needs a go (rule 1, operator memory of 2026-11-09: no local compute without one, never two heavy jobs
+at once). None costs card money.
+
+WHAT THIS NOTE DID NOT CHECK
+----------------------------
+- The 47.4 bits are a sum of marginal entropies, an upper bound on the joint; the joint was not estimated.
+- The 7-to-14 ratio assumes `trioencbench`'s 329 µs on a Mac core transfers to the card machine's cores.
+- MoE expert loads for Qwen3-30B-A3B: only gpt-oss-20b's histogram exists.
+- HIGGS and Q-Palette numbers are on Llama, at 3 bits and above; none is on Qwen3 at 2 bits.
+- BitsMoE, MoEQuant and EAQuant were read in abstract or summary form through the fetch tool; their tables were not
+  re-derived.
