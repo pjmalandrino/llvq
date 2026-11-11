@@ -1,0 +1,197 @@
+LARGE-PREFILL R32: a12ipg32 AT 32 ROWS A PASS AGAINST a12ip AT 16, CHAIN PREFILL, SEALED 4B, ONE L40S, 2026-11-11. $0.58.
+=========================================================================================================================
+R32 PASSES under the prereg's rule. The first token comes in 0.448 s at 1,024 tokens (bound 0.60) and 7.800 s at 8,191
+(bound 9.3) (*measured*). a12ipg32 at R = 32 equals a12ip at R = 16 bit for bit at the three lengths, on the argmax,
+the last row's logits and every layer's K and V, and 47 of 47 texts are identical (*measured*). All nine signed
+predictions are inside their intervals. The phase peaks are equal to a12ip's.
+
+First token (*measured*, median of 3 timed rounds):
+- a12ip at R = 16: 0.702 s at 1,024 tokens, 4.310 s at 4,096, 13.395 s at 8,191.
+- a12ipg32 at R = 32: 0.448 s, 2.681 s, 7.800 s.
+- a12ip over a12ipg32, round by round: x1.566 at 1,024, x1.607 at 4,096, x1.717 at 8,191.
+
+a12ipg32 is the fastest chain arm at every length measured, the house prompts included. The crossover D1 left between
+1,024 and 4,096 tokens no longer exists: a served form would not pick the arm by prompt length.
+
+Against the served eager prefill (journal large-prefill-2026-11-11.txt, 3.951 / 17.641 / 37.037 s): x8.82 at 1,024,
+x6.58 at 4,096, x4.75 at 8,191 (*computed*, ratio of medians from two jobs on the same card type).
+
+Nothing is served. The operator's ruling of 2026-11-11 is that the prefill is packaged later, all at once.
+
+Prereg : proofs/preregistration-large-prefill-r32-2026-11-11.md, stamped before the job (.ots, commit 990a818).
+         No deviation file.
+Code   : 34d5a83 (arm a12ipg32, prefillbench with several arms and per-arm rows, job script
+         ops/jobs/large-prefill-r32.sh). Mac gates and the tile's SASS: large-prefill-r32-mac-2026-11-11.txt.
+Go     : the operator, 2026-11-11, inside the $25 cap; relayed by the orchestrating session.
+Job    : 6af4beafab34849891ae6e81, l40sx1. The job's label reads name large-prefill, the script's own output folder
+         large-prefill-r32-2026-11-11.
+         - Image hf.co/spaces/Pier-Jean/llvq-runner-cuda, Space sha 2455633f, built from 990a818 (relayed by the
+           orchestrating session; job-inspect.txt does not carry it). The job script as embedded in job-inspect.txt.
+         - Created 19:14:55 UTC, RUNNING at 19:17:01 UTC after 125 s of scheduling, COMPLETED at 19:36:21 UTC.
+         - running_secs 1,160: 19.3 min, $0.58 (*computed* at $1.80/h on the running seconds). Estimated $0.63,
+           $0.90 at worst.
+         - Spend since the go of 2026-11-09: $12.08 before, $12.66 after, of $25.
+         - Registry $319.33 before, $319.91 after. The rows of docs/data/jobs.csv sum to $319.09 with this one, $0.82
+           under the registry (*computed* on the Mac). The gap predates D1 and is not chased here.
+Raw    : large-prefill-r32-2026-11-11-brut/, every file of the bucket folder, fetched one by one with hf buckets cp:
+         gpu.txt, oracle.txt, files.sha256, qwen3-4b-tetra-e4-4e-v9.json, r32.txt, texts-a12ip.jsonl,
+         texts-a12ipg32.jsonl, phase-peaks.txt, summary.txt, vram.txt and the two samplers vram-r32.csv,
+         vram-r32-t.txt. Added on the Mac: job-inspect.txt (hf jobs inspect, verbatim).
+
+CONTROLS
+--------
+1. Inputs and environment. Holds.
+   - Card: L40S, sm 8.9, 46,068 MiB, driver 580.178.04, 2,520 MHz.
+   - oracle on Qwen3-0.6B: MATCH, max |dhidden| 0.
+   - At their sha256: sealed file 886391a8, config 29b3ef32 (checked by the script; equal to configs/ on the Mac),
+     house set f749eb35, the 8k prompt da4edbd6.
+   - No LLVQ_* in the job environment (the job refuses one).
+2. 4E's module is the served v9 module (252,757 bytes, sha256 1b422b62). Holds.
+3. The loader's module lines. Holds.
+   - 4E tree: 306,060 bytes, sha256 ce1c354d.
+   - a12ip: 422,018 bytes, sha256 63155df9; 168 registers, 744 B local, 78,848 B shared, 1 resident a SM.
+   - a12ipg32: 451,917 bytes, sha256 a35f2b83; 168 registers, 728 B local, 93,568 B shared, 1 resident a SM.
+     The card's driver ptxas gives the devel image's figures.
+4. The image built; both arms built and fit one CTA a SM. Holds.
+The prefillbench process exits 0.
+
+TIMING (r32.txt, verbatim medians [range] over 3 timed rounds, *measured*)
+--------------------------------------------------------------------------
+  prompt  arm        first token, s            prefill to hand-over, s    decode tok/s after the first token
+  1,024   a12ip       0.702 [0.702-0.702]       0.714 [0.713-0.714]        215.2 [215.2-215.3]
+  1,024   a12ipg32    0.448 [0.448-0.449]       0.460 [0.460-0.460]        215.2 [215.1-215.2]
+  4,096   a12ip       4.310 [4.308-4.313]       4.325 [4.324-4.329]        194.6 [194.2-195.2]
+  4,096   a12ipg32    2.681 [2.679-2.686]       2.697 [2.695-2.702]        194.5 [193.8-194.9]
+  8,191   a12ip      13.395 [13.394-13.405]    13.407 [13.405-13.416]      158.6 [158.2-158.7]
+  8,191   a12ipg32    7.800 [7.779-7.805]       7.812 [7.791-7.817]        158.2 [158.0-158.5]
+Round by round, a12ip over a12ipg32: x1.566 [1.565-1.566], x1.607 [1.606-1.608], x1.717 [1.717-1.722].
+Reading:
+- The 256 decoded tokens of the two arms are identical at every length.
+- a12ip reproduces D1 within 0.3 % (0.702 / 4.306 / 13.361 s there).
+- Decode after the hand-over does not depend on the arm: 4E decodes the same cache.
+
+AGAINST D1's a12ipg AT R = 16 (cross-job, same card type, *computed*)
+--------------------------------------------------------------------
+D1's a12ipg first token: 0.731 / 3.904 / 10.262 s. a12ipg32 is x1.63 sooner at 1,024, x1.46 at 4,096, x1.32 at 8,191.
+a12ipg at 16 is not rerun here (prereg, known limits).
+
+IDENTITY (r32.txt, verbatim, *measured*)
+----------------------------------------
+  identity at 1024, a12ipg32@8.10.8.20.6 R = 32 against a12ip@8.10.8.20.6 R = 16: argmax equal (34532 and 34532); last row's logits bit for bit (0 of 151936 differ); K and V of 36 layers: bit for bit  => HOLDS
+  identity at 4096, ... => HOLDS (same three readings)
+  identity at 8191, ... => HOLDS (same three readings)
+Texts: 47 of 47 identical (the binary's pairing; checked again on the two dumps on the Mac, token for token).
+a12ipg32 carries a12ip's quality readings from the first job: identity of the chain against the one-row path, texts
+against eager, paired perplexity.
+
+PHASE SPLIT OF A CHAIN PASS AT 8,191 (r32.txt, *measured*, grid clock summed over the layers)
+---------------------------------------------------------------------------------------------
+  arm        pass (pos0, rows, head)       phases, ms   attn, ms   share    the rest, ms
+  a12ipg32   253 (8096, 32, off)            45.283       34.423     76.0 %   10.860
+  a12ipg32   254 (8128, 32, off)            45.014       34.196     76.0 %   10.818
+  a12ipg32   255 (8160, 31, on)             46.686       34.981     74.9 %   11.705
+  a12ip      509 (8144, 16, off)            44.401       34.584     77.9 %    9.817
+  a12ip      510 (8160, 16, off)            44.159       34.344     77.8 %    9.816
+  a12ip      511 (8176, 15, on)             42.398       31.841     75.1 %   10.556
+Medians of the two 32-row passes (*computed*): pass 45.149 ms, attention 34.310 ms (76.0 %), the rest 10.839 ms.
+The 31-row pass is read beside them: 46.686, 34.981, 11.705 ms.
+Reading:
+- A 32-row pass costs about what a 16-row pass of a12ip costs, for twice the tokens. Per token of prompt at 8k:
+  1.41 ms for a12ipg32, 2.76 ms for a12ip (*computed*, pass over rows).
+- Rows 17 to 32 add about 1.0 ms outside attention: qkv +0.45, gate/up +0.42 ms against a12ip's 16-row pass.
+- Attention is now the wall of the long prefill: 76.0 % of the 8k pass.
+
+WHERE THE GAIN OVER D1 COMES FROM (cross-job, *computed* per token of prompt at 8,191)
+--------------------------------------------------------------------------------------
+  arm                 pass, ms   attention a token, ms   the rest a token, ms
+  a12ipg, R = 16 (D1)   26.491      1.048                   0.607
+  a12ipg32, R = 32      45.149      1.072                   0.339
+- The whole 8k gain over a12ipg at 16 is outside attention: the weights are read once for 32 rows instead of 16.
+- Attention a token did not fall at 32 rows; it rose 2 %. The grouped read does not get cheaper per row with more rows.
+- This fits the reading of large-prefill-r32-mac-2026-11-11.txt (the tile is a latency chain behind its nv guards),
+  but this job does not test it. The attention is not split by stage.
+
+THE WHOLE CHAT TURN: FIRST TOKEN PLUS 256 ANSWER TOKENS (*computed*)
+-------------------------------------------------------------------
+The turn wall is prefill to hand-over plus 255 / decode tok/s, as the first journal computes it.
+  prompt   form        turn wall, s   answer tok/s
+  1,024    eager        5.139          49.8
+  1,024    a12ip        1.899         134.8
+  1,024    a12ipg32     1.645         155.6
+  4,096    eager       18.953          13.5
+  4,096    a12ip        5.635          45.4
+  4,096    a12ipg32     4.008          63.9
+  8,191    eager       38.638           6.6
+  8,191    a12ip       15.015          17.0
+  8,191    a12ipg32     9.424          27.2
+Reading:
+- Against eager the a12ipg32 turn is x3.12 faster at 1,024, x4.73 at 4,096, x4.10 at 8,191 (cross-job for eager).
+- At 8,191 the prefill is still 83 % of the turn.
+
+PEAK CARD MEMORY (*measured*, GB = MiB x 1,048,576 / 1e9)
+---------------------------------------------------------
+Phase peaks (phase-peaks.txt, the epoch sampler):
+  phase       a12ip               a12ipg32
+  load        2.117 (2,019 MiB), one process for both arms
+  time-1024   2.318 (2,211 MiB)   2.318 (2,211 MiB)
+  time-4096   2.855 (2,723 MiB)   2.855 (2,723 MiB)
+  time-8191   3.560 (3,395 MiB)   3.560 (3,395 MiB)
+  identity    3.526 (3,363 MiB), both arms
+  phases      3.526 (3,363 MiB)   3.526 (3,363 MiB)
+  texts       2.419 (2,307 MiB), both arms
+Process peak (vram.txt, the 100 ms sampler): 3,395 MiB (3.560 GB), the 8,191 timing phase.
+Reading: 32 rows a pass hold no more card memory than 16. The row buffers were already sized for 32 (0.153 GB).
+
+HOUSE PROMPTS (*measured*)
+--------------------------
+44 house prompts through each arm: prefill median 0.032 s [0.021-0.825] a12ipg32 against 0.047 s [0.028-1.273]
+a12ip; decode 217.5 tok/s in both ([206.4-219.9] and [206.2-219.8]). a12ipg32 is the faster arm on short prompts too.
+
+LOAD TIME
+---------
+Measured: loaded in 789.3 s of the job's 1,160 running seconds (68 %), against D1's 758.6 s with a12ipg. The prereg
+estimated about 13 min. This is NVRTC compiling the three tree modules at every start (first journal, LOAD TIME).
+
+AGAINST THE SIGNED PREDICTION
+-----------------------------
+Operational readings as fixed in the prereg: first tokens are each arm's medians of the three timed rounds; pass,
+attention and the rest are medians of the two stamped passes that carry 32 rows; peak is the phase peak of
+a12ipg32's timing tag; decode is the decode tok/s median.
+  #  quantity                                       signed                     measured                       inside
+  1  identity at 3 lengths, 256 tokens, 47 texts    holds, 47                  holds, identical, 47           yes
+  2  a12ip first token within 1.5 % of D1           0.70 / 4.31 / 13.36 s      0.702 / 4.310 / 13.395 s       yes (0.0 / +0.1 / +0.3 %)
+  3  a12ipg32 first token, 1,024                    0.50 s [0.44, 0.60]        0.448 s                        yes, lower edge
+  4  a12ipg32 first token, 4,096                    2.95 s [2.65, 3.40]        2.681 s                        yes, lower edge
+  5  a12ipg32 first token, 8,191                    8.3 s [7.5, 9.3]           7.800 s                        yes
+  6  32-row pass at 8k outside attention            11.4 ms [10.5, 13.5]       10.839 ms                      yes
+  7  attention of a 32-row pass at 8k               33.5 ms [29, 37]           34.310 ms                      yes
+  8  phase peaks, each within +0.05 GB              2.318 / 2.855 / 3.560 GB   2.318 / 2.855 / 3.560 GB       yes
+  9  decode within 1 % of a12ip's                   at each length             0.0 / -0.05 / -0.25 %          yes
+All nine are inside. The first tokens at 1,024 and 4,096 sit near the lower edges: the arm is faster than signed at
+short and middle contexts.
+
+VERDICT
+-------
+Decision rule of the prereg:
+- Identity holds at 1,024, 4,096 and 8,191; 47 of 47 texts.
+- First token 0.448 s at 1,024, at most 0.60. First token 7.800 s at 8,191, at most 9.3. PASSES.
+What stands: a12ipg32 is a12ip's bits at the same peak, x1.57 to x1.72 sooner, and the fastest chain arm at every
+length measured.
+
+WHAT IS OWED BEFORE SERVING
+---------------------------
+- A GSM8K-200 pairing of the chain prefill against the eager path.
+- Cached compiled modules: 789 s of the job's 1,160 s is NVRTC compiling the tree modules.
+- A served door: no engine or chat door calls the chain prefill. The operator's ruling packages it later, all at once.
+
+CAVEATS
+-------
+- One prompt text, WikiText-2 test cut to three lengths; the 1,024 and 4,096 prompts are prefixes of the 8,191 one.
+- One card (L40S), one model (4B), one job, three timed rounds a length.
+- The comparisons with eager and with D1's a12ipg mix jobs on the same card type and image family.
+- The phase medians stand on two passes, as the prereg fixes.
+
+NOT ESTABLISHED
+---------------
+Why attention a token does not fall with more rows; the study's latency reading of the tile's guards is not tested
+here. The full-tile attention path. R above 32. A served path. 8B, 14B; any card but the L40S.
