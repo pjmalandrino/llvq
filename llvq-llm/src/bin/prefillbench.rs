@@ -7,18 +7,24 @@
 //!
 //! Usage: `LLVQ_CONFIG=<served v9 config> prefillbench --form eager|chain --long <file.jsonl> [--lengths 1024,4096,8191]
 //! [--new <n>] [--prompts <file.jsonl>] [--dump <texts.jsonl>] [--pair-texts <texts.jsonl>] [--ppl <ctx>,<windows>]
-//! [--ppl-dump <nll.jsonl>] [--pair-ppl <nll.jsonl>] [--arm a12ip|a12ipg@q.o.g.d.h] [--against a12ip@q.o.g.d.h]
-//! [--dump-against <texts.jsonl>] [--r <rows>] <sealed>`
+//! [--ppl-dump <nll.jsonl>] [--pair-ppl <nll.jsonl>] [--arm a12ip|a12ipg|a12ipg32@q.o.g.d.h[/R]]
+//! [--against a12ip|a12ipg|a12ipg32@q.o.g.d.h[/R]]... [--dump-against <texts.jsonl>]... [--r <rows>] <sealed>`
 //!
-//! * `--against` (D1 of the study, the chain form only): a second arm installed
-//!   beside `--arm` in the same process, its words the same, so the two arms
-//!   are timed round by round (the `--against` arm first in each round), their
-//!   identity gate replaces the R gates (at every length, R rows a pass, the
-//!   last row's logits, its argmax and every layer's K and V of the prompt,
-//!   bit for bit), each arm's phase split is printed, the texts are made by
-//!   both and paired in the process (`--dump-against` writes the second
-//!   arm's); `--pair-texts` and `--ppl` are refused beside it. The marks carry
-//!   the arm's name (`time-<l>-<arm>`, one window a round);
+//! * an arm's rows a pass: its `/R` suffix, else `--r` (default 16); refused
+//!   by name above the arm's row cap (`TreeForm::rmax`: 16 for a12ip and
+//!   a12ipg, 32 for a12ipg32);
+//! * `--against` (D1 of the study, the chain form only, repeatable): more arms
+//!   installed beside `--arm` in the same process, their words the same. The
+//!   first `--against` is the reference. The arms are timed round by round
+//!   (the reference first in each round, then the other `--against` arms in
+//!   order, `--arm` last), each other arm's identity gate against the
+//!   reference replaces the R gates (at every length, each arm at its own R,
+//!   the last row's logits, its argmax and every layer's K and V of the
+//!   prompt, bit for bit), each arm's phase split is printed, the texts are
+//!   made by every arm and each paired with the reference's in the process
+//!   (`--dump-against`, once for each `--against` in order, writes theirs);
+//!   `--pair-texts` and `--ppl` are refused beside it. The marks carry the
+//!   arm's name (`time-<l>-<arm>`, one window a round; `phases-<arm>`);
 //!
 //! * `--long`: one long prompt (`ops/data/spec-long-8k-v1.jsonl`), through the
 //!   chat template, thinking off; a shorter length keeps the template and the
@@ -188,7 +194,7 @@ fn run() -> anyhow::Result<()> {
     use llvq_llm::boundary::median_range;
     use llvq_llm::chatfmt::{open_assistant, turn, Marks};
     use llvq_llm::persist4e_cuda::{TreeForm, TreePlan};
-    let usage = "usage: LLVQ_CONFIG=<served v9 config> prefillbench --form eager|chain --long <file.jsonl> [--lengths 1024,4096,8191] [--new <n>] [--prompts <file.jsonl>] [--dump <texts.jsonl>] [--pair-texts <texts.jsonl>] [--ppl <ctx>,<windows>] [--ppl-dump <nll.jsonl>] [--pair-ppl <nll.jsonl>] [--arm a12ip|a12ipg@q.o.g.d.h] [--against a12ip@q.o.g.d.h] [--dump-against <texts.jsonl>] [--r <rows>] <sealed>";
+    let usage = "usage: LLVQ_CONFIG=<served v9 config> prefillbench --form eager|chain --long <file.jsonl> [--lengths 1024,4096,8191] [--new <n>] [--prompts <file.jsonl>] [--dump <texts.jsonl>] [--pair-texts <texts.jsonl>] [--ppl <ctx>,<windows>] [--ppl-dump <nll.jsonl>] [--pair-ppl <nll.jsonl>] [--arm a12ip|a12ipg|a12ipg32@q.o.g.d.h[/R]] [--against a12ip|a12ipg|a12ipg32@q.o.g.d.h[/R]]... [--dump-against <texts.jsonl>]... [--r <rows>] <sealed>";
     let mut a: Vec<String> = Vec::new();
     let mut form_s: Option<String> = None;
     let (mut long_file, mut prompts_file, mut dump_file, mut pair_texts) = (None::<String>, None::<String>, None::<String>, None::<String>);
@@ -196,7 +202,7 @@ fn run() -> anyhow::Result<()> {
     let mut lengths: Vec<usize> = vec![1024, 4096, 8191];
     let (mut n_new, mut r_rows) = (256usize, 16usize);
     let mut arm_s = "a12ip@8.10.8.20.6".to_string();
-    let (mut against_s, mut dump_against) = (None::<String>, None::<String>);
+    let (mut against_s, mut dump_against) = (Vec::<String>::new(), Vec::<String>::new());
     let mut it = std::env::args().skip(1);
     let need = |x: Option<String>, f: &str| x.ok_or_else(|| anyhow::anyhow!("{f} needs a value; {usage}"));
     while let Some(x) = it.next() {
@@ -209,8 +215,8 @@ fn run() -> anyhow::Result<()> {
             "--ppl-dump" => ppl_dump = Some(need(it.next(), "--ppl-dump")?),
             "--pair-ppl" => pair_ppl = Some(need(it.next(), "--pair-ppl")?),
             "--arm" => arm_s = need(it.next(), "--arm")?,
-            "--against" => against_s = Some(need(it.next(), "--against")?),
-            "--dump-against" => dump_against = Some(need(it.next(), "--dump-against")?),
+            "--against" => against_s.push(need(it.next(), "--against")?),
+            "--dump-against" => dump_against.push(need(it.next(), "--dump-against")?),
             "--new" => n_new = need(it.next(), "--new")?.parse().map_err(|e| anyhow::anyhow!("--new: {e}"))?,
             "--r" => r_rows = need(it.next(), "--r")?.parse().map_err(|e| anyhow::anyhow!("--r: {e}"))?,
             "--lengths" => {
@@ -232,11 +238,17 @@ fn run() -> anyhow::Result<()> {
     let path = a.first().ok_or_else(|| anyhow::anyhow!("{usage}"))?.clone();
     let long_file = long_file.ok_or_else(|| anyhow::anyhow!("--long <file.jsonl>; {usage}"))?;
     anyhow::ensure!(n_new >= 2, "--new {n_new}: the decode is timed after the first token");
-    anyhow::ensure!((1..=16).contains(&r_rows), "--r {r_rows}: the in-place arm carries 1 to 16 rows");
+    anyhow::ensure!((1..=32).contains(&r_rows), "--r {r_rows}: a chain pass carries 1 to 32 rows");
     anyhow::ensure!(!lengths.is_empty() && lengths.windows(2).all(|w| w[0] < w[1]), "--lengths: increasing");
     anyhow::ensure!(chain || (pair_texts.is_none() && pair_ppl.is_none()),"--pair-*: the chain form pairs against the eager form's dumps");
-    // an arm by name: a12ip, or a12ipg (D1, a12ip with the grouped attention); nothing else
-    let parse_arm = |s: &str| -> anyhow::Result<(TreeForm, TreePlan)> {
+    // an arm by name: a12ip, a12ipg (D1, a12ip with the grouped attention) or
+    // a12ipg32 (a12ipg at 32 rows a launch); nothing else. Its rows a pass:
+    // the `/R` suffix, else --r, refused above the arm's row cap.
+    let parse_arm = |s: &str| -> anyhow::Result<(TreeForm, TreePlan, usize)> {
+        let (s, r) = match s.split_once('/') {
+            None => (s, r_rows),
+            Some((a, r)) => (a, r.parse::<usize>().map_err(|e| anyhow::anyhow!("arm {s}: rows {r}: {e}"))?),
+        };
         let (base, plan) = match s.split_once('@') {
             None => (s, TreePlan::Stream),
             Some((b, p)) => {
@@ -247,22 +259,29 @@ fn run() -> anyhow::Result<()> {
         let form = match base {
             "a12ip" => TreeForm::A12ip,
             "a12ipg" => TreeForm::A12ipg,
-            _ => anyhow::bail!("prefillbench: arm {base:?}; the chain prefill runs a12ip or a12ipg (the served words read in place)"),
+            "a12ipg32" => TreeForm::A12ipg32,
+            _ => anyhow::bail!("prefillbench: arm {base:?}; the chain prefill runs a12ip, a12ipg or a12ipg32 (the served words read in place)"),
         };
-        Ok((form, plan))
+        anyhow::ensure!(
+            (1..=form.rmax() as usize).contains(&r),
+            "prefillbench: arm {s} carries 1 to {} rows a launch (its kernel's row cap), {r} asked",
+            form.rmax()
+        );
+        Ok((form, plan, r))
     };
-    let (form0, plan) = parse_arm(&arm_s)?;
-    let against = match &against_s {
-        Some(s) => Some(parse_arm(s)?),
-        None => None,
-    };
+    // the installed arms, in the runtime's order: --arm, then each --against
+    let mut arms_p = vec![parse_arm(&arm_s)?];
+    for s in &against_s {
+        arms_p.push(parse_arm(s)?);
+    }
+    let arm_names: Vec<String> = std::iter::once(&arm_s).chain(&against_s).map(|s| s.split('/').next().unwrap_or("").to_string()).collect();
+    let arm_r: Vec<usize> = arms_p.iter().map(|a| a.2).collect();
+    let bases: Vec<&str> = arm_names.iter().map(|n| n.split('@').next().unwrap_or("")).collect();
     anyhow::ensure!(
-        against.is_none() || (chain && pair_texts.is_none() && ppl.is_none() && against_s.as_deref() != Some(arm_s.as_str())),
-        "--against: the chain form, another arm than --arm, without --pair-texts and --ppl"
+        against_s.is_empty() || (chain && pair_texts.is_none() && ppl.is_none() && (1..bases.len()).all(|i| !bases[..i].contains(&bases[i]))),
+        "--against: the chain form, arms of distinct kernels, without --pair-texts and --ppl"
     );
-    anyhow::ensure!(dump_against.is_none() || against.is_some(), "--dump-against needs --against");
-    // the installed arms' names, in the runtime's order: --arm, then --against
-    let arm_names: Vec<String> = std::iter::once(arm_s.clone()).chain(against_s.clone()).collect();
+    anyhow::ensure!(dump_against.len() <= against_s.len(), "--dump-against: one for each --against at most");
     let cfg = llvq_llm::served::Served::from_env()
         .map_err(|e| anyhow::anyhow!("{e}"))?
         .ok_or_else(|| anyhow::anyhow!("LLVQ_CONFIG names the served config; {usage}"))?;
@@ -277,8 +296,8 @@ fn run() -> anyhow::Result<()> {
         if chain { "chain" } else { "eager" },
         if chain {
             format!(
-                "the prompt through {} as chains of {r_rows} known tokens a pass, the head on the last pass only, a one-row hand-over launch moving the last chunk, then 4E",
-                arm_names.join(" and through ")
+                "the prompt through {} as chains of known tokens, the head on the last pass only, a one-row hand-over launch moving the last chunk, then 4E",
+                arm_names.iter().zip(&arm_r).map(|(n, r)| format!("{n} at {r} rows a pass")).collect::<Vec<_>>().join(" and through ")
             )
         } else {
             format!("the served eager prefill (Qwen3::prefill_next_in, chunks of {}), then 4E", llvq_llm::model::MAX_PREFILL_ROWS)
@@ -297,10 +316,7 @@ fn run() -> anyhow::Result<()> {
     if chain {
         let rt = dec.runtime_mut().ok_or_else(|| anyhow::anyhow!("prefillbench: the config built no 4E runtime"))?;
         let before = rt.lines.len();
-        let mut specs = vec![(arm_s.as_str(), plan, form0)];
-        if let (Some(s), Some((f1, p1))) = (against_s.as_deref(), against) {
-            specs.push((s, p1, f1));
-        }
+        let specs: Vec<_> = arm_names.iter().zip(&arms_p).map(|(n, &(f, p, _))| (n.as_str(), p, f)).collect();
         rt.install_tree(&specs)?;
         for line in &rt.lines[before..] {
             println!("{line}");
@@ -310,6 +326,9 @@ fn run() -> anyhow::Result<()> {
         for a in &installed {
             anyhow::ensure!(a.void.is_none(), "prefillbench: arm {} is void: {:?}", a.name, a.void);
             println!("arm {}: {:?} kernel, slices {:?}, {} threads, area {} floats, {} B shared, row cap {}", a.name, a.form, a.splits, a.threads, a.area, a.smem, a.form.rmax());
+        }
+        for (n, r) in arm_names.iter().zip(&arm_r) {
+            println!("arm {n}: {r} rows a pass");
         }
         card_memory("after the verify pass's install")?;
     }
@@ -355,7 +374,7 @@ fn run() -> anyhow::Result<()> {
         let (mut caches, first, ttft, prefill) = if chain {
             let mut c = empty_caches(model)?;
             let rt = dec.runtime_mut().ok_or_else(|| anyhow::anyhow!("no 4E runtime"))?;
-            let ch = chain_prefill(rt, arm, &mut c, ids, r_rows, false, t0)?;
+            let ch = chain_prefill(rt, arm, &mut c, ids, arm_r[arm], false, t0)?;
             (c, ch.first, ch.ttft, ch.prefill)
         } else {
             let mut c = model.fresh_caches();
@@ -382,8 +401,10 @@ fn run() -> anyhow::Result<()> {
     println!("  prompt   first token, s           prefill to hand-over, s    decode tok/s after the first token");
     // texts[arm]: each installed arm's (the eager form's in texts[0])
     let n_arms = arm_names.len();
-    // each round runs the --against arm first, then --arm
-    let order: Vec<usize> = (0..n_arms).rev().collect();
+    // the reference: the first --against (arm 1), or the only arm
+    let refk = if n_arms > 1 { 1 } else { 0 };
+    // each round runs the reference first, then the other --against arms, then --arm
+    let order: Vec<usize> = (1..n_arms).chain(std::iter::once(0)).collect();
     // (id, kind, prompt ids, tokens to the first <|im_end|>)
     type Text = (String, String, Vec<u32>, Vec<u32>);
     let mut texts: Vec<Vec<Text>> = vec![Vec::new(); n_arms];
@@ -434,14 +455,14 @@ fn run() -> anyhow::Result<()> {
             }
             texts[k].push((id.clone(), "long".into(), ids.clone(), to_eos(reference[k].as_ref().expect("rounds ran"))));
         }
-        if n_arms > 1 {
-            let ratios: Vec<f64> = ttft[1].iter().zip(&ttft[0]).map(|(b, a)| b / a).collect();
+        for k in (0..n_arms).filter(|&k| n_arms > 1 && k != refk) {
+            let ratios: Vec<f64> = ttft[refk].iter().zip(&ttft[k]).map(|(b, a)| b / a).collect();
             let (m, lo, hi) = median_range(&ratios);
             println!(
-                "  {l:>6}   first token of {} over {}, round by round: x{m:.3} [{lo:.3}-{hi:.3}]; the 256 tokens {}",
-                arm_names[1],
-                arm_names[0],
-                if reference[0] == reference[1] { "identical" } else { "DIFFER" }
+                "  {l:>6}   first token of {} over {}, round by round: x{m:.3} [{lo:.3}-{hi:.3}]; the {n_new} tokens {}",
+                arm_names[refk],
+                arm_names[k],
+                if reference[k] == reference[refk] { "identical" } else { "DIFFER" }
             );
         }
         card_memory(&format!("after the {l}-token rounds"))?;
@@ -480,24 +501,33 @@ fn run() -> anyhow::Result<()> {
             );
             Ok(ok)
         };
-        let mut arm_gates: Vec<(usize, bool)> = Vec::new();
+        // (arm, length, holds)
+        let mut arm_gates: Vec<(usize, usize, bool)> = Vec::new();
+        let r0 = arm_r[0];
         let (g1, g1b) = if n_arms > 1 {
-            println!("\nidentity: {} against {} at every length, R = {r_rows} (FNV-1a of each layer's K and V bits over the prompt)", arm_names[0], arm_names[1]);
-            for (_, ids) in &longs {
-                arm_gates.push((ids.len(), gate(&mut dec, ids, (0, r_rows), (1, r_rows))?));
+            for k in (0..n_arms).filter(|&k| k != refk) {
+                println!(
+                    "\nidentity: {} at R = {} against {} at R = {} at every length (FNV-1a of each layer's K and V bits over the prompt)",
+                    arm_names[k], arm_r[k], arm_names[refk], arm_r[refk]
+                );
+                for (_, ids) in &longs {
+                    arm_gates.push((k, ids.len(), gate(&mut dec, ids, (k, arm_r[k]), (refk, arm_r[refk]))?));
+                }
             }
             (true, true)
         } else {
             println!("\nidentity: the chain prefill against the pass's one-row path (FNV-1a of each layer's K and V bits over the prompt)");
-            let g1 = gate(&mut dec, &longs[0].1, (0, r_rows), (0, 1))?;
-            let g1b = if longs.len() > 1 { gate(&mut dec, &longs[1].1, (0, 8), (0, r_rows))? } else { true };
+            let g1 = gate(&mut dec, &longs[0].1, (0, r0), (0, 1))?;
+            let g1b = if longs.len() > 1 { gate(&mut dec, &longs[1].1, (0, 8), (0, r0))? } else { true };
             (g1, g1b)
         };
         mark("identity", "end");
         // the phase split of the longest prompt's last three passes, each arm
         mark("phases", "begin");
         for (arm, name) in arm_names.iter().enumerate() {
-            println!("  phases of {name}:");
+            let ptag = format!("phases-{}", bases[arm]);
+            mark(&ptag, "begin");
+            println!("  phases of {name} at R = {}:", arm_r[arm]);
             use llvq_cuda::pers::{n_bar_a9, p4t_phases_a9, P4T_PHASES_A9};
             use llvq_cuda::spec_loop::{chain_launches, ChainFault};
             let ids = &longs.last().expect("a length").1;
@@ -505,7 +535,7 @@ fn run() -> anyhow::Result<()> {
             let rt = dec.runtime_mut().ok_or_else(|| anyhow::anyhow!("no 4E runtime"))?;
             let (layers, grid) = rt.stamp_shape();
             let n_ev = (1 + 2 * n_bar_a9(layers, 0)) as usize * grid as usize;
-            let (ls, _, _) = chain_launches(ids, 0, r_rows, ChainFault::None).map_err(anyhow::Error::msg)?;
+            let (ls, _, _) = chain_launches(ids, 0, arm_r[arm], ChainFault::None).map_err(anyhow::Error::msg)?;
             let n = ls.len();
             let mut per: Vec<Vec<f64>> = vec![Vec::new(); P4T_PHASES_A9.len()];
             let mut walls = Vec::new();
@@ -543,17 +573,22 @@ fn run() -> anyhow::Result<()> {
             let shares: Vec<f64> = (0..per[5].len()).map(|j| per[5][j] / per.iter().map(|p| p[j]).sum::<f64>()).collect();
             let (m, lo, hi) = median_range(&shares);
             println!("  attention share of a pass at {}: median {:.1} % [{:.1}-{:.1}] over the 3 stamped passes", ids.len(), 100.0 * m, 100.0 * lo, 100.0 * hi);
+            mark(&ptag, "end");
         }
         mark("phases", "end");
         if n_arms > 1 {
-            println!(
-                "identity gates, {} against {}: {}",
-                arm_names[0],
-                arm_names[1],
-                arm_gates.iter().map(|(l, ok)| format!("{l} {}", if *ok { "HOLDS" } else { "FAILS" })).collect::<Vec<_>>().join(", ")
-            );
+            for k in (0..n_arms).filter(|&k| k != refk) {
+                println!(
+                    "identity gates, {} at R = {} against {} at R = {}: {}",
+                    arm_names[k],
+                    arm_r[k],
+                    arm_names[refk],
+                    arm_r[refk],
+                    arm_gates.iter().filter(|g| g.0 == k).map(|(_, l, ok)| format!("{l} {}", if *ok { "HOLDS" } else { "FAILS" })).collect::<Vec<_>>().join(", ")
+                );
+            }
         } else {
-            println!("identity gates: R = {r_rows} against R = 1 at {}: {}; R = 8 against R = {r_rows} at {}: {}", longs[0].1.len(), if g1 { "HOLDS" } else { "FAILS" }, longs.get(1).map_or(0, |x| x.1.len()), if g1b { "HOLDS" } else { "FAILS" });
+            println!("identity gates: R = {r0} against R = 1 at {}: {}; R = 8 against R = {r0} at {}: {}", longs[0].1.len(), if g1 { "HOLDS" } else { "FAILS" }, longs.get(1).map_or(0, |x| x.1.len()), if g1b { "HOLDS" } else { "FAILS" });
         }
     }
     // ---- texts: the house prompts ----
@@ -582,8 +617,8 @@ fn run() -> anyhow::Result<()> {
             println!("\nhouse prompts: {} through the {who} prefill; prefill {p1:.3} s [{p2:.3}-{p3:.3}], decode {q1:.1} tok/s [{q2:.1}-{q3:.1}], median [range] over prompts", pre[k].len());
         }
     }
-    for (k, file) in [(0usize, &dump_file), (1, &dump_against)] {
-        let Some(p) = file else { continue };
+    let dumps: Vec<(usize, &String)> = dump_file.iter().map(|p| (0usize, p)).chain(dump_against.iter().enumerate().map(|(i, p)| (i + 1, p))).collect();
+    for (k, p) in dumps {
         use std::io::Write;
         let mut w = std::io::BufWriter::new(std::fs::File::create(p).map_err(|e| anyhow::anyhow!("{p}: {e}"))?);
         for (id, kind, ids, t) in &texts[k] {
@@ -595,17 +630,17 @@ fn run() -> anyhow::Result<()> {
         w.flush()?;
         println!("dump: {p}, {} texts", texts[k].len());
     }
-    // the two arms' texts, paired in the process: identical, or the first divergence
-    if n_arms > 1 && !texts[0].is_empty() {
+    // each arm's texts paired with the reference's in the process: identical, or the first divergence
+    for k in (0..n_arms).filter(|&k| n_arms > 1 && k != refk && !texts[k].is_empty()) {
         let mut same = 0usize;
-        for ((id, kind, _, a), (id_b, _, _, b)) in texts[0].iter().zip(&texts[1]) {
+        for ((id, kind, _, a), (id_b, _, _, b)) in texts[k].iter().zip(&texts[refk]) {
             anyhow::ensure!(id == id_b, "prefillbench: the arms' texts are out of order ({id} and {id_b})");
             match a.iter().zip(b).position(|(x, y)| x != y).or(if a.len() != b.len() { Some(a.len().min(b.len())) } else { None }) {
                 None => same += 1,
-                Some(q) => println!("  {id} ({kind}): first divergence at generated token {q} of {} and {}: {} {:?}, {} {:?}", a.len(), b.len(), arm_names[0], a.get(q), arm_names[1], b.get(q)),
+                Some(q) => println!("  {id} ({kind}): first divergence at generated token {q} of {} and {}: {} {:?}, {} {:?}", a.len(), b.len(), arm_names[k], a.get(q), arm_names[refk], b.get(q)),
             }
         }
-        println!("texts identical through {} and {}: {same} of {}", arm_names[0], arm_names[1], texts[0].len());
+        println!("texts identical through {} and {}: {same} of {}", arm_names[k], arm_names[refk], texts[k].len());
     }
     if let Some(p) = &pair_texts {
         mark("pair-texts", "begin");
@@ -633,7 +668,7 @@ fn run() -> anyhow::Result<()> {
                             let rt = dec.runtime_mut().ok_or_else(|| anyhow::anyhow!("no 4E runtime"))?;
                             // the row at position l + q - 1 predicts generated token q
                             let upto = l + q;
-                            let ch = chain_prefill(rt, 0, &mut c, &seq[..upto], r_rows, true, Instant::now())?;
+                            let ch = chain_prefill(rt, 0, &mut c, &seq[..upto], arm_r[0], true, Instant::now())?;
                             let lg = |x: u32| half::f16::from_bits(ch.last_logits[x as usize]).to_f32();
                             let mm = lg(a) - lg(b);
                             if mm.abs() <= 0.25 {
@@ -659,7 +694,7 @@ fn run() -> anyhow::Result<()> {
         anyhow::ensure!(nwin >= 2, "--ppl: {} tokens hold {nwin} windows of {ctx}", wid.len());
         let span = &wid[..nwin * ctx];
         println!("\nperplexity: wikitext2 test, {nwin} windows of {ctx} from window 0 (tokens {:016x}), {}", llvq_llm::eval::token_fingerprint(span), if chain {
-            format!("chain passes of {r_rows}, the head and logits on every row (binary16 logits, NLL in f64)")
+            format!("chain passes of {}, the head and logits on every row (binary16 logits, NLL in f64)", arm_r[0])
         } else {
             "Qwen3::window_nll, the published prefill path".to_string()
         });
@@ -671,7 +706,7 @@ fn run() -> anyhow::Result<()> {
                 use llvq_cuda::spec_loop::{chain_launches, ChainFault};
                 let mut c = empty_caches(model)?;
                 let rt = dec.runtime_mut().ok_or_else(|| anyhow::anyhow!("no 4E runtime"))?;
-                let (ls, _, _) = chain_launches(win, 0, r_rows, ChainFault::None).map_err(anyhow::Error::msg)?;
+                let (ls, _, _) = chain_launches(win, 0, arm_r[0], ChainFault::None).map_err(anyhow::Error::msg)?;
                 let mut s = 0.0f64;
                 for l in &ls {
                     let o = rt.tree_chain(0, &mut c, l.pos0, &l.toks, &l.mv, l.move_pos0, true, true, false)?;

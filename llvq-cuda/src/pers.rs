@@ -2242,6 +2242,28 @@ pub fn p4t_a12ipg_symbol(form: u32) -> Result<&'static str, String> {
     })
 }
 
+/// The module text of arm a12ipg32 (design A of
+/// docs/mesures/large-prefill-rangees-etude-2026-11-11.txt): a12ipg's pass
+/// compiled at RC = 4, 32 rows a launch (`pers_4et_a12g32.cu`), appended after
+/// [`p4t_a12ipg_unit_text`], which keeps its bytes. The module also carries
+/// a12ip's and a12ipg's symbols and the load check `p4t_ip_check`.
+pub fn p4t_a12ipg32_unit_text(tile_define: &str) -> String {
+    format!("#define P4T_A12IPG32 1\n{}\n{}", p4t_a12ipg_unit_text(tile_define), P4T_A12G32_PART.1)
+}
+
+/// The a12ipg32 symbol for a RoPE form (384 threads).
+pub fn p4t_a12ipg32_symbol(form: u32) -> Result<&'static str, String> {
+    Ok(match form {
+        0 => "pers_4et_a12ipg32_f0_t384",
+        1 => "pers_4et_a12ipg32_f1_t384",
+        2 => "pers_4et_a12ipg32_f2_t384",
+        _ => return Err(format!("tree verify: no a12ipg32 kernel for RoPE form {form}")),
+    })
+}
+
+/// `pers_4et_a12g32.cu`, embedded so the Mac hashes what the card compiles.
+pub const P4T_A12G32_PART: (&str, &str) = ("pers_4et_a12g32.cu", include_str!("../kernels/pers_4et_a12g32.cu"));
+
 /// Rows a shared attention job of a12ipg serves (`P4G_RG`).
 pub const P4G_RG: u32 = 4;
 
@@ -3851,6 +3873,42 @@ mod tests {
         eprintln!("tree module a12ip at SERVED_DEFINES_SM89: {} bytes, sha256 {}", ip.len(), crate::sha256::sha256_hex(ip.as_bytes()));
     }
 
+    /// The card's tile define on the L40S (`TileConfig::define`, 64 blocks).
+    const CARD_TILE_SM89: &str = "#define TILE_BLOCKS 64u\n";
+
+    /// The module texts the card compiled in large-prefill D1, at their
+    /// sha256 (d1.txt's loader lines): 4E's tree module, a12ip's, a12ipg's.
+    /// An arm added beside them must leave all three where they are.
+    #[test]
+    fn the_d1_tree_modules_keep_their_bytes() {
+        for (name, text, sha) in [
+            ("4E tree", p4t_unit_text(CARD_TILE_SM89), "ce1c354d2583eb178ae8622ff99e10f9b457543972bb5039ce89ede9eec31e44"),
+            ("a12ip", p4t_a12ip_unit_text(CARD_TILE_SM89), "63155df95ef832aabbff328bd92062b6981763ed57358e32dc118d150df7c6ad"),
+            ("a12ipg", p4t_a12ipg_unit_text(CARD_TILE_SM89), "246e99b18895a7f9452411372b8ff4bbb686276408318e547656fb809b722da8"),
+        ] {
+            assert_eq!(crate::sha256::sha256_hex(text.as_bytes()), sha, "{name}: {} bytes", text.len());
+        }
+    }
+
+    /// Writes the tree modules at the card's tile define into
+    /// `target/tree-modules/` for an offline compile (ops/tree-sass-probe.sh).
+    #[test]
+    #[ignore]
+    fn dump_tree_modules() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../target/tree-modules");
+        std::fs::create_dir_all(&dir).unwrap();
+        let v9 = format!("{}{}", p4e_rows_define(7).unwrap(), pers_unit_text(CARD_TILE_SM89));
+        for (name, text) in [
+            ("4e-v9", v9),
+            ("a12ip", p4t_a12ip_unit_text(CARD_TILE_SM89)),
+            ("a12ipg", p4t_a12ipg_unit_text(CARD_TILE_SM89)),
+            ("a12ipg32", p4t_a12ipg32_unit_text(CARD_TILE_SM89)),
+        ] {
+            std::fs::write(dir.join(format!("{name}.cu")), &text).unwrap();
+            eprintln!("{name}: {} bytes, sha256 {}", text.len(), crate::sha256::sha256_hex(text.as_bytes()));
+        }
+    }
+
     #[test]
     fn the_a12ipg_pass_is_a12ip_with_the_grouped_attention() {
         // pers_4et_a12g.cu: a12's body renamed, its area check and its
@@ -3881,6 +3939,26 @@ mod tests {
         assert_eq!(a, p4t_area_floats(12, 32, 9728, 4) + 3_680);
         assert!(SMEM_HEADER + TABLE_BYTES + 4 * a <= 101_376, "{} B", SMEM_HEADER + TABLE_BYTES + 4 * a);
         eprintln!("tree module a12ipg at SERVED_DEFINES_SM89: {} bytes, sha256 {}; area {a} floats, {} B shared", g.len(), crate::sha256::sha256_hex(g.as_bytes()), SMEM_HEADER + TABLE_BYTES + 4 * a);
+    }
+
+    #[test]
+    fn the_a12ipg32_pass_is_a12ipg_at_four_tiles() {
+        // pers_4et_a12g32.cu: a12ipg's body instantiated at RC = 4, nothing else
+        let part = P4T_A12G32_PART.1;
+        assert_eq!(part.matches("pers_4et_a12g_body<").count(), 1);
+        assert_eq!(part.matches("pers_4et_a12g_body<FORM_, 4u, true>(A, L);").count(), 1);
+        assert_eq!(part.matches("__global__").count(), 1, "one kernel macro, no other code");
+        let g = p4t_a12ipg_unit_text(SERVED_DEFINES_SM89);
+        let t = p4t_a12ipg32_unit_text(SERVED_DEFINES_SM89);
+        assert_eq!(t, format!("#define P4T_A12IPG32 1\n{g}\n{part}"));
+        for f in 0..3 {
+            assert_eq!(t.matches(p4t_a12ipg32_symbol(f).unwrap()).count(), 1);
+            assert_eq!(g.matches(p4t_a12ipg32_symbol(f).unwrap()).count(), 0, "a12ipg's text carries no a12ipg32 symbol");
+        }
+        assert!(p4t_a12ipg32_symbol(3).is_err());
+        // the area is a12ipg's, which already stages 32 rows
+        assert_eq!(p4g_area_floats(12, 32, 9728, 4), 18_624);
+        eprintln!("tree module a12ipg32 at SERVED_DEFINES_SM89: {} bytes, sha256 {}", t.len(), crate::sha256::sha256_hex(t.as_bytes()));
     }
 
     use super::*;

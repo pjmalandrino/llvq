@@ -363,6 +363,9 @@ const A12IP: u32 = 536870912;
 /// that ends at or below pos0 once for a group of rows (D1 of the
 /// large-prefill study, `kernels/pers_4et_a12g.cu`).
 const A12IPG: u32 = 2147483648;
+/// The variant bit of arm a12ipg32: a12ipg's pass at RC = 4, 32 rows a
+/// launch (design A of the large-prefill rows study, `kernels/pers_4et_a12g32.cu`).
+const A12IPG32: u32 = 262144;
 
 struct Out {
     reference: Option<(u32, Vec<u16>)>,
@@ -422,7 +425,7 @@ fn parse(bytes: &[u8], reference: bool, passes: &[Pass], taps: bool) -> Result<O
 }
 
 fn exec(bin: &Path, f: &Fix, reference: Option<(u32, u32)>, passes: &[Pass]) -> Result<Out, String> {
-    let out = parse(&run(bin, &y_cmd(f, reference, passes))?, reference.is_some(), passes, f.variant & (A12 | A12IP | A12IPG) != 0)?;
+    let out = parse(&run(bin, &y_cmd(f, reference, passes))?, reference.is_some(), passes, f.variant & (A12 | A12IP | A12IPG | A12IPG32) != 0)?;
     if out.tail[1] != 0 {
         return Err(format!("abort, NaN flag or tickets left: {}", out.tail[1]));
     }
@@ -1850,6 +1853,89 @@ fn a12ipg_mutants_are_killed() {
         match r {
             Err(e) => eprintln!("{tag}: killed by {}", e.lines().next().unwrap_or("")),
             Ok(_) => panic!("a12ipg mutant {tag} survived its gate"),
+        }
+    }
+}
+
+// ---- arm a12ipg32: a12ipg at 32 rows a launch (large prefill, design A) ----
+
+/// The prompts of the a12ipg32 gates. Short: 45 tokens from position 500,
+/// across the split boundary at 512, so a pass of 32 starts at 500 (one
+/// shared split) and the next at 532 (two), where the passes of 16 start at
+/// 500, 516 and 532. Long: 300 tokens from 250, across 256 and 512, three
+/// splits, the shared ones changing from pass to pass at 16 and at 32. Neither
+/// length is a multiple of 32 or of 16.
+fn g32_prompts() -> (Vec<u32>, Vec<u32>) {
+    let mut g = Lcg(0x8f1);
+    let short: Vec<u32> = (0..45).map(|_| (g.next() % VOCAB as u64) as u32).collect();
+    let long: Vec<u32> = (0..300).map(|_| (g.next() % VOCAB as u64) as u32).collect();
+    (short, long)
+}
+
+/// a12ipg32 at R = 32 equals a12ipg at R = 16 and a12ip's one-row path
+/// (R = 1, each pass moving the previous row) on every row's argmax, logits,
+/// residual, K and V and on the hand-over row: the short prompt against both,
+/// with the 4B's shapes and with the 8B's parts against R = 16; the long one
+/// against R = 16.
+#[test]
+#[cfg_attr(debug_assertions, ignore)]
+fn a12ipg32_chain_prefill_equals_r16_and_r1() {
+    let (short, long) = g32_prompts();
+    let f = FIX_LONG;
+    let one = exec(host(), &Fix { variant: A12IP, ..f }, None, &chain_passes_at(&short, 500, 1, 611)).unwrap();
+    for ext in [0u32, 16] {
+        let r16 = exec(host(), &Fix { variant: ext | A12IPG, ..f }, None, &chain_passes_at(&short, 500, 16, 611)).unwrap();
+        let r32 = exec(host(), &Fix { variant: ext | A12IPG32, ..f }, None, &chain_passes_at(&short, 500, 32, 611)).unwrap();
+        let n = gate_chain_rows(&r32, &r16, &format!("variant {ext}: a12ipg32 R = 32 against a12ipg R = 16, from 500")).unwrap();
+        eprintln!("variant {ext}: a12ipg32 chain of 45 from 500, R = 32: {n} rows equal to a12ipg's R = 16 bit for bit");
+        if ext == 0 {
+            let n = gate_chain_rows(&r32, &one, "a12ipg32 R = 32 against a12ip R = 1, from 500").unwrap();
+            eprintln!("a12ipg32 chain of 45 from 500, R = 32: {n} rows equal to a12ip's R = 1 bit for bit");
+        }
+    }
+    let r16 = exec(host(), &Fix { variant: A12IPG, ..f }, None, &chain_passes_at(&long, 250, 16, 611)).unwrap();
+    let r32 = exec(host(), &Fix { variant: A12IPG32, ..f }, None, &chain_passes_at(&long, 250, 32, 611)).unwrap();
+    let n = gate_chain_rows(&r32, &r16, "a12ipg32 R = 32 against a12ipg R = 16, from 250").unwrap();
+    eprintln!("a12ipg32 chain of 300 from 250, R = 32: {n} rows equal to a12ipg's R = 16 bit for bit");
+}
+
+/// Three mutants of the 32-row pass, each at exactly one site (the builder
+/// refuses any other count), each killed by the R = 32 against R = 16 gate on
+/// the short prompt: n8 tiles 2 and 3 stored in tiles 0 and 1's columns;
+/// their accumulators never zeroed; the arm compiled at RC = 2 (the row cap
+/// left at 16) while the host sends 32 rows, which must abort the launch.
+#[test]
+#[cfg_attr(debug_assertions, ignore)]
+fn a12ipg32_mutants_are_killed() {
+    let (short, _) = g32_prompts();
+    let f = FIX_LONG;
+    let r16 = exec(host(), &Fix { variant: A12IPG, ..f }, None, &chain_passes_at(&short, 500, 16, 611)).unwrap();
+    let gate = |bin: &Path| -> Result<usize, String> {
+        let o = exec(bin, &Fix { variant: A12IPG32, ..f }, None, &chain_passes_at(&short, 500, 32, 611))?;
+        gate_chain_rows(&o, &r16, "a12ipg32 R = 32 against a12ipg R = 16")
+    };
+    gate(host()).expect("the unmutated a12ipg32 passes its gate");
+    let rc = "llvq-cuda/kernels/pers_4et_a10rc.cu";
+    let g32 = "llvq-cuda/kernels/pers_4et_a12g32.cu";
+    let muts: [(&str, &str, &str, &str); 3] = [
+        (
+            "g32_tiles_2_3_in_0_1",
+            rc,
+            "        for (u32 e = 0; e < 4u; ++e) {\n            const u32 row = wrow + gid + (e >> 1) * 8u, n = nt * 8u + 2u * tig + (e & 1u);",
+            "        for (u32 e = 0; e < 4u; ++e) {\n            const u32 row = wrow + gid + (e >> 1) * 8u, n = (nt & 1u) * 8u + 2u * tig + (e & 1u);",
+        ),
+        ("g32_acc_not_zeroed", rc, "        for (u32 e = 0; e < 4u; ++e) acc[nt][e] = 0.0f;", "        for (u32 e = 0; e < 4u; ++e) acc[nt][e] = nt < 2u ? 0.0f : acc[nt][e];"),
+        ("g32_row_cap_16", g32, "        pers_4et_a12g_body<FORM_, 4u, true>(A, L);", "        pers_4et_a12g_body<FORM_, 2u, true>(A, L);"),
+    ];
+    for (tag, k, from, to) in muts {
+        let text = std::fs::read_to_string(repo().join(k)).unwrap();
+        eprintln!("{tag}: {} site(s) in {k}", text.matches(from).count());
+        let b = mutant(tag, &[(k, from, to)]);
+        let r = gate(&b);
+        let _ = std::fs::remove_file(&b);
+        match r {
+            Err(e) => eprintln!("{tag}: killed by {}", e.lines().next().unwrap_or("")),
+            Ok(_) => panic!("a12ipg32 mutant {tag} survived its gate"),
         }
     }
 }

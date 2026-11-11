@@ -29,7 +29,9 @@
 //      launched with split_head 0, no final norm and no head;
 //      2147483648: a12ipg, a12ip whose attention reads each split that
 //      ends at or below pos0 once for a group of rows, pers_4et_a12g.cu,
-//      after the same load check),
+//      after the same load check; 262144: a12ipg32, a12ipg's pass at
+//      RC = 4, 32 rows a launch, pers_4et_a12g32.cu, after the same load
+//      check),
 //      three rotations (attention input at 2,560, MLP input at 2,560, down
 //      input at 9,728), each u32 m, k, f32 inv, u32 signs[n/32], f32
 //      small[1024], then with variant 16 the o rotation at 4,096,
@@ -190,13 +192,14 @@
     A.eps = eps; A.c = (float)((1.0 / std::sqrt(128.0)) * 1.4426950408889634);
     A.head_w = head_w.data(); A.head_s = head_s.data(); A.head_b = head_b.data();
     // ---- variant 32: the tree-tiled copies and the arguments that point at them ----
-    const u32 a6k = (variant & 1024u) ? 1u : (variant & 2048u) ? 2u : (variant & 4096u) ? 3u : (variant & 8192u) ? 4u : (variant & 16384u) ? 5u : (variant & 32768u) ? 6u : (variant & 65536u) ? 7u : (variant & 131072u) ? 8u : (variant & 524288u) ? 9u : (variant & 1048576u) ? 10u : (variant & 2097152u) ? 11u : (variant & 4194304u) ? 12u : (variant & 8388608u) ? 13u : (variant & 16777216u) ? 14u : (variant & 33554432u) ? 15u : (variant & 67108864u) ? 16u : (variant & 134217728u) ? 17u : (variant & 268435456u) ? 18u : (variant & 536870912u) ? 19u : (variant & 2147483648u) ? 20u : 0u;
+    const u32 a6k = (variant & 1024u) ? 1u : (variant & 2048u) ? 2u : (variant & 4096u) ? 3u : (variant & 8192u) ? 4u : (variant & 16384u) ? 5u : (variant & 32768u) ? 6u : (variant & 65536u) ? 7u : (variant & 131072u) ? 8u : (variant & 524288u) ? 9u : (variant & 1048576u) ? 10u : (variant & 2097152u) ? 11u : (variant & 4194304u) ? 12u : (variant & 8388608u) ? 13u : (variant & 16777216u) ? 14u : (variant & 33554432u) ? 15u : (variant & 67108864u) ? 16u : (variant & 134217728u) ? 17u : (variant & 268435456u) ? 18u : (variant & 536870912u) ? 19u : (variant & 2147483648u) ? 20u : (variant & 262144u) ? 21u : 0u;
     // 536870912: a12ip, a12 reading the words in place (no tree-tiled copy; the load check first)
     // 2147483648: a12ipg, a12ip with the grouped attention (D1), the same words read in place
-    const bool ipgv = (variant & 2147483648u) != 0u;
-    const bool ipv = (variant & (536870912u | 2147483648u)) != 0u;
-    const bool a12v = (variant & (268435456u | 536870912u | 2147483648u)) != 0u;
-    const bool a9v = (variant & (65536u | 131072u | 524288u | 1048576u | 2097152u | 4194304u | 8388608u | 16777216u | 33554432u | 67108864u | 134217728u | 268435456u | 536870912u | 2147483648u)) != 0u;
+    // 262144: a12ipg32, a12ipg's pass at RC = 4 (32 rows a launch)
+    const bool ipgv = (variant & (2147483648u | 262144u)) != 0u;
+    const bool ipv = (variant & (536870912u | 2147483648u | 262144u)) != 0u;
+    const bool a12v = (variant & (268435456u | 536870912u | 2147483648u | 262144u)) != 0u;
+    const bool a9v = (variant & (65536u | 131072u | 524288u | 1048576u | 2097152u | 4194304u | 8388608u | 16777216u | 33554432u | 67108864u | 134217728u | 268435456u | 536870912u | 2147483648u | 262144u)) != 0u;
     const bool a11iv = (variant & 1048576u) != 0u;
     const bool a5v = (variant & 512u) != 0u || a6k != 0u;
     const bool a4v = (variant & 256u) != 0u || a5v;
@@ -330,7 +333,7 @@
     const Ft tfns[3] = {pers_4et_stream_f0_t512, pers_4et_stream_f1_t512, pers_4et_stream_f2_t512};
     const Ft tfn4[3] = {pers_4et_a4_f0_t512, pers_4et_a4_f1_t512, pers_4et_a4_f2_t512};
     const Ft tfn5[3] = {pers_4et_a5_f0_t512, pers_4et_a5_f1_t512, pers_4et_a5_f2_t512};
-    const Ft tfn6[20][3] = {{pers_4et_a6_f0_t512, pers_4et_a6_f1_t512, pers_4et_a6_f2_t512},
+    const Ft tfn6[21][3] = {{pers_4et_a6_f0_t512, pers_4et_a6_f1_t512, pers_4et_a6_f2_t512},
                            {pers_4et_a7_f0_t512, pers_4et_a7_f1_t512, pers_4et_a7_f2_t512},
                            {pers_4et_a3f_f0_t512, pers_4et_a3f_f1_t512, pers_4et_a3f_f2_t512},
                            {pers_4et_a3p_f0_t512, pers_4et_a3p_f1_t512, pers_4et_a3p_f2_t512},
@@ -349,7 +352,8 @@
                            {pers_4et_a10r16_f0_t384, pers_4et_a10r16_f1_t384, pers_4et_a10r16_f2_t384},
                            {pers_4et_a12_f0_t384, pers_4et_a12_f1_t384, pers_4et_a12_f2_t384},
                            {pers_4et_a12ip_f0_t384, pers_4et_a12ip_f1_t384, pers_4et_a12ip_f2_t384},
-                           {pers_4et_a12ipg_f0_t384, pers_4et_a12ipg_f1_t384, pers_4et_a12ipg_f2_t384}};
+                           {pers_4et_a12ipg_f0_t384, pers_4et_a12ipg_f1_t384, pers_4et_a12ipg_f2_t384},
+                           {pers_4et_a12ipg32_f0_t384, pers_4et_a12ipg32_f1_t384, pers_4et_a12ipg32_f2_t384}};
     const u32 n_pass = rd1<u32>();
     for (u32 pi = 0; pi < n_pass; ++pi) {
         const u32 pos0 = rd1<u32>(), R = rd1<u32>();
