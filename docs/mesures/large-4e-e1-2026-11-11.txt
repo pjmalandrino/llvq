@@ -1,0 +1,226 @@
+LARGE-4E E1: 4E v9's L2 PREFETCH REMOVED (v9np) AND MOVED (v9mv), SEALED 4B, ONE L40S, 2026-11-11. $0.57.
+==========================================================================================================
+Neither arm PASSES under the prereg's rule. Both keep the logits bit for bit at both contexts (*measured*).
+v9np is x1.003 of v9 at 5 tokens and x0.996 at 8,192; v9mv is x0.978 at both (*measured*, round by round).
+Removing the prefetch shortens the attention phase by 201 us at 5 tokens and 252 us at 8,192 (*measured*).
+The same time reappears in o and in the gate/up rows, which then read their bytes without them in L2.
+So the budget note's reading holds: the prefetch does lengthen the attention phase. Its cut 1 is refuted: no time is
+recovered. v9 stays as served.
+
+Prereg : proofs/preregistration-large-4e-e1-2026-11-11.md, stamped before the job (.ots, commits 8717149, 97d80f7).
+         Deviation, stamped before submission and not edited: preregistration-large-4e-e1-2026-11-11-ECARTS.md (E1,
+         the spending cap raised to $25; commits 0297ef6, f796c21). No further deviation of the run.
+Source : docs/mesures/large-4e-budget-2026-11-11.txt, §1b and cut 1. This journal is its test.
+Go     : the operator, 2026-11-11, for this one job; cap $25; relayed by the orchestrating session.
+Job    : 6af46f1d9737d9a9e092f48d, l40sx1.
+         - Image hf.co/spaces/Pier-Jean/llvq-runner-cuda; the job script is ops/jobs/large-4e-e1.sh as embedded in
+           job-inspect.txt. The Space sha is not printed by inspect.
+         - Created 13:35:25 UTC, RUNNING at 13:38:01 UTC, COMPLETED at 13:56:17 UTC.
+         - running_secs 1,096: 19 min billed, $0.57 (*measured*, minutes rounded up, $1.80/h). Estimated $0.54 by the
+           prereg, $0.87 at worst.
+         - Registry $318.19 before, $318.76 after. Spend under the operator's $25 cap: $10.94 before, $11.51 after.
+Raw    : large-4e-e1-2026-11-11-brut/, every file of the bucket folder, fetched one by one with hf buckets cp:
+         gpu.txt, oracle.txt, files.sha256, qwen3-4b-tetra-e4-4e-v9.json, served-v9.txt, e1-all.txt, e1-v9.txt,
+         e1-v9np.txt, e1-v9mv.txt, summary.txt, vram.txt and the five samplers vram-*.csv. Added on the Mac:
+         job-inspect.txt (hf jobs inspect, verbatim).
+
+CONTROLS
+--------
+1. Inputs and environment. Holds.
+   - Card: L40S, sm 8.9, 46,068 MiB, driver 580.178.04, 2,520 MHz.
+   - oracle on Qwen3-0.6B: MATCH, max |dhidden| 0.
+   - At their sha256: sealed file 886391a8, config 29b3ef32 (rechecked on the Mac).
+   - No LLVQ_* in the job environment (the job refuses one).
+2. The served door's 4E module is the served v9 module (252,757 bytes, sha256 1b422b62). Holds.
+3. Each arm's tokens equal the eager path's, 64 of 64, at both contexts, in the three-arm process and in each one-arm
+   process. Holds.
+4. The image built. Holds.
+
+The bench modules (verbatim, e1-all.txt): each 128 registers, 0 B local, 85,952 B shared, 1 resident a SM.
+  e1:v9    253,722 bytes, sha256 d55a097b
+  e1:v9np  253,755 bytes, sha256 83222696
+  e1:v9mv  258,421 bytes, sha256 1da5a0b5
+The stamp symbols read 32 B local in all three (outside the timed rounds).
+
+MEASUREMENT FORM
+----------------
+- The bench relays the 84 int4 records into tiled words beside the file's words: 0.385 GB more on the card. The int4
+  bytes are held twice. The served door holds them once.
+- The three-arm process loads three modules; each one-arm process loads one. At 8,192 the KV cache is on the card.
+- So the peaks below compare arms only. They are not served memory. The door's peak is 1.981 GB (1,889 MiB).
+- The door (step 1) decodes 64 tokens after a 5-token prompt: 238.4 tok/s [238.3-238.5], 4.19 ms (*measured*).
+  spec-mem-m3's door decoded 256 tokens after the same prompt: 227.7. The signed v9 figures (226, 158) were door
+  figures of that kind. The bench reads 236.6 and 161.0.
+- Rates are fusedrun's: 2 + 5 rounds, the eager path and every arm in every round, medians and ranges formed round by
+  round. The eager path reads 132.1 tok/s at 5 tokens and 103.7 at 8,192.
+
+RATES (e1-all.txt, *measured*; ms a token = 1000 / tok/s, *computed*)
+--------------------------------------------------------------------
+  context  arm     tok/s [range]          ms a token   / v9 round by round   / eager
+  5        v9      236.6 [236.6-236.8]    4.2265       1                     x1.792
+  5        v9np    237.3 [237.1-237.6]    4.2141       x1.003 [1.002-1.003]  x1.797
+  5        v9mv    231.4 [231.2-231.5]    4.3215       x0.978 [0.977-0.978]  x1.752
+  8,192    v9      161.0 [160.9-161.2]    6.2112       1                     x1.554
+  8,192    v9np    160.5 [160.4-160.6]    6.2305       x0.996 [0.996-0.997]  x1.549
+  8,192    v9mv    157.5 [157.4-157.6]    6.3492       x0.978 [0.978-0.979]  x1.520
+v9mv against v9np, round by round: x0.975 [0.975-0.976] at 5, x0.982 [0.981-0.982] at 8,192.
+The one-arm processes (step 3) agree, unpaired: v9 236.2 and 160.1, v9np 237.1 and 159.8, v9mv 231.8 and 156.4.
+
+LOGITS AND MEMORY (*measured*)
+------------------------------
+- Logits: 64 positions x 151,936 rows, 9,723,904 values. v9np and v9mv equal v9 bit for bit at both contexts.
+- Fingerprints: 964ae3011fd2784d at 5 (last token 13), 8c1a9b82f53fc882 at 8,192 (last token 6722). The same in the
+  three-arm process and in all three one-arm processes, at both contexts.
+- Peaks by the sampler (MiB x 1,048,576 / 1e9): v9 6.416 GB, v9np 6.416 GB, v9mv 6.383 GB. v9mv is 32 MiB lower.
+  The three-arm process peaks at 7.125 GB.
+
+PHASE TABLES (one stamped launch an arm, 62 tokens, us a token, median over tokens)
+-----------------------------------------------------------------------------------
+Walls for the seven phases; the sub-phases are CTA work (no wall), as "slowest CTA / mean CTA". The walls tile the
+token: their sum matches the token line to within 5 us in all six launches (*computed*).
+
+Context 5:
+  phase                        v9               v9np             v9mv             np - v9    mv - v9
+  embedding                       2.9              2.9              3.0             0.0       +0.1
+  q/k/v                         666.7            674.6            630.6            +7.9      -36.1
+  norm/RoPE/append              121.7            110.3            110.6           -11.4      -11.1
+  attention                     599.1            398.3            386.0          -200.8     -213.1
+  o                             357.8            425.1            363.2           +67.3       +5.4
+  MLP                         2,368.4          2,461.1          2,598.6           +92.7     +230.2
+  head                          367.1            366.8            364.9            -0.3       -2.2
+  sum of the walls            4,483.7          4,439.1          4,456.9           -44.6      -26.8
+  token, stamped              4,483.6          4,434.5          4,455.6           -49.1      -28.0
+  token, timed                4,226.5          4,214.1          4,321.5           -12.4      +95.0
+  sub-phases (slowest / mean CTA work)
+  q/k/v: ln1+rotation     257.5 / 237.5    252.2 / 235.8    172.2 / 158.7     -1.7 mean  -78.8 mean
+  q/k/v: rows             443.3 / 413.3    448.3 / 418.1    454.4 / 422.2     +4.8 mean   +8.9 mean
+  MLP: ln2+rotation       151.8 / 140.6    162.7 / 148.3    176.4 / 143.9     +7.7 mean   +3.3 mean
+  MLP: gate/up rows     1,440.9 / 1,308.9  1,505.3 / 1,386.9  1,693.7 / 1,565.0  +78.0 mean +256.1 mean
+  MLP: inner wait         401.5 / 187.1    257.1 / 175.9    266.8 / 181.2    -11.2 mean   -5.9 mean
+  MLP: down input         167.4 / 154.9    165.5 / 153.0    164.6 / 152.2     -1.9 mean   -2.7 mean
+  MLP: down rows          490.5 / 459.5    511.0 / 463.8    496.1 / 459.4     +4.3 mean   -0.1 mean
+  mean CTA work, attention  124.6            25.4             25.3            -99.2      -99.3
+  mean CTA work, o          276.8           365.9            286.1            +89.1       +9.3
+
+Context 8,192:
+  phase                        v9               v9np             v9mv             np - v9    mv - v9
+  embedding                       2.9              2.9              3.0             0.0       +0.1
+  q/k/v                         697.4            691.9            641.3            -5.5      -56.1
+  norm/RoPE/append              110.3            110.9            111.2            +0.6       +0.9
+  attention                   2,646.3          2,394.3          2,400.1          -252.0     -246.2
+  o                             334.2            432.9            376.7           +98.7      +42.5
+  MLP                         2,311.6          2,485.1          2,613.8          +173.5     +302.2
+  head                          368.0            369.0            365.9            +1.0       -2.1
+  sum of the walls            6,470.7          6,487.0          6,512.0           +16.3      +41.3
+  token, stamped              6,468.2          6,488.6          6,512.7           +20.4      +44.5
+  token, timed                6,211.2          6,230.5          6,349.2           +19.3     +138.0
+  sub-phases (slowest / mean CTA work)
+  q/k/v: ln1+rotation     263.8 / 245.9    260.7 / 244.9    177.5 / 164.9     -1.0 mean  -81.0 mean
+  q/k/v: rows             447.7 / 417.4    455.9 / 426.2    461.0 / 429.4     +8.8 mean  +12.0 mean
+  MLP: ln2+rotation       159.9 / 150.0    167.8 / 153.4    171.9 / 148.1     +3.4 mean   -1.9 mean
+  MLP: gate/up rows     1,373.9 / 1,218.8  1,521.0 / 1,401.0  1,698.7 / 1,571.3 +182.2 mean +352.5 mean
+  MLP: inner wait         337.0 / 212.2    255.7 / 176.3    264.0 / 180.1    -35.9 mean  -32.1 mean
+  MLP: down input         170.9 / 158.9    167.3 / 155.0    166.9 / 155.1     -3.9 mean   -3.8 mean
+  MLP: down rows          493.3 / 465.9    516.9 / 467.8    503.8 / 464.3     +1.9 mean   -1.6 mean
+  mean CTA work, attention 1,876.6          1,742.8          1,751.0          -133.8     -125.6
+  mean CTA work, o          270.4           369.0            299.4            +98.6      +29.0
+
+Two notes on the tables.
+- The attention wall at 5 tokens ranges 340 to 830 us over the 62 tokens; its median is the figure.
+- For v9mv at 5 tokens the stamped token is 28 us shorter than v9's while the timed token is 95 us longer. The stamps
+  carry their own cost (257 us on v9, 134 on v9mv). The timed rate decides; the stamps only attribute.
+
+WHERE THE MICROSECONDS WENT
+---------------------------
+v9np at 5 tokens (walls): attention -201. o +67, MLP +93, q/k/v +8, norm/RoPE -11. Net -49 stamped, -12 timed.
+v9np at 8,192: attention -252. o +99, MLP +174. Net +20 stamped, +19 timed.
+v9mv at 5 tokens: attention -213, q/k/v -36 (ln1 -79 mean), norm/RoPE -11. o +5, MLP +230 (gate/up +256 mean). Net
+-28 stamped, +95 timed.
+v9mv at 8,192: attention -246, q/k/v -56. o +43, MLP +302. Net +45 stamped, +138 timed.
+
+Is the sum conserved? Nearly, for v9np. Attention gives up 201 and 252 us; the timed token moves by -12 and +19 us,
+0.3 % of the token at both contexts (*computed*). That is outside the round-to-round spread, which is 0.1 % (the ratio
+ranges above), so the residue is real but small: 94 % of attention's 201 us reappear elsewhere at 5 tokens, and more
+than all of the 252 us at 8,192. For v9mv the sum is not conserved: the token loses 95 and 138 us.
+
+AGAINST THE SIGNED PREDICTION
+-----------------------------
+  quantity                                   signed                   measured                       inside
+  logits bit for bit, both arms, both ctx    yes                      yes, 9,723,904 values each     yes
+  tokens equal                               yes                      64 of 64, every arm and ctx    yes
+  peak VRAM, v9np against v9                 within 0.02 GB           0.000 GB                       yes
+  peak VRAM, v9mv against v9                 within 0.02 GB           -0.034 GB                      no (lower)
+  v9 tok/s, 5 tokens                         226 [220, 232]           236.6                          no (above)
+  v9 tok/s, 8,192                            158 [152, 165]           161.0                          yes
+  v9np attention wall, 5 tokens              600 us [540, 700]        398.3                          no (below)
+  v9np token time change, 5 tokens           -0.08 ms [-0.20, +0.05]  -0.012 ms                      yes
+  v9np tok/s, 5 tokens                       230 [222, 237]           237.3                          no (above)
+  v9np tok/s, 8,192                          165 [156, 176]           160.5                          yes
+  v9mv token time change, 5 tokens           -0.14 ms [-0.29, -0.03]  +0.095 ms                      no
+  v9mv tok/s, 5 tokens                       233 [226, 241]           231.4                          yes
+  v9mv tok/s, 8,192                          171 [162, 186]           157.5                          no
+Readings behind the misses:
+- v9 at 5 tokens: the interval was set on door figures at 256 decoded tokens; the bench decodes 64.
+- v9np's attention wall: the signed start was 790 us (N11, context 62); v9 reads 599 here. The drop is -201 us against
+  the -190 signed. The level misses, the drop holds.
+- v9np at 5 tokens lands above its interval for the same reason as v9; the ratio x1.003 is the reading.
+- v9mv inside at 5 tokens only because v9 itself read 10 tok/s above its prediction; its ratio is x0.978.
+
+VERDICT
+-------
+Decision rule of the prereg:
+- v9np: logits bit for bit at both contexts; ratio above 1.000 at 5 tokens [1.002-1.003], below at 8,192
+  [0.996-0.997]. It does not PASS.
+- v9mv: logits bit for bit; ratio below 1.000 at both contexts. It does not PASS.
+- No logit differs: no arm is INVALID.
+- v9np's attention wall at 5 tokens (398.3 us) is below v9's (599.1): the note's reading is not refuted. The prefetch
+  makes about a third of the short-context attention wall.
+Neither arm is worth serving. v9 stays.
+
+WHAT THIS SAYS ABOUT DRAM AND INSTRUCTIONS (a reading, not a fact; no hardware counter was read)
+---------------------------------------------------------------------------------------------
+- o rows (int4, 200.5 MB) look bound by DRAM traffic. Without their lines in L2 the mean CTA work rises from 277 to
+  366 us at 5 tokens (+32 %) and from 270 to 369 at 8,192 (*measured*). 200.5 MB in 366 us is 548 GB/s (*computed*).
+  When v9mv prefetches o one layer early, o is back within 9 us of v9.
+- gate/up rows (Tetra, 469.8 MB) look mostly bound by instructions when they read alone. Without their prefetch the
+  mean CTA work rises 6 % at 5 tokens (1,309 to 1,387 us), 15 % at 8,192 (1,219 to 1,401) (*measured*).
+- But gate/up rows slow down under foreign traffic. v9mv adds 374.3 MB of q/k/v and o prefetch during them (*computed*
+  by the prereg), and their mean work rises 178 us over v9np at 5 tokens, 170 at 8,192 (*measured*). At 864 GB/s
+  those bytes take 433 us (*computed*): gate/up pays about 40 % of their peak-rate time. The budget note's "488 MB of
+  room" during gate/up is not free in situ.
+- ln1's excess over ln2 is the q/k/v prefetch in flight, as §1c of the note guessed. With it moved (v9mv), ln1's mean
+  work falls from 237.5 to 158.7 us at 5 tokens, near ln2's 143.9 (*measured*). q/k/v rows lose 9 us for it.
+- Attention at 5 tokens is not DRAM bound: without the prefetch it still takes 398 us for 9.3 MB of KV (*computed*
+  floor 11 us). The prefetch was the work of the CTAs with no attention job: their mean work falls from 125 to 25 us.
+- Attention at 8,192 with the prefetch moves 1.878 GB in 2.646 ms, 710 GB/s (*computed*); without it 1.208 GB in
+  2.394 ms, 505 GB/s. The 670 MB cost it 252 us where the peak rate would ask 776: most of it rode in bandwidth the
+  phase left free.
+- Read together: the 670 MB are paid wherever they cross the DRAM. v9 places them where they cost least of the three
+  placements tried.
+
+THE BUDGET NOTE'S CUTS, AFTER E1
+--------------------------------
+1, P (prefetch replanned). Refuted as a speed cut. Signed -0.20 ms short [-0.10, -0.29], -0.65 at 8,192 [-0.30,
+   -0.90]. Measured: v9np -0.012 and +0.019 ms, v9mv +0.095 and +0.138 ms. The "Together" line of the note (248 tok/s
+   short, 189 at 8,192) loses this term.
+2, B2 (decoder instructions). Not tested. E1 leaves it standing: gate/up rows read alone are mostly issue bound (+6 %
+   without L2 residency at 5 tokens). E1 also shows they slow under concurrent traffic, so B2's gain may shrink where
+   a prefetch overlaps them.
+3, W (gate/up claimed across the grid). It moves no bytes, and E1 bears on its precondition. The note says W works
+   only with P, to drop the static gate/up prefetch. v9np drops it at x1.003 short and x0.996 at 8,192, bit for bit, so
+   W would sit on v9np. Its base must be recounted from v9np: gate/up mean 1,387 us, slowest 1,505, slowest over mean
+   1.085 (v9 1.101); inner wait mean 176 (v9 187). Weakened in size, still standing.
+4, F (norm/RoPE/append folded into attention). It moves no bytes; E1 does not bear on it. The phase reads 110 to 122
+   us in every arm at both contexts, 36 waits unchanged. Standing as written.
+5, prologue arithmetic. It moves no bytes, but E1 bears on its ln1 share. ln1's excess over ln2 (97 us of mean work
+   at 5 tokens) is the q/k/v prefetch in flight, not arithmetic; moving that prefetch costs gate/up more than ln1 gains. The arithmetic
+   part (ln1 near 159 us without traffic, ln2 141 to 150, down input 153 to 159) stands. Weakened.
+6, head two-pass. Untouched: the head reads 365 to 369 us in every arm.
+7, int4 rows to 85 %. Standing, with one condition learned: o's 1.25x of 85 % holds only with its L2 prefetch kept.
+8, grid-wait counters. Untouched.
+
+NOT ESTABLISHED
+---------------
+A served rate for either arm (no config names them). 8B, 14B, another card. L2 residency of the prefetched lines (no
+counter was read): every DRAM reading above is inferred from times. Why v9 reads 599 us of attention here against 791
+in N11. Whether another placement of the 670 MB (split across phases, or a smaller prefetch distance) beats v9.

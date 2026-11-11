@@ -48,3 +48,8 @@ cap $0.87; D1 to come, cap $1.00.
 Operator's answers to J3, 2026-11-11. (1) The prefill is not served now: it is kept to be packaged once, with the
 rest of what this work yields. (2) The fast profile (DFlash int4) is set aside: everything needed to build it is on
 record, it is built when wanted. (3) No 8B point yet: progress further on the 4B first.
+
+J4, E1 closed, 2026-11-11. Removing 4E's L2 prefetch from the attention phase keeps the logits bit for bit and
+shortens that phase by 201 us at 5 tokens and 252 at 8,192, but o and the gate/up rows give the time back: x1.003
+and x0.996 of v9 (measured). Moving it into the gate/up rows costs them 256 us: x0.978 at both contexts. Neither arm
+passes; v9 stays; 19 min, $0.57, spend $11.51 of $25. Journal: large-4e-e1.
