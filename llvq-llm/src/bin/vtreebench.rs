@@ -106,6 +106,9 @@ fn main() -> anyhow::Result<()> {
     }
 }
 
+/// A CTA's grid-wait classes as `p4t_wait_classes` returns them.
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+type WaitClass = ([[f64; 2]; 3], [f64; 4]);
 #[cfg(all(target_os = "linux", feature = "cuda"))]
 const DISCARD: usize = 2;
 #[cfg(all(target_os = "linux", feature = "cuda"))]
@@ -658,7 +661,7 @@ fn run() -> anyhow::Result<()> {
                 // a9 has its own waits (a fold step after each row phase) and phase names
                 let a9 = matches!(arms[k].form, TreeForm::A9 | TreeForm::A10 | TreeForm::A11 | TreeForm::A11i | TreeForm::A10r8 | TreeForm::A10r16 | TreeForm::A10t384 | TreeForm::A10t256 | TreeForm::A10t448 | TreeForm::A10t320 | TreeForm::A10t384r16 | TreeForm::A12);
                 let mut iparts: Vec<[[[f64; 3]; 6]; 5]> = Vec::new();
-                let mut classes: Vec<([[f64; 2]; 3], [f64; 4])> = Vec::new();
+                let mut classes: Vec<WaitClass> = Vec::new();
                 let names: Vec<&str> = if a9 { P4T_PHASES_A9.to_vec() } else { P4T_PHASES.to_vec() };
                 let mut per = vec![[Vec::new(), Vec::new(), Vec::new(), Vec::new()]; names.len()];
                 let mut parts = vec![[Vec::new(), Vec::new(), Vec::new(), Vec::new()]; P4T_ROW_PHASES.len()];
@@ -718,7 +721,7 @@ fn run() -> anyhow::Result<()> {
                     );
                 }
                 if !classes.is_empty() {
-                    let med = |f: &dyn Fn(&([[f64; 2]; 3], [f64; 4])) -> f64| {
+                    let med = |f: &dyn Fn(&WaitClass) -> f64| {
                         let v: Vec<f64> = classes.iter().map(f).collect();
                         median_range(&v).0 / 1e3
                     };

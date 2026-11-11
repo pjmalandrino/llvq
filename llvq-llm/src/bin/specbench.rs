@@ -551,7 +551,6 @@ fn run() -> anyhow::Result<()> {
             });
         }
     }
-    drop(dump);
     if let Some(mut w) = dump_w {
         use std::io::Write;
         w.flush()?;
