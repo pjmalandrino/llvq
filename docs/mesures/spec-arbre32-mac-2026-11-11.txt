@@ -1,0 +1,93 @@
+DFLASH TREE OF 15, 23 AND 31 NODES, SEALED TETRA 4B, ON THE MAC, 2026-11-11. $0.
+=================================================================================
+Result: growing the DFlash tree from 15 to 31 nodes raises acceptance on GSM8K from 5.37 to 5.95 drafted tokens a
+pass (+0.58, +11 %), and 23 nodes reads 5.73 (*measured*, 200 problems, the card's own text). At the card's costs that
+gain is eaten by the verify pass: 502 tok/s at 15 nodes, 503 at 23, 494 at 31 (*estimated*). A 32-row verify pass pays
+only if its extra rows cost under 0.072 ms each against 0.087 estimated (*computed*). The gate holds: the Mac's tree of
+15 reproduces the card's acceptance prompt by prompt, mean difference -0.04 accepted a pass on GSM8K (sd 0.08, n 200).
+Prereg : none (analysis at $0 on the Mac, as dflash-alpha-2026-11-09). Orchestrator's instruction, 2026-11-11.
+Script : ops/dflash_arbre32.py (the drafter forward of ops/dflash_alpha.py, branch claude/dflash-sass-2026-11-09,
+         copied; the tree builder of llvq_llm::dflash::draft_tree_scored at N in {15, 16, 23, 31}),
+         ops/dflash_arbre32_report.py (stdlib tables). No Rust change; the served loop and MAX_DRAFT do not move.
+Machine: M3 Max, under ~/.llvq-guard/heavy.sh (nice 15), memory_pressure 90 % free before loading. Wall 11.5 min
+         (guard log 07:11:20 to 07:22:50), "done in 677 s".
+Raw    : spec-arbre32-mac-2026-11-11-brut/: run.txt (one JSON line a prompt), rows.json (per prompt and arm: passes,
+         accepted, histogram 0..15, the card's figures), accept-depths.json.gz (accepted depth at every pending
+         position, chain and every tree), mac-greedy.json (the MLX door's text for chat, code, rag), report.txt.
+
+COMMANDS
+--------
+LLVQ_THREADS=12 ~/.llvq-guard/heavy.sh "arbre32: dflash tree 15/23/31 replay (MLX)" uv run ops/dflash_arbre32.py \
+  ~/q4b-hf-2026-09-28 ops/data/spec-prompts-v1.jsonl ops/data/spec-gsm8k-200.jsonl \
+  docs/mesures/spec-loop-sp8-2026-11-11-brut docs/mesures/spec-arbre32-mac-2026-11-11-brut 200
+python3 ops/dflash_arbre32_report.py docs/mesures/spec-arbre32-mac-2026-11-11-brut/rows.json
+
+SETUP
+-----
+Target: the sealed 4B through the MLX door (ops/mlx_tetra, hfpack ~/q4b-hf-2026-09-28); its int4 g64 table
+dequantized to f32 for the drafter's embedding and tied head (the card's q4 vocabulary). Drafter
+z-lab/Qwen3-4B-DFlash-b16 at b74e3a32, f32 (the card runs f16). Taps: inputs of layers 2, 10, 18, 26, 34 from one
+teacher-forced forward over prompt + text.
+Text:
+- GSM8K rows 0-199 (all 200, not 40: the run fit in 12 min) and the house set's 20 math prompts (GSM8K rows 0-19):
+  the card's own greedy text, decoder `pass` of SP8's gsm200.jsonl (sha256 346880b0), 768 tokens after `first` at most,
+  cut at 256 for the house set. The dump omits `first`; it is the MLX door's argmax at the prompt's end (8 distinct
+  tokens over the 200, 1654 the most common), checked by the teacher-forced agreement below.
+- House chat, code, rag (24 prompts): SP8 left no token dump of them (spec-house.txt holds per-prompt figures only),
+  so their text is the MLX door's own greedy decode, 256 tokens after `first`, <|im_end|> included.
+Prompt ids built as specbench does (llvq_llm::chatfmt); every one of the 244 lengths equals the card's log.
+Method: at each pending position m the drafter reads taps 0..m-1 and the block [x_m, MASK x 15]; the top 4 a position
+and their log probabilities give a tree of the first N nodes popped best first (draft_tree_scored). Accepted: the
+longest prefix of the greedy tokens whose rank path is in the tree. Rounds replayed as the loop runs them; accepted a
+pass = tokens over passes minus one, which is how the card's per-prompt line counts (256 tokens, 40 passes, 5.40).
+Card aggregates below are recomputed that way from the card's per-prompt lines (GSM8K 5.38; SP8's histogram mean
+prints 5.41).
+
+GATE: TREE OF 15 AGAINST THE CARD (*measured*, accepted a pass)
+----
+  kind    text  n    card tree15  Mac tree15  paired Mac - card per prompt: mean, sd, median [range]
+  gsm8k   card  200  5.38         5.37        -0.04  0.08  -0.03 [-0.42, +0.24]
+  math    card  20   4.77         4.76        -0.10  0.10  -0.08 [-0.26, +0.12]
+  code    mac   10   3.09         2.95        -0.18  0.21  -0.10 [-0.71, +0.03]
+  rag     mac   4    3.58         3.55        -0.10  0.09  -0.07 [-0.23, -0.02]
+  chat    mac   10   1.89         1.94        -0.02  0.12  +0.00 [-0.33, +0.16]
+Chain of 15 as a second check: gsm8k n/a on the card; math 3.85 against 3.86, code 2.28 against 2.36, rag 2.83
+against 2.84, chat 1.24 against 1.21.
+Teacher-forced agreement of the MLX door with the text: 0.9977 to 1.0000 by kind, minimum 0.9685 on one GSM8K problem.
+Holds on the card's text (GSM8K, math). Code, rag, chat are on the Mac's text, so their pairing is looser; code reads
+0.14 low.
+
+RESULT (*measured*, accepted drafts a pass; tokens a pass = this + 1; per-prompt median [range])
+------
+  kind   n    tree15 (16 rows)          tree23 (24 rows)          tree31 (32 rows)          chain15
+  gsm8k  200  5.37  5.38 [3.07-8.78]    5.73  5.81 [3.22-9.43]    5.95  6.03 [3.38-9.77]    4.50
+  math   20   4.76  4.69 [3.65-7.26]    5.09  4.89 [3.92-7.26]    5.20  5.10 [3.92-7.26]    3.85
+  code   10   2.95  2.94 [1.91-4.45]    3.20  3.16 [2.01-4.82]    3.27  3.23 [2.08-4.82]    2.28
+  rag    4    3.55  3.79 [2.26-4.82]    3.81  4.06 [2.43-5.10]    3.75  3.99 [2.37-5.10]    2.83
+  chat   10   1.94  1.90 [1.24-2.66]    2.02  1.98 [1.39-2.82]    2.07  2.04 [1.42-2.94]    1.24
+Gain 15 -> 31: +0.58 gsm8k, +0.44 math, +0.32 code, +0.20 rag, +0.13 chat (*computed*). Most of it comes by 23 nodes
+(gsm8k +0.36 of +0.58).
+Histogram of accepted a pass, 0..15, GSM8K:
+  tree15 [342, 990, 1431, 1352, 1204, 865, 718, 556, 468, 370, 316, 261, 211, 204, 169, 505]  9,962 passes
+  tree23 [267, 864, 1253, 1250, 1052, 867, 667, 539, 477, 378, 313, 284, 218, 192, 162, 648]  9,431 passes
+  tree31 [224, 768, 1166, 1155, 1025, 845, 684, 519, 476, 382, 318, 288, 218, 168, 168, 729]  9,133 passes
+  card tree15 (SP8) [320, 981, 1430, 1344, 1198, 877, 699, 574, 473, 372, 314, 241, 228, 209, 175, 513]  9,948 passes
+The extra nodes mostly move passes out of 0-4 and into 15 (full depth 505 -> 729). House-set histograms per kind are in
+report.txt.
+
+PROJECTION, GSM8K (*estimated*)
+----------
+tok/s = (accepted + 1) / (verify + drafter); verify 8.53 ms at 16 rows (SP8, measured) + 0.087 ms a row past 16
+(estimated from c_16 - c_8 on the card), drafter 4.15 ms a round (SP8, measured; taken as independent of N, the
+readout's top 4 being the same).
+  tree15  6.37 tokens a pass  verify 8.53 ms  -> 502 tok/s (SP8 measured 502.1)
+  tree23  6.73                verify 9.23 ms  -> 503 tok/s
+  tree31  6.95                verify 9.92 ms  -> 494 tok/s
+Breakeven (*computed*): 23 nodes pays if a row past 16 costs under 0.090 ms, 31 nodes under 0.072 ms.
+
+WHAT THIS DOES NOT ESTABLISH
+----------------------------
+- The verify cost at 24 or 32 rows: the slope is extrapolated from 8 to 16 rows, and the projection turns on it.
+- The card's text for chat, code, rag: no token dump exists; those kinds ran on the MLX door's text.
+- A drafter in f16: the Mac drafter ran f32. The tree builder's host cost at 31 nodes (a few more heap pops).
+- The 8B and 14B.
