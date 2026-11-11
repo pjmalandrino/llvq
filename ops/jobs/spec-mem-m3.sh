@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # Job M3 of the speculative loop's memory axis (prereg proofs/preregistration-spec-mem-m3-2026-11-11.md): on one L40S,
 # the sealed 4B under its served v9 config, the verify pass a12 against a12ip (ff3bb32: the tree pass on the served
-# words read in place, no tree-tiled copy). Each specbench call is its own process under a 100 ms nvidia-smi sampler
-# (the duel's, ops/jobs/duel-iq2.sh), each step writes its own files and is non-fatal for the next:
+# words read in place, no tree-tiled copy), against base Tetra (the served 4E object alone). Each call is its own
+# process under a 100 ms nvidia-smi sampler (the duel's, ops/jobs/duel-iq2.sh), each step writes its own files and is
+# non-fatal for the next:
+#   (0) base: `LLVQ_CONFIG=<v9> LLVQ_CONTEXTS=5 fusedrun <sealed> 256`, then the same at LLVQ_CONTEXTS=8192 (the
+#       pic-vram-8k form): no drafter, no tree pass; base peak VRAM and decode tok/s on the same card and image;
 #   (a) house 44, 256 tokens, `--vocab q4 --readout device`, drafter dflash:tree f16: once a12@8.10.8.20.6, once
 #       a12ip@8.10.8.20.6;
 #   (b) GSM8K-200 at 768 tokens with a12ip, dump gsm200-ip.jsonl, compared with SP8's dump (in the bucket at
@@ -13,7 +16,7 @@
 #   DRY_RUN=1 bash ops/jobs/spec-mem-m3.sh             parses the job script, launches nothing
 #   IMAGE_SHA=<space sha> bash ops/jobs/spec-mem-m3.sh  launches
 #
-# Cost, estimated (l40sx1 $1.80/h, prereg "Cost"): about 48 min, $1.44; timeout 75m, $2.25.
+# Cost, estimated (l40sx1 $1.80/h, prereg deviation E1): about 58 min, $1.74; timeout 85m, $2.55.
 set -euo pipefail
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$REPO"
@@ -25,7 +28,7 @@ BUCKET=Pier-Jean/jobs-artifacts
 O=/out/$OUT_NAME${RETRY:+-r$RETRY}
 DRY=${DRY_RUN:-0}
 P4E_V9_SHA=1b422b62328be6752df4add43280565fd2a49cfa20ee26953b301abe7a15c530
-TIMEOUT=${TIMEOUT:-75m}
+TIMEOUT=${TIMEOUT:-85m}
 ARM_A='a12@8.10.8.20.6'
 ARM_B='a12ip@8.10.8.20.6'
 DRAFTERS='dflash:tree'
@@ -131,6 +134,14 @@ vram() {
   return $rc
 }
 set +e
+echo "== (0) base: the served config alone, fusedrun, 5-token prompt =="
+date -u
+vram base-short env LLVQ_CONFIG="$PT" LLVQ_CONTEXTS=5 timeout 12m fusedrun "$S" 256 > "$O/base-short.txt" 2>&1
+echo "fusedrun base short exit $?" >> "$O/base-short.txt"
+echo "== (0) base: the served config alone, fusedrun, 8,192-token prompt =="
+date -u
+vram base-8k env LLVQ_CONFIG="$PT" LLVQ_CONTEXTS=8192 timeout 15m fusedrun "$S" 256 > "$O/base-8k.txt" 2>&1
+echo "fusedrun base 8k exit $?" >> "$O/base-8k.txt"
 echo "== (a) specbench, house 44, $ARM_A =="
 date -u
 vram house-a12 env LLVQ_CONFIG="$PT" timeout 16m specbench --prompts "$PROMPTS" --vocab q4 --readout device "$S" "$ARM_A" "$DRAFTERS" "$NTOK" "$DD" f16 > "$O/spec-house-a12.txt" 2>&1
@@ -164,17 +175,42 @@ date -u
 vram long8k-a12ip env LLVQ_CONFIG="$PT" timeout 16m specbench --prompts "$LONG" --vocab q4 --readout device "$S" "$ARM_B" "$DRAFTERS" "$NTOK" "$DD" f16 > "$O/spec-long8k-a12ip.txt" 2>&1
 echo "specbench long8k a12ip exit $?" >> "$O/spec-long8k-a12ip.txt"
 date -u
+# (peak VRAM, tok/s) a speculative arm beside the base pair. Peak: nvidia-smi, MiB x 1,048,576 / 1e9 GB. Base tok/s:
+# fusedrun's decode tok/s after the prompt (LLVQ_CONTEXTS, median of 5). Arm tok/s: specbench's dflash:tree "all"
+# line, total tokens over total wall; its "x greedy" is against specbench's own 4E greedy on the same text.
+peak_gb() { awk -v t="$1" '$1 == "vram" && $2 == t { printf "%.3f", $7 * 1048576 / 1e9 }' "$O/vram.txt"; }
+base_tps() { sed -nE "s/^ +$1 +[0-9.]+ \[[^]]*\] +([0-9.]+) \[.*/\1/p" "$2" | head -1; }
+spec_tps() { grep -E 'dflash:tree +(all|rag):' "$1" | tail -1 | sed -nE 's/.* ([0-9.]+) tok\/s, greedy ([0-9.]+), x([0-9.]+);.*/\1 \2 \3/p'; }
+BS_P=$(peak_gb base-short); BS_T=$(base_tps 5 "$O/base-short.txt")
+BL_P=$(peak_gb base-8k); BL_T=$(base_tps 8192 "$O/base-8k.txt")
+{
+  echo "pairs (peak VRAM GB by nvidia-smi, tok/s) against base Tetra, the served 4E config alone (fusedrun):"
+  echo "  base short (5-token prompt): peak ${BS_P:-?} GB, decode ${BS_T:-?} tok/s"
+  echo "  base 8k (8,192-token prompt): peak ${BL_P:-?} GB, decode ${BL_T:-?} tok/s"
+  for row in "house-a12:spec-house-a12:short" "house-a12ip:spec-house-a12ip:short" "gsm200-a12ip:spec-gsm200-ip:short" "long8k-a12ip:spec-long8k-a12ip:8k"; do
+    tag=${row%%:*}; rest=${row#*:}; f=${rest%%:*}; b=${rest##*:}
+    if [ "$b" = short ]; then bp=$BS_P; bt=$BS_T; else bp=$BL_P; bt=$BL_T; fi
+    p=$(peak_gb "$tag"); read -r t g x <<< "$(spec_tps "$O/$f.txt")"
+    awk -v tag="$tag" -v b="$b" -v p="${p:-nan}" -v t="${t:-nan}" -v g="${g:-nan}" -v x="${x:-nan}" -v bp="${bp:-nan}" -v bt="${bt:-nan}" \
+      'BEGIN { printf "  %-13s peak %s GB, %s tok/s | base %s: %+.3f GB, x%.3f tok/s | against specbench 4E greedy on the same text (%s tok/s): x%s\n", tag, p, t, b, p - bp, t / bt, g, x }'
+  done
+} > "$O/pairs.txt" 2>&1
+cat "$O/pairs.txt"
 set -e
 {
   cat "$O/vram.txt"
+  cat "$O/pairs.txt"
   cat "$O/gsm200-vs-sp8.txt"
+  for f in base-short base-8k; do
+    grep -E '^ +(5|8192) +[0-9.]+ \[|^  prompt |exit ' "$O/$f.txt" | sed "s/^/$f: /" || true
+  done
   for f in spec-house-a12 spec-house-a12ip spec-gsm200-ip spec-long8k-a12ip; do
     grep -E '^(card memory|4E tree|loaded in|arm |drafter )' "$O/$f.txt" | sed "s/^/$f: /" || true
     grep -vE '^(target|cudarc|shared rotation|projection fusion|fused layout|NVRTC|int4|embedding|total expected|attn_dec|4E|batch|tv_|attn_|card memory|loaded in|arm |drafter |== |  4E agreement)' "$O/$f.txt" | sed "s/^/$f: /" || true
   done
 } > "$O/summary.txt"
 tail -80 "$O/summary.txt"
-for f in spec-house-a12 spec-house-a12ip spec-gsm200-ip spec-long8k-a12ip; do
+for f in base-short base-8k spec-house-a12 spec-house-a12ip spec-gsm200-ip spec-long8k-a12ip; do
   grep -qF "4E: persistent module 252757 bytes, sha256 $P4E_V9_SHA, row form 7," "$O/$f.txt" \
     && echo "control 2 ($f): the served 4E v9 module" | tee -a "$O/summary.txt" \
     || echo "VOID: control 2 ($f), the 4E module is not the served v9 module" | tee -a "$O/summary.txt"
