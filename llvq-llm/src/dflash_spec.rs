@@ -52,7 +52,12 @@ pub struct DFlashSpec {
     /// The readout of e3bbaee ([`dflash::readout_chunked`], a host hop
     /// mid-round) instead of [`dflash::DeviceReadout`], for comparison.
     pub chunked_readout: bool,
+    /// The readout of 077aa5b ([`dflash::DeviceReadout`], with the
+    /// full-vocabulary softmax) instead of [`dflash::LseReadout`], for
+    /// comparison; `chunked_readout` wins when both are set.
+    pub softmax_readout: bool,
     readout: Option<dflash::DeviceReadout>,
+    lse_readout: Option<dflash::LseReadout>,
 }
 
 impl DFlashSpec {
@@ -73,7 +78,9 @@ impl DFlashSpec {
             t_readout: Vec::new(),
             t_upload: Vec::new(),
             chunked_readout: false,
+            softmax_readout: false,
             readout: None,
+            lse_readout: None,
         })
     }
 
@@ -142,14 +149,23 @@ impl DFlashSpec {
         let logits = self.vocab.logits(&hidden)?;
         self.sync()?;
         let t3 = std::time::Instant::now();
+        let (rows, vocab) = logits.dims2()?;
         let out = if self.chunked_readout {
             dflash::readout_chunked(&logits)?
-        } else {
-            let (rows, vocab) = logits.dims2()?;
+        } else if self.softmax_readout {
             if self.readout.is_none() {
                 self.readout = Some(dflash::DeviceReadout::new(rows, vocab, logits.device())?);
             }
             self.readout.as_ref().expect("made above").run(&logits)?
+        } else {
+            if self.lse_readout.is_none() {
+                self.lse_readout = Some(dflash::LseReadout::new(rows, logits.device())?);
+            }
+            let r = self.lse_readout.as_ref().expect("made above");
+            match self.shape {
+                Shape::Chain(_) => r.chain(&logits)?,
+                Shape::Tree(_) => r.tree(&logits)?,
+            }
         };
         if self.timing {
             self.t_block.push((t2 - t1).as_secs_f64());

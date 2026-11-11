@@ -217,32 +217,40 @@ fn loop_rounds(fixture: &std::path::Path, device: &candle_core::Device, drafter:
     let rows = bits.len() / w;
     let l = drafter.launches();
     println!(
-        "device operations a round, counted from the code: extend {}, block {}, head {}, readout {} ({} with the chunked one); \
-         device-to-host transfers: {} ({} with the chunked one, plus its upload)",
-        l.extend, l.block, l.head, l.readout, 5, l.syncs, 2
+        "device operations a round, counted from the code: extend {}, block {}, head {}, readout {} for a tree, {} for a chain \
+         ({} with the softmax readout, {} with the chunked one); device-to-host transfers: {} ({} with the chunked one, plus its upload)",
+        l.extend, l.block, l.head, l.readout, dflash::LseReadout::LAUNCHES_CHAIN, dflash::DeviceReadout::LAUNCHES, 5, l.syncs, 2
     );
     // the readout alone, on logits of the head's shape, each call ending in its transfer
     let z = candle_core::Tensor::randn(0f32, 4f32, (dflash::DRAFTS, vocab.table.dim(0)?), device)?;
     let dr = dflash::DeviceReadout::new(dflash::DRAFTS, vocab.table.dim(0)?, device)?;
-    for chunked in [false, true] {
+    let lr = dflash::LseReadout::new(dflash::DRAFTS, device)?;
+    for kind in 0..4 {
         let mut t = Vec::new();
         for i in 0..60 {
             device.synchronize()?;
             let t0 = Instant::now();
-            let _ = if chunked { dflash::readout_chunked(&z)? } else { dr.run(&z)? };
+            let _ = match kind {
+                0 => lr.tree(&z)?,
+                1 => lr.chain(&z)?,
+                2 => dr.run(&z)?,
+                _ => dflash::readout_chunked(&z)?,
+            };
             device.synchronize()?;
             if i >= 10 {
                 t.push(t0.elapsed().as_secs_f64() * 1e3);
             }
         }
         t.sort_by(f64::total_cmp);
-        println!("readout alone ({}): {:.3} ms [{:.3}-{:.3}], median of 50", if chunked { "chunked, e3bbaee" } else { "device" }, t[t.len() / 2], t[0], t[t.len() - 1]);
+        let name = ["no softmax, tree", "no softmax, chain", "softmax, 077aa5b", "chunked, e3bbaee"][kind];
+        println!("readout alone ({name}): {:.3} ms [{:.3}-{:.3}], median of 50", t[t.len() / 2], t[0], t[t.len() - 1]);
     }
     let mut sp = DFlashSpec::new(drafter, Box::new(vocab), Shape::Chain(15))?;
     let ctx0 = 512;
-    for (chunked, shape) in [(false, Shape::Chain(15)), (false, Shape::Tree(15)), (true, Shape::Tree(15))] {
-        sp.chunked_readout = chunked;
-        let tag = if chunked { " (chunked readout)" } else { "" };
+    for (kind, shape) in [(0, Shape::Chain(15)), (0, Shape::Tree(15)), (1, Shape::Tree(15)), (2, Shape::Tree(15))] {
+        sp.softmax_readout = kind == 1;
+        sp.chunked_readout = kind == 2;
+        let tag = [" (no-softmax readout)", " (softmax readout)", " (chunked readout)"][kind];
         for n in [1usize, 4, 8] {
             for split in [false, true] {
                 sp.shape = shape;
