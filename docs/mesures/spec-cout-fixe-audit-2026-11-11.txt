@@ -1,0 +1,155 @@
+SPEC FIXED-COST AUDIT: WHERE THE TREE PASS'S 0.54 TOKEN AT ONE ROW GOES, SEALED 4B, L40S, 2026-11-11. $0.
+=======================================================================================================
+Result: of the 2,425 us a one-row pass costs over a 4E token (a10t384r16, the a12 pass without taps, N11, *measured*),
+this audit locates 1,458 us with measured stamps or computed counts, puts 517 us on estimates with a stated basis, and
+leaves 451 us unexplained. The largest single item is still the row phases: the median CTA is busy 1.52 times as long
+as 4E's mean CTA in the same projections (+1,487 us). The fold phases are the largest measured item outside them
+(604 us, 145 grid waits). The prologues are no longer a cost (+68 us). The tree's attention is cheaper than 4E's
+(-207 us).
+Scope: read only. No build, no run, no job, no model loaded. Sources are the journals named on each line and the code
+of llvq-cuda/kernels/pers_4e.cu, llvq_pers.cuh, pers_segment.cu, pers_4et.cu, pers_4et_stream.cu, pers_4et_a9.cu,
+pers_4et_a10rc.cu and pers_4et_a12.cu at be93408.
+
+REFERENCE PAIR
+--------------
+Both sides come from one job, N11 (verify-tree-n11-2026-11-10.txt and its vtree-4b.txt), chat context 62, R = 1.
+- 4E, timed: 4,467.2 us a token. 4E, stamped: 4,677.3 us (its stamp symbol carries 40 B of local memory, step3-4e).
+- a10t384r16@[8,10,8,20,6], timed: 6,892.5 us (c_1 1.544). Stamped vt1: 6,854.6 us, median of 5.
+- Gap, timed: 2,425.3 us. Gap, stamped: 2,177.3 us. The 248 us between them is 4E's stamp inflation (+210) and the
+  tree's stamps (-38). It cannot be located by phase and is carried as unexplained.
+- a12 is a10t384r16 plus taps that a bench launch does not write (L.pad 0). The plan and the unit are the same.
+
+COUNTS A PASS, FROM THE CODE (*computed*, R = 1, 142 CTAs)
+-------------------------------------------------------
+                                    4E v9 (one token)                 tree a12 / a10t384r16 (one row)
+grid waits                          218 = 2 + 6 x 36                   472 = 4 + 13 x 36 (+254)
+  extra waits, by kind              -                                  108 prologue (ln1, ln2, dn_in), 145 fold, 1 norm
+CTA barriers from grid waits        436 (2 a wait)                     944
+units a CTA (stage, loop, close)    145 phase starts (4 a layer + 1)   430 (waves 2 + 1 + 6 + 2 a layer, 34 head)
+CTA barriers from units             0                                  860 (2 a unit)
+d_in slices a projection            1 (a warp owns a row)              S = 8, 10, 8, 20, 6 (q/k/v, o, gate/up, down, head)
+f32 partials                        0                                  11.05 M floats: 44.2 MB written, 44.2 MB folded
+activation read from L2             about 291 MB (every CTA rebuilds   43.0 MB (a unit stages its slice of the live row;
+                                    x, ctx, g and u: 57 KB a layer)    7 of 8 staged rows are cp.async zero fill)
+shared ops a 32-block warp step     24 LDS.32 (f32 activation)         12 STS.32 (f16 A tile) + 12 LDS.32 (A) + 6 LDS.32 (B)
+tensor ops                          0                                  15.6 M mma.m16n8k16, 1 of 8 columns live; at most
+                                                                       0.18 ms of tensor pipe a sub-partition
+threads, registers, local, shared   512, 128, 0 B, 85,952 B            384, 168, 736 B, 78,848 B; one CTA an SM both
+CTAs that fold, a fold step         -                                  q/k/v 4 (CTA 0 folds q, k and v in turn),
+                                                                       o 2, gate/up 13, down 2, head 99
+prologue owner                      every CTA, no wait                 CTA 0 (row r on CTA r mod grid), then a grid wait
+L2 prefetch of rows                 q/k/v before ln1, o and gate/up    none
+                                    during attention, down during the
+                                    inner wait
+Basis of the less obvious lines. The tensor bound takes 4.0 G weights / 768 a warp step x 3 MMAs, 568 sub-partitions,
+and 16.2 cycles an m16n8k16 at the L40S's 362 TFLOPS dense f16 with f32 accumulation (an issue rate, *estimated*). The
+fold deal is p4t_fold_seg_a9's: pair p on global thread p, 384 threads a CTA, d_out / 4 pairs a projection at R = 1.
+
+THE LEDGER (us a pass, R = 1; tree minus 4E; stamped walls of N11 unless named)
+-----------
+  line                                      tree      4E        delta     label, basis
+  1  fold phases (q/k/v, o, gate/up,        604.2     0         +604.2    measured (N11 vt1 fold rows). Inside it, *measured*
+     down, head)                                                          on a10t384 (N10): slowest folder 420 us, wall above
+                                                                          it 184 us over 145 waits, 1.27 us a wait. It holds
+                                                                          silu(g) x u, 37 us (N6), which 4E pays in its down
+                                                                          input
+  2  prologues: ln1, ln2, down input        641.7     573.4     +68.3     measured (N11; 4E slowest-CTA work, no wait). Owner
+                                                                          work 501 us (N8) against 4E's 525 mean: the 108 waits
+                                                                          cost about 140 us and the owner is a little faster
+  3  norm/RoPE and attention                709.5     916.8     -207.3    measured (N11). Cause *estimated*: 4E's attention
+                                                                          CTAs issue the L2 prefetch of the o and gate/up rows
+                                                                          after their job (pers_4e.cu, prefetch_next); the tree
+                                                                          issues none
+  4  embedding, final norm                  6.3       3.0       +3.3      measured
+  5  row phases (q/k/v, o, gate/up, down,   4,892.8   3,184.1   +1,708.7  measured. 4E side: q/k/v wall less ln1 (413.4),
+     head), total                                                         o 340.3, MLP less ln2 and down input (2,062.6, the
+                                                                          inner wait included), head 367.8
+  5a above the median CTA: CTA imbalance,   566.8     344.7     +222.1    computed from the stamps (tree wall minus busy
+     wave fill, barrier skew                                              median; 4E wall minus mean CTA work)
+  5b median CTA busy                        4,326     2,839.4   +1,486.6  measured (tree busy median, 4E mean CTA work);
+                                                                          ratio 1.52
+  5b-i  decode and MMA loop at x1.27        -         -         +767      computed from the factor the brief gives as
+                                                                          established (x1.27 of 4E's row loop) on 2,839 us.
+                                                                          This audit did not find its journal. It contains the
+                                                                          A tile's shared round trip, the idle MMA columns
+                                                                          (at most 177 us of pipe, computed) and the warps'
+                                                                          hiding at 3 a sub-partition against 4
+  5b-ii unit starts and closes beyond 4E's  430 units 145 starts  +340      estimated [170, 510]: 285 extra units at 1.2 us
+        phase starts                                                      [0.6, 1.8]. Basis: N11, a10t384 at 4 gate/up waves
+                                                                          against 6 reads 85 us less for 72 fewer units a
+                                                                          CTA (confounded with S 8 to 5 and fill). Mechanism
+                                                                          read in the code: the first sub-step's weight loads
+                                                                          issue only after the staging wait and the
+                                                                          __syncthreads, so the 12 warps meet an L2 and then a
+                                                                          DRAM round trip in lockstep, and each unit closes on
+                                                                          its slowest warp (a11i: 1.46 to 1.67 x the fastest,
+                                                                          N8, distorted by its stamps)
+  5b-iii f32 partial stores                 44.2 MB   0         +117      estimated: measured at R = 1 as a3p minus a3f (N5,
+                                                                          512 threads, plan [5,14,5,28,5]), carried over
+  5b-iv  4E's L2 row prefetch               none      yes       +60       estimated [0, 100]: a11 took 60 us off the tree's
+                                                                          row phases (N7); 4E's gain is not isolated
+  5b-v   thread count and occupancy         384       512       0         measured: at a fixed plan 384 threads read c_1 1.744
+                                                                          against 1.755 at 512 (N11 against N10, two jobs)
+  5b-vi  activation staging bytes           43 MB     291 MB    0         computed: the tree reads 7 x fewer activation bytes
+                                                                          from L2; its staging cost is latency, in 5b-ii
+  5b-vii residue of the row phases          -         -         +202.6    unexplained (5b less 5b-i to 5b-iv)
+  6  stamp asymmetry (timed gap less        -         -         +248.1    measured; not located by phase
+     stamped gap)
+  total                                                         +2,425.3
+
+  check: lines 1 + 2 + 3 + 4 + 5 = 2,177.2 = the stamped gap; plus line 6 = 2,425.3 = the timed gap.
+
+ATTRIBUTION
+-----------
+- Measured or computed from measured stamps and code counts: lines 1, 2, 3, 4, 5a and 5b-i: 1,457.6 us (60 %).
+  Line 5b-i rests on the x1.27 the brief states; without it the measured share is 690.6 us (28 %).
+- Estimated with a stated basis: 5b-ii, 5b-iii, 5b-iv: 517 us (21 %), range 287 to 727.
+- Unexplained: 5b-vii and 6: 450.7 us (19 %), range 241 to 681 with the estimates' ranges.
+
+READING
+-------
+- The fixed cost lives in the per-CTA work of the row phases, not in a separate phase. The median CTA's row work is
+  1.52 x 4E's mean CTA's; the loop factor explains half of the excess, unit overheads a quarter.
+- The 254 extra grid waits cost about 1.3 us each bare (fold and prologue residues), about 330 us in all, already
+  inside lines 1 and 2. They are a third of the fold line; the rest is a latency chain on 2 to 13 CTAs, with CTA 0
+  folding q, k and v one after the other.
+- The prologue route (a10) is spent: CTA 0 now does the work 4E's CTAs each do, at the same speed.
+- Nothing in the ledger needs a second copy of the weights. Every lever named below reads the same words.
+- In the loop, a 16-row pass costs 8.53 ms (spec-loop-sp8). That is c_16 at the loop's longer contexts (N11 rag:
+  c_16 1.870 of a 4,732 us token, 8.85 ms); the one-row fixed cost of this ledger is about 2.4 ms of it.
+- 4E's own attention reads 207 us above the tree's. If its prefetch is the cause, it is a lever on 4E, not on the
+  tree. That is a side note, not this audit's question.
+
+THE THREE CHEAPEST CARD EXPERIMENTS (not written; each one arm beside a12 at [8,10,8,20,6], N11's bench, chat)
+-----------------------------------
+E1. a12fs, bit for bit with a12: the fold step dealt over all CTAs (pair p on CTA p mod grid), its S partial loads
+    issued before the first add. The order of the adds and the epilogue are unchanged, so the bits are a12's.
+    Read: the five fold rows of vt1 and c_1.
+    - Fold is a latency chain on few CTAs: fold rows fall from 604 to 300-380 us, busy max falls about x3, c_1 falls
+      0.05 to 0.07.
+    - Fold is the 145 waits: fold rows stay at 500 us or more, wall above busy max stays near 184 us, c_1 moves less
+      than 0.02. Then only removing the fold waits (folding in the consumer phase) can pay.
+E2. a12h, bit for bit with a12: in p4t_unit_rc, the first sub-step's weight loads (p4t_stream_load or p4t_ip_load)
+    issued before p4t_cp_wait and the __syncthreads. They read weights, not the staged slice, so nothing changes in
+    the values.
+    Read: the four row phases of vt1, their busy medians, and c_1.
+    - Unit starts expose a DRAM round trip in lockstep: the four row phases fall 130 to 260 us (0.3 to 0.6 us on each
+      of 430 units), c_1 falls 0.03 to 0.06.
+    - Not: they move less than 40 us and c_1 stays within 0.01; line 5b-ii then sits in the unit's close and staging.
+E3. a12nm, a floor arm with void values: the three mma.sync of each sub-step replaced by an integer stand-in that keeps
+    the A and B fragment loads live (an XOR of the fragments into the accumulator's bits). Decode, STS, LDS and
+    __syncwarp stay. Guard and identity are not read; vt1's argmax is not read.
+    Read: the four row phases of vt1 and c_1, against a12.
+    - The MMA chain carries the loop's excess (three dependent HMMA a sub-step, 7 of 8 columns idle, 3 warps a
+      sub-partition): the four row phases fall 300 to 700 us, c_1 falls 0.07 to 0.15.
+    - The A tile's shared round trip and the decode carry it: they fall less than 180 us (the tensor bound, computed).
+Cost (*estimated* from N11: 20.2 min of load and install for 5 modules, about 4 min a module, 1 to 2 min of rounds):
+each experiment alone about 12 min of L40S ($0.36 at $1.80/h, a12 and the arm); the three arms with a12 in one job
+about 20 min ($0.60). Measured on a12ip instead of a12, the install builds no tree-tiled copy and is shorter; the
+arms then sit beside a12ip.
+
+WHAT THIS DOES NOT ESTABLISH
+----------------------------
+The journal of the x1.27 loop factor. Any figure for 8B or 14B. Any card but the L40S. The distribution of 4E's stamp
+inflation over its phases. Whether a12 with taps written (L.pad non-zero, the loop's launches) costs more than the
+bench's a12. R above 1: the extra row (0.012 of a token) is not in this ledger.
