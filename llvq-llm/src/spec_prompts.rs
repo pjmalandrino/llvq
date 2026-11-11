@@ -114,4 +114,13 @@ mod tests {
         let count = |k: &str| p.iter().filter(|r| r.kind == k).count();
         assert_eq!((p.len(), count("math"), count("code"), count("chat"), count("rag")), (44, 20, 10, 10, 4));
     }
+
+    #[test]
+    fn the_gsm8k_set_parses_and_starts_as_the_house_set() {
+        let p = parse(include_str!("../../ops/data/spec-gsm8k-200.jsonl")).unwrap();
+        assert_eq!(p.len(), 200);
+        assert!(p.iter().all(|r| r.kind == "math"));
+        let house = parse(include_str!("../../ops/data/spec-prompts-v1.jsonl")).unwrap();
+        assert_eq!(p[..20], house[..20], "rows 0-19 are the house set's gsm8k-test-0000..0019");
+    }
 }
