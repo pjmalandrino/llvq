@@ -1,0 +1,241 @@
+LARGE PREFILL AND CONTEXT: WHAT A CHAT USER WAITS FOR BESIDE THE DECODE RATE, AND WHAT THE TREE PASS CAN DO, SEALED 4B, L40S, 2026-11-11. $0.
+=========================================================================================================================================
+Result: the wait a chat user feels past a few hundred prompt tokens is the time to the first token, not the decode.
+Today a turn with a 4,000-token prompt and a 256-token answer takes about 17.9 s, 14.3 answer tokens a second of wall
+(*computed* from measured rates). The tree pass built this week can prefill the prompt as a chain of R rows a pass with
+no new kernel: about 6.3 s for that turn at R = 16 (*estimated*). Its attention re-reads the whole KV cache once per row,
+which is why its 16-row pass costs 48 ms at 8k. One read of the cache serving the R rows, plus R = 32 to 64, brings the
+turn to about 2.4 to 3.6 s (*estimated*). The prefill then carries the pass's arithmetic into the K/V cache: it needs the
+T8 band (paired perplexity within +-0.12 %), which nobody has run on the pass yet.
+
+Nature: read-only study. No build, no run, no job, no model load. Sources are the code at 172e417 (this worktree) and
+the journals named on each line. Labels: *measured* (a journal), *computed* (arithmetic on measured or code inputs),
+*estimated* (judgement, or arithmetic with one estimated input).
+Basis used throughout (all from journals):
+  4E decode 227.7 tok/s at a 5-token prompt, 156.4 at 8,192 (spec-mem-m3 base-short, base-8k, *measured*);
+  served-v9 sweep 226.2 / 205.8 / 194.2 / 161.5 tok/s at 5 / 2,048 / 4,096 / 8,192 (served-v9-2026-11-07, *measured*);
+  a12ip pass (served words read in place, no copy) 9.56 ms at R = 1, 10.91 to 10.96 ms at R = 16 (spec-mem-m3, *measured*);
+  a12ip pass at an 8,191-token prompt 48.155 ms, 92 passes, up to 16 rows (spec-mem-m3, *measured*);
+  4E token 4.467 ms at the chat context (verify-tree-n11, *measured*).
+
+1. PREFILL TODAY
+----------------
+How it runs (code, model.rs, fused_cuda.rs, session.rs):
+- Session::feed cuts the new tokens into chunks of prefill_rows() = 4,096 and runs each through hidden_cached.
+- Tetra projections go through tv_tetra48_h, 4 rows a launch (the served prefill pair 4x128).
+- int4 projections go through tv_q4_hht one row a launch, and the rotations one launch per chunk of 4 rows.
+- Attention among the prompt's rows is the grouped form: cuBLAS QK^T and PV, one f16 score tensor, softmax in place.
+- About 486 row-granular operations a prompt token at about 8 us each (computed, debit-vague5 prefill.md section 2).
+- So the claim "about one row at a time" holds for the projections; "at decode speed" holds for 4E's speed, not the
+  eager decode's: 4.0 to 4.4 ms a prompt token against 4.42 ms a 4E token and 7.75 ms an eager token.
+- Attention is a small share: 2.2 to 2.55 s of the 8k first token (estimated, prefill.md section 3.2).
+
+Time to the first token, 4B, L40S:
+  prompt   first token, s                       label      source
+  1,024    4.1                                  computed   1,024 x 3.99 ms, the per-token cost at 2,048
+  2,048    8.17                                 measured   served-v9-2026-11-07
+  4,096    17.04                                measured   served-v9-2026-11-07
+  8,192    35.05; 36.39 [36.36-36.42]           measured   served-v9; spec-mem-m3 base-8k (another process)
+
+Peak VRAM (GB = 1e9 B, nvidia-smi peak minus idle):
+  prompt   peak GB          label      basis
+  5        2.014            measured   spec-mem-m3 base-short
+  1,024    about 2.3        computed   2.014 + KV 1,280 positions 0.189 + score tensor 0.067 + locals 0.045 + mask 0.006
+  4,096    about 4.0        computed   2.014 + KV 0.642 + score tensor 1.074 + locals 0.18 + mask 0.10
+  8,192    5.95; 6.014      measured   pic-vram-8k section 7; spec-mem-m3 base-8k
+The 8k peak is the one score tensor, 32 heads x 4,096 x 8,192 x 2 B = 2.15 GB (computed, pic-vram-8k section 2).
+
+Are the prompt's K/V bit for bit what the decode kernel would write? No, beyond layer 0.
+- Layer 0's K and V come from the embedding, ln1 and the k/v projections: the rows kernel keeps the one-row kernel's
+  per-row order, so they match (host test kernel_prefill_rows_are_the_kernel_rows; card evidence pic-vram-8k G3).
+- Layers 1 on read the previous layers' attention, which the prefill computes with grouped cuBLAS and the decode with
+  the kernel form. The two differ by 3.4e-2 to 3.9e-2 of max |dlogit| at 8,192 (gqa-ab-2026-11-01, measured).
+- That mix is served under the +-0.12 % tolerance of ETAT section 4, not under identity.
+- The NOT SERVED form prefill_attention kernel gives bit-for-bit decode rows (pic-vram-8k G3), at 1.14 to 1.21 times
+  the first token and 1.1 GB over its band.
+
+2. PREFILL THROUGH THE MULTI-ROW PASS
+------------------------------------
+The prompt's tokens are known, so a pass of R rows is a chain: depth[r] = r, path[r] = 0, 1, ..., r. Every row is
+accepted, and the last row's argmax is the first answer token.
+
+What exists already (code):
+- Causal attention among the R new rows: p4t_attn_issue reads position p < pos0 from the cache and p >= pos0 from the
+  tree buffer slot path[r][p - pos0] (pers_4et.cu lines 622-641). A chain is a tree.
+- K/V writes for R rows: each row's K and V go to the tree buffer tk/tv, and the next launch's first phase moves the
+  accepted rows into the cache, up to P4T_RMAX = 32 (pers_4et_a12.cu lines 128-139, spec_loop.rs step 5).
+- A chain is already a legal draft: spec_loop.rs says "a chain of n tokens is parents 0, 1, ..., n - 1".
+- The identity contract: row r depends on row r and its ancestors only, not on R nor its slot (pers_4et.cu header).
+  So a chain prefill gives the same bits at any R, and equals the pass's own R = 1 decode of the prompt.
+- a12 writes the five DFlash taps of every row: a chain prefill hands the drafter its prompt states for free.
+- Optional logits for every row (L.logits, [R][vocab] binary16): the same pass can score perplexity windows.
+
+What is missing:
+- A host driver: prompt to chains of R, then a final move. Under the spec loop the first one-row pass moves the last
+  chunk; under 4E a move-only launch (or 4E taking the move) does not exist.
+- Head on the last row only. Today every row runs the head, about 0.45 to 0.49 ms a pass (n11 vt16 head phase).
+- Rows above 16 on the in-place arm. a12ip is compiled at RC = 2 (8 x RC = 16 rows, refused above). The a10 family
+  carries RC = 4 (32 rows) but reads the tree-tiled copies (+1.31 GB, ruled out by the VRAM rule).
+- Attention that reads the cache once for the R rows (section 3).
+
+What bounds the row count above 16:
+- Registers. A unit's accumulators are RC n8 tiles of 4 floats: R / 2 floats a lane. At 384 threads a SM's 65,536
+  registers allow 170 a thread, and a12ip already uses 168 with 744 B local. R = 32 needs 512 threads at 128 registers
+  (a10's t512 form, 736 B local) or spills. R = 64 needs 256 threads (255 registers, 32 accumulators).
+- Shared memory, area = max(prologue row, attention 59,520 B, P4T_MMA_FLOATS(nw, R)) + 2 x P4T_RMAX floats, plus
+  19,072 B of header and tables, against 101,376 B on sm_89 (computed from pers_4et.cu lines 144-155):
+    R     12 warps                     8 warps
+    16    78,848 B (attention bound)   78,848 B
+    32    78,848 B (attention bound)   78,848 B
+    64    88,960 B                     78,848 B
+    128   115,584 B, does not fit      101,248 B, fits by 128 B
+- P4T_RMAX = 32 sizes every row buffer, the path rows (u8 [R][32]) and the move. R = 64 means raising it.
+
+The row buffers, corrected: the 0.153 GB the loader prints is for P4T_RMAX = 32 rows, not 16 (computed from
+persist4e_cuda.rs lines 1327-1354): activations and tree K/V 8.8 MB, attention split states 18.1 MB, slice partials
+116.7 MB, logits 9.7 MB. The head's slice partials alone, 6 x 32 x 151,936 x 4 B, are 76 % of it. A prefill that runs
+the head on its last row needs about 1.46 MB a row (0.275 activations, 0.566 split states, 0.623 gate/up partials)
+plus 3.7 MB for one head row: 0.027 GB at R = 16, 0.050 at 32, 0.097 at 64 (computed).
+
+Time to the first token through the pass (*estimated*). Model: ceil(N / R) passes x T(R), plus attention.
+  T(16) = 10.93 ms (measured, a12ip); T(32) = 12.4 to 13.6 ms and T(64) = 15.2 to 19.0 ms (estimated: 0.09 to
+  0.15 ms an added row, the measured a12ip slope of 0.091 ms, widened for 512 or 256 threads). Cross-check: the batch
+  GEMM, the same arithmetic family, ran 128 rows at 4,467 rows/s, 0.224 ms a row with 128 attentions (batch-l40s-v4).
+  Attention today: each row costs 2.33 ms at 8,192 positions ((48.155 - 10.93) / 16, computed), taken linear in the
+  context. Over a prompt of N tokens: 2.33 ms x N^2 / (2 x 8,192), so 0.15 s at 1,024, 2.39 s at 4,096, 9.54 s at 8,192.
+  D1 and D2 are the attention fixes of section 3.
+
+  first token, s                1,024          4,096          8,192
+  today, eager                  4.1 (comp.)    17.04 (meas.)  35.05 (meas.)
+  R = 16, as built              0.85           5.2            15.1
+  R = 32, as built              0.55-0.59      4.0-4.1        12.7-13.0
+  R = 64, as built              0.39-0.45      3.4-3.6        11.5-12.0
+  R = 16 + D1                   0.72-0.74      3.2-3.4        7.1-8.1
+  R = 32 + D1                   0.42-0.48      2.0-2.4        4.7-6.0
+  R = 64 + D1                   0.26-0.34      1.4-1.9        3.5-4.9
+  R = 16 + D2                   0.71           2.9-3.0        5.9-6.5
+  R = 32 + D2                   0.41-0.45      1.7-2.0        3.5-4.4
+  R = 64 + D2                   0.25-0.31      1.05-1.45      2.3-3.3
+Dropping the head on all but the last row saves about 0.45 ms a pass, 4 % at R = 16 (estimated). Not counted above.
+
+VRAM it adds or removes (*computed*, base 2.014 GB measured):
+- No score tensor and no eager chunk activations: the 8k peak falls from 5.95 to 6.01 GB (measured) to about 3.3 to
+  3.4 GB (2.014 + KV 8,448 positions 1.246 + pass buffers 0.03 to 0.15).
+- At 4,096 about 2.7 to 2.8 GB against about 4.0 today; at 1,024 about 2.23 to 2.35 against about 2.3.
+- Below about 1,000 tokens the pass buffers are a net cost: +0.03 GB at R = 16 with prefill-sized buffers (+0.06 b/param
+  of the whole model at peak), +0.15 GB with today's full set (+0.30 b/param). With the spec loop served, it is
+  already paid.
+- Risk: kprefill missed its computed peak by 1.1 GB (pic-vram-8k, not traced). The pass allocates nothing per prompt,
+  so that trap should not apply; the card must show it.
+- b/param of the file (2.73) does not move: no format change.
+
+Quality status:
+- The K/V and the first token come from the pass's arithmetic: f16 weights with scales folded, f16 activations, f32
+  MMA accumulation. That is a T8 event for the served prefill.
+- Evidence so far: on GSM8K-200 the pass's greedy text equals 4E's on 177 of 200 prompts and grades 167 against 166,
+  exact McNemar p = 1 (SP8, M3, measured). The batch GEMM, same family, read +0.0026 % [-0.0077, +0.0128] of paired
+  perplexity against the rows path (batch-l40s-v2, measured).
+- Never run: stage S2 of plan-verify-tree.md, paired WikiText-2 perplexity of the pass within +-0.12 % of 4E. That is
+  the gate to run, now on the prefill: 16 windows of 2,048 scored through chain passes with all-row logits, paired
+  against the served eager prefill; then GSM8K-200 with 4E decoding after a chain prefill, McNemar.
+- D1 keeps the pass's bits. D2 changes the attention arithmetic and needs its own run of the same gate.
+
+3. THE 48 MS PASS AT 8K
+-----------------------
+Why it costs about 8 tokens of 4E (48.155 ms against 6.15 ms a 4E token on the same text, measured), from the code:
+- p4t_attention deals jobs over the grid: one job is (row r, split s of 256 positions, KV head h), rows one after the
+  other (pers_4et.cu lines 661-669).
+- Each job stages its own split's K and V for its own row and its 4 query heads (p4t_attn_issue, qs = that row's q).
+- No job reads for another row. Row r reads the whole cache below pos0, so 16 rows read it 16 times.
+- 4E reads it once a token (pers_attention, llvq_pers.cuh, one row).
+
+Bytes (computed): 8 KV heads x 128 x 2 B x 2 (K and V) = 4,096 B a position a layer.
+  per row, one layer at 8,192 positions        33.55 MB
+  per row, 36 layers                           1.208 GB
+  per 16-row pass                              19.33 GB
+  per 4E token                                 1.208 GB
+Jobs a layer: 16 x 8 x 33 = 4,224 for the pass, 264 for 4E, over 142 CTAs: about 30 against 2 a CTA (computed).
+Rates (computed from measured walls): the pass spends 48.155 - 10.93 = 37.2 ms above its short-context wall, 19.3 GB
+in 37.2 ms is 520 GB/s. 4E spends 1.77 to 2.00 ms above its short wall at 8,192 for 1.208 GB, 604 to 683 GB/s. Both
+sit near DRAM rate (864 GB/s), so the per-layer working set of 33.5 MB is not being reused through the 96 MB L2.
+Reading: the pass's 8k cost is 16 cache reads at about 4E's rate. Not established: no phase split was printed at 8k
+(spec-mem-m3, NOT ESTABLISHED). The stamped launch exists (L.stamps); the first experiment prints it.
+
+The fix on paper, one read of the cache serving the R queries, as the projections already decode a weight once for R:
+- D1, same bits. A job becomes (split s, KV head h, group of Rg rows). The step stages the split's K/V tile once; each
+  warp task is (unit, head pair, row) and runs today's pers_attn_tile on its own state. Positions p >= pos0 differ per
+  row (tree slots), so the tree tail (at most 16 positions) and a row's last, partial split stay per row, as today.
+  Each row keeps its tiles, units, splits and fold order, so its bits do not move (the ring depth already changed
+  nothing in form 6). The bound is shared memory: a row's unit states and q weigh 10,368 B. Rg = 4 with a 2-stage
+  ring needs 74.2 KB of area (today 59.8 KB); with the 19.1 KB of header and tables it fits under 101,376 B at one CTA
+  a SM. Rg = 16 does not fit; it needs
+  the states in registers.
+  Expected at 8k, R = 16, Rg = 4: 4.8 GB read at 0.61 to 0.86 TB/s, 5.6 to 7.9 ms; scalar tiles for 16 rows 2.9 to 5.9 ms
+  (264 M warp-instructions a row at 8k, IPC 2 to 4 on 142 SMs at 2.52 GHz), overlapped. Attention 6 to 10 ms against
+  37.2; pass 17 to 21 ms, 2.7 to 3.4 tokens of 4E (estimated).
+- D2, MMA attention. The 16 rows x 4 query heads of a KV head form a 64 x 128 query tile; QK^T and PV run on the tensor
+  cores against the staged split, flash-decoding style, the online softmax in registers. One read: 1.2 GB, 1.4 to
+  2.0 ms; MMA work small. Pass about 13 to 14 ms, 2.1 to 2.3 tokens of 4E (estimated). New arithmetic: the T8 gate again.
+- For prefill the gain is larger: 8,192 rows over a growing cache read 4.9 TB today (computed), 1.24 TB under D1 at
+  Rg = 4, about 0.08 TB under D2 at R = 64.
+
+Does 4E's own attention at 8k have the same slack? No. 4E reads each cache byte once a token; there is no repeated read
+to remove. Its slack is bandwidth efficiency only: 1.208 GB at 604 to 683 GB/s against 864 GB/s peak. At peak it would
+save 0.37 to 0.60 ms a token, 161.5 to at most 172-179 tok/s at 8,192 (computed ceiling). Only fewer bytes (an int8 or
+int4 KV cache) moves it further, and that touches quality (ETAT section 5).
+
+4. A CHAT TURN END TO END
+-------------------------
+Assumptions: the turn's new tokens are prefilled (the engine reuses the cached history, chat.rs, engine.rs
+reuse_prefix), the history before them is short, the answer is 256 tokens decoded by 4E as today (greedy). Decode time
+is 1.15 s at 200, 1.19 s at 1,000 and 1.32 s at 4,000 tokens of context (computed by interpolation of the served-v9
+sweep: 223, 215, 194 tok/s). The ratio is answer tokens over the whole wall.
+
+  prompt   today                    A: R16 as built          B: R32 + D1              C: R64 + D2
+           TTFT  wall   ans/wall    TTFT  wall   ans/wall    TTFT      wall       ans/wall   TTFT      wall       ans/wall
+  200      0.80  1.95   131         0.15  1.30   197         0.09      1.24       206        0.06-0.08 1.21-1.23  208-212
+  1,000    3.99  5.18   49          0.83  2.02   127         0.42-0.48 1.61-1.67  153-159    0.25-0.31 1.44-1.50  171-178
+  4,000    16.6  17.9   14.3        5.0   6.3    40         1.9-2.3   3.2-3.6    71-79      1.0-1.4   2.4-2.7    93-108
+Today's TTFT is computed (3.99 ms a token at 2,048, measured; 17.04 x 4,000 / 4,096 at 4,000). Every proposal column
+is estimated. The ceiling with a zero first token is 223 / 215 / 194 answer tokens a second. A keeps the pass's bits
+and needs only a host driver; B keeps them too; C changes the attention arithmetic.
+At 1,000 prompt tokens the prefill is 77 % of today's turn; at 4,000 it is 93 %. Any decode gain, speculation
+included, moves at most the remaining 7 to 23 % of those turns.
+
+5. THE FIRST EXPERIMENT
+-----------------------
+Chain prefill through the existing a12ip pass at R = 16. No kernel change: a host driver in specbench that feeds the
+prompt as chains of 16 (depth 0..15, path the chain), moves each chunk at the next launch, and ends with a one-row
+pass on the first answer token, then 4E decodes 256 tokens.
+Before the card ($0, on the Mac after the operator's go): the host twin (tests/tree_verify_host.rs) checks a chain
+prefill at R = 16 and R = 5 against the R = 1 pass decode of the same prompt, bit for bit; a mutant (path off by one)
+must die.
+On the card, one process, prompts of 1,024, 4,096 and the M3 8,191-token prompt (da4edbd6), 1 discarded + 3 rounds a
+form: served eager prefill against chain prefill, one process a form so each peak is its own, no drafter loaded, the
+VRAM sampler beside each, and one stamped chain launch at the 8k prompt's last pass.
+Gates:
+- G1 identity: the chain's last-row logits at 1,024 equal the pass's R = 1 decode bit for bit; chain R = 8 equals R = 16
+  at 4,096.
+- G2 speed: first token at 4,096 at most 6.5 s (signed 5.2 [4.0, 6.5]); at 1,024 0.85 [0.7, 1.1]; at 8,192 15.1 [11, 18].
+- G3 memory: 8k peak at most 4.0 GB with today's full pass buffers (signed 3.45 [3.2, 4.0]).
+- G4: the phase split of the 8k pass printed, attention against the rest.
+- Not gated here: quality. The paired-perplexity gate of section 2 is the next job, and the decision to serve waits
+  for it.
+Cost: two loads and installs of about 4 min each (M3 loaded in 240.8 s), 4 min of eager rounds (4 x 57 s), 1.5 min of
+chain rounds, 0.2 min of R = 1 identity decode, about 3 min of margin: 16 to 19 min of L40S, $0.48 to $0.57 at $1.80 an
+hour (estimated); cap $1. The image needs a rebuild for specbench.
+Riskiest assumption: that the 8k pass's extra 37 ms is the attention, linear in the context. The 1,024 figure barely
+depends on it; the 4,096 and 8,192 figures do. G4 settles it in the same job.
+
+OTHER MULTI-ROW KERNEL, FOR COMPARISON
+--------------------------------------
+tv_batch_gemm (tv_bg_n8 to n128) is in the same image and runs 128 rows at 0.224 ms a row (batch-l40s-v4, measured).
+Routing a prompt's rows through it is ROADMAP section 4's "prefill by GEMM" (plan-300 K10, T8). It keeps the grouped
+cuBLAS attention and its 2.15 GB score tensor at 8k, so it helps the first token (about 1.8 s of projections at 8k,
+estimated) but not the memory. The tree pass helps both.
+
+NOT ESTABLISHED
+---------------
+Any of the estimated first tokens. T(32) and T(64) of an in-place pass, which no build has. The split of the 48 ms pass.
+Whether the 96 MB L2 serves any of the repeated reads. Paired perplexity of the pass (S2). 8B and 14B. Any card but
+the L40S.
