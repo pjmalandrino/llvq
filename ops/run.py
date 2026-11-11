@@ -755,6 +755,9 @@ UPLOAD_ALLOW = (
     # fails the build after its twelve-minute compile — the third time this
     # two-lists trap bit (rust-toolchain.toml, fetch-qtip.sh, and now this).
     "configs/**",
+    # The house prompt set of `specbench --prompts`, copied into the runtime
+    # image by ops/Dockerfile.cuda (the same two-lists trap as above).
+    "ops/data/spec-prompts-v1.jsonl",
 )
 # `llvq-*/**` also matches `llvq-tetra/`, a Python package that no recipe
 # builds, with a 750 MB virtualenv inside. On 2026-10-06 a publish pushed its
