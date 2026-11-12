@@ -58,7 +58,9 @@ WHAT THE DESCRIPTION SAYS
      can be read. One u32 a load already costs the probe 13 % (652.9 against 751.1).
   3. gate/up alone reads 429.5 against 359 at 5 tokens and 385 at 8,192 in the token (computed from stamps, E1): 10
      to 16 % of the rows' rate is lost to the rest of the token.
-  4. The L2 prefetch is worth 11 % to the rows (served_np x0.892).
+  4. Keeping the next block's words in flight is worth 11 % to the rows (served_np x0.892).
+     CORRECTION, same day: this line first said the L2 prefetch. served_np drops the register pipelining of the
+     next block's words, not a prefetch; neither served nor pword issues an L2 prefetch (read in rowcand.cu).
   5. A reassociated sum, which the bit forbade, is worth 2 % on the file and 7 to 10 % on rows of 4,096 and 9,728.
   6. The shapes: d_in 2,560 is the fastest alone (409.6), 9,728 the slowest (374.2). No journal had a rate a shape.
 

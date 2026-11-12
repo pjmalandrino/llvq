@@ -234,6 +234,25 @@ the 17 rounds (*computed*), and a 1.2 MB read-back after each diagnostic launch.
 
 ## 10. Signed predictions (main session)
 
+Signed on 2026-11-12, before the stamp, from the first run and the code alone. Ratios are medians formed round by
+round on sealed:all. Each line is scored in the journal as in or out.
+
+| # | quantity | point | interval | why |
+|---|---|---|---|---|
+| 1 | rule D holds | yes | 85 % | the windows are the journals' own, and the first run sits inside them |
+| 2 | pw_chk over pword | 0.97 | [0.92, 1.00] | five instructions more a block on 24 |
+| 3 | H1, pw_noside over pw_chk | 1.03 | [1.00, 1.08] | the epilogue runs on one lane a row; dead or nearly |
+| 4 | H2, pw_flat over pw_chk | 1.20 | [1.08, 1.40] | a warp holds one to five whole rows: the deal is coarse, and a row ends in a reduction |
+| 5 | H3, pw_u4 over pw_chk | 1.05 | [1.00, 1.12] | the probe loses 13 % at one u32 a load, and a block is two loads |
+| 6 | H4, pw_nostage over pw_chk | 1.06 | [1.01, 1.15] | 168 stagings behind two barriers each |
+| 7 | H5, pw_grid over pw_flat | 1.04 | [0.99, 1.12] | the CTA split is by rows, already near even |
+| 8 | H0, pw_empty | 40 us | [15, 120] | one launch, 168 sites of descriptors |
+| 9 | pw_all over pw_chk | 1.35 | [1.20, 1.50] | the stack reaches about 650 GB/s, under the int4 read |
+| 10 | pw_all in GB/s of words, sealed:all | 630 | [550, 700] | as line 9 |
+
+The hypothesis I hold before the run: the row deal (H2) carries the largest share, because a matrix of 2,560 rows
+is dealt to 2,272 warps. What would surprise: H2 dead; pw_all under 550; H0 above 150 us.
+
 ## 11. Not established by this run
 
 - Any tok/s, any candidate's score: the diagnostics owe no rows.
