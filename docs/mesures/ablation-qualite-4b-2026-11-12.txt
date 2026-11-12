@@ -15,9 +15,11 @@ Groups do not add. all exceeds mlp + attn by +1.14 pp, CI95 [+0.43, +1.85] (*com
 excess is outside noise. S = all over the four single gains = 1.157, CI95 [0.97, 1.46] (*computed*, bootstrap): not
 resolved from 1. Once the MLP is f16, attention is worth +1.87 [+1.35, +2.36]; on the sealed MLP it is worth +0.73.
 
-To the letter of prereg §6, two rows fire at once: "two carriers" (gate/up and down) and "diffuse" (largest under twice
-the second, none at 3.39). The prereg gives no precedence between them. "Interacting" does not fire: A_attn = 1.73 is
-outside [0.70, 1.30], but §5.2 forbids reading it (its denominator's CI95 is [-0.31, +1.13]).
+Prereg §6 has two readings here (clarified 2026-11-12, after review; see CLARIFICATION at the end). By the bare letter,
+three rows fire: "two carriers" (gate/up and down), "diffuse" (largest under twice the second, none at 3.39) and
+"interacting" (A_attn = 1.73 is outside [0.70, 1.30]). "Interacting" overrides the others, and the prescribed next step
+is global. By this journal's judgement, A_attn is not read: §5.2 defines no CI95 for the sum qkv + o, and the interval
+this journal computed for it, [-0.31, +1.13], contains zero. Two rows then fire, with no precedence between them.
 
 Five of eight signed arm predictions are inside their intervals. qkv, o and attn are all below: the attention group
 costs far less than predicted. S = 1.157 is outside [0.60, 0.95].
@@ -139,14 +141,19 @@ Thresholds as written: half the gap 3.39 pp, a quarter 1.69 pp.
   >= 3.39, none >= 3.39 alone.
 - diffuse: MET, by its second clause. The largest gain (3.38) is under twice the second (2 x 2.01 = 4.02) and none
   reaches 3.39. The first clause (no single arm >= 1.69) does not hold.
-- interacting: NOT MET. S = 1.157 is not under 0.50. A_mlp = 0.901 is inside [0.70, 1.30]. A_attn = 1.729 is outside,
-  but §5.2 says a ratio whose numerator or denominator has a CI95 containing zero is not read: its denominator's CI95
-  is [-0.31, +1.13] (computed here; o's own CI95 contains zero too). The ratio is not read, so it triggers nothing.
+- interacting: MET to the bare letter; set aside by this journal's judgement (clarified 2026-11-12, after review).
+  S = 1.157 is not under 0.50. A_mlp = 0.901 is inside [0.70, 1.30]. A_attn = 1.729 is outside, which is the row's
+  condition. §5.2 says a ratio whose numerator or denominator has a CI95 containing zero is not read. The numerator,
+  attn, has CI95 [+0.16, +1.29]. §5.1 gives a CI95 per arm only, and §5.2 says the ratios' uncertainty is not
+  bootstrapped jointly, so the prereg defines no CI95 for the denominator qkv + o. The interval [-0.31, +1.13] is this
+  journal's own computation, as is the note that o's CI95 contains zero. The journal's judgement is that A_attn should
+  not be read, because its denominator (+0.42) is not resolved from zero. That judgement is not the letter.
 - Ranking of the single arms, published in every case: gateup +3.38, down +2.01, qkv +0.55, o -0.13.
-Two rows fire. The prereg orders "interacting" over the first two rows and says nothing between "two carriers" and
-"diffuse". The letter alone does not pick a next step. "two carriers" points at gate/up and down, ranked by gain per
-b/param of fixing them (not priced here). "diffuse" points at a global objective. For down, §6 asks first for the split
-arm by window (down_proj@0-11,24-35 against down_proj@12-23, ~$0.72 each).
+By the bare letter, three rows fire, and "interacting" overrides the first two: the single-arm gains are not a
+decomposition, and the next step is global, as for "diffuse". By the journal's judgement, two rows fire, and the letter
+says nothing between "two carriers" and "diffuse", so it does not pick a next step. "two carriers" points at gate/up
+and down, ranked by gain per b/param of fixing them (not priced here). "diffuse" points at a global objective. For
+down, §6 asks first for the split arm by window (down_proj@0-11,24-35 against down_proj@12-23, ~$0.72 each).
 
 WHAT THE LETTER MISSES
 ----------------------
@@ -179,7 +186,7 @@ SIGNED PREDICTIONS (prereg §9) AGAINST THE MEASURED VALUES
   attn                         +2.0 [+1.0, +3.0]    +0.73                     out (below)
   mlp                          +5.0 [+3.8, +6.0]    +4.86                     in
   all                          +6.3 [+5.7, +6.8]    +6.72                     in
-  A_attn                       0.90 [0.70, 1.10]    1.73 (not read, §5.2)     out
+  A_attn                       0.90 [0.70, 1.10]    1.73 (see CLARIFICATION)  out
   A_mlp                        0.83 [0.65, 1.00]    0.90                      in
   S                            0.77 [0.60, 0.95]    1.16                      out (above)
   gate/up the largest carrier, near the 3.39 line   +3.38, largest            in
@@ -194,3 +201,18 @@ COST
 ----
 $5.26 for this job (*computed*, 10,524 running seconds at $1.80/h), against $5.79 estimated and a $6.90 ceiling.
 Spend under the operator's $25 cap since 2026-11-09: $19.22 ($13.96 before). Registry $326.47.
+
+CLARIFICATION (2026-11-12, after an independent review of PR #33)
+------------------------------------------------------------------
+No figure changes. The reading of the "interacting" row of prereg §6 was stated as the letter; it is the journal's
+judgement. The prereg is not edited.
+- The letter. §6 fires "interacting" when A_attn or A_mlp is outside [0.70, 1.30]. A_attn = 1.729 is outside. §5.2's
+  exclusion needs a CI95 on the numerator or the denominator that contains zero. The numerator's, attn's, is
+  [+0.16, +1.29]. The prereg defines no CI95 for the denominator qkv + o: §5.1 gives one per arm, and §5.2 says the
+  ratios' uncertainty is not bootstrapped jointly. So, to the letter, the row fires, it overrides "two carriers", and
+  the prescribed next step is global.
+- The journal's judgement. The denominator, +0.42, has a computed interval [-0.31, +1.13] (pair-intervals.txt), and
+  o's own CI95 contains zero. A ratio over a denominator not resolved from zero says nothing about interaction inside
+  attention. On that ground the journal set A_attn aside. This is a judgement on the data, not the letter of §5.2.
+- What does not depend on the choice. "diffuse" fires on either reading and also points at a global objective. The
+  resolved facts are the group gains and the cross-group excess of +1.14 [+0.43, +1.85].
