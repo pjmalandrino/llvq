@@ -1,0 +1,16 @@
+FIDELITY	served	FAIL	bare:all 0.9467 GB, median 394.0 GB/s [389.7-396.8] against [368, 383]
+FIDELITY	v2	FAIL	bare:all median 394.6 GB/s [389.5-396.1] against [368, 383]
+ORDER	v3	PASS	x0.854 [0.851-0.860] over v2, journal x0.849 [0.839-0.849] (pers-rowloop:26), window [0.819, 0.869]
+ORDER	ilp2	PASS	x0.936 [0.933-0.939] over v2, journal x0.928 [0.905-0.930] (pers-rowloop:27), window [0.885, 0.950]
+ORDER	v2u	PASS	x0.833 [0.828-0.838] over v2, journal x0.825 [0.807-0.826] (pers-rowloop:28), window [0.787, 0.846]
+ORDER	l1w	FAIL	x1.186 [1.173-1.202] over v2u, journal x1.214 [1.210-1.221] (pers-rowloop:29), window [1.190, 1.241]
+ORDER	bcast	PASS	x0.995 [0.990-1.007] over v2u, journal x0.987 [0.969-0.993] (pers-rowloop:30), window [0.949, 1.013]
+ORDER	xbcast	PASS	x1.007 [1.002-1.020] over v2u, journal x0.995 [0.965-1.001] (pers-rowloop:31), window [0.945, 1.021]
+ORDER	v2_o2	FAIL	x1.041 [1.037-1.046] over v2_s, journal x1.076 [1.073-1.080] (pers-rowloop:33), window [1.053, 1.100]
+ORDER	nc	PASS	x0.838 [0.828-0.846] over v2, journal x0.810 [0.787-0.829] (step1-micro:27), window [0.767, 0.849]
+ORDER	nc256	PASS	x0.876 [0.864-0.885] over v2, journal x0.845 [0.823-0.865] (step1-micro:28), window [0.803, 0.885]
+ORDER	cpa	PASS	x0.995 [0.982-1.007] over v2, journal x0.960 [0.944-0.987] (step1-micro:29), window [0.924, 1.007]
+ORDER	tile	PASS	x1.027 [1.015-1.039] over v2, journal x1.002 [0.982-1.024] (step1-micro:30), window [0.962, 1.044]
+ORDER	bal	PASS	x0.949 [0.944-0.965] over v2, journal x0.934 [0.916-0.956] (step1-micro:31), window [0.896, 0.976]
+ORDER	all	FAIL	12 known arms against their journal ranges widened by 0.02, 2 outside
+rule D: FAIL, no candidate rate of this run counts (prereg §6)

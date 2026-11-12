@@ -1483,3 +1483,8 @@ reading step is [recherche-debit-r0-depot](mesures/recherche-debit-r0-depot-2026
   predictions missed, all built on the decode-bound framing. The image recipe compiles three crates at a time since
   this run: at two the build no longer fits the Space builder's 30 minutes. Spend under the cap: $19.32 of $25,
   registry $326.57.
+- The second card run, [recherche-debit-lecture](mesures/recherche-debit-lecture-2026-11-12.txt) (6af5e9e7, $0.10),
+  fails its fidelity rule too, on the served window (394.0 GB/s against [368, 383]), so it kills no hypothesis to the
+  letter. It describes: read as a flat stream by 128-bit loads with no side stream, the sealed Tetra words stream
+  717 GB/s against 751 for the card and 480 for the served read (*measured*). The row boundary, the load width and
+  the side streams each cost about x1.2. Spend under the cap: $19.42 of $25, registry $326.67.

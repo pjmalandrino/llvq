@@ -665,7 +665,11 @@ N1 and N2.
 State on 2026-11-12, after the first card run ([recherche-debit-banc](mesures/recherche-debit-banc-2026-11-12.txt)):
 the first framing, rows bound by their decode, fell. The problem is now the read of the Tetra words, 493 GB/s with
 nothing decoded against 751 for the card, by the explanation route first
-([recherche-debit-r1-recadrage](mesures/recherche-debit-r1-recadrage-2026-11-12.txt)). Spent: $0.10 of $5.
+([recherche-debit-r1-recadrage](mesures/recherche-debit-r1-recadrage-2026-11-12.txt)).
+The second run ([recherche-debit-lecture](mesures/recherche-debit-lecture-2026-11-12.txt)) describes the cause: the
+served read pattern. The same words read flat, by 128-bit loads, with no side stream, stream 717 GB/s (*measured*).
+Both runs failed their fidelity rule, so neither scores a candidate nor kills a hypothesis to the letter. No
+decoder has run on the flat read. Spent: $0.20 of $5.
 
 ## Beliefs we dropped
 

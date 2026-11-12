@@ -1,0 +1,80 @@
+Decode-speed research phase (CERVEAU O11), R2 again: why the Tetra words read 493 GB/s, one card run, 2026-11-12
+
+Result: rule D of the prereg fails again, this time on the served window itself, so to the letter no hypothesis is
+killed or kept and the run is a description. The description is consistent on all eight sets: the sealed file's
+Tetra words can be read at the card's rate at 4E's geometry. Read as a flat stream by 128-bit loads with no side
+stream, they stream 717 GB/s [713-721] against 751 for the probe, where the served read pattern gives 480. Three
+things each recover about x1.2 and stack to x1.54: the row boundary, the load width, the side streams. The
+per-site staging and the schedule recover nothing. Every rate is *measured*; bytes are *computed*.
+
+Job 6af5e9e737daa033b62895a5, l40sx1, 203 s running, $0.10. Prereg
+proofs/preregistration-recherche-debit-lecture-2026-11-12.md (sha256 73979ae1, stamped before). Image from 6d61309,
+Space sha db8db68c. Raw outputs in recherche-debit-lecture-2026-11-12-brut/. L40S, sm_89, driver 580.178.04, tile
+64, 15 timed rounds, medians with round-by-round ranges. GB/s of words unless said.
+
+GATES
+  Oracle MATCH; both files at their bytes and sha256; served unit 61930943; bench module 6ca9543e, the Mac's; the
+  served arm bit for bit on sealed:all, sealed:gu4e and bare:all; no LLVQ_* variable. No arm, probe configuration
+  or read check was refused: every diagnostic summed every word the host summed, before timing and after every
+  timed launch.
+
+RULE D
+  D1 FAIL. served on bare:all 394.0 [389.7-396.8] against [368, 383] (accounting with tails); v2 394.6.
+  D2 FAIL, two of twelve: l1w x1.186 against a window of [1.190, 1.241]; v2_o2 x1.041 against [1.053, 1.100]. cpa,
+  which failed the first run's flat rule, passes at x0.995.
+  The first run read the same arm on the same bytes at 374.8, on the same card model, driver and tile. Between the
+  two runs the probe did not move (751.1, 750.9), nor the int4 read (675.3, 676.7), nor q4t (557.0, 557.1); the
+  sealed file's rows moved by 1.6 % (407.3, 413.9) and the bare encode's by 5.1 %. The cause is not established.
+  A window on an absolute rate taken from another job has now failed once in two, and a ratio rule once in each
+  run: the rule, as built twice, does not hold a stand-in to its journals, and this note does not rescue it.
+
+THE READ OF THE SEALED FILE'S TETRA WORDS (sealed:all, 0.7157 GB of words)
+  arm          what changes from pw_chk                       GB/s of words          over pw_chk, round by round
+  served       the served row, decoding                       395.6 [383.1-397.1]
+  pword        the served read, nothing decoded               479.8 [471.5-484.2]
+  pw_chk       pword with the read check                      466.3 [455.2-470.9]   (x0.972 of pword)
+  pw_noside    no tail, no row scale, no y store  (H1)        550.6 [544.6-558.4]   x1.184 [1.171-1.196]
+  pw_flat      one flat stream, no row boundary   (H2)        562.2 [549.3-569.3]   x1.208 [1.188-1.222]
+  pw_u4        aligned 128-bit loads              (H3)        569.9 [563.8-581.0]   x1.233 [1.209-1.242]
+  pw_nostage   activation staged once             (H4)        475.4 [470.6-479.6]   x1.022 [1.009-1.037]
+  pw_grid      the probe's schedule, over pw_flat (H5)        556.3 [547.3-561.7]   x0.987 [0.980-1.009] of pw_flat
+  pw_all       the stack                                      716.7 [713.0-720.5]   x1.540 [1.516-1.569]
+  pw_empty     an empty launch over the 168 sites (H0)        53.4 us [51.3-55.8]
+  probe        the card, best configuration                   750.9 [747.9-752.4]
+  With the empty launch subtracted round by round, pw_all reads 758.1 [754.2-760.2]. The subtraction is an upper
+  reading: the empty launch carries the check's own writes.
+
+BY SHAPE (over pw_chk; describes)
+  set               H1 noside   H2 flat   H3 u4    H4 nostage   stack
+  sealed 2,560      1.223       1.188     1.210    1.026        1.544
+  sealed 9,728      1.008       1.240     1.201    1.027        1.581
+  sealed gate/up    1.191       1.142     1.179    0.988        1.439
+  bare 4,096        1.110       1.351     1.360    1.135        2.258
+  The side streams cost the short rows (640 B of words a row at 2,560) and nothing at 9,728 (2,432 B a row). The
+  row boundary and the load width cost every shape.
+
+WHAT THE DESCRIPTION SAYS
+  1. Nothing in the bytes, the buffers or the geometry stops the Tetra words from streaming at the card's rate.
+     The 0.66 of the first run is the served read pattern: one row a warp, two unaligned u32 loads a block and a
+     lane, and at each row's end a reduction, a binary16 tail, a scale and a store.
+  2. The three costs are not additive: each alone gives about x1.2, together x1.54, which is the card's ceiling.
+     A design that removes one or two of them is not scored by this run.
+  3. Staging the activation at every site, and dealing rows to warps inside a CTA rather than striding the grid,
+     cost nothing measurable. An empty launch over the sites costs 53 us of the 1,492 us pword takes.
+  4. The decode still has to happen. This run says what a read costs, not what a decoder on that read would reach:
+     served is x0.82 of pword here as in the first run (x1.219 the other way).
+
+SIGNED PREDICTIONS (prereg §10): 4 in, 6 out
+  1 rule D holds (85 %): fails, out.            6 H4 1.06 [1.01, 1.15]: 1.022, in.
+  2 pw_chk 0.97 [0.92, 1.00]: 0.972, in.        7 H5 1.04 [0.99, 1.12]: 0.987, out, below.
+  3 H1 1.03 [1.00, 1.08]: 1.184, out, above.    8 H0 40 us [15, 120]: 53.4, in.
+  4 H2 1.20 [1.08, 1.40]: 1.208, in.            9 pw_all 1.35 [1.20, 1.50]: 1.540, out, above.
+  5 H3 1.05 [1.00, 1.12]: 1.233, out, above.    10 pw_all 630 [550, 700]: 716.7, out, above.
+  The hypothesis held before the run, the row deal, is one of three equal parts, not the largest. Every miss on a
+  hypothesis is an underestimate of what the read pattern costs.
+
+NOT ESTABLISHED
+  Any tok/s, and any rate of a decoder on a flat, wide read. Why the bare encode's rows moved 5 % between two
+  jobs. Any killed or kept hypothesis, to the letter of the prereg. Any card but the L40S.
+
+Cost: $0.10 (203 s at $1.80/h). Phase: $0.20 of $5. Cap of 2026-11-09: $19.42 of $25. Registry: $326.67.
