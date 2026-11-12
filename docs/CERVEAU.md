@@ -635,6 +635,15 @@ a ready verifier, and the ceiling of 24-dimension fixed-rate codes is recorded (
 verifier. Model quality has no fast, faithful verifier: it is open through the explanation route, from the anomalies
 N1 and N2.
 
+**O11.** Phase open: MODE RECHERCHE on decode speed, opened by the operator on 2026-11-12. Its mandate:
+
+| field | content |
+|---|---|
+| Axis | Decode speed of the served object, in tok/s at the door. Quality, whole-model b/param, VRAM, time to first token and the cost of producing an object are constraints. |
+| Starting point | Both: the anomaly N5, and the gap between the bytes a token reads and what the card can stream. The phase picks at R1 the one that gives the sharper problem. |
+| Untouchable | The three sealed files. Whole-model b/param at 2.73. VRAM at the served peaks. No CUDA Graphs in the core. Logits may move, inside the served tolerance of ±0.12 % of paired perplexity. |
+| Budget | Three days, to 2026-11-15. $5 of card under the cap of $25, each job under a stamped prereg and the operator's go. |
+
 ## Beliefs we dropped
 
 | belief | dropped | by |
