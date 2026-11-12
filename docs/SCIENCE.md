@@ -1,7 +1,7 @@
 # State of scientific understanding
 
-Progress: all sections drafted on 2026-11-12. Thinnest: E (cost) and A (Metal), each claim there copied from
-`ETAT.md` and to be reread against its journal.
+Progress: all sections drafted on 2026-11-12. Claims whose Checked line says "copied from `ETAT.md`" still need a
+reread against their journal; A (Metal) is the thinnest section.
 
 This document lists what we believe to be true about quantizing LLMs on the Leech lattice, each belief with its
 standing. It is not the served state ([`ETAT.md`](ETAT.md)), the history ([`HISTORIQUE.md`](HISTORIQUE.md)) or a plan
@@ -379,10 +379,10 @@ one-row pass costs 2.80 4E tokens, and 16 rows cost 1.73.
 - Checked: 2026-11-12.
 
 **D3.** Speculation pays on predictable text and barely on chat: the public DFlash drafter with the tree loop decodes
-GSM8K-200 at 502.1 tok/s (×2.295), the house set at 343.1 (×1.556), chat at 242 (×1.09), GSM8K 167 correct against
-166.
+GSM8K-200 at 502.1 tok/s (×2.295), the house set at 343.1 (×1.556), its chat prompts at 241.7 (×1.086), GSM8K 167
+correct against 166.
 - Standing: supported. Scope: sealed 4B, L40S, one run each.
-- Evidence: [spec-loop-sp8](mesures/spec-loop-sp8-2026-11-11.txt); chat figure from `ETAT.md` §5.
+- Evidence: [spec-loop-sp8](mesures/spec-loop-sp8-2026-11-11.txt) (chat line 116).
 - Overturn: a second run outside the round ranges.
 - Checked: 2026-11-12.
 
@@ -411,13 +411,23 @@ weights are 1.38 / 2.76 / 5.04 GB.
 
 ## E. Cost of producing an object
 
-**E1.** The quality levers that worked cost a few dollars of card each, and the frozen-code training is the dearest
-step: row-scale training at 4B ran 1.71 h, about $4.00.
-- Standing: supported. Scope: 4B.
-- Evidence: [dclm-rowscales](mesures/dclm-rowscales-2026-09-20.txt); registry `docs/data/jobs.csv`.
-- Overturn: none; a fact about one run.
-- Checked: 2026-11-12. The encoding-cost note `innovation-cout-encodage-2026-11-12.txt` (branch
-  `claude/arbre-prefill-2026-11-11`, uncommitted) was not read in time.
+**E1.** A sealed object costs $4.00 / $5.66 / $25.13 of production at 4B / 8B / 14B, and $6.29 / $8.63 / $30.62 with
+the MMLU runs of its chain.
+- Standing: supported (*measured* rows of `docs/data/jobs.csv`, sums *computed*). Scope: the three sealed chains.
+- Evidence: `innovation-cout-encodage-2026-11-12.txt`, branch `claude/arbre-prefill-2026-11-11`, uncommitted, section
+  1; row-scale training at 4B in [dclm-rowscales](mesures/dclm-rowscales-2026-09-20.txt) (1.71 h in the loop, about
+  $4.00).
+- Overturn: a recount of `jobs.csv` that disagrees.
+- Checked: 2026-11-12.
+
+**E2.** At 4B and 8B the encode is free on the Mac and every production dollar is the row-scale training; at 14B the
+row scales are 39 % of production. No bit-identical lever divides the chain by 3: the best composition reaches about
+/1.3 at 4B and 8B and /1.8 to /2.1 at 14B.
+- Standing: conjecture (*computed* from measured phases). Scope: the three sealed chains; a 32B is *estimated* at $57
+  to $107.
+- Evidence: same note, verdict and section 1.
+- Overturn: a measured encode or training run that beats the computed composition.
+- Checked: 2026-11-12.
 
 ## X. Against other methods
 
