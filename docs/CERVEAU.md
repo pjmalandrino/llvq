@@ -598,9 +598,10 @@ done; its first experiment, 4E v9as with a teacher-forced perplexity mode, about
 split between their lattice and int4 records. The operator ruled on 2026-11-12 that per-model, per-type tuning is not
 the project's direction.
 
-**O10.** The three research fronts, as [`MODES.md`](MODES.md) states them on 2026-11-12. The code on Λ₂₄ has a ready
-verifier, and the ceiling of 24-dimension fixed-rate codes is recorded (C7). The kernel has a costly verifier. Model
-quality has no fast, faithful verifier, so it is closed to research until one exists.
+**O10.** The route each axis allows, as [`MODES.md`](MODES.md) states it on 2026-11-12. Memory, the code on Λ₂₄, has
+a ready verifier, and the ceiling of 24-dimension fixed-rate codes is recorded (C7). Speed, the kernel, has a costly
+verifier. Model quality has no fast, faithful verifier: it is open through the explanation route, from the anomalies
+N1 and N2.
 
 ## Beliefs we dropped
 
