@@ -662,6 +662,11 @@ N1 and N2.
 | Untouchable | The three sealed files. Whole-model b/param at 2.73. VRAM at the served peaks. No CUDA Graphs in the core. Logits may move, inside the served tolerance of ±0.12 % of paired perplexity. |
 | Budget | Three days, to 2026-11-15. $5 of card under the cap of $25, each job under a stamped prereg and the operator's go. |
 
+State on 2026-11-12, after the first card run ([recherche-debit-banc](mesures/recherche-debit-banc-2026-11-12.txt)):
+the first framing, rows bound by their decode, fell. The problem is now the read of the Tetra words, 493 GB/s with
+nothing decoded against 751 for the card, by the explanation route first
+([recherche-debit-r1-recadrage](mesures/recherche-debit-r1-recadrage-2026-11-12.txt)). Spent: $0.10 of $5.
+
 ## Beliefs we dropped
 
 | belief | dropped | by |
@@ -674,6 +679,7 @@ N1 and N2.
 | MMLU noise across draws is 0.5 to 1.5 points | 2026-08-25 | s = 2.92 ([bruit-mmlu](mesures/bruit-mmlu-graines-4b-2026-08-25.txt)) |
 | All format work is capped at 4.77× | 2026-08-21 | nullk is the floor of our geometry (`HISTORIQUE.md`) |
 | k_proj and attention are the sensitive types | 2026-09 | v_proj, 2.6 % of weights (`HISTORIQUE.md`; [m2-attribution](mesures/m2-attribution-4b-2026-09-02.txt)) |
+| The Tetra rows are bound by their decode | 2026-11-12 | a read of the same words with nothing decoded is ×1.22 of the served row ([recherche-debit-banc](mesures/recherche-debit-banc-2026-11-12.txt)) |
 | The paper's codebook explains our 5.1-point MMLU gap | 2026-09-07 | [leech0c13](mesures/leech0c13-2026-09-07.txt) |
 | Tetra is worse than Planes14 on MMLU | 2026-09-09 | −2.11 [−5.04, +0.81], never resolved ([q5-apparie](mesures/q5-apparie-2026-09-09.txt)) |
 | The Euclidean gain rule helps end to end | 2026-09-15 | +4.026 % ppl at 0.6B (Q17) |
