@@ -40,7 +40,10 @@ COPY . .
 # fast, so trading the optimizer away to save a few build minutes would be the
 # wrong side of that deal.
 ENV CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
-ENV CARGO_BUILD_JOBS=2
+# 3 since 2026-11-12: at 2 the build no longer fits the Space builder's 30 minutes (two builds cut at 1,800 s with
+# no error line, the first RUN alone at 1,391 s). The binaries do not depend on this value. If a build dies by
+# SIGKILL again, the answer is fewer binaries in the first RUN, not a return to 2.
+ENV CARGO_BUILD_JOBS=3
 # `fast-linalg` is not optional in practice: without it the GPTQ factorization
 # runs the reference Cholesky, measured at 28.4 s against 0.7 s with `faer` on
 # one block of Qwen3-0.6B — 40× slower, for a bit-identical perplexity. On
