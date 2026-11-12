@@ -1231,6 +1231,7 @@ fn served_door_4e(
 /// value names none: 8,192, the long context of every reading before
 /// 2026-11-11.
 #[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+#[cfg(any(target_os = "macos", feature = "cuda"))] // names llvq_cuda, a dependency on macOS and under `cuda` only
 const PERS_4E_LONG: [usize; 1] = [8192];
 
 /// `LLVQ_PERS_4E`'s value: a token count, 2 to 256, alone (the bench forms,
@@ -1239,6 +1240,7 @@ const PERS_4E_LONG: [usize; 1] = [8192];
 /// bench forms; then optionally `:` and the prompt lengths run after the seed
 /// prompt, comma-separated, strictly ascending, each 64 to 8,192 (default
 /// [`PERS_4E_LONG`]).
+#[cfg(any(target_os = "macos", feature = "cuda"))] // names llvq_cuda, a dependency on macOS and under `cuda` only
 #[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
 fn parse_pers_4e(v: &str) -> Result<(usize, Vec<&'static str>, Vec<usize>), String> {
     let mut fields = v.splitn(3, ':');
@@ -3348,14 +3350,16 @@ fn main() -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{alone_in, first_divergence, paired_ppl_pct, parse_gqa_ppl, parse_pers_4e, rate_stats, GqaArm, GqaPplSpec, ALONE};
+    use super::{alone_in, first_divergence, paired_ppl_pct, parse_gqa_ppl, rate_stats, GqaArm, GqaPplSpec, ALONE};
     use llvq_llm::eval::t95;
 
     /// `LLVQ_PERS_4E`: a count alone keeps the bench forms; a count and E1
     /// arms names those arms in order, then optionally the long prompt
     /// lengths (8,192 alone when absent); anything else is refused.
     #[test]
+    #[cfg(any(target_os = "macos", feature = "cuda"))]
     fn pers_4e_takes_a_count_and_optional_e1_arms() {
+        use super::parse_pers_4e;
         assert_eq!(parse_pers_4e("64"), Ok((64, vec![], vec![8192])));
         assert_eq!(parse_pers_4e("64:v9,v9np,v9mv"), Ok((64, vec!["v9", "v9np", "v9mv"], vec![8192])));
         assert_eq!(parse_pers_4e("64:v9mv"), Ok((64, vec!["v9mv"], vec![8192])));

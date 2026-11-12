@@ -205,7 +205,15 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Without `llvq-cuda` (Linux without `cuda`, CI's CPU build) there is no
+/// loop to time: refused by name.
+#[cfg(not(any(feature = "cuda", target_os = "macos")))]
+fn loop_rounds(_: &std::path::Path, _: &candle_core::Device, _: DFlashDrafter, _: DenseVocab) -> anyhow::Result<()> {
+    anyhow::bail!("dflashcheck: the loop round needs llvq-cuda (macOS, or Linux with --features cuda)")
+}
+
 /// The round as the loop pays it, through `DFlashSpec`.
+#[cfg(any(feature = "cuda", target_os = "macos"))]
 fn loop_rounds(fixture: &std::path::Path, device: &candle_core::Device, drafter: DFlashDrafter, vocab: DenseVocab) -> anyhow::Result<()> {
     use llvq_cuda::spec_loop::{DraftInput, Drafter, TAPS};
     use llvq_llm::dflash_spec::{DFlashSpec, Shape};

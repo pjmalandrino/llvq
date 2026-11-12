@@ -15,6 +15,9 @@
 //! The drafter runs in f32, bf16 and f16, and each must draft the fixture's
 //! first-round chain from the prefill's taps: in f16 its `fc` overflowed and
 //! drafted NaN (SP2, 2026-11-10), which this test caught on the Mac.
+//!
+//! Compiled where `llvq-cuda` is a dependency: macOS, or `--features cuda`.
+#![cfg(any(target_os = "macos", feature = "cuda"))]
 
 use std::path::PathBuf;
 
