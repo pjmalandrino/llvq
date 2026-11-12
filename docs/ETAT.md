@@ -170,6 +170,14 @@ runs, *measured*, [bruit-mmlu](mesures/bruit-mmlu-graines-4b-2026-08-25.txt)). E
 For an A/B on one file the bar is the paired interval, 0.43 pp of MMLU and 0.12 % of perplexity (*measured*,
 [kvq8-4b](mesures/kvq8-4b-2026-08-15.txt)).
 
+**Where the 4B loses quality.** The MLP carries most of the sealed 4B's 6.77-point MMLU gap to FP16 (*measured*,
+[ablation-qualite-4b](mesures/ablation-qualite-4b-2026-11-12.txt)). Restored to f16, gate/up recovers +3.38
+[+2.75, +4.02], down +2.01 [+1.46, +2.54] and the whole MLP +4.86 [+4.16, +5.57]. Attention recovers +0.73
+[+0.16, +1.29]: qkv +0.55 [+0.01, +1.11], o -0.13 [-0.46, +0.19]. All 252 projections restored sit +0.04
+[-0.23, +0.31] under FP16. So the int4 g64 embedding and tied head cost nothing resolved, and neither do the int4
+records of `o`. The groups are super-additive: all exceeds the MLP plus attention by +1.14 [+0.43, +1.85]
+(*computed*, paired per question). The scope is one calibration draw, MMLU only, on the dense f16 reconstruction.
+
 ## 5. Open decisions
 
 - **Throughput past v9.** At the bit the 4B tops out near 235 to 258 tok/s at the door (*estimated*,
@@ -205,6 +213,7 @@ For an A/B on one file the bar is the paired interval, 0.43 pp of MMLU and 0.12 
 - **A model above 14B.** The 32B has to be encoded first.
 - **`down_proj` instead of `o_proj` in int4 at 4B and 14B.** At 8B it scored 0.77 points better [0.26, 1.28].
 - **A second calibration draw per size.**
+- **The next quality or speed work.** It opens as a phase under [`MODES.md`](MODES.md), on the operator's mandate.
 - **An int4 KV cache.** It touches quality, so it is outside any "negligible" go.
 - **The next venue for paper 2.** No archive holds version 2 yet. Default if silent: preprint only.
 - **Upstream `transformers`.** `llvq-tetra` 0.1.0 is on PyPI and loads the 4B safetensors; the upstream issue and PR
