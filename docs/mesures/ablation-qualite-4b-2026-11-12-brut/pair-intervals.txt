@@ -1,0 +1,43 @@
+questions 14042
+control picks equal to embed-q4-swap ref: 14042 of 14042 ; ref correct 8899 control correct 8899
+control  correct  8899 micro 63.3742
+qkv      correct  8976 micro 63.9225
+o        correct  8881 micro 63.2460
+gateup   correct  9374 micro 66.7569
+down     correct  9181 micro 65.3824
+attn     correct  9001 micro 64.1006
+mlp      correct  9581 micro 68.2310
+all      correct  9843 micro 70.0969
+f16      correct  9849 micro 70.1396
+
+normal interval on paired per-question differences, no fpc
+  gain qkv                   +0.5484 [+0.01, +1.09]
+  gain o                     -0.1282 [-0.46, +0.20]
+  gain gateup                +3.3827 [+2.75, +4.02]
+  gain down                  +2.0083 [+1.47, +2.54]
+  gain attn                  +0.7264 [+0.17, +1.29]
+  gain mlp                   +4.8569 [+4.15, +5.56]
+  gain all                   +6.7227 [+6.00, +7.44]
+  f16 - all                  +0.0427 [-0.23, +0.31]
+  excess all-(mlp+attn)      +1.1394 [+0.43, +1.85]
+  excess all-(4 singles)     +0.9116 [-0.20, +2.03]
+  excess attn-(qkv+o)        +0.3062 [-0.12, +0.74]
+  excess mlp-(gateup+down)   -0.5341 [-1.21, +0.15]
+
+stratified bootstrap (10000 draws, python Random seed 0xb0075eed, not mmlupair stream), no fpc
+  gain qkv      [+0.00, +1.09]
+  gain o        [-0.46, +0.21]
+  gain gateup   [+2.76, +4.01]
+  gain down     [+1.47, +2.54]
+  gain attn     [+0.16, +1.28]
+  gain mlp      [+4.17, +5.56]
+  gain all      [+6.02, +7.43]
+  excess all-(mlp+attn)      [+0.44, +1.84]
+  excess all-(4 singles)     [-0.19, +2.04]
+  excess attn-(qkv+o)        [-0.11, +0.75]
+  excess mlp-(gateup+down)   [-1.22, +0.15]
+
+S 1.1569 bootstrap [0.973, 1.457]
+A_mlp 0.9009 bootstrap [0.795, 1.031]
+A_attn 1.7288; denominator qkv+o +0.4202 bootstrap [-0.31, +1.13], share of draws with denominator <= 0: 0.1265
+sum of four singles +5.8111; mlp+attn +5.5833

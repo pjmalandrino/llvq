@@ -1,0 +1,130 @@
+NVIDIA L40S, 46068 MiB, 580.178.04
+== oracle (hard rule 10) ==
+Qwen/Qwen3-0.6B on Cuda(CudaDevice(DeviceId(1))) — max |Δhidden| = 0.000e0   (relative to max|h| = 8.550e1) → 0.000e0
+MATCH — the observable forward reproduces candle's Qwen3
+== the sealed file on the mount: bytes and sha256 ==
+886391a8c03f66dc269cc65c3598c6627dbdcd259180aff36604ef10d37371b8  /out/sealed-4b-2026-09-23/qwen3-4b-sealed.bin
+== arm control: restore 'none', dense f16, FULL split ==
+2026-11-12T05:41:22Z
+  Dump written. Two arms are compared on the dumps, not on these two
+  lines: `cargo run --release -p llvq-llm --bin mmlupair -- <a> <b>`.
+
+  Paper reference points (Qwen3-4B, Table 6): FP16 70.2 · LLVQ 60.7 · QTIP 57.4.
+  If FP16 does not land near 70, the protocol is what needs fixing,
+  not the model.
+2026-11-12T06:03:02Z
+control against the published 63.37 dump: 14042 identical picks of 14042 joined, 14042 questions
+dump ok: /out/ablation-qualite-4b-2026-11-12/mmlu-control-FULL.csv  micro 63.3742  gain +0.0000 pp
+== arm qkv: restore 'q_proj,k_proj,v_proj', dense f16, FULL split ==
+2026-11-12T06:03:03Z
+  Dump written. Two arms are compared on the dumps, not on these two
+  lines: `cargo run --release -p llvq-llm --bin mmlupair -- <a> <b>`.
+
+  Paper reference points (Qwen3-4B, Table 6): FP16 70.2 · LLVQ 60.7 · QTIP 57.4.
+  If FP16 does not land near 70, the protocol is what needs fixing,
+  not the model.
+2026-11-12T06:26:19Z
+dump ok: /out/ablation-qualite-4b-2026-11-12/mmlu-qkv-FULL.csv  micro 63.9225  gain +0.5483 pp
+== arm o: restore 'o_proj', dense f16, FULL split ==
+2026-11-12T06:26:20Z
+  Dump written. Two arms are compared on the dumps, not on these two
+  lines: `cargo run --release -p llvq-llm --bin mmlupair -- <a> <b>`.
+
+  Paper reference points (Qwen3-4B, Table 6): FP16 70.2 · LLVQ 60.7 · QTIP 57.4.
+  If FP16 does not land near 70, the protocol is what needs fixing,
+  not the model.
+2026-11-12T06:48:06Z
+dump ok: /out/ablation-qualite-4b-2026-11-12/mmlu-o-FULL.csv  micro 63.2460  gain -0.1282 pp
+== arm gateup: restore 'gate_proj,up_proj', dense f16, FULL split ==
+2026-11-12T06:48:06Z
+  Dump written. Two arms are compared on the dumps, not on these two
+  lines: `cargo run --release -p llvq-llm --bin mmlupair -- <a> <b>`.
+
+  Paper reference points (Qwen3-4B, Table 6): FP16 70.2 · LLVQ 60.7 · QTIP 57.4.
+  If FP16 does not land near 70, the protocol is what needs fixing,
+  not the model.
+2026-11-12T07:09:43Z
+dump ok: /out/ablation-qualite-4b-2026-11-12/mmlu-gateup-FULL.csv  micro 66.7569  gain +3.3827 pp
+== arm down: restore 'down_proj', dense f16, FULL split ==
+2026-11-12T07:09:43Z
+  Dump written. Two arms are compared on the dumps, not on these two
+  lines: `cargo run --release -p llvq-llm --bin mmlupair -- <a> <b>`.
+
+  Paper reference points (Qwen3-4B, Table 6): FP16 70.2 · LLVQ 60.7 · QTIP 57.4.
+  If FP16 does not land near 70, the protocol is what needs fixing,
+  not the model.
+2026-11-12T07:31:28Z
+dump ok: /out/ablation-qualite-4b-2026-11-12/mmlu-down-FULL.csv  micro 65.3824  gain +2.0082 pp
+== arm attn: restore 'q_proj,k_proj,v_proj,o_proj', dense f16, FULL split ==
+2026-11-12T07:31:29Z
+  Dump written. Two arms are compared on the dumps, not on these two
+  lines: `cargo run --release -p llvq-llm --bin mmlupair -- <a> <b>`.
+
+  Paper reference points (Qwen3-4B, Table 6): FP16 70.2 · LLVQ 60.7 · QTIP 57.4.
+  If FP16 does not land near 70, the protocol is what needs fixing,
+  not the model.
+2026-11-12T07:53:09Z
+dump ok: /out/ablation-qualite-4b-2026-11-12/mmlu-attn-FULL.csv  micro 64.1006  gain +0.7264 pp
+== arm mlp: restore 'gate_proj,up_proj,down_proj', dense f16, FULL split ==
+2026-11-12T07:53:09Z
+  Dump written. Two arms are compared on the dumps, not on these two
+  lines: `cargo run --release -p llvq-llm --bin mmlupair -- <a> <b>`.
+
+  Paper reference points (Qwen3-4B, Table 6): FP16 70.2 · LLVQ 60.7 · QTIP 57.4.
+  If FP16 does not land near 70, the protocol is what needs fixing,
+  not the model.
+2026-11-12T08:14:41Z
+dump ok: /out/ablation-qualite-4b-2026-11-12/mmlu-mlp-FULL.csv  micro 68.2310  gain +4.8568 pp
+== arm all: restore 'all', dense f16, FULL split ==
+2026-11-12T08:14:41Z
+  Dump written. Two arms are compared on the dumps, not on these two
+  lines: `cargo run --release -p llvq-llm --bin mmlupair -- <a> <b>`.
+
+  Paper reference points (Qwen3-4B, Table 6): FP16 70.2 · LLVQ 60.7 · QTIP 57.4.
+  If FP16 does not land near 70, the protocol is what needs fixing,
+  not the model.
+2026-11-12T08:36:14Z
+dump ok: /out/ablation-qualite-4b-2026-11-12/mmlu-all-FULL.csv  micro 70.0969  gain +6.7227 pp
+== summary ==
+arm	restore	matrices	weights	correct	questions	micro_pct	gain_vs_control_pp	start_utc	end_utc
+control	none	0	0	8899	14042	63.3742	+0.0000	2026-11-12T05:41:22Z	2026-11-12T06:03:02Z
+qkv	q_proj,k_proj,v_proj	108	566231040	8976	14042	63.9225	+0.5483	2026-11-12T06:03:03Z	2026-11-12T06:26:19Z
+o	o_proj	36	377487360	8881	14042	63.2460	-0.1282	2026-11-12T06:26:20Z	2026-11-12T06:48:06Z
+gateup	gate_proj,up_proj	72	1793064960	9374	14042	66.7569	+3.3827	2026-11-12T06:48:06Z	2026-11-12T07:09:43Z
+down	down_proj	36	896532480	9181	14042	65.3824	+2.0082	2026-11-12T07:09:43Z	2026-11-12T07:31:28Z
+attn	q_proj,k_proj,v_proj,o_proj	144	943718400	9001	14042	64.1006	+0.7264	2026-11-12T07:31:29Z	2026-11-12T07:53:09Z
+mlp	gate_proj,up_proj,down_proj	108	2689597440	9581	14042	68.2310	+4.8568	2026-11-12T07:53:09Z	2026-11-12T08:14:41Z
+all	all	252	3633315840	9843	14042	70.0969	+6.7227	2026-11-12T08:14:41Z	2026-11-12T08:36:14Z
+  14052 /out/ablation-qualite-4b-2026-11-12/mmlu-all-FULL.csv
+  14052 /out/ablation-qualite-4b-2026-11-12/mmlu-attn-FULL.csv
+  14052 /out/ablation-qualite-4b-2026-11-12/mmlu-control-FULL.csv
+  14052 /out/ablation-qualite-4b-2026-11-12/mmlu-down-FULL.csv
+  14052 /out/ablation-qualite-4b-2026-11-12/mmlu-gateup-FULL.csv
+  14052 /out/ablation-qualite-4b-2026-11-12/mmlu-mlp-FULL.csv
+  14052 /out/ablation-qualite-4b-2026-11-12/mmlu-o-FULL.csv
+  14052 /out/ablation-qualite-4b-2026-11-12/mmlu-qkv-FULL.csv
+ 112416 total
+total 9389
+drwxr-xr-x.   2 root   root          0 Nov 12 08:15 .
+drwxrwxrwx. 241 nobody nogroup       0 Nov 12 05:40 ..
+-rw-r--r--.   1 root   root         97 Nov 12 06:03 control-picks.txt
+-rw-r--r--.   1 root   root        112 Nov 12 05:41 files.sha256
+-rw-r--r--.   1 root   root         35 Nov 12 05:40 gpu.txt
+-rw-r--r--.   1 root   root    1192136 Nov 12 08:15 mmlu-all-FULL.csv
+-rw-r--r--.   1 root   root    1194827 Nov 12 07:53 mmlu-attn-FULL.csv
+-rw-r--r--.   1 root   root    1194579 Nov 12 06:03 mmlu-control-FULL.csv
+-rw-r--r--.   1 root   root    1195124 Nov 12 07:31 mmlu-down-FULL.csv
+-rw-r--r--.   1 root   root    1195013 Nov 12 07:09 mmlu-gateup-FULL.csv
+-rw-r--r--.   1 root   root    1193739 Nov 12 08:14 mmlu-mlp-FULL.csv
+-rw-r--r--.   1 root   root    1195357 Nov 12 06:48 mmlu-o-FULL.csv
+-rw-r--r--.   1 root   root    1194262 Nov 12 06:26 mmlu-qkv-FULL.csv
+-rw-r--r--.   1 root   root        377 Nov 12 05:41 oracle-cuda.txt
+-rw-r--r--.   1 root   root       6723 Nov 12 08:14 out-all.txt
+-rw-r--r--.   1 root   root       6637 Nov 12 07:53 out-attn.txt
+-rw-r--r--.   1 root   root       6195 Nov 12 06:03 out-control.txt
+-rw-r--r--.   1 root   root       6580 Nov 12 07:31 out-down.txt
+-rw-r--r--.   1 root   root       6609 Nov 12 07:09 out-gateup.txt
+-rw-r--r--.   1 root   root       6639 Nov 12 08:14 out-mlp.txt
+-rw-r--r--.   1 root   root       6568 Nov 12 06:48 out-o.txt
+-rw-r--r--.   1 root   root       6615 Nov 12 06:26 out-qkv.txt
+-rw-r--r--.   1 root   root        908 Nov 12 08:14 summary.tsv
