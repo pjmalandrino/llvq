@@ -1,11 +1,12 @@
-# State of scientific understanding
+# CERVEAU: the state of scientific understanding
 
 Progress: all sections drafted on 2026-11-12. Claims whose Checked line says "copied from `ETAT.md`" still need a
 reread against their journal; A (Metal) is the thinnest section.
 
 This document lists what we believe to be true about quantizing LLMs on the Leech lattice, each belief with its
 standing. It is not the served state ([`ETAT.md`](ETAT.md)), the history ([`HISTORIQUE.md`](HISTORIQUE.md)) or a plan
-([`ROADMAP.md`](ROADMAP.md)). The journals in [`mesures/`](mesures/) stay the record; this file says which of their
+([`ROADMAP.md`](ROADMAP.md)). Both working modes of [`MODES.md`](MODES.md) read it first and write it last.
+The journals in [`mesures/`](mesures/) stay the record; this file says which of their
 results still hold.
 
 ## How to read a claim
