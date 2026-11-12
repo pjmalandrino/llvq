@@ -547,6 +547,19 @@ and its prototype decodes 93.9 tok/s on an M3 Max where mlx-lm's 4-bit 4B decode
 - Overturn: an x86 run.
 - Checked: 2026-11-12.
 
+## Anomalies
+
+A measured fact that no claim explains. They are the starting points of the explanation route of
+[`MODES.md`](MODES.md). An anomaly leaves this list when a claim explains it, and that claim says so.
+
+| | anomaly | where it is measured | what is missing |
+|---|---|---|---|
+| N1 | The quantization error costs more MMLU than Gaussian noise of the same amplitude. | Q7, and Q9 for the shared fragile questions. | Which property of the error does the damage. |
+| N2 | Attention is worth more once the MLP is restored than on the sealed MLP: the groups are super-additive. | Q10, sealed 4B. | Why the errors of the two groups compound. |
+| N3 | A lower Gaussian MSE of the codebook does not give a better model, and has given a worse one. | Q4, Q17. | What the model is sensitive to that block MSE does not see. |
+| N4 | Perplexity and KL close while MMLU stays open. | Q5, Q6. | What MMLU reads that the two do not. |
+| N5 | The Tetra row loop streams faster alone than inside 4E, and bit-identical cuts move time without removing it. | K4, K5, K10. | What holds the token when the rows are not the limit. |
+
 ## Open questions
 
 Ranked by how much they block.
