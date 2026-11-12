@@ -134,3 +134,34 @@ The lab rules: the rule, then the incident that taught it. Templates are in `doc
   ([M3 gptq2](mesures/m3-gptq2-mmlu-2026-08-30.txt)).
 - A hypothesis refuted in its sign is recorded with its number ([A3](mesures/a3-occupation-banc-2026-09-01.txt)).
 - A check true by construction is not a measurement.
+
+## 8. Delegation
+
+A standing rule of the project (operator, 2026-11-12). The operator wants the main session free for analysis and the
+consumption kept down.
+
+- **The main session coordinates, and analyses only what matters most.** It decides what to measure and in what
+  order, and signs the predictions before every card job. It reads the results against them and checks the key
+  figures on the raw files itself. It synthesises when several agents hand back, and tells the operator what is his to
+  decide, with its cost. It does not write the code and does not read kernels in full.
+- **Opus agents do all the execution**: code, tests, Mac measurements, preregs and stamps, images and HF jobs, the
+  close of a job (journal, `jobs.csv` row, commit by explicit path), audits and kernel studies.
+- **Sonnet agents do simple writing, or simple code that is fully specified**, such as updating a page from a closed
+  list of figures.
+- **Every brief gives the goal, what is already ruled out, the files to read and the end gate.** It also gives the
+  rules of the work machine: `~/.llvq-guard/heavy.sh`, one heavy job at a time, `nice 10`, `memory_pressure -Q` before
+  loading a model. It says "no push, commit by explicit path" unless the operator authorised more.
+- **Two independent agents take the same question when anchoring is a risk.** An agent that proposed an idea does not
+  attack it. An agent handed a hypothesis tends to return it confirmed, so the reviewer gets the object, not the
+  conclusion.
+- **An agent that submits a job hands back at once.** The main session watches the bucket.
+- **The main session rereads every hand-back before passing it on, and every page before publishing it.** A hand-back
+  is a report, not a proof.
+
+## 9. What we believe, and how a phase runs
+
+- **A journal that closes a measurement names the [`CERVEAU.md`](CERVEAU.md) claims it confirms, weakens or
+  overturns, and the same commit edits them.** Claims change standing and never disappear. Their numbers are copies
+  of journal numbers.
+- **Work runs in phases, each in one of the two modes of [`MODES.md`](MODES.md).** MODE RECHERCHE finds an idea, MODE
+  DEVELOPPEMENT turns one into a measured gain on the served object.

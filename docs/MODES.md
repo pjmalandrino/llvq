@@ -112,13 +112,14 @@ refuted idea goes back to MODE RECHERCHE only as a new phase, on a new space.
 
 ## The lab around the two modes
 
-The project is a one-man lab. The roles are fixed so that nobody judges their own work.
+The project is a one-man lab. The roles are fixed so that nobody judges their own work. The delegation rules are in
+[`METHODE.md`](METHODE.md) §8.
 
 | role | who | what |
 |---|---|---|
 | Direction | the operator | Chooses the axis, signs the mandate, opens and closes phases, decides every kill and every serve. |
 | Lead | the main session | Frames, signs predictions before a measurement, reads results against them, keeps `CERVEAU.md`. |
-| Hands | agents | Generate, build, measure, attack. An agent that proposed an idea does not attack it. |
+| Hands | agents | Generate, build, measure, attack: Opus agents execute, Sonnet agents write the simple. An agent that proposed an idea does not attack it. |
 | Memory | `CERVEAU.md` and the journals | What holds, and the record of how it came to hold. |
 
 At most one research phase and one development phase run at a time: one card budget, one work machine. Between
