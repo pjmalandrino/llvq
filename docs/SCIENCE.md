@@ -1,7 +1,7 @@
 # State of scientific understanding
 
-Progress: written Q (quality), K (decode kernel), C (code); to write: S (size), P (prefill), D (speculative), M
-(memory), E (cost), X (other methods), A (Metal), open questions, beliefs we dropped, disagreements.
+Progress: all sections drafted on 2026-11-12. Thinnest: E (cost) and A (Metal), each claim there copied from
+`ETAT.md` and to be reread against its journal.
 
 This document lists what we believe to be true about quantizing LLMs on the Leech lattice, each belief with its
 standing. It is not the served state ([`ETAT.md`](ETAT.md)), the history ([`HISTORIQUE.md`](HISTORIQUE.md)) or a plan
@@ -47,8 +47,8 @@ Notes cited from a branch that is not on `main` are marked with the branch name.
 perplexity by 5.2 %.
 - Standing: supported. Scope: 4B, three encodings with different seeds, before Tetra and before row scales, 2,280 q.
   Every served size rests on one draw.
-- Evidence: [bruit-mmlu-graines-4b](mesures/bruit-mmlu-graines-4b-2026-08-25.txt) (s = 2.92 pp); the three seeds read
-  58.02, 52.19 and 55.17 in [logit-snr-4b](mesures/logit-snr-4b-2026-09-12.txt).
+- Evidence: [bruit-mmlu-graines-4b](mesures/bruit-mmlu-graines-4b-2026-08-25.txt) (s = 2.92 pp; 58.02, 52.19, 55.17);
+  perplexity σ 5.2 % from [f5-graines-4b](mesures/f5-graines-4b-2026-08-19.txt), as that journal's line 148 cites it.
 - Overturn: a second draw of a sealed file, after row scales, read on the full split. Row scales may shrink the spread;
   this is not measured.
 - Checked: 2026-11-12.
@@ -69,7 +69,8 @@ the same ideal rate of 2.0702, `leech0c13`, Tetra and Planes14 read 19.61, 16.16
   unresolved ([q5-apparie](mesures/q5-apparie-2026-09-09.txt)).
 - Overturn: a codebook change under 0.4 dB that moves paired MMLU outside its interval in the predicted direction
   on two draws.
-- Checked: 2026-11-12. The 0.4 dB threshold is the brief's, not a journal's figure; see Disagreements.
+- Checked: 2026-11-12. The 0.4 dB threshold comes from the operator's brief; no journal states a dB figure for these
+  arms, so it is the claim's weakest part.
 
 **Q5.** Perplexity is a weak proxy for MMLU here, and the two can move in opposite resolved directions. A gain-map
 correction cut perplexity by 17.4 % and cost 3.06 MMLU points, p = 6.2e-18.
@@ -164,13 +165,16 @@ object; the int4 records account for an estimated 0.5 to 0.8 and the q4 embeddin
 - Overturn: O1 below.
 - Checked: 2026-11-12.
 
-**Q17.** Rescaling the gain of each block toward its projection lowers Gaussian MSE (retention 88.73 → 89.43 %) and
-does not help end to end. The Euclidean gain rule is dead.
-- Standing: refuted, as a quality lever. Scope: synthetic Gaussian for the MSE, 4B end to end.
-- Evidence: [gainrule-tetra](mesures/gainrule-tetra-2026-09-12.txt); end-to-end verdict in `HISTORIQUE.md`
-  2026-09-15 and `ETAT.md` §6.
+**Q17.** Choosing each block's gain level by projection instead of by norm lowers Gaussian MSE (retention 88.73 →
+89.43 %) and costs 4.026 % of perplexity end to end. The rule moves every disagreed block down a level, a 2.9 % radial
+shrink.
+- Standing: refuted, as a quality lever. Scope: synthetic Gaussian for the MSE; Qwen3-0.6B end to end, one encoding
+  a side, Mac.
+- Evidence: [gainrule-tetra](mesures/gainrule-tetra-2026-09-12.txt) (arm C);
+  [tetrapost-ppl-0.6b](mesures/tetrapost-ppl-0.6b-2026-09-15.txt) (41.8875 against 43.5739), as `HISTORIQUE.md`
+  2026-09-15 reports it.
 - Overturn: per `ETAT.md` §6, a new idea.
-- Checked: 2026-11-12 (MSE side read; end-to-end side from the summary only).
+- Checked: 2026-11-12 (end-to-end figure from `HISTORIQUE.md`, journal not reopened).
 
 **Q18.** Spherical GPTQ feedback, forming the error against the block at its exact norm, costs +31.89 % of
 perplexity.
@@ -303,21 +307,213 @@ and E3 needs 3.0444 kernel b/weight against a 2.60 criterion.
 - Overturn: per `ETAT.md` §6.
 - Checked: 2026-11-12 (from `ETAT.md` §6).
 
+
+## S. How it scales with model size
+
+**S1.** The gap to FP16 shrinks with size: 6.77, 5.48 and 3.22 MMLU points, and 9.63, 4.62 and 3.26 GSM8K points, at
+4B, 8B and 14B.
+- Standing: established. Scope: the three sealed files, full splits, paired.
+- Evidence: `docs/data/paper2-gaps.csv` and `gsm8kpair` as cited in `ETAT.md` §3.
+- Overturn: a fourth size that breaks the order.
+- Checked: 2026-11-12 (copied from `ETAT.md` §3).
+
+**S2.** At equal memory, one size up beats AWQ one size down on MMLU: our 8B against AWQ's 4B +1.44 [+0.71, +2.19] in
+2.76 against 2.67 GB, our 14B against AWQ's 8B +1.87 [+1.20, +2.57] in 5.04 against 6.10 GB.
+- Standing: supported. Scope: post hoc re-analysis of committed dumps, not preregistered.
+- Evidence: [sizeup](mesures/sizeup-2026-09-28.txt).
+- Overturn: a preregistered pairing that reverses either sign.
+- Checked: 2026-11-12.
+
+**S3.** The shared-memory wall of `rot_apply` that barred models above 14B is lifted on the card up to width 25,600,
+bit-exact; the 32B has never been encoded, so nothing about its quality is known.
+- Standing: supported. Scope: kernel outputs against host bytes, one L40S job.
+- Evidence: [lot1-4b](mesures/lot1-4b-2026-11-04.txt) (R0 45.43 µs at 25,600).
+- Overturn: a 32B encoded and served.
+- Checked: 2026-11-12.
+
+## P. Prefill and long context
+
+**P1.** The served eager prefill is the long-context bottleneck: the 4B's first token at 8,192 takes 35.05 s, while
+decode after that prompt still reads 161.5 tok/s.
+- Standing: established. Scope: sealed 4B, 4E v9 door, L40S.
+- Evidence: [served-v9](mesures/served-v9-2026-11-07.txt).
+- Overturn: a served prefill under 10 s at 8,192.
+- Checked: 2026-11-12 (copied from `ETAT.md` §4).
+
+**P2.** Feeding the prompt through the tree verify pass (the chain prefill) cuts the 4B's first token to 0.420 / 2.393 /
+6.485 s at 1,024 / 4,096 / 8,191 tokens, against 3.951 / 17.641 / 37.037 eager, at +0.0007 % of paired perplexity.
+- Standing: supported. Scope: sealed 4B, L40S, two jobs; a bench, not served; GSM8K pairing owed.
+- Evidence: [large-prefill-ft](mesures/large-prefill-ft-2026-11-11.txt), [large-prefill](mesures/large-prefill-2026-11-11.txt).
+- Overturn: a GSM8K-200 pairing that separates it from eager.
+- Checked: 2026-11-12 (copied from `ETAT.md` §5).
+
+**P3.** At long context the decode attention is bound by its own bytes: at 1,024 and 8,192 tokens the attention phase
+equals the DRAM time of the KV read plus the prefetch at 85 %, 1,119 against 1,108 µs and 2,559 against 2,646 µs.
+- Standing: conjecture (model *computed* against *measured* phases). Scope: sealed 4B, 4E v9, L40S.
+- Evidence: `large-4e-hors-poids-etude-2026-11-12.txt`, worktree `4e-hors-poids`, not on `main`.
+- Overturn: a KV-read change that moves the phase by much less than its byte change.
+- Checked: 2026-11-12.
+
+**P4.** An int8 KV cache does not pass the served tolerance at long context: its own measured interval leaves the
+±0.12 % band.
+- Standing: supported. Scope: 4B; the KV journal is Metal, short context, on the Planes14 file.
+- Evidence: [kvq8-4b](mesures/kvq8-4b-2026-08-15.txt); the band reading from `large-4e-hors-poids-etude-2026-11-12.txt`.
+- Overturn: an int8 or int4 KV arm inside ±0.12 % at 8,192 on the sealed file.
+- Checked: 2026-11-12 (band reading not checked against the kvq8 figures).
+
+## D. Speculative decoding
+
+**D1.** With a 0.6B drafter and 4E verifying one row at a time, speculation is slower than greedy at every size:
+×0.595, ×0.629, ×0.625 at the best k.
+- Standing: established, as a closed lead. Scope: sealed 4B/8B/14B, L40S, tokens identical to greedy.
+- Evidence: [spec-gate](mesures/spec-gate-2026-11-07.txt).
+- Overturn: the reopening condition of `ETAT.md` §6.
+- Checked: 2026-11-12.
+
+**D2.** A tree verify pass prices an extra row at 0.0114 to 0.0196 of a 4E token, but its fixed part is large: a
+one-row pass costs 2.80 4E tokens, and 16 rows cost 1.73.
+- Standing: supported. Scope: sealed 4B, L40S, chat context.
+- Evidence: [verify-tree-s1](mesures/verify-tree-s1-2026-11-09.txt) (2.798), [verify-tree-n11](mesures/verify-tree-n11-2026-11-10.txt)
+  (c_16 1.728).
+- Overturn: a pass whose one-row cost falls under 1.4 tokens.
+- Checked: 2026-11-12.
+
+**D3.** Speculation pays on predictable text and barely on chat: the public DFlash drafter with the tree loop decodes
+GSM8K-200 at 502.1 tok/s (×2.295), the house set at 343.1 (×1.556), chat at 242 (×1.09), GSM8K 167 correct against
+166.
+- Standing: supported. Scope: sealed 4B, L40S, one run each.
+- Evidence: [spec-loop-sp8](mesures/spec-loop-sp8-2026-11-11.txt); chat figure from `ETAT.md` §5.
+- Overturn: a second run outside the round ranges.
+- Checked: 2026-11-12.
+
+**D4.** The speed of speculation is paid in memory: 5.41 GB against 2.01 and 4.87 b/param with the f16 drafter, so the
+default stays at 2.73 b/param.
+- Standing: supported (5.41 *measured*, 4.87 *computed*). Scope: sealed 4B, L40S.
+- Evidence: [spec-mem-m3](mesures/spec-mem-m3-2026-11-11.txt), [spec-memoire](mesures/spec-memoire-2026-11-11.txt).
+- Overturn: a quantized drafter that keeps the speed.
+- Checked: 2026-11-12 (copied from `ETAT.md` §5).
+
+## M. Memory
+
+**M1.** Short context, the served files occupy 1.98 / 3.36 / 5.64 GB of card after load at 4B / 8B / 14B, of which the
+weights are 1.38 / 2.76 / 5.04 GB.
+- Standing: established. Scope: L40S, `cuMemGetInfo`, v9 doors.
+- Evidence: [served-v9](mesures/served-v9-2026-11-07.txt) and its 8B and 14B siblings.
+- Overturn: a remeasure outside rounding.
+- Checked: 2026-11-12 (copied from `ETAT.md` §2).
+
+**M2.** After an 8,192-token prompt the peak is set by prefill activations, not weights: 5.95 / 7.39 / 10.54 GB, against
+3.52 / 4.71 / 6.90 for llama.cpp IQ2_S. Three live f16 score tensors were 6.44 GB of the old 4B peak.
+- Standing: established (peaks *measured*, the 6.44 *computed*). Scope: L40S, three sealed files.
+- Evidence: [pic-vram-8k](mesures/pic-vram-8k-2026-11-08.txt).
+- Overturn: a prefill whose peak exceeds its computed band by more than 0.5 GB.
+- Checked: 2026-11-12.
+
+## E. Cost of producing an object
+
+**E1.** The quality levers that worked cost a few dollars of card each, and the frozen-code training is the dearest
+step: row-scale training at 4B ran 1.71 h, about $4.00.
+- Standing: supported. Scope: 4B.
+- Evidence: [dclm-rowscales](mesures/dclm-rowscales-2026-09-20.txt); registry `docs/data/jobs.csv`.
+- Overturn: none; a fact about one run.
+- Checked: 2026-11-12. The encoding-cost note `innovation-cout-encodage-2026-11-12.txt` (branch
+  `claude/arbre-prefill-2026-11-11`, uncommitted) was not read in time.
+
+## X. Against other methods
+
+**X1.** At the same bits, Tetra beats llama.cpp IQ2_S on quality and loses on speed: +9.08, +4.13, +2.89 MMLU at 4B,
+8B, 14B, while IQ2_S decodes 60.1, 63.9 and 33.5 tok/s faster after 5 tokens.
+- Standing: established. Scope: same day, same L40S, imatrix on dclm-edu, llama-bench accounting.
+- Evidence: [duel-iq2](mesures/duel-iq2-2026-11-08.txt).
+- Overturn: a newer llama.cpp quant at our bits within the MMLU interval.
+- Checked: 2026-11-12 (copied from `ETAT.md` §3).
+
+**X2.** Against AWQ w4g128 we lose 4.76 / 4.21 / 2.46 MMLU points at 45 to 52 % of its bits per parameter.
+- Standing: established. Scope: three sizes, vLLM AWQ, full split, paired.
+- Evidence: `docs/data/paper2-gaps.csv` as cited in `ETAT.md` §3.
+- Overturn: a re-encoding that closes the interval.
+- Checked: 2026-11-12 (copied from `ETAT.md` §3).
+
+**X3.** The source paper's `leech0c13` 4B reads 60.7 MMLU in the paper and 54.67 here on 2,280 q; the gap is not the
+codebook (Q4), and the paper's recipe is not reproduced.
+- Standing: supported. Scope: 4B, C4 calibration here.
+- Evidence: [leech0c13](mesures/leech0c13-2026-09-07.txt).
+- Overturn: our encoder at the paper's recipe reaching 60.7 within its interval.
+- Checked: 2026-11-12.
+
+## A. Metal and MLX
+
+**A1.** The MLX door reads −0.0103 % [−0.0847, +0.0642] of paired perplexity against the Rust dense reconstruction,
+and its prototype decodes 93.9 tok/s on an M3 Max where mlx-lm's 4-bit 4B decodes 129.5; the Tetra kernel is the gap.
+- Standing: supported. Scope: 4B, M3 Max, f16, other stacks for mlx-lm.
+- Evidence: [mlx-pooled](mesures/mlx-pooled-2026-11-07.txt), [metal-nuit](mesures/metal-nuit-2026-11-06.txt) M16.
+- Overturn: a Tetra MLX kernel at or above 129.5.
+- Checked: 2026-11-12 (copied from `ETAT.md` §4).
+
+**A2.** On a CPU, reading the codes at every matvec beats the dense reconstruction by speed and memory: 8.65 tok/s in
+1.86 GB against 0.71 tok/s in 10.6 GB, perplexity −0.0021 %.
+- Standing: supported. Scope: 4B, M3 Max, 12 threads, f32; never run on x86.
+- Evidence: [cpu-tetra](mesures/cpu-tetra-2026-11-07.txt).
+- Overturn: an x86 run.
+- Checked: 2026-11-12.
+
 ## Open questions
 
-Ranked by how much they block. To be completed.
+Ranked by how much they block.
 
 **O1.** Where the sealed 4B's 6.77 MMLU points go, type by type (Q10, Q11, Q16). In flight: job 6af550a4, prereg
 `proofs/preregistration-ablation-qualite-4b-2026-11-12.md` on branch `claude/ablation-qualite-2026-11-12`. The control
 arm reads 63.37, 14,042 of 14,042 picks equal to the published dump. The other arms are not read.
 
-**O2.** What an off-the-bit 4E buys at the door (K5, K6). In flight as a desk study,
-`large-4e-hors-poids-etude-2026-11-12.txt`; its first experiment (4E v9as, about $0.60) is not run.
+**O2.** Whether an output-aware encoder objective gains on MMLU and GSM8K (Q20). No arm has ever run; it is the only
+quality lever with a projected gain above 1 point.
+
+**O3.** How much of the 2.92-point draw spread survives row scales (Q2). A second draw of a sealed size, through row
+scales, on the full split, settles it; until then every cross-file quality comparison carries it.
+
+**O4.** What an off-the-bit 4E buys at the door (K5, K6). Desk study `large-4e-hors-poids-etude-2026-11-12.txt` is
+done; its first experiment, 4E v9as with a teacher-forced perplexity mode, about $0.60, is not run.
+
+**O5.** The served scores through the served kernel. MMLU and perplexity ran on the dense reconstruction; GSM8K under
+4E has a 50-problem pilot per size only. A census through the kernel settles it.
+
+**O6.** Speed on a consumer card (K3). No sm_86 to sm_120 consumer card is measured.
+
+**O7.** Whether the GSM8K gap (9.63 at 4B) and the MMLU gap share causes. GSM8K was never scored before row scales.
+
+**O8.** The quality of a model above 14B (S3). The 32B must be encoded first.
 
 ## Beliefs we dropped
 
-To be completed.
+| belief | dropped | by |
+|---|---|---|
+| Quantizing the gain costs almost nothing | 2026-07-31 | the A/B compared an arm with itself; +3.17 % ppl for −0.618 b/weight (`HISTORIQUE.md`) |
+| The first 4B reads 2.07 to 2.11 b/weight | 2026-07-31 | the 16-bit magnitude was not charged; 2.73 (`HISTORIQUE.md`) |
+| In-domain calibration flatters perplexity by 12 % | 2026-08 | C4 gives 14.91 against 15.29 on WikiText (`fiche-4b.md`) |
+| A single shell beats the union | 2026-08-04 | union 0.0725 against shell 13 at 0.0762 (`HISTORIQUE.md`) |
+| Perplexity noise across draws is 0.7 % | 2026-08-19 | σ 5.2 % ([f5-graines-4b](mesures/f5-graines-4b-2026-08-19.txt)) |
+| MMLU noise across draws is 0.5 to 1.5 points | 2026-08-25 | s = 2.92 ([bruit-mmlu](mesures/bruit-mmlu-graines-4b-2026-08-25.txt)) |
+| All format work is capped at 4.77× | 2026-08-21 | nullk is the floor of our geometry (`HISTORIQUE.md`) |
+| k_proj and attention are the sensitive types | 2026-09 | v_proj, 2.6 % of weights (`HISTORIQUE.md`; [m2-attribution](mesures/m2-attribution-4b-2026-09-02.txt)) |
+| The paper's codebook explains our 5.1-point MMLU gap | 2026-09-07 | [leech0c13](mesures/leech0c13-2026-09-07.txt) |
+| Tetra is worse than Planes14 on MMLU | 2026-09-09 | −2.11 [−5.04, +0.81], never resolved ([q5-apparie](mesures/q5-apparie-2026-09-09.txt)) |
+| The Euclidean gain rule helps end to end | 2026-09-15 | +4.026 % ppl at 0.6B (Q17) |
+| KL to the dense model is dominated by scale | 2026-09-16 | one temperature removes 0.93 to 2.49 % ([kl-temperature](mesures/kl-temperature-4b-2026-09-16.txt)) |
+| A better perplexity correction helps MMLU | 2026-09-16 | −17.4 % ppl, −3.06 MMLU ([errmap-mmlu](mesures/errmap-mmlu-4b-2026-09-16.txt)) |
+| More calibration volume helps | 2026-09-18 | −1.20 [−2.06, −0.39] ([dclm-v4](mesures/dclm-v4-2026-09-18.txt)) |
+| Spherical GPTQ feedback helps | 2026-09-22 | +31.89 % ppl ([sph-ppl-0.6b](mesures/sph-ppl-0.6b-2026-09-22.txt)) |
+| Tetra loses to FP16 on an A100 | 2026-10-06 | it beats our FP16 kernel by 1.11× ([a100](mesures/a100-2026-10-06.txt)) |
+| Speculation is closed on verify cost | 2026-11-10 | an extra tree row costs 0.0114 to 0.0196 of a token (D2) |
+| Moving 4E's prefetch frees time | 2026-11-11 | 94 % of the time reappears downstream (K5) |
+| Lattice-step distillation closes a large share of the gap | 2026-11-11 | computed refutation (Q19) |
 
 ## Disagreements found between documents
 
-To be completed.
+- `docs/ETAT.md` line 168 says the draw sd comes from "three full runs". The journal
+  [bruit-mmlu-graines-4b](mesures/bruit-mmlu-graines-4b-2026-08-25.txt) line 38 scores the three seeds on the same
+  2,280 questions, not the full split, and its 5.2 % perplexity σ comes from
+  [f5-graines-4b](mesures/f5-graines-4b-2026-08-19.txt) (its line 148), not from the same three runs.
+- `docs/ETAT.md` line 228 cites the Euclidean gain rule verdict to `HISTORIQUE.md` only; the journal
+  [tetrapost-ppl-0.6b](mesures/tetrapost-ppl-0.6b-2026-09-15.txt) exists and is the stronger source.
+- `docs/ETAT.md` line 27 reads 8.6 tok/s for the CPU path; [cpu-tetra](mesures/cpu-tetra-2026-11-07.txt) reads 8.65.
+  This is rounding, recorded for completeness.
