@@ -1,0 +1,49 @@
+Research phase on decode speed (CERVEAU O11), R3: the search space, and the fidelity rule rebuilt.
+Main session, 2026-11-12, on the operator's word. No measurement was run for this note. Figures are copied from
+recherche-debit-lecture-2026-11-12 (measured) unless labelled.
+
+WHERE THE PHASE STANDS
+The explanation step described the cause: the served read pattern. One row a warp, two unaligned u32 loads a block
+and a lane, and at each row's end a reduction, a binary16 tail, a row scale and a store. The same words read as a
+flat stream by 128-bit loads with no side stream reach 717 GB/s against 480. No decoder has run on such a read.
+The phase now moves to the search route.
+
+THE SPACE
+A candidate is a whole body: a kernel that computes y = W x for a list of sites from the words as VRAM holds them
+today, or from a layout built at load at the same VRAM. It owes the served row's bits, or a declared bound on
+|f32 - served f32| over the rms of the site, 1e-5 at most. The first registry scored a row function inside the
+served body; that interface cannot express a candidate that removes the row boundary, so it is widened to bodies.
+
+The axes, each one a cost the description named:
+  the unit of work    a warp a row (served); a thread a row; a thread a run of blocks across rows; several rows a
+                      warp
+  the load            two u32 a block (served); aligned 128-bit loads covering whole blocks
+  the row's end       reduction, tail, scale and store in the row loop (served); in a second pass over the rows;
+                      folded into the threads' own sums
+  the sum             the served association (bits); any association inside the bound
+  the layout          the served row stride; a layout rewritten at load at the same VRAM (rows interleaved so that
+                      a warp's lanes read one contiguous run)
+The space is wider than every space with a recorded ceiling: K4's arms all kept a warp a row and the bits.
+Nothing here is expected to win. The description gives a ceiling for the read, not a rate for a decoder.
+
+WHAT A SCORE IS
+The loop alone, on the sealed 4B's Tetra records, in GB/s of words, each candidate over the served arm round by
+round, in the same job. sealed:all decides; the shapes and the bare encode describe. The bare encode is the data
+the candidates never see while being written: a candidate that wins on the sealed file and not on it is reported.
+A winner is an idea only after a token-level measurement (R6); the score is the rows' rate, not tok/s.
+
+THE FIDELITY RULE, REBUILT
+Two rules failed. The first held twelve ratios to +-0.03 of their journals; the second held the served arm to an
+absolute window from another job, and the bare encode's rows moved 5.1 % between two jobs while the probe and the
+int4 arms did not move. A window taken from another job is not a control. The new rule uses only the job itself:
+  F1 the served arm is timed twice in every round, first and last in the order. The second over the first, round by
+     round, must have a median inside [0.98, 1.02]. Its range is the job's own noise floor.
+  F2 a candidate counts as faster only if its whole round-by-round range over served lies above the upper end of
+     that floor.
+  F3 the harness still tells a slow arm from a fast one: the three journal arms that are 15 % or more under v2 (v3,
+     v2u, nc) must each read under 0.92 of v2, and tile must read inside [0.96, 1.06] of v2.
+  The probe and q4read are printed with the first two runs' values beside them; they describe the card, they gate
+  nothing.
+The rule is written after two failures. It is tested on the next run.
+
+Cost so far in the phase: $0.20 of $5. Under the cap: $19.42 of $25.
