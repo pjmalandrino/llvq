@@ -7,7 +7,8 @@
 //! stage-1 gate (`tests/rowcand_gate.rs`) and the SASS count
 //! (`ops/rowcand-sass.sh`) see the same arms and nothing is registered twice.
 //! It also holds what both stages judge with: the site words, the error of a
-//! row against the served row, and the bandwidth probe's expected sum.
+//! row against the served row, the bandwidth probe's expected sum, and the
+//! read diagnostics' registry (`ROWD_ARMS`) and the sum their check owes.
 //!
 //! Nothing here is served. The module text is the row-loop unit
 //! ([`crate::pers::trows_unit_text`]) followed by `bwprobe.cu` and
@@ -128,6 +129,80 @@ pub fn parse_arms(text: &str) -> Result<Vec<RowArm>, String> {
 /// The registry of the embedded `rowcand.cu`.
 pub fn arms() -> Vec<RowArm> {
     parse_arms(ROWC_PART.1).expect("kernels/rowcand.cu: ROWC_ARMS parses (tested)")
+}
+
+/// One line of `ROWD_ARMS`: a read diagnostic, pword with one thing changed
+/// (`kernels/rowcand.cu`, the read diagnostics).
+#[derive(Clone, Debug, PartialEq)]
+pub struct DiagArm {
+    pub name: String,
+    pub policy: String,
+    /// The hypothesis of the reframing note it tests (`H0` .. `H5`), `stack`, or `pword` for the base.
+    pub hyp: String,
+    /// The arm it differs from by one thing.
+    pub base: String,
+}
+
+impl DiagArm {
+    pub fn symbol(&self) -> String {
+        format!("tv_rowd_{}", self.name)
+    }
+    pub fn gu_symbol(&self) -> String {
+        format!("tv_rowd_gu_{}", self.name)
+    }
+    /// The empty launch (H0): its check counts d_out, not words.
+    pub fn is_empty_launch(&self) -> bool {
+        self.hyp == "H0"
+    }
+}
+
+/// The diagnostic registry, parsed from `text`: `X(name, Policy, hyp, base)`
+/// inside `#define ROWD_ARMS(X)`. The first arm is the base of the others
+/// (`pw_chk`, based on the registry's `pword`); every other base is an arm
+/// registered before it.
+pub fn parse_diag_arms(text: &str) -> Result<Vec<DiagArm>, String> {
+    let start = text.find("#define ROWD_ARMS(X)").ok_or("no `#define ROWD_ARMS(X)` in the text")?;
+    let mut arms: Vec<DiagArm> = Vec::new();
+    let mut lines = text[start..].lines();
+    lines.next();
+    for line in lines {
+        let t = line.trim().trim_end_matches('\\').trim();
+        if t.is_empty() {
+            break;
+        }
+        let inner = t
+            .strip_prefix("X(")
+            .and_then(|s| s.strip_suffix(')'))
+            .ok_or_else(|| format!("ROWD_ARMS: {t:?} is not X(name, Policy, hyp, base)"))?;
+        let f: Vec<&str> = inner.split(',').map(str::trim).collect();
+        if f.len() != 4 || f.iter().any(|x| x.is_empty() || !x.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')) {
+            return Err(format!("ROWD_ARMS: {t:?} is not X(name, Policy, hyp, base) of identifiers"));
+        }
+        let a = DiagArm { name: f[0].into(), policy: f[1].into(), hyp: f[2].into(), base: f[3].into() };
+        if arms.iter().any(|b| b.name == a.name) {
+            return Err(format!("ROWD_ARMS: {} registered twice", a.name));
+        }
+        let base_ok = if arms.is_empty() { a.base == "pword" } else { arms.iter().any(|b| b.name == a.base) };
+        if !base_ok {
+            return Err(format!("ROWD_ARMS {}: base {} is not an arm registered before it (the first is based on pword)", a.name, a.base));
+        }
+        arms.push(a);
+    }
+    if arms.is_empty() {
+        return Err("ROWD_ARMS: empty".into());
+    }
+    Ok(arms)
+}
+
+/// The diagnostic registry of the embedded `rowcand.cu`.
+pub fn diag_arms() -> Vec<DiagArm> {
+    parse_diag_arms(ROWC_PART.1).expect("kernels/rowcand.cu: ROWD_ARMS parses (tested)")
+}
+
+/// The wrapping u64 sum of a buffer of u32: what a read diagnostic's check
+/// owes for the words it reads (padding included, which the transcode zeroes).
+pub fn words_sum(words: &[u32]) -> u64 {
+    words.iter().fold(0u64, |s, &w| s.wrapping_add(u64::from(w)))
 }
 
 /// One `tv_rowc_*` site (pers_trows.cu's `TROWS_SITE_WORDS` layout). `yf`:
@@ -328,6 +403,35 @@ mod tests {
         for (_, sym, _, _) in BW_KERNELS {
             assert!(t.contains(&format!("BW_KERNEL({sym}, ")), "{sym}");
         }
+    }
+
+    #[test]
+    fn the_diagnostic_registry_parses_and_carries_every_hypothesis() {
+        let d = diag_arms();
+        let names: Vec<&str> = d.iter().map(|x| x.name.as_str()).collect();
+        assert_eq!(names, ["pw_chk", "pw_noside", "pw_flat", "pw_u4", "pw_nostage", "pw_grid", "pw_all", "pw_empty"]);
+        let hyps: Vec<&str> = d.iter().map(|x| x.hyp.as_str()).collect();
+        assert_eq!(hyps, ["pword", "H1", "H2", "H3", "H4", "H5", "stack", "H0"]);
+        assert_eq!(d[0].base, "pword");
+        assert_eq!(d[5].base, "pw_flat", "H5 changes pw_flat's schedule, one thing");
+        assert!(d.iter().filter(|a| a.is_empty_launch()).count() == 1 && d[7].is_empty_launch());
+        assert_eq!(d[2].symbol(), "tv_rowd_pw_flat");
+        assert_eq!(d[2].gu_symbol(), "tv_rowd_gu_pw_flat");
+        let t = rowc_unit_text("#define TILE_BLOCKS 64u");
+        for a in &d {
+            assert!(t.contains(&format!("struct {} {{", a.policy)), "{}: no struct {}", a.name, a.policy);
+        }
+        assert!(arms().iter().any(|a| a.name == "pword"), "pw_chk's base is the registry's pword");
+        for bad in [
+            "#define ROWD_ARMS(X) \\\n    X(a, A, H1, pw_chk)\n",
+            "#define ROWD_ARMS(X) \\\n    X(a, A, pword, pword) \\\n    X(a, B, H1, a)\n",
+            "#define ROWD_ARMS(X) \\\n    X(a, A, pword, pword) \\\n    X(b, B, H1, c)\n",
+            "#define ROWD_ARMS(X) \\\n    X(a, A, pword)\n",
+            "#define ROWD_ARMS(X)\n",
+        ] {
+            assert!(parse_diag_arms(bad).is_err(), "{bad:?}");
+        }
+        assert_eq!(words_sum(&[u32::MAX, u32::MAX, 3]), 2 * u64::from(u32::MAX) + 3);
     }
 
     #[test]

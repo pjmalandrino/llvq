@@ -32,6 +32,11 @@
 //! The gate is mutated (`the_gate_kills_the_served_row_mutants`): edits of the
 //! served row's own text, each applied to a copy of the sources with an
 //! exactly-once count, and the gate must refuse every one.
+//!
+//! The read diagnostics (`ROWD_ARMS`, the second card run) owe no rows; they
+//! owe their read check, the sum of every word they read
+//! (`every_read_diagnostic_reads_every_word`), and the check is mutated too
+//! (`the_read_check_kills_a_skipped_word`).
 
 use llvq_core::SplitMix64;
 use llvq_cuda::rowcand::{self, Owes, RowErrors};
@@ -650,4 +655,129 @@ fn the_probe_sums_what_the_host_sums() {
     assert_eq!(sites, [1]);
     let (sum, _) = probe(&bin, 2, 65_540, 3, 2, 96, 0).expect("the mutant runs");
     assert_ne!(sum, rowcand::bw_expected_sum(65_540, 3), "the probe's remainder loop is not load-bearing");
+}
+
+// ---- the read diagnostics (ROWD_ARMS) ------------------------------------------------------------------------
+
+/// The diagnostic gate's sites: mode 0, every recorded site and a site whose
+/// row stride (6 u32) is not a multiple of 4, so odd rows start 8 bytes off a
+/// 16-byte boundary (the 128-bit reader's head and tail words); mode 1, the
+/// gate/up pairs of `gate` and a pair of such sites.
+fn diag_sets() -> &'static [(u32, Vec<Site>); 2] {
+    static S: OnceLock<[(u32, Vec<Site>); 2]> = OnceLock::new();
+    S.get_or_init(|| {
+        let (sites, _) = recorded();
+        let cov = coverage_words();
+        let odd_a = synth_site("odd-stride@80", &cov[..96], 80, 0x0dda);
+        let odd_b = synth_site("odd-stride@80", &cov[96..192], 80, 0x0ddb);
+        assert_eq!((odd_a.d_out, stride(3)), (32, 6), "the odd-stride site: 32 rows of 6 u32");
+        let mut all = sites.clone();
+        all.push(odd_a.clone());
+        let fx_gate = sites.iter().position(|s| s.tag == "fixture" && s.d_out == 256).unwrap();
+        let rand = sites.last().unwrap().clone();
+        let mut cut = sites[0].clone();
+        let n = rand.d_out as usize;
+        cut.words.truncate(n * stride(106));
+        cut.rscale.truncate(n);
+        cut.tail.truncate(n * 16);
+        cut.d_out = rand.d_out;
+        let pairs = vec![sites[fx_gate].clone(), sites[fx_gate + 1].clone(), cut, rand, odd_a, odd_b];
+        [(0, all), (1, pairs)]
+    })
+}
+
+fn diag_cmd(arm: usize, mode: u32, grid: u32, threads: u32, sites: &[Site], x: &[f32]) -> Vec<u8> {
+    let refs: Vec<&Site> = sites.iter().collect();
+    let mut c = cmd(arm, mode, grid, threads, &refs, x);
+    c[..4].copy_from_slice(&u32::from(b'd').to_le_bytes());
+    c
+}
+
+/// What the diagnostic's check owes on `sites`: the sum of every word, or for
+/// the empty launch, every thread's sum of d_out.
+fn diag_want(arm: &rowcand::DiagArm, sites: &[Site], grid: u32, threads: u32) -> u64 {
+    if arm.is_empty_launch() {
+        let d: u64 = sites.iter().map(|s| u64::from(s.d_out)).sum();
+        u64::from(grid) * u64::from(threads) * d
+    } else {
+        sites.iter().fold(0u64, |a, s| a.wrapping_add(rowcand::words_sum(&s.words)))
+    }
+}
+
+/// The diagnostic on one binary, both modes, three grids: (label, got, want)
+/// a run, or `None` when the process failed.
+fn diag_gate(bin: &Path, idx: usize) -> Option<Vec<(String, u64, u64)>> {
+    let arm = &rowcand::diag_arms()[idx];
+    let (_, x) = recorded();
+    let mut v = Vec::new();
+    for (mode, sites) in diag_sets() {
+        for &(grid, threads) in &[(3u32, 96u32), (2, 64), (5, 32)] {
+            let o = run(bin, &diag_cmd(idx, *mode, grid, threads, sites, x))?;
+            assert_eq!(o.len(), 16, "the check sum and the thread count");
+            let got = u64::from_le_bytes(o[..8].try_into().unwrap());
+            assert_eq!(u64::from_le_bytes(o[8..16].try_into().unwrap()), u64::from(grid * threads));
+            v.push((format!("mode {mode} grid {grid}x{threads}"), got, diag_want(arm, sites, grid, threads)));
+        }
+    }
+    Some(v)
+}
+
+/// Every read diagnostic reads every word of its sites once (or, for the empty
+/// launch, visits every site on every thread), on both bodies and three grids.
+#[test]
+fn every_read_diagnostic_reads_every_word() {
+    let words: usize = diag_sets().iter().map(|(_, s)| s.iter().map(|x| x.words.len()).sum::<usize>()).sum();
+    for (i, a) in rowcand::diag_arms().iter().enumerate() {
+        let runs = diag_gate(candidate(), i).unwrap_or_else(|| panic!("{}: the candidate side failed", a.name));
+        let ok = runs.iter().filter(|(_, g, w)| g == w).count();
+        println!("{:<11} {:<6} over {:<7} checks equal {ok} of {} ({words} words a pass of both modes)", a.name, a.hyp, a.base, runs.len());
+        for (label, got, want) in &runs {
+            assert_eq!(got, want, "{} {label}: check {got:#x}, the host's {want:#x}", a.name);
+        }
+    }
+}
+
+/// The read check is load-bearing: each edit makes a reader skip words, is
+/// applied exactly once to a copy, and every arm that runs the edited reader
+/// must miss its check on at least one run.
+#[test]
+fn the_read_check_kills_a_skipped_word() {
+    let rc = "llvq-cuda/kernels/rowcand.cu";
+    let cases: [(&str, &str, &str, &[&str]); 4] = [
+        // the last block of every row, on the lane that holds it
+        (
+            "row48_last_block",
+            "    for (u32 j = lane; j < nb; j += 32u) {",
+            "    for (u32 j = lane; j + 1u < nb; j += 32u) {",
+            &["pw_chk", "pw_noside", "pw_nostage"],
+        ),
+        // the last 128-bit load of every stream
+        (
+            "u4_last_quad",
+            "    for (unsigned long long i = t; i < nq; i += T) {",
+            "    for (unsigned long long i = t; i + 1ull < nq; i += T) {",
+            &["pw_u4", "pw_all"],
+        ),
+        // the words after the last whole quad (the odd-stride rows): no thread reads them
+        ("u4_rest", "    if (t < rest) s += p[head + 4ull * nq + t];", "    if (t < rest - rest) s += p[head + 4ull * nq + t];", &["pw_u4"]),
+        // the words after the last whole pair of 48-bit units: no thread reads them
+        ("flat48_rest", "    if (t < n - whole) s += p[whole + t];", "    if (t < whole - whole) s += p[whole + t];", &["pw_flat", "pw_grid"]),
+    ];
+    let arms = rowcand::diag_arms();
+    for (tag, from, to, hit) in cases {
+        let (bin, sites) = mutant(tag, &[(rc, from, to)]);
+        assert_eq!(sites, [1], "mutant {tag}: applied at exactly one site");
+        for name in hit {
+            let idx = arms.iter().position(|a| a.name == *name).unwrap();
+            let verdict = match diag_gate(&bin, idx) {
+                None => "killed: the process failed".to_string(),
+                Some(runs) => {
+                    let miss = runs.iter().filter(|(_, g, w)| g != w).count();
+                    assert!(miss > 0, "mutant {tag} survived the read check of {name}");
+                    format!("killed: {miss} of {} runs miss the host's sum", runs.len())
+                }
+            };
+            println!("mutant {tag:<17} 1 site in {rc}, arm {name:<10} {verdict}");
+        }
+    }
 }

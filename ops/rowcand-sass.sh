@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SASS instructions a block of 24 weights for every registered row arm (llvq-cuda/kernels/rowcand.cu, ROWC_ARMS), at
+# SASS instructions a block of 24 weights for every registered row arm (llvq-cuda/kernels/rowcand.cu, ROWC_ARMS), and
+# the read loop of every read diagnostic (ROWD_ARMS), at
 # $0, on the Mac: the column the decode-speed research phase (R2) reports beside each arm's stage-1 verdict.
 #
 #   cargo test -p llvq-cuda --lib -- --ignored dump_rowcand_module   # writes target/rowcand/rowcand_unit.cu (tile 64)
@@ -40,8 +41,26 @@ if [ -z "$CUBIN" ]; then
 else
   SRC="card cubin $CUBIN"
 fi
+# The read diagnostics (ROWD_ARMS, the second card run): name and the unit one iteration of their read loop takes,
+# a 48-bit block (ROWD_L48) or a 16-byte quad (ROWD_U4), read off each arm's policy struct. pw_empty reads no word.
+DIAG=$(python3 -I -c '
+import re
+t = open("llvq-cuda/kernels/rowcand.cu").read()
+blk = t[t.index("#define ROWD_ARMS(X)"):]
+for line in blk.splitlines()[1:]:
+    line = line.strip().rstrip("\\").strip()
+    if not line:
+        break
+    f = [x.strip() for x in line[2:-1].split(",")]
+    body = t[t.index("struct " + f[1] + " {"):]
+    body = body[:body.index("};")]
+    if "EMPTY = true" in body:
+        continue
+    print(f"{f[0]}:" + ("quad" if "LOAD = ROWD_U4" in body else "block"))
+')
 SYMS=""
 for a in $ARMS; do SYMS="$SYMS tv_rowc_${a%%:*}"; done
+for a in $DIAG; do SYMS="$SYMS tv_rowd_${a%%:*}"; done
 docker run --rm --platform linux/arm64 -v "$PWD":/src -w /src nvidia/cuda:12.4.1-devel-ubuntu22.04 bash -c "
 set -euo pipefail
 for s in $SYMS; do cuobjdump -sass -fun \$s $CUBIN > $OUT/\$s.sass; done
@@ -55,4 +74,18 @@ for a in $ARMS; do
               if (ld && (lds || o == "ROWC_NONE") && ops !~ /BAR/ && ops !~ /HADD2/ && ops !~ /STS/ && (best == "" || c + 0 < bn + 0)) { bn = c; best = ops } }
     END { if (best == "") printf "SASS\t%s\t%s\t%s\tnone\t\tno block loop found\n", n, o, b;
           else printf "SASS\t%s\t%s\t%s\t%d\t%.1f\t%s\n", n, o, b, bn, bn / b, best }'
+done
+# The diagnostics: the shortest backward-branch loop that loads the words (a generic LD.E, how the words' pointer
+# from the site table is read; the site table itself comes by LDG.E.CONSTANT) and stores nothing, with no barrier
+# and no binary16 conversion (the epilogue loops store y, the staging loop stores to shared memory, the widest-site
+# loop reads only the site table). The compiler may unroll it: the count is the loop's, its loads are in loop_ops.
+printf 'SASS\tdiag\tunit\tloop_instr\tloop_ops\t(%s)\n' "$SRC"
+for a in $DIAG; do
+  name=${a%%:*}; unit=${a#*:}
+  python3 -I ops/sass_loops.py "$OUT/tv_rowd_$name.sass" | awk -v n="$name" -v u="$unit" '
+    /^loop/ { c = $3; getline; ops = $0;
+              ld = (ops ~ /LD\.E/);
+              if (ld && ops !~ /(^|, )STS?[ .]/ && ops !~ /STG/ && ops !~ /F2FP/ && ops !~ /BAR/ && ops !~ /HADD2/ && (best == "" || c + 0 < bn + 0)) { bn = c; best = ops } }
+    END { if (best == "") printf "SASS\t%s\t%s\tnone\tno read loop found\n", n, u;
+          else printf "SASS\t%s\t%s\t%d\t%s\n", n, u, bn, best }'
 done

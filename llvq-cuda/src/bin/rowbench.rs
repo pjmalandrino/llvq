@@ -17,14 +17,23 @@
 //!      bits, a declared bound (max and 0.99 quantile of the relative error), or
 //!      nothing (a diagnostic). An arm that fails is REFUSED and no rate is
 //!      printed for it;
-//!   3. times, in interleaved rounds after a warmup, on every set: the
-//!      registered arms (`kernels/rowcand.cu`), the row-loop arms of the
+//!   3. checks every read diagnostic (`ROWD_ARMS` of `kernels/rowcand.cu`:
+//!      pword with one thing changed, one arm a hypothesis of
+//!      `docs/mesures/recherche-debit-r1-recadrage-2026-11-12.txt`): the sum
+//!      of every word it read, a u64 a thread, against the host's sum of the
+//!      set's words, after every launch, timed rounds included. A miss refuses
+//!      the arm;
+//!   4. times, in interleaved rounds after a warmup, on every set: the
+//!      registered arms and the read diagnostics (`kernels/rowcand.cu`), the row-loop arms of the
 //!      journals as controls (`pers_trows.cu`), the int4 arms of K11
 //!      (`pers_q4rows.cu`) and the served eager `tv_q4_hh` on the sealed int4
 //!      records, and the bare read probe (`bwprobe.cu`) over a 2 GiB buffer;
-//!   4. prints a line a round and an arm (`ROUND`), the medians with their
+//!   5. prints a line a round and an arm (`ROUND`), the medians with their
 //!      round-by-round ranges, the speed of each arm over its base formed round
-//!      by round, the fidelity lines of the prereg, and one TSV summary (`TSV`).
+//!      by round, the fidelity lines of the prereg (`FIDELITY`, `ORDER`), each
+//!      hypothesis against its base and against pword (`HYP`), the row arms'
+//!      rates net of the empty launch, round by round (`NET`), and one TSV
+//!      summary (`TSV`).
 //!
 //! The sets: each d_in of the file's Tetra records apart, all of them in file
 //! order, and 4E's gate/up phase (`tv_rowc_gu_*`: pairs of rows, gate then up,
@@ -61,29 +70,37 @@ mod linux {
     const WARMUP: usize = 2;
     const THREADS: u32 = 512;
 
-    /// The journals' medians of each known arm's speed over its base, on the
-    /// bare encode (pers-rowloop-2026-11-05 lines 26-33, step1-micro-2026-11-07
-    /// lines 27-31): (arm, base, median). The fidelity rule's order.
-    const JOURNAL_SPEEDS: [(&str, &str, f64); 11] = [
-        ("v3", "v2", 0.849),
-        ("ilp2", "v2", 0.928),
-        ("v2u", "v2", 0.825),
-        ("l1w", "v2u", 1.214),
-        ("bcast", "v2u", 0.987),
-        ("xbcast", "v2u", 0.995),
-        ("v2_o2", "v2_s", 1.076),
-        ("nc", "v2", 0.810),
-        ("nc256", "v2", 0.845),
-        ("cpa", "v2", 0.960),
-        ("tile", "v2", 1.002),
+    /// Each known arm's speed over its base on the bare encode, as its journal
+    /// gives it: (arm, base, median, round-by-round low, high, journal line).
+    /// pers-rowloop-2026-11-05 lines 26-33; step1-micro-2026-11-07 lines 27-31.
+    /// Rule D2 of the second prereg: the run's median inside [low - 0.02,
+    /// high + 0.02]. Every control has a journal range, so no control falls
+    /// back on a flat tolerance.
+    const JOURNAL_SPEEDS: [(&str, &str, f64, f64, f64, &str); 12] = [
+        ("v3", "v2", 0.849, 0.839, 0.849, "pers-rowloop:26"),
+        ("ilp2", "v2", 0.928, 0.905, 0.930, "pers-rowloop:27"),
+        ("v2u", "v2", 0.825, 0.807, 0.826, "pers-rowloop:28"),
+        ("l1w", "v2u", 1.214, 1.210, 1.221, "pers-rowloop:29"),
+        ("bcast", "v2u", 0.987, 0.969, 0.993, "pers-rowloop:30"),
+        ("xbcast", "v2u", 0.995, 0.965, 1.001, "pers-rowloop:31"),
+        ("v2_o2", "v2_s", 1.076, 1.073, 1.080, "pers-rowloop:33"),
+        ("nc", "v2", 0.810, 0.787, 0.829, "step1-micro:27"),
+        ("nc256", "v2", 0.845, 0.823, 0.865, "step1-micro:28"),
+        ("cpa", "v2", 0.960, 0.944, 0.987, "step1-micro:29"),
+        ("tile", "v2", 1.002, 0.982, 1.024, "step1-micro:30"),
+        ("bal", "v2", 0.934, 0.916, 0.956, "step1-micro:31"),
     ];
-    /// bal is in step1-micro only: x0.934.
-    const JOURNAL_BAL: f64 = 0.934;
     /// The fidelity window of the served row on the bare encode, GB/s in the
     /// journals' accounting: pers-rowloop 379 [368-383], step1-micro 374 [368-378].
     const FIDELITY_GBS: (f64, f64) = (368.0, 383.0);
-    /// How far a known arm's speed over its base may sit from the journal's.
-    const ORDER_TOL: f64 = 0.03;
+    /// How far outside its journal's round-by-round range a known arm's speed
+    /// may sit (rule D2).
+    const ORDER_WIDEN: f64 = 0.02;
+    /// The read diagnostics' kill lines (prereg §5): an arm that recovers less
+    /// than this over its base kills its hypothesis; the empty launch kills H0
+    /// under `EMPTY_KILL_US`.
+    const HYP_KILL: f64 = 1.03;
+    const EMPTY_KILL_US: f64 = 20.0;
     /// The known arms of the journals (pers.rs::TROWS_ARMS), timed as controls.
     const KNOWN: [&str; 14] = ["v2", "v3", "ilp2", "v2u", "l1w", "bcast", "xbcast", "v2_s", "v2_o2", "nc", "nc256", "cpa", "tile", "bal"];
 
@@ -107,6 +124,9 @@ mod linux {
         tiled: Option<CudaSlice<u32>>,
         /// tv_tetra48_h's rows on the bench activation.
         refy: Vec<u16>,
+        /// The wrapping u64 sum of the words, padding included: what a read
+        /// diagnostic's check owes for this record (rowcand::words_sum).
+        wsum: u64,
     }
 
     /// One int4 g128 record on the card.
@@ -146,8 +166,10 @@ mod linux {
     }
 
     enum Launch {
-        /// tv_rowc_* or tv_trows_*: (sites, nsites, rows, pref, br, suf, invnorm, x [, x2, stamps, ends]).
-        Rows { f: CudaFunction, table: CudaSlice<u64>, nsites: u32, grid: u32, shared: u32, trows: bool },
+        /// tv_rowc_*, tv_rowd_* or tv_trows_*: (sites, nsites, rows, pref, br, suf, invnorm, x [, x2, stamps,
+        /// ends]). `check`: a read diagnostic's slots (2 u64 a thread, the site table's word 8) and the sum their
+        /// even slots owe, verified after every launch.
+        Rows { f: CudaFunction, table: CudaSlice<u64>, nsites: u32, grid: u32, shared: u32, trows: bool, check: Option<(CudaSlice<u64>, u64)> },
         /// The served eager int4 rows, one tv_q4_hh a record.
         Q4hh { f: CudaFunction, recs: Vec<usize> },
         /// A tv_q4rows_* arm.
@@ -260,6 +282,7 @@ mod linux {
                 tail: m.up_u16(&r.tail.iter().map(|&x| llvq_cuda::f16_bits(x as f32)).collect::<Vec<_>>())?,
                 tiled: None,
                 refy: Vec::new(),
+                wsum: rowcand::words_sum(&words),
             });
         }
         Ok(v)
@@ -297,7 +320,7 @@ mod linux {
 
     fn rows_launch(m: &Cuda, l: &Launch, t: &Tables, x: u64) -> Result<(), String> {
         match l {
-            Launch::Rows { f, table, nsites, grid, shared, trows } => {
+            Launch::Rows { f, table, nsites, grid, shared, trows, .. } => {
                 let cfg = LaunchConfig { grid_dim: (*grid, 1, 1), block_dim: (THREADS, 1, 1), shared_mem_bytes: *shared };
                 let z = 0u64;
                 let mut b = m.stream().launch_builder(f);
@@ -312,6 +335,15 @@ mod linux {
             _ => unreachable!("rows_launch on a non-row launch"),
         }
         Ok(())
+    }
+
+    /// A read diagnostic's check after a launch: `None` when its slots sum to what
+    /// the host owes them, else why not. Launches with no check pass.
+    fn read_check(m: &Cuda, l: &Launch) -> Result<Option<String>, String> {
+        let Launch::Rows { check: Some((slots, expect)), .. } = l else { return Ok(None) };
+        let v: Vec<u64> = m.stream().clone_dtoh(slots).map_err(|e| format!("check D2H: {e}"))?;
+        let got = v.iter().step_by(2).fold(0u64, |a, &s| a.wrapping_add(s));
+        Ok((got != *expect).then(|| format!("read check {got:#x}, the host's {expect:#x}")))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -538,6 +570,7 @@ mod linux {
 
         // ---- the runs: built and checked before any timing -------------------------------------------------
         let arms = rowcand::arms();
+        let diag = rowcand::diag_arms();
         let mut runs: Vec<Run> = Vec::new();
         let relay_any = arms.iter().any(|a| a.relay);
         let mut relaid: Vec<(String, &'static str, usize, CudaSlice<u32>)> = Vec::new();
@@ -629,7 +662,7 @@ mod linux {
                     runs.push(run);
                     continue;
                 }
-                let check = Launch::Rows { f: f.clone(), table: m.up_u64(&mk_table(true))?, nsites: set.recs.len() as u32, grid: sm, shared, trows: false };
+                let check = Launch::Rows { f: f.clone(), table: m.up_u64(&mk_table(true))?, nsites: set.recs.len() as u32, grid: sm, shared, trows: false, check: None };
                 rows_launch(&m, &check, &t, x)?;
                 m.sync()?;
                 let gy = m.down_u16(&y)?;
@@ -668,9 +701,59 @@ mod linux {
                     run.refused = Some(format!("owes {} and misses: max rel err {:.3e}", owes_str(arm.owes), e.max));
                 }
                 run.err = Some(e);
-                run.launch = Some(Launch::Rows { f, table: m.up_u64(&mk_table(false))?, nsites: set.recs.len() as u32, grid: sm, shared, trows: false });
+                run.launch = Some(Launch::Rows { f, table: m.up_u64(&mk_table(false))?, nsites: set.recs.len() as u32, grid: sm, shared, trows: false, check: None });
                 run._bufs.push(y);
                 run._fbufs.push(yf);
+                runs.push(run);
+            }
+            // the read diagnostics (ROWD_ARMS): pword with one thing changed, each checked to read every word
+            let slots_n = 2 * (sm * THREADS) as usize;
+            for darm in &diag {
+                let (sym, label) = match set.mode {
+                    Mode::Rows => (darm.symbol(), darm.name.clone()),
+                    Mode::GateUp => (darm.gu_symbol(), format!("gu_{}", darm.name)),
+                };
+                let mut run = Run::new(&set.name, &label, "rowd", "the read check".into());
+                run.bytes_w = bw;
+                run.bytes_old = bo;
+                let shared = rowcand::rowc_smem_bytes(9728);
+                let f = m.func_dynamic_shared(&sym, shared)?;
+                let rep = m.report(&sym)?;
+                let occ = f.occupancy_max_active_blocks_per_multiprocessor(THREADS, shared as usize, None).map_err(|e| format!("occupancy: {e}"))?;
+                println!("  {label:<12} {sym} ({}, over {}): grid {sm} x {THREADS}, {} registers, {} B local, {occ} a SM fit", darm.hyp, darm.base, rep.num_regs, rep.local_bytes);
+                if rep.local_bytes != 0 || occ < 1 {
+                    run.refused = Some(format!("spills {} B or does not fit ({occ} a SM)", rep.local_bytes));
+                    runs.push(run);
+                    continue;
+                }
+                let y = m.zeros_u16(total)?;
+                let slots = m.stream().alloc_zeros::<u64>(slots_n).map_err(|e| format!("alloc: {e}"))?;
+                let expect = if darm.is_empty_launch() {
+                    u64::from(sm * THREADS) * set.recs.iter().map(|&k| u64::from(recs[k].d_out)).sum::<u64>()
+                } else {
+                    set.recs.iter().fold(0u64, |a, &k| a.wrapping_add(recs[k].wsum))
+                };
+                let mut words = Vec::new();
+                let mut at = 0u64;
+                for &k in &set.recs {
+                    let r = &recs[k];
+                    let mut w = rowcand::rowc_site_words(ptr(&r.words, &m), ptr(&r.gscale, &m), ptr(&r.rscale, &m), ptr(&r.tail, &m), ptr(&y, &m) + 2 * at, 0, r.d_out, r.nb, r.tw, r.stride);
+                    w[8] = ptr(&slots, &m);
+                    words.extend(w);
+                    at += u64::from(r.d_out);
+                }
+                let l = Launch::Rows { f, table: m.up_u64(&words)?, nsites: set.recs.len() as u32, grid: sm, shared, trows: false, check: Some((slots, expect)) };
+                rows_launch(&m, &l, &t, x)?;
+                m.sync()?;
+                match read_check(&m, &l)? {
+                    None => println!("  {label:<12} reads every word once: its check {expect:#x} is the host's sum"),
+                    Some(why) => {
+                        println!("  {label:<12} REFUSED: {why}");
+                        run.refused = Some(why);
+                    }
+                }
+                run.launch = Some(l);
+                run._bufs.push(y);
                 runs.push(run);
             }
             // the known row-loop arms of the journals, on row sets
@@ -751,7 +834,7 @@ mod linux {
                     continue;
                 }
                 let n = pick.len() as u32;
-                let check = Launch::Rows { f: f.clone(), table: m.up_u64(&words_c)?, nsites: n, grid, shared, trows: true };
+                let check = Launch::Rows { f: f.clone(), table: m.up_u64(&words_c)?, nsites: n, grid, shared, trows: true, check: None };
                 rows_launch(&m, &check, &t, x)?;
                 m.sync()?;
                 let gy = m.down_u16(&y)?;
@@ -779,7 +862,7 @@ mod linux {
                     run.refused = Some(format!("owes the bits and moves {} rows", e.rows - e.f_equal.min(e.y_equal)));
                 }
                 run.err = Some(e);
-                run.launch = Some(Launch::Rows { f, table: m.up_u64(&words_t)?, nsites: n, grid, shared, trows: true });
+                run.launch = Some(Launch::Rows { f, table: m.up_u64(&words_t)?, nsites: n, grid, shared, trows: true, check: None });
                 run._bufs.push(y);
                 run._fbufs.push(yf);
                 runs.push(run);
@@ -929,6 +1012,12 @@ mod linux {
                 launch(&m, l, &t, x, &xh, &q4, &q4y, &probe)?;
                 m.sync()?;
                 let s = t0.elapsed().as_secs_f64();
+                if let Some(why) = read_check(&m, l)? {
+                    // the result is used: a diagnostic's slots come back every round and must sum to the host's sum
+                    println!("  {} {} REFUSED: round {rd}: {why}", run.set, run.arm);
+                    run.refused = Some(format!("round {rd}: {why}"));
+                    continue;
+                }
                 if let Launch::Probe { part, .. } = l {
                     // the result is used: the partials come back every round and must sum to the host's sum
                     let p: Vec<u64> = m.stream().clone_dtoh(part).map_err(|e| format!("probe D2H: {e}"))?;
@@ -991,13 +1080,18 @@ mod linux {
                 "int4" => Some("q4"),
                 _ => None,
             };
+            let dbase = (r.kind == "rowd").then(|| {
+                let (pre, name) = r.arm.strip_prefix("gu_").map(|n| ("gu_", n)).unwrap_or(("", r.arm.as_str()));
+                diag.iter().find(|d| d.name == name).map(|d| format!("{pre}{}", d.base)).unwrap_or_default()
+            });
+            let base = base.or(dbase.as_deref());
             let vs = base
                 .filter(|b| *b != r.arm)
                 .and_then(|b| series(&r.set, b).map(|s| (b, over(&s, &r.series))))
                 .map(|(b, (m2, l2, h2))| format!("  x{m2:.3} [{l2:.3}-{h2:.3}] over {b}"))
                 .unwrap_or_default();
-            let diag = if r.owes == "nothing" { "  (diagnostic)" } else { "" };
-            println!("  {:<18} {:.3} ms [{:.3}-{:.3}]  {g:.0} GB/s [{gl:.0}-{gh:.0}]  {o:.0} [{ol:.0}-{oh:.0}]{vs}{diag}", r.arm, 1e3 * ms, 1e3 * lo, 1e3 * hi);
+            let tag = if r.owes == "nothing" || r.kind == "rowd" { "  (diagnostic)" } else { "" };
+            println!("  {:<18} {:.3} ms [{:.3}-{:.3}]  {g:.0} GB/s [{gl:.0}-{gh:.0}]  {o:.0} [{ol:.0}-{oh:.0}]{vs}{tag}", r.arm, 1e3 * ms, 1e3 * lo, 1e3 * hi);
         }
 
         // ---- fidelity (the prereg's rule D) ----------------------------------------------------------------
@@ -1025,22 +1119,70 @@ mod linux {
         }
         let mut order_fail = 0usize;
         let mut order_n = 0usize;
-        for (arm, base, j) in JOURNAL_SPEEDS.iter().copied().chain(std::iter::once(("bal", "v2", JOURNAL_BAL))) {
+        for (arm, base, j, jl, jh, src) in JOURNAL_SPEEDS {
             match (series("bare:all", arm), series("bare:all", base)) {
                 (Some(s), Some(b)) => {
                     let (m2, l2, h2) = over(&b, &s);
-                    let pass = (m2 - j).abs() <= ORDER_TOL;
+                    let (wl, wh) = (jl - ORDER_WIDEN, jh + ORDER_WIDEN);
+                    let pass = m2 >= wl && m2 <= wh;
                     order_n += 1;
                     order_fail += usize::from(!pass);
-                    println!("ORDER\t{arm}\t{}\tx{m2:.3} [{l2:.3}-{h2:.3}] over {base}, journal x{j:.3}, tolerance {ORDER_TOL}", if pass { "PASS" } else { "FAIL" });
+                    println!(
+                        "ORDER\t{arm}\t{}\tx{m2:.3} [{l2:.3}-{h2:.3}] over {base}, journal x{j:.3} [{jl:.3}-{jh:.3}] ({src}), window [{wl:.3}, {wh:.3}]",
+                        if pass { "PASS" } else { "FAIL" }
+                    );
                 }
                 _ => println!("ORDER\t{arm}\tVOID\tno series on bare:all"),
             }
         }
         println!(
-            "ORDER\tall\t{}\t{order_n} known arms against their journal speeds, {order_fail} outside +-{ORDER_TOL}",
+            "ORDER\tall\t{}\t{order_n} known arms against their journal ranges widened by {ORDER_WIDEN}, {order_fail} outside",
             if order_n == 0 { "VOID" } else if order_fail == 0 { "PASS" } else { "FAIL" }
         );
+
+        // ---- the read diagnostics: each hypothesis against its base, and the rates net of the empty launch ----
+        // The kill lines decide on sealed:all only (prereg §4); every other set is a description.
+        println!();
+        for set in &sets {
+            let pre = if set.mode == Mode::GateUp { "gu_" } else { "" };
+            let role = if set.name == "sealed:all" { "decides" } else { "describes" };
+            let empty = diag.iter().find(|d| d.is_empty_launch()).and_then(|d| series(&set.name, &format!("{pre}{}", d.name)));
+            for d in &diag {
+                let label = format!("{pre}{}", d.name);
+                let Some(s) = series(&set.name, &label) else {
+                    println!("HYP\t{}\t{}\t{label}\tVOID\tno series", set.name, d.hyp);
+                    continue;
+                };
+                if d.is_empty_launch() {
+                    let (us, ul, uh) = pers::med_range(&s.iter().map(|t| 1e6 * t).collect::<Vec<_>>());
+                    let verdict = if us < EMPTY_KILL_US { format!("under {EMPTY_KILL_US} us: H0 dead") } else { format!("at least {EMPTY_KILL_US} us") };
+                    println!("HYP\t{}\t{}\t{label}\t{us:.1} us [{ul:.1}-{uh:.1}] a launch over the set's sites\t{verdict}\t{role}", set.name, d.hyp);
+                    continue;
+                }
+                let base = format!("{pre}{}", d.base);
+                let vs = |b: &str| series(&set.name, b).map(|bs| over(&bs, &s));
+                let main = vs(&base).map(|(m2, l2, h2)| format!("x{m2:.3} [{l2:.3}-{h2:.3}] over {base}")).unwrap_or_else(|| format!("no series for {base}"));
+                let pw = vs(&format!("{pre}pword")).map(|(m2, l2, h2)| format!("x{m2:.3} [{l2:.3}-{h2:.3}] over {pre}pword")).unwrap_or_default();
+                let verdict = match (d.hyp.as_str(), vs(&base)) {
+                    (_, None) => "VOID".to_string(),
+                    ("pword", Some((m2, _, _))) => format!("the check's cost: x{m2:.3}"),
+                    ("stack", Some(_)) => "the stack: what is left to the probe".to_string(),
+                    (h, Some((m2, _, _))) if m2 < HYP_KILL => format!("under x{HYP_KILL}: {h} dead"),
+                    (h, Some(_)) => format!("x{HYP_KILL} or more: {h} lives"),
+                };
+                println!("HYP\t{}\t{}\t{label}\t{main}\t{pw}\t{verdict}\t{role}", set.name, d.hyp);
+            }
+            // NET: GB/s of packed words, round by round over (t - t_empty), every row arm and diagnostic of the set
+            let Some(e) = empty else { continue };
+            for r in runs.iter().filter(|r| r.set == set.name && (r.kind == "rowc" || r.kind == "rowd") && r.refused.is_none() && !r.series.is_empty()) {
+                if diag.iter().any(|d| d.is_empty_launch() && r.arm == format!("{pre}{}", d.name)) {
+                    continue;
+                }
+                let net: Vec<f64> = r.series.iter().zip(&e).map(|(t, te)| r.bytes_w as f64 / (t - te) / 1e9).collect();
+                let (g, gl, gh) = pers::med_range(&net);
+                println!("NET\t{}\t{}\t{g:.1} [{gl:.1}-{gh:.1}] GB/s of words, the empty launch subtracted round by round", set.name, r.arm);
+            }
+        }
 
         // ---- the TSV ---------------------------------------------------------------------------------------
         println!("\nTSV\tset\tarm\tkind\towes\tstatus\tbytes_words\tbytes_old\tms_med\tms_lo\tms_hi\tgbs_med\tgbs_lo\tgbs_hi\tgbs_old_med\tgbs_old_lo\tgbs_old_hi\ty_equal\tf32_equal\trows\tmax_rel\tq99_rel");

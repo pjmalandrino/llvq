@@ -1341,7 +1341,7 @@ int main() {
         wr(o);
     } else if (tag == 'y' || tag == 'c') {
 #include "host_pers_step1.inc"
-    } else if (tag == 'C' || tag == 'b') {
+    } else if (tag == 'C' || tag == 'b' || tag == 'd') {
 #include "host_pers_rowcand.inc"
     } else if (tag == 'K') {
         // KEY: the persistent key against tok_argmax.cu's, every binary16
