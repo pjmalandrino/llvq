@@ -1,0 +1,203 @@
+LARGE-PREFILL D1: THE CACHE READ ONCE FOR A GROUP OF 4 ROWS (a12ipg) AGAINST a12ip, CHAIN PREFILL, SEALED 4B, ONE L40S, 2026-11-11. $0.57.
+==========================================================================================================================================
+D1 FAILS FOR SPEED under the prereg's rule, with its identity holding. At 8,191 tokens the first token comes x1.302
+sooner than a12ip's chain, under the x1.5 gate (*measured*). a12ipg equals a12ip bit for bit at every length, on the
+argmax, the last row's logits and every layer's K and V, and 47 of 47 texts are identical (*measured*). The phase
+peaks are equal.
+
+First token (*measured*, median of 3 timed rounds):
+- a12ip: 0.702 s at 1,024 tokens, 4.306 s at 4,096, 13.361 s at 8,191.
+- a12ipg: 0.731 s, 3.904 s, 10.262 s.
+- a12ip over a12ipg, round by round: x0.960 at 1,024 (a loss), x1.104 at 4,096, x1.302 at 8,191.
+
+The 8k pass is x1.67 faster, the first token only x1.30. A 16-row pass at 8,191 falls from 44.17 to 26.49 ms, its
+attention from 34.43 to 16.78 ms (*measured*, medians of the 3 stamped passes). The first token sums 512 passes, and
+the saving shrinks with the context: it turns into a loss of about 0.45 ms a pass at 1,024 (*computed*).
+
+The gain is real but smaller than signed. Three first-token predictions are out, and the 1,024 one has the wrong sign.
+
+Against the served eager prefill (journal large-prefill-2026-11-11.txt, 3.951 / 17.641 / 37.037 s), the best chain arm
+at each length is a12ip at 1,024 (0.702 s), a12ipg at 4,096 (3.904 s) and at 8,191 (10.262 s): x5.63, x4.52, x3.61
+(*computed*, ratio of medians from two jobs on the same card type). A served form would pick the arm by prompt length.
+The crossover sits between 1,024 and 4,096 tokens and was not measured. Nothing is served: the operator's ruling of
+2026-11-11 is that the prefill is packaged later, all at once.
+
+Prereg : proofs/preregistration-large-prefill-d1-2026-11-11.md, stamped before the job (.ots, commit b02db6c).
+         No deviation file.
+Code   : d010579 (arm a12ipg, prefillbench --against, job script ops/jobs/large-prefill-d1.sh).
+Go     : the operator, 2026-11-11, inside the $25 cap; relayed by the orchestrating session.
+Job    : 6af486a59737d9a9e0930c1a, l40sx1. The job's label reads name large-prefill, the script's own output folder
+         large-prefill-d1-2026-11-11.
+         - Image hf.co/spaces/Pier-Jean/llvq-runner-cuda; the job script as embedded in job-inspect.txt.
+         - Created 15:15:49 UTC, RUNNING at 15:16:09 UTC after 19 s of scheduling, COMPLETED at 15:35:11 UTC.
+         - running_secs 1,142: 19 min billed, $0.57 (*measured*, minutes rounded up, $1.80/h). Estimated $0.57,
+           $0.87 at worst.
+         - Spend since the go of 2026-11-09: $11.51 before, $12.08 after, of $25.
+         - Registry $318.76 before, $319.33 after. The rows of docs/data/jobs.csv sum to $318.51 with this one, $0.82
+           under the registry (*computed* on the Mac). The gap predates this job and is not chased here.
+Raw    : large-prefill-d1-2026-11-11-brut/, every file of the bucket folder, fetched one by one with hf buckets cp:
+         gpu.txt, oracle.txt, files.sha256, qwen3-4b-tetra-e4-4e-v9.json, d1.txt, texts-a12ip.jsonl,
+         texts-a12ipg.jsonl, phase-peaks.txt, summary.txt, vram.txt and the two samplers vram-d1.csv, vram-d1-t.txt.
+         Already there: mac-gates.txt (the host twin gates, before the stamp). Added on the Mac: job-inspect.txt
+         (hf jobs inspect, verbatim).
+
+CONTROLS
+--------
+1. Inputs and environment. Holds.
+   - Card: L40S, sm 8.9, 46,068 MiB, driver 580.178.04, 2,520 MHz.
+   - oracle on Qwen3-0.6B: MATCH, max |dhidden| 0.
+   - At their sha256: sealed file 886391a8, config 29b3ef32 (checked by the script), house set f749eb35, the 8k
+     prompt da4edbd6.
+   - No LLVQ_* in the job environment (the job refuses one).
+2. 4E's module is the served v9 module (252,757 bytes, sha256 1b422b62). Holds.
+3. The image built; both tree arms built and fit one CTA a SM. Holds.
+   - a12ip: 168 registers, 744 B local, 78,848 B shared, module 422,018 bytes, sha256 63155df9.
+   - a12ipg: 168 registers, 744 B local, 93,568 B shared of the 101,376 an sm_89 CTA may have, module 450,134 bytes,
+     sha256 246e99b1.
+The prefillbench process exits 0.
+
+TIMING (d1.txt, verbatim medians [range] over 3 timed rounds, *measured*)
+-------------------------------------------------------------------------
+  prompt  arm      first token, s            prefill to hand-over, s    decode tok/s after the first token
+  1,024   a12ip     0.702 [0.701-0.702]       0.714 [0.713-0.714]        215.3 [215.2-215.4]
+  1,024   a12ipg    0.731 [0.730-0.732]       0.742 [0.742-0.743]        215.3 [215.2-215.4]
+  4,096   a12ip     4.306 [4.306-4.310]       4.322 [4.322-4.326]        194.8 [194.1-195.0]
+  4,096   a12ipg    3.904 [3.901-3.904]       3.919 [3.917-3.920]        194.6 [193.9-194.9]
+  8,191   a12ip    13.361 [13.358-13.369]    13.373 [13.369-13.381]      159.6 [159.5-160.0]
+  8,191   a12ipg   10.262 [10.261-10.272]    10.274 [10.273-10.284]      159.7 [159.3-159.7]
+Round by round, a12ip over a12ipg: x0.960 [0.960-0.960], x1.104 [1.103-1.104], x1.302 [1.300-1.303].
+Reading:
+- The 256 decoded tokens of the two arms are identical at every length.
+- a12ip reproduces the first job within 0.1 % (0.702 / 4.312 / 13.372 s there).
+- Decode after the hand-over does not depend on the arm: 4E decodes the same cache.
+
+WHERE THE GAIN GOES OVER THE PROMPT (*computed* from the first-token medians; 64, 256 and 512 passes of 16)
+---------------------------------------------------------------------------------------------------------
+  prompt   a12ip ms a pass   a12ipg ms a pass   saved a pass, mean
+  1,024    10.97             11.42              -0.45
+  4,096    16.82             15.25              +1.57
+  8,191    26.10             20.04              +6.05
+The saving by band of passes:
+- Passes 64 to 255 (pos0 1,024 to 4,095): 0.431 s over 192 passes, 2.24 ms a pass.
+- Passes 256 to 511 (pos0 4,096 to 8,190): 2.697 s over 256 passes, 10.54 ms a pass.
+- The last passes at 8,191 save 17.68 ms each (phase split below).
+Reading: the saving grows faster than pos0 and is negative at short contexts. A first token sums every pass, so it
+gains far less than the last pass does. Where the saving turns positive, between pos0 1,024 and 4,096, was not
+measured.
+
+IDENTITY (d1.txt, verbatim, *measured*)
+---------------------------------------
+  identity at 1024, a12ipg@8.10.8.20.6 R = 16 against a12ip@8.10.8.20.6 R = 16: argmax equal (34532 and 34532); last row's logits bit for bit (0 of 151936 differ); K and V of 36 layers: bit for bit  => HOLDS
+  identity at 4096, ... => HOLDS (same three readings)
+  identity at 8191, ... => HOLDS (same three readings)
+Texts: 47 of 47 identical (the binary's pairing; checked again on the two dumps on the Mac, token for token).
+The host twin's identity (mac-gates.txt) holds on the card. a12ipg carries the first job's quality readings: identity
+of the chain against the one-row path, texts against eager, paired perplexity.
+
+PHASE SPLIT OF A CHAIN PASS AT 8,191 (d1.txt, *measured*, grid clock summed over the layers)
+-------------------------------------------------------------------------------------------
+  arm      pass (pos0, rows, head)       phases, ms   attn, ms   share    the rest, ms
+  a12ip    509 (8144, 16, off)            44.174       34.428     77.9 %    9.746
+  a12ip    510 (8160, 16, off)            44.219       34.490     78.0 %    9.729
+  a12ip    511 (8176, 15, on)             42.178       31.690     75.1 %   10.489
+  a12ipg   509 (8144, 16, off)            26.475       16.761     63.3 %    9.714
+  a12ipg   510 (8160, 16, off)            26.491       16.775     63.3 %    9.715
+  a12ipg   511 (8176, 15, on)             28.536       18.077     63.3 %   10.460
+Medians of the three: pass 44.174 against 26.491 ms (x1.668), attention 34.428 against 16.775 ms (x0.487), the rest
+9.746 against 9.715 ms (*computed*).
+Reading:
+- Only attention moved. qkv, o, gate/up and down are within 0.07 ms of each other in every pass.
+- The last pass (15 rows, head on) runs attention 1.3 ms longer than a 16-row pass in a12ipg, and 2.7 ms shorter in
+  a12ip. The files do not say why.
+
+WHY THE FIRST-TOKEN PREDICTIONS MISSED (as far as the files show it)
+--------------------------------------------------------------------
+1. Attention time did not fall with the bytes.
+   - The prereg computes 5.3 GB of cache reads a pass at 8,191 for a12ipg against 19.3 GB for a12ip, x0.27.
+   - Attention time fell x0.49 (34.43 to 16.78 ms, *measured*).
+   - Effective rate (*computed*, from computed bytes): a12ip 561 GB/s, a12ipg 316 GB/s.
+   - 5.3 GB at the design note's 0.61 to 0.86 TB/s would take 6.2 to 8.7 ms (*computed*). About 8 to 11 ms of
+     a12ipg's 16.8 ms are not accounted for by the bytes.
+   - The stamps time attention as one phase; they do not split it. Candidates the design note names (the scalar tile
+     work for 16 rows, the 2-stage ring, the balance between shared jobs and per-row jobs) were not measured. The
+     cause is not established.
+2. a12ipg costs more than a12ip at short contexts: about +0.45 ms a pass at 1,024 (*computed*, 0.029 s over 64
+   passes). At pos0 below 256 a12ipg has no shared split and runs a12ip's jobs; the extra cost there was not isolated.
+3. The predictions of the 8k pass (19 ms) and its attention (9.5 ms) sit at the low side; the measured values land
+   at the upper edges of their intervals. The first-token predictions scaled from those central values and from a
+   saving taken across the whole prompt; the saving is much smaller at short contexts (section above).
+The design was signed at groups of 4 rows, not 16: the design note (large-prefill-contexte-2026-11-11.txt section 3)
+already sets Rg = 4 with a 2-stage ring, for shared memory. The arm as built matches it (93,568 B a CTA).
+
+PEAK CARD MEMORY (*measured*, GB = MiB x 1,048,576 / 1e9)
+---------------------------------------------------------
+Phase peaks (phase-peaks.txt, the epoch sampler):
+  phase       a12ip               a12ipg
+  load        2.117 (2,019 MiB), one process for both arms
+  time-1024   2.318 (2,211 MiB)   2.318 (2,211 MiB)
+  time-4096   2.855 (2,723 MiB)   2.855 (2,723 MiB)
+  time-8191   3.560 (3,395 MiB)   3.560 (3,395 MiB)
+  identity    3.526 (3,363 MiB), both arms
+  phases      3.526 (3,363 MiB), both arms
+  texts       2.419 (2,307 MiB), both arms
+Process peak (vram.txt, the 100 ms sampler): 3,395 MiB (3.560 GB), the 8,191 timing phase.
+Reading: a12ipg holds no more card memory than a12ip at any length. Its extra shared memory is on chip. cuMemGetInfo
+after the 8,191 rounds: 3.559 GB.
+
+HOUSE PROMPTS (*measured*)
+--------------------------
+44 house prompts through each arm: prefill median 0.046 s in both ([0.028-1.263] a12ip, [0.028-1.274] a12ipg),
+decode 221.4 tok/s [207.4-223.1] a12ip and 221.3 [207.2-223.3] a12ipg. On short prompts the two arms are the same
+speed.
+
+LOAD TIME
+---------
+Measured: loaded in 758.6 s, against 419.5 s for the first job's chain process with two tree modules. The third
+module (a12ipg, 450,134 bytes) adds about 339 s (*computed*, difference of two loads), against about 2.5 min
+estimated in the prereg. This is NVRTC at every start (first journal, LOAD TIME); a served form would load cached
+cubins.
+
+AGAINST THE SIGNED PREDICTION
+-----------------------------
+Operational readings as fixed in the prereg: pass and attention are medians of the three stamped passes; peak is the
+phase peak of each arm's timing tag.
+  quantity                                         signed                     measured                     inside
+  a12ipg = a12ip on the card, 1,024 and 4,096      holds                      holds (8,191 too)            yes
+  texts identical of 47                            47                         47                           yes
+  a12ip first token, 1,024                         0.70 s [0.66, 0.76]        0.702 s                      yes
+  a12ip first token, 4,096                         4.31 s [4.1, 4.6]          4.306 s                      yes
+  a12ip first token, 8,191                         13.4 s [12.7, 14.2]        13.361 s                     yes
+  a12ipg pass at 8,191                             19 ms [15, 27]             26.49 ms                     yes, upper edge
+  a12ipg attention at 8,191                        9.5 ms [6, 17]             16.78 ms                     yes, upper edge
+  a12ipg first token, 8,191                        6.2 s [4.8, 8.6]           10.262 s                     NO
+  a12ipg first token, 4,096                        2.7 s [2.1, 3.5]           3.904 s                      NO
+  a12ipg first token, 1,024                        0.63 s [0.52, 0.72]        0.731 s                      NO, wrong sign
+  a12ipg peak within +0.10 GB of a12ip's           at each length             equal at each length         yes
+Every first-token prediction of the new arm is out. The two phase predictions are inside only at their upper edges.
+
+VERDICT
+-------
+Decision rule of the prereg:
+- Identity holds at 1,024 and 4,096 (and 8,191), 47 of 47 texts.
+- First token at 8,191 x1.302 sooner, under the 1.5 gate. FAILS FOR SPEED.
+The prereg's reading of the phase split when the speed rule fails:
+- The pass at 8,191 is 26.49 ms, under 29.6 ms (44.4 / 1.5): the rest of the pass is not what holds the first token.
+- Attention fell to 0.49 of a12ip's, not to about a quarter. The repeated reads were a cost, since attention halved
+  with the bytes cut to 0.27; but the time did not follow the bytes. The design leaves about half of its attention
+  time unexplained (WHY section, point 1).
+- The first token gains less than the 8k pass because the saving shrinks with the context and turns negative at
+  1,024.
+What stands: a12ipg is a12ip's bits, at the same peak, x1.30 sooner at 8,191 and x1.10 at 4,096.
+
+CAVEATS
+-------
+- One prompt text, WikiText-2 test cut to three lengths; the 1,024 and 4,096 prompts are prefixes of the 8,191 one.
+- One card (L40S), one model (4B), one job, three timed rounds a length.
+- The cache bytes a pass (5.3 and 19.3 GB) are computed in the prereg, not counted on the card.
+- The x3.61 / x4.52 against eager mix two jobs on the same card type and image family.
+
+NOT ESTABLISHED
+---------------
+Where a12ipg's 16.8 ms of attention at 8,191 go, split by split or by stage. Why a12ipg loses 0.45 ms a pass at
+1,024. The pos0 where a12ipg starts to win. D2 (tensor-core attention). R above 16. A served path. 8B, 14B; any card
+but the L40S.

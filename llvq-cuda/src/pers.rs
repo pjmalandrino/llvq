@@ -782,6 +782,228 @@ pub fn q4_tile_words(words: &[u32], d_out: usize, nwords: usize) -> Result<Vec<u
     Ok(out)
 }
 
+// ---------------------------------------------------------------------------
+// Experiment E1 (docs/mesures/large-4e-budget-2026-11-11.txt, cut 1): where
+// 4E v9 asks L2 for later rows. Three bench modules, each 4E v9's text with
+// edits applied as text, so the served v9 module (pinned below,
+// `the_4e_v9_module_is_the_one_the_doors_gate_on`) does not move:
+//   "v9"   v9 and a logits symbol (the reference the arms are compared with);
+//   "v9np" "v9" without the attention phase's prefetch of the o and gate/up
+//          rows: nothing else;
+//   "v9mv" "v9np" with layer l + 1's q/k/v and o rows asked of L2 during
+//          layer l's gate/up rows (after ln2), layer 0's before its ln1.
+//   "v9ft" "v9" with the attention tile's full-tile path ([`pers_ft_edit`],
+//          docs/mesures/large-attn-tuile-pleine-mac-2026-11-11.txt).
+// ---------------------------------------------------------------------------
+
+/// The E1 arms, the first the reference of the others.
+pub const P4E_E1_ARMS: [&str; 4] = ["v9", "v9np", "v9mv", "v9ft"];
+
+/// The mv arm's helpers (`pers_4e_e1.cuh`), inserted at the head of
+/// `pers_segment.cu`'s text in that arm's module only.
+pub const P4E_E1_PRE: (&str, &str) = ("pers_4e_e1.cuh", include_str!("../kernels/pers_4e_e1.cuh"));
+
+/// The logits symbols every E1 module carries: `pers_4e_body` with a
+/// fourth template parameter, false by default (the token and stamp symbols
+/// keep their code), true in these symbols, which write the head's binary16
+/// logits of token t at `stamps + t x vocab` (the launch's stamp pointer,
+/// read as a buffer of `n_tokens x vocab` binary16).
+const P4E_E1_LOGITS_SYMBOLS: &str = "// e1-logits: the head's binary16 logits of every token of the launch, written at
+// L.stamps + t x vocab (a measurement symbol, outside the timed rounds)
+#define PERS_4E_LOGITS(sym, FORM_)                                                                       \\
+    extern \"C\" __global__ void __launch_bounds__(512, 1) sym(const Pers4eArgs* __restrict__ A,          \\
+                                                             const Pers4eLaunch L)                        \\
+    {                                                                                                    \\
+        pers_4e_body<FORM_, false, true, true>(A, L);                                                    \\
+    }
+
+PERS_4E_LOGITS(pers_4e_logits_f0_t512, 0)
+PERS_4E_LOGITS(pers_4e_logits_f1_t512, 1)
+PERS_4E_LOGITS(pers_4e_logits_f2_t512, 2)
+";
+
+/// The edits of an E1 arm: (part of [`PERS_UNIT_PARTS`], text, replacement),
+/// each text present exactly once in its part. Every arm carries the logits
+/// edits; np and mv add theirs. `tests/pers_matches_served.rs` builds the
+/// host twin of each arm from the same edits.
+pub fn p4e_e1_edits(arm: &str) -> Result<Vec<(&'static str, String, String)>, String> {
+    let e4 = "pers_4e.cu";
+    let seg = "pers_segment.cu";
+    let mut v: Vec<(&'static str, String, String)> = vec![
+        (
+            e4,
+            "template <int FORM, bool STAMP, bool PF>\n__device__ __forceinline__ void pers_4e_body(".into(),
+            "template <int FORM, bool STAMP, bool PF, bool LOGITS = false>\n__device__ __forceinline__ void pers_4e_body(".into(),
+        ),
+        (
+            e4,
+            "PERS_BAR(), A->abort_flag, nullptr);".into(),
+            "PERS_BAR(), A->abort_flag,\n                                          \
+             LOGITS ? reinterpret_cast<unsigned short*>(L.stamps) + (size_t)t * A->vocab : nullptr);"
+                .into(),
+        ),
+        (
+            e4,
+            "PERS_4E(pers_4e_stamps_f2_t768, 2, 768, true, false)\n".into(),
+            format!("PERS_4E(pers_4e_stamps_f2_t768, 2, 768, true, false)\n\n{P4E_E1_LOGITS_SYMBOLS}"),
+        ),
+    ];
+    let np = [
+        (
+            e4,
+            "            if (c0 >= attn_jobs) prefetch_next();\n".to_string(),
+            "            (void)attn_jobs;  // e1-pf: no o or gate/up row is asked of L2 in this phase\n            \
+             (void)prefetch_next;  // e1-pf\n"
+                .to_string(),
+        ),
+        (e4, "            if (c0 < attn_jobs) prefetch_next();\n".to_string(), String::new()),
+    ];
+    match arm {
+        "v9" => {}
+        // the attention tile's full-tile path (pers_ft_edit), nothing else
+        "v9ft" => v.push(pers_ft_edit()),
+        "v9np" => v.extend(np),
+        "v9mv" => {
+            v.extend(np);
+            v.extend([
+                (seg, "struct SegTetra {\n".to_string(), format!("{}\nstruct SegTetra {{\n", P4E_E1_PRE.1)),
+                (
+                    seg,
+                    "    PERS_SEG_SUB(0u);\n".to_string(),
+                    "    PERS_SEG_SUB(0u);\n    \
+                     if (IN4E) pers_e1_prefetch_staged();  // e1-pf: layer l + 1's q/k/v and o rows, during these gate/up rows\n"
+                        .to_string(),
+                ),
+                (
+                    e4,
+                    "        pers_v7_stage_rot(area, g->signs_a, Ag->hidden, g->small_a, g->k_a);\n    };\n".to_string(),
+                    "        pers_v7_stage_rot(area, g->signs_a, Ag->hidden, g->small_a, g->k_a);\n        \
+                     pers_e1_stage_next(Ag->layers, l + 1u, Ag->n_layers, Ag->hidden, Ag->n_heads);  // e1-pf: layer l + 1's shares\n    };\n"
+                        .to_string(),
+                ),
+                (
+                    e4,
+                    "            if (PF) {\n                const Pers4eQkv& N = Y.qkv;\n".to_string(),
+                    "            if (l == 0u) {  // e1-pf: layer 0's q/k/v here, every later layer's during the gate/up rows before it\n            \
+                     if (PF) {\n                const Pers4eQkv& N = Y.qkv;\n"
+                        .to_string(),
+                ),
+                (
+                    e4,
+                    "            }\n            // ln1, the q/k rotation, the q/k/v rows\n".to_string(),
+                    "            }\n            pers_e1_prefetch_o(Y, H, A->n_heads);  // e1-pf: and layer 0's o rows\n            \
+                     }  // e1-pf\n            // ln1, the q/k rotation, the q/k/v rows\n"
+                        .to_string(),
+                ),
+            ]);
+        }
+        _ => return Err(format!("4E E1: no arm {arm:?}; the arms are {P4E_E1_ARMS:?}")),
+    }
+    Ok(v)
+}
+
+/// The module text of an E1 arm at a tile: row form 7's define, then
+/// [`PERS_UNIT_PARTS`] with the arm's edits ([`p4e_e1_edits`]), joined as
+/// [`pers_unit_text`] joins them. Refuses an edit whose text is not in its
+/// part exactly once.
+pub fn p4e_e1_unit_text(tile_define: &str, arm: &str) -> Result<String, String> {
+    let mut parts: Vec<(&str, String)> = PERS_UNIT_PARTS.iter().map(|p| (p.0, p.1.to_string())).collect();
+    for (file, from, to) in p4e_e1_edits(arm)? {
+        let part = parts.iter_mut().find(|p| p.0 == file).ok_or_else(|| format!("4E E1 {arm}: no part {file}"))?;
+        let n = part.1.matches(from.as_str()).count();
+        if n != 1 {
+            return Err(format!("4E E1 {arm}: {n} sites in {file} for {from:?}, expected exactly one"));
+        }
+        part.1 = part.1.replacen(from.as_str(), &to, 1);
+    }
+    let body = std::iter::once(tile_define.to_string()).chain(parts.into_iter().map(|p| p.1)).collect::<Vec<_>>().join("\n");
+    Ok(format!("{}{body}", p4e_rows_define(7)?))
+}
+
+/// The logits symbol of an E1 module for a RoPE form (512 threads).
+pub fn p4e_logits_symbol(form: u32) -> Result<&'static str, String> {
+    Ok(match form {
+        0 => "pers_4e_logits_f0_t512",
+        1 => "pers_4e_logits_f1_t512",
+        2 => "pers_4e_logits_f2_t512",
+        _ => return Err(format!("4E E1: no logits symbol for RoPE form {form}")),
+    })
+}
+
+/// A line E1 may add, drop or change: a prefetch statement or the code that
+/// steers one. It names a prefetch, or carries the `e1-pf` tag; and it
+/// assigns nothing (no ` = ` outside a declaration of a prefetch helper).
+fn p4e_e1_prefetch_line(l: &str) -> bool {
+    let t = l.trim();
+    (t.contains("prefetch") || t.contains("e1-pf"))
+        && (!t.split("//").next().unwrap_or("").contains(" = ") || t.starts_with("const auto prefetch_next = "))
+}
+
+/// The structural check of an E1 arm against its reference (`"v9"`'s text):
+/// with every prefetch line ([`p4e_e1_prefetch_line`]) and the mv helpers'
+/// block (`// e1-pf begin` .. `// e1-pf end`) taken out of both, the two
+/// texts are the same lines in the same order. The block itself may hold no
+/// kernel, no atomic, no barrier, no grid wait, and may store only to its
+/// header slots (`s[i] = ...`).
+pub fn p4e_e1_structure(reference: &str, arm: &str) -> Result<(), String> {
+    fn strip(t: &str) -> Result<Vec<&str>, String> {
+        let mut out = Vec::new();
+        let mut inside = false;
+        for l in t.lines() {
+            let s = l.trim();
+            if s == "// e1-pf begin" {
+                inside = true;
+                continue;
+            }
+            if s == "// e1-pf end" {
+                inside = false;
+                continue;
+            }
+            if inside {
+                for bad in ["__global__", "atomic", "__syncthreads", "pers_grid_wait", "PERS_BAR", "A->", "L."] {
+                    if s.contains(bad) {
+                        return Err(format!("E1 helpers: {bad:?} in {s:?}"));
+                    }
+                }
+                // every assignment's target: a local being declared, or a slot
+                let code = s.split("//").next().unwrap_or("");
+                for (i, _) in code.match_indices(" = ") {
+                    let before = &code[..i];
+                    let cut = before.rfind([';', ',', '{']).map_or(0, |k| k + 1);
+                    let mut lhs = before[cut..].trim();
+                    lhs = lhs.strip_prefix("for (").unwrap_or(lhs);
+                    if let Some(k) = lhs.rfind(") ") {
+                        lhs = lhs[k + 2..].trim();
+                    }
+                    if (lhs.contains('[') && !lhs.starts_with("s[")) || lhs.starts_with('*') || lhs.contains("->") || lhs.contains('.') {
+                        return Err(format!("E1 helpers: a store that is not a slot: {s:?}"));
+                    }
+                }
+                continue;
+            }
+            // comments and blank lines are not code
+            if s.is_empty() || s.starts_with("//") {
+                continue;
+            }
+            if !p4e_e1_prefetch_line(l) {
+                out.push(l);
+            }
+        }
+        if inside {
+            return Err("E1 helpers: a block opened and never closed".into());
+        }
+        Ok(out)
+    }
+    let (a, b) = (strip(reference)?, strip(arm)?);
+    if let Some(i) = (0..a.len().min(b.len())).find(|&i| a[i] != b[i]) {
+        return Err(format!("E1: past the prefetch lines, line {i} differs: {:?} against {:?}", a[i], b[i]));
+    }
+    if a.len() != b.len() {
+        return Err(format!("E1: past the prefetch lines, {} lines against {}", a.len(), b.len()));
+    }
+    Ok(())
+}
+
 /// The shared scratch after the activation staging (`PERS_4E_SCRATCH`):
 /// form 3's split rows, form 4's staged rows of the rotations' `small`,
 /// form 5's v7 area (`PERS_V7_FLOATS` floats: `small`, the argument structs,
@@ -1452,6 +1674,990 @@ pub fn p4v_unit_text(tile_define: &str) -> String {
 
 /// `pers_4ev.cu`, embedded so the Mac hashes what the card compiles.
 pub const P4V_PART: (&str, &str) = ("pers_4ev.cu", include_str!("../kernels/pers_4ev.cu"));
+
+// ---- the tree verify pass (`kernels/pers_4et.cu`, docs/plan-verify-tree.md) ----
+
+/// `P4T_RMAX` of `pers_4et.cu`: the rows one tree launch carries, at most.
+pub const P4T_RMAX: u32 = 32;
+
+/// `Pers4tLaunch`, passed by value: 14 words, 25 device pointers.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct P4tLaunch {
+    pub bar_base: u32,
+    /// The root's position.
+    pub pos0: u32,
+    pub n_rows: u32,
+    /// Floats of the area after the tables ([`p4t_area_floats`]), even.
+    pub area_floats: u32,
+    /// Rows of the previous launch moved into the cache, and the position of the first.
+    pub n_move: u32,
+    pub move_pos0: u32,
+    /// Floats of one row's attention split states: n_kv x ceil(cap / 256) x groups x 130.
+    pub part_stride: u32,
+    /// `xin`'s row stride in halves: at least every projection's d_in, a multiple of 8.
+    pub ldx: u32,
+    /// The d_in slices of q/k/v, o, gate/up, down and the head ([`p4t_splits`]).
+    pub split_qkv: u32,
+    pub split_o: u32,
+    pub split_gu: u32,
+    pub split_dn: u32,
+    pub split_head: u32,
+    pub pad: u32,
+    /// `[R]` tokens, `[R]` depths, `[R][P4T_RMAX]` u8 paths, `[n_move]` slots.
+    pub toks: u64,
+    pub depth: u64,
+    pub path: u64,
+    pub mv: u64,
+    /// `[R]` each row's argmax.
+    pub ring: u64,
+    /// 0, or `[R][vocab]` binary16 logits (a check).
+    pub logits: u64,
+    pub x_a: u64,
+    pub x_b: u64,
+    pub xin: u64,
+    pub xn: u64,
+    pub q_raw: u64,
+    pub k_raw: u64,
+    pub v_raw: u64,
+    pub q_out: u64,
+    pub ctx: u64,
+    pub g_raw: u64,
+    pub u_raw: u64,
+    /// `[layers][P4T_RMAX][n_kv x 128]` each slot's K and V.
+    pub tk: u64,
+    pub tv: u64,
+    pub part: u64,
+    /// The projections' slice partials ([`p4t_fpart_floats`]).
+    pub fpart: u64,
+    pub tickets: u64,
+    /// The slice folds' counters ([`p4t_ftickets`]), zero at rest.
+    pub ftickets: u64,
+    pub slots: u64,
+    /// 0, or `[1 + n_bar_4et][grid]` u64 phase clocks ([`p4t_phases`]).
+    pub stamps: u64,
+}
+
+/// `sizeof(Pers4tLaunch)`.
+pub const P4T_LAUNCH_BYTES: usize = 256;
+
+/// The waits of one tree launch: the embedding and move, 9 a layer, 1 more
+/// a layer with a Tetra o, the final norm, the head.
+pub fn n_bar_4et(layers: u32, tetra_o_layers: u32) -> u32 {
+    3 + 9 * layers + tetra_o_layers
+}
+
+/// `p4t_area_floats` of `pers_4et.cu`: the area at `nw` warps a CTA and `rs`
+/// staged activation rows (a multiple of 8, up to 32), `widest` the widest
+/// row a prologue holds, `groups` query heads a KV head (attention's share
+/// at row form 7).
+pub fn p4t_area_floats(nw: u32, rs: u32, widest: u32, groups: u32) -> u32 {
+    let attn = (16 * 1024 * p4e_attn_ring(7) + 4 * 4 * groups * 130 + 4 * groups * 128).div_ceil(4);
+    let mma = nw * 16 * 28 + 2 * (rs * 52 + 16 * nw * 14);
+    widest.max(attn).max(mma) + 2 * P4T_RMAX
+}
+
+/// The d_in slices of one projection phase: about one unit a CTA. `tiles`
+/// are its 16-row tiles summed over the phase's projections, `nw` the warps
+/// a CTA, `d_in` the phase's input width. At least 1, at most half the
+/// 48-column sub-steps (two sub-steps a slice at least). A property of the
+/// model and the grid, never of the rows a launch carries: identity needs
+/// it (plan section 6).
+pub fn p4t_split(tiles: u32, nw: u32, d_in: u32, grid: u32) -> u32 {
+    let blocks = tiles.div_ceil(nw).max(1);
+    let s = (grid + blocks / 2) / blocks;
+    s.clamp(1, (d_in.div_ceil(48) / 2).max(1))
+}
+
+/// The five phases' slices, q/k/v, o, gate/up, down, head, at the widths
+/// of a model.
+pub fn p4t_splits(hidden: u32, inter: u32, d_ctx: u32, n_kv: u32, vocab: u32, nw: u32, grid: u32) -> [u32; 5] {
+    let dkv = n_kv * 128;
+    [
+        p4t_split((d_ctx + 2 * dkv) / 16, nw, hidden, grid),
+        p4t_split(hidden / 16, nw, d_ctx, grid),
+        p4t_split(2 * inter / 16, nw, hidden, grid),
+        p4t_split(hidden / 16, nw, inter, grid),
+        p4t_split(vocab / 16, nw, hidden, grid),
+    ]
+}
+
+/// Floats of the slice partials: the largest phase's, `P4T_RMAX` rows.
+pub fn p4t_fpart_floats(splits: [u32; 5], hidden: u32, inter: u32, d_ctx: u32, n_kv: u32, vocab: u32) -> u64 {
+    let dkv = n_kv * 128;
+    let outs = [d_ctx + 2 * dkv, hidden, 2 * inter, hidden, vocab];
+    let rows = P4T_RMAX as u64;
+    splits.iter().zip(outs).map(|(&s, d)| if s > 1 { s as u64 * rows * d as u64 } else { 0 }).max().unwrap_or(0)
+}
+
+/// The slice folds' counters: the largest phase's 16-row tiles.
+pub fn p4t_ftickets(hidden: u32, inter: u32, d_ctx: u32, n_kv: u32, vocab: u32) -> u32 {
+    [d_ctx + 2 * n_kv * 128, hidden, 2 * inter, vocab].into_iter().max().unwrap_or(0) / 16
+}
+
+/// The four parts of a row phase an a4 launch times (F3), in slot order.
+pub const P4T_PARTS: [&str; 4] = ["setup", "staging", "loops", "store"];
+
+/// The row phases an a4 launch times (F3), in slot order.
+pub const P4T_ROW_PHASES: [&str; 5] = ["qkv", "o", "gateup", "down", "head"];
+
+/// An a4 stamped launch's F3 slots: `tail` is what follows the phase events,
+/// `[4 phase + part][grid]` nanoseconds, each CTA's sum over the layers.
+/// Per row phase and part, the median over the CTAs.
+pub fn p4t_parts(tail: &[u64], grid: u32) -> Result<[[f64; 4]; 5], String> {
+    let g = grid as usize;
+    if g == 0 || tail.len() != 20 * g {
+        return Err(format!("tree parts: {} values for 20 slots of {g} CTAs", tail.len()));
+    }
+    let mut out = [[0.0f64; 4]; 5];
+    for (ph, o) in out.iter_mut().enumerate() {
+        for (p, x) in o.iter_mut().enumerate() {
+            let mut v: Vec<f64> = tail[(4 * ph + p) * g..(4 * ph + p + 1) * g].iter().map(|&t| t as f64).collect();
+            v.sort_by(f64::total_cmp);
+            *x = v[g / 2];
+        }
+    }
+    Ok(out)
+}
+
+/// The tree pass's phases, in the order of its waits, for a model with no
+/// Tetra o.
+pub const P4T_PHASES: [&str; 12] =
+    ["embed", "ln1", "qkv", "rope", "attn", "o", "ln2", "gateup", "dn_in", "down", "norm", "head"];
+
+/// A stamped tree launch's time by phase, nanoseconds, summed over the
+/// layers, in the order of [`P4T_PHASES`]. The stamps are `[1 + 2 n_bar][grid]`:
+/// event 0 a CTA's start, event 2e - 1 when the CTA reached wait e (its work
+/// of the phase done), event 2e when it left it. For each phase: `[0]` the
+/// wall, from the CTAs' median leaving of the previous wait to their median
+/// leaving of this one; `[1]`, `[2]`, `[3]` the minimum, median and maximum
+/// over the CTAs of a CTA's busy time (its arrival at the wait minus its
+/// leaving of the previous one), each CTA's summed over the layers first. A
+/// phase whose units run in two waves shows its maximum near twice its
+/// minimum. A model with a Tetra o is refused (its layers carry one more
+/// wait).
+pub fn p4t_phases(stamps: &[u64], n_layers: u32, grid: u32) -> Result<[[f64; 4]; 12], String> {
+    let n_bar = n_bar_4et(n_layers, 0) as usize;
+    let events = 1 + 2 * n_bar;
+    let g = grid as usize;
+    if g == 0 || stamps.len() != events * g {
+        return Err(format!("tree stamps: {} values for {events} events of {g} CTAs", stamps.len()));
+    }
+    if stamps.contains(&0) {
+        return Err("tree stamps: a CTA wrote no clock at some event".into());
+    }
+    let at = |e: usize, c: usize| stamps[e * g + c] as f64;
+    let med = |v: &mut Vec<f64>| {
+        v.sort_by(f64::total_cmp);
+        v[v.len() / 2]
+    };
+    let kind = |w: usize| {
+        if w == 1 {
+            0
+        } else if w == n_bar - 1 {
+            10
+        } else if w == n_bar {
+            11
+        } else {
+            1 + (w - 2) % 9
+        }
+    };
+    let mut wall = [0.0f64; 12];
+    let mut busy = vec![[0.0f64; 12]; g];
+    for w in 1..=n_bar {
+        let k = kind(w);
+        let mut prev: Vec<f64> = (0..g).map(|c| at(2 * w - 2, c)).collect();
+        let mut leave: Vec<f64> = (0..g).map(|c| at(2 * w, c)).collect();
+        wall[k] += med(&mut leave) - med(&mut prev);
+        for (c, b) in busy.iter_mut().enumerate() {
+            b[k] += at(2 * w - 1, c) - at(2 * w - 2, c);
+        }
+    }
+    let mut out = [[0.0f64; 4]; 12];
+    for (k, (o, w)) in out.iter_mut().zip(wall).enumerate() {
+        let mut v: Vec<f64> = busy.iter().map(|b| b[k]).collect();
+        v.sort_by(f64::total_cmp);
+        *o = [w, v[0], v[g / 2], v[g - 1]];
+    }
+    Ok(out)
+}
+
+/// The units of each projection phase (q/k/v, o, gate/up, down, head) under
+/// `splits`, on `grid` CTAs of `nw` warps, as `pers_4et.cu`'s p4t_phase deals
+/// them (each projection's blocks of nw tiles, times its slices; unit u on
+/// CTA u mod grid): (units, waves, fill), fill = (units / grid) / waves, the
+/// share of the CTAs' unit slots the phase uses.
+#[allow(clippy::too_many_arguments)]
+pub fn p4t_plan(splits: [u32; 5], hidden: u32, inter: u32, d_ctx: u32, n_kv: u32, vocab: u32, nw: u32, grid: u32) -> [(u32, u32, f64); 5] {
+    let b = |d_out: u32| (d_out / 16).div_ceil(nw);
+    let dkv = n_kv * 128;
+    let blocks = [b(d_ctx) + 2 * b(dkv), b(hidden), 2 * b(inter), b(hidden), b(vocab)];
+    let mut out = [(0u32, 0u32, 0.0f64); 5];
+    for ((o, b), s) in out.iter_mut().zip(blocks).zip(splits) {
+        let u = b * s;
+        let w = u.div_ceil(grid);
+        *o = (u, w, u as f64 / grid as f64 / w as f64);
+    }
+    out
+}
+
+/// Job N1's balanced plan: `proposed` kept where q/k/v and gate/up fill at
+/// least 90 % of the grid's slots ([`p4t_plan`]); otherwise that phase's S
+/// in 1..=16 (at most half its sub-steps) with the largest fill, the
+/// smallest S on a tie. The other phases keep the proposal.
+#[allow(clippy::too_many_arguments)]
+pub fn p4t_splits_balanced(proposed: [u32; 5], hidden: u32, inter: u32, d_ctx: u32, n_kv: u32, vocab: u32, nw: u32, grid: u32) -> [u32; 5] {
+    let mut s = proposed;
+    for (i, d_in) in [(0usize, hidden), (2, hidden)] {
+        let fill = |x: u32| {
+            let mut t = s;
+            t[i] = x;
+            p4t_plan(t, hidden, inter, d_ctx, n_kv, vocab, nw, grid)[i].2
+        };
+        if fill(s[i]) < 0.9 {
+            let cap = (d_in.div_ceil(48) / 2).clamp(1, 16);
+            let mut best = 1;
+            for x in 2..=cap {
+                if fill(x) > fill(best) + 1e-12 {
+                    best = x;
+                }
+            }
+            s[i] = best;
+        }
+    }
+    s
+}
+
+/// The tree kernel's tiled symbol for a RoPE form (a module of
+/// [`p4t_tiled_unit_text`]).
+pub fn p4t_tiled_symbol(form: u32) -> Result<&'static str, String> {
+    Ok(match form {
+        0 => "pers_4et_tiled_f0_t512",
+        1 => "pers_4et_tiled_f1_t512",
+        2 => "pers_4et_tiled_f2_t512",
+        _ => return Err(format!("tree verify: no tiled kernel for RoPE form {form}")),
+    })
+}
+
+/// The tiled tree module's text: [`p4t_unit_text`] under `P4T_TILED 1`, which
+/// emits the tiled symbols and `p4t_tile_words` instead of the untiled ones.
+pub fn p4t_tiled_unit_text(tile_define: &str) -> String {
+    format!("#define P4T_TILED 1\n{}", p4t_unit_text(tile_define))
+}
+
+/// u32 words of a projection's tree-tiled copy: its 16-row tiles times its
+/// 48-column sub-steps times 48 (Tetra) or 96 (int4) words.
+pub fn p4t_tiled_words(int4: bool, d_out: u32, d_in: u32) -> u64 {
+    (d_out / 16) as u64 * d_in.div_ceil(48) as u64 * if int4 { 96 } else { 48 }
+}
+
+/// `p4t_stream_cap` of `pers_4et_stream.cu`: the 48-column sub-steps one
+/// slice of the stream unit may hold, in an area of `area_floats` floats at
+/// `nw` warps a CTA: the warps' A tiles, `P4T_RMAX` staged rows of 24 ns + 4
+/// words, the argmax maxima. A function of the area and the warps, never of
+/// the rows a launch carries.
+pub fn p4t_stream_cap(area_floats: u32, nw: u32) -> u32 {
+    let fixed = nw * 16 * 28 + 2 * P4T_RMAX;
+    let per = area_floats.saturating_sub(fixed) / P4T_RMAX;
+    per.saturating_sub(4) / 24
+}
+
+/// The largest slice of a projection of `d_in` columns cut in `s`: its
+/// sub-steps, as `pers_4et.cu` cuts them (slice sl from sl nsub / S).
+pub fn p4t_slice_steps(d_in: u32, s: u32) -> u32 {
+    d_in.div_ceil(48).div_ceil(s)
+}
+
+/// Job N2's plan for the stream unit (arm a3, and a2 beside it). For each
+/// phase (q/k/v, o, gate/up, down, head) the floor is the smallest S whose
+/// slices fit `cap` sub-steps ([`p4t_stream_cap`]); from it, the smallest S
+/// whose fill ([`p4t_plan`]) reaches 90 %, then S + 1 or else S + 2 when
+/// that reaches 98 %. S at most 32 and at most the phase's sub-steps; when
+/// no S reaches 90 %, the best fill, the smaller S on a tie. Every slice
+/// costs a staged activation and a partial written and read back, so S
+/// stays as small as a filled grid allows. Refused when no S up to 32 fits.
+#[allow(clippy::too_many_arguments)]
+pub fn p4t_splits_stream(hidden: u32, inter: u32, d_ctx: u32, n_kv: u32, vocab: u32, nw: u32, grid: u32, cap: u32) -> Result<[u32; 5], String> {
+    let d_ins = [hidden, d_ctx, hidden, inter, hidden];
+    let mut s = [1u32; 5];
+    for (i, &d_in) in d_ins.iter().enumerate() {
+        let top = d_in.div_ceil(48).min(32);
+        let lo = (1..=top).find(|&x| p4t_slice_steps(d_in, x) <= cap).ok_or_else(|| {
+            format!("tree stream: phase {i} ({d_in} columns) needs slices of at most {cap} sub-steps, which no S up to {top} gives")
+        })?;
+        let fill = |x: u32| {
+            let mut t = s;
+            t[i] = x;
+            p4t_plan(t, hidden, inter, d_ctx, n_kv, vocab, nw, grid)[i].2
+        };
+        let mut pick = match (lo..=top).find(|&x| fill(x) >= 0.9) {
+            Some(x) => x,
+            None => (lo..=top).fold(lo, |b, x| if fill(x) > fill(b) + 1e-12 { x } else { b }),
+        };
+        if let Some(x) = [pick + 1, pick + 2].into_iter().find(|&x| x <= top && fill(x) >= 0.98) {
+            pick = x;
+        }
+        s[i] = pick;
+    }
+    Ok(s)
+}
+
+/// The stream tree module's text: [`p4t_tiled_unit_text`] (for
+/// `p4t_tile_words`) under `P4T_STREAM 1`, then `pers_4et_stream.cu`, which
+/// emits the `pers_4et_stream_*` symbols. `pers_4et.cu` keeps its bytes, so
+/// the other arms' modules keep theirs.
+pub fn p4t_stream_unit_text(tile_define: &str) -> String {
+    format!("#define P4T_STREAM 1\n{}\n{}", p4t_tiled_unit_text(tile_define), P4T_STREAM_PART.1)
+}
+
+/// The tree kernel's stream symbol for a RoPE form (a module of
+/// [`p4t_stream_unit_text`]).
+pub fn p4t_stream_symbol(form: u32) -> Result<&'static str, String> {
+    Ok(match form {
+        0 => "pers_4et_stream_f0_t512",
+        1 => "pers_4et_stream_f1_t512",
+        2 => "pers_4et_stream_f2_t512",
+        _ => return Err(format!("tree verify: no stream kernel for RoPE form {form}")),
+    })
+}
+
+/// The a4 tree module's text: [`p4t_stream_unit_text`] under `P4T_A4 1`,
+/// then `pers_4et_a4.cu` (the stream unit with the batched fold, F1, and the
+/// vector prologues, F2), which emits the `pers_4et_a4_*` symbols. `fold`
+/// and `pro` false build a4 without F1 or F2 (`P4T_A4_FOLD 0`,
+/// `P4T_A4_PRO 0`). `pers_4et.cu` and `pers_4et_stream.cu` keep their bytes.
+pub fn p4t_a4_unit_text(tile_define: &str, fold: bool, pro: bool) -> String {
+    format!(
+        "#define P4T_A4 1\n#define P4T_A4_FOLD {}\n#define P4T_A4_PRO {}\n{}\n{}",
+        u32::from(fold),
+        u32::from(pro),
+        p4t_stream_unit_text(tile_define),
+        P4T_A4_PART.1
+    )
+}
+
+/// The tree kernel's a4 symbol for a RoPE form (a module of
+/// [`p4t_a4_unit_text`]).
+pub fn p4t_a4_symbol(form: u32) -> Result<&'static str, String> {
+    Ok(match form {
+        0 => "pers_4et_a4_f0_t512",
+        1 => "pers_4et_a4_f1_t512",
+        2 => "pers_4et_a4_f2_t512",
+        _ => return Err(format!("tree verify: no a4 kernel for RoPE form {form}")),
+    })
+}
+
+/// The a5 tree module's text: [`p4t_a4_unit_text`] (F1 and F2 on) under
+/// `P4T_A5 1`, then `pers_4et_a5.cu` (a4 with the L2 prefetch of the next
+/// row phase's tile streams), which emits the `pers_4et_a5_*` symbols.
+/// `pers_4et.cu`, `pers_4et_stream.cu` and `pers_4et_a4.cu` keep their bytes.
+pub fn p4t_a5_unit_text(tile_define: &str) -> String {
+    format!("#define P4T_A5 1\n{}\n{}", p4t_a4_unit_text(tile_define, true, true), P4T_A5_PART.1)
+}
+
+/// The tree kernel's a5 symbol for a RoPE form (a module of
+/// [`p4t_a5_unit_text`]).
+pub fn p4t_a5_symbol(form: u32) -> Result<&'static str, String> {
+    Ok(match form {
+        0 => "pers_4et_a5_f0_t512",
+        1 => "pers_4et_a5_f1_t512",
+        2 => "pers_4et_a5_f2_t512",
+        _ => return Err(format!("tree verify: no a5 kernel for RoPE form {form}")),
+    })
+}
+
+/// The module text of arm a6, a7 or a3f (`pers_4et_a6.cu`): a6 and a3f after
+/// [`p4t_stream_unit_text`] (a3's), a7 after [`p4t_a5_unit_text`] (for
+/// a5's prefetch helpers). a3f is a floor arm, timing only: its values are
+/// void by design. The earlier files keep their bytes.
+pub fn p4t_a6_unit_text(arm: &str, tile_define: &str) -> Result<String, String> {
+    Ok(match arm {
+        "a6" => format!("#define P4T_A6 1\n{}\n{}", p4t_stream_unit_text(tile_define), P4T_A6_PART.1),
+        "a7" => format!("#define P4T_A7 1\n{}\n{}", p4t_a5_unit_text(tile_define), P4T_A6_PART.1),
+        "a3f" => format!("#define P4T_A3F 1\n{}\n{}", p4t_stream_unit_text(tile_define), P4T_A6_PART.1),
+        _ => return Err(format!("tree verify: no module for arm {arm}")),
+    })
+}
+
+/// The symbol of arm a6, a7 or a3f for a RoPE form.
+pub fn p4t_a6_symbol(arm: &str, form: u32) -> Result<&'static str, String> {
+    Ok(match (arm, form) {
+        ("a6", 0) => "pers_4et_a6_f0_t512",
+        ("a6", 1) => "pers_4et_a6_f1_t512",
+        ("a6", 2) => "pers_4et_a6_f2_t512",
+        ("a7", 0) => "pers_4et_a7_f0_t512",
+        ("a7", 1) => "pers_4et_a7_f1_t512",
+        ("a7", 2) => "pers_4et_a7_f2_t512",
+        ("a3f", 0) => "pers_4et_a3f_f0_t512",
+        ("a3f", 1) => "pers_4et_a3f_f1_t512",
+        ("a3f", 2) => "pers_4et_a3f_f2_t512",
+        _ => return Err(format!("tree verify: no kernel for arm {arm} at RoPE form {form}")),
+    })
+}
+
+/// The module text of arm a3p, a3t or a8 (`pers_4et_a8.cu`), after
+/// [`p4t_stream_unit_text`] (a3's). a3p and a3t are floor arms, timing only:
+/// their values are void by design. The earlier files keep their bytes.
+pub fn p4t_a8_unit_text(arm: &str, tile_define: &str) -> Result<String, String> {
+    let def = match arm {
+        "a3p" => "P4T_A3P",
+        "a3t" => "P4T_A3T",
+        "a8" => "P4T_A8",
+        _ => return Err(format!("tree verify: no module for arm {arm}")),
+    };
+    Ok(format!("#define {def} 1\n{}\n{}", p4t_stream_unit_text(tile_define), P4T_A8_PART.1))
+}
+
+/// The symbol of arm a3p, a3t or a8 for a RoPE form.
+pub fn p4t_a8_symbol(arm: &str, form: u32) -> Result<&'static str, String> {
+    Ok(match (arm, form) {
+        ("a3p", 0) => "pers_4et_a3p_f0_t512",
+        ("a3p", 1) => "pers_4et_a3p_f1_t512",
+        ("a3p", 2) => "pers_4et_a3p_f2_t512",
+        ("a3t", 0) => "pers_4et_a3t_f0_t512",
+        ("a3t", 1) => "pers_4et_a3t_f1_t512",
+        ("a3t", 2) => "pers_4et_a3t_f2_t512",
+        ("a8", 0) => "pers_4et_a8_f0_t512",
+        ("a8", 1) => "pers_4et_a8_f1_t512",
+        ("a8", 2) => "pers_4et_a8_f2_t512",
+        _ => return Err(format!("tree verify: no kernel for arm {arm} at RoPE form {form}")),
+    })
+}
+
+/// The module text of arm a9 (`pers_4et_a9.cu`, the fold after the phase's
+/// wait), after [`p4t_stream_unit_text`] (a3's), which keeps its bytes.
+pub fn p4t_a9_unit_text(tile_define: &str) -> String {
+    format!("#define P4T_A9 1\n{}\n{}", p4t_stream_unit_text(tile_define), P4T_A9_PART.1)
+}
+
+/// The a9 symbol for a RoPE form.
+pub fn p4t_a9_symbol(form: u32) -> Result<&'static str, String> {
+    Ok(match form {
+        0 => "pers_4et_a9_f0_t512",
+        1 => "pers_4et_a9_f1_t512",
+        2 => "pers_4et_a9_f2_t512",
+        _ => return Err(format!("tree verify: no a9 kernel for RoPE form {form}")),
+    })
+}
+
+/// `n_bar_a9` of `pers_4et_a9.cu`: a9's waits, a fold step's after each of
+/// the four row phases of a layer and after the head.
+pub fn n_bar_a9(layers: u32, tetra_o_layers: u32) -> u32 {
+    n_bar_4et(layers, tetra_o_layers) + 4 * layers + 1
+}
+
+/// An a9 launch's phases, in the order of its waits (no Tetra o).
+pub const P4T_PHASES_A9: [&str; 17] = [
+    "embed", "ln1", "qkv", "qkv fold", "rope", "attn", "o", "o fold", "ln2", "gateup", "gateup fold", "dn_in", "down",
+    "down fold", "norm", "head", "head fold",
+];
+
+/// [`p4t_phases`] for an a9 launch: per phase of [`P4T_PHASES_A9`], the wall
+/// and the spread of a CTA's busy time, summed over the layers.
+pub fn p4t_phases_a9(stamps: &[u64], n_layers: u32, grid: u32) -> Result<Vec<[f64; 4]>, String> {
+    let n_bar = n_bar_a9(n_layers, 0) as usize;
+    let events = 1 + 2 * n_bar;
+    let g = grid as usize;
+    if g == 0 || stamps.len() != events * g {
+        return Err(format!("tree stamps (a9): {} values for {events} events of {g} CTAs", stamps.len()));
+    }
+    if stamps.contains(&0) {
+        return Err("tree stamps (a9): a CTA wrote no clock at some event".into());
+    }
+    let at = |e: usize, c: usize| stamps[e * g + c] as f64;
+    let med = |v: &mut Vec<f64>| {
+        v.sort_by(f64::total_cmp);
+        v[v.len() / 2]
+    };
+    let kind = |w: usize| {
+        if w == 1 {
+            0
+        } else if w + 2 >= n_bar {
+            17 - (n_bar + 1 - w)
+        } else {
+            1 + (w - 2) % 13
+        }
+    };
+    let np = P4T_PHASES_A9.len();
+    let mut wall = vec![0.0f64; np];
+    let mut busy = vec![vec![0.0f64; np]; g];
+    for w in 1..=n_bar {
+        let k = kind(w);
+        let mut prev: Vec<f64> = (0..g).map(|c| at(2 * w - 2, c)).collect();
+        let mut leave: Vec<f64> = (0..g).map(|c| at(2 * w, c)).collect();
+        wall[k] += med(&mut leave) - med(&mut prev);
+        for (c, b) in busy.iter_mut().enumerate() {
+            b[k] += at(2 * w - 1, c) - at(2 * w - 2, c);
+        }
+    }
+    Ok((0..np)
+        .map(|k| {
+            let mut v: Vec<f64> = busy.iter().map(|b| b[k]).collect();
+            v.sort_by(f64::total_cmp);
+            [wall[k], v[0], v[g / 2], v[g - 1]]
+        })
+        .collect())
+}
+
+/// The module text of arm a10 (`pers_4et_a10.cu`, a9 with 4E's prologues),
+/// after [`p4t_a9_unit_text`], which keeps its bytes. Same waits as a9.
+pub fn p4t_a10_unit_text(tile_define: &str) -> String {
+    format!("#define P4T_A10 1\n{}\n{}", p4t_a9_unit_text(tile_define), P4T_A10_PART.1)
+}
+
+/// The a10 symbol for a RoPE form.
+pub fn p4t_a10_symbol(form: u32) -> Result<&'static str, String> {
+    Ok(match form {
+        0 => "pers_4et_a10_f0_t512",
+        1 => "pers_4et_a10_f1_t512",
+        2 => "pers_4et_a10_f2_t512",
+        _ => return Err(format!("tree verify: no a10 kernel for RoPE form {form}")),
+    })
+}
+
+/// The module text of arm a11 (`pers_4et_a11.cu`, a10 with the L2 prefetch
+/// in its wait gaps), after [`p4t_a10_unit_text`], which keeps its bytes.
+pub fn p4t_a11_unit_text(tile_define: &str) -> String {
+    format!("#define P4T_A11 1\n{}\n{}", p4t_a10_unit_text(tile_define), P4T_A11_PART.1)
+}
+
+/// The a11 symbol for a RoPE form.
+pub fn p4t_a11_symbol(form: u32) -> Result<&'static str, String> {
+    Ok(match form {
+        0 => "pers_4et_a11_f0_t512",
+        1 => "pers_4et_a11_f1_t512",
+        2 => "pers_4et_a11_f2_t512",
+        _ => return Err(format!("tree verify: no a11 kernel for RoPE form {form}")),
+    })
+}
+
+/// The module text of arm a11i (`pers_4et_a11i.cu`, a11 with fine stamps),
+/// after [`p4t_a11_unit_text`], which keeps its bytes.
+pub fn p4t_a11i_unit_text(tile_define: &str) -> String {
+    format!("#define P4T_A11I 1\n{}\n{}", p4t_a11_unit_text(tile_define), P4T_A11I_PART.1)
+}
+
+/// The a11i symbol for a RoPE form.
+pub fn p4t_a11i_symbol(form: u32) -> Result<&'static str, String> {
+    Ok(match form {
+        0 => "pers_4et_a11i_f0_t512",
+        1 => "pers_4et_a11i_f1_t512",
+        2 => "pers_4et_a11i_f2_t512",
+        _ => return Err(format!("tree verify: no a11i kernel for RoPE form {form}")),
+    })
+}
+
+/// `pers_4et_a11i.cu`, embedded so the Mac hashes what the card compiles.
+pub const P4T_A11I_PART: (&str, &str) = ("pers_4et_a11i.cu", include_str!("../kernels/pers_4et_a11i.cu"));
+
+/// a11i's unit parts, in slot order (`pers_4et_a11i.cu`).
+pub const P4T_IPARTS: [&str; 6] = ["units", "staging", "loop fast", "loop slow", "close wait", "to arrival"];
+
+/// An a11i stamped launch's slots after the phase events, `[5][8][grid]`:
+/// per row phase ([`P4T_ROW_PHASES`]) and part ([`P4T_IPARTS`]), the
+/// median, minimum and maximum over the CTAs (units as counts, the rest in
+/// nanoseconds, each CTA's sum over the layers).
+pub fn p4t_iparts(tail: &[u64], grid: u32) -> Result<[[[f64; 3]; 6]; 5], String> {
+    let g = grid as usize;
+    if g == 0 || tail.len() != 40 * g {
+        return Err(format!("tree a11i slots: {} values for 40 slots of {g} CTAs", tail.len()));
+    }
+    let mut out = [[[0.0f64; 3]; 6]; 5];
+    for (ph, o) in out.iter_mut().enumerate() {
+        for (p, x) in o.iter_mut().enumerate() {
+            let mut v: Vec<f64> = tail[(8 * ph + p) * g..(8 * ph + p + 1) * g].iter().map(|&t| t as f64).collect();
+            v.sort_by(f64::total_cmp);
+            *x = [v[g / 2], v[0], v[g - 1]];
+        }
+    }
+    Ok(out)
+}
+
+/// From a stamped a9-family launch's phase events: per wait class (after a
+/// prologue: ln1, ln2, dn_in, norm; after a row phase; after a fold step) a
+/// CTA's arrival-to-release time summed over the layers, median and maximum
+/// over the CTAs; and each prologue's busy time on the CTAs that own rows
+/// 0 .. rows - 1 (CTA r mod grid), the maximum over them. Nanoseconds.
+pub fn p4t_wait_classes(stamps: &[u64], n_layers: u32, grid: u32, rows: u32) -> Result<([[f64; 2]; 3], [f64; 4]), String> {
+    let n_bar = n_bar_a9(n_layers, 0) as usize;
+    let g = grid as usize;
+    if g == 0 || stamps.len() != (1 + 2 * n_bar) * g {
+        return Err(format!("tree stamps (a9): {} values for {} events of {g} CTAs", stamps.len(), 1 + 2 * n_bar));
+    }
+    let name = |w: usize| -> &str {
+        let k = if w == 1 {
+            0
+        } else if w + 2 >= n_bar {
+            17 - (n_bar + 1 - w)
+        } else {
+            1 + (w - 2) % 13
+        };
+        P4T_PHASES_A9[k]
+    };
+    let at = |e: usize, c: usize| stamps[e * g + c] as f64;
+    let mut cls = vec![[0.0f64; 3]; g];
+    let mut pro = [0.0f64; 4];
+    let mut pro_c = vec![[0.0f64; 4]; g];
+    for w in 1..=n_bar {
+        let n = name(w);
+        let k = if n.ends_with("fold") {
+            Some(2)
+        } else if ["qkv", "o", "gateup", "down", "head"].contains(&n) {
+            Some(1)
+        } else if ["ln1", "ln2", "dn_in", "norm"].contains(&n) {
+            Some(0)
+        } else {
+            None
+        };
+        let pk = ["ln1", "ln2", "dn_in", "norm"].iter().position(|p| *p == n);
+        for c in 0..g {
+            if let Some(k) = k {
+                cls[c][k] += at(2 * w, c) - at(2 * w - 1, c);
+            }
+            if let Some(p) = pk {
+                pro_c[c][p] += at(2 * w - 1, c) - at(2 * w - 2, c);
+            }
+        }
+    }
+    for pc in pro_c.iter().take((rows as usize).min(g)) {
+        for (x, &y) in pro.iter_mut().zip(pc) {
+            *x = x.max(y);
+        }
+    }
+    let mut out = [[0.0f64; 2]; 3];
+    for (k, o) in out.iter_mut().enumerate() {
+        let mut v: Vec<f64> = cls.iter().map(|x| x[k]).collect();
+        v.sort_by(f64::total_cmp);
+        *o = [v[g / 2], v[g - 1]];
+    }
+    Ok((out, pro))
+}
+
+/// The module text of the row-cap arms a10r8 and a10r16
+/// (`pers_4et_a10rc.cu`, a10 for at most 8 or 16 rows a launch), after
+/// [`p4t_a10_unit_text`], which keeps its bytes. `rows` 8 or 16: the
+/// module emits that arm's symbols only.
+pub fn p4t_a10rc_unit_text(tile_define: &str, rows: u32) -> String {
+    format!("#define P4T_A10RC {rows}\n{}\n{}", p4t_a10_unit_text(tile_define), P4T_A10RC_PART.1)
+}
+
+/// The row-cap arms' symbols: `rows` 8 or 16, a RoPE form.
+pub fn p4t_a10rc_symbol(rows: u32, form: u32) -> Result<&'static str, String> {
+    Ok(match (rows, form) {
+        (8, 0) => "pers_4et_a10r8_f0_t512",
+        (8, 1) => "pers_4et_a10r8_f1_t512",
+        (8, 2) => "pers_4et_a10r8_f2_t512",
+        (16, 0) => "pers_4et_a10r16_f0_t512",
+        (16, 1) => "pers_4et_a10r16_f1_t512",
+        (16, 2) => "pers_4et_a10r16_f2_t512",
+        _ => return Err(format!("tree verify: no row-cap kernel for {rows} rows at RoPE form {form}")),
+    })
+}
+
+/// `pers_4et_a10rc.cu`, embedded so the Mac hashes what the card compiles.
+pub const P4T_A10RC_PART: (&str, &str) = ("pers_4et_a10rc.cu", include_str!("../kernels/pers_4et_a10rc.cu"));
+
+/// The module text of the thread-count arms a10t384 and a10t256
+/// (`pers_4et_a10t.cu`: a10's pass under `__launch_bounds__(threads, 1)`),
+/// after [`p4t_a10_unit_text`], which keeps its bytes. `threads` 384 or 256.
+pub fn p4t_a10t_unit_text(tile_define: &str, threads: u32) -> String {
+    format!("#define P4T_A10T {threads}\n{}\n{}", p4t_a10_unit_text(tile_define), P4T_A10T_PART.1)
+}
+
+/// The thread-count arms' symbols.
+pub fn p4t_a10t_symbol(threads: u32, form: u32) -> Result<&'static str, String> {
+    Ok(match (threads, form) {
+        (384, 0) => "pers_4et_a10_f0_t384",
+        (384, 1) => "pers_4et_a10_f1_t384",
+        (384, 2) => "pers_4et_a10_f2_t384",
+        (256, 0) => "pers_4et_a10_f0_t256",
+        (256, 1) => "pers_4et_a10_f1_t256",
+        (256, 2) => "pers_4et_a10_f2_t256",
+        _ => return Err(format!("tree verify: no a10 kernel at {threads} threads and RoPE form {form}")),
+    })
+}
+
+/// The module text of arm a10t448, a10t320 or a10t384r16
+/// (`pers_4et_a10t2.cu`): after [`p4t_a10_unit_text`] for the first two,
+/// after [`p4t_a10rc_unit_text`] at 16 rows for the third; those keep their
+/// bytes.
+pub fn p4t_a10t2_unit_text(tile_define: &str, arm: &str) -> Result<String, String> {
+    Ok(match arm {
+        "a10t448" => format!("#define P4T_A10T2 448\n{}\n{}", p4t_a10_unit_text(tile_define), P4T_A10T2_PART.1),
+        "a10t320" => format!("#define P4T_A10T2 320\n{}\n{}", p4t_a10_unit_text(tile_define), P4T_A10T2_PART.1),
+        "a10t384r16" => format!("#define P4T_A10T2 38416\n{}\n{}", p4t_a10rc_unit_text(tile_define, 16), P4T_A10T2_PART.1),
+        _ => return Err(format!("tree verify: no module for arm {arm}")),
+    })
+}
+
+/// The symbols of arm a10t448, a10t320 or a10t384r16.
+pub fn p4t_a10t2_symbol(arm: &str, form: u32) -> Result<&'static str, String> {
+    Ok(match (arm, form) {
+        ("a10t448", 0) => "pers_4et_a10_f0_t448",
+        ("a10t448", 1) => "pers_4et_a10_f1_t448",
+        ("a10t448", 2) => "pers_4et_a10_f2_t448",
+        ("a10t320", 0) => "pers_4et_a10_f0_t320",
+        ("a10t320", 1) => "pers_4et_a10_f1_t320",
+        ("a10t320", 2) => "pers_4et_a10_f2_t320",
+        ("a10t384r16", 0) => "pers_4et_a10r16_f0_t384",
+        ("a10t384r16", 1) => "pers_4et_a10r16_f1_t384",
+        ("a10t384r16", 2) => "pers_4et_a10r16_f2_t384",
+        _ => return Err(format!("tree verify: no kernel for arm {arm} at RoPE form {form}")),
+    })
+}
+
+/// `pers_4et_a10t2.cu`, embedded so the Mac hashes what the card compiles.
+pub const P4T_A10T2_PART: (&str, &str) = ("pers_4et_a10t2.cu", include_str!("../kernels/pers_4et_a10t2.cu"));
+
+/// The module text of arm a12 (`pers_4et_a12.cu`: a10t384r16 with the
+/// drafter's taps), after [`p4t_a10rc_unit_text`] at 16 rows, which keeps
+/// its bytes.
+pub fn p4t_a12_unit_text(tile_define: &str) -> String {
+    format!("#define P4T_A12 1\n{}\n{}", p4t_a10rc_unit_text(tile_define, 16), P4T_A12_PART.1)
+}
+
+/// The a12 symbol for a RoPE form (384 threads).
+pub fn p4t_a12_symbol(form: u32) -> Result<&'static str, String> {
+    Ok(match form {
+        0 => "pers_4et_a12_f0_t384",
+        1 => "pers_4et_a12_f1_t384",
+        2 => "pers_4et_a12_f2_t384",
+        _ => return Err(format!("tree verify: no a12 kernel for RoPE form {form}")),
+    })
+}
+
+/// The module text of arm a12ip (step M1 of the memory axis): a12's pass on
+/// the words 4E holds, read in place, and the install's load check
+/// `p4t_ip_check`; [`p4t_a12_unit_text`] under `P4T_A12IP 1`, which emits
+/// those symbols instead of a12's.
+pub fn p4t_a12ip_unit_text(tile_define: &str) -> String {
+    format!("#define P4T_A12IP 1\n{}", p4t_a12_unit_text(tile_define))
+}
+
+/// The a12ip symbol for a RoPE form (384 threads).
+pub fn p4t_a12ip_symbol(form: u32) -> Result<&'static str, String> {
+    Ok(match form {
+        0 => "pers_4et_a12ip_f0_t384",
+        1 => "pers_4et_a12ip_f1_t384",
+        2 => "pers_4et_a12ip_f2_t384",
+        _ => return Err(format!("tree verify: no a12ip kernel for RoPE form {form}")),
+    })
+}
+
+/// The module text of arm a12ipg (D1 of
+/// docs/mesures/large-prefill-contexte-2026-11-11.txt): a12ip's pass whose
+/// attention reads each split that ends at or below pos0 once for a group of
+/// [`P4G_RG`] rows (`pers_4et_a12g.cu`), appended after
+/// [`p4t_a12ip_unit_text`], which keeps its bytes. The module also carries
+/// a12ip's symbols and its load check `p4t_ip_check`.
+pub fn p4t_a12ipg_unit_text(tile_define: &str) -> String {
+    format!("#define P4T_A12IPG 1\n{}\n{}", p4t_a12ip_unit_text(tile_define), P4T_A12G_PART.1)
+}
+
+/// The a12ipg symbol for a RoPE form (384 threads).
+pub fn p4t_a12ipg_symbol(form: u32) -> Result<&'static str, String> {
+    Ok(match form {
+        0 => "pers_4et_a12ipg_f0_t384",
+        1 => "pers_4et_a12ipg_f1_t384",
+        2 => "pers_4et_a12ipg_f2_t384",
+        _ => return Err(format!("tree verify: no a12ipg kernel for RoPE form {form}")),
+    })
+}
+
+/// The module text of arm a12ipg32 (design A of
+/// docs/mesures/large-prefill-rangees-etude-2026-11-11.txt): a12ipg's pass
+/// compiled at RC = 4, 32 rows a launch (`pers_4et_a12g32.cu`), appended after
+/// [`p4t_a12ipg_unit_text`], which keeps its bytes. The module also carries
+/// a12ip's and a12ipg's symbols and the load check `p4t_ip_check`.
+pub fn p4t_a12ipg32_unit_text(tile_define: &str) -> String {
+    format!("#define P4T_A12IPG32 1\n{}\n{}", p4t_a12ipg_unit_text(tile_define), P4T_A12G32_PART.1)
+}
+
+/// The a12ipg32 symbol for a RoPE form (384 threads).
+pub fn p4t_a12ipg32_symbol(form: u32) -> Result<&'static str, String> {
+    Ok(match form {
+        0 => "pers_4et_a12ipg32_f0_t384",
+        1 => "pers_4et_a12ipg32_f1_t384",
+        2 => "pers_4et_a12ipg32_f2_t384",
+        _ => return Err(format!("tree verify: no a12ipg32 kernel for RoPE form {form}")),
+    })
+}
+
+/// `pers_4et_a12g32.cu`, embedded so the Mac hashes what the card compiles.
+pub const P4T_A12G32_PART: (&str, &str) = ("pers_4et_a12g32.cu", include_str!("../kernels/pers_4et_a12g32.cu"));
+
+// ---------------------------------------------------------------------------
+// The attention tile's full-tile path (ft arms,
+// docs/mesures/large-attn-tuile-pleine-mac-2026-11-11.txt): a module text with
+// `pers_attn_full.cuh` inserted before `pers_attn_tile` and a branch at the
+// head of `pers_attn_tile` that runs it when the tile holds PERS_TT
+// positions. A text edit of the parent module, so a12ip, a12ipg, a12ipg32
+// and 4E v9 keep their bytes.
+// ---------------------------------------------------------------------------
+
+/// `pers_attn_full.cuh`, inserted by [`pers_ft_edit`] in the ft arms only.
+pub const PERS_FT_PART: (&str, &str) = ("pers_attn_full.cuh", include_str!("../kernels/pers_attn_full.cuh"));
+
+/// `pers_attn_tile`'s head in `llvq_pers.cuh`, the ft edit's anchor.
+const PERS_FT_ANCHOR: &str = "__device__ __forceinline__ void pers_attn_tile(const float* qrow, float* row, bool own, const uint4* ks,
+                                               const uint4* vs, u32 nv, float c, u32 lane)
+{
+";
+
+/// The ft edit: (part, text, replacement), the text present exactly once in
+/// `llvq_pers.cuh` and in every module that carries it once.
+pub fn pers_ft_edit() -> (&'static str, String, String) {
+    (
+        "llvq_pers.cuh",
+        PERS_FT_ANCHOR.to_string(),
+        format!(
+            "{}\n{PERS_FT_ANCHOR}    if (nv == PERS_TT) {{  // ft: a full tile, its positions with no guard between them\n        \
+             pers_attn_tile_full(qrow, row, own, ks, vs, c, lane);\n        return;\n    }}\n",
+            PERS_FT_PART.1
+        ),
+    )
+}
+
+/// A module text with the ft edit applied; refuses a text that does not hold
+/// `pers_attn_tile`'s head exactly once.
+pub fn pers_ft_apply(text: &str) -> Result<String, String> {
+    let (_, from, to) = pers_ft_edit();
+    let n = text.matches(from.as_str()).count();
+    if n != 1 {
+        return Err(format!("ft: {n} sites of pers_attn_tile's head, expected exactly one"));
+    }
+    Ok(text.replacen(from.as_str(), &to, 1))
+}
+
+/// The module text of a full-tile tree arm: "a12ipft", "a12ipgft" or
+/// "a12ipg32ft", its parent's text with the ft edit. Same symbols as the parent.
+pub fn p4t_ft_unit_text(tile_define: &str, arm: &str) -> Result<String, String> {
+    let parent = match arm {
+        "a12ipft" => p4t_a12ip_unit_text(tile_define),
+        "a12ipgft" => p4t_a12ipg_unit_text(tile_define),
+        "a12ipg32ft" => p4t_a12ipg32_unit_text(tile_define),
+        _ => return Err(format!("ft: no tree arm {arm:?}; the arms are a12ipft, a12ipgft, a12ipg32ft")),
+    };
+    pers_ft_apply(&parent)
+}
+
+/// Rows a shared attention job of a12ipg serves (`P4G_RG`).
+pub const P4G_RG: u32 = 4;
+
+/// `p4g_area_floats` of `pers_4et_a12g.cu`: a12ip's area, or the grouped
+/// attention's (two stages, then each of [`P4G_RG`] rows' unit states and q)
+/// with the maxima, whichever is larger.
+pub fn p4g_area_floats(nw: u32, rs: u32, widest: u32, groups: u32) -> u32 {
+    let g = (16 * 1024 * 2 + P4G_RG * (4 * 4 * groups * 130 + 4 * groups * 128)).div_ceil(4) + 2 * P4T_RMAX;
+    p4t_area_floats(nw, rs, widest, groups).max(g)
+}
+
+/// `pers_4et_a12g.cu`, embedded so the Mac hashes what the card compiles.
+pub const P4T_A12G_PART: (&str, &str) = ("pers_4et_a12g.cu", include_str!("../kernels/pers_4et_a12g.cu"));
+
+/// u32 words of a projection in the served order, as the tree pass reads it
+/// in place: Tetra `stride_u32` a row, int4 d_in / 8. The bytes a12ip reads
+/// where a12 reads [`p4t_tiled_words`].
+pub fn p4t_served_words(int4: bool, d_out: u32, stride_u32: u32, d_in: u32) -> u64 {
+    d_out as u64 * if int4 { (d_in / 8) as u64 } else { stride_u32 as u64 }
+}
+
+/// `pers_4et_a12.cu`, embedded so the Mac hashes what the card compiles.
+pub const P4T_A12_PART: (&str, &str) = ("pers_4et_a12.cu", include_str!("../kernels/pers_4et_a12.cu"));
+
+/// `pers_4et_a10t.cu`, embedded so the Mac hashes what the card compiles.
+pub const P4T_A10T_PART: (&str, &str) = ("pers_4et_a10t.cu", include_str!("../kernels/pers_4et_a10t.cu"));
+
+/// `pers_4et_a11.cu`, embedded so the Mac hashes what the card compiles.
+pub const P4T_A11_PART: (&str, &str) = ("pers_4et_a11.cu", include_str!("../kernels/pers_4et_a11.cu"));
+
+/// What a11 prefetches into L2 for one layer, per row phase (q/k/v, o,
+/// gate/up, down with `int4_down` or Tetra): the phase's bytes in all and the
+/// most one CTA asks in its gap, the tree-tiled streams of the units
+/// `pers_4et.cu`'s deal gives it (16-row tiles, 48-column sub-steps of 192
+/// bytes Tetra and 384 int4; whole lines, a stream rounded up to 128 bytes
+/// at each end). A model of the 4B's kinds: q, k, gate, up Tetra; v, o int4.
+#[allow(clippy::too_many_arguments)]
+pub fn p4t_prefetch_volume(splits: [u32; 5], hidden: u32, inter: u32, d_ctx: u32, n_kv: u32, int4_down: bool, nw: u32, grid: u32) -> [(u64, u64); 4] {
+    // (d_out, d_in, int4) of each projection of a phase
+    let dkv = n_kv * 128;
+    let phases: [Vec<(u32, u32, bool)>; 4] = [
+        vec![(d_ctx, hidden, false), (dkv, hidden, false), (dkv, hidden, true)],
+        vec![(hidden, d_ctx, true)],
+        vec![(inter, hidden, false), (inter, hidden, false)],
+        vec![(hidden, inter, int4_down)],
+    ];
+    let mut out = [(0u64, 0u64); 4];
+    for (i, segs) in phases.iter().enumerate() {
+        let s = splits[[0usize, 1, 2, 3][i]];
+        let mut per_cta = vec![0u64; grid as usize];
+        let mut total = 0u64;
+        let mut before = 0u32;
+        for &(d_out, d_in, int4) in segs {
+            let (ntiles, nsub, sw) = (d_out / 16, d_in.div_ceil(48), if int4 { 384u64 } else { 192 });
+            let nb = ntiles.div_ceil(nw);
+            for lu in 0..nb * s {
+                let (sl, blk) = (lu % s, lu / s);
+                let (lo, hi) = ((sl * nsub / s) as u64, ((sl + 1) * nsub / s) as u64);
+                let cta = ((before + lu) % grid) as usize;
+                for w in 0..nw {
+                    let tile = (blk * nw + w) as u64;
+                    if tile >= ntiles as u64 || hi == lo {
+                        continue;
+                    }
+                    let a = (tile * nsub as u64 + lo) * sw;
+                    let b = a + (hi - lo) * sw;
+                    let lines = (b.div_ceil(128) - a / 128) * 128;
+                    per_cta[cta] += lines;
+                    total += lines;
+                }
+            }
+            before += nb * s;
+        }
+        out[i] = (total, per_cta.into_iter().max().unwrap_or(0));
+    }
+    out
+}
+
+/// `pers_4et_a10.cu`, embedded so the Mac hashes what the card compiles.
+pub const P4T_A10_PART: (&str, &str) = ("pers_4et_a10.cu", include_str!("../kernels/pers_4et_a10.cu"));
+
+/// `pers_4et_a9.cu`, embedded so the Mac hashes what the card compiles.
+pub const P4T_A9_PART: (&str, &str) = ("pers_4et_a9.cu", include_str!("../kernels/pers_4et_a9.cu"));
+
+/// `pers_4et_a8.cu`, embedded so the Mac hashes what the card compiles.
+pub const P4T_A8_PART: (&str, &str) = ("pers_4et_a8.cu", include_str!("../kernels/pers_4et_a8.cu"));
+
+/// `pers_4et_a6.cu`, embedded so the Mac hashes what the card compiles.
+pub const P4T_A6_PART: (&str, &str) = ("pers_4et_a6.cu", include_str!("../kernels/pers_4et_a6.cu"));
+
+/// `pers_4et_a5.cu`, embedded so the Mac hashes what the card compiles.
+pub const P4T_A5_PART: (&str, &str) = ("pers_4et_a5.cu", include_str!("../kernels/pers_4et_a5.cu"));
+
+/// `pers_4et_a4.cu`, embedded so the Mac hashes what the card compiles.
+pub const P4T_A4_PART: (&str, &str) = ("pers_4et_a4.cu", include_str!("../kernels/pers_4et_a4.cu"));
+
+/// `pers_4et_stream.cu`, embedded so the Mac hashes what the card compiles.
+pub const P4T_STREAM_PART: (&str, &str) = ("pers_4et_stream.cu", include_str!("../kernels/pers_4et_stream.cu"));
+
+/// The tree kernel's symbol for a RoPE form (512 threads only).
+pub fn p4t_symbol(form: u32) -> Result<&'static str, String> {
+    Ok(match form {
+        0 => "pers_4et_rows_f0_t512",
+        1 => "pers_4et_rows_f1_t512",
+        2 => "pers_4et_rows_f2_t512",
+        _ => return Err(format!("tree verify: no kernel for RoPE form {form}")),
+    })
+}
+
+/// The tree module's text: the 4E module of row form 7 and `pers_4et.cu`.
+/// Its own module, so the served 4E module keeps its text.
+pub fn p4t_unit_text(tile_define: &str) -> String {
+    format!("{}{}\n{}", p4e_rows_define(7).expect("form 7 exists"), pers_unit_text(tile_define), P4T_PART.1)
+}
+
+/// `pers_4et.cu`, embedded so the Mac hashes what the card compiles.
+pub const P4T_PART: (&str, &str) = ("pers_4et.cu", include_str!("../kernels/pers_4et.cu"));
 
 /// The token kernel's symbol for a RoPE form and a block size.
 pub fn p4e_symbol(form: u32, threads: u32) -> Result<&'static str, String> {
@@ -2255,6 +3461,835 @@ pub fn trows_clock_mhz(ends: &[u64]) -> f64 {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_tree_pass_fits_the_l40s_at_the_three_sizes() {
+        // 512 threads, 32 staged rows: under the L40S's 101,376 B with the
+        // header and the tables, at the 4B, 8B and 14B widths
+        for (hidden, inter, d_ctx, groups) in [(2560u32, 9728u32, 4096u32, 4u32), (4096, 12288, 4096, 4), (5120, 17408, 5120, 5)] {
+            let area = p4t_area_floats(16, 32, hidden.max(inter).max(d_ctx), groups);
+            assert!(SMEM_HEADER + TABLE_BYTES + 4 * area <= 101_376, "{hidden}: {area} floats");
+        }
+        assert_eq!(p4t_area_floats(16, 32, 9728, 4), 17_728);
+    }
+
+    #[test]
+    fn the_tree_splits_are_one_unit_a_cta_and_never_depend_on_rows() {
+        // the 4B on 142 SMs: q/k/v 24 blocks, o 10, gate/up 76, down 10, head 594
+        assert_eq!(p4t_splits(2560, 9728, 4096, 8, 151_936, 16, 142), [6, 14, 2, 14, 1]);
+        assert_eq!(p4t_split(160, 16, 96, 142), 1, "never past half the sub-steps");
+        assert!(p4t_fpart_floats([6, 14, 2, 14, 1], 2560, 9728, 4096, 8, 151_936) <= 2_000_000);
+        assert_eq!(p4t_ftickets(2560, 9728, 4096, 8, 151_936), 9496);
+        assert_eq!(n_bar_4et(36, 0), 327);
+    }
+
+    #[test]
+    fn the_tree_phases_sum_the_layers() {
+        let (layers, g) = (2u32, 3usize);
+        let n_bar = n_bar_4et(layers, 0) as usize;
+        let events = 1 + 2 * n_bar;
+        // leaving wait w at 1000 (w + 1) + c, reaching it 10 (c + 1) earlier
+        let st: Vec<u64> = (0..events)
+            .flat_map(|e| {
+                (0..g).map(move |c| {
+                    let w = e.div_ceil(2) as u64;
+                    if e % 2 == 1 { 1000 * (w + 1) + c as u64 - 10 * (c as u64 + 1) } else { 1000 * (w + 1) + c as u64 }
+                })
+            })
+            .collect();
+        let p = p4t_phases(&st, layers, g as u32).unwrap();
+        assert_eq!(p[0][0], 1000.0);
+        assert_eq!(p[1][0], 2000.0, "ln1 twice");
+        assert_eq!(p[10][0], 1000.0);
+        assert_eq!(p[11][0], 1000.0);
+        assert_eq!(p.iter().map(|x| x[0]).sum::<f64>(), 1000.0 * n_bar as f64);
+        // busy: 1000 - 10 (c + 1) a wait, CTA 0 the longest
+        assert_eq!(p[0][3], 990.0);
+        assert_eq!(p[0][1], 970.0);
+        assert_eq!(p[1][2], 2.0 * 980.0);
+        assert!(p4t_phases(&st[1..], layers, g as u32).is_err());
+    }
+
+    #[test]
+    fn the_n1_plan_fills_the_grid_at_the_4b() {
+        // S1's plan at the 4B on 142 SMs: q/k/v 144 units in two waves, gate/up 152
+        let s1 = p4t_plan([6, 14, 2, 14, 1], 2560, 9728, 4096, 8, 151_936, 16, 142);
+        assert_eq!((s1[0].0, s1[0].1), (144, 2));
+        assert_eq!((s1[2].0, s1[2].1), (152, 2));
+        let a1 = [11, 14, 7, 14, 1];
+        assert_eq!(p4t_splits_balanced(a1, 2560, 9728, 4096, 8, 151_936, 16, 142), a1, "a1 reads 90 % or more");
+        let p = p4t_plan(a1, 2560, 9728, 4096, 8, 151_936, 16, 142);
+        assert_eq!((p[0].0, p[0].1), (264, 2));
+        assert_eq!((p[2].0, p[2].1), (532, 4));
+        assert!(p[0].2 >= 0.9 && p[2].2 >= 0.9);
+        // a poor proposal is replaced by the best fill
+        assert_eq!(p4t_splits_balanced([6, 14, 2, 14, 1], 2560, 9728, 4096, 8, 151_936, 16, 142)[0], 11);
+        assert_eq!(p4t_tiled_words(false, 4096, 2560), 256 * 54 * 48);
+        assert_eq!(p4t_tiled_words(true, 151_936, 2560), 9496 * 54 * 96);
+    }
+
+    #[test]
+    fn the_n2_stream_plan_fits_the_area_and_fills_the_grid() {
+        // the 4B on 142 SMs, 16 warps: a2's area, so a2's shared bytes
+        let area = p4t_area_floats(16, 32, 9728, 4);
+        let smem = SMEM_HEADER + TABLE_BYTES + 4 * area;
+        assert_eq!((area, smem), (17_728, 89_984));
+        assert!(smem <= 101_376);
+        let cap = p4t_stream_cap(area, 16);
+        assert_eq!(cap, 13, "32 rows of 24 x 13 + 4 words beside the A tiles");
+        assert!(16 * 16 * 28 + 32 * (24 * cap + 4) + 2 * 32 <= area && 16 * 16 * 28 + 32 * (24 * (cap + 1) + 4) + 2 * 32 > area);
+        let (h, i, d, kv, v) = (2560, 9728, 4096, 8, 151_936);
+        let s = p4t_splits_stream(h, i, d, kv, v, 16, 142, cap).unwrap();
+        let names = ["q/k/v", "o", "gate/up", "down", "head"];
+        let d_ins = [h, d, h, i, h];
+        let floor: Vec<u32> = d_ins.iter().map(|&x| (1..=32).find(|&s| p4t_slice_steps(x, s) <= cap).unwrap()).collect();
+        assert_eq!(floor, [5, 7, 5, 16, 5]);
+        let p = p4t_plan(s, h, i, d, kv, v, 16, 142);
+        for k in 0..5 {
+            eprintln!(
+                "4B, 142 CTAs: {} S {} (floor {}), units {}, waves {}, fill {:.1} %, at most {} sub-steps a slice",
+                names[k], s[k], floor[k], p[k].0, p[k].1, 100.0 * p[k].2, p4t_slice_steps(d_ins[k], s[k])
+            );
+            assert!(s[k] >= floor[k] && p4t_slice_steps(d_ins[k], s[k]) <= cap);
+        }
+        assert_eq!(s, [11, 14, 7, 28, 5]);
+        let fp = p4t_fpart_floats(s, h, i, d, kv, v);
+        eprintln!("slice partials {fp} floats, {:.1} MB", 4.0 * fp as f64 / 1e6);
+        assert_eq!(fp, 5 * 32 * 151_936);
+        // the host twin: 3 CTAs of 2 warps, its area the widest row's
+        let ht = p4t_area_floats(2, 32, 9728, 4);
+        let hcap = p4t_stream_cap(ht, 2);
+        assert_eq!(hcap, 18);
+        let hs = p4t_splits_stream(h, i, d, kv, 1024, 2, 3, hcap).unwrap();
+        let hp = p4t_plan(hs, h, i, d, kv, 1024, 2, 3);
+        for k in 0..5 {
+            eprintln!(
+                "host twin, 3 CTAs of 2 warps: {} S {}, units {}, waves {}, fill {:.1} %, at most {} sub-steps a slice",
+                names[k], hs[k], hp[k].0, hp[k].1, 100.0 * hp[k].2, p4t_slice_steps(d_ins[k], hs[k])
+            );
+        }
+        assert_eq!(hs, [4, 6, 4, 13, 4]);
+        assert!(p4t_splits_stream(h, i, d, kv, v, 16, 142, 3).is_err(), "the down needs S > 32 at 3 sub-steps a slice");
+    }
+
+    #[test]
+    fn the_stream_body_is_the_tree_body() {
+        // pers_4et_stream.cu carries pers_4et.cu's pass with three
+        // substitutions, and nothing else of it changed
+        let src = P4T_PART.1;
+        let a = src.find("template <int FORM, bool TILED>\n__device__ __forceinline__ void pers_4et_body(").unwrap();
+        let end = "#undef P4T_WAIT\n}\n";
+        let b = a + src[a..].find(end).unwrap() + end.len();
+        let body = src[a..b]
+            .replacen("template <int FORM, bool TILED>\n", "template <int FORM>\n", 1)
+            .replacen("void pers_4et_body(", "void pers_4et_stream_body(", 1)
+            .replace("p4t_phase<TILED>(", "p4t_phase_stream(");
+        assert!(!body.contains("TILED"));
+        assert_eq!(P4T_STREAM_PART.1.matches(body.as_str()).count(), 1, "the stream body drifted from pers_4et_body");
+        let t = p4t_stream_unit_text(SERVED_DEFINES_SM89);
+        assert!(t.contains(&p4t_tiled_unit_text(SERVED_DEFINES_SM89)));
+        for f in 0..3 {
+            assert_eq!(t.matches(p4t_stream_symbol(f).unwrap()).count(), 1);
+            assert_eq!(p4t_unit_text(SERVED_DEFINES_SM89).matches(p4t_stream_symbol(f).unwrap()).count(), 0);
+        }
+        // the module texts of a0/a1 and a2, and a3's (the bench builds them from the runtime's tile define)
+        for (n, x) in [("rows", p4t_unit_text(SERVED_DEFINES_SM89)), ("tiled", p4t_tiled_unit_text(SERVED_DEFINES_SM89)), ("stream", t)] {
+            eprintln!("tree module {n} at SERVED_DEFINES_SM89: {} bytes, sha256 {}", x.len(), crate::sha256::sha256_hex(x.as_bytes()));
+            // LLVQ_P4T_DUMP=<dir>: the texts NVRTC compiles, for an offline nvcc SASS probe
+            if let Ok(dir) = std::env::var("LLVQ_P4T_DUMP") {
+                std::fs::write(std::path::Path::new(&dir).join(format!("tree_{n}.cu")), &x).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn the_a4_body_is_the_stream_body() {
+        // pers_4et_a4.cu carries pers_4et_stream.cu's unit, deal and pass with
+        // the substitutions below, and nothing else of them changed
+        let src = P4T_STREAM_PART.1;
+        let a = src.find("// One unit: tiles [blk nw, blk nw + nw) of g").unwrap();
+        let b = a + src[a..].find("// p4t_phase's deal, the stream unit.").unwrap();
+        let unit = src[a..b]
+            .replace("p4t_unit_stream(", "p4t_unit_a4(")
+            .replace(
+                "                                                u32* area, unsigned long long* cmax)\n",
+                "                                                u32* area, unsigned long long* cmax, unsigned long long* tm)\n",
+            )
+            .replace("    p4t_stream_stage(g, xs, sub_lo, ns, R, RS, XS);\n", "    P4T_A4_MARK(0);\n    p4t_stream_stage(g, xs, sub_lo, ns, R, RS, XS);\n")
+            .replace("    p4t_cp_wait<0u>();\n    __syncthreads();\n", "    p4t_cp_wait<0u>();\n    __syncthreads();\n    P4T_A4_MARK(1);\n")
+            .replace(
+                "    __syncthreads();\n    if (has) p4t_store(g, L, A, sl, acc, wrow, lane, cmax);\n",
+                "    __syncthreads();\n    P4T_A4_MARK(2);\n    if (has) p4t_store_a4(g, L, A, sl, acc, wrow, lane, cmax);\n    P4T_A4_MARK(3);\n",
+            );
+        let c = src.find("template <int FORM>\n__device__ __forceinline__ void pers_4et_stream_body(").unwrap();
+        let end = "#undef P4T_WAIT\n}\n";
+        let d = c + src[c..].find(end).unwrap() + end.len();
+        let dn = "            for (u32 i = threadIdx.x; i < I; i += blockDim.x) {\n                const unsigned short a = exact_silu_mul(M.silu, __ldcg(gr + i), __ldcg(ur + i));\n                if (Y.tetra_down) {\n                    const float f = h2f(a);\n                    S[i] = ((M.signs_i[i >> 5] >> (i & 31u)) & 1u) ? -f : f;\n                } else {\n                    dst[i] = a;\n                }\n            }\n";
+        assert_eq!(src[c..d].matches(dn).count(), 1);
+        let body = src[c..d]
+            .replacen("void pers_4et_stream_body(", "void pers_4et_a4_body(", 1)
+            .replace("p4t_phase_stream(", "p4t_phase_a4(")
+            .replace("p4t_ln(", "p4t_ln_a4(")
+            .replace("p4t_out(", "p4t_out_a4(")
+            .replace(dn, "            p4t_dn_in_a4(M, Y.tetra_down, gr, ur, dst, S, I);\n");
+        let both = format!("{unit}{body}");
+        assert_eq!(P4T_A4_PART.1.matches(both.as_str()).count(), 1, "the a4 pass drifted from the stream pass");
+        let t = p4t_a4_unit_text(SERVED_DEFINES_SM89, true, true);
+        assert!(t.contains(&p4t_stream_unit_text(SERVED_DEFINES_SM89)), "a3's text inside a4's, unchanged");
+        for f in 0..3 {
+            assert_eq!(t.matches(p4t_a4_symbol(f).unwrap()).count(), 1);
+            assert_eq!(p4t_stream_unit_text(SERVED_DEFINES_SM89).matches(p4t_a4_symbol(f).unwrap()).count(), 0);
+        }
+        eprintln!("tree module a4 at SERVED_DEFINES_SM89: {} bytes, sha256 {}", t.len(), crate::sha256::sha256_hex(t.as_bytes()));
+    }
+
+    #[test]
+    fn the_a5_body_is_the_a4_body() {
+        // pers_4et_a5.cu carries pers_4et_a4.cu's pass with three prefetch
+        // calls inserted, and nothing else of it changed
+        let src = P4T_A4_PART.1;
+        let c = src.find("template <int FORM>\n__device__ __forceinline__ void pers_4et_a4_body(").unwrap();
+        let end = "#undef P4T_WAIT\n}\n";
+        let d = c + src[c..].find(end).unwrap() + end.len();
+        let mut body = src[c..d].replacen("void pers_4et_a4_body(", "void pers_4et_a5_body(", 1);
+        for (x, y) in [
+            ("        unsigned short* tv_l = L.tv + (unsigned long long)l * P4T_RMAX * dkv;\n", "        p4t_pf_qkv(Y, L);\n"),
+            ("        p4t_attention(A, L, Y.kc, Y.vc, tk_l, tv_l, reinterpret_cast<unsigned char*>(S));\n", "        p4t_pf_o_gu(Y, L, H, dq);\n"),
+            ("            p4t_phase_a4(sg, su, su, 2u, L, A, tab, t_inv, area, cmax);\n", "            p4t_pf_down(Y, L, H);\n"),
+        ] {
+            assert_eq!(body.matches(x).count(), 1, "{x}");
+            body = body.replacen(x, &format!("{x}{y}"), 1);
+        }
+        assert_eq!(P4T_A5_PART.1.matches(body.as_str()).count(), 1, "the a5 pass drifted from the a4 pass");
+        let t = p4t_a5_unit_text(SERVED_DEFINES_SM89);
+        assert!(t.contains(&p4t_a4_unit_text(SERVED_DEFINES_SM89, true, true)), "a4's text inside a5's, unchanged");
+        for f in 0..3 {
+            assert_eq!(t.matches(p4t_a5_symbol(f).unwrap()).count(), 1);
+        }
+        eprintln!("tree module a5 at SERVED_DEFINES_SM89: {} bytes, sha256 {}", t.len(), crate::sha256::sha256_hex(t.as_bytes()));
+    }
+
+    #[test]
+    fn the_a6_family_is_the_stream_body() {
+        // pers_4et_a6.cu carries a3's pass three times with the substitutions below
+        let src = P4T_STREAM_PART.1;
+        let c = src.find("template <int FORM>\n__device__ __forceinline__ void pers_4et_stream_body(").unwrap();
+        let end = "#undef P4T_WAIT\n}\n";
+        let d = c + src[c..].find(end).unwrap() + end.len();
+        let body = &src[c..d];
+        let dn = "        for (u32 r = c0; r < R; r += G) {\n            const unsigned short* gr = L.g_raw";
+        assert_eq!(body.matches(dn).count(), 1);
+        let b6 = body.replacen("void pers_4et_stream_body(", "void pers_4et_a6_body(", 1).replacen(
+            dn,
+            "        if (!Y.tetra_down && (I & 7u) == 0u) p4t_dn_in_grid(M, L, R, I);\n        else for (u32 r = c0; r < R; r += G) {\n            const unsigned short* gr = L.g_raw",
+            1,
+        );
+        let mut b7 = b6.replacen("void pers_4et_a6_body(", "void pers_4et_a7_body(", 1);
+        for (x, y) in [
+            ("        unsigned short* tv_l = L.tv + (unsigned long long)l * P4T_RMAX * dkv;\n", "        p4t_pf_qkv(Y, L);\n"),
+            ("        p4t_attention(A, L, Y.kc, Y.vc, tk_l, tv_l, reinterpret_cast<unsigned char*>(S));\n", "        p4t_pf_o_gu(Y, L, H, dq);\n"),
+            ("            p4t_phase_stream(sg, su, su, 2u, L, A, tab, t_inv, area, cmax);\n", "            p4t_pf_down(Y, L, H);\n"),
+        ] {
+            assert_eq!(b7.matches(x).count(), 1, "{x}");
+            b7 = b7.replacen(x, &format!("{x}{y}"), 1);
+        }
+        let a = src.find("// One unit: tiles [blk nw, blk nw + nw) of g").unwrap();
+        let b = a + src[a..].find("// ---- the pass:").unwrap();
+        let uf = src[a..b]
+            .replace("p4t_unit_stream(", "p4t_unit_floor(")
+            .replace("p4t_phase_stream(", "p4t_phase_floor(")
+            .replace("    if (has) p4t_store(g, L, A, sl, acc, wrow, lane, cmax);\n", "    if (has) p4t_store_floor(g, L, A, sl, acc, wrow, lane, cmax);\n");
+        let bf = body.replacen("void pers_4et_stream_body(", "void pers_4et_a3f_body(", 1).replace("p4t_phase_stream(", "p4t_phase_floor(");
+        for (n, x) in [("a6", b6.clone()), ("a7", b7), ("a3f", format!("{uf}{bf}"))] {
+            assert_eq!(P4T_A6_PART.1.matches(x.as_str()).count(), 1, "the {n} pass drifted from the stream pass");
+            let t = p4t_a6_unit_text(n, SERVED_DEFINES_SM89).unwrap();
+            for f in 0..3 {
+                assert_eq!(t.matches(p4t_a6_symbol(n, f).unwrap()).count(), 1);
+            }
+            eprintln!("tree module {n} at SERVED_DEFINES_SM89: {} bytes, sha256 {}", t.len(), crate::sha256::sha256_hex(t.as_bytes()));
+        }
+        assert!(p4t_a6_unit_text("a6", SERVED_DEFINES_SM89).unwrap().contains(&p4t_stream_unit_text(SERVED_DEFINES_SM89)));
+    }
+
+    #[test]
+    fn the_a8_family_is_the_stream_body() {
+        // pers_4et_a8.cu carries a3's unit, deal and pass three times, only the store changed
+        let src = P4T_STREAM_PART.1;
+        let c = src.find("template <int FORM>\n__device__ __forceinline__ void pers_4et_stream_body(").unwrap();
+        let end = "#undef P4T_WAIT\n}\n";
+        let d = c + src[c..].find(end).unwrap() + end.len();
+        let a = src.find("// One unit: tiles [blk nw, blk nw + nw) of g").unwrap();
+        let b = a + src[a..].find("// ---- the pass:").unwrap();
+        for (tag, store) in [("a3p", "p4t_store_proto<false>"), ("a3t", "p4t_store_proto<true>"), ("a8", "p4t_store_lean")] {
+            let u = src[a..b]
+                .replace("p4t_unit_stream(", &format!("p4t_unit_{tag}("))
+                .replace("p4t_phase_stream(", &format!("p4t_phase_{tag}("))
+                .replace("    if (has) p4t_store(g, L, A, sl, acc, wrow, lane, cmax);\n", &format!("    if (has) {store}(g, L, A, sl, acc, wrow, lane, cmax);\n"));
+            let bd = src[c..d]
+                .replacen("void pers_4et_stream_body(", &format!("void pers_4et_{tag}_body("), 1)
+                .replace("p4t_phase_stream(", &format!("p4t_phase_{tag}("));
+            assert_eq!(P4T_A8_PART.1.matches(format!("{u}{bd}").as_str()).count(), 1, "the {tag} pass drifted from the stream pass");
+            let t = p4t_a8_unit_text(tag, SERVED_DEFINES_SM89).unwrap();
+            assert!(t.contains(&p4t_stream_unit_text(SERVED_DEFINES_SM89)));
+            for f in 0..3 {
+                assert_eq!(t.matches(p4t_a8_symbol(tag, f).unwrap()).count(), 1);
+            }
+            eprintln!("tree module {tag} at SERVED_DEFINES_SM89: {} bytes, sha256 {}", t.len(), crate::sha256::sha256_hex(t.as_bytes()));
+        }
+    }
+
+    #[test]
+    fn the_a9_body_is_the_stream_body() {
+        // pers_4et_a9.cu carries a3's unit with a9's store and a3's pass with a
+        // wait and a fold step after each row phase
+        let src = P4T_STREAM_PART.1;
+        let c = src.find("template <int FORM>\n__device__ __forceinline__ void pers_4et_stream_body(").unwrap();
+        let end = "#undef P4T_WAIT\n}\n";
+        let d = c + src[c..].find(end).unwrap() + end.len();
+        let a = src.find("// One unit: tiles [blk nw, blk nw + nw) of g").unwrap();
+        let b = a + src[a..].find("// ---- the pass:").unwrap();
+        let u = src[a..b]
+            .replace("p4t_unit_stream(", "p4t_unit_a9(")
+            .replace("p4t_phase_stream(", "p4t_phase_a9(")
+            .replace("    if (has) p4t_store(g, L, A, sl, acc, wrow, lane, cmax);\n", "    if (has) p4t_store_a9(g, L, A, sl, acc, wrow, lane, cmax);\n");
+        let mut bd = src[c..d].replacen("void pers_4et_stream_body(", "void pers_4et_a9_body(", 1);
+        for segs in ["sq, sk, sv, 3u", "so, so, so, 1u", "sg, su, su, 2u", "sd, sd, sd, 1u"] {
+            let x = format!("            p4t_phase_stream({segs}, L, A, tab, t_inv, area, cmax);\n        }}\n");
+            assert_eq!(bd.matches(x.as_str()).count(), 1);
+            bd = bd.replace(
+                &x,
+                &format!("            p4t_phase_a9({segs}, L, A, tab, t_inv, area, cmax);\n            P4T_WAIT();\n            p4t_fold_a9({segs}, L, A, cmax);\n        }}\n"),
+            );
+        }
+        let fl = "        if (threadIdx.x < R && cmax[threadIdx.x] != 0ull) atomicMax(L.slots + threadIdx.x, cmax[threadIdx.x]);\n";
+        let x = format!("        p4t_phase_stream(sh, sh, sh, 1u, L, A, tab, t_inv, area, cmax);\n        __syncthreads();\n{fl}");
+        assert_eq!(bd.matches(x.as_str()).count(), 1);
+        bd = bd.replace(
+            &x,
+            &format!("        p4t_phase_a9(sh, sh, sh, 1u, L, A, tab, t_inv, area, cmax);\n        __syncthreads();\n{fl}        P4T_WAIT();\n        p4t_fold_a9(sh, sh, sh, 1u, L, A, cmax);\n        __syncthreads();\n{fl}"),
+        );
+        assert_eq!(P4T_A9_PART.1.matches(format!("{u}{bd}").as_str()).count(), 1, "the a9 pass drifted from the stream pass");
+        assert_eq!(bd.matches("P4T_WAIT();").count(), src[c..d].matches("P4T_WAIT();").count() + 5);
+        let t = p4t_a9_unit_text(SERVED_DEFINES_SM89);
+        assert!(t.contains(&p4t_stream_unit_text(SERVED_DEFINES_SM89)));
+        for f in 0..3 {
+            assert_eq!(t.matches(p4t_a9_symbol(f).unwrap()).count(), 1);
+        }
+        eprintln!("tree module a9 at SERVED_DEFINES_SM89: {} bytes, sha256 {}", t.len(), crate::sha256::sha256_hex(t.as_bytes()));
+        // the waits: 13 a layer, 3 + 1 at the ends; the phases sum the layers
+        assert_eq!(n_bar_a9(36, 0), 327 + 145);
+        let (layers, g) = (2u32, 3usize);
+        let n_bar = n_bar_a9(layers, 0) as usize;
+        let st: Vec<u64> = (0..1 + 2 * n_bar).flat_map(|e| (0..g).map(move |c| 1000 * (e as u64 + 1) + c as u64)).collect();
+        let p = p4t_phases_a9(&st, layers, g as u32).unwrap();
+        assert_eq!(p.len(), 17);
+        assert_eq!(p[3][0], 2.0 * 2000.0, "qkv fold twice");
+        assert_eq!(p[16][0], 2000.0, "head fold once");
+        assert_eq!(p[14][0], 2000.0, "norm once");
+        assert_eq!(p.iter().map(|x| x[0]).sum::<f64>(), 2000.0 * n_bar as f64);
+    }
+
+    #[test]
+    fn the_a10_body_is_the_a9_body() {
+        // pers_4et_a10.cu carries a9's pass with the prologue and fold-step
+        // substitutions; the waits are a9's (P4T_WAIT_GAP counts as one)
+        let src = P4T_A9_PART.1;
+        let c = src.find("template <int FORM>\n__device__ __forceinline__ void pers_4et_a9_body(").unwrap();
+        let end = "#undef P4T_WAIT\n}\n";
+        let d = c + src[c..].find(end).unwrap() + end.len();
+        let a9 = &src[c..d];
+        // the generator's substitutions, replayed (scratch gen_a10.py's pairs)
+        let gap = r##"#define P4T_WAIT_GAP(...)                                                                            \
+    do {                                                                                             \
+        if (L.stamps != nullptr) {                                                                   \
+            __syncthreads();                                                                         \
+            if (threadIdx.x == 0u) L.stamps[(size_t)(2u * nb + 1u) * G + c0] = pers_now();           \
+        }                                                                                            \
+        if (!pers_grid_wait_gap(A->bar, L.bar_base + (++nb) * G, A->abort_flag, [&] { __VA_ARGS__; })) return; \
+        if (L.stamps != nullptr && threadIdx.x == 0u) L.stamps[(size_t)(2u * nb) * G + c0] = pers_now(); \
+    } while (0)
+    // a10: the staged rotation area (null: the prologues keep a9's path)
+    float* const v7a10 = p4t_v7_a10(S, L.area_floats, 2u * H > A->layers[0].mlp.inter ? 2u * H : A->layers[0].mlp.inter);
+"##;
+        let dn0 = a9.find("        for (u32 r = c0; r < R; r += G) {\n            const unsigned short* gr = L.g_raw").unwrap();
+        let dn_end = "            } else {\n                __syncthreads();\n            }\n        }\n";
+        let dn1 = dn0 + a9[dn0..].find(dn_end).unwrap() + dn_end.len();
+        let dn_old = &a9[dn0..dn1];
+        let pairs: Vec<(String, String)> = vec![
+            ("void pers_4et_a9_body(".into(), "void pers_4et_a10_body(".into()),
+            ("    } while (0)\n".into(), format!("    }} while (0)\n{gap}")),
+            (r##"                   H * (c0 + 1u) / G);
+    P4T_WAIT();
+    for (u32 l = 0; l < NL; ++l) {
+"##.into(),
+             r##"                   H * (c0 + 1u) / G);
+    P4T_WAIT_GAP(if (v7a10 != nullptr) pers_v7_stage_rot(v7a10, A->layers[0].signs_a, H, A->layers[0].small_a, A->layers[0].k_a));
+    for (u32 l = 0; l < NL; ++l) {
+"##.into()),
+            (r##"            p4t_ln(L.x_a + (size_t)r * H, Y.ln1, Y.signs_a, A->eps, H, S, L.xn + (size_t)r * H);
+            pers_rot_finish(S, Y.small_a, H, Y.m_a, Y.k_a, Y.inv_a);
+            p4t_out(S, H, L.xin + (size_t)r * L.ldx);
+"##.into(),
+             r##"            p4t_ln_rot_a10(L.x_a + (size_t)r * H, Y.ln1, Y.signs_a, Y.small_a, A->eps, H, Y.m_a, Y.k_a, Y.inv_a, S, v7a10,
+                           L.xn + (size_t)r * H, L.xin + (size_t)r * L.ldx);
+"##.into()),
+            (r##"            p4t_fold_a9(so, so, so, 1u, L, A, cmax);
+        }
+        P4T_WAIT();
+"##.into(),
+             r##"            p4t_fold_a9(so, so, so, 1u, L, A, cmax);
+        }
+        P4T_WAIT_GAP(if (v7a10 != nullptr) pers_v7_stage_rot(v7a10, M.signs_h, H, M.small_h, M.k_h));
+"##.into()),
+            (r##"            p4t_ln(L.x_b + (size_t)r * H, M.alpha, M.signs_h, M.eps, H, S, nullptr);
+            pers_rot_finish(S, M.small_h, H, M.m_h, M.k_h, M.inv_h);
+            p4t_out(S, H, L.xin + (size_t)r * L.ldx);
+"##.into(),
+             r##"            p4t_ln_rot_a10(L.x_b + (size_t)r * H, M.alpha, M.signs_h, M.small_h, M.eps, H, M.m_h, M.k_h, M.inv_h, S, v7a10,
+                           nullptr, L.xin + (size_t)r * L.ldx);
+"##.into()),
+            (r##"            p4t_fold_a9(sg, su, su, 2u, L, A, cmax);
+        }
+        P4T_WAIT();
+"##.into(),
+             r##"            p4t_fold_gu_a10(sg, su, M, L);
+        }
+        P4T_WAIT_GAP(if (v7a10 != nullptr && Y.tetra_down) pers_v7_stage_rot(v7a10, M.signs_i, I, M.small_i, M.k_i));
+"##.into()),
+            (dn_old.to_string(), r##"        for (u32 r = c0; r < R; r += G) p4t_dn_in_a10(M, Y.tetra_down, L.xin + (size_t)r * L.ldx, S, I, v7a10);
+"##.into()),
+            (r##"            p4t_fold_a9(sd, sd, sd, 1u, L, A, cmax);
+        }
+        P4T_WAIT();
+    }
+"##.into(),
+             r##"            p4t_fold_a9(sd, sd, sd, 1u, L, A, cmax);
+        }
+        P4T_WAIT_GAP(if (v7a10 != nullptr) {
+            if (l + 1u < NL) pers_v7_stage_rot(v7a10, A->layers[l + 1u].signs_a, H, A->layers[l + 1u].small_a, A->layers[l + 1u].k_a);
+            else p4t_v7_zero_signs_a10(v7a10, H);
+        });
+    }
+"##.into()),
+            (r##"        p4t_ln(L.x_a + (size_t)r * H, A->final_norm, nullptr, A->eps, H, S, L.xin + (size_t)r * L.ldx);
+"##.into(),
+             r##"        p4t_ln_final_a10(L.x_a + (size_t)r * H, A->final_norm, A->eps, H, S, v7a10, L.xin + (size_t)r * L.ldx);
+"##.into()),
+            ("#undef P4T_WAIT\n}\n".into(), "#undef P4T_WAIT_GAP\n#undef P4T_WAIT\n}\n".into()),
+        ];
+        let mut b10 = a9.to_string();
+        for (x, y) in &pairs {
+            assert_eq!(b10.matches(x.as_str()).count(), 1, "{}", &x[..x.len().min(60)]);
+            b10 = b10.replacen(x.as_str(), y, 1);
+        }
+        assert_eq!(P4T_A10_PART.1.matches(b10.as_str()).count(), 1, "the a10 pass drifted from the a9 pass");
+        let waits = |t: &str| t.matches("P4T_WAIT();").count() + t.matches("P4T_WAIT_GAP(if").count();
+        assert_eq!(waits(a9), waits(&b10), "a10 keeps a9's waits");
+        let t = p4t_a10_unit_text(SERVED_DEFINES_SM89);
+        assert!(t.contains(&p4t_a9_unit_text(SERVED_DEFINES_SM89)));
+        for f in 0..3 {
+            assert_eq!(t.matches(p4t_a10_symbol(f).unwrap()).count(), 1);
+        }
+        eprintln!("tree module a10 at SERVED_DEFINES_SM89: {} bytes, sha256 {}", t.len(), crate::sha256::sha256_hex(t.as_bytes()));
+        // the staged area fits above the widest prologue row at the 4B and on the twin
+        for (nw, widest) in [(16u32, 9728u32), (2, 9728)] {
+            let area = p4t_area_floats(nw, 32, widest, 4);
+            let off = (area - 2 * P4T_RMAX - 1840) & !3;
+            eprintln!("area {area} floats at {nw} warps: the staged rotation at {off}, the prologue needs 9728");
+            assert!(off >= 9728);
+        }
+    }
+
+    #[test]
+    fn the_a11_pass_is_a10s_with_prefetches_in_its_gaps() {
+        // a11's pass is a10's with prefetch calls inside wait gaps only: the
+        // same waits, and every a10 line outside the five rewritten sites kept
+        let src = P4T_A10_PART.1;
+        let c = src.find("template <int FORM>\n__device__ __forceinline__ void pers_4et_a10_body(").unwrap();
+        let end = "#undef P4T_WAIT\n}\n";
+        let d = c + src[c..].find(end).unwrap() + end.len();
+        let a10 = &src[c..d];
+        let a11s = P4T_A11_PART.1;
+        let e = a11s.find("template <int FORM>\n__device__ __forceinline__ void pers_4et_a11_body(").unwrap();
+        let f = e + a11s[e..].find(end).unwrap() + end.len();
+        let a11 = &a11s[e..f];
+        let waits = |t: &str| t.matches("P4T_WAIT();").count() + t.matches("P4T_WAIT_GAP(").count();
+        assert_eq!(waits(a10), waits(a11), "a11 keeps a10's waits");
+        assert_eq!(a11.matches("p4t_pf11_").count(), 5, "five prefetch calls");
+        for line in a11.lines().filter(|l| l.contains("p4t_pf11_")) {
+            assert!(!line.trim_start().starts_with("p4t_pf11_") || line.contains("));"), "a prefetch outside a gap: {line}");
+        }
+        let mut at = 0usize;
+        for line in a10.lines().filter(|l| !l.contains("pers_4et_a10_body(") && !l.contains("P4T_WAIT") && !l.contains("p4t_attention(") && !l.contains("pers_v7_stage_rot(v7a10, M.signs_i") && !l.contains("p4t_v7_zero_signs_a10") && !l.trim().starts_with("});")) {
+            let i = a11[at..].find(line).unwrap_or_else(|| panic!("a10's line {line:?} missing or out of order in a11's pass"));
+            at += i + line.len();
+        }
+        let t = p4t_a11_unit_text(SERVED_DEFINES_SM89);
+        assert!(t.contains(&p4t_a10_unit_text(SERVED_DEFINES_SM89)));
+        for f in 0..3 {
+            assert_eq!(t.matches(p4t_a11_symbol(f).unwrap()).count(), 1);
+        }
+        eprintln!("tree module a11 at SERVED_DEFINES_SM89: {} bytes, sha256 {}", t.len(), crate::sha256::sha256_hex(t.as_bytes()));
+        // the volumes at the 4B, plan [5, 14, 5, 28, 5], 142 CTAs of 16 warps
+        for int4_down in [false, true] {
+            let v = p4t_prefetch_volume([5, 14, 5, 28, 5], 2560, 9728, 4096, 8, int4_down, 16, 142);
+            let total: u64 = v.iter().map(|x| x.0).sum();
+            eprintln!(
+                "4B, {} down: q/k/v {:.2} MB (a CTA at most {:.1} KB), o {:.2} MB ({:.1} KB), gate/up {:.2} MB ({:.1} KB), down {:.2} MB ({:.1} KB); a layer {:.2} MB of the L40S's 96 MB L2",
+                if int4_down { "int4" } else { "Tetra" },
+                v[0].0 as f64 / 1e6, v[0].1 as f64 / 1e3, v[1].0 as f64 / 1e6, v[1].1 as f64 / 1e3,
+                v[2].0 as f64 / 1e6, v[2].1 as f64 / 1e3, v[3].0 as f64 / 1e6, v[3].1 as f64 / 1e3, total as f64 / 1e6
+            );
+            assert!(total < 96_000_000);
+        }
+    }
+
+    #[test]
+    fn the_a11i_pass_is_a11s_with_marks() {
+        // a11i's pass is a11's with its phase calls renamed; its unit is a9's
+        // with the marks only (every a9 unit line kept, in order)
+        let a10 = P4T_A11_PART.1;
+        let c = a10.find("template <int FORM>\n__device__ __forceinline__ void pers_4et_a11_body(").unwrap();
+        let end = "#undef P4T_WAIT\n}\n";
+        let d = c + a10[c..].find(end).unwrap() + end.len();
+        let body = a10[c..d].replacen("void pers_4et_a11_body(", "void pers_4et_a11i_body(", 1).replace("p4t_phase_a9(", "p4t_phase_a11i(");
+        assert_eq!(P4T_A11I_PART.1.matches(body.as_str()).count(), 1, "the a11i pass drifted from a11's");
+        let a9 = P4T_A9_PART.1;
+        let a = a9.find("// One unit: tiles [blk nw, blk nw + nw) of g").unwrap();
+        let b = a + a9[a..].find("// p4t_phase's deal, the stream unit.").unwrap();
+        let ui = P4T_A11I_PART.1;
+        let mut at = ui.find("// One unit: tiles [blk nw, blk nw + nw) of g").unwrap();
+        for line in a9[a..b].lines().filter(|l| !l.contains("p4t_unit_a9(") && !l.contains("u32* area, unsigned long long* cmax)")) {
+            let i = ui[at..].find(line).unwrap_or_else(|| panic!("a9's unit line {line:?} missing or out of order in a11i's"));
+            at += i + line.len();
+        }
+        let t = p4t_a11i_unit_text(SERVED_DEFINES_SM89);
+        assert!(t.contains(&p4t_a11_unit_text(SERVED_DEFINES_SM89)));
+        for f in 0..3 {
+            assert_eq!(t.matches(p4t_a11i_symbol(f).unwrap()).count(), 1);
+        }
+        eprintln!("tree module a11i at SERVED_DEFINES_SM89: {} bytes, sha256 {}", t.len(), crate::sha256::sha256_hex(t.as_bytes()));
+        // the wait classes: arrival 10 (c + 1) before leaving, busy 1000 - 10 (c + 1)
+        let (layers, g) = (2u32, 3usize);
+        let n_bar = n_bar_a9(layers, 0) as usize;
+        let st: Vec<u64> = (0..1 + 2 * n_bar)
+            .flat_map(|e| (0..g).map(move |c| { let w = e.div_ceil(2) as u64; if e % 2 == 1 { 1000 * (w + 1) - 10 * (c as u64 + 1) } else { 1000 * (w + 1) } }))
+            .collect();
+        let (cls, pro) = p4t_wait_classes(&st, layers, g as u32, 1).unwrap();
+        // 3 prologue waits a layer + the norm (7), 4 row waits a layer + the head (9), 4 folds + 1 (9)
+        assert_eq!(cls[0], [20.0 * 7.0, 30.0 * 7.0]);
+        assert_eq!(cls[1], [20.0 * 9.0, 30.0 * 9.0]);
+        assert_eq!(cls[2][1], 30.0 * 9.0);
+        assert_eq!(pro[0], 2.0 * 990.0, "ln1 on CTA 0, twice");
+    }
+
+    #[test]
+    fn the_row_cap_passes_are_a10s() {
+        // pers_4et_a10rc.cu: a9's unit and deal over RC n8 tiles, a10's pass
+        // with the row cap; nothing else of them changed
+        let a9 = P4T_A9_PART.1;
+        let a = a9.find("// One unit: tiles [blk nw, blk nw + nw) of g").unwrap();
+        let b = a + a9[a..].find("template <int FORM>\n__device__ __forceinline__ void pers_4et_a9_body(").unwrap();
+        let unit = a9[a..b]
+            .replacen("__device__ __forceinline__ void p4t_unit_a9(", "template <u32 RC, bool IP = false>\n__device__ __forceinline__ void p4t_unit_rc(", 1)
+            // a12ip (M1): the words read in place under IP, the copy otherwise
+            .replacen(
+                "// once and streamed by each warp alone.\n",
+                "// once and streamed by each warp alone. IP: the words read in place, from\n// the served order (p4t_ip_load), instead of the tree-tiled copy.\n",
+                1,
+            )
+            .replacen(
+                "        const u32* wp = g.w + ((unsigned long long)tile * nsub + sub_lo) * SW + (g.kind == 0u ? 3u * r + h : 6u * r + 3u * h);\n        u32 c0, c1, c2;\n        p4t_stream_load(g.kind, wp, c0, c1, c2);\n",
+                "        const u32* wp = IP ? p4t_ip_row(g, wrow + r)\n                           : g.w + ((unsigned long long)tile * nsub + sub_lo) * SW + (g.kind == 0u ? 3u * r + h : 6u * r + 3u * h);\n        u32 c0, c1, c2;\n        if (IP) p4t_ip_load(g, wp, sub_lo, h, c0, c1, c2);\n        else p4t_stream_load(g.kind, wp, c0, c1, c2);\n",
+                1,
+            )
+            .replacen(
+                "            if (s + 1u < ns) p4t_stream_load(g.kind, wp + SW, n0, n1, n2);\n",
+                "            if (IP) {\n                if (s + 1u < ns) p4t_ip_load(g, wp, sub_lo + s + 1u, h, n0, n1, n2);\n            } else if (s + 1u < ns) {\n                p4t_stream_load(g.kind, wp + SW, n0, n1, n2);\n            }\n",
+                1,
+            )
+            .replacen("            wp += SW;\n", "            if (!IP) wp += SW;\n", 1)
+            .replacen("    float acc[4][4];\n#pragma unroll\n    for (u32 nt = 0; nt < 4u; ++nt)", "    float acc[RC][4];\n#pragma unroll\n    for (u32 nt = 0; nt < RC; ++nt)", 1)
+            .replacen("                for (u32 nt = 0; nt < 4u; ++nt) {", "                for (u32 nt = 0; nt < RC; ++nt) {", 1)
+            .replacen("    if (has) p4t_store_a9(g, L, A, sl, acc, wrow, lane, cmax);\n", "    if (has) p4t_store_rc<RC>(g, L, A, sl, acc, wrow, lane, cmax);\n", 1)
+            .replacen("__device__ __forceinline__ void p4t_phase_a9(", "template <u32 RC, bool IP = false>\n__device__ __forceinline__ void p4t_phase_rc(", 1)
+            .replacen("        p4t_unit_a9(g, lu % g.S, lu / g.S, L, A, tab, t_inv, area, cmax);", "        p4t_unit_rc<RC, IP>(g, lu % g.S, lu / g.S, L, A, tab, t_inv, area, cmax);", 1);
+        assert!(!unit.contains("nt < 4u"), "every n8-tile loop of the unit is over RC");
+        let a10 = P4T_A10_PART.1;
+        let c = a10.find("template <int FORM>\n__device__ __forceinline__ void pers_4et_a10_body(").unwrap();
+        let end = "#undef P4T_WAIT\n}\n";
+        let d = c + a10[c..].find(end).unwrap() + end.len();
+        assert_eq!(a10[c..d].matches("if (R == 0u || R > P4T_RMAX ||").count(), 1);
+        let body = a10[c..d]
+            .replacen("template <int FORM>\n__device__ __forceinline__ void pers_4et_a10_body(", "template <int FORM, u32 RC>\n__device__ __forceinline__ void pers_4et_rc_body(", 1)
+            .replace("p4t_phase_a9(", "p4t_phase_rc<RC>(")
+            .replacen("if (R == 0u || R > P4T_RMAX ||", "if (R == 0u || R > 8u * RC ||", 1);
+        assert_eq!(P4T_A10RC_PART.1.matches(format!("{unit}{body}").as_str()).count(), 1, "the row-cap pass drifted from a10's");
+        for rows in [8, 16] {
+            let t = p4t_a10rc_unit_text(SERVED_DEFINES_SM89, rows);
+            assert!(t.contains(&p4t_a10_unit_text(SERVED_DEFINES_SM89)));
+            for f in 0..3 {
+                assert_eq!(t.matches(p4t_a10rc_symbol(rows, f).unwrap()).count(), 1);
+            }
+            eprintln!("tree module a10r{rows} at SERVED_DEFINES_SM89: {} bytes, sha256 {}", t.len(), crate::sha256::sha256_hex(t.as_bytes()));
+        }
+    }
+
+    #[test]
+    fn the_thread_count_arms_are_a10s_pass() {
+        // pers_4et_a10t.cu adds symbols around a10's body and nothing else
+        let t = P4T_A10T_PART.1;
+        assert_eq!(t.matches("pers_4et_a10_body<FORM_>(A, L);").count(), 1);
+        assert_eq!(t.matches("__device__").count(), 0, "no device function of its own");
+        for threads in [384u32, 256] {
+            let m = p4t_a10t_unit_text(SERVED_DEFINES_SM89, threads);
+            assert!(m.contains(&p4t_a10_unit_text(SERVED_DEFINES_SM89)));
+            for f in 0..3 {
+                assert_eq!(m.matches(p4t_a10t_symbol(threads, f).unwrap()).count(), 1);
+            }
+            // the 4B at this warp count: area, shared bytes, cap, the stream rule's plan
+            let nw = threads / 32;
+            let area = p4t_area_floats(nw, 32, 9728, 4);
+            let cap = p4t_stream_cap(area, nw);
+            let smem = SMEM_HEADER + TABLE_BYTES + 4 * area;
+            let rule = p4t_splits_stream(2560, 9728, 4096, 8, 151_936, nw, 142, cap).unwrap();
+            for (name, s) in [("[5, 14, 5, 28, 5]", [5u32, 14, 5, 28, 5]), ("the stream rule's", rule)] {
+                let p = p4t_plan(s, 2560, 9728, 4096, 8, 151_936, nw, 142);
+                let steps: Vec<u32> = s.iter().zip([2560u32, 4096, 2560, 9728, 2560]).map(|(&x, d)| p4t_slice_steps(d, x)).collect();
+                eprintln!(
+                    "4B at {threads} threads ({nw} warps): area {area} floats, {smem} B shared, cap {cap}; plan {name} {s:?}: units, waves, fill {:?}; sub-steps a slice {steps:?}",
+                    p.iter().map(|x| (x.0, x.1, (x.2 * 1000.0).round() / 10.0)).collect::<Vec<_>>()
+                );
+                assert!(steps.iter().all(|&x| x <= cap));
+            }
+            eprintln!("tree module a10t{threads} at SERVED_DEFINES_SM89: {} bytes, sha256 {}", m.len(), crate::sha256::sha256_hex(m.as_bytes()));
+        }
+    }
+
+    #[test]
+    fn the_second_thread_count_arms_are_a10s_passes() {
+        // pers_4et_a10t2.cu adds symbols around a10's and the row cap's bodies, nothing else
+        let t = P4T_A10T2_PART.1;
+        assert_eq!(t.matches("pers_4et_a10_body<FORM_>(A, L);").count(), 1);
+        assert_eq!(t.matches("pers_4et_rc_body<FORM_, 2u>(A, L);").count(), 1);
+        assert_eq!(t.matches("__device__").count(), 0);
+        for (arm, threads, base) in [("a10t448", 448u32, p4t_a10_unit_text(SERVED_DEFINES_SM89)), ("a10t320", 320, p4t_a10_unit_text(SERVED_DEFINES_SM89)), ("a10t384r16", 384, p4t_a10rc_unit_text(SERVED_DEFINES_SM89, 16))] {
+            let m = p4t_a10t2_unit_text(SERVED_DEFINES_SM89, arm).unwrap();
+            assert!(m.contains(&base));
+            for f in 0..3 {
+                assert_eq!(m.matches(p4t_a10t2_symbol(arm, f).unwrap()).count(), 1);
+            }
+            let nw = threads / 32;
+            let area = p4t_area_floats(nw, 32, 9728, 4);
+            let cap = p4t_stream_cap(area, nw);
+            let smem = SMEM_HEADER + TABLE_BYTES + 4 * area;
+            let rule = p4t_splits_stream(2560, 9728, 4096, 8, 151_936, nw, 142, cap).unwrap();
+            for (name, s) in [("[5, 14, 5, 28, 5]", [5u32, 14, 5, 28, 5]), ("[8, 10, 8, 20, 6]", [8, 10, 8, 20, 6]), ("the stream rule's", rule)] {
+                let p = p4t_plan(s, 2560, 9728, 4096, 8, 151_936, nw, 142);
+                let steps: Vec<u32> = s.iter().zip([2560u32, 4096, 2560, 9728, 2560]).map(|(&x, d)| p4t_slice_steps(d, x)).collect();
+                eprintln!(
+                    "4B, {arm} ({nw} warps): area {area} floats, {smem} B shared, cap {cap}; plan {name} {s:?}: units, waves, fill {:?}; sub-steps a slice {steps:?}",
+                    p.iter().map(|x| (x.0, x.1, (x.2 * 1000.0).round() / 10.0)).collect::<Vec<_>>()
+                );
+            }
+            eprintln!("tree module {arm} at SERVED_DEFINES_SM89: {} bytes, sha256 {}", m.len(), crate::sha256::sha256_hex(m.as_bytes()));
+        }
+    }
+
+    #[test]
+    fn the_a12_pass_is_the_row_cap_pass_with_taps() {
+        // pers_4et_a12.cu: pers_4et_rc_body renamed, two tap calls added
+        let rc = P4T_A10RC_PART.1;
+        let c = rc.find("template <int FORM, u32 RC>\n__device__ __forceinline__ void pers_4et_rc_body(").unwrap();
+        // the a12ip edits (M1): IP threaded through the body's five phases, nothing else
+        let end = "#undef P4T_WAIT\n}\n";
+        let d = c + rc[c..].find(end).unwrap() + end.len();
+        let body = rc[c..d]
+            .replacen("template <int FORM, u32 RC>\n__device__ __forceinline__ void pers_4et_rc_body(", "template <int FORM, u32 RC, bool IP = false>\n__device__ __forceinline__ void pers_4et_a12_body(", 1)
+            .replace("p4t_phase_rc<RC>(", "p4t_phase_rc<RC, IP>(")
+            .replacen(
+                "        // ln1: the natural values for the int4 v rows, the signed and\n",
+                "        p4t_taps_a12(L, H, R, l, c0, G);\n        // ln1: the natural values for the int4 v rows, the signed and\n",
+                1,
+            )
+            .replacen(
+                "    // the final norm, natural: the head's input\n",
+                "    p4t_taps_a12(L, H, R, NL, c0, G);\n    // A launch with L.split_head == 0 (the chain prefill's passes before the\n    // prompt's last, docs/mesures/large-prefill-contexte-2026-11-11.txt) skips\n    // the final norm and the head, every wait kept: no logits, no argmax (the\n    // ring reads u32 max), the rows' residuals, K, V and taps untouched.\n    const bool head_on = L.split_head != 0u;\n    // the final norm, natural: the head's input\n",
+                1,
+            )
+            // the head switch (96c501a): the final norm, the head's phase and
+            // its fold run only when split_head is not 0; every wait and
+            // every slot write stay unconditional
+            .replacen(
+                "    for (u32 r = c0; r < R; r += G)\n        p4t_ln_final_a10(",
+                "    if (head_on)\n        for (u32 r = c0; r < R; r += G)\n            p4t_ln_final_a10(",
+                1,
+            )
+            .replacen(
+                "        p4t_io(sh, L.xin, L.ldx, nullptr, 0u, nullptr, P4T_HEAD, L.split_head);\n        unsigned long long po = 0ull;\n        u32 to = 0u;\n        p4t_place(sh, L, po, to);\n        p4t_phase_rc<RC, IP>(sh, sh, sh, 1u, L, A, tab, t_inv, area, cmax);\n",
+                "        if (head_on) {\n            p4t_io(sh, L.xin, L.ldx, nullptr, 0u, nullptr, P4T_HEAD, L.split_head);\n            unsigned long long po = 0ull;\n            u32 to = 0u;\n            p4t_place(sh, L, po, to);\n            p4t_phase_rc<RC, IP>(sh, sh, sh, 1u, L, A, tab, t_inv, area, cmax);\n        }\n",
+                1,
+            )
+            .replacen("        p4t_fold_a9(sh, sh, sh, 1u, L, A, cmax);\n", "        if (head_on) p4t_fold_a9(sh, sh, sh, 1u, L, A, cmax);\n", 1);
+        assert_eq!(P4T_A12_PART.1.matches(body.as_str()).count(), 1, "the a12 pass drifted from the row-cap pass");
+        let t = p4t_a12_unit_text(SERVED_DEFINES_SM89);
+        assert!(t.contains(&p4t_a10rc_unit_text(SERVED_DEFINES_SM89, 16)));
+        for f in 0..3 {
+            assert_eq!(t.matches(p4t_a12_symbol(f).unwrap()).count(), 1);
+        }
+        eprintln!("tree module a12 at SERVED_DEFINES_SM89: {} bytes, sha256 {}", t.len(), crate::sha256::sha256_hex(t.as_bytes()));
+        // a12ip: a12's text under one more define; its symbols and the load
+        // check, and not a12's
+        let ip = p4t_a12ip_unit_text(SERVED_DEFINES_SM89);
+        assert_eq!(ip, format!("#define P4T_A12IP 1\n{t}"));
+        assert_eq!(P4T_A12_PART.1.matches("pers_4et_a12_body<FORM_, 2u, true>(A, L);").count(), 1);
+        assert_eq!(P4T_A12_PART.1.matches("extern \"C\" __global__ void p4t_ip_check(").count(), 1);
+        for f in 0..3 {
+            assert_eq!(ip.matches(p4t_a12ip_symbol(f).unwrap()).count(), 1);
+        }
+        assert!(p4t_a12ip_symbol(3).is_err());
+        eprintln!("tree module a12ip at SERVED_DEFINES_SM89: {} bytes, sha256 {}", ip.len(), crate::sha256::sha256_hex(ip.as_bytes()));
+    }
+
+    /// The card's tile define on the L40S (`TileConfig::define`, 64 blocks).
+    const CARD_TILE_SM89: &str = "#define TILE_BLOCKS 64u\n";
+
+    /// The module texts the card compiled in large-prefill D1, at their
+    /// sha256 (d1.txt's loader lines): 4E's tree module, a12ip's, a12ipg's.
+    /// An arm added beside them must leave all three where they are.
+    #[test]
+    fn the_d1_tree_modules_keep_their_bytes() {
+        for (name, text, sha) in [
+            ("4E tree", p4t_unit_text(CARD_TILE_SM89), "ce1c354d2583eb178ae8622ff99e10f9b457543972bb5039ce89ede9eec31e44"),
+            ("a12ip", p4t_a12ip_unit_text(CARD_TILE_SM89), "63155df95ef832aabbff328bd92062b6981763ed57358e32dc118d150df7c6ad"),
+            ("a12ipg", p4t_a12ipg_unit_text(CARD_TILE_SM89), "246e99b18895a7f9452411372b8ff4bbb686276408318e547656fb809b722da8"),
+            // the 32-row arm (large-prefill-r32-mac) and the served 4E v9 module
+            ("a12ipg32", p4t_a12ipg32_unit_text(CARD_TILE_SM89), "a35f2b83061dc8a22ee65e6805c9e73454a93ec773ec919a14afc80fcf60aa8f"),
+            ("4E v9", format!("{}{}", p4e_rows_define(7).unwrap(), pers_unit_text(CARD_TILE_SM89)), "1b422b62328be6752df4add43280565fd2a49cfa20ee26953b301abe7a15c530"),
+        ] {
+            assert_eq!(crate::sha256::sha256_hex(text.as_bytes()), sha, "{name}: {} bytes", text.len());
+        }
+    }
+
+    /// Each full-tile module is its parent's text with the ft edit and nothing
+    /// else: the anchor once in the parent, the inserted part before it and
+    /// one branch after it; taking both out gives the parent back. v9ft is
+    /// E1's v9 module with the same edit. The edit is refused on a text
+    /// without the anchor or with two.
+    #[test]
+    fn the_ft_modules_are_their_parents_with_the_full_tile_branch() {
+        let (_, from, to) = pers_ft_edit();
+        assert!(to.starts_with(PERS_FT_PART.1) && to.ends_with("        return;\n    }\n"));
+        assert_eq!(to.matches("pers_attn_tile_full(").count(), 2, "one definition, one call");
+        assert_eq!(to.matches("if (nv == PERS_TT) {").count(), 1);
+        for (arm, parent) in [
+            ("a12ipft", p4t_a12ip_unit_text(CARD_TILE_SM89)),
+            ("a12ipgft", p4t_a12ipg_unit_text(CARD_TILE_SM89)),
+            ("a12ipg32ft", p4t_a12ipg32_unit_text(CARD_TILE_SM89)),
+        ] {
+            let ft = p4t_ft_unit_text(CARD_TILE_SM89, arm).unwrap();
+            assert_eq!(parent.matches(from.as_str()).count(), 1, "{arm}");
+            assert_eq!(ft.replacen(to.as_str(), &from, 1), parent, "{arm}: the parent and the ft edit, nothing else");
+        }
+        let v9 = p4e_e1_unit_text(CARD_TILE_SM89, "v9").unwrap();
+        let v9ft = p4e_e1_unit_text(CARD_TILE_SM89, "v9ft").unwrap();
+        assert_eq!(v9ft.replacen(to.as_str(), &from, 1), v9, "v9ft: E1's v9 and the ft edit, nothing else");
+        assert!(p4t_ft_unit_text(CARD_TILE_SM89, "a12ft").is_err());
+        assert!(pers_ft_apply("no tile here").is_err());
+        assert!(pers_ft_apply(&format!("{from}{from}")).is_err());
+    }
+
+    /// The ft modules at the card's tile define, at the sha256 the job scripts
+    /// check (ops/jobs/large-prefill-ft.sh, ops/jobs/large-attn-ft-4e.sh): an
+    /// edit to pers_attn_full.cuh moves these and must move the scripts too.
+    #[test]
+    fn the_ft_modules_keep_their_bytes() {
+        for (name, text, sha) in [
+            ("a12ipft", p4t_ft_unit_text(CARD_TILE_SM89, "a12ipft").unwrap(), "544f1dd5ff2dd0b7eb52ecb60002af677748dbf402182ea3d526a0ccabd73132"),
+            ("a12ipgft", p4t_ft_unit_text(CARD_TILE_SM89, "a12ipgft").unwrap(), "e0fd30be4318032e371854eb4f485c14b232292481603ee2810001c0415086f2"),
+            ("a12ipg32ft", p4t_ft_unit_text(CARD_TILE_SM89, "a12ipg32ft").unwrap(), "19b734a3fb6029848d87339c7d505e9bcfc612f182256793026ea964d09853e2"),
+            ("4E v9ft", p4e_e1_unit_text(CARD_TILE_SM89, "v9ft").unwrap(), "22ff8320cb881b39690cbbfe6f1fd9ee8c1715142adfb4ee1ffbe932b061619a"),
+            ("4E E1 v9", p4e_e1_unit_text(CARD_TILE_SM89, "v9").unwrap(), "d55a097b146e8b962829045dfea6975470b408b942c1e0c22c038ad4d9d00860"),
+        ] {
+            assert_eq!(crate::sha256::sha256_hex(text.as_bytes()), sha, "{name}: {} bytes", text.len());
+        }
+    }
+
+    /// Writes the tree modules at the card's tile define into
+    /// `target/tree-modules/` for an offline compile (ops/tree-sass-probe.sh).
+    #[test]
+    #[ignore]
+    fn dump_tree_modules() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../target/tree-modules");
+        std::fs::create_dir_all(&dir).unwrap();
+        let v9 = format!("{}{}", p4e_rows_define(7).unwrap(), pers_unit_text(CARD_TILE_SM89));
+        for (name, text) in [
+            ("4e-v9", v9),
+            ("a12ip", p4t_a12ip_unit_text(CARD_TILE_SM89)),
+            ("a12ipg", p4t_a12ipg_unit_text(CARD_TILE_SM89)),
+            ("a12ipg32", p4t_a12ipg32_unit_text(CARD_TILE_SM89)),
+            ("a12ipft", p4t_ft_unit_text(CARD_TILE_SM89, "a12ipft").unwrap()),
+            ("a12ipgft", p4t_ft_unit_text(CARD_TILE_SM89, "a12ipgft").unwrap()),
+            ("a12ipg32ft", p4t_ft_unit_text(CARD_TILE_SM89, "a12ipg32ft").unwrap()),
+            ("4e-v9ft", p4e_e1_unit_text(CARD_TILE_SM89, "v9ft").unwrap()),
+            ("4e-v9e1", p4e_e1_unit_text(CARD_TILE_SM89, "v9").unwrap()),
+        ] {
+            std::fs::write(dir.join(format!("{name}.cu")), &text).unwrap();
+            eprintln!("{name}: {} bytes, sha256 {}", text.len(), crate::sha256::sha256_hex(text.as_bytes()));
+        }
+    }
+
+    #[test]
+    fn the_a12ipg_pass_is_a12ip_with_the_grouped_attention() {
+        // pers_4et_a12g.cu: a12's body renamed, its area check and its
+        // attention call swapped for the grouped ones, nothing else
+        let a12 = P4T_A12_PART.1;
+        let head = "template <int FORM, u32 RC, bool IP = false>\n__device__ __forceinline__ void pers_4et_a12_body(";
+        let c = a12.find(head).unwrap();
+        let end = "#undef P4T_WAIT\n}\n";
+        let d = c + a12[c..].find(end).unwrap() + end.len();
+        let body = a12[c..d]
+            .replacen(head, "template <int FORM, u32 RC, bool IP>\n__device__ __forceinline__ void pers_4et_a12g_body(", 1)
+            .replacen("L.area_floats < p4t_area_floats(", "L.area_floats < p4g_area_floats(", 1)
+            .replacen("        p4t_attention(A, L,", "        p4g_attention(A, L,", 1);
+        assert_eq!(P4T_A12G_PART.1.matches(body.as_str()).count(), 1, "the a12ipg pass drifted from a12's");
+        assert_eq!(P4T_A12G_PART.1.matches("pers_4et_a12g_body<FORM_, 2u, true>(A, L);").count(), 1);
+        assert_eq!(P4T_A12G_PART.1.matches("#define P4G_RG 4u ").count(), 1, "P4G_RG mirrors the kernel's");
+        let ip = p4t_a12ip_unit_text(SERVED_DEFINES_SM89);
+        let g = p4t_a12ipg_unit_text(SERVED_DEFINES_SM89);
+        assert_eq!(g, format!("#define P4T_A12IPG 1\n{ip}\n{}", P4T_A12G_PART.1));
+        for f in 0..3 {
+            assert_eq!(g.matches(p4t_a12ipg_symbol(f).unwrap()).count(), 1);
+            assert_eq!(ip.matches(p4t_a12ipg_symbol(f).unwrap()).count(), 0, "a12ip's text carries no a12ipg symbol");
+        }
+        assert!(p4t_a12ipg_symbol(3).is_err());
+        // the 4B at 12 warps: 18,624 floats, 93,568 B a CTA with the tables, under sm_89's 101,376
+        let a = p4g_area_floats(12, 32, 9728, 4);
+        assert_eq!(a, 18_624);
+        assert_eq!(a, p4t_area_floats(12, 32, 9728, 4) + 3_680);
+        assert!(SMEM_HEADER + TABLE_BYTES + 4 * a <= 101_376, "{} B", SMEM_HEADER + TABLE_BYTES + 4 * a);
+        eprintln!("tree module a12ipg at SERVED_DEFINES_SM89: {} bytes, sha256 {}; area {a} floats, {} B shared", g.len(), crate::sha256::sha256_hex(g.as_bytes()), SMEM_HEADER + TABLE_BYTES + 4 * a);
+    }
+
+    #[test]
+    fn the_a12ipg32_pass_is_a12ipg_at_four_tiles() {
+        // pers_4et_a12g32.cu: a12ipg's body instantiated at RC = 4, nothing else
+        let part = P4T_A12G32_PART.1;
+        assert_eq!(part.matches("pers_4et_a12g_body<").count(), 1);
+        assert_eq!(part.matches("pers_4et_a12g_body<FORM_, 4u, true>(A, L);").count(), 1);
+        assert_eq!(part.matches("__global__").count(), 1, "one kernel macro, no other code");
+        let g = p4t_a12ipg_unit_text(SERVED_DEFINES_SM89);
+        let t = p4t_a12ipg32_unit_text(SERVED_DEFINES_SM89);
+        assert_eq!(t, format!("#define P4T_A12IPG32 1\n{g}\n{part}"));
+        for f in 0..3 {
+            assert_eq!(t.matches(p4t_a12ipg32_symbol(f).unwrap()).count(), 1);
+            assert_eq!(g.matches(p4t_a12ipg32_symbol(f).unwrap()).count(), 0, "a12ipg's text carries no a12ipg32 symbol");
+        }
+        assert!(p4t_a12ipg32_symbol(3).is_err());
+        // the area is a12ipg's, which already stages 32 rows
+        assert_eq!(p4g_area_floats(12, 32, 9728, 4), 18_624);
+        eprintln!("tree module a12ipg32 at SERVED_DEFINES_SM89: {} bytes, sha256 {}", t.len(), crate::sha256::sha256_hex(t.as_bytes()));
+    }
+
     use super::*;
 
     #[test]
@@ -3029,6 +5064,82 @@ mod tests {
             "1b422b62328be6752df4add43280565fd2a49cfa20ee26953b301abe7a15c530",
             "the 4E v9 module moved: the served-v9 doors gate on this digest"
         );
+    }
+
+    /// E1's reference module is the served v9 text with the logits edits
+    /// only: the token and stamp symbols' text is v9's, the template
+    /// parameter defaults to false, and three logits symbols follow.
+    #[test]
+    fn the_e1_reference_is_v9_and_its_logits_symbols() {
+        let tile = "#define TILE_BLOCKS 64u\n";
+        let v9 = format!("{}{}", p4e_rows_define(7).unwrap(), pers_unit_text(tile));
+        let r = p4e_e1_unit_text(tile, "v9").unwrap();
+        assert_ne!(r, v9);
+        // the reference minus the logits edits is v9 byte for byte
+        let mut back = r.clone();
+        for (_, from, to) in p4e_e1_edits("v9").unwrap() {
+            assert_eq!(back.matches(to.as_str()).count(), 1, "{to:?}");
+            back = back.replacen(to.as_str(), &from, 1);
+        }
+        assert_eq!(back, v9, "the E1 reference is v9 and the logits edits, nothing else");
+        for f in 0..3 {
+            assert!(r.contains(&format!("PERS_4E_LOGITS({}, {f})", p4e_logits_symbol(f).unwrap())));
+        }
+        assert!(p4e_logits_symbol(3).is_err());
+        assert!(p4e_e1_unit_text(tile, "v9x").is_err());
+    }
+
+    /// The arms differ from the reference in prefetch lines only
+    /// ([`p4e_e1_structure`]), and each does what it says: np issues no
+    /// prefetch in the attention phase, mv issues its own and keeps v9's
+    /// down prefetch and layer 0's q/k/v prefetch.
+    #[test]
+    fn the_e1_arms_differ_from_v9_in_prefetch_lines_only() {
+        let tile = "#define TILE_BLOCKS 64u\n";
+        let r = p4e_e1_unit_text(tile, "v9").unwrap();
+        let np = p4e_e1_unit_text(tile, "v9np").unwrap();
+        let mv = p4e_e1_unit_text(tile, "v9mv").unwrap();
+        p4e_e1_structure(&r, &r).unwrap();
+        p4e_e1_structure(&r, &np).unwrap();
+        p4e_e1_structure(&r, &mv).unwrap();
+        assert_eq!(r.matches("prefetch_next();").count(), 2);
+        for t in [&np, &mv] {
+            assert_eq!(t.matches("prefetch_next();").count(), 0, "no o or gate/up prefetch in the attention phase");
+            assert_eq!(t.matches("pers_l2_prefetch(A->down.words").count(), 1, "the down prefetch stays");
+        }
+        assert!(!np.contains("pers_e1_"));
+        assert_eq!(mv.matches("if (IN4E) pers_e1_prefetch_staged();").count(), 1);
+        assert_eq!(mv.matches("pers_e1_stage_next(Ag->layers, l + 1u,").count(), 1);
+        assert_eq!(mv.matches("if (l == 0u) {  // e1-pf").count(), 1);
+        // the served v9 module's digest is pinned by
+        // the_4e_v9_module_is_the_one_the_doors_gate_on, which this does not touch
+    }
+
+    /// The structural check kills what it must: a line of arithmetic added
+    /// untagged or tagged, a line dropped, a barrier or a foreign store in
+    /// the helpers' block.
+    #[test]
+    fn the_e1_structure_check_kills_its_mutants() {
+        let tile = "#define TILE_BLOCKS 64u\n";
+        let r = p4e_e1_unit_text(tile, "v9").unwrap();
+        let mv = p4e_e1_unit_text(tile, "v9mv").unwrap();
+        let once = |t: &str, from: &str, to: &str| {
+            assert_eq!(t.matches(from).count(), 1, "{from:?}");
+            t.replacen(from, to, 1)
+        };
+        let anchor = "            PERS_WAIT(e0 + 5u);\n";
+        for (tag, m) in [
+            ("untagged", once(&mv, anchor, &format!("{anchor}            v[0] = 0.0f;\n"))),
+            ("tagged store", once(&mv, anchor, &format!("{anchor}            v[0] = 0.0f;  // e1-pf\n"))),
+            ("tagged prefetch store", once(&mv, anchor, &format!("{anchor}            v[0] = 0.0f;  // prefetch\n"))),
+            ("dropped line", once(&mv, anchor, "")),
+            ("helper barrier", once(&mv, "    if (l >= n_layers) return;\n", "    if (l >= n_layers) return;\n    __syncthreads();\n")),
+            ("helper store", once(&mv, "    if (l >= n_layers) return;\n", "    if (l >= n_layers) return;\n    layers[0].qkv.q[0] = 0u;\n")),
+            ("helper deref store", once(&mv, "    if (l >= n_layers) return;\n", "    if (l >= n_layers) return;\n    *pers_hdr() = 0u;\n")),
+            ("helper open", once(&mv, "// e1-pf end\n", "")),
+        ] {
+            assert!(p4e_e1_structure(&r, &m).is_err(), "structure mutant {tag} survived");
+        }
     }
 
     /// The verify pass's module at the L40S's tile: the 4E v9 module the

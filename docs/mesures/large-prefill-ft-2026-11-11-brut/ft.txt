@@ -1,0 +1,276 @@
+target: served config: /out/large-prefill-ft-2026-11-11/qwen3-4b-tetra-e4-4e-v9.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention kernel from position 0 on grow(256), decode persistent (4E rows v9, one launch a token run)) — The qwen3-4b-tetra-e4 object (qwen3-4b-sealed.bin, sha256 886391a8), the v6 config with the v9 row loop and nothing else different: the kernel attention form on every decode row from position 0, decoded by 4E v9 (row form 7: v6, the launch's constants staged during the barriers, attention's steps in a cp.async ring, and the int4 rows v, o and the int4 downs read from tiled words; one cooperative launch a token run, 512 threads). Under this config the loader writes the int4 words tiled and holds them once on the card: the eager path, which prefills, reads the same words through tv_q4_hht, checked against tv_q4_hh on the file's order at every load. The file and its 2.7320 b/param do not move (a permutation inside each row, computed). Written on 2026-11-07 on the operator's go to serve v9 with one copy of the int4 bytes. In the measurement form v9 decodes 238.6 tok/s after a 5-token prompt against 213.3 for v6 (x1.118 round by round) and 163.5 at 8,192 against 154.2 (x1.060), the same 64 tokens as the eager path at both contexts (measured, step3-4e-2026-11-07, with the int4 bytes twice on the card). Not yet read at the served door: served-v9 (proofs/preregistration-served-v9-2026-11-07.md) reads it. Refused on Metal and on any object but the 4B.
+form chain: the prompt through a12ipg32ft@8.10.8.20.6 at 32 rows a pass and through a12ip@8.10.8.20.6 at 16 rows a pass and through a12ipg32@8.10.8.20.6 at 32 rows a pass as chains of known tokens, the head on the last pass only, a one-row hand-over launch moving the last chunk, then 4E
+mark load begin 1794438205.671
+cudarc event tracking: off (one stream, ordered by issue)
+shared rotation: 1 (prefillbench), 96 rot_launches/token for 252 projections
+projection fusion: 0 (prefillbench), 252 matvec_launches/token for 252 projections (0 groups + 168 lone + 84 int4)
+fused layout: tetra48 (prefillbench), projections 1.16 GB on the card, 2.550 b/weight (INFERENCE accounting: KeepExact tail in binary16; the bench bills its own in f32)
+NVRTC source: 106947 bytes, sha256 e269ea5d11b7e40ba0682f536f52ed9f09abfaa9fd6f3185eb306edca5c60e53 (12 parts), tile 64 (served: measured optimum for sm_89), prefill 4x128 (served pair), 49152 B staged of 49152, target compute_89
+int4: tv_q4_hht equals tv_q4_ht bit for bit on model.layers.0.self_attn.v_proj.weight (1024 rows, d_in 2560)
+int4: tv_q4_hht on the tiled words equals tv_q4_hh on the file's order bit for bit on model.layers.0.self_attn.v_proj.weight (1024 rows, d_in 2560); the file-order copy is freed
+int4: tv_q4_hht on the tiled words equals tv_q4_hh on the file's order bit for bit on model.layers.0.self_attn.o_proj.weight (2560 rows, d_in 4096); the file-order copy is freed
+int4: tv_q4_hht on the tiled words equals tv_q4_hh on the file's order bit for bit on model.layers.12.mlp.down_proj.weight (2560 rows, d_in 9728); the file-order copy is freed
+int4 layout: tiled (prefillbench), 84 records, words 0.385 GB on the card, held once
+embedding: q4 g64 (prefillbench), 1 table (model.embed_tokens.weight, lm_head tied on it), 218.8 MB on the card (int4 194.5 + scales/biases 24.3)
+total expected on the card: 1.38 GB (projections 1.16 + carried 0.22)
+attn_dec.cu: embedded, sha256 c7b0d8d3f2e3066ba1a2b4331c0bb6c92f22182c78a31b7fb74e839330a1838d, target compute_89
+attn_dec_g4_u64: 160 registers, 0 B local (spill), 16384 B static shared, sm_89
+attn_dec_g4_u64: the card equals the CPU replay bit for bit on 103 calls (rows ending at 1, 255, 256, 257, 1000, 4096; k 1, 3, 8; eager and wide grids; verify rows alone; fresh rows) (1.2 s)
+4E: persistent module 252757 bytes, sha256 1b422b62328be6752df4add43280565fd2a49cfa20ee26953b301abe7a15c530, row form 7, own module on candle's stream
+4E: RoPE forms equal to candle's rope on this card: [1]; running form 1
+4E: pers_4e_tokens_f1_t512: 128 registers, 0 B local, 85952 B shared, 1 resident a SM
+4E: pers_4e_stamps_f1_t512: 128 registers, 32 B local, 1 resident a SM (phase stamps, outside the timed rounds)
+4E: head tied to the embedding's table (151936 rows)
+4E v9: the 76 prologue inputs are 16-byte aligned; the vector path runs on every layer
+4E v9: the int4 records are read in place, tiled at load and held once on the card (36 layers)
+4E: 36 layers, grid 142 x 512, 218 barriers a token
+card memory: 1.980 GB used of 47.666 GB after the target's load and its 4E install (cuMemGetInfo)
+4E tree: module 306060 bytes, sha256 ce1c354d2583eb178ae8622ff99e10f9b457543972bb5039ce89ede9eec31e44, row form 7 and pers_4et.cu, its own module
+4E tree: pers_4et_rows_f1_t512: 128 registers, 720 B local, 89984 B shared, 1 resident a SM
+4E tree: arm a12ipg32ft@8.10.8.20.6 (a12ipg32ft (a12ipg32, the attention tile's full-tile path), an explicit plan): slices [8, 10, 8, 20, 6]; S, units, waves, fill, sub-steps a slice at most: q/k/v 8 272 2 95.8 % 7, o 10 140 1 98.6 % 9, gate/up 8 816 6 95.8 % 7, down 20 280 2 98.6 % 11, head 6 4752 34 98.4 % 9
+4E tree: arm a12ipg32ft@8.10.8.20.6 at 384 threads (12 warps): area 18624 floats, 93568 B shared, 17 sub-steps a slice at most
+4E tree: arm a12ip@8.10.8.20.6 (a12ip (a12 on the served words, read in place, no copy), an explicit plan): slices [8, 10, 8, 20, 6]; S, units, waves, fill, sub-steps a slice at most: q/k/v 8 272 2 95.8 % 7, o 10 140 1 98.6 % 9, gate/up 8 816 6 95.8 % 7, down 20 280 2 98.6 % 11, head 6 4752 34 98.4 % 9
+4E tree: arm a12ip@8.10.8.20.6 at 384 threads (12 warps): area 14944 floats, 78848 B shared, 12 sub-steps a slice at most
+4E tree: arm a12ipg32@8.10.8.20.6 (a12ipg32 (a12ipg at 32 rows a launch), an explicit plan): slices [8, 10, 8, 20, 6]; S, units, waves, fill, sub-steps a slice at most: q/k/v 8 272 2 95.8 % 7, o 10 140 1 98.6 % 9, gate/up 8 816 6 95.8 % 7, down 20 280 2 98.6 % 11, head 6 4752 34 98.4 % 9
+4E tree: arm a12ipg32@8.10.8.20.6 at 384 threads (12 warps): area 18624 floats, 93568 B shared, 17 sub-steps a slice at most
+4E tree: the stream unit's slices hold at most 13 sub-steps (area 17728 floats, 16 warps, 32 staged rows)
+4E tree: 512 threads, 17728 floats of area; 0.153 GB of row buffers
+4E tree a12ip: module 422018 bytes, sha256 63155df95ef832aabbff328bd92062b6981763ed57358e32dc118d150df7c6ad, P4T_A12IP 1 beside a12's text, its own module
+4E tree a12ip: pers_4et_a12ip_f1_t384: 168 registers, 744 B local, 78848 B shared, 1 resident a SM
+4E tree a12ipg32: module 451917 bytes, sha256 a35f2b83061dc8a22ee65e6805c9e73454a93ec773ec919a14afc80fcf60aa8f, P4T_A12IPG32 1 after a12ipg's text, its own module
+4E tree a12ipg32: pers_4et_a12ipg32_f1_t384: 168 registers, 728 B local, 93568 B shared, 1 resident a SM
+4E tree a12ipg32ft: module 457150 bytes, sha256 19b734a3fb6029848d87339c7d505e9bcfc612f182256793026ea964d09853e2, its parent's text with the full-tile path (pers_attn_full.cuh), its own module
+4E tree a12ipg32ft: pers_4et_a12ipg32_f1_t384: 168 registers, 736 B local, 93568 B shared, 1 resident a SM
+4E tree tiled: 0 tree-tiled copies (q, k, v, o, gate, up, down a layer, the head), 0.000 GB more on the card
+4E tree a12ip: 253 projections read in place, 1.295 GB, the words 4E and the eager path hold; every lane's words equal to the tree-tiled copy's on each (p4t_ip_check, each copy freed after its check); 0 copies held for the other arms
+arm a12ipg32ft@8.10.8.20.6: A12ipg32Ft kernel, slices [8, 10, 8, 20, 6], 384 threads, area 18624 floats, 93568 B shared, row cap 32
+arm a12ip@8.10.8.20.6: A12ip kernel, slices [8, 10, 8, 20, 6], 384 threads, area 14944 floats, 78848 B shared, row cap 16
+arm a12ipg32@8.10.8.20.6: A12ipg32 kernel, slices [8, 10, 8, 20, 6], 384 threads, area 18624 floats, 93568 B shared, row cap 32
+arm a12ipg32ft@8.10.8.20.6: 32 rows a pass
+arm a12ip@8.10.8.20.6: 16 rows a pass
+arm a12ipg32@8.10.8.20.6: 32 rows a pass
+card memory: 2.116 GB used of 47.666 GB after the verify pass's install (cuMemGetInfo)
+mark load end 1794439332.763
+loaded in 1127.1 s
+long prompts: wikitext2-test-8k (8191 tokens in full), cut to [1024, 4096, 8191] tokens (template kept, the first content tokens)
+
+timing: 256 tokens after each prompt (4E greedy, no stop), 1 discarded + 3 timed rounds; median [range] over the timed rounds
+  prompt   first token, s           prefill to hand-over, s    decode tok/s after the first token
+mark time-1024-a12ip begin 1794439332.813
+mark time-1024-a12ip end 1794439334.712
+mark time-1024-a12ipg32 begin 1794439334.712
+mark time-1024-a12ipg32 end 1794439336.363
+mark time-1024-a12ipg32ft begin 1794439336.363
+mark time-1024-a12ipg32ft end 1794439337.986
+mark time-1024-a12ip begin 1794439337.986
+mark time-1024-a12ip end 1794439339.891
+mark time-1024-a12ipg32 begin 1794439339.892
+mark time-1024-a12ipg32 end 1794439341.543
+mark time-1024-a12ipg32ft begin 1794439341.544
+mark time-1024-a12ipg32ft end 1794439343.169
+mark time-1024-a12ip begin 1794439343.169
+mark time-1024-a12ip end 1794439345.077
+mark time-1024-a12ipg32 begin 1794439345.077
+mark time-1024-a12ipg32 end 1794439346.734
+mark time-1024-a12ipg32ft begin 1794439346.734
+mark time-1024-a12ipg32ft end 1794439348.361
+mark time-1024-a12ip begin 1794439348.361
+mark time-1024-a12ip end 1794439350.272
+mark time-1024-a12ipg32 begin 1794439350.272
+mark time-1024-a12ipg32 end 1794439351.931
+mark time-1024-a12ipg32ft begin 1794439351.931
+mark time-1024-a12ipg32ft end 1794439353.560
+    1024     0.420 [0.420-0.421]      0.432 [0.431-0.433]         213.9 [213.8-214.3]   a12ipg32ft@8.10.8.20.6
+    1024   rounds of a12ipg32ft@8.10.8.20.6: first token 0.420 0.420 0.421
+    1024     0.702 [0.702-0.703]      0.714 [0.714-0.715]         214.2 [213.9-214.6]   a12ip@8.10.8.20.6
+    1024   rounds of a12ip@8.10.8.20.6: first token 0.702 0.702 0.703
+    1024     0.449 [0.448-0.451]      0.461 [0.460-0.463]         214.0 [213.8-214.6]   a12ipg32@8.10.8.20.6
+    1024   rounds of a12ipg32@8.10.8.20.6: first token 0.448 0.449 0.451
+    1024   first token of a12ip@8.10.8.20.6 over a12ipg32ft@8.10.8.20.6, round by round: x1.671 [1.671-1.673]; the 256 tokens identical
+    1024   first token of a12ip@8.10.8.20.6 over a12ipg32@8.10.8.20.6, round by round: x1.563 [1.560-1.566]; the 256 tokens identical
+card memory: 2.318 GB used of 47.666 GB after the 1024-token rounds (cuMemGetInfo)
+mark time-4096-a12ip begin 1794439353.561
+mark time-4096-a12ip end 1794439359.203
+mark time-4096-a12ipg32 begin 1794439359.203
+mark time-4096-a12ipg32 end 1794439363.233
+mark time-4096-a12ipg32ft begin 1794439363.233
+mark time-4096-a12ipg32ft end 1794439366.948
+mark time-4096-a12ip begin 1794439366.948
+mark time-4096-a12ip end 1794439372.608
+mark time-4096-a12ipg32 begin 1794439372.608
+mark time-4096-a12ipg32 end 1794439376.661
+mark time-4096-a12ipg32ft begin 1794439376.661
+mark time-4096-a12ipg32ft end 1794439380.397
+mark time-4096-a12ip begin 1794439380.397
+mark time-4096-a12ip end 1794439386.069
+mark time-4096-a12ipg32 begin 1794439386.069
+mark time-4096-a12ipg32 end 1794439390.147
+mark time-4096-a12ipg32ft begin 1794439390.147
+mark time-4096-a12ipg32ft end 1794439393.899
+mark time-4096-a12ip begin 1794439393.899
+mark time-4096-a12ip end 1794439399.592
+mark time-4096-a12ipg32 begin 1794439399.592
+mark time-4096-a12ipg32 end 1794439403.687
+mark time-4096-a12ipg32ft begin 1794439403.687
+mark time-4096-a12ipg32ft end 1794439407.439
+    4096     2.393 [2.382-2.395]      2.410 [2.399-2.412]         192.4 [192.2-193.0]   a12ipg32ft@8.10.8.20.6
+    4096   rounds of a12ipg32ft@8.10.8.20.6: first token 2.382 2.393 2.395
+    4096     4.317 [4.310-4.331]      4.333 [4.326-4.347]         192.6 [191.8-193.3]   a12ip@8.10.8.20.6
+    4096   rounds of a12ip@8.10.8.20.6: first token 4.310 4.317 4.331
+    4096     2.720 [2.700-2.734]      2.736 [2.717-2.751]         192.2 [192.0-193.1]   a12ipg32@8.10.8.20.6
+    4096   rounds of a12ipg32@8.10.8.20.6: first token 2.700 2.720 2.734
+    4096   first token of a12ip@8.10.8.20.6 over a12ipg32ft@8.10.8.20.6, round by round: x1.808 [1.804-1.809]; the 256 tokens identical
+    4096   first token of a12ip@8.10.8.20.6 over a12ipg32@8.10.8.20.6, round by round: x1.587 [1.584-1.596]; the 256 tokens identical
+card memory: 2.854 GB used of 47.666 GB after the 4096-token rounds (cuMemGetInfo)
+mark time-8191-a12ip begin 1794439407.439
+mark time-8191-a12ip end 1794439422.448
+mark time-8191-a12ipg32 begin 1794439422.448
+mark time-8191-a12ipg32 end 1794439431.784
+mark time-8191-a12ipg32ft begin 1794439431.784
+mark time-8191-a12ipg32ft end 1794439439.903
+mark time-8191-a12ip begin 1794439439.903
+mark time-8191-a12ip end 1794439454.906
+mark time-8191-a12ipg32 begin 1794439454.906
+mark time-8191-a12ipg32 end 1794439464.208
+mark time-8191-a12ipg32ft begin 1794439464.208
+mark time-8191-a12ipg32ft end 1794439472.315
+mark time-8191-a12ip begin 1794439472.315
+mark time-8191-a12ip end 1794439487.324
+mark time-8191-a12ipg32 begin 1794439487.324
+mark time-8191-a12ipg32 end 1794439496.642
+mark time-8191-a12ipg32ft begin 1794439496.642
+mark time-8191-a12ipg32ft end 1794439504.768
+mark time-8191-a12ip begin 1794439504.769
+mark time-8191-a12ip end 1794439519.771
+mark time-8191-a12ipg32 begin 1794439519.771
+mark time-8191-a12ipg32 end 1794439529.155
+mark time-8191-a12ipg32ft begin 1794439529.156
+mark time-8191-a12ipg32ft end 1794439537.352
+    8191     6.485 [6.468-6.546]      6.498 [6.481-6.558]         159.5 [158.5-159.7]   a12ipg32ft@8.10.8.20.6
+    8191   rounds of a12ipg32ft@8.10.8.20.6: first token 6.468 6.485 6.546
+    8191    13.368 [13.361-13.371]     13.379 [13.373-13.383]         159.8 [159.5-160.0]   a12ip@8.10.8.20.6
+    8191   rounds of a12ip@8.10.8.20.6: first token 13.368 13.371 13.361
+    8191     7.679 [7.664-7.737]      7.691 [7.675-7.749]         159.6 [158.9-159.8]   a12ipg32@8.10.8.20.6
+    8191   rounds of a12ipg32@8.10.8.20.6: first token 7.664 7.679 7.737
+    8191   first token of a12ip@8.10.8.20.6 over a12ipg32ft@8.10.8.20.6, round by round: x2.062 [2.041-2.067]; the 256 tokens identical
+    8191   first token of a12ip@8.10.8.20.6 over a12ipg32@8.10.8.20.6, round by round: x1.741 [1.727-1.744]; the 256 tokens identical
+card memory: 3.559 GB used of 47.666 GB after the 8191-token rounds (cuMemGetInfo)
+mark identity begin 1794439537.353
+
+identity: a12ipg32ft@8.10.8.20.6 at R = 32 against a12ip@8.10.8.20.6 at R = 16 at every length (FNV-1a of each layer's K and V bits over the prompt)
+  a12ipg32ft@8.10.8.20.6 R = 32 at 1024: prefill 0.438 s, first token 34532
+  a12ip@8.10.8.20.6 R = 16 at 1024: prefill 0.719 s, first token 34532
+  identity at 1024, a12ipg32ft@8.10.8.20.6 R = 32 against a12ip@8.10.8.20.6 R = 16: argmax equal (34532 and 34532); last row's logits bit for bit (0 of 151936 differ); K and V of 36 layers: bit for bit  => HOLDS
+  a12ipg32ft@8.10.8.20.6 R = 32 at 4096: prefill 2.403 s, first token 34532
+  a12ip@8.10.8.20.6 R = 16 at 4096: prefill 4.341 s, first token 34532
+  identity at 4096, a12ipg32ft@8.10.8.20.6 R = 32 against a12ip@8.10.8.20.6 R = 16: argmax equal (34532 and 34532); last row's logits bit for bit (0 of 151936 differ); K and V of 36 layers: bit for bit  => HOLDS
+  a12ipg32ft@8.10.8.20.6 R = 32 at 8191: prefill 6.583 s, first token 34532
+  a12ip@8.10.8.20.6 R = 16 at 8191: prefill 13.386 s, first token 34532
+  identity at 8191, a12ipg32ft@8.10.8.20.6 R = 32 against a12ip@8.10.8.20.6 R = 16: argmax equal (34532 and 34532); last row's logits bit for bit (0 of 151936 differ); K and V of 36 layers: bit for bit  => HOLDS
+
+identity: a12ipg32@8.10.8.20.6 at R = 32 against a12ip@8.10.8.20.6 at R = 16 at every length (FNV-1a of each layer's K and V bits over the prompt)
+  a12ipg32@8.10.8.20.6 R = 32 at 1024: prefill 0.462 s, first token 34532
+  a12ip@8.10.8.20.6 R = 16 at 1024: prefill 0.714 s, first token 34532
+  identity at 1024, a12ipg32@8.10.8.20.6 R = 32 against a12ip@8.10.8.20.6 R = 16: argmax equal (34532 and 34532); last row's logits bit for bit (0 of 151936 differ); K and V of 36 layers: bit for bit  => HOLDS
+  a12ipg32@8.10.8.20.6 R = 32 at 4096: prefill 2.698 s, first token 34532
+  a12ip@8.10.8.20.6 R = 16 at 4096: prefill 4.322 s, first token 34532
+  identity at 4096, a12ipg32@8.10.8.20.6 R = 32 against a12ip@8.10.8.20.6 R = 16: argmax equal (34532 and 34532); last row's logits bit for bit (0 of 151936 differ); K and V of 36 layers: bit for bit  => HOLDS
+  a12ipg32@8.10.8.20.6 R = 32 at 8191: prefill 7.643 s, first token 34532
+  a12ip@8.10.8.20.6 R = 16 at 8191: prefill 13.370 s, first token 34532
+  identity at 8191, a12ipg32@8.10.8.20.6 R = 32 against a12ip@8.10.8.20.6 R = 16: argmax equal (34532 and 34532); last row's logits bit for bit (0 of 151936 differ); K and V of 36 layers: bit for bit  => HOLDS
+mark identity end 1794439605.623
+mark phases begin 1794439605.623
+mark phases-a12ipg32ft begin 1794439605.623
+  phases of a12ipg32ft@8.10.8.20.6 at R = 32:
+  pass 253 of 256 (pos0 8096, 32 rows, head off): wall 35.908 ms host, phases 35.603 ms, attn 24.680 ms (69.3 %), the rest 10.923 ms
+  pass 254 of 256 (pos0 8128, 32 rows, head off): wall 35.689 ms host, phases 35.409 ms, attn 24.485 ms (69.1 %), the rest 10.924 ms
+  pass 255 of 256 (pos0 8160, 31 rows, head on): wall 37.272 ms host, phases 36.978 ms, attn 25.100 ms (67.9 %), the rest 11.878 ms
+  phases of the longest prompt's last 3 passes, ms each (summed over the layers, grid clock):
+          embed     0.033    0.033    0.032
+            ln1     0.293    0.295    0.292
+            qkv     2.501    2.495    2.491
+       qkv fold     0.249    0.249    0.256
+           rope     0.191    0.190    0.186
+           attn    24.680   24.485   25.100
+              o     0.987    0.987    0.989
+         o fold     0.132    0.132    0.133
+            ln2     0.238    0.236    0.235
+         gateup     4.002    4.014    3.992
+    gateup fold     0.333    0.333    0.336
+          dn_in     0.273    0.272    0.276
+           down     1.530    1.526    1.531
+      down fold     0.158    0.157    0.161
+           norm     0.001    0.001    0.005
+           head     0.001    0.001    0.803
+      head fold     0.001    0.001    0.161
+  attention share of a pass at 8191: median 69.1 % [67.9-69.3] over the 3 stamped passes
+mark phases-a12ipg32ft end 1794439612.058
+mark phases-a12ip begin 1794439612.058
+  phases of a12ip@8.10.8.20.6 at R = 16:
+  pass 509 of 512 (pos0 8144, 16 rows, head off): wall 44.477 ms host, phases 44.167 ms, attn 34.428 ms (77.9 %), the rest 9.739 ms
+  pass 510 of 512 (pos0 8160, 16 rows, head off): wall 44.366 ms host, phases 44.047 ms, attn 34.321 ms (77.9 %), the rest 9.726 ms
+  pass 511 of 512 (pos0 8176, 15 rows, head on): wall 42.875 ms host, phases 42.563 ms, attn 32.093 ms (75.4 %), the rest 10.470 ms
+  phases of the longest prompt's last 3 passes, ms each (summed over the layers, grid clock):
+          embed     0.016    0.016    0.015
+            ln1     0.283    0.283    0.284
+            qkv     1.957    1.944    1.935
+       qkv fold     0.236    0.232    0.252
+           rope     0.147    0.151    0.134
+           attn    34.428   34.321   32.093
+              o     0.940    0.942    0.943
+         o fold     0.121    0.120    0.125
+            ln2     0.243    0.244    0.237
+         gateup     3.564    3.557    3.539
+    gateup fold     0.188    0.188    0.186
+          dn_in     0.268    0.268    0.261
+           down     1.622    1.621    1.630
+      down fold     0.152    0.156    0.153
+           norm     0.002    0.001    0.005
+           head     0.001    0.001    0.709
+      head fold     0.001    0.001    0.061
+  attention share of a pass at 8191: median 77.9 % [75.4-77.9] over the 3 stamped passes
+mark phases-a12ip end 1794439625.442
+mark phases-a12ipg32 begin 1794439625.443
+  phases of a12ipg32@8.10.8.20.6 at R = 32:
+  pass 253 of 256 (pos0 8096, 32 rows, head off): wall 43.592 ms host, phases 43.298 ms, attn 32.717 ms (75.6 %), the rest 10.581 ms
+  pass 254 of 256 (pos0 8128, 32 rows, head off): wall 43.852 ms host, phases 43.577 ms, attn 32.957 ms (75.6 %), the rest 10.620 ms
+  pass 255 of 256 (pos0 8160, 31 rows, head on): wall 46.040 ms host, phases 45.734 ms, attn 34.222 ms (74.8 %), the rest 11.512 ms
+  phases of the longest prompt's last 3 passes, ms each (summed over the layers, grid clock):
+          embed     0.031    0.032    0.032
+            ln1     0.283    0.284    0.282
+            qkv     2.366    2.378    2.352
+       qkv fold     0.222    0.224    0.227
+           rope     0.202    0.199    0.196
+           attn    32.717   32.957   34.222
+              o     0.943    0.948    0.949
+         o fold     0.128    0.122    0.123
+            ln2     0.230    0.237    0.236
+         gateup     3.897    3.916    3.872
+    gateup fold     0.326    0.326    0.327
+          dn_in     0.261    0.266    0.256
+           down     1.537    1.535    1.545
+      down fold     0.149    0.149    0.152
+           norm     0.001    0.002    0.005
+           head     0.001    0.001    0.797
+      head fold     0.001    0.001    0.161
+  attention share of a pass at 8191: median 75.6 % [74.8-75.6] over the 3 stamped passes
+mark phases-a12ipg32 end 1794439633.091
+mark phases end 1794439633.092
+identity gates, a12ipg32ft@8.10.8.20.6 at R = 32 against a12ip@8.10.8.20.6 at R = 16: 1024 HOLDS, 4096 HOLDS, 8191 HOLDS
+identity gates, a12ipg32@8.10.8.20.6 at R = 32 against a12ip@8.10.8.20.6 at R = 16: 1024 HOLDS, 4096 HOLDS, 8191 HOLDS
+mark texts begin 1794439633.092
+mark texts end 1794439801.398
+
+house prompts: 44 through the chain (a12ipg32ft@8.10.8.20.6) prefill; prefill 0.031 s [0.021-0.759], decode 220.2 tok/s [206.6-221.7], median [range] over prompts
+
+house prompts: 44 through the chain (a12ip@8.10.8.20.6) prefill; prefill 0.047 s [0.028-1.271], decode 220.1 tok/s [206.7-221.6], median [range] over prompts
+
+house prompts: 44 through the chain (a12ipg32@8.10.8.20.6) prefill; prefill 0.032 s [0.021-0.821], decode 220.1 tok/s [206.5-221.8], median [range] over prompts
+dump: /out/large-prefill-ft-2026-11-11/texts-a12ipg32ft.jsonl, 47 texts
+dump: /out/large-prefill-ft-2026-11-11/texts-a12ip.jsonl, 47 texts
+dump: /out/large-prefill-ft-2026-11-11/texts-a12ipg32.jsonl, 47 texts
+texts identical through a12ipg32ft@8.10.8.20.6 and a12ip@8.10.8.20.6: 47 of 47
+texts identical through a12ipg32@8.10.8.20.6 and a12ip@8.10.8.20.6: 47 of 47
+card memory: 2.418 GB used of 47.666 GB at the end (cuMemGetInfo)
+vram ft idle 0 MiB peak 3395 MiB
+prefillbench ft exit 0

@@ -1,0 +1,52 @@
+prompts: gsm8k 200, house 44 (math 20, code 10, chat 10, rag 4)
+ref against the arbre32 run's tree15: 244 of 244 prompts identical (accepted and passes)
+
+ACCEPTED DRAFTS A PASS, TREE OF 15 (measured); relative change against ref (computed)
+  arm                gsm8k-200           house            math            code             rag            chat
+  ref            5.368  +0.00%   3.316  +0.00%   4.759  +0.00%   2.951  +0.00%   3.553  +0.00%   1.937  +0.00%
+  f16            5.368  +0.00%   3.316  +0.00%   4.759  +0.00%   2.951  +0.00%   3.553  +0.00%   1.937  +0.00%
+  int8g64        5.363  -0.10%   3.317  +0.05%   4.766  +0.14%   2.945  -0.21%   3.553  +0.00%   1.940  +0.20%
+  int4g128       5.293  -1.40%   3.277  -1.16%   4.692  -1.40%   2.957  +0.21%   3.436  -3.29%   1.906  -1.59%
+  int4g64        5.322  -0.86%   3.289  -0.79%   4.739  -0.42%   2.938  -0.41%   3.482  -1.99%   1.910  -1.39%
+  int4g128+fc    5.255  -2.12%   3.262  -1.63%   4.673  -1.81%   2.963  +0.41%   3.413  -3.92%   1.883  -2.76%
+  int4g64+fc     5.294  -1.39%   3.260  -1.68%   4.746  -0.28%   2.891  -2.03%   3.413  -3.92%   1.883  -2.76%
+  int3g64        5.126  -4.51%   3.132  -5.55%   4.459  -6.31%   2.873  -2.63%   3.347  -5.80%   1.789  -7.62%
+
+PAIRED PER PROMPT, arm - ref, accepted a pass (computed): mean, sd, median [min, max], prompts changed
+  gsm8k-200
+    f16          +0.000  sd 0.000  median +0.000 [+0.00, +0.00]  changed 0/200
+    int8g64      -0.006  sd 0.090  median +0.000 [-0.51, +0.28]  changed 47/200
+    int4g128     -0.076  sd 0.230  median -0.074 [-0.74, +0.82]  changed 147/200
+    int4g64      -0.039  sd 0.227  median +0.000 [-0.74, +0.83]  changed 144/200
+    int4g128+fc  -0.114  sd 0.254  median -0.114 [-0.96, +0.56]  changed 159/200
+    int4g64+fc   -0.066  sd 0.249  median +0.000 [-0.69, +0.83]  changed 147/200
+    int3g64      -0.244  sd 0.297  median -0.232 [-1.17, +0.78]  changed 179/200
+  house
+    f16          +0.000  sd 0.000  median +0.000 [+0.00, +0.00]  changed 0/44
+    int8g64      +0.002  sd 0.035  median +0.000 [-0.14, +0.13]  changed 5/44
+    int4g128     -0.048  sd 0.171  median -0.045 [-0.46, +0.57]  changed 31/44
+    int4g64      -0.029  sd 0.144  median -0.016 [-0.43, +0.34]  changed 35/44
+    int4g128+fc  -0.069  sd 0.158  median -0.028 [-0.58, +0.20]  changed 33/44
+    int4g64+fc   -0.040  sd 0.134  median -0.047 [-0.36, +0.28]  changed 35/44
+    int3g64      -0.226  sd 0.266  median -0.180 [-0.93, +0.33]  changed 42/44
+
+GATE (within 3 % of ref on both sets; a gain passes)
+  f16          gsm8k +0.00 %  house +0.00 %  PASS
+  int8g64      gsm8k -0.10 %  house +0.05 %  PASS
+  int4g128     gsm8k -1.40 %  house -1.16 %  PASS
+  int4g64      gsm8k -0.86 %  house -0.79 %  PASS
+  int4g128+fc  gsm8k -2.12 %  house -1.63 %  PASS
+  int4g64+fc   gsm8k -1.39 %  house -1.68 %  PASS
+  int3g64      gsm8k -4.51 %  house -5.55 %  FAIL
+
+SIZE (computed): drafter stored, linears at the arm's rate with f16 scale and bias, the rest f16;
+whole model = sealed target 2.7320 b/param + drafter bits over the target's 4,022,468,096 parameters
+  arm          drafter GB  b/drafter param  whole b/param  vs f16 GB
+  ref              1.0749           16.000          4.870    +0.0000
+  f16              1.0749           16.000          4.870    +0.0000
+  int8g64          0.6018            8.958          3.929    -0.4731
+  int4g128         0.3337            4.967          3.396    -0.7412
+  int4g64          0.3495            5.202          3.427    -0.7254
+  int4g128+fc      0.2856            4.251          3.300    -0.7893
+  int4g64+fc       0.3023            4.501          3.333    -0.7725
+  int3g64          0.2864            4.263          3.302    -0.7885

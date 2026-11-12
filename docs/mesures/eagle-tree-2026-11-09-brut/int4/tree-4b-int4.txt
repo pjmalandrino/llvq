@@ -1,0 +1,12 @@
+target: the sealed 4B through the MLX door (/Users/pjmalandrino/q4b-hf-2026-09-28); head AngelSlim/Qwen3-4B_eagle3@fd331e59; aux layers (2, 18, 33); head int4; draft vocabulary 32000 of 151936; K = 8, D = 10; loaded in 11.1 s
+completions ready (55), 12 s
+{"name": "chat", "prompt": 64, "tokens": 256, "teacher_forced_agree": 1.0, "elapsed_s": 17}
+{"name": "code", "prompt": 64, "tokens": 256, "teacher_forced_agree": 1.0, "elapsed_s": 22}
+{"name": "summary", "prompt": 343, "tokens": 100, "teacher_forced_agree": 1.0, "elapsed_s": 24}
+{"name": "edit", "prompt": 129, "tokens": 101, "teacher_forced_agree": 1.0, "elapsed_s": 26}
+{"name": "rag", "prompt": 364, "tokens": 79, "teacher_forced_agree": 1.0, "elapsed_s": 29}
+{"name": "gsm8k/33", "prompt": 60, "tokens": 323, "teacher_forced_agree": 1.0, "elapsed_s": 35}
+{"name": "gsm8k/46", "prompt": 123, "tokens": 383, "teacher_forced_agree": 0.9974, "elapsed_s": 42}
+{"name": "gsm8k/75", "prompt": 95, "tokens": 371, "teacher_forced_agree": 1.0, "elapsed_s": 51}
+{"name": "gsm8k/160", "prompt": 84, "tokens": 257, "teacher_forced_agree": 0.9961, "elapsed_s": 57}
+{"name": "gsm8k/162", "prompt": 71, "tokens": 634, "teacher_forced_agree": 0.9984, "elapsed_s": 91}

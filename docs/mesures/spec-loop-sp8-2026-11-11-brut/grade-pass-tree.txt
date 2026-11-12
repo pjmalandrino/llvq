@@ -1,0 +1,7 @@
+$ uv run ops/spec_grade.py docs/mesures/spec-loop-sp8-2026-11-11-brut/gsm200.jsonl --prompts ops/data/spec-gsm8k-200.jsonl --pair pass dflash:tree
+200 math prompts, 200 with a gold
+              4e: 200 prompts, 198 closed boxes, 166 of 200 correct
+            pass: 200 prompts, 197 closed boxes, 167 of 200 correct
+     dflash:tree: 200 prompts, 197 closed boxes, 167 of 200 correct
+paired pass / dflash:tree on 200 graded prompts: both right 167, both wrong 33, only pass right 0, only dflash:tree right 0; exact McNemar p = 1
+answers differ on 0 prompts:

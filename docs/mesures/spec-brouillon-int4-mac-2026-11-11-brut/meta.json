@@ -1,0 +1,92 @@
+{
+ "drafter": "z-lab/Qwen3-4B-DFlash-b16@b74e3a329c4d963783143b1e970d95b002be72bd",
+ "stored_dtypes": [
+  "mlx.core.bfloat16"
+ ],
+ "arms": {
+  "ref": [
+   null,
+   0,
+   false
+  ],
+  "f16": [
+   "f16",
+   0,
+   false
+  ],
+  "int8g64": [
+   8,
+   64,
+   false
+  ],
+  "int4g128": [
+   4,
+   128,
+   false
+  ],
+  "int4g64": [
+   4,
+   64,
+   false
+  ],
+  "int4g128+fc": [
+   4,
+   128,
+   true
+  ],
+  "int4g64+fc": [
+   4,
+   64,
+   true
+  ],
+  "int3g64": [
+   3,
+   64,
+   false
+  ]
+ },
+ "weight_error": {
+  "ref": {
+   "linear_rel_mse": 0.0,
+   "fc_rel_mse": 0.0
+  },
+  "f16": {
+   "linear_rel_mse": 1.1755567419446099e-18,
+   "fc_rel_mse": 0.0
+  },
+  "int8g64": {
+   "linear_rel_mse": 2.7965257136004394e-05,
+   "fc_rel_mse": 0.0
+  },
+  "int4g128": {
+   "linear_rel_mse": 0.010035265666019928,
+   "fc_rel_mse": 0.0
+  },
+  "int4g64": {
+   "linear_rel_mse": 0.00808052461218852,
+   "fc_rel_mse": 0.0
+  },
+  "int4g128+fc": {
+   "linear_rel_mse": 0.010035265666019928,
+   "fc_rel_mse": 0.0116737737367319
+  },
+  "int4g64+fc": {
+   "linear_rel_mse": 0.00808052461218852,
+   "fc_rel_mse": 0.008936225669217967
+  },
+  "int3g64": {
+   "linear_rel_mse": 0.03715055936052049,
+   "fc_rel_mse": 0.0
+  }
+ },
+ "arm_seconds": {
+  "ref": 435.6,
+  "f16": 433.0,
+  "int8g64": 432.8,
+  "int4g128": 432.3,
+  "int4g64": 433.9,
+  "int4g128+fc": 433.7,
+  "int4g64+fc": 433.1,
+  "int3g64": 433.2
+ }
+}

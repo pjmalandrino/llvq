@@ -91,6 +91,7 @@ modes set together (`ALONE` in that file).
 | `LLVQ_HF_FIXTURE`, `LLVQ_HF_MINI_FIXTURE` | `llvq-llm/tests/hfpack.rs` | rewrite the packed fixtures |
 | `LLVQ_Q4_WIDE_FIXTURE_WRITE` | `llvq-llm/tests/proj_q4_wide.rs` | rewrite the wide int4 fixture |
 | `LLVQ_ROT_FIXTURE_WRITE` | `llvq-cuda/tests/rotation_matches_rust.rs` | rewrite the rotation fixture |
+| `LLVQ_P4T_DUMP` | `llvq-cuda/src/pers.rs`, a lib test of the tree modules | directory: writes the tree module texts NVRTC compiles (`tree_rows.cu`, `tree_tiled.cu`, `tree_stream.cu`), for an offline nvcc SASS probe; moves no output |
 | `LLVQ_TOKENIZER` | `llvq-runtime/examples/overhead.rs` | tokenizer file when no path is given |
 | `LLVQ_UPDATE_OPENAPI` | `llvq-runtime/tests/openapi.rs` | rewrite the committed OpenAPI document |
 

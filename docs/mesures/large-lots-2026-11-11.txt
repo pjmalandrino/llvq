@@ -1,0 +1,120 @@
+LARGE LOTS: THE 16-ROW TREE PASS AS A BATCH ENGINE FOR INDEPENDENT STREAMS, SEALED 4B, L40S. READ-ONLY STUDY, 2026-11-11. $0.
+==========================================================================================================================
+Result: under the operator's rule (quality, 2.73 b/param and VRAM per stream unchanged) the pass brings no batch gain
+today. With the tree-tiled copies it would beat the served GEMM pool by about x1.4 at 8 to 16 streams (*computed*), but
+the copies weigh 1.308 GB, about +2.6 b/param on the 4B (*computed*), which the rule forbids. Read in place (a12ip),
+the pass ties the pool (784 against 758 tok/s at 8 streams). Nothing was built, run or launched.
+
+Sources: verify-tree-n11-2026-11-10.txt (N11), spec-mem-m3-2026-11-11.txt (M3), spec-loop-sp6/sp8-2026-11-11.txt,
+batch-l40s-v4-2026-11-08.txt and batch-l40s-v2-2026-11-08.txt, verify-tree-s1-2026-11-09.txt (S1), ETAT.md "Batch",
+llvq-cuda/kernels/pers_4et.cu (Pers4tLaunch, p4t_attention), pers_4et_a12.cu, llvq-cuda/src/spec_loop.rs,
+llvq-llm/src/batch.rs, llvq-llm/src/persist4e_cuda.rs.
+
+THE EARLIER VERDICT AND ITS CONDITION
+-------------------------------------
+- Lead L21, "the tree-verify kernel as the batch engine for 2 to 32 independent streams", was killed in the 2026-11-09
+  throughput review (docs/archive/recherche-debit-tare-2026-11-09.json, worktree dflash-sass, not committed).
+- Reason: its own kill line (c_8 > 1.9) fired on S1's measured c_8 2.922. S1's c_16 was 3.092, not 3.07.
+- Its condition: "revisit only with a repaired pass".
+- The condition has changed. N11's a10t384r16 reads c_1 1.544, c_8 1.615, c_16 1.728 at chat context (*measured*).
+- But that figure needs the tiled copies. In place (a12ip), the pass reads 2.14 at one row and 2.44 at 16 (*measured*,
+  M3, in the loop). Only the second is admissible under today's rule.
+
+FACTS CHECKED
+-------------
+- 4E token at chat context: 4,467.2 us, 223.9 tok/s (*measured*, N11). In the M3 loop: 4.52 ms (221.0 tok/s).
+- 16 rows with copies: 7,716.1 us, c_16 1.728 (*measured*, N11 bench). In the specbench loop with taps: 8.53 to 8.60 ms.
+- 16 rows without copies: 10.91 ms, 2.44 (*measured*, M3). One row: 9.56 ms, 2.14. Four rows: 9.85 ms.
+- 1 row with copies: 6,892.5 us, 1.544 (*measured*, N11).
+- Extra row: 0.0123 token with copies at chat context, 0.0236 at RAG context 362 (*measured*, N11). Without copies about
+  0.088 ms, 0.020 token (*computed* from M3's 4 and 16 rows).
+- Copies: 253 tiled projections, 1.308 GB (*measured*, M3 loader).
+
+1. WHAT SEPARATES A TREE PASS FROM A BATCH OF STREAMS
+----------------------------------------------------
+- K/V store. Every layer of Pers4eArgs carries one cache (Y.kc, Y.vc, cap positions), baked into the images at
+  install. A row reads positions below pos0 from it and its tree positions from the slot buffer tk/tv through path.
+  Streams need a cache each. The pool's layout [P][n_kv][cap][128] (batch.rs) matches the kernel's per-head layout,
+  so a per-row slot base in p4t_attn_issue is enough. Small change.
+- Masks. There is no mask tensor: a row's keys are the shared prefix plus its ancestors (path[r][..=depth[r]]). A
+  stream is depth 0 with path[r][0] = r. Works as is once pos0 is per row. Small.
+- Positions. RoPE and the attention length read pos0 + depth[r]: one pos0 for the launch. Streams need pos0[r], one
+  array in Pers4tLaunch. Small.
+- Cache write. The move phase copies n_move accepted rows into one cache at consecutive positions. Streams need each
+  row written into its own slot at its own position. A loop rewrite of 15 lines. Small.
+- Head. Each row gets its own argmax (L.slots, L.ring). Greedy only, as 4E. Sampling needs either the [R][vocab]
+  logits (16 x 151,936 x 2 B = 4.9 MB a step, *computed*) read back or a device sampler. Medium, and not needed while
+  serving is greedy.
+- Host loop. spec_loop.rs drives one sequence (one pos0, accept along the path). A batch has no acceptance: every row
+  is accepted. The scheduler already exists in llvq-runtime (BatchKv pool, admission by prefill_slot, a lone request
+  back to 4E). The work is to swap that pool's step from tv_batch_gemm to the pass. Medium.
+- Cache size. 4E's install fixes cap at 8,704 positions; the pool allocates 2,048 a slot. The images must point at the
+  pool. Medium.
+- Attention cost. Tree rows read one shared prefix, so 16 rows hit L2. Independent streams each read their own K/V
+  from DRAM. This is the one part that may need a rewrite (see 2).
+Verdict on 1: a kernel change of a day or two plus the pool integration. Not a rewrite at short context.
+
+2. THROUGHPUT, VRAM, LATENCY
+----------------------------
+Short context (chat, 62 positions). Step wall from the measured pass, R = 4 interpolated (*computed*). Aggregate = R /
+wall.
+  streams  with copies (N11 bench)          without copies (M3 loop)         4E one at a time    served pool
+           wall ms  aggregate  per stream   wall ms  aggregate  per stream   aggregate  per s.   aggregate (measured)
+     1      6.893     145.1      145.1       9.56     104.6      104.6        223.9     223.9    221.9 (alone on 4E)
+     2      6.946     287.9      144.0       9.66     207.1      103.6        223.9     112.0    not measured
+     4      7.034     568.7      142.2       9.85     406.1      101.5        223.9      56.0    not measured
+     8      7.208   1,109.8      138.7      10.21     783.9       98.0        223.9      28.0    757.8 (99.4 a request)
+    16      7.716   2,073.6      129.6      10.91   1,466.3       91.6        223.9      14.0    ~1,450 (estimated)
+- The pool at 16 is interpolated between the GEMM kernel's 800.0 at B = 8 and 2,468.0 at B = 32 (batch-l40s-v2).
+- The N11 bench excludes the host loop. In the loop the 16-row pass with copies reads 8.53 ms, 1,876 tok/s at 16.
+- Pool figures come from `llvq serve` end to end; the pass figures are kernel walls. Ratios across the two are
+  indicative only.
+- Against the pool: with copies x1.46 at 8 and ~x1.43 at 16; without copies x1.03 at 8 and ~x1.01 at 16 (*computed*).
+- Against 4E one at a time: the no-copy pass wins from 3 streams up (3 / 9.76 ms = 307, *computed*); with copies from 2.
+
+Longer context (*computed*, bandwidth floor at 864 GB/s, 147,456 B of K/V a position):
+- A stream's K/V read a step: 0.302 GB at 2k (0.35 ms), 1.208 GB at 8k (1.40 ms).
+- 16 streams at 2k add at least 5.6 ms a step: about 13.3 ms with copies, 1,200 tok/s aggregate, 75 a stream.
+- 16 streams at 8k add at least 22.4 ms: at most about 530 tok/s aggregate, 33 a stream.
+- The pass at 8k already reads 48.2 ms for one shared cache, against 6.15 ms for 4E (*measured*, M3); the cause is
+  not established. Long-context batching through this pass is unproven and probably poor.
+
+VRAM per added stream (*computed*):
+- K/V: 0.302 GB at 2k, 1.208 GB at 8k (Grow(256) rounds up).
+- Row buffers: 0.153 GB for the pass, fixed (loader); about 0.01 GB a row.
+- Shared, paid once: weights and 4E 1.98 GB; copies 1.308 GB if used.
+- VRAM per stream therefore falls with the batch (weights amortized). The copies are the one item that moves b/param:
+  2.73 to about 5.3 whole model at 4.02e9 parameters (*computed*).
+
+Latency a lone user sees:
+- Alone, the pass gives 145 tok/s with copies and 105 without, against 224 on 4E. The engine must hand a lone stream
+  back to 4E, as the pool does today.
+- When a second user arrives, the first drops from 224 to 144 (copies) or 104 (no copies) tok/s, x0.64 or x0.46.
+- A new stream's prompt still goes through the batch-1 prefill and stalls the others for its duration (35 s at 8k,
+  ROADMAP), the open L22 problem.
+
+3. QUALITY
+----------
+- The pass is not 4E's arithmetic: f16 weights with folded scales and its own sum order.
+- GSM8K-200: 177 of 200 texts identical to 4E, 58,101 of 63,441 tokens before the first divergence; all 23
+  divergences sit on near-ties (margin 0 or 0.0156). Grades: pass 167, 4E 166 (*measured*, SP6, SP8).
+- The 8k pass leaves 4E's greedy at token 28 on a margin of 0.0156 (*measured*, M3).
+- The paired perplexity gate (S2, +-0.12 % of 4E) has never run.
+A served batch mode would have to re-gate:
+- paired perplexity within +-0.12 % of 4E through the batch step at R = 1, 8, 16;
+- row independence: a stream's tokens bit for bit the same whatever R, its slot, and its neighbours' contents and
+  lengths (today's guards cover tree rows over one cache, not rows over separate caches);
+- the switch: a stream that moves between 4E (alone) and the pass (batched) changes arithmetic mid-answer, so its text
+  depends on load. Either accept this under the tolerance, as the GEMM pool does, or keep a stream on one arithmetic;
+- GSM8K-200 paired against 4E, and one run at 8k.
+
+4. IS IT WORTH AN EXPERIMENT NOW
+--------------------------------
+No. The operator's priority is single-user chat, and a batch engine never speeds up a lone user: it slows the first
+user by a third or more as soon as a second one arrives. Under the b/param rule only the in-place pass is admissible,
+and it ties the GEMM pool that is already on main. The lead becomes worth a run when an in-place 16-row pass costs 1.8
+4E tokens or less (8 ms), which the memory axis needs anyway for speculation; the batch mode would then ride on that
+work for a day or two of host code. The smallest experiment, if wanted anyway: a vtreebench arm with per-row pos0 and
+per-row cache slots, depth 0, at R = 1, 2, 4, 8, 16 and contexts 62, 2k, 8k, a12 and a12ip, beside tv_batch_gemm at
+the same B and 4E. Card time: about 20 min of load and install (N11: 1,211.6 s) plus 10 to 15 min timed, 30 to 35 min
+of L40S, about $0.90 to $1.05 at $1.80/h (*estimated*). Host work before it: one to two days, $0.

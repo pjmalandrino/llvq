@@ -1,0 +1,51 @@
+[stage] SCHEDULING Scheduling
+[0 min billed · 0.00 $]
+[0 min billed · 0.00 $]
+[0 min billed · 0.00 $]
+[0 min billed · 0.00 $]
+[0 min billed · 0.00 $]
+[0 min billed · 0.00 $]
+[0 min billed · 0.00 $]
+[0 min billed · 0.00 $]
+[0 min billed · 0.00 $]
+[0 min billed · 0.00 $]
+[0 min billed · 0.00 $]
+[0 min billed · 0.00 $]
+[0 min billed · 0.00 $]
+[0 min billed · 0.00 $]
+[0 min billed · 0.00 $]
+[0 min billed · 0.00 $]
+[0 min billed · 0.00 $]
+[0 min billed · 0.00 $]
+[0 min billed · 0.00 $]
+[0 min billed · 0.00 $]
+[0 min billed · 0.00 $]
+[0 min billed · 0.00 $]
+[0 min billed · 0.00 $]
+[0 min billed · 0.00 $]
+[0 min billed · 0.00 $]
+[0 min billed · 0.00 $]
+[0 min billed · 0.00 $]
+[0 min billed · 0.00 $]
+[0 min billed · 0.00 $]
+[0 min billed · 0.00 $]
+[0 min billed · 0.00 $]
+[0 min billed · 0.00 $]
+[0 min billed · 0.00 $]
+[0 min billed · 0.00 $]
+[0 min billed · 0.00 $]
+[0 min billed · 0.00 $]
+[0 min billed · 0.00 $]
+[0 min billed · 0.00 $]
+[metrics] stream attached
+[stage] RUNNING 
+[1 min billed · 0.02 $]
+[3 min billed · 0.08 $]
+[stage] COMPLETED 
+[4 min billed · 0.12 $]
+
+[end] COMPLETED: 0.07 h billed, 0.12 $
+
+[VRAM] peak 2.912 GB · mean 1.894 GB · p50 1.888 · p95 1.958
+       69 samples over 217 s (3.20 s apart)
+monitor exit 0

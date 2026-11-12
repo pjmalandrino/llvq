@@ -67,6 +67,23 @@ static inline unsigned short served_capture_f2h(float v) {
 #include "../kernels/pers_4e.cu"
 #if PERS_4E_ROWS >= 7
 #include "../kernels/pers_4ev.cu"
+#include "host_mma.h"
+#include "../kernels/pers_4et.cu"
+#include "../kernels/pers_4et_stream.cu"
+#include "../kernels/pers_4et_a4.cu"
+#include "../kernels/pers_4et_a5.cu"
+#include "../kernels/pers_4et_a6.cu"
+#include "../kernels/pers_4et_a8.cu"
+#include "../kernels/pers_4et_a9.cu"
+#include "../kernels/pers_4et_a10.cu"
+#include "../kernels/pers_4et_a11.cu"
+#include "../kernels/pers_4et_a11i.cu"
+#include "../kernels/pers_4et_a10rc.cu"
+#include "../kernels/pers_4et_a10t.cu"
+#include "../kernels/pers_4et_a10t2.cu"
+#include "../kernels/pers_4et_a12.cu"
+#include "../kernels/pers_4et_a12g.cu"
+#include "../kernels/pers_4et_a12g32.cu"
 #endif
 #include "../kernels/pers_trows.cu"
 #include "../kernels/pers_vrows.cu"
@@ -915,6 +932,13 @@ int main() {
 #include "host_pers_segment.inc"
     } else if (tag == 'G') {
 #include "host_pers_4e.inc"
+    } else if (tag == 'Y') {
+#if PERS_SIDE == 1 && PERS_4E_ROWS >= 7
+#include "host_pers_tree.inc"
+#else
+        std::fprintf(stderr, "host_pers: the tree verify needs the persistent side with PERS_4E_ROWS 7\n");
+        return 2;
+#endif
     } else if (tag == 'A') {
         // PERSALL: sites = a fused group of two parts (16 + 24 rows, d_in
         // 2560, two centroid pairs through gs_off) and a single (16 rows,
@@ -1294,6 +1318,22 @@ int main() {
         OFF(Pers4vLaunch, act); OFF(Pers4vLaunch, part); OFF(Pers4vLaunch, tickets); OFF(Pers4vLaunch, slots);
         OFF(Pers4vLaunch, part_stride); OFF(Pers4vLaunch, stamps);
         o.push_back(P4V_KMAX);
+#undef OFF
+#endif
+        wr(o);
+    } else if (tag == 't') {
+        // The tree verify's launch struct (pers_4et.cu): its size, the offset
+        // of every field in order, then P4T_RMAX, for pers.rs::P4tLaunch.
+        std::vector<u32> o;
+#if PERS_SIDE == 1 && PERS_4E_ROWS >= 7
+#define OFF(f) o.push_back((u32)offsetof(Pers4tLaunch, f))
+        o.push_back((u32)sizeof(Pers4tLaunch));
+        OFF(bar_base); OFF(pos0); OFF(n_rows); OFF(area_floats); OFF(n_move); OFF(move_pos0); OFF(part_stride);
+        OFF(ldx); OFF(split_qkv); OFF(split_o); OFF(split_gu); OFF(split_dn); OFF(split_head); OFF(pad);
+        OFF(toks); OFF(depth); OFF(path); OFF(mv); OFF(ring); OFF(logits); OFF(x_a); OFF(x_b); OFF(xin); OFF(xn);
+        OFF(q_raw); OFF(k_raw); OFF(v_raw); OFF(q_out); OFF(ctx); OFF(g_raw); OFF(u_raw); OFF(tk); OFF(tv);
+        OFF(part); OFF(fpart); OFF(tickets); OFF(ftickets); OFF(slots); OFF(stamps);
+        o.push_back(P4T_RMAX);
 #undef OFF
 #endif
         wr(o);

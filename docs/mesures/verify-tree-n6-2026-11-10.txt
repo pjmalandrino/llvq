@@ -1,0 +1,139 @@
+VERIFY-TREE N6: a10 (a9 WITH 4E'S PROLOGUE PATH, SILU IN THE GATE/UP FOLD) BESIDE a9, SEALED 4B, ONE L40S, 2026-11-10. $0.32.
+======================================================================================================================
+Result: BETWEEN under the prereg's rule, as predicted (*measured*, chat context). The best valid arm is a10 at P =
+[5, 14, 5, 28, 5]: c_1 1.747, c_2 1.759, c_16 1.918, an extra row 0.0114 of a 4E token. a9 at the same plan reads c_1
+1.958, c_2 1.979, c_16 2.148. a10's guard holds (its 32-row pass equals a9's bit for bit). 4E's prologue path takes
+the prologues of vt1 (ln1 + ln2 + dn_in) from 1,469 to 621 us (-848), most of it in dn_in (-499); c_1 falls by 0.21 of
+a token and the extra row does not move. All 11 signed values fall inside their intervals.
+Prereg : proofs/preregistration-verify-tree-n6-2026-11-10.md (sha256 f6715e63), stamped before the job (.ots, commit
+         a5391b0). No deviation.
+Go     : the operator, 2026-11-09 about 23:00 CET, session "LLVQ pistes débit": "Compute HF ok tu as 10$ pour la nuit
+         comme tu le sens"; on 2026-11-10 "continue", then "go" for this job (relayed by the orchestrating session). Cap
+         $10.
+Job    : 6af2f121ab34849891ab3740, l40sx1, image hf.co/spaces/Pier-Jean/llvq-runner-cuda at Space sha 991a4324 (its
+         COMMIT file names a5391b0, published from a clean detached checkout of that commit, perimeter clean; kernel,
+         bench and runtime sources equal to c76c9ad's), `STAGE=n6 ARMS='a9@5.14.5.28.5,a10@5.14.5.28.5'
+         ops/jobs/verify-tree-n2.sh`, job timeout 24 min, the bench's 21 min. Submitted 11:25 CET, RUNNING at 11:33
+         (about 8 min of queue, not billed; no twin), COMPLETED by 11:44. 11 min billed, $0.32 (*measured*, ops/run.py
+         monitor). VRAM: no metric received. Registry $308.77 before, $309.09 after; spend since the go $1.84.
+Raw    : verify-tree-n6-2026-11-10-brut/: gpu.txt (NVIDIA L40S, 8.9, 46,068 MiB, driver 580.178.04, 2,520 MHz),
+         oracle.txt, files.sha256, qwen3-4b-tetra-e4-4e-v9.json (sha256 29b3ef32, equal to
+         configs/qwen3-4b-tetra-e4-4e-v9.json), vtree-4b.txt, summary.txt, monitor.txt, queue.txt.
+
+CONTROLS
+--------
+1. oracle on Qwen3-0.6B: MATCH. Sealed file sha256 886391a8 at its size. Config at its sha256. The job body refuses any
+   LLVQ_* in its environment. Holds.
+2. 4E module 252,757 bytes, sha256 1b422b62, row form 7: the served v9 module. Every one-token 4E launch made its
+   greedy token. Holds.
+3. a10's guard: "a10@5.14.5.28.5 guard against a9@5.14.5.28.5 ... PASSES, the 32-row pass equal bit for bit". Holds.
+   The bench also ran a9's own guard against a3@5.14.5.28.5 (an untimed guard-only arm): PASSES. Both modules
+   compiled through NVRTC.
+Host gates: the focused a10 gates were green at launch (prereg). The full `tree_verify_host` suite on c76c9ad had not
+finished when this journal was written (its log at 11:44 CET listed 17 of 26 tests passed and the 18th running, no
+`test result:` line): its result is not in.
+Read by the decision rule:
+- identity, chat, a9@P and a10@P; rag, a10@P: every row equals its node in the arm's 32-row pass, logits and argmax,
+  67 rows of 5 passes. Holds.
+- vt1 against 4E: the same argmax at 64 of 64 positions, both arms at chat, a10@P at rag. Holds.
+- timed passes whose argmaxes differ from their arm's 32-row pass: 0 of 42 (chat), 0 of 21 (rag).
+
+MODULES (*measured*, printed at install; both 128 registers, 89,984 B shared, 1 resident a SM)
+-------
+a9: 353,866 bytes, sha256 51bd79b3 (N5's); pers_4et_a9_f1_t512: 744 B local.
+a10: 378,415 bytes, sha256 b1d9ae83; pers_4et_a10_f1_t512: 736 B local.
+Load and install: 608.0 s.
+
+RESULT (*measured*, 2 discarded and 5 timed rounds, arms interleaved, ratios formed round by round, median [range];
+R = 1, 2, 16; P = [5, 14, 5, 28, 5])
+------
+Chat, context 62. 4E, one token a launch: 4,477.7 us [4,465.0-4,487.7].
+  arm       rows   wall us                       c_R                   extra row
+  a9@P         1    8,765.8 [8,761.9-8,771.4]    1.958 [1.952-1.963]
+               2    8,860.2 [8,846.9-8,871.7]    1.979 [1.974-1.984]
+              16    9,617.7 [9,604.0-9,634.3]    2.148 [2.143-2.154]   0.0126
+  a10@P        1    7,815.7 [7,806.3-7,822.4]    1.747 [1.743-1.750]
+               2    7,862.4 [7,849.7-7,885.0]    1.759 [1.751-1.761]
+              16    8,593.1 [8,587.9-8,596.0]    1.918 [1.914-1.925]   0.0114
+Rag, context 362, a10@P only (lowest chat c_16). 4E: 4,764.1 us [4,763.6-4,776.6].
+  a10@P: c_1 1.699 [1.695-1.701], c_2 1.711 [1.704-1.713], c_16 2.024 [2.020-2.026], extra row 0.0217.
+
+PHASES (*measured*, chat, us summed over the 36 layers, median of 5 stamped launches; wall (busy min / med / max over
+the 142 CTAs, rounded); the fold rows follow each row phase's wait; "row phases" as the bench prints it)
+------
+vt1: a9@P wall 8740.6, row phases 6508.6 (74.5 %); a10@P wall 7785.6, row phases 6443.7 (82.8 %)
+  phase         a9@P wall (busy min/med/max)      a10@P wall (busy min/med/max)     a10 - a9
+  embed             1.8 (1/1/1)                2.3 (1/1/1)               +0.5
+  ln1             425.6 (16/19/396)              224.2 (11/14/184)             -201.4
+  qkv            1544.3 (428/1301/1484)             1517.5 (398/1262/1463)              -26.8
+  qkv fold        160.2 (12/15/114)              148.8 (11/14/102)              -11.4
+  rope            133.5 (6/7/103)              112.2 (7/8/91)              -21.3
+  attn            623.7 (10/11/602)              602.1 (12/14/566)              -21.6
+  o               596.4 (17/474/532)              603.7 (18/492/549)               +7.3
+  o fold          135.6 (3/4/89)              147.7 (3/4/90)              +12.1
+  ln2             332.8 (2/3/314)              185.4 (2/4/160)             -147.4
+  gateup         2226.1 (1518/2062/2151)             2167.4 (1455/2001/2105)              -58.7
+  gateup fold     111.4 (6/9/78)              148.2 (2/4/102)              +36.8
+  dn_in           710.7 (2/3/671)              211.6 (2/3/172)             -499.1
+  down           1095.4 (529/990/1034)             1071.1 (506/958/1006)              -24.3
+  down fold       184.8 (3/4/146)              185.1 (3/4/144)               +0.3
+  norm              4.1 (0/0/3)                4.1 (0/0/3)               +0.0
+  head            449.5 (414/438/448)              449.5 (416/439/449)               +0.0
+  head fold         4.8 (0/4/4)                4.6 (0/4/4)               -0.2
+  prologues ln1+ln2+dn_in: a9 1469.1, a10 621.2 (-847.9)
+vt16: a9@P wall 9597.2, row phases 7345.2 (76.5 %); a10@P wall 8582.6, row phases 7198.4 (83.9 %)
+  phase         a9@P wall (busy min/med/max)      a10@P wall (busy min/med/max)     a10 - a9
+  embed             7.0 (6/6/6)                7.2 (6/6/6)               +0.2
+  ln1             424.0 (17/21/385)              221.5 (11/14/189)             -202.5
+  qkv            1854.8 (596/1605/1796)             1807.4 (536/1542/1748)              -47.4
+  qkv fold        164.2 (16/18/125)              158.8 (17/19/120)               -5.4
+  rope            145.9 (91/112/118)              132.8 (82/95/104)              -13.1
+  attn            654.4 (22/620/623)              628.8 (30/594/600)              -25.6
+  o               645.8 (17/522/586)              638.0 (16/515/575)               -7.8
+  o fold          147.1 (4/5/94)              147.6 (3/4/98)               +0.5
+  ln2             335.7 (2/5/320)              185.3 (2/4/156)             -150.4
+  gateup         2547.2 (1803/2362/2458)             2440.0 (1697/2241/2356)             -107.2
+  gateup fold     137.6 (10/86/102)              166.3 (4/104/123)              +28.7
+  dn_in           680.8 (2/6/637)              204.4 (2/3/170)             -476.4
+  down           1127.6 (548/1028/1079)             1118.5 (529/1009/1056)               -9.1
+  down fold       184.4 (4/6/147)              185.2 (3/4/146)               +0.8
+  norm              4.1 (0/0/3)                4.1 (0/0/3)               +0.0
+  head            484.4 (444/470/484)              484.4 (446/470/484)               +0.0
+  head fold        52.2 (42/50/51)               52.2 (42/50/52)               +0.0
+  prologues ln1+ln2+dn_in: a9 1440.5, a10 611.2 (-829.3)
+4E stamped over two tokens (chat): q/k/v 656.0, attention 801.2, o 340.8, MLP 2,374.8, head 369.0.
+
+AGAINST THE SIGNED PREDICTION (chat)
+--------------------------------
+  quantity                              signed                 measured     inside
+  4E token                              4,435 [4,380, 4,480]   4,477.7      yes
+  a9 c_1                                1.966 [1.93, 2.00]     1.958        yes
+  a9 c_2                                1.99 [1.95, 2.03]      1.979        yes
+  a9 c_16                               2.18 [2.12, 2.25]      2.148        yes
+  a9 prologues of vt1                   1,403 [1,300, 1,500]   1,469.1      yes
+  a10 c_1                               1.80 [1.68, 1.93]      1.747        yes
+  a10 c_2                               1.82 [1.70, 1.95]      1.759        yes
+  a10 c_16                              2.00 [1.86, 2.15]      1.918        yes
+  a10 prologues of vt1                  600 [420, 900]         621.2        yes
+  a10 gate/up fold of vt1               [110, 260]             148.2        yes
+  outcome                               BETWEEN, on a10        BETWEEN      yes
+
+DECISION (the prereg's rule)
+--------
+Best valid arm (guard and identity hold, vt1 at 64 of 64): a10@5.14.5.28.5, c_16 1.918: 1.60 < c_16 <= 2.35, BETWEEN.
+The reopening condition of ETAT.md section 6 is not met (c_2 1.759 > 1.40).
+
+READING (not part of the decision; *computed* from the tables above)
+-------
+- The prologues: ln1 -201, ln2 -147, dn_in -499 us at vt1; their busy maximum falls with the wall (dn_in 671 to 172 us),
+  so one CTA's walk over the row is what shortened, not the spread.
+- silu(gate) x up in the gate/up fold costs 37 us at vt1 (fold 111 to 148) and 29 at vt16, against the 499 us dn_in
+  gives back.
+- The row phases hardly move (q/k/v -27, gate/up -59, down -24 at vt1): the fixed cost left sits in the row loops and
+  the 36 x 13 grid waits, plus attention.
+- The 4E token here is 4,477.7 us, 40 us above N5's: c_R is formed on this job's own token, round by round.
+
+WHAT THIS DOES NOT ESTABLISH
+----------------------------
+Which of a10's changes buys which part. The full host suite's result (not in at writing). R = 4, 8 and 32. VRAM peak
+(no metric). Any card but the L40S. The 8B and 14B. Any acceptance or tok/s at a door.

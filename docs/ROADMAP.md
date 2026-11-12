@@ -23,13 +23,12 @@ is read against 0.43 pp and 0.12 %.
 At the bit, the 4B tops out near 235 to 258 tok/s at the door (*estimated*, [`plan-300.md`](plan-300.md) §6b). Past
 that, two levers change what a launch does rather than how fast it does it.
 
-- **Speculative decoding: closed on today's verify.** A 0.6B drafter, prompt lookup and a published EAGLE-3 head all
-  keep the greedy tokens; none beats greedy decode on free text at any size (*measured*,
-  [spec-final](mesures/spec-final-2026-11-08.txt), [`plan-speculation.md`](plan-speculation.md)). An extra verify row
-  costs 0.74 to 0.98 of a 4E token, almost all of it in the row phases.
-  **Next, on a branch, on the operator's go**: a cheaper K-row loop (B1's integer dot with a new served
-  object, or f32 nearer shaker-4e's floor). **Gate**: an extra row under 0.2 of a 4E token, then an EAGLE-3 head on
-  the card.
+- **Speculative decoding: the verify gate is met, the memory is the price.** A tree pass verifies 16 rows for 1.73
+  tokens of 4E, an extra row under 0.02 of a token (*measured*,
+  [verify-tree-n11](mesures/verify-tree-n11-2026-11-10.txt)); the gate was 0.2. With the DFlash drafter the loop
+  decodes GSM8K-200 at x2.30 and chat at x1.09 of 4E, for 5.41 GB against 2.01 (*measured*,
+  [spec-loop-sp8](mesures/spec-loop-sp8-2026-11-11.txt), [spec-mem-m3](mesures/spec-mem-m3-2026-11-11.txt)).
+  Operator, 2026-11-11: set aside as a fast profile, built when wanted; the default stays at 2.73 b/param.
 - **Batching.** Decode several sequences per pass: the bytes are read once for all of them. vLLM's AWQ 4B reaches
   5,129 tok/s in aggregate at batch 32 on the L40S (*measured*, branch `claude/batching-eca5f1`, job 6aef873c).
   Our batched decode and its continuous batching in `llvq serve` are on main since 2026-11-09, licensed and not served by default. **Gate**: each sequence returns

@@ -1,0 +1,73 @@
+Mac gates of D1 (arm a12ipg), 2026-11-11, branch claude/arbre-prefill-2026-11-11 (twin: cargo test --release -p llvq-cuda --test tree_verify_host -- --include-ignored --test-threads=1)
+== identity gates
+    Finished `release` profile [optimized] target(s) in 3.57s
+     Running tests/tree_verify_host.rs (target/release/deps/tree_verify_host-dd5df30b5a115a5a)
+running 2 tests
+test a12ipg_chain_prefill_equals_the_one_row_path ... a12ipg chain from 600, R = 16: 38 rows equal to a12ip's R = 1 bit for bit
+a12ipg chain from 600, R = 5: 38 rows equal to a12ip's R = 1 bit for bit
+ok
+test a12ipg_rows_equal_a12ip_rows_at_short_and_long_caches ... variant 0: 82 rows over 10 passes (pos0 9, 500, 1000; R 1, 5, 16; a tree of 16), a12ipg equals a12ip bit for bit, taps included
+variant 16: 82 rows over 10 passes (pos0 9, 500, 1000; R 1, 5, 16; a tree of 16), a12ipg equals a12ip bit for bit, taps included
+ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 42 filtered out; finished in 820.47s
+[exited with code 0]
+== mutants
+rc=0
+    Finished `release` profile [optimized] target(s) in 11.84s
+     Running tests/tree_verify_host.rs (target/release/deps/tree_verify_host-dd5df30b5a115a5a)
+running 1 test
+test a12ipg_mutants_are_killed ... ipg_neighbour_q: 1 site(s) in llvq-cuda/kernels/pers_4et_a12g.cu
+ipg_neighbour_q: killed by a12ipg against a12ip, pass 0 (pos0 500, 5 rows), slot 0: argmax
+ipg_split_past_pos0: 1 site(s) in llvq-cuda/kernels/pers_4et_a12g.cu
+ipg_split_past_pos0: killed by a12ipg against a12ip, pass 0 (pos0 500, 5 rows), slot 1: argmax
+ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 43 filtered out; finished in 313.80s
+[exited with code 0]
+== regressions, text tests, clippy
+== pers.rs text tests
+thread 'pers::tests::the_a12_pass_is_the_row_cap_pass_with_taps' (3438442) panicked at llvq-cuda/src/pers.rs:3816:9:
+test pers::tests::the_a12_pass_is_the_row_cap_pass_with_taps ... FAILED
+tree module a12ipg at SERVED_DEFINES_SM89: 450184 bytes, sha256 5425aa614d18e09de380835601b704d54da92144ca4a16adcfa4216532cff365; area 18624 floats, 93568 B shared
+test pers::tests::the_a12ipg_pass_is_a12ip_with_the_grouped_attention ... ok
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 156 filtered out; finished in 0.01s
+== twin regressions
+test a12_rows_equal_a10_rows_and_its_taps_are_the_residual ... ok
+test a12_tap_mutant_is_killed ... ok
+test a12ip_permutation_mutant_is_killed ... ok
+test a12ip_rows_equal_a12_rows_on_the_served_words ... ok
+test a12ipg_chain_prefill_equals_the_one_row_path ... ok
+test a12ipg_mutants_are_killed ... ok
+test a12ipg_rows_equal_a12ip_rows_at_short_and_long_caches ... ok
+test chain_prefill_equals_the_one_row_path ... ok
+test chain_prefill_mutants_are_killed ... ok
+test one_row_is_close_to_4e ... ok
+test the_loop_on_the_twin_is_the_greedy_decode ... ok
+test the_tree_launch_mirror_matches_the_kernel ... ok
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 32 filtered out; finished in 2825.65s
+== clippy llvq-cuda linux
+rc=1
+== clippy llvq-llm cuda
+warning: very complex type used. Consider factoring parts into `type` definitions
+   --> llvq-llm/src/bin/prefillbench.rs:387:20
+warning: the loop variable `arm` is used to index `arm_names`
+   --> llvq-llm/src/bin/prefillbench.rs:497:20
+warning: `llvq-llm` (bin "prefillbench") generated 2 warnings
+warning: call to `std::mem::drop` with a value that does not implement `Drop`. Dropping such a type only extends its contained lifetimes
+   --> llvq-llm/src/bin/specbench.rs:554:5
+   --> llvq-llm/src/bin/specbench.rs:554:10
+warning: `llvq-llm` (bin "specbench" test) generated 1 warning
+warning: very complex type used. Consider factoring parts into `type` definitions
+   --> llvq-llm/src/bin/vtreebench.rs:721:35
+warning: `llvq-llm` (bin "vtreebench" test) generated 1 warning
+warning: `llvq-llm` (bin "prefillbench" test) generated 2 warnings (2 duplicates)
+warning: `llvq-llm` (bin "vtreebench") generated 1 warning (1 duplicate)
+warning: `llvq-llm` (bin "specbench") generated 1 warning (1 duplicate)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.88s
+== clippy mac
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 38.88s
+
+[exited with code 0]
+== notes
+clippy llvq-cuda linux: rc=1 above is grep finding no warning or error line (zero warnings).
+the_a12_pass_is_the_row_cap_pass_with_taps FAILS before this change too: it pins pers_4et_a12.cu against pers_4et_a10rc.cu, neither touched here; the drift is the head guard of 96c501a (split_head 0), which the test's derivation does not carry. Not fixed here.
+clippy llvq-llm cuda after the prefillbench fix (type alias, enumerate): zero warnings in prefillbench; the two older ones remain (specbench.rs:554 drop, vtreebench.rs:721 complex type).

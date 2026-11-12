@@ -1,0 +1,159 @@
+THE ATTENTION TILE'S FULL-TILE PATH: BUILT AND GATED ON THE MAC, 2026-11-11. $0.
+=====================================================================================================================
+Result: on a full tile (8 positions) the attention tile now runs a body with no guard between its positions. ptxas
+interleaves the 8 score chains: the 8 K loads issue back to back and the 32 shuffles sit in 57 consecutive
+instructions. The full-tile path is 552 instructions against 731 for the guarded loop, with 1 branch region against 34
+(*measured*, devel ptxas 12.4 sm_89 on the Mac). One warp's in-order issue of a tile call drops from 2,900 to 1,117
+cycles on the tree arms and from 2,936 to 1,548 on 4E (*estimated*, assumed latencies, section 3). The ex2 calls are
+branch-free but ptxas keeps them as 9 consecutive chains. Every arm equals its guarded parent bit for bit on the host
+twin, and two mutants are killed on each side (section 4).
+Nature: Mac only. No job, no image, no prereg, no model loaded. Branch claude/arbre-prefill-2026-11-11, with
+claude/arbre-nuit-2026-11-10 merged in locally (E1's arm mechanism), not pushed.
+Lead: docs/mesures/large-prefill-r32-mac-2026-11-11.txt section 2 (the tile serialised by its nv guards).
+
+1. WHAT WAS BUILT
+-----------------
+- llvq-cuda/kernels/pers_attn_full.cuh: pers_attn_tile_full, pers_attn_tile at nv = 8 with the guards removed and the
+  8 positions advanced together step by step (8 K loads, then fma step i of every position, then each shuffle level
+  of every position, then the scale). Each score, the tile max, each ex2, ts and each PV sum keep their operands and
+  their order. pers_ex2_sel is pers_ex2 written with selects: on x > -126 it runs pers_ex2's operations on x in the same
+  order; otherwise it runs them on 0 and returns x on a NaN, 0 below -126.
+- pers.rs::pers_ft_edit: one text edit of llvq_pers.cuh, the file inserted before pers_attn_tile and, at its head,
+  `if (nv == PERS_TT) { pers_attn_tile_full(...); return; }`. Applied to a module text with an exactly-once check.
+- Tree arms a12ipft, a12ipgft, a12ipg32ft (pers.rs::p4t_ft_unit_text): the parent's module text with the edit, the
+  parent's symbols. persist4e_cuda.rs: TreeForm::A12ipFt, A12ipgFt, A12ipg32Ft, module slots 25 to 27, everything but
+  the text from the parent (TreeForm::parent). prefillbench takes the three names.
+- 4E arm v9ft: E1's mechanism (pers.rs::p4e_e1_edits), E1's v9 reference (v9 and the logits symbols) and the ft edit.
+  fusedrun `LLVQ_PERS_4E=64:v9,v9ft`.
+- ops/tree-sass-probe.sh: compiles the dumped module texts and writes each symbol's SASS and ptxas lines.
+
+Module texts at the card's tile define ("#define TILE_BLOCKS 64u\n", sha256, *measured* by pers.rs on the Mac):
+  pinned, unchanged before and after   4E tree ce1c354d, a12ip 63155df9, a12ipg 246e99b1, a12ipg32 a35f2b83,
+                                       4E v9 1b422b62, E1's v9 reference d55a097b
+  a12ipft      427,251 B   544f1dd5ff2dd0b7eb52ecb60002af677748dbf402182ea3d526a0ccabd73132
+  a12ipgft     455,367 B   e0fd30be4318032e371854eb4f485c14b232292481603ee2810001c0415086f2
+  a12ipg32ft   457,150 B   19b734a3fb6029848d87339c7d505e9bcfc612f182256793026ea964d09853e2
+  4E v9ft      258,955 B   22ff8320cb881b39690cbbfe6f1fd9ee8c1715142adfb4ee1ffbe932b061619a
+pers::tests::the_d1_tree_modules_keep_their_bytes now pins a12ipg32 and 4E v9 beside the first three.
+pers::tests::the_ft_modules_keep_their_bytes pins the four above; the job scripts check the same digests.
+pers::tests::the_ft_modules_are_their_parents_with_the_full_tile_branch: each ft text with the edit reverted is its
+parent's text.
+
+2. THE SASS (*measured*, nvcc 12.4 -arch=sm_89 -O3 in nvidia/cuda:12.4.1-devel-ubuntu22.04, cuobjdump -sass)
+--------------------------------------------------------------------------------------------------------------
+The card's driver ptxas compiles NVRTC's PTX, so these counts are indicative.
+Tile loop of a12ipg32ft (pers_4et_a12ipg32_f1_t384, 0x329b0-0x37490): 1,199 instructions, both paths. The guarded
+path stays for partial tiles; `ISETP.GT.U32 nv, 0x7` sends a full tile to 0x351e0.
+Full-tile path (0x351e0 to the shared store and the closing BSYNC B0): 552 instructions.
+  FFMA 182, HADD2 128, FADD 59, SHFL 32, LDS 27, IMAD 19, FSETP 19, FSEL 18, FMUL 17, FRND 9, F2I 9, FMNMX 8.
+  Control: 1 BSSY / BSYNC pair (the carry, behind `fresh`), 5 BRA (the own branch, the fresh branch, two __syncwarp
+  fallbacks, one shuffle divergence fallback). The guarded loop of a12ipg32: 731 instructions, BSSY 34, BSYNC 34,
+  BRA 64.
+Interleaving, read in the emitted order:
+  - scores: the 8 K LDS.128 at positions 5 to 12 of the path; the fma of the 8 positions alternate from there on;
+    the 32 SHFL.BFLY span 57 instructions, 8 at each level (0x8, 0x4, 0x2, 0x1) between the FADDs of the level
+    before. The 8 score chains are interleaved.
+  - ex2: no branch region left, but the 9 polynomial chains are emitted one after the other (first and last poly
+    FFMA of each 5 instructions apart, chains 15 to 35 instructions apart). Writing the ex2 steps across the 8
+    positions in the source gave the same order (a third compile, reverted).
+  - PV: straight line, the V loads interleaved with the fma of the previous position.
+The other modules (full paths found by the same `ISETP.GT.U32 nv, 0x7` branch):
+  a12ipgft  (pers_4et_a12ipg_f1_t384)   tile loop 1,199, full path 552, 1 BSSY
+  a12ipft   (pers_4et_a12ip_f1_t384)    tile loop 1,198, full path 551, 1 BSSY
+  4E v9ft   (pers_4e_tokens_f1_t512)    tile loop 1,199, full path 551, 1 BSSY; v9's loop 737, BSSY 34
+Registers, stack, spills, all three RoPE forms alike unless named (limits 170 registers at 384 threads, 128 at 512):
+  a12ipft    pers_4et_a12ip_f*_t384     168 registers, 728 B stack, spills 4 / 24 B   (a12ip: 168, 736 B, 16 / 88)
+  a12ipgft   pers_4et_a12ipg_f1,f2      168 registers, 736 B stack, spills 16 / 60 B  (a12ipg: 168, 736 B, 16 / 96)
+             pers_4et_a12ipg_f0         168 registers, 728 B stack, spills 4 / 24 B
+  a12ipg32ft pers_4et_a12ipg32_f*_t384  168 registers, 728 B stack, spills 12 / 36 B  (a12ipg32: 168, 728 B, 8 / 48)
+  4E v9ft    pers_4e_tokens_f*_t512     128 registers, 16 B stack, spills 32 / 88 B   (v9: 128, 0 B, none)
+             pers_4e_stamps_f*_t512     128 registers, 56 B stack, spills 64 / 160 B  (v9: 128, 32 B, 32 / 44)
+             pers_4e_logits_f*_t512     128 registers, 16 B stack, spills 32 / 88 B
+No local load or store falls inside any tile loop. The 4E token symbol gains 30 local operations elsewhere in the
+kernel, where v9's has none: a cost outside the attention that the card has to show.
+Shared bytes: the ft path adds none. The dynamic area is the parent's: 93,568 B for a12ipg32ft and a12ipgft, 78,848 B
+for a12ipft (large-prefill-r32-mac), 4E v9's own for v9ft; all under 101,376 B.
+
+3. WHAT IT COULD BE WORTH (*estimated*)
+---------------------------------------
+Per tile call, one warp's in-order issue over the emitted order, every instruction once, ops/sass_chain.py's
+latencies (LDS 30, SHFL 30, ALU 4 to 6 cycles; assumptions, not measured on the L40S):
+  tree, a12ipg32 guarded loop        2,900 cycles      a12ipg32ft loop head and full path   1,117 cycles (x0.385)
+  4E, v9 guarded loop                2,936 cycles      v9ft loop head and full path         1,548 cycles (x0.527)
+Prefill, 8k pass. a12ipg at 16 rows: attention 16.78 ms (*measured*, D1), split by the rows study into 10.1 ms of
+per-row tile chain and 6.6 ms of bytes (*estimated* there). The chain part at x0.385 is 3.9 ms. Attention of a 16-row
+pass at 8k: 6.6 ms if bytes and arithmetic overlap fully, 10.5 ms if they add; about 9 ms. A 32-row pass at 8k,
+twice that: 13 to 21 ms against 32 to 34 ms for a12ipg32 (the rows study's x0.95 to x1.00 of twice 16.78). Over the
+256 passes of a 8,191-token prompt the attention grows about linearly, so the first token through a12ipg32ft gains
+about half the 8k saving a pass: 1.5 to 2.5 s off a12ipg32's 8.16 s (estimated in the rows study), 5.7 to 6.7 s.
+4E at 8,192. The token's attention grows 1.985 ms from 5 to 8,192 positions (*computed* from 236.6 and 161.0 tok/s,
+E1). The serial part of the tile in that growth: 256 jobs a layer over 142 CTAs (2 rounds), 8 steps a job, one call a
+step for each of 8 task warps: 16 calls in series a layer, 36 layers, 576 calls x 2,936 cycles / 2.52 GHz = 0.67 ms.
+At x0.527 that part saves 0.32 ms. If the whole growth scaled with the call, it would save 0.94 ms. Token at 8,192:
+5.27 to 5.89 ms, 170 to 190 tok/s, against 6.21 ms and 161.0. At 5 tokens the tiles are partial and nothing moves,
+unless the 30 new local operations cost.
+What would make these wrong:
+- the driver ptxas schedules the NVRTC PTX differently, in particular the score interleave or the spills;
+- the latencies are assumed; a warp's issue order understates the hiding by the other warps of the SM;
+- the 10.1 / 6.6 ms split of the prefill attention is a model, not a measurement;
+- 4E's growth may be held by the cp.async ring's waits, the split fold or the barrier gaps rather than the tile, which
+  the lower end of the interval assumes only in part;
+- 4E v9ft's spills in the row phases (30 local operations a launch's thread) could cost more than the attention gains
+  at short context.
+
+4. GATES, ALL ON THE MAC
+------------------------
+Host twin, tree side (tree_verify_host.rs, the 4B's two layers at its widths, cap 1,040, plan SPLIT_N2B):
+  ft_rows_equal_their_guarded_parents (2,106 s with the mutants, both tests pass): chains at pos0 9, 250, 500 and
+  1,000 (rows ending at every length from pos0 + 1 to pos0 + R, so last tiles of 1 to 8 positions; 500 crosses 512,
+  1,000 holds three whole splits below pos0):
+    a12ipft against a12ip       R = 1, 5, 16       88 rows over 12 passes, bit for bit
+    a12ipgft against a12ipg     R = 1, 5, 16       88 rows over 12 passes, bit for bit
+    a12ipg32ft against a12ipg32 R = 1, 5, 16, 32   216 rows over 16 passes, bit for bit
+    chain prefill of 45 tokens from 500 (crosses 512), the hand-over row included:
+      a12ipgft at R = 16 against a12ipg at 16      46 rows, bit for bit
+      a12ipg32ft at R = 32 against a12ipg32 at 32  46 rows, bit for bit
+  ft_mutants_are_killed, each one site in the ft text (counted, 1 each), gate a12ipg32ft against a12ipg32 at R = 1,
+  5, 32:
+    ft_taken_at_7 (`nv == PERS_TT` made `nv + 1u >= PERS_TT`)   killed: pos0 9, 32 rows, slot 5, logits
+    ft_neighbour_k (position 3 reads position 4's K chunk)       killed: pos0 9, 1 row, slot 0, logits
+  A first run at pos0 519 and 1,003 stopped on a12ip itself, before any comparison: pass 8 (pos0 519, 16 rows)
+  tripped the twin's lowered spin watchdog (PERS_SPIN_LIMIT 1 << 14 in host_pers.cpp). The positions moved to the
+  a12ipg gates' 500 and 1,000.
+The ft twin is built from the sources with pers::pers_ft_edit, the edit the card's modules carry. Rows compared:
+argmax, logits, residual, every layer's K and V, the taps.
+Host twin, 4E side (pers_matches_served.rs):
+  the_4e_e1_arms_are_the_served_chain now runs v9ft: its token loop equals the served chain on both row variants,
+  each RoPE form, from 5 (tiles of 6, 7 and 8 positions) and from 270 (33 full tiles, then 7, 8 and 1, across the
+  split at 256), on two consecutive launches and on the stamp symbol. Passes.
+  the_4e_v9ft_mutants_are_killed: v9ft_taken_at_7 (`nv == PERS_TT` made `nv + 1u >= PERS_TT`) killed;
+  v9ft_neighbour_k (position 3's K read from position 4's chunk) killed. One site each, counted by the builder.
+Mutants are applied to a copy of the sources in the temporary directory; the tree stays clean.
+Regressions, after the change: 15 tree twin tests pass (a12, a12ip, a12ipg and a12ipg32 identities and mutants,
+the chain prefill and its mutants, the row-cap refusals, closeness to 4E; 3,721 s). The 4E twins the_4e_v9_* and
+the E1 slot mutant pass (256 s with the v9ft tests).
+Clippy: zero warnings on the Mac (cargo clippy --all-targets) and on llvq-cuda for Linux
+(CUDARC_CUDA_VERSION=12040, --target x86_64-unknown-linux-gnu). llvq-llm with cuda (ops/check-linux-cuda.sh clippy):
+the two older warnings only (specbench.rs:554, vtreebench.rs:721), none in persist4e_cuda.rs, prefillbench or
+fusedrun. pers.rs lib tests: 164 pass. fusedrun's tests: 8 pass (LLVQ_PERS_4E=64:v9,v9ft parses).
+
+5. THE CARD JOBS, WRITTEN, NOT SUBMITTED
+----------------------------------------
+ops/jobs/large-prefill-ft.sh: one prefillbench process, a12ipg32ft at 32 against a12ip at 16 (the reference of
+record) and a12ipg32 at 32. Timing round by round at 1,024 / 4,096 / 8,191, identity of both against a12ip at 16 at
+every length, the 47 texts paired with a12ip's, each arm's 8k phase stamps, the phase peaks by arm. Control 3 checks
+the four tree modules' bytes and digests. Four NVRTC modules: 4E tree about 165 s, a12ip about 254 s, a12ipg32 about
+370 s, a12ipg32ft about 380 s (its Mac compile 183 s against 177). About 28 min, $0.84, timeout 30m ($0.90)
+(*estimated*, from D1's 1,142 s running for three modules and two arms). Dropped to fit: a12ipg at 16 (a fifth
+module), the eager arm, the perplexity.
+ops/jobs/large-attn-ft-4e.sh: E1's job with v9 and v9ft: the served door, both modules interleaved at 5 and 8,192
+tokens (logits of v9ft against v9 bit for bit, 64 tokens against the eager path, tok/s round by round, phase stamps),
+then each arm alone under the VRAM sampler. About 14 min, $0.42, timeout 20m ($0.60) (*estimated*, from E1's 19 min
+for 7 module loads in 5 processes; this one has 5 in 4).
+Both refuse to launch without their prereg and its .ots. No file is added to the image: the new text is include_str!
+in the binaries, and llvq-*/** is in UPLOAD_ALLOW.
+
+NOT ESTABLISHED
+---------------
+Any card time of the ft arms; the driver ptxas's registers, spills and scheduling for them; whether 4E v9ft's spills
+cost at short context.

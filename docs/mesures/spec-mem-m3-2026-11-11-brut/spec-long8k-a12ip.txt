@@ -1,0 +1,81 @@
+target: served config: /out/spec-mem-m3-2026-11-11/qwen3-4b-tetra-e4-4e-v9.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention kernel from position 0 on grow(256), decode persistent (4E rows v9, one launch a token run)) — The qwen3-4b-tetra-e4 object (qwen3-4b-sealed.bin, sha256 886391a8), the v6 config with the v9 row loop and nothing else different: the kernel attention form on every decode row from position 0, decoded by 4E v9 (row form 7: v6, the launch's constants staged during the barriers, attention's steps in a cp.async ring, and the int4 rows v, o and the int4 downs read from tiled words; one cooperative launch a token run, 512 threads). Under this config the loader writes the int4 words tiled and holds them once on the card: the eager path, which prefills, reads the same words through tv_q4_hht, checked against tv_q4_hh on the file's order at every load. The file and its 2.7320 b/param do not move (a permutation inside each row, computed). Written on 2026-11-07 on the operator's go to serve v9 with one copy of the int4 bytes. In the measurement form v9 decodes 238.6 tok/s after a 5-token prompt against 213.3 for v6 (x1.118 round by round) and 163.5 at 8,192 against 154.2 (x1.060), the same 64 tokens as the eager path at both contexts (measured, step3-4e-2026-11-07, with the int4 bytes twice on the card). Not yet read at the served door: served-v9 (proofs/preregistration-served-v9-2026-11-07.md) reads it. Refused on Metal and on any object but the 4B.
+cudarc event tracking: off (one stream, ordered by issue)
+shared rotation: 1 (specbench), 96 rot_launches/token for 252 projections
+projection fusion: 0 (specbench), 252 matvec_launches/token for 252 projections (0 groups + 168 lone + 84 int4)
+fused layout: tetra48 (specbench), projections 1.16 GB on the card, 2.550 b/weight (INFERENCE accounting: KeepExact tail in binary16; the bench bills its own in f32)
+NVRTC source: 106947 bytes, sha256 e269ea5d11b7e40ba0682f536f52ed9f09abfaa9fd6f3185eb306edca5c60e53 (12 parts), tile 64 (served: measured optimum for sm_89), prefill 4x128 (served pair), 49152 B staged of 49152, target compute_89
+int4: tv_q4_hht equals tv_q4_ht bit for bit on model.layers.0.self_attn.v_proj.weight (1024 rows, d_in 2560)
+int4: tv_q4_hht on the tiled words equals tv_q4_hh on the file's order bit for bit on model.layers.0.self_attn.v_proj.weight (1024 rows, d_in 2560); the file-order copy is freed
+int4: tv_q4_hht on the tiled words equals tv_q4_hh on the file's order bit for bit on model.layers.0.self_attn.o_proj.weight (2560 rows, d_in 4096); the file-order copy is freed
+int4: tv_q4_hht on the tiled words equals tv_q4_hh on the file's order bit for bit on model.layers.12.mlp.down_proj.weight (2560 rows, d_in 9728); the file-order copy is freed
+int4 layout: tiled (specbench), 84 records, words 0.385 GB on the card, held once
+embedding: q4 g64 (specbench), 1 table (model.embed_tokens.weight, lm_head tied on it), 218.8 MB on the card (int4 194.5 + scales/biases 24.3)
+total expected on the card: 1.38 GB (projections 1.16 + carried 0.22)
+attn_dec.cu: embedded, sha256 c7b0d8d3f2e3066ba1a2b4331c0bb6c92f22182c78a31b7fb74e839330a1838d, target compute_89
+attn_dec_g4_u64: 160 registers, 0 B local (spill), 16384 B static shared, sm_89
+attn_dec_g4_u64: the card equals the CPU replay bit for bit on 103 calls (rows ending at 1, 255, 256, 257, 1000, 4096; k 1, 3, 8; eager and wide grids; verify rows alone; fresh rows) (1.2 s)
+4E: persistent module 252757 bytes, sha256 1b422b62328be6752df4add43280565fd2a49cfa20ee26953b301abe7a15c530, row form 7, own module on candle's stream
+4E: RoPE forms equal to candle's rope on this card: [1]; running form 1
+4E: pers_4e_tokens_f1_t512: 128 registers, 0 B local, 85952 B shared, 1 resident a SM
+4E: pers_4e_stamps_f1_t512: 128 registers, 32 B local, 1 resident a SM (phase stamps, outside the timed rounds)
+4E: head tied to the embedding's table (151936 rows)
+4E v9: the 76 prologue inputs are 16-byte aligned; the vector path runs on every layer
+4E v9: the int4 records are read in place, tiled at load and held once on the card (36 layers)
+4E: 36 layers, grid 142 x 512, 218 barriers a token
+4E tree: module 306060 bytes, sha256 ce1c354d2583eb178ae8622ff99e10f9b457543972bb5039ce89ede9eec31e44, row form 7 and pers_4et.cu, its own module
+4E tree: pers_4et_rows_f1_t512: 128 registers, 720 B local, 89984 B shared, 1 resident a SM
+4E tree: arm a12ip@8.10.8.20.6 (a12ip (a12 on the served words, read in place, no copy), an explicit plan): slices [8, 10, 8, 20, 6]; S, units, waves, fill, sub-steps a slice at most: q/k/v 8 272 2 95.8 % 7, o 10 140 1 98.6 % 9, gate/up 8 816 6 95.8 % 7, down 20 280 2 98.6 % 11, head 6 4752 34 98.4 % 9
+4E tree: arm a12ip@8.10.8.20.6 at 384 threads (12 warps): area 14944 floats, 78848 B shared, 12 sub-steps a slice at most
+4E tree: the stream unit's slices hold at most 13 sub-steps (area 17728 floats, 16 warps, 32 staged rows)
+4E tree: 512 threads, 17728 floats of area; 0.153 GB of row buffers
+4E tree a12ip: module 421571 bytes, sha256 5b283349cf4c7c7dbc1b4db1dbaec875447e3a3e54715fa6c38aad9f8729c7f9, P4T_A12IP 1 beside a12's text, its own module
+4E tree a12ip: pers_4et_a12ip_f1_t384: 168 registers, 744 B local, 78848 B shared, 1 resident a SM
+4E tree tiled: 0 tree-tiled copies (q, k, v, o, gate, up, down a layer, the head), 0.000 GB more on the card
+4E tree a12ip: 253 projections read in place, 1.295 GB, the words 4E and the eager path hold; every lane's words equal to the tree-tiled copy's on each (p4t_ip_check, each copy freed after its check); 0 copies held for the other arms
+card memory: 2.116 GB used of 47.666 GB after the target's load, its 4E install and the verify pass's install, before the drafter (cuMemGetInfo)
+arm a12ip@8.10.8.20.6: A12ip kernel, slices [8, 10, 8, 20, 6], 384 threads, row cap 16; taps on; N 256
+loaded in 240.8 s
+batch mma unit: 81799 bytes, sha256 d241ea8d1407bff65950d069acb7440b3ab5bdf9a831338ebac75bd3aae893b3, target compute_89
+batch gemm unit: 79819 bytes, sha256 c258073f645be92a4c1ffe18be03ec27e4d0cd8361f620214609689281c23afd
+batch attention unit: 28404 bytes, sha256 ed0d7dab9a46e17c1dd53f278fbd00a93f130da0e53e9ef5fb227ff2cdf991b5
+tv_tetra48_mma_n8: 48 registers, 0 B local
+tv_tetra48_mma_n16: 64 registers, 0 B local
+tv_tetra48_mma_n32: 116 registers, 0 B local
+tv_q4_mma_n8: 40 registers, 0 B local
+tv_q4_mma_n16: 63 registers, 0 B local
+tv_q4_mma_n32: 96 registers, 0 B local
+tv_bg_n8: 96 registers, 0 B local, 47360 B shared
+tv_bg_n16: 72 registers, 0 B local, 53760 B shared
+tv_bg_n32: 80 registers, 0 B local, 66560 B shared
+tv_bg_n64: 113 registers, 0 B local, 55296 B shared
+tv_bg_n128: 191 registers, 0 B local, 81920 B shared
+tv_bgo_n8: 96 registers, 0 B local, 47360 B shared
+tv_bgo_n16: 72 registers, 0 B local, 35328 B shared
+tv_bgo_n32: 80 registers, 0 B local, 41984 B shared
+tv_bgo_n64: 120 registers, 0 B local, 34816 B shared
+tv_bgo_n128: 128 registers, 0 B local, 49152 B shared
+attn_batch_g4_u64: 158 registers, 0 B local
+attn_slot_g4_u64: 161 registers, 0 B local
+drafter /tmp/dflash-b74e3a329c4d963783143b1e970d95b002be72bd (1192.9 MB, F16), loaded in 13.2 s; vocab q4: the target's int4 g64 table (218.8 MB, already resident), gather emb_q4_gather, head tv_q4_mma; no dense copy
+card memory: 3.324 GB used of 47.666 GB after the drafter's load, before the first prompt (cuMemGetInfo)
+template: the assistant opening with thinking off is [151644, 77091, 198, 151667, 271, 151668, 271]; the HF tokenizer on the rendered Qwen3 template (the served door's) gives <think>, 271, </think>, 271 (151667 271 151668 271), not 198 198; eos 151645 (<|im_end|>)
+prompts: 1 from /usr/local/share/llvq/spec-long-8k-v1.jsonl; 1 discarded and 3 timed runs a prompt
+equality: every drafter against the pass's own greedy (the null drafter, R = 1), a hard gate; the pass's greedy against 4E's greedy, reported only. Past a divergence from 4E the texts differ, and tok/s and acceptance there are measured on the pass's own text
+control: one 64-token 4E launch against two chained 32-token launches on wikitext2-test-8k: the same 64 tokens
+
+== wikitext2-test-8k (rag): prompt 8191 tokens; 4E greedy 256 tokens, 162.7 tok/s
+  4E agreement: first divergence at generated token 28 (28 tokens equal before it): the pass Some(353), 4E Some(576); the pass's logits: 28.71875 for 353, 28.703125 for 576, margin 0.0156
+   dflash:tree: 256 tokens, equal to the pass's greedy; 1.80 drafted tokens accepted a pass, 92 passes; verify 4430.3 ms, drafter 593.2 ms, rest of the host 125.7 ms; 49.7 tok/s against 4E's 162.7 (x0.305)
+   dflash:tree: drafter wall, ms: context extension 208.4, block 267.7, head 68.7, readout 46.3; skipped rounds 0
+
+agreement of the pass's greedy with 4E's greedy (reported, not a gate)
+    rag: 0 of 1 prompts in full agreement; 28 of 256 tokens before the first divergence
+    all: 0 of 1 prompts in full agreement; 28 of 256 tokens before the first divergence
+  wikitext2-test-8k: at 28: the pass's logits: 28.71875 for 353, 28.703125 for 576, margin 0.0156
+
+aggregates (tok/s = total tokens over total wall; x greedy likewise, against 4E's greedy on its own text; median over prompts with its range)
+config dflash:tree: arm a12ip@8.10.8.20.6 (A12ip), plan [8, 10, 8, 20, 6], 384 threads, row cap 16, drafter revision b74e3a329c4d963783143b1e970d95b002be72bd, dtype F16, vocab q4, readout device, shape Tree(15), N 256
+   dflash:tree   rag: 1 prompts, 256 tokens, 1 of 1 equal to the pass's greedy; 1.80 accepted a pass, histogram 0..15 [39, 90, 75, 48, 9, 12, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0]; 49.7 tok/s, greedy 162.7, x0.305; per prompt x0.305 [0.305-0.305]; verify 86 %, drafter 12 % of the wall
+   dflash:tree   all: 1 prompts, 256 tokens, 1 of 1 equal to the pass's greedy; 1.80 accepted a pass, histogram 0..15 [39, 90, 75, 48, 9, 12, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0]; 49.7 tok/s, greedy 162.7, x0.305; per prompt x0.305 [0.305-0.305]; verify 86 %, drafter 12 % of the wall
+vram long8k-a12ip idle 0 MiB peak 7081 MiB
+specbench long8k a12ip exit 0

@@ -1,0 +1,66 @@
+vtreebench exit 0
+4E: persistent module 252757 bytes, sha256 1b422b62328be6752df4add43280565fd2a49cfa20ee26953b301abe7a15c530, row form 7, own module on candle's stream
+4E tree: module 306060 bytes, sha256 ce1c354d2583eb178ae8622ff99e10f9b457543972bb5039ce89ede9eec31e44, row form 7 and pers_4et.cu, its own module
+4E tree: pers_4et_rows_f1_t512: 128 registers, 720 B local, 89984 B shared, 1 resident a SM
+4E tree: arm a3 (stream, the stream plan): slices [11, 14, 7, 28, 5]; S, units, waves, fill, sub-steps a slice at most: q/k/v 11 264 2 93.0 % 5, o 14 140 1 98.6 % 7, gate/up 7 532 4 93.7 % 8, down 28 280 2 98.6 % 8, head 5 2970 21 99.6 % 11
+4E tree: arm a6 (a6, the stream plan): slices [11, 14, 7, 28, 5]; S, units, waves, fill, sub-steps a slice at most: q/k/v 11 264 2 93.0 % 5, o 14 140 1 98.6 % 7, gate/up 7 532 4 93.7 % 8, down 28 280 2 98.6 % 8, head 5 2970 21 99.6 % 11
+4E tree: arm a6@5.14.5.28.5 (a6, an explicit plan): slices [5, 14, 5, 28, 5]; S, units, waves, fill, sub-steps a slice at most: q/k/v 5 120 1 84.5 % 11, o 14 140 1 98.6 % 7, gate/up 5 380 3 89.2 % 11, down 28 280 2 98.6 % 8, head 5 2970 21 99.6 % 11
+4E tree: arm a7 (a7, the stream plan): slices [11, 14, 7, 28, 5]; S, units, waves, fill, sub-steps a slice at most: q/k/v 11 264 2 93.0 % 5, o 14 140 1 98.6 % 7, gate/up 7 532 4 93.7 % 8, down 28 280 2 98.6 % 8, head 5 2970 21 99.6 % 11
+4E tree: arm a3f (a3f (floor, values void), the stream plan): slices [11, 14, 7, 28, 5]; S, units, waves, fill, sub-steps a slice at most: q/k/v 11 264 2 93.0 % 5, o 14 140 1 98.6 % 7, gate/up 7 532 4 93.7 % 8, down 28 280 2 98.6 % 8, head 5 2970 21 99.6 % 11
+4E tree: arm a3@5.14.5.28.5 (stream, an explicit plan): slices [5, 14, 5, 28, 5]; S, units, waves, fill, sub-steps a slice at most: q/k/v 5 120 1 84.5 % 11, o 14 140 1 98.6 % 7, gate/up 5 380 3 89.2 % 11, down 28 280 2 98.6 % 8, head 5 2970 21 99.6 % 11
+4E tree: the stream unit's slices hold at most 13 sub-steps (area 17728 floats, 16 warps, 32 staged rows)
+4E tree: 512 threads, 17728 floats of area; 0.133 GB of row buffers
+4E tree stream: module 330604 bytes, sha256 69e7b937fa44e30310e65009c81039d6235033f2c9b9674e06a4ec865d894057, P4T_STREAM 1 and P4T_TILED 1, its own module
+4E tree stream: pers_4et_stream_f1_t512: 128 registers, 744 B local, 89984 B shared, 1 resident a SM
+4E tree a6: module 378250 bytes, sha256 470b751304e2e265e22605d29b2295270b111de1186c4117633bead85f38b80c, P4T_A6 1 after a3's text, its own module
+4E tree a6: pers_4et_a6_f1_t512: 128 registers, 744 B local, 89984 B shared, 1 resident a SM
+4E tree a7: module 426757 bytes, sha256 5b7485bc7970d52c894b598bb4e697155634688467a8b80b285cece7f9749386, P4T_A7 1 after a5's text, its own module
+4E tree a7: pers_4et_a7_f1_t512: 128 registers, 1464 B local, 89984 B shared, 1 resident a SM
+4E tree a3f: module 378251 bytes, sha256 46fa12897e77dc81161cbc53a9ed1d1c8c3cde748881d838909d71a499e81f33, P4T_A3F 1 after a3's text, a floor arm, its own module
+4E tree a3f: pers_4et_a3f_f1_t512: 128 registers, 744 B local, 89984 B shared, 1 resident a SM
+4E tree tiled: 253 tree-tiled copies (q, k, v, o, gate, up, down a layer, the head), 1.308 GB more on the card
+arm a3: Stream kernel, Stream plan, slices [11, 14, 7, 28, 5]
+== tree, chat: context 62, arms a3, a6, a6@5.14.5.28.5, a7, a3f
+  a3 vt1 against 4E: the same argmax at 64 of 64 positions
+  a3 identity: every row equals its node in the 32-row pass, logits and argmax, 67 rows of 5 passes
+  4E, one token a launch: 4435.4 us [4432.8-4444.9] (host wall, launch to ring read)
+  timed passes whose argmaxes differ from their arm's 32-row pass: 0 of 105
+  a3     1     9158.5 [9149.2-9168.7]   c_1 2.065 [2.058-2.068]
+  a3     2     9164.8 [9147.8-9181.5]   c_2 2.065 [2.063-2.067]
+  a3    16    12903.5 [12871.1-12916.1]   c_16 2.903 [2.902-2.914]
+  a3 an extra row: (c_16 - c_1) / 15 = 0.0559 of a 4E token; c_2 2.065
+  a3 vt1 phases, us summed over the layers, median of 5 stamped launches: wall 9137.4, row phases 6767.9 (74.1 %)
+  a3 vt16 phases, us summed over the layers, median of 5 stamped launches: wall 12867.0, row phases 10465.2 (81.3 %)
+== tree, rag: context 362, arms a6@5.14.5.28.5
+  4E, one token a launch: 4743.4 us [4739.8-4754.5] (host wall, launch to ring read)
+  timed passes whose argmaxes differ from their arm's 32-row pass: 0 of 21
+  chat a3: c_1 2.065, c_2 2.065, c_16 2.903
+  a3 vt1 against 4E: the same argmax at 64 of 64 positions
+  a3 vt1 phases, us summed over the layers, median of 5 stamped launches: wall 9137.4, row phases 6767.9 (74.1 %)
+  a3 vt1   phase      wall   busy min   busy med   busy max
+  a3 vt1    embed       1.8        0.6        0.8        1.0
+  a3 vt1      ln1     410.9       16.3       26.9      372.2
+  a3 vt1      qkv    1905.9     1138.6     1562.2     1741.2
+  a3 vt1     rope     125.2        6.4        8.6       87.8
+  a3 vt1     attn     593.4       12.0       13.7      570.7
+  a3 vt1        o     637.4       14.7      476.1      572.3
+  a3 vt1      ln2     333.7        2.6        3.6      298.7
+  a3 vt1   gateup    2621.3     1756.4     2205.6     2448.8
+  a3 vt1    dn_in     900.5        2.3        3.8      861.7
+  a3 vt1     down    1140.5      511.5      952.9     1018.7
+  a3 vt1     norm       4.1        0.2        0.2        3.2
+  a3 vt1     head     462.8      416.5      441.5      461.4
+  a3 vt16 phases, us summed over the layers, median of 5 stamped launches: wall 12867.0, row phases 10465.2 (81.3 %)
+  a3 vt16   phase      wall   busy min   busy med   busy max
+  a3 vt16    embed       7.0        5.7        6.0        6.6
+  a3 vt16      ln1     426.1       23.8       33.0      379.7
+  a3 vt16      qkv    3164.6     1490.2     1983.4     2731.6
+  a3 vt16     rope     135.5       80.6       99.3      107.1
+  a3 vt16     attn     640.9       22.4      607.4      612.6
+  a3 vt16        o     866.2       17.0      499.2      766.6
+  a3 vt16      ln2     331.4        2.5        4.2      296.4
+  a3 vt16   gateup    4105.2     2032.4     2541.4     3833.9
+  a3 vt16    dn_in     856.9        2.8        4.4      815.1
+  a3 vt16     down    1794.7      543.2     1016.5     1412.6
+  a3 vt16     norm       4.1        0.2        0.3        3.2
+  a3 vt16     head     534.5      442.3      467.6      532.8

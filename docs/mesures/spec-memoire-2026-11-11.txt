@@ -1,0 +1,98 @@
+SPECULATIVE LOOP, MEMORY BILL, QWEN3-4B TETRA, 2026-11-11
+=========================================================
+
+Result: the speculative config holds about 4.78 GB on the card at a short context against 2.01 GB for the served 4E
+config, x2.38 (computed: the served base measured, every added item counted by the loader or computed from the code).
+At 8,192 tokens it is about 8.7 GB against 5.95 measured (computed, never run). The weights alone go from 1.38 to
+3.88 GB on the card, 7.72 b/param for the whole model. No peak VRAM of the speculative loop was ever measured: every
+SP2 to SP8 and N1 to N11 job's monitor reads "[VRAM] no metric received" (spec-loop-sp2-2026-11-10-brut/monitor.txt:7
+and the same line in every other monitor.txt).
+
+Read-only analysis: no GPU, no job, no build. Code at bd9e45a. GB = 1e9 B. Parameter counts: target 4,022,468,096,
+projections 3,633,315,840 (docs/fiche-4b.md:66, docs/ROADMAP-QUALITY.md:34); drafter 537,427,200 (computed from its
+shapes: 5 layers of 100,930,816, fc 2,560 x 12,800, two norms; SP2 printed 1,074.9 MB at 2 B a parameter,
+spec-loop-sp2-2026-11-10-brut/spec-dflash.txt:36, which matches to the byte).
+
+1. VRAM, ITEM BY ITEM, SHORT CONTEXT (prompts of 50 to 100 tokens, 256 generated)
+----------------------------------------------------------------------------------
+  item                                          served 4E   spec     label      source
+  CUDA context, weights 1.38, 4E buffers         2.01        2.01    measured   pic-vram-8k-2026-11-08.txt:25 (1,921
+    (nvidia-smi peak at 5 tokens, 256 decoded)                                   MiB); 1.980 by cuMemGetInfo after
+                                                                                 load, served-v9-2026-11-07.txt:32
+  tree-tiled copies, 253 (7 a layer + head)      0           1.308   counted    spec-loop-sp8-2026-11-11-brut/
+                                                                                 spec-house.txt:33; persist4e_cuda.rs:1557
+    of which the head's int4 words               0           0.194   computed   151,936 x 2,560 / 2 B
+    of which the 252 projections                 0           1.114   computed   difference
+  tree row buffers (R = 32 rows, K/V staging,    0           0.153   counted    spec-house.txt:30; persist4e_cuda.rs:1324-1347
+    taps area, partials, logits)
+  drafter weights as held, f16                   0           1.193   counted    spec-house.txt:57; dflash.rs:480-488
+    of which fc and hidden_norm in f32 (+f16)    0           0.066   computed   dflash.rs:426-427
+    of which k and v held twice                  0           0.052   computed   dflash.rs:460-461, k_all and v_all
+  drafter vocabulary, --vocab q4                 0           0       counted    reads the resident 218.8 MB table,
+                                                                                 spec-house.txt:57
+    (--vocab dense would add)                    0          (0.778)  counted    spec-loop-sp5-2026-11-11.txt:99-100
+  drafter context cache, cap 4,096 positions     0           0.085   computed   dflash_spec.rs:65; 20,736 B a position
+                                                                                 (dflash.rs:375); the same formula gives
+                                                                                 the 47.8 MB counted at cap 2,304,
+                                                                                 spec-loop-sp8-2026-11-11-brut/summary.txt:9
+  drafter round transients (logits 15 x 151,936  0           ~0.03   estimated  dflash.rs:624, readout buffers
+    f32, readout, block activations)
+  extra modules, allocator slack                 0           ?       never measured
+  target KV cache                                same        same    computed   a12 writes into the target's caches
+  total                                          2.01        ~4.78   computed   sum; 9.5 b/param at the peak
+
+2. VRAM AT 8,192 TOKENS
+-----------------------
+The speculative loop has never run past a few hundred tokens of prompt. specbench caps N at 1,024 and the tree pass
+refuses positions past P4E_MAX_CAP = 8,704 (persist4e_cuda.rs:1683, served_decode.rs:32), so 8,192 + 256 fits.
+  served 4E peak                                 5.95 GB   measured  pic-vram-8k-2026-11-08.txt:142 (5,671 MiB)
+  plus the items resident during the prefill    2.74 GB   counted   1.308 + 0.153 + 1.193 + 0.085
+  speculative peak, at the target's prefill      ~8.69 GB  computed  17.3 b/param
+The drafter's own prefill comes after the target's. It grows the context cache to 16,384 positions, 0.340 GB
+(computed, dflash.rs:535-547 doubles past 8,208), and uploads the prompt's taps as one [8,192, 12,800] tensor, 0.21 GB
+in f16 then 0.42 GB in f32 (computed, dflash_spec.rs:126). Those come after the score tensors are freed to the pool,
+so they should reuse that memory and not raise the peak (estimated, not measured). The prompt's taps cross the host,
+0.21 GB of host RAM (model.rs:2810).
+
+3. B/PARAM, WHOLE MODEL, TABLES INCLUDED (computed)
+---------------------------------------------------
+File bytes: the sealed file is 2.7320 b/param, 1,373.7 MB (docs/ETAT.md:32, sealed-8b-14b-2026-09-23.txt:32).
+  (a) sealed file + drafter as today (2 B a parameter, 1,074.9 MB)
+        4.870 b/param of the target; 4.296 per parameter of target plus drafter
+  (b) sealed file + drafter at the served projection rate, 2.55 b/weight (spec-house.txt:5), 171.3 MB
+        3.073 b/param of the target; 2.711 per parameter of target plus drafter
+(b) is a rate, not an object: nobody has encoded the drafter, and its fc was moved to f32 because the taps reach 15,352
+(dflash.rs:314-323). Its quality at that rate is unknown.
+VRAM accounting of the weights: 3.88 GB, 7.72 b/param under (a); 2.86 GB, 5.69 b/param under (b).
+
+The tree-tiled copies are a VRAM layout, not file bytes. The code builds them at install, on the card, from the words
+already resident: one p4t_tile_words launch a projection (persist4e_cuda.rs:1503-1555). Nothing is read from the file
+for them, so the sealed file does not change. They are held beside the originals because the other readers still use
+the served order: 4E's single row, the eager prefill (tv_tetra48, tv_q4_hht) and the embedding gather. Dropping the
+originals would need every reader on the tree tiling; that is code, never written.
+
+4. THE PRODUCT TRIPLET (computed)
+---------------------------------
+b_max is 3.00 kernel b/weight (docs/ETAT.md:111-113). The served projections read 2.554 (1.16 GB over 3,633,315,840
+weights, spec-house.txt:5).
+  speculative, target projections with their tree-tiled copies          5.006   FAILS
+  same, with the f16 drafter counted as weights                          6.649   FAILS
+  same, drafter at 2.55                                                  4.689   FAILS
+  without the copies, drafter f16                                        4.513   FAILS
+  without the copies, drafter at 2.55                                    2.554   passes
+Verdict: the speculative form fails b_max, by the tiled copies alone. The copies double the kernel bytes a weight.
+The 4B itself fits any card: 8.7 GB at 8k is far under 32 GiB less the 5 GB margin. The failure is for the class the
+triplet sizes, where the copies would cost a second set of weights. Only "no copies and a coded drafter" passes, and
+both halves are unwritten.
+
+5. NEVER MEASURED, AND THE CHEAPEST MEASUREMENT (not run)
+---------------------------------------------------------
+- Peak VRAM at a short context, and the slack of the extra modules. One job on the SP8 image: the duel's sampler
+  (`nvidia-smi --query-gpu=memory.used -lms 100`, ops/jobs/pic-vram-8k.sh) beside
+  `LLVQ_CONFIG=<v9> specbench --prompts <house 44> --vocab q4 --readout device <sealed> a12@8.10.8.20.6 dflash:tree 256`.
+  The load alone takes 426 s (spec-house.txt:35). About 12 min of L40S, ~$0.35 (estimated at SP8's $0.99 for 33 min).
+- A cuMemGetInfo line after specbench's install: two lines copied from fusedrun.rs:2514-2517. $0, rides the same job.
+- Peak VRAM at 8,192 tokens: a second specbench call in the same job with one 8,192-token prompt (the pic-vram
+  window), N 256, same sampler. About +4 min, ~$0.12. Both together ~$0.45.
+- The drafter's quality at 2.55 b/weight: needs an encoder pass over the drafter and an acceptance run. Not a
+  measurement, a project; not costed here.

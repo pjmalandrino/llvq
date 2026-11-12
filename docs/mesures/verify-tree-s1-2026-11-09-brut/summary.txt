@@ -1,0 +1,20 @@
+vtreebench exit 1
+4E: persistent module 252757 bytes, sha256 1b422b62328be6752df4add43280565fd2a49cfa20ee26953b301abe7a15c530, row form 7, own module on candle's stream
+4E tree: module 301161 bytes, sha256 0701126a989b7f12bdf5360330ca8b299f350d6d701f0dcacd4497aa754bac7b, row form 7 and pers_4et.cu, its own module
+4E tree: pers_4et_rows_f1_t512: 128 registers, 736 B local, 89984 B shared, 1 resident a SM
+4E tree: 512 threads, 17728 floats of area; d_in slices q/k/v 6, o 14, gate/up 2, down 14, head 1; 0.041 GB of row buffers
+== tree, chat: context 62
+  vt1 against 4E: the same argmax at 64 of 64 positions
+  identity: every row equals its node in the 32-row pass, logits and argmax, 111 rows of 8 passes
+  4E, one token a launch: 4398.2 us [4396.3-4402.9] (host wall, launch to ring read)
+  timed passes whose argmaxes differ from the 32-row pass's: 0 of 42
+  rows   wall us, median [range]     c_R = t(vt R) / t(4e), round by round, median [range]
+     1    12312.3 [12297.2-12316.2]   c_1 2.798 [2.796-2.801]
+     2    12292.0 [12269.1-12317.3]   c_2 2.795 [2.789-2.801]
+     4    12485.3 [12472.0-12497.8]   c_4 2.838 [2.837-2.839]
+     8    12852.5 [12827.9-12876.6]   c_8 2.922 [2.917-2.927]
+    16    13599.0 [13579.4-13634.5]   c_16 3.092 [3.088-3.099]
+    32    15910.3 [15890.7-15988.6]   c_32 3.618 [3.612-3.634]
+  an extra row: (c_16 - c_1) / 15 = 0.0196, (c_8 - c_1) / 7 = 0.0177 of a 4E token; c_2 2.795
+control 2: the served 4E v9 module
+4E tree: pers_4et_rows_f1_t512: 128 registers, 736 B local, 89984 B shared, 1 resident a SM

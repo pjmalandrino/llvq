@@ -1,0 +1,158 @@
+target: the sealed 4B through the MLX door (/Users/pjmalandrino/q4b-hf-2026-09-28); head AngelSlim/Qwen3-4B_eagle3@fd331e59; aux layers (2, 18, 33); draft vocabulary 32000 of 151936; K = 8, D = 10; loaded in 3.5 s
+completions ready (55), 626 s
+{"name": "chat", "prompt": 64, "tokens": 256, "teacher_forced_agree": 1.0, "elapsed_s": 630}
+{"name": "code", "prompt": 64, "tokens": 256, "teacher_forced_agree": 1.0, "elapsed_s": 633}
+{"name": "summary", "prompt": 343, "tokens": 100, "teacher_forced_agree": 1.0, "elapsed_s": 635}
+{"name": "edit", "prompt": 129, "tokens": 101, "teacher_forced_agree": 1.0, "elapsed_s": 638}
+{"name": "rag", "prompt": 364, "tokens": 79, "teacher_forced_agree": 1.0, "elapsed_s": 639}
+{"name": "gsm8k/33", "prompt": 60, "tokens": 323, "teacher_forced_agree": 1.0, "elapsed_s": 644}
+{"name": "gsm8k/46", "prompt": 123, "tokens": 383, "teacher_forced_agree": 0.9974, "elapsed_s": 650}
+{"name": "gsm8k/75", "prompt": 95, "tokens": 371, "teacher_forced_agree": 1.0, "elapsed_s": 656}
+{"name": "gsm8k/160", "prompt": 84, "tokens": 257, "teacher_forced_agree": 0.9961, "elapsed_s": 662}
+{"name": "gsm8k/162", "prompt": 71, "tokens": 634, "teacher_forced_agree": 0.9984, "elapsed_s": 674}
+{"name": "gsm8k/185", "prompt": 69, "tokens": 211, "teacher_forced_agree": 1.0, "elapsed_s": 680}
+{"name": "gsm8k/222", "prompt": 58, "tokens": 218, "teacher_forced_agree": 1.0, "elapsed_s": 684}
+{"name": "gsm8k/231", "prompt": 86, "tokens": 263, "teacher_forced_agree": 1.0, "elapsed_s": 689}
+{"name": "gsm8k/422", "prompt": 105, "tokens": 274, "teacher_forced_agree": 1.0, "elapsed_s": 697}
+{"name": "gsm8k/453", "prompt": 85, "tokens": 287, "teacher_forced_agree": 1.0, "elapsed_s": 709}
+{"name": "gsm8k/461", "prompt": 68, "tokens": 234, "teacher_forced_agree": 1.0, "elapsed_s": 712}
+{"name": "gsm8k/477", "prompt": 75, "tokens": 307, "teacher_forced_agree": 1.0, "elapsed_s": 716}
+{"name": "gsm8k/486", "prompt": 63, "tokens": 192, "teacher_forced_agree": 1.0, "elapsed_s": 719}
+{"name": "gsm8k/515", "prompt": 70, "tokens": 270, "teacher_forced_agree": 0.9963, "elapsed_s": 723}
+{"name": "gsm8k/547", "prompt": 80, "tokens": 318, "teacher_forced_agree": 1.0, "elapsed_s": 728}
+{"name": "gsm8k/557", "prompt": 65, "tokens": 215, "teacher_forced_agree": 1.0, "elapsed_s": 732}
+{"name": "gsm8k/604", "prompt": 93, "tokens": 279, "teacher_forced_agree": 1.0, "elapsed_s": 736}
+{"name": "gsm8k/617", "prompt": 88, "tokens": 295, "teacher_forced_agree": 1.0, "elapsed_s": 739}
+{"name": "gsm8k/657", "prompt": 99, "tokens": 495, "teacher_forced_agree": 1.0, "elapsed_s": 746}
+{"name": "gsm8k/660", "prompt": 75, "tokens": 1024, "teacher_forced_agree": 0.999, "elapsed_s": 760}
+{"name": "gsm8k/661", "prompt": 120, "tokens": 382, "teacher_forced_agree": 1.0, "elapsed_s": 765}
+{"name": "gsm8k/703", "prompt": 89, "tokens": 327, "teacher_forced_agree": 1.0, "elapsed_s": 769}
+{"name": "gsm8k/717", "prompt": 73, "tokens": 327, "teacher_forced_agree": 1.0, "elapsed_s": 774}
+{"name": "gsm8k/750", "prompt": 87, "tokens": 343, "teacher_forced_agree": 1.0, "elapsed_s": 778}
+{"name": "gsm8k/758", "prompt": 56, "tokens": 172, "teacher_forced_agree": 1.0, "elapsed_s": 780}
+{"name": "gsm8k/760", "prompt": 93, "tokens": 351, "teacher_forced_agree": 1.0, "elapsed_s": 785}
+{"name": "gsm8k/783", "prompt": 134, "tokens": 466, "teacher_forced_agree": 1.0, "elapsed_s": 791}
+{"name": "gsm8k/801", "prompt": 91, "tokens": 337, "teacher_forced_agree": 0.997, "elapsed_s": 795}
+{"name": "gsm8k/809", "prompt": 117, "tokens": 247, "teacher_forced_agree": 1.0, "elapsed_s": 799}
+{"name": "gsm8k/810", "prompt": 93, "tokens": 315, "teacher_forced_agree": 1.0, "elapsed_s": 804}
+{"name": "gsm8k/811", "prompt": 111, "tokens": 319, "teacher_forced_agree": 0.9969, "elapsed_s": 809}
+{"name": "gsm8k/826", "prompt": 99, "tokens": 332, "teacher_forced_agree": 1.0, "elapsed_s": 813}
+{"name": "gsm8k/834", "prompt": 76, "tokens": 281, "teacher_forced_agree": 1.0, "elapsed_s": 816}
+{"name": "gsm8k/843", "prompt": 71, "tokens": 259, "teacher_forced_agree": 1.0, "elapsed_s": 820}
+{"name": "gsm8k/888", "prompt": 60, "tokens": 178, "teacher_forced_agree": 1.0, "elapsed_s": 824}
+{"name": "gsm8k/895", "prompt": 86, "tokens": 260, "teacher_forced_agree": 1.0, "elapsed_s": 835}
+{"name": "gsm8k/915", "prompt": 78, "tokens": 282, "teacher_forced_agree": 1.0, "elapsed_s": 839}
+{"name": "gsm8k/955", "prompt": 82, "tokens": 366, "teacher_forced_agree": 1.0, "elapsed_s": 845}
+{"name": "gsm8k/965", "prompt": 163, "tokens": 385, "teacher_forced_agree": 1.0, "elapsed_s": 850}
+{"name": "gsm8k/1042", "prompt": 105, "tokens": 866, "teacher_forced_agree": 1.0, "elapsed_s": 866}
+{"name": "gsm8k/1072", "prompt": 67, "tokens": 420, "teacher_forced_agree": 1.0, "elapsed_s": 877}
+{"name": "gsm8k/1108", "prompt": 82, "tokens": 174, "teacher_forced_agree": 1.0, "elapsed_s": 881}
+{"name": "gsm8k/1140", "prompt": 78, "tokens": 416, "teacher_forced_agree": 1.0, "elapsed_s": 892}
+{"name": "gsm8k/1169", "prompt": 83, "tokens": 386, "teacher_forced_agree": 0.9974, "elapsed_s": 902}
+{"name": "gsm8k/1170", "prompt": 97, "tokens": 371, "teacher_forced_agree": 0.9973, "elapsed_s": 912}
+{"name": "gsm8k/1217", "prompt": 104, "tokens": 415, "teacher_forced_agree": 1.0, "elapsed_s": 934}
+{"name": "gsm8k/1219", "prompt": 71, "tokens": 178, "teacher_forced_agree": 1.0, "elapsed_s": 943}
+{"name": "gsm8k/1258", "prompt": 69, "tokens": 339, "teacher_forced_agree": 0.9941, "elapsed_s": 953}
+{"name": "gsm8k/1260", "prompt": 111, "tokens": 232, "teacher_forced_agree": 1.0, "elapsed_s": 959}
+{"name": "gsm8k/1266", "prompt": 83, "tokens": 291, "teacher_forced_agree": 1.0, "elapsed_s": 967}
+
+Gate: the chain from this script's ranks against eagle_alpha.py's replay, rounds / tokens, k = 1 / 2 / 3
+  chat     1.49 (171/255) = (171/255)   1.62 (157/255) = (157/255)   1.69 (151/255) = (151/255)
+  code     1.61 (158/255) = (158/255)   1.89 (135/255) = (135/255)   2.04 (125/255) = (125/255)
+  summary  1.39 (71/99) = (71/99)   1.62 (61/99) = (61/99)   1.74 (57/99) = (57/99)
+  edit     1.72 (58/100) = (58/100)   2.33 (43/100) = (43/100)   2.44 (41/100) = (41/100)
+  rag      1.90 (41/78) = (41/78)   2.69 (29/78) = (29/78)   3.00 (26/78) = (26/78)
+  gsm8k    1.75 (9596/16817) = (9596/16817)   2.21 (7615/16817) = (7615/16817)   2.42 (6938/16817) = (6938/16817)
+  chain gate: HOLDS
+
+Tokens a verify pass (accepted drafts + 1), by workload and tree size N (drafted nodes; the verify pass has N + 1 rows). GSM8K over 50 problems. 17659 completion tokens in all.
+
+dynamic (EAGLE-2), K = 8, depth 2 = 2 head steps a round
+                1      2      3      4      5      6      7      8     10     12     15     16     20     24     31     32
+  chat       1.49   1.68   1.77   1.88   1.92   1.98   2.07   2.09   2.11   2.14   2.16   2.16   2.22   2.22   2.24   2.24
+  code       1.61   1.93   2.06   2.06   2.22   2.22   2.34   2.38   2.45   2.50   2.52   2.52   2.55   2.55   2.58   2.58
+  summary    1.39   1.65   1.87   2.02   2.06   2.11   2.20   2.20   2.25   2.36   2.36   2.36   2.36   2.41   2.48   2.48
+  edit       1.72   2.33   2.38   2.44   2.44   2.44   2.44   2.44   2.50   2.50   2.63   2.63   2.63   2.63   2.70   2.70
+  rag        1.90   2.69   2.79   2.89   2.89   2.89   2.89   2.89   2.89   2.89   2.89   2.89   2.89   2.89   2.89   2.89
+  gsm8k      1.75   2.24   2.40   2.48   2.54   2.59   2.62   2.64   2.68   2.70   2.73   2.74   2.76   2.78   2.79   2.79
+
+dynamic (EAGLE-2), K = 8, depth 3 = 3 head steps a round
+                1      2      3      4      5      6      7      8     10     12     15     16     20     24     31     32
+  chat       1.49   1.68   1.85   1.92   1.98   2.02   2.12   2.16   2.24   2.26   2.28   2.28   2.32   2.36   2.41   2.41
+  code       1.61   1.93   2.16   2.22   2.28   2.32   2.36   2.38   2.55   2.68   2.77   2.83   2.83   2.90   2.93   2.93
+  summary    1.39   1.65   1.94   2.06   2.11   2.20   2.25   2.30   2.36   2.41   2.48   2.48   2.61   2.61   2.68   2.68
+  edit       1.72   2.33   2.44   2.56   2.70   2.70   2.70   2.70   2.70   2.70   2.70   2.70   2.86   2.86   2.86   2.86
+  rag        1.90   2.69   3.00   3.12   3.12   3.25   3.55   3.55   3.55   3.55   3.55   3.55   3.55   3.55   3.55   3.55
+  gsm8k      1.75   2.24   2.52   2.67   2.77   2.84   2.90   2.95   3.03   3.08   3.15   3.17   3.24   3.28   3.34   3.34
+
+dynamic (EAGLE-2), K = 8, depth 4 = 4 head steps a round
+                1      2      3      4      5      6      7      8     10     12     15     16     20     24     31     32
+  chat       1.49   1.68   1.85   1.92   2.01   2.06   2.16   2.20   2.28   2.34   2.34   2.34   2.38   2.43   2.45   2.48
+  code       1.61   1.93   2.16   2.24   2.32   2.34   2.43   2.43   2.52   2.68   2.77   2.77   2.90   2.93   3.04   3.04
+  summary    1.39   1.65   1.94   2.06   2.11   2.20   2.25   2.30   2.36   2.36   2.41   2.41   2.54   2.61   2.83   2.83
+  edit       1.72   2.33   2.44   2.63   2.70   2.70   2.70   2.78   2.86   2.86   2.94   2.94   2.94   3.03   3.23   3.23
+  rag        1.90   2.69   3.00   3.25   3.25   3.39   3.55   3.55   3.71   3.71   3.90   3.90   3.71   3.71   3.71   3.71
+  gsm8k      1.75   2.24   2.52   2.67   2.80   2.89   2.96   3.03   3.11   3.19   3.28   3.31   3.39   3.46   3.55   3.55
+
+dynamic (EAGLE-2), K = 8, depth 5 = 5 head steps a round
+                1      2      3      4      5      6      7      8     10     12     15     16     20     24     31     32
+  chat       1.49   1.68   1.85   1.92   1.99   2.02   2.14   2.16   2.28   2.32   2.34   2.34   2.38   2.41   2.45   2.45
+  code       1.61   1.93   2.16   2.24   2.34   2.34   2.36   2.45   2.58   2.71   2.74   2.77   2.83   2.83   2.93   3.00
+  summary    1.39   1.65   1.94   2.06   2.11   2.20   2.25   2.30   2.36   2.36   2.36   2.36   2.54   2.54   2.83   2.83
+  edit       1.72   2.33   2.44   2.63   2.70   2.78   2.78   2.78   2.78   2.78   2.78   2.86   2.94   3.03   3.12   3.12
+  rag        1.90   2.69   3.00   3.25   3.25   3.25   3.39   3.55   3.71   3.71   3.90   3.90   3.71   3.90   3.90   3.90
+  gsm8k      1.75   2.24   2.52   2.67   2.78   2.89   2.96   3.03   3.13   3.20   3.30   3.32   3.40   3.47   3.58   3.59
+
+dynamic (EAGLE-2), K = 8, depth 6 = 6 head steps a round
+                1      2      3      4      5      6      7      8     10     12     15     16     20     24     31     32
+  chat       1.49   1.68   1.85   1.92   1.99   2.04   2.14   2.18   2.26   2.32   2.32   2.34   2.38   2.41   2.43   2.45
+  code       1.61   1.93   2.16   2.24   2.34   2.36   2.36   2.36   2.58   2.66   2.71   2.71   2.83   2.87   2.97   2.97
+  summary    1.39   1.65   1.94   2.06   2.11   2.20   2.25   2.30   2.36   2.36   2.36   2.36   2.48   2.54   2.75   2.75
+  edit       1.72   2.33   2.44   2.63   2.70   2.78   2.78   2.78   2.78   2.78   2.78   2.78   2.86   2.94   3.03   3.03
+  rag        1.90   2.69   3.00   3.25   3.25   3.25   3.39   3.55   3.71   3.71   3.71   3.71   3.71   3.71   3.90   3.90
+  gsm8k      1.75   2.24   2.52   2.67   2.78   2.86   2.94   3.01   3.11   3.19   3.28   3.31   3.39   3.46   3.56   3.57
+
+dynamic (EAGLE-2), K = 8, depth 8 = 8 head steps a round
+                1      2      3      4      5      6      7      8     10     12     15     16     20     24     31     32
+  chat       1.49   1.68   1.85   1.92   1.99   2.04   2.14   2.16   2.26   2.30   2.32   2.32   2.38   2.41   2.43   2.43
+  code       1.61   1.93   2.16   2.24   2.34   2.36   2.36   2.36   2.52   2.66   2.71   2.71   2.77   2.87   2.90   2.90
+  summary    1.39   1.65   1.94   2.06   2.11   2.20   2.25   2.30   2.36   2.36   2.36   2.36   2.48   2.54   2.75   2.75
+  edit       1.72   2.33   2.44   2.63   2.70   2.78   2.78   2.78   2.78   2.78   2.78   2.78   2.86   2.86   3.03   3.03
+  rag        1.90   2.69   3.00   3.25   3.25   3.25   3.39   3.39   3.71   3.71   3.71   3.71   3.71   3.71   3.71   3.90
+  gsm8k      1.75   2.24   2.52   2.67   2.78   2.86   2.91   2.97   3.09   3.17   3.25   3.28   3.36   3.44   3.53   3.54
+
+dynamic (EAGLE-2), K = 8, depth 10 = 10 head steps a round
+                1      2      3      4      5      6      7      8     10     12     15     16     20     24     31     32
+  chat       1.49   1.68   1.85   1.92   1.99   2.04   2.14   2.16   2.24   2.30   2.32   2.32   2.36   2.41   2.43   2.43
+  code       1.61   1.93   2.16   2.24   2.34   2.36   2.36   2.36   2.48   2.60   2.68   2.68   2.77   2.87   2.90   2.90
+  summary    1.39   1.65   1.94   2.06   2.11   2.20   2.25   2.30   2.36   2.36   2.36   2.36   2.48   2.48   2.75   2.75
+  edit       1.72   2.33   2.44   2.63   2.70   2.78   2.78   2.78   2.78   2.78   2.78   2.78   2.86   2.86   2.94   2.94
+  rag        1.90   2.69   3.00   3.25   3.25   3.25   3.39   3.39   3.71   3.71   3.71   3.71   3.71   3.71   3.71   3.71
+  gsm8k      1.75   2.24   2.52   2.67   2.78   2.86   2.91   2.97   3.05   3.15   3.24   3.26   3.34   3.42   3.51   3.52
+
+static, leave one workload out (the N most frequent rank paths of the other five workloads)
+                1      2      3      4      5      6      7      8     10     12     15     16     20     24     31     32
+  chat       1.49   1.62   1.69   1.76   1.90   2.01   2.02   2.11   2.12   2.12   2.18   2.18   2.28   2.34   2.38   2.38
+  code       1.61   1.89   2.04   2.18   2.22   2.26   2.36   2.38   2.43   2.48   2.55   2.58   2.71   2.74   2.80   2.80
+  summary    1.39   1.62   1.74   1.74   1.87   1.94   1.98   2.06   2.25   2.25   2.25   2.25   2.30   2.30   2.36   2.36
+  edit       1.72   2.33   2.44   2.50   2.70   2.78   2.86   2.94   2.94   2.94   2.94   3.03   3.12   3.23   3.33   3.33
+  rag        1.90   2.69   3.00   3.00   3.25   3.25   3.25   3.25   3.39   3.39   3.39   3.39   3.55   3.55   3.55   3.55
+  gsm8k      1.75   2.21   2.42   2.54   2.62   2.69   2.80   2.86   2.94   3.01   3.09   3.11   3.23   3.30   3.40   3.40
+  depth of each static tree (head steps a round):
+                1      2      3      4      5      6      7      8     10     12     15     16     20     24     31     32
+  chat          1      2      3      4      4      4      4      4      5      5      5      5      5      5      6      6
+  code          1      2      3      3      4      4      4      4      5      5      5      5      5      5      6      6
+  summary       1      2      3      4      4      4      4      4      5      5      5      5      5      5      6      6
+  edit          1      2      3      3      4      4      4      4      4      5      5      5      5      5      5      5
+  rag           1      2      3      3      4      4      4      4      4      4      4      4      5      5      5      5
+  gsm8k         1      2      3      3      4      4      4      4      5      5      5      5      5      5      6      6
+
+chain (top-1 path), k drafts = k head steps a round, k = 1..8
+  chat       1.49   1.62   1.69   1.76   1.75   1.75   1.75   1.75
+  code       1.61   1.89   2.04   2.06   2.06   2.06   2.06   2.06
+  summary    1.39   1.62   1.74   1.74   1.74   1.74   1.74   1.74
+  edit       1.72   2.33   2.44   2.56   2.63   2.63   2.63   2.63
+  rag        1.90   2.69   3.00   3.25   3.25   3.25   3.25   3.25
+  gsm8k      1.75   2.21   2.42   2.50   2.53   2.54   2.54   2.54
+done in 985 s
+EXIT 0

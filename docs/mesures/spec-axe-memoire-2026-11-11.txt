@@ -1,0 +1,141 @@
+Speculative loop, memory axis. Opened 2026-11-11 on the operator's word.
+
+Decision (operator, 2026-11-11): the speculative work is reoriented to preserve memory. Memory comes before speed.
+Every step below is judged on VRAM and on b/param for the whole model first, on tok/s second.
+
+Starting point (spec-memoire-2026-11-11.txt, spec-loop-sp8-2026-11-11.txt), Qwen3-4B, L40S, greedy:
+  served 4E          2.01 GB at a short context (measured), 5.95 GB at 8k (measured), 2.73 b/param (file)
+  speculative today  ~4.78 GB at a short context (computed), ~8.69 GB at 8k (computed), 4.87 b/param whole model
+                     with the f16 drafter (computed); 502.1 tok/s on GSM8K-200 against 218.8 (measured)
+  extra bytes        tree-tiled weight copies 1.308 GB (counted by the loader), f16 drafter 1.193 GB (counted),
+                     row buffers, drafter cache and transients 0.27 GB (computed)
+  never measured     the peak VRAM of the loop, at any context
+
+Targets (estimated, to be replaced by measurements):
+  short context      about 2.5 GB, x1.25 of served
+  whole model        about 3.1 b/param with a coded drafter
+  speed              no loss against 502 tok/s on GSM8K-200 and 343 tok/s on the house set
+
+Steps, in order. Each has a gate; a step that fails its gate is written here with its number.
+  M1  One copy of the tiled words. 4E's single row, the eager prefill and the embedding gather read the tiled
+      order, as v9 already does for the int4 words. Gate: same tokens as today on the card, bit for bit, and
+      the loader's count drops by 1.308 GB.
+  M2  Drafter in int4. Acceptance measured on the Mac first, $0, against the f16 drafter on the same text.
+      Gate: accepted tokens a pass within 3 % of today's on GSM8K-200 and on the house set.
+  M3  One card job: peak VRAM by nvidia-smi sampling at a short context and at 8k, with tok/s and
+      self-consistency. Prereg stamped before it. About $1 (estimated).
+  M4  Drafter at Tetra's rate, only if M2 passes and the int4 drafter leaves more than 0.2 b/param to gain.
+
+Parked behind this axis: the drafter block (108 launches) and its CUDA graph question, the verify pass's fixed
+cost, Domino. Closed on 2026-11-11: the 32-row tree (spec-arbre32-mac-2026-11-11.txt).
+
+Results are appended below, one dated entry a step.
+
+2026-11-11, M2 PASSES (spec-brouillon-int4-mac-2026-11-11.txt, $0, Mac, 60.6 min). Drafter weights fake-quantized
+with quantize_affine (the target's int4 records), round-to-nearest, no calibration; f32 arithmetic; tree of 15 on the
+same text as arbre32, paired against the unquantized drafter (5.368 GSM8K-200, 3.316 house, measured).
+  int4 g128 on the 35 linear weights and fc: 5.255 (-2.12 %) and 3.262 (-1.63 %) measured; 0.286 GB, 4.25 b a
+  drafter parameter, whole model 3.300 b/param against 4.870 (computed). Smallest arm that passes.
+  int4 g64: -0.86 % and -0.79 %, 0.350 GB, 3.427 b/param. int8 g64: -0.10 % and +0.05 %. f16: 0 prompts move.
+  int3 g64: -4.51 % and -5.55 %, fails.
+M4 opens by 0.027: 3.300 against 3.073 at Tetra's rate, 0.227 b/param to gain (computed). The fc overflow is in its
+output, so fc's arithmetic stays f32 on the card whatever its weights.
+
+M1, 2026-11-11: code written and checked on the Mac, not run on a card
+----------------------------------------------------------------------
+Result: arm a12ip holds the weights once. It is a12 reading the words 4E and the eager path already hold, in place,
+so the install builds none of the 253 tree-tiled copies: 1,307,547,648 B = 1.308 GB less on the card (computed from
+pers::p4t_tiled_words over the 4B's shapes; equal to the loader's 1.308 of spec-loop-sp8-2026-11-11-brut/
+spec-house.txt:33). Same tokens by construction, held on the host twin bit for bit; the card gate is open.
+
+Design. The served readers were not taught the tree order; the tree pass was taught the served order.
+- 4E's row loop (pers_4e.cu), the eager prefill (tv_tetra48_h, tv_q4_hht), the embedding gather and the drafter's q4
+  vocabulary read a row's words contiguous. In the tree order a row's words are 12 B every 192 B (Tetra) and 24 B
+  every 384 B (int4). Teaching them means rewriting the served module's inner loops and the eager kernels: refused,
+  the served path must not move.
+- The tree pass's stream unit already reads, a lane, its own row's words a sub-step (two Tetra, three int4). The copy
+  only puts a tile's 16 rows of a sub-step side by side. So one order serves every reader: the served one.
+- pers_4et_a10rc.cu: p4t_unit_rc and p4t_phase_rc take a template flag IP (default false). Under IP a lane reads
+  logical words 3 sa + h and + 1 (Tetra) or 6 sa + 3 h + k (int4) of its row, zero past the row's end, an int4 word at
+  its 4E v9 place when the segment says so: p4t_tile_word's rule, word for word.
+- pers_4et_a12.cu: the a12 body takes IP; a module under P4T_A12IP 1 emits pers_4et_a12ip_f{0,1,2}_t384 and the load
+  check p4t_ip_check, not the a12 symbols. pers.rs: p4t_a12ip_unit_text, p4t_a12ip_symbol, p4t_served_words.
+- persist4e_cuda.rs: TreeForm::A12ip launches on 4E's own images (as the rows arm does). At install, projection by
+  projection, the copy is built, p4t_ip_check compares every lane's words read in place with it (every word of the
+  copy is some lane's), the copy is freed; a nonzero count refuses the install. The v9 load check's pattern.
+- specbench: arm `a12ip` (taps on), and a cuMemGetInfo line after the verify pass's install, before the drafter.
+- Selected by the arm name only. No config changes; a12 and every served path are as before.
+
+What cannot be freed: nothing of the 1.308 GB on the 4B. What stays is the served object (projections 1.16 GB,
+carried 0.22 GB), the tree's row buffers 0.153 GB, the drafter 1.193 GB and its cache. A Tetra o_proj (the 8B) is
+refused by a12ip as by a12.
+
+Module texts. pers_4et_a10rc.cu and pers_4et_a12.cu changed, so the a10r8, a10r16, a10t384r16 and a12 modules have a
+new sha256 for the same code (IP = false folds away; the drift tests the_row_cap_passes_are_a10s and
+the_a12_pass_is_the_row_cap_pass_with_taps pin the edits). The served 4E module and the eager kernels include neither
+file: their text does not move.
+
+Checked on the Mac ($0):
+- host twin (tree_verify_host.rs, release): a12ip_rows_equal_a12_rows_on_the_served_words, every row's argmax,
+  logits, residual, K, V and taps bit for bit with a12 at R = 1, 8, 16, both stream plans, the 4B's parts and the
+  8B's (Tetra o, untied head), the load check passing on every matrix first. a12_rows_equal_a10_rows and
+  a12_tap_mutant_is_killed still pass. 4 tests, 456 s.
+- mutant ip_no_v9_order (the int4 v9 permutation dropped from the read in place, one site counted by the harness,
+  applied to a temp copy): killed by the load check, 2,032,640 lanes differ. A first form (`return rowp[wi]`) did not
+  compile under -Werror (unused g) and was replaced.
+- clippy: llvq-cuda for x86_64-unknown-linux-gnu, zero warnings; llvq-llm --features cuda through
+  ops/check-linux-cuda.sh, zero warnings in this change; two older ones remain (specbench.rs:547 drop, from f838b8b;
+  vtreebench.rs:721 complex type, from a6d86a21).
+
+Waits for the card:
+- NVRTC compiling the a12ip module, its registers and occupancy at 384 threads.
+- The load check on the real 253 projections, and the loader's lines: "0 tree-tiled copies ... 0.000 GB more on the
+  card" and "a12ip: 253 projections read in place".
+- Same tokens: a12ip's GSM8K-200 dump against SP8's gsm200.jsonl token for token.
+- The card memory line under a12 and under a12ip; the drop should read about 1.31 GB (estimated, a pool may keep
+  freed check copies).
+- Speed. DRAM bytes are the same (computed); a warp's load touches 16 rows' sectors instead of one 192 B or 384 B
+  run, so the verify launches may slow down. Unknown until measured; memory comes first on this axis.
+Card job, proposed, not launched: SP8's step (c) with arm a12ip@8.10.8.20.6 and --dump, plus step (b) once with a12
+and once with a12ip for the two memory lines.
+
+2026-11-11, operator ruling, two profiles. The whole-model b/param of the default speculative mode must stay at the
+served 2.73: the drafter of that mode carries no weights (tables only), measured in
+spec-brouillon-sans-poids-mac-2026-11-11.txt. DFlash is kept as a second profile for deployments where memory is not
+the constraint; its int4 form (M2, 3.30 b/param) is the one to build when that profile is taken up. Order of work:
+the weightless profile first, the DFlash profile after it. Every speed figure names its profile, its b/param and its
+VRAM.
+
+2026-11-11, weightless drafters on the Mac (spec-brouillon-sans-poids-mac-2026-11-11.txt, $0, 52 min). Token
+recycling, prompt lookup and the two combined on the 16-row tree, verify rows exact (tree forward of the target,
+gated 33/33 top-1 against full forwards). Best: lookup spine + warm recycling table, 1.268 accepted a pass on GSM8K
+40-99 and 0.930 on the house set (*measured*), against DFlash 5.376 and 3.316. Projected 244 and 207 tok/s against
+greedy 218.8 and 220.4 and DFlash 502 (*estimated*), at 2.742 b/param (*computed*). A weightless drafter keeps the
+memory and loses the speed: it does not replace the drafter on this axis.
+
+2026-11-11, M3 on the card (spec-mem-m3-2026-11-11.txt, job 6af434aa, 66 min, $1.98). M1 PASSES its gate: a12ip's
+GSM8K-200 dump is SP8's byte for byte, and its house peak is 1.275 GB under a12's, 4.139 against 5.414 GB (*measured*,
+nvidia-smi). The weightless configuration (a12ip, no drafter model) peaks at 2.828 GB against base Tetra's 2.014; the
+tree pass itself is 0.13 to 0.15 GB of it, and the rest is the house set's RAG prompts (2.190 GB through the short
+ones, *measured*). The price is speed: reading the served order makes the verify pass 10.91 ms against 8.53 (x1.27),
+the drafter round unchanged; GSM8K 424.9 tok/s against 502.1, house 289.3 against 340.0, chat x0.892 of greedy. At
+8,191 tokens the tree reads 49.7 tok/s against 4E's 162.7, its pass 48.2 ms, cause not established. The operator
+decides between the 1.28 GB and the 2.4 ms a pass.
+
+2026-11-11, large-prefill on the card (large-prefill-2026-11-11.txt, job 6af4688d, 21 min, $0.63). The prompt through
+a12ip as chains of 16 PASSES for speed: first token 0.702 / 4.312 / 13.372 s against the eager prefill's 3.951 /
+17.641 / 37.037 s at 1,024 / 4,096 / 8,191 tokens (*measured*), at a 3.560 GB phase peak at 8,191 against 5.946. The
+chain equals the pass's one-row path bit for bit on the card. Paired perplexity +0.0007 % [-0.0078, +0.0092], inside
++-0.12 %; 41 of 47 texts identical, the six others split on near-ties. A 256-token chat turn takes 1.90 / 5.64 / 14.97 s
+against 5.14 / 18.95 / 38.64 (*computed*). The chain load takes 419.5 s against 100.6, most likely NVRTC on the two
+tree modules (*estimated*). No served path calls it; GSM8K-200 remains before serving.
+
+2026-11-11, chat measured on MT-Bench 80 (spec-chat-mac-2026-11-11.txt, $0, Mac, 24 min). Operator's priority: chat
+never loses, gains what it can. DFlash tree of 15 accepts 2.896 a pass on the 80 MT-Bench first turns against 1.937 on
+the house chat 10 (*measured*); the conversational categories (writing, roleplay, humanities, stem) read 1.9 to 2.5,
+the house level. Projected (*estimated*, greedy 224.2): DFlash int4 (3.30 b/param) 305.0 tok/s at a12 and 257.7 at
+a12ip on MT-80, but x1.00 to x1.12 (a12) and x0.85 to x1.01 (a12ip) on the conversational categories. Best gates add
+1 to 7 % on the held-out half; a perfect gate would add +19 to +43 % (*computed* bound), so the room exists and no
+confidence feature tried reaches it. Tables (2.73 b/param) gated on a lookup match n >= 3 or 4: 235.5 and 228.7 on
+test (x1.05, x1.02), worst prompt -6 to -7 %; ungated they lose 12 to 29 %. Adaptive tree size never picks a small
+tree: the verify pass is nearly flat in rows. No policy makes conversational chat gain 10 %.

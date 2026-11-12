@@ -173,19 +173,28 @@ For an A/B on one file the bar is the paired interval, 0.43 pp of MMLU and 0.12 
 ## 5. Open decisions
 
 - **Throughput past v9.** At the bit the 4B tops out near 235 to 258 tok/s at the door (*estimated*,
-  [`plan-300.md`](plan-300.md)). Speculation closed on today's f32 verify (§6). An extra verify row costs 0.74 / 0.89 /
-  0.98 of a 4E token at 4B / 8B / 14B, 92 to 95 % of it in the row phases (*measured*,
-  [spec-final](mesures/spec-final-2026-11-08.txt)). Reopening it means a cheaper K-row loop: B1's integer dot (0.187
-  of a Tetra row an extra token, [spec-micro](mesures/spec-micro-2026-11-08.txt)), which changes the logits and needs
-  a new served object, or an f32 loop nearer its floor. With B1 an EAGLE-3 head, whose acceptance on Tetra is measured
-  (α 0.43 to 0.61 on free text, [eagle-alpha](mesures/eagle-alpha-2026-11-08.txt)), projects x1.25 to x1.52 of
-  greedy decode at 4B on free text (*computed* from an *estimated* row cost, [`plan-speculation.md`](plan-speculation.md)).
-  Weeks of kernel work; the operator decides.
+  [`plan-300.md`](plan-300.md)). Speculation is no longer closed on the verify cost: a tree
+  pass verifies 16 rows for 1.73 tokens of 4E, an extra row costing 0.0114 to 0.0196 of a token (*measured*,
+  [verify-tree-n11](mesures/verify-tree-n11-2026-11-10.txt)), against 0.74 of a token a row on 2026-11-08
+  ([spec-final](mesures/spec-final-2026-11-08.txt)). With the public DFlash drafter the loop decodes GSM8K-200 at
+  502 tok/s (x2.30), the house set at 343 (x1.56) and chat at 242 (x1.09), GSM8K 167 correct against 166 (*measured*,
+  [spec-loop-sp8](mesures/spec-loop-sp8-2026-11-11.txt)). It pays in memory: 5.41 GB against 2.01 and 4.87 b/param
+  with the f16 drafter (5.41 *measured*, [spec-mem-m3](mesures/spec-mem-m3-2026-11-11.txt); 4.87 *computed*, [spec-memoire](mesures/spec-memoire-2026-11-11.txt)). Operator, 2026-11-11: the
+  default stays at 2.73 b/param, and the fast profile is set aside, built when wanted. Three bit-identical cuts of
+  4E did not pass and are in §6.
 - **Card memory after an 8,192-token prompt.** The served prefill keeps one score tensor instead of three, bit for
   bit: 5.95 / 7.39 / 10.54 GB at 4B / 8B / 14B, from 11.48 / 12.66 / 17.09 in the duel, against 3.52 / 4.71 / 6.90 for
   llama.cpp IQ2_S (*measured*, L40S, [pic-vram-8k](mesures/pic-vram-8k-2026-11-08.txt)). The NOT SERVED
   `prefill_attention: kernel` measured 4.77 / 7.15 / 9.30, about 1 to 2 GB over its computed peak, and 1.14 to 1.21
   times slower to the first token: not proposed. Open: the excess it holds layer by layer is not traced.
+- **The chain prefill, a bench, not served.** `prefillbench --form chain` feeds the prompt as known tokens through
+  the tree verify pass, 32 rows a pass, on the served words read in place. The 4B's first token comes after 0.420 /
+  2.393 / 6.485 s at 1,024 / 4,096 / 8,191 tokens, against 3.951 / 17.641 / 37.037 for the served eager prefill
+  (*measured*, L40S, two jobs, [large-prefill-ft](mesures/large-prefill-ft-2026-11-11.txt),
+  [large-prefill](mesures/large-prefill-2026-11-11.txt)). It equals its own 16-row form bit for bit (argmax, logits,
+  K and V); the 16-row form reads +0.0007 % of paired perplexity against eager, 41 of 47 texts identical. No door
+  calls it. Owed before serving: a GSM8K-200 pairing, cached compiled modules (NVRTC takes 1,127 s of the bench's
+  load), and the operator's decision. The operator's ruling of 2026-11-11 packages the prefill later, all at once.
 - **Scores through the served kernel.** MMLU and perplexity are scored on the dense reconstruction with f16 tables;
   the b/param count int4 tables. About $20 by the mixed route, $70 for the full census at three sizes (*estimated*,
   [`ROADMAP.md`](ROADMAP.md)). `ppl` does not read `LLVQ_CONFIG` yet.
@@ -221,7 +230,10 @@ For an A/B on one file the bar is the paired interval, 0.43 pp of MMLU and 0.12 
 | 4E row-loop arms (K4) | best arm ×1.002 over v2, under the ×1.15 bar | [step1-micro](mesures/step1-micro-2026-11-07.txt) |
 | Speculative decoding, the 0.6B drafting, 4E verifying | tokens identical to greedy at 4B, 8B and 14B, but decode ×0.595, ×0.629, ×0.625 of greedy at the best k (k = 1). Reopen when a 2-row verify pass costs under 1.4 greedy tokens and a draft token under 1 ms. With B1's integer dot, the Tetra part of an extra row costs 0.187 of a row alone, between the 0.15 and 0.26 gates (2026-11-08), not yet a verify pass | [spec-gate](mesures/spec-gate-2026-11-07.txt), [spec-micro](mesures/spec-micro-2026-11-08.txt) |
 | Prompt lookup, 4E verifying | tokens identical to greedy at three sizes; best policy (n-grams 3, probe 1) decodes ×0.92 to ×0.96 of greedy on chat, code and summary at 4B, ×1.108 on retrieval, under its rule B. Reopen with the same condition as the 0.6B row | [spec-final](mesures/spec-final-2026-11-08.txt) |
-| EAGLE-3 head on the card | acceptance measured on Tetra at $0 (α 0.43 to 0.61 on free text), projection ×0.72 on chat at today's verify, ×1.04 at an f32 floor. Reopen with a verify row under 0.2 of a 4E token (B1) | [eagle-alpha](mesures/eagle-alpha-2026-11-08.txt) |
+| EAGLE-3 head on the card | acceptance measured on Tetra at $0 (α 0.43 to 0.61 on free text), projection ×0.72 on chat at today's verify, ×1.04 at an f32 floor. Reopen with a verify row under 0.2 of a 4E token: met on 2026-11-10 by the tree pass ([verify-tree-n11](mesures/verify-tree-n11-2026-11-10.txt)), the head itself not built | [eagle-alpha](mesures/eagle-alpha-2026-11-08.txt) |
+| 4E without its L2 prefetch in attention, or with it moved to gate/up (E1) | bit for bit, x1.003 and x0.996 of v9, x0.978 moved | [large-4e-e1](mesures/large-4e-e1-2026-11-11.txt) |
+| K/V cache read once for a group of 4 rows in the chain prefill (D1), as a speed rule | bit for bit, x1.302 at 8,191 tokens under its x1.5 rule; the arm is kept inside the 32-row pass | [large-prefill-d1](mesures/large-prefill-d1-2026-11-11.txt) |
+| 4E v9ft, the guard-free full attention tile in decode | bit for bit, x1.009 / x1.027 / x0.997 / x1.004 of v9 at 5 / 1,024 / 4,096 / 8,192 tokens, under its x1.05 rule; v9 stays served | [large-attn-ft-4e](mesures/large-attn-ft-4e-2026-11-11.txt) |
 | A mixed Tetra plus int4 bench arm | the bench compares formats; served files are timed end to end | operator, 2026-10-06 |
 | Batched GEMM at two CTAs a SM (K chunk halved, registers capped at 128) | 5.7 to 17.4 % below one CTA a SM at B = 32 to 128 on the 4B, both int4 orders | [batch-l40s-v4](mesures/batch-l40s-v4-2026-11-08.txt) |
 

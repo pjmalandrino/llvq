@@ -1,0 +1,138 @@
+VERIFY-TREE N7: a11 (a10 WITH THE L2 PREFETCH OF THE ROW STREAMS IN ITS WAIT GAPS) BESIDE a10, SEALED 4B, ONE L40S, 2026-11-10. $0.37.
+=================================================================================================================================
+Result: a11 is slower than a10. a11 reads c_1 1.967, c_2 1.958, c_16 2.077 4E tokens on chat; a10 reads 1.756, 1.769
+and 1.931 (*measured*). The decision reads the best valid arm, a10 (c_16 1.931): BETWEEN; the signed outcome was BETWEEN
+on a11. a11's guard holds (its 32-row pass equals a10's bit for bit) and its symbol keeps 736 B of local memory. The
+prefetch takes 60 us off the four row phases of vt1 (5,358 to 5,299) and adds about 950 us to the phases where it is
+issued or that follow it: attention +373, dn_in +136, gate/up fold +125, q/k/v fold +104, rope +95, ln1 +89.
+Prereg : proofs/preregistration-verify-tree-n7-2026-11-10.md (sha256 336e031a), stamped before the job (.ots, commit
+         03509a7). No deviation.
+Go     : the operator, 2026-11-09 about 23:00 CET, session "LLVQ pistes débit": "Compute HF ok tu as 10$ pour la nuit
+         comme tu le sens"; on 2026-11-10 "continue", then "go" (relayed by the orchestrating session). Cap $10.
+Job    : 6af305789737d9a9e090355e, l40sx1, image hf.co/spaces/Pier-Jean/llvq-runner-cuda at Space sha 41e0d630 (its
+         COMMIT file names 03509a7, published from a clean detached checkout of that commit, perimeter clean; kernel,
+         bench and runtime sources equal to e1c963d's), `STAGE=n7 ARMS='a10@5.14.5.28.5,a11@5.14.5.28.5'
+         ops/jobs/verify-tree-n2.sh`, job timeout 24 min, the bench's 21 min. Submitted 12:52 CET, RUNNING by 12:53 (no
+         queue, no twin), COMPLETED by 13:06. 12 min billed, $0.37 (*measured*, ops/run.py monitor). VRAM: no metric
+         received. Registry $309.09 before, $309.46 after; spend since the go $2.21.
+Raw    : verify-tree-n7-2026-11-10-brut/: gpu.txt (NVIDIA L40S, 8.9, 46,068 MiB, driver 580.178.04, 2,520 MHz),
+         oracle.txt, files.sha256, qwen3-4b-tetra-e4-4e-v9.json (sha256 29b3ef32, equal to
+         configs/qwen3-4b-tetra-e4-4e-v9.json), vtree-4b.txt, summary.txt, monitor.txt, queue.txt.
+
+CONTROLS
+--------
+1. oracle on Qwen3-0.6B: MATCH. Sealed file sha256 886391a8 at its size. Config at its sha256. The job body refuses any
+   LLVQ_* in its environment. Holds.
+2. 4E module 252,757 bytes, sha256 1b422b62, row form 7: the served v9 module. Every one-token 4E launch made its
+   greedy token. Holds.
+3. a11's guard: "a11@5.14.5.28.5 guard against a10@5.14.5.28.5 ... PASSES, the 32-row pass equal bit for bit". Holds.
+   The bench also ran a10's guard against a9@5.14.5.28.5 (an untimed guard-only arm): PASSES. Both modules compiled
+   through NVRTC.
+Host gates at launch (prereg): the full suite on c76c9ad passed, 26 of 26; a11's focused gates green; no full suite on
+e1c963d.
+Read by the decision rule:
+- identity, chat, a10@P and a11@P; rag, a10@P: every row equals its node in the arm's 32-row pass, logits and argmax,
+  67 rows of 5 passes. Holds.
+- vt1 against 4E: the same argmax at 64 of 64 positions, both arms at chat, a10@P at rag. Holds.
+- timed passes whose argmaxes differ from their arm's 32-row pass: 0 of 42 (chat), 0 of 21 (rag).
+
+MODULES (*measured*, printed at install; both 128 registers, 89,984 B shared, 1 resident a SM)
+-------
+a10: 378,415 bytes, sha256 b1d9ae83 (N6's); pers_4et_a10_f1_t512: 736 B local.
+a11: 398,483 bytes, sha256 ba28a72e; pers_4et_a11_f1_t512: 736 B local.
+Load and install: 702.6 s.
+
+RESULT (*measured*, 2 discarded and 5 timed rounds, arms interleaved, ratios formed round by round, median [range];
+R = 1, 2, 16; P = [5, 14, 5, 28, 5])
+------
+Chat, context 62. 4E, one token a launch: 4,454.5 us [4,443.4-4,459.1].
+  arm       rows   wall us                       c_R                   extra row
+  a10@P        1    7,822.1 [7,815.1-7,830.6]    1.756 [1.754-1.760]
+               2    7,884.2 [7,870.2-7,892.1]    1.769 [1.767-1.776]
+              16    8,609.5 [8,585.9-8,619.7]    1.931 [1.927-1.940]   0.0116
+  a11@P        1    8,755.3 [8,738.8-8,769.3]    1.967 [1.962-1.970]
+               2    8,727.2 [8,715.2-8,756.0]    1.958 [1.955-1.969]
+              16    9,257.7 [9,233.7-9,264.2]    2.077 [2.073-2.083]   0.0074
+Rag, context 362, a10@P only (lowest chat c_16). 4E: 4,729.6 us [4,726.1-4,734.6].
+  a10@P: c_1 1.706 [1.703-1.710], c_2 1.721 [1.718-1.722], c_16 2.032 [2.029-2.034], extra row 0.0218.
+
+PHASES (*measured*, chat, us summed over the 36 layers, median of 5 stamped launches; wall (busy min / med / max over
+the 142 CTAs, rounded); "row phases" as the bench prints it. a11 issues its prefetch in the gaps before ln1 (q/k/v),
+before attention (o), after attention (gate/up) and in the gate/up fold's wait (down))
+------
+vt1: a10@P wall 7811.9, row phases 6437.3 (82.4 %); a11@P wall 8716.5, row phases 6620.7 (76.0 %)
+  phase         a10@P wall (busy min/med/max)     a11@P wall (busy min/med/max)     a11 - a10
+  embed             2.5 (1/1/1)                4.4 (1/1/1)               +1.9
+  ln1             240.2 (10/14/195)              329.1 (9/15/216)              +88.9
+  qkv            1508.1 (398/1258/1452)             1484.4 (399/1250/1431)              -23.7
+  qkv fold        152.0 (12/14/110)              255.6 (19/22/215)             +103.6
+  rope            140.7 (7/8/96)              236.0 (6/9/206)              +95.3
+  attn            607.2 (10/11/587)              979.9 (13/21/878)             +372.7
+  o               601.7 (19/489/550)              633.1 (30/440/496)              +31.4
+  o fold          145.0 (3/5/89)              144.6 (4/5/94)               -0.4
+  ln2             189.2 (3/4/156)              215.6 (3/5/189)              +26.4
+  gateup         2169.3 (1457/2004/2105)             2151.0 (1487/1984/2102)              -18.3
+  gateup fold     147.5 (2/4/100)              272.9 (3/4/215)             +125.4
+  dn_in           190.5 (2/3/156)              326.8 (3/5/168)             +136.3
+  down           1079.2 (517/965/1011)             1030.1 (482/925/973)              -49.1
+  down fold       184.4 (3/4/145)              193.5 (3/4/158)               +9.1
+  norm              4.1 (0/0/3)                4.1 (0/0/3)               +0.0
+  head            445.5 (412/436/444)              450.6 (417/439/450)               +5.1
+  head fold         4.6 (0/4/4)                4.8 (0/4/4)               +0.2
+  four row phases qkv+o+gateup+down: a10 5358.3, a11 5298.6 (-59.7)
+vt16: a10@P wall 8592.6, row phases 7178.0 (83.5 %); a11@P wall 9242.2, row phases 7323.1 (79.2 %)
+  phase         a10@P wall (busy min/med/max)     a11@P wall (busy min/med/max)     a11 - a10
+  embed             7.6 (6/6/6)                9.5 (6/6/6)               +1.9
+  ln1             228.7 (10/14/192)              309.6 (8/15/211)              +80.9
+  qkv            1798.2 (530/1542/1744)             1721.3 (515/1480/1665)              -76.9
+  qkv fold        151.7 (15/18/117)              265.3 (23/29/221)             +113.6
+  rope            136.8 (91/100/108)              232.8 (82/98/110)              +96.0
+  attn            649.8 (26/619/622)              869.0 (38/631/660)             +219.2
+  o               637.6 (17/519/579)              595.4 (226/490/727)              -42.2
+  o fold          147.4 (4/5/97)              147.4 (4/5/96)               +0.0
+  ln2             185.3 (2/5/154)              218.2 (2/4/194)              +32.9
+  gateup         2441.3 (1706/2246/2355)             2439.3 (1590/2251/2370)               -2.0
+  gateup fold     165.2 (4/103/124)              314.0 (4/118/166)             +148.8
+  dn_in           202.4 (3/3/156)              275.9 (3/15/206)              +73.5
+  down           1116.7 (538/1010/1061)             1062.1 (495/960/1011)              -54.6
+  down fold       185.2 (3/4/147)              238.7 (3/5/196)              +53.5
+  norm              4.1 (0/0/3)                4.1 (0/0/3)               +0.0
+  head            482.3 (443/468/482)              487.5 (449/473/487)               +5.2
+  head fold        52.3 (42/50/52)               52.2 (42/49/51)               -0.1
+  four row phases qkv+o+gateup+down: a10 5993.8, a11 5818.1 (-175.7)
+4E stamped over two tokens (chat): q/k/v 665.2, attention 787.9, o 339.7, MLP 2,359.1, head 367.9.
+
+AGAINST THE SIGNED PREDICTION (chat)
+--------------------------------
+  quantity                              signed                 measured     inside
+  4E token                              4,450 [4,380, 4,500]   4,454.5      yes
+  a10 c_1                               1.747 [1.71, 1.79]     1.756        yes
+  a10 c_2                               1.76 [1.72, 1.80]      1.769        yes
+  a10 c_16                              1.92 [1.87, 1.98]      1.931        yes
+  a10 row phases of vt1 (4 phases)      5,360 [5,250, 5,480]   5,358.3      yes
+  a11 c_1                               1.50 [1.30, 1.80]      1.967        no, above
+  a11 c_2                               1.51 [1.31, 1.81]      1.958        no, above
+  a11 c_16                              1.68 [1.48, 1.98]      2.077        no, above
+  a11 row phases of vt1 (4 phases)      4,300 [3,400, 5,300]   5,298.6      yes (at the edge)
+  a11 local memory                      at most 760 B          736 B        yes
+  outcome                               BETWEEN, on a11        BETWEEN, on a10   class yes, arm no
+
+DECISION (the prereg's rule)
+--------
+Best valid arm (guard and identity hold, vt1 at 64 of 64): a10@5.14.5.28.5, c_16 1.931: 1.60 < c_16 <= 2.35, BETWEEN.
+a11 reads c_16 2.077. The reopening condition of ETAT.md section 6 is not met (c_2 1.769 > 1.40).
+
+READING (not part of the decision; *computed* from the tables above)
+-------
+- The prefetch barely shortens the row phases: q/k/v -24, o +31, gate/up -18, down -49 us at vt1. The streams are not
+  waiting on DRAM that L2 could hide, or the lines do not survive to their phase.
+- It costs where it is issued and around it: attention +373 us at vt1 (busy max 878 against 587), dn_in +136, the q/k/v
+  and gate/up folds +104 and +125, rope +95, ln1 +89. Issuing a CTA's whole stream of prefetches lengthens the gap it
+  sits in, and the grid waits on the slowest CTA.
+- This is the second prefetch arm to lose (a7 in N3). a10 is unchanged from N6 (c_1 1.756 against 1.747, c_16 1.931
+  against 1.918).
+
+WHAT THIS DOES NOT ESTABLISH
+----------------------------
+Which of a11's four prefetch points costs what. Whether the prefetched lines reach their phase in L2. R = 4, 8 and 32.
+VRAM peak (no metric). Any card but the L40S. The 8B and 14B. Any acceptance or tok/s at a door.

@@ -1,0 +1,4 @@
+vram served-v9 idle 0 MiB peak 1889 MiB
+vram e1-all idle 0 MiB peak 6409 MiB
+vram e1-v9 idle 0 MiB peak 6057 MiB
+vram e1-v9ft idle 0 MiB peak 6057 MiB

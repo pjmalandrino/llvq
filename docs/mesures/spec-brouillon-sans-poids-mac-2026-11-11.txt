@@ -1,0 +1,118 @@
+WEIGHTLESS DRAFTERS ON THE 16-ROW TREE VERIFY PASS, SEALED TETRA 4B, ON THE MAC, 2026-11-11. $0.
+=============================================================================================
+Result: no weightless drafter comes near DFlash. The best, prompt lookup as the spine plus a warm recycling table
+(comb8w), accepts 1.268 drafted tokens a pass on GSM8K (problems 40-99) and 0.930 on the house set (*measured*),
+against DFlash's 5.376 and 3.316 on the same text. Projected 244 tok/s on GSM8K and 207 on the house set
+(*estimated*), against greedy 218.8 and 220.4 and DFlash f16 502 (*measured*). It keeps the object at 2.742 b/param
+(*computed*) against 3.300 for the int4 DFlash drafter. Break-even with greedy is 1.03 accepted a pass on GSM8K and
+1.06 on the house set (*computed*): recycling alone sits on it on GSM8K, under it everywhere on the house set, and
+lookup alone is under it everywhere but rag.
+Prereg : none (analysis at $0 on the Mac, as arbre32 and M2). Orchestrator's instruction, 2026-11-11.
+Script : ops/spec_sans_poids.py (imports the harness of ops/dflash_arbre32.py: text, prompt ids, `first`, card logs,
+         replay convention), ops/spec_sans_poids_report.py (stdlib tables). No Rust change.
+Machine: M3 Max, every model run under ~/.llvq-guard/heavy.sh (nice 15), memory_pressure 89-90 % free before loading.
+         Mac time 52 min: trial 1 min, shape search 10:17:42-10:37:39 (1192 s), frozen run 10:37:52-11:07:50
+         (1793 s), guard log.
+Raw    : spec-brouillon-sans-poids-mac-2026-11-11-brut/{search,frozen}/: run.txt (one JSON line a prompt), rows.json
+         (per prompt and arm: passes, accepted, histogram 0..15), meta.json (gate, arms, row counts, table bytes),
+         accept-rounds.json.gz (accepted drafts of every pass, every arm), report.txt.
+Cut    : GSM8K cut to 100 problems (40 for the shape search, 60 reported), not 200, to stay near 60 min: the
+         exact verify rows cost 1.7 ms each on the Mac and the search alone took 20 min. No drafter was cut.
+
+COMMANDS
+--------
+LLVQ_THREADS=12 ~/.llvq-guard/heavy.sh "sanspoids: shape search GSM8K 0-39 (MLX)" uv run ops/spec_sans_poids.py \
+  ~/q4b-hf-2026-09-28 ops/data/spec-prompts-v1.jsonl ops/data/spec-gsm8k-200.jsonl \
+  docs/mesures/spec-loop-sp8-2026-11-11-brut docs/mesures/spec-arbre32-mac-2026-11-11-brut \
+  docs/mesures/spec-brouillon-sans-poids-mac-2026-11-11-brut/search --mode search --gsm-range 0:40
+LLVQ_THREADS=12 ~/.llvq-guard/heavy.sh "sanspoids: frozen shape, house 44 + GSM8K 40-99 (MLX)" uv run \
+  ops/spec_sans_poids.py <same five paths> docs/mesures/spec-brouillon-sans-poids-mac-2026-11-11-brut/frozen \
+  --mode frozen --gsm-range 40:100 --with-house --rec mid --comb mid:0.9
+python3 ops/spec_sans_poids_report.py <brut>/frozen/rows.json <brut>/frozen/meta.json
+
+METHOD
+------
+Text: arbre32's. GSM8K and house math on the card's greedy text (SP8 gsm200.jsonl, 768 and 256 tokens after
+`first`); house chat, code, rag on the MLX door's greedy text (arbre32 mac-greedy.json). `first` from arbre32
+rows.json. Every prompt length checked against the card's log. Replay: a pass at root m emits min(a + 1, left);
+accepted a pass = tokens over passes minus one, summed over prompts.
+Tree: root (the last emitted token) + at most 15 drafted nodes = 16 rows, as DFlash's tree of 15.
+Drafters, fed only by the text so far and by the target's logits on rows of earlier passes:
+- rec (token recycling, arXiv 2408.08696): table [151,936][k] int32; after every pass, for every row of the tree
+  (accepted or not, root included), table[row token] = that row's top k. Tree grown best first from the root:
+  child of rank r scores parent * p[r], a static priority; a missing entry is skipped.
+- look (prompt lookup): longest suffix of prompt + text (8 down to 1 tokens) seen earlier, most recent occurrence,
+  its continuation as a chain of up to 15.
+- comb: the lookup chain as the spine when its match is at least 2 tokens (spine child scores parent * q), the other
+  nodes from the recycling table by p, best first, 15 in all, duplicates of a sibling skipped.
+Cold: the table is cleared at each prompt. Warm: kept across the prompts of a set in file order (causal); house and
+GSM8K have separate tables. The frozen GSM8K run starts its warm table empty at problem 40.
+Verify rows are exact, not a lower bound. A row on the text is the teacher-forced row. A row off the text is the
+target over text[:j] + its off-text tail, computed by a tree forward of the sealed target (dense f16 weights decoded
+once from the Tetra words through the door's own dequantizer, prefix K/V of the teacher-forced pass, per-row RoPE
+positions, ancestor mask), cached per prompt and shared by the arms. 583,310 off-text rows in the search, 835,648 in
+the frozen run.
+Gate (*measured*, first prompt): tree forward against teacher forcing on 24 text rows, top-1 24/24, top-8 overlap
+1.000; against a fresh full forward on 9 off-text rows (depth 1 to 3), top-1 9/9, top-8 overlap 1.000.
+
+SHAPE SEARCH, GSM8K 0-39, k = 8 warm (*measured*, accepted a pass; not reported below)
+------------
+  p[r] by shape: deep (0.70, 0.12, 0.06, ...), mid (0.55, 0.18, 0.09, ...), wide (0.45, 0.22, 0.13, ...),
+  flat (0.35, 0.22, 0.16, ...); full vectors in ops/spec_sans_poids.py.
+  rec  deep 1.047  mid 1.054  wide 1.040  flat 0.990
+  comb mid q0.6 1.306  mid q0.9 1.331  wide q0.6 1.301  wide q0.9 1.286
+Frozen: rec `mid`, comb `mid` with q 0.9. The spread across shapes is 0.06, small against the gap to DFlash.
+
+RESULT, FROZEN SHAPE (*measured*, accepted drafts a pass; per-prompt median [range]; tok/s *estimated*)
+------
+tok/s = (accepted + 1) / (verify + drafter): verify 8.53 ms GSM8K, 8.58 ms house; drafter 0.75 ms (top-k over 16 rows,
+0.714 measured on the card for top-4 + logsumexp), the same 0.75 charged to lookup. DFlash: drafter 4.15 ms.
+Table: int32, 151,936 x k; b/param = 2.7320 sealed + table bits over 4,022,468,096 parameters (*computed*).
+
+  GSM8K 40-99 (n 60)
+  arm      acc     median [range]         tok/s   table MB  b/param
+  rec4c    0.802   0.820 [0.465-1.102]    194.2   2.43      2.7368
+  rec4w    1.049   1.047 [0.853-1.315]    220.8   2.43      2.7368
+  rec8c    0.802   0.794 [0.485-1.052]    194.1   4.86      2.7417
+  rec8w    1.047   1.045 [0.864-1.243]    220.5   4.86      2.7417
+  look     0.609   0.583 [0.267-0.867]    173.4   0         2.7320
+  comb8c   1.039   0.997 [0.598-1.410]    219.7   4.86      2.7417
+  comb8w   1.268   1.264 [0.838-1.714]    244.4   4.86      2.7417
+  DFlash f16 tree15, same 60 problems (arbre32, Mac): 5.376; GSM8K-200 card 502.1 tok/s (*measured*), 4.87 b/param.
+  DFlash int4 g128+fc (M2, GSM8K-200): 5.255; 493 tok/s (*estimated*, 4.15 ms drafter assumed), 3.300 b/param.
+  Greedy 218.8 tok/s (*measured*), 2.7320 b/param.
+
+  House set by kind, accepted a pass (tok/s est); median [range] per prompt in report.txt
+  arm      math (20)      code (10)      rag (4)        chat (10)      pooled (44)
+  rec4c    0.693 (181.5)  0.471 (157.7)  0.402 (150.3)  0.377 (147.6)  0.537 (164.7)
+  rec4w    0.972 (211.4)  0.669 (178.9)  0.617 (173.3)  0.540 (165.0)  0.759 (188.5)
+  rec8c    0.716 (183.9)  0.499 (160.6)  0.427 (153.0)  0.387 (148.6)  0.558 (167.0)
+  rec8w    0.951 (209.1)  0.656 (177.5)  0.635 (175.3)  0.559 (167.1)  0.755 (188.1)
+  look     0.514 (162.3)  0.336 (143.2)  0.914 (205.1)  0.207 (129.4)  0.417 (151.9)
+  comb8c   0.920 (205.8)  0.675 (179.6)  1.152 (230.6)  0.482 (158.8)  0.764 (189.0)
+  comb8w   1.130 (228.3)  0.808 (193.8)  1.363 (253.3)  0.605 (172.0)  0.930 (206.8)
+  DFlash f16 (arbre32 Mac): math 4.76, code 2.95, rag 3.55, chat 1.94; house 3.316, 343 tok/s on the card.
+  DFlash int4 g128+fc: house 3.262. Greedy 220.4 tok/s.
+  comb8w per-prompt medians: math 1.142 [0.759-1.415], code 0.803 [0.463-1.393], rag 1.476 [0.474-3.000],
+  chat 0.570 [0.306-1.116].
+
+READING
+-------
+- A warm table is worth +0.23 to +0.25 accepted a pass on GSM8K and +0.17 to +0.22 on the house set over a cold
+  one (*measured*, rec and comb).
+- k = 4 equals k = 8 within 0.02 everywhere: the `mid` shape rarely reaches rank 4. At equal acceptance the k = 4
+  table is the smaller, 2.43 MB, +0.0048 b/param (*computed*). comb with k = 4 was not run.
+- Recycling never accepts past depth 6 (histograms in report.txt): 15 nodes spread over ranks leave no depth. Lookup
+  gives the deep passes (up to 15 on rag and code) but 0 on 75 % of GSM8K passes (8,428 of 11,210).
+- The verify pass costs 8.53 ms whatever it carries, so every arm under 1.03 (GSM8K) or 1.06 (house) accepted a pass
+  is slower than greedy. comb8w is +11.7 % on GSM8K and -6.2 % on the house set (*estimated*).
+- The table is a 0.010 b/param question; the speed is a factor of two short of DFlash, not a few percent.
+
+NOT DONE
+--------
+- GSM8K 100-199 (time). The 60 reported problems give DFlash 5.376 against 5.37 on all 200, so the subset is not
+  easier or harder for DFlash.
+- No card run: the 0.75 ms drafter cost and the 8.53 / 8.58 ms verify are the card's figures, not measured with these
+  drafters; lookup on the card would cost less than 0.75 ms (host-side match).
+- Prefill rows were not fed to the table (strict reading: the card computes only the last prompt row).
+- Larger trees (the paper's ~80 nodes) are outside the 16-row pass.

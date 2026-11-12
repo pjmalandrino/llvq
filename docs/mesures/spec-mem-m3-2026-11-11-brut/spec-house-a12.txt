@@ -1,0 +1,304 @@
+target: served config: /out/spec-mem-m3-2026-11-11/qwen3-4b-tetra-e4-4e-v9.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention kernel from position 0 on grow(256), decode persistent (4E rows v9, one launch a token run)) — The qwen3-4b-tetra-e4 object (qwen3-4b-sealed.bin, sha256 886391a8), the v6 config with the v9 row loop and nothing else different: the kernel attention form on every decode row from position 0, decoded by 4E v9 (row form 7: v6, the launch's constants staged during the barriers, attention's steps in a cp.async ring, and the int4 rows v, o and the int4 downs read from tiled words; one cooperative launch a token run, 512 threads). Under this config the loader writes the int4 words tiled and holds them once on the card: the eager path, which prefills, reads the same words through tv_q4_hht, checked against tv_q4_hh on the file's order at every load. The file and its 2.7320 b/param do not move (a permutation inside each row, computed). Written on 2026-11-07 on the operator's go to serve v9 with one copy of the int4 bytes. In the measurement form v9 decodes 238.6 tok/s after a 5-token prompt against 213.3 for v6 (x1.118 round by round) and 163.5 at 8,192 against 154.2 (x1.060), the same 64 tokens as the eager path at both contexts (measured, step3-4e-2026-11-07, with the int4 bytes twice on the card). Not yet read at the served door: served-v9 (proofs/preregistration-served-v9-2026-11-07.md) reads it. Refused on Metal and on any object but the 4B.
+cudarc event tracking: off (one stream, ordered by issue)
+shared rotation: 1 (specbench), 96 rot_launches/token for 252 projections
+projection fusion: 0 (specbench), 252 matvec_launches/token for 252 projections (0 groups + 168 lone + 84 int4)
+fused layout: tetra48 (specbench), projections 1.16 GB on the card, 2.550 b/weight (INFERENCE accounting: KeepExact tail in binary16; the bench bills its own in f32)
+NVRTC source: 106947 bytes, sha256 e269ea5d11b7e40ba0682f536f52ed9f09abfaa9fd6f3185eb306edca5c60e53 (12 parts), tile 64 (served: measured optimum for sm_89), prefill 4x128 (served pair), 49152 B staged of 49152, target compute_89
+int4: tv_q4_hht equals tv_q4_ht bit for bit on model.layers.0.self_attn.v_proj.weight (1024 rows, d_in 2560)
+int4: tv_q4_hht on the tiled words equals tv_q4_hh on the file's order bit for bit on model.layers.0.self_attn.v_proj.weight (1024 rows, d_in 2560); the file-order copy is freed
+int4: tv_q4_hht on the tiled words equals tv_q4_hh on the file's order bit for bit on model.layers.0.self_attn.o_proj.weight (2560 rows, d_in 4096); the file-order copy is freed
+int4: tv_q4_hht on the tiled words equals tv_q4_hh on the file's order bit for bit on model.layers.12.mlp.down_proj.weight (2560 rows, d_in 9728); the file-order copy is freed
+int4 layout: tiled (specbench), 84 records, words 0.385 GB on the card, held once
+embedding: q4 g64 (specbench), 1 table (model.embed_tokens.weight, lm_head tied on it), 218.8 MB on the card (int4 194.5 + scales/biases 24.3)
+total expected on the card: 1.38 GB (projections 1.16 + carried 0.22)
+attn_dec.cu: embedded, sha256 c7b0d8d3f2e3066ba1a2b4331c0bb6c92f22182c78a31b7fb74e839330a1838d, target compute_89
+attn_dec_g4_u64: 160 registers, 0 B local (spill), 16384 B static shared, sm_89
+attn_dec_g4_u64: the card equals the CPU replay bit for bit on 103 calls (rows ending at 1, 255, 256, 257, 1000, 4096; k 1, 3, 8; eager and wide grids; verify rows alone; fresh rows) (1.1 s)
+4E: persistent module 252757 bytes, sha256 1b422b62328be6752df4add43280565fd2a49cfa20ee26953b301abe7a15c530, row form 7, own module on candle's stream
+4E: RoPE forms equal to candle's rope on this card: [1]; running form 1
+4E: pers_4e_tokens_f1_t512: 128 registers, 0 B local, 85952 B shared, 1 resident a SM
+4E: pers_4e_stamps_f1_t512: 128 registers, 32 B local, 1 resident a SM (phase stamps, outside the timed rounds)
+4E: head tied to the embedding's table (151936 rows)
+4E v9: the 76 prologue inputs are 16-byte aligned; the vector path runs on every layer
+4E v9: the int4 records are read in place, tiled at load and held once on the card (36 layers)
+4E: 36 layers, grid 142 x 512, 218 barriers a token
+4E tree: module 306060 bytes, sha256 ce1c354d2583eb178ae8622ff99e10f9b457543972bb5039ce89ede9eec31e44, row form 7 and pers_4et.cu, its own module
+4E tree: pers_4et_rows_f1_t512: 128 registers, 720 B local, 89984 B shared, 1 resident a SM
+4E tree: arm a12@8.10.8.20.6 (a12 (a10t384r16 with the taps), an explicit plan): slices [8, 10, 8, 20, 6]; S, units, waves, fill, sub-steps a slice at most: q/k/v 8 272 2 95.8 % 7, o 10 140 1 98.6 % 9, gate/up 8 816 6 95.8 % 7, down 20 280 2 98.6 % 11, head 6 4752 34 98.4 % 9
+4E tree: arm a12@8.10.8.20.6 at 384 threads (12 warps): area 14944 floats, 78848 B shared, 12 sub-steps a slice at most
+4E tree: the stream unit's slices hold at most 13 sub-steps (area 17728 floats, 16 warps, 32 staged rows)
+4E tree: 512 threads, 17728 floats of area; 0.153 GB of row buffers
+4E tree a12: module 421551 bytes, sha256 053541de8c4a1c62f2e0fab7b4ace2d6baa135008bf1863546f684f1080d5aae, P4T_A12 1 after a10r16's text, its own module
+4E tree a12: pers_4et_a12_f1_t384: 168 registers, 736 B local, 78848 B shared, 1 resident a SM
+4E tree tiled: 253 tree-tiled copies (q, k, v, o, gate, up, down a layer, the head), 1.308 GB more on the card
+card memory: 3.425 GB used of 47.666 GB after the target's load, its 4E install and the verify pass's install, before the drafter (cuMemGetInfo)
+arm a12@8.10.8.20.6: A12 kernel, slices [8, 10, 8, 20, 6], 384 threads, row cap 16; taps on; N 256
+loaded in 382.5 s
+batch mma unit: 81799 bytes, sha256 d241ea8d1407bff65950d069acb7440b3ab5bdf9a831338ebac75bd3aae893b3, target compute_89
+batch gemm unit: 79819 bytes, sha256 c258073f645be92a4c1ffe18be03ec27e4d0cd8361f620214609689281c23afd
+batch attention unit: 28404 bytes, sha256 ed0d7dab9a46e17c1dd53f278fbd00a93f130da0e53e9ef5fb227ff2cdf991b5
+tv_tetra48_mma_n8: 48 registers, 0 B local
+tv_tetra48_mma_n16: 64 registers, 0 B local
+tv_tetra48_mma_n32: 116 registers, 0 B local
+tv_q4_mma_n8: 40 registers, 0 B local
+tv_q4_mma_n16: 63 registers, 0 B local
+tv_q4_mma_n32: 96 registers, 0 B local
+tv_bg_n8: 96 registers, 0 B local, 47360 B shared
+tv_bg_n16: 72 registers, 0 B local, 53760 B shared
+tv_bg_n32: 80 registers, 0 B local, 66560 B shared
+tv_bg_n64: 113 registers, 0 B local, 55296 B shared
+tv_bg_n128: 191 registers, 0 B local, 81920 B shared
+tv_bgo_n8: 96 registers, 0 B local, 47360 B shared
+tv_bgo_n16: 72 registers, 0 B local, 35328 B shared
+tv_bgo_n32: 80 registers, 0 B local, 41984 B shared
+tv_bgo_n64: 120 registers, 0 B local, 34816 B shared
+tv_bgo_n128: 128 registers, 0 B local, 49152 B shared
+attn_batch_g4_u64: 158 registers, 0 B local
+attn_slot_g4_u64: 161 registers, 0 B local
+drafter /tmp/dflash-b74e3a329c4d963783143b1e970d95b002be72bd (1192.9 MB, F16), loaded in 20.2 s; vocab q4: the target's int4 g64 table (218.8 MB, already resident), gather emb_q4_gather, head tv_q4_mma; no dense copy
+card memory: 4.599 GB used of 47.666 GB after the drafter's load, before the first prompt (cuMemGetInfo)
+template: the assistant opening with thinking off is [151644, 77091, 198, 151667, 271, 151668, 271]; the HF tokenizer on the rendered Qwen3 template (the served door's) gives <think>, 271, </think>, 271 (151667 271 151668 271), not 198 198; eos 151645 (<|im_end|>)
+prompts: 44 from /usr/local/share/llvq/spec-prompts-v1.jsonl; 0 discarded and 1 timed runs a prompt
+equality: every drafter against the pass's own greedy (the null drafter, R = 1), a hard gate; the pass's greedy against 4E's greedy, reported only. Past a divergence from 4E the texts differ, and tok/s and acceptance there are measured on the pass's own text
+control: one 64-token 4E launch against two chained 32-token launches on gsm8k-test-0000: the same 64 tokens
+
+== gsm8k-test-0000 (math): prompt 92 tokens; 4E greedy 256 tokens, 221.2 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+   dflash:tree: 256 tokens, equal to the pass's greedy; 5.40 drafted tokens accepted a pass, 40 passes; verify 331.8 ms, drafter 207.8 ms, rest of the host 0.8 ms; 473.7 tok/s against 4E's 221.2 (x2.141)
+   dflash:tree: drafter wall, ms: context extension 46.3, block 77.0, head 33.6, readout 20.6; skipped rounds 0
+
+== gsm8k-test-0001 (math): prompt 53 tokens; 4E greedy 192 tokens, 225.1 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 192 tokens
+   dflash:tree: 192 tokens, equal to the pass's greedy; 4.39 drafted tokens accepted a pass, 36 passes; verify 287.8 ms, drafter 150.5 ms, rest of the host 0.5 ms; 437.5 tok/s against 4E's 225.1 (x1.943)
+   dflash:tree: drafter wall, ms: context extension 33.9, block 68.3, head 26.9, readout 18.2; skipped rounds 0
+
+== gsm8k-test-0002 (math): prompt 84 tokens; 4E greedy 256 tokens, 221.6 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+   dflash:tree: 256 tokens, equal to the pass's greedy; 3.98 drafted tokens accepted a pass, 52 passes; verify 432.3 ms, drafter 251.4 ms, rest of the host 1.0 ms; 374.0 tok/s against 4E's 221.6 (x1.688)
+   dflash:tree: drafter wall, ms: context extension 46.9, block 99.2, head 39.0, readout 26.2; skipped rounds 0
+
+== gsm8k-test-0003 (math): prompt 62 tokens; 4E greedy 146 tokens, 225.5 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 146 tokens
+   dflash:tree: 146 tokens, equal to the pass's greedy; 4.10 drafted tokens accepted a pass, 29 passes; verify 231.5 ms, drafter 104.4 ms, rest of the host 0.6 ms; 433.9 tok/s against 4E's 225.5 (x1.925)
+   dflash:tree: drafter wall, ms: context extension 12.7, block 55.0, head 21.7, readout 14.5; skipped rounds 0
+
+== gsm8k-test-0004 (math): prompt 138 tokens; 4E greedy 256 tokens, 219.3 tok/s
+  4E agreement: first divergence at generated token 251 (251 tokens equal before it): the pass Some(11), 4E Some(279); the pass's logits: 31.09375 for 11, 31.09375 for 279, margin 0.0000
+   dflash:tree: 256 tokens, equal to the pass's greedy; 4.82 drafted tokens accepted a pass, 44 passes; verify 373.5 ms, drafter 216.5 ms, rest of the host 0.9 ms; 433.2 tok/s against 4E's 219.3 (x1.975)
+   dflash:tree: drafter wall, ms: context extension 44.2, block 83.7, head 33.0, readout 22.2; skipped rounds 0
+
+== gsm8k-test-0005 (math): prompt 83 tokens; 4E greedy 256 tokens, 221.5 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+   dflash:tree: 256 tokens, equal to the pass's greedy; 5.19 drafted tokens accepted a pass, 43 passes; verify 353.1 ms, drafter 154.4 ms, rest of the host 0.9 ms; 503.6 tok/s against 4E's 221.5 (x2.273)
+   dflash:tree: drafter wall, ms: context extension 18.6, block 81.4, head 32.1, readout 21.5; skipped rounds 0
+
+== gsm8k-test-0006 (math): prompt 69 tokens; 4E greedy 256 tokens, 222.1 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+   dflash:tree: 256 tokens, equal to the pass's greedy; 6.40 drafted tokens accepted a pass, 35 passes; verify 290.2 ms, drafter 150.9 ms, rest of the host 0.9 ms; 579.2 tok/s against 4E's 222.1 (x2.607)
+   dflash:tree: drafter wall, ms: context extension 33.1, block 65.9, head 26.1, readout 17.6; skipped rounds 0
+
+== gsm8k-test-0007 (math): prompt 97 tokens; 4E greedy 256 tokens, 220.6 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+   dflash:tree: 256 tokens, equal to the pass's greedy; 3.65 drafted tokens accepted a pass, 55 passes; verify 465.9 ms, drafter 228.9 ms, rest of the host 1.0 ms; 367.9 tok/s against 4E's 220.6 (x1.668)
+   dflash:tree: drafter wall, ms: context extension 51.0, block 104.1, head 41.1, readout 27.6; skipped rounds 0
+
+== gsm8k-test-0008 (math): prompt 131 tokens; 4E greedy 256 tokens, 219.0 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+   dflash:tree: 256 tokens, equal to the pass's greedy; 4.45 drafted tokens accepted a pass, 47 passes; verify 400.8 ms, drafter 170.1 ms, rest of the host 1.2 ms; 447.5 tok/s against 4E's 219.0 (x2.043)
+   dflash:tree: drafter wall, ms: context extension 20.5, block 89.9, head 35.1, readout 23.6; skipped rounds 0
+
+== gsm8k-test-0009 (math): prompt 87 tokens; 4E greedy 256 tokens, 221.0 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+   dflash:tree: 256 tokens, equal to the pass's greedy; 4.45 drafted tokens accepted a pass, 47 passes; verify 390.7 ms, drafter 196.6 ms, rest of the host 0.9 ms; 435.2 tok/s against 4E's 221.0 (x1.969)
+   dflash:tree: drafter wall, ms: context extension 43.4, block 88.8, head 35.1, readout 23.6; skipped rounds 0
+
+== gsm8k-test-0010 (math): prompt 87 tokens; 4E greedy 256 tokens, 221.1 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+   dflash:tree: 256 tokens, equal to the pass's greedy; 6.00 drafted tokens accepted a pass, 38 passes; verify 318.8 ms, drafter 159.5 ms, rest of the host 0.9 ms; 534.3 tok/s against 4E's 221.1 (x2.417)
+   dflash:tree: drafter wall, ms: context extension 36.1, block 71.4, head 29.3, readout 19.1; skipped rounds 0
+
+== gsm8k-test-0011 (math): prompt 92 tokens; 4E greedy 256 tokens, 220.3 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+   dflash:tree: 256 tokens, equal to the pass's greedy; 7.48 drafted tokens accepted a pass, 31 passes; verify 256.2 ms, drafter 111.4 ms, rest of the host 0.8 ms; 695.1 tok/s against 4E's 220.3 (x3.155)
+   dflash:tree: drafter wall, ms: context extension 14.0, block 58.1, head 23.1, readout 15.5; skipped rounds 0
+
+== gsm8k-test-0012 (math): prompt 94 tokens; 4E greedy 256 tokens, 220.4 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+   dflash:tree: 256 tokens, equal to the pass's greedy; 4.93 drafted tokens accepted a pass, 45 passes; verify 374.4 ms, drafter 188.6 ms, rest of the host 0.9 ms; 454.0 tok/s against 4E's 220.4 (x2.059)
+   dflash:tree: drafter wall, ms: context extension 43.4, block 84.7, head 33.5, readout 22.6; skipped rounds 0
+
+== gsm8k-test-0013 (math): prompt 85 tokens; 4E greedy 256 tokens, 220.7 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+   dflash:tree: 256 tokens, equal to the pass's greedy; 4.69 drafted tokens accepted a pass, 45 passes; verify 375.6 ms, drafter 161.3 ms, rest of the host 0.9 ms; 476.0 tok/s against 4E's 220.7 (x2.157)
+   dflash:tree: drafter wall, ms: context extension 19.6, block 84.7, head 33.5, readout 22.6; skipped rounds 0
+
+== gsm8k-test-0014 (math): prompt 79 tokens; 4E greedy 256 tokens, 220.9 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+   dflash:tree: 256 tokens, equal to the pass's greedy; 5.29 drafted tokens accepted a pass, 41 passes; verify 338.4 ms, drafter 201.3 ms, rest of the host 0.9 ms; 473.6 tok/s against 4E's 220.9 (x2.144)
+   dflash:tree: drafter wall, ms: context extension 37.1, block 77.5, head 34.4, readout 20.8; skipped rounds 0
+
+== gsm8k-test-0015 (math): prompt 121 tokens; 4E greedy 256 tokens, 218.9 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+   dflash:tree: 256 tokens, equal to the pass's greedy; 4.24 drafted tokens accepted a pass, 50 passes; verify 418.4 ms, drafter 208.4 ms, rest of the host 1.0 ms; 407.8 tok/s against 4E's 218.9 (x1.863)
+   dflash:tree: drafter wall, ms: context extension 44.7, block 94.7, head 37.5, readout 26.7; skipped rounds 0
+
+== gsm8k-test-0016 (math): prompt 80 tokens; 4E greedy 234 tokens, 221.3 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 234 tokens
+   dflash:tree: 234 tokens, equal to the pass's greedy; 5.69 drafted tokens accepted a pass, 35 passes; verify 291.8 ms, drafter 174.5 ms, rest of the host 0.8 ms; 500.9 tok/s against 4E's 221.3 (x2.264)
+   dflash:tree: drafter wall, ms: context extension 34.3, block 65.7, head 29.4, readout 17.7; skipped rounds 0
+
+== gsm8k-test-0017 (math): prompt 85 tokens; 4E greedy 256 tokens, 220.6 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+   dflash:tree: 256 tokens, equal to the pass's greedy; 5.33 drafted tokens accepted a pass, 42 passes; verify 347.5 ms, drafter 175.8 ms, rest of the host 0.9 ms; 488.4 tok/s against 4E's 220.6 (x2.214)
+   dflash:tree: drafter wall, ms: context extension 38.1, block 78.9, head 31.4, readout 23.7; skipped rounds 0
+
+== gsm8k-test-0018 (math): prompt 56 tokens; 4E greedy 256 tokens, 221.9 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+   dflash:tree: 256 tokens, equal to the pass's greedy; 4.40 drafted tokens accepted a pass, 48 passes; verify 393.9 ms, drafter 231.4 ms, rest of the host 0.8 ms; 408.9 tok/s against 4E's 221.9 (x1.843)
+   dflash:tree: drafter wall, ms: context extension 43.9, block 90.4, head 35.9, readout 24.3; skipped rounds 0
+
+== gsm8k-test-0019 (math): prompt 92 tokens; 4E greedy 256 tokens, 220.2 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+   dflash:tree: 256 tokens, equal to the pass's greedy; 4.14 drafted tokens accepted a pass, 51 passes; verify 427.2 ms, drafter 210.9 ms, rest of the host 1.0 ms; 400.6 tok/s against 4E's 220.2 (x1.819)
+   dflash:tree: drafter wall, ms: context extension 46.7, block 95.9, head 38.2, readout 25.5; skipped rounds 0
+
+== code-00 (code): prompt 43 tokens; 4E greedy 256 tokens, 222.7 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+   dflash:tree: 256 tokens, equal to the pass's greedy; 4.21 drafted tokens accepted a pass, 52 passes; verify 424.2 ms, drafter 251.6 ms, rest of the host 0.9 ms; 378.3 tok/s against 4E's 222.7 (x1.699)
+   dflash:tree: drafter wall, ms: context extension 47.4, block 98.0, head 39.0, readout 26.2; skipped rounds 0
+
+== code-01 (code): prompt 47 tokens; 4E greedy 256 tokens, 222.2 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+   dflash:tree: 256 tokens, equal to the pass's greedy; 3.02 drafted tokens accepted a pass, 64 passes; verify 520.3 ms, drafter 256.4 ms, rest of the host 0.9 ms; 329.2 tok/s against 4E's 222.2 (x1.481)
+   dflash:tree: drafter wall, ms: context extension 51.2, block 119.7, head 47.8, readout 32.0; skipped rounds 0
+
+== code-02 (code): prompt 44 tokens; 4E greedy 256 tokens, 222.4 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+   dflash:tree: 256 tokens, equal to the pass's greedy; 2.63 drafted tokens accepted a pass, 71 passes; verify 584.2 ms, drafter 339.0 ms, rest of the host 0.9 ms; 277.0 tok/s against 4E's 222.4 (x1.246)
+   dflash:tree: drafter wall, ms: context extension 59.5, block 133.8, head 53.3, readout 35.9; skipped rounds 0
+
+== code-03 (code): prompt 51 tokens; 4E greedy 256 tokens, 221.9 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+   dflash:tree: 256 tokens, equal to the pass's greedy; 2.24 drafted tokens accepted a pass, 79 passes; verify 650.1 ms, drafter 317.9 ms, rest of the host 1.1 ms; 264.2 tok/s against 4E's 221.9 (x1.190)
+   dflash:tree: drafter wall, ms: context extension 61.5, block 149.1, head 59.1, readout 39.7; skipped rounds 0
+
+== code-04 (code): prompt 58 tokens; 4E greedy 256 tokens, 221.3 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+   dflash:tree: 256 tokens, equal to the pass's greedy; 4.55 drafted tokens accepted a pass, 47 passes; verify 387.6 ms, drafter 194.9 ms, rest of the host 0.9 ms; 438.8 tok/s against 4E's 221.3 (x1.982)
+   dflash:tree: drafter wall, ms: context extension 43.9, block 88.0, head 35.2, readout 23.6; skipped rounds 0
+
+== code-05 (code): prompt 64 tokens; 4E greedy 256 tokens, 221.3 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+   dflash:tree: 256 tokens, equal to the pass's greedy; 4.72 drafted tokens accepted a pass, 47 passes; verify 388.3 ms, drafter 197.8 ms, rest of the host 0.9 ms; 436.1 tok/s against 4E's 221.3 (x1.971)
+   dflash:tree: drafter wall, ms: context extension 45.0, block 87.9, head 35.2, readout 23.5; skipped rounds 0
+
+== code-06 (code): prompt 45 tokens; 4E greedy 256 tokens, 222.3 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+   dflash:tree: 256 tokens, equal to the pass's greedy; 2.62 drafted tokens accepted a pass, 72 passes; verify 586.7 ms, drafter 293.6 ms, rest of the host 1.0 ms; 290.5 tok/s against 4E's 222.3 (x1.307)
+   dflash:tree: drafter wall, ms: context extension 59.3, block 135.1, head 53.9, readout 36.2; skipped rounds 0
+
+== code-07 (code): prompt 38 tokens; 4E greedy 256 tokens, 223.0 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+   dflash:tree: 256 tokens, equal to the pass's greedy; 3.06 drafted tokens accepted a pass, 63 passes; verify 511.3 ms, drafter 255.3 ms, rest of the host 0.9 ms; 333.5 tok/s against 4E's 223.0 (x1.496)
+   dflash:tree: drafter wall, ms: context extension 51.4, block 118.1, head 47.1, readout 31.6; skipped rounds 0
+
+== code-08 (code): prompt 43 tokens; 4E greedy 256 tokens, 222.5 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+   dflash:tree: 256 tokens, equal to the pass's greedy; 2.89 drafted tokens accepted a pass, 66 passes; verify 538.4 ms, drafter 269.7 ms, rest of the host 1.0 ms; 316.4 tok/s against 4E's 222.5 (x1.422)
+   dflash:tree: drafter wall, ms: context extension 57.1, block 123.7, head 49.4, readout 33.2; skipped rounds 0
+
+== code-09 (code): prompt 42 tokens; 4E greedy 256 tokens, 222.7 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+   dflash:tree: 256 tokens, equal to the pass's greedy; 2.97 drafted tokens accepted a pass, 65 passes; verify 528.5 ms, drafter 265.6 ms, rest of the host 0.9 ms; 322.0 tok/s against 4E's 222.7 (x1.446)
+   dflash:tree: drafter wall, ms: context extension 52.2, block 121.7, head 48.6, readout 37.1; skipped rounds 0
+
+== chat-00 (chat): prompt 29 tokens; 4E greedy 256 tokens, 223.8 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+   dflash:tree: 256 tokens, equal to the pass's greedy; 1.69 drafted tokens accepted a pass, 95 passes; verify 771.6 ms, drafter 374.1 ms, rest of the host 1.0 ms; 223.3 tok/s against 4E's 223.8 (x0.997)
+   dflash:tree: drafter wall, ms: context extension 68.3, block 178.2, head 71.1, readout 47.8; skipped rounds 0
+
+== chat-01 (chat): prompt 46 tokens; 4E greedy 256 tokens, 222.6 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+   dflash:tree: 256 tokens, equal to the pass's greedy; 2.66 drafted tokens accepted a pass, 70 passes; verify 569.0 ms, drafter 288.2 ms, rest of the host 1.1 ms; 298.3 tok/s against 4E's 222.6 (x1.340)
+   dflash:tree: drafter wall, ms: context extension 58.8, block 131.7, head 52.6, readout 35.3; skipped rounds 0
+
+== chat-02 (chat): prompt 29 tokens; 4E greedy 248 tokens, 224.1 tok/s
+  4E agreement: first divergence at generated token 84 (84 tokens equal before it): the pass Some(11), 4E Some(518); the pass's logits: 33 for 11, 32.96875 for 518, margin 0.0312
+   dflash:tree: 247 tokens, equal to the pass's greedy; 1.87 drafted tokens accepted a pass, 87 passes; verify 705.5 ms, drafter 344.1 ms, rest of the host 0.9 ms; 235.1 tok/s against 4E's 224.1 (x1.049)
+   dflash:tree: drafter wall, ms: context extension 64.3, block 163.2, head 65.1, readout 43.6; skipped rounds 0
+
+== chat-03 (chat): prompt 31 tokens; 4E greedy 256 tokens, 223.8 tok/s
+  4E agreement: first divergence at generated token 107 (107 tokens equal before it): the pass Some(4751), 4E Some(382); the pass's logits: 27.59375 for 4751, 27.578125 for 382, margin 0.0156
+   dflash:tree: 256 tokens, equal to the pass's greedy; 2.27 drafted tokens accepted a pass, 80 passes; verify 650.3 ms, drafter 323.7 ms, rest of the host 1.0 ms; 262.6 tok/s against 4E's 223.8 (x1.173)
+   dflash:tree: drafter wall, ms: context extension 64.5, block 149.8, head 59.7, readout 42.3; skipped rounds 0
+
+== chat-04 (chat): prompt 41 tokens; 4E greedy 256 tokens, 222.8 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+   dflash:tree: 256 tokens, equal to the pass's greedy; 2.29 drafted tokens accepted a pass, 79 passes; verify 648.4 ms, drafter 323.9 ms, rest of the host 1.0 ms; 263.0 tok/s against 4E's 222.8 (x1.181)
+   dflash:tree: drafter wall, ms: context extension 62.0, block 148.0, head 59.1, readout 47.5; skipped rounds 0
+
+== chat-05 (chat): prompt 35 tokens; 4E greedy 167 tokens, 226.0 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 167 tokens
+   dflash:tree: 167 tokens, equal to the pass's greedy; 1.67 drafted tokens accepted a pass, 63 passes; verify 502.2 ms, drafter 222.2 ms, rest of the host 0.7 ms; 230.3 tok/s against 4E's 226.0 (x1.019)
+   dflash:tree: drafter wall, ms: context extension 24.9, block 117.9, head 47.0, readout 31.4; skipped rounds 0
+
+== chat-06 (chat): prompt 29 tokens; 4E greedy 256 tokens, 223.9 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+   dflash:tree: 256 tokens, equal to the pass's greedy; 2.10 drafted tokens accepted a pass, 83 passes; verify 673.2 ms, drafter 335.5 ms, rest of the host 1.0 ms; 253.6 tok/s against 4E's 223.9 (x1.133)
+   dflash:tree: drafter wall, ms: context extension 66.5, block 155.4, head 62.1, readout 43.8; skipped rounds 0
+
+== chat-07 (chat): prompt 29 tokens; 4E greedy 238 tokens, 224.4 tok/s
+  4E agreement: first divergence at generated token 71 (71 tokens equal before it): the pass Some(326), 4E Some(6185); the pass's logits: 24.859375 for 326, 24.859375 for 6185, margin 0.0000
+   dflash:tree: 256 tokens, equal to the pass's greedy; 1.29 drafted tokens accepted a pass, 112 passes; verify 907.8 ms, drafter 394.4 ms, rest of the host 1.0 ms; 196.4 tok/s against 4E's 224.4 (x0.875)
+   dflash:tree: drafter wall, ms: context extension 43.2, block 209.8, head 83.5, readout 56.0; skipped rounds 0
+
+== chat-08 (chat): prompt 29 tokens; 4E greedy 256 tokens, 223.9 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+   dflash:tree: 256 tokens, equal to the pass's greedy; 1.90 drafted tokens accepted a pass, 89 passes; verify 725.5 ms, drafter 360.3 ms, rest of the host 1.0 ms; 235.6 tok/s against 4E's 223.9 (x1.052)
+   dflash:tree: drafter wall, ms: context extension 66.4, block 166.8, head 66.6, readout 52.3; skipped rounds 0
+
+== chat-09 (chat): prompt 28 tokens; 4E greedy 47 tokens, 232.8 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 47 tokens
+   dflash:tree: 47 tokens, equal to the pass's greedy; 1.57 drafted tokens accepted a pass, 21 passes; verify 164.7 ms, drafter 81.7 ms, rest of the host 0.3 ms; 190.5 tok/s against 4E's 232.8 (x0.818)
+   dflash:tree: drafter wall, ms: context extension 14.0, block 39.3, head 15.7, readout 10.9; skipped rounds 0
+
+== rag-00 (rag): prompt 1221 tokens; 4E greedy 256 tokens, 213.5 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+   dflash:tree: 256 tokens, equal to the pass's greedy; 4.84 drafted tokens accepted a pass, 44 passes; verify 549.1 ms, drafter 172.3 ms, rest of the host 2.4 ms; 353.7 tok/s against 4E's 213.5 (x1.657)
+   dflash:tree: drafter wall, ms: context extension 27.8, block 88.6, head 32.8, readout 22.1; skipped rounds 0
+
+== rag-01 (rag): prompt 1214 tokens; 4E greedy 154 tokens, 213.4 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 154 tokens
+   dflash:tree: 154 tokens, equal to the pass's greedy; 2.88 drafted tokens accepted a pass, 40 passes; verify 495.1 ms, drafter 157.1 ms, rest of the host 2.4 ms; 235.3 tok/s against 4E's 213.4 (x1.102)
+   dflash:tree: drafter wall, ms: context extension 26.4, block 79.9, head 29.9, readout 20.1; skipped rounds 0
+
+== rag-02 (rag): prompt 1646 tokens; 4E greedy 256 tokens, 209.6 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 256 tokens
+   dflash:tree: 256 tokens, equal to the pass's greedy; 5.05 drafted tokens accepted a pass, 44 passes; verify 616.2 ms, drafter 177.3 ms, rest of the host 3.1 ms; 321.4 tok/s against 4E's 209.6 (x1.534)
+   dflash:tree: drafter wall, ms: context extension 30.9, block 90.6, head 32.8, readout 22.2; skipped rounds 0
+
+== rag-03 (rag): prompt 1637 tokens; 4E greedy 199 tokens, 209.6 tok/s
+  4E agreement: the pass's greedy equals 4E's over all 199 tokens
+   dflash:tree: 199 tokens, equal to the pass's greedy; 2.28 drafted tokens accepted a pass, 61 passes; verify 846.9 ms, drafter 239.3 ms, rest of the host 3.0 ms; 182.7 tok/s against 4E's 209.6 (x0.872)
+   dflash:tree: drafter wall, ms: context extension 36.0, block 126.0, head 45.5, readout 30.6; skipped rounds 0
+
+agreement of the pass's greedy with 4E's greedy (reported, not a gate)
+   chat: 7 of 10 prompts in full agreement; 1756 of 2253 tokens before the first divergence
+   code: 10 of 10 prompts in full agreement; 2560 of 2560 tokens before the first divergence
+   math: 19 of 20 prompts in full agreement; 4919 of 4924 tokens before the first divergence
+    rag: 4 of 4 prompts in full agreement; 865 of 865 tokens before the first divergence
+    all: 40 of 44 prompts in full agreement; 10100 of 10602 tokens before the first divergence
+  gsm8k-test-0004: at 251: the pass's logits: 31.09375 for 11, 31.09375 for 279, margin 0.0000
+  chat-02: at 84: the pass's logits: 33 for 11, 32.96875 for 518, margin 0.0312
+  chat-03: at 107: the pass's logits: 27.59375 for 4751, 27.578125 for 382, margin 0.0156
+  chat-07: at 71: the pass's logits: 24.859375 for 326, 24.859375 for 6185, margin 0.0000
+
+aggregates (tok/s = total tokens over total wall; x greedy likewise, against 4E's greedy on its own text; median over prompts with its range)
+config dflash:tree: arm a12@8.10.8.20.6 (A12), plan [8, 10, 8, 20, 6], 384 threads, row cap 16, drafter revision b74e3a329c4d963783143b1e970d95b002be72bd, dtype F16, vocab q4, readout device, shape Tree(15), N 256
+   dflash:tree  chat: 10 prompts, 2253 tokens, 10 of 10 equal to the pass's greedy; 1.92 accepted a pass, histogram 0..15 [144, 195, 226, 112, 54, 23, 12, 4, 4, 2, 1, 0, 2, 0, 0, 0]; 240.3 tok/s, greedy 224.0, x1.073; per prompt x1.051 [0.818-1.340]; verify 67 %, drafter 33 % of the wall
+   dflash:tree  code: 10 prompts, 2560 tokens, 10 of 10 equal to the pass's greedy; 3.16 accepted a pass, histogram 0..15 [61, 121, 130, 101, 72, 46, 40, 11, 9, 11, 9, 4, 1, 3, 2, 5]; 329.4 tok/s, greedy 222.2, x1.482; per prompt x1.463 [1.190-1.982]; verify 66 %, drafter 34 % of the wall
+   dflash:tree  math: 20 prompts, 4924 tokens, 20 of 20 equal to the pass's greedy; 4.85 accepted a pass, histogram 0..15 [29, 102, 140, 120, 135, 56, 59, 46, 28, 25, 19, 12, 22, 18, 7, 36]; 457.1 tok/s, greedy 221.0, x2.068; per prompt x2.051 [1.668-3.155]; verify 66 %, drafter 34 % of the wall
+   dflash:tree   rag: 4 prompts, 865 tokens, 4 of 4 equal to the pass's greedy; 3.65 accepted a pass, histogram 0..15 [15, 34, 40, 26, 22, 9, 11, 3, 11, 7, 4, 3, 1, 1, 2, 0]; 265.0 tok/s, greedy 211.4, x1.254; per prompt x1.318 [0.872-1.657]; verify 77 %, drafter 23 % of the wall
+   dflash:tree   all: 44 prompts, 10602 tokens, 44 of 44 equal to the pass's greedy; 3.39 accepted a pass, histogram 0..15 [249, 452, 536, 359, 283, 134, 122, 64, 52, 45, 33, 19, 26, 22, 11, 41]; 340.0 tok/s, greedy 221.1, x1.538; per prompt x1.678 [0.818-3.155]; verify 67 %, drafter 32 % of the wall
+vram house-a12 idle 0 MiB peak 5163 MiB
+specbench house a12 exit 0

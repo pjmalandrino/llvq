@@ -1,0 +1,35 @@
+target: the sealed 4B through the MLX door (/Users/pjmalandrino/q4b-hf-2026-09-28); head AngelSlim/Qwen3-4B_eagle3@fd331e59; aux layers (2, 18, 33); head int4; draft vocabulary 32000 of 151936; K = 8, D = 10; loaded in 13.7 s
+completions ready (55), 14 s
+{"name": "chat", "prompt": 64, "tokens": 256, "teacher_forced_agree": 1.0, "elapsed_s": 19}
+{"name": "code", "prompt": 64, "tokens": 256, "teacher_forced_agree": 1.0, "elapsed_s": 22}
+{"name": "summary", "prompt": 343, "tokens": 100, "teacher_forced_agree": 1.0, "elapsed_s": 25}
+{"name": "edit", "prompt": 129, "tokens": 101, "teacher_forced_agree": 1.0, "elapsed_s": 27}
+{"name": "rag", "prompt": 364, "tokens": 79, "teacher_forced_agree": 1.0, "elapsed_s": 30}
+{"name": "gsm8k/33", "prompt": 60, "tokens": 323, "teacher_forced_agree": 1.0, "elapsed_s": 35}
+{"name": "gsm8k/46", "prompt": 123, "tokens": 383, "teacher_forced_agree": 0.9974, "elapsed_s": 43}
+{"name": "gsm8k/75", "prompt": 95, "tokens": 371, "teacher_forced_agree": 1.0, "elapsed_s": 51}
+{"name": "gsm8k/160", "prompt": 84, "tokens": 257, "teacher_forced_agree": 0.9961, "elapsed_s": 55}
+{"name": "gsm8k/162", "prompt": 71, "tokens": 634, "teacher_forced_agree": 0.9984, "elapsed_s": 67}
+{"name": "gsm8k/185", "prompt": 69, "tokens": 211, "teacher_forced_agree": 1.0, "elapsed_s": 72}
+{"name": "gsm8k/222", "prompt": 58, "tokens": 218, "teacher_forced_agree": 1.0, "elapsed_s": 76}
+{"name": "gsm8k/231", "prompt": 86, "tokens": 263, "teacher_forced_agree": 1.0, "elapsed_s": 81}
+{"name": "gsm8k/422", "prompt": 105, "tokens": 274, "teacher_forced_agree": 1.0, "elapsed_s": 90}
+{"name": "gsm8k/453", "prompt": 85, "tokens": 287, "teacher_forced_agree": 1.0, "elapsed_s": 97}
+{"name": "gsm8k/461", "prompt": 68, "tokens": 234, "teacher_forced_agree": 1.0, "elapsed_s": 101}
+{"name": "gsm8k/477", "prompt": 75, "tokens": 307, "teacher_forced_agree": 1.0, "elapsed_s": 106}
+{"name": "gsm8k/486", "prompt": 63, "tokens": 192, "teacher_forced_agree": 1.0, "elapsed_s": 110}
+{"name": "gsm8k/515", "prompt": 70, "tokens": 270, "teacher_forced_agree": 0.9963, "elapsed_s": 118}
+{"name": "gsm8k/547", "prompt": 80, "tokens": 318, "teacher_forced_agree": 1.0, "elapsed_s": 124}
+{"name": "gsm8k/557", "prompt": 65, "tokens": 215, "teacher_forced_agree": 1.0, "elapsed_s": 134}
+{"name": "gsm8k/604", "prompt": 93, "tokens": 279, "teacher_forced_agree": 1.0, "elapsed_s": 146}
+{"name": "gsm8k/617", "prompt": 88, "tokens": 295, "teacher_forced_agree": 1.0, "elapsed_s": 151}
+{"name": "gsm8k/657", "prompt": 99, "tokens": 495, "teacher_forced_agree": 1.0, "elapsed_s": 160}
+{"name": "gsm8k/660", "prompt": 75, "tokens": 1024, "teacher_forced_agree": 0.999, "elapsed_s": 176}
+{"name": "gsm8k/661", "prompt": 120, "tokens": 382, "teacher_forced_agree": 1.0, "elapsed_s": 182}
+{"name": "gsm8k/703", "prompt": 89, "tokens": 327, "teacher_forced_agree": 1.0, "elapsed_s": 187}
+{"name": "gsm8k/717", "prompt": 73, "tokens": 327, "teacher_forced_agree": 1.0, "elapsed_s": 192}
+{"name": "gsm8k/750", "prompt": 87, "tokens": 343, "teacher_forced_agree": 1.0, "elapsed_s": 200}
+{"name": "gsm8k/758", "prompt": 56, "tokens": 172, "teacher_forced_agree": 1.0, "elapsed_s": 203}
+{"name": "gsm8k/760", "prompt": 93, "tokens": 351, "teacher_forced_agree": 1.0, "elapsed_s": 209}
+{"name": "gsm8k/783", "prompt": 134, "tokens": 466, "teacher_forced_agree": 1.0, "elapsed_s": 217}
+EXIT 137

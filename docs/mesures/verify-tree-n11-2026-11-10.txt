@@ -1,0 +1,173 @@
+VERIFY-TREE N11: THREAD COUNTS AND PLANS AROUND a10t384, WITH THE 16-ROW CAP, SEALED 4B, ONE L40S, 2026-11-10. $0.63.
+=================================================================================================================
+Result: BETWEEN under the prereg's rule, as predicted (*measured*, chat context). The best arm is a10t384r16 at [8, 10, 8,
+20, 6] (384 threads, at most 16 rows): c_1 1.544, c_2 1.556, c_8 1.615, c_16 1.728. N10's best arm, a10t384 at the same
+plan, repeats at c_1 1.632 and c_16 1.803; the row cap stacks on the thread count (-0.088 at c_1, -0.075 at c_16). The plan
+carries much of a10t384's gain: at a10's plan [5, 14, 5, 28, 5], a10t384 reads c_1 1.744 (a10 read 1.755 in N10) but c_16
+1.861 (a10: 1.946). a10t320 at [7, 8, 8, 16, 7] reads c_1 1.651, c_16 1.776; a10t448 at [9, 11, 8, 22, 6] 1.674 and 1.897.
+Every guard and identity holds; all 15 signed values fall inside their intervals.
+Prereg : proofs/preregistration-verify-tree-n11-2026-11-10.md (sha256 6efe7802), stamped before the job (.ots, commit
+         5386da5). Deviations 1 and 2 beside it, in proofs/preregistration-verify-tree-n11-2026-11-10-ECARTS.md.
+Go     : the operator, 2026-11-09 about 23:00 CET, session "LLVQ pistes débit": "Compute HF ok tu as 10$ pour la nuit
+         comme tu le sens"; on 2026-11-10 "continue", then "go" (relayed by the orchestrating session). Cap $10.
+Job    : 6af33988ab34849891ac2c8f, l40sx1, image hf.co/spaces/Pier-Jean/llvq-runner-cuda at Space sha ce2ee449 (its
+         COMMIT file names 5386da5, published from a clean detached checkout of that commit, perimeter clean; kernel,
+         bench and runtime sources equal to 816a713's), `STAGE=n11 ARMS='a10t384@8.10.8.20.6,a10t384r16@8.10.8.20.6,
+         a10t448@9.11.8.22.6,a10t320@7.8.8.16.7,a10t384@5.14.5.28.5' ops/jobs/verify-tree-n2.sh`, job timeout 34 min, the
+         bench's 31 min. Submitted 16:34 CET; ran from about 17:42 to 18:04 CET (the bucket's file times; about 68 min of
+         queue, not billed); COMPLETED. 21 min billed, $0.63 (*measured*, ops/run.py monitor). VRAM: no metric received.
+         Registry $310.96 before, $311.59 after; spend since the go $4.34.
+         The l40sx4 copy 6af33e66ab34849891ac3954 (submitted 16:55, deviation 1) never ran: cancelled by hand at 18:38
+         CET, $0 (deviation 2).
+Raw    : verify-tree-n11-2026-11-10-brut/: gpu.txt (NVIDIA L40S, 8.9, 46,068 MiB, driver 580.178.04, 2,520 MHz),
+         oracle.txt, files.sha256, qwen3-4b-tetra-e4-4e-v9.json (sha256 29b3ef32, equal to
+         configs/qwen3-4b-tetra-e4-4e-v9.json), vtree-4b.txt, summary.txt, monitor.txt, queue.txt, race.txt.
+
+CONTROLS
+--------
+1. oracle on Qwen3-0.6B: MATCH. Sealed file sha256 886391a8 at its size. Config at its sha256. The job body refuses any
+   LLVQ_* in its environment. Holds.
+2. 4E module 252,757 bytes, sha256 1b422b62, row form 7: the served v9 module. Every one-token 4E launch made its
+   greedy token. Holds.
+3. Guards, each "PASSES": a10t384@[8,10,8,20,6], a10t448@[9,11,8,22,6], a10t320@[7,8,8,16,7] and a10t384@[5,14,5,28,5]
+   against a10 at their own plans (untimed guard-only arms), the first 32 rows bit for bit; a10t384r16@[8,10,8,20,6]
+   against a10t384 at the same plan, the first 16 rows. Hold. All six modules compiled through NVRTC and fit one CTA a
+   SM.
+Read by the decision rule:
+- identity, chat: 75 rows of 6 passes for each 32-row arm, 59 rows of 6 passes for a10t384r16; a10t384r16 at rag. Holds.
+- vt1 against 4E: the same argmax at 64 of 64 positions, the five arms at chat, a10t384r16 at rag. Holds.
+- timed passes whose argmaxes differ from their arm's base pass: 0 of 140 (chat), 0 of 28 (rag).
+
+MODULES (*measured*, the install lines; one resident CTA a SM each)
+-------
+a10 (guard only): 378,415 bytes, sha256 b1d9ae83; pers_4et_a10_f1_t512: 128 registers, 736 B local, 89,984 B shared.
+a10t384: 380,075 bytes, sha256 82d563fe; pers_4et_a10_f1_t384: 168 registers, 736 B local, 78,848 B shared.
+a10t384r16: 401,659 bytes, sha256 382ef137; pers_4et_a10r16_f1_t384: 168 registers, 736 B local, 78,848 B shared.
+a10t448: 380,897 bytes, sha256 49ad3653; pers_4et_a10_f1_t448: 128 registers, 736 B local, 82,816 B shared.
+a10t320: 380,897 bytes, sha256 c1a22b92; pers_4et_a10_f1_t320: 168 registers, 736 B local, 78,848 B shared.
+Load and install: 1,211.6 s.
+
+PLANS on 142 CTAs (as printed: S, units, waves, fill, sub-steps a slice at most)
+-----
+a10t384@[8,10,8,20,6] (12 warps; area 14,944 floats, 78,848 B shared, 12 sub-steps a slice at most): q/k/v 8 272 2 95.8 %
+  7, o 10 140 1 98.6 % 9, gate/up 8 816 6 95.8 % 7, down 20 280 2 98.6 % 11, head 6 4752 34 98.4 % 9.
+a10t384r16@[8,10,8,20,6] (12 warps, at most 16 rows): the same plan.
+a10t448@[9,11,8,22,6] (14 warps; area 15,936 floats, 82,816 B shared, 12 sub-steps a slice at most): q/k/v 9 261 2 91.9 % 6,
+  o 11 132 1 93.0 % 8, gate/up 8 704 5 99.2 % 7, down 22 264 2 93.0 % 10, head 6 4074 29 98.9 % 9.
+a10t320@[7,8,8,16,7] (10 warps; area 14,944 floats, 78,848 B shared, 13 sub-steps a slice at most): q/k/v 7 280 2 98.6 % 8,
+  o 8 128 1 90.1 % 11, gate/up 8 976 7 98.2 % 7, down 16 256 2 90.1 % 13, head 7 6650 47 99.6 % 8.
+a10t384@[5,14,5,28,5] (12 warps): q/k/v 5 170 2 59.9 % 11, o 14 196 2 69.0 % 7, gate/up 5 510 4 89.8 % 11, down 28 392 3
+  92.0 % 8, head 5 3960 28 99.6 % 11.
+
+RESULT (*measured*, 2 discarded and 5 timed rounds, arms interleaved, ratios formed round by round, median [range];
+R = 1, 2, 8, 16)
+------
+Chat, context 62. 4E, one token a launch: 4,467.2 us [4,463.6-4,473.8].
+  arm                       rows   wall us                       c_R                   extra row
+  a10t384@[8,10,8,20,6]        1    7,290.3 [7,284.8-7,300.8]    1.632 [1.629-1.634]
+                               2    7,335.7 [7,332.5-7,342.5]    1.643 [1.639-1.644]
+                               8    7,567.2 [7,550.4-7,584.9]    1.694 [1.688-1.698]
+                              16    8,050.6 [8,042.6-8,054.3]    1.803 [1.798-1.804]   0.0114
+  a10t384r16@[8,10,8,20,6]     1    6,892.5 [6,883.3-6,912.2]    1.544 [1.539-1.547]
+                               2    6,946.3 [6,928.5-6,957.8]    1.556 [1.549-1.558]
+                               8    7,208.3 [7,202.8-7,230.9]    1.615 [1.610-1.619]
+                              16    7,716.1 [7,710.8-7,747.4]    1.728 [1.724-1.734]   0.0123
+  a10t448@[9,11,8,22,6]        1    7,473.1 [7,464.8-7,486.9]    1.674 [1.669-1.676]
+                               2    7,505.5 [7,470.9-7,529.3]    1.681 [1.670-1.685]
+                               8    7,829.0 [7,826.8-7,847.3]    1.754 [1.750-1.754]
+                              16    8,470.7 [8,444.7-8,488.7]    1.897 [1.888-1.900]   0.0149
+  a10t320@[7,8,8,16,7]         1    7,378.8 [7,370.4-7,381.4]    1.651 [1.647-1.653]
+                               2    7,400.4 [7,392.2-7,406.1]    1.655 [1.652-1.659]
+                               8    7,589.8 [7,574.7-7,616.7]    1.699 [1.695-1.706]
+                              16    7,942.0 [7,928.5-7,964.4]    1.776 [1.775-1.784]   0.0083
+  a10t384@[5,14,5,28,5]        1    7,800.0 [7,780.4-7,801.6]    1.744 [1.743-1.747]
+                               2    7,831.7 [7,826.3-7,840.6]    1.752 [1.750-1.757]
+                               8    7,998.2 [7,985.7-8,003.8]    1.789 [1.787-1.792]
+                              16    8,321.0 [8,307.8-8,328.3]    1.861 [1.857-1.866]   0.0078
+Rag, context 362, a10t384r16 only (lowest chat c_16). 4E: 4,732.4 us [4,725.7-4,746.3].
+  a10t384r16: c_1 1.516, c_2 1.527, c_8 1.583, c_16 1.870 [1.864-1.872], extra row 0.0236.
+
+PHASES (*measured*, chat, us summed over the 36 layers, median of 5 stamped launches; wall (busy min / med / max over
+the 142 CTAs, rounded))
+------
+vt1 totals:
+  a10t384@8.10.8.20.6: wall 7259.8, row phases 5883.4 (81.0 %); four row phases 4832.1
+  a10t384r16@8.10.8.20.6: wall 6854.6, row phases 5497.0 (80.2 %); four row phases 4452.5
+  a10t448@9.11.8.22.6: wall 7426.0, row phases 6031.0 (81.2 %); four row phases 4974.8
+  a10t320@7.8.8.16.7: wall 7334.6, row phases 5964.9 (81.3 %); four row phases 4941.3
+  a10t384@5.14.5.28.5: wall 7755.0, row phases 6361.2 (82.0 %); four row phases 5357.0
+vt1 row phases, wall (busy min/med/max):
+  phase   a10t384@8.10.8.20.6           a10t384r16@8.10.8.20.6        a10t448@9.11.8.22.6           a10t320@7.8.8.16.7            a10t384@5.14.5.28.5           
+  qkv      1097.0 (612/928/1043)         1034.1 (597/876/991)          1207.8 (704/1044/1150)        1036.7 (548/879/993)          1426.6 (658/777/1371)        
+  o         551.4 (18/469/506)            502.5 (10/420/450)            594.8 (16/514/541)            541.5 (17/475/498)            731.3 (360/379/689)         
+  gateup   2118.0 (1592/1912/2065)       1918.2 (1446/1717/1868)       2060.6 (1557/1886/2005)       2224.7 (1703/2014/2164)       2032.8 (1430/1895/1981)      
+  down     1065.7 (505/954/1010)          997.7 (478/893/946)          1111.6 (528/997/1054)         1138.4 (518/1028/1078)        1166.3 (705/1026/1114)       
+  head      450.6 (416/431/449)           440.3 (407/420/439)           450.5 (418/439/449)           450.6 (421/436/449)           438.3 (406/427/437)         
+vt1 other phases, wall:
+  embed              2.3      2.2      2.3      2.2      2.2
+  ln1              232.9    223.0    240.8    250.7    235.5
+  qkv fold         185.6    186.4    186.8    185.5    148.8
+  rope             110.9    114.6    114.3    111.3    110.8
+  attn             625.0    594.9    595.8    593.3    624.0
+  o fold           111.9    112.2    113.8    119.3    111.0
+  ln2              188.4    202.8    220.2    194.3    203.4
+  gateup fold      150.0    152.6    152.0    148.1    130.8
+  dn_in            212.8    215.9    217.5    212.7    213.8
+  down fold        148.5    147.9    148.3    114.8    170.8
+  norm               4.1      4.1      4.1      5.1      4.1
+  head fold          4.7      5.1      4.7      5.2      4.4
+vt16 totals:
+  a10t384@8.10.8.20.6: wall 8037.8, row phases 6591.6 (82.0 %); four row phases 5397.4
+  a10t384r16@8.10.8.20.6: wall 7694.8, row phases 6253.9 (81.3 %); four row phases 5032.9
+  a10t448@9.11.8.22.6: wall 8449.0, row phases 6969.1 (82.5 %); four row phases 5768.5
+  a10t320@7.8.8.16.7: wall 7899.5, row phases 6477.1 (82.0 %); four row phases 5267.5
+  a10t384@5.14.5.28.5: wall 8283.0, row phases 6840.4 (82.6 %); four row phases 5716.4
+vt16 row phases, wall (busy min/med/max):
+  phase   a10t384@8.10.8.20.6           a10t384r16@8.10.8.20.6        a10t448@9.11.8.22.6           a10t320@7.8.8.16.7            a10t384@5.14.5.28.5           
+  qkv      1300.1 (746/1107/1229)        1261.8 (731/1079/1199)        1592.3 (1006/1419/1532)       1129.3 (626/974/1081)         1528.4 (762/880/1484)        
+  o         602.6 (18/522/549)            527.6 (21/451/479)            627.5 (18/541/568)            561.9 (14/485/514)            772.2 (380/415/722)         
+  gateup   2387.6 (1829/2164/2339)       2197.0 (1684/1984/2140)       2392.6 (1850/2203/2343)       2403.9 (1876/2197/2344)       2209.8 (1577/2058/2162)      
+  down     1107.1 (535/997/1050)         1046.5 (515/945/994)          1156.1 (559/1043/1103)        1172.4 (540/1064/1117)        1206.0 (734/1064/1152)       
+  head      494.6 (466/478/493)           485.4 (455/467/485)           487.4 (463/482/487)           505.9 (482/496/505)           479.2 (448/470/478)         
+4E stamped over two tokens (chat): q/k/v 667.4, attention 790.9, o 340.3, MLP 2,382.0, head 367.8.
+
+AGAINST THE SIGNED PREDICTION (chat)
+--------------------------------
+  quantity                              signed                 measured     inside
+  4E token                              4,430 [4,380, 4,500]   4,467.2      yes
+  a10t384@[8,10,8,20,6] c_1             1.65 [1.62, 1.69]      1.632        yes
+  a10t384@[8,10,8,20,6] c_16            1.82 [1.78, 1.87]      1.803        yes
+  a10t384r16 c_1                        1.58 [1.50, 1.65]      1.544        yes
+  a10t384r16 c_2                        1.59 [1.51, 1.66]      1.556        yes
+  a10t384r16 c_16                       1.77 [1.68, 1.84]      1.728        yes
+  a10t448 c_1                           1.68 [1.58, 1.80]      1.674        yes
+  a10t448 c_16                          1.85 [1.74, 1.98]      1.897        yes
+  a10t320 c_1                           1.68 [1.56, 1.84]      1.651        yes
+  a10t320 c_16                          1.84 [1.72, 2.00]      1.776        yes
+  a10t384@[5,14,5,28,5] c_1             1.74 [1.62, 1.84]      1.744        yes
+  a10t384@[5,14,5,28,5] c_16            1.92 [1.80, 2.02]      1.861        yes
+  a10t384@[5,14,5,28,5] q/k/v of vt1    [1,100, 1,500]         1,426.6      yes
+  outcome                               BETWEEN, on a10t384r16 BETWEEN, on a10t384r16   yes
+
+DECISION (the prereg's rule)
+--------
+Best arm whose guard and identity hold and whose vt1 makes 4E's argmax at 64 of 64: a10t384r16@[8,10,8,20,6], c_16
+1.728: 1.60 < c_16 <= 2.35, BETWEEN. The reopening condition of ETAT.md section 6 is not met (c_2 1.556 > 1.40).
+
+READING (not part of the decision; *computed* from the tables above)
+-------
+- Thread count at a fixed plan: a10t384@[5,14,5,28,5] against a10 (N10, same plan): c_1 1.744 against 1.755, c_16 1.861
+  against 1.946. Its q/k/v and o run 2 waves at 59.9 % and 69.0 % fill: q/k/v busy min 658 and max 1,371 us, o busy min
+  360. The thread count alone does little at R = 1; the gain at R = 16 is real.
+- The plan carries the rest: a10t384 at [8,10,8,20,6] against at [5,14,5,28,5], the four row phases of vt1 read 4,832
+  against 5,357 us, mostly in q/k/v (1,097 against 1,427) and o (551 against 731).
+- The row cap stacks on 384 threads: a10t384r16 against a10t384 at the same plan takes 380 us off the four row phases of
+  vt1, in gate/up (-200), q/k/v (-63), down (-68) and o (-49), and keeps the extra row (0.0123 against 0.0114).
+- a10t320's q/k/v is the fastest (1,037 us at vt1, 2 waves at 98.6 %) and its extra row the smallest of the 32-row arms
+  (0.0083), but its gate/up (7 waves) and down are the slowest. a10t448 gains nothing over a10t384.
+
+WHAT THIS DOES NOT ESTABLISH
+----------------------------
+What the 736 B of local memory hold. a10t320 or a10t448 with the 16-row cap. Any thread count other than 256 to 512 in
+steps of 64. R = 4 and 32. VRAM peak (no metric). Any card but the L40S. The 8B and 14B. Any acceptance or tok/s at a
+door.

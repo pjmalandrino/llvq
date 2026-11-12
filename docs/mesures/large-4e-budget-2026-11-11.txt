@@ -1,0 +1,218 @@
+LARGE-4E BUDGET: ONE 4E v9 TOKEN, PHASE BY PHASE, AGAINST THE BANDWIDTH FLOOR, SEALED 4B, L40S, 2026-11-11. $0.
+==========================================================================================================
+Result: a 4E v9 token reads 1.378 GB (*computed*) and costs 4,467 us timed, 4,677 us stamped (*measured*, N11). At
+85 % of the card's 864 GB/s those bytes take 1,876 us (*computed*): the token is 2.4 times its byte cost. The row
+phases take 2,920 us of mean CTA work against 1,877 us at 85 % (+1,043 us); the phases that read nothing take
+1,757 us (*measured*). Gate/up rows sit furthest above their floor (2.04x of 85 %); down rows, o and the head sit at
+1.13 to 1.25x. One new reading: 4E's attention phase carries the L2 prefetch of the next o and gate/up rows, 670 MB a
+token, which at 864 GB/s is 776 us, the size of the phase's 791 us wall. Moving that prefetch to the gate/up phase,
+where the DRAM idles, is the largest cut found that keeps the logits bit for bit: -0.20 ms short [-0.10, -0.29],
+-0.65 ms at 8,192 [-0.30, -0.90] (*estimated*). Three experiments below, one job, about 14 min of L40S.
+Scope: read only. No build, no run, no job, no model load. Sources: llvq-cuda/kernels/pers_4e.cu, llvq_pers.cuh,
+pers_segment.cu at 172e417; the journals named on each line.
+
+THE RULE
+--------
+tok/s must rise while quality, b/param (2.73, whole model) and card memory (2.01 GB at a short context, peak 2.014,
+spec-mem-m3) stay where they are. Here every cut keeps the output token; each line says whether the logits stay
+bit for bit or only the argmax.
+
+CHECKS ON THE STARTING FACTS
+----------------------------
+- 4,467.2 us a token timed at chat context 62, 223.9 tok/s (*measured*, verify-tree-n11, vtree-4b.txt). Door decode
+  alone 225.8 tok/s, 4.429 ms; door 221.5 (served-v9). fusedrun base 227.7 short, 156.4 at 8,192 (spec-mem-m3). Hold.
+- 1.38 GB a token: the door prints projections 1.16 GB at 2.550 b/weight plus 0.22 GB carried (served-v9 door.txt).
+  Shapes give 1,378.2 MB (*computed*, below). Holds.
+- int4 share: v, o and 12 int4 downs 409.4 MB, head 218.8 MB, together 45.6 % (*computed*). Holds.
+- 218 grid waits a token, 2 + 6 x 36 (*measured*, vtree-4b.txt line 28). Holds. A bare wait costs 0.771 us
+  (*measured*, step1-micro): 168 us a token, inside the walls below, not a separate line.
+- "Projections 2.51 ms, words alone 1.81 ms" is spec-micro's bench of all 252 matrices as Tetra (0.9467 GB), not the
+  served mixed object. In situ the four row phases take 2,472 us of mean CTA work, 2,920 with the head (*measured*).
+
+BYTES A TOKEN (*computed* from the shapes; Tetra at 2.096 b/weight, the door's 1.16 GB less the int4 bytes; int4 g128
+at 4.25; head int4 g64 at 4.5; pers-4e-v3-host gives 123.4 / 469.1 / 156.4 MB for the Tetra parts)
+  q, k Tetra 123.6 MB; v int4 50.1 MB                  q/k/v rows 173.8 MB
+  o int4                                                200.5 MB
+  gate, up Tetra                                        469.8 MB
+  down: 24 Tetra 156.6 MB, 12 int4 158.8 MB             315.4 MB
+  head, tied int4 g64 table (151,936 x 2,560)           218.8 MB
+  weights                                               1,378.2 MB, floor 1,595 us at 864 GB/s
+  KV cache read at context 62 (36 x 63 x 4,096 B)       9.3 MB; at 8,192: 1,208 MB, floor 1,398 us
+
+1. THE BUDGET OF ONE TOKEN
+--------------------------
+Stamped launch of N11, chat context 62, us a token (*measured*, vtree-4b.txt "4E stamped"). Sub-phases are mean CTA
+work; "above mean" is the wall minus the mean work. Floors are the phase's own bytes at 864 GB/s and at 85 % of it,
+734 GB/s (*computed*). GB/s is the phase's bytes over its time (*computed*).
+
+  phase                        us       DRAM MB          floor   at 85 %   GB/s    vs 85 %   note
+  embedding                     3.0      0.0              0       0
+  ln1 + q/k rotation          233.7      0 (own)          0       0                          slowest CTA 254.0; the
+                                                                                             q/k/v prefetch (173.8 MB)
+                                                                                             is issued just before it
+  q/k/v rows                  419.5    173.8            201.2   236.7     414     1.77x      slowest 449.6
+  q/k/v above mean             14.2      0
+  norm, RoPE, KV append       125.9      0.1 written      0       0                          mean work 22.2
+  attention                   790.9      9.3 own         10.8    12.7                        mean work 150.2, slowest
+                                       +670.3 prefetch  775.8   912.7                        780.9; see 1b
+  o rows (wall)               340.3    200.5            232.1   273.0     589     1.25x      mean work 260.3
+  ln2 + rotation              141.7      0                0       0                          slowest 152.9
+  gate/up rows               1305.3    469.8            543.8   639.7     360     2.04x      slowest 1,436.0
+  inner wait                  181.8      0 (own)          0       0                          slowest 383.4; the down
+                                                                                             prefetch (315.4 MB) runs
+  down input                  149.7      0                0       0                          24 Tetra layers rotate
+  down rows                   487.0    315.4            365.0   429.5     648     1.13x      slowest 519.9
+  MLP above mean              116.5      0
+  head                        367.8    218.8            253.2   297.9     595     1.23x      one wait (W4) inside
+  token, stamped            4,677.3  1,387.5          1,606   1,889     297                  timed 4,467.2
+
+Reading.
+- At or near the floor: down rows (1.13x of 85 %), the head (1.23x), o (1.25x). Together 1,195 us against 1,000 at
+  85 %: 195 us to win, at most.
+- Far above: gate/up rows (+666 us over 85 %) and q/k/v rows (+183). Both are Tetra rows; the record places their
+  excess in decode instructions, not bytes: words served from L1 change nothing (l1w x0.99, pers-rowloop), 237 SASS
+  instructions a block run at 53 % of issue (recherche-debit-maths §2-3).
+- Byte-free time: ln1 233.7, norm/RoPE 125.9, attention's own share (595 to 791, 1b), ln2 141.7, inner wait 181.8,
+  down input 149.7, imbalance 130.7, embedding 3.0: 1,561 to 1,757 us, 33 to 38 % of the stamped token.
+- Every phase at 85 %, the byte-free phases as measured: 1,877 + 1,757 = 3,634 us stamped, 3,471 timed at N11's
+  stamp ratio 0.955, 288 tok/s (*computed*). Byte-free phases at zero as well: 1,889 us with the KV, 529 tok/s. That
+  is the bandwidth ceiling at the bit, and it needs the Tetra rows at 734 GB/s, which today's decode cannot reach.
+
+1b. The attention phase carries the prefetch (new reading, cause *estimated*)
+- pers_4e.cu prefetch_next: every CTA asks L2 for its o slice and its gate/up slice during attention, 18.6 MB a
+  layer, 670.3 MB a token (*computed*). At 864 GB/s that is 776 us; the phase's wall is 790.9 (*measured*).
+- At context 62 attention is 8 jobs on 8 CTAs (one split per KV head). Their K/V loads miss L2 behind 134 CTAs'
+  prefetches. The comment in pers_4e.cu orders the prefetch after the attention CTA's own job, but the other CTAs'
+  traffic is already queued.
+- The tree pass of N11 runs the same attention without any prefetch: 594.9 us, 196 us under 4E's 790.9 (*measured*,
+  one job). spec-cout-fixe-audit line 3 put the cause on this prefetch, *estimated*.
+- At 8,192 attention reads 1,208 MB of KV beside the same 670 MB: 1.878 GB in about 2.56 ms (*estimated*: 790.9 us
+  plus the door sweep's +1.77 ms from 5 to 8,192, served-v9), 733 GB/s, 85 % of the peak. The phase is DRAM bound
+  there, and the prefetch is a third of its bytes.
+- The prefetched gate/up rows gain little from L2: the Tetra loop is issue bound (l1w x0.99; the one-launch pass
+  with an L2 prefetch read x1.023 over the same pass without, pers-4e-v2). The gate/up phase reads 360 GB/s and leaves
+  about 374 GB/s of the 85 % idle for 1.3 ms a token (*computed*): 488 MB of room.
+
+1c. ln1 costs more than ln2 for the same work (cause *estimated*)
+- Both are an RMS norm and a rotation at width 2,560 in every CTA. ln1 takes 233.7 us mean, ln2 141.7 (*measured*).
+- ln1 also writes the unrotated vector for v, one store an element. And ln1 starts with the q/k/v prefetch in flight,
+  173.8 MB a token, while its first load (x, 5 KB from L2) is on the critical path. ln2 starts with none.
+
+2. CUTS THAT KEEP THE TOKEN, RANKED BY EXPECTED GAIN
+-----------------------------------------------------
+Gains in ms a token, central [range], short context then 8,192 (all *estimated*; the low ends apply the 41 % that
+4E's versions realised of their arithmetic, plan-300 §3, where no tighter basis exists). tok/s from 4,467 us short
+and 6.19 ms at 8,192.
+
+  #  cut                                 short              8,192              logits        basis
+  1  P: prefetch replanned               -0.20 [-0.10,-0.29] -0.65 [-0.30,-0.90] bit for bit  1b, 1c
+  2  B2: relabeled decoder + lane        -0.19 [-0.08,-0.25] -0.19              bit for bit  recherche-debit-maths
+     rotation (open, not new)                                                                §1, rank 2
+  3  W: gate/up rows claimed across the  -0.15 [-0.08,-0.25] -0.15              bit for bit  walls over mean 345 us
+     grid                                                                                    (audit 5a), inner wait
+  4  F: norm/RoPE/append folded into     -0.09 [-0.06,-0.11] -0.09              bit for bit  125.9 us wall, 36 waits
+     the attention jobs
+  5  prologue arithmetic (ln1, ln2,      -0.10 [0, -0.20]    -0.10              bit for bit  525 us mean for three
+     down input) beyond P                                                                    vectors of 2,560 to 9,728
+  6  head, certified two-pass on bit     -0.05 [0, -0.08]    -0.05              argmax only  below
+     planes, zero extra bytes
+  7  int4 rows (o, down) to 85 %         -0.05 [0, -0.12]    -0.05              bit for bit  1.13 to 1.25x of 85 %
+  8  counters for grid waits (K3b)       under 0.06          under 0.06         bit for bit  step1-micro, not licensed
+
+1, P. Each CTA asks L2 for qkv(l+1) and o(l+1), 10.4 MB a layer, during its gate/up rows of layer l, where the DRAM
+   idles (1b). gate/up rows are no longer prefetched: they stream themselves. ln1's x load issues before any
+   prefetch. Attention runs with no foreign traffic. Bytes do not change; prefetch.global.L2 writes no register, so no
+   value can move. Expected: attention 791 to about 600 us, ln1 toward ln2 (0 to -90 us), gate/up 0 to +30 us
+   (x1.023 lost). At 8,192 attention sheds 670 MB of its 1.88 GB. Risk: L2 must keep qkv and o of the next layer
+   through attention; at 8,192 a layer streams 33.5 MB of KV past them (L2 96 MB). A KV load hint (evict-first)
+   protects them and moves no value.
+2, B2. Each block's 48 bits relabeled at load (a permutation, same bytes), two Golay tables by linearity, lane
+   rotation of idle items: 237 to 207 instructions a block, items 0.855 of today's (*computed*, recherche). The f32
+   chain and each lane's order stay. Already ranked on the record; listed for completeness. 2 weeks.
+3, W. One global counter a layer hands gate/up pairs to warps as they finish, instead of the host's static CTA
+   slices. Each row stays one warp, one lane order: same bits whatever warp computes it. The slowest gate/up CTA is
+   CTA 114 in only 8 % of the layers (vtree-4b.txt), so the excess is jitter, which claiming absorbs. It
+   is not v5 (closed: v5 spread a CTA's last rows over its own warps). Claims of 4 pairs with the next claim in flight
+   keep the atomic off the critical path. Works only with P (no static gate/up prefetch to honour).
+4, F. The 8 attention jobs (all 256 at 8,192) each compute q-norm and RoPE of their 4 query heads from the q rows,
+   and the job holding the last position appends that position's k and v. Only that job reads the new position, so
+   nothing races. Same functions, same bits. Removes one phase and 36 waits.
+5. ln1 6.5 us a layer, ln2 3.9, down input 6.2 per Tetra layer (*measured* means over 36 or 24). An L2 round trip,
+   one reduction and a 12-stage butterfly fit in about 3 us (*estimated*). K2 already took ln1 from 320 to 227 us.
+   Keeping bits asks the same order of every float operation.
+6. Head. Pass 1 reads 3 of the 4 nibble planes and the scales (170 MB of 219) and bounds each row: the missing bit
+   adds s_g x q0 x_i, q0 in {0, 1}, so the row lies within the partial sum plus sum over groups of s_g P_g or s_g N_g
+   (P_g, N_g: the sums of positive and negative x in group g, 80 numbers a token) and an FMA rounding margin. A grid max
+   of lower bounds sets T; rows whose upper bound rounds to an f16 under f16(T) are dropped, the rest re-read and
+   scored in today's order. Surviving logits are bit for bit; the dropped ones are never formed: argmax only. No
+   per-row table is needed, unlike plan-300's K5 (+0.6 MB). Saves at most 22 % of the head's bytes, 81 us at 595
+   GB/s; the prune rate is unknown. The table is tied: the embedding gather and the eager head must read the planes
+   too (one copy, as v9 did for int4). 1-2 weeks. Norm and cluster bounds (Cauchy-Schwarz, centroids) are worse: in
+   2,560 dimensions their slack is of the order of the whole logit spread, so they drop nothing (*estimated*).
+7. o and down read 589 and 648 GB/s; K11 (v9) already moved them. o runs 18 or 19 rows on 16 warps a CTA, two
+   rounds for 2,560 rows on 2,272 warps; splitting a row over warps changes its sum order, so the round stays.
+
+Not ranked: attention's own latency at a short prompt after P (about 600 us against a floor near 130, plan-300 K3a).
+Its critical path is one unit's tiles in order, which the kernel form's arithmetic fixes; more jobs a KV head changes
+the split and the bits.
+
+3. NOT REACHABLE UNDER THE RULE
+-------------------------------
+- Fewer bytes a weight. Q1 (int4 records re-encoded in Tetra), a smaller head format, a re-encode for QTIP-style
+  codes: each changes the stored values, so quality and b/param move.
+- B1's integer dot (dp2a on int16 activations). 8.4 % of rows move by one binary16 ulp (spec-micro): logits change,
+  so the token is not owed. Served only under the ±0.12 % perplexity gate, outside this rule.
+- KV in int8 or int4 (K8). It is the 8,192 lever (1.21 GB a token), but it changes values: quality.
+- Another attention split or job shape. The kernel form's bits depend on its 256-position splits and 64-position
+  units; another shape is another form, gated by perplexity.
+- Tetra rows at DRAM speed. That asks about 150 instructions a block (recherche §2); at the bit B2 reaches 207, and
+  145 needs B1. The bit-for-bit single-token ceiling stays near 260 tok/s at the door (recherche §1).
+- More threads or two CTAs a SM: 512 threads already sit at 128 registers; v7 was refused for 24 B of local memory.
+- Fewer grid barriers by restructuring: 0.029 ms at most (recherche §7, closed). F removes 36 as a by-product.
+- CUDA Graphs (A2): closed by rule 3.
+- Speculation keeps the token but is outside this single-token lens; its reopening condition is ETAT §6's, worked
+  by another session (spec-mem-m3).
+
+4. THREE EXPERIMENTS
+--------------------
+All three are arms of fusedrun's LLVQ_PERS_4E bench beside v9, in one job, interleaved rounds, at 5 and 8,192
+tokens, plus one stamped launch per arm. Cost from step3-4e (9 min, $0.28, six forms) and N11 (21 min, five larger
+modules): about 14 min of L40S, $0.42 at $1.80/h (*estimated*); each alone about 10 min, $0.30. Prereg, cap and the
+operator's go first.
+
+E1, v9p (cut 1).
+- Build: v9 with prefetch_next removed from the attention phase; qkv(l+1) and o(l+1) prefetched by each CTA after its
+  gate/up rows' first pair; the ln1 prefetch moved after pers_ln_1rt's load; KV loads with an evict-first hint. A
+  second arm v9p0 removes prefetch_next only, to split the two effects.
+- Gate: the head's binary16 logits, written through pers_head_argmax's existing `logits` pointer in a measurement
+  symbol, equal to v9's bit for bit on 64 positions at both contexts; tokens equal to the eager path's (64 of 64);
+  module with 0 B local. No host proof is needed: the host build compiles prefetch to nothing.
+- Expected: 234 tok/s [229, 239] short, 180 [170, 189] at 8,192, from 223.9 and 161.5. Stamps: attention under 650
+  us short; ln1 under 200 us.
+
+E2, v9pw (cut 3, on top of E1).
+- Build: gate/up pairs claimed from a per-layer global counter, 4 pairs a claim, next claim in flight; counters reset
+  by the layer's last wait. q/k/v Tetra rows the same way if the first reading pays.
+- Gate: tests/pers_matches_served.rs with claim orders shuffled on the host, mutants killed (claim overlap, a dropped
+  pair, a counter not reset); on the card the E1 logits gate against v9.
+- Expected: +0.15 ms more [0.08, 0.25]: about 243 tok/s short over E1's 234, 185 at 8,192. Stamps: gate/up slowest
+  over mean under 1.04 (today 1.10), inner wait mean under 100 us (today 182).
+
+E3, v9pf (cut 4, on top of E1).
+- Build: pers_4e_norm_rope_append's work moved into pers_attention's job prologue; the append by the job holding the
+  last position; one phase and 36 waits fewer, 182 a token.
+- Gate: host identity of q, the KV cache and ctx against the served chain, past 256 positions, mutants killed; on the
+  card the KV cache bytes after 64 tokens equal v9's (memcmp) and the logits gate.
+- Expected: -0.09 ms [-0.06, -0.11]: 239 short over E1, 183 at 8,192.
+
+Together, central: 4,467 to 4,027 us, about 248 tok/s short; 6.19 to 5.30 ms, about 189 at 8,192. At plan-300's 41 %:
+233 and 172 (*estimated*). B2 composes with all three and stays its own two-week item.
+
+WHAT THIS DOES NOT ESTABLISH
+----------------------------
+That the attention wall is the prefetch: one cross-design pair (4E against the tree, 196 us) and a byte count agree
+with it, nothing isolates it; E1's v9p0 arm does. The 8,192 attention time, taken from the door sweep, not stamped.
+Whether gate/up rows lose speed without L2 residency in situ. L2 retention of prefetched lines under the KV stream.
+The head's prune rate. Any 8B, 14B or other card.
+Tested on 2026-11-11 (cut 1, E1): large-4e-e1-2026-11-11.txt. The prefetch does lengthen attention; removing or
+moving it recovers no time.

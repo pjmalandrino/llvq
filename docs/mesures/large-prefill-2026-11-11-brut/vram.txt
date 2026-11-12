@@ -1,0 +1,2 @@
+vram eager idle 0 MiB peak 6185 MiB
+vram chain idle 0 MiB peak 3459 MiB

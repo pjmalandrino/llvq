@@ -1,0 +1,49 @@
+Mac gates of the chain prefill, 2026-11-11, branch claude/arbre-prefill-2026-11-11 (twin: cargo test --release -p llvq-cuda --test tree_verify_host -- --include-ignored --test-threads=1)
+== chain gates
+test spec_loop::tests::chain_launches_cover_the_prompt_and_move_each_chunk ... ok
+test spec_loop::tests::eos_stops_the_loop ... ok
+test spec_loop::tests::the_faults_break_the_chain ... ok
+test spec_loop::tests::the_loop_emits_the_greedy_chain_with_any_drafter ... ok
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 153 filtered out; finished in 0.00s
+running 2 tests
+test chain_prefill_equals_the_one_row_path ... chain R = 16: 38 rows (37 prompt positions and the hand-over) equal to R = 1 bit for bit
+chain R = 5: 38 rows (37 prompt positions and the hand-over) equal to R = 1 bit for bit
+chain R = 16, head on the last pass only: residuals, K and V of the 37 rows and the last row's logits equal; no logit before it
+R = 1 at position 0: relative RMS 1.107e-3 against 4E, argmax 4E 396, pass 396
+ok
+test chain_prefill_mutants_are_killed ... path_off_by_one: killed by path off by one: position 2: argmax differs
+head_never_skipped: killed by position 0: a pass without the head wrote a logit
+ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 39 filtered out; finished in 704.09s
+rc=0
+== regressions after the a12 head guard, and clippy (Linux target; llvq-llm via ops/check-linux-cuda.sh)
+test a12_rows_equal_a10_rows_and_its_taps_are_the_residual ... ok
+test a12_tap_mutant_is_killed ... ok
+test a12ip_permutation_mutant_is_killed ... ok
+test a12ip_rows_equal_a12_rows_on_the_served_words ... ok
+test one_row_is_close_to_4e ... ok
+test the_loop_on_the_twin_is_the_greedy_decode ... ok
+test the_tree_launch_mirror_matches_the_kernel ... ok
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 34 filtered out; finished in 1043.36s
+== clippy llvq-cuda linux
+== clippy llvq-llm cuda
+warning: this boolean expression can be simplified
+   --> llvq-llm/src/bin/prefillbench.rs:222:21
+warning: this boolean expression can be simplified
+   --> llvq-llm/src/bin/prefillbench.rs:222:21
+warning: this boolean expression can be simplified
+   --> llvq-llm/src/bin/prefillbench.rs:222:58
+warning: `llvq-llm` (bin "prefillbench") generated 3 warnings
+warning: call to `std::mem::drop` with a value that does not implement `Drop`. Dropping such a type only extends its contained lifetimes
+   --> llvq-llm/src/bin/specbench.rs:554:5
+   --> llvq-llm/src/bin/specbench.rs:554:10
+warning: `llvq-llm` (bin "specbench" test) generated 1 warning
+warning: `llvq-llm` (bin "specbench") generated 1 warning (1 duplicate)
+warning: very complex type used. Consider factoring parts into `type` definitions
+   --> llvq-llm/src/bin/vtreebench.rs:721:35
+warning: `llvq-llm` (bin "vtreebench") generated 1 warning
+warning: `llvq-llm` (bin "prefillbench" test) generated 3 warnings (3 duplicates)
+warning: `llvq-llm` (bin "vtreebench" test) generated 1 warning (1 duplicate)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 10.05s
+rc=0
+== clippy after the prefillbench fix: zero warnings in the change; the two older ones remain (specbench.rs:554 drop, vtreebench.rs:721 complex type)

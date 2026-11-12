@@ -1,0 +1,324 @@
+RESEARCH: WHAT THE BEST INFERENCE RUNTIMES DO THAT LLVQ DOES NOT, MAPPED TO THE SEALED 4B ON THE L40S, 2026-11-11. $0.
+=======================================================================================================================
+Result: seven proposals, ranked by solidity. The most solid one is a prefix cache that survives across conversations
+and holds the KV cache in host RAM (later on disk). It keeps every bit and moves no VRAM byte. It turns a
+cache-missing turn with 4,096 tokens of history from 17.64 s of eager prefill into about 0.03 s of PCIe copy plus the
+new tokens (*estimated*). The runtime already reuses the prefix of the last conversation only, in VRAM, one slot.
+Second: serve the 32-row chain prefill and the cubin cache already designed (gains-criteres-debit items 1 and 2).
+Third, the deepest: prefill through the tensor-core dequantizing GEMM that the batch pool already owns, at 256 to 512
+rows a chunk. It gives up the chain's bits for the served +-0.12 % tolerance and could bring the first token at 1,024
+from 0.448 s to 0.10 to 0.30 s (*estimated*). Decode at batch 1 has nothing new from the field: the wall there is the
+4E token's own fixed cost, not the bytes, and the levers the field uses (entropy-coded weights, activation sparsity,
+self-speculation, CUDA Graphs) are closed by entropy, exactness, the verify pass's fixed cost and rule 3.
+Nature: read-only study with web access. No job, no build, no test, no model loaded. Code read at 435d48f of
+claude/arbre-nuit-2026-11-10 (llvq-runtime/src/engine.rs, chat.rs; llvq-llm/src/session.rs, served_decode.rs;
+llvq-llm/kernels/tv_batch_gemm.cu). Journals named on each line. Labels: *measured* (a journal of this project),
+*computed* (arithmetic on measured or code inputs), *estimated* (judgement, or one estimated input), *reported* (a
+third party's own figure, with its URL; never reproduced here).
+
+0. WHAT THIS STANDS ON
+---------------------
+Base Tetra, served 4E v9, L40S, all *measured* (jalons-debit, gains-criteres-debit): 2.73 b/param; 2.01 GB at a short
+context, 5.95 GB peak at 8k; decode 224 tok/s in chat, 161 at 8,192; first token 3.951 / 17.641 / 37.037 s eager at
+1,024 / 4,096 / 8,191 prompt tokens; the 32-row chain prefill (bench, not served) 0.448 / 2.681 / 7.800 s; served load
+100.6 s.
+Facts from the code and the record used below:
+- KV bytes a position: 36 layers x 2 x 8 KV heads x 128 x 2 B = 147,456 B at 4B and 8B; 40 x 2 x 8 x 128 x 2 B =
+  163,840 B at 14B (*computed*). 1,024 / 4,096 / 8,191 positions weigh 0.151 / 0.604 / 1.208 GB at 4B.
+- Prefix reuse today: Session::reuse_prefix keeps the longest common prefix of the one cache the engine holds, and
+  chat.rs maps the client's history back to the ids the model wrote (engine.rs line 653). One conversation, in VRAM.
+  A second conversation, or any request with another prefix, evicts it; the next turn of the first pays a full prefill.
+- A 4E token at chat context: 4,467 us timed, 1.378 GB of weights read, 2.4 times its byte cost at 85 % of 864 GB/s.
+  Row phases sit 1.13 to 2.04 times their byte floor; 1.76 ms of the token reads no weight (*measured*,
+  large-4e-budget). At 8,192 the attention phase is DRAM bound (733 GB/s, *estimated* in the same note).
+- The 16-row tree pass read in place costs 2.14 tokens of 4E at one row and 2.44 at 16 (*measured*, spec-mem-m3).
+- The batch pool's tensor-core GEMM (tv_batch_gemm.cu, mma.sync m16n8k16, f16 in, f32 accumulate, up to 128 rows)
+  decodes 4,493.6 tok/s at B = 128 on the 4B, kernel alone (*measured*, batch-l40s-v2); 106.4 GB/s at B = 32 against
+  AWQ's 428.3 (*computed*, ETAT section 4).
+- Our attention bits are a function of the length alone: fixed 256-position splits, 64-position units, folds in
+  ascending order (large-prefill-attn-mma-etude section 1). That is why R = 1, 16 and 32 and D1's groups of 4 are bit
+  for bit (*measured*, large-prefill-r32, large-prefill-d1).
+
+1. WHAT THE FIELD DOES, 2025-2026, PRIMARY SOURCES
+--------------------------------------------------
+Prefix and prompt caching across requests.
+- SGLang HiCache (2025-09-10) extends RadixAttention to three tiers: GPU, host RAM, distributed storage, indexed by a
+  radix tree over token ids. *Reported*: average TTFT -56 % and cache hit rate 40 to 80 % on a multi-turn coding agent
+  (Qwen3-Coder-480B, about 8 turns, sessions above 25k tokens); TTFT -84 % on cache hits for DeepSeek-R1 QA; up to x6
+  throughput and up to -80 % TTFT in LMSYS's own runs. https://lmsys.org/blog/2025-09-10-sglang-hicache
+- llama.cpp server, PR 16391, "host-memory prompt caching": prompt caches kept in RAM as extra slots, hot-swapped
+  into the context when the prefix match saves processing; flag --cache-ram, in MiB. No speed figure in the PR
+  description. https://github.com/ggml-org/llama.cpp/pull/16391
+- LMCache (arXiv 2510.09665, 2025): KV cache tiers in CPU RAM, local disk, remote storage, shared across vLLM and
+  SGLang engines. *Reported*: up to x15 throughput on multi-round QA and document analysis.
+  https://arxiv.org/abs/2510.09665
+- vLLM automatic prefix caching: on by default in V1, hashed KV blocks; the docs state it does not change outputs.
+  https://docs.vllm.ai/en/latest/design/prefix_caching.html
+- mlx-lm: an in-memory LRU prompt cache in mlx_lm.server, and prompt caches saved to safetensors files
+  (mlx_lm.cache_prompt). https://github.com/ml-explore/mlx-lm
+What "no change" means there: a reused KV block is the same bytes, so the claim holds only if the attention over a
+cached prefix reduces in the same order as over a fresh one. Thinking Machines (2025-09-10) shows it often does not:
+*reported* 80 distinct completions of 1,000 at temperature 0 on Qwen3-235B under vLLM defaults, 1 of 1,000 with
+batch-invariant kernels, at 42 s against 26 s on Qwen3-8B. Their fix for split-KV attention is a fixed split size,
+with the cache updated before attention so cached and new tokens reduce alike.
+https://thinkingmachines.ai/blog/defeating-nondeterminism-in-llm-inference
+Our kernels already have that property by construction (fixed 256-position splits). This is the structural reason
+why proposals 1, 4 and 5 below can be exact here when they are not exact in vLLM.
+
+Prefill scheduling and kernels.
+- vLLM V1 (2025-01-27) treats prompt and output tokens alike under one token budget; chunked prefill is the default;
+  FlashAttention 3 serves mixed batches. https://vllm.ai/blog/2025-01-27-v1-alpha-release
+- Sarathi-Serve (OSDI 2024): chunked prefills and stall-free scheduling. *Reported*: x2.6 serving capacity under tail
+  latency limits for Mistral-7B on one A100, up to x3.7 for Yi-34B on two. https://arxiv.org/abs/2403.02310
+- Every engine prefills on tensor cores in chunks of hundreds to thousands of rows. Our served prefill runs the
+  eager path at 4 rows a launch (large-prefill-contexte section 1); our chain bench runs 32 rows a persistent pass.
+
+Shared-prefix attention for many streams.
+- Hydragen (arXiv 2402.05099, ICML 2024 workshop): attention over a shared prefix computed once for all sequences,
+  queries batched into a matrix product. *Reported*: up to x32 end-to-end throughput at batch 1K, CodeLlama-13b, eight
+  A100s; over x3 at a 1K prefix. https://arxiv.org/abs/2402.05099
+- vLLM PagedAttention (SOSP 2023, older than the window, still the basis of every pool): KV in fixed pages allocated
+  on demand. *Reported*: under 4 % of KV memory wasted, x2 to x4 throughput at equal latency.
+  https://arxiv.org/abs/2309.06180
+
+KV cache quantization, and what "no loss" means in each.
+- TurboQuant (arXiv 2504.19874): online vector quantization of the KV cache. *Reported*: "absolute quality neutrality"
+  at 3.5 bits a channel, meaning LongBench average 50.06 equal to the full cache on Llama-3.1-8B-Instruct; 49.44 at 2.5
+  bits. https://arxiv.org/abs/2504.19874
+- KIVI (ICML 2024): 2-bit keys per channel, values per token, a full-precision residual window. *Reported*: "almost
+  the same quality", peak memory /2.6 weights included, x2.35 to x3.47 throughput from larger batches, not a faster
+  token. https://arxiv.org/abs/2402.02750
+- NVIDIA TensorRT Edge-LLM FP8 KV docs: some checkpoints lose accuracy under FP8 KV, Qwen2.5-7B-Instruct named, cause
+  large values in the last layer's cache; validate per checkpoint.
+  https://nvidia.github.io/TensorRT-Edge-LLM/latest/user_guide/features/FP8KV.html
+- ExLlamaV3 offers a 2 to 8 bit cache; no quality figure found in the primary repository.
+  https://github.com/turboderp-org/exllamav3
+"No loss" is a task average or a perplexity band in every case, never the same text. Our own int8 KV read +0.0494 %
+of perplexity, paired interval [-0.0713, +0.1703] % on 12 windows of 4,096, MMLU not separated (*measured*, Metal,
+kvq8-4b-2026-08-15). Its upper edge is outside the served +-0.12 % band.
+
+Fewer weight bytes per token.
+- DFloat11 (arXiv 2504.11651, NeurIPS 2025): Huffman-coded BF16 exponents, decoded on the GPU from shared-memory
+  tables, bit-identical outputs. *Reported*: weights to about 70 % of BF16; the BF16 exponent carries about 2.6 bits of
+  entropy in 8. https://arxiv.org/abs/2504.11651
+- TEAL (ICLR 2025): magnitude-thresholded activation sparsity, 40 to 50 % model-wide, skipping the weight columns of
+  zeroed activations. *Reported*: x1.53 and x1.8 decode at 40 % and 50 % on A6000 and A100, "minimal degradation".
+  https://arxiv.org/abs/2408.14690
+- VQ-LLM (arXiv 2503.02236, HPCA 2025): codebook entries cached across registers, shared and global memory by access
+  frequency. *Reported*: -46 % average latency against unoptimized VQ kernels, near AWQ at equal bits.
+  https://arxiv.org/abs/2503.02236
+
+Speculation with no extra weights.
+- SuffixDecoding (arXiv 2411.04975, NeurIPS 2025): suffix trees over prompts and all previous outputs, speculation
+  length adapted to the match. *Reported*: up to x5.3 on agentic tasks (SWE-Bench, Text-to-SQL), in Snowflake's
+  ArcticInference on vLLM. https://arxiv.org/abs/2411.04975
+- Lookahead decoding (ICML 2024): Jacobi iteration plus n-gram verification, exact. *Reported*: up to x1.8 on
+  MT-Bench, up to x4 on code with 8 GPUs. https://arxiv.org/abs/2402.02057
+- SWIFT (ICLR 2025): the model with layers skipped as its own drafter. *Reported*: x1.3 to x1.6, the skip set chosen
+  on the fly. https://arxiv.org/abs/2410.06916
+
+2. THE PROPOSALS, RANKED BY SOLIDITY
+------------------------------------
+  #  change                                   exact?               criterion moved          build, card
+  1  cross-conversation prefix cache, host    same bytes, same     first token of a turn    2-4 agent-days, $0.45
+     RAM tier then disk, 256-position pages   bits                 after a miss
+  2  serve the chain prefill and the cubin    tolerance, measured  first token, load, VRAM  10-20 agent-hours, $2-3
+     cache (gains-criteres-debit 1-2)         +0.0007 %            at 8k                    (designed elsewhere)
+  3  prefill through the tensor-core GEMM,    tolerance +-0.12 %   first token, 8k peak     4-6 agent-days, $1.5-3
+     256-512 rows a chunk
+  4  paged KV for the batch pool, pages       same bits            VRAM per stream,         3-5 agent-days, $0.75
+     shared by refcount                                            tok/s per GB
+  5  shared-prefix KV read once for the       same bits            multi-user tok/s         4-6 agent-days, $0.75
+     pool's streams                                                with a long system prompt
+  6  int8 KV in 4E at long context           tolerance; fails     decode at 8k, 8k peak    1-2 weeks, $3-5
+                                              the band today
+  7  suffix-tree drafts over the history,     tolerance (tree      decode on repetitive     3-5 agent-days, $1
+     verified by the in-place pass            pass bits)           and agentic text
+
+PROPOSAL 1. A PREFIX CACHE THAT SURVIVES OTHER CONVERSATIONS, HELD IN HOST RAM
+------------------------------------------------------------------------------
+Change. The engine keeps today's one session in VRAM and adds a store in pinned host RAM: entries keyed by a hash of
+the token ids at every 256-position boundary, a radix tree over those keys, LRU eviction under a byte cap set by the
+operator. At the end of a turn the session's new full pages are copied device to host by the copy engine, after the
+answer is sent. At the start of a request the engine takes the longer of the VRAM match (today's reuse_prefix) and the
+host match; on a host hit it truncates the session to the common part and copies the missing pages host to device,
+then feeds the rest as today. A disk tier (one file a page, sha256 in the name) keeps entries across restarts. It also
+holds a fixed system prompt computed once.
+Exact. A restored page is the same bytes the session held (memcmp gate). Attention reads positions through fixed
+256-position splits, so its bits depend on the length alone, not on how the cache got there. The text after a host hit
+therefore equals the text after today's VRAM hit. It inherits what today's hit already is: the previous answer's K
+and V came from 4E's decode, not from a fresh prefill. The served runtime already serves that.
+Evidence. SGLang HiCache, llama.cpp --cache-ram, LMCache, mlx-lm's LRU prompt cache (section 1). The multi-turn coding
+agent case is the closest to our use: TTFT -56 % at 8 turns (*reported*).
+Effect, all *estimated* unless labelled:
+- First token of a turn whose history H was evicted: today eager prefill of H plus the new tokens, 17.64 s at
+  H = 4,096 (*measured* eager figure). With a host hit: H x 147,456 B over PCIe 4.0 x16, 0.604 GB at 12 to 25 GB/s,
+  0.024 s [0.020, 0.050], plus the new tokens as today. At H = 8,191: 0.048 s [0.040, 0.10] against 37.04 s.
+- Against the chain prefill once served (proposal 2): 2.681 s at 4,096 against about 0.03 s.
+- Capacity: 64 GB of host RAM holds 434,000 positions, 53 conversations of 8,192 tokens at 4B (*computed*).
+- Hit rate is the whole gain and it is unmeasured. It is zero for a single user who never switches conversation, and
+  high for several chat tabs, a client that sends side requests between turns, or an agent that alternates prompts.
+Why the other criteria do not move. VRAM: the device side is today's session; the store is host memory, and the copy
+lands in the cache the session would allocate anyway. b/param and quality: no weight or value changes. Decode: the
+device-to-host copy runs after the answer, on the copy engine, 0.024 s at 4,096 positions; the next request waits for
+it only if it arrives within that time. Cost: none on the card.
+What would make it wrong. A client that rewrites history (reasoning blocks dropped, a system prompt with a timestamp)
+lowers the hit rate; chat.rs's segment memo covers one conversation today and must key on the whole store. Pageable
+memory or a shared PCIe link halves the copy rate. 4E's layer images are rebuilt when a cache buffer moves; a restore
+that reallocates pays that rebuild (not timed).
+Carries. 8B the same bytes a position; 14B 163,840 B; MoE models keep dense attention caches, so the store is model
+independent. On Metal the host and device memory are one, and a restore is a memcpy.
+Cost. 2 to 3 agent-days for the RAM tier, 1 more for disk. One card job, about 15 min, $0.45 at $1.80/h: copy time at
+1,024 / 4,096 / 8,191 positions, and the identity gate.
+First experiment, $0, CPU backend on the Mac (fused_cpu, already served). Two conversations A and B interleaved
+A1 B1 A2 B2 A3 through llvq-runtime's engine. Arm 1: today's single slot, which misses at every switch. Arm 2: the
+host store. Gate: A3's logits and tokens with the store equal, bit for bit, those of A1 A2 A3 run alone; the prompt
+tokens actually fed at A2 and A3 equal the new tokens only; a mutant that restores one page off by one position is
+killed. Then the card job above, the same gate under 4E.
+
+PROPOSAL 2. SERVE THE CHAIN PREFILL AND THE CUBIN CACHE
+-------------------------------------------------------
+This survey adds nothing to their design; gains-criteres-debit items 1 and 2 hold it. What the field adds:
+- Every engine above prefills in chunks of many rows and caches its compiled kernels (vLLM's compile cache, TensorRT
+  engine plans, the CUDA driver's JIT cache). A 100.6 s load and 4 rows a launch are the two places where our runtime
+  sits furthest from all of them.
+- The chain's bits are invariant to the rows a pass carries (R = 1, 16, 32 bit for bit, *measured*). That is the
+  batch-invariance property Thinking Machines had to retrofit. It makes the chain the right partner of proposal 1: a
+  prompt split between a restored prefix and a fed suffix gives the same bits as one fed whole.
+Effect (*computed* from bench parts, gains-criteres-debit): first token x8.8 / x6.6 / x4.7 at 1,024 / 4,096 / 8,191;
+8k peak 5.95 to 3.56 GB (*measured* phase peak); load 100.6 s to about 10 s (*estimated*). Gate: the served tolerance
+(+0.0007 % paired ppl, *measured*), GSM8K-200 pairing owed. Cost $2 to $3 of card with its owed gates.
+Together with proposal 1, a turn after an evicted 4,096-token history with 200 new tokens: about 0.03 s restore plus
+7 passes of 32 rows at about 10.9 ms plus attention, near 0.1 s (*estimated*), against 18.4 s today (*computed* at the
+eager rate of 17.641 s for 4,096 plus 0.8 s for 200 tokens, *estimated*).
+
+PROPOSAL 3. PREFILL THROUGH THE TENSOR-CORE DEQUANTIZING GEMM (DEEP)
+-------------------------------------------------------------------
+Change. Feed the prompt in chunks of C = 256 to 512 rows through tv_batch_gemm's projections, extended past its
+128-row cap with 128- or 256-row M tiles, each weight block decoded once a CTA into shared memory and multiplied for
+every row of the chunk. Attention for the chunk: the chain's full tile, then D2's MMA design (large-prefill-attn-mma-
+etude) if it is built. The decode after the hand-over stays 4E, unchanged.
+Exact? No. Tensor-core sums are not the chain's order (attn-mma study section 1). Gate: the served tolerance, paired
+WikiText-2 perplexity within +-0.12 % at 2,048 and 4,096 against the eager dump, the 47 texts on near-ties, GSM8K-200
+not separated. The batch path already passed +-0.01 % against the multi-row path (*measured*, ETAT section 4).
+Evidence. Every engine in section 1 prefills on tensor cores; Sarathi-Serve and vLLM V1 chunk at a few hundred to a
+few thousand tokens. Ours: the GEMM decodes 128 rows a step in 28.5 ms, attention included (*computed* from 4,493.6
+tok/s at B = 128), 0.22 ms a row against the chain's 0.339 outside attention.
+Effect, *estimated*. A token's projections are about 8 GFLOP (2 x 4.0e9 parameters). At 15 to 35 % of the card's
+tensor-core rate the projections of one prompt token cost 0.06 to 0.15 ms, against 0.339 ms in the 32-row chain.
+The interval is wide on purpose: today's GEMM reaches about 50 TFLOPS at 128 rows (*computed*: 1.02 TFLOP of
+projections in three quarters of 28.5 ms), and the project's kernel estimates ran optimistic in 4 cases of 7 this week.
+- First token at 1,024: 0.10 to 0.30 s against 0.448 (chain, *measured*). At 8,191: the rest of the passes falls from
+  2.78 s to 0.5 to 1.2 s, and the total is set by attention: 5 to 6 s with today's tile, 1.3 to 2.5 s with the MMA
+  attention.
+- 8k peak: activations of a 512-row chunk are about 20 MB a buffer (512 x 9,728 x 4 B, *computed*), against 4,096-row
+  eager chunks today. At or under the chain's 3.56 GB is expected; to be measured.
+What would make it wrong. The Tetra decode inside the GEMM, not the MMA, bounds it (the pool reads 106 GB/s at
+B = 32): a bigger M tile then amortises the decode better, but register and shared-memory limits on sm_89 may cap the
+tile at 128. The f16 rounding of the rotated activations is a new rounding the chain does not make; it moves the
+perplexity pairing, which is the gate.
+Why the other criteria do not move. Same file, same decode path after the hand-over, no resident buffer added (chunk
+buffers freed before decode, as the chain door plans).
+Carries. Free to 8B and 14B (the GEMM serves the three shapes already). For MoE it needs a grouped GEMM by expert; that
+is the standard prefill form of every MoE engine.
+Cost. 4 to 6 agent-days; card $1.5 to $3 over two jobs (speed, then quality).
+First experiment, one job about 10 min, $0.30. Time tv_batch_gemm's projections alone for one sequence's rows at
+M = 64, 128 (cap today) on a 4,096-token prompt, ms a row, beside the chain's 0.339. Gate to go on: at M = 128 under
+0.17 ms a row, half the chain's. If it is not, a 512-row tile will not be either, and the lead stops at the chain.
+
+PROPOSAL 4. PAGED KV FOR THE BATCH POOL, WITH SHARED PAGES
+---------------------------------------------------------
+Change. The pool allocates 64 slots of 2,048 positions at load, 19.3 GB at 4B (*computed*, ETAT section 4). Replace
+with pages of 256 positions taken from a free list on demand, a page table a stream, and pages of a common prefix
+held once by reference count. Page = split: a page is the unit the attention already folds.
+Exact. A stream's attention reads its positions split by split in ascending order; where a split's bytes live does not
+enter the arithmetic. Gate: every stream's tokens and logits bit for bit with the static pool on a 32-stream replay.
+Evidence. PagedAttention (*reported* under 4 % KV waste, x2 to x4 throughput); SGLang's radix cache shares prefix pages.
+Effect, *estimated*. A stream reserves 0.302 GB today (2,048 x 147,456 B) whatever it uses. At a mean length of 1,000
+positions the same 19.3 GB holds about 2 times the streams, or the pool frees about 9 to 10 GB for the same 64. This
+is VRAM a stream and tok/s a GB under load, the criterion the operator named for multi-user cost. Single-stream
+criteria do not move: a lone request runs on 4E as today.
+What would make it wrong: real lengths near 2,048, or a page-table lookup in the GEMM's attention that costs more than
+noise (one indirection a 256-position split).
+Cost. 3 to 5 agent-days; one job, $0.75. Carries to every size and to MoE.
+First experiment, $0: the host twin of attn_dec_batch with a page table, against the static layout, bit for bit, plus
+a mutant that maps one page to its neighbour.
+
+PROPOSAL 5. A SHARED PREFIX READ ONCE FOR ALL STREAMS (DEEP)
+------------------------------------------------------------
+Change. When pool streams share a prefix (a system prompt, a RAG document), the attention stages each shared split's
+K and V once in shared memory and applies it to every stream's queries, each query in today's scalar order. D1 did
+this for 4 rows of one stream and stayed bit for bit (*measured*, large-prefill-d1). The scalar form is kept on purpose:
+Hydragen's matrix product would give the bits away.
+Effect, *estimated*. At B = 32 streams and a 1,000-token shared prefix, the per-step KV read falls by 31 x 0.147 GB =
+4.6 GB, 5.3 ms at 864 GB/s, against a step of about 16.2 ms (*computed* from 1,976.5 tok/s at B = 32, *measured*
+with short prompts). Aggregate +5 to +30 %. The low edge applies D1's lesson: bytes fell to a quarter and time to 0.49.
+Zero gain without a shared prefix.
+Why the other criteria do not move: same bits, no byte added (pages are proposal 4's). Needs proposal 4 first.
+Cost. 4 to 6 agent-days, $0.75. First experiment, $0: count the shared prefix length in the runtime's real request
+log, or in Open WebUI-like traffic replays; if under 500 tokens the lead stops.
+
+PROPOSAL 6. INT8 KV IN 4E AT LONG CONTEXT (GATED, A TRADE TODAY)
+---------------------------------------------------------------
+Change. 4E stores K and V in int8 with per-group scales from the first position, as LLVQ_KV=q8 does on the eager path.
+Effect, *estimated*: at 8,192 the cache read falls from 1.208 to about 0.62 GB, 0.68 ms a token at 864 GB/s off 6.19 ms:
+161 to 175-185 tok/s, +5 to +12 % at 41 % to 100 % realisation. 8k peak -0.59 GB. Nothing at a short context.
+Why it is ranked low. Our measured interval [-0.071, +0.170] % crosses the +-0.12 % band; the field's "no loss" is a
+task average (TurboQuant, KIVI), and NVIDIA names a Qwen family that loses under FP8 KV. It moves quality, which the
+operator's rule forbids unless the band holds.
+First experiment, $0 on the Mac: 24 windows instead of 12 on the existing pairing, to see whether the interval
+narrows inside the band. Gate: whole interval inside +-0.12 % and GSM8K-200 not separated; otherwise the lead stays
+closed.
+
+PROPOSAL 7. SUFFIX-TREE DRAFTS OVER THE WHOLE HISTORY (WORKLOAD-DEPENDENT)
+-------------------------------------------------------------------------
+Change. Replace prompt lookup's drafter by a suffix tree over every prompt and output the runtime has seen
+(SuffixDecoding), verified by the in-place 16-row pass (no tiled copies, no VRAM added).
+Effect, *estimated*. Break-even is 1.03 to 1.06 accepted tokens a pass (*computed*, spec-brouillon-sans-poids).
+Weightless drafters reached 0.93 on the house set and 1.27 on GSM8K (*measured*, same journal): chat gains nothing.
+On agentic and code-editing loads, where outputs repeat earlier text, x1.3 to x2.5 [x0.95, x3] (*estimated* from
+SuffixDecoding's x5.3 at a near one-token verify; ours costs 2.14 to 2.44 tokens).
+Gate. The tree pass's text is a12ip's arithmetic, not 4E's: 177 of 200 GSM8K texts equal (*measured*, jalons J1).
+Served only under the tolerance, and only for a declared workload.
+Cost. 3 to 5 agent-days; $0 first on the Mac with ops/spec_sans_poids.py extended by a cross-request tree, on an
+agentic trace (SWE-Bench-like edits). Gate: above 1.5 accepted a pass on that trace; otherwise stop.
+
+3. WHAT THE WALL FORBIDS, AND WHAT FORBIDS THE REST
+---------------------------------------------------
+At a short context the 4E token is 2.4 times its byte cost (*measured*, large-4e-budget). The DRAM wall binds the
+int4 rows and the head (1.13 to 1.25 times their floor) and, past about 4k, the KV read. It does not bind the Tetra
+rows (1.77 and 2.04 times) or the 1.76 ms that reads nothing. So fewer bytes buys little at a short context.
+- Entropy-coded weights on the fly (DFloat11's route): forbidden by entropy. The Tetra words carry 47.4 bits of 48
+  (*computed*, HISTORIQUE 2026-11-08), at most 1.25 % of 0.712 GB. The int4 nibbles carry about 3.8 bits of 4
+  (gains-criteres-memoire item 6), at most 31 MB of 0.628 GB, 36 us a token at 864 GB/s, under 1 %, before the
+  decoder's own instructions. DFloat11 works because a BF16 exponent wastes 5.4 of its 8 bits; our codes waste
+  almost none. As a file-only codec it stays in the memory note.
+- Activation sparsity (TEAL): not exact. SiLU gives no exact zeros; thresholding changes values. A Tetra block spans
+  24 input dimensions, so a block is skipped only if all 24 activations are dropped. A quality trade.
+- Self-speculation (SWIFT, Lookahead): forbidden by the verify pass's fixed cost, not by DRAM. A pass costs 2.14 tokens
+  at one row in place. A layer-skipping draft of half the layers costs about 0.5 token a drafted token; with 4 drafts
+  and full acceptance, 5 tokens for 4.44 token-times, x1.13 at best (*computed*). Lookahead's x1.8 assumes a pass near
+  one token.
+- One persistent kernel decoding many streams: ties the pool in place (784 against 758 tok/s at 8 streams, *computed*,
+  large-lots); beats it only with the tiled copies, +2.6 b/param.
+- Multi-token prediction heads: Qwen3 dense ships none; added weights move b/param.
+- CUDA Graphs: rule 3; 4E already makes 64 tokens a launch, host overhead under 0.3 %.
+- An exact reformulation that reads fewer weight bytes a token at batch 1: none found. The only exact ways to read a
+  weight byte for more than one token are more tokens a pass (speculation, batching) or the certified two-pass head
+  (large-4e-budget cut 6, at most 81 us).
+
+4. TOP THREE AND THEIR FIRST EXPERIMENTS
+----------------------------------------
+1. Prefix cache with a host tier. First: $0, CPU backend, interleaved A1 B1 A2 B2 A3; gate A3 bit for bit with A run
+   alone, only new tokens fed, an off-by-one restore mutant killed.
+2. Chain prefill door and cubin cache. First: the cubin cache's own job (gains-criteres-debit item 1, about $0.30 to
+   $0.45); gate: cubin sha256 warm equals cold, 4E logits bit for bit, load cold and warm timed.
+3. Tensor-core GEMM prefill. First: one job, about $0.30, tv_batch_gemm projections on one sequence's rows at M = 64
+   and 128; gate: under 0.17 ms a row at M = 128, half the chain's 0.339.
+
+NOT ESTABLISHED
+---------------
+Any figure of this note on a card. The prefix cache's hit rate on real clients; the PCIe rate on the rented L40S. The
+GEMM's rate past 128 rows and its perplexity pairing for a prefill. Shared prefix lengths in real traffic. Whether
+24 windows bring the int8 KV interval inside the band. SuffixDecoding's acceptance on our model and traces. Third-party
+figures are theirs, on their hardware and models, and are never divided by ours (rule 5).

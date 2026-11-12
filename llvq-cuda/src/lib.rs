@@ -84,6 +84,9 @@ pub mod wide;
 
 // Portable so the Mac host test and the card hash with the same code.
 pub mod sha256;
+// Portable: the speculative decode loop around the tree verify pass, run
+// on the card by `llvq_llm` and on the Mac by the host twin.
+pub mod spec_loop;
 // Portable, and the reference rather than a helper: the canonical arithmetic
 // of the split-KV decode-attention kernel, replayed on the CPU. The kernel is
 // checked against it bit for bit on the Mac (`tests/attn_dec_matches_rust.rs`

@@ -96,6 +96,12 @@ fn mutant(tag: &str, file: &str, from: &str, to: &str) -> PathBuf {
 
 /// The same with several edits, each applied exactly once.
 fn mutant_many(tag: &str, edits: &[(&str, &str, &str)]) -> PathBuf {
+    let root = mutant_root(tag, edits);
+    build_side(&root, 1, "off", tag)
+}
+
+/// The copy [`mutant_many`] builds from, not built: the edited sources only.
+fn mutant_root(tag: &str, edits: &[(&str, &str, &str)]) -> PathBuf {
     let root = std::env::temp_dir().join(format!("llvq_pers_mutant_{tag}_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     for dir in ["llvq-cuda/kernels", "llvq-cuda/tests", "llvq-llm/kernels"] {
@@ -117,7 +123,7 @@ fn mutant_many(tag: &str, edits: &[(&str, &str, &str)]) -> PathBuf {
         assert_eq!(n, 1, "mutant {tag}: {n} sites for {from:?} in {file}, expected exactly one");
         std::fs::write(&path, text.replacen(from, to, 1)).unwrap();
     }
-    build_side(&root, 1, "off", tag)
+    root
 }
 
 /// The decoder tables and invnorm, as every fixture's header.
@@ -2128,6 +2134,93 @@ fn the_4e_v9_mutants_are_killed() {
         let b = build_side_with(&root, 1, "off", &format!("{tag}_v9"), &["PERS_4E_ROWS=7u"]);
         let killed = cmds.iter().any(|(c, w)| run_mutant(&b, c).is_none_or(|o| &o != w));
         assert!(killed, "v9 mutant {tag} survived");
+    }
+}
+
+// ---- E1: where 4E v9 asks L2 for later rows (pers.rs::p4e_e1_edits) -------
+
+/// The host twin of an E1 arm: the sources with the arm's edits, the ones
+/// `pers::p4e_e1_unit_text` applies to the card's module, under row form 7.
+/// `twist` rewrites one replacement text (a mutant of the arm), or nothing.
+fn persistent_e1(arm: &str, tag: &str, twist: Option<(&str, &str)>) -> PathBuf {
+    let edits = pers::p4e_e1_edits(arm).unwrap();
+    let mut files: Vec<(String, String, String)> =
+        edits.into_iter().map(|(f, a, b)| (format!("llvq-cuda/kernels/{f}"), a, b)).collect();
+    if let Some((from, to)) = twist {
+        let hits: usize = files.iter().map(|e| e.2.matches(from).count()).sum();
+        assert_eq!(hits, 1, "E1 mutant {tag}: {hits} sites for {from:?} in the arm's edits, expected exactly one");
+        for e in files.iter_mut() {
+            e.2 = e.2.replacen(from, to, 1);
+        }
+    }
+    let refs: Vec<(&str, &str, &str)> = files.iter().map(|(f, a, b)| (f.as_str(), a.as_str(), b.as_str())).collect();
+    let root = mutant_root(tag, &refs);
+    build_side_with(&root, 1, "off", tag, &["PERS_4E_ROWS=7u"])
+}
+
+/// Each E1 arm's token loop is the served chain, as v9's is
+/// (`the_4e_v9_int4_tiles_are_the_served_chain`'s commands): both row
+/// variants, each RoPE form, positions past 256, consecutive launches, and
+/// the stamp symbol. On the host a prefetch is nothing, so this proves what
+/// the arms add beside their prefetches (mv's header slots, its staging in
+/// the barrier gaps, the layer-0 branch, the logits edits) moves no bit.
+#[test]
+fn the_4e_e1_arms_are_the_served_chain() {
+    for arm in pers::P4E_E1_ARMS {
+        let b = persistent_e1(arm, &format!("e1_{arm}"), None);
+        for (form, grid, threads, variant) in [(0u32, 3u32, 128u32, 0u32), (2, 4, 96, 2), (1, 5, 64, 2), (1, 3, 512, 2), (1, 2, 128, 0)] {
+            let cmd = g_cmd_variant(form, grid, threads, &[(5, 3, 7)], 16, u32::MAX, 0x9e40 + form as u64, variant);
+            let (want, got) = (run(served(), &cmd), run(&b, &cmd));
+            assert!(got[..got.len() - 8] == want[..want.len() - 8], "{arm}, form {form}, grid {grid}x{threads}, variant {variant}");
+        }
+        for (pos0, cap, seed) in [(64u32, 160u32, 0x9e50u64), (270, 288, 0x9e52)] {
+            let cmd = g_cmd_variant(1, 3, 128, &[(pos0, 3, 7)], cap, u32::MAX, seed, 2);
+            let (want, got) = (run(served(), &cmd), run(&b, &cmd));
+            assert!(got[..got.len() - 8] == want[..want.len() - 8], "{arm}, positions from {pos0}");
+        }
+        let runs = [(5u32, 3u32, 7u32), (8, 2, 9)];
+        let cmd = g_cmd_variant(1, 4, 96, &runs, 16, u32::MAX, 0x9e21, 2);
+        let (want, plain) = (run(served(), &cmd), run(&b, &cmd));
+        assert!(plain[..plain.len() - 8] == want[..want.len() - 8], "{arm}: two consecutive launches");
+        let stamped = run(&b, &g_cmd_variant(1, 4, 96, &runs, 16, u32::MAX, 0x9e21, 1));
+        assert!(stamped[..plain.len()] == plain[..], "{arm}: the stamped launch moved an output");
+    }
+}
+
+/// mv's only stores outside a prefetch are its header slots: a mutant that
+/// moves them onto the v7 area's offset (header u32 8) is killed, so the
+/// test above sees the slots, and slots 10..25 are free.
+#[test]
+fn the_4e_e1_mv_slot_mutant_is_killed() {
+    let cmd = g_cmd_variant(1, 3, 128, &[(5, 3, 7)], 16, u32::MAX, 0x9e60, 2);
+    let want = run(served(), &cmd);
+    let b = persistent_e1("v9mv", "e1_mv_slot_on_v7", Some(("#define PERS_HDR_E1 10u", "#define PERS_HDR_E1 6u")));
+    let got = run_mutant(&b, &cmd);
+    assert!(got.is_none_or(|o| o[..o.len() - 8] != want[..want.len() - 8]), "E1 mv mutant slot_on_v7 survived");
+}
+
+/// The two ft mutants of tree_verify_host.rs on arm v9ft, one site each in
+/// the ft text (`persistent_e1` counts it): the full-tile body taken on a
+/// tile of 7, and position 3's chain reading position 4's K. Each moves the
+/// served chain on a run whose tiles hold 6, 7 and 8 positions (from 5) or
+/// 7, 8 and 1 after 33 full ones (from 270, across the split at 256).
+#[test]
+fn the_4e_v9ft_mutants_are_killed() {
+    let cmds: Vec<(Vec<u8>, Vec<u8>)> = [g_cmd_variant(1, 3, 128, &[(5, 3, 7)], 16, u32::MAX, 0x9e70, 2), g_cmd_variant(1, 3, 128, &[(270, 3, 7)], 288, u32::MAX, 0x9e71, 2)]
+        .into_iter()
+        .map(|c| {
+            let want = run(served(), &c);
+            (c, want)
+        })
+        .collect();
+    for (tag, from, to) in [
+        ("v9ft_taken_at_7", "    if (nv == PERS_TT) {", "    if (nv + 1u >= PERS_TT) {"),
+        ("v9ft_neighbour_k", "for (u32 j = 0; j < PERS_TT; ++j) kw[j] = ks[j * 16u + l16];", "for (u32 j = 0; j < PERS_TT; ++j) kw[j] = ks[(j == 3u ? 4u : j) * 16u + l16];"),
+    ] {
+        let b = persistent_e1("v9ft", tag, Some((from, to)));
+        let killed = cmds.iter().any(|(c, w)| run_mutant(&b, c).is_none_or(|o| o[..o.len().saturating_sub(8)] != w[..w.len() - 8]));
+        assert!(killed, "v9ft mutant {tag} survived");
+        eprintln!("v9ft mutant {tag}: killed");
     }
 }
 

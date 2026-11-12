@@ -1,0 +1,156 @@
+SPEC-LOOP SP2: THE SPECULATIVE LOOP END TO END ON THE CARD, STAND-INS AND DFLASH, SEALED 4B, ONE L40S, 2026-11-10. $0.55.
+==================================================================================================================
+Result: the loop is sound. Every drafter emits 4E's greedy tokens, 64 of 64, on every prompt (*measured*), and the
+stand-ins' oracle ratios sit inside their intervals: oracle:3 reaches 0.96 to 0.98 of its check line and oracle:14 0.84
+to 0.85. The null drafter runs at x0.62 to x0.63 of greedy. DFlash, though it matches its fixture on the card (6 of 6
+chains and trees, logits within 3.6e-6), almost never has a proposal accepted: 0.00 to 0.02 drafted tokens a pass, 63
+or 64 passes for 64 tokens, against a signed 2.2 to 5.0. With no acceptance, each pass pays a 16-row verify and a drafter
+round, and DFlash runs at x0.32 to x0.36 of greedy on every prompt. The equality gate holds; every DFlash acceptance and
+speed prediction fails. The drafter is right in isolation and gets nothing accepted in the loop; where the loop and
+the drafter disagree is not established here.
+Prereg : proofs/preregistration-spec-loop-sp2-2026-11-10.md (sha256 366ad89f), stamped before the job (.ots, commit
+         2b6386f). Deviations 1 (a twin on l40sx4 after 20 min) and 2 (that twin cancelled in the queue by the
+         orchestrating session at 21:35, no further twin) beside it, in preregistration-spec-loop-sp2-2026-11-10-ECARTS.md.
+         SP2 supersedes SP1 (never submitted; SP1's ECARTS).
+Go     : the operator, 2026-11-10 evening, for the end-to-end series ("a real test on the card"), relayed by the
+         orchestrating session; the cap from the go of 2026-11-09 about 23:00 CET. Cap $10.
+Job    : 6af36ba99737d9a9e0915bf2, l40sx1, image hf.co/spaces/Pier-Jean/llvq-runner-cuda at Space sha 158f9340 (its
+         COMMIT file names 2b6386f, published from a clean detached checkout of that commit, perimeter clean; kernel,
+         bench and runtime sources equal to 9e00978's), ops/jobs/spec-loop-sp2.sh, job timeout 45 min. Submitted 20:08
+         CET; RUNNING at about 23:00 (about 172 min of queue, not billed); COMPLETED by 23:18. 18 min billed, $0.55
+         (*measured*, ops/run.py monitor). VRAM: no metric received. Registry $311.59 before, $312.14 after; spend since
+         the go $4.89. The l40sx4 twin 6af37087ab34849891acb5f6 never ran ($0).
+Raw    : spec-loop-sp2-2026-11-10-brut/: gpu.txt (NVIDIA L40S, 8.9, 46,068 MiB, driver 580.178.04, 2,520 MHz),
+         oracle.txt, files.sha256 (sealed file, fixture, drafter), drafter.sha256, qwen3-4b-tetra-e4-4e-v9.json (sha256
+         29b3ef32), res.txt, dflashcheck-f32.txt, dflashcheck-f16.txt, spec-standins.txt, spec-dflash.txt, summary.txt,
+         monitor.txt, queue.txt.
+
+CONTROLS
+--------
+1. oracle on Qwen3-0.6B: MATCH. Sealed file sha256 886391a8 at its size; fixture sha256 636f664d at 8,562,156 bytes;
+   drafter config.json sha256 2de97cdf and model.safetensors sha256 a21d0ffe, fetched at revision b74e3a32; config
+   at its sha256 29b3ef32. The job body refuses any LLVQ_* in its environment. Holds.
+2. 4E's module 252,757 bytes, sha256 1b422b62, row form 7, in both specbench runs. Holds.
+3. The image built. Holds.
+Hard gate: token equality with 4E's greedy tokens, 64 of 64, on chat, rag, code and math, for null, oracle:3, oracle:14,
+dflash:chain and dflash:tree. Holds everywhere.
+
+(a) THE COMPILE-ONLY STEP (vtreebench --res a12, 4 min)
+------------------------------------------------------
+It timed out (exit 124) after printing a12's module (416,225 bytes, sha256 937f6c40), before its symbols. The specbench
+install gives them: pers_4et_a12_f1_t384: 168 registers, 736 B local, 78,848 B shared, 1 resident a SM; plan [8, 10, 8,
+20, 6], 12 warps, area 14,944 floats.
+
+(b) DFLASHCHECK ON CUDA (the drafter z-lab/Qwen3-4B-DFlash-b16 at b74e3a32, its table from the sealed file)
+-----------------------------------------------------------------------------------------------------------
+Both runs, the same equivalence (the binary runs it in f32 whatever its last argument):
+  equivalence (f32): rounds 6: chain equal 6/6, tree equal 6/6; logits rel 3.62e-6, lse rel 1.88e-6, hidden rel 1.39e-6;
+  smallest reference top-1 gap 0.020; table rows max abs 0.00e0. equivalence PASS.
+  Drafter 2,149.7 MB in f32, loaded in 8.8 s.
+Rounds, median of 20 (extend 4 positions; block + head + readout):
+  f32: context 128: 0.67 ms, 7.40 ms; context 512: 0.65, 7.61; context 2,048: 0.66, 8.49.
+  f16: context 128: 0.46 ms, 4.24 ms; context 512: 0.45, 4.26; context 2,048: 0.45, 5.13.
+The f16 run exited 0 and printed PASS, so (d) ran DFlash in f16.
+
+(c) THE STAND-IN DRAFTERS (specbench, a12@[8, 10, 8, 20, 6], 64 tokens, 1 discarded and 3 timed runs, medians)
+-------------------------------------------------------------------------------------------------------------
+  prompt (context)  drafter    acc/pass  passes  verify ms  drafter ms  other ms  tok/s end to end  greedy   x greedy
+  chat (62)         null       0.00      64      451.2      0.00        0.4       141.7            227.3    0.623
+                    oracle:3   3.00      16      115.5      0.00        0.2       553.1            227.3    2.434
+                    oracle:14  12.00     5       38.9       0.00        0.2       1,638.2          227.3    7.208
+  rag (362)         null       0.00      64      468.2      0.00        1.1       136.4            215.7    0.632
+                    oracle:3   3.00      16      119.7      0.00        1.0       530.0            215.7    2.457
+                    oracle:14  12.00     5       43.6       0.00        0.8       1,440.6          215.7    6.677
+  code (49)         null       0.00      64      450.5      0.00        0.4       141.9            227.8    0.623
+                    oracle:3   3.00      16      115.3      0.00        0.2       553.8            227.8    2.431
+                    oracle:14  12.00     5       38.9       0.00        0.2       1,635.4          227.8    7.178
+  math (68)         null       0.00      64      452.1      0.00        0.4       141.4            226.1    0.625
+                    oracle:3   3.00      16      115.8      0.00        0.3       551.0            226.1    2.436
+                    oracle:14  12.00     5       39.1       0.00        0.2       1,628.1          226.1    7.200
+("acc/pass" is the bench's drafted tokens accepted a pass; tok/s without the drafter equals tok/s end to end for the
+stand-ins.) Oracle check lines, greedy x (K + 1) / c_(K+2), c_R timed in the same process:
+  chat  oracle:3  227.3 x 4 / c_5 1.594 = 570.2, measured 553.1, ratio 0.970;  oracle:14  227.3 x 15 / c_16 1.746 = 1,952.7,
+        measured 1,638.2, ratio 0.839
+  rag   oracle:3  215.7 x 4 / 1.563 = 552.0, measured 530.0, ratio 0.960;  oracle:14  215.7 x 15 / 1.885 = 1,717.0, measured
+        1,440.6, ratio 0.839
+  code  oracle:3  227.8 x 4 / 1.609 = 566.4, measured 553.8, ratio 0.978;  oracle:14  227.8 x 15 / 1.778 = 1,922.1, measured
+        1,635.4, ratio 0.851
+  math  oracle:3  226.1 x 4 / 1.595 = 567.0, measured 551.0, ratio 0.972;  oracle:14  226.1 x 15 / 1.739 = 1,950.9, measured
+        1,628.1, ratio 0.835
+a12's c_R (chat): c_5 1.594, c_16 1.746 (printed); c_1 1.602 (*computed*: the null drafter's 64 R = 1 verify launches,
+451.2 ms, 7.05 ms each, against 4E's 4.40 ms token at 227.3 tok/s).
+
+(d) DFLASH (specbench, a12@[8, 10, 8, 20, 6], the drafter in f16, 1,074.9 MB, table from the sealed file)
+---------------------------------------------------------------------------------------------------------
+  prompt   drafter        acc/pass  passes  verify ms  drafter ms  other ms  tok/s e2e  w/o drafter  greedy  x greedy
+  chat     dflash:chain   0.02      63      501.9      290.58      0.6       80.7       127.4        227.2   0.355
+           dflash:tree    0.02      63      501.8      291.42      0.5       80.6       127.4        227.2   0.355
+  rag      dflash:chain   0.00      64      579.0      336.71      1.3       69.8       110.3        215.5   0.324
+           dflash:tree    0.00      64      579.1      336.56      1.2       69.8       110.3        215.5   0.324
+  code     dflash:chain   0.02      63      501.6      279.02      0.6       81.9       127.4        227.2   0.361
+           dflash:tree    0.02      63      501.2      279.88      0.5       81.8       127.6        227.2   0.360
+  math     dflash:chain   0.00      64      511.0      297.23      0.6       79.1       125.1        225.2   0.351
+           dflash:tree    0.00      64      511.0      296.36      0.5       79.2       125.1        225.2   0.352
+Drafter wall a generation of 64 tokens, ms (median), as printed (context extension / block / head / readout; skipped
+rounds):
+  chat  chain 21.2 / 135.8 / 70.9 / 57.4, 0;  tree 21.2 / 135.8 / 71.0 / 57.1, 0
+  rag   chain 22.9 / 140.5 / 72.1 / 52.3, 0;  tree 22.8 / 140.4 / 72.1 / 51.9, 0
+  code  chain 20.0 / 135.6 / 70.9 / 51.9, 0;  tree 19.8 / 135.7 / 71.0 / 52.0, 0
+  math  chain 21.6 / 138.7 / 72.0 / 59.2, 0;  tree 21.5 / 137.9 / 72.1 / 58.4, 0
+One drafter round (*computed*, chat chain): 290.58 ms over 63 rounds = 4.6 ms; the head 70.9 of 285.3 ms of the four
+parts = 25 %.
+
+AGAINST THE SIGNED PREDICTION
+-----------------------------
+Stand-ins:
+  quantity                                          signed                 measured                       inside
+  token equality, null and oracles, every prompt    64 of 64               64 of 64                       yes
+  a12 registers, local memory                       168, 736 B             168, 736 B                     yes
+  a12 c_1                                           1.56 [1.52, 1.66]      1.602 (computed)               yes
+  a12 c_16                                          1.75 [1.70, 1.86]      1.746 (chat)                   yes
+  null drafter over greedy                          0.60 [0.48, 0.66]      0.623 / 0.632 / 0.623 / 0.625  yes
+  oracle:3 over its check line                      0.90 [0.72, 1.00]      0.960 to 0.978                 yes
+  oracle:14 over its check line                     0.88 [0.68, 1.00]      0.835 to 0.851                 yes
+  oracle:14 on chat                                 1,650 [1,250, 1,950]   1,638.2 tok/s                  yes
+  host outside the verify launches, null            under 12 %             0.1 to 0.3 %                   yes
+The real drafter:
+  dflashcheck f32, chain and tree vs the fixture    6 of 6                 6 of 6 and 6 of 6              yes
+  dflashcheck f16, chains; logits                   >= 5 of 6; <= 2e-2     not readable (the binary checks in f32 only)
+  token equality, dflash:chain and dflash:tree      64 of 64               64 of 64, every prompt         yes
+  skipped rounds                                    0                      0                              yes
+  accepted a pass, chain, chat                      2.2 [1.5, 3.2]         1.02 emitted a pass (0.02 drafted)   no
+  same, code                                        4.3 [2.8, 6.0]         1.02 (0.02 drafted)            no
+  same, math                                        5.0 [3.2, 7.0]         1.00 (0.00 drafted)            no
+  same, rag                                         3.0 [1.8, 5.0]         1.00 (0.00 drafted)            no
+  tree at least the chain                           yes, within noise      equal                          yes
+  one drafter round                                 6.5 ms [3.0, 14.0]     4.6 ms                         yes
+  the head's share of a round                       more than a third      25 %                           no
+  end to end over greedy, chain, chat               x0.75 [0.45, 1.15]     x0.355                         no
+  same, code                                        x1.35 [0.80, 2.10]     x0.361                         no
+  same, math                                        x1.55 [0.90, 2.40]     x0.351                         no
+  outcome                                           code and math above greedy, chat below   all four below greedy   no
+
+DECISION (the prereg's rule)
+--------
+Equality holds everywhere and the stand-ins' oracle ratios sit inside their intervals: the loop is sound and its
+overhead is known (outside the verify launches, 0.1 to 0.3 % of the loop's wall with the null drafter). DFlash: equality
+holds, and its lines are read against their predictions: the acceptance, the end-to-end speeds and the head's share
+fail; the drafter's isolated equivalence and its round time hold.
+
+READING (not part of the decision; *computed* from the tables above)
+-------
+- The stand-ins price the loop: the null drafter's x0.62 is a12's c_1 (1.60) plus nothing; oracle:14 loses 15 % to its
+  check line, oracle:3 2 to 4 %. The host outside the launches is under 1.3 ms in 64 tokens.
+- DFlash proposes, the verify pass accepts almost nothing, and equality holds: the loop does what it must when the
+  drafter is wrong. The drafter itself is right against its fixture (f32, 6 of 6). The disagreement is therefore between
+  what the loop feeds the drafter on the card (the target's taps of a12 at layers 2, 10, 18, 26, 34, the positions, the
+  committed context) and what the fixture's reference fed it. That is the first thing to examine; this job does not
+  locate it.
+- At zero acceptance each DFlash pass costs a 16-row verify (7.97 ms against the null drafter's 7.05) and a drafter round
+  (4.6 ms): about 12.6 ms a token against 4E's 4.4.
+
+WHAT THIS DOES NOT ESTABLISH
+----------------------------
+Why DFlash's proposals are not accepted in the loop. Whether f16 changes the drafter's chains (dflashcheck checks in f32
+only). Any served rate; acceptance on standard benchmarks; anything at 8B or 14B; long context. VRAM peak (no metric).
+The oracle at K = 1 and 7 (SP1's, not rerun).

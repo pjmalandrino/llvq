@@ -28,6 +28,14 @@ pub mod repl;
 pub mod session;
 pub mod corpus;
 pub mod device;
+pub mod dflash;
+// the drafter behind `llvq_cuda::spec_loop`'s contract: where `llvq-cuda` is a dependency
+#[cfg(any(feature = "cuda", target_os = "macos"))]
+pub mod dflash_spec;
+// the drafter's vocabulary through the target's int4 table, on the card
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+pub mod dflash_q4;
+pub mod spec_prompts;
 pub mod digest;
 pub mod embedquant;
 pub mod errmodel;

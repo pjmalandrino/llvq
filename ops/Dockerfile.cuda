@@ -51,7 +51,7 @@ ENV CARGO_BUILD_JOBS=2
 # différence entre une mesure et une anecdote.
 RUN cargo build --release --locked -p llvq-llm --features ${FEATURES} \
       --bin smoke --bin ppl --bin oracle --bin mmlu --bin gbench --bin fusedrun \
-      --bin chat --bin gsm8k --bin gsm8kpair --bin batchrun --bin specrun
+      --bin chat --bin gsm8k --bin gsm8kpair --bin batchrun --bin specrun --bin vtreebench --bin specbench --bin dflashcheck --bin prefillbench
 # The runtime, for the client-side bench of the batched decode (`llvq serve`
 # under LLVQ_BATCH, ops/batch_serve_bench.py). Its own package, with only the
 # `cuda` feature it carries through to llvq-llm.
@@ -146,6 +146,10 @@ COPY --from=build \
       /src/target/release/gsm8kpair \
       /src/target/release/batchrun \
       /src/target/release/specrun \
+      /src/target/release/vtreebench \
+      /src/target/release/specbench \
+      /src/target/release/prefillbench \
+      /src/target/release/dflashcheck \
       /src/target/release/llvq \
       /src/target/release/seal \
       /src/target/release/embedq \
@@ -183,6 +187,13 @@ RUN chmod +x /usr/local/bin/fetch-qtip.sh
 # Data, not binaries, so they come from the uploaded tree like `fetch-qtip.sh`
 # and not from the build stage. Nothing here is executed, so no `chmod`.
 COPY --from=build /src/configs/ /usr/local/share/llvq/configs/
+# The house prompt set of the speculative loop's benches (`specbench --prompts`). Its source must be in
+# `UPLOAD_ALLOW` of ops/run.py, or this COPY fails the build after the compile (the two-lists trap).
+COPY --from=build /src/ops/data/spec-prompts-v1.jsonl /usr/local/share/llvq/spec-prompts-v1.jsonl
+# The 200 GSM8K test rows of the speculative loop's quality run (`specbench --prompts`, `ops/spec_grade.py`), same trap.
+COPY --from=build /src/ops/data/spec-gsm8k-200.jsonl /usr/local/share/llvq/spec-gsm8k-200.jsonl
+# One 8,191-token prompt for the speculative loop's memory step M3 (`specbench --prompts`), same trap.
+COPY --from=build /src/ops/data/spec-long-8k-v1.jsonl /usr/local/share/llvq/spec-long-8k-v1.jsonl
 # And the one the runbook names, checked by name: a `COPY` of an empty or
 # absent directory does not fail, it produces an empty directory, and the
 # failure would then move from this build to a billed job at

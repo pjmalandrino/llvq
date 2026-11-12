@@ -1,0 +1,74 @@
+drafter dtype for (b): f16
+dflashcheck-f16: drafter z-lab/Qwen3-4B-DFlash-b16@b74e3a32 (2149.7 MB f32), table [151936, 2560] from /out/sealed-4b-2026-09-23/qwen3-4b-sealed.bin, device Cuda(CudaDevice(DeviceId(1))), loaded in 8.6 s
+dflashcheck-f16: equivalence (f32): rounds 6: chain equal 6/6, tree equal 6/6; logits rel 3.62e-6, lse rel 1.88e-6, hidden rel 1.39e-6; smallest reference top-1 gap 0.020; table rows max abs 0.00e0
+dflashcheck-f16: equivalence PASS
+dflashcheck-f16: equivalence (F16): rounds 6: chain equal 6/6, tree equal 3/6; logits rel 1.72e-3, lse rel 5.56e-4, hidden rel 1.99e-3; smallest reference top-1 gap 0.020; table rows max abs 0.00e0
+dflashcheck-f16: equivalence (F16) PASS
+dflashcheck-f16: round at context 128 (F16): extend 4 0.55 ms [0.55-0.66], block + head + readout 4.21 ms [4.20-4.68], median of 20; context cache 7.9 MB
+dflashcheck-f16: round at context 512 (F16): extend 4 0.56 ms [0.56-0.56], block + head + readout 4.24 ms [4.22-4.31], median of 20; context cache 15.7 MB
+dflashcheck-f16: round at context 2048 (F16): extend 4 0.57 ms [0.57-0.58], block + head + readout 5.13 ms [5.09-5.25], median of 20; context cache 47.2 MB
+dflashcheck-f16: dflashcheck f16 exit 0
+4E: persistent module 252757 bytes, sha256 1b422b62328be6752df4add43280565fd2a49cfa20ee26953b301abe7a15c530, row form 7, own module on candle's stream
+4E tree: module 306060 bytes, sha256 ce1c354d2583eb178ae8622ff99e10f9b457543972bb5039ce89ede9eec31e44, row form 7 and pers_4et.cu, its own module
+4E tree: pers_4et_rows_f1_t512: 128 registers, 720 B local, 89984 B shared, 1 resident a SM
+4E tree: arm a12@8.10.8.20.6 (a12 (a10t384r16 with the taps), an explicit plan): slices [8, 10, 8, 20, 6]; S, units, waves, fill, sub-steps a slice at most: q/k/v 8 272 2 95.8 % 7, o 10 140 1 98.6 % 9, gate/up 8 816 6 95.8 % 7, down 20 280 2 98.6 % 11, head 6 4752 34 98.4 % 9
+4E tree: arm a12@8.10.8.20.6 at 384 threads (12 warps): area 14944 floats, 78848 B shared, 12 sub-steps a slice at most
+4E tree: the stream unit's slices hold at most 13 sub-steps (area 17728 floats, 16 warps, 32 staged rows)
+4E tree: 512 threads, 17728 floats of area; 0.153 GB of row buffers
+4E tree a12: module 416225 bytes, sha256 937f6c4005e380e6218400454e0ff167f0363e01fa6252ac7c4ded0a83041cb3, P4T_A12 1 after a10r16's text, its own module
+4E tree a12: pers_4et_a12_f1_t384: 168 registers, 736 B local, 78848 B shared, 1 resident a SM
+4E tree tiled: 253 tree-tiled copies (q, k, v, o, gate, up, down a layer, the head), 1.308 GB more on the card
+arm a12@8.10.8.20.6: A12 kernel, slices [8, 10, 8, 20, 6], 384 threads; taps on; N 64
+loaded in 420.1 s
+drafter /tmp/dflash-b74e3a329c4d963783143b1e970d95b002be72bd (1140.4 MB, F16), table [151936, 2560] from the sealed file, loaded in 6.9 s
+== chat: prompt 62 tokens; 4E greedy 227.5 tok/s [227.5-227.6] over 64 tokens
+       null: tokens equal to 4E's over 64; 0.00 drafted tokens accepted a pass, 64 passes; verify 451.0 ms, drafter 0.00 ms, rest of the host 0.3 ms; 141.8 tok/s [141.8-141.8], 141.8 without the drafter [141.8-141.8]; x0.623 of greedy
+   oracle:3: tokens equal to 4E's over 64; 3.00 drafted tokens accepted a pass, 16 passes; verify 115.5 ms, drafter 0.00 ms, rest of the host 0.3 ms; 552.7 tok/s [550.9-552.9], 552.7 without the drafter [550.9-552.9]; x2.429 of greedy
+   oracle:3: check, greedy x (K + 1) / c_5 = 227.5 x 4 / 1.600 = 568.9 tok/s, measured 552.7 without the drafter 552.7
+  dflash:chain: tokens equal to 4E's over 64; 2.05 drafted tokens accepted a pass, 21 passes; verify 166.9 ms, drafter 103.49 ms, rest of the host 0.3 ms; 236.5 tok/s [236.4-236.5], 382.7 without the drafter [382.7-383.0]; x1.039 of greedy
+  dflash:chain: drafter wall a generation, ms (median): context extension 16.9, block 44.3, head 23.6, readout 17.0; skipped rounds 0
+  dflash:tree: tokens equal to 4E's over 64; 2.56 drafted tokens accepted a pass, 18 passes; verify 142.8 ms, drafter 91.51 ms, rest of the host 0.3 ms; 272.8 tok/s [271.3-272.9], 447.3 without the drafter [447.2-447.5]; x1.199 of greedy
+  dflash:tree: drafter wall a generation, ms (median): context extension 17.4, block 37.8, head 20.2, readout 14.6; skipped rounds 0
+== rag: prompt 362 tokens; 4E greedy 216.3 tok/s [216.2-216.3] over 64 tokens
+       null: tokens equal to 4E's over 64; 0.00 drafted tokens accepted a pass, 64 passes; verify 468.6 ms, drafter 0.00 ms, rest of the host 1.1 ms; 136.3 tok/s [136.2-136.3], 136.3 without the drafter [136.2-136.3]; x0.630 of greedy
+   oracle:3: tokens equal to 4E's over 64; 3.00 drafted tokens accepted a pass, 16 passes; verify 119.7 ms, drafter 0.00 ms, rest of the host 0.9 ms; 530.7 tok/s [530.5-530.8], 530.7 without the drafter [530.5-530.8]; x2.453 of greedy
+   oracle:3: check, greedy x (K + 1) / c_5 = 216.3 x 4 / 1.571 = 550.7 tok/s, measured 530.7 without the drafter 530.7
+  dflash:chain: tokens equal to 4E's over 64; 7.22 drafted tokens accepted a pass, 9 passes; verify 81.6 ms, drafter 50.09 ms, rest of the host 1.0 ms; 482.4 tok/s [482.4-504.9], 775.0 without the drafter [774.2-775.6]; x2.230 of greedy
+  dflash:chain: drafter wall a generation, ms (median): context extension 11.2, block 19.6, head 10.1, readout 8.3; skipped rounds 0
+  dflash:tree: tokens equal to 4E's over 64; 5.80 drafted tokens accepted a pass, 10 passes; verify 90.6 ms, drafter 54.24 ms, rest of the host 1.0 ms; 439.0 tok/s [438.9-458.0], 699.2 without the drafter [699.1-699.4]; x2.030 of greedy
+  dflash:tree: drafter wall a generation, ms (median): context extension 11.5, block 21.6, head 11.2, readout 9.0; skipped rounds 0
+== code: prompt 49 tokens; 4E greedy 228.0 tok/s [228.0-228.0] over 64 tokens
+       null: tokens equal to 4E's over 64; 0.00 drafted tokens accepted a pass, 64 passes; verify 451.3 ms, drafter 0.00 ms, rest of the host 0.3 ms; 141.7 tok/s [141.6-141.7], 141.7 without the drafter [141.6-141.7]; x0.621 of greedy
+   oracle:3: tokens equal to 4E's over 64; 3.00 drafted tokens accepted a pass, 16 passes; verify 115.7 ms, drafter 0.00 ms, rest of the host 0.2 ms; 552.3 tok/s [551.9-552.4], 552.3 without the drafter [551.9-552.4]; x2.422 of greedy
+   oracle:3: check, greedy x (K + 1) / c_5 = 228.0 x 4 / 1.611 = 566.1 tok/s, measured 552.3 without the drafter 552.3
+  dflash:chain: tokens equal to 4E's over 64; 3.64 drafted tokens accepted a pass, 14 passes; verify 111.4 ms, drafter 70.48 ms, rest of the host 0.2 ms; 351.5 tok/s [348.9-362.9], 573.3 without the drafter [573.0-573.5]; x1.541 of greedy
+  dflash:chain: drafter wall a generation, ms (median): context extension 13.0, block 29.4, head 15.8, readout 11.5; skipped rounds 0
+  dflash:tree: tokens equal to 4E's over 64; 4.42 drafted tokens accepted a pass, 12 passes; verify 95.4 ms, drafter 56.19 ms, rest of the host 0.3 ms; 421.0 tok/s [405.5-423.2], 668.9 without the drafter [667.8-669.2]; x1.846 of greedy
+  dflash:tree: drafter wall a generation, ms (median): context extension 7.1, block 25.4, head 13.5, readout 9.8; skipped rounds 0
+== math: prompt 68 tokens; 4E greedy 226.5 tok/s [226.5-226.6] over 64 tokens
+       null: tokens equal to 4E's over 64; 0.00 drafted tokens accepted a pass, 64 passes; verify 453.0 ms, drafter 0.00 ms, rest of the host 0.4 ms; 141.2 tok/s [141.1-141.2], 141.2 without the drafter [141.1-141.2]; x0.623 of greedy
+   oracle:3: tokens equal to 4E's over 64; 3.00 drafted tokens accepted a pass, 16 passes; verify 116.1 ms, drafter 0.00 ms, rest of the host 0.2 ms; 550.3 tok/s [549.8-550.3], 550.3 without the drafter [549.8-550.3]; x2.429 of greedy
+   oracle:3: check, greedy x (K + 1) / c_5 = 226.5 x 4 / 1.601 = 565.8 tok/s, measured 550.3 without the drafter 550.3
+  dflash:chain: tokens equal to 4E's over 64; 4.92 drafted tokens accepted a pass, 12 passes; verify 95.7 ms, drafter 63.02 ms, rest of the host 0.3 ms; 402.4 tok/s [400.8-421.5], 666.1 without the drafter [665.9-666.6]; x1.777 of greedy
+  dflash:chain: drafter wall a generation, ms (median): context extension 12.3, block 25.5, head 13.5, readout 10.8; skipped rounds 0
+  dflash:tree: tokens equal to 4E's over 64; 6.00 drafted tokens accepted a pass, 10 passes; verify 79.7 ms, drafter 53.71 ms, rest of the host 0.3 ms; 478.8 tok/s [478.6-505.1], 800.4 without the drafter [800.3-800.5]; x2.114 of greedy
+  dflash:tree: drafter wall a generation, ms (median): context extension 11.5, block 21.1, head 11.3, readout 9.0; skipped rounds 0
+summary
+  chat null: 141.8 tok/s, x0.623 of 4E greedy 227.5
+  chat oracle:3: 552.7 tok/s, x2.429 of 4E greedy 227.5
+  chat dflash:chain: 236.5 tok/s, x1.039 of 4E greedy 227.5
+  chat dflash:tree: 272.8 tok/s, x1.199 of 4E greedy 227.5
+  rag null: 136.3 tok/s, x0.630 of 4E greedy 216.3
+  rag oracle:3: 530.7 tok/s, x2.453 of 4E greedy 216.3
+  rag dflash:chain: 482.4 tok/s, x2.230 of 4E greedy 216.3
+  rag dflash:tree: 439.0 tok/s, x2.030 of 4E greedy 216.3
+  code null: 141.7 tok/s, x0.621 of 4E greedy 228.0
+  code oracle:3: 552.3 tok/s, x2.422 of 4E greedy 228.0
+  code dflash:chain: 351.5 tok/s, x1.541 of 4E greedy 228.0
+  code dflash:tree: 421.0 tok/s, x1.846 of 4E greedy 228.0
+  math null: 141.2 tok/s, x0.623 of 4E greedy 226.5
+  math oracle:3: 550.3 tok/s, x2.429 of 4E greedy 226.5
+  math dflash:chain: 402.4 tok/s, x1.777 of 4E greedy 226.5
+  math dflash:tree: 478.8 tok/s, x2.114 of 4E greedy 226.5
+specbench exit 0
+control 2: the served 4E v9 module

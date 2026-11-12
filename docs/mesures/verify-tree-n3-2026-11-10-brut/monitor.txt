@@ -1,0 +1,7 @@
+[stage] ERROR Job failed with exit code: 1. Reason: Error
+[13 min billed · 0.40 $]
+
+[end] ERROR: 0.22 h billed, 0.40 $
+
+[VRAM] no metric received. A Job launched with --detach and observed afterwards
+       has none: the stream is live and the endpoint 500s once the Job is done.

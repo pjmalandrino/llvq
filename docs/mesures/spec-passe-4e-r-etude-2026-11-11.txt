@@ -1,0 +1,206 @@
+SPEC PASS GROWN FROM 4E'S ROW LOOP (4E-R): A DESIGN STUDY, SEALED 4B, L40S SHAPES, 2026-11-11. $0.
+================================================================================================
+Result: a multi-row pass grown from 4E's own row loop is bit-identical to 4E row by row, but each added row costs
+about 0.22 of a 4E token [0.19, 0.26] (*estimated*), because the measured cost of a second f32 activation in 4E's
+Tetra loop is 0.378 of the loop (*measured*, shaker-4e and spec-micro). So it wins only at R = 2 to 4: c_2 1.22, c_3
+1.44, c_4 1.66 (*estimated*), against a12's 1.556 at R = 2 (*measured*). For the weightless drafter at R = 3 that
+projects 265 tok/s [239, 278] on GSM8K against 244 for a12 at 16 rows and 218.8 for greedy (*estimated*). For DFlash it
+loses: a12's tree stays at about 502. The register-fed MMA variant (B) has the better slope but is not bit-identical and
+its fixed cost is unknown. Build first: (C), K = 2 and 3 on 4E's natural staging. Riskiest assumption: the micro's
+f = 0.378 holds in situ. Smallest test: a zero-layout K = 2 probe of the 4E module, about $0.30 on one L40S.
+Nature : read-only, *computed* from the code and the journals cited, *estimated* where marked. No build, no run.
+Inputs : llvq-cuda/kernels/pers_4e.cu, llvq_pers.cuh (sections 2 to 10), llvq_f1rank_v3.cuh, llvq_f1rank.cuh,
+         llvq_tetra48.cuh, pers_trows.cu, pers_vrows.cu; journals verify-tree-s1, n1 to n11, spec-axe-memoire,
+         spec-loop-sp8, spec-brouillon-sans-poids-mac (histograms in its report.txt), step3-4e, served-v9, shaker-4e,
+         spec-micro-2026-11-08, sass-tetra-lean-2026-11-08; ops/debit_maths.py (in-situ split of the 4B token).
+
+1. THE 4E v9 ROW LOOP AS WRITTEN
+--------------------------------
+Served form: PERS_4E_ROWS = 7, 512 threads a CTA, one CTA a SM, 142 CTAs, 128 registers, 0 B local, 85,952 B shared
+(step3-4e). Tetra rows run pers_tetra_rows_static, which calls pers_tetra_row<24, false, true> row by row.
+Row assignment. A CTA owns a static slice of rows; warp w takes rows lo + w, lo + w + 16, and so on. One warp is one row
+at a time. Lane l takes blocks j = l, l + 32, l + 64 of that row.
+Word decode, a lane a block (f1r_load, f1r_v3_quads):
+- two u32 loads at word (3j) >> 1, and lo / hi16 selected by the parity of j: 6 bytes a block, a warp reads 192
+  contiguous bytes a step; block j + 32's words are loaded while block j decodes (PF);
+- fields p, r, s8, b1, i1, b2, i2, b3, i3 by shifts and masks;
+- six shared-table reads: prefix, branch, suffix (the chain s8 to br to s16 to c3), three rank rows of 4,096 u32;
+- three sections of two quads each, by two prmt and a byte mask (IMAD, IMAD, LOP) and one LOP3;
+- six quads of biased bytes, value + 128, |value| <= 10, in TETRA48_ORDER;
+- 24 floats by prmt into 0x4b0000xx minus the bias, two instructions a coordinate.
+Dot and fold (pers_block): 24 __fmaf_rn from 0 against xb[TETRA48_ORDER[4i + j]], then pers_fold: the shell m from
+dp4a of the XORed quads (tetra48_n2), t = a x gscale[g] (FMUL), acc = fma(t, invnorm[m], acc).
+Activation. f32 in shared memory, staged by every CTA in its own copy, natural layout b x 24 + c, the f16 tail after
+the last block. For q and k it is ln1(x) rotated (pers_ln_1rt then pers_rot_finish, every CTA on the whole vector).
+Reduction. Each lane sums its blocks in increasing j; warp_sum (XOR butterfly); lane 0 adds the f16 tail in order,
+fma(acc, rscale, tail), f2h. No shared-memory reduction and no CTA barrier inside a row phase.
+int4 rows (v, o, the 12 int4 downs, and the head in g64): pers_q4_row_tile on words relaid at install. One uint4 load
+gives lane l words 128t + l + 32s, s = 0..3. Each word: scale and bias of its group of 128 from global, eight
+deq = fadd(fmul(h2f(s), q), h2f(b)) and eight fma against xs[c + k] in increasing k, then warp_sum. The inputs of the
+int4 rows are f16-exact: v reads ln1(x) widened, o reads ctx widened, the int4 down reads the f16 product.
+Phases. One grid barrier a phase boundary, 2 + 6 x layers a token (pers.rs::n_bar_4e), 218 at 4B; form 5 stages the
+next layer's constants during the waits. Attention has no barrier inside: a per-KV-head ticket folds its 256-position
+splits.
+Shared layout (*computed* from the code and the module sizes): header 256 B, decoder tables 18,816 B, one region of
+59,520 B that is both the row phases' f32 vector (max(inter, 2 x hidden) = 38,912 B) and attention's cp.async ring,
+the form 5 area 7,360 B. Headroom to the sm_89 limit of 101,376 B: 15,424 B.
+In-situ split of the 4B token (ops/debit_maths.py, *computed* from v6 stamps, v8 and v9 kept the loop): Tetra rows
+1.81 ms, int4 rows 0.551 ms, head 0.36 ms, of a token of 4.467 ms in one-token launches (n11, *measured*).
+
+2. THE COST OF AN ADDED ROW IN THE SCALAR LOOP: ALREADY MEASURED
+----------------------------------------------------------------
+The K2 arm of pers_trows.cu (trows_row_k2) is design A at R = 2: one decode, two f32 activations, each sum in the
+served order. Its rows equal the one-activation rows bit for bit on both activations (*measured*, shaker-4e).
+The second row costs f = 0.378 [0.365-0.398] of the loop (shaker-4e) and 0.381 [0.377-0.384] (spec-micro), at 4E's
+geometry, standalone (*measured*).
+By instruction count the added row is 24 FFMA, about 15 LDS after merging, and a FMUL and FFMA of the fold: about 41
+of the served 237 a block, a ratio of 0.17 (*computed* from the source, not from SASS). The measured 0.378 is twice
+that, in line with "237 to 145 gave only x1.143".
+A likely cause, not measured: the natural stride of 24 words puts lanes l and l + 4 on the same bank, so each scalar
+LDS of the activation is 8-way conflicted (*computed* from the address formula). The trio staging of llvq_pers.cuh
+section 3 (pers_block_trio, the same 24 fma on the same values in the same order, so the same bits) reads six LDS.128
+at a stride of 28 words, which no quarter-warp conflicts on (*computed*). It has never been timed with K > 1.
+Tetra part of an added row in situ: 0.378 x 1.81 ms = 0.684 ms = 0.153 of a 4E token (*computed* from a measured f
+and a computed in-situ time; that the micro's f holds in situ is *estimated*).
+
+3. DESIGN A: 4E-R, SCALAR, GENERAL R
+------------------------------------
+Shape. 4E's phase list, grid, barrier count, row assignment and word stream are kept. Every row function takes K
+activations: a block is decoded once and dotted K times, each dot its own fma chain in the served order, each row its
+own warp_sum and epilogue. The words are read once for K rows, so no DRAM byte is added.
+Activation for R rows: in the 59,520 B region, R vectors side by side. The int4 inputs are f16-exact, so they can be
+staged as f16 and widened at the read with the same values (bit-identical). Per added row (*computed*):
+  q/k/v    xr f32 10,240 B + xn f16 5,120 B   R <= 3 in 59,520 B; R = 4 if the form 5 area moves above it (74,944 B)
+  o        ctx f16 8,192 B                     R <= 7
+  gate/up  f32 10,240 B (trio 11,936 B)        R <= 5 (trio 4)
+  int4 dn  f16 19,456 B                        R <= 3
+  Tetra dn f32 38,912 B (trio 45,392 B)        R = 1 only: R >= 2 needs d_in slices
+Down slices. Slice boundaries at multiples of 32 blocks keep every lane's blocks in increasing j, with the lane's
+accumulator live across the slices, so the bits are kept. The cost is one CTA barrier and one restage a slice: 2 slices
+at R = 2, 3 at R = 4 (natural staging), 24 Tetra-down layers. No cross-CTA fold: each CTA still owns whole rows. That
+is what separates it from the tree pass, whose cross-CTA partial fold cost 0.22 of a token at R = 1 and 1.00 at R = 16
+in n3, and about 600 us of fold phases at vt1 in n11.
+Registers. Each added row adds about 2 to 4 live registers in the Tetra loop (*estimated*). The v9 symbol sits at the
+128-register cap of 512 threads; v7 was refused for 24 B of local memory at 128. So R = 2 is already a register risk,
+and R >= 8 means 384 threads, which is a10t384's geometry, not 4E's.
+What R the CTA holds: R <= 3 without moving anything but the down's slices, R = 4 with the form 5 area moved, R >= 5
+only with slices in every phase and a new thread count.
+Cost per added row (*estimated*, at GSM8K contexts):
+  Tetra rows      0.153 natural staging (from the measured f); 0.08 to 0.12 with trio staging (f 0.19 to 0.30,
+                  between i16's measured 0.187 and f32's 0.378; trio at K > 1 never timed)
+  int4 rows       0.019 to 0.043 (f 0.15 to 0.35 of 0.551 ms; never measured)
+  head            0.012 to 0.028 (same f on 0.36 ms)
+  other phases    0.005 to 0.02: the prologues on 4E's path, per-row norm, RoPE and append, per-row attention
+                  arithmetic. Bounded by a10t384r16's whole extra row, 0.0123 at chat and 0.0236 at rag (*measured*, n11)
+  down slices     0.003 to 0.01
+  total           natural 0.22 [0.19, 0.26]; trio 0.16 [0.12, 0.26]
+c_R (c_1 by dispatch to the served symbol; others *estimated*):
+                  c_1    c_2    c_4                 c_8                 c_16
+  natural         1.00   1.22   1.66 [1.57, 1.78]   2.54 [2.33, 2.82]   4.30 [3.85, 4.90]
+  trio            1.00   1.16   1.48 [1.36, 1.78]   2.12 [1.84, 2.82]   3.40 [2.80, 4.90]
+  c_8 and c_16 need slices everywhere and a thread count 4E does not run: they are not buildable as 4E-R.
+
+4. DESIGN B: A SMALL MMA FED FROM REGISTERS
+-------------------------------------------
+Premise check against the v9 code (the note of 2026-11-09, about 212 instructions a block for 8 rows against 237):
+- Holds: the weights fit an int8 fragment. A quad XOR 0x80808080 is four signed int8 values; tetra48_n2 already
+  computes that XOR for dp4a. Six quads plus two zero quads make K = 32 of mma.m16n8k32.s8. The quads carry
+  coordinates in TETRA48_ORDER, so the activation must be staged in that order, as trio staging does.
+- Fails: the fragment does not come from 4E's row loop. An MMA's A rows share one B, so its M = 16 rows must be 16
+  weight rows at the same block position. 4E's warp holds one row and 32 blocks. Thread (g, t) needs quads t and t + 4
+  of rows g and g + 8: about 12 SHFL and 8 selects a thread an MMA, about 24 SHFL a lane a block (*computed*). The row
+  assignment changes to 16 rows a warp, a warp's word load touches 16 rows' sectors instead of one 192 B run (the
+  concern M1 wrote for a12ip), and a CTA's slice of 18 down rows fills 16-row tiles at 56 %.
+- Fails: bit identity. The int8 MMA needs an integer activation. Two int8 planes of an int16 activation measured 91.6 %
+  rows identical, 0 out of tolerance, worst |dy| 6.4e-3 of the rms (spec-micro, *measured*). An f16 MMA rounds the
+  activation and accumulates in another order. No MMA reproduces 4E's sequential fma chain.
+- My own count (*computed* from the source): decode about 148, gather 40, B fragments and D fold about 40, about 228
+  a decode for up to 8 rows against 237. The 212 is plausible in kind; counts are a weak predictor here.
+So B is a12 without the shared tile and without cross-CTA folds, not a variant of 4E's loop.
+Cost (*estimated*): c_1 1.00 by dispatch to 4E. Fixed cost at R >= 2 0.05 to 0.30: 4E's rows (2.72 ms) times the
+measured x1.27 of decode+MMA loops at worst, plus the scattered word stream. Per added row 0.012 to 0.020 (a10's
+0.0123 and S1's 0.0196, *measured*). c_4 1.11 to 1.36, c_8 1.15 to 1.44, c_16 1.25 to 1.60, central 1.20 / 1.26 /
+1.39. Texts would differ from 4E's on near-ties, as the tree pass's 23 of 200 GSM8K texts do.
+
+5. DESIGN C: R = 2 TO 4, 4E'S STRUCTURE UNTOUCHED
+-------------------------------------------------
+The cheapest thing that verifies a short chain. K is a template parameter of the row functions, K in {2, 3, 4}. For
+K = 1 the served module runs, so c_1 = 1.00 by construction.
+- Tetra rows: trows_row_k2's body generalized to K, on 4E's natural staging (the measured arm, bit for bit).
+- int4 rows: pers_q4_row_tile with the dequantized value reused for K fma chains.
+- Staging: R = 2 fits as today's f32 layout (q/k/v 40,960 B); R = 3 stores the f16-exact inputs as f16. The only
+  structural change is the Tetra down's 2 or 3 slices.
+- Phase list, barrier count (218), grid, 512 threads, row assignment, word stream: unchanged.
+- Chains only. A tree's siblings share a position, and 4E's attention reads the cache by position; a chain keeps every
+  row's attention equal to 4E's at its own position.
+c_2 1.22 [1.19, 1.26], c_3 1.44 [1.38, 1.52], c_4 1.66 [1.57, 1.78] (*estimated*, section 3's natural row cost).
+Not offered: c_8, c_16.
+
+6. THE REST OF A MULTI-ROW PASS THAT 4E DOES NOT HAVE
+-----------------------------------------------------
+- Norm, RoPE, append: R rows at positions pos .. pos + R - 1, one CTA a head as 4E does: 40 jobs a row, 120 at R = 3
+  on 142 CTAs, one wave. The appended K/V of rejected rows are overwritten by the next pass; nothing to undo.
+- Attention: a job is a KV head over a 256-position split. With R rows a job loads its K/V once and runs R x groups
+  query rows, row i masked past pos + i. Row i must use the split count 4E would use at pos + i, ceil((pos + i + 1) /
+  256), and the same fold order, so jobs and tickets go per (KV head, row). The added row pays only the score,
+  softmax and PV arithmetic.
+- Head: K-row int4 g64 over 151,936 rows, one argmax slot a row with 4E's packed keys. Recycling's top-k a row is an
+  extra not in 4E; its cost is inside the drafter's 0.75 ms below.
+- Taps (DFlash only): the R rows' residual at the tap layers, 5,120 B a row a layer. Negligible (*computed*).
+- Launches: one launch a pass, as the measured c's already assume (n11 times 4E in one-token launches).
+Bit identity: every row of A and C runs 4E's arithmetic on its own activation. That holds for the Tetra blocks
+(trows_row_k2, *measured*), int4 words, warp_sum, epilogue, norms, RoPE, attention splits and argmax keys, so each row's
+token is 4E's greedy token at that position (by construction, to be held by the host twin). The text is the served
+greedy text, not "no measured difference". B is not bit-identical.
+
+7. PROJECTED tok/s ON GSM8K (*estimated*)
+-----------------------------------------
+Model: tok/s = (1 + accepted) / (c_R x 4.570 ms + drafter), 4.570 ms = greedy 218.8 tok/s. It reproduces a12's
+measured figures: 244.4 for the weightless drafter (the Mac journal's projection) and 506 against 502.1 measured for
+DFlash, with c_16 = 8.53 / 4.570 = 1.866 at GSM8K contexts. a12's other c are its chat values x 1.08.
+Acceptance at fewer rows (*computed* from histograms):
+- weightless comb8w, GSM8K 40-99: E[min(a, R - 1)] = 0.602, 0.941, 1.106 at R = 2, 3, 4. That is an upper bound: a
+  best-first tree of R - 1 nodes accepts at most that. Brackets below use 0.8 of it (*estimated*).
+- DFlash chain: exact by truncation on the house set only. House math chain: 0.830, 1.465, 1.962, 3.137 at R = 2, 3,
+  4, 8. GSM8K has no chain run: scaled by GSM8K tree over house math tree (5.406 / 4.854) it reads 0.92, 1.63, 2.19,
+  3.49 (*estimated*). The GSM8K tree histogram truncated (0.97, 1.84, 2.56, 4.32) bounds a tree of R - 1 nodes from
+  above.
+Weightless (drafter 0.75 ms; 0.40 ms in the second figure):
+  pass                R    c       tok/s            accepted x 0.8
+  a12 today           16   1.866   244              217
+  C natural            2   1.22    253 / 268        234
+  C natural            3   1.44    265 / 278        239
+  C natural            4   1.66    253 / 264        226
+  A trio               3   1.32    286 / 302        258
+  B central            4   1.20    338 / 358        303
+Break-even accepted a pass under C natural: 0.38, 0.60, 0.82 at R = 2, 3, 4 (*computed*).
+DFlash (chain, drafter 3.37 ms, house chain measured; tree, 4.15 ms):
+  a12 tree 16 rows 505 (502.1 *measured*). C natural chain at R = 4 291, at R = 8 300. A trio chain at R = 8 344.
+  B central tree at R = 16 at most 610, chain 556.
+Reading: C buys the weightless profile about 20 tok/s over a12 (+9 %) and keeps the served text; it does nothing for
+DFlash. Only B moves DFlash, and only if its fixed cost comes in under about 0.2 of a token.
+
+8. WHAT I WOULD BUILD FIRST
+---------------------------
+C at K = 2 and 3, on 4E's natural staging. It is the measured arm (trows_row_k2) placed in the served module, the only
+design that keeps 4E's bits and the served text, and the only one whose dominant term has a measured basis. A trio
+staging step follows if C holds; B stays a separate route under the tolerance rule, not under identity.
+Riskiest assumption: an added f32 activation costs about 0.38 of the Tetra loop in situ, as in the standalone micro.
+The in-situ Tetra rows (1.81 ms, *computed*) sit at the micro's word-stream time (pword 1.81 ms against v2 2.51 ms),
+so the added row could be partly hidden (c_2 near 1.10) or fully exposed and worse (c_2 above 1.30, where C no longer
+pays at R = 3). A second risk: the K = 2 symbol leaves the 128-register cap with local memory.
+Smallest experiment, in two steps:
+1. $0, Mac: compile a 4E v9 module whose Tetra and int4 row functions take K = 2, with the Mac's devel ptxas for sm_89
+   (ops/tetra-sass-probe.sh). Gate: 128 registers, 0 B local. The driver's ptxas can still differ.
+2. One l40sx1 job, about 10 min, about $0.30 (*estimated*, from step3-4e's $0.28 for 9 min): a zero-layout probe. The
+   second activation is the first buffer plus a kernel-argument offset set to 0, so the compiler cannot merge the two
+   dots. The shared layout is unchanged and the down needs no slices. Time it against the served module in one-token
+   launches, rounds interleaved, with the oracle and identity gates of n11. Read c_2(probe). Under 1.15, C goes on to
+   real activations. Above 1.25, C stops, since its R = 3 projection then falls under 250 tok/s.
+Both steps need the operator's go, and the card step a stamped prereg.
+
+NOT ESTABLISHED
+---------------
+Any time of A, B or C on a card. f for K = 3 or 4 in f32, or for trio staging at any K. f for the int4 rows and the
+head. The weightless drafter's acceptance at 2 or 3 nodes (a $0 Mac replay of ops/spec_sans_poids.py would give it).
+The cost of the top-k for recycling at R <= 4. Any 8B or 14B shape. Any card but the L40S.

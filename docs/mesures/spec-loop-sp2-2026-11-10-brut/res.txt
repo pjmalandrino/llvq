@@ -1,0 +1,3 @@
+res: NVIDIA L40S (sm_89), tile define "#define TILE_BLOCKS 64u", dynamic shared at the 4B's widths and 32 rows
+res a12: module 416225 bytes, sha256 937f6c4005e380e6218400454e0ff167f0363e01fa6252ac7c4ded0a83041cb3
+vtreebench --res exit 124

@@ -1,0 +1,7 @@
+886391a8c03f66dc269cc65c3598c6627dbdcd259180aff36604ef10d37371b8  /out/sealed-4b-2026-09-23/qwen3-4b-sealed.bin
+2de97cdf48f429628074d229d024753f1ea02b575732983d6ed2bc882bbd63c8  /tmp/dflash-b74e3a329c4d963783143b1e970d95b002be72bd/config.json
+a21d0ffe5970c84e9a0710ccb12087d1a4bcbedf979e623476c92c9d005a9cd4  /tmp/dflash-b74e3a329c4d963783143b1e970d95b002be72bd/model.safetensors
+f749eb359c2cf5c8a648ca99fc0f856e620f8adb3f1d233f4c477ff322257f1a  /usr/local/share/llvq/spec-prompts-v1.jsonl
+9e778f58f8a9e6c093aad13abac87ff279c967ab3eb39549910eb47b343c6a48  /usr/local/share/llvq/spec-gsm8k-200.jsonl
+da4edbd6f12184cf8ff938f057500f3e30e35d8c7a351d2e925316d225d62ebc  /usr/local/share/llvq/spec-long-8k-v1.jsonl
+346880b01bd28fd538c576c624fd475e91a0e60db48d81d788004e22d545dc73  /out/spec-loop-sp8-2026-11-11/gsm200.jsonl

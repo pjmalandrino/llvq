@@ -1,0 +1,143 @@
+LARGE-ATTN FT 4E: 4E v9ft, THE ATTENTION TILE'S FULL-TILE PATH IN THE DECODE, AGAINST v9, SEALED 4B, ONE L40S, 2026-11-11. $0.48.
+=================================================================================================================================
+v9ft FAILS for speed under the prereg's rule. At 8,192 tokens it decodes 163.6 tok/s against 163.0 for v9, x1.004
+round by round, for a gate of x1.05 (*measured*). Its logits equal v9's bit for bit at the four contexts and both
+arms give the eager path's 64 tokens (*measured*). The phase stamps show the attention phase shorter at every
+context, by 92 us a token at 8,192 (*measured*). The timed launches keep a fraction of it at 1,024 and none at 4,096
+and 8,192. v9 stays the served kernel.
+
+Decode tok/s (*measured*, median of 5 timed rounds, one process, the arms interleaved):
+  context   v9       v9ft     v9ft over v9, round by round
+  5         239.8    242.1    x1.009 [1.009-1.010]
+  1,024     216.9    222.7    x1.027 [1.027-1.027]
+  4,096     196.9    196.3    x0.997 [0.997-0.998]
+  8,192     163.0    163.6    x1.004 [1.003-1.004]
+
+Nothing is served. No config names v9ft.
+
+Prereg : proofs/preregistration-large-attn-ft-4e-2026-11-11.md, stamped before the job (.ots, commit 36230ff).
+         No deviation file.
+Code   : 906fc83 (the full-tile path pers_attn_full.cuh, 4E arm v9ft through E1's mechanism), e66e2e0 (fusedrun's
+         LLVQ_PERS_4E takes the prompt lengths; the job at four contexts). Mac gates and the tile's SASS:
+         large-attn-tuile-pleine-mac-2026-11-11.txt.
+         That journal's section 5 describes this job at two contexts, 5 and 8,192, about 14 min, timeout 20m ($0.60).
+         It is superseded here: commit e66e2e0 added 1,024 and 4,096 before the prereg, timeout 25m ($0.75), and the
+         job ran at the four contexts.
+Go     : the operator, 2026-11-11 evening ("ok pour ton job"), inside the $25 cap; relayed by the orchestrating session.
+Job    : 6af4f42bab34849891aea584, l40sx1, label name large-attn-ft-4e, output folder large-attn-ft-4e-2026-11-11.
+         - Image hf.co/spaces/Pier-Jean/llvq-runner-cuda, Space sha a03a2bad, built from 36230ff (relayed by the
+           orchestrating session; job-inspect.txt does not carry it). One image for this job and large-prefill-ft.
+         - Created 23:03:07 UTC, RUNNING at 23:07:21 UTC after 253 s of scheduling, COMPLETED at 23:23:17 UTC.
+         - running_secs 955: 15.9 min, $0.48 (*computed* at $1.80/h on the running seconds). Estimated $0.55,
+           $0.75 at worst.
+         - Spend since the go of 2026-11-09: $13.48 before, $13.96 after, of $25.
+         - Registry $320.73 before, $321.21 after. On this branch the rows of docs/data/jobs.csv sum to $320.96 with
+           this one, $0.25 under the registry (*computed* on the Mac; see large-prefill-ft-2026-11-11.txt).
+Raw    : large-attn-ft-4e-2026-11-11-brut/, every file of the bucket folder, fetched one by one with hf buckets cp:
+         gpu.txt, oracle.txt, files.sha256, qwen3-4b-tetra-e4-4e-v9.json, served-v9.txt, e1-all.txt, e1-v9.txt,
+         e1-v9ft.txt, summary.txt, vram.txt and the four samplers vram-*.csv. Added on the Mac: job-inspect.txt (hf
+         jobs inspect, verbatim).
+
+CONTROLS
+--------
+1. Inputs and environment. Holds.
+   - Card: L40S, sm 8.9, 46,068 MiB, driver 580.178.04, 2,520 MHz.
+   - oracle on Qwen3-0.6B: MATCH, max |dhidden| 0.
+   - At their sha256: sealed file 886391a8, config 29b3ef32 (equal to configs/ on the Mac).
+   - No LLVQ_* in the job environment (the job refuses one).
+2. The served door ran the served 4E v9 module (252,757 bytes, sha256 1b422b62). Holds. At a 5-token prompt it
+   decodes 240.7 tok/s [240.5-240.8], its 64 tokens equal to the eager path's (served-v9.txt, *measured*).
+3. The process of step 1 loaded E1's v9 reference (253,722 bytes, d55a097b) and v9ft (258,955 bytes, 22ff8320). Holds.
+4. The image built; both modules built and loaded. Holds. Every fusedrun process exits 0.
+The card's driver ptxas: the timed symbol pers_4e_tokens_f1_t512 is 128 registers and 0 B local in both arms. The
+stamp symbol is 32 B local in v9, 40 B in v9ft. The spills the Mac's ptxas showed in v9ft's row phases do not appear
+on the timed symbol.
+
+DECODE (e1-all.txt, verbatim medians [range] over 5 timed rounds, *measured*)
+----------------------------------------------------------------------------
+  context  eager form                v9 tok/s              v9ft tok/s            v9ft / v9, round by round
+  5        kernel (measurement)      239.8 [239.8-239.9]   242.1 [242.1-242.1]   x1.009 [1.009-1.010]
+  1,024    kernel (measurement)      216.9 [216.8-216.9]   222.7 [222.6-222.8]   x1.027 [1.027-1.027]
+  4,096    served (kernel at 1280)   196.9 [196.8-196.9]   196.3 [196.3-196.3]   x0.997 [0.997-0.998]
+  8,192    served (kernel at 1280)   163.0 [163.0-163.1]   163.6 [163.5-163.6]   x1.004 [1.003-1.004]
+At every context: both arms' 64 tokens equal the eager path's, the served door gives the same 64 tokens, and v9ft's
+logits equal v9's bit for bit (64 positions x 151,936, 9,723,904 values).
+One-arm processes (e1-v9.txt, e1-v9ft.txt), *measured*: v9 239.2 / 216.3 / 196.8 / 162.1, v9ft 241.0 / 221.4 / 196.1
+/ 163.9 tok/s at 5 / 1,024 / 4,096 / 8,192. Their logits fingerprints match the interleaved process's.
+
+WHICH ATTENTION THE FULL TILE IS ON (read in the code)
+----------------------------------------------------
+The summary labels 4,096 and 8,192 "the served config ... inside the T8". That label names the eager side's form,
+not 4E's. fusedrun (bin/fusedrun.rs, the context loop) sets the eager comparator to the kernel attention from
+KERNEL_FROM = 1,280 when the prompt reaches it (the configuration the operator's T8 licensed), and to the kernel on
+every row below it (the measurement form). The grouped path it mentions is the eager config's below 1,280.
+4E's own attention is the same at every context: pers_attention in llvq_pers.cuh calls pers_attn_tile on every tile
+of every split, and v9ft's edit (pers.rs::pers_ft_edit) branches at the head of pers_attn_tile to the full-tile body
+when the tile holds 8 positions. At 4,096 and 8,192 every tile of a row but the last is full. So the full-tile path is
+on 4E's path at the four contexts.
+
+PHASE STAMPS (summary.txt, one stamped launch an arm, 62 tokens, us a token, *measured*)
+---------------------------------------------------------------------------------------
+  context   attention wall v9 -> v9ft          stamped token v9 -> v9ft     timed token v9 -> v9ft
+  5          591.6 ->  509.3  (-82)            4447.7 -> 4353.5  (-94)      4169.3 -> 4130.4  (-39)
+  1,024     1108.2 ->  925.5  (-183)           4899.8 -> 4712.3  (-188)     4611.2 -> 4490.4  (-121)
+  4,096     1561.6 -> 1487.8  (-74)            5347.8 -> 5279.2  (-69)      5079.5 -> 5093.1  (+14)
+  8,192     2653.4 -> 2561.6  (-92)            6406.1 -> 6302.2  (-104)     6135.5 -> 6113.9  (-22)
+The timed token is the 4E launch's token time the stamp report prints beside the stamped one.
+Reading:
+- The stamps show the attention phase moved at every context: -3.5 % of its wall at 8,192, -4.7 % at 4,096, -16.5 %
+  at 1,024 (*computed*). The attention wall at 5 tokens has a wide range (335 to 821 us) and is not read.
+- The other phases move by less than 20 us a token at 8,192 (q/k/v +6, MLP -18, o -1).
+- On the stamp symbol the token falls by about the attention's fall. On the timed symbol it falls by 22 us at 8,192
+  and rises by 14 us at 4,096. The timed gain is a fraction of the stamped one at 1,024 and 5.
+- Why the timed launch does not keep the stamped gain at 4,096 and 8,192 is not established. The two symbols differ
+  (the stamps' own writes, 32 against 40 B of local a thread); this job does not separate them.
+- At 8,192 attention is 41.4 % of v9's stamped token. Even its whole -3.5 % would be about x1.015 on the token
+  (*computed*), under the x1.05 gate. The study's estimate of a tile call, 2,936 to 1,548 cycles (*estimated*), did
+  not reach the phase: it fell 3.5 %. What else holds the phase at 8,192 is not measured here.
+
+PEAK CARD MEMORY (vram.txt, *measured*, GB = MiB x 1,048,576 / 1e9)
+-------------------------------------------------------------------
+  served door (v9 config, 5 tokens)   1.981 GB
+  step 1, both arms in one process    6.720 GB
+  v9 alone                            6.351 GB
+  v9ft alone                          6.351 GB
+These processes hold the measurement's KV at 8,192 and the logits buffers; they are not the served peak.
+
+LOAD TIME
+---------
+Measured: step 1 loaded and checked in 215.0 s, each one-arm process in 65.7 s (v9) and 69.0 s (v9ft).
+
+AGAINST THE SIGNED PREDICTION
+-----------------------------
+Operational readings as fixed in the prereg: "every context" is 5, 1,024, 4,096 and 8,192 in step 1; ratios are the
+median over the 5 timed rounds; v9 against E1 is cross-job; peak is the nvidia-smi peak of each one-arm process.
+  #  quantity                                  signed                         measured                    inside
+  1  v9ft logits bit for bit, tokens 64/64     at every context               the four contexts, 64/64    yes
+  2  v9 within 1.5 % of E1 (cross-job)         236.6 at 5, 161.0 at 8,192     239.8, 163.0                yes (+1.35, +1.24 %)
+  3  v9ft / v9 at 8,192                        x1.055 [1.01, 1.10]            x1.004                      no, low
+  4  v9ft / v9 at 5                            x0.995 [0.97, 1.005]           x1.009                      no, high
+  5  v9ft / v9 at 4,096                        x1.04 [1.00, 1.08]             x0.997                      no, low
+     v9ft / v9 at 1,024                        x1.01 [0.98, 1.03]             x1.027                      yes
+  6  peak of v9ft within 0.02 GB of v9's       equal                          6.351 and 6.351 GB          yes
+Three readings are out. At 8,192 and 4,096 v9ft gains less than signed. At 5 it gains where a loss was signed: the
+spills the prediction priced are not on the card's timed symbol.
+
+VERDICT
+-------
+Decision rule of the prereg:
+- Logits bit for bit at the four contexts; tokens 64 of 64. Holds.
+- v9ft / v9 at 8,192: x1.004, under x1.05. FAILS for speed.
+- v9ft / v9 at 5: x1.009, at least x0.99.
+v9 stays the served kernel. v9ft is not a candidate.
+
+CAVEATS
+-------
+- One card (L40S), one model (4B), one job, 5 timed rounds a context.
+- One stamped launch an arm a context; the stamp symbol is not the timed symbol.
+- v9 against E1 mixes jobs on the same card type and image family.
+
+NOT ESTABLISHED
+---------------
+Why the stamped attention gain does not reach the timed token at 4,096 and 8,192. The full-tile path at 8B, 14B; any
+card but the L40S; the served door under v9ft.

@@ -1,0 +1,139 @@
+{
+ "mode": "frozen",
+ "gsm_range": "40:100",
+ "house": true,
+ "gate": {
+  "text_rows": 24,
+  "text_top1_agree": 24,
+  "text_top8_overlap": 1.0,
+  "off_rows": 9,
+  "off_top1_agree": 9,
+  "off_top8_overlap": 1.0
+ },
+ "arms": [
+  {
+   "name": "rec4c",
+   "kind": "rec",
+   "k": 4,
+   "warm": false,
+   "shape": "mid",
+   "p": [
+    0.55,
+    0.18,
+    0.09,
+    0.06
+   ],
+   "q": 0.0
+  },
+  {
+   "name": "rec4w",
+   "kind": "rec",
+   "k": 4,
+   "warm": true,
+   "shape": "mid",
+   "p": [
+    0.55,
+    0.18,
+    0.09,
+    0.06
+   ],
+   "q": 0.0
+  },
+  {
+   "name": "rec8c",
+   "kind": "rec",
+   "k": 8,
+   "warm": false,
+   "shape": "mid",
+   "p": [
+    0.55,
+    0.18,
+    0.09,
+    0.06,
+    0.04,
+    0.03,
+    0.02,
+    0.015
+   ],
+   "q": 0.0
+  },
+  {
+   "name": "rec8w",
+   "kind": "rec",
+   "k": 8,
+   "warm": true,
+   "shape": "mid",
+   "p": [
+    0.55,
+    0.18,
+    0.09,
+    0.06,
+    0.04,
+    0.03,
+    0.02,
+    0.015
+   ],
+   "q": 0.0
+  },
+  {
+   "name": "look",
+   "kind": "look",
+   "k": 8,
+   "warm": false,
+   "shape": "mid",
+   "p": null,
+   "q": 0.0
+  },
+  {
+   "name": "comb8c",
+   "kind": "comb",
+   "k": 8,
+   "warm": false,
+   "shape": "mid",
+   "p": [
+    0.55,
+    0.18,
+    0.09,
+    0.06,
+    0.04,
+    0.03,
+    0.02,
+    0.015
+   ],
+   "q": 0.9
+  },
+  {
+   "name": "comb8w",
+   "kind": "comb",
+   "k": 8,
+   "warm": true,
+   "shape": "mid",
+   "p": [
+    0.55,
+    0.18,
+    0.09,
+    0.06,
+    0.04,
+    0.03,
+    0.02,
+    0.015
+   ],
+   "q": 0.9
+  }
+ ],
+ "stats": {
+  "fwd_s": 1697.9,
+  "rows": 835648,
+  "fwds": 16827,
+  "nodes": 1235715
+ },
+ "table_bytes": {
+  "rec4c": 2430976,
+  "rec4w": 2430976,
+  "rec8c": 4861952,
+  "rec8w": 4861952,
+  "look": 0,
+  "comb8c": 4861952,
+  "comb8w": 4861952
+ }
+}

@@ -1,0 +1,138 @@
+SPEC-LOOP SP4: DFLASH ON THE HOUSE SET OF 44 PROMPTS, UP TO 256 TOKENS, SEALED 4B, ONE L40S, 2026-11-11. $0.32.
+=============================================================================================================
+NOT VALID under the prereg's rule: 4 of the 44 prompts mismatch 4E's greedy tokens, for both drafters (8 of 88 runs), at
+the same generated position and with the same token for the chain and the tree (*measured*):
+
+  gsm8k-test-0004 (math)  token 251: the loop 11, 4E 279; the pass's logits 31.09375 and 31.09375, margin 0.0000
+  chat-02 (chat)          token 84:  the loop 11, 4E 518; logits 33 and 32.96875, margin 0.0312
+  chat-03 (chat)          token 107: the loop 4751, 4E 382; logits 27.59375 and 27.578125, margin 0.0156
+  chat-07 (chat)          token 71:  the loop 326, 4E 6185; logits 24.859375 and 24.859375, margin 0.0000
+
+Every margin is zero or one or two binary16 steps of the logit (0.0156 at 16 to 32, 0.0312 at 32 to 64), and both
+drafters break at the same place, so the drafter's proposals are not the cause: the verify pass's own argmax departs
+from 4E's at near-ties (*computed* reading; not established by this job). In the two exact ties the loop keeps the
+lower token id (11 < 279, 326 < 6185). The prereg's rule stops the series until this is explained.
+
+The rest, read for the record. The control line holds: one 64-token 4E launch equals two chained 32-token launches. The
+tree runs at x1.470 of greedy over all prompts (x1.957 math, x1.451 code, x1.024 chat, x1.189 rag), the chain at x1.202;
+drafted tokens accepted a pass, tree: 4.84 math, 3.16 code, 1.93 chat, 3.62 rag. Every acceptance, speed and share
+prediction falls inside its interval.
+Prereg : proofs/preregistration-spec-loop-sp4-2026-11-11.md (sha256 db9cbb41), stamped before the job (.ots, commit
+         3aec200). No deviation.
+Go     : the operator, 2026-11-10 evening ("a real test on the card"); cap $15 with leave to launch from about 21:45 CET;
+         relayed by the orchestrating session.
+Job    : 6af3b997ab34849891ad7265, l40sx1, image hf.co/spaces/Pier-Jean/llvq-runner-cuda at Space sha f6dea799 (its
+         COMMIT file names 3aec200, published from a clean detached checkout of that commit, perimeter clean, 528 files;
+         kernel, bench and runtime sources equal to 202c2d7's; the image ships ops/data/spec-prompts-v1.jsonl, commit
+         22f6563), ops/jobs/spec-loop-sp4.sh, job timeout 36 min. Submitted 01:40 CET, RUNNING at about 01:58 (about 17 min
+         of queue, not billed), COMPLETED by 02:08 (specbench exit 1 on the mismatches; the body is non-fatal per step).
+         11 min billed, $0.32 (*measured*, ops/run.py monitor). VRAM: no metric received. Registry $312.63 before,
+         $312.95 after; spend since the go $5.70 of $15.
+Raw    : spec-loop-sp4-2026-11-11-brut/: gpu.txt (NVIDIA L40S, 8.9, 46,068 MiB, driver 580.178.04, 2,520 MHz),
+         oracle.txt, files.sha256 (sealed file, fixture, drafter files, prompt set), drafter.sha256,
+         qwen3-4b-tetra-e4-4e-v9.json, dflashcheck-f16.txt, spec.txt (every prompt, every line), summary.txt, monitor.txt,
+         queue.txt.
+
+CONTROLS
+--------
+1. oracle on Qwen3-0.6B: MATCH. Sealed file 886391a8, fixture 636f664d, drafter config.json 2de97cdf and
+   model.safetensors a21d0ffe, prompt set f749eb35 (in the image), config 29b3ef32. LLVQ_* refused. Holds.
+2. 4E's module 252,757 bytes, sha256 1b422b62, row form 7. Holds.
+3. The image built. Holds.
+4. "control: one 64-token 4E launch against two chained 32-token launches on gsm8k-test-0000: the same 64 tokens". Holds.
+Step (a), dflashcheck f16: "equivalence (F16): rounds 6: chain equal 6/6, tree equal 3/6; logits rel 1.72e-3, lse rel
+5.56e-4, hidden rel 1.99e-3 ... PASS"; f32 6/6 and 6/6, PASS. The drafter ran in f16 (1,140.4 MB). a12: 168 registers,
+736 B local, 78,848 B shared; load and install 416.3 s.
+Hard gate: 40 of 44 prompts equal, for the chain and for the tree. FAILS. The mismatch lines, verbatim:
+dflash:chain: MISMATCH at generated token 251: the loop Some(11), 4E Some(279); logit 31.09375 for the loop's 11, 31.09375 for 4E's 279: margin 0.0000
+dflash:tree: MISMATCH at generated token 251: the loop Some(11), 4E Some(279); logit 31.09375 for the loop's 11, 31.09375 for 4E's 279: margin 0.0000
+dflash:chain: MISMATCH at generated token 84: the loop Some(11), 4E Some(518); logit 33 for the loop's 11, 32.96875 for 4E's 518: margin 0.0312
+dflash:tree: MISMATCH at generated token 84: the loop Some(11), 4E Some(518); logit 33 for the loop's 11, 32.96875 for 4E's 518: margin 0.0312
+dflash:chain: MISMATCH at generated token 107: the loop Some(4751), 4E Some(382); logit 27.59375 for the loop's 4751, 27.578125 for 4E's 382: margin 0.0156
+dflash:tree: MISMATCH at generated token 107: the loop Some(4751), 4E Some(382); logit 27.59375 for the loop's 4751, 27.578125 for 4E's 382: margin 0.0156
+dflash:chain: MISMATCH at generated token 71: the loop Some(326), 4E Some(6185); logit 24.859375 for the loop's 326, 24.859375 for 4E's 6185: margin 0.0000
+dflash:tree: MISMATCH at generated token 71: the loop Some(326), 4E Some(6185); logit 24.859375 for the loop's 326, 24.859375 for 4E's 6185: margin 0.0000
+
+AGGREGATES (*measured*, as printed: tok/s = total tokens over total wall, x greedy likewise; median over prompts with
+its range; one timed run a prompt; the template opens the assistant turn with thinking off)
+----------
+config dflash:chain: arm a12@8.10.8.20.6 (A12), plan [8, 10, 8, 20, 6], 384 threads, row cap 16, drafter revision b74e3a329c4d963783143b1e970d95b002be72bd, dtype F16, shape Chain(15), N 256
+  dflash:chain  chat: 10 prompts, 2253 tokens, 7 of 10 equal; 1.25 accepted a pass, histogram 0..15 [427, 288, 145, 68, 37, 23, 11, 7, 1, 3, 0, 1, 4, 1, 0, 0]; 172.2 tok/s, greedy 220.6, x0.780; per prompt x0.768 [0.537-1.017]; verify 64 %, drafter 36 % of the wall
+  dflash:chain  code: 10 prompts, 2560 tokens, 10 of 10 equal; 2.40 accepted a pass, histogram 0..15 [192, 201, 100, 85, 62, 41, 20, 13, 11, 11, 6, 4, 3, 2, 6, 5]; 259.8 tok/s, greedy 219.9, x1.182; per prompt x1.136 [0.976-1.706]; verify 64 %, drafter 36 % of the wall
+  dflash:chain  math: 20 prompts, 4924 tokens, 19 of 20 equal; 3.95 accepted a pass, histogram 0..15 [172, 197, 140, 106, 77, 61, 47, 43, 25, 19, 21, 13, 16, 16, 9, 51]; 371.3 tok/s, greedy 219.1, x1.695; per prompt x1.629 [1.342-2.740]; verify 64 %, drafter 36 % of the wall
+  dflash:chain   rag: 4 prompts, 865 tokens, 4 of 4 equal; 2.94 accepted a pass, histogram 0..15 [57, 44, 32, 24, 15, 12, 6, 5, 10, 6, 6, 4, 1, 2, 1, 0]; 208.9 tok/s, greedy 207.6, x1.007; per prompt x1.042 [0.680-1.446]; verify 72 %, drafter 27 % of the wall
+  dflash:chain   all: 44 prompts, 10602 tokens, 40 of 44 equal; 2.57 accepted a pass, histogram 0..15 [848, 730, 417, 283, 191, 137, 84, 68, 47, 39, 33, 22, 24, 21, 16, 56]; 262.8 tok/s, greedy 218.6, x1.202; per prompt x1.403 [0.537-2.740]; verify 65 %, drafter 35 % of the wall
+config dflash:tree: arm a12@8.10.8.20.6 (A12), plan [8, 10, 8, 20, 6], 384 threads, row cap 16, drafter revision b74e3a329c4d963783143b1e970d95b002be72bd, dtype F16, shape Tree(15), N 256
+   dflash:tree  chat: 10 prompts, 2253 tokens, 7 of 10 equal; 1.93 accepted a pass, histogram 0..15 [143, 193, 224, 115, 54, 23, 12, 3, 4, 2, 1, 0, 2, 0, 0, 0]; 226.0 tok/s, greedy 220.6, x1.024; per prompt x1.015 [0.812-1.304]; verify 64 %, drafter 36 % of the wall
+   dflash:tree  code: 10 prompts, 2560 tokens, 10 of 10 equal; 3.16 accepted a pass, histogram 0..15 [61, 121, 130, 101, 72, 46, 40, 11, 9, 11, 9, 4, 1, 3, 2, 5]; 318.9 tok/s, greedy 219.9, x1.451; per prompt x1.412 [1.149-1.929]; verify 64 %, drafter 36 % of the wall
+   dflash:tree  math: 20 prompts, 4924 tokens, 19 of 20 equal; 4.84 accepted a pass, histogram 0..15 [29, 104, 139, 121, 138, 55, 60, 44, 29, 23, 17, 13, 23, 17, 6, 38]; 428.6 tok/s, greedy 219.1, x1.957; per prompt x1.912 [1.555-2.783]; verify 62 %, drafter 38 % of the wall
+   dflash:tree   rag: 4 prompts, 865 tokens, 4 of 4 equal; 3.62 accepted a pass, histogram 0..15 [16, 34, 39, 26, 24, 8, 11, 4, 11, 7, 3, 3, 1, 1, 2, 0]; 246.9 tok/s, greedy 207.6, x1.189; per prompt x1.242 [0.833-1.578]; verify 72 %, drafter 27 % of the wall
+   dflash:tree   all: 44 prompts, 10602 tokens, 40 of 44 equal; 3.39 accepted a pass, histogram 0..15 [249, 452, 532, 363, 288, 132, 123, 62, 53, 43, 30, 20, 27, 21, 10, 43]; 321.4 tok/s, greedy 218.6, x1.470; per prompt x1.615 [0.812-2.783]; verify 64 %, drafter 36 % of the wall
+
+THE FIVE SLOWEST AND FIVE FASTEST PROMPTS BY x (*measured*, per prompt)
+-----------------------------------------
+dflash:chain: 44 prompts
+  five slowest (x, prompt, kind, prompt tokens, generated, equality, accepted a pass, tok/s, greedy):
+    (0.537, 'chat-09', 'chat', 28, 47, 'equal', 0.97, 122.6, 228.5)
+    (0.622, 'chat-07', 'chat', 29, 256, 'NOT equal', 0.75, 137.3, 220.7)
+    (0.68, 'rag-03', 'rag', 1637, 199, 'equal', 1.65, 140.0, 205.9)
+    (0.737, 'chat-05', 'chat', 35, 167, 'equal', 1.06, 163.7, 222.3)
+    (0.744, 'chat-00', 'chat', 29, 256, 'equal', 1.1, 164.5, 221.1)
+  five fastest:
+    (2.74, 'gsm8k-test-0011', 'math', 92, 256, 'equal', 6.97, 598.7, 218.5)
+    (2.238, 'gsm8k-test-0006', 'math', 69, 256, 'equal', 5.5, 492.6, 220.1)
+    (2.03, 'gsm8k-test-0010', 'math', 87, 256, 'equal', 5.09, 444.2, 218.8)
+    (1.979, 'gsm8k-test-0014', 'math', 79, 256, 'equal', 4.61, 433.3, 218.9)
+    (1.867, 'gsm8k-test-0016', 'math', 80, 234, 'equal', 4.34, 408.9, 219.1)
+dflash:tree: 44 prompts
+  five slowest (x, prompt, kind, prompt tokens, generated, equality, accepted a pass, tok/s, greedy):
+    (0.812, 'chat-07', 'chat', 29, 256, 'NOT equal', 1.29, 179.3, 220.7)
+    (0.826, 'chat-09', 'chat', 28, 47, 'equal', 1.35, 188.7, 228.5)
+    (0.833, 'rag-03', 'rag', 1637, 199, 'equal', 2.28, 171.6, 205.9)
+    (0.946, 'chat-05', 'chat', 35, 167, 'equal', 1.67, 210.3, 222.3)
+    (0.966, 'chat-00', 'chat', 29, 256, 'equal', 1.72, 213.7, 221.1)
+  five fastest:
+    (2.783, 'gsm8k-test-0011', 'math', 92, 256, 'equal', 7.48, 608.1, 218.5)
+    (2.561, 'gsm8k-test-0006', 'math', 69, 256, 'equal', 6.4, 563.6, 220.1)
+    (2.285, 'gsm8k-test-0016', 'math', 80, 234, 'equal', 5.5, 500.6, 219.1)
+    (2.252, 'gsm8k-test-0010', 'math', 87, 256, 'equal', 6.0, 492.9, 218.8)
+    (2.21, 'gsm8k-test-0014', 'math', 79, 256, 'equal', 5.29, 483.9, 218.9)
+
+
+AGAINST THE SIGNED PREDICTION
+-----------------------------
+  quantity                                          signed                 measured                       inside
+  control line, 64 against 2 x 32                   equal                  equal                          yes
+  token equality, chain and tree (hard gate)        44 of 44               40 of 44, each                 NO
+  accepted a pass, tree, math                       5.0 [3.5, 6.8]         4.84                           yes
+  same, code                                        4.0 [2.8, 5.5]         3.16                           yes
+  same, chat                                        2.4 [1.5, 3.5]         1.93                           yes
+  same, rag                                         5.0 [2.5, 8.0]         3.62                           yes
+  x greedy, tree, math                              x1.90 [1.50, 2.40]     x1.957                         yes
+  same, code                                        x1.70 [1.30, 2.20]     x1.451                         yes
+  same, chat                                        x1.15 [0.90, 1.50]     x1.024                         yes
+  same, rag                                         x1.30 [0.70, 2.20]     x1.189                         yes
+  same, all prompts                                 x1.60 [1.25, 2.10]     x1.470                         yes
+  tree at least the chain, math, code, chat         yes                    4.84 > 3.95, 3.16 > 2.40, 1.93 > 1.25; x likewise   yes
+  the drafter's share of the wall                   [34 %, 42 %]           tree 36 % (all), chain 35 %   yes
+
+DECISION (the prereg's rule)
+--------
+NOT VALID: the equality gate fails on 8 of 88 runs (4 prompts, both drafters). The series stops until the mismatch is
+explained.
+
+READING (not part of the decision; *computed*)
+-------
+- The drafters cannot cause a mismatch in a correct loop: the verify pass decides every token. Both drafters fail at the
+  same token of the same prompts, so the token the pass emits there is its own. The margins say the pass and 4E rank two
+  candidates in opposite order where their logits are equal or one or two binary16 steps apart: the arithmetic of the
+  verify pass (a12: the stream unit, the batched fold, the slice partials) is not 4E's, as the tree verify's contract
+  stated from S0 (closeness to 4E, identity with itself). At scale, near-ties make that difference visible in the
+  emitted tokens.
+- What would settle it: the pass's R = 1 greedy decode alone (no drafter) against the loop on these four prompts; if they
+  match, the loop is exact for its own pass, and the gate's reference, not the loop, is what needs restating.
+
+WHAT THIS DOES NOT ESTABLISH
+----------------------------
+The cause of the mismatches (the reading above is not tested here). A served rate; a standard benchmark (this is a house
+set); 8B, 14B; contexts past about 2,000 tokens; thinking mode.

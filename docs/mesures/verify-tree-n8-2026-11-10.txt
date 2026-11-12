@@ -1,0 +1,180 @@
+VERIFY-TREE N8: WHERE A ROW PHASE'S TIME SITS (a11i, a STAMPED a11), BESIDE a10, SEALED 4B, ONE L40S, 2026-11-10. $0.50.
+====================================================================================================================
+Result: BETWEEN on a10 under the prereg's rule, as predicted (*measured*, chat context): a10 at P = [5, 14, 5, 28, 5]
+reads c_1 1.757, c_2 1.769, c_16 1.942. The fine stamps distort what they time. a11i, unstamped, reads c_1 2.120 and
+c_16 2.305, against a11's 1.967 and 2.077 in N7 (+0.15 and +0.23 of a token from code that only stamps); its symbol
+carries 824 B of local memory against a11's 736. Stamped, a11i's vt1 wall is 12,330 us against a10's 7,705 and its row
+phases 10,298 against a11's 6,621 in N7. a11i's unit parts are therefore not a10's to within N7's difference, as the
+prereg assumed; they are read below only as proportions inside a stamped a11i. Within them, on the median CTA at vt1:
+the slowest warp's loop is 1.67 times the fastest's on q/k/v (1.53 on gate/up, 1.46 on down), and the close wait plus
+the time to arrival reach 320 us on q/k/v, 549 on gate/up and 434 on down. The grid waits after a row phase reach a
+maximum CTA sum of 2,741 us in a10 at vt1 against a median of 658.
+Prereg : proofs/preregistration-verify-tree-n8-2026-11-10.md (sha256 839208f3), stamped before the job (.ots, commit
+         c757802). No deviation.
+Go     : the operator, 2026-11-09 about 23:00 CET, session "LLVQ pistes débit": "Compute HF ok tu as 10$ pour la nuit
+         comme tu le sens"; on 2026-11-10 "continue", then "go" (relayed by the orchestrating session). Cap $10.
+Job    : 6af30f4bab34849891abb3f2, l40sx1, image hf.co/spaces/Pier-Jean/llvq-runner-cuda at Space sha f5472880 (its
+         COMMIT file names c757802, published from a clean detached checkout of that commit, perimeter clean; kernel,
+         bench and runtime sources equal to a6d86a2's), `STAGE=n8 ARMS='a10@5.14.5.28.5,a11i@5.14.5.28.5'
+         ops/jobs/verify-tree-n2.sh`, job timeout 26 min, the bench's 23 min. Submitted 13:34 CET, RUNNING by 13:35 (no
+         queue, no twin), COMPLETED by 13:52. 17 min billed, $0.50 (*measured*, ops/run.py monitor). VRAM: no metric
+         received. Registry $309.46 before, $309.96 after; spend since the go $2.71.
+Raw    : verify-tree-n8-2026-11-10-brut/: gpu.txt (NVIDIA L40S, 8.9, 46,068 MiB, driver 580.178.04, 2,520 MHz),
+         oracle.txt, files.sha256, qwen3-4b-tetra-e4-4e-v9.json (sha256 29b3ef32, equal to
+         configs/qwen3-4b-tetra-e4-4e-v9.json), vtree-4b.txt, summary.txt, monitor.txt, queue.txt.
+
+CONTROLS
+--------
+1. oracle on Qwen3-0.6B: MATCH. Sealed file sha256 886391a8 at its size. Config at its sha256. The job body refuses any
+   LLVQ_* in its environment. Holds.
+2. 4E module 252,757 bytes, sha256 1b422b62, row form 7: the served v9 module. Every one-token 4E launch made its
+   greedy token. Holds.
+3. a11i's guard: "a11i@5.14.5.28.5 guard against a11@5.14.5.28.5 ... PASSES, the 32-row pass equal bit for bit"
+   (a11@P an untimed guard-only arm). Holds. a10's guard against a9@5.14.5.28.5 (untimed): PASSES. All modules compiled
+   through NVRTC.
+Read by the decision rule:
+- identity, chat, a10@P and a11i@P; rag, a10@P: every row equals its node in the arm's 32-row pass, logits and argmax,
+  67 rows of 5 passes. Holds.
+- vt1 against 4E: the same argmax at 64 of 64 positions, both arms at chat, a10@P at rag. Holds.
+- timed passes whose argmaxes differ from their arm's 32-row pass: 0 of 42 (chat), 0 of 21 (rag).
+
+MODULES (*measured*, printed at install; all 128 registers, 89,984 B shared, 1 resident a SM)
+-------
+a10: 378,415 bytes, sha256 b1d9ae83; pers_4et_a10_f1_t512: 736 B local.
+a11 (guard only): 398,483 bytes, sha256 ba28a72e; pers_4et_a11_f1_t512: 736 B local.
+a11i: 420,990 bytes, sha256 4c332409; pers_4et_a11i_f1_t512: 824 B local.
+Load and install: 953.2 s.
+
+RESULT (*measured*, 2 discarded and 5 timed rounds of unstamped launches, arms interleaved, ratios formed round by round,
+median [range]; R = 1, 2, 16; P = [5, 14, 5, 28, 5])
+------
+Chat, context 62. 4E, one token a launch: 4,399.9 us [4,399.4-4,405.9].
+  arm       rows   wall us                       c_R                   extra row
+  a10@P        1    7,730.4 [7,725.3-7,736.3]    1.757 [1.753-1.758]
+               2    7,785.0 [7,770.4-7,800.4]    1.769 [1.764-1.773]
+              16    8,546.4 [8,528.6-8,552.2]    1.942 [1.936-1.944]   0.0124
+  a11i@P       1    9,335.9 [9,315.0-9,347.3]    2.120 [2.117-2.125]
+               2    9,431.9 [9,420.5-9,456.0]    2.144 [2.138-2.149]
+              16   10,145.2 [10,136.1-10,152.9]  2.305 [2.301-2.307]   0.0123
+Rag, context 362, a10@P only (lowest chat c_16). 4E: 4,677.2 us [4,662.1-4,689.3].
+  a10@P: c_1 1.711 [1.709-1.716], c_2 1.721 [1.717-1.727], c_16 2.046 [2.038-2.052], extra row 0.0223.
+
+PHASES (*measured*, chat, us summed over the 36 layers, median of 5 stamped launches; wall (busy min / med / max over
+the 142 CTAs, rounded); a11i's stamped launches carry its fine stamps)
+------
+vt1: a10@P wall 7704.9, row phases 6337.7 (82.3 %); a11i@P wall 12329.5, row phases 10298.2 (83.5 %)
+  phase         a10@P wall (busy min/med/max)        a11i@P wall (busy min/med/max)
+  embed             2.3 (1/1/1)                  4.3 (1/1/1)
+  ln1             228.9 (10/13/193)                307.5 (9/23/190)
+  qkv            1505.2 (396/1257/1454)               2223.1 (1333/1988/2174)
+  qkv fold        151.1 (13/15/108)                302.3 (22/24/261)
+  rope            142.4 (7/8/95)                240.1 (6/9/200)
+  attn            606.4 (9/11/586)                913.7 (14/18/832)
+  o               602.0 (18/486/550)               1270.1 (475/1092/1157)
+  o fold          121.0 (3/5/88)                133.5 (3/4/93)
+  ln2             195.3 (5/8/154)                219.1 (3/4/187)
+  gateup         2095.5 (1417/1932/2032)               3461.8 (2422/3214/3407)
+  gateup fold     147.0 (2/4/99)                271.1 (4/6/217)
+  dn_in           187.8 (2/3/154)                342.6 (2/10/189)
+  down           1080.2 (518/970/1013)               1879.8 (1102/1752/1803)
+  down fold       185.4 (3/4/143)                198.5 (4/6/164)
+  norm              4.1 (0/0/3)                  4.1 (0/0/3)
+  head            445.4 (413/435/444)                554.0 (502/536/553)
+  head fold         4.7 (0/3/4)                  4.0 (0/3/4)
+vt16: a10@P wall 8539.1, row phases 7126.4 (83.5 %); a11i@P wall 13545.7, row phases 11497.2 (84.9 %)
+  phase         a10@P wall (busy min/med/max)        a11i@P wall (busy min/med/max)
+  embed             7.2 (6/6/6)                  9.3 (6/6/6)
+  ln1             227.8 (10/14/192)                316.9 (9/25/221)
+  qkv            1795.2 (534/1535/1745)               2531.4 (1584/2289/2479)
+  qkv fold        151.7 (15/18/117)                325.5 (27/30/282)
+  rope            135.8 (89/100/108)                230.1 (86/100/111)
+  attn            649.8 (26/619/622)                958.7 (66/703/709)
+  o               633.7 (18/517/578)               1311.8 (793/1218/1431)
+  o fold          147.6 (4/5/95)                147.9 (4/5/97)
+  ln2             185.4 (2/4/154)                220.7 (2/4/196)
+  gateup         2406.2 (1692/2212/2329)               3864.6 (2796/3618/3835)
+  gateup fold     163.4 (4/102/122)                308.0 (10/123/172)
+  dn_in           202.6 (3/3/156)                308.6 (6/34/251)
+  down           1110.1 (538/1003/1050)               2076.1 (1248/1925/2008)
+  down fold       185.0 (3/4/146)                278.5 (4/6/235)
+  norm              4.1 (0/0/3)                  4.1 (0/0/3)
+  head            481.2 (443/468/480)                602.1 (545/589/601)
+  head fold        52.2 (42/50/51)                 51.2 (37/48/50)
+
+THE NEW TABLES, verbatim from vtree-4b.txt (chat; vt1 and vt16; median of 5 stamped launches)
+--------------
+  a10@5.14.5.28.5 vt1 grid waits, arrival to release, us summed over the layers (a CTA's), median of 5 launches:
+  a10@5.14.5.28.5 vt1     after a prologue: median over CTAs     595.7, max     615.0
+  a10@5.14.5.28.5 vt1    after a row phase: median over CTAs     658.1, max    2740.9
+  a10@5.14.5.28.5 vt1    after a fold step: median over CTAs     581.9, max     595.2
+  a10@5.14.5.28.5 vt1   prologues on the owner CTAs, busy us summed over the layers: ln1 192.6, ln2 154.1, dn_in 154.5, norm 3.2
+  a10@5.14.5.28.5 vt16 grid waits, arrival to release, us summed over the layers (a CTA's), median of 5 launches:
+  a10@5.14.5.28.5 vt16     after a prologue: median over CTAs     593.5, max     625.5
+  a10@5.14.5.28.5 vt16    after a row phase: median over CTAs     721.1, max    2961.9
+  a10@5.14.5.28.5 vt16    after a fold step: median over CTAs     522.4, max     650.8
+  a10@5.14.5.28.5 vt16   prologues on the owner CTAs, busy us summed over the layers: ln1 192.4, ln2 154.5, dn_in 155.7, norm 3.1
+  a11i@5.14.5.28.5 vt1 grid waits, arrival to release, us summed over the layers (a CTA's), median of 5 launches:
+  a11i@5.14.5.28.5 vt1     after a prologue: median over CTAs     840.4, max     847.4
+  a11i@5.14.5.28.5 vt1    after a row phase: median over CTAs     824.4, max    3546.0
+  a11i@5.14.5.28.5 vt1    after a fold step: median over CTAs     870.4, max     890.0
+  a11i@5.14.5.28.5 vt1   prologues on the owner CTAs, busy us summed over the layers: ln1 189.6, ln2 186.7, dn_in 189.1, norm 3.1
+  a11i@5.14.5.28.5 vt1 unit parts of the row phases (a11i), a CTA's sum over the layers, median [min-max] over the CTAs, median of 5 launches; us except units
+  a11i@5.14.5.28.5 vt1      qkv: units 36.0 [0.0-36.0], staging 217.5 [0.0-395.4], loop fast 485.7 [0.0-656.2], loop slow 810.9 [0.0-1138.2], close wait 162.3 [0.0-204.5], to arrival 157.4 [146.4-821.1]
+  a11i@5.14.5.28.5 vt1        o: units 36.0 [0.0-36.0], staging 182.9 [0.0-212.3], loop fast 356.9 [0.0-423.2], loop slow 559.9 [0.0-617.5], close wait 157.8 [0.0-174.1], to arrival 161.5 [153.0-383.8]
+  a11i@5.14.5.28.5 vt1   gateup: units 108.0 [72.0-108.0], staging 319.3 [230.8-426.5], loop fast 1382.0 [892.0-1513.3], loop slow 2115.3 [1399.5-2310.1], close wait 385.9 [259.5-460.9], to arrival 163.2 [150.3-214.4]
+  a11i@5.14.5.28.5 vt1     down: units 72.0 [36.0-72.0], staging 239.8 [164.9-279.4], loop fast 796.7 [397.4-848.2], loop slow 1164.0 [606.4-1206.4], close wait 271.7 [126.4-301.3], to arrival 162.0 [152.2-195.6]
+  a11i@5.14.5.28.5 vt1     head: units 21.0 [20.0-21.0], staging 38.0 [35.9-38.8], loop fast 363.9 [340.1-379.1], loop slow 445.8 [417.0-458.5], close wait 81.8 [70.1-90.8], to arrival 2.4 [2.3-6.8]
+  a11i@5.14.5.28.5 vt16 grid waits, arrival to release, us summed over the layers (a CTA's), median of 5 launches:
+  a11i@5.14.5.28.5 vt16     after a prologue: median over CTAs     797.5, max     847.7
+  a11i@5.14.5.28.5 vt16    after a row phase: median over CTAs     783.3, max    3617.9
+  a11i@5.14.5.28.5 vt16    after a fold step: median over CTAs     910.6, max     994.4
+  a11i@5.14.5.28.5 vt16   prologues on the owner CTAs, busy us summed over the layers: ln1 220.7, ln2 196.0, dn_in 250.7, norm 3.3
+  a11i@5.14.5.28.5 vt16 unit parts of the row phases (a11i), a CTA's sum over the layers, median [min-max] over the CTAs, median of 5 launches; us except units
+  a11i@5.14.5.28.5 vt16      qkv: units 36.0 [0.0-36.0], staging 242.3 [0.0-558.3], loop fast 531.5 [0.0-676.3], loop slow 845.1 [0.0-1208.6], close wait 150.2 [0.0-210.8], to arrival 167.9 [154.1-1009.1]
+  a11i@5.14.5.28.5 vt16        o: units 36.0 [0.0-36.0], staging 194.5 [0.0-214.8], loop fast 389.7 [0.0-443.5], loop slow 586.8 [0.0-643.5], close wait 169.9 [0.0-187.1], to arrival 173.3 [157.8-468.9]
+  a11i@5.14.5.28.5 vt16   gateup: units 108.0 [72.0-108.0], staging 390.2 [267.4-659.2], loop fast 1471.5 [976.1-1572.6], loop slow 2326.7 [1487.3-2570.9], close wait 364.5 [232.7-446.8], to arrival 172.4 [155.8-239.0]
+  a11i@5.14.5.28.5 vt16     down: units 72.0 [36.0-72.0], staging 258.3 [172.1-302.3], loop fast 817.6 [427.6-872.1], loop slow 1220.5 [619.6-1277.6], close wait 265.8 [124.5-302.0], to arrival 172.7 [161.6-248.9]
+  a11i@5.14.5.28.5 vt16     head: units 21.0 [20.0-21.0], staging 43.4 [40.7-45.0], loop fast 371.1 [339.4-380.6], loop slow 489.2 [448.6-497.0], close wait 82.9 [72.0-92.2], to arrival 2.6 [2.3-7.9]
+
+Grid waits are arrival to release, a CTA's sum over the layers; the class "after a row phase" holds the waits that close
+q/k/v, o, gate/up, down and the head. Unit parts: a CTA's sum over the layers, median [min-max] over the CTAs; "units"
+is a count; "loop fast" and "loop slow" are the fastest and slowest warp's loop; "close wait" is the time from a CTA's
+last loop to its unit's close; "to arrival" from the close to the CTA's arrival at the phase's wait.
+4E stamped over two tokens (chat): q/k/v 635.4, attention 803.2, o 340.1, MLP 2,342.9, head 370.0.
+
+AGAINST THE SIGNED PREDICTION (chat)
+--------------------------------
+  quantity                                         signed                 measured     inside
+  4E token                                         4,455 [4,380, 4,500]   4,399.9      yes
+  a10 c_1                                          1.756 [1.72, 1.79]     1.757        yes
+  a10 c_16                                         1.93 [1.88, 1.98]      1.942        yes
+  a11i c_1, unstamped                              1.97 [1.90, 2.04]      2.120        no, above
+  a11i c_16, unstamped                             2.08 [2.00, 2.16]      2.305        no, above
+  a11i vt1 q/k/v, loop slow / loop fast, median CTA [1.15, 3.0]           810.9 / 485.7 = 1.67   yes
+  a11i vt1 staging share of the CTA's busy time    under 15 %             q/k/v 217.5 / 1,988 = 10.9 %   yes
+                                                                          (o 16.7 %, gate/up 9.9 %, down 13.7 %)
+  close wait and time to arrival                   not signed             see the tables
+  outcome                                          BETWEEN, on a10        BETWEEN, on a10   yes
+
+DECISION (the prereg's rule)
+--------
+Best valid arm (guard and identity hold, vt1 at 64 of 64): a10@5.14.5.28.5, c_16 1.942: 1.60 < c_16 <= 2.35, BETWEEN.
+a11i is not a candidate (prereg). The reopening condition of ETAT.md section 6 is not met (c_2 1.769 > 1.40).
+
+READING (not part of the decision; *computed* from the tables above)
+-------
+- The check the prereg named fails: a11i's unstamped c_R is 0.15 to 0.23 of a token above a11's, and stamped its row
+  phases grow by about 3,700 us. The fine stamps change what they time; the unit parts are proportions inside a slower
+  kernel, not a10's microseconds.
+- Inside them, three things stand out at vt1 on the median CTA. The warps of a unit do not finish together: the slowest
+  loop is 1.46 to 1.67 times the fastest on q/k/v, gate/up and down. After the last loop, the close wait and the time to
+  arrival add 320 to 549 us a phase. Staging is 10 to 17 % of a CTA's busy time.
+- a10's own tables (coarse stamps only): the waits after a row phase have a median CTA sum of 658 us at vt1 and a maximum
+  of 2,741: some CTAs reach the row phases' waits much earlier than others. The prologues on their owner CTAs are 193
+  (ln1), 154 (ln2) and 155 (dn_in) us.
+
+WHAT THIS DOES NOT ESTABLISH
+----------------------------
+a10's unit parts (only a11i carries the fine stamps, and they distort). Whether the warps' spread or the close wait would
+keep their proportions without the stamps. Any repair. R = 4, 8 and 32. VRAM peak (no metric). Any card but the L40S.
+The 8B and 14B. Any acceptance or tok/s at a door.

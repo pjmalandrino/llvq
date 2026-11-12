@@ -1,0 +1,118 @@
+LARGE PREFILL AT 32 ROWS A PASS: THE ATTENTION TILE'S SASS, AND ARM a12ipg32 BUILT AND GATED ON THE MAC, 2026-11-11. $0.
+=======================================================================================================================
+Result: the suspect of the rows study is refuted. ptxas lowers every binary16 widening of pers_attn_tile to HADD2.F32,
+not F2F: 128 a tile call a lane, 17.5 % of the tile loop's 731 instructions. The tile is serialised position by
+position behind its nv guards, which the SASS shows and which no group sharing removes. No widening arm is built.
+Design A is built as arm a12ipg32 (a12ipg's body at RC = 4, 384 threads, 32 rows a launch): 168 registers, 728 B
+of stack, 93,568 B shared at sm_89 (*measured*, devel ptxas 12.4 on the Mac), bit for bit with a12ipg at 16 and with
+a12ip at 1 on the host twin, three mutants killed (section 3).
+Nature: Mac only. No job, no image, no prereg, no model loaded. Branch claude/arbre-prefill-2026-11-11.
+Study implemented: docs/mesures/large-prefill-rangees-etude-2026-11-11.txt (claude/arbre-nuit-2026-11-10, 2881ea3).
+
+1. HOW THE SASS WAS MADE
+------------------------
+The module texts are pers.rs's at the card's tile define ("#define TILE_BLOCKS 64u\n"), written by the ignored test
+pers::tests::dump_tree_modules to target/tree-modules/. Their sha256 equal the card's loader lines of D1:
+4E tree ce1c354d (306,060 B), a12ip 63155df9 (422,018 B), a12ipg 246e99b1 (450,134 B), 4E v9 1b422b62 (252,757 B).
+pers::tests::the_d1_tree_modules_keep_their_bytes pins the first three.
+Each text compiled with nvcc 12.4 -arch=sm_89 -cubin -O3 -Xptxas -v in nvidia/cuda:12.4.1-devel-ubuntu22.04
+(ops/tetra-sass-probe.sh's image), then cuobjdump -sass -fun <symbol>, loops counted by ops/sass_loops.py. The card's
+driver ptxas compiles NVRTC's PTX: these counts are indicative (pers-sass-2026-11-05: 243 against 237 on a block).
+
+2. PART 1: THE ATTENTION TILE (*measured* on the Mac SASS)
+-----------------------------------------------------------
+a12ipg (pers_4et_a12ipg_f1_t384), the tile loop at 0x30470-0x33210, one pers_attn_tile call a pass of the loop:
+  731 instructions: FFMA 182, HADD2.F32 128, BRA 64, FADD 59, IMAD 51, BSSY 34, BSYNC 34, SHFL.BFLY 32, FSETP 19,
+  LDS.128 18, FMUL 17, ISETP 16, FRND 9, F2I 9, FMNMX 8, CALL 3 (the __syncwarp fallback, skipped when converged).
+- Widening: HADD2.F32 R, -RZ, R.H0_H0 or .H1_H1, 128 a call a lane (8 K and 8 V vectors of 8). No F2F.F32.F16
+  anywhere in the kernel (4 F2F.F16.F32 narrowings, 20 F2F.F64.F32 outside the tile). The F2F hypothesis of the study
+  (about 7 ms a pass at 16 a clock an SM) does not hold.
+- FFMA 182 = 64 for QK, 64 for PV, 54 for the 9 software ex2. FADD 59 holds the 32 shuffle reductions.
+- The cost the SASS does show: every position j of the tile sits in its own BSSY/BSYNC region behind `if (j < nv)`.
+  Position j's chain (LDS.128, 8 dependent FFMA, 4 dependent SHFL.BFLY and FADD) ends before j + 1's loads start, and
+  the 8 ex2 and the 8 PV steps are guarded the same way. A call is a latency chain of 8 serial positions.
+  Latency read (*estimated*): about 180 cycles a position for QK, about 2,200 cycles a call, 0.9 us at 2.52 GHz,
+  against the study's V of 1.22 us a row-step (*computed* there). The issue count (731 a call) would give the
+  study's 3.8 ms; the latency chain is the order of the 10.1 ms.
+Group sharing of the widening does not fit:
+- Widened tiles in shared memory double a stage, 16 KB to 32 KB. Two stages add 32 KB to 93,568 B: 126,336 B against
+  101,376 (*computed*).
+- Widened tiles in registers are 64 floats of K a lane for one tile, on a kernel at 168 of its 170 registers, and the
+  group's rows are on different warps (task = row x tpr + tt).
+- The ceiling of the gain is small anyway: 128 of 731 issued instructions, a quarter of them kept, at most about
+  1.4 ms of the 10.1 ms at 8k if the tile were issue bound (*estimated*), less since it is latency bound.
+Per the brief, no widening arm. The lead the SASS points at instead, not built and not costed on a card: a full-tile
+path (nv = 8, the only case on a shared split) with no guard between positions, so ptxas can interleave the 8 chains.
+Each score, each ex2 and each PV sum keeps its operations and their order, so the bits stay. It is not a
+group-sharing change; it would apply to a12ip, a12ipg and 4E alike.
+4E v9 (pers_4e_tokens_f1_t512, module 1b422b62): the same tile, loop 0x16c80-0x19a80, 737 instructions, HADD2 128,
+FFMA 182, BSSY 34, SHFL 32. The same widening and the same serialisation, once a query head (4 times a K value at 4
+query heads a KV head). What the widening weighs at 8,192 (*estimated*): 4E's attention grows 1.98 ms a token from 5
+to 8,192 positions (236.6 and 161 tok/s, measurement form). 589,824 tile calls a token at 8k (36 layers, 8 KV heads,
+1,024 tiles, 2 head pairs) at 737 instructions is 0.30 ms at full issue on 142 SMs: the attention is latency bound
+there too. The 128 widenings are 17 % of that issue, about 0.05 ms a token, under 1 % of the 6.2 ms token. 4E is not
+changed here.
+
+3. PART 2: ARM a12ipg32 (DESIGN A)
+----------------------------------
+Code.
+- llvq-cuda/kernels/pers_4et_a12g32.cu: three symbols pers_4et_a12ipg32_f{0,1,2}_t384, each
+  pers_4et_a12g_body<FORM, 4u, true>, under P4T_A12IPG32. Nothing else.
+- pers.rs: p4t_a12ipg32_unit_text = "#define P4T_A12IPG32 1\n" + a12ipg's text + the part; its symbols; text test
+  the_a12ipg32_pass_is_a12ipg_at_four_tiles. Card text 451,917 B, sha256 a35f2b83.
+- persist4e_cuda.rs: TreeForm::A12ipg32, row cap 32, 384 threads, a12ipg's area, module slot 24, read in place.
+- prefillbench: --against repeatable, the first one the reference; an arm's rows by a /R suffix, else --r; R above an
+  arm's cap refused by name ("arm a12ip@... carries 1 to 16 rows a launch").
+- Host twin: variant bit 262144 runs a12ipg32.
+Module hashes of record unchanged before and after: ce1c354d, 63155df9, 246e99b1 (test above, and the dump).
+Compile probe, sm_89, devel ptxas 12.4 (*measured*), against the study's limits (170 registers, 744 B, 101,376 B):
+  pers_4et_a12ipg32_f1_t384   168 registers   728 B stack (8 B spill stores, 48 B spill loads)   93,568 B shared
+  pers_4et_a12ipg_f1_t384     168 registers   736 B stack (16 B, 96 B)                           93,568 B shared
+  pers_4et_a12ip_f1_t384      168 registers   736 B stack (16 B, 88 B)                           78,848 B shared
+The card read 744 B local for a12ip and a12ipg where this ptxas reads 736: the card's figure for a12ipg32 is
+expected near 736 (*estimated*). No fallback to 512 threads needed. The kernel holds 60 HMMA against 30.
+Shared bytes are p4g_area_floats at 32 staged rows, the same as a12ipg's (pers.rs test).
+Host twin (cargo test --release -p llvq-cuda --test tree_verify_host -- --include-ignored --test-threads=1 a12ipg32,
+1,240 s, both pass), the 4B's shapes, head on every pass:
+  45 tokens from 500 (crosses 512), a12ipg32 R = 32 against a12ip R = 1        46 rows bit for bit
+  the same, against a12ipg R = 16, 4B shapes and 8B parts (variant 16)          46 rows bit for bit each
+  300 tokens from 250 (crosses 256 and 512), a12ipg32 R = 32 against a12ipg 16  301 rows bit for bit
+Rows compared: argmax, logits, residual, every layer's K and V, the hand-over row included.
+Mutants, each applied once to a copy of the tree by the test's builder (site count printed, 1 each), each killed by
+the R = 32 against R = 16 gate on the 45-token prompt:
+  g32_tiles_2_3_in_0_1 (pers_4et_a10rc.cu, partial store n = (nt & 1) 8 + ...)  killed: position 0, argmax
+  g32_acc_not_zeroed (pers_4et_a10rc.cu, tiles 2 and 3 not zeroed)              killed: the launch's NaN flag
+  g32_row_cap_16 (pers_4et_a12g32.cu, the body at RC = 2)                        killed: the launch aborts
+The tree stays clean: the builder edits a copy in the temp directory.
+Regressions, after the change: 11 twin tests pass (a12ip, a12ipg, the chain prefill and its mutants, the row-cap
+refusals, closeness to 4E; 3,132 s), pers.rs's 159 lib tests pass, the_a12_pass_is_the_row_cap_pass_with_taps among
+them. Clippy: zero warnings on the Mac and on llvq-cuda for Linux; llvq-llm with cuda keeps its two older warnings
+(specbench.rs:554, vtreebench.rs:721), none in prefillbench or persist4e_cuda.
+Load cost for the card: Mac nvcc compile 138 s (a12ip), 158 s (a12ipg), 177 s (a12ipg32) (*measured*, file times).
+The card's NVRTC load took about 254 s and 339 s for the first two (*computed* in the D1 journal), so about 370 s
+for a12ipg32 (*estimated*).
+
+4. THE CARD JOB, NOT SUBMITTED
+------------------------------
+ops/jobs/large-prefill-r32.sh: one prefillbench process, a12ipg32 at 32 against a12ip at 16 (reference of record),
+optionally a12ipg at 16 (WITH_G16=1). Timing round by round at 1,024 / 4,096 / 8,191, identity of each arm against
+a12ip at 16 at every length, the 47 texts paired with a12ip's, the stamped phases of the last three passes at 8,191
+for each arm, the phase peaks by arm. Control 3 checks the loader's module lines against ce1c354d, 63155df9,
+a35f2b83 (and 246e99b1).
+Estimated (*estimated*, from D1's 1,142 s): two arms about 21 min, $0.63; three arms about 29 min, which passes 25
+and the $0.90 cap. Default: two arms. Timeout 30m, $0.90. No file added to the image: the new kernel is include_str!
+in the binary, and llvq-*/** is in UPLOAD_ALLOW.
+
+5. WHAT MAKES THE STUDY'S ESTIMATE WRONG
+----------------------------------------
+- No spill at RC = 4: the study's main risk does not show on the Mac ptxas.
+- The 8k attention is latency bound by the serialised tile (section 2). A row past 16 adds the same per-row tile
+  chain; the study's attention x[0.95, 1.00] at R = 32 assumes the chains of more rows overlap no worse. With 8 tasks
+  a row over 12 warps, 32 rows give 256 tasks a step against 128 at 16: more warps busy, possibly better latency hiding,
+  so attention could come in under the estimate, not over.
+- The non-attention estimate (11.2 ms [10.7, 12.0]) rests on a10t384's RC = 4 penalty, measured at 168 registers and
+  736 B: a12ipg32 compiles to the same, so that term stands.
+
+NOT ESTABLISHED
+---------------
+Any card time of a12ipg32; the driver ptxas's registers and local bytes for it; the full-tile attention path's speed.

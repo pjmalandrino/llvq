@@ -1,0 +1,102 @@
+TREE VERIFY S0 ON THE HOST: pers_4et.cu AGAINST ITS THREE GATES, 2026-11-09
+===========================================================================
+
+Result: the three gates of stage S0 (docs/plan-verify-tree.md section 5) pass on the Mac (*measured*, $0, no card).
+- Identity. Every row keeps its bits (argmax, binary16 logits, final residual, K and V at both layers) at R = 1 to 32,
+  under slot permutations, scheduler seeds, two grid shapes, the 8B's parts and lengths past 256. A tree row equals
+  the same token decoded later as the root of an R = 1 pass, once that pass's first phase moved its ancestors' K and V
+  into the cache.
+- Closeness. R = 1 within 1.09e-3 to 3.45e-3 relative RMS of 4E's logits, with 4E's argmax, in four configurations.
+- Mutants. 10 of 10 killed, each by a named gate: row order 3, scale association 3, the tree mask 3, the fold order 1.
+What this does not establish: the card. The tensor core's summation is modelled as a sequential f32 sum, NVRTC has not
+compiled the device branches (cp.async, mma, cvt), and nothing here is a time. Identity on the card is S1's and S3's.
+
+Code:    pers_4et.cu (llvq-cuda/kernels), commit 935cfc8 and the commit of this journal. Host: tests/host_mma.h (the
+         MMA), tests/host_pers_tree.inc (command 'Y' of host_pers.cpp), tests/tree_verify_host.rs (the gates).
+Command: cargo test -p llvq-cuda --test tree_verify_host -- --test-threads=1
+Machine: Mac M3 Max, one core under nice 15, beside another session's MLX job. The five tests on the code of this
+         journal: 1,741 s in one run (closeness 46 s, R = 1 to 32 about 540 s, the mutants about 13 min).
+Prereg:  none, $0 host work. S1's draft (proofs/BROUILLON-preregistration-verify-tree-s1.md) stays unstamped.
+
+1. THE PASS
+-----------
+  One cooperative launch, R <= 32 rows, row r the token toks[r] at position pos0 + depth[r], its ancestors' slots in
+  path[r]. Waits: 1 + 9 a layer (+ 1 with a Tetra o) + 2.
+  - Projections q, k, v, o, gate, up, down and the head: tv_batch_gemm.cu's arithmetic. A block decoded once into
+    binary16 weights, scales folded (f16(v x ((gscale x invnorm) x rscale)), the Tetra tail as columns, int4 f16(s q +
+    b)); binary16 activations; mma.m16n8k16 with f32 accumulation, k16 steps in column order. A CTA unit is one 16-row
+    tile a warp and one d_in slice; 96 columns staged a chunk through two cp.async stages. Slices fixed per projection
+    (here 3, 2, 1, 8, 2 for q/k/v, o, gate/up, down, head), folded in slice order by the warp that draws the tile's
+    last ticket.
+  - Prologues ln1, ln2, the down's input, the final norm, the Tetra o's rotation: row r on CTA r mod grid, 4E's scalar
+    norm and rotation in f32, rounded to binary16.
+  - Attention: 4E's job body and split fold; position p < pos0 from the cache, pos0 + d from slot path[r][d] of the
+    tree buffer; length pos0 + depth[r] + 1.
+  - K and V of each row go to the tree buffer [layer][slot]. The next launch's first phase copies slots mv[i] to cache
+    position move_pos0 + i.
+
+2. THE FIXTURE
+--------------
+  Command 'G''s model and draws (host_pers_4e.inc): two layers at the 4B's widths, a Tetra then an int4 down, int4 v and
+  o on 4E v9's tiled words, a tied int4 g64 head of 1,024 rows; variant 16 adds the 8B's Tetra o on layer 1 and an
+  untied head. Random caches. One change: the SiLU table is x / (1 + e^-x) of every binary16 pattern. With 'G''s
+  random table the first closeness reading was 0.688: a one-ulp move of a gate output lands on an unrelated value.
+  The reference is 4E v9's token symbol (pers_4e_tokens_f*_t512) for one token, its logits rebuilt from its final
+  residual with its norm and pers_q4g64_row; the command fails unless their argmax is 4E's token.
+
+3. GATE 1, IDENTITY (byte for byte on argmax, logits, residual, K and V)
+------------------------------------------------------------------------
+  test                         tree                       passes, all against the first                       result
+  every R and slot             32 nodes, depth <= 7,      the full tree; ancestor-closed subsets of 1 to 31   passes
+                               root at 9                  rows in random slot order; the full tree permuted;
+                                                          each on its own scheduler seed (528 rows compared)
+  grids and parts              12 nodes, depth <= 4       grid 3 x 64 against 5 x 96; RoPE forms 0 and 2 with  passes
+                                                          the 8B's parts, root at 254 (lengths 255 to 259),
+                                                          subsets of 1, 5 and 9 rows
+  a tree row is the root it    12 nodes, depth <= 4       5 nodes at root 9 (4 at depth >= 2), 2 nodes at      passes
+  becomes                                                 root 254 with the 8B's parts: tree, then R = 1 at
+                                                          pos0 + depth after moving the ancestors
+
+4. GATE 2, CLOSENESS TO 4E (R = 1, relative RMS of the binary16 logits over the vocabulary)
+-------------------------------------------------------------------------------------------
+  RoPE form  parts  token  position  relative RMS  argmax 4E  argmax tree
+  1          4B     7      9         1.561e-3      497        497
+  0          4B     517    30        3.445e-3      507        507
+  2          8B     1023   9         1.087e-3      531        531
+  1          8B     64     270       1.616e-3      922        922
+  Bar 1e-2: passes in all four. The fixture's weights are random, so these numbers bound the indexing and the rounding
+  model, not a real model's perplexity (S2).
+
+5. GATE 3, MUTANTS (each applied once to a copy of pers_4et.cu, killed by the first gate that fails)
+-------------------------------------------------------------------------------------------------
+  mutant               site (pers_4et.cu)                                    killed by
+  row_b_column         a row's B column read from slot gid ^ 1 (p4t_unit)    closeness: relative RMS 1.000 (R = 1 reads
+                                                                             the empty slot)
+  row_staged_reversed  the activation rows staged in reverse (p4t_issue)     identity: the full tree against its 1-row
+                                                                             subset
+  row_rope_slot        RoPE at pos0 + slot instead of pos0 + depth           identity: a 3-row subset, node 2's argmax
+  scale_gscale         the other centroid, bit 14 of the block's word        closeness: 0.626
+  scale_rscale         the neighbour row's rscale                            closeness: 1.313
+  scale_q4_bias        an int4 weight's scale and bias swapped               closeness: 2.100
+  mask_contiguous      ancestors read as the slots after the root's          identity: a 3-row subset, node 2's argmax
+  mask_length          the row's attention length as the root's              root identity: node 4 at depth 2
+  mask_move            the move writes one position late                     root identity: node 4 at depth 2
+  fold_arrival         the fold starts at the slice of the last arrival      identity: a 9-row subset, node 3's logits
+  The mutants' gates: closeness at one configuration, identity on a 12-node tree (subsets of 1, 3 and 9 rows and the
+  tree permuted), root identity on 2 nodes at depth 2 and 3.
+  fold_arrival survived the first series. The units were dealt slice after slice, so a tile's last slice always
+  arrived last and every fold ran in the same order. The units are now dealt block after block: a tile's slices run
+  on neighbouring CTAs at once, their tickets arrive in no fixed order, and the mutant dies on the scheduler's seed.
+  The arithmetic did not change: the other gates gave the same numbers on both dealings. Two mutants were rewritten
+  because -Werror refused their first form (an unused parameter, an unused variable): a mutant that does not
+  compile fails the test, it is not counted as killed.
+
+6. WHAT IT DOES NOT ESTABLISH
+-----------------------------
+  - The card's tensor-core sum. It is not a sequential RN sum, so the host's logits are not the card's. Identity holds
+    on the card if each output element depends only on its own column of B, as the PTX specifies; S1 checks it.
+  - NVRTC: the host build compiles none of the asm (cp.async, mma.sync, cvt.rn.f16x2.f32) nor the register budget.
+  - Cost: no c_R. S1 measures it, and needs the Rust mirror of Pers4tLaunch, the module install and its bench, none
+    written.
+  - The EAGLE states (each row's residual at three layer inputs) and the head on the card: S3.
+  - Quality on a real model: S2.

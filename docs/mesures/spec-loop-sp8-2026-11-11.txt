@@ -1,0 +1,201 @@
+SPEC-LOOP SP8: THE DRAFTER'S READOUT WITHOUT THE SOFTMAX, 44 HOUSE PROMPTS AND 200 GSM8K PROBLEMS, SEALED 4B, ONE L40S, 2026-11-11. $0.99.
+==========================================================================================================================================
+VALID under the prereg's rule. Self-consistency holds on every run (*measured*): tree 44 of 44 and chain 44 of 44 on
+the house set, tree 200 of 200 on GSM8K.
+
+Speed (*measured*, total tokens over total wall against 4E's greedy):
+- House set: the tree x1.556 (343.1 tok/s), up from SP6's x1.398. The chain x1.333.
+- GSM8K: the tree 502.1 tok/s, x2.295, up from SP6's 454.2 and x2.080.
+- The drafter round as the loop pays it is 4.019 ms for the tree on the house set, against 5.456 in SP6; the readout
+  stage went from 2.01 to 0.50 ms a round.
+
+Quality: the GSM8K dump is byte for byte SP6's, so the grading is the same. 4E 166, pass 167, tree 167 correct;
+discordant 1 and 2; exact McNemar p = 1; the same six differing answers. No measured difference.
+
+Predictions: every signed prediction holds except one, the dflashcheck loop round of the tree at n = 4 (5.28 ms against
+[3.75, 4.40]). That round carries a stall of about 0.63 ms in the extension's host conversion and upload, the stall
+SP7 already showed on single operations.
+
+Naming caveat: `specbench --readout device` now selects the new default readout, dflash::LseReadout (no softmax: for a
+tree 4 argmax with in-place masks, a gather and a logsumexp from sub, exp and sum, 15 launches and one transfer; for a
+chain one argmax). The config lines still print "readout device".
+Prereg : proofs/preregistration-spec-loop-sp8-2026-11-11.md (sha256 d80d0f77), stamped before the job (.ots, commit
+         bb1febe). No deviation of the run.
+         The orchestrator's instruction named the code commit 4f3b6d1, an object that does not exist. The commit
+         merged is 2fe5691, the head of claude/arbre-brouillon-2026-11-10 ("DFlash readout without the softmax"), whose
+         content matches the description. The merge is 1d9743e and the prereg names it.
+Go     : the operator, 2026-11-10 evening; cap $15 with leave to launch from about 21:45 CET; relayed by the
+         orchestrating session.
+Job    : 6af3f61bab34849891add412, l40sx1.
+         - Image hf.co/spaces/Pier-Jean/llvq-runner-cuda at Space sha dc851a24, published from a clean detached
+           checkout of bb1febe (perimeter clean, 532 files); kernel, bench and runtime sources equal to 1d9743e's.
+         - ops/jobs/spec-loop-sp8.sh, job timeout 86 min.
+         - Submitted 05:59 CET, RUNNING at 06:01, COMPLETED at 06:33 (inspect_job: started 05:00:32 UTC, finished
+           05:32:52 UTC).
+         - 33 min billed, $0.99 (*measured*, minutes rounded up).
+         - Registry $314.59 before, $315.58 after; spend since the go $8.33 of $15.
+Raw    : spec-loop-sp8-2026-11-11-brut/.
+         - From the job: gpu.txt, oracle.txt, files.sha256, drafter.sha256, qwen3-4b-tetra-e4-4e-v9.json,
+           dflashcheck-f16.txt, spec-house.txt, spec-gsm200.txt, gsm200.jsonl, summary.txt.
+         - From the grader, run on the Mac after the job: grade-4e-pass.txt, grade-pass-tree.txt.
+
+CONTROLS
+--------
+1. Inputs and environment. Holds.
+   - Card: L40S, sm 8.9, driver 580.178.04.
+   - oracle on Qwen3-0.6B: MATCH.
+   - At their sha256: sealed file 886391a8, fixture 636f664d, drafter files 2de97cdf and a21d0ffe, house set
+     f749eb35, GSM8K set 9e778f58, config 29b3ef32.
+   - LLVQ_* refused.
+2. 4E's module is 252,757 bytes, sha256 1b422b62, in both specbench runs. Holds.
+3. The image built. Holds.
+The control line holds in both runs: one 64-token 4E launch equals two chained 32-token launches.
+
+(a) DFLASHCHECK ON CUDA, F16 (verbatim)
+--------------------------------------
+drafter z-lab/Qwen3-4B-DFlash-b16@b74e3a32 (2254.7 MB f32), table [151936, 2560] from /out/sealed-4b-2026-09-23/qwen3-4b-sealed.bin, device Cuda(CudaDevice(DeviceId(1))), loaded in 9.7 s
+equivalence (f32): rounds 6: chain equal 6/6, tree equal 6/6; logits rel 3.52e-6, lse rel 1.88e-6, hidden rel 1.33e-6; smallest reference top-1 gap 0.020; table rows max abs 0.00e0; readouts (no softmax, softmax, chunked) equal 6/6, tree scores against the softmax path within 6.87e-5
+equivalence PASS
+equivalence (F16): rounds 6: chain equal 6/6, tree equal 4/6; logits rel 1.87e-3, lse rel 6.87e-4, hidden rel 1.99e-3; smallest reference top-1 gap 0.020; table rows max abs 0.00e0; readouts (no softmax, softmax, chunked) equal 6/6, tree scores against the softmax path within 6.87e-5
+equivalence (F16) PASS
+round at context 128 (F16): extend 4 0.43 ms [0.43-0.44], block + head + readout 4.27 ms [4.26-4.43], median of 20; context cache 8.0 MB
+round at context 512 (F16): extend 4 0.42 ms [0.42-0.43], block + head + readout 3.61 ms [3.60-3.72], median of 20; context cache 15.9 MB
+round at context 2048 (F16): extend 4 0.42 ms [0.42-0.43], block + head + readout 3.74 ms [3.71-3.88], median of 20; context cache 47.8 MB
+device operations a round, counted from the code: extend 13, block 108, head 2, readout 15 for a tree, 1 for a chain (16 with the softmax readout, 5 with the chunked one); device-to-host transfers: 1 (2 with the chunked one, plus its upload)
+readout alone (no softmax, tree): 0.830 ms [0.826-3.110], median of 50
+readout alone (no softmax, chain): 0.101 ms [0.100-0.111], median of 50
+readout alone (softmax, 077aa5b): 2.018 ms [2.013-2.043], median of 50
+readout alone (chunked, e3bbaee): 1.943 ms [1.922-2.209], median of 50
+loop round (no-softmax readout) Chain(15) n 1: 3.42 ms [3.39-3.50], median of 50 after 10, one synchronisation
+loop round (no-softmax readout) Chain(15) n 1, synchronised between stages: total 3.69 ms; extend 0.33 (of which host conversion and upload 0.02), block 1.96, head 1.22, readout 0.10 (ms, medians of 50)
+loop round (no-softmax readout) Chain(15) n 4: 3.48 ms [3.46-3.50], median of 50 after 10, one synchronisation
+loop round (no-softmax readout) Chain(15) n 4, synchronised between stages: total 4.21 ms; extend 1.00 (of which host conversion and upload 0.64), block 1.91, head 1.13, readout 0.10 (ms, medians of 50)
+loop round (no-softmax readout) Chain(15) n 8: 3.49 ms [3.48-3.54], median of 50 after 10, one synchronisation
+loop round (no-softmax readout) Chain(15) n 8, synchronised between stages: total 4.24 ms; extend 1.01 (of which host conversion and upload 0.65), block 1.92, head 1.13, readout 0.10 (ms, medians of 50)
+loop round (no-softmax readout) Tree(15) n 1: 3.87 ms [3.84-3.92], median of 50 after 10, one synchronisation
+loop round (no-softmax readout) Tree(15) n 1, synchronised between stages: total 4.04 ms; extend 0.32 (of which host conversion and upload 0.03), block 1.99, head 1.13, readout 0.52 (ms, medians of 50)
+loop round (no-softmax readout) Tree(15) n 4: 5.28 ms [5.26-5.37], median of 50 after 10, one synchronisation
+loop round (no-softmax readout) Tree(15) n 4, synchronised between stages: total 4.71 ms; extend 1.05 (of which host conversion and upload 0.63), block 1.91, head 1.13, readout 0.53 (ms, medians of 50)
+loop round (no-softmax readout) Tree(15) n 8: 5.31 ms [5.27-7.65], median of 50 after 10, one synchronisation
+loop round (no-softmax readout) Tree(15) n 8, synchronised between stages: total 4.73 ms; extend 1.06 (of which host conversion and upload 0.64), block 1.92, head 1.13, readout 0.53 (ms, medians of 50)
+loop round (softmax readout) Tree(15) n 1: 5.47 ms [5.44-5.53], median of 50 after 10, one synchronisation
+loop round (softmax readout) Tree(15) n 1, synchronised between stages: total 5.42 ms; extend 0.31 (of which host conversion and upload 0.02), block 1.97, head 1.13, readout 2.00 (ms, medians of 50)
+loop round (softmax readout) Tree(15) n 4: 6.08 ms [6.07-6.14], median of 50 after 10, one synchronisation
+loop round (softmax readout) Tree(15) n 4, synchronised between stages: total 5.50 ms; extend 0.44 (of which host conversion and upload 0.04), block 1.91, head 1.13, readout 2.01 (ms, medians of 50)
+loop round (softmax readout) Tree(15) n 8: 6.10 ms [6.08-13.09], median of 50 after 10, one synchronisation
+loop round (softmax readout) Tree(15) n 8, synchronised between stages: total 5.61 ms; extend 0.47 (of which host conversion and upload 0.06), block 1.92, head 1.12, readout 2.00 (ms, medians of 50)
+loop round (chunked readout) Tree(15) n 1: 5.30 ms [5.27-5.61], median of 50 after 10, one synchronisation
+loop round (chunked readout) Tree(15) n 1, synchronised between stages: total 5.36 ms; extend 0.31 (of which host conversion and upload 0.02), block 1.95, head 1.13, readout 1.96 (ms, medians of 50)
+loop round (chunked readout) Tree(15) n 4: 5.36 ms [5.34-5.58], median of 50 after 10, one synchronisation
+loop round (chunked readout) Tree(15) n 4, synchronised between stages: total 5.43 ms; extend 0.41 (of which host conversion and upload 0.04), block 1.91, head 1.13, readout 1.96 (ms, medians of 50)
+loop round (chunked readout) Tree(15) n 8: 5.38 ms [5.35-5.70], median of 50 after 10, one synchronisation
+loop round (chunked readout) Tree(15) n 8, synchronised between stages: total 5.47 ms; extend 0.43 (of which host conversion and upload 0.05), block 1.93, head 1.13, readout 1.96 (ms, medians of 50)
+dflashcheck f16 exit 0
+
+Reading (*computed* from the lines above):
+- The no-softmax readout equals the softmax and chunked readouts on 6 of 6 rounds, in f32 and in f16. Its tree scores
+  are within 6.87e-5 of the softmax path.
+- Its tree readout alone is 0.830 ms. The median sits at the top of the signed interval, and the range reaches
+  3.110 ms. Its chain readout alone is 0.101 ms.
+- Loop rounds with one synchronisation, with the no-softmax readout:
+  - chain: 3.42 / 3.48 / 3.49 ms at n = 1 / 4 / 8;
+  - tree: 3.87 ms at n = 1, but 5.28 at n = 4 and 5.31 at n = 8.
+- The stage-synchronised lines show where the tree's n = 4 and n = 8 rounds lose their time. The extension's "host
+  conversion and upload" reads 0.63 to 0.65 ms at n = 4 and 8, against 0.02 to 0.03 at n = 1. The chain carries it too
+  (1.00 ms extension at n = 4).
+- With the softmax or chunked readout the same upload reads 0.04 to 0.06 ms.
+- This is SP7's stall of about 0.64 ms, now on the extension's upload. Its cause is not established.
+
+(b) HOUSE SET, 44 PROMPTS, Q4 VOCABULARY, NO-SOFTMAX READOUT, UP TO 256 TOKENS
+-----------------------------------------------------------------------------
+Self-consistency: tree 44 of 44, chain 44 of 44. Holds.
+Agreement with 4E: 40 of 44, at SP5's four places. By kind: chat 7 of 10 (1,756 of 2,253 tokens before the first
+divergence), code 10 of 10, math 19 of 20 (4,919 of 4,924), rag 4 of 4; all 10,100 of 10,602.
+aggregates (tok/s = total tokens over total wall; x greedy likewise, against 4E's greedy on its own text; median over prompts with its range)
+config dflash:tree: arm a12@8.10.8.20.6 (A12), plan [8, 10, 8, 20, 6], 384 threads, row cap 16, drafter revision b74e3a329c4d963783143b1e970d95b002be72bd, dtype F16, vocab q4, readout device, shape Tree(15), N 256
+   dflash:tree  chat: 10 prompts, 2253 tokens, 10 of 10 equal to the pass's greedy; 1.92 accepted a pass, histogram 0..15 [144, 195, 226, 112, 54, 23, 12, 4, 4, 2, 1, 0, 2, 0, 0, 0]; 241.7 tok/s, greedy 222.6, x1.086; per prompt x1.067 [0.824-1.417]; verify 68 %, drafter 32 % of the wall
+   dflash:tree  code: 10 prompts, 2560 tokens, 10 of 10 equal to the pass's greedy; 3.16 accepted a pass, histogram 0..15 [61, 121, 130, 101, 72, 46, 40, 11, 9, 11, 9, 4, 1, 3, 2, 5]; 334.3 tok/s, greedy 221.3, x1.511; per prompt x1.468 [1.242-2.090]; verify 67 %, drafter 33 % of the wall
+   dflash:tree  math: 20 prompts, 4924 tokens, 20 of 20 equal to the pass's greedy; 4.85 accepted a pass, histogram 0..15 [29, 102, 140, 120, 135, 56, 59, 46, 28, 25, 19, 12, 22, 18, 7, 36]; 461.6 tok/s, greedy 220.7, x2.091; per prompt x2.061 [1.674-2.996]; verify 66 %, drafter 33 % of the wall
+   dflash:tree   rag: 4 prompts, 865 tokens, 4 of 4 equal to the pass's greedy; 3.65 accepted a pass, histogram 0..15 [15, 34, 40, 26, 22, 9, 11, 3, 11, 7, 4, 3, 1, 1, 2, 0]; 265.8 tok/s, greedy 211.0, x1.260; per prompt x1.324 [0.874-1.669]; verify 77 %, drafter 23 % of the wall
+   dflash:tree   all: 44 prompts, 10602 tokens, 44 of 44 equal to the pass's greedy; 3.39 accepted a pass, histogram 0..15 [249, 452, 536, 359, 283, 134, 122, 64, 52, 45, 33, 19, 26, 22, 11, 41]; 343.1 tok/s, greedy 220.4, x1.556; per prompt x1.721 [0.824-2.996]; verify 68 %, drafter 32 % of the wall
+config dflash:chain: arm a12@8.10.8.20.6 (A12), plan [8, 10, 8, 20, 6], 384 threads, row cap 16, drafter revision b74e3a329c4d963783143b1e970d95b002be72bd, dtype F16, vocab q4, readout device, shape Chain(15), N 256
+  dflash:chain  chat: 10 prompts, 2253 tokens, 10 of 10 equal to the pass's greedy; 1.24 accepted a pass, histogram 0..15 [428, 290, 144, 69, 37, 22, 11, 7, 1, 3, 0, 1, 4, 1, 0, 0]; 193.3 tok/s, greedy 222.6, x0.868; per prompt x0.855 [0.607-1.111]; verify 71 %, drafter 29 % of the wall
+  dflash:chain  code: 10 prompts, 2560 tokens, 10 of 10 equal to the pass's greedy; 2.40 accepted a pass, histogram 0..15 [193, 201, 99, 83, 64, 41, 20, 13, 11, 11, 6, 4, 3, 2, 6, 5]; 288.8 tok/s, greedy 221.3, x1.305; per prompt x1.258 [1.080-1.889]; verify 70 %, drafter 30 % of the wall
+  dflash:chain  math: 20 prompts, 4924 tokens, 20 of 20 equal to the pass's greedy; 3.95 accepted a pass, histogram 0..15 [172, 198, 140, 106, 76, 61, 47, 42, 25, 19, 22, 13, 16, 16, 9, 51]; 417.0 tok/s, greedy 220.7, x1.889; per prompt x1.857 [1.449-2.921]; verify 71 %, drafter 29 % of the wall
+  dflash:chain   rag: 4 prompts, 865 tokens, 4 of 4 equal to the pass's greedy; 2.92 accepted a pass, histogram 0..15 [57, 44, 32, 24, 16, 12, 6, 5, 10, 6, 5, 4, 1, 1, 1, 1]; 230.1 tok/s, greedy 211.0, x1.090; per prompt x1.130 [0.732-1.577]; verify 79 %, drafter 21 % of the wall
+  dflash:chain   all: 44 prompts, 10602 tokens, 44 of 44 equal to the pass's greedy; 2.57 accepted a pass, histogram 0..15 [850, 733, 415, 282, 193, 136, 84, 67, 47, 39, 33, 22, 24, 20, 16, 57]; 293.8 tok/s, greedy 220.4, x1.333; per prompt x1.535 [0.607-2.921]; verify 72 %, drafter 28 % of the wall
+specbench house exit 0
+
+The drafter as the loop pays it (*computed*: per-prompt drafter and stage walls summed, over the passes):
+  drafter   passes   wall ms    a round   extension   block   head    readout   verify a pass
+  tree      2,448    9,839.1    4.019     0.683       1.891   0.752   0.504     8.584
+  chain     3,018    10,181.7   3.374     0.569       1.891   0.751   0.104     8.568
+SP6's tree on the same set: 5.456 ms a round, readout 2.008.
+In the loop the extension stage is 0.57 to 0.80 ms a round, against 0.37 whole in SP7's profile. Part of it is
+probably the 0.64 ms upload stall above, but that is not established.
+
+(c) GSM8K TEST ROWS 0-199, Q4 VOCABULARY, NO-SOFTMAX READOUT, UP TO 768 TOKENS
+-----------------------------------------------------------------------------
+Self-consistency: 200 of 200. Holds.
+Agreement with 4E: 177 of 200 prompts in full agreement; 58,101 of 63,441 tokens before the first divergence. These
+are SP6's 23 divergences, at the same tokens.
+The dump gsm200.jsonl is byte for byte the dump of SP6 (cmp): the same tokens for 4E, the pass and the tree.
+   dflash:tree   all: 200 prompts, 63441 tokens, 200 of 200 equal to the pass's greedy; 5.41 accepted a pass, histogram 0..15 [320, 981, 1430, 1344, 1198, 877, 699, 574, 473, 372, 314, 241, 228, 209, 175, 513]; 502.1 tok/s, greedy 218.8, x2.295; per prompt x2.328 [1.401-3.605]; verify 67 %, drafter 33 % of the wall
+The drafter as the loop pays it (*computed* as in (b)): 9,948 passes, 41,264.8 ms, 4.148 ms a round. Stages: extension
+0.797, block 1.882, head 0.757, readout 0.508 ms. Verify 8.53 ms a pass. SP6: 5.479 ms a round.
+
+Quality (grader output, verbatim):
+$ uv run ops/spec_grade.py docs/mesures/spec-loop-sp8-2026-11-11-brut/gsm200.jsonl --prompts ops/data/spec-gsm8k-200.jsonl --pair 4e pass
+200 math prompts, 200 with a gold
+              4e: 200 prompts, 198 closed boxes, 166 of 200 correct
+            pass: 200 prompts, 197 closed boxes, 167 of 200 correct
+     dflash:tree: 200 prompts, 197 closed boxes, 167 of 200 correct
+paired 4e / pass on 200 graded prompts: both right 165, both wrong 32, only 4e right 1, only pass right 2; exact McNemar p = 1
+answers differ on 6 prompts:
+  gsm8k-test-0021: 4e 14 (boxed), pass 60 (boxed), gold 14
+  gsm8k-test-0102: 4e 28 (boxed), pass 26 (boxed), gold 26
+  gsm8k-test-0119: 4e 30769.23 (last), pass 40 (last), gold 95200
+  gsm8k-test-0143: 4e 16.3 (boxed), pass 15 (boxed), gold 16
+  gsm8k-test-0147: 4e 15 (boxed), pass 60 (last), gold 75
+  gsm8k-test-0150: 4e 40 (boxed), pass 4 (boxed), gold 4
+$ uv run ops/spec_grade.py docs/mesures/spec-loop-sp8-2026-11-11-brut/gsm200.jsonl --prompts ops/data/spec-gsm8k-200.jsonl --pair pass dflash:tree
+200 math prompts, 200 with a gold
+              4e: 200 prompts, 198 closed boxes, 166 of 200 correct
+            pass: 200 prompts, 197 closed boxes, 167 of 200 correct
+     dflash:tree: 200 prompts, 197 closed boxes, 167 of 200 correct
+paired pass / dflash:tree on 200 graded prompts: both right 167, both wrong 33, only pass right 0, only dflash:tree right 0; exact McNemar p = 1
+answers differ on 0 prompts:
+Quality line: no measured difference between the pass and 4E (discordant 1 and 2, exact McNemar p = 1). The tree's
+answers equal the pass's on 200 of 200. The six differing answers are SP6's, as the dump is.
+
+AGAINST THE SIGNED PREDICTION
+-----------------------------
+  quantity                                     signed                  measured                  inside
+  (a) readout alone, no-softmax tree           0.62 ms [0.50, 0.85]    0.830 ms                  yes (at the top)
+  (a) readout alone, no-softmax chain          0.11 ms [0.09, 0.20]    0.101 ms                  yes
+  (a) readout alone, softmax                   2.0 ms [1.9, 2.1]       2.018 ms                  yes
+  (a) readout alone, chunked                   1.9 ms [1.8, 2.0]       1.943 ms                  yes
+  (a) loop round, tree, n = 4                  4.05 ms [3.75, 4.40]    5.28 ms (3.87 at n = 1)   no
+  (b) self-consistency, tree and chain         44 of 44 each           44, 44                    yes
+  (b) accepted a pass, tree                    3.39 [3.32, 3.46]       3.39                      yes
+  (b) accepted a pass, chain                   2.57 [2.48, 2.66]       2.57                      yes
+  (b) drafter round in the loop, tree          4.15 ms [3.85, 4.50]    4.019 ms                  yes
+  (b) drafter round in the loop, chain         3.60 ms [3.30, 3.95]    3.374 ms                  yes
+  (b) tree x greedy, all                       x1.51 [1.45, 1.58]      x1.556                    yes
+  (b) tree, math                               x2.05 [1.97, 2.15]      x2.091                    yes
+  (b) tree, code                               x1.45 [1.38, 1.52]      x1.511                    yes
+  (b) tree, chat                               x1.04 [0.98, 1.10]      x1.086                    yes
+  (b) tree, rag                                x1.22 [1.16, 1.30]      x1.260                    yes
+  (b) chain, all                               x1.28 [1.20, 1.36]      x1.333                    yes
+  (c) self-consistency                         200 of 200              200 of 200                yes
+  (c) accepted a pass                          5.41 [5.33, 5.49]       5.41                      yes
+  (c) tree tok/s                               494 [472, 516]          502.1                     yes
+  (c) tree x greedy                            x2.26 [2.16, 2.36]      x2.295                    yes
+  (c) token lists identical to 4E's            177 of 200              177                       yes
+  (c) tree correct / 4E correct                167 / 166               167 / 166                 yes
+  (c) differing answers                        SP6's six               SP6's six                 yes
+
+NOT ESTABLISHED
+---------------
+A served rate; a standard benchmark for chat and code; 8B, 14B; thinking mode; long context. The cause of the 0.64 ms
+upload stall.

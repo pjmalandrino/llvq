@@ -1,6 +1,6 @@
 # History
 
-The project's chronological thread, one entry per period, from 2026-07-24 to 2026-11-06. The current state is in [ETAT.md](ETAT.md), the lab rules in [METHODE.md](METHODE.md), the writing rules in [STYLE.md](STYLE.md). Entries are appended at the bottom and the past is not rewritten.
+The project's chronological thread, one entry per period, from 2026-07-24 to 2026-11-11. The current state is in [ETAT.md](ETAT.md), the lab rules in [METHODE.md](METHODE.md), the writing rules in [STYLE.md](STYLE.md). Entries are appended at the bottom and the past is not rewritten.
 
 ## 2026-07-24 to 07-28. Foundations, G1 to G4
 
@@ -1374,3 +1374,60 @@ The operator's go: finish speculation and its tests within $15. One card job and
 - B1 was cut for the night: the integer dot changes the logits, so it needs a new served object (4E's single-token
   path and the verify, perplexity and MMLU gates at three sizes), weeks of work, not a test.
 - The served decode stays greedy 4E v9. The next lever is the K-row loop, on the operator's go.
+
+## 2026-11-09. Draft trees on the Mac: step A of the tree verify holds, $0
+
+[eagle-tree](mesures/eagle-tree-2026-11-09.txt). The same head and greedy text as eagle-alpha, drafting EAGLE-2 trees
+instead of a chain: 16 rows emit 2.28 tokens a pass on chat and 3.15 on GSM8K at 3 head steps, against 1.69 and 2.42
+for the chain of 3 (*measured*). A tensor-core verify with each prologue run once a row would cost 1.27 [1.03-1.60]
+greedy tokens at 16 rows (*estimated*), and the 4B would decode about 352 tok/s on chat [275-435] (*computed*). The
+plan is [`plan-verify-tree.md`](plan-verify-tree.md); its first card job, about $0.30, is drafted and not
+timestamped. The int4 head's run was interrupted when the Mac froze and was dropped: a quantized head's acceptance
+stays unmeasured.
+
+## 2026-11-09. Tree verify S0: the kernel passes its host gates, $0
+
+[tree-verify-s0-host](mesures/tree-verify-s0-host-2026-11-09.txt). `pers_4et.cu` verifies a tree of up to 32 rows in
+one launch: projections on the tensor cores with d_in slices folded in order, prologues once a row, the row's keys in
+logical order, the accepted rows' K and V moved in the next launch. On the Mac, through `host_grid.h` and an MMA
+modelled from the PTX fragments: rows keep their bits at R = 1 to 32 and under slot permutations, a tree row equals
+the root it becomes, R = 1 sits within 1.1e-3 to 3.5e-3 relative RMS of 4E's logits with its argmax, and 10 mutants
+of 10 die (*measured*). The host fixture's SiLU table became SiLU itself for the closeness gate. A fold-order mutant
+first survived: the units were dealt slice after slice, so the last slice always arrived last; they are now dealt
+block after block. Nothing has run on a card; S1 still needs its Rust mirror, loader and bench.
+
+## 2026-11-09. Tree verify S1 on the card: the rows are nearly free, the pass is not; the route stops, $0.12
+
+[verify-tree-s1](mesures/verify-tree-s1-2026-11-09.txt). One L40S job (6af20dab, 4 min billed, registry $307.25), on
+the operator's go "Oui lance s1", launched from the session "Tetra décodage et vitesse de sortie". At the chat context
+an extra row costs 0.0196 of a 4E token, inside its signed interval, but a one-row pass costs 2.80 4E tokens against a
+signed 1.09, c_8 2.92 and c_16 3.09 (*measured*). The prereg's rule reads FAIL (c_16 > 1.60 and c_8 > 1.48): the route
+stops. Identity holds and the one-row pass makes 4E's token at 64 of 64 positions. The bench stopped at 4E's stamped
+token, which `p4e_phase_report` refuses below two tokens, so the rag context and the phase tables are missing
+(deviation 1); a second context can only raise the larger value the rule reads. Where the pass's fixed cost goes is
+not measured; the tree symbol's 736 B of local memory a thread and its 3 extra grid waits a layer are suspects by
+reading. A rerun with two stamped tokens would locate it, and needs the operator's go.
+
+## 2026-11-10 to 11-11. The tree pass repaired, the speculative loop set aside, the chain prefill read in place; nothing served changes, $13.96
+
+On the operator's go of 2026-11-09 and its $25 cap: 27 card jobs, $13.96 of the cap, registry $321.21 (*computed*).
+The milestones are in [jalons-debit](mesures/jalons-debit-2026-11-11.txt).
+
+- Tree verify pass, N1 to N11 ([verify-tree-n11](mesures/verify-tree-n11-2026-11-10.txt)). A 16-row pass costs 1.73
+  tokens of 4E at the chat context, from 3.07 (*measured*). Identity holds on every arm.
+- Speculative loop, SP2 to SP8 ([spec-loop-sp8](mesures/spec-loop-sp8-2026-11-11.txt)). With the DFlash drafter the
+  4B decodes 502 tok/s on GSM8K-200 (x2.30), 343 on the house set (x1.56), 242 in chat (x1.09); GSM8K 167 right
+  against 166, p = 1 (*measured*). It peaks at 5.41 GB against 2.01 (*measured*,
+  [spec-mem-m3](mesures/spec-mem-m3-2026-11-11.txt)), at 4.87 b/param with the f16 drafter (*computed*,
+  [spec-memoire](mesures/spec-memoire-2026-11-11.txt)). The operator set it aside as a fast profile; the default stays
+  at 2.73 b/param.
+- Chain prefill: the prompt as known tokens through the tree pass, reading the served words in place, no copy. First
+  token at 1,024 / 4,096 / 8,191 tokens: eager 3.951 / 17.641 / 37.037 s, 16 rows a pass 0.702 / 4.317 / 13.368, 32
+  rows 0.449 / 2.720 / 7.679, 32 rows with the full attention tile 0.420 / 2.393 / 6.485 (*measured*,
+  [large-prefill](mesures/large-prefill-2026-11-11.txt), [large-prefill-ft](mesures/large-prefill-ft-2026-11-11.txt)).
+  The 32-row forms equal the 16-row form bit for bit (argmax, logits, K and V); paired perplexity of the 16-row form
+  +0.0007 % against eager. A bench, not served.
+- Refuted or failed: E1, 4E's L2 prefetch removed or moved, x1.003 and x0.978 ([large-4e-e1](mesures/large-4e-e1-2026-11-11.txt));
+  D1, one K/V read for 4 rows, x1.302 at 8,191 for a x1.5 gate ([large-prefill-d1](mesures/large-prefill-d1-2026-11-11.txt));
+  v9ft, the full tile in 4E, x1.004 at 8,192 for x1.05 ([large-attn-ft-4e](mesures/large-attn-ft-4e-2026-11-11.txt)).
+- Nothing served changes: no config, no served module, no Hub file. 4E v9 stays the served decode.
