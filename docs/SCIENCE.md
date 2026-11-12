@@ -198,6 +198,15 @@ output-aware encoder objective of the YAQA kind, projects +0.5 to +1.7 MMLU.
 - Overturn: any output-aware arm, which has never run.
 - Checked: 2026-11-12.
 
+**Q21.** The ranking of projection types by restore gain depends on the draw: on a second draw nothing between the two
+is resolved and the head swaps. What holds across draws is coarse: MLP above attention, `v_proj` third, `q_proj` and
+`k_proj` last.
+- Standing: supported. Scope: 4B, Planes14 published file and a seed-3 encoding, 2,280 q, constant-file restores.
+- Evidence: [m2rep-graine3-4b](mesures/m2rep-graine3-4b-2026-09-04.txt) (largest difference `gate`, z = −1.68), as
+  `HISTORIQUE.md` 2026-09-04 reports it.
+- Overturn: O1 on the sealed file, read against this order.
+- Checked: 2026-11-12 (from `HISTORIQUE.md`, journal not reopened).
+
 ## K. The decode kernel
 
 **K1.** The served 4E v9 decodes the 4B at 221.5 tok/s against 129.0 for the eager engine, 1.717× round by round, with
@@ -269,6 +278,13 @@ sizes).
 - Overturn: an off-bit form inside the band that moves GSM8K by a resolved amount.
 - Checked: 2026-11-12 (copied from `ETAT.md` §4).
 
+**K10.** The Tetra row loop is not the limit of 4E: alone at 4E's geometry it streams 379 GB/s, against about 260 GB/s
+for the same rows inside 4E; a third of the rows' time is lost in situ, and no single suspect is worth ×1.30.
+- Standing: supported. Scope: sealed 4B, 4E v2 era (before v9), L40S; the in-situ figure *computed*.
+- Evidence: [pers-rowloop](mesures/pers-rowloop-2026-11-05.txt) (strongest suspect l1w, ×1.214).
+- Overturn: a v9 in-situ trace where the rows reach 379 GB/s.
+- Checked: 2026-11-12.
+
 ## C. The code and its rate-distortion
 
 **C1.** On a Gaussian source at 2.000 b/dim, Tetra's shipped gain rule retains 88.73 % of Shannon (MSE 0.0854); a free
@@ -307,6 +323,13 @@ and E3 needs 3.0444 kernel b/weight against a 2.60 criterion.
 - Overturn: per `ETAT.md` §6.
 - Checked: 2026-11-12 (from `ETAT.md` §6).
 
+
+**C6.** Gaussian retention overstates the loss on real weights. Tetra's 88.89 % against the ball-12 control's 92.00
+implied +8.5 % of MSE, and perplexity moved −4.64 %, the opposite sign.
+- Standing: supported. Scope: 4B, Tetra against the published Planes14 encoding, C4 calibration, one draw a side.
+- Evidence: `HISTORIQUE.md` 2026-09-06 (the Tetra encoding entry), journal not reopened here.
+- Overturn: a second draw a side that reverses the perplexity sign.
+- Checked: 2026-11-12.
 
 ## S. How it scales with model size
 
