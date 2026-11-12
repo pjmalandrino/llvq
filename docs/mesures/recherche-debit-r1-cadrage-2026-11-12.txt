@@ -1,0 +1,77 @@
+Research phase on decode speed (CERVEAU O11), steps R1 and R2: the framing and the route.
+Main session, 2026-11-12. No measurement was run. Every figure is copied from the two R0 notes of the same day,
+recherche-debit-r0-depot (the repository) and recherche-debit-r0-litterature (published systems), which cite their
+journals and sources line by line. Labels are theirs.
+
+R1. THE PROBLEM
+
+A token of the sealed 4B reads 1,378.2 MB of packed weights (computed): 750.0 MB of Tetra words, 409.4 MB of int4
+records, 218.8 MB of int4 head. The served kernel, 4E v9, takes 4.227 ms for it at a 5-token context on the L40S
+(measured), 297 GB/s over the whole token (computed).
+
+The number: the stream rate of the Tetra rows, in GB/s of packed words, on the L40S.
+  Tetra rows, loop alone, served decoder      379 [368-383]   measured, pers-rowloop; all 252 matrices as Tetra,
+                                                              the bare encode 0adb7cfd, not the sealed file
+  Tetra rows inside 4E v9, gate/up            359 to 385      computed from stamps, mean CTA work; gate/up is all Tetra
+  int4 rows inside 4E v9, o                   589             computed from stamps; o is all int4
+  mixed rows inside 4E v9                     414 (q/k/v), 648 (down)   computed; Tetra and int4 together
+  int4 rows alone, best arm                   548 (q4t); a bare read of the same bytes 671   measured, step1-micro
+
+The reference, in place of a bound: the int4 rows of the same kernel, on the same card, in the same token. The card's
+own read bandwidth has never been measured here; 864 GB/s is a datasheet figure, and no published measurement of it
+was found. Published systems agree with the split: 4-bit kernels reach 67 to 70 % of datasheet bandwidth on this
+memory system (llama.cpp on an L40 and an RTX 6000 Ada, computed from a forum scoreboard), 2-bit kernels 36 to 40 %
+(QTIP, QuIP#, llama.cpp IQ2, computed). No published 2 to 3 bit kernel was found above about half.
+
+The gap: the all-Tetra rows (gate/up, 359 to 385) stream at 0.61 to 0.65 of the rate the all-int4 rows (o, 589)
+reach beside them, and at 0.54 to 0.57 of the best bare read (671). They are 54 % of the
+token's bytes. The repository attributes 0.66 to 0.92 ms of their 1.81 ms to instruction time (computed,
+sass-tetra-lean): the rows are bound by the decode, 243 SASS instructions a block of 24 weights, not by the memory.
+
+The closed problem: compute y = W x for a matrix W stored as Tetra words, at the rate the card streams int4, with the
+sealed words as the only input, no more VRAM, and y inside the served tolerance.
+
+What the problem is worth at most, and what it leaves. An earlier note computed the door with the Tetra rows at
+671 GB/s and everything else as served: 260 tok/s at 4B, 174 at 8B, 105 at 14B (computed, recherche-debit-maths,
+cited by the R0 note), against 224, 145 and 87 served. That is the ceiling of this problem, not a forecast: about
+x1.16 at 4B. The larger share of the token is elsewhere. The whole token streams 297 GB/s, 0.44 of the best bare
+read; at that read rate 1,378 MB would take 2.05 ms (computed), 487 tok/s, if the memory never waited. That second
+problem, the whole token against its bytes, has no verifier today: a candidate is a whole kernel, and the
+instruments that would say where the memory waits do not exist (no bandwidth probe, no hardware counter, stamps
+that cost 210 to 290 us).
+
+Why this one first. The anomaly N5 as CERVEAU stated it (rows a third slower inside 4E
+than alone) dates from the v2 kernel; at v9 the gap is 0 to 6 % on mean work. The loop alone is therefore a fair
+stand-in for the rows in the token, which is what makes a search possible. The time outside the rows (1.44 ms of
+stamped phases, the stamped-against-timed gap of 210 to 290 us, the attention at short context) stays open as
+anomalies; it has no verifier and no instrument, and is not this phase's problem.
+
+R2. THE ROUTE AND THE VERIFIER
+
+Route: search. The verifier has two stages.
+  Stage 1, Mac, $0, seconds: a candidate computes the same y as the reference decoder on recorded words covering
+  every class, exactly or inside a stated error bound; a mutant must be caught.
+  Stage 2, card, costly: the loop alone, on the sealed 4B's own Tetra records, one shape at a time, medians over
+  rounds with their ranges, in GB/s. One job scores every candidate that passed stage 1, with the served decoder and
+  the int4 arms as controls in the same job.
+
+What stage 2 must show before any candidate counts (the R2 condition of MODES.md):
+  it reproduces the served decoder at 379 [368-383] and the journals' order of the known arms;
+  it reports the three shapes apart, which no journal has (d_in 2,560 is the slowest a step);
+  it measures the card's read rate with a bare probe, so the phase has a bound of its own;
+  it times the Tetra rows of the sealed file with no other traffic, which no journal has.
+The last two are also the first instruments of the second problem, bought by the same job.
+
+What the verifier scores is the rows' rate, not tok/s at the door. The stand-in is held faithful by the v9 stamps
+above. A candidate that wins stage 2 is an idea only after a token-level measurement, which belongs to R6.
+
+R3. THE SPACE (to be fixed when the harness exists)
+
+Programs that produce y from the sealed words and x. It is wider than every space with a recorded ceiling, because
+those were searched at the bit and inside the decode-then-dot form:
+  decoders with fewer instructions (the relabeled decoder, pword, lane rotation, an int16 dot: never run on the card);
+  schedules the bit forbade (several warps a row, reassociated sums);
+  layouts built at load from the sealed words, at the same VRAM;
+  the dot product in the code domain: partial sums of x against the patterns of a section, gathered by the word.
+
+Cost so far: $0. Spend under the cap: $19.22 of $25. Phase budget: $5 of card, to 2026-11-15.
