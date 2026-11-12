@@ -1,0 +1,212 @@
+THE 4B QUALITY GAP TO FP16: WHERE IT SITS, WHAT TUNING HAS LEFT, AND WHETHER ONE MECHANISM CLOSES HALF (2026-11-12)
+=====================================================================================================================
+Nature: desk study, $0. No job, no build, no model load. Arithmetic in one python3 -I one-liner. Web for literature.
+Read:   docs/ETAT.md, docs/ROADMAP-QUALITY.md, docs/HISTORIQUE.md (2026-09-06, 09-14, 09-15), ops/llvqtune/README.md,
+        ops/llvqtune/llvqtune/__main__.py, docs/data/jobs.csv, and the journals cited by name below.
+Bar:    +3.4 MMLU or +4.8 GSM8K at 4B (half of 6.77 and 9.63), at 2.73 b/param, same VRAM and decode speed, by a
+        method that carries to every future model.
+Labels: *measured* (a journal), *computed* (arithmetic here), *estimated* (judgement), *reported* (a paper, URL).
+
+VERDICT: UNDER THE BAR
+-----------------------
+No single mechanism reaches +3.4 MMLU at its central estimate. The best one, an output-aware encoder objective
+(YAQA-style) run on the same file format, projects +0.5 to +1.7 MMLU and +1 to +5 GSM8K at 4B. It touches the GSM8K
+bar only at the top of its range. Tuning the free parameters with codes frozen is spent: it took 26 % of the base gap
+at 4B, and a second pass took nothing. Training with codes that move is refuted in its cheap form (K1) and, in its
+full form (QAT), costs 10 to 50 times more for a gain the 2026 literature does not separate from a good PTQ objective.
+
+1. THE ACCOUNTING OF THE 4B GAP
+-------------------------------
+The sealed 4B reads 63.37 MMLU and 82.49 GSM8K against 70.14 and 92.12 for FP16 (*measured*, ETAT.md:32, :69).
+Paired gap 6.77 [6.05, 7.50] MMLU and 9.63 [7.69, 11.57] GSM8K (*computed* / *measured*, ETAT.md:92).
+
+How the object got there, full 14,042-question split:
+
+  step                                              MMLU     delta    label      source
+  bare Tetra, C4 calibration                        54.64             measured   tetranu-rowscales-2026-09-19.txt:20
+  served Q5 base (v_proj int4), C4                  56.37             measured   vod-int4-full-2026-09-18.txt:15
+  DCLM-edu calibration (paper's set)                                   +1.58     measured   tetranu-rowscales:75
+  DCLM base, Q5                                     57.95             measured   dclm-rowscales-2026-09-20.txt:20
+  + trained row scales (frozen codes, global KL)    61.11    +3.15    measured   dclm-rowscales:21-23
+  + q4 embedding, o_proj and down_proj@12-23 int4   63.37    +2.26    measured   embed-q4-swap-2026-09-23.txt:19-25
+  + second training, row scales and RMSNorms        63.40    +0.02    measured   sealed-rownorms-2026-09-23.txt:19-24
+  FP16                                              70.14
+
+What the remaining 6.77 is attributed to. No restore or ablation has been run on the sealed object. Every
+attribution below comes from older bases and is transferred by arithmetic.
+
+  source of loss                        share of 6.77 MMLU      label       basis
+  int4 records (v, o, down@12-23)       about 0.5 to 0.8        estimated   int4 keeps 0.751 of the f16 restore gain
+                                                                            (HISTORIQUE.md:400); f16 restore of v, o, a
+                                                                            third of down on Planes14 = 4.48 + 2.35 +
+                                                                            0.99 (m2-attribution-4b-2026-09-02.txt:53-59),
+                                                                            times sub-additivity 0.618, times 6.77/14.73
+                                                                            = 0.56 (computed)
+  q4 embedding = tied head              about 0.35, unresolved  measured    -0.35 under a 0.43 bar, +1.52 % ppl, on
+                                                                            Planes14 (ROADMAP-QUALITY.md:63)
+  lattice records (q, k, gate, up,      about 5.6 to 5.9        computed    the remainder
+  24 down layers)
+    of which: codebook amplitude        +1.0 to +2.0 reachable, computed    tonight's codebook rounds (caller), law
+      (shape, MSE at fixed rate)        +2.3 at Shannon                     acc = 54.60 + 14.60 ln SNR
+                                                                            (logit-snr-4b-2026-09-12.txt:38)
+    of which: structure of the error    3.5 to 5                computed    remainder after amplitude
+      (which directions are hit, not
+      how much)
+  calibration draw                      +-1.1 to +-2.2, sign    computed    draw sd 2.92 (ETAT.md:168), 1.7 on the DCLM
+                                        unknown                             recipe on one d.o.f.
+                                                                            (gains-criteres-qualite-2026-11-11.txt:28);
+                                                                            row scales keep 0.66 to 0.76 of a base gap
+  rotation                              not a loss              reported    removing it costs 5.1 in the paper's Table 9
+                                                                            (ROADMAP-QUALITY.md:132-134); rotation seed
+                                                                            never varied (ROADMAP-QUALITY.md:68)
+  GPTQ objective (output-agnostic)      not measured            -           spherical feedback +31.89 % ppl (ETAT.md:226),
+                                                                            Euclidean gain rule dead (ETAT.md:228); no
+                                                                            output-aware arm ever ran
+  error propagation across blocks       not measured            -           block-sequential calibration; intra-block not
+                                                                            (ROADMAP-QUALITY.md:120, row C)
+  output temperature                    0 MMLU, 2.5 % of KL     measured    kl-temperature-4b-2026-09-16.txt:16
+
+Unattributed by any measurement on the sealed object: about 5.6 of the 6.77 MMLU points (83 %), and all 9.63 GSM8K
+points. GSM8K was never scored before the row scales, so even the row-scale share of GSM8K is unknown.
+
+Three measured facts say what kind of loss the unattributed part is.
+  - The error is structured, not amplitude. Gaussian noise of the measured logit amplitude predicts 58.53 for bare
+    Tetra; it reads 53.49 (logit-snr:100). Five points come from where the error lands.
+  - It lands on a shared fragile bank. 15.6 % of questions flip sign against f16, and independent encodings flip the
+    same ones at 2.4 to 3.2 times chance (logit-snr:105-124). Restoring any single projection type repairs
+    overlapping sets, Jaccard 22 to 36 % against 3 to 6 % chance (logit-snr:138).
+  - Gains do not add across types: the seven single restores sum to 23.85, all seven together give 14.73, ratio
+    0.618 (computed from m2-attribution:53-63). Across matrices of the int4 move they add to 96 %
+    (vod-int4-full:27-31).
+  - Perplexity is closed and MMLU is not: x1.0074 of f16 after row scales at 61.11 (dclm-rowscales:131-134). The KL
+    on DCLM still reads 0.2342 nats a token (dclm-rowscales:72), about 0.20 after the second pass
+    (sealed-rownorms:40).
+
+2. WHAT FROZEN-CODE TUNING HAS GIVEN, AND WHAT WAS NEVER TRIED
+--------------------------------------------------------------
+All runs: ops/llvqtune, global end-to-end KL to the f16 teacher, batch 1 x 2,048 tokens, lr 1e-3, warmup-cosine,
+DCLM-edu (ops/llvqtune/llvqtune/__main__.py:26-31; jobs.csv).
+
+  run                        trained                          tokens     cost      MMLU          share of base gap
+  4B bare Tetra              1,069,056 row scales             19.8 M     $3.90     +4.30         -
+  4B DCLM base               row scales                       19.5 M     $4.00     +3.15         0.258 (computed)
+  8B DCLM base               row scales                       19.5 M     $5.66     +3.29         0.323 (computed)
+  14B DCLM base              row scales                       19.5 M     $9.78     +1.67         0.263 (computed)
+  4B sealed, second pass     168 row scales + 73 RMSNorms     19.1 M     $3.09     +0.02 [-0.31, +0.36]
+  (all measured: tetranu-rowscales:20-24, dclm-rowscales:20-23, dclm-8b-rowscales:32-33, dclm-14b-rowscales:29-32,
+  sealed-rownorms:19-24; costs jobs.csv)
+
+The 4B gain was acquired before step 1,210 of 9,681, 2.4 M tokens (tetranu-rowscales:56-58). Data was never the
+constraint. The share of the remaining gap recovered is 26 to 32 % at every size, and the published frozen-code
+fine-tunes on Qwen3-4B recover 16 to 22 % at the point where they apply (QuIP# +4.3 from 48.6, QTIP +2.1 from 57.4,
+LLVQ +2.1 from 60.7, against 70.2; ROADMAP-QUALITY.md:221-230, computed). Ours already sits at the top of that range.
+
+Never tried:
+  - free_params mode (f16 tails, centroids): code and tests exist, never ran (ops/llvqtune/README.md:26).
+  - the int4 records' group scales and offsets, about 12 M values, and the q4 head's, about 12 M (computed). They are
+    min/max RTN from the checkpoint and excluded from every training (sealed-rownorms:48). This is mlx-lm's DWQ.
+  - rotation signs (QuIP# trains them as real vectors). The input-side diagonal is close to the RMSNorm training,
+    which moved +0.02.
+  - block-wise training of any kind (output matching per transformer block). Every run is global.
+  - any corpus other than DCLM-edu. The mmlu-aux arm was cancelled at $0 on 2026-09-23 (ROADMAP-QUALITY.md:73).
+  - codes that move. The llvqtune invariant forbids a gradient through the decoder (README.md:63).
+
+3. WHAT THE LITERATURE GETS FROM THE TUNING STAGE AT 2 TO 3 BITS
+----------------------------------------------------------------
+  method                       tuning-stage gain, alone                       cost                codes move?
+  EfficientQAT, Llama-2-7B     E2E-QP only 55.71, Block-AP only 58.99, both   4.8 A100-h (3.3 +   Block-AP: yes
+  w2g64                        60.14 avg zero-shot; base 40.69. E2E-QP on     1.5), 8.4 M + 16.8  (weights + STE);
+                               top of Block-AP: +1.15 (reported)              M tokens            E2E-QP: no
+  PV-Tuning, AQLM 2.01 b,      continuous only +3.37, discrete step +1.24 to  up to 1.5x          yes (V step)
+  Llama-2-7B                   +1.62 above it, avg zero-shot (reported)       continuous; 2 days
+                                                                              x 8 GPU at 70B
+  QTIP                         only the HYB code is fine-tuned; 3INST/1MAD    not reported        HYB codebook only;
+                               codes "are not tunable". HYB 7B wiki2 6.83 to                      computed codes no
+                               5.86 (reported)
+  QuIP# (on Qwen3-4B, LLVQ     +4.3 MMLU from 48.6 (reported in the LLVQ      about 50 GPU-h at   no (E8P fixed)
+  paper Table 6)               paper)                                         70B
+  QTIP (same table)            +2.1 MMLU from 57.4 (reported)                 -                   no
+  YAQA (objective, not tuning) Qwen3-8B 2 b: +2.10 MMLU, +7.51 GSM8K over     1 to 2 GPU-h        no
+                               LDLQ; after recovery FT the KL edge shrinks
+                               to 10 to 20 % (reported)
+  LC-QAT (full QAT), Qwen3-8B  72.18 avg zero-shot, against 72.14 for YAQA    61 h x 8 A800       yes
+  2 b                          PTQ and 70.99 for PV-Tuning, FP16 74.12
+                               (reported, S20 of recherche-methode)
+  Bonsai (PrismML)             recipe unpublished                             -                   -
+
+Sources: EfficientQAT https://arxiv.org/html/2407.11062v3 (Table 4, fetched 2026-11-12); QTIP
+https://arxiv.org/html/2406.11235 (Tables 5, 11); PV-Tuning https://arxiv.org/html/2405.14852 (Table 1); YAQA
+https://arxiv.org/abs/2505.22988; LC-QAT https://arxiv.org/html/2606.10531v3; AQLM global fine-tune
+https://arxiv.org/abs/2401.06118 (no clean pre/post pair found). The YAQA and LC-QAT rows are taken from
+recherche-methode-quantification-2026-11-11.txt:31-39, :84-85.
+
+What this says. The tuning stage moves accuracy most when the base is broken (EfficientQAT from 40.69, QuIP# from
+48.6). On a base that already had a good objective, the 2026 data point is LC-QAT: full QAT at about 500 A800-hours
+ties YAQA PTQ on zero-shot average at 2 bits on Qwen3-8B. No source isolates a tuning-stage gain on MMLU or GSM8K
+from a base as close to FP16 as ours.
+
+4. JUDGEMENT
+------------
+Exchange rate. The repository's law gives 7.3 MMLU points per e-fold of noise power. YAQA's own Qwen3-8B 2-bit
+points give 8.5 points per e-fold of KL (computed: 63.94 at KL 0.285 to 66.75 at 0.205). The two agree. Half the
+gap, +3.4, asks noise power / 1.59, -2.0 dB, or KL from about 0.20 to about 0.13. The whole codebook to Shannon is
+worth about +2.3. So half the gap needs a lever bigger than a perfect codebook, at the same bits, and it must act on
+the structure of the error, not its size. Caveat: the row scales cut training KL 3.8 % for +3.15 MMLU, so KL does not
+predict MMLU on this object; the law is an order of magnitude.
+
+Candidates against the bar:
+  - More frozen-code tuning (free_params, int4 DWQ, norms, signs, more tokens, blockwise P-step): +0.2 to +0.8.
+    Measured second pass +0.02. The int4 and head tiers hold at most about 0.9 of the 6.77. UNDER.
+  - Codes that move by lattice steps (K1, PV V-step): refuted, step 0.332 of block norm > error 0.290, ceiling
+    +0.15 to +1.30 with a perfect gradient (refutation-k1-maths-2026-11-11.txt:80-110). UNDER.
+  - Gain-bit flips by gradient: the cheapest code move our frame allows. Its encoder form is closed (Euclidean gain
+    rule dead end to end, ETAT.md:228). UNDER.
+  - Full QAT: unknown gain, LC-QAT shows parity with a good PTQ objective, $500 to $1,500 at 8B and a GPU Tetra
+    encoder that does not exist (recherche-methode:286-295). Fails the cost axis; not "the same object cheaply".
+  - Blockwise compensation at encode (QuIP#/QTIP style, P5 of recherche-methode): +0 to +1.5 above row scales; the
+    closest analog, QTIP's whole FT on Qwen3-4B, gave +2.1 and includes the end-to-end half we already took. UNDER.
+  - Output-aware objective in the encoder (YAQA, P1 of recherche-methode): the best of the lot. Below.
+
+The one mechanism, if one: YAQA-style output-aware rounding objective, then today's row-scale distillation.
+  What:       replace the per-row tr(E H_in E') of GPTQ by tr(H_O E H_in E'), H_O a sketched output Kronecker factor
+              from one torch backward over calibration text. The Tetra search, the file, the kernels do not change.
+  Range at 4B: MMLU +0.5 to +1.7, centre +1.0; GSM8K +1 to +5, centre +2.5 (estimated). Reasoning: YAQA closes 23 %
+              of the MMLU gap and 27 % of the GSM8K gap on Qwen3-8B 2-bit (computed from its table); transferred to
+              our gaps that is +1.6 and +2.6; our row scales then absorb part of it (YAQA's KL edge falls to 10 to
+              20 % after recovery fine-tuning), and gains here compose at 0.62 to 0.79. Chance of passing the bar:
+              about 5 % on MMLU, 15 to 20 % on GSM8K (estimated).
+  Frame-specific? No. A fixed decoder table means the encoder is the only place output information can enter, which
+              makes the encoder objective our main lever, but it does not make YAQA cheaper here. Our row-by-row
+              block-of-24 sweep has no cross-row feedback today; that is new code on both axes.
+  Definitive? Yes as a method: model-agnostic, recurs per model at the sketch price.
+  Other criteria: b/param, VRAM, decode speed, first token unchanged (same format, same bytes). Production cost: sketch
+              1 to 2 L40S-hours at 4B ($2 to $4), encode x1.2 to x2 (2 h 27 to 3 to 5 h on the Mac), H_O storage about
+              31 GB at 4B (estimated, recherche-methode:140-142).
+  Cost at 4B: 5 to 10 agent-days of code; per arm sketch $2 to $4 + Mac encode $0 + row scales $4.00 + MMLU $0.70 +
+              GSM8K $2.13, about $10 to $11; three draws per arm against the draw sigma, two arms: about $60 to $65 and
+              4 to 6 days of wall clock (estimated).
+  Refuted by: (a) the served error is not output-aligned: if the ratio tr(H_O E H_in E') / (mean diag(H_O) x
+              tr(E H_in E')) sits within 1.0 +- 0.1 on the sealed 4B's matrices and H_O's eigenvalue spread is small,
+              there is nothing to steer; (b) held-out KL to f16 after row scales not 10 % lower than the GPTQ arm in all
+              three draws at 1.7B; (c) the YAQA arm breaks the same fragile bank (overlap lift still about 2.6).
+  First experiment: (a), the output-alignment ratio of the sealed 4B's error. Mac, no card, $0, needs the operator's go
+              for a model load: one backward on a few windows for H_O of a sample of matrices, H_in from hcapture
+              (exists), E = decoded minus checkpoint. Kill if the ratio is near 1 and H_O is flat.
+
+Adversarial checks against the repository's negatives.
+  - Spherical GPTQ feedback (+31.89 % ppl): a change of the encoder's feedback that composed badly. YAQA is also a
+    feedback change; the same failure mode is possible and the KL gate must come before any MMLU spend.
+  - Five local-proxy improvements composed worse here (ROADMAP-QUALITY.md:71). YAQA's proxy is less local, not global.
+  - The calibration draw is a hyperparameter (sd 1.7 to 2.92): one encode per arm cannot read a +1 effect.
+  - KL is not an MMLU proxy on this object (row scales: KL -3.8 %, MMLU +3.15; second pass: KL -24 %, MMLU +0.02).
+    The projection above leans on YAQA's own MMLU and GSM8K, not on KL.
+  - ROADMAP-QUALITY L10 scored the lever 0 on a misreading (gains-criteres-qualite:118-121); not an ETAT §6 lead.
+
+WHAT I DID NOT CHECK
+--------------------
+- No attribution on the sealed object exists; every share in section 1 is transferred from Planes14 or bare Tetra.
+- GSM8K attribution of any kind; the GSM8K effect of the row scales.
+- YAQA's and LC-QAT's numbers were read from tonight's survey, not re-fetched. EfficientQAT and QTIP were fetched.
+- PrismML Bonsai's recipe (unpublished).
+- Whether H_O at 4B fits the Mac (31 GB estimated) for the first experiment; it may need a sampled subset of matrices.
+- The SNR law's validity for objective changes; it was fitted on encodings and restores.
