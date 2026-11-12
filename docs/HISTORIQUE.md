@@ -1462,3 +1462,17 @@ rows of `docs/data/jobs.csv` sum to $326.22, $0.25 under the registry; the journ
   against the definitions: 13 established, 2 proved, 35 supported, 6 conjecture, 3 refuted. The ablation journal now
   states both readings of the prereg's "interacting" row: to the letter it fires and the next step is global.
 - Nothing served changes: no config, no served module, no Hub file.
+
+## 2026-11-12. A research phase opens on decode speed; six speed claims of CERVEAU corrected against their journals
+
+Mandate in [`CERVEAU.md`](CERVEAU.md) O11: decode speed, the sealed files untouchable, three days and $5 of card. The
+reading step is [recherche-debit-r0-depot](mesures/recherche-debit-r0-depot-2026-11-12.txt) and
+[recherche-debit-r0-litterature](mesures/recherche-debit-r0-litterature-2026-11-12.txt); the framing is
+[recherche-debit-r1-cadrage](mesures/recherche-debit-r1-cadrage-2026-11-12.txt). Nothing was measured.
+
+- The reading found six claims that said more than their journals. K2 is the bare encode, not the sealed file. K3's
+  A100 ran the eager engine only. K4's ×1.002 is the row loop alone, not a 4E form. K8's +47 % of VRAM is *computed*.
+  K9's factor of ten is the grouped form; the kernel form of 4E reaches 0.65 of the band at 4B.
+- K10 said that a third of the Tetra rows' time was lost inside 4E, at about 260 GB/s against 379 alone. That was
+  4E v2. At v9 gate/up reads 359 to 385 GB/s in the token (*computed* from stamps), so the rows are bound by their
+  decode. The anomaly N5 is now the whole token at 297 GB/s against rows at 359 to 648.

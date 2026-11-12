@@ -32,7 +32,7 @@ The closed problem: compute y = W x for a matrix W stored as Tetra words, at the
 sealed words as the only input, no more VRAM, and y inside the served tolerance.
 
 What the problem is worth at most, and what it leaves. An earlier note computed the door with the Tetra rows at
-671 GB/s and everything else as served: 260 tok/s at 4B, 174 at 8B, 105 at 14B (computed, recherche-debit-maths,
+671 GB/s and everything else as served: 260 tok/s at 4B, 174 at 8B, 105 at 14B (estimated, recherche-debit-maths,
 cited by the R0 note), against 224, 145 and 87 served. That is the ceiling of this problem, not a forecast: about
 x1.16 at 4B. The larger share of the token is elsewhere. The whole token streams 297 GB/s, 0.44 of the best bare
 read; at that read rate 1,378 MB would take 2.05 ms (computed), 487 tok/s, if the memory never waited. That second
