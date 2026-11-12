@@ -1,6 +1,6 @@
 # History
 
-The project's chronological thread, one entry per period, from 2026-07-24 to 2026-11-11. The current state is in [ETAT.md](ETAT.md), the lab rules in [METHODE.md](METHODE.md), the writing rules in [STYLE.md](STYLE.md). Entries are appended at the bottom and the past is not rewritten.
+The project's chronological thread, one entry per period, from 2026-07-24 to 2026-11-12. The current state is in [ETAT.md](ETAT.md), the lab rules in [METHODE.md](METHODE.md), the writing rules in [STYLE.md](STYLE.md). Entries are appended at the bottom and the past is not rewritten.
 
 ## 2026-07-24 to 07-28. Foundations, G1 to G4
 
@@ -1431,3 +1431,34 @@ The milestones are in [jalons-debit](mesures/jalons-debit-2026-11-11.txt).
   D1, one K/V read for 4 rows, x1.302 at 8,191 for a x1.5 gate ([large-prefill-d1](mesures/large-prefill-d1-2026-11-11.txt));
   v9ft, the full tile in 4E, x1.004 at 8,192 for x1.05 ([large-attn-ft-4e](mesures/large-attn-ft-4e-2026-11-11.txt)).
 - Nothing served changes: no config, no served module, no Hub file. 4E v9 stays the served decode.
+
+## 2026-11-12. The sealed 4B loses its quality in the MLP; CERVEAU and MODES adopted; nothing served changes, $5.26
+
+[ablation-qualite-4b](mesures/ablation-qualite-4b-2026-11-12.txt). One L40S job (6af550a4, 175.4 min) restored
+projection groups of the sealed 4B to f16 from the checkpoint, in eight dense arms on the full MMLU split. It cost
+$5.26 against $5.79 estimated (*computed*). Spend under the $25 cap of 2026-11-09 is $19.22, registry $326.47. The
+rows of `docs/data/jobs.csv` sum to $326.22, $0.25 under the registry; the journal traces the gap to
+[large-prefill-ft](mesures/large-prefill-ft-2026-11-11.txt), not chased.
+
+- The MLP carries the gap. Restored to f16, gate/up recovers +3.38 [+2.75, +4.02] MMLU points, down +2.01 [+1.46,
+  +2.54], the whole MLP +4.86 [+4.16, +5.57]; attention recovers +0.73 [+0.16, +1.29], qkv +0.55, o -0.13
+  (*measured*). All 252 projections recover +6.72 and sit +0.04 [-0.23, +0.31] under FP16. All exceeds the MLP plus
+  attention by +1.14 [+0.43, +1.85] (*computed*). Six controls are green.
+- Nine of fourteen signed predictions are in. The five misses are all on attention or additivity: qkv, o and attn
+  came in under their intervals, A_attn and S above theirs.
+- 4E off the bit is a study, not a measurement:
+  [large-4e-hors-poids-etude](mesures/large-4e-hors-poids-etude-2026-11-12.txt). Its best composed set takes the chat
+  door from 224 to 241-281 tok/s (*estimated*), under x1.3 (291). Nothing was launched.
+- The night of 2026-11-11 ran three rounds of ideation, and every idea ended under its bar (+3.4 MMLU, x1.3 of
+  decode). The ideas were judged by estimates, not by a measurement or a verifier. The notes are
+  `gains-criteres-*`, `recherche-*`, `innovation-*` and `refutation-k1-*` of 2026-11-11 in [`mesures/`](mesures/),
+  with [innovation-tetra-v2-forme](mesures/innovation-tetra-v2-forme-2026-11-11.txt). The study notes
+  [innovation-ecart-qualite](mesures/innovation-ecart-qualite-2026-11-12.txt) and
+  [innovation-cout-encodage](mesures/innovation-cout-encodage-2026-11-12.txt) followed on 2026-11-12.
+- [`CERVEAU.md`](CERVEAU.md) now holds what we believe about the subject, 59 claims each with its standing, and
+  [`MODES.md`](MODES.md) the two working modes that replace the night's method. Operator's ruling: a per-model tweak
+  and a law drawn from a few points are not ideas. Delegation became a standing rule ([`METHODE.md`](METHODE.md) §8).
+- An independent review of the same day added the standing `proved` to `CERVEAU.md` and regraded nine claims
+  against the definitions: 13 established, 2 proved, 35 supported, 6 conjecture, 3 refuted. The ablation journal now
+  states both readings of the prereg's "interacting" row: to the letter it fires and the next step is global.
+- Nothing served changes: no config, no served module, no Hub file.

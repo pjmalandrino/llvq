@@ -58,6 +58,8 @@ After:
 | `docs/ETAT.md` | 150 |
 | `docs/ROADMAP.md` | 150 |
 | `docs/METHODE.md` | 150 |
+| `docs/CERVEAU.md` | no line target; one to two sentences a claim, and its five fields |
+| `docs/MODES.md` | a short document |
 | `docs/how-it-works.md` | 300 |
 | experiment summary | 40, template `templates/experience.md` |
 | prereg | 80, template `templates/prereg.md` |

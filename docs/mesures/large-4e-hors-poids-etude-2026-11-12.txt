@@ -1,0 +1,276 @@
+LARGE-4E OFF THE BIT: WHAT THE TIME WITHOUT WEIGHTS IS, AND WHAT DROPPING BIT IDENTITY BUYS, SEALED 4B, L40S, 2026-11-12. $0.
+=============================================================================================================================
+Result: off the bit, the best composed set takes the chat door from 224 to 235-262 tok/s with off-bit cuts alone, and
+to 241-281 with the two bit-identical cuts still standing (F, W) (*estimated*). Central 247 and 259. x1.3 (291 tok/s,
+3.43 ms a token) is not reached, even at the top of the range. The plan-300 ceiling at the bit, 235-258 at the door,
+becomes about 241-286 off the bit (*estimated*). At 8,192 tokens the door goes from 161.5 to 164-171 without touching
+the KV cache, and to 174-219 with an int8 cache, whose own measured interval already leaves the +-0.12 % band.
+Why so little: the "1.76 ms without weights" is mostly not idle DRAM. Three of its phases carry the L2 prefetches of
+1,159 MB of the token's 1,378 MB of weights (ln1, attention, inner wait and down input). Only norm/RoPE, ln2 and the
+embedding leave the DRAM idle, about 265 us, plus the gate/up rows, which read 360 GB/s for 1.3 ms (*computed*). That
+is why E1 moved time instead of saving it. Off the bit, three levers open: the attention job shape at short rows, the
+integer dot in the Tetra rows, and a cheaper KV cache. Everything else is bound by latency or bytes, not by bit identity.
+First experiment: 4E v9as, attention spread over more jobs at rows under 4,096 (smaller units, same tiles), with a 4E
+teacher-forced perplexity mode built for it. One L40S job, about 20 min, $0.60, cap $0.90. 4 to 6 engineering days.
+Nature: read only. No build, no run, no job, no model load. Sources: origin/main at 818564f; llvq-cuda/kernels/
+pers_4e.cu, llvq_pers.cuh; the journals named on each line. Small Python arithmetic in the scratchpad.
+
+THE RULE FOR THIS AXIS (operator, relayed 2026-11-12)
+----------------------------------------------------
+A new 4E form may change the logits. It must stay within paired WikiText-2 perplexity +-0.12 % of the served form
+(docs/ETAT.md §4, the bar the grouped attention was served under on 2026-11-01), with b/param 2.73 whole model and card
+memory 2.01 GB short, 5.95 GB at 8k, unchanged. CUDA Graphs stay out of the core (rule 3). Early exit and low rank are
+out. Closed leads of ETAT §6 reopen only under their condition.
+
+1. THE BUDGET OF ONE 4E v9 TOKEN AT FOUR CONTEXTS
+-------------------------------------------------
+Sources. 5 and 8,192: large-4e-e1-2026-11-11.txt lines 82-126, arm v9, one stamped launch of 62 tokens, median, and the
+timed token of the same job (lines 60-63). 1,024 and 4,096: the attention wall and both tokens from
+large-attn-ft-4e-2026-11-11.txt lines 81-85 (arm v9); the other phases *computed* as the mean of the 5 and 8,192
+values, which differ by under 35 us on every phase. Chat (context 62): large-4e-budget-2026-11-11.txt lines 48-67.
+us a token. Sub-phases are mean CTA work; "imbalance" is a wall above its mean work. All *measured* unless marked.
+
+  phase                          chat 62   5        1,024     4,096     8,192     DRAM during the phase
+  embedding                        3.0      2.9      2.9 c     2.9 c     2.9      idle
+  ln1 + q/k rotation (rot_apply)  233.7    237.5    241.7 c   241.7 c   245.9     q/k/v prefetch, 173.8 MB (237 us at 85 %)
+  q/k/v rows (q, k Tetra; v int4) 419.5    413.3    415.4 c   415.4 c   417.4     own 173.8 MB, 414 GB/s
+  q/k/v imbalance                  14.2     15.9     25.0 c    25.0 c    34.1
+  q/k norm, RoPE, KV append       125.9    121.7    116.0 c   116.0 c   110.3     idle (0.1 MB written)
+  attention, K/V read             790.9    599.1   1108.2    1561.6    2646.3     KV + o and gate/up prefetch, 670.3 MB
+  o rows (int4), residual add     260.3    276.8    273.6 c   273.6 c   270.4     own 200.5 MB, 589 GB/s
+  o imbalance                      80.0     81.0     72.4 c    72.4 c    63.8
+  ln2 + rotation (rot_apply)      141.7    140.6    145.3 c   145.3 c   150.0     idle
+  gate/up rows (Tetra)           1305.3   1308.9   1263.8 c  1263.8 c  1218.8     own 469.8 MB, 360 GB/s: half idle
+  inner wait                      181.8    187.1    199.6 c   199.6 c   212.2     down prefetch, 315.4 MB (430 us at 85 %)
+  down input: SiLU x up, rotation 149.7    154.9    156.9 c   156.9 c   158.9     down prefetch, continued
+  down rows, residual add         487.0    459.5    462.7 c   462.7 c   465.9     own 315.4 MB, 648 GB/s
+  MLP imbalance                   116.5    117.4    111.6 c   111.6 c   105.8
+  final norm, head (int4 g64),    367.8    367.1    367.6 c   367.6 c   368.0     own 218.8 MB, 595 GB/s
+    argmax (sampling, one wait)
+  token, stamped                 4677.3   4483.6   4899.8    5347.8    6468.2
+  token, timed                   4467.2   4226.5   4611.2    5079.5    6211.2
+  tok/s timed                     223.9    236.6    216.9     196.9     161.0
+  (c: *computed*, mean of 5 and 8,192.) Residual adds sit in the o and down row epilogues; the SiLU in the down input;
+  sampling is the argmax inside the head phase. Launch and host: 4E runs one cooperative launch for a run of tokens
+  (pers_4e.cu line 243); the door's residue over the bench, 0.24 to 0.27 ms at 4B, has no measured cause
+  (recherche-debit-maths.md §11.1). The 218 grid waits a token, 168 us at 0.771 us each (step1-micro), are inside the
+  walls above, not a line of their own.
+
+What the time without weights is made of (5 tokens, E1's v9 stamps, *computed* from the table):
+- Byte-free phases and imbalance: 1,658 us at 5 tokens, 2,180 at 1,024, 2,633 at 4,096, 3,730 at 8,192. The brief's
+  1.76 ms is the chat column of the budget journal (attention 790.9 there).
+- Phases that carry a prefetch: ln1 (173.8 MB), attention (670.3 MB), inner wait and down input (315.4 MB). 1,159 MB,
+  84 % of the 1,378 MB of weights, cross the DRAM during "byte-free" phases (*computed*, pers_4e.cu lines 261-287,
+  334-351; the down prefetch in pers_segment.cu).
+- Phases that leave the DRAM idle: embedding 2.9, norm/RoPE 121.7, ln2 140.6: 265 us at 5 tokens (*computed*). The
+  gate/up rows read 360 GB/s against 734 at 85 % of the peak: about 640 us of half-idle DRAM a token (*computed*).
+- At 1,024 and 8,192 the attention wall equals the DRAM time of its own bytes plus the prefetch at 85 %: 1,119 us
+  against 1,108 measured, 2,559 against 2,646 (*computed*). At 5 and 4,096 the prefetch spills into o.
+- E1 measured the consequence: removing attention's prefetch cut that phase by 201 us at 5 tokens and 94 % of it
+  reappeared in o and gate/up (large-4e-e1 lines 141-144). A shorter byte-free phase pushes its prefetched bytes into
+  a row phase. Only the idle 265 us, the gate/up instruction excess and the attention chain at short rows (where the
+  attention job, not the DRAM, holds the wall: v9np reads 398 us for 9.3 MB, large-4e-e1 line 193) are true slack.
+
+What bit identity binds (read in llvq_pers.cuh):
+- Tetra rows: lane l adds blocks l, l+32, ... in order, the 24 products in TETRA48_ORDER, warp_sum, three spelled FMA
+  sites (lines 9-17). One warp a row: splitting a row over warps changes its sum order (budget note, cut 7). f32 dot on
+  the f32 rotated activation.
+- int4 rows: q4_staged_dot's order, explicit intrinsics (line 18).
+- Rotations: rot_apply's butterfly stages in the same order and the same per-output chains, f32 in shared memory
+  (lines 19-21, pers_rot_finish line 526).
+- Norms: candle's RMSNorm tree reproduced (1,024 virtual threads, xor butterfly, two f16 roundings, lines 558-646).
+  f16 add and mul as f32 RN then f2h; SiLU from a 65,536-entry table filled by candle.
+- Attention: 8-position tiles aligned to absolute positions, 64-position units, 256-position splits, folded left to
+  right, the fixed ex2 polynomial, p in f32 (lines 1463-1534). This is what fixes "one unit's tiles in order" as the
+  critical path at short rows (plan-300.md, step 3, "not coded").
+- Buffers between phases: residual x_a / x_b, q_out, ctx and the KV cache are binary16; rotated activations f32 in
+  shared memory. Head logits binary16, argmax on a 64-bit key.
+- Not bound by identity, and already tried at the bit: where prefetches sit (E1), guards in the tile (v9ft), the row
+  loop (v5, K4 arms), every CTA recomputing ln and rotation (a design choice that saves a grid wait).
+
+2. CUTS THAT OPEN OFF THE BIT
+-----------------------------
+Gains in ms a token, *estimated*, range [low, high]. Low ends apply the 41 % that 4E's versions realised of their
+arithmetic (plan-300.md §3) where nothing tighter exists. "Against" names the measured result that argues against.
+
+C1. Attention spread at short rows (K3a's second half), off the bit.
+  Mechanism: units of 8, 16 or 32 positions instead of 64 (splits of 4 units), chosen by row length so that a row has
+  at most 34 splits (today's scratch, ceil(8,704 / 256)) and at most 142 jobs. At 62 positions: 2 splits of 32 per KV
+  head, one step a job instead of 8; at 1,024: units of 16, 16 splits, 128 jobs, 4 steps instead of 8. Units of 64 from
+  4,096 up: the v9 form, bit for bit. Where the spread runs, attention's prefetch is dropped (v9np's form, x1.003 of
+  v9 at 5 tokens, large-4e-e1 line 61), so the shortened phase pushes no bytes into o and gate/up beyond what v9np
+  already pays. Only the fold order of f32 softmax states changes.
+  Saving: 5 tokens -0.20 [-0.10, -0.30]; 1,024 -0.35 [-0.15, -0.50]; 4,096 and 8,192 0 (unchanged form). Basis: v9np's
+  attention wall 398 us for a chain of 8 steps, 1.4 us a step (*computed*, line 87 of large-4e-e1); one step plus a
+  2-split fold about 3.5 us a layer, 126 us a token, near plan-300's 130 us floor. At 1,024 the v9np wall is not
+  measured; taken as v9's 1,108 less the 200 to 250 us E1 removed at 5 and 8,192.
+  Tolerance risk: low. A reassociated f32 online softmax; the grouped form, which reorders more, read +0.0095 % at 4B
+  (gqa-ppl). VRAM: 0 (scratch bounded by 34 splits a row, job count by the grid). Days: 4 to 6, with C0 below.
+  Bench: fusedrun LLVQ_PERS_4E with an E1 arm v9as; tolerance needs the new mode C0.
+  Against: v9ft cut the stamped attention wall at every context and the timed token kept a fraction of it at 1,024 and
+  5, none at 4,096 and 8,192 (large-attn-ft-4e lines 81-97, cause not established). v8's ring halved attention's mean
+  work and its slowest over mean still read 4.40 (plan-300 step 2). E1's conservation (94 %) bounds any version that
+  keeps the prefetch in attention.
+
+C2. B1's integer dot in the Tetra rows (int16 activation, dp2a), off the bit.
+  Mechanism: the rotated activation quantized to int16 at the end of each rotation; Tetra rows dot in integers
+  (spec-micro arm i16, pers_vrows.cu tv_vrows_i16k1). The one row phase that leaves the DRAM half idle is the target.
+  Saving: -0.13 [-0.06, -0.20] at every context. Basis: i16 x1.143 [1.137-1.148] over v2 on the 252 matrices alone
+  (spec-micro-2026-11-08.txt line 52); in-situ Tetra rows 1.81 ms (recherche-debit-maths.md §2): 0.226 ms at full
+  transfer, 0.093 at 41 % (*computed*); less 0.01 to 0.05 for the per-rotation quantization (not in the bench timing,
+  *estimated*).
+  Tolerance risk: low to moderate. 91.6 % of rows identical, the rest one binary16 ulp, worst 6.4e-3 of the site's rms
+  on four activations (spec-micro lines 33-41); no perplexity measured. VRAM: 0. Days: 7 to 10 (port from v2's loop
+  to 4E's row form 7, three sites, plus the quantization).
+  Bench: fusedrun LLVQ_PERS_4E E1 arm, plus C0.
+  Against: i16 missed its own x1.15 bar; lane rotation read x0.856 (spec-micro lines 69-70); E1 found gate/up rows slow
+  under foreign DRAM traffic (+178 us under 374 MB, large-4e-e1 lines 187-190), so part of an instruction saving may
+  turn into a bandwidth wait.
+
+C3. KV cache in int8 for 4E, off the bit.
+  Mechanism: K and V stored int8 with per-group scales (LLVQ_KV=q8's format), dequantized in the tile; the eager
+  prefill writes the same layout.
+  Saving: 5 tokens 0; 1,024 -0.05 [-0.02, -0.12]; 4,096 -0.30 [-0.15, -0.48]; 8,192 -0.60 [-0.34, -0.97]. Basis: the
+  marginal cost of KV bytes, (6.211 - 4.227) ms / 1.199 GB = 1.66 ms a GB (*computed*, E1), on 0.604 GB saved at 8k
+  less 3 % of scales; plan-300 K8 gives 0.34 to 0.84 at 8,192.
+  Tolerance risk: HIGH against this gate. The q8 cache read +0.0494 % [-0.0713, +0.1703] of paired perplexity at 4B over
+  12 windows (kvq8-4b-2026-08-15.txt lines 52-53): its upper bound is outside +-0.12 %. That interval is where the
+  0.12 % bar itself comes from (ETAT §4). VRAM: lower, 8k peak about 5.95 to 5.4 GB (*estimated*); b/param unchanged.
+  Days: 10 to 20 (4E tile, kernel attention form, prefill, door). Bench: none in 4E today; LLVQ_KV=q8 in eager only.
+  Against: the interval above; the q8 path cost 5 to 7 % of eager throughput at short context (kvq8-4b lines 142-144).
+
+C4. int4 rows (o, v, 12 downs) split over two warps a row, off the bit.
+  Mechanism: o's 18 or 19 rows on 16 warps run two rounds (budget note cut 7); halves of a row on two warps reassociate
+  the sum and remove the tail round.
+  Saving: -0.04 [-0.02, -0.08] at every context. Basis: o imbalance 81 us at 5 tokens, o at 589 GB/s against a floor
+  of 273 us at 85 % (large-4e-budget line 58).
+  Tolerance risk: negligible (f32 reassociation of one dot). VRAM 0. Days 3 to 5.
+  Against: v5, which spread a CTA's last rows over its warps, read x1.001 (ETAT §6); o is DRAM bound (E1 lines 182-184),
+  so a tail round mostly overlaps the bytes.
+
+C5. Norm statistics from the producer, off the bit.
+  Mechanism: the o and down epilogues write each CTA's sum of squares of its slice of x; ln2 and ln1 sum 142 partials in
+  a fixed order instead of re-reading x for candle's tree. Removes one pass and one reduction an instance.
+  Saving: -0.04 [-0.02, -0.07]. Basis: ln1 159 us, ln2 144 us mean without prefetch traffic, 4.4 and 4.0 us a layer
+  (large-4e-e1 lines 95-97, arm v9mv); about 0.5 to 1 us of each is the tree and its barriers (*estimated*).
+  Tolerance risk: negligible. VRAM 0. Days 3 to 5. Against: no stamp separates norm from rotation; K2 already took
+  ln1 from 320 to 227 us at the bit.
+
+Examined and rejected:
+- f16 or int8 activations between phases. They already are binary16 in global memory (x_a, q_out, ctx); each CTA reads
+  5 KB from L2 a phase, 0.73 MB across the grid. Nothing to cut. Inside the row phase, int16 is C2.
+- Attention scores in f16, or MMA for the K/V dot in decode. At short rows the wall is the chain of steps (C1), not
+  arithmetic; at 1,024 and up v9's attention runs at the DRAM floor of its bytes (section 1). One query row with 4
+  query heads a KV head fills a quarter of an m16n8k16 tile. The MMA study (large-prefill-attn-mma-etude) prices MMA
+  for the 32-row prefill, not for one row.
+- MMA for the int4 rows. Batch 1 is a matvec; the int4 rows read 589 to 648 GB/s, bound by bytes.
+- Rotations folded or at lower precision. Folding into the weights changes stored values (out). An f16x2 butterfly
+  halves FP instructions in a phase held by about ten __syncthreads and an L2 round trip; no stamp isolates the
+  butterfly, and its error, about 2^-11 relative a stage, is coarser than C2's int16. Not ranked.
+- Shortlist lm head. The head is already int4 g64, tied, 218.8 MB in 367 us at 595 GB/s: bytes. A shortlist needs a
+  proxy (extra bytes, or low rank: out), and paired perplexity cannot certify it: a target outside the list has no
+  logit. The argmax-exact two-pass head of the budget note (cut 6, -0.05 [0, -0.08]) stays the only head cut, and it
+  needs no license.
+- Fewer grid waits, counters, CUDA Graphs. Off the bit changes nothing here: 0.029 ms at most for barriers (recherche
+  §7), K3b under 0.06, A2 closed by rule 3.
+- KV in int4. C3's risk, larger: 1.26 / 0.52 ms at 8,192 in plan-300 K8, against a q8 interval already outside the band.
+
+Bit-identical cuts still standing (they compose): F, norm/RoPE/append folded into the attention jobs, -0.09 [-0.06,
+-0.11]; W, gate/up claimed across the grid on v9np, -0.10 [-0.05, -0.15] (re-based from v9np, large-4e-e1 lines 209-212).
+
+3. RANKING AND THE COMPOSED SET
+-------------------------------
+  rank  cut  ms at 5 (chat)       ms at 8,192           days   risk to +-0.12 %   ratio gain/day at 5
+  1     C1   -0.20 [-0.10,-0.30]  0                     4-6    low                0.040
+  2     C2   -0.13 [-0.06,-0.20]  -0.13 [-0.06,-0.20]   7-10   low to moderate    0.015
+  3     C3   0                    -0.60 [-0.34,-0.97]   10-20  high               0 (0.040 at 8k)
+  4     C4   -0.04 [-0.02,-0.08]  -0.04 [-0.02,-0.08]   3-5    negligible         0.010
+  5     C5   -0.04 [-0.02,-0.07]  -0.04 [-0.02,-0.07]   3-5    negligible         0.010
+  C1 to C5 touch different code (attention jobs, Tetra row dot, KV format, int4 row split, norm partials); C1 and F both
+  touch the attention phase and C2 and W both the gate/up rows, so their sums are an upper reading.
+
+Composed, chat door, from 224 tok/s (4.464 ms):
+- C1 + C2 + C4 + C5: -0.20 to -0.65 ms, central -0.41: 235-262 tok/s, central 247 (*estimated*).
+- with F and W: -0.31 to -0.91 ms, central -0.60: 241-281 tok/s, central 259 (*estimated*).
+- x1.3 is 291 tok/s, 3.434 ms: it needs -1.03 ms. Not reached at the top of either range.
+At 1,024 (bench, from 216.9): C1 + C2 + C3 + C4 + C5, -0.30 to -0.97 ms: 232-275 tok/s (*estimated*).
+At 8,192 (door, from 161.5): without C3, -0.10 to -0.35 ms: 164-171 tok/s; with C3, -0.44 to -1.62: 174-219 (*estimated*).
+The at-the-bit ceiling: ETAT §5 gives 235-258 at the door (plan-300: exact leads 0.24 to 0.59 ms, attention's fixed
+cost included at its high end, then found unreachable at the bit). Off the bit that high end is reachable, and C2, C4
+and C5 add 0.10 to 0.35 ms: 0.34 to 0.94 ms in the measurement form, 260-308 tok/s there, about 241-286 at the door
+(*estimated*, the door at 235/253 of the measurement form, plan-300 §6). The brief's ~247 at the bit, if it is the
+same accounting, becomes about 262 central off the bit. The single-token limit of this engine stays implementation,
+not physics: the weights alone read 628 tok/s at 864 GB/s (recherche §2). Only multi-token verification moves it.
+
+4. THE FIRST EXPERIMENT: 4E v9as, ATTENTION SPREAD AT SHORT ROWS
+----------------------------------------------------------------
+Why this one: the largest chat gain, the fewest days, the lowest tolerance risk, and a built-in control (rows of
+4,096 and up run the v9 form, so the arm owes v9's bits there). C0, the tolerance mode it needs, serves C2 and C4 next.
+
+C0, a 4E teacher-forced perplexity mode (new, 1-2 of the 4-6 days). The kernel today feeds its own argmax back
+(pers_4e.cu line 396, tok = next). An E1 module gains a forced-token ring in Pers4eLaunch: token t+1 is read from it
+when present. The head's binary16 logits already come out of the E1 logits symbol (persist4e_cuda.rs lines 64-66,
+decode_logits). fusedrun gains LLVQ_PERS_4E_PPL=<ctx>,<windows>:<arm>: WikiText-2 windows, eager prefill of the first
+64 tokens, then 4E forced over the rest, NLL on the host from the binary16 logits, paired window by window against v9.
+Its own gate: v9's forced NLL equals the eager decode NLL of the kernel form (decode_nll_paired) bit for bit on one
+window, since v9's logits owe the served path's bits.
+
+Files to touch:
+- llvq-cuda/kernels/llvq_pers.cuh: pers_attention with the unit length a runtime value (8, 16, 32, 64) chosen from the
+  row length; PERS_UPS, the stage size and PERS_ATTN_SMEM unchanged; scratch indexing by the row's split count.
+- llvq-cuda/kernels/pers_4e.cu: attn_jobs (line 333, 256 hard-coded) on the same rule; prefetch_next skipped where the
+  spread runs; the forced-token read.
+- llvq-cuda/src/pers.rs: the arm v9as in P4E_E1_ARMS by a source edit, as pers_ft_edit does for v9ft.
+- llvq-cuda/src/attn_ref.rs and the host test (tests/pers_matches_served.rs, tests/host_grid.h): v9as at unit 64 equal
+  to v9; at units 8, 16, 32 against an f64 attention within 1e-5 relative; mutants on the unit choice, the split count,
+  the fold order and the ticket reset.
+- llvq-llm/src/persist4e_cuda.rs, llvq-llm/src/bin/fusedrun.rs, docs/ENV.md: C0.
+- ops/jobs/large-4e-as.sh; docs/data/jobs.csv after the run. fusedrun is already in both lists of ops/Dockerfile.cuda.
+Type-check on the Mac: yes for the Rust (ops/check-linux-cuda.sh check -p llvq-llm --features cuda --all-targets; and
+CUDARC_CUDA_VERSION=12040 clippy of llvq-cuda). The kernel text runs on the host grid on the Mac (the host build
+compiles prefetch and cp.async to plain copies). Registers and local memory are known only on the card's ptxas.
+
+Cost: v9ft's job, two arms at four contexts, ran 955 s, $0.48 (large-attn-ft-4e line 31). C0 adds 12 windows of 2,048
+forced through two arms, about 24,600 tokens each at about 230 tok/s, 214 s, plus one eager window. About 20 min,
+$0.60; timeout 30 min, $0.90 at worst (*estimated*, $1.80/h).
+
+Draft prereg (to be copied into proofs/ and stamped before the first measurement; not a proofs/ file here):
+
+  Preregistration: large-4e-as, 4E v9as against v9, sealed 4B, one L40S.
+  Hypothesis. Spreading 4E's attention over more jobs at rows under 4,096 positions shortens the attention phase where
+  its chain of steps, not the DRAM, holds the wall, and that time is not displaced, because the spread form carries no
+  prefetch in attention.
+  Object. qwen3-4b-sealed.bin at sha256 886391a8, config configs/qwen3-4b-tetra-e4-4e-v9.json at 29b3ef32.
+  Arms. v9 (E1's reference module) and v9as, interleaved in one process, 2 + 5 rounds, at 5, 1,024, 4,096 and 8,192
+  tokens; one-arm processes for memory; one stamped launch an arm a context.
+  Tolerance. LLVQ_PERS_4E_PPL=2048,12:v9as, WikiText-2 windows 1 to 12, paired per-window difference of mean NLL as
+  ppl_b / ppl_a - 1, 95 % t interval over 12 windows.
+  Controls, all must hold or the run is INVALID: oracle MATCH on Qwen3-0.6B; inputs at their sha256; no LLVQ_* in the
+  job environment; the served door runs the served v9 module (sha256 1b422b62); v9's forced NLL equals the eager
+  decode NLL bit for bit on window 1; v9as's logits equal v9's bit for bit at 4,096 and 8,192 (unit 64 there); both
+  arms give the eager path's 64 tokens at 4,096 and 8,192; the timed symbol at 128 registers and 0 B local.
+  Decision.
+  - PASS: v9as / v9 round by round at least x1.04 at 1,024 and at least x1.02 at 5 tokens, both ranges above 1.000;
+    at least x0.99 at 4,096 and 8,192; the paired interval inside [-0.12 %, +0.12 %]; peak card memory of the one-arm
+    process within 0.02 GB of v9's.
+  - FAIL: under x1.02 at 1,024, or the interval leaves the band, or memory rises by more than 0.02 GB.
+  - Between: reported, the operator decides.
+  Signed predictions (*estimated*): x1.05 [1.02, 1.08] at 5 tokens; x1.08 [1.03, 1.12] at 1,024; x1.000 [0.995, 1.005]
+  at 4,096 and 8,192; paired perplexity within +-0.01 %; top-1 agreement with v9 at least 99.5 % of positions; the
+  attention wall at 5 tokens under 250 us on the stamps; memory equal.
+  Cost. About 20 min, $0.60, timeout 30 min ($0.90). Inside the operator's cap, on an explicit go.
+  What it will not establish. A door rate (no config names v9as); 8B, 14B, another card; the balanced split at 8,192;
+  perplexity past 2,048 positions.
+
+5. WHAT THIS NOTE DID NOT CHECK
+-------------------------------
+- No phase was stamped at 1,024 or 4,096 except attention; those columns are means of 5 and 8,192.
+- v9np's attention wall at 1,024 is assumed (v9's less 200 to 250 us), not measured. C1's 1,024 figure rests on it.
+- The step cost of 1.4 us is a quotient of a wall by a step count; a step at units of 8 or 16 may cost more than its
+  share (smaller tiles, the same 16 KB staging granularity).
+- C2's quantization cost and its in-situ transfer: never measured inside 4E. B1's perplexity: never measured.
+- C3's perplexity under the 4E tile and at 8k: only the eager q8 measurement on Metal (2026-08-15) exists.
+- The source of the "decoder alone ~247 tok/s" figure was not found in docs/; the at-the-bit range used is ETAT §5's.
+- The door residue (0.24 to 0.27 ms) has no measured cause; no cut here touches it.
+- Why v9ft's stamped attention gain did not reach the timed token at 4,096 and 8,192 is open; it may also hold C1.
+- Any hardware counter: every DRAM reading above is inferred from times and byte counts.

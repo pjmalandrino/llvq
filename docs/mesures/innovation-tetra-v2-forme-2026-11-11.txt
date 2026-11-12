@@ -1,0 +1,224 @@
+INVENTION STUDY, ROUND 2: A TETRA V2 CODEBOOK AT THE SAME 48 BITS (2026-11-11). $0.
+=====================================================================================
+Verdict: UNDER the bar, on every reading. The best member at Tetra's decoder cost reads -0.18 dB at 48 bits; the best
+member at any decoder cost reads -0.30 dB; the law turns those into +0.3 to +0.6 and +0.5 to +1.0 MMLU at 4B, against a
+bar of +3.4. No 24-dimensional fixed-rate code can reach the asked 0.8 dB: the sphere-covering bound for any shape-gain
+code of 47 + 1 bits sits 0.60 dB under Tetra, and no code reaches that bound (*computed*). Even that unreachable 0.60 dB
+maps to +1.0 to +2.0 MMLU. The equal-quality reading fails the same way: 0.30 dB is 0.05 b/weight, not 0.14.
+Where Tetra loses against the ball, it loses in the per-section row caps, about 0.30 of 0.375 dB. One budget shared by
+the three sections recovers it (-0.30 dB, measured on 4,000 Gaussian blocks), at an estimated +25 to 40 % of decode
+instructions. A 2-bit selector among four section-width profiles recovers -0.18 dB (paired SE 0.013) for about +3 to
+5 % of instructions and a 64 KiB rank table. Table contents alone (rank costs, gain bits, companded values) give
+nothing: six variants read +0.35 to -0.01 dB. On the repository's own record, codebook changes under 0.4 dB do not
+even carry their sign to the model (leech0c13, Planes14, the Euclidean gain rule).
+Nature: desk study plus numpy. No job, no build, no model load, no cargo. About 10 CPU-hours over 4 h of wall clock
+  on the Mac, at most eight processes at nice 10, all on synthetic blocks.
+Read: tonight's seven round-1 notes; docs/how-it-works.md §4-8; llvq-search/src/tetra/mod.rs; llvq-cuda/kernels/
+  llvq_tetra48.cuh (norm path); llvq-bench/src/lib.rs, main.rs, bin/gaindisagree.rs; docs/mesures/logit-snr-4b-2026-09-12,
+  leech0c13-2026-09-07, tetra-4b-2026-09-06, gain-desaccord-reel-2026-09-14, tetrapost-ppl-0.6b-2026-09-15;
+  docs/ROADMAP-QUALITY.md row 3.
+Labels: *measured* (a journal, or a run of tonight's scripts on synthetic blocks), *computed* (arithmetic or a bound),
+  *estimated* (judgement), *reported* (a third party, URL given).
+Scripts (scratchpad /private/tmp/claude-501/-Users-pjmalandrino-Documents-Pro-workspace-poc-llvq/
+  b8bc4da6-9851-4da0-a7ee-9ff1558b6a9d/scratchpad/):
+  v2shape.py   exact nearest-member search over the Tetra family, max cosine over 7 scales, gain fitting
+  v2pair.py    paired per-block dB against Tetra on the same blocks
+  v2bounds.py  Shannon, ECVQ, Zador fixed-rate, sphere-covering bounds (dimension 24 and 48)
+  v2rule.py    gain-rule pair and block-norm spread
+  v2prof.py    union of the four section profiles of candidate k
+  v2check.py   validation against k1ref.py (round-1 refuter's port)
+  out/*.json   raw results, one per variant and source
+
+1. THE GAP, RECOMPUTED ON THE REAL CODEBOOK
+-------------------------------------------
+The encoder of v2shape.py is exact for a given scale. Per section and parity it runs a dynamic programme over
+(rank-cost level, class, lexicographic flag against the pinned boundary row), then takes the best of 4,096 Golay
+words x 4 class combinations. It rebuilds the pinned bounds itself: class 0 level 10 at [1,1,0,3,0,0,1,1], class 1
+level 11 at [0,0,2,2,2,0,1,1], mixed level 8 at [3,0,0,0,1,0,1,0], the three rows of CLASS_BOUNDS and MIXED_BOUND.
+Checks (*measured*, v2check.py, 300 blocks at three radii): every output is a Tetra member by k1ref's `in_tetra`;
+where the unconstrained Leech nearest point is a member, both agree to the last bit; no member move among the
+196,560 minimal vectors improves any of 120 outputs.
+The gain is the served one: 1 bit, two Lloyd centroids fitted on 4,000 training blocks, the centroid nearest the
+block norm. Evaluation on 16,000 other blocks. No row scale (it moves an i.i.d. Gaussian row by about 1.4 %).
+
+  Gaussian N(0,1), 20,000 blocks, seed 2                       MSE/dim    vs Tetra    SQNR bits   gap to D(R)
+  Shannon D(2)                                                 0.06250    -1.34 dB    2.000       0
+  ECVQ Leech, high-res: G(Λ24) 2πe 2^-4                         0.07021    -0.84 dB    1.916       0.084  (*computed*)
+  sphere-covering bound, 48-dim shape-gain 95+1 bits            0.06917    -0.90 dB    1.927       0.073  (*computed*)
+  QTIP 1MAD / 3INST trellis, 2 bits                            0.069      -0.91 dB    1.93        0.071  (*reported*,
+                                                                                                  arxiv 2406.11235 Table 1)
+  sphere-covering bound, 24-dim shape-gain 47+1 bits            0.07410    -0.60 dB    1.877       0.123  (*computed*)
+  Zador fixed-rate, 24-dim, G(Λ24), high-res                    0.07311    -0.66 dB    1.887       0.113  (*computed*)
+  ball Λ24(m<=12) + 1 gain bit (Planes14)                       0.0780     -0.38 dB    1.840       0.160  (*measured*,
+                                                                                                  how-it-works §7)
+  Tetra, this encoder, norm rule                               0.08506     0          1.778       0.222  (*measured*)
+  Tetra, Rust encoder, 88.89 % retention                       0.0851     +0.002 dB   1.778       0.222  (*measured*, F1b)
+
+The 0.222 b/dim is right. Tonight's exact encoder and the Rust encoder agree to 0.05 %.
+The brief's 0.8 dB target is 0.0710, 1.91 bits of SQNR, close to the ECVQ point.
+
+Where the 1.34 dB goes, as a chain (*computed* from the table):
+  0.505 dB  Λ24's space filling, G = 0.06577 against 1/(2πe). No lattice up to 48 dimensions is better.
+  0.234 dB  fixed rate in 24 dimensions, ECVQ to the 24-dim sphere-covering bound. A variable-length code recovers it;
+            the round-1 structure note closed variable rate in VRAM (decode-bound rows, 0.025 b of lossless slack).
+  0.224 dB  the lattice ball against an ideal spherical code of 2^47 directions.
+  0.375 dB  Tetra against the ball: the price of the trellis-readable index, about 0.30 dB of it in the per-section
+            row caps (candidate i below).
+The four sum to 1.338 dB.
+
+Inside Tetra's 0.375 dB, split by shape and gain (*measured*, tetra.gauss.json):
+  shape alone (ideal per-block gain): 0.07652 against the bound's 0.06713, 0.57 dB. Tetra's 2^47 directions cover
+    the sphere like a perfect code of 44.8 bits (sin^2 scales as 2^(-2b/23)).
+  gain: the norm rule adds 0.00854/dim, the projection rule 0.00692, the bound's ideal 1-bit gain 0.00697. The norm rule
+    therefore costs 0.083 dB; with the projection rule the gain is already at its 1-bit optimum.
+The three suspects named in the brief:
+  - The cap on shells and ranks: no. Ranks above 4 cost more than any section budget (t(5) = 15 > 11), so allowing
+    them changes nothing. The cost order Σ(2ρ+1)² is the residue-averaged squared magnitude to within +0.5 for every
+    rank, so the table is already sorted by expected energy.
+  - The 55.5 % of minimal moves that leave the code: a consequence, not a cause. Any 2^47-point subset of Λ24 used
+    around shell 10 drops most neighbours; the ball does too. What matters is how the directions cover the sphere,
+    and that is the 0.57 dB above.
+  - The fixed 48-bit budget: 0.234 dB of the 0.84, and only a variable-length code gets it.
+  - A fourth suspect, not in the brief, carries the measurable part: each section has its own row cap. A Gaussian
+    block's energy splits unevenly over three octads, and three 8-dim caps waste directions where one section holds
+    most of it. Section 2 below measures it at about 0.30 dB.
+
+2. CANDIDATES, MEASURED AT EQUAL RATE
+-------------------------------------
+Each row is paired against Tetra on the same blocks (paired SE in brackets, *measured*, v2pair.py). Heavy tail:
+Student-t with 5 degrees of freedom scaled to unit variance, kurtosis 9, seed 3, 20,000 blocks. Real rotated 4B blocks
+have kurtosis 3.01 (*measured*, ROADMAP-QUALITY row 8), so the Gaussian column is the one that applies.
+
+  candidate (48 bits a block)                      Gaussian           Student-t5        decoder Δ          v1 reads?
+  a. Tetra, norm rule (served)                     0                  0                 0                  yes
+  b. same words, projection gain rule              -0.083 [0.003]     -0.073 [0.005]    0                  yes (centroids only)
+  c. 2 gain bits, section 2 at 1,024 rows (46+2)   +0.114 [0.006]     -0.205 [0.017]    ~0, 4 gscale       no
+  d. 0 gain bits, section 2 at 4,096 rows (48+0)   +0.348 [0.009]     +0.783 [0.018]    ~0, larger table   no
+  e. rank cost t = {0,1,2,4,6} (flatter)           +0.029 [0.003]     -0.130 [0.005]    0, new table       no
+  f. rank cost t = {0,1,4,8,14} (steeper)          -0.001 [0.003]     +0.110 [0.006]    0, new table       no
+  g. value table companded, |v| -> 4(|v|/4)^0.9    +0.087 [0.002]     not run           +2 to 4 instr.     no
+  h. value table companded, exponent 1.1           -0.009 [0.002]     not run           +2 to 4 instr.     no
+  i. one budget for the 24 dims (joint), 4,000     -0.30 [~0.02]      not run           +60 to 100 instr.  no
+     blocks, interpolated to 47 bits
+  k. 2-bit selector, 4 section profiles, 4,000     -0.183 [0.013]     not run           +8 to 12 instr.,   no
+     blocks, exactly 47 bits                                                                table 16 -> 64 KiB
+  j. per-matrix choice among {a, c, e}, 1 header   0 (a wins)         -0.21 (c wins)    one branch a row   no
+     bit pair per matrix
+  ceiling, any 24-dim fixed-rate code              -0.60 (bound)      -                 -                  -
+  ceiling, any 48-dim pair code (96 bits)          -0.90 (bound)      -                 -                  -
+
+Reading the table.
+- On the source that applies, no table-only member (c to h) gains 0.01 dB. Tetra's table is a local optimum of its
+  own family: one step flatter, steeper, wider or narrower in gain loses or ties.
+- The heavy-tailed source moves the optimum toward more gain bits and flatter costs, by 0.13 to 0.21 dB. A per-matrix
+  choice would harvest that only on matrices whose block norms spread like Student-t blocks. A chi_24 norm has a
+  coefficient of variation of 0.145, the Student-t5 blocks 0.231 (*measured*, v2rule.py). The decisive experiment
+  below measures the real one before anything is built.
+- h is inside its own noise for any model use (0.009 dB).
+- i is the one real shape gain inside the Tetra family. Replace the three per-section row caps by one cap on the sum
+  of the three section levels, with the same Golay path and parity thread. At 46.35 bits it reads -0.208 dB, at 47.04
+  bits -0.303 dB, against Tetra on the same 4,000 blocks (*measured*, joint.gauss4k.json, tetra.gauss4k.json); at 47
+  bits, -0.30 dB. Its shape-only error falls from 0.0768 to 0.0716. So the per-section caps cost about 0.30 of Tetra's
+  0.375 dB against the ball. The loss is the product structure, three 8-dim balls where the source wants one 24-dim one.
+- k is the decoder-light half of i, and the best candidate that passes the instruction bar. Two selector bits pick
+  the index widths of the three sections, (13, 9, 9), (9, 13, 9), (9, 9, 13) or (10, 11, 10), so 2 + 31 + 14 = 47 bits
+  as today. Each profile alone loses 0.46 to 1.00 dB; their union reads -0.183 dB, paired SE 0.013, with every profile
+  used by 19 to 33 % of blocks (*measured*, v2prof.py). The rank rows stay sorted, so every width reads a prefix of one
+  table, but 2^13 rows per class make it 64 KiB. Round 1 measured that L1 room in the activation tile is worth up to
+  17.6 % of Tetra row speed (banc-252), so the table size, not the instruction count, is this candidate's speed risk.
+  Four profiles were tried, chosen by hand. A tuned set would land between -0.18 and the joint member's -0.30.
+- Pair coding in 96 bits has the only ceiling above 0.8 dB. A realizable 48-dim spherical code built on Λ24 x Λ24
+  is not trellis-readable in 64 states, and its decoder is a new design, not a Tetra member.
+
+Decoder cost. Candidates a to f change table contents or field widths: the 237-instruction word decode is unchanged
+(*estimated*, the word layout and llvq_tetra48.cuh's lookup path). g and h make the decoded point non-integer, so
+`invnorm[m]` (llvq_tetra48.cuh:130, indexed by the integer shell) must become an rsqrt of a computed sum: +2 to 4
+instructions, 1 to 2 % (*estimated*). i must unrank a joint index: two searches over about 46 cumulative counts and
+two 34-bit divisions, +60 to 100 instructions, +25 to 40 % (*estimated*). It fails the "few percent" bar on cost alone.
+k reads the selector, fetches three widths and two table offsets from one packed constant, and masks with variable shifts: +8 to 12
+instructions, +3 to 5 % (*estimated*), plus the 64 KiB table.
+Encoder cost: a to h keep the encoder's shape (sections, trellis, both parities); the DP here is exact and costs about
+3 ms a block in numpy against the Rust encoder's 300 us. i couples the sections and multiplies the trellis step by the
+number of level splits, about x20 (*computed* from T = 22). k reuses one section DP per parity and only changes the
+allowed levels per profile: about x2 to x4 on the encoder (*estimated*).
+Format: every candidate except b changes the word meaning, so it needs a v2 kind with its own fingerprint beside
+`Tetra48`. v1 and Tetra48 files stay readable: the reader dispatches on `kind_tag` (format-noyau §5 bis). b needs no
+format change at all.
+
+3. FROM DISTORTION TO QUALITY
+-----------------------------
+The law: acc = 54.60 + 14.60 ln SNR over 28 arms, in-sample rms residual 1.31 pp, per-arm SE about 1.41 pp (*measured*,
+logit-snr-4b-2026-09-12). SNR there is a logit amplitude ratio. If logit noise power is proportional to weight
+distortion, a cut of d dB is worth 7.30 x 0.2303 d = 1.68 MMLU per dB. Round 1's refuter used 14.60 per natural-log
+unit of power, which is 3.36 per dB; that reading doubles the slope and is kept here as the generous end.
+
+  candidate                         dB at equal rate   MMLU at 4B (1.68 to 3.36 per dB)   GSM8K at 4B (x1.43)
+  b. projection gain rule           -0.083             +0.14 to +0.28                     +0.2 to +0.4
+  best table member (f or h)        -0.001 to -0.009   +0.00 to +0.03                     0
+  i. joint budget                   -0.30              +0.50 to +1.01                     +0.7 to +1.4
+  k. profile selector               -0.18              +0.31 to +0.62                     +0.4 to +0.9
+  i + b together                    -0.39              +0.65 to +1.31                     +0.9 to +1.9
+  24-dim ceiling, unreachable       -0.60              +1.0 to +2.0                       +1.4 to +2.9
+  48-dim ceiling, unreachable       -0.90              +1.5 to +3.0                       +2.2 to +4.3
+  bar                               -                  +3.4                               +4.8
+
+GSM8K has no law in the repository. The column scales MMLU by the ratio of the two FP16 deficits, 9.6 / 6.73 = 1.43
+(*estimated*, 82.5 against 92.1 and 63.37 against 70.1). The law is too weak to promise the bar for any candidate, and
+too weak to promise a sign below about 0.4 dB.
+
+The counter-evidence says the Gaussian dB is a weak predictor for codebook changes.
+- leech0c13 (the paper's 0-gain-bit ball, shell <= 13) did not test a distortion gain. On Gaussian blocks it sits at
+  0.085 (paper Table 8, *reported* in llvq-bench/src/main.rs), Tetra at 0.0851: the same MSE. It tested shape at
+  equal rate and equal Gaussian distortion, under Euclidean GPTQ and before row scales. It moved perplexity +21.5 % and
+  MMLU +1.19, CI95 [-1.54, +3.98] (*measured*, leech0c13-2026-09-07). Equal Gaussian MSE, different model loss: what
+  the model feels is not the Gaussian MSE.
+- Planes14, the ball with 1 gain bit, is 0.38 dB better than Tetra on Gaussian blocks. On the 4B it read 4.64 %
+  WORSE perplexity than Tetra (*measured*, tetra-4b-2026-09-06). Its MMLU moved +2.10 in the ball's favour (55.59
+  against 53.49), above the law's +0.6 for 0.38 dB but about one combined SE (2.0 pp) from zero.
+  Its logit SNR was 1.071 against 1.029 (logit-snr), a noise power ratio of 0.35 dB. The weight-domain dB showed up in
+  logit noise, and perplexity still went the other way.
+- The Euclidean gain rule, candidate b, was run end to end at 0.6B: +4 % perplexity (*measured*,
+  tetrapost-ppl-0.6b-2026-09-15), although it lowers both Gaussian and real-residue block error. The GPTQ trajectory
+  and the Hessian metric reverse a 0.08 dB block gain.
+
+4. THREE OBJECTIONS
+-------------------
+1. "Your encoder is not Tetra's encoder; Tetra may be better than you say, or the candidates worse."
+   The exact DP and the Rust encoder read 0.08506 and 0.0851 on Gaussian blocks, 0.05 % apart. Every candidate runs
+   through the same DP, so the comparison is paired and exact per scale. The 7-scale search loses 3 ppm against an
+   11-scale search on 1,000 blocks (0.084097 against 0.084099).
+2. "Gaussian MSE is the wrong metric; a codebook could win in the Hessian metric."
+   Possible, and the repository's three codebook arms say the Gaussian number does not even fix the sign below
+   0.4 dB (leech0c13 0 dB and +21.5 % ppl; ball +0.38 dB and +4.64 % ppl; gain rule +0.08 dB and +4 % ppl). An H-metric
+   win needs a codebook shaped to H, which varies by matrix; after the Hadamard rotation two block errors of the same
+   norm still cost up to 2.84x one another, p5 to p95 (*measured*, tetraalt header).
+   That is a per-matrix encoder target, round 1's YAQA lead, not a codebook member.
+3. "QTIP gets 0.069 at a fixed 2 bits, so fixed rate is not the wall; you looked at the wrong decoders."
+   QTIP sits 0.91 dB under Tetra and needs a trellis decoder (a 2^16-state bitshift trellis with computed codes),
+   another decoder class. Even its full 0.91 dB maps to +1.5 to +3.1 MMLU under the law, under the bar at both ends,
+   and on the three codebook changes measured here the Gaussian dB did not fix perplexity's sign.
+
+5. THE CHEAPEST DECISIVE EXPERIMENT
+-----------------------------------
+Nothing here justifies building a v2 kind. If the operator wants the question closed on real weights, two stages.
+Stage 1, $0, Mac, about 1 h of CPU for 20,000 blocks through Tetra and k (i adds 1 h 30 on 4,000), needs a go (local
+  compute, one job at a time). Read Qwen3-0.6B's f16 safetensors (a file read, no forward), apply the served rotation
+  per matrix, take 20,000 blocks spread over the seven projection kinds and 28 layers, and run v2shape.py and v2prof.py
+  on them. Report the paired dB of k, i, c and e, and the block-norm coefficient of variation against chi_24's 0.145.
+  Gate: k at -0.3 dB or better on real blocks, or a norm CV over 0.20 (the Student-t5 blocks read 0.231), opens
+  stage 2. The Gaussian result (-0.18 dB) predicts the gate fails, and then the lead closes.
+Stage 2, $0 card, Mac only, about 3 h of encodes, needs a go and 3 to 5 days of Rust (the profile selector in the
+  encoder's trellis, a 64 KiB rank table, a kind_tag): encode the 0.6B in Tetra and in k under three calibration draws
+  each (6 encodes at about 30 min, gain-ab-gate-0.6b timing), score KL to FP16 on held-out windows, paired by draw.
+  Gate: the KL ratio's interval below 1 on all three draws. Unpaired, one arm's draws spread 13.9 % in perplexity at
+  0.6B (gain-ab-gate-0.6b), so the pairing by draw is what makes a 0.2 dB member readable at all.
+Neither stage can reach the bar. Stage 2 answers only whether the shape gain carries its sign to the model.
+
+6. WHAT THIS NOTE DID NOT CHECK
+-------------------------------
+- Real weight blocks, GPTQ residues and row scales: every measured row here is synthetic.
+- The joint member's exact boundary: it is bracketed by two whole budget levels, 46.35 and 47.04 bits, and
+  interpolated to 47. Its 4,000-block paired SE (~0.02 dB) is estimated from the 20,000-block rows, not computed.
+- The four profiles of k are hand-picked, not optimized.
+- Instruction counts of the candidates are estimated from the decode path; no SASS was compiled.
+- The cap bound assumes ideal spherical caps; it bounds, it is not a code.

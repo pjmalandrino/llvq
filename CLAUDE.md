@@ -18,9 +18,12 @@ served, and the 32B has never been encoded.**
 ## Where to resume
 
 1. `docs/ETAT.md`: served configuration, headline numbers, open decisions.
-2. `docs/ROADMAP.md`: what comes next, with gates and costs.
-3. `docs/how-it-works.md`: the maths, the lattice, the Tetra format and the kernel, in one document.
-4. `docs/METHODE.md`: the lab rules. `docs/STYLE.md`: the writing rules. `docs/HISTORIQUE.md`: the dated thread.
+2. `docs/CERVEAU.md`: what we believe about the subject, each claim with its standing; check it before trusting a
+   remembered result.
+3. `docs/ROADMAP.md`: what comes next, with gates and costs.
+4. `docs/how-it-works.md`: the maths, the lattice, the Tetra format and the kernel, in one document.
+5. `docs/METHODE.md`: the lab rules. `docs/MODES.md`: the two working modes, MODE RECHERCHE and MODE DEVELOPPEMENT.
+   `docs/STYLE.md`: the writing rules. `docs/HISTORIQUE.md`: the dated thread.
 
 The source paper is transcribed in `docs/llvq-paper-notes.md`; do not reopen the PDF, and never run `pdftotext` on it
 (corrupted extraction). Journals in `docs/mesures/`, preregs in `proofs/`, job registry in `docs/data/jobs.csv`,
@@ -181,3 +184,5 @@ The detail and the reasons are in `docs/METHODE.md`.
 - When documents disagree, the object wins: the sealed file, the journal. README and `docs/fiche-4b.md` take precedence
   over this map on the published object.
 - Every paid run goes through `ops/run.py` with `--features fast-linalg`, and the job goes into `docs/data/jobs.csv`.
+- Delegation is a standing rule: the main session coordinates and analyses, Opus agents execute, Sonnet agents write
+  the simple. Detail in `docs/METHODE.md`.

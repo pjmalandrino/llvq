@@ -1,0 +1,6 @@
+device Cuda(CudaDevice(DeviceId(1))), dtype f32
+resolving Qwen/Qwen3-0.6B (downloads on first use)…
+config: hidden 1024 inter 3072 layers 28 heads 16/8 head_dim 128 tied true
+window: 47 tokens
+Qwen/Qwen3-0.6B on Cuda(CudaDevice(DeviceId(1))) — max |Δhidden| = 0.000e0   (relative to max|h| = 8.550e1) → 0.000e0
+MATCH — the observable forward reproduces candle's Qwen3

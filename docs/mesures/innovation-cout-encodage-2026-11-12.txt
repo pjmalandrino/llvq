@@ -1,0 +1,184 @@
+THE COST OF A SEALED OBJECT: $4 AT 4B, $25 AT 14B, AND NO BIT-IDENTICAL LEVER DIVIDES IT BY 3 (2026-11-12)
+================================================================================
+Nature: read-only study, $0. No build, no cargo, no model load, no job. One numpy script for block counts and
+        feedback multiply-adds (scratchpad, under one second).
+Read:   docs/data/jobs.csv; journals dclm-4b-2026-09-18, tetra-q5-encodage-2026-09-09, dclm-8b-2026-09-21,
+        encode-14b-2026-09-22 (and its brut smoke.txt), embed-q4-swap-2026-09-23, sealed-8b-14b-2026-09-23,
+        tetranu-rowscales-2026-09-19, dclm-rowscales-2026-09-20, dclm-8b-rowscales-2026-09-21,
+        dclm-14b-rowscales-2026-09-22; HISTORIQUE 2026-09-05 to 09-24; ROADMAP §4; llvq-quant/src/gptq.rs,
+        llvq-quant/src/linalg.rs, llvq-quant/src/rotation.rs, llvq-search/src/tetra/encoder.rs (header),
+        llvq-llm/src/calib.rs:1009-1393, ops/run.py flavour table, ops/jobs/encode-14b.sh, ops/llvqtune.
+Bar:    whole-chain cost divided by 3 or more, bytes identical (or quality provably unchanged), nothing lost on
+        quality, 2.73 b/param, VRAM or decode speed, for every future size.
+Labels: *measured* (a journal or jobs.csv), *computed* (arithmetic on measured figures), *estimated* (judgement).
+
+VERDICT: UNDER THE BAR
+----------------------
+At identical bytes the best composition reaches about /1.3 at 4B and 8B and /1.8 to /2.1 at 14B (*computed*). Two
+facts close it. (1) At 4B and 8B the encode already costs $0 (the Mac); every dollar of production is the row-scale
+training, which has no bit-identical speed lever. (2) At 14B the row scales are 39 % of production, so even a free
+encode leaves /2.6 at most, and the factorization (12 %) and capture (2 to 5 %) stay on the CPU path whatever is done
+to the search.
+Only one pair crosses /3, and it changes bytes: the search and feedback on the GPU plus a row-scale training cut to
+an eighth of its steps. Its quality is not provably unchanged; the training loss is flat after the first eighth at
+three sizes (*measured*), MMLU at the shorter length is not measured.
+In absolute terms the chain is cheap: $4.00 / $5.66 / $25.13 of production at 4B / 8B / 14B, $6.29 / $8.63 / $30.62
+with the three in-chain MMLU runs. A 32B is *estimated* at $57 to $107 of production. The criterion does not justify
+an innovation below 14B. At 27B to 32B it is worth the process levers below, not a new method.
+
+1. THE COST TODAY
+-----------------
+Production = what writes the served bytes. E = the MMLU runs a chain did on its way (base, row-scale result, sealed).
+
+  4B   encode (dclm-4b)        Mac M3 Max, 12 thr   1.78 h   $0      *measured* (6,408.6 s of phases)
+       row scales              l40sx1               2.17 h   $4.00   *measured* (130 min billed)
+       int4swap, embedq, seal  Mac                  minutes  $0      *measured* ($0), duration not journalled
+       production                                            $4.00
+       E: base 0.69 + FT 0.72 + sealed 0.88                  $2.29   *measured*
+       total                                                 $6.29   *computed*
+
+  8B   encode (dclm-8b)        Mac, 12 thr          3.79 h   $0      *measured* (13,629 s)
+       row scales              h200                 1.13 h   $5.66   *measured* (68 min billed)
+       int4swap, embedq, seal  Mac                  minutes  $0
+       production                                            $5.66
+       E: census base share 0.99 (one arm of $2.98, *computed*) + FT 0.98 + sealed arm B 1.00   $2.97
+       total                                                 $8.63   *computed* (HISTORIQUE books $10.19 for the
+                                                                     chain with the reference arms and two benches)
+
+  14B  encode seg1 + seg2      rtx-pro-6000, 23 thr 5.48 h   $15.03  *measured* (seg1 includes the 0.6B gate)
+       export (lost, redone)   cpu-xl               0.32 h   $0.32   *measured*
+       row scales              h200                 1.97 h   $9.78   *measured*
+       int4swap, embedq        Mac                  minutes  $0
+       production                                            $25.13  *computed*
+       E: base 1.95 + FT 1.95 + sealed 1.59                  $5.49   *measured*
+       total                                                 $30.62  *computed* (HISTORIQUE books $32.17 with the
+                                                                     f16/AWQ reference census and without the sealed MMLU)
+
+Scaling (*computed* from the rows above and calib.rs):
+  - Encode thread time = blocks x per-block cost + factorization. Lattice blocks: 1.47e8 / 2.82e8 / 5.41e8 at
+    4B / 8B / 14B. Quantize phase per block and thread: 429 us (4B, Mac), 491 us (8B, Mac), 556 us (14B, 23 cloud
+    vCPU). The factorization is sum of n^3 per layer: the down_proj width dominates (17,408 at 14B, 25,600 at 32B).
+    Encode grows as params^1.1 to 1.3.
+  - Row scales: 9,507 steps at all sizes; on h200 0.399 s/step at 8B and 0.682 at 14B, about 0.05 s/step per B of
+    parameters (*measured* rates). Linear in params while one h200 holds teacher and student (14B peak 119.4 GB).
+  - 32B (*estimated*): 1.285e9 blocks x about 600 us / 23 thr = 9.3 h of quantize, factorization about 2.7 h (x4.96 the
+    14B's 1,964 s at 23 thr, from sum n^3 and 64 layers), capture and rest about 1 h: 13 h on rtx-pro-6000, $36;
+    ROADMAP §4 carries $62 and 11.4 h on rtx-pro-6000x2. Row scales: 1.56 s/step x 9,507 = 4.1 h, but teacher plus
+    student in bf16 is 128 GB, over one h200: two cards or offline teacher logits, $21 to $45. Three MMLU through the
+    kernel about $12. Production $57 to $107, with E $69 to $119.
+  - 27B class (*estimated*, architecture of the target not in the repository): about 0.84 x the 32B,
+    production $48 to $90.
+
+2. THE ENCODE, PHASE BY PHASE
+-----------------------------
+Measured phase profiles (smoke's own timers):
+                    4B Mac     8B Mac     14B card (seg2)
+  quantization      81.8 %     84.7 %     81.3 %
+  factorization     12.0 %     10.2 %     12.2 %
+  capture (pass 1)   5.3 %      4.4 %      1.8 %   (+ f64 transfer 1.9, advance 1.6, write 1.2 at 14B)
+  rest               0.9 %      0.7 %
+
+Inside "quantization" (calib.rs:1186-1313, gptq.rs:192-406), per 24-column step, for every row:
+  - the Tetra search (`Encoder::encode`, two adaptive scales, lazy trellis join, 13.6 % of entries solved in full):
+    298 to 329 us/block/core on one core (*measured*, HISTORIQUE 2026-09-05, f1-encodeur-blocs-reels). Against the
+    429 to 556 us observed per block and thread, the search is 60 to 77 % of the phase, so 50 to 63 % of the encode
+    wall (*computed*).
+  - the error feedback: a rank-24 update of the row's trailing columns, d_out x d_in^2 / 2 multiply-adds per matrix,
+    54k / 75k / 102k per block at 4B / 8B / 14B (*computed*). Scalar f64, mul then sub, k outer and j inner. At 2 to 4
+    GMAC/s a core it is 15 to 50 us a block, 4 to 12 % of the phase (*estimated*).
+  - the rest of the phase (gain centroids, 40 k-means iterations; solve_block, 288 MAC a block; row rotation by a
+    Hadamard Kronecker; thread join imbalance) makes up the remainder.
+Is the search CPU only? Yes. `llvq-search` is dependency-free and forbid(unsafe); no CUDA or Metal Tetra encoder
+exists (grep of llvq-cuda and llvq-metal). The encoder works in f64 throughout (`Coord.d`, `regret`, the shrinks).
+The card job used its GPU for capture and advance only, about 4 % of its billed time; the rest was 23 vCPU.
+What is parallel and what is serial:
+  - Rows are independent through the whole GPTQ loop: `quantize_layer_parallel_capturing` splits by rows and
+    `parallel_matches_serial_exactly` holds it to bit equality.
+  - Within a transformer block, the six lattice matrices are independent on the published path (one capture on the
+    original weights), but they run one after another, each row-parallel.
+  - Column order inside a matrix is serial by construction: block s+1 is searched on weights block s has corrected.
+  - Transformer blocks are serial: block t+1's Hessians are captured on activations advanced through quantized t.
+  - The Hessian and its factor are already shared by matrices with one input: one factor per activation, q/k/v and
+    gate/up (calib.rs:1081-1131). That lever is taken.
+
+3. THE LEVERS, RANKED BY FACTOR ON THE WHOLE CHAIN (production, Amdahl applied)
+-------------------------------------------------------------------------------
+  lever                                  14B chain   4B / 8B chain   bytes            days   risk
+  A+B on the card: search and feedback   /1.6-1.9    /1.0 ($)        identical by     15-25  high
+      in CUDA f64, no FMA, same                                      construction
+      enumeration and tie order
+  G. row-scale training at 1/8 of the    /1.45       /3.3 and /5.4   CHANGE           0.5    low
+      steps                                          (alone)        (sigma)
+  A+B+G                                  /3.4-4.7    /3.3 and /5.4   CHANGE           15-25  high
+  F. 14B on the Mac                      /2.5        n/a             CHANGE (device)  0      memory
+  A alone (search on CUDA)               /1.4-1.5    /1.0            identical        10-20  high
+  K. drop the base and FT MMLU of the    /1.15 (P+E) /1.3 (P+E)      untouched        0      none
+      chain, keep the sealed one
+  I. tighter exact bound in the join     /1.05-1.1   /1.0 ($)        identical if     3-5    medium
+                                                                     ties kept
+  B alone (order-preserving tiled        /1.03-1.08  /1.0 ($)        identical by     2-3    low
+      feedback on CPU)                                               construction
+  E. cheaper flavour                     none found  n/a             CHANGE (device)  -      -
+  H. layers in parallel on a fixed input $ neutral   $ neutral       CHANGE           -      -
+  D. shared Hessians                     taken       taken           -                -      -
+  J. resumable shards                    exist       exist           identical        -      -
+
+Reasoning, lever by lever:
+A. Search on the GPU. Bit identity needs the same f64 operations in the same order, no fused multiply-add (NVRTC
+   -fmad=false), and the same first-of-enumeration rule on exact ties. Batch: the six matrices of a block step in
+   lockstep, about 51k rows a column step at 14B, enough to fill a card that d_out alone (1k to 17k) does not.
+   RTX PRO 6000 runs f64 at 1/64 rate, about 2 TFLOP/s; the branchy trellis diverges; *estimated* 10x over 23 vCPU.
+   It removes 50 to 63 % of the encode, so /1.9 to /2.4 on the encode and /1.4 to /1.5 on the 14B chain. Metal has no
+   f64, so the Mac, where 4B and 8B encode, cannot take it at identical bytes. Pinned by: a point-for-point test of the
+   CUDA encoder against `Encoder::encode` on recorded real blocks (f1recdump), `verify_artifact`, the sealed-archive
+   tests on a re-encode. `even_repair_matches_dp_reference` and `both_factorizations_agree` do not cover it.
+B. Feedback without reassociation. Each trailing cell only has to receive the same subtractions in the same order
+   (s ascending, k ascending, mul then sub). Deferring them and applying them tile by tile while the tile sits in L1 or
+   registers is exact, SIMD across cells included. On CPU alone it buys 4 to 12 % of the phase. Its value is as the
+   GPU half of A: with weights resident in f64 on the card, the update is 1.1e14 flop at 14B, about a minute at peak.
+   A+B removes the whole quantize phase except the transfer, and the encode floor becomes factorization plus capture,
+   about 18 %: /3 to /5 on the encode, /1.6 to /1.9 on the 14B chain (*computed*). The factorization cannot follow:
+   faer's blocked order is what U is, and U decides every code.
+G. Row-scale steps. The training loss is flat after the first eighth: 4B "everything acquired before step 1,210";
+   14B "0.2229 to about 0.15 within the first eighth and stayed there"; 8B KL by eighths moves 2 % (*measured*,
+   three journals). Billed minus loop is a fixed 27 / 5 / 10 min at 4B / 8B / 14B (*computed*); at 1,200 steps the
+   step costs $1.20 / $1.05 / $1.96 against $4.00 / $5.66 / $9.78. Bytes change and the 14B journal says it in so many words: "whether a shorter run would have given the same
+   G is not measured". Quality has to be shown by a paired MMLU at each size, which is not "provably unchanged".
+F. 14B on the Mac at $0. *Estimated* 7 to 10 h; the 8B already peaked at a 114.5 GB footprint for a 23.2 GB resident
+   set, cause not established (dclm-8b E1). A Metal encode is not the bytes a card encode gives (device témoin,
+   volume-2026-09-07: same recipe, ppl 16.16 Metal against 17.67 card). Does not reach 27B to 32B. Fails "every size".
+K. The base and FT MMLU were research steps. A production recipe needs the sealed census only. No byte moves.
+I. The join already prunes to 13.6 % of entries; a tighter exact bound buys 1.2 to 1.5 on the search if the prune
+   keeps every tied candidate that precedes the winner in enumeration (prune on `>` only). Pinned by
+   `the_join_solves_a_small_fraction_of_the_entries`, the yardstick tests in llvq-bench/tests/tetra_encoder.rs.
+E. Per vCPU-hour the cheapest GPU flavour that holds a 14B forward is rtx-pro-6000 ($0.120); cpu-performance is
+   $0.059 but puts capture and advance on CPU, about 1e16 flop at 14B (hours), and changes the bytes by device.
+   l4x4 ($0.079) has 24 GB cards, under the 29.5 GB of a 14B in bf16.
+H. Parallel layers cut wall time across machines, not core-hours: the encode is CPU-bound, so $ is unchanged.
+
+4. FIRST EXPERIMENTS
+--------------------
+For the bar as written (identical bytes), the $0 Mac experiment that can kill A+B before 15 to 25 days of work:
+  Build under a go, no model load, about 15 min of CPU at LLVQ_THREADS=12 under nice 10. Synthetic Gaussian layers
+  at the 14B shapes (down_proj 5120 x 17408 on a slice of 512 rows, gate 17408 x 5120 on 512 rows), random SPD
+  Hessian, the production `TetraShapeGain`, a timing wrapper around `BlockQuantizer::quantize` and a stopwatch around
+  the feedback loop. Pass: search plus feedback at least 85 % of the quantize phase at both shapes, which keeps
+  /3 on the encode reachable. Otherwise the factorization and the remainder cap A+B under /2.5 on the encode and the
+  14B chain under /1.6: drop A.
+For the only pair that crosses /3 (G), a paid check, under a stamped prereg and a go, about $1.90:
+  l40sx1, row scales on the 4B dclm base with STEPS=1200 (about 13 min of loop plus 27 of fixed time, $1.20),
+  fold, MMLU on 14,042 paired against the full-length 61.11 object ($0.72). Does not load anything on the Mac.
+  Pass: paired delta lower bound above -0.43 pp (non-inferiority at the repository's gate unit). Then once at 14B
+  (about $4) before it is the recipe.
+
+WHAT THIS NOTE DID NOT CHECK
+----------------------------
+- The search share inside the quantize phase is inferred from a single-core bench against the phase average; no
+  journal times search and feedback separately on a real run.
+- Whether faer's factor is deterministic across thread counts (23 on the card, 12 on the Mac).
+- GPU throughput of a Tetra search: no CUDA port exists; the 10x is a judgement.
+- The Mac's RAM ceiling for a 14B encode, and the cause of the 114.5 GB footprint at 8B.
+- Seal, int4swap and embedq durations on the Mac (not journalled; minutes by the size of the files).
+- Intermediate row-scale checkpoints: `--checkpoint-every` writes partial exports; whether any step-1,200 sigma of a
+  sealed chain survives in the bucket, which would make test G a $0.72 MMLU, was not inventoried.
+- The 27B target's architecture; its row is scaled from the 32B by parameter count.
