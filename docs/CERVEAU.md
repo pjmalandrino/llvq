@@ -1,7 +1,8 @@
 # CERVEAU: the state of scientific understanding
 
-Progress: all sections drafted on 2026-11-12. Claims whose Checked line says "copied from `ETAT.md`" still need a
-reread against their journal; A (Metal) is the thinnest section.
+Progress: all sections drafted on 2026-11-12. The same day the per-type restore of the sealed 4B updated Q10, Q11,
+Q13 and Q16, added Q22, and closed O1; C7 records the code ceiling. Claims whose Checked line says "copied from
+`ETAT.md`" still need a reread against their journal; A (Metal) is the thinnest section.
 
 This document lists what we believe to be true about quantizing LLMs on the Leech lattice, each belief with its
 standing. It is not the served state ([`ETAT.md`](ETAT.md)), the history ([`HISTORIQUE.md`](HISTORIQUE.md)) or a plan
@@ -110,13 +111,22 @@ and independent encodings flip the same questions at 2.4 to 3.2 times chance.
 - Overturn: the same count on the sealed 4B with lifts near ×1.
 - Checked: 2026-11-12.
 
-**Q10.** Gains from restoring projection types do not add. The seven single f16 restores sum to 23.85 points, all seven
-together give 14.73; the sets they repair overlap at 22 to 36 % Jaccard against 3 to 6 % by chance.
-- Standing: supported. Scope: published Planes14 4B file, 2,280 q, constant-file A/B. Not measured on the sealed file.
+**Q10.** On the Planes14 file, gains from restoring projection types are sub-additive. The seven single f16 restores
+sum to 23.85 points, all seven together give 14.73; the sets they repair overlap at 22 to 36 % Jaccard against 3 to
+6 % by chance. On the sealed 4B this is not reproduced at group level. All 252 projections give +6.72, more than the MLP plus
+attention (5.583) by +1.14 [+0.43, +1.85]. Attention is worth +0.73 [+0.16, +1.29] on the sealed MLP and +1.87
+[+1.35, +2.36] on an f16 MLP.
+- Standing: supported, on the Planes14 file. Scope: published Planes14 4B file, 2,280 q, constant-file A/B, seven
+  single types. The sealed reading covers four groups (qkv, o, gate/up, down), the full split and one draw.
 - Evidence: [m2-attribution-4b](mesures/m2-attribution-4b-2026-09-02.txt); Jaccard in
   [logit-snr-4b](mesures/logit-snr-4b-2026-09-12.txt) section 7. The 23.85 and 14.73 are *computed* from the first in
   the branch note `innovation-ecart-qualite-2026-11-12.txt` (`claude/arbre-prefill-2026-11-11`, uncommitted).
-- Overturn: the per-type restore of the sealed 4B (open question O1).
+  Sealed 4B: `ablation-qualite-4b-2026-11-12.txt`, branch `claude/ablation-qualite-2026-11-12` (e68a881), section
+  ADDITIVITY. The excess of all over mlp plus attn is *computed* per question; the gains are *measured*. S, all over
+  the four single groups, reads 1.157 [0.973, 1.457] (*computed*, bootstrap), not resolved from 1, against M2's 0.618
+  on seven types. Inside each group the deviation is not resolved: mlp −0.53 [−1.21, +0.15], attn +0.31
+  [−0.12, +0.74]. M2 summed seven types and S four groups, so part of M2's interaction sits inside the groups here.
+- Overturn: on its own scope, a rerun where the seven single types sum inside the interval of the joint arm.
 - Checked: 2026-11-12.
 
 **Q11.** Spending bits on int4 records pays at 4B. `v_proj` at int4 g128 gives +3.47 [+1.42, +5.57] for +0.0493
@@ -125,7 +135,12 @@ b/param; `o_proj` +1.55 [+0.91, +2.20] and `down_proj` +4.05 [+3.28, +4.83] on h
   questions outside the selection. The served 4B carries v, o and down at layers 12 to 23 at int4.
 - Evidence: [q5-tetra](mesures/q5-tetra-2026-09-06.txt), [oproj-int4-full](mesures/oproj-int4-full-2026-09-17.txt),
   [downproj-int4-full](mesures/downproj-int4-full-2026-09-18.txt).
-- Overturn: the sealed 4B's per-type restore showing the int4 types carry a share far from these gains (O1).
+  On the sealed 4B, restoring the 36 int4 g128 records of `o_proj` to f16 gains −0.13 [−0.46, +0.19] (*measured*,
+  full split, dense f16): the int4 `o` records cost nothing resolved. The int4 records of `v_proj` and of `down_proj`
+  are not isolated, because the qkv and down arms mix lattice and int4 records (`ablation-qualite-4b-2026-11-12.txt`,
+  branch `claude/ablation-qualite-2026-11-12`, RESULT and point 5).
+- Overturn: a measurement on the sealed file where an int4 type costs more against f16 than its lattice records do.
+  None is planned (operator, 2026-11-12).
 - Checked: 2026-11-12.
 
 **Q12.** Trained per-row scales with frozen codes gain 3.15, 3.29 and 1.67 MMLU points at 4B, 8B and 14B, for zero
@@ -140,6 +155,9 @@ bits. A second training pass of row scales and norms gains +0.02 [−0.31, +0.36
 **Q13.** The q4 embedding (tied head) paid for two more int4 tables: +2.26 [+1.66, +2.87] over the 61.11 object.
 - Standing: established. Scope: 4B, the sealed object against its parent, full split.
 - Evidence: [embed-q4-swap](mesures/embed-q4-swap-2026-09-23.txt) (63.37 against 61.11).
+  Against FP16 the int4 g64 embedding and tied head cost +0.04 [−0.23, +0.31], not resolved: FP16 minus the arm with
+  all 252 projections restored to f16 (*measured*, `ablation-qualite-4b-2026-11-12.txt`, branch
+  `claude/ablation-qualite-2026-11-12`).
 - Overturn: none; the sealed object is this arm.
 - Checked: 2026-11-12.
 
@@ -159,12 +177,26 @@ same recipe otherwise.
 - Overturn: two draws per corpus.
 - Checked: 2026-11-12.
 
-**Q16.** About 83 % of the 4B gap to FP16 (5.6 of 6.77 MMLU points) is attributed by no measurement on the sealed
-object; the int4 records account for an estimated 0.5 to 0.8 and the q4 embedding about 0.35, unresolved.
-- Standing: conjecture. Scope: sealed 4B; the shares are transferred by arithmetic from older bases.
-- Evidence: `innovation-ecart-qualite-2026-11-12.txt`, branch `claude/arbre-prefill-2026-11-11`, uncommitted, section 1.
-- Overturn: O1 below.
+**Q16.** On the sealed 4B the MLP carries most of the gap to FP16. Restoring gate/up to f16 recovers +3.38 MMLU
+points [+2.75, +4.02], down +2.01 [+1.46, +2.54], the whole MLP +4.86 [+4.16, +5.57]. Attention recovers +0.73
+[+0.16, +1.29] as a group: qkv +0.55 [+0.01, +1.11], o −0.13 [−0.46, +0.19]. All 252 projections recover +6.72
+[+6.00, +7.45] and sit +0.04 [−0.23, +0.31] under FP16, so restoring the projections closes the gap within its
+interval.
+- Standing: established. Scope: sealed 4B, its one calibration draw, MMLU full split, 5-shot, f16 dense
+  reconstruction, gains paired against the control by `mmlupair --no-fpc`. GSM8K is not measured. Not isolated:
+  `v_proj`, and `down_proj` at layers 12 to 23, because the qkv arm (72 lattice, 36 int4 records) and the down arm
+  (24 lattice, 12 int4) mix both record types. qkv's interval clears zero by 0.01 and its McNemar test does not
+  (p 0.0508).
+- Evidence: `ablation-qualite-4b-2026-11-12.txt`, branch `claude/ablation-qualite-2026-11-12` (e68a881), job 6af550a4,
+  RESULT (*measured*). The control reads 63.3742 with 14,042 of 14,042 picks equal to the published dump; six of six
+  controls green.
+- Overturn: a per-group restore of another draw of the 4B, sealed the same way, whose gains fall outside these
+  intervals.
 - Checked: 2026-11-12.
+- Former statement, conjecture until 2026-11-12, superseded by the measurement above: about 83 % of the gap (5.6 of
+  6.77 points) was attributed by no measurement on the sealed object; the int4 records were estimated at 0.5 to 0.8 and
+  the q4 embedding at about 0.35 (`innovation-ecart-qualite-2026-11-12.txt`, branch `claude/arbre-prefill-2026-11-11`,
+  uncommitted, section 1).
 
 **Q17.** Choosing each block's gain level by projection instead of by norm lowers Gaussian MSE (retention 88.73 →
 89.43 %) and costs 4.026 % of perplexity end to end. The rule moves every disagreed block down a level, a 2.9 % radial
@@ -207,6 +239,18 @@ is resolved and the head swaps. What holds across draws is coarse: MLP above att
   `HISTORIQUE.md` 2026-09-04 reports it.
 - Overturn: O1 on the sealed file, read against this order.
 - Checked: 2026-11-12 (from `HISTORIQUE.md`, journal not reopened).
+
+**Q22.** Per billion restored weights the MLP is not special. The whole MLP recovers +1.81 MMLU points per billion
+weights, all 252 projections +1.85, gate/up +1.89. The MLP carries 71.7 % of the gap with 2.690 of the 3.633 billion
+restored weights, roughly in proportion to its weights; the ablation shows no hot spot. Per weight, down reads +2.24,
+qkv +0.97, attention as a group +0.77 and o −0.34.
+- Standing: supported. The gains are measured once on the served object; the rates are *computed* from them and the
+  journal carries no interval on a rate. Scope: as Q16. A rate is per weight restored to f16, not per b/param of a
+  fix.
+- Evidence: `ablation-qualite-4b-2026-11-12.txt`, branch `claude/ablation-qualite-2026-11-12`, RESULT, columns "gain
+  per Gw" and "share of 6.77" (*computed*), restored weights from control 5; reading in point 6.
+- Overturn: per-weight rates whose intervals separate the MLP's rate from the rate of all projections.
+- Checked: 2026-11-12.
 
 ## K. The decode kernel
 
@@ -330,6 +374,18 @@ implied +8.5 % of MSE, and perplexity moved −4.64 %, the opposite sign.
 - Standing: supported. Scope: 4B, Tetra against the published Planes14 encoding, C4 calibration, one draw a side.
 - Evidence: `HISTORIQUE.md` 2026-09-06 (the Tetra encoding entry), journal not reopened here.
 - Overturn: a second draw a side that reverses the perplexity sign.
+- Checked: 2026-11-12.
+
+**C7.** No 24-dimension fixed-rate code of 48 bits a block can sit more than 0.60 dB under Tetra on a Gaussian
+source. The sphere-covering bound for a shape-gain code of 47 + 1 bits reads MSE 0.07410 a dimension against Tetra's
+0.08506, and no code reaches that bound. Inside the Tetra family the best member at Tetra's decoder cost reads
+−0.18 dB, and the best at any decoder cost −0.30 dB.
+- Standing: conjecture (bound *computed*, members *measured* on synthetic blocks only). Scope: Gaussian N(0,1),
+  2.000 b/dim, 24 dimensions, fixed rate, ideal spherical caps. A 48-dimension pair code has its own bound at
+  −0.90 dB; a variable-length code is outside the bound.
+- Evidence: `innovation-tetra-v2-forme-2026-11-11.txt`, branch `claude/arbre-nuit-2026-11-10`, verdict and sections
+  1 and 2.
+- Overturn: a 24-dimension fixed-rate code of 48 bits measured more than 0.60 dB under Tetra.
 - Checked: 2026-11-12.
 
 ## S. How it scales with model size
@@ -495,9 +551,10 @@ and its prototype decodes 93.9 tok/s on an M3 Max where mlx-lm's 4-bit 4B decode
 
 Ranked by how much they block.
 
-**O1.** Where the sealed 4B's 6.77 MMLU points go, type by type (Q10, Q11, Q16). In flight: job 6af550a4, prereg
-`proofs/preregistration-ablation-qualite-4b-2026-11-12.md` on branch `claude/ablation-qualite-2026-11-12`. The control
-arm reads 63.37, 14,042 of 14,042 picks equal to the published dump. The other arms are not read.
+**O1.** Closed 2026-11-12. Where the sealed 4B's 6.77 MMLU points go, group by group. Job 6af550a4 answered it:
+the MLP carries +4.86 of the gap, attention +0.73, and all projections restored sit +0.04 [−0.23, +0.31] under FP16
+(Q16, Q22; `ablation-qualite-4b-2026-11-12.txt`, branch `claude/ablation-qualite-2026-11-12`). What remains open is
+O9.
 
 **O2.** Whether an output-aware encoder objective gains on MMLU and GSM8K (Q20). No arm has ever run; it is the only
 quality lever with a projected gain above 1 point.
@@ -516,6 +573,15 @@ done; its first experiment, 4E v9as with a teacher-forced perplexity mode, about
 **O7.** Whether the GSM8K gap (9.63 at 4B) and the MMLU gap share causes. GSM8K was never scored before row scales.
 
 **O8.** The quality of a model above 14B (S3). The 32B must be encoded first.
+
+**O9.** Why attention and the MLP interact on the sealed 4B (Q10). Attention is worth +0.73 on the sealed MLP and
++1.87 [+1.35, +2.36] on an f16 MLP; no mechanism is stated. Unknown, and not chased: how the gains of qkv and down
+split between their lattice and int4 records. The operator ruled on 2026-11-12 that per-model, per-type tuning is not
+the project's direction.
+
+**O10.** The three research fronts, as [`MODES.md`](MODES.md) states them on 2026-11-12. The code on Λ₂₄ has a ready
+verifier, and the ceiling of 24-dimension fixed-rate codes is recorded (C7). The kernel has a costly verifier. Model
+quality has no fast, faithful verifier, so it is closed to research until one exists.
 
 ## Beliefs we dropped
 
@@ -540,6 +606,8 @@ done; its first experiment, 4E v9as with a teacher-forced perplexity mode, about
 | Speculation is closed on verify cost | 2026-11-10 | an extra tree row costs 0.0114 to 0.0196 of a token (D2) |
 | Moving 4E's prefetch frees time | 2026-11-11 | 94 % of the time reappears downstream (K5) |
 | Lattice-step distillation closes a large share of the gap | 2026-11-11 | computed refutation (Q19) |
+| Attention carries a large share of the sealed 4B's gap | 2026-11-12 | predicted qkv +1.4, o +0.8, attn +2.0; measured +0.55, −0.13, +0.73, all below their intervals (`ablation-qualite-4b-2026-11-12.txt`, branch `claude/ablation-qualite-2026-11-12`; Q16) |
+| Group restores are sub-additive on the sealed 4B | 2026-11-12 | S predicted 0.77 [0.60, 0.95], measured 1.157; all exceeds mlp + attn by +1.14 [+0.43, +1.85] (same journal; Q10) |
 
 ## Disagreements found between documents
 
