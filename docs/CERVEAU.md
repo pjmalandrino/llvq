@@ -352,12 +352,17 @@ at 14B: the 4B upper bound is 0.65 of the band.
 
 **K10.** In 4E v9 the all-Tetra rows stream as fast in the token as alone: gate/up reads 359 GB/s at a 5-token context
 and 385 at 8,192 on mean CTA work (*computed* from stamps), against 379 [368-383] for the loop alone (*measured*, on
-the bare encode). The all-int4 rows beside them read 589 (*computed*). The rows are bound by their decode, not by
-their place in the token.
+the bare encode). The all-int4 rows beside them read 589 (*computed*). Alone, the sealed gate/up rows read 430 GB/s
+(*measured*): the token costs them 10 to 16 %. The decode is not what holds them: the same words read with nothing
+decoded stream 493 GB/s, ×1.22 of the served row, against 675 for a read of the int4 bytes and 751 for a bare read of
+the card (*measured*).
 - Standing: supported. Scope: sealed 4B, 4E v9, L40S; in-situ figures from stamps, not a trace.
 - Evidence: [large-4e-e1](mesures/large-4e-e1-2026-11-11.txt), [pers-rowloop](mesures/pers-rowloop-2026-11-05.txt),
-  [recherche-debit-r0-depot](mesures/recherche-debit-r0-depot-2026-11-12.txt) §1d and §6.
-- Overturn: a measurement of the sealed file's gate/up rows alone, with no other traffic, outside 359 to 385 GB/s.
+  [recherche-debit-r0-depot](mesures/recherche-debit-r0-depot-2026-11-12.txt) §1d and §6;
+  [recherche-debit-banc](mesures/recherche-debit-banc-2026-11-12.txt) for the rows alone, the read with nothing
+  decoded and the probe. That run failed its fidelity rule on one control of twelve: its rates describe, they score
+  no candidate.
+- Overturn: a decoder with fewer instructions, on the same read pattern, above ×1.22 of the served row.
 - Checked: 2026-11-12, against the journals. The earlier wording, a third of the rows' time lost in situ at about
   260 GB/s, described 4E v2 and is in `HISTORIQUE.md`.
 

@@ -1,0 +1,82 @@
+Decode-speed research phase (CERVEAU O11), step R2: stage 2 of the verifier, one card run of rowbench, 2026-11-12
+
+Result: rule D of the prereg fails on one control of twelve, so no rate of this run is a candidate's score and the
+verifier goes back to R2. As a description, the run holds four facts the journals did not: the L40S reads 751 GB/s
+bare; the sealed file's Tetra words read with nothing decoded stream 493 GB/s at 4E's geometry, x1.22 of the served
+row; the sealed gate/up rows alone stream 430 GB/s against 359 to 385 in the token; a reassociated sum is worth
+x1.02 on the whole file and x1.07 on the long rows. The Tetra rows are held by how their words are read, not
+mainly by the decode. Every rate below is *measured*; bytes are *computed*.
+
+Job 6af5ce2897c30a21be6d6c8d, l40sx1, 203 s running, $0.10. Prereg
+proofs/preregistration-recherche-debit-banc-2026-11-12.md (sha256 ace61b61, stamped before), departure E1 beside it
+(image built from e2ae88e, one recipe line after the bench commit 2794bbc). Space sha b8374352. Raw outputs in
+recherche-debit-banc-2026-11-12-brut/. Card: L40S, sm_89, driver 580.178.04, tile 64. 15 timed rounds, medians with
+round-by-round ranges. GB/s in the accounting with tails and scales unless said.
+
+GATES
+  1 oracle MATCH. 2 both files at their bytes and sha256; served unit 101,625 bytes 61930943; bench module 5dab2bca,
+  the Mac's. 3 the served arm bit for bit on sealed:all, sealed:gu4e and bare:all. 4 no LLVQ_* variable. No arm and
+  no probe configuration was refused.
+
+RULE D (prereg §6)
+  D1 PASS. served on bare:all 374.8 [373.3-379.0] against [368, 383]; v2 378.6 [372.0-380.8].
+  D2 FAIL, one arm of twelve: cpa x0.992 [0.984-1.012] over v2 against the journal's x0.960 (step1-micro, range
+  [0.944-0.987]), 0.032 away for a tolerance of 0.03. The eleven others pass: v3 0.848, ilp2 0.930, v2u 0.826, l1w
+  1.203, bcast 0.994, xbcast 1.004, v2_o2 1.066, nc 0.834, nc256 0.870, tile 1.027, bal 0.956.
+  To the letter the stand-in is not shown faithful, and the run is a description. What to change at R2 is not
+  decided here: the tolerance was set at 0.03 for twelve tests at once, and the journal's own range for cpa is 0.043
+  wide.
+
+THE PROBE (2.147 GB of hashed words, 21 times L2, sums checked every round)
+  best configuration, one 128-bit load a thread, 512 threads, one CTA a SM, no prefetch   751.1 [748.0-752.5]
+  the same at 256 threads, four loads in flight                                           749.5 [747.5-750.9]
+  the fourteen other configurations                                                       652.9 to 731.3
+  one u32 a load, 512 threads                                                             652.9; 682.2 with prefetch
+  751 GB/s is 0.87 of the 864 GB/s of the datasheet. It is the first measured read rate of this card here.
+
+THE SEALED FILE'S TETRA ROWS, ALONE
+  set (GB)                  served               served_np            acc2                 pword (nothing decoded)
+  d_in 2,560 (0.5981)       409.6 [408.4-411.1]  376.4 [374.1-378.7]  415.0 [412.3-415.7]  506.1 [503.4-508.0]
+  d_in 9,728 (0.1506)       374.2 [369.9-378.5]  338.0 [325.9-341.3]  401.4 [394.7-405.9]  433.2 [426.5-436.0]
+  all 168 records (0.7487)  407.3 [397.9-410.7]  363.1 [353.7-373.3]  413.8 [406.7-419.2]  492.8 [487.3-500.7]
+  gate/up as 4E (0.4735)    429.5 [423.9-431.4]  396.1 [392.8-399.7]  436.5 [433.7-439.3]  522.0 [519.8-527.7]
+  over served, round by round, all records: served_np x0.892 [0.872-0.910], acc2 x1.023 [1.002-1.025], pword x1.216
+  [1.198-1.230]. acc2 at d_in 9,728: x1.073 [1.049-1.086]; on the bare encode at 4,096: x1.104 [1.099-1.121].
+  SASS a block (devel count, Mac): served 226, acc2 224, pword 24.
+
+THE INT4 RECORDS OF THE SEALED FILE (0.4094 GB)
+  q4hh, the served eager kernel   320.2 [316.6-321.0]
+  q4t, the best decoding arm      557.0 [554.0-558.9]
+  q4read, a read of the bytes     675.3 [670.4-684.0]
+
+WHAT THE DESCRIPTION SAYS
+  1. A row that decodes nothing (24 instructions a block against 226) is only x1.22 faster than the served row. The
+     decode is at most 18 % of the rows' time at this geometry. The R1 note's sentence, the rows are bound by the
+     decode, and the repository's attribution of 0.66 to 0.92 ms to instruction time, do not survive this.
+  2. The same read skeleton streams 493 GB/s where an int4 read streams 675 and the bare probe 751. The gap that
+     matters is between how Tetra words are read (one row a warp, each lane its own narrow loads) and how the card
+     can be read. One u32 a load already costs the probe 13 % (652.9 against 751.1).
+  3. gate/up alone reads 429.5 against 359 at 5 tokens and 385 at 8,192 in the token (computed from stamps, E1): 10
+     to 16 % of the rows' rate is lost to the rest of the token.
+  4. The L2 prefetch is worth 11 % to the rows (served_np x0.892).
+  5. A reassociated sum, which the bit forbade, is worth 2 % on the file and 7 to 10 % on rows of 4,096 and 9,728.
+  6. The shapes: d_in 2,560 is the fastest alone (409.6), 9,728 the slowest (374.2). No journal had a rate a shape.
+
+SIGNED PREDICTIONS (prereg §10): 4 in, 6 out
+  1 served on bare:all 376 [368, 383]: 374.8, in.
+  2 rule D2 holds (60 %): fails, out.
+  3 probe best 760 [700, 830]: 751.1, in.
+  4 probe at 4E's geometry 690 [640, 740]: 751.1, out, above.
+  5 gu_served 375 [355, 395]: 429.5, out, above.
+  6 2,560 slower than 9,728: the reverse, out.
+  7 served_np over served 0.94 [0.90, 0.98]: 0.892, out, below.
+  8 acc2 over served 1.00 [0.97, 1.04]: 1.023, in.
+  9 pword 640 [560, 700]: 492.8, out, below, near the surprise line of 450.
+  10 q4t 548 and q4read 671, +-25: 557.0 and 675.3, in.
+  The misses share one cause: the predictions took the R1 framing, decode-bound rows, for granted.
+
+NOT ESTABLISHED
+  Any tok/s. Any candidate's score (rule D). Why pword stops at 493: the run names no mechanism. The card cubin's
+  SASS count (the cubin is in the bucket, cubin/rowbench.cubin, not counted). Any card but the L40S.
+
+Cost: $0.10 (203 s at $1.80/h). Phase: $0.10 of $5. Cap of 2026-11-09: $19.32 of $25. Registry: $326.57.

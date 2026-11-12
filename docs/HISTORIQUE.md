@@ -1476,3 +1476,10 @@ reading step is [recherche-debit-r0-depot](mesures/recherche-debit-r0-depot-2026
 - K10 said that a third of the Tetra rows' time was lost inside 4E, at about 260 GB/s against 379 alone. That was
   4E v2. At v9 gate/up reads 359 to 385 GB/s in the token (*computed* from stamps), so the rows are bound by their
   decode. The anomaly N5 is now the whole token at 297 GB/s against rows at 359 to 648.
+- The first card run of the phase, [recherche-debit-banc](mesures/recherche-debit-banc-2026-11-12.txt) (6af5ce28,
+  $0.10), fails its fidelity rule on one control of twelve, so it scores no candidate. As a description it measures
+  the L40S's bare read at 751 GB/s, the sealed Tetra rows alone at 407, and the same words read with nothing decoded
+  at 493 (*measured*). The decode is not what holds the rows; the way their words are read is. Six of ten signed
+  predictions missed, all built on the decode-bound framing. The image recipe compiles three crates at a time since
+  this run: at two the build no longer fits the Space builder's 30 minutes. Spend under the cap: $19.32 of $25,
+  registry $326.57.

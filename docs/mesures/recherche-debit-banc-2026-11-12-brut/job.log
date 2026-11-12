@@ -1,0 +1,243 @@
+NVIDIA L40S, 8.9, 46068 MiB, 580.178.04, 2520 MHz, 9001 MHz
+886391a8c03f66dc269cc65c3598c6627dbdcd259180aff36604ef10d37371b8  /out/sealed-4b-2026-09-23/qwen3-4b-sealed.bin
+0adb7cfd02ed74022b639bdaee27f9440fa1083d2d81b80096b7ae5679866ce5  /out/tetra-4b-2026-09-06/qwen3-4b-tetra.bin
+== gate 1: oracle ==
+window: 47 tokens
+Qwen/Qwen3-0.6B on Cuda(CudaDevice(DeviceId(1))) — max |Δhidden| = 0.000e0   (relative to max|h| = 8.550e1) → 0.000e0
+MATCH — the observable forward reproduces candle's Qwen3
+== process 1: rowbench on the sealed 4B and the bare encode ==
+Thu Nov 12 15:11:16 UTC 2026
+Thu Nov 12 15:13:45 UTC 2026
+rowbench exit 0
+  served_np    owes bits: y equal 61440/61440, f32 equal 61440/61440, max rel err 0.000e0, q99 0.000e0: PASS
+  acc2         owes bound 1e-5: y equal 61388/61440, f32 equal 18467/61440, max rel err 1.716e-6, q99 3.474e-7: PASS
+  pword        owes nothing: y equal 0/61440, f32 equal 0/61440, max rel err 8.355e2, q99 2.624e2: diagnostic
+  v2           tv_trows_v2 (known, grid 142): y equal 61440/61440, f32 equal 61440/61440: BIT FOR BIT
+  v3           tv_trows_v3 (known, grid 142): y equal 61440/61440, f32 equal 61440/61440: BIT FOR BIT
+  ilp2         tv_trows_ilp2 (known, grid 142): y equal 61440/61440, f32 equal 61440/61440: BIT FOR BIT
+  v2u          tv_trows_v2u (known, grid 142): y equal 61440/61440, f32 equal 61440/61440: BIT FOR BIT
+  l1w          tv_trows_l1w (known, grid 142): y equal 30/61440, f32 equal 24/61440: diagnostic, owes nothing
+  bcast        tv_trows_bcast (known, grid 142): y equal 13/61440, f32 equal 0/61440: diagnostic, owes nothing
+  xbcast       tv_trows_xbcast (known, grid 142): y equal 6/61440, f32 equal 0/61440: diagnostic, owes nothing
+  nc           tv_trows_nc (known, grid 142): y equal 61440/61440, f32 equal 61440/61440: BIT FOR BIT
+  nc256        tv_trows_nc256 (known, grid 142): y equal 61440/61440, f32 equal 61440/61440: BIT FOR BIT
+  cpa          tv_trows_cpa (known, grid 142): y equal 61440/61440, f32 equal 61440/61440: BIT FOR BIT
+  tile         tv_trows_tile (known, grid 142): y equal 61440/61440, f32 equal 61440/61440: BIT FOR BIT
+  bal          tv_trows_bal (known, grid 142): y equal 61440/61440, f32 equal 61440/61440: BIT FOR BIT
+set sealed:all: 168 records, 946176 rows, 0.7157 GB of words, 0.7487 GB with tails and row scales
+  served       946176 rows identical BIT FOR BIT to tv_tetra48_h: the reference f32 rows of this set
+  served       owes bits: y equal 946176/946176, f32 equal 946176/946176, max rel err 0.000e0, q99 0.000e0: PASS
+  served_np    owes bits: y equal 946176/946176, f32 equal 946176/946176, max rel err 0.000e0, q99 0.000e0: PASS
+  acc2         owes bound 1e-5: y equal 945540/946176, f32 equal 378802/946176, max rel err 1.717e-6, q99 2.893e-7: PASS
+  pword        owes nothing: y equal 0/946176, f32 equal 0/946176, max rel err 2.744e3, q99 6.413e2: diagnostic
+  v2           tv_trows_v2 (known, grid 142): y equal 946176/946176, f32 equal 946176/946176: BIT FOR BIT
+  v3           tv_trows_v3 (known, grid 142): y equal 946176/946176, f32 equal 946176/946176: BIT FOR BIT
+  ilp2         tv_trows_ilp2 (known, grid 142): y equal 946176/946176, f32 equal 946176/946176: BIT FOR BIT
+  v2u          tv_trows_v2u (known, grid 142): y equal 946176/946176, f32 equal 946176/946176: BIT FOR BIT
+  l1w          tv_trows_l1w (known, grid 142): y equal 276/946176, f32 equal 168/946176: diagnostic, owes nothing
+  bcast        tv_trows_bcast (known, grid 142): y equal 119/946176, f32 equal 0/946176: diagnostic, owes nothing
+  xbcast       tv_trows_xbcast (known, grid 142): y equal 101/946176, f32 equal 0/946176: diagnostic, owes nothing
+  v2_s         tv_trows_v2 (known, grid 142): y equal 884736/884736, f32 equal 884736/884736: BIT FOR BIT
+  v2_o2        tv_trows_v2_o2 (known, grid 284): y equal 884736/884736, f32 equal 884736/884736: BIT FOR BIT
+  nc           tv_trows_nc (known, grid 142): y equal 946176/946176, f32 equal 946176/946176: BIT FOR BIT
+  nc256        tv_trows_nc256 (known, grid 142): y equal 946176/946176, f32 equal 946176/946176: BIT FOR BIT
+  cpa          tv_trows_cpa (known, grid 142): y equal 946176/946176, f32 equal 946176/946176: BIT FOR BIT
+  tile         tv_trows_tile (known, grid 142): y equal 946176/946176, f32 equal 946176/946176: BIT FOR BIT
+  bal          tv_trows_bal (known, grid 142): y equal 946176/946176, f32 equal 946176/946176: BIT FOR BIT
+set sealed:gu4e: 72 records, 700416 rows, 0.4483 GB of words, 0.4735 GB with tails and row scales
+  gu_served    700416 rows identical BIT FOR BIT to tv_tetra48_h: the reference f32 rows of this set
+  gu_served    owes bits: y equal 700416/700416, f32 equal 700416/700416, max rel err 0.000e0, q99 0.000e0: PASS
+  gu_served_np owes bits: y equal 700416/700416, f32 equal 700416/700416, max rel err 0.000e0, q99 0.000e0: PASS
+  gu_acc2      owes bound 1e-5: y equal 699958/700416, f32 equal 285378/700416, max rel err 1.655e-6, q99 2.796e-7: PASS
+  gu_pword     owes nothing: y equal 0/700416, f32 equal 0/700416, max rel err 2.744e3, q99 6.178e2: diagnostic
+set bare:d_in=2560: 180 records, 921600 rows, 0.5898 GB of words, 0.6230 GB with tails and row scales
+  served       921600 rows identical BIT FOR BIT to tv_tetra48_h: the reference f32 rows of this set
+  served       owes bits: y equal 921600/921600, f32 equal 921600/921600, max rel err 0.000e0, q99 0.000e0: PASS
+  served_np    owes bits: y equal 921600/921600, f32 equal 921600/921600, max rel err 0.000e0, q99 0.000e0: PASS
+  acc2         owes bound 1e-5: y equal 921003/921600, f32 equal 375253/921600, max rel err 1.188e-6, q99 2.815e-7: PASS
+  pword        owes nothing: y equal 0/921600, f32 equal 0/921600, max rel err 2.897e3, q99 6.402e2: diagnostic
+  v2           tv_trows_v2 (known, grid 142): y equal 921600/921600, f32 equal 921600/921600: BIT FOR BIT
+  v3           tv_trows_v3 (known, grid 142): y equal 921600/921600, f32 equal 921600/921600: BIT FOR BIT
+  ilp2         tv_trows_ilp2 (known, grid 142): y equal 921600/921600, f32 equal 921600/921600: BIT FOR BIT
+  v2u          tv_trows_v2u (known, grid 142): y equal 921600/921600, f32 equal 921600/921600: BIT FOR BIT
+  l1w          tv_trows_l1w (known, grid 142): y equal 277/921600, f32 equal 180/921600: diagnostic, owes nothing
+  bcast        tv_trows_bcast (known, grid 142): y equal 109/921600, f32 equal 0/921600: diagnostic, owes nothing
+  xbcast       tv_trows_xbcast (known, grid 142): y equal 108/921600, f32 equal 0/921600: diagnostic, owes nothing
+  v2_s         tv_trows_v2 (known, grid 142): y equal 921600/921600, f32 equal 921600/921600: BIT FOR BIT
+  v2_o2        tv_trows_v2_o2 (known, grid 284): y equal 921600/921600, f32 equal 921600/921600: BIT FOR BIT
+  nc           tv_trows_nc (known, grid 142): y equal 921600/921600, f32 equal 921600/921600: BIT FOR BIT
+  nc256        tv_trows_nc256 (known, grid 142): y equal 921600/921600, f32 equal 921600/921600: BIT FOR BIT
+  cpa          tv_trows_cpa (known, grid 142): y equal 921600/921600, f32 equal 921600/921600: BIT FOR BIT
+  tile         tv_trows_tile (known, grid 142): y equal 921600/921600, f32 equal 921600/921600: BIT FOR BIT
+  bal          tv_trows_bal (known, grid 142): y equal 921600/921600, f32 equal 921600/921600: BIT FOR BIT
+set bare:d_in=4096: 36 records, 92160 rows, 0.0944 GB of words, 0.0977 GB with tails and row scales
+  served       92160 rows identical BIT FOR BIT to tv_tetra48_h: the reference f32 rows of this set
+  served       owes bits: y equal 92160/92160, f32 equal 92160/92160, max rel err 0.000e0, q99 0.000e0: PASS
+  served_np    owes bits: y equal 92160/92160, f32 equal 92160/92160, max rel err 0.000e0, q99 0.000e0: PASS
+  acc2         owes bound 1e-5: y equal 92089/92160, f32 equal 33199/92160, max rel err 7.277e-7, q99 3.226e-7: PASS
+  pword        owes nothing: y equal 0/92160, f32 equal 0/92160, max rel err 1.514e3, q99 4.260e2: diagnostic
+  v2           tv_trows_v2 (known, grid 142): y equal 92160/92160, f32 equal 92160/92160: BIT FOR BIT
+  v3           tv_trows_v3 (known, grid 142): y equal 92160/92160, f32 equal 92160/92160: BIT FOR BIT
+  ilp2         tv_trows_ilp2 (known, grid 142): y equal 92160/92160, f32 equal 92160/92160: BIT FOR BIT
+  v2u          tv_trows_v2u (known, grid 142): y equal 92160/92160, f32 equal 92160/92160: BIT FOR BIT
+  l1w          tv_trows_l1w (known, grid 142): y equal 45/92160, f32 equal 36/92160: diagnostic, owes nothing
+  bcast        tv_trows_bcast (known, grid 142): y equal 6/92160, f32 equal 0/92160: diagnostic, owes nothing
+  xbcast       tv_trows_xbcast (known, grid 142): y equal 15/92160, f32 equal 0/92160: diagnostic, owes nothing
+  v2_s         tv_trows_v2 (known, grid 142): y equal 92160/92160, f32 equal 92160/92160: BIT FOR BIT
+  v2_o2        tv_trows_v2_o2 (known, grid 284): y equal 92160/92160, f32 equal 92160/92160: BIT FOR BIT
+  nc           tv_trows_nc (known, grid 142): y equal 92160/92160, f32 equal 92160/92160: BIT FOR BIT
+  nc256        tv_trows_nc256 (known, grid 142): y equal 92160/92160, f32 equal 92160/92160: BIT FOR BIT
+  cpa          tv_trows_cpa (known, grid 142): y equal 92160/92160, f32 equal 92160/92160: BIT FOR BIT
+  tile         tv_trows_tile (known, grid 142): y equal 92160/92160, f32 equal 92160/92160: BIT FOR BIT
+  bal          tv_trows_bal (known, grid 142): y equal 92160/92160, f32 equal 92160/92160: BIT FOR BIT
+set bare:d_in=9728: 36 records, 92160 rows, 0.2241 GB of words, 0.2260 GB with tails and row scales
+  served       92160 rows identical BIT FOR BIT to tv_tetra48_h: the reference f32 rows of this set
+  served       owes bits: y equal 92160/92160, f32 equal 92160/92160, max rel err 0.000e0, q99 0.000e0: PASS
+  served_np    owes bits: y equal 92160/92160, f32 equal 92160/92160, max rel err 0.000e0, q99 0.000e0: PASS
+  acc2         owes bound 1e-5: y equal 92072/92160, f32 equal 27598/92160, max rel err 1.144e-6, q99 3.274e-7: PASS
+  pword        owes nothing: y equal 0/92160, f32 equal 0/92160, max rel err 8.761e2, q99 2.585e2: diagnostic
+  v2           tv_trows_v2 (known, grid 142): y equal 92160/92160, f32 equal 92160/92160: BIT FOR BIT
+  v3           tv_trows_v3 (known, grid 142): y equal 92160/92160, f32 equal 92160/92160: BIT FOR BIT
+  ilp2         tv_trows_ilp2 (known, grid 142): y equal 92160/92160, f32 equal 92160/92160: BIT FOR BIT
+  v2u          tv_trows_v2u (known, grid 142): y equal 92160/92160, f32 equal 92160/92160: BIT FOR BIT
+  l1w          tv_trows_l1w (known, grid 142): y equal 44/92160, f32 equal 36/92160: diagnostic, owes nothing
+  bcast        tv_trows_bcast (known, grid 142): y equal 8/92160, f32 equal 0/92160: diagnostic, owes nothing
+  xbcast       tv_trows_xbcast (known, grid 142): y equal 8/92160, f32 equal 0/92160: diagnostic, owes nothing
+  nc           tv_trows_nc (known, grid 142): y equal 92160/92160, f32 equal 92160/92160: BIT FOR BIT
+  nc256        tv_trows_nc256 (known, grid 142): y equal 92160/92160, f32 equal 92160/92160: BIT FOR BIT
+  cpa          tv_trows_cpa (known, grid 142): y equal 92160/92160, f32 equal 92160/92160: BIT FOR BIT
+  tile         tv_trows_tile (known, grid 142): y equal 92160/92160, f32 equal 92160/92160: BIT FOR BIT
+  bal          tv_trows_bal (known, grid 142): y equal 92160/92160, f32 equal 92160/92160: BIT FOR BIT
+set bare:all: 252 records, 1105920 rows, 0.9083 GB of words, 0.9467 GB with tails and row scales
+  served       1105920 rows identical BIT FOR BIT to tv_tetra48_h: the reference f32 rows of this set
+  served       owes bits: y equal 1105920/1105920, f32 equal 1105920/1105920, max rel err 0.000e0, q99 0.000e0: PASS
+  served_np    owes bits: y equal 1105920/1105920, f32 equal 1105920/1105920, max rel err 0.000e0, q99 0.000e0: PASS
+  acc2         owes bound 1e-5: y equal 1105164/1105920, f32 equal 436050/1105920, max rel err 1.188e-6, q99 2.967e-7: PASS
+  pword        owes nothing: y equal 0/1105920, f32 equal 0/1105920, max rel err 2.897e3, q99 6.228e2: diagnostic
+  v2           tv_trows_v2 (known, grid 142): y equal 1105920/1105920, f32 equal 1105920/1105920: BIT FOR BIT
+  v3           tv_trows_v3 (known, grid 142): y equal 1105920/1105920, f32 equal 1105920/1105920: BIT FOR BIT
+  ilp2         tv_trows_ilp2 (known, grid 142): y equal 1105920/1105920, f32 equal 1105920/1105920: BIT FOR BIT
+  v2u          tv_trows_v2u (known, grid 142): y equal 1105920/1105920, f32 equal 1105920/1105920: BIT FOR BIT
+  l1w          tv_trows_l1w (known, grid 142): y equal 366/1105920, f32 equal 252/1105920: diagnostic, owes nothing
+  bcast        tv_trows_bcast (known, grid 142): y equal 123/1105920, f32 equal 0/1105920: diagnostic, owes nothing
+  xbcast       tv_trows_xbcast (known, grid 142): y equal 131/1105920, f32 equal 0/1105920: diagnostic, owes nothing
+  v2_s         tv_trows_v2 (known, grid 142): y equal 1013760/1013760, f32 equal 1013760/1013760: BIT FOR BIT
+  v2_o2        tv_trows_v2_o2 (known, grid 284): y equal 1013760/1013760, f32 equal 1013760/1013760: BIT FOR BIT
+  nc           tv_trows_nc (known, grid 142): y equal 1105920/1105920, f32 equal 1105920/1105920: BIT FOR BIT
+  nc256        tv_trows_nc256 (known, grid 142): y equal 1105920/1105920, f32 equal 1105920/1105920: BIT FOR BIT
+  cpa          tv_trows_cpa (known, grid 142): y equal 1105920/1105920, f32 equal 1105920/1105920: BIT FOR BIT
+  tile         tv_trows_tile (known, grid 142): y equal 1105920/1105920, f32 equal 1105920/1105920: BIT FOR BIT
+  bal          tv_trows_bal (known, grid 142): y equal 1105920/1105920, f32 equal 1105920/1105920: BIT FOR BIT
+set sealed:int4:d_in=2560: 36 int4 records, 36864 rows, 0.0501 GB of words, scales and biases
+  q4           tv_q4rows_q4: 36864 of 36864 rows equal tv_q4_hh: BIT FOR BIT
+  q4nc         tv_q4rows_nc: 36864 of 36864 rows equal tv_q4_hh: BIT FOR BIT
+  q4t          tv_q4rows_tile: 36864 of 36864 rows equal tv_q4_hh: BIT FOR BIT
+  q4read       tv_q4rows_read: 0 of 36864 rows equal tv_q4_hh: diagnostic, owes nothing
+set sealed:int4:d_in=4096: 36 int4 records, 92160 rows, 0.2005 GB of words, scales and biases
+  q4           tv_q4rows_q4: 92160 of 92160 rows equal tv_q4_hh: BIT FOR BIT
+  q4nc         tv_q4rows_nc: 92160 of 92160 rows equal tv_q4_hh: BIT FOR BIT
+  q4t          tv_q4rows_tile: 92160 of 92160 rows equal tv_q4_hh: BIT FOR BIT
+  q4read       tv_q4rows_read: 3 of 92160 rows equal tv_q4_hh: diagnostic, owes nothing
+set sealed:int4:d_in=9728: 12 int4 records, 30720 rows, 0.1588 GB of words, scales and biases
+  q4           tv_q4rows_q4: 30720 of 30720 rows equal tv_q4_hh: BIT FOR BIT
+  q4nc         tv_q4rows_nc: 30720 of 30720 rows equal tv_q4_hh: BIT FOR BIT
+  q4t          tv_q4rows_tile: 30720 of 30720 rows equal tv_q4_hh: BIT FOR BIT
+  q4read       tv_q4rows_read: 0 of 30720 rows equal tv_q4_hh: diagnostic, owes nothing
+set sealed:int4:all: 84 int4 records, 159744 rows, 0.4094 GB of words, scales and biases
+  q4           tv_q4rows_q4: 159744 of 159744 rows equal tv_q4_hh: BIT FOR BIT
+  q4nc         tv_q4rows_nc: 159744 of 159744 rows equal tv_q4_hh: BIT FOR BIT
+  q4t          tv_q4rows_tile: 159744 of 159744 rows equal tv_q4_hh: BIT FOR BIT
+  q4read       tv_q4rows_read: 3 of 159744 rows equal tv_q4_hh: diagnostic, owes nothing
+read probe: 536870912 words (2.147 GB, 21.3 x the card's L2), filled with bw_hash, expected sum 0x100013c079088bea (0.8 s on the host)
+sealed:d_in=2560
+  pword              1.182 ms [1.177-1.188]  479 GB/s [477-481]  506 [503-508]  x1.236 [1.230-1.241] over served  (diagnostic)
+  l1w                1.432 ms [1.412-1.439]  395 GB/s [393-401]  418 [416-423]  x1.187 [1.180-1.202] over v2u  (diagnostic)
+  bcast              1.704 ms [1.700-1.716]  332 GB/s [330-333]  351 [348-352]  x0.997 [0.992-1.003] over v2u  (diagnostic)
+  xbcast             1.692 ms [1.686-1.698]  335 GB/s [334-336]  353 [352-355]  x1.005 [1.002-1.010] over v2u  (diagnostic)
+sealed:d_in=9728
+  pword              0.348 ms [0.345-0.353]  430 GB/s [423-432]  433 [427-436]  x1.158 [1.136-1.173] over served  (diagnostic)
+  l1w                0.372 ms [0.368-0.390]  401 GB/s [383-406]  404 [386-410]  x1.289 [1.222-1.310] over v2u  (diagnostic)
+  bcast              0.481 ms [0.475-0.503]  311 GB/s [297-315]  313 [299-317]  x0.999 [0.951-1.015] over v2u  (diagnostic)
+  xbcast             0.479 ms [0.469-0.499]  312 GB/s [299-318]  314 [302-321]  x1.006 [0.954-1.025] over v2u  (diagnostic)
+sealed:all
+  pword              1.519 ms [1.495-1.537]  471 GB/s [466-479]  493 [487-501]  x1.216 [1.198-1.230] over served  (diagnostic)
+  l1w                1.839 ms [1.821-1.865]  389 GB/s [384-393]  407 [401-411]  x1.224 [1.209-1.228] over v2u  (diagnostic)
+  bcast              2.266 ms [2.238-2.291]  316 GB/s [312-320]  330 [327-335]  x0.994 [0.986-0.999] over v2u  (diagnostic)
+  xbcast             2.249 ms [2.218-2.280]  318 GB/s [314-323]  333 [328-338]  x1.002 [0.993-1.005] over v2u  (diagnostic)
+sealed:gu4e
+  gu_pword           0.907 ms [0.897-0.911]  494 GB/s [492-500]  522 [520-528]  x1.217 [1.209-1.229] over gu_served  (diagnostic)
+bare:d_in=2560
+  pword              1.323 ms [1.312-1.337]  446 GB/s [441-449]  471 [466-475]  x1.230 [1.215-1.243] over served  (diagnostic)
+  l1w                1.640 ms [1.593-1.665]  360 GB/s [354-370]  380 [374-391]  x1.205 [1.194-1.214] over v2u  (diagnostic)
+  bcast              1.981 ms [1.941-2.009]  298 GB/s [294-304]  315 [310-321]  x0.996 [0.987-0.997] over v2u  (diagnostic)
+  xbcast             1.969 ms [1.926-1.996]  300 GB/s [295-306]  316 [312-324]  x1.002 [0.993-1.005] over v2u  (diagnostic)
+bare:d_in=4096
+  pword              0.242 ms [0.237-0.244]  390 GB/s [386-398]  403 [400-411]  x1.352 [1.341-1.372] over served  (diagnostic)
+  l1w                0.302 ms [0.297-0.305]  312 GB/s [309-317]  323 [320-328]  x1.236 [1.227-1.279] over v2u  (diagnostic)
+  bcast              0.371 ms [0.367-0.390]  254 GB/s [242-257]  263 [251-266]  x1.006 [0.963-1.042] over v2u  (diagnostic)
+  xbcast             0.372 ms [0.363-0.377]  254 GB/s [251-260]  263 [259-269]  x1.007 [0.987-1.035] over v2u  (diagnostic)
+bare:d_in=9728
+  pword              0.521 ms [0.516-0.526]  431 GB/s [426-434]  434 [430-438]  x1.170 [1.157-1.179] over served  (diagnostic)
+  l1w                0.601 ms [0.588-0.608]  373 GB/s [369-381]  376 [372-384]  x1.248 [1.239-1.262] over v2u  (diagnostic)
+  bcast              0.754 ms [0.739-0.761]  297 GB/s [294-303]  300 [297-306]  x0.995 [0.982-1.005] over v2u  (diagnostic)
+  xbcast             0.746 ms [0.738-0.751]  301 GB/s [298-304]  303 [301-306]  x1.003 [0.999-1.021] over v2u  (diagnostic)
+bare:all
+  pword              2.044 ms [2.033-2.057]  444 GB/s [442-447]  463 [460-466]  x1.231 [1.223-1.245] over served  (diagnostic)
+  l1w                2.518 ms [2.501-2.531]  361 GB/s [359-363]  376 [374-378]  x1.203 [1.200-1.207] over v2u  (diagnostic)
+  bcast              3.045 ms [3.023-3.075]  298 GB/s [295-300]  311 [308-313]  x0.994 [0.990-0.997] over v2u  (diagnostic)
+  xbcast             3.022 ms [2.995-3.037]  301 GB/s [299-303]  313 [312-316]  x1.004 [0.996-1.005] over v2u  (diagnostic)
+sealed:int4:d_in=2560
+  q4read             0.073 ms [0.072-0.074]  690 GB/s [677-700]  690 [677-700]  x1.589 [1.561-1.638] over q4  (diagnostic)
+sealed:int4:d_in=4096
+  q4read             0.300 ms [0.299-0.302]  668 GB/s [664-671]  668 [664-671]  x1.548 [1.525-1.552] over q4  (diagnostic)
+sealed:int4:d_in=9728
+  q4read             0.236 ms [0.235-0.238]  673 GB/s [668-675]  673 [668-675]  x1.630 [1.610-1.639] over q4  (diagnostic)
+sealed:int4:all
+  q4read             0.606 ms [0.599-0.611]  675 GB/s [670-684]  675 [670-684]  x1.605 [1.592-1.635] over q4  (diagnostic)
+FIDELITY	served	PASS	bare:all 0.9467 GB, median 374.8 GB/s [373.3-379.0] against [368, 383]
+FIDELITY	v2	PASS	bare:all median 378.6 GB/s [372.0-380.8] against [368, 383]
+ORDER	v3	PASS	x0.848 [0.845-0.861] over v2, journal x0.849, tolerance 0.03
+ORDER	ilp2	PASS	x0.930 [0.926-0.945] over v2, journal x0.928, tolerance 0.03
+ORDER	v2u	PASS	x0.826 [0.823-0.837] over v2, journal x0.825, tolerance 0.03
+ORDER	l1w	PASS	x1.203 [1.200-1.207] over v2u, journal x1.214, tolerance 0.03
+ORDER	bcast	PASS	x0.994 [0.990-0.997] over v2u, journal x0.987, tolerance 0.03
+ORDER	xbcast	PASS	x1.004 [0.996-1.005] over v2u, journal x0.995, tolerance 0.03
+ORDER	v2_o2	PASS	x1.066 [1.061-1.071] over v2_s, journal x1.076, tolerance 0.03
+ORDER	nc	PASS	x0.834 [0.824-0.849] over v2, journal x0.810, tolerance 0.03
+ORDER	nc256	PASS	x0.870 [0.859-0.886] over v2, journal x0.845, tolerance 0.03
+ORDER	cpa	FAIL	x0.992 [0.984-1.012] over v2, journal x0.960, tolerance 0.03
+ORDER	tile	PASS	x1.027 [1.019-1.048] over v2, journal x1.002, tolerance 0.03
+ORDER	bal	PASS	x0.956 [0.949-0.977] over v2, journal x0.934, tolerance 0.03
+ORDER	all	FAIL	12 known arms against their journal speeds, 1 outside +-0.03
+FIDELITY	served	PASS	bare:all 0.9467 GB, median 374.8 GB/s [373.3-379.0] against [368, 383]
+FIDELITY	v2	PASS	bare:all median 378.6 GB/s [372.0-380.8] against [368, 383]
+ORDER	v3	PASS	x0.848 [0.845-0.861] over v2, journal x0.849, tolerance 0.03
+ORDER	ilp2	PASS	x0.930 [0.926-0.945] over v2, journal x0.928, tolerance 0.03
+ORDER	v2u	PASS	x0.826 [0.823-0.837] over v2, journal x0.825, tolerance 0.03
+ORDER	l1w	PASS	x1.203 [1.200-1.207] over v2u, journal x1.214, tolerance 0.03
+ORDER	bcast	PASS	x0.994 [0.990-0.997] over v2u, journal x0.987, tolerance 0.03
+ORDER	xbcast	PASS	x1.004 [0.996-1.005] over v2u, journal x0.995, tolerance 0.03
+ORDER	v2_o2	PASS	x1.066 [1.061-1.071] over v2_s, journal x1.076, tolerance 0.03
+ORDER	nc	PASS	x0.834 [0.824-0.849] over v2, journal x0.810, tolerance 0.03
+ORDER	nc256	PASS	x0.870 [0.859-0.886] over v2, journal x0.845, tolerance 0.03
+ORDER	cpa	FAIL	x0.992 [0.984-1.012] over v2, journal x0.960, tolerance 0.03
+ORDER	tile	PASS	x1.027 [1.019-1.048] over v2, journal x1.002, tolerance 0.03
+ORDER	bal	PASS	x0.956 [0.949-0.977] over v2, journal x0.934, tolerance 0.03
+ORDER	all	FAIL	12 known arms against their journal speeds, 1 outside +-0.03
+rule D: FAIL, no candidate rate of this run counts (prereg §6)
+/out/recherche-debit-banc-2026-11-12:
+total 319
+-rw-r--r--. 1 root root 181260 Nov 12 15:11 bench.txt
+drwxr-xr-x. 2 root root      0 Nov 12 15:13 cubin
+-rw-r--r--. 1 root root   1235 Nov 12 15:13 fidelity.txt
+-rw-r--r--. 1 root root    222 Nov 12 15:10 files.sha256
+-rw-r--r--. 1 root root     60 Nov 12 15:10 gpu.txt
+-rw-r--r--. 1 root root    377 Nov 12 15:11 oracle.txt
+-rw-r--r--. 1 root root 116085 Nov 12 15:13 rounds.tsv
+-rw-r--r--. 1 root root  24904 Nov 12 15:13 summary.tsv
+
+/out/recherche-debit-banc-2026-11-12/cubin:
+total 17134
+-rw-r--r--. 1 root root  6543952 Nov 12 15:13 rowbench.cubin
+-rw-r--r--. 1 root root 10679690 Nov 12 15:13 rowbench.ptx
+-rw-r--r--. 1 root root   320451 Nov 12 15:12 rowbench_unit.cu

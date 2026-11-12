@@ -1,0 +1,3023 @@
+sealed /out/sealed-4b-2026-09-23/qwen3-4b-sealed.bin: 168 Tetra records, 84 int4 g128 records (2.8 s)
+bare /out/tetra-4b-2026-09-06/qwen3-4b-tetra.bin: 252 Tetra records, 0 int4 records (3.1 s)
+card NVIDIA L40S sm_89, 142 SMs, L2 100663296 B, nameplate 864 GB/s (not a measurement); tile 64 (served: measured optimum for sm_89)
+rowbench module: 320451 bytes, sha256 5dab2bcac212cd1158809f4aecf7977bc7607f9db267ab905297ce486b8c2aaf
+reference: the served unit, 101625 bytes, sha256 6193094310bc18acdb0a0c554807ff45f6df09c1f6ab49e0577032874f107812
+  cubin rowbench: 6543952 bytes, sha256 65b5cf1a73f13dcde9a3163af137af85ada0e1fb4dc3198c3d6c3b4260b68d1a (driver JIT of a 320451-byte unit, sha256 5dab2bcac212cd1158809f4aecf7977bc7607f9db267ab905297ce486b8c2aaf)
+bare: 252 Tetra records in the served schedule's order (the row loops' order)
+  sealed Tetra d_in 2560: gate_proj 9728x2560 x36, k_proj 1024x2560 x36, q_proj 4096x2560 x36, up_proj 9728x2560 x36
+  sealed Tetra d_in 9728: down_proj 2560x9728 x24
+  sealed gate/up pairs at 4E's geometry: 36 layers
+  bare Tetra d_in 2560: gate_proj 9728x2560 x36, k_proj 1024x2560 x36, q_proj 4096x2560 x36, up_proj 9728x2560 x36, v_proj 1024x2560 x36
+  bare Tetra d_in 4096: o_proj 2560x4096 x36
+  bare Tetra d_in 9728: down_proj 2560x9728 x36
+
+set sealed:d_in=2560: 144 records, 884736 rows, 0.5662 GB of words, 0.5981 GB with tails and row scales
+  served       tv_rowc_served: grid 142 x 512, 72 registers, 0 B local, 57984 B shared, 1 a SM fit
+  served       884736 rows identical BIT FOR BIT to tv_tetra48_h: the reference f32 rows of this set
+  served       owes bits: y equal 884736/884736, f32 equal 884736/884736, max rel err 0.000e0, q99 0.000e0: PASS
+  served_np    tv_rowc_served_np: grid 142 x 512, 64 registers, 0 B local, 57984 B shared, 1 a SM fit
+  served_np    owes bits: y equal 884736/884736, f32 equal 884736/884736, max rel err 0.000e0, q99 0.000e0: PASS
+  acc2         tv_rowc_acc2: grid 142 x 512, 78 registers, 0 B local, 57984 B shared, 1 a SM fit
+  acc2         owes bound 1e-5: y equal 884152/884736, f32 equal 360335/884736, max rel err 1.717e-6, q99 2.830e-7: PASS
+  pword        tv_rowc_pword: grid 142 x 512, 72 registers, 0 B local, 57984 B shared, 1 a SM fit
+  pword        owes nothing: y equal 0/884736, f32 equal 0/884736, max rel err 2.744e3, q99 6.479e2: diagnostic
+  v2           tv_trows_v2 (known, grid 142): y equal 884736/884736, f32 equal 884736/884736: BIT FOR BIT
+  v3           tv_trows_v3 (known, grid 142): y equal 884736/884736, f32 equal 884736/884736: BIT FOR BIT
+  ilp2         tv_trows_ilp2 (known, grid 142): y equal 884736/884736, f32 equal 884736/884736: BIT FOR BIT
+  v2u          tv_trows_v2u (known, grid 142): y equal 884736/884736, f32 equal 884736/884736: BIT FOR BIT
+  l1w          tv_trows_l1w (known, grid 142): y equal 246/884736, f32 equal 144/884736: diagnostic, owes nothing
+  bcast        tv_trows_bcast (known, grid 142): y equal 106/884736, f32 equal 0/884736: diagnostic, owes nothing
+  xbcast       tv_trows_xbcast (known, grid 142): y equal 95/884736, f32 equal 0/884736: diagnostic, owes nothing
+  v2_s         tv_trows_v2 (known, grid 142): y equal 884736/884736, f32 equal 884736/884736: BIT FOR BIT
+  v2_o2        tv_trows_v2_o2 (known, grid 284): y equal 884736/884736, f32 equal 884736/884736: BIT FOR BIT
+  nc           tv_trows_nc (known, grid 142): y equal 884736/884736, f32 equal 884736/884736: BIT FOR BIT
+  nc256        tv_trows_nc256 (known, grid 142): y equal 884736/884736, f32 equal 884736/884736: BIT FOR BIT
+  cpa          tv_trows_cpa (known, grid 142): y equal 884736/884736, f32 equal 884736/884736: BIT FOR BIT
+  tile         tv_trows_tile (known, grid 142): y equal 884736/884736, f32 equal 884736/884736: BIT FOR BIT
+  bal          tv_trows_bal (known, grid 142): y equal 884736/884736, f32 equal 884736/884736: BIT FOR BIT
+
+set sealed:d_in=9728: 24 records, 61440 rows, 0.1494 GB of words, 0.1507 GB with tails and row scales
+  served       tv_rowc_served: grid 142 x 512, 72 registers, 0 B local, 57984 B shared, 1 a SM fit
+  served       61440 rows identical BIT FOR BIT to tv_tetra48_h: the reference f32 rows of this set
+  served       owes bits: y equal 61440/61440, f32 equal 61440/61440, max rel err 0.000e0, q99 0.000e0: PASS
+  served_np    tv_rowc_served_np: grid 142 x 512, 64 registers, 0 B local, 57984 B shared, 1 a SM fit
+  served_np    owes bits: y equal 61440/61440, f32 equal 61440/61440, max rel err 0.000e0, q99 0.000e0: PASS
+  acc2         tv_rowc_acc2: grid 142 x 512, 78 registers, 0 B local, 57984 B shared, 1 a SM fit
+  acc2         owes bound 1e-5: y equal 61388/61440, f32 equal 18467/61440, max rel err 1.716e-6, q99 3.474e-7: PASS
+  pword        tv_rowc_pword: grid 142 x 512, 72 registers, 0 B local, 57984 B shared, 1 a SM fit
+  pword        owes nothing: y equal 0/61440, f32 equal 0/61440, max rel err 8.355e2, q99 2.624e2: diagnostic
+  v2           tv_trows_v2 (known, grid 142): y equal 61440/61440, f32 equal 61440/61440: BIT FOR BIT
+  v3           tv_trows_v3 (known, grid 142): y equal 61440/61440, f32 equal 61440/61440: BIT FOR BIT
+  ilp2         tv_trows_ilp2 (known, grid 142): y equal 61440/61440, f32 equal 61440/61440: BIT FOR BIT
+  v2u          tv_trows_v2u (known, grid 142): y equal 61440/61440, f32 equal 61440/61440: BIT FOR BIT
+  l1w          tv_trows_l1w (known, grid 142): y equal 30/61440, f32 equal 24/61440: diagnostic, owes nothing
+  bcast        tv_trows_bcast (known, grid 142): y equal 13/61440, f32 equal 0/61440: diagnostic, owes nothing
+  xbcast       tv_trows_xbcast (known, grid 142): y equal 6/61440, f32 equal 0/61440: diagnostic, owes nothing
+  nc           tv_trows_nc (known, grid 142): y equal 61440/61440, f32 equal 61440/61440: BIT FOR BIT
+  nc256        tv_trows_nc256 (known, grid 142): y equal 61440/61440, f32 equal 61440/61440: BIT FOR BIT
+  cpa          tv_trows_cpa (known, grid 142): y equal 61440/61440, f32 equal 61440/61440: BIT FOR BIT
+  tile         tv_trows_tile (known, grid 142): y equal 61440/61440, f32 equal 61440/61440: BIT FOR BIT
+  bal          tv_trows_bal (known, grid 142): y equal 61440/61440, f32 equal 61440/61440: BIT FOR BIT
+
+set sealed:all: 168 records, 946176 rows, 0.7157 GB of words, 0.7487 GB with tails and row scales
+  served       tv_rowc_served: grid 142 x 512, 72 registers, 0 B local, 57984 B shared, 1 a SM fit
+  served       946176 rows identical BIT FOR BIT to tv_tetra48_h: the reference f32 rows of this set
+  served       owes bits: y equal 946176/946176, f32 equal 946176/946176, max rel err 0.000e0, q99 0.000e0: PASS
+  served_np    tv_rowc_served_np: grid 142 x 512, 64 registers, 0 B local, 57984 B shared, 1 a SM fit
+  served_np    owes bits: y equal 946176/946176, f32 equal 946176/946176, max rel err 0.000e0, q99 0.000e0: PASS
+  acc2         tv_rowc_acc2: grid 142 x 512, 78 registers, 0 B local, 57984 B shared, 1 a SM fit
+  acc2         owes bound 1e-5: y equal 945540/946176, f32 equal 378802/946176, max rel err 1.717e-6, q99 2.893e-7: PASS
+  pword        tv_rowc_pword: grid 142 x 512, 72 registers, 0 B local, 57984 B shared, 1 a SM fit
+  pword        owes nothing: y equal 0/946176, f32 equal 0/946176, max rel err 2.744e3, q99 6.413e2: diagnostic
+  v2           tv_trows_v2 (known, grid 142): y equal 946176/946176, f32 equal 946176/946176: BIT FOR BIT
+  v3           tv_trows_v3 (known, grid 142): y equal 946176/946176, f32 equal 946176/946176: BIT FOR BIT
+  ilp2         tv_trows_ilp2 (known, grid 142): y equal 946176/946176, f32 equal 946176/946176: BIT FOR BIT
+  v2u          tv_trows_v2u (known, grid 142): y equal 946176/946176, f32 equal 946176/946176: BIT FOR BIT
+  l1w          tv_trows_l1w (known, grid 142): y equal 276/946176, f32 equal 168/946176: diagnostic, owes nothing
+  bcast        tv_trows_bcast (known, grid 142): y equal 119/946176, f32 equal 0/946176: diagnostic, owes nothing
+  xbcast       tv_trows_xbcast (known, grid 142): y equal 101/946176, f32 equal 0/946176: diagnostic, owes nothing
+  v2_s         tv_trows_v2 (known, grid 142): y equal 884736/884736, f32 equal 884736/884736: BIT FOR BIT
+  v2_o2        tv_trows_v2_o2 (known, grid 284): y equal 884736/884736, f32 equal 884736/884736: BIT FOR BIT
+  nc           tv_trows_nc (known, grid 142): y equal 946176/946176, f32 equal 946176/946176: BIT FOR BIT
+  nc256        tv_trows_nc256 (known, grid 142): y equal 946176/946176, f32 equal 946176/946176: BIT FOR BIT
+  cpa          tv_trows_cpa (known, grid 142): y equal 946176/946176, f32 equal 946176/946176: BIT FOR BIT
+  tile         tv_trows_tile (known, grid 142): y equal 946176/946176, f32 equal 946176/946176: BIT FOR BIT
+  bal          tv_trows_bal (known, grid 142): y equal 946176/946176, f32 equal 946176/946176: BIT FOR BIT
+
+set sealed:gu4e: 72 records, 700416 rows, 0.4483 GB of words, 0.4735 GB with tails and row scales
+  gu_served    tv_rowc_gu_served: grid 142 x 512, 88 registers, 0 B local, 57984 B shared, 1 a SM fit
+  gu_served    700416 rows identical BIT FOR BIT to tv_tetra48_h: the reference f32 rows of this set
+  gu_served    owes bits: y equal 700416/700416, f32 equal 700416/700416, max rel err 0.000e0, q99 0.000e0: PASS
+  gu_served_np tv_rowc_gu_served_np: grid 142 x 512, 88 registers, 0 B local, 57984 B shared, 1 a SM fit
+  gu_served_np owes bits: y equal 700416/700416, f32 equal 700416/700416, max rel err 0.000e0, q99 0.000e0: PASS
+  gu_acc2      tv_rowc_gu_acc2: grid 142 x 512, 96 registers, 0 B local, 57984 B shared, 1 a SM fit
+  gu_acc2      owes bound 1e-5: y equal 699958/700416, f32 equal 285378/700416, max rel err 1.655e-6, q99 2.796e-7: PASS
+  gu_pword     tv_rowc_gu_pword: grid 142 x 512, 72 registers, 0 B local, 57984 B shared, 1 a SM fit
+  gu_pword     owes nothing: y equal 0/700416, f32 equal 0/700416, max rel err 2.744e3, q99 6.178e2: diagnostic
+
+set bare:d_in=2560: 180 records, 921600 rows, 0.5898 GB of words, 0.6230 GB with tails and row scales
+  served       tv_rowc_served: grid 142 x 512, 72 registers, 0 B local, 57984 B shared, 1 a SM fit
+  served       921600 rows identical BIT FOR BIT to tv_tetra48_h: the reference f32 rows of this set
+  served       owes bits: y equal 921600/921600, f32 equal 921600/921600, max rel err 0.000e0, q99 0.000e0: PASS
+  served_np    tv_rowc_served_np: grid 142 x 512, 64 registers, 0 B local, 57984 B shared, 1 a SM fit
+  served_np    owes bits: y equal 921600/921600, f32 equal 921600/921600, max rel err 0.000e0, q99 0.000e0: PASS
+  acc2         tv_rowc_acc2: grid 142 x 512, 78 registers, 0 B local, 57984 B shared, 1 a SM fit
+  acc2         owes bound 1e-5: y equal 921003/921600, f32 equal 375253/921600, max rel err 1.188e-6, q99 2.815e-7: PASS
+  pword        tv_rowc_pword: grid 142 x 512, 72 registers, 0 B local, 57984 B shared, 1 a SM fit
+  pword        owes nothing: y equal 0/921600, f32 equal 0/921600, max rel err 2.897e3, q99 6.402e2: diagnostic
+  v2           tv_trows_v2 (known, grid 142): y equal 921600/921600, f32 equal 921600/921600: BIT FOR BIT
+  v3           tv_trows_v3 (known, grid 142): y equal 921600/921600, f32 equal 921600/921600: BIT FOR BIT
+  ilp2         tv_trows_ilp2 (known, grid 142): y equal 921600/921600, f32 equal 921600/921600: BIT FOR BIT
+  v2u          tv_trows_v2u (known, grid 142): y equal 921600/921600, f32 equal 921600/921600: BIT FOR BIT
+  l1w          tv_trows_l1w (known, grid 142): y equal 277/921600, f32 equal 180/921600: diagnostic, owes nothing
+  bcast        tv_trows_bcast (known, grid 142): y equal 109/921600, f32 equal 0/921600: diagnostic, owes nothing
+  xbcast       tv_trows_xbcast (known, grid 142): y equal 108/921600, f32 equal 0/921600: diagnostic, owes nothing
+  v2_s         tv_trows_v2 (known, grid 142): y equal 921600/921600, f32 equal 921600/921600: BIT FOR BIT
+  v2_o2        tv_trows_v2_o2 (known, grid 284): y equal 921600/921600, f32 equal 921600/921600: BIT FOR BIT
+  nc           tv_trows_nc (known, grid 142): y equal 921600/921600, f32 equal 921600/921600: BIT FOR BIT
+  nc256        tv_trows_nc256 (known, grid 142): y equal 921600/921600, f32 equal 921600/921600: BIT FOR BIT
+  cpa          tv_trows_cpa (known, grid 142): y equal 921600/921600, f32 equal 921600/921600: BIT FOR BIT
+  tile         tv_trows_tile (known, grid 142): y equal 921600/921600, f32 equal 921600/921600: BIT FOR BIT
+  bal          tv_trows_bal (known, grid 142): y equal 921600/921600, f32 equal 921600/921600: BIT FOR BIT
+
+set bare:d_in=4096: 36 records, 92160 rows, 0.0944 GB of words, 0.0977 GB with tails and row scales
+  served       tv_rowc_served: grid 142 x 512, 72 registers, 0 B local, 57984 B shared, 1 a SM fit
+  served       92160 rows identical BIT FOR BIT to tv_tetra48_h: the reference f32 rows of this set
+  served       owes bits: y equal 92160/92160, f32 equal 92160/92160, max rel err 0.000e0, q99 0.000e0: PASS
+  served_np    tv_rowc_served_np: grid 142 x 512, 64 registers, 0 B local, 57984 B shared, 1 a SM fit
+  served_np    owes bits: y equal 92160/92160, f32 equal 92160/92160, max rel err 0.000e0, q99 0.000e0: PASS
+  acc2         tv_rowc_acc2: grid 142 x 512, 78 registers, 0 B local, 57984 B shared, 1 a SM fit
+  acc2         owes bound 1e-5: y equal 92089/92160, f32 equal 33199/92160, max rel err 7.277e-7, q99 3.226e-7: PASS
+  pword        tv_rowc_pword: grid 142 x 512, 72 registers, 0 B local, 57984 B shared, 1 a SM fit
+  pword        owes nothing: y equal 0/92160, f32 equal 0/92160, max rel err 1.514e3, q99 4.260e2: diagnostic
+  v2           tv_trows_v2 (known, grid 142): y equal 92160/92160, f32 equal 92160/92160: BIT FOR BIT
+  v3           tv_trows_v3 (known, grid 142): y equal 92160/92160, f32 equal 92160/92160: BIT FOR BIT
+  ilp2         tv_trows_ilp2 (known, grid 142): y equal 92160/92160, f32 equal 92160/92160: BIT FOR BIT
+  v2u          tv_trows_v2u (known, grid 142): y equal 92160/92160, f32 equal 92160/92160: BIT FOR BIT
+  l1w          tv_trows_l1w (known, grid 142): y equal 45/92160, f32 equal 36/92160: diagnostic, owes nothing
+  bcast        tv_trows_bcast (known, grid 142): y equal 6/92160, f32 equal 0/92160: diagnostic, owes nothing
+  xbcast       tv_trows_xbcast (known, grid 142): y equal 15/92160, f32 equal 0/92160: diagnostic, owes nothing
+  v2_s         tv_trows_v2 (known, grid 142): y equal 92160/92160, f32 equal 92160/92160: BIT FOR BIT
+  v2_o2        tv_trows_v2_o2 (known, grid 284): y equal 92160/92160, f32 equal 92160/92160: BIT FOR BIT
+  nc           tv_trows_nc (known, grid 142): y equal 92160/92160, f32 equal 92160/92160: BIT FOR BIT
+  nc256        tv_trows_nc256 (known, grid 142): y equal 92160/92160, f32 equal 92160/92160: BIT FOR BIT
+  cpa          tv_trows_cpa (known, grid 142): y equal 92160/92160, f32 equal 92160/92160: BIT FOR BIT
+  tile         tv_trows_tile (known, grid 142): y equal 92160/92160, f32 equal 92160/92160: BIT FOR BIT
+  bal          tv_trows_bal (known, grid 142): y equal 92160/92160, f32 equal 92160/92160: BIT FOR BIT
+
+set bare:d_in=9728: 36 records, 92160 rows, 0.2241 GB of words, 0.2260 GB with tails and row scales
+  served       tv_rowc_served: grid 142 x 512, 72 registers, 0 B local, 57984 B shared, 1 a SM fit
+  served       92160 rows identical BIT FOR BIT to tv_tetra48_h: the reference f32 rows of this set
+  served       owes bits: y equal 92160/92160, f32 equal 92160/92160, max rel err 0.000e0, q99 0.000e0: PASS
+  served_np    tv_rowc_served_np: grid 142 x 512, 64 registers, 0 B local, 57984 B shared, 1 a SM fit
+  served_np    owes bits: y equal 92160/92160, f32 equal 92160/92160, max rel err 0.000e0, q99 0.000e0: PASS
+  acc2         tv_rowc_acc2: grid 142 x 512, 78 registers, 0 B local, 57984 B shared, 1 a SM fit
+  acc2         owes bound 1e-5: y equal 92072/92160, f32 equal 27598/92160, max rel err 1.144e-6, q99 3.274e-7: PASS
+  pword        tv_rowc_pword: grid 142 x 512, 72 registers, 0 B local, 57984 B shared, 1 a SM fit
+  pword        owes nothing: y equal 0/92160, f32 equal 0/92160, max rel err 8.761e2, q99 2.585e2: diagnostic
+  v2           tv_trows_v2 (known, grid 142): y equal 92160/92160, f32 equal 92160/92160: BIT FOR BIT
+  v3           tv_trows_v3 (known, grid 142): y equal 92160/92160, f32 equal 92160/92160: BIT FOR BIT
+  ilp2         tv_trows_ilp2 (known, grid 142): y equal 92160/92160, f32 equal 92160/92160: BIT FOR BIT
+  v2u          tv_trows_v2u (known, grid 142): y equal 92160/92160, f32 equal 92160/92160: BIT FOR BIT
+  l1w          tv_trows_l1w (known, grid 142): y equal 44/92160, f32 equal 36/92160: diagnostic, owes nothing
+  bcast        tv_trows_bcast (known, grid 142): y equal 8/92160, f32 equal 0/92160: diagnostic, owes nothing
+  xbcast       tv_trows_xbcast (known, grid 142): y equal 8/92160, f32 equal 0/92160: diagnostic, owes nothing
+  nc           tv_trows_nc (known, grid 142): y equal 92160/92160, f32 equal 92160/92160: BIT FOR BIT
+  nc256        tv_trows_nc256 (known, grid 142): y equal 92160/92160, f32 equal 92160/92160: BIT FOR BIT
+  cpa          tv_trows_cpa (known, grid 142): y equal 92160/92160, f32 equal 92160/92160: BIT FOR BIT
+  tile         tv_trows_tile (known, grid 142): y equal 92160/92160, f32 equal 92160/92160: BIT FOR BIT
+  bal          tv_trows_bal (known, grid 142): y equal 92160/92160, f32 equal 92160/92160: BIT FOR BIT
+
+set bare:all: 252 records, 1105920 rows, 0.9083 GB of words, 0.9467 GB with tails and row scales
+  served       tv_rowc_served: grid 142 x 512, 72 registers, 0 B local, 57984 B shared, 1 a SM fit
+  served       1105920 rows identical BIT FOR BIT to tv_tetra48_h: the reference f32 rows of this set
+  served       owes bits: y equal 1105920/1105920, f32 equal 1105920/1105920, max rel err 0.000e0, q99 0.000e0: PASS
+  served_np    tv_rowc_served_np: grid 142 x 512, 64 registers, 0 B local, 57984 B shared, 1 a SM fit
+  served_np    owes bits: y equal 1105920/1105920, f32 equal 1105920/1105920, max rel err 0.000e0, q99 0.000e0: PASS
+  acc2         tv_rowc_acc2: grid 142 x 512, 78 registers, 0 B local, 57984 B shared, 1 a SM fit
+  acc2         owes bound 1e-5: y equal 1105164/1105920, f32 equal 436050/1105920, max rel err 1.188e-6, q99 2.967e-7: PASS
+  pword        tv_rowc_pword: grid 142 x 512, 72 registers, 0 B local, 57984 B shared, 1 a SM fit
+  pword        owes nothing: y equal 0/1105920, f32 equal 0/1105920, max rel err 2.897e3, q99 6.228e2: diagnostic
+  v2           tv_trows_v2 (known, grid 142): y equal 1105920/1105920, f32 equal 1105920/1105920: BIT FOR BIT
+  v3           tv_trows_v3 (known, grid 142): y equal 1105920/1105920, f32 equal 1105920/1105920: BIT FOR BIT
+  ilp2         tv_trows_ilp2 (known, grid 142): y equal 1105920/1105920, f32 equal 1105920/1105920: BIT FOR BIT
+  v2u          tv_trows_v2u (known, grid 142): y equal 1105920/1105920, f32 equal 1105920/1105920: BIT FOR BIT
+  l1w          tv_trows_l1w (known, grid 142): y equal 366/1105920, f32 equal 252/1105920: diagnostic, owes nothing
+  bcast        tv_trows_bcast (known, grid 142): y equal 123/1105920, f32 equal 0/1105920: diagnostic, owes nothing
+  xbcast       tv_trows_xbcast (known, grid 142): y equal 131/1105920, f32 equal 0/1105920: diagnostic, owes nothing
+  v2_s         tv_trows_v2 (known, grid 142): y equal 1013760/1013760, f32 equal 1013760/1013760: BIT FOR BIT
+  v2_o2        tv_trows_v2_o2 (known, grid 284): y equal 1013760/1013760, f32 equal 1013760/1013760: BIT FOR BIT
+  nc           tv_trows_nc (known, grid 142): y equal 1105920/1105920, f32 equal 1105920/1105920: BIT FOR BIT
+  nc256        tv_trows_nc256 (known, grid 142): y equal 1105920/1105920, f32 equal 1105920/1105920: BIT FOR BIT
+  cpa          tv_trows_cpa (known, grid 142): y equal 1105920/1105920, f32 equal 1105920/1105920: BIT FOR BIT
+  tile         tv_trows_tile (known, grid 142): y equal 1105920/1105920, f32 equal 1105920/1105920: BIT FOR BIT
+  bal          tv_trows_bal (known, grid 142): y equal 1105920/1105920, f32 equal 1105920/1105920: BIT FOR BIT
+
+set sealed:int4:d_in=2560: 36 int4 records, 36864 rows, 0.0501 GB of words, scales and biases
+  q4           tv_q4rows_q4: 36864 of 36864 rows equal tv_q4_hh: BIT FOR BIT
+  q4nc         tv_q4rows_nc: 36864 of 36864 rows equal tv_q4_hh: BIT FOR BIT
+  q4t          tv_q4rows_tile: 36864 of 36864 rows equal tv_q4_hh: BIT FOR BIT
+  q4read       tv_q4rows_read: 0 of 36864 rows equal tv_q4_hh: diagnostic, owes nothing
+
+set sealed:int4:d_in=4096: 36 int4 records, 92160 rows, 0.2005 GB of words, scales and biases
+  q4           tv_q4rows_q4: 92160 of 92160 rows equal tv_q4_hh: BIT FOR BIT
+  q4nc         tv_q4rows_nc: 92160 of 92160 rows equal tv_q4_hh: BIT FOR BIT
+  q4t          tv_q4rows_tile: 92160 of 92160 rows equal tv_q4_hh: BIT FOR BIT
+  q4read       tv_q4rows_read: 3 of 92160 rows equal tv_q4_hh: diagnostic, owes nothing
+
+set sealed:int4:d_in=9728: 12 int4 records, 30720 rows, 0.1588 GB of words, scales and biases
+  q4           tv_q4rows_q4: 30720 of 30720 rows equal tv_q4_hh: BIT FOR BIT
+  q4nc         tv_q4rows_nc: 30720 of 30720 rows equal tv_q4_hh: BIT FOR BIT
+  q4t          tv_q4rows_tile: 30720 of 30720 rows equal tv_q4_hh: BIT FOR BIT
+  q4read       tv_q4rows_read: 0 of 30720 rows equal tv_q4_hh: diagnostic, owes nothing
+
+set sealed:int4:all: 84 int4 records, 159744 rows, 0.4094 GB of words, scales and biases
+  q4           tv_q4rows_q4: 159744 of 159744 rows equal tv_q4_hh: BIT FOR BIT
+  q4nc         tv_q4rows_nc: 159744 of 159744 rows equal tv_q4_hh: BIT FOR BIT
+  q4t          tv_q4rows_tile: 159744 of 159744 rows equal tv_q4_hh: BIT FOR BIT
+  q4read       tv_q4rows_read: 3 of 159744 rows equal tv_q4_hh: diagnostic, owes nothing
+
+read probe: 536870912 words (2.147 GB, 21.3 x the card's L2), filled with bw_hash, expected sum 0x100013c079088bea (0.8 s on the host)
+
+2 warmup rounds, then 15 timed; every valid run once a round, in the order above
+ROUND	0	sealed:d_in=2560	served	1.4547	389.2	411.1
+ROUND	0	sealed:d_in=2560	served_np	1.5947	355.1	375.1
+ROUND	0	sealed:d_in=2560	acc2	1.4421	392.6	414.7
+ROUND	0	sealed:d_in=2560	pword	1.1774	480.9	508.0
+ROUND	0	sealed:d_in=2560	v2	1.4549	389.2	411.1
+ROUND	0	sealed:d_in=2560	v3	1.6241	348.6	368.2
+ROUND	0	sealed:d_in=2560	ilp2	1.5607	362.8	383.2
+ROUND	0	sealed:d_in=2560	v2u	1.7042	332.2	350.9
+ROUND	0	sealed:d_in=2560	l1w	1.4222	398.1	420.5
+ROUND	0	sealed:d_in=2560	bcast	1.7163	329.9	348.5
+ROUND	0	sealed:d_in=2560	xbcast	1.6941	334.2	353.0
+ROUND	0	sealed:d_in=2560	v2_s	1.4572	388.6	410.4
+ROUND	0	sealed:d_in=2560	v2_o2	1.4190	399.0	421.5
+ROUND	0	sealed:d_in=2560	nc	1.6841	336.2	355.1
+ROUND	0	sealed:d_in=2560	nc256	1.5925	355.6	375.6
+ROUND	0	sealed:d_in=2560	cpa	1.4860	381.0	402.5
+ROUND	0	sealed:d_in=2560	tile	1.4615	387.4	409.2
+ROUND	0	sealed:d_in=2560	bal	1.5176	373.1	394.1
+ROUND	0	sealed:d_in=9728	served	0.3980	375.4	378.5
+ROUND	0	sealed:d_in=9728	served_np	0.4504	331.7	334.5
+ROUND	0	sealed:d_in=9728	acc2	0.3716	402.1	405.4
+ROUND	0	sealed:d_in=9728	pword	0.3465	431.2	434.7
+ROUND	0	sealed:d_in=9728	v2	0.3950	378.2	381.4
+ROUND	0	sealed:d_in=9728	v3	0.4898	305.1	307.6
+ROUND	0	sealed:d_in=9728	ilp2	0.4299	347.5	350.4
+ROUND	0	sealed:d_in=9728	v2u	0.4735	315.6	318.2
+ROUND	0	sealed:d_in=9728	l1w	0.3691	404.9	408.2
+ROUND	0	sealed:d_in=9728	bcast	0.4749	314.7	317.3
+ROUND	0	sealed:d_in=9728	xbcast	0.4712	317.1	319.8
+ROUND	0	sealed:d_in=9728	nc	0.4723	316.3	319.0
+ROUND	0	sealed:d_in=9728	nc256	0.4157	359.5	362.4
+ROUND	0	sealed:d_in=9728	cpa	0.3893	383.9	387.0
+ROUND	0	sealed:d_in=9728	tile	0.3609	414.0	417.4
+ROUND	0	sealed:d_in=9728	bal	0.4116	363.0	366.0
+ROUND	0	sealed:all	served	1.8818	380.3	397.9
+ROUND	0	sealed:all	served_np	2.1169	338.1	353.7
+ROUND	0	sealed:all	acc2	1.8410	388.7	406.7
+ROUND	0	sealed:all	pword	1.5299	467.8	489.4
+ROUND	0	sealed:all	v2	1.8804	380.6	398.2
+ROUND	0	sealed:all	v3	2.1917	326.5	341.6
+ROUND	0	sealed:all	ilp2	2.0347	351.7	368.0
+ROUND	0	sealed:all	v2u	2.2709	315.1	329.7
+ROUND	0	sealed:all	l1w	1.8578	385.2	403.0
+ROUND	0	sealed:all	bcast	2.2872	312.9	327.4
+ROUND	0	sealed:all	xbcast	2.2689	315.4	330.0
+ROUND	0	sealed:all	v2_s	1.4970	378.2	399.5
+ROUND	0	sealed:all	v2_o2	1.4403	393.1	415.3
+ROUND	0	sealed:all	nc	2.2599	316.7	331.3
+ROUND	0	sealed:all	nc256	2.1480	333.2	348.6
+ROUND	0	sealed:all	cpa	1.9119	374.3	391.6
+ROUND	0	sealed:all	tile	1.8492	387.0	404.9
+ROUND	0	sealed:all	bal	1.9704	363.2	380.0
+ROUND	0	sealed:gu4e	gu_served	1.1045	405.9	428.7
+ROUND	0	sealed:gu4e	gu_served_np	1.1972	374.4	395.5
+ROUND	0	sealed:gu4e	gu_acc2	1.0815	414.5	437.8
+ROUND	0	sealed:gu4e	gu_pword	0.9073	494.0	521.8
+ROUND	0	bare:d_in=2560	served	1.6503	357.4	377.5
+ROUND	0	bare:d_in=2560	served_np	1.8390	320.7	338.8
+ROUND	0	bare:d_in=2560	acc2	1.6283	362.2	382.6
+ROUND	0	bare:d_in=2560	pword	1.3285	444.0	469.0
+ROUND	0	bare:d_in=2560	v2	1.6495	357.6	377.7
+ROUND	0	bare:d_in=2560	v3	1.8798	313.8	331.4
+ROUND	0	bare:d_in=2560	ilp2	1.7719	332.9	351.6
+ROUND	0	bare:d_in=2560	v2u	1.9731	298.9	315.7
+ROUND	0	bare:d_in=2560	l1w	1.6375	360.2	380.5
+ROUND	0	bare:d_in=2560	bcast	1.9794	298.0	314.7
+ROUND	0	bare:d_in=2560	xbcast	1.9650	300.2	317.1
+ROUND	0	bare:d_in=2560	v2_s	1.6492	357.7	377.8
+ROUND	0	bare:d_in=2560	v2_o2	1.5742	374.7	395.7
+ROUND	0	bare:d_in=2560	nc	1.9542	301.8	318.8
+ROUND	0	bare:d_in=2560	nc256	1.8507	318.7	336.6
+ROUND	0	bare:d_in=2560	cpa	1.6775	351.6	371.4
+ROUND	0	bare:d_in=2560	tile	1.6496	357.5	377.7
+ROUND	0	bare:d_in=2560	bal	1.7452	338.0	357.0
+ROUND	0	bare:d_in=4096	served	0.3281	287.6	297.7
+ROUND	0	bare:d_in=4096	served_np	0.3507	269.1	278.5
+ROUND	0	bare:d_in=4096	acc2	0.2965	318.3	329.5
+ROUND	0	bare:d_in=4096	pword	0.2418	390.3	404.0
+ROUND	0	bare:d_in=4096	v2	0.3044	310.0	320.9
+ROUND	0	bare:d_in=4096	v3	0.3704	254.8	263.8
+ROUND	0	bare:d_in=4096	ilp2	0.3279	287.8	297.9
+ROUND	0	bare:d_in=4096	v2u	0.3747	251.8	260.7
+ROUND	0	bare:d_in=4096	l1w	0.3030	311.5	322.4
+ROUND	0	bare:d_in=4096	bcast	0.3710	254.3	263.3
+ROUND	0	bare:d_in=4096	xbcast	0.3708	254.5	263.4
+ROUND	0	bare:d_in=4096	v2_s	0.3057	308.7	319.5
+ROUND	0	bare:d_in=4096	v2_o2	0.2754	342.6	354.7
+ROUND	0	bare:d_in=4096	nc	0.3701	255.0	264.0
+ROUND	0	bare:d_in=4096	nc256	0.3259	289.6	299.8
+ROUND	0	bare:d_in=4096	cpa	0.3097	304.7	315.4
+ROUND	0	bare:d_in=4096	tile	0.3152	299.4	310.0
+ROUND	0	bare:d_in=4096	bal	0.3354	281.4	291.3
+ROUND	0	bare:d_in=9728	served	0.6144	364.8	367.8
+ROUND	0	bare:d_in=9728	served_np	0.6975	321.3	324.0
+ROUND	0	bare:d_in=9728	acc2	0.5708	392.7	395.9
+ROUND	0	bare:d_in=9728	pword	0.5209	430.2	433.8
+ROUND	0	bare:d_in=9728	v2	0.6049	370.5	373.6
+ROUND	0	bare:d_in=9728	v3	0.7724	290.2	292.6
+ROUND	0	bare:d_in=9728	ilp2	0.6582	340.5	343.3
+ROUND	0	bare:d_in=9728	v2u	0.7505	298.6	301.1
+ROUND	0	bare:d_in=9728	l1w	0.6013	372.8	375.8
+ROUND	0	bare:d_in=9728	bcast	0.7531	297.6	300.1
+ROUND	0	bare:d_in=9728	xbcast	0.7499	298.9	301.3
+ROUND	0	bare:d_in=9728	nc	0.7451	300.8	303.3
+ROUND	0	bare:d_in=9728	nc256	0.6914	324.2	326.9
+ROUND	0	bare:d_in=9728	cpa	0.5914	379.0	382.1
+ROUND	0	bare:d_in=9728	tile	0.5486	408.5	411.9
+ROUND	0	bare:d_in=9728	bal	0.6129	365.7	368.7
+ROUND	0	bare:all	served	2.5305	359.0	374.1
+ROUND	0	bare:all	served_np	2.8677	316.7	330.1
+ROUND	0	bare:all	acc2	2.4613	369.0	384.6
+ROUND	0	bare:all	pword	2.0557	441.9	460.5
+ROUND	0	bare:all	v2	2.5445	357.0	372.0
+ROUND	0	bare:all	v3	2.9539	307.5	320.5
+ROUND	0	bare:all	ilp2	2.6940	337.2	351.4
+ROUND	0	bare:all	v2u	3.0409	298.7	311.3
+ROUND	0	bare:all	l1w	2.5261	359.6	374.8
+ROUND	0	bare:all	bcast	3.0576	297.1	309.6
+ROUND	0	bare:all	xbcast	3.0244	300.3	313.0
+ROUND	0	bare:all	v2_s	1.9206	356.2	375.2
+ROUND	0	bare:all	v2_o2	1.8025	379.6	399.8
+ROUND	0	bare:all	nc	2.9985	302.9	315.7
+ROUND	0	bare:all	nc256	2.8707	316.4	329.8
+ROUND	0	bare:all	cpa	2.5150	361.2	376.4
+ROUND	0	bare:all	tile	2.4288	374.0	389.8
+ROUND	0	bare:all	bal	2.6041	348.8	363.5
+ROUND	0	sealed:int4:d_in=2560	q4hh	0.2775	180.6	180.6
+ROUND	0	sealed:int4:d_in=2560	q4	0.1157	433.4	433.4
+ROUND	0	sealed:int4:d_in=2560	q4nc	0.1158	432.9	432.9
+ROUND	0	sealed:int4:d_in=2560	q4t	0.1266	396.0	396.0
+ROUND	0	sealed:int4:d_in=2560	q4read	0.0737	679.8	679.8
+ROUND	0	sealed:int4:d_in=4096	q4hh	0.4984	402.4	402.4
+ROUND	0	sealed:int4:d_in=4096	q4	0.4645	431.7	431.7
+ROUND	0	sealed:int4:d_in=4096	q4nc	0.3862	519.3	519.3
+ROUND	0	sealed:int4:d_in=4096	q4t	0.3480	576.3	576.3
+ROUND	0	sealed:int4:d_in=4096	q4read	0.3009	666.4	666.4
+ROUND	0	sealed:int4:d_in=9728	q4hh	0.5279	300.7	300.7
+ROUND	0	sealed:int4:d_in=9728	q4	0.3856	411.8	411.8
+ROUND	0	sealed:int4:d_in=9728	q4nc	0.2943	539.4	539.4
+ROUND	0	sealed:int4:d_in=9728	q4t	0.2823	562.3	562.3
+ROUND	0	sealed:int4:d_in=9728	q4read	0.2361	672.5	672.5
+ROUND	0	sealed:int4:all	q4hh	1.2814	319.5	319.5
+ROUND	0	sealed:int4:all	q4	0.9787	418.3	418.3
+ROUND	0	sealed:int4:all	q4nc	0.9017	454.1	454.1
+ROUND	0	sealed:int4:all	q4t	0.7373	555.3	555.3
+ROUND	0	sealed:int4:all	q4read	0.5986	684.0	684.0
+ROUND	0	probe	v1u1/t512/c1/pf0	3.2847	653.8	653.8
+ROUND	0	probe	v1u1/t512/c1/pf2	3.1498	681.8	681.8
+ROUND	0	probe	v4u1/t512/c1/pf0	2.8636	749.9	749.9
+ROUND	0	probe	v4u1/t512/c1/pf2	3.0135	712.6	712.6
+ROUND	0	probe	v4u4/t512/c1/pf0	2.9361	731.4	731.4
+ROUND	0	probe	v4u4/t512/c1/pf2	2.9550	726.7	726.7
+ROUND	0	probe	v4u4/t256/c1/pf0	2.8616	750.5	750.5
+ROUND	0	probe	v4u4/t256/c1/pf2	2.9525	727.3	727.3
+ROUND	0	probe	v4u4/t256/c2/pf0	2.9356	731.5	731.5
+ROUND	0	probe	v4u4/t256/c2/pf2	2.9545	726.8	726.8
+ROUND	0	probe	v4u4/t256/c4/pf0	2.9454	729.1	729.1
+ROUND	0	probe	v4u4/t256/c4/pf2	2.9651	724.2	724.2
+ROUND	0	probe	v4u4/t512/c2/pf0	2.9440	729.5	729.5
+ROUND	0	probe	v4u4/t512/c2/pf2	2.9584	725.9	725.9
+ROUND	0	probe	v4u4/t1024/c1/pf0	2.9471	728.7	728.7
+ROUND	0	probe	v4u4/t1024/c1/pf2	2.9611	725.2	725.2
+ROUND	1	sealed:d_in=2560	served	1.4573	388.5	410.4
+ROUND	1	sealed:d_in=2560	served_np	1.5928	355.5	375.5
+ROUND	1	sealed:d_in=2560	acc2	1.4411	392.9	415.0
+ROUND	1	sealed:d_in=2560	pword	1.1819	479.1	506.0
+ROUND	1	sealed:d_in=2560	v2	1.4546	389.3	411.2
+ROUND	1	sealed:d_in=2560	v3	1.6193	349.7	369.4
+ROUND	1	sealed:d_in=2560	ilp2	1.5597	363.0	383.5
+ROUND	1	sealed:d_in=2560	v2u	1.6974	333.6	352.4
+ROUND	1	sealed:d_in=2560	l1w	1.4310	395.7	417.9
+ROUND	1	sealed:d_in=2560	bcast	1.7032	332.5	351.2
+ROUND	1	sealed:d_in=2560	xbcast	1.6887	335.3	354.2
+ROUND	1	sealed:d_in=2560	v2_s	1.4561	388.9	410.7
+ROUND	1	sealed:d_in=2560	v2_o2	1.4185	399.2	421.6
+ROUND	1	sealed:d_in=2560	nc	1.6858	335.9	354.8
+ROUND	1	sealed:d_in=2560	nc256	1.5901	356.1	376.1
+ROUND	1	sealed:d_in=2560	cpa	1.4900	380.0	401.4
+ROUND	1	sealed:d_in=2560	tile	1.4636	386.9	408.6
+ROUND	1	sealed:d_in=2560	bal	1.5258	371.1	392.0
+ROUND	1	sealed:d_in=9728	served	0.4046	369.3	372.3
+ROUND	1	sealed:d_in=9728	served_np	0.4504	331.7	334.5
+ROUND	1	sealed:d_in=9728	acc2	0.3757	397.7	401.0
+ROUND	1	sealed:d_in=9728	pword	0.3489	428.3	431.8
+ROUND	1	sealed:d_in=9728	v2	0.4006	373.0	376.0
+ROUND	1	sealed:d_in=9728	v3	0.4980	300.0	302.5
+ROUND	1	sealed:d_in=9728	ilp2	0.4313	346.4	349.3
+ROUND	1	sealed:d_in=9728	v2u	0.4820	310.0	312.5
+ROUND	1	sealed:d_in=9728	l1w	0.3764	397.0	400.2
+ROUND	1	sealed:d_in=9728	bcast	0.4849	308.2	310.7
+ROUND	1	sealed:d_in=9728	xbcast	0.4792	311.8	314.4
+ROUND	1	sealed:d_in=9728	nc	0.4798	311.4	314.0
+ROUND	1	sealed:d_in=9728	nc256	0.4205	355.3	358.2
+ROUND	1	sealed:d_in=9728	cpa	0.3894	383.8	386.9
+ROUND	1	sealed:d_in=9728	tile	0.3608	414.2	417.6
+ROUND	1	sealed:d_in=9728	bal	0.4082	366.1	369.1
+ROUND	1	sealed:all	served	1.8306	390.9	409.0
+ROUND	1	sealed:all	served_np	2.0402	350.8	367.0
+ROUND	1	sealed:all	acc2	1.7861	400.7	419.2
+ROUND	1	sealed:all	pword	1.4954	478.6	500.7
+ROUND	1	sealed:all	v2	1.8568	385.4	403.2
+ROUND	1	sealed:all	v3	2.1823	327.9	343.1
+ROUND	1	sealed:all	ilp2	2.0207	354.2	370.5
+ROUND	1	sealed:all	v2u	2.2598	316.7	331.3
+ROUND	1	sealed:all	l1w	1.8484	387.2	405.1
+ROUND	1	sealed:all	bcast	2.2779	314.2	328.7
+ROUND	1	sealed:all	xbcast	2.2555	317.3	332.0
+ROUND	1	sealed:all	v2_s	1.4901	380.0	401.4
+ROUND	1	sealed:all	v2_o2	1.4431	392.4	414.4
+ROUND	1	sealed:all	nc	2.2522	317.8	332.4
+ROUND	1	sealed:all	nc256	2.1365	335.0	350.5
+ROUND	1	sealed:all	cpa	1.8958	377.5	394.9
+ROUND	1	sealed:all	tile	1.8456	387.8	405.7
+ROUND	1	sealed:all	bal	1.9612	364.9	381.8
+ROUND	1	sealed:gu4e	gu_served	1.0996	407.7	430.6
+ROUND	1	sealed:gu4e	gu_served_np	1.1845	378.4	399.7
+ROUND	1	sealed:gu4e	gu_acc2	1.0778	415.9	439.3
+ROUND	1	sealed:gu4e	gu_pword	0.9070	494.2	522.0
+ROUND	1	bare:d_in=2560	served	1.6161	365.0	385.5
+ROUND	1	bare:d_in=2560	served_np	1.7979	328.1	346.5
+ROUND	1	bare:d_in=2560	acc2	1.5917	370.6	391.4
+ROUND	1	bare:d_in=2560	pword	1.3156	448.3	473.5
+ROUND	1	bare:d_in=2560	v2	1.6158	365.0	385.6
+ROUND	1	bare:d_in=2560	v3	1.8342	321.6	339.7
+ROUND	1	bare:d_in=2560	ilp2	1.7315	340.6	359.8
+ROUND	1	bare:d_in=2560	v2u	1.9346	304.9	322.0
+ROUND	1	bare:d_in=2560	l1w	1.5932	370.2	391.0
+ROUND	1	bare:d_in=2560	bcast	1.9409	303.9	321.0
+ROUND	1	bare:d_in=2560	xbcast	1.9256	306.3	323.5
+ROUND	1	bare:d_in=2560	v2_s	1.6152	365.2	385.7
+ROUND	1	bare:d_in=2560	v2_o2	1.5636	377.2	398.4
+ROUND	1	bare:d_in=2560	nc	1.9128	308.4	325.7
+ROUND	1	bare:d_in=2560	nc256	1.8102	325.8	344.2
+ROUND	1	bare:d_in=2560	cpa	1.6485	357.8	377.9
+ROUND	1	bare:d_in=2560	tile	1.6204	364.0	384.5
+ROUND	1	bare:d_in=2560	bal	1.7085	345.2	364.6
+ROUND	1	bare:d_in=4096	served	0.3257	289.8	300.0
+ROUND	1	bare:d_in=4096	served_np	0.3478	271.4	280.9
+ROUND	1	bare:d_in=4096	acc2	0.2906	324.8	336.2
+ROUND	1	bare:d_in=4096	pword	0.2374	397.5	411.5
+ROUND	1	bare:d_in=4096	v2	0.3006	313.9	325.0
+ROUND	1	bare:d_in=4096	v3	0.3661	257.8	266.8
+ROUND	1	bare:d_in=4096	ilp2	0.3221	293.0	303.3
+ROUND	1	bare:d_in=4096	v2u	0.3672	257.0	266.0
+ROUND	1	bare:d_in=4096	l1w	0.2974	317.3	328.4
+ROUND	1	bare:d_in=4096	bcast	0.3667	257.4	266.4
+ROUND	1	bare:d_in=4096	xbcast	0.3629	260.0	269.2
+ROUND	1	bare:d_in=4096	v2_s	0.3025	311.9	322.9
+ROUND	1	bare:d_in=4096	v2_o2	0.2752	343.0	355.0
+ROUND	1	bare:d_in=4096	nc	0.3655	258.2	267.3
+ROUND	1	bare:d_in=4096	nc256	0.3181	296.6	307.1
+ROUND	1	bare:d_in=4096	cpa	0.3034	311.0	321.9
+ROUND	1	bare:d_in=4096	tile	0.3096	304.8	315.5
+ROUND	1	bare:d_in=4096	bal	0.3248	290.5	300.8
+ROUND	1	bare:d_in=9728	served	0.6015	372.6	375.7
+ROUND	1	bare:d_in=9728	served_np	0.6858	326.8	329.5
+ROUND	1	bare:d_in=9728	acc2	0.5618	399.0	402.3
+ROUND	1	bare:d_in=9728	pword	0.5199	431.1	434.7
+ROUND	1	bare:d_in=9728	v2	0.5982	374.7	377.7
+ROUND	1	bare:d_in=9728	v3	0.7620	294.1	296.6
+ROUND	1	bare:d_in=9728	ilp2	0.6497	345.0	347.8
+ROUND	1	bare:d_in=9728	v2u	0.7374	303.9	306.4
+ROUND	1	bare:d_in=9728	l1w	0.5883	381.0	384.1
+ROUND	1	bare:d_in=9728	bcast	0.7386	303.4	305.9
+ROUND	1	bare:d_in=9728	xbcast	0.7383	303.6	306.1
+ROUND	1	bare:d_in=9728	nc	0.7358	304.6	307.1
+ROUND	1	bare:d_in=9728	nc256	0.6753	331.9	334.6
+ROUND	1	bare:d_in=9728	cpa	0.5807	386.0	389.2
+ROUND	1	bare:d_in=9728	tile	0.5404	414.7	418.1
+ROUND	1	bare:d_in=9728	bal	0.6068	369.4	372.4
+ROUND	1	bare:all	served	2.5087	362.1	377.4
+ROUND	1	bare:all	served_np	2.8219	321.9	335.5
+ROUND	1	bare:all	acc2	2.4124	376.5	392.4
+ROUND	1	bare:all	pword	2.0375	445.8	464.6
+ROUND	1	bare:all	v2	2.4901	364.8	380.2
+ROUND	1	bare:all	v3	2.9396	309.0	322.0
+ROUND	1	bare:all	ilp2	2.6813	338.8	353.1
+ROUND	1	bare:all	v2u	3.0192	300.8	313.5
+ROUND	1	bare:all	l1w	2.5141	361.3	376.5
+ROUND	1	bare:all	bcast	3.0452	298.3	310.9
+ROUND	1	bare:all	xbcast	3.0232	300.5	313.1
+ROUND	1	bare:all	v2_s	1.9264	355.2	374.1
+ROUND	1	bare:all	v2_o2	1.8081	378.4	398.6
+ROUND	1	bare:all	nc	3.0003	302.7	315.5
+ROUND	1	bare:all	nc256	2.8731	316.1	329.5
+ROUND	1	bare:all	cpa	2.5128	361.5	376.7
+ROUND	1	bare:all	tile	2.4278	374.1	389.9
+ROUND	1	bare:all	bal	2.6076	348.3	363.0
+ROUND	1	sealed:int4:d_in=2560	q4hh	0.2780	180.4	180.4
+ROUND	1	sealed:int4:d_in=2560	q4	0.1149	436.3	436.3
+ROUND	1	sealed:int4:d_in=2560	q4nc	0.1157	433.1	433.1
+ROUND	1	sealed:int4:d_in=2560	q4t	0.1237	405.4	405.4
+ROUND	1	sealed:int4:d_in=2560	q4read	0.0718	697.9	697.9
+ROUND	1	sealed:int4:d_in=4096	q4hh	0.4979	402.8	402.8
+ROUND	1	sealed:int4:d_in=4096	q4	0.4606	435.4	435.4
+ROUND	1	sealed:int4:d_in=4096	q4nc	0.3833	523.3	523.3
+ROUND	1	sealed:int4:d_in=4096	q4t	0.3489	574.8	574.8
+ROUND	1	sealed:int4:d_in=4096	q4read	0.3021	663.9	663.9
+ROUND	1	sealed:int4:d_in=9728	q4hh	0.5309	299.0	299.0
+ROUND	1	sealed:int4:d_in=9728	q4	0.3853	412.0	412.0
+ROUND	1	sealed:int4:d_in=9728	q4nc	0.2901	547.3	547.3
+ROUND	1	sealed:int4:d_in=9728	q4t	0.2818	563.4	563.4
+ROUND	1	sealed:int4:d_in=9728	q4read	0.2358	673.3	673.3
+ROUND	1	sealed:int4:all	q4hh	1.2786	320.2	320.2
+ROUND	1	sealed:int4:all	q4	0.9722	421.1	421.1
+ROUND	1	sealed:int4:all	q4nc	0.9046	452.6	452.6
+ROUND	1	sealed:int4:all	q4t	0.7351	557.0	557.0
+ROUND	1	sealed:int4:all	q4read	0.6101	671.1	671.1
+ROUND	1	probe	v1u1/t512/c1/pf0	3.2984	651.1	651.1
+ROUND	1	probe	v1u1/t512/c1/pf2	3.1542	680.8	680.8
+ROUND	1	probe	v4u1/t512/c1/pf0	2.8570	751.6	751.6
+ROUND	1	probe	v4u1/t512/c1/pf2	3.0148	712.3	712.3
+ROUND	1	probe	v4u4/t512/c1/pf0	2.9369	731.2	731.2
+ROUND	1	probe	v4u4/t512/c1/pf2	2.9574	726.1	726.1
+ROUND	1	probe	v4u4/t256/c1/pf0	2.8626	750.2	750.2
+ROUND	1	probe	v4u4/t256/c1/pf2	2.9497	728.0	728.0
+ROUND	1	probe	v4u4/t256/c2/pf0	2.9387	730.8	730.8
+ROUND	1	probe	v4u4/t256/c2/pf2	2.9614	725.2	725.2
+ROUND	1	probe	v4u4/t256/c4/pf0	2.9424	729.8	729.8
+ROUND	1	probe	v4u4/t256/c4/pf2	2.9608	725.3	725.3
+ROUND	1	probe	v4u4/t512/c2/pf0	2.9447	729.3	729.3
+ROUND	1	probe	v4u4/t512/c2/pf2	2.9600	725.5	725.5
+ROUND	1	probe	v4u4/t1024/c1/pf0	2.9433	729.6	729.6
+ROUND	1	probe	v4u4/t1024/c1/pf2	2.9574	726.1	726.1
+ROUND	2	sealed:d_in=2560	served	1.4606	387.7	409.5
+ROUND	2	sealed:d_in=2560	served_np	1.5884	356.5	376.5
+ROUND	2	sealed:d_in=2560	acc2	1.4387	393.6	415.7
+ROUND	2	sealed:d_in=2560	pword	1.1818	479.1	506.1
+ROUND	2	sealed:d_in=2560	v2	1.4562	388.9	410.7
+ROUND	2	sealed:d_in=2560	v3	1.6232	348.8	368.5
+ROUND	2	sealed:d_in=2560	ilp2	1.5619	362.5	382.9
+ROUND	2	sealed:d_in=2560	v2u	1.7093	331.3	349.9
+ROUND	2	sealed:d_in=2560	l1w	1.4270	396.8	419.1
+ROUND	2	sealed:d_in=2560	bcast	1.7035	332.4	351.1
+ROUND	2	sealed:d_in=2560	xbcast	1.6919	334.7	353.5
+ROUND	2	sealed:d_in=2560	v2_s	1.4571	388.6	410.5
+ROUND	2	sealed:d_in=2560	v2_o2	1.4238	397.7	420.1
+ROUND	2	sealed:d_in=2560	nc	1.6867	335.7	354.6
+ROUND	2	sealed:d_in=2560	nc256	1.5941	355.2	375.2
+ROUND	2	sealed:d_in=2560	cpa	1.4876	380.6	402.0
+ROUND	2	sealed:d_in=2560	tile	1.4645	386.6	408.4
+ROUND	2	sealed:d_in=2560	bal	1.5193	372.7	393.7
+ROUND	2	sealed:d_in=9728	served	0.4005	373.1	376.2
+ROUND	2	sealed:d_in=9728	served_np	0.4480	333.5	336.3
+ROUND	2	sealed:d_in=9728	acc2	0.3736	400.0	403.3
+ROUND	2	sealed:d_in=9728	pword	0.3467	430.9	434.5
+ROUND	2	sealed:d_in=9728	v2	0.3947	378.5	381.7
+ROUND	2	sealed:d_in=9728	v3	0.4906	304.6	307.1
+ROUND	2	sealed:d_in=9728	ilp2	0.4266	350.2	353.1
+ROUND	2	sealed:d_in=9728	v2u	0.4746	314.8	317.4
+ROUND	2	sealed:d_in=9728	l1w	0.3677	406.3	409.7
+ROUND	2	sealed:d_in=9728	bcast	0.4779	312.6	315.2
+ROUND	2	sealed:d_in=9728	xbcast	0.4693	318.4	321.0
+ROUND	2	sealed:d_in=9728	nc	0.4860	307.4	310.0
+ROUND	2	sealed:d_in=9728	nc256	0.4310	346.7	349.6
+ROUND	2	sealed:d_in=9728	cpa	0.3925	380.7	383.8
+ROUND	2	sealed:d_in=9728	tile	0.3646	409.8	413.2
+ROUND	2	sealed:d_in=9728	bal	0.4097	364.7	367.7
+ROUND	2	sealed:all	served	1.8635	384.0	401.8
+ROUND	2	sealed:all	served_np	2.0902	342.4	358.2
+ROUND	2	sealed:all	acc2	1.8197	393.3	411.5
+ROUND	2	sealed:all	pword	1.5218	470.3	492.0
+ROUND	2	sealed:all	v2	1.8621	384.3	402.1
+ROUND	2	sealed:all	v3	2.1675	330.2	345.4
+ROUND	2	sealed:all	ilp2	2.0081	356.4	372.9
+ROUND	2	sealed:all	v2u	2.2498	318.1	332.8
+ROUND	2	sealed:all	l1w	1.8393	389.1	407.1
+ROUND	2	sealed:all	bcast	2.2742	314.7	329.2
+ROUND	2	sealed:all	xbcast	2.2568	317.1	331.8
+ROUND	2	sealed:all	v2_s	1.4924	379.4	400.7
+ROUND	2	sealed:all	v2_o2	1.4386	393.6	415.7
+ROUND	2	sealed:all	nc	2.2467	318.5	333.3
+ROUND	2	sealed:all	nc256	2.1370	334.9	350.4
+ROUND	2	sealed:all	cpa	1.9015	376.4	393.8
+ROUND	2	sealed:all	tile	1.8392	389.1	407.1
+ROUND	2	sealed:all	bal	1.9633	364.5	381.4
+ROUND	2	sealed:gu4e	gu_served	1.1015	407.0	429.9
+ROUND	2	sealed:gu4e	gu_served_np	1.1925	375.9	397.1
+ROUND	2	sealed:gu4e	gu_acc2	1.0877	412.1	435.3
+ROUND	2	sealed:gu4e	gu_pword	0.9070	494.2	522.0
+ROUND	2	bare:d_in=2560	served	1.6417	359.3	379.5
+ROUND	2	bare:d_in=2560	served_np	1.8296	322.4	340.5
+ROUND	2	bare:d_in=2560	acc2	1.6158	365.0	385.6
+ROUND	2	bare:d_in=2560	pword	1.3211	446.5	471.6
+ROUND	2	bare:d_in=2560	v2	1.6440	358.8	378.9
+ROUND	2	bare:d_in=2560	v3	1.8630	316.6	334.4
+ROUND	2	bare:d_in=2560	ilp2	1.7589	335.3	354.2
+ROUND	2	bare:d_in=2560	v2u	1.9592	301.1	318.0
+ROUND	2	bare:d_in=2560	l1w	1.6217	363.7	384.2
+ROUND	2	bare:d_in=2560	bcast	1.9696	299.5	316.3
+ROUND	2	bare:d_in=2560	xbcast	1.9557	301.6	318.6
+ROUND	2	bare:d_in=2560	v2_s	1.6403	359.6	379.8
+ROUND	2	bare:d_in=2560	v2_o2	1.5698	375.7	396.9
+ROUND	2	bare:d_in=2560	nc	1.9458	303.1	320.2
+ROUND	2	bare:d_in=2560	nc256	1.8388	320.8	338.8
+ROUND	2	bare:d_in=2560	cpa	1.6710	353.0	372.8
+ROUND	2	bare:d_in=2560	tile	1.6442	358.7	378.9
+ROUND	2	bare:d_in=2560	bal	1.7337	340.2	359.3
+ROUND	2	bare:d_in=4096	served	0.3269	288.7	298.8
+ROUND	2	bare:d_in=4096	served_np	0.3492	270.2	279.7
+ROUND	2	bare:d_in=4096	acc2	0.2948	320.1	331.3
+ROUND	2	bare:d_in=4096	pword	0.2419	390.1	403.8
+ROUND	2	bare:d_in=4096	v2	0.3037	310.8	321.7
+ROUND	2	bare:d_in=4096	v3	0.3708	254.5	263.4
+ROUND	2	bare:d_in=4096	ilp2	0.3266	288.9	299.1
+ROUND	2	bare:d_in=4096	v2u	0.3723	253.5	262.4
+ROUND	2	bare:d_in=4096	l1w	0.3011	313.4	324.4
+ROUND	2	bare:d_in=4096	bcast	0.3702	254.9	263.9
+ROUND	2	bare:d_in=4096	xbcast	0.3718	253.8	262.7
+ROUND	2	bare:d_in=4096	v2_s	0.3049	309.5	320.4
+ROUND	2	bare:d_in=4096	v2_o2	0.2747	343.6	355.7
+ROUND	2	bare:d_in=4096	nc	0.3690	255.8	264.8
+ROUND	2	bare:d_in=4096	nc256	0.3242	291.1	301.3
+ROUND	2	bare:d_in=4096	cpa	0.3084	306.0	316.8
+ROUND	2	bare:d_in=4096	tile	0.3144	300.2	310.7
+ROUND	2	bare:d_in=4096	bal	0.3282	287.5	297.6
+ROUND	2	bare:d_in=9728	served	0.6100	367.4	370.4
+ROUND	2	bare:d_in=9728	served_np	0.6926	323.6	326.3
+ROUND	2	bare:d_in=9728	acc2	0.5681	394.5	397.7
+ROUND	2	bare:d_in=9728	pword	0.5199	431.1	434.7
+ROUND	2	bare:d_in=9728	v2	0.6033	371.5	374.6
+ROUND	2	bare:d_in=9728	v3	0.7696	291.2	293.6
+ROUND	2	bare:d_in=9728	ilp2	0.6564	341.5	344.3
+ROUND	2	bare:d_in=9728	v2u	0.7469	300.1	302.5
+ROUND	2	bare:d_in=9728	l1w	0.5977	375.0	378.1
+ROUND	2	bare:d_in=9728	bcast	0.7509	298.5	300.9
+ROUND	2	bare:d_in=9728	xbcast	0.7443	301.1	303.6
+ROUND	2	bare:d_in=9728	nc	0.7465	300.2	302.7
+ROUND	2	bare:d_in=9728	nc256	0.6886	325.5	328.2
+ROUND	2	bare:d_in=9728	cpa	0.5870	381.8	385.0
+ROUND	2	bare:d_in=9728	tile	0.5462	410.4	413.8
+ROUND	2	bare:d_in=9728	bal	0.6107	367.0	370.0
+ROUND	2	bare:all	served	2.5255	359.7	374.8
+ROUND	2	bare:all	served_np	2.8597	317.6	331.0
+ROUND	2	bare:all	acc2	2.4532	370.3	385.9
+ROUND	2	bare:all	pword	2.0480	443.5	462.2
+ROUND	2	bare:all	v2	2.4900	364.8	380.2
+ROUND	2	bare:all	v3	2.9361	309.4	322.4
+ROUND	2	bare:all	ilp2	2.6784	339.1	353.4
+ROUND	2	bare:all	v2u	3.0266	300.1	312.8
+ROUND	2	bare:all	l1w	2.5118	361.6	376.9
+ROUND	2	bare:all	bcast	3.0444	298.4	311.0
+ROUND	2	bare:all	xbcast	3.0189	300.9	313.6
+ROUND	2	bare:all	v2_s	1.9265	355.1	374.1
+ROUND	2	bare:all	v2_o2	1.8106	377.9	398.1
+ROUND	2	bare:all	nc	3.0160	301.2	313.9
+ROUND	2	bare:all	nc256	2.8890	314.4	327.7
+ROUND	2	bare:all	cpa	2.5232	360.0	375.2
+ROUND	2	bare:all	tile	2.4370	372.7	388.5
+ROUND	2	bare:all	bal	2.6122	347.7	362.4
+ROUND	2	sealed:int4:d_in=2560	q4hh	0.2849	176.0	176.0
+ROUND	2	sealed:int4:d_in=2560	q4	0.1186	422.6	422.6
+ROUND	2	sealed:int4:d_in=2560	q4nc	0.1172	427.6	427.6
+ROUND	2	sealed:int4:d_in=2560	q4t	0.1264	396.7	396.7
+ROUND	2	sealed:int4:d_in=2560	q4read	0.0728	688.2	688.2
+ROUND	2	sealed:int4:d_in=4096	q4hh	0.4978	402.9	402.9
+ROUND	2	sealed:int4:d_in=4096	q4	0.4658	430.5	430.5
+ROUND	2	sealed:int4:d_in=4096	q4nc	0.3907	513.3	513.3
+ROUND	2	sealed:int4:d_in=4096	q4t	0.3467	578.4	578.4
+ROUND	2	sealed:int4:d_in=4096	q4read	0.3003	667.9	667.9
+ROUND	2	sealed:int4:d_in=9728	q4hh	0.5298	299.7	299.7
+ROUND	2	sealed:int4:d_in=9728	q4	0.3880	409.2	409.2
+ROUND	2	sealed:int4:d_in=9728	q4nc	0.2920	543.6	543.6
+ROUND	2	sealed:int4:d_in=9728	q4t	0.2826	561.9	561.9
+ROUND	2	sealed:int4:d_in=9728	q4read	0.2370	669.9	669.9
+ROUND	2	sealed:int4:all	q4hh	1.2799	319.9	319.9
+ROUND	2	sealed:int4:all	q4	0.9727	420.9	420.9
+ROUND	2	sealed:int4:all	q4nc	0.9139	448.0	448.0
+ROUND	2	sealed:int4:all	q4t	0.7367	555.8	555.8
+ROUND	2	sealed:int4:all	q4read	0.6063	675.3	675.3
+ROUND	2	probe	v1u1/t512/c1/pf0	3.2911	652.5	652.5
+ROUND	2	probe	v1u1/t512/c1/pf2	3.1415	683.6	683.6
+ROUND	2	probe	v4u1/t512/c1/pf0	2.8574	751.5	751.5
+ROUND	2	probe	v4u1/t512/c1/pf2	3.0179	711.6	711.6
+ROUND	2	probe	v4u4/t512/c1/pf0	2.9375	731.1	731.1
+ROUND	2	probe	v4u4/t512/c1/pf2	2.9550	726.7	726.7
+ROUND	2	probe	v4u4/t256/c1/pf0	2.8703	748.2	748.2
+ROUND	2	probe	v4u4/t256/c1/pf2	2.9485	728.3	728.3
+ROUND	2	probe	v4u4/t256/c2/pf0	2.9372	731.1	731.1
+ROUND	2	probe	v4u4/t256/c2/pf2	2.9585	725.9	725.9
+ROUND	2	probe	v4u4/t256/c4/pf0	2.9459	729.0	729.0
+ROUND	2	probe	v4u4/t256/c4/pf2	2.9614	725.2	725.2
+ROUND	2	probe	v4u4/t512/c2/pf0	2.9406	730.3	730.3
+ROUND	2	probe	v4u4/t512/c2/pf2	2.9612	725.2	725.2
+ROUND	2	probe	v4u4/t1024/c1/pf0	2.9426	729.8	729.8
+ROUND	2	probe	v4u4/t1024/c1/pf2	2.9574	726.1	726.1
+ROUND	3	sealed:d_in=2560	served	1.4575	388.5	410.4
+ROUND	3	sealed:d_in=2560	served_np	1.5890	356.3	376.4
+ROUND	3	sealed:d_in=2560	acc2	1.4421	392.6	414.7
+ROUND	3	sealed:d_in=2560	pword	1.1800	479.9	506.9
+ROUND	3	sealed:d_in=2560	v2	1.4574	388.5	410.4
+ROUND	3	sealed:d_in=2560	v3	1.6197	349.6	369.3
+ROUND	3	sealed:d_in=2560	ilp2	1.5639	362.1	382.4
+ROUND	3	sealed:d_in=2560	v2u	1.6987	333.3	352.1
+ROUND	3	sealed:d_in=2560	l1w	1.4327	395.2	417.5
+ROUND	3	sealed:d_in=2560	bcast	1.7049	332.1	350.8
+ROUND	3	sealed:d_in=2560	xbcast	1.6924	334.6	353.4
+ROUND	3	sealed:d_in=2560	v2_s	1.4549	389.2	411.1
+ROUND	3	sealed:d_in=2560	v2_o2	1.4205	398.6	421.0
+ROUND	3	sealed:d_in=2560	nc	1.6863	335.8	354.7
+ROUND	3	sealed:d_in=2560	nc256	1.5965	354.7	374.6
+ROUND	3	sealed:d_in=2560	cpa	1.4911	379.7	401.1
+ROUND	3	sealed:d_in=2560	tile	1.4612	387.5	409.3
+ROUND	3	sealed:d_in=2560	bal	1.5213	372.2	393.1
+ROUND	3	sealed:d_in=9728	served	0.4050	368.9	371.9
+ROUND	3	sealed:d_in=9728	served_np	0.4439	336.6	339.4
+ROUND	3	sealed:d_in=9728	acc2	0.3751	398.3	401.6
+ROUND	3	sealed:d_in=9728	pword	0.3471	430.4	434.0
+ROUND	3	sealed:d_in=9728	v2	0.4004	373.2	376.3
+ROUND	3	sealed:d_in=9728	v3	0.4918	303.8	306.3
+ROUND	3	sealed:d_in=9728	ilp2	0.4306	347.0	349.9
+ROUND	3	sealed:d_in=9728	v2u	0.4788	312.1	314.6
+ROUND	3	sealed:d_in=9728	l1w	0.3713	402.4	405.7
+ROUND	3	sealed:d_in=9728	bcast	0.4788	312.1	314.7
+ROUND	3	sealed:d_in=9728	xbcast	0.4763	313.7	316.3
+ROUND	3	sealed:d_in=9728	nc	0.4788	312.1	314.7
+ROUND	3	sealed:d_in=9728	nc256	0.4157	359.5	362.4
+ROUND	3	sealed:d_in=9728	cpa	0.3888	384.3	387.5
+ROUND	3	sealed:d_in=9728	tile	0.3586	416.7	420.2
+ROUND	3	sealed:d_in=9728	bal	0.4102	364.2	367.2
+ROUND	3	sealed:all	served	1.8288	391.3	409.4
+ROUND	3	sealed:all	served_np	2.0254	353.3	369.7
+ROUND	3	sealed:all	acc2	1.7874	400.4	418.9
+ROUND	3	sealed:all	pword	1.5019	476.5	498.5
+ROUND	3	sealed:all	v2	1.8661	383.5	401.2
+ROUND	3	sealed:all	v3	2.1743	329.1	344.4
+ROUND	3	sealed:all	ilp2	2.0174	354.7	371.1
+ROUND	3	sealed:all	v2u	2.2562	317.2	331.9
+ROUND	3	sealed:all	l1w	1.8406	388.8	406.8
+ROUND	3	sealed:all	bcast	2.2690	315.4	330.0
+ROUND	3	sealed:all	xbcast	2.2507	318.0	332.7
+ROUND	3	sealed:all	v2_s	1.4892	380.2	401.6
+ROUND	3	sealed:all	v2_o2	1.4420	392.7	414.7
+ROUND	3	sealed:all	nc	2.2442	318.9	333.6
+ROUND	3	sealed:all	nc256	2.1362	335.0	350.5
+ROUND	3	sealed:all	cpa	1.8941	377.8	395.3
+ROUND	3	sealed:all	tile	1.8335	390.3	408.4
+ROUND	3	sealed:all	bal	1.9501	367.0	383.9
+ROUND	3	sealed:gu4e	gu_served	1.0998	407.6	430.5
+ROUND	3	sealed:gu4e	gu_served_np	1.1940	375.4	396.6
+ROUND	3	sealed:gu4e	gu_acc2	1.0807	414.8	438.1
+ROUND	3	sealed:gu4e	gu_pword	0.8972	499.6	527.7
+ROUND	3	bare:d_in=2560	served	1.6064	367.2	387.8
+ROUND	3	bare:d_in=2560	served_np	1.7865	330.2	348.7
+ROUND	3	bare:d_in=2560	acc2	1.5874	371.6	392.5
+ROUND	3	bare:d_in=2560	pword	1.3124	449.4	474.7
+ROUND	3	bare:d_in=2560	v2	1.6450	358.6	378.7
+ROUND	3	bare:d_in=2560	v3	1.8854	312.8	330.4
+ROUND	3	bare:d_in=2560	ilp2	1.7786	331.6	350.3
+ROUND	3	bare:d_in=2560	v2u	1.9778	298.2	315.0
+ROUND	3	bare:d_in=2560	l1w	1.6448	358.6	378.8
+ROUND	3	bare:d_in=2560	bcast	1.9893	296.5	313.2
+ROUND	3	bare:d_in=2560	xbcast	1.9750	298.6	315.4
+ROUND	3	bare:d_in=2560	v2_s	1.6602	355.3	375.3
+ROUND	3	bare:d_in=2560	v2_o2	1.5846	372.2	393.2
+ROUND	3	bare:d_in=2560	nc	1.9652	300.1	317.0
+ROUND	3	bare:d_in=2560	nc256	1.8606	317.0	334.8
+ROUND	3	bare:d_in=2560	cpa	1.6721	352.7	372.6
+ROUND	3	bare:d_in=2560	tile	1.6464	358.3	378.4
+ROUND	3	bare:d_in=2560	bal	1.7335	340.3	359.4
+ROUND	3	bare:d_in=4096	served	0.3256	289.9	300.1
+ROUND	3	bare:d_in=4096	served_np	0.3481	271.1	280.6
+ROUND	3	bare:d_in=4096	acc2	0.2947	320.2	331.5
+ROUND	3	bare:d_in=4096	pword	0.2409	391.8	405.6
+ROUND	3	bare:d_in=4096	v2	0.3037	310.8	321.7
+ROUND	3	bare:d_in=4096	v3	0.3702	254.9	263.9
+ROUND	3	bare:d_in=4096	ilp2	0.3267	288.8	299.0
+ROUND	3	bare:d_in=4096	v2u	0.3723	253.5	262.4
+ROUND	3	bare:d_in=4096	l1w	0.3009	313.6	324.6
+ROUND	3	bare:d_in=4096	bcast	0.3702	255.0	263.9
+ROUND	3	bare:d_in=4096	xbcast	0.3686	256.0	265.0
+ROUND	3	bare:d_in=4096	v2_s	0.3068	307.6	318.4
+ROUND	3	bare:d_in=4096	v2_o2	0.2764	341.5	353.5
+ROUND	3	bare:d_in=4096	nc	0.3679	256.5	265.5
+ROUND	3	bare:d_in=4096	nc256	0.3312	285.0	295.0
+ROUND	3	bare:d_in=4096	cpa	0.3093	305.1	315.9
+ROUND	3	bare:d_in=4096	tile	0.3147	299.9	310.4
+ROUND	3	bare:d_in=4096	bal	0.3272	288.5	298.6
+ROUND	3	bare:d_in=9728	served	0.6070	369.3	372.3
+ROUND	3	bare:d_in=9728	served_np	0.6944	322.8	325.4
+ROUND	3	bare:d_in=9728	acc2	0.5660	396.0	399.2
+ROUND	3	bare:d_in=9728	pword	0.5170	433.6	437.1
+ROUND	3	bare:d_in=9728	v2	0.6025	372.0	375.1
+ROUND	3	bare:d_in=9728	v3	0.7692	291.4	293.8
+ROUND	3	bare:d_in=9728	ilp2	0.6560	341.7	344.5
+ROUND	3	bare:d_in=9728	v2u	0.7460	300.4	302.9
+ROUND	3	bare:d_in=9728	l1w	0.5967	375.7	378.7
+ROUND	3	bare:d_in=9728	bcast	0.7503	298.7	301.2
+ROUND	3	bare:d_in=9728	xbcast	0.7435	301.5	303.9
+ROUND	3	bare:d_in=9728	nc	0.7447	301.0	303.4
+ROUND	3	bare:d_in=9728	nc256	0.6818	328.7	331.4
+ROUND	3	bare:d_in=9728	cpa	0.5847	383.3	386.5
+ROUND	3	bare:d_in=9728	tile	0.5456	410.8	414.2
+ROUND	3	bare:d_in=9728	bal	0.6122	366.1	369.1
+ROUND	3	bare:all	served	2.4981	363.6	379.0
+ROUND	3	bare:all	served_np	2.8264	321.4	334.9
+ROUND	3	bare:all	acc2	2.4224	375.0	390.8
+ROUND	3	bare:all	pword	2.0430	444.6	463.4
+ROUND	3	bare:all	v2	2.5037	362.8	378.1
+ROUND	3	bare:all	v3	2.9464	308.3	321.3
+ROUND	3	bare:all	ilp2	2.6849	338.3	352.6
+ROUND	3	bare:all	v2u	3.0055	302.2	315.0
+ROUND	3	bare:all	l1w	2.5014	363.1	378.5
+ROUND	3	bare:all	bcast	3.0234	300.4	313.1
+ROUND	3	bare:all	xbcast	2.9946	303.3	316.1
+ROUND	3	bare:all	v2_s	1.9145	357.4	376.4
+ROUND	3	bare:all	v2_o2	1.8045	379.2	399.4
+ROUND	3	bare:all	nc	2.9905	303.7	316.6
+ROUND	3	bare:all	nc256	2.8512	318.6	332.0
+ROUND	3	bare:all	cpa	2.4905	364.7	380.1
+ROUND	3	bare:all	tile	2.4073	377.3	393.2
+ROUND	3	bare:all	bal	2.5806	352.0	366.8
+ROUND	3	sealed:int4:d_in=2560	q4hh	0.2748	182.4	182.4
+ROUND	3	sealed:int4:d_in=2560	q4	0.1144	438.2	438.2
+ROUND	3	sealed:int4:d_in=2560	q4nc	0.1158	433.0	433.0
+ROUND	3	sealed:int4:d_in=2560	q4t	0.1397	358.8	358.8
+ROUND	3	sealed:int4:d_in=2560	q4read	0.0733	683.9	683.9
+ROUND	3	sealed:int4:d_in=4096	q4hh	0.4949	405.2	405.2
+ROUND	3	sealed:int4:d_in=4096	q4	0.4613	434.7	434.7
+ROUND	3	sealed:int4:d_in=4096	q4nc	0.3810	526.4	526.4
+ROUND	3	sealed:int4:d_in=4096	q4t	0.3449	581.5	581.5
+ROUND	3	sealed:int4:d_in=4096	q4read	0.2995	669.7	669.7
+ROUND	3	sealed:int4:d_in=9728	q4hh	0.5262	301.7	301.7
+ROUND	3	sealed:int4:d_in=9728	q4	0.3855	411.9	411.9
+ROUND	3	sealed:int4:d_in=9728	q4nc	0.2906	546.3	546.3
+ROUND	3	sealed:int4:d_in=9728	q4t	0.2817	563.7	563.7
+ROUND	3	sealed:int4:d_in=9728	q4read	0.2356	673.8	673.8
+ROUND	3	sealed:int4:all	q4hh	1.2767	320.7	320.7
+ROUND	3	sealed:int4:all	q4	0.9664	423.7	423.7
+ROUND	3	sealed:int4:all	q4nc	0.9023	453.8	453.8
+ROUND	3	sealed:int4:all	q4t	0.7330	558.6	558.6
+ROUND	3	sealed:int4:all	q4read	0.6047	677.1	677.1
+ROUND	3	probe	v1u1/t512/c1/pf0	3.2949	651.8	651.8
+ROUND	3	probe	v1u1/t512/c1/pf2	3.1466	682.5	682.5
+ROUND	3	probe	v4u1/t512/c1/pf0	2.8624	750.2	750.2
+ROUND	3	probe	v4u1/t512/c1/pf2	3.0084	713.8	713.8
+ROUND	3	probe	v4u4/t512/c1/pf0	2.9380	730.9	730.9
+ROUND	3	probe	v4u4/t512/c1/pf2	2.9554	726.6	726.6
+ROUND	3	probe	v4u4/t256/c1/pf0	2.8638	749.9	749.9
+ROUND	3	probe	v4u4/t256/c1/pf2	2.9502	727.9	727.9
+ROUND	3	probe	v4u4/t256/c2/pf0	2.9351	731.6	731.6
+ROUND	3	probe	v4u4/t256/c2/pf2	2.9546	726.8	726.8
+ROUND	3	probe	v4u4/t256/c4/pf0	2.9437	729.5	729.5
+ROUND	3	probe	v4u4/t256/c4/pf2	2.9631	724.7	724.7
+ROUND	3	probe	v4u4/t512/c2/pf0	2.9447	729.3	729.3
+ROUND	3	probe	v4u4/t512/c2/pf2	2.9636	724.6	724.6
+ROUND	3	probe	v4u4/t1024/c1/pf0	2.9442	729.4	729.4
+ROUND	3	probe	v4u4/t1024/c1/pf2	2.9607	725.3	725.3
+ROUND	4	sealed:d_in=2560	served	1.4596	387.9	409.7
+ROUND	4	sealed:d_in=2560	served_np	1.5893	356.3	376.3
+ROUND	4	sealed:d_in=2560	acc2	1.4419	392.7	414.8
+ROUND	4	sealed:d_in=2560	pword	1.1836	478.4	505.3
+ROUND	4	sealed:d_in=2560	v2	1.4579	388.4	410.2
+ROUND	4	sealed:d_in=2560	v3	1.6213	349.2	368.9
+ROUND	4	sealed:d_in=2560	ilp2	1.5602	362.9	383.3
+ROUND	4	sealed:d_in=2560	v2u	1.7016	332.8	351.5
+ROUND	4	sealed:d_in=2560	l1w	1.4346	394.7	416.9
+ROUND	4	sealed:d_in=2560	bcast	1.7027	332.5	351.2
+ROUND	4	sealed:d_in=2560	xbcast	1.6894	335.2	354.0
+ROUND	4	sealed:d_in=2560	v2_s	1.4544	389.3	411.2
+ROUND	4	sealed:d_in=2560	v2_o2	1.4221	398.2	420.6
+ROUND	4	sealed:d_in=2560	nc	1.6852	336.0	354.9
+ROUND	4	sealed:d_in=2560	nc256	1.5907	356.0	376.0
+ROUND	4	sealed:d_in=2560	cpa	1.4925	379.4	400.7
+ROUND	4	sealed:d_in=2560	tile	1.4626	387.1	408.9
+ROUND	4	sealed:d_in=2560	bal	1.5256	371.1	392.0
+ROUND	4	sealed:d_in=9728	served	0.4010	372.6	375.6
+ROUND	4	sealed:d_in=9728	served_np	0.4415	338.5	341.3
+ROUND	4	sealed:d_in=9728	acc2	0.3712	402.6	405.9
+ROUND	4	sealed:d_in=9728	pword	0.3457	432.2	435.8
+ROUND	4	sealed:d_in=9728	v2	0.3945	378.8	381.9
+ROUND	4	sealed:d_in=9728	v3	0.4921	303.6	306.1
+ROUND	4	sealed:d_in=9728	ilp2	0.4299	347.5	350.4
+ROUND	4	sealed:d_in=9728	v2u	0.4764	313.6	316.2
+ROUND	4	sealed:d_in=9728	l1w	0.3900	383.2	386.3
+ROUND	4	sealed:d_in=9728	bcast	0.5012	298.1	300.6
+ROUND	4	sealed:d_in=9728	xbcast	0.4993	299.3	301.7
+ROUND	4	sealed:d_in=9728	nc	0.4990	299.5	301.9
+ROUND	4	sealed:d_in=9728	nc256	0.4358	342.9	345.7
+ROUND	4	sealed:d_in=9728	cpa	0.3933	379.9	383.0
+ROUND	4	sealed:d_in=9728	tile	0.3682	405.8	409.2
+ROUND	4	sealed:d_in=9728	bal	0.4115	363.1	366.1
+ROUND	4	sealed:all	served	1.8813	380.4	398.0
+ROUND	4	sealed:all	served_np	2.1155	338.3	353.9
+ROUND	4	sealed:all	acc2	1.8384	389.3	407.3
+ROUND	4	sealed:all	pword	1.5365	465.8	487.3
+ROUND	4	sealed:all	v2	1.8834	380.0	397.5
+ROUND	4	sealed:all	v3	2.1839	327.7	342.8
+ROUND	4	sealed:all	ilp2	2.0328	352.0	368.3
+ROUND	4	sealed:all	v2u	2.2751	314.6	329.1
+ROUND	4	sealed:all	l1w	1.8525	386.3	404.2
+ROUND	4	sealed:all	bcast	2.2848	313.2	327.7
+ROUND	4	sealed:all	xbcast	2.2648	316.0	330.6
+ROUND	4	sealed:all	v2_s	1.4978	378.0	399.3
+ROUND	4	sealed:all	v2_o2	1.4373	393.9	416.1
+ROUND	4	sealed:all	nc	2.2582	316.9	331.6
+ROUND	4	sealed:all	nc256	2.1549	332.1	347.5
+ROUND	4	sealed:all	cpa	1.9079	375.1	392.4
+ROUND	4	sealed:all	tile	1.8488	387.1	405.0
+ROUND	4	sealed:all	bal	1.9717	363.0	379.7
+ROUND	4	sealed:gu4e	gu_served	1.1076	404.7	427.5
+ROUND	4	sealed:gu4e	gu_served_np	1.2049	372.0	393.0
+ROUND	4	sealed:gu4e	gu_acc2	1.0873	412.3	435.5
+ROUND	4	sealed:gu4e	gu_pword	0.9082	493.6	521.3
+ROUND	4	bare:d_in=2560	served	1.6403	359.6	379.8
+ROUND	4	bare:d_in=2560	served_np	1.8315	322.0	340.2
+ROUND	4	bare:d_in=2560	acc2	1.6151	365.2	385.7
+ROUND	4	bare:d_in=2560	pword	1.3226	446.0	471.1
+ROUND	4	bare:d_in=2560	v2	1.6414	359.3	379.6
+ROUND	4	bare:d_in=2560	v3	1.8644	316.4	334.2
+ROUND	4	bare:d_in=2560	ilp2	1.7587	335.4	354.2
+ROUND	4	bare:d_in=2560	v2u	1.9586	301.1	318.1
+ROUND	4	bare:d_in=2560	l1w	1.6243	363.1	383.6
+ROUND	4	bare:d_in=2560	bcast	1.9669	299.9	316.7
+ROUND	4	bare:d_in=2560	xbcast	1.9544	301.8	318.8
+ROUND	4	bare:d_in=2560	v2_s	1.6397	359.7	380.0
+ROUND	4	bare:d_in=2560	v2_o2	1.5723	375.1	396.2
+ROUND	4	bare:d_in=2560	nc	1.9413	303.8	320.9
+ROUND	4	bare:d_in=2560	nc256	1.8439	319.9	337.9
+ROUND	4	bare:d_in=2560	cpa	1.6711	353.0	372.8
+ROUND	4	bare:d_in=2560	tile	1.6420	359.2	379.4
+ROUND	4	bare:d_in=2560	bal	1.7314	340.7	359.8
+ROUND	4	bare:d_in=4096	served	0.3258	289.7	299.9
+ROUND	4	bare:d_in=4096	served_np	0.3514	268.6	278.0
+ROUND	4	bare:d_in=4096	acc2	0.2944	320.5	331.8
+ROUND	4	bare:d_in=4096	pword	0.2411	391.4	405.1
+ROUND	4	bare:d_in=4096	v2	0.3031	311.4	322.3
+ROUND	4	bare:d_in=4096	v3	0.3706	254.6	263.6
+ROUND	4	bare:d_in=4096	ilp2	0.3271	288.5	298.7
+ROUND	4	bare:d_in=4096	v2u	0.3718	253.8	262.7
+ROUND	4	bare:d_in=4096	l1w	0.3010	313.5	324.6
+ROUND	4	bare:d_in=4096	bcast	0.3694	255.5	264.4
+ROUND	4	bare:d_in=4096	xbcast	0.3708	254.5	263.5
+ROUND	4	bare:d_in=4096	v2_s	0.3061	308.3	319.1
+ROUND	4	bare:d_in=4096	v2_o2	0.2766	341.2	353.2
+ROUND	4	bare:d_in=4096	nc	0.3703	254.9	263.8
+ROUND	4	bare:d_in=4096	nc256	0.3265	289.0	299.2
+ROUND	4	bare:d_in=4096	cpa	0.3115	303.0	313.6
+ROUND	4	bare:d_in=4096	tile	0.3154	299.2	309.7
+ROUND	4	bare:d_in=4096	bal	0.3302	285.8	295.8
+ROUND	4	bare:d_in=9728	served	0.6107	367.0	370.1
+ROUND	4	bare:d_in=9728	served_np	0.6968	321.7	324.3
+ROUND	4	bare:d_in=9728	acc2	0.5679	394.7	397.9
+ROUND	4	bare:d_in=9728	pword	0.5186	432.2	435.8
+ROUND	4	bare:d_in=9728	v2	0.6066	369.5	372.5
+ROUND	4	bare:d_in=9728	v3	0.7750	289.2	291.6
+ROUND	4	bare:d_in=9728	ilp2	0.6625	338.3	341.1
+ROUND	4	bare:d_in=9728	v2u	0.7516	298.2	300.7
+ROUND	4	bare:d_in=9728	l1w	0.6060	369.9	372.9
+ROUND	4	bare:d_in=9728	bcast	0.7597	295.0	297.5
+ROUND	4	bare:d_in=9728	xbcast	0.7513	298.3	300.8
+ROUND	4	bare:d_in=9728	nc	0.7505	298.6	301.1
+ROUND	4	bare:d_in=9728	nc256	0.6965	321.8	324.5
+ROUND	4	bare:d_in=9728	cpa	0.5921	378.5	381.7
+ROUND	4	bare:d_in=9728	tile	0.5521	405.9	409.3
+ROUND	4	bare:d_in=9728	bal	0.6202	361.4	364.4
+ROUND	4	bare:all	served	2.5331	358.6	373.7
+ROUND	4	bare:all	served_np	2.8797	315.4	328.7
+ROUND	4	bare:all	acc2	2.4351	373.0	388.8
+ROUND	4	bare:all	pword	2.0406	445.1	463.9
+ROUND	4	bare:all	v2	2.4880	365.1	380.5
+ROUND	4	bare:all	v3	2.9345	309.5	322.6
+ROUND	4	bare:all	ilp2	2.6774	339.3	353.6
+ROUND	4	bare:all	v2u	3.0215	300.6	313.3
+ROUND	4	bare:all	l1w	2.5104	361.8	377.1
+ROUND	4	bare:all	bcast	3.0410	298.7	311.3
+ROUND	4	bare:all	xbcast	3.0063	302.1	314.9
+ROUND	4	bare:all	v2_s	1.9218	356.0	375.0
+ROUND	4	bare:all	v2_o2	1.8055	379.0	399.2
+ROUND	4	bare:all	nc	3.0028	302.5	315.3
+ROUND	4	bare:all	nc256	2.8758	315.8	329.2
+ROUND	4	bare:all	cpa	2.5162	361.0	376.2
+ROUND	4	bare:all	tile	2.4324	373.4	389.2
+ROUND	4	bare:all	bal	2.6075	348.4	363.1
+ROUND	4	sealed:int4:d_in=2560	q4hh	0.2788	179.8	179.8
+ROUND	4	sealed:int4:d_in=2560	q4	0.1154	434.4	434.4
+ROUND	4	sealed:int4:d_in=2560	q4nc	0.1165	430.4	430.4
+ROUND	4	sealed:int4:d_in=2560	q4t	0.1258	398.5	398.5
+ROUND	4	sealed:int4:d_in=2560	q4read	0.0731	685.4	685.4
+ROUND	4	sealed:int4:d_in=4096	q4hh	0.4977	403.0	403.0
+ROUND	4	sealed:int4:d_in=4096	q4	0.4646	431.6	431.6
+ROUND	4	sealed:int4:d_in=4096	q4nc	0.3833	523.2	523.2
+ROUND	4	sealed:int4:d_in=4096	q4t	0.3460	579.6	579.6
+ROUND	4	sealed:int4:d_in=4096	q4read	0.3007	666.9	666.9
+ROUND	4	sealed:int4:d_in=9728	q4hh	0.5296	299.8	299.8
+ROUND	4	sealed:int4:d_in=9728	q4	0.3840	413.4	413.4
+ROUND	4	sealed:int4:d_in=9728	q4nc	0.2917	544.2	544.2
+ROUND	4	sealed:int4:d_in=9728	q4t	0.2816	563.7	563.7
+ROUND	4	sealed:int4:d_in=9728	q4read	0.2356	674.0	674.0
+ROUND	4	sealed:int4:all	q4hh	1.2781	320.3	320.3
+ROUND	4	sealed:int4:all	q4	0.9773	418.9	418.9
+ROUND	4	sealed:int4:all	q4nc	0.9017	454.1	454.1
+ROUND	4	sealed:int4:all	q4t	0.7337	558.0	558.0
+ROUND	4	sealed:int4:all	q4read	0.6061	675.6	675.6
+ROUND	4	probe	v1u1/t512/c1/pf0	3.2914	652.5	652.5
+ROUND	4	probe	v1u1/t512/c1/pf2	3.1517	681.4	681.4
+ROUND	4	probe	v4u1/t512/c1/pf0	2.8709	748.0	748.0
+ROUND	4	probe	v4u1/t512/c1/pf2	3.0139	712.5	712.5
+ROUND	4	probe	v4u4/t512/c1/pf0	2.9373	731.1	731.1
+ROUND	4	probe	v4u4/t512/c1/pf2	2.9566	726.3	726.3
+ROUND	4	probe	v4u4/t256/c1/pf0	2.8627	750.2	750.2
+ROUND	4	probe	v4u4/t256/c1/pf2	2.9535	727.1	727.1
+ROUND	4	probe	v4u4/t256/c2/pf0	2.9355	731.5	731.5
+ROUND	4	probe	v4u4/t256/c2/pf2	2.9576	726.1	726.1
+ROUND	4	probe	v4u4/t256/c4/pf0	2.9469	728.7	728.7
+ROUND	4	probe	v4u4/t256/c4/pf2	2.9608	725.3	725.3
+ROUND	4	probe	v4u4/t512/c2/pf0	2.9426	729.8	729.8
+ROUND	4	probe	v4u4/t512/c2/pf2	2.9610	725.3	725.3
+ROUND	4	probe	v4u4/t1024/c1/pf0	2.9445	729.3	729.3
+ROUND	4	probe	v4u4/t1024/c1/pf2	2.9582	725.9	725.9
+ROUND	5	sealed:d_in=2560	served	1.4588	388.2	410.0
+ROUND	5	sealed:d_in=2560	served_np	1.5823	357.9	378.0
+ROUND	5	sealed:d_in=2560	acc2	1.4399	393.2	415.4
+ROUND	5	sealed:d_in=2560	pword	1.1791	480.2	507.2
+ROUND	5	sealed:d_in=2560	v2	1.4560	388.9	410.8
+ROUND	5	sealed:d_in=2560	v3	1.6149	350.6	370.3
+ROUND	5	sealed:d_in=2560	ilp2	1.5583	363.4	383.8
+ROUND	5	sealed:d_in=2560	v2u	1.6987	333.3	352.1
+ROUND	5	sealed:d_in=2560	l1w	1.4390	393.5	415.6
+ROUND	5	sealed:d_in=2560	bcast	1.7017	332.7	351.5
+ROUND	5	sealed:d_in=2560	xbcast	1.6890	335.3	354.1
+ROUND	5	sealed:d_in=2560	v2_s	1.4577	388.4	410.3
+ROUND	5	sealed:d_in=2560	v2_o2	1.4200	398.8	421.2
+ROUND	5	sealed:d_in=2560	nc	1.6862	335.8	354.7
+ROUND	5	sealed:d_in=2560	nc256	1.5896	356.2	376.2
+ROUND	5	sealed:d_in=2560	cpa	1.4868	380.8	402.3
+ROUND	5	sealed:d_in=2560	tile	1.4631	387.0	408.8
+ROUND	5	sealed:d_in=2560	bal	1.5211	372.2	393.2
+ROUND	5	sealed:d_in=9728	served	0.4009	372.7	375.8
+ROUND	5	sealed:d_in=9728	served_np	0.4457	335.3	338.0
+ROUND	5	sealed:d_in=9728	acc2	0.3756	397.8	401.1
+ROUND	5	sealed:d_in=9728	pword	0.3470	430.6	434.2
+ROUND	5	sealed:d_in=9728	v2	0.3965	376.8	379.9
+ROUND	5	sealed:d_in=9728	v3	0.4915	304.0	306.5
+ROUND	5	sealed:d_in=9728	ilp2	0.4262	350.6	353.5
+ROUND	5	sealed:d_in=9728	v2u	0.4765	313.6	316.2
+ROUND	5	sealed:d_in=9728	l1w	0.3710	402.8	406.1
+ROUND	5	sealed:d_in=9728	bcast	0.4795	311.6	314.2
+ROUND	5	sealed:d_in=9728	xbcast	0.4738	315.3	317.9
+ROUND	5	sealed:d_in=9728	nc	0.4723	316.3	319.0
+ROUND	5	sealed:d_in=9728	nc256	0.4124	362.4	365.3
+ROUND	5	sealed:d_in=9728	cpa	0.3869	386.2	389.3
+ROUND	5	sealed:d_in=9728	tile	0.3610	413.9	417.3
+ROUND	5	sealed:d_in=9728	bal	0.4102	364.2	367.2
+ROUND	5	sealed:all	served	1.8233	392.5	410.7
+ROUND	5	sealed:all	served_np	2.0099	356.1	372.5
+ROUND	5	sealed:all	acc2	1.7930	399.1	417.6
+ROUND	5	sealed:all	pword	1.5195	471.0	492.8
+ROUND	5	sealed:all	v2	1.8439	388.1	406.0
+ROUND	5	sealed:all	v3	2.1457	333.5	348.9
+ROUND	5	sealed:all	ilp2	1.9892	359.8	376.4
+ROUND	5	sealed:all	v2u	2.2247	321.7	336.6
+ROUND	5	sealed:all	l1w	1.8206	393.1	411.3
+ROUND	5	sealed:all	bcast	2.2380	319.8	334.6
+ROUND	5	sealed:all	xbcast	2.2180	322.7	337.6
+ROUND	5	sealed:all	v2_s	1.4695	385.3	407.0
+ROUND	5	sealed:all	v2_o2	1.4421	392.6	414.7
+ROUND	5	sealed:all	nc	2.2504	318.0	332.7
+ROUND	5	sealed:all	nc256	2.1516	332.6	348.0
+ROUND	5	sealed:all	cpa	1.9112	374.5	391.8
+ROUND	5	sealed:all	tile	1.8446	388.0	405.9
+ROUND	5	sealed:all	bal	1.9698	363.3	380.1
+ROUND	5	sealed:gu4e	gu_served	1.1017	406.9	429.8
+ROUND	5	sealed:gu4e	gu_served_np	1.1961	374.8	395.9
+ROUND	5	sealed:gu4e	gu_acc2	1.0795	415.3	438.6
+ROUND	5	sealed:gu4e	gu_pword	0.9066	494.5	522.3
+ROUND	5	bare:d_in=2560	served	1.6257	362.8	383.2
+ROUND	5	bare:d_in=2560	served_np	1.8086	326.1	344.5
+ROUND	5	bare:d_in=2560	acc2	1.6026	368.0	388.7
+ROUND	5	bare:d_in=2560	pword	1.3263	444.7	469.7
+ROUND	5	bare:d_in=2560	v2	1.6754	352.0	371.8
+ROUND	5	bare:d_in=2560	v3	1.9091	308.9	326.3
+ROUND	5	bare:d_in=2560	ilp2	1.8015	327.4	345.8
+ROUND	5	bare:d_in=2560	v2u	2.0011	294.7	311.3
+ROUND	5	bare:d_in=2560	l1w	1.6651	354.2	374.1
+ROUND	5	bare:d_in=2560	bcast	2.0091	293.6	310.1
+ROUND	5	bare:d_in=2560	xbcast	1.9961	295.5	312.1
+ROUND	5	bare:d_in=2560	v2_s	1.6759	351.9	371.7
+ROUND	5	bare:d_in=2560	v2_o2	1.6007	368.5	389.2
+ROUND	5	bare:d_in=2560	nc	1.9841	297.3	314.0
+ROUND	5	bare:d_in=2560	nc256	1.8747	314.6	332.3
+ROUND	5	bare:d_in=2560	cpa	1.6946	348.1	367.6
+ROUND	5	bare:d_in=2560	tile	1.6586	355.6	375.6
+ROUND	5	bare:d_in=2560	bal	1.7541	336.3	355.2
+ROUND	5	bare:d_in=4096	served	0.3287	287.1	297.2
+ROUND	5	bare:d_in=4096	served_np	0.3518	268.3	277.7
+ROUND	5	bare:d_in=4096	acc2	0.2991	315.5	326.6
+ROUND	5	bare:d_in=4096	pword	0.2441	386.6	400.2
+ROUND	5	bare:d_in=4096	v2	0.3074	307.0	317.8
+ROUND	5	bare:d_in=4096	v3	0.3751	251.6	260.4
+ROUND	5	bare:d_in=4096	ilp2	0.3308	285.3	295.3
+ROUND	5	bare:d_in=4096	v2u	0.3753	251.4	260.3
+ROUND	5	bare:d_in=4096	l1w	0.3040	310.5	321.4
+ROUND	5	bare:d_in=4096	bcast	0.3765	250.6	259.4
+ROUND	5	bare:d_in=4096	xbcast	0.3734	252.7	261.6
+ROUND	5	bare:d_in=4096	v2_s	0.3088	305.6	316.4
+ROUND	5	bare:d_in=4096	v2_o2	0.2809	336.0	347.8
+ROUND	5	bare:d_in=4096	nc	0.3720	253.7	262.6
+ROUND	5	bare:d_in=4096	nc256	0.3297	286.2	296.3
+ROUND	5	bare:d_in=4096	cpa	0.3123	302.1	312.8
+ROUND	5	bare:d_in=4096	tile	0.3157	298.9	309.4
+ROUND	5	bare:d_in=4096	bal	0.3315	284.7	294.7
+ROUND	5	bare:d_in=9728	served	0.6116	366.5	369.5
+ROUND	5	bare:d_in=9728	served_np	0.6983	321.0	323.6
+ROUND	5	bare:d_in=9728	acc2	0.5732	391.0	394.2
+ROUND	5	bare:d_in=9728	pword	0.5227	428.8	432.3
+ROUND	5	bare:d_in=9728	v2	0.6094	367.8	370.8
+ROUND	5	bare:d_in=9728	v3	0.7775	288.3	290.7
+ROUND	5	bare:d_in=9728	ilp2	0.6652	336.9	339.7
+ROUND	5	bare:d_in=9728	v2u	0.7553	296.8	299.2
+ROUND	5	bare:d_in=9728	l1w	0.6075	368.9	372.0
+ROUND	5	bare:d_in=9728	bcast	0.7568	296.2	298.6
+ROUND	5	bare:d_in=9728	xbcast	0.7400	302.9	305.4
+ROUND	5	bare:d_in=9728	nc	0.7412	302.4	304.9
+ROUND	5	bare:d_in=9728	nc256	0.6815	328.9	331.6
+ROUND	5	bare:d_in=9728	cpa	0.5829	384.5	387.7
+ROUND	5	bare:d_in=9728	tile	0.5437	412.3	415.7
+ROUND	5	bare:d_in=9728	bal	0.6096	367.7	370.7
+ROUND	5	bare:all	served	2.5093	362.0	377.3
+ROUND	5	bare:all	served_np	2.8400	319.8	333.3
+ROUND	5	bare:all	acc2	2.4342	373.2	388.9
+ROUND	5	bare:all	pword	2.0461	443.9	462.7
+ROUND	5	bare:all	v2	2.5143	361.3	376.5
+ROUND	5	bare:all	v3	2.9664	306.2	319.1
+ROUND	5	bare:all	ilp2	2.6956	337.0	351.2
+ROUND	5	bare:all	v2u	3.0360	299.2	311.8
+ROUND	5	bare:all	l1w	2.5255	359.7	374.8
+ROUND	5	bare:all	bcast	3.0534	297.5	310.0
+ROUND	5	bare:all	xbcast	3.0222	300.5	313.2
+ROUND	5	bare:all	v2_s	1.9324	354.1	372.9
+ROUND	5	bare:all	v2_o2	1.8049	379.1	399.3
+ROUND	5	bare:all	nc	3.0071	302.1	314.8
+ROUND	5	bare:all	nc256	2.8611	317.5	330.9
+ROUND	5	bare:all	cpa	2.4997	363.4	378.7
+ROUND	5	bare:all	tile	2.4185	375.6	391.4
+ROUND	5	bare:all	bal	2.6010	349.2	364.0
+ROUND	5	sealed:int4:d_in=2560	q4hh	0.2772	180.8	180.8
+ROUND	5	sealed:int4:d_in=2560	q4	0.1156	433.8	433.8
+ROUND	5	sealed:int4:d_in=2560	q4nc	0.1152	435.3	435.3
+ROUND	5	sealed:int4:d_in=2560	q4t	0.1249	401.2	401.2
+ROUND	5	sealed:int4:d_in=2560	q4read	0.0722	694.4	694.4
+ROUND	5	sealed:int4:d_in=4096	q4hh	0.4947	405.4	405.4
+ROUND	5	sealed:int4:d_in=4096	q4	0.4625	433.6	433.6
+ROUND	5	sealed:int4:d_in=4096	q4nc	0.3817	525.4	525.4
+ROUND	5	sealed:int4:d_in=4096	q4t	0.3445	582.1	582.1
+ROUND	5	sealed:int4:d_in=4096	q4read	0.2988	671.2	671.2
+ROUND	5	sealed:int4:d_in=9728	q4hh	0.5274	301.1	301.1
+ROUND	5	sealed:int4:d_in=9728	q4	0.3824	415.2	415.2
+ROUND	5	sealed:int4:d_in=9728	q4nc	0.2899	547.6	547.6
+ROUND	5	sealed:int4:d_in=9728	q4t	0.2815	564.0	564.0
+ROUND	5	sealed:int4:d_in=9728	q4read	0.2360	672.7	672.7
+ROUND	5	sealed:int4:all	q4hh	1.2779	320.4	320.4
+ROUND	5	sealed:int4:all	q4	0.9707	421.8	421.8
+ROUND	5	sealed:int4:all	q4nc	0.9009	454.5	454.5
+ROUND	5	sealed:int4:all	q4t	0.7325	558.9	558.9
+ROUND	5	sealed:int4:all	q4read	0.6075	673.9	673.9
+ROUND	5	probe	v1u1/t512/c1/pf0	3.2766	655.4	655.4
+ROUND	5	probe	v1u1/t512/c1/pf2	3.1400	683.9	683.9
+ROUND	5	probe	v4u1/t512/c1/pf0	2.8577	751.5	751.5
+ROUND	5	probe	v4u1/t512/c1/pf2	3.0121	713.0	713.0
+ROUND	5	probe	v4u4/t512/c1/pf0	2.9377	731.0	731.0
+ROUND	5	probe	v4u4/t512/c1/pf2	2.9554	726.6	726.6
+ROUND	5	probe	v4u4/t256/c1/pf0	2.8624	750.2	750.2
+ROUND	5	probe	v4u4/t256/c1/pf2	2.9496	728.1	728.1
+ROUND	5	probe	v4u4/t256/c2/pf0	2.9411	730.2	730.2
+ROUND	5	probe	v4u4/t256/c2/pf2	2.9552	726.7	726.7
+ROUND	5	probe	v4u4/t256/c4/pf0	2.9453	729.1	729.1
+ROUND	5	probe	v4u4/t256/c4/pf2	2.9620	725.0	725.0
+ROUND	5	probe	v4u4/t512/c2/pf0	2.9573	726.2	726.2
+ROUND	5	probe	v4u4/t512/c2/pf2	2.9619	725.0	725.0
+ROUND	5	probe	v4u4/t1024/c1/pf0	2.9424	729.8	729.8
+ROUND	5	probe	v4u4/t1024/c1/pf2	2.9575	726.1	726.1
+ROUND	6	sealed:d_in=2560	served	1.4623	387.2	409.0
+ROUND	6	sealed:d_in=2560	served_np	1.5861	357.0	377.1
+ROUND	6	sealed:d_in=2560	acc2	1.4405	393.1	415.2
+ROUND	6	sealed:d_in=2560	pword	1.1835	478.4	505.3
+ROUND	6	sealed:d_in=2560	v2	1.4581	388.3	410.2
+ROUND	6	sealed:d_in=2560	v3	1.6223	349.0	368.7
+ROUND	6	sealed:d_in=2560	ilp2	1.5629	362.3	382.7
+ROUND	6	sealed:d_in=2560	v2u	1.6959	333.9	352.7
+ROUND	6	sealed:d_in=2560	l1w	1.4276	396.6	418.9
+ROUND	6	sealed:d_in=2560	bcast	1.7095	331.2	349.9
+ROUND	6	sealed:d_in=2560	xbcast	1.6859	335.9	354.8
+ROUND	6	sealed:d_in=2560	v2_s	1.4550	389.2	411.1
+ROUND	6	sealed:d_in=2560	v2_o2	1.4200	398.7	421.2
+ROUND	6	sealed:d_in=2560	nc	1.6885	335.4	354.2
+ROUND	6	sealed:d_in=2560	nc256	1.5947	355.1	375.0
+ROUND	6	sealed:d_in=2560	cpa	1.4879	380.6	402.0
+ROUND	6	sealed:d_in=2560	tile	1.4582	388.3	410.2
+ROUND	6	sealed:d_in=2560	bal	1.5234	371.7	392.6
+ROUND	6	sealed:d_in=9728	served	0.4004	373.1	376.2
+ROUND	6	sealed:d_in=9728	served_np	0.4428	337.5	340.2
+ROUND	6	sealed:d_in=9728	acc2	0.3817	391.5	394.7
+ROUND	6	sealed:d_in=9728	pword	0.3455	432.5	436.0
+ROUND	6	sealed:d_in=9728	v2	0.3971	376.3	379.4
+ROUND	6	sealed:d_in=9728	v3	0.5021	297.6	300.1
+ROUND	6	sealed:d_in=9728	ilp2	0.4355	343.1	345.9
+ROUND	6	sealed:d_in=9728	v2u	0.4913	304.2	306.7
+ROUND	6	sealed:d_in=9728	l1w	0.3781	395.2	398.4
+ROUND	6	sealed:d_in=9728	bcast	0.4899	305.0	307.5
+ROUND	6	sealed:d_in=9728	xbcast	0.4854	307.9	310.4
+ROUND	6	sealed:d_in=9728	nc	0.4876	306.5	309.0
+ROUND	6	sealed:d_in=9728	nc256	0.4236	352.7	355.6
+ROUND	6	sealed:d_in=9728	cpa	0.3911	382.0	385.2
+ROUND	6	sealed:d_in=9728	tile	0.3626	412.1	415.5
+ROUND	6	sealed:d_in=9728	bal	0.4069	367.2	370.2
+ROUND	6	sealed:all	served	1.8381	389.3	407.3
+ROUND	6	sealed:all	served_np	2.0622	347.0	363.1
+ROUND	6	sealed:all	acc2	1.7976	398.1	416.5
+ROUND	6	sealed:all	pword	1.5126	473.1	495.0
+ROUND	6	sealed:all	v2	1.8420	388.5	406.5
+ROUND	6	sealed:all	v3	2.1332	335.5	351.0
+ROUND	6	sealed:all	ilp2	1.9838	360.8	377.4
+ROUND	6	sealed:all	v2u	2.2285	321.1	336.0
+ROUND	6	sealed:all	l1w	1.8438	388.1	406.1
+ROUND	6	sealed:all	bcast	2.2600	316.7	331.3
+ROUND	6	sealed:all	xbcast	2.2434	319.0	333.8
+ROUND	6	sealed:all	v2_s	1.4830	381.8	403.3
+ROUND	6	sealed:all	v2_o2	1.4352	394.5	416.7
+ROUND	6	sealed:all	nc	2.2356	320.1	334.9
+ROUND	6	sealed:all	nc256	2.1301	336.0	351.5
+ROUND	6	sealed:all	cpa	1.8878	379.1	396.6
+ROUND	6	sealed:all	tile	1.8269	391.7	409.8
+ROUND	6	sealed:all	bal	1.9545	366.2	383.1
+ROUND	6	sealed:gu4e	gu_served	1.1088	404.3	427.0
+ROUND	6	sealed:gu4e	gu_served_np	1.1996	373.7	394.7
+ROUND	6	sealed:gu4e	gu_acc2	1.0916	410.6	433.7
+ROUND	6	sealed:gu4e	gu_pword	0.9110	492.1	519.8
+ROUND	6	bare:d_in=2560	served	1.6328	361.2	381.6
+ROUND	6	bare:d_in=2560	served_np	1.8260	323.0	341.2
+ROUND	6	bare:d_in=2560	acc2	1.6102	366.3	386.9
+ROUND	6	bare:d_in=2560	pword	1.3216	446.3	471.4
+ROUND	6	bare:d_in=2560	v2	1.6339	361.0	381.3
+ROUND	6	bare:d_in=2560	v3	1.8546	318.0	335.9
+ROUND	6	bare:d_in=2560	ilp2	1.7503	337.0	355.9
+ROUND	6	bare:d_in=2560	v2u	1.9537	301.9	318.9
+ROUND	6	bare:d_in=2560	l1w	1.6257	362.8	383.2
+ROUND	6	bare:d_in=2560	bcast	1.9801	297.9	314.6
+ROUND	6	bare:d_in=2560	xbcast	1.9677	299.7	316.6
+ROUND	6	bare:d_in=2560	v2_s	1.6511	357.2	377.3
+ROUND	6	bare:d_in=2560	v2_o2	1.5810	373.1	394.1
+ROUND	6	bare:d_in=2560	nc	1.9581	301.2	318.2
+ROUND	6	bare:d_in=2560	nc256	1.8512	318.6	336.5
+ROUND	6	bare:d_in=2560	cpa	1.6836	350.3	370.0
+ROUND	6	bare:d_in=2560	tile	1.6510	357.3	377.3
+ROUND	6	bare:d_in=2560	bal	1.7409	338.8	357.9
+ROUND	6	bare:d_in=4096	served	0.3278	287.9	298.0
+ROUND	6	bare:d_in=4096	served_np	0.3515	268.5	277.9
+ROUND	6	bare:d_in=4096	acc2	0.2978	316.9	328.1
+ROUND	6	bare:d_in=4096	pword	0.2444	386.1	399.7
+ROUND	6	bare:d_in=4096	v2	0.3060	308.4	319.2
+ROUND	6	bare:d_in=4096	v3	0.3738	252.4	261.3
+ROUND	6	bare:d_in=4096	ilp2	0.3282	287.6	297.7
+ROUND	6	bare:d_in=4096	v2u	0.3752	251.5	260.4
+ROUND	6	bare:d_in=4096	l1w	0.3027	311.7	322.7
+ROUND	6	bare:d_in=4096	bcast	0.3895	242.3	250.8
+ROUND	6	bare:d_in=4096	xbcast	0.3723	253.5	262.4
+ROUND	6	bare:d_in=4096	v2_s	0.3069	307.5	318.3
+ROUND	6	bare:d_in=4096	v2_o2	0.2760	342.0	354.0
+ROUND	6	bare:d_in=4096	nc	0.3690	255.8	264.7
+ROUND	6	bare:d_in=4096	nc256	0.3269	288.7	298.8
+ROUND	6	bare:d_in=4096	cpa	0.3097	304.7	315.4
+ROUND	6	bare:d_in=4096	tile	0.3147	299.9	310.4
+ROUND	6	bare:d_in=4096	bal	0.3278	287.9	298.0
+ROUND	6	bare:d_in=9728	served	0.6074	369.0	372.1
+ROUND	6	bare:d_in=9728	served_np	0.6962	322.0	324.6
+ROUND	6	bare:d_in=9728	acc2	0.5658	396.1	399.4
+ROUND	6	bare:d_in=9728	pword	0.5168	433.7	437.3
+ROUND	6	bare:d_in=9728	v2	0.6018	372.4	375.5
+ROUND	6	bare:d_in=9728	v3	0.7709	290.7	293.1
+ROUND	6	bare:d_in=9728	ilp2	0.6601	339.6	342.4
+ROUND	6	bare:d_in=9728	v2u	0.7503	298.7	301.2
+ROUND	6	bare:d_in=9728	l1w	0.6011	372.9	376.0
+ROUND	6	bare:d_in=9728	bcast	0.7511	298.4	300.9
+ROUND	6	bare:d_in=9728	xbcast	0.7458	300.5	303.0
+ROUND	6	bare:d_in=9728	nc	0.7506	298.6	301.1
+ROUND	6	bare:d_in=9728	nc256	0.6920	323.9	326.6
+ROUND	6	bare:d_in=9728	cpa	0.5903	379.7	382.8
+ROUND	6	bare:d_in=9728	tile	0.5475	409.3	412.7
+ROUND	6	bare:d_in=9728	bal	0.6124	366.0	369.0
+ROUND	6	bare:all	served	2.5300	359.0	374.2
+ROUND	6	bare:all	served_np	2.8705	316.4	329.8
+ROUND	6	bare:all	acc2	2.4125	376.5	392.4
+ROUND	6	bare:all	pword	2.0328	446.8	465.7
+ROUND	6	bare:all	v2	2.4863	365.3	380.8
+ROUND	6	bare:all	v3	2.9327	309.7	322.8
+ROUND	6	bare:all	ilp2	2.6776	339.2	353.5
+ROUND	6	bare:all	v2u	3.0181	301.0	313.7
+ROUND	6	bare:all	l1w	2.5087	362.1	377.4
+ROUND	6	bare:all	bcast	3.0454	298.3	310.9
+ROUND	6	bare:all	xbcast	3.0293	299.9	312.5
+ROUND	6	bare:all	v2_s	1.9287	354.7	373.7
+ROUND	6	bare:all	v2_o2	1.8071	378.6	398.8
+ROUND	6	bare:all	nc	3.0171	301.1	313.8
+ROUND	6	bare:all	nc256	2.8936	313.9	327.2
+ROUND	6	bare:all	cpa	2.5275	359.4	374.5
+ROUND	6	bare:all	tile	2.4403	372.2	387.9
+ROUND	6	bare:all	bal	2.6208	346.6	361.2
+ROUND	6	sealed:int4:d_in=2560	q4hh	0.2786	179.9	179.9
+ROUND	6	sealed:int4:d_in=2560	q4	0.1175	426.6	426.6
+ROUND	6	sealed:int4:d_in=2560	q4nc	0.1168	429.2	429.2
+ROUND	6	sealed:int4:d_in=2560	q4t	0.1256	399.1	399.1
+ROUND	6	sealed:int4:d_in=2560	q4read	0.0718	698.7	698.7
+ROUND	6	sealed:int4:d_in=4096	q4hh	0.4974	403.2	403.2
+ROUND	6	sealed:int4:d_in=4096	q4	0.4648	431.4	431.4
+ROUND	6	sealed:int4:d_in=4096	q4nc	0.3829	523.7	523.7
+ROUND	6	sealed:int4:d_in=4096	q4t	0.3443	582.5	582.5
+ROUND	6	sealed:int4:d_in=4096	q4read	0.2995	669.6	669.6
+ROUND	6	sealed:int4:d_in=9728	q4hh	0.5283	300.5	300.5
+ROUND	6	sealed:int4:d_in=9728	q4	0.3854	412.0	412.0
+ROUND	6	sealed:int4:d_in=9728	q4nc	0.2925	542.7	542.7
+ROUND	6	sealed:int4:d_in=9728	q4t	0.2829	561.3	561.3
+ROUND	6	sealed:int4:d_in=9728	q4read	0.2351	675.2	675.2
+ROUND	6	sealed:int4:all	q4hh	1.2827	319.2	319.2
+ROUND	6	sealed:int4:all	q4	0.9781	418.6	418.6
+ROUND	6	sealed:int4:all	q4nc	0.9058	452.0	452.0
+ROUND	6	sealed:int4:all	q4t	0.7381	554.7	554.7
+ROUND	6	sealed:int4:all	q4read	0.6104	670.8	670.8
+ROUND	6	probe	v1u1/t512/c1/pf0	3.2893	652.9	652.9
+ROUND	6	probe	v1u1/t512/c1/pf2	3.1497	681.8	681.8
+ROUND	6	probe	v4u1/t512/c1/pf0	2.8572	751.6	751.6
+ROUND	6	probe	v4u1/t512/c1/pf2	3.0113	713.1	713.1
+ROUND	6	probe	v4u4/t512/c1/pf0	2.9376	731.0	731.0
+ROUND	6	probe	v4u4/t512/c1/pf2	2.9574	726.1	726.1
+ROUND	6	probe	v4u4/t256/c1/pf0	2.8692	748.5	748.5
+ROUND	6	probe	v4u4/t256/c1/pf2	2.9627	724.9	724.9
+ROUND	6	probe	v4u4/t256/c2/pf0	2.9372	731.1	731.1
+ROUND	6	probe	v4u4/t256/c2/pf2	2.9577	726.1	726.1
+ROUND	6	probe	v4u4/t256/c4/pf0	2.9434	729.6	729.6
+ROUND	6	probe	v4u4/t256/c4/pf2	2.9595	725.6	725.6
+ROUND	6	probe	v4u4/t512/c2/pf0	2.9500	728.0	728.0
+ROUND	6	probe	v4u4/t512/c2/pf2	2.9613	725.2	725.2
+ROUND	6	probe	v4u4/t1024/c1/pf0	2.9426	729.8	729.8
+ROUND	6	probe	v4u4/t1024/c1/pf2	2.9613	725.2	725.2
+ROUND	7	sealed:d_in=2560	served	1.4603	387.8	409.6
+ROUND	7	sealed:d_in=2560	served_np	1.5824	357.8	378.0
+ROUND	7	sealed:d_in=2560	acc2	1.4402	393.2	415.3
+ROUND	7	sealed:d_in=2560	pword	1.1796	480.0	507.0
+ROUND	7	sealed:d_in=2560	v2	1.4576	388.5	410.3
+ROUND	7	sealed:d_in=2560	v3	1.6188	349.8	369.5
+ROUND	7	sealed:d_in=2560	ilp2	1.5870	356.8	376.9
+ROUND	7	sealed:d_in=2560	v2u	1.6958	333.9	352.7
+ROUND	7	sealed:d_in=2560	l1w	1.4304	395.9	418.1
+ROUND	7	sealed:d_in=2560	bcast	1.7008	332.9	351.6
+ROUND	7	sealed:d_in=2560	xbcast	1.6891	335.2	354.1
+ROUND	7	sealed:d_in=2560	v2_s	1.4554	389.0	410.9
+ROUND	7	sealed:d_in=2560	v2_o2	1.4206	398.6	421.0
+ROUND	7	sealed:d_in=2560	nc	1.6838	336.3	355.2
+ROUND	7	sealed:d_in=2560	nc256	1.5921	355.6	375.7
+ROUND	7	sealed:d_in=2560	cpa	1.4895	380.1	401.5
+ROUND	7	sealed:d_in=2560	tile	1.4598	387.9	409.7
+ROUND	7	sealed:d_in=2560	bal	1.5242	371.5	392.4
+ROUND	7	sealed:d_in=9728	served	0.4073	366.9	369.9
+ROUND	7	sealed:d_in=9728	served_np	0.4472	334.1	336.9
+ROUND	7	sealed:d_in=9728	acc2	0.3752	398.2	401.5
+ROUND	7	sealed:d_in=9728	pword	0.3479	429.6	433.1
+ROUND	7	sealed:d_in=9728	v2	0.3951	378.2	381.3
+ROUND	7	sealed:d_in=9728	v3	0.4909	304.4	306.9
+ROUND	7	sealed:d_in=9728	ilp2	0.4292	348.2	351.0
+ROUND	7	sealed:d_in=9728	v2u	0.4841	308.7	311.2
+ROUND	7	sealed:d_in=9728	l1w	0.3695	404.4	407.7
+ROUND	7	sealed:d_in=9728	bcast	0.4768	313.4	315.9
+ROUND	7	sealed:d_in=9728	xbcast	0.4723	316.4	319.0
+ROUND	7	sealed:d_in=9728	nc	0.4745	314.9	317.5
+ROUND	7	sealed:d_in=9728	nc256	0.4126	362.1	365.1
+ROUND	7	sealed:d_in=9728	cpa	0.3844	388.7	391.9
+ROUND	7	sealed:d_in=9728	tile	0.3585	416.8	420.2
+ROUND	7	sealed:d_in=9728	bal	0.4084	365.9	368.9
+ROUND	7	sealed:all	served	1.8242	392.3	410.5
+ROUND	7	sealed:all	served_np	2.0055	356.9	373.3
+ROUND	7	sealed:all	acc2	1.8090	395.6	413.9
+ROUND	7	sealed:all	pword	1.5229	469.9	491.7
+ROUND	7	sealed:all	v2	1.8628	384.2	401.9
+ROUND	7	sealed:all	v3	2.1660	330.4	345.7
+ROUND	7	sealed:all	ilp2	2.0078	356.4	372.9
+ROUND	7	sealed:all	v2u	2.2462	318.6	333.3
+ROUND	7	sealed:all	l1w	1.8371	389.6	407.6
+ROUND	7	sealed:all	bcast	2.2622	316.3	331.0
+ROUND	7	sealed:all	xbcast	2.2397	319.5	334.3
+ROUND	7	sealed:all	v2_s	1.4832	381.8	403.2
+ROUND	7	sealed:all	v2_o2	1.4444	392.0	414.1
+ROUND	7	sealed:all	nc	2.2700	315.3	329.8
+ROUND	7	sealed:all	nc256	2.1594	331.4	346.7
+ROUND	7	sealed:all	cpa	1.9193	372.9	390.1
+ROUND	7	sealed:all	tile	1.8539	386.0	403.9
+ROUND	7	sealed:all	bal	1.9790	361.6	378.3
+ROUND	7	sealed:gu4e	gu_served	1.1098	403.9	426.6
+ROUND	7	sealed:gu4e	gu_served_np	1.1953	375.0	396.1
+ROUND	7	sealed:gu4e	gu_acc2	1.0840	413.5	436.8
+ROUND	7	sealed:gu4e	gu_pword	0.9074	494.0	521.8
+ROUND	7	bare:d_in=2560	served	1.6296	361.9	382.3
+ROUND	7	bare:d_in=2560	served_np	1.8177	324.5	342.8
+ROUND	7	bare:d_in=2560	acc2	1.6258	362.8	383.2
+ROUND	7	bare:d_in=2560	pword	1.3369	441.2	466.0
+ROUND	7	bare:d_in=2560	v2	1.6669	353.8	373.8
+ROUND	7	bare:d_in=2560	v3	1.8914	311.8	329.4
+ROUND	7	bare:d_in=2560	ilp2	1.7921	329.1	347.6
+ROUND	7	bare:d_in=2560	v2u	1.9915	296.2	312.8
+ROUND	7	bare:d_in=2560	l1w	1.6496	357.5	377.7
+ROUND	7	bare:d_in=2560	bcast	2.0061	294.0	310.6
+ROUND	7	bare:d_in=2560	xbcast	1.9856	297.0	313.8
+ROUND	7	bare:d_in=2560	v2_s	1.6678	353.7	373.5
+ROUND	7	bare:d_in=2560	v2_o2	1.5952	369.7	390.5
+ROUND	7	bare:d_in=2560	nc	1.9694	299.5	316.3
+ROUND	7	bare:d_in=2560	nc256	1.8519	318.5	336.4
+ROUND	7	bare:d_in=2560	cpa	1.6823	350.6	370.3
+ROUND	7	bare:d_in=2560	tile	1.6540	356.6	376.7
+ROUND	7	bare:d_in=2560	bal	1.7441	338.2	357.2
+ROUND	7	bare:d_in=4096	served	0.3267	288.8	299.0
+ROUND	7	bare:d_in=4096	served_np	0.3532	267.2	276.6
+ROUND	7	bare:d_in=4096	acc2	0.2969	317.9	329.0
+ROUND	7	bare:d_in=4096	pword	0.2422	389.7	403.4
+ROUND	7	bare:d_in=4096	v2	0.3048	309.6	320.5
+ROUND	7	bare:d_in=4096	v3	0.3740	252.3	261.2
+ROUND	7	bare:d_in=4096	ilp2	0.3276	288.1	298.2
+ROUND	7	bare:d_in=4096	v2u	0.3882	243.1	251.7
+ROUND	7	bare:d_in=4096	l1w	0.3035	310.9	321.9
+ROUND	7	bare:d_in=4096	bcast	0.3726	253.3	262.2
+ROUND	7	bare:d_in=4096	xbcast	0.3749	251.7	260.6
+ROUND	7	bare:d_in=4096	v2_s	0.3053	309.1	320.0
+ROUND	7	bare:d_in=4096	v2_o2	0.2771	340.6	352.5
+ROUND	7	bare:d_in=4096	nc	0.3702	255.0	263.9
+ROUND	7	bare:d_in=4096	nc256	0.3252	290.2	300.4
+ROUND	7	bare:d_in=4096	cpa	0.3113	303.1	313.8
+ROUND	7	bare:d_in=4096	tile	0.3151	299.5	310.1
+ROUND	7	bare:d_in=4096	bal	0.3309	285.2	295.3
+ROUND	7	bare:d_in=9728	served	0.6092	367.9	370.9
+ROUND	7	bare:d_in=9728	served_np	0.6950	322.5	325.1
+ROUND	7	bare:d_in=9728	acc2	0.5685	394.2	397.5
+ROUND	7	bare:d_in=9728	pword	0.5203	430.8	434.3
+ROUND	7	bare:d_in=9728	v2	0.6054	370.2	373.3
+ROUND	7	bare:d_in=9728	v3	0.7721	290.3	292.7
+ROUND	7	bare:d_in=9728	ilp2	0.6634	337.8	340.6
+ROUND	7	bare:d_in=9728	v2u	0.7520	298.1	300.5
+ROUND	7	bare:d_in=9728	l1w	0.5960	376.1	379.2
+ROUND	7	bare:d_in=9728	bcast	0.7482	299.6	302.0
+ROUND	7	bare:d_in=9728	xbcast	0.7416	302.2	304.7
+ROUND	7	bare:d_in=9728	nc	0.7422	302.0	304.5
+ROUND	7	bare:d_in=9728	nc256	0.6825	328.4	331.1
+ROUND	7	bare:d_in=9728	cpa	0.5871	381.8	384.9
+ROUND	7	bare:d_in=9728	tile	0.5458	410.7	414.0
+ROUND	7	bare:d_in=9728	bal	0.6127	365.8	368.8
+ROUND	7	bare:all	served	2.5111	361.7	377.0
+ROUND	7	bare:all	served_np	2.8486	318.9	332.3
+ROUND	7	bare:all	acc2	2.4374	372.7	388.4
+ROUND	7	bare:all	pword	2.0456	444.0	462.8
+ROUND	7	bare:all	v2	2.5171	360.9	376.1
+ROUND	7	bare:all	v3	2.9581	307.1	320.0
+ROUND	7	bare:all	ilp2	2.7036	336.0	350.2
+ROUND	7	bare:all	v2u	3.0387	298.9	311.5
+ROUND	7	bare:all	l1w	2.5184	360.7	375.9
+ROUND	7	bare:all	bcast	3.0572	297.1	309.7
+ROUND	7	bare:all	xbcast	3.0222	300.5	313.2
+ROUND	7	bare:all	v2_s	1.9280	354.9	373.8
+ROUND	7	bare:all	v2_o2	1.8054	379.0	399.2
+ROUND	7	bare:all	nc	2.9844	304.4	317.2
+ROUND	7	bare:all	nc256	2.8631	317.3	330.6
+ROUND	7	bare:all	cpa	2.5021	363.0	378.4
+ROUND	7	bare:all	tile	2.4206	375.2	391.1
+ROUND	7	bare:all	bal	2.5925	350.4	365.2
+ROUND	7	sealed:int4:d_in=2560	q4hh	0.2775	180.7	180.7
+ROUND	7	sealed:int4:d_in=2560	q4	0.1150	435.9	435.9
+ROUND	7	sealed:int4:d_in=2560	q4nc	0.1155	434.2	434.2
+ROUND	7	sealed:int4:d_in=2560	q4t	0.1255	399.4	399.4
+ROUND	7	sealed:int4:d_in=2560	q4read	0.0724	692.7	692.7
+ROUND	7	sealed:int4:d_in=4096	q4hh	0.4973	403.2	403.2
+ROUND	7	sealed:int4:d_in=4096	q4	0.4632	433.0	433.0
+ROUND	7	sealed:int4:d_in=4096	q4nc	0.3826	524.1	524.1
+ROUND	7	sealed:int4:d_in=4096	q4t	0.3427	585.2	585.2
+ROUND	7	sealed:int4:d_in=4096	q4read	0.3003	667.9	667.9
+ROUND	7	sealed:int4:d_in=9728	q4hh	0.5286	300.4	300.4
+ROUND	7	sealed:int4:d_in=9728	q4	0.3830	414.5	414.5
+ROUND	7	sealed:int4:d_in=9728	q4nc	0.2903	546.8	546.8
+ROUND	7	sealed:int4:d_in=9728	q4t	0.2813	564.3	564.3
+ROUND	7	sealed:int4:d_in=9728	q4read	0.2360	672.8	672.8
+ROUND	7	sealed:int4:all	q4hh	1.2759	320.9	320.9
+ROUND	7	sealed:int4:all	q4	0.9770	419.1	419.1
+ROUND	7	sealed:int4:all	q4nc	0.9149	447.5	447.5
+ROUND	7	sealed:int4:all	q4t	0.7391	554.0	554.0
+ROUND	7	sealed:int4:all	q4read	0.6047	677.1	677.1
+ROUND	7	probe	v1u1/t512/c1/pf0	3.2989	651.0	651.0
+ROUND	7	probe	v1u1/t512/c1/pf2	3.1364	684.7	684.7
+ROUND	7	probe	v4u1/t512/c1/pf0	2.8566	751.8	751.8
+ROUND	7	probe	v4u1/t512/c1/pf2	3.0189	711.3	711.3
+ROUND	7	probe	v4u4/t512/c1/pf0	2.9368	731.2	731.2
+ROUND	7	probe	v4u4/t512/c1/pf2	2.9622	725.0	725.0
+ROUND	7	probe	v4u4/t256/c1/pf0	2.8730	747.5	747.5
+ROUND	7	probe	v4u4/t256/c1/pf2	2.9521	727.4	727.4
+ROUND	7	probe	v4u4/t256/c2/pf0	2.9348	731.7	731.7
+ROUND	7	probe	v4u4/t256/c2/pf2	2.9556	726.6	726.6
+ROUND	7	probe	v4u4/t256/c4/pf0	2.9429	729.7	729.7
+ROUND	7	probe	v4u4/t256/c4/pf2	2.9600	725.5	725.5
+ROUND	7	probe	v4u4/t512/c2/pf0	2.9440	729.4	729.4
+ROUND	7	probe	v4u4/t512/c2/pf2	2.9596	725.6	725.6
+ROUND	7	probe	v4u4/t1024/c1/pf0	2.9423	729.9	729.9
+ROUND	7	probe	v4u4/t1024/c1/pf2	2.9581	726.0	726.0
+ROUND	8	sealed:d_in=2560	served	1.4644	386.7	408.4
+ROUND	8	sealed:d_in=2560	served_np	1.5983	354.3	374.2
+ROUND	8	sealed:d_in=2560	acc2	1.4407	393.0	415.1
+ROUND	8	sealed:d_in=2560	pword	1.1834	478.5	505.4
+ROUND	8	sealed:d_in=2560	v2	1.4613	387.5	409.3
+ROUND	8	sealed:d_in=2560	v3	1.6272	348.0	367.6
+ROUND	8	sealed:d_in=2560	ilp2	1.5623	362.4	382.8
+ROUND	8	sealed:d_in=2560	v2u	1.6979	333.5	352.2
+ROUND	8	sealed:d_in=2560	l1w	1.4123	400.9	423.5
+ROUND	8	sealed:d_in=2560	bcast	1.7038	332.3	351.0
+ROUND	8	sealed:d_in=2560	xbcast	1.6897	335.1	354.0
+ROUND	8	sealed:d_in=2560	v2_s	1.4585	388.2	410.1
+ROUND	8	sealed:d_in=2560	v2_o2	1.4186	399.2	421.6
+ROUND	8	sealed:d_in=2560	nc	1.6874	335.6	354.4
+ROUND	8	sealed:d_in=2560	nc256	1.5914	355.8	375.8
+ROUND	8	sealed:d_in=2560	cpa	1.4877	380.6	402.0
+ROUND	8	sealed:d_in=2560	tile	1.4614	387.5	409.3
+ROUND	8	sealed:d_in=2560	bal	1.5188	372.8	393.8
+ROUND	8	sealed:d_in=9728	served	0.4014	372.3	375.3
+ROUND	8	sealed:d_in=9728	served_np	0.4623	323.2	325.9
+ROUND	8	sealed:d_in=9728	acc2	0.3761	397.3	400.5
+ROUND	8	sealed:d_in=9728	pword	0.3532	423.1	426.5
+ROUND	8	sealed:d_in=9728	v2	0.4016	372.1	375.2
+ROUND	8	sealed:d_in=9728	v3	0.5092	293.5	295.9
+ROUND	8	sealed:d_in=9728	ilp2	0.4371	341.8	344.7
+ROUND	8	sealed:d_in=9728	v2u	0.4945	302.1	304.6
+ROUND	8	sealed:d_in=9728	l1w	0.3838	389.4	392.6
+ROUND	8	sealed:d_in=9728	bcast	0.4923	303.5	306.0
+ROUND	8	sealed:d_in=9728	xbcast	0.4891	305.5	308.0
+ROUND	8	sealed:d_in=9728	nc	0.4914	304.1	306.6
+ROUND	8	sealed:d_in=9728	nc256	0.4312	346.5	349.4
+ROUND	8	sealed:d_in=9728	cpa	0.3879	385.3	388.4
+ROUND	8	sealed:d_in=9728	tile	0.3639	410.6	414.0
+ROUND	8	sealed:d_in=9728	bal	0.4089	365.4	368.4
+ROUND	8	sealed:all	served	1.8558	385.6	403.5
+ROUND	8	sealed:all	served_np	2.0820	343.7	359.6
+ROUND	8	sealed:all	acc2	1.8135	394.6	412.9
+ROUND	8	sealed:all	pword	1.5182	471.4	493.2
+ROUND	8	sealed:all	v2	1.8556	385.7	403.5
+ROUND	8	sealed:all	v3	2.1593	331.4	346.8
+ROUND	8	sealed:all	ilp2	2.0034	357.2	373.7
+ROUND	8	sealed:all	v2u	2.2704	315.2	329.8
+ROUND	8	sealed:all	l1w	1.8587	385.0	402.8
+ROUND	8	sealed:all	bcast	2.2784	314.1	328.6
+ROUND	8	sealed:all	xbcast	2.2615	316.4	331.1
+ROUND	8	sealed:all	v2_s	1.4994	377.6	398.9
+ROUND	8	sealed:all	v2_o2	1.4392	393.4	415.6
+ROUND	8	sealed:all	nc	2.2598	316.7	331.3
+ROUND	8	sealed:all	nc256	2.1512	332.7	348.1
+ROUND	8	sealed:all	cpa	1.9173	373.3	390.5
+ROUND	8	sealed:all	tile	1.8510	386.6	404.5
+ROUND	8	sealed:all	bal	1.9923	359.2	375.8
+ROUND	8	sealed:gu4e	gu_served	1.1170	401.3	423.9
+ROUND	8	sealed:gu4e	gu_served_np	1.2054	371.9	392.8
+ROUND	8	sealed:gu4e	gu_acc2	1.0871	412.3	435.5
+ROUND	8	sealed:gu4e	gu_pword	0.9087	493.3	521.0
+ROUND	8	bare:d_in=2560	served	1.6383	360.0	380.3
+ROUND	8	bare:d_in=2560	served_np	1.8231	323.5	341.7
+ROUND	8	bare:d_in=2560	acc2	1.6170	364.8	385.3
+ROUND	8	bare:d_in=2560	pword	1.3263	444.7	469.7
+ROUND	8	bare:d_in=2560	v2	1.6417	359.3	379.5
+ROUND	8	bare:d_in=2560	v3	1.8611	316.9	334.7
+ROUND	8	bare:d_in=2560	ilp2	1.7608	335.0	353.8
+ROUND	8	bare:d_in=2560	v2u	1.9635	300.4	317.3
+ROUND	8	bare:d_in=2560	l1w	1.6444	358.7	378.9
+ROUND	8	bare:d_in=2560	bcast	1.9812	297.7	314.5
+ROUND	8	bare:d_in=2560	xbcast	1.9689	299.6	316.4
+ROUND	8	bare:d_in=2560	v2_s	1.6522	357.0	377.1
+ROUND	8	bare:d_in=2560	v2_o2	1.5777	373.9	394.9
+ROUND	8	bare:d_in=2560	nc	1.9585	301.2	318.1
+ROUND	8	bare:d_in=2560	nc256	1.8585	317.4	335.2
+ROUND	8	bare:d_in=2560	cpa	1.6866	349.7	369.4
+ROUND	8	bare:d_in=2560	tile	1.6544	356.5	376.6
+ROUND	8	bare:d_in=2560	bal	1.7488	337.3	356.2
+ROUND	8	bare:d_in=4096	served	0.3289	286.9	297.0
+ROUND	8	bare:d_in=4096	served_np	0.3545	266.2	275.6
+ROUND	8	bare:d_in=4096	acc2	0.2980	316.6	327.8
+ROUND	8	bare:d_in=4096	pword	0.2426	388.9	402.6
+ROUND	8	bare:d_in=4096	v2	0.3077	306.7	317.5
+ROUND	8	bare:d_in=4096	v3	0.3731	253.0	261.8
+ROUND	8	bare:d_in=4096	ilp2	0.3287	287.1	297.2
+ROUND	8	bare:d_in=4096	v2u	0.3717	253.9	262.8
+ROUND	8	bare:d_in=4096	l1w	0.3021	312.4	323.3
+ROUND	8	bare:d_in=4096	bcast	0.3741	252.2	261.1
+ROUND	8	bare:d_in=4096	xbcast	0.3766	250.6	259.4
+ROUND	8	bare:d_in=4096	v2_s	0.3103	304.1	314.8
+ROUND	8	bare:d_in=4096	v2_o2	0.2757	342.3	354.4
+ROUND	8	bare:d_in=4096	nc	0.3719	253.8	262.7
+ROUND	8	bare:d_in=4096	nc256	0.3259	289.6	299.8
+ROUND	8	bare:d_in=4096	cpa	0.3110	303.5	314.2
+ROUND	8	bare:d_in=4096	tile	0.3140	300.5	311.1
+ROUND	8	bare:d_in=4096	bal	0.3294	286.5	296.5
+ROUND	8	bare:d_in=9728	served	0.6077	368.8	371.9
+ROUND	8	bare:d_in=9728	served_np	0.6970	321.6	324.2
+ROUND	8	bare:d_in=9728	acc2	0.5681	394.6	397.8
+ROUND	8	bare:d_in=9728	pword	0.5205	430.6	434.1
+ROUND	8	bare:d_in=9728	v2	0.6050	370.4	373.5
+ROUND	8	bare:d_in=9728	v3	0.7741	289.6	291.9
+ROUND	8	bare:d_in=9728	ilp2	0.6601	339.5	342.3
+ROUND	8	bare:d_in=9728	v2u	0.7490	299.3	301.7
+ROUND	8	bare:d_in=9728	l1w	0.6046	370.7	373.8
+ROUND	8	bare:d_in=9728	bcast	0.7584	295.5	298.0
+ROUND	8	bare:d_in=9728	xbcast	0.7470	300.0	302.5
+ROUND	8	bare:d_in=9728	nc	0.7474	299.9	302.4
+ROUND	8	bare:d_in=9728	nc256	0.6906	324.6	327.2
+ROUND	8	bare:d_in=9728	cpa	0.5909	379.3	382.4
+ROUND	8	bare:d_in=9728	tile	0.5486	408.5	411.9
+ROUND	8	bare:d_in=9728	bal	0.6176	362.9	365.9
+ROUND	8	bare:all	served	2.5297	359.1	374.2
+ROUND	8	bare:all	served_np	2.8405	319.8	333.3
+ROUND	8	bare:all	acc2	2.4250	374.6	390.4
+ROUND	8	bare:all	pword	2.0393	445.4	464.2
+ROUND	8	bare:all	v2	2.4984	363.6	378.9
+ROUND	8	bare:all	v3	2.9554	307.3	320.3
+ROUND	8	bare:all	ilp2	2.6975	336.7	350.9
+ROUND	8	bare:all	v2u	3.0362	299.2	311.8
+ROUND	8	bare:all	l1w	2.5296	359.1	374.2
+ROUND	8	bare:all	bcast	3.0570	297.1	309.7
+ROUND	8	bare:all	xbcast	3.0248	300.3	313.0
+ROUND	8	bare:all	v2_s	1.9298	354.5	373.4
+ROUND	8	bare:all	v2_o2	1.8105	377.9	398.1
+ROUND	8	bare:all	nc	3.0170	301.1	313.8
+ROUND	8	bare:all	nc256	2.8910	314.2	327.4
+ROUND	8	bare:all	cpa	2.5297	359.1	374.2
+ROUND	8	bare:all	tile	2.4473	371.2	386.8
+ROUND	8	bare:all	bal	2.6228	346.3	360.9
+ROUND	8	sealed:int4:d_in=2560	q4hh	0.2780	180.4	180.4
+ROUND	8	sealed:int4:d_in=2560	q4	0.1160	432.0	432.0
+ROUND	8	sealed:int4:d_in=2560	q4nc	0.1170	428.6	428.6
+ROUND	8	sealed:int4:d_in=2560	q4t	0.1276	392.9	392.9
+ROUND	8	sealed:int4:d_in=2560	q4read	0.0716	700.4	700.4
+ROUND	8	sealed:int4:d_in=4096	q4hh	0.4972	403.3	403.3
+ROUND	8	sealed:int4:d_in=4096	q4	0.4640	432.2	432.2
+ROUND	8	sealed:int4:d_in=4096	q4nc	0.3841	522.2	522.2
+ROUND	8	sealed:int4:d_in=4096	q4t	0.3458	579.9	579.9
+ROUND	8	sealed:int4:d_in=4096	q4read	0.2996	669.3	669.3
+ROUND	8	sealed:int4:d_in=9728	q4hh	0.5297	299.7	299.7
+ROUND	8	sealed:int4:d_in=9728	q4	0.3843	413.1	413.1
+ROUND	8	sealed:int4:d_in=9728	q4nc	0.2924	542.9	542.9
+ROUND	8	sealed:int4:d_in=9728	q4t	0.2823	562.5	562.5
+ROUND	8	sealed:int4:d_in=9728	q4read	0.2359	673.0	673.0
+ROUND	8	sealed:int4:all	q4hh	1.2814	319.5	319.5
+ROUND	8	sealed:int4:all	q4	0.9748	420.0	420.0
+ROUND	8	sealed:int4:all	q4nc	0.9083	450.8	450.8
+ROUND	8	sealed:int4:all	q4t	0.7363	556.1	556.1
+ROUND	8	sealed:int4:all	q4read	0.6059	675.8	675.8
+ROUND	8	probe	v1u1/t512/c1/pf0	3.2855	653.6	653.6
+ROUND	8	probe	v1u1/t512/c1/pf2	3.1470	682.4	682.4
+ROUND	8	probe	v4u1/t512/c1/pf0	2.8538	752.5	752.5
+ROUND	8	probe	v4u1/t512/c1/pf2	3.0089	713.7	713.7
+ROUND	8	probe	v4u4/t512/c1/pf0	2.9365	731.3	731.3
+ROUND	8	probe	v4u4/t512/c1/pf2	2.9561	726.5	726.5
+ROUND	8	probe	v4u4/t256/c1/pf0	2.8632	750.0	750.0
+ROUND	8	probe	v4u4/t256/c1/pf2	2.9578	726.0	726.0
+ROUND	8	probe	v4u4/t256/c2/pf0	2.9359	731.4	731.4
+ROUND	8	probe	v4u4/t256/c2/pf2	2.9570	726.2	726.2
+ROUND	8	probe	v4u4/t256/c4/pf0	2.9425	729.8	729.8
+ROUND	8	probe	v4u4/t256/c4/pf2	2.9597	725.6	725.6
+ROUND	8	probe	v4u4/t512/c2/pf0	2.9460	728.9	728.9
+ROUND	8	probe	v4u4/t512/c2/pf2	2.9640	724.5	724.5
+ROUND	8	probe	v4u4/t1024/c1/pf0	2.9492	728.2	728.2
+ROUND	8	probe	v4u4/t1024/c1/pf2	2.9639	724.5	724.5
+ROUND	9	sealed:d_in=2560	served	1.4646	386.6	408.4
+ROUND	9	sealed:d_in=2560	served_np	1.5899	356.1	376.2
+ROUND	9	sealed:d_in=2560	acc2	1.4484	390.9	412.9
+ROUND	9	sealed:d_in=2560	pword	1.1806	479.6	506.6
+ROUND	9	sealed:d_in=2560	v2	1.4617	387.4	409.2
+ROUND	9	sealed:d_in=2560	v3	1.6236	348.8	368.4
+ROUND	9	sealed:d_in=2560	ilp2	1.5683	361.0	381.4
+ROUND	9	sealed:d_in=2560	v2u	1.7072	331.7	350.3
+ROUND	9	sealed:d_in=2560	l1w	1.4356	394.4	416.6
+ROUND	9	sealed:d_in=2560	bcast	1.7079	331.5	350.2
+ROUND	9	sealed:d_in=2560	xbcast	1.6930	334.5	353.3
+ROUND	9	sealed:d_in=2560	v2_s	1.4578	388.4	410.3
+ROUND	9	sealed:d_in=2560	v2_o2	1.4231	397.9	420.3
+ROUND	9	sealed:d_in=2560	nc	1.6855	335.9	354.8
+ROUND	9	sealed:d_in=2560	nc256	1.5912	355.9	375.9
+ROUND	9	sealed:d_in=2560	cpa	1.4870	380.8	402.2
+ROUND	9	sealed:d_in=2560	tile	1.4641	386.8	408.5
+ROUND	9	sealed:d_in=2560	bal	1.5217	372.1	393.0
+ROUND	9	sealed:d_in=9728	served	0.4055	368.5	371.5
+ROUND	9	sealed:d_in=9728	served_np	0.4441	336.5	339.3
+ROUND	9	sealed:d_in=9728	acc2	0.3738	399.8	403.1
+ROUND	9	sealed:d_in=9728	pword	0.3456	432.4	435.9
+ROUND	9	sealed:d_in=9728	v2	0.3958	377.5	380.6
+ROUND	9	sealed:d_in=9728	v3	0.4902	304.8	307.4
+ROUND	9	sealed:d_in=9728	ilp2	0.4298	347.7	350.5
+ROUND	9	sealed:d_in=9728	v2u	0.4768	313.4	316.0
+ROUND	9	sealed:d_in=9728	l1w	0.3691	404.8	408.1
+ROUND	9	sealed:d_in=9728	bcast	0.4754	314.3	316.9
+ROUND	9	sealed:d_in=9728	xbcast	0.4693	318.4	321.0
+ROUND	9	sealed:d_in=9728	nc	0.4756	314.2	316.8
+ROUND	9	sealed:d_in=9728	nc256	0.4153	359.8	362.7
+ROUND	9	sealed:d_in=9728	cpa	0.3880	385.1	388.3
+ROUND	9	sealed:d_in=9728	tile	0.3598	415.2	418.7
+ROUND	9	sealed:d_in=9728	bal	0.4074	366.8	369.8
+ROUND	9	sealed:all	served	1.8269	391.7	409.8
+ROUND	9	sealed:all	served_np	2.0945	341.7	357.5
+ROUND	9	sealed:all	acc2	1.8238	392.4	410.5
+ROUND	9	sealed:all	pword	1.5220	470.2	491.9
+ROUND	9	sealed:all	v2	1.8653	383.7	401.4
+ROUND	9	sealed:all	v3	2.1663	330.4	345.6
+ROUND	9	sealed:all	ilp2	2.0115	355.8	372.2
+ROUND	9	sealed:all	v2u	2.2523	317.7	332.4
+ROUND	9	sealed:all	l1w	1.8395	389.1	407.0
+ROUND	9	sealed:all	bcast	2.2597	316.7	331.3
+ROUND	9	sealed:all	xbcast	2.2493	318.2	332.9
+ROUND	9	sealed:all	v2_s	1.5078	375.5	396.6
+ROUND	9	sealed:all	v2_o2	1.4476	391.2	413.2
+ROUND	9	sealed:all	nc	2.2703	315.2	329.8
+ROUND	9	sealed:all	nc256	2.1590	331.5	346.8
+ROUND	9	sealed:all	cpa	1.9189	372.9	390.2
+ROUND	9	sealed:all	tile	1.8563	385.5	403.3
+ROUND	9	sealed:all	bal	1.9859	360.4	377.0
+ROUND	9	sealed:gu4e	gu_served	1.1104	403.7	426.4
+ROUND	9	sealed:gu4e	gu_served_np	1.1977	374.3	395.3
+ROUND	9	sealed:gu4e	gu_acc2	1.0891	411.6	434.7
+ROUND	9	sealed:gu4e	gu_pword	0.9043	495.7	523.6
+ROUND	9	bare:d_in=2560	served	1.6324	361.3	381.7
+ROUND	9	bare:d_in=2560	served_np	1.8363	321.2	339.3
+ROUND	9	bare:d_in=2560	acc2	1.6305	361.8	382.1
+ROUND	9	bare:d_in=2560	pword	1.3290	443.8	468.8
+ROUND	9	bare:d_in=2560	v2	1.6503	357.4	377.5
+ROUND	9	bare:d_in=2560	v3	1.8717	315.1	332.9
+ROUND	9	bare:d_in=2560	ilp2	1.7734	332.6	351.3
+ROUND	9	bare:d_in=2560	v2u	1.9730	299.0	315.8
+ROUND	9	bare:d_in=2560	l1w	1.6401	359.6	379.9
+ROUND	9	bare:d_in=2560	bcast	1.9806	297.8	314.6
+ROUND	9	bare:d_in=2560	xbcast	1.9688	299.6	316.4
+ROUND	9	bare:d_in=2560	v2_s	1.6524	356.9	377.0
+ROUND	9	bare:d_in=2560	v2_o2	1.5777	373.9	394.9
+ROUND	9	bare:d_in=2560	nc	1.9612	300.7	317.7
+ROUND	9	bare:d_in=2560	nc256	1.8555	317.9	335.8
+ROUND	9	bare:d_in=2560	cpa	1.6853	350.0	369.7
+ROUND	9	bare:d_in=2560	tile	1.6508	357.3	377.4
+ROUND	9	bare:d_in=2560	bal	1.7500	337.0	356.0
+ROUND	9	bare:d_in=4096	served	0.3293	286.6	296.6
+ROUND	9	bare:d_in=4096	served_np	0.3543	266.4	275.7
+ROUND	9	bare:d_in=4096	acc2	0.2973	317.4	328.6
+ROUND	9	bare:d_in=4096	pword	0.2433	387.9	401.5
+ROUND	9	bare:d_in=4096	v2	0.3060	308.5	319.3
+ROUND	9	bare:d_in=4096	v3	0.3731	253.0	261.9
+ROUND	9	bare:d_in=4096	ilp2	0.3298	286.2	296.2
+ROUND	9	bare:d_in=4096	v2u	0.3742	252.2	261.1
+ROUND	9	bare:d_in=4096	l1w	0.3033	311.2	322.1
+ROUND	9	bare:d_in=4096	bcast	0.3717	253.9	262.9
+ROUND	9	bare:d_in=4096	xbcast	0.3702	254.9	263.9
+ROUND	9	bare:d_in=4096	v2_s	0.3088	305.6	316.4
+ROUND	9	bare:d_in=4096	v2_o2	0.2753	342.8	354.9
+ROUND	9	bare:d_in=4096	nc	0.3706	254.6	263.6
+ROUND	9	bare:d_in=4096	nc256	0.3267	288.9	299.1
+ROUND	9	bare:d_in=4096	cpa	0.3112	303.3	313.9
+ROUND	9	bare:d_in=4096	tile	0.3144	300.2	310.8
+ROUND	9	bare:d_in=4096	bal	0.3303	285.7	295.8
+ROUND	9	bare:d_in=9728	served	0.6113	366.7	369.7
+ROUND	9	bare:d_in=9728	served_np	0.6994	320.5	323.1
+ROUND	9	bare:d_in=9728	acc2	0.5699	393.3	396.5
+ROUND	9	bare:d_in=9728	pword	0.5259	426.2	429.7
+ROUND	9	bare:d_in=9728	v2	0.6056	370.1	373.2
+ROUND	9	bare:d_in=9728	v3	0.7720	290.3	292.7
+ROUND	9	bare:d_in=9728	ilp2	0.6609	339.2	341.9
+ROUND	9	bare:d_in=9728	v2u	0.7474	299.9	302.3
+ROUND	9	bare:d_in=9728	l1w	0.6011	372.9	376.0
+ROUND	9	bare:d_in=9728	bcast	0.7608	294.6	297.0
+ROUND	9	bare:d_in=9728	xbcast	0.7455	300.7	303.1
+ROUND	9	bare:d_in=9728	nc	0.7487	299.4	301.8
+ROUND	9	bare:d_in=9728	nc256	0.6889	325.4	328.0
+ROUND	9	bare:d_in=9728	cpa	0.5888	380.6	383.8
+ROUND	9	bare:d_in=9728	tile	0.5489	408.4	411.7
+ROUND	9	bare:d_in=9728	bal	0.6134	365.4	368.4
+ROUND	9	bare:all	served	2.5335	358.5	373.7
+ROUND	9	bare:all	served_np	2.8658	317.0	330.3
+ROUND	9	bare:all	acc2	2.4617	369.0	384.6
+ROUND	9	bare:all	pword	2.0570	441.6	460.2
+ROUND	9	bare:all	v2	2.5390	357.8	372.9
+ROUND	9	bare:all	v3	2.9697	305.9	318.8
+ROUND	9	bare:all	ilp2	2.7044	335.9	350.0
+ROUND	9	bare:all	v2u	3.0441	298.4	311.0
+ROUND	9	bare:all	l1w	2.5310	358.9	374.0
+ROUND	9	bare:all	bcast	3.0748	295.4	307.9
+ROUND	9	bare:all	xbcast	3.0368	299.1	311.7
+ROUND	9	bare:all	v2_s	1.9336	353.8	372.7
+ROUND	9	bare:all	v2_o2	1.8076	378.5	398.7
+ROUND	9	bare:all	nc	3.0017	302.6	315.4
+ROUND	9	bare:all	nc256	2.8719	316.3	329.6
+ROUND	9	bare:all	cpa	2.5117	361.6	376.9
+ROUND	9	bare:all	tile	2.4315	373.6	389.3
+ROUND	9	bare:all	bal	2.5975	349.7	364.4
+ROUND	9	sealed:int4:d_in=2560	q4hh	0.2759	181.7	181.7
+ROUND	9	sealed:int4:d_in=2560	q4	0.1166	429.9	429.9
+ROUND	9	sealed:int4:d_in=2560	q4nc	0.1163	431.2	431.2
+ROUND	9	sealed:int4:d_in=2560	q4t	0.1287	389.6	389.6
+ROUND	9	sealed:int4:d_in=2560	q4read	0.0740	677.4	677.4
+ROUND	9	sealed:int4:d_in=4096	q4hh	0.4981	402.6	402.6
+ROUND	9	sealed:int4:d_in=4096	q4	0.4648	431.5	431.5
+ROUND	9	sealed:int4:d_in=4096	q4nc	0.3818	525.2	525.2
+ROUND	9	sealed:int4:d_in=4096	q4t	0.3447	581.7	581.7
+ROUND	9	sealed:int4:d_in=4096	q4read	0.3000	668.4	668.4
+ROUND	9	sealed:int4:d_in=9728	q4hh	0.5279	300.8	300.8
+ROUND	9	sealed:int4:d_in=9728	q4	0.3835	414.0	414.0
+ROUND	9	sealed:int4:d_in=9728	q4nc	0.2952	537.9	537.9
+ROUND	9	sealed:int4:d_in=9728	q4t	0.2841	558.8	558.8
+ROUND	9	sealed:int4:d_in=9728	q4read	0.2362	672.1	672.1
+ROUND	9	sealed:int4:all	q4hh	1.2932	316.6	316.6
+ROUND	9	sealed:int4:all	q4	0.9816	417.1	417.1
+ROUND	9	sealed:int4:all	q4nc	0.9139	448.0	448.0
+ROUND	9	sealed:int4:all	q4t	0.7377	555.0	555.0
+ROUND	9	sealed:int4:all	q4read	0.6090	672.3	672.3
+ROUND	9	probe	v1u1/t512/c1/pf0	3.2918	652.4	652.4
+ROUND	9	probe	v1u1/t512/c1/pf2	3.1543	680.8	680.8
+ROUND	9	probe	v4u1/t512/c1/pf0	2.8639	749.8	749.8
+ROUND	9	probe	v4u1/t512/c1/pf2	3.0083	713.9	713.9
+ROUND	9	probe	v4u4/t512/c1/pf0	2.9382	730.9	730.9
+ROUND	9	probe	v4u4/t512/c1/pf2	2.9572	726.2	726.2
+ROUND	9	probe	v4u4/t256/c1/pf0	2.8695	748.4	748.4
+ROUND	9	probe	v4u4/t256/c1/pf2	2.9470	728.7	728.7
+ROUND	9	probe	v4u4/t256/c2/pf0	2.9381	730.9	730.9
+ROUND	9	probe	v4u4/t256/c2/pf2	2.9590	725.7	725.7
+ROUND	9	probe	v4u4/t256/c4/pf0	2.9424	729.8	729.8
+ROUND	9	probe	v4u4/t256/c4/pf2	2.9638	724.6	724.6
+ROUND	9	probe	v4u4/t512/c2/pf0	2.9441	729.4	729.4
+ROUND	9	probe	v4u4/t512/c2/pf2	2.9601	725.5	725.5
+ROUND	9	probe	v4u4/t1024/c1/pf0	2.9417	730.0	730.0
+ROUND	9	probe	v4u4/t1024/c1/pf2	2.9596	725.6	725.6
+ROUND	10	sealed:d_in=2560	served	1.4625	387.2	408.9
+ROUND	10	sealed:d_in=2560	served_np	1.5943	355.2	375.1
+ROUND	10	sealed:d_in=2560	acc2	1.4507	390.3	412.3
+ROUND	10	sealed:d_in=2560	pword	1.1840	478.2	505.1
+ROUND	10	sealed:d_in=2560	v2	1.4578	388.4	410.3
+ROUND	10	sealed:d_in=2560	v3	1.6224	349.0	368.6
+ROUND	10	sealed:d_in=2560	ilp2	1.5635	362.2	382.5
+ROUND	10	sealed:d_in=2560	v2u	1.6964	333.8	352.6
+ROUND	10	sealed:d_in=2560	l1w	1.4372	394.0	416.2
+ROUND	10	sealed:d_in=2560	bcast	1.7091	331.3	349.9
+ROUND	10	sealed:d_in=2560	xbcast	1.6931	334.4	353.3
+ROUND	10	sealed:d_in=2560	v2_s	1.4606	387.7	409.5
+ROUND	10	sealed:d_in=2560	v2_o2	1.4261	397.1	419.4
+ROUND	10	sealed:d_in=2560	nc	1.6844	336.2	355.1
+ROUND	10	sealed:d_in=2560	nc256	1.5933	355.4	375.4
+ROUND	10	sealed:d_in=2560	cpa	1.4898	380.1	401.4
+ROUND	10	sealed:d_in=2560	tile	1.4651	386.5	408.2
+ROUND	10	sealed:d_in=2560	bal	1.5446	366.6	387.2
+ROUND	10	sealed:d_in=9728	served	0.4015	372.1	375.2
+ROUND	10	sealed:d_in=9728	served_np	0.4524	330.3	333.0
+ROUND	10	sealed:d_in=9728	acc2	0.3778	395.5	398.8
+ROUND	10	sealed:d_in=9728	pword	0.3500	427.0	430.5
+ROUND	10	sealed:d_in=9728	v2	0.3998	373.7	376.8
+ROUND	10	sealed:d_in=9728	v3	0.5015	298.0	300.4
+ROUND	10	sealed:d_in=9728	ilp2	0.4328	345.2	348.1
+ROUND	10	sealed:d_in=9728	v2u	0.4897	305.1	307.6
+ROUND	10	sealed:d_in=9728	l1w	0.3781	395.2	398.4
+ROUND	10	sealed:d_in=9728	bcast	0.4874	306.6	309.1
+ROUND	10	sealed:d_in=9728	xbcast	0.4856	307.7	310.3
+ROUND	10	sealed:d_in=9728	nc	0.4897	305.1	307.6
+ROUND	10	sealed:d_in=9728	nc256	0.4274	349.6	352.5
+ROUND	10	sealed:d_in=9728	cpa	0.3929	380.3	383.4
+ROUND	10	sealed:d_in=9728	tile	0.3619	412.8	416.2
+ROUND	10	sealed:d_in=9728	bal	0.4065	367.6	370.6
+ROUND	10	sealed:all	served	1.8386	389.2	407.2
+ROUND	10	sealed:all	served_np	2.0593	347.5	363.6
+ROUND	10	sealed:all	acc2	1.7956	398.6	417.0
+ROUND	10	sealed:all	pword	1.5131	473.0	494.8
+ROUND	10	sealed:all	v2	1.8406	388.8	406.8
+ROUND	10	sealed:all	v3	2.1798	328.3	343.5
+ROUND	10	sealed:all	ilp2	2.0417	350.5	366.7
+ROUND	10	sealed:all	v2u	2.2887	312.7	327.1
+ROUND	10	sealed:all	l1w	1.8655	383.6	401.4
+ROUND	10	sealed:all	bcast	2.2909	312.4	326.8
+ROUND	10	sealed:all	xbcast	2.2796	313.9	328.4
+ROUND	10	sealed:all	v2_s	1.5061	376.0	397.1
+ROUND	10	sealed:all	v2_o2	1.4431	392.4	414.4
+ROUND	10	sealed:all	nc	2.2677	315.6	330.2
+ROUND	10	sealed:all	nc256	2.1580	331.6	347.0
+ROUND	10	sealed:all	cpa	1.9083	375.0	392.4
+ROUND	10	sealed:all	tile	1.8487	387.1	405.0
+ROUND	10	sealed:all	bal	1.9685	363.6	380.4
+ROUND	10	sealed:gu4e	gu_served	1.1024	406.6	429.5
+ROUND	10	sealed:gu4e	gu_served_np	1.1896	376.8	398.0
+ROUND	10	sealed:gu4e	gu_acc2	1.0846	413.3	436.5
+ROUND	10	sealed:gu4e	gu_pword	0.9076	493.9	521.7
+ROUND	10	bare:d_in=2560	served	1.6218	363.7	384.1
+ROUND	10	bare:d_in=2560	served_np	1.8045	326.9	345.3
+ROUND	10	bare:d_in=2560	acc2	1.5982	369.1	389.8
+ROUND	10	bare:d_in=2560	pword	1.3187	447.3	472.4
+ROUND	10	bare:d_in=2560	v2	1.6256	362.8	383.2
+ROUND	10	bare:d_in=2560	v3	1.8549	318.0	335.9
+ROUND	10	bare:d_in=2560	ilp2	1.7896	329.6	348.1
+ROUND	10	bare:d_in=2560	v2u	1.9915	296.2	312.8
+ROUND	10	bare:d_in=2560	l1w	1.6542	356.6	376.6
+ROUND	10	bare:d_in=2560	bcast	1.9999	294.9	311.5
+ROUND	10	bare:d_in=2560	xbcast	1.9855	297.1	313.8
+ROUND	10	bare:d_in=2560	v2_s	1.6753	352.1	371.9
+ROUND	10	bare:d_in=2560	v2_o2	1.6028	368.0	388.7
+ROUND	10	bare:d_in=2560	nc	1.9844	297.2	314.0
+ROUND	10	bare:d_in=2560	nc256	1.8747	314.6	332.3
+ROUND	10	bare:d_in=2560	cpa	1.7022	346.5	366.0
+ROUND	10	bare:d_in=2560	tile	1.6612	355.0	375.0
+ROUND	10	bare:d_in=2560	bal	1.7433	338.3	357.4
+ROUND	10	bare:d_in=4096	served	0.3299	286.0	296.1
+ROUND	10	bare:d_in=4096	served_np	0.3524	267.8	277.2
+ROUND	10	bare:d_in=4096	acc2	0.2975	317.2	328.4
+ROUND	10	bare:d_in=4096	pword	0.2437	387.2	400.8
+ROUND	10	bare:d_in=4096	v2	0.3054	309.1	319.9
+ROUND	10	bare:d_in=4096	v3	0.3762	250.9	259.7
+ROUND	10	bare:d_in=4096	ilp2	0.3317	284.5	294.5
+ROUND	10	bare:d_in=4096	v2u	0.3746	252.0	260.8
+ROUND	10	bare:d_in=4096	l1w	0.3052	309.2	320.1
+ROUND	10	bare:d_in=4096	bcast	0.3726	253.2	262.2
+ROUND	10	bare:d_in=4096	xbcast	0.3753	251.5	260.3
+ROUND	10	bare:d_in=4096	v2_s	0.3081	306.3	317.1
+ROUND	10	bare:d_in=4096	v2_o2	0.2769	340.8	352.8
+ROUND	10	bare:d_in=4096	nc	0.3703	254.8	263.8
+ROUND	10	bare:d_in=4096	nc256	0.3265	289.1	299.2
+ROUND	10	bare:d_in=4096	cpa	0.3116	302.9	313.5
+ROUND	10	bare:d_in=4096	tile	0.3167	298.0	308.4
+ROUND	10	bare:d_in=4096	bal	0.3316	284.6	294.6
+ROUND	10	bare:d_in=9728	served	0.6087	368.2	371.3
+ROUND	10	bare:d_in=9728	served_np	0.6964	321.8	324.5
+ROUND	10	bare:d_in=9728	acc2	0.5706	392.8	396.0
+ROUND	10	bare:d_in=9728	pword	0.5229	428.6	432.1
+ROUND	10	bare:d_in=9728	v2	0.6075	369.0	372.0
+ROUND	10	bare:d_in=9728	v3	0.7733	289.9	292.2
+ROUND	10	bare:d_in=9728	ilp2	0.6669	336.1	338.9
+ROUND	10	bare:d_in=9728	v2u	0.7519	298.1	300.5
+ROUND	10	bare:d_in=9728	l1w	0.6061	369.8	372.9
+ROUND	10	bare:d_in=9728	bcast	0.7612	294.5	296.9
+ROUND	10	bare:d_in=9728	xbcast	0.7502	298.8	301.2
+ROUND	10	bare:d_in=9728	nc	0.7502	298.8	301.2
+ROUND	10	bare:d_in=9728	nc256	0.6912	324.3	326.9
+ROUND	10	bare:d_in=9728	cpa	0.5939	377.4	380.5
+ROUND	10	bare:d_in=9728	tile	0.5496	407.8	411.1
+ROUND	10	bare:d_in=9728	bal	0.6141	365.0	368.0
+ROUND	10	bare:all	served	2.4997	363.4	378.7
+ROUND	10	bare:all	served_np	2.8269	321.3	334.9
+ROUND	10	bare:all	acc2	2.4246	374.6	390.4
+ROUND	10	bare:all	pword	2.0397	445.3	464.1
+ROUND	10	bare:all	v2	2.5005	363.3	378.6
+ROUND	10	bare:all	v3	2.9527	307.6	320.6
+ROUND	10	bare:all	ilp2	2.6958	336.9	351.2
+ROUND	10	bare:all	v2u	3.0288	299.9	312.6
+ROUND	10	bare:all	l1w	2.5085	362.1	377.4
+ROUND	10	bare:all	bcast	3.0390	298.9	311.5
+ROUND	10	bare:all	xbcast	3.0127	301.5	314.2
+ROUND	10	bare:all	v2_s	1.9272	355.0	374.0
+ROUND	10	bare:all	v2_o2	1.8094	378.1	398.3
+ROUND	10	bare:all	nc	2.9994	302.8	315.6
+ROUND	10	bare:all	nc256	2.8753	315.9	329.2
+ROUND	10	bare:all	cpa	2.5213	360.3	375.5
+ROUND	10	bare:all	tile	2.4342	373.1	388.9
+ROUND	10	bare:all	bal	2.6143	347.4	362.1
+ROUND	10	sealed:int4:d_in=2560	q4hh	0.2836	176.8	176.8
+ROUND	10	sealed:int4:d_in=2560	q4	0.1158	433.0	433.0
+ROUND	10	sealed:int4:d_in=2560	q4nc	0.1181	424.4	424.4
+ROUND	10	sealed:int4:d_in=2560	q4t	0.1273	393.7	393.7
+ROUND	10	sealed:int4:d_in=2560	q4read	0.0729	688.1	688.1
+ROUND	10	sealed:int4:d_in=4096	q4hh	0.4980	402.7	402.7
+ROUND	10	sealed:int4:d_in=4096	q4	0.4636	432.6	432.6
+ROUND	10	sealed:int4:d_in=4096	q4nc	0.3853	520.4	520.4
+ROUND	10	sealed:int4:d_in=4096	q4t	0.3443	582.5	582.5
+ROUND	10	sealed:int4:d_in=4096	q4read	0.3012	665.8	665.8
+ROUND	10	sealed:int4:d_in=9728	q4hh	0.5296	299.8	299.8
+ROUND	10	sealed:int4:d_in=9728	q4	0.3861	411.2	411.2
+ROUND	10	sealed:int4:d_in=9728	q4nc	0.2908	545.9	545.9
+ROUND	10	sealed:int4:d_in=9728	q4t	0.2823	562.3	562.3
+ROUND	10	sealed:int4:d_in=9728	q4read	0.2360	672.7	672.7
+ROUND	10	sealed:int4:all	q4hh	1.2803	319.8	319.8
+ROUND	10	sealed:int4:all	q4	0.9755	419.7	419.7
+ROUND	10	sealed:int4:all	q4nc	0.9035	453.2	453.2
+ROUND	10	sealed:int4:all	q4t	0.7347	557.3	557.3
+ROUND	10	sealed:int4:all	q4read	0.6078	673.6	673.6
+ROUND	10	probe	v1u1/t512/c1/pf0	3.2884	653.0	653.0
+ROUND	10	probe	v1u1/t512/c1/pf2	3.1614	679.3	679.3
+ROUND	10	probe	v4u1/t512/c1/pf0	2.8570	751.6	751.6
+ROUND	10	probe	v4u1/t512/c1/pf2	3.0211	710.8	710.8
+ROUND	10	probe	v4u4/t512/c1/pf0	2.9372	731.1	731.1
+ROUND	10	probe	v4u4/t512/c1/pf2	2.9563	726.4	726.4
+ROUND	10	probe	v4u4/t256/c1/pf0	2.8662	749.2	749.2
+ROUND	10	probe	v4u4/t256/c1/pf2	2.9562	726.4	726.4
+ROUND	10	probe	v4u4/t256/c2/pf0	2.9389	730.7	730.7
+ROUND	10	probe	v4u4/t256/c2/pf2	2.9566	726.3	726.3
+ROUND	10	probe	v4u4/t256/c4/pf0	2.9427	729.8	729.8
+ROUND	10	probe	v4u4/t256/c4/pf2	2.9622	725.0	725.0
+ROUND	10	probe	v4u4/t512/c2/pf0	2.9436	729.5	729.5
+ROUND	10	probe	v4u4/t512/c2/pf2	2.9593	725.7	725.7
+ROUND	10	probe	v4u4/t1024/c1/pf0	2.9476	728.6	728.6
+ROUND	10	probe	v4u4/t1024/c1/pf2	2.9592	725.7	725.7
+ROUND	11	sealed:d_in=2560	served	1.4609	387.6	409.4
+ROUND	11	sealed:d_in=2560	served_np	1.5988	354.2	374.1
+ROUND	11	sealed:d_in=2560	acc2	1.4470	391.3	413.3
+ROUND	11	sealed:d_in=2560	pword	1.1881	476.6	503.4
+ROUND	11	sealed:d_in=2560	v2	1.4662	386.2	407.9
+ROUND	11	sealed:d_in=2560	v3	1.6258	348.3	367.9
+ROUND	11	sealed:d_in=2560	ilp2	1.5683	361.1	381.4
+ROUND	11	sealed:d_in=2560	v2u	1.7065	331.8	350.5
+ROUND	11	sealed:d_in=2560	l1w	1.4321	395.4	417.6
+ROUND	11	sealed:d_in=2560	bcast	1.7063	331.8	350.5
+ROUND	11	sealed:d_in=2560	xbcast	1.6977	333.5	352.3
+ROUND	11	sealed:d_in=2560	v2_s	1.4623	387.2	409.0
+ROUND	11	sealed:d_in=2560	v2_o2	1.4286	396.3	418.6
+ROUND	11	sealed:d_in=2560	nc	1.6911	334.8	353.7
+ROUND	11	sealed:d_in=2560	nc256	1.5888	356.4	376.4
+ROUND	11	sealed:d_in=2560	cpa	1.4897	380.1	401.5
+ROUND	11	sealed:d_in=2560	tile	1.4628	387.1	408.9
+ROUND	11	sealed:d_in=2560	bal	1.5213	372.2	393.1
+ROUND	11	sealed:d_in=9728	served	0.4026	371.1	374.2
+ROUND	11	sealed:d_in=9728	served_np	0.4457	335.3	338.0
+ROUND	11	sealed:d_in=9728	acc2	0.3754	398.1	401.3
+ROUND	11	sealed:d_in=9728	pword	0.3477	429.7	433.2
+ROUND	11	sealed:d_in=9728	v2	0.3959	377.4	380.5
+ROUND	11	sealed:d_in=9728	v3	0.4918	303.8	306.3
+ROUND	11	sealed:d_in=9728	ilp2	0.4319	346.0	348.8
+ROUND	11	sealed:d_in=9728	v2u	0.4760	313.9	316.5
+ROUND	11	sealed:d_in=9728	l1w	0.3703	403.6	406.9
+ROUND	11	sealed:d_in=9728	bcast	0.4788	312.1	314.6
+ROUND	11	sealed:d_in=9728	xbcast	0.4807	310.8	313.4
+ROUND	11	sealed:d_in=9728	nc	0.4919	303.7	306.2
+ROUND	11	sealed:d_in=9728	nc256	0.4313	346.4	349.3
+ROUND	11	sealed:d_in=9728	cpa	0.3904	382.7	385.9
+ROUND	11	sealed:d_in=9728	tile	0.3655	408.9	412.2
+ROUND	11	sealed:d_in=9728	bal	0.4096	364.8	367.8
+ROUND	11	sealed:all	served	1.8557	385.6	403.5
+ROUND	11	sealed:all	served_np	2.0811	343.9	359.8
+ROUND	11	sealed:all	acc2	1.8106	395.2	413.5
+ROUND	11	sealed:all	pword	1.5261	469.0	490.6
+ROUND	11	sealed:all	v2	1.8579	385.2	403.0
+ROUND	11	sealed:all	v3	2.1624	330.9	346.2
+ROUND	11	sealed:all	ilp2	2.0067	356.6	373.1
+ROUND	11	sealed:all	v2u	2.2396	319.5	334.3
+ROUND	11	sealed:all	l1w	1.8300	391.1	409.1
+ROUND	11	sealed:all	bcast	2.2661	315.8	330.4
+ROUND	11	sealed:all	xbcast	2.2435	319.0	333.7
+ROUND	11	sealed:all	v2_s	1.4843	381.5	402.9
+ROUND	11	sealed:all	v2_o2	1.4387	393.6	415.7
+ROUND	11	sealed:all	nc	2.2373	319.9	334.7
+ROUND	11	sealed:all	nc256	2.1277	336.3	351.9
+ROUND	11	sealed:all	cpa	1.8939	377.9	395.3
+ROUND	11	sealed:all	tile	1.8296	391.2	409.2
+ROUND	11	sealed:all	bal	1.9540	366.2	383.2
+ROUND	11	sealed:gu4e	gu_served	1.0974	408.5	431.4
+ROUND	11	sealed:gu4e	gu_served_np	1.1937	375.5	396.6
+ROUND	11	sealed:gu4e	gu_acc2	1.0849	413.2	436.4
+ROUND	11	sealed:gu4e	gu_pword	0.9080	493.7	521.4
+ROUND	11	bare:d_in=2560	served	1.6308	361.7	382.0
+ROUND	11	bare:d_in=2560	served_np	1.8198	324.1	342.3
+ROUND	11	bare:d_in=2560	acc2	1.6082	366.8	387.4
+ROUND	11	bare:d_in=2560	pword	1.3212	446.4	471.6
+ROUND	11	bare:d_in=2560	v2	1.6321	361.4	381.7
+ROUND	11	bare:d_in=2560	v3	1.8567	317.7	335.5
+ROUND	11	bare:d_in=2560	ilp2	1.7527	336.5	355.5
+ROUND	11	bare:d_in=2560	v2u	1.9539	301.9	318.9
+ROUND	11	bare:d_in=2560	l1w	1.6139	365.5	386.0
+ROUND	11	bare:d_in=2560	bcast	1.9608	300.8	317.7
+ROUND	11	bare:d_in=2560	xbcast	1.9557	301.6	318.6
+ROUND	11	bare:d_in=2560	v2_s	1.6402	359.6	379.8
+ROUND	11	bare:d_in=2560	v2_o2	1.5746	374.6	395.7
+ROUND	11	bare:d_in=2560	nc	1.9454	303.2	320.2
+ROUND	11	bare:d_in=2560	nc256	1.8389	320.7	338.8
+ROUND	11	bare:d_in=2560	cpa	1.6689	353.4	373.3
+ROUND	11	bare:d_in=2560	tile	1.6421	359.2	379.4
+ROUND	11	bare:d_in=2560	bal	1.7368	339.6	358.7
+ROUND	11	bare:d_in=4096	served	0.3255	289.9	300.1
+ROUND	11	bare:d_in=4096	served_np	0.3489	270.5	280.0
+ROUND	11	bare:d_in=4096	acc2	0.2954	319.5	330.7
+ROUND	11	bare:d_in=4096	pword	0.2422	389.7	403.4
+ROUND	11	bare:d_in=4096	v2	0.3029	311.6	322.5
+ROUND	11	bare:d_in=4096	v3	0.3714	254.1	263.1
+ROUND	11	bare:d_in=4096	ilp2	0.3285	287.3	297.4
+ROUND	11	bare:d_in=4096	v2u	0.3713	254.2	263.1
+ROUND	11	bare:d_in=4096	l1w	0.3010	313.5	324.6
+ROUND	11	bare:d_in=4096	bcast	0.3684	256.1	265.2
+ROUND	11	bare:d_in=4096	xbcast	0.3706	254.6	263.6
+ROUND	11	bare:d_in=4096	v2_s	0.3034	311.1	322.0
+ROUND	11	bare:d_in=4096	v2_o2	0.2755	342.6	354.6
+ROUND	11	bare:d_in=4096	nc	0.3689	255.8	264.8
+ROUND	11	bare:d_in=4096	nc256	0.3235	291.7	302.0
+ROUND	11	bare:d_in=4096	cpa	0.3101	304.3	315.0
+ROUND	11	bare:d_in=4096	tile	0.3149	299.7	310.3
+ROUND	11	bare:d_in=4096	bal	0.3310	285.1	295.1
+ROUND	11	bare:d_in=9728	served	0.6109	366.9	369.9
+ROUND	11	bare:d_in=9728	served_np	0.7008	319.8	322.5
+ROUND	11	bare:d_in=9728	acc2	0.5688	394.0	397.3
+ROUND	11	bare:d_in=9728	pword	0.5232	428.4	431.9
+ROUND	11	bare:d_in=9728	v2	0.6049	370.5	373.6
+ROUND	11	bare:d_in=9728	v3	0.7763	288.7	291.1
+ROUND	11	bare:d_in=9728	ilp2	0.6634	337.8	340.6
+ROUND	11	bare:d_in=9728	v2u	0.7504	298.7	301.1
+ROUND	11	bare:d_in=9728	l1w	0.6045	370.8	373.8
+ROUND	11	bare:d_in=9728	bcast	0.7555	296.7	299.1
+ROUND	11	bare:d_in=9728	xbcast	0.7511	298.4	300.9
+ROUND	11	bare:d_in=9728	nc	0.7506	298.6	301.0
+ROUND	11	bare:d_in=9728	nc256	0.6900	324.8	327.5
+ROUND	11	bare:d_in=9728	cpa	0.5930	377.9	381.1
+ROUND	11	bare:d_in=9728	tile	0.5512	406.6	410.0
+ROUND	11	bare:d_in=9728	bal	0.6188	362.2	365.2
+ROUND	11	bare:all	served	2.5362	358.1	373.3
+ROUND	11	bare:all	served_np	2.8745	316.0	329.3
+ROUND	11	bare:all	acc2	2.4613	369.0	384.6
+ROUND	11	bare:all	pword	2.0458	444.0	462.7
+ROUND	11	bare:all	v2	2.4998	363.4	378.7
+ROUND	11	bare:all	v3	2.9530	307.6	320.6
+ROUND	11	bare:all	ilp2	2.6921	337.4	351.6
+ROUND	11	bare:all	v2u	3.0311	299.7	312.3
+ROUND	11	bare:all	l1w	2.5265	359.5	374.7
+ROUND	11	bare:all	bcast	3.0545	297.4	309.9
+ROUND	11	bare:all	xbcast	3.0244	300.3	313.0
+ROUND	11	bare:all	v2_s	1.9321	354.1	373.0
+ROUND	11	bare:all	v2_o2	1.8066	378.7	398.9
+ROUND	11	bare:all	nc	3.0113	301.6	314.4
+ROUND	11	bare:all	nc256	2.8950	313.8	327.0
+ROUND	11	bare:all	cpa	2.5304	359.0	374.1
+ROUND	11	bare:all	tile	2.4468	371.2	386.9
+ROUND	11	bare:all	bal	2.6144	347.4	362.1
+ROUND	11	sealed:int4:d_in=2560	q4hh	0.2783	180.1	180.1
+ROUND	11	sealed:int4:d_in=2560	q4	0.1156	433.6	433.6
+ROUND	11	sealed:int4:d_in=2560	q4nc	0.1198	418.6	418.6
+ROUND	11	sealed:int4:d_in=2560	q4t	0.1257	399.0	399.0
+ROUND	11	sealed:int4:d_in=2560	q4read	0.0729	687.8	687.8
+ROUND	11	sealed:int4:d_in=4096	q4hh	0.4994	401.6	401.6
+ROUND	11	sealed:int4:d_in=4096	q4	0.4653	431.0	431.0
+ROUND	11	sealed:int4:d_in=4096	q4nc	0.3882	516.6	516.6
+ROUND	11	sealed:int4:d_in=4096	q4t	0.3439	583.1	583.1
+ROUND	11	sealed:int4:d_in=4096	q4read	0.3005	667.3	667.3
+ROUND	11	sealed:int4:d_in=9728	q4hh	0.5311	298.9	298.9
+ROUND	11	sealed:int4:d_in=9728	q4	0.3852	412.2	412.2
+ROUND	11	sealed:int4:d_in=9728	q4nc	0.2936	540.7	540.7
+ROUND	11	sealed:int4:d_in=9728	q4t	0.2826	561.7	561.7
+ROUND	11	sealed:int4:d_in=9728	q4read	0.2360	672.7	672.7
+ROUND	11	sealed:int4:all	q4hh	1.2849	318.6	318.6
+ROUND	11	sealed:int4:all	q4	0.9797	417.9	417.9
+ROUND	11	sealed:int4:all	q4nc	0.9121	448.9	448.9
+ROUND	11	sealed:int4:all	q4t	0.7367	555.7	555.7
+ROUND	11	sealed:int4:all	q4read	0.6091	672.2	672.2
+ROUND	11	probe	v1u1/t512/c1/pf0	3.2841	653.9	653.9
+ROUND	11	probe	v1u1/t512/c1/pf2	3.1499	681.8	681.8
+ROUND	11	probe	v4u1/t512/c1/pf0	2.8653	749.5	749.5
+ROUND	11	probe	v4u1/t512/c1/pf2	3.0190	711.3	711.3
+ROUND	11	probe	v4u4/t512/c1/pf0	2.9405	730.3	730.3
+ROUND	11	probe	v4u4/t512/c1/pf2	2.9608	725.3	725.3
+ROUND	11	probe	v4u4/t256/c1/pf0	2.8654	749.5	749.5
+ROUND	11	probe	v4u4/t256/c1/pf2	2.9574	726.1	726.1
+ROUND	11	probe	v4u4/t256/c2/pf0	2.9391	730.6	730.6
+ROUND	11	probe	v4u4/t256/c2/pf2	2.9583	725.9	725.9
+ROUND	11	probe	v4u4/t256/c4/pf0	2.9463	728.9	728.9
+ROUND	11	probe	v4u4/t256/c4/pf2	2.9661	724.0	724.0
+ROUND	11	probe	v4u4/t512/c2/pf0	2.9418	730.0	730.0
+ROUND	11	probe	v4u4/t512/c2/pf2	2.9602	725.5	725.5
+ROUND	11	probe	v4u4/t1024/c1/pf0	2.9429	729.7	729.7
+ROUND	11	probe	v4u4/t1024/c1/pf2	2.9573	726.2	726.2
+ROUND	12	sealed:d_in=2560	served	1.4592	388.0	409.9
+ROUND	12	sealed:d_in=2560	served_np	1.5860	357.0	377.1
+ROUND	12	sealed:d_in=2560	acc2	1.4400	393.2	415.3
+ROUND	12	sealed:d_in=2560	pword	1.1819	479.1	506.0
+ROUND	12	sealed:d_in=2560	v2	1.4563	388.8	410.7
+ROUND	12	sealed:d_in=2560	v3	1.6244	348.6	368.2
+ROUND	12	sealed:d_in=2560	ilp2	1.5604	362.9	383.3
+ROUND	12	sealed:d_in=2560	v2u	1.6986	333.3	352.1
+ROUND	12	sealed:d_in=2560	l1w	1.4312	395.6	417.9
+ROUND	12	sealed:d_in=2560	bcast	1.7040	332.3	351.0
+ROUND	12	sealed:d_in=2560	xbcast	1.6928	334.5	353.3
+ROUND	12	sealed:d_in=2560	v2_s	1.4596	387.9	409.8
+ROUND	12	sealed:d_in=2560	v2_o2	1.4223	398.1	420.5
+ROUND	12	sealed:d_in=2560	nc	1.6848	336.1	355.0
+ROUND	12	sealed:d_in=2560	nc256	1.6107	351.5	371.3
+ROUND	12	sealed:d_in=2560	cpa	1.4933	379.2	400.5
+ROUND	12	sealed:d_in=2560	tile	1.4604	387.7	409.5
+ROUND	12	sealed:d_in=2560	bal	1.5276	370.7	391.5
+ROUND	12	sealed:d_in=9728	served	0.4028	371.0	374.0
+ROUND	12	sealed:d_in=9728	served_np	0.4425	337.7	340.5
+ROUND	12	sealed:d_in=9728	acc2	0.3777	395.6	398.8
+ROUND	12	sealed:d_in=9728	pword	0.3487	428.5	432.0
+ROUND	12	sealed:d_in=9728	v2	0.3985	375.0	378.1
+ROUND	12	sealed:d_in=9728	v3	0.4982	299.9	302.4
+ROUND	12	sealed:d_in=9728	ilp2	0.4306	347.0	349.9
+ROUND	12	sealed:d_in=9728	v2u	0.4819	310.1	312.6
+ROUND	12	sealed:d_in=9728	l1w	0.3745	399.0	402.3
+ROUND	12	sealed:d_in=9728	bcast	0.4823	309.8	312.4
+ROUND	12	sealed:d_in=9728	xbcast	0.4801	311.2	313.8
+ROUND	12	sealed:d_in=9728	nc	0.4814	310.4	312.9
+ROUND	12	sealed:d_in=9728	nc256	0.4191	356.5	359.5
+ROUND	12	sealed:d_in=9728	cpa	0.3860	387.1	390.3
+ROUND	12	sealed:d_in=9728	tile	0.3610	413.9	417.3
+ROUND	12	sealed:d_in=9728	bal	0.4098	364.6	367.6
+ROUND	12	sealed:all	served	1.8313	390.8	408.9
+ROUND	12	sealed:all	served_np	2.0394	350.9	367.1
+ROUND	12	sealed:all	acc2	1.7917	399.4	417.9
+ROUND	12	sealed:all	pword	1.5156	472.2	494.0
+ROUND	12	sealed:all	v2	1.8522	386.4	404.2
+ROUND	12	sealed:all	v3	2.1559	331.9	347.3
+ROUND	12	sealed:all	ilp2	2.0009	357.7	374.2
+ROUND	12	sealed:all	v2u	2.2356	320.1	334.9
+ROUND	12	sealed:all	l1w	1.8271	391.7	409.8
+ROUND	12	sealed:all	bcast	2.2535	317.6	332.3
+ROUND	12	sealed:all	xbcast	2.2347	320.3	335.1
+ROUND	12	sealed:all	v2_s	1.4782	383.1	404.6
+ROUND	12	sealed:all	v2_o2	1.4398	393.3	415.4
+ROUND	12	sealed:all	nc	2.2396	319.5	334.3
+ROUND	12	sealed:all	nc256	2.1395	334.5	350.0
+ROUND	12	sealed:all	cpa	1.9016	376.3	393.7
+ROUND	12	sealed:all	tile	1.8409	388.7	406.7
+ROUND	12	sealed:all	bal	1.9622	364.7	381.6
+ROUND	12	sealed:gu4e	gu_served	1.1008	407.2	430.1
+ROUND	12	sealed:gu4e	gu_served_np	1.1872	377.6	398.8
+ROUND	12	sealed:gu4e	gu_acc2	1.0801	415.0	438.4
+ROUND	12	sealed:gu4e	gu_pword	0.9042	495.8	523.6
+ROUND	12	bare:d_in=2560	served	1.6169	364.8	385.3
+ROUND	12	bare:d_in=2560	served_np	1.7996	327.7	346.2
+ROUND	12	bare:d_in=2560	acc2	1.5931	370.2	391.1
+ROUND	12	bare:d_in=2560	pword	1.3158	448.3	473.5
+ROUND	12	bare:d_in=2560	v2	1.6576	355.8	375.8
+ROUND	12	bare:d_in=2560	v3	1.8818	313.4	331.1
+ROUND	12	bare:d_in=2560	ilp2	1.7836	330.7	349.3
+ROUND	12	bare:d_in=2560	v2u	1.9794	298.0	314.7
+ROUND	12	bare:d_in=2560	l1w	1.6401	359.6	379.9
+ROUND	12	bare:d_in=2560	bcast	1.9893	296.5	313.2
+ROUND	12	bare:d_in=2560	xbcast	1.9754	298.6	315.4
+ROUND	12	bare:d_in=2560	v2_s	1.6596	355.4	375.4
+ROUND	12	bare:d_in=2560	v2_o2	1.5873	371.6	392.5
+ROUND	12	bare:d_in=2560	nc	1.9635	300.4	317.3
+ROUND	12	bare:d_in=2560	nc256	1.8587	317.3	335.2
+ROUND	12	bare:d_in=2560	cpa	1.6796	351.2	370.9
+ROUND	12	bare:d_in=2560	tile	1.6515	357.1	377.2
+ROUND	12	bare:d_in=2560	bal	1.7421	338.6	357.6
+ROUND	12	bare:d_in=4096	served	0.3275	288.2	298.3
+ROUND	12	bare:d_in=4096	served_np	0.3499	269.7	279.2
+ROUND	12	bare:d_in=4096	acc2	0.2969	317.9	329.1
+ROUND	12	bare:d_in=4096	pword	0.2422	389.7	403.4
+ROUND	12	bare:d_in=4096	v2	0.3049	309.5	320.4
+ROUND	12	bare:d_in=4096	v3	0.3718	253.8	262.7
+ROUND	12	bare:d_in=4096	ilp2	0.3275	288.2	298.3
+ROUND	12	bare:d_in=4096	v2u	0.3744	252.1	260.9
+ROUND	12	bare:d_in=4096	l1w	0.3028	311.6	322.6
+ROUND	12	bare:d_in=4096	bcast	0.3714	254.1	263.1
+ROUND	12	bare:d_in=4096	xbcast	0.3727	253.2	262.1
+ROUND	12	bare:d_in=4096	v2_s	0.3056	308.8	319.7
+ROUND	12	bare:d_in=4096	v2_o2	0.2763	341.5	353.5
+ROUND	12	bare:d_in=4096	nc	0.3695	255.4	264.4
+ROUND	12	bare:d_in=4096	nc256	0.3252	290.2	300.4
+ROUND	12	bare:d_in=4096	cpa	0.3101	304.3	315.0
+ROUND	12	bare:d_in=4096	tile	0.3159	298.7	309.2
+ROUND	12	bare:d_in=4096	bal	0.3282	287.5	297.6
+ROUND	12	bare:d_in=9728	served	0.6088	368.1	371.2
+ROUND	12	bare:d_in=9728	served_np	0.6955	322.3	324.9
+ROUND	12	bare:d_in=9728	acc2	0.5693	393.7	396.9
+ROUND	12	bare:d_in=9728	pword	0.5229	428.7	432.2
+ROUND	12	bare:d_in=9728	v2	0.6053	370.3	373.3
+ROUND	12	bare:d_in=9728	v3	0.7736	289.7	292.1
+ROUND	12	bare:d_in=9728	ilp2	0.6577	340.8	343.6
+ROUND	12	bare:d_in=9728	v2u	0.7503	298.7	301.2
+ROUND	12	bare:d_in=9728	l1w	0.5998	373.7	376.8
+ROUND	12	bare:d_in=9728	bcast	0.7537	297.4	299.8
+ROUND	12	bare:d_in=9728	xbcast	0.7487	299.4	301.8
+ROUND	12	bare:d_in=9728	nc	0.7408	302.5	305.0
+ROUND	12	bare:d_in=9728	nc256	0.6826	328.4	331.1
+ROUND	12	bare:d_in=9728	cpa	0.5868	381.9	385.1
+ROUND	12	bare:d_in=9728	tile	0.5433	412.6	416.0
+ROUND	12	bare:d_in=9728	bal	0.6083	368.5	371.5
+ROUND	12	bare:all	served	2.5030	362.9	378.2
+ROUND	12	bare:all	served_np	2.8392	319.9	333.4
+ROUND	12	bare:all	acc2	2.4330	373.3	389.1
+ROUND	12	bare:all	pword	2.0441	444.4	463.1
+ROUND	12	bare:all	v2	2.5099	361.9	377.2
+ROUND	12	bare:all	v3	2.9625	306.6	319.5
+ROUND	12	bare:all	ilp2	2.6993	336.5	350.7
+ROUND	12	bare:all	v2u	3.0232	300.5	313.1
+ROUND	12	bare:all	l1w	2.5098	361.9	377.2
+ROUND	12	bare:all	bcast	3.0369	299.1	311.7
+ROUND	12	bare:all	xbcast	3.0120	301.6	314.3
+ROUND	12	bare:all	v2_s	1.9189	356.6	375.6
+ROUND	12	bare:all	v2_o2	1.8037	379.3	399.6
+ROUND	12	bare:all	nc	3.0003	302.7	315.5
+ROUND	12	bare:all	nc256	2.8612	317.5	330.9
+ROUND	12	bare:all	cpa	2.5021	363.0	378.3
+ROUND	12	bare:all	tile	2.4188	375.5	391.4
+ROUND	12	bare:all	bal	2.5925	350.4	365.1
+ROUND	12	sealed:int4:d_in=2560	q4hh	0.2762	181.5	181.5
+ROUND	12	sealed:int4:d_in=2560	q4	0.1150	436.0	436.0
+ROUND	12	sealed:int4:d_in=2560	q4nc	0.1156	433.6	433.6
+ROUND	12	sealed:int4:d_in=2560	q4t	0.1272	394.0	394.0
+ROUND	12	sealed:int4:d_in=2560	q4read	0.0722	694.5	694.5
+ROUND	12	sealed:int4:d_in=4096	q4hh	0.4943	405.7	405.7
+ROUND	12	sealed:int4:d_in=4096	q4	0.4642	432.0	432.0
+ROUND	12	sealed:int4:d_in=4096	q4nc	0.3820	524.9	524.9
+ROUND	12	sealed:int4:d_in=4096	q4t	0.3434	584.0	584.0
+ROUND	12	sealed:int4:d_in=4096	q4read	0.3005	667.3	667.3
+ROUND	12	sealed:int4:d_in=9728	q4hh	0.5295	299.8	299.8
+ROUND	12	sealed:int4:d_in=9728	q4	0.3824	415.2	415.2
+ROUND	12	sealed:int4:d_in=9728	q4nc	0.2914	544.8	544.8
+ROUND	12	sealed:int4:d_in=9728	q4t	0.2807	565.7	565.7
+ROUND	12	sealed:int4:d_in=9728	q4read	0.2368	670.3	670.3
+ROUND	12	sealed:int4:all	q4hh	1.2756	321.0	321.0
+ROUND	12	sealed:int4:all	q4	0.9697	422.2	422.2
+ROUND	12	sealed:int4:all	q4nc	0.8993	455.3	455.3
+ROUND	12	sealed:int4:all	q4t	0.7341	557.7	557.7
+ROUND	12	sealed:int4:all	q4read	0.6041	677.8	677.8
+ROUND	12	probe	v1u1/t512/c1/pf0	3.2871	653.3	653.3
+ROUND	12	probe	v1u1/t512/c1/pf2	3.1427	683.3	683.3
+ROUND	12	probe	v4u1/t512/c1/pf0	2.8591	751.1	751.1
+ROUND	12	probe	v4u1/t512/c1/pf2	3.0120	713.0	713.0
+ROUND	12	probe	v4u4/t512/c1/pf0	2.9378	731.0	731.0
+ROUND	12	probe	v4u4/t512/c1/pf2	2.9573	726.2	726.2
+ROUND	12	probe	v4u4/t256/c1/pf0	2.8687	748.6	748.6
+ROUND	12	probe	v4u4/t256/c1/pf2	2.9512	727.7	727.7
+ROUND	12	probe	v4u4/t256/c2/pf0	2.9347	731.8	731.8
+ROUND	12	probe	v4u4/t256/c2/pf2	2.9550	726.7	726.7
+ROUND	12	probe	v4u4/t256/c4/pf0	2.9453	729.1	729.1
+ROUND	12	probe	v4u4/t256/c4/pf2	2.9622	725.0	725.0
+ROUND	12	probe	v4u4/t512/c2/pf0	2.9443	729.4	729.4
+ROUND	12	probe	v4u4/t512/c2/pf2	2.9597	725.6	725.6
+ROUND	12	probe	v4u4/t1024/c1/pf0	2.9447	729.3	729.3
+ROUND	12	probe	v4u4/t1024/c1/pf2	2.9573	726.2	726.2
+ROUND	13	sealed:d_in=2560	served	1.4610	387.6	409.4
+ROUND	13	sealed:d_in=2560	served_np	1.5874	356.7	376.8
+ROUND	13	sealed:d_in=2560	acc2	1.4449	391.9	413.9
+ROUND	13	sealed:d_in=2560	pword	1.1814	479.3	506.2
+ROUND	13	sealed:d_in=2560	v2	1.4586	388.2	410.0
+ROUND	13	sealed:d_in=2560	v3	1.6238	348.7	368.3
+ROUND	13	sealed:d_in=2560	ilp2	1.5680	361.1	381.4
+ROUND	13	sealed:d_in=2560	v2u	1.7009	332.9	351.6
+ROUND	13	sealed:d_in=2560	l1w	1.4333	395.1	417.3
+ROUND	13	sealed:d_in=2560	bcast	1.7070	331.7	350.4
+ROUND	13	sealed:d_in=2560	xbcast	1.6949	334.1	352.9
+ROUND	13	sealed:d_in=2560	v2_s	1.4563	388.8	410.7
+ROUND	13	sealed:d_in=2560	v2_o2	1.4236	397.7	420.1
+ROUND	13	sealed:d_in=2560	nc	1.6840	336.2	355.2
+ROUND	13	sealed:d_in=2560	nc256	1.5906	356.0	376.0
+ROUND	13	sealed:d_in=2560	cpa	1.4934	379.2	400.5
+ROUND	13	sealed:d_in=2560	tile	1.4653	386.4	408.2
+ROUND	13	sealed:d_in=2560	bal	1.5291	370.3	391.1
+ROUND	13	sealed:d_in=9728	served	0.4037	370.1	373.2
+ROUND	13	sealed:d_in=9728	served_np	0.4421	338.0	340.8
+ROUND	13	sealed:d_in=9728	acc2	0.3734	400.2	403.5
+ROUND	13	sealed:d_in=9728	pword	0.3485	428.8	432.3
+ROUND	13	sealed:d_in=9728	v2	0.3975	375.9	379.0
+ROUND	13	sealed:d_in=9728	v3	0.4922	303.6	306.1
+ROUND	13	sealed:d_in=9728	ilp2	0.4312	346.5	349.4
+ROUND	13	sealed:d_in=9728	v2u	0.4972	300.5	303.0
+ROUND	13	sealed:d_in=9728	l1w	0.3867	386.4	389.6
+ROUND	13	sealed:d_in=9728	bcast	0.5031	297.0	299.4
+ROUND	13	sealed:d_in=9728	xbcast	0.4980	300.1	302.5
+ROUND	13	sealed:d_in=9728	nc	0.4951	301.8	304.3
+ROUND	13	sealed:d_in=9728	nc256	0.4319	345.9	348.8
+ROUND	13	sealed:d_in=9728	cpa	0.3918	381.4	384.5
+ROUND	13	sealed:d_in=9728	tile	0.3654	409.0	412.3
+ROUND	13	sealed:d_in=9728	bal	0.4112	363.4	366.4
+ROUND	13	sealed:all	served	1.8621	384.3	402.1
+ROUND	13	sealed:all	served_np	2.0967	341.3	357.1
+ROUND	13	sealed:all	acc2	1.8173	393.8	412.0
+ROUND	13	sealed:all	pword	1.5225	470.1	491.8
+ROUND	13	sealed:all	v2	1.8691	382.9	400.6
+ROUND	13	sealed:all	v3	2.1672	330.2	345.5
+ROUND	13	sealed:all	ilp2	2.0088	356.3	372.7
+ROUND	13	sealed:all	v2u	2.2532	317.6	332.3
+ROUND	13	sealed:all	l1w	1.8377	389.4	407.4
+ROUND	13	sealed:all	bcast	2.2624	316.3	330.9
+ROUND	13	sealed:all	xbcast	2.2430	319.1	333.8
+ROUND	13	sealed:all	v2_s	1.4856	381.1	402.6
+ROUND	13	sealed:all	v2_o2	1.4353	394.5	416.7
+ROUND	13	sealed:all	nc	2.2338	320.4	335.2
+ROUND	13	sealed:all	nc256	2.1255	336.7	352.3
+ROUND	13	sealed:all	cpa	1.8937	377.9	395.4
+ROUND	13	sealed:all	tile	1.8308	390.9	409.0
+ROUND	13	sealed:all	bal	1.9569	365.7	382.6
+ROUND	13	sealed:gu4e	gu_served	1.1105	403.7	426.4
+ROUND	13	sealed:gu4e	gu_served_np	1.2022	372.9	393.8
+ROUND	13	sealed:gu4e	gu_acc2	1.0865	412.6	435.8
+ROUND	13	sealed:gu4e	gu_pword	0.9062	494.7	522.5
+ROUND	13	bare:d_in=2560	served	1.6320	361.4	381.7
+ROUND	13	bare:d_in=2560	served_np	1.8208	323.9	342.2
+ROUND	13	bare:d_in=2560	acc2	1.6061	367.2	387.9
+ROUND	13	bare:d_in=2560	pword	1.3232	445.8	470.8
+ROUND	13	bare:d_in=2560	v2	1.6350	360.7	381.0
+ROUND	13	bare:d_in=2560	v3	1.8592	317.2	335.1
+ROUND	13	bare:d_in=2560	ilp2	1.7515	336.7	355.7
+ROUND	13	bare:d_in=2560	v2u	1.9491	302.6	319.6
+ROUND	13	bare:d_in=2560	l1w	1.6158	365.0	385.6
+ROUND	13	bare:d_in=2560	bcast	1.9683	299.7	316.5
+ROUND	13	bare:d_in=2560	xbcast	1.9512	302.3	319.3
+ROUND	13	bare:d_in=2560	v2_s	1.6402	359.6	379.8
+ROUND	13	bare:d_in=2560	v2_o2	1.5697	375.8	396.9
+ROUND	13	bare:d_in=2560	nc	1.9462	303.1	320.1
+ROUND	13	bare:d_in=2560	nc256	1.8424	320.1	338.1
+ROUND	13	bare:d_in=2560	cpa	1.6724	352.7	372.5
+ROUND	13	bare:d_in=2560	tile	1.6444	358.7	378.9
+ROUND	13	bare:d_in=2560	bal	1.7354	339.9	359.0
+ROUND	13	bare:d_in=4096	served	0.3259	289.6	299.7
+ROUND	13	bare:d_in=4096	served_np	0.3515	268.5	277.9
+ROUND	13	bare:d_in=4096	acc2	0.2964	318.4	329.6
+ROUND	13	bare:d_in=4096	pword	0.2427	388.8	402.5
+ROUND	13	bare:d_in=4096	v2	0.3035	311.0	321.9
+ROUND	13	bare:d_in=4096	v3	0.3724	253.4	262.3
+ROUND	13	bare:d_in=4096	ilp2	0.3259	289.6	299.7
+ROUND	13	bare:d_in=4096	v2u	0.3742	252.2	261.1
+ROUND	13	bare:d_in=4096	l1w	0.3007	313.8	324.9
+ROUND	13	bare:d_in=4096	bcast	0.3697	255.3	264.3
+ROUND	13	bare:d_in=4096	xbcast	0.3712	254.2	263.2
+ROUND	13	bare:d_in=4096	v2_s	0.3113	303.2	313.8
+ROUND	13	bare:d_in=4096	v2_o2	0.2787	338.6	350.5
+ROUND	13	bare:d_in=4096	nc	0.3737	252.5	261.4
+ROUND	13	bare:d_in=4096	nc256	0.3261	289.4	299.5
+ROUND	13	bare:d_in=4096	cpa	0.3133	301.2	311.8
+ROUND	13	bare:d_in=4096	tile	0.3154	299.2	309.7
+ROUND	13	bare:d_in=4096	bal	0.3340	282.5	292.4
+ROUND	13	bare:d_in=9728	served	0.6097	367.6	370.6
+ROUND	13	bare:d_in=9728	served_np	0.7001	320.1	322.8
+ROUND	13	bare:d_in=9728	acc2	0.5702	393.1	396.3
+ROUND	13	bare:d_in=9728	pword	0.5211	430.1	433.7
+ROUND	13	bare:d_in=9728	v2	0.6079	368.7	371.7
+ROUND	13	bare:d_in=9728	v3	0.7747	289.3	291.7
+ROUND	13	bare:d_in=9728	ilp2	0.6612	339.0	341.8
+ROUND	13	bare:d_in=9728	v2u	0.7527	297.8	300.2
+ROUND	13	bare:d_in=9728	l1w	0.6049	370.5	373.6
+ROUND	13	bare:d_in=9728	bcast	0.7577	295.8	298.2
+ROUND	13	bare:d_in=9728	xbcast	0.7495	299.1	301.5
+ROUND	13	bare:d_in=9728	nc	0.7516	298.2	300.7
+ROUND	13	bare:d_in=9728	nc256	0.6932	323.3	326.0
+ROUND	13	bare:d_in=9728	cpa	0.5921	378.5	381.6
+ROUND	13	bare:d_in=9728	tile	0.5515	406.4	409.8
+ROUND	13	bare:d_in=9728	bal	0.6140	365.0	368.0
+ROUND	13	bare:all	served	2.5358	358.2	373.3
+ROUND	13	bare:all	served_np	2.8758	315.9	329.2
+ROUND	13	bare:all	acc2	2.4660	368.3	383.9
+ROUND	13	bare:all	pword	2.0441	444.4	463.1
+ROUND	13	bare:all	v2	2.4933	364.3	379.7
+ROUND	13	bare:all	v3	2.9389	309.1	322.1
+ROUND	13	bare:all	ilp2	2.6810	338.8	353.1
+ROUND	13	bare:all	v2u	3.0244	300.3	313.0
+ROUND	13	bare:all	l1w	2.5206	360.4	375.6
+ROUND	13	bare:all	bcast	3.0400	298.8	311.4
+ROUND	13	bare:all	xbcast	3.0184	300.9	313.6
+ROUND	13	bare:all	v2_s	1.9225	355.9	374.9
+ROUND	13	bare:all	v2_o2	1.8062	378.8	399.0
+ROUND	13	bare:all	nc	3.0079	302.0	314.7
+ROUND	13	bare:all	nc256	2.8794	315.5	328.8
+ROUND	13	bare:all	cpa	2.5163	361.0	376.2
+ROUND	13	bare:all	tile	2.4322	373.5	389.2
+ROUND	13	bare:all	bal	2.6102	348.0	362.7
+ROUND	13	sealed:int4:d_in=2560	q4hh	0.2800	179.1	179.1
+ROUND	13	sealed:int4:d_in=2560	q4	0.1150	435.9	435.9
+ROUND	13	sealed:int4:d_in=2560	q4nc	0.1178	425.5	425.5
+ROUND	13	sealed:int4:d_in=2560	q4t	0.1250	401.2	401.2
+ROUND	13	sealed:int4:d_in=2560	q4read	0.0722	694.8	694.8
+ROUND	13	sealed:int4:d_in=4096	q4hh	0.4972	403.4	403.4
+ROUND	13	sealed:int4:d_in=4096	q4	0.4669	429.5	429.5
+ROUND	13	sealed:int4:d_in=4096	q4nc	0.3829	523.8	523.8
+ROUND	13	sealed:int4:d_in=4096	q4t	0.3457	580.1	580.1
+ROUND	13	sealed:int4:d_in=4096	q4read	0.3012	665.7	665.7
+ROUND	13	sealed:int4:d_in=9728	q4hh	0.5295	299.8	299.8
+ROUND	13	sealed:int4:d_in=9728	q4	0.3826	414.9	414.9
+ROUND	13	sealed:int4:d_in=9728	q4nc	0.2908	546.0	546.0
+ROUND	13	sealed:int4:d_in=9728	q4t	0.2818	563.4	563.4
+ROUND	13	sealed:int4:d_in=9728	q4read	0.2376	668.1	668.1
+ROUND	13	sealed:int4:all	q4hh	1.2780	320.4	320.4
+ROUND	13	sealed:int4:all	q4	0.9726	421.0	421.0
+ROUND	13	sealed:int4:all	q4nc	0.9105	449.7	449.7
+ROUND	13	sealed:int4:all	q4t	0.7350	557.1	557.1
+ROUND	13	sealed:int4:all	q4read	0.6020	680.1	680.1
+ROUND	13	probe	v1u1/t512/c1/pf0	3.2835	654.0	654.0
+ROUND	13	probe	v1u1/t512/c1/pf2	3.1392	684.1	684.1
+ROUND	13	probe	v4u1/t512/c1/pf0	2.8640	749.8	749.8
+ROUND	13	probe	v4u1/t512/c1/pf2	3.0108	713.3	713.3
+ROUND	13	probe	v4u4/t512/c1/pf0	2.9385	730.8	730.8
+ROUND	13	probe	v4u4/t512/c1/pf2	2.9540	727.0	727.0
+ROUND	13	probe	v4u4/t256/c1/pf0	2.8598	750.9	750.9
+ROUND	13	probe	v4u4/t256/c1/pf2	2.9553	726.6	726.6
+ROUND	13	probe	v4u4/t256/c2/pf0	2.9364	731.3	731.3
+ROUND	13	probe	v4u4/t256/c2/pf2	2.9612	725.2	725.2
+ROUND	13	probe	v4u4/t256/c4/pf0	2.9499	728.0	728.0
+ROUND	13	probe	v4u4/t256/c4/pf2	2.9639	724.5	724.5
+ROUND	13	probe	v4u4/t512/c2/pf0	2.9412	730.1	730.1
+ROUND	13	probe	v4u4/t512/c2/pf2	2.9599	725.5	725.5
+ROUND	13	probe	v4u4/t1024/c1/pf0	2.9430	729.7	729.7
+ROUND	13	probe	v4u4/t1024/c1/pf2	2.9574	726.1	726.1
+ROUND	14	sealed:d_in=2560	served	1.4573	388.5	410.4
+ROUND	14	sealed:d_in=2560	served_np	1.5793	358.5	378.7
+ROUND	14	sealed:d_in=2560	acc2	1.4390	393.5	415.6
+ROUND	14	sealed:d_in=2560	pword	1.1793	480.1	507.1
+ROUND	14	sealed:d_in=2560	v2	1.4546	389.3	411.2
+ROUND	14	sealed:d_in=2560	v3	1.6158	350.4	370.1
+ROUND	14	sealed:d_in=2560	ilp2	1.5613	362.7	383.1
+ROUND	14	sealed:d_in=2560	v2u	1.6945	334.2	353.0
+ROUND	14	sealed:d_in=2560	l1w	1.4322	395.4	417.6
+ROUND	14	sealed:d_in=2560	bcast	1.6996	333.2	351.9
+ROUND	14	sealed:d_in=2560	xbcast	1.6886	335.3	354.2
+ROUND	14	sealed:d_in=2560	v2_s	1.4560	388.9	410.8
+ROUND	14	sealed:d_in=2560	v2_o2	1.4185	399.2	421.6
+ROUND	14	sealed:d_in=2560	nc	1.7101	331.1	349.7
+ROUND	14	sealed:d_in=2560	nc256	1.6059	352.6	372.4
+ROUND	14	sealed:d_in=2560	cpa	1.4886	380.4	401.8
+ROUND	14	sealed:d_in=2560	tile	1.4619	387.3	409.1
+ROUND	14	sealed:d_in=2560	bal	1.5282	370.5	391.4
+ROUND	14	sealed:d_in=9728	served	0.4030	370.8	373.8
+ROUND	14	sealed:d_in=9728	served_np	0.4432	337.1	339.9
+ROUND	14	sealed:d_in=9728	acc2	0.3754	398.1	401.4
+ROUND	14	sealed:d_in=9728	pword	0.3491	428.1	431.6
+ROUND	14	sealed:d_in=9728	v2	0.4000	373.5	376.6
+ROUND	14	sealed:d_in=9728	v3	0.4954	301.6	304.1
+ROUND	14	sealed:d_in=9728	ilp2	0.4302	347.3	350.2
+ROUND	14	sealed:d_in=9728	v2u	0.4828	309.5	312.1
+ROUND	14	sealed:d_in=9728	l1w	0.3725	401.2	404.5
+ROUND	14	sealed:d_in=9728	bcast	0.4811	310.6	313.1
+ROUND	14	sealed:d_in=9728	xbcast	0.4786	312.2	314.8
+ROUND	14	sealed:d_in=9728	nc	0.4801	311.2	313.8
+ROUND	14	sealed:d_in=9728	nc256	0.4178	357.6	360.6
+ROUND	14	sealed:d_in=9728	cpa	0.3887	384.4	387.6
+ROUND	14	sealed:d_in=9728	tile	0.3646	409.8	413.2
+ROUND	14	sealed:d_in=9728	bal	0.4134	361.5	364.4
+ROUND	14	sealed:all	served	1.8248	392.2	410.3
+ROUND	14	sealed:all	served_np	2.0283	352.8	369.1
+ROUND	14	sealed:all	acc2	1.8095	395.5	413.8
+ROUND	14	sealed:all	pword	1.5175	471.6	493.4
+ROUND	14	sealed:all	v2	1.8542	386.0	403.8
+ROUND	14	sealed:all	v3	2.1560	331.9	347.3
+ROUND	14	sealed:all	ilp2	2.0023	357.4	373.9
+ROUND	14	sealed:all	v2u	2.2410	319.3	334.1
+ROUND	14	sealed:all	l1w	1.8274	391.6	409.7
+ROUND	14	sealed:all	bcast	2.2533	317.6	332.3
+ROUND	14	sealed:all	xbcast	2.2403	319.4	334.2
+ROUND	14	sealed:all	v2_s	1.4822	382.0	403.5
+ROUND	14	sealed:all	v2_o2	1.4428	392.4	414.5
+ROUND	14	sealed:all	nc	2.2502	318.0	332.7
+ROUND	14	sealed:all	nc256	2.1415	334.2	349.6
+ROUND	14	sealed:all	cpa	1.9015	376.4	393.8
+ROUND	14	sealed:all	tile	1.8369	389.6	407.6
+ROUND	14	sealed:all	bal	1.9621	364.7	381.6
+ROUND	14	sealed:gu4e	gu_served	1.1014	407.0	429.9
+ROUND	14	sealed:gu4e	gu_served_np	1.1947	375.2	396.3
+ROUND	14	sealed:gu4e	gu_acc2	1.0807	414.8	438.1
+ROUND	14	sealed:gu4e	gu_pword	0.9068	494.3	522.1
+ROUND	14	bare:d_in=2560	served	1.6180	364.5	385.1
+ROUND	14	bare:d_in=2560	served_np	1.8029	327.2	345.6
+ROUND	14	bare:d_in=2560	acc2	1.6036	367.8	388.5
+ROUND	14	bare:d_in=2560	pword	1.3317	442.9	467.8
+ROUND	14	bare:d_in=2560	v2	1.6603	355.2	375.2
+ROUND	14	bare:d_in=2560	v3	1.8832	313.2	330.8
+ROUND	14	bare:d_in=2560	ilp2	1.7827	330.9	349.5
+ROUND	14	bare:d_in=2560	v2u	1.9806	297.8	314.6
+ROUND	14	bare:d_in=2560	l1w	1.6444	358.7	378.9
+ROUND	14	bare:d_in=2560	bcast	1.9881	296.7	313.4
+ROUND	14	bare:d_in=2560	xbcast	1.9728	299.0	315.8
+ROUND	14	bare:d_in=2560	v2_s	1.6574	355.9	375.9
+ROUND	14	bare:d_in=2560	v2_o2	1.5838	372.4	393.4
+ROUND	14	bare:d_in=2560	nc	1.9579	301.3	318.2
+ROUND	14	bare:d_in=2560	nc256	1.8468	319.4	337.3
+ROUND	14	bare:d_in=2560	cpa	1.6789	351.3	371.1
+ROUND	14	bare:d_in=2560	tile	1.6535	356.7	376.8
+ROUND	14	bare:d_in=2560	bal	1.7398	339.0	358.1
+ROUND	14	bare:d_in=4096	served	0.3268	288.8	299.0
+ROUND	14	bare:d_in=4096	served_np	0.3474	271.6	281.2
+ROUND	14	bare:d_in=4096	acc2	0.2960	318.9	330.1
+ROUND	14	bare:d_in=4096	pword	0.2417	390.5	404.2
+ROUND	14	bare:d_in=4096	v2	0.3048	309.6	320.5
+ROUND	14	bare:d_in=4096	v3	0.3721	253.6	262.6
+ROUND	14	bare:d_in=4096	ilp2	0.3279	287.8	297.9
+ROUND	14	bare:d_in=4096	v2u	0.3741	252.3	261.1
+ROUND	14	bare:d_in=4096	l1w	0.3013	313.3	324.3
+ROUND	14	bare:d_in=4096	bcast	0.3699	255.1	264.1
+ROUND	14	bare:d_in=4096	xbcast	0.3716	253.9	262.9
+ROUND	14	bare:d_in=4096	v2_s	0.3078	306.6	317.3
+ROUND	14	bare:d_in=4096	v2_o2	0.2766	341.2	353.2
+ROUND	14	bare:d_in=4096	nc	0.3688	255.9	264.9
+ROUND	14	bare:d_in=4096	nc256	0.3246	290.7	300.9
+ROUND	14	bare:d_in=4096	cpa	0.3096	304.8	315.5
+ROUND	14	bare:d_in=4096	tile	0.3147	299.9	310.4
+ROUND	14	bare:d_in=4096	bal	0.3281	287.7	297.8
+ROUND	14	bare:d_in=9728	served	0.6087	368.2	371.3
+ROUND	14	bare:d_in=9728	served_np	0.6954	322.3	324.9
+ROUND	14	bare:d_in=9728	acc2	0.5685	394.2	397.5
+ROUND	14	bare:d_in=9728	pword	0.5165	434.0	437.5
+ROUND	14	bare:d_in=9728	v2	0.6048	370.6	373.7
+ROUND	14	bare:d_in=9728	v3	0.7712	290.6	293.0
+ROUND	14	bare:d_in=9728	ilp2	0.6590	340.1	342.9
+ROUND	14	bare:d_in=9728	v2u	0.7506	298.6	301.1
+ROUND	14	bare:d_in=9728	l1w	0.5985	374.5	377.6
+ROUND	14	bare:d_in=9728	bcast	0.7477	299.8	302.2
+ROUND	14	bare:d_in=9728	xbcast	0.7406	302.7	305.1
+ROUND	14	bare:d_in=9728	nc	0.7392	303.2	305.7
+ROUND	14	bare:d_in=9728	nc256	0.6833	328.0	330.7
+ROUND	14	bare:d_in=9728	cpa	0.5856	382.8	385.9
+ROUND	14	bare:d_in=9728	tile	0.5414	414.0	417.4
+ROUND	14	bare:d_in=9728	bal	0.6102	367.3	370.3
+ROUND	14	bare:all	served	2.5062	362.4	377.7
+ROUND	14	bare:all	served_np	2.8401	319.8	333.3
+ROUND	14	bare:all	acc2	2.4316	373.6	389.3
+ROUND	14	bare:all	pword	2.0475	443.6	462.3
+ROUND	14	bare:all	v2	2.5070	362.3	377.6
+ROUND	14	bare:all	v3	2.9579	307.1	320.0
+ROUND	14	bare:all	ilp2	2.6933	337.3	351.5
+ROUND	14	bare:all	v2u	3.0332	299.5	312.1
+ROUND	14	bare:all	l1w	2.5230	360.0	375.2
+ROUND	14	bare:all	bcast	3.0540	297.4	310.0
+ROUND	14	bare:all	xbcast	3.0273	300.0	312.7
+ROUND	14	bare:all	v2_s	1.9326	354.0	372.9
+ROUND	14	bare:all	v2_o2	1.8098	378.0	398.2
+ROUND	14	bare:all	nc	2.9932	303.5	316.3
+ROUND	14	bare:all	nc256	2.8567	318.0	331.4
+ROUND	14	bare:all	cpa	2.5037	362.8	378.1
+ROUND	14	bare:all	tile	2.4217	375.1	390.9
+ROUND	14	bare:all	bal	2.5852	351.4	366.2
+ROUND	14	sealed:int4:d_in=2560	q4hh	0.2793	179.5	179.5
+ROUND	14	sealed:int4:d_in=2560	q4	0.1147	437.2	437.2
+ROUND	14	sealed:int4:d_in=2560	q4nc	0.1153	434.9	434.9
+ROUND	14	sealed:int4:d_in=2560	q4t	0.1256	399.0	399.0
+ROUND	14	sealed:int4:d_in=2560	q4read	0.0727	689.9	689.9
+ROUND	14	sealed:int4:d_in=4096	q4hh	0.4956	404.7	404.7
+ROUND	14	sealed:int4:d_in=4096	q4	0.4651	431.1	431.1
+ROUND	14	sealed:int4:d_in=4096	q4nc	0.3814	525.8	525.8
+ROUND	14	sealed:int4:d_in=4096	q4t	0.3434	584.0	584.0
+ROUND	14	sealed:int4:d_in=4096	q4read	0.2998	668.9	668.9
+ROUND	14	sealed:int4:d_in=9728	q4hh	0.5261	301.7	301.7
+ROUND	14	sealed:int4:d_in=9728	q4	0.3825	415.0	415.0
+ROUND	14	sealed:int4:d_in=9728	q4nc	0.2900	547.4	547.4
+ROUND	14	sealed:int4:d_in=9728	q4t	0.2806	565.7	565.7
+ROUND	14	sealed:int4:d_in=9728	q4read	0.2357	673.6	673.6
+ROUND	14	sealed:int4:all	q4hh	1.2768	320.7	320.7
+ROUND	14	sealed:int4:all	q4	0.9726	421.0	421.0
+ROUND	14	sealed:int4:all	q4nc	0.9106	449.7	449.7
+ROUND	14	sealed:int4:all	q4t	0.7349	557.1	557.1
+ROUND	14	sealed:int4:all	q4read	0.6108	670.4	670.4
+ROUND	14	probe	v1u1/t512/c1/pf0	3.2932	652.1	652.1
+ROUND	14	probe	v1u1/t512/c1/pf2	3.1480	682.2	682.2
+ROUND	14	probe	v4u1/t512/c1/pf0	2.8609	750.6	750.6
+ROUND	14	probe	v4u1/t512/c1/pf2	3.0165	711.9	711.9
+ROUND	14	probe	v4u4/t512/c1/pf0	2.9378	731.0	731.0
+ROUND	14	probe	v4u4/t512/c1/pf2	2.9560	726.5	726.5
+ROUND	14	probe	v4u4/t256/c1/pf0	2.8689	748.5	748.5
+ROUND	14	probe	v4u4/t256/c1/pf2	2.9551	726.7	726.7
+ROUND	14	probe	v4u4/t256/c2/pf0	2.9351	731.6	731.6
+ROUND	14	probe	v4u4/t256/c2/pf2	2.9561	726.5	726.5
+ROUND	14	probe	v4u4/t256/c4/pf0	2.9425	729.8	729.8
+ROUND	14	probe	v4u4/t256/c4/pf2	2.9582	726.0	726.0
+ROUND	14	probe	v4u4/t512/c2/pf0	2.9410	730.2	730.2
+ROUND	14	probe	v4u4/t512/c2/pf2	2.9601	725.5	725.5
+ROUND	14	probe	v4u4/t1024/c1/pf0	2.9420	729.9	729.9
+ROUND	14	probe	v4u4/t1024/c1/pf2	2.9583	725.9	725.9
+
+medians over 15 rounds [round-by-round range]; GB/s of packed words, then with tails and row scales
+
+sealed:d_in=2560
+  served             1.460 ms [1.455-1.465]  388 GB/s [387-389]  410 [408-411]
+  served_np          1.589 ms [1.579-1.599]  356 GB/s [354-359]  376 [374-379]  x0.920 [0.912-0.923] over served
+  acc2               1.441 ms [1.439-1.451]  393 GB/s [390-394]  415 [412-416]  x1.012 [1.008-1.016] over served
+  pword              1.182 ms [1.177-1.188]  479 GB/s [477-481]  506 [503-508]  x1.236 [1.230-1.241] over served  (diagnostic)
+  v2                 1.458 ms [1.455-1.466]  388 GB/s [386-389]  410 [408-411]
+  v3                 1.622 ms [1.615-1.627]  349 GB/s [348-351]  369 [368-370]  x0.899 [0.896-0.902] over v2
+  ilp2               1.562 ms [1.558-1.587]  362 GB/s [357-363]  383 [377-384]  x0.932 [0.918-0.935] over v2
+  v2u                1.699 ms [1.694-1.709]  333 GB/s [331-334]  352 [350-353]  x0.858 [0.852-0.861] over v2
+  l1w                1.432 ms [1.412-1.439]  395 GB/s [393-401]  418 [416-423]  x1.187 [1.180-1.202] over v2u  (diagnostic)
+  bcast              1.704 ms [1.700-1.716]  332 GB/s [330-333]  351 [348-352]  x0.997 [0.992-1.003] over v2u  (diagnostic)
+  xbcast             1.692 ms [1.686-1.698]  335 GB/s [334-336]  353 [352-355]  x1.005 [1.002-1.010] over v2u  (diagnostic)
+  v2_s               1.457 ms [1.454-1.462]  389 GB/s [387-389]  410 [409-411]
+  v2_o2              1.421 ms [1.419-1.429]  399 GB/s [396-399]  421 [419-422]  x1.025 [1.023-1.028] over v2_s
+  nc                 1.686 ms [1.684-1.710]  336 GB/s [331-336]  355 [350-355]  x0.864 [0.851-0.867] over v2
+  nc256              1.592 ms [1.589-1.611]  356 GB/s [352-356]  376 [371-376]  x0.915 [0.904-0.923] over v2
+  cpa                1.490 ms [1.486-1.493]  380 GB/s [379-381]  402 [400-402]  x0.979 [0.975-0.984] over v2
+  tile               1.463 ms [1.458-1.465]  387 GB/s [386-388]  409 [408-410]  x0.997 [0.994-1.002] over v2
+  bal                1.523 ms [1.518-1.545]  372 GB/s [367-373]  393 [387-394]  x0.957 [0.944-0.964] over v2
+
+sealed:d_in=9728
+  served             0.403 ms [0.398-0.407]  371 GB/s [367-375]  374 [370-379]
+  served_np          0.446 ms [0.441-0.462]  335 GB/s [323-338]  338 [326-341]  x0.904 [0.868-0.913] over served
+  acc2               0.375 ms [0.371-0.382]  398 GB/s [392-403]  401 [395-406]  x1.073 [1.049-1.086] over served
+  pword              0.348 ms [0.345-0.353]  430 GB/s [423-432]  433 [427-436]  x1.158 [1.136-1.173] over served  (diagnostic)
+  v2                 0.397 ms [0.395-0.402]  376 GB/s [372-379]  379 [375-382]
+  v3                 0.492 ms [0.490-0.509]  304 GB/s [293-305]  306 [296-308]  x0.805 [0.789-0.814] over v2
+  ilp2               0.431 ms [0.426-0.437]  347 GB/s [342-351]  350 [345-353]  x0.922 [0.912-0.930] over v2
+  v2u                0.482 ms [0.473-0.497]  310 GB/s [301-316]  313 [303-318]  x0.829 [0.800-0.836] over v2
+  l1w                0.372 ms [0.368-0.390]  401 GB/s [383-406]  404 [386-410]  x1.289 [1.222-1.310] over v2u  (diagnostic)
+  bcast              0.481 ms [0.475-0.503]  311 GB/s [297-315]  313 [299-317]  x0.999 [0.951-1.015] over v2u  (diagnostic)
+  xbcast             0.479 ms [0.469-0.499]  312 GB/s [299-318]  314 [302-321]  x1.006 [0.954-1.025] over v2u  (diagnostic)
+  nc                 0.481 ms [0.472-0.499]  310 GB/s [299-316]  313 [302-319]  x0.828 [0.791-0.839] over v2
+  nc256              0.421 ms [0.412-0.436]  355 GB/s [343-362]  358 [346-365]  x0.950 [0.905-0.963] over v2
+  cpa                0.389 ms [0.384-0.393]  384 GB/s [380-389]  387 [383-392]  x1.020 [1.003-1.035] over v2
+  tile               0.362 ms [0.358-0.368]  413 GB/s [406-417]  416 [409-420]  x1.098 [1.072-1.117] over v2
+  bal                0.410 ms [0.406-0.413]  365 GB/s [361-368]  368 [364-371]  x0.968 [0.959-0.984] over v2
+
+sealed:all
+  served             1.838 ms [1.823-1.882]  389 GB/s [380-393]  407 [398-411]
+  served_np          2.062 ms [2.005-2.117]  347 GB/s [338-357]  363 [354-373]  x0.892 [0.872-0.910] over served
+  acc2               1.809 ms [1.786-1.841]  396 GB/s [389-401]  414 [407-419]  x1.023 [1.002-1.025] over served
+  pword              1.519 ms [1.495-1.537]  471 GB/s [466-479]  493 [487-501]  x1.216 [1.198-1.230] over served  (diagnostic)
+  v2                 1.858 ms [1.841-1.883]  385 GB/s [380-389]  403 [398-407]
+  v3                 2.166 ms [2.133-2.192]  330 GB/s [327-335]  346 [342-351]  x0.859 [0.844-0.863] over v2
+  ilp2               2.008 ms [1.984-2.042]  356 GB/s [351-361]  373 [367-377]  x0.926 [0.902-0.930] over v2
+  v2u                2.252 ms [2.225-2.289]  318 GB/s [313-322]  332 [327-337]  x0.828 [0.804-0.830] over v2
+  l1w                1.839 ms [1.821-1.865]  389 GB/s [384-393]  407 [401-411]  x1.224 [1.209-1.228] over v2u  (diagnostic)
+  bcast              2.266 ms [2.238-2.291]  316 GB/s [312-320]  330 [327-335]  x0.994 [0.986-0.999] over v2u  (diagnostic)
+  xbcast             2.249 ms [2.218-2.280]  318 GB/s [314-323]  333 [328-338]  x1.002 [0.993-1.005] over v2u  (diagnostic)
+  v2_s               1.489 ms [1.469-1.508]  380 GB/s [376-385]  402 [397-407]
+  v2_o2              1.440 ms [1.435-1.448]  393 GB/s [391-395]  415 [413-417]  x1.033 [1.019-1.044] over v2_s
+  nc                 2.250 ms [2.234-2.270]  318 GB/s [315-320]  333 [330-335]  x0.824 [0.812-0.837] over v2
+  nc256              2.142 ms [2.126-2.159]  334 GB/s [331-337]  350 [347-352]  x0.866 [0.853-0.879] over v2
+  cpa                1.902 ms [1.888-1.919]  376 GB/s [373-379]  394 [390-397]  x0.976 [0.965-0.987] over v2
+  tile               1.845 ms [1.827-1.856]  388 GB/s [386-392]  406 [403-410]  x1.008 [0.996-1.021] over v2
+  bal                1.963 ms [1.950-1.992]  365 GB/s [359-367]  381 [376-384]  x0.945 [0.931-0.957] over v2
+
+sealed:gu4e
+  gu_served          1.102 ms [1.097-1.117]  407 GB/s [401-408]  430 [424-431]
+  gu_served_np       1.195 ms [1.185-1.205]  375 GB/s [372-378]  396 [393-400]  x0.924 [0.919-0.928] over gu_served
+  gu_acc2            1.085 ms [1.078-1.092]  413 GB/s [411-416]  437 [434-439]  x1.019 [1.012-1.028] over gu_served
+  gu_pword           0.907 ms [0.897-0.911]  494 GB/s [492-500]  522 [520-528]  x1.217 [1.209-1.229] over gu_served  (diagnostic)
+
+bare:d_in=2560
+  served             1.631 ms [1.606-1.650]  362 GB/s [357-367]  382 [378-388]
+  served_np          1.820 ms [1.786-1.839]  324 GB/s [321-330]  342 [339-349]  x0.897 [0.889-0.899] over served
+  acc2               1.608 ms [1.587-1.630]  367 GB/s [362-372]  387 [382-392]  x1.014 [1.001-1.016] over served
+  pword              1.323 ms [1.312-1.337]  446 GB/s [441-449]  471 [466-475]  x1.230 [1.215-1.243] over served  (diagnostic)
+  v2                 1.644 ms [1.616-1.675]  359 GB/s [352-365]  379 [372-386]
+  v3                 1.864 ms [1.834-1.909]  316 GB/s [309-322]  334 [326-340]  x0.881 [0.872-0.882] over v2
+  ilp2               1.772 ms [1.731-1.802]  333 GB/s [327-341]  352 [346-360]  x0.931 [0.908-0.935] over v2
+  v2u                1.973 ms [1.935-2.001]  299 GB/s [295-305]  316 [311-322]  x0.836 [0.816-0.839] over v2
+  l1w                1.640 ms [1.593-1.665]  360 GB/s [354-370]  380 [374-391]  x1.205 [1.194-1.214] over v2u  (diagnostic)
+  bcast              1.981 ms [1.941-2.009]  298 GB/s [294-304]  315 [310-321]  x0.996 [0.987-0.997] over v2u  (diagnostic)
+  xbcast             1.969 ms [1.926-1.996]  300 GB/s [295-306]  316 [312-324]  x1.002 [0.993-1.005] over v2u  (diagnostic)
+  v2_s               1.652 ms [1.615-1.676]  357 GB/s [352-365]  377 [372-386]
+  v2_o2              1.578 ms [1.564-1.603]  374 GB/s [368-377]  395 [389-398]  x1.045 [1.033-1.048] over v2_s
+  nc                 1.958 ms [1.913-1.984]  301 GB/s [297-308]  318 [314-326]  x0.844 [0.819-0.848] over v2
+  nc256              1.851 ms [1.810-1.875]  319 GB/s [315-326]  337 [332-344]  x0.890 [0.867-0.900] over v2
+  cpa                1.679 ms [1.648-1.702]  351 GB/s [347-358]  371 [366-378]  x0.982 [0.955-0.991] over v2
+  tile               1.651 ms [1.620-1.661]  357 GB/s [355-364]  377 [375-384]  x1.000 [0.979-1.010] over v2
+  bal                1.741 ms [1.709-1.754]  339 GB/s [336-345]  358 [355-365]  x0.946 [0.932-0.956] over v2
+
+bare:d_in=4096
+  served             0.327 ms [0.325-0.330]  289 GB/s [286-290]  299 [296-300]
+  served_np          0.351 ms [0.347-0.354]  269 GB/s [266-272]  278 [276-281]  x0.934 [0.925-0.941] over served
+  acc2               0.296 ms [0.291-0.299]  318 GB/s [315-325]  329 [327-336]  x1.104 [1.099-1.121] over served
+  pword              0.242 ms [0.237-0.244]  390 GB/s [386-398]  403 [400-411]  x1.352 [1.341-1.372] over served  (diagnostic)
+  v2                 0.305 ms [0.301-0.308]  310 GB/s [307-314]  321 [318-325]
+  v3                 0.372 ms [0.366-0.376]  254 GB/s [251-258]  263 [260-267]  x0.819 [0.812-0.825] over v2
+  ilp2               0.328 ms [0.322-0.332]  288 GB/s [285-293]  298 [295-303]  x0.930 [0.921-0.936] over v2
+  v2u                0.374 ms [0.367-0.388]  252 GB/s [243-257]  261 [252-266]  x0.816 [0.785-0.828] over v2
+  l1w                0.302 ms [0.297-0.305]  312 GB/s [309-317]  323 [320-328]  x1.236 [1.227-1.279] over v2u  (diagnostic)
+  bcast              0.371 ms [0.367-0.390]  254 GB/s [242-257]  263 [251-266]  x1.006 [0.963-1.042] over v2u  (diagnostic)
+  xbcast             0.372 ms [0.363-0.377]  254 GB/s [251-260]  263 [259-269]  x1.007 [0.987-1.035] over v2u  (diagnostic)
+  v2_s               0.307 ms [0.303-0.311]  308 GB/s [303-312]  318 [314-323]
+  v2_o2              0.276 ms [0.275-0.281]  341 GB/s [336-344]  354 [348-356]  x1.110 [1.099-1.126] over v2_s
+  nc                 0.370 ms [0.365-0.374]  255 GB/s [253-258]  264 [261-267]  x0.825 [0.812-0.829] over v2
+  nc256              0.326 ms [0.318-0.331]  290 GB/s [285-297]  300 [295-307]  x0.936 [0.917-0.945] over v2
+  cpa                0.310 ms [0.303-0.313]  304 GB/s [301-311]  315 [312-322]  x0.983 [0.969-0.991] over v2
+  tile               0.315 ms [0.310-0.317]  300 GB/s [298-305]  310 [308-315]  x0.966 [0.961-0.980] over v2
+  bal                0.330 ms [0.325-0.335]  286 GB/s [281-291]  296 [291-301]  x0.925 [0.908-0.934] over v2
+
+bare:d_in=9728
+  served             0.609 ms [0.602-0.614]  368 GB/s [365-373]  371 [368-376]
+  served_np          0.696 ms [0.686-0.701]  322 GB/s [320-327]  324 [322-330]  x0.875 [0.871-0.881] over served
+  acc2               0.569 ms [0.562-0.573]  394 GB/s [391-399]  397 [394-402]  x1.072 [1.067-1.076] over served
+  pword              0.521 ms [0.516-0.526]  431 GB/s [426-434]  434 [430-438]  x1.170 [1.157-1.179] over served  (diagnostic)
+  v2                 0.605 ms [0.598-0.609]  370 GB/s [368-375]  373 [371-378]
+  v3                 0.772 ms [0.762-0.777]  290 GB/s [288-294]  293 [291-297]  x0.784 [0.779-0.786] over v2
+  ilp2               0.660 ms [0.650-0.667]  340 GB/s [336-345]  342 [339-348]  x0.917 [0.911-0.921] over v2
+  v2u                0.750 ms [0.737-0.755]  299 GB/s [297-304]  301 [299-306]  x0.807 [0.802-0.811] over v2
+  l1w                0.601 ms [0.588-0.608]  373 GB/s [369-381]  376 [372-384]  x1.248 [1.239-1.262] over v2u  (diagnostic)
+  bcast              0.754 ms [0.739-0.761]  297 GB/s [294-303]  300 [297-306]  x0.995 [0.982-1.005] over v2u  (diagnostic)
+  xbcast             0.746 ms [0.738-0.751]  301 GB/s [298-304]  303 [301-306]  x1.003 [0.999-1.021] over v2u  (diagnostic)
+  nc                 0.747 ms [0.736-0.752]  300 GB/s [298-305]  303 [301-307]  x0.810 [0.802-0.822] over v2
+  nc256              0.689 ms [0.675-0.696]  325 GB/s [322-332]  328 [324-335]  x0.879 [0.870-0.894] over v2
+  cpa                0.589 ms [0.581-0.594]  381 GB/s [377-386]  384 [380-389]  x1.028 [1.020-1.045] over v2
+  tile               0.548 ms [0.540-0.552]  409 GB/s [406-415]  413 [409-418]  x1.104 [1.097-1.121] over v2
+  bal                0.613 ms [0.607-0.620]  366 GB/s [361-369]  369 [364-372]  x0.987 [0.978-1.000] over v2
+
+bare:all
+  served             2.526 ms [2.498-2.536]  360 GB/s [358-364]  375 [373-379]
+  served_np          2.849 ms [2.822-2.880]  319 GB/s [315-322]  332 [329-335]  x0.882 [0.880-0.891] over served
+  acc2               2.434 ms [2.412-2.466]  373 GB/s [368-377]  389 [384-392]  x1.031 [1.028-1.049] over served
+  pword              2.044 ms [2.033-2.057]  444 GB/s [442-447]  463 [460-466]  x1.231 [1.223-1.245] over served  (diagnostic)
+  v2                 2.501 ms [2.486-2.545]  363 GB/s [357-365]  379 [372-381]
+  v3                 2.953 ms [2.933-2.970]  308 GB/s [306-310]  321 [319-323]  x0.848 [0.845-0.861] over v2
+  ilp2               2.693 ms [2.677-2.704]  337 GB/s [336-339]  351 [350-354]  x0.930 [0.926-0.945] over v2
+  v2u                3.029 ms [3.006-3.044]  300 GB/s [298-302]  313 [311-315]  x0.826 [0.823-0.837] over v2
+  l1w                2.518 ms [2.501-2.531]  361 GB/s [359-363]  376 [374-378]  x1.203 [1.200-1.207] over v2u  (diagnostic)
+  bcast              3.045 ms [3.023-3.075]  298 GB/s [295-300]  311 [308-313]  x0.994 [0.990-0.997] over v2u  (diagnostic)
+  xbcast             3.022 ms [2.995-3.037]  301 GB/s [299-303]  313 [312-316]  x1.004 [0.996-1.005] over v2u  (diagnostic)
+  v2_s               1.927 ms [1.915-1.934]  355 GB/s [354-357]  374 [373-376]
+  v2_o2              1.807 ms [1.803-1.811]  379 GB/s [378-380]  399 [398-400]  x1.066 [1.061-1.071] over v2_s
+  nc                 3.002 ms [2.984-3.017]  303 GB/s [301-304]  315 [314-317]  x0.834 [0.824-0.849] over v2
+  nc256              2.873 ms [2.851-2.895]  316 GB/s [314-319]  329 [327-332]  x0.870 [0.859-0.886] over v2
+  cpa                2.515 ms [2.491-2.530]  361 GB/s [359-365]  376 [374-380]  x0.992 [0.984-1.012] over v2
+  tile               2.431 ms [2.407-2.447]  374 GB/s [371-377]  389 [387-393]  x1.027 [1.019-1.048] over v2
+  bal                2.607 ms [2.581-2.623]  348 GB/s [346-352]  363 [361-367]  x0.956 [0.949-0.977] over v2
+
+sealed:int4:d_in=2560
+  q4hh               0.278 ms [0.275-0.285]  180 GB/s [176-182]  180 [176-182]  x0.416 [0.408-0.423] over q4
+  q4                 0.116 ms [0.114-0.119]  434 GB/s [423-438]  434 [423-438]
+  q4nc               0.116 ms [0.115-0.120]  431 GB/s [419-435]  431 [419-435]  x0.994 [0.965-1.012] over q4
+  q4t                0.126 ms [0.124-0.140]  399 GB/s [359-405]  399 [359-405]  x0.916 [0.819-0.939] over q4
+  q4read             0.073 ms [0.072-0.074]  690 GB/s [677-700]  690 [677-700]  x1.589 [1.561-1.638] over q4  (diagnostic)
+
+sealed:int4:d_in=4096
+  q4hh               0.497 ms [0.494-0.499]  403 GB/s [402-406]  403 [402-406]  x0.933 [0.925-0.939] over q4
+  q4                 0.464 ms [0.461-0.467]  432 GB/s [430-435]  432 [430-435]
+  q4nc               0.383 ms [0.381-0.391]  524 GB/s [513-526]  524 [513-526]  x1.211 [1.192-1.220] over q4
+  q4t                0.345 ms [0.343-0.349]  582 GB/s [575-585]  582 [575-585]  x1.347 [1.320-1.355] over q4
+  q4read             0.300 ms [0.299-0.302]  668 GB/s [664-671]  668 [664-671]  x1.548 [1.525-1.552] over q4  (diagnostic)
+
+sealed:int4:d_in=9728
+  q4hh               0.530 ms [0.526-0.531]  300 GB/s [299-302]  300 [299-302]  x0.726 [0.722-0.733] over q4
+  q4                 0.384 ms [0.382-0.388]  413 GB/s [409-415]  413 [409-415]
+  q4nc               0.291 ms [0.290-0.295]  545 GB/s [538-548]  545 [538-548]  x1.317 [1.299-1.329] over q4
+  q4t                0.282 ms [0.281-0.284]  563 GB/s [559-566]  563 [559-566]  x1.363 [1.350-1.373] over q4
+  q4read             0.236 ms [0.235-0.238]  673 GB/s [668-675]  673 [668-675]  x1.630 [1.610-1.639] over q4  (diagnostic)
+
+sealed:int4:all
+  q4hh               1.279 ms [1.276-1.293]  320 GB/s [317-321]  320 [317-321]  x0.761 [0.757-0.766] over q4
+  q4                 0.975 ms [0.966-0.982]  420 GB/s [417-424]  420 [417-424]
+  q4nc               0.906 ms [0.899-0.915]  452 GB/s [448-455]  452 [448-455]  x1.074 [1.064-1.085] over q4
+  q4t                0.735 ms [0.733-0.739]  557 GB/s [554-559]  557 [554-559]  x1.324 [1.318-1.332] over q4
+  q4read             0.606 ms [0.599-0.611]  675 GB/s [670-684]  675 [670-684]  x1.605 [1.592-1.635] over q4  (diagnostic)
+
+probe
+  v1u1/t512/c1/pf0   3.289 ms [3.277-3.299]  653 GB/s [651-655]  653 [651-655]
+  v1u1/t512/c1/pf2   3.148 ms [3.136-3.161]  682 GB/s [679-685]  682 [679-685]
+  v4u1/t512/c1/pf0   2.859 ms [2.854-2.871]  751 GB/s [748-752]  751 [748-752]
+  v4u1/t512/c1/pf2   3.013 ms [3.008-3.021]  713 GB/s [711-714]  713 [711-714]
+  v4u4/t512/c1/pf0   2.938 ms [2.936-2.941]  731 GB/s [730-731]  731 [730-731]
+  v4u4/t512/c1/pf2   2.956 ms [2.954-2.962]  726 GB/s [725-727]  726 [725-727]
+  v4u4/t256/c1/pf0   2.865 ms [2.860-2.873]  749 GB/s [747-751]  749 [747-751]
+  v4u4/t256/c1/pf2   2.952 ms [2.947-2.963]  727 GB/s [725-729]  727 [725-729]
+  v4u4/t256/c2/pf0   2.936 ms [2.935-2.941]  731 GB/s [730-732]  731 [730-732]
+  v4u4/t256/c2/pf2   2.957 ms [2.955-2.961]  726 GB/s [725-727]  726 [725-727]
+  v4u4/t256/c4/pf0   2.944 ms [2.942-2.950]  730 GB/s [728-730]  730 [728-730]
+  v4u4/t256/c4/pf2   2.962 ms [2.958-2.966]  725 GB/s [724-726]  725 [724-726]
+  v4u4/t512/c2/pf0   2.944 ms [2.941-2.957]  729 GB/s [726-730]  729 [726-730]
+  v4u4/t512/c2/pf2   2.960 ms [2.958-2.964]  725 GB/s [725-726]  725 [725-726]
+  v4u4/t1024/c1/pf0  2.943 ms [2.942-2.949]  730 GB/s [728-730]  730 [728-730]
+  v4u4/t1024/c1/pf2  2.958 ms [2.957-2.964]  726 GB/s [725-726]  726 [725-726]
+
+FIDELITY	served	PASS	bare:all 0.9467 GB, median 374.8 GB/s [373.3-379.0] against [368, 383]
+FIDELITY	v2	PASS	bare:all median 378.6 GB/s [372.0-380.8] against [368, 383]
+ORDER	v3	PASS	x0.848 [0.845-0.861] over v2, journal x0.849, tolerance 0.03
+ORDER	ilp2	PASS	x0.930 [0.926-0.945] over v2, journal x0.928, tolerance 0.03
+ORDER	v2u	PASS	x0.826 [0.823-0.837] over v2, journal x0.825, tolerance 0.03
+ORDER	l1w	PASS	x1.203 [1.200-1.207] over v2u, journal x1.214, tolerance 0.03
+ORDER	bcast	PASS	x0.994 [0.990-0.997] over v2u, journal x0.987, tolerance 0.03
+ORDER	xbcast	PASS	x1.004 [0.996-1.005] over v2u, journal x0.995, tolerance 0.03
+ORDER	v2_o2	PASS	x1.066 [1.061-1.071] over v2_s, journal x1.076, tolerance 0.03
+ORDER	nc	PASS	x0.834 [0.824-0.849] over v2, journal x0.810, tolerance 0.03
+ORDER	nc256	PASS	x0.870 [0.859-0.886] over v2, journal x0.845, tolerance 0.03
+ORDER	cpa	FAIL	x0.992 [0.984-1.012] over v2, journal x0.960, tolerance 0.03
+ORDER	tile	PASS	x1.027 [1.019-1.048] over v2, journal x1.002, tolerance 0.03
+ORDER	bal	PASS	x0.956 [0.949-0.977] over v2, journal x0.934, tolerance 0.03
+ORDER	all	FAIL	12 known arms against their journal speeds, 1 outside +-0.03
+
+TSV	set	arm	kind	owes	status	bytes_words	bytes_old	ms_med	ms_lo	ms_hi	gbs_med	gbs_lo	gbs_hi	gbs_old_med	gbs_old_lo	gbs_old_hi	y_equal	f32_equal	rows	max_rel	q99_rel
+TSV	sealed:d_in=2560	served	rowc	bits	valid	566231040	598081536	1.4603	1.4547	1.4646	387.8	386.6	389.2	409.6	408.4	411.1	884736	884736	884736	0.000e0	0.000e0
+TSV	sealed:d_in=2560	served_np	rowc	bits	valid	566231040	598081536	1.5890	1.5793	1.5988	356.3	354.2	358.5	376.4	374.1	378.7	884736	884736	884736	0.000e0	0.000e0
+TSV	sealed:d_in=2560	acc2	rowc	bound 1e-5	valid	566231040	598081536	1.4411	1.4387	1.4507	392.9	390.3	393.6	415.0	412.3	415.7	884152	360335	884736	1.717e-6	2.830e-7
+TSV	sealed:d_in=2560	pword	rowc	nothing	diagnostic	566231040	598081536	1.1818	1.1774	1.1881	479.1	476.6	480.9	506.1	503.4	508.0	0	0	884736	2.744e3	6.479e2
+TSV	sealed:d_in=2560	v2	known	bits	valid	566231040	598081536	1.4576	1.4546	1.4662	388.5	386.2	389.3	410.3	407.9	411.2	884736	884736	884736	0.000e0	0.000e0
+TSV	sealed:d_in=2560	v3	known	bits	valid	566231040	598081536	1.6224	1.6149	1.6272	349.0	348.0	350.6	368.6	367.6	370.3	884736	884736	884736	0.000e0	0.000e0
+TSV	sealed:d_in=2560	ilp2	known	bits	valid	566231040	598081536	1.5623	1.5583	1.5870	362.4	356.8	363.4	382.8	376.9	383.8	884736	884736	884736	0.000e0	0.000e0
+TSV	sealed:d_in=2560	v2u	known	bits	valid	566231040	598081536	1.6987	1.6945	1.7093	333.3	331.3	334.2	352.1	349.9	353.0	884736	884736	884736	0.000e0	0.000e0
+TSV	sealed:d_in=2560	l1w	known	nothing	diagnostic	566231040	598081536	1.4321	1.4123	1.4390	395.4	393.5	400.9	417.6	415.6	423.5	246	144	884736	1.305e1	3.932e0
+TSV	sealed:d_in=2560	bcast	known	nothing	diagnostic	566231040	598081536	1.7040	1.6996	1.7163	332.3	329.9	333.2	351.0	348.5	351.9	106	0	884736	1.368e1	3.752e0
+TSV	sealed:d_in=2560	xbcast	known	nothing	diagnostic	566231040	598081536	1.6919	1.6859	1.6977	334.7	333.5	335.9	353.5	352.3	354.8	95	0	884736	1.157e1	3.705e0
+TSV	sealed:d_in=2560	v2_s	known	bits	valid	566231040	598081536	1.4571	1.4544	1.4623	388.6	387.2	389.3	410.5	409.0	411.2	884736	884736	884736	0.000e0	0.000e0
+TSV	sealed:d_in=2560	v2_o2	known	bits	valid	566231040	598081536	1.4206	1.4185	1.4286	398.6	396.3	399.2	421.0	418.6	421.6	884736	884736	884736	0.000e0	0.000e0
+TSV	sealed:d_in=2560	nc	known	bits	valid	566231040	598081536	1.6858	1.6838	1.7101	335.9	331.1	336.3	354.8	349.7	355.2	884736	884736	884736	0.000e0	0.000e0
+TSV	sealed:d_in=2560	nc256	known	bits	valid	566231040	598081536	1.5921	1.5888	1.6107	355.6	351.5	356.4	375.7	371.3	376.4	884736	884736	884736	0.000e0	0.000e0
+TSV	sealed:d_in=2560	cpa	known	bits	valid	566231040	598081536	1.4895	1.4860	1.4934	380.1	379.2	381.0	401.5	400.5	402.5	884736	884736	884736	0.000e0	0.000e0
+TSV	sealed:d_in=2560	tile	known	bits	valid	566231040	598081536	1.4626	1.4582	1.4653	387.1	386.4	388.3	408.9	408.2	410.2	884736	884736	884736	0.000e0	0.000e0
+TSV	sealed:d_in=2560	bal	known	bits	valid	566231040	598081536	1.5234	1.5176	1.5446	371.7	366.6	373.1	392.6	387.2	394.1	884736	884736	884736	0.000e0	0.000e0
+TSV	sealed:d_in=9728	served	rowc	bits	valid	149422080	150650880	0.4026	0.3980	0.4073	371.1	366.9	375.4	374.2	369.9	378.5	61440	61440	61440	0.000e0	0.000e0
+TSV	sealed:d_in=9728	served_np	rowc	bits	valid	149422080	150650880	0.4457	0.4415	0.4623	335.3	323.2	338.5	338.0	325.9	341.3	61440	61440	61440	0.000e0	0.000e0
+TSV	sealed:d_in=9728	acc2	rowc	bound 1e-5	valid	149422080	150650880	0.3754	0.3712	0.3817	398.1	391.5	402.6	401.4	394.7	405.9	61388	18467	61440	1.716e-6	3.474e-7
+TSV	sealed:d_in=9728	pword	rowc	nothing	diagnostic	149422080	150650880	0.3477	0.3455	0.3532	429.7	423.1	432.5	433.2	426.5	436.0	0	0	61440	8.355e2	2.624e2
+TSV	sealed:d_in=9728	v2	known	bits	valid	149422080	150650880	0.3971	0.3945	0.4016	376.3	372.1	378.8	379.4	375.2	381.9	61440	61440	61440	0.000e0	0.000e0
+TSV	sealed:d_in=9728	v3	known	bits	valid	149422080	150650880	0.4921	0.4898	0.5092	303.6	293.5	305.1	306.1	295.9	307.6	61440	61440	61440	0.000e0	0.000e0
+TSV	sealed:d_in=9728	ilp2	known	bits	valid	149422080	150650880	0.4306	0.4262	0.4371	347.0	341.8	350.6	349.9	344.7	353.5	61440	61440	61440	0.000e0	0.000e0
+TSV	sealed:d_in=9728	v2u	known	bits	valid	149422080	150650880	0.4819	0.4735	0.4972	310.1	300.5	315.6	312.6	303.0	318.2	61440	61440	61440	0.000e0	0.000e0
+TSV	sealed:d_in=9728	l1w	known	nothing	diagnostic	149422080	150650880	0.3725	0.3677	0.3900	401.2	383.2	406.3	404.5	386.3	409.7	30	24	61440	6.591e0	3.649e0
+TSV	sealed:d_in=9728	bcast	known	nothing	diagnostic	149422080	150650880	0.4811	0.4749	0.5031	310.6	297.0	314.7	313.1	299.4	317.3	13	0	61440	7.625e0	3.687e0
+TSV	sealed:d_in=9728	xbcast	known	nothing	diagnostic	149422080	150650880	0.4792	0.4693	0.4993	311.8	299.3	318.4	314.4	301.7	321.0	6	0	61440	9.171e0	3.674e0
+TSV	sealed:d_in=9728	nc	known	bits	valid	149422080	150650880	0.4814	0.4723	0.4990	310.4	299.5	316.3	312.9	301.9	319.0	61440	61440	61440	0.000e0	0.000e0
+TSV	sealed:d_in=9728	nc256	known	bits	valid	149422080	150650880	0.4205	0.4124	0.4358	355.3	342.9	362.4	358.2	345.7	365.3	61440	61440	61440	0.000e0	0.000e0
+TSV	sealed:d_in=9728	cpa	known	bits	valid	149422080	150650880	0.3893	0.3844	0.3933	383.9	379.9	388.7	387.0	383.0	391.9	61440	61440	61440	0.000e0	0.000e0
+TSV	sealed:d_in=9728	tile	known	bits	valid	149422080	150650880	0.3619	0.3585	0.3682	412.8	405.8	416.8	416.2	409.2	420.2	61440	61440	61440	0.000e0	0.000e0
+TSV	sealed:d_in=9728	bal	known	bits	valid	149422080	150650880	0.4097	0.4065	0.4134	364.7	361.5	367.6	367.7	364.4	370.6	61440	61440	61440	0.000e0	0.000e0
+TSV	sealed:all	served	rowc	bits	valid	715653120	748732416	1.8381	1.8233	1.8818	389.3	380.3	392.5	407.3	397.9	410.7	946176	946176	946176	0.000e0	0.000e0
+TSV	sealed:all	served_np	rowc	bits	valid	715653120	748732416	2.0622	2.0055	2.1169	347.0	338.1	356.9	363.1	353.7	373.3	946176	946176	946176	0.000e0	0.000e0
+TSV	sealed:all	acc2	rowc	bound 1e-5	valid	715653120	748732416	1.8095	1.7861	1.8410	395.5	388.7	400.7	413.8	406.7	419.2	945540	378802	946176	1.717e-6	2.893e-7
+TSV	sealed:all	pword	rowc	nothing	diagnostic	715653120	748732416	1.5195	1.4954	1.5365	471.0	465.8	478.6	492.8	487.3	500.7	0	0	946176	2.744e3	6.413e2
+TSV	sealed:all	v2	known	bits	valid	715653120	748732416	1.8579	1.8406	1.8834	385.2	380.0	388.8	403.0	397.5	406.8	946176	946176	946176	0.000e0	0.000e0
+TSV	sealed:all	v3	known	bits	valid	715653120	748732416	2.1663	2.1332	2.1917	330.4	326.5	335.5	345.6	341.6	351.0	946176	946176	946176	0.000e0	0.000e0
+TSV	sealed:all	ilp2	known	bits	valid	715653120	748732416	2.0081	1.9838	2.0417	356.4	350.5	360.8	372.9	366.7	377.4	946176	946176	946176	0.000e0	0.000e0
+TSV	sealed:all	v2u	known	bits	valid	715653120	748732416	2.2523	2.2247	2.2887	317.7	312.7	321.7	332.4	327.1	336.6	946176	946176	946176	0.000e0	0.000e0
+TSV	sealed:all	l1w	known	nothing	diagnostic	715653120	748732416	1.8395	1.8206	1.8655	389.1	383.6	393.1	407.0	401.4	411.3	276	168	946176	1.305e1	3.915e0
+TSV	sealed:all	bcast	known	nothing	diagnostic	715653120	748732416	2.2661	2.2380	2.2909	315.8	312.4	319.8	330.4	326.8	334.6	119	0	946176	1.368e1	3.748e0
+TSV	sealed:all	xbcast	known	nothing	diagnostic	715653120	748732416	2.2493	2.2180	2.2796	318.2	313.9	322.7	332.9	328.4	337.6	101	0	946176	1.157e1	3.702e0
+TSV	sealed:all	v2_s	known	bits	valid	566231040	598081536	1.4892	1.4695	1.5078	380.2	375.5	385.3	401.6	396.6	407.0	884736	884736	884736	0.000e0	0.000e0
+TSV	sealed:all	v2_o2	known	bits	valid	566231040	598081536	1.4403	1.4352	1.4476	393.1	391.2	394.5	415.3	413.2	416.7	884736	884736	884736	0.000e0	0.000e0
+TSV	sealed:all	nc	known	bits	valid	715653120	748732416	2.2504	2.2338	2.2703	318.0	315.2	320.4	332.7	329.8	335.2	946176	946176	946176	0.000e0	0.000e0
+TSV	sealed:all	nc256	known	bits	valid	715653120	748732416	2.1415	2.1255	2.1594	334.2	331.4	336.7	349.6	346.7	352.3	946176	946176	946176	0.000e0	0.000e0
+TSV	sealed:all	cpa	known	bits	valid	715653120	748732416	1.9016	1.8878	1.9193	376.3	372.9	379.1	393.7	390.1	396.6	946176	946176	946176	0.000e0	0.000e0
+TSV	sealed:all	tile	known	bits	valid	715653120	748732416	1.8446	1.8269	1.8563	388.0	385.5	391.7	405.9	403.3	409.8	946176	946176	946176	0.000e0	0.000e0
+TSV	sealed:all	bal	known	bits	valid	715653120	748732416	1.9633	1.9501	1.9923	364.5	359.2	367.0	381.4	375.8	383.9	946176	946176	946176	0.000e0	0.000e0
+TSV	sealed:gu4e	gu_served	rowc	bits	valid	448266240	473481216	1.1024	1.0974	1.1170	406.6	401.3	408.5	429.5	423.9	431.4	700416	700416	700416	0.000e0	0.000e0
+TSV	sealed:gu4e	gu_served_np	rowc	bits	valid	448266240	473481216	1.1953	1.1845	1.2054	375.0	371.9	378.4	396.1	392.8	399.7	700416	700416	700416	0.000e0	0.000e0
+TSV	sealed:gu4e	gu_acc2	rowc	bound 1e-5	valid	448266240	473481216	1.0846	1.0778	1.0916	413.3	410.6	415.9	436.5	433.7	439.3	699958	285378	700416	1.655e-6	2.796e-7
+TSV	sealed:gu4e	gu_pword	rowc	nothing	diagnostic	448266240	473481216	0.9070	0.8972	0.9110	494.2	492.1	499.6	522.0	519.8	527.7	0	0	700416	2.744e3	6.178e2
+TSV	bare:d_in=2560	served	rowc	bits	valid	589824000	623001600	1.6308	1.6064	1.6503	361.7	357.4	367.2	382.0	377.5	387.8	921600	921600	921600	0.000e0	0.000e0
+TSV	bare:d_in=2560	served_np	rowc	bits	valid	589824000	623001600	1.8198	1.7865	1.8390	324.1	320.7	330.2	342.3	338.8	348.7	921600	921600	921600	0.000e0	0.000e0
+TSV	bare:d_in=2560	acc2	rowc	bound 1e-5	valid	589824000	623001600	1.6082	1.5874	1.6305	366.8	361.8	371.6	387.4	382.1	392.5	921003	375253	921600	1.188e-6	2.815e-7
+TSV	bare:d_in=2560	pword	rowc	nothing	diagnostic	589824000	623001600	1.3226	1.3124	1.3369	446.0	441.2	449.4	471.1	466.0	474.7	0	0	921600	2.897e3	6.402e2
+TSV	bare:d_in=2560	v2	known	bits	valid	589824000	623001600	1.6440	1.6158	1.6754	358.8	352.0	365.0	378.9	371.8	385.6	921600	921600	921600	0.000e0	0.000e0
+TSV	bare:d_in=2560	v3	known	bits	valid	589824000	623001600	1.8644	1.8342	1.9091	316.4	308.9	321.6	334.2	326.3	339.7	921600	921600	921600	0.000e0	0.000e0
+TSV	bare:d_in=2560	ilp2	known	bits	valid	589824000	623001600	1.7719	1.7315	1.8015	332.9	327.4	340.6	351.6	345.8	359.8	921600	921600	921600	0.000e0	0.000e0
+TSV	bare:d_in=2560	v2u	known	bits	valid	589824000	623001600	1.9730	1.9346	2.0011	299.0	294.7	304.9	315.8	311.3	322.0	921600	921600	921600	0.000e0	0.000e0
+TSV	bare:d_in=2560	l1w	known	nothing	diagnostic	589824000	623001600	1.6401	1.5932	1.6651	359.6	354.2	370.2	379.9	374.1	391.0	277	180	921600	1.317e1	3.936e0
+TSV	bare:d_in=2560	bcast	known	nothing	diagnostic	589824000	623001600	1.9806	1.9409	2.0091	297.8	293.6	303.9	314.6	310.1	321.0	109	0	921600	1.542e1	3.734e0
+TSV	bare:d_in=2560	xbcast	known	nothing	diagnostic	589824000	623001600	1.9688	1.9256	1.9961	299.6	295.5	306.3	316.4	312.1	323.5	108	0	921600	1.578e1	3.697e0
+TSV	bare:d_in=2560	v2_s	known	bits	valid	589824000	623001600	1.6522	1.6152	1.6759	357.0	351.9	365.2	377.1	371.7	385.7	921600	921600	921600	0.000e0	0.000e0
+TSV	bare:d_in=2560	v2_o2	known	bits	valid	589824000	623001600	1.5777	1.5636	1.6028	373.9	368.0	377.2	394.9	388.7	398.4	921600	921600	921600	0.000e0	0.000e0
+TSV	bare:d_in=2560	nc	known	bits	valid	589824000	623001600	1.9581	1.9128	1.9844	301.2	297.2	308.4	318.2	314.0	325.7	921600	921600	921600	0.000e0	0.000e0
+TSV	bare:d_in=2560	nc256	known	bits	valid	589824000	623001600	1.8512	1.8102	1.8747	318.6	314.6	325.8	336.5	332.3	344.2	921600	921600	921600	0.000e0	0.000e0
+TSV	bare:d_in=2560	cpa	known	bits	valid	589824000	623001600	1.6789	1.6485	1.7022	351.3	346.5	357.8	371.1	366.0	377.9	921600	921600	921600	0.000e0	0.000e0
+TSV	bare:d_in=2560	tile	known	bits	valid	589824000	623001600	1.6508	1.6204	1.6612	357.3	355.0	364.0	377.4	375.0	384.5	921600	921600	921600	0.000e0	0.000e0
+TSV	bare:d_in=2560	bal	known	bits	valid	589824000	623001600	1.7409	1.7085	1.7541	338.8	336.3	345.2	357.9	355.2	364.6	921600	921600	921600	0.000e0	0.000e0
+TSV	bare:d_in=4096	served	rowc	bits	valid	94371840	97689600	0.3269	0.3255	0.3299	288.7	286.0	289.9	298.8	296.1	300.1	92160	92160	92160	0.000e0	0.000e0
+TSV	bare:d_in=4096	served_np	rowc	bits	valid	94371840	97689600	0.3514	0.3474	0.3545	268.6	266.2	271.6	278.0	275.6	281.2	92160	92160	92160	0.000e0	0.000e0
+TSV	bare:d_in=4096	acc2	rowc	bound 1e-5	valid	94371840	97689600	0.2965	0.2906	0.2991	318.3	315.5	324.8	329.5	326.6	336.2	92089	33199	92160	7.277e-7	3.226e-7
+TSV	bare:d_in=4096	pword	rowc	nothing	diagnostic	94371840	97689600	0.2422	0.2374	0.2444	389.7	386.1	397.5	403.4	399.7	411.5	0	0	92160	1.514e3	4.260e2
+TSV	bare:d_in=4096	v2	known	bits	valid	94371840	97689600	0.3048	0.3006	0.3077	309.6	306.7	313.9	320.5	317.5	325.0	92160	92160	92160	0.000e0	0.000e0
+TSV	bare:d_in=4096	v3	known	bits	valid	94371840	97689600	0.3721	0.3661	0.3762	253.6	250.9	257.8	262.6	259.7	266.8	92160	92160	92160	0.000e0	0.000e0
+TSV	bare:d_in=4096	ilp2	known	bits	valid	94371840	97689600	0.3279	0.3221	0.3317	287.8	284.5	293.0	297.9	294.5	303.3	92160	92160	92160	0.000e0	0.000e0
+TSV	bare:d_in=4096	v2u	known	bits	valid	94371840	97689600	0.3742	0.3672	0.3882	252.2	243.1	257.0	261.1	251.7	266.0	92160	92160	92160	0.000e0	0.000e0
+TSV	bare:d_in=4096	l1w	known	nothing	diagnostic	94371840	97689600	0.3021	0.2974	0.3052	312.4	309.2	317.3	323.3	320.1	328.4	45	36	92160	1.137e1	3.407e0
+TSV	bare:d_in=4096	bcast	known	nothing	diagnostic	94371840	97689600	0.3710	0.3667	0.3895	254.3	242.3	257.4	263.3	250.8	266.4	6	0	92160	8.069e0	3.690e0
+TSV	bare:d_in=4096	xbcast	known	nothing	diagnostic	94371840	97689600	0.3716	0.3629	0.3766	253.9	250.6	260.0	262.9	259.4	269.2	15	0	92160	1.050e1	3.618e0
+TSV	bare:d_in=4096	v2_s	known	bits	valid	94371840	97689600	0.3068	0.3025	0.3113	307.6	303.2	311.9	318.4	313.8	322.9	92160	92160	92160	0.000e0	0.000e0
+TSV	bare:d_in=4096	v2_o2	known	bits	valid	94371840	97689600	0.2763	0.2747	0.2809	341.5	336.0	343.6	353.5	347.8	355.7	92160	92160	92160	0.000e0	0.000e0
+TSV	bare:d_in=4096	nc	known	bits	valid	94371840	97689600	0.3701	0.3655	0.3737	255.0	252.5	258.2	264.0	261.4	267.3	92160	92160	92160	0.000e0	0.000e0
+TSV	bare:d_in=4096	nc256	known	bits	valid	94371840	97689600	0.3259	0.3181	0.3312	289.6	285.0	296.6	299.8	295.0	307.1	92160	92160	92160	0.000e0	0.000e0
+TSV	bare:d_in=4096	cpa	known	bits	valid	94371840	97689600	0.3101	0.3034	0.3133	304.3	301.2	311.0	315.0	311.8	321.9	92160	92160	92160	0.000e0	0.000e0
+TSV	bare:d_in=4096	tile	known	bits	valid	94371840	97689600	0.3149	0.3096	0.3167	299.7	298.0	304.8	310.3	308.4	315.5	92160	92160	92160	0.000e0	0.000e0
+TSV	bare:d_in=4096	bal	known	bits	valid	94371840	97689600	0.3302	0.3248	0.3354	285.8	281.4	290.5	295.8	291.3	300.8	92160	92160	92160	0.000e0	0.000e0
+TSV	bare:d_in=9728	served	rowc	bits	valid	224133120	225976320	0.6092	0.6015	0.6144	367.9	364.8	372.6	370.9	367.8	375.7	92160	92160	92160	0.000e0	0.000e0
+TSV	bare:d_in=9728	served_np	rowc	bits	valid	224133120	225976320	0.6964	0.6858	0.7008	321.8	319.8	326.8	324.5	322.5	329.5	92160	92160	92160	0.000e0	0.000e0
+TSV	bare:d_in=9728	acc2	rowc	bound 1e-5	valid	224133120	225976320	0.5685	0.5618	0.5732	394.2	391.0	399.0	397.5	394.2	402.3	92072	27598	92160	1.144e-6	3.274e-7
+TSV	bare:d_in=9728	pword	rowc	nothing	diagnostic	224133120	225976320	0.5205	0.5165	0.5259	430.6	426.2	434.0	434.1	429.7	437.5	0	0	92160	8.761e2	2.585e2
+TSV	bare:d_in=9728	v2	known	bits	valid	224133120	225976320	0.6050	0.5982	0.6094	370.4	367.8	374.7	373.5	370.8	377.7	92160	92160	92160	0.000e0	0.000e0
+TSV	bare:d_in=9728	v3	known	bits	valid	224133120	225976320	0.7724	0.7620	0.7775	290.2	288.3	294.1	292.6	290.7	296.6	92160	92160	92160	0.000e0	0.000e0
+TSV	bare:d_in=9728	ilp2	known	bits	valid	224133120	225976320	0.6601	0.6497	0.6669	339.5	336.1	345.0	342.3	338.9	347.8	92160	92160	92160	0.000e0	0.000e0
+TSV	bare:d_in=9728	v2u	known	bits	valid	224133120	225976320	0.7504	0.7374	0.7553	298.7	296.8	303.9	301.1	299.2	306.4	92160	92160	92160	0.000e0	0.000e0
+TSV	bare:d_in=9728	l1w	known	nothing	diagnostic	224133120	225976320	0.6011	0.5883	0.6075	372.9	368.9	381.0	376.0	372.0	384.1	44	36	92160	9.789e0	3.523e0
+TSV	bare:d_in=9728	bcast	known	nothing	diagnostic	224133120	225976320	0.7537	0.7386	0.7612	297.4	294.5	303.4	299.8	296.9	305.9	8	0	92160	7.688e0	3.659e0
+TSV	bare:d_in=9728	xbcast	known	nothing	diagnostic	224133120	225976320	0.7458	0.7383	0.7513	300.5	298.3	303.6	303.0	300.8	306.1	8	0	92160	1.012e1	3.662e0
+TSV	bare:d_in=9728	nc	known	bits	valid	224133120	225976320	0.7465	0.7358	0.7516	300.2	298.2	304.6	302.7	300.7	307.1	92160	92160	92160	0.000e0	0.000e0
+TSV	bare:d_in=9728	nc256	known	bits	valid	224133120	225976320	0.6889	0.6753	0.6965	325.4	321.8	331.9	328.0	324.5	334.6	92160	92160	92160	0.000e0	0.000e0
+TSV	bare:d_in=9728	cpa	known	bits	valid	224133120	225976320	0.5888	0.5807	0.5939	380.6	377.4	386.0	383.8	380.5	389.2	92160	92160	92160	0.000e0	0.000e0
+TSV	bare:d_in=9728	tile	known	bits	valid	224133120	225976320	0.5475	0.5404	0.5521	409.3	405.9	414.7	412.7	409.3	418.1	92160	92160	92160	0.000e0	0.000e0
+TSV	bare:d_in=9728	bal	known	bits	valid	224133120	225976320	0.6127	0.6068	0.6202	365.8	361.4	369.4	368.8	364.4	372.4	92160	92160	92160	0.000e0	0.000e0
+TSV	bare:all	served	rowc	bits	valid	908328960	946667520	2.5255	2.4981	2.5362	359.7	358.1	363.6	374.8	373.3	379.0	1105920	1105920	1105920	0.000e0	0.000e0
+TSV	bare:all	served_np	rowc	bits	valid	908328960	946667520	2.8486	2.8219	2.8797	318.9	315.4	321.9	332.3	328.7	335.5	1105920	1105920	1105920	0.000e0	0.000e0
+TSV	bare:all	acc2	rowc	bound 1e-5	valid	908328960	946667520	2.4342	2.4124	2.4660	373.2	368.3	376.5	388.9	383.9	392.4	1105164	436050	1105920	1.188e-6	2.967e-7
+TSV	bare:all	pword	rowc	nothing	diagnostic	908328960	946667520	2.0441	2.0328	2.0570	444.4	441.6	446.8	463.1	460.2	465.7	0	0	1105920	2.897e3	6.228e2
+TSV	bare:all	v2	known	bits	valid	908328960	946667520	2.5005	2.4863	2.5445	363.3	357.0	365.3	378.6	372.0	380.8	1105920	1105920	1105920	0.000e0	0.000e0
+TSV	bare:all	v3	known	bits	valid	908328960	946667520	2.9530	2.9327	2.9697	307.6	305.9	309.7	320.6	318.8	322.8	1105920	1105920	1105920	0.000e0	0.000e0
+TSV	bare:all	ilp2	known	bits	valid	908328960	946667520	2.6933	2.6774	2.7044	337.3	335.9	339.3	351.5	350.0	353.6	1105920	1105920	1105920	0.000e0	0.000e0
+TSV	bare:all	v2u	known	bits	valid	908328960	946667520	3.0288	3.0055	3.0441	299.9	298.4	302.2	312.6	311.0	315.0	1105920	1105920	1105920	0.000e0	0.000e0
+TSV	bare:all	l1w	known	nothing	diagnostic	908328960	946667520	2.5184	2.5014	2.5310	360.7	358.9	363.1	375.9	374.0	378.5	366	252	1105920	1.317e1	3.865e0
+TSV	bare:all	bcast	known	nothing	diagnostic	908328960	946667520	3.0454	3.0234	3.0748	298.3	295.4	300.4	310.9	307.9	313.1	123	0	1105920	1.542e1	3.724e0
+TSV	bare:all	xbcast	known	nothing	diagnostic	908328960	946667520	3.0222	2.9946	3.0368	300.5	299.1	303.3	313.2	311.7	316.1	131	0	1105920	1.578e1	3.685e0
+TSV	bare:all	v2_s	known	bits	valid	684195840	720691200	1.9272	1.9145	1.9336	355.0	353.8	357.4	374.0	372.7	376.4	1013760	1013760	1013760	0.000e0	0.000e0
+TSV	bare:all	v2_o2	known	bits	valid	684195840	720691200	1.8066	1.8025	1.8106	378.7	377.9	379.6	398.9	398.1	399.8	1013760	1013760	1013760	0.000e0	0.000e0
+TSV	bare:all	nc	known	bits	valid	908328960	946667520	3.0017	2.9844	3.0171	302.6	301.1	304.4	315.4	313.8	317.2	1105920	1105920	1105920	0.000e0	0.000e0
+TSV	bare:all	nc256	known	bits	valid	908328960	946667520	2.8731	2.8512	2.8950	316.1	313.8	318.6	329.5	327.0	332.0	1105920	1105920	1105920	0.000e0	0.000e0
+TSV	bare:all	cpa	known	bits	valid	908328960	946667520	2.5150	2.4905	2.5304	361.2	359.0	364.7	376.4	374.1	380.1	1105920	1105920	1105920	0.000e0	0.000e0
+TSV	bare:all	tile	known	bits	valid	908328960	946667520	2.4315	2.4073	2.4473	373.6	371.2	377.3	389.3	386.8	393.2	1105920	1105920	1105920	0.000e0	0.000e0
+TSV	bare:all	bal	known	bits	valid	908328960	946667520	2.6075	2.5806	2.6228	348.4	346.3	352.0	363.1	360.9	366.8	1105920	1105920	1105920	0.000e0	0.000e0
+TSV	sealed:int4:d_in=2560	q4hh	int4	served	valid	50135040	50135040	0.2780	0.2748	0.2849	180.4	176.0	182.4	180.4	176.0	182.4	0	0	0	0.000e0	0.000e0
+TSV	sealed:int4:d_in=2560	q4	int4	bits	valid	50135040	50135040	0.1156	0.1144	0.1186	433.8	422.6	438.2	433.8	422.6	438.2	0	0	0	0.000e0	0.000e0
+TSV	sealed:int4:d_in=2560	q4nc	int4	bits	valid	50135040	50135040	0.1163	0.1152	0.1198	431.2	418.6	435.3	431.2	418.6	435.3	0	0	0	0.000e0	0.000e0
+TSV	sealed:int4:d_in=2560	q4t	int4	bits	valid	50135040	50135040	0.1258	0.1237	0.1397	398.5	358.8	405.4	398.5	358.8	405.4	0	0	0	0.000e0	0.000e0
+TSV	sealed:int4:d_in=2560	q4read	int4	nothing	diagnostic	50135040	50135040	0.0727	0.0716	0.0740	689.9	677.4	700.4	689.9	677.4	700.4	0	0	0	0.000e0	0.000e0
+TSV	sealed:int4:d_in=4096	q4hh	int4	served	valid	200540160	200540160	0.4974	0.4943	0.4994	403.2	401.6	405.7	403.2	401.6	405.7	0	0	0	0.000e0	0.000e0
+TSV	sealed:int4:d_in=4096	q4	int4	bits	valid	200540160	200540160	0.4645	0.4606	0.4669	431.7	429.5	435.4	431.7	429.5	435.4	0	0	0	0.000e0	0.000e0
+TSV	sealed:int4:d_in=4096	q4nc	int4	bits	valid	200540160	200540160	0.3829	0.3810	0.3907	523.7	513.3	526.4	523.7	513.3	526.4	0	0	0	0.000e0	0.000e0
+TSV	sealed:int4:d_in=4096	q4t	int4	bits	valid	200540160	200540160	0.3447	0.3427	0.3489	581.7	574.8	585.2	581.7	574.8	585.2	0	0	0	0.000e0	0.000e0
+TSV	sealed:int4:d_in=4096	q4read	int4	nothing	diagnostic	200540160	200540160	0.3003	0.2988	0.3021	667.9	663.9	671.2	667.9	663.9	671.2	0	0	0	0.000e0	0.000e0
+TSV	sealed:int4:d_in=9728	q4hh	int4	served	valid	158760960	158760960	0.5295	0.5261	0.5311	299.8	298.9	301.7	299.8	298.9	301.7	0	0	0	0.000e0	0.000e0
+TSV	sealed:int4:d_in=9728	q4	int4	bits	valid	158760960	158760960	0.3843	0.3824	0.3880	413.1	409.2	415.2	413.1	409.2	415.2	0	0	0	0.000e0	0.000e0
+TSV	sealed:int4:d_in=9728	q4nc	int4	bits	valid	158760960	158760960	0.2914	0.2899	0.2952	544.8	537.9	547.6	544.8	537.9	547.6	0	0	0	0.000e0	0.000e0
+TSV	sealed:int4:d_in=9728	q4t	int4	bits	valid	158760960	158760960	0.2818	0.2806	0.2841	563.4	558.8	565.7	563.4	558.8	565.7	0	0	0	0.000e0	0.000e0
+TSV	sealed:int4:d_in=9728	q4read	int4	nothing	diagnostic	158760960	158760960	0.2360	0.2351	0.2376	672.7	668.1	675.2	672.7	668.1	675.2	0	0	0	0.000e0	0.000e0
+TSV	sealed:int4:all	q4hh	int4	served	valid	409436160	409436160	1.2786	1.2756	1.2932	320.2	316.6	321.0	320.2	316.6	321.0	0	0	0	0.000e0	0.000e0
+TSV	sealed:int4:all	q4	int4	bits	valid	409436160	409436160	0.9748	0.9664	0.9816	420.0	417.1	423.7	420.0	417.1	423.7	0	0	0	0.000e0	0.000e0
+TSV	sealed:int4:all	q4nc	int4	bits	valid	409436160	409436160	0.9058	0.8993	0.9149	452.0	447.5	455.3	452.0	447.5	455.3	0	0	0	0.000e0	0.000e0
+TSV	sealed:int4:all	q4t	int4	bits	valid	409436160	409436160	0.7351	0.7325	0.7391	557.0	554.0	558.9	557.0	554.0	558.9	0	0	0	0.000e0	0.000e0
+TSV	sealed:int4:all	q4read	int4	nothing	diagnostic	409436160	409436160	0.6063	0.5986	0.6108	675.3	670.4	684.0	675.3	670.4	684.0	0	0	0	0.000e0	0.000e0
+TSV	probe	v1u1/t512/c1/pf0	probe	the host's sum	valid	2147483648	2147483648	3.2893	3.2766	3.2989	652.9	651.0	655.4	652.9	651.0	655.4	0	0	0	0.000e0	0.000e0
+TSV	probe	v1u1/t512/c1/pf2	probe	the host's sum	valid	2147483648	2147483648	3.1480	3.1364	3.1614	682.2	679.3	684.7	682.2	679.3	684.7	0	0	0	0.000e0	0.000e0
+TSV	probe	v4u1/t512/c1/pf0	probe	the host's sum	valid	2147483648	2147483648	2.8591	2.8538	2.8709	751.1	748.0	752.5	751.1	748.0	752.5	0	0	0	0.000e0	0.000e0
+TSV	probe	v4u1/t512/c1/pf2	probe	the host's sum	valid	2147483648	2147483648	3.0135	3.0083	3.0211	712.6	710.8	713.9	712.6	710.8	713.9	0	0	0	0.000e0	0.000e0
+TSV	probe	v4u4/t512/c1/pf0	probe	the host's sum	valid	2147483648	2147483648	2.9376	2.9361	2.9405	731.0	730.3	731.4	731.0	730.3	731.4	0	0	0	0.000e0	0.000e0
+TSV	probe	v4u4/t512/c1/pf2	probe	the host's sum	valid	2147483648	2147483648	2.9563	2.9540	2.9622	726.4	725.0	727.0	726.4	725.0	727.0	0	0	0	0.000e0	0.000e0
+TSV	probe	v4u4/t256/c1/pf0	probe	the host's sum	valid	2147483648	2147483648	2.8654	2.8598	2.8730	749.5	747.5	750.9	749.5	747.5	750.9	0	0	0	0.000e0	0.000e0
+TSV	probe	v4u4/t256/c1/pf2	probe	the host's sum	valid	2147483648	2147483648	2.9525	2.9470	2.9627	727.3	724.9	728.7	727.3	724.9	728.7	0	0	0	0.000e0	0.000e0
+TSV	probe	v4u4/t256/c2/pf0	probe	the host's sum	valid	2147483648	2147483648	2.9364	2.9347	2.9411	731.3	730.2	731.8	731.3	730.2	731.8	0	0	0	0.000e0	0.000e0
+TSV	probe	v4u4/t256/c2/pf2	probe	the host's sum	valid	2147483648	2147483648	2.9570	2.9545	2.9614	726.2	725.2	726.8	726.2	725.2	726.8	0	0	0	0.000e0	0.000e0
+TSV	probe	v4u4/t256/c4/pf0	probe	the host's sum	valid	2147483648	2147483648	2.9437	2.9424	2.9499	729.5	728.0	729.8	729.5	728.0	729.8	0	0	0	0.000e0	0.000e0
+TSV	probe	v4u4/t256/c4/pf2	probe	the host's sum	valid	2147483648	2147483648	2.9620	2.9582	2.9661	725.0	724.0	726.0	725.0	724.0	726.0	0	0	0	0.000e0	0.000e0
+TSV	probe	v4u4/t512/c2/pf0	probe	the host's sum	valid	2147483648	2147483648	2.9440	2.9406	2.9573	729.4	726.2	730.3	729.4	726.2	730.3	0	0	0	0.000e0	0.000e0
+TSV	probe	v4u4/t512/c2/pf2	probe	the host's sum	valid	2147483648	2147483648	2.9601	2.9584	2.9640	725.5	724.5	725.9	725.5	724.5	725.9	0	0	0	0.000e0	0.000e0
+TSV	probe	v4u4/t1024/c1/pf0	probe	the host's sum	valid	2147483648	2147483648	2.9430	2.9417	2.9492	729.7	728.2	730.0	729.7	728.2	730.0	0	0	0	0.000e0	0.000e0
+TSV	probe	v4u4/t1024/c1/pf2	probe	the host's sum	valid	2147483648	2147483648	2.9582	2.9573	2.9639	725.9	724.5	726.2	725.9	724.5	726.2	0	0	0	0.000e0	0.000e0

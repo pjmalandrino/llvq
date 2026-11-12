@@ -1,0 +1,16 @@
+FIDELITY	served	PASS	bare:all 0.9467 GB, median 374.8 GB/s [373.3-379.0] against [368, 383]
+FIDELITY	v2	PASS	bare:all median 378.6 GB/s [372.0-380.8] against [368, 383]
+ORDER	v3	PASS	x0.848 [0.845-0.861] over v2, journal x0.849, tolerance 0.03
+ORDER	ilp2	PASS	x0.930 [0.926-0.945] over v2, journal x0.928, tolerance 0.03
+ORDER	v2u	PASS	x0.826 [0.823-0.837] over v2, journal x0.825, tolerance 0.03
+ORDER	l1w	PASS	x1.203 [1.200-1.207] over v2u, journal x1.214, tolerance 0.03
+ORDER	bcast	PASS	x0.994 [0.990-0.997] over v2u, journal x0.987, tolerance 0.03
+ORDER	xbcast	PASS	x1.004 [0.996-1.005] over v2u, journal x0.995, tolerance 0.03
+ORDER	v2_o2	PASS	x1.066 [1.061-1.071] over v2_s, journal x1.076, tolerance 0.03
+ORDER	nc	PASS	x0.834 [0.824-0.849] over v2, journal x0.810, tolerance 0.03
+ORDER	nc256	PASS	x0.870 [0.859-0.886] over v2, journal x0.845, tolerance 0.03
+ORDER	cpa	FAIL	x0.992 [0.984-1.012] over v2, journal x0.960, tolerance 0.03
+ORDER	tile	PASS	x1.027 [1.019-1.048] over v2, journal x1.002, tolerance 0.03
+ORDER	bal	PASS	x0.956 [0.949-0.977] over v2, journal x0.934, tolerance 0.03
+ORDER	all	FAIL	12 known arms against their journal speeds, 1 outside +-0.03
+rule D: FAIL, no candidate rate of this run counts (prereg §6)
