@@ -211,7 +211,9 @@ records of `o`. The groups are super-additive: all exceeds the MLP plus attentio
 - **A consumer GPU.** Speed is measured on an L40S and an A100 only.
 - **The Rust Metal door.** Grouped and kernel forms read within tolerance on Metal; `served.rs` refuses them.
 - **A model above 14B.** The 32B has to be encoded first.
-- **`down_proj` instead of `o_proj` in int4 at 4B and 14B.** At 8B it scored 0.77 points better [0.26, 1.28].
+- **`down_proj` instead of `o_proj` in int4 at 4B and 14B.** At 8B it scored 0.77 points better [0.26, 1.28]. Set
+  aside by the operator's ruling of 2026-11-12 that per-model, per-type changes are not the project's direction
+  ([`MODES.md`](MODES.md)); it reopens only on his word.
 - **A second calibration draw per size.**
 - **The next quality or speed work.** It opens as a phase under [`MODES.md`](MODES.md), on the operator's mandate.
 - **An int4 KV cache.** It touches quality, so it is outside any "negligible" go.
