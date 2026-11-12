@@ -1,0 +1,217 @@
+
+========================================================================
+A = /out/sealed-4b-2026-09-23/qwen3-4b-sealed.bin [LLVQ 2-bit, sealed]
+    mmlu-control-FULL.csv
+    config=none, arithmetic=dense reconstruction, kv=f16
+B = /out/sealed-4b-2026-09-23/qwen3-4b-sealed.bin [LLVQ 2-bit, sealed; restored q_proj,k_proj,v_proj at f16 (108 matrices, 566231040 weights) from Qwen/Qwen3-4B@1cfa9a7208912126459214e8b04321603b3df60c]
+    mmlu-qkv-FULL.csv
+    config=none, arithmetic=dense reconstruction, kv=f16
+14042 paired questions, 57 subjects · dtype f16 / f16 · limit census / census
+sampling plan: flat, 100..1534 per subject, 14042 questions / flat, 100..1534 per subject, 14042 questions
+run fingerprint: a74a6d6213602979 / a74a6d6213602979 (identical)
+
+rates (Δ = A − B, in percentage points)
+  stratified micro    A  63.37 %   B  63.92 %   Δ = -0.55 pp   ← the published number
+  unweighted (pooled) A  63.37 %   B  63.92 %   Δ = -0.55 pp   ← what McNemar tests
+
+McNemar exact (unweighted)
+  A✓B✗ = 719   A✗B✓ = 796   concordant = 12527   (10.8 % of the questions are discordant)
+  p = 0.0508   (z normal = -1.98)
+
+paired bootstrap stratified by subject (10000 draws, seed 0xb0075eed, WITHOUT finite population correction)
+  Δ stratified micro = -0.55 pp   CI95 [-1.11 ; -0.01]   SE 0.28 pp
+  unweighted control = -0.55 pp   CI95 [-1.11 ; -0.01]   SE 0.28 pp
+  → the CI excludes zero: the gap is resolved by this protocol.
+
+subjects carrying the gap (contribution to the stratified Δ)
+  miscellaneous                             -2.4 pp × weight  5.6 % = -0.135 pp
+  moral scenarios                           +2.0 pp × weight  6.4 % = +0.128 pp
+  elementary mathematics                    -3.7 pp × weight  2.7 % = -0.100 pp
+  high school microeconomics                -4.6 pp × weight  1.7 % = -0.078 pp
+  prehistory                                -2.8 pp × weight  2.3 % = -0.064 pp
+
+========================================================================
+A = /out/sealed-4b-2026-09-23/qwen3-4b-sealed.bin [LLVQ 2-bit, sealed]
+    mmlu-control-FULL.csv
+    config=none, arithmetic=dense reconstruction, kv=f16
+B = /out/sealed-4b-2026-09-23/qwen3-4b-sealed.bin [LLVQ 2-bit, sealed; restored o_proj at f16 (36 matrices, 377487360 weights) from Qwen/Qwen3-4B@1cfa9a7208912126459214e8b04321603b3df60c]
+    mmlu-o-FULL.csv
+    config=none, arithmetic=dense reconstruction, kv=f16
+14042 paired questions, 57 subjects · dtype f16 / f16 · limit census / census
+sampling plan: flat, 100..1534 per subject, 14042 questions / flat, 100..1534 per subject, 14042 questions
+run fingerprint: a74a6d6213602979 / a74a6d6213602979 (identical)
+
+rates (Δ = A − B, in percentage points)
+  stratified micro    A  63.37 %   B  63.25 %   Δ = +0.13 pp   ← the published number
+  unweighted (pooled) A  63.37 %   B  63.25 %   Δ = +0.13 pp   ← what McNemar tests
+
+McNemar exact (unweighted)
+  A✓B✗ = 288   A✗B✓ = 270   concordant = 13484   (4.0 % of the questions are discordant)
+  p = 0.4718   (z normal = +0.76)
+
+paired bootstrap stratified by subject (10000 draws, seed 0xb0075eed, WITHOUT finite population correction)
+  Δ stratified micro = +0.13 pp   CI95 [-0.19 ; +0.46]   SE 0.17 pp
+  unweighted control = +0.13 pp   CI95 [-0.19 ; +0.46]   SE 0.17 pp
+  → the CI contains zero: the gap is not resolved by this protocol.
+
+subjects carrying the gap (contribution to the stratified Δ)
+  moral scenarios                           +1.7 pp × weight  6.4 % = +0.107 pp
+  professional law                          +0.5 pp × weight 10.9 % = +0.057 pp
+  conceptual physics                        -3.0 pp × weight  1.7 % = -0.050 pp
+  high school psychology                    +1.1 pp × weight  3.9 % = +0.043 pp
+  security studies                          -2.4 pp × weight  1.7 % = -0.043 pp
+
+========================================================================
+A = /out/sealed-4b-2026-09-23/qwen3-4b-sealed.bin [LLVQ 2-bit, sealed]
+    mmlu-control-FULL.csv
+    config=none, arithmetic=dense reconstruction, kv=f16
+B = /out/sealed-4b-2026-09-23/qwen3-4b-sealed.bin [LLVQ 2-bit, sealed; restored gate_proj,up_proj at f16 (72 matrices, 1793064960 weights) from Qwen/Qwen3-4B@1cfa9a7208912126459214e8b04321603b3df60c]
+    mmlu-gateup-FULL.csv
+    config=none, arithmetic=dense reconstruction, kv=f16
+14042 paired questions, 57 subjects · dtype f16 / f16 · limit census / census
+sampling plan: flat, 100..1534 per subject, 14042 questions / flat, 100..1534 per subject, 14042 questions
+run fingerprint: a74a6d6213602979 / a74a6d6213602979 (identical)
+
+rates (Δ = A − B, in percentage points)
+  stratified micro    A  63.37 %   B  66.76 %   Δ = -3.38 pp   ← the published number
+  unweighted (pooled) A  63.37 %   B  66.76 %   Δ = -3.38 pp   ← what McNemar tests
+
+McNemar exact (unweighted)
+  A✓B✗ = 813   A✗B✓ = 1288   concordant = 11941   (15.0 % of the questions are discordant)
+  p = 2.892e-25   (z normal = -10.36)
+
+paired bootstrap stratified by subject (10000 draws, seed 0xb0075eed, WITHOUT finite population correction)
+  Δ stratified micro = -3.38 pp   CI95 [-4.02 ; -2.75]   SE 0.33 pp
+  unweighted control = -3.38 pp   CI95 [-4.02 ; -2.75]   SE 0.33 pp
+  → the CI excludes zero: the gap is resolved by this protocol.
+
+subjects carrying the gap (contribution to the stratified Δ)
+  moral scenarios                           -4.4 pp × weight  6.4 % = -0.278 pp
+  professional medicine                    -11.0 pp × weight  1.9 % = -0.214 pp
+  professional psychology                   -4.9 pp × weight  4.4 % = -0.214 pp
+  miscellaneous                             -3.6 pp × weight  5.6 % = -0.199 pp
+  high school statistics                    -8.3 pp × weight  1.5 % = -0.128 pp
+
+========================================================================
+A = /out/sealed-4b-2026-09-23/qwen3-4b-sealed.bin [LLVQ 2-bit, sealed]
+    mmlu-control-FULL.csv
+    config=none, arithmetic=dense reconstruction, kv=f16
+B = /out/sealed-4b-2026-09-23/qwen3-4b-sealed.bin [LLVQ 2-bit, sealed; restored down_proj at f16 (36 matrices, 896532480 weights) from Qwen/Qwen3-4B@1cfa9a7208912126459214e8b04321603b3df60c]
+    mmlu-down-FULL.csv
+    config=none, arithmetic=dense reconstruction, kv=f16
+14042 paired questions, 57 subjects · dtype f16 / f16 · limit census / census
+sampling plan: flat, 100..1534 per subject, 14042 questions / flat, 100..1534 per subject, 14042 questions
+run fingerprint: a74a6d6213602979 / a74a6d6213602979 (identical)
+
+rates (Δ = A − B, in percentage points)
+  stratified micro    A  63.37 %   B  65.38 %   Δ = -2.01 pp   ← the published number
+  unweighted (pooled) A  63.37 %   B  65.38 %   Δ = -2.01 pp   ← what McNemar tests
+
+McNemar exact (unweighted)
+  A✓B✗ = 594   A✗B✓ = 876   concordant = 12572   (10.5 % of the questions are discordant)
+  p = 1.964e-13   (z normal = -7.36)
+
+paired bootstrap stratified by subject (10000 draws, seed 0xb0075eed, WITHOUT finite population correction)
+  Δ stratified micro = -2.01 pp   CI95 [-2.54 ; -1.46]   SE 0.27 pp
+  unweighted control = -2.01 pp   CI95 [-2.54 ; -1.46]   SE 0.27 pp
+  → the CI excludes zero: the gap is resolved by this protocol.
+
+subjects carrying the gap (contribution to the stratified Δ)
+  moral scenarios                           -3.4 pp × weight  6.4 % = -0.214 pp
+  miscellaneous                             -3.3 pp × weight  5.6 % = -0.185 pp
+  professional medicine                     -6.2 pp × weight  1.9 % = -0.121 pp
+  professional law                          -1.0 pp × weight 10.9 % = -0.107 pp
+  nutrition                                 -4.9 pp × weight  2.2 % = -0.107 pp
+
+========================================================================
+A = /out/sealed-4b-2026-09-23/qwen3-4b-sealed.bin [LLVQ 2-bit, sealed]
+    mmlu-control-FULL.csv
+    config=none, arithmetic=dense reconstruction, kv=f16
+B = /out/sealed-4b-2026-09-23/qwen3-4b-sealed.bin [LLVQ 2-bit, sealed; restored q_proj,k_proj,v_proj,o_proj at f16 (144 matrices, 943718400 weights) from Qwen/Qwen3-4B@1cfa9a7208912126459214e8b04321603b3df60c]
+    mmlu-attn-FULL.csv
+    config=none, arithmetic=dense reconstruction, kv=f16
+14042 paired questions, 57 subjects · dtype f16 / f16 · limit census / census
+sampling plan: flat, 100..1534 per subject, 14042 questions / flat, 100..1534 per subject, 14042 questions
+run fingerprint: a74a6d6213602979 / a74a6d6213602979 (identical)
+
+rates (Δ = A − B, in percentage points)
+  stratified micro    A  63.37 %   B  64.10 %   Δ = -0.73 pp   ← the published number
+  unweighted (pooled) A  63.37 %   B  64.10 %   Δ = -0.73 pp   ← what McNemar tests
+
+McNemar exact (unweighted)
+  A✓B✗ = 756   A✗B✓ = 858   concordant = 12428   (11.5 % of the questions are discordant)
+  p = 0.0119   (z normal = -2.54)
+
+paired bootstrap stratified by subject (10000 draws, seed 0xb0075eed, WITHOUT finite population correction)
+  Δ stratified micro = -0.73 pp   CI95 [-1.29 ; -0.16]   SE 0.29 pp
+  unweighted control = -0.73 pp   CI95 [-1.29 ; -0.16]   SE 0.29 pp
+  → the CI excludes zero: the gap is resolved by this protocol.
+
+subjects carrying the gap (contribution to the stratified Δ)
+  moral scenarios                           +3.4 pp × weight  6.4 % = +0.214 pp
+  elementary mathematics                    -5.8 pp × weight  2.7 % = -0.157 pp
+  miscellaneous                             -2.6 pp × weight  5.6 % = -0.142 pp
+  professional law                          -1.1 pp × weight 10.9 % = -0.121 pp
+  professional psychology                   -2.0 pp × weight  4.4 % = -0.085 pp
+
+========================================================================
+A = /out/sealed-4b-2026-09-23/qwen3-4b-sealed.bin [LLVQ 2-bit, sealed]
+    mmlu-control-FULL.csv
+    config=none, arithmetic=dense reconstruction, kv=f16
+B = /out/sealed-4b-2026-09-23/qwen3-4b-sealed.bin [LLVQ 2-bit, sealed; restored gate_proj,up_proj,down_proj at f16 (108 matrices, 2689597440 weights) from Qwen/Qwen3-4B@1cfa9a7208912126459214e8b04321603b3df60c]
+    mmlu-mlp-FULL.csv
+    config=none, arithmetic=dense reconstruction, kv=f16
+14042 paired questions, 57 subjects · dtype f16 / f16 · limit census / census
+sampling plan: flat, 100..1534 per subject, 14042 questions / flat, 100..1534 per subject, 14042 questions
+run fingerprint: a74a6d6213602979 / a74a6d6213602979 (identical)
+
+rates (Δ = A − B, in percentage points)
+  stratified micro    A  63.37 %   B  68.23 %   Δ = -4.86 pp   ← the published number
+  unweighted (pooled) A  63.37 %   B  68.23 %   Δ = -4.86 pp   ← what McNemar tests
+
+McNemar exact (unweighted)
+  A✓B✗ = 940   A✗B✓ = 1622   concordant = 11480   (18.2 % of the questions are discordant)
+  p = 9.713e-42   (z normal = -13.47)
+
+paired bootstrap stratified by subject (10000 draws, seed 0xb0075eed, WITHOUT finite population correction)
+  Δ stratified micro = -4.86 pp   CI95 [-5.57 ; -4.16]   SE 0.36 pp
+  unweighted control = -4.86 pp   CI95 [-5.57 ; -4.16]   SE 0.36 pp
+  → the CI excludes zero: the gap is resolved by this protocol.
+
+subjects carrying the gap (contribution to the stratified Δ)
+  miscellaneous                             -6.4 pp × weight  5.6 % = -0.356 pp
+  professional psychology                   -7.8 pp × weight  4.4 % = -0.342 pp
+  prehistory                               -10.5 pp × weight  2.3 % = -0.242 pp
+  professional medicine                    -11.8 pp × weight  1.9 % = -0.228 pp
+  professional law                          -2.0 pp × weight 10.9 % = -0.221 pp
+
+========================================================================
+A = /out/sealed-4b-2026-09-23/qwen3-4b-sealed.bin [LLVQ 2-bit, sealed]
+    mmlu-control-FULL.csv
+    config=none, arithmetic=dense reconstruction, kv=f16
+B = /out/sealed-4b-2026-09-23/qwen3-4b-sealed.bin [LLVQ 2-bit, sealed; restored q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj at f16 (252 matrices, 3633315840 weights) from Qwen/Qwen3-4B@1cfa9a7208912126459214e8b04321603b3df60c]
+    mmlu-all-FULL.csv
+    config=none, arithmetic=dense reconstruction, kv=f16
+14042 paired questions, 57 subjects · dtype f16 / f16 · limit census / census
+sampling plan: flat, 100..1534 per subject, 14042 questions / flat, 100..1534 per subject, 14042 questions
+run fingerprint: a74a6d6213602979 / a74a6d6213602979 (identical)
+
+rates (Δ = A − B, in percentage points)
+  stratified micro    A  63.37 %   B  70.10 %   Δ = -6.72 pp   ← the published number
+  unweighted (pooled) A  63.37 %   B  70.10 %   Δ = -6.72 pp   ← what McNemar tests
+
+McNemar exact (unweighted)
+  A✓B✗ = 896   A✗B✓ = 1840   concordant = 11306   (19.5 % of the questions are discordant)
+  p = 3.978e-74   (z normal = -18.05)
+
+paired bootstrap stratified by subject (10000 draws, seed 0xb0075eed, WITHOUT finite population correction)
+  Δ stratified micro = -6.72 pp   CI95 [-7.45 ; -6.00]   SE 0.37 pp
+  unweighted control = -6.72 pp   CI95 [-7.45 ; -6.00]   SE 0.37 pp
+  → the CI excludes zero: the gap is resolved by this protocol.
+
+subjects carrying the gap (contribution to the stratified Δ)
+  miscellaneous                             -8.9 pp × weight  5.6 % = -0.499 pp
+  professional psychology                  -10.5 pp × weight  4.4 % = -0.456 pp
+  professional law                          -3.5 pp × weight 10.9 % = -0.377 pp
+  elementary mathematics                   -13.8 pp × weight  2.7 % = -0.370 pp
+  prehistory                               -12.7 pp × weight  2.3 % = -0.292 pp

@@ -1,0 +1,196 @@
+ABLATION QUALITE 4B: WHERE THE SEALED 4B LOSES ITS MMLU POINTS, ONE PROJECTION GROUP RESTORED TO F16 AT A TIME, FULL SPLIT, DENSE, ONE L40S, 2026-11-12. $5.26.
+=========================================================================================================================================================
+The MLP carries the gap. Restoring gate/up to f16 in the sealed 4B recovers +3.38 pp, CI95 [+2.75, +4.02], and down
++2.01 [+1.46, +2.54] (*measured*, 14,042 questions, mmlupair --no-fpc). The attention group recovers +0.73
+[+0.16, +1.29]: qkv +0.55 [+0.01, +1.11], o -0.13 [-0.46, +0.19]. The whole MLP gives +4.86 [+4.16, +5.57], all 252
+projections +6.72 [+6.00, +7.45], and all restored sits +0.04 [-0.23, +0.31] under FP16.
+
+gate/up recovers 475 of the 950 questions that separate the control from FP16: exactly half the gap. The prereg's line
+is 3.39 pp, the rounding of 6.77 / 2. The exact half is 3.3827 pp. gate/up misses the line by one question.
+
+The int4 g64 embedding and tied head cost +0.04 pp, CI95 [-0.23, +0.31] (FP16 minus all): not resolved.
+The int4 g128 records of o cost -0.13, CI95 [-0.46, +0.19]: not resolved.
+
+Groups do not add. all exceeds mlp + attn by +1.14 pp, CI95 [+0.43, +1.85] (*computed*, paired per question). That
+excess is outside noise. S = all over the four single gains = 1.157, CI95 [0.97, 1.46] (*computed*, bootstrap): not
+resolved from 1. Once the MLP is f16, attention is worth +1.87 [+1.35, +2.36]; on the sealed MLP it is worth +0.73.
+
+To the letter of prereg §6, two rows fire at once: "two carriers" (gate/up and down) and "diffuse" (largest under twice
+the second, none at 3.39). The prereg gives no precedence between them. "Interacting" does not fire: A_attn = 1.73 is
+outside [0.70, 1.30], but §5.2 forbids reading it (its denominator's CI95 is [-0.31, +1.13]).
+
+Five of eight signed arm predictions are inside their intervals. qkv, o and attn are all below: the attention group
+costs far less than predicted. S = 1.157 is outside [0.60, 0.95].
+
+Prereg : proofs/preregistration-ablation-qualite-4b-2026-11-12.md, sha256 82bbfc82cebca8ec03d3a787243a75cab7c7b9ad709860f038657e5407b2bb1a,
+         stamped (.ots) and committed before the job (3324f60). Not edited. No deviation file: the job ran the
+         stamped script at its stamped sha256 (79168b5f), with WITH_ALL=1 and TIMEOUT=230m as the prereg's §9 records.
+Code   : no code change. Job script ops/jobs/ablation-qualite-4b.sh (3324f60).
+Go     : the operator, 2026-11-12, cap $7.00 for this job, inside the $25 cap from 2026-11-09; relayed by the
+         orchestrating session.
+Job    : 6af550a4ab34849891aed5fb, l40sx1, label name ablation-qualite-4b, output folder ablation-qualite-4b-2026-11-12.
+         - Image hf.co/spaces/Pier-Jean/llvq-runner-cuda, Space sha a03a2bad, built from 36230ff. The launcher refuses
+           another Space revision; job-inspect.txt does not carry it.
+         - Created 05:37:40 UTC, RUNNING at 05:40:55 UTC after 195 s of scheduling, COMPLETED at 08:36:20 UTC.
+         - running_secs 10,524: 175.4 min, $5.26 (*computed* at $1.80/h on the running seconds). Estimated $5.79
+           with the all arm, ceiling $6.90.
+         - Arms, from summary.tsv: 21.7 to 23.3 min each; qkv, the first restore arm, 23.3 min (checkpoint fetch).
+         - Spend since the go of 2026-11-09: $13.96 before, $19.22 after, of $25.
+         - Registry $321.21 before, $326.47 after. The rows of docs/data/jobs.csv sum to $326.22 with this one,
+           $0.25 under the registry (*computed* on the Mac; the gap of large-prefill-ft-2026-11-11.txt, not chased).
+Raw    : ablation-qualite-4b-2026-11-12-brut/, every small file of the bucket folder, fetched one by one with hf
+         buckets cp: summary.tsv, control-picks.txt, files.sha256, gpu.txt, oracle-cuda.txt, out-<arm>.txt for the
+         eight arms. Added on the Mac: job-inspect.txt (hf jobs inspect, verbatim), job-logs.txt (hf jobs logs,
+         verbatim), mmlupair-control-vs-arms.txt, mmlupair-f16-vs-arms.txt, mmlupair-groups-vs-all.txt (mmlupair
+         --no-fpc, verbatim), pair-intervals.py and its output pair-intervals.txt (the paired sums and ratios mmlupair
+         does not print; it reads the eight dumps, the FP16 dump and the reference dump under ref/).
+Dumps  : docs/data/mmlu-dumps/mmlu-4b-abl-<arm>-FULL.csv, the eight bucket dumps byte for byte (control, qkv, o,
+         gateup, down, attn, mlp, all). The FP16 dump is docs/data/mmlu-dumps/mmlu-4b-f16-FULL.csv (job 6aad0dd9).
+mmlupair: the binary built in .claude/worktrees/arbre-brouillon (2026-11-11), reused, not rebuilt. Its source
+         llvq-llm/src/bin/mmlupair.rs is identical to this branch's (sha1 3296bffc), and so is llvq-core/src, its
+         only workspace dependency.
+
+CONTROLS (prereg §4, each checked again on the Mac from the raw files)
+----------------------------------------------------------------------
+1. Oracle on CUDA. GREEN. oracle-cuda.txt: Qwen3-0.6B, max |dhidden| 0, "MATCH". Card L40S, 46,068 MiB, driver
+   580.178.04 (gpu.txt).
+2. The sealed file. GREEN. files.sha256 reads 886391a8c03f66dc269cc65c3598c6627dbdcd259180aff36604ef10d37371b8, the
+   prereg's §2. The job tests the byte count 1,418,224,685 with stat before the hash and stops otherwise; it ran on.
+3. The control reproduces the published picks. GREEN. control-picks.txt: 14,042 identical picks of 14,042 joined, against
+   embed-q4-swap-2026-09-23/mmlu-4b-embed-q4-swap-FULL.csv (bar 13,972). Checked again on the Mac on a fresh copy of
+   that dump: every data row is identical, logits included. Control micro 63.3742 (8,899 of 14,042); expected 63.37.
+4. Dump headers. GREEN. All eight dumps carry dtype=f16, limit=census, alloc=flat, 100..1534 per subject, 14042
+   questions, config=none, arithmetic=dense reconstruction, kv=f16 and the trailer "end fingerprint=a74a6d6213602979
+   questions=14042". mmlupair reads the same fingerprint on the FP16 dump: every pair is "identical".
+5. Restored matrices and weights. GREEN. Each out-<arm>.txt and each dump's model line print the counts of §3:
+     qkv     108 matrices    566,231,040 weights
+     o        36             377,487,360
+     gateup   72           1,793,064,960
+     down     36             896,532,480
+     attn    144             943,718,400
+     mlp     108           2,689,597,440
+     all     252           3,633,315,840
+   All from Qwen/Qwen3-4B@1cfa9a7208912126459214e8b04321603b3df60c. The weights equal the shapes of §3 (*computed*:
+   q 4096 x 2560, k and v 1024 x 2560, o 2560 x 4096, gate and up 9728 x 2560, down 2560 x 9728, 36 layers).
+6. The control carries no restoration. GREEN. Its model line reads "[LLVQ 2-bit, sealed]" alone.
+Six of six green. The numbers below are published.
+
+RESULT (mmlupair --no-fpc, *measured*; gain = arm minus control, mmlupair prints Δ = control minus arm)
+-------------------------------------------------------------------------------------------------------
+  arm      correct  micro     gain pp  CI95 (bootstrap)    McNemar A✓B✗ / A✗B✓, p   lattice / int4  weights   gain per    share
+                                                                                    records         restored  Gw (comp.)  of 6.77
+  control   8,899   63.3742    0                                                    168 / 84
+  qkv       8,976   63.9225   +0.55    [+0.01, +1.11]      719 / 796, p 0.0508      72 / 36         0.566 G   +0.97        8.1 %
+  o         8,881   63.2460   -0.13    [-0.46, +0.19]      288 / 270, p 0.4718       0 / 36         0.377 G   -0.34       -1.9 %
+  gateup    9,374   66.7569   +3.38    [+2.75, +4.02]      813 / 1,288, p 2.9e-25   72 / 0          1.793 G   +1.89       50.0 %
+  down      9,181   65.3824   +2.01    [+1.46, +2.54]      594 / 876, p 2.0e-13     24 / 12         0.897 G   +2.24       29.7 %
+  attn      9,001   64.1006   +0.73    [+0.16, +1.29]      756 / 858, p 0.0119      72 / 72         0.944 G   +0.77       10.7 %
+  mlp       9,581   68.2310   +4.86    [+4.16, +5.57]      940 / 1,622, p 9.7e-42   96 / 12         2.690 G   +1.81       71.7 %
+  all       9,843   70.0969   +6.72    [+6.00, +7.45]      896 / 1,840, p 4.0e-74  168 / 84         3.633 G   +1.85       99.3 %
+  FP16      9,849   70.1396   +6.77    [+6.05, +7.50]      951 / 1,901, p 5.7e-72
+Bootstrap: stratified by subject, 10,000 draws, seed 0xb0075eed, no finite-population correction. On a census dump
+the stratified micro equals correct / 14,042. "gain per Gw" is the gain divided by the restored weights in billions
+(*computed*). The lattice / int4 column is the prereg's §3 (*measured* on the file in sealed-4b-2026-09-23-brut).
+
+What each arm still lacks against FP16 (mmlupair FP16 against the arm, *measured*):
+  control +6.77 [+6.05, +7.50]   qkv +6.22 [+5.51, +6.91]   o +6.89 [+6.17, +7.63]   gateup +3.38 [+2.77, +4.01]
+  down +4.76 [+4.07, +5.46]      attn +6.04 [+5.35, +6.74]  mlp +1.91 [+1.38, +2.44]  all +0.04 [-0.23, +0.31]
+
+Against the orchestrating session's own figures (normal interval on the paired differences, no fpc): same points to
+the fourth decimal. The bounds differ by 0.01 to 0.02 pp at most (qkv upper +1.09 there, +1.11 here; o upper +0.20,
++0.19; down lower +1.47, +1.46; attn lower +0.17, +0.16; mlp [+4.15, +5.56], [+4.16, +5.57]; all upper +7.44, +7.45).
+No reading changes. The journal carries mmlupair's.
+
+qkv: the bootstrap CI excludes zero by 0.01 pp; McNemar does not (p 0.051). The two statistics disagree at the margin.
+
+ADDITIVITY (prereg §5.2; ratios *computed* from the point gains)
+----------------------------------------------------------------
+  A_mlp  = mlp / (gateup + down)          = 4.8569 / 5.3910 = 0.901
+  A_attn = attn / (qkv + o)               = 0.7264 / 0.4202 = 1.729
+  S      = all / (qkv + o + gateup + down) = 6.7227 / 5.8111 = 1.157
+  mlp + attn = 5.583, all = 6.723.
+
+Paired intervals the prereg does not compute (pair-intervals.txt, *computed*): per-question sums of the 0/1 indicators,
+normal interval and a stratified bootstrap (10,000 draws, Python's generator seeded 0xb0075eed, not mmlupair's stream);
+the two agree to 0.02 pp.
+  excess all - (mlp + attn)            +1.14 pp   normal [+0.43, +1.85]   bootstrap [+0.44, +1.84]
+  excess all - (qkv + o + gateup + down) +0.91    normal [-0.20, +2.03]   bootstrap [-0.19, +2.04]
+  excess attn - (qkv + o)              +0.31      normal [-0.12, +0.74]   bootstrap [-0.11, +0.75]
+  excess mlp - (gateup + down)         -0.53      normal [-1.21, +0.15]   bootstrap [-1.22, +0.15]
+  S                                     1.157     bootstrap [0.973, 1.457]
+  A_mlp                                 0.901     bootstrap [0.795, 1.031]
+  A_attn denominator qkv + o           +0.42      bootstrap [-0.31, +1.13]; 12.7 % of draws at or below zero
+  all - mlp (attention on an f16 MLP)  +1.87      mmlupair [+1.35, +2.36], McNemar 534 / 796, p 7.0e-13
+  all - attn (MLP on f16 attention)    +6.00      mmlupair [+5.31, +6.69]
+Reading:
+- Across the two groups the gains are super-additive, outside noise: +1.14 [+0.43, +1.85].
+- Against the four singles the excess (+0.91) is not resolved. S's interval contains 1.
+- Inside each group the deviation from additivity is not resolved (mlp -0.53, attn +0.31, both intervals across 0).
+- The super-additivity sits in attention. Restoring attention is worth +0.73 on the sealed MLP and +1.87 on an f16
+  MLP. The MLP is worth +4.86 on sealed attention and +6.00 on f16 attention. Each fix pays more once the other is made.
+- M2 on the old Planes14 file read 0.618 on seven single types. This S sums four groups, so part of M2's interaction is
+  inside each group here; the prereg expected a ratio above 0.618 from that alone. A value above 1 was not expected.
+
+READING TO THE LETTER (prereg §6)
+---------------------------------
+Thresholds as written: half the gap 3.39 pp, a quarter 1.69 pp.
+- concentrated: NOT MET. No single arm reaches 3.39 (gateup 3.3827).
+- two carriers: MET. gateup +3.38 and down +2.01, each >= 1.69, lower bounds +2.75 and +1.46 > 0.85, together +5.39
+  >= 3.39, none >= 3.39 alone.
+- diffuse: MET, by its second clause. The largest gain (3.38) is under twice the second (2 x 2.01 = 4.02) and none
+  reaches 3.39. The first clause (no single arm >= 1.69) does not hold.
+- interacting: NOT MET. S = 1.157 is not under 0.50. A_mlp = 0.901 is inside [0.70, 1.30]. A_attn = 1.729 is outside,
+  but §5.2 says a ratio whose numerator or denominator has a CI95 containing zero is not read: its denominator's CI95
+  is [-0.31, +1.13] (computed here; o's own CI95 contains zero too). The ratio is not read, so it triggers nothing.
+- Ranking of the single arms, published in every case: gateup +3.38, down +2.01, qkv +0.55, o -0.13.
+Two rows fire. The prereg orders "interacting" over the first two rows and says nothing between "two carriers" and
+"diffuse". The letter alone does not pick a next step. "two carriers" points at gate/up and down, ranked by gain per
+b/param of fixing them (not priced here). "diffuse" points at a global objective. For down, §6 asks first for the split
+arm by window (down_proj@0-11,24-35 against down_proj@12-23, ~$0.72 each).
+
+WHAT THE LETTER MISSES
+----------------------
+1. The 3.39 line is a rounding. The exact half of the gap is 475 of 950 questions, 3.3827 pp, and gate/up recovers
+   exactly 475. Read on questions, gate/up sits on the "concentrated" line, and its lower bound (+2.75) clears 1.69.
+   One question decided the row.
+2. "two carriers" and "diffuse" overlap whenever two carriers are within a factor 2 of each other. The rules were not
+   written to be exclusive.
+3. "interacting" only looks for sub-additivity across all four (S < 0.50) and within a group. It does not foresee
+   super-additivity across groups. Here the cross-group excess is resolved: +1.14 [+0.43, +1.85].
+   Consequence: the single-arm ranking understates attention at the margin. Once the MLP is f16, the remaining
+   1.91 pp to FP16 sit almost entirely in attention (+1.87 of it).
+4. A_attn = 1.73 is not evidence of interaction inside attention: its denominator (+0.42) is in noise. The resolved
+   attention gain is the group's +0.73, not the split between qkv and o.
+5. The lattice / int4 split. gate/up is lattice only, and it carries half the gap: the lattice cost on gate/up is the
+   largest single item. o is int4 only and costs nothing measurable. down (24 lattice, 12 int4) and qkv (72 lattice,
+   36 int4) mix both, so their gains do not say which record type costs them. The int4 g64 embedding costs nothing
+   measurable either (+0.04 [-0.23, +0.31]).
+6. Per restored weight, down pays most (+2.24 pp per billion), then gate/up (+1.89), qkv (+0.97), o (-0.34). This is
+   per weight restored to f16, not per b/param of a fix. It ranks where a bit added would land, not what it buys.
+
+SIGNED PREDICTIONS (prereg §9) AGAINST THE MEASURED VALUES
+----------------------------------------------------------
+  item                         predicted           measured                  in or out
+  control                      63.37, >= 13,972     63.3742, 14,042 of 14,042 in
+  qkv                          +1.4 [+0.6, +2.4]    +0.55                     out (below)
+  o                            +0.8 [+0.2, +1.6]    -0.13                     out (below, wrong sign)
+  gateup                       +3.8 [+2.5, +5.0]    +3.38                     in
+  down                         +2.2 [+1.2, +3.3]    +2.01                     in
+  attn                         +2.0 [+1.0, +3.0]    +0.73                     out (below)
+  mlp                          +5.0 [+3.8, +6.0]    +4.86                     in
+  all                          +6.3 [+5.7, +6.8]    +6.72                     in
+  A_attn                       0.90 [0.70, 1.10]    1.73 (not read, §5.2)     out
+  A_mlp                        0.83 [0.65, 1.00]    0.90                      in
+  S                            0.77 [0.60, 0.95]    1.16                      out (above)
+  gate/up the largest carrier, near the 3.39 line   +3.38, largest            in
+  MLP carries more than half of 6.77                 +4.86 (71.7 %)            in
+  no single int4 group (o) passes 1.69               o -0.13                   in
+  surprise: a single int4 arm above +2               o -0.13                   did not happen
+  surprise: S under 0.5                              1.16                      did not happen
+Nine in, five out on the fourteen predictions with a value. Every miss is on attention or on additivity: the
+attention arms all came in under their intervals, and S came in above.
+
+COST
+----
+$5.26 for this job (*computed*, 10,524 running seconds at $1.80/h), against $5.79 estimated and a $6.90 ceiling.
+Spend under the operator's $25 cap since 2026-11-09: $19.22 ($13.96 before). Registry $326.47.
