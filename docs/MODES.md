@@ -53,9 +53,14 @@ A phase follows one of two routes, chosen at R2 by what the axis allows.
 | R1. Frame | One closed problem, one number nobody can argue with, and the bound on it or, failing a bound, the best published figure. | The gap between our figure and that reference. No gap, no phase. |
 | R2. Verifier | Search route: an evaluation that is exact, automatic and cheap, seconds to minutes, on the Mac when possible. Explanation route: the killing experiment of each hypothesis, with its cost. | Search: the verifier ranks known objects as the journals do, a mutant of it is caught, and what it scores is the axis itself or a quantity `CERVEAU.md` holds as faithful to it. Explanation: each hypothesis predicts a different result. |
 | R3. Space | Search: the candidates as formal objects, programs, constructions, parameters. Explanation: at least three rival hypotheses, one of them the dull one. | Search: the space is wider than any space where a ceiling is already recorded. Explanation: no hypothesis is safe from every experiment. |
-| R4. Loop | Search: agents generate candidates in number, the verifier scores them, the best are kept and mutated. Explanation: the experiments run cheapest first, each under a stamped prereg and the operator's go when it costs. | Every candidate or experiment and its result is logged. Nothing is judged by argument. |
+| R4. Loop | Search: agents generate candidates in number, the verifier scores them, the best are kept and mutated. Explanation: the experiments run cheapest first. | Every candidate or experiment and its result is logged. Nothing is judged by argument. |
 | R5. Read the winners | The surprising winners, or the surviving hypothesis, are studied and the principle is written down. | A conjecture, entered in `CERVEAU.md` with standing `conjecture`. |
 | R6. Break it | Independent agents attack the principle; held-out data, exhaustive enumeration or a proof where one exists. | The principle survives, or it is recorded as refuted. |
+
+The signed mandate is the go for the loop's own runs only when they cost nothing and load no model on the work
+machine. Any run that costs, or loads a model, needs the operator's go, with its cost announced before and the
+running total after. Any measurement, on either route, runs under a prereg stamped before it. These are hard rules 1
+and 2 of `CLAUDE.md`; the mandate does not weaken them.
 
 **Closed by** one of three outcomes, each written into `CERVEAU.md` in the closing commit. A ceiling or a killed
 hypothesis is a result: it removes a place to look.
@@ -71,6 +76,7 @@ hypothesis is a result: it removes a place to look.
 
 - Estimating a gain instead of scoring or measuring it.
 - A paid run at full scale to see what happens.
+- A run that costs or loads a model without the operator's go, and a measurement without a prereg stamped before it.
 - Keeping a candidate because it is elegant, or dropping one because it is strange.
 - Reporting a per-model tweak as a result.
 
@@ -82,7 +88,7 @@ first full-scale measurement that would refute it.
 
 | axis | route | standing on 2026-11-12 |
 |---|---|---|
-| Memory: the code on Λ₂₄ | Search. Rate at equal distortion on real weight blocks, exact, seconds on the Mac; decoder cost in instructions. | Ready. The ceiling of 24-dimension fixed-rate codes, 0.60 dB under Tetra (*computed*), is recorded; the space must be wider. Distortion is faithful to memory at equal distortion. It is not faithful to quality: under about 0.4 dB it does not predict the sign of MMLU. |
+| Memory: the code on Λ₂₄ | Search. Rate at equal distortion on real weight blocks, exact, seconds on the Mac; decoder cost in instructions. | Ready. The ceiling of 24-dimension fixed-rate codes, 0.60 dB under Tetra (*computed*), is recorded; the space must be wider. Distortion is faithful to memory at equal distortion. It is not faithful to quality: under about 0.4 dB (*estimated*, from three arms) a better distortion has given a worse perplexity (*measured*), and its MMLU effect is not resolved. |
 | Speed: the kernel | Search, costly. Bit identity or the served tolerance, and time on the card. | A job must score a hundred variants, not one. |
 | Quality of the model | Explanation. A full MMLU arm takes 22 minutes, and perplexity and KL predict it poorly. | Open through its anomalies: the error costs more than Gaussian noise of its size, and attention is worth more once the MLP is restored. A fast, faithful verifier would move it to the search route. |
 
@@ -118,8 +124,8 @@ The project is a one-man lab. The roles are fixed so that nobody judges their ow
 | role | who | what |
 |---|---|---|
 | Direction | the operator | Chooses the axis, signs the mandate, opens and closes phases, decides every kill and every serve. |
-| Lead | the main session | Frames, signs predictions before a measurement, reads results against them, keeps `CERVEAU.md`. |
-| Hands | agents | Generate, build, measure, attack: Opus agents execute, Sonnet agents write the simple. An agent that proposed an idea does not attack it. |
+| Lead | the main session | Frames, signs predictions before a measurement, reads results against them. Rereads every `CERVEAU.md` edit against its journal before the merge, and answers for the document. |
+| Hands | agents | Generate, build, measure, attack: Opus agents execute, Sonnet agents write the simple. An agent that proposed an idea does not attack it. The agent that closes a job edits the `CERVEAU.md` claims its journal touches, in the closing commit. |
 | Memory | `CERVEAU.md` and the journals | What holds, and the record of how it came to hold. |
 
 At most one research phase and one development phase run at a time: one card budget, one work machine. Between

@@ -163,5 +163,7 @@ consumption kept down.
 - **A journal that closes a measurement names the [`CERVEAU.md`](CERVEAU.md) claims it confirms, weakens or
   overturns, and the same commit edits them.** Claims change standing and never disappear. Their numbers are copies
   of journal numbers.
+- **The agent that closes a job edits the claims its journal touches, in the closing commit.** The main session
+  rereads those edits against the journal before the merge, and answers for the document.
 - **Work runs in phases, each in one of the two modes of [`MODES.md`](MODES.md).** MODE RECHERCHE finds an idea, MODE
   DEVELOPPEMENT turns one into a measured gain on the served object.
