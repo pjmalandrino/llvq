@@ -1,0 +1,20 @@
+selftest: tiny Qwen3-shaped model, 3 layers, intermediate 32, CPU, float64
+  PASS  forward_probed equals layer_vs_output.forward exactly
+  PASS  with zero probes and checkpointing, the logits are unchanged
+  PASS  checkpointing changes neither the loss nor any gradient
+  PASS  probe gradients match finite differences, float64 RMSNorm (worst relative error 1.39e-08)
+  PASS  the last position, which has no label, has gradient exactly 0
+  PASS  hooked gradients on layer_vs_output.forward equal the probe gradients (max 0.0e+00)
+  PASS  column j is the sum of squared gradients over rows [j*d/16, (j+1)*d/16), token by token
+  PASS  weights are non-negative and sum per sequence to the group's squared gradient norm
+  PASS  the writer's bytes have the fixture's sha256
+  PASS  the vector reads back as written
+  PASS  the token file reads back, fingerprint checked
+  PASS  a wrong fingerprint is refused
+  PASS  a truncated token file is refused
+  PASS  6 files, one per (layer, type)
+  PASS  every file matches its manifest sha256
+  PASS  every file reads back to the captured array
+  PASS  window 1 of the capture is the reduction of its probe gradients, in stream order
+  PASS  the only zero weights are the last position of each (layer, type)
+selftest: GREEN (0 failure(s))
