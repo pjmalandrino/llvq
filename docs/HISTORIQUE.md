@@ -1495,3 +1495,9 @@ reading step is [recherche-debit-r0-depot](mesures/recherche-debit-r0-depot-2026
   x1.185 [1.179-1.190] of the served row, inside a bound of 1e-5. The served row with its row end in a second pass
   reads x1.053 [1.050-1.056] bit for bit. A thread a row reads x0.35 to x0.37 (*measured*). No tok/s is
   established. Nine of twelve signed predictions held. Spend under the cap: $19.52 of $25, registry $326.77.
+- The fourth card run, [recherche-debit-jeton](mesures/recherche-debit-jeton-2026-11-13.txt) (6af70da3, $0.46),
+  put the two bodies in 4E's token as E1 arms and is void for its question: neither arm loads on the card. The
+  driver's ptxas gives their timed symbol 8 B of local memory at 128 registers, where the devel nvcc gave 0, and
+  the runtime refuses it. The run holds that the rule F1 passes in the token with a floor 0.06 % wide, and v9 at
+  225.8 tok/s at 5 tokens (*measured*). The job had no load check first and ran 923 s for nothing more. Spend
+  under the cap: $19.98 of $25, registry $327.23.

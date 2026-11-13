@@ -1,0 +1,36 @@
+Cuda(CudaDevice(DeviceId(1))), dtype F16, 64 tokens
+
+served config: /out/recherche-debit-jeton-2026-11-13/qwen3-4b-tetra-e4-4e-v9.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention kernel from position 0 on grow(256), decode persistent (4E rows v9, one launch a token run)) — The qwen3-4b-tetra-e4 object (qwen3-4b-sealed.bin, sha256 886391a8), the v6 config with the v9 row loop and nothing else different: the kernel attention form on every decode row from position 0, decoded by 4E v9 (row form 7: v6, the launch's constants staged during the barriers, attention's steps in a cp.async ring, and the int4 rows v, o and the int4 downs read from tiled words; one cooperative launch a token run, 512 threads). Under this config the loader writes the int4 words tiled and holds them once on the card: the eager path, which prefills, reads the same words through tv_q4_hht, checked against tv_q4_hh on the file's order at every load. The file and its 2.7320 b/param do not move (a permutation inside each row, computed). Written on 2026-11-07 on the operator's go to serve v9 with one copy of the int4 bytes. In the measurement form v9 decodes 238.6 tok/s after a 5-token prompt against 213.3 for v6 (x1.118 round by round) and 163.5 at 8,192 against 154.2 (x1.060), the same 64 tokens as the eager path at both contexts (measured, step3-4e-2026-11-07, with the int4 bytes twice on the card). Not yet read at the served door: served-v9 (proofs/preregistration-served-v9-2026-11-07.md) reads it. Refused on Metal and on any object but the 4B.
+cudarc event tracking: off (one stream, ordered by issue)
+shared rotation: 1 (LLVQ_CONFIG), 96 rot_launches/token for 252 projections
+projection fusion: 0 (LLVQ_CONFIG), 252 matvec_launches/token for 252 projections (0 groups + 168 lone + 84 int4)
+fused layout: tetra48 (LLVQ_CONFIG), projections 1.16 GB on the card, 2.550 b/weight (INFERENCE accounting: KeepExact tail in binary16; the bench bills its own in f32)
+NVRTC source: 106947 bytes, sha256 e269ea5d11b7e40ba0682f536f52ed9f09abfaa9fd6f3185eb306edca5c60e53 (12 parts), tile 64 (served: measured optimum for sm_89), prefill 4x128 (served pair), 49152 B staged of 49152, target compute_89
+int4: tv_q4_hht equals tv_q4_ht bit for bit on model.layers.0.self_attn.v_proj.weight (1024 rows, d_in 2560)
+int4: tv_q4_hht on the tiled words equals tv_q4_hh on the file's order bit for bit on model.layers.0.self_attn.v_proj.weight (1024 rows, d_in 2560); the file-order copy is freed
+int4: tv_q4_hht on the tiled words equals tv_q4_hh on the file's order bit for bit on model.layers.0.self_attn.o_proj.weight (2560 rows, d_in 4096); the file-order copy is freed
+int4: tv_q4_hht on the tiled words equals tv_q4_hh on the file's order bit for bit on model.layers.12.mlp.down_proj.weight (2560 rows, d_in 9728); the file-order copy is freed
+int4 layout: tiled (LLVQ_CONFIG), 84 records, words 0.385 GB on the card, held once
+embedding: q4 g64 (LLVQ_CONFIG), 1 table (model.embed_tokens.weight, lm_head tied on it), 218.8 MB on the card (int4 194.5 + scales/biases 24.3)
+total expected on the card: 1.38 GB (projections 1.16 + carried 0.22)
+attn_dec.cu: embedded, sha256 c7b0d8d3f2e3066ba1a2b4331c0bb6c92f22182c78a31b7fb74e839330a1838d, target compute_89
+attn_dec_g4_u64: 160 registers, 0 B local (spill), 16384 B static shared, sm_89
+attn_dec_g4_u64: the card equals the CPU replay bit for bit on 103 calls (rows ending at 1, 255, 256, 257, 1000, 4096; k 1, 3, 8; eager and wide grids; verify rows alone; fresh rows) (1.2 s)
+layout tetra48, attention kernel on grow(256), loaded in 12.0 s
+4E: persistent module 252757 bytes, sha256 1b422b62328be6752df4add43280565fd2a49cfa20ee26953b301abe7a15c530, row form 7, own module on candle's stream
+4E: RoPE forms equal to candle's rope on this card: [1]; running form 1
+4E: pers_4e_tokens_f1_t512: 128 registers, 0 B local, 85952 B shared, 1 resident a SM
+4E: pers_4e_stamps_f1_t512: 128 registers, 32 B local, 1 resident a SM (phase stamps, outside the timed rounds)
+4E: head tied to the embedding's table (151936 rows)
+4E v9: the 76 prologue inputs are 16-byte aligned; the vector path runs on every layer
+4E v9: the int4 records are read in place, tiled at load and held once on the card (36 layers)
+4E: 36 layers, grid 142 x 512, 218 barriers a token
+decode engine: persistent (4E)
+context sweep: 64 new tokens after each prompt, the prompt in chunks of 4096, 1 discarded + 5 rounds
+  prompt    to first token, s       decode tok/s [range]      ms a decode token
+  prompt 5: 4E tokens equal the eager path's under this config, 64 of 64
+  prompt 5: last-position logits fingerprint e12199ba424a9b02 (prefill in chunks of 4096, softmax in place)
+       5       0.02 [0.02–0.02]      239.6 [239.3–239.6]       4.17
+  tokens after 5: 6529df2197f58d11 12095,13,576,6722,315,9625,374,12095,13,576,6722,315,9625,374,12095,13,576,6722,315,9625,374,12095,13,576,6722,315,9625,374,12095,13,576,6722,315,9625,374,12095,13,576,6722,315,9625,374,12095,13,576,6722,315,9625,374,12095,13,576,6722,315,9625,374,12095,13,576,6722,315,9625,374,12095
+vram served-v9 idle 0 MiB peak 1889 MiB
+fusedrun served v9 exit 0

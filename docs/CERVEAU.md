@@ -673,7 +673,10 @@ The third run ([recherche-debit-corps](mesures/recherche-debit-corps-2026-11-13.
 rebuilt on the job itself and scores seven whole bodies on the sealed Tetra rows alone. A flat body reads ×1.185
 [1.179-1.190] of the served row inside a bound of 1e-5 on rows; the served row with its row end in a second pass
 reads ×1.053 [1.050-1.056] bit for bit; a thread a row reads ×0.36 (*measured*). Neither winner has run in the
-token: no tok/s is established, and the flat body's effect on perplexity is not measured. Spent: $0.30 of $5.
+token: no tok/s is established, and the flat body's effect on perplexity is not measured.
+The fourth run ([recherche-debit-jeton](mesures/recherche-debit-jeton-2026-11-13.txt)) put both in 4E's token and is
+void: neither arm loads on the card, 8 B of local memory at 128 registers under the driver's ptxas. Its control
+shows a noise floor 0.06 % wide in the token. Spent: $0.76 of $5.
 
 ## Beliefs we dropped
 
