@@ -1,0 +1,127 @@
+set -euo pipefail
+ARM=candidate
+THREADS=23
+MODEL=Qwen/Qwen3-4B
+MODEL_SHA=1cfa9a7208912126459214e8b04321603b3df60c
+DCLM_SHA=dbad8ad71224482740cd9c9d353591adbf62fe04
+FP=45fb781f65574d4d
+GROUPS_G=4
+W=/out/guided-encode-4b-2026-11-13/candidate
+WSRC=/out/guided-weights-4b-2026-11-13
+GUIDED_ENV=LLVQ_GUIDED_WEIGHTS=/scratch/weights\ LLVQ_GUIDED_GROUPS=4
+if env | grep -q '^LLVQ_'; then echo 'refused: LLVQ_* set in the job env' >&2; exit 1; fi
+for b in oracle smoke seal; do
+  type -P "$b" >/dev/null || { echo "refused: $b is not in this image" >&2; exit 1; }
+done
+mkdir -p "$W" /scratch
+stamp() { echo "$1 $(date -u +%FT%TZ) $(date +%s)" | tee -a "$W/timing.txt"; }
+stamp job-start
+{ nvidia-smi --query-gpu=name,compute_cap,memory.total,driver_version --format=csv,noheader
+  echo "nproc $(nproc)"; grep -m1 'model name' /proc/cpuinfo || true; grep '^MemTotal:' /proc/meminfo || true
+  df -h /scratch "$HOME" 2>&1 | tail -n +2 || true; } | tee "$W/gpu.txt"
+mem_sampler() {
+  echo 'utc,gpu_used_mib,gpu_total_mib,gpu_util_pct,host_avail_kb,proc,vmrss_kb,vmhwm_kb'
+  while :; do
+    g=$(nvidia-smi --query-gpu=memory.used,memory.total,utilization.gpu --format=csv,noheader,nounits 2>/dev/null | head -1 | tr -d ' ') || g=',,'
+    [ -n "$g" ] || g=',,'
+    a=$(awk '/^MemAvailable:/ {print $2}' /proc/meminfo 2>/dev/null) || a=
+    p=; c=; r=; h=
+    for d in /proc/[0-9]*; do
+      n=$(cat "$d/comm" 2>/dev/null) || continue
+      case "$n" in smoke|seal|oracle) p=${d#/proc/}; c=$n; break ;; esac
+    done
+    if [ -n "$p" ]; then
+      r=$(awk '/^VmRSS:/ {print $2}' "/proc/$p/status" 2>/dev/null) || r=
+      h=$(awk '/^VmHWM:/ {print $2}' "/proc/$p/status" 2>/dev/null) || h=
+    fi
+    echo "$(date -u +%FT%TZ),$g,$a,$c,$r,$h"
+    sleep 30
+  done
+}
+mem_sampler > "$W/mem.csv" 2>/dev/null &
+SAMPLER=$!
+trap 'kill "$SAMPLER" 2>/dev/null || true' EXIT
+need()  { grep -qF -- "$2" "$1" || { echo "refused: $1 lacks: $2" >&2; exit 1; }; }
+needx() { grep -qxF -- "$2" "$1" || { echo "refused: $1 lacks the line: $2" >&2; exit 1; }; }
+never() { if grep -qF -- "$2" "$1"; then echo "refused: $1 holds: $2" >&2; exit 1; fi; }
+
+echo '== oracle (hard rule 10) =='
+oracle Qwen/Qwen3-0.6B 64 cuda 2>&1 | tee "$W/oracle-cuda.txt" | tail -2
+need "$W/oracle-cuda.txt" MATCH
+stamp oracle-done
+
+if [ "$ARM" = candidate ]; then
+  echo '== the weights: bucket mount to local disk, sha256 checked =='
+  mkdir -p /scratch/weights
+  cp "$WSRC/manifest.json" "$WSRC/files.sha256" /scratch/weights/
+  cp "$WSRC"/w-*.f32 /scratch/weights/
+  test "$(ls /scratch/weights/w-*.f32 | wc -l)" = 72
+  ( cd /scratch/weights && sha256sum -c files.sha256 ) > "$W/weights-check.txt"
+  test "$(grep -c ': OK$' "$W/weights-check.txt")" = 73
+  MANIFEST_SHA=$(sha256sum /scratch/weights/manifest.json | cut -d' ' -f1)
+  echo "manifest sha256 $MANIFEST_SHA" | tee -a "$W/weights-check.txt"
+  stamp weights-copied
+fi
+
+echo "== smoke, arm $ARM =="
+stamp smoke-start
+# shellcheck disable=SC2086
+env LLVQ_MODEL="$MODEL" LLVQ_CALIB=dclm-edu LLVQ_INT4_TYPES=v_proj LLVQ_THREADS="$THREADS" \
+    LLVQ_ARTIFACT="$W/$ARM.llvq" $GUIDED_ENV \
+  smoke 64 2048 12 4096 cuda nogs tetra1 999 rot 2>&1 | tee "$W/smoke.txt"
+stamp smoke-end
+
+# The resolved configuration (smoke.rs header), as encode-14b.sh checks it.
+need "$W/smoke.txt" 'codebook     tetra1 → Tetra word map'
+need "$W/smoke.txt" 'calibration  dclm-edu, 64 × 2048 = 131072 tokens requested, contiguous prefix from token 0'
+need "$W/smoke.txt" "revision $DCLM_SHA"
+need "$W/smoke.txt" 'rotation     on (seed 0x110feed)'
+need "$W/smoke.txt" '  mode         nogs (group scales off, design C off'
+needx "$W/smoke.txt" '  dtype        f32'
+need "$W/smoke.txt" ", $THREADS encoder threads"
+need "$W/smoke.txt" '  damping      1e-2 (relative to mean(diag H))'
+need "$W/smoke.txt" '  h_shrink     1 (H as is, published path)'
+need "$W/smoke.txt" '  gain_scale   1 (centroids as fitted, published path)'
+need "$W/smoke.txt" 'weights identical, bit for bit (at f32)'
+never "$W/smoke.txt" 'WITHOUT `fast-linalg`'
+need "$W/smoke.txt" "calibration token fingerprint $FP"
+needx "$W/$ARM.llvq.state" 'device = cuda'
+needx "$W/$ARM.llvq.state" "model = $MODEL"
+if [ "$ARM" = baseline ]; then
+  need "$W/smoke.txt" '  guided       off'
+  never "$W/smoke.txt" 'guided weights:'
+  if grep -q '^guided' "$W/$ARM.llvq.state"; then echo "refused: the baseline's state names guided weights" >&2; exit 1; fi
+else
+  need "$W/smoke.txt" "gate_proj, up_proj against gradient-weighted Hessians, G = $GROUPS_G"
+  needx "$W/$ARM.llvq.state" "guided = gate_proj,up_proj G=$GROUPS_G manifest_sha256=$MANIFEST_SHA"
+fi
+# The checkpoint smoke resolved: `refs/main` of the hf-hub cache under $HOME (hf-hub ignores HF_HOME).
+f="$HOME/.cache/huggingface/hub/models--Qwen--Qwen3-4B/refs/main"
+if [ -s "$f" ]; then
+  echo "refs/main $(tr -d ' \n' < "$f")" | tee "$W/model-revision.txt"
+  [ "$(tr -d ' \n' < "$f")" = "$MODEL_SHA" ] || { echo "refused: the checkpoint resolved is not $MODEL_SHA" >&2; exit 1; }
+else
+  echo "no refs/main under $HOME/.cache/huggingface/hub" | tee "$W/model-revision.txt"
+fi
+
+echo '== seal to /scratch, copy to /out, size and sha256 read back =='
+stamp seal-start
+LLVQ_MODEL="$MODEL" seal "$W/$ARM.llvq" "/scratch/$ARM.bin" 2>&1 | tee "$W/seal.txt"
+SHA=$(sha256sum "/scratch/$ARM.bin" | cut -d' ' -f1)
+cp "/scratch/$ARM.bin" "$W/$ARM.bin"
+sync "$W/$ARM.bin" 2>/dev/null || true
+test "$(stat -c %s "$W/$ARM.bin")" = "$(stat -c %s "/scratch/$ARM.bin")"
+test "$(sha256sum "$W/$ARM.bin" | cut -d' ' -f1)" = "$SHA"
+stamp seal-end
+
+( cd "$W" && sha256sum "$ARM.llvq" "$ARM.llvq.state" "$ARM.bin" ) | tee "$W/files.sha256"
+stat -c '%s %n' "$W/$ARM.llvq" "$W/$ARM.bin" | tee "$W/sizes.txt"
+sed -n '/^phases:/,/^[^ ]/p' "$W/smoke.txt" | tee "$W/phases.txt"
+grep '^exact-ppl' "$W/smoke.txt" | tee "$W/ppl.txt" || true
+awk -F, 'NR > 1 && $2 != "" {if ($2 + 0 > g) g = $2 + 0} NR > 1 && $8 != "" {if ($8 + 0 > h) h = $8 + 0}
+         END {printf "GPU peak %d MiB sampled; host VmHWM peak %.1f GB\n", g, h / 1e6}' "$W/mem.csv" | tee "$W/peaks.txt"
+stamp job-end
+date -u > "$W/DONE"
+echo '== what landed ==' ; ls -la "$W"
+
+DRY_RUN: arm candidate parses; rtx-pro-6000, timeout 100m, image Pier-Jean/llvq-runner-cuda-qualite@37a8e9336c77fceb0b013bce6f52d0349fdd06a4; nothing launched
