@@ -1473,4 +1473,9 @@ a cap of its own. Nothing is measured and nothing was launched.
   one card budget, one work machine." The operator replaced it. Two research phases now run together when each
   mandate carries its own card budget, the second loads no model on the work machine, and the two edit no file in
   common but `CERVEAU.md`.
+- R0 of the phase is done the same day, by reading only: what the repository knows
+  ([recherche-qualite-r0-depot](mesures/recherche-qualite-r0-depot-2026-11-13.txt)) and what is published
+  ([recherche-qualite-r0-litterature](mesures/recherche-qualite-r0-litterature-2026-11-13.txt)). N1's Gaussian arm
+  is noise on the four option logits of a dump, not on weights, and its replay on the sealed 4B needs dumps the
+  repository holds. No published study answers N1 or N2. Eight claims of `CERVEAU.md` gained scope notes.
 - Nothing served changes: no config, no served module, no Hub file.

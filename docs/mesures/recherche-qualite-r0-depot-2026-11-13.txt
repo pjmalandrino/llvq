@@ -1,0 +1,430 @@
+RECHERCHE QUALITE, R0: WHAT THE REPOSITORY ALREADY KNOWS ABOUT MODEL QUALITY, SEALED FILES, 2026-11-13. $0.
+=======================================================================================================
+Result: the sealed 4B sits 6.77 MMLU points [6.05, 7.50] and 9.63 GSM8K points [7.69, 11.57] under FP16
+(*measured*). Restored to f16, the MLP recovers +4.86 of it and attention +0.73, and all 252 projections restored sit
++0.04 [-0.23, +0.31] under FP16 (*measured*, one draw, dense f16). N1 is a simulation on dumped answer logits. It adds
+iid Gaussian noise to the four option logits of the f16 dump, at the arm's own regression slope and residual sd. It
+never perturbs weights or activations. On bare Tetra, 2,280 questions, it predicts 58.53 +- 1.05 against 53.49
+measured. The arm's own residual vectors, reshuffled across questions, predict 58.76. Reshuffled inside 20 bands of f16
+margin they predict 57.53. So about 4 of the 5 points sit in a coupling between a question and its error that the f16
+margin does not carry (*computed*). AWQ runs the other way: 70.04 measured, 69.21 predicted. The replay has never run
+on the sealed 4B. Its inputs are in the repository: the sealed and FP16 census dumps both carry the four logits, and the
+script reads dumps only. No binary injects synthetic noise into dense weights, activations or logits before scoring.
+On the Planes14 file the same two groups were sub-additive (all - (attn + mlp) = -2.95, *computed*), where the
+sealed 4B is super-additive (+1.14 [+0.43, +1.85]). Ten mismatches are listed in section 9.
+Nature: read only. No build, no test, no model load, no job, no network. Sources: docs/CERVEAU.md, docs/MODES.md,
+docs/ETAT.md, docs/ROADMAP-QUALITY.md, docs/METHODE.md, docs/ENV.md, docs/data/jobs.csv, the journals named on each
+line, ops/logit_snr.py, llvq-llm/src/bin/{mmlu,mmlupair,gsm8k,ppl,errmap,artscale}.rs, llvq-llm/src/sealed.rs, at
+fc0d3e9 of recherche/qualite-2026-11-13. Dump rows counted with a one-line python, labelled *computed*. Line numbers
+are the files' own.
+Mandate: CERVEAU O12. This note proposes nothing and projects no gain.
+
+0. VOCABULARY
+-------------
+- Sealed 4B: qwen3-4b-sealed.bin, sha256 886391a8, 1,418,224,685 B (ablation-qualite-4b lines 59-60).
+- Bare Tetra: 252 lattice records, no int4, C4 calibration, 2026-09-06 encoding (mmlu-4b-tetra.csv at 2,280 q,
+  mmlu-4b-tetra-FULL.csv at 14,042).
+- Planes14 file: the published August file, leech1c12, 1,770,527,533 B (m2-attribution line 32).
+- 61.11 object (parent): DCLM base plus trained row scales, 216 lattice + 36 int4 v_proj, f16 embedding in
+  the file (dclm-rowscales lines 20-30; embed-q4-swap lines 70-71).
+- 2,280 q: the flat 40-per-subject sample, fingerprint 65dcd536. Full split: 14,042 questions, fingerprint a74a6d62.
+- Restore arm: LLVQ_RESTORE_F16 takes the named types from the checkpoint at f16, all else as sealed (mmlu.rs lines
+  95-106). Gain = arm minus control, paired.
+
+1. FRAMING FACTS
+----------------
+1a. Gap to FP16, three sealed files (*measured*, paired)
+  size  MMLU full, f16 - Tetra   GSM8K 1,319, FP16 vLLM - Tetra   sources
+  4B    6.77 [6.05, 7.50]        9.63 [7.69, 11.57]               embed-q4-swap line 26; gsm8k-wave1 line 58
+  8B    5.48 [4.83, 6.10]        4.62 [3.00, 6.25]                sealed-8b-27 line 31; gsm8k-wave2 line 49
+  14B   3.22 [2.69, 3.75]        3.26 [1.93, 4.59]                sealed-8b-14b line 29; gsm8k-wave2 line 52
+  Levels at 4B: sealed 63.37 (embed-q4-swap line 19), FP16 70.14 (f16-full line 14); GSM8K 82.49 against 92.12
+  (gsm8k-wave1 lines 51, 54). Same harness: FP16 dense minus Tetra +9.02 [+7.07, +10.97] (line 59).
+  Instruments differ by metric. MMLU: 5-shot, f16 dense reconstruction, expanded attention, no kernel (ETAT lines
+  53-55). GSM8K: zero-shot, greedy, max_new 1,024, through the kernel under configs/qwen3-4b-tetra-e4.json, reasoning
+  block empty (gsm8k-wave1 lines 22-25). Under the grouped config the 4B reads 81.96, -0.53 [-1.07, +0.00] against
+  expanded (gsm8k-grouped lines 3-4).
+  In errors at 4B: Tetra 2.22 times FP16's on GSM8K, 1.23 times on MMLU (gsm8k-wave1 lines 66-67). At 8B and 14B the
+  GSM8K error ratio is 1.68 and 1.69, MMLU 1.22 and 1.15 (gsm8k-wave2 lines 60-61).
+  The 4B MMLU gap and the 8B one touch: [6.05, 7.50] and [4.83, 6.10]. The 8B and 14B GSM8K intervals overlap.
+
+1b. Composition of the sealed 4B (*measured* by rtbits and the build logs)
+  168 lattice matrices, 2,862,612,480 weights at 1.9898 b/weight of stream; 84 int4 g128 matrices, 770,703,360
+  weights at 4.2500 b/weight, side data included; tail 14,647,296 weights, 946,176 row scales
+  (sealed-4b-2026-09-23-brut/rtbits-sealed.txt lines 3-5).
+  Kernel b/weight over 3,633,315,840 projection weights: 2.5420 with the tail at f16 (line 9). Whole model over
+  4,022,468,096 parameters with the q4 embedding: 2.7320 b/param (line 14).
+  Embedding and tied head: 388,956,160 weights, int4 g64 at 4.50 b/w, 777.9 to 218.8 MB (brut embedq.txt line 2).
+  By type and record (prereg §3, ablation line 82-91; layers from brut int4swap.txt lines 19 onward):
+    q_proj    36 lattice                     377,487,360 weights
+    k_proj    36 lattice                      94,371,840
+    v_proj    36 int4 g128 (all layers)       94,371,840   (from the Q5 base; dclm-rowscales lines 28-30)
+    o_proj    36 int4 g128 (all layers)      377,487,360   (int4swap, embed-q4-swap line 19)
+    gate_proj 36 lattice                     896,532,480
+    up_proj   36 lattice                     896,532,480
+    down_proj 24 lattice (0-11, 24-35), 12 int4 g128 (layers 12 to 23)   896,532,480 in all
+  Shares (*computed* from the counts above): lattice 78.79 % of projection weights, int4 21.21 %; gate/up 49.35 %,
+  the MLP 74.03 %; projections 90.33 % of all parameters, the embedding 9.67 %.
+  The int4 records are min/max RTN from the checkpoint at Qwen/Qwen3-4B 1cfa9a72 (int4swap.txt lines 2-5). The restore
+  that made o and down@12-23 "discards the trained row scales of the 48 matrices it replaces" (embed-q4-swap lines
+  75-76). The second training refit 168 row scales and excluded the 84 int4 records (sealed-rownorms line 48).
+
+1c. How the 4B reached 63.37 (full split, *measured*; assembled in innovation-ecart-qualite lines 26-32)
+  bare Tetra C4 54.64 (tetranu-rowscales line 20); Q5 base C4 56.37 (f1e-census, jobs.csv line 149); DCLM base 57.95,
+  + row scales 61.11 (dclm-rowscales lines 20-21); + q4 embedding, o and down@12-23 int4 63.37, +2.26 [+1.66, +2.87]
+  (embed-q4-swap lines 19-25); second training 63.40, +0.02 [-0.31, +0.36] (sealed-rownorms lines 19-26).
+  GSM8K was scored only on the sealed files (O7; innovation-ecart line 70).
+
+2. WHERE THE GAP SITS
+---------------------
+2a. The ablation of the sealed 4B (ablation-qualite-4b-2026-11-12, job 6af550a4, $5.26, prereg 82bbfc82 stamped)
+  Object, protocol: sealed 4B, full split, 5-shot, f16 dense reconstruction, kv f16, checkpoint 1cfa9a72, one L40S,
+  mmlupair --no-fpc, stratified bootstrap 10,000 draws (lines 59-66, 80-95).
+  arm      lattice/int4   weights   gain pp  CI95             McNemar      gain/Gw   lacks to FP16
+  qkv      72 / 36        0.566 G   +0.55    [+0.01, +1.11]   p 0.0508     +0.97     +6.22 [+5.51, +6.91]
+  o         0 / 36        0.377 G   -0.13    [-0.46, +0.19]   p 0.4718     -0.34     +6.89 [+6.17, +7.63]
+  gateup   72 / 0         1.793 G   +3.38    [+2.75, +4.02]   p 2.9e-25    +1.89     +3.38 [+2.77, +4.01]
+  down     24 / 12        0.897 G   +2.01    [+1.46, +2.54]   p 2.0e-13    +2.24     +4.76 [+4.07, +5.46]
+  attn     72 / 72        0.944 G   +0.73    [+0.16, +1.29]   p 0.0119     +0.77     +6.04 [+5.35, +6.74]
+  mlp      96 / 12        2.690 G   +4.86    [+4.16, +5.57]   p 9.7e-42    +1.81     +1.91 [+1.38, +2.44]
+  all     168 / 84        3.633 G   +6.72    [+6.00, +7.45]   p 4.0e-74    +1.85     +0.04 [-0.23, +0.31]
+  (lines 85-99; gain/Gw *computed* there.) Control 63.3742, 8,899 of 14,042, picks 14,042 of 14,042 equal to the
+  published dump (line 61-63). Six of six controls green (line 78).
+  gate/up recovers 475 of the 950 questions between control and FP16, the exact half 3.3827 pp (lines 8-9).
+  Additivity (lines 110-126, *computed*): A_mlp 0.901 [0.795, 1.031]; A_attn 1.729 over a denominator qkv + o of
+  +0.42 [-0.31, +1.13]; S 1.157 [0.973, 1.457]. Excess all - (mlp + attn) +1.14 [+0.43, +1.85]; all - (four singles)
+  +0.91 [-0.20, +2.03]; attn - (qkv + o) +0.31 [-0.12, +0.74]; mlp - (gateup + down) -0.53 [-1.21, +0.15].
+  Attention on an f16 MLP +1.87 [+1.35, +2.36]; the MLP on f16 attention +6.00 [+5.31, +6.69] (lines 125-126).
+  The five missed predictions (lines 182-191): qkv +1.4 [+0.6, +2.4] read +0.55; o +0.8 [+0.2, +1.6] read -0.13; attn
+  +2.0 [+1.0, +3.0] read +0.73; A_attn 0.90 [0.70, 1.10] read 1.73; S 0.77 [0.60, 0.95] read 1.16. Every miss is on
+  attention or additivity (line 197).
+  Prereg §6 reading: by the letter three rows fire and "interacting" overrides; by the journal's judgement A_attn is
+  set aside and two rows fire (lines 18-22, 205-219).
+  Not isolated (lines 171-174; CERVEAU Q16): v_proj alone, the int4 records of down (layers 12-23) against its lattice
+  records, the int4 records inside qkv; GSM8K; a second draw; the kernel path; any size but 4B.
+
+2b. The older attribution (m2-attribution-4b-2026-09-02) differs in object on five counts
+  Object: the published Planes14 file, 252 lattice records, no int4, q8 embedding, 2,280 q, with finite-population
+  correction, seven single types (lines 16-21, 46-63). Gains: gate +5.18, up +4.94, v +4.48, down +2.96, o +2.35,
+  k +2.09, q +1.85; attention +6.90, MLP +10.78, all +14.73 (lines 53-63). Sum of seven 23.85 against 14.73 (line 136).
+  "all" equals the checkpoint pick for pick, 2,280 of 2,280 (lines 35-37).
+  Replication on seed 3 (m2rep-graine3 lines 38-49, 73-90): down +5.55, up +4.31, v +2.87, gate +2.71, o +2.08,
+  k +1.11, q +0.49; attention +5.08, MLP +11.62, all +15.15. No type differs between draws (largest z -1.68, gate).
+  Head order swaps: gate first on M2, down first on seed 3; MLP above attention, v third, q and k last on both.
+  Differences from 2a: base 55.59 against 63.37; gap 14.73 against 6.77; no int4 records and no row scales in M2;
+  2,280 q against 14,042; seven types against four groups.
+
+3. ANOMALY N1, EXACTLY (logit-snr-4b-2026-09-12, ops/logit_snr.py, self-test logit-snr-selftest-2026-09-12)
+------------------------------------------------------------------------------------------------------------
+3a. What the noise is, operationally (read from the code)
+  - Data: the four option logits of each question, as mmlu writes them (DUMP_COLUMNS, mmlu.rs line 428). 2,280
+    questions, 9,120 logits an arm, one f16 dump as reference (journal line 1; logit_snr.py lines 32-50).
+  - Fit (fidelity, lines 105-119): centre the four logits of each question on their mean, for f16 (x) and the arm (y);
+    pool all 9,120; regress y = beta x + e; sd_res = sd(e); SNR = beta sd(x) / sd(e).
+  - Gaussian iid (simulate, lines 161-175; called at line 329): for every question, beta times the raw f16 logits plus
+    an independent N(0, sd_res sqrt(4/3)) draw on each of the four options, argmax, stratified micro. 60 draws. The
+    sqrt(4/3) undoes the variance centring removes (lines 106-107). Noise is iid across options and questions.
+  - Own residuals (replay with bands = 1, lines 178-218, line 330): each question receives the centred residual vector
+    of another question, drawn at random, added to beta times its centred f16 logits. 40 draws.
+  - Banded replay (bands = 20, line 331): the same, the donor drawn inside the same twentieth of f16 top-two margin.
+  - The "+-" is the sd over draws of the simulation. It is not a sampling interval on the gap. The journal forms no
+    paired interval on measured minus predicted. Per-arm sampling SE on 2,280 q is about 1.41 pp (line 68).
+  - Nothing is injected into weights, activations or the model. The script runs on dumps, no card (lines 5-22).
+3b. Section 5, what each model predicts (lines 96-103), and measured minus prediction (*computed*)
+  arm        measured  gaussian iid    own residuals   banded replay   meas-gauss  meas-own  meas-band
+  awq4       70.04     69.21 +- 0.83   69.07 +- 0.78   69.15 +- 0.83   +0.83       +0.97     +0.89
+  planes14   55.59     59.58 +- 1.24   60.04 +- 1.25   59.00 +- 1.15   -3.99       -4.45     -3.41
+  tetra      53.49     58.53 +- 1.05   58.76 +- 1.06   57.53 +- 1.03   -5.04       -5.27     -4.04
+  tetra+q5   56.95     60.03 +- 0.90   60.47 +- 1.23   60.06 +- 1.02   -3.08       -3.52     -3.11
+  seed1      58.02     60.66 +- 1.27   60.81 +- 1.22   60.49 +- 1.15   -2.64       -2.79     -2.47
+  seed2      52.19     58.74 +- 1.00   58.76 +- 0.97   57.92 +- 1.05   -6.55       -6.57     -5.73
+  seed3      55.17     60.34 +- 1.26   60.61 +- 0.98   60.07 +- 1.19   -5.17       -5.44     -4.90
+  Arms: awq4 (w4g128, sample dump), planes14 (published file), tetra (bare Tetra, C4), tetra+q5 (bare Tetra with
+  LLVQ_RESTORE_Q4=v_proj), seed1-3 (Planes14 format, LLVQ_CALIB_SEED 1-3; bruit-mmlu lines 67-69). All on 2,280 q.
+3c. The other noise models in the journal
+  - Section 9 (lines 164-168): attenuation alone (beta, no noise) predicts 70.27 for every arm; noise alone (beta 1,
+    sd/beta) 58.75 for Tetra; both 58.71. "Attenuation costs no MMLU point. Only the ratio does."
+  - Section 8 (lines 154-162): one output temperature on the four-option NLL recovers 2.1 % of Tetra's NLL4 excess
+    and makes Planes14's worse (-52.0 %); argmax is unchanged by construction.
+  - Section 4 (lines 77-93): per-question rms residual rises with the f16 margin for LLVQ arms (correlation +0.160 to
+    +0.323) and falls for AWQ (-0.181).
+  - Self-test S3 (selftest lines 20-25): synthetic arms with noise only on the options f16 ranks third and fourth, at
+    the same total variance (_synth, logit_snr.py lines 437-456), read +1.34 pp above the rest; the rms of the law
+    detects them weakly. S4 (lines 27-29): the law excludes a second axis larger than about 3.3 pp between the two
+    files' arms.
+  - Not in the journal: the "6.6 to 8.3 %" reversal share under homogeneous noise of archive
+    mecanismes-perte-qualite-2026-09-12.md line 92. No script line found that prints it.
+3d. What has and has not been replayed
+  - Never run on the sealed 4B, on any full-split dump, or on 8B or 14B sealed files. ops/logit_snr.py has two
+    commits (af22e5b, a73d3c9) and no other journal cites it (grep).
+  - Inputs that exist (*measured* rows counted here): sealed 4B census mmlu-4b-abl-control-FULL.csv, 8,899 of 14,042;
+    FP16 census mmlu-4b-f16-FULL.csv, 9,849; bare Tetra census mmlu-4b-tetra-FULL.csv, 7,673 (54.64); the seven
+    ablation arms; AWQ 4B census (paper-table-2026-09-25-brut/paper-awq4b-census-2026-09-25/). All carry logit_a..d.
+  - Section 10 (lines 170-176) ran the fidelity fit on the 2,280-q 8B and 14B dumps of the August files only.
+3e. Q7's overturn condition (CERVEAU lines 104-109): "the same replay on the sealed 4B where the Gaussian prediction
+  falls inside the measured interval". The journal defines no measured interval on that gap (3a).
+
+4. ANOMALY N2 AND THE FLIP STRUCTURE
+------------------------------------
+4a. Shape reversal (logit-snr section 6, lines 105-124). rho_q is the correlation of a question's four centred logits
+  between arm and f16; "reversed" is rho_q < 0. Shares: awq4 0.7 %, planes14 11.8 %, tetra 15.6 %, seed1 11.1 %,
+  seed2 14.6 %, seed3 12.2 %. Arm accuracy on its reversed set 10.8 to 15.2 %, f16 on the same 53.5 to 62.4 %.
+  Pairwise overlap of reversed sets over chance: x2.38 (planes14 & tetra) to x3.24 (seed1 & seed2). Union over five
+  encodings 810 questions, 35.5 % of the bank. Bootstrap: tetra 15.6 % [14.1, 17.2] (selftest line 34).
+  The share depends on the cut: Tetra 5.5 % at rho_q < -0.5, 29.8 % at < +0.5 (selftest lines 36-42).
+  The five are not independent of the encoder drift of 2026-08-26 (archive mecanismes lines 105-107).
+4b. Repaired sets (section 7, lines 126-152). "Repaired" = correct after the restore, wrong in the shipped file
+  (logit_snr.py line 384). Planes14 M2: Jaccard 22.0 to 35.8 % against chance 3.2 to 5.6 %; union of seven 489,
+  f16 itself repairs 490, union covers 70 %. Seed 3: 17.7 to 33.3 % against 2.4 to 5.3 %; 468 and 477, 68 %.
+  In noise-to-signal units the groups are sub-additive: attention 0.68 and 0.90, MLP 0.78 and 0.73 (lines 136-137,
+  149-150). down_proj removes the largest N/S share on both draws (44.7 %, 46.1 %); v_proj the most per weight.
+4c. Additivity across groups, by object
+  Planes14 M2 (2,280 q): attn +6.90, mlp +10.78, all +14.73 (m2-attribution lines 61-63); all - (attn + mlp) -2.95;
+    attention on an f16 MLP (all - mlp) +3.95 against +6.90 alone (*computed*, no interval).
+  Seed 3 (2,280 q): +5.08, +11.62, +15.15 (m2rep lines 47-49); all - (attn + mlp) -1.55 (*computed*, no interval).
+  Sealed 4B (full split): +0.73, +4.86, +6.72; +1.14 [+0.43, +1.85]; attention on an f16 MLP +1.87 against +0.73
+    (ablation lines 118, 125).
+  Seven single types on Planes14: S = 14.73 / 23.85 = 0.618 (m2-attribution line 136). Four groups on sealed:
+    S = 1.157 [0.973, 1.457] (ablation line 122).
+  Other measured discordance between close files: leech0c13 against Tetra 29.1 % of 2,280 (leech0c13 line 47);
+  Tetra + Q5 against Planes14 28.5 % (q5-apparie line 81); errmap correction 17.7 % of 14,042 (errmap-mmlu line 22);
+  second training 4.2 % (sealed-rownorms line 28); row scales 12.9 % (dclm-rowscales line 25).
+
+5. PROPERTIES OF THE ERROR, PROXIES, AND THE NOISE OF THE INSTRUMENT
+--------------------------------------------------------------------
+Proxies against MMLU
+- Q4. Same ideal rate 2.0702: Tetra 16.1569 ppl / 53.49, Planes14 16.9422 / 55.59, leech0c13 19.6093 / 54.67
+  (leech0c13 lines 30-33; 2,280 q, f16, one encoding each). leech0c13 - Tetra +1.19 [-1.54, +3.98], - Planes14 -0.92
+  [-3.55, +1.78] (lines 46-48). Tetra - Planes14 -2.11 [-5.04, +0.81], McNemar 0.1077 (q5-apparie line 33). The dB
+  figures and the 0.4 dB line are in the study note innovation-tetra-v2-forme (*estimated*), not re-read here.
+- C6 (CERVEAU, from HISTORIQUE 2026-09-06): Gaussian retention 88.89 against 92.00 implied +8.5 % MSE; perplexity
+  moved -4.64 %. Journal not reopened.
+- Q5. errmap gain map at T = 0.06 on 180 matrices: 16.7988 to 13.8771 ppl (-17.4 %), 51.25 to 48.19 MMLU, McNemar
+  1,457 / 1,027, p 6.2e-18, full split (errmap-mmlu lines 13-23). On the options: NLL4 1.31933 to 1.25384 while
+  accuracy falls; spread best-worst -32.5 %; the B prior grows from 12.0 to 17.1 % of the spread; rescaling back
+  leaves accuracy at 48.06 (lines 89-127). Witness object: /out/errmap-4b-2026-09-16/sealed-temoin.bin (brut
+  mmlu-temoin.txt line 1), 2.1696 b/weight (line 6).
+- Sealed files against AWQ: our 4B 6.9 % below AWQ in perplexity, 4.76 MMLU under it (ETAT lines 101-102).
+- Row scales at 4B: perplexity 16.2509 to 12.3268, x1.0074 of f16, MMLU 61.11 nine points under (dclm-rowscales
+  lines 131-142). Training KL fell 3.8 % for +3.15 (lines 71-72). Second pass: KL 0.2622 to about 0.20, MMLU +0.02
+  (sealed-rownorms lines 39-41).
+- Q6. One global temperature removes 2.49 % of held-out KL on WikiText-2 and 0.93 % on C4, T* 1.07216, 4,092
+  positions, full vocabulary, Metal f32, Tetra artifact without correction (kl-temperature lines 14-20). Top-1
+  agreement with dense 74.45 % and 73.15 % (line 50). No MMLU arm: a positive scale cannot move an argmax (lines 43-52).
+- Calibration seeds: seed 1 has the worst perplexity (16.7425) and the best MMLU (58.02) (bruit-mmlu lines 70-73).
+- Row F of ROADMAP-QUALITY (line 123): letter bias on dumps, Planes14 under-picks B by 177, over-picks C by 174; the
+  served file of 2026-09-13 over-picks A by 255 of 2,280; a per-letter additive fix: oracle +1.05, cross-validated
+  -0.51 over ten folds.
+The SNR law (Q8)
+- acc = 54.60 + 14.60 ln SNR over 28 LLVQ-family arms, in-sample rms 1.31 pp, per-arm SE about 1.41 (logit-snr lines
+  36-38, 68). Largest residuals seed2 -2.95, gate_proj +2.95; Tetra -1.53; AWQ -3.48, not fitted (lines 39-67).
+  Out of sample by subjects: rms 1.74 against a spread of 3.33 (line 75).
+Gain rule and radial shrink (Q17)
+- Synthetic Gaussian, 20,000 blocks: shipped rule A MSE 0.085418, retention 88.73 %; projection centroids C 0.083772,
+  89.43 %; free gain D 92.51 % (gainrule-tetra lines 10-14). Radial drift of C against A -3.99 % (line 17).
+- On 0.6B real blocks the Euclidean rule moves 204 of 204 disagreed blocks down a level (gain-desaccord-reel line 60);
+  mean amplitude over block norm 0.97073, "a systematic 2.9 % shrink" (tetrapost-ppl line 60). End to end 41.8875
+  against 43.5739 ppl, +4.026 % (tetrapost-ppl lines 14-18). One encoding a side, Mac.
+- Q18: spherical feedback 41.8875 to 55.2478, +31.89 %, 0.6B, one seed (sph-ppl lines 14-19).
+- Q19: one lattice step moves a block 0.332 of its norm (median), the block's own error is 0.290 (refutation-k1-maths
+  lines 83-84, *computed*).
+What trained row scales correct (Q12)
+- One scale a row, frozen codes, global KL to the f16 teacher, DCLM-edu, about 19.5 M tokens (innovation-ecart lines
+  90-96). 4B: 1,069,056 scales on 216 lattice records; v int4 unreachable (dclm-rowscales lines 27-29).
+- Gains: 4B 57.95 to 61.11, +3.15, McNemar 1,128 / 685, p 1.8e-25, no CI printed (dclm-rowscales lines 20-24); 8B
+  +3.29 [+2.78, +3.80] (dclm-8b-rowscales line 35); 14B +1.67 [+1.27, +2.08] (dclm-14b-rowscales line 32). Bare Tetra
+  +4.30 (tetranu-rowscales line 24).
+- The scales: 4B sigma mean 0.99888, sd 0.03030, p1 0.9203, p99 1.0734, 8.8 % of rows beyond 5 %, "no global
+  component" (dclm-rowscales lines 79-82). 8B sd 0.02702 (dclm-8b line 75); 14B sd 0.02474 (dclm-14b line 93).
+- Share of the base gap taken: 0.258 / 0.323 / 0.263 at 4B / 8B / 14B (innovation-ecart lines 92-94, *computed*).
+- A second pass on the sealed 4B (168 scales + 73 RMSNorms): +0.02 [-0.31, +0.36] (sealed-rownorms line 24).
+Noise of the instrument and of the draw (Q2, Q3, Q14, Q15)
+- Draw: three Planes14-format encodings, LLVQ_CALIB_SEED 1-3, 58.02 / 52.19 / 55.17, s 2.9154 (n-1), 2.3803 (n), 2,280
+  q; s1 - s2 +5.83 [+2.70, +9.11] (bruit-mmlu lines 70-85). The seeds draw random offsets, the published file a
+  contiguous prefix: the journal refuses "the published 55.59 carries +-2.9" (lines 138-142). Perplexity sigma 5.2 %
+  (f5-graines line 27). A second DCLM draw at 55.53 is cited by gains-criteres-qualite line 28 from a review with no
+  journal in this repository.
+- Constant file, full split: pair SE 0.17 (sealed-rownorms line 24), 0.31 and 0.38 (embed-q4-swap lines 25-26);
+  ablation CI half-widths 0.33 (o) to 0.73 (all) (*computed* from section 2a). 2,280 q: SE 0.43, [-0.45, +1.22]
+  (kvq8-4b line 73); stratified half-width 2.67 pp between two files (t3-genou line 99).
+- Perplexity, one file, Planes14, Metal: +0.0494 % [-0.0713, +0.1703] (kvq8-4b lines 51-52).
+- GSM8K pair half-width 1.94 pp at 4B (*computed* from [7.69, 11.57]); same-engine FP16 check -0.61 [-1.27, +0.06]
+  (gsm8k-wave1 line 71).
+- Q14: four times the DCLM volume -1.20 [-2.06, -0.39], perplexity 16.6109 against 16.2415 (dclm-v4 lines 20, 26).
+  Q15: DCLM 57.95 against C4 56.37, one draw each.
+Other anomalies on this axis: N3 (lower Gaussian MSE, worse perplexity, Q4, Q17) and N4 (perplexity and KL close,
+MMLU open, Q5, Q6) (CERVEAU lines 597-598).
+
+6. REFUTED OR DROPPED ON THE QUALITY AXIS
+-----------------------------------------
+CERVEAU "Beliefs we dropped" (lines 656-676), quality rows, with their source:
+- Quantizing the gain costs almost nothing: +3.17 % ppl for -0.618 b/weight (HISTORIQUE; fiche-4b line 264).
+- In-domain calibration flatters perplexity by 12 %: C4 14.91 against 15.29 on WikiText (fiche-4b).
+- A single shell beats the union: union 0.0725 against shell 13 at 0.0762 (HISTORIQUE).
+- Perplexity noise 0.7 %: sigma 5.2 % (f5-graines). MMLU noise 0.5 to 1.5: s 2.92 (bruit-mmlu line 116).
+- k_proj and attention are the sensitive types: v_proj, 2.6 % of weights (m2-attribution lines 118-122).
+- The paper's codebook explains the 5.1-point gap (leech0c13 lines 46-48).
+- Tetra is worse than Planes14: -2.11 [-5.04, +0.81] (q5-apparie lines 33-36).
+- The Euclidean gain rule helps end to end: +4.026 % ppl at 0.6B (tetrapost-ppl line 18).
+- KL to dense is dominated by scale: 0.93 to 2.49 % (kl-temperature lines 16-17, 28-38).
+- A better perplexity correction helps MMLU: -17.4 % ppl, -3.06 MMLU (errmap-mmlu lines 13-15).
+- More calibration volume helps: -1.20 [-2.06, -0.39] (dclm-v4 line 20).
+- Spherical GPTQ feedback helps: +31.89 % ppl (sph-ppl line 19).
+- Lattice-step distillation closes a large share: computed refutation (refutation-k1-maths lines 15-20).
+- Attention carries a large share of the sealed gap: predicted +2.0, measured +0.73 (ablation line 186).
+- Group restores are sub-additive on the sealed 4B: across groups +1.14 [+0.43, +1.85] (ablation line 118).
+ETAT §6, closed absent a new idea (lines 228-251), quality rows: Design C (x1.99 ppl at 28 blocks, archive
+verdicts-nuit); group_scales (44.66 to 53.60 ppl at 28 blocks, smoke of 2026-07-28, "no journal"); spherical GPTQ
+feedback (sph-ppl); Euclidean gain rule (cited to HISTORIQUE; the journal is tetrapost-ppl). The table gives no per-row
+condition for these four; the rule is the title, "absent a new idea", and "not a new argument" (line 251).
+ETAT §5 (lines 214-216): down_proj instead of o_proj in int4 at 4B and 14B, +0.77 [0.26, 1.28] at 8B
+(sealed-8b-27 line 28), set aside by the operator's ruling of 2026-11-12; reopens only on his word.
+ROADMAP-QUALITY "Discarded, and why" (lines 247-255): dense learned rotations (36 d^2 in f16); FlatQuant/AffineQuant
+(3.41 MB, non-orthogonal); AWQ 1 % f16 (+0.3205 b/weight); group_scales (+0.5995 b/param, ppl 44.66 to 53.60); ICQuant
+(+0.271 b/param); channel permutation (breaks format v1); output rotation (about 0 pp across the paper's Table 9).
+Rows collapsed by the adversarial pass (lines 90-97): row 8 Q4a equinorm (structurally 0); row 9 rotation seed best of
+N (selection artefact; the seeds varied were calibration seeds, the rotation seed never varied, line 68); rows 21 and 22
+(Block-AP, PV-tuning: out of budget, credit parameters Tetra lacks).
+Measured and not resolved: L01, rho = 0.929 on the 2026-09-13 served base, +1.23 [-0.50, +3.06], ppl +9.5 % (line 152).
+
+7. PROPOSED AND NEVER RUN
+-------------------------
+CERVEAU open questions on this axis (lines 609-631):
+- O2: an output-aware encoder objective (YAQA kind). No arm has run.
+- O3: the draw spread after row scales; a second draw of a sealed size through row scales, full split.
+- O7: whether GSM8K and MMLU gaps share causes; GSM8K never scored before row scales.
+- O9: why attention and the MLP interact on the sealed 4B; the lattice/int4 split of qkv and down "not chased".
+ROADMAP-QUALITY rows still open (lines 60-195; the base there is the 2026-09-13 object at 56.37, not the sealed file):
+- Never run at 4B: 5 (Hessian shrinkage, LLVQ_H_SHRINK, 0.6B only), 10 MagR, 11 GPTAQ, 12 K-best beam, 13 tail by
+  salience, 15 E2E-QP scales, 16 Q4b activation maps, 17 Q6a free parameters (code exists, never ran), 18 OWQ, 19
+  GuidedQuant, 20 low-rank correction; C intra-block sequencing, D sweep order, E massive activations in H, F cyclic
+  option marginalisation; L02, L08, L09, L10, L14, L23, L25, L27, L33, L35, L38 (two more seeds of the served recipe).
+- Partial: L36 capture half built (hcapture), L37 record transplant, L31 and M3 instruments not built (lines 190-195:
+  no bin/attnent, no STEM column in mmlupair).
+- Preregistered, not run: row 14's mmlu-aux row-scale arm, $4.72 (line 73).
+- Row 3 (leech0c13 under spherical GPTQ) is suspended; row 6 (volume) was answered by dclm-v4.
+Desk notes of 2026-11-11 and 2026-11-12. Study notes: every gain in them is *estimated*, none is adopted here.
+- gains-criteres-qualite-2026-11-11: eight candidates; best closes "1 to 2 of the 6.77" (lines 12-18). Row 1 is the
+  int4 reallocation o to down, now set aside (ETAT line 214); row 2 held-out draw selection; row 3 int4 clipping;
+  row 4 YAQA; rows 5-8 free parameters, mmlu-aux, H shrink, intra-block sequencing.
+- innovation-ecart-qualite-2026-11-12: "No single mechanism reaches +3.4" (lines 10-16); YAQA projected +0.5 to +1.7
+  MMLU, +1 to +5 GSM8K. Its section 1 attribution (int4 0.5 to 0.8, embedding 0.35, lattice 5.6 to 5.9) predates the
+  ablation and is superseded by it (CERVEAU line 206-209). Its first experiment, an output-alignment ratio of the
+  sealed 4B's error, needs a model load (lines 192-193).
+- recherche-methode-quantification-2026-11-11: eight proposals P1-P8 (YAQA, tail in the lattice, designed
+  calibration, rate allocation, blockwise compensation, codes that move, QAT, entropy coding), lines 124-332.
+- innovation-encodeur-reseau-2026-11-11: K1 lattice-step distillation, K2 Kronecker-metric descent (lines 60, 157).
+  K1 was refuted by computation the same day (refutation-k1-maths; CERVEAU Q19).
+- innovation-tetra-v2-forme-2026-11-11: a 24-dimension fixed-rate code cannot sit more than 0.60 dB under Tetra
+  (*computed*, verdict lines 3-9); CERVEAU C7.
+
+8. INSTRUMENTS
+--------------
+Cost and duration of one arm (*measured*, docs/data/jobs.csv and journals)
+- MMLU census, 4B, l40sx1: 21.7 to 23.3 min an arm in the ablation job (ablation line 39), $5.26 for 8 arms, about
+  $0.66 an arm (*computed*); f16-full 23 min, $0.68 (jobs.csv line 159); sealed-rownorms-mmlu 23 min, $0.69 (line 197).
+- GSM8K census 4B: through the kernel 4,251 s, $2.13 (gsm8k-wave1 line 13; jobs.csv line 219); FP16 dense 9,413 s,
+  $4.71 (line 15); FP16 and AWQ in vLLM together 319 s, $0.16 (line 14). 8B $2.37, 14B $4.24 (gsm8k-wave2 lines 9-10).
+- Perplexity, three sealed files on one L40S, 11 min, $0.33 (jobs.csv line 232). On the Mac, Metal, $0, but a model
+  load, which the mandate forbids while O11 is open (CERVEAU line 646).
+- Queue time before running is unbilled and reached 3 h 46 (embed-q4-swap line 3).
+Knobs that exist (read from the code)
+- LLVQ_RESTORE_F16 / LLVQ_RESTORE_Q4: projection types or `all` from the checkpoint at f16, or as int4 g128 RTN
+  dequantized (sealed.rs lines 158-165, 334, 600). Both set: refused. Requires LLVQ_MODEL (mmlu.rs line 600). A layer
+  window per type, `down_proj@0-11` (sealed.rs lines 198-201). Refused beside LLVQ_CONFIG (mmlu.rs lines 538-545).
+  With the window, the record types are separable on the sealed 4B: v_proj is int4 only, q and k lattice only, down
+  int4 at 12-23 and lattice elsewhere (section 1b).
+- LLVQ_MMLU_DUMP (mmlu.rs line 712), LLVQ_MMLU_ALLOC flat / proportional / proportional=<n> (line 182), LLVQ_DTYPE,
+  LLVQ_CONFIG (mmlu through the served kernel; CLAUDE.md), positional limit (40, or census).
+- mmlupair: paired stratified bootstrap and exact McNemar; --draws, --seed, --intersect, --no-fpc (mmlupair.rs lines
+  1-40, 620-630).
+- gsm8k: LLVQ_GSM8K_DUMP, LLVQ_GSM8K_MAX_NEW, LLVQ_GSM8K_THINK (gsm8k.rs lines 111, 113, 245); gsm8kpair re-grades
+  every row (gsm8k-wave1 line 45).
+- ppl: ctx, windows, device, model; prints the per-window mean NLL (ppl.rs lines 1-30, 147).
+- kltemp (KL to dense, full vocabulary), errmap (per-matrix NLL probes), artscale (centroid rescale), hcapture
+  (Hessians), ops/logit_snr.py (offline on dumps).
+(a) Per-question dumps that exist
+  MMLU row: subject, index, population, qhash, answer, pick, correct, logit_a, logit_b, logit_c, logit_d: the four
+  answer-token logits at the last position, nothing else (mmlu.rs line 428). Header: model line with the restore,
+  dtype, limit, alloc, config, arithmetic, kv; trailer with the fingerprint (ablation line 64-66).
+  - Sealed 4B, full split: docs/data/mmlu-dumps/mmlu-4b-abl-control-FULL.csv; the same rows as
+    docs/mesures/embed-q4-swap-2026-09-23-brut/mmlu-4b-embed-q4-swap-FULL.csv (ablation lines 61-63).
+  - FP16 4B, full split: docs/data/mmlu-dumps/mmlu-4b-f16-FULL.csv (also f16-full-2026-09-18-brut/).
+  - Ablation arms: docs/data/mmlu-dumps/mmlu-4b-abl-{qkv,o,gateup,down,attn,mlp,all}-FULL.csv; bucket folder
+    hf://buckets/Pier-Jean/jobs-artifacts/ablation-qualite-4b-2026-11-12/ (ops/jobs/ablation-qualite-4b.sh lines
+    46-51); pairs in ablation-qualite-4b-2026-11-12-brut/.
+  - Parents and variants, full split: mmlu-4b-{tetra,dclm,dclm-ft,dclm-v4,dclm-down1223,tetranu-ft}-FULL.csv,
+    mmlu-q5-*-FULL.csv, mmlu-{temoin,corrige}-FULL.csv; trained second pass in sealed-rownorms-2026-09-23-brut/mmlu/;
+    AWQ 4B in paper-table-2026-09-25-brut/paper-awq4b-census-2026-09-25/.
+  - 8B and 14B, full split: sealed-8b-27-2026-09-24-brut/mmlu-{A,B}/, sealed-8b-14b-2026-09-23-brut/mmlu-14b/;
+    f16 and AWQ in docs/data/mmlu-dumps/ and census-*-brut/.
+  - 2,280 q: every arm of logit-snr (docs/data/mmlu-dumps/, bruit-mmlu-graines/, m2-attribution/, m2rep-graine3/,
+    m2b-graine3/).
+  GSM8K row: index, qhash, n_prompt, n_gen, stop, gold, extracted, source, correct, prefill_s, decode_s, completion;
+  no logits (gsm8k-wave1-2026-09-26-brut/run1-served/gsm8k-4b-served.jsonl line 2). Dumps: run1-served (sealed 4B,
+  kernel), run4-f16dense, run5-vllm (FP16, AWQ); gsm8k-wave2-2026-09-26-brut/ for 8B and 14B; gsm8k-grouped-*-brut;
+  50-problem pilots in docs/data/gsm8k-dumps/. No GSM8K dump exists for any restore arm.
+(b) Synthetic perturbation before scoring
+  No binary of llvq-llm adds noise to dense weights, activations or logits before MMLU, GSM8K or perplexity. What
+  exists:
+  - ops/logit_snr.py: Gaussian on the four dumped option logits, after the run (simulate lines 161-175, replay lines
+    178-218, _synth lines 437-456). Offline, no model.
+  - errmap.rs: multiplies the quantized weights of one matrix by 1 +- eps (lines 16-17), random sign and size per
+    matrix as a null (lines 806-816), scored on NLL, not MMLU.
+  - artscale.rs: multiplies a matrix's gain centroids by a factor (lines 1-12). LLVQ_GAIN_SCALE scales fitted
+    centroids before the encode loop (smoke.rs lines 772-780).
+  - LLVQ_RESTORE_Q4: a deterministic int4 g128 RTN of the checkpoint (sealed.rs line 600).
+  - Gaussian tensors in model.rs (line 4139 onward) and fused.rs (line 3016) sit inside `mod tests` (lines 3745,
+    2636); batchrun.rs and persist*_cuda.rs use random inputs for timing.
+
+9. MISMATCHES (CERVEAU against its journals)
+--------------------------------------------
+Holds as written, figure and scope, reread here: Q1, Q3, Q4 (figures), Q8, Q12, Q13, Q14, Q15, Q16, Q17 (tetrapost
+reopened: 41.8875 / 43.5739, 2.9 % at line 60), Q18, Q19, Q21 (m2rep reopened: z -1.68, head swap, v third, q and k
+last, lines 84-99), Q22, S1.
+1. N1 and Q7 (CERVEAU lines 104-107, 595). "Gaussian noise of the same amplitude" names no level. The journal's noise
+   is on the four MMLU option logits, iid, at the arm's pooled residual sd after a slope fit (section 3a). It is not a
+   weight or activation noise. The claim holds for the six LLVQ arms; on AWQ the measured score exceeds the Gaussian
+   one by +0.83. The "+- 1.05" is a Monte Carlo sd, and no interval exists on the 5.04-point gap.
+2. Q9 (lines 118-119). "Flip the same questions" reads as answers flipping. The journal counts four-logit shapes with
+   rho_q < 0, at a cut the self-test calls a choice (5.5 to 29.8 % for Tetra). The lifts are overlaps of those sets.
+   "Independent encodings": the five share the 2026-08-26 encoder drift (archive mecanismes lines 105-107), and
+   Planes14 and Tetra differ in codebook. innovation-ecart-qualite lines 75-77 carry the same "flip" wording.
+3. Q10 (lines 136-139) and ablation lines 133-134. "Part of M2's interaction sits inside the groups here" leaves out
+   that M2 was sub-additive across the same two groups: all - (attn + mlp) = -2.95 on Planes14 and -1.55 on seed 3
+   (*computed*, m2-attribution lines 61-63, m2rep lines 47-49). The cross-group sign changed between objects.
+4. N2 (line 596) states super-additivity with no object. It is measured on the sealed 4B only, one draw, MMLU only;
+   on both Planes14 draws the same pair of groups was sub-additive (item 3).
+5. O12 mandate (line 644). "The MLP carries +4.86 of the 6.77 points" is the MLP restored on sealed attention. On f16
+   attention it is worth +6.00 [+5.31, +6.69] (ablation line 126). Q16 gives the order of restore; the mandate does
+   not.
+6. Q6 (lines 97-98). "Buys no MMLU" is true by construction: a positive temperature cannot move an argmax
+   (kl-temperature lines 43-52). kl-temperature runs no MMLU arm. The label is *computed*, not *measured*.
+7. Q5 scope (line 89-90). "4B Tetra, C4 base before row scales": the errmap witness is sealed-temoin.bin at 51.25 on
+   the full split (errmap-mmlu line 13), where bare Tetra C4 reads 54.64 (tetranu-rowscales line 20; 7,673 of 14,042
+   counted here). The journal states neither the witness's calibration nor its relation to the 54.64 file.
+8. Q2 (lines 51-58). The scope omits the journal's own reserve: the seeds draw random offsets, the published file a
+   contiguous prefix, so the 2.92 does not attach to the published 55.59 (bruit-mmlu lines 138-142). The "two draws
+   57.95 and 55.53" used against Q2 in gains-criteres-qualite line 28 has no journal in this repository.
+9. METHODE line 67 calls 0.43 pp "the paired interval", the same wording CERVEAU's disagreement list records for ETAT
+   line 170; METHODE is not in that list. kvq8-4b line 73 gives 0.43 as the SE of one pair.
+10. jobs.csv line 332 reads "interaction non declenchee (A_attn 1.73 non lu)". The journal's CLARIFICATION (lines
+   205-219) says the row fires to the letter and was set aside by judgement.
+Outside CERVEAU, for the record (archive, not edited): mecanismes-perte-qualite line 79 says banded against free
+reshuffle moves accuracy "0.2 to 1.0 pp"; the journal's rows give 0.08 to 1.23 (*computed*, |banded - own|, lines
+97-103). Its "6.6 to 8.3 %" (line 92) has no line in the journal.
+
+10. WHAT THIS NOTE DID NOT CHECK
+--------------------------------
+- No -brut file was opened except: ablation summary.tsv, sealed-4b-2026-09-23-brut (rtbits-sealed, embedq, int4swap),
+  errmap-mmlu brut mmlu-temoin.txt line 1, one GSM8K dump row, and dump headers and correct counts of four MMLU
+  census dumps.
+- Not reread: the dB figures of Q4 and C7 (study note), C6 (HISTORIQUE only), Q11's o and down figures, the 8B and
+  14B row-scale journals beyond the lines cited, leech0c13's calibration corpus, the prereg texts other than the
+  ablation's §3.
+- Not found: a journal for the second DCLM draw at 55.53; the origin of the archive's 6.6 to 8.3 %; the provenance of
+  sealed-temoin.bin.
+- ROADMAP-QUALITY's open rows are listed from the table as written on 2026-09-13; whether a later journal ran one of
+  them was checked by name for rows 6, 14, 17, L01 and L36 only.
+- The *computed* figures here (measured minus prediction, cross-group excesses on M2, shares, half-widths, $0.66 an
+  arm, census counts) are hand or one-line arithmetic on journal numbers.
