@@ -1,0 +1,163 @@
+versions: {'torch': '2.5.1', 'safetensors': '0.4.5', 'tokenizers': '0.22.2', 'pyarrow': '20.0.0', 'huggingface_hub': '1.19.0'}
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+
+tokenizer.json:   0%|          | 0.00/11.4M [00:00<?, ?B/s][Atokenizer.json: 100%|██████████| 11.4M/11.4M [00:00<00:00, 34.9MB/s]
+
+wikitext-2-raw-v1/test-00000-of-00001.pa(…):   0%|          | 0.00/733k [00:00<?, ?B/s][Awikitext-2-raw-v1/test-00000-of-00001.pa(…): 100%|██████████| 733k/733k [00:00<00:00, 3.87MB/s]
+tokens: 299078 (expected 299078), 73 windows of 4096, fingerprint of 12 windows 3f1baca9033bf251 (expected 3f1baca9033bf251)
+export: /out/sealed-4b-export-2026-09-23/model.safetensors staged to /tmp/lvo-export/model.safetensors, sha256 2a018cbdea37849c6fde29576e75aefb9125d9964e20e78bd3afb2a0948bba59
+
+config.json:   0%|          | 0.00/726 [00:00<?, ?B/s][Aconfig.json: 100%|██████████| 726/726 [00:00<00:00, 4.77MB/s]
+
+model-00001-of-00003.safetensors:   0%|          | 0.00/3.96G [00:00<?, ?B/s][A
+model-00001-of-00003.safetensors:   0%|          | 39.5k/3.96G [00:01<28:55:09, 38.0kB/s][A
+model-00001-of-00003.safetensors:   7%|▋         | 268M/3.96G [00:02<00:26, 139MB/s]     [A
+model-00001-of-00003.safetensors:  30%|███       | 1.21G/3.96G [00:03<00:05, 479MB/s][A
+model-00001-of-00003.safetensors:  47%|████▋     | 1.88G/3.96G [00:05<00:06, 343MB/s][A
+model-00001-of-00003.safetensors:  61%|██████    | 2.41G/3.96G [00:08<00:05, 279MB/s][A
+model-00001-of-00003.safetensors:  74%|███████▍  | 2.95G/3.96G [00:11<00:04, 238MB/s][A
+model-00001-of-00003.safetensors:  88%|████████▊ | 3.50G/3.96G [00:14<00:02, 215MB/s][A
+model-00001-of-00003.safetensors: 100%|██████████| 3.96G/3.96G [00:16<00:00, 215MB/s][Amodel-00001-of-00003.safetensors: 100%|██████████| 3.96G/3.96G [00:16<00:00, 238MB/s]
+checkpoint: model-00001-of-00003.safetensors sha256 328a91d3122359d5547f9d79521205bc0a46e1f79a792dfe650e99fc2d651223
+
+model-00002-of-00003.safetensors:   0%|          | 0.00/3.99G [00:00<?, ?B/s][A
+model-00002-of-00003.safetensors:   2%|▏         | 65.3M/3.99G [00:01<01:02, 62.7MB/s][A
+model-00002-of-00003.safetensors:  23%|██▎       | 937M/3.99G [00:02<00:05, 528MB/s]  [A
+model-00002-of-00003.safetensors:  51%|█████     | 2.02G/3.99G [00:08<00:08, 220MB/s][A
+model-00002-of-00003.safetensors:  62%|██████▏   | 2.48G/3.99G [00:10<00:06, 223MB/s][A
+model-00002-of-00003.safetensors:  77%|███████▋  | 3.05G/3.99G [00:13<00:04, 225MB/s][A
+model-00002-of-00003.safetensors:  91%|█████████ | 3.63G/3.99G [00:15<00:01, 224MB/s][A
+model-00002-of-00003.safetensors: 100%|██████████| 3.99G/3.99G [00:17<00:00, 230MB/s][Amodel-00002-of-00003.safetensors: 100%|██████████| 3.99G/3.99G [00:17<00:00, 232MB/s]
+checkpoint: model-00002-of-00003.safetensors sha256 6cd087b316306a68c562436b5492edbcf6e16c6dba3a1308279caa5a58e21ca5
+
+model-00003-of-00003.safetensors:   0%|          | 0.00/99.6M [00:00<?, ?B/s][Amodel-00003-of-00003.safetensors: 100%|██████████| 99.6M/99.6M [00:00<00:00, 139MB/s]
+checkpoint: model-00003-of-00003.safetensors sha256 e4bf436957184f4eeb86a80e9db394503f1f56446b2e6b7edeac5b81470f4ca1
+tensors: 398 each, 252 projections (0 identical in W and W_hat), 146 others (145 identical: model.embed_tokens.weight)
+loaded in 104 s
+bases: fp16 a0ca1763b6cf4f11, sealed f5ea5a81d1588826 (25 s)
+  window 1: 9.3 s, KL(S) 0.26305, nll T 2.507896, nll S 2.529529
+windows: 73 of 73 (first window 9.3 s, budget 1200.0 s; at least 12 for rule D)
+  window 2: 9.3 s, KL(S) 0.29062, nll T 2.801320, nll S 2.902247
+  window 3: 9.3 s, KL(S) 0.33685, nll T 2.309886, nll S 2.263534
+  window 4: 9.3 s, KL(S) 0.28543, nll T 1.988872, nll S 2.032380
+  window 5: 9.3 s, KL(S) 0.28883, nll T 2.600401, nll S 2.639097
+  window 6: 9.3 s, KL(S) 0.28881, nll T 2.547460, nll S 2.599601
+  window 7: 9.3 s, KL(S) 0.22836, nll T 2.607131, nll S 2.601807
+  window 8: 9.3 s, KL(S) 0.21724, nll T 2.557906, nll S 2.595201
+  window 9: 9.4 s, KL(S) 0.22604, nll T 2.760386, nll S 2.733880
+  window 10: 9.3 s, KL(S) 0.22454, nll T 2.208351, nll S 2.241067
+  window 11: 9.4 s, KL(S) 0.26966, nll T 2.642702, nll S 2.669266
+  window 12: 9.4 s, KL(S) 0.25016, nll T 2.518237, nll S 2.576997
+  window 13: 9.4 s, KL(S) 0.25278, nll T 2.620884, nll S 2.667423
+  window 14: 9.4 s, KL(S) 0.25259, nll T 2.891857, nll S 2.948216
+  window 15: 9.4 s, KL(S) 0.30336, nll T 2.552928, nll S 2.584511
+  window 16: 9.4 s, KL(S) 0.34550, nll T 2.184634, nll S 2.326838
+  window 17: 9.5 s, KL(S) 0.32677, nll T 2.208717, nll S 2.291261
+  window 18: 9.5 s, KL(S) 0.23973, nll T 2.277157, nll S 2.310877
+  window 19: 9.5 s, KL(S) 0.28892, nll T 1.902375, nll S 2.014480
+  window 20: 9.5 s, KL(S) 0.33510, nll T 1.903581, nll S 2.034573
+  window 21: 9.5 s, KL(S) 0.37385, nll T 2.256849, nll S 2.360807
+  window 22: 9.6 s, KL(S) 0.27836, nll T 3.081734, nll S 3.066044
+  window 23: 9.6 s, KL(S) 0.36808, nll T 3.029656, nll S 3.052947
+  window 24: 9.7 s, KL(S) 0.26290, nll T 2.765270, nll S 2.795474
+  window 25: 9.8 s, KL(S) 0.25490, nll T 2.561724, nll S 2.570880
+  window 26: 9.8 s, KL(S) 0.25035, nll T 2.467096, nll S 2.493339
+  window 27: 9.8 s, KL(S) 0.30168, nll T 2.248651, nll S 2.252298
+  window 28: 9.9 s, KL(S) 0.28505, nll T 2.154229, nll S 2.182789
+  window 29: 10.0 s, KL(S) 0.24702, nll T 1.897313, nll S 1.924012
+  window 30: 10.1 s, KL(S) 0.31665, nll T 2.268001, nll S 2.350271
+  window 31: 10.0 s, KL(S) 0.27601, nll T 2.623983, nll S 2.672114
+  window 32: 9.7 s, KL(S) 0.26134, nll T 2.898806, nll S 2.924917
+  window 33: 9.6 s, KL(S) 0.34595, nll T 2.333858, nll S 2.369039
+  window 34: 9.5 s, KL(S) 0.36671, nll T 2.530100, nll S 2.647962
+  window 35: 9.5 s, KL(S) 0.33659, nll T 2.432524, nll S 2.479000
+  window 36: 9.5 s, KL(S) 0.35288, nll T 2.386242, nll S 2.416443
+  window 37: 9.5 s, KL(S) 0.30370, nll T 2.891223, nll S 2.867275
+  window 38: 9.5 s, KL(S) 0.27700, nll T 2.469022, nll S 2.488931
+  window 39: 9.5 s, KL(S) 0.22348, nll T 2.468226, nll S 2.483796
+  window 40: 9.6 s, KL(S) 0.30049, nll T 2.619494, nll S 2.639663
+  window 41: 9.6 s, KL(S) 0.24321, nll T 2.501404, nll S 2.570078
+  window 42: 9.6 s, KL(S) 0.21813, nll T 2.098623, nll S 2.066578
+  window 43: 9.6 s, KL(S) 0.26952, nll T 2.373700, nll S 2.428318
+  window 44: 9.7 s, KL(S) 0.36753, nll T 2.381938, nll S 2.464515
+  window 45: 9.8 s, KL(S) 0.30844, nll T 2.696818, nll S 2.695184
+  window 46: 9.9 s, KL(S) 0.27942, nll T 3.056517, nll S 3.078600
+  window 47: 10.0 s, KL(S) 0.25823, nll T 3.194983, nll S 3.183494
+  window 48: 10.1 s, KL(S) 0.28913, nll T 3.065860, nll S 3.036503
+  window 49: 9.8 s, KL(S) 0.25800, nll T 2.844434, nll S 2.866659
+  window 50: 9.7 s, KL(S) 0.26266, nll T 2.684797, nll S 2.712232
+  window 51: 9.6 s, KL(S) 0.33247, nll T 2.494006, nll S 2.566080
+  window 52: 9.6 s, KL(S) 0.31953, nll T 2.630173, nll S 2.712663
+  window 53: 9.6 s, KL(S) 0.33407, nll T 2.663738, nll S 2.771296
+  window 54: 9.5 s, KL(S) 0.34602, nll T 2.707772, nll S 2.803354
+  window 55: 9.6 s, KL(S) 0.26885, nll T 2.509495, nll S 2.614843
+  window 56: 9.6 s, KL(S) 0.34098, nll T 2.447721, nll S 2.551552
+  window 57: 9.6 s, KL(S) 0.33063, nll T 2.290322, nll S 2.426076
+  window 58: 9.6 s, KL(S) 0.28445, nll T 2.754559, nll S 2.729380
+  window 59: 9.7 s, KL(S) 0.31097, nll T 2.795943, nll S 2.777537
+  window 60: 9.8 s, KL(S) 0.25348, nll T 2.427336, nll S 2.438215
+  window 61: 9.9 s, KL(S) 0.27277, nll T 2.516750, nll S 2.506280
+  window 62: 10.0 s, KL(S) 0.25675, nll T 2.144893, nll S 2.210415
+  window 63: 10.1 s, KL(S) 0.31230, nll T 2.554191, nll S 2.588008
+  window 64: 9.9 s, KL(S) 0.23624, nll T 2.441440, nll S 2.478841
+  window 65: 9.7 s, KL(S) 0.25524, nll T 2.356974, nll S 2.321421
+  window 66: 9.6 s, KL(S) 0.28177, nll T 2.514974, nll S 2.528342
+  window 67: 9.6 s, KL(S) 0.23862, nll T 2.431873, nll S 2.422665
+  window 68: 9.5 s, KL(S) 0.25083, nll T 2.754863, nll S 2.768141
+  window 69: 9.5 s, KL(S) 0.22277, nll T 2.022065, nll S 2.075440
+  window 70: 9.5 s, KL(S) 0.24748, nll T 2.448487, nll S 2.460467
+  window 71: 9.5 s, KL(S) 0.26846, nll T 2.779303, nll S 2.882321
+  window 72: 9.6 s, KL(S) 0.30948, nll T 2.635911, nll S 2.709016
+  window 73: 9.6 s, KL(S) 0.29446, nll T 2.673503, nll S 2.722408
+window loop: 73 windows in 701 s
+bases unchanged by sha256 after every arm: GREEN
+CONTROLS
+  C1 KL(T || T2) exactly 0 on 73 of 73 windows: GREEN
+  C2 ppl FP16, 12 windows: 12.2339 against Rust 12.2369 (-0.024 %); worst window |dnll| 1.34e-03
+  C3 ppl sealed export, 12 windows: 12.5793 against Rust 12.5834 (-0.033 %); worst window |dnll| 1.57e-03
+  RULE D (each within +-0.5 %): GREEN
+  ratio sealed/FP16, 12 windows: 1.02823 here, 1.02832 Rust
+  non-projection tensors identical in W and W_hat: 145 of 146
+  KL(T || S), sealed: 0.285209 nats/token; KL(T || D_all), FP16 embedding and norms with the 252 sealed projections: 0.268525; KL(T || M_all): 0.015005
+
+NOTE 2 by group, 73 windows of 4096 tokens, nats per token, normal and bootstrap 95 % over windows
+  group   mirror KL recovered [normal] [bootstrap]   share of KL(S) [boot]   direct KL [normal]
+  qkv     +0.024941 [+0.023447, +0.026435] [+0.023456, +0.026392]  0.0874 [0.0814, 0.0935]  0.075100 [0.073019, 0.077181]
+  o       +0.007065 [+0.006572, +0.007559] [+0.006566, +0.007552]  0.0248 [0.0228, 0.0267]  0.011143 [0.010764, 0.011523]
+  gateup  +0.103517 [+0.099057, +0.107976] [+0.099135, +0.107975]  0.3629 [0.3570, 0.3688]  0.161630 [0.155416, 0.167844]
+  down    +0.066085 [+0.062725, +0.069445] [+0.062867, +0.069429]  0.2317 [0.2257, 0.2377]  0.104302 [0.099410, 0.109194]
+  attn    +0.033076 [+0.031552, +0.034600] [+0.031563, +0.034540]  0.1160 [0.1094, 0.1226]  0.083630 [0.081425, 0.085836]
+  mlp     +0.184757 [+0.176657, +0.192858] [+0.176842, +0.192914]  0.6478 [0.6391, 0.6562]  0.237809 [0.228261, 0.247357]
+  all     +0.270204 [+0.260776, +0.279631] [+0.261077, +0.279606]  0.9474 [0.9452, 0.9496]  0.268525 [0.259186, 0.277864]
+  group   mirror NLL recovered [normal]            direct NLL added [normal]
+  qkv     -0.040170 [-0.043311, -0.037028]   -0.071741 [-0.076736, -0.066746]
+  o       +0.011384 [+0.010420, +0.012347]   +0.011273 [+0.009497, +0.013049]
+  gateup  +0.042926 [+0.037590, +0.048261]   +0.014619 [+0.008341, +0.020897]
+  down    +0.034645 [+0.030501, +0.038789]   +0.035837 [+0.030804, +0.040869]
+  attn    -0.028081 [-0.031071, -0.025091]   -0.059508 [-0.064244, -0.054771]
+  mlp     +0.079565 [+0.070820, +0.088310]   +0.050959 [+0.041958, +0.059961]
+  all     +0.021036 [+0.011095, +0.030977]   +0.020500 [+0.010584, +0.030416]
+
+NOTE 1 by group, sum ||(W - W_hat) x||^2 / sum ||W x||^2
+  group   pooled FP16 x   mean FP16 x   pooled sealed x   mean sealed x
+  qkv     1.404966e-02   1.284324e-02   1.313289e-02   1.267474e-02
+  o       8.301510e-03   1.117275e-02   7.851367e-03   1.082311e-02
+  gateup  7.190107e-03   2.985363e-02   7.072026e-03   2.896203e-02
+  down    2.012125e-02   3.310141e-02   1.952691e-02   3.254696e-02
+  attn    1.389098e-02   1.242562e-02   1.296935e-02   1.221183e-02
+  mlp     8.046304e-03   3.093622e-02   7.829861e-03   3.015701e-02
+  all     9.694295e-03   2.035874e-02   9.336742e-03   1.990262e-02
+
+READINGS (prereg section 6; truth: gateup > down > max(qkv, o))
+  note2 mirror KL (primary)          AGREES: order gateup > down > qkv > o; down - qkv +0.041144 normal [+0.037173, +0.045115] bootstrap [+0.037340, +0.045042]
+  note2 direct KL                    AGREES: order gateup > down > qkv > o; down - qkv +0.029203 normal [+0.025035, +0.033370] bootstrap [+0.025169, +0.033350]
+  note2 mirror NLL                   AGREES: order gateup > down > o > qkv; down - o +0.023262 normal [+0.019003, +0.027520] bootstrap [+0.019116, +0.027519]
+  note2 direct NLL                   does not agree: order down > gateup > o > qkv; down - o +0.024564 normal [+0.019750, +0.029377] bootstrap [+0.019804, +0.029380]
+  note1 pooled, FP16 x               does not agree: order down > qkv > o > gateup
+  note1 pooled, sealed x             does not agree: order down > qkv > o > gateup
+  note1 pooled, both x (primary)     does not agree: the ordering in both x variants
+  note1 mean, FP16 x                 does not agree: order down > gateup > qkv > o
+  note1 mean, sealed x               does not agree: order down > gateup > qkv > o
+  note1 mean, both x                 does not agree: the ordering in both x variants
+  OUTCOME R-a
+  C1 GREEN

@@ -7,7 +7,7 @@ the definitions. 59 claims: 13 established, 2 proved, 35 supported, 6 conjecture
 says "copied from `ETAT.md`" still need a reread against their journal; A (Metal) is the thinnest section.
 On 2026-11-13 the R0 of the quality phase (O12) reread the Q claims against their journals: Q2, Q5, Q6, Q7, Q9, Q10,
 N1 and N2 gained scope notes. The same day R1 replayed N1 on the sealed 4B: Q7 was restated and is established on
-that object. 59 claims: 14 established, 2 proved, 34 supported, 6 conjecture, 3 refuted.
+that object, and a card job added Q23. 60 claims: 14 established, 2 proved, 35 supported, 6 conjecture, 3 refuted.
 
 This document lists what we believe to be true about quantizing LLMs on the Leech lattice, each belief with its
 standing. It is not the served state ([`ETAT.md`](ETAT.md)), the history ([`HISTORIQUE.md`](HISTORIQUE.md)) or a plan
@@ -96,7 +96,11 @@ correction cut perplexity by 17.4 % and cost 3.06 MMLU points, p = 6.2e-18.
 - Evidence: [errmap-mmlu-4b](mesures/errmap-mmlu-4b-2026-09-16.txt) (16.80 → 13.88 ppl, 51.25 → 48.19 MMLU).
   Against AWQ on sealed files, perplexity reads our 4B 6.9 % below AWQ while MMLU reads it 4.76 below (`ETAT.md` §3).
 - Overturn: a set of arms where paired perplexity orders MMLU correctly over several resolved pairs.
-- Checked: 2026-11-13. The witness is `sealed-temoin.bin`, 51.25 on the full split, where bare Tetra on C4 reads 54.64.
+- Checked: 2026-11-13. On the sealed 4B, NLL moves against KL and against MMLU on the same arm twice: restoring q, k
+  and v to FP16 raises the sealed model's NLL by 0.040 [0.037, 0.043] while its KL to FP16 falls by 0.025 and MMLU
+  rises by +0.55; sealing q, k and v alone on an FP16 body lowers NLL by 0.072 while its KL to FP16 is 0.075
+  ([layer-vs-output-4b](mesures/layer-vs-output-4b-2026-11-13.txt), *measured*).
+  The witness is `sealed-temoin.bin`, 51.25 on the full split, where bare Tetra on C4 reads 54.64.
   The journal states neither the witness's calibration nor its relation to that file
   ([recherche-qualite-r0-depot](mesures/recherche-qualite-r0-depot-2026-11-13.txt) section 9).
 
@@ -106,7 +110,9 @@ WikiText-2 and 0.93 % on C4, and buys no MMLU.
 - Evidence: [kl-temperature-4b](mesures/kl-temperature-4b-2026-09-16.txt) (T* = 1.07216).
 - Overturn: a KL-trained correction whose MMLU gain is predicted by its KL gain.
 - Checked: 2026-11-13. "Buys no MMLU" holds by construction (*computed*): a positive temperature cannot move an
-  argmax, and the journal runs no MMLU arm (its lines 43 to 52).
+  argmax, and the journal runs no MMLU arm (its lines 43 to 52). The claim stands for a global temperature and for
+  training on KL (Q12). It is not a statement on ranking: at group grain KL ordered the restore groups as MMLU does
+  (Q23).
 
 **Q7.** Quantization costs MMLU beyond the amplitude of its logit error, and on the sealed 4B the amplitude carries
 most of the gap. iid Gaussian noise of the sealed 4B's own residual amplitude on the four f16 option logits predicts
@@ -169,7 +175,10 @@ attention (5.583) by +1.14 [+0.43, +1.85]. Attention is worth +0.73 [+0.16, +1.2
   M2 was itself sub-additive: all minus attention plus MLP reads −2.95 on the Planes14 file and −1.55 on its seed-3
   copy ([m2rep](mesures/m2rep-graine3-4b-2026-09-04.txt)), both *computed* in
   [recherche-qualite-r0-depot](mesures/recherche-qualite-r0-depot-2026-11-13.txt) section 4c, with no interval. The
-  cross-group sign differs between the two objects.
+  cross-group sign differs between the two objects. In KL on running text the sealed 4B is super-additive across
+  attention and MLP on both sides: all minus attention plus MLP reads +0.0524 [+0.0499, +0.0548] nats with a group
+  restored, and +0.0529 [+0.0505, +0.0554] with a group sealed on an FP16 body (*computed*,
+  [layer-vs-output-4b](mesures/layer-vs-output-4b-2026-11-13.txt), ADDITIVITY).
 - Overturn: on its own scope, a rerun where the seven single types sum inside the interval of the joint arm.
 - Checked: 2026-11-13.
 
@@ -300,6 +309,21 @@ is a hot spot is not resolved.
   "share of 6.77" (*computed*), restored weights from control 5; reading in point 6.
 - Overturn: per-weight rates with intervals that separate one group's rate from the rate of all projections.
 - Checked: 2026-11-12.
+
+**Q23.** On the sealed 4B, at group grain, KL to FP16 on running text orders the four projection groups as the MMLU
+restores do, and the relative layer-output error does not: it rates gate/up lowest. Restoring a group recovers, of
+KL(T || S) = 0.2852 nats a token, gate/up 36.29 %, down 23.17 %, qkv 8.74 %, o 2.48 %, the order of the MMLU gains
+(+3.38, +2.01, +0.55, −0.13), with down above qkv by +0.0411 [+0.0372, +0.0451]. The layer error pooled per group
+reads down > qkv > o > gate/up with FP16 or sealed inputs, gate/up at 0.0072 and 0.0071.
+- Standing: supported. Measured once, on the served object, under a stamped prereg whose primary readings it settles
+  (outcome R-a). Four groups are four points. Scope: sealed 4B, its f16 export, one calibration draw, WikiText-2
+  test, 73 windows of 4,096, torch f16 on an L40S (perplexity within 0.033 % of the candle path). Group grain only;
+  the 252 per-matrix values are written and not read. The layer error compared across groups is not what the encoder
+  does, which minimises inside each matrix: the claim says nothing on what an output-aware objective would gain.
+- Evidence: [layer-vs-output-4b](mesures/layer-vs-output-4b-2026-11-13.txt), RESULT and READING (*measured*, job
+  6af6f9da, $0.44); [ablation-qualite-4b](mesures/ablation-qualite-4b-2026-11-12.txt) for the MMLU gains.
+- Overturn: another draw, size or text where the KL order of the four groups departs from the MMLU order.
+- Checked: 2026-11-13.
 
 ## K. The decode kernel
 
@@ -693,7 +717,10 @@ the anomaly list, set aside. The framing of the new starting point is
 [recherche-qualite-r1-cadrage](mesures/recherche-qualite-r1-cadrage-2026-11-13.txt): no proxy in the repository
 has ranked encodings as MMLU does, so a candidate is scored by a full MMLU arm, $0.66 to $0.72; one 4B attempt
 costs $10.37 to $11.83 on the card alone and $4.69 with the encode on the Mac, $0.69 without row scales (*computed*
-there). The Mac clause of the mandate is the operator's to keep or lift. R0's repository half is
+there). The Mac clause of the mandate is the operator's to keep or lift. On the operator's go under $5, a first
+measurement ran on the card for $0.44
+([layer-vs-output-4b](mesures/layer-vs-output-4b-2026-11-13.txt)): at group grain the final-output judge follows the MMLU truth and the layer judge does not (Q23). Spent: $0.44 of $10. No encoder has
+been changed and no gain is measured. R0's repository half is
 [recherche-qualite-r0-depot](mesures/recherche-qualite-r0-depot-2026-11-13.txt), the literature half
 [recherche-qualite-r0-litterature](mesures/recherche-qualite-r0-litterature-2026-11-13.txt). Three facts frame R1.
 N1's Gaussian arm is on the four option logits, not on weights (Q7). Its replay on the sealed 4B needs dumps only,

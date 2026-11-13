@@ -1486,4 +1486,10 @@ a cap of its own. Nothing is measured and nothing was launched.
   restated: its former sentence, "where it lands matters more than its size", does not hold as shares on this object.
 - The operator then moved the phase's starting point from N1 to the amplitude share, the 5.49 points: where an error
   lands against chance cannot be known in advance. N1 is set aside. No budget is added yet.
+- On the operator's go under $5, one card job, $0.44 (6af6f9da, prereg sha256 208751f9):
+  [layer-vs-output-4b](mesures/layer-vs-output-4b-2026-11-13.txt). Restoring one projection group to FP16 in the
+  sealed 4B recovers 36.29 % of the KL to FP16 for gate/up, 23.17 % for down, 8.74 % for qkv and 2.48 % for o
+  (*measured*), the order of the MMLU restores. The relative layer-output error reads down > qkv > o > gate/up: it
+  rates gate/up lowest. Rule D green, perplexity within 0.033 % of the candle path. Eight of seventeen signed
+  predictions are in. Spend of the phase: $0.44 of $10; the rows of `docs/data/jobs.csv` sum to $326.66 (*computed*).
 - Nothing served changes: no config, no served module, no Hub file.

@@ -1,0 +1,219 @@
+LAYER VS OUTPUT 4B: THE LAYER JUDGE AND THE FINAL-OUTPUT JUDGE AGAINST THE MMLU RESTORES, BY PROJECTION GROUP, SEALED 4B, ONE L40S, 2026-11-13. $0.44.
+=================================================================================================================================================
+KL to FP16 on running text orders the four projection groups as the MMLU restores do, and the relative layer-output
+error does not. Restoring one group to FP16 in the sealed model recovers, of KL(T || S) = 0.2852 nats a token: gate/up
+36.29 %, down 23.17 %, qkv 8.74 %, o 2.48 % (*measured*, 73 windows of 4,096 tokens of WikiText-2 test). That is the
+truth's order, gateup > down > qkv > o, and down exceeds qkv by +0.041144 nats, normal 95 % [+0.037173, +0.045115].
+The relative layer-output error, pooled per group, reads down > qkv > o > gate/up in both x variants: it rates gate/up
+lowest, at 0.0072 with FP16 inputs and 0.0071 with sealed inputs, where the truth and the KL put it first.
+
+Outcome R-a, as the prereg defines it: the final-output judge sees at group grain what the layer judge misses. This is
+the table's sentence and nothing more (section WHAT THE RUN DOES NOT SAY).
+
+The run decides: rule D is green. Perplexity on the first 12 windows reads 12.2339 for FP16 against 12.2369 on the Rust
+dense path (-0.024 %), and 12.5793 for the sealed export against 12.5834 (-0.033 %), inside +-0.5 %. C0, C1, C4 and C5
+are green. All 73 windows ran, in 701 s.
+
+Prereg : proofs/preregistration-layer-vs-output-4b-2026-11-13.md, sha256 208751f942b11993ba548496e137261da92327e06e5ad54092d496f360b6f533,
+         signed, stamped (.ots) and committed before the job (0079d04). Not edited. No deviation file: the job ran the
+         stamped scripts at their stamped sha256s.
+Code   : ops/layer_vs_output.py, sha256 c031c52f1294f3e044621bf7ed3e7f5089da0fb593f0ced5ca826fbb67596f12 (0079d04), checked
+         on the mount by the job (script.sha256: OK). Job script ops/jobs/layer-vs-output-4b.sh, sha256 93cc6cc6 (0079d04).
+         Image pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime, Python 3.11.10, torch 2.5.1+cu124, safetensors 0.4.5,
+         tokenizers 0.22.2, pyarrow 20.0.0, huggingface_hub 1.19.0 (pip-freeze.txt, run.txt line 1).
+Go     : the operator, 2026-11-13, "tu as mon go pour lancer si c'est moins de 5$", for this measurement. Relayed by the
+         orchestrating session, which signed section 9, stamped and launched.
+Job    : 6af6f9da0f431c4f7b574df6, l40sx1, label name layer-vs-output-4b-2026-11-13, output folder
+         layer-vs-output-4b-2026-11-13.
+         - Created 11:51:54 UTC, started 12:07:20 UTC after 925 s of scheduling, COMPLETED at 12:22:02 UTC
+           (job-inspect.txt).
+         - running_secs 882: 14.7 min, $0.44 (*computed* at $1.80/h). Estimated $0.90 to $1.05, ceiling $1.35. The
+           estimate assumed 21 to 26 s a window; a window took 9.3 to 10.1 s (run.txt).
+         - Inside the run: inputs and load 104 s, base hashes 25 s, window loop 701 s for 73 windows (run.txt lines
+           36-39, 112).
+         - Spend of the phase (O12): $0 before, $0.44 after, of $10; the operator's ceiling for this measurement was $5.
+         - The rows of docs/data/jobs.csv sum to $326.22 before and $326.66 with this one (*computed*).
+Raw    : layer-vs-output-4b-2026-11-13-brut/, the bucket folder copied with hf buckets cp: report.txt, run.txt,
+         groups.tsv, matrices.tsv, windows.tsv, inputs.txt, selftest.txt, gpu.txt, pip-freeze.txt, python.txt,
+         script.sha256, and job-inspect.txt (hf jobs inspect, verbatim). pre-launch/ holds the Mac checks of before the
+         stamp. files.sha256 lists every file of the folder.
+
+CONTROLS (prereg section 4, each read again in the raw files)
+-------------------------------------------------------------
+C0. Inputs. GREEN. Versions equal the script header (run.txt line 1). 299,078 tokens, 73 windows, fingerprint of the
+    first 12 windows 3f1baca9033bf251, both as bin/ppl printed (run.txt line 7). Export sha256 2a018cbd... after staging
+    (line 8). The three checkpoint shards at their Hub LFS sha256 (lines 21, 31, 34). inputs.txt pins the checkpoint
+    revision 1cfa9a72 and the wikitext revision b08601e0.
+C1. KL(T || T2) exactly 0 on 73 of 73 windows. GREEN (report.txt; windows.tsv, arm T2, largest value 0.0).
+C2, C3, rule D. GREEN.
+      FP16 (T), 12 windows      12.2339 against Rust 12.2369   -0.024 %   worst window |dnll| 1.34e-03
+      sealed export (S)         12.5793 against Rust 12.5834   -0.033 %   worst window |dnll| 1.57e-03
+      ratio S / T               1.02823 here, 1.02832 Rust (reported, not a gate)
+C4. Base hashes equal before the first window and after the last: fp16 a0ca1763..., sealed f5ea5a81... (inputs.txt;
+    run.txt line 113). GREEN.
+C5. Selftest green in the job, 23 checks, 0 failure (selftest.txt). GREEN.
+Reported, not gates:
+- 252 projections, none identical in W and W_hat. 146 other tensors, 145 identical; the one that differs is
+  model.embed_tokens.weight, the int4 g64 embedding tied to the head (run.txt line 35). So the sealed file's 145 norms
+  are the checkpoint's, which the cost note left unchecked.
+- KL(T || S) 0.285209; KL(T || D_all) 0.268525, the 252 sealed projections on an FP16 body; KL(T || M_all) 0.015005,
+  the sealed embedding and head alone, since every other non-projection tensor is identical. S minus D_all reads
+  +0.016684 [+0.016122, +0.017245] (*computed*, paired over windows from windows.tsv).
+Five of five gates green. The numbers below are published.
+
+RESULT (report.txt and groups.tsv, *measured*; 73 windows of 4,095 scored positions; nats per token)
+---------------------------------------------------------------------------------------------------------
+Note 2, KL to FP16, full vocabulary. Mirror = S with group g restored to FP16; recovered = KL(S) - KL(M_g).
+Direct = T with group g taken from the sealed export. Intervals over windows: normal 95 %, then bootstrap (seed
+20261113, 10,000 draws).
+  group   mirror KL recovered [normal] [bootstrap]                    share of KL(S) [boot]     direct KL [normal]
+  qkv     +0.024941 [+0.023447, +0.026435] [+0.023456, +0.026392]     0.0874 [0.0814, 0.0935]   0.075100 [0.073019, 0.077181]
+  o       +0.007065 [+0.006572, +0.007559] [+0.006566, +0.007552]     0.0248 [0.0228, 0.0267]   0.011143 [0.010764, 0.011523]
+  gateup  +0.103517 [+0.099057, +0.107976] [+0.099135, +0.107975]     0.3629 [0.3570, 0.3688]   0.161630 [0.155416, 0.167844]
+  down    +0.066085 [+0.062725, +0.069445] [+0.062867, +0.069429]     0.2317 [0.2257, 0.2377]   0.104302 [0.099410, 0.109194]
+  attn    +0.033076 [+0.031552, +0.034600] [+0.031563, +0.034540]     0.1160 [0.1094, 0.1226]   0.083630 [0.081425, 0.085836]
+  mlp     +0.184757 [+0.176657, +0.192858] [+0.176842, +0.192914]     0.6478 [0.6391, 0.6562]   0.237809 [0.228261, 0.247357]
+  all     +0.270204 [+0.260776, +0.279631] [+0.261077, +0.279606]     0.9474 [0.9452, 0.9496]   0.268525 [0.259186, 0.277864]
+
+Note 2, NLL (secondary). Mirror: NLL(S) - NLL(M_g), positive when the restore lowers NLL. Direct: NLL(D_g) - NLL(T).
+  group   mirror NLL recovered [normal]        direct NLL added [normal]
+  qkv     -0.040170 [-0.043311, -0.037028]     -0.071741 [-0.076736, -0.066746]
+  o       +0.011384 [+0.010420, +0.012347]     +0.011273 [+0.009497, +0.013049]
+  gateup  +0.042926 [+0.037590, +0.048261]     +0.014619 [+0.008341, +0.020897]
+  down    +0.034645 [+0.030501, +0.038789]     +0.035837 [+0.030804, +0.040869]
+  attn    -0.028081 [-0.031071, -0.025091]     -0.059508 [-0.064244, -0.054771]
+  mlp     +0.079565 [+0.070820, +0.088310]     +0.050959 [+0.041958, +0.059961]
+  all     +0.021036 [+0.011095, +0.030977]     +0.020500 [+0.010584, +0.030416]
+
+Note 1, sum ||(W - W_hat) x||^2 / sum ||W x||^2 over the 4,096 tokens of each of the 73 windows. No sampling interval.
+  group   pooled, FP16 x   mean, FP16 x   pooled, sealed x   mean, sealed x
+  qkv     1.404966e-02     1.284324e-02   1.313289e-02       1.267474e-02
+  o       8.301510e-03     1.117275e-02   7.851367e-03       1.082311e-02
+  gateup  7.190107e-03     2.985363e-02   7.072026e-03       2.896203e-02
+  down    2.012125e-02     3.310141e-02   1.952691e-02       3.254696e-02
+  attn    1.389098e-02     1.242562e-02   1.296935e-02       1.221183e-02
+  mlp     8.046304e-03     3.093622e-02   7.829861e-03       3.015701e-02
+  all     9.694295e-03     2.035874e-02   9.336742e-03       1.990262e-02
+The 252 per-matrix values are in matrices.tsv. They are written and not read here.
+
+The truth (ablation-qualite-4b-2026-11-12.txt lines 85-88), MMLU points recovered by the same restores:
+  gateup +3.38 [+2.75, +4.02], down +2.01 [+1.46, +2.54], qkv +0.55 [+0.01, +1.11], o -0.13 [-0.46, +0.19].
+
+READING AGAINST THE PREREG, TO THE LETTER (section 6)
+-----------------------------------------------------
+A note agrees if it puts gateup first and down second among the four disjoint groups, both above qkv and o, and the
+difference between down and the better of qkv and o is resolved (note 2: the normal paired interval excludes 0;
+note 1: the ordering holds in both x variants).
+  reading                               order (largest first)             down - better of qkv, o [normal]      verdict
+  note 2, mirror KL (PRIMARY)           gateup > down > qkv > o           down - qkv +0.041144 [+0.037173, +0.045115]   AGREES
+  note 2, direct KL                     gateup > down > qkv > o           down - qkv +0.029203 [+0.025035, +0.033370]   agrees
+  note 2, mirror NLL                    gateup > down > o > qkv           down - o   +0.023262 [+0.019003, +0.027520]   agrees
+  note 2, direct NLL                    down > gateup > o > qkv           down - o   +0.024564 [+0.019750, +0.029377]   does not
+  note 1, pooled, FP16 x                down > qkv > o > gateup                                                         does not
+  note 1, pooled, sealed x              down > qkv > o > gateup                                                         does not
+  note 1, pooled, both x (PRIMARY)                                                                                      DOES NOT AGREE
+  note 1, mean, FP16 x and sealed x     down > gateup > qkv > o (both)                                                  does not
+Bootstrap intervals of the four differences, all excluding 0, are in report.txt; they do not decide.
+Primary note 2 agrees, primary note 1 does not: OUTCOME R-a. The prereg's reading of R-a: "the final-output judge sees
+at group grain what the layer judge misses".
+
+Secondary facts, stated as facts:
+- The mirror NLL agrees by the rule only because the rule does not order qkv against o. Its qkv value is negative:
+  restoring q, k and v to FP16 in the sealed model raises its NLL by 0.040170 [0.037028, 0.043311] nats, while it lowers
+  its KL to FP16 by 0.024941. attn reads the same sign, NLL up by 0.028081.
+- The direct NLL does not agree. Sealing only q, k and v on an FP16 body lowers NLL by 0.071741 [0.066746, 0.076736]
+  while its KL to FP16 is 0.075100. The truth puts qkv at +0.55 MMLU.
+- Note 1 by plain mean reads down > gateup > qkv > o in both x variants: gate/up rises to second, down stays first, and
+  the rule fails on the first place. For gate/up the plain mean is 4.15 times the pooled ratio (FP16 x, *computed*).
+  The pooled ratio is the mean weighted by sum ||W x||^2, so gate/up's matrices with the largest outputs carry the
+  smallest relative errors.
+
+ADDITIVITY IN KL (*computed* from windows.tsv, paired per window, normal 95 %; descriptive, no prereg rule)
+-------------------------------------------------------------------------------------------------------------
+Mirror (recovered KL, nats per token):
+  sum of the four disjoint groups minus all       -0.068595 [-0.071924, -0.065267]   (shares 70.69 % against 94.74 %)
+  all minus (attn + mlp)                          +0.052371 [+0.049911, +0.054831]
+  attn minus (qkv + o)                            +0.001069 [+0.000609, +0.001529]
+  mlp minus (gateup + down)                       +0.015156 [+0.013517, +0.016795]
+Direct (KL of the sealed group on an FP16 body):
+  sum of the four disjoint groups minus all       +0.083650 [+0.079650, +0.087650]   (0.352175 against 0.268525)
+  (attn + mlp) minus all                          +0.052915 [+0.050455, +0.055374]
+  (qkv + o) minus attn                            +0.002613 [+0.002192, +0.003033]
+  (gateup + down) minus mlp                       +0.028123 [+0.025994, +0.030252]
+Read: restored from the sealed side, groups recover more together than apart; sealed on the FP16 side, they cost less
+together than apart. The two are the same interaction seen from both ends. Across attention and MLP the excess is the
+same size in both forms, +0.0524 and +0.0529. The ablation found the mirror-side excess on MMLU too: all minus
+(mlp + attn) +1.14 [+0.43, +1.85] (ablation line 118). Inside attention the KL excess is resolved and small; the MMLU
+one was not resolved, +0.31 [-0.12, +0.74].
+
+SIGNED PREDICTIONS (prereg section 9; "in" as the prereg defines it)
+--------------------------------------------------------------------
+  quantity                                   predicted                                  measured                          in/out
+  order, note 2 mirror KL                    gateup > down > qkv > o, resolved          same, resolved                    in
+  order, note 2 direct KL                    gateup > down > qkv > o                    same                              in
+  order, note 2 mirror NLL                   gateup > down > qkv > o, d-q not resolved  gateup > down > o > qkv           out
+  order, note 2 direct NLL                   gateup > down > qkv > o, d-q not resolved  down > gateup > o > qkv           out
+  order, note 1 pooled, FP16 x               down > gateup > qkv > o                    down > qkv > o > gateup           out
+  order, note 1 pooled, sealed x             down > gateup > qkv > o                    down > qkv > o > gateup           out
+  order, note 1 mean, FP16 x                 gateup > down > qkv > o                    down > gateup > qkv > o           out
+  order, note 1 mean, sealed x               gateup > down > qkv > o                    down > gateup > qkv > o           out
+  outcome                                    R-a (about 40 %)                           R-a                               in
+  KL(T || S)                                 0.21 [0.15, 0.30]                          0.2852                            in
+  mirror share, qkv                          24 % [15, 33]                              8.74 %                            out
+  mirror share, o                            5 % [1, 10]                                2.48 %                            in
+  mirror share, gateup                       50 % [40, 60]                              36.29 %                           out
+  mirror share, down                         25 % [17, 33]                              23.17 %                           in
+  mirror share, attn                         30 % [20, 40]                              11.60 %                           out
+  mirror share, mlp                          70 % [60, 80]                              64.78 %                           in
+  mirror share, all                          96 % [90, 99.5]                            94.74 %                           in
+8 in, 9 out. In both NLL rows the "not resolved" half is out as well: down minus qkv is resolved in both, mirror
++0.074815 [+0.069860, +0.079769], direct +0.107578 [+0.100976, +0.114179] (*computed*, paired over windows.tsv). The shares were scaled from the answer-logit SNR as 1 / SNR^2;
+the three that missed (qkv, gateup, attn) are below their intervals, and qkv, the one the SNR put level with down, sits
+at 8.74 % against down's 23.17 %.
+
+WHAT THE RUN DOES NOT SAY
+-------------------------
+- The layer judge compared across groups is not what the encoder does. The encoder minimises the layer objective inside
+  each matrix, code by code; it never trades one group against another. This run does not show that an output-aware
+  objective would change a single code, nor that it would gain a point of MMLU.
+- Four disjoint groups are four points. Agreement on an order of four is an indication, not a law; by chance two of
+  the 24 orders pass the ordering half of the rule.
+- KL and NLL on running text are not MMLU points. Only orders are compared, never magnitudes.
+- One calibration draw: this is the sealed file's order, not the encoder's.
+- Note 1's x is not the encoder's x (a sealed prefix, its own block at f16, its DCLM draw), and W_hat is no longer the
+  encoder's minimiser: it carries row scales trained on KL after encoding, and the 84 int4 records are RTN of W.
+  Restoring o, part of qkv and part of down measures their int4 records too.
+- The arithmetic is torch, not the candle path of the truth. Rule D bounds the difference on perplexity to 0.033 %; it
+  does not remove it.
+- The 252 per-matrix values of matrices.tsv are written and not read here.
+- Nothing about speed, memory, GSM8K or another size.
+
+CERVEAU CLAIMS TOUCHED (proposed wording; the orchestrating session applies it)
+-------------------------------------------------------------------------------
+New claim, Q23:
+  **Q23.** On the sealed 4B, at group grain, KL to FP16 on running text orders the four projection groups as the MMLU
+  restores do, and the relative layer-output error does not: it rates gate/up lowest. Restoring a group recovers, of
+  KL(T || S) = 0.2852 nats a token, gate/up 36.29 %, down 23.17 %, qkv 8.74 %, o 2.48 %, the order of the MMLU gains
+  (+3.38, +2.01, +0.55, -0.13), with down above qkv by +0.0411 [+0.0372, +0.0451]. The layer error pooled per group
+  reads down > qkv > o > gate/up with FP16 or sealed inputs, gate/up at 0.0072 and 0.0071.
+  - Standing: supported. Measured once, on the served object, under a stamped prereg whose primary readings it settles
+    (outcome R-a). Four groups are four points.
+  - Scope: sealed 4B, its f16 export, one calibration draw, WikiText-2 test, 73 windows of 4,096, torch f16 on an L40S
+    (perplexity within 0.033 % of the candle path). Group grain only; the 252 per-matrix values are not read.
+  - Evidence: [layer-vs-output-4b](mesures/layer-vs-output-4b-2026-11-13.txt), RESULT and READING;
+    [ablation-qualite-4b](mesures/ablation-qualite-4b-2026-11-12.txt) for the MMLU gains.
+  - Overturn: another draw, size or text where the KL order of the four groups departs from the MMLU order, or a
+    per-matrix reading where the layer error and KL agree.
+  - Checked: 2026-11-13.
+Q5, add to the cases: "On the sealed 4B, NLL moves against KL and against MMLU on the same arm twice: restoring q, k, v
+  to FP16 raises the sealed model's NLL by 0.040 [0.037, 0.043] while its KL to FP16 falls by 0.025 and MMLU rises by
+  +0.55; sealing q, k, v alone on an FP16 body lowers NLL by 0.072 while its KL to FP16 is 0.075
+  ([layer-vs-output-4b](mesures/layer-vs-output-4b-2026-11-13.txt))."
+Q6, scope note: "At group grain on the sealed 4B, KL to FP16 ordered the four restore groups as MMLU does (Q23). Q6's
+  'weak handle' stands for a global temperature and for training on KL (Q12); it is not a statement on ranking."
+Q10 and N2, add: "In KL on running text the same object is super-additive on the mirror side across attention and MLP,
+  all minus (attn + mlp) +0.0524 [+0.0499, +0.0548] nats, and the direct side shows the same excess, +0.0529
+  [+0.0505, +0.0554]; inside attention the excess is resolved and small, +0.0011, and inside the MLP +0.0152
+  [+0.0135, +0.0168] (*computed*, layer-vs-output-4b, ADDITIVITY)."
+N4, "what is missing" may add: "At group grain KL followed MMLU (Q23); the gap N4 names is not visible at that grain."
+O12 state: "$0.44 of $10 spent. The layer-vs-output measurement closed on R-a (Q23)."
