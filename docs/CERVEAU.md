@@ -6,7 +6,8 @@ Q21 were reread. An independent review the same day added the standing `proved` 
 the definitions. 59 claims: 13 established, 2 proved, 35 supported, 6 conjecture, 3 refuted. Claims whose Checked line
 says "copied from `ETAT.md`" still need a reread against their journal; A (Metal) is the thinnest section.
 On 2026-11-13 the R0 of the quality phase (O12) reread the Q claims against their journals: Q2, Q5, Q6, Q7, Q9, Q10,
-N1 and N2 gained scope notes, and no standing changed.
+N1 and N2 gained scope notes. The same day R1 replayed N1 on the sealed 4B: Q7 was restated and is established on
+that object. 59 claims: 14 established, 2 proved, 34 supported, 6 conjecture, 3 refuted.
 
 This document lists what we believe to be true about quantizing LLMs on the Leech lattice, each belief with its
 standing. It is not the served state ([`ETAT.md`](ETAT.md)), the history ([`HISTORIQUE.md`](HISTORIQUE.md)) or a plan
@@ -107,18 +108,31 @@ WikiText-2 and 0.93 % on C4, and buys no MMLU.
 - Checked: 2026-11-13. "Buys no MMLU" holds by construction (*computed*): a positive temperature cannot move an
   argmax, and the journal runs no MMLU arm (its lines 43 to 52).
 
-**Q7.** The error is structured: where it lands matters more than its size. Gaussian noise of the measured logit
-amplitude predicts 58.53 for bare Tetra, which reads 53.49.
-- Standing: supported. Scope: 4B, 2,280 q, older arms (Planes14, bare Tetra, three seeds).
-- Evidence: [logit-snr-4b](mesures/logit-snr-4b-2026-09-12.txt) section 5 (gaussian iid 58.53 ± 1.05 against 53.49).
-- Overturn: the same replay on the sealed 4B where the Gaussian prediction falls inside the measured interval.
-- Checked: 2026-11-13. The noise is iid on the four option logits of the f16 dump, added offline by
+**Q7.** Quantization costs MMLU beyond the amplitude of its logit error, and on the sealed 4B the amplitude carries
+most of the gap. iid Gaussian noise of the sealed 4B's own residual amplitude on the four f16 option logits predicts
+64.65 against 63.37 measured on the full split: −1.27 [−1.89, −0.65]. FP16 reads 70.14, so the amplitude alone predicts
+5.49 of the 6.77 points and 1.27 lie beyond it. On bare Tetra, 2,280 q, the same noise predicts 58.53 against 53.49.
+- Standing: established for the sealed 4B's gap, which ran under controls (rule D of its prereg); supported for the
+  older arms. Scope: 4B. The sealed 4B on 14,042 q, f16 dense reconstruction, one calibration draw. Older arms
+  (Planes14, bare Tetra, three seeds) on 2,280 q. The gap is to a noise model on four logits and is conditional on the
+  fitted slope and residual sd.
+- Evidence: [recherche-qualite-n1](mesures/recherche-qualite-n1-2026-11-13.txt) (prereg sha256 3323f313; sealed 4B
+  G_gauss −1.27, *computed* on *measured* dumps); [logit-snr-4b](mesures/logit-snr-4b-2026-09-12.txt) section 5 (gaussian iid
+  58.53 ± 1.05 against 53.49).
+- Overturn: a second draw of the sealed 4B, or another instrument than MMLU, where the Gaussian interval contains 0.
+  The former condition, the replay on the sealed 4B, did not fire on 2026-11-13.
+- Former statement, until 2026-11-13: "The error is structured: where it lands matters more than its size." It does
+  not hold as a statement of shares on the sealed 4B, where size predicts 5.49 points and structure 1.27.
+- Checked: 2026-11-13. The f16 margin does not carry the sealed 4B's 1.27: reshuffled inside 20 bands of margin the
+  arm's own residuals leave −1.43 [−2.03, −0.82]. The gap is not LLVQ-only: on the full split AWQ 4B reads −0.88
+  [−1.31, −0.44]. Descriptive, one draw each: bare Tetra −4.45 [−5.16, −3.74], the sealed 8B −2.33 [−2.87, −1.78], the
+  sealed 14B −1.38 [−1.84, −0.92]. The instrument does not see a constant offset on one option letter. On the older
+  arms: the noise is iid on the four option logits of the f16 dump, added offline by
   `ops/logit_snr.py` at the arm's fitted slope and residual sd; no weight and no activation is perturbed. The ± 1.05
   is the sd over simulation draws, and the journal gives no interval on the 5-point gap. Tetra's own residuals
   reshuffled across questions predict 58.76, and reshuffled inside 20 bands of f16 margin 57.53. The six LLVQ arms
-  all read under their Gaussian prediction; AWQ reads over it, 70.04 against 69.21 ± 0.83. The replay has not run on
-  the sealed 4B, whose full-split dumps carry the four logits
-  ([recherche-qualite-r0-depot](mesures/recherche-qualite-r0-depot-2026-11-13.txt) sections 3 and 8).
+  all read under their Gaussian prediction; on that 2,280-q sample AWQ reads over it, 70.04 against 69.21 ± 0.83
+  ([recherche-qualite-r0-depot](mesures/recherche-qualite-r0-depot-2026-11-13.txt) section 3).
 
 **Q8.** The SNR law, acc = 54.60 + 14.60 ln SNR over 28 LLVQ-family arms, ranks arms but misses single arms by up to
 3 points; it is a fit, not a predictor of a new method.
@@ -611,7 +625,7 @@ A measured fact that no claim explains. They are the starting points of the expl
 
 | | anomaly | where it is measured | what is missing |
 |---|---|---|---|
-| N1 | The quantization error costs more MMLU than Gaussian noise of the same amplitude on the four option logits. Six LLVQ arms, 2,280 q; AWQ reads the other way. | Q7, and Q9 for the shared fragile questions. | Which property of the error does the damage. Not replayed on the sealed 4B. |
+| N1 | The quantization error costs more MMLU than Gaussian noise of the same amplitude on the four option logits. On the sealed 4B, full split: −1.27 [−1.89, −0.65], 1.27 of the 6.77 points to FP16. AWQ 4B reads −0.88 on the same split. | Q7, and Q9 for the shared fragile questions. | Which property of the error does the damage. The f16 margin does not carry it on the sealed 4B. |
 | N2 | Attention is worth more once the MLP is restored than on the sealed MLP: the groups are super-additive. Sealed 4B, one draw, MMLU only; both Planes14 draws were sub-additive across the same groups. | Q10. | Why the errors of the two groups compound on one object and overlap on the other. |
 | N3 | A lower Gaussian MSE of the codebook has given a worse perplexity twice, Planes14 at 4B and the Euclidean gain rule at 0.6B; no MMLU pair between codebooks is resolved. | Q4, Q17. | What the model is sensitive to that block MSE does not see. |
 | N4 | Perplexity and KL close while MMLU stays open. | Q5, Q6. | What MMLU reads that the two do not. |
@@ -667,7 +681,11 @@ phase on decode speed, which is on the branch `recherche/debit-2026-11-12`. Its 
 The route is the explanation route (O10). Two research phases run together under the rule of
 [`MODES.md`](MODES.md) as the operator amended it the same day.
 
-State on 2026-11-13: R0 is done, nothing is measured, $0 of $10 spent. The repository half is
+State on 2026-11-13: R0 is done, and R1's first measurement is done, $0 of $10 spent. N1 holds on the sealed 4B at
+−1.27 [−1.89, −0.65] MMLU points, and the amplitude of the logit error alone predicts 5.49 of the 6.77
+([recherche-qualite-n1](mesures/recherche-qualite-n1-2026-11-13.txt), Q7). The gap N1 offers the phase is therefore
+0.65 to 1.89 points at 4B. R1's framing is not closed: whether the phase keeps N1 as its problem or takes what sets the
+amplitude is the operator's to decide. R0's repository half is
 [recherche-qualite-r0-depot](mesures/recherche-qualite-r0-depot-2026-11-13.txt), the literature half
 [recherche-qualite-r0-litterature](mesures/recherche-qualite-r0-litterature-2026-11-13.txt). Three facts frame R1.
 N1's Gaussian arm is on the four option logits, not on weights (Q7). Its replay on the sealed 4B needs dumps only,

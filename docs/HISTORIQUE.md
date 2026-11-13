@@ -1478,4 +1478,10 @@ a cap of its own. Nothing is measured and nothing was launched.
   ([recherche-qualite-r0-litterature](mesures/recherche-qualite-r0-litterature-2026-11-13.txt)). N1's Gaussian arm
   is noise on the four option logits of a dump, not on weights, and its replay on the sealed 4B needs dumps the
   repository holds. No published study answers N1 or N2. Eight claims of `CERVEAU.md` gained scope notes.
+- R1's first measurement ran the same day under a stamped prereg (sha256 3323f313), on dumps, with no model:
+  [recherche-qualite-n1](mesures/recherche-qualite-n1-2026-11-13.txt). N1 holds on the sealed 4B: 63.37 measured
+  against 64.65 predicted by Gaussian noise of the same amplitude on the four option logits, −1.27 [−1.89, −0.65]
+  (*computed* on *measured* dumps). The amplitude alone predicts 5.49 of the 6.77 points to FP16. AWQ 4B reads −0.88
+  on the same split, so the gap is not LLVQ-only. Ten of thirteen signed predictions are in. `CERVEAU.md` Q7 is
+  restated: its former sentence, "where it lands matters more than its size", does not hold as shares on this object.
 - Nothing served changes: no config, no served module, no Hub file.

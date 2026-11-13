@@ -1,0 +1,113 @@
+
+[primary] docs/data/mmlu-dumps/mmlu-4b-abl-control-FULL.csv
+arm sealed-4b  against mmlu-4b-f16-FULL.csv   |K| = 14042
+  beta 0.5817   sd_res 1.2302   SNR 1.5216   measured 63.37 +- 0.39 (SE)
+  reference         predicted  MC SE       G    SE       95 % normal    95 % bootstrap
+  gaussian iid          64.65  0.019   -1.27  0.32   [ -1.89,  -0.65]   [ -1.89,  -0.65]
+  free reshuffle        64.95  0.019   -1.57  0.31   [ -2.18,  -0.97]   [ -2.18,  -0.97]
+  banded reshuffle      64.80  0.019   -1.43  0.31   [ -2.03,  -0.82]   [ -2.03,  -0.82]
+  (16 s)
+  P1: G_gauss 95 % normal interval [-1.89, -0.65] -> N1 HOLDS on the sealed 4B (valid only if `controls` passed, rule D)
+
+[secondary] docs/data/mmlu-dumps/mmlu-4b-tetra-FULL.csv
+arm tetra-4b  against mmlu-4b-f16-FULL.csv   |K| = 14042
+  beta 0.4809   sd_res 1.5054   SNR 1.0280   measured 54.64 +- 0.41 (SE)
+  reference         predicted  MC SE       G    SE       95 % normal    95 % bootstrap
+  gaussian iid          59.09  0.023   -4.45  0.36   [ -5.16,  -3.74]   [ -5.16,  -3.75]
+  free reshuffle        58.80  0.023   -4.15  0.36   [ -4.86,  -3.44]   [ -4.87,  -3.45]
+  banded reshuffle      57.88  0.024   -3.23  0.36   [ -3.94,  -2.52]   [ -3.94,  -2.53]
+  (16 s)
+
+[secondary] docs/mesures/paper-table-2026-09-25-brut/paper-awq4b-census-2026-09-25/mmlu-4b-awq-FULL.csv
+arm awq-4b  against mmlu-4b-f16-FULL.csv   |K| = 14042
+  beta 0.9604   sd_res 0.8741   SNR 3.5354   measured 68.14 +- 0.37 (SE)
+  reference         predicted  MC SE       G    SE       95 % normal    95 % bootstrap
+  gaussian iid          69.02  0.014   -0.88  0.22   [ -1.31,  -0.44]   [ -1.31,  -0.45]
+  free reshuffle        69.09  0.013   -0.95  0.22   [ -1.39,  -0.52]   [ -1.38,  -0.53]
+  banded reshuffle      68.91  0.014   -0.77  0.22   [ -1.20,  -0.34]   [ -1.20,  -0.35]
+  (17 s)
+
+[secondary] docs/data/mmlu-dumps/mmlu-4b-abl-qkv-FULL.csv
+arm abl-qkv  against mmlu-4b-f16-FULL.csv   |K| = 14042
+  beta 0.6994   sd_res 1.2641   SNR 1.7803   measured 63.92 +- 0.39 (SE)
+  reference         predicted  MC SE       G    SE       95 % normal    95 % bootstrap
+  gaussian iid          66.06  0.018   -2.14  0.30   [ -2.73,  -1.54]   [ -2.73,  -1.55]
+  free reshuffle        66.18  0.018   -2.25  0.30   [ -2.85,  -1.66]   [ -2.84,  -1.67]
+  banded reshuffle      65.98  0.018   -2.06  0.30   [ -2.65,  -1.47]   [ -2.65,  -1.48]
+  (17 s)
+
+[secondary] docs/data/mmlu-dumps/mmlu-4b-abl-o-FULL.csv
+arm abl-o  against mmlu-4b-f16-FULL.csv   |K| = 14042
+  beta 0.5869   sd_res 1.2058   SNR 1.5662   measured 63.25 +- 0.39 (SE)
+  reference         predicted  MC SE       G    SE       95 % normal    95 % bootstrap
+  gaussian iid          64.95  0.019   -1.71  0.31   [ -2.32,  -1.09]   [ -2.32,  -1.11]
+  free reshuffle        65.25  0.018   -2.01  0.31   [ -2.61,  -1.41]   [ -2.62,  -1.42]
+  banded reshuffle      65.09  0.019   -1.84  0.31   [ -2.44,  -1.24]   [ -2.44,  -1.25]
+  (17 s)
+
+[secondary] docs/data/mmlu-dumps/mmlu-4b-abl-gateup-FULL.csv
+arm abl-gateup  against mmlu-4b-f16-FULL.csv   |K| = 14042
+  beta 0.7230   sd_res 1.0522   SNR 2.2110   measured 66.76 +- 0.38 (SE)
+  reference         predicted  MC SE       G    SE       95 % normal    95 % bootstrap
+  gaussian iid          67.45  0.016   -0.69  0.27   [ -1.22,  -0.17]   [ -1.21,  -0.16]
+  free reshuffle        67.57  0.016   -0.82  0.26   [ -1.33,  -0.31]   [ -1.33,  -0.31]
+  banded reshuffle      67.50  0.016   -0.74  0.26   [ -1.25,  -0.24]   [ -1.25,  -0.24]
+  (17 s)
+
+[secondary] docs/data/mmlu-dumps/mmlu-4b-abl-down-FULL.csv
+arm abl-down  against mmlu-4b-f16-FULL.csv   |K| = 14042
+  beta 0.6858   sd_res 1.2371   SNR 1.7839   measured 65.38 +- 0.38 (SE)
+  reference         predicted  MC SE       G    SE       95 % normal    95 % bootstrap
+  gaussian iid          66.08  0.018   -0.70  0.30   [ -1.28,  -0.12]   [ -1.29,  -0.13]
+  free reshuffle        66.33  0.017   -0.95  0.29   [ -1.51,  -0.38]   [ -1.51,  -0.39]
+  banded reshuffle      66.22  0.017   -0.84  0.29   [ -1.40,  -0.28]   [ -1.40,  -0.28]
+  (19 s)
+
+[secondary] docs/data/mmlu-dumps/mmlu-4b-abl-attn-FULL.csv
+arm abl-attn  against mmlu-4b-f16-FULL.csv   |K| = 14042
+  beta 0.7092   sd_res 1.2497   SNR 1.8263   measured 64.10 +- 0.39 (SE)
+  reference         predicted  MC SE       G    SE       95 % normal    95 % bootstrap
+  gaussian iid          66.25  0.018   -2.15  0.30   [ -2.74,  -1.56]   [ -2.74,  -1.56]
+  free reshuffle        66.37  0.018   -2.27  0.30   [ -2.86,  -1.69]   [ -2.86,  -1.69]
+  banded reshuffle      66.20  0.018   -2.10  0.30   [ -2.69,  -1.52]   [ -2.68,  -1.52]
+  (33 s)
+
+[secondary] docs/data/mmlu-dumps/mmlu-4b-abl-mlp-FULL.csv
+arm abl-mlp  against mmlu-4b-f16-FULL.csv   |K| = 14042
+  beta 0.8441   sd_res 0.9395   SNR 2.8914   measured 68.23 +- 0.37 (SE)
+  reference         predicted  MC SE       G    SE       95 % normal    95 % bootstrap
+  gaussian iid          68.51  0.015   -0.28  0.23   [ -0.74,  +0.17]   [ -0.73,  +0.16]
+  free reshuffle        68.65  0.013   -0.42  0.22   [ -0.85,  +0.00]   [ -0.84,  -0.02]
+  banded reshuffle      68.56  0.014   -0.33  0.22   [ -0.75,  +0.09]   [ -0.74,  +0.08]
+  (35 s)
+
+[secondary] docs/data/mmlu-dumps/mmlu-4b-abl-all-FULL.csv
+arm abl-all  against mmlu-4b-f16-FULL.csv   |K| = 14042
+  beta 1.0003   sd_res 0.2888   SNR 11.1479   measured 70.10 +- 0.37 (SE)
+  reference         predicted  MC SE       G    SE       95 % normal    95 % bootstrap
+  gaussian iid          70.00  0.008   +0.10  0.11   [ -0.12,  +0.32]   [ -0.12,  +0.32]
+  free reshuffle        70.15  0.004   -0.06  0.07   [ -0.19,  +0.08]   [ -0.19,  +0.08]
+  banded reshuffle      70.12  0.004   -0.03  0.07   [ -0.16,  +0.10]   [ -0.16,  +0.10]
+  (36 s)
+
+[secondary] docs/mesures/sealed-8b-27-2026-09-24-brut/mmlu-B/mmlu-8b-B-sealed-FULL.csv
+arm sealed-8b  against mmlu-8b-f16-FULL.csv   |K| = 14042
+  beta 0.6663   sd_res 1.1576   SNR 1.9642   measured 69.58 +- 0.37 (SE)
+  reference         predicted  MC SE       G    SE       95 % normal    95 % bootstrap
+  gaussian iid          71.91  0.016   -2.33  0.28   [ -2.87,  -1.78]   [ -2.88,  -1.79]
+  free reshuffle        71.68  0.016   -2.10  0.28   [ -2.65,  -1.56]   [ -2.65,  -1.56]
+  banded reshuffle      71.38  0.016   -1.80  0.28   [ -2.35,  -1.26]   [ -2.35,  -1.27]
+  (40 s)
+
+[secondary] docs/mesures/sealed-8b-14b-2026-09-23-brut/mmlu-14b/mmlu-14b-sealed-FULL.csv
+arm sealed-14b  against mmlu-14b-f16-FULL.csv   |K| = 14042
+  beta 0.7666   sd_res 0.9300   SNR 2.8173   measured 75.66 +- 0.35 (SE)
+  reference         predicted  MC SE       G    SE       95 % normal    95 % bootstrap
+  gaussian iid          77.04  0.013   -1.38  0.23   [ -1.84,  -0.92]   [ -1.84,  -0.93]
+  free reshuffle        76.91  0.013   -1.25  0.24   [ -1.71,  -0.79]   [ -1.72,  -0.79]
+  banded reshuffle      76.64  0.014   -0.98  0.23   [ -1.43,  -0.52]   [ -1.44,  -0.52]
+  (47 s)
+
+wrote docs/mesures/recherche-qualite-n1-2026-11-13-brut/run.tsv
+
+12 arms, 312 s
