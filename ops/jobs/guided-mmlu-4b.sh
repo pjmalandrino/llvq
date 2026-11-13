@@ -65,7 +65,9 @@ fi
 
 if [ "$DRY" != 1 ]; then
   { test -f "$PREREG" && test -f "$PREREG.ots"; } || { echo "refused: $PREREG(.ots) missing" >&2; exit 1; }
-  if grep -q 'NOT YET STAMPED' "$PREREG"; then echo "refused: $PREREG is not stamped" >&2; exit 1; fi
+  # The stamped prereg keeps its "NOT YET STAMPED" banner, as every prereg here does: the anchor is the proof.
+  ots info "$PREREG.ots" 2>/dev/null | grep -q "$(shasum -a 256 "$PREREG" | cut -d' ' -f1)" \
+    || { echo "refused: $PREREG.ots does not anchor the sha256 of $PREREG" >&2; exit 1; }
   if grep -q 'TO BE FILLED' "$PREREG"; then echo "refused: $PREREG still has an empty prediction block" >&2; exit 1; fi
   for a in baseline candidate; do
     R=$(hf buckets ls "hf://buckets/$BUCKET/$IN/" 2>/dev/null | awk -v n="/$a.bin" 'substr($NF, length($NF) - length(n) + 1) == n {print $1}' || true)

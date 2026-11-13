@@ -66,7 +66,9 @@ PY_SHA=$(shasum -a 256 "$PY_LOCAL" | cut -d' ' -f1)
 LVO_SHA=$(shasum -a 256 "$LVO_LOCAL" | cut -d' ' -f1)
 if [ "$DRY" != 1 ]; then
   { test -f "$PREREG" && test -f "$PREREG.ots"; } || { echo "refused: $PREREG(.ots) missing" >&2; exit 1; }
-  grep -q 'NOT YET STAMPED' "$PREREG" && { echo "refused: $PREREG still says NOT YET STAMPED" >&2; exit 1; }
+  # The stamped prereg keeps its "NOT YET STAMPED" banner, as every prereg here does: the anchor is the proof.
+  ots info "$PREREG.ots" 2>/dev/null | grep -q "$(shasum -a 256 "$PREREG" | cut -d' ' -f1)" \
+    || { echo "refused: $PREREG.ots does not anchor the sha256 of $PREREG" >&2; exit 1; }
   grep -q "$PY_SHA" "$PREREG" || { echo "refused: $PY_LOCAL sha256 $PY_SHA is not the one $PREREG names" >&2; exit 1; }
   grep -q "$LVO_SHA" "$PREREG" || { echo "refused: $LVO_LOCAL sha256 $LVO_SHA is not the one $PREREG names" >&2; exit 1; }
   git diff --quiet HEAD -- "$PY_LOCAL" "$LVO_LOCAL" "$0" || { echo "refused: scripts or job differ from HEAD" >&2; exit 1; }
