@@ -1501,3 +1501,7 @@ reading step is [recherche-debit-r0-depot](mesures/recherche-debit-r0-depot-2026
   the runtime refuses it. The run holds that the rule F1 passes in the token with a floor 0.06 % wide, and v9 at
   225.8 tok/s at 5 tokens (*measured*). The job had no load check first and ran 923 s for nothing more. Spend
   under the cap: $19.98 of $25, registry $327.23.
+- The fifth card run, [recherche-debit-charge](mesures/recherche-debit-charge-2026-11-13.txt) (6af73aed, $0.16),
+  was the load check of four lighter bodies (v9ep2, v9ep3, v9fl2, v9fl3, green on the Mac) and is void: the check
+  compiles seven modules on seven threads, prints only at the end, and was killed by its 5 min timeout with no
+  line out. No arm has a verdict. Spend under the cap: $20.14 of $25, registry $327.39.

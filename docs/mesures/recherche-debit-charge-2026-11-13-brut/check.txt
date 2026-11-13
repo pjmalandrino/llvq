@@ -1,0 +1,3 @@
+Cuda(CudaDevice(DeviceId(1))), dtype F16, 2 tokens
+
+fusedrun check exit 124

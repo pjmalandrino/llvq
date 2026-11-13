@@ -1,0 +1,44 @@
+Decode-speed research phase (CERVEAU O11), step R6b, job 1: the load check of the lighter bodies, one card run,
+2026-11-13
+
+Result: void. The check printed nothing and was killed by its own 5 min timeout. No arm has a verdict: whether a
+lighter body loads under the driver's ptxas is still not known. Nothing was timed, as planned.
+
+Job 6af73aed29dd05ff03652cf5, l40sx1, 328 s running, $0.16 (*measured*). Prereg
+proofs/preregistration-recherche-debit-charge-jeton2-2026-11-13.md (sha256 5b42fb9d, stamped before). Image built
+from the stamped commit f23a109, Space sha 655ed135. Raw outputs in recherche-debit-charge-2026-11-13-brut/. Card:
+L40S, sm_89, driver 580.178.04.
+
+WHAT RAN
+  The oracle: MATCH, 23 s after the start.
+  `LLVQ_PERS_4E=check:v9,v9ep,v9fl,v9ep2,v9ep3,v9fl2,v9fl3 fusedrun <sealed> 2`, from 16:31:18 to 16:36:19 UTC:
+  one line of header, then exit 124 (timeout 5m). No CHECK line.
+
+WHY NOTHING IS READABLE
+  `persist4e_cuda::check_e1_arms` compiles the seven modules on seven threads and prints every line after the last
+  thread is joined. Killed before that, it leaves no partial result. Two flaws of the check, both mine to have
+  caught at the reread:
+  1. it prints at the end and not as each arm finishes;
+  2. its time was *estimated* at 2 to 4 min on the assumption that seven compiles run in parallel. The void token
+     run had about 90 s a module one after the other. Seven in a row is about 630 s, over the timeout. Whether
+     NVRTC or the driver's JIT serialises them is not established: the run shows only that 300 s was not enough.
+  A hang is not excluded either. The run cannot tell a slow check from a stuck one.
+
+THE PREREG'S GATES (§4)
+  The seven digests: not printed, not read. The reproduction of the jeton run (v9 LOADS, v9ep and v9fl REFUSED):
+  not read. The job is void by its own rule.
+
+SIGNED PREDICTIONS (prereg §8): job 1
+  1 the gate passes, 90 %: not scored, the gate was not read. The 10 % did not cover "the check does not finish".
+  2 the job runs 240 s [150, 420]: 328 s, in, but for the wrong reason: it ran to the inner timeout.
+  3, 4, 5: not scored.
+
+NOT ESTABLISHED
+  Whether any of v9ep2, v9ep3, v9fl2, v9fl3 loads. How long one module takes in the check, and what serialises
+  the seven. Whether the check reproduces the runtime's refusal of v9ep and v9fl. Any tok/s.
+
+WHAT A SECOND ATTEMPT NEEDS (not done, a deviation to write beside the prereg, and the operator's go)
+  The check prints each arm's lines as its thread ends, and its elapsed time. The timeout covers seven compiles in
+  a row. The arms are ordered so that the four variants come first.
+
+Cost: $0.16 (328 s at $1.80/h). Phase: $0.92 of $5. Cap of 2026-11-09: $20.14 of $25. Registry: $327.39.

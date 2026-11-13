@@ -676,7 +676,10 @@ reads ×1.053 [1.050-1.056] bit for bit; a thread a row reads ×0.36 (*measured*
 token: no tok/s is established, and the flat body's effect on perplexity is not measured.
 The fourth run ([recherche-debit-jeton](mesures/recherche-debit-jeton-2026-11-13.txt)) put both in 4E's token and is
 void: neither arm loads on the card, 8 B of local memory at 128 registers under the driver's ptxas. Its control
-shows a noise floor 0.06 % wide in the token. Spent: $0.76 of $5.
+shows a noise floor 0.06 % wide in the token.
+Four lighter bodies were then written and pass their Mac gates, and a load check with no model was run on the card
+([recherche-debit-charge](mesures/recherche-debit-charge-2026-11-13.txt)): void too, the check printed nothing and
+hit its 5 min timeout. Whether a lighter body loads is not known. Spent: $0.92 of $5.
 
 ## Beliefs we dropped
 

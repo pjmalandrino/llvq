@@ -1,0 +1,8 @@
+NVIDIA L40S, 8.9, 46068 MiB, 580.178.04, 2520 MHz
+== gate 1: oracle ==
+Qwen/Qwen3-0.6B on Cuda(CudaDevice(DeviceId(1))) — max |Δhidden| = 0.000e0   (relative to max|h| = 8.550e1) → 0.000e0
+MATCH — the observable forward reproduces candle's Qwen3
+== the load check ==
+Fri Nov 13 16:31:18 UTC 2026
+Fri Nov 13 16:36:19 UTC 2026
+fusedrun check exit 124
