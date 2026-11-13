@@ -1,9 +1,7 @@
 # Preregistration. Decode-speed research phase, R6b: which lighter body loads on the card, then the token measurement of R6 on the arms that load
 
-DRAFT, not yet ready to stamp: the Mac gates of §3 have not run (the operator's order of 2026-11-13: no heavy work on
-the Mac until he says so). §3 lists what is missing. Once the gates run, their figures replace the NOT RUN lines and
-the four module digests are filled in, in this file and in both job scripts. Then the main session signs §8. Only
-then is it timestamped and never edited; a departure goes to
+Written on 2026-11-13 on branch `recherche/debit-2026-11-12`, once the code it describes existed and its Mac gates
+had run (§3). Timestamped before the first measurement, then never edited; a departure goes to
 `preregistration-recherche-debit-charge-jeton2-2026-11-13-ECARTS.md`.
 
 Two jobs, each launched by the operator: `ops/jobs/recherche-debit-charge.sh`, then, depending on its result,
@@ -31,7 +29,7 @@ The run did establish two facts in the token (*measured*):
 
 ## 2. What the code holds
 
-Commit: NOT YET (on the working tree of `recherche/debit-2026-11-12`, after 4358021). Nothing served moves. The served
+Commit: `62aadfb` (the code at `59f1900`; gates, pins and digests at `62aadfb`) (after 4358021, the void run's journal). Nothing served moves. The served
 unit and the served v9 module keep their pins. E1's v9 reference, v9ep and v9fl keep their texts and sha256: the edits
 of bodies 1 and 2 are unchanged (`pers.rs::p4e_rc_edits_12`).
 
@@ -59,7 +57,8 @@ The one-chunk bodies need room in the slots:
 - The sealed 4B on 142 CTAs fits. The largest slice is flat's gate/up: 138 rows x 14 runs = 1,932 slots of 2,048
   (*computed*).
 - The 8B's flat gate/up does not fit (174 x 22 = 3,828), so fl2 and fl3 are refused there. ep3 fits the 8B.
-- The twin's usual grids of 3 to 5 CTAs do not fit either. The one-chunk arms are twin-tested on 142 CTAs (§3).
+- The twin's usual grids of 3 to 5 CTAs do not fit either. The one-chunk arms are twin-tested on 142 CTAs of one warp
+  (§3): from 134 CTAs flat's gate/up slice fits one chunk, and 142 gives the card's own largest slice.
 
 Shared memory and VRAM are as in the jeton prereg's §2.2:
 - Each variant uses its family's region, with the same last float at every phase (`the_rc_layout_at_the_three_sealed_shapes`).
@@ -94,56 +93,80 @@ What made the 339 s, and what the check avoids:
 - three modules compiled one after the other, about 90 s each.
 
 The check loads no model and compiles in parallel. How long NVRTC and the JIT take each is printed for each arm. It
-has never run on a card.
+has never run on a card: only its Linux build is type-checked (`ops/check-linux-on-mac.sh`), and its parser tested.
 
-## 3. The Mac gates: NOT RUN
+## 3. Stage 1 on the Mac at $0 (*measured*, 2026-11-13, under the operator's limits: one job at a time through the guard, 3 test threads)
 
-Nothing below has run. The operator's order came while the first probe was compiling; that probe was stopped (the
-`ops/rc-regprobe.sh` run of 4e-v9e1, 4e-v9ep and 4e-v9fl, in Docker, before any result).
+The row gate (`tests/rowcand_gate.rs`, command 'e' of the host twin, the corps gate's recorded words, three placements,
+three grids, 9,168 rows a body):
 
-The Rust and kernel text of R6b has not been compiled. Each line becomes a figure before this prereg is stamped.
+| body | slots | y equal | f32 equal | max rel err | q99 | owes | verdict |
+|---|---|---|---|---|---|---|---|
+| endpass | 2,048 and 96 | 9,168 | 9,168 | 0 | 0 | the bits | PASS |
+| flat | 2,048 and 96 | 9,153 | 6,693 | 5.915e-7 | 2.438e-7 | 1e-5 | PASS |
+| ep2 | 2,048 and 96 | 9,168 | 9,168 | 0 | 0 | the bits | PASS |
+| ep3 | 2,048 | 9,168 | 9,168 | 0 | 0 | the bits | PASS |
+| fl2 | 2,048 | 9,153 | 6,693 | 5.915e-7 | 2.438e-7 | 1e-5 | PASS |
+| fl3 | 2,048 | 9,153 | 6,693 | 5.915e-7 | 2.438e-7 | 1e-5 | PASS |
 
-1. `cargo test -p llvq-cuda --lib`: `the_rc_arms_are_v9_with_the_body_on_every_tetra_phase` (now six arms),
-   `the_rc_layout_at_the_three_sealed_shapes` (now the one-chunk rules), `the_rc_modules_keep_their_bytes` (v9ep and
-   v9fl must keep f4166ccf and 9925b4ad). The four variants' digests are to be added to this test and to the scripts.
-2. The row gate, `tests/rowcand_gate.rs`:
-   - `the_rc_bodies_keep_what_they_owe`: six bodies at 2,048 slots, bodies 1 to 3 at 96 slots, 9,168 rows each.
-     Expected: ep2 and ep3 bit for bit; fl2 and fl3 at flat's 5.915e-7.
-   - `the_flat_variants_are_flat_bit_for_bit`
-   - `the_rc2_body_mutants_are_killed`, seven mutants:
+The one-chunk bodies are not run at 96 slots: they trap there by design. fl2 and fl3 equal flat byte for byte on the
+nine runs (`the_flat_variants_are_flat_bit_for_bit`).
 
-     | mutant | body | the edit |
-     |---|---|---|
-     | `rc2_ep2_slot` | ep2 | the slot one row on |
-     | `rc2_ep3_last_row` | ep3 | the second pass skips the last row |
-     | `rc2_fl2_fold_end` | fl2 | the fold one block short |
-     | `rc2_seq_word` | fl3 | block 2 reads the wrong word |
-     | `rc2_seq_block4` | fl3 | block 4 dropped |
-     | `rc2_seq_quad2` | fl3 | a run's last quad not loaded |
-     | `rc2_gather` | fl2, fl3 | the gather reads the next run's slot |
+Mutants, each applied at exactly one site (asserted), each killed (rows not bit equal to the served row, of 9,168):
 
-   - The ten mutants of `the_rc_body_mutants_are_killed`, unchanged.
-3. The token chain, `tests/pers_matches_served.rs`:
-   - `the_4e_e1_arms_are_the_served_chain`, which now includes v9ep2;
-   - `the_4e_rc_one_chunk_arms_on_the_cards_grid`: 142 CTAs x 64 threads. v9ep2 and v9ep3 must be the served chain
-     byte for byte; v9fl2 and v9fl3 must be v9fl's chain byte for byte. Twice, from 5 and from 270, and the stamped
-     launch. It has never run; the twin has never run 142 CTAs, so its run time is not known;
-   - the R6 tests `the_4e_rc_flat_arm_stays_near_the_served_chain` and `the_4e_rc_call_site_mutants_are_killed`, as
-     before.
-4. `cargo test -p llvq-cuda --no-fail-fast`, `cargo test -p llvq-llm --no-fail-fast` (a test of the check's parser
-   added), `cargo clippy --all-targets`, `CUDARC_CUDA_VERSION=12040 cargo clippy --target x86_64-unknown-linux-gnu
-   -p llvq-cuda --all-targets`, and `ops/check-linux-on-mac.sh`. The last one is the only compiler that sees
-   `check_e1_arms` and the check's dispatch in `fusedrun`.
-5. The register proxy, devel nvcc 12.4: `cargo test -p llvq-cuda --lib -- --ignored dump_tree_modules` (to extend
-   with the four variants), then `ops/rc-regprobe.sh 4e-v9e1 4e-v9ep 4e-v9fl 4e-v9ep2 4e-v9ep3 4e-v9fl2 4e-v9fl3`.
-   - What it prints: ptxas on each module's PTX, `pers_4e_tokens_f1_t512` alone, at its own cap of 128 and at
-     `--maxrregcount` 120, 112, 104 and 96.
-   - How it ranks: by the spill each module shows as the cap tightens. Below v9's spill means less pressure than v9.
-   - Not yet established: whether ptxas honours `--maxrregcount` under the kernel's `__launch_bounds__`. If it does
-     not, the probe reads the same at every cap and says nothing; it will say so, and the card's check decides alone.
-   - The proxy is the devel ptxas 12.4. The card's is a later allocator. A CUDA 13 devel image would give the
-     driver's own allocator, and it is not on the Mac.
-   - Pulling that image is a download the operator decides. It is not used.
+| mutant | body | rows moved, max rel err |
+|---|---|---|
+| `rc2_ep2_slot`, the slot one row on | ep2 | 9,168, 3.6 |
+| `rc2_ep3_last_row`, the second pass skips the last row | ep3 | 290, 11.5 |
+| `rc2_fl2_fold_end`, the fold one block short | fl2 | 9,168, 0.76 |
+| `rc2_seq_word`, block 2 reads the wrong word | fl3 | 9,009, 0.97 |
+| `rc2_seq_block4`, block 4 dropped | fl3 | 8,853, 1.26 |
+| `rc2_seq_quad2`, quad 2 read from quad 1's place | fl3 | 3,003, 2.6 |
+| `rc2_gather`, the gather reads the next run's slot | fl2, fl3 | 9,168 each, 1.37 |
+
+The ten R6 body mutants are killed again with the same counts. One edit tried first is EQUIVALENT, not a survivor:
+fl3's quad-2 guard moved to 3 g + 3 < nq bites only where a row's last run ends at block 5 exactly, which no recorded
+shape has; it was replaced by the quad-2 mutant above.
+
+The token chain (`tests/pers_matches_served.rs`):
+- `the_4e_e1_arms_are_the_served_chain`, which now includes v9ep2: tokens, residual and both layers' caches equal the
+  served chain byte for byte, on the same commands as R6.
+- `the_4e_rc_one_chunk_arms_on_the_cards_grid`, 142 CTAs of 32 threads, from position 5 and from 270, 2 tokens each:
+  v9ep2 and v9ep3 equal the served chain byte for byte; v9fl2 and v9fl3 equal v9fl's chain byte for byte; the
+  stamped launch of v9ep3 and v9fl3 equals its token launch. v9fl against the served chain there: tokens 2 of 2 and
+  2 of 2; 1,607 of 68,096 and 3,387 of 1,182,208 binary16 state values differ; the largest |difference| over the
+  state's rms is 1.7e-2 and 5.5e-2. The run took 225 s and peaked at 0.61 GB.
+- The grid change. 64 threads a CTA was written first. One warp a CTA halves the fibers (4,544 of 64 KB of stack,
+  about 0.3 GB) and still covers every body. The grid could not shrink: one chunk needs 134 CTAs or more.
+- The R6 tests pass again: `the_4e_rc_flat_arm_stays_near_the_served_chain` (tokens 20 of 20, max 5.0e-2 of rms) and
+  `the_4e_rc_call_site_mutants_are_killed` (the same verdicts; `gu_last_pair` still survives the flat chain distance,
+  5.3e-2, and is killed on v9ep).
+
+Unit tests (`cargo test -p llvq-cuda --lib`): `the_rc_arms_are_v9_with_the_body_on_every_tetra_phase` (six arms),
+`the_rc_layout_at_the_three_sealed_shapes`, `the_rc_modules_keep_their_bytes` (v9ep and v9fl keep f4166ccf and
+9925b4ad; the four variants pinned), the served unit's and the served v9 module's pins: pass.
+
+The modules at the card's tile define:
+
+| arm | bytes | sha256 |
+|---|---|---|
+| v9ep2 | 274,808 | `a7d9a04d4bb963aac4ed831f1d7b41f6473e939dbc6c7c047d3b9e90b9801aa9` |
+| v9ep3 | 274,808 | `60dfa277ef82cf5c94b5a4b0b5745610324abac432c8ef4725ea96ba150714f7` |
+| v9fl2 | 274,808 | `d863288607ba961223b3ac8501b99f2e4c97dfc082cd237b80300df8b33dbd11` |
+| v9fl3 | 274,808 | `713ed5877aef63da831b8d149d31418889e42ac2580589294fa303e408ccf3fe` |
+
+The register proxy (`ops/rc-regprobe.sh`, the devel ptxas 12.4 on each module's PTX, the timed entry alone) says
+NOTHING. All seven modules (E1's v9, v9ep, v9fl and the four variants) read 128 registers, 0 B of stack and 0 B of
+spill at every cap tried: none, 120, 112, 104, 96. `--maxrregcount` does not act under the kernel's
+`__launch_bounds__(512, 1)`. The probe therefore ranks nothing, and the devel allocator gives v9ep and v9fl the same
+0 B that the card's did not. No other measure on the Mac separates the variants from v9. The card's load check
+decides alone. A probe that rewrote the PTX's `.maxntid` to free the cap, or a CUDA 13 ptxas, would be the next
+proxy; neither was run, and the second needs an image download the operator decides.
+
+Gates of the commit: `cargo clippy --all-targets` clean on the Mac; `CUDARC_CUDA_VERSION=12040 cargo clippy --target
+x86_64-unknown-linux-gnu -p llvq-cuda --all-targets` clean; `ops/check-linux-on-mac.sh` (llvq-llm `--features cuda`
+for Linux, which compiles `check_e1_arms` and the check's dispatch) clean. `cargo test -p llvq-cuda --no-fail-fast`
+34 suites, 301 passed, 0 failed, 66 ignored; `cargo test -p llvq-llm --no-fail-fast` 86 suites, 541 passed, 0 failed, 22 ignored.
 
 ## 4. What runs
 
