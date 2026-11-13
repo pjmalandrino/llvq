@@ -1,0 +1,11 @@
+/out/guided-encode-4b-2026-11-13/candidate/candidate.llvq: format v5, 252 quantized matrices, kinds Tetra+Int4G128
+reading Qwen/Qwen3-4B for the tensors the artifact is missing…
+  carrying 146 tensors, 389152256 weights (0.778 GB at f16)
+
+── /scratch/candidate.bin
+   quantized    3633315840 weights → 1.005 GB (2.2124 bits/weight)
+   carried       389152256 weights → 0.790 GB at f16
+   total          1.795 GB on disk
+   against        8.045 GB in FP16  →  ×4.48
+
+   this file needs no checkpoint, no cache and no network.

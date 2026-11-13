@@ -1498,4 +1498,12 @@ a cap of its own. Nothing is measured and nothing was launched.
 - The code of that attempt passed the workspace fast loop (1,321 passed, 0 failed), clippy and ten mutants; its
   statistic job cost $0.09 (6af72f55). The operator moved the two encodes from the Mac to the card and raised the
   phase's budget to $15. Spent: $0.53.
+- The attempt ran in full for $8.67: [guided-gateup-4b](mesures/guided-gateup-4b-2026-11-13.txt). Outcome LOSS under
+  its prereg (sha256 dac1bca1, departures E1 and E2 stamped). The candidate, gate_proj and up_proj under
+  gradient-weighted input Hessians, scores 57.11 on the full MMLU split against 58.62 for a baseline encoded the same
+  day: −1.51 [−2.30, −0.70] (*measured*). Perplexity 18.08 against 16.46. Five of eight signed predictions are in; the
+  lead predicted a gain. A card encode of the 4B took 77 and 80 billed minutes on `rtx-pro-6000`, $3.55 and $3.68
+  (*computed* at $2.75/h). Read after the result and not preregistered: the per-token weights have an effective
+  sample size of 1.58 % of the calibration tokens (*computed*). Spend of the phase: $9.11 of $15; the rows of
+  `docs/data/jobs.csv` sum to $335.33 (*computed*).
 - Nothing served changes: no config, no served module, no Hub file.
