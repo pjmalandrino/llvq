@@ -288,12 +288,21 @@ __device__ __forceinline__ void rowc_rot8(float (&a)[32])
 
 // warp_sum's xor butterfly on one thread: lane 0's value after k = 16, 8, 4, 2, 1 is a[0] once a[l] += a[l + k] for
 // l < k at each step (lane l adds lane l ^ k = l + k; the addition commutes).
-__device__ __forceinline__ float rowc_tree32(float (&a)[32])
+// The five steps are written out: a loop on k >>= 1 is not unrolled by nvcc, and a[l + k] then puts the chains in
+// local memory.
+template <u32 K>
+__device__ __forceinline__ void rowc_tree_step(float (&a)[32])
 {
 #pragma unroll
-    for (u32 k = 16u; k > 0u; k >>= 1)
-#pragma unroll
-        for (u32 l = 0; l < k; ++l) a[l] = __fadd_rn(a[l], a[l + k]);
+    for (u32 l = 0; l < K; ++l) a[l] = __fadd_rn(a[l], a[l + K]);
+}
+__device__ __forceinline__ float rowc_tree32(float (&a)[32])
+{
+    rowc_tree_step<16u>(a);
+    rowc_tree_step<8u>(a);
+    rowc_tree_step<4u>(a);
+    rowc_tree_step<2u>(a);
+    rowc_tree_step<1u>(a);
     return a[0];
 }
 

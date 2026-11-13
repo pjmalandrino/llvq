@@ -14,7 +14,8 @@
 # tail loops, 23 and 77 instructions, are shorter than the block loop): the kernel nests a site loop (with barriers)
 # and a row loop (block loop plus epilogue) around it. The staging loops store to shared memory and read none, so the
 # LDS condition already excludes them; a store to shared memory is allowed, since the flat bodies (flat, flats) write
-# each run's partial to its slot inside the block loop. A body whose block loop reads its words from shared memory
+# each run's partial to its slot inside the block loop. A diagnostic, which needs no LDS, still may not store to shared
+# memory (that is a staging loop). A loop that stores to global memory is a row end (y), never a block loop. A body whose block loop reads its words from shared memory
 # (flats: the chunk is staged, then decoded) has no such loop: the count falls back to the shortest loop with LDS, no
 # barrier and no HADD2, and says so. A diagnostic (ROWC_NONE) needs no LDS. Instructions a block = the loop's count /
 # BPI, BPI the arm's registered blocks an iteration (8 for a run of 8 blocks). The card's driver ptxas compiles
@@ -75,7 +76,8 @@ for a in $ARMS; do
   python3 -I ops/sass_loops.py "$OUT/tv_rowc_$name.sass" | awk -v n="$name" -v o="$owes" -v b="$bpi" '
     /^loop/ { c = $3; getline; ops = $0;
               ld = (ops ~ /LDG/ || ops ~ /LD\.E/ || ops ~ /(^|, )LD /); lds = (ops ~ /LDS/);
-              ok = (lds || o == "ROWC_NONE") && ops !~ /BAR/ && ops !~ /HADD2/;
+              gst = (ops ~ /STG/ || ops ~ /(^|, )ST(\.[A-Z0-9.]+)? [0-9]/);
+              ok = (lds || o == "ROWC_NONE") && ops !~ /BAR/ && ops !~ /HADD2/ && !gst && !(o == "ROWC_NONE" && ops ~ /STS/);
               if (ld && ok && (best == "" || c + 0 < bn + 0)) { bn = c; best = ops }
               if (lds && ok && (alt == "" || c + 0 < an + 0)) { an = c; alt = ops } }
     END { if (best != "") printf "SASS\t%s\t%s\t%s\t%d\t%.1f\t%s\n", n, o, b, bn, bn / b, best;
