@@ -1484,4 +1484,6 @@ a cap of its own. Nothing is measured and nothing was launched.
   (*computed* on *measured* dumps). The amplitude alone predicts 5.49 of the 6.77 points to FP16. AWQ 4B reads −0.88
   on the same split, so the gap is not LLVQ-only. Ten of thirteen signed predictions are in. `CERVEAU.md` Q7 is
   restated: its former sentence, "where it lands matters more than its size", does not hold as shares on this object.
+- The operator then moved the phase's starting point from N1 to the amplitude share, the 5.49 points: where an error
+  lands against chance cannot be known in advance. N1 is set aside. No budget is added yet.
 - Nothing served changes: no config, no served module, no Hub file.

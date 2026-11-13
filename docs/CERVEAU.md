@@ -684,8 +684,12 @@ The route is the explanation route (O10). Two research phases run together under
 State on 2026-11-13: R0 is done, and R1's first measurement is done, $0 of $10 spent. N1 holds on the sealed 4B at
 −1.27 [−1.89, −0.65] MMLU points, and the amplitude of the logit error alone predicts 5.49 of the 6.77
 ([recherche-qualite-n1](mesures/recherche-qualite-n1-2026-11-13.txt), Q7). The gap N1 offers the phase is therefore
-0.65 to 1.89 points at 4B. R1's framing is not closed: whether the phase keeps N1 as its problem or takes what sets the
-amplitude is the operator's to decide. R0's repository half is
+0.65 to 1.89 points at 4B. The operator ruled the same day: the phase drops N1 as its problem and takes the amplitude
+share, the 5.49 points. His reason: where an error lands against chance cannot be known in advance, so it is not a
+place to work. This amends the mandate's starting point, which is now the gap between the Gaussian prediction, 64.65,
+and FP16, 70.14, on the sealed 4B. Axis and untouchables are unchanged. The $10 budget is short for this problem,
+where an attempt needs an encode and a full MMLU arm; the lead brings a costed plan before any spend. N1 stays in
+the anomaly list, set aside. R0's repository half is
 [recherche-qualite-r0-depot](mesures/recherche-qualite-r0-depot-2026-11-13.txt), the literature half
 [recherche-qualite-r0-litterature](mesures/recherche-qualite-r0-litterature-2026-11-13.txt). Three facts frame R1.
 N1's Gaussian arm is on the four option logits, not on weights (Q7). Its replay on the sealed 4B needs dumps only,
