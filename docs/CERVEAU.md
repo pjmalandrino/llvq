@@ -635,6 +635,20 @@ a ready verifier, and the ceiling of 24-dimension fixed-rate codes is recorded (
 verifier. Model quality has no fast, faithful verifier: it is open through the explanation route, from the anomalies
 N1 and N2.
 
+**O12.** Phase open: MODE RECHERCHE on model quality, opened by the operator on 2026-11-13. It runs beside O11, the
+phase on decode speed, which is on the branch `recherche/debit-2026-11-12`. Its mandate:
+
+| field | content |
+|---|---|
+| Axis | Quality of the served object at its b/param: MMLU on the full split and GSM8K, paired against FP16. Whole-model b/param, VRAM, decode speed, time to first token and the cost of producing an object are constraints. |
+| Starting point | The anomaly N1, read where Q16 puts the gap: the MLP carries +4.86 of the 6.77 points, gate/up +3.38. N1 is measured on older arms only (Q7: bare Tetra, 2,280 q), so R1 first settles whether it holds on the sealed 4B. N2 is admissible if R1 finds it the sharper problem. |
+| Untouchable | The three sealed files. Whole-model b/param at 2.73. VRAM at the served peaks. No edit under `llvq-cuda/` or to a served config while O11 is open: that phase works there. A per-model or per-type setting is not a result (operator, 2026-11-12), and a restore to f16 is a probe, not a mechanism (Q20). |
+| Budget | Five days, to 2026-11-18. $10 of card under a cap of its own, apart from the $25 cap of 2026-11-09 that O11 draws on; each job under a stamped prereg and the operator's go. No model loaded on the work machine while O11 is open. |
+
+The route is the explanation route (O10). Two research phases run together under the rule of
+[`MODES.md`](MODES.md) as the operator amended it the same day. State on 2026-11-13: R0 is not started, nothing is
+measured, $0 of $10 spent.
+
 ## Beliefs we dropped
 
 | belief | dropped | by |
