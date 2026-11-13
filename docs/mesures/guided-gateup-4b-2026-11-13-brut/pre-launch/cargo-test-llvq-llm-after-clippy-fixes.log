@@ -1,0 +1,1105 @@
+   Compiling llvq-llm v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/recherche-qualite/llvq-llm)
+    Finished `test` profile [unoptimized] target(s) in 19.44s
+     Running unittests src/lib.rs (target/debug/deps/llvq_llm-ac5cb4dc35f896c1)
+
+running 213 tests
+test argmax_key::tests::sparse_ties_agree_300 ... ignored
+test argmax_key::tests::key_index_inverts_tie_key ... ok
+test boundary::tests::only_the_4b_shape_is_accepted ... ok
+test boundary::tests::the_counter_is_taken_and_reset ... ok
+test boundary::tests::split_points_off_the_grid_or_outside_are_refused ... ok
+test boundary::tests::every_split_point_sits_on_the_cta_grid_inside_its_projection ... ok
+test argmax_key::tests::key_preconditions_hold_for_qwen3_and_refuse_the_rest ... ok
+test boundary::tests::the_cost_per_boundary_is_formed_round_by_round ... ok
+test calib::shrink_tests::off_diagonals_are_scaled_by_rho_exactly_and_the_diagonal_is_not ... ok
+test calib::shrink_tests::rho_one_is_the_identity_bit_for_bit ... ok
+test calib::shrink_tests::rho_zero_keeps_the_diagonal_and_nothing_else ... ok
+test boundary::tests::the_splits_are_the_prereg_ctas ... ok
+test boundary::tests::the_arms_match_by_projection_type_with_or_without_weight ... ok
+test calib::shrink_tests::symmetry_survives_every_rho ... ok
+test argmax_key::tests::every_card_mutant_applies_exactly_once_and_changes_the_text ... ok
+test boundary::tests::the_derived_classes_pair_round_by_round ... ok
+test corpus::tests::an_unset_pin_means_main ... ok
+test boundary::tests::the_empty_module_names_its_entry_point ... ok
+test corpus::tests::evaluation_keeps_the_published_shard ... ok
+test boundary::tests::the_boundary_counts_are_the_prereg_table ... ok
+test corpus::tests::a_set_pin_is_carried ... ok
+test corpus::tests::both_paths_are_well_formed_shards ... ok
+test corpus::tests::the_dclm_shard_is_read_bounded ... ignored
+test corpus::tests::the_two_roles_read_different_shards ... ok
+test dflash::tests::dequant_low_nibble_first ... ok
+test corpus::tests::the_resolved_commit_is_recovered_from_the_cache_path ... ok
+test digest::tests::known_vectors ... ok
+test calib::shrink_tests::a_rho_outside_the_unit_interval_is_a_programming_error - should panic ... ok
+test errmodel::tests::a_flat_or_concave_direction_has_no_optimum ... ok
+test dflash::tests::tree_is_closed_under_ancestors_and_best_first ... ok
+test errmodel::tests::duplicate_matrices_are_refused ... ok
+test errmodel::tests::central_differences_are_exact_on_a_quadratic ... ok
+test errmodel::tests::malformed_probe_pairs_are_refused_by_name ... ok
+test errmodel::tests::optimum_is_the_minimum_and_the_gain_is_negative ... ok
+test errmodel::tests::non_convex_and_invariant_directions_are_counted_not_hidden ... ok
+test errmodel::tests::ranking_puts_the_biggest_available_gain_first ... ok
+test errmodel::tests::residual_reads_error_against_the_move_and_not_the_loss ... ok
+test errmodel::tests::surrogate_reproduces_the_function_it_models ... ok
+test errmodel::tests::unprobed_matrices_contribute_nothing ... ok
+test eval::tests::narrowing_is_a_no_op_at_f32 ... ok
+test eval::tests::an_unknown_name_is_refused ... ok
+test eval::tests::narrowing_rounds_at_half_precision ... ok
+test eval::tests::printed_names_parse_back ... ok
+test eval::tests::spellings_of_the_same_dtype_agree ... ok
+test eval::tests::t95_is_students_quantile ... ok
+test eval::tests::the_fingerprint_separates_streams_that_differ ... ok
+test fused::tests::every_layout_only_names_kernels_its_own_unit_carries ... ok
+test errmodel::tests::trust_region_minimum_is_the_true_minimum_of_the_quadratic ... ok
+test fused::tests::the_int4_bytes_reach_the_footprint_the_runtime_prints ... ok
+test fused::tests::fuse_mode_parse_refuses_anything_else ... ok
+test fused::tests::the_int4_kernel_names_and_constants_match_its_source ... ok
+test fused::tests::the_int4_staging_fits_the_card_at_every_sealed_size ... ok
+test corpus::tests::a_missing_column_is_named ... ok
+test fused::tests::the_served_models_keep_todays_kernels_after_the_wall_lift ... ok
+test corpus::tests::the_report_names_the_revision ... ok
+test corpus::tests::a_bounded_read_projects_one_column ... ok
+test corpus::tests::a_bounded_read_refuses_to_come_up_short ... ok
+test fused::tests::the_q4_embedding_kernel_names_match_its_source ... ok
+test fused::tests::the_two_defaults_are_compatible ... ok
+test fused::tests::the_scale_is_over_the_power_of_two_factor ... ok
+test gsm8k::tests::a_fraction_box_is_an_integer_or_nothing ... ok
+test gsm8k::tests::a_dump_header_round_trips_and_an_old_one_reads_as_expanded_and_eager ... ok
+test gsm8k::tests::a_prompt_past_the_engine_is_refused_before_the_run ... ok
+test gsm8k::tests::a_dump_round_trips_and_a_short_one_is_refused ... ok
+test gsm8k::tests::a_served_header_names_the_attention_and_the_engine ... ok
+test gsm8k::tests::a_truncated_box_falls_back_to_the_last_number ... ok
+test gsm8k::tests::an_ungraded_row_is_graded_and_a_graded_one_is_left_alone ... ok
+test gsm8k::tests::canonical_forms_agree_and_differ_where_they_should ... ok
+test gsm8k::tests::extraction_reads_the_box_first_and_the_text_second ... ok
+test gsm8k::tests::grading_is_exact ... ok
+test gsm8k::tests::mcnemar_matches_the_hand_computation ... ok
+test gsm8k::tests::numbers_are_read_as_written ... ok
+test gsm8k::tests::pairing_refuses_different_prompts_or_problems ... ok
+test argmax_key::tests::a_nan_raises_the_flag_and_yields_token_zero ... ok
+test gsm8k::tests::the_instruction_follows_the_problem_on_its_own_line ... ok
+test gsm8k::tests::the_last_closed_box_wins ... ok
+test gsm8k::tests::pairing_counts_the_discordant_problems ... ok
+test gsm8k::tests::pairing_refuses_two_golds_for_one_problem ... ok
+test gsm8k::tests::the_gold_is_the_number_after_the_last_marker ... ok
+test argmax_key::tests::dense_ties_keep_the_in_thread_order ... ok
+test gsm8k::tests::the_paired_interval_is_centred_and_closes_on_agreement ... ok
+test guided::tests::group_weights_sum_neighbours_and_normalise_to_mean_one ... ok
+test corpus::tests::a_bounded_read_stops_well_before_the_end ... ok
+test guided::tests::groups_parse_divisors_of_sixteen_only ... ok
+test guided::tests::row_ranges_are_consecutive_equal_chunks ... ok
+test guided::tests::the_variables_are_refused_by_name_when_malformed ... ok
+test kvq::tests::attn_heads_parse_contract ... ok
+test kvq::tests::kv_store_parse_contract ... ok
+test kvq::tests::the_env_contract_matches_embed_mode ... ok
+test kvq::tests::the_geometry_is_the_published_one ... ok
+test kvq::tests::the_store_rides_the_attention_form ... ok
+test loader::tests::a_bare_repo_id_is_a_hub_repo_at_main ... ok
+test gsm8k::tests::the_sample_is_fixed_nested_and_sorted ... ok
+test loader::tests::a_malformed_pin_is_refused ... ok
+test digest::tests::every_split_agrees ... ok
+test kvq::tests::a_constant_group_reconstructs_exactly ... ok
+test loader::tests::a_directory_named_qwen_does_not_capture_the_repo_id ... ok
+test loader::tests::a_local_directory_serves_a_sharded_checkpoint ... ok
+test loader::tests::a_missing_local_path_never_becomes_a_repo_id ... ok
+test kvq::tests::the_round_is_load_bearing ... ok
+test loader::tests::a_tilde_is_expanded ... ok
+test loader::tests::a_local_directory_serves_a_single_shard ... ok
+test loader::tests::a_real_cached_sharded_snapshot_resolves_every_shard ... ok
+test loader::tests::an_at_sign_pins_the_revision ... ok
+test loader::tests::path_shapes_resolve_local ... ok
+test loader::tests::pinning_main_is_what_the_hub_path_already_did ... ok
+test loader::tests::a_shard_the_index_lists_but_the_directory_lacks_is_named ... ok
+test model::tests::a_group_without_rotation_ignores_the_mode ... ok
+test model::tests::a_rotated_activation_of_the_wrong_key_is_refused ... ok
+test kvq::tests::prefill_and_decode_agree_bit_for_bit ... ok
+test loader::tests::a_missing_file_is_named ... ok
+test fused::tests::the_tables_describe_the_rotation ... ok
+test argmax_key::tests::adversarial_cases_agree_with_candle_and_their_pinned_index ... ok
+test fused::tests::a_tetra_file_has_no_runtime_layout_among_the_ball_ones ... ok
+test model::tests::grow_reserve_keeps_the_positions ... ok
+test model::tests::grow_store_holds_what_cat_holds ... ok
+test model::tests::a_call_is_split_at_the_threshold_by_position ... ok
+test fused::tests::the_synthetic_int4_record_has_the_record_shape ... ok
+test model::tests::argmax_of_f16_logits_is_argmax_of_their_cast ... ok
+test model::tests::a_served_config_sets_the_store_and_the_attention_form ... ok
+test digest::tests::the_typed_helpers_hash_little_endian_patterns ... ok
+test model::tests::prealloc_overflow_is_a_named_error ... ok
+test model::tests::preparing_a_dense_projection_moves_nothing ... ok
+test model::tests::rows_contiguous_copies_only_what_a_matmul_refuses ... ok
+test model::tests::prealloc_expanded_matches_repeat_kv_of_cat_at_every_step ... ok
+test model::tests::the_causal_mask_is_built_in_its_dtype ... ok
+test model::tests::a_decode_step_without_its_zero_mask_is_bit_identical ... ok
+test model::tests::the_int4_rows_port_chunks_in_order_and_keeps_the_shape ... ok
+test argmax_key::tests::the_card_sequence_is_41_cases_with_the_nan_last ... ok
+test model::tests::a_timed_generation_returns_the_tokens_of_generate ... ok
+test argmax_key::tests::sparse_ties_agree_card_set ... ok
+test model::tests::the_regroup_carries_the_output_width ... ok
+test model::tests::the_row_split_is_undone_by_the_regroup ... ok
+test model::tests::a_truncated_cache_decodes_like_a_fresh_one ... ok
+test model::tests::in_place_softmax_matches_the_whole_tensor ... ok
+test model::tests::wide_mask_padding_is_exactly_inert ... ok
+test repl::tests::a_nucleus_of_one_always_returns_the_top_token ... ok
+test repl::tests::a_trailing_replacement_is_held_back_and_a_settled_one_is_not ... ok
+test repl::tests::a_turn_that_would_overrun_the_context_is_refused ... ok
+test repl::tests::sampling_is_reproducible_from_its_seed ... ok
+test repl::tests::temperature_zero_is_argmax_and_ignores_the_seed ... ok
+test repl::tests::the_fit_check_cannot_overflow_into_a_pass ... ok
+test repl::tests::the_nucleus_never_returns_a_token_it_cut ... ok
+test repl::tests::the_stream_never_rewinds_what_it_printed ... ok
+test rotplan::tests::a_batch_of_one_is_the_per_row_loop ... ok
+test rotplan::tests::a_chunk_prepares_the_shared_rotation_once ... ok
+test rotplan::tests::a_group_of_natural_basis_sites_needs_no_representative ... ok
+test rotplan::tests::a_run_too_short_cannot_tell_the_arms_apart ... ok
+test rotplan::tests::a_site_without_a_rotation_takes_no_share_of_the_group_s ... ok
+test rotplan::tests::an_apply_that_answers_the_wrong_count_is_refused ... ok
+test rotplan::tests::an_empty_group_drives_nothing ... ok
+test rotplan::tests::check_key_names_the_projection ... ok
+test rotplan::tests::every_projection_suffix_maps_to_its_activation ... ok
+test rotplan::tests::rot_share_parse_refuses_anything_else ... ok
+test rotplan::tests::the_batched_loop_covers_every_row_once_and_in_order ... ok
+test sealed::restore_tests::a_name_the_source_cannot_serve_aborts_the_load ... ok
+test sealed::restore_tests::a_shape_the_checkpoint_disagrees_on_is_refused ... ok
+test sealed::restore_tests::a_type_the_artifact_lacks_is_refused_not_skipped ... ok
+test sealed::restore_tests::covers_matches_the_tensor_name_segment_and_nothing_looser ... ok
+test sealed::restore_tests::restore_spec_parses_the_seven_names_and_refuses_the_rest ... ok
+test sealed::restore_tests::restore_window_is_inclusive_at_both_ends ... ok
+test sealed::restore_tests::restore_window_refuses_an_unreadable_layer ... ok
+test sealed::restore_tests::restore_window_refuses_what_it_cannot_read ... ok
+test sealed::restore_tests::restore_window_selects_layers ... ok
+test sealed::restore_tests::restore_windows_mix_with_bare_types ... ok
+test sealed::restore_tests::restoring_all_seven_leaves_no_quantized_projection ... ok
+test sealed::restore_tests::restoring_nothing_touches_nothing_and_never_calls_the_source ... ok
+test sealed::restore_tests::restoring_one_type_replaces_exactly_that_type ... ok
+test model::tests::a_chunked_prefill_next_is_the_prefill_of_generate ... ok
+test sealed::restore_tests::the_q4_round_trip_quantizes_rather_than_copying ... ok
+test sealed::restore_tests::the_two_restore_variables_select_a_precision_and_refuse_each_other ... ok
+test sealed::tests::an_overlay_is_not_a_sealed_artifact ... ok
+test sealed::tests::repo_ids_are_never_sealed_paths ... ok
+test sealed::restore_tests::the_mmap_source_narrows_like_the_var_builder_does ... ok
+test served_decode::tests::the_launch_loop_is_the_greedy_loop ... ok
+test served_decode::tests::the_launch_loop_refuses_a_short_launch_with_no_stop ... ok
+test spec_prompts::tests::a_prompt_file_parses_and_refuses ... ok
+test spec_prompts::tests::the_house_set_parses ... ok
+test speculative::tests::lookup_drafts_the_latest_continuation_of_the_longest_ngram ... ok
+test spec_prompts::tests::the_gsm8k_set_parses_and_starts_as_the_house_set ... ok
+test speculative::tests::the_lookup_policy_parses_and_probes ... ok
+test speculative::tests::the_loop_counts_and_refusals ... ok
+test speculative::tests::the_speculative_loop_is_the_greedy_loop ... ok
+test tempfit::tests::a_fit_reports_what_a_temperature_bought ... ok
+test tempfit::tests::a_fit_that_does_not_transfer_reports_a_negative_fraction ... ok
+test tempfit::tests::a_model_that_matches_its_teacher_has_no_divergence ... ok
+test speculative::tests::the_lookup_loop_is_the_greedy_loop ... ok
+test tempfit::tests::collinear_points_have_no_vertex ... ok
+test tempfit::tests::decomposed_divergence_matches_the_definition ... ok
+test tempfit::tests::divergence_is_convex_in_beta_not_in_temperature ... ok
+test tempfit::tests::divergence_is_never_negative ... ok
+test tempfit::tests::log_partition_survives_a_large_beta ... ok
+test tempfit::tests::no_positive_temperature_moves_an_argmax ... ok
+test tempfit::tests::the_divergence_is_a_mean_over_positions ... ok
+test tempfit::tests::the_parabola_vertex_is_exact_on_a_parabola ... ok
+test tempfit::tests::totals_sum_over_windows ... ok
+test argmax_key::tests::sparse_ties_reach_the_cross_thread_order ... ok
+test tetra_cpu::tests::word_at_reads_the_served_stream ... ok
+test tempfit::tests::a_planted_temperature_is_recovered ... ok
+test model::tests::stepped_decode_matches_generate_on_all_stores ... ok
+test model::tests::paired_decode_scores_what_the_window_scores ... ok
+test model::tests::kernel_prefill_rows_are_the_kernel_rows ... ok
+test model::tests::a_session_feeds_a_long_turn_in_chunks_the_model_takes ... ok
+test tetra_cpu::tests::decode_matches_the_reference ... ok
+test loader::tests::a_real_cached_snapshot_loads_and_maps ... ok
+test model::tests::the_kernel_arm_runs_in_the_paired_decode ... ok
+test model::tests::key_loops_feed_the_reference_logits ... ok
+test model::tests::the_kernel_prefill_does_not_depend_on_the_chunking ... ok
+test model::tests::the_kernel_form_attends_through_the_replay ... ok
+test model::tests::attention_forms_agree ... ok
+test model::tests::the_in_place_softmax_moves_no_logit ... ok
+test model::tests::token_loops_match_generate ... ok
+test model::tests::the_served_threshold_is_position_1280 ... ok
+
+test result: ok. 211 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 9.74s
+
+     Running unittests src/bin/artscale.rs (target/debug/deps/artscale-191af30098794278)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/artstat.rs (target/debug/deps/artstat-617b01c95686caa4)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/batchrun.rs (target/debug/deps/batchrun-6eac4eb78cdb6885)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/calibtokens.rs (target/debug/deps/calibtokens-6cd9ee0881fce1b2)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/chat.rs (target/debug/deps/chat-04acf0f0a9989d24)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/cosdiag.rs (target/debug/deps/cosdiag-11ab3e8f804839eb)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/cpurun.rs (target/debug/deps/cpurun-e227204b2b2145f9)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/dflashcheck.rs (target/debug/deps/dflashcheck-9ce7fe48d5432d16)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/embedq.rs (target/debug/deps/embedq-cb9cb5e245582b79)
+
+running 8 tests
+test tests::a_projections_only_file_is_refused ... ok
+test tests::a_v4_ball_file_still_passes ... ok
+test tests::a_threshold_above_every_tensor_reproduces_the_file ... ok
+test tests::the_embedding_goes_to_int4_g64_and_nothing_else_moves ... ok
+test tests::q8_is_the_same_walk_at_eight_bits ... ok
+test tests::an_already_quantized_embedding_is_not_requantized ... ok
+test tests::the_matrix_section_is_copied_byte_for_byte ... ok
+test tests::the_mixed_header_keeps_its_kinds ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.26s
+
+     Running unittests src/bin/errmap.rs (target/debug/deps/errmap-feeb7cca33c285b3)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/export.rs (target/debug/deps/export-ae9ef0fd9dd025ae)
+
+running 3 tests
+test tests::the_int4_list_names_every_int4_record_sorted ... ok
+test tests::an_int4_export_is_not_zero_and_tracks_the_dense_tensor ... ok
+test tests::an_int4_record_exports_the_weights_it_holds ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/fusedrun.rs (target/debug/deps/fusedrun-7dbd5122ce5de6bd)
+
+running 8 tests
+test tests::median_is_the_middle_rate_odd_and_even ... ok
+test tests::paired_ppl_interval ... ok
+test tests::no_mode_refuses_itself ... ok
+test tests::a_short_arm_is_refused_rather_than_compared_on_its_prefix ... ok
+test tests::gqa_ppl_spec ... ok
+test tests::extras_belong_to_their_mode ... ok
+test tests::pers_4e_takes_a_count_and_optional_e1_arms ... ok
+test tests::every_pair_is_refused_both_ways ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/gaindiag.rs (target/debug/deps/gaindiag-5e8b05aa5311e981)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/gbench.rs (target/debug/deps/gbench-21a3a0604c1ae95e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/gsm8k.rs (target/debug/deps/gsm8k-1c181bf1c75aa33a)
+
+running 3 tests
+test tests::quantiles_are_nearest_rank ... ok
+test tests::a_flag_is_zero_one_or_refused ... ok
+test tests::a_count_defaults_only_when_unset ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/gsm8kpair.rs (target/debug/deps/gsm8kpair-70847f4a4a1e3c0c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/hcapture.rs (target/debug/deps/hcapture-e3f7c43bc208db2d)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/hfdense.rs (target/debug/deps/hfdense-482ba2f6810a8b9f)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/hfpack.rs (target/debug/deps/hfpack-aa97d4d56236eaff)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/hratio.rs (target/debug/deps/hratio-9990402e33a15f56)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/int4swap.rs (target/debug/deps/int4swap-67cf741730eee54b)
+
+running 9 tests
+test tests::a_file_without_kind_tags_is_refused ... ok
+test tests::a_tetra_only_header_gains_int4 ... ok
+test tests::a_shape_the_checkpoint_disagrees_on_is_refused ... ok
+test tests::covered_records_become_the_restore_paths_int4 ... ok
+test tests::an_int4_record_is_never_requantized ... ok
+test tests::a_header_that_declares_int4_is_unchanged ... ok
+test tests::raws_and_blobs_are_copied_byte_for_byte ... ok
+test tests::a_type_that_matches_nothing_is_refused ... ok
+test tests::the_price_is_the_size_the_transplant_writes ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+
+     Running unittests src/bin/kltemp.rs (target/debug/deps/kltemp-2219a7efb89e5981)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/metalrun.rs (target/debug/deps/metalrun-744662f705538cb7)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/mmlu.rs (target/debug/deps/mmlu-85bba48036823310)
+
+running 20 tests
+test tests::micro_and_macro_are_different_statistics ... ok
+test tests::micro_reduces_to_pooled_ratio_on_a_census ... ok
+test tests::an_unknown_allocation_is_refused ... ok
+test tests::stderr_shrinks_with_the_sample ... ok
+test tests::proportional_shrinks_the_bar_at_constant_budget ... ok
+test tests::a_stratum_taken_whole_still_contains_the_flat_sample ... ok
+test tests::a_wrong_pick_is_written_as_wrong ... ok
+test tests::the_budget_follows_the_population ... ok
+test tests::the_finite_population_correction_is_load_bearing ... ok
+test tests::the_dump_carries_what_the_paired_analysis_needs ... ok
+test tests::the_floor_keeps_every_stratum_estimable ... ok
+test tests::the_plan_is_printed_with_its_numbers ... ok
+test tests::the_parquet_index_survives_the_shuffle ... ok
+test tests::the_plan_on_the_real_populations ... ok
+test tests::the_stderr_formula_holds_under_an_unequal_allocation ... ok
+test tests::the_trailer_carries_the_fingerprint_and_the_count ... ok
+test tests::ties_are_broken_deterministically ... ok
+test tests::the_default_allocation_is_todays_sample ... ok
+test tests::the_proportional_sample_is_a_per_stratum_prefix_of_the_flat_one ... ok
+test tests::the_sample_is_identical_across_arms_and_moves_with_the_limit ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/mmlupair.rs (target/debug/deps/mmlupair-ebd25efce20074e1)
+
+running 16 tests
+test tests::a_dump_without_the_stratum_weight_is_refused ... ok
+test tests::a_dump_without_its_trailer_is_refused ... ok
+test tests::a_self_contradictory_row_is_refused ... ok
+test tests::a_question_asked_in_different_words_is_refused_even_with_intersect ... ok
+test tests::a_different_question_set_is_refused_even_at_equal_fingerprints ... ok
+test tests::dumps_of_different_exams_are_refused ... ok
+test tests::a_dump_round_trips ... ok
+test tests::dumps_of_different_sampling_plans_are_refused ... ok
+test tests::mcnemar_ignores_the_concordant_pairs ... ok
+test tests::mcnemar_matches_the_hand_computation ... ok
+test tests::swapping_the_arms_flips_the_sign_and_not_the_p_value ... ok
+test tests::stratification_flips_the_conclusion ... ok
+test tests::a_strictly_better_arm_excludes_zero ... ok
+test tests::evenly_traded_questions_leave_zero_inside_the_interval ... ok
+test tests::the_bootstrap_is_deterministic_and_the_seed_is_wired ... ok
+test tests::a_census_has_no_sampling_interval ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running unittests src/bin/oracle.rs (target/debug/deps/oracle-878a5bc7777162ea)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/ppl.rs (target/debug/deps/ppl-c58c970e855e7092)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/prefillbench.rs (target/debug/deps/prefillbench-0fab038db134d70b)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/probe.rs (target/debug/deps/probe-52fed3f33b306cd8)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/rowscale.rs (target/debug/deps/rowscale-07759e87fdc90f15)
+
+running 18 tests
+test tests::a_row_scales_export_carrying_tau_is_refused ... ok
+test tests::a_trainer_name_and_an_artifact_name_land_on_one_key ... ok
+test tests::a_row_norms_export_without_tau_is_refused ... ok
+test tests::a_non_finite_multiplier_is_refused ... ok
+test tests::a_non_positive_multiplier_is_refused ... ok
+test tests::a_free_params_export_is_refused_by_name ... ok
+test tests::an_export_that_scales_nothing_is_refused ... ok
+test tests::a_row_norms_export_carries_both_vectors ... ok
+test tests::an_empty_vector_is_refused ... ok
+test tests::the_sink_wrapper_and_a_bare_payload_both_parse ... ok
+test tests::one_changed_row_moves_one_f64_and_nothing_else ... ok
+test tests::a_tau_of_the_wrong_length_is_refused ... ok
+test tests::a_sigma_of_the_wrong_length_is_refused ... ok
+test tests::one_norm_value_doubled_moves_one_half_word_and_nothing_else ... ok
+test tests::a_sigma_of_all_ones_reproduces_the_file_byte_for_byte ... ok
+test tests::an_empty_export_leaves_every_record_alone ... ok
+test tests::a_tau_of_all_ones_reproduces_the_sealed_file_byte_for_byte ... ok
+test tests::a_norm_the_file_does_not_hold_is_refused ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+
+     Running unittests src/bin/run.rs (target/debug/deps/run-8cbdeb1c879357b9)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/seal.rs (target/debug/deps/seal-d6b9c59fb02243fe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/smoke.rs (target/debug/deps/smoke-87f5003f7f0a3e93)
+
+running 24 tests
+test tests::a_misspelled_mode_is_refused ... ok
+test tests::no_seed_is_the_contiguous_prefix ... ok
+test tests::an_unknown_calibration_corpus_is_refused ... ok
+test tests::every_window_fits_in_the_corpus ... ok
+test tests::a_malformed_positional_is_refused_not_defaulted ... ok
+test tests::printed_names_parse_back ... ok
+test tests::seeded_windows_leave_the_prefix ... ok
+test tests::a_misspelled_codebook_is_refused ... ok
+test tests::a_misspelled_rotation_is_refused ... ok
+test tests::seeds_are_reproducible_and_distinct ... ok
+test tests::the_calibration_budget_follows_the_request ... ok
+test tests::an_empty_codebook_is_refused ... ok
+test tests::the_block_length_follows_the_codebook_and_the_rate_follows_it ... ok
+test tests::out_of_range_caps_are_refused ... ok
+test tests::the_class_count_is_the_documented_one ... ok
+test tests::the_journal_line_names_the_tetra_map ... ok
+test tests::the_refusal_names_every_accepted_value ... ok
+test tests::the_scalar_arm_parses_and_never_falls_back ... ok
+test tests::the_tetra_arm_parses_and_never_falls_back ... ok
+test tests::the_documented_spellings_still_resolve ... ok
+test tests::windows_are_distinct ... ok
+test tests::the_tetra_arm_spends_the_same_forty_eight_bits_as_the_ball ... ok
+test tests::the_journal_line_reports_the_real_gain_bits ... ok
+test tests::the_journal_line_separates_a_free_magnitude ... ok
+
+test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/specbench.rs (target/debug/deps/specbench-f87e9934011c9457)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/specrun.rs (target/debug/deps/specrun-449262d18fec0814)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/tetra_schur.rs (target/debug/deps/tetra_schur-c28407328d3f0fc6)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/tetraalt.rs (target/debug/deps/tetraalt-c0065e829c3801e4)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/tetraentropy.rs (target/debug/deps/tetraentropy-6f2f2fc933631add)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/tetragather.rs (target/debug/deps/tetragather-61341aa6a026e903)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/tetratables.rs (target/debug/deps/tetratables-e47cef7751e66145)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/tetravectors.rs (target/debug/deps/tetravectors-767432d8fee0e585)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/vtreebench.rs (target/debug/deps/vtreebench-7d2bbc134b4e81de)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/attn_kernel.rs (target/debug/deps/attn_kernel-babc925588920b06)
+
+running 3 tests
+test the_kernel_refuses_what_it_does_not_compute ... ok
+test the_f16_conversions_are_the_half_crates ... ok
+test the_cpu_fake_is_the_replay_and_the_replay_is_one_text ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.42s
+
+     Running tests/attn_metal.rs (target/debug/deps/attn_metal-e9e08ed0e49798c7)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/batch_gemm.rs (target/debug/deps/batch_gemm-2e55d5f325cfbb47)
+
+running 5 tests
+test int4_projections_match_the_reference_for_records_and_the_head ... ignored, compiles C++ and runs whole CTAs, run in release
+test int4_records_in_the_tiled_order_of_4e_v9_match_the_file_order ... ignored, compiles C++ and runs whole CTAs, run in release
+test several_projections_share_one_launch ... ignored, compiles C++ and runs whole CTAs, run in release
+test tetra_projections_match_the_reference_at_every_width ... ignored, compiles C++ and runs whole CTAs, run in release
+test the_two_cta_entries_match_the_reference_too ... ignored, compiles C++ and runs whole CTAs, run in release
+
+test result: ok. 0 passed; 0 failed; 5 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/batch_mma.rs (target/debug/deps/batch_mma-24418a1b44dbf23b)
+
+running 2 tests
+test the_int4_kernel_matches_the_reference_for_records_and_the_head ... ignored, compiles C++ and runs whole CTAs, run in release
+test the_tetra_kernel_matches_the_reference_at_every_width_and_split ... ignored, compiles C++ and runs whole CTAs, run in release
+
+test result: ok. 0 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/batch_step.rs (target/debug/deps/batch_step-884c8295254a7809)
+
+running 5 tests
+test dense_projections_take_their_linear_in_the_tensor_core_arm ... ok
+test a_sequence_that_stops_leaves_the_others_untouched ... ok
+test the_batched_window_score_is_the_full_window_score ... ok
+test sequences_that_join_and_leave_a_pool_decode_as_they_decode_alone ... ok
+test a_batch_decodes_each_sequence_as_it_decodes_alone ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+
+     Running tests/cpu_tetra.rs (target/debug/deps/cpu_tetra-405a6add8d2b372f)
+
+running 6 tests
+test the_int4_matvec_computes_what_the_record_decodes ... ok
+test the_candle_adapter_binds_the_same_product ... ok
+test skipping_the_rotation_is_detected ... ok
+test the_int4_embedding_gathers_and_projects_its_rows ... ok
+test the_tetra_matvec_computes_what_the_reference_decodes ... ok
+test a_batch_computes_what_one_row_at_a_time_computes ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.27s
+
+     Running tests/device_seam.rs (target/debug/deps/device_seam-0147d13cf86b3dab)
+
+running 16 tests
+test parts_out_of_order_are_refused ... ok
+test a_partial_group_is_refused ... ok
+test three_separate_group_arcs_are_refused_by_name ... ok
+test a_group_part_beside_a_lone_projection_is_refused ... ok
+test an_activation_from_another_basis_is_refused ... ok
+test one_row_is_rotated_by_prepare ... ok
+test a_non_batching_projection_takes_one_launch_a_row ... ok
+test a_group_over_several_rows_narrows_each_part_correctly ... ok
+test an_int4_projection_stays_in_the_natural_basis ... ok
+test a_lattice_projection_applies_its_own_rotation ... ok
+test a_chunk_is_rotated_by_prepare_rows_and_never_by_prepare ... ok
+test a_lone_int4_projection_takes_several_rows_one_at_a_time ... ok
+test the_int4_arm_reads_the_callers_activation ... ok
+test one_group_arc_yields_one_launch_and_the_right_views ... ok
+test a_batching_projection_takes_one_launch_and_not_four ... ok
+test batching_changes_the_launches_and_not_the_result ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/dflash_fixture.rs (target/debug/deps/dflash_fixture-861340ba39aa304c)
+
+running 3 tests
+test adapter_matches_mlx_reference ... ignored, needs the fixture, the packed 4B table and the drafter's 1 GB of weights
+test drafter_matches_mlx_reference ... ignored, needs the fixture, the packed 4B table and the drafter's 1 GB of weights
+test the_sealed_table_is_the_packed_table_and_the_fixture_rows ... ignored, needs the sealed 4B, the packed 4B table and the fixture
+
+test result: ok. 0 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/dflash_prefill.rs (target/debug/deps/dflash_prefill-c1cfba2d583d23d0)
+
+running 1 test
+test prefill_taps_feed_the_drafter_as_the_fixture ... ignored, loads the sealed 4B, the drafter and the fixture
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/dflash_q4_head.rs (target/debug/deps/dflash_q4_head-cf9328838e1d23b8)
+
+running 1 test
+test the_int4_head_matches_the_dense_head_on_the_fixture ... ignored, needs the fixture, the packed 4B table and clang++
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/embed_q4.rs (target/debug/deps/embed_q4-7ce87187ddae141a)
+
+running 5 tests
+test the_mode_parses_and_counts_its_bytes ... ok
+test a_q4_table_passes_through_and_other_widths_are_refused ... ok
+test the_tables_come_off_at_four_bits ... ok
+test the_load_path_writes_the_spec_bytes ... ok
+test the_kernel_dequant_decides_what_the_reference_decides ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.62s
+
+     Running tests/embed_q8.rs (target/debug/deps/embed_q8-944e978fc7706aee)
+
+running 12 tests
+test embed_mode_parses_exactly ... ok
+test the_8b_untied_footprint_is_two_tables ... ok
+test the_4b_footprint_is_the_announced_413_mb ... ok
+test the_printed_line_announces_every_table ... ok
+test stored_q8_passes_through_and_nothing_else_does ... ok
+test untied_without_an_lm_head_fails_and_says_so ... ok
+test tie_true_takes_one_table_and_wires_both_ends_to_it ... ok
+test load_path_quantization_is_bit_identical_to_embedq ... ok
+test the_accounting_carries_both_tables ... ok
+test pre_quantized_tables_pass_through_on_both_ends ... ok
+test tie_false_gives_two_buffers_each_read_by_its_own_end ... ok
+test the_kernel_dequant_decides_what_the_reference_decides ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.88s
+
+     Running tests/embedquant.rs (target/debug/deps/embedquant-128c29b2a0c07990)
+
+running 5 tests
+test a_constant_group_reconstructs_exactly ... ok
+test a_quantized_embedding_survives_serialization ... ok
+test quantize_then_decode_is_within_one_scale_step ... ok
+test the_embedding_is_actually_quantized ... ok
+test f16_widening_matches_the_half_crate_exhaustively ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/env_registry.rs (target/debug/deps/env_registry-d2388ef8249d5341)
+
+running 2 tests
+test the_scanner_reads_quoted_names_only ... ok
+test every_quoted_variable_is_in_the_registry ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/fused_golay70.rs (target/debug/deps/fused_golay70-10f23eff7dd1edbf)
+
+running 2 tests
+test the_golay70_half_kernel_decides_what_rust_decides ... ignored, compiles C++, run in release
+test the_golay70_unit_extends_planes12x ... ok
+
+test result: ok. 1 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/fused_layout.rs (target/debug/deps/fused_layout-892d257757601c18)
+
+running 4 tests
+test the_layout_switch_is_honoured ... ok
+test a_mismatched_row_shape_is_refused ... ok
+test planes_words_decode_to_the_slot_content ... ok
+test payload_accounting_matches_the_layout ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/fused_planes12x.rs (target/debug/deps/fused_planes12x-caddff886dfaa781)
+
+running 4 tests
+test planes12x_words_rebuild_the_planes14_content ... ignored, one lattice search per 5-level block, run in release
+test the_planes12x_half_kernel_decides_what_rust_decides ... ignored, compiles C++ and searches, run in release
+test the_row_offsets_partition_the_exception_table ... ignored, one lattice search per 5-level block, run in release
+test each_layout_names_its_own_translation_unit ... ok
+
+test result: ok. 1 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/fused_segment.rs (target/debug/deps/fused_segment-2d7c042e84845c3e)
+
+running 9 tests
+test the_spans_must_tile_the_group_in_rank_order ... ok
+test the_last_block_window_is_in_bounds_and_one_word_less_is_not ... ok
+test the_naive_word_concatenation_decodes_differently ... ok
+test the_spliced_stream_decodes_to_the_unfused_projections ... ok
+test a_group_missing_a_consumer_is_refused ... ok
+test the_splice_refuses_a_stream_of_the_wrong_length ... ok
+test a_group_whose_parts_disagree_on_the_rotation_is_refused ... ok
+test fusion_costs_exactly_four_bytes_a_fused_row ... ok
+test the_grouping_keys_on_the_layer_and_orders_by_rank ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/fused_tail.rs (target/debug/deps/fused_tail-cef593017e76a6ed)
+
+running 5 tests
+test the_tail_epilogue_decides_what_rust_decides ... ignored, compiles C++, run in release
+test narrowing_the_tail_is_worth_less_on_a_model_whose_down_proj_has_none ... ok
+test side_bytes_bill_the_tail_at_two_and_the_scales_at_four ... ok
+test the_narrowed_tail_is_the_binary16_rounding ... ok
+test narrowing_the_tail_rounds_once ... ok
+
+test result: ok. 4 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/fused_tetra48.rs (target/debug/deps/fused_tetra48-922ed127748ae154)
+
+running 11 tests
+test a_layout_reads_its_own_lattice_and_no_other ... ok
+test int4_is_orthogonal_to_the_layout ... ok
+test tetra48_does_not_segment ... ok
+test tetra48_shares_no_source_with_the_ball_layouts ... ok
+test the_tetra48_spelling_resolves_and_nothing_near_it_does ... ok
+test the_header_set_is_gated_before_the_first_record ... ok
+test the_int4_kernel_ships_with_its_entry_point ... ok
+test every_source_name_resolves_to_embedded_text ... ok
+test every_kernel_name_is_defined_by_its_own_sources ... ok
+test the_inverse_norm_table_carries_the_origin_as_zero ... ok
+test the_constant_tables_have_the_shapes_the_kernel_declares ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+     Running tests/g5_calibration.rs (target/debug/deps/g5_calibration-87d21853c53fffe1)
+
+running 12 tests
+test hessian_matches_a_direct_computation ... ok
+test accumulation_is_independent_of_how_rows_are_batched ... ok
+test damping_rescues_a_dead_input_channel ... ok
+test hessian_is_symmetric_and_factorizable ... ok
+test the_identity_control_is_a_no_op_bit_for_bit ... ok
+test the_published_path_does_not_keep_the_dense_hessian ... ok
+test group_scales_keeps_the_dense_hessian ... ok
+test design_c_keeps_the_dense_hessian ... ok
+test an_exact_codebook_refines_to_unity_scales ... ok
+test the_kept_hessian_is_load_bearing ... ok
+test sequential_block_leaves_the_first_activation_alone ... ok
+test sequential_block_changes_the_weights ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.00s
+
+     Running tests/g6_format.rs (target/debug/deps/g6_format-d685342661521e68)
+
+running 1 test
+test the_rotation_seed_separates_every_block_and_activation ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/guided.rs (target/debug/deps/guided-540bb4406f9c5bbc)
+
+running 8 tests
+test the_fixture_reads_back_as_written ... ok
+test malformed_inputs_are_refused_by_name ... ok
+test zeroing_half_the_tokens_equals_encoding_the_other_half_alone ... ok
+test each_row_group_is_encoded_against_its_own_weights ... ok
+test unset_encode_is_byte_identical_to_the_commit_before_the_change ... ok
+test two_identical_groups_equal_one_group ... ok
+test unit_weights_encode_the_bytes_of_the_unguided_run ... ok
+test layers_and_types_route_to_their_own_weights ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.28s
+
+     Running tests/hfpack.rs (target/debug/deps/hfpack-5dd8f8e36b18e2e5)
+
+running 6 tests
+test the_shipped_cuda_closure_is_complete ... ok
+test the_shipped_shader_is_the_repositorys ... ok
+test a_ball_file_is_refused_and_leaves_nothing_behind ... ok
+test the_codes_tensor_unpacks_msb_first_to_the_records_indices ... ok
+test a_sealed_file_packs_into_a_described_directory ... ok
+test the_mini_fixture_describes_a_whole_qwen3_layer ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+     Running tests/int4_refusal.rs (target/debug/deps/int4_refusal-0c5854468418f2bd)
+
+running 3 tests
+test a_mixed_file_is_served_by_the_ball_layouts_and_a_tetra_record_is_not ... ok
+test embedq_walks_a_mixed_file_and_leaves_nothing_behind_a_refusal ... ok
+test export_walks_a_mixed_file_and_creates_nothing_behind_a_refusal ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.77s
+
+     Running tests/int4_wiring.rs (target/debug/deps/int4_wiring-43f6c681e85a2fb1)
+
+running 7 tests
+test the_two_group_constants_agree ... ok
+test the_two_int4_paths_agree_bit_for_bit ... ok
+test verify_artifact_checks_the_int4_half ... ok
+test resume_refuses_a_shard_whose_v_proj_is_lattice ... ok
+test shard_extent_walks_a_mixed_shard ... ok
+test the_loop_writes_v_proj_as_int4_and_puts_it_back_in_the_model ... ok
+test a_mixed_run_reports_the_same_totals_in_one_segment_or_two ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 13.62s
+
+     Running tests/kv_cache.rs (target/debug/deps/kv_cache-5d95a5da93c5d1e4)
+
+running 5 tests
+test zero_new_tokens_returns_nothing_on_both_paths ... ok
+test a_split_prefill_matches_a_whole_one ... ok
+test the_restructured_block_is_the_same_calls_in_the_same_order ... ok
+test the_cache_does_not_change_what_the_model_says ... ok
+test q8_actually_changes_what_a_block_computes ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.86s
+
+     Running tests/l36_capture.rs (target/debug/deps/l36_capture-3443c637bfa25458)
+
+running 10 tests
+test the_served_accumulator_carries_no_moments ... ok
+test an_illegal_shrink_is_refused_up_front ... ok
+test the_first_moment_is_captured_and_is_not_derivable_from_the_hessian ... ok
+test every_block_and_every_activation_is_emitted_exactly_once ... ok
+test the_hidden_states_advance_through_the_blocks ... ok
+test the_per_token_norms_cover_every_calibration_row ... ok
+test both_bases_can_be_emitted_and_they_are_distinguishable ... ok
+test the_captured_hessian_is_the_one_the_encoder_would_factor ... ok
+test the_rotated_emission_is_the_encoders_basis_and_names_its_seed ... ok
+test the_shrink_lands_before_the_rotation ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running tests/phase_timing.rs (target/debug/deps/phase_timing-87348953aed61419)
+
+running 5 tests
+test the_gate_accepts_exactly_one ... ok
+test stats_are_median_and_range ... ok
+test zero_tokens_means_zero_fences ... ok
+test every_phase_boundary_is_fenced ... ok
+test the_fences_do_not_change_what_the_model_says ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running tests/proj_q4.rs (target/debug/deps/proj_q4-1938a564be626fce)
+
+running 3 tests
+test swapping_the_nibbles_is_caught ... ok
+test the_row_dot_matches_an_f64_reference ... ok
+test the_kernel_dequantizes_exactly_like_the_reader ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.15s
+
+     Running tests/proj_q4_wide.rs (target/debug/deps/proj_q4_wide-1e5ea39cc560bb04)
+
+running 6 tests
+test the_card_fixture_is_the_host_output ... ignored, compiles C++ and runs 256-row records, run in release
+test the_f16_staged_kernel_computes_the_dot_product ... ignored, compiles C++, run in release
+test the_f16_staged_kernel_is_tv_q4_hh_lane_for_lane ... ignored, compiles C++ and runs eleven widths, run in release
+test the_wide_kernel_name_matches_its_source ... ok
+test the_compiled_in_fixture_covers_every_card_case ... ok
+test the_synthetic_record_is_a_function_of_its_seed ... ok
+
+test result: ok. 3 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/q4_metal_candle.rs (target/debug/deps/q4_metal_candle-7241433661458ad1)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/resume.rs (target/debug/deps/resume-b5446fdf8b5d5d58)
+
+running 14 tests
+test the_block_count_is_not_a_configuration_difference ... ok
+test the_sidecar_catches_what_the_shard_cannot ... ok
+test the_matrix_plan_is_the_loops_emission_order ... ok
+test a_missing_sidecar_is_refused ... ok
+test a_file_that_is_not_an_artifact_is_refused ... ok
+test the_sidecar_round_trips_through_a_file ... ok
+test a_shard_from_another_rotation_is_refused ... ok
+test a_shard_whose_records_are_out_of_order_is_refused ... ok
+test a_rotated_shard_is_refused_by_an_unrotated_run ... ok
+test a_shard_with_another_gain_width_is_refused ... ok
+test the_resume_actually_loads_the_shard_into_the_model ... ok
+test a_shard_from_another_codebook_is_refused ... ok
+test a_torn_shard_is_truncated_to_whole_blocks ... ok
+test single_run_and_two_segments_agree ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 9.74s
+
+     Running tests/rot_metal_tg.rs (target/debug/deps/rot_metal_tg-095bc301b9761a46)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/rotplan.rs (target/debug/deps/rotplan-d5c3ac01658d1f9f)
+
+running 12 tests
+test a_block_has_four_activation_sites ... ok
+test rot_share_parse_refuses_anything_else ... ok
+test the_nvrtc_source_list_is_what_the_lot_declares ... ok
+test the_prefill_budget_admits_the_census_and_leaves_the_other_alone ... ok
+test the_matvec_counter_counts_the_int4_projections ... ok
+test a_file_whose_groups_disagree_is_refused ... ok
+test the_key_partition_is_not_the_width_partition ... ok
+test a_group_whose_sites_disagree_is_refused_at_use ... ok
+test the_load_path_runs_the_partition_gate ... ok
+test the_hoist_is_not_gated_on_the_layout ... ok
+test every_use_gets_the_rotation_of_its_own_activation ... ok
+test the_hoist_actually_hoists ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.48s
+
+     Running tests/served_config.rs (target/debug/deps/served_config-947478c6ff3da535)
+
+running 36 tests
+test resolving_the_file_does_not_read_the_environment ... ok
+test a_contradicting_variable_is_refused_and_an_agreeing_one_passes ... ok
+test an_unknown_key_is_refused ... ok
+test the_14b_config_is_the_4b_served_values_on_the_14b_object ... ok
+test measurement_modes_are_refused_beside_the_persistent_decode ... ok
+test an_attention_the_file_cannot_serve_is_refused ... ok
+test an_empty_field_is_refused_and_not_read_as_the_default ... ok
+test the_4e_config_is_the_kernel_config_with_the_persistent_decode ... ok
+test the_8b_config_is_the_4b_served_values_on_the_8b_object ... ok
+test the_8b_and_14b_v9_configs_are_the_4b_v9_config_on_their_objects ... ok
+test the_chat_door_refuses_what_its_config_cannot_serve ... ok
+test the_comparison_goes_through_the_parsers ... ok
+test the_file_accepts_exactly_what_the_variables_accept ... ok
+test the_decode_field_accepts_two_engines_and_refuses_the_rest ... ok
+test a_missing_key_is_refused ... ok
+test the_grouped_config_is_the_e4_object_with_the_grouped_attention ... ok
+test the_grouped_form_is_refused_on_metal_and_named_in_the_refusal ... ok
+test the_batch_configs_are_the_served_fields_with_a_batch_and_no_4e ... ok
+test the_kernel_config_is_the_grouped_config_with_the_kernel_form ... ok
+test the_optional_fields_are_read_as_written ... ok
+test the_persistent_decode_is_refused_off_the_served_4b_fields ... ok
+test the_persistent_decode_is_refused_on_metal ... ok
+test the_persistent_decode_runs_on_the_sealed_shapes_only ... ok
+test an_absent_attention_field_is_the_published_form ... ok
+test every_shipped_config_resolves ... ok
+test the_q4_config_is_the_4b_served_values_with_a_q4_embedding ... ok
+test the_served_config_resolves_to_the_served_values ... ok
+test the_rows_field_serves_v3_v4_and_v6_and_refuses_the_rest ... ok
+test the_served_rows_are_the_modules_row_forms ... ok
+test the_store_variable_is_refused_beside_a_config ... ok
+test the_shipped_config_is_the_served_object ... ok
+test the_prefill_attention_field_rides_the_kernel_form_only ... ok
+test variables_below_the_door_are_refused_by_name ... ok
+test the_v4_config_is_the_4e_config_with_the_v4_rows ... ok
+test the_v6_config_is_the_v4_config_with_the_v6_rows ... ok
+test the_v9_config_is_the_v6_config_with_the_v9_rows ... ok
+
+test result: ok. 36 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/served_unit.rs (target/debug/deps/served_unit-4698b5d78ffe9860)
+
+running 8 tests
+test the_cuda_binding_includes_the_served_list ... ok
+test the_served_unit_carries_the_kernels_the_runtime_looks_up ... ok
+test every_unit_carries_both_rotation_entry_points ... ok
+test the_served_translation_unit_parses ... ok
+test the_tiled_served_unit_parses_and_carries_the_tiled_entry_points ... ok
+test the_wide_unit_parses_and_carries_its_entry_points ... ok
+test every_layout_s_translation_unit_parses ... ok
+test dropping_any_source_breaks_the_served_unit ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.40s
+
+     Running tests/served_unit_copy.rs (target/debug/deps/served_unit_copy-ecf6d46d02635165)
+
+running 1 test
+test the_bench_copy_is_the_served_unit ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/session.rs (target/debug/deps/session-66b9cd751cd0bd8a)
+
+running 7 tests
+test common_prefix_counts_matching_heads_only ... ok
+test zero_tokens_asked_answers_nothing_and_feeds_nothing ... ok
+test a_cancel_stops_within_one_token_and_keeps_the_cache_consistent ... ok
+test the_cap_leaves_the_last_token_out_of_the_cache ... ok
+test a_divergent_history_is_cut_back_to_the_common_prefix ... ok
+test a_stateless_replay_gives_the_stateful_ids_and_reads_only_the_new_tokens ... ok
+test the_session_feeds_what_the_old_repl_loop_fed ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+
+     Running tests/tetra48_metal_candle.rs (target/debug/deps/tetra48_metal_candle-806645f15dac9083)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/tetra48_metal_rows.rs (target/debug/deps/tetra48_metal_rows-c4892cd8fe793cd4)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/tetra_diag.rs (target/debug/deps/tetra_diag-8b30920dfa8d63e8)
+
+running 2 tests
+test selection_is_dimension_only_and_rejects_oversampling ... ok
+test local_capture_replay_oracle_provenance_and_corruption_refusal ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.77s
+
+     Running tests/tetra_refusal.rs (target/debug/deps/tetra_refusal-4200134815711057)
+
+running 1 test
+test embedq_walks_a_tetra_file_and_the_ball_layouts_refuse_it ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.30s
+
+     Running tests/tetra_wiring.rs (target/debug/deps/tetra_wiring-2eee1d43c664e97d)
+
+running 5 tests
+test a_tetra_run_writes_a_v5_tetra_file_that_decodes_bit_for_bit ... ok
+test post_shape_run_round_trips_and_unsupported_modes_are_refused ... ok
+test a_shard_of_the_other_map_is_refused_both_ways ... ok
+test two_tetra_segments_produce_the_single_run_file ... ok
+test both_arms_report_the_same_rate_on_the_same_model ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.65s
+
+   Doc-tests llvq_llm
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

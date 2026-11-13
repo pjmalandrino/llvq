@@ -68,7 +68,7 @@ pub fn parse_groups(v: Option<&str>) -> Result<usize, String> {
     match v.map(str::trim) {
         None | Some("") => Ok(DEFAULT_GROUPS),
         Some(s) => match s.parse::<usize>() {
-            Ok(g) if g > 0 && G_MAX % g == 0 => Ok(g),
+            Ok(g) if g > 0 && G_MAX.is_multiple_of(g) => Ok(g),
             _ => Err(format!(
                 "{ENV_GROUPS}={s:?}: accepted values 1, 2, 4, 8 and 16 (default {DEFAULT_GROUPS}); the \
                  weight files hold {G_MAX} columns and a group is a sum of neighbouring columns"
@@ -110,10 +110,10 @@ pub fn file_name(layer: usize, name: &str) -> String {
 /// `d_out` must be a multiple of [`G_MAX`], so that every group of `G` is a union of whole columns
 /// of the file. The 4B's 9,728 rows are 16 × 608.
 pub fn row_ranges(d_out: usize, groups: usize) -> Result<Vec<std::ops::Range<usize>>, String> {
-    if groups == 0 || G_MAX % groups != 0 {
+    if groups == 0 || !G_MAX.is_multiple_of(groups) {
         return Err(format!("{groups} row groups: a divisor of {G_MAX} is needed"));
     }
-    if d_out % G_MAX != 0 {
+    if !d_out.is_multiple_of(G_MAX) {
         return Err(format!(
             "a matrix of {d_out} output rows: guided weights need a multiple of {G_MAX}, the columns of \
              the weight files"
@@ -152,7 +152,7 @@ pub fn read_raw(path: &Path, tokens: usize) -> anyhow::Result<Vec<f32>> {
 /// the quotient narrowed to f32 once. A group whose weights are all zero is refused: its `H_g` would
 /// be zero and the factor the damping alone.
 pub fn group_weights(raw: &[f32], tokens: usize, groups: usize) -> Result<Vec<Vec<f32>>, String> {
-    if groups == 0 || G_MAX % groups != 0 {
+    if groups == 0 || !G_MAX.is_multiple_of(groups) {
         return Err(format!("{groups} row groups: a divisor of {G_MAX} is needed"));
     }
     if raw.len() != tokens * G_MAX {

@@ -1,0 +1,29 @@
+set -euo pipefail
+O=/out/guided-weights-4b-2026-11-13
+S=/out/guided_weights-2026-11-13.py
+SL=/out/layer_vs_output-2026-11-13.py
+T=/out/guided-tokens-4b-2026-11-13/calib-tokens-4b.u32
+PY_SHA=73e98d165cf2b8783786c2a47e67c2aaf604eae344d419679f023b32f9bccd8f
+LVO_SHA=c031c52f1294f3e044621bf7ed3e7f5089da0fb593f0ced5ca826fbb67596f12
+PINS=safetensors==0.4.5\ tokenizers==0.22.2\ pyarrow==20.0.0\ huggingface-hub==1.19.0
+export HF_HOME=/tmp/hf
+mkdir -p "$O"
+nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader | tee "$O/gpu.txt"
+echo '== the scripts and the tokens on the mount: sha256 =='
+{ echo "$PY_SHA  $S"; echo "$LVO_SHA  $SL"; } | sha256sum -c - | tee "$O/script.sha256"
+sha256sum "$T" "$T.json" | tee "$O/tokens.sha256"
+python -V | tee "$O/python.txt"
+pip install --quiet --no-input $PINS
+pip freeze > "$O/pip-freeze.txt"
+mkdir -p /tmp/gw && cp "$S" /tmp/gw/guided_weights.py && cp "$SL" /tmp/gw/layer_vs_output.py
+cp "$T" /tmp/gw/calib-tokens.u32 && cp "$T.json" /tmp/gw/calib-tokens.u32.json
+echo '== selftest, tiny model, CPU =='
+python /tmp/gw/guided_weights.py --selftest 2>&1 | tee "$O/selftest.txt"
+grep -q 'selftest: GREEN' "$O/selftest.txt"
+echo '== the capture =='
+python /tmp/gw/guided_weights.py --run --tokens /tmp/gw/calib-tokens.u32 --out /tmp/gw/out 2>&1 | tee "$O/run.txt"
+cp /tmp/gw/out/* "$O/"
+( cd "$O" && sha256sum manifest.json w-*.f32 ) > "$O/files.sha256"
+echo '== what landed ==' ; ls -la "$O" | head -20 ; ls "$O"/w-*.f32 | wc -l
+
+DRY_RUN: job script parses; nothing launched

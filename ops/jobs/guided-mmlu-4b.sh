@@ -48,14 +48,20 @@ if [ "${1:-}" = pair ]; then
   exit 0
 fi
 
-for a in baseline candidate; do
-  test -s "$D/$a.sha256" || { echo "refused: $D/$a.sha256 missing; run ops/jobs/guided-encode-4b.sh first" >&2; exit 1; }
-done
-BASE_SHA=$(awk '$2 == "baseline.bin" {print $1}' "$D/baseline.sha256")
-CAND_SHA=$(awk '$2 == "candidate.bin" {print $1}' "$D/candidate.sha256")
-BYTES=$(stat -f %z "$D/baseline.bin")
-[ "$(stat -f %z "$D/candidate.bin")" = "$BYTES" ] || { echo "refused: the two sealed files differ in size" >&2; exit 1; }
-[ "$BASE_SHA" != "$CAND_SHA" ] || { echo "refused: the two sealed files are identical" >&2; exit 1; }
+if [ "$DRY" = 1 ] && [ ! -s "$D/baseline.sha256" ] && [ ! -s "$D/candidate.sha256" ]; then
+  # Before the encodes exist, a dry run prints the job with placeholders and checks nothing about the arms.
+  echo "DRY_RUN: no encoded arm yet in $D; the job below carries placeholders for the two sha256 and the size" >&2
+  BASE_SHA=DRY-baseline-sha256; CAND_SHA=DRY-candidate-sha256; BYTES=0
+else
+  for a in baseline candidate; do
+    test -s "$D/$a.sha256" || { echo "refused: $D/$a.sha256 missing; run ops/jobs/guided-encode-4b.sh first" >&2; exit 1; }
+  done
+  BASE_SHA=$(awk '$2 == "baseline.bin" {print $1}' "$D/baseline.sha256")
+  CAND_SHA=$(awk '$2 == "candidate.bin" {print $1}' "$D/candidate.sha256")
+  BYTES=$(stat -f %z "$D/baseline.bin")
+  [ "$(stat -f %z "$D/candidate.bin")" = "$BYTES" ] || { echo "refused: the two sealed files differ in size" >&2; exit 1; }
+  [ "$BASE_SHA" != "$CAND_SHA" ] || { echo "refused: the two sealed files are identical" >&2; exit 1; }
+fi
 
 if [ "$DRY" != 1 ]; then
   { test -f "$PREREG" && test -f "$PREREG.ots"; } || { echo "refused: $PREREG(.ots) missing" >&2; exit 1; }

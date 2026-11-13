@@ -95,9 +95,10 @@ def group_sq(g: torch.Tensor) -> torch.Tensor:
 
 
 def f32_bytes(t: torch.Tensor) -> bytes:
-    if sys.byteorder != "little":
-        raise SystemExit("refused: the weight files are little-endian and this host is not")
-    return t.detach().to(torch.float32).contiguous().cpu().numpy().tobytes()
+    """Little-endian f32, row-major. Through `struct`, not numpy: the pinned environment has no numpy
+    (pyarrow 20 does not pull it), and a value read back from f32 packs to the same four bytes."""
+    v = t.detach().to(torch.float32).contiguous().cpu().reshape(-1).tolist()
+    return struct.pack(f"<{len(v)}f", *v)
 
 
 def read_weight_file(path: Path, tokens: int) -> torch.Tensor:
@@ -317,20 +318,30 @@ def selftest() -> int:
     check(torch.equal(forward_probed(cfg, get, ids, zero, ckpt=True), z_ref),
           "with zero probes and checkpointing, the logits are unchanged")
 
-    # 2a. Probe gradients against central finite differences of the loss.
+    # 2a. Probe gradients against central finite differences of the loss. `layer_vs_output.rms_norm`
+    # computes in f32 as transformers does, which puts f32 rounding into the loss and drowns a
+    # difference quotient; for this check only, both the gradients and the differences run with a
+    # float64 RMSNorm, so the comparison is of autograd against the derivative, in float64.
     g, loss = probe_grads(cfg, get, ids, ckpt=False)
     g_ck, loss_ck = probe_grads(cfg, get, ids, ckpt=True)
     check(loss == loss_ck and all(torch.equal(g[k], g_ck[k]) for k in g),
           "checkpointing changes neither the loss nor any gradient")
-    eps, worst = 1e-6, 0.0
-    for (b, p, t, r) in [(0, "gate_proj", 3, 5), (1, "up_proj", 0, 31), (2, "gate_proj", 10, 16), (2, "up_proj", 7, 0)]:
-        def lossat(delta):
-            pr = {k: v.clone() for k, v in zero.items()}
-            pr[(b, p)][0, t, r] = delta
-            return float(seq_loss(forward_probed(cfg, get, ids, pr), ids))
-        fd = (lossat(eps) - lossat(-eps)) / (2 * eps)
-        worst = max(worst, abs(fd - float(g[(b, p)][t, r])) / max(1.0, abs(fd)))
-    check(worst < 1e-7, f"probe gradients match finite differences (worst relative error {worst:.2e})")
+    saved_norm = lvo.rms_norm
+    lvo.rms_norm = lambda x, wn, e: wn * (x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + e))
+    try:
+        g64, _ = probe_grads(cfg, get, ids, ckpt=False)
+        eps, worst = 1e-6, 0.0
+        for (b, p, t, r) in [(0, "gate_proj", 3, 5), (1, "up_proj", 0, 31), (2, "gate_proj", 10, 16),
+                             (2, "up_proj", 7, 0)]:
+            def lossat(delta):
+                pr = {k: v.clone() for k, v in zero.items()}
+                pr[(b, p)][0, t, r] = delta
+                return float(seq_loss(forward_probed(cfg, get, ids, pr), ids))
+            fd = (lossat(eps) - lossat(-eps)) / (2 * eps)
+            worst = max(worst, abs(fd - float(g64[(b, p)][t, r])) / max(1.0, abs(fd)))
+    finally:
+        lvo.rms_norm = saved_norm
+    check(worst < 1e-7, f"probe gradients match finite differences, float64 RMSNorm (worst relative error {worst:.2e})")
     last = max(float(g[k][-1].abs().max()) for k in g)
     check(last == 0.0, "the last position, which has no label, has gradient exactly 0")
 

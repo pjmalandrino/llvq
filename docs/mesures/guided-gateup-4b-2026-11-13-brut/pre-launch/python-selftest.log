@@ -1,0 +1,45 @@
+[heavy] 16:15:38 waiting for: recherche-debit: rc one-chunk chain 142 CTAs | wrapper=6047 pgid=13974 | since 2026-11-13 16:15:22
+[heavy] 16:16:08 waiting for: recherche-debit: rc one-chunk chain 142 CTAs | wrapper=6047 pgid=13974 | since 2026-11-13 16:15:22
+[heavy] 16:16:38 waiting for: recherche-debit: rc one-chunk chain 142 CTAs | wrapper=6047 pgid=13974 | since 2026-11-13 16:15:22
+[heavy] 16:17:08 waiting for: recherche-debit: rc one-chunk chain 142 CTAs | wrapper=6047 pgid=13974 | since 2026-11-13 16:15:22
+[heavy] 16:17:38 waiting for: recherche-debit: rc one-chunk chain 142 CTAs | wrapper=6047 pgid=13974 | since 2026-11-13 16:15:22
+[heavy] 16:18:08 waiting for: recherche-debit: rc one-chunk chain 142 CTAs | wrapper=6047 pgid=13974 | since 2026-11-13 16:15:22
+[heavy] 16:18:39 waiting for: recherche-debit: rc one-chunk chain 142 CTAs | wrapper=6047 pgid=13974 | since 2026-11-13 16:15:22
+[heavy] 16:19:09 waiting for: recherche-debit: rc one-chunk chain 142 CTAs | wrapper=6047 pgid=13974 | since 2026-11-13 16:15:22
+[heavy] 16:19:39 waiting for: recherche-debit: e1 arms chain + rc twin tests | wrapper=14302 pgid=14305 | since 2026-11-13 16:19:19
+[heavy] 16:20:09 waiting for: recherche-debit: e1 arms chain + rc twin tests | wrapper=14302 pgid=14305 | since 2026-11-13 16:19:19
+[heavy] 16:20:39 waiting for: recherche-debit: e1 arms chain + rc twin tests | wrapper=14302 pgid=14305 | since 2026-11-13 16:19:19
+[heavy] 16:21:09 waiting for: recherche-debit: e1 arms chain + rc twin tests | wrapper=14302 pgid=14305 | since 2026-11-13 16:19:19
+[heavy] 16:21:39 waiting for: recherche-debit: e1 arms chain + rc twin tests | wrapper=14302 pgid=14305 | since 2026-11-13 16:19:19
+[heavy] 16:22:09 waiting for: recherche-debit: e1 arms chain + rc twin tests | wrapper=14302 pgid=14305 | since 2026-11-13 16:19:19
+[heavy] 16:22:39 waiting for: recherche-debit: e1 arms chain + rc twin tests | wrapper=14302 pgid=14305 | since 2026-11-13 16:19:19
+[heavy] 16:23:09 waiting for: recherche-debit: e1 arms chain + rc twin tests | wrapper=14302 pgid=14305 | since 2026-11-13 16:19:19
+[heavy] 16:23:39 waiting for: recherche-debit: e1 arms chain + rc twin tests | wrapper=14302 pgid=14305 | since 2026-11-13 16:19:19
+[heavy] 16:24:09 waiting for: recherche-debit: e1 arms chain + rc twin tests | wrapper=14302 pgid=14305 | since 2026-11-13 16:19:19
+[heavy] 16:24:39 waiting for: recherche-debit: e1 arms chain + rc twin tests | wrapper=14302 pgid=14305 | since 2026-11-13 16:19:19
+[heavy] 16:25:09 waiting for: recherche-debit: e1 arms chain + rc twin tests | wrapper=14302 pgid=14305 | since 2026-11-13 16:19:19
+[heavy] 16:25:39 waiting for: recherche-debit: e1 arms chain + rc twin tests | wrapper=14302 pgid=14305 | since 2026-11-13 16:19:19
+[heavy] 16:26:09 waiting for: recherche-debit: clippy linux llvq-cuda | wrapper=15199 pgid=15204 | since 2026-11-13 16:26:08
+/Users/pjmalandrino/.cache/uv/environments-v2/guided-weights-872ec1edc48c196e/lib/python3.12/site-packages/torch/_subclasses/functional_tensor.py:295: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/utils/tensor_numpy.cpp:84.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+selftest: tiny Qwen3-shaped model, 3 layers, intermediate 32, CPU, float64
+  PASS  forward_probed equals layer_vs_output.forward exactly
+  PASS  with zero probes and checkpointing, the logits are unchanged
+  PASS  checkpointing changes neither the loss nor any gradient
+  PASS  probe gradients match finite differences, float64 RMSNorm (worst relative error 1.74e-08)
+  PASS  the last position, which has no label, has gradient exactly 0
+  PASS  hooked gradients on layer_vs_output.forward equal the probe gradients (max 0.0e+00)
+  PASS  column j is the sum of squared gradients over rows [j*d/16, (j+1)*d/16), token by token
+  PASS  weights are non-negative and sum per sequence to the group's squared gradient norm
+  PASS  the writer's bytes have the fixture's sha256
+  PASS  the writer's bytes equal llvq-llm/tests/fixtures/guided/roundtrip-3x16.f32
+  PASS  the vector reads back as written
+  PASS  the token file reads back, fingerprint checked
+  PASS  a wrong fingerprint is refused
+  PASS  a truncated token file is refused
+  PASS  6 files, one per (layer, type)
+  PASS  every file matches its manifest sha256
+  PASS  every file reads back to the captured array
+  PASS  window 1 of the capture is the reduction of its probe gradients, in stream order
+  PASS  the only zero weights are the last position of each (layer, type)
+selftest: GREEN (0 failure(s))

@@ -395,6 +395,7 @@ fn run_config_from(start: usize, limit: usize) -> RunConfig {
 ///   through the quantized block 0 exactly as the test's own pass 2 does). Block 1 therefore sees the
 ///   same inputs in both, and unit weights give the unguided Hessian bit for bit (the unit-weight
 ///   test), so block 1's gate and up must be equal.
+///
 /// A load of layer 0 at block 1 puts the window weights on block 1 and breaks the second; a
 /// gate/up swap breaks the first; `t - 1` underflows at block 0.
 #[test]
@@ -406,9 +407,11 @@ fn layers_and_types_route_to_their_own_weights() {
     write_weights(&wdir, |l, k, t, _| {
         let first_half = t < 2 * ROWS;
         match (l, k) {
-            (0, 0) => if first_half { 1.0 / 16.0 } else { 0.0 }, // layer 0 gate: windows 0-1
-            (0, _) => if first_half { 0.0 } else { 1.0 / 16.0 }, // layer 0 up: windows 2-3
-            _ => 1.0 / 16.0,                                       // layer 1: ones
+            (0, 0) if first_half => 1.0 / 16.0, // layer 0 gate: windows 0-1
+            (0, 0) => 0.0,
+            (0, _) if first_half => 0.0, // layer 0 up: windows 2-3
+            (0, _) => 1.0 / 16.0,
+            _ => 1.0 / 16.0, // layer 1: ones
         }
     });
     let g = open(&wdir, 2);
@@ -422,13 +425,20 @@ fn layers_and_types_route_to_their_own_weights() {
     assert_ne!(bits(&a, 0, "mlp.gate_proj"), bits(&b, 0, "mlp.gate_proj"), "the halves encode alike");
 
     // Block 1 against block 0 guided, then block 1 unguided on the same model.
+    // Both steps write an artifact, as the test run does: a capturing run narrows each matrix's
+    // tail to f32 before the un-rotation (calib.rs), so a run without a sink differs by an ulp.
     let mut reference = fresh(&map, &dev);
     let mut hidden = windows(&dev, &[0, 1, 2, 3]);
-    quantize_model_guided(&mut reference, &mut hidden, &run_config(1), Some(&g), |_, _, _| {}, None)
+    let per = matrices_per_block() as u32;
+    let mut sink = FileSink::create(&s.at("r0.llvq"), per, CodeKind::Tetra);
+    quantize_model_guided(&mut reference, &mut hidden, &run_config(1), Some(&g), |_, _, _| {}, Some(&mut sink))
         .expect("reference, block 0 guided");
+    sink.finish();
     let mut hidden = windows(&dev, &[0, 1, 2, 3]);
-    quantize_model_guided(&mut reference, &mut hidden, &run_config_from(1, 2), None, |_, _, _| {}, None)
+    let mut sink = FileSink::create(&s.at("r1.llvq"), per, CodeKind::Tetra);
+    quantize_model_guided(&mut reference, &mut hidden, &run_config_from(1, 2), None, |_, _, _| {}, Some(&mut sink))
         .expect("reference, block 1 unguided");
+    sink.finish();
     for name in llvq_llm::model::Act::ALL.iter().flat_map(|a| a.consumers().iter()) {
         assert_eq!(bits(&test, 0, name), bits(&reference, 0, name), "{name}: block 0, test against reference");
     }

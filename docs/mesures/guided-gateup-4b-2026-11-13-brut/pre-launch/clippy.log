@@ -1,0 +1,12 @@
+[heavy] 16:05:49 waiting for: recherche-debit: rc row gate | wrapper=4377 pgid=4969 | since 2026-11-13 16:05:27
+[heavy] 16:06:19 waiting for: recherche-debit: rc row gate | wrapper=4377 pgid=4969 | since 2026-11-13 16:05:27
+[heavy] 16:06:49 waiting for: recherche-debit: rc row gate | wrapper=4377 pgid=4969 | since 2026-11-13 16:05:27
+[heavy] 16:07:19 waiting for: recherche-debit: rc row gate | wrapper=4377 pgid=4969 | since 2026-11-13 16:05:27
+[heavy] 16:07:49 waiting for: recherche-debit: rc mutants | wrapper=5424 pgid=5428 | since 2026-11-13 16:07:45
+[heavy] 16:08:19 waiting for: recherche-debit: rc mutants | wrapper=5424 pgid=5428 | since 2026-11-13 16:07:45
+[heavy] 16:08:49 waiting for: recherche-debit: rc mutants | wrapper=5424 pgid=5428 | since 2026-11-13 16:07:45
+[heavy] 16:09:19 waiting for: recherche-debit: rc mutants | wrapper=5424 pgid=5428 | since 2026-11-13 16:07:45
+[heavy] 16:09:49 waiting for: recherche-debit: rc mutants | wrapper=5424 pgid=5428 | since 2026-11-13 16:07:45
+    Checking llvq-llm v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/recherche-qualite/llvq-llm)
+   Compiling llvq-runtime v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/recherche-qualite/llvq-runtime)
+    Finished `dev` profile [unoptimized] target(s) in 6.52s

@@ -1,0 +1,32 @@
+== M1 weights read but not applied: 1 site(s) in llvq-llm/src/calib.rs
+   rc=101; restored sha ok; results: ['test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 207 filtered out; finished in 0.00s', 'test result: FAILED. 4 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.57s']
+   caught by: test each_row_group_is_encoded_against_its_own_weights ... FAILED
+   caught by: test zeroing_half_the_tokens_equals_encoding_the_other_half_alone ... FAILED
+   caught by: test layers_and_types_route_to_their_own_weights ... FAILED
+   caught by: test two_identical_groups_equal_one_group ... FAILED
+== M2 row groups swapped: 1 site(s) in llvq-llm/src/calib.rs
+   rc=101; restored sha ok; results: ['test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 207 filtered out; finished in 0.00s', 'test result: FAILED. 7 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.50s']
+   caught by: test each_row_group_is_encoded_against_its_own_weights ... FAILED
+== M3 normalisation dropped: 1 site(s) in llvq-llm/src/guided.rs
+   rc=101; restored sha ok; results: ['test result: FAILED. 5 passed; 1 failed; 0 ignored; 0 measured; 207 filtered out; finished in 0.00s']
+   caught by: test guided::tests::group_weights_sum_neighbours_and_normalise_to_mean_one ... FAILED
+== M4 token cursor not advanced: 1 site(s) in llvq-llm/src/calib.rs
+   rc=101; restored sha ok; results: ['test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 207 filtered out; finished in 0.00s', 'test result: FAILED. 3 passed; 5 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.16s']
+   caught by: test two_identical_groups_equal_one_group ... FAILED
+   caught by: test zeroing_half_the_tokens_equals_encoding_the_other_half_alone ... FAILED
+   caught by: test layers_and_types_route_to_their_own_weights ... FAILED
+   caught by: test each_row_group_is_encoded_against_its_own_weights ... FAILED
+   caught by: test unit_weights_encode_the_bytes_of_the_unguided_run ... FAILED
+== M5 every block reads layer 0: 1 site(s) in llvq-llm/src/calib.rs
+   rc=101; restored sha ok; results: ['test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 207 filtered out; finished in 0.00s', 'test result: FAILED. 7 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.94s']
+   caught by: test layers_and_types_route_to_their_own_weights ... FAILED
+== M6 block t reads layer t-1: 1 site(s) in llvq-llm/src/calib.rs
+   rc=101; restored sha ok; results: ['test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 207 filtered out; finished in 0.00s', 'test result: FAILED. 3 passed; 5 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.20s']
+   caught by: test each_row_group_is_encoded_against_its_own_weights ... FAILED
+   caught by: test two_identical_groups_equal_one_group ... FAILED
+   caught by: test zeroing_half_the_tokens_equals_encoding_the_other_half_alone ... FAILED
+   caught by: test layers_and_types_route_to_their_own_weights ... FAILED
+   caught by: test unit_weights_encode_the_bytes_of_the_unguided_run ... FAILED
+== M7 gate and up swapped: 1 site(s) in llvq-llm/src/calib.rs
+   rc=101; restored sha ok; results: ['test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 207 filtered out; finished in 0.00s', 'test result: FAILED. 7 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.81s']
+   caught by: test layers_and_types_route_to_their_own_weights ... FAILED
