@@ -801,18 +801,44 @@ pub fn q4_tile_words(words: &[u32], d_out: usize, nwords: usize) -> Result<Vec<u
 // ---------------------------------------------------------------------------
 
 /// The E1 arms, the first the reference of the others.
-pub const P4E_E1_ARMS: [&str; 6] = ["v9", "v9np", "v9mv", "v9ft", "v9ep", "v9fl"];
+pub const P4E_E1_ARMS: [&str; 10] = ["v9", "v9np", "v9mv", "v9ft", "v9ep", "v9fl", "v9ep2", "v9ep3", "v9fl2", "v9fl3"];
+
+/// The research bodies' arms and their body codes (`PERS_RC_ARM`): 1 endpass,
+/// 2 flat (pers_4e_rc.cuh); 3 ep2, 4 ep3, 5 fl2, 6 fl3 (pers_4e_rc2.cuh, the
+/// lighter variants after the first card run refused 1 and 2 for 8 B of
+/// local memory, docs/mesures/recherche-debit-jeton-2026-11-13.txt).
+pub const P4E_RC_ARMS: [(&str, u32); 6] = [("v9ep", 1), ("v9fl", 2), ("v9ep2", 3), ("v9ep3", 4), ("v9fl2", 5), ("v9fl3", 6)];
+
+/// The body code of a research arm, or none.
+pub fn p4e_rc_body(arm: &str) -> Option<u32> {
+    P4E_RC_ARMS.iter().find(|a| a.0 == arm).map(|a| a.1)
+}
+
+/// Whether a body is flat's family (owes the bound, not the bits).
+pub fn rc_body_is_flat(body: u32) -> bool {
+    matches!(body, 2 | 5 | 6)
+}
+
+/// Whether a body runs the CTA's slice in one chunk of slots (it traps
+/// otherwise): ep3, fl2, fl3.
+pub fn rc_body_one_chunk(body: u32) -> bool {
+    matches!(body, 4..=6)
+}
 
 /// Whether an E1 arm owes v9's bits (its tokens and logits equal v9's). Every
-/// arm does but `v9fl`, whose rows owe a bound of 1e-5 (pers_4e_rc.cuh): its
-/// tokens and logits are compared with v9's and reported, never assumed equal.
+/// arm does but flat's (`v9fl`, `v9fl2`, `v9fl3`), whose rows owe a bound of
+/// 1e-5 (pers_4e_rc.cuh): their tokens and logits are compared with v9's and
+/// reported, never assumed equal.
 pub fn p4e_e1_owes_bits(arm: &str) -> bool {
-    arm != "v9fl"
+    !p4e_rc_body(arm).is_some_and(rc_body_is_flat)
 }
 
 /// The research phase's row bodies as 4E row forms (step R6 of
 /// docs/CERVEAU.md O11): inserted into llvq_pers.cuh by [`p4e_rc_edits`].
 pub const PERS_RC_PART: (&str, &str) = ("pers_4e_rc.cuh", include_str!("../kernels/pers_4e_rc.cuh"));
+
+/// The lighter variants (bodies 3 to 6), inserted after [`PERS_RC_PART`].
+pub const PERS_RC2_PART: (&str, &str) = ("pers_4e_rc2.cuh", include_str!("../kernels/pers_4e_rc2.cuh"));
 
 /// The f32 slots of a body (`PERS_RC_SLOTS` of pers_4e_rc.cuh).
 pub const PERS_RC_SLOTS: u32 = 2048;
@@ -835,10 +861,32 @@ pub fn rc_padded_floats(d_in: u32) -> u32 {
 /// The gate/up list is the CTA's gate rows THEN its up rows (rowbench's gate/up
 /// form), where v9 interleaves them a warp at a time (gate r, up r) and folds
 /// each product under the next pair; here the products follow a CTA barrier.
+///
+/// Bodies 3 to 6 (pers_4e_rc2.cuh): the same call sites, naming
+/// `pers_rc2_rows` and `pers_rc2_work_floats`, and both texts inserted. The
+/// texts of bodies 1 and 2 are unchanged by them (their modules keep their
+/// sha256, `the_rc_modules_keep_their_bytes`).
 pub fn p4e_rc_edits(body: u32) -> Result<Vec<(&'static str, String, String)>, String> {
-    if !(1..=2).contains(&body) {
-        return Err(format!("4E rc: body {body}, the bodies are 1 (endpass) and 2 (flat)"));
+    if !(1..=6).contains(&body) {
+        return Err(format!("4E rc: body {body}, the bodies are 1 (endpass), 2 (flat), 3 to 6 (pers_4e_rc2.cuh)"));
     }
+    let v = p4e_rc_edits_12(body)?;
+    if body <= 2 {
+        return Ok(v);
+    }
+    Ok(v.into_iter()
+        .map(|(f, from, to)| {
+            let to = to
+                .replace(PERS_RC_PART.1, &format!("{}\n{}", PERS_RC_PART.1, PERS_RC2_PART.1))
+                .replace("pers_rc_rows<PERS_RC_ARM>(", "pers_rc2_rows<PERS_RC_ARM>(")
+                .replace("pers_rc_work_floats<PERS_RC_ARM>(", "pers_rc2_work_floats<PERS_RC_ARM>(");
+            (f, from, to)
+        })
+        .collect())
+}
+
+/// The edits of bodies 1 and 2, and the template of the others ([`p4e_rc_edits`]).
+fn p4e_rc_edits_12(body: u32) -> Result<Vec<(&'static str, String, String)>, String> {
     let (cuh, seg, e4) = ("llvq_pers.cuh", "pers_segment.cu", "pers_4e.cu");
     Ok(vec![
         (cuh, "struct Pers4eQkv {\n".into(), format!("#define PERS_RC_ARM {body}u\n{}\nstruct Pers4eQkv {{\n", PERS_RC_PART.1)),
@@ -975,12 +1023,13 @@ pub struct RcPhase {
 /// added to 4E's launch, so a shape that does not fit is not run.
 #[allow(clippy::too_many_arguments)]
 pub fn p4e_rc_layout(body: u32, hidden: u32, inter: u32, d_ctx: u32, tetra_o: bool, tetra_down: bool, groups: u32, grid: u32) -> Result<Vec<RcPhase>, String> {
-    if !(1..=2).contains(&body) || grid == 0 {
-        return Err(format!("4E rc: body {body}, grid {grid}"));
+    if !(1..=6).contains(&body) || grid == 0 || groups == 0 {
+        return Err(format!("4E rc: body {body}, grid {grid}, {groups} groups"));
     }
+    let flat = rc_body_is_flat(body);
     let attn = 16 * 1024 * p4e_attn_ring(7) + 4 * 4 * groups * 130 + 4 * groups * 128;
     let limit = inter.max(2 * hidden).max(attn / 4);
-    let work = |d_in: u32, in_place: bool| if body == 2 && !in_place { rc_padded_floats(d_in) } else { 0 } + PERS_RC_SLOTS;
+    let work = |d_in: u32, in_place: bool| if flat && !in_place { rc_padded_floats(d_in) } else { 0 } + PERS_RC_SLOTS;
     let pairs = inter.div_ceil(grid);
     let mut v = vec![
         RcPhase { phase: "q/k", end: 2 * hidden + work(hidden, false), limit },
@@ -992,7 +1041,7 @@ pub fn p4e_rc_layout(body: u32, hidden: u32, inter: u32, d_ctx: u32, tetra_o: bo
     if tetra_o {
         v.push(RcPhase { phase: "o", end: rc_padded_floats(d_ctx) + work(d_ctx, true), limit });
     }
-    let name = if body == 1 { "endpass" } else { "flat" };
+    let name = ["", "endpass", "flat", "ep2", "ep3", "fl2", "fl3"][body as usize];
     if let Some(p) = v.iter().find(|p| p.end > p.limit) {
         return Err(format!(
             "4E rc {name}: the {} phase needs floats up to {} of 4E's row vector, past the v7 area at {} (hidden {hidden}, \
@@ -1000,8 +1049,25 @@ pub fn p4e_rc_layout(body: u32, hidden: u32, inter: u32, d_ctx: u32, tetra_o: bo
             p.phase, p.end, p.limit
         ));
     }
-    if body == 2 && inter.max(hidden).max(d_ctx).div_ceil(24).div_ceil(8) > PERS_RC_SLOTS {
-        return Err(format!("4E rc flat: a row of more than {PERS_RC_SLOTS} runs"));
+    if flat && inter.max(hidden).max(d_ctx).div_ceil(24).div_ceil(8) > PERS_RC_SLOTS {
+        return Err(format!("4E rc {name}: a row of more than {PERS_RC_SLOTS} runs"));
+    }
+    // One chunk (ep3, fl2, fl3): the CTA's largest slice of every phase, its rows (endpass) or rows x runs (flat),
+    // within the slots; the body traps otherwise.
+    if rc_body_one_chunk(body) {
+        let runs = |d_in: u32| if flat { (d_in / 24).div_ceil(8) } else { 1 };
+        let mut need = vec![("q/k", (d_ctx + d_ctx / groups).div_ceil(grid) * runs(hidden)), ("gate/up", 2 * pairs * runs(hidden))];
+        if tetra_down {
+            need.push(("down", hidden.div_ceil(grid) * runs(inter)));
+        }
+        if tetra_o {
+            need.push(("o", hidden.div_ceil(grid) * runs(d_ctx)));
+        }
+        if let Some((ph, n)) = need.iter().find(|p| p.1 > PERS_RC_SLOTS) {
+            return Err(format!(
+                "4E rc {name}: one chunk, and the {ph} phase's slice needs {n} slots of {PERS_RC_SLOTS} on {grid} CTAs: refused"
+            ));
+        }
     }
     Ok(v)
 }
@@ -1070,8 +1136,9 @@ pub fn p4e_e1_edits(arm: &str) -> Result<Vec<(&'static str, String, String)>, St
         // the attention tile's full-tile path (pers_ft_edit), nothing else
         "v9ft" => v.push(pers_ft_edit()),
         // the research bodies on every Tetra row phase (pers_4e_rc.cuh), nothing else
-        "v9ep" => v.extend(p4e_rc_edits(1)?),
-        "v9fl" => v.extend(p4e_rc_edits(2)?),
+        "v9ep" | "v9fl" | "v9ep2" | "v9ep3" | "v9fl2" | "v9fl3" => {
+            v.extend(p4e_rc_edits(p4e_rc_body(arm).expect("a research arm has a body"))?)
+        }
         "v9np" => v.extend(np),
         "v9mv" => {
             v.extend(np);
@@ -4459,6 +4526,10 @@ mod tests {
             ("4e-v9e1", p4e_e1_unit_text(CARD_TILE_SM89, "v9").unwrap()),
             ("4e-v9ep", p4e_e1_unit_text(CARD_TILE_SM89, "v9ep").unwrap()),
             ("4e-v9fl", p4e_e1_unit_text(CARD_TILE_SM89, "v9fl").unwrap()),
+            ("4e-v9ep2", p4e_e1_unit_text(CARD_TILE_SM89, "v9ep2").unwrap()),
+            ("4e-v9ep3", p4e_e1_unit_text(CARD_TILE_SM89, "v9ep3").unwrap()),
+            ("4e-v9fl2", p4e_e1_unit_text(CARD_TILE_SM89, "v9fl2").unwrap()),
+            ("4e-v9fl3", p4e_e1_unit_text(CARD_TILE_SM89, "v9fl3").unwrap()),
         ] {
             std::fs::write(dir.join(format!("{name}.cu")), &text).unwrap();
             eprintln!("{name}: {} bytes, sha256 {}", text.len(), crate::sha256::sha256_hex(text.as_bytes()));
@@ -5325,7 +5396,7 @@ mod tests {
     fn the_rc_arms_are_v9_with_the_body_on_every_tetra_phase() {
         let tile = "#define TILE_BLOCKS 64u\n";
         let r = p4e_e1_unit_text(tile, "v9").unwrap();
-        for (arm, body) in [("v9ep", 1u32), ("v9fl", 2)] {
+        for (arm, body) in P4E_RC_ARMS {
             let t = p4e_e1_unit_text(tile, arm).unwrap();
             let mut back = t.clone();
             for (_, from, to) in p4e_rc_edits(body).unwrap() {
@@ -5335,15 +5406,24 @@ mod tests {
             assert_eq!(back, r, "{arm}: E1's v9 and the rc edits, nothing else");
             assert_eq!(t.matches(&format!("#define PERS_RC_ARM {body}u\n")).count(), 1);
             assert_eq!(t.matches("#ifndef PERS_4E_RC_CUH").count(), 1);
-            assert_eq!(t.matches("pers_rc_rows<PERS_RC_ARM>(").count(), 4, "{arm}: q/k, gate/up, down, o");
+            assert_eq!(t.matches("#ifndef PERS_4E_RC2_CUH").count(), usize::from(body >= 3), "{arm}");
+            let call = if body >= 3 { "pers_rc2_rows<PERS_RC_ARM>(" } else { "pers_rc_rows<PERS_RC_ARM>(" };
+            assert_eq!(t.matches(call).count(), 4, "{arm}: q/k, gate/up, down, o");
+            assert_eq!(t.matches("_rows<PERS_RC_ARM>(").count(), 4, "{arm}: no call of the other family");
             // pers_4e_rows keeps its definition and no caller
             assert_eq!(t.matches("pers_4e_rows(").count(), 1, "{arm}");
-            assert_eq!(p4e_e1_owes_bits(arm), body == 1);
+            assert_eq!(p4e_e1_owes_bits(arm), !rc_body_is_flat(body), "{arm}");
+            assert_eq!(p4e_rc_body(arm), Some(body));
         }
-        assert!(p4e_rc_edits(0).is_err() && p4e_rc_edits(3).is_err());
-        for arm in ["v9", "v9np", "v9mv", "v9ft", "v9ep"] {
-            assert!(p4e_e1_owes_bits(arm));
+        assert!(p4e_rc_edits(0).is_err() && p4e_rc_edits(7).is_err());
+        for arm in ["v9", "v9np", "v9mv", "v9ft", "v9ep", "v9ep2", "v9ep3"] {
+            assert!(p4e_e1_owes_bits(arm), "{arm}");
         }
+        for arm in ["v9fl", "v9fl2", "v9fl3"] {
+            assert!(!p4e_e1_owes_bits(arm), "{arm}");
+        }
+        // every research arm is an E1 arm
+        assert!(P4E_RC_ARMS.iter().all(|a| P4E_E1_ARMS.contains(&a.0)));
     }
 
     /// Where the rc bodies sit in 4E v9's buffer at the three sealed shapes
@@ -5374,7 +5454,19 @@ mod tests {
             let e = ends(body, 5120, 17408, 5120, false, 5).unwrap_err();
             assert!(e.contains(phase) && e.contains("refused"), "{e}");
         }
-        assert!(p4e_rc_layout(3, 2560, 9728, 4096, false, true, 4, 142).is_err());
+        assert!(p4e_rc_layout(7, 2560, 9728, 4096, false, true, 4, 142).is_err());
+        // the variants: their families' regions; the one-chunk bodies fit the 4B on 142 CTAs (largest slice: flat's
+        // gate/up, 138 rows x 14 runs = 1,932 slots), and fl2, fl3 are refused on the 8B (174 x 22 = 3,828)
+        assert_eq!(ends(3, 2560, 9728, 4096, false, 4).unwrap(), ends(1, 2560, 9728, 4096, false, 4).unwrap());
+        assert_eq!(ends(4, 2560, 9728, 4096, false, 4).unwrap(), ends(1, 2560, 9728, 4096, false, 4).unwrap());
+        for body in [5, 6] {
+            assert_eq!(ends(body, 2560, 9728, 4096, false, 4).unwrap(), ends(2, 2560, 9728, 4096, false, 4).unwrap());
+            let e = ends(body, 4096, 12288, 4096, true, 4).unwrap_err();
+            assert!(e.contains("one chunk") && e.contains("gate/up phase's slice needs 3828"), "{e}");
+        }
+        assert!(ends(4, 4096, 12288, 4096, true, 4).is_ok(), "ep3 on the 8B: 174 rows a slice");
+        // the twin's grids of 3 to 5 CTAs do not fit one chunk: the one-chunk arms are twin-tested on 142
+        assert!(p4e_rc_layout(5, 2560, 9728, 4096, false, true, 4, 3).is_err());
     }
 
     /// The arms differ from the reference in prefetch lines only

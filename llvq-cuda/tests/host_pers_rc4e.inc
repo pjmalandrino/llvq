@@ -1,7 +1,7 @@
 // Command 'e' of host_pers.cpp: the research row bodies as 4E runs them (kernels/pers_4e_rc.cuh, step R6), on
 // RECORDED words, against the served row. Included inside main()'s command chain; `tag` is in scope.
 //
-// in : u32 body (1 endpass, 2 flat), mode (0 a site's rows, the padded copy beside the natural staging, as 4E's q/k
+// in : u32 body (1 endpass, 2 flat; 3 ep2, 4 ep3, 5 fl2, 6 fl3: pers_4e_rc2.cuh), mode (0 a site's rows, the padded copy beside the natural staging, as 4E's q/k
 //      and gate/up phases place it; 1 the same, restaged IN PLACE, as the down and the o; 2 gate/up pairs, sites s and
 //      s + 1 of one shape as ONE list, the gate's slice then the up's, as 4E's gate/up phase), grid, threads, nsites,
 //      then the sites and the activation exactly as command 'C' reads them.
@@ -51,7 +51,7 @@
         outf.insert(outf.end(), f.begin(), f.end());
     }
 #else
-    if (body < 1u || body > 2u || mode > 2u || (mode == 2u && nsites % 2u != 0u)) {
+    if (body < 1u || body > 6u || mode > 2u || (mode == 2u && nsites % 2u != 0u)) {
         std::fprintf(stderr, "host_pers: rc body %u mode %u on %u sites\n", body, mode, nsites);
         return 2;
     }
@@ -100,8 +100,14 @@
             };
             const bool in_place = mode == 1u;
             float* work = in_place ? v + pers_rc_padded_floats(a.nblocks, a.tail_w) : v + nat;
-            if (body == 1u) pers_rc_rows<1u>(n, a.nblocks, a.tail_w, tb, g_inv.data(), v, row_at, epi, work, in_place);
-            else pers_rc_rows<2u>(n, a.nblocks, a.tail_w, tb, g_inv.data(), v, row_at, epi, work, in_place);
+            switch (body) {
+            case 1u: pers_rc_rows<1u>(n, a.nblocks, a.tail_w, tb, g_inv.data(), v, row_at, epi, work, in_place); break;
+            case 2u: pers_rc_rows<2u>(n, a.nblocks, a.tail_w, tb, g_inv.data(), v, row_at, epi, work, in_place); break;
+            case 3u: pers_rc2_rows<3u>(n, a.nblocks, a.tail_w, tb, g_inv.data(), v, row_at, epi, work, in_place); break;
+            case 4u: pers_rc2_rows<4u>(n, a.nblocks, a.tail_w, tb, g_inv.data(), v, row_at, epi, work, in_place); break;
+            case 5u: pers_rc2_rows<5u>(n, a.nblocks, a.tail_w, tb, g_inv.data(), v, row_at, epi, work, in_place); break;
+            default: pers_rc2_rows<6u>(n, a.nblocks, a.tail_w, tb, g_inv.data(), v, row_at, epi, work, in_place); break;
+            }
         });
     }
     for (const auto& y : ys) out.insert(out.end(), y.begin(), y.end());

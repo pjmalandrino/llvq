@@ -2167,7 +2167,8 @@ fn persistent_e1(arm: &str, tag: &str, twist: Option<(&str, &str)>) -> PathBuf {
 #[test]
 fn the_4e_e1_arms_are_the_served_chain() {
     // every arm that owes v9's bits; v9fl owes a bound on rows (the_4e_rc_flat_arm_*)
-    for arm in pers::P4E_E1_ARMS.into_iter().filter(|a| pers::p4e_e1_owes_bits(a)) {
+    // and the one-chunk arms (v9ep3) run on 142 CTAs: the_4e_rc_one_chunk_arms_on_the_cards_grid
+    for arm in pers::P4E_E1_ARMS.into_iter().filter(|a| pers::p4e_e1_owes_bits(a) && !pers::p4e_rc_body(a).is_some_and(pers::rc_body_one_chunk)) {
         let b = persistent_e1(arm, &format!("e1_{arm}"), None);
         for (form, grid, threads, variant) in [(0u32, 3u32, 128u32, 0u32), (2, 4, 96, 2), (1, 5, 64, 2), (1, 3, 512, 2), (1, 2, 128, 0)] {
             let cmd = g_cmd_variant(form, grid, threads, &[(5, 3, 7)], 16, u32::MAX, 0x9e40 + form as u64, variant);
@@ -2308,6 +2309,41 @@ fn the_4e_rc_flat_arm_stays_near_the_served_chain() {
     let plain = run(&b, &g_cmd_variant(1, 4, 96, &runs, 16, u32::MAX, 0x9e21, 2 | 256));
     let stamped = run(&b, &g_cmd_variant(1, 4, 96, &runs, 16, u32::MAX, 0x9e21, 1 | 256));
     assert!(stamped[..plain.len()] == plain[..], "v9fl: the stamped launch moved an output");
+}
+
+/// The lighter variants on the card's grid (142 CTAs, the L40S's SMs; 64 threads a CTA, so the twin stays small):
+/// the one-chunk bodies need a CTA's slice to fit 2,048 slots, which the twin's usual grids of 3 to 5 CTAs do not
+/// give. ep2 and ep3 equal the served chain byte for byte (tokens, residual, both layers' caches); fl2 and fl3 equal
+/// v9fl's chain byte for byte (the same rows, `rowcand_gate::the_flat_variants_are_flat_bit_for_bit`), on a short
+/// run and one from position 270, and on the stamped launch.
+#[test]
+fn the_4e_rc_one_chunk_arms_on_the_cards_grid() {
+    let cmds = [
+        ("from 5", g_cmd_variant(1, 142, 64, &[(5, 2, 7)], 16, u32::MAX, 0x9e90, 2 | 256)),
+        ("from 270", g_cmd_variant(1, 142, 64, &[(270, 2, 7)], 288, u32::MAX, 0x9e91, 2 | 256)),
+    ];
+    let flat = persistent_e1("v9fl", "rc1_v9fl", None);
+    for (label, cmd) in &cmds {
+        let want = run(served(), cmd);
+        let wflat = run(&flat, cmd);
+        for arm in ["v9ep2", "v9ep3"] {
+            let got = run(&persistent_e1(arm, &format!("rc1_{arm}"), None), cmd);
+            assert!(got[..got.len() - 8] == want[..want.len() - 8], "{arm} {label}: not the served chain");
+        }
+        for arm in ["v9fl2", "v9fl3"] {
+            let got = run(&persistent_e1(arm, &format!("rc1_{arm}"), None), cmd);
+            assert!(got == wflat, "{arm} {label}: not v9fl's chain");
+        }
+        let (e, t, d, v, m) = flat_distance(&wflat, &want, 2);
+        println!("142 CTAs {label}: v9ep2, v9ep3 the served chain; v9fl2, v9fl3 v9fl's; v9fl against served: tokens {e} of {t}, {d} of {v} values differ, max |diff| / rms {m:.3e}");
+    }
+    let stamp = g_cmd_variant(1, 142, 64, &[(5, 2, 7)], 16, u32::MAX, 0x9e90, 1 | 256);
+    for arm in ["v9ep3", "v9fl3"] {
+        let b = persistent_e1(arm, &format!("rc1_{arm}"), None);
+        let plain = run(&b, &cmds[0].1);
+        let stamped = run(&b, &stamp);
+        assert!(stamped[..plain.len()] == plain[..], "{arm}: the stamped launch moved an output");
+    }
 }
 
 /// Mutants of the rc call sites, each one site of an rc edit's replacement

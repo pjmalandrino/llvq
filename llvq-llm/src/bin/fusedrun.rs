@@ -1294,6 +1294,25 @@ fn parse_pers_4e(v: &str) -> Result<Pers4eSpec, String> {
     Ok((n, out, lengths, again))
 }
 
+/// `LLVQ_PERS_4E=check:<arms>`'s arms: E1 arms (`pers::P4E_E1_ARMS`),
+/// comma-separated, each once, at least one.
+#[cfg(any(target_os = "macos", feature = "cuda"))] // names llvq_cuda, a dependency on macOS and under `cuda` only
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+fn parse_pers_4e_check(v: &str) -> Result<Vec<&'static str>, String> {
+    let mut out: Vec<&'static str> = Vec::new();
+    for name in v.split(',') {
+        let arm = llvq_cuda::pers::P4E_E1_ARMS
+            .iter()
+            .find(|x| **x == name)
+            .ok_or_else(|| format!("LLVQ_PERS_4E=check:{v}: no E1 arm {name:?}; the arms are {:?}", llvq_cuda::pers::P4E_E1_ARMS))?;
+        if out.contains(arm) {
+            return Err(format!("LLVQ_PERS_4E=check:{v}: arm {name} named twice"));
+        }
+        out.push(arm);
+    }
+    Ok(out)
+}
+
 #[cfg(all(target_os = "linux", feature = "cuda"))]
 /// `LLVQ_PERS_4E` at one prompt length: the reference tokens of the eager
 /// path, each 4E geometry's after the same prefill (identical or void), the
@@ -2118,6 +2137,20 @@ fn main() -> anyhow::Result<()> {
         // (F2). An arm that owes a bound on rows (v9fl) is timed on its own
         // tokens, which are compared with the reference's and reported.
         if let Ok(v) = std::env::var("LLVQ_PERS_4E") {
+            // `check:<arms>`: the load check alone (persist4e_cuda::check_e1_arms), before
+            // any model is loaded: each arm's module compiled and its symbols read, nothing
+            // launched, then the process ends. The R6 card run printed its refusal 339 s in,
+            // after the model and three modules (docs/mesures/recherche-debit-jeton-2026-11-13.txt).
+            if let Some(list) = v.strip_prefix("check:") {
+                let arms = parse_pers_4e_check(list).map_err(|e| anyhow::anyhow!("{e}"))?;
+                runs_alone("LLVQ_PERS_4E", &["LLVQ_KERNEL_DIR"])?;
+                let t = Instant::now();
+                for line in llvq_llm::persist4e_cuda::check_e1_arms(&device, &arms)? {
+                    println!("{line}");
+                }
+                println!("4E check done in {:.1} s", t.elapsed().as_secs_f64());
+                return Ok(());
+            }
             let (count, e1_arms, long, again) = parse_pers_4e(&v).map_err(|e| anyhow::anyhow!("{e}"))?;
             let n_new: usize = count;
             if !(2..=256).contains(&n_new) {
@@ -3492,6 +3525,13 @@ mod tests {
         // the F1 control: the first arm again as the last of three or more
         assert_eq!(parse_pers_4e("256:v9,v9ep,v9fl,v9"), Ok((256, vec!["v9", "v9ep", "v9fl"], vec![8192], true)));
         assert_eq!(parse_pers_4e("256:v9,v9fl,v9:8192"), Ok((256, vec!["v9", "v9fl"], vec![8192], true)));
+        // the load check's arms
+        use super::parse_pers_4e_check;
+        assert_eq!(parse_pers_4e_check("v9,v9ep2,v9fl3"), Ok(vec!["v9", "v9ep2", "v9fl3"]));
+        for bad in ["", "v9,v9", "v9,v8", "v9 ", "v9ep,"] {
+            assert!(parse_pers_4e_check(bad).is_err(), "check:{bad}");
+        }
+        assert!(parse_pers_4e("check:v9").is_err(), "the check is dispatched before parse_pers_4e");
         for bad in [
             "1", "257", "x", "64:", "64:v9,v9", "64:v8", "64:v9 ,v9np", ":v9", "64:v9:", "64::8192", "64:v9:8192,4096",
             "64:v9:4096,4096", "64:v9:8193", "64:v9:5", "64:v9:0", "64:v9:1024:4096", "64:v9,v9ep,v9ep", "64:v9,v9,v9ep",

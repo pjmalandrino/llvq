@@ -922,26 +922,54 @@ fn rc_gate(bin: &Path, body: u32) -> Option<RowErrors> {
     folded
 }
 
-/// What each 4E row form owes (pers.rs::p4e_e1_owes_bits): endpass the bits, flat the bound of 1e-5.
+/// What each 4E row form owes (pers.rs::p4e_e1_owes_bits): endpass and its variants the bits, flat and its
+/// variants the bound of 1e-5.
 fn rc_owes(body: u32) -> Owes {
-    if body == 1 {
-        Owes::Bits
-    } else {
+    if llvq_cuda::pers::rc_body_is_flat(body) {
         Owes::Bound(1e-5)
+    } else {
+        Owes::Bits
     }
 }
 
-/// The two bodies as the rc arms' modules run them keep what they owe, at the default slot count and at 96 slots
-/// (several chunks a slice): the row function 4E's phases call, on recorded words, three placements, three grids.
+const RC_NAMES: [&str; 7] = ["", "endpass", "flat", "ep2", "ep3", "fl2", "fl3"];
+
+/// The bodies as the rc arms' modules run them keep what they owe, at the default slot count and, for the bodies
+/// that chunk, at 96 slots (several chunks a slice; the one-chunk bodies 4 to 6 trap there by design): the row
+/// function 4E's phases call, on recorded words, three placements, three grids.
 #[test]
 fn the_rc_bodies_keep_what_they_owe() {
     for (label, bin) in [("2048 slots", candidate()), ("96 slots", candidate_small_slots())] {
-        for (body, name) in [(1u32, "endpass"), (2, "flat")] {
+        for body in 1u32..=6 {
+            if label == "96 slots" && llvq_cuda::pers::rc_body_one_chunk(body) {
+                continue;
+            }
+            let name = RC_NAMES[body as usize];
             let e = rc_gate(bin, body).unwrap_or_else(|| panic!("rc {name}, {label}: the candidate side failed"));
             println!("[{label:>10}] {}", line(&format!("{name}/4E"), rc_owes(body), &e));
             assert!(e.passes(rc_owes(body)), "rc {name}, {label}: {e:?}");
         }
     }
+}
+
+/// fl2 and fl3 fold every run and every row in flat's order: their rows (binary16 and f32) equal flat's bit for
+/// bit, on every placement and grid of the rc gate. So they owe flat's bound because they ARE flat's rows.
+#[test]
+fn the_flat_variants_are_flat_bit_for_bit() {
+    let (_, x) = recorded();
+    let [(_, all), (_, pairs)] = diag_sets();
+    let all: Vec<&Site> = all.iter().collect();
+    let pairs: Vec<&Site> = pairs.iter().collect();
+    for (mode, set) in [(0u32, &all), (1, &all), (2, &pairs)] {
+        for &(grid, threads) in &[(3u32, 96u32), (2, 64), (5, 32)] {
+            let flat = run(candidate(), &rc_cmd(2, mode, grid, threads, set, x)).expect("flat runs");
+            for body in [5u32, 6] {
+                let got = run(candidate(), &rc_cmd(body, mode, grid, threads, set, x)).expect("the variant runs");
+                assert!(got == flat, "{} mode {mode} grid {grid}x{threads}: not flat's rows", RC_NAMES[body as usize]);
+            }
+        }
+    }
+    println!("fl2 and fl3 equal flat byte for byte: 3 placements x 3 grids");
 }
 
 /// Mutants of the rc bodies (kernels/pers_4e_rc.cuh), each applied exactly once to a copy, each refused by the rc
@@ -988,6 +1016,48 @@ fn the_rc_body_mutants_are_killed() {
                 }
             };
             println!("mutant {tag:<22} 1 site in {f}, body {}: {verdict}", if body == 1 { "endpass" } else { "flat" });
+        }
+    }
+}
+
+/// Mutants of the lighter variants (kernels/pers_4e_rc2.cuh), each applied exactly once to a copy, each refused by
+/// the rc gate on every body that runs the edited code (or the process fails).
+#[test]
+fn the_rc2_body_mutants_are_killed() {
+    let f = "llvq-cuda/kernels/pers_4e_rc2.cuh";
+    let cases: [(&str, &str, &str, &[u32]); 7] = [
+        // ep2: lane 0 writes each row's sum one slot on
+        ("rc2_ep2_slot", "            if (lane == 0u) slots[i - c0] = a;", "            if (lane == 0u) slots[i - c0 + 1u] = a;", &[3]),
+        // ep3: the second pass skips the CTA's last row
+        (
+            "rc2_ep3_last_row",
+            "    for (u32 i = threadIdx.x; i < n; i += blockDim.x) {\n        const PersTRow R = row_at(i);\n        epi(i, pers_epilogue(slots[i]",
+            "    for (u32 i = threadIdx.x; i + 1u < n; i += blockDim.x) {\n        const PersTRow R = row_at(i);\n        epi(i, pers_epilogue(slots[i]",
+            &[4],
+        ),
+        // fl2: the fold of a run stops one block short of the row's end
+        ("rc2_fl2_fold_end", "slots[u] = pers_rc_run_fold(w, g, nb, tab, xp, Rw.gscale, invnorm);", "slots[u] = pers_rc_run_fold(w, g, nb - 1u, tab, xp, Rw.gscale, invnorm);", &[5]),
+        // fl3: block 2 of every run reads its high half from the wrong word of quad 1
+        ("rc2_seq_word", "pers_rc2_even(acc, a.w, c.x, b0 + 2u", "pers_rc2_even(acc, a.w, c.y, b0 + 2u", &[6]),
+        // fl3: block 4 of every run dropped
+        ("rc2_seq_block4", "    if (b0 + 4u < nb) acc = pers_rc2_even(", "    if (b0 + 4u < nb && g == 0xffffffffu) acc = pers_rc2_even(", &[6]),
+        // fl3: the last quad of a row's last run not loaded
+        ("rc2_seq_quad2", "    if (3u * g + 2u < nq) e = q[2];", "    if (3u * g + 3u < nq) e = q[2];", &[6]),
+        // fl2, fl3: the gather takes each run's slot from the next one
+        ("rc2_gather", "a = __fadd_rn(a, slots[i * G + g]);", "a = __fadd_rn(a, slots[i * G + g + 1u]);", &[5, 6]),
+    ];
+    for (tag, from, to, bodies) in cases {
+        let (bin, sites) = mutant(tag, &[(f, from, to)]);
+        assert_eq!(sites, [1], "mutant {tag}: applied at exactly one site");
+        for &body in bodies {
+            let verdict = match rc_gate(&bin, body) {
+                None => "killed: the process failed".to_string(),
+                Some(e) => {
+                    assert!(!e.passes(rc_owes(body)), "mutant {tag} survived the rc gate on body {body}: {e:?}");
+                    format!("killed: {} of {} rows moved, max rel err {:.3e}", e.rows - e.f_equal, e.rows, e.max)
+                }
+            };
+            println!("mutant {tag:<20} 1 site in {f}, body {}: {verdict}", RC_NAMES[body as usize]);
         }
     }
 }

@@ -64,6 +64,7 @@ static inline unsigned short served_capture_f2h(float v) {
 #include "../kernels/llvq_pers.cuh"
 // the research row bodies (command 'e'); a no-op in an rc arm's twin, whose llvq_pers.cuh holds them
 #include "../kernels/pers_4e_rc.cuh"
+#include "../kernels/pers_4e_rc2.cuh"
 #include "../kernels/tetra48_pers.cu"
 #include "../kernels/pers_segment.cu"
 #include "../kernels/pers_4e.cu"
