@@ -1,8 +1,8 @@
 # Preregistration. Decode-speed research phase, R3: the first whole bodies on a flat, wide read, one card run of `rowbench`
 
-Written on 2026-11-13 on branch `recherche/debit-2026-11-12`, once the code it describes existed. To be timestamped
-before the first measurement, then never edited; a departure goes to
-`preregistration-recherche-debit-corps-2026-11-13-ECARTS.md`. NOT stamped at this writing.
+Written on 2026-11-13 on branch `recherche/debit-2026-11-12`, once the code it describes existed. Timestamped before
+the first measurement, then never edited; a departure goes to
+`preregistration-recherche-debit-corps-2026-11-13-ECARTS.md`.
 
 The launch is the operator's. Cost: about **$0.12** on l40sx1 (*estimated*, §9), after a Space rebuild that bills no
 card. Cap: the job's timeout of 25 min, **$0.75** at worst (*computed* at $1.80/h). Spent before it: $0.20 of the
@@ -220,6 +220,29 @@ each, $0.10, the oracle included. This run times 11 row arms on 5 sets (about 3.
 configurations: about 0.1 s a round, under 2 s over 17 rounds. About 4 min running, **$0.12**. Cap: 25 min, **$0.75**.
 
 ## 10. Signed predictions (main session)
+
+Signed on 2026-11-13, before the stamp, from the two journals and the candidates' text; the hand-back's Mac gate was
+rerun by the main session first (5,568 rows, the same figures, module `587ddd48…`). Scores are speeds over `served`,
+round by round, median; rates are GB/s of words. Each line is scored in the journal as in or out.
+
+| # | quantity | point | interval | why |
+|---|---|---|---|---|
+| 1 | F1 on sealed:all passes; the floor's width (hi - lo) | passes, 0.02 | 85 %; width under 0.04 | one kernel twice in a round; the first two runs' ranges are 3 % wide |
+| 2 | F3, the four lines pass | passes | 85 % | v3, v2u, nc read 0.83 to 0.85 and tile 1.03 in the first run |
+| 3 | `served` on sealed:all | 396 | [388, 404] | 395.6 in the second run |
+| 4 | `tr32` on sealed:all | 0.20 | [0.10, 0.35] | 7 to 69 threads a CTA where the served row runs 512 |
+| 5 | `tr32p` and `tr32r` over `tr32` | 1.05 each | [0.97, 1.20] | words in flight, contiguous loads; the body is bound by its few threads |
+| 6 | `endpass` on sealed:all | 1.00 | [0.96, 1.05], not separated | the row end is moved, not removed |
+| 7 | `wq` on sealed:all; on sealed:d_in=9728 | 0.62; 1.02 | [0.45, 0.80]; [0.90, 1.12] | 14 of 32 lanes work on a 2,560-wide row, all of them at 9,728 |
+| 8 | `flat` on sealed:all | 1.10 | [0.95, 1.25]; FASTER under F2: 55 % | the read of pw_all (1.40 ms a GB against 2.08), the decode's 0.44 kept, the row ends kept, 14 % more instructions a block, a barrier a chunk |
+| 9 | `flats` over `flat`, sealed:all | 0.92 | [0.75, 1.05] | one more copy through shared memory |
+| 10 | `acc2` on sealed:all | 1.02 | [1.00, 1.04], not separated | 1.023 in the first run |
+| 11 | no candidate is refused on the card on any set | holds | 70 % | `flats` at 95,104 B of shared memory and `tr32r`'s relay have never run |
+| 12 | probe best; q4read | 751; 676 | +-6; +-8 | two runs agree to 0.2 and 1.4 |
+
+The best candidate on sealed:all will be `flat`, and no bit-owing candidate will be FASTER. What would surprise beyond
+§8: `flat` under 0.90 (the flat read would not survive a real decoder); `flat` above 1.30; `wq` above `flat` on
+sealed:all.
 
 ## 11. Not established by this run
 
