@@ -85,7 +85,8 @@ if (tag == 'C') {
             (unsigned long long)(uintptr_t)fs.back().data(), 0ull, 0ull};
         words.insert(words.end(), w, w + TROWS_SITE_WORDS);
     }
-    const size_t smem = PERS_SMEM_HEADER + 18816u + 4u * maxd + 16u;
+    // the row loop's layout, then the arm's own region (a whole body's SMEM, rowcand.cu's registry)
+    const size_t smem = PERS_SMEM_HEADER + 18816u + 4u * maxd + 16u + ROWC_HOST_SMEM[arm];
     hostgrid::launch_coop(grid, threads, smem, 0x7e70ull + arm, [&] {
         (mode == 0u ? ROWC_HOST_BODIES : ROWC_HOST_GU_BODIES)[arm](words.data(), nsites, g_rows.data(), g_pref.data(),
                                                                    g_br.data(), g_suf.data(), g_inv.data(), x.data());

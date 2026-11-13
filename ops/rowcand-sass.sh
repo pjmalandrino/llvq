@@ -10,10 +10,14 @@
 # Needs Docker (nvidia/cuda:12.4.1-devel-ubuntu22.04, arm64, as ops/tetra-sass-probe.sh and ops/tree-sass-probe.sh).
 # For each arm, the kernel tv_rowc_<name> is disassembled (cuobjdump -sass -fun) and its loops counted
 # (ops/sass_loops.py). The block loop is the SHORTEST backward-branch loop that loads from global memory (LDG or a
-# generic LD) and reads the activation from shared memory (LDS), with no barrier, no binary16 conversion (HADD2: the
-# tail loops, 23 and 77 instructions, are shorter than the block loop) and no store to shared memory (STS: staging): the kernel nests a site loop (with
-# barriers) and a row loop (block loop plus epilogue) around it. A diagnostic (ROWC_NONE) needs no LDS. Instructions a
-# block = the loop's count / BPI, BPI the arm's registered blocks an iteration. The card's driver ptxas compiles
+# generic LD) and reads the activation from shared memory (LDS), with no barrier and no binary16 conversion (HADD2: the
+# tail loops, 23 and 77 instructions, are shorter than the block loop): the kernel nests a site loop (with barriers)
+# and a row loop (block loop plus epilogue) around it. The staging loops store to shared memory and read none, so the
+# LDS condition already excludes them; a store to shared memory is allowed, since the flat bodies (flat, flats) write
+# each run's partial to its slot inside the block loop. A body whose block loop reads its words from shared memory
+# (flats: the chunk is staged, then decoded) has no such loop: the count falls back to the shortest loop with LDS, no
+# barrier and no HADD2, and says so. A diagnostic (ROWC_NONE) needs no LDS. Instructions a block = the loop's count /
+# BPI, BPI the arm's registered blocks an iteration (8 for a run of 8 blocks). The card's driver ptxas compiles
 # NVRTC's PTX, so a devel count differs by a few instructions (243 on the card against 237 here, pers-sass and
 # sass-tetra-int8): compare arms within one source, never across the two.
 set -euo pipefail
@@ -71,9 +75,12 @@ for a in $ARMS; do
   python3 -I ops/sass_loops.py "$OUT/tv_rowc_$name.sass" | awk -v n="$name" -v o="$owes" -v b="$bpi" '
     /^loop/ { c = $3; getline; ops = $0;
               ld = (ops ~ /LDG/ || ops ~ /LD\.E/ || ops ~ /(^|, )LD /); lds = (ops ~ /LDS/);
-              if (ld && (lds || o == "ROWC_NONE") && ops !~ /BAR/ && ops !~ /HADD2/ && ops !~ /STS/ && (best == "" || c + 0 < bn + 0)) { bn = c; best = ops } }
-    END { if (best == "") printf "SASS\t%s\t%s\t%s\tnone\t\tno block loop found\n", n, o, b;
-          else printf "SASS\t%s\t%s\t%s\t%d\t%.1f\t%s\n", n, o, b, bn, bn / b, best }'
+              ok = (lds || o == "ROWC_NONE") && ops !~ /BAR/ && ops !~ /HADD2/;
+              if (ld && ok && (best == "" || c + 0 < bn + 0)) { bn = c; best = ops }
+              if (lds && ok && (alt == "" || c + 0 < an + 0)) { an = c; alt = ops } }
+    END { if (best != "") printf "SASS\t%s\t%s\t%s\t%d\t%.1f\t%s\n", n, o, b, bn, bn / b, best;
+          else if (alt != "") printf "SASS\t%s\t%s\t%s\t%d\t%.1f\t(no global load in the loop: the words come from shared memory) %s\n", n, o, b, an, an / b, alt;
+          else printf "SASS\t%s\t%s\t%s\tnone\t\tno block loop found\n", n, o, b }'
 done
 # The diagnostics: the shortest backward-branch loop that loads the words (a generic LD.E, how the words' pointer
 # from the site table is read; the site table itself comes by LDG.E.CONSTANT) and stores nothing, with no barrier

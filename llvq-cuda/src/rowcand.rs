@@ -47,6 +47,9 @@ pub struct RowArm {
     pub relay: bool,
     /// Blocks a lane folds in one iteration of the inner loop.
     pub bpi: u32,
+    /// Shared bytes the arm owns beyond the row loop's layout: 0 for a row
+    /// program, `ROWC_SLACK` (256) and up for a whole body.
+    pub smem: u32,
 }
 
 impl RowArm {
@@ -69,7 +72,7 @@ impl RowArm {
 }
 
 /// The registry, parsed from `text` (a module or `rowcand.cu`): the lines
-/// `X(name, Struct, OWES, bound, RELAY, BPI)` inside `#define ROWC_ARMS(X)`.
+/// `X(name, Struct, OWES, bound, RELAY, BPI, SMEM)` inside `#define ROWC_ARMS(X)`.
 /// Refuses a malformed line, a duplicate name, a bound on a non-BOUND arm, and
 /// a registry without `served` first.
 pub fn parse_arms(text: &str) -> Result<Vec<RowArm>, String> {
@@ -85,10 +88,10 @@ pub fn parse_arms(text: &str) -> Result<Vec<RowArm>, String> {
         let inner = t
             .strip_prefix("X(")
             .and_then(|s| s.strip_suffix(')'))
-            .ok_or_else(|| format!("ROWC_ARMS: {t:?} is not X(name, Struct, OWES, bound, RELAY, BPI)"))?;
+            .ok_or_else(|| format!("ROWC_ARMS: {t:?} is not X(name, Struct, OWES, bound, RELAY, BPI, SMEM)"))?;
         let f: Vec<&str> = inner.split(',').map(str::trim).collect();
-        if f.len() != 6 {
-            return Err(format!("ROWC_ARMS: {t:?} has {} fields, expected 6", f.len()));
+        if f.len() != 7 {
+            return Err(format!("ROWC_ARMS: {t:?} has {} fields, expected 7", f.len()));
         }
         let name = f[0].to_string();
         if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
@@ -115,14 +118,18 @@ pub fn parse_arms(text: &str) -> Result<Vec<RowArm>, String> {
         if bpi == 0 {
             return Err(format!("ROWC_ARMS {name}: BPI 0"));
         }
+        let smem: u32 = f[6].parse().map_err(|e| format!("ROWC_ARMS {name}: SMEM {:?}: {e}", f[6]))?;
+        if !smem.is_multiple_of(16) {
+            return Err(format!("ROWC_ARMS {name}: SMEM {smem} is not a multiple of 16"));
+        }
         if arms.iter().any(|a| a.name == name) {
             return Err(format!("ROWC_ARMS: {name} registered twice"));
         }
-        arms.push(RowArm { name, strukt: f[1].to_string(), owes, relay, bpi });
+        arms.push(RowArm { name, strukt: f[1].to_string(), owes, relay, bpi, smem });
     }
     match arms.first() {
-        Some(a) if a.is_served() && a.owes == Owes::Bits && !a.relay => Ok(arms),
-        _ => Err("ROWC_ARMS: the first arm must be `served`, ROWC_BITS, RELAY 0: every other arm is judged against it".into()),
+        Some(a) if a.is_served() && a.owes == Owes::Bits && !a.relay && a.smem == 0 => Ok(arms),
+        _ => Err("ROWC_ARMS: the first arm must be `served`, ROWC_BITS, RELAY 0, SMEM 0: every other arm is judged against it".into()),
     }
 }
 
@@ -383,13 +390,21 @@ mod tests {
         assert_eq!(a[0].name, "served");
         assert_eq!(a[0].strukt, "RowcServed");
         let names: Vec<&str> = a.iter().map(|x| x.name.as_str()).collect();
-        assert_eq!(names, ["served", "served_np", "acc2", "pword"]);
-        assert_eq!(a[2].owes, Owes::Bound(1e-5));
-        assert_eq!(a[3].owes, Owes::Nothing);
-        assert_eq!(a[2].bpi, 2);
-        assert_eq!(a[1].symbol(), "tv_rowc_served_np");
-        assert_eq!(a[1].gu_symbol(), "tv_rowc_gu_served_np");
-        assert_eq!(a[1].relay_symbol(), "tv_rowc_relay_served_np");
+        assert_eq!(names, ["served", "acc2", "pword", "tr32", "tr32p", "endpass", "wq", "flat", "tr32r", "flats"]);
+        assert_eq!(a[1].owes, Owes::Bound(1e-5));
+        assert_eq!(a[2].owes, Owes::Nothing);
+        assert_eq!(a[1].bpi, 2);
+        assert_eq!(a[1].symbol(), "tv_rowc_acc2");
+        assert_eq!(a[1].gu_symbol(), "tv_rowc_gu_acc2");
+        assert_eq!(a[8].relay_symbol(), "tv_rowc_relay_tr32r");
+        assert!(a.iter().filter(|x| x.relay).map(|x| x.name.as_str()).eq(["tr32r"]));
+        for x in &a {
+            // a row program owns no shared region; a whole body reserves ROWC_SLACK at least
+            assert!(x.smem == 0 || x.smem >= 256, "{}", x.name);
+        }
+        // every whole body fits a CTA on sm_89 beside the row loop's layout at d_in 9,728
+        assert!(a.iter().all(|x| rowc_smem_bytes(9728) + x.smem <= 101_376));
+        assert!(ROWC_PART.1.contains("struct RowcServedNp {"), "served_np stays in the text, out of the registry");
     }
 
     #[test]
@@ -398,7 +413,7 @@ mod tests {
         assert!(t.starts_with(&crate::pers::trows_unit_text("#define TILE_BLOCKS 64u")), "the row-loop unit, unchanged, first");
         for a in arms() {
             assert!(t.contains(&format!("X({}, {},", a.name, a.strukt)), "{}", a.name);
-            assert!(t.contains(&format!("struct {} {{", a.strukt)), "{}: no struct {}", a.name, a.strukt);
+            assert!(t.contains(&format!("struct {} ", a.strukt)), "{}: no struct {}", a.name, a.strukt);
         }
         for (_, sym, _, _) in BW_KERNELS {
             assert!(t.contains(&format!("BW_KERNEL({sym}, ")), "{sym}");
@@ -436,20 +451,24 @@ mod tests {
 
     #[test]
     fn a_malformed_registry_is_refused() {
-        let ok = "#define ROWC_ARMS(X) \\\n    X(served, RowcServed, ROWC_BITS, 0, 0, 1) \\\n    X(b, B, ROWC_BOUND, 1e-4, 1, 2)\n\n";
+        let ok = "#define ROWC_ARMS(X) \\\n    X(served, RowcServed, ROWC_BITS, 0, 0, 1, 0) \\\n    X(b, B, ROWC_BOUND, 1e-4, 1, 2, 512)\n\n";
         let a = parse_arms(ok).unwrap();
         assert_eq!(a[1].owes, Owes::Bound(1e-4));
         assert!(a[1].relay);
+        assert_eq!(a[1].smem, 512);
         for bad in [
-            "#define ROWC_ARMS(X) \\\n    X(b, B, ROWC_BITS, 0, 0, 1)\n",
-            "#define ROWC_ARMS(X) \\\n    X(served, RowcServed, ROWC_BITS, 0, 0, 1) \\\n    X(served, R, ROWC_BITS, 0, 0, 1)\n",
-            "#define ROWC_ARMS(X) \\\n    X(served, RowcServed, ROWC_BITS, 0, 0, 1) \\\n    X(b, B, ROWC_BOUND, 0, 0, 1)\n",
-            "#define ROWC_ARMS(X) \\\n    X(served, RowcServed, ROWC_BITS, 0, 0, 1) \\\n    X(b, B, ROWC_BITS, 1e-3, 0, 1)\n",
-            "#define ROWC_ARMS(X) \\\n    X(served, RowcServed, ROWC_BITS, 0, 0, 1) \\\n    X(b, B, ROWC_MAYBE, 0, 0, 1)\n",
-            "#define ROWC_ARMS(X) \\\n    X(served, RowcServed, ROWC_BITS, 0, 0, 1) \\\n    X(b, B, ROWC_BITS, 0, 2, 1)\n",
-            "#define ROWC_ARMS(X) \\\n    X(served, RowcServed, ROWC_BITS, 0, 0, 1) \\\n    X(b, B, ROWC_BITS, 0, 0, 0)\n",
+            "#define ROWC_ARMS(X) \\\n    X(b, B, ROWC_BITS, 0, 0, 1, 0)\n",
+            "#define ROWC_ARMS(X) \\\n    X(served, RowcServed, ROWC_BITS, 0, 0, 1, 0) \\\n    X(served, R, ROWC_BITS, 0, 0, 1, 0)\n",
+            "#define ROWC_ARMS(X) \\\n    X(served, RowcServed, ROWC_BITS, 0, 0, 1, 0) \\\n    X(b, B, ROWC_BOUND, 0, 0, 1, 0)\n",
+            "#define ROWC_ARMS(X) \\\n    X(served, RowcServed, ROWC_BITS, 0, 0, 1, 0) \\\n    X(b, B, ROWC_BITS, 1e-3, 0, 1, 0)\n",
+            "#define ROWC_ARMS(X) \\\n    X(served, RowcServed, ROWC_BITS, 0, 0, 1, 0) \\\n    X(b, B, ROWC_MAYBE, 0, 0, 1, 0)\n",
+            "#define ROWC_ARMS(X) \\\n    X(served, RowcServed, ROWC_BITS, 0, 0, 1, 0) \\\n    X(b, B, ROWC_BITS, 0, 2, 1, 0)\n",
+            "#define ROWC_ARMS(X) \\\n    X(served, RowcServed, ROWC_BITS, 0, 0, 1, 0) \\\n    X(b, B, ROWC_BITS, 0, 0, 0, 0)\n",
             "#define ROWC_ARMS(X) \\\n    X(served, RowcServed, ROWC_BITS, 0, 0) \\\n",
-            "#define ROWC_ARMS(X) \\\n    X(served, RowcServed, ROWC_BITS, 0, 1, 1)\n",
+            "#define ROWC_ARMS(X) \\\n    X(served, RowcServed, ROWC_BITS, 0, 0, 1, 0) \\\n    X(b, B, ROWC_BITS, 0, 0, 1, 8)\n",
+            "#define ROWC_ARMS(X) \\\n    X(served, RowcServed, ROWC_BITS, 0, 0, 1, 16)\n",
+            "#define ROWC_ARMS(X) \\\n    X(served, RowcServed, ROWC_BITS, 0, 0, 1)\n",
+            "#define ROWC_ARMS(X) \\\n    X(served, RowcServed, ROWC_BITS, 0, 1, 1, 0)\n",
         ] {
             assert!(parse_arms(bad).is_err(), "{bad:?}");
         }

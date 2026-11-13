@@ -420,22 +420,13 @@ fn split(out: &[u8], rows: usize) -> (Vec<u16>, Vec<f32>) {
 }
 
 /// The gate on one binary: every site group, both bodies (mode 0 over every
-/// site; mode 1 over gate/up pairs), several grids. Returns the errors, folded.
+/// recorded site and the stride-6 site; mode 1 over the gate/up pairs, the
+/// stride-6 pair included), several grids. Returns the errors, folded.
 fn gate(bin: &Path, arm: usize) -> Option<RowErrors> {
-    let (sites, x) = recorded();
-    let all: Vec<&Site> = sites.iter().collect();
-    // mode 1: the fixture's gate/up pair, then the 2,560-wide coverage site cut to the random site's rows and
-    // the random site, as a pair (a gate/up pair has one shape)
-    let fx_gate = sites.iter().position(|s| s.tag == "fixture" && s.d_out == 256).unwrap();
-    let rand = sites.last().unwrap();
-    assert_eq!((sites[0].d_in, rand.d_in, rand.tag), (2560, 2560, "random@2560"));
-    let mut cut = sites[0].clone();
-    let n = rand.d_out as usize;
-    cut.words.truncate(n * stride(106));
-    cut.rscale.truncate(n);
-    cut.tail.truncate(n * 16);
-    cut.d_out = rand.d_out;
-    let pref: Vec<&Site> = vec![&sites[fx_gate], &sites[fx_gate + 1], &cut, rand];
+    let (_, x) = recorded();
+    let [(_, all), (_, pairs)] = diag_sets();
+    let all: Vec<&Site> = all.iter().collect();
+    let pref: Vec<&Site> = pairs.iter().collect();
     let mut folded: Option<RowErrors> = None;
     for (mode, set) in [(0u32, &all), (1u32, &pref)] {
         let rows: Vec<usize> = set.iter().map(|s| s.d_out as usize).collect();
@@ -659,7 +650,7 @@ fn the_probe_sums_what_the_host_sums() {
 
 // ---- the read diagnostics (ROWD_ARMS) ------------------------------------------------------------------------
 
-/// The diagnostic gate's sites: mode 0, every recorded site and a site whose
+/// The gate's sites (rows and read diagnostics): mode 0, every recorded site and a site whose
 /// row stride (6 u32) is not a multiple of 4, so odd rows start 8 bytes off a
 /// 16-byte boundary (the 128-bit reader's head and tail words); mode 1, the
 /// gate/up pairs of `gate` and a pair of such sites.
@@ -778,6 +769,87 @@ fn the_read_check_kills_a_skipped_word() {
                 }
             };
             println!("mutant {tag:<17} 1 site in {rc}, arm {name:<10} {verdict}");
+        }
+    }
+}
+
+// ---- the whole bodies (R3) -----------------------------------------------------------------------------------
+
+/// Mutants of the new readers and gathers of the whole bodies: each edit is
+/// applied exactly once to a copy of `rowcand.cu`, and every arm that runs the
+/// edited code must be refused by the gate (or fail to run). Every reader and
+/// gather mechanism the bodies add has one at least: the run reader (128-bit and
+/// u32 paths), the run fold, the thread-a-row chains, the
+/// relay copy, the row end moved out of the loop, the tail, the lane runs, the
+/// flat gather at a row boundary, the staged chunk.
+#[test]
+fn the_gate_kills_the_body_mutants() {
+    let rc = "llvq-cuda/kernels/rowcand.cu";
+    let cases: [(&str, &str, &str, &[&str]); 11] = [
+        // the last block of every run, in the fold the lane and flat bodies share
+        ("run_last_block", "    for (u32 i = 0; i < ROWC_RUN; ++i) {", "    for (u32 i = 0; i + 1u < ROWC_RUN; ++i) {", &["wq", "flat", "flats"]),
+        // the last block of every run, in the thread-a-row chains
+        (
+            "tr_last_block",
+            "                for (u32 i = 0; i < 8u; ++i) {\n                    if (ROWC_RUN * g + i < s.nb) {",
+            "                for (u32 i = 0; i + 1u < 8u; ++i) {\n                    if (ROWC_RUN * g + i < s.nb) {",
+            &["tr32", "tr32p", "tr32r"],
+        ),
+        // the 128-bit reader drops the last quad of every row
+        ("quad_last", "            if (q < nunits) v = ", "            if (q + 1u < nunits) v = ", &["tr32", "wq", "flat", "flats"]),
+        // the u32 reader (the stride-6 rows) drops the row's fifth word, which holds the last block's high half
+        ("u32_tail", "            w[k] = i < nunits ? p[", "            w[k] = i + 2u < nunits ? p[", &["tr32", "tr32p", "wq", "flat", "flats"]),
+        // blocks 1 and 2 of every run folded on each other's chain: every block still folded once, in order, but the
+        // butterfly's last pairs {0, 1}, {2, 3} become {0, 2}, {1, 3}. (Every translation or xor of the chain index is
+        // a symmetry of the butterfly and would be an equivalent mutant; this swap is not.)
+        (
+            "wrong_chain",
+            "                        acc[i] = pers_block(acc[i], blo, bhi",
+            "                        acc[i == 1u ? 2u : i == 2u ? 1u : i] = pers_block(acc[i == 1u ? 2u : i == 2u ? 1u : i], blo, bhi",
+            &["tr32", "tr32p", "tr32r"],
+        ),
+        // the relay copy drops the last unit of every row
+        ("relay_last_unit", "        for (u32 k = 0; k < nrel; ++k)", "        for (u32 k = 0; k + 1u < nrel; ++k)", &["tr32r"]),
+        // the second pass skips the last row of every chunk
+        (
+            "endpass_last_row",
+            "            for (u32 r = c0 + threadIdx.x; r < c1; r += blockDim.x) rowc_store(",
+            "            for (u32 r = c0 + threadIdx.x; r + 1u < c1; r += blockDim.x) rowc_store(",
+            &["endpass"],
+        ),
+        // the row end skips the binary16 tail
+        (
+            "skip_tail",
+            "pers_epilogue(acc, s.rs[r], s.tail + (size_t)r * s.tw, xt, s.tw)",
+            "pers_epilogue(acc, s.rs[r], s.tail + (size_t)r * s.tw, xt, 0u)",
+            &["tr32", "endpass", "wq", "flat"],
+        ),
+        // the lanes drop the last run of every row
+        ("wq_last_run", "            for (u32 g = lane; g < G; g += 32u) {", "            for (u32 g = lane; g + 1u < G; g += 32u) {", &["wq"]),
+        // the gather attributes each run to the slot after it: the last run of a row is taken from the next row
+        (
+            "gather_boundary",
+            "        for (u32 g = 0; g < G; ++g) a = __fadd_rn(a, part[(r - c0) * G + g]);",
+            "        for (u32 g = 0; g < G; ++g) a = __fadd_rn(a, part[(r - c0) * G + g + 1u]);",
+            &["flat", "flats"],
+        ),
+        // the stage drops the last quad of every chunk
+        ("stage_last_quad", "                if (k < nstage) st[k] = v[p];", "                if (k + 1u < nstage) st[k] = v[p];", &["flats"]),
+    ];
+    let arms = rowcand::arms();
+    for (tag, from, to, hit) in cases {
+        let (bin, sites) = mutant(tag, &[(rc, from, to)]);
+        assert_eq!(sites, [1], "mutant {tag}: applied at exactly one site");
+        for name in hit {
+            let idx = arms.iter().position(|a| a.name == *name).unwrap_or_else(|| panic!("{name} is not registered"));
+            let verdict = match gate(&bin, idx) {
+                None => "killed: the process failed".to_string(),
+                Some(e) => {
+                    assert!(!e.passes(arms[idx].owes), "mutant {tag} survived the gate on {name}: {e:?}");
+                    format!("killed: {} of {} rows moved, max rel err {:.3e}", e.rows - e.f_equal, e.rows, e.max)
+                }
+            };
+            println!("mutant {tag:<17} 1 site in {rc}, arm {name:<8} {verdict}");
         }
     }
 }

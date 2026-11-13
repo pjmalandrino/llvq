@@ -1,6 +1,7 @@
-//! Stage 2 of the decode-speed research phase's verifier (MODE RECHERCHE, R2,
-//! `docs/mesures/recherche-debit-r1-cadrage-2026-11-12.txt`): one card run that
-//! scores every registered row program on the sealed 4B's own records.
+//! Stage 2 of the decode-speed research phase's verifier (MODE RECHERCHE,
+//! `docs/mesures/recherche-debit-r3-espace-2026-11-12.txt`): one card run that
+//! scores every registered candidate, row program or whole body, on the sealed
+//! 4B's own records.
 //!
 //! ```text
 //! rowbench <sealed.bin> [<bare-tetra.bin>] [--rounds N] [--dump DIR]
@@ -8,40 +9,34 @@
 //!
 //! What one invocation does, in this order:
 //!   1. reads the SEALED file's records: its Tetra records (scored) and its int4
-//!      g128 records (the reference). With a second path, the bare all-Tetra
-//!      encode the old journals used (pers-rowloop, step1-micro), as a control;
-//!   2. checks every arm on the card before it is timed: the served
-//!      `tv_tetra48_h` gives the reference rows of every record; the registry's
-//!      `served` arm must equal them bit for bit, and gives the reference f32
-//!      values; every other arm is held to what it owes (`rowcand::Owes`): the
-//!      bits, a declared bound (max and 0.99 quantile of the relative error), or
-//!      nothing (a diagnostic). An arm that fails is REFUSED and no rate is
-//!      printed for it;
-//!   3. checks every read diagnostic (`ROWD_ARMS` of `kernels/rowcand.cu`:
-//!      pword with one thing changed, one arm a hypothesis of
-//!      `docs/mesures/recherche-debit-r1-recadrage-2026-11-12.txt`): the sum
-//!      of every word it read, a u64 a thread, against the host's sum of the
-//!      set's words, after every launch, timed rounds included. A miss refuses
-//!      the arm;
-//!   4. times, in interleaved rounds after a warmup, on every set: the
-//!      registered arms and the read diagnostics (`kernels/rowcand.cu`), the row-loop arms of the
-//!      journals as controls (`pers_trows.cu`), the int4 arms of K11
-//!      (`pers_q4rows.cu`) and the served eager `tv_q4_hh` on the sealed int4
-//!      records, and the bare read probe (`bwprobe.cu`) over a 2 GiB buffer;
+//!      g128 records. With a second path, the bare all-Tetra encode the old
+//!      journals used (pers-rowloop, step1-micro), for F3 and as a description;
+//!   2. checks every arm of `ROWC_ARMS` (`kernels/rowcand.cu`) on the card
+//!      before it is timed: the served `tv_tetra48_h` gives the reference rows
+//!      of every record; the registry's `served` arm must equal them bit for
+//!      bit, and gives the reference f32 values; every other arm is held to what
+//!      it owes (`rowcand::Owes`): the bits, a declared bound (max and 0.99
+//!      quantile of the relative error), or nothing (a diagnostic). An arm that
+//!      fails, spills or does not fit is REFUSED and no rate is printed for it;
+//!   3. checks `pw_all` (the read diagnostic of the second run) to have read
+//!      every word, after every launch;
+//!   4. times, in interleaved rounds after a warmup, on every set: `served`
+//!      FIRST, the other registered arms, `pw_all`, on bare:all the journal
+//!      controls F3 needs (v2, v3, v2u, nc, tile), and `served_again` LAST; then
+//!      q4, q4t and q4read on the sealed int4 records, and the bare read probe
+//!      (`bwprobe.cu`) over a 2 GiB buffer at its 16 configurations;
 //!   5. prints a line a round and an arm (`ROUND`), the medians with their
-//!      round-by-round ranges, the speed of each arm over its base formed round
-//!      by round, the fidelity lines of the prereg (`FIDELITY`, `ORDER`), each
-//!      hypothesis against its base and against pword (`HYP`), the row arms'
-//!      rates net of the empty launch, round by round (`NET`), and one TSV
-//!      summary (`TSV`).
+//!      round-by-round ranges, the rule of the R3 note (`F1` a set, `F3`,
+//!      `RULE`), a `SCORE` line a candidate and a set (F2), the probe and q4read
+//!      beside the first two runs (`PROBE`, `Q4READ`, gating nothing), and one
+//!      TSV summary (`TSV`).
 //!
-//! The sets: each d_in of the file's Tetra records apart, all of them in file
-//! order, and 4E's gate/up phase (`tv_rowc_gu_*`: pairs of rows, gate then up,
-//! at 4E's grid, with no other traffic on the card). GB/s are given in two
+//! The sets: each d_in of the sealed file's Tetra records apart, all of them in
+//! file order, 4E's gate/up phase (`tv_rowc_gu_*`: pairs of sites, gate then
+//! up, at 4E's grid), and the bare encode whole. GB/s are given in two
 //! accountings: packed words only (row stride included), and words plus
-//! binary16 tails and f32 row scales (the journals' 0.9467 GB accounting, for
-//! the fidelity rule). Times are taken on the host around launch and sync, as
-//! the row-loop bench took them.
+//! binary16 tails and f32 row scales. Times are taken on the host around
+//! launch and sync, as the row-loop bench took them.
 //!
 //! `--dump DIR` writes the module text (`rowbench_unit.cu`) and the driver's
 //! cubin of it, for the offline SASS count (`ops/rowcand-sass.sh`).
@@ -70,39 +65,23 @@ mod linux {
     const WARMUP: usize = 2;
     const THREADS: u32 = 512;
 
-    /// Each known arm's speed over its base on the bare encode, as its journal
-    /// gives it: (arm, base, median, round-by-round low, high, journal line).
-    /// pers-rowloop-2026-11-05 lines 26-33; step1-micro-2026-11-07 lines 27-31.
-    /// Rule D2 of the second prereg: the run's median inside [low - 0.02,
-    /// high + 0.02]. Every control has a journal range, so no control falls
-    /// back on a flat tolerance.
-    const JOURNAL_SPEEDS: [(&str, &str, f64, f64, f64, &str); 12] = [
-        ("v3", "v2", 0.849, 0.839, 0.849, "pers-rowloop:26"),
-        ("ilp2", "v2", 0.928, 0.905, 0.930, "pers-rowloop:27"),
-        ("v2u", "v2", 0.825, 0.807, 0.826, "pers-rowloop:28"),
-        ("l1w", "v2u", 1.214, 1.210, 1.221, "pers-rowloop:29"),
-        ("bcast", "v2u", 0.987, 0.969, 0.993, "pers-rowloop:30"),
-        ("xbcast", "v2u", 0.995, 0.965, 1.001, "pers-rowloop:31"),
-        ("v2_o2", "v2_s", 1.076, 1.073, 1.080, "pers-rowloop:33"),
-        ("nc", "v2", 0.810, 0.787, 0.829, "step1-micro:27"),
-        ("nc256", "v2", 0.845, 0.823, 0.865, "step1-micro:28"),
-        ("cpa", "v2", 0.960, 0.944, 0.987, "step1-micro:29"),
-        ("tile", "v2", 1.002, 0.982, 1.024, "step1-micro:30"),
-        ("bal", "v2", 0.934, 0.916, 0.956, "step1-micro:31"),
-    ];
-    /// The fidelity window of the served row on the bare encode, GB/s in the
-    /// journals' accounting: pers-rowloop 379 [368-383], step1-micro 374 [368-378].
-    const FIDELITY_GBS: (f64, f64) = (368.0, 383.0);
-    /// How far outside its journal's round-by-round range a known arm's speed
-    /// may sit (rule D2).
-    const ORDER_WIDEN: f64 = 0.02;
-    /// The read diagnostics' kill lines (prereg §5): an arm that recovers less
-    /// than this over its base kills its hypothesis; the empty launch kills H0
-    /// under `EMPTY_KILL_US`.
-    const HYP_KILL: f64 = 1.03;
-    const EMPTY_KILL_US: f64 = 20.0;
-    /// The known arms of the journals (pers.rs::TROWS_ARMS), timed as controls.
-    const KNOWN: [&str; 14] = ["v2", "v3", "ilp2", "v2u", "l1w", "bcast", "xbcast", "v2_s", "v2_o2", "nc", "nc256", "cpa", "tile", "bal"];
+    /// F1 (R3 note): the served arm's second timing over its first, round by
+    /// round, median inside this window; its range is the set's noise floor.
+    const F1_WINDOW: (f64, f64) = (0.98, 1.02);
+    /// F3 on bare:all: each of these journal arms reads under this speed over v2.
+    const F3_SLOW: [&str; 3] = ["v3", "v2u", "nc"];
+    const F3_SLOW_MAX: f64 = 0.92;
+    /// F3 on bare:all: tile reads inside this window over v2.
+    const F3_TILE: (f64, f64) = (0.96, 1.06);
+    /// The first two runs' values, printed beside this run's (they gate nothing):
+    /// the probe's best configuration and q4read on the sealed int4 records.
+    const PROBE_BEFORE: (f64, f64) = (751.1, 750.9);
+    const Q4READ_BEFORE: (f64, f64) = (675.3, 676.7);
+    /// The read diagnostics and int4 arms timed in this run (the others keep their code).
+    const TIMED_DIAG: [&str; 1] = ["pw_all"];
+    const TIMED_Q4: [&str; 3] = ["q4", "q4t", "q4read"];
+    /// The known arms of the journals (pers.rs::TROWS_ARMS) F3 needs, timed on bare:all.
+    const KNOWN: [&str; 5] = ["v2", "v3", "v2u", "nc", "tile"];
 
     fn ptr<T>(s: &CudaSlice<T>, m: &Cuda) -> u64 {
         s.device_ptr(m.stream()).0
@@ -170,8 +149,6 @@ mod linux {
         /// ends]). `check`: a read diagnostic's slots (2 u64 a thread, the site table's word 8) and the sum their
         /// even slots owe, verified after every launch.
         Rows { f: CudaFunction, table: CudaSlice<u64>, nsites: u32, grid: u32, shared: u32, trows: bool, check: Option<(CudaSlice<u64>, u64)> },
-        /// The served eager int4 rows, one tv_q4_hh a record.
-        Q4hh { f: CudaFunction, recs: Vec<usize> },
         /// A tv_q4rows_* arm.
         Q4 { f: CudaFunction, table: CudaSlice<u64>, nsites: u32, grid: u32, shared: u32 },
         /// The read probe.
@@ -346,22 +323,9 @@ mod linux {
         Ok((got != *expect).then(|| format!("read check {got:#x}, the host's {expect:#x}")))
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn launch(m: &Cuda, l: &Launch, t: &Tables, x: u64, xh: &CudaSlice<u16>, q4: &[QRec], q4y: &CudaSlice<u16>, probe: &CudaSlice<u32>) -> Result<(), String> {
+    fn launch(m: &Cuda, l: &Launch, t: &Tables, x: u64, xh: &CudaSlice<u16>, probe: &CudaSlice<u32>) -> Result<(), String> {
         match l {
             Launch::Rows { .. } => rows_launch(m, l, t, x),
-            Launch::Q4hh { f, recs } => {
-                for &k in recs {
-                    let r = &q4[k];
-                    let cfg = LaunchConfig { grid_dim: (r.d_out / 8, 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 4 * r.d_in };
-                    let gpr = r.d_in / 128;
-                    let mut b = m.stream().launch_builder(f);
-                    b.arg(&r.wq).arg(&r.sc).arg(&r.bi).arg(xh).arg(q4y).arg(&r.d_in).arg(&gpr);
-                    // SAFETY: tv_q4_hh's own arguments on the record's live buffers; q4y holds the widest d_out.
-                    unsafe { b.launch(cfg) }.map_err(|e| format!("tv_q4_hh: {e}"))?;
-                }
-                Ok(())
-            }
             Launch::Q4 { f, table, nsites, grid, shared } => {
                 let cfg = LaunchConfig { grid_dim: (*grid, 1, 1), block_dim: (THREADS, 1, 1), shared_mem_bytes: *shared };
                 let z = 0u64;
@@ -538,6 +502,8 @@ mod linux {
             }
         };
         list("sealed", &sealed);
+        let unaligned = sealed.iter().filter(|r| !r.stride.is_multiple_of(4)).count();
+        println!("  sealed Tetra records whose row stride is not whole 16-byte quads (the bodies read them by u32 loads): {unaligned} of {}", sealed.len());
         for d in shapes(&sealed) {
             sets.push(Set { file: "sealed", name: format!("sealed:d_in={d}"), mode: Mode::Rows, recs: (0..sealed.len()).filter(|&k| sealed[k].d_in == d).collect() });
         }
@@ -562,9 +528,6 @@ mod linux {
         }
         if !bare_recs.is_empty() {
             list("bare", &bare_recs);
-            for d in shapes(&bare_recs) {
-                sets.push(Set { file: "bare", name: format!("bare:d_in={d}"), mode: Mode::Rows, recs: (0..bare_recs.len()).filter(|&k| bare_recs[k].d_in == d).collect() });
-            }
             sets.push(Set { file: "bare", name: "bare:all".into(), mode: Mode::Rows, recs: (0..bare_recs.len()).collect() });
         }
 
@@ -590,6 +553,8 @@ mod linux {
             println!("\nset {}: {} records, {} rows, {:.4} GB of words, {:.4} GB with tails and row scales", set.name, set.recs.len(), total, bw as f64 / 1e9, bo as f64 / 1e9);
             // the registry, the served arm first: its f32 rows are the reference of the others
             let mut served_f: Option<Vec<f32>> = None;
+            // F1: the served arm again, the set's last run
+            let mut again: Option<Run> = None;
             for arm in &arms {
                 let (sym, label) = match set.mode {
                     Mode::Rows => (arm.symbol(), arm.name.clone()),
@@ -652,7 +617,7 @@ mod linux {
                     }
                     words
                 };
-                let shared = rowcand::rowc_smem_bytes(9728);
+                let shared = rowcand::rowc_smem_bytes(9728) + arm.smem;
                 let f = m.func_dynamic_shared(&sym, shared)?;
                 let rep = m.report(&sym)?;
                 let occ = f.occupancy_max_active_blocks_per_multiprocessor(THREADS, shared as usize, None).map_err(|e| format!("occupancy: {e}"))?;
@@ -701,6 +666,13 @@ mod linux {
                     run.refused = Some(format!("owes {} and misses: max rel err {:.3e}", owes_str(arm.owes), e.max));
                 }
                 run.err = Some(e);
+                if arm.is_served() && ok {
+                    let mut a2 = Run::new(&set.name, &format!("{label}_again"), "rowc", owes_str(arm.owes));
+                    a2.bytes_w = bw;
+                    a2.bytes_old = bo;
+                    a2.launch = Some(Launch::Rows { f: f.clone(), table: m.up_u64(&mk_table(false))?, nsites: set.recs.len() as u32, grid: sm, shared, trows: false, check: None });
+                    again = Some(a2);
+                }
                 run.launch = Some(Launch::Rows { f, table: m.up_u64(&mk_table(false))?, nsites: set.recs.len() as u32, grid: sm, shared, trows: false, check: None });
                 run._bufs.push(y);
                 run._fbufs.push(yf);
@@ -708,7 +680,7 @@ mod linux {
             }
             // the read diagnostics (ROWD_ARMS): pword with one thing changed, each checked to read every word
             let slots_n = 2 * (sm * THREADS) as usize;
-            for darm in &diag {
+            for darm in diag.iter().filter(|d| TIMED_DIAG.contains(&d.name.as_str())) {
                 let (sym, label) = match set.mode {
                     Mode::Rows => (darm.symbol(), darm.name.clone()),
                     Mode::GateUp => (darm.gu_symbol(), format!("gu_{}", darm.name)),
@@ -756,12 +728,10 @@ mod linux {
                 run._bufs.push(y);
                 runs.push(run);
             }
-            // the known row-loop arms of the journals, on row sets
-            if set.mode != Mode::Rows {
-                continue;
-            }
-            let Some(want_f) = served_f else { continue };
-            for &(name, sym, owed, minb) in pers::TROWS_ARMS.iter().filter(|a| KNOWN.contains(&a.0)) {
+            // the known row-loop arms of the journals F3 needs, on bare:all only; the served arm again last
+            let known_set = set.name == "bare:all";
+            let want_f = if known_set { served_f.clone().unwrap_or_default() } else { Vec::new() };
+            for &(name, sym, owed, minb) in pers::TROWS_ARMS.iter().filter(|a| known_set && !want_f.is_empty() && KNOWN.contains(&a.0)) {
                 let pick: Vec<usize> = (0..set.recs.len()).filter(|&j| !pers::trows_small_only(name) || recs[set.recs[j]].d_in <= 4096).collect();
                 let mut run = Run::new(&set.name, name, "known", if owed { "bits".into() } else { "nothing".into() });
                 if pick.is_empty() {
@@ -867,16 +837,15 @@ mod linux {
                 run._fbufs.push(yf);
                 runs.push(run);
             }
+            // F1: the served arm timed again, the set's last run of every round
+            if let Some(a2) = again {
+                runs.push(a2);
+            }
         }
 
         // ---- the int4 arms on the sealed int4 records --------------------------------------------------------
-        let mut q4_shapes: Vec<u32> = q4.iter().map(|r| r.d_in).collect();
-        q4_shapes.sort_unstable();
-        q4_shapes.dedup();
-        let mut q4_sets: Vec<(String, Vec<usize>)> = q4_shapes.iter().map(|&d| (format!("sealed:int4:d_in={d}"), (0..q4.len()).filter(|&k| q4[k].d_in == d).collect())).collect();
-        q4_sets.push(("sealed:int4:all".into(), (0..q4.len()).collect()));
-        let max_q4_out = q4.iter().map(|r| r.d_out).max().unwrap_or(8) as usize;
-        let q4y = m.zeros_u16(max_q4_out)?;
+        // the int4 records all at once only: q4read is printed beside the first two runs' value on this set
+        let q4_sets: Vec<(String, Vec<usize>)> = vec![("sealed:int4:all".into(), (0..q4.len()).collect())];
         let mut q4 = q4;
         {
             let relayout = m.func("tv_q4rows_tile_relayout")?;
@@ -912,12 +881,8 @@ mod linux {
                 m.sync()?;
                 want.extend(m.down_u16(&y)?);
             }
-            let mut run = Run::new(name, "q4hh", "int4", "served".into());
-            run.bytes_w = bytes;
-            run.bytes_old = bytes;
-            run.launch = Some(Launch::Q4hh { f: f_q4hh.clone(), recs: recs.clone() });
-            runs.push(run);
-            for &(arm, sym, owed) in pers::Q4ROWS_ARMS.iter() {
+            // tv_q4_hh gives the reference rows; it is not timed in this run
+            for &(arm, sym, owed) in pers::Q4ROWS_ARMS.iter().filter(|a| TIMED_Q4.contains(&a.0)) {
                 let mut run = Run::new(name, arm, "int4", if owed { "bits".into() } else { "nothing".into() });
                 run.bytes_w = bytes;
                 run.bytes_old = bytes;
@@ -939,7 +904,7 @@ mod linux {
                     continue;
                 }
                 let l = Launch::Q4 { f, table: m.up_u64(&words)?, nsites: recs.len() as u32, grid: sm, shared: qshared };
-                launch(&m, &l, &t, x, &xh, &q4, &q4y, &m.zeros_u32(4)?)?;
+                launch(&m, &l, &t, x, &xh, &m.zeros_u32(4)?)?;
                 m.sync()?;
                 let got = m.down_u16(&y)?;
                 let same = got.iter().zip(&want).filter(|(a, b)| a == b).count();
@@ -1009,7 +974,7 @@ mod linux {
                 }
                 let Some(l) = run.launch.as_ref() else { continue };
                 let t0 = Instant::now();
-                launch(&m, l, &t, x, &xh, &q4, &q4y, &probe)?;
+                launch(&m, l, &t, x, &xh, &probe)?;
                 m.sync()?;
                 let s = t0.elapsed().as_secs_f64();
                 if let Some(why) = read_check(&m, l)? {
@@ -1094,94 +1059,121 @@ mod linux {
             println!("  {:<18} {:.3} ms [{:.3}-{:.3}]  {g:.0} GB/s [{gl:.0}-{gh:.0}]  {o:.0} [{ol:.0}-{oh:.0}]{vs}{tag}", r.arm, 1e3 * ms, 1e3 * lo, 1e3 * hi);
         }
 
-        // ---- fidelity (the prereg's rule D) ----------------------------------------------------------------
+        // ---- the fidelity rule F1 to F3 (docs/mesures/recherche-debit-r3-espace-2026-11-12.txt) ----------------
+        // F1, a set at a time: the served arm's second timing over its first, round by round (a speed: t1 / t2).
+        // Its median decides on sealed:all; its range is the set's noise floor for F2.
         println!();
-        match series("bare:all", "served") {
-            None => println!("FIDELITY\tserved\tVOID\tno bare encode, or the served arm was refused on it"),
-            Some(s) => {
-                let r = runs.iter().find(|r| r.set == "bare:all" && r.arm == "served").expect("found above");
-                let (g, gl, gh) = pers::med_range(&s.iter().map(|t| r.bytes_old as f64 / t / 1e9).collect::<Vec<_>>());
-                let pass = g >= FIDELITY_GBS.0 && g <= FIDELITY_GBS.1;
-                println!(
-                    "FIDELITY\tserved\t{}\tbare:all {:.4} GB, median {g:.1} GB/s [{gl:.1}-{gh:.1}] against [{}, {}]",
-                    if pass { "PASS" } else { "FAIL" },
-                    r.bytes_old as f64 / 1e9,
-                    FIDELITY_GBS.0,
-                    FIDELITY_GBS.1
-                );
-            }
-        }
-        if let Some(v2) = series("bare:all", "v2") {
-            let r = runs.iter().find(|r| r.set == "bare:all" && r.arm == "v2").expect("found above");
-            let (g, gl, gh) = pers::med_range(&v2.iter().map(|t| r.bytes_old as f64 / t / 1e9).collect::<Vec<_>>());
-            let pass = g >= FIDELITY_GBS.0 && g <= FIDELITY_GBS.1;
-            println!("FIDELITY\tv2\t{}\tbare:all median {g:.1} GB/s [{gl:.1}-{gh:.1}] against [{}, {}]", if pass { "PASS" } else { "FAIL" }, FIDELITY_GBS.0, FIDELITY_GBS.1);
-        }
-        let mut order_fail = 0usize;
-        let mut order_n = 0usize;
-        for (arm, base, j, jl, jh, src) in JOURNAL_SPEEDS {
-            match (series("bare:all", arm), series("bare:all", base)) {
-                (Some(s), Some(b)) => {
-                    let (m2, l2, h2) = over(&b, &s);
-                    let (wl, wh) = (jl - ORDER_WIDEN, jh + ORDER_WIDEN);
-                    let pass = m2 >= wl && m2 <= wh;
-                    order_n += 1;
-                    order_fail += usize::from(!pass);
+        let mut floors: std::collections::BTreeMap<String, (f64, f64, f64, bool)> = std::collections::BTreeMap::new();
+        for set in &sets {
+            let pre = if set.mode == Mode::GateUp { "gu_" } else { "" };
+            let role = if set.name == "sealed:all" { "decides" } else { "describes" };
+            match (series(&set.name, &format!("{pre}served")), series(&set.name, &format!("{pre}served_again"))) {
+                (Some(a), Some(b)) => {
+                    let (m2, l2, h2) = over(&a, &b);
+                    let pass = m2 >= F1_WINDOW.0 && m2 <= F1_WINDOW.1;
+                    floors.insert(set.name.clone(), (m2, l2, h2, pass));
                     println!(
-                        "ORDER\t{arm}\t{}\tx{m2:.3} [{l2:.3}-{h2:.3}] over {base}, journal x{j:.3} [{jl:.3}-{jh:.3}] ({src}), window [{wl:.3}, {wh:.3}]",
-                        if pass { "PASS" } else { "FAIL" }
+                        "F1\t{}\t{}\t{pre}served_again over {pre}served x{m2:.4} [{l2:.4}-{h2:.4}], window [{}, {}]; the set's floor [{l2:.4}, {h2:.4}]\t{role}",
+                        set.name,
+                        if pass { "PASS" } else { "FAIL" },
+                        F1_WINDOW.0,
+                        F1_WINDOW.1
                     );
                 }
-                _ => println!("ORDER\t{arm}\tVOID\tno series on bare:all"),
+                _ => println!("F1\t{}\tVOID\tno series for {pre}served or {pre}served_again\t{role}", set.name),
             }
         }
+        let f1 = floors.get("sealed:all").map(|f| f.3).unwrap_or(false);
+        // F3 on bare:all: the harness still tells a slow arm from a fast one
+        let mut f3 = true;
+        let mut f3_n = 0usize;
+        let v2 = series("bare:all", "v2");
+        for arm in F3_SLOW.iter().copied().chain(std::iter::once("tile")) {
+            match (v2.as_ref(), series("bare:all", arm)) {
+                (Some(b), Some(s)) => {
+                    let (m2, l2, h2) = over(b, &s);
+                    let (pass, want) = if arm == "tile" {
+                        (m2 >= F3_TILE.0 && m2 <= F3_TILE.1, format!("inside [{}, {}]", F3_TILE.0, F3_TILE.1))
+                    } else {
+                        (m2 < F3_SLOW_MAX, format!("under {F3_SLOW_MAX}"))
+                    };
+                    f3 &= pass;
+                    f3_n += 1;
+                    println!("F3\t{arm}\t{}\tbare:all x{m2:.3} [{l2:.3}-{h2:.3}] over v2, wanted {want}", if pass { "PASS" } else { "FAIL" });
+                }
+                _ => {
+                    f3 = false;
+                    println!("F3\t{arm}\tVOID\tno series for {arm} or v2 on bare:all");
+                }
+            }
+        }
+        let rule = f1 && f3 && f3_n == 4;
         println!(
-            "ORDER\tall\t{}\t{order_n} known arms against their journal ranges widened by {ORDER_WIDEN}, {order_fail} outside",
-            if order_n == 0 { "VOID" } else if order_fail == 0 { "PASS" } else { "FAIL" }
+            "RULE\t{}\tF1 on sealed:all {}, F3 on bare:all {} ({f3_n} of 4 controls timed){}",
+            if rule { "PASS" } else { "FAIL" },
+            if f1 { "PASS" } else { "FAIL" },
+            if f3 && f3_n == 4 { "PASS" } else { "FAIL" },
+            if rule { "" } else { ": every SCORE line below is a description" }
         );
-
-        // ---- the read diagnostics: each hypothesis against its base, and the rates net of the empty launch ----
-        // The kill lines decide on sealed:all only (prereg §4); every other set is a description.
+        // F2: a candidate counts as faster only if its whole round-by-round range over served lies above the set's
+        // floor; slower if it lies below; else not separated. sealed:all decides, the other sets describe.
         println!();
         for set in &sets {
             let pre = if set.mode == Mode::GateUp { "gu_" } else { "" };
             let role = if set.name == "sealed:all" { "decides" } else { "describes" };
-            let empty = diag.iter().find(|d| d.is_empty_launch()).and_then(|d| series(&set.name, &format!("{pre}{}", d.name)));
-            for d in &diag {
-                let label = format!("{pre}{}", d.name);
-                let Some(s) = series(&set.name, &label) else {
-                    println!("HYP\t{}\t{}\t{label}\tVOID\tno series", set.name, d.hyp);
+            let floor = floors.get(&set.name).copied();
+            let base = series(&set.name, &format!("{pre}served"));
+            for arm in arms.iter().filter(|a| !a.is_served() && a.owes != Owes::Nothing) {
+                let label = format!("{pre}{}", arm.name);
+                let Some(r) = runs.iter().find(|r| r.set == set.name && r.arm == label) else {
+                    println!("SCORE\t{}\t{label}\tVOID\tno run on this set\t{role}", set.name);
                     continue;
                 };
-                if d.is_empty_launch() {
-                    let (us, ul, uh) = pers::med_range(&s.iter().map(|t| 1e6 * t).collect::<Vec<_>>());
-                    let verdict = if us < EMPTY_KILL_US { format!("under {EMPTY_KILL_US} us: H0 dead") } else { format!("at least {EMPTY_KILL_US} us") };
-                    println!("HYP\t{}\t{}\t{label}\t{us:.1} us [{ul:.1}-{uh:.1}] a launch over the set's sites\t{verdict}\t{role}", set.name, d.hyp);
+                let err = r.err.as_ref().map(|e| format!("max rel err {:.3e}, q99 {:.3e}", e.max, e.q99)).unwrap_or_default();
+                if let Some(why) = &r.refused {
+                    println!("SCORE\t{}\t{label}\tREFUSED\towes {}\t{err}\tno rate: {why}\t{role}", set.name, r.owes);
                     continue;
                 }
-                let base = format!("{pre}{}", d.base);
-                let vs = |b: &str| series(&set.name, b).map(|bs| over(&bs, &s));
-                let main = vs(&base).map(|(m2, l2, h2)| format!("x{m2:.3} [{l2:.3}-{h2:.3}] over {base}")).unwrap_or_else(|| format!("no series for {base}"));
-                let pw = vs(&format!("{pre}pword")).map(|(m2, l2, h2)| format!("x{m2:.3} [{l2:.3}-{h2:.3}] over {pre}pword")).unwrap_or_default();
-                let verdict = match (d.hyp.as_str(), vs(&base)) {
-                    (_, None) => "VOID".to_string(),
-                    ("pword", Some((m2, _, _))) => format!("the check's cost: x{m2:.3}"),
-                    ("stack", Some(_)) => "the stack: what is left to the probe".to_string(),
-                    (h, Some((m2, _, _))) if m2 < HYP_KILL => format!("under x{HYP_KILL}: {h} dead"),
-                    (h, Some(_)) => format!("x{HYP_KILL} or more: {h} lives"),
+                let (Some(b), Some(fl)) = (base.as_ref(), floor) else {
+                    println!("SCORE\t{}\t{label}\tVOID\tno served series or no floor on this set\t{role}", set.name);
+                    continue;
                 };
-                println!("HYP\t{}\t{}\t{label}\t{main}\t{pw}\t{verdict}\t{role}", set.name, d.hyp);
+                let (m2, l2, h2) = over(b, &r.series);
+                let verdict = if l2 > fl.2 {
+                    "faster"
+                } else if h2 < fl.1 {
+                    "slower"
+                } else {
+                    "not separated"
+                };
+                let note = match (rule, fl.3) {
+                    (true, true) => role.to_string(),
+                    (false, _) => format!("{role}; description only, the rule fails"),
+                    (true, false) => format!("{role}; description only, F1 fails on this set"),
+                };
+                println!(
+                    "SCORE\t{}\t{label}\tx{m2:.3} [{l2:.3}-{h2:.3}] over {pre}served\towes {}\t{err}\tvalid\t{verdict} (floor [{:.4}, {:.4}])\t{note}",
+                    set.name, r.owes, fl.1, fl.2
+                );
             }
-            // NET: GB/s of packed words, round by round over (t - t_empty), every row arm and diagnostic of the set
-            let Some(e) = empty else { continue };
-            for r in runs.iter().filter(|r| r.set == set.name && (r.kind == "rowc" || r.kind == "rowd") && r.refused.is_none() && !r.series.is_empty()) {
-                if diag.iter().any(|d| d.is_empty_launch() && r.arm == format!("{pre}{}", d.name)) {
-                    continue;
-                }
-                let net: Vec<f64> = r.series.iter().zip(&e).map(|(t, te)| r.bytes_w as f64 / (t - te) / 1e9).collect();
-                let (g, gl, gh) = pers::med_range(&net);
-                println!("NET\t{}\t{}\t{g:.1} [{gl:.1}-{gh:.1}] GB/s of words, the empty launch subtracted round by round", set.name, r.arm);
+        }
+        // what describes the card, beside the first two runs; gates nothing
+        println!();
+        let best = runs
+            .iter()
+            .filter(|r| r.kind == "probe" && r.refused.is_none() && !r.series.is_empty())
+            .map(|r| (r.arm.clone(), pers::med_range(&r.series.iter().map(|t| r.bytes_w as f64 / t / 1e9).collect::<Vec<_>>())))
+            .max_by(|a, b| a.1 .0.total_cmp(&b.1 .0));
+        match best {
+            Some((cfg, (g, gl, gh))) => println!("PROBE\t{cfg}\t{g:.1} [{gl:.1}-{gh:.1}] GB/s, the best configuration\tfirst two runs {} / {}\tgates nothing", PROBE_BEFORE.0, PROBE_BEFORE.1),
+            None => println!("PROBE\tVOID\tno probe series"),
+        }
+        match runs.iter().find(|r| r.set == "sealed:int4:all" && r.arm == "q4read" && r.refused.is_none() && !r.series.is_empty()) {
+            Some(r) => {
+                let (g, gl, gh) = pers::med_range(&r.series.iter().map(|t| r.bytes_w as f64 / t / 1e9).collect::<Vec<_>>());
+                println!("Q4READ\tsealed:int4:all\t{g:.1} [{gl:.1}-{gh:.1}] GB/s\tfirst two runs {} / {}\tgates nothing", Q4READ_BEFORE.0, Q4READ_BEFORE.1);
             }
+            None => println!("Q4READ\tVOID\tno q4read series"),
         }
 
         // ---- the TSV ---------------------------------------------------------------------------------------
