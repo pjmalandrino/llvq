@@ -401,8 +401,17 @@ const SPOKEN_FOR: [&str; 5] =
 /// `LLVQ_PREFILL` recompiles the prefill kernel at another `rows:tile` pair,
 /// and `LLVQ_METAL_KERNEL` swaps the Metal matvec: both are measurement modes
 /// that change the compiled object without a field to say so.
-pub const BELOW_THE_DOOR: [&str; 4] =
-    ["LLVQ_KERNEL_DIR", "LLVQ_TILE_BLOCKS", "LLVQ_PREFILL", "LLVQ_METAL_KERNEL"];
+///
+/// `LLVQ_GUIDED_WEIGHTS` and `LLVQ_GUIDED_GROUPS` change how an object is encoded, which a served
+/// config, reading an object already made, has no field for (`crate::guided`).
+pub const BELOW_THE_DOOR: [&str; 6] = [
+    "LLVQ_KERNEL_DIR",
+    "LLVQ_TILE_BLOCKS",
+    "LLVQ_PREFILL",
+    "LLVQ_METAL_KERNEL",
+    crate::guided::ENV_DIR,
+    crate::guided::ENV_GROUPS,
+];
 
 /// The cache store's variable, beside a served config.
 ///

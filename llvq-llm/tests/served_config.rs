@@ -316,7 +316,14 @@ fn variables_below_the_door_are_refused_by_name() {
     let f = served();
     assert_eq!(
         BELOW_THE_DOOR,
-        ["LLVQ_KERNEL_DIR", "LLVQ_TILE_BLOCKS", "LLVQ_PREFILL", "LLVQ_METAL_KERNEL"]
+        [
+            "LLVQ_KERNEL_DIR",
+            "LLVQ_TILE_BLOCKS",
+            "LLVQ_PREFILL",
+            "LLVQ_METAL_KERNEL",
+            "LLVQ_GUIDED_WEIGHTS",
+            "LLVQ_GUIDED_GROUPS"
+        ]
     );
     for var in BELOW_THE_DOOR {
         let e = match check_env(&f, env_of(&[(var, "anything")])) {
