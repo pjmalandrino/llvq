@@ -1488,3 +1488,10 @@ reading step is [recherche-debit-r0-depot](mesures/recherche-debit-r0-depot-2026
   letter. It describes: read as a flat stream by 128-bit loads with no side stream, the sealed Tetra words stream
   717 GB/s against 751 for the card and 480 for the served read (*measured*). The row boundary, the load width and
   the side streams each cost about x1.2. Spend under the cap: $19.42 of $25, registry $326.67.
+- 2026-11-13, the third card run, [recherche-debit-corps](mesures/recherche-debit-corps-2026-11-13.txt) (6af6f074,
+  $0.10), is the first whose fidelity rule passes: the served arm timed twice a round agrees to 0.5 %, and four
+  journal controls sit in their windows. Seven whole bodies were scored on the sealed Tetra rows alone. The flat
+  body, a thread a run of 8 blocks on aligned 128-bit loads with the row ends after a barrier, reads 470.5 GB/s,
+  x1.185 [1.179-1.190] of the served row, inside a bound of 1e-5. The served row with its row end in a second pass
+  reads x1.053 [1.050-1.056] bit for bit. A thread a row reads x0.35 to x0.37 (*measured*). No tok/s is
+  established. Nine of twelve signed predictions held. Spend under the cap: $19.52 of $25, registry $326.77.

@@ -668,8 +668,12 @@ nothing decoded against 751 for the card, by the explanation route first
 ([recherche-debit-r1-recadrage](mesures/recherche-debit-r1-recadrage-2026-11-12.txt)).
 The second run ([recherche-debit-lecture](mesures/recherche-debit-lecture-2026-11-12.txt)) describes the cause: the
 served read pattern. The same words read flat, by 128-bit loads, with no side stream, stream 717 GB/s (*measured*).
-Both runs failed their fidelity rule, so neither scores a candidate nor kills a hypothesis to the letter. No
-decoder has run on the flat read. Spent: $0.20 of $5.
+Both runs failed their fidelity rule, so neither scores a candidate nor kills a hypothesis to the letter.
+The third run ([recherche-debit-corps](mesures/recherche-debit-corps-2026-11-13.txt), 2026-11-13) passes a rule
+rebuilt on the job itself and scores seven whole bodies on the sealed Tetra rows alone. A flat body reads ×1.185
+[1.179-1.190] of the served row inside a bound of 1e-5 on rows; the served row with its row end in a second pass
+reads ×1.053 [1.050-1.056] bit for bit; a thread a row reads ×0.36 (*measured*). Neither winner has run in the
+token: no tok/s is established, and the flat body's effect on perplexity is not measured. Spent: $0.30 of $5.
 
 ## Beliefs we dropped
 

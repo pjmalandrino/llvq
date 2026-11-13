@@ -1,0 +1,97 @@
+Decode-speed research phase (CERVEAU O11), step R3: the first whole bodies on a flat, wide read, one card run of
+rowbench, 2026-11-13
+
+Result: the fidelity rule F1 to F3 passes, so this run scores candidates, the first of the phase to do so. On the
+sealed 4B's Tetra rows alone, the flat body (a thread a run of 8 blocks, aligned 128-bit loads, row ends after a
+barrier) reads x1.185 [1.179-1.190] of the served row inside the 1e-5 bound, and the served row with its row end
+moved to a second pass reads x1.053 [1.050-1.056] bit for bit. The thread-a-row bodies read x0.35 to x0.37. Every
+rate is *measured*; bytes are *computed*. No tok/s is established.
+
+Job 6af6f0740f431c4f7b57425f, l40sx1, 203 s running, $0.10. Prereg
+proofs/preregistration-recherche-debit-corps-2026-11-13.md (sha256 22caad93, stamped before). Image built from the
+stamped commit 314d849 (the bench code is 11f9b31), Space sha 68c8b57e. Raw outputs in
+recherche-debit-corps-2026-11-13-brut/; the cubin is in the bucket (cubin/rowbench.cubin, not counted). Card: L40S,
+sm_89, driver 580.178.04, tile 64. 15 timed rounds, medians with round-by-round ranges. GB/s of words unless said.
+
+GATES
+  1 oracle MATCH. 2 both files at their bytes and sha256; served unit 101,625 bytes 61930943; bench module 587ddd48,
+  the Mac's. 3 the served arm bit for bit on sealed:all, sealed:gu4e and bare:all. 4 no LLVQ_* variable. No candidate
+  and no probe configuration was refused on any set.
+
+THE RULE (prereg §5): PASS
+  F1, served timed last over served timed first, round by round:
+    sealed:all (decides)   x0.9953 [0.9936-0.9995]   the floor
+    sealed:d_in=2560       x0.9953 [0.9860-0.9989]
+    sealed:d_in=9728       x0.9858 [0.9684-1.0016]
+    sealed:gu4e            x0.9941 [0.9883-1.0024]
+    bare:all               x1.0004 [0.9963-1.0073]
+  F3 on bare:all over v2: v3 x0.856, v2u x0.832, nc x0.839, each under 0.92; tile x1.029, inside [0.96, 1.06].
+  The second timing of the served arm is 0.5 % slower than the first on four sets of five. The floor is 0.6 % wide
+  on the deciding set.
+  Beside the first two runs, gating nothing: probe 751.1 [749.4-753.1] (751.1, 750.9); q4read 673.8 [666.3-679.2]
+  (675.3, 676.7).
+
+THE SCORES ON sealed:all (0.7157 GB of words, 946,176 rows; speed over served, round by round)
+  arm       owes         GB/s                  over served            verdict (F2)   card max rel err, q99
+  served    bits         396.9 [395.7-397.5]   1                      reference
+  flat      bound 1e-5   470.5 [468.1-472.0]   x1.185 [1.179-1.190]   faster         1.569e-6, 3.923e-7
+  endpass   bits         417.6 [416.9-418.7]   x1.053 [1.050-1.056]   faster         0, 0
+  flats     bound 1e-5   410.8 [403.3-414.9]   x1.035 [1.017-1.045]   faster         1.569e-6, 3.923e-7
+  acc2      bound 1e-5   405.2 [404.5-406.0]   x1.021 [1.019-1.024]   faster         1.717e-6, 2.893e-7
+  wq        bound 1e-5   285.3 [284.8-285.9]   x0.719 [0.717-0.721]   slower         1.717e-6, 3.216e-7
+  tr32r     bits         144.8 [144.7-144.9]   x0.365 [0.364-0.366]   slower         0, 0
+  tr32      bits         142.1 [141.9-142.2]   x0.358 [0.357-0.359]   slower         0, 0
+  tr32p     bits         139.7 [139.6-139.9]   x0.352 [0.351-0.353]   slower         0, 0
+  Beside them, decoding nothing: pword 482.2 [479.5-484.7]; pw_all 720.5 [714.7-724.4].
+  The bit-owing arms return 946,176 of 946,176 rows equal on the card. The bound arms' largest error on the card is
+  1.7e-6 of the site's rms, 5.8 times under the bound; the Mac gate had 5.9e-7 on its 5,568 rows.
+
+THE OTHER SETS (they describe)
+  set                 served   flat                         endpass                      flats    acc2     wq
+  sealed:d_in=2560    392.6    463.6  x1.181 [1.171-1.190]  421.8  x1.074 [1.070-1.079]  x1.026   x1.013   x0.673
+  sealed:d_in=9728    375.2    446.2  x1.191 [1.172-1.202]  374.4  x0.998 [0.987-1.009]  x1.035   x1.074   x0.995
+  sealed:gu4e         417.0    544.6  x1.306 [1.296-1.316]  468.6  x1.123 [1.117-1.132]  x1.158   x1.017   x0.677
+  bare:all            381.6    435.2  x1.139 [1.133-1.148]  390.4  x1.022 [1.007-1.037]  x1.008   x1.029   x0.746
+  flat is faster on every set, the bare encode included, which no candidate saw while written. endpass is faster
+  only where rows are 2,560 wide; at 9,728 and on the bare encode it is not separated. The thread-a-row bodies read
+  x0.45 to x0.47 at 2,560, x0.21 at 9,728 and x0.66 to x0.70 at the gate/up geometry.
+  The gate/up scores compare two things at once: the candidates stage the pair and run the gate's slice then the
+  up's, where gu_served interleaves gate and up rows as 4E does. x1.306 is not the flat read's gain alone.
+
+WHAT THE RUN SAYS
+  1. A real decoder keeps part of the flat read's gain. On sealed:all the served row takes 1.803 ms, flat 1.521,
+     the flat read with nothing decoded 0.993. flat recovers 0.28 ms of the 0.81 between the served row and the
+     read alone.
+  2. flat now reads at 0.98 of pword, the served read pattern with nothing decoded (470.5 against 482.2).
+  3. Moving the row end out of the row loop is worth 5 % with the bits kept, all of it on the short rows. This
+     agrees with the second run, where the side streams cost the short rows and nothing at 9,728.
+  4. Staging the words in shared memory (flats) loses 13 % against reading them in place (ratio of the two medians).
+  5. A thread a row is not a way: 7 to 69 threads a CTA do not hide the latency of the loads.
+  6. What flat would be worth in the token is not measured. As a ceiling only (*computed*, not a forecast): if
+     x1.185 carried to the 1.84 ms the token spends on its Tetra bytes, the token would go from 4.227 to 3.94 ms,
+     x1.07; endpass at x1.053 would give x1.02. K10 records that gate/up already loses 10 to 16 % in the token
+     against alone, so a gain alone may not carry.
+
+SIGNED PREDICTIONS (prereg §10): 9 in, 3 out
+  1 F1 passes, floor under 0.04 wide: passes, 0.006 wide, in.
+  2 F3 passes: in.
+  3 served on sealed:all 396 [388, 404]: 396.9, in.
+  4 tr32 0.20 [0.10, 0.35]: 0.358, out, above by 0.008.
+  5 tr32p and tr32r over tr32, 1.05 [0.97, 1.20]: 0.983 and 1.020 (ratios of medians), in.
+  6 endpass 1.00 [0.96, 1.05], not separated: 1.053 and faster, out.
+  7 wq 0.62 [0.45, 0.80] and 1.02 [0.90, 1.12] at 9,728: 0.719 and 0.995, in.
+  8 flat 1.10 [0.95, 1.25], faster at 55 %: 1.185, faster, in.
+  9 flats over flat 0.92 [0.75, 1.05]: 0.873 (ratio of medians), in.
+  10 acc2 1.02 [1.00, 1.04], not separated: 1.021, but separated from a floor 0.006 wide, out.
+  11 no candidate refused on the card: none, in.
+  12 probe 751 +-6, q4read 676 +-8: 751.1 and 673.8, in.
+  flat is the best candidate, as said. "No bit-owing candidate will be faster" was wrong: endpass. The misses on 6
+  and 10 share a cause: the floor was predicted 0.02 wide and is 0.006.
+
+NOT ESTABLISHED
+  Any tok/s. Whether flat or endpass keeps its gain inside 4E's token, beside the int4 rows and the head. flat's
+  effect on logits or perplexity: it owes 1e-5 on rows, and the mandate's tolerance is on paired perplexity, never
+  measured for it. Why flats is slower. The share of the gate/up scores that is the interleave. The card cubin's
+  SASS count. Any card but the L40S. The rule F has passed once; one pass does not show it fails when it should.
+
+Cost: $0.10 (203 s at $1.80/h). Phase: $0.30 of $5. Cap of 2026-11-09: $19.52 of $25. Registry: $326.77.
