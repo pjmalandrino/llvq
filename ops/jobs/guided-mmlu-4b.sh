@@ -31,7 +31,7 @@ cd "$REPO"
 
 PREREG=proofs/preregistration-guided-gateup-4b-2026-11-13.md
 SPACE=${SPACE:-Pier-Jean/llvq-runner-cuda-qualite}
-IMAGE_SHA=${IMAGE_SHA:-TO-BE-SET-AFTER-PUBLISH}     # the Space revision the publish returned
+IMAGE_SHA=${IMAGE_SHA:-37a8e9336c77fceb0b013bce6f52d0349fdd06a4}   # published 2026-11-13T16:21Z from 4bdb838
 BUCKET=Pier-Jean/jobs-artifacts
 IN=guided-encode-4b-2026-11-13
 O=/out/guided-mmlu-4b-2026-11-13
