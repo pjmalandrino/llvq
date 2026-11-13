@@ -689,7 +689,11 @@ share, the 5.49 points. His reason: where an error lands against chance cannot b
 place to work. This amends the mandate's starting point, which is now the gap between the Gaussian prediction, 64.65,
 and FP16, 70.14, on the sealed 4B. Axis and untouchables are unchanged. The $10 budget is short for this problem,
 where an attempt needs an encode and a full MMLU arm; the lead brings a costed plan before any spend. N1 stays in
-the anomaly list, set aside. R0's repository half is
+the anomaly list, set aside. The framing of the new starting point is
+[recherche-qualite-r1-cadrage](mesures/recherche-qualite-r1-cadrage-2026-11-13.txt): no proxy in the repository
+has ranked encodings as MMLU does, so a candidate is scored by a full MMLU arm, $0.66 to $0.72; one 4B attempt
+costs $10.37 to $11.83 on the card alone and $4.69 with the encode on the Mac, $0.69 without row scales (*computed*
+there). The Mac clause of the mandate is the operator's to keep or lift. R0's repository half is
 [recherche-qualite-r0-depot](mesures/recherche-qualite-r0-depot-2026-11-13.txt), the literature half
 [recherche-qualite-r0-litterature](mesures/recherche-qualite-r0-litterature-2026-11-13.txt). Three facts frame R1.
 N1's Gaussian arm is on the four option logits, not on weights (Q7). Its replay on the sealed 4B needs dumps only,
