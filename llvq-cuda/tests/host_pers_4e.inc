@@ -17,7 +17,7 @@
 //      stamp symbols; plus 16 for the 8B's two differences, read by both
 //      sides: layer 1's o_proj in Tetra under its own rotation (then read
 //      here, at the context's width 4,096, after the variant), and a head
-//      table of its own (untied, drawn from the seed)
+//      table of its own (untied, drawn from the seed); plus 256 for a smooth SiLU table (read by both sides)
 // out: u32 ring[n] then each later launch's ring, u16 x[hidden], u16 kc, vc of
 //      each layer, u32 bar, abort + the tickets left; with a stamp variant (1
 //      or 3) on the persistent side, then
@@ -100,6 +100,15 @@
     const auto cosr = act_h(cap * 64, seed + 12, 4, 14), sinr = act_h(cap * 64, seed + 13, 4, 14);
     std::vector<unsigned short> silu(65536);
     { Rng rs(seed + 14); for (auto& e : silu) e = rs.h16(8, 15); }
+    // + 256: a smooth SiLU table, silu(x) = x / (1 + e^-x) rounded to binary16 (0 where not finite), for a chain
+    // whose distance to the served one means something when the rows owe a bound and not the bits (the rc flat
+    // arm, pers_matches_served.rs): the random table above maps a one-ULP change of g to an unrelated value.
+    if ((variant_raw & 256u) != 0u)
+        for (u32 h = 0; h < 65536u; ++h) {
+            const double xv = (double)h2f((unsigned short)h);
+            const double sv = xv / (1.0 + std::exp(-xv));
+            silu[h] = std::isfinite(sv) ? f2h((float)sv) : (unsigned short)0u;
+        }
     struct Layer {
         std::vector<unsigned short> ln1, ln2, qn, kn, vs, vb, os, ob, dqs, dqb, kc, vc;
         TMat q, k, gate, up, down, ot;

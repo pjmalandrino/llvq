@@ -808,6 +808,32 @@ fn install_inner(
     if tetra_o > 0 {
         lines.push(format!("4E: {tetra_o} Tetra o_proj read under their own rotation, {} int4", layers_host.len() - tetra_o));
     }
+    // The research row bodies (E1 arms v9ep and v9fl, kernels/pers_4e_rc.cuh):
+    // their regions in 4E's buffer at this shape, refused by name where one
+    // would pass the v7 area (the 14B); and how many Tetra matrices flat reads
+    // by u32 loads because their words are not on 16 bytes (none expected).
+    if let Some(body) = e1_arm.and_then(|a| match a {
+        "v9ep" => Some(1u32),
+        "v9fl" => Some(2u32),
+        _ => None,
+    }) {
+        let tetra_down = layers_host.iter().any(|y| y.tetra_down);
+        let ph = pers::p4e_rc_layout(body, hidden, inter, (n_heads * 128) as u32, tetra_o > 0, tetra_down, groups as u32, grid)
+            .map_err(anyhow::Error::msg)?;
+        let fmt: Vec<String> = ph.iter().map(|p| format!("{} {} B", p.phase, 4 * p.end)).collect();
+        let words: Vec<u64> = layers_host
+            .iter()
+            .flat_map(|y| [y.qkv.q.words, y.qkv.k.words, y.mlp.gate.words, y.mlp.up.words].into_iter().chain(y.tetra_down.then_some(y.mlp.down.words)))
+            .collect();
+        let off = words.iter().filter(|&&w| w % 16 != 0).count();
+        lines.push(format!(
+            "4E rc: body {}, row vector used to {} of the v7 area at {} B; {off} of {} Tetra matrices off 16 bytes",
+            if body == 1 { "endpass" } else { "flat" },
+            fmt.join(", "),
+            4 * ph[0].limit,
+            words.len()
+        ));
+    }
     if rows_form >= 4 {
         let mut addrs = vec![
             ("act".to_string(), base.act),

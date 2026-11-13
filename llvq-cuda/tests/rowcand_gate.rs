@@ -853,3 +853,141 @@ fn the_gate_kills_the_body_mutants() {
         }
     }
 }
+
+// ---- R6: the bodies as 4E row forms (kernels/pers_4e_rc.cuh, command 'e') ------------------------------------
+
+/// The persistent side built with extra `-D` defines (the rc bodies' slot count).
+fn build_side_defs(root: &Path, tag: &str, defines: &[&str]) -> PathBuf {
+    let out = std::env::temp_dir().join(format!("llvq_rowcand_gate_{tag}_1_{}", std::process::id()));
+    let res = Command::new("clang++")
+        .args(["-std=c++17", "-O2", "-ffp-contract=off", "-Wall", "-Wextra", "-Werror", "-DPERS_SIDE=1"])
+        .args(defines.iter().map(|d| format!("-D{d}")))
+        .arg(root.join("llvq-cuda/tests/host_pers.cpp"))
+        .arg("-o")
+        .arg(&out)
+        .output()
+        .expect("clang++ is on PATH (hard rule 10: this test fails, it does not skip)");
+    assert!(res.status.success(), "clang++ refused host_pers.cpp ({tag}):\n{}", String::from_utf8_lossy(&res.stderr));
+    out
+}
+
+/// The candidate side with 96 slots a chunk: every body runs several chunks a CTA slice (flat: 1 row a chunk at
+/// d_in 9,728, 6 at 2,560; endpass: 96 rows).
+fn candidate_small_slots() -> &'static Path {
+    static B: OnceLock<PathBuf> = OnceLock::new();
+    B.get_or_init(|| build_side_defs(&repo(), "cand_slots96", &["PERS_RC_SLOTS=96u"]))
+}
+
+fn rc_cmd(body: u32, mode: u32, grid: u32, threads: u32, sites: &[&Site], x: &[f32]) -> Vec<u8> {
+    let mut c = cmd(body as usize, mode, grid, threads, sites, x);
+    c[..4].copy_from_slice(&u32::from(b'e').to_le_bytes());
+    c
+}
+
+/// The rc gate on one binary, one body: mode 0 (the padded copy beside the staging) and mode 1 (in place) over
+/// every site of the gate's first set (recorded, and the stride-6 site whose odd rows take the u32 reader), mode 2
+/// (gate/up pairs as one list) over its pairs; three grids each. Returns the errors, folded, or `None` when the
+/// process failed.
+fn rc_gate(bin: &Path, body: u32) -> Option<RowErrors> {
+    let (_, x) = recorded();
+    let [(_, all), (_, pairs)] = diag_sets();
+    let all: Vec<&Site> = all.iter().collect();
+    let pairs: Vec<&Site> = pairs.iter().collect();
+    let mut folded: Option<RowErrors> = None;
+    for (mode, set) in [(0u32, &all), (1, &all), (2, &pairs)] {
+        let rows: Vec<usize> = set.iter().map(|s| s.d_out as usize).collect();
+        let total: usize = rows.iter().sum();
+        let want = run(served(), &rc_cmd(body, mode, 1, 64, set, x)).expect("the served side runs");
+        let (wy, wf) = split(&want, total);
+        for &(grid, threads) in &[(3u32, 96u32), (2, 64), (5, 32)] {
+            let got = run(bin, &rc_cmd(body, mode, grid, threads, set, x))?;
+            if got.len() != want.len() {
+                return None;
+            }
+            let (gy, gf) = split(&got, total);
+            let e = rowcand::row_errors(&gy, &gf, &wy, &wf, &rows);
+            folded = Some(match folded {
+                None => e,
+                Some(f) => RowErrors {
+                    rows: f.rows + e.rows,
+                    y_equal: f.y_equal + e.y_equal,
+                    f_equal: f.f_equal + e.f_equal,
+                    max: f.max.max(e.max),
+                    q99: f.q99.max(e.q99),
+                    nonfinite: f.nonfinite + e.nonfinite,
+                },
+            });
+        }
+    }
+    folded
+}
+
+/// What each 4E row form owes (pers.rs::p4e_e1_owes_bits): endpass the bits, flat the bound of 1e-5.
+fn rc_owes(body: u32) -> Owes {
+    if body == 1 {
+        Owes::Bits
+    } else {
+        Owes::Bound(1e-5)
+    }
+}
+
+/// The two bodies as the rc arms' modules run them keep what they owe, at the default slot count and at 96 slots
+/// (several chunks a slice): the row function 4E's phases call, on recorded words, three placements, three grids.
+#[test]
+fn the_rc_bodies_keep_what_they_owe() {
+    for (label, bin) in [("2048 slots", candidate()), ("96 slots", candidate_small_slots())] {
+        for (body, name) in [(1u32, "endpass"), (2, "flat")] {
+            let e = rc_gate(bin, body).unwrap_or_else(|| panic!("rc {name}, {label}: the candidate side failed"));
+            println!("[{label:>10}] {}", line(&format!("{name}/4E"), rc_owes(body), &e));
+            assert!(e.passes(rc_owes(body)), "rc {name}, {label}: {e:?}");
+        }
+    }
+}
+
+/// Mutants of the rc bodies (kernels/pers_4e_rc.cuh), each applied exactly once to a copy, each refused by the rc
+/// gate on every body that runs the edited code (or the process fails).
+#[test]
+fn the_rc_body_mutants_are_killed() {
+    let f = "llvq-cuda/kernels/pers_4e_rc.cuh";
+    let cases: [(&str, &str, &str, &[u32]); 10] = [
+        // the run fold drops the last block of every run
+        ("rc_run_last_block", "    for (u32 i = 0; i < 8u; ++i) {\n        const u32 b = 8u * g + i;", "    for (u32 i = 0; i + 1u < 8u; ++i) {\n        const u32 b = 8u * g + i;", &[2]),
+        // the 128-bit reader drops the last quad of every row
+        ("rc_quad_last", "            if (q < nq) v = ", "            if (q + 1u < nq) v = ", &[2]),
+        // the u32 reader (stride-6 rows) drops the last two words of every row
+        ("rc_u32_tail", "            w[k] = i < nwd ? p[i] : 0u;", "            w[k] = i + 2u < nwd ? p[i] : 0u;", &[2]),
+        // the gather takes each run's slot from the next one
+        ("rc_gather_boundary", "a = __fadd_rn(a, slots[(i - c0) * G + g]);", "a = __fadd_rn(a, slots[(i - c0) * G + g + 1u]);", &[2]),
+        // flat's tail read where the natural staging has it, not the padded one
+        ("rc_flat_tail_at", "xp + pers_rc_xat(nb), tw));", "xp + 24u * nb, tw));", &[2]),
+        // the padding every 16 blocks where the fold reads it every 8
+        ("rc_pad_stride", "        return i + ((b < nb ? b : nb) >> 3);", "        return i + ((b < nb ? b : nb) >> 4);", &[2]),
+        // the in-place restaging in one pass, as if disjoint
+        ("rc_repad_one_pass", "    if (xp >= xs + n) {", "    if (xp >= xs) {", &[2]),
+        // flat's slots on its own padded copy
+        ("rc_slots_on_copy", "in_place ? work : work + pers_rc_padded_floats(nb, tw));", "work);", &[2]),
+        // endpass's second pass skips the last row of every chunk
+        (
+            "rc_endpass_last_row",
+            "        for (u32 i = c0 + threadIdx.x; i < c1; i += blockDim.x) {\n            const PersTRow R = row_at(i);\n            epi(i, pers_epilogue(slots[i - c0]",
+            "        for (u32 i = c0 + threadIdx.x; i + 1u < c1; i += blockDim.x) {\n            const PersTRow R = row_at(i);\n            epi(i, pers_epilogue(slots[i - c0]",
+            &[1],
+        ),
+        // endpass's row end skips the binary16 tail
+        ("rc_endpass_skip_tail", "R.tail + (unsigned long long)R.r * tw, xs + nb * 24u, tw));", "R.tail + (unsigned long long)R.r * tw, xs + nb * 24u, 0u));", &[1]),
+    ];
+    for (tag, from, to, bodies) in cases {
+        let (bin, sites) = mutant(tag, &[(f, from, to)]);
+        assert_eq!(sites, [1], "mutant {tag}: applied at exactly one site");
+        for &body in bodies {
+            let verdict = match rc_gate(&bin, body) {
+                None => "killed: the process failed".to_string(),
+                Some(e) => {
+                    assert!(!e.passes(rc_owes(body)), "mutant {tag} survived the rc gate on body {body}: {e:?}");
+                    format!("killed: {} of {} rows moved, max rel err {:.3e}", e.rows - e.f_equal, e.rows, e.max)
+                }
+            };
+            println!("mutant {tag:<22} 1 site in {f}, body {}: {verdict}", if body == 1 { "endpass" } else { "flat" });
+        }
+    }
+}

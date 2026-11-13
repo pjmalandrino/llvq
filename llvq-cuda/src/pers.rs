@@ -794,10 +794,217 @@ pub fn q4_tile_words(words: &[u32], d_out: usize, nwords: usize) -> Result<Vec<u
 //          layer l's gate/up rows (after ln2), layer 0's before its ln1.
 //   "v9ft" "v9" with the attention tile's full-tile path ([`pers_ft_edit`],
 //          docs/mesures/large-attn-tuile-pleine-mac-2026-11-11.txt).
+//   "v9ep" "v9" with every Tetra row phase on rowbench's `endpass` body
+//          ([`p4e_rc_edits`], kernels/pers_4e_rc.cuh): the bits.
+//   "v9fl" "v9" with every Tetra row phase on rowbench's `flat` body: a
+//          bound of 1e-5 on rows, NOT the bits ([`p4e_e1_owes_bits`]).
 // ---------------------------------------------------------------------------
 
 /// The E1 arms, the first the reference of the others.
-pub const P4E_E1_ARMS: [&str; 4] = ["v9", "v9np", "v9mv", "v9ft"];
+pub const P4E_E1_ARMS: [&str; 6] = ["v9", "v9np", "v9mv", "v9ft", "v9ep", "v9fl"];
+
+/// Whether an E1 arm owes v9's bits (its tokens and logits equal v9's). Every
+/// arm does but `v9fl`, whose rows owe a bound of 1e-5 (pers_4e_rc.cuh): its
+/// tokens and logits are compared with v9's and reported, never assumed equal.
+pub fn p4e_e1_owes_bits(arm: &str) -> bool {
+    arm != "v9fl"
+}
+
+/// The research phase's row bodies as 4E row forms (step R6 of
+/// docs/CERVEAU.md O11): inserted into llvq_pers.cuh by [`p4e_rc_edits`].
+pub const PERS_RC_PART: (&str, &str) = ("pers_4e_rc.cuh", include_str!("../kernels/pers_4e_rc.cuh"));
+
+/// The f32 slots of a body (`PERS_RC_SLOTS` of pers_4e_rc.cuh).
+pub const PERS_RC_SLOTS: u32 = 2048;
+
+/// `pers_rc_padded_floats`: flat's padded staging of a `d_in` vector (block b
+/// at 24 b + b / 8, the tail after), rounded to 16 bytes.
+pub fn rc_padded_floats(d_in: u32) -> u32 {
+    let (nb, tw) = (d_in / 24, d_in % 24);
+    (24 * nb + nb / 8 + tw + 3) & !3
+}
+
+/// The edits that put a 4E v9 module's Tetra row phases on a research body:
+/// `body` 1 endpass, 2 flat. The body's text and its define before `struct
+/// Pers4eQkv`; then the four call sites (q/k, gate/up, the Tetra down, the
+/// 8B's Tetra o), each from v9's warp lists (pers_4e_rows) to the CTA's whole
+/// slice (pers_rc_rows). Every phase, its free region (pers_4e_rc.cuh, header):
+///   q/k     after xr and xn, v + 2 hidden; flat's padded copy there, the slots after;
+///   gate/up the same, then the gate and up values (binary16) of the CTA's pairs;
+///   down, o in place: flat restages the activation where it lies, the slots after it.
+/// The gate/up list is the CTA's gate rows THEN its up rows (rowbench's gate/up
+/// form), where v9 interleaves them a warp at a time (gate r, up r) and folds
+/// each product under the next pair; here the products follow a CTA barrier.
+pub fn p4e_rc_edits(body: u32) -> Result<Vec<(&'static str, String, String)>, String> {
+    if !(1..=2).contains(&body) {
+        return Err(format!("4E rc: body {body}, the bodies are 1 (endpass) and 2 (flat)"));
+    }
+    let (cuh, seg, e4) = ("llvq_pers.cuh", "pers_segment.cu", "pers_4e.cu");
+    Ok(vec![
+        (cuh, "struct Pers4eQkv {\n".into(), format!("#define PERS_RC_ARM {body}u\n{}\nstruct Pers4eQkv {{\n", PERS_RC_PART.1)),
+        (
+            cuh,
+            "        (void)scratch;
+        const auto row_of = [&](u32 k) { return qk_row(lo + warp + k * nw); };
+        const auto start = [](u32) {};
+        const auto epi = [&](u32 k, float y) { qk_out(lo + warp + k * nw, y); };
+        pers_4e_rows(pers_warp_rows(lo, thi, warp, nw), P.nblocks, P.tail_w, tab, invnorm, xr, lane, row_of, start,
+                     epi);
+"
+            .into(),
+            "        (void)scratch;  // rc: the CTA's q | k rows as one list; the free region after xr and xn
+        const auto row_at = [&](u32 idx) { return qk_row(lo + idx); };
+        const auto epi = [&](u32 idx, float y) { qk_out(lo + idx, y); };
+        pers_rc_rows<PERS_RC_ARM>(thi - lo, P.nblocks, P.tail_w, tab, invnorm, const_cast<float*>(xr), row_at, epi,
+                                  const_cast<float*>(xr) + 2u * P.d_in, false);
+"
+            .into(),
+        ),
+        (
+            seg,
+            "        const u32 warp = threadIdx.x >> 5, nw = blockDim.x >> 5;
+        const u32 glo = PERS_SEG_GU(0u), ghi = PERS_SEG_GU(1u);
+        const u32 npairs = pers_warp_rows(glo, ghi, warp, nw);
+        unsigned short g = 0u, pend_sv = 0u, pend_u = 0u;
+        u32 pend_r = 0xffffffffu;
+        const auto row_of = [&](u32 k) {
+            const u32 r = glo + warp + (k >> 1) * nw;
+            const SegTetra& M = (k & 1u) ? A->up : A->gate;
+            return PersTRow{M.words + r * M.stride_u32, M.gscale, M.rscale, M.tail, r};
+        };
+        const auto start = [](u32) {};
+        const auto epi = [&](u32 k, float y) {
+            if ((k & 1u) == 0u) {
+                g = f2h(y);
+                return;
+            }
+            if (pend_r != 0xffffffffu) A->act[pend_r] = exact_hmul(pend_sv, pend_u);
+            pend_sv = A->silu[g];
+            pend_u = f2h(y);
+            pend_r = glo + warp + (k >> 1) * nw;
+        };
+        pers_4e_rows(2u * npairs, A->gate.nblocks, A->gate.tail_w, tab, t_inv, v, lane, row_of, start, epi);
+        if (lane == 0u && pend_r != 0xffffffffu) A->act[pend_r] = exact_hmul(pend_sv, pend_u);
+"
+            .into(),
+            "        // rc: the CTA's gate rows, then its up rows, as one list; their binary16 values after the body's
+        // region, the products after the body's last barrier (exact_hmul(silu[g], u), the stream's own product)
+        const u32 glo = PERS_SEG_GU(0u), ghi = PERS_SEG_GU(1u), np = ghi - glo;
+        const u32 nb = A->gate.nblocks, tw = A->gate.tail_w;
+        float* const work = v + 2u * H;
+        float* const gu_vals = work + pers_rc_work_floats<PERS_RC_ARM>(nb, tw, false);
+        pers_rc_guard(gu_vals + np);
+        unsigned short* const sgu = reinterpret_cast<unsigned short*>(gu_vals);
+        const auto row_at = [&](u32 idx) {
+            const bool up = idx >= np;
+            const u32 r = glo + (up ? idx - np : idx);
+            const SegTetra& M = up ? A->up : A->gate;
+            return PersTRow{M.words + r * M.stride_u32, M.gscale, M.rscale, M.tail, r};
+        };
+        const auto epi = [&](u32 idx, float y) { sgu[idx] = f2h(y); };
+        pers_rc_rows<PERS_RC_ARM>(2u * np, nb, tw, tab, t_inv, v, row_at, epi, work, false);
+        for (u32 p = threadIdx.x; p < np; p += blockDim.x) A->act[glo + p] = exact_hmul(A->silu[sgu[p]], sgu[np + p]);
+"
+            .into(),
+        ),
+        (
+            seg,
+            "            unsigned short xr = 0u;
+            const auto row_of = [&](u32 k) {
+                const u32 r = dlo + warp + k * nw;
+                return PersTRow{A->down.words + r * A->down.stride_u32, A->down.gscale, A->down.rscale, A->down.tail, r};
+            };
+            const auto start = [&](u32 k) { xr = __ldcg(L.x + dlo + warp + k * nw); };
+            const auto epi = [&](u32 k, float y) { L.out[dlo + warp + k * nw] = exact_hadd(xr, f2h(y)); };
+            pers_4e_rows(pers_warp_rows(dlo, dhi, warp, nw), A->down.nblocks, A->down.tail_w, tab, t_inv, v, lane,
+                         row_of, start, epi);
+"
+            .into(),
+            "            // rc: the CTA's down rows as one list; flat restages the activation in place, the slots after it
+            const u32 nb = A->down.nblocks, tw = A->down.tail_w;
+            const auto row_at = [&](u32 idx) {
+                const u32 r = dlo + idx;
+                return PersTRow{A->down.words + r * A->down.stride_u32, A->down.gscale, A->down.rscale, A->down.tail, r};
+            };
+            const auto epi = [&](u32 idx, float y) { L.out[dlo + idx] = exact_hadd(__ldcg(L.x + dlo + idx), f2h(y)); };
+            pers_rc_rows<PERS_RC_ARM>(dhi - dlo, nb, tw, tab, t_inv, v, row_at, epi, v + pers_rc_padded_floats(nb, tw), true);
+"
+            .into(),
+        ),
+        (
+            e4,
+            "    const u32 lane = threadIdx.x & 31u, warp = threadIdx.x >> 5, nw = blockDim.x >> 5;
+    unsigned short xr = 0u;
+    const auto row_of = [&](u32 k) {
+        const u32 r = lo + warp + k * nw;
+        return PersTRow{O.t.words + r * O.t.stride_u32, O.t.gscale, O.t.rscale, O.t.tail, r};
+    };
+    const auto start = [&](u32 k) { xr = __ldcg(x + lo + warp + k * nw); };
+    const auto epi = [&](u32 k, float y) { out[lo + warp + k * nw] = exact_hadd(xr, f2h(y)); };
+    pers_4e_rows(pers_warp_rows(lo, hi, warp, nw), O.t.nblocks, O.t.tail_w, tab, invnorm, cs, lane, row_of, start, epi);
+"
+            .into(),
+            "    // rc: the CTA's o rows as one list; flat restages the context in place, the slots after it
+    const u32 nb = O.t.nblocks, tw = O.t.tail_w;
+    const auto row_at = [&](u32 idx) {
+        const u32 r = lo + idx;
+        return PersTRow{O.t.words + r * O.t.stride_u32, O.t.gscale, O.t.rscale, O.t.tail, r};
+    };
+    const auto epi = [&](u32 idx, float y) { out[lo + idx] = exact_hadd(__ldcg(x + lo + idx), f2h(y)); };
+    pers_rc_rows<PERS_RC_ARM>(hi - lo, nb, tw, tab, invnorm, cs, row_at, epi, cs + pers_rc_padded_floats(nb, tw), true);
+"
+            .into(),
+        ),
+    ])
+}
+
+/// One phase of a research body in 4E's buffer: its name, the last float it
+/// uses (from 4E's row vector `v`), and the v7 area's offset it must not pass.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RcPhase {
+    pub phase: &'static str,
+    pub end: u32,
+    pub limit: u32,
+}
+
+/// Where `body` (1 endpass, 2 flat) puts its region at every Tetra phase of a
+/// 4E v9 shape, as pers_4e_rc.cuh and the edits place it: `hidden`, `inter`,
+/// `d_ctx` (the attention output's width; `tetra_o`: an o_proj in Tetra, the
+/// 8B's), `groups` and the grid (the CTA's gate/up pairs at most). Refuses, by
+/// phase and numbers, a shape where a phase would pass the v7 area: no byte is
+/// added to 4E's launch, so a shape that does not fit is not run.
+#[allow(clippy::too_many_arguments)]
+pub fn p4e_rc_layout(body: u32, hidden: u32, inter: u32, d_ctx: u32, tetra_o: bool, tetra_down: bool, groups: u32, grid: u32) -> Result<Vec<RcPhase>, String> {
+    if !(1..=2).contains(&body) || grid == 0 {
+        return Err(format!("4E rc: body {body}, grid {grid}"));
+    }
+    let attn = 16 * 1024 * p4e_attn_ring(7) + 4 * 4 * groups * 130 + 4 * groups * 128;
+    let limit = inter.max(2 * hidden).max(attn / 4);
+    let work = |d_in: u32, in_place: bool| if body == 2 && !in_place { rc_padded_floats(d_in) } else { 0 } + PERS_RC_SLOTS;
+    let pairs = inter.div_ceil(grid);
+    let mut v = vec![
+        RcPhase { phase: "q/k", end: 2 * hidden + work(hidden, false), limit },
+        RcPhase { phase: "gate/up", end: 2 * hidden + work(hidden, false) + pairs, limit },
+    ];
+    if tetra_down {
+        v.push(RcPhase { phase: "down", end: rc_padded_floats(inter) + work(inter, true), limit });
+    }
+    if tetra_o {
+        v.push(RcPhase { phase: "o", end: rc_padded_floats(d_ctx) + work(d_ctx, true), limit });
+    }
+    let name = if body == 1 { "endpass" } else { "flat" };
+    if let Some(p) = v.iter().find(|p| p.end > p.limit) {
+        return Err(format!(
+            "4E rc {name}: the {} phase needs floats up to {} of 4E's row vector, past the v7 area at {} (hidden {hidden}, \
+             inter {inter}, d_ctx {d_ctx}, {groups} groups): refused, 4E's launch gets no byte more",
+            p.phase, p.end, p.limit
+        ));
+    }
+    if body == 2 && inter.max(hidden).max(d_ctx).div_ceil(24).div_ceil(8) > PERS_RC_SLOTS {
+        return Err(format!("4E rc flat: a row of more than {PERS_RC_SLOTS} runs"));
+    }
+    Ok(v)
+}
 
 /// The mv arm's helpers (`pers_4e_e1.cuh`), inserted at the head of
 /// `pers_segment.cu`'s text in that arm's module only.
@@ -862,6 +1069,9 @@ pub fn p4e_e1_edits(arm: &str) -> Result<Vec<(&'static str, String, String)>, St
         "v9" => {}
         // the attention tile's full-tile path (pers_ft_edit), nothing else
         "v9ft" => v.push(pers_ft_edit()),
+        // the research bodies on every Tetra row phase (pers_4e_rc.cuh), nothing else
+        "v9ep" => v.extend(p4e_rc_edits(1)?),
+        "v9fl" => v.extend(p4e_rc_edits(2)?),
         "v9np" => v.extend(np),
         "v9mv" => {
             v.extend(np);
@@ -4214,6 +4424,21 @@ mod tests {
         }
     }
 
+    /// The rc arms' modules at the card's tile define, at the sha256 the R6
+    /// job script checks (ops/jobs/recherche-debit-jeton.sh, control 3): an
+    /// edit to pers_4e_rc.cuh or to the rc edits moves these and must move
+    /// the script and its prereg too.
+    #[test]
+    fn the_rc_modules_keep_their_bytes() {
+        for (name, sha) in [
+            ("v9ep", "f4166ccf9d857b30cae8f7691e9e4f83c2726218cb48c29dc512cb42b1a668dd"),
+            ("v9fl", "9925b4ad769c791d2372d52a14b68e650a549ce15edd05eecae0dececfa4f03d"),
+        ] {
+            let text = p4e_e1_unit_text(CARD_TILE_SM89, name).unwrap();
+            assert_eq!(crate::sha256::sha256_hex(text.as_bytes()), sha, "4E {name}: {} bytes", text.len());
+        }
+    }
+
     /// Writes the tree modules at the card's tile define into
     /// `target/tree-modules/` for an offline compile (ops/tree-sass-probe.sh).
     #[test]
@@ -4232,6 +4457,8 @@ mod tests {
             ("a12ipg32ft", p4t_ft_unit_text(CARD_TILE_SM89, "a12ipg32ft").unwrap()),
             ("4e-v9ft", p4e_e1_unit_text(CARD_TILE_SM89, "v9ft").unwrap()),
             ("4e-v9e1", p4e_e1_unit_text(CARD_TILE_SM89, "v9").unwrap()),
+            ("4e-v9ep", p4e_e1_unit_text(CARD_TILE_SM89, "v9ep").unwrap()),
+            ("4e-v9fl", p4e_e1_unit_text(CARD_TILE_SM89, "v9fl").unwrap()),
         ] {
             std::fs::write(dir.join(format!("{name}.cu")), &text).unwrap();
             eprintln!("{name}: {} bytes, sha256 {}", text.len(), crate::sha256::sha256_hex(text.as_bytes()));
@@ -5087,6 +5314,67 @@ mod tests {
         }
         assert!(p4e_logits_symbol(3).is_err());
         assert!(p4e_e1_unit_text(tile, "v9x").is_err());
+    }
+
+    /// v9ep and v9fl are E1's v9 reference with the rc edits and nothing
+    /// else: undoing the edits gives the reference back byte for byte; the body
+    /// is inserted once with its define; no call site of v9's warp lists is
+    /// left on a Tetra row phase of the 512-thread path; the served v9 module
+    /// and the served unit keep their pins (their own tests).
+    #[test]
+    fn the_rc_arms_are_v9_with_the_body_on_every_tetra_phase() {
+        let tile = "#define TILE_BLOCKS 64u\n";
+        let r = p4e_e1_unit_text(tile, "v9").unwrap();
+        for (arm, body) in [("v9ep", 1u32), ("v9fl", 2)] {
+            let t = p4e_e1_unit_text(tile, arm).unwrap();
+            let mut back = t.clone();
+            for (_, from, to) in p4e_rc_edits(body).unwrap() {
+                assert_eq!(back.matches(to.as_str()).count(), 1, "{arm}: {to:?}");
+                back = back.replacen(to.as_str(), &from, 1);
+            }
+            assert_eq!(back, r, "{arm}: E1's v9 and the rc edits, nothing else");
+            assert_eq!(t.matches(&format!("#define PERS_RC_ARM {body}u\n")).count(), 1);
+            assert_eq!(t.matches("#ifndef PERS_4E_RC_CUH").count(), 1);
+            assert_eq!(t.matches("pers_rc_rows<PERS_RC_ARM>(").count(), 4, "{arm}: q/k, gate/up, down, o");
+            // pers_4e_rows keeps its definition and no caller
+            assert_eq!(t.matches("pers_4e_rows(").count(), 1, "{arm}");
+            assert_eq!(p4e_e1_owes_bits(arm), body == 1);
+        }
+        assert!(p4e_rc_edits(0).is_err() && p4e_rc_edits(3).is_err());
+        for arm in ["v9", "v9np", "v9mv", "v9ft", "v9ep"] {
+            assert!(p4e_e1_owes_bits(arm));
+        }
+    }
+
+    /// Where the rc bodies sit in 4E v9's buffer at the three sealed shapes
+    /// (*computed*): the 4B and the 8B fit every phase in the attention
+    /// phase's region, the 14B's down input fills its row vector to the v7
+    /// area and is refused by name, for both bodies. The numbers are the
+    /// shared-memory report of the R6 prereg.
+    #[test]
+    fn the_rc_layout_at_the_three_sealed_shapes() {
+        assert_eq!(rc_padded_floats(2560), 2576);
+        assert_eq!(rc_padded_floats(9728), 9780);
+        assert_eq!(rc_padded_floats(4096), 4120);
+        assert_eq!(rc_padded_floats(12288), 12352);
+        let ends = |body: u32, h: u32, i: u32, ctx: u32, o: bool, g: u32| {
+            p4e_rc_layout(body, h, i, ctx, o, true, g, 142).map(|v| v.iter().map(|p| (p.phase, p.end, p.limit)).collect::<Vec<_>>())
+        };
+        // the 4B: 142 CTAs, 69 gate/up pairs at most
+        assert_eq!(ends(1, 2560, 9728, 4096, false, 4).unwrap(), vec![("q/k", 7168, 14880), ("gate/up", 7237, 14880), ("down", 11828, 14880)]);
+        assert_eq!(ends(2, 2560, 9728, 4096, false, 4).unwrap(), vec![("q/k", 9744, 14880), ("gate/up", 9813, 14880), ("down", 11828, 14880)]);
+        // the 8B: its Tetra o at the context's width
+        assert_eq!(
+            ends(2, 4096, 12288, 4096, true, 4).unwrap(),
+            vec![("q/k", 14360, 14880), ("gate/up", 14447, 14880), ("down", 14400, 14880), ("o", 6168, 14880)]
+        );
+        assert!(ends(1, 4096, 12288, 4096, true, 4).is_ok());
+        // the 14B: refused by name, both bodies; flat's q/k (17,436 floats) already passes the v7 area at 17,408
+        for (body, phase) in [(1, "the down phase"), (2, "the q/k phase")] {
+            let e = ends(body, 5120, 17408, 5120, false, 5).unwrap_err();
+            assert!(e.contains(phase) && e.contains("refused"), "{e}");
+        }
+        assert!(p4e_rc_layout(3, 2560, 9728, 4096, false, true, 4, 142).is_err());
     }
 
     /// The arms differ from the reference in prefetch lines only
