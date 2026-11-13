@@ -725,7 +725,10 @@ objective, in its smallest form: gradient-weighted input Hessians for gate_proj 
 pair against a baseline encoded in the same run
 ([recherche-qualite-r2-chiffrage-encodeur](mesures/recherche-qualite-r2-chiffrage-encodeur-2026-11-13.txt), V1,
 $1.65 to $1.89 *estimated*). He lifted the mandate's Mac clause for the two encodes of this attempt: one at a time,
-at low priority, never beside another heavy job. R0's repository half is
+at low priority, never beside another heavy job. The statistic job ran for $0.09. The operator then moved the two
+encodes to the card and raised the phase's budget from $10 to $15: a card encode of today's recipe has never been
+timed, and its price is wanted for the larger sizes. The image is built from this branch in a separate private
+Space, so the image the speed phase pins does not move. Spent: $0.53 of $15. R0's repository half is
 [recherche-qualite-r0-depot](mesures/recherche-qualite-r0-depot-2026-11-13.txt), the literature half
 [recherche-qualite-r0-litterature](mesures/recherche-qualite-r0-litterature-2026-11-13.txt). Three facts frame R1.
 N1's Gaussian arm is on the four option logits, not on weights (Q7). Its replay on the sealed 4B needs dumps only,

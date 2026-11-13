@@ -1495,4 +1495,7 @@ a cap of its own. Nothing is measured and nothing was launched.
 - The operator gave the go for a first re-encode of the 4B with gate/up judged on the final output, in its smallest
   form (gradient-weighted input Hessians, $1.65 to $1.89 *estimated*), and lifted the Mac clause of the mandate for
   its two encodes. Nothing is coded or launched yet.
+- The code of that attempt passed the workspace fast loop (1,321 passed, 0 failed), clippy and ten mutants; its
+  statistic job cost $0.09 (6af72f55). The operator moved the two encodes from the Mac to the card and raised the
+  phase's budget to $15. Spent: $0.53.
 - Nothing served changes: no config, no served module, no Hub file.
