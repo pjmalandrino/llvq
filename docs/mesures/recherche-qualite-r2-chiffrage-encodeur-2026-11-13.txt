@@ -1,0 +1,196 @@
+RECHERCHE QUALITE, R2: WHAT A FIRST OUTPUT-AWARE RE-ENCODE OF GATE/UP WOULD COST, 4B, SEALED RECIPE, 2026-11-13. $0.
+=====================================================================================================================
+Result: the cheapest credible first attempt is V1, a gradient-weighted input statistic for gate_proj and up_proj
+(one weighted Hessian per group of output rows), scored by one full MMLU pair against a baseline encoded in the same
+run on the same 131,072 tokens. A per-row output weight alone cannot change a code today: every output row is encoded
+independently and a 24-weight block lies along the input axis of one row (section 1). V1 changes no crate under
+`forbid(unsafe_code)`, no format and no index map. It costs 2 to 3 agent-days of code (*estimated*), $0.27 to $0.45
+of card for the statistic, and $1.38 to $1.44 for the two MMLU arms (*computed*). With the encode on the Mac, $1.65 to
+$1.89 in all, so $9.56 buys a second draw. Under the mandate's Mac clause both encodes go to the card: $7.7 to $13.3
+in all (*estimated*), so $9.56 holds it only at the low end. The paper's own form (V2, output-side feedback with a
+dense H_O on gate/up) costs 4 to 6 agent-days and $1.9 to $14.4. Missing before any spend: the operator's ruling on the
+Mac clause, a Space image built from this branch for a card encode (it moves the image under O11), and a prereg. One
+pair resolves a difference between two encodes above about 0.9 MMLU point. It cannot attribute that difference to
+the objective rather than to how it interacts with this calibration draw.
+Nature: read only. No build, no test, no model load, no job. Code read by grep and by excerpt at 113526e, line numbers
+the files' own. One read-only `hf buckets ls`. YAQA (arXiv 2505.22988) fetched today, figures *reported*. Arithmetic
+by one line of python on the inputs named, *computed*. Mandate: CERVEAU O12. This note projects no MMLU gain.
+
+1. HOW THE ENCODER WORKS TODAY
+------------------------------
+- Objective: per layer, GPTQ with error feedback. A block is 24 consecutive input channels of one row
+  (llvq-quant/src/gptq.rs 3-7; the block is `&row[s..s + b]`, line 312). The loop runs left to right over blocks
+  (293-396). After each block the error E (d_out x 24) goes onto the unquantized columns through the
+  inverse-Hessian Cholesky factor (375-393). The residual is formed against the compensated weights (21-25, 361-369).
+- Row question, answered: no block spans two output rows, and nothing in the loop couples rows. "Rows therefore never
+  interact, and splitting the matrix by rows is exact" (gptq.rs 580-587). The thread split is by rows (609-651), and
+  `parallel_matches_serial_exactly` holds it to bit equality (llvq-quant/tests/g5_gptq.rs 906). A positive weight
+  h_i on row i multiplies that row's objective and leaves its argmin unchanged. A diagonal H_O therefore changes no
+  code on its own. Two things are shared across rows. The two gain levels are fitted per matrix over all rows
+  (llvq-llm/src/calib.rs 1201, `fit_gain_centroids`, quantizer.rs 896), so a weighted fit would move them. The row
+  scales trained afterwards by llvqtune are per row, and so already an output-side correction (Q12).
+- The block search ignores H: Tetra takes the direction from `self.direction(x)` and the gain level nearest to
+  ||x|| / row_scale (quantizer.rs 778-810). H enters only through the feedback onto later columns.
+- Input statistic: H = A'A/N per activation, accumulated as an f32 matmul on the device (calib.rs 17-22, 89-104),
+  factored once and shared by the matrices on the same input: q/k/v, gate/up (1081-1129; Act::consumers, model.rs
+  66-71). Sizes at 4B: 2560^2 (q/k/v, gate/up), 4096^2 (o), 9728^2 (down) per layer; the dense set is 35.86 GB at f64
+  (hcapture.rs 34-37). Volume: 64 x 2,048 = 131,072 DCLM-edu tokens (prereg dclm-4b-2026-09-18 lines 16-17).
+- Order: sequential across transformer blocks. Pass 1 captures H, pass 2 advances the activations through the
+  quantized block (calib.rs 1076-1078, 1381-1387). Inside a block, with the published `sequential_block` false, all
+  four activations are captured on the original weights (1044-1062; RunConfig 545-568).
+- Rotation: input axis only. W' = W Q', H' = Q H Q', one seed per (block, activation) (rotation.rs 10-16, 147-155;
+  calib.rs 1106-1111, 1189-1192, 1362). The output axis stays in the natural basis.
+- Gain: a row scale fixed before the loop (gptq.rs 283-291), two levels fitted per matrix (calib.rs 1196-1210).
+- Knobs: `LLVQ_DAMPING` adds lambda mean(diag H) I, default 1e-2 (linalg.rs 51-63; smoke.rs 747-752). `LLVQ_H_SHRINK`
+  moves H toward its diagonal, default 1, skipped (calib.rs 494-513, 1101-1103). `LLVQ_GAIN_SCALE` multiplies the
+  fitted levels, default 1, skipped (1205-1209). `LLVQ_SEQ_BLOCK=1` captures each activation after the upstream
+  matrices of its block are quantized, four passes (smoke.rs 1109-1113; calib.rs 1060-1062). `LLVQ_CALIB_SEED` draws
+  random windows instead of the prefix (smoke.rs 700-709). `LLVQ_INT4_TYPES` skips GPTQ for the named types: an
+  int4 record has no Hessian (calib.rs 1152-1180). In the sealed 4B, v, o and down@12-23 are int4 RTN (r0-depot 60-66).
+  None of these knobs touches the output axis.
+- Cost profile of the base encode, Mac: quantization 5,243.0 s (81.8 %), factorization 770.7 s, capture 337.2 s
+  (*measured*, dclm-4b-2026-09-18 lines 46-49). Gate/up hold 62.6 % of lattice weights (*computed*, 1.793 / 2.863 G,
+  r1 3a), so about 3,280 s of the quantize phase if it scales by weights (*computed*).
+
+2. WHAT A FINAL-OUTPUT OBJECTIVE NEEDS THAT DOES NOT EXIST
+---------------------------------------------------------
+- The statistic. YAQA's proxy is tr(Delta' H_O Delta H_I) with H_O m x m on the output side, m = d_out
+  (*reported*, section 3.1.2). Sketch B per sequence: H_I = E_s[G'G]/m, H_O = E_s[G G']/n, G = grad_W of the
+  sequence loss (*reported*, 3.2.2). Stored as lower triangles in fp32. "Roughly double" LDLQ's storage; TF32 was
+  unstable (*reported*, App. A.2). Which labels the backward uses (sampled or data) was not read here.
+- Sizes for H_O at 4B, 36 layers, f32 (*computed*, d_out from fiche-4b line 68):
+    type      d_out   diagonal    full matrix   lower triangle
+    q         4,096   0.59 MB      2.42 GB       1.21 GB
+    k, v      1,024   0.15 MB      0.15 GB       0.08 GB      each
+    o, down   2,560   0.37 MB      0.94 GB       0.47 GB      each
+    gate, up  9,728   1.40 MB     13.63 GB       6.81 GB      each
+    gate+up           2.80 MB     27.25 GB      13.63 GB
+    all seven         4.42 MB     31.86 GB      15.93 GB
+  The diagonal is useless alone (section 1). V1's per-token weights are 131,072 x G x 72 matrices x 4 B: 38 MB at
+  G = 1, 151 MB at G = 4 (*computed*).
+- Where to compute it. Only ops/llvqtune backpropagates, in torch on a card: `loss.backward()`
+  (adapters/torch_optimizer.py 21-22), with the teacher frozen (torch_model.py 249-259). It takes no per-layer gradient
+  today: a forward hook on the input and a backward hook on the output of each gate/up Linear are new code. It can run
+  on the FP16 checkpoint, as YAQA defines H at W* (*reported*). It can also run on the sealed export (bucket
+  sealed-4b-export-2026-09-23). It cannot run on the partly encoded model the Rust encoder sees: that model exists only
+  inside the Rust loop. candle 0.9 ships reverse mode, but nothing in llvq-llm calls it (grep for backprop, Var,
+  backward: no hit). Whether this repository's forward pass (custom attention, model.rs) would differentiate is
+  unchecked.
+- How much text. YAQA-B on Qwen3-8B 2-bit, Table 9 (*reported*): 2K sequences, 1 GPU-h, MMLU 65.74; 4K, 2 h, 66.04;
+  8K, 4 h, 66.65; 16K, 7 h, 66.29; 32K, 15 h, 66.59; 64K, 30 h, 66.75; LDLQ 4K sequences, 1.5 h, 63.94. Sequences are
+  2K tokens (section 4). The GPU is not named. The repository calibrates on 131,072 tokens, 64 sequences of 2,048: 1/32
+  of YAQA's smallest row. Its own volume record is mixed: x4 DCLM cost -1.20 MMLU (Q14), x32 C4 on a card gained
+  +2.98 on 2,280 q (jobs.csv line 121).
+- How the encoder reads it. A flat little-endian file per (layer, type), the hcapture convention (hcapture.rs 40-46),
+  read by llvq-llm. H_O needs no rotation, because the rotation acts on the input axis only. A gradient-based H_I
+  (V3) would be rotated by `rotate_hessian` with the effective seed (calib.rs 1106-1111). The torch side must use the
+  encoder's exact calibration windows (corpus.rs `window_starts`). Either Python re-implements the draw, or a small
+  Rust binary writes the token ids, which needs the tokenizer and no weights.
+
+3. THREE VARIANTS
+-----------------
+V1. Gradient-weighted input Hessians for gate/up, the smallest change that can alter a code. Rows stay independent.
+  Each group g of output rows gets its own H_g = sum_t w_tg x_t x_t', with w_tg = sum over the rows in g of the
+  squared output gradient at token t. At G = 1 this is token weighting. gate and up then need separate factors
+  instead of the one they share today. The form is the one GuidedQuant [S14] is named for in the literature note
+  (lines 157-159). Its exact grouping was not re-read here.
+  Code: Python capture script and job script, about 250 + 80 lines, copied from sealed-rownorms.sh (r2 line 130). In
+  llvq-llm, about 200 to 300 lines: a weighted `Hessian::accumulate`, G factors per matrix, gate/up row slices
+  through the existing `quantize_layer_parallel_capturing`, a flag refused by name with the default bit-identical, and
+  a token-id dump. llvq-quant: none. The exactness of the row split makes the slicing plumbing only.
+V2. YAQA's two-sided rounding on gate/up, with a dense H_O from Sketch B and today's activation H as H_I. The
+  update is W = Q(W* + L_O'' Delta L_I' + L_O'' Delta + Delta L_I'), L' = L - I from the LDL of each factor
+  (*reported*, Eq. 6), swept by blocks on both axes (App. A.6). Using our H instead of Sketch B's H_I departs from the
+  paper.
+  Code: in llvq-quant, a two-sided loop with its tests, about 400 to 600 lines. It stays pure Rust with no new
+  dependency; the 9,728 LDL wants `fast-linalg`, the existing faer feature. The row split becomes inexact, so this path
+  needs its own threading inside a row block. In llvq-llm, an H_O reader, a flag and its refusals, about 150 lines.
+  In Python, the Sketch B script, about 250 lines.
+V3. The paper's form on every lattice type (q, k, gate, up, down at 24 layers; v, o and down@12-23 are int4 RTN and
+  have no Hessian), with Sketch B's H_I replacing the activation H. It adds 15.4 GB of H_O and about 8.7 GB of H_I
+  (lower triangles, f32, *computed*). Code: V2 plus per-matrix H_I, about 1.5 times V2.
+  variant  code, where                       days*  statistic, card*          encode time change*        risk
+  V1       llvq-llm + Python, ~550 lines     2-3    $0.27-0.45, 0.15-0.25 h   +2-5 % (G = 4)             low code
+                                                    (131,072 tokens)                                     risk; gain
+                                                                                                         unknown
+  V2       llvq-quant + llvq-llm + Python,   4-6    $0.36-0.54 at 64 seq;     Mac 1.78 h to 2.9-3.5 h    feedback
+           ~800-1,000 lines                         $1.7-2.4 at 2,048 seq;    (factor +0.39 h *computed*,  changes
+                                                    13.6 GB stored             feedback and x2 search      broke
+                                                                               *estimated*)                before
+  V3       as V2 + H_I for 5 types           7-10   0.5-15 GPU-h at 2K-64K     above V2, not costed        exceeds
+                                                    seq, $0.9-27              further                      phase
+  * all *estimated*. Days rest on R2's script sizes (r2 lines 6-8), the study note's 5 to 10 agent-days for YAQA
+  (gains-criteres-qualite line 110), and one agent-day for about 300 lines with tests. The statistic is scaled from
+  llvqtune at 0.646 s a 2,048-token step with forward and backward (r2 lines 68-71) and 0.1 to 0.15 h of setup, at
+  $1.80/h (run.py 105). V2's sketch adds 42 TFLOP a sequence for G'X and G G' on 72 matrices (*computed*), at an
+  assumed 30 to 60 fp32 TFLOP/s. V2's 27 GB of fp32 accumulators beside an 8 GB model is tight on a 48 GB L40S: two
+  passes or triangle packing (*estimated*). V3's dollars scale Table 9's Qwen3-8B hours by half for parameters
+  (*estimated*). V2's factor cost is 770.7 s x 2 x 9,728^3 / sum n^3 per layer = +1,387 s (*computed*). Its
+  search is x2 on gate/up's ~3,280 s, from YAQA's "roughly twice as long as LDLQ" (*reported*, 3.1.1).
+  What could go wrong: the H_O estimate from 64 sequences at m = 9,728 is noisy, and nobody has measured it. The
+  gradients come from FP16 while the encoder sees a quantized prefix. Output feedback rewrites later rows while the
+  row scale stays fixed from the unfed row (gptq.rs 283-288). Q18 showed a feedback change costing +31.89 % ppl.
+  Card only: every variant can run with both encodes on the card, since the encoder runs there (r1 5a). Each needs a
+  Space image built from this branch. O11's scripts pin the Space revision (r2 lines 95-97), so the operator decides.
+
+4. THE COMPARISON
+-----------------
+- The existing baseline: the DCLM base, `tetra1`, rotation 0x110feed, nogs, v_proj int4, 131,072 DCLM-edu tokens,
+  Mac, 2026-09-18. It is 1,794,564,765 B, sha256 471f3988..., MMLU 57.95, before row scales (prereg lines 16-21;
+  dclm-4b line 15). The file and its dump are in the bucket: dclm-4b-2026-09-18/qwen3-4b-dclm.bin and
+  mmlu-4b-dclm-FULL.csv (listed today), with an f16 export in dclm-export-2026-09-19/.
+- It cannot serve as the pair's baseline without a check. On one machine with fixed code the encode is deterministic:
+  a two-segment run is byte-identical to a single run on CPU (smoke.rs 50-53, tests/resume.rs). Across machines it is
+  not: a card encode reads ppl 17.6681 against 16.1569 on the Mac (jobs.csv line 120). Across code it once failed: a
+  re-encode no longer reproduced the published file after a corpus change (HISTORIQUE line 392). Since 2026-09-18,
+  model.rs (the forward the encoder runs) has had about 30 commits; whether the encode path stayed bit for bit is
+  unchecked. A one-block re-encode compared with the stored file would settle it, but that needs a model load on the
+  Mac. The safe design is a new baseline, encoded on the same machine and the same tokens as the candidate.
+- Gate/up alone in a sequential encoder: from layer 0 on, the changed gate/up move the hidden state that every later
+  capture sees (calib.rs 1381-1387). The two arms therefore differ in all 168 lattice matrices, not 72, and both arms
+  are full encodes.
+- The score: one full MMLU arm each, $0.69 to $0.72 (r1 5b), paired by `mmlupair`. One pair of two encodes carries an
+  SE of 0.45 (dclm-4b line 17). 1.96 x 0.45 = 0.88 points is the smallest difference the pair resolves (*computed*).
+  The constant-file SE of Q3 (0.17 to 0.38) does not apply to two encodes. Attributing the difference to the objective
+  across draws needs more than one draw: the draw sd is 2.92 on 2,280 q (Q2). Secondary readings: KL to FP16 by
+  layer-vs-output's torch script on each arm's export, about $0.44 a run (jobs.csv line 333); then the answer-logit
+  SNR on the dumps, $0.
+- Row scales: the first attempt is scored before them, as the base was. Whether a gain survives the $4.00 training
+  (jobs.csv line 171) is a second step.
+
+5. TOTAL FOR A FIRST ATTEMPT (card hours billed; queue unbilled, up to 3 h 46; *estimated* unless marked)
+--------------------------------------------------------------------------------------------------------
+  Card encode, per arm: $3.0 to $3.9. Basis: 1.47e8 blocks x 556 us / 23 vCPU = 0.99 h on rtx-pro-6000 at $2.75/h
+  (innovation-cout lines 58-60), plus the other phases. The one measured 4B card encode, Planes14-era, cost $5.68
+  (jobs.csv line 120, *measured*).
+  variant  code days  statistic    two encodes, Mac / card        two MMLU     total, Mac / card          wall days
+  V1       2-3        0.27-0.45    $0 / $6.0-11.4                 1.38-1.44    $1.65-1.89 / $7.7-13.3     3-4
+  V2       4-6        0.36-2.4     $0 / $7.0-13.0                 1.38-1.44    $1.7-3.8 / $8.7-16.8       5-7
+  V3       7-10       0.9-27       not costed                     1.38-1.44    $2.3-28 / above            8-12
+  In $9.56: with the Mac, V1 fits about five times and V2 two to five times. Under the clause, V1 fits only if the card
+  encode lands near the 14B-scaled rate, and V2 does not fit. The phase ends on 2026-11-18, five days from now, so
+  only V1 fits its calendar.
+
+6. WHAT THE PUBLISHED EVIDENCE SAYS AGAINST EXPECTING MUCH (facts, literature note)
+------------------------------------------------------------------------------------
+- Third-party reading on Qwen3-8B 2-bit (LC-QAT [S24] Table 1, six-task zero-shot): YAQA 72.14 against QTIP 72.04,
+  FP16 74.12. YAQA's Wiki-2 there is 10.50 against 10.39 for QTIP (*reported*, lit lines 169-170).
+- At 4 bits on Qwen3-8B, YAQA-B lowers perplexity 9.07 to 9.04 and MMLU falls 73.04 to 72.78 (*reported*, Table 8,
+  confirmed today; lit line 280).
+- The paper's own baseline carries no fine-tuning (Tables 8 and 9). With recovery fine-tuning on Llama 3.1 8B, YAQA-B
+  gains +0.94 0-shot over LDLQ (*reported*, lit line 156). The sealed 4B already trains row scales on a final-output
+  KL, +3.15 MMLU at 4B (Q12), and a second pass gains +0.02 (Q12).
+- Table 9 is not monotone in data: GSM8K reads 67.02 at 32K and 66.07 at 64K sequences (*reported*, lit line 281).
+- In this repository, five local-proxy improvements composed worse once coded (gains-criteres-qualite lines
+  113-114), and spherical feedback cost +31.89 % ppl (Q18).
+
+7. ASSUMPTIONS, AND WHAT COULD NOT BE DETERMINED WITHOUT RUNNING OR WRITING CODE
+------------------------------------------------------------------------------
+- Assumed: card encode per-block rate equals the 14B's 556 us on 23 vCPU; Python can reproduce or read the encoder's
+  windows; 30 to 60 fp32 TFLOP/s for the sketch GEMMs; one agent-day per ~300 lines with tests; the quantize phase
+  scales with lattice weights; MMLU arm price as in r1 5b.
+- Not determined: whether today's code re-encodes the 2026-09-18 base bit for bit; the noise of H_O or of V1's weights
+  at 64 sequences; the paired SE of two encodes that differ only in gate/up's objective (0.45 is two corpora); how V1
+  or V2 interact with row scales; how fast a Tetra encode runs on a card; whether candle's backprop runs through
+  model.rs; which loss labels YAQA backpropagates; whether a tokenizer-only token dump counts as a model load under
+  the clause.
