@@ -1041,8 +1041,9 @@ fn the_rc2_body_mutants_are_killed() {
         ("rc2_seq_word", "pers_rc2_even(acc, a.w, c.x, b0 + 2u", "pers_rc2_even(acc, a.w, c.y, b0 + 2u", &[6]),
         // fl3: block 4 of every run dropped
         ("rc2_seq_block4", "    if (b0 + 4u < nb) acc = pers_rc2_even(", "    if (b0 + 4u < nb && g == 0xffffffffu) acc = pers_rc2_even(", &[6]),
-        // fl3: the last quad of a row's last run not loaded
-        ("rc2_seq_quad2", "    if (3u * g + 2u < nq) e = q[2];", "    if (3u * g + 3u < nq) e = q[2];", &[6]),
+        // fl3: quad 2 of every run read from quad 1's place. (An edit of its guard, 3 g + 3 < nq, was tried first
+        // and is EQUIVALENT on every recorded shape: it bites only where the last run ends at block 5 exactly)
+        ("rc2_seq_quad2", "    if (3u * g + 2u < nq) e = q[2];", "    if (3u * g + 2u < nq) e = q[1];", &[6]),
         // fl2, fl3: the gather takes each run's slot from the next one
         ("rc2_gather", "a = __fadd_rn(a, slots[i * G + g]);", "a = __fadd_rn(a, slots[i * G + g + 1u]);", &[5, 6]),
     ];

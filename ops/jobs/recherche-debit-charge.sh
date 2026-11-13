@@ -37,15 +37,14 @@ DRY=${DRY_RUN:-0}
 TIMEOUT=${TIMEOUT:-7m}
 ARMS=v9,v9ep,v9fl,v9ep2,v9ep3,v9fl2,v9fl3
 # The modules' sha256 at the card's tile define, as pers.rs builds them on the Mac (dump_tree_modules,
-# the_rc_modules_keep_their_bytes). v9, v9ep and v9fl are the jeton run's; the four variants' are filled in when the
-# Mac gate has run (not yet: see the prereg's list of what has not run).
+# the_rc_modules_keep_their_bytes). v9, v9ep and v9fl are the jeton run's.
 SHA_V9=d55a097b146e8b962829045dfea6975470b408b942c1e0c22c038ad4d9d00860
 SHA_V9EP=f4166ccf9d857b30cae8f7691e9e4f83c2726218cb48c29dc512cb42b1a668dd
 SHA_V9FL=9925b4ad769c791d2372d52a14b68e650a549ce15edd05eecae0dececfa4f03d
-SHA_V9EP2=TO_FILL
-SHA_V9EP3=TO_FILL
-SHA_V9FL2=TO_FILL
-SHA_V9FL3=TO_FILL
+SHA_V9EP2=a7d9a04d4bb963aac4ed831f1d7b41f6473e939dbc6c7c047d3b9e90b9801aa9
+SHA_V9EP3=60dfa277ef82cf5c94b5a4b0b5745610324abac432c8ef4725ea96ba150714f7
+SHA_V9FL2=d863288607ba961223b3ac8501b99f2e4c97dfc082cd237b80300df8b33dbd11
+SHA_V9FL3=713ed5877aef63da831b8d149d31418889e42ac2580589294fa303e408ccf3fe
 SEALED="sealed-4b-2026-09-23/qwen3-4b-sealed.bin:1418224685"
 
 if [ "$DRY" != 1 ]; then

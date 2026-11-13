@@ -2311,7 +2311,9 @@ fn the_4e_rc_flat_arm_stays_near_the_served_chain() {
     assert!(stamped[..plain.len()] == plain[..], "v9fl: the stamped launch moved an output");
 }
 
-/// The lighter variants on the card's grid (142 CTAs, the L40S's SMs; 64 threads a CTA, so the twin stays small):
+/// The lighter variants on the card's grid (142 CTAs, the L40S's SMs; one warp a CTA, so the twin stays small: 4,544
+/// fibers of 64 KB of stack, about 0.3 GB; the grid cannot shrink, flat's gate/up slice fits one chunk from 134 CTAs
+/// on, and 142 gives the card's own largest slice, 138 rows x 14 runs = 1,932 slots):
 /// the one-chunk bodies need a CTA's slice to fit 2,048 slots, which the twin's usual grids of 3 to 5 CTAs do not
 /// give. ep2 and ep3 equal the served chain byte for byte (tokens, residual, both layers' caches); fl2 and fl3 equal
 /// v9fl's chain byte for byte (the same rows, `rowcand_gate::the_flat_variants_are_flat_bit_for_bit`), on a short
@@ -2319,8 +2321,8 @@ fn the_4e_rc_flat_arm_stays_near_the_served_chain() {
 #[test]
 fn the_4e_rc_one_chunk_arms_on_the_cards_grid() {
     let cmds = [
-        ("from 5", g_cmd_variant(1, 142, 64, &[(5, 2, 7)], 16, u32::MAX, 0x9e90, 2 | 256)),
-        ("from 270", g_cmd_variant(1, 142, 64, &[(270, 2, 7)], 288, u32::MAX, 0x9e91, 2 | 256)),
+        ("from 5", g_cmd_variant(1, 142, 32, &[(5, 2, 7)], 16, u32::MAX, 0x9e90, 2 | 256)),
+        ("from 270", g_cmd_variant(1, 142, 32, &[(270, 2, 7)], 288, u32::MAX, 0x9e91, 2 | 256)),
     ];
     let flat = persistent_e1("v9fl", "rc1_v9fl", None);
     for (label, cmd) in &cmds {
@@ -2337,7 +2339,7 @@ fn the_4e_rc_one_chunk_arms_on_the_cards_grid() {
         let (e, t, d, v, m) = flat_distance(&wflat, &want, 2);
         println!("142 CTAs {label}: v9ep2, v9ep3 the served chain; v9fl2, v9fl3 v9fl's; v9fl against served: tokens {e} of {t}, {d} of {v} values differ, max |diff| / rms {m:.3e}");
     }
-    let stamp = g_cmd_variant(1, 142, 64, &[(5, 2, 7)], 16, u32::MAX, 0x9e90, 1 | 256);
+    let stamp = g_cmd_variant(1, 142, 32, &[(5, 2, 7)], 16, u32::MAX, 0x9e90, 1 | 256);
     for arm in ["v9ep3", "v9fl3"] {
         let b = persistent_e1(arm, &format!("rc1_{arm}"), None);
         let plain = run(&b, &cmds[0].1);

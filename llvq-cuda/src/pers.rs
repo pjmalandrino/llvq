@@ -4500,6 +4500,11 @@ mod tests {
         for (name, sha) in [
             ("v9ep", "f4166ccf9d857b30cae8f7691e9e4f83c2726218cb48c29dc512cb42b1a668dd"),
             ("v9fl", "9925b4ad769c791d2372d52a14b68e650a549ce15edd05eecae0dececfa4f03d"),
+            // R6b's variants (ops/jobs/recherche-debit-charge.sh, recherche-debit-jeton2.sh)
+            ("v9ep2", "a7d9a04d4bb963aac4ed831f1d7b41f6473e939dbc6c7c047d3b9e90b9801aa9"),
+            ("v9ep3", "60dfa277ef82cf5c94b5a4b0b5745610324abac432c8ef4725ea96ba150714f7"),
+            ("v9fl2", "d863288607ba961223b3ac8501b99f2e4c97dfc082cd237b80300df8b33dbd11"),
+            ("v9fl3", "713ed5877aef63da831b8d149d31418889e42ac2580589294fa303e408ccf3fe"),
         ] {
             let text = p4e_e1_unit_text(CARD_TILE_SM89, name).unwrap();
             assert_eq!(crate::sha256::sha256_hex(text.as_bytes()), sha, "4E {name}: {} bytes", text.len());
