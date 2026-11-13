@@ -7,13 +7,16 @@
 # questions, a dump per question. The baseline first: if its dump fails a check, the candidate is not
 # paid for.
 #
-# No image rebuild. The Space revision bb28db3b (uploaded 2026-11-13T12:56Z) holds commit e71e5918,
-# whose mmlu.rs, sealed.rs, loader.rs, model.rs, eval.rs, artifact2.rs and llvq-artifact are identical
-# to 36230ff's, the commit of the image that scored the ablation (git diff --stat, empty, read on
-# 2026-11-13). The files this attempt writes are sealed by today's `seal`, whose format code is
-# identical too: the guided encode changes no format, and the run state that names it is a sidecar of
-# the .llvq, which `mmlu` never reads. If the Space moves, this script refuses; the lead then checks
-# the new COMMIT the same way before changing IMAGE_SHA.
+# The image (departure E2). The arms are encoded on the card by ops/jobs/guided-encode-card-4b.sh and
+# sealed there; this job reads them from the bucket, guided-encode-4b-2026-11-13/<arm>/<arm>.bin, and only
+# after `guided-encode-card-4b.sh compare` has written COMPARE-OK with their sha256 and size.
+# The shared Space this script first pinned, bb28db3b (commit e71e5918), has moved since (655ed135 at
+# 16:09Z on 2026-11-13, commit f23a109), and it moves with the speed phase. So the scoring runs by default
+# on the attempt's own private Space, Pier-Jean/llvq-runner-cuda-qualite, which also encoded the arms.
+# Its mmlu.rs, sealed.rs, loader.rs, model.rs, eval.rs, artifact2.rs, oracle.rs, seal.rs and llvq-artifact
+# are identical to 36230ff's, the commit of the image that scored the ablation and the f16 and DCLM-base
+# dumps (git diff --stat 36230ff HEAD, empty, read on 2026-11-13); so are f23a109's. SPACE and IMAGE_SHA
+# name the image; the script refuses if that Space moved.
 #
 # Cost, estimated: 23 to 24 min an arm on l40sx1 (f16-full 6aad0dd9: 23 min; sealed-rownorms-mmlu
 # 6ab42404: 23 min with oracle; dclm-4b 6aad610d: 23 min), two arms 46 to 48 min, $1.38 to $1.44.
@@ -27,11 +30,12 @@ REPO=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$REPO"
 
 PREREG=proofs/preregistration-guided-gateup-4b-2026-11-13.md
-IMAGE_SHA=${IMAGE_SHA:-bb28db3bd254df8778123c6e603df0eb2f6072db}   # Space revision; its COMMIT file names e71e5918
+SPACE=${SPACE:-Pier-Jean/llvq-runner-cuda-qualite}
+IMAGE_SHA=${IMAGE_SHA:-TO-BE-SET-AFTER-PUBLISH}     # the Space revision the publish returned
 BUCKET=Pier-Jean/jobs-artifacts
 IN=guided-encode-4b-2026-11-13
 O=/out/guided-mmlu-4b-2026-11-13
-D=${OUT_DIR:-$HOME/llvq-guided-2026-11-13}
+D=${OUT_DIR:-$HOME/llvq-guided-2026-11-13}/card
 FP=a74a6d6213602979
 TIMEOUT=${TIMEOUT:-64m}
 DRY=${DRY_RUN:-0}
@@ -48,18 +52,16 @@ if [ "${1:-}" = pair ]; then
   exit 0
 fi
 
-if [ "$DRY" = 1 ] && [ ! -s "$D/baseline.sha256" ] && [ ! -s "$D/candidate.sha256" ]; then
+if [ "$DRY" = 1 ] && [ ! -s "$D/COMPARE-OK" ]; then
   # Before the encodes exist, a dry run prints the job with placeholders and checks nothing about the arms.
-  echo "DRY_RUN: no encoded arm yet in $D; the job below carries placeholders for the two sha256 and the size" >&2
+  echo "DRY_RUN: no COMPARE-OK yet in $D; the job below carries placeholders for the two sha256 and the size" >&2
   BASE_SHA=DRY-baseline-sha256; CAND_SHA=DRY-candidate-sha256; BYTES=0
 else
-  for a in baseline candidate; do
-    test -s "$D/$a.sha256" || { echo "refused: $D/$a.sha256 missing; run ops/jobs/guided-encode-4b.sh first" >&2; exit 1; }
-  done
-  BASE_SHA=$(awk '$2 == "baseline.bin" {print $1}' "$D/baseline.sha256")
-  CAND_SHA=$(awk '$2 == "candidate.bin" {print $1}' "$D/candidate.sha256")
-  BYTES=$(stat -f %z "$D/baseline.bin")
-  [ "$(stat -f %z "$D/candidate.bin")" = "$BYTES" ] || { echo "refused: the two sealed files differ in size" >&2; exit 1; }
+  test -s "$D/COMPARE-OK" || { echo "refused: $D/COMPARE-OK missing; run guided-encode-card-4b.sh compare first" >&2; exit 1; }
+  BASE_SHA=$(awk '$1 == "baseline.bin" {print $2}' "$D/COMPARE-OK")
+  CAND_SHA=$(awk '$1 == "candidate.bin" {print $2}' "$D/COMPARE-OK")
+  BYTES=$(awk '$1 == "sealed" {print $2}' "$D/COMPARE-OK")
+  [ -n "$BASE_SHA" ] && [ -n "$CAND_SHA" ] && [ -n "$BYTES" ] || { echo "refused: $D/COMPARE-OK lacks a sha256 or the size" >&2; exit 1; }
   [ "$BASE_SHA" != "$CAND_SHA" ] || { echo "refused: the two sealed files are identical" >&2; exit 1; }
 fi
 
@@ -70,20 +72,26 @@ if [ "$DRY" != 1 ]; then
     || { echo "refused: $PREREG.ots does not anchor the sha256 of $PREREG" >&2; exit 1; }
   if grep -q 'TO BE FILLED' "$PREREG"; then echo "refused: $PREREG still has an empty prediction block" >&2; exit 1; fi
   for a in baseline candidate; do
-    R=$(hf buckets ls "hf://buckets/$BUCKET/$IN/" 2>/dev/null | awk -v n="/$a.bin" 'substr($NF, length($NF) - length(n) + 1) == n {print $1}' || true)
-    [ "$R" = "$BYTES" ] || { echo "refused: $IN/$a.bin is ${R:-absent} B in the bucket, $BYTES expected" >&2; exit 1; }
+    R=$(hf buckets ls "hf://buckets/$BUCKET/$IN/$a/" 2>/dev/null | awk -v n="$IN/$a/$a.bin" '$NF == n {print $1}' || true)
+    [ "$R" = "$BYTES" ] || { echo "refused: $IN/$a/$a.bin is ${R:-absent} B in the bucket, $BYTES expected" >&2; exit 1; }
   done
   if hf buckets ls "hf://buckets/$BUCKET/${O#/out/}/" 2>/dev/null | grep -v '^(empty)$' | grep -q .; then
     echo "refused: ${O#/out/}/ already exists" >&2; exit 1
   fi
+  ECARTS=proofs/preregistration-guided-gateup-4b-2026-11-13-ECARTS.md
+  { test -f "$ECARTS" && test -f "$ECARTS.ots"; } || { echo "refused: $ECARTS(.ots) missing" >&2; exit 1; }
+  ots info "$ECARTS.ots" 2>/dev/null | grep -q "$(shasum -a 256 "$ECARTS" | cut -d' ' -f1)" \
+    || { echo "refused: $ECARTS.ots does not anchor the sha256 of $ECARTS" >&2; exit 1; }
+  grep -q '^## E2' "$ECARTS" || { echo "refused: $ECARTS has no departure E2 (the card route)" >&2; exit 1; }
+  case "$IMAGE_SHA" in TO-BE-SET*) echo "refused: IMAGE_SHA is not set" >&2; exit 1 ;; esac
   NOW=$(uv run --quiet --with huggingface_hub python -c \
-    'from huggingface_hub import HfApi; print(HfApi().space_info("Pier-Jean/llvq-runner-cuda").sha)')
+    "from huggingface_hub import HfApi; print(HfApi().space_info('$SPACE').sha)")
   [ "$NOW" = "$IMAGE_SHA" ] || { echo "refused: the Space moved to $NOW, expected $IMAGE_SHA" >&2; exit 1; }
   echo "arms: baseline $BASE_SHA, candidate $CAND_SHA, $BYTES B each; image $NOW; timeout $TIMEOUT"
 fi
 
-ARMS="baseline|/out/$IN/baseline.bin|$BASE_SHA
-candidate|/out/$IN/candidate.bin|$CAND_SHA"
+ARMS="baseline|/out/$IN/baseline/baseline.bin|$BASE_SHA
+candidate|/out/$IN/candidate/candidate.bin|$CAND_SHA"
 PRE=$(printf 'O=%q\nBYTES=%q\nFP=%q\nARMS=%q' "$O" "$BYTES" "$FP" "$ARMS")
 
 IFS= read -r -d '' BODY <<'JOB' || true
@@ -130,7 +138,7 @@ $BODY"
 fi
 
 uv run ops/run.py bench \
-  --image hf.co/spaces/Pier-Jean/llvq-runner-cuda \
+  --image "hf.co/spaces/$SPACE" \
   --flavor l40sx1 --timeout "$TIMEOUT" \
   --bucket "$BUCKET" --out-mount /out \
   --name guided-mmlu-4b-2026-11-13 \
