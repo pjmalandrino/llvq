@@ -259,6 +259,29 @@ about 4 min in (a) with its two prefills at 8,192, and about 2 min in each one-a
 
 ## 10. Signed predictions (main session)
 
+Signed on 2026-11-13, before the stamp, from the corps journal, K5, K10 and the arms' text; the hand-back's row
+gate, chain tests and pins were rerun by the main session first (the same figures). Scores are speeds over v9 timed
+first, round by round, median. Each line is scored in the journal as in or out.
+
+| # | quantity | point | interval | why |
+|---|---|---|---|---|
+| 1 | F1 passes at both contexts; the floor's width at 5 tokens | passes, 0.01 | 80 %; width under 0.03 | one runtime twice a round; 5 rounds only |
+| 2 | v9 at 5 tokens, tok/s | 222 | [215, 228] | E1's readings of the same module |
+| 3 | both arms load on the card (no local memory under the driver's ptxas, the layout accepted) | holds | 80 % | the devel count has 0 B on the timed symbols |
+| 4 | v9ep's 256 tokens are v9's and its logits bit for bit, both contexts | holds | 92 % | the twin's chain is byte for byte |
+| 5 | v9ep at 5 tokens | 1.01 | [0.98, 1.04]; FASTER under F2: 35 % | x1.053 alone, on the short rows only; one more barrier and pass on gate/up; K5 |
+| 6 | v9fl at 5 tokens | 1.03 | [0.97, 1.08]; FASTER under F2: 50 % | x1.185 alone is x1.07 on the token at most; the padded restaging, the barriers and K5 take from it |
+| 7 | v9fl at 8,192 | 1.02 | [0.98, 1.06] | the same rows in a longer token |
+| 8 | v9fl over v9ep at 5 tokens (ratio of medians) | above 1 | 70 % | the order alone |
+| 9 | v9fl's tokens equal v9's, 256 of 256, at the 5-token prompt | holds | 65 % | errors of 1e-6 on rows; a greedy near-tie in 256 steps is the risk |
+| 10 | v9fl's largest |dlogit| against v9 | 0.06 | [0.015, 0.5] | a few binary16 steps at the logits' magnitude |
+| 11 | peak VRAM of the v9fl process against the v9 process | equal to the sampler's step | 90 % | no device buffer added |
+| 12 | in v9fl's stamps, the gate/up wall is under v9's | holds | 70 % | the body that won alone |
+
+What would surprise: an arm SLOWER than v9 by more than 3 % (the body would cost the token more than it gives the
+rows); v9fl above 1.08 (more than the ceiling computed from the rows alone); v9fl's tokens leaving v9's within the
+first 32.
+
 ## 11. Not established by this run
 
 - v9fl's paired perplexity, hence whether it is inside the mandate's +-0.12 % (§8). Its tokens and logits against
