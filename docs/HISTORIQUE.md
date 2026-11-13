@@ -1492,4 +1492,7 @@ a cap of its own. Nothing is measured and nothing was launched.
   (*measured*), the order of the MMLU restores. The relative layer-output error reads down > qkv > o > gate/up: it
   rates gate/up lowest. Rule D green, perplexity within 0.033 % of the candle path. Eight of seventeen signed
   predictions are in. Spend of the phase: $0.44 of $10; the rows of `docs/data/jobs.csv` sum to $326.66 (*computed*).
+- The operator gave the go for a first re-encode of the 4B with gate/up judged on the final output, in its smallest
+  form (gradient-weighted input Hessians, $1.65 to $1.89 *estimated*), and lifted the Mac clause of the mandate for
+  its two encodes. Nothing is coded or launched yet.
 - Nothing served changes: no config, no served module, no Hub file.

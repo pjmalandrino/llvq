@@ -720,7 +720,12 @@ costs $10.37 to $11.83 on the card alone and $4.69 with the encode on the Mac, $
 there). The Mac clause of the mandate is the operator's to keep or lift. On the operator's go under $5, a first
 measurement ran on the card for $0.44
 ([layer-vs-output-4b](mesures/layer-vs-output-4b-2026-11-13.txt)): at group grain the final-output judge follows the MMLU truth and the layer judge does not (Q23). Spent: $0.44 of $10. No encoder has
-been changed and no gain is measured. R0's repository half is
+been changed and no gain is measured. The operator then gave the go for a first re-encode under a final-output
+objective, in its smallest form: gradient-weighted input Hessians for gate_proj and up_proj, scored by one full MMLU
+pair against a baseline encoded in the same run
+([recherche-qualite-r2-chiffrage-encodeur](mesures/recherche-qualite-r2-chiffrage-encodeur-2026-11-13.txt), V1,
+$1.65 to $1.89 *estimated*). He lifted the mandate's Mac clause for the two encodes of this attempt: one at a time,
+at low priority, never beside another heavy job. R0's repository half is
 [recherche-qualite-r0-depot](mesures/recherche-qualite-r0-depot-2026-11-13.txt), the literature half
 [recherche-qualite-r0-litterature](mesures/recherche-qualite-r0-litterature-2026-11-13.txt). Three facts frame R1.
 N1's Gaussian arm is on the four option logits, not on weights (Q7). Its replay on the sealed 4B needs dumps only,
