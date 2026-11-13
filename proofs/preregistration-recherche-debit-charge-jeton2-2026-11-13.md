@@ -228,10 +228,32 @@ Two changes against the jeton prereg:
 
 ## 8. Signed predictions (main session)
 
+Written on 2026-11-13 after rereading the hand-back against the repository, before the stamp. Nothing on the Mac
+separates the variants (§3), so the load predictions rest on one reading only: 8 B of local memory is one spilled
+64-bit value, so the excess over v9 is small.
+
+Job 1, the load check:
+1. The gate passes: v9 LOADS, v9ep and v9fl REFUSED with 8 B of local memory each. 90 %.
+2. The job runs 240 s [150, 420]. It hits its 7 min timeout at 15 %.
+3. `v9ep2` loads at 50 %, `v9ep3` at 45 %, `v9fl2` at 35 %, `v9fl3` at 55 %.
+4. At least one of the four loads: 60 %. None loads, and the phase closes on "4E has no register room at 512
+   threads": 40 %.
+5. A variant that is refused shows 8 B of local memory, not more: 60 %.
+
+Job 2, if it is launched:
+6. F1 passes at both contexts, with a floor under 0.2 % wide. 90 %.
+7. v9 timed first: 225.8 tok/s [224.5, 227.0] at 5 tokens, 160.5 [159.0, 162.0] at 8,192.
+8. The endpass arm at 5 tokens: x1.005 [0.990, 1.020] if it is `v9ep3`, x0.990 [0.960, 1.010] if it is `v9ep2`.
+   FASTER at 35 %.
+9. The flat arm at 5 tokens: x1.03 [0.99, 1.07]. FASTER at 60 %. At 8,192: x1.02 [0.99, 1.05].
+10. No arm reaches x1.05 at 5 tokens: 75 %.
+11. The flat arm's 256 tokens are all v9's: 50 %.
+12. The job runs 1,150 s [900, 1,500].
+
 ## 9. Not established by these runs
 
 - Any tok/s if no variant loads. Whether a variant that loads keeps the speed its body had alone: ep2 drops the block
   in flight, and fl3 reorders flat's loads. Rowbench never timed either.
-- The register proxy's agreement with the driver's allocator (§3, item 5).
+- The register proxy's agreement with the driver's allocator (§3).
 - v9fl's paired perplexity: the jeton prereg's §8, unchanged.
 - Any card but the L40S, any model but the 4B.
