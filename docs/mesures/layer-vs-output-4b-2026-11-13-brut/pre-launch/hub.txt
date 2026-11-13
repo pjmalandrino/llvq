@@ -1,0 +1,18 @@
+Fri Nov 13 11:40:39 UTC 2026
+model Qwen/Qwen3-4B @1cfa9a72 resolves to 1cfa9a7208912126459214e8b04321603b3df60c
+  .gitattributes  1570  lfs_sha256=None
+  LICENSE  11343  lfs_sha256=None
+  README.md  16857  lfs_sha256=None
+  config.json  726  lfs_sha256=None
+  generation_config.json  239  lfs_sha256=None
+  merges.txt  1671853  lfs_sha256=None
+  model-00001-of-00003.safetensors  3957900840  lfs_sha256=328a91d3122359d5547f9d79521205bc0a46e1f79a792dfe650e99fc2d651223
+  model-00002-of-00003.safetensors  3987450520  lfs_sha256=6cd087b316306a68c562436b5492edbcf6e16c6dba3a1308279caa5a58e21ca5
+  model-00003-of-00003.safetensors  99630640  lfs_sha256=e4bf436957184f4eeb86a80e9db394503f1f56446b2e6b7edeac5b81470f4ca1
+  model.safetensors.index.json  32819  lfs_sha256=None
+  tokenizer.json  11422654  lfs_sha256=aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4
+  tokenizer_config.json  9732  lfs_sha256=None
+  vocab.json  2776833  lfs_sha256=None
+model Qwen/Qwen3-4B main is 1cfa9a7208912126459214e8b04321603b3df60c
+dataset Salesforce/wikitext main is b08601e04326c79dfdd32d625aee71d232d685c3
+  wikitext-2-raw-v1/test-00000-of-00001.parquet  732610  lfs_sha256=5f1bea067869d04849c0f975a2b29c4ff47d867f484f5010ea5e861eab246d91
