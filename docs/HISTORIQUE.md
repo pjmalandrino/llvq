@@ -1576,7 +1576,7 @@ the layer objective on the 4B. The bullets below are in the order things happene
 - 2026-11-14: the operator closes the phase. Outcome: a dead hypothesis, recorded in `CERVEAU.md` O12. No idea sheet.
 - Nothing served changes: no config, no served module, no Hub file.
 
-## 2026-11-14. A second research phase on quality opens, on the lost contrast of the answer logits; $0
+## 2026-11-14. A second research phase on quality opens, on the lost contrast of the answer logits; $0.46
 
 The operator refused the lead's first three starting points for a new quality cycle, the calibration draw, probes of
 gate/up and a fast verifier, as tinkering and not ideas. He then signed a mandate, O13 of [`CERVEAU.md`](CERVEAU.md),
@@ -1593,5 +1593,15 @@ on an anomaly read the same day from the dumps the repository holds: $10 of card
   raising the noise as much.
 - One idea was killed at $0 the same day: coding each up_proj row from the gate_proj row of its neuron. Their mean
   absolute cosine is 0.109 on Qwen3-4B and a one-scalar prediction leaves 97.8 % of the energy.
-- Nothing is launched and nothing served changes.
+- The literature half of R0 found the output shrink published (Wu et al., arXiv 2608.06564) and the idea as a whole
+  nowhere ([recherche-qualite2-r0-litterature](mesures/recherche-qualite2-r0-litterature-2026-11-14.txt)).
+- One card job, $0.46 (6af86d01, prereg sha256 cba0eb94, stamped before):
+  [contrast-map-4b](mesures/contrast-map-4b-2026-11-14.txt). FP16 and the sealed 4B side by side on 570 MMLU prompts.
+  The loss is complete when the answer is written, at block 25 of 36: lens accuracy 72.3 % against 63.9 %, and 73.7
+  against 66.5 at the output (*measured*). The output slope is 0.81 at the write and falls to 0.61 across the last
+  block by a rescale. At the answer position the quiet directions keep a slope of 0.47 at depth 12 under 2.5 times
+  their energy in noise. Rule D green. Fifteen of eighteen signed predictions are in. The lead's idea of gains chosen
+  for a coherent gain of 1 along the depth does not survive in that form. Spend of the phase: $0.46 of $10; the rows
+  of `docs/data/jobs.csv` sum to $342.10 (*computed*).
+- Nothing served changes.
 

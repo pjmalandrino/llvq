@@ -10,7 +10,8 @@ N1 and N2 gained scope notes. The same day R1 replayed N1 on the sealed 4B: Q7 w
 that object, and a card job added Q23. A first re-encode under a final-output objective then added Q24 and E3. On
 2026-11-14 a clipped retry restated Q24 and the operator closed the phase: O2, O12 and Q20 were restated, Q5 and Q15
 gained notes, Q23 was reread by type and five mismatches joined the list at the end. The same day a second quality
-phase opened (O13) on a new anomaly, N6. 62 claims: 14 established, 2 proved, 37 supported, 6 conjecture, 3 refuted.
+phase opened (O13) on a new anomaly, N6, and its first card job added Q25. 63 claims: 14 established, 2 proved, 38
+supported, 6 conjecture, 3 refuted.
 
 This document lists what we believe to be true about quantizing LLMs on the Leech lattice, each belief with its
 standing. It is not the served state ([`ETAT.md`](ETAT.md)), the history ([`HISTORIQUE.md`](HISTORIQUE.md)) or a plan
@@ -356,6 +357,24 @@ unclipped encode. WikiText-2 perplexity: 16.46 baseline, 18.08 unclipped, 16.69 
   [guided-clip-gateup-4b](mesures/guided-clip-gateup-4b-2026-11-14.txt) (*measured*, six card jobs, $8.67 and $4.38).
 - Overturn: a second draw, another clip level or more calibration windows where the guided encode beats its baseline
   with a resolved pair.
+- Checked: 2026-11-14.
+
+**Q25.** On the sealed 4B the MMLU loss is complete when the answer is written, at block 25 of 36, and the blocks
+after it do not change it. Read through FP16's final readout, FP16's lens accuracy goes from 28.3 % at depth 24 to
+72.3 % at depth 25, the sealed 4B's from 29.5 % to 63.9 %; at the output they read 73.7 % and 66.5 %. The ratio of
+contrast to noise of the sealed stream on that readout is 1.60 at depth 25 and 1.68 at depth 36. The output slope of
+0.61 is 0.81 at depth 25 and falls across the last block, where the sealed stream's norm at the answer position is
+1.25 times FP16's: a rescale. At the answer position the band of FP16 directions 513 to 2,560 keeps a slope of 0.47
+at depth 12 under a noise of 2.5 times its energy, while directions 1 to 64 keep 0.92 to 1.13 through depth 32.
+- Standing: supported. Measured once, on the served object, under a stamped prereg whose rule D is green. Scope:
+  sealed 4B, its f16 export, 570 MMLU questions easier than the full split (73.5 % for FP16), one calibration draw,
+  torch f16 on an L40S. The lens is blind before depth 25, so the depth at which the deficit forms is not read. That
+  the quiet directions carry the answer is not measured. No block was restored: that the late blocks could take
+  fewer bits does not follow.
+- Evidence: [contrast-map-4b](mesures/contrast-map-4b-2026-11-14.txt) (*measured*, job 6af86d01, $0.46; the ratios
+  *computed*).
+- Overturn: a restore of blocks 25 to 35 alone that gains more than a point of MMLU on the full split, or a second
+  size where the ratio moves after the write.
 - Checked: 2026-11-14.
 
 ## K. The decode kernel
@@ -716,7 +735,7 @@ A measured fact that no claim explains. They are the starting points of the expl
 | N3 | A lower Gaussian MSE of the codebook has given a worse perplexity twice, Planes14 at 4B and the Euclidean gain rule at 0.6B; no MMLU pair between codebooks is resolved. | Q4, Q17. | What the model is sensitive to that block MSE does not see. |
 | N4 | Perplexity and KL close while MMLU stays open. | Q5, Q6. | What MMLU reads that the two do not. |
 | N5 | The whole token streams 297 GB/s while its rows read 359 to 648, and bit-identical cuts move time without removing it. | K4, K10; K5 for the split of the time without weights, which is a conjecture (its consequence, the 94 % that reappeared, is measured). | What holds the token when the rows are not the limit. |
-| N6 | The sealed 4B's four answer logits regress on FP16's with slope 0.58: it keeps 58 % of the contrast between the options, where AWQ 4B keeps 0.96. Across the 17 full-split 4B files with every projection quantized the slope runs from 0.22 to 0.58 and the noise from 1.20 to 1.77 a logit. No zero-bit correction raised the slope by more than 6 %, and two cases where perplexity improved and MMLU fell (Q5, Q14) are cases where the slope fell more than the noise. | [recherche-qualite2-r0-contraste](mesures/recherche-qualite2-r0-contraste-2026-11-14.txt) (*computed* on *measured* dumps); Q7, Q8. | Where in the network the contrast goes, and whether it can be raised without raising the noise as much. Only the ratio decides an argmax ([logit-snr-4b](mesures/logit-snr-4b-2026-09-12.txt) section 9). |
+| N6 | The sealed 4B's four answer logits regress on FP16's with slope 0.58: it keeps 58 % of the contrast between the options, where AWQ 4B keeps 0.96. Across the 17 full-split 4B files with every projection quantized the slope runs from 0.22 to 0.58 and the noise from 1.20 to 1.77 a logit. No zero-bit correction raised the slope by more than 6 %, and two cases where perplexity improved and MMLU fell (Q5, Q14) are cases where the slope fell more than the noise. | [recherche-qualite2-r0-contraste](mesures/recherche-qualite2-r0-contraste-2026-11-14.txt) (*computed* on *measured* dumps); Q7, Q8. | What forms the deficit before block 25. Q25 places the loss: it is complete at the write, and the fall of the output slope after it is a rescale. Only the ratio decides an argmax ([logit-snr-4b](mesures/logit-snr-4b-2026-09-12.txt) section 9). |
 
 ## Open questions
 
@@ -854,7 +873,14 @@ on the lead's proposal of that day: the lost contrast, $10 of card). No other re
 The route is the explanation route (O10). R0's repository half is
 [recherche-qualite2-r0-contraste](mesures/recherche-qualite2-r0-contraste-2026-11-14.txt): the slope and noise of 24
 full-split dumps, three rival hypotheses, and one idea killed at $0 (coding up_proj from gate_proj: the rows' mean
-absolute cosine is 0.109). State on 2026-11-14: mandate signed, $0 of $10 spent, nothing launched.
+absolute cosine is 0.109). The literature half is
+[recherche-qualite2-r0-litterature](mesures/recherche-qualite2-r0-litterature-2026-11-14.txt): the output shrink is
+published, the idea as a whole is not found. The first card job read the map
+([contrast-map-4b](mesures/contrast-map-4b-2026-11-14.txt), Q25): the loss is complete at block 25, the output slope
+is mostly a late rescale, and the quiet directions of the answer position are lost by depth 12. Of the three
+hypotheses, the uniform shrink and the shrink that compounds with depth are not supported, and attention dilution is
+dead in aggregate. The lead's idea of gains chosen for a coherent gain of 1 along the depth does not survive in that
+form. State on 2026-11-14: $0.46 of $10 spent; the next step is the operator's call.
 
 ## Beliefs we dropped
 

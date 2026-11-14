@@ -1,0 +1,4 @@
+/out/contrast-map-4b-inputs-2026-11-14/contrast_map.py: OK
+/out/contrast-map-4b-inputs-2026-11-14/layer_vs_output.py: OK
+/out/contrast-map-4b-inputs-2026-11-14/mmlu-4b-f16-FULL.csv: OK
+/out/contrast-map-4b-inputs-2026-11-14/mmlu-4b-abl-control-FULL.csv: OK

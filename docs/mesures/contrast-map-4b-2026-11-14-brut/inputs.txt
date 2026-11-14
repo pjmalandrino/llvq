@@ -1,0 +1,9 @@
+checkpoint Qwen/Qwen3-4B@1cfa9a7208912126459214e8b04321603b3df60c
+export /out/sealed-4b-export-2026-09-23/model.safetensors sha256 2a018cbdea37849c6fde29576e75aefb9125d9964e20e78bd3afb2a0948bba59
+mmlu cais/mmlu@c30699e8356da336a370243923dbaf21066bb9fe
+dumps f022add79f69baeb59a751e6b84fa6e9ea0d5929851c9477e6adf1ee0af5e6bf e2abc978add4e189d346f43d64638e9d16b778a7f3359fbb8c1fb53e5c1cfd74
+questions 570
+bases sha256 before {'fp16': 'a0ca1763b6cf4f11be54b01eb0c5acd534eda637984fc8c66a0937a1c3dc417d', 'sealed': 'f5ea5a81d1588826f448a5b97158fb7fe051778d253db989d2b301fbe5d9c1e5'}
+bases sha256 after  {'fp16': 'a0ca1763b6cf4f11be54b01eb0c5acd534eda637984fc8c66a0937a1c3dc417d', 'sealed': 'f5ea5a81d1588826f448a5b97158fb7fe051778d253db989d2b301fbe5d9c1e5'}
+rule D green True
+total 903 s
