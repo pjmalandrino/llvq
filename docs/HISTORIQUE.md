@@ -1576,7 +1576,7 @@ the layer objective on the 4B. The bullets below are in the order things happene
 - 2026-11-14: the operator closes the phase. Outcome: a dead hypothesis, recorded in `CERVEAU.md` O12. No idea sheet.
 - Nothing served changes: no config, no served module, no Hub file.
 
-## 2026-11-14. A second research phase on quality opens, on the lost contrast of the answer logits; $0.46
+## 2026-11-14. A second research phase on quality opens, on the lost contrast of the answer logits; $2.17
 
 The operator refused the lead's first three starting points for a new quality cycle, the calibration draw, probes of
 gate/up and a fast verifier, as tinkering and not ideas. He then signed a mandate, O13 of [`CERVEAU.md`](CERVEAU.md),
@@ -1603,5 +1603,12 @@ on an anomaly read the same day from the dumps the repository holds: $10 of card
   their energy in noise. Rule D green. Fifteen of eighteen signed predictions are in. The lead's idea of gains chosen
   for a coherent gain of 1 along the depth does not survive in that form. Spend of the phase: $0.46 of $10; the rows
   of `docs/data/jobs.csv` sum to $342.10 (*computed*).
+- On the operator's go, three more card jobs, $1.71. Two restores of the sealed 4B on the full split
+  ([depth-restore-4b](mesures/depth-restore-4b-2026-11-14.txt), 6af88648, $1.38): layers 25 to 35, 30.6 % of the
+  projection weights, gain +0.43 [+0.11, +0.77] where the even rate of Q22 put +2.05; layers 0 to 24 gain +6.12
+  [+5.41, +6.84] (*measured*). The map is supported, and Q25 is established on the sealed 4B. A reading of the
+  originals alone ([lens-write-depth](mesures/lens-write-depth-2026-11-14.txt), $0.12 and $0.21): the 8B writes its
+  answer at depth 25 of 36 and the 14B at depth 29 of 40, each in one block (Q26). Eighteen of eighteen signed
+  predictions are in. Spend of the phase: $2.17 of $10; the rows of `docs/data/jobs.csv` sum to $343.81 (*computed*).
 - Nothing served changes.
 

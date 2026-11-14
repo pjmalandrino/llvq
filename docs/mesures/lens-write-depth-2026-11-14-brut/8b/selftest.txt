@@ -1,0 +1,490 @@
+selftest: tiny Qwen3-shaped model (36 layers, d 16), CPU, float64; synthetic moments d 600
+  PASS  forward_taps gives layer_vs_output.forward's logits bit for bit
+  PASS  the stream is tapped at depths 0..36
+  PASS  and in float32
+  PASS  last-position attention weights times v reproduce the attention output, 36 layers (8.9e-16)
+  PASS  R4 recovers a = 0.9 for the planted matrix (got 0.900000000000)
+  PASS  R4 noise ratio = sum ||QWx||^2 / sum ||Wx||^2 (1.383538e-01 against 1.383538e-01)
+  PASS  R4 gives a = 1 and noise 0 exactly for the 250 untouched matrices, both passes
+  PASS  and a = 0.9 on the sealed pass's inputs too (got 0.900000000000)
+  PASS  R4 relative error S_ee/S_yy equals Note1 on the same tokens, 252 x 2 (1.9e-16)
+  PASS  R4 per-row gains recover diag(g) row for row
+  PASS  the answer logits are the last position's, as the harness reads them, both models
+CONTROL (rule D), 6 questions, script against the Rust dense dumps
+  model    picks equal   max |dlogit|   median |dlogit|   MMLU script   MMLU dump
+  fp16     1.0000        0.00000        0.00000         16.67         16.67
+  sealed   1.0000        0.00000        0.00000         16.67         16.67
+  fit sealed on FP16, script logits: slope 1.4147 noise 0.2413 slope/noise 5.8636
+  fit sealed on FP16, dump logits:   slope 1.4147 noise 0.2413 slope/noise 5.8636
+  slope difference +0.0000 (tolerance 0.02); picks at least 0.98 each
+  RULE D: GREEN
+
+R1 LENS, U_ans . final_norm_fp16(h(l)), FP16 readout for both streams; fit sealed on FP16
+  final norm weights identical in the two sets: False; FP16 lens at depth 36 against its own logits, max |d| 4.065e-07
+  depth   slope    noise    slope/noise   lens acc FP16   lens acc sealed
+      0   1.0000   0.0000   inf        0.5000          0.5000
+      1   1.0000   0.0000   inf        0.3333          0.3333
+      2   1.0000   0.0000   inf        0.3333          0.3333
+      3   1.0000   0.0000   inf        0.3333          0.3333
+      4   1.0000   0.0000   inf        0.3333          0.3333
+      5   1.0000   0.0000   inf        0.1667          0.1667
+      6   1.0000   0.0000   inf        0.1667          0.1667
+      7   1.0000   0.0000   inf        0.3333          0.3333
+      8   0.9964   0.0280   35.5947        0.1667          0.1667
+      9   0.9960   0.0239   41.6344        0.3333          0.3333
+     10   0.9944   0.0225   44.2349        0.3333          0.3333
+     11   0.9939   0.0213   46.5902        0.3333          0.3333
+     12   0.9962   0.0211   47.2983        0.3333          0.3333
+     13   0.9982   0.0218   45.8376        0.1667          0.1667
+     14   0.9982   0.0215   46.3537        0.3333          0.3333
+     15   1.0000   0.0242   41.2926        0.0000          0.0000
+     16   1.0007   0.0234   42.7289        0.0000          0.0000
+     17   1.0021   0.0229   43.7763        0.1667          0.1667
+     18   1.0033   0.0260   38.5819        0.0000          0.0000
+     19   1.0029   0.0258   38.8038        0.0000          0.0000
+     20   1.0036   0.0268   37.5017        0.0000          0.0000
+     21   1.0087   0.1390   7.2573        0.0000          0.0000
+     22   1.0121   0.1477   6.8510        0.0000          0.0000
+     23   1.0156   0.1527   6.6521        0.1667          0.1667
+     24   1.0188   0.1782   5.7177        0.1667          0.1667
+     25   1.0147   0.1719   5.9046        0.1667          0.1667
+     26   1.0144   0.1530   6.6298        0.3333          0.3333
+     27   1.0214   0.1550   6.5885        0.3333          0.3333
+     28   1.0201   0.1673   6.0962        0.1667          0.1667
+     29   1.0137   0.1500   6.7594        0.1667          0.1667
+     30   1.0131   0.1432   7.0766        0.1667          0.1667
+     31   1.0077   0.1695   5.9449        0.1667          0.1667
+     32   1.0102   0.1623   6.2232        0.1667          0.1667
+     33   1.0083   0.1542   6.5369        0.1667          0.1667
+     34   1.0033   0.1553   6.4601        0.1667          0.1667
+     35   1.0062   0.1611   6.2471        0.1667          0.1667
+     36   1.0098   0.1663   6.0726        0.1667          0.1667
+
+R2 STREAM BY VARIANCE BAND of FP16's C_ff (all positions, 134 tokens), Lambda-weighted slope / median slope / Lambda-weighted noise ratio / energy share
+  positions: all
+  depth  pooled  norm   [1-1]   [2-8]   [9-64]   [65-512]   [513-16]
+      0  1.0000 1.0000 1.000/1.000/-0.000/1.99e-01   1.000/1.000/-0.000/6.01e-01   1.000/1.000/-0.000/2.00e-01   nan/nan/nan/nan   nan/nan/nan/nan
+      4  1.0000 1.0000 1.000/1.000/-0.000/2.36e-01   1.000/1.000/0.000/5.95e-01   1.000/1.000/0.000/1.69e-01   nan/nan/nan/nan   nan/nan/nan/nan
+      8  1.0005 1.0005 1.001/1.001/0.000/3.03e-01   1.001/1.000/0.000/5.72e-01   0.999/0.999/0.000/1.25e-01   nan/nan/nan/nan   nan/nan/nan/nan
+     12  1.0003 1.0003 1.000/1.000/0.000/3.88e-01   1.001/1.001/0.000/5.24e-01   0.999/0.999/0.000/8.82e-02   nan/nan/nan/nan   nan/nan/nan/nan
+     16  1.0001 1.0001 1.000/1.000/0.000/4.63e-01   1.000/1.000/0.000/4.63e-01   0.999/0.999/0.000/7.45e-02   nan/nan/nan/nan   nan/nan/nan/nan
+     20  0.9997 0.9997 0.999/0.999/0.000/4.12e-01   1.000/1.000/0.000/5.20e-01   0.999/0.999/0.000/6.81e-02   nan/nan/nan/nan   nan/nan/nan/nan
+     24  1.0001 1.0009 1.002/1.002/0.001/4.23e-01   0.999/1.001/0.001/5.10e-01   1.001/0.994/0.012/6.66e-02   nan/nan/nan/nan   nan/nan/nan/nan
+     28  1.0012 1.0019 1.008/1.008/0.001/4.58e-01   0.995/0.999/0.001/4.88e-01   1.000/0.998/0.012/5.40e-02   nan/nan/nan/nan   nan/nan/nan/nan
+     32  1.0009 1.0017 1.005/1.005/0.001/4.42e-01   0.997/0.998/0.001/5.07e-01   1.001/1.000/0.010/5.16e-02   nan/nan/nan/nan   nan/nan/nan/nan
+     36  1.0031 1.0038 1.009/1.009/0.001/5.23e-01   0.997/0.999/0.001/4.32e-01   1.000/1.000/0.010/4.50e-02   nan/nan/nan/nan   nan/nan/nan/nan
+  positions: answer
+  depth  pooled  norm   [1-1]   [2-8]   [9-64]   [65-512]   [513-16]
+      0  1.0000 1.0000 1.000/1.000/0.000/1.69e-01   1.000/1.000/0.000/5.16e-01   1.000/1.000/0.000/3.14e-01   nan/nan/nan/nan   nan/nan/nan/nan
+      4  1.0000 1.0000 1.000/1.000/0.000/3.02e-01   1.000/1.000/0.000/5.67e-01   1.000/1.000/0.000/1.31e-01   nan/nan/nan/nan   nan/nan/nan/nan
+      8  1.0004 1.0004 1.002/1.002/0.000/3.95e-01   1.000/1.000/0.000/4.87e-01   0.996/0.994/0.000/1.18e-01   nan/nan/nan/nan   nan/nan/nan/nan
+     12  1.0005 1.0005 1.000/1.000/0.000/5.49e-01   1.001/1.000/0.000/3.90e-01   0.999/0.995/0.000/6.11e-02   nan/nan/nan/nan   nan/nan/nan/nan
+     16  0.9999 0.9999 1.000/1.000/0.000/6.14e-01   1.001/1.001/0.000/3.29e-01   0.999/0.997/0.000/5.77e-02   nan/nan/nan/nan   nan/nan/nan/nan
+     20  0.9994 0.9994 0.999/0.999/0.000/5.56e-01   1.000/1.000/0.000/3.88e-01   1.000/0.997/0.000/5.56e-02   nan/nan/nan/nan   nan/nan/nan/nan
+     24  0.9967 0.9978 1.002/1.002/0.001/5.91e-01   0.991/0.983/0.002/3.41e-01   0.978/0.989/0.017/6.76e-02   nan/nan/nan/nan   nan/nan/nan/nan
+     28  0.9991 1.0001 1.008/1.008/0.001/6.18e-01   0.985/0.985/0.001/3.29e-01   0.988/0.966/0.014/5.35e-02   nan/nan/nan/nan   nan/nan/nan/nan
+     32  1.0001 1.0011 1.007/1.007/0.001/5.97e-01   0.990/0.993/0.002/3.50e-01   0.987/0.989/0.010/5.29e-02   nan/nan/nan/nan   nan/nan/nan/nan
+     36  1.0034 1.0045 1.011/1.011/0.001/6.58e-01   0.989/0.996/0.002/2.99e-01   0.986/0.980/0.013/4.22e-02   nan/nan/nan/nan   nan/nan/nan/nan
+
+R3 LINEAR PREDICTABILITY, all positions: e_lin / diagonal share, per band
+  depth  all            [1-1]   [2-8]   [9-64]   [65-512]   [513-16]
+      0  1.0000/1.0000  1.0000/1.0000   1.0000/1.0000   1.0000/1.0000   nan/nan   nan/nan
+      4  1.0000/1.0000  1.0000/1.0000   1.0000/1.0000   1.0000/1.0000   nan/nan   nan/nan
+      8  1.0000/1.0000  1.0000/1.0000   1.0000/1.0000   0.9999/0.9999   nan/nan   nan/nan
+     12  1.0000/1.0000  1.0000/1.0000   1.0000/1.0000   0.9999/0.9999   nan/nan   nan/nan
+     16  1.0000/1.0000  1.0000/1.0000   1.0000/1.0000   0.9999/0.9999   nan/nan   nan/nan
+     20  1.0000/1.0000  1.0000/1.0000   1.0000/1.0000   0.9999/0.9999   nan/nan   nan/nan
+     24  0.9995/0.9985  0.9999/0.9994   0.9997/0.9992   0.9962/0.9881   nan/nan   nan/nan
+     28  0.9996/0.9986  0.9999/0.9992   0.9996/0.9992   0.9957/0.9885   nan/nan   nan/nan
+     32  0.9995/0.9986  0.9999/0.9991   0.9995/0.9990   0.9958/0.9903   nan/nan   nan/nan
+     36  0.9995/0.9986  0.9999/0.9992   0.9994/0.9987   0.9958/0.9904   nan/nan   nan/nan
+
+R4 COHERENT GAIN BY TYPE, pooled over the 36 layers (plain mean in brackets)
+  type        x     a                  noise ratio            rel error
+  q_proj      fp16   0.99960 [0.99960]   2.74642e-03 [2.72131e-03]   2.74658e-03 [2.72704e-03]
+  q_proj      sealed 0.99960 [0.99960]   2.74800e-03 [2.72131e-03]   2.74816e-03 [2.72704e-03]
+  k_proj      fp16   1.00000 [1.00000]   0.00000e+00 [0.00000e+00]   0.00000e+00 [0.00000e+00]
+  k_proj      sealed 1.00000 [1.00000]   0.00000e+00 [0.00000e+00]   0.00000e+00 [0.00000e+00]
+  v_proj      fp16   1.00000 [1.00000]   0.00000e+00 [0.00000e+00]   0.00000e+00 [0.00000e+00]
+  v_proj      sealed 1.00000 [1.00000]   0.00000e+00 [0.00000e+00]   0.00000e+00 [0.00000e+00]
+  o_proj      fp16   1.00000 [1.00000]   0.00000e+00 [0.00000e+00]   0.00000e+00 [0.00000e+00]
+  o_proj      sealed 1.00000 [1.00000]   0.00000e+00 [0.00000e+00]   0.00000e+00 [0.00000e+00]
+  gate_proj   fp16   0.99687 [0.99722]   4.63240e-03 [3.84316e-03]   4.64219e-03 [4.12094e-03]
+  gate_proj   sealed 0.99687 [0.99722]   4.62950e-03 [3.84159e-03]   4.63929e-03 [4.11937e-03]
+  up_proj     fp16   1.00000 [1.00000]   0.00000e+00 [0.00000e+00]   0.00000e+00 [0.00000e+00]
+  up_proj     sealed 1.00000 [1.00000]   0.00000e+00 [0.00000e+00]   0.00000e+00 [0.00000e+00]
+  down_proj   fp16   1.00000 [1.00000]   0.00000e+00 [0.00000e+00]   0.00000e+00 [0.00000e+00]
+  down_proj   sealed 1.00000 [1.00000]   0.00000e+00 [0.00000e+00]   0.00000e+00 [0.00000e+00]
+  lowest a (FP16 x): layer 20 gate_proj 0.90000; highest: layer 0 q_proj 1.00000
+
+R5 ATTENTION OF THE ANSWER POSITION, mean over heads of the per-head means over questions (nats)
+  layer  entropy FP16  entropy sealed  top FP16  top sealed  heads with higher entropy in sealed
+      0  2.7152        2.7152          0.1644    0.1644      0/4
+      1  2.6965        2.6965          0.1808    0.1808      0/4
+      2  2.6917        2.6917          0.1745    0.1745      0/4
+      3  2.7187        2.7187          0.1859    0.1859      0/4
+      4  2.7037        2.7037          0.1776    0.1776      0/4
+      5  2.7689        2.7689          0.1613    0.1613      0/4
+      6  2.7162        2.7162          0.1881    0.1881      0/4
+      7  2.8662        2.8720          0.1373    0.1354      4/4
+      8  2.8205        2.8216          0.1465    0.1462      4/4
+      9  2.8136        2.8138          0.1404    0.1404      3/4
+     10  2.8045        2.8042          0.1613    0.1614      1/4
+     11  2.7630        2.7629          0.1613    0.1615      2/4
+     12  2.8038        2.8041          0.1544    0.1541      3/4
+     13  2.8496        2.8497          0.1373    0.1371      2/4
+     14  2.8728        2.8725          0.1242    0.1242      1/4
+     15  2.8718        2.8715          0.1361    0.1361      1/4
+     16  2.9111        2.9111          0.1226    0.1225      2/4
+     17  2.8691        2.8699          0.1388    0.1385      4/4
+     18  2.8078        2.8077          0.1388    0.1388      1/4
+     19  2.8520        2.8521          0.1349    0.1347      4/4
+     20  2.8539        2.8539          0.1360    0.1359      2/4
+     21  2.8947        2.8974          0.1208    0.1198      3/4
+     22  2.8355        2.8342          0.1365    0.1366      1/4
+     23  2.8754        2.8779          0.1282    0.1270      3/4
+     24  2.9002        2.8996          0.1144    0.1136      1/4
+     25  2.9224        2.9198          0.1235    0.1258      1/4
+     26  2.8097        2.8101          0.1384    0.1383      2/4
+     27  2.9033        2.9028          0.1252    0.1245      2/4
+     28  2.8833        2.8846          0.1258    0.1246      3/4
+     29  2.9318        2.9264          0.1167    0.1196      1/4
+     30  2.8900        2.8909          0.1288    0.1280      3/4
+     31  2.8602        2.8594          0.1313    0.1311      2/4
+     32  2.8975        2.8983          0.1109    0.1116      2/4
+     33  2.8577        2.8579          0.1390    0.1396      2/4
+     34  2.8930        2.8958          0.1211    0.1194      2/4
+     35  2.8834        2.8786          0.1250    0.1258      1/4
+
+RAW: stream_d{12,24,36}_{fp16,sealed}.f16 (N x d, f16, JSON sidecar), lens_logits.tsv, control.tsv, questions.tsv; R2/R3 eigendecompositions and projections 0 s
+  PASS  analyse writes 22 files, the ten tables among them
+  PASS  matrices 252 rows, attention 144, lens 37
+  PASS  raw stream dump reads back bit for bit
+  PASS  control is green against dumps equal to the script's logits
+  PASS  control is red when one pick in six differs
+  PASS  types.tsv pooled gain of gate_proj = 1 - 0.1 S_yy(planted) / S_yy(all gate_proj)
+CONTROL (rule D), 6 questions, script against the Rust dense dumps
+  model    picks equal   max |dlogit|   median |dlogit|   MMLU script   MMLU dump
+  fp16     1.0000        0.00000        0.00000         33.33         33.33
+  sealed   1.0000        0.00000        0.00000         33.33         33.33
+  fit sealed on FP16, script logits: slope 0.4981 noise 0.0385 slope/noise 12.9318
+  fit sealed on FP16, dump logits:   slope 0.4981 noise 0.0385 slope/noise 12.9318
+  slope difference +0.0000 (tolerance 0.02); picks at least 0.98 each
+  RULE D: GREEN
+
+R1 LENS, U_ans . final_norm_fp16(h(l)), FP16 readout for both streams; fit sealed on FP16
+  final norm weights identical in the two sets: False; FP16 lens at depth 36 against its own logits, max |d| 4.065e-07
+  depth   slope    noise    slope/noise   lens acc FP16   lens acc sealed
+      0   1.0000   0.0000   inf        0.0000          0.0000
+      1   1.0000   0.0000   inf        0.1667          0.1667
+      2   1.0000   0.0000   inf        0.3333          0.3333
+      3   1.0000   0.0000   inf        0.3333          0.3333
+      4   1.0000   0.0000   inf        0.3333          0.3333
+      5   1.0000   0.0000   inf        0.5000          0.5000
+      6   1.0000   0.0000   inf        0.5000          0.5000
+      7   1.0000   0.0000   inf        0.3333          0.3333
+      8   1.0000   0.0000   inf        0.3333          0.3333
+      9   1.0000   0.0000   inf        0.3333          0.3333
+     10   1.0000   0.0000   inf        0.3333          0.3333
+     11   1.0000   0.0000   inf        0.3333          0.3333
+     12   1.0000   0.0000   inf        0.3333          0.3333
+     13   1.0000   0.0000   inf        0.5000          0.5000
+     14   1.0000   0.0000   inf        0.3333          0.3333
+     15   1.0000   0.0000   inf        0.3333          0.3333
+     16   1.0000   0.0000   inf        0.3333          0.3333
+     17   1.0000   0.0000   inf        0.3333          0.3333
+     18   1.0000   0.0000   inf        0.3333          0.3333
+     19   1.0000   0.0000   inf        0.3333          0.3333
+     20   1.0000   0.0000   inf        0.3333          0.3333
+     21   1.0000   0.0000   inf        0.3333          0.3333
+     22   1.0000   0.0000   inf        0.3333          0.3333
+     23   1.0000   0.0000   inf        0.3333          0.3333
+     24   1.0000   0.0000   inf        0.3333          0.3333
+     25   1.0000   0.0000   inf        0.3333          0.3333
+     26   1.0000   0.0000   inf        0.3333          0.3333
+     27   1.0000   0.0000   inf        0.3333          0.3333
+     28   1.0000   0.0000   inf        0.3333          0.3333
+     29   1.0000   0.0000   inf        0.3333          0.3333
+     30   1.0000   0.0000   inf        0.3333          0.3333
+     31   1.0000   0.0000   inf        0.1667          0.1667
+     32   1.0000   0.0000   inf        0.3333          0.3333
+     33   1.0000   0.0000   inf        0.3333          0.3333
+     34   1.0000   0.0000   inf        0.3333          0.3333
+     35   1.0000   0.0000   inf        0.3333          0.3333
+     36   1.0000   0.0000   inf        0.3333          0.3333
+
+R2 STREAM BY VARIANCE BAND of FP16's C_ff (all positions, 134 tokens), Lambda-weighted slope / median slope / Lambda-weighted noise ratio / energy share
+  positions: all
+  depth  pooled  norm   [1-1]   [2-8]   [9-64]   [65-512]   [513-16]
+      0  1.0000 1.0000 1.000/1.000/-0.000/1.99e-01   1.000/1.000/-0.000/6.01e-01   1.000/1.000/-0.000/2.00e-01   nan/nan/nan/nan   nan/nan/nan/nan
+      4  1.0000 1.0000 1.000/1.000/-0.000/2.36e-01   1.000/1.000/0.000/5.95e-01   1.000/1.000/0.000/1.69e-01   nan/nan/nan/nan   nan/nan/nan/nan
+      8  1.0000 1.0000 1.000/1.000/-0.000/3.03e-01   1.000/1.000/0.000/5.72e-01   1.000/1.000/0.000/1.25e-01   nan/nan/nan/nan   nan/nan/nan/nan
+     12  1.0000 1.0000 1.000/1.000/-0.000/3.88e-01   1.000/1.000/-0.000/5.24e-01   1.000/1.000/0.000/8.82e-02   nan/nan/nan/nan   nan/nan/nan/nan
+     16  1.0000 1.0000 1.000/1.000/0.000/4.63e-01   1.000/1.000/0.000/4.63e-01   1.000/1.000/0.000/7.45e-02   nan/nan/nan/nan   nan/nan/nan/nan
+     20  1.0000 1.0000 1.000/1.000/0.000/4.12e-01   1.000/1.000/0.000/5.20e-01   1.000/1.000/-0.000/6.81e-02   nan/nan/nan/nan   nan/nan/nan/nan
+     24  1.0000 1.0000 1.000/1.000/-0.000/4.23e-01   1.000/1.000/0.000/5.10e-01   1.000/1.000/-0.000/6.66e-02   nan/nan/nan/nan   nan/nan/nan/nan
+     28  1.0000 1.0000 1.000/1.000/0.000/4.58e-01   1.000/1.000/0.000/4.88e-01   1.000/1.000/0.000/5.40e-02   nan/nan/nan/nan   nan/nan/nan/nan
+     32  1.0000 1.0000 1.000/1.000/0.000/4.42e-01   1.000/1.000/0.000/5.07e-01   1.000/1.000/0.000/5.16e-02   nan/nan/nan/nan   nan/nan/nan/nan
+     36  1.0000 1.0000 1.000/1.000/-0.000/5.23e-01   1.000/1.000/-0.000/4.32e-01   1.000/1.000/-0.000/4.50e-02   nan/nan/nan/nan   nan/nan/nan/nan
+  positions: answer
+  depth  pooled  norm   [1-1]   [2-8]   [9-64]   [65-512]   [513-16]
+      0  1.0000 1.0000 1.000/1.000/0.000/1.69e-01   1.000/1.000/0.000/5.16e-01   1.000/1.000/0.000/3.14e-01   nan/nan/nan/nan   nan/nan/nan/nan
+      4  1.0000 1.0000 1.000/1.000/0.000/3.02e-01   1.000/1.000/0.000/5.67e-01   1.000/1.000/0.000/1.31e-01   nan/nan/nan/nan   nan/nan/nan/nan
+      8  1.0000 1.0000 1.000/1.000/0.000/3.95e-01   1.000/1.000/0.000/4.87e-01   1.000/1.000/0.000/1.18e-01   nan/nan/nan/nan   nan/nan/nan/nan
+     12  1.0000 1.0000 1.000/1.000/0.000/5.49e-01   1.000/1.000/0.000/3.90e-01   1.000/1.000/0.000/6.11e-02   nan/nan/nan/nan   nan/nan/nan/nan
+     16  1.0000 1.0000 1.000/1.000/0.000/6.14e-01   1.000/1.000/0.000/3.29e-01   1.000/1.000/0.000/5.77e-02   nan/nan/nan/nan   nan/nan/nan/nan
+     20  1.0000 1.0000 1.000/1.000/0.000/5.56e-01   1.000/1.000/0.000/3.88e-01   1.000/1.000/0.000/5.56e-02   nan/nan/nan/nan   nan/nan/nan/nan
+     24  1.0000 1.0000 1.000/1.000/0.000/5.91e-01   1.000/1.000/0.000/3.41e-01   1.000/1.000/0.000/6.76e-02   nan/nan/nan/nan   nan/nan/nan/nan
+     28  1.0000 1.0000 1.000/1.000/0.000/6.18e-01   1.000/1.000/0.000/3.29e-01   1.000/1.000/0.000/5.35e-02   nan/nan/nan/nan   nan/nan/nan/nan
+     32  1.0000 1.0000 1.000/1.000/0.000/5.97e-01   1.000/1.000/0.000/3.50e-01   1.000/1.000/0.000/5.29e-02   nan/nan/nan/nan   nan/nan/nan/nan
+     36  1.0000 1.0000 1.000/1.000/0.000/6.58e-01   1.000/1.000/0.000/2.99e-01   1.000/1.000/0.000/4.22e-02   nan/nan/nan/nan   nan/nan/nan/nan
+
+R3 LINEAR PREDICTABILITY, all positions: e_lin / diagonal share, per band
+  depth  all            [1-1]   [2-8]   [9-64]   [65-512]   [513-16]
+      0  1.0000/1.0000  1.0000/1.0000   1.0000/1.0000   1.0000/1.0000   nan/nan   nan/nan
+      4  1.0000/1.0000  1.0000/1.0000   1.0000/1.0000   1.0000/1.0000   nan/nan   nan/nan
+      8  1.0000/1.0000  1.0000/1.0000   1.0000/1.0000   1.0000/1.0000   nan/nan   nan/nan
+     12  1.0000/1.0000  1.0000/1.0000   1.0000/1.0000   1.0000/1.0000   nan/nan   nan/nan
+     16  1.0000/1.0000  1.0000/1.0000   1.0000/1.0000   1.0000/1.0000   nan/nan   nan/nan
+     20  1.0000/1.0000  1.0000/1.0000   1.0000/1.0000   1.0000/1.0000   nan/nan   nan/nan
+     24  1.0000/1.0000  1.0000/1.0000   1.0000/1.0000   1.0000/1.0000   nan/nan   nan/nan
+     28  1.0000/1.0000  1.0000/1.0000   1.0000/1.0000   1.0000/1.0000   nan/nan   nan/nan
+     32  1.0000/1.0000  1.0000/1.0000   1.0000/1.0000   1.0000/1.0000   nan/nan   nan/nan
+     36  1.0000/1.0000  1.0000/1.0000   1.0000/1.0000   1.0000/1.0000   nan/nan   nan/nan
+
+R4 COHERENT GAIN BY TYPE, pooled over the 36 layers (plain mean in brackets)
+  type        x     a                  noise ratio            rel error
+  q_proj      fp16   1.00000 [1.00000]   0.00000e+00 [0.00000e+00]   0.00000e+00 [0.00000e+00]
+  q_proj      sealed 1.00000 [1.00000]   0.00000e+00 [0.00000e+00]   0.00000e+00 [0.00000e+00]
+  k_proj      fp16   1.00000 [1.00000]   0.00000e+00 [0.00000e+00]   0.00000e+00 [0.00000e+00]
+  k_proj      sealed 1.00000 [1.00000]   0.00000e+00 [0.00000e+00]   0.00000e+00 [0.00000e+00]
+  v_proj      fp16   1.00000 [1.00000]   0.00000e+00 [0.00000e+00]   0.00000e+00 [0.00000e+00]
+  v_proj      sealed 1.00000 [1.00000]   0.00000e+00 [0.00000e+00]   0.00000e+00 [0.00000e+00]
+  o_proj      fp16   1.00000 [1.00000]   0.00000e+00 [0.00000e+00]   0.00000e+00 [0.00000e+00]
+  o_proj      sealed 1.00000 [1.00000]   0.00000e+00 [0.00000e+00]   0.00000e+00 [0.00000e+00]
+  gate_proj   fp16   1.00000 [1.00000]   0.00000e+00 [0.00000e+00]   0.00000e+00 [0.00000e+00]
+  gate_proj   sealed 1.00000 [1.00000]   0.00000e+00 [0.00000e+00]   0.00000e+00 [0.00000e+00]
+  up_proj     fp16   1.00000 [1.00000]   0.00000e+00 [0.00000e+00]   0.00000e+00 [0.00000e+00]
+  up_proj     sealed 1.00000 [1.00000]   0.00000e+00 [0.00000e+00]   0.00000e+00 [0.00000e+00]
+  down_proj   fp16   1.00000 [1.00000]   0.00000e+00 [0.00000e+00]   0.00000e+00 [0.00000e+00]
+  down_proj   sealed 1.00000 [1.00000]   0.00000e+00 [0.00000e+00]   0.00000e+00 [0.00000e+00]
+  lowest a (FP16 x): layer 0 q_proj 1.00000; highest: layer 0 q_proj 1.00000
+
+R5 ATTENTION OF THE ANSWER POSITION, mean over heads of the per-head means over questions (nats)
+  layer  entropy FP16  entropy sealed  top FP16  top sealed  heads with higher entropy in sealed
+      0  2.7152        2.7152          0.1644    0.1644      0/4
+      1  2.6965        2.6965          0.1808    0.1808      0/4
+      2  2.6917        2.6917          0.1745    0.1745      0/4
+      3  2.7187        2.7187          0.1859    0.1859      0/4
+      4  2.7037        2.7037          0.1776    0.1776      0/4
+      5  2.7689        2.7689          0.1613    0.1613      0/4
+      6  2.7162        2.7162          0.1881    0.1881      0/4
+      7  2.8662        2.8662          0.1373    0.1373      0/4
+      8  2.8205        2.8205          0.1465    0.1465      0/4
+      9  2.8136        2.8136          0.1404    0.1404      0/4
+     10  2.8045        2.8045          0.1613    0.1613      0/4
+     11  2.7630        2.7630          0.1613    0.1613      0/4
+     12  2.8038        2.8038          0.1544    0.1544      0/4
+     13  2.8496        2.8496          0.1373    0.1373      0/4
+     14  2.8728        2.8728          0.1242    0.1242      0/4
+     15  2.8718        2.8718          0.1361    0.1361      0/4
+     16  2.9111        2.9111          0.1226    0.1226      0/4
+     17  2.8691        2.8691          0.1388    0.1388      0/4
+     18  2.8078        2.8078          0.1388    0.1388      0/4
+     19  2.8520        2.8520          0.1349    0.1349      0/4
+     20  2.8539        2.8539          0.1360    0.1360      0/4
+     21  2.8947        2.8947          0.1208    0.1208      0/4
+     22  2.8355        2.8355          0.1365    0.1365      0/4
+     23  2.8754        2.8754          0.1282    0.1282      0/4
+     24  2.9002        2.9002          0.1144    0.1144      0/4
+     25  2.9224        2.9224          0.1235    0.1235      0/4
+     26  2.8097        2.8097          0.1384    0.1384      0/4
+     27  2.9033        2.9033          0.1252    0.1252      0/4
+     28  2.8833        2.8833          0.1258    0.1258      0/4
+     29  2.9318        2.9318          0.1167    0.1167      0/4
+     30  2.8900        2.8900          0.1288    0.1288      0/4
+     31  2.8602        2.8602          0.1313    0.1313      0/4
+     32  2.8975        2.8975          0.1109    0.1109      0/4
+     33  2.8577        2.8577          0.1390    0.1390      0/4
+     34  2.8930        2.8930          0.1211    0.1211      0/4
+     35  2.8834        2.8834          0.1250    0.1250      0/4
+
+RAW: stream_d{12,24,36}_{fp16,sealed}.f16 (N x d, f16, JSON sidecar), lens_logits.tsv, control.tsv, questions.tsv; R2/R3 eigendecompositions and projections 0 s
+  PASS  R1 lens reads slope 1 and noise 0 at all 37 depths when only the final norm differs (worst 0.0e+00)
+  PASS  R1 FP16 lens at depth 36 equals FP16's own last-position answer logits (3.8e-07; the model's norm is float32)
+  PASS  while the own-head logits do differ (slope 0.4981)
+  PASS  fit recovers slope 0.6 and noise 0.5 (0.5999, 0.4993)
+  PASS  fit: exact slope, zero noise, a per-question shift ignored
+  PASS  R2 recovers the planted slope of each band, weighted and median: 0.9500, 0.8000, 0.6000, 0.4000, 0.2000
+  PASS  R2 recovers the planted noise ratio of each band: 0.0100, 0.0500, 0.1000, 0.2000, 0.3000
+  PASS  R2 band energy shares
+  PASS  R2 pooled slope and norm ratio
+  PASS  R3 e_lin and the diagonal share both equal beta^2 / (beta^2 + sigma^2) for a diagonal map: 0.9890/0.9890, 0.9275/0.9275, 0.7826/0.7826, 0.4444/0.4444, 0.1176/0.1176
+  PASS  R2 answer-position form recovers half the slopes on the same V
+  PASS  the rotation case's eigenvalues are in descending order
+  PASS  pure rotation inside [2,8]: diagonal slope -0.1003 = tr(R)/7
+  PASS  pure rotation: e_lin = 1 in every band while the diagonal share of [2,8] is 0.1057
+  PASS  the singular case has ten exactly zero rows in C_ff
+  PASS  singular C_ff: the ridge keeps R3 finite and on the planted values (0.9890, 0.9275, 0.7826, 0.4444, 0.1176)
+  PASS  Moments accumulates C_ff, C_sf = sum h_s h_f^T, C_ss over calls
+  PASS  block: Rust trim (U+001C kept, U+00A0 and U+3000 stripped), no space after 'Answer:'
+  PASS  a worked example ends 'Answer: B' and a blank line
+  PASS  header names the subject with underscores turned to spaces
+  PASS  tie rule: the last of equal maxima, as Rust max_by
+  PASS  round robin: subjects in byte order, index ascending, every prefix balanced
+  PASS  N = budget-fitted count clamped to [570, 2280]
+  PASS  answer position is the last
+CONTROL (rule D, lens-only), 6 questions, the output's answer logits against the Rust FP16 dump
+  picks equal 1.0000 (at least 0.98); |dlogit| median 0.00000, max 0.00000; MMLU script 16.67, dump 16.67
+  RULE D: GREEN
+
+WRITE: largest one-block rise of lens accuracy at depth 7 (+16.7 points); half the way from 25 % to the output's 16.67 % (20.83 %) first at depth 0; lens pick = output pick on 90% first at depth 32
+
+LENS, own final norm and answer rows
+  depth   acc      sd       margin    agree    acc on right
+      0   0.5000   5.2160   -0.6829   0.3333   1.0000
+      1   0.3333   4.6963   -0.9928   0.5000   1.0000
+      2   0.3333   4.5364   -2.3404   0.1667   0.0000
+      3   0.3333   4.6472   -0.4648   0.1667   0.0000
+      4   0.3333   4.4895   -1.9020   0.3333   1.0000
+      5   0.1667   3.6495   -1.7759   0.3333   0.0000
+      6   0.1667   3.5989   -2.9929   0.3333   0.0000
+      7   0.3333   3.8343   -3.2945   0.3333   1.0000
+      8   0.1667   2.9253   -3.4371   0.5000   1.0000
+      9   0.3333   4.1246   -2.8697   0.3333   1.0000
+     10   0.3333   3.0301   -2.6388   0.3333   1.0000
+     11   0.3333   3.2005   -2.5287   0.3333   1.0000
+     12   0.3333   3.1631   -1.8509   0.3333   1.0000
+     13   0.1667   2.7626   -3.3761   0.6667   1.0000
+     14   0.3333   2.8999   -3.7495   0.5000   1.0000
+     15   0.0000   3.1862   -4.6551   0.5000   0.0000
+     16   0.0000   3.5648   -5.4878   0.3333   0.0000
+     17   0.1667   3.6184   -5.6945   0.6667   1.0000
+     18   0.0000   4.0058   -6.9583   0.5000   0.0000
+     19   0.0000   3.9217   -6.6987   0.5000   0.0000
+     20   0.0000   4.0158   -7.0429   0.5000   0.0000
+     21   0.0000   3.3689   -6.1705   0.5000   0.0000
+     22   0.0000   3.5352   -6.1918   0.5000   0.0000
+     23   0.1667   3.5630   -5.4105   0.6667   1.0000
+     24   0.1667   3.7202   -5.6183   0.6667   1.0000
+     25   0.1667   3.6692   -5.8036   0.6667   1.0000
+     26   0.3333   3.8176   -5.4764   0.5000   1.0000
+     27   0.3333   3.5306   -4.8840   0.5000   1.0000
+     28   0.1667   3.5014   -4.6117   0.6667   1.0000
+     29   0.1667   3.6242   -4.9201   0.6667   1.0000
+     30   0.1667   3.3497   -4.2146   0.6667   1.0000
+     31   0.1667   3.6680   -3.5220   0.8333   1.0000
+     32   0.1667   3.2582   -3.0919   1.0000   1.0000
+     33   0.1667   3.4426   -3.3116   1.0000   1.0000
+     34   0.1667   3.6004   -3.0237   1.0000   1.0000
+     35   0.1667   3.4709   -3.1258   1.0000   1.0000
+     36   0.1667   3.2841   -3.3623   1.0000   1.0000
+
+RAW: stream_d{12,24,36}.f16 (N x d, f16, JSON sidecar), lens_logits.tsv, control.tsv, questions.tsv
+  PASS  lens-only writes its tables, 37 lens rows, and streams at depths (12, 24, 36)
+  PASS  lens-only equals the two-model mode's FP16 lens at all 37 depths, bit for bit
+  PASS  lens-only output logits equal the two-model mode's FP16 logits
+  PASS  agreement with the output is 100% at depth 36; control green on own logits
+  PASS  raw depths L/3, 2L/3, L rounded
+CONTROL (rule D, lens-only), 6 questions, the output's answer logits against the Rust FP16 dump
+  picks equal 1.0000 (at least 0.98); |dlogit| median 0.00000, max 0.00000; MMLU script 50.00, dump 50.00
+  RULE D: GREEN
+
+WRITE: largest one-block rise of lens accuracy at depth 13 (+33.3 points); half the way from 25 % to the output's 50.00 % (37.50 %) first at depth 0; lens pick = output pick on 90% first at depth 36
+
+LENS, own final norm and answer rows
+  depth   acc      sd       margin    agree    acc on right
+      0   0.5000   4.1080   +0.2895   0.6667   1.0000
+      1   0.5000   4.2686   +0.4702   0.6667   1.0000
+      2   0.3333   4.2394   -0.1934   0.6667   0.6667
+      3   0.3333   4.0737   -0.6637   0.6667   0.6667
+      4   0.3333   3.8865   -1.0218   0.5000   0.6667
+      5   0.3333   3.5608   -1.6003   0.5000   0.6667
+      6   0.5000   3.3336   -1.7346   0.6667   1.0000
+      7   0.3333   3.0113   -1.3912   0.5000   0.6667
+      8   0.5000   2.9576   -1.0167   0.6667   1.0000
+      9   0.3333   2.8530   -1.0121   0.5000   0.6667
+     10   0.3333   2.9418   -1.0716   0.5000   0.6667
+     11   0.5000   2.7678   -0.7842   0.5000   0.6667
+     12   0.3333   2.8553   +0.0280   0.5000   0.6667
+     13   0.6667   2.6131   -0.2921   0.6667   1.0000
+     14   0.5000   2.8032   +0.1578   0.8333   1.0000
+     15   0.5000   3.0497   +0.0363   0.8333   1.0000
+     16   0.5000   2.9779   -0.1371   0.6667   1.0000
+     17   0.5000   2.6455   +0.0805   0.6667   1.0000
+     18   0.5000   2.4363   -0.4321   0.6667   1.0000
+     19   0.5000   2.5276   -0.1308   0.6667   1.0000
+     20   0.5000   2.7129   +0.0118   0.8333   1.0000
+     21   0.5000   2.7740   -0.1644   0.6667   1.0000
+     22   0.5000   2.7979   -0.0438   0.6667   1.0000
+     23   0.5000   2.9433   -0.0884   0.6667   1.0000
+     24   0.5000   3.0169   +0.1982   0.6667   1.0000
+     25   0.5000   3.3259   -0.0492   0.8333   1.0000
+     26   0.5000   3.3774   -0.0820   0.8333   1.0000
+     27   0.5000   3.4508   -0.1849   0.8333   1.0000
+     28   0.5000   3.4692   +0.0879   0.6667   1.0000
+     29   0.5000   3.4230   -0.1900   0.8333   1.0000
+     30   0.5000   3.6364   -0.0096   0.8333   1.0000
+     31   0.6667   3.5194   +0.0881   0.6667   1.0000
+     32   0.5000   3.5144   +0.2862   0.6667   1.0000
+     33   0.5000   3.4839   -0.0525   0.6667   1.0000
+     34   0.5000   3.3736   -0.2323   0.8333   1.0000
+     35   0.5000   3.2799   -0.3652   0.8333   1.0000
+     36   0.5000   3.7113   -0.4559   1.0000   1.0000
+
+RAW: stream_d{12,24,36}.f16 (N x d, f16, JSON sidecar), lens_logits.tsv, control.tsv, questions.tsv
+  PASS  untied: the lens at depth 36 reads lm_head's rows, its own output to 3.5e-07
+CONTROL (rule D, lens-only), 48 questions, the output's answer logits against the Rust FP16 dump
+  picks equal 1.0000 (at least 0.98); |dlogit| median 0.00000, max 0.00000; MMLU script 100.00, dump 100.00
+  RULE D: GREEN
+
+WRITE: largest one-block rise of lens accuracy at depth 9 (+79.2 points); half the way from 25 % to the output's 100.00 % (62.50 %) first at depth 9; lens pick = output pick on 90% first at depth 9
+
+LENS, own final norm and answer rows
+  depth   acc      sd       margin    agree    acc on right
+      0   0.2083   2.1193   -1.2043   0.2083   0.2083
+      1   0.2083   2.1193   -1.2043   0.2083   0.2083
+      2   0.2083   2.1193   -1.2043   0.2083   0.2083
+      3   0.2083   2.1193   -1.2043   0.2083   0.2083
+      4   0.2083   2.1193   -1.2043   0.2083   0.2083
+      5   0.2083   2.1193   -1.2043   0.2083   0.2083
+      6   0.2083   2.1193   -1.2043   0.2083   0.2083
+      7   0.2083   2.1193   -1.2043   0.2083   0.2083
+      8   0.2083   2.1193   -1.2043   0.2083   0.2083
+      9   1.0000   2.5360   +2.3856   1.0000   1.0000
+     10   1.0000   2.5360   +2.3856   1.0000   1.0000
+     11   1.0000   2.5360   +2.3856   1.0000   1.0000
+     12   1.0000   2.5360   +2.3856   1.0000   1.0000
+     13   1.0000   2.5360   +2.3856   1.0000   1.0000
+     14   1.0000   2.5360   +2.3856   1.0000   1.0000
+     15   1.0000   2.5360   +2.3856   1.0000   1.0000
+     16   1.0000   2.5360   +2.3856   1.0000   1.0000
+     17   1.0000   2.5360   +2.3856   1.0000   1.0000
+     18   1.0000   2.5360   +2.3856   1.0000   1.0000
+     19   1.0000   2.5360   +2.3856   1.0000   1.0000
+     20   1.0000   2.5360   +2.3856   1.0000   1.0000
+     21   1.0000   2.5360   +2.3856   1.0000   1.0000
+     22   1.0000   2.5360   +2.3856   1.0000   1.0000
+     23   1.0000   2.5360   +2.3856   1.0000   1.0000
+     24   1.0000   2.5360   +2.3856   1.0000   1.0000
+     25   1.0000   2.5360   +2.3856   1.0000   1.0000
+     26   1.0000   2.5360   +2.3856   1.0000   1.0000
+     27   1.0000   2.5360   +2.3856   1.0000   1.0000
+     28   1.0000   2.5360   +2.3856   1.0000   1.0000
+     29   1.0000   2.5360   +2.3856   1.0000   1.0000
+     30   1.0000   2.5360   +2.3856   1.0000   1.0000
+     31   1.0000   2.5360   +2.3856   1.0000   1.0000
+     32   1.0000   2.5360   +2.3856   1.0000   1.0000
+     33   1.0000   2.5360   +2.3856   1.0000   1.0000
+     34   1.0000   2.5360   +2.3856   1.0000   1.0000
+     35   1.0000   2.5360   +2.3856   1.0000   1.0000
+     36   1.0000   2.5360   +2.3856   1.0000   1.0000
+
+RAW: stream_d{12,24,36}.f16 (N x d, f16, JSON sidecar), lens_logits.tsv, control.tsv, questions.tsv
+  PASS  the plant is valid: 4 distinct output picks, lens accuracy 0.208 before
+  PASS  lens accuracy is constant to depth 8 and 1 from depth 9
+  PASS  write.tsv finds the planted write at depth 9: rise 9, half 9, agreement 9
+  PASS  and the rise is 0.792, all of it in one block
+  PASS  an unpinned revision is refused
+  PASS  a pinned repo@revision resolves
+selftest: GREEN, 53 checks, 0 failure(s)

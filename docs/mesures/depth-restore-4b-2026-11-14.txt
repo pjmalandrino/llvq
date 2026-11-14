@@ -1,0 +1,63 @@
+DEPTH RESTORE 4B: THE SEALED 4B WITH THE BLOCKS AFTER THE ANSWER WRITE RESTORED TO F16, THEN THE BLOCKS UP TO IT, FULL MMLU, ONE L40S, 2026-11-14. $1.38.
+===========================================================================================================================================================
+The map is supported. Restoring the eleven blocks after the answer write, layers 25 to 35 and 30.6 % of the projection
+weights, gains +0.43 MMLU points, 95 % interval [+0.11, +0.77] (*measured*, 14,042 questions, paired with the control
+of 2026-11-12). The even rate of CERVEAU Q22 put them at +2.05. Restoring the twenty-five blocks up to the write,
+layers 0 to 24, gains +6.12 [+5.41, +6.84], where the even rate put +4.67. The two sum to +6.55, beside +6.72 [+6.00,
++7.45] for every block restored at once.
+
+Per billion restored weights (*computed*): 0.39 points for the late blocks, 2.42 for the early ones, a ratio of 6.2.
+
+Prereg : proofs/preregistration-depth-restore-4b-2026-11-14.md, sha256 of the stamped file anchored by its .ots,
+         committed before the job (a4dd3b2). Not edited. No deviation file.
+Code   : ops/jobs/depth-restore-4b.sh, sha256 8c3b57ec29d65eb5... (ec79eab); `bin/mmlu` with `LLVQ_RESTORE_F16` and
+         layer windows, in the private Space image Pier-Jean/llvq-runner-cuda-qualite at c0fb594f.
+Go     : the operator, 2026-11-14, "Ok go", on these two probes at $1.40.
+Job    : 6af8864823985fb9cd824300, l40sx1, 427 s of scheduling, 2,769 s billed, $1.38 (*computed* at $1.80/h).
+         Estimated $1.38 to $1.50, ceiling $1.92. The late arm ran 23.8 min, the early arm 21.7 min.
+Raw    : depth-restore-4b-2026-11-14-brut/: summary.tsv, out-late.txt, out-early.txt, oracle-cuda.txt, gpu.txt,
+         files.sha256, the job inspect, and the two mmlupair outputs. The dumps are
+         docs/data/mmlu-dumps/mmlu-4b-depth-late-FULL.csv and mmlu-4b-depth-early-FULL.csv.
+
+RESULT
+------
+| arm | restored | matrices | weights | correct of 14,042 | micro | gain over the control | 95 % interval | McNemar |
+|---|---|---|---|---|---|---|---|---|
+| control, 2026-11-12 | none | 0 | 0 | 8,899 | 63.37 % | | | |
+| late | layers 25 to 35 | 77 | 1,110,179,840 | 8,960 | 63.81 % | +0.43 | [+0.11, +0.77] | 315 won, 254 lost, p = 0.012 |
+| early | layers 0 to 24 | 175 | 2,523,136,000 | 9,758 | 69.49 % | +6.12 | [+5.41, +6.84] | 1,745 won, 886 lost |
+
+The late arm changes the pick on 4.1 % of the questions, the early arm on 18.7 %.
+
+Decision rule (prereg section 5): the upper end of G_late's interval, +0.77, is under +1.03, and the interval does
+not contain +2.05. THE MAP IS SUPPORTED.
+
+CONTROLS
+--------
+1. `oracle` MATCH first on the card.
+2. The sealed file's bytes and sha256 on the mount.
+3. Both dumps carry the census header and the end fingerprint a74a6d6213602979 over 14,042 questions.
+4. Each log names its restore: (77 matrices, 1110179840 weights) and (175 matrices, 2523136000 weights).
+The limit the prereg named stands: the control arm ran under another image on 2026-11-12.
+
+SIGNED PREDICTIONS
+------------------
+| quantity | predicted | measured | |
+|---|---|---|---|
+| G_late | +0.3 [-0.5, +1.2] | +0.43 | in |
+| G_early | +6.0 [+5.0, +6.9] | +6.12 | in |
+| G_late + G_early | +6.3 [+5.3, +7.3] | +6.55 | in |
+| outcome | THE MAP IS SUPPORTED (60 %) | supported | in |
+| late arm, micro | 63.7 [62.9, 64.6] | 63.81 | in |
+| early arm, micro | 69.4 [68.4, 70.3] | 69.49 | in |
+
+Six of six.
+
+WHAT THE RUN DOES NOT SAY
+-------------------------
+- It does not say the late blocks can take fewer bits. A restore reads what their present error costs on MMLU. What
+  a larger error would cost is not measured, and MMLU reads one token: generation (GSM8K) may use those blocks.
+- The late gain is small and it is not zero: its interval excludes 0.
+- The window was not chosen blind. It is the one the contrast map pointed at, on 570 of these questions.
+- One model, one calibration draw, one instrument. The sealed file's int4 records sit at every layer for v_proj and
+  at layers 12 to 23 for o_proj and down_proj, all inside the early window but for eleven v_proj.
