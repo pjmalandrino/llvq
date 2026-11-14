@@ -146,7 +146,10 @@ Not verified on the Mac: the capture on the card, the corpora's downloads, the w
 - The score is the byte fraction read at delta = 1e-3, median over tokens, pooled by bytes, on each of the three
   texts.
 - KILL: if selector `page-max` at its best P reads more than 0.50 of the KV bytes on two texts of three, the idea is
-  dead for a certified mass bound: no summary beats the exact page maximum.
+  dead for certified bounds of the max type: no summary of that type beats the exact page maximum. The scope of the
+  kill is that type, page size times the exponential of a bound on the page's largest score, under the scorer's
+  greedy order. It does not cover a summary that bounds a page's sum of exponentials directly, nor a selector that
+  certifies nothing. The `true-mass` rows say how much room such a summary would have.
 - ALIVE: if selector `box` at its best P reads less than 0.35 on two texts of three, a real summary is enough and the
   phase goes on to the perplexity arm.
 - BETWEEN: the summary is the problem; the phase's search (R3, R4) is over summaries, scored by this same scorer at $0.
@@ -186,6 +189,19 @@ about 725 MB a capture, 2.18 GB for the three.
 - A stored summary. The box's min and max are exact binary16 values of K. The ball's centroid and radius are float64
   here; stored in binary16 they would need outward rounding.
 
-## Signed predictions (main session)
+## 8. Signed predictions (main session)
 
-TO WRITE
+Written before the stamp. Scores are the byte fraction read at delta = 1e-3, median over tokens, pooled by bytes.
+
+1. The verdict: KILL 50 %, BETWEEN 35 %, ALIVE 15 %.
+2. `page-max` at its best P reads 0.60 [0.35, 0.85] on WikiText-2. `true-mass` reads 0.40 [0.20, 0.65]. `box` reads
+   0.90 [0.60, 1.05].
+3. At delta = 1e-2, `page-max` reads 0.40 [0.20, 0.65] on WikiText-2.
+4. With the box at P = 16, layers 0 and 1 each read more than 0.90. 80 %.
+5. The three texts agree on the verdict. 65 %.
+6. The self-check passes on the three captures. 85 %.
+7. The job runs 720 s [500, 1,100]. It is void, in whole or in part, at 20 %.
+
+Why the priors are low: the published statistics are poor (the top 1 % of keys holds 89 % of the mass at 100K on
+Llama-3-8B), a page bound of the max type charges a page up to P times its real mass, and a page is skipped only if
+its four query heads all allow it.
