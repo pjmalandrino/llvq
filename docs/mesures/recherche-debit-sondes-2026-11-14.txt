@@ -1,0 +1,51 @@
+Decode-speed research phase (CERVEAU O11), step R6c: which call site brings the 8 B of local memory, one card run of
+load probes, 2026-11-14
+
+Result: one site, gate/up. The endpass body on the gate/up site alone is refused for 8 B of local memory; on q/k
+alone, on the Tetra down alone and on the Tetra o alone it loads at 0 B; the inserted text with no site loads. Every
+figure is *measured*. Nothing was timed or launched, as planned. No tok/s is established.
+
+Job 6af837d129dd05ff03671026, l40sx1, 531 s running, $0.27. Prereg
+proofs/preregistration-recherche-debit-sondes-2026-11-14.md (sha256 6306d64b, stamped before). Image built from the
+stamped commit 84b7a61, Space sha 806fc2c1. Raw outputs in recherche-debit-sondes-2026-11-14-brut/. Card: L40S,
+sm_89, driver 580.178.04, tile 64.
+
+GATES: pass
+  The oracle: MATCH. The five modules are the Mac's, sha256 for sha256. Every probe compiled.
+
+THE VERDICTS (RoPE form 1's token symbol, pers_4e_tokens_f1_t512, 85,952 B shared, 1 CTA a SM)
+  probe   endpass body on   registers   local   verdict    logits symbol   stamps symbol   whole probe
+  v9pe0   no site           128         0 B     LOADS      0 B             32 B            101.6 s
+  v9peg   gate/up           128         8 B     REFUSED    8 B             24 B            102.4 s
+  v9peq   q/k               128         0 B     LOADS      0 B             32 B            101.5 s
+  v9ped   the Tetra down    128         0 B     LOADS      0 B             40 B            102.3 s
+  v9peo   the Tetra o       128         0 B     LOADS      0 B             32 B            102.2 s
+  The check took 510.1 s for the five probes.
+
+THE READING (prereg §5): "v9pe0 loads, exactly one site refused"
+  The gate/up site brings the 8 B. A rewrite of that one site may be proposed, under its own prereg and go.
+
+WHAT THE RUN SAYS
+  1. The gate/up probe reproduces the whole arms' signature exactly: 8 B on the token symbol, 8 B on the logits
+     symbol, 24 B on the stamps symbol, as v9ep in job 6af82af3. The three other sites leave v9's 0 B.
+  2. This agrees with job 6af82af3: the variants changed the body and the 8 B did not move, because they come with
+     the gate/up call site, which every variant kept. That site is the only one that holds values of its own across
+     the body: the pair's binary16 values after the body's region and the products after its last barrier.
+  3. What in the gate/up site spills is not established: the probe names the site, not the value.
+
+NOT ESTABLISHED
+  Any tok/s. Whether an arm with the body on q/k, down and o together, and v9's gate/up, loads: each site loads
+  alone, the three together were not checked. Whether flat's sites behave as endpass's. What a rewritten gate/up
+  site would cost. Gate/up is the largest share of the Tetra bytes, so an arm without it keeps only part of the
+  rows-alone gain; how much is not measured.
+
+SIGNED PREDICTIONS (prereg §7): 6 in, 0 out
+  1 v9pe0 loads, 90 %: loads, in.
+  2 v9peg refused at 60 %, v9peq 35 %, v9ped 35 %, v9peo 25 %: gate/up refused and the three others load, the most
+    likely outcome named.
+  3 exactly one site refused, 45 %: one, in.
+  4 a refused probe shows 8 B, 70 %: 8 B, in.
+  5 a probe fails to compile, 10 %: none.
+  6 one probe 104 s [90, 125], the job 570 s [480, 690]: 101.5 to 102.4 s and 531 s, in.
+
+Cost: $0.27 (531 s at $1.80/h). Phase: $1.61 of $5. Cap of 2026-11-09: $20.83 of $25. Registry: $328.08.

@@ -181,6 +181,16 @@ impl KernelSource {
     }
 }
 
+/// NVRTC on `src` for [`arch()`], as [`Cuda::on_stream`] compiles it: no
+/// context needed, so it may run on any thread.
+pub fn compile_ptx(src: &KernelSource) -> Result<cudarc::nvrtc::Ptx, String> {
+    let opts = CompileOptions {
+        arch: Some(arch()),
+        ..Default::default()
+    };
+    compile_ptx_with_opts(&src.text, opts).map_err(|e| format!("NVRTC refused the kernel source:\n{e}"))
+}
+
 /// A context, a stream, and one compiled module.
 pub struct Cuda {
     ctx: Arc<CudaContext>,
@@ -283,13 +293,14 @@ impl Cuda {
     /// (Both end up on the same primary context, so the pointers would have
     /// been valid either way — it is the *ordering* this buys, not validity.)
     pub fn on_stream(stream: Arc<CudaStream>, src: &KernelSource) -> Result<Self, String> {
+        Self::on_stream_ptx(stream, compile_ptx(src)?)
+    }
+
+    /// [`Self::on_stream`] from PTX [`compile_ptx`] already made: the
+    /// driver's JIT only. Lets a caller run NVRTC on several sources in
+    /// parallel threads first (fusedrun's 4E load check).
+    pub fn on_stream_ptx(stream: Arc<CudaStream>, ptx: cudarc::nvrtc::Ptx) -> Result<Self, String> {
         let ctx = stream.context().clone();
-        let opts = CompileOptions {
-            arch: Some(arch()),
-            ..Default::default()
-        };
-        let ptx = compile_ptx_with_opts(&src.text, opts)
-            .map_err(|e| format!("NVRTC refused the kernel source:\n{e}"))?;
         let module = ctx
             .load_module(ptx)
             .map_err(|e| format!("the driver refused the PTX: {e}"))?;

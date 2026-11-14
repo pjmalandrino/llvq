@@ -1,0 +1,69 @@
+NVIDIA L40S, 8.9, 46068 MiB, 580.178.04, 2520 MHz
+== gate 1: oracle ==
+Qwen/Qwen3-0.6B on Cuda(CudaDevice(DeviceId(1))) — max |Δhidden| = 0.000e0   (relative to max|h| = 8.550e1) → 0.000e0
+MATCH — the observable forward reproduces candle's Qwen3
+== the load probes ==
+Sat Nov 14 10:29:08 UTC 2026
+Sat Nov 14 10:37:39 UTC 2026
+fusedrun check exit 0
+4E check: 5 arms, sm_89, #define TILE_BLOCKS 64u define, the sealed 4B's shape: 85952 B of dynamic shared memory
+4E check v9pe0: module 264669 bytes, sha256 9db6055b82a1a946d83a87631a47c1c65b54f6e59ab608b80dc786c15a75f7e4
+4E check v9pe0: NVRTC 56.9 s
+CHECK v9pe0 pers_4e_tokens_f0_t512: 128 registers, 0 B local, 85952 B shared, 1 resident a SM: loads
+CHECK v9pe0 pers_4e_tokens_f1_t512: 128 registers, 0 B local, 85952 B shared, 1 resident a SM: loads
+CHECK v9pe0 pers_4e_tokens_f2_t512: 128 registers, 0 B local, 85952 B shared, 1 resident a SM: loads
+CHECK v9pe0 pers_4e_stamps_f1_t512: 128 registers, 32 B local, 85952 B shared, 1 resident a SM (outside the timed rounds)
+CHECK v9pe0 pers_4e_logits_f1_t512: 128 registers, 0 B local, 85952 B shared, 1 resident a SM (outside the timed rounds)
+CHECK ARM v9pe0 LOADS (101.6 s)
+4E check v9peg: module 264710 bytes, sha256 e7ad915e4231de1eb1762da8e839cc9374cfefcc3f4dfe0de2cee9579d7f7d1c
+4E check v9peg: NVRTC 57.3 s
+CHECK v9peg pers_4e_tokens_f0_t512: 128 registers, 8 B local, 85952 B shared, 1 resident a SM: refused
+CHECK v9peg pers_4e_tokens_f1_t512: 128 registers, 8 B local, 85952 B shared, 1 resident a SM: refused
+CHECK v9peg pers_4e_tokens_f2_t512: 128 registers, 8 B local, 85952 B shared, 1 resident a SM: refused
+CHECK v9peg pers_4e_stamps_f1_t512: 128 registers, 24 B local, 85952 B shared, 1 resident a SM (outside the timed rounds)
+CHECK v9peg pers_4e_logits_f1_t512: 128 registers, 8 B local, 85952 B shared, 1 resident a SM (outside the timed rounds)
+CHECK ARM v9peg REFUSED: pers_4e_tokens_f1_t512: 8 B local, 1 resident a SM (102.4 s)
+4E check v9peq: module 264741 bytes, sha256 c9bb1820159a926a727e77849d08a39d1ddfa1c5d3827dea860b50e4e808de02
+4E check v9peq: NVRTC 56.7 s
+CHECK v9peq pers_4e_tokens_f0_t512: 128 registers, 0 B local, 85952 B shared, 1 resident a SM: loads
+CHECK v9peq pers_4e_tokens_f1_t512: 128 registers, 0 B local, 85952 B shared, 1 resident a SM: loads
+CHECK v9peq pers_4e_tokens_f2_t512: 128 registers, 0 B local, 85952 B shared, 1 resident a SM: loads
+CHECK v9peq pers_4e_stamps_f1_t512: 128 registers, 32 B local, 85952 B shared, 1 resident a SM (outside the timed rounds)
+CHECK v9peq pers_4e_logits_f1_t512: 128 registers, 0 B local, 85952 B shared, 1 resident a SM (outside the timed rounds)
+CHECK ARM v9peq LOADS (101.5 s)
+4E check v9ped: module 264692 bytes, sha256 89f470f26e2181218a99983f265ce046d30d397a57edc1a35c8f3d538481121c
+4E check v9ped: NVRTC 57.0 s
+CHECK v9ped pers_4e_tokens_f0_t512: 128 registers, 0 B local, 85952 B shared, 1 resident a SM: loads
+CHECK v9ped pers_4e_tokens_f1_t512: 128 registers, 0 B local, 85952 B shared, 1 resident a SM: loads
+CHECK v9ped pers_4e_tokens_f2_t512: 128 registers, 0 B local, 85952 B shared, 1 resident a SM: loads
+CHECK v9ped pers_4e_stamps_f1_t512: 128 registers, 40 B local, 85952 B shared, 1 resident a SM (outside the timed rounds)
+CHECK v9ped pers_4e_logits_f1_t512: 128 registers, 0 B local, 85952 B shared, 1 resident a SM (outside the timed rounds)
+CHECK ARM v9ped LOADS (102.3 s)
+4E check v9peo: module 264625 bytes, sha256 154f41ac69ba9058eb5293ba77eca53372e229ea7f860c27d6e73bc40f7e2577
+4E check v9peo: NVRTC 56.9 s
+CHECK v9peo pers_4e_tokens_f0_t512: 128 registers, 0 B local, 85952 B shared, 1 resident a SM: loads
+CHECK v9peo pers_4e_tokens_f1_t512: 128 registers, 0 B local, 85952 B shared, 1 resident a SM: loads
+CHECK v9peo pers_4e_tokens_f2_t512: 128 registers, 0 B local, 85952 B shared, 1 resident a SM: loads
+CHECK v9peo pers_4e_stamps_f1_t512: 128 registers, 32 B local, 85952 B shared, 1 resident a SM (outside the timed rounds)
+CHECK v9peo pers_4e_logits_f1_t512: 128 registers, 0 B local, 85952 B shared, 1 resident a SM (outside the timed rounds)
+CHECK ARM v9peo LOADS (102.2 s)
+4E check: 5 arms one after the other, 510.1 s
+4E check done in 510.1 s
+gate 2: v9pe0 module sha256 9db6055b82a1a946d83a87631a47c1c65b54f6e59ab608b80dc786c15a75f7e4
+gate 2: v9peq module sha256 c9bb1820159a926a727e77849d08a39d1ddfa1c5d3827dea860b50e4e808de02
+gate 2: v9peg module sha256 e7ad915e4231de1eb1762da8e839cc9374cfefcc3f4dfe0de2cee9579d7f7d1c
+gate 2: v9ped module sha256 89f470f26e2181218a99983f265ce046d30d397a57edc1a35c8f3d538481121c
+gate 2: v9peo module sha256 154f41ac69ba9058eb5293ba77eca53372e229ea7f860c27d6e73bc40f7e2577
+CHECK ARM v9pe0 LOADS
+CHECK ARM v9peg REFUSED: pers_4e_tokens_f1_t512: 8 B local, 1 resident a SM
+CHECK ARM v9peq LOADS
+CHECK ARM v9ped LOADS
+CHECK ARM v9peo LOADS
+total 10
+drwxr-xr-x.   2 root   root       0 Nov 14 10:37 .
+drwxrwxrwx. 254 nobody nogroup    0 Nov 14 10:28 ..
+-rw-r--r--.   1 root   root    3898 Nov 14 10:29 check.txt
+-rw-r--r--.   1 root   root      50 Nov 14 10:28 gpu.txt
+-rw-r--r--.   1 root   root     377 Nov 14 10:29 oracle.txt
+-rw-r--r--.   1 root   root    4289 Nov 14 10:37 summary.txt
+-rw-r--r--.   1 root   root     164 Nov 14 10:37 verdicts.txt

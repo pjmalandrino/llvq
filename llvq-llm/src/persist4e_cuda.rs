@@ -481,6 +481,125 @@ pub fn install_rows_as(
 /// row form 7's module with the arm's edits (`pers::p4e_e1_unit_text`; the
 /// served v9 module's text does not move), at 512 threads, with its logits
 /// symbol. Experiment E1 of `docs/mesures/large-4e-budget-2026-11-11.txt`.
+/// The RoPE form 4E has run on the L40S in every reading (the card's load
+/// check picked form 1 in large-4e-e1, large-attn-ft-4e and the jeton run):
+/// the load check's verdict reads this form's token symbol, and prints the
+/// two others beside it.
+pub const CHECK_ROPE_FORM: u32 = 1;
+
+/// The load check of E1 arms (`fusedrun LLVQ_PERS_4E=check:<arms>`): each
+/// arm's module compiled as [`install_e1`] compiles it (the same text and
+/// sha256, NVRTC for the same arch, the driver's JIT), with no model loaded
+/// and nothing launched. The arms run one after the other in the order named,
+/// and every line is printed as it is known and returned. For each arm, the token symbol
+/// of each RoPE form at 512 threads, its stamp and logits symbols at
+/// [`CHECK_ROPE_FORM`]: registers, local bytes, dynamic shared bytes, CTAs a
+/// SM, at the sealed 4B's shape (hidden 2,560, inter 9,728, 4 groups, 85,952
+/// B). An rc arm's layout is checked at the card's grid (`p4e_rc_layout`).
+/// The verdict is [`install_e1`]'s rule on the token symbol of
+/// [`CHECK_ROPE_FORM`]: no local memory and one CTA a SM, or refused. Lines
+/// `CHECK ARM <arm> LOADS` or `CHECK ARM <arm> REFUSED: <why>` carry it.
+pub fn check_e1_arms(device: &Device, arms: &[&'static str]) -> anyhow::Result<Vec<String>> {
+    let dev = device.as_cuda_device()?;
+    let stream = dev.cuda_stream();
+    let cc = llvq_cuda::gpu::compute_cap_of(stream.context()).map_err(anyhow::Error::msg)?;
+    let tile = llvq_cuda::tile::resolve(cc);
+    let td = tile.define();
+    let (hidden, inter, groups, d_ctx) = (2560u32, 9728u32, 4u32, 4096u32);
+    let smem = pers::p4e_smem_bytes_form(7, hidden, inter, groups) + pers::p4e_scratch_bytes(7);
+    let mut lines = vec![format!(
+        "4E check: {} arms, sm_{}{}, {} define, the sealed 4B's shape: {smem} B of dynamic shared memory",
+        arms.len(),
+        cc.0,
+        cc.1,
+        td.trim()
+    )];
+    let srcs: Vec<llvq_cuda::gpu::KernelSource> = arms
+        .iter()
+        .map(|a| pers::p4e_e1_unit_text(&td, a).map(|t| llvq_cuda::gpu::KernelSource::new(&[t.as_str()])))
+        .collect::<Result<_, _>>()
+        .map_err(anyhow::Error::msg)?;
+    // One arm after the other, in the order named, every line printed and
+    // flushed as it is known: a check killed by its timeout leaves what it
+    // had read. The first card run (6af73aed) compiled seven arms on seven
+    // threads, printed at the end, and left nothing.
+    let say = |lines: &mut Vec<String>, l: String| {
+        use std::io::Write;
+        println!("{l}");
+        let _ = std::io::stdout().flush();
+        lines.push(l);
+    };
+    let head = lines.clone();
+    lines.clear();
+    for l in head {
+        say(&mut lines, l);
+    }
+    let t0 = std::time::Instant::now();
+    for (arm, src) in arms.iter().zip(&srcs) {
+        say(&mut lines, format!("4E check {arm}: module {} bytes, sha256 {}", src.text.len(), src.sha256));
+        let t = std::time::Instant::now();
+        let mut l = Vec::new();
+        let verdict = llvq_cuda::gpu::compile_ptx(src).and_then(|p| {
+            say(&mut lines, format!("4E check {arm}: NVRTC {:.1} s", t.elapsed().as_secs_f64()));
+            check_one_arm(&stream, p, arm, smem, (hidden, inter, groups, d_ctx), &mut l)
+        });
+        for x in l {
+            say(&mut lines, x);
+        }
+        say(
+            &mut lines,
+            match verdict {
+                Ok(()) => format!("CHECK ARM {arm} LOADS ({:.1} s)", t.elapsed().as_secs_f64()),
+                Err(e) => format!("CHECK ARM {arm} REFUSED: {e} ({:.1} s)", t.elapsed().as_secs_f64()),
+            },
+        );
+    }
+    say(&mut lines, format!("4E check: {} arms one after the other, {:.1} s", arms.len(), t0.elapsed().as_secs_f64()));
+    Ok(lines)
+}
+
+/// [`check_e1_arms`] for one arm, from its PTX: the JIT, the rc layout, the
+/// symbols' attributes; `Err` names why the token symbol would be refused.
+fn check_one_arm(
+    stream: &std::sync::Arc<candle_core::cuda_backend::cudarc::driver::CudaStream>,
+    ptx: candle_core::cuda_backend::cudarc::nvrtc::Ptx,
+    arm: &str,
+    smem: u32,
+    (hidden, inter, groups, d_ctx): (u32, u32, u32, u32),
+    lines: &mut Vec<String>,
+) -> Result<(), String> {
+    // this thread's current context: the function attributes below read it
+    stream.context().bind_to_thread().map_err(|e| format!("bind the context: {e}"))?;
+    let cuda = llvq_cuda::gpu::Cuda::on_stream_ptx(stream.clone(), ptx)?;
+    let grid = cuda.device()?.sm_count as u32;
+    if let Some(body) = pers::p4e_rc_body(arm) {
+        let ph = pers::p4e_rc_layout(body, hidden, inter, d_ctx, false, true, groups, grid)?;
+        let fmt: Vec<String> = ph.iter().map(|p| format!("{} {} B", p.phase, 4 * p.end)).collect();
+        lines.push(format!("CHECK {arm} rc layout on {grid} CTAs: {} of {} B", fmt.join(", "), 4 * ph[0].limit));
+    }
+    let mut syms: Vec<(&str, bool)> =
+        (0..3).map(|f| pers::p4e_symbol(f, 512).map(|s| (s, f == CHECK_ROPE_FORM))).collect::<Result<_, _>>()?;
+    syms.push((pers::p4e_stamp_symbol(CHECK_ROPE_FORM, 512)?, false));
+    syms.push((pers::p4e_logits_symbol(CHECK_ROPE_FORM)?, false));
+    let mut decides = Err(format!("no token symbol of RoPE form {CHECK_ROPE_FORM}"));
+    for (sym, decisive) in syms {
+        let f = cuda.func_dynamic_shared(sym, smem)?;
+        let r = cuda.report(sym)?;
+        let occ = f.occupancy_max_active_blocks_per_multiprocessor(512, smem as usize, None).map_err(|e| format!("occupancy: {e}"))?;
+        let ok = r.local_bytes == 0 && occ >= 1;
+        let tail = match (sym.contains("_tokens_"), ok) {
+            (true, true) => ": loads",
+            (true, false) => ": refused",
+            (false, _) => " (outside the timed rounds)",
+        };
+        lines.push(format!("CHECK {arm} {sym}: {} registers, {} B local, {smem} B shared, {occ} resident a SM{tail}", r.num_regs, r.local_bytes));
+        if decisive {
+            decides = if ok { Ok(()) } else { Err(format!("{sym}: {} B local, {occ} resident a SM", r.local_bytes)) };
+        }
+    }
+    decides
+}
+
 pub fn install_e1(model: &Qwen3, device: &Device, max_tokens: u32, arm: &str) -> anyhow::Result<Runtime4e> {
     let arm = *pers::P4E_E1_ARMS
         .iter()
@@ -807,6 +926,28 @@ fn install_inner(
     let tetra_o = layers_host.iter().filter(|y| y.ot != 0).count();
     if tetra_o > 0 {
         lines.push(format!("4E: {tetra_o} Tetra o_proj read under their own rotation, {} int4", layers_host.len() - tetra_o));
+    }
+    // The research row bodies (E1 arms v9ep and v9fl, kernels/pers_4e_rc.cuh):
+    // their regions in 4E's buffer at this shape, refused by name where one
+    // would pass the v7 area (the 14B); and how many Tetra matrices flat reads
+    // by u32 loads because their words are not on 16 bytes (none expected).
+    if let Some(body) = e1_arm.and_then(pers::p4e_rc_body) {
+        let tetra_down = layers_host.iter().any(|y| y.tetra_down);
+        let ph = pers::p4e_rc_layout(body, hidden, inter, (n_heads * 128) as u32, tetra_o > 0, tetra_down, groups as u32, grid)
+            .map_err(anyhow::Error::msg)?;
+        let fmt: Vec<String> = ph.iter().map(|p| format!("{} {} B", p.phase, 4 * p.end)).collect();
+        let words: Vec<u64> = layers_host
+            .iter()
+            .flat_map(|y| [y.qkv.q.words, y.qkv.k.words, y.mlp.gate.words, y.mlp.up.words].into_iter().chain(y.tetra_down.then_some(y.mlp.down.words)))
+            .collect();
+        let off = words.iter().filter(|&&w| w % 16 != 0).count();
+        lines.push(format!(
+            "4E rc: body {body} ({}), row vector used to {} of the v7 area at {} B; {off} of {} Tetra matrices off 16 bytes",
+            ["", "endpass", "flat", "ep2", "ep3", "fl2", "fl3"][body as usize],
+            fmt.join(", "),
+            4 * ph[0].limit,
+            words.len()
+        ));
     }
     if rows_form >= 4 {
         let mut addrs = vec![

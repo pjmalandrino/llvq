@@ -1,0 +1,2 @@
+  F1 context 5: 4E e1:v9 at 512 threads last / first, round by round: x1.0021 [1.0018-1.0024]: PASS; the floor is [1.0018, 1.0024]
+  F1 context 8192: 4E e1:v9 at 512 threads last / first, round by round: x1.0010 [1.0007-1.0012]: PASS; the floor is [1.0007, 1.0012]

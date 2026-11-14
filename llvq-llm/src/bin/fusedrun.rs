@@ -1239,10 +1239,19 @@ const PERS_4E_LONG: [usize; 1] = [8192];
 /// (`pers::P4E_E1_ARMS`), comma-separated, each once, which replace the
 /// bench forms; then optionally `:` and the prompt lengths run after the seed
 /// prompt, comma-separated, strictly ascending, each 64 to 8,192 (default
-/// [`PERS_4E_LONG`]).
+/// [`PERS_4E_LONG`]). One repetition is taken: the first arm named again as
+/// the LAST of three or more (`v9,v9ep,v9fl,v9`), the fidelity control of
+/// rule F1 (docs/mesures/recherche-debit-r3-espace-2026-11-12.txt): the first
+/// arm's runtime timed again at the end of every round, no second module.
+/// The fourth value is that control.
+/// [`parse_pers_4e`]'s value: the token count, the E1 arms, the prompt
+/// lengths, and whether the first arm is timed again last (rule F1).
+#[cfg(any(target_os = "macos", feature = "cuda"))]
+type Pers4eSpec = (usize, Vec<&'static str>, Vec<usize>, bool);
+
 #[cfg(any(target_os = "macos", feature = "cuda"))] // names llvq_cuda, a dependency on macOS and under `cuda` only
 #[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
-fn parse_pers_4e(v: &str) -> Result<(usize, Vec<&'static str>, Vec<usize>), String> {
+fn parse_pers_4e(v: &str) -> Result<Pers4eSpec, String> {
     let mut fields = v.splitn(3, ':');
     let count = fields.next().unwrap_or_default();
     let arms = fields.next();
@@ -1261,8 +1270,17 @@ fn parse_pers_4e(v: &str) -> Result<(usize, Vec<&'static str>, Vec<usize>), Stri
         return Err(format!("LLVQ_PERS_4E={v:?}: 2 to 256 tokens a run"));
     }
     let mut out: Vec<&'static str> = Vec::new();
+    let mut again = false;
     if let Some(a) = arms {
-        for name in a.split(',') {
+        let names: Vec<&str> = a.split(',').collect();
+        let names = match names.as_slice() {
+            [first, .., last] if names.len() >= 3 && first == last => {
+                again = true;
+                &names[..names.len() - 1]
+            }
+            _ => &names[..],
+        };
+        for &name in names {
             let arm = llvq_cuda::pers::P4E_E1_ARMS
                 .iter()
                 .find(|x| **x == name)
@@ -1273,7 +1291,34 @@ fn parse_pers_4e(v: &str) -> Result<(usize, Vec<&'static str>, Vec<usize>), Stri
             out.push(arm);
         }
     }
-    Ok((n, out, lengths))
+    Ok((n, out, lengths, again))
+}
+
+/// `LLVQ_PERS_4E=check:<arms>`'s arms: E1 arms (`pers::P4E_E1_ARMS`),
+/// comma-separated, each once, at least one.
+#[cfg(any(target_os = "macos", feature = "cuda"))] // names llvq_cuda, a dependency on macOS and under `cuda` only
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+fn parse_pers_4e_check(v: &str) -> Result<Vec<&'static str>, String> {
+    let mut out: Vec<&'static str> = Vec::new();
+    for name in v.split(',') {
+        // the load probes (pers::P4E_RC_PROBES) are named here and nowhere else: never timed
+        let arm = llvq_cuda::pers::P4E_E1_ARMS
+            .iter()
+            .chain(llvq_cuda::pers::P4E_RC_PROBES.iter().map(|p| &p.0))
+            .find(|x| **x == name)
+            .ok_or_else(|| {
+                format!(
+                    "LLVQ_PERS_4E=check:{v}: no E1 arm or load probe {name:?}; the arms are {:?}, the probes {:?}",
+                    llvq_cuda::pers::P4E_E1_ARMS,
+                    llvq_cuda::pers::P4E_RC_PROBES.map(|p| p.0)
+                )
+            })?;
+        if out.contains(arm) {
+            return Err(format!("LLVQ_PERS_4E=check:{v}: arm {name} named twice"));
+        }
+        out.push(arm);
+    }
+    Ok(out)
 }
 
 #[cfg(all(target_os = "linux", feature = "cuda"))]
@@ -1286,6 +1331,7 @@ fn run_pers_4e(
     rts: &mut Vec<llvq_llm::persist4e_cuda::Runtime4e>,
     prompt: &[u32],
     n_new: usize,
+    again: bool,
 ) -> anyhow::Result<()> {
     use llvq_llm::boundary::median_range;
     const WARMUP: usize = 2;
@@ -1354,9 +1400,17 @@ fn run_pers_4e(
         Ok((out, t.elapsed().as_secs_f64()))
     };
     let (want, _) = eager(model, &mut caches)?;
+    // Whether a runtime owes the eager path's bits: every form and E1 arm but
+    // those that owe a bound on rows (pers::p4e_e1_owes_bits, the research
+    // phase's flat body), whose tokens are compared and reported, never
+    // required. `own[k]`: the tokens each runtime is held to in the rounds.
+    let owes_bits = |rt: &llvq_llm::persist4e_cuda::Runtime4e| rt.e1_arm.is_none_or(llvq_cuda::pers::p4e_e1_owes_bits);
     // v4 (served) and v6 are the references: a divergence of either voids the
     // run. A newer form that diverges leaves the run alone, its numbers void,
-    // and the forms that kept the bits are still timed.
+    // and the forms that kept the bits are still timed. Under the F1 control
+    // the first runtime is the reference of every ratio: its divergence voids
+    // the run too.
+    let mut own: Vec<Vec<u32>> = Vec::new();
     let mut k = 0;
     while k < rts.len() {
         let (got, _) = pers(&mut rts[k], &mut caches)?;
@@ -1364,9 +1418,20 @@ fn run_pers_4e(
         match first_divergence(&want, &got).map_err(|e| anyhow::anyhow!("{e}"))? {
             None => {
                 println!("  4E {label}: tokens equal the eager path's, {} of {}", got.len(), want.len());
+                own.push(got);
                 k += 1;
             }
-            Some(i) if rts[k].rows_form <= 4 => {
+            Some(i) if !owes_bits(&rts[k]) => {
+                let eq = got.iter().zip(&want).filter(|(a, b)| a == b).count();
+                println!(
+                    "  4E {label}: owes a bound on rows, not the bits: {eq} of {} tokens equal the eager path's, \
+                     the first divergence at token {i}",
+                    want.len()
+                );
+                own.push(got);
+                k += 1;
+            }
+            Some(i) if rts[k].rows_form <= 4 || (again && k == 0) => {
                 anyhow::bail!("context {}: 4E {label} diverges from the eager path at token {i}; 4E owes its bits, the run is void", prompt.len());
             }
             Some(i) => {
@@ -1378,28 +1443,55 @@ fn run_pers_4e(
     if rts.is_empty() {
         anyhow::bail!("context {}: no 4E form kept the eager path's tokens", prompt.len());
     }
+    // The bound arms against the reference (the first runtime), token by token.
+    for (k, rt) in rts.iter().enumerate().skip(1).filter(|(_, r)| !owes_bits(r)) {
+        let eq = own[k].iter().zip(&own[0]).filter(|(a, b)| a == b).count();
+        let first = own[k].iter().zip(&own[0]).position(|(a, b)| a != b);
+        println!(
+            "  4E {} against 4E {}: {eq} of {} tokens equal{}",
+            rt.label(),
+            rts[0].label(),
+            own[0].len(),
+            first.map_or(String::new(), |i| format!(", the first divergence at token {i}"))
+        );
+    }
     match first_divergence(&served, &want).map_err(|e| anyhow::anyhow!("{e}"))? {
         None => println!("  served door (kernel from {from}): the same {} tokens", served.len()),
         Some(i) if served_form => anyhow::bail!("context {}: the served door diverges from the eager served config at token {i}; the run is void", prompt.len()),
         Some(i) => println!("  served door (kernel from {from}): diverges at token {i} (the measurement form's T8 reading, not a gate)"),
     }
-    let mut rate: Vec<Vec<f64>> = vec![Vec::new(); 1 + rts.len()];
+    // rate[0] eager, rate[1 + k] runtime k, and under the F1 control rate[1 +
+    // rts.len()] the first runtime timed again. The order of a round: eager
+    // then every runtime; under the control, every runtime, the first one
+    // again, then eager, so the reference is the first and the last 4E timed.
+    let n_rt = rts.len();
+    let mut rate: Vec<Vec<f64>> = vec![Vec::new(); 1 + n_rt + usize::from(again)];
     for round in 0..WARMUP + ROUNDS_TIMED {
-        let (a, ta) = eager(model, &mut caches)?;
-        if a != want {
-            anyhow::bail!("round {round}: the eager decode moved its tokens; the run is void");
-        }
-        if round >= WARMUP {
-            rate[0].push((n_new - 1) as f64 / ta);
-        }
-        for (k, rt) in rts.iter_mut().enumerate() {
-            let (b, tb) = pers(rt, &mut caches)?;
-            if b != want {
-                anyhow::bail!("round {round}: 4E {} moved its tokens; the run is void", rt.label());
+        let time_eager = |rate: &mut [Vec<f64>], model: &mut llvq_llm::model::Qwen3, caches: &mut Vec<llvq_llm::model::KvCache>| -> anyhow::Result<()> {
+            let (a, ta) = eager(model, caches)?;
+            if a != want {
+                anyhow::bail!("round {round}: the eager decode moved its tokens; the run is void");
             }
             if round >= WARMUP {
-                rate[1 + k].push((n_new - 1) as f64 / tb);
+                rate[0].push((n_new - 1) as f64 / ta);
             }
+            Ok(())
+        };
+        if !again {
+            time_eager(&mut rate, model, &mut caches)?;
+        }
+        let order: Vec<(usize, usize)> = (0..n_rt).map(|k| (k, 1 + k)).chain(again.then_some((0, 1 + n_rt))).collect();
+        for (k, slot) in order {
+            let (b, tb) = pers(&mut rts[k], &mut caches)?;
+            if b != own[k] {
+                anyhow::bail!("round {round}: 4E {} moved its tokens; the run is void", rts[k].label());
+            }
+            if round >= WARMUP {
+                rate[slot].push((n_new - 1) as f64 / tb);
+            }
+        }
+        if again {
+            time_eager(&mut rate, model, &mut caches)?;
         }
     }
     let eager_name = if served_form { "eager (served config)" } else { "eager (kernel form)" };
@@ -1419,6 +1511,43 @@ fn run_pers_4e(
             println!("  {:<22} 4E {} / 4E {}, round by round: x{m:.3} [{lo:.3}-{hi:.3}]", "", rt.label(), rj.label());
         }
     }
+    // Rule F1 to F2 (docs/mesures/recherche-debit-r3-espace-2026-11-12.txt), on
+    // tok/s: F1, the reference timed last over timed first, round by round, its
+    // median inside [0.98, 1.02], its range the floor; F2, a runtime is FASTER
+    // only if its whole range over the reference lies above the floor's upper
+    // end, SLOWER only if under its lower end.
+    if again {
+        let (m0, lo0, hi0) = median_range(&rate[1 + n_rt]);
+        println!("  {:<22} {m0:7.1} tok/s [{lo0:.1}-{hi0:.1}] (the F1 control, timed last)", format!("4E {} again", rts[0].label()));
+        let f1: Vec<f64> = rate[1 + n_rt].iter().zip(&rate[1]).map(|(a, b)| a / b).collect();
+        let (fm, flo, fhi) = median_range(&f1);
+        let pass = (0.98..=1.02).contains(&fm);
+        println!(
+            "  F1 context {}: 4E {} last / first, round by round: x{fm:.4} [{flo:.4}-{fhi:.4}]: {}; the floor is [{flo:.4}, {fhi:.4}]",
+            prompt.len(),
+            rts[0].label(),
+            if pass { "PASS" } else { "FAIL, every SCORE below describes" }
+        );
+        for (k, rt) in rts.iter().enumerate().skip(1) {
+            let r: Vec<f64> = rate[1 + k].iter().zip(&rate[1]).map(|(a, b)| a / b).collect();
+            let (m, lo, hi) = median_range(&r);
+            let verdict = if lo > fhi {
+                "FASTER"
+            } else if hi < flo {
+                "SLOWER"
+            } else {
+                "NOT SEPARATED"
+            };
+            println!(
+                "  SCORE context {} {}: x{m:.4} [{lo:.4}-{hi:.4}] over 4E {}, round by round; owes {}; {verdict}{}",
+                prompt.len(),
+                rt.e1_arm.unwrap_or("?"),
+                rts[0].label(),
+                if owes_bits(rt) { "the bits" } else { "a bound on rows" },
+                if pass { "" } else { " (F1 failed: a description)" }
+            );
+        }
+    }
     // One more launch a geometry, on the phase-stamp symbol, after the timed
     // rounds and outside them: where the token's time goes, phase by phase
     // and CTA by CTA (pers.rs::p4e_phase_report). The same tokens, or its
@@ -1434,7 +1563,7 @@ fn run_pers_4e(
         let (made, stamps) = rt.decode_stamped(&mut caches, prompt.len(), first, (n_new - 1) as u32, u32::MAX)?;
         let mut got = vec![first];
         got.extend(&made);
-        if got != want {
+        if got != own[k] {
             anyhow::bail!("context {}: the stamped launch of 4E {} moved its tokens; its stamps are void", prompt.len(), rt.label());
         }
         let (layers, grid) = rt.stamp_shape();
@@ -1447,17 +1576,20 @@ fn run_pers_4e(
         println!("  stamped token {:.1} us against the timed 4E's {:.1} us (the stamps' own cost)", r.token.0 / 1e3, 1e6 / m4e);
     }
     // E1: one launch a runtime on its logits symbol, outside the timed
-    // rounds, n_new tokens from the first: the same tokens as the eager path
-    // (the first n_new - 1), and the head's binary16 logits of every position,
-    // compared bit for bit with the first runtime's (the reference arm).
-    let mut reference: Option<(String, Vec<u16>)> = None;
-    for rt in rts.iter_mut().filter(|r| r.can_logits()) {
+    // rounds, n_new tokens from the first: the runtime's own tokens (the
+    // first n_new - 1), and the head's binary16 logits of every position,
+    // compared with the first runtime's: bit for bit; for an arm that owes a
+    // bound, on the positions whose inputs are the reference's (up to its
+    // first token that differs), the values that differ and the largest
+    // |difference|, read as binary16.
+    let mut reference: Option<(String, Vec<u16>, Vec<u32>)> = None;
+    for (k, rt) in rts.iter_mut().enumerate().filter(|(_, r)| r.can_logits()) {
         for c in caches.iter_mut() {
             c.truncate(prompt.len())?;
         }
         let (made, logits) = rt.decode_logits(&mut caches, prompt.len(), first, n_new as u32, u32::MAX)?;
         let label = rt.label();
-        if made.len() != n_new || made[..n_new - 1] != want[1..] {
+        if made.len() != n_new || made[..n_new - 1] != own[k][1..] {
             anyhow::bail!("context {}: the logits launch of 4E {label} moved its tokens; its logits are void", prompt.len());
         }
         let bits: Vec<u32> = logits.iter().map(|&x| u32::from(x)).collect();
@@ -1468,23 +1600,35 @@ fn run_pers_4e(
             llvq_llm::eval::token_fingerprint(&bits),
             made[n_new - 1]
         );
-        let Some((rl, rv)) = reference.as_ref() else {
-            reference = Some((label, logits));
+        let Some((rl, rv, rmade)) = reference.as_ref() else {
+            reference = Some((label, logits, made));
             continue;
         };
-        let differ = rv.iter().zip(&logits).filter(|(a, b)| a != b).count();
-        let first_at = rv.iter().zip(&logits).position(|(a, b)| a != b);
-        if differ == 0 && rv.len() == logits.len() {
+        let vocab = logits.len() / made.len();
+        // position t's logits read the tokens first, made[..t]: equal inputs up to the first made token that differs
+        let same_in = made.iter().zip(rmade).position(|(a, b)| a != b).map_or(made.len(), |p| p + 1);
+        let span = same_in.min(made.len()) * vocab;
+        let differ = rv[..span].iter().zip(&logits[..span]).filter(|(a, b)| a != b).count();
+        let first_at = rv[..span].iter().zip(&logits[..span]).position(|(a, b)| a != b);
+        if differ == 0 && rv.len() == logits.len() && same_in == made.len() {
             println!("  logits, 4E {label} against 4E {rl}: bit for bit, {} values", logits.len());
         } else {
-            let vocab = logits.len() / made.len();
+            let (mut dmax, mut at) = (0f32, 0usize);
+            for (i, (a, b)) in rv[..span].iter().zip(&logits[..span]).enumerate() {
+                let d = (half::f16::from_bits(*a).to_f32() - half::f16::from_bits(*b).to_f32()).abs();
+                if d > dmax || d.is_nan() {
+                    (dmax, at) = (d, i);
+                }
+            }
             println!(
-                "  logits, 4E {label} against 4E {rl}: DIFFER, {differ} of {} values (lengths {} and {}), the first at position {} row {}",
-                logits.len(),
-                rv.len(),
-                logits.len(),
+                "  logits, 4E {label} against 4E {rl}: DIFFER, {differ} of {span} values on the {} positions whose \
+                 inputs are equal (of {}), the first at position {} row {}; max |dlogit| {dmax:.4e} at position {} row {}",
+                same_in.min(made.len()),
+                made.len(),
                 first_at.map_or(0, |i| i / vocab),
-                first_at.map_or(0, |i| i % vocab)
+                first_at.map_or(0, |i| i % vocab),
+                at / vocab,
+                at % vocab
             );
         }
     }
@@ -1995,9 +2139,26 @@ fn main() -> anyhow::Result<()> {
         // each with its logits symbol; the logits of every arm are compared
         // with the first's, bit for bit, at every context. A third field,
         // `<count>:<arms>:<lengths>`, names the prompt lengths after the seed
-        // prompt (8,192 when absent).
+        // prompt (8,192 when absent). The first arm named again as the last
+        // (`v9,v9ep,v9fl,v9`) is rule F1's control: the reference timed first
+        // and last in every round, eager after it, F1 and a SCORE line an arm
+        // (F2). An arm that owes a bound on rows (v9fl) is timed on its own
+        // tokens, which are compared with the reference's and reported.
         if let Ok(v) = std::env::var("LLVQ_PERS_4E") {
-            let (count, e1_arms, long) = parse_pers_4e(&v).map_err(|e| anyhow::anyhow!("{e}"))?;
+            // `check:<arms>`: the load check alone (persist4e_cuda::check_e1_arms), before
+            // any model is loaded: each arm's module compiled and its symbols read, nothing
+            // launched, then the process ends. The R6 card run printed its refusal 339 s in,
+            // after the model and three modules (docs/mesures/recherche-debit-jeton-2026-11-13.txt).
+            if let Some(list) = v.strip_prefix("check:") {
+                let arms = parse_pers_4e_check(list).map_err(|e| anyhow::anyhow!("{e}"))?;
+                runs_alone("LLVQ_PERS_4E", &["LLVQ_KERNEL_DIR"])?;
+                let t = Instant::now();
+                // the check prints its own lines as it reads them
+                llvq_llm::persist4e_cuda::check_e1_arms(&device, &arms)?;
+                println!("4E check done in {:.1} s", t.elapsed().as_secs_f64());
+                return Ok(());
+            }
+            let (count, e1_arms, long, again) = parse_pers_4e(&v).map_err(|e| anyhow::anyhow!("{e}"))?;
             let n_new: usize = count;
             if !(2..=256).contains(&n_new) {
                 anyhow::bail!("LLVQ_PERS_4E={n_new}: 2 to 256 tokens a run");
@@ -2073,6 +2234,9 @@ fn main() -> anyhow::Result<()> {
             if rts.is_empty() {
                 anyhow::bail!("LLVQ_PERS_4E: no 4E geometry loads on this card");
             }
+            if again && rts[0].e1_arm != e1_arms.first().copied() {
+                anyhow::bail!("LLVQ_PERS_4E: the F1 control's arm {:?} did not load; every ratio would read another reference", e1_arms[0]);
+            }
             if ctx.is_in_multi_stream_mode() {
                 anyhow::bail!("LLVQ_PERS_4E: a second stream appeared at the load, with events off");
             }
@@ -2080,7 +2244,7 @@ fn main() -> anyhow::Result<()> {
             let base = f.tokenizer.encode(PROMPT, false).map_err(|e| anyhow::anyhow!("{e}"))?.get_ids().to_vec();
             for len in std::iter::once(base.len()).chain(long) {
                 let prompt: Vec<u32> = base.iter().copied().cycle().take(len).collect();
-                run_pers_4e(&mut f.model, &mut rts, &prompt, n_new)?;
+                run_pers_4e(&mut f.model, &mut rts, &prompt, n_new, again)?;
             }
             if ctx.is_in_multi_stream_mode() {
                 anyhow::bail!("LLVQ_PERS_4E: a second stream appeared during the run: the numbers above are void");
@@ -3360,14 +3524,36 @@ mod tests {
     #[cfg(any(target_os = "macos", feature = "cuda"))]
     fn pers_4e_takes_a_count_and_optional_e1_arms() {
         use super::parse_pers_4e;
-        assert_eq!(parse_pers_4e("64"), Ok((64, vec![], vec![8192])));
-        assert_eq!(parse_pers_4e("64:v9,v9np,v9mv"), Ok((64, vec!["v9", "v9np", "v9mv"], vec![8192])));
-        assert_eq!(parse_pers_4e("64:v9mv"), Ok((64, vec!["v9mv"], vec![8192])));
-        assert_eq!(parse_pers_4e("64:v9,v9ft"), Ok((64, vec!["v9", "v9ft"], vec![8192])));
-        assert_eq!(parse_pers_4e("64:v9,v9ft:1024,4096,8192"), Ok((64, vec!["v9", "v9ft"], vec![1024, 4096, 8192])));
+        assert_eq!(parse_pers_4e("64"), Ok((64, vec![], vec![8192], false)));
+        assert_eq!(parse_pers_4e("64:v9,v9np,v9mv"), Ok((64, vec!["v9", "v9np", "v9mv"], vec![8192], false)));
+        assert_eq!(parse_pers_4e("64:v9mv"), Ok((64, vec!["v9mv"], vec![8192], false)));
+        assert_eq!(parse_pers_4e("64:v9,v9ft"), Ok((64, vec!["v9", "v9ft"], vec![8192], false)));
+        assert_eq!(parse_pers_4e("64:v9,v9ft:1024,4096,8192"), Ok((64, vec!["v9", "v9ft"], vec![1024, 4096, 8192], false)));
+        // the F1 control: the first arm again as the last of three or more
+        assert_eq!(parse_pers_4e("256:v9,v9ep,v9fl,v9"), Ok((256, vec!["v9", "v9ep", "v9fl"], vec![8192], true)));
+        assert_eq!(parse_pers_4e("256:v9,v9fl,v9:8192"), Ok((256, vec!["v9", "v9fl"], vec![8192], true)));
+        // the load check's arms
+        use super::parse_pers_4e_check;
+        assert_eq!(parse_pers_4e_check("v9,v9ep2,v9fl3"), Ok(vec!["v9", "v9ep2", "v9fl3"]));
+        for bad in ["", "v9,v9", "v9,v8", "v9 ", "v9ep,"] {
+            assert!(parse_pers_4e_check(bad).is_err(), "check:{bad}");
+        }
+        assert!(parse_pers_4e("check:v9").is_err(), "the check is dispatched before parse_pers_4e");
+        // the load probes: the check names them, a timed run never does
+        assert_eq!(parse_pers_4e_check("v9pe0,v9peq,v9peg,v9ped,v9peo"), Ok(vec!["v9pe0", "v9peq", "v9peg", "v9ped", "v9peo"]));
+        assert!(parse_pers_4e_check("v9peq,v9peq").is_err());
+        // R6d's arms: E1 arms, so the check and a timed run both name them
+        assert_eq!(parse_pers_4e_check("v9,v9fg,v9fn,v9eg"), Ok(vec!["v9", "v9fg", "v9fn", "v9eg"]));
+        assert_eq!(parse_pers_4e("256:v9,v9fg,v9eg,v9"), Ok((256, vec!["v9", "v9fg", "v9eg"], vec![8192], true)));
+        assert_eq!(parse_pers_4e("256:v9,v9fn,v9"), Ok((256, vec!["v9", "v9fn"], vec![8192], true)));
+        assert_eq!(parse_pers_4e("256:v9fg"), Ok((256, vec!["v9fg"], vec![8192], false)));
+        for probe in llvq_cuda::pers::P4E_RC_PROBES {
+            assert!(parse_pers_4e(&format!("64:v9,{}", probe.0)).is_err(), "{} is never timed", probe.0);
+        }
         for bad in [
             "1", "257", "x", "64:", "64:v9,v9", "64:v8", "64:v9 ,v9np", ":v9", "64:v9:", "64::8192", "64:v9:8192,4096",
-            "64:v9:4096,4096", "64:v9:8193", "64:v9:5", "64:v9:0", "64:v9:1024:4096",
+            "64:v9:4096,4096", "64:v9:8193", "64:v9:5", "64:v9:0", "64:v9:1024:4096", "64:v9,v9ep,v9ep", "64:v9,v9,v9ep",
+            "64:v9,v9ep,v9,v9", "64:v9ep,v9,v9",
         ] {
             assert!(parse_pers_4e(bad).is_err(), "{bad}");
         }

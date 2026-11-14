@@ -1,0 +1,372 @@
+RECHERCHE DEBIT, R0: WHAT THE REPOSITORY ALREADY KNOWS ABOUT DECODE SPEED, SEALED FILES, L40S, 2026-11-12. $0.
+==========================================================================================================
+Result: the served 4B token is 4.19 to 4.23 ms in a 64-token window and 4.39 to 4.43 ms in a 256-token window at a
+5-token prompt (*measured*). It reads 1,378 MB of weights (*computed*), so the whole token streams about 297 GB/s
+against a datasheet peak of 864 that this repository has never probed. The Tetra gate/up rows, the largest phase,
+read 359 GB/s on mean CTA work at 5 tokens and 385 GB/s at 8,192 (*computed*), where the Tetra row loop alone reads
+374 to 379 (*measured*). So N5's "a third lost in situ" is a v2-era figure: at v9 the mean-work gap on gate/up is 0
+to 6 %, and what remains is imbalance, phases without own bytes, and conservation of moved time. The "door residue"
+of 0.24 to 0.27 ms coincides with the window length: at 64 tokens the door equals the bench within 1 %. Seven
+mismatches between CERVEAU's K claims and their journals are listed in section 6.
+Nature: read only. No build, no test, no model load, no job. Sources: docs/CERVEAU.md, docs/ETAT.md, docs/plan-300.md,
+docs/recherche-debit-maths.md, docs/format-noyau.md and the journals named on each line, at e30cc64 of
+recherche/debit-2026-11-12; llvq-cuda/kernels/pers_4e.cu read for one fact (the launch loop). Small arithmetic by
+hand, each result labelled *computed*. Line numbers are the files' own.
+Mandate: CERVEAU O11. This note proposes nothing and projects no gain.
+
+0. VOCABULARY
+-------------
+- 4E v9: the served persistent decode kernel (pers_4e_tokens_f1_t512, grid 142 x 512, 128 registers, 0 B local,
+  85,952 B shared at 4B, 96,064 at 14B, one resident CTA a SM, 218 grid waits a token). served-v9 lines 21-22,
+  served-v9-14b line 21, step3-4e line 27.
+- Door: the served binary, prompt plus decode. Bench (measurement form): fusedrun's LLVQ_PERS_4E, 64 tokens, 2 + 5
+  interleaved rounds.
+- Stamped token: the stamp symbol's token (32 to 48 B local, one launch). Timed token: the timed symbol's.
+- Mean work: mean CTA busy time inside a phase. Wall: the phase's span to its grid wait.
+
+1. FRAMING FACTS (item 3 of the brief)
+--------------------------------------
+1a. Bytes a token, sealed 4B (*computed* from shapes, large-4e-budget lines 32-40)
+  q, k Tetra 123.6 MB; v int4 50.1 MB                    q/k/v rows   173.8 MB
+  o int4                                                 o rows       200.5 MB
+  gate, up Tetra                                         gate/up      469.8 MB
+  down: 24 Tetra layers 156.6 MB, 12 int4 layers 158.8   down rows    315.4 MB
+  head, tied int4 g64 table (151,936 x 2,560)            head         218.8 MB
+  weights                                                             1,378.2 MB
+  By record type: Tetra 750.0 MB, int4 g128 409.4 MB, head 218.8 MB (*computed* from the lines above).
+  The door prints "projections 1.16 GB on the card, 2.550 b/weight" and "total expected on the card: 1.38 GB
+  (projections 1.16 + carried 0.22)" (*measured* print, spec-mem-m3-2026-11-11-brut/base-short.txt).
+  Weight floor at 864 GB/s: 1,595 us, 628 tok/s (*computed*, large-4e-budget line 39; plan-300 line 38).
+
+1b. KV cache read a token, 4B (f16, 36 layers, 8 KV heads, head dim 128)
+  147,456 B a position (fi-decode-anchor line 21). Context 62: 9.3 MB (large-4e-budget line 40). 1,024: 151 MB;
+  4,096: 604 MB (*computed*, 147,456 x L). 8,192: 1,208 MB, floor 1,398 us at 864 GB/s (large-4e-budget line 40).
+  The 8B has the same 147,456 B a position; the 14B's cache is 11 % larger (plan-300 line 277, *computed*).
+
+1c. Time a token, 4B, 4E v9 (us; walls; all *measured* unless c)
+  Sources: 5 and 8,192 from large-4e-e1 lines 82-126 (one stamped launch, 62 tokens, median); attention and tokens at
+  1,024 and 4,096 from large-attn-ft-4e lines 81-85; other phases at 1,024 and 4,096 *computed* as the mean of 5 and
+  8,192 (large-4e-hors-poids-etude lines 25-52, which assembles this table).
+  phase                          5        1,024     4,096     8,192
+  embedding                        2.9      2.9 c     2.9 c     2.9
+  ln1 + rotation (mean work)     237.5    241.7 c   241.7 c   245.9
+  q/k/v rows (mean work)         413.3    415.4 c   415.4 c   417.4
+  norm/RoPE/KV append            121.7    116.0 c   116.0 c   110.3
+  attention                      599.1   1108.2    1561.6    2646.3
+  o rows (mean work)             276.8    273.6 c   273.6 c   270.4
+  ln2 + rotation (mean work)     140.6    145.3 c   145.3 c   150.0
+  gate/up rows (mean work)      1308.9   1263.8 c  1263.8 c  1218.8
+  inner wait (mean work)         187.1    199.6 c   199.6 c   212.2
+  down input (mean work)         154.9    156.9 c   156.9 c   158.9
+  down rows (mean work)          459.5    462.7 c   462.7 c   465.9
+  head + argmax                  367.1    367.6 c   367.6 c   368.0
+  token, stamped                4483.6   4899.8    5347.8    6468.2
+  token, timed                  4226.5   4611.2    5079.5    6211.2
+  tok/s timed                    236.6    216.9     196.9     161.0
+  Imbalance lines (q/k/v 15.9 to 34.1, o 63.8 to 81.0, MLP 105.8 to 117.4) are in hors-poids lines 37-47.
+  Only attention was stamped at 1,024 and 4,096 (hors-poids line 267).
+  Chat context 62 (N11 stamps): token 4,677.3 stamped, 4,467.2 timed, 223.9 tok/s; attention 790.9 (large-4e-budget
+  lines 22, 48-67).
+  Door, 256 tokens after each prompt: 226.2 / 205.8 / 194.2 / 161.5 tok/s, 4.42 / 4.86 / 5.15 / 6.19 ms at 5 / 2,048 /
+  4,096 / 8,192 (served-v9 lines 34-38). Door prompt plus decode 221.5 (line 28). First token at 8,192: 35.05 s.
+
+1d. Stream rates reached (GB/s)
+  In situ, v9, own bytes over mean work at 5 tokens / chat 62 (*computed*):
+    q/k/v rows 414 (Tetra plus int4 v), o 589, gate/up 360, down 648 (Tetra plus int4), head 595, whole token 297
+    stamped (large-4e-budget lines 53-67). gate/up from E1's table: 359 at 5, 385 at 8,192 (469.8 MB over 1,308.9 and
+    1,218.8 us, *computed* here from large-4e-e1 lines 98, 121); without the L2 prefetch (v9np) 339 and 335 (over
+    1,386.9 and 1,401.0 us, *computed* here). On walls (slowest CTA 1,440.9 / 1,373.9 us): 326 and 342 (*computed*).
+    o rows without their prefetch: 548 (large-4e-e1 line 183, *computed*).
+    Attention at 8,192: 710 with the prefetch (1.878 GB in 2.646 ms), 505 without (large-4e-e1 lines 195-196,
+    *computed*). At 1,024 and 8,192 the attention wall equals its KV bytes plus the prefetch at 85 % of 864: 1,119
+    against 1,108 us, 2,559 against 2,646 (hors-poids lines 67-68, *computed*).
+    Whole token, door: 305 / 343 / 397 at 4B / 8B / 14B (recherche-debit-maths line 309, *computed*).
+  In situ, earlier forms (*computed*): v2 rows 317 on mean work (pers-4e-v2 line 67), v3 303 (pers-4e-v3 line 41),
+    Tetra rows of v2 about 260 and int4 rows 587-588 (pers-4e-v3-host lines 6-7), v6 rows 497 on mean work
+    (plan-300 line 64, Tetra and int4 together).
+  In isolation (*measured*, L40S):
+    Tetra row loop v2 at 4E's geometry, 0.9467 GB (all 252 matrices as Tetra, bare encode 0adb7cfd): 379 [368-383]
+    (pers-rowloop line 25), 374 [368-378] (step1-micro line 26), 383 (shaker-4e line 36).
+    One-launch Tetra pass tpersall: 400 [395-402] (pers-rowloop line 34); 397 (pers-4e-v2 line 8); 410 (pers-sass
+    line 4).
+    int4: 4E's row alone q4 410, tiled q4t 548, served eager tv_q4_hh 307, q4read (same bytes read and summed) 671
+    [670-675], "the stream ceiling here" (step1-micro lines 35-39).
+    252-matrix bench, tile 64 (bare Tetra encode, one launch a matrix): Tetra48 262, AWQ 582, FP16 660, cuBLAS FP16
+    671, Planes14 436 (banc-252 lines 19-29, GB/s at the minimum).
+    Attention: FlashInfer 0.6.14 batch-1 decode reads the 4B's KV at eta 0.810 of 864 at 8,192, 0.762 at 4,096, 0.666
+    at 2,048 (fi-decode-anchor lines 27-32, *measured* time, eta *computed* against the datasheet 864).
+  Peak bandwidth:
+    L40S 864 GB/s is a datasheet figure: "plaque signaletique, pas une mesure (ECC active)" (fusedrun-14b-2026-08-17
+    line 27). No copy-kernel probe exists in the repository. The highest rate any kernel of ours has read is q4read
+    671 (step1-micro line 39); cuBLAS FP16 671 (banc-252 line 22).
+    A100: 2,039 GB/s datasheet (f4-a100 line 57); cuBLAS FP16 1,205 on the bench (a100 line 26). 4E has never run on
+    an A100: the A100 jobs are eager, tile 128 (a100 lines 19-20, 63).
+    sm_120 (RTX PRO 6000, GB202): device attributes only, 12,481 MHz x 512 bit, 188 SMs, L2 128 MiB (tile-sweep lines
+    20-22). No GB/s, no 4E, no model run. The 1,792 GB/s in recherche-debit-maths line 62 is an RTX 5090 datasheet
+    figure used in arithmetic.
+
+1e. Compute side of a Tetra row
+  - 243 SASS instructions a block (24 weights) in the card's cubin of tpersall (pers-sass lines 19-26); 241-242 in
+    4E's block loop, 6 copies (pers-4e-v3-host lines 8, 36-38); 237 under the devel ptxas (sass-tetra-int8 control 1).
+    About 9.9 instructions a weight (recherche-debit-maths line 65, *computed*).
+  - Eager loop: time linear in instructions a block, 6.21 us an instruction over 151.3M blocks, 2.13 warp
+    instructions a clock a SM, 53 % of issue (sass-tetra-int8 lines 52-55, *computed* fit on four measured arms).
+  - In situ: of 1.81 ms of Tetra rows, 0.66 to 0.92 ms is instruction time above the bytes (36 to 51 %), and 4E's
+    stamps imply 60 to 76 % issue in situ (sass-tetra-lean lines 37-40, *computed*). The 1.81 ms is itself *computed*
+    from v6 stamps and solo rates (plan-300 line 118).
+  - Per-step cycles of v2 alone (32 blocks of a row): 1,616 / 1,500 / 1,272 at d_in 2,560 / 4,096 / 9,728, warp
+    balance 0.807 / 0.626 / 0.637 (pers-rowloop lines 36-38, *measured*). gate/up and q/k have d_in 2,560.
+  - What the bits bind: one warp a row, lane l adds blocks l, l+32, ..., 24 products in TETRA48_ORDER, warp_sum, f32
+    dot on the f32 rotated activation (hors-poids lines 75-77). Rows a CTA: 18 rows on 16 warps (step1-micro line 71).
+  - Grid wait 0.771 [0.771-0.771] us (step1-micro line 42); 218 a token, 168 us, inside the walls (hors-poids line 56).
+  - The decode ceiling with Tetra rows at 671 GB/s: 260 / 174 / 105 tok/s at 4B / 8B / 14B (recherche-debit-maths
+    line 51, *estimated*).
+
+1f. Host side
+  - 4E runs one cooperative launch for a run of tokens: `for (u32 t = 0; t < L.n_tokens; ++t)` (pers_4e.cu line 243);
+    the config prints "one launch a token run" (spec-mem-m3 brut base-short.txt). One launch holds at most
+    max_tokens (persist4e_cuda.rs line 451); the served runtime runs "one 4E launch of 64 tokens" and its client
+    receives text in bursts of 64 tokens (runtime-audit-2026-11.md lines 42, 95, 125); SP3 hit "4E: 128 tokens a
+    launch, the runtime holds 64" (spec-loop-sp3 lines 5-7). The argmax runs on the card inside the head phase
+    (hors-poids line 53).
+  - No journal measures the host time per token of plain 4E. The speculative loop's host overhead outside the verify
+    launches is 0.1 to 0.3 % of the wall (spec-loop-sp2 lines 115, 142-143).
+  - Eager engine (for scale): door 129.0 tok/s, 7.75 ms (served-v9 line 30, ms *computed*); 1,410 launches a token
+    (trims-contexts line 90); 3.63 us a launch on a near-empty kernel (a3-graph line 6); 1.85 us of CPU submission a
+    launch on the 252-launch bench (attribution-cuda lines 28-29). The "eager path's host overhead (4.11 ms)" of
+    recherche-debit-maths line 310 has no journal.
+  - Runtime text work on the M3 Max after the audit: 0.8 to 1.9 us a token from position 0 to 7,936
+    (runtime-overhead lines 13-14, *measured*, CPU only).
+
+1g. 8B and 14B
+  - Door, 256 tokens: 8B 144.5 / 135.2 / 129.3 / 110.0 tok/s, 6.92 / 7.40 / 7.73 / 9.09 ms at 5 / 2,048 / 4,096 /
+    8,192; 14B 87.3 / 83.7 / 80.9 / 71.5, 11.46 / 11.95 / 12.36 / 13.99 ms (served-v9-8b lines 36-39, served-v9-14b
+    lines 36-39). 4E over eager x1.384 and x1.375.
+  - int4 words on the card: 0.503 GB (53 records) at 8B, 1.476 GB (99 records) at 14B (*measured* prints,
+    served-v9-8b line 18, served-v9-14b line 18). Heads untied, 151,936 rows.
+  - Bytes by type a token: Tetra 1.60 / 2.76 GB, int4 0.54 / 1.57, head 0.35 / 0.44 (recherche-debit-maths lines
+    300-302, *estimated*). Tetra rows in situ 3.65 / 6.18 ms (line 299, *estimated* by closing the token).
+  - 4E token in plain wall: 6,945 us (8B), 11,002 (14B) (spec-final lines 29-33). No phase table of 4E exists at 8B
+    or 14B.
+
+2. CLOSED AND NEGATIVE RESULTS, AND THEIR BOUNDARY (item 2)
+-------------------------------------------------------------
+Format: what was tried / object / measured / reopening / what it does not exclude. "Reopen: idea" means the ETAT §6
+title rule ("absent a new idea", ETAT line 228); ETAT line 251 forbids reopening by argument alone.
+
+Kernel, at the bit
+- 4E v5 (a CTA's last rows spread over its warps). Sealed 4B, 4E row form 2, 64 tokens. x1.001 over v4 at 5, x1.004
+  at 8,192; gate/up mean 1,184 to 1,024 us, lost in down rows (462 to 490) and inner wait (189 to 229) (shaker-4e
+  lines 20-31, 57-58). Reopen: idea (ETAT line 240). Does not exclude: a gate/up-only form (plan-300 line 131 calls it
+  a reopening), anything on v9's int4 tiling and v8's ring, which came after.
+- K4 row-loop arms (load path .nc / nc256, cp.async, word tile, dynamic row claim; Lambda-transposed read; ilp2; v3
+  stream). v2's Tetra loop alone, 252 matrices as Tetra (0adb7cfd), 4E geometry, one launch. Best x1.002 [0.982-1.024];
+  nc x0.810, nc256 x0.845, cpa x0.960, bal x0.934 (step1-micro lines 26-31); v3 x0.849, ilp2 x0.928, bcast x xbcast
+  0.98 (pers-rowloop lines 26-31, 49). Reopen: idea (ETAT line 241). Does not exclude: a decode with fewer
+  instructions (the relabeled decoder and lane rotation of recherche-debit-maths §4, never run; `pword`, the words read
+  without decode, never run, line 237), the warp balance tested alone (plan-300 line 298), shapes measured one d_in at
+  a time, any arm inside 4E.
+- E1, attention's L2 prefetch removed (v9np) or moved to gate/up (v9mv). Sealed 4B, v9, 5 and 8,192. v9np x1.003 /
+  x0.996, v9mv x0.978 / x0.978, logits bit for bit; attention -201 / -252 us and 94 % of it reappears in o and
+  gate/up (large-4e-e1 lines 60-65, 141-144). Reopen: idea (ETAT line 245). Does not exclude: another placement of
+  the 670 MB (split across phases, a shorter prefetch distance; large-4e-e1 line 226), any change that removes bytes.
+- v9ft, guard-free full attention tile. Sealed 4B, four contexts. x1.009 / x1.027 / x0.997 / x1.004; stamped attention
+  -82 / -183 / -74 / -92 us, timed token -39 / -121 / +14 / -22 (large-attn-ft-4e lines 11-14, 82-85). Reopen: idea
+  (ETAT line 247). Does not exclude: whatever holds the attention phase at 8,192 besides the tile (line 97), the
+  attention job spread at short rows (K3a's second half, "not coded", plan-300 line 234).
+- v8 ring (K3a first half). It was kept: x1.076 at 5, x1.025 at 8,192; attention's slowest over mean 4.40, the gate
+  failed (step2-4e via plan-300 lines 213-219). Does not exclude: K3a's second half.
+- K3b counters for grid waits. Micro, 142 x 512, 10,000 hops. ctr8 0.274 us under the barrier's 0.771, under the 0.3
+  bar (step1-micro lines 42-46). Not licensed. Does not exclude: fewer waits (5 a layer instead of 6, 0.029 ms,
+  recherche-debit-maths line 70, *computed*), splitting arrival from wait (0.415 us of the hop hidden, line 56).
+- Tables in shared memory, prefetch in the one-launch pass, 768 threads. tpersall variants: x0.948, x0.994, x1.023;
+  768 threads did not load (pers-4e-v2 lines 67-71). Does not exclude: anything inside 4E itself.
+- v7 (constants staged in shared). Refused for 24 B local at 128 registers (step3-4e line 25); its staging lives in
+  v8 and v9. Boundary: register pressure at 128 is a standing constraint.
+- Golay70 v1/v2, E1v, E1c14, Planes12x, Slot32. Layouts denser or different from Tetra48, eager bench, tile 128,
+  Planes14-era. Golay70 v2 1.77x against 2.0x, 263 GB/s, issue bound (golay70-v2 lines 21, 30-35, 136); E1v 0.25x
+  (format-noyau line 49). Reopen: idea (ETAT lines 232-233). Do not exclude: anything about Tetra48 or 4E, the A100
+  (Golay70 v2 0.62x there, format-noyau line 312).
+- nullk floor and the 4.77x format ceiling. Planes14 grid, tile 128, 252 launches (nullk-plancher lines 14-31).
+  Does not exclude: 4E (one launch), other grids (subtracting nullk across grids is illegal, line 51-54).
+
+Graphs, launches, occupancy
+- A2, CUDA Graphs, served. Planes14 config v1, eager candle engine, before Tetra and 4E, tile 128. +13.45 % gross
+  (a2-e3 line 18), +12.6 % net at 4B (a2-verdict lines 23-24); 8B x1.1009, 14B x1.0609 (a2-transfert files).
+  The +47 % of VRAM is *computed* for an 8k window and "jamais mesure"; the only window run was 256, +0.038 GB
+  (ECARTS lines 139, 147-152). Reopen: if the context target drops, if KV goes q8, or if capture becomes compatible
+  with a growing cache (ECARTS lines 157-160); hard rule 3 bars it from the core. Does not exclude: launch reduction
+  by other means; on 4E, the door residue is the most it could act on (recherche-debit-maths lines 386-389,
+  *estimated*).
+- A3 occupancy arms on the Planes14 segment kernel bench: pers +1.56 %, persall +26.36 % (not portable), mr2/mr4/sk2
+  -10 to -25 % (a3-occupation-banc lines 28-40). Does not exclude: 4E, which is the persistent single launch.
+- Two CTAs a SM in the batched GEMM. Sealed 4B, B = 32 to 128: -5.7 to -17.4 % (batch-l40s-v4 line 41). Reopen: idea
+  (ETAT line 249). Batch path only; says nothing on batch-1 4E.
+- Batched GEMM against AWQ. 106.4 against 428.3 GB/s at B = 32 (batch-l40s-v2 line 36, *computed*). Eager engine
+  launches; at one row the GEMM's Tetra decode moves about 200 GB/s (line 66, *computed*). Not batch-1 4E.
+
+Speculation and verify
+- 0.6B Tetra drafter, chain, old f32 verify pass pers_4ev. x0.595 / x0.629 / x0.625 at k = 1 (spec-gate lines 49-50);
+  verify x1.95 tokens for 2 rows at 4B (line 27). Reopen: a 2-row verify under 1.4 greedy tokens and a draft token
+  under 1 ms (ETAT line 242). Does not exclude: the 0.6B on the tree pass, k above 3, a drafter on the CPU, long
+  context (spec-gate lines 80-83).
+- Prompt lookup on pers_4ev. x0.937 chat, x1.108 rag, x1.140 house at 4B (spec-final lines 54-60). Reopen: as above
+  (ETAT line 243). Does not exclude: lookup on the tree pass on the card.
+- EAGLE-3 head. Acceptance measured on the Mac only, BF16 head (eagle-alpha lines 22-27). Reopen condition met by
+  N11 (ETAT line 244); head never built. Does not exclude: everything on the card.
+- Tree verify S1 and N1-N11. Sealed 4B, contexts 62 and 362, R up to 32, bench. Best c_1 1.544, c_2 1.556, extra row
+  0.0123 (verify-tree-n11 lines 71-74). No ETAT §6 row; the 0.6B row's c_2 under 1.4 never met. Does not exclude:
+  8B, 14B, other contexts, the content of the 720-736 B of local memory (n10, n11 line 171), the 19 % of the one-row
+  gap (450.7 us) the audit could not attribute (spec-cout-fixe-audit lines 104-107).
+- DFlash in the loop (SP8). GSM8K-200 502.1 tok/s x2.295, house x1.556, chat x1.086 (spec-loop-sp8 lines 7-9,
+  116-126). Not served: 4.870 b/param with the f16 drafter (spec-memoire line 61), default stays 2.73 (ETAT lines
+  190-192). Reading the served int4 order costs the pass +2.36 ms (spec-mem-m3 lines 18-20), cause not established.
+- 4E-R (rows added inside 4E's own loop). *estimated* only, never run (spec-passe-4e-r-etude lines 3-10).
+
+Prefill, KV
+- D1 chain prefill K/V read once for 4 rows. x1.302 at 8,191 under its x1.5 rule (ETAT line 246). Prefill only.
+- KV int8. Metal, Planes14 file, short context: ppl +0.0494 % [-0.0713, +0.1703], tok/s x0.927 to x0.945 (kvq8-4b
+  lines 52-53, 107-113). Its upper bound leaves the +-0.12 % band (CERVEAU P4). Never measured on the L40S, under 4E,
+  or at long context (kvq8-4b lines 148-152).
+
+3. ANOMALIES AND RESIDUALS (item 4)
+-----------------------------------
+A1. N5: the Tetra loop alone against the same rows in 4E.
+  - Alone: v2's loop 379 [368-383] GB/s (pers-rowloop line 25), 374 [368-378] (step1-micro line 26), over all 252
+    matrices of the bare Tetra encode, 0.9467 GB, one launch.
+  - In 4E v2 (2026-11-05): Tetra rows about 260 GB/s (pers-4e-v3-host line 7, *computed* from the v2 phase table).
+    This is the "about 260" of pers-rowloop line 4 and of CERVEAU K10.
+  - In 4E v9: gate/up Tetra rows 359 GB/s on mean work at 5 tokens and 385 at 8,192; 326 and 342 on the wall
+    (*computed* here, large-4e-e1 lines 98, 121). The budget note reads 360 at chat context (large-4e-budget line 60).
+  - So at v9 the gap on gate/up mean work is 0 to 6 %, and 10 to 14 % on the wall (*computed*). The solo figure mixes
+    three d_in, and d_in 2,560 is the slowest per step (1,616 cycles against 1,272 at 9,728, pers-rowloop line 37):
+    no solo rate at gate/up's shape alone exists.
+  - The second half of N5, time moved without removal: E1 attention -201 us, timed token -12 us, 94 % reappears
+    (large-4e-e1 lines 141-144); v9ft stamped -104 us at 8,192, timed -22 (large-attn-ft-4e line 85); v5 gate/up -160
+    mean, lost in down and inner wait (shaker-4e lines 57-58).
+  - Ruled out as the cause of the loop's rate: the word path through L1 (l1w x0.99 over v2, plan-300 line 116),
+    .nc and cp.async paths, word tiling, dynamic claim (step1-micro lines 27-31), Lambda-transposed read
+    (pers-rowloop line 49), tables in shared (x0.948, pers-4e-v2 line 68), per-row round trips as the main bound
+    (pers-4e-v3 line 54), the shared-memory carve-out (v6s x1.000, step3-4e line 49), the stamp symbol's spill as a
+    cost on the timed symbol (step3-4e line 50).
+  - Not ruled out: foreign DRAM traffic during the rows (A4), the warp balance at d_in 4,096 and 9,728 (never tested
+    alone), imbalance between CTAs (gate/up wall over mean 1.101 at v9, large-4e-e1 line 212).
+
+A2. The door residue.
+  - Stated as 0.271 ms between the door's decode and the measurement form (plan-300 line 32, v4 era), 0.24 to 0.27
+    ms (hors-poids line 55), 0.27 ms (recherche-debit-maths line 386), "no measured cause" in all three.
+  - Same job, same window of 64 tokens after 5: door 238.4 tok/s, 4.19 ms, bench 236.6, 4.2265 ms (large-4e-e1 lines
+    51-53, 60); door 240.7, bench 239.8 (large-attn-ft-4e lines 48-49, 59). At equal window the door is not slower.
+  - 256-token window after 5: door decode alone 225.8, 4.429 ms (served-v9 line 29); sweep 226.2, 4.42 ms (line 35);
+    fusedrun base 227.7, 4.39 ms (spec-mem-m3-brut base-short.txt). The gap between windows is 0.17 to 0.24 ms a
+    token (*computed*). large-4e-e1 lines 51-53 already set the 256-token door beside the 64-token bench.
+  - A linear reading of the 5 to 1,024 timed slope (4,169.3 to 4,611.2 us, large-attn-ft-4e line 83) gives 0.43 us a
+    position, about 0.04 ms for the 96 extra positions of the mean (*computed*). The slope between 5 and 261
+    positions is not measured. Under 256 tokens the door may also run several launches (1f); their count and cost are
+    not measured.
+  - Ruled out: the prompt's prefill share, 0.084 ms a token at v4 (plan-300 line 31).
+
+A3. Stamped against timed token.
+  - Stamped minus timed: +34 us at v6 (plan-300 line 46), +210 at N11 chat (large-4e-budget line 3), +257 at v9 E1 5
+    tokens, +134 at v9mv (large-4e-e1 lines 92-93, 130-131), +278 / +289 / +268 / +271 at 5 / 1,024 / 4,096 / 8,192
+    (large-attn-ft-4e lines 82-85). Stamp symbols carry 32 to 48 B local (step3-4e lines 26-27; E1 line 43; ft line
+    53); the timed symbol 0 B.
+  - Gains that do not transfer: v9ft stamped -69 us, timed +14 at 4,096; stamped -104, timed -22 at 8,192 (ft lines
+    84-85, "not established", line 93). v9mv stamped -28 us, timed +95 at 5 tokens (E1 lines 92-93).
+  - The tree pass: stamped gap 2,177.3 us against timed 2,425.3, 248 us that no phase holds (spec-cout-fixe-audit
+    lines 16-19). Fine stamps inflate a11i by +0.15 to +0.23 tokens (verify-tree-n8 lines 3-7).
+  - Ruled out: none. The one job that could separate the symbols did not (ft lines 93-94).
+
+A4. gate/up rows slow under concurrent traffic.
+  - v9mv adds 374.3 MB of prefetch during gate/up: mean work +178 us over v9np at 5 tokens, +170 at 8,192; those
+    bytes take 433 us at 864 GB/s, so gate/up pays about 40 % of their peak-rate time (large-4e-e1 lines 187-190,
+    measured times, *computed* bytes).
+  - Without its own prefetch (v9np) gate/up mean work rises 6 % at 5 tokens (1,309 to 1,387 us) and 15 % at 8,192
+    (1,219 to 1,401) (large-4e-e1 lines 98, 121, 186). Why the effect doubles at 8,192 is not stated.
+  - Read without counters: "every DRAM reading above is inferred from times" (large-4e-e1 line 225).
+
+A5. Attention at short context, three levels for one form.
+  - v9 attention wall 599.1 us at 5 tokens (E1 line 87), 591.6 (ft line 82), 790.9 at chat 62 (budget line 56);
+    "Why v9 reads 599 us of attention here against 791 in N11" is not established (E1 line 225).
+  - Over 62 tokens the wall at 5 ranges 340 to 830 us (E1 line 129), 335 to 821 (ft line 89).
+  - Without prefetch, 398 us for 9.3 MB of KV, floor 11 us (E1 line 193); mean CTA work 25 us. FlashInfer reads
+    2,048 positions in 14.6 us a layer (plan-300 line 108, fi-decode-anchor).
+
+A6. The same v9 bench across jobs: 236.6 (E1) against 239.8 (ft), +1.35 % (ft line 117); step3 238.6. Timed token at
+  5 tokens 4,226.5 (E1) against 4,169.3 (ft). 14B decode after 5: 87.3 [86.9-87.8] (served-v9-14b) against 90.0
+  [89.6-90.3] (duel-iq2 lines 120-125), "a card instance is the plausible cause, not established".
+
+A7. int4 rows: faster in situ than alone. In situ 587-588 GB/s (pers-4e-v3-host line 6, *computed*), alone 410
+  (step1-micro line 36). "The in-situ figure likely reads prefetched lines from L2" (step1-micro lines 73-74): a
+  reading, not a measurement. The inverse case of N5.
+
+A8. The tree pass at 8k: 48.155 ms a pass against 6.15 ms for a 4E token, cause not established (spec-mem-m3 lines
+  97, 105-109).
+
+4. WHAT WE HAVE NEVER MEASURED (item 5)
+---------------------------------------
+- The card's DRAM bandwidth by a copy or read probe. 864 is a datasheet number; 671 is the best rate of our kernels.
+- Any hardware counter on 4E: Nsight Compute fails with ERR_NVGPUCTRPERM on HF Jobs (f3-events lines 57-60); nsys is
+  not in the image (trims-contexts). L2 residency, DRAM busy per phase and issue stalls are all inferred.
+- The Tetra loop alone on one shape (d_in 2,560 for q/k and gate/up); the solo rate is a three-shape mix.
+- The Tetra rows inside 4E with no concurrent phase traffic (no prefetch issued, no KV read), as a clean in-situ rate.
+- `pword`: the Tetra words streamed with no decode (recherche-debit-maths lines 237-238, never run).
+- The relabeled decoder, lane rotation and int16 dot on the card (counts only, sass-tetra-lean).
+- The warp balance as a lever by itself (plan-300 line 298).
+- Phase stamps over the door's 256 tokens, and the door's launch count and per-launch host time.
+- 4E's timed token with stamps that cost nothing: every phase table comes from a symbol 130 to 290 us slower.
+- 4E phases at 1,024 and 4,096 other than attention (hors-poids line 267).
+- Any 4E phase table at 8B or 14B; any 4E run on an A100 or a sm_86 to sm_120 card.
+- The attention job spread at short rows (K3a's second half, "not coded", plan-300 line 234).
+- KV int8 under 4E, on the L40S, at long context; its paired perplexity at 8k.
+- Sampling and argmax cost apart from the head phase.
+
+5. DOCUMENTS THAT DISAGREE
+--------------------------
+- 4E launch cadence. recherche-debit-maths lines 230, 310, 386: "4E launches once a token" / "4E removed it". The
+  kernel loops over L.n_tokens in one launch (pers_4e.cu line 243); the config prints "one launch a token run";
+  runtime-audit lines 42, 95, 125 say one launch of 64 tokens; spec-loop-sp3 lines 5-7 reads 128 tokens a launch.
+- The door residue (A2): plan-300 line 32 and hors-poids line 55 compare a 256-token door with a 64-token bench.
+- The 4.11 ms eager host overhead (recherche-debit-maths line 310): no journal.
+- The x1.27 loop factor: spec-cout-fixe-audit lines 71-73, 153 did not find its journal; spec-passe-4e-r-etude line
+  121 calls it measured. The only x1.27 found is sass-tetra-lean line 40, a different quantity (in-situ instruction
+  time over the eager slope, first pass), which that journal says contradicted 4E's stamps.
+- 8B and 14B int4 bytes: 0.503 and 1.476 GB of tiled words printed by the door (served-v9-8b/14b line 18) against
+  0.54 and 1.57 GB of int4 rows in recherche-debit-maths line 301 (*estimated*). The accounting of scales is not
+  stated in either.
+- The Tetra tile gain: +16.1 % time reduction on 216 matrices (tuile-l40s line 18) against "17.6 %" max over min on
+  252 (banc-252 line 49), written as one quantity in HISTORIQUE.
+
+6. CERVEAU'S K CLAIMS AGAINST THEIR JOURNALS (item 1)
+------------------------------------------------------
+Holds as written: K1 (served-v9 lines 28-31; 8B and 14B lines 32), K5 (hors-poids lines 8-10, 62-66; E1 lines
+141-144), K6 (plan-300 lines 13, 245; hors-poids lines 4-6), K7 (batch-l40s-v2 lines 36, 65), P1 (served-v9 line 38),
+P2, P3 (hors-poids lines 67-68), D1 to D4, M1, M2 (as read by the subagents and spot-checked).
+Mismatches:
+- K10. (a) "strongest suspect l1w, x1.214" is over v2u, not over v2; over v2, l1w reads 2.516 against 2.499 ms, x0.99
+  (pers-rowloop lines 25, 29; plan-300 lines 115-117 says so). (b) The "about 260 GB/s" in situ is v2-era and is
+  first computed in pers-4e-v3-host line 7, not in pers-rowloop. (c) At v9 gate/up reads 359 to 385 GB/s on mean
+  work (section 1d): the "third lost in situ" does not describe the served kernel. K10's own Overturn names "a v9
+  in-situ trace where the rows reach 379 GB/s": at 8,192, 385 on mean work already does for gate/up (*computed*
+  from stamps, not a trace).
+- K4. The range x0.978 to x1.027 covers the 4E forms. Its evidence step1-micro (x1.002) is the loop alone, not a 4E
+  rescheduling, and the same job's other arms read x0.810 to x0.960.
+- K8. "+47 % of VRAM" is *computed* and never measured (ECARTS lines 139, 147-152); CERVEAU and ETAT line 238 carry
+  no label. The measured gain is on Planes14, eager, tile 128.
+- K9. The three figures +0.0095 / -0.0048 / +0.0023 % are the grouped form against expanded. The served 4E form is
+  the kernel form from position 0, read against grouped: +0.0318 % [-0.0151, +0.0786] on 32 windows of 1,280 and
+  +0.0018 % on 12 of 4,096 at 4B (attn-t8-below lines 3-6), +0.0043 % [-0.0141, +0.0227] at 8B (served-v9-8b line
+  5), -0.0108 % [-0.0281, +0.0065] at 14B (served-v9-14b line 5). The 4B upper bound is 0.65 of the band, not a tenth.
+- K2. The object is the bare Tetra encode 0adb7cfd, 252 lattice records and no int4 (banc-252 lines 12-15), one
+  launch a matrix, tile 64; "the 4B's 252 projections" is not the sealed file.
+- K3. The A100 jobs ran the eager engine at tile 128 (a100 lines 19-20, 63); no 4E form has run on an A100.
+- K1 to K10 "Checked" lines that say "copied from ETAT.md" (K1, K2, K3, K7, K8, K9): reread here against the
+  journals; K1 and K7 hold, K2, K3, K8 and K9 carry the scope or label gaps above.
+
+7. WHAT THIS NOTE DID NOT CHECK
+-------------------------------
+- Section 2's speculation and older-lead rows rest on two read-only sub-reports that quoted file and line; the 4E rows
+  and every figure in sections 1, 3 and 6 were read directly.
+- No -brut file was opened except spec-mem-m3-2026-11-11-brut/base-short.txt.
+- The *computed* figures in this note (gate/up GB/s at v9 and v9np, KV bytes at 1,024 and 4,096, the window gap, the
+  0.04 ms slope reading) are hand arithmetic on journal numbers, not script output.

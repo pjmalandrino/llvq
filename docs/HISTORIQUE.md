@@ -1463,6 +1463,66 @@ rows of `docs/data/jobs.csv` sum to $326.22, $0.25 under the registry; the journ
   states both readings of the prereg's "interacting" row: to the letter it fires and the next step is global.
 - Nothing served changes: no config, no served module, no Hub file.
 
+## 2026-11-12. A research phase opens on decode speed; six speed claims of CERVEAU corrected against their journals
+
+Mandate in [`CERVEAU.md`](CERVEAU.md) O11: decode speed, the sealed files untouchable, three days and $5 of card. The
+reading step is [recherche-debit-r0-depot](mesures/recherche-debit-r0-depot-2026-11-12.txt) and
+[recherche-debit-r0-litterature](mesures/recherche-debit-r0-litterature-2026-11-12.txt); the framing is
+[recherche-debit-r1-cadrage](mesures/recherche-debit-r1-cadrage-2026-11-12.txt). Nothing was measured.
+
+- The reading found six claims that said more than their journals. K2 is the bare encode, not the sealed file. K3's
+  A100 ran the eager engine only. K4's ×1.002 is the row loop alone, not a 4E form. K8's +47 % of VRAM is *computed*.
+  K9's factor of ten is the grouped form; the kernel form of 4E reaches 0.65 of the band at 4B.
+- K10 said that a third of the Tetra rows' time was lost inside 4E, at about 260 GB/s against 379 alone. That was
+  4E v2. At v9 gate/up reads 359 to 385 GB/s in the token (*computed* from stamps), so the rows are bound by their
+  decode. The anomaly N5 is now the whole token at 297 GB/s against rows at 359 to 648.
+- The first card run of the phase, [recherche-debit-banc](mesures/recherche-debit-banc-2026-11-12.txt) (6af5ce28,
+  $0.10), fails its fidelity rule on one control of twelve, so it scores no candidate. As a description it measures
+  the L40S's bare read at 751 GB/s, the sealed Tetra rows alone at 407, and the same words read with nothing decoded
+  at 493 (*measured*). The decode is not what holds the rows; the way their words are read is. Six of ten signed
+  predictions missed, all built on the decode-bound framing. The image recipe compiles three crates at a time since
+  this run: at two the build no longer fits the Space builder's 30 minutes. Spend under the cap: $19.32 of $25,
+  registry $326.57.
+- The second card run, [recherche-debit-lecture](mesures/recherche-debit-lecture-2026-11-12.txt) (6af5e9e7, $0.10),
+  fails its fidelity rule too, on the served window (394.0 GB/s against [368, 383]), so it kills no hypothesis to the
+  letter. It describes: read as a flat stream by 128-bit loads with no side stream, the sealed Tetra words stream
+  717 GB/s against 751 for the card and 480 for the served read (*measured*). The row boundary, the load width and
+  the side streams each cost about x1.2. Spend under the cap: $19.42 of $25, registry $326.67.
+- 2026-11-13, the third card run, [recherche-debit-corps](mesures/recherche-debit-corps-2026-11-13.txt) (6af6f074,
+  $0.10), is the first whose fidelity rule passes: the served arm timed twice a round agrees to 0.5 %, and four
+  journal controls sit in their windows. Seven whole bodies were scored on the sealed Tetra rows alone. The flat
+  body, a thread a run of 8 blocks on aligned 128-bit loads with the row ends after a barrier, reads 470.5 GB/s,
+  x1.185 [1.179-1.190] of the served row, inside a bound of 1e-5. The served row with its row end in a second pass
+  reads x1.053 [1.050-1.056] bit for bit. A thread a row reads x0.35 to x0.37 (*measured*). No tok/s is
+  established. Nine of twelve signed predictions held. Spend under the cap: $19.52 of $25, registry $326.77.
+- The fourth card run, [recherche-debit-jeton](mesures/recherche-debit-jeton-2026-11-13.txt) (6af70da3, $0.46),
+  put the two bodies in 4E's token as E1 arms and is void for its question: neither arm loads on the card. The
+  driver's ptxas gives their timed symbol 8 B of local memory at 128 registers, where the devel nvcc gave 0, and
+  the runtime refuses it. The run holds that the rule F1 passes in the token with a floor 0.06 % wide, and v9 at
+  225.8 tok/s at 5 tokens (*measured*). The job had no load check first and ran 923 s for nothing more. Spend
+  under the cap: $19.98 of $25, registry $327.23.
+- The fifth card run, [recherche-debit-charge](mesures/recherche-debit-charge-2026-11-13.txt) (6af73aed, $0.16),
+  was the load check of four lighter bodies (v9ep2, v9ep3, v9fl2, v9fl3, green on the Mac) and is void: the check
+  compiles seven modules on seven threads, prints only at the end, and was killed by its 5 min timeout with no
+  line out. No arm has a verdict. Spend under the cap: $20.14 of $25, registry $327.39.
+- The sixth card run, [recherche-debit-charge2](mesures/recherche-debit-charge2-2026-11-14.txt) (6af82af3, $0.42,
+  2026-11-14), is the same check with the arms one after the other and each line printed as known. Its gates pass.
+  None of the four lighter bodies loads: each is refused for 8 B of local memory at 128 registers, as v9ep and
+  v9fl, and v9 loads (*measured*). Shedding live values from the bodies did not move the local memory by a byte.
+  The token measurement is not launched. Spend under the cap: $20.56 of $25, registry $327.81.
+- The seventh card run, [recherche-debit-sondes](mesures/recherche-debit-sondes-2026-11-14.txt) (6af837d1, $0.27),
+  compiles five load probes, the endpass body on one call site each. One site brings the 8 B: gate/up. The body on
+  q/k, on the Tetra down or on the Tetra o alone loads at 0 B, and so does the inserted text alone (*measured*).
+  Nothing is timed. Spend under the cap: $20.83 of $25, registry $328.08.
+- The eighth card run, [recherche-debit-jeton3](mesures/recherche-debit-jeton3-2026-11-14.txt) (6af85b14, $0.32),
+  checks three arms that leave the one-call gate/up site out: flat and endpass with gate/up in two calls, and flat
+  with v9's own gate/up. None loads, each refused for the same 8 B at 128 registers (*measured*). The job stops
+  after the check. Flat on q/k, down and o is refused even with v9's gate/up, so gate/up is not the only way to the
+  8 B. Nothing is timed. Spend under the cap: $21.15 of $25, registry $328.40.
+- The operator closed the phase on 2026-11-14, on a ceiling ([`CERVEAU.md`](CERVEAU.md) O11). No tok/s was gained
+  and no candidate was timed in 4E's token. The gain on rows alone stands. Phase spend: $1.93 of $5. The registry
+  figures above are this branch's; with the quality phase's rows the registry sums to $341.64 (*computed*).
+
 ## 2026-11-13 to 11-14. A research phase on quality opens and closes on a dead hypothesis; MODES allows two phases on two axes; nothing served changes, $13.49
 
 The operator signed the mandate of a research phase on model quality, O12 of [`CERVEAU.md`](CERVEAU.md). It started

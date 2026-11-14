@@ -1,0 +1,80 @@
+  acc2         tv_rowc_acc2: grid 142 x 512, 78 registers, 0 B local, 57984 B shared, 1 a SM fit
+  acc2         owes bound 1e-5: y equal 884152/884736, f32 equal 360335/884736, max rel err 1.717e-6, q99 2.830e-7: PASS
+  tr32         tv_rowc_tr32: grid 142 x 512, 106 registers, 0 B local, 58240 B shared, 1 a SM fit
+  tr32         owes bits: y equal 884736/884736, f32 equal 884736/884736, max rel err 0.000e0, q99 0.000e0: PASS
+  tr32p        tv_rowc_tr32p: grid 142 x 512, 118 registers, 0 B local, 58240 B shared, 1 a SM fit
+  tr32p        owes bits: y equal 884736/884736, f32 equal 884736/884736, max rel err 0.000e0, q99 0.000e0: PASS
+  endpass      tv_rowc_endpass: grid 142 x 512, 72 registers, 0 B local, 66432 B shared, 1 a SM fit
+  endpass      owes bits: y equal 884736/884736, f32 equal 884736/884736, max rel err 0.000e0, q99 0.000e0: PASS
+  wq           tv_rowc_wq: grid 142 x 512, 89 registers, 0 B local, 58240 B shared, 1 a SM fit
+  wq           owes bound 1e-5: y equal 884025/884736, f32 equal 278199/884736, max rel err 1.717e-6, q99 3.159e-7: PASS
+  flat         tv_rowc_flat: grid 142 x 512, 79 registers, 0 B local, 66432 B shared, 1 a SM fit
+  flat         owes bound 1e-5: y equal 884010/884736, f32 equal 236312/884736, max rel err 1.569e-6, q99 3.815e-7: PASS
+  tr32r        tv_rowc_tr32r: grid 142 x 512, 118 registers, 0 B local, 58240 B shared, 1 a SM fit
+  tr32r        owes bits: y equal 884736/884736, f32 equal 884736/884736, max rel err 0.000e0, q99 0.000e0: PASS
+  flats        tv_rowc_flats: grid 142 x 512, 92 registers, 0 B local, 95104 B shared, 1 a SM fit
+  flats        owes bound 1e-5: y equal 884010/884736, f32 equal 236312/884736, max rel err 1.569e-6, q99 3.815e-7: PASS
+  acc2         tv_rowc_acc2: grid 142 x 512, 78 registers, 0 B local, 57984 B shared, 1 a SM fit
+  acc2         owes bound 1e-5: y equal 61388/61440, f32 equal 18467/61440, max rel err 1.716e-6, q99 3.474e-7: PASS
+  tr32         tv_rowc_tr32: grid 142 x 512, 106 registers, 0 B local, 58240 B shared, 1 a SM fit
+  tr32         owes bits: y equal 61440/61440, f32 equal 61440/61440, max rel err 0.000e0, q99 0.000e0: PASS
+  tr32p        tv_rowc_tr32p: grid 142 x 512, 118 registers, 0 B local, 58240 B shared, 1 a SM fit
+  tr32p        owes bits: y equal 61440/61440, f32 equal 61440/61440, max rel err 0.000e0, q99 0.000e0: PASS
+  endpass      tv_rowc_endpass: grid 142 x 512, 72 registers, 0 B local, 66432 B shared, 1 a SM fit
+  endpass      owes bits: y equal 61440/61440, f32 equal 61440/61440, max rel err 0.000e0, q99 0.000e0: PASS
+  wq           tv_rowc_wq: grid 142 x 512, 89 registers, 0 B local, 58240 B shared, 1 a SM fit
+  wq           owes bound 1e-5: y equal 61378/61440, f32 equal 15721/61440, max rel err 8.339e-7, q99 3.756e-7: PASS
+  flat         tv_rowc_flat: grid 142 x 512, 79 registers, 0 B local, 66432 B shared, 1 a SM fit
+  flat         owes bound 1e-5: y equal 61365/61440, f32 equal 11399/61440, max rel err 1.168e-6, q99 5.269e-7: PASS
+  tr32r        tv_rowc_tr32r: grid 142 x 512, 118 registers, 0 B local, 58240 B shared, 1 a SM fit
+  tr32r        owes bits: y equal 61440/61440, f32 equal 61440/61440, max rel err 0.000e0, q99 0.000e0: PASS
+  flats        tv_rowc_flats: grid 142 x 512, 92 registers, 0 B local, 95104 B shared, 1 a SM fit
+  flats        owes bound 1e-5: y equal 61365/61440, f32 equal 11399/61440, max rel err 1.168e-6, q99 5.269e-7: PASS
+  acc2         tv_rowc_acc2: grid 142 x 512, 78 registers, 0 B local, 57984 B shared, 1 a SM fit
+  acc2         owes bound 1e-5: y equal 945540/946176, f32 equal 378802/946176, max rel err 1.717e-6, q99 2.893e-7: PASS
+  tr32         tv_rowc_tr32: grid 142 x 512, 106 registers, 0 B local, 58240 B shared, 1 a SM fit
+  tr32         owes bits: y equal 946176/946176, f32 equal 946176/946176, max rel err 0.000e0, q99 0.000e0: PASS
+  tr32p        tv_rowc_tr32p: grid 142 x 512, 118 registers, 0 B local, 58240 B shared, 1 a SM fit
+  tr32p        owes bits: y equal 946176/946176, f32 equal 946176/946176, max rel err 0.000e0, q99 0.000e0: PASS
+  endpass      tv_rowc_endpass: grid 142 x 512, 72 registers, 0 B local, 66432 B shared, 1 a SM fit
+  endpass      owes bits: y equal 946176/946176, f32 equal 946176/946176, max rel err 0.000e0, q99 0.000e0: PASS
+  wq           tv_rowc_wq: grid 142 x 512, 89 registers, 0 B local, 58240 B shared, 1 a SM fit
+  wq           owes bound 1e-5: y equal 945403/946176, f32 equal 293920/946176, max rel err 1.717e-6, q99 3.216e-7: PASS
+  flat         tv_rowc_flat: grid 142 x 512, 79 registers, 0 B local, 66432 B shared, 1 a SM fit
+  flat         owes bound 1e-5: y equal 945375/946176, f32 equal 247711/946176, max rel err 1.569e-6, q99 3.923e-7: PASS
+  tr32r        tv_rowc_tr32r: grid 142 x 512, 118 registers, 0 B local, 58240 B shared, 1 a SM fit
+  tr32r        owes bits: y equal 946176/946176, f32 equal 946176/946176, max rel err 0.000e0, q99 0.000e0: PASS
+  flats        tv_rowc_flats: grid 142 x 512, 92 registers, 0 B local, 95104 B shared, 1 a SM fit
+  flats        owes bound 1e-5: y equal 945375/946176, f32 equal 247711/946176, max rel err 1.569e-6, q99 3.923e-7: PASS
+  gu_acc2      tv_rowc_gu_acc2: grid 142 x 512, 96 registers, 0 B local, 57984 B shared, 1 a SM fit
+  gu_acc2      owes bound 1e-5: y equal 699958/700416, f32 equal 285378/700416, max rel err 1.655e-6, q99 2.796e-7: PASS
+  gu_tr32      tv_rowc_gu_tr32: grid 142 x 512, 109 registers, 0 B local, 58240 B shared, 1 a SM fit
+  gu_tr32      owes bits: y equal 700416/700416, f32 equal 700416/700416, max rel err 0.000e0, q99 0.000e0: PASS
+  gu_tr32p     tv_rowc_gu_tr32p: grid 142 x 512, 121 registers, 0 B local, 58240 B shared, 1 a SM fit
+  gu_tr32p     owes bits: y equal 700416/700416, f32 equal 700416/700416, max rel err 0.000e0, q99 0.000e0: PASS
+  gu_endpass   tv_rowc_gu_endpass: grid 142 x 512, 79 registers, 0 B local, 66432 B shared, 1 a SM fit
+  gu_endpass   owes bits: y equal 700416/700416, f32 equal 700416/700416, max rel err 0.000e0, q99 0.000e0: PASS
+  gu_wq        tv_rowc_gu_wq: grid 142 x 512, 95 registers, 0 B local, 58240 B shared, 1 a SM fit
+  gu_wq        owes bound 1e-5: y equal 699864/700416, f32 equal 220483/700416, max rel err 1.015e-6, q99 3.154e-7: PASS
+  gu_flat      tv_rowc_gu_flat: grid 142 x 512, 80 registers, 0 B local, 66432 B shared, 1 a SM fit
+  gu_flat      owes bound 1e-5: y equal 699850/700416, f32 equal 186958/700416, max rel err 1.219e-6, q99 3.776e-7: PASS
+  gu_tr32r     tv_rowc_gu_tr32r: grid 142 x 512, 122 registers, 0 B local, 58240 B shared, 1 a SM fit
+  gu_tr32r     owes bits: y equal 700416/700416, f32 equal 700416/700416, max rel err 0.000e0, q99 0.000e0: PASS
+  gu_flats     tv_rowc_gu_flats: grid 142 x 512, 102 registers, 0 B local, 95104 B shared, 1 a SM fit
+  gu_flats     owes bound 1e-5: y equal 699850/700416, f32 equal 186958/700416, max rel err 1.219e-6, q99 3.776e-7: PASS
+  acc2         tv_rowc_acc2: grid 142 x 512, 78 registers, 0 B local, 57984 B shared, 1 a SM fit
+  acc2         owes bound 1e-5: y equal 1105164/1105920, f32 equal 436050/1105920, max rel err 1.188e-6, q99 2.967e-7: PASS
+  tr32         tv_rowc_tr32: grid 142 x 512, 106 registers, 0 B local, 58240 B shared, 1 a SM fit
+  tr32         owes bits: y equal 1105920/1105920, f32 equal 1105920/1105920, max rel err 0.000e0, q99 0.000e0: PASS
+  tr32p        tv_rowc_tr32p: grid 142 x 512, 118 registers, 0 B local, 58240 B shared, 1 a SM fit
+  tr32p        owes bits: y equal 1105920/1105920, f32 equal 1105920/1105920, max rel err 0.000e0, q99 0.000e0: PASS
+  endpass      tv_rowc_endpass: grid 142 x 512, 72 registers, 0 B local, 66432 B shared, 1 a SM fit
+  endpass      owes bits: y equal 1105920/1105920, f32 equal 1105920/1105920, max rel err 0.000e0, q99 0.000e0: PASS
+  wq           tv_rowc_wq: grid 142 x 512, 89 registers, 0 B local, 58240 B shared, 1 a SM fit
+  wq           owes bound 1e-5: y equal 1105055/1105920, f32 equal 339916/1105920, max rel err 1.588e-6, q99 3.228e-7: PASS
+  flat         tv_rowc_flat: grid 142 x 512, 79 registers, 0 B local, 66432 B shared, 1 a SM fit
+  flat         owes bound 1e-5: y equal 1105021/1105920, f32 equal 284836/1105920, max rel err 1.308e-6, q99 3.947e-7: PASS
+  tr32r        tv_rowc_tr32r: grid 142 x 512, 118 registers, 0 B local, 58240 B shared, 1 a SM fit
+  tr32r        owes bits: y equal 1105920/1105920, f32 equal 1105920/1105920, max rel err 0.000e0, q99 0.000e0: PASS
+  flats        tv_rowc_flats: grid 142 x 512, 92 registers, 0 B local, 95104 B shared, 1 a SM fit
+  flats        owes bound 1e-5: y equal 1105021/1105920, f32 equal 284836/1105920, max rel err 1.308e-6, q99 3.947e-7: PASS

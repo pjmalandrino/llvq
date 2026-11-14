@@ -1,0 +1,41 @@
+Cuda(CudaDevice(DeviceId(1))), dtype F16, 2 tokens
+
+4E check: 4 arms, sm_89, #define TILE_BLOCKS 64u define, the sealed 4B's shape: 85952 B of dynamic shared memory
+4E check v9: module 253722 bytes, sha256 d55a097b146e8b962829045dfea6975470b408b942c1e0c22c038ad4d9d00860
+4E check v9: NVRTC 58.1 s
+CHECK v9 pers_4e_tokens_f0_t512: 128 registers, 0 B local, 85952 B shared, 1 resident a SM: loads
+CHECK v9 pers_4e_tokens_f1_t512: 128 registers, 0 B local, 85952 B shared, 1 resident a SM: loads
+CHECK v9 pers_4e_tokens_f2_t512: 128 registers, 0 B local, 85952 B shared, 1 resident a SM: loads
+CHECK v9 pers_4e_stamps_f1_t512: 128 registers, 32 B local, 85952 B shared, 1 resident a SM (outside the timed rounds)
+CHECK v9 pers_4e_logits_f1_t512: 128 registers, 0 B local, 85952 B shared, 1 resident a SM (outside the timed rounds)
+CHECK ARM v9 LOADS (105.1 s)
+4E check v9fg: module 264835 bytes, sha256 36b617b0811d24cb8aa475fa9c3f0cd49ced1138c918a0fbdd7556ceac1c67bb
+4E check v9fg: NVRTC 77.3 s
+CHECK v9fg rc layout on 142 CTAs: q/k 38976 B, gate/up 39252 B, down 47312 B of 59520 B
+CHECK v9fg pers_4e_tokens_f0_t512: 128 registers, 8 B local, 85952 B shared, 1 resident a SM: refused
+CHECK v9fg pers_4e_tokens_f1_t512: 128 registers, 8 B local, 85952 B shared, 1 resident a SM: refused
+CHECK v9fg pers_4e_tokens_f2_t512: 128 registers, 8 B local, 85952 B shared, 1 resident a SM: refused
+CHECK v9fg pers_4e_stamps_f1_t512: 128 registers, 40 B local, 85952 B shared, 1 resident a SM (outside the timed rounds)
+CHECK v9fg pers_4e_logits_f1_t512: 128 registers, 8 B local, 85952 B shared, 1 resident a SM (outside the timed rounds)
+CHECK ARM v9fg REFUSED: pers_4e_tokens_f1_t512: 8 B local, 1 resident a SM (145.4 s)
+4E check v9fn: module 264720 bytes, sha256 ce902a755173d05c4d50353e68d7bf62a326e13566fd4f7b84bf97e9933b6f4f
+4E check v9fn: NVRTC 66.2 s
+CHECK v9fn rc layout on 142 CTAs: q/k 38976 B, gate/up 39252 B, down 47312 B of 59520 B
+CHECK v9fn pers_4e_tokens_f0_t512: 128 registers, 8 B local, 85952 B shared, 1 resident a SM: refused
+CHECK v9fn pers_4e_tokens_f1_t512: 128 registers, 8 B local, 85952 B shared, 1 resident a SM: refused
+CHECK v9fn pers_4e_tokens_f2_t512: 128 registers, 8 B local, 85952 B shared, 1 resident a SM: refused
+CHECK v9fn pers_4e_stamps_f1_t512: 128 registers, 32 B local, 85952 B shared, 1 resident a SM (outside the timed rounds)
+CHECK v9fn pers_4e_logits_f1_t512: 128 registers, 8 B local, 85952 B shared, 1 resident a SM (outside the timed rounds)
+CHECK ARM v9fn REFUSED: pers_4e_tokens_f1_t512: 8 B local, 1 resident a SM (121.6 s)
+4E check v9eg: module 264835 bytes, sha256 1971b46969e4579c64327852a47c49887bd2acb0ffc5be802d2bed614117c29d
+4E check v9eg: NVRTC 60.6 s
+CHECK v9eg rc layout on 142 CTAs: q/k 28672 B, gate/up 28948 B, down 47312 B of 59520 B
+CHECK v9eg pers_4e_tokens_f0_t512: 128 registers, 8 B local, 85952 B shared, 1 resident a SM: refused
+CHECK v9eg pers_4e_tokens_f1_t512: 128 registers, 8 B local, 85952 B shared, 1 resident a SM: refused
+CHECK v9eg pers_4e_tokens_f2_t512: 128 registers, 8 B local, 85952 B shared, 1 resident a SM: refused
+CHECK v9eg pers_4e_stamps_f1_t512: 128 registers, 40 B local, 85952 B shared, 1 resident a SM (outside the timed rounds)
+CHECK v9eg pers_4e_logits_f1_t512: 128 registers, 8 B local, 85952 B shared, 1 resident a SM (outside the timed rounds)
+CHECK ARM v9eg REFUSED: pers_4e_tokens_f1_t512: 8 B local, 1 resident a SM (109.5 s)
+4E check: 4 arms one after the other, 481.7 s
+4E check done in 481.7 s
+fusedrun check exit 0

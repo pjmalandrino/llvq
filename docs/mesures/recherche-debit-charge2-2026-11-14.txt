@@ -1,0 +1,61 @@
+Decode-speed research phase (CERVEAU O11), step R6b, job 1, second attempt: the load check of the lighter bodies,
+one card run, 2026-11-14
+
+Result: none of the four lighter bodies loads. v9ep2, v9ep3, v9fl2 and v9fl3 are each refused for 8 B of local
+memory at 128 registers on 4E's timed token symbol, exactly as v9ep and v9fl. v9 loads. By the prereg's rule (§5)
+job 2 is not launched: no candidate body can be timed in 4E's token as the symbol stands. Every figure is
+*measured*. Nothing was timed, as planned. No tok/s is established.
+
+Job 6af82af323985fb9cd81cb81, l40sx1, 844 s running, $0.42. Prereg
+proofs/preregistration-recherche-debit-charge-jeton2-2026-11-13.md (sha256 5b42fb9d) and its deviations
+(-ECARTS.md, sha256 55de3f71), both stamped before. Image built from the stamped commit 1668fe6, Space sha 3006810b.
+Raw outputs in recherche-debit-charge2-2026-11-14-brut/. Card: L40S, sm_89, driver 580.178.04, tile 64.
+
+GATES: all pass
+  1 oracle MATCH. 2 the seven modules are the Mac's, byte counts and sha256. 3 the check reproduces the jeton run:
+  v9 LOADS, v9ep and v9fl REFUSED for local memory. The check therefore describes the runtime.
+
+THE VERDICTS (RoPE form 1's token symbol, pers_4e_tokens_f1_t512, at 85,952 B shared, 1 CTA a SM)
+  arm     registers   local   verdict    NVRTC    whole arm
+  v9      128         0 B     LOADS      56.9 s   101.6 s
+  v9ep3   128         8 B     REFUSED    57.4 s   104.0 s
+  v9fl2   128         8 B     REFUSED    69.2 s   125.9 s
+  v9ep2   128         8 B     REFUSED    57.6 s   102.9 s
+  v9fl3   128         8 B     REFUSED    88.7 s   158.2 s
+  v9ep    128         8 B     REFUSED    57.7 s   103.5 s
+  v9fl    128         8 B     REFUSED    69.7 s   127.2 s
+  The three RoPE forms of the token symbol agree in every arm. The check took 823.3 s for the seven arms.
+
+BESIDE THE VERDICTS
+  The logits symbol holds 0 B local in v9 and 8 B in each of the six arms. The stamps symbol, outside the timed
+  rounds, holds 32 B in v9 and in v9fl, 24 B in the five others.
+  One module takes 102 to 158 s in the check, of which NVRTC 57 to 89 s. The first attempt's seven parallel
+  compiles could not finish in 300 s.
+
+WHAT THE RUN SAYS
+  1. The four variants shed live values from the bodies in four different ways: no block in flight, no chunk loop,
+     five words of a run live against twelve. The local memory did not move by one byte. So the 8 B do not come
+     from what the variants removed.
+  2. Where the 8 B come from is not established. What the six arms share and v9 lacks is the call sites: the rows of
+     a phase handed to one body function, with gate/up's value pointers live across it. The prereg (§2.1) left
+     those unchanged on purpose, so that the variants isolate the bodies. That is the first suspect, not a finding.
+  3. The Mac cannot see any of this: the devel ptxas gives 0 B to all seven modules (prereg §3).
+
+SIGNED PREDICTIONS (prereg §8, deviations §4)
+  1 the gate passes, 90 %: passes, in.
+  2b one module 90 s [50, 150]: 102 to 127 s for six arms, in; 158 s for v9fl3, out by 8 s. The job 780 s
+     [480, 1,000]: 844 s, in. Not cut by a timeout, as said at 75 %.
+  3 v9ep2 loads at 50 %, v9ep3 at 45 %, v9fl2 at 35 %, v9fl3 at 55 %: none loads. v9fl3, the one given the best
+     odds, is refused like the others.
+  4 at least one loads, 60 %: wrong; the 40 % branch holds.
+  5 a refused variant shows 8 B and not more, 60 %: 8 B each, in.
+  The reading the predictions rested on, "the excess is one spilled value, so shedding a few live values may be
+  enough", is not refuted as to its size (8 B) and is refuted as to its place: it is not in the bodies.
+
+NOT ESTABLISHED
+  Any tok/s. Whether endpass or flat keeps its rows-alone gain in the token: still not measured, after three card
+  runs on the question. What spills. Whether call sites written another way would load. Whether a symbol at fewer
+  than 512 threads, which has more registers a thread, would load and what it would cost. Any card but the L40S,
+  any model but the 4B.
+
+Cost: $0.42 (844 s at $1.80/h). Phase: $1.34 of $5. Cap of 2026-11-09: $20.56 of $25. Registry: $327.81.

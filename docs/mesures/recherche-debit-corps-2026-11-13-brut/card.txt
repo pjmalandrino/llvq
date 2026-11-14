@@ -1,0 +1,2 @@
+PROBE	v4u1/t512/c1/pf0	751.1 [749.4-753.1] GB/s, the best configuration	first two runs 751.1 / 750.9	gates nothing
+Q4READ	sealed:int4:all	673.8 [666.3-679.2] GB/s	first two runs 675.3 / 676.7	gates nothing

@@ -62,6 +62,9 @@ static inline unsigned short served_capture_f2h(float v) {
 #undef f2h
 #else
 #include "../kernels/llvq_pers.cuh"
+// the research row bodies (command 'e'); a no-op in an rc arm's twin, whose llvq_pers.cuh holds them
+#include "../kernels/pers_4e_rc.cuh"
+#include "../kernels/pers_4e_rc2.cuh"
 #include "../kernels/tetra48_pers.cu"
 #include "../kernels/pers_segment.cu"
 #include "../kernels/pers_4e.cu"
@@ -89,6 +92,8 @@ static inline unsigned short served_capture_f2h(float v) {
 #include "../kernels/pers_vrows.cu"
 #include "../kernels/pers_q4rows.cu"
 #include "../kernels/pers_ctr.cu"
+#include "../kernels/bwprobe.cu"
+#include "../kernels/rowcand.cu"
 #include "../kernels/tetra48_persall.cu"
 #include "../../llvq-llm/kernels/tok_argmax.cu"
 #endif
@@ -1339,6 +1344,10 @@ int main() {
         wr(o);
     } else if (tag == 'y' || tag == 'c') {
 #include "host_pers_step1.inc"
+    } else if (tag == 'C' || tag == 'b' || tag == 'd') {
+#include "host_pers_rowcand.inc"
+    } else if (tag == 'e') {
+#include "host_pers_rc4e.inc"
     } else if (tag == 'K') {
         // KEY: the persistent key against tok_argmax.cu's, every binary16
         // pattern at a spread of indices. Writes the number of mismatches.

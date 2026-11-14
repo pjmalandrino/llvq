@@ -57,6 +57,11 @@ pub mod occ;
 // a rented card, and a counter epoch one off reads stale rows without a hang.
 pub mod pers;
 
+// Portable for the reason `pers` is: the decode-speed research phase's arm
+// registry (read from `kernels/rowcand.cu`), its site words and the error and
+// probe-sum judges the card's `bin/rowbench` and the Mac's stage-1 gate share.
+pub mod rowcand;
+
 // The persistent sections of planesbench, Linux only like `gpu`.
 #[cfg(target_os = "linux")]
 pub mod persbench;

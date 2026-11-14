@@ -1,0 +1,64 @@
+Research phase on decode speed (CERVEAU O11), R1 and R2 again: the framing after the first card run.
+Main session, 2026-11-12, on the operator's word ("recadre"). No measurement was run for this note. Every figure is
+copied from recherche-debit-banc-2026-11-12 (measured, L40S, 15 rounds) unless labelled otherwise. This note
+replaces sections R1 to R3 of recherche-debit-r1-cadrage-2026-11-12, which stays as written.
+
+WHAT FELL
+The first framing said the Tetra rows are bound by their decode, 243 instructions a block, and set the search on
+decoders with fewer instructions. The card run read the sealed file's Tetra words with nothing decoded, 24
+instructions a block against 226: 493 GB/s against 407 for the served row, x1.22. A decoder of zero instructions,
+on this read pattern, is worth x1.22 at most. The search space of the first framing has its ceiling before it was
+searched.
+
+R1. THE PROBLEM
+The number: the rate at which a kernel at 4E's geometry reads the sealed file's Tetra words, in GB/s, on the L40S.
+  the card, bare read, best of 16 configurations                 751 [748-753]
+  the card, one u32 a load                                       653 [651-655]
+  int4 bytes of the sealed file, read and not decoded (q4read)   675 [670-684]
+  Tetra words of the sealed file, read and not decoded (pword)   493 [487-501]
+  Tetra rows, served decoder                                     407 [398-411]
+The reference is now measured: 751 GB/s. The gap: the Tetra words stream at 0.66 of the card with no decode at all,
+where the int4 bytes stream at 0.90. Nothing in the repository explains it. It is an anomaly, not a gap to a
+bound we know how to close.
+
+What the problem is worth at most (computed, a ceiling and not a forecast): the token of the 4B reads 750.0 MB of
+Tetra words. At 407 GB/s they take 1.84 ms; at 751 they would take 1.00 ms. The token would go from 4.227 to
+3.38 ms, x1.25, if every Tetra byte were read at the card's rate and the decode cost nothing. The share the read
+pattern alone holds, 493 to 751 with the decode kept as it is, is 0.52 ms of the 1.84 (computed from the two rates
+on the sealed file's 0.7487 GB: 1.519 ms against 0.997).
+
+R2. THE ROUTE
+Explanation first, then search. MODES.md gives the explanation route to an anomaly with no verifier for its cause;
+here the killing experiments are diagnostic arms of the bench that already exists, a job of about $0.10 each.
+
+The anomaly: a loop that only loads the Tetra words and xors them reads 493 GB/s where the card reads 751.
+
+Rival hypotheses, each with the arm that would kill it. An arm differs from pword by one thing.
+  H1 the side streams. pword still runs the row's binary16 tail against the activation, reads the row scale and
+     writes y. Arm: pword with no tail, no scale, no store. Dead if the rate moves by less than 3 %.
+  H2 the row. A row of d_in 2,560 is 640 bytes of words: four loop turns, then a warp reduction and a store. Arm:
+     the site's words read as one flat stream by the same warps, no row boundary. Dead if under 3 %.
+     Against it already: d_in 9,728 rows, four times longer, read slower (433), not faster.
+  H3 the load. A block is 48 bits read as two unaligned loads a lane. Arm: the same bytes read by aligned 128-bit
+     loads, one a lane. Dead if under 3 %. Against it already: the probe at one u32 a load still reads 653.
+  H4 the site. 168 sites a pass, each staging its activation and tables in shared memory behind barriers, with
+     no weight read meanwhile. Arm: pword with the staging skipped. Dead if under 3 %.
+  H5 the geometry of the claim. Rows are dealt to warps statically inside a CTA and sites to CTAs by a split; the
+     slowest CTA sets the wall. Arm: the probe's own schedule (every thread a contiguous share of the site) on the
+     Tetra words. Dead if under 3 %.
+  H0 the dull one: nothing of the above, the launch and its synchronisation. The bench times on the host around
+     168 sites in one launch. Arm: an empty launch at the same geometry, subtracted. Dead if under 20 us.
+The hypotheses are not exclusive. The run reads how much of 493 to 751 each arm recovers, and what is left.
+
+The search opens after it, on what the explanation names: read schedules and load-time layouts of the same words
+at the same VRAM, each scored with the real decoder in it. The registry and the Mac gate built for the first
+framing serve as they are.
+
+THE FIDELITY RULE
+The first rule failed on one control of twelve, by 0.032 for a tolerance of 0.03, while the journal's own
+round-by-round range for that control is 0.043 wide. The next prereg will hold each control to its journal's
+range widened by 0.02 on each side, and keep the window on the served row as it is. This rule is written after
+seeing the first run; it is tested on the next run's data, not on the first's, and the first run stays a
+description.
+
+Cost so far in the phase: $0.10 of $5. Under the cap: $19.32 of $25.

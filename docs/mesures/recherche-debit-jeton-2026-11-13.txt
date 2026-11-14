@@ -1,0 +1,53 @@
+Decode-speed research phase (CERVEAU O11), step R6: the two winning bodies inside the token, one card run of
+fusedrun LLVQ_PERS_4E, 2026-11-13
+
+Result: the run is VOID for its question. Neither arm loaded on the card: the driver's ptxas gives the timed token
+symbol of v9ep and of v9fl 8 B of local memory, where the devel nvcc count on the Mac gave 0 B, and the runtime
+refuses a symbol with local memory. No candidate was timed in the token. The run holds two facts only: the rule F1
+works in the token with a floor 0.06 % wide, and v9 decodes 225.8 tok/s at 5 tokens and 160.5 at 8,192 in this
+bench (*measured*).
+
+Job 6af70da30f431c4f7b576d47, l40sx1, 923 s running, $0.46. Prereg
+proofs/preregistration-recherche-debit-jeton-2026-11-13.md (sha256 d8da874a, stamped before). Image built from the
+stamped commit e71e591 (the arms' code is 0768aa6), Space sha bb28db3b, built in 28 min of the builder's 30. Raw
+outputs in recherche-debit-jeton-2026-11-13-brut/. Card: L40S, sm_89, driver 580.178.04.
+
+GATES
+  1 oracle MATCH; the file and the config at their sha256; no LLVQ_* variable. 2 the served door ran the served v9
+  module. 3 the three modules loaded are the Mac's (d55a097b, f4166ccf, 9925b4ad). 4 v9 gives the eager path's 256
+  tokens at both contexts; v9ep did not run. 6 FAILS: no SCORE line, the job prints VOID.
+
+WHY THE ARMS DID NOT RUN
+  v9     pers_4e_tokens_f1_t512: 128 registers, 0 B local, 85,952 B shared, 1 resident a SM
+  v9ep   pers_4e_tokens_f1_t512: 128 registers, 8 B local: refused
+  v9fl   pers_4e_tokens_f1_t512: 128 registers, 8 B local: refused
+  The symbol sits at 128 registers, the most 512 threads can have with one CTA a SM. The bodies need a little more
+  than v9, and the driver's ptxas puts the excess on the stack. The devel nvcc 12.4 on the Mac compiled the same
+  text with 0 B (prereg §2.3). The prereg named the risk (§2.3, §6); prediction 3 gave it 20 %.
+  The one-arm v9fl process stopped at the same refusal (exit 1), so there is no peak VRAM for it.
+
+WHAT THE RUN DOES HOLD (*measured*, 5 timed rounds)
+  context   eager               v9                    v9 again              F1, last over first
+  5         127.2               225.8 [225.7-225.9]   226.3 [226.2-226.4]   x1.0021 [1.0018-1.0024] PASS
+  8,192     103.8               160.5 [160.4-160.7]   160.6 [160.6-160.8]   x1.0010 [1.0007-1.0012] PASS
+  The floor in the token is 0.06 % wide at 5 tokens and 0.05 % at 8,192: an arm 0.3 % faster would be separated.
+  v9's stamped token at 5 tokens, wall in us: q/k/v 645, attention 895, o 340, MLP 2,374 (gate/up rows 1,436 of
+  slowest-CTA work, down rows 495, inner wait 398), head 367. At 8,192 the attention takes 2,672 of 6,476.
+
+A FLAW OF THE JOB, NOT OF THE ARMS
+  The refusal was printed 339 s into the main process, and the job went on for its full length: 923 s for a
+  question it could no longer answer. A load check as the first step, stopping the job when an arm does not load,
+  would have cost about 3 min. The next job script takes it.
+
+SIGNED PREDICTIONS (prereg §10): 2 in, 1 out, 9 not scored
+  1 F1 passes at both contexts, floor under 0.03 wide: passes, 0.0006, in.
+  2 v9 at 5 tokens 222 [215, 228]: 225.8, in.
+  3 both arms load on the card (80 %): neither, out.
+  4 to 12: the arms did not run.
+
+NOT ESTABLISHED
+  Whether endpass or flat is faster than v9 in the token: not measured. Whether the bodies can be brought under
+  128 registers on the driver's ptxas without losing what they gained alone. Anything of the corps run's scores
+  beyond the rows alone.
+
+Cost: $0.46 (923 s at $1.80/h). Phase: $0.76 of $5. Cap of 2026-11-09: $19.98 of $25. Registry: $327.23.

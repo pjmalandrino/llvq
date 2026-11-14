@@ -91,7 +91,10 @@ RUN cargo build --release --locked -p llvq-llm --bin seal --bin embedq --bin exp
 # joining the one that has already been SIGKILLed once. Its kernels are not
 # compiled here at all — they ship as text and NVRTC compiles them at startup,
 # so tuning a tile size or a register cap never touches this image again.
-RUN cargo build --release --locked -p llvq-cuda --bin preflight --bin matvec --bin rotbench --bin graphbench --bin planesbench --bin nullkbench --bin f1floorbench --bin f1rankfloor --bin attnbench
+RUN cargo build --release --locked -p llvq-cuda --bin preflight --bin matvec --bin rotbench --bin graphbench --bin planesbench --bin nullkbench --bin f1floorbench --bin f1rankfloor --bin attnbench --bin rowbench
+# `rowbench` (2026-11-12): the decode-speed research phase's stage-2 verifier, every registered row program of
+# kernels/rowcand.cu on the sealed 4B's records, the journals' row arms and K11's int4 arms as controls, and a bare
+# read probe. In both lists, like every bin here.
 # `attnbench` (2026-11-04): the split-KV decode-attention kernel alone, identity
 # against the CPU replay and read rate. In both lists, like every bin here.
 # `nullkbench` — vague 2 §A1 (2026-08-31) : le plancher sous deux géométries
@@ -167,6 +170,7 @@ COPY --from=build \
       /src/target/release/f1floorbench \
       /src/target/release/f1rankfloor \
       /src/target/release/attnbench \
+      /src/target/release/rowbench \
       /usr/local/bin/
 # The QTIP fetcher (F2). It is a script, not a binary, and the runtime stage
 # copies only binaries — so without this line the `qtip` arm cannot be prepared

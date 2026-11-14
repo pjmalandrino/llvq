@@ -1,0 +1,40 @@
+SCORE	sealed:d_in=2560	acc2	x1.013 [1.008-1.014] over served	owes bound 1e-5	max rel err 1.717e-6, q99 2.830e-7	valid	faster (floor [0.9860, 0.9989])	describes
+SCORE	sealed:d_in=2560	tr32	x0.456 [0.454-0.457] over served	owes bits	max rel err 0.000e0, q99 0.000e0	valid	slower (floor [0.9860, 0.9989])	describes
+SCORE	sealed:d_in=2560	tr32p	x0.450 [0.448-0.451] over served	owes bits	max rel err 0.000e0, q99 0.000e0	valid	slower (floor [0.9860, 0.9989])	describes
+SCORE	sealed:d_in=2560	endpass	x1.074 [1.070-1.079] over served	owes bits	max rel err 0.000e0, q99 0.000e0	valid	faster (floor [0.9860, 0.9989])	describes
+SCORE	sealed:d_in=2560	wq	x0.673 [0.670-0.675] over served	owes bound 1e-5	max rel err 1.717e-6, q99 3.159e-7	valid	slower (floor [0.9860, 0.9989])	describes
+SCORE	sealed:d_in=2560	flat	x1.181 [1.171-1.190] over served	owes bound 1e-5	max rel err 1.569e-6, q99 3.815e-7	valid	faster (floor [0.9860, 0.9989])	describes
+SCORE	sealed:d_in=2560	tr32r	x0.466 [0.463-0.467] over served	owes bits	max rel err 0.000e0, q99 0.000e0	valid	slower (floor [0.9860, 0.9989])	describes
+SCORE	sealed:d_in=2560	flats	x1.026 [0.997-1.044] over served	owes bound 1e-5	max rel err 1.569e-6, q99 3.815e-7	valid	not separated (floor [0.9860, 0.9989])	describes
+SCORE	sealed:d_in=9728	acc2	x1.074 [1.049-1.088] over served	owes bound 1e-5	max rel err 1.716e-6, q99 3.474e-7	valid	faster (floor [0.9684, 1.0016])	describes
+SCORE	sealed:d_in=9728	tr32	x0.211 [0.210-0.215] over served	owes bits	max rel err 0.000e0, q99 0.000e0	valid	slower (floor [0.9684, 1.0016])	describes
+SCORE	sealed:d_in=9728	tr32p	x0.206 [0.205-0.210] over served	owes bits	max rel err 0.000e0, q99 0.000e0	valid	slower (floor [0.9684, 1.0016])	describes
+SCORE	sealed:d_in=9728	endpass	x0.998 [0.987-1.009] over served	owes bits	max rel err 0.000e0, q99 0.000e0	valid	not separated (floor [0.9684, 1.0016])	describes
+SCORE	sealed:d_in=9728	wq	x0.995 [0.989-1.007] over served	owes bound 1e-5	max rel err 8.339e-7, q99 3.756e-7	valid	not separated (floor [0.9684, 1.0016])	describes
+SCORE	sealed:d_in=9728	flat	x1.191 [1.172-1.202] over served	owes bound 1e-5	max rel err 1.168e-6, q99 5.269e-7	valid	faster (floor [0.9684, 1.0016])	describes
+SCORE	sealed:d_in=9728	tr32r	x0.214 [0.212-0.218] over served	owes bits	max rel err 0.000e0, q99 0.000e0	valid	slower (floor [0.9684, 1.0016])	describes
+SCORE	sealed:d_in=9728	flats	x1.035 [1.024-1.047] over served	owes bound 1e-5	max rel err 1.168e-6, q99 5.269e-7	valid	faster (floor [0.9684, 1.0016])	describes
+SCORE	sealed:all	acc2	x1.021 [1.019-1.024] over served	owes bound 1e-5	max rel err 1.717e-6, q99 2.893e-7	valid	faster (floor [0.9936, 0.9995])	decides
+SCORE	sealed:all	tr32	x0.358 [0.357-0.359] over served	owes bits	max rel err 0.000e0, q99 0.000e0	valid	slower (floor [0.9936, 0.9995])	decides
+SCORE	sealed:all	tr32p	x0.352 [0.351-0.353] over served	owes bits	max rel err 0.000e0, q99 0.000e0	valid	slower (floor [0.9936, 0.9995])	decides
+SCORE	sealed:all	endpass	x1.053 [1.050-1.056] over served	owes bits	max rel err 0.000e0, q99 0.000e0	valid	faster (floor [0.9936, 0.9995])	decides
+SCORE	sealed:all	wq	x0.719 [0.717-0.721] over served	owes bound 1e-5	max rel err 1.717e-6, q99 3.216e-7	valid	slower (floor [0.9936, 0.9995])	decides
+SCORE	sealed:all	flat	x1.185 [1.179-1.190] over served	owes bound 1e-5	max rel err 1.569e-6, q99 3.923e-7	valid	faster (floor [0.9936, 0.9995])	decides
+SCORE	sealed:all	tr32r	x0.365 [0.364-0.366] over served	owes bits	max rel err 0.000e0, q99 0.000e0	valid	slower (floor [0.9936, 0.9995])	decides
+SCORE	sealed:all	flats	x1.035 [1.017-1.045] over served	owes bound 1e-5	max rel err 1.569e-6, q99 3.923e-7	valid	faster (floor [0.9936, 0.9995])	decides
+SCORE	sealed:gu4e	gu_acc2	x1.017 [1.010-1.024] over gu_served	owes bound 1e-5	max rel err 1.655e-6, q99 2.796e-7	valid	faster (floor [0.9883, 1.0024])	describes
+SCORE	sealed:gu4e	gu_tr32	x0.662 [0.658-0.667] over gu_served	owes bits	max rel err 0.000e0, q99 0.000e0	valid	slower (floor [0.9883, 1.0024])	describes
+SCORE	sealed:gu4e	gu_tr32p	x0.660 [0.657-0.664] over gu_served	owes bits	max rel err 0.000e0, q99 0.000e0	valid	slower (floor [0.9883, 1.0024])	describes
+SCORE	sealed:gu4e	gu_endpass	x1.123 [1.117-1.132] over gu_served	owes bits	max rel err 0.000e0, q99 0.000e0	valid	faster (floor [0.9883, 1.0024])	describes
+SCORE	sealed:gu4e	gu_wq	x0.677 [0.674-0.681] over gu_served	owes bound 1e-5	max rel err 1.015e-6, q99 3.154e-7	valid	slower (floor [0.9883, 1.0024])	describes
+SCORE	sealed:gu4e	gu_flat	x1.306 [1.296-1.316] over gu_served	owes bound 1e-5	max rel err 1.219e-6, q99 3.776e-7	valid	faster (floor [0.9883, 1.0024])	describes
+SCORE	sealed:gu4e	gu_tr32r	x0.700 [0.698-0.706] over gu_served	owes bits	max rel err 0.000e0, q99 0.000e0	valid	slower (floor [0.9883, 1.0024])	describes
+SCORE	sealed:gu4e	gu_flats	x1.158 [1.147-1.171] over gu_served	owes bound 1e-5	max rel err 1.219e-6, q99 3.776e-7	valid	faster (floor [0.9883, 1.0024])	describes
+SCORE	bare:all	acc2	x1.029 [1.025-1.030] over served	owes bound 1e-5	max rel err 1.188e-6, q99 2.967e-7	valid	faster (floor [0.9963, 1.0073])	describes
+SCORE	bare:all	tr32	x0.298 [0.292-0.300] over served	owes bits	max rel err 0.000e0, q99 0.000e0	valid	slower (floor [0.9963, 1.0073])	describes
+SCORE	bare:all	tr32p	x0.289 [0.283-0.295] over served	owes bits	max rel err 0.000e0, q99 0.000e0	valid	slower (floor [0.9963, 1.0073])	describes
+SCORE	bare:all	endpass	x1.022 [1.007-1.037] over served	owes bits	max rel err 0.000e0, q99 0.000e0	valid	not separated (floor [0.9963, 1.0073])	describes
+SCORE	bare:all	wq	x0.746 [0.725-0.760] over served	owes bound 1e-5	max rel err 1.588e-6, q99 3.228e-7	valid	slower (floor [0.9963, 1.0073])	describes
+SCORE	bare:all	flat	x1.139 [1.133-1.148] over served	owes bound 1e-5	max rel err 1.308e-6, q99 3.947e-7	valid	faster (floor [0.9963, 1.0073])	describes
+SCORE	bare:all	tr32r	x0.301 [0.297-0.305] over served	owes bits	max rel err 0.000e0, q99 0.000e0	valid	slower (floor [0.9963, 1.0073])	describes
+SCORE	bare:all	flats	x1.008 [1.003-1.029] over served	owes bound 1e-5	max rel err 1.308e-6, q99 3.947e-7	valid	not separated (floor [0.9963, 1.0073])	describes

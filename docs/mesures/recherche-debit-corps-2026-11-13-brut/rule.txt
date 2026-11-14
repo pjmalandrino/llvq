@@ -1,0 +1,11 @@
+F1	sealed:d_in=2560	PASS	served_again over served x0.9953 [0.9860-0.9989], window [0.98, 1.02]; the set's floor [0.9860, 0.9989]	describes
+F1	sealed:d_in=9728	PASS	served_again over served x0.9858 [0.9684-1.0016], window [0.98, 1.02]; the set's floor [0.9684, 1.0016]	describes
+F1	sealed:all	PASS	served_again over served x0.9953 [0.9936-0.9995], window [0.98, 1.02]; the set's floor [0.9936, 0.9995]	decides
+F1	sealed:gu4e	PASS	gu_served_again over gu_served x0.9941 [0.9883-1.0024], window [0.98, 1.02]; the set's floor [0.9883, 1.0024]	describes
+F1	bare:all	PASS	served_again over served x1.0004 [0.9963-1.0073], window [0.98, 1.02]; the set's floor [0.9963, 1.0073]	describes
+F3	v3	PASS	bare:all x0.856 [0.851-0.862] over v2, wanted under 0.92
+F3	v2u	PASS	bare:all x0.832 [0.828-0.837] over v2, wanted under 0.92
+F3	nc	PASS	bare:all x0.839 [0.834-0.842] over v2, wanted under 0.92
+F3	tile	PASS	bare:all x1.029 [1.022-1.036] over v2, wanted inside [0.96, 1.06]
+RULE	PASS	F1 on sealed:all PASS, F3 on bare:all PASS (4 of 4 controls timed)
+rule F: PASS, the SCORE lines on sealed:all decide (prereg §5)

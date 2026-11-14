@@ -1,0 +1,7 @@
+CHECK ARM v9 LOADS
+CHECK ARM v9ep3 REFUSED: pers_4e_tokens_f1_t512: 8 B local, 1 resident a SM
+CHECK ARM v9fl2 REFUSED: pers_4e_tokens_f1_t512: 8 B local, 1 resident a SM
+CHECK ARM v9ep2 REFUSED: pers_4e_tokens_f1_t512: 8 B local, 1 resident a SM
+CHECK ARM v9fl3 REFUSED: pers_4e_tokens_f1_t512: 8 B local, 1 resident a SM
+CHECK ARM v9ep REFUSED: pers_4e_tokens_f1_t512: 8 B local, 1 resident a SM
+CHECK ARM v9fl REFUSED: pers_4e_tokens_f1_t512: 8 B local, 1 resident a SM

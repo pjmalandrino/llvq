@@ -1,0 +1,312 @@
+R0 LITERATURE: BATCH-1 DECODE SPEED OF QUANTIZED LLMS ON ONE GPU, STATE OF THE ART, 2026-11-12. $0.
+==================================================================================================
+Result: no published system found streams 2 to 3 bit weights at more than about half of datasheet bandwidth at
+batch 1 on a 7B-class model. The best 4-bit and FP16 paths reach 64 to 77 %, and 2-bit paths 23 to 40 % on the same
+cards (*computed* from published tok/s, section 1). Published fractions fall when the bit rate falls, when the model
+shrinks and when the card's bandwidth rises (section 2). The mechanisms with measured batch-1 gains and no weight
+change are fusion into persistent kernels (x1.16 to x2.5 over vLLM or SGLang), drafter-free speculation (x1.13 to
+x2.22 on Spec-Bench) and split-KV attention at long context. Activation sparsity and LM-head pruning are measured
+outside a +-0.12 % perplexity band or not shown exact. One paper does the dot product in the code domain on GPU for
+LLM weights (CodeGEMM, A100): it requires 256-entry codebooks; 2^16 entries do not fit on chip.
+Nature: literature only. No build, no run, no model load, no job. Web search and fetch, 2026-11-12. Small arithmetic
+by hand, each line states it. Nothing here estimates what any mechanism gives on the project's kernel.
+
+LABELS AND CONVENTIONS
+----------------------
+*measured (src)*: the figure as the source publishes it. *computed*: arithmetic done here on published figures; the
+inputs are on the line. GB = 1e9 bytes. GB/s streamed = tok/s x bytes read per token. Bytes read per token = weights
+read once per token: every linear layer and the LM head, without the token embedding (one row read).
+Llama-2-7B parameter counts used below: 6.738 B in all, 131.1 M in the embedding and 131.1 M in the head, so 6.476 B in
+the linear layers without the head (*computed* from 32,000 x 4,096 and the published total).
+For orientation only, from the brief of this phase: the served 4B reads 1.38 GB a token at about 224 tok/s on the
+L40S, 309 GB/s, 36 % of 864 GB/s (*computed*).
+
+Comparability with an L40S. Same die (AD102, Ada, GDDR6): L40 (864 GB/s, the L40S memory system), RTX 6000 Ada
+(960 GB/s, 142 SMs, 98,304 KB of L2 per the NVIDIA Ada professional whitepaper v1.1,
+https://images.nvidia.com/aem-dam/en-zz/Solutions/technologies/NVIDIA-ADA-GPU-PROVIZ-Architecture-Whitepaper_1.1.pdf).
+Same architecture, other die cut: RTX 4090 (GDDR6X, 128 SMs, 72 MB of L2). Not comparable as a ratio (rule 5): A100,
+H100, RTX 3090, A6000, RTX 5090, A10, L4. Their figures are given in GB/s only.
+
+1. REFERENCE POINTS, BATCH 1, ONE GPU
+-------------------------------------
+1a. llama.cpp, Llama-2-7B Q4_0 (4.5 b/weight), tg128, flash attention on.
+Source: ggml-org/llama.cpp discussion #15013 "Performance of llama.cpp on Nvidia CUDA", opened 2025-08-01, community
+scoreboard (https://github.com/ggml-org/llama.cpp/discussions/15013). Forum-grade: builds differ between rows.
+Bytes read: file 3.56 GiB = 3.82 GB, minus the Q4_0 embedding 131.1 M x 4.5 / 8 = 0.074 GB, so 3.75 GB (*computed*).
+
+| card | tok/s (*measured*, src) | GB/s (*computed*, x 3.75) | datasheet GB/s | fraction | comparable to L40S |
+|---|---|---|---|---|---|
+| L40 | 153.76 | 577 | 864 | 67 % | yes, same memory system |
+| RTX 6000 Ada | 179.47 | 673 | 960 | 70 % | yes, same die |
+| RTX 4090 | 188.96 | 709 | 1,008 | 70 % | same arch |
+| RTX 5090 | 300.40 | 1,127 | 1,792 | 63 % | no |
+| A100 80 GB | 200.90 | 753 | 1,935 or 2,039 | 37 to 39 % | no |
+| H100 80 GB | 280.74 | 1,053 | variant not stated | n/a | no |
+
+1b. llama.cpp IQ2_XXS (2.06 b/weight) against Q4_0, LLaMA 7B, RTX 4080 (716.8 GB/s, 22.4 Gbps x 256 bit), CUDA,
+TG-128: 155 against 130 tok/s (*measured*, PR #4773, 2024-01-04, https://github.com/ggml-org/llama.cpp/pull/4773).
+IQ2_XXS file of LLaMA-v2-7B: 1.728 GiB = 1.855 GB, used as an upper bound on bytes. 155 x 1.855 = 288 GB/s, 40 %;
+Q4_0 130 x 3.75 = 488 GB/s, 68 % (*computed*). The 2-bit file is 2.06 times smaller and decodes 1.19 times faster.
+
+1c. ExLlamaV2 (EXL2), RTX 4090, Llama2-7B, batch not stated, date not stated (2023 README)
+(https://github.com/turboderp-org/exllamav2): 3.0 bpw 257 tok/s, 4.0 bpw 211, 5.0 bpw 179 (*measured*, README).
+Bytes: 6.476 B x bpw / 8 plus a 6-bit head (EXL2 default, assumed) of 0.098 GB: 2.53, 3.34, 4.15 GB. Streamed: 649,
+704, 742 GB/s, 64 %, 70 %, 74 % of 1,008 (*computed*).
+
+1d. MLC-LLM perf bench, Oct 2023 setup commits, fp16 activations, 256 decoded tokens (https://github.com/mlc-ai/llm-perf-bench).
+RTX 4090, Llama2-7B 4-bit: MLC 204.8, ExLlamaV2 177.46, llama.cpp 151.1 tok/s; Llama2-13B 113.5, 105.94, 88.0
+(*measured*, README). MLC q4f16_1 is 4.5 b/weight: 6.607 B x 4.5 / 8 = 3.72 GB, so 762 GB/s, 76 % (*computed*).
+
+1e. QTIP, QuIP#, AQLM on an RTX 6000 Ada (960 GB/s), batch 1, Llama-2-7B, "with matrix fusion" (Tseng, Sun, Hou,
+De Sa, arXiv 2406.11235 v4, NeurIPS 2024, Table 4 and Table 17, https://arxiv.org/html/2406.11235v4). *measured*:
+FP16 55.9; AQLM 2-bit 81.5; QuIP# 2-bit 186; QTIP 2-bit 188, 3-bit 161, 4-bit 140 tok/s. 70B: QTIP 2-bit 23.5.
+Bytes, assuming the head stays FP16 (0.262 GB) as in QuIP#: 2-bit 1.88 GB, 3-bit 2.69, 4-bit 3.50, FP16 13.21.
+Streamed: QTIP 354 / 433 / 490 GB/s (37 / 45 / 51 %), QuIP# 350 (36 %), AQLM 153 (16 %), FP16 739 (77 %) (*computed*).
+Same table on other cards: RTX 3090 QTIP 2-bit 127, A6000 116 (*measured*).
+
+1f. QuIP#, RTX 4090, Hugging Face generate with flash attention, batch 1 (ICML 2024 poster,
+https://icml.cc/media/icml-2024/Slides/34816.pdf): FP16 33.1, AQLM 2-bit 20.6, QuIP# 2-bit 106.3 tok/s at 7B; QuIP#
+2-bit 25.9 at 70B. %MemBW stated by the source: 7B 2-bit 29.6 %, 7B 4-bit 40.9 %, 70B 2-bit 56.8 % (*measured*). The
+QuIP# repository says hf.generate is not representative and a later kernel with CUDA graphs is about twice as fast
+(README, as quoted by search; not opened here).
+
+1g. AQLM, RTX 3090 (936 GB/s), batch 1, 128 tokens, compiled graphs (Egiazarian et al., arXiv 2401.06118 v4, Table 14,
+https://arxiv.org/html/2401.06118v4): Llama-2-7B FP16 54.2, 1x16 65.3, 2x8 114.1 tok/s (*measured*). Streamed at
+1.88 GB: 2x8 215 GB/s (23 %), 1x16 123 GB/s (13 %); FP16 716 GB/s (76 %) (*computed*).
+
+1h. FLUTE, LLaMA-3-8B, batch 1 (Guo et al., EMNLP 2024, arXiv 2407.10960, Table 1,
+https://arxiv.org/html/2407.10960). A6000 (768 GB/s): FP16 44.8; 4-bit g128 98.1; 3-bit g128 108.1 tok/s. A100
+(variant not stated): FP16 90.2; 4-bit g128 121.6 (*measured*). The table's "GB" are GiB (FP16 15.1 = 16.06 GB).
+4-bit g128 = 5.80 GB minus the FP16 embedding 1.05 GB = 4.75 GB if the head is quantized: 466 GB/s on the A6000,
+61 %. FP16: 15.01 GB x 44.8 = 672 GB/s, 88 % (*computed*; the head's format is not stated, so the 4-bit figure is a
+lower bound on bytes).
+
+1i. HIGGS through FLUTE, RTX 4090, Llama-3.1-8B-Instruct, forward passes a second (Hugging Face docs,
+https://huggingface.co/docs/transformers/main/en/quantization/higgs): batch 1 BF16 compiled 59, HIGGS 4-bit
+uncompiled 41, HIGGS 4-bit compiled 124 (*measured*, docs). Bytes not stated; no conversion.
+
+1j. CodeGEMM, A100 80 GB, Llama-3.1-8B-Instruct, batch 1 (Park et al., NeurIPS 2025, arXiv 2512.17970, Table 4,
+https://arxiv.org/html/2512.17970v1): FP16 103.8, AQLM 1x16 49.0, AQLM 2x8 124.5, CodeGEMM m1v4g128 228.3, m2v8g128
+214.4 tok/s (*measured*). Bytes not stated (head format unknown); no conversion.
+
+1k. Persistent megakernels, BF16, not quantized, given for the bandwidth fraction they reach.
+Hazy Research "Look Ma, No Bubbles", Spector et al., 2025-05-27 (https://hazyresearch.stanford.edu/blog/2025-05-27-no-bubbles):
+Llama-3.2-1B, H100, under 1 ms a forward pass, 78 % of HBM bandwidth; vLLM and SGLang at most 50 % (*measured*, blog).
+MPK, arXiv 2512.22219 v1, 2025-12-22 (https://arxiv.org/html/2512.22219v1): Qwen3-8B on A100, 14.5 ms a token for
+vLLM and SGLang, 12.5 ms for MPK, against a 10 ms floor (16 GB at 1.6 TB/s) stated by the paper (*measured*).
+Cohere, Tong, Zhu, Wang, 2026-09-08 (https://cohere.com/blog/megakernels): 30B MoE with 3.3B active, H100, batch 1:
+292 tok/s, 62 % of their speed of light, vLLM 185 tok/s, 39 % (*measured*, blog).
+
+1l. vLLM with AWQ or GPTQ, TensorRT-LLM, ExLlamaV3: no primary batch-1 figure found on an L40S, RTX 4090 or RTX 6000
+Ada for a 4B to 14B model. Closest: arXiv 2605.30571 (Chen, 2026-05-28, https://arxiv.org/html/2605.30571), Qwen-2.5-7B
+on an L4 (300 GB/s), ctx 2048: bf16 62.32 ms a step, bnb-nf4 59.36, AutoAWQ+Marlin 45.24, GPTQ+ExLlamaV2 17.36
+(*measured*). EXL3 is a QTIP variant per its README (https://github.com/turboderp-org/exllamav3); its README says the
+GEMM kernel is near memory-bound at 4 bpw on an RTX 4090 and less efficient at lower bitrates and on Ampere. No tok/s
+table in text.
+
+2. WHAT BOUNDS BATCH-1 DECODE
+-----------------------------
+2a. The bytes argument. QuIP# and QTIP state it: small-batch decode is memory-bound, so tokens/s is at most bandwidth
+over bytes a token (QuIP# poster above; Together AI QTIP blog, https://www.together.ai/blog/even-better-even-faster-quantized-llms-with-qtip).
+The measured fractions in section 1 show how loose it is.
+
+2b. Where it is shown loose.
+- The fraction falls as bandwidth rises. arXiv 2605.30571: three 7-8B GQA models in bf16, batch 1, ctx 2,048 to 16,384,
+  median fraction of the analytic memory floor: L4 0.694, L40S 0.516 (range 0.340 to 0.723), A100-80GB 0.275,
+  H100 0.260 (*measured*). On the L40S at ctx 2,048: Qwen-2.5-7B 0.723, Llama-3.1-8B 0.715, Mistral-7B 0.523. The
+  author attributes the gap to launch-side overhead. CUDA Graphs cut H100 latency by x1.259 [1.253, 1.267] and L4 by
+  x1.028. Not measured on the L40S.
+- The fraction falls as bits fall: QTIP 4 / 3 / 2-bit at 51 / 45 / 37 %, FP16 77 % (1e); ExLlamaV2 5 / 4 / 3 bpw at
+  74 / 70 / 64 % (1c); llama.cpp Q4_0 68 % against IQ2_XXS 40 % (1b) (*computed*).
+- The fraction falls as the model shrinks: QuIP# 2-bit 29.6 % at 7B against 56.8 % at 70B on one RTX 4090 (1f,
+  *measured*). MPK reports its gain is largest for small models and new GPUs.
+- Launch and sequencing cost. Hazy: a dummy kernel costs about 2.1 us of launch on a stream and 1.3 us in a CUDA
+  graph on H100; at 5 us of stall per kernel and 7 kernels a layer, Llama-1B is capped near 770 passes a second. Their
+  B200 megakernel spends about 250 of 600 us storing, fencing and reloading activations, 200 us in norm and matvec,
+  30 us waiting on weights, 40 us in warp sync, 80 us in setup (*measured*, blog). NVIDIA reports CUDA graphs in
+  llama.cpp worth up to x1.2, on H100 at 7B (Gray, 2024-08-07,
+  https://developer.nvidia.com/blog/optimizing-llama-cpp-ai-inference-with-cuda-graphs).
+- A forum thread (r/LocalLLaMA, 2024-11-02, "llama.cpp compute and memory bandwidth efficiency") observes an RTX 4090
+  and an H100 at similar tg on 7B Q4_0 despite twice the bandwidth; the scoreboard of 1a gives 189 against 281 tok/s.
+  Forum-grade, page not readable here (403).
+
+2c. Achievable fraction of datasheet bandwidth for GEMV-like kernels.
+- QTIP: matvec "at over 80 % of peak memory bandwidth on modern GPUs" (conclusion, kernel level, card not tied).
+- QuIP#: over 50 % of peak on an RTX 4090 for its first E8P kernel (paper, as quoted by search).
+- Marlin README (https://github.com/IST-DASLab/marlin): ECC on lowers achievable bandwidth by 10 to 15 %; results need
+  locked clocks. The L40S ships GDDR6 "with ECC" (NVIDIA page below).
+- Measured STREAM-type DRAM bandwidth of an L40S, L40, RTX 4090 or RTX 5090: not found. Chips and Cheese reports an
+  RTX 4090 L2 bandwidth of about 5 TB/s with all SMs active, and warns that read combining makes its DRAM test
+  over-report on that card (2022-11-02, https://chipsandcheese.com/p/microbenchmarking-nvidias-rtx-4090).
+- The best published end-to-end fractions on GDDR cards in section 1 are 76 to 77 % (MLC 4-bit, FP16 in QTIP's table)
+  and 88 % for FP16 on an A6000 under FLUTE's head assumption (*computed*).
+
+2d. Datasheet bandwidth.
+| card | GB/s | source |
+|---|---|---|
+| L40S | 864, 48 GB GDDR6 with ECC | https://www.nvidia.com/en-eu/data-center/l40s/ |
+| A100 80 GB PCIe / SXM | 1,935 / 2,039 | https://www.nvidia.com/en-us/data-center/a100/ |
+| A100 40 GB | not on the page fetched | |
+| RTX 4090 | 1,008 (21 Gbps x 384 bit, *computed*; 1,008 on spec aggregators) | Chips and Cheese above; L2 72 MB of 96 MB on die |
+| RTX 5090 | 1,792 (28 Gbps x 512 bit) | https://nikolasent.github.io/hardware/deeplearning/benchmark/2025/02/17/RTX5090-Benchmark.html |
+| RTX 6000 Ada | 960, L2 98,304 KB | Ada professional whitepaper v1.1, above |
+The L2 size of the L40S is not on NVIDIA's product page. One aggregator (fpsbench.com) lists 48 MB; the AD102 die
+carries 96 MB. Not resolved here.
+
+2e. L2 residency. No paper found that measures CUDA access-policy windows (persisting L2) for LLM weights or KV at
+batch 1. LLaMCAT (arXiv 2512.00083) reports x1.26 from last-level-cache arbitration and throttling, in what appears to
+be simulation.
+
+3. MECHANISMS THAT LEAVE THE WEIGHTS AND THE FILE UNCHANGED
+-----------------------------------------------------------
+For each: measured gain, batch, card, memory cost as published.
+
+3a. Persistent megakernel, on-GPU scheduler, counter barriers, cross-op weight prefetch.
+Hazy (1k): x2.5 over vLLM, x1.5 over SGLang, H100, Llama-1B bf16, batch 1; shared memory split in 13 pages of 16 KiB.
+MPK (1k): x1.0 to x1.7 over SGLang and vLLM across five models and A100/H100/B200; Qwen3-8B A100 x1.16. Cohere (1k):
+x1.58 over vLLM at batch 1, x1.25 to x1.41 end to end at batch 8. Memory cost: not reported by any of the three.
+
+3b. Operator fusion in llama.cpp CUDA (Aman, 2025-12-01, https://am17an.bearblog.dev/new-post/): RMSNorm+mul+add,
+GEMV+add, gate and up sharing one input read, top-k MoE softmax, Q/K/V on concurrent streams. All on against all off,
+tg128: Qwen3-30B-A3B Q4_K_M RTX 4090 198.39 to 271.04 (+37 %), RTX 5090 246.96 to 352.06 (+43 %); gpt-oss-20B
++17 % and +27 % (*measured*, blog). Each PR alone under +10 %. The author puts gpt-oss-20B on the 5090 at about 80 %
+of his speed-of-light estimate. Memory cost: none stated; register pressure named as the limit.
+
+3c. CUDA Graphs: x1.2 (NVIDIA, H100, 7B), x1.259 (H100) and x1.028 (L4) in arXiv 2605.30571. Closed in this project
+by its rule 3; listed only as the size of the launch overhead on those cards.
+
+3d. Layouts built offline or at load, for tensor-core or vector loads.
+Marlin (Frantar, Castro, Chen, Hoefler, Alistarh, arXiv 2408.11743, 2024): weights reshuffled offline into the
+tensor-core fragment order; README claims near the 3.87x ideal of 4-bit g128 up to batch 16 to 32 on an A10. No
+batch-1 tok/s in the README. arXiv 2605.30571 states Marlin is tuned for SM80 and ExLlamaV2's int4 kernels for SM89.
+FLUTE: offline restructuring, a 256-entry 32-bit table (about 1 KB) duplicated in shared memory against up to 8-way
+bank conflicts, Stream-K partitioning; batch 1 figures in 1h. Any-Precision LLM (Park et al., ICML 2024,
+https://github.com/SNU-ARC/any-precision-llm): bitplane layout rearranged for coalescing; batch-1 numbers not found.
+Memory cost of all three: zero beyond the packed weights, per their papers.
+
+3e. Integer or tensor-core paths at batch 1. Hazy: tensor cores help marginally on B200 and CUDA cores work better on
+H100 for the batch-1 matvec. llama.cpp MMVQ quantizes the activation to int8 and uses int8 dot products with float
+scales (forum statement by a maintainer in the r/LocalLLaMA thread of 2b). No batch-1 measurement of a low-bit
+tensor-core GEMV beating a CUDA-core GEMV was found.
+
+3f. Decompress into on-chip cache or into a dense buffer. VQ-LLM (Liu, Luo et al., HPCA 2025, arXiv 2503.02236,
+https://arxiv.org/html/2503.02236v2), RTX 4090: codebook entries placed by access frequency in registers, shared or
+global memory; latency -46.13 % on average against open VQ kernels; GeMV at 0.88x the latency of AWQ/QoQ (batch not
+stated). DFloat11 (lossless 11-bit BF16, arXiv 2504.11651), README: about 2x slower than BF16 at batch 1, the
+decompression cost being fixed per forward pass (*measured*, README via PyPI).
+
+3g. Attention at batch 1. Flash-Decoding (Dao, Haziza, Massa, Sizov, 2023-10-12,
+https://crfm.stanford.edu/2023/10/12/flashdecoding.html): split-KV with a log-sum-exp reduction; CodeLlama-34B, batch 1,
+up to x8 end to end at very long sequences, attention alone up to x50 against FlashAttention; little gain on short
+prompts (*measured*, blog). No extra memory beyond the split partials.
+KV quantization: KIVI 2-bit (arXiv 2402.02750) reports 2.6x lower peak memory and x2.35 to x3.47 throughput from larger
+batches; no batch-1 latency. LMDeploy int8/int4 KV (https://lmdeploy.readthedocs.io/en/latest/quantization/kv_quant.html):
+throughput at batch 256 only. No measured batch-1 decode gain from KV quantization on an NVIDIA card was found.
+
+3h. LM-head shortcuts.
+CSV-Decode (Liu, Yu, Lengerich, arXiv 2511.21702, 2025-11-16, https://arxiv.org/html/2511.21702v1): k-means clusters of
+the vocabulary, Cauchy-Schwarz bound per cluster, clusters opened until a top-k certificate holds, full logits on
+fallback (1.2 % of steps). 18 to 21 % of the vocabulary computed. Extra memory 32.8 MB for 2,000 clusters at d = 4,096.
+Reported x2.75 end to end on Llama-3-8B, A100. The paper also reports 99.7 % top-1 accuracy and two certification
+rates (98.2 % and 96.4 %), which do not square with an exact top-k claim; the speedups exceed what an LM head alone
+can remove at 8B. Read with caution.
+SpecVocab and VocabTrim (arXiv 2506.22694) and HiDRA (ICLR 2026): approximate, not certified.
+
+3i. Early exit. No exact early-exit method found. The exact variants are self-speculative: drafting with skipped
+layers of the same model and verifying with the full model. SWIFT (ICLR 2025, arXiv 2410.06916): x1.3 to x1.6,
+training-free, layer set chosen on the fly; x1.56 on LLaMA-2-13B against LayerSkip and Self-SD in its appendix. CLaSp:
+x1.3 to x1.7 on Spec-Bench (search summary). LayerSkip needs training. Memory: no extra weights.
+
+3j. Activation sparsity. SiLU gating does not give exact zeros; exact sparsity needs ReLU and fine-tuning
+("ReLU Strikes Back", Mirzadeh et al., ICLR 2024, arXiv 2310.04564: up to 3x fewer FLOPs after relufication).
+Training-free methods threshold near-zeros and change the outputs.
+TEAL (Liu et al., ICLR 2025, arXiv 2408.14690, https://arxiv.org/html/2408.14690v3): magnitude thresholding of hidden
+states, batch 1, GPT-Fast with CUDA graphs. Llama-3-8B decode: A6000 x1.22 / x1.42 / x1.63 at 25 / 40 / 50 %
+sparsity, A100 x1.11 / x1.25 / x1.33. Cost on Llama-3-8B WikiText perplexity: 5.87 to 5.94 (+1.2 %), 6.21 (+5.8 %),
+6.67 (+13.6 %) (*computed* from the table); GSM8K 49.81 to 43.82 at 40 %. No quantized sparse kernel exists; A100 at
+0 % sparsity ran at 0.91x. CATS: within 1 to 2 % of downstream accuracy (Mistral-7B, Llama-7B). R-Sparse: +43 % end
+to end at 50 % sparsity, "comparable" accuracy. Prox (2026 preprint): x1.99 at 70 % FFN sparsity. None reports a
+change inside +-0.12 % of perplexity.
+
+3k. Reuse across tokens. LoRA-Drop (arXiv 2601.02569, 2026-01): reuses the previous token's hidden state in chosen
+layers with a trained LoRA correction and periodic full refresh; up to x2.6, within 0.5 pp of accuracy, needs
+training. FFN-SkipLLM (EMNLP 2024): skips 25 to 30 % of FFN blocks with "marginal change". No exact or certified
+reuse scheme found.
+
+3l. Speculation without a drafter model. Spec-Bench leaderboard (Xia et al., updated 2025-04-22,
+https://github.com/hemingkx/Spec-Bench/blob/main/Leaderboard.md), Vicuna-7B-v1.3, FP16, batch 1, greedy, mean of 3:
+| method | needs | RTX 3090 | A100 |
+|---|---|---|---|
+| Prompt Lookup Decoding | nothing | x1.64 | x1.66 |
+| Token Recycling | under 2 MB table | x1.40 | x2.22 |
+| REST | a retrieval datastore | x1.28 | x1.48 |
+| Lookahead | nothing | x1.13 | x1.34 |
+| EAGLE-2 (for scale, trained head) | draft head | x2.19 | x2.36 |
+Per-task spread is wide: PLD on summarization x2.46 to x2.66, on translation x1.06 to x1.15. Lookahead paper
+(Fu, Bailis, Stoica, Zhang, ICML 2024, https://arxiv.org/html/2402.02057v1): LLaMA-2-7B-Chat on A100, MT-Bench x1.78,
+CNN/DM x1.57; about 120x extra FLOPs a step at 7B; about +30 % on an RTX 3090 against over +50 % on the A100.
+
+4. THE DOT PRODUCT IN THE CODE DOMAIN
+-------------------------------------
+4a. CodeGEMM (Park et al., NAVER, NeurIPS 2025, arXiv 2512.17970). The one GPU kernel found that does it for LLM
+weights. Inner products of each activation sub-vector with every centroid are built per input into a "Psumbook" in
+shared memory; codes gather partial sums. Codebooks of b = 8 bits (256 centroids), vectors of v = 4 or 8; the paper
+states 2^16-entry codebooks exceed on-chip capacity. Building the Psumbook takes 20 to 46 % of cycles on one SM.
+A100 80 GB, batch 1, Llama-3-8B, summed kernel latency of a decoder block: CodeGEMM m1v4 152.7 us, LUT-GEMM 160.1,
+QuIP# 162.6, CodeGEMM m2v8 172.2, QTIP 189.9, AQLM 2x8 250.1, cuBLAS FP16 332.5, AQLM 1x16 645.5 (*measured*). Loses
+to cuBLAS above batch 32. Quality at these codebooks without fine-tuning: average 53.93 against 71.26 for FP16, 63.96
+with PV-tuning.
+4b. LUT-GEMM (Park et al., ICLR 2024, arXiv 2206.09557): tables of partial sums for binary-coding quantization on an
+A100; 3-bit OPT-175B on one GPU, x2.1 over OPTQ per token (abstract). The LUT Tensor Core paper (Mo et al., ISCA 2025,
+arXiv 2408.06003, https://arxiv.org/html/2408.06003v1) measured LUT-GEMM against a CUTLASS dequantization kernel on an
+A100 at batch 1, 1,024 and 4,096: "the dequantization-based kernel always outperforms the LUT-based kernel" (figure,
+values not in text). Table precompute costs 16.5 to 24.4 % unfused and 2.5 to 2.6 % fused (Welder). Its headline
+x6.93 is simulated hardware.
+4c. AQLM: the CPU kernel uses lookup of precomputed dot products with 8-bit codebooks (x2.75 to x4.07 over FP32 on an
+i9, Table 5). GPU kernels: 2x8 up to x3.0, 1x16 up to x1.3 (README via HF docs,
+https://huggingface.co/docs/transformers/quantization/aqlm). QTIP appendix A.1.3: an AQLM 1x16 codebook at 8
+dimensions would need 32 MiB of L1. Whether the GPU 2x8 kernel works in the code domain is not stated in the paper.
+4d. Lookup tables on GPUs for dequantization (not ADC): QTIP HYB uses a 2^9 x 2 table, 2 KiB, duplicated 32x for bank
+conflicts; a pure-lookup 32 KB codebook "only fits in GPU L1 cache with bank conflicts". QuIP# E8P: 1 KiB table,
+under 4 instructions a weight. FLUTE: about 1 KB, duplicated. llama.cpp IQ2_XXS: a sign table in `__constant__`
+dropped tg from 155 to 108 tok/s on CUDA (PR #4773).
+4e. ADC outside LLMs. Faiss GPU (Johnson, Douze, Jegou, arXiv 1702.08734, 2017): PQ distance tables in shared memory;
+the paper's 55 % of peak is for k-selection; no ADC fraction found. Bolt (Blalock, Guttag, KDD 2017, arXiv 1706.10283):
+16-centroid codebooks, SIMD shuffles on CPU, up to 10x on distances and dot products, matmul faster than BLAS except
+small matrices; no GPU. MADDNESS (arXiv 2106.10860), LUT-NN (arXiv 2302.03213), T-MAC: CPU, FPGA or ASIC; no GPU
+measurement found. QuickerADC: not found.
+
+5. PUBLISHED NEGATIVE RESULTS AND TRAPS
+---------------------------------------
+- Fewer bits, same speed or slower. AQLM 1x16 at 2 bits: x1.2 over FP16 on an RTX 3090 (1g) and slower than cuBLAS
+  FP16 at batch 1 on an A100 (645.5 against 332.5 us, 4a). VQ-LLM: open VQ kernels "often" slower than FP16.
+  llama.cpp on Metal: IQ2_XXS 54 tok/s against 63.5 for Q4_0. bnb-nf4 on an L4: 59.36 ms against 62.32 for bf16.
+- Table placement traps: `__constant__` table 155 to 108 tok/s (llama.cpp); unmitigated shared-memory tables reach
+  8-way bank conflicts (FLUTE); a 32 KB codebook does not fit L1 cleanly (QTIP).
+- LUT kernels lose to dequantization on an A100 at every batch measured (LUT Tensor Core paper, 4b).
+- Framework overhead hides the kernel: HIGGS 4-bit uncompiled at 41 forward passes a second against 59 for compiled
+  BF16, 124 once compiled (1i). QuIP# under HF generate at 29.6 % of bandwidth (1f).
+- Megakernel ideas that did not pay (Cohere, 1k): shared-memory paging for weight prefetch, dropped for its
+  bookkeeping cost; dependency-affinity placement 1 to 2 % slower; topology-aware and brute-force schedules +10 % on a
+  dense model that did not carry to MoE; attention-first wave order 7 to 19 % slower.
+- Fusion has a ceiling per step: each llama.cpp fusion PR under +10 %; register pressure limits it (3b).
+- Bandwidth fraction drops on fast cards and small models (2b). A100 and H100 rows of 1a sit at 37 to 39 % and
+  below, against 63 to 70 % on GDDR cards.
+- FLUTE: short of uniform-quantization kernels on an A100; padding below batch 16; K-means table updates gave no
+  gain.
+- TEAL: 0.91x at 0 % sparsity on an A100; does not scale with batch; Llama-3 degrades more than Llama-2 (3j).
+- Lookahead: x1.13 on an RTX 3090 (Spec-Bench); slowdowns when compute-bound (3l).
+- DFloat11: about 2x slower than BF16 at batch 1 (3f).
+- Marlin: ECC costs 10 to 15 % of achievable bandwidth; tuned for SM80.
+
+6. NOT FOUND
+------------
+- A measured DRAM bandwidth (STREAM, copy kernel) for an L40S, L40, RTX 4090 or RTX 5090; the L40S L2 size from NVIDIA.
+- Batch-1 tok/s on an L40S, RTX 4090 or RTX 6000 Ada for vLLM AWQ/GPTQ-Marlin, TensorRT-LLM int4 or ExLlamaV3 from a
+  primary source; clean llama-bench figures for Qwen3 4B, 8B or 14B on one card.
+- Bytes a token for HIGGS and CodeGEMM runs (head format unstated); A100 40 GB bandwidth on NVIDIA's page.
+- A GPU measurement of ADC for Bolt, MADDNESS, LUT-NN or QuickerADC; the internals of AQLM's GPU 2x8 kernel.
+- An exact early-exit method; an exact or certified cross-token reuse method; a certified LM-head pruning with
+  consistent figures.
+- A measured batch-1 decode gain from int8 or int4 KV on an NVIDIA card; a measured L2 persistence gain for LLM decode.
+- Batch-1 numbers for Any-Precision LLM's bitplane kernel; memory cost of the three megakernels.

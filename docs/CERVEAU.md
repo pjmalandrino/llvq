@@ -368,27 +368,31 @@ unclipped encode. WikiText-2 perplexity: 16.46 baseline, 18.08 unclipped, 16.69 
 - Overturn: a rerun at the same door outside the round ranges.
 - Checked: 2026-11-12 (copied from `ETAT.md` §4).
 
-**K2.** On the 4B's 252 projections, one Tetra pass takes 3.734 ms against 3.263 for AWQ and 11.022 for FP16.
-- Standing: supported. Scope: L40S, kernel bench, not the model.
+**K2.** On the 252 projections of the bare 4B encode, one Tetra pass takes 3.734 ms against 3.263 for AWQ and 11.022
+for FP16.
+- Standing: supported. Scope: L40S, kernel bench, not the model; the bare encode `0adb7cfd`, 252 lattice records and
+  no int4, one launch a matrix, tile 64. It is not the sealed file.
 - Evidence: [banc-252](mesures/banc-252-2026-10-06.txt).
 - Overturn: a rerun on the same card outside its range.
-- Checked: 2026-11-12 (copied from `ETAT.md` §4).
+- Checked: 2026-11-12, against the journal ([recherche-debit-r0-depot](mesures/recherche-debit-r0-depot-2026-11-12.txt) §6).
 
 **K3.** The speed gain is an L40S result. On an A100, Tetra beats our FP16 kernel by 1.11× but not cuBLAS, and the
 files decode slower than vLLM's FP16.
-- Standing: supported. Scope: one A100, one L40S; no consumer card is measured.
+- Standing: supported. Scope: one A100, one L40S; the A100 ran the eager engine at tile 128, and no 4E form has run
+  on an A100; no consumer card is measured.
 - Evidence: [a100](mesures/a100-2026-10-06.txt).
-- Overturn: a consumer card (sm_86 to sm_120) measured at the door.
-- Checked: 2026-11-12 (copied from `ETAT.md` §4).
+- Overturn: a consumer card (sm_86 to sm_120) measured at the door, or a 4E form on an A100.
+- Checked: 2026-11-12, against the journal ([recherche-debit-r0-depot](mesures/recherche-debit-r0-depot-2026-11-12.txt) §6).
 
-**K4.** Bit-identical rescheduling of 4E is exhausted near v9: v5, the row-loop arms, the guard-free tile and moved
-prefetches read ×0.978 to ×1.027 of their reference.
-- Standing: established. Scope: 4B, L40S, four closed arms.
-- Evidence: [shaker-4e](mesures/shaker-4e-2026-11-05.txt) (×1.001), [step1-micro](mesures/step1-micro-2026-11-07.txt)
-  (×1.002), [large-attn-ft-4e](mesures/large-attn-ft-4e-2026-11-11.txt) (×0.997 to ×1.027),
-  [large-4e-e1](mesures/large-4e-e1-2026-11-11.txt) (×1.003, ×0.996, ×0.978).
+**K4.** Bit-identical rescheduling of 4E is exhausted near v9: v5, the guard-free tile and moved prefetches read
+×0.978 to ×1.027 of their reference. On the row loop alone, no bit-identical arm beats the served one: the best
+reads ×1.002 and the others ×0.810 to ×0.960.
+- Standing: established. Scope: 4B, L40S; three closed 4E arms, and the row loop alone on the bare encode.
+- Evidence: [shaker-4e](mesures/shaker-4e-2026-11-05.txt) (×1.001), [large-attn-ft-4e](mesures/large-attn-ft-4e-2026-11-11.txt)
+  (×0.997 to ×1.027), [large-4e-e1](mesures/large-4e-e1-2026-11-11.txt) (×1.003, ×0.996, ×0.978);
+  [step1-micro](mesures/step1-micro-2026-11-07.txt) for the loop alone, which is not a 4E form.
 - Overturn: a bit-identical arm above ×1.05.
-- Checked: 2026-11-12 (from `ETAT.md` §6).
+- Checked: 2026-11-12, against the journals ([recherche-debit-r0-depot](mesures/recherche-debit-r0-depot-2026-11-12.txt) §6).
 
 **K5.** The 1.76 ms of a 4E token spent outside weight rows is mostly not idle DRAM. Its phases carry the L2
 prefetches of 1,159 MB of the token's 1,378 MB of weights; only about 265 µs leave the DRAM idle.
@@ -415,28 +419,42 @@ and the projections are three quarters of the step.
 - Overturn: a batched Tetra GEMM above 300 GB/s at B = 32.
 - Checked: 2026-11-12 (copied from `ETAT.md` §4).
 
-**K8.** CUDA Graphs buy +12.6 % of throughput for +47 % of VRAM at 4B; the trade is refused in the core.
-- Standing: supported, as a closed lead. Scope: the Planes14 4B in the served config of 2026-08-31, before Tetra and
-  the sealed files, L40S.
+**K8.** CUDA Graphs buy +12.6 % of throughput (*measured*) for +47 % of VRAM (*computed*, never measured) at 4B; the
+trade is refused in the core.
+- Standing: supported, as a closed lead. Scope: the Planes14 4B in the served config of 2026-08-31, eager, tile 128,
+  before Tetra and the sealed files, L40S.
 - Evidence: [ECARTS](../proofs/preregistration-a2-a3-geometrie-2026-08-31-ECARTS.md) §É7.
 - Overturn: per `ETAT.md` §6.
-- Checked: 2026-11-12 (copied from `ETAT.md` §6).
+- Checked: 2026-11-12, against the ECARTS file ([recherche-debit-r0-depot](mesures/recherche-debit-r0-depot-2026-11-12.txt) §6).
 
 **K9.** Bit identity binds the schedule, not the arithmetic class: the served attention forms change logits and are
-held to paired perplexity within ±0.12 %, which they pass by a factor of ten (+0.0095 %, −0.0048 %, +0.0023 % at three
-sizes).
+held to paired perplexity within ±0.12 %. The grouped form against the expanded one passes by a factor of ten
+(+0.0095 %, −0.0048 %, +0.0023 % at three sizes). The kernel form of 4E against the grouped one reads +0.0318 %
+[−0.0151, +0.0786] at 4B on 32 windows of 1,280, +0.0043 % [−0.0141, +0.0227] at 8B and −0.0108 % [−0.0281, +0.0065]
+at 14B: the 4B upper bound is 0.65 of the band.
 - Standing: established. Scope: grouped and kernel attention, three sizes, WikiText-2.
 - Evidence: [gqa-ppl](mesures/gqa-ppl-2026-11-01.txt), [gqa-8b](mesures/gqa-8b-2026-11-04.txt),
-  [gqa-14b](mesures/gqa-14b-2026-11-04.txt).
+  [gqa-14b](mesures/gqa-14b-2026-11-04.txt) for the grouped form; [attn-t8-below](mesures/attn-t8-below-4b-2026-11-05.txt),
+  [served-v9-8b](mesures/served-v9-8b-2026-11-07.txt), [served-v9-14b](mesures/served-v9-14b-2026-11-07.txt) for the
+  kernel form.
 - Overturn: an off-bit form inside the band that moves GSM8K by a resolved amount.
-- Checked: 2026-11-12 (copied from `ETAT.md` §4).
+- Checked: 2026-11-12, against the journals ([recherche-debit-r0-depot](mesures/recherche-debit-r0-depot-2026-11-12.txt) §6).
 
-**K10.** The Tetra row loop is not the limit of 4E: alone at 4E's geometry it streams 379 GB/s, against about 260 GB/s
-for the same rows inside 4E; a third of the rows' time is lost in situ, and no single suspect is worth ×1.30.
-- Standing: supported. Scope: sealed 4B, 4E v2 era (before v9), L40S; the in-situ figure *computed*.
-- Evidence: [pers-rowloop](mesures/pers-rowloop-2026-11-05.txt) (strongest suspect l1w, ×1.214).
-- Overturn: a v9 in-situ trace where the rows reach 379 GB/s.
-- Checked: 2026-11-12.
+**K10.** In 4E v9 the all-Tetra rows stream as fast in the token as alone: gate/up reads 359 GB/s at a 5-token context
+and 385 at 8,192 on mean CTA work (*computed* from stamps), against 379 [368-383] for the loop alone (*measured*, on
+the bare encode). The all-int4 rows beside them read 589 (*computed*). Alone, the sealed gate/up rows read 430 GB/s
+(*measured*): the token costs them 10 to 16 %. The decode is not what holds them: the same words read with nothing
+decoded stream 493 GB/s, ×1.22 of the served row, against 675 for a read of the int4 bytes and 751 for a bare read of
+the card (*measured*).
+- Standing: supported. Scope: sealed 4B, 4E v9, L40S; in-situ figures from stamps, not a trace.
+- Evidence: [large-4e-e1](mesures/large-4e-e1-2026-11-11.txt), [pers-rowloop](mesures/pers-rowloop-2026-11-05.txt),
+  [recherche-debit-r0-depot](mesures/recherche-debit-r0-depot-2026-11-12.txt) §1d and §6;
+  [recherche-debit-banc](mesures/recherche-debit-banc-2026-11-12.txt) for the rows alone, the read with nothing
+  decoded and the probe. That run failed its fidelity rule on one control of twelve: its rates describe, they score
+  no candidate.
+- Overturn: a decoder with fewer instructions, on the same read pattern, above ×1.22 of the served row.
+- Checked: 2026-11-12, against the journals. The earlier wording, a third of the rows' time lost in situ at about
+  260 GB/s, described 4E v2 and is in `HISTORIQUE.md`.
 
 ## C. The code and its rate-distortion
 
@@ -697,7 +715,7 @@ A measured fact that no claim explains. They are the starting points of the expl
 | N2 | Attention is worth more once the MLP is restored than on the sealed MLP: the groups are super-additive. Sealed 4B, one draw, MMLU only; both Planes14 draws were sub-additive across the same groups. | Q10. | Why the errors of the two groups compound on one object and overlap on the other. |
 | N3 | A lower Gaussian MSE of the codebook has given a worse perplexity twice, Planes14 at 4B and the Euclidean gain rule at 0.6B; no MMLU pair between codebooks is resolved. | Q4, Q17. | What the model is sensitive to that block MSE does not see. |
 | N4 | Perplexity and KL close while MMLU stays open. | Q5, Q6. | What MMLU reads that the two do not. |
-| N5 | The Tetra row loop streams faster alone than inside 4E, and bit-identical cuts move time without removing it. | K4, K10; K5 for the split of the time without weights, which is a conjecture (its consequence, the 94 % that reappeared, is measured). | What holds the token when the rows are not the limit. |
+| N5 | The whole token streams 297 GB/s while its rows read 359 to 648, and bit-identical cuts move time without removing it. | K4, K10; K5 for the split of the time without weights, which is a conjecture (its consequence, the 94 % that reappeared, is measured). | What holds the token when the rows are not the limit. |
 
 ## Open questions
 
@@ -736,6 +754,58 @@ the project's direction.
 a ready verifier, and the ceiling of 24-dimension fixed-rate codes is recorded (C7). Speed, the kernel, has a costly
 verifier. Model quality has no fast, faithful verifier: it is open through the explanation route, from the anomalies
 N1 and N2.
+
+**O11.** Closed 2026-11-14 by the operator, outcome: a ceiling. MODE RECHERCHE on decode speed, opened on 2026-11-12. Its mandate:
+
+| field | content |
+|---|---|
+| Axis | Decode speed of the served object, in tok/s at the door. Quality, whole-model b/param, VRAM, time to first token and the cost of producing an object are constraints. |
+| Starting point | Both: the anomaly N5, and the gap between the bytes a token reads and what the card can stream. The phase picks at R1 the one that gives the sharper problem. |
+| Untouchable | The three sealed files. Whole-model b/param at 2.73. VRAM at the served peaks. No CUDA Graphs in the core. Logits may move, inside the served tolerance of ±0.12 % of paired perplexity. |
+| Budget | Three days, to 2026-11-15. $5 of card under the cap of $25, each job under a stamped prereg and the operator's go. |
+
+State on 2026-11-12, after the first card run ([recherche-debit-banc](mesures/recherche-debit-banc-2026-11-12.txt)):
+the first framing, rows bound by their decode, fell. The problem is now the read of the Tetra words, 493 GB/s with
+nothing decoded against 751 for the card, by the explanation route first
+([recherche-debit-r1-recadrage](mesures/recherche-debit-r1-recadrage-2026-11-12.txt)).
+The second run ([recherche-debit-lecture](mesures/recherche-debit-lecture-2026-11-12.txt)) describes the cause: the
+served read pattern. The same words read flat, by 128-bit loads, with no side stream, stream 717 GB/s (*measured*).
+Both runs failed their fidelity rule, so neither scores a candidate nor kills a hypothesis to the letter.
+The third run ([recherche-debit-corps](mesures/recherche-debit-corps-2026-11-13.txt), 2026-11-13) passes a rule
+rebuilt on the job itself and scores seven whole bodies on the sealed Tetra rows alone. A flat body reads ×1.185
+[1.179-1.190] of the served row inside a bound of 1e-5 on rows; the served row with its row end in a second pass
+reads ×1.053 [1.050-1.056] bit for bit; a thread a row reads ×0.36 (*measured*). Neither winner has run in the
+token: no tok/s is established, and the flat body's effect on perplexity is not measured.
+The fourth run ([recherche-debit-jeton](mesures/recherche-debit-jeton-2026-11-13.txt)) put both in 4E's token and is
+void: neither arm loads on the card, 8 B of local memory at 128 registers under the driver's ptxas. Its control
+shows a noise floor 0.06 % wide in the token.
+Four lighter bodies were then written and pass their Mac gates, and a load check with no model was run on the card
+([recherche-debit-charge](mesures/recherche-debit-charge-2026-11-13.txt)): void too, the check printed nothing and
+hit its 5 min timeout. Its second attempt ([recherche-debit-charge2](mesures/recherche-debit-charge2-2026-11-14.txt),
+2026-11-14) reads every arm: none of the four lighter bodies loads, each refused for the same 8 B of local memory at
+128 registers, and v9 loads (*measured*). The 8 B do not come from what the variants shed; their origin is not
+established by that run. Five load probes ([recherche-debit-sondes](mesures/recherche-debit-sondes-2026-11-14.txt))
+then name the site: the endpass body on the gate/up call site alone is refused for the 8 B, and on q/k, down or o
+alone it loads (*measured*). Three arms without that one-call site
+([recherche-debit-jeton3](mesures/recherche-debit-jeton3-2026-11-14.txt)) do not load either: gate/up in two calls,
+for flat and for endpass, and flat with v9's own gate/up, each refused for the same 8 B (*measured*). Nine arms
+have been refused and v9 sits at the 128-register cap of 512 threads with one CTA a SM. No candidate has been timed
+in 4E's token. Spent: $1.93 of $5.
+
+Outcome, 2026-11-14. No tok/s was gained and no candidate was ever timed in 4E's token. What the phase leaves:
+- A gain exists on the Tetra rows alone: a flat read at ×1.185 inside 1e-5, a second-pass row end at ×1.053 bit for
+  bit (*measured*, L40S, sealed 4B). Its ceilings on the token are *computed*, not measured: ×1.07 and ×1.02.
+- The ceiling: 4E v9's token symbol holds 128 registers, the cap of 512 threads with one CTA a SM, and no second row
+  body loads beside it. Nine arms and one probe were refused for the same 8 B of local memory under the driver's
+  ptxas (580.178.04, L40S). The space this holds for: a row body added as text to v9's module, at v9's thread count
+  and occupancy. It does not hold for a module with fewer threads, more than one symbol a token, or a v9 that frees
+  registers; none of those was tried.
+- Not established: which value spills, and whether the rows-alone gain survives in a token.
+- Tools kept: the fidelity rule F1 to F3 of the row bench, the token's noise floor (0.06 % wide), the load check
+  with no model (about 100 s an arm), and the fact that the Mac's ptxas cannot see the driver's allocation.
+- Two jobs were void by the lead's fault ($0.62): a check that printed only at its end, and a job that ran on after
+  a refusal. Every job with kernel arms now starts with a load check that stops it and prints as it goes.
+- N5 stays open.
 
 **O12.** Phase closed on 2026-11-14 by the operator, with $13.49 of its $15 spent: MODE RECHERCHE on model quality,
 opened on 2026-11-13, explanation route (O10), beside the phase on decode speed (O11, on the branch
@@ -782,6 +852,7 @@ leaves the phase.
 | MMLU noise across draws is 0.5 to 1.5 points | 2026-08-25 | s = 2.92 ([bruit-mmlu](mesures/bruit-mmlu-graines-4b-2026-08-25.txt)) |
 | All format work is capped at 4.77× | 2026-08-21 | nullk is the floor of our geometry (`HISTORIQUE.md`) |
 | k_proj and attention are the sensitive types | 2026-09 | v_proj, 2.6 % of weights (`HISTORIQUE.md`; [m2-attribution](mesures/m2-attribution-4b-2026-09-02.txt)) |
+| The Tetra rows are bound by their decode | 2026-11-12 | a read of the same words with nothing decoded is ×1.22 of the served row ([recherche-debit-banc](mesures/recherche-debit-banc-2026-11-12.txt)) |
 | The paper's codebook explains our 5.1-point MMLU gap | 2026-09-07 | [leech0c13](mesures/leech0c13-2026-09-07.txt) |
 | Tetra is worse than Planes14 on MMLU | 2026-09-09 | −2.11 [−5.04, +0.81], never resolved ([q5-apparie](mesures/q5-apparie-2026-09-09.txt)) |
 | The Euclidean gain rule helps end to end | 2026-09-15 | +4.026 % ppl at 0.6B (Q17) |
