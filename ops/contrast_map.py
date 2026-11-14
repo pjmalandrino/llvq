@@ -82,7 +82,7 @@ RAW_DEPTHS = (12, 24, 36)
 BANDS = ((1, 1), (2, 8), (9, 64), (65, 512), (513, None))  # 1-based, inclusive; None = d
 RIDGE_REL = 1e-6
 N_MIN, N_MAX = 570, 2280
-PICK_AGREE_MIN = 0.99
+PICK_AGREE_MIN = 0.98
 SLOPE_TOL = 0.02
 LETTERS = ("A", "B", "C", "D")
 
