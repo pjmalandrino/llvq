@@ -27,7 +27,7 @@ cd "$REPO"
 
 PREREG=proofs/preregistration-guided-clip-gateup-4b-2026-11-14.md
 SPACE=${SPACE:-Pier-Jean/llvq-runner-cuda-qualite}
-IMAGE_SHA=${IMAGE_SHA:-PIN_ME_AFTER_PUBLISH}   # the Space sha the publish returns; the operator pins it
+IMAGE_SHA=${IMAGE_SHA:-c0fb594fe50371bc0171de58167dfe7e1ed6f9e6}   # published 2026-11-14T09:27Z from 8107e19
 BUCKET=Pier-Jean/jobs-artifacts
 ARM=candidate-clip10
 IN=guided-clip-4b-2026-11-14
