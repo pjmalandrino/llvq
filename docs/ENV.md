@@ -79,6 +79,7 @@ modes set together (`ALONE` in that file).
 | `LLVQ_KV_AB`, `LLVQ_FUSE_AB`, `LLVQ_TRIM_AB` | `fusedrun` | cache store, fusion and trim A/Bs |
 | `LLVQ_TIME_PHASES` | `fusedrun`, `model.rs` | per-phase timing of a token |
 | `LLVQ_GQA_AB`, `LLVQ_GQA_PPL` | `fusedrun` | grouped attention timing, and its paired perplexity |
+| `LLVQ_KV_CAPTURE` | `fusedrun`, `kvcapture.rs` | `<ctx>,<tokens>,<corpus>,<window>`: one window fed token by token on the kernel form, the decode queries and the final KV cache written to `fusedrun`'s third argument for `ops/kv_mass_score.py` |
 | `LLVQ_INT4_WIDE_CHECK` | `fusedrun` | int4 kernel against the host at widths above 14B |
 | `LLVQ_GESTURE_AB`, `LLVQ_BOUNDARY_AB` | `fusedrun` | decode-step gesture and boundary A/Bs |
 | `LLVQ_PERS_SEGMENT`, `LLVQ_PERS_4E` | `fusedrun` | persistent MLP segment, and 4E's row forms against the eager path |
