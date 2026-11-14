@@ -76,6 +76,23 @@ SIGNED PREDICTIONS
 
 Seven of seven.
 
+THE CLIP LEVEL
+--------------
+Fixed in the prereg before any clipped encode, from the 72 weight files alone (weights-diagnostic/clip.txt, *computed*,
+G = 4, one pass, threshold = c times the group mean before clipping). Effective sample share of the 131,072 tokens:
+
+| clip | mean | worst matrix | worst group | mass kept, mean |
+|---|---|---|---|---|
+| none | 1.58 % | 0.16 % | 0.01 %, 13 tokens | 100 % |
+| 50 x | 7.2 % | 2.4 % | 1.5 %, 1,958 tokens | 78 % |
+| 20 x | 12.0 % | 4.2 % | 2.6 %, 3,426 tokens | 70 % |
+| 10 x, the one that ran | 17.3 % | 6.3 % | 3.9 %, 5,130 tokens | 63 % |
+| 5 x | 24.4 % | 9.4 % | 5.7 %, 7,474 tokens | 56 % |
+| 3 x | 30.8 % | 12.3 % | 7.3 %, 9,520 tokens | 49 % |
+
+10 x is the loosest level of the table at which every group's effective sample is at least twice the 2,560 inputs of
+the matrix.
+
 THE ENCODE
 ----------
 4,853 s billed, `smoke` 78.4 min: quantization 3,473.7 s (78.4 %), factorization 643.2 s, capture 136.6 s; seal 92 s;

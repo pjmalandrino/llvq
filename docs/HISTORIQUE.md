@@ -1463,11 +1463,12 @@ rows of `docs/data/jobs.csv` sum to $326.22, $0.25 under the registry; the journ
   states both readings of the prereg's "interacting" row: to the letter it fires and the next step is global.
 - Nothing served changes: no config, no served module, no Hub file.
 
-## 2026-11-13. A second research phase opens, on quality; MODES allows two phases on two axes; $0
+## 2026-11-13 to 11-14. A research phase on quality opens and closes on a dead hypothesis; MODES allows two phases on two axes; nothing served changes, $13.49
 
-The operator signed the mandate of a research phase on model quality, O12 of [`CERVEAU.md`](CERVEAU.md). It starts
-from the anomaly N1 and runs beside the phase on decode speed (O11). Its budget is five days and $10 of card, under
-a cap of its own. Nothing is measured and nothing was launched.
+The operator signed the mandate of a research phase on model quality, O12 of [`CERVEAU.md`](CERVEAU.md). It started
+from the anomaly N1 and ran beside the phase on decode speed (O11), on five days and $10 of card under a cap of its
+own, raised to $15. It closed the next day: judging gate/up on the final output, in its one-sided form, did not beat
+the layer objective on the 4B. The bullets below are in the order things happened.
 
 - [`MODES.md`](MODES.md) said until this day: "At most one research phase and one development phase run at a time:
   one card budget, one work machine." The operator replaced it. Two research phases now run together when each

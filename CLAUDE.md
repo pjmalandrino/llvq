@@ -155,7 +155,8 @@ name it does not list.
 `MEASUREMENT_MODES` in `llvq-llm/src/served.rs` lists 17 measurement variables (`LLVQ_GQA_AB`, `LLVQ_PERS_4E`,
 ...), never a served config. `fusedrun` refuses all but `LLVQ_TIME_EVENTS` and `LLVQ_BENCH_ARMS` beside a config, and
 two of its modes set together (`ALONE`); `served.rs` refuses all 17 beside a persistent decode. `LLVQ_KERNEL_DIR`,
-`LLVQ_TILE_BLOCKS`, `LLVQ_PREFILL` and `LLVQ_METAL_KERNEL` are refused beside any config (`BELOW_THE_DOOR`).
+`LLVQ_TILE_BLOCKS`, `LLVQ_PREFILL`, `LLVQ_METAL_KERNEL` and the three `LLVQ_GUIDED_*` are refused beside any config
+(`BELOW_THE_DOOR`).
 `LLVQ_PREFILL_TOKENS` and `LLVQ_CONTEXTS` time the served object with a longer prompt. `planesbench`'s own variables
 are registered in `llvq-cuda/src/pers.rs`. The MLX door reads no `LLVQ_*` variable and refuses any one set; its config
 schema (`configs/mlx/`) is its own.
