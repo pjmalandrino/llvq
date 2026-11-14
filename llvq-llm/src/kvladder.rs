@@ -492,6 +492,28 @@ mod tests {
         Ok(())
     }
 
+    /// Each arm through [`round_trip`], keys and values apart: an 8-bit side
+    /// reads above 35 dB, a 4-bit side between 12 and 26, on the same
+    /// sources. Catches an arm that codes one side at the other's bits.
+    #[test]
+    fn each_arm_codes_each_side_at_its_bits() -> Result<()> {
+        let k = rope_keys(T, 50, 21);
+        let v = gaussian(T, 22);
+        for mode in ARMS {
+            let (kq, vq) = round_trip(mode, &k, &v, Some(&aux_for(mode)))?;
+            let (sk, sv) = (sqnr_db(&k, &kq), sqnr_db(&v, &vq));
+            println!("{mode:?}: keys {sk:.2} dB, values {sv:.2} dB");
+            for (side, db, bits) in [("keys", sk, mode.key_bits(DType::F16)), ("values", sv, mode.value_bits(DType::F16))] {
+                if bits > 8.0 {
+                    assert!(db > 35.0, "{mode:?} {side}: an 8-bit code at {db:.2} dB");
+                } else {
+                    assert!((12.0..26.0).contains(&db), "{mode:?} {side}: a 4-bit code at {db:.2} dB");
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// The g64 choice for the int4 values, against g128, reported.
     #[test]
     fn int4_g64_against_g128() -> Result<()> {
