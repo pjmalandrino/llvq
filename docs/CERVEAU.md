@@ -840,6 +840,19 @@ leaves the phase.
   [guided-clip-gateup-4b](mesures/guided-clip-gateup-4b-2026-11-14.txt). The day-by-day account is the 2026-11-13
   entry of [`HISTORIQUE.md`](HISTORIQUE.md).
 
+**O13.** Phase open: MODE RECHERCHE on decode speed at long context, opened by the operator on 2026-11-14, after O11
+closed on a ceiling at short context. Its mandate:
+
+| field | content |
+|---|---|
+| Axis | Decode speed of the served object at long context, in tok/s at the door after an 8,192-token prompt. Quality, whole-model b/param, VRAM, time to first token and the cost of producing an object are constraints. |
+| Starting point | A gap: the sealed 4B decodes 160.5 tok/s after 8,192 tokens against 225.8 after 5 (*measured*), and the attention phase is 2,646 of the 6,211 µs of that token (*measured*, [large-4e-hors-poids-etude](mesures/large-4e-hors-poids-etude-2026-11-12.txt)), with a KV read of 1,208 MB (*computed*) beside 1,378 MB of weights (P3). Every token reads the whole cache. Reading part of it has never been looked at here. |
+| Untouchable | As O11: the three sealed files, whole-model b/param at 2.73, no CUDA Graphs in the core. Logits may move, inside the served tolerance of ±0.12 % of paired perplexity. VRAM: the operator allows a minor impact (2026-11-14); the lead reads it as a side index of at most 0.1 GB at 4B that stays under the served 8k peak, and brings anything larger back to him. |
+| Budget | Five days, to 2026-11-19, and $10 of card, each job under a stamped prereg and the operator's go. The operator set the $25 cap of 2026-11-09 aside for this phase and asked the lead for the figure (2026-11-14). The $10 are *estimated*: a capture job, three to four paired-perplexity arms at 8,192 at about $0.50 each, a kernel arm in the token, a second size, and a margin for void runs (two of O11's eight were void). |
+
+The reading before the mandate (2026-11-14, two agents, $0) is in
+[recherche-debit-kv-r0](mesures/recherche-debit-kv-r0-2026-11-14.txt).
+
 ## Beliefs we dropped
 
 | belief | dropped | by |
