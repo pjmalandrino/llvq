@@ -2143,10 +2143,16 @@ fn the_4e_v9_mutants_are_killed() {
 /// `pers::p4e_e1_unit_text` applies to the card's module, under row form 7.
 /// `twist` rewrites one replacement text (a mutant of the arm), or nothing.
 fn persistent_e1(arm: &str, tag: &str, twist: Option<(&str, &str)>) -> PathBuf {
+    persistent_e1_twists(arm, tag, twist.as_slice())
+}
+
+/// [`persistent_e1`] with several twists, each of exactly one site in the
+/// arm's replacement texts, applied in order (a mutant of two sites).
+fn persistent_e1_twists(arm: &str, tag: &str, twists: &[(&str, &str)]) -> PathBuf {
     let edits = pers::p4e_e1_edits(arm).unwrap();
     let mut files: Vec<(String, String, String)> =
         edits.into_iter().map(|(f, a, b)| (format!("llvq-cuda/kernels/{f}"), a, b)).collect();
-    if let Some((from, to)) = twist {
+    for &(from, to) in twists {
         let hits: usize = files.iter().map(|e| e.2.matches(from).count()).sum();
         assert_eq!(hits, 1, "E1 mutant {tag}: {hits} sites for {from:?} in the arm's edits, expected exactly one");
         for e in files.iter_mut() {
@@ -2280,9 +2286,21 @@ const FLAT_RMS: f64 = 0.1;
 /// largest difference over the state's rms. Asserted: the chain runs, makes
 /// every token, the barrier count and abort word are the served ones, and the
 /// state stays within [`FLAT_RMS`] of its rms.
+///
+/// R6d's flat arms on the same commands and under the same bound: v9fn (flat on
+/// q/k, down and o, v9's gate/up) and v9fg (flat everywhere, gate/up in two
+/// calls), whose chain must also equal v9fl's byte for byte (the same rows,
+/// the same product).
 #[test]
 fn the_4e_rc_flat_arm_stays_near_the_served_chain() {
-    let b = persistent_e1("v9fl", "rc_v9fl", None);
+    for arm in ["v9fl", "v9fn", "v9fg"] {
+        flat_arm_near_the_served_chain(arm);
+    }
+}
+
+fn flat_arm_near_the_served_chain(arm: &str) {
+    let b = persistent_e1(arm, &format!("rc_{arm}"), None);
+    let fl = (arm == "v9fg").then(|| persistent_e1("v9fl", "rc_v9fl_for_v9fg", None));
     let cmds: Vec<(String, Vec<u8>, usize, u32)> = vec![
         ("grid 4x96, RoPE 2".into(), g_cmd_variant(2, 4, 96, &[(5, 3, 7)], 16, u32::MAX, 0x9e42, 2 | 256), 3, 4),
         ("grid 5x64, RoPE 1".into(), g_cmd_variant(1, 5, 64, &[(5, 3, 7)], 16, u32::MAX, 0x9e41, 2 | 256), 3, 5),
@@ -2299,16 +2317,22 @@ fn the_4e_rc_flat_arm_stays_near_the_served_chain() {
         assert_eq!(u32s(&got[got.len() - 8..]), vec![bars, 0], "{label}: barrier count, abort and tickets");
         assert!(u32s(&got[..4 * n]).iter().all(|&t| t < 1024), "{label}: every token made");
         let (e, t, d, v, m) = flat_distance(&got, &want, *n);
-        println!("v9fl {label:<22} tokens equal {e} of {t}; state values differing {d} of {v}; max |diff| / rms {m:.3e}");
-        assert!(m <= FLAT_RMS, "{label}: the flat chain is {m:.3e} of the state's rms from the served chain");
+        println!("{arm} {label:<22} tokens equal {e} of {t}; state values differing {d} of {v}; max |diff| / rms {m:.3e}");
+        assert!(m <= FLAT_RMS, "{arm} {label}: the flat chain is {m:.3e} of the state's rms from the served chain");
+        if let Some(fl) = &fl {
+            assert!(got == run(fl, cmd), "{arm} {label}: not v9fl's chain byte for byte");
+        }
         (tok, toks, dif, vals, worst) = (tok + e, toks + t, dif + d, vals + v, worst.max(m));
     }
-    println!("v9fl over {} commands: tokens equal {tok} of {toks}; state values differing {dif} of {vals}; max |diff| / rms {worst:.3e}", cmds.len());
+    println!("{arm} over {} commands: tokens equal {tok} of {toks}; state values differing {dif} of {vals}; max |diff| / rms {worst:.3e}", cmds.len());
+    if fl.is_some() {
+        println!("{arm}: v9fl's chain byte for byte on the {} commands", cmds.len());
+    }
     // the stamp symbol runs the same rows: its outputs equal the token symbol's
     let runs = [(5u32, 3u32, 7u32), (8, 2, 9)];
     let plain = run(&b, &g_cmd_variant(1, 4, 96, &runs, 16, u32::MAX, 0x9e21, 2 | 256));
     let stamped = run(&b, &g_cmd_variant(1, 4, 96, &runs, 16, u32::MAX, 0x9e21, 1 | 256));
-    assert!(stamped[..plain.len()] == plain[..], "v9fl: the stamped launch moved an output");
+    assert!(stamped[..plain.len()] == plain[..], "{arm}: the stamped launch moved an output");
 }
 
 /// The lighter variants on the card's grid (142 CTAs, the L40S's SMs; one warp a CTA, so the twin stays small: 4,544
@@ -2418,6 +2442,77 @@ fn the_4e_rc_call_site_mutants_are_killed() {
                 None if required => panic!("rc mutant {tag} survived on {arm}"),
                 None => println!("rc mutant {tag:<18} 1 site, arm {arm}: SURVIVES the chain distance ({survived}); killed on v9ep, same text"),
             }
+        }
+    }
+}
+
+/// Mutants of R6d's two-call gate/up site (pers.rs::P4E_RC_GU_TWO_CALLS), on
+/// v9eg against the served chain bit for bit. Each twist is one site of the
+/// arm's replacement texts (`persistent_e1_twists` asserts it); a mutant of
+/// two twists names two sites. Commands: the rc mutants' two (smooth SiLU
+/// table, and the 8B's Tetra o) and one under the random table.
+#[test]
+fn the_4e_rc_two_call_mutants_are_killed() {
+    let cmds: Vec<(Vec<u8>, Vec<u8>)> = [
+        g_cmd_variant(1, 3, 128, &[(5, 3, 7)], 16, u32::MAX, 0x9e80, 2 | 256),
+        g_cmd_variant(1, 3, 128, &[(5, 3, 7)], 16, u32::MAX, 0x9e81, 2 | 16 | 256),
+        g_cmd_variant(1, 3, 128, &[(5, 3, 7)], 16, u32::MAX, 0x9e82, 2),
+    ]
+    .into_iter()
+    .map(|c| {
+        let want = run(served(), &c);
+        (c, want)
+    })
+    .collect();
+    let up_row = "return PersTRow{A->up.words + r * A->up.stride_u32, A->up.gscale, A->up.rscale, A->up.tail, r};";
+    let gate_row = "return PersTRow{A->gate.words + r * A->gate.stride_u32, A->gate.gscale, A->gate.rscale, A->gate.tail, r};";
+    let cases: [(&str, Vec<(&str, &str)>); 5] = [
+        // silu applied on the up call's value instead of the gate call's
+        (
+            "gu2_silu_on_up",
+            vec![
+                ("A->act[glo + idx] = A->silu[f2h(y)];", "A->act[glo + idx] = f2h(y);"),
+                ("exact_hmul(A->act[glo + idx], f2h(y))", "exact_hmul(A->act[glo + idx], A->silu[f2h(y)])"),
+            ],
+        ),
+        // the second call reads the gate matrix
+        ("gu2_up_reads_gate", vec![(up_row, gate_row)]),
+        // the gate call one row short
+        (
+            "gu2_gate_short",
+            vec![(
+                "A->silu[f2h(y)]; };\n            pers_rc_rows<PERS_RC_ARM>(ghi - glo,",
+                "A->silu[f2h(y)]; };\n            pers_rc_rows<PERS_RC_ARM>(ghi - glo - 1u,",
+            )],
+        ),
+        // the up call one row short
+        (
+            "gu2_up_short",
+            vec![(
+                "f2h(y)); };\n            pers_rc_rows<PERS_RC_ARM>(ghi - glo,",
+                "f2h(y)); };\n            pers_rc_rows<PERS_RC_ARM>(ghi - glo - 1u,",
+            )],
+        ),
+        // the product replaced by the up value alone
+        ("gu2_no_product", vec![("exact_hmul(A->act[glo + idx], f2h(y))", "f2h(y)")]),
+    ];
+    for (tag, twists) in &cases {
+        let b = persistent_e1_twists("v9eg", &format!("rc_{tag}_v9eg"), twists);
+        let mut verdict = None;
+        for (c, w) in &cmds {
+            verdict = match run_mutant(&b, c) {
+                None => Some("killed: the process failed".to_string()),
+                Some(o) if o.len() != w.len() => Some("killed: the output's length".to_string()),
+                Some(o) if o[..o.len() - 8] != w[..w.len() - 8] => Some("killed: the chain moved".to_string()),
+                Some(_) => None,
+            };
+            if verdict.is_some() {
+                break;
+            }
+        }
+        match verdict {
+            Some(v) => println!("rc two-call mutant {tag:<18} {} site(s), arm v9eg: {v}", twists.len()),
+            None => panic!("rc two-call mutant {tag} survived on v9eg"),
         }
     }
 }

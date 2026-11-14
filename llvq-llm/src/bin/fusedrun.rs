@@ -3542,6 +3542,11 @@ mod tests {
         // the load probes: the check names them, a timed run never does
         assert_eq!(parse_pers_4e_check("v9pe0,v9peq,v9peg,v9ped,v9peo"), Ok(vec!["v9pe0", "v9peq", "v9peg", "v9ped", "v9peo"]));
         assert!(parse_pers_4e_check("v9peq,v9peq").is_err());
+        // R6d's arms: E1 arms, so the check and a timed run both name them
+        assert_eq!(parse_pers_4e_check("v9,v9fg,v9fn,v9eg"), Ok(vec!["v9", "v9fg", "v9fn", "v9eg"]));
+        assert_eq!(parse_pers_4e("256:v9,v9fg,v9eg,v9"), Ok((256, vec!["v9", "v9fg", "v9eg"], vec![8192], true)));
+        assert_eq!(parse_pers_4e("256:v9,v9fn,v9"), Ok((256, vec!["v9", "v9fn"], vec![8192], true)));
+        assert_eq!(parse_pers_4e("256:v9fg"), Ok((256, vec!["v9fg"], vec![8192], false)));
         for probe in llvq_cuda::pers::P4E_RC_PROBES {
             assert!(parse_pers_4e(&format!("64:v9,{}", probe.0)).is_err(), "{} is never timed", probe.0);
         }

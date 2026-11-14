@@ -801,7 +801,8 @@ pub fn q4_tile_words(words: &[u32], d_out: usize, nwords: usize) -> Result<Vec<u
 // ---------------------------------------------------------------------------
 
 /// The E1 arms, the first the reference of the others.
-pub const P4E_E1_ARMS: [&str; 10] = ["v9", "v9np", "v9mv", "v9ft", "v9ep", "v9fl", "v9ep2", "v9ep3", "v9fl2", "v9fl3"];
+pub const P4E_E1_ARMS: [&str; 13] =
+    ["v9", "v9np", "v9mv", "v9ft", "v9ep", "v9fl", "v9ep2", "v9ep3", "v9fl2", "v9fl3", "v9fn", "v9fg", "v9eg"];
 
 /// The research bodies' arms and their body codes (`PERS_RC_ARM`): 1 endpass,
 /// 2 flat (pers_4e_rc.cuh); 3 ep2, 4 ep3, 5 fl2, 6 fl3 (pers_4e_rc2.cuh, the
@@ -819,9 +820,80 @@ pub const P4E_RC_ARMS: [(&str, u32); 6] = [("v9ep", 1), ("v9fl", 2), ("v9ep2", 3
 /// covers a module with the body on one site.
 pub const P4E_RC_PROBES: [(&str, usize); 5] = [("v9pe0", 0), ("v9peq", 1), ("v9peg", 2), ("v9ped", 3), ("v9peo", 4)];
 
+/// The gate/up call site of an R6d arm ([`P4E_RC_GU_ARMS`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RcGu {
+    /// v9's own gate/up text: edit 2 of [`p4e_rc_edits`] dropped.
+    V9,
+    /// [`P4E_RC_GU_TWO_CALLS`] in place of edit 2's replacement: the CTA's
+    /// gate rows in one call, its up rows in a second, one matrix a call.
+    TwoCalls,
+}
+
+/// R6d's arms (docs/mesures/recherche-debit-sondes-2026-11-14.txt: with the
+/// endpass body on one call site, only gate/up brings the 8 B of local
+/// memory): the body on q/k, the Tetra down and the Tetra o, and on gate/up
+/// either v9's text or the two-call site. (arm, body code, gate/up site):
+///   v9fn flat, v9's gate/up: flat's rows on the other sites, so flat's bound;
+///   v9fg flat, two calls: flat's rows everywhere, so v9fl's chain byte for byte;
+///   v9eg endpass, two calls: v9's arithmetic, so the bits.
+pub const P4E_RC_GU_ARMS: [(&str, u32, RcGu); 3] = [("v9fn", 2, RcGu::V9), ("v9fg", 2, RcGu::TwoCalls), ("v9eg", 1, RcGu::TwoCalls)];
+
+/// The two-call gate/up site of R6d (replaces the same v9 text as edit 2 of
+/// [`p4e_rc_edits`]). Call 1 parks silu(g) of each gate row in `act`; call 2
+/// multiplies it by the row's up value: exact_hmul(silu[f2h(g)], f2h(u)), the
+/// stream's own product. `act` rows [glo, ghi) are this CTA's alone, and no
+/// CTA reads them before the grid barrier after the MLP's gate/up part; each
+/// body ends on a barrier after its last epilogue, so call 2 reads what call 1
+/// wrote. No value is kept in shared memory across the calls.
+pub const P4E_RC_GU_TWO_CALLS: &str = "        // rc, two calls: the CTA's gate rows, silu of each parked in act; after the body's last barrier its up
+        // rows, each product exact_hmul(silu[g], u), the stream's own. One matrix a call, no value kept in shared.
+        const u32 glo = PERS_SEG_GU(0u), ghi = PERS_SEG_GU(1u);
+        const u32 nb = A->gate.nblocks, tw = A->gate.tail_w;
+        {
+            const auto row_at = [&](u32 idx) {
+                const u32 r = glo + idx;
+                return PersTRow{A->gate.words + r * A->gate.stride_u32, A->gate.gscale, A->gate.rscale, A->gate.tail, r};
+            };
+            const auto epi = [&](u32 idx, float y) { A->act[glo + idx] = A->silu[f2h(y)]; };
+            pers_rc_rows<PERS_RC_ARM>(ghi - glo, nb, tw, tab, t_inv, v, row_at, epi, v + 2u * H, false);
+        }
+        {
+            const auto row_at = [&](u32 idx) {
+                const u32 r = glo + idx;
+                return PersTRow{A->up.words + r * A->up.stride_u32, A->up.gscale, A->up.rscale, A->up.tail, r};
+            };
+            const auto epi = [&](u32 idx, float y) { A->act[glo + idx] = exact_hmul(A->act[glo + idx], f2h(y)); };
+            pers_rc_rows<PERS_RC_ARM>(ghi - glo, nb, tw, tab, t_inv, v, row_at, epi, v + 2u * H, false);
+        }
+";
+
 /// The body code of a research arm, or none.
 pub fn p4e_rc_body(arm: &str) -> Option<u32> {
-    P4E_RC_ARMS.iter().find(|a| a.0 == arm).map(|a| a.1)
+    P4E_RC_ARMS
+        .iter()
+        .find(|a| a.0 == arm)
+        .map(|a| a.1)
+        .or_else(|| P4E_RC_GU_ARMS.iter().find(|a| a.0 == arm).map(|a| a.1))
+}
+
+/// The edits of an R6d arm: [`p4e_rc_edits`] of its body, edit 2 (gate/up)
+/// dropped (v9fn) or its replacement swapped for [`P4E_RC_GU_TWO_CALLS`]
+/// (v9fg, v9eg). The text, q/k, down and o edits are the body's own.
+pub fn p4e_rc_gu_edits(arm: &str) -> Result<Vec<(&'static str, String, String)>, String> {
+    let &(_, body, gu) =
+        P4E_RC_GU_ARMS.iter().find(|a| a.0 == arm).ok_or_else(|| format!("4E rc: {arm:?} is not an R6d arm"))?;
+    let mut v = p4e_rc_edits(body)?;
+    if v.len() != 5 || v[2].0 != "pers_segment.cu" || !v[2].1.contains("A->act[pend_r] = exact_hmul(pend_sv, pend_u);") {
+        return Err(format!("4E rc {arm}: edit 2 of body {body} is not v9's gate/up site"));
+    }
+    match gu {
+        RcGu::V9 => {
+            v.remove(2);
+        }
+        RcGu::TwoCalls => v[2].2 = P4E_RC_GU_TWO_CALLS.to_string(),
+    }
+    Ok(v)
 }
 
 /// Whether a body is flat's family (owes the bound, not the bits).
@@ -836,7 +908,7 @@ pub fn rc_body_one_chunk(body: u32) -> bool {
 }
 
 /// Whether an E1 arm owes v9's bits (its tokens and logits equal v9's). Every
-/// arm does but flat's (`v9fl`, `v9fl2`, `v9fl3`), whose rows owe a bound of
+/// arm does but flat's (`v9fl`, `v9fl2`, `v9fl3`, `v9fn`, `v9fg`), whose rows owe a bound of
 /// 1e-5 (pers_4e_rc.cuh): their tokens and logits are compared with v9's and
 /// reported, never assumed equal.
 pub fn p4e_e1_owes_bits(arm: &str) -> bool {
@@ -1041,6 +1113,8 @@ pub fn p4e_rc_layout(body: u32, hidden: u32, inter: u32, d_ctx: u32, tetra_o: bo
     let limit = inter.max(2 * hidden).max(attn / 4);
     let work = |d_in: u32, in_place: bool| if flat && !in_place { rc_padded_floats(d_in) } else { 0 } + PERS_RC_SLOTS;
     let pairs = inter.div_ceil(grid);
+    // gate/up: the one-call site's binary16 values after the body's region. R6d's arms (P4E_RC_GU_ARMS) keep no
+    // value there (v9's site, or two calls ending at the body's region), so this end is conservative for them.
     let mut v = vec![
         RcPhase { phase: "q/k", end: 2 * hidden + work(hidden, false), limit },
         RcPhase { phase: "gate/up", end: 2 * hidden + work(hidden, false) + pairs, limit },
@@ -1149,6 +1223,8 @@ pub fn p4e_e1_edits(arm: &str) -> Result<Vec<(&'static str, String, String)>, St
         "v9ep" | "v9fl" | "v9ep2" | "v9ep3" | "v9fl2" | "v9fl3" => {
             v.extend(p4e_rc_edits(p4e_rc_body(arm).expect("a research arm has a body"))?)
         }
+        // R6d: the body on q/k, down and o; gate/up as v9 (v9fn) or in two calls (v9fg, v9eg)
+        "v9fn" | "v9fg" | "v9eg" => v.extend(p4e_rc_gu_edits(arm)?),
         "v9np" => v.extend(np),
         "v9mv" => {
             v.extend(np);
@@ -4521,6 +4597,10 @@ mod tests {
             ("v9ep3", "60dfa277ef82cf5c94b5a4b0b5745610324abac432c8ef4725ea96ba150714f7"),
             ("v9fl2", "d863288607ba961223b3ac8501b99f2e4c97dfc082cd237b80300df8b33dbd11"),
             ("v9fl3", "713ed5877aef63da831b8d149d31418889e42ac2580589294fa303e408ccf3fe"),
+            // R6d's arms (ops/jobs/recherche-debit-jeton3.sh): 264,720, 264,835 and 264,835 bytes
+            ("v9fn", "ce902a755173d05c4d50353e68d7bf62a326e13566fd4f7b84bf97e9933b6f4f"),
+            ("v9fg", "36b617b0811d24cb8aa475fa9c3f0cd49ced1138c918a0fbdd7556ceac1c67bb"),
+            ("v9eg", "1971b46969e4579c64327852a47c49887bd2acb0ffc5be802d2bed614117c29d"),
         ] {
             let text = p4e_e1_unit_text(CARD_TILE_SM89, name).unwrap();
             assert_eq!(crate::sha256::sha256_hex(text.as_bytes()), sha, "4E {name}: {} bytes", text.len());
@@ -4556,6 +4636,9 @@ mod tests {
             ("4e-v9peg", p4e_e1_unit_text(CARD_TILE_SM89, "v9peg").unwrap()),
             ("4e-v9ped", p4e_e1_unit_text(CARD_TILE_SM89, "v9ped").unwrap()),
             ("4e-v9peo", p4e_e1_unit_text(CARD_TILE_SM89, "v9peo").unwrap()),
+            ("4e-v9fn", p4e_e1_unit_text(CARD_TILE_SM89, "v9fn").unwrap()),
+            ("4e-v9fg", p4e_e1_unit_text(CARD_TILE_SM89, "v9fg").unwrap()),
+            ("4e-v9eg", p4e_e1_unit_text(CARD_TILE_SM89, "v9eg").unwrap()),
         ] {
             std::fs::write(dir.join(format!("{name}.cu")), &text).unwrap();
             eprintln!("{name}: {} bytes, sha256 {}", text.len(), crate::sha256::sha256_hex(text.as_bytes()));
@@ -5442,14 +5525,54 @@ mod tests {
             assert_eq!(p4e_rc_body(arm), Some(body));
         }
         assert!(p4e_rc_edits(0).is_err() && p4e_rc_edits(7).is_err());
-        for arm in ["v9", "v9np", "v9mv", "v9ft", "v9ep", "v9ep2", "v9ep3"] {
+        for arm in ["v9", "v9np", "v9mv", "v9ft", "v9ep", "v9ep2", "v9ep3", "v9eg"] {
             assert!(p4e_e1_owes_bits(arm), "{arm}");
         }
-        for arm in ["v9fl", "v9fl2", "v9fl3"] {
+        for arm in ["v9fl", "v9fl2", "v9fl3", "v9fn", "v9fg"] {
             assert!(!p4e_e1_owes_bits(arm), "{arm}");
         }
         // every research arm is an E1 arm
         assert!(P4E_RC_ARMS.iter().all(|a| P4E_E1_ARMS.contains(&a.0)));
+        // R6d: E1's v9 plus exactly the body's edits 0, 1, 3, 4 and, at gate/up, nothing (v9fn) or the two calls
+        let gu_v9 = p4e_rc_edits(2).unwrap()[2].1.clone();
+        for (arm, body, gu) in P4E_RC_GU_ARMS {
+            assert!(P4E_E1_ARMS.contains(&arm) && !P4E_RC_ARMS.iter().any(|a| a.0 == arm), "{arm}");
+            assert_eq!(p4e_rc_body(arm), Some(body), "{arm}");
+            assert_eq!(p4e_e1_owes_bits(arm), !rc_body_is_flat(body), "{arm}");
+            let full = p4e_rc_edits(body).unwrap();
+            let edits = p4e_rc_gu_edits(arm).unwrap();
+            let want: Vec<_> = match gu {
+                RcGu::V9 => full.iter().enumerate().filter(|(i, _)| *i != 2).map(|(_, e)| e.clone()).collect(),
+                RcGu::TwoCalls => {
+                    let mut w = full.clone();
+                    w[2].2 = P4E_RC_GU_TWO_CALLS.to_string();
+                    w
+                }
+            };
+            assert_eq!(edits, want, "{arm}: the body's edits, gate/up aside");
+            let t = p4e_e1_unit_text(tile, arm).unwrap();
+            let mut back = t.clone();
+            for (_, from, to) in &edits {
+                assert_eq!(back.matches(to.as_str()).count(), 1, "{arm}: {to:?}");
+                back = back.replacen(to.as_str(), from, 1);
+            }
+            assert_eq!(back, r, "{arm}: E1's v9 and its edits, nothing else");
+            assert_eq!(t.matches(&format!("#define PERS_RC_ARM {body}u\n")).count(), 1, "{arm}");
+            assert_eq!(t.matches("#ifndef PERS_4E_RC_CUH").count(), 1, "{arm}");
+            assert_eq!(t.matches("#ifndef PERS_4E_RC2_CUH").count(), 0, "{arm}");
+            assert_eq!(t.matches("pers_rc2_rows<PERS_RC_ARM>(").count(), 0, "{arm}");
+            let (calls, loops, keeps_v9) = match gu {
+                RcGu::V9 => (3, 2, 1),
+                RcGu::TwoCalls => (5, 1, 0),
+            };
+            assert_eq!(t.matches("pers_rc_rows<PERS_RC_ARM>(").count(), calls, "{arm}: the rc calls");
+            assert_eq!(t.matches("pers_4e_rows(").count(), loops, "{arm}: pers_4e_rows' definition and its callers");
+            assert_eq!(t.matches(gu_v9.as_str()).count(), keeps_v9, "{arm}: v9's gate/up text");
+            assert_eq!(t.matches(P4E_RC_GU_TWO_CALLS).count(), 1 - keeps_v9, "{arm}: the two-call site");
+            // the one-call site's shared values are in no R6d module
+            assert!(!t.contains("gu_vals") && !t.contains("sgu[np + p]"), "{arm}");
+        }
+        assert!(p4e_rc_gu_edits("v9fl").is_err() && p4e_rc_gu_edits("v9").is_err());
         // the load probes: endpass's text and one call site each, v9 elsewhere; none is an E1 arm
         let ep = p4e_rc_edits(1).unwrap();
         assert_eq!(ep.len(), 5, "the text, q/k, gate/up, down, o");
