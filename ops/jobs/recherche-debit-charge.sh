@@ -22,20 +22,22 @@
 # card). fusedrun is already in both lists of ops/Dockerfile.cuda; the kernels are text in the binary; nothing new.
 # Cost, estimated (l40sx1 $1.80/h) from the void run (job 6af70da3): its oracle and the start of its first process took
 # about 2 min; its main process spent 339 s before the refusal, for the model (about 70 s, E1's one-arm process) and
-# three modules compiled one after the other (about 90 s each). Here no model and seven modules on parallel threads:
-# about 2 to 4 min for the check. About 6 min, $0.18. Timeout 7m: $0.21 at worst.
+# three modules compiled one after the other (about 90 s each). The first attempt (6af73aed, void) ran seven modules
+# on parallel threads, printed at the end, and was killed at 5 min with nothing out. This second attempt runs the
+# arms one after the other, v9 first, then the four variants, then v9ep and v9fl, each line printed as it is known:
+# about 11 min for the check if a module takes 90 s. About 13 min, $0.39. Timeout 17m: $0.51 at worst.
 set -euo pipefail
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$REPO"
 
 PREREG=proofs/preregistration-recherche-debit-charge-jeton2-2026-11-13.md
-OUT_NAME=recherche-debit-charge-2026-11-13
+OUT_NAME=recherche-debit-charge2-2026-11-14
 IMAGE_SHA=${IMAGE_SHA:-}
 BUCKET=Pier-Jean/jobs-artifacts
 O=/out/$OUT_NAME${RETRY:+-r$RETRY}
 DRY=${DRY_RUN:-0}
-TIMEOUT=${TIMEOUT:-7m}
-ARMS=v9,v9ep,v9fl,v9ep2,v9ep3,v9fl2,v9fl3
+TIMEOUT=${TIMEOUT:-17m}
+ARMS=v9,v9ep3,v9fl2,v9ep2,v9fl3,v9ep,v9fl
 # The modules' sha256 at the card's tile define, as pers.rs builds them on the Mac (dump_tree_modules,
 # the_rc_modules_keep_their_bytes). v9, v9ep and v9fl are the jeton run's.
 SHA_V9=d55a097b146e8b962829045dfea6975470b408b942c1e0c22c038ad4d9d00860
@@ -76,7 +78,7 @@ echo '== the load check =='
 date -u
 rc=0
 env LLVQ_FUSED_LAYOUT=tetra48 LLVQ_EMBED=q4 LLVQ_ROT_SHARE=1 LLVQ_FUSE=0 LLVQ_PERS_4E="check:$ARMS" \
-  timeout 5m fusedrun "$S" 2 > "$O/check.txt" 2>&1 || rc=$?
+  timeout 14m fusedrun "$S" 2 > "$O/check.txt" 2>&1 || rc=$?
 date -u
 echo "fusedrun check exit $rc" | tee -a "$O/check.txt"
 grep -aE '^4E check|^CHECK' "$O/check.txt" | tee "$O/summary.txt"

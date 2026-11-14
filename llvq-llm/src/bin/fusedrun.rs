@@ -2145,9 +2145,8 @@ fn main() -> anyhow::Result<()> {
                 let arms = parse_pers_4e_check(list).map_err(|e| anyhow::anyhow!("{e}"))?;
                 runs_alone("LLVQ_PERS_4E", &["LLVQ_KERNEL_DIR"])?;
                 let t = Instant::now();
-                for line in llvq_llm::persist4e_cuda::check_e1_arms(&device, &arms)? {
-                    println!("{line}");
-                }
+                // the check prints its own lines as it reads them
+                llvq_llm::persist4e_cuda::check_e1_arms(&device, &arms)?;
                 println!("4E check done in {:.1} s", t.elapsed().as_secs_f64());
                 return Ok(());
             }

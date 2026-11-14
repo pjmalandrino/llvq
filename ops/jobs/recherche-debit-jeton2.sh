@@ -97,7 +97,7 @@ FLAGS=(LLVQ_FUSED_LAYOUT=tetra48 LLVQ_EMBED=q4 LLVQ_ROT_SHARE=1 LLVQ_FUSE=0)
 echo "== (1) the load check: v9,$ARMS =="
 date -u
 rc=0
-env "${FLAGS[@]}" LLVQ_PERS_4E="check:v9,$ARMS" timeout 5m fusedrun "$S" 2 > "$O/check.txt" 2>&1 || rc=$?
+env "${FLAGS[@]}" LLVQ_PERS_4E="check:v9,$ARMS" timeout 6m fusedrun "$S" 2 > "$O/check.txt" 2>&1 || rc=$?
 echo "fusedrun check exit $rc" | tee -a "$O/check.txt"
 grep -aE '^4E check|^CHECK' "$O/check.txt" | tee "$O/check-summary.txt"
 for pair in $SHAS; do

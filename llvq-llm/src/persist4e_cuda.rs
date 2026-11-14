@@ -490,8 +490,8 @@ pub const CHECK_ROPE_FORM: u32 = 1;
 /// The load check of E1 arms (`fusedrun LLVQ_PERS_4E=check:<arms>`): each
 /// arm's module compiled as [`install_e1`] compiles it (the same text and
 /// sha256, NVRTC for the same arch, the driver's JIT), with no model loaded
-/// and nothing launched. NVRTC runs on one thread an arm, in parallel; the
-/// JIT and the attributes follow arm by arm. For each arm, the token symbol
+/// and nothing launched. The arms run one after the other in the order named,
+/// and every line is printed as it is known and returned. For each arm, the token symbol
 /// of each RoPE form at 512 threads, its stamp and logits symbols at
 /// [`CHECK_ROPE_FORM`]: registers, local bytes, dynamic shared bytes, CTAs a
 /// SM, at the sealed 4B's shape (hidden 2,560, inter 9,728, 4 groups, 85,952
@@ -519,36 +519,42 @@ pub fn check_e1_arms(device: &Device, arms: &[&'static str]) -> anyhow::Result<V
         .map(|a| pers::p4e_e1_unit_text(&td, a).map(|t| llvq_cuda::gpu::KernelSource::new(&[t.as_str()])))
         .collect::<Result<_, _>>()
         .map_err(anyhow::Error::msg)?;
-    // One thread an arm, each its NVRTC, its JIT and its attributes; the lines
-    // printed arm by arm in the order named.
-    let t0 = std::time::Instant::now();
-    let per_arm: Vec<Vec<String>> = std::thread::scope(|s| {
-        let hs: Vec<_> = arms
-            .iter()
-            .zip(&srcs)
-            .map(|(arm, src)| {
-                let stream = stream.clone();
-                s.spawn(move || {
-                    let mut l = vec![format!("4E check {arm}: module {} bytes, sha256 {}", src.text.len(), src.sha256)];
-                    let t = std::time::Instant::now();
-                    let verdict = llvq_cuda::gpu::compile_ptx(src).and_then(|p| {
-                        l.push(format!("4E check {arm}: NVRTC {:.1} s", t.elapsed().as_secs_f64()));
-                        check_one_arm(&stream, p, arm, smem, (hidden, inter, groups, d_ctx), &mut l)
-                    });
-                    l.push(match verdict {
-                        Ok(()) => format!("CHECK ARM {arm} LOADS ({:.1} s)", t.elapsed().as_secs_f64()),
-                        Err(e) => format!("CHECK ARM {arm} REFUSED: {e} ({:.1} s)", t.elapsed().as_secs_f64()),
-                    });
-                    l
-                })
-            })
-            .collect();
-        hs.into_iter().zip(arms).map(|(h, arm)| h.join().unwrap_or_else(|_| vec![format!("CHECK ARM {arm} REFUSED: the check's thread panicked")])).collect()
-    });
-    for l in per_arm {
-        lines.extend(l);
+    // One arm after the other, in the order named, every line printed and
+    // flushed as it is known: a check killed by its timeout leaves what it
+    // had read. The first card run (6af73aed) compiled seven arms on seven
+    // threads, printed at the end, and left nothing.
+    let say = |lines: &mut Vec<String>, l: String| {
+        use std::io::Write;
+        println!("{l}");
+        let _ = std::io::stdout().flush();
+        lines.push(l);
+    };
+    let head = lines.clone();
+    lines.clear();
+    for l in head {
+        say(&mut lines, l);
     }
-    lines.push(format!("4E check: {} arms on parallel threads, {:.1} s", arms.len(), t0.elapsed().as_secs_f64()));
+    let t0 = std::time::Instant::now();
+    for (arm, src) in arms.iter().zip(&srcs) {
+        say(&mut lines, format!("4E check {arm}: module {} bytes, sha256 {}", src.text.len(), src.sha256));
+        let t = std::time::Instant::now();
+        let mut l = Vec::new();
+        let verdict = llvq_cuda::gpu::compile_ptx(src).and_then(|p| {
+            say(&mut lines, format!("4E check {arm}: NVRTC {:.1} s", t.elapsed().as_secs_f64()));
+            check_one_arm(&stream, p, arm, smem, (hidden, inter, groups, d_ctx), &mut l)
+        });
+        for x in l {
+            say(&mut lines, x);
+        }
+        say(
+            &mut lines,
+            match verdict {
+                Ok(()) => format!("CHECK ARM {arm} LOADS ({:.1} s)", t.elapsed().as_secs_f64()),
+                Err(e) => format!("CHECK ARM {arm} REFUSED: {e} ({:.1} s)", t.elapsed().as_secs_f64()),
+            },
+        );
+    }
+    say(&mut lines, format!("4E check: {} arms one after the other, {:.1} s", arms.len(), t0.elapsed().as_secs_f64()));
     Ok(lines)
 }
 
