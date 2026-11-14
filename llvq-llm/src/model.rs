@@ -98,6 +98,15 @@ pub trait Capture {
     fn on_residual(&mut self, _layer: usize, _x: &Tensor) -> Result<()> {
         Ok(())
     }
+    /// The query of block `layer` after its norm and RoPE, `(batch,
+    /// n_heads, seq, head_dim)`, the tensor every attention form scores
+    /// against the cache. Called once a block a call, before the cache is
+    /// appended; nothing by default. MEASUREMENT ONLY: `LLVQ_KV_CAPTURE`
+    /// (`crate::kvcapture`) is its one implementer, and every other capture,
+    /// [`NoCapture`] included, keeps this empty body.
+    fn on_attention_query(&mut self, _layer: usize, _q: &Tensor) -> Result<()> {
+        Ok(())
+    }
 }
 
 /// The residual entering each of `layers` at every position of a prefill,
@@ -2168,6 +2177,7 @@ impl Block {
             RopeAt::Offset(o) => rotary.apply(&q, &k, o)?,
             RopeAt::Tables { cos, sin } => Rotary::apply_tables(&q, &k, cos, sin)?,
         };
+        cap.on_attention_query(idx, &q)?;
         let scale = 1.0 / (self.head_dim as f64).sqrt();
         if self.attn_heads == crate::kvq::AttnHeads::Kernel {
             let kern = self.attn_kernel.as_ref().ok_or_else(|| {
@@ -3741,6 +3751,16 @@ pub fn build_causal_mask(
     }
 }
 
+/// The tiny test model, for the host tests of other modules.
+#[cfg(test)]
+pub(crate) mod tests_support {
+    /// Two layers, 8 query heads over 2 KV heads at head dim 128, binary16 on
+    /// the CPU: a shape the attention kernel's CPU replay takes.
+    pub fn tiny_model_kernel() -> super::Qwen3 {
+        super::tests::tiny_model_hd(candle_core::DType::F16, 8, 2, 128)
+    }
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -5204,7 +5224,7 @@ mod tests {
 
     /// The tiny model at a head dimension of its own: the attention kernel
     /// compiles 128, Qwen3's, and refuses anything else.
-    fn tiny_model_hd(dtype: DType, n_heads: usize, n_kv: usize, head_dim: usize) -> Qwen3 {
+    pub(super) fn tiny_model_hd(dtype: DType, n_heads: usize, n_kv: usize, head_dim: usize) -> Qwen3 {
         tiny_model_long(dtype, n_heads, n_kv, head_dim, 64)
     }
 

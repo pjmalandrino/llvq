@@ -1827,9 +1827,9 @@ fn print_phases(arm: &str, r: &llvq_llm::model::PhaseReport) {
 /// refused. `LLVQ_GRAPH_DIAG` rides inside `LLVQ_GRAPH_AB`, which does not
 /// call it.
 #[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
-const ALONE: [&str; 16] = [
+const ALONE: [&str; 17] = [
     "LLVQ_INT4_WIDE_CHECK", "LLVQ_GESTURE_AB", "LLVQ_BOUNDARY_AB", "LLVQ_PERS_4E", "LLVQ_PERS_SEGMENT",
-    "LLVQ_GQA_PPL", "LLVQ_GQA_AB", "LLVQ_CONTEXTS", "LLVQ_TRIM_AB", "LLVQ_PREFILL_TOKENS",
+    "LLVQ_GQA_PPL", "LLVQ_KV_CAPTURE", "LLVQ_GQA_AB", "LLVQ_CONTEXTS", "LLVQ_TRIM_AB", "LLVQ_PREFILL_TOKENS",
     "LLVQ_GRAPH_AB", "LLVQ_GRAPH_DIAG", "LLVQ_KV_AB", "LLVQ_FUSE_AB", "LLVQ_TIME_PHASES", "LLVQ_SEG_ARMS",
 ];
 
@@ -1858,10 +1858,12 @@ fn main() -> anyhow::Result<()> {
         .next()
         .ok_or_else(|| anyhow::anyhow!("usage: fusedrun <model.llvq> [n_tokens]"))?;
     let n_new: usize = args.next().map_or(Ok(32), |s| s.parse())?;
+    // Read by `LLVQ_KV_CAPTURE` only: the directory it writes.
+    let out_dir = args.next();
 
     #[cfg(not(all(target_os = "linux", feature = "cuda")))]
     {
-        let _ = (path, n_new);
+        let _ = (path, n_new, out_dir);
         anyhow::bail!("fusedrun requires an NVIDIA card and the `cuda` feature");
     }
 
@@ -1889,7 +1891,7 @@ fn main() -> anyhow::Result<()> {
         if served.is_some() {
             for var in ["LLVQ_GRAPH_AB", "LLVQ_GRAPH_DIAG", "LLVQ_KV_AB", "LLVQ_FUSE_AB",
                         "LLVQ_TIME_PHASES", "LLVQ_KV_PREALLOC", "LLVQ_SEG_ARMS",
-                        "LLVQ_TRIM_AB", "LLVQ_GQA_AB", "LLVQ_GQA_PPL",
+                        "LLVQ_TRIM_AB", "LLVQ_GQA_AB", "LLVQ_GQA_PPL", "LLVQ_KV_CAPTURE",
                         "LLVQ_INT4_WIDE_CHECK", "LLVQ_GESTURE_AB", "LLVQ_BOUNDARY_AB", "LLVQ_PERS_SEGMENT", "LLVQ_PERS_4E"] {
                 if let Ok(v) = std::env::var(var) {
                     anyhow::bail!(
@@ -2313,6 +2315,109 @@ fn main() -> anyhow::Result<()> {
             }
             if ctx.is_in_multi_stream_mode() {
                 anyhow::bail!("LLVQ_PERS_SEGMENT: a second stream appeared during the run: the numbers above are void");
+            }
+            return Ok(());
+        }
+
+        // ---- LLVQ_KV_CAPTURE: what a decode row reads from the cache ----
+        //
+        // A MEASUREMENT MODE on the bench door, refused beside LLVQ_CONFIG and
+        // beside every other mode, the served flags spelled out on the command
+        // line: `LLVQ_KV_CAPTURE=<ctx>,<tokens>,<corpus>,<window> fusedrun
+        // <sealed> <ignored> <out_dir>`. The attention is LLVQ_GQA_PPL's
+        // kernel0 arm: grow(256) + the kernel form on every decode row from
+        // position 0. The window goes through one true token at a time
+        // (`llvq_llm::kvcapture`), the queries of its last `<tokens>` tokens
+        // and the final caches are written for `ops/kv_mass_score.py`.
+        if let Ok(v) = std::env::var("LLVQ_KV_CAPTURE") {
+            let spec = llvq_llm::kvcapture::parse_spec(&v).map_err(|e| anyhow::anyhow!("{e}"))?;
+            runs_alone("LLVQ_KV_CAPTURE", &[])?;
+            if !matches!(kv_store, llvq_llm::kvq::KvStore::Cat) {
+                anyhow::bail!("LLVQ_KV_CAPTURE sets the store itself: unset LLVQ_KV_PREALLOC");
+            }
+            let out = out_dir.ok_or_else(|| {
+                anyhow::anyhow!("LLVQ_KV_CAPTURE: usage fusedrun <sealed> <ignored> <out_dir>; no out_dir given")
+            })?;
+            let out = std::path::PathBuf::from(out);
+            if out.exists() {
+                anyhow::bail!("LLVQ_KV_CAPTURE: {} exists; a capture never overwrites", out.display());
+            }
+            let fuse = llvq_llm::fused::FuseMode::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
+            let t = Instant::now();
+            let sealed_sha256 = llvq_llm::digest::sha256_file(std::path::Path::new(&path))?;
+            println!("sealed file {path}: sha256 {sealed_sha256}");
+            let mut f = llvq_llm::fused_cuda::load_with(&path, &device, dtype, fuse)?;
+            println!(
+                "loaded in {:.1} s. LLVQ_ROT_SHARE={}, {} rot_launches/token · LLVQ_FUSE={}, {} matvec_launches/token",
+                t.elapsed().as_secs_f64(), f.rot_share.name(), f.rot_launches, f.fuse.name(), f.matvec_launches
+            );
+            let ctx = device.as_cuda_device()?.cuda_stream().context().clone();
+            if ctx.is_in_multi_stream_mode() {
+                anyhow::bail!("LLVQ_KV_CAPTURE: the context holds several streams, and turning \
+                               cudarc's events off is only safe on one");
+            }
+            // Safe: one stream, checked above, orders every access by issue.
+            unsafe {
+                ctx.disable_event_tracking();
+            }
+            println!("cudarc event tracking: off (one stream, ordered by issue)");
+            // Eight characters a token asked for: lot B measured 4.61 on C4.
+            let text = spec.corpus.text((spec.window + 1) * spec.span() * 8)?;
+            let ids = f.tokenizer.encode(text.as_str(), false).map_err(|e| anyhow::anyhow!("{e}"))?.get_ids().to_vec();
+            let window = llvq_llm::kvcapture::window_of(&ids, &spec).map_err(|e| anyhow::anyhow!("{e}"))?.to_vec();
+            println!(
+                "corpus {}: {} chars, {} tokens; window {} = tokens {}..{} (fingerprint {:016x})",
+                spec.corpus.name(),
+                text.len(),
+                ids.len(),
+                spec.window,
+                spec.window * spec.span(),
+                (spec.window + 1) * spec.span(),
+                llvq_llm::eval::token_fingerprint(&window)
+            );
+            let (n_kv, groups, hd) = f.model.attn_geometry();
+            let k = llvq_llm::attn::kernel_for(&device, n_kv, groups, hd).map_err(|e| anyhow::anyhow!("{e}"))?;
+            f.model.set_attn_kernel(Some(k));
+            GqaArm::Kernel.apply(&mut f.model);
+            f.model.set_kernel_from_for_measurement(0);
+            let attention = format!("{}, every decode row on the kernel from position 0", GqaArm::Kernel.name());
+            println!("attention {attention}");
+            println!(
+                "feeding {} tokens one at a time; capturing the last {} (positions {}..{})",
+                spec.span(),
+                spec.tokens,
+                spec.ctx,
+                spec.span()
+            );
+            let t = Instant::now();
+            let cap = llvq_llm::kvcapture::capture(&f.model, &window, spec.ctx, spec.tokens, |n| {
+                println!("  fed {n}/{} ({:.0} s)", spec.span(), t.elapsed().as_secs_f64())
+            })?;
+            let feed_s = t.elapsed().as_secs_f64();
+            let mean_nll = cap.nll.iter().sum::<f64>() / cap.nll.len() as f64;
+            println!(
+                "captured {} tokens x {} layers in {feed_s:.1} s; nll over {} captured predictions {mean_nll:.4} (ppl {:.3})",
+                cap.tokens,
+                cap.n_layers,
+                cap.nll.len(),
+                mean_nll.exp()
+            );
+            let t = Instant::now();
+            let prov = llvq_llm::kvcapture::Provenance {
+                corpus: spec.corpus.name(),
+                window: spec.window,
+                token_ids: &window,
+                sealed_sha256: &sealed_sha256,
+                attention: &attention,
+            };
+            let bytes = llvq_llm::kvcapture::write_capture(&out, &cap, &prov)?;
+            println!(
+                "KV CAPTURE WRITTEN {}: {bytes} bytes in {:.1} s",
+                out.display(),
+                t.elapsed().as_secs_f64()
+            );
+            if ctx.is_in_multi_stream_mode() {
+                anyhow::bail!("LLVQ_KV_CAPTURE: a second stream appeared during the run: the capture above is void");
             }
             return Ok(());
         }

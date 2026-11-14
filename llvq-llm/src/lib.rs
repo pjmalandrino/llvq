@@ -52,6 +52,7 @@ pub mod fused_metal;
 pub mod gsm8k;
 pub mod guided;
 pub mod hfpack;
+pub mod kvcapture;
 pub mod kvq;
 pub mod loader;
 pub mod model;
