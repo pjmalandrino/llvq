@@ -1575,3 +1575,23 @@ the layer objective on the 4B. The bullets below are in the order things happene
   phase: $13.49 of $15; the rows of `docs/data/jobs.csv` sum to $339.71 (*computed*).
 - 2026-11-14: the operator closes the phase. Outcome: a dead hypothesis, recorded in `CERVEAU.md` O12. No idea sheet.
 - Nothing served changes: no config, no served module, no Hub file.
+
+## 2026-11-14. A second research phase on quality opens, on the lost contrast of the answer logits; $0
+
+The operator refused the lead's first three starting points for a new quality cycle, the calibration draw, probes of
+gate/up and a fast verifier, as tinkering and not ideas. He then signed a mandate, O13 of [`CERVEAU.md`](CERVEAU.md),
+on an anomaly read the same day from the dumps the repository holds: $10 of card, five days.
+
+- The anomaly, N6: the sealed 4B's four answer logits regress on FP16's with slope 0.58, where AWQ 4B keeps 0.96
+  ([recherche-qualite2-r0-contraste](mesures/recherche-qualite2-r0-contraste-2026-11-14.txt), *computed* on
+  *measured* dumps). With every projection quantized the slope runs from 0.22 to 0.58 across 17 files and the noise
+  from 1.20 to 1.77 a logit. The error-map correction and the fourfold calibration volume, two cases where perplexity
+  improved and MMLU fell, lowered the slope more than the noise.
+- At the sealed 4B's noise the Gaussian replay puts full contrast at 68.15 against 64.66 (*computed*, an upper bound
+  of that model). [logit-snr-4b](mesures/logit-snr-4b-2026-09-12.txt) section 9 had read the attenuation in September
+  and set it aside: only the ratio decides an argmax. The phase asks whether the contrast can be raised without
+  raising the noise as much.
+- One idea was killed at $0 the same day: coding each up_proj row from the gate_proj row of its neuron. Their mean
+  absolute cosine is 0.109 on Qwen3-4B and a one-scalar prediction leaves 97.8 % of the energy.
+- Nothing is launched and nothing served changes.
+

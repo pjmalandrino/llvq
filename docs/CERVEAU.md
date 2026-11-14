@@ -9,8 +9,8 @@ On 2026-11-13 the R0 of the quality phase (O12) reread the Q claims against thei
 N1 and N2 gained scope notes. The same day R1 replayed N1 on the sealed 4B: Q7 was restated and is established on
 that object, and a card job added Q23. A first re-encode under a final-output objective then added Q24 and E3. On
 2026-11-14 a clipped retry restated Q24 and the operator closed the phase: O2, O12 and Q20 were restated, Q5 and Q15
-gained notes, Q23 was reread by type and five mismatches joined the list at the end. 62 claims: 14 established, 2
-proved, 37 supported, 6 conjecture, 3 refuted.
+gained notes, Q23 was reread by type and five mismatches joined the list at the end. The same day a second quality
+phase opened (O13) on a new anomaly, N6. 62 claims: 14 established, 2 proved, 37 supported, 6 conjecture, 3 refuted.
 
 This document lists what we believe to be true about quantizing LLMs on the Leech lattice, each belief with its
 standing. It is not the served state ([`ETAT.md`](ETAT.md)), the history ([`HISTORIQUE.md`](HISTORIQUE.md)) or a plan
@@ -716,6 +716,7 @@ A measured fact that no claim explains. They are the starting points of the expl
 | N3 | A lower Gaussian MSE of the codebook has given a worse perplexity twice, Planes14 at 4B and the Euclidean gain rule at 0.6B; no MMLU pair between codebooks is resolved. | Q4, Q17. | What the model is sensitive to that block MSE does not see. |
 | N4 | Perplexity and KL close while MMLU stays open. | Q5, Q6. | What MMLU reads that the two do not. |
 | N5 | The whole token streams 297 GB/s while its rows read 359 to 648, and bit-identical cuts move time without removing it. | K4, K10; K5 for the split of the time without weights, which is a conjecture (its consequence, the 94 % that reappeared, is measured). | What holds the token when the rows are not the limit. |
+| N6 | The sealed 4B's four answer logits regress on FP16's with slope 0.58: it keeps 58 % of the contrast between the options, where AWQ 4B keeps 0.96. Across the 17 full-split 4B files with every projection quantized the slope runs from 0.22 to 0.58 and the noise from 1.20 to 1.77 a logit. No zero-bit correction raised the slope by more than 6 %, and two cases where perplexity improved and MMLU fell (Q5, Q14) are cases where the slope fell more than the noise. | [recherche-qualite2-r0-contraste](mesures/recherche-qualite2-r0-contraste-2026-11-14.txt) (*computed* on *measured* dumps); Q7, Q8. | Where in the network the contrast goes, and whether it can be raised without raising the noise as much. Only the ratio decides an argmax ([logit-snr-4b](mesures/logit-snr-4b-2026-09-12.txt) section 9). |
 
 ## Open questions
 
@@ -839,6 +840,21 @@ leaves the phase.
   [guided-gateup-4b](mesures/guided-gateup-4b-2026-11-13.txt) and
   [guided-clip-gateup-4b](mesures/guided-clip-gateup-4b-2026-11-14.txt). The day-by-day account is the 2026-11-13
   entry of [`HISTORIQUE.md`](HISTORIQUE.md).
+
+**O13.** Phase open: MODE RECHERCHE on model quality, second phase, opened by the operator on 2026-11-14 ("Ok go"
+on the lead's proposal of that day: the lost contrast, $10 of card). No other research phase is open. Its mandate:
+
+| field | content |
+|---|---|
+| Axis | Quality of the served object at its b/param: MMLU on the full split and GSM8K, paired against FP16. Whole-model b/param, VRAM, decode speed, time to first token and the cost of producing an object are constraints. |
+| Starting point | The anomaly N6: the sealed 4B keeps 0.58 of FP16's answer-logit contrast. At its noise, the Gaussian replay puts full contrast at 68.15 against 64.66 at the fitted slope (*computed*, an upper bound of that model). |
+| Untouchable | The three sealed files as published. Whole-model b/param at 2.73. VRAM at the served peaks. A per-model or per-type setting is not a result (operator, 2026-11-12), and a restore to f16 is a probe, not a mechanism (Q20). No heavy job on the work machine without the operator's word. |
+| Budget | Five days, to 2026-11-19. $10 of card; each paid run under a stamped prereg, its cost announced before and the running total after. |
+
+The route is the explanation route (O10). R0's repository half is
+[recherche-qualite2-r0-contraste](mesures/recherche-qualite2-r0-contraste-2026-11-14.txt): the slope and noise of 24
+full-split dumps, three rival hypotheses, and one idea killed at $0 (coding up_proj from gate_proj: the rows' mean
+absolute cosine is 0.109). State on 2026-11-14: mandate signed, $0 of $10 spent, nothing launched.
 
 ## Beliefs we dropped
 
