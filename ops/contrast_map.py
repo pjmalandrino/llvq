@@ -36,6 +36,10 @@ Modes:
   --selftest       tiny random model on CPU, float64, planted distortions; no download.
   --check-prompts  the prompt port against the dumps' qhash and trailer (tokenizer and parquet only, no model).
   --run            the measurement. Card only.
+  --lens-only      ONE original checkpoint (--model repo@revision, pinned in ORIGINALS): where the model writes its
+                   MMLU answer, read by its own final norm and answer rows at every depth. Card only. Readings:
+                   lens.tsv, write.tsv, lens_logits.tsv, three answer-position stream dumps; rule D against the
+                   FP16 dump of that size.
 """
 
 from __future__ import annotations
@@ -85,6 +89,44 @@ N_MIN, N_MAX = 570, 2280
 PICK_AGREE_MIN = 0.98
 SLOPE_TOL = 0.02
 LETTERS = ("A", "B", "C", "D")
+
+# --lens-only: the originals, pinned. Revisions, shard sizes and sha256 from the Hub's files metadata
+# (HfApi.model_info(repo, revision, files_metadata=True), 2026-11-14), each revision then `main`. The 4B's equal
+# layer_vs_output.CKPT_SHARDS; the 8B's equal the blob names of the local cache; the 14B's revision is the one its
+# dump's header names. config.json by sha256 of its bytes. The tokenizer.json of all three is the same file,
+# TOKENIZER_SHA. Another size is a new row, never an unpinned download.
+ORIGINALS = {
+    "4b": dict(repo="Qwen/Qwen3-4B", rev="1cfa9a7208912126459214e8b04321603b3df60c",
+               config_sha="8ba006f74fecfaaeb392872a60f4a480e7ec9860153d2e1b769ec81f9a147f8a",
+               shards={"model-00001-of-00003.safetensors": (3957900840, "328a91d3122359d5547f9d79521205bc0a46e1f79a792dfe650e99fc2d651223"),
+                       "model-00002-of-00003.safetensors": (3987450520, "6cd087b316306a68c562436b5492edbcf6e16c6dba3a1308279caa5a58e21ca5"),
+                       "model-00003-of-00003.safetensors": (99630640, "e4bf436957184f4eeb86a80e9db394503f1f56446b2e6b7edeac5b81470f4ca1")},
+               dump=DUMP_F16),
+    "8b": dict(repo="Qwen/Qwen3-8B", rev="b968826d9c46dd6066d109eabc6255188de91218",
+               config_sha="f7c4eadfbbf522470667b797a3c89be2524832d2d599797248dc304fff447c30",
+               shards={"model-00001-of-00005.safetensors": (3996250744, "31d6a825ae35f11fb85b195b4c42c146c051e446433125a215336abdf95cbf5f"),
+                       "model-00002-of-00005.safetensors": (3993160032, "5991236cea6fe21f3d43cab0f0e84448734fbbe0789816202989f2ddc9d18282"),
+                       "model-00003-of-00005.safetensors": (3959604768, "c5185c4794be2d8a9784d5753c9922db38df478ce11f9ed0b415b7304d896836"),
+                       "model-00004-of-00005.safetensors": (3187841392, "b5ee7de71fbf17db3d5704e0c8f2bc7d005ca9e1d7ca2aeb19827b0cfcaa917a"),
+                       "model-00005-of-00005.safetensors": (1244659840, "20c2d6366ab85c90786ccdd829cd2b9e7d30ef3b2ebbb998280e7e4014b542ff")},
+               dump=("docs/data/mmlu-dumps/mmlu-8b-f16-FULL.csv",
+                     "49dfd078e80fb9e95e5fe9e315709df3d1be122787e515d4e495102ec6fddd35")),
+    "14b": dict(repo="Qwen/Qwen3-14B", rev="40c069824f4251a91eefaf281ebe4c544efd3e18",
+                config_sha="e73c3664ca09b10a673fef0c22e8a6b456201d49bd4713c9691f775720e8857a",
+                shards={"model-00001-of-00008.safetensors": (3841788544, "e942bdbdf08857d16a8fef7d1dae9fceabeb4e84def6043485fe2f6f085dab0e"),
+                        "model-00002-of-00008.safetensors": (3963750816, "f7c9c6eee628f5ad831d2d1d292e120505e5fcadeb38f88b4d3c4cb86306ccf9"),
+                        "model-00003-of-00008.safetensors": (3963750880, "dfb8c5df9404b41ad6ae74e8b6b367135f017b4467b884cf71b17c71954f18a9"),
+                        "model-00004-of-00008.safetensors": (3963750880, "eab286fec759e3e59ab228621aefa0fef14ed56039e06f959e67257d5af7604d"),
+                        "model-00005-of-00008.safetensors": (3963750880, "97f0dc2992e59da95c466eff6f4fd0c8335843bbc36ed5c913a6f5150748c0e6"),
+                        "model-00006-of-00008.safetensors": (3963750880, "9e8e76a013cd5e253865b792991e0b410f869b136b3c500079b531b09198e99e"),
+                        "model-00007-of-00008.safetensors": (3963750880, "0aee70ee6e91dc00d818804fb47f124d13ee4ad5b4a64553e09dbf9391cd5750"),
+                        "model-00008-of-00008.safetensors": (1912371880, "0d6b92296e326d39bbbaeb32c3ec454ac606da843d4c8ffa8edf010b62b8c9e0")},
+                dump=("docs/data/mmlu-dumps/mmlu-14b-f16-FULL.csv",
+                      "8160277c2dbde3faec1ab093757619ed861cc60d73fdbd1d25969264ff4d1865")),
+}
+LENS_PICK_AGREE_MIN = 0.98
+LENS_BUDGET = 300.0
+AGREE_WRITTEN = 0.90
 
 # Rust `char::is_whitespace` (Unicode White_Space), what `str::trim` strips. Python's str.strip() also strips
 # U+001C..U+001F, which Rust keeps, so the set is spelled out.
@@ -191,12 +233,12 @@ def n_from_time(t_first: float, n_first: int, budget: float) -> int:
     return min(N_MAX, max(N_MIN, fit))
 
 
-def fetch_prompts(cache: str | None):
+def fetch_prompts(cache: str | None, repo: str = lvo.CKPT_REPO, rev: str = lvo.CKPT_REV):
     """Tokenizer and both splits at their pins; every prompt tokenized; the run fingerprint checked."""
     from huggingface_hub import hf_hub_download
     from tokenizers import Tokenizer
 
-    tok_path = Path(hf_hub_download(lvo.CKPT_REPO, "tokenizer.json", revision=lvo.CKPT_REV, cache_dir=cache))
+    tok_path = Path(hf_hub_download(repo, "tokenizer.json", revision=rev, cache_dir=cache))
     got = lvo.sha256_file(tok_path)
     if got != lvo.TOKENIZER_SHA:
         raise SystemExit(f"refused: tokenizer sha256 {got}, expected {lvo.TOKENIZER_SHA}")
@@ -632,6 +674,7 @@ def analyse(out: Path, run: Run, sets, ans_ids, dump_f, dump_s, extra_lines=()) 
     res["lens"] = lens_rows
     res["lens_own_logits_maxdiff"] = float((lens_logits[-1][0] - lf).abs().max())
     res["lens_last_fp16"] = lens_logits[-1][0]
+    res["lens_z_fp16"] = [zf for zf, _ in lens_logits]
     with open(out / "lens.tsv", "w") as f:
         f.write("depth\tslope\tnoise\tslope_over_noise\tlens_acc_fp16\tlens_acc_sealed\n")
         for r in lens_rows:
@@ -793,6 +836,211 @@ def analyse(out: Path, run: Run, sets, ans_ids, dump_f, dump_s, extra_lines=()) 
     (out / "report.txt").write_text(text + "\n")
     print(text)
     return res
+
+
+# ---------------------------------------------------------------------------
+# --lens-only: one original model, where it writes its answer.
+# ---------------------------------------------------------------------------
+def own_rows(cfg, w: dict) -> torch.Tensor:
+    """The model's own four answer rows of the unembedding: the embedding if tied, lm_head otherwise."""
+    return w["model.embed_tokens.weight" if cfg.tied else "lm_head.weight"]
+
+
+class LensRun:
+    """What the questions leave behind in lens-only mode."""
+
+    def __init__(self, cfg):
+        self.cfg = cfg
+        self.keys, self.answers, self.lengths, self.qhash = [], [], [], []
+        self.logits, self.ans = [], []
+
+
+def lens_question(lr: LensRun, w: dict, ids_list, ans_ids, device) -> None:
+    """One prompt, one model: the answer-position stream at every depth and the output's four answer logits."""
+    cfg = lr.cfg
+    ids = torch.tensor(ids_list, dtype=torch.long, device=device)
+    pos = answer_pos(ids.shape[0])
+    store = torch.empty((cfg.layers + 1, cfg.hidden), dtype=w["model.embed_tokens.weight"].dtype, device=device)
+
+    def stream(l, h):
+        store[l] = h[0, pos]
+
+    with torch.no_grad():
+        z = forward_taps(cfg, lambda name: w[name], ids, stream_hook=stream)
+        lr.logits.append(z[pos, ans_ids].float().cpu())
+        lr.ans.append(store.cpu())
+    del z
+
+
+def lens_rows(A: torch.Tensor, norm_w, rows, eps: float, answers, out_picks):
+    """Per depth: lens accuracy, sd of the centred lens logits (sqrt(sum zc^2 / 3N)), mean margin of the correct
+    option over the best other one, agreement of the lens pick with the output pick, and the lens accuracy on the
+    questions the output gets right. Returns (rows, lens logits per depth)."""
+    N = A.shape[0]
+    right = [i for i in range(N) if out_picks[i] == answers[i]]
+    out, zs = [], []
+    for l in range(A.shape[1]):
+        z = lens(A[:, l], norm_w, rows, eps)
+        picks = [pick_of(r) for r in z.tolist()]
+        zc = z - z.mean(1, keepdim=True)
+        ai = torch.tensor(answers)
+        za = z[torch.arange(N), ai]
+        other = z.clone()
+        other[torch.arange(N), ai] = -math.inf
+        out.append(dict(depth=l, acc=sum(p == a for p, a in zip(picks, answers)) / N,
+                        sd=math.sqrt(float((zc * zc).sum()) / (3 * N)),
+                        margin=float((za - other.max(1).values).mean()),
+                        agree=sum(p == o for p, o in zip(picks, out_picks)) / N,
+                        acc_right=(sum(picks[i] == answers[i] for i in right) / len(right)) if right else math.nan))
+        zs.append(z)
+    return out, zs
+
+
+def write_points(rows: list[dict], acc_out: float) -> dict:
+    """The depth of the largest one-block rise of lens accuracy (the depth after the block; the first on ties) and
+    its size; the first depth at half the way from chance to the output accuracy; the first depth where the lens
+    pick agrees with the output pick on AGREE_WRITTEN of the questions."""
+    rises = []
+    for l in range(1, len(rows)):
+        rises.append((rows[l]["acc"] - rows[l - 1]["acc"], l))
+    best = max(rises, key=lambda r: r[0])
+    half = 0.25 + 0.5 * (acc_out - 0.25)
+    first_half = next((r["depth"] for r in rows if r["acc"] >= half), None)
+    first_agree = next((r["depth"] for r in rows if r["agree"] >= AGREE_WRITTEN), None)
+    return dict(rise_depth=best[1], rise=best[0], half_level=half, half_depth=first_half,
+                agree_depth=first_agree, acc_out=acc_out)
+
+
+def raw_depths(layers: int) -> tuple[int, int, int]:
+    return round(layers / 3), round(2 * layers / 3), layers
+
+
+def control_lens(keys, lf, dump: dict) -> dict:
+    """Rule D of lens-only: the output's four answer logits against the FP16 dump of that size."""
+    ref = torch.tensor([dump[k]["logits"] for k in keys], dtype=torch.float64)
+    picks = [pick_of(r) for r in lf.tolist()]
+    same = sum(p == dump[k]["pick"] for p, k in zip(picks, keys)) / len(keys)
+    diff = (lf.double() - ref).abs().reshape(-1)
+    return dict(picks_equal=same, max_abs=float(diff.max()), median_abs=float(diff.median()),
+                acc_script=sum(p == dump[k]["answer"] for p, k in zip(picks, keys)) / len(keys),
+                acc_dump=sum(dump[k]["pick"] == dump[k]["answer"] for k in keys) / len(keys),
+                green=same >= LENS_PICK_AGREE_MIN)
+
+
+def analyse_lens(out: Path, lr: LensRun, w: dict, ans_ids, dump: dict, extra_lines=()) -> dict:
+    cfg = lr.cfg
+    keys, answers = lr.keys, lr.answers
+    N = len(keys)
+    lf = torch.stack(lr.logits).double()
+    A = torch.stack(lr.ans)  # (N, layers + 1, d)
+    out_picks = [pick_of(r) for r in lf.tolist()]
+    acc_out = sum(p == a for p, a in zip(out_picks, answers)) / N
+    lines = list(extra_lines)
+    say = lines.append
+    ctl = control_lens(keys, lf, dump)
+    say(f"CONTROL (rule D, lens-only), {N} questions, the output's answer logits against the Rust FP16 dump")
+    say(f"  picks equal {ctl['picks_equal']:.4f} (at least {LENS_PICK_AGREE_MIN}); |dlogit| median "
+        f"{ctl['median_abs']:.5f}, max {ctl['max_abs']:.5f}; MMLU script {ctl['acc_script'] * 100:.2f}, dump "
+        f"{ctl['acc_dump'] * 100:.2f}")
+    say(f"  RULE D: {'GREEN' if ctl['green'] else 'RED, NOTHING BELOW IS READ'}")
+    with open(out / "control.tsv", "w") as f:
+        f.write("subject\tindex\tanswer\tpick_script\tpick_dump\t" + "\t".join(f"script_{x}" for x in "abcd") + "\t"
+                + "\t".join(f"dump_{x}" for x in "abcd") + "\n")
+        for i, k in enumerate(keys):
+            f.write(f"{k[0]}\t{k[1]}\t{answers[i]}\t{out_picks[i]}\t{dump[k]['pick']}\t"
+                    + "\t".join(f"{v:.9g}" for v in lf[i].tolist() + dump[k]["logits"]) + "\n")
+    norm_w = w["model.norm.weight"].cpu()
+    rows = own_rows(cfg, w)[ans_ids].cpu()
+    lr_rows, zs = lens_rows(A, norm_w, rows, cfg.eps, answers, out_picks)
+    wp = write_points(lr_rows, acc_out)
+    with open(out / "lens.tsv", "w") as f:
+        f.write("# lens z = U_ans . final_norm(h(l)), the model's own final norm weight and four answer rows, float64;\n"
+                "# h(0) the embedding output, h(l) after block l. sd = sqrt(sum zc^2 / 3N) of the centred lens logits;\n"
+                "# margin = mean of z[answer] - max of the other three; agree = lens pick equals the output pick;\n"
+                "# acc_right = lens accuracy on the questions the output gets right. Picks: last of equal maxima.\n")
+        f.write("depth\tlens_acc\tsd\tmargin\tagree_output\tlens_acc_on_right\n")
+        for r in lr_rows:
+            f.write(f"{r['depth']}\t{r['acc']:.6f}\t{r['sd']:.6f}\t{r['margin']:.6f}\t{r['agree']:.6f}\t"
+                    f"{r['acc_right']:.6f}\n")
+    with open(out / "write.tsv", "w") as f:
+        f.write("rise_depth\trise\thalf_depth\thalf_level\tagree90_depth\toutput_acc\tlayers\tquestions\n")
+        f.write(f"{wp['rise_depth']}\t{wp['rise']:.6f}\t{wp['half_depth']}\t{wp['half_level']:.6f}\t"
+                f"{wp['agree_depth']}\t{acc_out:.6f}\t{cfg.layers}\t{N}\n")
+    with open(out / "lens_logits.tsv", "w") as f:
+        f.write("subject\tindex\tdepth\t" + "\t".join(f"z_{x}" for x in "abcd") + "\n")
+        for l, z in enumerate(zs):
+            for i, k in enumerate(keys):
+                f.write(f"{k[0]}\t{k[1]}\t{l}\t" + "\t".join(f"{v:.7g}" for v in z[i].tolist()) + "\n")
+    for l in raw_depths(cfg.layers):
+        write_raw(out / f"stream_d{l}.f16", A[:, l].to(torch.float16), keys)
+    with open(out / "questions.tsv", "w") as f:
+        f.write("order\tsubject\tindex\tqhash\tlength\tanswer\toutput_pick\n")
+        for i, k in enumerate(keys):
+            f.write(f"{i}\t{k[0]}\t{k[1]}\t{lr.qhash[i]:016x}\t{lr.lengths[i]}\t{answers[i]}\t{out_picks[i]}\n")
+    say("")
+    say(f"WRITE: largest one-block rise of lens accuracy at depth {wp['rise_depth']} ({wp['rise'] * 100:+.1f} points); "
+        f"half the way from 25 % to the output's {acc_out * 100:.2f} % ({wp['half_level'] * 100:.2f} %) first at "
+        f"depth {wp['half_depth']}; lens pick = output pick on {AGREE_WRITTEN:.0%} first at depth {wp['agree_depth']}")
+    say("")
+    say("LENS, own final norm and answer rows")
+    say("  depth   acc      sd       margin    agree    acc on right")
+    for r in lr_rows:
+        say(f"  {r['depth']:>5}   {r['acc']:.4f}   {r['sd']:.4f}   {r['margin']:+.4f}   {r['agree']:.4f}   "
+            f"{r['acc_right']:.4f}")
+    say("")
+    say(f"RAW: stream_d{{{','.join(map(str, raw_depths(cfg.layers)))}}}.f16 (N x d, f16, JSON sidecar), lens_logits.tsv, "
+        "control.tsv, questions.tsv")
+    text = "\n".join(lines)
+    (out / "report.txt").write_text(text + "\n")
+    print(text)
+    return dict(control=ctl, rows=lr_rows, write=wp, z=zs, acc_out=acc_out, out_picks=out_picks)
+
+
+def resolve_original(spec: str) -> tuple[str, dict]:
+    """`repo@revision` to its pinned row; anything unpinned is refused."""
+    for size, o in ORIGINALS.items():
+        if spec in (f"{o['repo']}@{o['rev']}", f"{o['repo']}@{o['rev'][:8]}"):
+            return size, o
+    raise SystemExit(f"refused: {spec} is not pinned in ORIGINALS ("
+                     + ", ".join(f"{o['repo']}@{o['rev'][:8]}" for o in ORIGINALS.values()) + ")")
+
+
+def load_original(o: dict, cache: str | None, device):
+    """The checkpoint at its pin, every shard checked by size and sha256, cast to f16 tensor by tensor (shards
+    read on the host, so the card holds one copy of the weights)."""
+    from huggingface_hub import hf_hub_download
+    from safetensors.torch import load_file
+
+    t0 = time.time()
+    cp = Path(hf_hub_download(o["repo"], "config.json", revision=o["rev"], cache_dir=cache))
+    got = lvo.sha256_file(cp)
+    if got != o["config_sha"]:
+        raise SystemExit(f"refused: {o['repo']} config.json sha256 {got}, expected {o['config_sha']}")
+    cfg = lvo.Cfg(json.loads(cp.read_text()))
+    w = {}
+    for shard, (size, want) in o["shards"].items():
+        p = Path(hf_hub_download(o["repo"], shard, revision=o["rev"], cache_dir=cache))
+        if p.stat().st_size != size:
+            raise SystemExit(f"refused: {shard} is {p.stat().st_size} B, expected {size}")
+        got = lvo.sha256_file(p)
+        print(f"checkpoint: {shard} sha256 {got}", flush=True)
+        if got != want:
+            raise SystemExit(f"refused: {shard} sha256 {got}, expected {want}")
+        for k, v in load_file(str(p), device="cpu").items():
+            w[k] = v.to(device=device, dtype=torch.float16)
+    if cfg.tied:
+        w.pop("lm_head.weight", None)
+    need = set(lvo.all_projections(cfg.layers)) | {"model.embed_tokens.weight", "model.norm.weight"}
+    need |= {f"model.layers.{b}.{n}.weight" for b in range(cfg.layers)
+             for n in ("input_layernorm", "post_attention_layernorm", "self_attn.q_norm", "self_attn.k_norm")}
+    if not cfg.tied:
+        need.add("lm_head.weight")
+    if need - set(w):
+        raise SystemExit(f"refused: missing tensors {sorted(need - set(w))[:6]}")
+    gb = sum(t.numel() * t.element_size() for t in w.values()) / 1e9
+    print(f"loaded {o['repo']}@{o['rev'][:8]}: {len(w)} tensors, {gb:.2f} GB f16, {cfg.layers} layers, d "
+          f"{cfg.hidden}, tied {cfg.tied}, {time.time() - t0:.0f} s", flush=True)
+    return cfg, w
 
 
 # ---------------------------------------------------------------------------
@@ -1098,6 +1346,86 @@ def selftest() -> int:
           and n_from_time(1.0, 57, 600.0) == N_MAX, "N = budget-fitted count clamped to [570, 2280]")
     check(answer_pos(10) == 9, "answer position is the last")
 
+    # 11. --lens-only.
+    # 11a. On the tiny FP16 weights, lens-only reads the two-model mode's FP16 lens (step 5), depth by depth.
+    lr = LensRun(cfg)
+    for i, p in enumerate(prompts):
+        lr.keys.append(("tiny", i))
+        lr.answers.append(run.answers[i])
+        lr.lengths.append(len(p))
+        lr.qhash.append(0)
+        lens_question(lr, fp16, p, ans_ids, cpu)
+    own_dump = lambda r: {k: {"pick": pick_of(r.logits[i].tolist()), "answer": r.answers[i],  # noqa: E731
+                              "logits": r.logits[i].tolist()} for i, k in enumerate(r.keys)}
+    with tempfile.TemporaryDirectory() as d:
+        rl = analyse_lens(Path(d), lr, fp16, ans_ids, own_dump(lr))
+        files = {x.name for x in Path(d).iterdir()}
+        nl = len([x for x in (Path(d) / "lens.tsv").read_text().splitlines() if not x.startswith("#")]) - 1
+    check({"report.txt", "control.tsv", "lens.tsv", "write.tsv", "lens_logits.tsv", "questions.tsv",
+           "stream_d12.f16", "stream_d24.f16", "stream_d36.f16"} <= files and nl == DEPTHS,
+          f"lens-only writes its tables, {nl} lens rows, and streams at depths {raw_depths(36)}")
+    check(len(rl["z"]) == DEPTHS and all(torch.equal(a, b) for a, b in zip(rl["z"], res["lens_z_fp16"])),
+          "lens-only equals the two-model mode's FP16 lens at all 37 depths, bit for bit")
+    check(all(torch.equal(a, b) for a, b in zip(lr.logits, run.logits["fp16"])),
+          "lens-only output logits equal the two-model mode's FP16 logits")
+    check(rl["rows"][-1]["agree"] == 1.0 and rl["control"]["green"],
+          f"agreement with the output is {rl['rows'][-1]['agree']:.0%} at depth 36; control green on own logits")
+    check(raw_depths(40) == (13, 27, 40) and raw_depths(36) == (12, 24, 36), "raw depths L/3, 2L/3, L rounded")
+    # 11b. An untied model reads its lm_head rows, not the embedding's.
+    cfg_u = lvo.Cfg(dict(lvo.TINY, tie_word_embeddings=False))
+    wu = lvo.tiny_weights(cfg_u, 31)
+    wu["lm_head.weight"] = wu["model.embed_tokens.weight"].flip(0) * 0.8
+    lru = LensRun(cfg_u)
+    for i, p in enumerate(prompts):
+        lru.keys.append(("tiny", i))
+        lru.answers.append(i % 4)
+        lru.lengths.append(len(p))
+        lru.qhash.append(0)
+        lens_question(lru, wu, p, ans_ids, cpu)
+    with tempfile.TemporaryDirectory() as d:
+        ru = analyse_lens(Path(d), lru, wu, ans_ids, own_dump(lru))
+    du = float((ru["z"][-1] - torch.stack(lru.logits).double()).abs().max())
+    check(ru["rows"][-1]["agree"] == 1.0 and du < 1e-5,
+          f"untied: the lens at depth 36 reads lm_head's rows, its own output to {du:.1e}")
+    # 11c. A planted write: every block but block 9 (1-based) writes nothing (o_proj and down_proj zero), every prompt
+    #      ends on the same token, and the answers are the output's picks. The lens reads one constant pick up to
+    #      depth 8 and the output from depth 9 on: the write is at depth 9 by all three detectors.
+    kw = 9
+    ww = lvo.tiny_weights(cfg, 21)
+    for b in range(cfg.layers):
+        for proj in ("o_proj", "down_proj"):
+            ww[lvo.proj_name(b, proj)] = ww[lvo.proj_name(b, proj)] * (4.0 if b == kw - 1 else 0.0)
+    gw = torch.Generator().manual_seed(23)
+    pw = [torch.randint(0, cfg.vocab, (int(n),), generator=gw).tolist() + [5]
+          for n in torch.randint(8, 20, (48,), generator=gw)]
+    lw = LensRun(cfg)
+    for i, p in enumerate(pw):
+        lw.keys.append(("tiny", i))
+        lw.lengths.append(len(p))
+        lw.qhash.append(0)
+        lens_question(lw, ww, p, ans_ids, cpu)
+    lw.answers = [pick_of(r.tolist()) for r in lw.logits]
+    with tempfile.TemporaryDirectory() as d:
+        rw = analyse_lens(Path(d), lw, ww, ans_ids, own_dump(lw))
+        wrow = (Path(d) / "write.tsv").read_text().splitlines()[1].split("\t")
+    accs = [r["acc"] for r in rw["rows"]]
+    check(len(set(lw.answers)) >= 3 and accs[0] < 0.75,
+          f"the plant is valid: {len(set(lw.answers))} distinct output picks, lens accuracy {accs[0]:.3f} before")
+    check(len(set(accs[:kw])) == 1 and all(a == 1.0 for a in accs[kw:]),
+          f"lens accuracy is constant to depth {kw - 1} and 1 from depth {kw}")
+    wp = rw["write"]
+    check(wp["rise_depth"] == kw and wp["half_depth"] == kw and wp["agree_depth"] == kw
+          and int(wrow[0]) == kw and int(wrow[2]) == kw and int(wrow[4]) == kw,
+          f"write.tsv finds the planted write at depth {kw}: rise {wp['rise_depth']}, half {wp['half_depth']}, "
+          f"agreement {wp['agree_depth']}")
+    check(close(wp["rise"], 1.0 - accs[0], 1e-12), f"and the rise is {wp['rise']:.3f}, all of it in one block")
+    try:
+        resolve_original("Qwen/Qwen3-14B@main")
+        check(False, "an unpinned revision is refused")
+    except SystemExit:
+        check(True, "an unpinned revision is refused")
+    check(resolve_original(f"Qwen/Qwen3-8B@{ORIGINALS['8b']['rev']}")[0] == "8b", "a pinned repo@revision resolves")
+
     print(f"selftest: {'GREEN' if not fails else 'RED'}, {n_checks[0]} checks, {len(fails)} failure(s)")
     for f_ in fails:
         print(f"  failed: {f_}")
@@ -1108,15 +1436,22 @@ def selftest() -> int:
 # Modes on real inputs.
 # ---------------------------------------------------------------------------
 def check_prompts(args) -> int:
-    qs, ans_ids = fetch_prompts(args.cache)
     root = Path(__file__).resolve().parent.parent
-    dumps = [read_dump(Path(args.dump_f16 or root / DUMP_F16[0]), DUMP_F16[1]),
-             read_dump(Path(args.dump_sealed or root / DUMP_SEALED[0]), DUMP_SEALED[1])]
+    if args.size:
+        o = ORIGINALS[args.size]
+        qs, ans_ids = fetch_prompts(args.cache, o["repo"], o["rev"])
+        dumps = [read_dump(Path(args.dump_f16 or root / o["dump"][0]), o["dump"][1])]
+        print(f"size {args.size}: tokenizer of {o['repo']}@{o['rev'][:8]}, dump {o['dump'][0]}")
+    else:
+        qs, ans_ids = fetch_prompts(args.cache)
+        dumps = [read_dump(Path(args.dump_f16 or root / DUMP_F16[0]), DUMP_F16[1]),
+                 read_dump(Path(args.dump_sealed or root / DUMP_SEALED[0]), DUMP_SEALED[1])]
     bad = sum(1 for q in qs for dmp in dumps if dmp[(q["subject"], q["index"])]["qhash"] != q["qhash"])
     lens_ = sorted(len(q["ids"]) for q in qs)
     rr = round_robin(qs)
     first = [len(q["ids"]) for q in rr[:N_MAX]]
-    print(f"qhash: {2 * len(qs) - bad} of {2 * len(qs)} equal to the two dumps; answer token ids {ans_ids}")
+    print(f"qhash: {len(dumps) * len(qs) - bad} of {len(dumps) * len(qs)} equal to the dump(s); answer token ids "
+          f"{ans_ids}")
     print(f"prompt length, census: median {lens_[len(lens_) // 2]}, max {lens_[-1]}; round robin first 570 mean "
           f"{sum(first[:570]) / 570:.0f}, first {N_MAX} mean {sum(first) / len(first):.0f}, first 57 mean "
           f"{sum(first[:57]) / 57:.0f}, sum of squares first 570 {sum(x * x for x in first[:570]):.3e}")
@@ -1203,22 +1538,88 @@ def run(args) -> int:
     return 0 if res["control"]["green"] else 4
 
 
+def run_lens(args) -> int:
+    lvo.check_pins()
+    if not torch.cuda.is_available():
+        raise SystemExit("refused: --lens-only is for the card; no checkpoint is loaded on the Mac")
+    device = torch.device("cuda:0")
+    size, o = resolve_original(args.model)
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    t_start = time.time()
+    dump = read_dump(Path(args.dump_f16), o["dump"][1])
+    qs, ans_ids = fetch_prompts(args.cache, o["repo"], o["rev"])
+    bad = [(q["subject"], q["index"]) for q in qs if dump[(q["subject"], q["index"])]["qhash"] != q["qhash"]]
+    print(f"qhash: {len(qs) - len(bad)} of {len(qs)} equal to {o['dump'][0]}; answer ids {ans_ids}")
+    if bad:
+        raise SystemExit(f"refused: {len(bad)} prompts differ from the dump's token ids, first {bad[:3]}")
+    order = round_robin(qs)
+    cfg, w = load_original(o, args.cache, device)
+    t_setup = time.time() - t_start
+    torch.cuda.reset_peak_memory_stats()
+    lr = LensRun(cfg)
+    n_target = None
+    t_loop = time.time()
+    i = 0
+    while n_target is None or i < n_target:
+        q = order[i]
+        lr.keys.append((q["subject"], q["index"]))
+        lr.answers.append(q["answer"])
+        lr.lengths.append(len(q["ids"]))
+        lr.qhash.append(q["qhash"])
+        lens_question(lr, w, q["ids"], ans_ids, device)
+        i += 1
+        if i % 57 == 0:
+            torch.cuda.synchronize()
+            el = time.time() - t_loop
+            print(f"  {i} questions, {el:.0f} s", flush=True)
+            if n_target is None:
+                n_target = n_from_time(el, i, args.budget_seconds)
+                print(f"questions: N = {n_target} (first {i} in {el:.1f} s, budget {args.budget_seconds} s, "
+                      f"clamped to [{N_MIN}, {N_MAX}])", flush=True)
+    torch.cuda.synchronize()
+    loop_s = time.time() - t_loop
+    peak = torch.cuda.max_memory_allocated() / 1e9
+    weights = sum(t.numel() * t.element_size() for t in w.values()) / 1e9
+    print(f"loop: {i} questions, {loop_s:.0f} s; card peak {peak:.2f} GB allocated, weights {weights:.2f} GB")
+    head = [f"inputs: {o['repo']}@{o['rev']} (size {size}); {MMLU_REPO}@{MMLU_REV}; run fingerprint {RUN_FP:016x}; "
+            f"answer ids {ans_ids}; dump {o['dump'][0]} sha256 {o['dump'][1][:16]}",
+            f"questions: {i} (round robin over {N_SUBJECTS} subjects), loop {loop_s:.0f} s, setup {t_setup:.0f} s; "
+            f"card peak {peak:.2f} GB allocated, weights {weights:.2f} GB f16", ""]
+    res = analyse_lens(out, lr, w, ans_ids, dump, extra_lines=head)
+    (out / "inputs.txt").write_text(
+        f"checkpoint {o['repo']}@{o['rev']}\nshards {json.dumps(o['shards'])}\nmmlu {MMLU_REPO}@{MMLU_REV}\n"
+        f"dump {o['dump'][0]} {o['dump'][1]}\nquestions {i}\npeak_gb {peak:.3f}\nrule D green "
+        f"{res['control']['green']}\ntotal {time.time() - t_start:.0f} s\n")
+    return 0 if res["control"]["green"] else 4
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     mode = ap.add_mutually_exclusive_group(required=True)
     mode.add_argument("--selftest", action="store_true")
     mode.add_argument("--check-prompts", action="store_true")
     mode.add_argument("--run", action="store_true")
+    mode.add_argument("--lens-only", action="store_true")
+    ap.add_argument("--model", help="--lens-only: repo@revision, one of ORIGINALS")
+    ap.add_argument("--size", choices=sorted(ORIGINALS), help="--check-prompts: that size's tokenizer and FP16 dump")
     ap.add_argument("--export", help="the sealed export's model.safetensors (bucket mount)")
     ap.add_argument("--stage", default="/tmp/cm-export", help="local copy of the export")
     ap.add_argument("--out", help="output folder")
     ap.add_argument("--dump-f16", help=f"default {DUMP_F16[0]}")
     ap.add_argument("--dump-sealed", help=f"default {DUMP_SEALED[0]}")
     ap.add_argument("--cache", default=os.environ.get("HF_HUB_CACHE"))
-    ap.add_argument("--budget-seconds", type=float, default=600.0)
+    ap.add_argument("--budget-seconds", type=float, default=None,
+                    help=f"default 600 for --run, {LENS_BUDGET:.0f} for --lens-only")
     a = ap.parse_args(argv)
     if a.selftest:
         return selftest()
+    if a.budget_seconds is None:
+        a.budget_seconds = LENS_BUDGET if a.lens_only else 600.0
+    if a.lens_only:
+        if not (a.model and a.out and a.dump_f16):
+            ap.error("--lens-only needs --model, --out and --dump-f16")
+        return run_lens(a)
     if a.check_prompts:
         return check_prompts(a)
     if not (a.export and a.out and a.dump_f16 and a.dump_sealed):
