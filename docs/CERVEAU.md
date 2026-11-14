@@ -682,7 +682,9 @@ Four lighter bodies were then written and pass their Mac gates, and a load check
 hit its 5 min timeout. Its second attempt ([recherche-debit-charge2](mesures/recherche-debit-charge2-2026-11-14.txt),
 2026-11-14) reads every arm: none of the four lighter bodies loads, each refused for the same 8 B of local memory at
 128 registers, and v9 loads (*measured*). The 8 B do not come from what the variants shed; their origin is not
-established. No candidate has been timed in 4E's token. Spent: $1.34 of $5.
+established by that run. Five load probes ([recherche-debit-sondes](mesures/recherche-debit-sondes-2026-11-14.txt))
+then name the site: the endpass body on the gate/up call site alone is refused for the 8 B, and on q/k, down or o
+alone it loads (*measured*). No candidate has been timed in 4E's token. Spent: $1.61 of $5.
 
 ## Beliefs we dropped
 

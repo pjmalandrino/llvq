@@ -1,0 +1,5 @@
+CHECK ARM v9pe0 LOADS
+CHECK ARM v9peg REFUSED: pers_4e_tokens_f1_t512: 8 B local, 1 resident a SM
+CHECK ARM v9peq LOADS
+CHECK ARM v9ped LOADS
+CHECK ARM v9peo LOADS

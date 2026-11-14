@@ -1510,3 +1510,7 @@ reading step is [recherche-debit-r0-depot](mesures/recherche-debit-r0-depot-2026
   None of the four lighter bodies loads: each is refused for 8 B of local memory at 128 registers, as v9ep and
   v9fl, and v9 loads (*measured*). Shedding live values from the bodies did not move the local memory by a byte.
   The token measurement is not launched. Spend under the cap: $20.56 of $25, registry $327.81.
+- The seventh card run, [recherche-debit-sondes](mesures/recherche-debit-sondes-2026-11-14.txt) (6af837d1, $0.27),
+  compiles five load probes, the endpass body on one call site each. One site brings the 8 B: gate/up. The body on
+  q/k, on the Tetra down or on the Tetra o alone loads at 0 B, and so does the inserted text alone (*measured*).
+  Nothing is timed. Spend under the cap: $20.83 of $25, registry $328.08.
