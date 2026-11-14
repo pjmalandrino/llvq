@@ -355,3 +355,49 @@ fn q8_actually_changes_what_a_block_computes() {
          (model.rs: Block::forward and fresh_caches)."
     );
 }
+
+/// The gate of `LLVQ_KV_LADDER`, at the model, on the 4B KV geometry: every
+/// arm changes what the model says, and installing the ladder's per-layer
+/// state (static key steps, Hadamard) changes nothing for an f16 cache.
+///
+/// Without the first half an unwired arm reads Δppl = 0; without the second,
+/// the f16 reference arm of the ladder would not be the served cache.
+#[test]
+fn every_ladder_arm_is_wired_and_the_f16_arm_is_untouched() {
+    use llvq_llm::kvladder::{calibrate, hadamard_matrix, LadderAux, DEFAULT_CLIP};
+    use llvq_llm::kvq::{AttnHeads, KvMode, KvStore};
+    let dev = Device::Cpu;
+    let cfg = kv_geometry_of_4b();
+    let map = VarMap::new();
+    let vb = VarBuilder::from_varmap(&map, DType::F32, &dev);
+    let mut m = Qwen3::new(&cfg, vb, KvMode::F16).expect("builds");
+
+    let win: Vec<u32> = vec![3, 17, 42, 8, 61, 5, 99, 12, 77, 31];
+    let f16 = (KvStore::Cat, AttnHeads::Expanded, KvMode::F16);
+    let bare = m.decode_nll_modes(&win, [f16, f16], 0).expect("f16 pair");
+    assert_eq!(bare.nll[0].to_bits(), bare.nll[1].to_bits());
+
+    // Calibration text distinct from the scored window.
+    let calib: Vec<u32> = (0..48u32).map(|i| (i * 37 + 11) % 128).collect();
+    let steps = calibrate(&m, &calib, 16, DEFAULT_CLIP).expect("calibrates");
+    assert_eq!(steps.len(), 36);
+    let h = hadamard_matrix(128, &dev).expect("hadamard");
+    m.set_kv_ladder_aux(Some(
+        steps.into_iter().map(|s| LadderAux { key_step: Some(s), hadamard: Some(h.clone()) }).collect(),
+    ))
+    .expect("installs");
+
+    for mode in [KvMode::Q8, KvMode::K8V4, KvMode::K4V4C, KvMode::K4V4H] {
+        let d = m.decode_nll_modes(&win, [f16, (KvStore::Cat, AttnHeads::Expanded, mode)], 0).expect("ladder pair");
+        assert_eq!(
+            d.nll[0].to_bits(),
+            bare.nll[0].to_bits(),
+            "{mode:?}: the installed ladder state moved the f16 arm"
+        );
+        assert!(d.max_dlogit > 0.0 && d.nll[1] != d.nll[0], "{mode:?} is not wired: {d:?}");
+    }
+    // A calibration on a cache that is not f16 is refused.
+    let vb = VarBuilder::from_varmap(&map, DType::F32, &dev);
+    let q8 = Qwen3::new(&cfg, vb, KvMode::Q8).expect("builds");
+    assert!(calibrate(&q8, &calib, 16, DEFAULT_CLIP).is_err());
+}

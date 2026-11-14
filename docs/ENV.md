@@ -80,6 +80,7 @@ modes set together (`ALONE` in that file).
 | `LLVQ_TIME_PHASES` | `fusedrun`, `model.rs` | per-phase timing of a token |
 | `LLVQ_GQA_AB`, `LLVQ_GQA_PPL` | `fusedrun` | grouped attention timing, and its paired perplexity |
 | `LLVQ_KV_CAPTURE` | `fusedrun`, `kvcapture.rs` | `<ctx>,<tokens>,<corpus>,<window>`: one window fed token by token on the kernel form, the decode queries and the final KV cache written to `fusedrun`'s third argument for `ops/kv_mass_score.py` |
+| `LLVQ_KV_LADDER` | `fusedrun`, `kvladder.rs` | the cache of the second arm of `LLVQ_GQA_PPL=<ctx>,<windows>,<first>,ladder`, scored against the f16 cache under the kernel form on every decode row: `k8v8` (the `q8` code), `k8v4`, `k4v4c` or `k4v4c:<q>` (static key steps, clip quantile `q`, default 0.999, calibrated on 4,096 `dclm-edu` tokens), `k4v4h` (Hadamard then int4). Round trips: the cache keeps its dtype. Refused beside `LLVQ_KV`, beside any other mode, and beside a config |
 | `LLVQ_INT4_WIDE_CHECK` | `fusedrun` | int4 kernel against the host at widths above 14B |
 | `LLVQ_GESTURE_AB`, `LLVQ_BOUNDARY_AB` | `fusedrun` | decode-step gesture and boundary A/Bs |
 | `LLVQ_PERS_SEGMENT`, `LLVQ_PERS_4E` | `fusedrun` | persistent MLP segment, and 4E's row forms against the eager path |

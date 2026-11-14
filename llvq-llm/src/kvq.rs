@@ -45,7 +45,20 @@ pub enum KvMode {
     #[default]
     F16,
     /// int8 payload, group of 64 along `head_dim`, f16 scale and bias per group.
+    /// Also the `k8v8` arm of `LLVQ_KV_LADDER`.
     Q8,
+    /// Measurement arm `k8v4` of `LLVQ_KV_LADDER` ([`crate::kvladder`]): keys
+    /// as [`Self::Q8`], values int4 group-affine over
+    /// [`crate::kvladder::V4_GROUP`]. Never parsed from `LLVQ_KV`.
+    K8V4,
+    /// Measurement arm `k4v4c`: keys int4 symmetric on static per-channel
+    /// steps, one per RoPE pair, calibrated before the measured text; values
+    /// as [`Self::K8V4`]. Never parsed from `LLVQ_KV`.
+    K4V4C,
+    /// Measurement arm `k4v4h`: keys and values rotated by an orthonormal
+    /// Hadamard per head, int4 group-affine, rotated back. Never parsed from
+    /// `LLVQ_KV`.
+    K4V4H,
 }
 
 /// Values per group. Divides `head_dim` on every model this repository loads
@@ -78,6 +91,9 @@ impl KvMode {
         match self {
             Self::F16 => "f16",
             Self::Q8 => "q8",
+            Self::K8V4 => "k8v4",
+            Self::K4V4C => "k4v4c",
+            Self::K4V4H => "k4v4h",
         }
     }
 
@@ -87,10 +103,31 @@ impl KvMode {
     /// ⚠️ This is **bits per cache value**, never b/param: the cache is not a
     /// parameter, and its size is stated in bytes per token with the context,
     /// the batch and the geometry named.
+    ///
+    /// For an arm that codes keys and values differently this is their mean,
+    /// since a position holds as many of one as of the other.
     pub fn bits_per_value(&self, dtype: DType) -> f64 {
+        (self.key_bits(dtype) + self.value_bits(dtype)) / 2.0
+    }
+
+    /// Bits per cached key value, scales and biases included. The static
+    /// steps of [`Self::K4V4C`] are held once per model, not per position
+    /// (36 x 8 x 64 f16 on the 4B, 36,864 B), so they add nothing here.
+    pub fn key_bits(&self, dtype: DType) -> f64 {
+        match self {
+            Self::F16 => (dtype.size_in_bytes() * 8) as f64,
+            Self::Q8 | Self::K8V4 => 8.0 + 32.0 / GROUP as f64,
+            Self::K4V4C => 4.0,
+            Self::K4V4H => 4.0 + 32.0 / crate::kvladder::V4_GROUP as f64,
+        }
+    }
+
+    /// Bits per cached value-tensor value, scales and biases included.
+    pub fn value_bits(&self, dtype: DType) -> f64 {
         match self {
             Self::F16 => (dtype.size_in_bytes() * 8) as f64,
             Self::Q8 => 8.0 + 32.0 / GROUP as f64,
+            Self::K8V4 | Self::K4V4C | Self::K4V4H => 4.0 + 32.0 / crate::kvladder::V4_GROUP as f64,
         }
     }
 }
@@ -108,23 +145,31 @@ impl KvMode {
 /// nothing about what it **saves in memory**. The saving is a count (÷1.882 on
 /// the 4B geometry) and is reported, not measured here.
 pub fn quantize_dequantize(x: &Tensor) -> Result<Tensor> {
+    affine_round_trip(x, GROUP, 255.0)
+}
+
+/// [`quantize_dequantize`] at any group along the innermost axis and any
+/// number of levels `qmax + 1`: `q ∈ [0, qmax]`, f16 scale and bias per group.
+/// `quantize_dequantize` is this at (`GROUP`, 255); the int4 arms of
+/// [`crate::kvladder`] call it at (`V4_GROUP`, 15).
+pub fn affine_round_trip(x: &Tensor, group: usize, qmax: f64) -> Result<Tensor> {
     let dt = x.dtype();
     let dims = x.dims().to_vec();
     let inner = *dims.last().expect("cache tensors are at least 1-D");
     assert_eq!(
-        inner % GROUP,
+        inner % group,
         0,
-        "head_dim {inner} is not a multiple of the group of {GROUP}: a short \
+        "head_dim {inner} is not a multiple of the group of {group}: a short \
          group would make the last group of a head a different quantizer, and \
          nothing downstream would report it"
     );
 
-    // [..., inner] -> [..., inner/GROUP, GROUP]: the group becomes an axis, so
+    // [..., inner] -> [..., inner/group, group]: the group becomes an axis, so
     // min and max are one reduction and never reach across a head or a token.
     let mut g = dims.clone();
     g.pop();
-    g.push(inner / GROUP);
-    g.push(GROUP);
+    g.push(inner / group);
+    g.push(group);
     let xg = x.reshape(g)?.to_dtype(DType::F32)?;
 
     let mn = xg.min_keepdim(candle_core::D::Minus1)?;
@@ -132,7 +177,6 @@ pub fn quantize_dequantize(x: &Tensor) -> Result<Tensor> {
 
     // Scale and bias go through f16 exactly as the file would store them, so
     // `q` is chosen against the values a reader gets back.
-    let qmax = 255.0f64;
     let s = ((mx - &mn)? / qmax)?
         .to_dtype(DType::F16)?
         .to_dtype(DType::F32)?;

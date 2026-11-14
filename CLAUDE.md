@@ -152,9 +152,9 @@ be in `UPLOAD_ALLOW` of `ops/run.py`, or the Space dies after 12 minutes. `rankb
 `docs/ENV.md` lists every variable the code reads, and `llvq-llm/tests/env_registry.rs` fails on a quoted `LLVQ_*`
 name it does not list.
 
-`MEASUREMENT_MODES` in `llvq-llm/src/served.rs` lists 18 measurement variables (`LLVQ_GQA_AB`, `LLVQ_PERS_4E`,
+`MEASUREMENT_MODES` in `llvq-llm/src/served.rs` lists 19 measurement variables (`LLVQ_GQA_AB`, `LLVQ_PERS_4E`,
 ...), never a served config. `fusedrun` refuses all but `LLVQ_TIME_EVENTS` and `LLVQ_BENCH_ARMS` beside a config, and
-two of its modes set together (`ALONE`); `served.rs` refuses all 18 beside a persistent decode. `LLVQ_KERNEL_DIR`,
+two of its modes set together (`ALONE`); `served.rs` refuses all 19 beside a persistent decode. `LLVQ_KERNEL_DIR`,
 `LLVQ_TILE_BLOCKS`, `LLVQ_PREFILL`, `LLVQ_METAL_KERNEL` and the three `LLVQ_GUIDED_*` are refused beside any config
 (`BELOW_THE_DOOR`).
 `LLVQ_PREFILL_TOKENS` and `LLVQ_CONTEXTS` time the served object with a longer prompt. `planesbench`'s own variables

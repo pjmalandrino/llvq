@@ -352,10 +352,10 @@ impl Rows4e {
 /// engine each is refused by name ([`check_env`]); `LLVQ_CONTEXTS` and
 /// `LLVQ_PREFILL_TOKENS` are not here, since they time the served object as
 /// served with a longer prompt.
-pub const MEASUREMENT_MODES: [&str; 18] = [
+pub const MEASUREMENT_MODES: [&str; 19] = [
     "LLVQ_KV_PREALLOC", "LLVQ_GRAPH_AB", "LLVQ_GRAPH_DIAG", "LLVQ_KV_AB", "LLVQ_FUSE_AB", "LLVQ_TIME_PHASES",
     "LLVQ_TIME_EVENTS", "LLVQ_SEG_ARMS", "LLVQ_BENCH_ARMS", "LLVQ_TRIM_AB", "LLVQ_GQA_AB", "LLVQ_GQA_PPL",
-    "LLVQ_KV_CAPTURE",
+    "LLVQ_KV_CAPTURE", "LLVQ_KV_LADDER",
     "LLVQ_INT4_WIDE_CHECK", "LLVQ_GESTURE_AB", "LLVQ_BOUNDARY_AB", "LLVQ_PERS_SEGMENT", "LLVQ_PERS_4E",
 ];
 
