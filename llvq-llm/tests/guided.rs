@@ -217,7 +217,7 @@ fn unset_encode_is_byte_identical_to_the_commit_before_the_change() {
 // --------------------------------------------------------------------------
 
 use llvq_llm::calib::quantize_model_guided;
-use llvq_llm::guided::{file_name, read_raw, GuidedWeights, FORMAT, G_MAX, TYPES};
+use llvq_llm::guided::{file_name, group_weights, read_raw, GuidedWeights, FORMAT, G_MAX, TYPES};
 
 /// The tiny model's calibration rows: four windows of 32.
 const TOKENS: usize = WINDOWS * ROWS;
@@ -254,7 +254,11 @@ fn write_weights(dir: &std::path::Path, value: impl Fn(usize, usize, usize, usiz
 }
 
 fn open(dir: &std::path::Path, groups: usize) -> GuidedWeights {
-    GuidedWeights::open(dir, groups, FP, TOKENS).expect("open guided weights")
+    open_clipped(dir, groups, None)
+}
+
+fn open_clipped(dir: &std::path::Path, groups: usize, clip: Option<f64>) -> GuidedWeights {
+    GuidedWeights::open(dir, groups, clip, FP, TOKENS).expect("open guided weights")
 }
 
 /// The guided encode on all four windows, into `path`.
@@ -479,11 +483,11 @@ fn malformed_inputs_are_refused_by_name() {
     write_weights(&wdir, |_, _, _, _| 1.0);
 
     // Another fingerprint, another token count.
-    let e = GuidedWeights::open(&wdir, 4, FP ^ 1, TOKENS).expect_err("fingerprint").to_string();
+    let e = GuidedWeights::open(&wdir, 4, None, FP ^ 1, TOKENS).expect_err("fingerprint").to_string();
     assert!(e.contains("fingerprint") && e.contains("other tokens"), "{e}");
-    let e = GuidedWeights::open(&wdir, 4, FP, TOKENS + 1).expect_err("tokens").to_string();
+    let e = GuidedWeights::open(&wdir, 4, None, FP, TOKENS + 1).expect_err("tokens").to_string();
     assert!(e.contains("tokens") && e.contains(&(TOKENS + 1).to_string()), "{e}");
-    let e = GuidedWeights::open(&wdir, 3, FP, TOKENS).expect_err("groups").to_string();
+    let e = GuidedWeights::open(&wdir, 3, None, FP, TOKENS).expect_err("groups").to_string();
     assert!(e.contains("LLVQ_GUIDED_GROUPS"), "{e}");
 
     // A manifest without one of its files.
@@ -492,12 +496,12 @@ fn malformed_inputs_are_refused_by_name() {
     let mut m: serde_json::Value = serde_json::from_str(&good).expect("json");
     m["files"].as_object_mut().expect("files").remove(&file_name(1, "mlp.up_proj"));
     std::fs::write(&mpath, m.to_string()).expect("write");
-    let e = GuidedWeights::open(&wdir, 4, FP, TOKENS).expect_err("entry").to_string();
+    let e = GuidedWeights::open(&wdir, 4, None, FP, TOKENS).expect_err("entry").to_string();
     assert!(e.contains("w-001-up_proj.f32"), "{e}");
     let mut m: serde_json::Value = serde_json::from_str(&good).expect("json");
     m["format"] = "something-else".into();
     std::fs::write(&mpath, m.to_string()).expect("write");
-    let e = GuidedWeights::open(&wdir, 4, FP, TOKENS).expect_err("format").to_string();
+    let e = GuidedWeights::open(&wdir, 4, None, FP, TOKENS).expect_err("format").to_string();
     assert!(e.contains("format"), "{e}");
     std::fs::write(&mpath, &good).expect("restore");
 
@@ -510,7 +514,7 @@ fn malformed_inputs_are_refused_by_name() {
     std::fs::write(&f, &changed).expect("write");
     let e = g.load(0, "mlp.gate_proj").expect_err("sha").to_string();
     assert!(e.contains("sha256") && e.contains("w-000-gate_proj.f32"), "{e}");
-    let e = GuidedWeights::open(&wdir, 4, FP, TOKENS).expect_err("sha at open").to_string();
+    let e = GuidedWeights::open(&wdir, 4, None, FP, TOKENS).expect_err("sha at open").to_string();
     assert!(e.contains("sha256") && e.contains("w-000-gate_proj.f32"), "{e}");
     let short = &orig[..orig.len() - 4];
     let e = read_raw(&f.with_extension("short"), TOKENS).map(|_| ()).expect_err("absent").to_string();
@@ -541,4 +545,77 @@ fn malformed_inputs_are_refused_by_name() {
         .expect_err("int4")
         .to_string();
     assert!(e.contains("gate_proj") && e.contains("LLVQ_INT4_TYPES"), "{e}");
+}
+
+// --------------------------------------------------------------------------
+// The clip (`LLVQ_GUIDED_CLIP`).
+// --------------------------------------------------------------------------
+
+/// `group_weights` as it stood at a262ac3, before the clip existed, copied verbatim but for the
+/// error type: the reference the `None` path must equal bit for bit.
+fn group_weights_at_a262ac3(raw: &[f32], tokens: usize, groups: usize) -> Vec<Vec<f32>> {
+    let span = G_MAX / groups;
+    let mut out = Vec::with_capacity(groups);
+    for g in 0..groups {
+        let w: Vec<f64> = (0..tokens)
+            .map(|t| raw[t * G_MAX + g * span..t * G_MAX + (g + 1) * span].iter().map(|&x| x as f64).sum())
+            .collect();
+        let mean = w.iter().sum::<f64>() / tokens as f64;
+        assert!(mean > 0.0 && mean.is_finite());
+        out.push(w.into_iter().map(|x| (x / mean) as f32).collect());
+    }
+    out
+}
+
+fn f32_bits(w: &[Vec<f32>]) -> Vec<Vec<u32>> {
+    w.iter().map(|v| v.iter().map(|x| x.to_bits()).collect()).collect()
+}
+
+/// Without a clip the shared fixture normalises to the bits of the code before the clip, at every G.
+#[test]
+fn no_clip_normalises_the_fixture_as_before_the_change() {
+    let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/guided/roundtrip-3x16.f32");
+    let raw = read_raw(&p, 3).expect("fixture");
+    for groups in [1, 2, 4, 8, 16] {
+        let now = group_weights(&raw, 3, groups, None).expect("none");
+        assert_eq!(f32_bits(&now), f32_bits(&group_weights_at_a262ac3(&raw, 3, groups)), "G = {groups}");
+    }
+}
+
+/// Without a clip `describe` is the 2026-11-13 line, character for character; with one it ends in
+/// ` clip=10`.
+#[test]
+fn describe_is_unchanged_without_a_clip_and_names_it_with_one() {
+    let s = Scratch::new("describe");
+    let wdir = s.0.join("w");
+    write_weights(&wdir, |_, _, _, _| 1.0);
+    let sha = llvq_llm::guided::manifest_sha256(&wdir).expect("manifest sha");
+    let before = format!("gate_proj,up_proj G=4 tokens={TOKENS} fingerprint={FP:016x} manifest_sha256={sha}");
+    assert_eq!(open(&wdir, 4).describe(), before);
+    assert_eq!(open_clipped(&wdir, 4, Some(10.0)).describe(), format!("{before} clip=10"));
+    assert_eq!(open_clipped(&wdir, 4, Some(10.0)).clip(), Some(10.0));
+    let e = GuidedWeights::open(&wdir, 4, Some(0.5), FP, TOKENS).expect_err("clip 0.5").to_string();
+    assert!(e.contains("LLVQ_GUIDED_CLIP"), "{e}");
+}
+
+/// Weights concentrated on two or three tokens of 128 per matrix, over both blocks: a clip at 10 ×
+/// the mean encodes another file than the unclipped guided encode, and a clip too large to touch any
+/// weight encodes the unclipped file byte for byte.
+///
+/// The spikes weigh 1,000 against 1 for the other tokens (per token, summed over the 16 columns):
+/// with three spikes each group's mean is (125 + 3,000) / 128 ≈ 24.4, with two ≈ 16.6, so a clip at
+/// 10 caps them at 166 to 244, and a clip at 1e6 caps nothing.
+#[test]
+fn a_clip_changes_a_concentrated_encode_and_a_clip_above_every_weight_does_not() {
+    let dev = Device::Cpu;
+    let map = seeded_map(&dev);
+    let s = Scratch::new("clip");
+    let wdir = s.0.join("w");
+    write_weights(&wdir, |l, k, t, _| if (t + 11 * l + 5 * k) % 43 == 7 { 1000.0 / 16.0 } else { 1.0 / 16.0 });
+    let (pn, pc, pb) = (s.at("none.llvq"), s.at("clip10.llvq"), s.at("big.llvq"));
+    encode_guided(&map, &dev, &pn, &open(&wdir, 2), usize::MAX);
+    encode_guided(&map, &dev, &pc, &open_clipped(&wdir, 2, Some(10.0)), usize::MAX);
+    encode_guided(&map, &dev, &pb, &open_clipped(&wdir, 2, Some(1e6)), usize::MAX);
+    assert!(bytes(&pb) == bytes(&pn), "a clip above every weight changed the encode");
+    assert!(bytes(&pc) != bytes(&pn), "a clip at 10 x the mean left a concentrated encode unchanged");
 }

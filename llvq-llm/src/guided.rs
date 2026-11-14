@@ -36,6 +36,21 @@
 //! numbers of today's size whatever the absolute size of the squared gradients, which depends on
 //! the loss, the model and the token.
 //!
+//! ## The clip, [`ENV_CLIP`]
+//!
+//! Under [`ENV_CLIP`]` = c`, each group's summed weights are clipped at `c` times their mean
+//! before the mean-1 normalisation: `w_tg ← min(w_tg, c · mean_t(w_tg))`, the mean taken over every
+//! token, zeros included, and before the clip. One pass, not iterated. Then the clipped weights are
+//! normalised to mean 1 as above. Unset, nothing is clipped and the weights are today's, bit for bit.
+//!
+//! Why: the first guided encode of the 4B lost 1.51 MMLU points, and its weights were concentrated
+//! on a few tokens. The effective sample size of a group, `(Σ w)² / Σ w²`, was 1.58 % of the
+//! 131,072 calibration tokens on average, about 2,070 tokens for matrices of 2,560 inputs; a clip at
+//! 10 × the mean raised it from 2.0 % to 18.8 % at G = 1 (*computed*,
+//! `docs/mesures/guided-gateup-4b-2026-11-13.txt`, "POST HOC DIAGNOSTIC"). The clip bounds how much
+//! any single token can weigh in `H_g`, so that each Hessian is estimated from more tokens than the
+//! matrix has inputs.
+//!
 //! ## The file
 //!
 //! A directory with `manifest.json` and one little-endian f32 file per (layer, type), shape
@@ -51,6 +66,9 @@ use std::path::{Path, PathBuf};
 pub const ENV_DIR: &str = "LLVQ_GUIDED_WEIGHTS";
 /// `G`, the number of row groups. Only read beside [`ENV_DIR`].
 pub const ENV_GROUPS: &str = "LLVQ_GUIDED_GROUPS";
+/// `c`, the clip of each group's weights at `c` times their mean. Only read beside [`ENV_DIR`];
+/// unset or empty is no clip, the 2026-11-13 path.
+pub const ENV_CLIP: &str = "LLVQ_GUIDED_CLIP";
 /// `G` when [`ENV_GROUPS`] is unset: GuidedQuant's choice for 7B and 13B models (§4).
 pub const DEFAULT_GROUPS: usize = 4;
 /// Columns of every weight file: the finest grouping one card job writes.
@@ -77,26 +95,74 @@ pub fn parse_groups(v: Option<&str>) -> Result<usize, String> {
     }
 }
 
-/// The two variables, read through `lookup`. `Ok(None)` is the published path.
+/// `c` from its variable: unset or empty is `None`, no clip; otherwise a finite number `c >= 1`.
+/// Anything else is refused by name.
+pub fn parse_clip(v: Option<&str>) -> Result<Option<f64>, String> {
+    match v.map(str::trim) {
+        None | Some("") => Ok(None),
+        Some(s) => match s.parse::<f64>() {
+            Ok(c) if c.is_finite() && c >= 1.0 => Ok(Some(c)),
+            _ => Err(format!(
+                "{ENV_CLIP}={s:?}: a finite number c >= 1 is needed, each group's weights clipped at c \
+                 times their mean; unset or empty for no clip"
+            )),
+        },
+    }
+}
+
+/// What the three variables name, once parsed.
+#[derive(Clone, Debug, PartialEq)]
+pub struct GuidedEnv {
+    pub dir: PathBuf,
+    pub groups: usize,
+    /// `None`: no clip, the 2026-11-13 path.
+    pub clip: Option<f64>,
+}
+
+/// The three variables, read through `lookup`. `Ok(None)` is the published path.
 ///
-/// [`ENV_GROUPS`] without [`ENV_DIR`] is refused: it would read as a guided run in a log and be the
-/// default one. An empty [`ENV_DIR`] is refused too, rather than read as unset.
-pub fn from_env(lookup: impl Fn(&str) -> Option<String>) -> Result<Option<(PathBuf, usize)>, String> {
+/// [`ENV_GROUPS`] or [`ENV_CLIP`] without [`ENV_DIR`] is refused: it would read as a guided run in a
+/// log and be the default one. An empty [`ENV_DIR`] is refused too, rather than read as unset.
+pub fn from_env(lookup: impl Fn(&str) -> Option<String>) -> Result<Option<GuidedEnv>, String> {
     let dir = lookup(ENV_DIR);
     let groups = lookup(ENV_GROUPS);
+    let clip = lookup(ENV_CLIP);
     match dir {
-        None => match groups {
-            None => Ok(None),
-            Some(g) => Err(format!(
+        None => match (groups, clip) {
+            (None, None) => Ok(None),
+            (Some(g), _) => Err(format!(
                 "{ENV_GROUPS}={g:?} without {ENV_DIR}: the group count means nothing without the weights; \
                  unset it, or name the weights directory"
+            )),
+            (None, Some(c)) => Err(format!(
+                "{ENV_CLIP}={c:?} without {ENV_DIR}: the clip means nothing without the weights; unset it, \
+                 or name the weights directory"
             )),
         },
         Some(d) if d.trim().is_empty() => Err(format!(
             "{ENV_DIR} is set and empty: name the weights directory, or unset it for the published path"
         )),
-        Some(d) => Ok(Some((PathBuf::from(d), parse_groups(groups.as_deref())?))),
+        Some(d) => Ok(Some(GuidedEnv {
+            dir: PathBuf::from(d),
+            groups: parse_groups(groups.as_deref())?,
+            clip: parse_clip(clip.as_deref())?,
+        })),
     }
+}
+
+/// What the clip adds to a log line or a run-state line: nothing without a clip, so that a line of
+/// the 2026-11-13 runs reads as it did, and ` clip=<c>` with one.
+pub fn clip_suffix(clip: Option<f64>) -> String {
+    match clip {
+        None => String::new(),
+        Some(c) => format!(" clip={c}"),
+    }
+}
+
+/// The `guided` line of `bin/smoke`'s run state. A resume compares it as a string
+/// (`RunState::diff`), so a shard encoded under another clip, or none, is refused.
+pub fn state_line(groups: usize, manifest_sha256: &str, clip: Option<f64>) -> String {
+    format!("gate_proj,up_proj G={groups} manifest_sha256={manifest_sha256}{}", clip_suffix(clip))
 }
 
 /// The file of one (layer, matrix): `w-003-gate_proj.f32`.
@@ -151,9 +217,18 @@ pub fn read_raw(path: &Path, tokens: usize) -> anyhow::Result<Vec<f32>> {
 /// Group `g` sums columns `[g·G_MAX/G, (g+1)·G_MAX/G)` of `raw` in f64; the mean is taken in f64 and
 /// the quotient narrowed to f32 once. A group whose weights are all zero is refused: its `H_g` would
 /// be zero and the factor the damping alone.
-pub fn group_weights(raw: &[f32], tokens: usize, groups: usize) -> Result<Vec<Vec<f32>>, String> {
+///
+/// With `clip = Some(c)`, each group's f64 weights are first clipped at `c` times their mean over
+/// all tokens (zeros included, the mean before the clip), then normalised to mean 1 by the mean of
+/// the clipped weights. `None` is the unclipped path, bit for bit.
+pub fn group_weights(raw: &[f32], tokens: usize, groups: usize, clip: Option<f64>) -> Result<Vec<Vec<f32>>, String> {
     if groups == 0 || !G_MAX.is_multiple_of(groups) {
         return Err(format!("{groups} row groups: a divisor of {G_MAX} is needed"));
+    }
+    if let Some(c) = clip {
+        if !(c.is_finite() && c >= 1.0) {
+            return Err(format!("clip {c}: a finite c >= 1 is needed"));
+        }
     }
     if raw.len() != tokens * G_MAX {
         return Err(format!("{} weights for {tokens} tokens × {G_MAX} columns", raw.len()));
@@ -168,6 +243,15 @@ pub fn group_weights(raw: &[f32], tokens: usize, groups: usize) -> Result<Vec<Ve
         if !(mean > 0.0 && mean.is_finite()) {
             return Err(format!("row group {g} of {groups}: every weight is zero (mean {mean})"));
         }
+        let (w, mean) = match clip {
+            None => (w, mean),
+            Some(c) => {
+                let cap = c * mean;
+                let w: Vec<f64> = w.into_iter().map(|x| x.min(cap)).collect();
+                let clipped_mean = w.iter().sum::<f64>() / tokens as f64;
+                (w, clipped_mean)
+            }
+        };
         out.push(w.into_iter().map(|x| (x / mean) as f32).collect());
     }
     Ok(out)
@@ -184,6 +268,7 @@ pub fn manifest_sha256(dir: &Path) -> anyhow::Result<String> {
 pub struct GuidedWeights {
     dir: PathBuf,
     groups: usize,
+    clip: Option<f64>,
     tokens: usize,
     layers: usize,
     fingerprint: u64,
@@ -193,15 +278,25 @@ pub struct GuidedWeights {
 
 impl GuidedWeights {
     /// Open `dir` for a run of `expect_tokens` calibration rows whose token ids fingerprint to
-    /// `expect_fingerprint` ([`crate::eval::token_fingerprint`] over the windows in order).
+    /// `expect_fingerprint` ([`crate::eval::token_fingerprint`] over the windows in order), its
+    /// weights clipped at `clip` times their mean ([`group_weights`]) or not at all.
     ///
     /// Refused, by name: a manifest of another format or column count, another token count, another
     /// fingerprint, a layer or a type without its file, and any file whose sha256 is not the
     /// manifest's. Every file is hashed here, before the first block (72 files of 8 MiB at 4B, a few
     /// seconds), so that a corrupted late layer is refused at the start of an encode and not after an
     /// hour and a half. [`Self::load`] hashes each file again as it reads it, block by block.
-    pub fn open(dir: &Path, groups: usize, expect_fingerprint: u64, expect_tokens: usize) -> anyhow::Result<Self> {
+    pub fn open(
+        dir: &Path,
+        groups: usize,
+        clip: Option<f64>,
+        expect_fingerprint: u64,
+        expect_tokens: usize,
+    ) -> anyhow::Result<Self> {
         parse_groups(Some(&groups.to_string())).map_err(anyhow::Error::msg)?;
+        if let Some(c) = clip {
+            anyhow::ensure!(c.is_finite() && c >= 1.0, "{ENV_CLIP}: clip {c}, a finite c >= 1 is needed");
+        }
         let mpath = dir.join("manifest.json");
         let raw = std::fs::read(&mpath).map_err(|e| anyhow::anyhow!("{}: {e}", mpath.display()))?;
         let manifest_sha256 = crate::digest::sha256_hex(&raw);
@@ -248,6 +343,7 @@ impl GuidedWeights {
         Ok(Self {
             dir: dir.to_path_buf(),
             groups,
+            clip,
             tokens,
             layers,
             fingerprint,
@@ -260,6 +356,10 @@ impl GuidedWeights {
         self.groups
     }
 
+    pub fn clip(&self) -> Option<f64> {
+        self.clip
+    }
+
     pub fn tokens(&self) -> usize {
         self.tokens
     }
@@ -269,11 +369,15 @@ impl GuidedWeights {
     }
 
     /// One line for the run state and the log: what a resume must agree with, and what tells a
-    /// guided file from a default one.
+    /// guided file from a default one. Without a clip it is the 2026-11-13 line, unchanged.
     pub fn describe(&self) -> String {
         format!(
-            "gate_proj,up_proj G={} tokens={} fingerprint={:016x} manifest_sha256={}",
-            self.groups, self.tokens, self.fingerprint, self.manifest_sha256
+            "gate_proj,up_proj G={} tokens={} fingerprint={:016x} manifest_sha256={}{}",
+            self.groups,
+            self.tokens,
+            self.fingerprint,
+            self.manifest_sha256,
+            clip_suffix(self.clip)
         )
     }
 
@@ -291,7 +395,7 @@ impl GuidedWeights {
         let got = crate::digest::sha256_file(&path).map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))?;
         anyhow::ensure!(&got == want, "{}: sha256 {got}, the manifest says {want}", path.display());
         let raw = read_raw(&path, self.tokens)?;
-        group_weights(&raw, self.tokens, self.groups).map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))
+        group_weights(&raw, self.tokens, self.groups, self.clip).map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))
     }
 }
 
@@ -403,8 +507,76 @@ mod tests {
         assert!(e.contains(ENV_DIR), "{e}");
         let e = from_env(env(&[(ENV_DIR, "/w"), (ENV_GROUPS, "5")])).expect_err("bad G");
         assert!(e.contains(ENV_GROUPS), "{e}");
-        assert_eq!(from_env(env(&[(ENV_DIR, "/w")])), Ok(Some((PathBuf::from("/w"), DEFAULT_GROUPS))));
-        assert_eq!(from_env(env(&[(ENV_DIR, "/w"), (ENV_GROUPS, "16")])), Ok(Some((PathBuf::from("/w"), 16))));
+        let ok = |groups, clip| Ok(Some(GuidedEnv { dir: PathBuf::from("/w"), groups, clip }));
+        assert_eq!(from_env(env(&[(ENV_DIR, "/w")])), ok(DEFAULT_GROUPS, None));
+        assert_eq!(from_env(env(&[(ENV_DIR, "/w"), (ENV_GROUPS, "16")])), ok(16, None));
+        assert_eq!(from_env(env(&[(ENV_DIR, "/w"), (ENV_CLIP, "")])), ok(DEFAULT_GROUPS, None));
+        assert_eq!(from_env(env(&[(ENV_DIR, "/w"), (ENV_CLIP, "10")])), ok(DEFAULT_GROUPS, Some(10.0)));
+        assert_eq!(from_env(env(&[(ENV_DIR, "/w"), (ENV_GROUPS, "2"), (ENV_CLIP, "2.5")])), ok(2, Some(2.5)));
+        // The clip without the directory, and a malformed clip beside it.
+        let e = from_env(env(&[(ENV_CLIP, "10")])).expect_err("clip alone");
+        assert!(e.contains(ENV_CLIP) && e.contains(ENV_DIR), "{e}");
+        let e = from_env(env(&[(ENV_DIR, "/w"), (ENV_CLIP, "0.5")])).expect_err("bad clip");
+        assert!(e.contains(ENV_CLIP), "{e}");
+    }
+
+    #[test]
+    fn clip_parses_finite_numbers_from_one_only() {
+        assert_eq!(parse_clip(None), Ok(None));
+        assert_eq!(parse_clip(Some("")), Ok(None));
+        assert_eq!(parse_clip(Some(" ")), Ok(None));
+        assert_eq!(parse_clip(Some("1")), Ok(Some(1.0)));
+        assert_eq!(parse_clip(Some("10")), Ok(Some(10.0)));
+        assert_eq!(parse_clip(Some("2.5")), Ok(Some(2.5)));
+        for bad in ["0.5", "0", "-10", "nan", "NaN", "inf", "-inf", "infinity", "ten", "10x"] {
+            let e = parse_clip(Some(bad)).expect_err(bad);
+            assert!(e.contains(ENV_CLIP), "{e}");
+        }
+    }
+
+    /// Raw weights of one token per entry of `w` (column 0, the rest zero), for G = 1.
+    fn one_group(w: &[f32]) -> Vec<f32> {
+        let mut raw = vec![0.0f32; w.len() * G_MAX];
+        for (t, &x) in w.iter().enumerate() {
+            raw[t * G_MAX] = x;
+        }
+        raw
+    }
+
+    /// 1, 1, 1, 97 at c = 10: the mean is 25, the cap 250, nothing clips, and the output is the
+    /// unclipped one bit for bit: 0.04, 0.04, 0.04, 3.88.
+    #[test]
+    fn a_clip_above_every_weight_changes_nothing() {
+        let raw = one_group(&[1.0, 1.0, 1.0, 97.0]);
+        let none = group_weights(&raw, 4, 1, None).expect("none");
+        let clip = group_weights(&raw, 4, 1, Some(10.0)).expect("clip");
+        assert_eq!(none, clip);
+        assert_eq!(none[0], vec![0.04f32, 0.04, 0.04, 3.88]);
+    }
+
+    /// Nine 1s and one 91 at c = 2: the mean is 10, the cap 20, so 91 becomes 20. The clipped sum is
+    /// 29, its mean 2.9, and the output is 1/2.9 = 0.344 827 6 nine times and 20/2.9 = 6.896 551 6 (the f32 nearest each).
+    #[test]
+    fn a_clip_caps_at_c_times_the_mean_before_the_clip_and_renormalises() {
+        let mut w = [1.0f32; 10];
+        w[9] = 91.0;
+        let out = group_weights(&one_group(&w), 10, 1, Some(2.0)).expect("clip");
+        let want = [0.344_827_6f32, 0.344_827_6, 0.344_827_6, 0.344_827_6, 0.344_827_6, 0.344_827_6,
+            0.344_827_6, 0.344_827_6, 0.344_827_6, 6.896_551_6];
+        assert_eq!(out[0], want);
+        let mean: f64 = out[0].iter().map(|&x| x as f64).sum::<f64>() / 10.0;
+        assert!((mean - 1.0).abs() < 1e-6, "mean {mean}");
+        // And a clip below 1 is refused at this level too.
+        assert!(group_weights(&one_group(&w), 10, 1, Some(0.5)).is_err());
+    }
+
+    #[test]
+    fn describe_and_state_lines_carry_the_clip_only_when_set() {
+        assert_eq!(clip_suffix(None), "");
+        assert_eq!(clip_suffix(Some(10.0)), " clip=10");
+        assert_eq!(clip_suffix(Some(2.5)), " clip=2.5");
+        assert_eq!(state_line(4, "ab12", None), "gate_proj,up_proj G=4 manifest_sha256=ab12");
+        assert_eq!(state_line(4, "ab12", Some(10.0)), "gate_proj,up_proj G=4 manifest_sha256=ab12 clip=10");
     }
 
     /// Each group's weights have mean 1 after normalisation, and keep their proportions.
@@ -413,7 +585,7 @@ mod tests {
         let tokens = 5;
         let raw: Vec<f32> = (0..tokens * G_MAX).map(|i| ((i % 7) as f32) * 0.5 + 0.25).collect();
         for groups in [1, 2, 4, 8, 16] {
-            let w = group_weights(&raw, tokens, groups).expect("weights");
+            let w = group_weights(&raw, tokens, groups, None).expect("weights");
             assert_eq!(w.len(), groups);
             let span = G_MAX / groups;
             for (g, v) in w.iter().enumerate() {
@@ -429,7 +601,7 @@ mod tests {
             }
         }
         let zero = vec![0.0f32; 2 * G_MAX];
-        assert!(group_weights(&zero, 2, 1).expect_err("all zero").contains("zero"));
+        assert!(group_weights(&zero, 2, 1, None).expect_err("all zero").contains("zero"));
     }
 
     #[test]

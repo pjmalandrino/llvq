@@ -322,7 +322,8 @@ fn variables_below_the_door_are_refused_by_name() {
             "LLVQ_PREFILL",
             "LLVQ_METAL_KERNEL",
             "LLVQ_GUIDED_WEIGHTS",
-            "LLVQ_GUIDED_GROUPS"
+            "LLVQ_GUIDED_GROUPS",
+            "LLVQ_GUIDED_CLIP"
         ]
     );
     for var in BELOW_THE_DOOR {

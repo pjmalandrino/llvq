@@ -784,12 +784,14 @@ fn main() -> anyhow::Result<()> {
 
     // `LLVQ_GUIDED_WEIGHTS=<dir>` encodes gate_proj and up_proj against
     // gradient-weighted Hessians, one per group of `LLVQ_GUIDED_GROUPS` row
-    // groups (`llvq_llm::guided`). Unset: the published path, byte for byte.
-    // Read here, before any download, so a malformed value costs nothing.
+    // groups (`llvq_llm::guided`), each group's weights clipped at
+    // `LLVQ_GUIDED_CLIP` times their mean when it is set. Unset: the published
+    // path, byte for byte. Read here, before any download, so a malformed
+    // value costs nothing.
     let guided_env =
         llvq_llm::guided::from_env(|k| std::env::var(k).ok()).map_err(anyhow::Error::msg)?;
     let guided_manifest = match &guided_env {
-        Some((dir, _)) => Some(llvq_llm::guided::manifest_sha256(dir)?),
+        Some(e) => Some(llvq_llm::guided::manifest_sha256(&e.dir)?),
         None => None,
     };
 
@@ -844,11 +846,8 @@ fn main() -> anyhow::Result<()> {
     // A guided file must never pass for a default one: the state beside it
     // names the weights by their manifest's sha256, and a resume refuses a
     // shard encoded under other weights or none.
-    if let (Some((_, groups)), Some(sha)) = (&guided_env, &guided_manifest) {
-        state.set(
-            "guided",
-            format!("gate_proj,up_proj G={groups} manifest_sha256={sha}"),
-        );
+    if let (Some(e), Some(sha)) = (&guided_env, &guided_manifest) {
+        state.set("guided", llvq_llm::guided::state_line(e.groups, sha, e.clip));
     }
     state
         .set("model", &repo)
@@ -943,10 +942,15 @@ fn main() -> anyhow::Result<()> {
     eprintln!(
         "  guided       {}",
         match (&guided_env, &guided_manifest) {
-            (Some((dir, groups)), Some(sha)) => format!(
-                "gate_proj, up_proj against gradient-weighted Hessians, G = {groups}, weights {}, \
-                 manifest sha256 {sha}",
-                dir.display()
+            (Some(e), Some(sha)) => format!(
+                "gate_proj, up_proj against gradient-weighted Hessians, G = {}, weights {}, \
+                 manifest sha256 {sha}{}",
+                e.groups,
+                e.dir.display(),
+                match e.clip {
+                    Some(c) => format!(", weights clipped at {c} x the group mean"),
+                    None => String::new(),
+                }
             ),
             _ => "off (one input Hessian per activation, published path)".into(),
         }
@@ -1026,14 +1030,20 @@ fn main() -> anyhow::Result<()> {
     // variable: the published path tokenizes where it always did, below.
     let mut early_cal = None;
     let guided = match &guided_env {
-        Some((dir, groups)) => {
+        Some(e) => {
             eprintln!(
                 "guided weights: cutting the calibration windows ({}) to check them before the model loads…",
                 calib.name()
             );
             let cal =
                 llvq_llm::guided::calibration_ids(&tok, calib, n_calib, calib_len, calib_seed)?;
-            let g = llvq_llm::guided::GuidedWeights::open(dir, *groups, cal.fingerprint(), cal.ids.len())?;
+            let g = llvq_llm::guided::GuidedWeights::open(
+                &e.dir,
+                e.groups,
+                e.clip,
+                cal.fingerprint(),
+                cal.ids.len(),
+            )?;
             eprintln!("  guided weights: {}", g.describe());
             early_cal = Some(cal);
             Some(g)

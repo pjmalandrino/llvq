@@ -135,6 +135,7 @@ be in `UPLOAD_ALLOW` of `ops/run.py`, or the Space dies after 12 minutes. `rankb
 | `LLVQ_INT4_TYPES` | projection types, comma-separated | `smoke`: those types written as int4 g128 records instead of lattice codes; empty by default |
 | `LLVQ_GUIDED_WEIGHTS` | directory | `smoke`: gate/up encoded against gradient-weighted Hessians, one per group of output rows (`llvq-llm/src/guided.rs`, weights from `ops/guided_weights.py`); unset is the published path, byte for byte; refused beside `LLVQ_CONFIG` |
 | `LLVQ_GUIDED_GROUPS` | `1`, `2`, `4` (default), `8`, `16` | `smoke`: the number of row groups G; refused without `LLVQ_GUIDED_WEIGHTS` and beside `LLVQ_CONFIG` |
+| `LLVQ_GUIDED_CLIP` | unset (default), finite `c >= 1` | `smoke`: each row group's weights clipped at `c` times their mean before the mean-1 normalisation; unset or empty is no clip, byte for byte; refused without `LLVQ_GUIDED_WEIGHTS` and beside `LLVQ_CONFIG` |
 | `LLVQ_RESTORE_F16` / `LLVQ_RESTORE_Q4` | projection types, or `all` | `mmlu`, `ppl`: those types taken from the checkpoint in f16 or int4 g128, the rest as served; setting both refused |
 | `LLVQ_MODEL` | HF repo or local directory | checkpoint; required by `RESTORE_*`, never a default in `mmlu` |
 | `LLVQ_MMLU_ALLOC` | `flat` (default), `proportional`, `proportional=<total>` | `mmlu`: how the budget spreads over the 57 subjects. `mmlupair` refuses two dumps of different plans, so re-barring a published arm costs a full run |

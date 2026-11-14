@@ -49,6 +49,7 @@ modes set together (`ALONE` in that file).
 | `LLVQ_INT4_TYPES` | `smoke` | projection types written int4 g128, comma-separated | tool |
 | `LLVQ_GUIDED_WEIGHTS` | `smoke` | directory of per-token gate/up weights from `ops/guided_weights.py`, refused unless its manifest carries the run's calibration token fingerprint; unset = published path; refused beside `LLVQ_CONFIG` | tool |
 | `LLVQ_GUIDED_GROUPS` | `smoke` | row groups G of gate/up, `1`, `2`, `4` (default), `8` or `16`; refused without `LLVQ_GUIDED_WEIGHTS` and beside `LLVQ_CONFIG` | tool |
+| `LLVQ_GUIDED_CLIP` | `smoke` | finite `c >= 1`: each row group's weights clipped at `c` times their mean before the mean-1 normalisation; unset or empty = no clip, the 2026-11-13 path; refused without `LLVQ_GUIDED_WEIGHTS` and beside `LLVQ_CONFIG` | tool |
 | `LLVQ_RESTORE_F16`, `LLVQ_RESTORE_Q4` | `sealed.rs` (`mmlu`, `ppl`) | projection types or `all`, taken from the checkpoint; both set refused | tool |
 | `LLVQ_DTYPE` | `eval.rs` | `f32` (`ppl` default), `f16` (`mmlu` default), `bf16`, and their aliases | tool |
 | `LLVQ_MMLU_ALLOC` | `mmlu` | `flat` (default), `proportional`, `proportional=<total>` | tool |
