@@ -1,0 +1,179 @@
+QUALITY PHASE 2, R0, LITERATURE HALF: SHRINK, UNBIASED GAINS AND THE CONTRAST OF THE ANSWER LOGITS, 2026-11-14. $0.
+=====================================================================================================================
+The idea as a whole is not found after 32 web searches: no source picks zero-bit gains for a coherent gain of 1 along the
+depth, unbiased rather than MMSE, and judges by output contrast over noise. Its pieces are published one by one. The
+output-side shrink is measured: quantization multiplies decision margins by c, median 0.29 at 3 bits under RTN, and
+0.83 (GPTQ) or 0.91 on MMLU at 4 bits ([S42]). Corrections that restore norm or variance exist (Banner et al. 2019
+[T4], Norm Tweaking [S12], GSRQ [S37]), and WaterSIC shrinks on purpose at low rate ([S38]). Unbiasing the stages of a
+cascade of MMSE estimators is an old communications idea ([T13]). Left unstated: the coherent gain of a quantized weight
+matrix and its product along the depth; unbiased against MMSE gains compared on task accuracy for LLM weights. One
+published counter-fact: raising c from 0.24 to 0.44 left the flip rate at 0.43 against 0.46 ([S42]).
+Nature: literature only. No build, no run, no model, no job. Web search and fetch on 2026-11-14. [S#] are the sources
+of recherche-qualite-r0-litterature-2026-11-13.txt, reused where they answer; [T#] are new, listed at the end. Every
+figure is *reported* by the source named on its line. "abstract only" means the full text was not read for that claim;
+"snippet only" means the source page was not opened or did not show the figure.
+
+1. ATTENUATION OF LOGITS OR MARGINS AGAINST FULL PRECISION. Verdict: PARTLY
+------------------------------------------------------------------------------
+- Multiplicative margin model, Wu, Dhiman, Koshiyama [S42], re-read today. The first-token margin is fitted
+  m' = c m + b + e over 16 models. Median c: 0.86 at 4 bits, 0.29 at 3 bits, 0.00 at 2 bits, pooled, mostly RTN and
+  activation-aware runs. Table 6 at 4 bits, pooled: MMLU c 0.83 with 16 % flips under GPTQ (AutoRound builds), 0.91
+  with 12 % under the authors' activation-aware scaling, not AWQ itself. Qwen3-4B at 3 bits RTN: c 0.94 on code tokens,
+  0.13 on whether-to-call. The paper states it does not explain the mechanism and never frames c as depth attenuation.
+  This is the closest published object to the note's slope. It is fitted on two candidates, not on four centred logits.
+- Confidence on the true label falls. Proskurina et al. [S13], abstract: 4-bit GPTQ lowers it, most on samples the
+  full model was already unsure of. Yang et al. [T1], Table 12, 8 models, GPTQ 4-bit: mean confidence on correct
+  predictions 0.8358 at FP against 0.8089 to 0.8087 quantized, on wrong ones 0.7225 against 0.7042 to 0.6999. NF4 stays
+  at 0.8353 and 0.7233. The text speaks of "degrading the separation between reliable and unreliable outputs".
+- Calibration. Zhong et al., ACL 2025 [T2], abstract: quantized LLMs are consistently worse calibrated. "Under-confident
+  on correct, over-confident on incorrect" is snippet only; the abstract gives no direction. Their fix is soft tokens.
+  [T1] fits one temperature per model (Appendix B.2): calibration improves, accuracy and FP agreement do not move. No
+  fitted temperature value was found in the part read.
+- Decision flips. Razan, Shivam, NeurIPS 2026 workshop [T3], abstract: an isotropic first-order flip criterion
+  under-predicts flips by 3.5 to 454 times; the pre-quantization margin alone predicts them at AUC 0.95 against 0.69.
+- Scale drift. Norm Tweaking [S12]: activations drift from zero mean layer by layer; the direction of the variance
+  change is not stated in the text read. Chen et al. [S4], NVFP4, Qwen3 and others: 88.9 to 98.7 % of the squared
+  relative error of the final hidden state is angular, so little of it is a norm change at that format.
+Not found: a regression of the full answer-logit vector of a weight-quantized LLM on its teacher's, with a slope.
+
+2. BIAS, VARIANCE AND SCALE CORRECTIONS: SHRINK OR RESTORE? Verdict: PARTLY
+---------------------------------------------------------------------------
+| source | what it fits | shrink or restore | evidence (*reported*) |
+|---|---|---|---|
+| Nagel et al. 2019 [S36] | output mean shift E[eps x] into the bias | mean only, no scale | MobileNetV2 8-bit per-tensor 0.12 -> 52.02 % top-1 |
+| Banner et al. 2019 [T4] | per channel: mean shift mu_c and xi_c = norm(W_c - mean) / norm(W_c^q - mean) | restores the centred weight norm | 4W8A ImageNet: ResNet-18 59.7 -> 67.4, Inception-V3 38.4 -> 59.5, mean +6.0 |
+| Variance correction for sparsity [T12] | multiply survivors by sqrt(Var dense / Var pruned) | restores variance, pruning not quantization | LLaMA3-8B 2:4 Wiki-2 19.13 -> 16.19; 0-shot 58.01 -> 58.87; degrades Mistral, so omitted there |
+| Norm Tweaking [S12] | LayerNorm weights, loss = L2 on channel means plus L2 on channel variances | restores activation mean and variance | 2-bit GPTQ LAMBADA LLaMa-7b 11.88 -> 21.39; its loss beats MSE, BLOOM-7b 57.48 against 55.87 |
+| WaterSIC [S38] | per-column gamma by least squares, "rounding errors biased away from 0" | shrinks; gamma < 1 observed, not imposed | ablation in relative MSE only; WaterSIC-FT Qwen3-8B 2.125 b Wiki-2 11.37 -> 10.18 |
+| WaterSIC-FT [S38] | row and column rescalers T, Gamma, codes frozen, KL to teacher (cross-entropy elsewhere in the text) | starts at the LMMSE values | whether trained values end above or below them: Fig. 4, values not in the text read |
+| GSRQ [S37] | gain-shape centroid against the l2 centroid, KV cache | restores: the l2 centroid's norm shrinks | LLaMA-3-8B Wiki-2 at 0.375 bit/element: l2 19.50, gain-shape 12.77; at 2.0: 6.21 against 5.91 |
+| mlx-lm DWQ [T5] | affine scales and biases of layers under 8 bits | not characterised | source code: KL on logits at temperature 2.0 by default, top-1024 teacher logits; weights frozen |
+- GSRQ is the only source found that puts an MMSE-shrunk reconstruction against a norm-restoring one on a downstream
+  metric. It argues from the law of cosines: shrinking the norm lowers the objective without improving the direction.
+  It claims gain-shape MSE is "often" lower too, and it does not discuss depth. Its object is the KV cache, not weights.
+- Banner's xi_c matches norms; it does not set the coherent gain to 1. Algebra on its formula: if W^q = a W + n with n
+  orthogonal to W, matching norms gives a^2 + |n|^2/|W|^2 = 1, so the coherent gain stays under 1 when n is not zero.
+- None of the eight sources argues for unbiased gains because of depth. None compares unbiased and MMSE gains on task
+  accuracy for weights. [S42] never uses the words "unbiased" or "MMSE".
+
+3. DEPTH: MULTIPLICATIVE LOSS AGAINST ADDITIVE NOISE. Verdict: PARTLY
+---------------------------------------------------------------------
+- Mean field. Blumenfeld, Gilboa, Soudry, NeurIPS 2019 [T6], abstract: quantized activations, not weights, degrade
+  signal propagation at initialization; maximal trainable depth scales about as N^1.82 in the number of levels.
+- Error grows with depth, stated without a ratio: QEP [S39]; GPTQ's "symmetric calibration" lets errors from quantized
+  inputs build up, and GPTAQ fits each layer to the full-precision output instead [S40], abstract only.
+- Domino test [S28], re-read today: Llama-3.1-8B, layers 0 to k at 2 bits, failure-subset accuracy 15.03 % at k = 0,
+  0.38 % at k = 5. The authors call 4-bit error "cumulative noise" that weakens the correct signal until "linguistic
+  noise" overtakes it, a "competition failure". No attenuation factor is measured.
+- Counteraction [S4]: about 50.2 % of the cumulative added error cancels across blocks in pretrained Qwen3-32B at NVFP4.
+- Cascades of estimators. Sparrer, Fischer [T13], abstract: in turbo-type iterative recovery, computing extrinsic values
+  equals unbiasing a biased MMSE estimate. A snippet of its search listing adds that the end-to-end cascade diagonal must
+  equal 1 to avoid bias. This is the stated form of "unbiased stages in a chain", outside neural networks.
+- Textbook, not fetched: the MMSE reconstruction of a Gaussian at distortion D has variance sigma^2 - D (Cover and
+  Thomas, Elements of Information Theory, chapter 10).
+Not found: a statement or measurement, for a quantized network, that the coherent signal multiplies down the layers while
+the noise adds.
+
+4. DIRECTION DEPENDENCE AND WHAT IS FORGOTTEN. Verdict: PARTLY
+--------------------------------------------------------------
+- High-variance input directions are protected by construction. ExLlamaV3 [S20]: LDLQ steers error away from directions
+  the data exercises; isotropic weight noise overstates KL sensitivity by up to about 6x. The GPTQ objective weights
+  error by the input covariance (stated in many sources, for example [S20]).
+- At 2 bits the error lies in the signal subspace: alignment about 0.8 against 0.3 at 4 bits, Llama-3.1-8B [S28].
+- Textbook, not fetched: reverse water-filling gives zero rate to components whose variance is under the water level.
+- Long tail. Hooker et al. [T7], abstract, image classifiers: compression hurts rare, atypical examples while top-line
+  accuracy holds. Jaiswal et al., ICLR 2024 [T8], abstract: perplexity misses knowledge loss; quantization holds better
+  than pruning on their knowledge-intensive benchmark.
+- Factual recall at 2 bits fails across the board on 39 relations [S28]. AQLM's appendix: MMLU and GSM8K fall more than
+  perplexity and zero-shot suites [S17]. Eight perplexity-against-task inversions are tabled in the 2026-11-13 note.
+Not found: a measurement that quantization preserves high-variance activation directions and damages low-variance ones,
+read along the depth of an LLM.
+
+5. ATTENTION FLATTENING AND TEMPERATURE. Verdict: PARTLY
+--------------------------------------------------------
+- Quantization-aware vision transformers. Q-ViT, NeurIPS 2022 [T9]: q and k distributions distort when quantized
+  (DeiT-T first block query variance 1.2124 against 1.6533 at full precision). Its rectification module restores q and k
+  mean and variance with learnable affine terms to raise their entropy. DeiT-S top-1, module alone: 68.2 -> 69.9 at 2
+  bits, 77.8 -> 78.2 at 3, 79.7 -> 80.2 at 4. The paper says attention distances become "indistinguishable"; it does not
+  say "flatter".
+- Binarized BERT. BiBERT, ICLR 2022 [T10], snippet only: an entropy-maximising threshold for binarized attention.
+- Small LMs. Squat (formerly EdgeQAT) [T15], abstract: "entropy-guided and distribution-aligned distillation" against
+  attention distortion; no number on the page.
+- Attention activation quantization in LLMs. HiFA4 [T11], abstract: 4-bit QK^T and PV on Qwen3-8B; all 3.6M measured
+  layer-0 tiles lose net probability mass, median -0.064, "a coherent output-scaling error". The fix recovers 37.5 % of
+  the MMLU gap. Not weight quantization.
+- Mean shift after the post-attention norm when attention weights are quantized, small after the MLP: D2Quant [S7].
+Not found after 4 queries ("quantized LLM attention entropy increases", "learnable temperature attention softmax
+quantization-aware", "post-training quantization LLM attention temperature scaling", "weight-only quantization attention
+map entropy per head"): an attention-entropy measurement under weight-only LLM quantization, or a per-head temperature
+used to compensate in PTQ or LLM QAT.
+
+6. REPAIR BY A LINEAR MAP. Verdict: PARTLY
+------------------------------------------
+- Ruled out at the logits. [S42] proves that l -> alpha l + beta with one alpha > 0 and one beta changes no sign, so
+  temperature and global offsets cannot repair a flip. Its label-free repairs (per-item offsets, protected layers,
+  gradient rounding, dithering) win on no majority of models.
+- Logit amplification [S28], 4 bits: the logits of the lowest-entropy layer are multiplied by alpha (3, 9, 7, 2 by
+  model). Pararel failure subset after the basic repair: Qwen3-8B 40.24 -> 79.88 %, Llama-3.1-8B 67.91 -> 75.19 %. How a
+  positive scalar changes the final argmax is not explained in the text read. It fails at 2 bits, numbers not given.
+- Zero-bit gains trained on the output: DWQ scales and biases [T5]; WaterSIC-FT rescalers [S38]; RMSNorm-only tuning
+  in AQLM, Wiki-2 8.18 -> 8.31 [S17]; per-column scales in the LLVQ paper, Qwen3-4B 2 bits MMLU 60.7 -> 62.8.
+- Output-side PTQ. LFQ, ICML 2026 [T14], abstract: re-quantizes the final block on cross-entropy to the teacher's logits;
+  no figure on the page.
+Not found: an affine map on hidden states or the readout, zero or near-zero bits, evaluated at 2 to 3 bits on an LLM.
+
+7. THE IDEA UNDER ANY NAME. Verdict: NOT FOUND
+----------------------------------------------
+Queries run for it, besides those above: "quantization unbiased versus MMSE reconstruction gain shrinkage deep network
+compounding depth"; "LLM post-training quantization norm preserving rescale quantized weights variance shrinkage
+correction unbiased"; "unbiased quantizer versus MMSE shrinkage activations layers compounding biased reconstruction";
+"coherent gain OR attenuation factor weight quantization neural network layers signal shrink noise accumulate depth";
+"unbiased weight quantization inference LLM scale correction biased toward zero"; "magnitude or norm shrinkage of
+quantized weights LLM 2-bit vector quantization centroids rescaling"; "GPTQ quantized weights row norm smaller than
+original rescale rows"; "knowledge distillation KL quantized student underconfident logits temperature"; "quantized LLM
+hidden state norm ratio shrinks layer by layer scale drift"; "quantization logit margin shrink multiple-choice contrast
+between options"; "unbiased vs MMSE estimator cascade shrinkage SNR".
+Nearest neighbours, each missing a part:
+- [S42] measures the output shrink c and finds raising it does not cut flips (Qwen3-4B, 3.25 b average, nine of 36
+  layers protected: c 0.24 -> 0.44, flip rate 0.46 -> 0.43, App. A.14). It proposes no gain choice.
+- [T4] and [T12] restore norm or variance per channel, without depth or contrast as the reason, on CNNs and pruning.
+- [S37] shows a norm-restoring centroid beating the MMSE one, on the KV cache, without depth.
+- [S12] matches activation mean and variance and beats KL and MSE losses, without a coherent-gain target.
+- [S38] goes the other way: MMSE shrink called "indispensable for low-rate quantization".
+- [T13] states unbiasing in cascades, for communications receivers.
+The claim that KL or perplexity objectives push toward shrink is not stated anywhere found. What is published is that
+they can move against task accuracy (2026-11-13 note, section 8; Q5 and Q14 of the repository).
+
+8. NOT CONFIRMED
+----------------
+- Zhong et al. [T2]: the under- and over-confidence direction, snippet only; ACL PDF unreadable in the fetch.
+- [S42] cites "Bouguerra et al. (2026)" for a re-fitted logit scale, per one fetch summary; not found in the bibliography
+  part read, and no such paper found in one search.
+- Rasmussen, Qin, arXiv 2608.03854 (quantized biomedical LLMs, temperature by NLL): no fitted temperature on the page.
+- CoreQ (arXiv 2602.05902), group-scale refinement after GPTQ (arXiv 2602.02126), BASE-Q, AWEQ: snippets only.
+- BiBERT [T10] and the Cover and Thomas results: not fetched.
+
+SOURCES (new, fetched 2026-11-14; [S#] are listed in recherche-qualite-r0-litterature-2026-11-13.txt, and [S28],
+[S37], [S38], [S42], [S12] were re-fetched today)
+---------------------------------------------------------------------------------------------------------------
+[T1]  DPQ, Yang et al., arXiv 2608.21019 v1: https://arxiv.org/html/2608.21019v1 (Prop. 1, Tables 5, 12, 13)
+[T2]  Quantized Can Still Be Calibrated, Zhong, Wang, Chuang, Zou, ACL 2025: https://aclanthology.org/2025.acl-long.1473
+      (abstract only)
+[T3]  A First-Order Theory of Decision Flips Under PTQ, Razan, Shivam, NeurIPS 2026 AXIOM workshop:
+      https://neurips.cc/virtual/2026/156960 (abstract only)
+[T4]  Post-training 4-bit quantization, Banner, Nahshan, Soudry, NeurIPS 2019: https://ar5iv.labs.arxiv.org/html/1810.05723
+      (Eqs. 12, 13; Table 1)
+[T5]  mlx-lm DWQ source: https://raw.githubusercontent.com/ml-explore/mlx-lm/main/mlx_lm/quant/dwq.py
+[T6]  A mean field theory of quantized deep networks, Blumenfeld, Gilboa, Soudry, NeurIPS 2019:
+      https://arxiv.org/abs/1906.00771 (abstract only)
+[T7]  What do compressed deep neural networks forget?, Hooker et al.: https://arxiv.org/abs/1911.05248 (abstract only)
+[T8]  Compressing LLMs: the truth is rarely pure, Jaiswal et al., ICLR 2024: https://arxiv.org/abs/2310.01382
+      (abstract only)
+[T9]  Q-ViT, Li et al., NeurIPS 2022: https://ar5iv.labs.arxiv.org/html/2210.06707 (section 4.2, Table 1)
+[T10] BiBERT, ICLR 2022: https://arxiv.org/abs/2203.06390 (snippet only)
+[T11] HiFA4, Dong et al.: https://arxiv.org/abs/2607.04302 (abstract only)
+[T12] From 2:4 to 8:16 sparsity with variance correction: https://arxiv.org/html/2507.03052v2 (Eq. 2, Tables 4, 6, 8)
+[T13] Bias compensation in turbo-based compressed sensing, Sparrer, Fischer: https://arxiv.org/abs/1703.00707
+      (abstract only)
+[T14] LFQ, Lee, Yang, Choi, Yang, ICML 2026: https://arxiv.org/abs/2605.29756 (abstract only)
+[T15] Squat, Shen et al., ICCAD 2025: https://arxiv.org/abs/2402.10787 (abstract only)
