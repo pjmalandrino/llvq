@@ -1,0 +1,13 @@
+target/gsm8k-depth-restore-4b-2026-11-14/gsm8k-4b-depth-late.jsonl: 1319 of 1319 rows re-graded
+target/gsm8k-depth-restore-4b-2026-11-14/gsm8k-4b-depth-control.jsonl: 1319 of 1319 rows re-graded
+A = /tmp/arm-late@b23bbe14f6f584e1 [vLLM late] | vllm late | device cuda | dtype f16 | kv vllm | max_new 1024 | reasoning off
+    attention expanded | decode eager
+    1139/1319 right, mean 325.6 generated tokens, 9 stopped at the cap, tokens bfa9135ce4b55c75
+B = /tmp/arm-control@2a018cbdea37849c [vLLM control] | vllm control | device cuda | dtype f16 | kv vllm | max_new 1024 | reasoning off
+    attention expanded | decode eager
+    1082/1319 right, mean 318.9 generated tokens, 15 stopped at the cap, tokens bfa9135ce4b55c75
+
+1319 problems, same prompts problem by problem
+  accuracy A = 86.35 %, B = 82.03 %
+  right in A only 108, in B only 51 (12.1 % discordant)
+  A − B = +4.32 pp, 95 % [+2.46 ; +6.18], McNemar exact p = 7.232e-6

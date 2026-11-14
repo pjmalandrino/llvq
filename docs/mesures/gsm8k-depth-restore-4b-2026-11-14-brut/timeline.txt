@@ -1,0 +1,14 @@
+== 2026-11-14T17:48:07Z start
+== 2026-11-14T17:48:21Z selftest
+== 2026-11-14T17:48:23Z export copy
+== 2026-11-14T17:49:26Z FP16 snapshot Qwen/Qwen3-4B@1cfa9a7208912126459214e8b04321603b3df60c
+== 2026-11-14T17:50:18Z build control
+== 2026-11-14T17:50:39Z generate control (revision field 2a018cbdea37849c)
+== 2026-11-14T17:53:20Z done control
+== 2026-11-14T17:53:20Z build late
+== 2026-11-14T17:53:42Z generate late (revision field b23bbe14f6f584e1)
+== 2026-11-14T17:55:57Z done late
+== 2026-11-14T17:55:57Z build early
+== 2026-11-14T17:56:20Z generate early (revision field 18d1d9d889b6891f)
+== 2026-11-14T17:58:24Z done early
+== 2026-11-14T17:58:24Z end

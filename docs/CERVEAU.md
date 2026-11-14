@@ -11,8 +11,8 @@ that object, and a card job added Q23. A first re-encode under a final-output ob
 2026-11-14 a clipped retry restated Q24 and the operator closed the phase: O2, O12 and Q20 were restated, Q5 and Q15
 gained notes, Q23 was reread by type and five mismatches joined the list at the end. The same day a second quality
 phase opened (O13) on a new anomaly, N6, and its first card job added Q25. Two restores then established Q25 on the
-sealed 4B and gave Q22 a scope note, and a reading of the 8B and 14B originals added Q26. 64 claims: 15 established,
-2 proved, 38 supported, 6 conjecture, 3 refuted.
+sealed 4B and gave Q22 a scope note, and a reading of the 8B and 14B originals added Q26. GSM8K then bounded Q25 to
+MMLU and added Q27. 65 claims: 15 established, 2 proved, 39 supported, 6 conjecture, 3 refuted.
 
 This document lists what we believe to be true about quantizing LLMs on the Leech lattice, each belief with its
 standing. It is not the served state ([`ETAT.md`](ETAT.md)), the history ([`HISTORIQUE.md`](HISTORIQUE.md)) or a plan
@@ -362,7 +362,7 @@ unclipped encode. WikiText-2 perplexity: 16.46 baseline, 18.08 unclipped, 16.69 
 - Checked: 2026-11-14.
 
 **Q25.** On the sealed 4B the MMLU loss is made before the answer is written, at block 25 of 36, and the blocks
-after it carry little of it. Restoring layers 25 to 35 to f16, 30.6 % of the projection weights, gains +0.43 [+0.11,
+after it carry little of it. This holds for MMLU and not for generation (Q27). Restoring layers 25 to 35 to f16, 30.6 % of the projection weights, gains +0.43 [+0.11,
 +0.77]; restoring layers 0 to 24 gains +6.12 [+5.41, +6.84]: 0.39 points per billion restored weights after the
 write against 2.42 before it. Read through FP16's final readout on 570 questions, FP16's lens accuracy goes from
 28.3 % at depth 24 to 72.3 % at depth 25 and the sealed 4B's from 29.5 % to 63.9 %; at the output they read 73.7 % and
@@ -378,8 +378,21 @@ directions 1 to 64 keep 0.92 to 1.13 through depth 32.
   MMLU reads one token where generation may use those blocks.
 - Evidence: [contrast-map-4b](mesures/contrast-map-4b-2026-11-14.txt) (*measured*, job 6af86d01, $0.46; the ratios
   *computed*); [depth-restore-4b](mesures/depth-restore-4b-2026-11-14.txt) (*measured*, job 6af88648, $1.38).
-- Overturn: a second draw or size where the blocks after the write carry their share of the weights' loss; or
-  GSM8K, where a restore of the late blocks gains as much per weight as the early ones.
+- Overturn: a second draw or size where the blocks after the write carry their share of the MMLU loss.
+- Checked: 2026-11-14. The GSM8K condition written here the same morning fired: on GSM8K the late blocks gain at
+  least as much per weight as the early ones (Q27). The claim is kept for MMLU and says nothing on the model's loss in general.
+
+**Q27.** On GSM8K the blocks after the MMLU write carry at least their share of the loss. Restoring layers 25 to 35
+of the sealed 4B's f16 export gains +4.32 [+2.46, +6.18] on the 1,319 problems, layers 0 to 24 gain +7.20 [+5.19,
++9.22]: 3.89 points per billion restored weights for the late blocks against 2.85 for the early ones, where MMLU
+reads 0.39 against 2.42. With the early blocks restored the sealed late blocks still cost 2.88 [1.42, 4.34] against
+FP16.
+- Standing: supported. One job under a stamped prereg; the hybrid files are verified tensor by tensor; rule D green,
+  the export in vLLM reads 82.03 against 82.49 through the served kernel. Scope: 4B, one calibration draw, greedy
+  GSM8K, dense f16 in vLLM. Why the late blocks matter to a worked answer is not read.
+- Evidence: [gsm8k-depth-restore-4b](mesures/gsm8k-depth-restore-4b-2026-11-14.txt) (*measured*, job 6af89e7b,
+  $0.31; the rates *computed*).
+- Overturn: a second generation task or size where the late blocks carry under half their share.
 - Checked: 2026-11-14.
 
 **Q26.** The original Qwen3 writes its MMLU answer in one block at about seven tenths of its depth, at the three
@@ -390,8 +403,9 @@ L40S for the 8B and the 14B.
 - Standing: supported. One reading a size under stamped preregs, rule D green against the Rust FP16 dumps. Scope:
   three sizes of one family, MMLU at the answer position, 570 questions for the 4B and 2,280 for the others. The
   write is the moment the answer enters the directions of the four answer tokens; the model may hold it earlier
-  elsewhere. Only on the 4B does a restore say the blocks after the write carry little of a compressed model's loss
-  (Q25).
+  elsewhere. Only on the 4B does a restore say the blocks after the write carry little of a compressed model's
+  MMLU loss (Q25), and on GSM8K they carry at least their share (Q27): the write depth of an MMLU answer does not
+  place the loss of generation.
 - Evidence: [lens-write-depth](mesures/lens-write-depth-2026-11-14.txt) (*measured*, jobs 6af888e7 and 6af888eb,
   $0.33); [contrast-map-4b](mesures/contrast-map-4b-2026-11-14.txt) for the 4B.
 - Overturn: another family, or another task, where the lens accuracy rises over many blocks.
@@ -904,9 +918,13 @@ form. Two restores on the full split then agreed with the map
 ([depth-restore-4b](mesures/depth-restore-4b-2026-11-14.txt)): layers 25 to 35 gain +0.43 [+0.11, +0.77] where the
 even rate put +2.05, layers 0 to 24 gain +6.12. A reading of the originals alone found the same one-block write in
 the 8B, at depth 25 of 36, and in the 14B, at depth 29 of 40, for $0.12 and $0.21
-([lens-write-depth](mesures/lens-write-depth-2026-11-14.txt), Q26). State on 2026-11-14: $2.17 of $10 spent. No
-mechanism is tested yet: that the bits could follow the depth of the write is an idea for the operator to weigh,
-and generation has to be read before it. The next step is the operator's call.
+([lens-write-depth](mesures/lens-write-depth-2026-11-14.txt), Q26). No mechanism was tested. Generation was then
+read
+([gsm8k-depth-restore-4b](mesures/gsm8k-depth-restore-4b-2026-11-14.txt), Q27): on GSM8K the late blocks gain +4.32
+[+2.46, +6.18], at least as much per weight as the early ones. The MMLU reading does not transfer, and by the
+prereg's rule no allocation of bits by depth is proposed. State on 2026-11-14: $2.48 of $10 spent. What stands: MMLU and GSM8K lose their points in
+different places of the same file, and a reading of the original alone places the first and not the second. The
+next step is the operator's call.
 
 ## Beliefs we dropped
 
