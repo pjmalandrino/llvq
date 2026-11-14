@@ -653,7 +653,7 @@ a ready verifier, and the ceiling of 24-dimension fixed-rate codes is recorded (
 verifier. Model quality has no fast, faithful verifier: it is open through the explanation route, from the anomalies
 N1 and N2.
 
-**O11.** Phase open: MODE RECHERCHE on decode speed, opened by the operator on 2026-11-12. Its mandate:
+**O11.** Closed 2026-11-14 by the operator, outcome: a ceiling. MODE RECHERCHE on decode speed, opened on 2026-11-12. Its mandate:
 
 | field | content |
 |---|---|
@@ -689,6 +689,21 @@ alone it loads (*measured*). Three arms without that one-call site
 for flat and for endpass, and flat with v9's own gate/up, each refused for the same 8 B (*measured*). Nine arms
 have been refused and v9 sits at the 128-register cap of 512 threads with one CTA a SM. No candidate has been timed
 in 4E's token. Spent: $1.93 of $5.
+
+Outcome, 2026-11-14. No tok/s was gained and no candidate was ever timed in 4E's token. What the phase leaves:
+- A gain exists on the Tetra rows alone: a flat read at ×1.185 inside 1e-5, a second-pass row end at ×1.053 bit for
+  bit (*measured*, L40S, sealed 4B). Its ceilings on the token are *computed*, not measured: ×1.07 and ×1.02.
+- The ceiling: 4E v9's token symbol holds 128 registers, the cap of 512 threads with one CTA a SM, and no second row
+  body loads beside it. Nine arms and one probe were refused for the same 8 B of local memory under the driver's
+  ptxas (580.178.04, L40S). The space this holds for: a row body added as text to v9's module, at v9's thread count
+  and occupancy. It does not hold for a module with fewer threads, more than one symbol a token, or a v9 that frees
+  registers; none of those was tried.
+- Not established: which value spills, and whether the rows-alone gain survives in a token.
+- Tools kept: the fidelity rule F1 to F3 of the row bench, the token's noise floor (0.06 % wide), the load check
+  with no model (about 100 s an arm), and the fact that the Mac's ptxas cannot see the driver's allocation.
+- Two jobs were void by the lead's fault ($0.62): a check that printed only at its end, and a job that ran on after
+  a refusal. Every job with kernel arms now starts with a load check that stops it and prints as it goes.
+- N5 stays open.
 
 ## Beliefs we dropped
 
