@@ -575,13 +575,16 @@ equals the DRAM time of the KV read plus the prefetch at 85 %, 1,119 against 1,1
 - Overturn: a KV-read change that moves the phase by much less than its byte change.
 - Checked: 2026-11-12.
 
-**P4.** An int8 KV cache does not pass the served tolerance at long context: its own measured interval leaves the
-±0.12 % band.
-- Standing: supported. Scope: 4B; the KV journal is Metal, short context, on the Planes14 file.
-- Evidence: [kvq8-4b](mesures/kvq8-4b-2026-08-15.txt); the band reading from
-  [large-4e-hors-poids-etude](mesures/large-4e-hors-poids-etude-2026-11-12.txt), section 2, cut C3.
-- Overturn: an int8 or int4 KV arm inside ±0.12 % at 8,192 on the sealed file.
-- Checked: 2026-11-12 (band reading not checked against the kvq8 figures).
+**P4.** An int8 KV cache holds the served tolerance at 8,192: +0.0126 % [−0.0485, +0.0737] of paired perplexity
+against the f16 cache. int8 keys with int4 values are not decided, +0.0206 % [−0.1359, +0.1774]; int4 keys fail,
++1.27 % behind a Hadamard and +141 % with a static step a RoPE pair.
+- Standing: established for the round trip, on the decode path. Scope: sealed 4B, WikiText-2, 12 windows of 8,192,
+  L40S; the cache stores f16, so no speed and no VRAM is read; the prefill path, the near-tie texts and GSM8K are
+  not scored.
+- Evidence: [recherche-debit-kv-ladder](mesures/recherche-debit-kv-ladder-2026-11-14.txt).
+- Overturn: an int8 arm outside the band on a second text or size, or on the prefill path.
+- Checked: 2026-11-14. Replaces the claim that int8 does not pass, read from a Metal interval at 4,096
+  (`HISTORIQUE.md`, 2026-11-14).
 
 ## D. Speculative decoding
 
@@ -852,6 +855,13 @@ closed on a ceiling at short context. Its mandate:
 
 The reading before the mandate (2026-11-14, two agents, $0) is in
 [recherche-debit-kv-r0](mesures/recherche-debit-kv-r0-2026-11-14.txt).
+
+State on 2026-11-14, $5.31 of $10. The capture that would have tested a partial read of the cache is built and
+stamped and was not run: the operator judged its chance too low. The phase moved to a smaller cache. The quality
+ladder ran ([recherche-debit-kv-ladder](mesures/recherche-debit-kv-ladder-2026-11-14.txt), P4): int8 keys and values
+pass at 8,192, at 0.531 of the f16 bytes. No kernel reads int8 and no tok/s is gained yet. Open, each under its own
+prereg and go: one extension of the int8/int4 arm to 36 windows, the near-tie texts and GSM8K-200 on the kept
+format, then the int8 read in 4E's attention.
 
 ## Beliefs we dropped
 

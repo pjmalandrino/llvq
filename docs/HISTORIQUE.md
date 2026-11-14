@@ -1575,3 +1575,21 @@ the layer objective on the 4B. The bullets below are in the order things happene
   phase: $13.49 of $15; the rows of `docs/data/jobs.csv` sum to $339.71 (*computed*).
 - 2026-11-14: the operator closes the phase. Outcome: a dead hypothesis, recorded in `CERVEAU.md` O12. No idea sheet.
 - Nothing served changes: no config, no served module, no Hub file.
+
+## 2026-11-14. A research phase opens on decode speed at long context; an int8 KV cache holds the tolerance at 8,192; nothing served changes, $5.31
+
+The operator closed O11 and opened a phase on decode speed after an 8,192-token prompt, O13 of
+[`CERVEAU.md`](CERVEAU.md): five days and $10 of card.
+
+- A capture mode (`LLVQ_KV_CAPTURE`) and an offline scorer were built to test a certified partial read of the cache
+  (prereg sha256 c678161c). The operator judged the chance too low and the job was not run.
+- A ladder of four quantized caches was scored as round trips against f16 on the sealed 4B, 12 windows of 8,192
+  (`LLVQ_KV_LADDER`, prereg sha256 8913d843): [recherche-debit-kv-ladder](mesures/recherche-debit-kv-ladder-2026-11-14.txt).
+  int8 keys and values +0.0126 % [−0.0485, +0.0737], inside ±0.12 %; int8 keys with int4 values +0.0206 %
+  [−0.1359, +0.1774], not decided; int4 keys fail at +1.27 % and +141 % (*measured*).
+- CERVEAU P4 is replaced. It read: "An int8 KV cache does not pass the served tolerance at long context: its own
+  measured interval leaves the ±0.12 % band", from +0.0494 % [−0.0713, +0.1703] on 12 windows of 4,096 on Metal
+  (kvq8-4b-2026-08-15).
+- Five jobs were void for dataset pins written by the main session, $0.15. Spend of the phase: $5.31 of $10; the rows
+  of `docs/data/jobs.csv` sum to $346.95 (*computed*).
+- Nothing served changes: no config, no served module, no Hub file. No tok/s is gained: no kernel reads int8.

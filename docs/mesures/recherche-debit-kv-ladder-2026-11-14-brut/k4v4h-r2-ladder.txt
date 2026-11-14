@@ -1,0 +1,36 @@
+Cuda(CudaDevice(DeviceId(1))), dtype F16, 32 tokens
+
+shared rotation: 1 (LLVQ_ROT_SHARE), 96 rot_launches/token for 252 projections
+projection fusion: 0 (LLVQ_FUSE), 252 matvec_launches/token for 252 projections (0 groups + 168 lone + 84 int4)
+fused layout: tetra48 (LLVQ_FUSED_LAYOUT), projections 1.16 GB on the card, 2.550 b/weight (INFERENCE accounting: KeepExact tail in binary16; the bench bills its own in f32)
+NVRTC source: 101625 bytes, sha256 6193094310bc18acdb0a0c554807ff45f6df09c1f6ab49e0577032874f107812 (11 parts), tile 64 (served: measured optimum for sm_89), prefill 4x128 (served pair), 49152 B staged of 49152, target compute_89
+int4: tv_q4_hh equals tv_q4_h bit for bit on model.layers.0.self_attn.v_proj.weight (1024 rows, d_in 2560)
+int4 layout: served (the bench door), 84 records, words 0.385 GB on the card, held once
+embedding: q4 g64 (LLVQ_EMBED), 1 table (model.embed_tokens.weight, lm_head tied on it), 218.8 MB on the card (int4 194.5 + scales/biases 24.3)
+total expected on the card: 1.38 GB (projections 1.16 + carried 0.22)
+loaded in 4.1 s. GQA perplexity: 2 arms, one model
+LLVQ_ROT_SHARE=1, 96 rot_launches/token · LLVQ_FUSE=0, 252 matvec_launches/token
+cudarc event tracking: off (one stream, ordered by issue)
+attn_dec.cu: embedded, sha256 c7b0d8d3f2e3066ba1a2b4331c0bb6c92f22182c78a31b7fb74e839330a1838d, target compute_89
+attn_dec_g4_u64: 160 registers, 0 B local (spill), 16384 B static shared, sm_89
+attn_dec_g4_u64: the card equals the CPU replay bit for bit on 103 calls (rows ending at 1, 255, 256, 257, 1000, 4096; k 1, 3, 8; eager and wide grids; verify rows alone; fresh rows) (1.2 s)
+measurement form: every decode row on the kernel, from position 0 (the served config runs the grouped path below 1280)
+KV ladder perplexity: wikitext2, 12 windows of 8192 from window 0 (tokens cd55decc744bb2b4), cache k4v4h, K 4.5 b / V 4.5 b a value against f16, both grow(256)+kernel on every decode row from position 0, decode path in lockstep
+  bytes a position (computed, this model's geometry): f16 147456, k4v4h 41472, 0.2812 of f16
+  window   1/12  decode nll 2.665043324 2.680072449  top-1 7647/8191  max |dlogit| 2.448e1  (223 s)
+  window   2/12  decode nll 2.083211701 2.090219519  top-1 7642/8191  max |dlogit| 2.654e1  (445 s)
+  window   3/12  decode nll 2.563232583 2.583150349  top-1 7551/8191  max |dlogit| 3.089e1  (668 s)
+  window   4/12  decode nll 2.520436022 2.522608911  top-1 7607/8191  max |dlogit| 2.036e1  (891 s)
+  window   5/12  decode nll 2.468160749 2.489551094  top-1 7592/8191  max |dlogit| 2.488e1  (1113 s)
+  window   6/12  decode nll 2.586679785 2.594774946  top-1 7593/8191  max |dlogit| 3.116e1  (1337 s)
+  window   7/12  decode nll 2.787358250 2.804114890  top-1 7575/8191  max |dlogit| 2.552e1  (1559 s)
+  window   8/12  decode nll 2.390735079 2.392462070  top-1 7610/8191  max |dlogit| 3.215e1  (1781 s)
+  window   9/12  decode nll 2.267894934 2.288831769  top-1 7591/8191  max |dlogit| 2.257e1  (2004 s)
+  window  10/12  decode nll 1.979200806 1.991876343  top-1 7634/8191  max |dlogit| 2.743e1  (2226 s)
+  window  11/12  decode nll 2.668262523 2.677755994  top-1 7555/8191  max |dlogit| 2.840e1  (2448 s)
+  window  12/12  decode nll 2.884918053 2.900672962  top-1 7518/8191  max |dlogit| 2.972e1  (2671 s)
+
+  path      ppl f16               ppl k4v4h               k4v4h / f16 − 1, paired 95 % t interval over 12 windows
+  decode    12.0463               12.1988                 +1.2659 % [+0.8238 ; +1.7100]
+  decode top-1 agreement 91115/98292 steps (92.698 %), max |dlogit| 3.215e1
+fusedrun ladder k4v4h exit 0
