@@ -327,19 +327,22 @@ reads down > qkv > o > gate/up with FP16 or sealed inputs, gate/up at 0.0072 and
 - Checked: 2026-11-13.
 
 **Q24.** Encoding gate_proj and up_proj of the 4B under gradient-weighted input Hessians (GuidedQuant's objective,
-G = 4, weights from the encoder's own 64 windows) makes a worse file than the layer objective on the same draw: 57.11
-against 58.62 on the full MMLU split, paired −1.51 [−2.30, −0.70], and WikiText-2 perplexity 18.08 against 16.46.
-- Standing: supported. One resolved pair under a stamped prereg (outcome LOSS), two encodes of the same day, same
-  card, same tokens, one variable. Scope: 4B, one calibration draw, bases without row scales or q4 embedding, G = 4,
-  two matrix types. One draw cannot attribute the difference to the objective alone. The two-sided form (YAQA) did
-  not run. A post hoc reading (*computed*, not preregistered) finds the per-token weights concentrated: effective
-  sample size 1.58 % of the 131,072 tokens, about 2,070, under the 2,560 inputs of the matrix; the top 1 % of tokens
-  carry 46 % of the mass. That the concentration causes the loss is a conjecture.
-- Evidence: [guided-gateup-4b](mesures/guided-gateup-4b-2026-11-13.txt) (*measured*, jobs 6af73dd6, 6af73de2,
-  6af75129, $8.67 with the statistic job).
-- Overturn: a second draw where the same candidate ties or wins; or tamed weights (clipped, or mixed with uniform)
-  that beat the baseline, which would move the claim from the objective to its estimate.
-- Checked: 2026-11-13.
+G = 4, weights from the encoder's own 64 windows) does not beat the layer objective on the same draw. Unclipped it
+loses: 57.11 against 58.62 on the full MMLU split, paired −1.51 [−2.30, −0.70]. With each group's weights clipped at
+10 times their mean it reads 57.95, −0.68 [−1.47, +0.14] against the baseline and +0.83 [+0.03, +1.65] against the
+unclipped encode. WikiText-2 perplexity: 16.46 baseline, 18.08 unclipped, 16.69 clipped.
+- Standing: supported. Two pairs under two stamped preregs (LOSS, then NOT RESOLVED), three card encodes, same card
+  model, same tokens, one variable each. Scope: 4B, one calibration draw, bases without row scales or q4 embedding,
+  G = 4, two matrix types, one clip level chosen from the weight files after the first result. One draw cannot
+  attribute a difference to the objective alone. The unclipped weights are concentrated (*computed*): effective
+  sample size 1.58 % of the 131,072 tokens, about 2,070, under the 2,560 inputs of the matrix; the clip raises it to
+  17.3 %. That the concentration caused the first loss is supported by the secondary pair, whose interval starts at
+  +0.03. The two-sided form (YAQA) did not run.
+- Evidence: [guided-gateup-4b](mesures/guided-gateup-4b-2026-11-13.txt) and
+  [guided-clip-gateup-4b](mesures/guided-clip-gateup-4b-2026-11-14.txt) (*measured*, six card jobs, $13.05).
+- Overturn: a second draw, another clip level or more calibration windows where the guided encode beats its baseline
+  with a resolved pair.
+- Checked: 2026-11-14.
 
 ## K. The decode kernel
 
@@ -620,12 +623,13 @@ row scales are 39 % of production. No bit-identical lever divides the chain by 3
 - Overturn: a measured encode or training run that beats the computed composition.
 - Checked: 2026-11-12.
 
-**E3.** A card encode of the 4B at today's recipe takes 77 to 80 billed minutes on `rtx-pro-6000` and costs $3.55 to
-$3.68; quantization, which is CPU work on 23 threads, is 58 minutes of it. The Mac encode of the same recipe is 1 h 47.
-- Standing: supported (*measured* twice, the two arms of one attempt; costs *computed* at $2.75/h). Scope: 4B, 64
+**E3.** A card encode of the 4B at today's recipe takes 77 to 81 billed minutes on `rtx-pro-6000` and costs $3.55 to
+$3.71; quantization, which is CPU work on 23 threads, is 58 minutes of it. The Mac encode of the same recipe is 1 h 47.
+- Standing: supported (*measured* three times, 2026-11-13 and 2026-11-14; costs *computed* at $2.75/h). Scope: 4B, 64
   windows of 2,048, `smoke` then `seal`, GPU peak 29.2 GiB of 96, host peak 23.1 GB. No 8B or 14B card encode of
   this recipe is timed.
-- Evidence: [guided-gateup-4b](mesures/guided-gateup-4b-2026-11-13.txt), section on the card encode.
+- Evidence: [guided-gateup-4b](mesures/guided-gateup-4b-2026-11-13.txt), section on the card encode;
+  [guided-clip-gateup-4b](mesures/guided-clip-gateup-4b-2026-11-14.txt).
 - Overturn: a card encode of the same recipe outside 70 to 90 minutes.
 - Checked: 2026-11-13.
 
@@ -757,7 +761,11 @@ Space, so the image the speed phase pins does not move. The attempt then ran in 
 ([guided-gateup-4b](mesures/guided-gateup-4b-2026-11-13.txt)): LOSS under its prereg, candidate minus baseline −1.51
 [−2.30, −0.70] on the full split, perplexity +9.86 % (Q24). A card encode of the 4B is 77 to 80 minutes and $3.55 to
 $3.68 (E3). Read after the result, the candidate's weights rest on about 2 % of the calibration tokens, a candidate
-cause that no encode has tested. Spent: $9.11 of $15. What comes next is the operator's call: nothing is launched.
+cause. On the operator's go of 2026-11-14 one retry ran with the weights clipped at 10 times the group mean
+([guided-clip-gateup-4b](mesures/guided-clip-gateup-4b-2026-11-14.txt)): NOT RESOLVED against the baseline, −0.68
+[−1.47, +0.14], and +0.83 [+0.03, +1.65] against the unclipped encode. By its prereg this closes the gradient-weighted
+input-Hessian form for the phase. Spent: $13.49 of $15. The $1.51 left pays no encode. What comes next is the
+operator's call: nothing is launched.
 R0's repository half is
 [recherche-qualite-r0-depot](mesures/recherche-qualite-r0-depot-2026-11-13.txt), the literature half
 [recherche-qualite-r0-litterature](mesures/recherche-qualite-r0-litterature-2026-11-13.txt). Three facts frame R1.

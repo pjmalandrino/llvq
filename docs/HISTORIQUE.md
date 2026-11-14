@@ -1506,4 +1506,10 @@ a cap of its own. Nothing is measured and nothing was launched.
   (*computed* at $2.75/h). Read after the result and not preregistered: the per-token weights have an effective
   sample size of 1.58 % of the calibration tokens (*computed*). Spend of the phase: $9.11 of $15; the rows of
   `docs/data/jobs.csv` sum to $335.33 (*computed*).
+- 2026-11-14, on the operator's go: one retry with each group's weights clipped at 10 times their mean
+  (`LLVQ_GUIDED_CLIP`, cd70933; prereg sha256 83131dca, stamped before the encode), $4.38:
+  [guided-clip-gateup-4b](mesures/guided-clip-gateup-4b-2026-11-14.txt). NOT RESOLVED: 57.95 against the baseline's
+  58.62, −0.68 [−1.47, +0.14]; +0.83 [+0.03, +1.65] against the unclipped encode (*measured*). Perplexity 16.69. Seven
+  of seven signed predictions are in. The gradient-weighted input-Hessian form is closed for the phase. Spend of the
+  phase: $13.49 of $15; the rows of `docs/data/jobs.csv` sum to $339.71 (*computed*).
 - Nothing served changes: no config, no served module, no Hub file.
