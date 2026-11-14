@@ -809,6 +809,16 @@ pub const P4E_E1_ARMS: [&str; 10] = ["v9", "v9np", "v9mv", "v9ft", "v9ep", "v9fl
 /// local memory, docs/mesures/recherche-debit-jeton-2026-11-13.txt).
 pub const P4E_RC_ARMS: [(&str, u32); 6] = [("v9ep", 1), ("v9fl", 2), ("v9ep2", 3), ("v9ep3", 4), ("v9fl2", 5), ("v9fl3", 6)];
 
+/// Load probes of the endpass body (`LLVQ_PERS_4E=check:` only, never timed,
+/// never launched): E1's v9 with pers_4e_rc.cuh inserted and the body on ONE
+/// call site, or on none. The index is the site's edit in
+/// [`p4e_rc_edits`]`(1)`: 0 none, 1 q/k, 2 gate/up, 3 down, 4 o. The six
+/// whole arms were each refused for the same 8 B of local memory
+/// (docs/mesures/recherche-debit-charge2-2026-11-14.txt); the probes say
+/// which site, if one, brings them. They are not E1 arms: no chain test
+/// covers a module with the body on one site.
+pub const P4E_RC_PROBES: [(&str, usize); 5] = [("v9pe0", 0), ("v9peq", 1), ("v9peg", 2), ("v9ped", 3), ("v9peo", 4)];
+
 /// The body code of a research arm, or none.
 pub fn p4e_rc_body(arm: &str) -> Option<u32> {
     P4E_RC_ARMS.iter().find(|a| a.0 == arm).map(|a| a.1)
@@ -1174,7 +1184,13 @@ pub fn p4e_e1_edits(arm: &str) -> Result<Vec<(&'static str, String, String)>, St
                 ),
             ]);
         }
-        _ => return Err(format!("4E E1: no arm {arm:?}; the arms are {P4E_E1_ARMS:?}")),
+        _ => match P4E_RC_PROBES.iter().find(|p| p.0 == arm) {
+            // a load probe: the endpass text, and its one site
+            Some(&(_, site)) => {
+                v.extend(p4e_rc_edits(1)?.into_iter().enumerate().filter(|(i, _)| *i == 0 || *i == site).map(|(_, e)| e))
+            }
+            None => return Err(format!("4E E1: no arm {arm:?}; the arms are {P4E_E1_ARMS:?}")),
+        },
     }
     Ok(v)
 }
@@ -4535,6 +4551,11 @@ mod tests {
             ("4e-v9ep3", p4e_e1_unit_text(CARD_TILE_SM89, "v9ep3").unwrap()),
             ("4e-v9fl2", p4e_e1_unit_text(CARD_TILE_SM89, "v9fl2").unwrap()),
             ("4e-v9fl3", p4e_e1_unit_text(CARD_TILE_SM89, "v9fl3").unwrap()),
+            ("4e-v9pe0", p4e_e1_unit_text(CARD_TILE_SM89, "v9pe0").unwrap()),
+            ("4e-v9peq", p4e_e1_unit_text(CARD_TILE_SM89, "v9peq").unwrap()),
+            ("4e-v9peg", p4e_e1_unit_text(CARD_TILE_SM89, "v9peg").unwrap()),
+            ("4e-v9ped", p4e_e1_unit_text(CARD_TILE_SM89, "v9ped").unwrap()),
+            ("4e-v9peo", p4e_e1_unit_text(CARD_TILE_SM89, "v9peo").unwrap()),
         ] {
             std::fs::write(dir.join(format!("{name}.cu")), &text).unwrap();
             eprintln!("{name}: {} bytes, sha256 {}", text.len(), crate::sha256::sha256_hex(text.as_bytes()));
@@ -5429,6 +5450,22 @@ mod tests {
         }
         // every research arm is an E1 arm
         assert!(P4E_RC_ARMS.iter().all(|a| P4E_E1_ARMS.contains(&a.0)));
+        // the load probes: endpass's text and one call site each, v9 elsewhere; none is an E1 arm
+        let ep = p4e_rc_edits(1).unwrap();
+        assert_eq!(ep.len(), 5, "the text, q/k, gate/up, down, o");
+        for (arm, site) in P4E_RC_PROBES {
+            assert!(!P4E_E1_ARMS.contains(&arm) && p4e_rc_body(arm).is_none(), "{arm}");
+            let t = p4e_e1_unit_text(tile, arm).unwrap();
+            assert_eq!(t.matches("#define PERS_RC_ARM 1u\n").count(), 1, "{arm}");
+            assert_eq!(t.matches("pers_rc_rows<PERS_RC_ARM>(").count(), usize::from(site > 0), "{arm}");
+            assert_eq!(t.matches("pers_4e_rows(").count(), 1 + 4 - usize::from(site > 0), "{arm}: v9's row loop on the other sites");
+            let mut back = t.clone();
+            for (i, (_, from, to)) in ep.iter().enumerate() {
+                assert_eq!(back.matches(to.as_str()).count(), usize::from(i == 0 || i == site), "{arm}: edit {i}");
+                back = back.replace(to.as_str(), from);
+            }
+            assert_eq!(back, r, "{arm}: E1's v9, the text and one site, nothing else");
+        }
     }
 
     /// Where the rc bodies sit in 4E v9's buffer at the three sealed shapes

@@ -1301,10 +1301,18 @@ fn parse_pers_4e(v: &str) -> Result<Pers4eSpec, String> {
 fn parse_pers_4e_check(v: &str) -> Result<Vec<&'static str>, String> {
     let mut out: Vec<&'static str> = Vec::new();
     for name in v.split(',') {
+        // the load probes (pers::P4E_RC_PROBES) are named here and nowhere else: never timed
         let arm = llvq_cuda::pers::P4E_E1_ARMS
             .iter()
+            .chain(llvq_cuda::pers::P4E_RC_PROBES.iter().map(|p| &p.0))
             .find(|x| **x == name)
-            .ok_or_else(|| format!("LLVQ_PERS_4E=check:{v}: no E1 arm {name:?}; the arms are {:?}", llvq_cuda::pers::P4E_E1_ARMS))?;
+            .ok_or_else(|| {
+                format!(
+                    "LLVQ_PERS_4E=check:{v}: no E1 arm or load probe {name:?}; the arms are {:?}, the probes {:?}",
+                    llvq_cuda::pers::P4E_E1_ARMS,
+                    llvq_cuda::pers::P4E_RC_PROBES.map(|p| p.0)
+                )
+            })?;
         if out.contains(arm) {
             return Err(format!("LLVQ_PERS_4E=check:{v}: arm {name} named twice"));
         }
@@ -3531,6 +3539,12 @@ mod tests {
             assert!(parse_pers_4e_check(bad).is_err(), "check:{bad}");
         }
         assert!(parse_pers_4e("check:v9").is_err(), "the check is dispatched before parse_pers_4e");
+        // the load probes: the check names them, a timed run never does
+        assert_eq!(parse_pers_4e_check("v9pe0,v9peq,v9peg,v9ped,v9peo"), Ok(vec!["v9pe0", "v9peq", "v9peg", "v9ped", "v9peo"]));
+        assert!(parse_pers_4e_check("v9peq,v9peq").is_err());
+        for probe in llvq_cuda::pers::P4E_RC_PROBES {
+            assert!(parse_pers_4e(&format!("64:v9,{}", probe.0)).is_err(), "{} is never timed", probe.0);
+        }
         for bad in [
             "1", "257", "x", "64:", "64:v9,v9", "64:v8", "64:v9 ,v9np", ":v9", "64:v9:", "64::8192", "64:v9:8192,4096",
             "64:v9:4096,4096", "64:v9:8193", "64:v9:5", "64:v9:0", "64:v9:1024:4096", "64:v9,v9ep,v9ep", "64:v9,v9,v9ep",
