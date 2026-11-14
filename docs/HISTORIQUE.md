@@ -1576,7 +1576,7 @@ the layer objective on the 4B. The bullets below are in the order things happene
 - 2026-11-14: the operator closes the phase. Outcome: a dead hypothesis, recorded in `CERVEAU.md` O12. No idea sheet.
 - Nothing served changes: no config, no served module, no Hub file.
 
-## 2026-11-14. A second research phase on quality opens, on the lost contrast of the answer logits; $2.48
+## 2026-11-14. A second research phase on quality opens on the lost contrast of the answer logits and closes on a dead hypothesis; nothing served changes, $2.48
 
 The operator refused the lead's first three starting points for a new quality cycle, the calibration draw, probes of
 gate/up and a fast verifier, as tinkering and not ideas. He then signed a mandate, O13 of [`CERVEAU.md`](CERVEAU.md),
@@ -1615,5 +1615,8 @@ on an anomaly read the same day from the dumps the repository holds: $10 of card
   layers 0 to 24 gain +7.20 (*measured*). The MMLU pattern does not hold on generation (Q27), Q25 is bounded to MMLU,
   and no allocation of bits by depth is proposed. The lead had predicted +1.2. Spend of the phase: $2.48 of $10; the
   rows of `docs/data/jobs.csv` sum to $344.12 (*computed*).
+- The operator closed the phase the same evening ("Dead on l'écrit"). Outcome: a dead hypothesis, recorded in
+  `CERVEAU.md` O13, with two beliefs dropped and the anomaly N7. No idea sheet. A lens reading of generated tokens
+  was proposed and not run.
 - Nothing served changes.
 
