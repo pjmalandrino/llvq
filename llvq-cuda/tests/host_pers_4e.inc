@@ -70,6 +70,12 @@
     u32 fault_run = 0xFFFFFFFFu, policy = 0u;
     if (faulty) { fault_run = rd1<u32>(); policy = rd1<u32>(); }
     (void)fault_run; (void)policy;
+    // + 512: arm v9k8's int8 cache (pers_4e_k8.cuh, kv8_ref.rs). Before the first launch both sides quantize every
+    // position of the random binary16 caches into int8 caches (the served side by the port ref_k8_quant_row, the
+    // persistent side by pers_kv8_fill); the served chain then appends by the port and attends by ref_attn_row_k8,
+    // and the int8 caches are written out in place of the binary16 ones. Only a v9k8 twin runs it on side 1.
+    const bool k8 = (variant_raw & 512u) != 0u;
+    const size_t k8_hb = (size_t)(cap / 8u) * 1088u;  // bytes of one head's int8 cache
     (void)vstamp;
     const u32 stamp = (variant == 1u || variant == 3u) ? 1u : 0u;
     size_t ring_len = 0;
@@ -111,6 +117,7 @@
         }
     struct Layer {
         std::vector<unsigned short> ln1, ln2, qn, kn, vs, vb, os, ob, dqs, dqb, kc, vc;
+        std::vector<unsigned char> kc8, vc8;  // + 512
         TMat q, k, gate, up, down, ot;
         std::vector<u32> vw, ow, dqw;
         bool tetra_down, tetra_o;
@@ -141,6 +148,17 @@
         if (Y.tetra_o) Y.ot = tmat(H, NH * 128, s0 + 13);
         Y.kc = act_h(NKV * cap * 128, s0 + 11, 9, 15);
         Y.vc = act_h(NKV * cap * 128, s0 + 12, 9, 15);
+        if (k8) {
+            Y.kc8.assign(NKV * k8_hb, 0u);
+            Y.vc8.assign(NKV * k8_hb, 0u);
+#if PERS_SIDE == 0
+            for (u32 hh = 0; hh < NKV; ++hh)
+                for (u32 p = 0; p < cap; ++p) {
+                    ref_k8_quant_row(Y.kc.data() + ((size_t)hh * cap + p) * 128, Y.kc8.data() + hh * k8_hb + (size_t)(p / 8u) * 1088u, p % 8u);
+                    ref_k8_quant_row(Y.vc.data() + ((size_t)hh * cap + p) * 128, Y.vc8.data() + hh * k8_hb + (size_t)(p / 8u) * 1088u, p % 8u);
+                }
+#endif
+        }
     }
     // the score scale attn_ref::score_scale(128): (1/sqrt(128)) x log2(e), in f64 then f32
     const float scale = (float)((1.0 / std::sqrt(128.0)) * 1.4426950408889634);
@@ -195,11 +213,20 @@
             for (u32 hh = 0; hh < NKV; ++hh) {
                 head(kv.data() + hh * 128, Y.kn.data(), Y.kc.data() + ((size_t)hh * cap + pos) * 128);
                 for (u32 i = 0; i < 128; ++i) Y.vc[((size_t)hh * cap + pos) * 128 + i] = vv[hh * 128 + i];
+                if (k8) {
+                    ref_k8_quant_row(Y.kc.data() + ((size_t)hh * cap + pos) * 128, Y.kc8.data() + hh * k8_hb + (size_t)(pos / 8u) * 1088u, pos % 8u);
+                    ref_k8_quant_row(Y.vc.data() + ((size_t)hh * cap + pos) * 128, Y.vc8.data() + hh * k8_hb + (size_t)(pos / 8u) * 1088u, pos % 8u);
+                }
             }
             std::vector<unsigned short> ctx(NH * 128);
-            for (u32 hq = 0; hq < NH; ++hq)
-                ref_attn_row(qo.data() + hq * 128, Y.kc.data() + (size_t)(hq / GRP) * cap * 128,
-                             Y.vc.data() + (size_t)(hq / GRP) * cap * 128, pos + 1, scale, ctx.data() + hq * 128);
+            for (u32 hq = 0; hq < NH; ++hq) {
+                if (k8)
+                    ref_attn_row_k8(qo.data() + hq * 128, Y.kc8.data() + (hq / GRP) * k8_hb, Y.vc8.data() + (hq / GRP) * k8_hb,
+                                    pos + 1, scale, ctx.data() + hq * 128);
+                else
+                    ref_attn_row(qo.data() + hq * 128, Y.kc.data() + (size_t)(hq / GRP) * cap * 128,
+                                 Y.vc.data() + (size_t)(hq / GRP) * cap * 128, pos + 1, scale, ctx.data() + hq * 128);
+            }
             const auto o = Y.tetra_o ? served_ref(Y.ot, rot(ctx, ro, NH * 128)) : q4(Y.ow, Y.os, Y.ob, ctx, H, NH * 128);
             for (u32 i = 0; i < H; ++i) x[i] = f2h(__fadd_rn(h2f(x[i]), h2f(o[i])));
             // the MLP, as the served chain runs it (host_pers_segment.inc)
@@ -255,6 +282,10 @@
                           Y.vw.data(), Y.vs.data(), Y.vb.data(), NKV * 128, 20u, Y.q.nblocks, Y.q.tail_w, H,
                           qs.data(), ks.data(), vs.data()};
         P.q_norm = Y.qn.data(); P.k_norm = Y.kn.data(); P.kc = Y.kc.data(); P.vc = Y.vc.data();
+        if (k8) {  // the layer's kc and vc carry the int8 caches' addresses (pers.rs::p4e_k8_edits)
+            P.kc = reinterpret_cast<unsigned short*>(Y.kc8.data());
+            P.vc = reinterpret_cast<unsigned short*>(Y.vc8.data());
+        }
         P.ow = Y.ow.data(); P.osc = Y.os.data(); P.obi = Y.ob.data(); P.o_gpr = NH * 128 / 128; P.tetra_down = Y.tetra_down ? 1u : 0u;
         SegArgs& M = P.mlp;
         M.alpha = Y.ln2.data(); M.signs_h = rm.signs.data(); M.small_h = rm.small.data(); M.silu = silu.data(); M.act = act.data();
@@ -289,6 +320,17 @@
         if (!Ls[l].tetra_down) PL[l].mlp.q4w = tile(Ls[l].dqw, H, I);
     }
 #endif
+    if (k8) {
+#if PERS_4E_ROWS >= 6
+        for (auto& Y : Ls)
+            hostgrid::launch_coop(grid, threads, PERS_SMEM_HEADER, seed + 7, [&] {
+                pers_kv8_fill(Y.kc.data(), Y.vc.data(), Y.kc8.data(), Y.vc8.data(), NKV, cap, cap, 0u, cap);
+            });
+#else
+        std::fprintf(stderr, "host_pers: the int8 cache needs PERS_4E_ROWS >= 6\n");
+        std::exit(2);
+#endif
+    }
     Pers4eArgs A{};
     A.layers = PL.data(); A.emb_w = ew.data(); A.emb_s = es.data(); A.emb_b = eb.data(); A.final_norm = final_norm.data();
     A.cosr = cosr.data(); A.sinr = sinr.data(); A.x_a = x.data(); A.x_b = x_b.data(); A.q_out = q_out.data(); A.ctx = ctx.data();
@@ -375,7 +417,10 @@
 #endif
     wr(ring);
     wr(x);
-    for (auto& Y : Ls) { wr(Y.kc); wr(Y.vc); }
+    for (auto& Y : Ls) {
+        if (k8) { wr(Y.kc8); wr(Y.vc8); }
+        else { wr(Y.kc); wr(Y.vc); }
+    }
     wr(tail);
 #if PERS_SIDE == 1
     wr(stamps);

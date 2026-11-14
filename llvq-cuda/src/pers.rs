@@ -800,9 +800,12 @@ pub fn q4_tile_words(words: &[u32], d_out: usize, nwords: usize) -> Result<Vec<u
 //          bound of 1e-5 on rows, NOT the bits ([`p4e_e1_owes_bits`]).
 // ---------------------------------------------------------------------------
 
-/// The E1 arms, the first the reference of the others.
-pub const P4E_E1_ARMS: [&str; 13] =
-    ["v9", "v9np", "v9mv", "v9ft", "v9ep", "v9fl", "v9ep2", "v9ep3", "v9fl2", "v9fl3", "v9fn", "v9fg", "v9eg"];
+/// The E1 arms, the first the reference of the others. `v9k8` (phase O13 of
+/// docs/CERVEAU.md) is v9 with the KV cache held as group-affine int8
+/// ([`p4e_k8_edits`], kernels/pers_4e_k8.cuh): its runtime keeps int8 caches
+/// of its own, filled from the prefill's binary16 cache.
+pub const P4E_E1_ARMS: [&str; 14] =
+    ["v9", "v9np", "v9mv", "v9ft", "v9ep", "v9fl", "v9ep2", "v9ep3", "v9fl2", "v9fl3", "v9fn", "v9fg", "v9eg", "v9k8"];
 
 /// The research bodies' arms and their body codes (`PERS_RC_ARM`): 1 endpass,
 /// 2 flat (pers_4e_rc.cuh); 3 ep2, 4 ep3, 5 fl2, 6 fl3 (pers_4e_rc2.cuh, the
@@ -912,7 +915,125 @@ pub fn rc_body_one_chunk(body: u32) -> bool {
 /// 1e-5 (pers_4e_rc.cuh): their tokens and logits are compared with v9's and
 /// reported, never assumed equal.
 pub fn p4e_e1_owes_bits(arm: &str) -> bool {
-    !p4e_rc_body(arm).is_some_and(rc_body_is_flat)
+    !p4e_rc_body(arm).is_some_and(rc_body_is_flat) && !p4e_e1_k8(arm)
+}
+
+/// What an E1 arm's tokens are held to, as a harness prints it: v9's bits,
+/// flat's bound on rows, or (v9k8) the int8 cache's values, whose tokens
+/// and logits are compared with v9's and reported.
+pub fn p4e_e1_debt(arm: &str) -> &'static str {
+    if p4e_e1_k8(arm) {
+        "the int8 cache's values (kv8_ref), not v9's bits"
+    } else if p4e_e1_owes_bits(arm) {
+        "the bits"
+    } else {
+        "a bound on rows"
+    }
+}
+
+/// Whether an E1 arm holds the KV cache as int8 (`v9k8`): its runtime
+/// allocates the int8 caches and fills them with `pers_kv8_fill`.
+pub fn p4e_e1_k8(arm: &str) -> bool {
+    arm == "v9k8"
+}
+
+/// The int8 cache's text (arm v9k8), inserted at the head of pers_4e.cu by
+/// [`p4e_k8_edits`].
+pub const P4E_K8_PART: (&str, &str) = ("pers_4e_k8.cuh", include_str!("../kernels/pers_4e_k8.cuh"));
+
+/// The symbol of the fill a v9k8 module carries: positions of the prefill's
+/// binary16 cache quantized into the int8 caches (pers_4e_k8.cuh).
+pub const P4E_K8_FILL_SYMBOL: &str = "pers_kv8_fill";
+
+/// Bytes of one int8 cache block (8 positions of one head): `kv8_ref::BLK`.
+pub const P4E_K8_BLK: u32 = 1088;
+
+/// Arm v9k8's int8 caches between launches, as its runtime keeps them:
+/// their capacity in positions (a multiple of 256, 0 before the first
+/// launch), the positions quantized from the binary16 cache the prefill
+/// wrote (`[0, hand)`), and the end of the arm's own last launch (`own`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct K8State {
+    pub cap: usize,
+    pub hand: usize,
+    pub own: usize,
+}
+
+/// What the runtime does before a v9k8 launch ([`p4e_k8_step`]): grow the
+/// int8 caches (copying what they hold when they held something), fill
+/// positions `[a, b)` from the binary16 caches, then run with `next`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct K8Step {
+    pub grow: bool,
+    pub copy_old: bool,
+    pub fill: Option<(usize, usize)>,
+    pub next: K8State,
+}
+
+/// The rule of a v9k8 launch of `n` tokens at `pos0`, the binary16 caches
+/// holding `len16` positions. `moved`: their buffers are not the ones the
+/// int8 caches were filled from (a new context, or a cache the eager path
+/// grew), so nothing quantized before is trusted. Two launches are allowed:
+/// a handoff (`len16 == pos0`: the binary16 caches hold every position
+/// before the launch; positions `[hand, pos0)` are quantized, and the arm
+/// owns what follows `pos0`), or the arm continuing its own decode (`pos0`
+/// is where its last launch ended, past `len16`, nothing moved). Anything
+/// else is refused: the int8 caches would hold positions nobody wrote. The
+/// capacity is the next multiple of 256 at or past `pos0 + n`, never
+/// shrinking, at most `max_cap` (the attention scratch). The contract the
+/// rule rests on: the eager path writes a cache only at its length, and a
+/// cache truncated below `hand` and written again arrives as `moved`.
+pub fn p4e_k8_step(st: K8State, moved: bool, len16: usize, pos0: usize, n: usize, max_cap: usize) -> Result<K8Step, String> {
+    let st = if moved { K8State { cap: st.cap, hand: 0, own: 0 } } else { st };
+    let continuing = !moved && st.own > 0 && pos0 == st.own && len16 < pos0;
+    if !continuing && len16 != pos0 {
+        return Err(format!(
+            "4E v9k8: a launch at position {pos0}, the binary16 caches holding {len16} and the arm's own decode \
+             ending at {}{}: neither a handoff nor a continuation",
+            st.own,
+            if moved { " (the binary16 caches moved)" } else { "" }
+        ));
+    }
+    let cap = st.cap.max((pos0 + n).div_ceil(256) * 256);
+    if cap > max_cap {
+        return Err(format!("4E v9k8: {} positions, the attention scratch holds {max_cap}", pos0 + n));
+    }
+    let grow = cap != st.cap;
+    let fill = (!continuing && pos0 > st.hand).then_some((st.hand, pos0));
+    let hand = if continuing { st.hand } else { pos0 };
+    Ok(K8Step { grow, copy_old: grow && st.cap > 0 && st.own.max(hand) > 0, fill, next: K8State { cap, hand, own: st.own } })
+}
+
+/// The edits of arm v9k8: the int8 cache's text before `struct Pers4eOT`,
+/// then v9's append and attention calls on the int8 caches, whose addresses
+/// the layer's `kc` and `vc` carry (no struct moves). Nothing else.
+pub fn p4e_k8_edits() -> Vec<(&'static str, String, String)> {
+    let e4 = "pers_4e.cu";
+    vec![
+        (e4, "struct Pers4eOT {\n".into(), format!("{}\nstruct Pers4eOT {{\n", P4E_K8_PART.1)),
+        (
+            e4,
+            "            pers_4e_norm_rope_append<FORM>(Y.qkv.q, Y.qkv.k, Y.qkv.v, Y.q_norm, Y.k_norm, A->cosr + pos * 64u,
+                                           A->sinr + pos * 64u, A->eps, A->n_heads, A->n_kv, A->cap, pos, A->q_out,
+                                           Y.kc, Y.vc);
+"
+            .into(),
+            "            // k8: the append quantizes into the int8 caches (pers_4e_k8.cuh), whose addresses kc and vc carry
+            pers_4e_norm_rope_append_k8<FORM>(Y.qkv.q, Y.qkv.k, Y.qkv.v, Y.q_norm, Y.k_norm, A->cosr + pos * 64u,
+                                              A->sinr + pos * 64u, A->eps, A->n_heads, A->n_kv, A->cap, pos,
+                                              A->q_out, reinterpret_cast<unsigned char*>(Y.kc),
+                                              reinterpret_cast<unsigned char*>(Y.vc));
+"
+            .into(),
+        ),
+        (
+            e4,
+            "            pers_attention<PF ? 2u : 1u>(A->q_out, Y.kc, Y.vc, A->n_heads,".into(),
+            "            pers_attention_k8<PF ? 2u : 1u>(A->q_out, reinterpret_cast<const unsigned char*>(Y.kc),
+                                            reinterpret_cast<const unsigned char*>(Y.vc), A->n_heads,"
+                .into(),
+        ),
+    ]
 }
 
 /// The research phase's row bodies as 4E row forms (step R6 of
@@ -1226,6 +1347,8 @@ pub fn p4e_e1_edits(arm: &str) -> Result<Vec<(&'static str, String, String)>, St
         // R6d: the body on q/k, down and o; gate/up as v9 (v9fn) or in two calls (v9fg, v9eg)
         "v9fn" | "v9fg" | "v9eg" => v.extend(p4e_rc_gu_edits(arm)?),
         "v9np" => v.extend(np),
+        // the KV cache as int8 (pers_4e_k8.cuh), nothing else
+        "v9k8" => v.extend(p4e_k8_edits()),
         "v9mv" => {
             v.extend(np);
             v.extend([
@@ -4639,6 +4762,7 @@ mod tests {
             ("4e-v9fn", p4e_e1_unit_text(CARD_TILE_SM89, "v9fn").unwrap()),
             ("4e-v9fg", p4e_e1_unit_text(CARD_TILE_SM89, "v9fg").unwrap()),
             ("4e-v9eg", p4e_e1_unit_text(CARD_TILE_SM89, "v9eg").unwrap()),
+            ("4e-v9k8", p4e_e1_unit_text(CARD_TILE_SM89, "v9k8").unwrap()),
         ] {
             std::fs::write(dir.join(format!("{name}.cu")), &text).unwrap();
             eprintln!("{name}: {} bytes, sha256 {}", text.len(), crate::sha256::sha256_hex(text.as_bytes()));
@@ -5658,6 +5782,228 @@ mod tests {
         assert_eq!(mv.matches("if (l == 0u) {  // e1-pf").count(), 1);
         // the served v9 module's digest is pinned by
         // the_4e_v9_module_is_the_one_the_doors_gate_on, which this does not touch
+    }
+
+    /// v9k8's module is E1's v9 with the int8 cache's edits and nothing else:
+    /// undoing them gives the reference back byte for byte; the k8 text is in
+    /// once; v9's append and attention calls are gone from the token loop, so
+    /// the layer's kc and vc (the int8 caches' addresses in this arm) reach
+    /// only the k8 calls; the fill symbol is defined once.
+    #[test]
+    fn the_k8_module_is_v9_with_the_int8_cache() {
+        let tile = "#define TILE_BLOCKS 64u\n";
+        let r = p4e_e1_unit_text(tile, "v9").unwrap();
+        let t = p4e_e1_unit_text(tile, "v9k8").unwrap();
+        let mut back = t.clone();
+        for (_, from, to) in p4e_k8_edits() {
+            assert_eq!(back.matches(to.as_str()).count(), 1, "{to:?}");
+            back = back.replacen(to.as_str(), &from, 1);
+        }
+        assert_eq!(back, r, "v9k8: E1's v9 and the k8 edits, nothing else");
+        assert_eq!(t.matches("#ifndef LLVQ_PERS_K8_CUH").count(), 1);
+        assert_eq!(t.matches("pers_attention_k8<PF ? 2u : 1u>(").count(), 1);
+        assert_eq!(t.matches("pers_attention<PF ? 2u : 1u>(").count(), 0);
+        assert_eq!(t.matches("pers_4e_norm_rope_append_k8<FORM>(Y.qkv.q").count(), 1);
+        assert_eq!(t.matches("pers_4e_norm_rope_append<FORM>(").count(), 0);
+        assert_eq!(t.matches("Y.kc").count(), 2, "kc reaches the append and the attention, nothing else");
+        assert_eq!(t.matches("Y.vc").count(), 2);
+        assert_eq!(t.matches(&format!("void {P4E_K8_FILL_SYMBOL}(")).count(), 1);
+        assert_eq!(t.matches(&format!("#define PERS_K8_BLK {P4E_K8_BLK}u")).count(), 1);
+        assert_eq!(P4E_K8_BLK as usize, crate::kv8_ref::BLK);
+        assert!(p4e_e1_k8("v9k8") && !p4e_e1_k8("v9") && P4E_E1_ARMS.contains(&"v9k8"));
+        assert!(!p4e_e1_owes_bits("v9k8"));
+        assert_eq!(p4e_e1_debt("v9"), "the bits");
+        assert_eq!(p4e_e1_debt("v9fl"), "a bound on rows");
+        assert!(p4e_e1_debt("v9k8").starts_with("the int8 cache's values"));
+    }
+
+    /// v9k8's launch rule: the handoff after a prefill fills the prefix
+    /// once; a second handoff at the same prompt fills nothing; a continuation
+    /// fills nothing and keeps `hand`; a later handoff fills only what the
+    /// eager path appended; a moved cache refills from 0; the capacity grows
+    /// by 256 and never shrinks; anything else is refused.
+    #[test]
+    fn the_k8_launch_rule() {
+        let m = 8704;
+        let s0 = K8State::default();
+        // the handoff after an 8,192-token prefill, 64 tokens
+        let a = p4e_k8_step(s0, true, 8192, 8192, 64, m).unwrap();
+        assert_eq!(a, K8Step { grow: true, copy_old: false, fill: Some((0, 8192)), next: K8State { cap: 8448, hand: 8192, own: 0 } });
+        let after = K8State { own: 8192 + 64, ..a.next };
+        // the harness truncates and hands the same prompt again: nothing to fill
+        let b = p4e_k8_step(after, false, 8192, 8192, 64, m).unwrap();
+        assert_eq!((b.grow, b.fill, b.next.hand), (false, None, 8192));
+        // the arm continues its own decode past the binary16 caches' length
+        let c = p4e_k8_step(after, false, 8192, 8256, 200, m).unwrap();
+        assert_eq!((c.grow, c.copy_old, c.fill, c.next.hand, c.next.cap), (true, true, None, 8192, 8704));
+        // the eager path appended 10 positions, then hands them over
+        let d = p4e_k8_step(after, false, 8202, 8202, 8, m).unwrap();
+        assert_eq!((d.fill, d.next.hand), (Some((8192, 8202)), 8202));
+        // a new context: the buffers moved, every position refilled, the capacity kept
+        let e = p4e_k8_step(after, true, 5, 5, 64, m).unwrap();
+        assert_eq!((e.grow, e.fill, e.next), (false, Some((0, 5)), K8State { cap: 8448, hand: 5, own: 0 }));
+        // refused: a gap, a continuation from elsewhere, a moved cache mid-decode, past the scratch
+        assert!(p4e_k8_step(after, false, 8192, 8300, 8, m).is_err());
+        assert!(p4e_k8_step(after, false, 8100, 8192, 8, m).is_err());
+        assert!(p4e_k8_step(after, true, 8192, 8256, 8, m).is_err());
+        assert!(p4e_k8_step(s0, true, 8192, 8192, 600, m).is_err());
+        assert!(p4e_k8_step(s0, false, 0, 7, 1, m).is_err(), "no continuation before a first launch");
+    }
+
+    /// The code lines (comments and blank lines dropped, each trimmed) of the
+    /// function whose definition starts at `head` in `text`, to its closing
+    /// brace at column 0.
+    fn code_lines(text: &str, head: &str) -> Vec<String> {
+        let a = text.find(head).unwrap_or_else(|| panic!("no {head:?}"));
+        let b = a + text[a..].find("\n}\n").expect("a closing brace");
+        text[a..b + 3]
+            .lines()
+            .map(|l| if l.trim_start().starts_with('#') { l.trim() } else { l.split("//").next().unwrap_or("").trim() })
+            .filter(|l| !l.is_empty())
+            .map(str::to_string)
+            .collect()
+    }
+
+    /// Lines of `a` not matched one for one in `b`.
+    fn lines_minus(a: &[String], b: &[String]) -> Vec<String> {
+        let mut left: Vec<&String> = b.iter().collect();
+        a.iter()
+            .filter(|l| match left.iter().position(|x| x == l) {
+                Some(i) => {
+                    left.remove(i);
+                    false
+                }
+                None => true,
+            })
+            .cloned()
+            .collect()
+    }
+
+    /// The int8 attention is section 10's text with the reader swapped, and
+    /// nothing else: against pers_attention, pers_attn_tile and
+    /// pers_attn_issue, the lines each side holds alone are exactly these (the
+    /// signatures, the head's address, the staging map, the reader, and v9's
+    /// register path below form 6, which the k8 text does not carry). A line of
+    /// arithmetic that drifts in either text fails here.
+    #[test]
+    fn the_k8_attention_is_section_10_with_the_int8_reader() {
+        let v9 = PERS_UNIT_PARTS.iter().find(|p| p.0 == "llvq_pers.cuh").unwrap().1;
+        let k8 = P4E_K8_PART.1;
+        let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<String>>();
+        let cases: [(&str, &str, Vec<String>, Vec<String>); 3] = [
+            (
+                "__device__ __forceinline__ void pers_attention(",
+                "__device__ __forceinline__ void pers_attention_k8(",
+                s(&[
+                    "__device__ __forceinline__ void pers_attention(const unsigned short* q, const unsigned short* kc,",
+                    "const unsigned short* vc, u32 n_heads, u32 groups, u32 cap, u32 l,",
+                    "const u32 rounds = (PERS_STAGE_U4 + PF * blockDim.x - 1u) / (PF * blockDim.x);",
+                    "const unsigned short* kh = kc + (unsigned long long)h * cap * PERS_HD;",
+                    "const unsigned short* vh = vc + (unsigned long long)h * cap * PERS_HD;",
+                    "#if PERS_ATTN_RING > 1",
+                    "pers_attn_issue(stage + st * PERS_STAGE_U4, kh, vh, base, st, nsteps, tpu, l);",
+                    "(void)rounds;",
+                    "#else",
+                    "uint4 pf[PF];",
+                    "if (rounds == 1u) pers_attn_load<PF>(pf, kh, vh, base, 0u, tpu, l, 0u);",
+                    "#endif",
+                    "#if PERS_ATTN_RING > 1",
+                    "#else",
+                    "uint4* const sbuf = stage;",
+                    "__syncthreads();",
+                    "if (rounds == 1u) {",
+                    "pers_attn_store<PF>(pf, stage, 0u);",
+                    "} else {",
+                    "for (u32 r = 0; r < rounds; ++r) {",
+                    "pers_attn_load<PF>(pf, kh, vh, base, st, tpu, l, r * PF * blockDim.x);",
+                    "pers_attn_store<PF>(pf, stage, r * PF * blockDim.x);",
+                    "}",
+                    "}",
+                    "__syncthreads();",
+                    "if (rounds == 1u && st + 1u < nsteps) pers_attn_load<PF>(pf, kh, vh, base, st + 1u, tpu, l, 0u);",
+                    "#endif",
+                    "const u32 sl = (u * tpu + t) * PERS_TT;",
+                    "pers_attn_tile(qs + ge * PERS_HD, ust + (u * groups + ge) * PERS_PSTRIDE, own, sbuf + sl * 16u,",
+                    "sbuf + (PERS_STAGE + sl) * 16u, nv, c, lane);",
+                    "#if PERS_ATTN_RING > 1",
+                    "pers_attn_issue(sbuf, kh, vh, base, st + PERS_ATTN_RING, nsteps, tpu, l);",
+                    "#endif",
+                    "#if PERS_ATTN_RING > 1",
+                    "#endif",
+                ]),
+                s(&[
+                    "__device__ __forceinline__ void pers_attention_k8(const unsigned short* q, const unsigned char* kc8,",
+                    "const unsigned char* vc8, u32 n_heads, u32 groups, u32 cap, u32 l,",
+                    "const unsigned char* kh = kc8 + (unsigned long long)h * (cap / PERS_TT) * PERS_K8_BLK;",
+                    "const unsigned char* vh = vc8 + (unsigned long long)h * (cap / PERS_TT) * PERS_K8_BLK;",
+                    "pers_attn_issue_k8(stage + st * PERS_STAGE_U4, kh, vh, base, st, nsteps, tpu, l);",
+                    "const unsigned char* const sb8 = reinterpret_cast<const unsigned char*>(sbuf);",
+                    "const u32 ts = u * tpu + t;",
+                    "pers_attn_tile_k8(qs + ge * PERS_HD, ust + (u * groups + ge) * PERS_PSTRIDE, own,",
+                    "sb8 + ts * PERS_K8_BLK, sb8 + (PERS_UPS + ts) * PERS_K8_BLK, nv, c, lane);",
+                    "pers_attn_issue_k8(sbuf, kh, vh, base, st + PERS_ATTN_RING, nsteps, tpu, l);",
+                ]),
+            ),
+            (
+                "__device__ __forceinline__ void pers_attn_tile(",
+                "__device__ __forceinline__ void pers_attn_tile_k8(",
+                s(&[
+                    "__device__ __forceinline__ void pers_attn_tile(const float* qrow, float* row, bool own, const uint4* ks,",
+                    "const uint4* vs, u32 nv, float c, u32 lane)",
+                    "const u32 l16 = lane & 15u, dl = l16 * 8u;",
+                    "pers_unpack8(ks[j * 16u + l16], kf);",
+                    "pers_unpack8(vs[j * 16u + l16], vf);",
+                ]),
+                s(&[
+                    "__device__ __forceinline__ void pers_attn_tile_k8(const float* qrow, float* row, bool own, const unsigned char* kb,",
+                    "const unsigned char* vb, u32 nv, float c, u32 lane)",
+                    "const u32 l16 = lane & 15u, dl = l16 * 8u, gsb = PERS_K8_CODES + (l16 >> 3) * 4u;",
+                    "pers_k8_unpack8(kb + j * PERS_HD + dl, kb + gsb + j * 8u, kf);",
+                    "pers_k8_unpack8(vb + j * PERS_HD + dl, vb + gsb + j * 8u, vf);",
+                ]),
+            ),
+            (
+                "__device__ __forceinline__ void pers_attn_issue(",
+                "__device__ __forceinline__ void pers_attn_issue_k8(",
+                s(&[
+                    "__device__ __forceinline__ void pers_attn_issue(uint4* stage, const unsigned short* kh, const unsigned short* vh,",
+                    "for (u32 idx = threadIdx.x; idx < PERS_STAGE_U4; idx += blockDim.x) {",
+                    "const u32 rem = idx % (PERS_STAGE * 16u), pl = rem >> 4;",
+                    "const u32 tl = pl / PERS_TT, u = tl / tpu, t = tl - u * tpu;",
+                    "const u32 p = base + u * PERS_UNIT + (st * tpu + t) * PERS_TT + pl % PERS_TT;",
+                    "const unsigned short* src = (idx < PERS_STAGE * 16u ? kh : vh);",
+                    "const bool valid = p < lr;",
+                    "reinterpret_cast<const uint4*>(src + (unsigned long long)(valid ? p : 0u) * PERS_HD) + (rem & 15u),",
+                ]),
+                s(&[
+                    "__device__ __forceinline__ void pers_attn_issue_k8(uint4* stage, const unsigned char* kh, const unsigned char* vh,",
+                    "for (u32 idx = threadIdx.x; idx < PERS_K8_STAGE_U4; idx += blockDim.x) {",
+                    "const u32 rem = idx % PERS_K8_HALF_U4, ts = rem / PERS_K8_BLK_U4, ch = rem - ts * PERS_K8_BLK_U4;",
+                    "const u32 u = ts / tpu, t = ts - u * tpu;",
+                    "const u32 p0 = base + u * PERS_UNIT + (st * tpu + t) * PERS_TT;",
+                    "const unsigned char* src = idx < PERS_K8_HALF_U4 ? kh : vh;",
+                    "const bool valid = p0 < lr;",
+                    "reinterpret_cast<const uint4*>(src + (unsigned long long)(valid ? p0 / PERS_TT : 0u) * PERS_K8_BLK) + ch,",
+                ]),
+            ),
+        ];
+        let sorted = |mut v: Vec<String>| {
+            v.sort();
+            v
+        };
+        for (h9, h8, only9, only8) in cases {
+            let (a, b) = (code_lines(v9, h9), code_lines(k8, h8));
+            assert_eq!(sorted(lines_minus(&a, &b)), sorted(only9), "{h8}: the lines only v9 holds");
+            assert_eq!(sorted(lines_minus(&b, &a)), sorted(only8), "{h8}: the lines only the k8 text holds");
+        }
+    }
+
+    /// The v9k8 module at the card's tile define, at the sha256 its job
+    /// script checks: an edit to pers_4e_k8.cuh or to the k8 edits moves it.
+    #[test]
+    fn the_k8_module_keeps_its_bytes() {
+        let text = p4e_e1_unit_text(CARD_TILE_SM89, "v9k8").unwrap();
+        assert_eq!(crate::sha256::sha256_hex(text.as_bytes()), "8b53b1cdb8d4ff6264fea1685a355045231655f8d6ac1a368c89a8b605c224f9", "4E v9k8: {} bytes", text.len());
     }
 
     /// The structural check kills what it must: a line of arithmetic added

@@ -68,6 +68,11 @@ static inline unsigned short served_capture_f2h(float v) {
 #include "../kernels/tetra48_pers.cu"
 #include "../kernels/pers_segment.cu"
 #include "../kernels/pers_4e.cu"
+#if PERS_4E_ROWS >= 6
+// arm v9k8's int8 cache (commands 'k', 'x', 'z' and the chain's + 512); a no-op in that arm's twin, whose
+// pers_4e.cu holds it
+#include "../kernels/pers_4e_k8.cuh"
+#endif
 #if PERS_4E_ROWS >= 7
 #include "../kernels/pers_4ev.cu"
 #include "host_mma.h"
@@ -345,8 +350,11 @@ static void ref_st_merge(RefSt& a, const RefSt& b) {
     for (int i = 0; i < 128; ++i) a.a[i] = __fadd_rn(__fmul_rn(a.a[i], fa), __fmul_rn(b.a[i], fb));
     a.m = m;
 }
-static void ref_attn_row(const unsigned short* q16, const unsigned short* kc, const unsigned short* vc, u32 l, float c,
-                         unsigned short* out) {
+// One row over the cache values kv(p, i) and vv(p, i) (f32): the f16 cache
+// widens its binary16 values, arm v9k8's int8 cache gives fma(scale, code,
+// bias) (kv8_ref.rs).
+template <class KF, class VF>
+static void ref_attn_row_t(const unsigned short* q16, KF kv, VF vv, u32 l, float c, unsigned short* out) {
     float q[128];
     for (int i = 0; i < 128; ++i) q[i] = h2f(q16[i]);
     RefSt total;
@@ -364,7 +372,7 @@ static void ref_attn_row(const unsigned short* q16, const unsigned short* kc, co
                     float x[16];
                     for (int ln = 0; ln < 16; ++ln) {
                         float t = 0.0f;
-                        for (int i = 0; i < 8; ++i) t = std::fma(q[ln * 8 + i], h2f(kc[(p0 + j) * 128 + ln * 8 + i]), t);
+                        for (int i = 0; i < 8; ++i) t = std::fma(q[ln * 8 + i], kv(p0 + j, (u32)(ln * 8 + i)), t);
                         x[ln] = t;
                     }
                     for (int off : {8, 4, 2, 1}) {
@@ -384,7 +392,7 @@ static void ref_attn_row(const unsigned short* q16, const unsigned short* kc, co
                 st.d = __fadd_rn(__fmul_rn(st.d, carry), ts);
                 for (int i = 0; i < 128; ++i) {
                     float a = __fmul_rn(st.a[i], carry);
-                    for (u32 j = 0; j < nv; ++j) a = std::fma(pj[j], h2f(vc[(p0 + j) * 128 + i]), a);
+                    for (u32 j = 0; j < nv; ++j) a = std::fma(pj[j], vv(p0 + j, (u32)i), a);
                     st.a[i] = a;
                 }
                 st.m = m_new;
@@ -394,6 +402,57 @@ static void ref_attn_row(const unsigned short* q16, const unsigned short* kc, co
         ref_st_merge(total, split);
     }
     for (int i = 0; i < 128; ++i) out[i] = f2h(__fdiv_rn(total.a[i], total.d));
+}
+
+static void ref_attn_row(const unsigned short* q16, const unsigned short* kc, const unsigned short* vc, u32 l, float c,
+                         unsigned short* out) {
+    ref_attn_row_t(q16, [&](u32 p, u32 i) { return h2f(kc[p * 128 + i]); },
+                   [&](u32 p, u32 i) { return h2f(vc[p * 128 + i]); }, l, c, out);
+}
+
+// Arm v9k8's int8 cache (llvq-cuda/src/kv8_ref.rs), ported line for line: an
+// independent text from pers_4e_k8.cuh, held against the Rust original by
+// tests/pers_matches_served.rs (commands 'k' and 'x').
+static const u32 REF_K8_BLK = 1088u;
+static void ref_k8_quant_row(const unsigned short* x16, unsigned char* blk, u32 j) {
+    for (u32 g = 0; g < 2; ++g) {
+        float mn = INFINITY, mx = -INFINITY;
+        for (u32 d = 0; d < 64; ++d) {
+            const float v = h2f(x16[g * 64 + d]);
+            mn = std::fmin(mn, v);
+            mx = std::fmax(mx, v);
+        }
+        if (mn == 0.0f) mn = 0.0f;
+        if (mx == 0.0f) mx = 0.0f;
+        const unsigned short s = f2h(__fmul_rn(__fsub_rn(mx, mn), __uint_as_float(0x3b808081u))), b = f2h(mn);
+        const float sf = h2f(s);
+        for (u32 d = 0; d < 64; ++d) {
+            u32 q = 0;
+            if (sf != 0.0f) {
+                const float tt = __fdiv_rn(__fsub_rn(h2f(x16[g * 64 + d]), mn), sf);
+                const float fl = std::floor(tt);
+                q = (u32)fl + (__fsub_rn(tt, fl) >= 0.5f ? 1u : 0u);
+                if (q > 255u) q = 255u;
+            }
+            blk[j * 128 + g * 64 + d] = (unsigned char)q;
+        }
+        unsigned char* sb = blk + 1024 + j * 8 + 4 * g;
+        sb[0] = (unsigned char)(s & 0xff); sb[1] = (unsigned char)(s >> 8);
+        sb[2] = (unsigned char)(b & 0xff); sb[3] = (unsigned char)(b >> 8);
+    }
+}
+// The value at position p, dimension i, of one head's int8 cache (`hb`, its
+// first block).
+static float ref_k8_val(const unsigned char* hb, u32 p, u32 i) {
+    const unsigned char* blk = hb + (size_t)(p / 8) * REF_K8_BLK;
+    const unsigned char* sb = blk + 1024 + (p % 8) * 8 + 4 * (i / 64);
+    const unsigned short s = (unsigned short)(sb[0] | (sb[1] << 8)), b = (unsigned short)(sb[2] | (sb[3] << 8));
+    return std::fma(h2f(s), (float)blk[(p % 8) * 128 + i], h2f(b));
+}
+static void ref_attn_row_k8(const unsigned short* q16, const unsigned char* kh, const unsigned char* vh, u32 l, float c,
+                            unsigned short* out) {
+    ref_attn_row_t(q16, [&](u32 p, u32 i) { return ref_k8_val(kh, p, i); },
+                   [&](u32 p, u32 i) { return ref_k8_val(vh, p, i); }, l, c, out);
 }
 
 // candle-kernels 0.9.2 reduce.cu:187-228, one row, BLOCK virtual threads,
@@ -1202,6 +1261,109 @@ int main() {
         wr(out);
         wr(tail);
         wr(state);
+    } else if (tag == 'k') {
+        // K8 QUANTIZER (arm v9k8): n positions (a multiple of 8) of one head.
+        // in: u32 n, u16 rows[n*128]. out: u8 k8[n/8 blocks], u8 v8[same]
+        // (the same rows as K and V). Served: the port; persistent: the fill.
+        const u32 n = rd1<u32>();
+        const auto rows = rd<unsigned short>((size_t)n * 128);
+        std::vector<unsigned char> k8((size_t)n / 8 * 1088, 0xAAu), v8((size_t)n / 8 * 1088, 0x55u);
+#if PERS_SIDE == 0
+        for (u32 p = 0; p < n; ++p) ref_k8_quant_row(rows.data() + (size_t)p * 128, k8.data() + (size_t)(p / 8) * REF_K8_BLK, p % 8);
+        v8 = k8;
+#elif PERS_4E_ROWS >= 6
+        hostgrid::launch_coop(3, 64, PERS_SMEM_HEADER, 0x5eedu + n, [&] {
+            pers_kv8_fill(rows.data(), rows.data(), k8.data(), v8.data(), 1u, n, n, 0u, n);
+        });
+#else
+        std::fprintf(stderr, "host_pers: command k needs PERS_4E_ROWS >= 6\n");
+        return 2;
+#endif
+        wr(k8);
+        wr(v8);
+    } else if (tag == 'x') {
+        // K8 ATTENTION (arm v9k8): 'X' on int8 caches. in: n_kv, groups, cap,
+        // l, grid, threads, f32 c, u16 q[n_heads*128], u8 k8[n_kv*cap/8*1088],
+        // u8 v8[same]. out: as 'X'.
+        const u32 n_kv = rd1<u32>(), groups = rd1<u32>(), cap = rd1<u32>(), l = rd1<u32>(), grid = rd1<u32>(),
+                  threads = rd1<u32>();
+        const float c = rd1<float>();
+        const u32 nh = n_kv * groups;
+        const size_t hb = (size_t)(cap / 8) * 1088;
+        const auto q = rd<unsigned short>((size_t)nh * 128);
+        const auto k8 = rd<unsigned char>(n_kv * hb);
+        const auto v8 = rd<unsigned char>(n_kv * hb);
+        std::vector<unsigned short> out((size_t)nh * 128, 0xFFFFu);
+        std::vector<u32> tail(2, 0u);
+        std::vector<float> state((size_t)nh * 130u, 0.0f);
+#if PERS_SIDE == 1 && PERS_4E_ROWS >= 6
+        std::vector<float> part((size_t)n_kv * ((cap + 255u) / 256u) * groups * 130u, 0.0f);
+        std::vector<u32> ticket(n_kv, 0u);
+        hostgrid::launch_coop(grid, threads, PERS_SMEM_HEADER + PERS_ATTN_SMEM(groups), 0x5eedu + l, [&] {
+            pers_attention_k8<2u>(q.data(), k8.data(), v8.data(), nh, groups, cap, l, c, part.data(), ticket.data(),
+                                  out.data(), PERS_SMEM_BASE() + PERS_SMEM_HEADER, state.data());
+        });
+        for (u32 t : ticket) tail[0] += t;
+#elif PERS_SIDE == 0
+        (void)grid; (void)threads;
+        for (u32 hq = 0; hq < nh; ++hq)
+            ref_attn_row_k8(q.data() + hq * 128, k8.data() + (hq / groups) * hb, v8.data() + (hq / groups) * hb, l, c,
+                            out.data() + hq * 128);
+#else
+        (void)grid; (void)threads; (void)c; (void)l;
+        std::fprintf(stderr, "host_pers: command x needs PERS_4E_ROWS >= 6\n");
+        return 2;
+#endif
+        wr(out);
+        wr(tail);
+        wr(state);
+    } else if (tag == 'z') {
+        // K8 APPEND (arm v9k8): 'Z' with the K and V rows quantized into int8
+        // caches at `pos`. in: as 'Z'. out: u16 q_out[n_heads*128], u8
+        // k8[n_kv*cap/8*1088], u8 v8[same] (every other byte 0xAA).
+        const u32 form = rd1<u32>(), nh = rd1<u32>(), nkv = rd1<u32>(), cap = rd1<u32>(), pos = rd1<u32>(),
+                  grid = rd1<u32>(), threads = rd1<u32>();
+        const uint64_t seed = rd1<uint64_t>();
+        const auto qr = act_h(nh * 128, seed + 1, 8, 17);
+        auto kr = act_h(nkv * 128, seed + 2, 8, 17);
+        const auto vr = act_h(nkv * 128, seed + 3, 8, 17);
+        const auto qa = act_h(128, seed + 4, 13, 16), ka = act_h(128, seed + 5, 13, 16);
+        const auto co = act_h(64, seed + 6, 4, 14), si = act_h(64, seed + 7, 4, 14);
+        const size_t hb = (size_t)(cap / 8) * 1088;
+        std::vector<unsigned short> qo(nh * 128, 0xFFFFu);
+        std::vector<unsigned char> k8(nkv * hb, 0xAAu), v8(nkv * hb, 0xAAu);
+        const float eps = 1e-6f;
+#if PERS_SIDE == 0
+        (void)grid; (void)threads;
+        auto head = [&](const unsigned short* src, const unsigned short* al, unsigned short* dst) {
+            const float sc = candle_rms_scale(src, 128, eps, 0);
+            for (u32 i = 0; i < 64; ++i) {
+                const unsigned short a = f2h(__fmul_rn(__fmul_rn(sc, h2f(src[i])), h2f(al[i])));
+                const unsigned short b = f2h(__fmul_rn(__fmul_rn(sc, h2f(src[i + 64])), h2f(al[i + 64])));
+                ref_rope_pair((int)form, a, b, co[i], si[i], dst + i, dst + i + 64);
+            }
+        };
+        for (u32 h = 0; h < nh; ++h) head(qr.data() + h * 128, qa.data(), qo.data() + h * 128);
+        for (u32 h = 0; h < nkv; ++h) {
+            unsigned short krow[128];
+            head(kr.data() + h * 128, ka.data(), krow);
+            ref_k8_quant_row(krow, k8.data() + h * hb + (size_t)(pos / 8) * REF_K8_BLK, pos % 8);
+            ref_k8_quant_row(vr.data() + h * 128, v8.data() + h * hb + (size_t)(pos / 8) * REF_K8_BLK, pos % 8);
+        }
+#elif PERS_4E_ROWS >= 6
+        hostgrid::launch_coop(grid, threads, PERS_SMEM_HEADER, seed, [&] {
+            if (form == 0) pers_4e_norm_rope_append_k8<0>(qr.data(), kr.data(), vr.data(), qa.data(), ka.data(), co.data(), si.data(), eps, nh, nkv, cap, pos, qo.data(), k8.data(), v8.data());
+            else if (form == 1) pers_4e_norm_rope_append_k8<1>(qr.data(), kr.data(), vr.data(), qa.data(), ka.data(), co.data(), si.data(), eps, nh, nkv, cap, pos, qo.data(), k8.data(), v8.data());
+            else pers_4e_norm_rope_append_k8<2>(qr.data(), kr.data(), vr.data(), qa.data(), ka.data(), co.data(), si.data(), eps, nh, nkv, cap, pos, qo.data(), k8.data(), v8.data());
+        });
+#else
+        (void)grid; (void)threads; (void)eps; (void)form; (void)pos;
+        std::fprintf(stderr, "host_pers: command z needs PERS_4E_ROWS >= 6\n");
+        return 2;
+#endif
+        wr(qo);
+        wr(k8);
+        wr(v8);
     } else if (tag == 'F') {
         // FUSED f16 FMA: n random triples (all finite patterns) and the
         // planted ties. out: u16[n + ties] per sign, neg then pos.
