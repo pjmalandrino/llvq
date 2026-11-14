@@ -69,12 +69,17 @@ S=/out/${SEALED%%:*}; SB=${SEALED##*:}
 test "$(stat -c %s "$S")" = "$SB"
 sha256sum "$S" | tee "$O/files.sha256"
 test "$(sha256sum "$S" | cut -d' ' -f1)" = "$SEALED_SHA"
-FLAGS=(LLVQ_FUSED_LAYOUT=tetra48 LLVQ_EMBED=q4 LLVQ_ROT_SHARE=1 LLVQ_FUSE=0 LLVQ_KV=f16 LLVQ_DATASET_REV="$WIKI_REV")
+FLAGS=(LLVQ_FUSED_LAYOUT=tetra48 LLVQ_EMBED=q4 LLVQ_ROT_SHARE=1 LLVQ_FUSE=0 LLVQ_KV=f16)
+# LLVQ_DATASET_REV names one revision for every dataset the process reads, and k4v4c also reads dclm-edu: pinned,
+# its calibration died on a 404 (second deviation note). k4v4c reads both at main; its token fingerprint must be the
+# other arms', 8f55a59b1ba97f07 on the 2 windows of 256, and is compared on the 12 windows when the arms are read.
+[ "$ARM" = k4v4c ] || FLAGS+=(LLVQ_DATASET_REV="$WIKI_REV")
 echo "== control 3: the arm runs on this card ($ARM, 2 windows of 256) =="
 date -u
 env "${FLAGS[@]}" LLVQ_KV_LADDER="$ARM" LLVQ_GQA_PPL=256,2,0,ladder timeout 8m fusedrun "$S" 2>&1 | tee "$O/smoke.txt" \
   | grep -aE '^k4v4c|^KV ladder|^  bytes|^  window|^  decode|^Error|^error'
 grep -aq '^  decode top-1 agreement' "$O/smoke.txt"
+grep -aqF '(tokens 8f55a59b1ba97f07)' "$O/smoke.txt"
 echo "== the measurement: $ARM against f16, $WINDOWS windows of $CTX =="
 date -u
 set +e
