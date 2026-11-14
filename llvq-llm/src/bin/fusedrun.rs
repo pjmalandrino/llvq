@@ -1578,8 +1578,8 @@ fn run_pers_4e(
             Some(i) if !owes_bits(&rts[k]) => {
                 let eq = got.iter().zip(&want).filter(|(a, b)| a == b).count();
                 println!(
-                    "  4E {label}: owes a bound on rows, not the bits: {eq} of {} tokens equal the eager path's, \
-                     the first divergence at token {i}",
+                    "  4E {label}: owes {}: {eq} of {} tokens equal the eager path's, the first divergence at token {i}",
+                    rts[k].e1_arm.map_or("the bits", llvq_cuda::pers::p4e_e1_debt),
                     want.len()
                 );
                 own.push(got);
@@ -1608,6 +1608,12 @@ fn run_pers_4e(
             own[0].len(),
             first.map_or(String::new(), |i| format!(", the first divergence at token {i}"))
         );
+    }
+    // v9k8: its int8 caches after its first launch of this context
+    for rt in rts.iter() {
+        if let Some(l) = rt.kv8_report() {
+            println!("  {l}");
+        }
     }
     match first_divergence(&served, &want).map_err(|e| anyhow::anyhow!("{e}"))? {
         None => println!("  served door (kernel from {from}): the same {} tokens", served.len()),
@@ -1697,7 +1703,7 @@ fn run_pers_4e(
                 prompt.len(),
                 rt.e1_arm.unwrap_or("?"),
                 rts[0].label(),
-                if owes_bits(rt) { "the bits" } else { "a bound on rows" },
+                rt.e1_arm.map_or("the bits", llvq_cuda::pers::p4e_e1_debt),
                 if pass { "" } else { " (F1 failed: a description)" }
             );
         }
@@ -3827,6 +3833,9 @@ mod tests {
         assert_eq!(parse_pers_4e("256:v9,v9fg,v9eg,v9"), Ok((256, vec!["v9", "v9fg", "v9eg"], vec![8192], true)));
         assert_eq!(parse_pers_4e("256:v9,v9fn,v9"), Ok((256, vec!["v9", "v9fn"], vec![8192], true)));
         assert_eq!(parse_pers_4e("256:v9fg"), Ok((256, vec!["v9fg"], vec![8192], false)));
+        // O13's int8 cache arm: the check and a timed run name it beside v9
+        assert_eq!(parse_pers_4e_check("v9,v9k8"), Ok(vec!["v9", "v9k8"]));
+        assert_eq!(parse_pers_4e("256:v9,v9k8,v9"), Ok((256, vec!["v9", "v9k8"], vec![8192], true)));
         for probe in llvq_cuda::pers::P4E_RC_PROBES {
             assert!(parse_pers_4e(&format!("64:v9,{}", probe.0)).is_err(), "{} is never timed", probe.0);
         }
