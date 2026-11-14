@@ -307,6 +307,20 @@ mod tests {
         assert_eq!(g.q[5], 255);
     }
 
+    /// The scale is candle's product by `1 / 255`, not a division: two
+    /// groups where the two give binary16 scales one ulp apart.
+    #[test]
+    fn the_scale_is_the_product_and_not_the_division() {
+        for (mn, mx, s) in [(0x94c6u16, 0x3f46u16, 0x1f4fu16), (0xd558, 0x204f, 0x355e)] {
+            let mut x = vec![0u16; GROUP];
+            x[0] = mn;
+            x[1] = mx;
+            let g = quant_group(&x);
+            assert_eq!(g.s, s);
+            assert_eq!(f2h((h2f(mx) - h2f(mn)) / 255.0), s - 1, "the division gives the scale below");
+        }
+    }
+
     /// kvq's tensor operations transcribed on one group (min, max, the
     /// product by candle's reciprocal, the casts through f16, the division,
     /// `round`, the clamp): the same codes as `quant_group`.

@@ -385,8 +385,15 @@ mod tests {
         let dev = Device::Cpu;
         for (t, seed) in [(16usize, 0u64), (5, 77)] {
             let x = if seed == 0 { cache_like(t, &dev)? } else {
-                let v: Vec<half::f16> = attn_ref::fill(8 * t * 128, seed, 4.0).into_iter().map(half::f16::from_bits).collect();
-                Tensor::from_vec(v, (1, 8, t, 128), &dev)?
+                let mut v = attn_ref::fill(8 * t * 128, seed, 4.0);
+                // two groups whose range (mx - mn, rounded in f32) gives another binary16 scale by a true
+                // division by 255 than by candle's product with 1 / 255: kvq's scale is the product
+                for (g, (mn, mx)) in [(0usize, (0x94c6u16, 0x3f46u16)), (1, (0xd558, 0x204f))] {
+                    v[g * 64..(g + 1) * 64].fill(0);
+                    v[g * 64] = mn;
+                    v[g * 64 + 1] = mx;
+                }
+                Tensor::from_vec(v.into_iter().map(half::f16::from_bits).collect::<Vec<_>>(), (1, 8, t, 128), &dev)?
             };
             let got = quantize_dequantize(&x)?.flatten_all()?.to_vec1::<half::f16>()?;
             let bits: Vec<u16> = x.flatten_all()?.to_vec1::<half::f16>()?.iter().map(|h| h.to_bits()).collect();
