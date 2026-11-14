@@ -9,7 +9,7 @@ On 2026-11-13 the R0 of the quality phase (O12) reread the Q claims against thei
 N1 and N2 gained scope notes. The same day R1 replayed N1 on the sealed 4B: Q7 was restated and is established on
 that object, and a card job added Q23. A first re-encode under a final-output objective then added Q24 and E3. On
 2026-11-14 a clipped retry restated Q24 and the operator closed the phase: O2, O12 and Q20 were restated, Q5 and Q15
-gained notes, N6 joined the anomalies and three mismatches joined the list at the end. 62 claims: 14 established, 2
+gained notes, Q23 was reread by type and five mismatches joined the list at the end. 62 claims: 14 established, 2
 proved, 37 supported, 6 conjecture, 3 refuted.
 
 This document lists what we believe to be true about quantizing LLMs on the Leech lattice, each belief with its
@@ -322,19 +322,22 @@ is a hot spot is not resolved.
 - Checked: 2026-11-12.
 
 **Q23.** On the sealed 4B, at group grain, KL to FP16 on running text orders the four projection groups as the MMLU
-restores do, and the relative layer-output error does not: it rates gate/up lowest. Restoring a group recovers, of
+restores do, and the relative layer-output error pooled per group does not: it rates gate/up lowest. That last
+reading comes from pooling gate with up: per type the same error rates up_proj highest of the seven types, at 0.0337,
+and gate_proj lowest, at 0.0046. Restoring a group recovers, of
 KL(T || S) = 0.2852 nats a token, gate/up 36.29 %, down 23.17 %, qkv 8.74 %, o 2.48 %, the order of the MMLU gains
 (+3.38, +2.01, +0.55, −0.13), with down above qkv by +0.0411 [+0.0372, +0.0451]. The layer error pooled per group
 reads down > qkv > o > gate/up with FP16 or sealed inputs, gate/up at 0.0072 and 0.0071.
 - Standing: supported. Measured once, on the served object, under a stamped prereg whose primary readings it settles
   (outcome R-a). Four groups are four points. Scope: sealed 4B, its f16 export, one calibration draw, WikiText-2
-  test, 73 windows of 4,096, torch f16 on an L40S (perplexity within 0.033 % of the candle path). Group grain only;
-  the 252 per-matrix values are written and not read. The layer error compared across groups is not what the encoder
-  does, which minimises inside each matrix: the claim says nothing on what an output-aware objective would gain.
+  test, 73 windows of 4,096, torch f16 on an L40S (perplexity within 0.033 % of the candle path). The KL reading is
+  at group grain only. gate_proj's output energy is about ten times up_proj's, so it sets the pooled figure of the
+  group. The layer error compared across groups is not what the encoder does, which minimises inside each matrix:
+  the claim says nothing on what an output-aware objective would gain, and Q24 found none for one form of it.
 - Evidence: [layer-vs-output-4b](mesures/layer-vs-output-4b-2026-11-13.txt), RESULT and READING (*measured*, job
   6af6f9da, $0.44); [ablation-qualite-4b](mesures/ablation-qualite-4b-2026-11-12.txt) for the MMLU gains.
 - Overturn: another draw, size or text where the KL order of the four groups departs from the MMLU order.
-- Checked: 2026-11-13.
+- Checked: 2026-11-14, when the per-matrix file was read by type (the journal's added section, *computed*).
 
 **Q24.** Encoding gate_proj and up_proj of the 4B under gradient-weighted input Hessians (GuidedQuant's objective,
 G = 4, weights from the encoder's own 64 windows) does not beat the layer objective on the same draw. Unclipped it
@@ -695,7 +698,6 @@ A measured fact that no claim explains. They are the starting points of the expl
 | N3 | A lower Gaussian MSE of the codebook has given a worse perplexity twice, Planes14 at 4B and the Euclidean gain rule at 0.6B; no MMLU pair between codebooks is resolved. | Q4, Q17. | What the model is sensitive to that block MSE does not see. |
 | N4 | Perplexity and KL close while MMLU stays open. | Q5, Q6. | What MMLU reads that the two do not. |
 | N5 | The Tetra row loop streams faster alone than inside 4E, and bit-identical cuts move time without removing it. | K4, K10; K5 for the split of the time without weights, which is a conjecture (its consequence, the 94 % that reappeared, is measured). | What holds the token when the rows are not the limit. |
-| N6 | On the 4B, gate/up carry half of the MMLU gap and the largest share of the KL to FP16, the layer judge rates their error lowest, and weighting their input Hessians by the output gradient does not reduce the MMLU loss. The first two are read on the sealed 4B, the third on bases without row scales, one draw. | Q16, Q23, Q24. | What in gate/up's error costs MMLU, if neither the layer error nor its gradient-weighted form sees it. The two-sided objective has not run. |
 
 ## Open questions
 
@@ -756,7 +758,7 @@ leaves the phase.
   attention the MLP is worth +6.00 [+5.31, +6.69]
   ([ablation-qualite-4b](mesures/ablation-qualite-4b-2026-11-12.txt) line 126).
 - Where a next phase can look: the two-sided objective, more calibration windows, a second draw (O2); N1, set
-  aside; N6.
+  aside.
 - Record: R0 in [recherche-qualite-r0-depot](mesures/recherche-qualite-r0-depot-2026-11-13.txt) and
   [recherche-qualite-r0-litterature](mesures/recherche-qualite-r0-litterature-2026-11-13.txt); the N1 replay in
   [recherche-qualite-n1](mesures/recherche-qualite-n1-2026-11-13.txt); the framing and the two cost notes in
@@ -821,3 +823,8 @@ leaves the phase.
   MMLU ([sealed-rownorms](mesures/sealed-rownorms-2026-09-23.txt) lines 39 to 42). Q12 carries the +0.02, not the KL
   (same note, mismatch 2).
 - The 4B Mac encode duration differs across four documents (same note, section 8).
+- [`ROADMAP-QUALITY.md`](ROADMAP-QUALITY.md) row L38 says seeded draws exist only for `Planes14`. A seeded encode of
+  the DCLM recipe exists, `dclm-rnd1`, scored on the full split (`docs/data/jobs.csv` line 173,
+  `mesures/dclm-rnd1-2026-09-19-brut/`). It has no journal and no paired interval, and Q2 and O3 do not cite it.
+- No claim covers the machine an encode runs on. `docs/data/jobs.csv` line 120 reads the same tokens on a card and on
+  Metal at 52.31 against 53.49 on 2,280 q, and the card re-encode of the DCLM base differs from the Mac file (Q15).

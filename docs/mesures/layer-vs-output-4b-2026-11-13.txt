@@ -217,3 +217,26 @@ Q10 and N2, add: "In KL on running text the same object is super-additive on the
   [+0.0135, +0.0168] (*computed*, layer-vs-output-4b, ADDITIVITY)."
 N4, "what is missing" may add: "At group grain KL followed MMLU (Q23); the gap N4 names is not visible at that grain."
 O12 state: "$0.44 of $10 spent. The layer-vs-output measurement closed on R-a (Q23)."
+
+ADDED 2026-11-14, POST HOC, NOT PREREGISTERED: NOTE 1 PER PROJECTION TYPE
+--------------------------------------------------------------------------
+Read from matrices.tsv after the phase closed, at no cost. Pooled over the 36 layers of each type, FP16 x, sum of the
+numerators over sum of the denominators (*computed*):
+
+| type | pooled relative error | sum ||W x||^2 |
+|---|---|---|
+| up_proj | 0.0337 | 9.617e10 |
+| v_proj | 0.0209 | 2.858e10 |
+| down_proj | 0.0201 | 7.529e10 |
+| k_proj | 0.0153 | 6.240e10 |
+| q_proj | 0.0133 | 3.432e11 |
+| o_proj | 0.0083 | 1.233e10 |
+| gate_proj | 0.0046 | 9.657e11 |
+
+gate_proj pooled over layers 0 to 11 reads 0.0019, over layers 12 to 35 it reads 0.0173.
+
+The group reading "gate/up lowest, at 0.0072" comes from pooling gate with up. gate_proj's output energy is about ten
+times up_proj's, so it sets the group's figure. Per type the layer judge rates up_proj highest of the seven and
+gate_proj lowest. The sentence "the layer judge rates gate/up lowest" therefore holds for the pooled group only. The
+KL readings of this journal are not touched.
+
