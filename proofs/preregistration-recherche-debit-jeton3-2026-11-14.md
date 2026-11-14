@@ -116,8 +116,8 @@ The token chain (`tests/pers_matches_served.rs`):
 | v9fn | 6,749 of 1,522,688 | 5.02e-2 |
 | v9fg | 8,469 of 1,522,688 | 5.02e-2 |
 
-  v9fn reads 3.8e-7 and 3.9e-6 of rms on the 4x96 grid and on the two launches, where v9fl reads 1.2e-2: on those
-  commands the gate/up rows carry most of flat's distance.
+  v9fn reads 3.8e-7 and 3.9e-6 of rms on the 4x96 grid and on the two launches, where v9fl reads 1.2e-2. A reading,
+  not a measurement: on those commands the gate/up rows would carry most of flat's distance.
 
 Mutants of the two-call site (`the_4e_rc_two_call_mutants_are_killed`, on v9eg against the served chain bit for
 bit, three commands: the smooth SiLU table, the 8B's Tetra o, the random table). Each twist is asserted to match
@@ -222,6 +222,23 @@ If no arm loads, the job ends after the check: about 10 min, $0.30.
   jeton prereg's §8) are not run.
 - Why the one-call site spills. The arms test a rewrite, not the cause.
 
-## Signed predictions (main session)
+## 9. Signed predictions (main session)
 
-TO WRITE
+Written before the stamp. The three earlier sets of this phase: R6b's were wrong on the main point (60 % that a
+variant loads, none did), R6c's six were in.
+
+1. v9 loads. 97 %.
+2. v9fg loads: 40 %. v9fn loads: 55 %. v9eg loads: 45 %. None of the three loads: 30 %.
+3. A refused arm shows 8 B of local memory. 70 %.
+4. In the check a flat arm takes 127 s [110, 150], an endpass arm 103 s [90, 125].
+5. If v9fg is timed, its score at a 5-token prompt is x1.03 [1.00, 1.06] of v9. It reaches x1.05 at 20 %.
+6. If v9fn is timed: x1.01 [0.99, 1.03]. If v9eg is timed: x1.00 [0.98, 1.02].
+7. Over the whole job, an arm reaches x1.05 at a 5-token prompt: 8 %. An arm is separated above v9 from F1's floor
+   at a 5-token prompt: 30 %.
+8. v9eg, if timed, gives v9's tokens at both contexts: 95 %. A flat arm, if timed, gives v9's tokens at both
+   contexts: 80 %.
+9. The job runs 1,500 s [1,100, 1,800] if an arm is timed, 600 s [520, 700] otherwise.
+
+The ceilings these rest on are computed, not forecasts: x1.07 on the token for flat on every Tetra phase, x1.02 for
+endpass (`docs/mesures/recherche-debit-corps-2026-11-13.txt`). The two-call site adds barriers and one restaging
+that the rows-alone bench did not pay.
