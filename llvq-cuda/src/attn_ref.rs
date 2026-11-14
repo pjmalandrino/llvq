@@ -248,12 +248,54 @@ impl Kv<'_> {
     }
 }
 
+/// A layer's cache as the arithmetic reads it: the K and V rows of one
+/// (KV head, position), each value widened to f32. The f16 cache widens its
+/// binary16 values exactly (`h2f`); an int8 cache (`kv8_ref.rs`) gives its
+/// dequantized values. Every operation of the arithmetic sees only these f32
+/// values, so the f16 path keeps its bits through this trait.
+pub trait KvRows {
+    /// Positions a head holds.
+    fn cap(&self) -> usize;
+    fn k_row(&self, h: usize, p: usize) -> [f32; HD];
+    fn v_row(&self, h: usize, p: usize) -> [f32; HD];
+}
+
+impl KvRows for Kv<'_> {
+    fn cap(&self) -> usize {
+        self.cap
+    }
+    fn k_row(&self, h: usize, p: usize) -> [f32; HD] {
+        let r = self.krow(h, p);
+        std::array::from_fn(|i| h2f(r[i]))
+    }
+    fn v_row(&self, h: usize, p: usize) -> [f32; HD] {
+        let r = self.vrow(h, p);
+        std::array::from_fn(|i| h2f(r[i]))
+    }
+}
+
+/// [`score`] on a row already widened: the same fma chains and tree.
+fn score_f(q: &[f32; HD], k: &[f32; HD], c: f32) -> f32 {
+    let mut parts = [0f32; LANES];
+    for (lane, p) in parts.iter_mut().enumerate() {
+        let mut t = 0f32;
+        for i in 0..DPL {
+            let d = lane * DPL + i;
+            t = q[d].mul_add(k[d], t);
+        }
+        *p = t;
+    }
+    tree16(parts) * c
+}
+
 /// One tile of up to TT positions from absolute position `p0` (< `l`).
-fn tile(st: &mut St, q: &[f32; HD], kv: &Kv, h: usize, p0: usize, l: usize, c: f32) {
+fn tile<S: KvRows + ?Sized>(st: &mut St, q: &[f32; HD], kv: &S, h: usize, p0: usize, l: usize, c: f32) {
     let nv = TT.min(l - p0);
     let mut sc = [0f32; TT];
+    let mut vr = [[0f32; HD]; TT];
     for (j, s) in sc.iter_mut().enumerate().take(nv) {
-        *s = score(q, kv.krow(h, p0 + j), c);
+        *s = score_f(q, &kv.k_row(h, p0 + j), c);
+        vr[j] = kv.v_row(h, p0 + j);
     }
     let mut mt = sc[0];
     for &s in &sc[1..nv] {
@@ -272,18 +314,18 @@ fn tile(st: &mut St, q: &[f32; HD], kv: &Kv, h: usize, p0: usize, l: usize, c: f
         ts += p[j];
     }
     st.d = st.d * carry + ts;
-    for i in 0..HD {
-        let mut a = st.a[i] * carry;
+    for (i, acc) in st.a.iter_mut().enumerate() {
+        let mut a = *acc * carry;
         for (j, &pj) in p.iter().enumerate().take(nv) {
-            a = pj.mul_add(h2f(kv.vrow(h, p0 + j)[i]), a);
+            a = pj.mul_add(vr[j][i], a);
         }
-        st.a[i] = a;
+        *acc = a;
     }
     st.m = m_new;
 }
 
 /// The state of one split: units of `unit` positions folded in order.
-pub fn split_state(q: &[f32; HD], kv: &Kv, h: usize, s: usize, l: usize, c: f32, unit: usize) -> St {
+pub fn split_state<S: KvRows + ?Sized>(q: &[f32; HD], kv: &S, h: usize, s: usize, l: usize, c: f32, unit: usize) -> St {
     let mut split = St::empty();
     let s0 = s * SPLIT;
     for u0 in (s0..s0 + SPLIT).step_by(unit) {
@@ -303,7 +345,7 @@ pub fn split_state(q: &[f32; HD], kv: &Kv, h: usize, s: usize, l: usize, c: f32,
 }
 
 /// One row of one query head over positions `0..l` of KV head `h`, f16 bits.
-pub fn row(q: &[f32; HD], kv: &Kv, h: usize, l: usize, c: f32, unit: usize) -> [u16; HD] {
+pub fn row<S: KvRows + ?Sized>(q: &[f32; HD], kv: &S, h: usize, l: usize, c: f32, unit: usize) -> [u16; HD] {
     assert!(l >= 1, "a row sees at least its own position");
     let mut total = St::empty();
     for s in 0..l.div_ceil(SPLIT) {
@@ -323,9 +365,9 @@ pub fn row(q: &[f32; HD], kv: &Kv, h: usize, l: usize, c: f32, unit: usize) -> [
 /// reading KV head `h` (the `repeat_kv` convention); the result has the same
 /// layout. The cache must already hold every position the rows read.
 #[allow(clippy::too_many_arguments)]
-pub fn attend(
+pub fn attend<S: KvRows + ?Sized>(
     q: &[u16],
-    kv: &Kv,
+    kv: &S,
     n_kv: usize,
     groups: usize,
     pos0: usize,
@@ -335,7 +377,7 @@ pub fn attend(
 ) -> Vec<u16> {
     let n_heads = n_kv * groups;
     assert_eq!(q.len(), n_heads * rows * HD, "q is [n_heads][rows][HD]");
-    assert!(pos0 + rows <= kv.cap, "rows past the cache capacity");
+    assert!(pos0 + rows <= kv.cap(), "rows past the cache capacity");
     let mut out = vec![0u16; q.len()];
     for hq in 0..n_heads {
         for r in 0..rows {

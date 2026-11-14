@@ -371,6 +371,37 @@ mod tests {
         Ok(())
     }
 
+    /// 4E's research arm v9k8 stores this module's codes: its quantizer
+    /// (`llvq_cuda::kv8_ref`, which the kernel text is checked against) gives,
+    /// on every value, a code and a scale and bias whose kvq reading
+    /// `f16(code x scale + bias)` is what `quantize_dequantize` returns, bit
+    /// for bit, on candle's own operations. So the arm's cache holds the q8
+    /// round trip's codes; the arm reads `fma(scale, code, bias)` in f32
+    /// instead of that binary16 rounding.
+    #[cfg(any(target_os = "macos", feature = "cuda"))]
+    #[test]
+    fn the_k8_arms_codes_are_kvqs() -> Result<()> {
+        use llvq_cuda::{attn_ref, kv8_ref};
+        let dev = Device::Cpu;
+        for (t, seed) in [(16usize, 0u64), (5, 77)] {
+            let x = if seed == 0 { cache_like(t, &dev)? } else {
+                let v: Vec<half::f16> = attn_ref::fill(8 * t * 128, seed, 4.0).into_iter().map(half::f16::from_bits).collect();
+                Tensor::from_vec(v, (1, 8, t, 128), &dev)?
+            };
+            let got = quantize_dequantize(&x)?.flatten_all()?.to_vec1::<half::f16>()?;
+            let bits: Vec<u16> = x.flatten_all()?.to_vec1::<half::f16>()?.iter().map(|h| h.to_bits()).collect();
+            for (r, row) in bits.chunks_exact(128).enumerate() {
+                let (q, sb) = kv8_ref::quant_row(row);
+                for d in 0..128 {
+                    let (s, b) = (attn_ref::h2f(sb[2 * (d / 64)]), attn_ref::h2f(sb[2 * (d / 64) + 1]));
+                    let kvq = attn_ref::f2h(q[d] as f32 * s + b);
+                    assert_eq!(kvq, got[r * 128 + d].to_bits(), "row {r} dim {d}: code {} scale {s} bias {b}", q[d]);
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// The accounting the memory claim is made in, pinned.
     #[test]
     fn the_geometry_is_the_published_one() {
