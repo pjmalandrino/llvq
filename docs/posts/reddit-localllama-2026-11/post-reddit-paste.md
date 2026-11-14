@@ -60,6 +60,17 @@ At batch 1 we hit 227 / 145 / 90 tok/s on the L40S. Put another way, at the same
 - MMLU and perplexity were scored on the dense reconstruction of the file, GSM8K through the actual kernel. The kernel gives back the same tokens as the reference path, but it's not the same measurement.
 - It's a custom format. llama.cpp can't read it. You need my runtime, or `transformers` for the 4B.
 
+## What's next
+
+**Qwen 4 27B.** That's the next model. Nothing has been encoded yet, so I have no numbers to show. Back of the envelope: at the same ~2.7 b/param, 27B parameters come to roughly 9 GB of weights. That would put a 27B within reach of a 12 GB card, if the quality holds. It's the bet, not a result.
+
+**Memory on long prompts.** This is the work in progress right now, because of the 8K chart above. Two things:
+
+- The prefill. The peak during a long prompt comes mostly from how attention is computed while the prompt goes in, not from the weights. I already cut it from 11.5 to 5.95 GB at 4B by keeping one score buffer instead of three, with the same output bit for bit. There's still a gap to llama.cpp's 3.52 GB, and that's the target.
+- The KV cache. An int4 KV cache would take the 4B's cache at 8K tokens from 1.21 GB down to about 0.34 GB (computed, not built yet). It changes the model's outputs, so it needs its own quality check before it ships.
+
+On the side, a different prefill path brings the 4B's first token after an 8K prompt from 37 s down to 6.5 s on the L40S. It's a bench for now, not in the runtime.
+
 ## Try it
 
 Files: [4B](https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-Tetra-sealed), [8B](https://huggingface.co/Pier-Jean/Qwen3-8B-LLVQ-Tetra-sealed), [14B](https://huggingface.co/Pier-Jean/Qwen3-14B-LLVQ-Tetra-sealed)
