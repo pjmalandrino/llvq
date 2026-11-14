@@ -1,0 +1,31 @@
+
+========================================================================
+A = /out/guided-clip-4b-2026-11-14/candidate-clip10/candidate-clip10.bin [LLVQ 2-bit, sealed]
+    /Users/pjmalandrino/llvq-guided-clip-2026-11-14/card/pair/mmlu-candidate-clip10-FULL.csv
+    config=none, arithmetic=dense reconstruction, kv=f16
+B = /out/guided-encode-4b-2026-11-13/candidate/candidate.bin [LLVQ 2-bit, sealed]
+    docs/data/mmlu-dumps/mmlu-guided-candidate-FULL.csv
+    config=none, arithmetic=dense reconstruction, kv=f16
+14042 paired questions, 57 subjects · dtype f16 / f16 · limit census / census
+sampling plan: flat, 100..1534 per subject, 14042 questions / flat, 100..1534 per subject, 14042 questions
+run fingerprint: a74a6d6213602979 / a74a6d6213602979 (identical)
+
+rates (Δ = A − B, in percentage points)
+  stratified micro    A  57.95 %   B  57.11 %   Δ = +0.83 pp   ← the published number
+  unweighted (pooled) A  57.95 %   B  57.11 %   Δ = +0.83 pp   ← what McNemar tests
+
+McNemar exact (unweighted)
+  A✓B✗ = 1743   A✗B✓ = 1626   concordant = 10673   (24.0 % of the questions are discordant)
+  p = 0.0456   (z normal = +2.02)
+
+paired bootstrap stratified by subject (10000 draws, seed 0xb0075eed, WITHOUT finite population correction)
+  Δ stratified micro = +0.83 pp   CI95 [+0.03 ; +1.65]   SE 0.41 pp
+  unweighted control = +0.83 pp   CI95 [+0.03 ; +1.65]   SE 0.41 pp
+  → the CI excludes zero: the gap is resolved by this protocol.
+
+subjects carrying the gap (contribution to the stratified Δ)
+  professional law                          +3.7 pp × weight 10.9 % = +0.406 pp
+  moral scenarios                           -3.0 pp × weight  6.4 % = -0.192 pp
+  conceptual physics                       +10.2 pp × weight  1.7 % = +0.171 pp
+  professional psychology                   +3.9 pp × weight  4.4 % = +0.171 pp
+  anatomy                                  -11.9 pp × weight  1.0 % = -0.114 pp

@@ -102,6 +102,21 @@ impl Hessian {
         Ok(())
     }
 
+    /// `Σ_t w_t x_t x_tᵀ / N`: [`Self::accumulate`] with one weight per row of `x`
+    /// (`crate::guided`). `w` is `(rows, 1)` on the device of `x`.
+    ///
+    /// One side is weighted, `(A ∘ w)ᵀ A`, and the other is `A` itself, so that weights of exactly 1
+    /// give the operands of [`Self::accumulate`] bit for bit, and weights that are a power of two give
+    /// `2^k · AᵀA` exactly. The first moment and the norms are not kept: only an encoding calls this.
+    pub fn accumulate_weighted(&mut self, x: &Tensor, w: &Tensor) -> candle_core::Result<()> {
+        let width = x.dim(x.rank() - 1)?;
+        let a = x.reshape(((), width))?.to_dtype(DType::F32)?.contiguous()?;
+        let aw = a.broadcast_mul(w)?;
+        let g = (aw.t()?.contiguous()?.matmul(&a)? * self.scale)?;
+        self.sum = (&self.sum + g)?;
+        Ok(())
+    }
+
     /// Dense row-major `n × n`, in f64, ready for [`GptqFactor`].
     pub fn to_f64(&self) -> candle_core::Result<Vec<f64>> {
         Ok(self
@@ -132,6 +147,39 @@ impl Hessian {
 struct BlockCapture {
     target: usize,
     acc: HashMap<Act, Hessian>,
+    /// Under `crate::guided`: the weighted Hessians of gate/up, which replace the shared
+    /// [`Act::Mlp`] one. `None` on the published path.
+    guided: Option<GuidedCapture>,
+}
+
+/// The weighted Hessians of `mlp.gate_proj` and `mlp.up_proj` for one block: one per (matrix, row
+/// group), each fed the per-token weights of its group as the windows stream past.
+struct GuidedCapture {
+    /// `(matrix, group)` → its weights over every calibration row, in stream order, and its sum.
+    acc: Vec<(&'static str, usize, Vec<f32>, Hessian)>,
+    /// Calibration rows already seen at [`Act::Mlp`]: where the next window's weights start.
+    cursor: usize,
+}
+
+impl GuidedCapture {
+    fn on_mlp(&mut self, x: &Tensor) -> candle_core::Result<()> {
+        let width = x.dim(x.rank() - 1)?;
+        let rows = x.elem_count() / width;
+        let start = self.cursor;
+        for (_, _, w, h) in self.acc.iter_mut() {
+            if start + rows > w.len() {
+                candle_core::bail!(
+                    "guided weights hold {} calibration rows and the stream reached {}",
+                    w.len(),
+                    start + rows
+                );
+            }
+            let wt = Tensor::from_slice(&w[start..start + rows], (rows, 1), x.device())?;
+            h.accumulate_weighted(x, &wt)?;
+        }
+        self.cursor = start + rows;
+        Ok(())
+    }
 }
 
 impl Capture for BlockCapture {
@@ -139,6 +187,11 @@ impl Capture for BlockCapture {
         if layer == self.target {
             if let Some(h) = self.acc.get_mut(&act) {
                 h.accumulate(x)?;
+            }
+            if act == Act::Mlp {
+                if let Some(g) = self.guided.as_mut() {
+                    g.on_mlp(x)?;
+                }
             }
         }
         Ok(())
@@ -677,6 +730,40 @@ struct ActFactor {
     rotation: Option<Rotation>,
 }
 
+/// What the guided gate/up of one block are encoded against (`crate::guided`): one factor per row
+/// group of each matrix, in the basis of [`Act::Mlp`].
+struct GuidedFactors {
+    per_matrix: HashMap<&'static str, Vec<GptqFactor>>,
+    rotation: Option<Rotation>,
+}
+
+/// Encode a guided matrix group by group: rows `[g·d/G, (g+1)·d/G)` against factor `g`, through the
+/// same row-parallel loop as an unguided matrix.
+///
+/// Exact plumbing and not an approximation, because rows never interact
+/// (`llvq_quant::gptq::quantize_layer_parallel_capturing`) and each row fixes its own row scale
+/// inside the loop: with every factor equal, this writes the bytes of one call on the whole matrix.
+fn quantize_guided_rows(
+    weights: &mut Weights,
+    factors: &[GptqFactor],
+    make: &(dyn Fn() -> Box<dyn BlockQuantizer> + Sync),
+    cfg: &GptqConfig,
+    threads: usize,
+    mut codes: Option<&mut [Option<llvq_quant::quantizer::BlockCode>]>,
+) -> anyhow::Result<()> {
+    let (d_out, d_in) = (weights.d_out, weights.d_in);
+    let nb = d_in / cfg.block;
+    let ranges = crate::guided::row_ranges(d_out, factors.len()).map_err(anyhow::Error::msg)?;
+    for (range, factor) in ranges.into_iter().zip(factors) {
+        let rows = range.len();
+        let mut sub = Weights::new(rows, d_in, weights.w[range.start * d_in..range.end * d_in].to_vec());
+        let cslice = codes.as_deref_mut().map(|c| &mut c[range.start * nb..range.end * nb]);
+        llvq_quant::gptq::quantize_layer_parallel_capturing(&mut sub, factor, None, make, cfg, threads, cslice);
+        weights.w[range.start * d_in..range.end * d_in].copy_from_slice(&sub.w);
+    }
+    Ok(())
+}
+
 /// Receives each matrix's codes as it is quantized, so a whole model never has
 /// to be held in memory at once — 151 M blocks of Qwen3-4B would be 14 GB of
 /// lattice points.
@@ -815,6 +902,7 @@ pub fn capture_model_hessians(
         let mut cap = BlockCapture {
             target: t,
             acc: HashMap::new(),
+            guided: None,
         };
         for act in Act::ALL {
             let w = act.width(model.config());
@@ -941,6 +1029,22 @@ pub fn quantize_model_capturing(
     model: &mut Qwen3,
     hidden: &mut [Tensor],
     run: &RunConfig,
+    progress: impl FnMut(usize, usize, &str),
+    sink: Option<&mut dyn MatrixSink>,
+) -> anyhow::Result<Report> {
+    quantize_model_guided(model, hidden, run, None, progress, sink)
+}
+
+/// [`quantize_model_capturing`], with `mlp.gate_proj` and `mlp.up_proj` encoded against
+/// gradient-weighted Hessians, one per row group, when `guided` is `Some` (`crate::guided`).
+///
+/// `None` is the published path: the same instructions in the same order, which
+/// `tests/guided.rs` holds to the bytes written at the commit before this function existed.
+pub fn quantize_model_guided(
+    model: &mut Qwen3,
+    hidden: &mut [Tensor],
+    run: &RunConfig,
+    guided: Option<&crate::guided::GuidedWeights>,
     mut progress: impl FnMut(usize, usize, &str),
     mut sink: Option<&mut dyn MatrixSink>,
 ) -> anyhow::Result<Report> {
@@ -1019,6 +1123,36 @@ pub fn quantize_model_capturing(
     let nblocks = model.blocks.len();
     let total_rows: usize = hidden.iter().map(|h| h.dim(1).unwrap_or(0)).sum();
     anyhow::ensure!(total_rows > 0, "no calibration data");
+    if let Some(g) = guided {
+        anyhow::ensure!(
+            g.tokens() == total_rows,
+            "guided weights for {} calibration rows, and this run calibrates on {total_rows}",
+            g.tokens()
+        );
+        anyhow::ensure!(
+            g.layers() == nblocks,
+            "guided weights for {} layers, and this model has {nblocks}",
+            g.layers()
+        );
+        anyhow::ensure!(
+            hidden.iter().all(|h| h.dim(0).unwrap_or(0) == 1),
+            "guided weights are per calibration row in stream order; a batched window would interleave them"
+        );
+        anyhow::ensure!(
+            !needs_dense_hessian(cfg),
+            "guided weights with group_scales or design C: their closed-form solve reads one dense H per \
+             matrix, and a guided matrix has one per row group"
+        );
+        for name in crate::guided::TYPES {
+            let short = name.rsplit('.').next().unwrap_or(name);
+            anyhow::ensure!(
+                !int4_types.iter().any(|ty| ty == short),
+                "guided weights with {short} in LLVQ_INT4_TYPES: an int4 record has no Hessian to weight"
+            );
+        }
+        let d_out = model.config().intermediate_size;
+        crate::guided::row_ranges(d_out, g.groups()).map_err(anyhow::Error::msg)?;
+    }
 
     for t in 0..nblocks {
         // Blocks outside `[start, limit)` are pushed through untouched.
@@ -1065,13 +1199,30 @@ pub fn quantize_model_capturing(
         for stage in &stages {
             // ---- pass 1: collect H with the original weights ----
             let tp = std::time::Instant::now();
+            // Under guided weights the stage that holds `Act::Mlp` accumulates one weighted Hessian
+            // per (gate/up, row group) instead of the shared one; nothing else changes.
+            let guided_stage = guided.filter(|_| stage.contains(&Act::Mlp));
             let mut cap = BlockCapture {
                 target: t,
                 acc: HashMap::new(),
+                guided: None,
             };
             for act in stage.iter().copied() {
+                if guided_stage.is_some() && act == Act::Mlp {
+                    continue;
+                }
                 let w = act.width(model.config());
                 cap.acc.insert(act, Hessian::new(w, &device, total_rows)?);
+            }
+            if let Some(g) = guided_stage {
+                let w = Act::Mlp.width(model.config());
+                let mut acc = Vec::new();
+                for name in crate::guided::TYPES {
+                    for (k, wg) in g.load(t, name)?.into_iter().enumerate() {
+                        acc.push((name, k, wg, Hessian::new(w, &device, total_rows)?));
+                    }
+                }
+                cap.guided = Some(GuidedCapture { acc, cursor: 0 });
             }
             for h in hidden.iter() {
                 let _ = model.blocks[t].forward(h, model.rotary(), &mask, t, &mut cap)?;
@@ -1083,7 +1234,38 @@ pub fn quantize_model_capturing(
             let keep_hessian = needs_dense_hessian(cfg);
             let mut kept_bytes = 0u64;
             let mut factors: HashMap<Act, ActFactor> = HashMap::new();
+            // Under guided weights: one factor per (gate/up, row group), in the activation's basis,
+            // through the same shrink, rotation and damping as the shared one.
+            let mut guided_factors: Option<GuidedFactors> = None;
+            if let Some(gc) = cap.guided.take() {
+                anyhow::ensure!(
+                    gc.cursor == total_rows,
+                    "block {t}: guided weights consumed for {} calibration rows of {total_rows}",
+                    gc.cursor
+                );
+                let n = Act::Mlp.width(model.config());
+                let rot = rotation_seed.map(|s| Rotation::new(n, effective_rotation_seed(s, t, Act::Mlp)));
+                let mut per_matrix: HashMap<&'static str, Vec<GptqFactor>> = HashMap::new();
+                for (name, k, _, hess) in gc.acc {
+                    let mut h = hess.to_f64()?;
+                    if h_shrink < 1.0 {
+                        shrink_off_diagonal(&mut h, n, h_shrink);
+                    }
+                    if let Some(q) = &rot {
+                        q.rotate_hessian(&mut h);
+                    }
+                    let factor = GptqFactor::new(&h, n, damping)
+                        .map_err(|e| anyhow::anyhow!("block {t}, {name} row group {k}: {e}"))?;
+                    let v = per_matrix.entry(name).or_default();
+                    anyhow::ensure!(v.len() == k, "block {t}, {name}: row group {k} out of order");
+                    v.push(factor);
+                }
+                guided_factors = Some(GuidedFactors { per_matrix, rotation: rot });
+            }
             for act in stage.iter().copied() {
+                if guided_factors.is_some() && act == Act::Mlp {
+                    continue;
+                }
                 // Taken out of the capture map, not borrowed from it: the device
                 // accumulator is `n × n` f32 (2.6 GB for `down_proj` at 32B) and
                 // is dead the instant it has been read out. Holding all four of
@@ -1135,11 +1317,20 @@ pub fn quantize_model_capturing(
 
             // ---- quantize the seven matrices ----
             for act in stage.iter().copied() {
-                let ActFactor {
-                    factor,
-                    hessian,
-                    rotation: rot,
-                } = &factors[&act];
+                // A guided gate/up has no shared factor: one per row group instead.
+                let guided_act = if act == Act::Mlp { guided_factors.as_ref() } else { None };
+                let (factor, hessian, rot): (Option<&GptqFactor>, Option<&[f64]>, &Option<Rotation>) =
+                    match guided_act {
+                        Some(gf) => (None, None, &gf.rotation),
+                        None => {
+                            let ActFactor {
+                                factor,
+                                hessian,
+                                rotation,
+                            } = &factors[&act];
+                            (Some(factor), hessian.as_deref(), rotation)
+                        }
+                    };
                 for name in act.consumers() {
                     let tp = std::time::Instant::now();
                     // The one decision point of the mixed path, and it is taken
@@ -1277,21 +1468,31 @@ pub fn quantize_model_capturing(
                     // the wrong number to `progress`.
                     let row_blocks = d_in / cfg.block;
                     let mut codes = capturing.then(|| vec![None; d_out * row_blocks]);
-                    llvq_quant::gptq::quantize_layer_parallel_capturing(
-                        &mut weights,
-                        factor,
-                        // The Hessian feeds the end-of-layer closed-form scale
-                        // solve, which both flags run (design C then re-projects
-                        // its result back onto the gain grid). It is `Some`
-                        // exactly when [`needs_dense_hessian`] said to keep it —
-                        // the flags are consulted there and nowhere else, so the
-                        // two sites cannot drift apart.
-                        hessian.as_deref(),
-                        &make,
-                        cfg,
-                        threads,
-                        codes.as_deref_mut(),
-                    );
+                    match guided_act {
+                        Some(gf) => quantize_guided_rows(
+                            &mut weights,
+                            &gf.per_matrix[name],
+                            &make,
+                            cfg,
+                            threads,
+                            codes.as_deref_mut(),
+                        )?,
+                        None => llvq_quant::gptq::quantize_layer_parallel_capturing(
+                            &mut weights,
+                            factor.expect("an unguided activation has its shared factor"),
+                            // The Hessian feeds the end-of-layer closed-form scale
+                            // solve, which both flags run (design C then re-projects
+                            // its result back onto the gain grid). It is `Some`
+                            // exactly when [`needs_dense_hessian`] said to keep it —
+                            // the flags are consulted there and nowhere else, so the
+                            // two sites cannot drift apart.
+                            hessian,
+                            &make,
+                            cfg,
+                            threads,
+                            codes.as_deref_mut(),
+                        ),
+                    }
                     // Narrow the tail to the precision it is *stored* at, before
                     // anything else reads it.
                     //

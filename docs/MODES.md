@@ -128,9 +128,10 @@ The project is a one-man lab. The roles are fixed so that nobody judges their ow
 | Hands | agents | Generate, build, measure, attack: Opus agents execute, Sonnet agents write the simple. An agent that proposed an idea does not attack it. The agent that closes a job edits the `CERVEAU.md` claims its journal touches, in the closing commit. |
 | Memory | `CERVEAU.md` and the journals | What holds, and the record of how it came to hold. |
 
-At most one research phase and one development phase run at a time: one card budget, one work machine. Between
-phases the lead brings the operator the ranked open questions and anomalies of `CERVEAU.md`, and the operator picks
-the next mandate.
+At most one research phase per axis and one development phase run at a time. Two research phases run together only
+when each mandate carries its own card budget, the second loads no model on the work machine, and the two edit no
+file in common but `CERVEAU.md`. Between phases the lead brings the operator the ranked open questions and anomalies
+of `CERVEAU.md`, and the operator picks the next mandate.
 
 ## What this method is, and where it is weak
 

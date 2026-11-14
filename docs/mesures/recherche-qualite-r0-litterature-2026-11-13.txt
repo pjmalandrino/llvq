@@ -1,0 +1,397 @@
+R0 LITERATURE: QUALITY OF WEIGHT-QUANTIZED LLMS AT 2 TO 3 BITS, KNOWN, REFUTED AND PUBLISHED, 2026-11-13. $0.
+=============================================================================================================
+Result: no published study compares the task accuracy of a quantized LLM with Gaussian noise of the same amplitude on
+weights or logits and finds a clear answer; the one Gaussian control found is inconclusive (section 1d). The closest
+published fact to N1 is that quantization shrinks decision margins multiplicatively: a margin model m' = c m + b + e
+beats three additive-noise models by BIC in all 642 damaged conditions over 16 models, with a median slope c of 0.29 at
+3 bits and 0.00 at 2 bits under RTN (*reported*, [S42]). Two other papers find the weight error structured: at 2 bits
+it lies in the signal subspace (alignment about 0.8 against 0.3 at 4 bits, [S28]), and on one 32B int4 tensor an error
+coherent along the gradient gave 5.18 times the KL of the incoherent prediction ([S34]). One practitioner tool reports
+the opposite sign on weights: isotropic weight noise overestimates the KL sensitivity of LDLQ error by up to about 6x
+([S20]). Nothing published measures an interaction between attention and MLP errors (N2). Layer pairs interact with
+both signs in CNNs and a ViT ([S46]); in pretrained Qwen3-32B consecutive blocks cancel about 50 % of the added error
+at NVFP4 ([S4]). Per-module studies put down_proj, then up_proj, then gate_proj above attention on Qwen2.5 under FP4
+([S33]), and call Qwen3-8B balanced between MLP and attention at 4 bits ([S28]). Output-aware objectives gain 1.8 to 2.8
+MMLU points and 5.8 to 10.7 GSM8K points over LDLQ on Qwen3-8B at 2 bits (*computed* from [S1]). Eight sources report
+cases where perplexity and task accuracy move in opposite directions (section 8). The one paper that asks for a cheap
+metric that ranks near-baseline quantizations finds none: KL correlates at rho +0.00 and -0.24 in that zone ([S27]).
+Nothing published analyses how gate and up weight errors combine through the SwiGLU product.
+Nature: literature only. No build, no run, no model load, no job. Web search and fetch on 2026-11-13. Arithmetic by
+hand, each line states its inputs. Nothing here estimates what any mechanism would gain on the project's object, and no
+experiment is proposed.
+
+LABELS AND CONVENTIONS
+----------------------
+*reported (Sn)*: the figure as source Sn publishes it, read on the URL listed in SOURCES. "abstract only" on a line
+means the full text was not read for that claim. *computed*: arithmetic done here on published figures, inputs on the
+line. pp = percentage points. "2-bit" means the source's own accounting, which usually excludes embeddings and head.
+Model names are the sources' own. MMLU shot counts differ between sources and are given when the source gives them.
+N1, N2 and the background facts are the anomalies and claims of `docs/CERVEAU.md` (Q4 to Q22). N1 was measured with
+Gaussian noise on logits (Q7), not on weights; section 1 keeps the two apart.
+
+1. STRUCTURED ERROR AGAINST NOISE (QUESTION A, N1)
+--------------------------------------------------
+1a. Margins shrink multiplicatively. Wu, Dhiman, Koshiyama, arXiv 2608.06564 v5, 2026-10-05 [S42]. 16 models of 8
+families, RTN at 4, 3 and 2 bits, plus AWQ-style scaling, GPTQ and GGUF; 1,092 items including MMLU and BoolQ. The
+logit margin between two first-token candidates is fitted as m' = c m + b + e, e roughly Gaussian (*reported*).
+- Median surviving fraction c: 0.86 at 4 bits, 0.29 at 3 bits, 0.00 at 2 bits (*reported*).
+- The multiplicative model beats constant noise, noise with drift and margin-scaled noise by BIC in all 642 conditions
+  with c < 0.70; BIC gaps +28.8 to +1031.2 in the core decision kinds (*reported*).
+- The offset b is shared across decisions of one kind and acts as a penalty on one token, a systematic shift
+  (*reported*). Global rescaling or a bias offset cannot change a sign, and no label-free repair tested wins on most
+  models (*reported*).
+- A Gaussian-tail formula from fitted c, b, sigma predicts held-out flip rates to a median 1.0 pp (90th percentile 7.8)
+  over 1,082 conditions (*reported*). Constants copied from another model miss by a median 26.8 pp at 3 bits.
+- The paper describes the mechanism and does not explain it (*reported*, its stated limit).
+
+1b. Error aligned with the signal at 2 bits. Zhou et al., "From Signal Degradation to Computation Collapse", arXiv
+2604.19884, Findings of ACL 2026 per the abstract page [S28]. Llama-3.1-8B, with Qwen3-8B, Mistral-7B and Gemma-2-9B.
+- Alignment of the error subspace with the signal subspace about 0.8 at 2 bits and 0.3 at 4 bits; activation-subspace
+  similarity to FP16 above 0.8 at 4 bits and near zero at 2 bits (*reported*).
+- The paper calls 4-bit error "resembling random noise" without a random-noise control (*reported*, as fetched).
+- Training-free repair (layer protection, logit amplification) recovers 4-bit failure-subset accuracy; protection and
+  EoRA low-rank compensation fail at 2 bits, numbers not given (*reported*).
+
+1c. Error coherent with the gradient costs more KL. Lu, Ni, arXiv 2611.12634, 2026-11-09, preregistered [S34]. The
+second-order prediction KL = 1/2 D' F D, with a diagonal Fisher, holds within 0.95 to 1.08 on Qwen3-8B (trimmed, 18
+cells) at int8, fp8 and int4 (*reported*). Stochastic rounding raises KL 2.25x against 2.28x predicted. On Qwen3-32B
+int4 the diagonal form misses by 5.18x (trimmed); the last layer's down projection carries most of the excess, two of
+its input columns correlate at 0.94 across sequences, and a tensor-block form brings the ratio to 1.13 at a quarter
+of the perturbation and 1.46 at full scale (*reported*). The localization is post hoc and the preregistered follow-up
+on that tensor read "mixed" (*reported*). The paper states that the diagonal form assumes rounding errors
+sign-incoherent along the gradient. It runs no iid-noise arm. Ratios re-read by the main session on 2026-11-13.
+
+1d. Gaussian controls at equal power. Khan, L, Misri, arXiv 2611.14413, 2026-11-10, abstract only [S45]. Qwen3-0.6B and
+1.7B, simulated RTN at 8, 6, 4, 3 bits, ARC, MMLU, HellaSwag, 300 items each. A Gaussian noise control at equal power
+was inconclusive on whether rounding adds answer-slot skew. Flip rates stayed below an accuracy-matched baseline of
+independent uniform errors (*reported*). Answer-slot skew at 4 bits rose from 0.15 to 0.53 on the 0.6B (*reported*).
+
+1e. Weight noise in the other direction. ExLlamaV3 optimizer documentation, turboderp, GitHub, undated [S20].
+Isotropic weight noise can overestimate a tensor's KL sensitivity "by up to ~6x" where input statistics are anisotropic,
+v_proj worst. LDLQ error is steered away from directions the data exercises. Noise shaped by the per-layer Hessian
+ranks tensors at Spearman 0.84 against real swaps, isotropic noise at 0.61 (*reported*). KL fits S_t rfn^alpha with
+alpha about 2.0, steeper (about 2.35) once a tensor is mostly noise (*reported*). Practitioner documentation, not
+peer reviewed.
+
+1f. Noise models used as stand-ins. HIGGS (Malinovskii et al., arXiv 2411.17525 v1, 2024, venue not stated on the page
+read) [S2] estimates per-layer coefficients with Gaussian noise scaled to each layer's norm. Its linearity
+theorem, E[PPL] ~ PPL* + sum alpha_l t_l^2, assumes a near-diagonal scaled Hessian and small errors. Predictions track
+measured perplexity above about 3 bits and diverge below (*reported*, Figure 1 as described). No side-by-side of real
+error against equal-norm noise was found in the part read (first 100,000 characters). SLQ (Helcig, Kurtic, Alistarh,
+arXiv 2605.02404, 2026-05-04) [S6] builds its KL-to-accuracy curve from uniform noise scaled to each matrix's std:
+accuracy holds while KL < 0.01 and falls about linearly with KL in the near-lossless regime (*reported*). Symmetric
+grids flip up to about 3x more top-1 tokens than asymmetric ones at low entropy on Llama-3.1-8B at 4 bits; the paper
+attributes it to a centering inefficiency gamma that multiplies noise variance by gamma^2 (*reported*).
+
+1g. Mean shift and bias. D2Quant (Yan et al., arXiv 2602.02546 v2, 2026, ICML keyword) [S7]: quantizing attention
+gives "a clear mean shift" at the post-attention LayerNorm; MLP quantization gives much less (*reported*, figures,
+no magnitudes in text). Norm Tweaking (Li et al., arXiv 2309.02784, AAAI 2024 per the AAAI link in search) [S12]:
+quantized activations drift from zero mean layer by layer, attributed partly to GPTQ updates (*reported*).
+Bias correction for 8-bit CNNs (Nagel et al., ICCV 2019, abstract only) [S36]: quantization error is biased and the
+bias is corrected (*reported*).
+
+1h. The output error is mostly a rotation. Chen, Beyer, Zhu, Chen, arXiv 2609.11716, 2026-09-10 [S4]. NVFP4 weights,
+Qwen3 (incl. 32B and a MoE), OLMo3, Gemma3, OLMoE; RTN, GPTQ, AWQ on Qwen3-4B.
+- 88.9 to 98.7 % of the squared relative error of the final hidden state is angular; mean rotation 12.47 degrees
+  (*reported*).
+- A block's new error opposes its inherited error: about 50.2 % of the cumulative added error cancels in pretrained
+  Qwen3-32B, at most 0.16 % a layer at random init (*reported*). Removing the cancellation multiplies final relative
+  error by 2.94 (*reported*).
+- Random-init weights with the same reconstruction cosine accumulate 5.5x (absolute) more final hidden error
+  (*reported*). This is the only "same weight error, different damage" comparison found, and it is not a noise arm.
+- About 0.28 % of positions show large norm distortion that the cancellation does not contain (*reported*).
+
+1i. Outlier weights. The super weight (Yu et al., arXiv 2411.07191 v2) [S11]: one weight in an early-layer
+mlp.down_proj (layer 2 of Llama-7B, 0-indexed); pruning it takes Llama-7B zero-shot from 70.11 to 35.14 and Wiki-2
+perplexity from 5.67 to 1211.11, while pruning the next 7,000 outliers gives 69.22 and 6.08 (*reported*).
+
+1j. Signal-to-noise at the task. Zhou et al., arXiv 2608.08188 v1, 2026-08-08 [S5]. 10 models including Qwen3 0.6B to
+14B, RTN, GPTQ, AWQ, SpQR at W8 to W2. Source SNR = M + S - N in dB, N the activation energy along the error direction;
+GSM8K has the lowest source SNR, driven by a larger N (*reported*). The method shapes the alignment, the bit width the
+magnitude (*reported*). No equal-norm noise arm. Per-module results are in a supplement not read.
+
+What was not found for A: a published downstream-accuracy comparison between a quantizer's weight error and random
+weight noise of equal norm at 2 to 3 bits; a measurement of systematic row- or column-norm loss after weight
+quantization tied to accuracy; an analysis of error alignment with top singular directions measured against accuracy
+(LQER and QERA came up as snippets only, section 11).
+
+2. WHERE IT HURTS: MODULES AND INTERACTIONS (QUESTION B, N2)
+------------------------------------------------------------
+2a. Per-module, by restore or single-module quantization.
+| source | setting | metric | order or figures (*reported*) |
+|---|---|---|---|
+| [S33] 2603.08747, Qwen2.5 0.5B/7B/14B | NVFP4, MXFP4, keep one type FP16 | Wiki-2 ppl gain | down and up top tier, gate third, attention below; 14B MXFP4: down +0.39, up +0.24, gate +0.20, o +0.13, k +0.10, q +0.08, v +0.07 |
+| [S28] 2604.19884, failure subset | 4-bit, quantize one module | accuracy left | Llama-3.1-8B: MLP 38.04 against attention 53.88; Qwen3-8B: MLP 49.30, attention 46.88, gate/up 63.58, down 64.19 |
+| [S28] same | 2-bit, Llama-3.1-8B only | accuracy left | all MLP parts near zero (gate/up 4.82, down 4.16), attention 9.40 |
+| [S30] ABQ-LLM 2408.08554, LLaMA-7B | weight-activation | Wiki-2 ppl | gate/up minor, down_proj "substantial" drop; bits not named in text |
+| [S20] EXL3 doc | KL allocation on chat output | KL | first/last-layer U shape flattens; mid-stack k/v most valuable bits |
+| [S29] 2607.08734, abstract only | 8 to 2 bits | agreement | q and k more sensitive than v and o |
+In [S33] gate is less sensitive than up at equal activation statistics (Max/P99.9 10 against 11 at 14B), and the paper
+offers no mechanism (*reported*). Down's input tail ratio is 80 to 334 against 5.5 to 11 for up and gate.
+
+2b. Interactions.
+- CLADO (Deng et al., DAC 2025, arXiv 2307.05657 v2) [S46]: pairwise cross-layer terms occur with both signs; ResNet-34
+  layers (12,19) real loss change 0.273 against 0.255 without cross terms (super-additive), layers (22,23) cross term
+  -0.070 (sub-additive). Dropping cross terms lowers ViT accuracy at 29.84 MB from 66.60 to 54.42 % (*reported*). No LLM.
+- IMPQ (Zhao et al., arXiv 2509.15455, 2025) [S8]: Shapley-based interactions for layer bit allocation on Qwen3-4B/8B,
+  Llama, Gemma, 2.01 to 3.99 bits; Wiki-2 perplexity only; Qwen3-4B GPTQ 2.01 to 2.5 bits 697.28 against 1.56e3 for
+  sensitivity-only (*reported*). No sign or magnitude of interactions is reported, and the unit is the whole layer.
+- Counteraction across blocks [S4], 1h above: inherited and new block errors have negative cosine in 82.5 % of blocks
+  (Qwen3-32B, C4, NVFP4). Not split by sublayer in the part read (first 200,000 characters).
+- HIGGS [S2] assumes additivity across layers through its diagonal assumption.
+- Error growth with depth: QEP (Arai, Ichikawa, NeurIPS 2025, arXiv 2504.09629) [S39] states quantization error grows
+  across layers and gives no per-layer ratio in the text read. A domino test in [S28] quantizes layers 0 to k at 2 bits
+  on Llama-3.1-8B: failure-subset accuracy 15.03 % at k = 0, 0.38 % at k = 5 (*reported*).
+What was not found for B: any published measurement of attention-by-MLP interaction (super- or sub-additive) at any bit
+width in an LLM; any per-module restore study at 2 to 3 bits on Qwen3 read on MMLU.
+
+3. OUTPUT-AWARE AND GLOBAL OBJECTIVES (QUESTION C)
+-------------------------------------------------
+Gain over the layer-wise baseline at about 2 bits, as published. "same" = same quantizer and bits.
+| method, source | model, bits | baseline -> method (*reported*) | gain (*computed*) |
+|---|---|---|---|
+| YAQA-B, 64K seq [S1] Table 8 | Qwen3-8B, QTIP 2-bit, no FT | LDLQ MMLU 63.94, GSM8K 56.31, KL 0.285, ppl 10.81 -> 66.75, 66.07, 0.205, 10.16 | MMLU +2.81, GSM8K +9.76, KL -28 % |
+| YAQA-B, 4K seq [S1] Table 9 | same, 2 GPU-h | -> 66.04, 63.82, 0.221, 10.32 | MMLU +2.10, GSM8K +7.51 |
+| YAQA-B [S1] Table 8 | Qwen3-8B 3-bit | 70.40, 80.81, 0.0681 -> 71.36, 82.55, 0.0479 | MMLU +0.96, GSM8K +1.74 |
+| YAQA-A/B with recovery FT [S1] Table 4 | Llama 3.1 8B Inst., 2-bit | LDLQ 0-shot 65.44, KL 0.185 -> A 67.54 / B 66.38, KL 0.163 / 0.147 | 0-shot +2.10 / +0.94 |
+| GuidedQuant [S14] Table 12 | Llama-2-7B, LNQ 2.01 b | MMLU 5-shot 26.76, 0-shot 40.30 -> 31.53, 50.39 | MMLU +4.77, 0-shot +10.09 |
+| GuidedQuant [S14] Table 12 | Llama-2-13B, LNQ 2.01 b | 32.51, 49.51 -> 40.15, 53.98 | MMLU +7.64, 0-shot +4.47 |
+| GuidedQuant [S14] | Llama-2-7B, QTIP 2-bit | Wiki-2 ppl 6.82 -> 6.11; task scores for QTIP not found | ppl -10.4 % |
+| OAC [S15] Table 1, AAAI 2025 | LLaMA2-7B, 2.09 b, against SpQR | C4 13.22, Wiki 11.09, LMEH 42.90 -> 11.90, 9.48, 45.56 | LMEH +2.66 |
+| D2Quant [S7] Table 1 | Qwen3-8B, 2-bit | GPTQ-dagger MMLU 46.53, 7-task 54.05 -> 49.94, 57.22; FP16 72.96, 68.31 | MMLU +3.41 |
+| PV-Tuning [S16] Table 2 | Llama 2 7B/13B/70B, about 2 b | AQLM 0-shot 56.47 / 60.59 / 68.75 -> 61.35 / 64.92 / 70.72 | +4.88 / +4.33 / +1.97 |
+| EfficientQAT [S19] Table 4 | Llama-2-7B w2g64 | neither 40.69; Block-AP 58.99; E2E-QP (scales only) 55.71; both 60.14 | E2E-QP on Block-AP +1.15 |
+| AQLM end-to-end FT [S17] Tables 1, 4 | Llama 2 7B, 2.02 b | block-wise FT Wiki 6.59, 0-shot 57.28 -> E2E 6.14, 58.27 | 0-shot +0.99 |
+| GPTVQ centroid FT [S47] App. I | Llama-2-7B, 2.125 b | Wiki 7.60, 0-shot 59.9 -> 6.57, 64.2 | 0-shot +4.3 |
+| CALDERA RHT FT [S21] | LLaMA-3 8B, 2.4 b, rank 256 | Wiki 8.22, ArcC 40.0 -> 7.34, 42.3 | ArcC +2.3 |
+| SqueezeLLM [S22], abstract only | LLaMA, 3-bit | perplexity gap to FP16 cut up to 2.1x | n/a |
+| GPTAQ [S40], abstract only | n/a | no 2-bit figure in the abstract | n/a |
+Third-party reading of the same objectives on Qwen3-8B 2-bit (LC-QAT [S24] Table 1, six-task zero-shot): FP16 74.12,
+QTIP 72.04, YAQA 72.14, PV-Tuning 70.99, LC-QAT 72.18; Wiki-2 9.72, 10.39, 10.50, 10.65, 10.23 (*reported*).
+Fine-tuning recovers more perplexity than MMLU in the LLVQ paper's Table 6 (Qwen3-4B, 2 bits, per
+`docs/llvq-paper-notes.md`): LLVQ shape-gain 0-bit gain 17.05 / 60.7 -> 9.26 / 62.8, ppl -45.7 %, MMLU +2.1; QTIP
+17.04 / 57.4 -> 9.61 / 59.5, ppl -43.6 %, MMLU +2.1 (*computed*). The paper's fine-tuning learns per-column scales only,
+under 0.001 b/weight, on about 52M tokens (as transcribed in the notes).
+AQLM [S17] Table 7: fine-tuning RMSNorm only moves Wiki-2 8.18 to 8.31 and C4 10.59 to 10.46; codebooks only give
+6.92 and 8.85 (*reported*).
+
+4. PROXIES, FLIPS AND FRAGILE EXAMPLES (QUESTION D, N4)
+-------------------------------------------------------
+- Dutta et al., "Accuracy is not all you need", arXiv 2407.09141, NeurIPS 2024 per the page [S3]. MMLU 5-shot: GPTQ
+  W4A16 on Llama2-7b chat -2.36 accuracy with 13.62 % flips (*reported*). KL and flips correlate at Spearman 0.981 on
+  MMLU. Answers flip when the top margin is low; Llama2-70b correct answers carry a top margin of 0.758, incorrect ones
+  0.434; with BnB 4-bit, 5.0 % of correct and 13.2 % of incorrect answers change (*reported*). Perplexity stays 4.57
+  to 4.72 while KL ranges from 7.9e-5 to 0.03 on Llama2-13b (*reported*).
+- Proskurina et al., NAACL 2024 Findings, arXiv 2405.00632 [S13]: 4-bit GPTQ lowers confidence in the true label, most
+  on samples where the full model was already unconfident (*reported*, abstract; tables not readable in the fetch).
+- Noise floor of a comparison, arXiv 2611.15671, 2026 [S44]: on Clef-flash (9B), questions with reference top
+  probability under 0.7 are 16.3 % of the set and hold 100 % of Q8_0 flips, 98 % of FP8, 90 % of Q4_K_M, 86 % of NVFP4.
+  NVFP4 flips 11 of 18,125 questions where the reference is at least 90 % confident (*reported*). Serving-side changes
+  move 0 to 0.92 % of decisions; Q4_K_M 3.5 to 5.8 %.
+- Nikolic et al., "Displacement is not direction", arXiv 2606.19558 v1, 2026-06-17 [S27]. 28 Qwen3.6-35B-A3B and 41
+  Devstral-Small-2-24B quantizations, 14 metric variants. KL against composite score: rho -0.72 and -0.86 over each
+  cohort, +0.00 and -0.24 (p 0.36) in the near-baseline zone, -0.80 and -0.94 in the lossy zone (*reported*). KL tracks
+  the number of flips (rho +0.94 and +0.55) and not their direction (partial rho -0.35, p 0.17; -0.20, p 0.46). No
+  metric ranked near-baseline quantizations; per-prompt KL as a router picks the passing model 42.3 to 49.4 % of the time
+  (*reported*).
+- Margin model [S42], 1a above: predicts flip rates, not accuracy, and needs the quantized model's logits.
+- Signal-to-noise [S5]: typical-channel SNR orders retention by bit width at 98.3 % agreement, by method 86.8 to 89.4 %,
+  by scale 87.7 to 89.2 % (*reported*). The authors frame it as a relative internal measure, not an accuracy predictor.
+- SLQ [S6]: from noise injection, accuracy holds below KL 0.01 and falls about linearly with KL in the near-lossless
+  regime; MMLU-Pro is called a sharper test than zero-shot suites (*reported*).
+- YAQA [S1] App. A.4: KL and perplexity "measure two fundamentally different quantities" (*reported*).
+- Correctness Agreement [S29], abstract only: behaviour shifts while accuracy and perplexity hold.
+- Agents [S43], abstract only: quantized failure sets rank-correlate at >= 0.94 with full-precision ones; 0.18 % of
+  failure events are new (*reported*). The search snippet's "0.97 correlation with closest-competitor errors" was not
+  on the page fetched.
+What was not found for D: a published cheap metric shown to predict MMLU or GSM8K of a quantized model at fixed bit
+rate among near-baseline candidates. [S27] reports that none of 14 variants does.
+
+5. SCALE, NORM AND BIAS CORRECTIONS (QUESTION E)
+------------------------------------------------
+| correction, source | what it targets | gain as published (*reported*) |
+|---|---|---|
+| Norm Tweaking [S12] Table 2 | per-channel mean and variance of activations, LayerNorm weights | 2-bit GPTQ g64 LAMBADA: LLaMa-7b 11.88 -> 21.39 (FP16 73.51), LLaMa-65b 57.15 -> 67.48, OPT-66b 71.40 -> 73.49 |
+| D2Quant DAC [S7] Table 3 | mean shift at post-attention LayerNorm, bias from 128 samples | Qwen3-8B 2-bit: MMLU 45.49 -> 45.82, 7-task 53.94 -> 54.63, Wiki 14.72 -> 14.63 |
+| WaterSIC LMMSE rescale [S38] | rounding errors biased away from zero; per-column shrink gamma | "indispensable for low-rate quantization", not needed at >= 4 bits; ablation in relative MSE only, no ppl |
+| WaterSIC-FT [S38] | trained row/column rescalers, codes not trained per App. D | Qwen3-8B 2.125 b Wiki-2 11.37 -> 10.18 (FP16 9.73); Llama-3.2-1B 2.00 b 16.19 -> 13.59 |
+| EfficientQAT E2E-QP [S19] | step sizes trained end to end, weights fixed | Llama-2-7B w2g64 0-shot 58.99 -> 60.14 on top of Block-AP |
+| PV-Tuning, continuous only [S16] Table 1 | all non-code parameters | AQLM 2.01 b 0-shot 53.2 -> 56.57; PV+STE 58.19 |
+| AQLM, RMSNorm only [S17] Table 7 | norm weights | Wiki 8.18 -> 8.31, C4 10.59 -> 10.46 |
+| LLVQ per-column scales (paper notes) | scales, < 0.001 b/weight | Qwen3-4B MMLU 60.7 -> 62.8 |
+| SLQ asymmetric grids [S6] | centering of the grid | MMLU-Pro recovery 88.4 % asymmetric against 82.5 % symmetric |
+| Smooth-SwiGLU [S10] | FP8 training, per-channel scale on the linear branch | stabilises FP8 training; not a PTQ result |
+Only two sources tie a correction to a named error property and test it in isolation: D2Quant (mean shift after
+attention, +0.33 MMLU alone) and Norm Tweaking (mean and variance drift). Norm Tweaking reports that more tuning hurts:
+BLOOM-7B LAMBADA 57.48 after 1 iteration, 11.33 after 50 (*reported*).
+
+6. VECTOR AND LATTICE QUANTIZATION, GAPS AT ABOUT 2 BITS (QUESTION F)
+---------------------------------------------------------------------
+Gap to FP16 on MMLU or task averages, 4B to 14B class, as published.
+| source | model, bits | FT | FP16 | quantized | gap (*computed*) |
+|---|---|---|---|---|---|
+| LLVQ Table 6 (notes) | Qwen3-4B, 2 b, shape-gain 0-bit gain | no | MMLU 70.2 | 60.7 | 9.5 |
+| same | same | scales | 70.2 | 62.8 | 7.4 |
+| same, QTIP 3INST | Qwen3-4B, 2 b | no / yes | 70.2 | 57.4 / 59.5 | 12.8 / 10.7 |
+| Qwen3 empirical [S23] Table 4 | Qwen3-4B AWQ 3-bit g128 | no | MMLU 5-shot 69.7 | 31.5 | 38.2 |
+| same | Qwen3-14B AWQ 3-bit g128 | no | 78.5 | 47.7 | 30.8 |
+| YAQA [S1] | Qwen3-8B QTIP 2 b, YAQA-B 64K | no | MMLU 0-shot 72.99 | 66.75 | 6.24 |
+| D2Quant [S7] | Qwen3-8B 2 b | no | MMLU 72.96 | 49.94 | 23.02 |
+| LC-QAT [S24] | Qwen3-8B 2 b, QAT 4B tokens, 61 h on 8 A800 | QAT | 6-task 74.12 | 72.18 | 1.94 |
+| AQLM [S17] Table 15 | Llama 2 13B, 1.97 b | E2E | MMLU 5-shot 55.2 | 48.8 | 6.4 |
+| QuIP# [S17] Table 15 | Llama 2 13B, 2.01 b | E2E | 55.2 | 50.0 | 5.2 |
+| AQLM, QuIP# [S17] | Llama 2 7B | E2E | 45.9 | 38.5, 36.8 | 7.4, 9.1 |
+| EfficientQAT [S19] | Llama-3-8B w2g64 | QAT | 5-task 68.58 | 60.76 | 7.82 |
+| GPTVQ 4D [S47] | Llama-2-13B 2.125 b | no | 0-shot 73.2 | 65.7 | 7.5 |
+AQLM's appendix states the relative drop on MMLU and GSM8K is larger than on perplexity and zero-shot suites (*reported*).
+QTIP [S18]: computed codes are not fine-tuned; "fine-tuning is not a silver bullet"; at 3 and 4 bits fine-tuning has no
+effect for computed codes (*reported*). NestQuant [S25], ICML 2025, abstract only: Gosset nested lattice, Llama-3-8B
+W4A4KV4 Wiki-2 6.6 against 6.14 FP16, SpinQuant 7.3 (*reported*); no weights-only 2-bit figure read. UniSVQ [S26],
+ICML 2026, abstract only: affine maps of integer lattices plus blockwise fine-tuning; no figures read.
+Shape-gain and shrinkage. GSRQ (Kim et al., arXiv 2607.01065, 2026, KV cache) [S37]: the l2-optimal centroid's norm
+is at most the members' mean norm and the gap grows with dimension; a gain-shape centroid lowers Wiki-2 perplexity from
+19.50 to 12.77 at 0.375 bits per element (*reported*). WaterSIC [S38]: dequantizing off the grid with a shrink factor
+matters at low rate (section 5). The LLVQ paper (Appendix I, as transcribed in the notes) reads radial drift as the
+dominant failure without rotation: Euclidean GPTQ 191.90 against Spherical GPTQ 6.90 on Llama-2 7B. No paper was found
+that measures a gain bias of shape-gain VQ on LLM weights and its effect on accuracy.
+
+7. GATED-MLP MECHANICS (QUESTION G)
+-----------------------------------
+- Fishman, Chmiel, Banner, Soudry, arXiv 2409.12517 v2, 2025 [S10]: in SwiGLU the two weight vectors of a neuron align
+  (w1 -> +-w2) under weak l2 regularisation once inputs are large, which makes the output quadratic in the input; seen
+  after about 200B training tokens (*reported*). An FP8 training result, not a weight-quantization one.
+- Activation spikes (Yang, Kim, Kim, arXiv 2405.14428, 2024) [S9]: the down_proj input of GLU models carries spikes from
+  the gate-up product, in early and late layers and on a few tokens; quantizing only the top-4 modules by max-median
+  ratio moves LLaMA-2-13B perplexity from 6.84 to 15.09 (*reported*). Activation quantization, W8A8.
+- DaSS (Guo, Kamigaito, Watanabe, arXiv 2405.01943) [S32]: outliers matter less for pruning gate and up than down; at
+  70 % sparsity on LLaMA2-7B, input-balanced magnitude pruning gives 10.52 against 12.42 for Wanda on gate/up, Wanda wins
+  on down 6.97 against 9.03 (*reported*). SwiGLU intermediate norms are uneven across neurons.
+- FP4 study [S33]: up as sensitive as down with a 30x lighter activation tail; gate below up with equal statistics.
+- Depth registers (Liu, arXiv 2604.18128) [S31]: v2 is withdrawn; a 300M-parameter single-seed W4A4 study bounding the
+  down_proj input by the product of its factor bounds. Not used further.
+- Super weight [S11]: sits in down_proj.
+What was not found for G: any published analysis of how weight errors in gate and up combine through the SwiGLU product
+(multiplicative compounding, gate saturation, sparsity of the gated output) in weight quantization or pruning.
+
+8. CASES WHERE PERPLEXITY AND TASK ACCURACY DISAGREE, AS PUBLISHED
+------------------------------------------------------------------
+| source | pair | perplexity | task |
+|---|---|---|---|
+| YAQA [S1] Table 8, Qwen3-8B 4-bit | LDLQ against YAQA-B | 9.07 -> 9.04 better | MMLU 73.04 -> 72.78 worse |
+| YAQA [S1] Table 9, 2-bit | 32K against 64K sequences | 10.20 -> 10.16 better | GSM8K 67.02 -> 66.07 worse |
+| HIGGS [S2] Table 3, Llama 3.1 8B 3.25 b | GPTQ against HIGGS p=2 | 7.133 -> 7.110 better | MMLU 58.37 -> 57.56 worse |
+| HIGGS [S2] Table 4 | dynamic data-free against calibrated | 6.388 -> 6.359 better | MMLU 61.62 -> 61.37 worse |
+| LC-QAT [S24] Qwen3-8B 2-bit | YAQA against QTIP | 10.50 -> 10.39 better | 6-task 72.14 -> 72.04 worse |
+| EfficientQAT [S19] Table 13 | C4 calib against WikiText2 calib | Wiki 7.87 -> 6.73 better | 0-shot 59.24 -> 58.26 worse |
+| LLVQ Table 6 (notes), Qwen3-4B no FT | 0-bit gain against 2-bit gain | 17.05 -> 15.54 better | MMLU 60.7 -> 59.3 worse |
+| LLVQ Table 6 (notes) | LLVQ spherical against QuIP# | 21.80 -> 21.15 better | MMLU 50.5 -> 48.6 worse |
+| GuidedQuant [S14] Llama-2-7B 2 b | SqueezeLLM against LNQ | 39.58 -> 23.31 better | 0-shot 41.80 -> 40.30 (inside SE) |
+| OAC [S15] OPT-13B | OmniQuant against OPTQ | C4 20.47 -> 15.67 better | LMEH 50.71 -> 50.14 worse |
+| PV-Tuning [S16] Table 1, GPTQ col. | PV against PV+STE | Wiki 8.49 -> 8.43 better | 0-shot 52.17 -> 51.90 worse |
+Most gaps are small and the sources give no paired interval for them; only the GuidedQuant row is stated inside the
+standard error. None reaches the size of Q5 (-17.4 % perplexity, -3.06 MMLU).
+
+9. THE DESK NOTE OF 2026-11-11, CHECKED
+---------------------------------------
+Re-fetched and confirmed: YAQA Qwen3-8B Tables 8 and 9 and the Llama recovery-FT figures; PV-Tuning Tables 1 and 2;
+QuIP# fine-tuned 2-bit perplexities (through QTIP's Table 3, not the QuIP# paper itself); HIGGS Table 3 (+4.06 MMLU,
+dynamic against p=2); EXL3 Spearman 0.84 against 0.61; LC-QAT Qwen3-8B row and 61 h; EfficientQAT 69.48 against 72.41;
+NestQuant W4A4KV4 figures; third-party YAQA 72.14 against QTIP 72.04.
+Corrected: the note says neither GuidedQuant nor GPTAQ gives a 2-bit MMLU in its abstract. True of the abstracts, but
+GuidedQuant's Table 12 gives 2-bit MMLU for LNQ (section 3).
+Not confirmed here (not re-fetched or not on the page read): PV-Tuning "2 days on 8 GPUs"; EfficientQAT "41 hours on
+one A100"; QuIP# "about 50 GPU-hours at 70B"; YAQA "Hessian storage roughly doubles"; EXL3 "about two hours for a 27B";
+QuIP# residual VQ at 3 and 4 bits (6.19 / 5.41 / 5.19);
+every figure from its sources S9 to S17, S19, S22, S23 and S24b (Q-Palette, Quantization Hurts Reasoning, TASA, AYOT,
+self-calibration, MoEQuant, ParetoQ figures other than via LC-QAT, BitNet, DWQ, Bonsai, EntQuant, ECF8, transform survey).
+
+10. WHAT THE LITERATURE LEAVES OPEN
+-----------------------------------
+Listed in the order of the brief, not ranked.
+- N1. No published paper finds which property of weight error makes it cost more task accuracy than Gaussian noise of
+  the same logit amplitude. Published facts near it: multiplicative margin shrinkage with a shared offset [S42], error
+  aligned with the signal at 2 bits [S28], gradient-coherent error on one tensor [S34], rotation of the final hidden
+  state [S4]. Weight-side isotropic noise goes the other way in KL [S20]. The one equal-power Gaussian control is
+  inconclusive [S45].
+- N2. No published measurement of attention-by-MLP interaction in an LLM. Interaction signs are mixed in CNNs [S46],
+  unreported in IMPQ [S8]; block-to-block cancellation [S4] is not split by sublayer.
+- A. No equal-norm noise arm on downstream accuracy at 2 to 3 bits; no measurement tying row- or column-norm loss of
+  quantized weights to accuracy; no study of error alignment with top singular directions against accuracy.
+- B. No per-module restore study at 2 to 3 bits on Qwen3 dense models read on MMLU; [S28] covers 4 bits on a failure
+  subset and 2 bits on Llama only, [S33] covers FP4 on perplexity.
+- C. Output-aware objectives read on MMLU at 2 bits exist for Qwen3-8B (YAQA, D2Quant) and Llama-2 (GuidedQuant with
+  LNQ); none on a 24-dimensional lattice code, none on Qwen3-4B, none reported with a frozen-code scale stage after it.
+- D. No cheap metric shown to predict MMLU or GSM8K among near-baseline quantizations [S27].
+- E. Two corrections are tied to a named error property and tested alone (D2Quant, Norm Tweaking); none to norm
+  shrinkage of the weights on accuracy.
+- F. No shape-gain gain-bias measurement on LLM weights; the 2-bit MMLU gaps for Qwen3-4B are the LLVQ paper's own.
+- G. No analysis of gate and up weight errors combining through the SwiGLU product.
+
+11. NOT CONFIRMED
+-----------------
+Seen only as search snippets or secondary summaries, not fetched or not found on the page fetched:
+- LQER (Zhang et al., ICML 2024, arXiv 2402.02446) and QERA (arXiv 2410.06040): activation-scaled SVD of the error.
+- AWEQ (arXiv 2311.01305) and BASE-Q (arXiv 2506.15689): bias correction for LLMs.
+- FAMPWQ (arXiv 2608.24945, EMNLP 2026 per its page): the snippet said quantization-matched perturbation "dominates"
+  uniform and Bernoulli noise; the abstract fetched does not mention it.
+- "Distributional Quantization" (an RSI student paper): std minimises reconstruction error yet worsens perplexity.
+- Jacobian-guided noise injection (arXiv 2608.20988): up to 37 % recovery at W4A4.
+- Low-Rank Correction for Quantized LLMs (arXiv 2412.07902), SINQ (2509.22944), DualQuant (2610.13767).
+- An agent-evaluation claim of 0.97 correlation with closest-competitor errors (snippet on [S43]; not on its page).
+- A search snippet gave 99 / 97 / 89 / 79 % of flips under confidence 0.7 for [S44]; the page reads 100 / 98 / 90 / 86 %
+  on Clef-flash, used above.
+- Reliability Scaling Laws (arXiv 2607.10855), KL Lens (arXiv 2604.13440), Give Me BF16 (arXiv 2411.02355, fetched,
+  no perplexity or KL predictor in the part read, so not used).
+- HIGGS's venue and its alpha_l values by projection type: not in the part read.
+
+SOURCES (fetched 2026-11-13)
+----------------------------
+[S1]  YAQA, Tseng, Sun, De Sa: https://arxiv.org/html/2505.22988 (Tables 4, 8, 9; App. A.4)
+[S2]  HIGGS, Malinovskii et al.: https://arxiv.org/html/2411.17525 (first 100,000 characters; Tables 3, 4)
+[S3]  Accuracy is not all you need, Dutta et al.: https://arxiv.org/abs/2407.09141 and https://arxiv.org/html/2407.09141
+[S4]  Why does post-training quantization work?, Chen et al.: https://arxiv.org/html/2609.11716 (first 200,000 chars)
+[S5]  Signal-noise perspective, Zhou et al.: https://arxiv.org/html/2608.08188v1
+[S6]  Statistically-lossless quantization, Helcig, Kurtic, Alistarh: https://arxiv.org/html/2605.02404v1
+[S7]  D2Quant, Yan et al.: https://arxiv.org/html/2602.02546
+[S8]  IMPQ, Zhao et al.: https://arxiv.org/html/2509.15455v1
+[S9]  Activation spikes in GLU LLMs, Yang, Kim, Kim: https://ar5iv.labs.arxiv.org/html/2405.14428
+[S10] FP8 at trillion tokens, Fishman et al.: https://arxiv.org/abs/2409.12517 and https://arxiv.org/html/2409.12517v2
+[S11] The super weight, Yu et al.: https://arxiv.org/abs/2411.07191 and https://arxiv.org/html/2411.07191v2
+[S12] Norm Tweaking, Li et al.: https://arxiv.org/abs/2309.02784 and https://arxiv.org/html/2309.02784v2
+[S13] When quantization affects confidence, Proskurina et al.: https://arxiv.org/abs/2405.00632 (html partly garbled)
+[S14] GuidedQuant, Kim et al.: https://arxiv.org/html/2505.07004 (Tables 11, 12)
+[S15] OAC, Edalati et al., AAAI 2025: https://arxiv.org/abs/2405.15025 and https://arxiv.org/html/2405.15025
+[S16] PV-Tuning: https://arxiv.org/html/2405.14852 (Tables 1, 2)
+[S17] AQLM, Egiazarian et al.: https://arxiv.org/html/2401.06118v4 (Tables 1, 4, 7, 15)
+[S18] QTIP, Tseng et al.: https://arxiv.org/html/2406.11235v4
+[S19] EfficientQAT, Chen et al.: https://arxiv.org/html/2407.11062 (Tables 4, 13)
+[S20] ExLlamaV3 optimizer: https://github.com/turboderp-org/exllamav3/blob/master/doc/optimize.md
+[S21] CALDERA, Saha et al., NeurIPS 2024: https://arxiv.org/abs/2405.18886 and https://arxiv.org/html/2405.18886v2
+[S22] SqueezeLLM, Kim et al.: https://arxiv.org/abs/2306.07629 (abstract only)
+[S23] An empirical study of Qwen3 quantization, Zheng et al.: https://arxiv.org/html/2505.02214 (Table 4)
+[S24] LC-QAT, Wang et al.: https://arxiv.org/html/2606.10531v3 (Tables 1, 2, 7)
+[S25] NestQuant, Savkin et al., ICML 2025: https://arxiv.org/abs/2502.09720 (abstract only)
+[S26] UniSVQ, Wang et al., ICML 2026: https://arxiv.org/abs/2606.10520 (abstract only)
+[S27] Displacement is not direction, Nikolic et al.: https://arxiv.org/html/2606.19558v1
+[S28] Two failure modes, Zhou et al.: https://arxiv.org/html/2604.19884v1 (Tables 1, 2, 5)
+[S29] The illusion of equivalency, Rababah et al.: https://arxiv.org/abs/2607.08734 (abstract only)
+[S30] ABQ-LLM, Zeng et al.: https://arxiv.org/html/2408.08554 (section 3.2)
+[S31] Depth registers, Liu: https://arxiv.org/abs/2604.18128 (abstract; v2 withdrawn)
+[S32] DaSS, Guo et al.: https://arxiv.org/html/2405.01943v1
+[S33] Diagnosing FP4 inference: https://arxiv.org/html/2603.08747v1 (Tables 1 to 3)
+[S34] Second-order linear response, Lu, Ni: https://arxiv.org/html/2611.12634
+[S35] Optimal formats for weight quantisation, Orr, Ribar, Luschi: https://arxiv.org/abs/2505.12988 (abstract only;
+      KL minimised through squared error, Fisher-based bit allocation saving up to 0.25 b/param, *reported*)
+[S36] Data-free quantization, Nagel et al., ICCV 2019: https://arxiv.org/abs/1906.04721 (abstract only)
+[S37] GSRQ, Kim et al.: https://arxiv.org/html/2607.01065
+[S38] WaterSIC, Lifar, Savkin, Ordentlich, Polyanskiy: https://arxiv.org/html/2603.04956 (main text and App. D, E)
+[S39] QEP, Arai, Ichikawa, NeurIPS 2025: https://arxiv.org/abs/2504.09629 and https://arxiv.org/html/2504.09629
+[S40] GPTAQ, Li et al., ICML 2025: https://arxiv.org/abs/2504.02692 (abstract only)
+[S41] LLVQ, van der Ouderaa, van Baalen, Whatmough, Nagel: https://arxiv.org/abs/2603.11021 (abstract only); figures
+      from docs/llvq-paper-notes.md, Table 6 and Appendix I
+[S42] Which decisions low-bit quantization breaks, Wu, Dhiman, Koshiyama: https://arxiv.org/html/2608.06564 (v5)
+[S43] Flat score, amplified failures, Jang et al.: https://arxiv.org/abs/2607.27275 (abstract only)
+[S44] The noise floor of a quantization comparison: https://arxiv.org/html/2611.15671
+[S45] Bits or permutations?, Khan, L, Misri: https://arxiv.org/abs/2611.14413 (abstract only)
+[S46] CLADO, Deng et al., DAC 2025: https://arxiv.org/html/2307.05657v2
+[S47] GPTVQ, van Baalen et al.: https://arxiv.org/abs/2402.15319 and https://arxiv.org/html/2402.15319

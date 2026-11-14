@@ -1,0 +1,8 @@
+mass at position 0: mean 0.004 min 0.000 max 0.038
+mass in positions 0..15: mean 0.027 max 0.192
+ESS share (G=1): as is 0.0200 ; without position 0 0.0215 ; clipped at 10x mean 0.1876
+0 pos0 0.016 first16 0.115 ess 0.0044 ess_no0 0.0043
+2 pos0 0.036 first16 0.154 ess 0.0024 ess_no0 0.0023
+20 pos0 0.000 first16 0.015 ess 0.0051 ess_no0 0.0051
+40 pos0 0.001 first16 0.007 ess 0.0174 ess_no0 0.0174
+70 pos0 0.018 first16 0.025 ess 0.1797 ess_no0 0.2017

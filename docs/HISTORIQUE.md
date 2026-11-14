@@ -1462,3 +1462,56 @@ rows of `docs/data/jobs.csv` sum to $326.22, $0.25 under the registry; the journ
   against the definitions: 13 established, 2 proved, 35 supported, 6 conjecture, 3 refuted. The ablation journal now
   states both readings of the prereg's "interacting" row: to the letter it fires and the next step is global.
 - Nothing served changes: no config, no served module, no Hub file.
+
+## 2026-11-13 to 11-14. A research phase on quality opens and closes on a dead hypothesis; MODES allows two phases on two axes; nothing served changes, $13.49
+
+The operator signed the mandate of a research phase on model quality, O12 of [`CERVEAU.md`](CERVEAU.md). It started
+from the anomaly N1 and ran beside the phase on decode speed (O11), on five days and $10 of card under a cap of its
+own, raised to $15. It closed the next day: judging gate/up on the final output, in its one-sided form, did not beat
+the layer objective on the 4B. The bullets below are in the order things happened.
+
+- [`MODES.md`](MODES.md) said until this day: "At most one research phase and one development phase run at a time:
+  one card budget, one work machine." The operator replaced it. Two research phases now run together when each
+  mandate carries its own card budget, the second loads no model on the work machine, and the two edit no file in
+  common but `CERVEAU.md`.
+- R0 of the phase is done the same day, by reading only: what the repository knows
+  ([recherche-qualite-r0-depot](mesures/recherche-qualite-r0-depot-2026-11-13.txt)) and what is published
+  ([recherche-qualite-r0-litterature](mesures/recherche-qualite-r0-litterature-2026-11-13.txt)). N1's Gaussian arm
+  is noise on the four option logits of a dump, not on weights, and its replay on the sealed 4B needs dumps the
+  repository holds. No published study answers N1 or N2. Eight claims of `CERVEAU.md` gained scope notes.
+- R1's first measurement ran the same day under a stamped prereg (sha256 3323f313), on dumps, with no model:
+  [recherche-qualite-n1](mesures/recherche-qualite-n1-2026-11-13.txt). N1 holds on the sealed 4B: 63.37 measured
+  against 64.65 predicted by Gaussian noise of the same amplitude on the four option logits, −1.27 [−1.89, −0.65]
+  (*computed* on *measured* dumps). The amplitude alone predicts 5.49 of the 6.77 points to FP16. AWQ 4B reads −0.88
+  on the same split, so the gap is not LLVQ-only. Ten of thirteen signed predictions are in. `CERVEAU.md` Q7 is
+  restated: its former sentence, "where it lands matters more than its size", does not hold as shares on this object.
+- The operator then moved the phase's starting point from N1 to the amplitude share, the 5.49 points: where an error
+  lands against chance cannot be known in advance. N1 is set aside. No budget is added yet.
+- On the operator's go under $5, one card job, $0.44 (6af6f9da, prereg sha256 208751f9):
+  [layer-vs-output-4b](mesures/layer-vs-output-4b-2026-11-13.txt). Restoring one projection group to FP16 in the
+  sealed 4B recovers 36.29 % of the KL to FP16 for gate/up, 23.17 % for down, 8.74 % for qkv and 2.48 % for o
+  (*measured*), the order of the MMLU restores. The relative layer-output error reads down > qkv > o > gate/up: it
+  rates gate/up lowest. Rule D green, perplexity within 0.033 % of the candle path. Eight of seventeen signed
+  predictions are in. Spend of the phase: $0.44 of $10; the rows of `docs/data/jobs.csv` sum to $326.66 (*computed*).
+- The operator gave the go for a first re-encode of the 4B with gate/up judged on the final output, in its smallest
+  form (gradient-weighted input Hessians, $1.65 to $1.89 *estimated*), and lifted the Mac clause of the mandate for
+  its two encodes. Nothing is coded or launched yet.
+- The code of that attempt passed the workspace fast loop (1,321 passed, 0 failed), clippy and ten mutants; its
+  statistic job cost $0.09 (6af72f55). The operator moved the two encodes from the Mac to the card and raised the
+  phase's budget to $15. Spent: $0.53.
+- The attempt ran in full for $8.67: [guided-gateup-4b](mesures/guided-gateup-4b-2026-11-13.txt). Outcome LOSS under
+  its prereg (sha256 dac1bca1, departures E1 and E2 stamped). The candidate, gate_proj and up_proj under
+  gradient-weighted input Hessians, scores 57.11 on the full MMLU split against 58.62 for a baseline encoded the same
+  day: −1.51 [−2.30, −0.70] (*measured*). Perplexity 18.08 against 16.46. Five of eight signed predictions are in; the
+  lead predicted a gain. A card encode of the 4B took 77 and 80 billed minutes on `rtx-pro-6000`, $3.55 and $3.68
+  (*computed* at $2.75/h). Read after the result and not preregistered: the per-token weights have an effective
+  sample size of 1.58 % of the calibration tokens (*computed*). Spend of the phase: $9.11 of $15; the rows of
+  `docs/data/jobs.csv` sum to $335.33 (*computed*).
+- 2026-11-14, on the operator's go: one retry with each group's weights clipped at 10 times their mean
+  (`LLVQ_GUIDED_CLIP`, cd70933; prereg sha256 83131dca, stamped before the encode), $4.38:
+  [guided-clip-gateup-4b](mesures/guided-clip-gateup-4b-2026-11-14.txt). NOT RESOLVED: 57.95 against the baseline's
+  58.62, −0.68 [−1.47, +0.14]; +0.83 [+0.03, +1.65] against the unclipped encode (*measured*). Perplexity 16.69. Seven
+  of seven signed predictions are in. The gradient-weighted input-Hessian form is closed for the phase. Spend of the
+  phase: $13.49 of $15; the rows of `docs/data/jobs.csv` sum to $339.71 (*computed*).
+- 2026-11-14: the operator closes the phase. Outcome: a dead hypothesis, recorded in `CERVEAU.md` O12. No idea sheet.
+- Nothing served changes: no config, no served module, no Hub file.

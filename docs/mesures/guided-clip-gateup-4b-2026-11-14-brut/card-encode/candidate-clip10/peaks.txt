@@ -1,0 +1,1 @@
+GPU peak 29227 MiB sampled; host VmHWM peak 23.1 GB

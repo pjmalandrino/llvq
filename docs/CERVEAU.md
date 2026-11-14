@@ -5,6 +5,12 @@ Q13 and Q16, added Q22, and closed O1; C7 records the code ceiling. Its journal 
 Q21 were reread. An independent review the same day added the standing `proved` and regraded nine claims against
 the definitions. 59 claims: 13 established, 2 proved, 35 supported, 6 conjecture, 3 refuted. Claims whose Checked line
 says "copied from `ETAT.md`" still need a reread against their journal; A (Metal) is the thinnest section.
+On 2026-11-13 the R0 of the quality phase (O12) reread the Q claims against their journals: Q2, Q5, Q6, Q7, Q9, Q10,
+N1 and N2 gained scope notes. The same day R1 replayed N1 on the sealed 4B: Q7 was restated and is established on
+that object, and a card job added Q23. A first re-encode under a final-output objective then added Q24 and E3. On
+2026-11-14 a clipped retry restated Q24 and the operator closed the phase: O2, O12 and Q20 were restated, Q5 and Q15
+gained notes, Q23 was reread by type and five mismatches joined the list at the end. 62 claims: 14 established, 2
+proved, 37 supported, 6 conjecture, 3 refuted.
 
 This document lists what we believe to be true about quantizing LLMs on the Leech lattice, each belief with its
 standing. It is not the served state ([`ETAT.md`](ETAT.md)), the history ([`HISTORIQUE.md`](HISTORIQUE.md)) or a plan
@@ -56,7 +62,8 @@ perplexity by 5.2 %.
   perplexity σ 5.2 % from [f5-graines-4b](mesures/f5-graines-4b-2026-08-19.txt), as that journal's line 148 cites it.
 - Overturn: a second draw of a sealed file, after row scales, read on the full split. Row scales may shrink the spread;
   this is not measured.
-- Checked: 2026-11-12.
+- Checked: 2026-11-13. The journal's own reserve, lines 138 to 142: the seeds drew random offsets and the published
+  file a contiguous prefix, so the 2.92 does not attach to the published file's 55.59.
 
 **Q3.** At constant file, the bar is the paired interval, not the draw sd. On the full split one MMLU pair has an SE
 of 0.17 to 0.38 points. On 2,280 q one MMLU pair had an SE of 0.43 points, 95 % interval [−0.45, +1.22] around
@@ -92,21 +99,52 @@ correction cut perplexity by 17.4 % and cost 3.06 MMLU points, p = 6.2e-18.
 - Evidence: [errmap-mmlu-4b](mesures/errmap-mmlu-4b-2026-09-16.txt) (16.80 → 13.88 ppl, 51.25 → 48.19 MMLU).
   Against AWQ on sealed files, perplexity reads our 4B 6.9 % below AWQ while MMLU reads it 4.76 below (`ETAT.md` §3).
 - Overturn: a set of arms where paired perplexity orders MMLU correctly over several resolved pairs.
-- Checked: 2026-11-12.
+- Checked: 2026-11-13. On the sealed 4B, NLL moves against KL and against MMLU on the same arm twice: restoring q, k
+  and v to FP16 raises the sealed model's NLL by 0.040 [0.037, 0.043] while its KL to FP16 falls by 0.025 and MMLU
+  rises by +0.55; sealing q, k and v alone on an FP16 body lowers NLL by 0.072 while its KL to FP16 is 0.075
+  ([layer-vs-output-4b](mesures/layer-vs-output-4b-2026-11-13.txt), *measured*).
+  The witness is `sealed-temoin.bin`, 51.25 on the full split, where bare Tetra on C4 reads 54.64.
+  The journal states neither the witness's calibration nor its relation to that file
+  ([recherche-qualite-r0-depot](mesures/recherche-qualite-r0-depot-2026-11-13.txt) section 9).
+  Added 2026-11-14: across the two guided pairs perplexity and MMLU moved the same way, 18.08 against 16.46 beside a
+  resolved −1.51, then 16.69 beside an unresolved −0.68 (Q24). One resolved pair is not the several the Overturn
+  asks for.
 
 **Q6.** KL to the dense model is also a weak handle: one global temperature removes 2.49 % of the held-out KL on
 WikiText-2 and 0.93 % on C4, and buys no MMLU.
 - Standing: supported. Scope: 4B Tetra without corrections, Metal f32, 4,092 held-out positions.
 - Evidence: [kl-temperature-4b](mesures/kl-temperature-4b-2026-09-16.txt) (T* = 1.07216).
 - Overturn: a KL-trained correction whose MMLU gain is predicted by its KL gain.
-- Checked: 2026-11-12.
+- Checked: 2026-11-13. "Buys no MMLU" holds by construction (*computed*): a positive temperature cannot move an
+  argmax, and the journal runs no MMLU arm (its lines 43 to 52). The claim stands for a global temperature and for
+  training on KL (Q12). It is not a statement on ranking: at group grain KL ordered the restore groups as MMLU does
+  (Q23).
 
-**Q7.** The error is structured: where it lands matters more than its size. Gaussian noise of the measured logit
-amplitude predicts 58.53 for bare Tetra, which reads 53.49.
-- Standing: supported. Scope: 4B, 2,280 q, older arms (Planes14, bare Tetra, three seeds).
-- Evidence: [logit-snr-4b](mesures/logit-snr-4b-2026-09-12.txt) section 5 (gaussian iid 58.53 ± 1.05 against 53.49).
-- Overturn: the same replay on the sealed 4B where the Gaussian prediction falls inside the measured interval.
-- Checked: 2026-11-12.
+**Q7.** Quantization costs MMLU beyond the amplitude of its logit error, and on the sealed 4B the amplitude carries
+most of the gap. iid Gaussian noise of the sealed 4B's own residual amplitude on the four f16 option logits predicts
+64.65 against 63.37 measured on the full split: −1.27 [−1.89, −0.65]. FP16 reads 70.14, so the amplitude alone predicts
+5.49 of the 6.77 points and 1.27 lie beyond it. On bare Tetra, 2,280 q, the same noise predicts 58.53 against 53.49.
+- Standing: established for the sealed 4B's gap, which ran under controls (rule D of its prereg); supported for the
+  older arms. Scope: 4B. The sealed 4B on 14,042 q, f16 dense reconstruction, one calibration draw. Older arms
+  (Planes14, bare Tetra, three seeds) on 2,280 q. The gap is to a noise model on four logits and is conditional on the
+  fitted slope and residual sd.
+- Evidence: [recherche-qualite-n1](mesures/recherche-qualite-n1-2026-11-13.txt) (prereg sha256 3323f313; sealed 4B
+  G_gauss −1.27, *computed* on *measured* dumps); [logit-snr-4b](mesures/logit-snr-4b-2026-09-12.txt) section 5 (gaussian iid
+  58.53 ± 1.05 against 53.49).
+- Overturn: a second draw of the sealed 4B, or another instrument than MMLU, where the Gaussian interval contains 0.
+  The former condition, the replay on the sealed 4B, did not fire on 2026-11-13.
+- Former statement, until 2026-11-13: "The error is structured: where it lands matters more than its size." It does
+  not hold as a statement of shares on the sealed 4B, where size predicts 5.49 points and structure 1.27.
+- Checked: 2026-11-13. The f16 margin does not carry the sealed 4B's 1.27: reshuffled inside 20 bands of margin the
+  arm's own residuals leave −1.43 [−2.03, −0.82]. The gap is not LLVQ-only: on the full split AWQ 4B reads −0.88
+  [−1.31, −0.44]. Descriptive, one draw each: bare Tetra −4.45 [−5.16, −3.74], the sealed 8B −2.33 [−2.87, −1.78], the
+  sealed 14B −1.38 [−1.84, −0.92]. The instrument does not see a constant offset on one option letter. On the older
+  arms: the noise is iid on the four option logits of the f16 dump, added offline by
+  `ops/logit_snr.py` at the arm's fitted slope and residual sd; no weight and no activation is perturbed. The ± 1.05
+  is the sd over simulation draws, and the journal gives no interval on the 5-point gap. Tetra's own residuals
+  reshuffled across questions predict 58.76, and reshuffled inside 20 bands of f16 margin 57.53. The six LLVQ arms
+  all read under their Gaussian prediction; on that 2,280-q sample AWQ reads over it, 70.04 against 69.21 ± 0.83
+  ([recherche-qualite-r0-depot](mesures/recherche-qualite-r0-depot-2026-11-13.txt) section 3).
 
 **Q8.** The SNR law, acc = 54.60 + 14.60 ln SNR over 28 LLVQ-family arms, ranks arms but misses single arms by up to
 3 points; it is a fit, not a predictor of a new method.
@@ -120,7 +158,10 @@ and independent encodings flip the same questions at 2.4 to 3.2 times chance.
 - Standing: supported. Scope: 4B, 2,280 q, older arms.
 - Evidence: [logit-snr-4b](mesures/logit-snr-4b-2026-09-12.txt) section 6 (lifts ×2.38 to ×3.24).
 - Overturn: the same count on the sealed 4B with lifts near ×1.
-- Checked: 2026-11-12.
+- Checked: 2026-11-13. "Flip" here is a reversed shape, a correlation below zero between the arm's four centred
+  logits and f16's, not a changed pick. The share depends on that cut: 5.5 % of questions for Tetra under −0.5 and
+  29.8 % under +0.5 ([selftest](mesures/logit-snr-selftest-2026-09-12.txt) lines 36 to 42). The five encodings were
+  made separately but share the encoder drift of 2026-08-26, and Planes14 and Tetra differ in codebook.
 
 **Q10.** On the Planes14 file, gains from restoring projection types are sub-additive. The seven single f16 restores
 sum to 23.85 points, all seven together give 14.73; the sets they repair overlap at 22 to 36 % Jaccard against 3 to
@@ -136,9 +177,16 @@ attention (5.583) by +1.14 [+0.43, +1.85]. Attention is worth +0.73 [+0.16, +1.2
   excess of all over mlp plus attn is *computed* per question; the gains are *measured*. S, all over the four single
   groups, reads 1.157 [0.973, 1.457] (*computed*, bootstrap), not resolved from 1, against M2's 0.618 on seven types.
   Inside each group the deviation is not resolved: mlp −0.53 [−1.21, +0.15], attn +0.31 [−0.12, +0.74]. M2 summed
-  seven types and S four groups, so part of M2's interaction sits inside the groups here.
+  seven types and S four groups, so part of M2's interaction sits inside the groups here. Across the same two groups
+  M2 was itself sub-additive: all minus attention plus MLP reads −2.95 on the Planes14 file and −1.55 on its seed-3
+  copy ([m2rep](mesures/m2rep-graine3-4b-2026-09-04.txt)), both *computed* in
+  [recherche-qualite-r0-depot](mesures/recherche-qualite-r0-depot-2026-11-13.txt) section 4c, with no interval. The
+  cross-group sign differs between the two objects. In KL on running text the sealed 4B is super-additive across
+  attention and MLP on both sides: all minus attention plus MLP reads +0.0524 [+0.0499, +0.0548] nats with a group
+  restored, and +0.0529 [+0.0505, +0.0554] with a group sealed on an FP16 body (*computed*,
+  [layer-vs-output-4b](mesures/layer-vs-output-4b-2026-11-13.txt), ADDITIVITY).
 - Overturn: on its own scope, a rerun where the seven single types sum inside the interval of the joint arm.
-- Checked: 2026-11-12.
+- Checked: 2026-11-13.
 
 **Q11.** Spending bits on int4 records pays at 4B. `v_proj` at int4 g128 gives +3.47 [+1.42, +5.57] for +0.0493
 b/param; `o_proj` +1.55 [+0.91, +2.20] and `down_proj` +4.05 [+3.28, +4.83] on held-out questions.
@@ -186,7 +234,9 @@ same recipe otherwise.
 - Evidence: [dclm-rowscales](mesures/dclm-rowscales-2026-09-20.txt) (57.95); 56.37 in
   [downproj-int4-full](mesures/downproj-int4-full-2026-09-18.txt).
 - Overturn: two draws per corpus.
-- Checked: 2026-11-12.
+- Checked: 2026-11-12. Added 2026-11-14: a card re-encode of the DCLM-edu base's recipe on the same draw reads 58.62
+  on the full split, and its sealed file differs from the 2026-09-18 base's
+  ([guided-gateup-4b](mesures/guided-gateup-4b-2026-11-13.txt), control 6). The two scores were not paired.
 
 **Q16.** On the sealed 4B the MLP carries most of the gap to FP16. Restoring gate/up to f16 recovers +3.38 MMLU
 points [+2.75, +4.02], down +2.01 [+1.46, +2.54], the whole MLP +4.86 [+4.16, +5.57]. Attention recovers +0.73
@@ -241,8 +291,11 @@ close it at the same b/param.
 - Evidence: [innovation-ecart-qualite](mesures/innovation-ecart-qualite-2026-11-12.txt) (verdict);
   [gains-criteres-qualite](mesures/gains-criteres-qualite-2026-11-11.txt) (best candidate 1 to 2 of 6.77). Both are
   study notes, and their figures *estimated*.
-- Overturn: any output-aware arm, which has never run.
-- Checked: 2026-11-12.
+- Overturn: an output-aware arm of the two-sided kind that gains a resolved point. The one-sided form ran and did not
+  gain (Q24).
+- Checked: 2026-11-14. The first output-aware arm ran: gate/up under gradient-weighted input Hessians reads −1.51
+  [−2.30, −0.70] unclipped and −0.68 [−1.47, +0.14] clipped against its baseline (Q24). It is the one-sided form, not
+  the YAQA kind this claim projects, so the projection stays untested.
 
 **Q21.** The ranking of projection types by restore gain depends on the draw: on a second draw nothing between the two
 is resolved and the head swaps. What holds across draws is coarse: MLP above attention, `v_proj` third, `q_proj` and
@@ -267,6 +320,43 @@ is a hot spot is not resolved.
   "share of 6.77" (*computed*), restored weights from control 5; reading in point 6.
 - Overturn: per-weight rates with intervals that separate one group's rate from the rate of all projections.
 - Checked: 2026-11-12.
+
+**Q23.** On the sealed 4B, at group grain, KL to FP16 on running text orders the four projection groups as the MMLU
+restores do, and the relative layer-output error pooled per group does not: it rates gate/up lowest. That last
+reading comes from pooling gate with up: per type the same error rates up_proj highest of the seven types, at 0.0337,
+and gate_proj lowest, at 0.0046. Restoring a group recovers, of
+KL(T || S) = 0.2852 nats a token, gate/up 36.29 %, down 23.17 %, qkv 8.74 %, o 2.48 %, the order of the MMLU gains
+(+3.38, +2.01, +0.55, −0.13), with down above qkv by +0.0411 [+0.0372, +0.0451]. The layer error pooled per group
+reads down > qkv > o > gate/up with FP16 or sealed inputs, gate/up at 0.0072 and 0.0071.
+- Standing: supported. Measured once, on the served object, under a stamped prereg whose primary readings it settles
+  (outcome R-a). Four groups are four points. Scope: sealed 4B, its f16 export, one calibration draw, WikiText-2
+  test, 73 windows of 4,096, torch f16 on an L40S (perplexity within 0.033 % of the candle path). The KL reading is
+  at group grain only. gate_proj's output energy is about ten times up_proj's, so it sets the pooled figure of the
+  group. The layer error compared across groups is not what the encoder does, which minimises inside each matrix:
+  the claim says nothing on what an output-aware objective would gain, and Q24 found none for one form of it.
+- Evidence: [layer-vs-output-4b](mesures/layer-vs-output-4b-2026-11-13.txt), RESULT and READING (*measured*, job
+  6af6f9da, $0.44); [ablation-qualite-4b](mesures/ablation-qualite-4b-2026-11-12.txt) for the MMLU gains.
+- Overturn: another draw, size or text where the KL order of the four groups departs from the MMLU order.
+- Checked: 2026-11-14, when the per-matrix file was read by type (the journal's added section, *computed*).
+
+**Q24.** Encoding gate_proj and up_proj of the 4B under gradient-weighted input Hessians (GuidedQuant's objective,
+G = 4, weights from the encoder's own 64 windows) does not beat the layer objective on the same draw. Unclipped it
+loses: 57.11 against 58.62 on the full MMLU split, paired −1.51 [−2.30, −0.70]. With each group's weights clipped at
+10 times their mean it reads 57.95, −0.68 [−1.47, +0.14] against the baseline and +0.83 [+0.03, +1.65] against the
+unclipped encode. WikiText-2 perplexity: 16.46 baseline, 18.08 unclipped, 16.69 clipped.
+- Standing: supported. Two pairs under two stamped preregs (LOSS, then NOT RESOLVED), three card encodes, same card
+  model, same tokens, one variable each. Scope: 4B, one calibration draw, bases without row scales or q4 embedding,
+  G = 4, two matrix types, one clip level chosen from the weight files after the first result. One draw cannot
+  attribute a difference to the objective alone. The unclipped weights are concentrated (*computed*): effective
+  sample size 1.58 % of the 131,072 tokens, about 2,070, under the 2,560 inputs of the matrix; the clip raises it to
+  17.3 %. That the concentration caused the first loss is supported by the secondary pair, whose interval starts at
+  +0.03. The two-sided form (YAQA) did not run. [`ROADMAP-QUALITY.md`](ROADMAP-QUALITY.md) row L10 had estimated this
+  lever at 0 [−0.5, +1] in September 2026.
+- Evidence: [guided-gateup-4b](mesures/guided-gateup-4b-2026-11-13.txt) and
+  [guided-clip-gateup-4b](mesures/guided-clip-gateup-4b-2026-11-14.txt) (*measured*, six card jobs, $8.67 and $4.38).
+- Overturn: a second draw, another clip level or more calibration windows where the guided encode beats its baseline
+  with a resolved pair.
+- Checked: 2026-11-14.
 
 ## K. The decode kernel
 
@@ -547,6 +637,17 @@ row scales are 39 % of production. No bit-identical lever divides the chain by 3
 - Overturn: a measured encode or training run that beats the computed composition.
 - Checked: 2026-11-12.
 
+**E3.** A card encode of the 4B at today's recipe takes 77 to 81 billed minutes on `rtx-pro-6000` and costs $3.55 to
+$3.71; quantization, which is CPU work on 23 threads, takes 3,454 to 3,481 s of it. The Mac encode of the same
+recipe is 1 h 47.
+- Standing: supported (*measured* three times, 2026-11-13 and 2026-11-14; costs *computed* at $2.75/h). Scope: 4B, 64
+  windows of 2,048, `smoke` then `seal`, GPU peak 29.2 GiB of 96, host peak 23.1 GB. No 8B or 14B card encode of
+  this recipe is timed.
+- Evidence: [guided-gateup-4b](mesures/guided-gateup-4b-2026-11-13.txt), section on the card encode;
+  [guided-clip-gateup-4b](mesures/guided-clip-gateup-4b-2026-11-14.txt).
+- Overturn: a card encode of the same recipe outside 70 to 90 minutes.
+- Checked: 2026-11-13.
+
 ## X. Against other methods
 
 **X1.** At the same bits, Tetra beats llama.cpp IQ2_S on quality and loses on speed: +9.08, +4.13, +2.89 MMLU at 4B,
@@ -592,8 +693,8 @@ A measured fact that no claim explains. They are the starting points of the expl
 
 | | anomaly | where it is measured | what is missing |
 |---|---|---|---|
-| N1 | The quantization error costs more MMLU than Gaussian noise of the same amplitude. | Q7, and Q9 for the shared fragile questions. | Which property of the error does the damage. |
-| N2 | Attention is worth more once the MLP is restored than on the sealed MLP: the groups are super-additive. | Q10, sealed 4B. | Why the errors of the two groups compound. |
+| N1 | The quantization error costs more MMLU than Gaussian noise of the same amplitude on the four option logits. On the sealed 4B, full split: −1.27 [−1.89, −0.65], 1.27 of the 6.77 points to FP16. AWQ 4B reads −0.88 on the same split. | Q7, and Q9 for the shared fragile questions. | Which property of the error does the damage. The f16 margin does not carry it on the sealed 4B. The operator set it aside as a place to work on 2026-11-13 (O12). |
+| N2 | Attention is worth more once the MLP is restored than on the sealed MLP: the groups are super-additive. Sealed 4B, one draw, MMLU only; both Planes14 draws were sub-additive across the same groups. | Q10. | Why the errors of the two groups compound on one object and overlap on the other. |
 | N3 | A lower Gaussian MSE of the codebook has given a worse perplexity twice, Planes14 at 4B and the Euclidean gain rule at 0.6B; no MMLU pair between codebooks is resolved. | Q4, Q17. | What the model is sensitive to that block MSE does not see. |
 | N4 | Perplexity and KL close while MMLU stays open. | Q5, Q6. | What MMLU reads that the two do not. |
 | N5 | The Tetra row loop streams faster alone than inside 4E, and bit-identical cuts move time without removing it. | K4, K10; K5 for the split of the time without weights, which is a conjecture (its consequence, the 94 % that reappeared, is measured). | What holds the token when the rows are not the limit. |
@@ -606,8 +707,9 @@ Ranked by how much they block.
 the MLP carries +4.86 of the gap, attention +0.73, and all projections restored sit +0.04 [−0.23, +0.31] under FP16
 (Q16, Q22; [ablation-qualite-4b](mesures/ablation-qualite-4b-2026-11-12.txt)). What remains open is O9.
 
-**O2.** Whether an output-aware encoder objective gains on MMLU and GSM8K (Q20). No arm has ever run; it is the only
-quality lever with a projected gain above 1 point.
+**O2.** Whether an output-aware encoder objective gains on MMLU and GSM8K (Q20). One form has run, on the 4B, on one
+draw: gradient-weighted input Hessians for gate/up, which did not beat the layer objective, clipped or not (Q24). The
+two-sided form (YAQA), more calibration windows and a second draw have not run. No GSM8K arm has run.
 
 **O3.** How much of the 2.92-point draw spread survives row scales (Q2). A second draw of a sealed size, through row
 scales, on the full split, settles it; until then every cross-file quality comparison carries it.
@@ -634,6 +736,39 @@ the project's direction.
 a ready verifier, and the ceiling of 24-dimension fixed-rate codes is recorded (C7). Speed, the kernel, has a costly
 verifier. Model quality has no fast, faithful verifier: it is open through the explanation route, from the anomalies
 N1 and N2.
+
+**O12.** Phase closed on 2026-11-14 by the operator, with $13.49 of its $15 spent: MODE RECHERCHE on model quality,
+opened on 2026-11-13, explanation route (O10), beside the phase on decode speed (O11, on the branch
+`recherche/debit-2026-11-12`). Outcome, in the terms of [`MODES.md`](MODES.md): a dead hypothesis. No idea sheet
+leaves the phase.
+
+| field | content |
+|---|---|
+| Axis | Quality of the served object at its b/param: MMLU on the full split and GSM8K, paired against FP16. Whole-model b/param, VRAM, decode speed, time to first token and the cost of producing an object are constraints. |
+| Starting point | As signed: the anomaly N1, read where Q16 puts the gap. As amended by the operator on 2026-11-13, after N1 read 1.27 of the 6.77 points on the sealed 4B (Q7): the amplitude share, the gap between the Gaussian prediction, 64.65, and FP16, 70.14. His reason: where an error lands against chance cannot be known in advance. |
+| Untouchable | The three sealed files. Whole-model b/param at 2.73. VRAM at the served peaks. No edit under `llvq-cuda/` or to a served config while O11 is open. A per-model or per-type setting is not a result (operator, 2026-11-12), and a restore to f16 is a probe, not a mechanism (Q20). |
+| Budget | As signed: five days, $10 of card under a cap of its own, no model loaded on the work machine while O11 is open. Raised to $15 by the operator on 2026-11-13, when the encodes moved to the card. |
+
+- Excluded: on the 4B, on one calibration draw, encoding gate/up under gradient-weighted input Hessians (G = 4,
+  weights from the encoder's 64 windows, unclipped or clipped at 10 times the group mean) does not beat the layer
+  objective on MMLU (Q24). The space this holds for: that form, that size, that draw, bases before row scales.
+- Left standing: N1 holds on the sealed 4B and is 1.27 of the 6.77 points (Q7). At group grain the final-output judge
+  orders the projection groups as the MMLU restores do and the layer judge does not (Q23). A card encode of the 4B
+  is 77 to 81 minutes and $3.55 to $3.71 (E3). The mandate's +4.86 is the MLP restored on sealed attention; on f16
+  attention the MLP is worth +6.00 [+5.31, +6.69]
+  ([ablation-qualite-4b](mesures/ablation-qualite-4b-2026-11-12.txt) line 126).
+- Where a next phase can look: the two-sided objective, more calibration windows, a second draw (O2); N1, set
+  aside.
+- Record: R0 in [recherche-qualite-r0-depot](mesures/recherche-qualite-r0-depot-2026-11-13.txt) and
+  [recherche-qualite-r0-litterature](mesures/recherche-qualite-r0-litterature-2026-11-13.txt); the N1 replay in
+  [recherche-qualite-n1](mesures/recherche-qualite-n1-2026-11-13.txt); the framing and the two cost notes in
+  [recherche-qualite-r1-cadrage](mesures/recherche-qualite-r1-cadrage-2026-11-13.txt),
+  [recherche-qualite-r2-chiffrage](mesures/recherche-qualite-r2-chiffrage-2026-11-13.txt) and
+  [recherche-qualite-r2-chiffrage-encodeur](mesures/recherche-qualite-r2-chiffrage-encodeur-2026-11-13.txt); the
+  three measurements in [layer-vs-output-4b](mesures/layer-vs-output-4b-2026-11-13.txt),
+  [guided-gateup-4b](mesures/guided-gateup-4b-2026-11-13.txt) and
+  [guided-clip-gateup-4b](mesures/guided-clip-gateup-4b-2026-11-14.txt). The day-by-day account is the 2026-11-13
+  entry of [`HISTORIQUE.md`](HISTORIQUE.md).
 
 ## Beliefs we dropped
 
@@ -677,3 +812,19 @@ N1 and N2.
 - [embed-q4-swap](mesures/embed-q4-swap-2026-09-23.txt) line 30 gives the sealed 4B 2.7138 b/param, the prereg's
   figure. The prereg's [ECARTS](../proofs/preregistration-embed-q4-swap-2026-09-23-ECARTS.md) §É1 corrects it to
   2.7320, and `ETAT.md` §2's 2.73 follows the correction (C4).
+- `docs/METHODE.md` line 67 calls 0.43 pp of MMLU "the paired interval" of an A/B on one file. It is the SE of one
+  pair, as for `ETAT.md` above ([kvq8-4b](mesures/kvq8-4b-2026-08-15.txt) line 73).
+- `docs/data/jobs.csv`, row `ablation-qualite-4b`, says the prereg's interaction row did not fire. The journal's
+  CLARIFICATION, lines 205 to 219, says it fires to the letter and was set aside by judgement.
+- Q14 states that more calibration data hurts, on a DCLM 4x scope. `docs/data/jobs.csv` line 121 records a resolved
+  +2.98 at 32x on C4 on a card, whose journal is in no commit; Q14 does not cite it
+  ([recherche-qualite-r1-cadrage](mesures/recherche-qualite-r1-cadrage-2026-11-13.txt), mismatch 1).
+- The second row-scale pass is in neither Q5's nor Q6's list of proxy failures: its KL fell to about 0.20 for +0.02
+  MMLU ([sealed-rownorms](mesures/sealed-rownorms-2026-09-23.txt) lines 39 to 42). Q12 carries the +0.02, not the KL
+  (same note, mismatch 2).
+- The 4B Mac encode duration differs across four documents (same note, section 8).
+- [`ROADMAP-QUALITY.md`](ROADMAP-QUALITY.md) row L38 says seeded draws exist only for `Planes14`. A seeded encode of
+  the DCLM recipe exists, `dclm-rnd1`, scored on the full split (`docs/data/jobs.csv` line 173,
+  `mesures/dclm-rnd1-2026-09-19-brut/`). It has no journal and no paired interval, and Q2 and O3 do not cite it.
+- No claim covers the machine an encode runs on. `docs/data/jobs.csv` line 120 reads the same tokens on a card and on
+  Metal at 52.31 against 53.49 on 2,280 q, and the card re-encode of the DCLM base differs from the Mac file (Q15).

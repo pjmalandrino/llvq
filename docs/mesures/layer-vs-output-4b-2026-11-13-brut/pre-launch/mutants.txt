@@ -1,0 +1,26 @@
+original sha256 c031c52f1294f3e044621bf7ed3e7f5089da0fb593f0ced5ca826fbb67596f12
+
+== M1 swap ignored in the resolver: site count 1
+exit 1; selftest: RED, 4 failure(s)
+  FAIL  direct form with all 252 swapped reproduces the sealed logits exactly
+  FAIL  mirror form with all 252 restored reproduces the FP16 logits exactly
+  FAIL  a one-group swap is neither base
+  FAIL  D_all equals S and M_all equals T in KL
+CAUGHT
+restored, sha256 c031c52f1294f3e044621bf7ed3e7f5089da0fb593f0ced5ca826fbb67596f12
+
+== M2 note 1 denominator on W_hat: site count 1
+exit 1; selftest: RED, 2 failure(s)
+  FAIL  note 1 equals eps^2 for W_hat = (1+eps) W, worst relative error 5.7e-02
+  FAIL  group aggregates, pooled and mean, equal eps^2 too
+CAUGHT
+restored, sha256 c031c52f1294f3e044621bf7ed3e7f5089da0fb593f0ced5ca826fbb67596f12
+
+== M3 v_proj dropped from qkv: site count 1
+exit 1; selftest: RED, 2 failure(s)
+  FAIL  group sizes {'qkv': 72, 'o': 36, 'gateup': 72, 'down': 36, 'attn': 144, 'mlp': 108, 'all': 252}
+  FAIL  the four disjoint groups partition 252
+CAUGHT
+restored, sha256 c031c52f1294f3e044621bf7ed3e7f5089da0fb593f0ced5ca826fbb67596f12
+
+all mutants caught

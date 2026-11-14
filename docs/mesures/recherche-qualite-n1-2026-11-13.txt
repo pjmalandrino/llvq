@@ -1,0 +1,162 @@
+RECHERCHE QUALITE, R1: ANOMALY N1 REPLAYED ON THE SEALED 4B, FULL SPLIT, PAIRED INTERVAL, MAC, 2026-11-13. $0.
+=================================================================================================================
+N1 holds on the sealed 4B. The sealed 4B reads 63.37 on 14,042 questions. iid Gaussian noise of its own residual
+amplitude on the four f16 option logits predicts 64.65. The gap is G_gauss = -1.27 pp, 95 % normal [-1.89, -0.65],
+bootstrap [-1.89, -0.65] (*computed*, run.txt). Prereg rule P1 reads HOLDS.
+
+Amplitude carries most of the sealed 4B's gap. FP16 reads 70.14. The amplitude of the logit error alone predicts 64.65,
+so 5.49 of the 6.77 points to FP16. The other 1.27 sit beyond amplitude (beta 0.5817, sd 1.2302, SNR 1.5216).
+
+The f16 margin does not carry the 1.27. Reshuffled inside 20 bands of f16 margin, the arm's own residuals predict
+64.80, a gap of G_banded = -1.43 [-2.03, -0.82]. That is no closer to the measured score than the Gaussian reference.
+On bare Tetra, full split, the banded reshuffle closes part of the gap: G_gauss -4.45 [-5.16, -3.74], G_banded -3.23
+[-3.94, -2.52].
+
+N1 is not LLVQ-only on the full split. AWQ 4B reads under its Gaussian prediction, -0.88 [-1.31, -0.44]. Every one of
+the twelve arms reads under its Gaussian prediction except abl-all, +0.10 [-0.12, +0.32].
+
+Ten of thirteen signed predictions are inside their intervals, and P1's outcome was predicted. The three misses are
+AWQ 4B (wrong sign), abl-attn and the sealed 8B (both below their intervals).
+
+Prereg : proofs/preregistration-recherche-qualite-n1-2026-11-13.md, sha256
+         3323f313691be671bcdd6afd0c317e27b4a47b1977f625395936096e2977d5f2. Stamped (.ots) and committed with the
+         script before either run (7964645). Not edited. No deviation file.
+Code   : ops/logit_n1_replay.py, sha256 a5ff4c7b515ea3c77223e63af9d12bbc6f341a5bb5b1086fa2239d2954559bcd, the sha256
+         the prereg names. It imports ops/logit_snr.py, unchanged since a73d3c9.
+Go     : none needed. The signed mandate O12 is the go for runs that cost nothing and load no model (docs/MODES.md).
+         No card, no model, no network.
+Run    : the main session, at 7964645, on the Mac, one thread, nice -n 10:
+         - uv run ops/logit_n1_replay.py controls, exit 0, "controls pass, 69 s" (prereg estimate about 1.5 min).
+         - uv run ops/logit_n1_replay.py run, exit 0, 12 arms, 312 s, 16 to 47 s an arm (prereg estimate about
+           3.5 min).
+Raw    : recherche-qualite-n1-2026-11-13-brut/: controls.txt, controls.tsv, run.txt, run.tsv, verbatim;
+         files.sha256 (the four raw files, the script, the prereg).
+Inputs : the fifteen full-split dumps and the eight 2,280-q dumps of prereg §2, at the blob hashes listed there. Every
+         dump was *measured* by the paid jobs the prereg names. Every number in this journal is *computed* on those
+         dumps.
+
+CONTROLS (prereg §4; rule D: if one fails, the run decides nothing)
+-------------------------------------------------------------------
+C1. Passes. ops/logit_snr.py, unchanged, reproduces section 5 of logit-snr-4b-2026-09-12.txt character for character.
+    Its whole output is identical (controls.txt).
+C2. Passes, 15 of 15. The recomputed micro of every full-split dump equals its journal figure to 0.01 pp:
+      sealed 4B 63.3742, FP16 4B 70.1396, bare Tetra 54.6432, AWQ 4B 68.1384, qkv 63.9225, o 63.2460, gateup 66.7569,
+      down 65.3824, attn 64.1006, mlp 68.2310, all 70.0969, sealed 8B 69.5770, FP16 8B 75.0534, sealed 14B 75.6587,
+      FP16 14B 78.8777.
+C3. Passes, 21 of 21. On the seven section-5 arms (2,280 q), every prediction falls within 3 journal sd of the
+    journal's value. The largest deviation is 0.33 sd: tetra free reshuffle, 58.41 against 58.76. The AWQ line reads
+    gauss 69.25 against the journal's 69.21, measured 70.04.
+C4. Passes. Twenty null arms on the real FP16 4B census dump, at the sealed arm's fitted beta 0.5817 and simulation
+    sd 1.4205. The Gaussian interval covers 0 in 20 of 20.
+Before the stamp (prereg §9, not re-run): the selftest passed on synthetic arms. Null arms covered 0 in 20 of 20 on
+2,280 q and in 19 of 20 at census shape. Planted couplings (a), (b) and (d) resolved with their derived sign. Three
+mutants were caught.
+Four of four controls pass, and the run decides.
+
+RESULT (run.txt; G = measured minus predicted, pp of micro, 14,042 questions, 95 % normal, *computed*)
+---------------------------------------------------------------------------------------------------------
+Primary arm, sealed 4B against FP16 4B. |K| = 14,042. beta 0.5817, sd_res 1.2302, SNR 1.5216.
+Measured 63.37 +- 0.39 (SE).
+  reference          predicted   MC SE    G       SE     95 % normal        95 % bootstrap
+  gaussian iid       64.65       0.019    -1.27   0.32   [-1.89, -0.65]     [-1.89, -0.65]
+  free reshuffle     64.95       0.019    -1.57   0.31   [-2.18, -0.97]     [-2.18, -0.97]
+  banded reshuffle   64.80       0.019    -1.43   0.31   [-2.03, -0.82]     [-2.03, -0.82]
+
+Secondary arms, each against its own size's FP16. Descriptive, prereg §3 and §8.
+  arm          beta    sd_res  SNR      measured  pred.   G_gauss [95 %]        G_free [95 %]         G_banded [95 %]
+  bare Tetra   0.4809  1.5054  1.0280   54.64     59.09   -4.45 [-5.16, -3.74]  -4.15 [-4.86, -3.44]  -3.23 [-3.94, -2.52]
+  AWQ 4B       0.9604  0.8741  3.5354   68.14     69.02   -0.88 [-1.31, -0.44]  -0.95 [-1.39, -0.52]  -0.77 [-1.20, -0.34]
+  abl-qkv      0.6994  1.2641  1.7803   63.92     66.06   -2.14 [-2.73, -1.54]  -2.25 [-2.85, -1.66]  -2.06 [-2.65, -1.47]
+  abl-o        0.5869  1.2058  1.5662   63.25     64.95   -1.71 [-2.32, -1.09]  -2.01 [-2.61, -1.41]  -1.84 [-2.44, -1.24]
+  abl-gateup   0.7230  1.0522  2.2110   66.76     67.45   -0.69 [-1.22, -0.17]  -0.82 [-1.33, -0.31]  -0.74 [-1.25, -0.24]
+  abl-down     0.6858  1.2371  1.7839   65.38     66.08   -0.70 [-1.28, -0.12]  -0.95 [-1.51, -0.38]  -0.84 [-1.40, -0.28]
+  abl-attn     0.7092  1.2497  1.8263   64.10     66.25   -2.15 [-2.74, -1.56]  -2.27 [-2.86, -1.69]  -2.10 [-2.69, -1.52]
+  abl-mlp      0.8441  0.9395  2.8914   68.23     68.51   -0.28 [-0.74, +0.17]  -0.42 [-0.85, +0.00]  -0.33 [-0.75, +0.09]
+  abl-all      1.0003  0.2888  11.1479  70.10     70.00   +0.10 [-0.12, +0.32]  -0.06 [-0.19, +0.08]  -0.03 [-0.16, +0.10]
+  sealed 8B    0.6663  1.1576  1.9642   69.58     71.91   -2.33 [-2.87, -1.78]  -2.10 [-2.65, -1.56]  -1.80 [-2.35, -1.26]
+  sealed 14B   0.7666  0.9300  2.8173   75.66     77.04   -1.38 [-1.84, -0.92]  -1.25 [-1.71, -0.79]  -0.98 [-1.43, -0.52]
+"pred." is the Gaussian prediction. The Monte Carlo SE of every prediction is 0.004 to 0.024 pp. The bootstrap
+intervals agree with the normal ones to 0.01 pp on every row, with one exception. On abl-mlp's free reshuffle the
+normal interval reaches +0.00 and the bootstrap reads [-0.84, -0.02]. The prereg reads bootstrap disagreements on the
+primary arm only.
+
+The gap split two ways, each arm against its own FP16 (*computed* from run.tsv and C2's micro; descriptive except the
+sealed 4B). "Amplitude" is FP16 minus the Gaussian prediction. "Beyond" is -G_gauss.
+  arm          FP16      Gaussian pred.   measured   gap to FP16   amplitude   beyond   beyond / gap
+  sealed 4B    70.1396   64.6457          63.3742    6.77          5.49        1.27     18.8 %
+  bare Tetra   70.1396   59.0918          54.6432    15.50         11.05       4.45     28.7 %
+  sealed 8B    75.0534   71.9055          69.5770    5.48          3.15        2.33     42.5 %
+  sealed 14B   78.8777   77.0371          75.6587    3.22          1.84        1.38     42.8 %
+The three sizes are one calibration draw each, and the prereg (§8) forbids reading them as a law.
+
+READING AGAINST THE PREREG, TO THE LETTER
+-----------------------------------------
+Rule D. C1 to C4 pass in `controls`. The selftest and the mutants passed before the stamp, as §9 discloses. The run
+decides.
+P1. The 95 % normal interval of the sealed 4B's G_gauss, [-1.89, -0.65], lies entirely below 0: N1 HOLDS on the
+    sealed 4B. The bootstrap interval, [-1.89, -0.65], is on the same side. Q7's overturn condition does not fire.
+P2. N1 holds, so P2 applies. The size of the phase's gap is G_gauss = -1.27 [-1.89, -0.65]. The share the f16 margin
+    does not carry is G_banded = -1.43 [-2.03, -0.82]. The banded reference sits 0.15 pp above the Gaussian one
+    (64.80 against 64.65), so on this object the margin bands carry none of the gap. On bare Tetra they carry part of
+    it (-4.45 against -3.23).
+    The prereg draws no other reading from the secondary arms. The table above gives each with its G and interval.
+
+SIGNED PREDICTIONS (prereg §9) AGAINST THE COMPUTED VALUES
+-----------------------------------------------------------
+  item                       predicted              computed   in or out
+  P1 outcome                 HOLDS (about 60 %)     HOLDS      in
+  sealed 4B G_gauss          -1.2 [-2.4, -0.2]      -1.27      in
+  sealed 4B G_banded         -0.8 [-1.8, 0.0]       -1.43      in
+  bare Tetra                 -4.8 [-5.8, -3.8]      -4.45      in
+  AWQ 4B                     +0.6 [-0.2, +1.4]      -0.88      out (below, wrong sign)
+  abl-qkv                    -1.1 [-2.2, -0.1]      -2.14      in
+  abl-o                      -1.2 [-2.4, -0.2]      -1.71      in
+  abl-gateup                 -0.6 [-1.5, +0.2]      -0.69      in
+  abl-down                   -0.8 [-1.8, +0.1]      -0.70      in
+  abl-attn                   -1.0 [-2.1, 0.0]       -2.15      out (below)
+  abl-mlp                    -0.3 [-1.0, +0.4]      -0.28      in
+  abl-all                    0.0 [-0.4, +0.4]       +0.10      in
+  sealed 8B                  -0.9 [-2.0, 0.0]       -2.33      out (below)
+  sealed 14B                 -0.5 [-1.4, +0.3]      -1.38      in
+Ten of the thirteen interval predictions are in, three out, and the P1 outcome is correct. "In" means the computed G
+lies inside the prediction interval (§9). abl-qkv (-2.14 against -2.2) and the sealed 14B (-1.38 against -1.4) sit
+near the lower edge.
+
+What the misses say, as facts:
+- AWQ 4B reads under its Gaussian prediction on the full split, resolved: -0.88 [-1.31, -0.44]. The 2,280-q sample
+  dump read over it, measured 70.04 against 69.25 in C3 (69.21 in the logit-snr journal). The two are different
+  samples, and the prereg (§8) forbids comparing them. The AWQ prediction was set from the sample line (§9).
+- The sealed 8B's G, -2.33, is larger in absolute value than the sealed 4B's, -1.27, against the predicted direction
+  (-0.9 against -1.2). The sealed 14B, -1.38, is also above the 4B in absolute value; its prediction was -0.5.
+- abl-attn, -2.15, is below its interval. Its predicted -1.0 sat near the sealed 4B's -1.2.
+
+OBSERVED, NOT READ BY THIS PREREG
+---------------------------------
+- abl-mlp, -0.28 [-0.74, +0.17], and abl-all, +0.10 [-0.12, +0.32], are the only G_gauss not resolved from 0. They are
+  the two arms with the MLP restored.
+- abl-qkv and abl-attn read -2.14 and -2.15. They are the arms with attention restored and the MLP sealed.
+- No difference between two ablation arms is read: they share the sealed file and the questions (§8). No mechanism
+  and no gain are drawn from these lines.
+
+WHAT THE RUN DOES NOT SAY
+-------------------------
+- Nothing on GSM8K, perplexity or the kernel path. Every dump is the dense f16 reconstruction.
+- G is a gap to a noise model on four option logits. It says nothing about which weights or activations carry the
+  error.
+- G is conditional on beta and sd, which are fitted on the same questions (prereg §5). The interval does not carry
+  the fit's own uncertainty.
+- The instrument does not see a constant offset on one option letter (prereg C5 (c): -0.11 [-0.65, +0.43] for a
+  planted +1.0 on B). A letter bias in an arm is invisible to all three references.
+- One calibration draw at each size. The three sizes are not a law, and a G whose interval contains 0 is "not
+  resolved", never "zero".
+- The 2,280-q figures of the logit-snr journal are not compared with these.
+
+CERVEAU CLAIMS THIS JOURNAL TOUCHES (edits applied by the lead, not here)
+-------------------------------------------------------------------------
+- Q7: replayed on the sealed 4B, full split, where N1 holds at -1.27 [-1.89, -0.65]. Its first sentence, "where it
+  lands matters more than its size", does not hold as a statement of shares on the sealed 4B. There amplitude
+  predicts 5.49 of the 6.77 points, and 1.27 sit beyond it.
+- N1: holds on the sealed 4B. On the full split it is not LLVQ-only: AWQ 4B reads -0.88 [-1.31, -0.44].
+- Q9: unchanged. This run counts no reversed shapes and no overlaps.
+- O12: R1 is done. N1 is settled on the sealed 4B at $0, and $0 of $10 is spent.
+

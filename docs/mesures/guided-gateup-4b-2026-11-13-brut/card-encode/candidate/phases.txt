@@ -1,0 +1,9 @@
+phases:
+  quantization             3481.3s   78.7 %
+  factorization             630.3s   14.3 %
+  capture (pass 1)          133.5s    3.0 %
+  f64 transfer               72.1s    1.6 %
+  advance (pass 2)           56.0s    1.3 %
+  artifact write             49.9s    1.1 %
+
+=== Qwen/Qwen3-4B [tetra1, 36 blocks, rot on, mode nogs, calib dclm-edu/prefix], wikitext-2, ctx 4096, 12 windows ===

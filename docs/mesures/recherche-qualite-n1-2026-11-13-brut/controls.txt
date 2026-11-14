@@ -1,0 +1,35 @@
+C1. ops/logit_snr.py, unchanged, reproduces its journal.
+   section 5 character for character: passes; whole output: identical
+
+C2. Measured accuracy of every full-split dump against its journal, to 0.01 pp.
+   mmlu-4b-abl-control-FULL.csv        63.3742 against  63.3742 (ablation-qualite-4b-2026-11-12.txt line 84)   passes
+   mmlu-4b-f16-FULL.csv                70.1396 against  70.1400 (f16-full-2026-09-18.txt line 14)   passes
+   mmlu-4b-tetra-FULL.csv              54.6432 against  54.6400 (tetranu-rowscales journal line 20)   passes
+   mmlu-4b-awq-FULL.csv                68.1384 against  68.1400 (paper-table-2026-09-25.txt line 48)   passes
+   mmlu-4b-abl-qkv-FULL.csv            63.9225 against  63.9225 (ablation-qualite-4b-2026-11-12.txt line 85)   passes
+   mmlu-4b-abl-o-FULL.csv              63.2460 against  63.2460 (ablation-qualite-4b-2026-11-12.txt line 86)   passes
+   mmlu-4b-abl-gateup-FULL.csv         66.7569 against  66.7569 (ablation-qualite-4b-2026-11-12.txt line 87)   passes
+   mmlu-4b-abl-down-FULL.csv           65.3824 against  65.3824 (ablation-qualite-4b-2026-11-12.txt line 88)   passes
+   mmlu-4b-abl-attn-FULL.csv           64.1006 against  64.1006 (ablation-qualite-4b-2026-11-12.txt line 89)   passes
+   mmlu-4b-abl-mlp-FULL.csv            68.2310 against  68.2310 (ablation-qualite-4b-2026-11-12.txt line 90)   passes
+   mmlu-4b-abl-all-FULL.csv            70.0969 against  70.0969 (ablation-qualite-4b-2026-11-12.txt line 91)   passes
+   mmlu-8b-B-sealed-FULL.csv           69.5770 against  69.5800 (sealed-8b-27-2026-09-24.txt line 25)   passes
+   mmlu-8b-f16-FULL.csv                75.0534 against  75.0500 (census-8b-2026-09-21.txt line 24)   passes
+   mmlu-14b-sealed-FULL.csv            75.6587 against  75.6600 (sealed-8b-14b-2026-09-23.txt line 24)   passes
+   mmlu-14b-f16-FULL.csv               78.8777 against  78.8800 (census-14b-ref-2026-09-22.txt line 1)   passes
+
+C3. The seven section-5 arms, 2,280 q: each prediction within 3 journal sd of the journal's value.
+   awq4       gauss  69.25 vs  69.21 (+0.04 sd) passes  free  69.32 vs  69.07 (+0.32 sd) passes  banded  68.98 vs  69.15 (-0.21 sd) passes
+   planes14   gauss  59.26 vs  59.58 (-0.26 sd) passes  free  59.93 vs  60.04 (-0.09 sd) passes  banded  59.14 vs  59.00 (+0.12 sd) passes
+   tetra      gauss  58.68 vs  58.53 (+0.14 sd) passes  free  58.41 vs  58.76 (-0.33 sd) passes  banded  57.54 vs  57.53 (+0.01 sd) passes
+   tetra+q5   gauss  60.20 vs  60.03 (+0.19 sd) passes  free  60.24 vs  60.47 (-0.19 sd) passes  banded  60.27 vs  60.06 (+0.21 sd) passes
+   seed1      gauss  60.46 vs  60.66 (-0.16 sd) passes  free  60.71 vs  60.81 (-0.08 sd) passes  banded  60.27 vs  60.49 (-0.19 sd) passes
+   seed2      gauss  58.70 vs  58.74 (-0.04 sd) passes  free  59.00 vs  58.76 (+0.25 sd) passes  banded  57.97 vs  57.92 (+0.05 sd) passes
+   seed3      gauss  60.52 vs  60.34 (+0.14 sd) passes  free  60.39 vs  60.61 (-0.22 sd) passes  banded  60.05 vs  60.07 (-0.01 sd) passes
+
+C4. Null arms on the real 4B f16 census dump, at the sealed arm's fitted beta and sd.
+   beta 0.5817, simulation sd 1.4205: gaussian covers 0 in 20/20   passes
+
+wrote docs/mesures/recherche-qualite-n1-2026-11-13-brut/controls.tsv
+
+controls pass, 69 s

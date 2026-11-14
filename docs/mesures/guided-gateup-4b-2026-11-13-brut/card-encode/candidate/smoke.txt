@@ -1,0 +1,91 @@
+=== configuration ===
+  model        Qwen/Qwen3-4B
+  codebook     tetra1 → Tetra word map, 47 bits of label + 1 gain bit, 3 octads of 8, 2048 rows per class, magnitude on the gain grid, gain selected from source norm, 48 bits/block
+  calibration  dclm-edu, 64 × 2048 = 131072 tokens requested, contiguous prefix from token 0
+  rotation     on (seed 0x110feed)
+  mode         nogs (group scales off, design C off, spherical feedback off)
+  blocks       999 at most
+  eval         wikitext-2 test, 12 windows × 4096
+  dtype        f32
+  device       Cuda(CudaDevice(DeviceId(1))), 23 encoder threads
+  damping      1e-2 (relative to mean(diag H))
+  h_shrink     1 (H as is, published path)
+  gain_scale   1 (centroids as fitted, published path)
+  guided       gate_proj, up_proj against gradient-weighted Hessians, G = 4, weights /scratch/weights, manifest sha256 e63dad8346c33773bed7a9dc23f30859714bfeed6bd677de0465bc5633286f22
+  artifact     /out/guided-encode-4b-2026-11-13/candidate/candidate.llvq
+  resume       (no — start at block 0)
+=====================
+guided weights: cutting the calibration windows (dclm-edu) to check them before the model loads…
+  bounded read: 825408 chars for 786432 asked, 127 of 776000 rows, 1 of 1 row groups, revision dbad8ad71224482740cd9c9d353591adbf62fe04
+  guided weights: gate_proj,up_proj G=4 tokens=131072 fingerprint=45fb781f65574d4d manifest_sha256=e63dad8346c33773bed7a9dc23f30859714bfeed6bd677de0465bc5633286f22
+baseline perplexity over 12 windows of 4096…
+  baseline ppl = 12.2336
+tokenizing calibration set (dclm-edu)…
+  64 windows of 2048 = 131072 tokens (94 available), contiguous prefix from token 0
+  calibration token fingerprint 45fb781f65574d4d (131072 ids, FNV-1a 64 over the windows in order)
+quantizing blocks 0..35 of 36 of Qwen/Qwen3-4B — tetra1 → Tetra word map, 47 bits of label + 1 gain bit, 3 octads of 8, 2048 rows per class, magnitude on the gain grid, gain selected from source norm, 48 bits/block, retract on, group scales off, design C off, spherical feedback off, input rotation on…
+writing the compressed artifact to /out/guided-encode-4b-2026-11-13/candidate/candidate.llvq
+  run state written to /out/guided-encode-4b-2026-11-13/candidate/candidate.llvq.state
+  block   1/36  2 min elapsed  121 s/block  ~70 min left  (estimated end at +1.2 h)
+  block   2/36  4 min elapsed  123 s/block  ~69 min left  (estimated end at +1.2 h)
+  block   3/36  6 min elapsed  123 s/block  ~67 min left  (estimated end at +1.2 h)
+  block   4/36  8 min elapsed  122 s/block  ~65 min left  (estimated end at +1.2 h)
+  block   5/36  10 min elapsed  122 s/block  ~63 min left  (estimated end at +1.2 h)
+  block   6/36  12 min elapsed  122 s/block  ~61 min left  (estimated end at +1.2 h)
+  block   7/36  14 min elapsed  122 s/block  ~59 min left  (estimated end at +1.2 h)
+  block   8/36  16 min elapsed  122 s/block  ~57 min left  (estimated end at +1.2 h)
+  block   9/36  18 min elapsed  123 s/block  ~55 min left  (estimated end at +1.2 h)
+  block  10/36  20 min elapsed  123 s/block  ~53 min left  (estimated end at +1.2 h)
+  block  11/36  22 min elapsed  123 s/block  ~51 min left  (estimated end at +1.2 h)
+  block  12/36  25 min elapsed  123 s/block  ~49 min left  (estimated end at +1.2 h)
+  block  13/36  27 min elapsed  123 s/block  ~47 min left  (estimated end at +1.2 h)
+  block  14/36  29 min elapsed  123 s/block  ~45 min left  (estimated end at +1.2 h)
+  block  15/36  31 min elapsed  123 s/block  ~43 min left  (estimated end at +1.2 h)
+  block  16/36  33 min elapsed  123 s/block  ~41 min left  (estimated end at +1.2 h)
+  block  17/36  35 min elapsed  123 s/block  ~39 min left  (estimated end at +1.2 h)
+  block  18/36  37 min elapsed  123 s/block  ~37 min left  (estimated end at +1.2 h)
+  block  19/36  39 min elapsed  123 s/block  ~35 min left  (estimated end at +1.2 h)
+  block  20/36  41 min elapsed  123 s/block  ~33 min left  (estimated end at +1.2 h)
+  block  21/36  43 min elapsed  123 s/block  ~31 min left  (estimated end at +1.2 h)
+  block  22/36  45 min elapsed  123 s/block  ~29 min left  (estimated end at +1.2 h)
+  block  23/36  47 min elapsed  123 s/block  ~27 min left  (estimated end at +1.2 h)
+  block  24/36  49 min elapsed  123 s/block  ~25 min left  (estimated end at +1.2 h)
+  block  25/36  51 min elapsed  123 s/block  ~23 min left  (estimated end at +1.2 h)
+  block  26/36  53 min elapsed  123 s/block  ~20 min left  (estimated end at +1.2 h)
+  block  27/36  55 min elapsed  123 s/block  ~18 min left  (estimated end at +1.2 h)
+  block  28/36  57 min elapsed  123 s/block  ~16 min left  (estimated end at +1.2 h)
+  block  29/36  59 min elapsed  123 s/block  ~14 min left  (estimated end at +1.2 h)
+  block  30/36  62 min elapsed  123 s/block  ~12 min left  (estimated end at +1.2 h)
+  block  31/36  64 min elapsed  123 s/block  ~10 min left  (estimated end at +1.2 h)
+  block  32/36  66 min elapsed  123 s/block  ~8 min left  (estimated end at +1.2 h)
+  block  33/36  68 min elapsed  123 s/block  ~6 min left  (estimated end at +1.2 h)
+  block  34/36  70 min elapsed  123 s/block  ~4 min left  (estimated end at +1.2 h)
+  block  35/36  72 min elapsed  123 s/block  ~2 min left  (estimated end at +1.2 h)
+  block  36/36  74 min elapsed  123 s/block  ~0 min left  (estimated end at +1.2 h)
+artifact: 1.005 GB on disk, payload 2.2224 bits/weight over 3616948224 quantized weights
+  a blend: 94371840 of those weights are int4 g128 at a flat 4.2500 b/weight
+verifying 252 matrices against the evaluated model (v5, kinds Tetra+Int4G128)…
+  ✓ 3633315840 weights identical, bit for bit (at f32)
+quantized 216 matrices, 3538944000 weights on the lattice (2.0696 bits/weight)
+and 36 matrices, 94371840 weights in int4 g128 (4.2500 bits/weight)
+252 matrices in the file; this segment ran 4430s
+phases:
+  quantization             3481.3s   78.7 %
+  factorization             630.3s   14.3 %
+  capture (pass 1)          133.5s    3.0 %
+  f64 transfer               72.1s    1.6 %
+  advance (pass 2)           56.0s    1.3 %
+  artifact write             49.9s    1.1 %
+
+=== Qwen/Qwen3-4B [tetra1, 36 blocks, rot on, mode nogs, calib dclm-edu/prefix], wikitext-2, ctx 4096, 12 windows ===
+codebook                 = tetra1 → Tetra word map, 47 bits of label + 1 gain bit, 3 octads of 8, 2048 rows per class, magnitude on the gain grid, gain selected from source norm, 48 bits/block
+calibration              = 64 × 2048 = 131072 tokens
+baseline (f32)       ppl = 12.2336
+LLVQ 2-bit           ppl = 18.0787
+degradation          ×1.478
+exact-ppl  baseline 1.223361831869e1  quantized 1.807872159986e1
+effective rate           = 2.0696 bits/weight
+hessian damping          = 1e-2
+hessian shrink ρ         = 1
+gain centroid scale      = 1
+dtype / device           = f32 / Cuda(CudaDevice(DeviceId(1)))

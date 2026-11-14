@@ -104,7 +104,9 @@ use llvq_llm::loader::Checkpoint;
 use llvq_llm::model::{NoCapture, Qwen3};
 use llvq_quant::gptq::{GptqConfig, TailPolicy};
 use llvq_llm::calib::ROTATION_SEED;
-use llvq_llm::corpus::{calib_chars, window_starts, CalibCorpus};
+use llvq_llm::corpus::CalibCorpus;
+#[cfg(test)]
+use llvq_llm::corpus::{calib_chars, window_starts};
 
 /// The positional layout, quoted in every refusal so the reader can count.
 const USAGE: &str = "n_calib calib_len n_eval eval_ctx device mode codebook \
@@ -780,6 +782,19 @@ fn main() -> anyhow::Result<()> {
         "LLVQ_GAIN_SCALE must be in [0.5, 2] (1 = the fit as it stands), got {gain_scale}"
     );
 
+    // `LLVQ_GUIDED_WEIGHTS=<dir>` encodes gate_proj and up_proj against
+    // gradient-weighted Hessians, one per group of `LLVQ_GUIDED_GROUPS` row
+    // groups (`llvq_llm::guided`), each group's weights clipped at
+    // `LLVQ_GUIDED_CLIP` times their mean when it is set. Unset: the published
+    // path, byte for byte. Read here, before any download, so a malformed
+    // value costs nothing.
+    let guided_env =
+        llvq_llm::guided::from_env(|k| std::env::var(k).ok()).map_err(anyhow::Error::msg)?;
+    let guided_manifest = match &guided_env {
+        Some(e) => Some(llvq_llm::guided::manifest_sha256(&e.dir)?),
+        None => None,
+    };
+
     // `LLVQ_ARTIFACT=<path>` writes the real compressed artifact: packed
     // lattice indices, not reconstructions. The file's size is the bit rate.
     let artifact_path = std::env::var("LLVQ_ARTIFACT")
@@ -827,6 +842,12 @@ fn main() -> anyhow::Result<()> {
     // for the resume contract this preserves in both directions.
     if h_shrink < 1.0 {
         state.set("h_shrink", format!("{h_shrink:e}"));
+    }
+    // A guided file must never pass for a default one: the state beside it
+    // names the weights by their manifest's sha256, and a resume refuses a
+    // shard encoded under other weights or none.
+    if let (Some(e), Some(sha)) = (&guided_env, &guided_manifest) {
+        state.set("guided", llvq_llm::guided::state_line(e.groups, sha, e.clip));
     }
     state
         .set("model", &repo)
@@ -919,6 +940,22 @@ fn main() -> anyhow::Result<()> {
         }
     );
     eprintln!(
+        "  guided       {}",
+        match (&guided_env, &guided_manifest) {
+            (Some(e), Some(sha)) => format!(
+                "gate_proj, up_proj against gradient-weighted Hessians, G = {}, weights {}, \
+                 manifest sha256 {sha}{}",
+                e.groups,
+                e.dir.display(),
+                match e.clip {
+                    Some(c) => format!(", weights clipped at {c} x the group mean"),
+                    None => String::new(),
+                }
+            ),
+            _ => "off (one input Hessian per activation, published path)".into(),
+        }
+    );
+    eprintln!(
         "  artifact     {}",
         artifact_path.as_deref().unwrap_or("(none)")
     );
@@ -987,6 +1024,32 @@ fn main() -> anyhow::Result<()> {
 
     let ck = Checkpoint::fetch(&repo)?;
     let tok = ck.tokenizer()?;
+    // Guided weights are checked against this run's own calibration tokens
+    // before the model is mapped: a wrong fingerprint or a corrupted file is
+    // refused in seconds, not after the baseline perplexity. Only under the
+    // variable: the published path tokenizes where it always did, below.
+    let mut early_cal = None;
+    let guided = match &guided_env {
+        Some(e) => {
+            eprintln!(
+                "guided weights: cutting the calibration windows ({}) to check them before the model loads…",
+                calib.name()
+            );
+            let cal =
+                llvq_llm::guided::calibration_ids(&tok, calib, n_calib, calib_len, calib_seed)?;
+            let g = llvq_llm::guided::GuidedWeights::open(
+                &e.dir,
+                e.groups,
+                e.clip,
+                cal.fingerprint(),
+                cal.ids.len(),
+            )?;
+            eprintln!("  guided weights: {}", g.describe());
+            early_cal = Some(cal);
+            Some(g)
+        }
+        None => None,
+    };
     let vb = ck.var_builder(dtype, &device)?;
     let mut model = Qwen3::new(&ck.config, vb, llvq_llm::kvq::KvMode::F16)?;
 
@@ -1016,32 +1079,21 @@ fn main() -> anyhow::Result<()> {
 
     // ---- calibration windows ----
     eprintln!("tokenizing calibration set ({})…", calib.name());
-    let train = calib.text(calib_chars(n_calib, calib_len))?;
-    let train_ids = tok
-        .encode(train.as_str(), false)
-        .map_err(|e| anyhow::anyhow!("{e}"))?
-        .get_ids()
-        .to_vec();
-    anyhow::ensure!(n_calib > 0, "n_calib must be > 0");
-    // 🚨 This used to be `n_calib.min(train_ids.len() / calib_len)` — a
-    // **silent clamp**. A run that asked for 2048 windows and got 847 said so
-    // nowhere except in a line nobody diffs, and reported its result under the
-    // volume it *asked* for. That is the §7 rule of `CLAUDE.md` — a mechanism
-    // that skips when its resource is missing must fail, not pass — applied to
-    // a run rather than to a test.
-    let available = train_ids.len() / calib_len;
-    anyhow::ensure!(
-        available >= n_calib,
-        "the calibration corpus only holds {available} windows of {calib_len} \
-         ({} tokens read) — {n_calib} requested. This run fails here rather than \
-         serving fewer in silence: a published volume must be a measured volume.",
-        train_ids.len()
-    );
+    // The cut lives in `llvq_llm::guided::calibration_ids`, the one source of
+    // truth `bin/calibtokens` also reads, so that guided weights computed on
+    // its output weight the very rows this run accumulates. Its refusal is the
+    // one that stood here: a run asking for more windows than the corpus holds
+    // fails rather than serving fewer in silence.
+    let cal = match early_cal.take() {
+        Some(c) => c,
+        None => llvq_llm::guided::calibration_ids(&tok, calib, n_calib, calib_len, calib_seed)?,
+    };
+    let available = cal.available;
     eprintln!(
         // `available` is printed alongside because this line is what a
         // volume ladder's control reads back: "we asked for N and got N" is
         // only reassuring next to how many the corpus actually held. The
-        // `ensure!` above already refuses N > available, so the two can no
+        // refusal above already refuses N > available, so the two can no
         // longer disagree — this is the line that lets a reader see it.
         "  {n_calib} windows of {calib_len} = {} tokens ({available} available), {}",
         n_calib * calib_len,
@@ -1050,11 +1102,16 @@ fn main() -> anyhow::Result<()> {
             None => "contiguous prefix from token 0".into(),
         }
     );
+    // Printed on every run: two arms that claim the same calibration show the
+    // same line, and guided weights are refused unless they carry it.
+    eprintln!(
+        "  calibration token fingerprint {:016x} ({} ids, FNV-1a 64 over the windows in order)",
+        cal.fingerprint(),
+        cal.ids.len()
+    );
 
-    let starts = window_starts(n_calib, train_ids.len(), calib_len, calib_seed);
     let mut hidden: Vec<Tensor> = Vec::with_capacity(n_calib);
-    for &s in &starts {
-        let ids = &train_ids[s..s + calib_len];
+    for ids in cal.ids.chunks_exact(calib_len) {
         let t = Tensor::from_slice(ids, (1, calib_len), &device)?;
         hidden.push(model.embed_tokens(&t)?);
     }
@@ -1217,10 +1274,11 @@ fn main() -> anyhow::Result<()> {
         }
         _ => llvq_llm::artifact2::ShardScan::default(),
     };
-    let mut report = llvq_llm::calib::quantize_model_capturing(
+    let mut report = llvq_llm::calib::quantize_model_guided(
         &mut model,
         &mut hidden,
         &run,
+        guided.as_ref(),
         progress,
         sink.as_mut()
             .map(|s| s as &mut dyn llvq_llm::calib::MatrixSink),

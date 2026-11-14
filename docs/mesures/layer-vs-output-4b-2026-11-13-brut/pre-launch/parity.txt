@@ -1,0 +1,1 @@
+parity: transformers 5.18.0, torch 2.14.1, max |dlogit| 0.000e+00 over max |logit| 2.397e+00: MATCH

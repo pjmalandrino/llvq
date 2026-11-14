@@ -1,0 +1,14 @@
+== P1 square replaced by abs: rc=1; restored, sha256 73e98d165cf2b878 checked
+    selftest: tiny Qwen3-shaped model, 3 layers, intermediate 32, CPU, float64
+      FAIL  column j is the sum of squared gradients over rows [j*d/16, (j+1)*d/16), token by token
+      FAIL  weights are non-negative and sum per sequence to the group's squared gradient norm
+    selftest: RED (2 failure(s))
+== P2 rows interleaved: rc=1; restored, sha256 73e98d165cf2b878 checked
+    selftest: tiny Qwen3-shaped model, 3 layers, intermediate 32, CPU, float64
+      FAIL  column j is the sum of squared gradients over rows [j*d/16, (j+1)*d/16), token by token
+      FAIL  weights are non-negative and sum per sequence to the group's squared gradient norm
+    selftest: RED (2 failure(s))
+== P3 gate and up probes swapped: rc=1; restored, sha256 73e98d165cf2b878 checked
+    selftest: tiny Qwen3-shaped model, 3 layers, intermediate 32, CPU, float64
+      FAIL  hooked gradients on layer_vs_output.forward equal the probe gradients (max 2.6e+00)
+    selftest: RED (1 failure(s))

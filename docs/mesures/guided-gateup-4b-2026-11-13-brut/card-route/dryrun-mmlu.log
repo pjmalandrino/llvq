@@ -1,0 +1,39 @@
+DRY_RUN: no COMPARE-OK yet in /Users/pjmalandrino/llvq-guided-2026-11-13/card; the job below carries placeholders for the two sha256 and the size
+set -euo pipefail
+O=/out/guided-mmlu-4b-2026-11-13
+BYTES=0
+FP=a74a6d6213602979
+ARMS=$'baseline|/out/guided-encode-4b-2026-11-13/baseline/baseline.bin|DRY-baseline-sha256\ncandidate|/out/guided-encode-4b-2026-11-13/candidate/candidate.bin|DRY-candidate-sha256'
+mkdir -p "$O"
+if env | grep -q '^LLVQ_'; then echo 'refused: LLVQ_* set in the job env' >&2; exit 1; fi
+nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader | tee "$O/gpu.txt" || true
+echo '== oracle (hard rule 10) =='
+oracle Qwen/Qwen3-0.6B 64 cuda 2>&1 | tee "$O/oracle-cuda.txt" | tail -2
+grep -q MATCH "$O/oracle-cuda.txt"
+micro() { awk -F, '$0 !~ /^#/ && $1 != "subject" { n++; c += $7 } END { printf "%d %d %.4f\n", c, n, 100 * c / n }' "$1"; }
+S="$O/summary.tsv"
+printf 'arm\tfile\tsha256\tcorrect\tquestions\tmicro_pct\tstart_utc\tend_utc\n' > "$S"
+while IFS='|' read -r ARM F SHA; do
+  echo "== arm $ARM: $F, dense f16, FULL split ==" ; T0=$(date -u +%FT%TZ)
+  test "$(stat -c %s "$F")" = "$BYTES"
+  test "$(sha256sum "$F" | cut -d' ' -f1)" = "$SHA"
+  echo "$SHA  $F" >> "$O/files.sha256"
+  D="$O/mmlu-$ARM-FULL.csv"
+  LLVQ_MMLU_ALLOC=flat LLVQ_MMLU_DUMP="$D" mmlu "$F" cuda </dev/null 2>&1 | tee "$O/out-$ARM.txt" | tail -6
+  T1=$(date -u +%FT%TZ)
+  grep -qxF '# dtype=f16' "$D"
+  grep -qxF '# limit=census' "$D"
+  grep -qxF '# alloc=flat, 100..1534 per subject, 14042 questions' "$D"
+  grep -qxF '# config=none' "$D"
+  grep -qxF '# arithmetic=dense reconstruction' "$D"
+  grep -qxF '# kv=f16' "$D"
+  test "$(tail -n 1 "$D")" = "# end fingerprint=$FP questions=14042"
+  if grep -q 'restored' "$D"; then echo "FAIL: arm $ARM carries a restoration" >&2; exit 1; fi
+  read -r C N MIC < <(micro "$D")
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$ARM" "$F" "$SHA" "$C" "$N" "$MIC" "$T0" "$T1" >> "$S"
+  echo "dump ok: $D  micro $MIC"
+done <<< "$ARMS"
+echo '== summary ==' ; cat "$S"
+ls -la "$O"
+
+DRY_RUN: job script parses; nothing launched

@@ -1,0 +1,156 @@
+RECHERCHE QUALITE, R2: WHAT THE LAYER-OUTPUT AND MODEL-OUTPUT NOTES PER MATRIX WOULD COST, SEALED 4B, 2026-11-13. $0.
+=====================================================================================================================
+Result: the cheapest credible way is one Python job on l40sx1 with the pytorch image, the route of the row-scale
+trainings: the FP16 checkpoint and the bucket export of the sealed 4B both resident, one Linear swapped at a time,
+KL to the FP16 next-token distribution and NLL on WikiText-2 test, both forms. The group version (13 swaps) costs
+$0.4 to $0.8 and the 252-matrix version $1.5 to $4.3 on top (*estimated*, section 3), inside the $10 of O12. Missing:
+one measurement script of about 200 to 300 lines and one job script copied from ops/jobs/sealed-rownorms.sh
+(*estimated*). Note 1 rides the same job for about a minute of card. With no code at all, `ppl` and
+LLVQ_RESTORE_F16 on the current image give the group version in NLL only, $0.9 to $1.4, and no KL. The truth exists
+only at group level (four disjoint groups, seven arms), so only the group version can answer the operator's
+question; the 252 version has no MMLU to be compared with.
+Nature: read only. No build, no test, no run, no model load, no job, no network. One line of python on an existing
+training journal (section 4). Code read by grep and by excerpt at 7222fd1. Line numbers are the files' own.
+Mandate: CERVEAU O12. This note proposes no mechanism and projects no gain.
+
+1. WHICH TOOL GIVES WHICH COLUMN
+-------------------------------
+1a. The objects swap cleanly, one matrix at a time.
+- Rust: the dense path decodes each record to its own natural-basis matrix, row scales folded and rotation undone
+  per record (llvq-artifact/src/format.rs 1500-1531), then narrows to the run dtype (llvq-llm/src/sealed.rs 531).
+  No rotation couples two matrices on this path; rot_share is a kernel setting (CLAUDE.md, LLVQ_ROT_SHARE).
+- Rust: a block's projection is reachable by name and replaceable in place (llvq-llm/src/model.rs 2057-2059,
+  `linear_mut`). errmap already loops over matrices in one process by this means (errmap.rs 133-141, 398-455).
+- Python: llvq-tetra materializes a dense weight per module, the rotation applied at load for that record only
+  (llvq-tetra/llvq_tetra/modules.py 74-95); a one-module swap is not broken by the shared rotation tables
+  (modules.py 137-152), which are inputs of the materialization, not of the forward.
+- Python: `export` writes the sealed file as an f16 safetensors checkpoint, "398 tensors identical bit for bit" to
+  its decode (sealed-rownorms-2026-09-23-brut/export.txt lines 14-15). It is the object llvqtune trains on.
+1b. Per tool (what each needs to give the columns):
+  tool                       gives today                                   needs for this measurement
+  mmlu + LLVQ_RESTORE_F16    the truth, done (ablation journal)            nothing
+  ppl + LLVQ_RESTORE_F16     per-window NLL of sealed with types or        group mirror: nothing. Group direct: the
+   (ppl.rs 67-90; parse       windows `t@a-b` restored (sealed.rs 201-217)  complement list, nothing, but the int4 g64
+   sealed.rs 182-239)                                                       embedding stays in. One-matrix mirror:
+                                                                            `gate_proj@7-7`, nothing. One-matrix
+                                                                            direct: refused, a type cannot repeat
+                                                                            (sealed.rs 229); a change of ~20 lines
+  kltemp                     KL(FP16 || artifact overlaid whole), full      a RestoreF16 filter on its overlay, ~30
+                             vocab, one process (kltemp.rs 236-262)         lines; not in the CUDA image. Whether its
+                                                                            overlay reads a sealed file: not checked
+  errmap                     NLL probes of +-eps scale per matrix, one      not this quantity: it scales Ŵ, it does
+                             process (errmap.rs 1-38)                       not swap W and Ŵ
+  hratio                     tr(dW H dW') of lattice records against        the denominator tr(W H W') and the 84 int4
+                             int4 RTN (hratio.rs 16-18, 93-101)             records (skipped, hratio.rs 72): ~30-40
+                                                                            lines; Mac or a new image
+  hcapture                   Hessians of the sealed model on calib text     not a score; input to an offline product
+  llvqtune                   KL(FP16 || export) with backprop, on a card     its pieces only: KL formula
+                             (adapters/objectives.py 30-37)                 (objectives.py 34-37), teacher wrapper
+                                                                            (torch_model.py 249-259). Teacher is not
+                                                                            revision-pinned (__main__.py 79-92)
+  llvq-tetra                 a transformers model of the packed file        nothing for a swap; the export is simpler
+No binary computes ||(W - Ŵ)X||^2 / ||W X||^2 with its denominator, and none computes the direct form.
+
+2. ONE PROCESS OR ONE PROCESS PER MATRIX
+---------------------------------------
+One process can loop: both weight sets fit on an L40S. FP16 model 8.04 GB, the 252 sealed projections at f16 7.27 GB,
+one window's teacher log-probabilities at 4,096 x 151,936 x 4 B 2.49 GB (*computed*); about 25 GB with the student's
+logits and temporaries against 46 GB (*estimated*). The window-outer order computes the teacher once per window.
+Reloading per matrix is what exists today, and it is the dear way: one `mmlu` process spends 76 to 79 s outside its
+question loop, 170 s on the first checkpoint fetch (*computed*, ablation-brut/summary.tsv against the last
+elapsed line of out-control, out-gateup, out-all, out-qkv). `ppl` at 12 windows adds 12.5 s (ppl-scelles-brut
+ppl-4b.txt line 16). 252 mirror arms by reload: 252 x 88.5 s = 6.2 h, $11.15 (*computed* at $1.80/h, run.py 105),
+over the $10, in NLL only, and the direct form refused (section 1b).
+
+3. THREE WAYS TO RUN IT
+-----------------------
+Rate inputs. Rust candle, dense f16, 4B, L40S: 49,140 scored tokens in 12.5 s, 3,931 tok/s (*computed*, ppl-4b.txt
+lines 5-16). llvqtune on the same card: 9,323 steps of 2,048 tokens in 6,023 s, 0.646 s a step, which carries a
+teacher forward, a student forward and a backward (*computed*, sealed-rownorms-brut/journal.jsonl first and last
+step); a forward alone at a quarter of that would be 12,700 tok/s (*estimated*, never timed). Job setup outside
+the step log: 165 s (*computed*, 6,188 s running, sealed-rownorms line 3, minus 6,023 s). Queue is unbilled and has
+reached 3 h 46. Eval size: 12 windows of 4,096, 49,152 tokens, unless stated. The 252 version is 505 student evals
+(252 direct, 252 mirror, the whole sealed set) and one teacher pass; the group version is 13 (seven groups, two
+forms, less mirror-all, which is the teacher itself when the embedding comes from the checkpoint).
+  way                         machine           hours billed       $ (*estimated*)    code before it runs
+  A. Python, one process,     l40sx1, image     group: 0.2-0.45    group: 0.4-0.8     measurement script ~200-300
+     KL + NLL, both forms,    pytorch/pytorch:  (73 windows)       252: 1.5-4.3       lines, job script ~80 lines
+     notes 1 and 2            2.5.1-cuda12.4    252: 0.8-2.4                          from sealed-rownorms.sh,
+                                                                                      prereg
+  B. Rust, new binary         l40sx1, Space     like A at 3,931    group: 0.4-0.8     binary ~300-400 lines from
+     (kltemp + errmap loop)   image              tok/s: 252 1.8-2.4 252: 3.3-4.3      kltemp and errmap; both
+                                                                                      Dockerfile lists; Space
+                                                                                      publish
+  C. No code: ppl with        l40sx1, current   0.5-0.8            0.9-1.4            job script ~60 lines from
+     LLVQ_RESTORE_F16, 16     Space image                                             ablation-qualite-4b.sh,
+     processes                                                                        prereg
+Inputs: A, 252 at 3,931 to 12,700 tok/s, x 1.3 for the full-vocabulary KL (*estimated*, not timed), plus 0.1 h of
+setup; group at 49,152 to 299,008 tokens an eval. B uses the measured Rust rate only. C: 7 mirror, 7 direct, sealed
+and FP16, each 76 s of load plus 12.5 to 76 s of eval (12 or 73 windows), plus oracle and setup.
+What each gives up or risks:
+- A: the forward is torch, not the candle forward the MMLU truth ran; within one stack the pairs are consistent
+  (the export's first KL read 0.2622 on the card and 0.2607 on the Mac, sealed-rownorms line 50). The 12,700 tok/s
+  is unmeasured. The export in the bucket was not listed here (no network). Note 1 in Python reads DCLM text or
+  WikiText, not the encoder's own 64 x 2,048 draw, which lives in the Rust corpus code.
+- B: a new binary must enter both lists of ops/Dockerfile.cuda (build 52-54, COPY 137-167) and the Space must be
+  republished. O11's job scripts pin the Space revision and refuse another (pattern: ablation-qualite-4b.sh 45,
+  87-88), so a publish from this branch moves the image under the other phase. The operator's call.
+- C: NLL only. Every restore arm keeps the sealed int4 g64 embedding, so the direct forms carry its error on top.
+  Section 4 says NLL may not separate the small groups.
+Cheapest credible: A, group version first, at $0.4 to $0.8. It answers the operator's question at the only grain the
+truth has, and its per-window output measures the paired KL noise that sizes the 252 run (section 4). C is cheaper
+in code and not in dollars, and gives no KL.
+
+4. HOW MUCH TEXT THE KL NEEDS
+-----------------------------
+Sizes to separate. The sealed 4B's NLL gap to f16 is ln(12.5834 / 12.2361) = 0.0280 nats a token (*computed*, ETAT
+line 32, jobs.csv line 172), 0.000111 a matrix if it split evenly. Its KL to FP16 on DCLM read 0.2622 at the first
+step of a 2,048-token batch (sealed-rownorms line 50), 0.00104 a matrix if additive (*computed*). Neither split is
+known; the restores do not add (ablation line 118).
+Noise known. One perplexity pair, KV q8 against f16 on one file, 49,140 tokens: 95 % half-width 0.12 %, 0.0012 nats
+(kvq8-4b lines 52-53; CERVEAU Q3). That is about 11 times the even per-matrix NLL share (*computed*): NLL cannot
+rank single matrices at 12 windows, and 73 windows narrow it by about 2.5 (*computed*, sqrt of 299,008 / 49,140,
+assuming windows independent). Group shares of 0.003 to 0.015 nats would clear it (*estimated*, unmeasured).
+KL spread per 2,048-token batch: sd 0.054 around 0.204 over the first 30 logged steps of the sealed 4B's second
+training, 0.054 around 0.211 over the last 200 (*computed* on sealed-rownorms-brut/journal.jsonl, one loss every ten
+steps). The model moves under training, so this is an upper bound on sampling spread. As a coefficient of
+variation, 26 % a batch, about 5.3 % at 49,152 tokens and 2.2 % at 299,008 if batches are independent (*computed*).
+What follows: a direct-form KL is its own quantity, so two matrices separate when they differ by more than about
+15 % at 49,152 tokens before pairing (*computed*, 2 x sqrt 2 x 5.3 %). A mirror-form change is about 0.4 % of
+0.26 per matrix if even, far under the unpaired spread; it rests entirely on how tightly two evals on the same
+positions correlate.
+Not known: the paired sd of a KL difference between two swaps on the same positions; whether WikiText's KL level
+and spread match DCLM's (the Mac read 0.63 on WikiText and 0.38 on the fit split for bare Tetra, kl-temperature
+lines 15-19); the paired KL noise of any arm; whether the per-position KL tail breaks the sqrt scaling.
+
+5. JOB PLUMBING THAT APPLIES
+----------------------------
+- Every paid run through ops/run.py, its row in docs/data/jobs.csv, prereg stamped before, the operator's go with the
+  cost announced (CLAUDE.md hard rules 1-2; METHODE).
+- A Python-only job has a precedent: ops/jobs/sealed-rownorms.sh. It uploads a tarball of the code and the export to
+  the bucket (lines 31-42), then `ops/run.py bench --image pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime` (the
+  bench subcommand, run.py 1591-1593; dclm-rowscales.sh 15-26). It reads the same export. No Space, no Dockerfile:
+  the two-lists trap does not apply. Copy that script.
+- A Rust binary triggers both traps: `--bin` in Dockerfile.cuda 52-54 and its path in the COPY at 137-167. A new
+  file under llvq-llm needs no UPLOAD_ALLOW change, `llvq-*/**` covers it (run.py 747-751); a data file outside the
+  crates would.
+- Hard rule 9 before costing a rerun: the ablation dumps and the ppl-scelles logs exist; none holds per-matrix data.
+- MODES 131-133: this phase loads no model on the Mac; every way above is a card job.
+
+6. WHAT W AND Ŵ ARE
+-------------------
+- W: Qwen/Qwen3-4B@1cfa9a7208912126459214e8b04321603b3df60c, the snapshot int4swap read and every ablation arm
+  restored from (ablation-qualite-4b.sh 53; ablation journal line 75). llvqtune does not pin it; the script must.
+- Ŵ as the ablation scored it: qwen3-4b-sealed.bin, 1,418,224,685 B, sha256 886391a8c03f66dc..., bucket
+  Pier-Jean/jobs-artifacts, sealed-4b-2026-09-23/ (ablation-qualite-4b.sh 47-48), decoded by sealed.rs 486-533
+  at f16. The embedding and tied head stay int4 g64 in every arm.
+- Ŵ as a Python job reads it: bucket sealed-4b-export-2026-09-23/model.safetensors, 8.04 GB f16, sha256 2a018cbd...
+  (sealed-rownorms-brut/export.sha256, export.txt). Read from the 886391a8 file (sealed-rownorms line 11). It
+  carries 389 M embedding weights at f16 (export.txt line 18); a direct form takes the checkpoint's instead.
+- Not checked here: that the export's f16 bytes equal the ablation path's f16 narrowing, which the export's own
+  check implies; that the sealed file's norms equal the checkpoint's.
+- Note 1's X is a choice. The encoder saw a sealed prefix and its own block at f16 (calib.rs 555-568, published
+  `sequential_block` false); hratio reads the full sealed model (hratio.rs 180); a teacher hook reads FP16. Each
+  costs one or two forwards over 131,072 tokens, 33 to 67 s at 3,931 tok/s (*computed*). Ŵ is no longer the
+  encoder's minimizer: row scales were trained after it on KL, and the 84 int4 records are RTN of W (CERVEAU Q12;
+  R1 cadrage section 3b).

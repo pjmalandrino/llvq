@@ -1,0 +1,75 @@
+selftest: tiny Qwen3-shaped model, 36 layers, CPU, float64
+  PASS  group sizes {'qkv': 108, 'o': 36, 'gateup': 72, 'down': 36, 'attn': 144, 'mlp': 108, 'all': 252}
+  PASS  the four disjoint groups partition 252
+  PASS  direct form with all 252 swapped reproduces the sealed logits exactly
+  PASS  mirror form with all 252 restored reproduces the FP16 logits exactly
+  PASS  swapping none gives KL exactly 0 over 32 positions (got 0.0)
+  PASS  the sealed copy is at KL 9.470e-01 > 0
+  PASS  a one-group swap is neither base
+  PASS  no arm of 15 changes a base tensor (sha256 after each)
+  PASS  score_window runs 17 arms
+  PASS  KL(T || T) and KL(T || T2) are exactly 0
+  PASS  D_all equals S and M_all equals T in KL
+  PASS  both bases unchanged by sha256 after every arm
+  PASS  note 1 is 0 for identical weights
+  PASS  note 1 equals eps^2 for W_hat = (1+eps) W, worst relative error 3.5e-15
+  PASS  group aggregates, pooled and mean, equal eps^2 too
+  PASS  windows are non-overlapping and drop the tail
+  PASS  fingerprint offset basis and byte order
+  PASS  a constant difference has a zero-width normal interval
+  PASS  bootstrap is seeded and brackets the mean (1.5, 3.5)
+  PASS  the ordering rule accepts 2 of the 24 orders of four groups (2 expected)
+CONTROLS
+  C1 KL(T || T2) exactly 0 on 12 of 12 windows: GREEN
+  C2 ppl FP16, 12 windows: 19964.1829 against Rust 12.2369 (+163047.390 %); worst window |dnll| 8.83e+00
+  C3 ppl sealed export, 12 windows: 21290.6550 against Rust 12.5834 (+169096.362 %); worst window |dnll| 9.08e+00
+  RULE D (each within +-0.5 %): RED, THE RUN DECIDES NOTHING
+  ratio sealed/FP16, 12 windows: 1.06644 here, 1.02832 Rust
+  non-projection tensors identical in W and W_hat: 0 of 1
+  KL(T || S), sealed: 0.096083 nats/token; KL(T || D_all), FP16 embedding and norms with the 252 sealed projections: 0.096083; KL(T || M_all): 0.000000
+
+NOTE 2 by group, 12 windows of 4096 tokens, nats per token, normal and bootstrap 95 % over windows
+  group   mirror KL recovered [normal] [bootstrap]   share of KL(S) [boot]   direct KL [normal]
+  qkv     +0.048789 [+0.024072, +0.073507] [+0.025841, +0.072637]  0.5078 [0.3726, 0.6263]  0.042530 [0.029248, 0.055812]
+  o       +0.033112 [+0.009644, +0.056581] [+0.011016, +0.056034]  0.3446 [0.1611, 0.4674]  0.022256 [0.013335, 0.031177]
+  gateup  +0.033250 [+0.012541, +0.053958] [+0.015569, +0.055254]  0.3460 [0.2225, 0.4873]  0.009335 [0.005882, 0.012788]
+  down    +0.004917 [-0.008711, +0.018545] [-0.006189, +0.019386]  0.0512 [-0.0729, 0.1843]  0.004204 [0.002205, 0.006202]
+  attn    +0.082038 [+0.049774, +0.114302] [+0.051344, +0.112533]  0.8538 [0.8024, 0.8972]  0.061816 [0.036511, 0.087122]
+  mlp     +0.034267 [+0.009628, +0.058907] [+0.013598, +0.060770]  0.3566 [0.1815, 0.5378]  0.014045 [0.008331, 0.019759]
+  all     +0.096083 [+0.060470, +0.131697] [+0.061810, +0.129173]  1.0000 [1.0000, 1.0000]  0.096083 [0.060470, 0.131697]
+  group   mirror NLL recovered [normal]            direct NLL added [normal]
+  qkv     +0.037801 [-0.032226, +0.107827]   +0.077089 [-0.027252, +0.181431]
+  o       -0.023596 [-0.119614, +0.072422]   +0.012863 [-0.040906, +0.066633]
+  gateup  +0.002780 [-0.052633, +0.058193]   +0.025252 [-0.032650, +0.083155]
+  down    -0.008648 [-0.057885, +0.040588]   +0.009996 [-0.025783, +0.045774]
+  attn    +0.034100 [-0.053068, +0.121268]   +0.070997 [-0.010076, +0.152069]
+  mlp     -0.006668 [-0.070445, +0.057108]   +0.030228 [-0.013236, +0.073693]
+  all     +0.064328 [-0.030036, +0.158693]   +0.064328 [-0.030036, +0.158693]
+
+NOTE 1 by group, sum ||(W - W_hat) x||^2 / sum ||W x||^2
+  group   pooled FP16 x   mean FP16 x   pooled sealed x   mean sealed x
+  qkv     2.482895e-03   2.560230e-03   2.481049e-03   2.568528e-03
+  o       2.389684e-03   2.462462e-03   2.363890e-03   2.462644e-03
+  gateup  2.452174e-03   2.508985e-03   2.451967e-03   2.515254e-03
+  down    2.323098e-03   2.383298e-03   2.303755e-03   2.372352e-03
+  attn    2.465575e-03   2.535788e-03   2.458941e-03   2.542057e-03
+  mlp     2.443816e-03   2.467090e-03   2.442194e-03   2.467620e-03
+  all     2.457160e-03   2.506346e-03   2.452457e-03   2.510156e-03
+
+READINGS (prereg section 6; truth: gateup > down > max(qkv, o))
+  note2 mirror KL (primary)          does not agree: order qkv > gateup > o > down; down - qkv -0.043872 normal [-0.072738, -0.015007] bootstrap [-0.072071, -0.017435]
+  note2 direct KL                    does not agree: order qkv > o > gateup > down; down - qkv -0.038327 normal [-0.050967, -0.025686] bootstrap [-0.049913, -0.025939]
+  note2 mirror NLL                   does not agree: order qkv > gateup > down > o; down - qkv -0.046449 normal [-0.158018, +0.065120] bootstrap [-0.150819, +0.062264]
+  note2 direct NLL                   does not agree: order qkv > gateup > o > down; down - qkv -0.067094 normal [-0.199582, +0.065394] bootstrap [-0.195677, +0.057661]
+  note1 pooled, FP16 x               does not agree: order qkv > gateup > o > down
+  note1 pooled, sealed x             does not agree: order qkv > gateup > o > down
+  note1 pooled, both x (primary)     does not agree: the ordering in both x variants
+  note1 mean, FP16 x                 does not agree: order qkv > gateup > o > down
+  note1 mean, sealed x               does not agree: order qkv > gateup > o > down
+  note1 mean, both x                 does not agree: the ordering in both x variants
+  OUTCOME R-c  (rule D is RED: the run decides nothing)
+  C1 GREEN
+  PASS  report writes 7 group rows and 252 matrix rows
+  PASS  report names outcome R-c with C1 green
+  PASS  rule D is red on a model that is not the 4B
+selftest: GREEN, 0 failure(s)

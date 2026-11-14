@@ -1,0 +1,5 @@
+clip  3x: ESS share mean 0.308, worst matrix mean 0.123, worst group 0.073 (9520 tokens) ; mass kept mean 0.49 min 0.14
+clip  5x: ESS share mean 0.244, worst matrix mean 0.094, worst group 0.057 (7474 tokens) ; mass kept mean 0.56 min 0.17
+clip 10x: ESS share mean 0.173, worst matrix mean 0.063, worst group 0.039 (5130 tokens) ; mass kept mean 0.63 min 0.22
+clip 20x: ESS share mean 0.120, worst matrix mean 0.042, worst group 0.026 (3426 tokens) ; mass kept mean 0.70 min 0.28
+clip 50x: ESS share mean 0.072, worst matrix mean 0.024, worst group 0.015 (1958 tokens) ; mass kept mean 0.78 min 0.37

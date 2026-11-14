@@ -1,0 +1,117 @@
+GUIDED GATE/UP 4B, CLIP RETRY: THE SAME ENCODE WITH EACH GROUP'S WEIGHTS CLIPPED AT 10 TIMES THEIR MEAN, AGAINST THE 2026-11-13 BASELINE AND CANDIDATE, FULL MMLU, 2026-11-14. $4.38.
+==========================================================================================================================================================================
+NOT RESOLVED, as the prereg defines it. The clipped candidate scores 57.95 % on the full MMLU split (8,137 of 14,042)
+against 58.62 % for the baseline: paired -0.68 points, 95 % interval [-1.47, +0.14], SE 0.41, McNemar p = 0.105
+(*measured*, `mmlupair --no-fpc`). Against the unclipped candidate of 2026-11-13 (57.11 %) it gains +0.83 [+0.03,
++1.65], p = 0.046: the concentration conjecture is supported, by a narrow margin. WikiText-2 perplexity reads 16.685,
+against 16.456 for the baseline (+1.39 %) and 18.079 unclipped.
+
+So the clip undoes about half of the MMLU loss and most of the perplexity loss, and the objective still does not beat
+the layer objective on this draw. By the prereg's rule this closes the gradient-weighted input-Hessian form for the
+phase.
+
+Prereg : proofs/preregistration-guided-clip-gateup-4b-2026-11-14.md, sha256 83131dcadc22d741..., signed, stamped (.ots)
+         and committed before the encode (77686d3). Not edited. No deviation file.
+Code   : the clip at cd70933 (`LLVQ_GUIDED_CLIP`, llvq-llm/src/guided.rs), image Pier-Jean/llvq-runner-cuda-qualite at
+         Space sha c0fb594fe50371bc0171de58167dfe7e1ed6f9e6, published from 8107e19. Job scripts
+         ops/jobs/guided-clip-encode-card-4b.sh (ad670322), guided-clip-mmlu-4b.sh (d1ac853f).
+Go     : the operator, 2026-11-14, "Oui, réessai corrigé", on an announced $4.40.
+
+JOBS
+----
+| job | flavor | queue | billed | cost (*computed*) | estimated | ceiling |
+|---|---|---|---|---|---|---|
+| 6af82e5623985fb9cd81d110 clipped encode | rtx-pro-6000 | 7 s | 4,853 s | $3.71 | $3.68 | $4.81 |
+| 6af841dc23985fb9cd81f280 one MMLU arm | l40sx1 | 19 s | 1,341 s | $0.67 | $0.70 | $1.02 |
+
+The retry cost $4.38. Spend of the phase (O12): $9.11 before, $13.49 after, of $15. The rows of docs/data/jobs.csv sum
+to $335.33 before the two new rows and $339.71 with them (*computed*).
+
+RESULT
+------
+| arm | file sha256 | correct of 14,042 | micro | WikiText-2 ppl |
+|---|---|---|---|---|
+| baseline, 2026-11-13 | 1f4c38d8ae32... | 8,232 | 58.62 % | 16.456 |
+| candidate, unclipped, 2026-11-13 | 626ea59d05de... | 8,020 | 57.11 % | 18.079 |
+| candidate, clip 10 | d4dd1a7de3c3... | 8,137 | 57.95 % | 16.685 |
+
+| pair | difference | 95 % interval | won / lost | p |
+|---|---|---|---|---|
+| clip 10 minus baseline (primary) | -0.68 pp | [-1.47, +0.14] | 1,636 / 1,731 | 0.105 |
+| clip 10 minus unclipped (secondary) | +0.83 pp | [+0.03, +1.65] | 1,743 / 1,626 | 0.046 |
+
+Largest contributions to the primary difference: moral scenarios -0.23 pp, elementary mathematics -0.15, high school
+psychology -0.14, marketing -0.14, electrical engineering +0.13 (mmlu-job/mmlupair-vs-baseline.txt).
+
+Decision rules (prereg section 6): the primary interval contains 0, NOT RESOLVED; the secondary interval lies above 0,
+the conjecture is supported.
+
+CONTROLS (prereg section 4)
+---------------------------
+1. Code. GREEN before the stamp: 560 passed, 0 failed over 88 result lines, clippy 0 warnings, seven mutants caught,
+   the unset path bit-identical (prereg section 8).
+2. Same tokens. GREEN. Fingerprint 45fb781f65574d4d (smoke.txt).
+3. One variable. GREEN. The `.llvq.state` equals the baseline's but for the `guided` line (state-diff.txt empty), and
+   that line is the 2026-11-13 candidate's plus ` clip=10` (guided-line-diff.txt). Same card line as the 2026-11-13
+   encodes: NVIDIA RTX PRO 6000 Blackwell Server Edition, 97,887 MiB, driver 580.178.04.
+4. Artifact. GREEN. 252 matrices verified bit for bit, sealed to 1,794,564,765 B, sha256 d4dd1a7d..., different from
+   both 2026-11-13 files.
+5. Dump. GREEN. Header and end fingerprint a74a6d6213602979 over 14,042 questions checked in the job; `oracle` MATCH
+   first on the L40S.
+
+The limit the prereg named stands: the baseline and the unclipped candidate were encoded and scored by the image at
+Space sha 37a8e933, the clipped arm by c0fb594f. The two differ by the clip code, which the unset path does not reach.
+
+SIGNED PREDICTIONS
+------------------
+| quantity | predicted | measured | |
+|---|---|---|---|
+| clip 10 minus baseline (pp) | -0.3 [-2.0, +1.5] | -0.68 | in |
+| primary outcome | NOT RESOLVED (50 %) | NOT RESOLVED | in |
+| clip 10 MMLU | 58.3 [56.6, 60.1] | 57.95 | in |
+| clip 10 minus unclipped (pp) | +1.2 [-0.5, +3.0] | +0.83 | in |
+| secondary outcome | supported (65 %) | supported | in |
+| WikiText-2 ppl, clip 10 | 16.9 [16.3, 17.7] | 16.685 | in |
+| billed encode time (min) | 80 [74, 92] | 80.9 | in |
+
+Seven of seven.
+
+THE CLIP LEVEL
+--------------
+Fixed in the prereg before any clipped encode, from the 72 weight files alone (weights-diagnostic/clip.txt, *computed*,
+G = 4, one pass, threshold = c times the group mean before clipping). Effective sample share of the 131,072 tokens:
+
+| clip | mean | worst matrix | worst group | mass kept, mean |
+|---|---|---|---|---|
+| none | 1.58 % | 0.16 % | 0.01 %, 13 tokens | 100 % |
+| 50 x | 7.2 % | 2.4 % | 1.5 %, 1,958 tokens | 78 % |
+| 20 x | 12.0 % | 4.2 % | 2.6 %, 3,426 tokens | 70 % |
+| 10 x, the one that ran | 17.3 % | 6.3 % | 3.9 %, 5,130 tokens | 63 % |
+| 5 x | 24.4 % | 9.4 % | 5.7 %, 7,474 tokens | 56 % |
+| 3 x | 30.8 % | 12.3 % | 7.3 %, 9,520 tokens | 49 % |
+
+10 x is the loosest level of the table at which every group's effective sample is at least twice the 2,560 inputs of
+the matrix.
+
+THE ENCODE
+----------
+4,853 s billed, `smoke` 78.4 min: quantization 3,473.7 s (78.4 %), factorization 643.2 s, capture 136.6 s; seal 92 s;
+GPU peak 29,227 MiB, host peak 23.1 GB. A third card encode of the 4B inside 77 to 81 billed minutes (E3).
+
+WHAT THE RUN DOES NOT SAY
+-------------------------
+- It does not say the clipped objective is worse than the layer objective: the interval reaches +0.14. It says this
+  pair does not separate them, with the point estimate on the losing side.
+- It does not rank clip levels. One level ran, chosen from the weight files before any clipped encode.
+- It does not attribute anything to the objective alone: one calibration draw, as in the first attempt.
+- The secondary reading rests on an interval whose lower end is +0.03 and on a retry chosen after a result. It is
+  support, not proof.
+- It says nothing on the two-sided form (YAQA), on more calibration windows, or on the sealed 4B with row scales.
+
+Raw    : guided-clip-gateup-4b-2026-11-14-brut/: card-encode/ (candidate-clip10/ with smoke.txt, phases.txt,
+         timing.txt, peaks.txt, mem.csv, ppl.txt, seal.txt, sizes.txt, weights-check.txt, the .llvq.state; COMPARE-OK,
+         state-diff.txt, guided-line-diff.txt, job-inspect), mmlu-job/ (summary.tsv, out-candidate-clip10.txt,
+         oracle-cuda.txt, files.sha256, job-inspect, the two mmlupair files). The dump is
+         docs/data/mmlu-dumps/mmlu-guided-candidate-clip10-FULL.csv. The sealed file stays in the bucket
+         (guided-clip-4b-2026-11-14/candidate-clip10/). The clip table is in
+         guided-gateup-4b-2026-11-13-brut/weights-diagnostic/clip.txt.

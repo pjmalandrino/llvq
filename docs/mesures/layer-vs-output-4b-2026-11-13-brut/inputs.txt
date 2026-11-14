@@ -1,0 +1,7 @@
+checkpoint Qwen/Qwen3-4B@1cfa9a7208912126459214e8b04321603b3df60c
+export /out/sealed-4b-export-2026-09-23/model.safetensors sha256 2a018cbdea37849c6fde29576e75aefb9125d9964e20e78bd3afb2a0948bba59
+wikitext Salesforce/wikitext@b08601e04326c79dfdd32d625aee71d232d685c3 wikitext-2-raw-v1/test-00000-of-00001.parquet sha256 5f1bea067869d04849c0f975a2b29c4ff47d867f484f5010ea5e861eab246d91
+windows 73 of 73
+bases sha256 before {'fp16': 'a0ca1763b6cf4f11be54b01eb0c5acd534eda637984fc8c66a0937a1c3dc417d', 'sealed': 'f5ea5a81d1588826f448a5b97158fb7fe051778d253db989d2b301fbe5d9c1e5'}
+bases sha256 after  {'fp16': 'a0ca1763b6cf4f11be54b01eb0c5acd534eda637984fc8c66a0937a1c3dc417d', 'sealed': 'f5ea5a81d1588826f448a5b97158fb7fe051778d253db989d2b301fbe5d9c1e5'}
+verdict {'rule_d': True, 'c1': True, 'outcome': 'R-a'}

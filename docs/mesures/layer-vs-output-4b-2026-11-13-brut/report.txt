@@ -1,0 +1,50 @@
+CONTROLS
+  C1 KL(T || T2) exactly 0 on 73 of 73 windows: GREEN
+  C2 ppl FP16, 12 windows: 12.2339 against Rust 12.2369 (-0.024 %); worst window |dnll| 1.34e-03
+  C3 ppl sealed export, 12 windows: 12.5793 against Rust 12.5834 (-0.033 %); worst window |dnll| 1.57e-03
+  RULE D (each within +-0.5 %): GREEN
+  ratio sealed/FP16, 12 windows: 1.02823 here, 1.02832 Rust
+  non-projection tensors identical in W and W_hat: 145 of 146
+  KL(T || S), sealed: 0.285209 nats/token; KL(T || D_all), FP16 embedding and norms with the 252 sealed projections: 0.268525; KL(T || M_all): 0.015005
+
+NOTE 2 by group, 73 windows of 4096 tokens, nats per token, normal and bootstrap 95 % over windows
+  group   mirror KL recovered [normal] [bootstrap]   share of KL(S) [boot]   direct KL [normal]
+  qkv     +0.024941 [+0.023447, +0.026435] [+0.023456, +0.026392]  0.0874 [0.0814, 0.0935]  0.075100 [0.073019, 0.077181]
+  o       +0.007065 [+0.006572, +0.007559] [+0.006566, +0.007552]  0.0248 [0.0228, 0.0267]  0.011143 [0.010764, 0.011523]
+  gateup  +0.103517 [+0.099057, +0.107976] [+0.099135, +0.107975]  0.3629 [0.3570, 0.3688]  0.161630 [0.155416, 0.167844]
+  down    +0.066085 [+0.062725, +0.069445] [+0.062867, +0.069429]  0.2317 [0.2257, 0.2377]  0.104302 [0.099410, 0.109194]
+  attn    +0.033076 [+0.031552, +0.034600] [+0.031563, +0.034540]  0.1160 [0.1094, 0.1226]  0.083630 [0.081425, 0.085836]
+  mlp     +0.184757 [+0.176657, +0.192858] [+0.176842, +0.192914]  0.6478 [0.6391, 0.6562]  0.237809 [0.228261, 0.247357]
+  all     +0.270204 [+0.260776, +0.279631] [+0.261077, +0.279606]  0.9474 [0.9452, 0.9496]  0.268525 [0.259186, 0.277864]
+  group   mirror NLL recovered [normal]            direct NLL added [normal]
+  qkv     -0.040170 [-0.043311, -0.037028]   -0.071741 [-0.076736, -0.066746]
+  o       +0.011384 [+0.010420, +0.012347]   +0.011273 [+0.009497, +0.013049]
+  gateup  +0.042926 [+0.037590, +0.048261]   +0.014619 [+0.008341, +0.020897]
+  down    +0.034645 [+0.030501, +0.038789]   +0.035837 [+0.030804, +0.040869]
+  attn    -0.028081 [-0.031071, -0.025091]   -0.059508 [-0.064244, -0.054771]
+  mlp     +0.079565 [+0.070820, +0.088310]   +0.050959 [+0.041958, +0.059961]
+  all     +0.021036 [+0.011095, +0.030977]   +0.020500 [+0.010584, +0.030416]
+
+NOTE 1 by group, sum ||(W - W_hat) x||^2 / sum ||W x||^2
+  group   pooled FP16 x   mean FP16 x   pooled sealed x   mean sealed x
+  qkv     1.404966e-02   1.284324e-02   1.313289e-02   1.267474e-02
+  o       8.301510e-03   1.117275e-02   7.851367e-03   1.082311e-02
+  gateup  7.190107e-03   2.985363e-02   7.072026e-03   2.896203e-02
+  down    2.012125e-02   3.310141e-02   1.952691e-02   3.254696e-02
+  attn    1.389098e-02   1.242562e-02   1.296935e-02   1.221183e-02
+  mlp     8.046304e-03   3.093622e-02   7.829861e-03   3.015701e-02
+  all     9.694295e-03   2.035874e-02   9.336742e-03   1.990262e-02
+
+READINGS (prereg section 6; truth: gateup > down > max(qkv, o))
+  note2 mirror KL (primary)          AGREES: order gateup > down > qkv > o; down - qkv +0.041144 normal [+0.037173, +0.045115] bootstrap [+0.037340, +0.045042]
+  note2 direct KL                    AGREES: order gateup > down > qkv > o; down - qkv +0.029203 normal [+0.025035, +0.033370] bootstrap [+0.025169, +0.033350]
+  note2 mirror NLL                   AGREES: order gateup > down > o > qkv; down - o +0.023262 normal [+0.019003, +0.027520] bootstrap [+0.019116, +0.027519]
+  note2 direct NLL                   does not agree: order down > gateup > o > qkv; down - o +0.024564 normal [+0.019750, +0.029377] bootstrap [+0.019804, +0.029380]
+  note1 pooled, FP16 x               does not agree: order down > qkv > o > gateup
+  note1 pooled, sealed x             does not agree: order down > qkv > o > gateup
+  note1 pooled, both x (primary)     does not agree: the ordering in both x variants
+  note1 mean, FP16 x                 does not agree: order down > gateup > qkv > o
+  note1 mean, sealed x               does not agree: order down > gateup > qkv > o
+  note1 mean, both x                 does not agree: the ordering in both x variants
+  OUTCOME R-a
+  C1 GREEN

@@ -1,0 +1,15 @@
+# llvq run state, written beside the artifact, read back by a resume.
+# Any divergence from the resolved configuration makes the resume refuse.
+guided = gate_proj,up_proj G=4 manifest_sha256=e63dad8346c33773bed7a9dc23f30859714bfeed6bd677de0465bc5633286f22 clip=10
+model = Qwen/Qwen3-4B
+codebook = tetra1 → Tetra word map, 47 bits of label + 1 gain bit, 3 octads of 8, 2048 rows per class, magnitude on the gain grid, gain selected from source norm, 48 bits/block
+calibration = dclm-edu
+calib_windows = 64
+calib_len = 2048
+calib_seed = prefix
+rotation = 0x110feed
+mode = nogs
+damping = 1e-2
+dtype = f32
+device = cuda
+blocks_done = 36
