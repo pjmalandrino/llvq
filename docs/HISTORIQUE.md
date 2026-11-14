@@ -1512,4 +1512,5 @@ a cap of its own. Nothing is measured and nothing was launched.
   58.62, −0.68 [−1.47, +0.14]; +0.83 [+0.03, +1.65] against the unclipped encode (*measured*). Perplexity 16.69. Seven
   of seven signed predictions are in. The gradient-weighted input-Hessian form is closed for the phase. Spend of the
   phase: $13.49 of $15; the rows of `docs/data/jobs.csv` sum to $339.71 (*computed*).
+- 2026-11-14: the operator closes the phase. Outcome: a dead hypothesis, recorded in `CERVEAU.md` O12. No idea sheet.
 - Nothing served changes: no config, no served module, no Hub file.

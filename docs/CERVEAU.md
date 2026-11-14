@@ -692,8 +692,9 @@ Ranked by how much they block.
 the MLP carries +4.86 of the gap, attention +0.73, and all projections restored sit +0.04 [−0.23, +0.31] under FP16
 (Q16, Q22; [ablation-qualite-4b](mesures/ablation-qualite-4b-2026-11-12.txt)). What remains open is O9.
 
-**O2.** Whether an output-aware encoder objective gains on MMLU and GSM8K (Q20). No arm has ever run; it is the only
-quality lever with a projected gain above 1 point.
+**O2.** Whether an output-aware encoder objective gains on MMLU and GSM8K (Q20). One form has run, on the 4B, on one
+draw: gradient-weighted input Hessians for gate/up, which did not beat the layer objective, clipped or not (Q24). The
+two-sided form (YAQA), more calibration windows and a second draw have not run. No GSM8K arm has run.
 
 **O3.** How much of the 2.92-point draw spread survives row scales (Q2). A second draw of a sealed size, through row
 scales, on the full split, settles it; until then every cross-file quality comparison carries it.
@@ -721,7 +722,16 @@ a ready verifier, and the ceiling of 24-dimension fixed-rate codes is recorded (
 verifier. Model quality has no fast, faithful verifier: it is open through the explanation route, from the anomalies
 N1 and N2.
 
-**O12.** Phase open: MODE RECHERCHE on model quality, opened by the operator on 2026-11-13. It runs beside O11, the
+**O12.** Phase closed on 2026-11-14 by the operator, with $13.49 of its $15 spent. Outcome, in the terms of
+[`MODES.md`](MODES.md): a dead hypothesis. What is excluded: on the 4B, on one calibration draw, encoding gate/up
+under gradient-weighted input Hessians (G = 4, weights from the encoder's 64 windows, unclipped or clipped at 10
+times the group mean) does not beat the layer objective on MMLU (Q24). What the phase leaves standing: N1 holds on
+the sealed 4B but is 1.27 of the 6.77 points (Q7); at group grain the final-output judge orders the projection groups
+as the MMLU restores do and the layer judge does not (Q23); a card encode of the 4B is 77 to 81 minutes and $3.55 to
+$3.71 (E3). Where the next phase can look: the two-sided objective, more calibration windows, a second draw (O2);
+N1 itself, set aside by the operator. No idea sheet leaves this phase. The paragraphs below are the phase's record.
+
+The phase was MODE RECHERCHE on model quality, opened by the operator on 2026-11-13. It ran beside O11, the
 phase on decode speed, which is on the branch `recherche/debit-2026-11-12`. Its mandate:
 
 | field | content |
