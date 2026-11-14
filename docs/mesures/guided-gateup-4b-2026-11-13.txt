@@ -1,0 +1,140 @@
+GUIDED GATE/UP 4B (V1): GATE_PROJ AND UP_PROJ ENCODED UNDER GRADIENT-WEIGHTED INPUT HESSIANS, AGAINST A BASELINE ENCODED THE SAME DAY, FULL MMLU PAIR, 2026-11-13. $8.67.
+==========================================================================================================================================================
+LOSS, as the prereg defines it. The candidate scores 57.11 % on the full MMLU split and the baseline 58.62 %: the paired
+difference, candidate minus baseline, is -1.51 points, 95 % interval [-2.30, -0.70], SE 0.41 (*measured*, 14,042
+questions, `mmlupair --no-fpc`). McNemar: 1,590 questions won, 1,802 lost, p = 0.0003. WikiText-2 perplexity moves the
+same way: 16.456 for the baseline, 18.079 for the candidate, +9.86 % (*measured*, 12 windows of 4,096).
+
+The two files differ by one setting. In the candidate, the input Hessian of every gate_proj and up_proj matrix weights
+each calibration token by the squared gradient of the FP16 model's next-token loss on that matrix's output, summed over
+a group of output rows, G = 4 groups (GuidedQuant's objective). Everything else is the recipe of the 2026-09-18 base.
+
+What the result says: on this calibration draw, this form of the final-output objective, with weights taken from 64
+windows, makes a worse 4B than the layer objective. What it does not say is in the last section.
+
+Prereg : proofs/preregistration-guided-gateup-4b-2026-11-13.md, sha256 dac1bca14e763bf7..., signed, stamped (.ots) and
+         committed before any job (c6a03f2). Not edited. Two departures beside it, each stamped before the step it
+         governs (-ECARTS.md, sha256 25fc0ee69716d0b9... after E2): E1, the launch guard reads the anchor instead of a
+         banner the stamped file keeps (d542885); E2, both encodes on the card, one job per arm, timeout 120 min
+         (a3284de).
+Code   : encoder at 4bdb838 (llvq-llm/src/guided.rs, calib.rs, bin/smoke.rs), in the private Space image
+         Pier-Jean/llvq-runner-cuda-qualite, sha 37a8e9336c77fceb0b013bce6f52d0349fdd06a4 (10335d7). Job scripts
+         ops/jobs/guided-weights-4b.sh (a694493e), guided-encode-card-4b.sh (e935f81a8bb1ec8e), guided-mmlu-4b.sh
+         (966b368e954ccc25). Statistic writer ops/guided_weights.py (73e98d16).
+Go     : the operator, 2026-11-13: "Oui, version simple" for the attempt, then "ok go sur carte, budget 15$" for the two
+         card encodes.
+
+JOBS
+----
+| job | flavor | queue | billed | cost (*computed*) | estimated | ceiling |
+|---|---|---|---|---|---|---|
+| 6af72f5529dd05ff036516b8 statistic | l40sx1 | 1,332 s | 174 s | $0.09 | $0.27 to $0.45 | $0.90 |
+| 6af73dd629dd05ff03653257 baseline encode | rtx-pro-6000 | 8 s | 4,648 s | $3.55 | $3.90 to $4.35 | $5.50 |
+| 6af73de229dd05ff0365327f candidate encode | rtx-pro-6000 | 29 s | 4,812 s | $3.68 | $3.90 to $4.35 | $5.50 |
+| 6af7512923985fb9cd80477e two MMLU arms | l40sx1 | 3,535 s | 2,707 s | $1.35 | $1.38 to $1.44 | $1.92 |
+
+Rates $1.80/h (l40sx1) and $2.75/h (rtx-pro-6000). The attempt cost $8.67. Spend of the phase (O12): $0.44 before,
+$9.11 after, of $15. The rows of docs/data/jobs.csv sum to $326.75 before the three new rows and $335.33 with them
+(*computed*).
+
+RESULT
+------
+| arm | file sha256 | correct of 14,042 | micro | WikiText-2 ppl |
+|---|---|---|---|---|
+| baseline | 1f4c38d8ae32... | 8,232 | 58.62 % | 16.456 |
+| candidate | 626ea59d05de... | 8,020 | 57.11 % | 18.079 |
+
+Paired, candidate minus baseline: -1.51 pp, bootstrap 95 % [-2.30, -0.70], SE 0.41, stratified by subject, 10,000
+draws. 24.2 % of the questions are discordant. Largest contributions: professional law -0.52 pp, miscellaneous -0.14,
+high school psychology -0.13, conceptual physics -0.13, marketing -0.13 (mmlu-job/mmlupair.txt). FP16 perplexity on the
+same windows: 12.234 in both encodes.
+
+Decision rule (prereg section 6): the interval lies below 0, so LOSS.
+
+CONTROLS (prereg section 4)
+---------------------------
+1. Statistic job. GREEN. Selftest green in the job; token file and fingerprint 45fb781f65574d4d match the sidecar; 72
+   files; 73,728 zero weights, all at the last position of a window; mean FP16 loss 2.68672 nats a token (weights-job/).
+2. Same calibration tokens. GREEN. Both encodes print fingerprint 45fb781f65574d4d, the manifest's.
+3. One variable. GREEN. The two `.llvq.state` files are equal but for the line
+   `guided = gate_proj,up_proj G=4 manifest_sha256=e63dad83...` (card-encode/state-diff.txt, the diff without that
+   line, is empty; COMPARE-OK). Same card
+   line in both jobs: NVIDIA RTX PRO 6000 Blackwell Server Edition, 97,887 MiB, driver 580.178.04.
+4. Artifacts. GREEN. Both verify 252 matrices bit for bit, 36 of them int4 g128, and seal to 1,794,564,765 B with
+   different sha256.
+5. Dumps. GREEN. Both carry dtype=f16, limit=census, flat allocation, config=none, dense reconstruction, kv=f16 and the
+   end fingerprint a74a6d6213602979 over 14,042 questions; `oracle` MATCH first on the L40S (mmlu-job/oracle-cuda.txt).
+6. Rule D, descriptive. The baseline reads 58.62 against 57.95 for the 2026-09-18 base, +0.67, under the 0.88 a pair
+   resolves. Its sealed file is DIFFERENT from that base (sha256 1f4c38d8... against the recorded prefix 471f3988...),
+   same byte count. No reproducibility finding is recorded.
+
+SIGNED PREDICTIONS
+------------------
+| quantity | predicted | measured | |
+|---|---|---|---|
+| paired MMLU difference (pp) | +0.5 [-2.5, +3.5] | -1.51 | in |
+| outcome | GAIN (40 %), NOT RESOLVED 33 %, LOSS 27 % | LOSS | out |
+| baseline MMLU | 57.9 [56.0, 59.5] | 58.62 | in |
+| candidate MMLU | 58.4 [55.5, 61.5] | 57.11 | in |
+| share of gate/up blocks whose code changes | 85 % [60, 99] | not computed, no reader written | not scored |
+| WikiText-2 ppl, baseline | 16.25 [15.8, 16.8] | 16.456 | in |
+| WikiText-2 ppl, candidate | 16.0 [15.0, 17.2] | 18.079 | out |
+| mean FP16 loss on the 64 windows | 2.35 [2.0, 2.7] | 2.687 | in |
+
+Five in, two out, one not scored. The lead expected the sign to be positive and it is negative; both misses are that
+one error.
+
+WHAT A CARD ENCODE OF THE 4B COSTS (the operator's second question)
+------------------------------------------------------------------
+| | baseline | candidate |
+|---|---|---|
+| billed | 4,648 s, 77.5 min | 4,812 s, 80.2 min |
+| cost at $2.75/h (*computed*) | $3.55 | $3.68 |
+| `smoke` wall | 75.3 min | 77.7 min |
+| quantization | 3,453.5 s, 81.1 % | 3,481.3 s, 78.7 % |
+| factorization | 514.2 s | 630.3 s |
+| capture | 108.5 s | 133.5 s |
+| seal | 90 s | 86 s |
+| GPU peak, sampled | 29,227 MiB | 29,227 MiB |
+| host peak | 23.1 GB | 23.1 GB |
+
+All *measured* (card-encode/*/phases.txt, timing.txt, peaks.txt), on rtx-pro-6000, 23 threads, `--features
+cuda,fast-linalg`. The Mac encode of the same recipe is 1 h 47 (*measured*, dclm-4b). The card saves about a quarter of
+the wall time for $3.55. Quantization is CPU work and takes four fifths of the job: a cheaper card with as many cores
+would cost less for the same time. The guided objective adds 164 s.
+
+A POST HOC DIAGNOSTIC, NOT PREREGISTERED: THE WEIGHTS ARE CONCENTRATED ON FEW TOKENS
+-----------------------------------------------------------------------------------
+Read after the result, from the 72 weight files, at no cost (weights-diagnostic/ess.py, pos.py and their outputs).
+All *computed*.
+
+- Effective sample size of a row group's weights, (sum w)^2 / sum w^2, as a share of the 131,072 tokens: 1.58 % on
+  average over the 72 matrices at G = 4, about 2,070 tokens. The lowest matrix average is 0.16 % (layer 1), the highest
+  15.6 % (layer 35 up_proj). The worst single group is at 0.01 %, about 13 tokens.
+- The top 1 % of tokens carry 46 % of the weight mass on average, and up to 77 %.
+- It is not the first position: position 0 carries 0.4 % of the mass, positions 0 to 15 carry 2.7 %.
+- Clipping each weight at 10 times the mean would raise the effective share from 2.0 % to 18.8 % (G = 1).
+
+gate_proj and up_proj have 2,560 inputs. The baseline estimates each Hessian from 131,072 tokens. The candidate
+estimates each of its four from the equivalent of about 2,000, fewer than the matrix has inputs. A Hessian that thin is
+dominated by its damping and by a handful of tokens. This is a candidate cause of the loss, a *conjecture*: no encode
+has tested it. It predicts that tamed weights (clipped, or mixed with the uniform ones) or more windows would do
+better than this candidate. It does not predict that they would beat the baseline.
+
+WHAT THE RUN DOES NOT SAY
+-------------------------
+- It does not say that a final-output objective cannot help. One form ran: per-token gradient weights on the input
+  Hessian, G = 4, from 64 windows, on two matrix types. The two-sided form (YAQA) did not run.
+- It does not attribute the -1.51 to the objective alone. One calibration draw; changing gate/up moves the input of
+  every later layer, so part of the difference behaves like another draw (prereg section 6).
+- It says nothing on the sealed 4B. Neither arm carries row scales or the q4 embedding; row scales are worth +3.15 at
+  4B and are trained on a final-output KL, so they may absorb part of what this objective targets.
+- Perplexity agreed with MMLU here. That is one pair and does not restore perplexity as a ranking proxy (Q5).
+- Secondary scores of prereg section 5 (KL to FP16 of the two exports, the answer-logit fit) were not run.
+
+Raw    : guided-gateup-4b-2026-11-13-brut/: pre-launch/, weights-job/, card-route/, card-encode/ (per arm: smoke.txt,
+         phases.txt, timing.txt, peaks.txt, mem.csv, ppl.txt, seal.txt, sizes.txt, the .llvq.state, files.sha256; the
+         two job-inspect files, state-diff.txt, COMPARE-OK), mmlu-job/ (summary.tsv, out-*.txt, oracle-cuda.txt,
+         files.sha256, job-inspect, mmlupair.txt), weights-diagnostic/. The two dumps are
+         docs/data/mmlu-dumps/mmlu-guided-baseline-FULL.csv and mmlu-guided-candidate-FULL.csv. The two sealed files
+         and the 72 weight files stay in the bucket (guided-encode-4b-2026-11-13/, guided-weights-4b-2026-11-13/).

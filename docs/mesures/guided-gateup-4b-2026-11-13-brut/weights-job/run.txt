@@ -1,0 +1,91 @@
+versions: {'torch': '2.5.1', 'safetensors': '0.4.5', 'tokenizers': '0.22.2', 'pyarrow': '20.0.0', 'huggingface_hub': '1.19.0'}
+tokens: 131072, fingerprint 45fb781f65574d4d, sha256 6abdaeee4dbe1a0cd0b81cdde2a74f108443b707de905211ef57e132a43e4729
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+
+config.json:   0%|          | 0.00/726 [00:00<?, ?B/s][Aconfig.json: 100%|██████████| 726/726 [00:00<00:00, 3.03MB/s]
+
+model-00001-of-00003.safetensors:   0%|          | 0.00/3.96G [00:00<?, ?B/s][A
+model-00001-of-00003.safetensors:   7%|▋         | 268M/3.96G [00:01<00:14, 249MB/s][A
+model-00001-of-00003.safetensors:  20%|██        | 805M/3.96G [00:02<00:07, 410MB/s][A
+model-00001-of-00003.safetensors:  41%|████      | 1.61G/3.96G [00:03<00:04, 579MB/s][A
+model-00001-of-00003.safetensors:  64%|██████▍   | 2.55G/3.96G [00:04<00:01, 718MB/s][A
+model-00001-of-00003.safetensors:  95%|█████████▍| 3.76G/3.96G [00:05<00:00, 890MB/s][Amodel-00001-of-00003.safetensors: 100%|██████████| 3.96G/3.96G [00:05<00:00, 764MB/s]
+checkpoint: model-00001-of-00003.safetensors sha256 328a91d3122359d5547f9d79521205bc0a46e1f79a792dfe650e99fc2d651223
+
+model-00002-of-00003.safetensors:   0%|          | 0.00/3.99G [00:00<?, ?B/s][A
+model-00002-of-00003.safetensors:  13%|█▎        | 535M/3.99G [00:01<00:06, 524MB/s][A
+model-00002-of-00003.safetensors:  37%|███▋      | 1.47G/3.99G [00:02<00:03, 757MB/s][A
+model-00002-of-00003.safetensors:  67%|██████▋   | 2.68G/3.99G [00:03<00:01, 948MB/s][A
+model-00002-of-00003.safetensors: 100%|█████████▉| 3.99G/3.99G [00:08<00:00, 388MB/s][Amodel-00002-of-00003.safetensors: 100%|██████████| 3.99G/3.99G [00:08<00:00, 458MB/s]
+checkpoint: model-00002-of-00003.safetensors sha256 6cd087b316306a68c562436b5492edbcf6e16c6dba3a1308279caa5a58e21ca5
+
+model-00003-of-00003.safetensors:   0%|          | 0.00/99.6M [00:00<?, ?B/s][A
+model-00003-of-00003.safetensors:  50%|█████     | 49.9M/99.6M [00:01<00:01, 47.9MB/s][Amodel-00003-of-00003.safetensors: 100%|██████████| 99.6M/99.6M [00:01<00:00, 88.2MB/s]
+checkpoint: model-00003-of-00003.safetensors sha256 e4bf436957184f4eeb86a80e9db394503f1f56446b2e6b7edeac5b81470f4ca1
+loaded fp32, 4.022 G values, 21 s; cuda memory 15.1 GiB
+  window 1/64: 2.4 s, loss 2.95224 nats/token, 1152 zero weights
+  window 2/64: 1.8 s, loss 2.95778 nats/token, 1152 zero weights
+  window 3/64: 1.8 s, loss 2.79989 nats/token, 1152 zero weights
+  window 4/64: 1.8 s, loss 2.82493 nats/token, 1152 zero weights
+  window 5/64: 1.8 s, loss 3.02318 nats/token, 1152 zero weights
+  window 6/64: 1.8 s, loss 2.62797 nats/token, 1152 zero weights
+  window 7/64: 1.8 s, loss 2.44132 nats/token, 1152 zero weights
+  window 8/64: 1.9 s, loss 2.77740 nats/token, 1152 zero weights
+  window 9/64: 1.8 s, loss 3.04643 nats/token, 1152 zero weights
+  window 10/64: 1.9 s, loss 3.05184 nats/token, 1152 zero weights
+  window 11/64: 1.9 s, loss 3.04744 nats/token, 1152 zero weights
+  window 12/64: 1.9 s, loss 3.02841 nats/token, 1152 zero weights
+  window 13/64: 1.9 s, loss 3.21689 nats/token, 1152 zero weights
+  window 14/64: 1.8 s, loss 3.23797 nats/token, 1152 zero weights
+  window 15/64: 1.9 s, loss 2.92842 nats/token, 1152 zero weights
+  window 16/64: 1.8 s, loss 3.13895 nats/token, 1152 zero weights
+  window 17/64: 1.9 s, loss 2.88586 nats/token, 1152 zero weights
+  window 18/64: 1.9 s, loss 2.10320 nats/token, 1152 zero weights
+  window 19/64: 1.9 s, loss 2.90342 nats/token, 1152 zero weights
+  window 20/64: 1.9 s, loss 2.47085 nats/token, 1152 zero weights
+  window 21/64: 1.9 s, loss 2.47472 nats/token, 1152 zero weights
+  window 22/64: 1.9 s, loss 2.96495 nats/token, 1152 zero weights
+  window 23/64: 1.9 s, loss 3.01096 nats/token, 1152 zero weights
+  window 24/64: 1.9 s, loss 2.92537 nats/token, 1152 zero weights
+  window 25/64: 1.9 s, loss 2.46204 nats/token, 1152 zero weights
+  window 26/64: 1.9 s, loss 2.51299 nats/token, 1152 zero weights
+  window 27/64: 1.9 s, loss 3.03737 nats/token, 1152 zero weights
+  window 28/64: 1.9 s, loss 2.58105 nats/token, 1152 zero weights
+  window 29/64: 1.9 s, loss 2.02985 nats/token, 1152 zero weights
+  window 30/64: 1.9 s, loss 1.89821 nats/token, 1152 zero weights
+  window 31/64: 1.9 s, loss 1.64078 nats/token, 1152 zero weights
+  window 32/64: 1.9 s, loss 2.06932 nats/token, 1152 zero weights
+  window 33/64: 1.9 s, loss 1.83003 nats/token, 1152 zero weights
+  window 34/64: 1.9 s, loss 1.52263 nats/token, 1152 zero weights
+  window 35/64: 1.9 s, loss 1.39601 nats/token, 1152 zero weights
+  window 36/64: 1.9 s, loss 1.56575 nats/token, 1152 zero weights
+  window 37/64: 1.9 s, loss 2.26492 nats/token, 1152 zero weights
+  window 38/64: 1.9 s, loss 2.65886 nats/token, 1152 zero weights
+  window 39/64: 1.9 s, loss 2.88571 nats/token, 1152 zero weights
+  window 40/64: 1.9 s, loss 2.92196 nats/token, 1152 zero weights
+  window 41/64: 1.9 s, loss 1.52869 nats/token, 1152 zero weights
+  window 42/64: 1.9 s, loss 2.27964 nats/token, 1152 zero weights
+  window 43/64: 1.9 s, loss 2.19388 nats/token, 1152 zero weights
+  window 44/64: 1.9 s, loss 1.78123 nats/token, 1152 zero weights
+  window 45/64: 1.9 s, loss 1.99743 nats/token, 1152 zero weights
+  window 46/64: 1.9 s, loss 2.93710 nats/token, 1152 zero weights
+  window 47/64: 1.9 s, loss 4.38665 nats/token, 1152 zero weights
+  window 48/64: 1.8 s, loss 4.35469 nats/token, 1152 zero weights
+  window 49/64: 1.8 s, loss 3.55347 nats/token, 1152 zero weights
+  window 50/64: 1.8 s, loss 3.07135 nats/token, 1152 zero weights
+  window 51/64: 1.8 s, loss 2.61976 nats/token, 1152 zero weights
+  window 52/64: 1.8 s, loss 2.57939 nats/token, 1152 zero weights
+  window 53/64: 1.8 s, loss 2.58603 nats/token, 1152 zero weights
+  window 54/64: 1.8 s, loss 2.98227 nats/token, 1152 zero weights
+  window 55/64: 1.8 s, loss 3.35527 nats/token, 1152 zero weights
+  window 56/64: 1.8 s, loss 3.00784 nats/token, 1152 zero weights
+  window 57/64: 1.8 s, loss 2.80306 nats/token, 1152 zero weights
+  window 58/64: 1.8 s, loss 2.87906 nats/token, 1152 zero weights
+  window 59/64: 1.8 s, loss 2.76821 nats/token, 1152 zero weights
+  window 60/64: 1.8 s, loss 2.35468 nats/token, 1152 zero weights
+  window 61/64: 1.8 s, loss 2.63889 nats/token, 1152 zero weights
+  window 62/64: 1.8 s, loss 3.07112 nats/token, 1152 zero weights
+  window 63/64: 1.8 s, loss 2.56483 nats/token, 1152 zero weights
+  window 64/64: 1.8 s, loss 3.53799 nats/token, 1152 zero weights
+capture: 64 windows in 120 s; peak cuda memory 26.3 GiB
+wrote 72 files and manifest.json to /tmp/gw/out; mean loss 2.68672 nats/token; 73728 zero weights (the last position of each window: 73728 expected); total 149 s

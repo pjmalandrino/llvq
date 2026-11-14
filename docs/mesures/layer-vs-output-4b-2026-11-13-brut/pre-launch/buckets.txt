@@ -1,0 +1,11 @@
+Fri Nov 13 11:40:31 UTC 2026
+$ hf buckets ls hf://buckets/Pier-Jean/jobs-artifacts/sealed-4b-export-2026-09-23/
+         726  2026-09-23 13:55:55  sealed-4b-export-2026-09-23/config.json
+        3482  2026-09-23 13:55:55  sealed-4b-export-2026-09-23/llvq-int4.json
+  8044981648  2026-09-23 13:56:00  sealed-4b-export-2026-09-23/model.safetensors
+    11422654  2026-09-23 13:55:55  sealed-4b-export-2026-09-23/tokenizer.json
+          64  2026-09-23 13:55:55  sealed-4b-export-2026-09-23/tokenizer_config.json
+$ hf buckets ls hf://buckets/Pier-Jean/jobs-artifacts/sealed-4b-2026-09-23/
+  1418224685  2026-09-23 12:52:30  sealed-4b-2026-09-23/qwen3-4b-sealed.bin
+$ hf buckets ls hf://buckets/Pier-Jean/jobs-artifacts/layer-vs-output-4b-2026-11-13/
+(empty)

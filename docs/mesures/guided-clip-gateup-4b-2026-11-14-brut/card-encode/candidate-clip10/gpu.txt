@@ -1,0 +1,6 @@
+NVIDIA RTX PRO 6000 Blackwell Server Edition, 12.0, 97887 MiB, 580.178.04
+nproc 192
+model name	: Intel(R) Xeon(R) Platinum 8559C
+MemTotal:       2097112484 kB
+overlay          14T  2.0T   12T  15% /
+overlay          14T  2.0T   12T  15% /

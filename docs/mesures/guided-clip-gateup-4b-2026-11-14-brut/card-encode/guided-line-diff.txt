@@ -1,0 +1,4 @@
+1c1
+< guided = gate_proj,up_proj G=4 manifest_sha256=e63dad8346c33773bed7a9dc23f30859714bfeed6bd677de0465bc5633286f22
+---
+> guided = gate_proj,up_proj G=4 manifest_sha256=e63dad8346c33773bed7a9dc23f30859714bfeed6bd677de0465bc5633286f22 clip=10

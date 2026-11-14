@@ -1,0 +1,14 @@
+{
+  "calib_seed": "prefix",
+  "calibration": "dclm-edu",
+  "fingerprint": "45fb781f65574d4d",
+  "format": "llvq-calib-tokens-v1",
+  "model": "Qwen/Qwen3-4B",
+  "sha256": "6abdaeee4dbe1a0cd0b81cdde2a74f108443b707de905211ef57e132a43e4729",
+  "tokenizer_sha256": "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4",
+  "tokens": 131072,
+  "tokens_read": "194229",
+  "window_len": 2048,
+  "windows": 64,
+  "windows_available": "94"
+}

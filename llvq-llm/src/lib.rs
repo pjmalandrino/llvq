@@ -50,6 +50,7 @@ pub mod gesture_cuda;
 #[cfg(all(target_os = "macos", feature = "metal"))]
 pub mod fused_metal;
 pub mod gsm8k;
+pub mod guided;
 pub mod hfpack;
 pub mod kvq;
 pub mod loader;

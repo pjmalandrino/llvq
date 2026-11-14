@@ -1,0 +1,86 @@
+model: /out/guided-clip-4b-2026-11-14/candidate-clip10/candidate-clip10.bin [LLVQ 2-bit, sealed]
+device: Cuda(CudaDevice(DeviceId(1))), dtype f16
+loading MMLU…
+14042 questions, 57 subjects, 285 dev examples
+
+allocation: flat, 100..1534 per subject, 14042 questions
+dumping per-question results to /out/guided-clip-mmlu-4b-2026-11-14/mmlu-candidate-clip10-FULL.csv
+  abstract algebra                          36/100    36.0 %   (micro 36.00 %, 4s)
+  anatomy                                   58/135    43.0 %   (micro 40.00 %, 10s)
+  astronomy                                108/152    71.1 %   (micro 52.20 %, 19s)
+  business ethics                           67/100    67.0 %   (micro 55.24 %, 25s)
+  clinical knowledge                       158/265    59.6 %   (micro 56.78 %, 37s)
+  college biology                           88/144    61.1 %   (micro 57.48 %, 44s)
+  college chemistry                         39/100    39.0 %   (micro 55.62 %, 50s)
+  college computer science                  58/100    58.0 %   (micro 55.84 %, 58s)
+  college mathematics                       37/100    37.0 %   (micro 54.26 %, 65s)
+  college medicine                          99/173    57.2 %   (micro 54.64 %, 74s)
+  college physics                           42/102    41.2 %   (micro 53.70 %, 80s)
+  computer security                         74/100    74.0 %   (micro 55.00 %, 84s)
+  conceptual physics                       154/235    65.5 %   (micro 56.37 %, 93s)
+  econometrics                              59/114    51.8 %   (micro 56.09 %, 100s)
+  electrical engineering                    93/145    64.1 %   (micro 56.66 %, 108s)
+  elementary mathematics                   198/378    52.4 %   (micro 56.00 %, 131s)
+  formal logic                              62/126    49.2 %   (micro 55.66 %, 139s)
+  global facts                              29/100    29.0 %   (micro 54.66 %, 144s)
+  high school biology                      229/310    73.9 %   (micro 56.66 %, 161s)
+  high school chemistry                     93/203    45.8 %   (micro 55.97 %, 172s)
+  high school computer science              75/100    75.0 %   (micro 56.55 %, 181s)
+  high school european history             115/165    69.7 %   (micro 57.18 %, 260s)
+  high school geography                    149/198    75.3 %   (micro 58.16 %, 269s)
+  high school government and politics      149/193    77.2 %   (micro 59.12 %, 279s)
+  high school macroeconomics               237/390    60.8 %   (micro 59.27 %, 295s)
+  high school mathematics                   96/270    35.6 %   (micro 57.85 %, 312s)
+  high school microeconomics               165/238    69.3 %   (micro 58.42 %, 323s)
+  high school physics                       72/151    47.7 %   (micro 58.09 %, 332s)
+  high school psychology                   428/545    78.5 %   (micro 60.14 %, 362s)
+  high school statistics                   135/216    62.5 %   (micro 60.23 %, 380s)
+  high school us history                   136/204    66.7 %   (micro 60.46 %, 453s)
+  high school world history                175/237    73.8 %   (micro 60.98 %, 499s)
+  human aging                              124/223    55.6 %   (micro 60.79 %, 508s)
+  human sexuality                           93/131    71.0 %   (micro 61.00 %, 513s)
+  international law                         86/121    71.1 %   (micro 61.18 %, 521s)
+  jurisprudence                             69/108    63.9 %   (micro 61.23 %, 526s)
+  logical fallacies                        117/163    71.8 %   (micro 61.48 %, 534s)
+  machine learning                          41/112    36.6 %   (micro 61.08 %, 542s)
+  management                                82/103    79.6 %   (micro 61.35 %, 546s)
+  marketing                                184/234    78.6 %   (micro 61.90 %, 556s)
+  medical genetics                          59/100    59.0 %   (micro 61.86 %, 560s)
+  miscellaneous                            523/783    66.8 %   (micro 62.34 %, 590s)
+  moral disputes                           224/346    64.7 %   (micro 62.43 %, 609s)
+  moral scenarios                          299/895    33.4 %   (micro 59.67 %, 670s)
+  nutrition                                194/306    63.4 %   (micro 59.79 %, 690s)
+  philosophy                               202/311    65.0 %   (micro 59.95 %, 703s)
+  prehistory                               200/324    61.7 %   (micro 60.01 %, 721s)
+  professional accounting                  122/282    43.3 %   (micro 59.56 %, 742s)
+  professional law                         628/1534   40.9 %   (micro 57.21 %, 1084s)
+  professional medicine                    141/272    51.8 %   (micro 57.10 %, 1123s)
+  professional psychology                  364/612    59.5 %   (micro 57.21 %, 1162s)
+  public relations                          71/110    64.5 %   (micro 57.27 %, 1167s)
+  security studies                         170/245    69.4 %   (micro 57.49 %, 1204s)
+  sociology                                155/201    77.1 %   (micro 57.78 %, 1215s)
+  us foreign policy                         75/100    75.0 %   (micro 57.91 %, 1220s)
+  virology                                  78/166    47.0 %   (micro 57.78 %, 1226s)
+  world religions                          123/171    71.9 %   (micro 57.95 %, 1233s)
+
+/out/guided-clip-4b-2026-11-14/candidate-clip10/candidate-clip10.bin [LLVQ 2-bit, sealed]
+MMLU 5-shot — 14042 questions scored out of 14042, 57 subjects, dtype f16, tokens a74a6d6213602979
+  --------------------------------------------------------
+  best:
+    management                                79.6 %
+    marketing                                 78.6 %
+    high school psychology                    78.5 %
+  worst:
+    global facts                              29.0 %
+    moral scenarios                           33.4 %
+    high school mathematics                   35.6 %
+  --------------------------------------------------------
+  MMLU (micro, = paper) = 57.95 % ± 0.00  [kv f16]
+  MMLU (macro, per subject) = 59.83 %
+
+  Dump written. Two arms are compared on the dumps, not on these two
+  lines: `cargo run --release -p llvq-llm --bin mmlupair -- <a> <b>`.
+
+  Paper reference points (Qwen3-4B, Table 6): FP16 70.2 · LLVQ 60.7 · QTIP 57.4.
+  If FP16 does not land near 70, the protocol is what needs fixing,
+  not the model.

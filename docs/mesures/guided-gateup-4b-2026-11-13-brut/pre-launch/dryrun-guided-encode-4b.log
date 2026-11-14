@@ -1,0 +1,5 @@
+baseline : env LLVQ_MODEL=Qwen/Qwen3-4B LLVQ_CALIB=dclm-edu LLVQ_INT4_TYPES=v_proj LLVQ_THREADS=12 LLVQ_ARTIFACT=/Users/pjmalandrino/llvq-guided-2026-11-13/baseline.llvq /Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/recherche-qualite/target/release/smoke 64 2048 12 4096 metal nogs tetra1 999 rot
+candidate: env LLVQ_MODEL=Qwen/Qwen3-4B LLVQ_CALIB=dclm-edu LLVQ_INT4_TYPES=v_proj LLVQ_THREADS=12 LLVQ_GUIDED_WEIGHTS=/Users/pjmalandrino/llvq-guided-2026-11-13/weights LLVQ_GUIDED_GROUPS=4 LLVQ_ARTIFACT=/Users/pjmalandrino/llvq-guided-2026-11-13/candidate.llvq /Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/recherche-qualite/target/release/smoke 64 2048 12 4096 metal nogs tetra1 999 rot
+seal     : env LLVQ_MODEL=Qwen/Qwen3-4B /Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/recherche-qualite/target/release/seal <arm>.llvq <arm>.bin
+guard    : ~/.llvq-guard/heavy.sh (one heavy job at a time, nice 15), memory_pressure -Q before each arm
+refused: /Users/pjmalandrino/llvq-guided-2026-11-13/weights/manifest.json missing

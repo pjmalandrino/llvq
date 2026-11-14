@@ -1,0 +1,7 @@
+w-000-gate_proj.f32 ess_min 0.0027 ess_mean 0.0042 top1pct_mass 0.527
+w-000-up_proj.f32 ess_min 0.0015 ess_mean 0.0040 top1pct_mass 0.534
+w-001-gate_proj.f32 ess_min 0.0002 ess_mean 0.0016 top1pct_mass 0.770
+w-034-up_proj.f32 ess_min 0.0382 ess_mean 0.0647 top1pct_mass 0.282
+w-035-gate_proj.f32 ess_min 0.0394 ess_mean 0.0804 top1pct_mass 0.295
+w-035-up_proj.f32 ess_min 0.0405 ess_mean 0.1557 top1pct_mass 0.230
+files 72 ESS share mean 0.0158 min 0.0016 max 0.1557 ; worst group 0.0001 ; top-1% mass mean 0.463 max 0.770

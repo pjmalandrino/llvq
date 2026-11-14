@@ -1,0 +1,334 @@
+RECHERCHE QUALITE, R1: THE AMPLITUDE SHARE FRAMED, AND WHAT EACH VERIFIER COSTS, SEALED 4B, 2026-11-13. $0.
+=============================================================================================================
+Result: on the sealed 4B the four answer logits keep a slope of 0.5817 against f16 with a residual sd of 1.2302, an
+SNR of 1.5216 (*computed*, recherche-qualite-n1 line 58, 14,042 q, f16 dense). iid Gaussian noise at that amplitude
+predicts 64.65 MMLU against 70.14 for FP16, so the amount of error carries 5.49 of the 6.77 lost points (line 86). Over
+the ten 4B arms of the replay, SNR orders 42 of 45 pairs the way measured MMLU does (*computed* on run.tsv). The three
+pairs it misorders differ by 0.09, 0.13 and 1.28 points. The sealed file spends 51.8 % of its bits on 168 lattice
+records at 1.9898 b/weight and 29.8 % on 84 int4 records at 4.25 (*computed*, rtbits-sealed lines 3-4, 14). No cheap
+proxy has held against MMLU in this repository. Perplexity has moved against a resolved MMLU pair (Q5). Distillation
+KL, the layer objective tr(E H E') and Gaussian block MSE have each failed to follow MMLU or perplexity on a measured
+case. The answer-logit SNR needs an MMLU arm of the candidate, so it costs what MMLU costs. Under the mandate's
+clause (no model on the Mac), one full 4B attempt (card encode, row scales, MMLU full split) costs $10.37 to $11.83
+by the jobs.csv rows (*computed*). $10 buys none.
+Without the clause it costs $4.69 and $10 buys two (*computed*). No 0.6B object has ever been scored on MMLU here.
+Nature: read only. No build, no test, no model load, no job, no network, no statistic computed on a dump. Sources:
+docs/MODES.md, docs/CERVEAU.md (Q1 to Q22, O12, E1, E2, X1 to X3), docs/METHODE.md, docs/STYLE.md, docs/ETAT.md,
+docs/ROADMAP-QUALITY.md, docs/llvq-paper-notes.md, docs/data/jobs.csv, the three notes of 2026-11-13 and the journals
+named on each line, read at 0b7c477. Binaries read by their doc header and by grep only. Arithmetic by hand or one
+line of python on journal figures and on the rows of recherche-qualite-n1-2026-11-13-brut/run.tsv, labelled
+*computed*, inputs on the line. Line numbers are the files' own.
+Mandate: CERVEAU O12, starting point amended on 2026-11-13 to the amplitude share. This note proposes no mechanism and
+projects no gain.
+
+1. THE CLOSED PROBLEM AND ITS NUMBER
+------------------------------------
+The problem: at 2.73 b/param for the whole model, the sealed 4B's four MMLU answer logits sit at SNR 1.5216 against
+f16, and iid Gaussian noise of that amplitude alone predicts 64.65 against 70.14 for FP16.
+
+The number: the answer-logit SNR against the f16 dump of the same size, beta sd(x) / sd(e) on the centred four option
+logits, pooled over the questions (logit_snr.py, as R0 depot section 3a states it). The axis stays MMLU micro on the
+full split; the SNR is the quantity the Gaussian model reads it through. Only the ratio sd(e) / beta moves the
+Gaussian prediction: at the sealed 4B's slope with no noise the prediction is 70.27, and noise alone at sd / beta
+gives almost all of the loss (*computed*, logit-snr-4b lines 164-168, on the older 2,280-q arms).
+
+1a. The twelve full-split arms, sorted by SNR (run.tsv, rows "gauss"; *computed* on *measured* dumps, 14,042 q,
+f16 dense reconstruction, each arm against the FP16 dump of its own size)
+  arm          beta     sd_res   SNR       measured   Gaussian pred.   object
+  tetra-4b     0.4809   1.5054    1.0280   54.6432    59.0918          bare Tetra, C4, no int4, no row scales
+  sealed-4b    0.5817   1.2302    1.5216   63.3742    64.6457          the sealed 4B
+  abl-o        0.5869   1.2058    1.5662   63.2460    64.9516          sealed 4B, o restored to f16
+  abl-qkv      0.6994   1.2641    1.7803   63.9225    66.0586          sealed 4B, q, k, v restored
+  abl-down     0.6858   1.2371    1.7839   65.3824    66.0810          sealed 4B, down restored
+  abl-attn     0.7092   1.2497    1.8263   64.1006    66.2530          sealed 4B, q, k, v, o restored
+  sealed-8b    0.6663   1.1576    1.9642   69.5770    71.9055          the sealed 8B, against FP16 8B
+  abl-gateup   0.7230   1.0522    2.2110   66.7569    67.4471          sealed 4B, gate and up restored
+  sealed-14b   0.7666   0.9300    2.8173   75.6587    77.0371          the sealed 14B, against FP16 14B
+  abl-mlp      0.8441   0.9395    2.8914   68.2310    68.5148          sealed 4B, gate, up, down restored
+  awq-4b       0.9604   0.8741    3.5354   68.1384    69.0153          AWQ w4g128
+  abl-all      1.0003   0.2888   11.1479   70.0969    69.9970          sealed 4B, all 252 projections restored
+FP16 levels: 70.1396 (4B), 75.0534 (8B), 78.8777 (14B) (*computed* on the dumps, n1 control C2).
+
+What the table shows:
+- Among the ten 4B arms, a higher SNR goes with a higher measured score in 42 of 45 pairs (*computed* on run.tsv).
+  The three exceptions: sealed-4b over abl-o (63.37 against 63.25, SNR 1.5216 against 1.5662), abl-down over
+  abl-attn (65.38 against 64.10, 1.7839 against 1.8263), abl-mlp over awq-4b (68.23 against 68.14, 2.8914 against
+  3.5354). The Gaussian prediction misorders the same three pairs and no other (*computed*).
+- Every arm reads under its Gaussian prediction except abl-all (+0.10 [-0.12, +0.32]) (n1 lines 67-75). The part
+  beyond amplitude is 1.27 of 6.77 at 4B, 2.33 of 5.48 at 8B, 1.38 of 3.22 at 14B (n1 lines 86-89).
+What it does not show:
+- A cause. The seven ablation arms are one sealed file with groups put back at 16 bits a weight; they are not seven
+  quantizations. Only bare Tetra, the sealed 4B and AWQ are distinct quantized objects at 4B.
+- An independent check. beta and sd are fitted on the same questions that give the measured score (n1 line 146). The
+  ablation arms share the file and the questions, and the note reads no difference between them (n1 line 138,
+  prereg section 8).
+- A law across sizes. The 8B and 14B rows are one calibration draw each, each against its own FP16 (n1 line 90).
+- A letter bias. The instrument does not see a constant offset on one option (n1 line 148).
+
+1b. The older 2,280-q arms (logit-snr-4b; one f16 dump, 70.32; *computed* on *measured* dumps)
+Arms with a Gaussian prediction (section 1 lines 6-13, section 5 lines 97-103):
+  arm          beta    sd_res   SNR     measured   Gaussian pred.
+  tetra        0.458   1.451    1.029   53.49      58.53 +- 1.05
+  seed2        0.378   1.187    1.038   52.19      58.74 +- 1.00
+  planes14     0.466   1.418    1.071   55.59      59.58 +- 1.24
+  tetra+q5     0.498   1.443    1.125   56.95      60.03 +- 0.90
+  seed3        0.519   1.487    1.137   55.17      60.34 +- 1.26
+  seed1        0.470   1.329    1.152   58.02      60.66 +- 1.27
+  awq4         0.960   0.856    3.656   70.04      69.21 +- 0.83
+The "+-" is the sd over simulation draws, not a sampling interval (R0 depot line 130).
+Arms with beta, sd and SNR only (section 1 lines 10, 14-33): the fourteen single-type M2 and M2rep restores, read SNR
+1.109 to 1.548 and 55.65 to 60.77; the attention and MLP group restores read SNR 1.523 to 1.569 (60.25 to 62.49) and
+2.283 to 2.426 (66.37 to 66.79); tetra+attn4 1.330 (58.48); the two v_int4 arms 1.243 and 1.250. The law fitted on 28
+of these arms is acc = 54.60 + 14.60 ln SNR, in-sample rms 1.31, out of sample by subjects 1.74 (lines 38, 68, 75);
+AWQ sits 3.48 under it (line 67).
+The August files across sizes (section 10, lines 171-176): 4B planes14 SNR 1.071, 8B LLVQ 1.590 (65.52 against f16
+76.08), 14B LLVQ 2.210 (72.12 against 78.97); AWQ 3.656, 4.394, 6.638.
+Bare Tetra's SNR reads 1.029 on 2,280 q and 1.028 on the full split, one 2026-09-06 C4 encoding scored twice (R0
+depot lines 25-26).
+
+2. THE BOUND AND THE REFERENCES
+-------------------------------
+The bound is FP16: 70.14 MMLU, 92.12 GSM8K at 16.00 b/param (ETAT line 69). The sealed 4B reads 63.37 and 82.49 at
+2.73 (ETAT line 32), 6.77 [6.05, 7.50] and 9.63 [7.69, 11.57] under it (ETAT line 92). The phase's share of that gap is
+FP16 minus the Gaussian prediction, 5.49 points (n1 line 86).
+
+Published figures at about 2 bits, copied from the literature note with its tags. "2-bit" is each source's own
+accounting, which usually excludes embedding and head (lit line 27); none of them gives a whole-model b/param, so the
+hard-rule-6 comparison exists only where this repository computed it.
+  reference                                   model, bits           MMLU, FP16 -> quantized    gap   source
+  LLVQ paper, shape-gain 0-bit gain, no FT    Qwen3-4B, 2 b/w       70.2 -> 60.7               9.5   lit line 233
+  LLVQ paper, same, per-column scales FT      Qwen3-4B, 2 b/w       70.2 -> 62.8               7.4   lit line 234
+  QTIP 3INST, no FT / FT                      Qwen3-4B, 2 b/w       70.2 -> 57.4 / 59.5   12.8 / 10.7   lit line 235
+  YAQA-B 64K, no FT (output-aware) [S1]       Qwen3-8B, QTIP 2 b    72.99 -> 66.75 (0-shot)    6.24  lit line 238
+  LDLQ, same table [S1]                       Qwen3-8B, QTIP 2 b    72.99 -> 63.94             9.05  lit line 153
+  D2Quant [S7]                                Qwen3-8B, 2 b         72.96 -> 49.94            23.02  lit line 239
+  LC-QAT, QAT 61 h on 8 A800 [S24]            Qwen3-8B, 2 b         6-task 74.12 -> 72.18      1.94  lit line 240
+  AQLM / QuIP#, end-to-end FT [S17]           Llama 2 13B, ~2 b     55.2 -> 48.8 / 50.0   6.4 / 5.2   lit lines 241-242
+  AWQ 3-bit g128 [S23], 4B                    Qwen3-4B, 3 b         69.7 -> 31.5              38.2  lit line 236
+  AWQ 3-bit g128 [S23], 14B                   Qwen3-14B, 3 b        78.5 -> 47.7              30.8  lit line 237
+The paper's gaps are *computed* in the literature note from Table 6 (llvq-paper-notes lines 89-100). The YAQA,
+D2Quant and LC-QAT rows are *reported* by their sources. The GSM8K reading of YAQA-B on Qwen3-8B is 66.07 against 56.31
+for LDLQ (lit line 153).
+
+Our figures against them, MMLU points (*computed* from the lines above and ETAT lines 32-34, 92-94; our MMLU is
+5-shot on 14,042 q, the sources' shot counts differ):
+- 4B, against the LLVQ paper's fine-tuned 62.8: our level is 0.57 higher, our gap to FP16 0.63 smaller (6.77 against
+  7.4). The harnesses are not the same: our encoder at the paper's codebook reads 54.67 on 2,280 q where the paper
+  prints 60.7 (CERVEAU X3, leech0c13). b/param: the paper's "2 bits/weight" excludes embedding and head; the
+  repository computes no whole-model figure for it. For QTIP as shipped it computes 3.355 b/param whole model with an
+  f16 embedding, against 2.7645 for the Tetra file of that date (ROADMAP-QUALITY lines 237-240).
+- 8B, against YAQA-B: our gap 5.48 [4.83, 6.10] at 2.70 b/param, theirs 6.24 at "2 b" of their own accounting. The
+  FP16 references differ (75.05 5-shot here, 72.99 0-shot there).
+- AWQ w4g128, our own measurement, same harness (ETAT lines 70, 74, 77, 92-94): 68.14 at 5.30 b/param at 4B, we read
+  4.76 [4.02, 5.49] below at 2.73; 73.79 at 5.96 at 8B, 4.21 [3.54, 4.86] below at 2.70; 78.12 at 5.40 at 14B, 2.46
+  [1.92, 3.00] below at 2.73.
+- llama.cpp IQ2_S at our bits, same card, same day: 54.29 at 2.82 b/param at 4B, we read +9.08 above (ETAT lines
+  72, 97-98; CERVEAU X1). It is the only external reference measured here at equal whole-model b/param.
+
+3. WHERE THE AMOUNT OF ERROR COMES FROM, AS MEASURED
+----------------------------------------------------
+3a. Per-group restores to f16 on the sealed 4B (ablation-qualite-4b lines 85-92, gains *measured* by mmlupair
+--no-fpc; SNR and Gaussian prediction from run.tsv; added b/param *computed*)
+  arm      restored lattice / int4 weights   gain pp, CI95          SNR      measured   Gauss.   added b/param
+  control  0 / 0                             0                      1.5216   63.37      64.65     0
+  o        0 / 0.377 G                       -0.13 [-0.46, +0.19]   1.5662   63.25      64.95    +1.103
+  qkv      0.472 G / 0.094 G                 +0.55 [+0.01, +1.11]   1.7803   63.92      66.06    +1.919
+  down     0.598 G / 0.299 G                 +2.01 [+1.46, +2.54]   1.7839   65.38      66.08    +2.955
+  attn     0.472 G / 0.472 G                 +0.73 [+0.16, +1.29]   1.8263   64.10      66.25    +3.022
+  gateup   1.793 G / 0                       +3.38 [+2.75, +4.02]   2.2110   66.76      67.45    +6.245
+  mlp      2.391 G / 0.299 G                 +4.86 [+4.16, +5.57]   2.8914   68.23      68.51    +9.200
+  all      2.863 G / 0.771 G                 +6.72 [+6.00, +7.45]  11.1479   70.10      70.00   +12.222
+  FP16                                       +6.77 [+6.05, +7.50]            70.14
+Inputs of "added b/param": restored weights at 16 bits minus their sealed rate, (lattice x (16 - 1.9898) + int4 x
+(16 - 4.25)) / 4,022,468,096 parameters. The lattice and int4 split per group is the type table of R0 depot lines
+58-65 (q, k, gate, up lattice; v, o int4; down lattice at layers 0-11 and 24-35, int4 at 12-23, 24,903,680 weights a
+layer). It reproduces the restored counts of ablation lines 68-74. The embedding stays int4 g64 in every arm.
+In points per added b/param (*computed*, same inputs): down 0.68, gateup 0.54, mlp 0.53, all 0.55, qkv 0.29, attn
+0.24, o -0.12. These carry no interval.
+Across groups the restores add super-additively: all minus (mlp + attn) +1.14 [+0.43, +1.85] (ablation line 118).
+
+3b. Composition of the sealed 4B by record type (rtbits-sealed lines 3-14; bits and shares *computed*)
+  record                         weights          rate             bits           b/param   share of file bits
+  lattice (Tetra), 168 matrices  2,862,612,480    1.9898 stream    5.696 e9       1.4161    51.8 %
+  int4 g128, 84 matrices           770,703,360    4.2500           3.275 e9       0.8143    29.8 %
+  embedding and tied head, g64     388,956,160    4.50             1.750 e9       0.4351    15.9 %
+  tail at f16, row scales, norms   14,647,296 tail weights, 946,176 row scales    0.0665    2.4 %
+  whole model                    4,022,468,096                     10.989 e9      2.7320    100 %
+The line before the total is 2.7320 minus the three record lines, by difference; the tail alone at 16 bits is
+0.0583 b/param of it (*computed*).
+Lattice records hold 78.79 % of the projection weights and the int4 records 21.21 % (R0 depot line 66). The int4
+records are min/max RTN of the checkpoint (R0 depot line 68). The restore of o alone, all int4, recovers nothing
+resolved (-0.13); the int4 records inside qkv and down are not isolated (CERVEAU Q11, Q16).
+
+4. WHAT THIS REPOSITORY ALREADY TRIED ON THE AMOUNT OF ERROR
+-----------------------------------------------------------
+The R0 depot note lists the lines; this section sorts them and points there.
+In the sealed files, each step *measured* on the full split (path in R0 depot lines 72-75):
+- Calibration on DCLM-edu instead of C4: +1.58 [+0.71, +2.49] (dclm-4b lines 15-17). One draw a side (Q15).
+- int4 g128 v_proj (Q5 base): +1.73 [+0.87, +2.59] on the full split, +3.47 on 2,280 q (jobs.csv line 164).
+- Trained row scales, frozen codes: +3.15 at 4B, +3.29 at 8B, +1.67 at 14B (CERVEAU Q12; dclm-rowscales line 20).
+- int4 o and down at layers 12-23 paid by the q4 embedding: +2.26 [+1.66, +2.87] (embed-q4-swap; CERVEAU Q13).
+Measured and not in the sealed files: refuted, not resolved, or never carried to them (R0 depot section 6, lines
+258-288):
+- Second training pass on the sealed 4B: +0.02 [-0.31, +0.36] (sealed-rownorms line 24).
+- Four times the DCLM volume: -1.20 [-2.06, -0.39] (Q14). Thirty-two times the C4 volume on a card: +2.98 [+0.15,
+  +5.81] on 2,280 q (jobs.csv line 121); that journal, volume-2026-09-07.txt, is in no commit (HISTORIQUE line 465).
+- Gain-map correction (errmap): -3.06 MMLU for -17.4 % perplexity (Q5). Gain rule by projection, spherical feedback,
+  group_scales, Design C (Q17, Q18; ETAT section 6). The paper's codebook leech0c13 (Q4, X3). Radial rho 0.929:
+  +1.23 [-0.50, +3.06] (R0 depot line 288).
+Proposed and never run (R0 depot section 7, lines 290-319; every gain there is *estimated*):
+- O2, an output-aware encoder objective of the YAQA kind; O3, a second sealed draw through row scales.
+- The open rows of ROADMAP-QUALITY (rows 5, 10 to 13, 15 to 20, C to F, the L-rows listed there), whose base is the
+  2026-09-13 object at 56.37, not the sealed file.
+- The study notes of 2026-11-11 and 2026-11-12: gains-criteres-qualite, innovation-ecart-qualite,
+  recherche-methode-quantification, innovation-encodeur-reseau (K1 refuted by computation, Q19), innovation-tetra-v2-
+  forme (the 0.60 dB ceiling of 24-dimension fixed-rate codes, C7).
+
+5. VERIFIER CANDIDATES FOR R2
+-----------------------------
+MODES.md asks for an exact, automatic, cheap evaluation that ranks known objects as the journals do and scores the
+axis or a quantity CERVEAU holds as faithful to it (MODES line 54). The rows below are what the repository runs
+today. "Mac clause" reads the mandate: no model loaded on the work machine while O11 is open (CERVEAU O12 budget row).
+All durations and dollars are *measured* unless marked.
+
+5a. Producing a candidate
+  candidate                    machine                 duration                        $        source
+  smoke encode, 0.6B, full     Mac, Metal              26 to 40 min a run, with ppl     0        m1-hessienne line 8
+                                                       31 min for two Tetra arms        0        tetrapost-ppl-0.6b line 7
+  smoke encode, 0.6B           rtx-pro-6000            inside the 14B seg1 gate,        part     encode-14b line 107
+                                                       not timed apart                           of 6.95
+  smoke encode, 4B, full       Mac, 12 threads         1 h 47 (DCLM base)               0        dclm-4b line 4
+                                                       1.78 h of phases                 0        innovation-cout line 33
+  smoke encode, 4B, full       rtx-pro-6000            2.59 h, smoke + seal + ppl       7.11     f5-graines lines 8-10
+                               rtx-pro-6000x2          62 min, 131,072 tokens           5.68     jobs.csv line 120
+  smoke encode, 8B, full       Mac, 12 threads         3.79 h                           0        innovation-cout line 40
+  smoke encode, 14B, full      rtx-pro-6000, 2 segs    5.48 h, 400 to 412 s a block    15.03     innovation-cout line 48
+  smoke with a block bound     any                     quantizes blocks below the bound; no journal times a 4B run
+                                                       with a bound; 4B Mac about 178 s a block (*computed*, 1.78 h / 36)
+  row scales (ops/llvqtune)    l40sx1                  130 min billed, 9,507 steps      4.00     jobs.csv line 171
+                               h200 (8B / 14B)         68 / 118 min                     5.66 / 9.78   jobs lines 185, 192
+  seal, int4swap, embedq       Mac                     minutes, not journalled          0        innovation-cout line 35
+  seal (8B reseal)             cpu-xl                  15 min                           0.24     jobs.csv line 49
+Two facts bear on any card encode. A 4B encoded on the card is a different object from the same recipe on the Mac:
+ppl 17.6681 against 16.1569, MMLU 52.31 against 53.49 (jobs.csv line 120; calib.rs accumulates AtA in f32 on the
+accelerator). The sealed 4B and 8B bases were encoded on the Mac, the 14B on a card (innovation-cout lines 33-48).
+A new encode is also a new calibration draw unless the draw is held: three seeds spread s = 2.92 MMLU on 2,280 q,
+before row scales (bruit-mmlu-graines line 76; CERVEAU Q2).
+
+5b. Scoring a candidate
+  scorer                         runs                          machine     duration           $          follows MMLU
+  MMLU, full split, 4B           14,042 q, dense f16           l40sx1      21.7 to 23.3 min   0.66-0.72  is the axis
+                                                                           (ablation line 39; jobs.csv lines 159, 197)
+  MMLU, full split, 8B / 14B     same                          l40sx1      32-33 / 53-65 min  1.00 / 1.59-1.95  axis
+  MMLU, 2,280 q, 4B              flat 40 per subject           l40sx1      4 min 22 s         no row     axis, on a sample
+                                                                           (f1e-census line 80); 11 arms 72 min $2.17
+                                                                           (jobs line 104), $0.20 an arm (*computed*)
+  MMLU, 2,280 q, 4B              same                          Mac, Metal  3,131 s            0          axis, sample
+                                                                           (nuit-b line 48)
+  GSM8K, 1,319, 4B, kernel       through 4E                    l40sx1      71 min             2.13       second axis
+                                                                           (jobs line 219)
+  perplexity, WikiText-2         12 windows of 4,096           l40sx1      11 min, 3 files    0.33       no (cases below)
+                                                                           (jobs line 232)
+  KL to dense (kltemp)           4,092 positions, full vocab   Mac, Metal  about 5 min        0          no (cases below)
+                                                                           (kl-temperature line 4)
+  errmap                         per-matrix NLL probes         Mac         3 h 36 (4B),       0          no (Q5)
+                                                                           2 h 25 (0.6B) (errmap-4b line 4, -0.6b line 4)
+  hcapture                       Hessians of the served file   Mac         under 15 min       0          not a score
+                                                                           (l36-capture lines 50, 66)
+  hratio, layer objective        tr(E H E') per matrix         Mac         not journalled     0          no (case below)
+                                                                           (hratio line 6)
+  tetraalt, layer objective      recorded blocks and Hessians  Mac         40 s, two runs     0          never tied to MMLU
+                                                                           (tetra-directions line 3)
+  llvq-bench, Gaussian MSE       synthetic blocks              Mac         seconds            0          no (N3, Q4, Q17)
+  answer-logit SNR, N1 replay    a dump of the candidate       Mac         16 to 47 s an arm  0          see 1a; needs
+                                 (logit_snr.py, logit_n1_replay.py)        (n1 line 30)                  one MMLU arm first
+Pair noise of the axis: on the full split one constant-file pair has an SE of 0.17 to 0.38 (CERVEAU Q3); on 2,280 q
+0.43 (kvq8-4b line 73), and the half-width between two files is 2.67 (t3-genou line 99). Queue time is unbilled and
+reached 3 h 46 before one 4B arm (embed-q4-swap line 3).
+No binary found by grep prints the per-block output error of the whole quantized model against the dense one.
+tetraalt scores mean squared output error on reserved activation rows for one row of one matrix (tetraalt.rs line 88).
+
+5c. Proxies against MMLU, measured cases
+Disagreed:
+- Perplexity. errmap correction: -17.4 % ppl, -3.06 MMLU, p 6.2e-18, full split (Q5; errmap-mmlu lines 13-23). Three
+  calibration seeds: ppl ranks them 3, 2, 1 and MMLU 1, 3, 2 (bruit-mmlu-graines lines 71-73). Row scales: ppl x1.0074
+  of f16, MMLU nine points under (dclm-rowscales lines 131-142). DCLM x32 on a card: ppl +2.12 % worse, MMLU -0.55
+  [-3.21, +2.13] not resolved (dclm-2026-09-07 lines 25-36). Our 4B against AWQ: ppl 6.9 % better, MMLU 4.76 worse
+  (ETAT lines 101-102). Q4: same rate, ppl and MMLU order the three codebooks differently, no MMLU pair resolved.
+- Distillation KL. Second row-scale pass: KL 0.2622 to about 0.20, MMLU +0.02 [-0.31, +0.36] (sealed-rownorms lines
+  39-42). First pass: KL -3.8 % for +3.15, against -7.5 % for +4.30 on bare Tetra (dclm-rowscales lines 71-74). One
+  global temperature: KL -2.49 %, no MMLU arm, an argmax cannot move by construction (Q6).
+- Layer objective. hratio over six types: Spearman +0.54, p 0.297 against MMLU gains (hratio lines 34-39).
+- Gaussian block MSE. Planes14 0.38 dB better than Tetra, ppl worse; Euclidean gain rule 0.08 dB better, ppl +4.026 %
+  at 0.6B (Q4, Q17; N3).
+- SNR law. Fitted on 28 arms, misses single arms by up to 2.95; AWQ 3.48 under it (Q8).
+Agreed:
+- Four times the DCLM volume: ppl 16.61 against 16.24 and MMLU -1.20, same sign (Q14).
+- Thirty-two times the C4 volume on a card: ppl -10.2 % and MMLU +2.98 (jobs.csv line 121; journal in no commit).
+- Answer-logit SNR on the twelve full-split arms: 42 of 45 4B pairs in order (section 1a). In sample: the SNR comes
+  from the same dump as the score.
+No proxy in this repository has been shown to rank two encodings of one size the way MMLU does over several resolved
+pairs, which is Q5's overturn condition.
+
+5d. What the Mac clause forbids today
+Forbidden while O11 is open, each loads a checkpoint or a sealed file: smoke at any size, mmlu and ppl on Metal,
+kltemp, errmap, hcapture, hratio, row-scale training on the Mac, oracle. int4swap reads the checkpoint's weights and
+seal takes LLVQ_MODEL (CLAUDE.md commands); whether that counts as a model load is the operator's reading.
+Allowed: logit_snr.py and logit_n1_replay.py on existing dumps, mmlupair and gsm8kpair on dumps, tetraalt on recorded
+blocks, llvq-bench on synthetic blocks. None of the allowed ones produces a new quantized model.
+
+6. WHAT ONE FULL ATTEMPT COSTS TODAY
+------------------------------------
+One attempt at 4B: encode, row scales, seal, one MMLU arm on the full split (*computed* from the rows of section 5a
+and 5b; card hours billed, queue not counted).
+  Mac clause holds, card only:
+    encode on rtx-pro-6000x2 $5.68 (62 min, jobs line 120) or rtx-pro-6000 $7.11 (2.59 h with seal and ppl, f5 line 8)
+    + row scales $4.00 (130 min, jobs line 171) + MMLU $0.69 to $0.72 (23 to 24 min)
+    = $10.37 to $11.83, 3.6 to 5.2 h billed. Seal on cpu-xl adds about $0.24 if it may not run on the Mac.
+    $10 buys no full attempt. Without row scales, $6.37 to $7.83: one attempt.
+    Neither card encode used today's recipe (DCLM-edu, Tetra, v_proj int4): the rows are Planes14-era and C4.
+  Mac clause lifted for the encode and the seal:
+    encode 1.78 h on the Mac $0 + row scales $4.00 + MMLU $0.69 = $4.69, about 4.4 h of wall (E1 books $6.29 with three
+    MMLU runs). $10 buys two. Without row scales $0.69 an attempt, fourteen in $10.
+At 0.6B: no 0.6B object has ever been scored on MMLU in this repository (grep of docs/mesures and
+docs/data/mmlu-dumps). Every 0.6B quality figure is perplexity (Q17, Q18, m1-hessienne-shrink). The 0.6B has no FP16
+MMLU reference here either.
+At 8B the same attempt reads encode 3.79 h on the Mac, row scales $5.66 on h200, MMLU $1.00 (E1).
+
+7. OPEN CHOICES FOR THE OPERATOR
+--------------------------------
+- Does the Mac clause hold for this phase? Held, one 4B attempt is $10.37 or more and the budget buys none. Lifted
+  for encodes, an attempt is $4.69 with row scales, $0.69 without, and the Mac is busy about 1.8 h an encode.
+- Are row scales part of an attempt? They are $4.00 of the $4.69. Without them a candidate is scored on a
+  pre-row-scale base (57.95 for the DCLM base, dclm-rowscales line 20), not on the sealed object.
+- Which size? 4B is the only size with a full ablation and the primary N1 arm. 0.6B has no MMLU reference; building
+  one (an FP16 arm and a sealed-recipe arm) has no cost row to copy. 8B costs $6.66 an attempt with the Mac
+  (*computed*).
+- Which score? MMLU full split ($0.69, SE 0.17 to 0.38 a pair), 2,280 q (about $0.20, half-width 2.67 between two
+  files), or the answer-logit SNR, which needs one of the two first.
+- Is a calibration draw held fixed between candidates? A free draw carries s = 2.92 on 2,280 q before row scales
+  (Q2), larger than most pair intervals above.
+- Is GSM8K scored per attempt? $2.13 through the kernel at 4B.
+- What budget? $10 of card under O12, $0 spent; the 2026-11-09 cap of $25 that O11 draws on stood at $19.22 after the
+  ablation (ablation line 40).
+
+8. WHAT THIS NOTE DID NOT CHECK
+-------------------------------
+- No dump was opened. Section 1a's pair counts are on run.tsv rows, not on per-question data.
+- The card-encode costs rest on jobs.csv rows: volume-2026-09-07.txt is in no commit, and the f5 journal was read on
+  lines 8-12 only. Neither row used today's recipe.
+- The smoke block bound was read in smoke.rs lines 56-61 and 1075-1078; what the evaluation does with the blocks above
+  the bound was not checked.
+- Whether int4swap and seal count as a model load under the mandate was not decided here.
+- The 4B Mac encode reads 1 h 47 (dclm-4b line 4), 1.78 h of phases (innovation-cout line 33), 1 h 58 for the Tetra+Q5
+  file (jobs.csv line 134) and 2 h 27 (gains-criteres-qualite line 38). The last has no journal line of its own read
+  here.
+- The literature figures were not re-fetched; their shot counts and accountings are the sources' own.
+- The hratio duration, the 0.6B card encode duration and the 2,280-q card arm price are not journalled as such.
+
+Mismatches found (journal against CERVEAU or against another document):
+1. CERVEAU Q14 states "more calibration data hurts" on a DCLM 4x scope. jobs.csv line 121 records a resolved +2.98
+   at 32x on C4 on a card, and its journal is in no commit. Q14 does not cite it.
+2. The second row-scale pass is not in Q6 or Q5's list of proxy failures: its KL fell to about 0.20 for +0.02 MMLU
+   (sealed-rownorms lines 39-42). CERVEAU Q12 carries the +0.02, not the KL.
+3. The 4B Mac encode duration differs across four documents (section 8 above).

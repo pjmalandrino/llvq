@@ -1,0 +1,9 @@
+calibration token fingerprint 45fb781f65574d4d, baseline and candidate-clip10
+states equal but for the guided line
+guided line = the 2026-11-13 candidate's + clip=10
+sealed 1794564765 B both
+baseline.bin 1f4c38d8ae325c4fa25d6762146f3ee67be4baa0cffc8412489c380923232b8f
+candidate.bin 626ea59d05de622c5b03a3984d9e86c3d0f5bffce68855c82874ca0a2f135a69
+candidate-clip10.bin d4dd1a7de3c353faceb73314ce05679f4727411acf4ef6cc2329c46e6c34d974
+same GPU line: NVIDIA RTX PRO 6000 Blackwell Server Edition, 12.0, 97887 MiB, 580.178.04
+2026-11-14T11:11:14Z
