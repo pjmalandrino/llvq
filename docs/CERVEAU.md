@@ -684,7 +684,11 @@ hit its 5 min timeout. Its second attempt ([recherche-debit-charge2](mesures/rec
 128 registers, and v9 loads (*measured*). The 8 B do not come from what the variants shed; their origin is not
 established by that run. Five load probes ([recherche-debit-sondes](mesures/recherche-debit-sondes-2026-11-14.txt))
 then name the site: the endpass body on the gate/up call site alone is refused for the 8 B, and on q/k, down or o
-alone it loads (*measured*). No candidate has been timed in 4E's token. Spent: $1.61 of $5.
+alone it loads (*measured*). Three arms without that one-call site
+([recherche-debit-jeton3](mesures/recherche-debit-jeton3-2026-11-14.txt)) do not load either: gate/up in two calls,
+for flat and for endpass, and flat with v9's own gate/up, each refused for the same 8 B (*measured*). Nine arms
+have been refused and v9 sits at the 128-register cap of 512 threads with one CTA a SM. No candidate has been timed
+in 4E's token. Spent: $1.93 of $5.
 
 ## Beliefs we dropped
 

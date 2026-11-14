@@ -1514,3 +1514,8 @@ reading step is [recherche-debit-r0-depot](mesures/recherche-debit-r0-depot-2026
   compiles five load probes, the endpass body on one call site each. One site brings the 8 B: gate/up. The body on
   q/k, on the Tetra down or on the Tetra o alone loads at 0 B, and so does the inserted text alone (*measured*).
   Nothing is timed. Spend under the cap: $20.83 of $25, registry $328.08.
+- The eighth card run, [recherche-debit-jeton3](mesures/recherche-debit-jeton3-2026-11-14.txt) (6af85b14, $0.32),
+  checks three arms that leave the one-call gate/up site out: flat and endpass with gate/up in two calls, and flat
+  with v9's own gate/up. None loads, each refused for the same 8 B at 128 registers (*measured*). The job stops
+  after the check. Flat on q/k, down and o is refused even with v9's gate/up, so gate/up is not the only way to the
+  8 B. Nothing is timed. Spend under the cap: $21.15 of $25, registry $328.40.

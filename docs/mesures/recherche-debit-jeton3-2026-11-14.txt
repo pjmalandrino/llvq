@@ -1,0 +1,53 @@
+Decode-speed research phase (CERVEAU O11), step R6d: three arms without the one-call gate/up site, their load check,
+one card run, 2026-11-14
+
+Result: none of the three loads. v9fg, v9fn and v9eg are each refused for 8 B of local memory at 128 registers on the
+timed symbol, as the six arms before them. v9 loads. The job stopped after the check, as its prereg says. Every
+figure is *measured*. Nothing was timed. No tok/s is established.
+
+Job 6af85b1423985fb9cd821231, l40sx1, 637 s running, $0.32. Prereg
+proofs/preregistration-recherche-debit-jeton3-2026-11-14.md (sha256 c702bdb5, stamped before). Image built from the
+stamped commit 7adb54d, Space sha f7f45cf5. Raw outputs in recherche-debit-jeton3-2026-11-14-brut/. Card: L40S,
+sm_89, driver 580.178.04, tile 64.
+
+GATES: pass
+  The oracle: MATCH. The four modules are the Mac's, sha256 for sha256. v9 LOADS. Every arm compiled.
+
+THE VERDICTS (RoPE form 1's token symbol, pers_4e_tokens_f1_t512, 85,952 B shared, 1 CTA a SM)
+  arm    body      gate/up site   registers   local   verdict    logits symbol   stamps symbol   whole arm
+  v9     v9        v9's           128         0 B     LOADS      0 B             32 B            105.1 s
+  v9fg   flat      two calls      128         8 B     REFUSED    8 B             40 B            145.4 s
+  v9fn   flat      v9's           128         8 B     REFUSED    8 B             32 B            121.6 s
+  v9eg   endpass   two calls      128         8 B     REFUSED    8 B             40 B            109.5 s
+  The check took 481.7 s for the four modules.
+
+THE READING (prereg §5): "none loads"
+  No arm to time. The job stopped. The operator decides on the phase.
+  The row "v9fn refused" also applies: the body on q/k, down and o is refused with v9's own gate/up text, though
+  the endpass body on each of those sites alone loaded (job 6af837d1). The register room is read as spent for flat.
+
+WHAT THE RUN SAYS
+  1. The two-call gate/up site does not remove the 8 B, for flat or for endpass. The hypothesis behind it (the
+     two-matrix select and the values kept across the body) is not supported.
+  2. v9fn shows that gate/up is not the only way to the 8 B: with no rc text on gate/up at all, flat on the three
+     other sites is refused. R6c's reading "one site brings the 8 B" held for one site at a time; it does not make
+     the other three free together.
+  3. Nine research arms and one probe now show the same 8 B at 128 registers. v9 sits exactly at the cap of
+     512 threads with one CTA a SM. The simplest reading left, not a measurement: the symbol has no register to
+     spare, and any second body in it tips the allocator.
+
+NOT ESTABLISHED
+  Any tok/s. Whether flat on ONE site alone loads (R6c probed endpass only), or endpass on q/k, down and o together.
+  Which value spills. Whether the rows-alone gain (flat x1.185, endpass x1.053 on rows) survives in the token: no
+  candidate has ever been timed there.
+
+SIGNED PREDICTIONS (prereg §9): 4 read, 3 in, 1 the less likely side; 5 not read
+  1 v9 loads, 97 %: loads, in.
+  2 v9fg loads 40 %, v9fn 55 %, v9eg 45 %, none 30 %: none loads. The outcome I gave 30 %. I had v9fn more likely
+    to load than not, and it did not.
+  3 a refused arm shows 8 B, 70 %: 8 B on each, in.
+  4 a flat arm 127 s [110, 150], an endpass arm 103 s [90, 125]: 145.4 and 121.6 s, 109.5 s, in.
+  5 to 8 (scores, tokens): not read, nothing was timed.
+  9 the job 600 s [520, 700] if no arm is timed: 637 s, in.
+
+Cost: $0.32 (637 s at $1.80/h). Phase: $1.93 of $5. Cap of 2026-11-09: $21.15 of $25. Registry: $328.40.
