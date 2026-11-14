@@ -1,0 +1,43 @@
+Decode-speed research phase (CERVEAU O13): the int8 KV cache read by 4E (arm v9k8), one card run, 2026-11-14
+
+Result: the arm does not load. v9k8's token symbol holds 8 B of local memory at 128 registers, at the three RoPE
+forms; v9 holds 0 B in the same check. The job ended at its load check, as the prereg fixed. Nothing was timed. No
+tok/s, no quality and no VRAM figure is established. Every figure below is *measured*.
+
+Job 6af8df0a23985fb9cd82a04b, l40sx1, 255 s running, $0.13. Prereg
+proofs/preregistration-recherche-debit-kv8-2026-11-14.md (sha256 4c7fe8cd, stamped before). Image built from the
+stamped commit c894ac5, Space sha b14244eb. Raw outputs in recherche-debit-kv8-2026-11-14-brut/. Card: L40S, sm_89,
+driver 580.178.04, tile 64.
+
+GATES: pass
+  The oracle: MATCH. The sealed file at its sha256. The two modules are the Mac's, sha256 for sha256 (v9 d55a097b,
+  v9k8 8b53b1cd). Both compiled. v9 LOADS.
+
+THE VERDICTS (85,952 B shared, 1 CTA a SM, 512 threads)
+  arm    tokens f0   tokens f1   tokens f2   logits f1   stamps f1   NVRTC    whole arm
+  v9     0 B         0 B         0 B         0 B         32 B        57.5 s   103.1 s
+  v9k8   8 B         8 B         8 B         8 B         48 B        58.7 s   107.9 s
+  Every symbol at 128 registers. The fill pers_kv8_fill: 36 registers, 0 B local.
+  The check took 210.9 s.
+
+THE READING (prereg §5): "v9k8 REFUSED"
+  The int8 tile as written does not fit 128 registers at 0 B. The job ends. A lighter tile may be proposed under its
+  own prereg, or the lever closes; the operator decides.
+
+WHAT THIS ADDS TO O11
+  Nine arms and one probe of O11 were refused for 8 B on row phases. v9k8 leaves every row phase as v9's and changes
+  the append and the attention only. It is refused for the same 8 B. The wall is not a property of the row phases.
+  Not established: which value spills, and what 8 B of local memory would cost in the token. No arm with local
+  memory was ever timed: the check refuses it before.
+
+SIGNED PREDICTIONS (prereg §8)
+  1. v9k8 loads, 55 %: wrong. If refused, 8 B, 60 %: right.
+  2. v9k8 takes 110 s [95, 135] in the check: right, 107.9 s. The job's time was predicted for a loading arm only.
+  3 to 7: not read, nothing was timed.
+
+NOT ESTABLISHED
+  Whether reading fewer KV bytes buys token time in 4E (CERVEAU P3 stays a conjecture). Any quality through the arm.
+  Any VRAM gain. Any card but the L40S, any driver but 580.178.04.
+
+Cost: $0.13 (*computed*, 255 s at $1.80/h), against $0.15 estimated for a refusal and a $0.78 cap. Phase O13: $5.44
+of $10. Registry: $347.08.

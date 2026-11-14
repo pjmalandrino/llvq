@@ -856,12 +856,17 @@ closed on a ceiling at short context. Its mandate:
 The reading before the mandate (2026-11-14, two agents, $0) is in
 [recherche-debit-kv-r0](mesures/recherche-debit-kv-r0-2026-11-14.txt).
 
-State on 2026-11-14, $5.31 of $10. The capture that would have tested a partial read of the cache is built and
+State on 2026-11-14, $5.44 of $10. The capture that would have tested a partial read of the cache is built and
 stamped and was not run: the operator judged its chance too low. The phase moved to a smaller cache. The quality
 ladder ran ([recherche-debit-kv-ladder](mesures/recherche-debit-kv-ladder-2026-11-14.txt), P4): int8 keys and values
-pass at 8,192, at 0.531 of the f16 bytes. No kernel reads int8 and no tok/s is gained yet. Open, each under its own
-prereg and go: one extension of the int8/int4 arm to 36 windows, the near-tie texts and GSM8K-200 on the kept
-format, then the int8 read in 4E's attention.
+pass at 8,192, at 0.531 of the f16 bytes. The int8 read was then written as a research arm of 4E, `v9k8`, proven bit
+for bit on the Mac against its reference. It does not load on the card
+([recherche-debit-kv8](mesures/recherche-debit-kv8-2026-11-14.txt), *measured*): 8 B of local memory at 128
+registers on the token symbol, where v9 holds 0 B. It changes the append and the attention only, so the 8 B wall of
+O11 is not a property of the row phases. No kernel reads int8 on the card and no tok/s is gained. Not established:
+which value spills, and what 8 B of local memory cost in a token, since no arm with local memory was ever timed. Open,
+each under its own prereg and go: a lighter int8 tile or a timed read of the arm as it is, the operator decides; one
+extension of the int8/int4 arm to 36 windows; the near-tie texts and GSM8K-200 on the kept format.
 
 ## Beliefs we dropped
 

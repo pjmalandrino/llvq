@@ -1576,7 +1576,7 @@ the layer objective on the 4B. The bullets below are in the order things happene
 - 2026-11-14: the operator closes the phase. Outcome: a dead hypothesis, recorded in `CERVEAU.md` O12. No idea sheet.
 - Nothing served changes: no config, no served module, no Hub file.
 
-## 2026-11-14. A research phase opens on decode speed at long context; an int8 KV cache holds the tolerance at 8,192; nothing served changes, $5.31
+## 2026-11-14. A research phase opens on decode speed at long context; an int8 KV cache holds the tolerance at 8,192; nothing served changes, $5.44
 
 The operator closed O11 and opened a phase on decode speed after an 8,192-token prompt, O13 of
 [`CERVEAU.md`](CERVEAU.md): five days and $10 of card.
@@ -1590,6 +1590,11 @@ The operator closed O11 and opened a phase on decode speed after an 8,192-token 
 - CERVEAU P4 is replaced. It read: "An int8 KV cache does not pass the served tolerance at long context: its own
   measured interval leaves the ±0.12 % band", from +0.0494 % [−0.0713, +0.1703] on 12 windows of 4,096 on Metal
   (kvq8-4b-2026-08-15).
-- Five jobs were void for dataset pins written by the main session, $0.15. Spend of the phase: $5.31 of $10; the rows
-  of `docs/data/jobs.csv` sum to $346.95 (*computed*).
-- Nothing served changes: no config, no served module, no Hub file. No tok/s is gained: no kernel reads int8.
+- Five jobs were void for dataset pins written by the main session, $0.15.
+- The int8 read was written as a research arm of 4E, `v9k8` (prereg sha256 4c7fe8cd), bit for bit against its
+  reference on the Mac. On the card it is refused at its load check for 8 B of local memory at 128 registers, v9 at
+  0 B beside it (*measured*, [recherche-debit-kv8](mesures/recherche-debit-kv8-2026-11-14.txt), $0.13). Nothing was
+  timed.
+- Spend of the phase: $5.44 of $10; the rows of `docs/data/jobs.csv` sum to $347.08 (*computed*).
+- Nothing served changes: no config, no served module, no Hub file. No tok/s is gained: no kernel reads int8 on the
+  card.
