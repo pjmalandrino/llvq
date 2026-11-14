@@ -1,0 +1,73 @@
+4E check: 7 arms, sm_89, #define TILE_BLOCKS 64u define, the sealed 4B's shape: 85952 B of dynamic shared memory
+4E check v9: module 253722 bytes, sha256 d55a097b146e8b962829045dfea6975470b408b942c1e0c22c038ad4d9d00860
+4E check v9: NVRTC 56.9 s
+CHECK v9 pers_4e_tokens_f0_t512: 128 registers, 0 B local, 85952 B shared, 1 resident a SM: loads
+CHECK v9 pers_4e_tokens_f1_t512: 128 registers, 0 B local, 85952 B shared, 1 resident a SM: loads
+CHECK v9 pers_4e_tokens_f2_t512: 128 registers, 0 B local, 85952 B shared, 1 resident a SM: loads
+CHECK v9 pers_4e_stamps_f1_t512: 128 registers, 32 B local, 85952 B shared, 1 resident a SM (outside the timed rounds)
+CHECK v9 pers_4e_logits_f1_t512: 128 registers, 0 B local, 85952 B shared, 1 resident a SM (outside the timed rounds)
+CHECK ARM v9 LOADS (101.6 s)
+4E check v9ep3: module 274808 bytes, sha256 60dfa277ef82cf5c94b5a4b0b5745610324abac432c8ef4725ea96ba150714f7
+4E check v9ep3: NVRTC 57.4 s
+CHECK v9ep3 rc layout on 142 CTAs: q/k 28672 B, gate/up 28948 B, down 47312 B of 59520 B
+CHECK v9ep3 pers_4e_tokens_f0_t512: 128 registers, 8 B local, 85952 B shared, 1 resident a SM: refused
+CHECK v9ep3 pers_4e_tokens_f1_t512: 128 registers, 8 B local, 85952 B shared, 1 resident a SM: refused
+CHECK v9ep3 pers_4e_tokens_f2_t512: 128 registers, 8 B local, 85952 B shared, 1 resident a SM: refused
+CHECK v9ep3 pers_4e_stamps_f1_t512: 128 registers, 24 B local, 85952 B shared, 1 resident a SM (outside the timed rounds)
+CHECK v9ep3 pers_4e_logits_f1_t512: 128 registers, 8 B local, 85952 B shared, 1 resident a SM (outside the timed rounds)
+CHECK ARM v9ep3 REFUSED: pers_4e_tokens_f1_t512: 8 B local, 1 resident a SM (104.0 s)
+4E check v9fl2: module 274808 bytes, sha256 d863288607ba961223b3ac8501b99f2e4c97dfc082cd237b80300df8b33dbd11
+4E check v9fl2: NVRTC 69.2 s
+CHECK v9fl2 rc layout on 142 CTAs: q/k 38976 B, gate/up 39252 B, down 47312 B of 59520 B
+CHECK v9fl2 pers_4e_tokens_f0_t512: 128 registers, 8 B local, 85952 B shared, 1 resident a SM: refused
+CHECK v9fl2 pers_4e_tokens_f1_t512: 128 registers, 8 B local, 85952 B shared, 1 resident a SM: refused
+CHECK v9fl2 pers_4e_tokens_f2_t512: 128 registers, 8 B local, 85952 B shared, 1 resident a SM: refused
+CHECK v9fl2 pers_4e_stamps_f1_t512: 128 registers, 24 B local, 85952 B shared, 1 resident a SM (outside the timed rounds)
+CHECK v9fl2 pers_4e_logits_f1_t512: 128 registers, 8 B local, 85952 B shared, 1 resident a SM (outside the timed rounds)
+CHECK ARM v9fl2 REFUSED: pers_4e_tokens_f1_t512: 8 B local, 1 resident a SM (125.9 s)
+4E check v9ep2: module 274808 bytes, sha256 a7d9a04d4bb963aac4ed831f1d7b41f6473e939dbc6c7c047d3b9e90b9801aa9
+4E check v9ep2: NVRTC 57.6 s
+CHECK v9ep2 rc layout on 142 CTAs: q/k 28672 B, gate/up 28948 B, down 47312 B of 59520 B
+CHECK v9ep2 pers_4e_tokens_f0_t512: 128 registers, 8 B local, 85952 B shared, 1 resident a SM: refused
+CHECK v9ep2 pers_4e_tokens_f1_t512: 128 registers, 8 B local, 85952 B shared, 1 resident a SM: refused
+CHECK v9ep2 pers_4e_tokens_f2_t512: 128 registers, 8 B local, 85952 B shared, 1 resident a SM: refused
+CHECK v9ep2 pers_4e_stamps_f1_t512: 128 registers, 24 B local, 85952 B shared, 1 resident a SM (outside the timed rounds)
+CHECK v9ep2 pers_4e_logits_f1_t512: 128 registers, 8 B local, 85952 B shared, 1 resident a SM (outside the timed rounds)
+CHECK ARM v9ep2 REFUSED: pers_4e_tokens_f1_t512: 8 B local, 1 resident a SM (102.9 s)
+4E check v9fl3: module 274808 bytes, sha256 713ed5877aef63da831b8d149d31418889e42ac2580589294fa303e408ccf3fe
+4E check v9fl3: NVRTC 88.7 s
+CHECK v9fl3 rc layout on 142 CTAs: q/k 38976 B, gate/up 39252 B, down 47312 B of 59520 B
+CHECK v9fl3 pers_4e_tokens_f0_t512: 128 registers, 8 B local, 85952 B shared, 1 resident a SM: refused
+CHECK v9fl3 pers_4e_tokens_f1_t512: 128 registers, 8 B local, 85952 B shared, 1 resident a SM: refused
+CHECK v9fl3 pers_4e_tokens_f2_t512: 128 registers, 8 B local, 85952 B shared, 1 resident a SM: refused
+CHECK v9fl3 pers_4e_stamps_f1_t512: 128 registers, 24 B local, 85952 B shared, 1 resident a SM (outside the timed rounds)
+CHECK v9fl3 pers_4e_logits_f1_t512: 128 registers, 8 B local, 85952 B shared, 1 resident a SM (outside the timed rounds)
+CHECK ARM v9fl3 REFUSED: pers_4e_tokens_f1_t512: 8 B local, 1 resident a SM (158.2 s)
+4E check v9ep: module 264761 bytes, sha256 f4166ccf9d857b30cae8f7691e9e4f83c2726218cb48c29dc512cb42b1a668dd
+4E check v9ep: NVRTC 57.7 s
+CHECK v9ep rc layout on 142 CTAs: q/k 28672 B, gate/up 28948 B, down 47312 B of 59520 B
+CHECK v9ep pers_4e_tokens_f0_t512: 128 registers, 8 B local, 85952 B shared, 1 resident a SM: refused
+CHECK v9ep pers_4e_tokens_f1_t512: 128 registers, 8 B local, 85952 B shared, 1 resident a SM: refused
+CHECK v9ep pers_4e_tokens_f2_t512: 128 registers, 8 B local, 85952 B shared, 1 resident a SM: refused
+CHECK v9ep pers_4e_stamps_f1_t512: 128 registers, 24 B local, 85952 B shared, 1 resident a SM (outside the timed rounds)
+CHECK v9ep pers_4e_logits_f1_t512: 128 registers, 8 B local, 85952 B shared, 1 resident a SM (outside the timed rounds)
+CHECK ARM v9ep REFUSED: pers_4e_tokens_f1_t512: 8 B local, 1 resident a SM (103.5 s)
+4E check v9fl: module 264761 bytes, sha256 9925b4ad769c791d2372d52a14b68e650a549ce15edd05eecae0dececfa4f03d
+4E check v9fl: NVRTC 69.7 s
+CHECK v9fl rc layout on 142 CTAs: q/k 38976 B, gate/up 39252 B, down 47312 B of 59520 B
+CHECK v9fl pers_4e_tokens_f0_t512: 128 registers, 8 B local, 85952 B shared, 1 resident a SM: refused
+CHECK v9fl pers_4e_tokens_f1_t512: 128 registers, 8 B local, 85952 B shared, 1 resident a SM: refused
+CHECK v9fl pers_4e_tokens_f2_t512: 128 registers, 8 B local, 85952 B shared, 1 resident a SM: refused
+CHECK v9fl pers_4e_stamps_f1_t512: 128 registers, 32 B local, 85952 B shared, 1 resident a SM (outside the timed rounds)
+CHECK v9fl pers_4e_logits_f1_t512: 128 registers, 8 B local, 85952 B shared, 1 resident a SM (outside the timed rounds)
+CHECK ARM v9fl REFUSED: pers_4e_tokens_f1_t512: 8 B local, 1 resident a SM (127.2 s)
+4E check: 7 arms one after the other, 823.3 s
+4E check done in 823.3 s
+gate 2: v9 module sha256 d55a097b146e8b962829045dfea6975470b408b942c1e0c22c038ad4d9d00860
+gate 2: v9ep module sha256 f4166ccf9d857b30cae8f7691e9e4f83c2726218cb48c29dc512cb42b1a668dd
+gate 2: v9fl module sha256 9925b4ad769c791d2372d52a14b68e650a549ce15edd05eecae0dececfa4f03d
+gate 2: v9ep2 module sha256 a7d9a04d4bb963aac4ed831f1d7b41f6473e939dbc6c7c047d3b9e90b9801aa9
+gate 2: v9ep3 module sha256 60dfa277ef82cf5c94b5a4b0b5745610324abac432c8ef4725ea96ba150714f7
+gate 2: v9fl2 module sha256 d863288607ba961223b3ac8501b99f2e4c97dfc082cd237b80300df8b33dbd11
+gate 2: v9fl3 module sha256 713ed5877aef63da831b8d149d31418889e42ac2580589294fa303e408ccf3fe
+gate 3: v9 loads, v9ep and v9fl refused as in the jeton run

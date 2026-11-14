@@ -1505,3 +1505,8 @@ reading step is [recherche-debit-r0-depot](mesures/recherche-debit-r0-depot-2026
   was the load check of four lighter bodies (v9ep2, v9ep3, v9fl2, v9fl3, green on the Mac) and is void: the check
   compiles seven modules on seven threads, prints only at the end, and was killed by its 5 min timeout with no
   line out. No arm has a verdict. Spend under the cap: $20.14 of $25, registry $327.39.
+- The sixth card run, [recherche-debit-charge2](mesures/recherche-debit-charge2-2026-11-14.txt) (6af82af3, $0.42,
+  2026-11-14), is the same check with the arms one after the other and each line printed as known. Its gates pass.
+  None of the four lighter bodies loads: each is refused for 8 B of local memory at 128 registers, as v9ep and
+  v9fl, and v9 loads (*measured*). Shedding live values from the bodies did not move the local memory by a byte.
+  The token measurement is not launched. Spend under the cap: $20.56 of $25, registry $327.81.

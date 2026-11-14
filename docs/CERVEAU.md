@@ -679,7 +679,10 @@ void: neither arm loads on the card, 8 B of local memory at 128 registers under 
 shows a noise floor 0.06 % wide in the token.
 Four lighter bodies were then written and pass their Mac gates, and a load check with no model was run on the card
 ([recherche-debit-charge](mesures/recherche-debit-charge-2026-11-13.txt)): void too, the check printed nothing and
-hit its 5 min timeout. Whether a lighter body loads is not known. Spent: $0.92 of $5.
+hit its 5 min timeout. Its second attempt ([recherche-debit-charge2](mesures/recherche-debit-charge2-2026-11-14.txt),
+2026-11-14) reads every arm: none of the four lighter bodies loads, each refused for the same 8 B of local memory at
+128 registers, and v9 loads (*measured*). The 8 B do not come from what the variants shed; their origin is not
+established. No candidate has been timed in 4E's token. Spent: $1.34 of $5.
 
 ## Beliefs we dropped
 
