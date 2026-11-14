@@ -30,8 +30,9 @@ DRY=${DRY_RUN:-0}
 TIMEOUT=${TIMEOUT:-60m}
 CTX=8192
 WINDOWS=12
-# LLVQ_GQA_PPL's WikiText-2 revision (ops/jobs/attn-t8-r2.sh).
-WIKI_REV=740312add88f781978c0658806c59bc2815b9866
+# Salesforce/wikitext's commit (the snapshot of tetra-schur-pilot-2026-09-14.txt, main on 2026-11-14). The first
+# attempt carried openai/gsm8k's commit 740312ad here and died on a 404 in its load check (the prereg's -ECARTS.md).
+WIKI_REV=b08601e04326c79dfdd32d625aee71d232d685c3
 
 SEALED="sealed-4b-2026-09-23/qwen3-4b-sealed.bin:1418224685"
 SEALED_SHA=886391a8c03f66dc269cc65c3598c6627dbdcd259180aff36604ef10d37371b8
