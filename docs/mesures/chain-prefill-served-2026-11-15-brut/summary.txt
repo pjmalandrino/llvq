@@ -1,0 +1,128 @@
+== load ==
+/out/chain-prefill-served-2026-11-15/load-cold.txt:chain prefill: compiled-module cache /out/chain-prefill-served-2026-11-15/modcache
+/out/chain-prefill-served-2026-11-15/load-cold.txt:4E tree: module cache: miss (/out/chain-prefill-served-2026-11-15/modcache/498df3087bf3e39cc0abbdc3cc8744a0.cubin absent); NVRTC and the driver's JIT 99.1 s, 9203216 bytes of cubin written to /out/chain-prefill-served-2026-11-15/modcache/498df3087bf3e39cc0abbdc3cc8744a0.cubin; key llvq-modcache v1 text=ce1c354d2583eb178ae8622ff99e10f9b457543972bb5039ce89ede9eec31e44 arch=compute_89 nvrtc=12.4 driver=13000 sm=8.9
+/out/chain-prefill-served-2026-11-15/load-cold.txt:4E tree: module cache: miss (/out/chain-prefill-served-2026-11-15/modcache/d0e0724bba16a50f32fba1ebeac04a34.cubin absent); NVRTC and the driver's JIT 315.9 s, 24751760 bytes of cubin written to /out/chain-prefill-served-2026-11-15/modcache/d0e0724bba16a50f32fba1ebeac04a34.cubin; key llvq-modcache v1 text=19b734a3fb6029848d87339c7d505e9bcfc612f182256793026ea964d09853e2 arch=compute_89 nvrtc=12.4 driver=13000 sm=8.9
+/out/chain-prefill-served-2026-11-15/load-cold.txt:served : loaded in  509.2 s,  167.7 tok/s [166.3–167.8, 5 rounds], 1.38 GB on the card          (4E, prompt and decode, as the door times a generate)
+/out/chain-prefill-served-2026-11-15/load-cold.txt:fusedrun load-cold exit 0
+/out/chain-prefill-served-2026-11-15/load-warm.txt:chain prefill: compiled-module cache /out/chain-prefill-served-2026-11-15/modcache
+/out/chain-prefill-served-2026-11-15/load-warm.txt:4E tree: module cache: hit, 9203216 bytes of cubin from /out/chain-prefill-served-2026-11-15/modcache/498df3087bf3e39cc0abbdc3cc8744a0.cubin; key llvq-modcache v1 text=ce1c354d2583eb178ae8622ff99e10f9b457543972bb5039ce89ede9eec31e44 arch=compute_89 nvrtc=12.4 driver=13000 sm=8.9
+/out/chain-prefill-served-2026-11-15/load-warm.txt:4E tree: module cache: hit, 24751760 bytes of cubin from /out/chain-prefill-served-2026-11-15/modcache/d0e0724bba16a50f32fba1ebeac04a34.cubin; key llvq-modcache v1 text=19b734a3fb6029848d87339c7d505e9bcfc612f182256793026ea964d09853e2 arch=compute_89 nvrtc=12.4 driver=13000 sm=8.9
+/out/chain-prefill-served-2026-11-15/load-warm.txt:served : loaded in   55.2 s,  167.6 tok/s [167.0–168.1, 5 rounds], 1.38 GB on the card          (4E, prompt and decode, as the door times a generate)
+/out/chain-prefill-served-2026-11-15/load-warm.txt:fusedrun load-warm exit 0
+== token ids, cold and warm ==
+/out/chain-prefill-served-2026-11-15/load-cold.txt:  token ids: 6bc34db3282d5d71 12095,13,576,6722,315,9625,374,12095
+/out/chain-prefill-served-2026-11-15/load-warm.txt:  token ids: 6bc34db3282d5d71 12095,13,576,6722,315,9625,374,12095
+vram door-ch idle 0 MiB peak 2083 MiB
+vram ctx-ch idle 0 MiB peak 5769 MiB
+vram ctx-v9 idle 0 MiB peak 5831 MiB
+phase peak ctx-ch ctx-5: 2.184 GB (2083 MiB) over 1 window(s)
+phase peak ctx-ch ctx-1024: 2.318 GB (2211 MiB) over 1 window(s)
+phase peak ctx-ch ctx-4096: 2.862 GB (2729 MiB) over 1 window(s)
+phase peak ctx-ch ctx-8192: 3.633 GB (3465 MiB) over 1 window(s)
+phase peak ctx-v9 ctx-5: 2.014 GB (1921 MiB) over 1 window(s)
+phase peak ctx-v9 ctx-1024: 2.490 GB (2375 MiB) over 1 window(s)
+phase peak ctx-v9 ctx-4096: 4.135 GB (3943 MiB) over 1 window(s)
+phase peak ctx-v9 ctx-8192: 6.047 GB (5767 MiB) over 1 window(s)
+== door-ch ==
+served config: /out/chain-prefill-served-2026-11-15/qwen3-4b-tetra-e4-4e-v9-chain.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention kernel from position 0 on grow(256), decode persistent (4E rows v9, one launch a token run), prefill chain (tree pass a12ipg32ft@8.10.8.20.6, 32 rows a launch)) — NOT SERVED BY DEFAULT: written 2026-11-15 for the chain prefill's card gate (proofs/preregistration-chain-prefill-served-2026-11-15-DRAFT.md), loaded by llvq under LLVQ_PROFILE=chain and by fusedrun, gsm8k and prefillbench under LLVQ_CONFIG. The qwen3-4b-tetra-e4 object (qwen3-4b-sealed.bin, sha256 886391a8), the v9 config with "prefill": "chain" and nothing else different: a prompt goes through the tree verify pass as chains of known tokens, arm a12ipg32ft@8.10.8.20.6 at 32 rows a launch on the words 4E and the eager path hold, read in place, then a one-row hand-over launch and 4E v9 decodes, its module unchanged. The tree modules are compiled once and cached on disk (LLVQ_MODULE_CACHE), keyed by the kernel text's sha256, the NVRTC target and version, the driver version and the card's sm. The file and its 2.7320 b/param do not move. In the bench, the first token after 1,024 / 4,096 / 8,191 tokens took 0.420 / 2.393 / 6.485 s against 3.951 / 17.641 / 37.037 s for the eager prefill, at a phase peak of 3.560 GB against 5.946 at 8,191 (measured, L40S, large-prefill-ft-2026-11-11, large-prefill-2026-11-11). Not bit for bit with the eager prefill: the 16-row form read +0.0007 % of paired perplexity, 41 of 47 texts identical. Every tree module holds local memory (720 to 744 B at 128 to 168 registers in that job); whether a served module may is the operator's decision. Not yet read at a door, no GSM8K pairing. Refused on Metal, beside a batch, and on any object but the 4B.
+served door (prefill chain, decode persistent): 4E tokens equal the eager decode's after the chain prefill, 256 of 256; against the eager door's tokens: all 256 identical
+served : loaded in   57.7 s,  223.7 tok/s [223.5–223.7, 5 rounds], 1.38 GB on the card          (4E, prompt and decode, as the door times a generate)
+  4E decode alone            227.4 tok/s [227.3-227.4]
+  eager, same config, door   129.3 tok/s [129.3-129.3]
+  eager decode alone         130.5 tok/s [130.5-130.5]
+  4E / eager, door, round by round: x1.729 [1.729-1.730]
+fusedrun door-ch exit 0
+== ctx-ch ==
+served config: /out/chain-prefill-served-2026-11-15/qwen3-4b-tetra-e4-4e-v9-chain.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention kernel from position 0 on grow(256), decode persistent (4E rows v9, one launch a token run), prefill chain (tree pass a12ipg32ft@8.10.8.20.6, 32 rows a launch)) — NOT SERVED BY DEFAULT: written 2026-11-15 for the chain prefill's card gate (proofs/preregistration-chain-prefill-served-2026-11-15-DRAFT.md), loaded by llvq under LLVQ_PROFILE=chain and by fusedrun, gsm8k and prefillbench under LLVQ_CONFIG. The qwen3-4b-tetra-e4 object (qwen3-4b-sealed.bin, sha256 886391a8), the v9 config with "prefill": "chain" and nothing else different: a prompt goes through the tree verify pass as chains of known tokens, arm a12ipg32ft@8.10.8.20.6 at 32 rows a launch on the words 4E and the eager path hold, read in place, then a one-row hand-over launch and 4E v9 decodes, its module unchanged. The tree modules are compiled once and cached on disk (LLVQ_MODULE_CACHE), keyed by the kernel text's sha256, the NVRTC target and version, the driver version and the card's sm. The file and its 2.7320 b/param do not move. In the bench, the first token after 1,024 / 4,096 / 8,191 tokens took 0.420 / 2.393 / 6.485 s against 3.951 / 17.641 / 37.037 s for the eager prefill, at a phase peak of 3.560 GB against 5.946 at 8,191 (measured, L40S, large-prefill-ft-2026-11-11, large-prefill-2026-11-11). Not bit for bit with the eager prefill: the 16-row form read +0.0007 % of paired perplexity, 41 of 47 texts identical. Every tree module holds local memory (720 to 744 B at 128 to 168 registers in that job); whether a served module may is the operator's decision. Not yet read at a door, no GSM8K pairing. Refused on Metal, beside a batch, and on any object but the 4B.
+  prompt 5: 4E tokens equal the eager decode's after the chain prefill, 256 of 256; against the eager prefill's: identical
+  prompt 5: last-position logits fingerprint e12199ba424a9b02 (prefill in chunks of 4096, softmax in place)
+       5       0.02 [0.02–0.02]      227.1 [227.0–227.1]       4.40
+  prompt 1024: 4E tokens equal the eager decode's after the chain prefill, 256 of 256; against the eager prefill's: identical
+  prompt 1024: last-position logits fingerprint f7cc668b12482eb1 (prefill in chunks of 4096, softmax in place)
+    1024       0.45 [0.45–0.45]      215.6 [215.5–215.6]       4.64
+  prompt 4096: 4E tokens equal the eager decode's after the chain prefill, 256 of 256; against the eager prefill's: identical
+  prompt 4096: last-position logits fingerprint d16bf2e117c1cf35 (prefill in chunks of 4096, softmax in place)
+    4096       2.47 [2.47–2.48]      194.9 [194.8–194.9]       5.13
+  prompt 8192: 4E tokens equal the eager decode's after the chain prefill, 256 of 256; against the eager prefill's: identical
+  prompt 8192: last-position logits fingerprint cac41130853d8eba (prefill in chunks of 4096, softmax in place)
+    8192       6.74 [6.71–6.77]      160.5 [160.1–161.0]       6.23
+fusedrun ctx-ch exit 0
+== ctx-v9 ==
+served config: /out/chain-prefill-served-2026-11-15/qwen3-4b-tetra-e4-4e-v9.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention kernel from position 0 on grow(256), decode persistent (4E rows v9, one launch a token run)) — The qwen3-4b-tetra-e4 object (qwen3-4b-sealed.bin, sha256 886391a8), the v6 config with the v9 row loop and nothing else different: the kernel attention form on every decode row from position 0, decoded by 4E v9 (row form 7: v6, the launch's constants staged during the barriers, attention's steps in a cp.async ring, and the int4 rows v, o and the int4 downs read from tiled words; one cooperative launch a token run, 512 threads). Under this config the loader writes the int4 words tiled and holds them once on the card: the eager path, which prefills, reads the same words through tv_q4_hht, checked against tv_q4_hh on the file's order at every load. The file and its 2.7320 b/param do not move (a permutation inside each row, computed). Written on 2026-11-07 on the operator's go to serve v9 with one copy of the int4 bytes. In the measurement form v9 decodes 238.6 tok/s after a 5-token prompt against 213.3 for v6 (x1.118 round by round) and 163.5 at 8,192 against 154.2 (x1.060), the same 64 tokens as the eager path at both contexts (measured, step3-4e-2026-11-07, with the int4 bytes twice on the card). Not yet read at the served door: served-v9 (proofs/preregistration-served-v9-2026-11-07.md) reads it. Refused on Metal and on any object but the 4B.
+  prompt 5: 4E tokens equal the eager path's under this config, 256 of 256
+  prompt 5: last-position logits fingerprint e12199ba424a9b02 (prefill in chunks of 4096, softmax in place)
+       5       0.02 [0.02–0.02]      226.0 [225.9–226.2]       4.43
+  prompt 1024: 4E tokens equal the eager path's under this config, 256 of 256
+  prompt 1024: last-position logits fingerprint f7cc668b12482eb1 (prefill in chunks of 4096, softmax in place)
+    1024       3.96 [3.94–3.97]      214.2 [213.6–214.2]       4.67
+  prompt 4096: 4E tokens equal the eager path's under this config, 256 of 256
+  prompt 4096: last-position logits fingerprint d16bf2e117c1cf35 (prefill in chunks of 4096, softmax in place)
+    4096      17.79 [17.76–17.82]      189.5 [188.9–189.7]       5.28
+  prompt 8192: 4E tokens equal the eager path's under this config, 256 of 256
+  prompt 8192: last-position logits fingerprint cac41130853d8eba (prefill in chunks of 4096, softmax in place)
+    8192      37.22 [37.20–37.27]      155.5 [154.7–156.4]       6.43
+fusedrun ctx-v9 exit 0
+== gsm8k-ch ==
+4E tree tiled: 0 tree-tiled copies (q, k, v, o, gate, up, down a layer, the head), 0.000 GB more on the card
+4E tree a12ip: 253 projections read in place, 1.295 GB, the words 4E and the eager path hold; every lane's words equal to the tree-tiled copy's on each (p4t_ip_check, each copy freed after its check); 0 copies held for the other arms
+chain prefill: arm a12ipg32ft@8.10.8.20.6 (A12ipg32Ft, slices [8, 10, 8, 20, 6], 384 threads, 93568 B shared), 32 rows a launch
+model: /out/sealed-4b-2026-09-23/qwen3-4b-sealed.bin [LLVQ 2-bit, SERVED KERNEL, tetra48]
+device: Cuda(CudaDevice(DeviceId(1))), dtype f16, kv f16, attention kernel on grow(256), loaded in 55.1 s
+GSM8K test: 1319 problems, scoring 200 (200), revision 740312add88f781978c0658806c59bc2815b9866, max_new 1024, reasoning off
+dumping per-problem results to /out/chain-prefill-served-2026-11-15/gsm8k-ch.jsonl
+
+/out/sealed-4b-2026-09-23/qwen3-4b-sealed.bin [LLVQ 2-bit, SERVED KERNEL, tetra48]
+GSM8K zero-shot, reasoning off, 200 problems of 1319 (200), dtype f16, kv f16, max_new 1024, tokens 3a80552906330491
+  accuracy          = 82.50 % (165/200) ± 2.69 (binomial SE)
+  read from a box   = 165/199 right; last number 1; nothing 0
+  generated tokens  = mean 316.3, median 294, p90 445, max 1024; stopped at the cap 1
+  prompt tokens     = mean 87.1
+  timing (cuda) = prefill 0.533 ms a prompt token, decode 4.588 ms a token (217.9 tok/s), 1.50 s a problem, 300 s in all, load 55 s
+  timings price a campaign; they are not a throughput measurement
+
+  Dump written. Two arms are compared on the dumps:
+  `cargo run --release -p llvq-llm --bin gsm8kpair -- <a> <b>`.
+gsm8k ch exit 0
+== gsm8k-v9 ==
+4E v9: the 76 prologue inputs are 16-byte aligned; the vector path runs on every layer
+4E v9: the int4 records are read in place, tiled at load and held once on the card (36 layers)
+4E: 36 layers, grid 142 x 512, 218 barriers a token
+model: /out/sealed-4b-2026-09-23/qwen3-4b-sealed.bin [LLVQ 2-bit, SERVED KERNEL, tetra48]
+device: Cuda(CudaDevice(DeviceId(1))), dtype f16, kv f16, attention kernel on grow(256), loaded in 55.1 s
+GSM8K test: 1319 problems, scoring 200 (200), revision 740312add88f781978c0658806c59bc2815b9866, max_new 1024, reasoning off
+dumping per-problem results to /out/chain-prefill-served-2026-11-15/gsm8k-v9.jsonl
+
+/out/sealed-4b-2026-09-23/qwen3-4b-sealed.bin [LLVQ 2-bit, SERVED KERNEL, tetra48]
+GSM8K zero-shot, reasoning off, 200 problems of 1319 (200), dtype f16, kv f16, max_new 1024, tokens 3a80552906330491
+  accuracy          = 82.50 % (165/200) ± 2.69 (binomial SE)
+  read from a box   = 165/199 right; last number 1; nothing 0
+  generated tokens  = mean 316.6, median 295, p90 454, max 1024; stopped at the cap 1
+  prompt tokens     = mean 87.1
+  timing (cuda) = prefill 3.858 ms a prompt token, decode 4.582 ms a token (218.2 tok/s), 1.79 s a problem, 358 s in all, load 55 s
+  timings price a campaign; they are not a throughput measurement
+
+  Dump written. Two arms are compared on the dumps:
+  `cargo run --release -p llvq-llm --bin gsm8kpair -- <a> <b>`.
+gsm8k v9 exit 0
+== gsm8kpair ==
+/out/chain-prefill-served-2026-11-15/gsm8k-v9.jsonl: 0 of 200 rows re-graded
+/out/chain-prefill-served-2026-11-15/gsm8k-ch.jsonl: 0 of 200 rows re-graded
+A = /out/sealed-4b-2026-09-23/qwen3-4b-sealed.bin [LLVQ 2-bit, SERVED KERNEL, tetra48] | served kernel | device cuda | dtype f16 | kv f16 | max_new 1024 | reasoning off
+    attention kernel | decode persistent rows v9
+    165/200 right, mean 316.6 generated tokens, 1 stopped at the cap, tokens 3a80552906330491
+B = /out/sealed-4b-2026-09-23/qwen3-4b-sealed.bin [LLVQ 2-bit, SERVED KERNEL, tetra48] | served kernel | device cuda | dtype f16 | kv f16 | max_new 1024 | reasoning off
+    attention kernel | decode persistent rows v9
+    165/200 right, mean 316.3 generated tokens, 1 stopped at the cap, tokens 3a80552906330491
+
+200 problems, same prompts problem by problem
+  accuracy A = 82.50 %, B = 82.50 %
+  right in A only 0, in B only 0 (0.0 % discordant)
+  A − B = +0.00 pp, 95 % [+0.00 ; +0.00], McNemar exact p = 1.000e0
+gsm8kpair exit 0
+control 4: two cache hits on the second start
+control 4: the same token ids cold and warm
+control 2 (door-ch): the served 4E v9 module
+control 2 (ctx-ch): the served 4E v9 module
+control 2 (ctx-v9): the served 4E v9 module
+control 2 (gsm8k-ch): the served 4E v9 module
+control 2 (gsm8k-v9): the served 4E v9 module

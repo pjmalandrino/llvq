@@ -195,14 +195,17 @@ records of `o`. The groups are super-additive: all exceeds the MLP plus attentio
   llama.cpp IQ2_S (*measured*, L40S, [pic-vram-8k](mesures/pic-vram-8k-2026-11-08.txt)). The NOT SERVED
   `prefill_attention: kernel` measured 4.77 / 7.15 / 9.30, about 1 to 2 GB over its computed peak, and 1.14 to 1.21
   times slower to the first token: not proposed. Open: the excess it holds layer by layer is not traced.
-- **The chain prefill, a bench, not served.** `prefillbench --form chain` feeds the prompt as known tokens through
-  the tree verify pass, 32 rows a pass, on the served words read in place. The 4B's first token comes after 0.420 /
-  2.393 / 6.485 s at 1,024 / 4,096 / 8,191 tokens, against 3.951 / 17.641 / 37.037 for the served eager prefill
-  (*measured*, L40S, two jobs, [large-prefill-ft](mesures/large-prefill-ft-2026-11-11.txt),
-  [large-prefill](mesures/large-prefill-2026-11-11.txt)). It equals its own 16-row form bit for bit (argmax, logits,
-  K and V); the 16-row form reads +0.0007 % of paired perplexity against eager, 41 of 47 texts identical. No door
-  calls it. Owed before serving: a GSM8K-200 pairing, cached compiled modules (NVRTC takes 1,127 s of the bench's
-  load), and the operator's decision. The operator's ruling of 2026-11-11 packages the prefill later, all at once.
+- **The chain prefill, measured at a door, not served.** A config field, `"prefill": "chain"`
+  (`configs/qwen3-4b-tetra-e4-4e-v9-chain.json`), feeds the prompt as known tokens through the tree verify pass, 32
+  rows a launch, on the served words read in place; 4E v9 decodes after it. At the door the 4B's first token comes
+  after 0.45 / 2.47 / 6.74 s at 1,024 / 4,096 / 8,192 tokens against 3.96 / 17.79 / 37.22 s for the served v9
+  config, with the same 256 tokens at each length. The phase peak at 8,192 is 3.633 GB against 6.047. GSM8K-200
+  reads 165 right in both, no discordant pair. The compiled modules are cached on disk: 509 s to load cold, 55 s
+  cached (*measured*, L40S, [chain-prefill-served](mesures/chain-prefill-served-2026-11-15.txt)). Its prereg
+  reads NOT SETTLED on one bound: the decode after the chain is 2.9 and 3.2 % faster than v9's at 4,096 and 8,192,
+  outside a two-sided band. 4B only. Owed before serving, the operator's: whether a served module may hold local
+  memory (the tree symbols hold 744 B), a tolerance for a prefill that is not bit for bit with the eager one
+  (+0.0007 % of paired perplexity in the bench), and the decision to serve.
 - **Scores through the served kernel.** MMLU and perplexity are scored on the dense reconstruction with f16 tables;
   the b/param count int4 tables. About $20 by the mixed route, $70 for the full census at three sizes (*estimated*,
   [`ROADMAP.md`](ROADMAP.md)). `ppl` does not read `LLVQ_CONFIG` yet.

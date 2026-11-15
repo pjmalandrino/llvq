@@ -1,0 +1,23 @@
+4E: persistent module 252757 bytes, sha256 1b422b62328be6752df4add43280565fd2a49cfa20ee26953b301abe7a15c530, row form 7, own module on candle's stream
+chain prefill: compiled-module cache /out/chain-prefill-served-2026-11-15/modcache
+4E tree: module 306060 bytes, sha256 ce1c354d2583eb178ae8622ff99e10f9b457543972bb5039ce89ede9eec31e44, row form 7 and pers_4et.cu, its own module
+4E tree: module cache: miss (/out/chain-prefill-served-2026-11-15/modcache/498df3087bf3e39cc0abbdc3cc8744a0.cubin absent); NVRTC and the driver's JIT 99.1 s, 9203216 bytes of cubin written to /out/chain-prefill-served-2026-11-15/modcache/498df3087bf3e39cc0abbdc3cc8744a0.cubin; key llvq-modcache v1 text=ce1c354d2583eb178ae8622ff99e10f9b457543972bb5039ce89ede9eec31e44 arch=compute_89 nvrtc=12.4 driver=13000 sm=8.9
+4E tree: pers_4et_rows_f1_t512: 128 registers, 744 B local, 89984 B shared, 1 resident a SM
+4E tree: arm a12ipg32ft@8.10.8.20.6 (a12ipg32ft (a12ipg32, the attention tile's full-tile path), an explicit plan): slices [8, 10, 8, 20, 6]; S, units, waves, fill, sub-steps a slice at most: q/k/v 8 272 2 95.8 % 7, o 10 140 1 98.6 % 9, gate/up 8 816 6 95.8 % 7, down 20 280 2 98.6 % 11, head 6 4752 34 98.4 % 9
+4E tree: arm a12ipg32ft@8.10.8.20.6 at 384 threads (12 warps): area 18624 floats, 93568 B shared, 17 sub-steps a slice at most
+4E tree: the stream unit's slices hold at most 13 sub-steps (area 17728 floats, 16 warps, 32 staged rows)
+4E tree: 512 threads, 17728 floats of area; 0.153 GB of row buffers
+4E tree a12ipg32ft: module 457150 bytes, sha256 19b734a3fb6029848d87339c7d505e9bcfc612f182256793026ea964d09853e2, its parent's text with the full-tile path (pers_attn_full.cuh), its own module
+4E tree: module cache: miss (/out/chain-prefill-served-2026-11-15/modcache/d0e0724bba16a50f32fba1ebeac04a34.cubin absent); NVRTC and the driver's JIT 315.9 s, 24751760 bytes of cubin written to /out/chain-prefill-served-2026-11-15/modcache/d0e0724bba16a50f32fba1ebeac04a34.cubin; key llvq-modcache v1 text=19b734a3fb6029848d87339c7d505e9bcfc612f182256793026ea964d09853e2 arch=compute_89 nvrtc=12.4 driver=13000 sm=8.9
+4E tree a12ipg32ft: pers_4et_a12ipg32_f1_t384: 168 registers, 744 B local, 93568 B shared, 1 resident a SM
+4E tree tiled: 0 tree-tiled copies (q, k, v, o, gate, up, down a layer, the head), 0.000 GB more on the card
+4E tree a12ip: 253 projections read in place, 1.295 GB, the words 4E and the eager path hold; every lane's words equal to the tree-tiled copy's on each (p4t_ip_check, each copy freed after its check); 0 copies held for the other arms
+chain prefill: arm a12ipg32ft@8.10.8.20.6 (A12ipg32Ft, slices [8, 10, 8, 20, 6], 384 threads, 93568 B shared), 32 rows a launch
+served : loaded in  509.2 s,  167.7 tok/s [166.3–167.8, 5 rounds], 1.38 GB on the card          (4E, prompt and decode, as the door times a generate)
+fusedrun load-cold exit 0
+total 33160
+drwxr-xr-x. 2 root root        0 Nov 15 11:52 .
+drwxr-xr-x. 3 root root        0 Nov 15 11:52 ..
+-rw-r--r--. 1 root root  9203429 Nov 15 11:47 498df3087bf3e39cc0abbdc3cc8744a0.cubin
+-rw-r--r--. 1 root root 24751974 Nov 15 11:52 d0e0724bba16a50f32fba1ebeac04a34.cubin
+the load check passed
