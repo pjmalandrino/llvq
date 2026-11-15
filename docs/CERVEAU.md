@@ -1017,7 +1017,7 @@ route (O10). Its mandate:
 | Axis | Quality of the served object at its b/param: MMLU on the full split and GSM8K, paired against FP16. Whole-model b/param, VRAM, decode speed, time to first token and the cost of producing an object are constraints. |
 | Starting point | The anomalies N6 and N7, as O14 left them. N6: the sealed 4B keeps 0.58 of FP16's answer-logit contrast, and at the answer position the band of quiet directions keeps a slope of 0.47 at depth 12 and 0.71 at depth 24 (Q25). N7: the blocks after the MMLU write carry +0.43 of the MMLU loss and +4.32 of the GSM8K loss (Q25, Q27). |
 | Untouchable | The three sealed files as published. Whole-model b/param at 2.73. VRAM at the served peaks. A per-model or per-type setting is not a result (operator, 2026-11-12), a restore to f16 is a probe, not a mechanism (Q20), and a mechanism is judged on MMLU and on GSM8K (O14). No heavy job on the work machine without the operator's word. No edit under `llvq-cuda/` or `llvq-runtime/`, or to a served config: a development agent works there on branch `dev/trois-gains-2026-11-15`. |
-| Budget | Not signed. The lead proposes five days, to 2026-11-20, and $10 of card, each paid run under a stamped prereg and the operator's go. Until the operator signs a figure the phase runs only what costs nothing and loads no model. |
+| Budget | Five days, to 2026-11-20, and $10 of card, each paid run under a stamped prereg and the operator's go. The lead proposed the figure and told the operator that a go for the first paid job would stand for its signature; the operator gave that go on 2026-11-15 and did not restate the figure. |
 
 State on 2026-11-15, $0 spent. R0 is in
 [recherche-qualite3-r0-depot](mesures/recherche-qualite3-r0-depot-2026-11-15.txt) and
@@ -1029,7 +1029,8 @@ and is not run. The first readings, at $0 on dumps on disk
 ([recherche-qualite3-dumps](mesures/recherche-qualite3-dumps-2026-11-15.txt)): the two GSM8K windows repair mostly
 the same problems (Q28), so nothing on disk makes the late blocks a place apart for generation; the first
 divergence from FP16's text turned out to read the opening word, not the weights' error, and decides nothing. The
-patch map is stamped (prereg sha256 0001bf6a) and waits for a budget: about $0.42 to $0.84 (*estimated*). Its rules
+patch map is stamped (prereg sha256 0001bf6a) and was launched on the operator's go of 2026-11-15, job 6af9953a: about
+$0.42 to $0.84 (*estimated*). Its rules
 are read on the cosine of the four centred answer logits against FP16's, since an accuracy share resolves to about
 0.51 of the gap at 570 questions; on the nine restores already scored that share ranks as accuracy does, Spearman
 0.95, and reads attention above and the MLP under their accuracy shares
