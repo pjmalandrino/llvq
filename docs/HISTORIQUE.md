@@ -1603,5 +1603,9 @@ The operator closed O11 and opened a phase on decode speed after an 8,192-token 
 - CERVEAU P3 changes standing, from conjecture to contradicted on one tile. It read: "At long context the decode
   attention is bound by its own bytes". The attention phase at 8,192 lost 1.8 % for 46.9 % fewer KV bytes.
 - Spend of the phase: $5.77 of $10; the rows of `docs/data/jobs.csv` sum to $347.41 (*computed*).
+- The operator closed the phase on 2026-11-15, outcome a dead hypothesis: a smaller KV cache does not buy decode
+  time at long context. He keeps the int8 cache as a memory lead, 1,208 to 642 MB at 8,192 positions on the 4B
+  (*computed*), not served. `ETAT.md` §5 and §6, `ROADMAP.md` §2.7 and `plan-300.md` §7 follow. ROADMAP §2.7 read:
+  "An int4 KV cache [...] is the only lead that reaches 300 tok/s at that context".
 - Nothing served changes: no config, no served module, no Hub file. No served tok/s is gained: the int8 read is a
   research arm, about 1 % faster at 8,192 and 3 % slower at 5.

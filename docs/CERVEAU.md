@@ -847,8 +847,8 @@ leaves the phase.
   [guided-clip-gateup-4b](mesures/guided-clip-gateup-4b-2026-11-14.txt). The day-by-day account is the 2026-11-13
   entry of [`HISTORIQUE.md`](HISTORIQUE.md).
 
-**O13.** Phase open: MODE RECHERCHE on decode speed at long context, opened by the operator on 2026-11-14, after O11
-closed on a ceiling at short context. Its mandate:
+**O13.** Closed 2026-11-15 by the operator, outcome: a dead hypothesis. MODE RECHERCHE on decode speed at long
+context, opened by the operator on 2026-11-14, after O11 closed on a ceiling at short context. Its mandate:
 
 | field | content |
 |---|---|
@@ -873,10 +873,20 @@ rule waived for it alone (`LLVQ_PERS_4E`, an arm named `+local`, a measurement m
 tok/s against v9's 162.6, x1.0109 [1.0108-1.0113], with v9's 256 tokens. At 5 tokens it decodes 219.4 against 226.9,
 x0.9668 [0.9664-0.9670]. The attention phase at 8,192 loses 1.8 % for 46.9 % fewer bytes: P3 is contradicted on this
 tile. The int8 read as written buys about 1 % at long context and costs 3 % at short. Not separated: the share of the
-8 B of local memory in that cost. Not established: any quality through the arm, any VRAM figure. Open, the operator
-decides: whether the kernel lever of int8 closes, int8 kept for its bytes alone (0.66 GB at 8,192, *computed*, once
-a form frees the binary16 cache); one extension of the int8/int4 arm to 36 windows; the near-tie texts and GSM8K-200
-on the kept format.
+8 B of local memory in that cost. Not established: any quality through the arm, any VRAM figure.
+
+Outcome, 2026-11-15, $5.77 of $10. No tok/s was gained. What the phase leaves:
+- Dead: that a smaller KV cache buys decode time at long context (P3). The space this holds for: the sealed 4B, 4E
+  v9's attention reading a group-affine int8 cache, one tile, with 8 B of local memory in the token symbol.
+- Kept by the operator as a memory lead, not as a speed lever: the int8 KV cache. It holds the served tolerance at
+  8,192 (P4) and would take the cache from 1,208 to 642 MB at 8,192 positions on the 4B (*computed*). Owed before any
+  served format: a form that frees the binary16 cache, the near-tie texts and GSM8K-200, the prefill path, the 8B and
+  the 14B, and the operator's decision.
+- Not run: a partial read of the cache. Its capture mode and scorer are built and stamped (prereg sha256 c678161c);
+  the operator judged the chance too low. Not run either: the extension of the int8/int4 arm to 36 windows.
+- Tools kept: the KV ladder (`LLVQ_KV_LADDER`), and the `+local` mark of `LLVQ_PERS_4E`, which times an arm whose
+  token symbol holds local memory. v9k8 is the first such symbol timed.
+- N5 stays open. It gains a fact: at 8,192 the attention phase does not follow the bytes of its cache.
 
 ## Beliefs we dropped
 
