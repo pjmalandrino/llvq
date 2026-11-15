@@ -99,6 +99,11 @@ pub mod spec_loop;
 // includes the same file for its CPU fake of the kernel.
 pub mod attn_ref;
 
+// Portable for the reason `attn_ref` is: the int8 cache of 4E's research arm
+// v9k8 (its layout, its quantizer, the value its attention reads), the
+// reference the arm's kernel text is checked against on the Mac.
+pub mod kv8_ref;
+
 // The launcher of that kernel and its load-time check, Linux only like `gpu`.
 #[cfg(target_os = "linux")]
 pub mod attn;

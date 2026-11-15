@@ -98,6 +98,15 @@ pub trait Capture {
     fn on_residual(&mut self, _layer: usize, _x: &Tensor) -> Result<()> {
         Ok(())
     }
+    /// The query of block `layer` after its norm and RoPE, `(batch,
+    /// n_heads, seq, head_dim)`, the tensor every attention form scores
+    /// against the cache. Called once a block a call, before the cache is
+    /// appended; nothing by default. MEASUREMENT ONLY: `LLVQ_KV_CAPTURE`
+    /// (`crate::kvcapture`) is its one implementer, and every other capture,
+    /// [`NoCapture`] included, keeps this empty body.
+    fn on_attention_query(&mut self, _layer: usize, _q: &Tensor) -> Result<()> {
+        Ok(())
+    }
 }
 
 /// The residual entering each of `layers` at every position of a prefill,
@@ -375,12 +384,27 @@ impl KvCache {
     /// stores, which is what `repeat_kv` and the attention matmul consume:
     /// there is no separate read path that could disagree with the write path.
     fn append(&mut self, k: &Tensor, v: &Tensor) -> Result<(Tensor, Tensor)> {
+        self.append_with(k, v, None)
+    }
+
+    /// [`Self::append`], with what a ladder arm needs besides the tensors
+    /// ([`crate::kvladder::LadderAux`]): the block passes its own. `F16` and
+    /// `Q8` read nothing from it.
+    fn append_with(
+        &mut self,
+        k: &Tensor,
+        v: &Tensor,
+        aux: Option<&crate::kvladder::LadderAux>,
+    ) -> Result<(Tensor, Tensor)> {
         let (k, v) = match self.mode {
             KvMode::F16 => (k.clone(), v.clone()),
             KvMode::Q8 => (
                 crate::kvq::quantize_dequantize(k)?,
                 crate::kvq::quantize_dequantize(v)?,
             ),
+            // The measurement arms of `LLVQ_KV_LADDER`: same place, same
+            // once-per-position rule.
+            KvMode::K8V4 | KvMode::K4V4C | KvMode::K4V4H => crate::kvladder::round_trip(self.mode, k, v, aux)?,
         };
         match self.store {
             crate::kvq::KvStore::Prealloc(w) => return self.append_prealloc(w, &k, &v),
@@ -1892,6 +1916,11 @@ pub struct Block {
     /// carries ([`crate::kvq::PrefillAttn`]): set by
     /// [`Qwen3::set_prefill_attention`], `Grouped` everywhere else.
     prefill_attn: crate::kvq::PrefillAttn,
+    /// What a `LLVQ_KV_LADDER` arm needs to code this layer's cache (its
+    /// static key steps, the Hadamard matrix), installed by
+    /// [`Qwen3::set_kv_ladder_aux`]; `None` everywhere else, and the `F16`
+    /// and `Q8` caches never read it.
+    kv_aux: Option<crate::kvladder::LadderAux>,
 }
 
 /// Take the supplied projection, or build the dense one.
@@ -1999,6 +2028,7 @@ impl Block {
             pers_mlp: None,
             kernel_from: crate::kvq::KERNEL_FROM,
             prefill_attn: crate::kvq::PrefillAttn::Grouped,
+            kv_aux: None,
         })
     }
 
@@ -2168,6 +2198,7 @@ impl Block {
             RopeAt::Offset(o) => rotary.apply(&q, &k, o)?,
             RopeAt::Tables { cos, sin } => Rotary::apply_tables(&q, &k, cos, sin)?,
         };
+        cap.on_attention_query(idx, &q)?;
         let scale = 1.0 / (self.head_dim as f64).sqrt();
         if self.attn_heads == crate::kvq::AttnHeads::Kernel {
             let kern = self.attn_kernel.as_ref().ok_or_else(|| {
@@ -2177,7 +2208,7 @@ impl Block {
                 )
             })?;
             let grow = matches!(cache.store(), crate::kvq::KvStore::Grow(_));
-            let (k, v) = cache.append(&k, &v)?;
+            let (k, v) = cache.append_with(&k, &v, self.kv_aux.as_ref())?;
             // Decode and verify rows at `kernel_from` or later go to the
             // kernel. A row below it, a prefill chunk, a batch, or the scratch
             // `Cat` cache of a full-window forward take the grouped path; the
@@ -2212,7 +2243,7 @@ impl Block {
             }
         };
         if let Some(attend) = unexpanded {
-            let (k, v) = cache.append(&k, &v)?;
+            let (k, v) = cache.append_with(&k, &v, self.kv_aux.as_ref())?;
             let (k, v) = (rows_contiguous(&k)?, rows_contiguous(&v)?);
             let ctx = attend(&q, &k, &v, mask, scale)?;
             return Ok(ctx);
@@ -2220,7 +2251,7 @@ impl Block {
         let groups = self.n_heads / self.n_kv;
         let (k, v) = match cache.store() {
             crate::kvq::KvStore::Cat | crate::kvq::KvStore::Grow(_) => {
-                let (k, v) = cache.append(&k, &v)?;
+                let (k, v) = cache.append_with(&k, &v, self.kv_aux.as_ref())?;
                 (
                     candle_transformers::utils::repeat_kv(k, groups)?.contiguous()?,
                     candle_transformers::utils::repeat_kv(v, groups)?.contiguous()?,
@@ -2237,7 +2268,7 @@ impl Block {
             crate::kvq::KvStore::Prealloc(_) => {
                 let ke = candle_transformers::utils::repeat_kv(k, groups)?.contiguous()?;
                 let ve = candle_transformers::utils::repeat_kv(v, groups)?.contiguous()?;
-                cache.append(&ke, &ve)?
+                cache.append_with(&ke, &ve, self.kv_aux.as_ref())?
             }
         };
 
@@ -2677,6 +2708,30 @@ impl Qwen3 {
     /// chunks of this size is never refused.
     pub fn prefill_rows(&self) -> usize {
         self.blocks.iter().map(Block::row_cap).fold(MAX_PREFILL_ROWS, usize::min)
+    }
+
+    /// The cache mode this model was built with.
+    pub fn kv_mode(&self) -> KvMode {
+        self.kv
+    }
+
+    /// MEASUREMENT ONLY (`LLVQ_KV_LADDER`): install what each layer's ladder
+    /// arm reads besides the tensors, one entry a block, or clear it with
+    /// `None`. A cache in `F16` or `Q8` never reads it, so the served path is
+    /// the same with or without it.
+    pub fn set_kv_ladder_aux(&mut self, aux: Option<Vec<crate::kvladder::LadderAux>>) -> Result<()> {
+        match aux {
+            None => self.blocks.iter_mut().for_each(|b| b.kv_aux = None),
+            Some(a) => {
+                if a.len() != self.blocks.len() {
+                    candle_core::bail!("{} ladder entries for {} blocks", a.len(), self.blocks.len());
+                }
+                for (b, x) in self.blocks.iter_mut().zip(a) {
+                    b.kv_aux = Some(x);
+                }
+            }
+        }
+        Ok(())
     }
 
     /// One `KvCache` per block, empty.
@@ -3478,12 +3533,25 @@ impl Qwen3 {
         arms: [(crate::kvq::KvStore, crate::kvq::AttnHeads); 2],
         split: usize,
     ) -> Result<PairedDecode> {
+        let kv = self.kv;
+        self.decode_nll_modes(tokens, arms.map(|(store, heads)| (store, heads, kv)), split)
+    }
+
+    /// [`Self::decode_nll_split`], with each arm's cache mode named: the
+    /// `ladder` form of `LLVQ_GQA_PPL` pairs an f16 cache against a
+    /// `LLVQ_KV_LADDER` arm under one attention form. Measurement only.
+    pub fn decode_nll_modes(
+        &mut self,
+        tokens: &[u32],
+        arms: [(crate::kvq::KvStore, crate::kvq::AttnHeads, KvMode); 2],
+        split: usize,
+    ) -> Result<PairedDecode> {
         if tokens.len() < 2 {
             candle_core::bail!("decode_nll_paired: a window must hold at least two tokens");
         }
-        let (n, kv) = (self.blocks.len(), self.kv);
+        let n = self.blocks.len();
         let mut caches: [Vec<KvCache>; 2] =
-            arms.map(|(store, _)| (0..n).map(|_| KvCache::with_store(kv, store)).collect());
+            arms.map(|(store, _, kv)| (0..n).map(|_| KvCache::with_store(kv, store)).collect());
         let mut out = PairedDecode {
             nll: [0.0; 2],
             count: 0,
@@ -3498,7 +3566,7 @@ impl Qwen3 {
             let (input, target) = (pair[0], pair[1]);
             let mut logits = Vec::with_capacity(2);
             let mut logp = [0.0; 2];
-            for (k, &(store, heads)) in arms.iter().enumerate() {
+            for (k, &(store, heads, _)) in arms.iter().enumerate() {
                 self.set_kv_store(store);
                 self.set_attn_heads(heads);
                 let l = self.step_logits(input, offset, &mut caches[k])?;
@@ -3738,6 +3806,16 @@ pub fn build_causal_mask(
             Tensor::from_slice(&rows(l, w, offset, half::bf16::ZERO, half::bf16::NEG_INFINITY), shape, device)
         }
         _ => Tensor::from_slice(&rows(l, w, offset, 0f32, f32::NEG_INFINITY), shape, device)?.to_dtype(dtype),
+    }
+}
+
+/// The tiny test model, for the host tests of other modules.
+#[cfg(test)]
+pub(crate) mod tests_support {
+    /// Two layers, 8 query heads over 2 KV heads at head dim 128, binary16 on
+    /// the CPU: a shape the attention kernel's CPU replay takes.
+    pub fn tiny_model_kernel() -> super::Qwen3 {
+        super::tests::tiny_model_hd(candle_core::DType::F16, 8, 2, 128)
     }
 }
 
@@ -4495,6 +4573,55 @@ mod tests {
         assert!(m.decode_nll_paired(&tokens[..1], [published, published]).is_err());
     }
 
+    /// The `kvq.rs` invariant through the cache, for every `LLVQ_KV_LADDER`
+    /// arm and both stores a ladder run uses: positions appended in one call
+    /// and the same positions appended one at a time hold the same bytes.
+    #[test]
+    fn ladder_caches_hold_a_prefill_as_its_decode_steps() {
+        use crate::kvladder::{hadamard_matrix, key_steps, LadderAux};
+        use crate::kvq::{KvMode, KvStore};
+        let dev = Device::Cpu;
+        let (n_kv, hd, l) = (2usize, 128usize, 7usize);
+        let mut seed = 7u32;
+        let mut gen = |n: usize| -> Vec<f32> {
+            (0..n)
+                .map(|_| {
+                    seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+                    (seed >> 8) as f32 / (1u32 << 23) as f32 - 1.0
+                })
+                .collect()
+        };
+        let k = Tensor::from_vec(gen(n_kv * l * hd), (1, n_kv, l, hd), &dev).unwrap();
+        let v = Tensor::from_vec(gen(n_kv * l * hd), (1, n_kv, l, hd), &dev).unwrap();
+        let stat: Vec<f32> = (0..n_kv * hd / 2).map(|i| 0.5 + (i % 9) as f32 * 0.1).collect();
+        let aux = LadderAux {
+            key_step: Some(key_steps(&stat, n_kv, hd, &dev).unwrap()),
+            hadamard: Some(hadamard_matrix(hd, &dev).unwrap()),
+        };
+        for mode in [KvMode::Q8, KvMode::K8V4, KvMode::K4V4C, KvMode::K4V4H] {
+            for store in [KvStore::Cat, KvStore::Grow(4)] {
+                let mut whole = KvCache::with_store(mode, store);
+                let mut steps = KvCache::with_store(mode, store);
+                whole.append_with(&k, &v, Some(&aux)).unwrap();
+                for t in 0..l {
+                    let (kt, vt) = (k.narrow(2, t, 1).unwrap(), v.narrow(2, t, 1).unwrap());
+                    steps.append_with(&kt, &vt, Some(&aux)).unwrap();
+                }
+                let (wk, wv) = whole.held().unwrap().unwrap();
+                let (sk, sv) = steps.held().unwrap().unwrap();
+                for (a, b, name) in [(&wk, &sk, "k"), (&wv, &sv, "v")] {
+                    let a: Vec<u32> = a.flatten_all().unwrap().to_vec1::<f32>().unwrap().iter().map(|x| x.to_bits()).collect();
+                    let b: Vec<u32> = b.flatten_all().unwrap().to_vec1::<f32>().unwrap().iter().map(|x| x.to_bits()).collect();
+                    assert_eq!(a, b, "{mode:?} on {store:?}: {name} of a prefill differs from its decode steps");
+                }
+                // And the arm is a code, not a copy.
+                let raw: Vec<f32> = k.flatten_all().unwrap().to_vec1().unwrap();
+                let held: Vec<f32> = wk.flatten_all().unwrap().to_vec1().unwrap();
+                assert!(raw != held, "{mode:?}: the keys came back unquantized");
+            }
+        }
+    }
+
     /// At every append, across chunk boundaries and appends wider than a
     /// chunk, the `Grow` store hands attention the very history `Cat` does,
     /// in buffers sized to a whole number of chunks.
@@ -5204,7 +5331,7 @@ mod tests {
 
     /// The tiny model at a head dimension of its own: the attention kernel
     /// compiles 128, Qwen3's, and refuses anything else.
-    fn tiny_model_hd(dtype: DType, n_heads: usize, n_kv: usize, head_dim: usize) -> Qwen3 {
+    pub(super) fn tiny_model_hd(dtype: DType, n_heads: usize, n_kv: usize, head_dim: usize) -> Qwen3 {
         tiny_model_long(dtype, n_heads, n_kv, head_dim, 64)
     }
 

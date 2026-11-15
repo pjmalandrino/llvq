@@ -216,7 +216,11 @@ records of `o`. The groups are super-additive: all exceeds the MLP plus attentio
   ([`MODES.md`](MODES.md)); it reopens only on his word.
 - **A second calibration draw per size.**
 - **The next quality or speed work.** It opens as a phase under [`MODES.md`](MODES.md), on the operator's mandate.
-- **An int4 KV cache.** It touches quality, so it is outside any "negligible" go.
+- **An int8 KV cache, as a memory lead.** It holds the ±0.12 % tolerance at 8,192 on the 4B, +0.0126 %
+  [−0.0485, +0.0737] against f16, and int4 keys fail it (*measured*,
+  [kv-ladder](mesures/recherche-debit-kv-ladder-2026-11-14.txt)). It would take the cache from 1.21 to 0.64 GB at
+  8,192 positions (*computed*). It buys no speed (§6). Kept by the operator on 2026-11-15. Owed before serving: a
+  form that frees the f16 cache, the near-tie texts, GSM8K-200, the prefill path, the 8B and the 14B.
 - **The next venue for paper 2.** No archive holds version 2 yet. Default if silent: preprint only.
 - **Upstream `transformers`.** `llvq-tetra` 0.1.0 is on PyPI and loads the 4B safetensors; the upstream issue and PR
   wait for the operator ([`plan-transformers.md`](plan-transformers.md)).
@@ -247,5 +251,6 @@ records of `o`. The groups are super-additive: all exceeds the MLP plus attentio
 | 4E v9ft, the guard-free full attention tile in decode | bit for bit, x1.009 / x1.027 / x0.997 / x1.004 of v9 at 5 / 1,024 / 4,096 / 8,192 tokens, under its x1.05 rule; v9 stays served | [large-attn-ft-4e](mesures/large-attn-ft-4e-2026-11-11.txt) |
 | A mixed Tetra plus int4 bench arm | the bench compares formats; served files are timed end to end | operator, 2026-10-06 |
 | Batched GEMM at two CTAs a SM (K chunk halved, registers capped at 128) | 5.7 to 17.4 % below one CTA a SM at B = 32 to 128 on the 4B, both int4 orders | [batch-l40s-v4](mesures/batch-l40s-v4-2026-11-08.txt) |
+| An int8 KV cache read by 4E, as a speed lever (arm v9k8) | x1.0109 [1.0108-1.0113] of v9 at 8,192 and x0.9668 [0.9664-0.9670] at 5 tokens, with 8 B of local memory in the token symbol; the attention phase loses 1.8 % for 46.9 % fewer bytes. Kept as a memory lead (§5). Reopen with a measured cause of the attention time at 8,192 that a smaller cache removes | [recherche-debit-kv8-local](mesures/recherche-debit-kv8-local-2026-11-15.txt) |
 
 Reopening any of them needs the condition in its row, not a new argument. A2 stays out of the core.

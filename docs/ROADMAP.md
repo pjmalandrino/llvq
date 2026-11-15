@@ -68,11 +68,17 @@ took $15.35 and $9.78 (*measured*, `docs/data/jobs.csv`). The 4B and 8B encode o
 [a100](mesures/a100-2026-10-06.txt)). A consumer card is GDDR like the L40S, with less compute. **Cost**: under the
 A100 run's $3.04 (*estimated*).
 
-### 2.7 An int4 KV cache
+### 2.7 An int8 KV cache, for memory
 
-**Gate**: its own prereg, because it moves the logits: paired perplexity, a light MMLU and a task past 1,280 tokens.
-**Cost**: $3 to $5 of card after 2 to 4 weeks of code (*estimated*). At 8,192 tokens it takes the cache from 1.21 to
-about 0.34 GB, and it is the only lead that reaches 300 tok/s at that context ([`plan-300.md`](plan-300.md) §7).
+**Gate**: its own prereg, because it moves the logits: the near-tie texts, GSM8K-200 and the prefill path, on a form
+that frees the f16 cache. **Cost**: not estimated.
+
+An int8 cache holds the ±0.12 % tolerance at 8,192 on the 4B and takes the cache from 1.21 to 0.64 GB there; int4
+keys fail the tolerance (*measured* and *computed*,
+[kv-ladder](mesures/recherche-debit-kv-ladder-2026-11-14.txt)). It is a memory lead only. Read by 4E it decodes
+x1.011 of v9 at 8,192 and x0.967 at 5 tokens (*measured*,
+[recherche-debit-kv8-local](mesures/recherche-debit-kv8-local-2026-11-15.txt)), so the estimate of
+[`plan-300.md`](plan-300.md) §7, a smaller cache reaching 300 tok/s at that context, does not hold.
 
 ### 2.8 Metal speed
 

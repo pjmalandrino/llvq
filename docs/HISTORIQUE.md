@@ -1575,3 +1575,37 @@ the layer objective on the 4B. The bullets below are in the order things happene
   phase: $13.49 of $15; the rows of `docs/data/jobs.csv` sum to $339.71 (*computed*).
 - 2026-11-14: the operator closes the phase. Outcome: a dead hypothesis, recorded in `CERVEAU.md` O12. No idea sheet.
 - Nothing served changes: no config, no served module, no Hub file.
+
+## 2026-11-14 to 11-15. A research phase opens on decode speed at long context; an int8 KV cache holds the tolerance at 8,192 and buys 1 % of speed in the kernel; nothing served changes, $5.77
+
+The operator closed O11 and opened a phase on decode speed after an 8,192-token prompt, O13 of
+[`CERVEAU.md`](CERVEAU.md): five days and $10 of card.
+
+- A capture mode (`LLVQ_KV_CAPTURE`) and an offline scorer were built to test a certified partial read of the cache
+  (prereg sha256 c678161c). The operator judged the chance too low and the job was not run.
+- A ladder of four quantized caches was scored as round trips against f16 on the sealed 4B, 12 windows of 8,192
+  (`LLVQ_KV_LADDER`, prereg sha256 8913d843): [recherche-debit-kv-ladder](mesures/recherche-debit-kv-ladder-2026-11-14.txt).
+  int8 keys and values +0.0126 % [−0.0485, +0.0737], inside ±0.12 %; int8 keys with int4 values +0.0206 %
+  [−0.1359, +0.1774], not decided; int4 keys fail at +1.27 % and +141 % (*measured*).
+- CERVEAU P4 is replaced. It read: "An int8 KV cache does not pass the served tolerance at long context: its own
+  measured interval leaves the ±0.12 % band", from +0.0494 % [−0.0713, +0.1703] on 12 windows of 4,096 on Metal
+  (kvq8-4b-2026-08-15).
+- Five jobs were void for dataset pins written by the main session, $0.15.
+- The int8 read was written as a research arm of 4E, `v9k8` (prereg sha256 4c7fe8cd), bit for bit against its
+  reference on the Mac. On the card it is refused at its load check for 8 B of local memory at 128 registers, v9 at
+  0 B beside it (*measured*, [recherche-debit-kv8](mesures/recherche-debit-kv8-2026-11-14.txt), $0.13). Nothing was
+  timed.
+- On 2026-11-15 the arm was timed as it is, the local-memory half of the load rule waived for it alone as a
+  measurement mode (`+local`, prereg sha256 633c536d). x1.0109 [1.0108-1.0113] over v9 at 8,192, 164.4 against 162.6
+  tok/s; x0.9668 [0.9664-0.9670] at 5 tokens, 219.4 against 226.9; v9's 256 tokens at both contexts (*measured*,
+  [recherche-debit-kv8-local](mesures/recherche-debit-kv8-local-2026-11-15.txt), $0.33). It is the first token symbol
+  timed with local memory.
+- CERVEAU P3 changes standing, from conjecture to contradicted on one tile. It read: "At long context the decode
+  attention is bound by its own bytes". The attention phase at 8,192 lost 1.8 % for 46.9 % fewer KV bytes.
+- Spend of the phase: $5.77 of $10; the rows of `docs/data/jobs.csv` sum to $347.41 (*computed*).
+- The operator closed the phase on 2026-11-15, outcome a dead hypothesis: a smaller KV cache does not buy decode
+  time at long context. He keeps the int8 cache as a memory lead, 1,208 to 642 MB at 8,192 positions on the 4B
+  (*computed*), not served. `ETAT.md` §5 and §6, `ROADMAP.md` §2.7 and `plan-300.md` §7 follow. ROADMAP §2.7 read:
+  "An int4 KV cache [...] is the only lead that reaches 300 tok/s at that context".
+- Nothing served changes: no config, no served module, no Hub file. No served tok/s is gained: the int8 read is a
+  research arm, about 1 % faster at 8,192 and 3 % slower at 5.

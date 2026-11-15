@@ -269,7 +269,9 @@ fn parse_lengths(var: &str, v: &str) -> Result<Vec<usize>, String> {
 /// against the published one from window 0, as every control so far did;
 /// `<ctx>,<windows>,<first>,kernel` scores the kernel form against the grouped
 /// one (the served form) from window index `<first>`, so that a T8 control
-/// takes windows no earlier control scored.
+/// takes windows no earlier control scored. `<ctx>,<windows>,<first>,ladder`
+/// scores the cache of the `LLVQ_KV_LADDER` arm against the f16 cache, both
+/// under the kernel form on every decode row (the served 4E attention).
 #[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
 #[derive(Debug, PartialEq, Eq)]
 struct GqaPplSpec {
@@ -281,20 +283,25 @@ struct GqaPplSpec {
     /// position 0, the T8 extension below `KERNEL_FROM` that serving 4E at a
     /// short prompt would need. Implies `kernel`.
     every_row: bool,
+    /// `ladder`: the two arms share the `kernel0` form and differ by their
+    /// cache, f16 against `LLVQ_KV_LADDER`'s arm. Implies `every_row`.
+    ladder: bool,
 }
 
 #[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
 fn parse_gqa_ppl(v: &str) -> Result<GqaPplSpec, String> {
     let parts: Vec<&str> = v.split(',').map(str::trim).collect();
-    let (nums, kernel, every_row) = match parts.as_slice() {
-        [c, w] => (vec![*c, *w], false, false),
-        [c, w, f, "kernel"] => (vec![*c, *w, *f], true, false),
-        [c, w, f, "kernel0"] => (vec![*c, *w, *f], true, true),
+    let (nums, kernel, every_row, ladder) = match parts.as_slice() {
+        [c, w] => (vec![*c, *w], false, false, false),
+        [c, w, f, "kernel"] => (vec![*c, *w, *f], true, false, false),
+        [c, w, f, "kernel0"] => (vec![*c, *w, *f], true, true, false),
+        [c, w, f, "ladder"] => (vec![*c, *w, *f], true, true, true),
         _ => {
             return Err(format!(
                 "LLVQ_GQA_PPL={v:?}: expected <ctx>,<windows> (grouped against published, from \
-                 window 0), <ctx>,<windows>,<first>,kernel (kernel against grouped) or \
-                 <ctx>,<windows>,<first>,kernel0 (kernel on every row against grouped)"
+                 window 0), <ctx>,<windows>,<first>,kernel (kernel against grouped), \
+                 <ctx>,<windows>,<first>,kernel0 (kernel on every row against grouped) or \
+                 <ctx>,<windows>,<first>,ladder (LLVQ_KV_LADDER's cache against f16)"
             ))
         }
     };
@@ -302,7 +309,7 @@ fn parse_gqa_ppl(v: &str) -> Result<GqaPplSpec, String> {
         .iter()
         .map(|s| s.parse::<usize>().map_err(|e| format!("LLVQ_GQA_PPL={v:?}: {s:?}: {e}")))
         .collect::<Result<Vec<_>, _>>()?;
-    let spec = GqaPplSpec { ctx: n[0], windows: n[1], first: n.get(2).copied().unwrap_or(0), kernel, every_row };
+    let spec = GqaPplSpec { ctx: n[0], windows: n[1], first: n.get(2).copied().unwrap_or(0), kernel, every_row, ladder };
     if spec.ctx < 2 || spec.windows < 2 {
         return Err(format!("LLVQ_GQA_PPL={v:?}: two windows of two tokens at least"));
     }
@@ -636,6 +643,153 @@ fn paired_ppl_pct(a: &[f64], b: &[f64]) -> (f64, f64, f64) {
     let h = llvq_llm::eval::t95(d.len().saturating_sub(1)) * sd / n.sqrt();
     let pct = |x: f64| x.exp_m1() * 100.0;
     (pct(m), pct(m - h), pct(m + h))
+}
+
+/// What `LLVQ_KV_LADDER`'s arm reads besides the tensors, built and installed
+/// on every block before the first scored window: the Hadamard matrix of
+/// `k4v4h`, and the static key steps of `k4v4c`, calibrated on the first
+/// [`llvq_llm::kvladder::CALIB_TOKENS`] tokens of `dclm-edu` (the corpus the
+/// sealed files were calibrated on, never the scored WikiText-2), one prefill
+/// on the f16 cache under the arm's attention form. The steps are printed as a
+/// fingerprint and a range, so two runs can be told to be the same arm.
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+fn install_ladder(
+    model: &mut llvq_llm::model::Qwen3,
+    tokenizer: &tokenizers::Tokenizer,
+    ladder: &llvq_llm::kvladder::Ladder,
+    device: &candle_core::Device,
+) -> anyhow::Result<()> {
+    use llvq_llm::kvladder::{calibrate, hadamard_matrix, LadderAux, CALIB_TOKENS};
+    use llvq_llm::kvq::KvMode;
+    let n = model.config().num_hidden_layers;
+    let hd = model.config().head_dim;
+    let hadamard = match ladder.mode {
+        KvMode::K4V4H => Some(hadamard_matrix(hd, device)?),
+        _ => None,
+    };
+    let steps = match ladder.mode {
+        KvMode::K4V4C => {
+            let clip = ladder.clip.expect("k4v4c carries its clip");
+            GqaArm::Kernel.apply(model);
+            let text = llvq_llm::kvcapture::CaptureCorpus::DclmEdu.text(CALIB_TOKENS * 8)?;
+            let all = tokenizer.encode(text.as_str(), false).map_err(|e| anyhow::anyhow!("{e}"))?.get_ids().to_vec();
+            if all.len() < CALIB_TOKENS {
+                anyhow::bail!("k4v4c calibration: {} dclm-edu tokens, {CALIB_TOKENS} needed", all.len());
+            }
+            let calib = &all[..CALIB_TOKENS];
+            let t = Instant::now();
+            let steps = calibrate(model, calib, llvq_llm::model::MAX_PREFILL_ROWS, clip)?;
+            let mut flat = Vec::new();
+            for s in &steps {
+                flat.extend(s.flatten_all()?.to_vec1::<f32>()?);
+            }
+            let bits: Vec<u32> = flat.iter().map(|x| x.to_bits()).collect();
+            let mut sorted = flat.clone();
+            sorted.sort_unstable_by(f32::total_cmp);
+            println!(
+                "k4v4c: static key steps from {CALIB_TOKENS} dclm-edu tokens (fingerprint {:016x}), clip quantile \
+                 {clip} of each RoPE pair's norm over 7 levels, {n} layers x {} values; step min {:.4e} median \
+                 {:.4e} max {:.4e}; steps fingerprint {:016x} ({:.1} s)",
+                llvq_llm::eval::token_fingerprint(calib),
+                flat.len() / n,
+                sorted[0],
+                sorted[sorted.len() / 2],
+                sorted[sorted.len() - 1],
+                llvq_llm::eval::token_fingerprint(&bits),
+                t.elapsed().as_secs_f64()
+            );
+            Some(steps)
+        }
+        _ => None,
+    };
+    let aux = (0..n)
+        .map(|i| LadderAux { key_step: steps.as_ref().map(|s| s[i].clone()), hadamard: hadamard.clone() })
+        .collect();
+    model.set_kv_ladder_aux(Some(aux))?;
+    Ok(())
+}
+
+/// `LLVQ_GQA_PPL`'s `ladder` form: WikiText-2 perplexity of the f16 cache and
+/// of `LLVQ_KV_LADDER`'s arm, on the same windows, by the decode path only
+/// ([`llvq_llm::model::Qwen3::decode_nll_modes`]): each window fed one true
+/// token at a time through each arm's cache, the two in lockstep, both under
+/// the kernel form on every decode row. The arm codes each position once, on
+/// its way into the cache, from that position alone, so the decode path reads
+/// the bytes a prefill would write. The windows are the sampling unit.
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+fn run_ladder_ppl(
+    model: &mut llvq_llm::model::Qwen3,
+    ids: &[u32],
+    spec: &GqaPplSpec,
+    ladder: &llvq_llm::kvladder::Ladder,
+) -> anyhow::Result<()> {
+    use llvq_llm::kvq::KvMode;
+    let (ctx, windows, first) = (spec.ctx, spec.windows, spec.first);
+    let nwin = (ids.len() / ctx).saturating_sub(first).min(windows);
+    if nwin < 2 || ctx < 2 {
+        anyhow::bail!(
+            "LLVQ_GQA_PPL ladder needs two windows of two tokens at least: {} tokens, ctx {ctx}, {windows} asked",
+            ids.len()
+        );
+    }
+    let span = &ids[first * ctx..(first + nwin) * ctx];
+    let fingerprint = llvq_llm::eval::token_fingerprint(span);
+    let arm = GqaArm::Kernel;
+    let arms = [(arm.store(), arm.heads(), KvMode::F16), (arm.store(), arm.heads(), ladder.mode)];
+    let cfg = model.config();
+    let bytes = |m| {
+        llvq_llm::kvq::bytes_per_token(cfg.num_hidden_layers, cfg.num_key_value_heads, cfg.head_dim, m, model.dtype())
+    };
+    let (b0, b1) = (bytes(KvMode::F16), bytes(ladder.mode));
+    println!(
+        "KV ladder perplexity: wikitext2, {nwin} windows of {ctx} from window {first} (tokens {fingerprint:016x}), \
+         cache {} against f16, both {} on every decode row from position {}, decode path in lockstep",
+        ladder.label(),
+        arm.name(),
+        model.kernel_from()
+    );
+    println!(
+        "  bytes a position (computed, this model's geometry): f16 {b0:.0}, {} {b1:.0}, {:.4} of f16",
+        ladder.mode.name(),
+        b1 / b0
+    );
+    let mut dec: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
+    let (mut agree, mut steps, mut max_d) = (0usize, 0usize, 0f32);
+    let t0 = Instant::now();
+    for w in 0..nwin {
+        let win = &span[w * ctx..(w + 1) * ctx];
+        let d = model.decode_nll_modes(win, arms, 0)?;
+        for (v, nll) in dec.iter_mut().zip(d.nll) {
+            v.push(nll / d.count as f64);
+        }
+        agree += d.top1_agree;
+        steps += d.count;
+        max_d = max_d.max(d.max_dlogit);
+        println!(
+            "  window {:>3}/{nwin}  decode nll {:.9} {:.9}  top-1 {}/{}  max |dlogit| {:.3e}  ({:.0} s)",
+            w + 1,
+            dec[0][w],
+            dec[1][w],
+            d.top1_agree,
+            d.count,
+            d.max_dlogit,
+            t0.elapsed().as_secs_f64()
+        );
+    }
+    arm.apply(model);
+    let ppl = |v: &[f64]| (v.iter().sum::<f64>() / v.len() as f64).exp();
+    let (m, lo, hi) = paired_ppl_pct(&dec[0], &dec[1]);
+    println!(
+        "\n  path      ppl f16               ppl {:<18}  {} / f16 − 1, paired 95 % t interval over {nwin} windows",
+        ladder.mode.name(),
+        ladder.mode.name()
+    );
+    println!("  decode    {:<20.4}  {:<22.4}  {m:+.4} % [{lo:+.4} ; {hi:+.4}]", ppl(&dec[0]), ppl(&dec[1]));
+    println!(
+        "  decode top-1 agreement {agree}/{steps} steps ({:.3} %), max |dlogit| {max_d:.3e}",
+        100.0 * agree as f64 / steps as f64
+    );
+    Ok(())
 }
 
 /// `LLVQ_GQA_PPL`: WikiText-2 perplexity of the published attention and of
@@ -1294,6 +1448,36 @@ fn parse_pers_4e(v: &str) -> Result<Pers4eSpec, String> {
     Ok((n, out, lengths, again))
 }
 
+/// `LLVQ_PERS_4E`'s `+local` marks (`pers::P4E_LOCAL_SUFFIX`): an arm named
+/// `<arm>+local` is timed even where its token symbol holds local memory
+/// (`persist4e_cuda::install_e1_local`), a measurement of what the load rule
+/// protects. Returns the value with the marks removed, for [`parse_pers_4e`],
+/// and the arms marked. Refused on the first arm: the reference of every
+/// ratio loads under the rule or the run has none.
+#[cfg(any(target_os = "macos", feature = "cuda"))]
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+fn split_pers_4e_local(v: &str) -> Result<(String, Vec<String>), String> {
+    let suffix = llvq_cuda::pers::P4E_LOCAL_SUFFIX;
+    let mut fields: Vec<String> = v.splitn(3, ':').map(str::to_string).collect();
+    let mut marked: Vec<String> = Vec::new();
+    if let Some(arms) = fields.get_mut(1) {
+        let mut names = Vec::new();
+        for (i, name) in arms.split(',').enumerate() {
+            match name.strip_suffix(suffix) {
+                Some(_) if i == 0 => return Err(format!("LLVQ_PERS_4E={v:?}: the first arm is the reference and takes no {suffix}")),
+                Some(bare) if marked.iter().any(|m| m == bare) => return Err(format!("LLVQ_PERS_4E={v:?}: arm {bare} named twice")),
+                Some(bare) => {
+                    marked.push(bare.to_string());
+                    names.push(bare);
+                }
+                None => names.push(name),
+            }
+        }
+        *arms = names.join(",");
+    }
+    Ok((fields.join(":"), marked))
+}
+
 /// `LLVQ_PERS_4E=check:<arms>`'s arms: E1 arms (`pers::P4E_E1_ARMS`),
 /// comma-separated, each once, at least one.
 #[cfg(any(target_os = "macos", feature = "cuda"))] // names llvq_cuda, a dependency on macOS and under `cuda` only
@@ -1424,8 +1608,8 @@ fn run_pers_4e(
             Some(i) if !owes_bits(&rts[k]) => {
                 let eq = got.iter().zip(&want).filter(|(a, b)| a == b).count();
                 println!(
-                    "  4E {label}: owes a bound on rows, not the bits: {eq} of {} tokens equal the eager path's, \
-                     the first divergence at token {i}",
+                    "  4E {label}: owes {}: {eq} of {} tokens equal the eager path's, the first divergence at token {i}",
+                    rts[k].e1_arm.map_or("the bits", llvq_cuda::pers::p4e_e1_debt),
                     want.len()
                 );
                 own.push(got);
@@ -1454,6 +1638,12 @@ fn run_pers_4e(
             own[0].len(),
             first.map_or(String::new(), |i| format!(", the first divergence at token {i}"))
         );
+    }
+    // v9k8: its int8 caches after its first launch of this context
+    for rt in rts.iter() {
+        if let Some(l) = rt.kv8_report() {
+            println!("  {l}");
+        }
     }
     match first_divergence(&served, &want).map_err(|e| anyhow::anyhow!("{e}"))? {
         None => println!("  served door (kernel from {from}): the same {} tokens", served.len()),
@@ -1543,7 +1733,7 @@ fn run_pers_4e(
                 prompt.len(),
                 rt.e1_arm.unwrap_or("?"),
                 rts[0].label(),
-                if owes_bits(rt) { "the bits" } else { "a bound on rows" },
+                rt.e1_arm.map_or("the bits", llvq_cuda::pers::p4e_e1_debt),
                 if pass { "" } else { " (F1 failed: a description)" }
             );
         }
@@ -1827,9 +2017,9 @@ fn print_phases(arm: &str, r: &llvq_llm::model::PhaseReport) {
 /// refused. `LLVQ_GRAPH_DIAG` rides inside `LLVQ_GRAPH_AB`, which does not
 /// call it.
 #[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
-const ALONE: [&str; 16] = [
+const ALONE: [&str; 17] = [
     "LLVQ_INT4_WIDE_CHECK", "LLVQ_GESTURE_AB", "LLVQ_BOUNDARY_AB", "LLVQ_PERS_4E", "LLVQ_PERS_SEGMENT",
-    "LLVQ_GQA_PPL", "LLVQ_GQA_AB", "LLVQ_CONTEXTS", "LLVQ_TRIM_AB", "LLVQ_PREFILL_TOKENS",
+    "LLVQ_GQA_PPL", "LLVQ_KV_CAPTURE", "LLVQ_GQA_AB", "LLVQ_CONTEXTS", "LLVQ_TRIM_AB", "LLVQ_PREFILL_TOKENS",
     "LLVQ_GRAPH_AB", "LLVQ_GRAPH_DIAG", "LLVQ_KV_AB", "LLVQ_FUSE_AB", "LLVQ_TIME_PHASES", "LLVQ_SEG_ARMS",
 ];
 
@@ -1858,10 +2048,12 @@ fn main() -> anyhow::Result<()> {
         .next()
         .ok_or_else(|| anyhow::anyhow!("usage: fusedrun <model.llvq> [n_tokens]"))?;
     let n_new: usize = args.next().map_or(Ok(32), |s| s.parse())?;
+    // Read by `LLVQ_KV_CAPTURE` only: the directory it writes.
+    let out_dir = args.next();
 
     #[cfg(not(all(target_os = "linux", feature = "cuda")))]
     {
-        let _ = (path, n_new);
+        let _ = (path, n_new, out_dir);
         anyhow::bail!("fusedrun requires an NVIDIA card and the `cuda` feature");
     }
 
@@ -1889,7 +2081,7 @@ fn main() -> anyhow::Result<()> {
         if served.is_some() {
             for var in ["LLVQ_GRAPH_AB", "LLVQ_GRAPH_DIAG", "LLVQ_KV_AB", "LLVQ_FUSE_AB",
                         "LLVQ_TIME_PHASES", "LLVQ_KV_PREALLOC", "LLVQ_SEG_ARMS",
-                        "LLVQ_TRIM_AB", "LLVQ_GQA_AB", "LLVQ_GQA_PPL",
+                        "LLVQ_TRIM_AB", "LLVQ_GQA_AB", "LLVQ_GQA_PPL", "LLVQ_KV_CAPTURE", "LLVQ_KV_LADDER",
                         "LLVQ_INT4_WIDE_CHECK", "LLVQ_GESTURE_AB", "LLVQ_BOUNDARY_AB", "LLVQ_PERS_SEGMENT", "LLVQ_PERS_4E"] {
                 if let Ok(v) = std::env::var(var) {
                     anyhow::bail!(
@@ -1899,6 +2091,16 @@ fn main() -> anyhow::Result<()> {
                     );
                 }
             }
+        }
+        // `LLVQ_KV_LADDER` names the cache of one arm of `LLVQ_GQA_PPL`'s
+        // `ladder` form, and nothing else reads it: beside any other mode, or
+        // on the bench, it would be silently ignored.
+        let ladder = llvq_llm::kvladder::Ladder::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
+        if ladder.is_some() && std::env::var("LLVQ_GQA_PPL").is_err() {
+            anyhow::bail!(
+                "LLVQ_KV_LADDER is read by the ladder form of LLVQ_GQA_PPL only \
+                 (<ctx>,<windows>,<first>,ladder); set it, or unset LLVQ_KV_LADDER"
+            );
         }
         println!("{device:?}, dtype {dtype:?}, {n_new} tokens\n");
 
@@ -2158,6 +2360,8 @@ fn main() -> anyhow::Result<()> {
                 println!("4E check done in {:.1} s", t.elapsed().as_secs_f64());
                 return Ok(());
             }
+            // `<arm>+local`: that arm is timed with local memory, a measurement of the load rule
+            let (v, local_arms) = split_pers_4e_local(&v).map_err(|e| anyhow::anyhow!("{e}"))?;
             let (count, e1_arms, long, again) = parse_pers_4e(&v).map_err(|e| anyhow::anyhow!("{e}"))?;
             let n_new: usize = count;
             if !(2..=256).contains(&n_new) {
@@ -2196,7 +2400,12 @@ fn main() -> anyhow::Result<()> {
             // v9, then v6s. Each owes the eager path's tokens.
             let mut rts = Vec::new();
             for arm in &e1_arms {
-                match llvq_llm::persist4e_cuda::install_e1(&f.model, &device, n_new as u32, arm) {
+                let installed = if local_arms.iter().any(|a| a == arm) {
+                    llvq_llm::persist4e_cuda::install_e1_local(&f.model, &device, n_new as u32, arm)
+                } else {
+                    llvq_llm::persist4e_cuda::install_e1(&f.model, &device, n_new as u32, arm)
+                };
+                match installed {
                     Ok(rt) => {
                         for line in &rt.lines {
                             println!("{line}");
@@ -2317,6 +2526,109 @@ fn main() -> anyhow::Result<()> {
             return Ok(());
         }
 
+        // ---- LLVQ_KV_CAPTURE: what a decode row reads from the cache ----
+        //
+        // A MEASUREMENT MODE on the bench door, refused beside LLVQ_CONFIG and
+        // beside every other mode, the served flags spelled out on the command
+        // line: `LLVQ_KV_CAPTURE=<ctx>,<tokens>,<corpus>,<window> fusedrun
+        // <sealed> <ignored> <out_dir>`. The attention is LLVQ_GQA_PPL's
+        // kernel0 arm: grow(256) + the kernel form on every decode row from
+        // position 0. The window goes through one true token at a time
+        // (`llvq_llm::kvcapture`), the queries of its last `<tokens>` tokens
+        // and the final caches are written for `ops/kv_mass_score.py`.
+        if let Ok(v) = std::env::var("LLVQ_KV_CAPTURE") {
+            let spec = llvq_llm::kvcapture::parse_spec(&v).map_err(|e| anyhow::anyhow!("{e}"))?;
+            runs_alone("LLVQ_KV_CAPTURE", &[])?;
+            if !matches!(kv_store, llvq_llm::kvq::KvStore::Cat) {
+                anyhow::bail!("LLVQ_KV_CAPTURE sets the store itself: unset LLVQ_KV_PREALLOC");
+            }
+            let out = out_dir.ok_or_else(|| {
+                anyhow::anyhow!("LLVQ_KV_CAPTURE: usage fusedrun <sealed> <ignored> <out_dir>; no out_dir given")
+            })?;
+            let out = std::path::PathBuf::from(out);
+            if out.exists() {
+                anyhow::bail!("LLVQ_KV_CAPTURE: {} exists; a capture never overwrites", out.display());
+            }
+            let fuse = llvq_llm::fused::FuseMode::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
+            let t = Instant::now();
+            let sealed_sha256 = llvq_llm::digest::sha256_file(std::path::Path::new(&path))?;
+            println!("sealed file {path}: sha256 {sealed_sha256}");
+            let mut f = llvq_llm::fused_cuda::load_with(&path, &device, dtype, fuse)?;
+            println!(
+                "loaded in {:.1} s. LLVQ_ROT_SHARE={}, {} rot_launches/token · LLVQ_FUSE={}, {} matvec_launches/token",
+                t.elapsed().as_secs_f64(), f.rot_share.name(), f.rot_launches, f.fuse.name(), f.matvec_launches
+            );
+            let ctx = device.as_cuda_device()?.cuda_stream().context().clone();
+            if ctx.is_in_multi_stream_mode() {
+                anyhow::bail!("LLVQ_KV_CAPTURE: the context holds several streams, and turning \
+                               cudarc's events off is only safe on one");
+            }
+            // Safe: one stream, checked above, orders every access by issue.
+            unsafe {
+                ctx.disable_event_tracking();
+            }
+            println!("cudarc event tracking: off (one stream, ordered by issue)");
+            // Eight characters a token asked for: lot B measured 4.61 on C4.
+            let text = spec.corpus.text((spec.window + 1) * spec.span() * 8)?;
+            let ids = f.tokenizer.encode(text.as_str(), false).map_err(|e| anyhow::anyhow!("{e}"))?.get_ids().to_vec();
+            let window = llvq_llm::kvcapture::window_of(&ids, &spec).map_err(|e| anyhow::anyhow!("{e}"))?.to_vec();
+            println!(
+                "corpus {}: {} chars, {} tokens; window {} = tokens {}..{} (fingerprint {:016x})",
+                spec.corpus.name(),
+                text.len(),
+                ids.len(),
+                spec.window,
+                spec.window * spec.span(),
+                (spec.window + 1) * spec.span(),
+                llvq_llm::eval::token_fingerprint(&window)
+            );
+            let (n_kv, groups, hd) = f.model.attn_geometry();
+            let k = llvq_llm::attn::kernel_for(&device, n_kv, groups, hd).map_err(|e| anyhow::anyhow!("{e}"))?;
+            f.model.set_attn_kernel(Some(k));
+            GqaArm::Kernel.apply(&mut f.model);
+            f.model.set_kernel_from_for_measurement(0);
+            let attention = format!("{}, every decode row on the kernel from position 0", GqaArm::Kernel.name());
+            println!("attention {attention}");
+            println!(
+                "feeding {} tokens one at a time; capturing the last {} (positions {}..{})",
+                spec.span(),
+                spec.tokens,
+                spec.ctx,
+                spec.span()
+            );
+            let t = Instant::now();
+            let cap = llvq_llm::kvcapture::capture(&f.model, &window, spec.ctx, spec.tokens, |n| {
+                println!("  fed {n}/{} ({:.0} s)", spec.span(), t.elapsed().as_secs_f64())
+            })?;
+            let feed_s = t.elapsed().as_secs_f64();
+            let mean_nll = cap.nll.iter().sum::<f64>() / cap.nll.len() as f64;
+            println!(
+                "captured {} tokens x {} layers in {feed_s:.1} s; nll over {} captured predictions {mean_nll:.4} (ppl {:.3})",
+                cap.tokens,
+                cap.n_layers,
+                cap.nll.len(),
+                mean_nll.exp()
+            );
+            let t = Instant::now();
+            let prov = llvq_llm::kvcapture::Provenance {
+                corpus: spec.corpus.name(),
+                window: spec.window,
+                token_ids: &window,
+                sealed_sha256: &sealed_sha256,
+                attention: &attention,
+            };
+            let bytes = llvq_llm::kvcapture::write_capture(&out, &cap, &prov)?;
+            println!(
+                "KV CAPTURE WRITTEN {}: {bytes} bytes in {:.1} s",
+                out.display(),
+                t.elapsed().as_secs_f64()
+            );
+            if ctx.is_in_multi_stream_mode() {
+                anyhow::bail!("LLVQ_KV_CAPTURE: a second stream appeared during the run: the capture above is void");
+            }
+            return Ok(());
+        }
+
         // ---- LLVQ_GQA_PPL: the grouped form's perplexity, prefill and decode ----
         //
         // A MEASUREMENT MODE on the bench door, refused beside LLVQ_CONFIG, the
@@ -2330,6 +2642,11 @@ fn main() -> anyhow::Result<()> {
         if let Ok(v) = std::env::var("LLVQ_GQA_PPL") {
             let spec = parse_gqa_ppl(&v).map_err(|e| anyhow::anyhow!("{e}"))?;
             runs_alone("LLVQ_GQA_PPL", &[])?;
+            match (spec.ladder, ladder.is_some()) {
+                (true, false) => anyhow::bail!("LLVQ_GQA_PPL={v:?}: the ladder form needs LLVQ_KV_LADDER=<arm>"),
+                (false, true) => anyhow::bail!("LLVQ_KV_LADDER beside LLVQ_GQA_PPL={v:?}: only the ladder form reads it"),
+                _ => {}
+            }
             if !matches!(kv_store, llvq_llm::kvq::KvStore::Cat) {
                 anyhow::bail!("LLVQ_GQA_PPL sets the store of each arm: unset LLVQ_KV_PREALLOC");
             }
@@ -2378,6 +2695,12 @@ fn main() -> anyhow::Result<()> {
                      config runs the grouped path below {})",
                     llvq_llm::kvq::KERNEL_FROM
                 );
+            }
+            if let Some(l) = ladder.as_ref() {
+                install_ladder(&mut f.model, &f.tokenizer, l, &device)?;
+                run_ladder_ppl(&mut f.model, &ids, &spec, l)?;
+                f.model.set_kv_ladder_aux(None)?;
+                return Ok(());
             }
             run_gqa_ppl(&mut f.model, &ids, &spec)?;
             return Ok(());
@@ -3547,8 +3870,29 @@ mod tests {
         assert_eq!(parse_pers_4e("256:v9,v9fg,v9eg,v9"), Ok((256, vec!["v9", "v9fg", "v9eg"], vec![8192], true)));
         assert_eq!(parse_pers_4e("256:v9,v9fn,v9"), Ok((256, vec!["v9", "v9fn"], vec![8192], true)));
         assert_eq!(parse_pers_4e("256:v9fg"), Ok((256, vec!["v9fg"], vec![8192], false)));
+        // O13's int8 cache arm: the check and a timed run name it beside v9
+        assert_eq!(parse_pers_4e_check("v9,v9k8"), Ok(vec!["v9", "v9k8"]));
+        assert_eq!(parse_pers_4e("256:v9,v9k8,v9"), Ok((256, vec!["v9", "v9k8"], vec![8192], true)));
         for probe in llvq_cuda::pers::P4E_RC_PROBES {
             assert!(parse_pers_4e(&format!("64:v9,{}", probe.0)).is_err(), "{} is never timed", probe.0);
+        }
+        // `+local`: the mark is split off, the value left is an ordinary one
+        use super::split_pers_4e_local;
+        assert_eq!(split_pers_4e_local("256:v9,v9k8,v9"), Ok(("256:v9,v9k8,v9".to_string(), vec![])));
+        assert_eq!(split_pers_4e_local("256:v9,v9k8+local,v9:8192"), Ok(("256:v9,v9k8,v9:8192".to_string(), vec!["v9k8".to_string()])));
+        assert_eq!(split_pers_4e_local("64"), Ok(("64".to_string(), vec![])));
+        let (bare, marked) = split_pers_4e_local("256:v9,v9k8+local,v9").unwrap();
+        assert_eq!(parse_pers_4e(&bare), Ok((256, vec!["v9", "v9k8"], vec![8192], true)));
+        assert_eq!(marked, ["v9k8"]);
+        // never the reference, never twice, and the check does not know the mark
+        assert!(split_pers_4e_local("256:v9+local,v9k8,v9").is_err());
+        assert!(split_pers_4e_local("256:v9,v9k8+local,v9k8+local").is_err());
+        assert!(split_pers_4e_local("256:v9k8+local").is_err());
+        assert!(parse_pers_4e_check("v9,v9k8+local").is_err());
+        // a mark that names no arm, or sits anywhere but the end of a name, is refused by the parse that follows
+        for bad in ["256:v9,v8+local,v9", "256:v9,+local,v9", "256:v9,v9k8+local+local,v9", "256:v9,v9k8+localx,v9"] {
+            let (bare, _) = split_pers_4e_local(bad).unwrap();
+            assert!(parse_pers_4e(&bare).is_err(), "{bad}");
         }
         for bad in [
             "1", "257", "x", "64:", "64:v9,v9", "64:v8", "64:v9 ,v9np", ":v9", "64:v9:", "64::8192", "64:v9:8192,4096",
@@ -3603,15 +3947,15 @@ mod tests {
     fn gqa_ppl_spec() {
         assert_eq!(
             parse_gqa_ppl("4096,12").unwrap(),
-            GqaPplSpec { ctx: 4096, windows: 12, first: 0, kernel: false, every_row: false }
+            GqaPplSpec { ctx: 4096, windows: 12, first: 0, kernel: false, every_row: false, ladder: false }
         );
         assert_eq!(
             parse_gqa_ppl("8192,6,6,kernel").unwrap(),
-            GqaPplSpec { ctx: 8192, windows: 6, first: 6, kernel: true, every_row: false }
+            GqaPplSpec { ctx: 8192, windows: 6, first: 6, kernel: true, every_row: false, ladder: false }
         );
         assert_eq!(
             parse_gqa_ppl(" 4096 , 12 , 60 , kernel ").unwrap(),
-            GqaPplSpec { ctx: 4096, windows: 12, first: 60, kernel: true, every_row: false }
+            GqaPplSpec { ctx: 4096, windows: 12, first: 60, kernel: true, every_row: false, ladder: false }
         );
         // Above one prefill call: refused for the first form only.
         assert!(parse_gqa_ppl("8192,6").unwrap_err().contains("4096 rows"));
@@ -3625,13 +3969,19 @@ mod tests {
         // kernel0: every row on the kernel, so a short window is the point.
         assert_eq!(
             parse_gqa_ppl("1280,24,40,kernel0").unwrap(),
-            GqaPplSpec { ctx: 1280, windows: 24, first: 40, kernel: true, every_row: true }
+            GqaPplSpec { ctx: 1280, windows: 24, first: 40, kernel: true, every_row: true, ladder: false }
         );
         assert!(parse_gqa_ppl("1280,24,40,kernel").unwrap_err().contains("never reaches the kernel"));
         assert!(parse_gqa_ppl("1280,24,kernel0").is_err(), "kernel0 needs its first window");
         for bad in ["4096", "4096,12,60", "4096,12,60,grouped", "4096,1", "1,12", "4096,x", "4096,12,60,kernel,1"] {
             assert!(parse_gqa_ppl(bad).is_err(), "{bad} must be refused");
         }
+        // ladder: the kernel0 form, two caches.
+        assert_eq!(
+            parse_gqa_ppl("8192,12,0,ladder").unwrap(),
+            GqaPplSpec { ctx: 8192, windows: 12, first: 0, kernel: true, every_row: true, ladder: true }
+        );
+        assert!(parse_gqa_ppl("8192,12,ladder").is_err(), "ladder needs its first window");
         // The kernel arm reads the Grow store, and is not one of LLVQ_GQA_AB's arms.
         assert_eq!(GqaArm::Kernel.store(), llvq_llm::kvq::KvStore::Grow(llvq_llm::kvq::GROW_CHUNK));
         assert_eq!(GqaArm::Kernel.name(), "grow(256)+kernel");

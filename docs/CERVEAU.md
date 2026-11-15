@@ -570,18 +570,25 @@ decode after that prompt still reads 161.5 tok/s.
 
 **P3.** At long context the decode attention is bound by its own bytes: at 1,024 and 8,192 tokens the attention phase
 equals the DRAM time of the KV read plus the prefetch at 85 %, 1,119 against 1,108 µs and 2,559 against 2,646 µs.
-- Standing: conjecture (model *computed* against *measured* phases). Scope: sealed 4B, 4E v9, L40S.
-- Evidence: [large-4e-hors-poids-etude](mesures/large-4e-hors-poids-etude-2026-11-12.txt), a study note, section 1.
-- Overturn: a KV-read change that moves the phase by much less than its byte change.
-- Checked: 2026-11-12.
+- Standing: contradicted on one tile. An int8 cache at 0.531 of the bytes moves the phase at 8,192 from 2,667.5 to
+  2,619.1 µs, 1.8 % (*measured*), and the mean CTA work does not fall. The arm holds 8 B of local memory and adds
+  arithmetic a value, so the run does not say the phase is free of its bytes: it says fewer bytes did not buy time.
+- Scope: sealed 4B, 4E v9 and arm v9k8, L40S.
+- Evidence: [large-4e-hors-poids-etude](mesures/large-4e-hors-poids-etude-2026-11-12.txt), a study note, section 1;
+  against it, [recherche-debit-kv8-local](mesures/recherche-debit-kv8-local-2026-11-15.txt).
+- Overturn: a KV-read change that moves the phase by much less than its byte change. Met on 2026-11-15.
+- Checked: 2026-11-15.
 
-**P4.** An int8 KV cache does not pass the served tolerance at long context: its own measured interval leaves the
-±0.12 % band.
-- Standing: supported. Scope: 4B; the KV journal is Metal, short context, on the Planes14 file.
-- Evidence: [kvq8-4b](mesures/kvq8-4b-2026-08-15.txt); the band reading from
-  [large-4e-hors-poids-etude](mesures/large-4e-hors-poids-etude-2026-11-12.txt), section 2, cut C3.
-- Overturn: an int8 or int4 KV arm inside ±0.12 % at 8,192 on the sealed file.
-- Checked: 2026-11-12 (band reading not checked against the kvq8 figures).
+**P4.** An int8 KV cache holds the served tolerance at 8,192: +0.0126 % [−0.0485, +0.0737] of paired perplexity
+against the f16 cache. int8 keys with int4 values are not decided, +0.0206 % [−0.1359, +0.1774]; int4 keys fail,
++1.27 % behind a Hadamard and +141 % with a static step a RoPE pair.
+- Standing: established for the round trip, on the decode path. Scope: sealed 4B, WikiText-2, 12 windows of 8,192,
+  L40S; the cache stores f16, so no speed and no VRAM is read; the prefill path, the near-tie texts and GSM8K are
+  not scored.
+- Evidence: [recherche-debit-kv-ladder](mesures/recherche-debit-kv-ladder-2026-11-14.txt).
+- Overturn: an int8 arm outside the band on a second text or size, or on the prefill path.
+- Checked: 2026-11-14. Replaces the claim that int8 does not pass, read from a Metal interval at 4,096
+  (`HISTORIQUE.md`, 2026-11-14).
 
 ## D. Speculative decoding
 
@@ -839,6 +846,47 @@ leaves the phase.
   [guided-gateup-4b](mesures/guided-gateup-4b-2026-11-13.txt) and
   [guided-clip-gateup-4b](mesures/guided-clip-gateup-4b-2026-11-14.txt). The day-by-day account is the 2026-11-13
   entry of [`HISTORIQUE.md`](HISTORIQUE.md).
+
+**O13.** Closed 2026-11-15 by the operator, outcome: a dead hypothesis. MODE RECHERCHE on decode speed at long
+context, opened by the operator on 2026-11-14, after O11 closed on a ceiling at short context. Its mandate:
+
+| field | content |
+|---|---|
+| Axis | Decode speed of the served object at long context, in tok/s at the door after an 8,192-token prompt. Quality, whole-model b/param, VRAM, time to first token and the cost of producing an object are constraints. |
+| Starting point | A gap: the sealed 4B decodes 160.5 tok/s after 8,192 tokens against 225.8 after 5 (*measured*), and the attention phase is 2,646 of the 6,211 µs of that token (*measured*, [large-4e-hors-poids-etude](mesures/large-4e-hors-poids-etude-2026-11-12.txt)), with a KV read of 1,208 MB (*computed*) beside 1,378 MB of weights (P3). Every token reads the whole cache. Reading part of it has never been looked at here. |
+| Untouchable | As O11: the three sealed files, whole-model b/param at 2.73, no CUDA Graphs in the core. Logits may move, inside the served tolerance of ±0.12 % of paired perplexity. VRAM: the operator allows a minor impact (2026-11-14); the lead reads it as a side index of at most 0.1 GB at 4B that stays under the served 8k peak, and brings anything larger back to him. |
+| Budget | Five days, to 2026-11-19, and $10 of card, each job under a stamped prereg and the operator's go. The operator set the $25 cap of 2026-11-09 aside for this phase and asked the lead for the figure (2026-11-14). The $10 are *estimated*: a capture job, three to four paired-perplexity arms at 8,192 at about $0.50 each, a kernel arm in the token, a second size, and a margin for void runs (two of O11's eight were void). |
+
+The reading before the mandate (2026-11-14, two agents, $0) is in
+[recherche-debit-kv-r0](mesures/recherche-debit-kv-r0-2026-11-14.txt).
+
+State on 2026-11-15, $5.77 of $10. The capture that would have tested a partial read of the cache is built and
+stamped and was not run: the operator judged its chance too low. The phase moved to a smaller cache. The quality
+ladder ran ([recherche-debit-kv-ladder](mesures/recherche-debit-kv-ladder-2026-11-14.txt), P4): int8 keys and values
+pass at 8,192, at 0.531 of the f16 bytes. The int8 read was then written as a research arm of 4E, `v9k8`, proven bit
+for bit on the Mac against its reference. It does not load on the card
+([recherche-debit-kv8](mesures/recherche-debit-kv8-2026-11-14.txt), *measured*): 8 B of local memory at 128
+registers on the token symbol, where v9 holds 0 B. It changes the append and the attention only, so the 8 B wall of
+O11 is not a property of the row phases. The operator then had the arm timed as it is, the local-memory half of the load
+rule waived for it alone (`LLVQ_PERS_4E`, an arm named `+local`, a measurement mode;
+[recherche-debit-kv8-local](mesures/recherche-debit-kv8-local-2026-11-15.txt), *measured*). At 8,192 it decodes 164.4
+tok/s against v9's 162.6, x1.0109 [1.0108-1.0113], with v9's 256 tokens. At 5 tokens it decodes 219.4 against 226.9,
+x0.9668 [0.9664-0.9670]. The attention phase at 8,192 loses 1.8 % for 46.9 % fewer bytes: P3 is contradicted on this
+tile. The int8 read as written buys about 1 % at long context and costs 3 % at short. Not separated: the share of the
+8 B of local memory in that cost. Not established: any quality through the arm, any VRAM figure.
+
+Outcome, 2026-11-15, $5.77 of $10. No tok/s was gained. What the phase leaves:
+- Dead: that a smaller KV cache buys decode time at long context (P3). The space this holds for: the sealed 4B, 4E
+  v9's attention reading a group-affine int8 cache, one tile, with 8 B of local memory in the token symbol.
+- Kept by the operator as a memory lead, not as a speed lever: the int8 KV cache. It holds the served tolerance at
+  8,192 (P4) and would take the cache from 1,208 to 642 MB at 8,192 positions on the 4B (*computed*). Owed before any
+  served format: a form that frees the binary16 cache, the near-tie texts and GSM8K-200, the prefill path, the 8B and
+  the 14B, and the operator's decision.
+- Not run: a partial read of the cache. Its capture mode and scorer are built and stamped (prereg sha256 c678161c);
+  the operator judged the chance too low. Not run either: the extension of the int8/int4 arm to 36 windows.
+- Tools kept: the KV ladder (`LLVQ_KV_LADDER`), and the `+local` mark of `LLVQ_PERS_4E`, which times an arm whose
+  token symbol holds local memory. v9k8 is the first such symbol timed.
+- N5 stays open. It gains a fact: at 8,192 the attention phase does not follow the bytes of its cache.
 
 ## Beliefs we dropped
 

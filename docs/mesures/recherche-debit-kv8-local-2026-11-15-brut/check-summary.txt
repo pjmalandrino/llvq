@@ -1,0 +1,22 @@
+4E check: 2 arms, sm_89, #define TILE_BLOCKS 64u define, the sealed 4B's shape: 85952 B of dynamic shared memory
+4E check v9: module 253722 bytes, sha256 d55a097b146e8b962829045dfea6975470b408b942c1e0c22c038ad4d9d00860
+4E check v9: NVRTC 56.6 s
+CHECK v9 pers_4e_tokens_f0_t512: 128 registers, 0 B local, 85952 B shared, 1 resident a SM: loads
+CHECK v9 pers_4e_tokens_f1_t512: 128 registers, 0 B local, 85952 B shared, 1 resident a SM: loads
+CHECK v9 pers_4e_tokens_f2_t512: 128 registers, 0 B local, 85952 B shared, 1 resident a SM: loads
+CHECK v9 pers_4e_stamps_f1_t512: 128 registers, 32 B local, 85952 B shared, 1 resident a SM (outside the timed rounds)
+CHECK v9 pers_4e_logits_f1_t512: 128 registers, 0 B local, 85952 B shared, 1 resident a SM (outside the timed rounds)
+CHECK ARM v9 LOADS (100.6 s)
+4E check v9k8: module 275313 bytes, sha256 8b53b1cdb8d4ff6264fea1685a355045231655f8d6ac1a368c89a8b605c224f9
+4E check v9k8: NVRTC 57.7 s
+CHECK v9k8 pers_4e_tokens_f0_t512: 128 registers, 8 B local, 85952 B shared, 1 resident a SM: refused
+CHECK v9k8 pers_4e_tokens_f1_t512: 128 registers, 8 B local, 85952 B shared, 1 resident a SM: refused
+CHECK v9k8 pers_4e_tokens_f2_t512: 128 registers, 8 B local, 85952 B shared, 1 resident a SM: refused
+CHECK v9k8 pers_4e_stamps_f1_t512: 128 registers, 48 B local, 85952 B shared, 1 resident a SM (outside the timed rounds)
+CHECK v9k8 pers_4e_logits_f1_t512: 128 registers, 8 B local, 85952 B shared, 1 resident a SM (outside the timed rounds)
+CHECK v9k8 pers_kv8_fill: 36 registers, 0 B local (the fill, outside the timed rounds)
+CHECK ARM v9k8 REFUSED: pers_4e_tokens_f1_t512: 8 B local, 1 resident a SM (105.0 s)
+4E check: 2 arms one after the other, 205.6 s
+4E check done in 205.6 s
+the rule on v9k8, waived below: CHECK ARM v9k8 REFUSED: pers_4e_tokens_f1_t512: 8 B local, 1 resident a SM (105.0 s)
+arms timed: v9k8+local

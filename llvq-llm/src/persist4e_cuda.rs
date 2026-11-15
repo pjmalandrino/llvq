@@ -67,6 +67,10 @@ pub struct Runtime4e {
     /// The E1 arm of the module (`pers::P4E_E1_ARMS`), or none for a form's
     /// own module.
     pub e1_arm: Option<&'static str>,
+    /// The local memory of the token symbol, in bytes: 0 on every served
+    /// path; nonzero only for an arm installed by [`install_e1_local`]. The
+    /// driver's own type (`CU_FUNC_ATTRIBUTE_LOCAL_SIZE_BYTES`).
+    pub local_bytes: i32,
     pub threads: u32,
     /// The module's row form (`pers::P4E_ROWS_FORMS`).
     pub rows_form: u32,
@@ -108,6 +112,23 @@ pub struct Runtime4e {
     verify: Option<Verify4e>,
     /// The tree verify pass, once [`Runtime4e::install_tree`] has run.
     tree: Option<Tree4e>,
+    /// Arm v9k8's int8 caches (`pers::p4e_e1_k8`), or none.
+    k8: Option<Kv8>,
+}
+
+/// Arm v9k8's int8 KV caches (`kernels/pers_4e_k8.cuh`, `kv8_ref.rs`): one K
+/// and one V buffer a layer, `[n_kv][cap / 8][1,088]` bytes each, which the
+/// layer images name in place of the binary16 caches. The prefill's binary16
+/// caches stay the eager path's; `pers_kv8_fill` quantizes their positions
+/// into these before a launch that hands them over (`pers::p4e_k8_step`).
+/// The arm never writes the binary16 caches, and leaves their length alone.
+struct Kv8 {
+    fill: CudaFunction,
+    n_kv: u32,
+    bufs: Vec<(CudaSlice<u8>, CudaSlice<u8>)>,
+    state: pers::K8State,
+    /// The binary16 caches' (K, V) addresses the int8 ones were filled from.
+    f16_seen: Vec<(u64, u64)>,
 }
 
 /// Which symbol a launch runs: the token loop, its phase stamps, or an E1
@@ -477,7 +498,7 @@ pub fn install_rows_as(
     install_inner(model, device, max_tokens, threads, rows_form, smem_of, None)
 }
 
-/// An E1 arm (`pers::P4E_E1_ARMS`: "v9", "v9np", "v9mv"), a measurement:
+/// An E1 arm (`pers::P4E_E1_ARMS`: "v9", "v9np", "v9mv", ..., "v9k8"), a measurement:
 /// row form 7's module with the arm's edits (`pers::p4e_e1_unit_text`; the
 /// served v9 module's text does not move), at 512 threads, with its logits
 /// symbol. Experiment E1 of `docs/mesures/large-4e-budget-2026-11-11.txt`.
@@ -586,7 +607,7 @@ fn check_one_arm(
         let f = cuda.func_dynamic_shared(sym, smem)?;
         let r = cuda.report(sym)?;
         let occ = f.occupancy_max_active_blocks_per_multiprocessor(512, smem as usize, None).map_err(|e| format!("occupancy: {e}"))?;
-        let ok = r.local_bytes == 0 && occ >= 1;
+        let ok = pers::p4e_token_symbol_loads(r.local_bytes, occ, false);
         let tail = match (sym.contains("_tokens_"), ok) {
             (true, true) => ": loads",
             (true, false) => ": refused",
@@ -597,6 +618,13 @@ fn check_one_arm(
             decides = if ok { Ok(()) } else { Err(format!("{sym}: {} B local, {occ} resident a SM", r.local_bytes)) };
         }
     }
+    // v9k8's fill, a plain launch outside the timed rounds: printed, never decisive
+    if pers::p4e_e1_k8(arm) {
+        let sym = pers::P4E_K8_FILL_SYMBOL;
+        cuda.func(sym)?;
+        let r = cuda.report(sym)?;
+        lines.push(format!("CHECK {arm} {sym}: {} registers, {} B local (the fill, outside the timed rounds)", r.num_regs, r.local_bytes));
+    }
     decides
 }
 
@@ -605,7 +633,19 @@ pub fn install_e1(model: &Qwen3, device: &Device, max_tokens: u32, arm: &str) ->
         .iter()
         .find(|a| **a == arm)
         .ok_or_else(|| anyhow::anyhow!("4E E1: no arm {arm:?}; the arms are {:?}", pers::P4E_E1_ARMS))?;
-    install_inner(model, device, max_tokens, Some(512), 7, None, Some(arm))
+    install_inner(model, device, max_tokens, Some(512), 7, None, Some((arm, false)))
+}
+
+/// [`install_e1`] with the local-memory half of the load rule waived
+/// (`pers::p4e_token_symbol_loads`, `spill`): MEASUREMENT ONLY, for an arm
+/// `LLVQ_PERS_4E` names `<arm>+local`. The runtime carries the bytes
+/// ([`Runtime4e::local_bytes`]) and its label prints them.
+pub fn install_e1_local(model: &Qwen3, device: &Device, max_tokens: u32, arm: &str) -> anyhow::Result<Runtime4e> {
+    let arm = *pers::P4E_E1_ARMS
+        .iter()
+        .find(|a| **a == arm)
+        .ok_or_else(|| anyhow::anyhow!("4E E1: no arm {arm:?}; the arms are {:?}", pers::P4E_E1_ARMS))?;
+    install_inner(model, device, max_tokens, Some(512), 7, None, Some((arm, true)))
 }
 
 fn install_inner(
@@ -615,8 +655,10 @@ fn install_inner(
     threads: Option<u32>,
     rows_form: u32,
     smem_of: Option<u32>,
-    e1_arm: Option<&'static str>,
+    e1: Option<(&'static str, bool)>,
 ) -> anyhow::Result<Runtime4e> {
+    // an E1 arm, and whether the local-memory half of the load rule is waived for it
+    let (e1_arm, spill) = (e1.map(|e| e.0), e1.is_some_and(|e| e.1));
     let dev = device.as_cuda_device()?;
     let stream = dev.cuda_stream();
     let mut lines = Vec::new();
@@ -673,13 +715,21 @@ fn install_inner(
             .occupancy_max_active_blocks_per_multiprocessor(threads, smem as usize, None)
             .map_err(|e| anyhow::anyhow!("occupancy: {e}"))?;
         lines.push(format!("4E: {sym}: {} registers, {} B local, {smem} B shared, {occ} resident a SM", r.num_regs, r.local_bytes));
-        if r.local_bytes == 0 && occ >= 1 {
-            chosen = Some((f, threads));
+        if pers::p4e_token_symbol_loads(r.local_bytes, occ, spill) {
+            if r.local_bytes != 0 {
+                lines.push(format!(
+                    "4E: MEASUREMENT ONLY: {sym} holds {} B of local memory and loads because its arm was named {}; \
+                     the load rule refuses it on every other path",
+                    r.local_bytes,
+                    pers::P4E_LOCAL_SUFFIX
+                ));
+            }
+            chosen = Some((f, threads, r.local_bytes));
             break;
         }
     }
     // The refusal names what each block size read (step2-4e did not print it).
-    let (f, threads) = chosen.ok_or_else(|| anyhow::anyhow!("4E: every block size asked for spills or fails its occupancy: {}", lines.join("; ")))?;
+    let (f, threads, local_bytes) = chosen.ok_or_else(|| anyhow::anyhow!("4E: every block size asked for spills or fails its occupancy: {}", lines.join("; ")))?;
     // The stamp symbol of the chosen geometry, kept where one CTA a SM fits.
     // It may hold local memory where the token symbol does not (768 threads
     // under the devel ptxas): its launch runs outside the timed rounds, and
@@ -718,6 +768,28 @@ fn install_inner(
         }
     };
     let grid = cuda.device().map_err(anyhow::Error::msg)?.sm_count as u32;
+    // Arm v9k8: the fill symbol (outside the timed rounds, a launch of its own
+    // before a launch that takes over the prefill's cache).
+    let k8 = match e1_arm {
+        Some(arm) if pers::p4e_e1_k8(arm) => {
+            let fill = cuda.func(pers::P4E_K8_FILL_SYMBOL).map_err(anyhow::Error::msg)?;
+            let r = cuda.report(pers::P4E_K8_FILL_SYMBOL).map_err(anyhow::Error::msg)?;
+            let per_pos = 2 * llvq_cuda::kv8_ref::POS_BYTES * n_kv * model.blocks.len();
+            lines.push(format!(
+                "4E v9k8: int8 KV caches, {} B a position and head, {per_pos} B a position ({:.4} of binary16's {}), \
+                 {:.1} MB at 8,192 positions; the fill {}: {} registers, {} B local",
+                llvq_cuda::kv8_ref::POS_BYTES,
+                per_pos as f64 / (512 * n_kv * model.blocks.len()) as f64,
+                512 * n_kv * model.blocks.len(),
+                (per_pos * 8192) as f64 / 1e6,
+                pers::P4E_K8_FILL_SYMBOL,
+                r.num_regs,
+                r.local_bytes
+            ));
+            Some(Kv8 { fill, n_kv: n_kv as u32, bufs: Vec::new(), state: pers::K8State::default(), f16_seen: Vec::new() })
+        }
+        _ => None,
+    };
 
     // The tied table.
     let emb = match embed {
@@ -1045,6 +1117,7 @@ fn install_inner(
         f_stamp,
         f_logits,
         e1_arm,
+        local_bytes,
         threads,
         rows_form,
         grid,
@@ -1078,6 +1151,7 @@ fn install_inner(
         inter,
         verify: None,
         tree: None,
+        k8,
     })
 }
 
@@ -1120,7 +1194,8 @@ impl Runtime4e {
     /// threads".
     pub fn label(&self) -> String {
         if let Some(arm) = self.e1_arm {
-            return format!("e1:{arm} at {} threads", self.threads);
+            let local = if self.local_bytes == 0 { String::new() } else { format!(", {} B local", self.local_bytes) };
+            return format!("e1:{arm} at {} threads{local}", self.threads);
         }
         let form = pers::P4E_ROWS_FORMS.iter().find(|f| f.0 == self.rows_form).map_or("v?", |f| f.1);
         let pad = if self.padded { "s" } else { "" };
@@ -1210,7 +1285,11 @@ impl Runtime4e {
                 self.kernel_from
             );
         }
-        self.prepare(caches, pos0, n as usize)?;
+        if self.k8.is_some() {
+            self.prepare_k8(caches, pos0, n as usize)?;
+        } else {
+            self.prepare(caches, pos0, n as usize)?;
+        }
         let stream = self.cuda.stream().clone();
         stream
             .memcpy_htod(&vec![u32::MAX; self.max_tokens as usize], &mut self.ring)
@@ -1263,8 +1342,15 @@ impl Runtime4e {
         }
         let (made, bar_base) = pers::p4e_after_launch(&ring, n, self.bar_base, self.n_layers, self.grid);
         self.bar_base = bar_base;
-        for c in caches.iter_mut() {
-            c.set_len(pos0 + made.len())?;
+        match self.k8.as_mut() {
+            // v9k8 wrote its positions into the int8 caches only: the binary16
+            // caches keep the length the eager path left
+            Some(k8) => k8.state.own = pos0 + made.len(),
+            None => {
+                for c in caches.iter_mut() {
+                    c.set_len(pos0 + made.len())?;
+                }
+            }
         }
         let stamps = match stamps {
             Some(d) => {
@@ -2302,6 +2388,116 @@ impl Runtime4e {
             self.kv_seen = seen;
         }
         Ok(())
+    }
+
+    /// Arm v9k8 before a launch of `n` positions from `pos0`
+    /// (`pers::p4e_k8_step`): grow the int8 caches (copying each head's blocks
+    /// when they held something), quantize the positions the launch takes over
+    /// from the binary16 caches (`pers_kv8_fill`, one launch a layer), and
+    /// re-upload the images, whose kc and vc name the int8 caches and whose
+    /// cap is theirs, when a buffer moved. The binary16 caches are read, never
+    /// grown or written.
+    fn prepare_k8(&mut self, caches: &[KvCache], pos0: usize, n: usize) -> anyhow::Result<()> {
+        let mut k8 = self.k8.take().expect("a v9k8 runtime");
+        let r = self.prepare_k8_with(&mut k8, caches, pos0, n);
+        self.k8 = Some(k8);
+        r
+    }
+
+    /// [`Self::prepare_k8`] with the int8 state taken out of `self`.
+    fn prepare_k8_with(&mut self, k8: &mut Kv8, caches: &[KvCache], pos0: usize, n: usize) -> anyhow::Result<()> {
+        let stream = self.cuda.stream().clone();
+        {
+            let mut f16 = Vec::with_capacity(caches.len());
+            let mut len16 = None;
+            let mut cap16 = None;
+            for c in caches.iter() {
+                let (k, v) = c.grow_buffers().ok_or_else(|| anyhow::anyhow!("4E v9k8: a cache with no Grow buffer"))?;
+                if *len16.get_or_insert(c.len()) != c.len() || *cap16.get_or_insert(k.dim(2)?) != k.dim(2)? {
+                    anyhow::bail!("4E v9k8: the layers' binary16 caches differ in length or capacity");
+                }
+                f16.push((tensor_addr(k, &stream)?, tensor_addr(v, &stream)?));
+            }
+            let (len16, cap16) = (len16.unwrap_or(0), cap16.unwrap_or(0));
+            let moved = f16 != k8.f16_seen;
+            let step = pers::p4e_k8_step(k8.state, moved, len16, pos0, n, MAX_CAP).map_err(anyhow::Error::msg)?;
+            let blk = pers::P4E_K8_BLK as usize;
+            if step.grow {
+                let (old, new) = (k8.state.cap, step.next.cap);
+                let bytes = llvq_cuda::kv8_ref::cache_bytes(k8.n_kv as usize, new);
+                let mut bufs = Vec::with_capacity(caches.len());
+                for l in 0..caches.len() {
+                    let mut kb = stream.alloc_zeros::<u8>(bytes).map_err(|e| anyhow::anyhow!("alloc int8 K: {e}"))?;
+                    let mut vb = stream.alloc_zeros::<u8>(bytes).map_err(|e| anyhow::anyhow!("alloc int8 V: {e}"))?;
+                    if step.copy_old {
+                        let (ok, ov) = &k8.bufs[l];
+                        let (ho, hn) = (old / 8 * blk, new / 8 * blk);
+                        for h in 0..k8.n_kv as usize {
+                            stream
+                                .memcpy_dtod(&ok.slice(h * ho..(h + 1) * ho), &mut kb.slice_mut(h * hn..h * hn + ho))
+                                .map_err(|e| anyhow::anyhow!("D2D int8 K: {e}"))?;
+                            stream
+                                .memcpy_dtod(&ov.slice(h * ho..(h + 1) * ho), &mut vb.slice_mut(h * hn..h * hn + ho))
+                                .map_err(|e| anyhow::anyhow!("D2D int8 V: {e}"))?;
+                        }
+                    }
+                    bufs.push((kb, vb));
+                }
+                k8.bufs = bufs;
+            }
+            if let Some((a, b)) = step.fill {
+                let (cap8, n_kv) = (step.next.cap as u32, k8.n_kv);
+                let (lo, hi, c16) = (a as u32, b as u32, cap16 as u32);
+                let warps = (hi - lo) * n_kv * 2;
+                let cfg = LaunchConfig { grid_dim: (warps.div_ceil(8).clamp(1, 4096), 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 0 };
+                for (l, &(k16, v16)) in f16.iter().enumerate() {
+                    let (kb, vb) = &mut k8.bufs[l];
+                    let mut b = stream.launch_builder(&k8.fill);
+                    b.arg(&k16).arg(&v16).arg(kb).arg(vb).arg(&n_kv).arg(&c16).arg(&cap8).arg(&lo).arg(&hi);
+                    // SAFETY: pers_kv8_fill's own signature; k16 and v16 are live binary16
+                    // caches of n_kv x cap16 x 128 holding positions [lo, hi), the int8
+                    // buffers hold n_kv x cap8 / 8 blocks, hi <= cap8 (pers::p4e_k8_step).
+                    unsafe { b.launch(cfg) }.map_err(|e| anyhow::anyhow!("pers_kv8_fill: {e}"))?;
+                }
+            }
+            k8.state = step.next;
+            k8.f16_seen = f16;
+            let seen: Vec<(usize, u64, u64)> = k8
+                .bufs
+                .iter()
+                .map(|(kb, vb)| (step.next.cap, kb.device_ptr(&stream).0, vb.device_ptr(&stream).0))
+                .collect();
+            if seen != self.kv_seen {
+                let mut img = Vec::with_capacity(pers::P4E_LAYER_BYTES * seen.len());
+                for (h, &(_, k, v)) in self.layers_host.iter_mut().zip(&seen) {
+                    h.kc = k;
+                    h.vc = v;
+                    img.extend(h.bytes());
+                }
+                stream.memcpy_htod(&img, &mut self.layers).map_err(|e| anyhow::anyhow!("H2D: {e}"))?;
+                self.args_host.ptrs[0] = self.layers.device_ptr(&stream).0;
+                self.args_host.cap = step.next.cap as u32;
+                stream.memcpy_htod(&self.args_host.bytes(), &mut self.args).map_err(|e| anyhow::anyhow!("H2D: {e}"))?;
+                self.kv_seen = seen;
+            }
+            Ok(())
+        }
+    }
+
+    /// Arm v9k8's int8 caches as they stand: capacity, bytes on the card,
+    /// the positions quantized from the binary16 caches; none for another
+    /// runtime.
+    pub fn kv8_report(&self) -> Option<String> {
+        let k8 = self.k8.as_ref()?;
+        let bytes = 2 * k8.bufs.len() * llvq_cuda::kv8_ref::cache_bytes(k8.n_kv as usize, k8.state.cap);
+        Some(format!(
+            "4E v9k8: int8 KV caches at a capacity of {} positions, {:.1} MB on the card ({} layers), positions [0, {}) \
+             quantized from the prefill's binary16 caches, which stay allocated beside them for the eager path",
+            k8.state.cap,
+            bytes as f64 / 1e6,
+            k8.bufs.len(),
+            k8.state.hand
+        ))
     }
 
     /// Synchronise the stream (timing).
