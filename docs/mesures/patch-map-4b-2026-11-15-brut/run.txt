@@ -1,0 +1,156 @@
+versions: {'torch': '2.5.1', 'safetensors': '0.4.5', 'tokenizers': '0.22.2', 'pyarrow': '20.0.0', 'huggingface_hub': '1.19.0'}
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+
+tokenizer.json:   0%|          | 0.00/11.4M [00:00<?, ?B/s][Atokenizer.json: 100%|██████████| 11.4M/11.4M [00:00<00:00, 37.8MB/s]
+
+all/test-00000-of-00001.parquet:   0%|          | 0.00/3.50M [00:00<?, ?B/s][Aall/test-00000-of-00001.parquet: 100%|██████████| 3.50M/3.50M [00:00<00:00, 22.7MB/s]
+
+all/dev-00000-of-00001.parquet:   0%|          | 0.00/76.5k [00:00<?, ?B/s][Aall/dev-00000-of-00001.parquet: 100%|██████████| 76.5k/76.5k [00:00<00:00, 616kB/s]
+prompts: 14042 questions, 57 subjects, 285 dev examples, tokenized in 11.6 s; run fingerprint a74a6d6213602979 (dumps a74a6d6213602979)
+questions: the first 570 of the round robin equal contrast-map's questions.tsv row for row: True
+==    13.5 s  inputs checked
+export: /out/sealed-4b-export-2026-09-23/model.safetensors staged to /tmp/pm-export/model.safetensors, sha256 2a018cbdea37849c6fde29576e75aefb9125d9964e20e78bd3afb2a0948bba59
+
+config.json:   0%|          | 0.00/726 [00:00<?, ?B/s][Aconfig.json: 100%|██████████| 726/726 [00:00<00:00, 3.35MB/s]
+
+model-00001-of-00003.safetensors:   0%|          | 0.00/3.96G [00:00<?, ?B/s][A
+model-00001-of-00003.safetensors:   0%|          | 39.5k/3.96G [00:01<29:01:54, 37.9kB/s][A
+model-00001-of-00003.safetensors:   7%|▋         | 268M/3.96G [00:02<00:24, 153MB/s]     [A
+model-00001-of-00003.safetensors:  14%|█▎        | 536M/3.96G [00:03<00:18, 180MB/s][A
+model-00001-of-00003.safetensors:  30%|██▉       | 1.18G/3.96G [00:06<00:15, 182MB/s][A
+model-00001-of-00003.safetensors:  44%|████▍     | 1.74G/3.96G [00:10<00:12, 174MB/s][A
+model-00001-of-00003.safetensors:  58%|█████▊    | 2.29G/3.96G [00:13<00:09, 172MB/s][A
+model-00001-of-00003.safetensors:  71%|███████   | 2.82G/3.96G [00:16<00:06, 175MB/s][A
+model-00001-of-00003.safetensors:  85%|████████▍ | 3.35G/3.96G [00:19<00:03, 182MB/s][A
+model-00001-of-00003.safetensors:  99%|█████████▊| 3.91G/3.96G [00:22<00:00, 183MB/s][Amodel-00001-of-00003.safetensors: 100%|██████████| 3.96G/3.96G [00:22<00:00, 177MB/s]
+checkpoint: model-00001-of-00003.safetensors sha256 328a91d3122359d5547f9d79521205bc0a46e1f79a792dfe650e99fc2d651223
+
+model-00002-of-00003.safetensors:   0%|          | 0.00/3.99G [00:00<?, ?B/s][A
+model-00002-of-00003.safetensors:   7%|▋         | 266M/3.99G [00:01<00:14, 254MB/s][A
+model-00002-of-00003.safetensors:  21%|██        | 831M/3.99G [00:03<00:11, 264MB/s][A
+model-00002-of-00003.safetensors:  34%|███▎      | 1.34G/3.99G [00:06<00:14, 188MB/s][A
+model-00002-of-00003.safetensors:  47%|████▋     | 1.87G/3.99G [00:09<00:10, 200MB/s][A
+model-00002-of-00003.safetensors:  61%|██████    | 2.42G/3.99G [00:11<00:07, 205MB/s][A
+model-00002-of-00003.safetensors:  74%|███████▍  | 2.95G/3.99G [00:13<00:04, 215MB/s][A
+model-00002-of-00003.safetensors:  87%|████████▋ | 3.48G/3.99G [00:16<00:02, 220MB/s][A
+model-00002-of-00003.safetensors: 100%|█████████▉| 3.99G/3.99G [00:18<00:00, 223MB/s][Amodel-00002-of-00003.safetensors: 100%|██████████| 3.99G/3.99G [00:18<00:00, 216MB/s]
+checkpoint: model-00002-of-00003.safetensors sha256 6cd087b316306a68c562436b5492edbcf6e16c6dba3a1308279caa5a58e21ca5
+
+model-00003-of-00003.safetensors:   0%|          | 0.00/99.6M [00:00<?, ?B/s][Amodel-00003-of-00003.safetensors: 100%|██████████| 99.6M/99.6M [00:00<00:00, 135MB/s]
+checkpoint: model-00003-of-00003.safetensors sha256 e4bf436957184f4eeb86a80e9db394503f1f56446b2e6b7edeac5b81470f4ca1
+tensors: 398 each, 252 projections (0 identical in W and W_hat), 146 others (145 identical: model.embed_tokens.weight)
+loaded in 94 s
+==   131.4 s  loaded, bases fp16 a0ca1763b6cf4f11 sealed f5ea5a81d1588826
+pass 1: 57 prompts in 27.7 s, projected 277 s (cap 600)
+==   416.5 s  pass 1: 570 prompts, 345007 tokens, 285 s
+==   417.6 s  band basis, depth 12
+  pass 2: 57 prompts, 114 s
+  pass 2: 114 prompts, 186 s
+pass 2: projected pass 1 + pass 2 1047 s (cap 1800)
+  pass 2: 171 prompts, 258 s
+  pass 2: 228 prompts, 329 s
+  pass 2: 285 prompts, 400 s
+  pass 2: 342 prompts, 472 s
+  pass 2: 399 prompts, 544 s
+  pass 2: 456 prompts, 616 s
+  pass 2: 513 prompts, 687 s
+  pass 2: 570 prompts, 758 s
+==  1175.8 s  pass 2: 570 prompts, 758 s, 684 checks on the first 57
+==  1199.8 s  bases unchanged by sha256: True
+inputs: checkpoint Qwen/Qwen3-4B@1cfa9a7208912126459214e8b04321603b3df60c; export sha256 2a018cbdea37849c6fde29576e75aefb9125d9964e20e78bd3afb2a0948bba59; cais/mmlu@c30699e8356da336a370243923dbaf21066bb9fe; run fingerprint a74a6d6213602979; answer ids [362, 425, 356, 422]
+questions: 570, contrast-map's, 345007 tokens; pass 1 285 s, pass 2 782 s
+bases unchanged by sha256: True; non-projection tensors identical in W and W_hat: 145 of 146
+
+GATES, 570 questions
+  rule D: picks equal to the Rust dumps 0.9947 (FP16), 0.9912 (control); slope script 0.6042 dump 0.6047: GREEN
+  self-patch with the sealed stream, 4 forms, 57 prompts: 228 of 228 bit for bit (worst |dlogit| 0.000e+00)
+  whole-stream patch at depths (4, 8, 12, 16, 20) against FP16 blocks 0..d-1 then sealed, every later depth and the output: 285 of 285 bit for bit
+  FP16 logits, pass 2 against pass 1: 570 of 570 bit for bit
+  three bands together against the whole stream at depth 12: picks equal 1.0000, worst |dlogit| 3.125e-02, worst |dstream| 1.526e-05
+  explicit attention row, no patch, against SDPA: picks equal to control 0.9947 on 570, worst |dlogit| 1.422e+00, worst |d attention row| 2.186e+00 on 57 prompts
+  FP16 h(0) and FP16's two branches at blocks 0-11 in the sealed run give FP16's h(12) and d12's logits: 57 of 57 bit for bit (worst |dh(12)| 0.000e+00)
+  against contrast-map-4b: FP16 419 right (419 there), control 378 (378); picks equal 1.0000 and 1.0000: GREEN
+  all-position relative error of the 252 matrices against contrast-map's matrices.tsv, both inputs: worst relative difference 4.67e-09 (at most 0.001)
+  reported: lens accuracy at depth 25, FP16 0.7228 (0.7228 there), control 0.6386 (0.6386 there)
+  reported: depth-12 energy shares of contrast-map's five bands, here / there: 9.5713e-01/9.5713e-01, 1.5685e-02/1.5685e-02, 7.8098e-03/7.8098e-03, 1.1885e-02/1.1885e-02, 7.4942e-03/7.4942e-03
+  GATES: GREEN (all pass)
+
+ARMS: accuracy at the output and through FP16's lens at depth 25; paired against the control; share of the FP16-control gap recovered, paired bootstrap 95 %
+  arm                  acc     lens25  minus control [95 %]        b/c      p        share of gap [95 %]     lens share [95 %]       slope d12 [1, 64] [65, 512] [513, 2560]
+  fp16                  73.51   72.28   +7.19 [ +3.52, +10.87]   79/38   1.89e-04  +1.000 [+1.000, +1.000]  +1.000 [+1.000, +1.000]  1.000 1.000 1.000
+  control               66.32   63.86   +0.00 [ +0.00,  +0.00]    0/0    1.00e+00  +0.000 [+0.000, +0.000]  +0.000 [+0.000, +0.000]  0.990 0.636 0.470
+  d4                    67.89   64.04   +1.58 [ +0.01,  +3.15]   15/6    7.84e-02  +0.220 [+0.000, +0.500]  +0.021 [-0.306, +0.265]  0.974 0.711 0.569
+  d8                    68.25   65.26   +1.93 [ -0.71,  +4.57]   35/24   1.93e-01  +0.268 [-0.121, +0.649]  +0.167 [-0.184, +0.453]  0.948 0.813 0.721
+  d12                   71.40   67.89   +5.09 [ +2.10,  +8.08]   53/24   1.26e-03  +0.707 [+0.362, +1.250]  +0.479 [+0.153, +0.806]  1.000 1.000 1.000
+  d16                   71.75   67.89   +5.44 [ +2.19,  +8.69]   61/30   1.52e-03  +0.756 [+0.409, +1.200]  +0.479 [+0.121, +0.755]  0.990 0.636 0.470
+  d20                   71.75   68.60   +5.44 [ +1.98,  +8.90]   67/36   2.93e-03  +0.756 [+0.429, +1.083]  +0.562 [+0.184, +0.816]  0.990 0.636 0.470
+  d12_b1-64             67.37   63.33   +1.05 [ -0.70,  +2.80]   16/10   3.27e-01  +0.146 [-0.114, +0.435]  -0.062 [-0.343, +0.160]  1.000 0.636 0.470
+  d12_b65-512           67.72   64.39   +1.40 [ -0.66,  +3.46]   22/14   2.43e-01  +0.195 [-0.129, +0.483]  +0.062 [-0.225, +0.288]  0.990 1.000 0.470
+  d12_b513-2560         69.65   66.84   +3.33 [ +0.62,  +6.05]   41/22   2.26e-02  +0.463 [+0.111, +0.875]  +0.354 [+0.026, +0.647]  0.990 0.636 1.000
+  d12_ans               66.32   62.98   +0.00 [ -0.84,  +0.84]    3/3    1.00e+00  +0.000 [-0.146, +0.129]  -0.104 [-0.324, +0.039]  1.000 1.000 1.000
+  d12_notans            70.70   65.96   +4.39 [ +1.47,  +7.30]   49/24   4.63e-03  +0.610 [+0.263, +1.086]  +0.250 [-0.167, +0.558]  0.990 0.636 0.470
+  d12_massive           66.49   63.68   +0.18 [ -0.17,  +0.52]    1/0    1.00e+00  +0.024 [+0.000, +0.103]  -0.021 [-0.133, +0.077]  0.990 0.636 0.470
+  d12_b513-2560_ans     65.96   63.68   -0.35 [ -1.04,  +0.34]    1/3    6.25e-01  -0.049 [-0.192, +0.040]  -0.021 [-0.136, +0.073]  0.990 0.636 1.000
+  attn_explicit         66.32   63.51   +0.00 [ -0.49,  +0.49]    1/1    1.00e+00  +0.000 [-0.081, +0.077]  -0.042 [-0.135, +0.000]  0.979 0.603 0.436
+  attn_fp16_7-13        66.67   62.98   +0.35 [ -0.74,  +1.44]    6/4    7.54e-01  +0.049 [-0.125, +0.216]  -0.104 [-0.300, +0.018]  0.977 0.645 0.556
+  attn_0-11             53.68   51.40  -12.63 [-16.41,  -8.85]   29/101  1.58e-10  -1.756 [-4.053, -0.939]  -1.479 [-3.037, -0.818]  0.899 0.700 0.686
+  mlp_0-11              69.30   65.96   +2.98 [ -0.10,  +6.07]   49/32   7.48e-02  +0.415 [+0.000, +0.800]  +0.250 [-0.154, +0.559]  1.014 0.964 1.003
+
+SHAPE: c = cosine of the centred four logits with FP16's; share s = (C - C_control) / (1 - C_control), output and lens 25, paired bootstrap 95 %; mean KL(FP16 || arm) over the four options; mean log-probability of FP16's pick
+  arm                  C        s [95 %]                 C lens   s lens [95 %]            KL [95 %]                 log p(FP16 pick) [95 %]    degenerate
+  fp16                 1.00000  +1.000 [+1.000, +1.000]  1.00000  +1.000 [+1.000, +1.000]  0.0000 [0.0000, 0.0000]  -0.1518 [-0.1726, -0.1322]  0/0
+  control              0.76879  +0.000 [+0.000, +0.000]  0.78877  +0.000 [+0.000, +0.000]  0.4345 [0.3654, 0.5101]  -0.6727 [-0.7635, -0.5838]  0/0
+  d4                   0.77773  +0.039 [-0.001, +0.078]  0.79255  +0.018 [-0.019, +0.054]  0.4150 [0.3504, 0.4832]  -0.6542 [-0.7418, -0.5670]  0/0
+  d8                   0.80330  +0.149 [+0.071, +0.222]  0.81715  +0.134 [+0.064, +0.202]  0.3654 [0.3072, 0.4282]  -0.5976 [-0.6813, -0.5169]  0/0
+  d12                  0.85887  +0.390 [+0.310, +0.463]  0.85526  +0.315 [+0.236, +0.389]  0.2696 [0.2203, 0.3251]  -0.4892 [-0.5649, -0.4178]  0/0
+  d16                  0.89870  +0.562 [+0.493, +0.623]  0.88378  +0.450 [+0.368, +0.524]  0.1610 [0.1334, 0.1906]  -0.3843 [-0.4433, -0.3282]  0/0
+  d20                  0.92493  +0.675 [+0.618, +0.724]  0.91551  +0.600 [+0.528, +0.664]  0.0790 [0.0683, 0.0901]  -0.2778 [-0.3145, -0.2417]  0/0
+  d12_b1-64            0.77634  +0.033 [-0.011, +0.079]  0.79090  +0.010 [-0.028, +0.048]  0.4207 [0.3515, 0.4958]  -0.6585 [-0.7501, -0.5689]  0/0
+  d12_b65-512          0.80202  +0.144 [+0.096, +0.192]  0.80776  +0.090 [+0.042, +0.138]  0.3658 [0.3054, 0.4314]  -0.5961 [-0.6778, -0.5165]  0/0
+  d12_b513-2560        0.84619  +0.335 [+0.264, +0.403]  0.83832  +0.235 [+0.157, +0.307]  0.2975 [0.2480, 0.3522]  -0.5174 [-0.5951, -0.4441]  0/0
+  d12_ans              0.76848  -0.001 [-0.015, +0.012]  0.78930  +0.003 [-0.014, +0.018]  0.4381 [0.3679, 0.5132]  -0.6747 [-0.7663, -0.5857]  0/0
+  d12_notans           0.85631  +0.379 [+0.297, +0.453]  0.84833  +0.282 [+0.200, +0.359]  0.2755 [0.2269, 0.3298]  -0.4978 [-0.5733, -0.4260]  0/0
+  d12_massive          0.76870  -0.000 [-0.006, +0.005]  0.78777  -0.005 [-0.009, -0.001]  0.4309 [0.3628, 0.5052]  -0.6707 [-0.7604, -0.5829]  0/0
+  d12_b513-2560_ans    0.77229  +0.015 [+0.002, +0.031]  0.79042  +0.008 [-0.004, +0.020]  0.4372 [0.3674, 0.5133]  -0.6749 [-0.7667, -0.5858]  0/0
+  attn_explicit        0.76770  -0.005 [-0.010, +0.000]  0.78747  -0.006 [-0.017, +0.005]  0.4352 [0.3662, 0.5098]  -0.6735 [-0.7641, -0.5852]  0/0
+  attn_fp16_7-13       0.76708  -0.007 [-0.017, +0.002]  0.78731  -0.007 [-0.025, +0.011]  0.4397 [0.3690, 0.5165]  -0.6774 [-0.7696, -0.5871]  0/0
+  attn_0-11            0.59245  -0.763 [-0.987, -0.572]  0.65665  -0.625 [-0.810, -0.463]  0.7123 [0.6362, 0.7916]  -0.9762 [-1.0667, -0.8893]  0/0
+  mlp_0-11             0.84532  +0.331 [+0.250, +0.407]  0.83499  +0.219 [+0.126, +0.305]  0.2982 [0.2458, 0.3570]  -0.5167 [-0.5947, -0.4431]  0/0
+  reported: control's answer-position slope of band [513, 2560] at depth 12, contrast_map.band_table 0.4697 (0.4697 in contrast-map), here 0.4697
+
+MATRICES BY POSITION: relative error S_ee/S_yy pooled over the 36 layers of a type, answer position against every position, and every position but the massive ones; FP16 inputs (primary) and sealed inputs
+  type        x       rel all      rel answer   answer/all [95 %]          rel nonmassive  nonmassive/all
+  q_proj      fp16    1.37218e-02  1.42999e-02  1.042 [1.029, 1.055]     1.37174e-02     1.000
+  q_proj      sealed  1.28359e-02  1.30498e-02  1.017 [1.007, 1.027]     1.28317e-02     1.000
+  k_proj      fp16    1.64741e-02  2.01256e-02  1.222 [1.208, 1.236]     1.64717e-02     1.000
+  k_proj      sealed  1.58157e-02  1.89383e-02  1.197 [1.185, 1.210]     1.58132e-02     1.000
+  v_proj      fp16    2.12438e-02  3.18680e-02  1.500 [1.489, 1.511]     2.12375e-02     1.000
+  v_proj      sealed  2.08278e-02  3.20764e-02  1.540 [1.530, 1.551]     2.08220e-02     1.000
+  o_proj      fp16    7.80891e-03  8.49969e-03  1.088 [1.079, 1.098]     7.81086e-03     1.000
+  o_proj      sealed  7.36294e-03  7.90798e-03  1.074 [1.064, 1.085]     7.36398e-03     1.000
+  gate_proj   fp16    4.96299e-03  4.72986e-03  0.953 [0.944, 0.962]     4.96208e-03     1.000
+  gate_proj   sealed  4.91999e-03  4.80945e-03  0.978 [0.968, 0.987]     4.91951e-03     1.000
+  up_proj     fp16    3.70754e-02  4.38765e-02  1.183 [1.169, 1.197]     3.69741e-02     0.997
+  up_proj     sealed  3.64867e-02  4.08269e-02  1.119 [1.105, 1.132]     3.63925e-02     0.997
+  down_proj   fp16    1.61111e-02  1.66148e-02  1.031 [1.006, 1.057]     1.89765e-02     1.178
+  down_proj   sealed  1.56494e-02  1.53717e-02  0.982 [0.959, 1.007]     2.05265e-02     1.312
+  the four low matrices (1 gate_proj, 2 gate_proj, 3 gate_proj, 6 down_proj), FP16 inputs, pooled: nonmassive/all 1.005 [1.005, 1.005]; each: 1.000, 1.000, 1.000, 47.006
+
+MASSIVE POSITIONS: FP16 h(8) norm over the prompt's median above 10, answer position excluded. A prompt holds 1 to 1, median 1; prompts with 0, 1, 2, 3, 4, 5+: 0, 570, 0, 0, 0, 0. Position 0 is massive in 570 of 570; the answer position would qualify in 0.
+  token ids (count): 785 (570)
+  positions a prompt above the other multiples, mean: 5: 1.00, 20: 1.00, 50: 1.00
+
+KILL RULES (prereg table; KILLED or STANDS only when the whole 95 % interval is on one side). Primary share: COSINE, fixed by the instrument check before the job; the other is printed beside, no rule.
+  s(d12), the denominator: +0.390 [+0.310, +0.463]
+  H6-A      +0.859 [+0.734, +0.997]  KILLED       s(d12_b513-2560) / s(d12); killed if >= 0.5
+  H6-B      +1.500 [+1.489, +1.511]  NOT DECIDED  answer-position over all-position relative error, per type, FP16 inputs (worst type shown); killed if every type in [1/1.5, 1.5]
+  H6-C      -0.001 [-0.016, +0.012]  KILLED       s(d12_massive) / s(d12); killed if < 0.1 and the low matrices' error ratio in [1/2.0, 2.0]
+  H6-C err  +1.005 [+1.005, +1.005]  (read with H6-C) low matrices, error without the massive positions over with them; 
+  H6-D      +0.212 [+0.202, +0.223]  STANDS       share of the band [513, 2560] slope deficit at d12 recovered by FP16's attention at 7-13; killed if < 0.2
+  H6-E      +0.850 [+0.751, +0.935]  STANDS       s(mlp_0-11) / s(d12); killed if < 0.5
+  beside H6-E, no rule: s(attn_0-11) / s(d12) -1.958 [-2.924, -1.343]
+  H6-D against the SDPA control instead of the explicit path: +0.163 [+0.143, +0.182]
+  the same ratios on the accuracy share, no rule (underpowered, about +-0.51 of the gap, prereg section 7): d12_b513-2560 +0.655 [+0.206, +1.100], d12_massive +0.034 [+0.000, +0.143], mlp_0-11 +0.586 [+0.000, +1.056], attn_0-11 -2.483 [-6.833, -1.250]
+
+RAW: arms.tsv, shape.tsv, picks.tsv, logits.tsv, kills.tsv, types_pos.tsv, matrices_pos.tsv, massive.tsv, checks.tsv, gains_{fp16,sealed}x.f64 (N x 252 x 3 masks x [S_yy, S_ey, S_ee]), eigvals_d12.f64
+==  1203.1 s  analysis written

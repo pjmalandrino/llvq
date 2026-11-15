@@ -1,0 +1,7 @@
+rule	statistic	point	lo	hi	bad_draws	verdict	kill_condition	primary
+H6-A	s(d12_b513-2560) / s(d12)	0.859210	0.733868	0.996822	0	KILLED	killed if >= 0.5	cosine
+H6-B	answer-position over all-position relative error, per type, FP16 inputs (worst type shown)	1.500105	1.489362	1.511332	0	NOT DECIDED	killed if every type in [1/1.5, 1.5]	cosine
+H6-C	s(d12_massive) / s(d12)	-0.001060	-0.016386	0.011854	0	KILLED	killed if < 0.1 and the low matrices' error ratio in [1/2.0, 2.0]	cosine
+H6-C err	low matrices, error without the massive positions over with them	1.004911	1.004610	1.005241	0	(read with H6-C)		cosine
+H6-D	share of the band [513, 2560] slope deficit at d12 recovered by FP16's attention at 7-13	0.212481	0.202237	0.222804	0	STANDS	killed if < 0.2	cosine
+H6-E	s(mlp_0-11) / s(d12)	0.849536	0.751347	0.935425	0	STANDS	killed if < 0.5	cosine

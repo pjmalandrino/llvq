@@ -1,0 +1,4 @@
+group	n	ngen_min	ngen_max	control_right	late_right	gain_points
+short	440	117	246	403	418	3.4091
+middle	440	246	324	380	390	2.2727
+long	439	324	1024	299	331	7.2893

@@ -1,0 +1,206 @@
+QUALITY PHASE 3 (CERVEAU O15), R6: AN ATTACK ON THE R5 CONJECTURE FROM THE CODE AND THE DATA ON DISK, 2026-11-15. $0.
+======================================================================================================================
+Broken: C's first sentence. On the lead's own figures the band give-backs follow noise energy, and the relative-noise
+  model is outside the interval (attack 5). Section 3's arithmetic double counts a band, and the "no bit, no kernel
+  change" form breaks the tied head (attack 4).
+Weakened: F4 holds in Euclidean weight norm, not in output signal. F1 measures the stream after twelve blocks, and
+  38 to 55 % of its band "noise" is a linear map of FP16's stream. The noise map cannot decide C as specified.
+Stands: rows are coded apart, in 24-wide blocks along one row's inputs, with feedback inside the row. The noise at
+  depth 12 is far flatter than the signal. The quiet band carries most of what the patch gives back.
+
+Written by an attacking agent that did not write R5. Files read at the branch tip bbd3096; nothing run but Python on
+committed TSVs. Scratch scripts outside the repository. Labels: *measured* (copied from a journal), *computed* (mine,
+arithmetic given), inference.
+
+
+1. F4 AS THE NOTE USES IT: THE ERROR FOLLOWS THE ROW'S WEIGHT NORM, NOT THE SIGNAL THE ROW WRITES
+----------------------------------------------------------------------------------------------------------------------
+What the code says, and it agrees with F4 on structure.
+- The quantized unit is 24 consecutive inputs of one output row: `let v = &row[s..s + b]` (llvq-quant/src/gptq.rs line
+  312), inside `for i in 0..d_out`. Nothing is quantized across rows.
+- The feedback stays in the row. The residual is formed per row (gptq.rs line 363) and propagated onto that row's
+  later columns only, through the shared factor U of H (gptq.rs lines 375-389,
+  `*cell -= x * factor.u(s + k, r0 + j)`).
+- The row's scale is the row's RMS times sqrt(24), fixed before the loop (gptq.rs line 289; quantizer.rs line 945).
+  The gain levels are one Lloyd-Max codebook per matrix on relative block gains (quantizer.rs line 896).
+What follows from it, and the note skips. The block error is relative to the block gain, so a row's error energy
+scales with that row's Euclidean weight energy. The row's output signal is W_i H W_i^T, which also depends on how the
+row aligns with H's loud inputs. GPTQ sends every row's error to the same cheap input directions of H. A row aligned
+with loud inputs has a large signal and an error priced near the floor, so its relative output error is not that of a
+row aligned with quiet inputs (inference from the objective; per-row relative output error is not on disk).
+
+In the R5 form, row k of a rotated writer is v_k^T W. Its noise then follows ||v_k^T W||^2, the writer's own weight
+energy toward v_k. The stream's signal toward v_k at depth 12 is the sum of the embedding and 24 writes, with whatever
+cancellations they carry. "The noise follows the signal" needs each writer's weight energy per stream direction to
+track the stream's energy per direction. Nothing on disk measures either (inference).
+
+The error is also not noise independent of the signal. It is e = dW x, linear in the writer's input. The lattice
+down_proj of layers 2 to 11 shrinks its rows: coherent per-row gains p10 0.928 to 0.938, p90 0.986 to 1.000
+(contrast-map matrices.tsv, sealed rows, *measured*). Rows are not treated alike to within 6 %.
+
+Cross-row independence is an assumption. The output noise covariance is dW H dW^T. Rows coded apart, all fed back
+through one H, have no guarantee of zero cross terms (inference). A noise diagonal in the rotated row basis is what R5
+needs.
+
+Row scales trained after the encode act per canonical output row (R0 note section 4, dclm-rowscales). F1's noise is
+measured after them. A basis change voids them, and Q12 prices them at 3.15 points on the 4B parent (*measured*).
+
+
+2. THE INT4 RECORDS: THREE TYPES IN THE NATURAL BASIS, WITH NO ROTATION TO ABSORB A FOLDED GAIN
+----------------------------------------------------------------------------------------------------------------------
+- The served 4B carries v_proj too as int4 g128, not only o_proj and down_proj 12-23 (configs/qwen3-4b-tetra-e4.json,
+  "note"). R5 names two of the three types.
+- An int4 type "is stored group-affine in the natural basis and never sees GPTQ, a rotation or the lattice"
+  (llvq-llm/src/calib.rs line 1339). Groups of 128 run along each row's inputs (sealed.rs lines 371-389).
+- Writers. RTN error per element scales with the group's range, row by row. o_proj and down_proj 12-23 would write a
+  noise that follows the rotated rows' ranges, as the lattice ones follow their norms. This survives a basis change on
+  the output side (inference).
+- Readers. A stream basis change folds the RMSNorm gain and V into every reader: W diag(g) V. For v_proj that product
+  lands on int4 groups that run along the stream axis, with no Hadamard factor to spread a column outlier. The lattice
+  readers keep their input rotation (llvq-cuda/kernels/llvq_rot.cuh, y = (W Q^T)(Q x)). What diag(g) V does to
+  v_proj's group ranges is unmeasured (inference).
+- Size of the int4 writers' error in the first twelve blocks. o_proj reads a relative error of 0.0020 to 0.0126 at
+  layers 0 to 11; the lattice down_proj reads 0.0013 to 0.0742, above 0.055 at layers 4, 5, 7 to 11; int4 down_proj at
+  layers 12 and 13 reads 0.0094 and 0.0100 (matrices.tsv, rel_sealed, *measured*). The writer R5 would reshape is the
+  lattice down_proj of blocks 0 to 11, consistent with H6-E.
+- Embedding. Its int4 g64 groups run along the stream axis. Stored as E V, they would hold eigen-ordered coordinates;
+  stored as E with V applied at lookup, nothing changes. Which one holds is decided by the head (attack 4). Q13 prices
+  today's embedding at +0.04 [-0.23, +0.31] against f16 (*measured*); any re-storage reopens that figure.
+
+
+3. F1 DOES NOT SAY WHAT THE ENCODER WRITES
+----------------------------------------------------------------------------------------------------------------------
+- No file on disk holds a matrix's output error by stream band. matrices.tsv and matrices_pos.tsv hold S_yy, S_ey,
+  S_ee per matrix summed over all output dimensions; the bucket's gains_*.f64 are the same scalars per question
+  (patch-map report, RAW line). F1 is the stream at depth 12 after embedding, 12 attention and 12 MLP writes and their
+  propagation.
+- 38 to 55 % of F1's band "noise" is a linear function of FP16's stream (*computed* from linear.tsv and
+  stream_bands.tsv, depth 12). With Q the band's sealed energy over FP16's, Q = n / (1 - diag), and the mixed part is
+  (e_lin - diag) Q:
+    [2, 8]      Q 1.0486, mixed 0.00442 of noise 0.00805  55 %
+    [9, 64]     Q 1.0809, mixed 0.0181  of noise 0.0430   42 %
+    [65, 512]   Q 1.0771, mixed 0.0580  of noise 0.1524   38 %
+    [513, 2560] Q 1.3437, mixed 0.268   of noise 0.636    42 %; no linear map of h_f explains 0.368
+  In-sample inflation of e_lin is about p/n = 2560 / 345,007 = 0.7 % of the residual (*computed*), negligible. This
+  part is leakage from other directions of FP16's own stream, the signature of e = dW x and of propagation, not
+  additive noise.
+- Flatness is not specific to the lattice encoder. At depth 0 the only error is the int4 g64 embedding, an RTN code.
+  Its noise per direction spans 2.77e-6 to 3.24e-6 of the stream's energy over the five bands while the signal per
+  direction spans 1.17e-4 to 0.154, a factor 1,317 (*computed*, stream_bands.tsv, share times noise over n_dirs). That
+  flat noise of relative 0.024 in the depth-0 quiet band costs nothing resolved (Q13). A canonical-basis code writes a
+  flat noise; F1's flatness at depth 12 is consistent with writing and with propagation alike.
+- The bands are each depth's own eigenbasis (ops/contrast_map.py lines 702-708, eig_desc per depth). The quiet band at
+  depth 0 holds 0.240 of the energy, at depth 4 0.132, at depth 12 0.0075 (*measured*). "The stream's principal
+  directions" differ by depth; the writers of blocks 0 to 4 write into a stream that is not the depth-12 one.
+What would establish what the encoder writes: each matrix's error dW x, with FP16 inputs, projected on the depth-12
+basis V by band, beside the same matrix's signal W x by band, for the 24 writers of blocks 0 to 11. That separates
+written noise from propagated noise and tests the premise of the form.
+
+
+4. THE BASIS CHANGE IS NOT FREE: THE TIED HEAD BREAKS, AND A PER-LAYER BASIS COSTS A MATRIX A LAYER
+----------------------------------------------------------------------------------------------------------------------
+- RMSNorm is x / rms(x) times an elementwise gain (ops/layer_vs_output.py line 220; kernel pers_4e.cu line 311 for
+  ln1, line 383 for the final norm). rms is invariant under an orthogonal V; the gain is not. The input_layernorm and
+  post_attention_layernorm gains fold into the readers, as QuaRot does. That needs no new tensor (inference).
+- The final norm gain does not fold. The head is the embedding itself: `Head::Dense(embed.embeddings().clone())`
+  (llvq-llm/src/model.rs line 2598). With the stream in basis V the input wants E V and the head wants E diag(g_f) V.
+  One tensor cannot be both. Two ways out, both *computed* from docs/fiche-4b.md (embedding 388,956,160 weights, model
+  4,022,468,096):
+    untie: a second int4 g64 table, 388,956,160 x 4.5 bits = 1.750e9 bits, +0.435 b/param on a 2.73 budget;
+    rotate at both ends: keep E, apply V at lookup and V^T before the final norm. One 2560 x 2560 tensor, 6,553,600
+    weights, +0.026 b/param in f16, and two GEMVs a token that no served kernel does today.
+  R5's "needs no bit and no kernel change" holds for neither.
+- One global basis is the only free one in a residual network. h_{l+1} = h_l + writes needs both terms in one basis. A
+  basis per layer needs a d x d change on the skip path at each change, as SliceGPT carries: 36 x 6,553,600 =
+  235,929,600 weights, +0.94 b/param in f16, +0.26 at 4.5 bits, and a stream GEMV a layer (*computed*). The depth-12
+  basis applied globally is not the principal basis of depths 0 to 8 (attack 3).
+- Every reader changes by diag(g) V, so all 252 matrices are re-encoded and the row scales retrained. N8 says the
+  sealed branches are tied to each other: FP16's attention outputs under the sealed MLP cost 12.63 points
+  (*measured*). A re-encode drops whatever compensation the sealed file holds; its net is not predictable from F1
+  (inference).
+- The input rotation the format applies stays as it is: V folds into W before encoding, and rot_apply rotates the
+  reader's input as now (llvq_rot.cuh). The lattice kernels make no assumption on the output basis. That part is free.
+
+
+5. SECTION 3'S ARITHMETIC, REDONE: THE DATA FAVOURS COST BY NOISE ENERGY, AND THE BANDS ARE NOT SEPARABLE
+----------------------------------------------------------------------------------------------------------------------
+F2 checks: noise 0.00704, signal 0.0429, ratio 0.164; 613 times the signal and 7.7 times the noise a direction, [2, 8]
+against [513, 2560]; 0.636 / 0.008 = 79.5 (*computed*). The rest does not hold.
+(a) The give-back per unit of noise energy is flat across bands. Noise energy a band, share times ratio: [1, 64]
+    without direction 1 0.000462, [65, 512] 0.001812, [513, 2560] 0.004766. Shape share over it: 70.6, 79.3, 70.2
+    (*computed*). The ratio s([513, 2560]) / s([65, 512]) is 2.33 [1.72, 3.39], paired bootstrap, 10,000 draws on
+    logits.tsv (*computed*). Three models predict it:
+      cost by noise energy                       2.63   inside
+      cost by band-mean relative noise (R5)      4.17   outside
+      cost summed by direction over relative     19.1   outside
+    C says cost is set by relative noise and not by energy. On F1 and F3 the energy model fits and C's is rejected.
+(b) The model of section 3 depends on how bands are cut. Cost linear in a band's mean relative noise doubles a band's
+    predicted cost when the band is split in two at the same level. Section 3 does that: it gives [2, 8] and [9, 64]
+    each the slope of the patched band [1, 64]. Counted once, 0.164 x (0.53 + 0.95 + 1.1) = 0.42 against 0.512 today,
+    and the sign of the conclusion turns (*computed*).
+(c) The [1, 64] slope is undefined within a factor 100. Its relative noise is 0.0005 with direction 1, 0.0197 without,
+    0.035 with direction 1's mis-scale counted as deviation, (0.188^2 x 0.957 + 0.000496) / 0.981 (*computed*). The
+    patch of [1, 64] fixes the mis-scale too. Over the bootstrap, equal relative noise minus today, one-band count:
+    -0.002 [-0.30, +0.33] at 0.0197, -0.095 [-0.27, +0.10] at 0.03 (*computed*). Section 3 decides nothing either way.
+(d) The bands are super-additive, resolved. Sum of the three band shares minus the whole stream's: +0.121 [+0.039,
+    +0.208] on the shape share, +0.093 [+0.051, +0.137] on the centred-logit squared error, paired bootstrap
+    (*computed*). KL agrees: give-backs 0.0138 + 0.0687 + 0.1370 = 0.2195 against 0.1649 for the whole (*computed*
+    from shape.tsv). The three bands together reproduce the whole stream (tolerance gate, worst |dstream| 1.5e-5), so
+    the excess is interaction. Linearized, the excess is 2 sum_{i<j} e_i . e_j: the bands' logit errors point the same
+    way. A band's give-back is 2 E . e_i - |e_i|^2, its own cost plus its cross terms. Band shares are not band costs,
+    and any per-band cost model, linear or not, is mis-specified on these data.
+
+
+6. THE NOISE MAP OF SECTION 4 CANNOT DECIDE C AS SPECIFIED
+----------------------------------------------------------------------------------------------------------------------
+- iid Gaussian is the wrong null. The sealed deviation is 38-55 % linear in FP16's stream (attack 3) and its band
+  effects are coherent (attack 5d). Independent Gaussian bands have zero cross terms in expectation. Q7 says the
+  sealed 4B's error costs 1.27 points more than Gaussian noise of its size on the logits (*measured*).
+- The validity check has no threshold. "s near 0" against d12's +0.390 [+0.310, +0.463] is not a rule. If Gaussian
+  noise at the measured layout costs less than the sealed blocks, that says structure matters, which is consistent
+  with C and with its negation alike.
+- The measured layout leaves out two parts of the sealed deviation: the slope 0.841 of band [513, 2560] and 0.961 of
+  [65, 512], and direction 1's mis-scale 1.188, whose energy 0.188^2 x 0.957 = 0.034 of the stream is 4.8 times all
+  the noise of F2 (*computed*). Equal total noise energy that ignores 83 % of the deviation's energy is a choice to
+  state.
+- Depth 12 only, against written at every block. An encoder lays out noise in blocks 0 to 11; blocks 1 to 11 then
+  re-read and re-mix it. The layout at depth 12 that an encoder can reach is unknown. The map tests the sensitivity of
+  sealed blocks 12 to 35 to a stream perturbation, which is a different question.
+- Sealed blocks 12 to 35 were calibrated and row-scaled on sealed inputs. N8 shows mixing branches across the two runs
+  can cost 12.63 points. Arm d12 already sits in that regime; noise on top of it adds a second variable.
+- One position profile for all. The noise "at every position" by pooled band energy ignores Q25: at the answer
+  position band [513, 2560] holds 2.9 to 6.3 % of the energy and takes a noise of 2.46 times it, against 0.75 % and
+  0.636 over all positions (*measured*). The pooled basis is uncentred, and direction 1 is position 0: 140^2 / 604 =
+  32.5 times the rest of a prompt's energy gives a share near 0.97 against 0.957 measured (*computed* from massive.tsv
+  ratios, 605 tokens a prompt).
+- The kill rule is one-sided. If no Gaussian layout beats the Gaussian measured one, the encoder's structured noise is
+  still untested. If one does, nothing says an encoder writes it.
+
+
+7. THE PATCH MAP IS WEAKER THAN R5 READS IT
+----------------------------------------------------------------------------------------------------------------------
+- The instrument check calibrated the cosine share on nine restores of quantized matrices, on 14,042 questions. Band
+  patches of the stream were never part of it. The shape share's lean on band patches is unknown.
+- On the accuracy share H6-A reads 0.655 [0.206, 1.100] (patch-map report, KILL RULES): undecided against its own 0.5.
+  The bands [1, 64] and [65, 512] are not resolved in accuracy: +1.05 [-0.70, +2.80], +1.40 [-0.66, +3.46].
+- 570 questions, easier than the full split: FP16 73.51 against 70.14 (*measured*). One calibration draw, MMLU only.
+- The F3 denominators are pooled over positions; the deficit rides the context positions (all but answer +0.379),
+  whose own band energies and noise are not on disk.
+
+
+WHAT THE NEXT MEASUREMENT MUST CONTROL
+----------------------------------------------------------------------------------------------------------------------
+1. Written against propagated noise: each writer's dW x and W x by band of the depth-12 basis, FP16 inputs, blocks 0
+   to 11, before any claim on what the encoder writes.
+2. Structure against energy: the sealed deviation at depth 12 itself, each band rotated by a random orthogonal matrix
+   inside the band, beside the same deviation unrotated. Same energy and band spectrum, alignment destroyed.
+3. The deterministic part apart: the slope deficit and the mixed part (B h_f) as one arm, the residual 1 - e_lin as
+   another, direction 1's mis-scale stated in or out.
+4. Cross terms: band pairs patched together, so the interaction of attack 5d is measured and not absorbed into shares.
+5. The cost model fixed in advance: noise energy, band-mean relative noise and per-direction relative noise, each with
+   its predicted ratio written before the run. A model that fails the ratio of attack 5a is not used to rank layouts.
+6. Position classes: context, answer, position 0, with their own energies and noise, and noise laid out by class.
+7. A numeric validity threshold on the measured-layout arm, written in the prereg.
+8. Accuracy beside shape, GSM8K beside MMLU, and the instrument check extended to stream patches.
+9. For any encoder form: the tied head's cost in b/param and kernel steps, the int4 v_proj under diag(g) V, and the
+   re-trained row scales, stated before the encode.

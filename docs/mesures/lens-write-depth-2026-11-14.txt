@@ -1,0 +1,85 @@
+LENS WRITE DEPTH: WHERE THE ORIGINAL QWEN3-8B AND QWEN3-14B WRITE THEIR MMLU ANSWER, READ ON THE ORIGINAL ALONE, 2,280 PROMPTS EACH, TWO L40S JOBS, 2026-11-14. $0.33.
+===================================================================================================================================================================
+Both originals write the answer in one block, as the 4B does, at about seven tenths of their depth. The 8B's lens
+accuracy goes from 24.8 % at depth 24 to 75.6 % at depth 25 of 36, for 76.8 % at the output. The 14B's goes from 39.8 %
+at depth 28 to 75.6 % at depth 29 of 40, for 80.4 % at the output (*measured*, 2,280 questions each, the model's own
+final norm and answer rows). The 4B reads 28.3 % to 72.3 % at depth 25 of 36 (contrast-map-4b-2026-11-14.txt, 570
+questions).
+
+| size | layers | write depth | relative depth | rise in that block | rise from chance to the output | share in one block | outcome |
+|---|---|---|---|---|---|---|---|
+| 4B | 36 | 25 | 0.69 | 44.0 points | 48.7 | 0.90 | (read in the contrast map) |
+| 8B | 36 | 25 | 0.69 | 50.7 points | 51.8 | 0.98 | ONE-BLOCK WRITE |
+| 14B | 40 | 29 | 0.73 | 35.8 points | 55.4 | 0.65 | ONE-BLOCK WRITE |
+
+The reading needs the original checkpoint and no compressed file. It took 239 s billed for the 8B and 426 s for the
+14B: $0.12 and $0.21 (*computed* at $1.80/h).
+
+Prereg : proofs/preregistration-lens-write-depth-2026-11-14.md, stamped (.ots) and committed before the jobs (1646ca9).
+         Not edited. No deviation file.
+Code   : ops/contrast_map.py --lens-only, sha256 936fa6cdb4b39b5d... (887711c); job script
+         ops/jobs/lens-write-depth.sh, 02d8be527b6e8381.... Image pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime.
+Go     : the operator, 2026-11-14, "Ok go", on this reading at about $0.80.
+Jobs   : 8B 6af888e729dd05ff03677b93, 91 s of scheduling, 239 s billed, $0.12; estimated $0.33 to $0.42, ceiling $0.75.
+         14B 6af888eb29dd05ff03677b97, 157 s of scheduling, 426 s billed, $0.21; estimated $0.36 to $0.48, ceiling
+         $0.90. Setup took 61 s and 122 s where 5 to 9 min were estimated, and both loops read the 2,280 questions
+         inside their budget (160 s and 281 s).
+Raw    : lens-write-depth-2026-11-14-brut/8b and /14b: report.txt, run.txt, lens.tsv, write.tsv, control.tsv,
+         questions.tsv, selftest.txt, inputs.txt, inputs.sha256, the job inspects. lens_logits.tsv and the three
+         answer-position stream dumps of each size stay in the bucket folders lens-write-depth-8b-2026-11-14/ and
+         lens-write-depth-14b-2026-11-14/.
+
+CONTROLS
+--------
+- Selftest GREEN in both jobs. Prompt hashes equal each size's dump before the model loaded.
+- Rule D GREEN for both: the picks equal the Rust FP16 dump's on 99.52 % (8B) and 99.87 % (14B) of the 2,280
+  questions; MMLU on them reads 76.80 against 76.84, and 80.39 against 80.44.
+- Card peak 17.64 GB for the 8B and 30.90 GB for the 14B, of 46.
+
+THE LENS AROUND THE WRITE (lens.tsv; accuracy, then the share of questions where the lens pick is the output's pick)
+----------------------------------------------------------------------------------------------------------------
+| depth | 8B accuracy | 8B agreement | | depth | 14B accuracy | 14B agreement |
+|---|---|---|---|---|---|---|
+| 23 | 24.0 % | 22.3 % | | 26 | 24.6 % | 24.6 % |
+| 24 | 24.8 % | 23.5 % | | 27 | 31.9 % | 33.6 % |
+| 25 | 75.6 % | 90.8 % | | 28 | 39.8 % | 41.4 % |
+| 26 | 76.0 % | 91.7 % | | 29 | 75.6 % | 83.4 % |
+| 28 | 75.7 % | 91.7 % | | 30 | 78.4 % | 91.8 % |
+| 32 | 75.9 % | 93.7 % | | 35 | 78.9 % | 93.3 % |
+| 36 | 76.8 % | 100 % | | 40 | 80.4 % | 100 % |
+
+Before the write the lens reads chance at both sizes. In the 14B two blocks before the write already carry a part
+of it (7.3 and 7.9 points).
+
+READING AGAINST THE PREREG
+--------------------------
+- 8B: the rise, 50.7, is at least half of the total, 51.8. ONE-BLOCK WRITE.
+- 14B: the rise, 35.8, is at least half of the total, 55.4. ONE-BLOCK WRITE.
+
+SIGNED PREDICTIONS
+------------------
+| quantity | predicted | measured | |
+|---|---|---|---|
+| 8B rule D | GREEN | GREEN | in |
+| 8B write depth | 25 [20, 31] | 25 | in |
+| 8B rise | 35 [12, 52] | 50.7 | in |
+| 8B outcome | ONE-BLOCK WRITE (60 %) | ONE-BLOCK WRITE | in |
+| 8B output accuracy on the N questions | 77.5 [74.5, 80.5] | 76.80 | in |
+| 8B N | 2,280 [1,100, 2,280] | 2,280 | in |
+| 14B rule D | GREEN | GREEN | in |
+| 14B write depth | 28 [22, 35] | 29 | in |
+| 14B rise | 35 [12, 55] | 35.8 | in |
+| 14B outcome | ONE-BLOCK WRITE (60 %) | ONE-BLOCK WRITE | in |
+| 14B output accuracy on the N questions | 81 [78, 84] | 80.39 | in |
+| 14B N | 1,200 [570, 2,280] | 2,280 | in |
+
+Twelve of twelve.
+
+WHAT THE RUN DOES NOT SAY
+-------------------------
+- It does not say the blocks after the write matter less to a compressed 8B or 14B. On the 4B a restore agrees with
+  the reading (depth-restore-4b-2026-11-14.txt). On these two sizes nothing was restored.
+- The write is the moment the answer enters the directions of the four answer tokens. The model may hold the answer
+  earlier in other directions; the lens does not see it there.
+- One task, MMLU, read at one position. A model may write a generated token later or elsewhere.
+- Three sizes of one family.

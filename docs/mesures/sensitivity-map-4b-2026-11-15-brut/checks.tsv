@@ -1,0 +1,587 @@
+kind	label	question	ok	value
+grad-forward	text window, float32 logits with and without autograd	0	True	0.000000e+00
+grad-forward	text window, float32 logits with and without autograd	1	True	0.000000e+00
+grad-forward	text window, float32 logits with and without autograd	2	True	0.000000e+00
+grad-forward	text window, float32 logits with and without autograd	3	True	0.000000e+00
+grad-forward	text window, float32 logits with and without autograd	4	True	0.000000e+00
+grad-forward	text window, float32 logits with and without autograd	5	True	0.000000e+00
+grad-forward	text window, float32 logits with and without autograd	6	True	0.000000e+00
+grad-forward	text window, float32 logits with and without autograd	7	True	0.000000e+00
+grad-forward	Fisher question, float32 answer logits with and without autograd	0	True	0.000000e+00
+grad-forward	Fisher question, float32 answer logits with and without autograd	1	True	0.000000e+00
+grad-forward	Fisher question, float32 answer logits with and without autograd	2	True	0.000000e+00
+grad-forward	Fisher question, float32 answer logits with and without autograd	3	True	0.000000e+00
+grad-forward	Fisher question, float32 answer logits with and without autograd	4	True	0.000000e+00
+grad-forward	Fisher question, float32 answer logits with and without autograd	5	True	0.000000e+00
+grad-forward	Fisher question, float32 answer logits with and without autograd	6	True	0.000000e+00
+grad-forward	Fisher question, float32 answer logits with and without autograd	7	True	0.000000e+00
+self-patch	variance band (1, 64)	0	True	0.000000e+00
+self-patch	variance band (513, 2560)	0	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	0	True	3.125000e-02
+self-patch	fisher_text band (1, 64)	0	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	0	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	0	True	1.562500e-02
+self-patch	fisher_mmlu band (1, 64)	0	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	0	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	0	True	3.125000e-02
+hybrid	d12 against FP16 blocks 0..11 then sealed	0	True	0.000000e+00
+self-patch	variance band (1, 64)	1	True	0.000000e+00
+self-patch	variance band (513, 2560)	1	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	1	True	0.000000e+00
+self-patch	fisher_text band (1, 64)	1	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	1	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	1	True	0.000000e+00
+self-patch	fisher_mmlu band (1, 64)	1	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	1	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	1	True	1.562500e-02
+hybrid	d12 against FP16 blocks 0..11 then sealed	1	True	0.000000e+00
+self-patch	variance band (1, 64)	2	True	0.000000e+00
+self-patch	variance band (513, 2560)	2	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	2	True	1.562500e-02
+self-patch	fisher_text band (1, 64)	2	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	2	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	2	True	3.125000e-02
+self-patch	fisher_mmlu band (1, 64)	2	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	2	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	2	True	3.125000e-02
+hybrid	d12 against FP16 blocks 0..11 then sealed	2	True	0.000000e+00
+self-patch	variance band (1, 64)	3	True	0.000000e+00
+self-patch	variance band (513, 2560)	3	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	3	True	1.562500e-02
+self-patch	fisher_text band (1, 64)	3	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	3	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	3	True	1.562500e-02
+self-patch	fisher_mmlu band (1, 64)	3	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	3	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	3	True	1.562500e-02
+hybrid	d12 against FP16 blocks 0..11 then sealed	3	True	0.000000e+00
+self-patch	variance band (1, 64)	4	True	0.000000e+00
+self-patch	variance band (513, 2560)	4	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	4	True	3.125000e-02
+self-patch	fisher_text band (1, 64)	4	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	4	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	4	True	3.125000e-02
+self-patch	fisher_mmlu band (1, 64)	4	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	4	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	4	True	1.562500e-02
+hybrid	d12 against FP16 blocks 0..11 then sealed	4	True	0.000000e+00
+self-patch	variance band (1, 64)	5	True	0.000000e+00
+self-patch	variance band (513, 2560)	5	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	5	True	1.562500e-02
+self-patch	fisher_text band (1, 64)	5	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	5	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	5	True	1.562500e-02
+self-patch	fisher_mmlu band (1, 64)	5	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	5	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	5	True	1.562500e-02
+hybrid	d12 against FP16 blocks 0..11 then sealed	5	True	0.000000e+00
+self-patch	variance band (1, 64)	6	True	0.000000e+00
+self-patch	variance band (513, 2560)	6	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	6	True	1.562500e-02
+self-patch	fisher_text band (1, 64)	6	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	6	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	6	True	0.000000e+00
+self-patch	fisher_mmlu band (1, 64)	6	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	6	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	6	True	3.125000e-02
+hybrid	d12 against FP16 blocks 0..11 then sealed	6	True	0.000000e+00
+self-patch	variance band (1, 64)	7	True	0.000000e+00
+self-patch	variance band (513, 2560)	7	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	7	True	1.562500e-02
+self-patch	fisher_text band (1, 64)	7	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	7	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	7	True	1.562500e-02
+self-patch	fisher_mmlu band (1, 64)	7	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	7	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	7	True	1.562500e-02
+hybrid	d12 against FP16 blocks 0..11 then sealed	7	True	0.000000e+00
+self-patch	variance band (1, 64)	8	True	0.000000e+00
+self-patch	variance band (513, 2560)	8	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	8	True	3.125000e-02
+self-patch	fisher_text band (1, 64)	8	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	8	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	8	True	1.562500e-02
+self-patch	fisher_mmlu band (1, 64)	8	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	8	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	8	True	3.125000e-02
+hybrid	d12 against FP16 blocks 0..11 then sealed	8	True	0.000000e+00
+self-patch	variance band (1, 64)	9	True	0.000000e+00
+self-patch	variance band (513, 2560)	9	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	9	True	1.562500e-02
+self-patch	fisher_text band (1, 64)	9	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	9	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	9	True	1.562500e-02
+self-patch	fisher_mmlu band (1, 64)	9	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	9	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	9	True	1.562500e-02
+hybrid	d12 against FP16 blocks 0..11 then sealed	9	True	0.000000e+00
+self-patch	variance band (1, 64)	10	True	0.000000e+00
+self-patch	variance band (513, 2560)	10	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	10	True	1.562500e-02
+self-patch	fisher_text band (1, 64)	10	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	10	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	10	True	1.562500e-02
+self-patch	fisher_mmlu band (1, 64)	10	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	10	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	10	True	0.000000e+00
+hybrid	d12 against FP16 blocks 0..11 then sealed	10	True	0.000000e+00
+self-patch	variance band (1, 64)	11	True	0.000000e+00
+self-patch	variance band (513, 2560)	11	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	11	True	1.562500e-02
+self-patch	fisher_text band (1, 64)	11	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	11	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	11	True	1.562500e-02
+self-patch	fisher_mmlu band (1, 64)	11	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	11	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	11	True	1.562500e-02
+hybrid	d12 against FP16 blocks 0..11 then sealed	11	True	0.000000e+00
+self-patch	variance band (1, 64)	12	True	0.000000e+00
+self-patch	variance band (513, 2560)	12	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	12	True	1.562500e-02
+self-patch	fisher_text band (1, 64)	12	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	12	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	12	True	1.562500e-02
+self-patch	fisher_mmlu band (1, 64)	12	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	12	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	12	True	1.562500e-02
+hybrid	d12 against FP16 blocks 0..11 then sealed	12	True	0.000000e+00
+self-patch	variance band (1, 64)	13	True	0.000000e+00
+self-patch	variance band (513, 2560)	13	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	13	True	0.000000e+00
+self-patch	fisher_text band (1, 64)	13	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	13	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	13	True	0.000000e+00
+self-patch	fisher_mmlu band (1, 64)	13	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	13	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	13	True	1.562500e-02
+hybrid	d12 against FP16 blocks 0..11 then sealed	13	True	0.000000e+00
+self-patch	variance band (1, 64)	14	True	0.000000e+00
+self-patch	variance band (513, 2560)	14	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	14	True	1.562500e-02
+self-patch	fisher_text band (1, 64)	14	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	14	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	14	True	1.562500e-02
+self-patch	fisher_mmlu band (1, 64)	14	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	14	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	14	True	1.562500e-02
+hybrid	d12 against FP16 blocks 0..11 then sealed	14	True	0.000000e+00
+self-patch	variance band (1, 64)	15	True	0.000000e+00
+self-patch	variance band (513, 2560)	15	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	15	True	1.562500e-02
+self-patch	fisher_text band (1, 64)	15	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	15	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	15	True	1.562500e-02
+self-patch	fisher_mmlu band (1, 64)	15	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	15	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	15	True	1.562500e-02
+hybrid	d12 against FP16 blocks 0..11 then sealed	15	True	0.000000e+00
+self-patch	variance band (1, 64)	16	True	0.000000e+00
+self-patch	variance band (513, 2560)	16	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	16	True	0.000000e+00
+self-patch	fisher_text band (1, 64)	16	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	16	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	16	True	1.562500e-02
+self-patch	fisher_mmlu band (1, 64)	16	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	16	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	16	True	0.000000e+00
+hybrid	d12 against FP16 blocks 0..11 then sealed	16	True	0.000000e+00
+self-patch	variance band (1, 64)	17	True	0.000000e+00
+self-patch	variance band (513, 2560)	17	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	17	True	1.562500e-02
+self-patch	fisher_text band (1, 64)	17	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	17	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	17	True	1.562500e-02
+self-patch	fisher_mmlu band (1, 64)	17	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	17	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	17	True	3.125000e-02
+hybrid	d12 against FP16 blocks 0..11 then sealed	17	True	0.000000e+00
+self-patch	variance band (1, 64)	18	True	0.000000e+00
+self-patch	variance band (513, 2560)	18	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	18	True	1.562500e-02
+self-patch	fisher_text band (1, 64)	18	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	18	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	18	True	1.562500e-02
+self-patch	fisher_mmlu band (1, 64)	18	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	18	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	18	True	1.562500e-02
+hybrid	d12 against FP16 blocks 0..11 then sealed	18	True	0.000000e+00
+self-patch	variance band (1, 64)	19	True	0.000000e+00
+self-patch	variance band (513, 2560)	19	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	19	True	1.562500e-02
+self-patch	fisher_text band (1, 64)	19	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	19	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	19	True	1.562500e-02
+self-patch	fisher_mmlu band (1, 64)	19	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	19	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	19	True	1.562500e-02
+hybrid	d12 against FP16 blocks 0..11 then sealed	19	True	0.000000e+00
+self-patch	variance band (1, 64)	20	True	0.000000e+00
+self-patch	variance band (513, 2560)	20	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	20	True	1.562500e-02
+self-patch	fisher_text band (1, 64)	20	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	20	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	20	True	1.562500e-02
+self-patch	fisher_mmlu band (1, 64)	20	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	20	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	20	True	1.562500e-02
+hybrid	d12 against FP16 blocks 0..11 then sealed	20	True	0.000000e+00
+self-patch	variance band (1, 64)	21	True	0.000000e+00
+self-patch	variance band (513, 2560)	21	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	21	True	1.562500e-02
+self-patch	fisher_text band (1, 64)	21	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	21	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	21	True	1.562500e-02
+self-patch	fisher_mmlu band (1, 64)	21	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	21	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	21	True	1.562500e-02
+hybrid	d12 against FP16 blocks 0..11 then sealed	21	True	0.000000e+00
+self-patch	variance band (1, 64)	22	True	0.000000e+00
+self-patch	variance band (513, 2560)	22	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	22	True	0.000000e+00
+self-patch	fisher_text band (1, 64)	22	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	22	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	22	True	1.562500e-02
+self-patch	fisher_mmlu band (1, 64)	22	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	22	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	22	True	1.562500e-02
+hybrid	d12 against FP16 blocks 0..11 then sealed	22	True	0.000000e+00
+self-patch	variance band (1, 64)	23	True	0.000000e+00
+self-patch	variance band (513, 2560)	23	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	23	True	3.125000e-02
+self-patch	fisher_text band (1, 64)	23	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	23	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	23	True	3.125000e-02
+self-patch	fisher_mmlu band (1, 64)	23	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	23	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	23	True	1.562500e-02
+hybrid	d12 against FP16 blocks 0..11 then sealed	23	True	0.000000e+00
+self-patch	variance band (1, 64)	24	True	0.000000e+00
+self-patch	variance band (513, 2560)	24	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	24	True	3.125000e-02
+self-patch	fisher_text band (1, 64)	24	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	24	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	24	True	1.562500e-02
+self-patch	fisher_mmlu band (1, 64)	24	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	24	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	24	True	0.000000e+00
+hybrid	d12 against FP16 blocks 0..11 then sealed	24	True	0.000000e+00
+self-patch	variance band (1, 64)	25	True	0.000000e+00
+self-patch	variance band (513, 2560)	25	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	25	True	1.562500e-02
+self-patch	fisher_text band (1, 64)	25	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	25	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	25	True	1.562500e-02
+self-patch	fisher_mmlu band (1, 64)	25	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	25	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	25	True	1.562500e-02
+hybrid	d12 against FP16 blocks 0..11 then sealed	25	True	0.000000e+00
+self-patch	variance band (1, 64)	26	True	0.000000e+00
+self-patch	variance band (513, 2560)	26	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	26	True	1.562500e-02
+self-patch	fisher_text band (1, 64)	26	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	26	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	26	True	3.125000e-02
+self-patch	fisher_mmlu band (1, 64)	26	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	26	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	26	True	1.562500e-02
+hybrid	d12 against FP16 blocks 0..11 then sealed	26	True	0.000000e+00
+self-patch	variance band (1, 64)	27	True	0.000000e+00
+self-patch	variance band (513, 2560)	27	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	27	True	1.562500e-02
+self-patch	fisher_text band (1, 64)	27	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	27	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	27	True	1.562500e-02
+self-patch	fisher_mmlu band (1, 64)	27	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	27	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	27	True	1.562500e-02
+hybrid	d12 against FP16 blocks 0..11 then sealed	27	True	0.000000e+00
+self-patch	variance band (1, 64)	28	True	0.000000e+00
+self-patch	variance band (513, 2560)	28	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	28	True	1.562500e-02
+self-patch	fisher_text band (1, 64)	28	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	28	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	28	True	1.562500e-02
+self-patch	fisher_mmlu band (1, 64)	28	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	28	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	28	True	1.562500e-02
+hybrid	d12 against FP16 blocks 0..11 then sealed	28	True	0.000000e+00
+self-patch	variance band (1, 64)	29	True	0.000000e+00
+self-patch	variance band (513, 2560)	29	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	29	True	1.562500e-02
+self-patch	fisher_text band (1, 64)	29	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	29	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	29	True	1.562500e-02
+self-patch	fisher_mmlu band (1, 64)	29	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	29	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	29	True	1.562500e-02
+hybrid	d12 against FP16 blocks 0..11 then sealed	29	True	0.000000e+00
+self-patch	variance band (1, 64)	30	True	0.000000e+00
+self-patch	variance band (513, 2560)	30	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	30	True	1.562500e-02
+self-patch	fisher_text band (1, 64)	30	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	30	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	30	True	1.562500e-02
+self-patch	fisher_mmlu band (1, 64)	30	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	30	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	30	True	1.562500e-02
+hybrid	d12 against FP16 blocks 0..11 then sealed	30	True	0.000000e+00
+self-patch	variance band (1, 64)	31	True	0.000000e+00
+self-patch	variance band (513, 2560)	31	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	31	True	1.562500e-02
+self-patch	fisher_text band (1, 64)	31	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	31	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	31	True	1.562500e-02
+self-patch	fisher_mmlu band (1, 64)	31	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	31	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	31	True	1.562500e-02
+hybrid	d12 against FP16 blocks 0..11 then sealed	31	True	0.000000e+00
+self-patch	variance band (1, 64)	32	True	0.000000e+00
+self-patch	variance band (513, 2560)	32	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	32	True	1.562500e-02
+self-patch	fisher_text band (1, 64)	32	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	32	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	32	True	1.562500e-02
+self-patch	fisher_mmlu band (1, 64)	32	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	32	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	32	True	1.562500e-02
+hybrid	d12 against FP16 blocks 0..11 then sealed	32	True	0.000000e+00
+self-patch	variance band (1, 64)	33	True	0.000000e+00
+self-patch	variance band (513, 2560)	33	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	33	True	1.562500e-02
+self-patch	fisher_text band (1, 64)	33	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	33	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	33	True	1.562500e-02
+self-patch	fisher_mmlu band (1, 64)	33	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	33	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	33	True	1.562500e-02
+hybrid	d12 against FP16 blocks 0..11 then sealed	33	True	0.000000e+00
+self-patch	variance band (1, 64)	34	True	0.000000e+00
+self-patch	variance band (513, 2560)	34	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	34	True	1.562500e-02
+self-patch	fisher_text band (1, 64)	34	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	34	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	34	True	1.562500e-02
+self-patch	fisher_mmlu band (1, 64)	34	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	34	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	34	True	1.562500e-02
+hybrid	d12 against FP16 blocks 0..11 then sealed	34	True	0.000000e+00
+self-patch	variance band (1, 64)	35	True	0.000000e+00
+self-patch	variance band (513, 2560)	35	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	35	True	0.000000e+00
+self-patch	fisher_text band (1, 64)	35	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	35	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	35	True	0.000000e+00
+self-patch	fisher_mmlu band (1, 64)	35	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	35	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	35	True	1.562500e-02
+hybrid	d12 against FP16 blocks 0..11 then sealed	35	True	0.000000e+00
+self-patch	variance band (1, 64)	36	True	0.000000e+00
+self-patch	variance band (513, 2560)	36	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	36	True	3.125000e-02
+self-patch	fisher_text band (1, 64)	36	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	36	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	36	True	1.562500e-02
+self-patch	fisher_mmlu band (1, 64)	36	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	36	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	36	True	1.562500e-02
+hybrid	d12 against FP16 blocks 0..11 then sealed	36	True	0.000000e+00
+self-patch	variance band (1, 64)	37	True	0.000000e+00
+self-patch	variance band (513, 2560)	37	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	37	True	1.562500e-02
+self-patch	fisher_text band (1, 64)	37	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	37	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	37	True	1.562500e-02
+self-patch	fisher_mmlu band (1, 64)	37	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	37	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	37	True	1.562500e-02
+hybrid	d12 against FP16 blocks 0..11 then sealed	37	True	0.000000e+00
+self-patch	variance band (1, 64)	38	True	0.000000e+00
+self-patch	variance band (513, 2560)	38	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	38	True	1.562500e-02
+self-patch	fisher_text band (1, 64)	38	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	38	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	38	True	1.562500e-02
+self-patch	fisher_mmlu band (1, 64)	38	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	38	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	38	True	1.562500e-02
+hybrid	d12 against FP16 blocks 0..11 then sealed	38	True	0.000000e+00
+self-patch	variance band (1, 64)	39	True	0.000000e+00
+self-patch	variance band (513, 2560)	39	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	39	True	1.562500e-02
+self-patch	fisher_text band (1, 64)	39	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	39	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	39	True	1.562500e-02
+self-patch	fisher_mmlu band (1, 64)	39	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	39	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	39	True	1.562500e-02
+hybrid	d12 against FP16 blocks 0..11 then sealed	39	True	0.000000e+00
+self-patch	variance band (1, 64)	40	True	0.000000e+00
+self-patch	variance band (513, 2560)	40	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	40	True	1.562500e-02
+self-patch	fisher_text band (1, 64)	40	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	40	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	40	True	1.562500e-02
+self-patch	fisher_mmlu band (1, 64)	40	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	40	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	40	True	1.562500e-02
+hybrid	d12 against FP16 blocks 0..11 then sealed	40	True	0.000000e+00
+self-patch	variance band (1, 64)	41	True	0.000000e+00
+self-patch	variance band (513, 2560)	41	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	41	True	1.562500e-02
+self-patch	fisher_text band (1, 64)	41	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	41	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	41	True	0.000000e+00
+self-patch	fisher_mmlu band (1, 64)	41	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	41	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	41	True	0.000000e+00
+hybrid	d12 against FP16 blocks 0..11 then sealed	41	True	0.000000e+00
+self-patch	variance band (1, 64)	42	True	0.000000e+00
+self-patch	variance band (513, 2560)	42	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	42	True	1.562500e-02
+self-patch	fisher_text band (1, 64)	42	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	42	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	42	True	1.562500e-02
+self-patch	fisher_mmlu band (1, 64)	42	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	42	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	42	True	0.000000e+00
+hybrid	d12 against FP16 blocks 0..11 then sealed	42	True	0.000000e+00
+self-patch	variance band (1, 64)	43	True	0.000000e+00
+self-patch	variance band (513, 2560)	43	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	43	True	0.000000e+00
+self-patch	fisher_text band (1, 64)	43	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	43	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	43	True	1.562500e-02
+self-patch	fisher_mmlu band (1, 64)	43	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	43	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	43	True	1.562500e-02
+hybrid	d12 against FP16 blocks 0..11 then sealed	43	True	0.000000e+00
+self-patch	variance band (1, 64)	44	True	0.000000e+00
+self-patch	variance band (513, 2560)	44	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	44	True	1.562500e-02
+self-patch	fisher_text band (1, 64)	44	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	44	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	44	True	1.562500e-02
+self-patch	fisher_mmlu band (1, 64)	44	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	44	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	44	True	1.562500e-02
+hybrid	d12 against FP16 blocks 0..11 then sealed	44	True	0.000000e+00
+self-patch	variance band (1, 64)	45	True	0.000000e+00
+self-patch	variance band (513, 2560)	45	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	45	True	1.562500e-02
+self-patch	fisher_text band (1, 64)	45	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	45	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	45	True	1.562500e-02
+self-patch	fisher_mmlu band (1, 64)	45	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	45	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	45	True	0.000000e+00
+hybrid	d12 against FP16 blocks 0..11 then sealed	45	True	0.000000e+00
+self-patch	variance band (1, 64)	46	True	0.000000e+00
+self-patch	variance band (513, 2560)	46	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	46	True	1.562500e-02
+self-patch	fisher_text band (1, 64)	46	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	46	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	46	True	1.562500e-02
+self-patch	fisher_mmlu band (1, 64)	46	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	46	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	46	True	1.562500e-02
+hybrid	d12 against FP16 blocks 0..11 then sealed	46	True	0.000000e+00
+self-patch	variance band (1, 64)	47	True	0.000000e+00
+self-patch	variance band (513, 2560)	47	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	47	True	0.000000e+00
+self-patch	fisher_text band (1, 64)	47	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	47	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	47	True	1.562500e-02
+self-patch	fisher_mmlu band (1, 64)	47	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	47	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	47	True	1.562500e-02
+hybrid	d12 against FP16 blocks 0..11 then sealed	47	True	0.000000e+00
+self-patch	variance band (1, 64)	48	True	0.000000e+00
+self-patch	variance band (513, 2560)	48	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	48	True	0.000000e+00
+self-patch	fisher_text band (1, 64)	48	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	48	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	48	True	1.562500e-02
+self-patch	fisher_mmlu band (1, 64)	48	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	48	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	48	True	3.125000e-02
+hybrid	d12 against FP16 blocks 0..11 then sealed	48	True	0.000000e+00
+self-patch	variance band (1, 64)	49	True	0.000000e+00
+self-patch	variance band (513, 2560)	49	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	49	True	0.000000e+00
+self-patch	fisher_text band (1, 64)	49	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	49	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	49	True	1.562500e-02
+self-patch	fisher_mmlu band (1, 64)	49	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	49	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	49	True	1.562500e-02
+hybrid	d12 against FP16 blocks 0..11 then sealed	49	True	0.000000e+00
+self-patch	variance band (1, 64)	50	True	0.000000e+00
+self-patch	variance band (513, 2560)	50	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	50	True	1.562500e-02
+self-patch	fisher_text band (1, 64)	50	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	50	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	50	True	1.562500e-02
+self-patch	fisher_mmlu band (1, 64)	50	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	50	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	50	True	1.562500e-02
+hybrid	d12 against FP16 blocks 0..11 then sealed	50	True	0.000000e+00
+self-patch	variance band (1, 64)	51	True	0.000000e+00
+self-patch	variance band (513, 2560)	51	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	51	True	1.562500e-02
+self-patch	fisher_text band (1, 64)	51	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	51	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	51	True	1.562500e-02
+self-patch	fisher_mmlu band (1, 64)	51	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	51	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	51	True	1.562500e-02
+hybrid	d12 against FP16 blocks 0..11 then sealed	51	True	0.000000e+00
+self-patch	variance band (1, 64)	52	True	0.000000e+00
+self-patch	variance band (513, 2560)	52	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	52	True	1.562500e-02
+self-patch	fisher_text band (1, 64)	52	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	52	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	52	True	1.562500e-02
+self-patch	fisher_mmlu band (1, 64)	52	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	52	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	52	True	1.562500e-02
+hybrid	d12 against FP16 blocks 0..11 then sealed	52	True	0.000000e+00
+self-patch	variance band (1, 64)	53	True	0.000000e+00
+self-patch	variance band (513, 2560)	53	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	53	True	1.562500e-02
+self-patch	fisher_text band (1, 64)	53	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	53	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	53	True	1.562500e-02
+self-patch	fisher_mmlu band (1, 64)	53	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	53	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	53	True	3.125000e-02
+hybrid	d12 against FP16 blocks 0..11 then sealed	53	True	0.000000e+00
+self-patch	variance band (1, 64)	54	True	0.000000e+00
+self-patch	variance band (513, 2560)	54	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	54	True	0.000000e+00
+self-patch	fisher_text band (1, 64)	54	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	54	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	54	True	3.125000e-02
+self-patch	fisher_mmlu band (1, 64)	54	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	54	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	54	True	1.562500e-02
+hybrid	d12 against FP16 blocks 0..11 then sealed	54	True	0.000000e+00
+self-patch	variance band (1, 64)	55	True	0.000000e+00
+self-patch	variance band (513, 2560)	55	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	55	True	1.562500e-02
+self-patch	fisher_text band (1, 64)	55	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	55	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	55	True	0.000000e+00
+self-patch	fisher_mmlu band (1, 64)	55	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	55	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	55	True	0.000000e+00
+hybrid	d12 against FP16 blocks 0..11 then sealed	55	True	0.000000e+00
+self-patch	variance band (1, 64)	56	True	0.000000e+00
+self-patch	variance band (513, 2560)	56	True	0.000000e+00
+three-bands	variance: three bands together against the whole stream	56	True	1.562500e-02
+self-patch	fisher_text band (1, 64)	56	True	0.000000e+00
+self-patch	fisher_text band (513, 2560)	56	True	0.000000e+00
+three-bands	fisher_text: three bands together against the whole stream	56	True	0.000000e+00
+self-patch	fisher_mmlu band (1, 64)	56	True	0.000000e+00
+self-patch	fisher_mmlu band (513, 2560)	56	True	0.000000e+00
+three-bands	fisher_mmlu: three bands together against the whole stream	56	True	1.562500e-02
+hybrid	d12 against FP16 blocks 0..11 then sealed	56	True	0.000000e+00

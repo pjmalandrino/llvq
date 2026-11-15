@@ -1,0 +1,95 @@
+QUALITY PHASE 3 (CERVEAU O15), R1: THE FRAME, 2026-11-15. $0. Written by the lead after the two R0 notes.
+==============================================================================================================================
+One question decides whether N6 holds an idea: does the MMLU deficit of the sealed 4B travel in the directions the
+calibration average calls cheap? The encoder prices the error in an input direction by that direction's calibration
+energy (recherche-qualite3-r0-depot, section 4, fact from the code), and reverse water-filling says a correct layer
+encoder gives such directions no rate (recherche-qualite3-r0-litterature, A1, *reported*). If the answer needs them,
+the layer objective is mispriced against the task and a principle follows. If it does not, the quiet band of Q25 is a
+symptom and N6 holds no mechanism. Nobody has measured it, here or in print (same note, E1 and NOT FOUND). N7 is, on
+today's evidence, not an anomaly of generation: the dull reading is not rejected.
+
+Sources: recherche-qualite3-r0-depot-2026-11-15.txt and recherche-qualite3-r0-litterature-2026-11-15.txt, at 41578be.
+Every figure below is copied from them or from the journal they cite. Costs are *estimated*.
+
+1. THE CLOSED PROBLEM AND ITS NUMBER
+------------------------------------
+Problem. On 570 MMLU questions the sealed 4B answers 66.32 % where FP16 answers 73.51 % (contrast-map lines 48-49,
+*measured*), and the deficit exists when the answer is written, at depth 25: 63.9 % against 72.3 % through FP16's
+readout (Q25). Which part of the stream before depth 25 carries that deficit: which directions, at which positions,
+written by which sublayers?
+
+Number. The share of the 7.19 points (*computed*, 73.51 minus 66.32) recovered at the output when a named part of FP16's stream replaces the sealed
+one at a depth before 25, and the sealed blocks run on. Paired on the 570 questions. Its two ends are known: no patch
+recovers 0, and FP16's first 25 blocks recover +6.12 of 6.72 on the full split (depth-restore-4b, *measured*).
+
+The gap that makes a phase. At depth 12 and at the answer position the loud bands are intact, slopes 0.92 to 1.13
+under 3 % of noise, and the error sits in bands [65, 512] and [513, 2560], slopes 0.64 and 0.47 (contrast-map
+report.txt lines 71-79). Whatever the first twelve blocks cost is therefore carried, at that position, by directions
+that hold 12 % of its energy (*computed*, 0.0791 and 0.0453 on the depth-12 line). What the first twelve blocks
+cost is not read.
+
+2. THE RIVALS FOR N6, AND WHAT KILLS EACH
+-----------------------------------------
+The R0 note states five. The lead keeps them and orders them by one experiment, the patch map.
+
+- H6-A, the dull one: the quiet band is a symptom; the deficit rides the louder bands and the write block.
+  Killed if FP16's band [513, 2560], patched at depth 12 at every position, recovers at least half of what the whole
+  stream patched at depth 12 recovers.
+- H6-B, a position mismatch: the matrices err most on answer-position inputs, which running text leaves quiet.
+  Killed if each type's relative error on answer-position inputs is within 1.5 times its all-position value.
+- H6-C, massive activations: one token or a few directions hold the trace of H in some matrices. Over all positions
+  direction 1 holds 0.57 to 0.97 of the energy and reads a slope of 1.188 at depths 8 to 16 (report.txt lines 59-62).
+  Killed if patching the massive positions alone at depth 12 recovers under a tenth of the whole-stream patch, and
+  the pooled error of the matrices that read about 0.001 moves by less than 2 without those tokens.
+- H6-D, single heads at layers 7 to 13 lose their focus. Killed if FP16's attention probabilities written into those
+  layers recover under a fifth of the band deficit at depth 12.
+- H6-E, the lattice MLP of layers 4 to 11 writes the band noise. No clean kill at $0: the September slices moved
+  down_proj only, on an older base, and the output slope they would be read on is rescaled by the last block (Q25).
+  It is read on the card by the sublayer split of the patch map.
+
+The patch map, one card job. FP16 and the sealed f16 export side by side, as in contrast-map-4b. For each arm, FP16's
+stream replaces the sealed one at a depth, on chosen positions and bands, and the sealed blocks run on. Read: accuracy
+at the output and through the lens at depth 25, on the 570 questions.
+  - depth profile, whole stream, every position: depths 4, 8, 12, 16, 20. Places where the deficit forms.
+  - at depth 12, every position, by band: [1, 64], [65, 512], [513, 2560]. H6-A.
+  - at depth 12, whole stream, by position: the answer position alone, all but it, the massive positions alone. H6-C.
+  - at depth 12, band [513, 2560] at the answer position alone.
+  - beside it, with no patch: the relative error of the 252 matrices on answer-position inputs (H6-B), and FP16's
+    attention probabilities at layers 7 to 13 (H6-D).
+Cost: about $1 (*estimated*: contrast-map-4b held both models and every tap for 918 s and $0.46; a patched forward is
+one sealed pass of the 570 prompts with no tap). The script has read taps and no write tap: code first.
+
+What each outcome opens.
+  - The quiet band carries the deficit. Then the task weights directions more evenly than calibration energy does,
+    and the next step is a conjecture on the encoder's weighting, to be broken at R6 before any encode.
+  - The loud or middle bands carry it. H6-A stands, the quiet band leaves N6, and the phase looks at who writes the
+    middle band.
+  - The massive positions carry it. The idea is about a handful of rows, not a weighting.
+No outcome is a mechanism by itself: a patch is a probe (Q20).
+
+3. N7
+-----
+The dull reading is not rejected. Both GSM8K intervals contain their even-rate figures, +2.94 in [+2.46, +6.18] and
++6.69 in [+5.19, +9.22] (gsm8k-depth-restore-4b lines 4-6, 40-41). MMLU's blindness after depth 25 has a published
+explanation and a measured one: the letter is chosen mid-depth and only sharpened after (Wiegreffe et al., *reported*;
+Q25, Q26). So N7 reads today as: generation uses every block about evenly, and MMLU cannot see the last eleven.
+The literature backs late blocks mattering to generation and reports small gains from treating them apart, +0.45
+GSM8K for the best (LFQ, *reported*); a per-block setting is not a result here.
+
+What would still make N7 an anomaly: the late blocks causing more than their share of the token flips of a worked
+answer. That is readable at $0. The four GSM8K dumps on disk hold the greedy completions of FP16, the control, and
+the two restored arms. The position where each arm first leaves FP16's text is a per-token flip hazard, on 1,319
+problems, with no model. If the late restore cuts that hazard by about its weight share, 0.306, N7 closes as
+explained. If it cuts it by much more, the late blocks hold a mechanism for generation, and the lens on generated
+tokens (H7-C, about $0.1 to $0.3) is the next reading.
+
+4. ORDER
+--------
+1. At $0, now, under a stamped prereg: the dump readings (proofs/preregistration-recherche-qualite3-dumps-2026-11-15.md).
+   The flip hazard of the three GSM8K arms; the slope and noise of the two MMLU depth arms; the weak kills of H7-B
+   and H7-D.
+2. On the card, after the operator signs a budget and gives a go: the patch map, about $1.
+3. By what 2 returns: the conjecture and its attack, or the middle band, or the lens on generated tokens.
+
+Not in this frame, by the operator's ruling of 2026-11-14: the calibration draw, probes of gate/up, a fast verifier.
+A re-encode pair, if the phase reaches one, is read against the draw's noise as a limit of the reading.

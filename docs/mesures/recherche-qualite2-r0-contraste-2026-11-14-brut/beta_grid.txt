@@ -1,0 +1,9 @@
+questions 14042 FP16 measured 70.17
+sealed 4B fit  beta 0.5817 sd 1.4205 -> 64.66 (journal 64.65)
+full contrast, same noise              beta 1.0000 sd 1.4205 -> 68.15
+contrast 0.80, same noise              beta 0.8000 sd 1.4205 -> 67.14
+contrast 0.70, same noise              beta 0.7000 sd 1.4205 -> 66.28
+same contrast, noise -20 %             beta 0.5817 sd 1.1364 -> 66.54
+same contrast, noise halved            beta 0.5817 sd 0.7103 -> 68.65
+AWQ 4B fit (journal pred 69.02)        beta 0.9604 sd 1.0093 -> 69.01
+bare Tetra fit (journal pred 59.09)    beta 0.4809 sd 1.7383 -> 59.08

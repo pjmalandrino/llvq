@@ -1,0 +1,1 @@
+exit 0 (0 green, 4 a gate red, 3 an exactness control or the bases broke, 5 stopped by a loop cap)

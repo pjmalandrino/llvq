@@ -1,0 +1,171 @@
+versions: {'torch': '2.5.1', 'safetensors': '0.4.5', 'tokenizers': '0.22.2', 'pyarrow': '20.0.0', 'huggingface_hub': '1.19.0'}
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+
+tokenizer.json:   0%|          | 0.00/11.4M [00:00<?, ?B/s][Atokenizer.json: 100%|██████████| 11.4M/11.4M [00:00<00:00, 38.8MB/s]
+
+all/test-00000-of-00001.parquet:   0%|          | 0.00/3.50M [00:00<?, ?B/s][Aall/test-00000-of-00001.parquet: 100%|██████████| 3.50M/3.50M [00:00<00:00, 24.0MB/s]
+
+all/dev-00000-of-00001.parquet:   0%|          | 0.00/76.5k [00:00<?, ?B/s][Aall/dev-00000-of-00001.parquet: 100%|██████████| 76.5k/76.5k [00:00<00:00, 631kB/s]
+prompts: 14042 questions, 57 subjects, 285 dev examples, tokenized in 11.8 s; run fingerprint a74a6d6213602979 (dumps a74a6d6213602979)
+qhash: 14042 of 14042 equal to docs/data/mmlu-dumps/mmlu-14b-f16-FULL.csv; answer ids [362, 425, 356, 422]
+
+config.json:   0%|          | 0.00/728 [00:00<?, ?B/s][Aconfig.json: 100%|██████████| 728/728 [00:00<00:00, 6.33MB/s]
+
+model-00001-of-00008.safetensors:   0%|          | 0.00/3.84G [00:00<?, ?B/s][A
+model-00001-of-00008.safetensors:   9%|▊         | 335M/3.84G [00:01<00:10, 322MB/s][A
+model-00001-of-00008.safetensors:  21%|██        | 805M/3.84G [00:02<00:07, 407MB/s][A
+model-00001-of-00008.safetensors:  44%|████▎     | 1.68G/3.84G [00:03<00:03, 616MB/s][A
+model-00001-of-00008.safetensors:  77%|███████▋  | 2.95G/3.84G [00:04<00:01, 726MB/s][Amodel-00001-of-00008.safetensors: 100%|██████████| 3.84G/3.84G [00:04<00:00, 779MB/s]
+checkpoint: model-00001-of-00008.safetensors sha256 e942bdbdf08857d16a8fef7d1dae9fceabeb4e84def6043485fe2f6f085dab0e
+
+model-00002-of-00008.safetensors:   0%|          | 0.00/3.96G [00:00<?, ?B/s][A
+model-00002-of-00008.safetensors:   8%|▊         | 316M/3.96G [00:01<00:11, 308MB/s][A
+model-00002-of-00008.safetensors:  43%|████▎     | 1.72G/3.96G [00:02<00:02, 936MB/s][A
+model-00002-of-00008.safetensors:  91%|█████████ | 3.60G/3.96G [00:03<00:00, 1.33GB/s][Amodel-00002-of-00008.safetensors: 100%|██████████| 3.96G/3.96G [00:03<00:00, 1.25GB/s]
+checkpoint: model-00002-of-00008.safetensors sha256 f7c9c6eee628f5ad831d2d1d292e120505e5fcadeb38f88b4d3c4cb86306ccf9
+
+model-00003-of-00008.safetensors:   0%|          | 0.00/3.96G [00:00<?, ?B/s][A
+model-00003-of-00008.safetensors:  23%|██▎       | 912M/3.96G [00:01<00:03, 859MB/s][A
+model-00003-of-00008.safetensors:  67%|██████▋   | 2.66G/3.96G [00:02<00:00, 1.33GB/s][Amodel-00003-of-00008.safetensors: 100%|██████████| 3.96G/3.96G [00:05<00:00, 728MB/s] 
+checkpoint: model-00003-of-00008.safetensors sha256 dfb8c5df9404b41ad6ae74e8b6b367135f017b4467b884cf71b17c71954f18a9
+
+model-00004-of-00008.safetensors:   0%|          | 0.00/3.96G [00:00<?, ?B/s][A
+model-00004-of-00008.safetensors:   4%|▍         | 167M/3.96G [00:01<00:23, 159MB/s][A
+model-00004-of-00008.safetensors:   9%|▉         | 368M/3.96G [00:02<00:19, 183MB/s][A
+model-00004-of-00008.safetensors:  31%|███▏      | 1.24G/3.96G [00:03<00:05, 488MB/s][A
+model-00004-of-00008.safetensors:  57%|█████▋    | 2.28G/3.96G [00:06<00:04, 394MB/s][A
+model-00004-of-00008.safetensors:  82%|████████▏ | 3.25G/3.96G [00:09<00:02, 329MB/s][A
+model-00004-of-00008.safetensors: 100%|██████████| 3.96G/3.96G [00:12<00:00, 309MB/s][Amodel-00004-of-00008.safetensors: 100%|██████████| 3.96G/3.96G [00:12<00:00, 322MB/s]
+checkpoint: model-00004-of-00008.safetensors sha256 eab286fec759e3e59ab228621aefa0fef14ed56039e06f959e67257d5af7604d
+
+model-00005-of-00008.safetensors:   0%|          | 0.00/3.96G [00:00<?, ?B/s][A
+model-00005-of-00008.safetensors:   2%|▏         | 92.7M/3.96G [00:01<00:43, 88.8MB/s][A
+model-00005-of-00008.safetensors:  16%|█▌        | 629M/3.96G [00:02<00:09, 347MB/s]  [A
+model-00005-of-00008.safetensors:  40%|███▉      | 1.57G/3.96G [00:04<00:06, 366MB/s][A
+model-00005-of-00008.safetensors:  63%|██████▎   | 2.51G/3.96G [00:08<00:05, 274MB/s][A
+model-00005-of-00008.safetensors:  90%|█████████ | 3.58G/3.96G [00:13<00:01, 246MB/s][A
+model-00005-of-00008.safetensors: 100%|██████████| 3.96G/3.96G [00:15<00:00, 255MB/s][Amodel-00005-of-00008.safetensors: 100%|██████████| 3.96G/3.96G [00:15<00:00, 264MB/s]
+checkpoint: model-00005-of-00008.safetensors sha256 97f0dc2992e59da95c466eff6f4fd0c8335843bbc36ed5c913a6f5150748c0e6
+
+model-00006-of-00008.safetensors:   0%|          | 0.00/3.96G [00:00<?, ?B/s][A
+model-00006-of-00008.safetensors:   0%|          | 117k/3.96G [00:01<9:51:15, 112kB/s][A
+model-00006-of-00008.safetensors:   3%|▎         | 122M/3.96G [00:02<00:58, 66.0MB/s] [A
+model-00006-of-00008.safetensors:  11%|█         | 421M/3.96G [00:03<00:21, 167MB/s] [A
+model-00006-of-00008.safetensors:  26%|██▌       | 1.02G/3.96G [00:04<00:08, 330MB/s][A
+model-00006-of-00008.safetensors:  51%|█████▏    | 2.03G/3.96G [00:07<00:05, 334MB/s][A
+model-00006-of-00008.safetensors:  74%|███████▍  | 2.94G/3.96G [00:11<00:03, 271MB/s][A
+model-00006-of-00008.safetensors:  97%|█████████▋| 3.84G/3.96G [00:15<00:00, 248MB/s][Amodel-00006-of-00008.safetensors: 100%|██████████| 3.96G/3.96G [00:15<00:00, 253MB/s]
+checkpoint: model-00006-of-00008.safetensors sha256 9e8e76a013cd5e253865b792991e0b410f869b136b3c500079b531b09198e99e
+
+model-00007-of-00008.safetensors:   0%|          | 0.00/3.96G [00:00<?, ?B/s][A
+model-00007-of-00008.safetensors:   2%|▏         | 83.9M/3.96G [00:01<00:48, 79.6MB/s][A
+model-00007-of-00008.safetensors:  11%|█         | 422M/3.96G [00:02<00:15, 227MB/s]  [A
+model-00007-of-00008.safetensors:  39%|███▉      | 1.55G/3.96G [00:04<00:06, 368MB/s][A
+model-00007-of-00008.safetensors:  63%|██████▎   | 2.48G/3.96G [00:08<00:05, 274MB/s][A
+model-00007-of-00008.safetensors:  89%|████████▉ | 3.53G/3.96G [00:13<00:01, 241MB/s][A
+model-00007-of-00008.safetensors: 100%|██████████| 3.96G/3.96G [00:15<00:00, 250MB/s][Amodel-00007-of-00008.safetensors: 100%|██████████| 3.96G/3.96G [00:15<00:00, 256MB/s]
+checkpoint: model-00007-of-00008.safetensors sha256 0aee70ee6e91dc00d818804fb47f124d13ee4ad5b4a64553e09dbf9391cd5750
+
+model-00008-of-00008.safetensors:   0%|          | 0.00/1.91G [00:00<?, ?B/s][A
+model-00008-of-00008.safetensors:   0%|          | 36.5k/1.91G [00:01<15:12:26, 34.9kB/s][A
+model-00008-of-00008.safetensors:  10%|▉         | 184M/1.91G [00:02<00:16, 106MB/s]     [A
+model-00008-of-00008.safetensors:  59%|█████▊    | 1.12G/1.91G [00:03<00:02, 341MB/s][A
+model-00008-of-00008.safetensors: 100%|██████████| 1.91G/1.91G [00:05<00:00, 370MB/s][Amodel-00008-of-00008.safetensors: 100%|██████████| 1.91G/1.91G [00:05<00:00, 323MB/s]
+checkpoint: model-00008-of-00008.safetensors sha256 0d6b92296e326d39bbbaeb32c3ec454ac606da843d4c8ffa8edf010b62b8c9e0
+loaded Qwen/Qwen3-14B@40c06982: 443 tensors, 29.54 GB f16, 40 layers, d 5120, tied False, 109 s
+  57 questions, 7 s
+questions: N = 2280 (first 57 in 6.6 s, budget 300.0 s, clamped to [570, 2280])
+  114 questions, 13 s
+  171 questions, 20 s
+  228 questions, 27 s
+  285 questions, 33 s
+  342 questions, 40 s
+  399 questions, 47 s
+  456 questions, 54 s
+  513 questions, 61 s
+  570 questions, 68 s
+  627 questions, 74 s
+  684 questions, 81 s
+  741 questions, 89 s
+  798 questions, 96 s
+  855 questions, 103 s
+  912 questions, 110 s
+  969 questions, 117 s
+  1026 questions, 124 s
+  1083 questions, 131 s
+  1140 questions, 139 s
+  1197 questions, 146 s
+  1254 questions, 153 s
+  1311 questions, 160 s
+  1368 questions, 167 s
+  1425 questions, 174 s
+  1482 questions, 181 s
+  1539 questions, 188 s
+  1596 questions, 196 s
+  1653 questions, 203 s
+  1710 questions, 210 s
+  1767 questions, 217 s
+  1824 questions, 224 s
+  1881 questions, 232 s
+  1938 questions, 239 s
+  1995 questions, 246 s
+  2052 questions, 253 s
+  2109 questions, 260 s
+  2166 questions, 267 s
+  2223 questions, 274 s
+  2280 questions, 281 s
+loop: 2280 questions, 281 s; card peak 30.90 GB allocated, weights 29.54 GB
+inputs: Qwen/Qwen3-14B@40c069824f4251a91eefaf281ebe4c544efd3e18 (size 14b); cais/mmlu@c30699e8356da336a370243923dbaf21066bb9fe; run fingerprint a74a6d6213602979; answer ids [362, 425, 356, 422]; dump docs/data/mmlu-dumps/mmlu-14b-f16-FULL.csv sha256 8160277c2dbde3fa
+questions: 2280 (round robin over 57 subjects), loop 281 s, setup 122 s; card peak 30.90 GB allocated, weights 29.54 GB f16
+
+CONTROL (rule D, lens-only), 2280 questions, the output's answer logits against the Rust FP16 dump
+  picks equal 0.9987 (at least 0.98); |dlogit| median 0.01562, max 0.45312; MMLU script 80.39, dump 80.44
+  RULE D: GREEN
+
+WRITE: largest one-block rise of lens accuracy at depth 29 (+35.8 points); half the way from 25 % to the output's 80.39 % (52.70 %) first at depth 29; lens pick = output pick on 90% first at depth 30
+
+LENS, own final norm and answer rows
+  depth   acc      sd       margin    agree    acc on right
+      0   0.2649   0.8951   -0.8933   0.2750   0.2733
+      1   0.2531   0.7536   -0.5273   0.2548   0.2580
+      2   0.2518   0.8884   -0.7586   0.2548   0.2537
+      3   0.2539   0.4559   -0.4364   0.2386   0.2460
+      4   0.2566   0.6631   -0.5580   0.2618   0.2602
+      5   0.2658   0.4087   -0.3460   0.2728   0.2755
+      6   0.2689   0.4024   -0.3586   0.2798   0.2777
+      7   0.2689   0.6265   -0.4984   0.2693   0.2777
+      8   0.2623   0.5241   -0.4562   0.2715   0.2717
+      9   0.2478   0.7077   -0.5913   0.2513   0.2531
+     10   0.2447   0.4708   -0.4246   0.2425   0.2439
+     11   0.2583   0.5355   -0.4939   0.2636   0.2630
+     12   0.2724   0.9073   -0.7580   0.2732   0.2782
+     13   0.2496   0.7964   -0.6987   0.2570   0.2515
+     14   0.2325   1.1926   -1.1049   0.2316   0.2248
+     15   0.2364   1.3054   -1.2874   0.2430   0.2346
+     16   0.2333   1.6266   -1.5916   0.2399   0.2319
+     17   0.2417   1.1695   -1.1159   0.2491   0.2395
+     18   0.2469   0.9908   -0.9056   0.2500   0.2455
+     19   0.2373   0.8674   -0.8253   0.2408   0.2351
+     20   0.2329   1.0569   -0.9580   0.2399   0.2313
+     21   0.2447   1.1371   -1.0757   0.2500   0.2471
+     22   0.2487   1.0049   -0.9181   0.2412   0.2428
+     23   0.2461   1.2103   -1.0828   0.2399   0.2400
+     24   0.2452   1.4062   -1.2210   0.2491   0.2460
+     25   0.2452   1.5344   -1.2118   0.2469   0.2411
+     26   0.2456   1.3460   -1.1022   0.2465   0.2450
+     27   0.3189   1.3460   -0.6397   0.3355   0.3399
+     28   0.3978   1.3076   -0.3822   0.4140   0.4321
+     29   0.7561   3.0962   +2.6446   0.8338   0.8914
+     30   0.7842   6.8338   +6.3303   0.9180   0.9465
+     31   0.7851   5.4662   +4.6611   0.9175   0.9471
+     32   0.7807   4.7803   +4.0445   0.9079   0.9394
+     33   0.7820   4.8696   +4.4217   0.9000   0.9345
+     34   0.7952   5.3204   +5.4935   0.9311   0.9596
+     35   0.7886   5.6310   +5.8004   0.9329   0.9558
+     36   0.7956   7.8917   +8.9656   0.9601   0.9749
+     37   0.7974   7.5187   +8.5563   0.9566   0.9738
+     38   0.7974   6.9520   +7.6857   0.9640   0.9771
+     39   0.8004   5.1348   +5.9086   0.9754   0.9847
+     40   0.8039   3.9835   +4.4904   1.0000   1.0000
+
+RAW: stream_d{13,27,40}.f16 (N x d, f16, JSON sidecar), lens_logits.tsv, control.tsv, questions.tsv

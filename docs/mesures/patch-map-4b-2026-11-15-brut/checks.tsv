@@ -1,0 +1,685 @@
+kind	label	question	ok	value
+self-patch	whole, every position	0	True	0.000000e+00
+self-patch	band [513, 2560], every position	0	True	0.000000e+00
+self-patch	whole, massive positions	0	True	0.000000e+00
+self-patch	band [513, 2560], answer position	0	True	0.000000e+00
+hybrid	depth 4	0	True	0.000000e+00
+hybrid	depth 8	0	True	0.000000e+00
+hybrid	depth 12	0	True	0.000000e+00
+hybrid	depth 16	0	True	0.000000e+00
+hybrid	depth 20	0	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	0	True	3.125000e-02
+explicit-attention	explicit answer row against SDPA, layers 7-13	0	True	4.890059e-04
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	0	True	0.000000e+00
+self-patch	whole, every position	1	True	0.000000e+00
+self-patch	band [513, 2560], every position	1	True	0.000000e+00
+self-patch	whole, massive positions	1	True	0.000000e+00
+self-patch	band [513, 2560], answer position	1	True	0.000000e+00
+hybrid	depth 4	1	True	0.000000e+00
+hybrid	depth 8	1	True	0.000000e+00
+hybrid	depth 12	1	True	0.000000e+00
+hybrid	depth 16	1	True	0.000000e+00
+hybrid	depth 20	1	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	1	True	0.000000e+00
+explicit-attention	explicit answer row against SDPA, layers 7-13	1	True	4.625604e-04
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	1	True	0.000000e+00
+self-patch	whole, every position	2	True	0.000000e+00
+self-patch	band [513, 2560], every position	2	True	0.000000e+00
+self-patch	whole, massive positions	2	True	0.000000e+00
+self-patch	band [513, 2560], answer position	2	True	0.000000e+00
+hybrid	depth 4	2	True	0.000000e+00
+hybrid	depth 8	2	True	0.000000e+00
+hybrid	depth 12	2	True	0.000000e+00
+hybrid	depth 16	2	True	0.000000e+00
+hybrid	depth 20	2	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	2	True	1.562500e-02
+explicit-attention	explicit answer row against SDPA, layers 7-13	2	True	1.101126e+00
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	2	True	0.000000e+00
+self-patch	whole, every position	3	True	0.000000e+00
+self-patch	band [513, 2560], every position	3	True	0.000000e+00
+self-patch	whole, massive positions	3	True	0.000000e+00
+self-patch	band [513, 2560], answer position	3	True	0.000000e+00
+hybrid	depth 4	3	True	0.000000e+00
+hybrid	depth 8	3	True	0.000000e+00
+hybrid	depth 12	3	True	0.000000e+00
+hybrid	depth 16	3	True	0.000000e+00
+hybrid	depth 20	3	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	3	True	1.562500e-02
+explicit-attention	explicit answer row against SDPA, layers 7-13	3	True	1.219529e+00
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	3	True	0.000000e+00
+self-patch	whole, every position	4	True	0.000000e+00
+self-patch	band [513, 2560], every position	4	True	0.000000e+00
+self-patch	whole, massive positions	4	True	0.000000e+00
+self-patch	band [513, 2560], answer position	4	True	0.000000e+00
+hybrid	depth 4	4	True	0.000000e+00
+hybrid	depth 8	4	True	0.000000e+00
+hybrid	depth 12	4	True	0.000000e+00
+hybrid	depth 16	4	True	0.000000e+00
+hybrid	depth 20	4	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	4	True	3.125000e-02
+explicit-attention	explicit answer row against SDPA, layers 7-13	4	True	5.257355e-04
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	4	True	0.000000e+00
+self-patch	whole, every position	5	True	0.000000e+00
+self-patch	band [513, 2560], every position	5	True	0.000000e+00
+self-patch	whole, massive positions	5	True	0.000000e+00
+self-patch	band [513, 2560], answer position	5	True	0.000000e+00
+hybrid	depth 4	5	True	0.000000e+00
+hybrid	depth 8	5	True	0.000000e+00
+hybrid	depth 12	5	True	0.000000e+00
+hybrid	depth 16	5	True	0.000000e+00
+hybrid	depth 20	5	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	5	True	1.562500e-02
+explicit-attention	explicit answer row against SDPA, layers 7-13	5	True	5.639015e-04
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	5	True	0.000000e+00
+self-patch	whole, every position	6	True	0.000000e+00
+self-patch	band [513, 2560], every position	6	True	0.000000e+00
+self-patch	whole, massive positions	6	True	0.000000e+00
+self-patch	band [513, 2560], answer position	6	True	0.000000e+00
+hybrid	depth 4	6	True	0.000000e+00
+hybrid	depth 8	6	True	0.000000e+00
+hybrid	depth 12	6	True	0.000000e+00
+hybrid	depth 16	6	True	0.000000e+00
+hybrid	depth 20	6	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	6	True	1.562500e-02
+explicit-attention	explicit answer row against SDPA, layers 7-13	6	True	9.395155e-04
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	6	True	0.000000e+00
+self-patch	whole, every position	7	True	0.000000e+00
+self-patch	band [513, 2560], every position	7	True	0.000000e+00
+self-patch	whole, massive positions	7	True	0.000000e+00
+self-patch	band [513, 2560], answer position	7	True	0.000000e+00
+hybrid	depth 4	7	True	0.000000e+00
+hybrid	depth 8	7	True	0.000000e+00
+hybrid	depth 12	7	True	0.000000e+00
+hybrid	depth 16	7	True	0.000000e+00
+hybrid	depth 20	7	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	7	True	1.562500e-02
+explicit-attention	explicit answer row against SDPA, layers 7-13	7	True	1.734853e+00
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	7	True	0.000000e+00
+self-patch	whole, every position	8	True	0.000000e+00
+self-patch	band [513, 2560], every position	8	True	0.000000e+00
+self-patch	whole, massive positions	8	True	0.000000e+00
+self-patch	band [513, 2560], answer position	8	True	0.000000e+00
+hybrid	depth 4	8	True	0.000000e+00
+hybrid	depth 8	8	True	0.000000e+00
+hybrid	depth 12	8	True	0.000000e+00
+hybrid	depth 16	8	True	0.000000e+00
+hybrid	depth 20	8	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	8	True	3.125000e-02
+explicit-attention	explicit answer row against SDPA, layers 7-13	8	True	1.003951e-03
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	8	True	0.000000e+00
+self-patch	whole, every position	9	True	0.000000e+00
+self-patch	band [513, 2560], every position	9	True	0.000000e+00
+self-patch	whole, massive positions	9	True	0.000000e+00
+self-patch	band [513, 2560], answer position	9	True	0.000000e+00
+hybrid	depth 4	9	True	0.000000e+00
+hybrid	depth 8	9	True	0.000000e+00
+hybrid	depth 12	9	True	0.000000e+00
+hybrid	depth 16	9	True	0.000000e+00
+hybrid	depth 20	9	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	9	True	1.562500e-02
+explicit-attention	explicit answer row against SDPA, layers 7-13	9	True	1.263012e+00
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	9	True	0.000000e+00
+self-patch	whole, every position	10	True	0.000000e+00
+self-patch	band [513, 2560], every position	10	True	0.000000e+00
+self-patch	whole, massive positions	10	True	0.000000e+00
+self-patch	band [513, 2560], answer position	10	True	0.000000e+00
+hybrid	depth 4	10	True	0.000000e+00
+hybrid	depth 8	10	True	0.000000e+00
+hybrid	depth 12	10	True	0.000000e+00
+hybrid	depth 16	10	True	0.000000e+00
+hybrid	depth 20	10	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	10	True	1.562500e-02
+explicit-attention	explicit answer row against SDPA, layers 7-13	10	True	9.909791e-01
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	10	True	0.000000e+00
+self-patch	whole, every position	11	True	0.000000e+00
+self-patch	band [513, 2560], every position	11	True	0.000000e+00
+self-patch	whole, massive positions	11	True	0.000000e+00
+self-patch	band [513, 2560], answer position	11	True	0.000000e+00
+hybrid	depth 4	11	True	0.000000e+00
+hybrid	depth 8	11	True	0.000000e+00
+hybrid	depth 12	11	True	0.000000e+00
+hybrid	depth 16	11	True	0.000000e+00
+hybrid	depth 20	11	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	11	True	1.562500e-02
+explicit-attention	explicit answer row against SDPA, layers 7-13	11	True	5.227042e-04
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	11	True	0.000000e+00
+self-patch	whole, every position	12	True	0.000000e+00
+self-patch	band [513, 2560], every position	12	True	0.000000e+00
+self-patch	whole, massive positions	12	True	0.000000e+00
+self-patch	band [513, 2560], answer position	12	True	0.000000e+00
+hybrid	depth 4	12	True	0.000000e+00
+hybrid	depth 8	12	True	0.000000e+00
+hybrid	depth 12	12	True	0.000000e+00
+hybrid	depth 16	12	True	0.000000e+00
+hybrid	depth 20	12	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	12	True	1.562500e-02
+explicit-attention	explicit answer row against SDPA, layers 7-13	12	True	5.212586e-04
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	12	True	0.000000e+00
+self-patch	whole, every position	13	True	0.000000e+00
+self-patch	band [513, 2560], every position	13	True	0.000000e+00
+self-patch	whole, massive positions	13	True	0.000000e+00
+self-patch	band [513, 2560], answer position	13	True	0.000000e+00
+hybrid	depth 4	13	True	0.000000e+00
+hybrid	depth 8	13	True	0.000000e+00
+hybrid	depth 12	13	True	0.000000e+00
+hybrid	depth 16	13	True	0.000000e+00
+hybrid	depth 20	13	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	13	True	0.000000e+00
+explicit-attention	explicit answer row against SDPA, layers 7-13	13	True	4.566815e-04
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	13	True	0.000000e+00
+self-patch	whole, every position	14	True	0.000000e+00
+self-patch	band [513, 2560], every position	14	True	0.000000e+00
+self-patch	whole, massive positions	14	True	0.000000e+00
+self-patch	band [513, 2560], answer position	14	True	0.000000e+00
+hybrid	depth 4	14	True	0.000000e+00
+hybrid	depth 8	14	True	0.000000e+00
+hybrid	depth 12	14	True	0.000000e+00
+hybrid	depth 16	14	True	0.000000e+00
+hybrid	depth 20	14	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	14	True	1.562500e-02
+explicit-attention	explicit answer row against SDPA, layers 7-13	14	True	5.171876e-04
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	14	True	0.000000e+00
+self-patch	whole, every position	15	True	0.000000e+00
+self-patch	band [513, 2560], every position	15	True	0.000000e+00
+self-patch	whole, massive positions	15	True	0.000000e+00
+self-patch	band [513, 2560], answer position	15	True	0.000000e+00
+hybrid	depth 4	15	True	0.000000e+00
+hybrid	depth 8	15	True	0.000000e+00
+hybrid	depth 12	15	True	0.000000e+00
+hybrid	depth 16	15	True	0.000000e+00
+hybrid	depth 20	15	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	15	True	1.562500e-02
+explicit-attention	explicit answer row against SDPA, layers 7-13	15	True	4.159398e-04
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	15	True	0.000000e+00
+self-patch	whole, every position	16	True	0.000000e+00
+self-patch	band [513, 2560], every position	16	True	0.000000e+00
+self-patch	whole, massive positions	16	True	0.000000e+00
+self-patch	band [513, 2560], answer position	16	True	0.000000e+00
+hybrid	depth 4	16	True	0.000000e+00
+hybrid	depth 8	16	True	0.000000e+00
+hybrid	depth 12	16	True	0.000000e+00
+hybrid	depth 16	16	True	0.000000e+00
+hybrid	depth 20	16	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	16	True	0.000000e+00
+explicit-attention	explicit answer row against SDPA, layers 7-13	16	True	2.186078e+00
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	16	True	0.000000e+00
+self-patch	whole, every position	17	True	0.000000e+00
+self-patch	band [513, 2560], every position	17	True	0.000000e+00
+self-patch	whole, massive positions	17	True	0.000000e+00
+self-patch	band [513, 2560], answer position	17	True	0.000000e+00
+hybrid	depth 4	17	True	0.000000e+00
+hybrid	depth 8	17	True	0.000000e+00
+hybrid	depth 12	17	True	0.000000e+00
+hybrid	depth 16	17	True	0.000000e+00
+hybrid	depth 20	17	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	17	True	1.562500e-02
+explicit-attention	explicit answer row against SDPA, layers 7-13	17	True	5.518623e-04
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	17	True	0.000000e+00
+self-patch	whole, every position	18	True	0.000000e+00
+self-patch	band [513, 2560], every position	18	True	0.000000e+00
+self-patch	whole, massive positions	18	True	0.000000e+00
+self-patch	band [513, 2560], answer position	18	True	0.000000e+00
+hybrid	depth 4	18	True	0.000000e+00
+hybrid	depth 8	18	True	0.000000e+00
+hybrid	depth 12	18	True	0.000000e+00
+hybrid	depth 16	18	True	0.000000e+00
+hybrid	depth 20	18	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	18	True	1.562500e-02
+explicit-attention	explicit answer row against SDPA, layers 7-13	18	True	4.218670e-04
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	18	True	0.000000e+00
+self-patch	whole, every position	19	True	0.000000e+00
+self-patch	band [513, 2560], every position	19	True	0.000000e+00
+self-patch	whole, massive positions	19	True	0.000000e+00
+self-patch	band [513, 2560], answer position	19	True	0.000000e+00
+hybrid	depth 4	19	True	0.000000e+00
+hybrid	depth 8	19	True	0.000000e+00
+hybrid	depth 12	19	True	0.000000e+00
+hybrid	depth 16	19	True	0.000000e+00
+hybrid	depth 20	19	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	19	True	1.562500e-02
+explicit-attention	explicit answer row against SDPA, layers 7-13	19	True	4.569784e-04
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	19	True	0.000000e+00
+self-patch	whole, every position	20	True	0.000000e+00
+self-patch	band [513, 2560], every position	20	True	0.000000e+00
+self-patch	whole, massive positions	20	True	0.000000e+00
+self-patch	band [513, 2560], answer position	20	True	0.000000e+00
+hybrid	depth 4	20	True	0.000000e+00
+hybrid	depth 8	20	True	0.000000e+00
+hybrid	depth 12	20	True	0.000000e+00
+hybrid	depth 16	20	True	0.000000e+00
+hybrid	depth 20	20	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	20	True	1.562500e-02
+explicit-attention	explicit answer row against SDPA, layers 7-13	20	True	4.014986e-04
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	20	True	0.000000e+00
+self-patch	whole, every position	21	True	0.000000e+00
+self-patch	band [513, 2560], every position	21	True	0.000000e+00
+self-patch	whole, massive positions	21	True	0.000000e+00
+self-patch	band [513, 2560], answer position	21	True	0.000000e+00
+hybrid	depth 4	21	True	0.000000e+00
+hybrid	depth 8	21	True	0.000000e+00
+hybrid	depth 12	21	True	0.000000e+00
+hybrid	depth 16	21	True	0.000000e+00
+hybrid	depth 20	21	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	21	True	1.562500e-02
+explicit-attention	explicit answer row against SDPA, layers 7-13	21	True	6.456418e-04
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	21	True	0.000000e+00
+self-patch	whole, every position	22	True	0.000000e+00
+self-patch	band [513, 2560], every position	22	True	0.000000e+00
+self-patch	whole, massive positions	22	True	0.000000e+00
+self-patch	band [513, 2560], answer position	22	True	0.000000e+00
+hybrid	depth 4	22	True	0.000000e+00
+hybrid	depth 8	22	True	0.000000e+00
+hybrid	depth 12	22	True	0.000000e+00
+hybrid	depth 16	22	True	0.000000e+00
+hybrid	depth 20	22	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	22	True	0.000000e+00
+explicit-attention	explicit answer row against SDPA, layers 7-13	22	True	4.163001e-04
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	22	True	0.000000e+00
+self-patch	whole, every position	23	True	0.000000e+00
+self-patch	band [513, 2560], every position	23	True	0.000000e+00
+self-patch	whole, massive positions	23	True	0.000000e+00
+self-patch	band [513, 2560], answer position	23	True	0.000000e+00
+hybrid	depth 4	23	True	0.000000e+00
+hybrid	depth 8	23	True	0.000000e+00
+hybrid	depth 12	23	True	0.000000e+00
+hybrid	depth 16	23	True	0.000000e+00
+hybrid	depth 20	23	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	23	True	3.125000e-02
+explicit-attention	explicit answer row against SDPA, layers 7-13	23	True	6.368975e-04
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	23	True	0.000000e+00
+self-patch	whole, every position	24	True	0.000000e+00
+self-patch	band [513, 2560], every position	24	True	0.000000e+00
+self-patch	whole, massive positions	24	True	0.000000e+00
+self-patch	band [513, 2560], answer position	24	True	0.000000e+00
+hybrid	depth 4	24	True	0.000000e+00
+hybrid	depth 8	24	True	0.000000e+00
+hybrid	depth 12	24	True	0.000000e+00
+hybrid	depth 16	24	True	0.000000e+00
+hybrid	depth 20	24	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	24	True	3.125000e-02
+explicit-attention	explicit answer row against SDPA, layers 7-13	24	True	9.440351e-04
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	24	True	0.000000e+00
+self-patch	whole, every position	25	True	0.000000e+00
+self-patch	band [513, 2560], every position	25	True	0.000000e+00
+self-patch	whole, massive positions	25	True	0.000000e+00
+self-patch	band [513, 2560], answer position	25	True	0.000000e+00
+hybrid	depth 4	25	True	0.000000e+00
+hybrid	depth 8	25	True	0.000000e+00
+hybrid	depth 12	25	True	0.000000e+00
+hybrid	depth 16	25	True	0.000000e+00
+hybrid	depth 20	25	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	25	True	1.562500e-02
+explicit-attention	explicit answer row against SDPA, layers 7-13	25	True	4.926888e-04
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	25	True	0.000000e+00
+self-patch	whole, every position	26	True	0.000000e+00
+self-patch	band [513, 2560], every position	26	True	0.000000e+00
+self-patch	whole, massive positions	26	True	0.000000e+00
+self-patch	band [513, 2560], answer position	26	True	0.000000e+00
+hybrid	depth 4	26	True	0.000000e+00
+hybrid	depth 8	26	True	0.000000e+00
+hybrid	depth 12	26	True	0.000000e+00
+hybrid	depth 16	26	True	0.000000e+00
+hybrid	depth 20	26	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	26	True	1.562500e-02
+explicit-attention	explicit answer row against SDPA, layers 7-13	26	True	5.331827e-04
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	26	True	0.000000e+00
+self-patch	whole, every position	27	True	0.000000e+00
+self-patch	band [513, 2560], every position	27	True	0.000000e+00
+self-patch	whole, massive positions	27	True	0.000000e+00
+self-patch	band [513, 2560], answer position	27	True	0.000000e+00
+hybrid	depth 4	27	True	0.000000e+00
+hybrid	depth 8	27	True	0.000000e+00
+hybrid	depth 12	27	True	0.000000e+00
+hybrid	depth 16	27	True	0.000000e+00
+hybrid	depth 20	27	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	27	True	1.562500e-02
+explicit-attention	explicit answer row against SDPA, layers 7-13	27	True	5.322535e-04
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	27	True	0.000000e+00
+self-patch	whole, every position	28	True	0.000000e+00
+self-patch	band [513, 2560], every position	28	True	0.000000e+00
+self-patch	whole, massive positions	28	True	0.000000e+00
+self-patch	band [513, 2560], answer position	28	True	0.000000e+00
+hybrid	depth 4	28	True	0.000000e+00
+hybrid	depth 8	28	True	0.000000e+00
+hybrid	depth 12	28	True	0.000000e+00
+hybrid	depth 16	28	True	0.000000e+00
+hybrid	depth 20	28	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	28	True	1.562500e-02
+explicit-attention	explicit answer row against SDPA, layers 7-13	28	True	4.714748e-04
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	28	True	0.000000e+00
+self-patch	whole, every position	29	True	0.000000e+00
+self-patch	band [513, 2560], every position	29	True	0.000000e+00
+self-patch	whole, massive positions	29	True	0.000000e+00
+self-patch	band [513, 2560], answer position	29	True	0.000000e+00
+hybrid	depth 4	29	True	0.000000e+00
+hybrid	depth 8	29	True	0.000000e+00
+hybrid	depth 12	29	True	0.000000e+00
+hybrid	depth 16	29	True	0.000000e+00
+hybrid	depth 20	29	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	29	True	1.562500e-02
+explicit-attention	explicit answer row against SDPA, layers 7-13	29	True	5.995884e-04
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	29	True	0.000000e+00
+self-patch	whole, every position	30	True	0.000000e+00
+self-patch	band [513, 2560], every position	30	True	0.000000e+00
+self-patch	whole, massive positions	30	True	0.000000e+00
+self-patch	band [513, 2560], answer position	30	True	0.000000e+00
+hybrid	depth 4	30	True	0.000000e+00
+hybrid	depth 8	30	True	0.000000e+00
+hybrid	depth 12	30	True	0.000000e+00
+hybrid	depth 16	30	True	0.000000e+00
+hybrid	depth 20	30	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	30	True	1.562500e-02
+explicit-attention	explicit answer row against SDPA, layers 7-13	30	True	4.333808e-04
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	30	True	0.000000e+00
+self-patch	whole, every position	31	True	0.000000e+00
+self-patch	band [513, 2560], every position	31	True	0.000000e+00
+self-patch	whole, massive positions	31	True	0.000000e+00
+self-patch	band [513, 2560], answer position	31	True	0.000000e+00
+hybrid	depth 4	31	True	0.000000e+00
+hybrid	depth 8	31	True	0.000000e+00
+hybrid	depth 12	31	True	0.000000e+00
+hybrid	depth 16	31	True	0.000000e+00
+hybrid	depth 20	31	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	31	True	1.562500e-02
+explicit-attention	explicit answer row against SDPA, layers 7-13	31	True	6.045186e-04
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	31	True	0.000000e+00
+self-patch	whole, every position	32	True	0.000000e+00
+self-patch	band [513, 2560], every position	32	True	0.000000e+00
+self-patch	whole, massive positions	32	True	0.000000e+00
+self-patch	band [513, 2560], answer position	32	True	0.000000e+00
+hybrid	depth 4	32	True	0.000000e+00
+hybrid	depth 8	32	True	0.000000e+00
+hybrid	depth 12	32	True	0.000000e+00
+hybrid	depth 16	32	True	0.000000e+00
+hybrid	depth 20	32	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	32	True	1.562500e-02
+explicit-attention	explicit answer row against SDPA, layers 7-13	32	True	4.550561e-04
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	32	True	0.000000e+00
+self-patch	whole, every position	33	True	0.000000e+00
+self-patch	band [513, 2560], every position	33	True	0.000000e+00
+self-patch	whole, massive positions	33	True	0.000000e+00
+self-patch	band [513, 2560], answer position	33	True	0.000000e+00
+hybrid	depth 4	33	True	0.000000e+00
+hybrid	depth 8	33	True	0.000000e+00
+hybrid	depth 12	33	True	0.000000e+00
+hybrid	depth 16	33	True	0.000000e+00
+hybrid	depth 20	33	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	33	True	1.562500e-02
+explicit-attention	explicit answer row against SDPA, layers 7-13	33	True	4.966311e-04
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	33	True	0.000000e+00
+self-patch	whole, every position	34	True	0.000000e+00
+self-patch	band [513, 2560], every position	34	True	0.000000e+00
+self-patch	whole, massive positions	34	True	0.000000e+00
+self-patch	band [513, 2560], answer position	34	True	0.000000e+00
+hybrid	depth 4	34	True	0.000000e+00
+hybrid	depth 8	34	True	0.000000e+00
+hybrid	depth 12	34	True	0.000000e+00
+hybrid	depth 16	34	True	0.000000e+00
+hybrid	depth 20	34	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	34	True	1.562500e-02
+explicit-attention	explicit answer row against SDPA, layers 7-13	34	True	5.896432e-04
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	34	True	0.000000e+00
+self-patch	whole, every position	35	True	0.000000e+00
+self-patch	band [513, 2560], every position	35	True	0.000000e+00
+self-patch	whole, massive positions	35	True	0.000000e+00
+self-patch	band [513, 2560], answer position	35	True	0.000000e+00
+hybrid	depth 4	35	True	0.000000e+00
+hybrid	depth 8	35	True	0.000000e+00
+hybrid	depth 12	35	True	0.000000e+00
+hybrid	depth 16	35	True	0.000000e+00
+hybrid	depth 20	35	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	35	True	0.000000e+00
+explicit-attention	explicit answer row against SDPA, layers 7-13	35	True	4.664348e-04
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	35	True	0.000000e+00
+self-patch	whole, every position	36	True	0.000000e+00
+self-patch	band [513, 2560], every position	36	True	0.000000e+00
+self-patch	whole, massive positions	36	True	0.000000e+00
+self-patch	band [513, 2560], answer position	36	True	0.000000e+00
+hybrid	depth 4	36	True	0.000000e+00
+hybrid	depth 8	36	True	0.000000e+00
+hybrid	depth 12	36	True	0.000000e+00
+hybrid	depth 16	36	True	0.000000e+00
+hybrid	depth 20	36	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	36	True	3.125000e-02
+explicit-attention	explicit answer row against SDPA, layers 7-13	36	True	5.692098e-04
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	36	True	0.000000e+00
+self-patch	whole, every position	37	True	0.000000e+00
+self-patch	band [513, 2560], every position	37	True	0.000000e+00
+self-patch	whole, massive positions	37	True	0.000000e+00
+self-patch	band [513, 2560], answer position	37	True	0.000000e+00
+hybrid	depth 4	37	True	0.000000e+00
+hybrid	depth 8	37	True	0.000000e+00
+hybrid	depth 12	37	True	0.000000e+00
+hybrid	depth 16	37	True	0.000000e+00
+hybrid	depth 20	37	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	37	True	1.562500e-02
+explicit-attention	explicit answer row against SDPA, layers 7-13	37	True	5.360606e-04
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	37	True	0.000000e+00
+self-patch	whole, every position	38	True	0.000000e+00
+self-patch	band [513, 2560], every position	38	True	0.000000e+00
+self-patch	whole, massive positions	38	True	0.000000e+00
+self-patch	band [513, 2560], answer position	38	True	0.000000e+00
+hybrid	depth 4	38	True	0.000000e+00
+hybrid	depth 8	38	True	0.000000e+00
+hybrid	depth 12	38	True	0.000000e+00
+hybrid	depth 16	38	True	0.000000e+00
+hybrid	depth 20	38	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	38	True	1.562500e-02
+explicit-attention	explicit answer row against SDPA, layers 7-13	38	True	5.730369e-04
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	38	True	0.000000e+00
+self-patch	whole, every position	39	True	0.000000e+00
+self-patch	band [513, 2560], every position	39	True	0.000000e+00
+self-patch	whole, massive positions	39	True	0.000000e+00
+self-patch	band [513, 2560], answer position	39	True	0.000000e+00
+hybrid	depth 4	39	True	0.000000e+00
+hybrid	depth 8	39	True	0.000000e+00
+hybrid	depth 12	39	True	0.000000e+00
+hybrid	depth 16	39	True	0.000000e+00
+hybrid	depth 20	39	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	39	True	1.562500e-02
+explicit-attention	explicit answer row against SDPA, layers 7-13	39	True	5.730311e-04
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	39	True	0.000000e+00
+self-patch	whole, every position	40	True	0.000000e+00
+self-patch	band [513, 2560], every position	40	True	0.000000e+00
+self-patch	whole, massive positions	40	True	0.000000e+00
+self-patch	band [513, 2560], answer position	40	True	0.000000e+00
+hybrid	depth 4	40	True	0.000000e+00
+hybrid	depth 8	40	True	0.000000e+00
+hybrid	depth 12	40	True	0.000000e+00
+hybrid	depth 16	40	True	0.000000e+00
+hybrid	depth 20	40	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	40	True	1.562500e-02
+explicit-attention	explicit answer row against SDPA, layers 7-13	40	True	4.945540e-04
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	40	True	0.000000e+00
+self-patch	whole, every position	41	True	0.000000e+00
+self-patch	band [513, 2560], every position	41	True	0.000000e+00
+self-patch	whole, massive positions	41	True	0.000000e+00
+self-patch	band [513, 2560], answer position	41	True	0.000000e+00
+hybrid	depth 4	41	True	0.000000e+00
+hybrid	depth 8	41	True	0.000000e+00
+hybrid	depth 12	41	True	0.000000e+00
+hybrid	depth 16	41	True	0.000000e+00
+hybrid	depth 20	41	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	41	True	1.562500e-02
+explicit-attention	explicit answer row against SDPA, layers 7-13	41	True	5.430637e-04
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	41	True	0.000000e+00
+self-patch	whole, every position	42	True	0.000000e+00
+self-patch	band [513, 2560], every position	42	True	0.000000e+00
+self-patch	whole, massive positions	42	True	0.000000e+00
+self-patch	band [513, 2560], answer position	42	True	0.000000e+00
+hybrid	depth 4	42	True	0.000000e+00
+hybrid	depth 8	42	True	0.000000e+00
+hybrid	depth 12	42	True	0.000000e+00
+hybrid	depth 16	42	True	0.000000e+00
+hybrid	depth 20	42	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	42	True	1.562500e-02
+explicit-attention	explicit answer row against SDPA, layers 7-13	42	True	5.151420e-04
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	42	True	0.000000e+00
+self-patch	whole, every position	43	True	0.000000e+00
+self-patch	band [513, 2560], every position	43	True	0.000000e+00
+self-patch	whole, massive positions	43	True	0.000000e+00
+self-patch	band [513, 2560], answer position	43	True	0.000000e+00
+hybrid	depth 4	43	True	0.000000e+00
+hybrid	depth 8	43	True	0.000000e+00
+hybrid	depth 12	43	True	0.000000e+00
+hybrid	depth 16	43	True	0.000000e+00
+hybrid	depth 20	43	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	43	True	0.000000e+00
+explicit-attention	explicit answer row against SDPA, layers 7-13	43	True	1.016106e+00
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	43	True	0.000000e+00
+self-patch	whole, every position	44	True	0.000000e+00
+self-patch	band [513, 2560], every position	44	True	0.000000e+00
+self-patch	whole, massive positions	44	True	0.000000e+00
+self-patch	band [513, 2560], answer position	44	True	0.000000e+00
+hybrid	depth 4	44	True	0.000000e+00
+hybrid	depth 8	44	True	0.000000e+00
+hybrid	depth 12	44	True	0.000000e+00
+hybrid	depth 16	44	True	0.000000e+00
+hybrid	depth 20	44	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	44	True	1.562500e-02
+explicit-attention	explicit answer row against SDPA, layers 7-13	44	True	4.639993e-04
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	44	True	0.000000e+00
+self-patch	whole, every position	45	True	0.000000e+00
+self-patch	band [513, 2560], every position	45	True	0.000000e+00
+self-patch	whole, massive positions	45	True	0.000000e+00
+self-patch	band [513, 2560], answer position	45	True	0.000000e+00
+hybrid	depth 4	45	True	0.000000e+00
+hybrid	depth 8	45	True	0.000000e+00
+hybrid	depth 12	45	True	0.000000e+00
+hybrid	depth 16	45	True	0.000000e+00
+hybrid	depth 20	45	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	45	True	1.562500e-02
+explicit-attention	explicit answer row against SDPA, layers 7-13	45	True	4.865260e-04
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	45	True	0.000000e+00
+self-patch	whole, every position	46	True	0.000000e+00
+self-patch	band [513, 2560], every position	46	True	0.000000e+00
+self-patch	whole, massive positions	46	True	0.000000e+00
+self-patch	band [513, 2560], answer position	46	True	0.000000e+00
+hybrid	depth 4	46	True	0.000000e+00
+hybrid	depth 8	46	True	0.000000e+00
+hybrid	depth 12	46	True	0.000000e+00
+hybrid	depth 16	46	True	0.000000e+00
+hybrid	depth 20	46	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	46	True	1.562500e-02
+explicit-attention	explicit answer row against SDPA, layers 7-13	46	True	5.113553e-04
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	46	True	0.000000e+00
+self-patch	whole, every position	47	True	0.000000e+00
+self-patch	band [513, 2560], every position	47	True	0.000000e+00
+self-patch	whole, massive positions	47	True	0.000000e+00
+self-patch	band [513, 2560], answer position	47	True	0.000000e+00
+hybrid	depth 4	47	True	0.000000e+00
+hybrid	depth 8	47	True	0.000000e+00
+hybrid	depth 12	47	True	0.000000e+00
+hybrid	depth 16	47	True	0.000000e+00
+hybrid	depth 20	47	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	47	True	0.000000e+00
+explicit-attention	explicit answer row against SDPA, layers 7-13	47	True	1.976764e+00
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	47	True	0.000000e+00
+self-patch	whole, every position	48	True	0.000000e+00
+self-patch	band [513, 2560], every position	48	True	0.000000e+00
+self-patch	whole, massive positions	48	True	0.000000e+00
+self-patch	band [513, 2560], answer position	48	True	0.000000e+00
+hybrid	depth 4	48	True	0.000000e+00
+hybrid	depth 8	48	True	0.000000e+00
+hybrid	depth 12	48	True	0.000000e+00
+hybrid	depth 16	48	True	0.000000e+00
+hybrid	depth 20	48	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	48	True	0.000000e+00
+explicit-attention	explicit answer row against SDPA, layers 7-13	48	True	4.724769e-04
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	48	True	0.000000e+00
+self-patch	whole, every position	49	True	0.000000e+00
+self-patch	band [513, 2560], every position	49	True	0.000000e+00
+self-patch	whole, massive positions	49	True	0.000000e+00
+self-patch	band [513, 2560], answer position	49	True	0.000000e+00
+hybrid	depth 4	49	True	0.000000e+00
+hybrid	depth 8	49	True	0.000000e+00
+hybrid	depth 12	49	True	0.000000e+00
+hybrid	depth 16	49	True	0.000000e+00
+hybrid	depth 20	49	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	49	True	0.000000e+00
+explicit-attention	explicit answer row against SDPA, layers 7-13	49	True	4.851970e-04
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	49	True	0.000000e+00
+self-patch	whole, every position	50	True	0.000000e+00
+self-patch	band [513, 2560], every position	50	True	0.000000e+00
+self-patch	whole, massive positions	50	True	0.000000e+00
+self-patch	band [513, 2560], answer position	50	True	0.000000e+00
+hybrid	depth 4	50	True	0.000000e+00
+hybrid	depth 8	50	True	0.000000e+00
+hybrid	depth 12	50	True	0.000000e+00
+hybrid	depth 16	50	True	0.000000e+00
+hybrid	depth 20	50	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	50	True	1.562500e-02
+explicit-attention	explicit answer row against SDPA, layers 7-13	50	True	1.010364e+00
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	50	True	0.000000e+00
+self-patch	whole, every position	51	True	0.000000e+00
+self-patch	band [513, 2560], every position	51	True	0.000000e+00
+self-patch	whole, massive positions	51	True	0.000000e+00
+self-patch	band [513, 2560], answer position	51	True	0.000000e+00
+hybrid	depth 4	51	True	0.000000e+00
+hybrid	depth 8	51	True	0.000000e+00
+hybrid	depth 12	51	True	0.000000e+00
+hybrid	depth 16	51	True	0.000000e+00
+hybrid	depth 20	51	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	51	True	1.562500e-02
+explicit-attention	explicit answer row against SDPA, layers 7-13	51	True	4.553683e-04
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	51	True	0.000000e+00
+self-patch	whole, every position	52	True	0.000000e+00
+self-patch	band [513, 2560], every position	52	True	0.000000e+00
+self-patch	whole, massive positions	52	True	0.000000e+00
+self-patch	band [513, 2560], answer position	52	True	0.000000e+00
+hybrid	depth 4	52	True	0.000000e+00
+hybrid	depth 8	52	True	0.000000e+00
+hybrid	depth 12	52	True	0.000000e+00
+hybrid	depth 16	52	True	0.000000e+00
+hybrid	depth 20	52	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	52	True	1.562500e-02
+explicit-attention	explicit answer row against SDPA, layers 7-13	52	True	5.106667e-04
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	52	True	0.000000e+00
+self-patch	whole, every position	53	True	0.000000e+00
+self-patch	band [513, 2560], every position	53	True	0.000000e+00
+self-patch	whole, massive positions	53	True	0.000000e+00
+self-patch	band [513, 2560], answer position	53	True	0.000000e+00
+hybrid	depth 4	53	True	0.000000e+00
+hybrid	depth 8	53	True	0.000000e+00
+hybrid	depth 12	53	True	0.000000e+00
+hybrid	depth 16	53	True	0.000000e+00
+hybrid	depth 20	53	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	53	True	1.562500e-02
+explicit-attention	explicit answer row against SDPA, layers 7-13	53	True	5.618729e-04
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	53	True	0.000000e+00
+self-patch	whole, every position	54	True	0.000000e+00
+self-patch	band [513, 2560], every position	54	True	0.000000e+00
+self-patch	whole, massive positions	54	True	0.000000e+00
+self-patch	band [513, 2560], answer position	54	True	0.000000e+00
+hybrid	depth 4	54	True	0.000000e+00
+hybrid	depth 8	54	True	0.000000e+00
+hybrid	depth 12	54	True	0.000000e+00
+hybrid	depth 16	54	True	0.000000e+00
+hybrid	depth 20	54	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	54	True	0.000000e+00
+explicit-attention	explicit answer row against SDPA, layers 7-13	54	True	5.029249e-04
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	54	True	0.000000e+00
+self-patch	whole, every position	55	True	0.000000e+00
+self-patch	band [513, 2560], every position	55	True	0.000000e+00
+self-patch	whole, massive positions	55	True	0.000000e+00
+self-patch	band [513, 2560], answer position	55	True	0.000000e+00
+hybrid	depth 4	55	True	0.000000e+00
+hybrid	depth 8	55	True	0.000000e+00
+hybrid	depth 12	55	True	0.000000e+00
+hybrid	depth 16	55	True	0.000000e+00
+hybrid	depth 20	55	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	55	True	1.562500e-02
+explicit-attention	explicit answer row against SDPA, layers 7-13	55	True	5.134070e-04
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	55	True	0.000000e+00
+self-patch	whole, every position	56	True	0.000000e+00
+self-patch	band [513, 2560], every position	56	True	0.000000e+00
+self-patch	whole, massive positions	56	True	0.000000e+00
+self-patch	band [513, 2560], answer position	56	True	0.000000e+00
+hybrid	depth 4	56	True	0.000000e+00
+hybrid	depth 8	56	True	0.000000e+00
+hybrid	depth 12	56	True	0.000000e+00
+hybrid	depth 16	56	True	0.000000e+00
+hybrid	depth 20	56	True	0.000000e+00
+three-bands	bands 1-3 together against the whole stream, depth 12	56	True	1.562500e-02
+explicit-attention	explicit answer row against SDPA, layers 7-13	56	True	4.489708e-04
+branch-exact	FP16 h(0) and both FP16 branches at 0-11 give FP16's h(12) and d12	56	True	0.000000e+00

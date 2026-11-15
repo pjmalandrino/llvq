@@ -1,0 +1,164 @@
+CONTRAST MAP 4B: WHERE THE SEALED 4B LOSES THE CONTRAST OF ITS ANSWER LOGITS, BY DEPTH, DIRECTION, MATRIX AND HEAD, 570 MMLU PROMPTS, ONE L40S, 2026-11-14. $0.46.
+===================================================================================================================================================================
+The loss is complete when the answer is written, at block 25 of 36, and the eleven blocks after it change nothing. Read
+through FP16's final readout, the answer appears between depth 24 and depth 25: FP16's lens accuracy goes from 28.3 %
+to 72.3 %, the sealed 4B's from 29.5 % to 63.9 %. At the output they read 73.7 % and 66.5 %. In comparable units, the
+slope times the spread of FP16's lens logits over the noise, the sealed stream reads 1.60 at depth 25 and 1.68 at
+depth 36 (*measured*, 570 questions; the three ratios *computed*).
+
+The output slope of 0.61 is not the loss. It is 0.81 at depth 25, 0.79 at depth 35, and falls to 0.61 across the last
+block, where the sealed stream's norm at the answer position rises to 1.25 times FP16's and the final normalisation
+divides everything else by it; the noise falls in the same proportion (2.14 to 1.38). That step is a rescale.
+
+By direction, at the answer position, the quiet end of the stream is lost early: in the band of FP16 directions 513 to
+2,560 the sealed coordinate keeps a slope of 0.86 at depth 4, 0.64 at depth 8 and 0.47 at depth 12, under a noise of
+1.6 to 2.7 times the FP16 energy of that band. The loud directions, 1 to 64, keep a slope of 0.92 to 1.13 through
+depth 32, under a noise of at most 3 %. Over all token positions the same band reads 0.84 at depth 12 under a noise of
+0.64: the answer position is hit about four times harder than the average position of the same prompts.
+
+Reading against the prereg, to the letter: Ha (uniform shrink) is not supported; Hb (local shrink that compounds with
+depth) is not supported, its depth condition fails; Hc (attention dilution) is dead by its rule in aggregate; coherent
+or noise is not decided. The lead's idea, gains chosen for a coherent gain of 1 along the depth, does not survive in
+that form: no matrix shrinks by more than a few percent on its own inputs, and the loss in the quiet directions does
+not grow with depth after block 12.
+
+Prereg : proofs/preregistration-contrast-map-4b-2026-11-14.md, sha256 cba0eb94e8ab4e3d..., signed, stamped (.ots) and
+         committed before the job (b103f0f). Not edited. No deviation file.
+Code   : ops/contrast_map.py, sha256 95bb1e55583e2d64... (397887e), checked on the mount by the job; it imports
+         ops/layer_vs_output.py, c031c52f.... Job script ops/jobs/contrast-map-4b.sh, 5b651331.... Image
+         pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime.
+Go     : the operator, 2026-11-14, "Ok go", on a proposal naming this diagnostic at under $1 inside $10.
+Job    : 6af86d0129dd05ff036759bd, l40sx1, 151 s of scheduling, 918 s billed, $0.46 (*computed* at $1.80/h). Estimated
+         $0.54 to $0.63, ceiling $0.99. The loop took 705 s for 570 questions, 1.24 s a question where 0.7 to 0.8 was
+         estimated, so N sits at its floor.
+         Spend of the phase (O13): $0 before, $0.46 after, of $10. The rows of docs/data/jobs.csv sum to $341.64
+         before and $342.10 with this one (*computed*).
+Raw    : contrast-map-4b-2026-11-14-brut/: report.txt, run.txt, control.tsv, lens.tsv, stream_bands.tsv, linear.tsv,
+         matrices.tsv, types.tsv, attention.tsv, questions.tsv, selftest.txt, inputs.txt, inputs.sha256, the job
+         inspect, and primary.py, which computes the prereg's primary numbers from those files. lens_logits.tsv and
+         the six answer-position stream dumps (depths 12, 24, 36, both models) stay in the bucket folder
+         contrast-map-4b-2026-11-14/.
+
+CONTROLS
+--------
+1. Selftest GREEN in the job, 41 checks.
+2. Rule D GREEN. On the 570 questions the script's picks equal the Rust dumps' on 99.47 % (FP16) and 99.12 % (sealed);
+   the median absolute logit difference is 0.016, the largest 0.25. The fit of sealed on FP16 reads slope 0.6042 and
+   noise 1.4565 on the script's logits, 0.6047 and 1.4585 on the dumps' logits, same questions. Prompt hashes equal
+   the dumps' before the models loaded. These 570 questions read 73.51 % for FP16 and 66.32 % for the sealed 4B in
+   the script, 74.04 and 66.14 in the dumps: they are easier than the full split (70.14 and 63.37), and their slope,
+   0.60, is the full split's 0.58 within the sample.
+3. R4's relative error equals Note1's on question 0 to 1.8e-7.
+
+THE READINGS
+------------
+R1, lens by depth (lens.tsv; FP16's final norm and answer rows on both streams; sd is the spread of FP16's centred
+lens logits, primary.py):
+
+| depth | slope | noise | sd of FP16 | slope x sd / noise | lens accuracy FP16 | sealed |
+|---|---|---|---|---|---|---|
+| 0 | 0.969 | 0.230 | 2.29 | 9.63 | 26.1 % | 26.1 % |
+| 8 | 0.971 | 0.680 | 2.11 | 3.01 | 27.0 % | 27.4 % |
+| 16 | 0.819 | 0.706 | 1.75 | 2.03 | 25.8 % | 23.9 % |
+| 24 | 1.060 | 0.658 | 1.60 | 2.58 | 28.3 % | 29.5 % |
+| 25 | 0.805 | 1.822 | 3.62 | 1.60 | 72.3 % | 63.9 % |
+| 28 | 0.768 | 1.316 | 2.71 | 1.58 | 71.4 % | 65.3 % |
+| 32 | 0.709 | 3.002 | 7.31 | 1.73 | 70.5 % | 63.5 % |
+| 35 | 0.786 | 2.138 | 4.61 | 1.70 | 72.8 % | 66.5 % |
+| 36 | 0.606 | 1.381 | 3.82 | 1.68 | 73.7 % | 66.5 % |
+
+Before depth 25 the lens reads chance: the slope there is a statement on four fixed directions, not on the answer.
+
+R2, stream slope by band at the answer position (stream_bands.tsv; energy-weighted slope, then noise ratio; the last
+column is the sealed-to-FP16 norm ratio):
+
+| depth | [1] | [2, 8] | [9, 64] | [65, 512] | [513, 2560] | norm ratio |
+|---|---|---|---|---|---|---|
+| 4 | 0.97, 0.00 | 0.97, 0.00 | 0.92, 0.00 | 0.85, 0.18 | 0.86, 1.64 | 0.97 |
+| 8 | 0.94, 0.01 | 1.00, 0.00 | 0.97, 0.01 | 0.72, 0.30 | 0.64, 2.69 | 1.03 |
+| 12 | 1.05, 0.00 | 0.99, 0.00 | 0.98, 0.02 | 0.64, 0.49 | 0.47, 2.46 | 1.04 |
+| 16 | 1.13, 0.01 | 1.07, 0.00 | 1.06, 0.03 | 0.80, 0.45 | 0.54, 2.07 | 1.11 |
+| 24 | 1.01, 0.00 | 0.99, 0.00 | 1.02, 0.03 | 0.89, 0.41 | 0.71, 1.29 | 1.05 |
+| 32 | 1.01, 0.00 | 1.02, 0.00 | 0.95, 0.03 | 0.78, 0.23 | 0.63, 1.24 | 1.02 |
+| 36 | 1.27, 0.02 | 1.10, 0.04 | 1.04, 0.05 | 0.80, 0.36 | 0.60, 1.41 | 1.25 |
+
+At the answer position the band [513, 2560] holds 1.6 to 6.3 % of the stream's energy at depths 4 to 36, the band
+[65, 512] 4.0 to 9.5 %. Over all positions the band [513, 2560] reads 0.94, 0.90, 0.84, 0.81, 0.85, 0.83, 0.78 at the
+same depths, under noise ratios of 0.12 to 0.76. Over all positions the first direction, 57 to 97 % of the energy, is
+mis-scaled: 1.19 at depths 8 to 16, 0.74 at depths 20 to 28, 1.17 at depth 36.
+
+R3, linear predictability, all positions, band [513, 2560] (linear.tsv): the share of the sealed band's energy that
+the best linear map of FP16's stream explains, then the share its diagonal slope explains: 0.94 and 0.88 at depth 4,
+0.84 and 0.66 at depth 8, 0.73 and 0.53 at depth 12, 0.61 and 0.45 at depth 20, 0.69 and 0.52 at depth 36. The ridge
+is 1e-4 of the band's smallest eigenvalue: it does not bite.
+
+R4, coherent gain by type, FP16 inputs, pooled over the 36 layers (types.tsv):
+
+| type | coherent gain | relative error | median of (1 - gain) / relative error |
+|---|---|---|---|
+| q_proj | 0.9980 | 0.0137 | 0.40 |
+| k_proj | 0.9816 | 0.0165 | 1.03 |
+| v_proj | 1.0007 | 0.0212 | -0.03 |
+| o_proj | 1.0008 | 0.0078 | -0.04 |
+| gate_proj | 0.9982 | 0.0050 | 0.64 |
+| up_proj | 0.9804 | 0.0371 | 0.56 |
+| down_proj | 0.9806 | 0.0161 | 0.47 |
+
+The median over the 252 matrices of the row-median gain is 0.9792; of the pooled gain, 0.9911. 134 matrices have a
+row-median gain under 0.98. Across matrices (1 - gain) regresses on the relative error with slope 0.575. The lowest
+pooled gain is 0.956, up_proj at layer 11. On MMLU prompts up_proj again has the highest relative error of the seven
+types and gate_proj the lowest, as on WikiText-2.
+
+R5, attention of the answer position (attention.tsv): over the 1,152 heads the entropy rises by 0.018 nats in the
+sealed model, and 51.0 % of the heads have a higher entropy. Single heads move far more. Six lose most of their
+largest weight: layer 8 head 4 from 0.78 to 0.33, layer 7 head 23 from 0.82 to 0.49, layer 8 head 7 from 0.66 to 0.41,
+layer 13 head 14 from 0.65 to 0.31, layer 10 head 20 from 0.58 to 0.26, layer 21 head 28 from 0.65 to 0.31. Others
+sharpen: layer 17 head 28 loses 1.77 nats of entropy.
+
+READING AGAINST THE PREREG, TO THE LETTER
+-----------------------------------------
+Primary numbers (primary.py): s_loud 1.039, s_quiet 0.603, s_quiet at depth 12 0.470, a_med 0.9792, c 0.575, dH
++0.0178.
+- Ha: s_loud - s_quiet = 0.436, not under 0.10. Ha is NOT SUPPORTED: the loss depends on how loud a direction is.
+- Hb: the first condition holds (0.436 at least 0.15). The second fails: s_quiet at depth 36, 0.603, is above s_quiet
+  at depth 12, 0.470, not 0.10 under it. The third holds by a hair (0.9792 under 0.98). Hb is NOT SUPPORTED.
+- Hc: dH is under 0.02 in absolute value: DEAD by the rule. 51.0 % of heads, under the 60 % of the support rule.
+- Coherent or noise: the linear share is 0.69, at least 0.5, and exceeds the diagonal share, 0.52, by 0.17, under the
+  0.2 the rule asks. NOT DECIDED.
+
+SIGNED PREDICTIONS
+------------------
+| quantity | predicted | measured | |
+|---|---|---|---|
+| rule D | GREEN | GREEN | in |
+| N | 800 [570, 1,200] | 570 | in |
+| lens slope at depth 36 | 0.60 [0.52, 0.68] | 0.606 | in |
+| first depth with lens slope under 0.8 | 20 [10, 32] | 11 | in |
+| pooled slope, depth 36, all positions | 0.97 [0.92, 0.995] | 1.075 | out |
+| s_loud | 0.95 [0.85, 0.995] | 1.039 | out |
+| s_quiet | 0.75 [0.50, 0.93] | 0.603 | in |
+| s_quiet at depth 12 | 0.92 [0.75, 0.99] | 0.470 | out |
+| a_med | 0.985 [0.96, 0.999] | 0.9792 | in |
+| up_proj pooled gain | 0.97 [0.94, 0.995] | 0.9804 | in |
+| c | 0.9 [0.5, 1.2] | 0.575 | in |
+| dH | +0.03 [-0.02, +0.12] | +0.018 | in |
+| share of heads with higher entropy | 60 % [45, 80] | 51.0 % | in |
+| linear share, quiet band, depth 36 | 0.55 [0.30, 0.80] | 0.69 | in |
+| diagonal share, same | 0.40 [0.20, 0.65] | 0.52 | in |
+| Ha supported | no | no | in |
+| Hb supported | no | no | in |
+| Hc supported | no | no (dead) | in |
+
+Fifteen in, three out. The three misses are one error: the lead expected the quiet directions to lose their signal
+gradually along the depth, and the stream to shrink. They are lost by depth 12, and the stream's norm grows.
+
+WHAT THE RUN DOES NOT SAY
+-------------------------
+- It does not say the quiet directions carry the answer. They hold a few percent of the stream's energy at the answer
+  position. That they are lost early is measured; that this is what costs the points is not.
+- It does not say when, before depth 25, the deficit forms. The lens is blind there. The stream dumps at depths 12 and
+  24 allow a probe offline.
+- It does not say the last eleven blocks can be coded with fewer bits. It says that on this readout the ratio of
+  contrast to noise does not move across them. A restore of those blocks alone is the direct test.
+- 570 questions, easier than the full split; one size, one calibration draw, one text.
+- The thresholds of the prereg were judgement, and two readings sit within 0.03 of one (a_med, the coherent margin).

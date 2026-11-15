@@ -1,0 +1,7 @@
+13.5	inputs checked
+131.4	loaded, bases fp16 a0ca1763b6cf4f11 sealed f5ea5a81d1588826
+416.5	pass 1: 570 prompts, 345007 tokens, 285 s
+417.6	band basis, depth 12
+1175.8	pass 2: 570 prompts, 758 s, 684 checks on the first 57
+1199.8	bases unchanged by sha256: True
+1203.1	analysis written

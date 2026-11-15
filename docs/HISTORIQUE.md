@@ -1576,6 +1576,51 @@ the layer objective on the 4B. The bullets below are in the order things happene
 - 2026-11-14: the operator closes the phase. Outcome: a dead hypothesis, recorded in `CERVEAU.md` O12. No idea sheet.
 - Nothing served changes: no config, no served module, no Hub file.
 
+## 2026-11-14. A second research phase on quality opens on the lost contrast of the answer logits and closes on a dead hypothesis; nothing served changes, $2.48
+
+The operator refused the lead's first three starting points for a new quality cycle, the calibration draw, probes of
+gate/up and a fast verifier, as tinkering and not ideas. He then signed a mandate, O14 of [`CERVEAU.md`](CERVEAU.md)
+(numbered O13 on its branch, before the long-context speed phase took that number on main),
+on an anomaly read the same day from the dumps the repository holds: $10 of card, five days.
+
+- The anomaly, N6: the sealed 4B's four answer logits regress on FP16's with slope 0.58, where AWQ 4B keeps 0.96
+  ([recherche-qualite2-r0-contraste](mesures/recherche-qualite2-r0-contraste-2026-11-14.txt), *computed* on
+  *measured* dumps). With every projection quantized the slope runs from 0.22 to 0.58 across 17 files and the noise
+  from 1.20 to 1.77 a logit. The error-map correction and the fourfold calibration volume, two cases where perplexity
+  improved and MMLU fell, lowered the slope more than the noise.
+- At the sealed 4B's noise the Gaussian replay puts full contrast at 68.15 against 64.66 (*computed*, an upper bound
+  of that model). [logit-snr-4b](mesures/logit-snr-4b-2026-09-12.txt) section 9 had read the attenuation in September
+  and set it aside: only the ratio decides an argmax. The phase asks whether the contrast can be raised without
+  raising the noise as much.
+- One idea was killed at $0 the same day: coding each up_proj row from the gate_proj row of its neuron. Their mean
+  absolute cosine is 0.109 on Qwen3-4B and a one-scalar prediction leaves 97.8 % of the energy.
+- The literature half of R0 found the output shrink published (Wu et al., arXiv 2608.06564) and the idea as a whole
+  nowhere ([recherche-qualite2-r0-litterature](mesures/recherche-qualite2-r0-litterature-2026-11-14.txt)).
+- One card job, $0.46 (6af86d01, prereg sha256 cba0eb94, stamped before):
+  [contrast-map-4b](mesures/contrast-map-4b-2026-11-14.txt). FP16 and the sealed 4B side by side on 570 MMLU prompts.
+  The loss is complete when the answer is written, at block 25 of 36: lens accuracy 72.3 % against 63.9 %, and 73.7
+  against 66.5 at the output (*measured*). The output slope is 0.81 at the write and falls to 0.61 across the last
+  block by a rescale. At the answer position the quiet directions keep a slope of 0.47 at depth 12 under 2.5 times
+  their energy in noise. Rule D green. Fifteen of eighteen signed predictions are in. The lead's idea of gains chosen
+  for a coherent gain of 1 along the depth does not survive in that form. Spend of the phase: $0.46 of $10; the rows
+  of `docs/data/jobs.csv` sum to $342.10 (*computed*).
+- On the operator's go, three more card jobs, $1.71. Two restores of the sealed 4B on the full split
+  ([depth-restore-4b](mesures/depth-restore-4b-2026-11-14.txt), 6af88648, $1.38): layers 25 to 35, 30.6 % of the
+  projection weights, gain +0.43 [+0.11, +0.77] where the even rate of Q22 put +2.05; layers 0 to 24 gain +6.12
+  [+5.41, +6.84] (*measured*). The map is supported, and Q25 is established on the sealed 4B. A reading of the
+  originals alone ([lens-write-depth](mesures/lens-write-depth-2026-11-14.txt), $0.12 and $0.21): the 8B writes its
+  answer at depth 25 of 36 and the 14B at depth 29 of 40, each in one block (Q26). Eighteen of eighteen signed
+  predictions are in. Spend of the phase: $2.17 of $10; the rows of `docs/data/jobs.csv` sum to $343.81 (*computed*).
+- GSM8K then read the same two windows ([gsm8k-depth-restore-4b](mesures/gsm8k-depth-restore-4b-2026-11-14.txt),
+  6af89e7b, $0.31, three dense f16 files in vLLM): layers 25 to 35 gain +4.32 [+2.46, +6.18] where MMLU read +0.43;
+  layers 0 to 24 gain +7.20 (*measured*). The MMLU pattern does not hold on generation (Q27), Q25 is bounded to MMLU,
+  and no allocation of bits by depth is proposed. The lead had predicted +1.2. Spend of the phase: $2.48 of $10; the
+  rows of `docs/data/jobs.csv` sum to $344.12 (*computed*).
+- The operator closed the phase the same evening ("Dead on l'écrit"). Outcome: a dead hypothesis, recorded in
+  `CERVEAU.md` O14, with two beliefs dropped and the anomaly N7. No idea sheet. A lens reading of generated tokens
+  was proposed and not run.
+- Nothing served changes.
+
 ## 2026-11-14 to 11-15. A research phase opens on decode speed at long context; an int8 KV cache holds the tolerance at 8,192 and buys 1 % of speed in the kernel; nothing served changes, $5.77
 
 The operator closed O11 and opened a phase on decode speed after an 8,192-token prompt, O13 of
@@ -1640,3 +1685,51 @@ cache as a memory lead, and speculative decoding as an opt-in profile. Branch `d
 - Speculative decoding was stopped before any code: the loop returns the tree pass's greedy tokens, not 4E's, 177 of
   200 GSM8K prompts identical (spec-loop-sp8), and a loop identical to 4E needs the drafter's taps from a verify pass
   that does not produce them. The drafter's licence is recorded nowhere in the repository.
+
+## 2026-11-15. A third research phase on quality opens on two anomalies and closes on a dead hypothesis; nothing served changes, $1.49
+
+The operator opened a third quality phase on the two anomalies the second one left, N6 and N7, on the explanation
+route: O15 of [`CERVEAU.md`](CERVEAU.md), $10 of card, five days. The second phase is O14 there; its journals say
+O13, the number the long-context speed phase took on main the next day.
+
+- R0, two agents, $0: what the repository holds
+  ([recherche-qualite3-r0-depot](mesures/recherche-qualite3-r0-depot-2026-11-15.txt)) and what is published
+  ([recherche-qualite3-r0-litterature](mesures/recherche-qualite3-r0-litterature-2026-11-15.txt)). The first found
+  an error in a journal of the day before: the sealed 4B carries int4 records for o_proj at all 36 layers, not at
+  layers 12 to 23. The journal has its erratum and Q11 its note.
+- The frame ([recherche-qualite3-r1-cadrage](mesures/recherche-qualite3-r1-cadrage-2026-11-15.txt)) put N6 as one
+  question: whether the MMLU deficit travels in the directions the calibration average calls cheap. Five rivals were
+  written with what kills each.
+- Readings at $0 on dumps already on disk, under a prereg stamped before (sha256 b2cdf2f9;
+  [recherche-qualite3-dumps](mesures/recherche-qualite3-dumps-2026-11-15.txt), *computed* on *measured* dumps). Of the
+  108 GSM8K problems the late restore repairs, 84 are also repaired by the early restore: nothing on disk makes the
+  late blocks a place apart for generation (Q28). The first divergence from FP16's text turned out to read the
+  opening word, 440 of 1,319 completions differing at their first character, and decides nothing. Eight of the
+  lead's fifteen signed predictions were right.
+- The patch map, one card job on the operator's go (6af9953a, $0.61, prereg sha256 0001bf6a, stamped before;
+  [patch-map-4b](mesures/patch-map-4b-2026-11-15.txt), *measured*). FP16's stream is written into the sealed run on
+  570 MMLU questions. At depth 12 the whole stream gives back 5.09 points [+2.10, +8.08] of a gap of 7.19. Its band
+  of directions 513 to 2,560 gives back 3.33 points [+0.62, +6.05] alone, and 0.859 [0.734, 0.997] of the whole
+  stream's share of shape agreement. The answer position alone gives back nothing. FP16's MLP outputs of blocks 0 to
+  11 give back 0.850 [0.751, 0.935] of the depth-12 patch (Q29). One arm is not explained: FP16's attention outputs
+  at the same blocks cost 12.63 points (N8). The rules were read on a share of shape agreement, after an instrument
+  check on nine known restores, since an accuracy share resolves nothing on 570 questions.
+- The lead drew a conjecture from it: the encoder misprices the quiet directions, and a noise laid out by the
+  signal would cost less ([recherche-qualite3-r5-conjecture](mesures/recherche-qualite3-r5-conjecture-2026-11-15.txt)).
+  Two agents who did not write it attacked it at $0, and it did not survive
+  ([recherche-qualite3-r6-issue](mesures/recherche-qualite3-r6-issue-2026-11-15.txt)): what a band gives back
+  follows the noise energy it held, 70.6, 79.3 and 70.2 a unit, and the lead's own arithmetic had counted a band
+  twice. The lead had told the operator of a flaw of principle in the compressor before the attack, and corrected it
+  the same day. No encode was run.
+- The sensitivity map, a second card job on the operator's go (prereg sha256 1453e867, stamped before;
+  [sensitivity-map-4b](mesures/sensitivity-map-4b-2026-11-15.txt), *measured*). Its first launch stopped on its own
+  guard before any load (6af9be70, 79 s, $0.04): two candidate prompts of the Fisher carried the token hash of a
+  scored prompt. The departure note is stamped, and the relaunch ran green (6af9c02c, $0.84). In the basis of a
+  Fisher of running text a unit of deviation costs 2.34 [1.16, 3.72] times more in the 512 most sensitive
+  directions. The rule reads NOT DECIDED. The Fisher's top 64 directions hold 0.516 of its trace and give back
+  +0.026. The top-64 subspaces of running text and of MMLU answers overlap by 0.082 (Q30). The lead had put an
+  uneven sensitivity at 55 %, and its stated reason was wrong.
+- The operator closed the phase the same day ("ferme et fusionne"). Outcome: a dead hypothesis and one question not
+  decided, recorded in `CERVEAU.md` O15, with one belief dropped and the anomaly N8. No idea sheet. Spend of the
+  phase: $1.49 of $10; the rows of `docs/data/jobs.csv` sum to $352.73 (*computed*).
+- Nothing served changes.

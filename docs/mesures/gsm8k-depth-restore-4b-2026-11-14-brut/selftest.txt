@@ -1,0 +1,32 @@
+  [ok] late selects 77 matrices (77)
+  [ok] early selects 175 matrices (175)
+  [ok] late and early are disjoint and cover 252
+  [ok] late holds layers 25 and 35
+  [ok] late does not hold layer 24
+  [ok] early holds layers 0 and 24
+  [ok] early does not hold layer 25
+  [ok] control selects nothing
+  [ok] a norm is never selected
+  [ok] late weights 1,110,179,840 at Qwen3-4B shapes (1,110,179,840)
+  [ok] early weights 2,523,136,000 at Qwen3-4B shapes (2,523,136,000)
+  [ok] torch bf16 -> f16 equals half f32_to_f16_fallback on 65,282 non-NaN patterns (0 differ)
+  [ok] reference: 1.0, +inf, and 65536 overflowing to +inf
+  [ok] late: the clean build verifies
+  [ok] late: model.layers.4.self_attn.v_proj.weight is the FP16 tensor cast to f16
+  [ok] late: model.layers.3.self_attn.v_proj.weight is the export's
+  [ok] early: the clean build verifies
+  [ok] early: model.layers.0.self_attn.v_proj.weight is the FP16 tensor cast to f16
+  [ok] early: model.layers.4.self_attn.v_proj.weight is the export's
+  [ok] caught: a wrong layer (window shifted down by one) -> model.layers.3.mlp.down_proj.weight: an untouched tensor differs from the export's
+  [ok] caught: a wrong type (v_proj of layer 4 left as the export's) -> model.layers.4.self_attn.v_proj.weight: the written tensor is not the FP16 tensor cast to f16
+  [ok] caught: an extra type (layer 4's input norm taken from FP16) -> model.layers.4.input_layernorm.weight: an untouched tensor differs from the export's
+  [ok] caught: an untouched tensor altered (one weight of layer 1) -> model.layers.1.mlp.up_proj.weight: an untouched tensor differs from the export's
+  [ok] caught: a replaced tensor altered (one weight of layer 5) -> model.layers.5.mlp.gate_proj.weight: the written tensor is not the FP16 tensor cast to f16
+  [ok] caught: a replaced tensor stored in BF16 (cast skipped) -> model.layers.5.self_attn.o_proj.weight: the written tensor is not the FP16 tensor cast to f16
+  [ok] caught: a dropped key (model.norm.weight) -> keys differ from the export: lost ['model.norm.weight'], added []
+  [ok] caught: an added key -> keys differ from the export: lost [], added ['lm_head.weight']
+  [ok] caught: a count that is not the expected one -> replaced 14 matrices, 1344 weights; expected 15, 1344
+  [ok] build refuses an export projection that is not f16 -> model.layers.4.self_attn.k_proj.weight: the export stores torch.bfloat16, expected torch.float16
+  [ok] build refuses a NaN in a restored FP16 tensor -> model.layers.4.mlp.down_proj.weight: the FP16 tensor holds a NaN
+selftest: 30 checks passed, 0 failed, 0.1 s
+selftest: GREEN

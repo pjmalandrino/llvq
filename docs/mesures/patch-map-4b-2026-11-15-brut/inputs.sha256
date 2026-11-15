@@ -1,0 +1,10 @@
+/out/patch-map-4b-inputs-2026-11-15/patch_map.py: OK
+/out/patch-map-4b-inputs-2026-11-15/contrast_map.py: OK
+/out/patch-map-4b-inputs-2026-11-15/layer_vs_output.py: OK
+/out/patch-map-4b-inputs-2026-11-15/mmlu-4b-f16-FULL.csv: OK
+/out/patch-map-4b-inputs-2026-11-15/mmlu-4b-abl-control-FULL.csv: OK
+/out/patch-map-4b-inputs-2026-11-15/contrast-map-control.tsv: OK
+/out/patch-map-4b-inputs-2026-11-15/contrast-map-questions.tsv: OK
+/out/patch-map-4b-inputs-2026-11-15/contrast-map-matrices.tsv: OK
+/out/patch-map-4b-inputs-2026-11-15/contrast-map-lens.tsv: OK
+/out/patch-map-4b-inputs-2026-11-15/contrast-map-stream_bands.tsv: OK

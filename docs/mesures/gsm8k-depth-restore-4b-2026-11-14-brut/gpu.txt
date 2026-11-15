@@ -1,0 +1,5 @@
+NVIDIA L40S, 8.9, 46068 MiB, 580.178.04
+nproc 8
+               total        used        free      shared  buff/cache   available
+Mem:              61           3          13           0          45          58
+overlay         419G   48G  371G  12% /

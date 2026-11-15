@@ -1,0 +1,85 @@
+QUALITY PHASE 3 (CERVEAU O15), R5: THE CONJECTURE AFTER THE PATCH MAP, AND WHAT WOULD KILL IT, 2026-11-15. $0.
+==============================================================================================================================
+The patch map says where the first twelve blocks' cost rides: the quiet band of the stream, at the context positions,
+written by the MLP (Q29). It does not say that an encoder can do better. This note states the conjecture, the one
+measurement that would kill it before any encode, and the lead's own arithmetic, which does not favour its simplest
+form. Written by the lead; to be attacked by agents who did not write it (R6).
+
+Sources: patch-map-4b-2026-11-15.txt and its report.txt; contrast-map-4b-2026-11-14-brut/report.txt, line 61 (depth
+12, all positions); recherche-qualite3-r0-depot-2026-11-15.txt section 4 (the encoder, from the code);
+recherche-qualite3-r0-litterature-2026-11-15.txt. Every figure is copied, or *computed* here and said so.
+
+1. THE FACTS IT STANDS ON
+-------------------------
+F1. At depth 12, over all positions, the stream's energy and the sealed run's noise by band (contrast-map report line
+    61, *measured*; share of energy, then noise over signal):
+      [1]         0.957    0.000 (slope 1.188: the massive direction is mis-scaled, not noisy)
+      [2, 8]      0.0157   0.008
+      [9, 64]     0.0078   0.043
+      [65, 512]   0.0119   0.152
+      [513, 2560] 0.0075   0.636
+F2. Outside direction 1 the noise is 0.00703 of the stream's energy and the signal 0.0429, a ratio of 0.164 overall
+    (*computed*: sums of share times ratio, and of shares). A direction of band [2, 8] holds about 600 times the signal
+    of a direction of band [513, 2560] and about 8 times its noise (*computed*).
+F3. What each band gives back when FP16's replaces the sealed one at depth 12, in shares of shape agreement
+    (patch-map, *measured*): [1, 64] +0.033 [-0.011, +0.079]; [65, 512] +0.144 [+0.096, +0.192]; [513, 2560] +0.335
+    [+0.264, +0.403]; the whole stream +0.390.
+F4. From the code: the layer objective is Tr(dW H dW^T), H the input second moment. Every output row is priced alike
+    and coded apart; the shape-gain code leaves each row an error that scales with that row. Nothing in the objective
+    knows which direction of the stream a row writes to.
+
+2. THE CONJECTURE
+-----------------
+C. What a writing matrix costs the model is set by its noise relative to the stream's signal in the direction where
+   the noise lands, not by the noise's energy. The sealed encoder writes a noise that is nearly flat over the
+   stream's directions outside the massive one, so the quiet directions take a relative noise 80 times that of the
+   loud ones (F1). A noise of the same total energy laid out by what each direction can bear would cost less on MMLU
+   and on GSM8K.
+
+A form that needs no bit and no kernel change, if C holds: code the writing matrices in a basis of the stream where
+rows are the stream's own directions. A code whose error scales with each row then writes a noise that follows the
+signal, direction by direction. The basis change is orthogonal and folds into the weights of the writers and the
+readers before encoding, as published rotations of the stream do (QuaRot, SpinQuant, SliceGPT, known to the R0 note
+only by name). What it does to the norm gains, the int4 embedding and the int4 records is not worked out here.
+
+3. THE LEAD'S ARITHMETIC AGAINST THE SIMPLEST FORM (*computed*, on point values with wide intervals)
+------------------------------------------------------------------------------------------------------
+Shape share given back a unit of relative noise removed, band by band (F3 over F1): [513, 2560] 0.335 / 0.636 = 0.53;
+[65, 512] 0.144 / 0.152 = 0.95; [1, 64] 0.033 over about 0.03 = about 1.1, known only to [-0.4, +2.6].
+If cost were linear in relative noise with those slopes, a noise at the same relative level in every band, 0.164,
+would cost about 0.164 x (0.53 + 0.95 + 1.1 + 1.1) = 0.60, counting [2, 8] and [9, 64] apart, where today's layout
+costs 0.335 + 0.144 + 0.033 = 0.512. Equal relative noise would then gain nothing.
+So C in its simplest form, "make the noise follow the signal", is not favoured by today's point values. Everything
+hangs on what relative noise costs in the loud bands, which the patch map read with an interval as wide as its
+value, and on whether cost is linear in relative noise at all. Both are measurable without an encoder.
+
+4. WHAT KILLS IT, BEFORE ANY ENCODE
+-----------------------------------
+A noise map, one card job on the patch-map tool. FP16's first twelve blocks, a Gaussian noise added to the stream at
+depth 12 at every position, band by band at chosen relative levels, then the sealed blocks as in arm d12. Read as
+the patch map reads: shape share, accuracy beside.
+  - Validity first. The noise at the measured layout (F1) must bring arm d12 back near the control: s near 0, where
+    d12 reads +0.390. If Gaussian noise of the sealed run's own layout does not cost what the sealed blocks 0 to 11
+    cost, noise energy by band is not the variable, and the map decides nothing on C.
+  - The dose curve of each band: relative noise 0.04, 0.16, 0.64 in one band, none elsewhere.
+  - The layouts at equal total noise energy: the measured one; equal relative noise, 0.164 in every band; the noise
+    moved to the loud bands.
+  C is killed if no layout of equal energy costs less than the measured one beyond the interval. C stands, as a
+  conjecture still, if one does; that layout then says what an encoder should aim at, and the next step is the
+  attack on the form that would write it.
+Cost: of the order of the patch map's, $0.61 for 16 arms (*measured*); to be costed by the agent that writes it.
+
+5. WHAT THE ATTACK SHOULD TRY
+-----------------------------
+- Is F4 right in what it implies? Does our encoder leave an error that scales with each row, once the gain code, the
+  row scales trained after it and the GPTQ feedback are counted? What do the int4 writers (o_proj everywhere,
+  down_proj at layers 12 to 23) leave?
+- Is the flat noise a property of the encoder or of propagation through twelve blocks? The matrices' own output
+  noise by band was never read; only the stream's.
+- Is the basis change free? The norm gains, the tied int4 embedding and head, the input rotations the format
+  already applies, the kernels.
+- Is it published? Rotations of the stream chosen for quantization, by principal directions or learned, at 2 to 3
+  bits weight-only, and what they gained.
+- Does Gaussian noise stand in for quantization noise here? Q7 says the sealed 4B's error costs more than Gaussian
+  noise of its size on the answer logits.
+- The GSM8K side: the map reads MMLU only.

@@ -1,0 +1,7 @@
+# From the worktree root, on the Mac, 2026-11-15. numpy only, via uv (PEP 723 header).
+# ops/depth_dumps.py sha256 2d92b1995121bf2c6838ebe5bfef7384204a173574dc016fd2da204601f3dc52
+nice -n 10 uv run ops/depth_dumps.py selftest > docs/mesures/recherche-qualite3-dumps-2026-11-15-brut/selftest.txt
+nice -n 10 uv run ops/depth_dumps.py run docs/mesures/recherche-qualite3-dumps-2026-11-15-brut > docs/mesures/recherche-qualite3-dumps-2026-11-15-brut/report.txt
+# Mutants (mutants.txt): copy of the script kept aside, one exact-string replace per mutant
+# (sites counted), selftest rerun (exit 1 = killed), file restored from the copy, cmp byte-identical.
+# Read after the run, outside the prereg (descriptive): count of d = 0 and quantiles of d from g1_flips.tsv.

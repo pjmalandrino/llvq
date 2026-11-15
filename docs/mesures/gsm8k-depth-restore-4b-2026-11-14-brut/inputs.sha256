@@ -1,0 +1,5 @@
+/out/gsm8k-depth-restore-4b-inputs-2026-11-14/hybrid_checkpoint.py: OK
+/out/gsm8k-depth-restore-4b-inputs-2026-11-14/layer_vs_output.py: OK
+/out/gsm8k-depth-restore-4b-inputs-2026-11-14/gsm8k_vllm.py: OK
+/out/gsm8k-depth-restore-4b-inputs-2026-11-14/gsm8k_vllm_local.py: OK
+/out/gsm8k-depth-restore-4b-inputs-2026-11-14/gsm8k-4b-served.jsonl: OK

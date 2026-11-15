@@ -1,0 +1,54 @@
+QUALITY PHASE 3 (CERVEAU O15), R6: THE CONJECTURE DOES NOT SURVIVE ITS ATTACK, 2026-11-15. $0. Written by the lead.
+==============================================================================================================================
+The conjecture of R5 is refuted in its premise, on the patch map's own figures. What a band of the stream gives back
+when FP16's replaces the sealed one follows the noise energy that band held, not its relative noise. The quiet band
+gives back most because it holds most of the noise: it is 2,048 of the 2,560 directions under a noise that is nearly
+flat. No encode was run and the noise map of R5 was not run.
+
+Sources: recherche-qualite3-r6-attaque-code-2026-11-15.txt (attack 5 above all) and
+recherche-qualite3-r6-attaque-litterature-2026-11-15.txt (section 0 and C), two agents who did not write R5. The
+lead rechecked the first line below from contrast-map's report line 61 and patch-map's shares before writing.
+
+WHAT BREAKS IT
+  Noise energy a band at depth 12, share of the stream's energy times noise over signal (*computed*): [1, 64] without
+  direction 1 0.000462, [65, 512] 0.001812, [513, 2560] 0.004766. Shape share given back over it: 70.6, 79.3, 70.2.
+  It is flat across bands whose signal a direction differs 600 times.
+  The ratio s([513, 2560]) / s([65, 512]) reads 2.33 [1.72, 3.39] (*computed* by the attacker, paired bootstrap on
+  logits.tsv). Cost by noise energy predicts 2.63, inside. Cost by relative noise, the conjecture, predicts 4.17,
+  outside.
+  One direct published measurement agrees, on a small model: equal absolute noise in each principal direction of
+  GPT-2's stream costs about the same (arXiv 2604.20682, *reported*, no statistic).
+  The lead's own section 3 was wrong as well: it counted the loud band twice. Counted once its sign turns, and with
+  the loud band's slope known within a factor 100 it decides nothing.
+  The form "no bit, no kernel change" is not free: the head is the embedding, and the final norm's gain does not
+  fold into it. The ways out cost 0.026 to 0.435 b/param (*computed* by the attacker), and a re-encode in a new basis
+  voids the trained row scales.
+
+WHAT STANDS
+  Q29's measurements: the depth profile, the quiet band's give-back, the context positions, the early MLP. The
+  noise at depth 12 is far flatter than the signal. Rows are coded apart, in 24-wide blocks along one row's inputs.
+  The reading of Q29 changes: the deficit rides the quiet band because the noise is there.
+
+WHAT THE ATTACK ADDS
+  - A band's give-back is not a band's cost. The three bands give back 0.121 [+0.039, +0.208] more than the whole
+    stream (*computed*): their logit errors point the same way.
+  - 38 to 55 % of the band "noise" at depth 12 is a linear map of FP16's stream, not a residual (*computed* from
+    contrast-map's linear fit). The mis-scale of direction 1 is 4.8 times all the band noise in energy.
+  - The int4 g64 embedding already writes a noise that is flat a direction at depth 0, and costs nothing resolved
+    (Q13). Flat noise is what any code in the canonical basis writes.
+  - F1 is the stream after twelve blocks. What each matrix writes by band was never read.
+  - The noise map of R5 could not have decided: Gaussian noise is the wrong null (Q7, the linear part), it tests the
+    blocks after depth 12 and not an encoder, and the sealed late blocks are tied to their own inputs (N8).
+
+WHAT IT LEAVES THE AXIS
+  On these 570 questions the cost of the first twelve blocks follows the energy of the noise they write. That is Q7
+  again, read inside the network: the amplitude of the error carries most of the gap. A layout of the same noise
+  energy by variance has nothing to gain. A lower noise energy at the same rate is bounded by the code: 0.60 dB (C7).
+  Not excluded: a sensitivity that is uneven over directions in a basis that is not the variance order. The
+  published two-sided objective prices the output error by a measured downstream sensitivity and reports gains at 2
+  bits on another code (YAQA, *reported*: KL 0.356 to 0.241 on Llama-3.1-8B). Whether that sensitivity is uneven on
+  the sealed 4B's stream is not measured here. The one-sided form did not gain (Q24).
+
+WHERE THE PHASE STANDS: $0.61 of $10. The operator decides between closing it on a dead hypothesis and one more
+reading: whether downstream sensitivity is uneven at all on this model, read on FP16 alone, under a prereg that
+carries the controls the attack lists.

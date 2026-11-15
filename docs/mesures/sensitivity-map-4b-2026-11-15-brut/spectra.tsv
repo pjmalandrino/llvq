@@ -1,0 +1,4 @@
+basis	trace_share_1-64	trace_share_65-512	trace_share_513-2560	am_gm	gain_db	floored	split_half_top64
+variance	0.98062	0.0118855	0.00749425	84.9632	19.2923	0	nan
+fisher_text	0.516417	0.197362	0.286221	2.35988	3.7289	0	0.297840
+fisher_mmlu	0.32469	0.378878	0.296432	2.31658	3.6485	0	0.094841

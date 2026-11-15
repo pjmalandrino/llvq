@@ -1,0 +1,124 @@
+QUALITY PHASE 2, R0, REPOSITORY HALF: THE CONTRAST OF THE ANSWER LOGITS, READ FROM THE DUMPS THE REPOSITORY HOLDS, 2026-11-14. $0.
+=================================================================================================================================
+The sealed 4B's four answer logits regress on FP16's with slope 0.5817: it keeps 58 % of the contrast between the
+options. AWQ 4B keeps 0.9604 (recherche-qualite-n1-2026-11-13.txt, secondary arms). Across the 17 full-split 4B files
+whose projections are all quantized, the slope runs from 0.22 to 0.58 and the noise from 1.20 to 1.77 a logit; no
+zero-bit correction the repository ran raised the slope by more than 6 %. At the sealed 4B's noise, the Gaussian replay
+model puts full contrast at 68.15 against 64.66 at the fitted slope: 3.5 points (*computed*, an upper bound of that
+model, not a projection).
+
+Nature: arithmetic on committed dumps and on the FP16 checkpoint in the local cache. No model loaded, no job, no
+encode. Scripts and their outputs: recherche-qualite2-r0-contraste-2026-11-14-brut/ (beta_table.py, beta_grid.py,
+gateup_cos.py, and one .txt each). Everything below is *computed* on *measured* dumps unless marked.
+
+THE FIT
+-------
+As ops/logit_snr.fidelity: the four logits of each question are centred, pooled over the 14,042 questions, and fitted
+y = beta x + e, x the FP16 dump (docs/data/mmlu-dumps/mmlu-4b-f16-FULL.csv), y the arm. "noise" below is the sd of e a
+logit before centring, sqrt(sum e^2 / 3N): it is the simulation sd of ops/logit_n1_replay.py, and sd_res of the N1
+journal times sqrt(4/3). MMLU is the dump's own `correct` column.
+
+| dump | what it is | MMLU | slope | noise | slope / noise |
+|---|---|---|---|---|---|
+| abl-all | sealed 4B, every projection restored to f16 | 70.10 | 1.0003 | 0.3334 | 3.000 |
+| abl-mlp | sealed 4B, MLP restored | 68.23 | 0.8441 | 1.0848 | 0.778 |
+| abl-gateup | sealed 4B, gate/up restored | 66.76 | 0.7230 | 1.2150 | 0.595 |
+| abl-attn | sealed 4B, attention restored | 64.10 | 0.7092 | 1.4430 | 0.492 |
+| abl-qkv | sealed 4B, q, k, v restored | 63.92 | 0.6994 | 1.4597 | 0.479 |
+| abl-down | sealed 4B, down restored | 65.38 | 0.6858 | 1.4285 | 0.480 |
+| abl-o | sealed 4B, o restored | 63.25 | 0.5869 | 1.3923 | 0.422 |
+| abl-control | the sealed 4B | 63.37 | 0.5817 | 1.4205 | 0.410 |
+| dclm-ft | DCLM base with trained row scales | 61.11 | 0.5132 | 1.3440 | 0.382 |
+| dclm-down1223 | DCLM base, down int4 at layers 12 to 23 | 59.33 | 0.5592 | 1.6240 | 0.344 |
+| dclm | DCLM base, 2026-09-18 | 57.95 | 0.5354 | 1.6895 | 0.317 |
+| dclm-v4 | DCLM base at four times the calibration volume | 56.76 | 0.4422 | 1.4615 | 0.303 |
+| dclm-rnd1 | DCLM recipe, seeded draw | 55.53 | 0.5180 | 1.7700 | 0.293 |
+| guided-baseline | DCLM recipe re-encoded on a card, 2026-11-13 | 58.62 | 0.4831 | 1.4138 | 0.342 |
+| guided-candidate | the same with guided gate/up, unclipped | 57.11 | 0.4648 | 1.5456 | 0.301 |
+| guided-candidate-clip10 | the same, clipped at 10 | 57.95 | 0.5565 | 1.6793 | 0.331 |
+| q5-vod | C4 base, v, o, down int4 | 61.76 | 0.5827 | 1.4315 | 0.407 |
+| q5-downproj | C4 base, down int4 | 60.44 | 0.5485 | 1.4459 | 0.379 |
+| q5-oproj | C4 base, o int4 | 58.07 | 0.4850 | 1.4850 | 0.327 |
+| q5-shipped | C4 base, v int4 | 56.37 | 0.4415 | 1.4567 | 0.303 |
+| tetranu-ft | bare Tetra on C4 with trained row scales | 58.94 | 0.5072 | 1.4932 | 0.340 |
+| tetra | bare Tetra on C4 | 54.64 | 0.4809 | 1.7383 | 0.277 |
+| temoin | the witness of the error-map correction | 51.25 | 0.3798 | 1.5835 | 0.240 |
+| corrige | the witness with the error-map correction | 48.19 | 0.2235 | 1.2000 | 0.186 |
+
+The "what it is" column is my reading of the file names against the journals; R1 checks each against its journal
+before any of them is cited in a claim. The sealed 4B's line reproduces the N1 journal (beta 0.5817, simulation sd
+1.4205).
+
+WHAT THE TABLE SHOWS
+--------------------
+1. With every projection quantized the noise stays in a band, 1.20 to 1.77, and the slope moves from 0.22 to 0.58.
+   Only restores to f16 take the slope above 0.6.
+2. What each correction did to the pair:
+   - Trained row scales: on the DCLM base the noise falls by 20 % (1.6895 to 1.3440) and the slope by 4 % (0.5354 to
+     0.5132); on bare Tetra the noise falls by 14 % and the slope rises by 5 %. They work on the noise.
+   - The error-map correction, the case of CERVEAU Q5 (perplexity -17.4 %, MMLU -3.06): the slope falls from 0.3798
+     to 0.2235, the noise from 1.5835 to 1.2000.
+   - Four times the calibration volume, the case of Q14 (-1.20): the slope falls from 0.5354 to 0.4422, the noise
+     from 1.6895 to 1.4615.
+   - Restoring q, k and v to f16: the slope rises from 0.5817 to 0.6994 and the noise does not fall (1.4205 to
+     1.4597). MMLU moves by +0.55 only: the Gaussian replay overpredicts this arm by 2.14 (N1 journal).
+3. Two of the repository's cases where perplexity improved and MMLU fell (Q5, Q14) share one signature here: the
+   slope fell more than the noise.
+
+THE GAUSSIAN REPLAY AT OTHER SLOPES AND NOISES
+-----------------------------------------------
+Model of ops/logit_n1_replay.py: the pick is the argmax of beta times the FP16 logit plus iid N(0, sd^2) on each
+option. 600 draws over the 14,042 questions (beta_grid.txt). It reproduces the journal on its three fitted arms:
+64.66 for the sealed 4B (journal 64.65), 69.01 for AWQ 4B (69.02), 59.08 for bare Tetra (59.09).
+
+| slope | noise | predicted MMLU |
+|---|---|---|
+| 0.5817 (sealed 4B) | 1.4205 (sealed 4B) | 64.66 |
+| 0.70 | 1.4205 | 66.28 |
+| 0.80 | 1.4205 | 67.14 |
+| 1.00 | 1.4205 | 68.15 |
+| 0.5817 | 1.1364 (-20 %) | 66.54 |
+| 0.5817 | 0.7103 (halved) | 68.65 |
+
+The sealed 4B measures 63.37, 1.27 under its own prediction (N1), so the table's levels are the model's, not the
+file's.
+
+RESERVES
+--------
+- Only the ratio decides an argmax. logit-snr-4b-2026-09-12.txt section 9 states it: "Attenuation costs no MMLU point.
+  Only the ratio does." A slope of 0.58 with a noise of 1.42 picks as a slope of 1 with a noise of 2.44. The slope is
+  still a physical quantity: the head is the same linear map in every arm, so 0.58 says the final hidden state carries
+  58 % of FP16's component along the answer contrast. Whether that component can be raised without raising the noise
+  as much is not known. It is the phase's question.
+- Slope and noise are fitted on the questions they are read on.
+- The replay misses single arms by 0.3 to 4.5 points (N1 journal, secondary arms).
+- One calibration draw a file.
+
+AN IDEA KILLED AT $0 WHILE WRITING THIS NOTE
+--------------------------------------------
+Predicting each up_proj row from the gate_proj row of the same neuron (the SwiGLU alignment of Fishman et al., cited
+in the phase-1 literature note). On Qwen3-4B, 11 layers of 36 read: the mean absolute cosine between the two rows is
+0.109 (0.064 to 0.170 by layer), against 0.017 for shuffled pairs; a one-scalar prediction leaves 97.8 % of up_proj's
+energy (gateup_cos.txt). Real and too weak to code with.
+
+RIVAL HYPOTHESES FOR THE PHASE (R3 DRAFT)
+-----------------------------------------
+- Ha, the dull one. Slope and noise are one variable: internal noise, then normalisation, shrink every direction of
+  the residual stream by the same factor. Predicts an attenuation that is uniform across directions and equal to the
+  norm ratio.
+- Hb, local shrink that compounds. Each quantized matrix passes less than the full coherent signal in the quiet
+  directions of its input, and the loss multiplies along the depth while the noise adds. Predicts per-matrix coherent
+  gains under 1 on quiet directions, a slope of the stream that falls with depth, loud directions near 1.
+- Hc, attention dilution. Noise in q and k flattens the attention patterns, and the retrieved signal is diluted.
+  Predicts higher attention entropy in the sealed model and a slope that falls at attention writes; restoring q, k
+  and v raises the slope by 0.12 (table above).
+
+The cheapest experiment that separates them reads, on the sealed 4B and FP16 side by side, on MMLU prompts: the slope
+of the residual stream by depth and by variance band, the coherent gain of each matrix, and the attention entropy by
+head. No encode. Its design, cost and kill rules go into a prereg.
+
+A RIVAL IDEA, NOT TESTED
+------------------------
+Rate allocation along the input axis by the pivots of the GPTQ factor (WaterSIC, arXiv 2603.04956, entropy-coded
+scalars): never stated for a fixed-rate lattice. It re-encodes at every attempt and leans on the calibration
+statistics. Kept for a later phase.

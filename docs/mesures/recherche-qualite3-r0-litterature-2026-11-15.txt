@@ -1,0 +1,340 @@
+RECHERCHE QUALITE 3, STEP R0: LITERATURE ON LOST CONTRAST (N6) AND DEPTH-SPLIT LOSS (N7)
+Date: 2026-11-15. Author: literature agent (Opus). No code run, no model loaded, no job launched, nothing committed.
+
+Method. Web search plus the arXiv abstract page or HTML of each paper. "abstract only" means only the abstract page
+was read. "partial HTML" means the HTML was read up to about 100,000 characters, so appendices may be missing. Every
+figure is *reported* by the paper it comes from. Nothing here was re-measured. "Claims" means the authors say it and
+this note did not see the evidence. "Inference" means this note's own reasoning, not a finding of the paper.
+
+Not re-covered here, as the brief asked: GPTQ, AWQ, QuIP, QuIP#, QTIP, LLVQ, GuidedQuant, YAQA, spherical feedback,
+lattice-step distillation. WaterSIC and Wu et al. come back only for points the project had not yet noted.
+
+======================================================================================================================
+A. QUIET DIRECTIONS
+======================================================================================================================
+
+A1. The theory says the layer objective is right to drop quiet directions.
+- WaterSIC, Lifar et al., arXiv 2603.04956, 2026, ICML 2026 spotlight. Partial HTML.
+  Measured: Llama-3.2-1B and Qwen3-8B, 1 to 4 bits, entropy-coded. Reported Qwen3-8B WikiText-2 ppl at
+  2.125 / 3.125 / 4.125 bits: WaterSIC 11.37 / 10.03 / 9.79, Huffman-GPTQ 13.97 / 10.34 / 9.81, plain GPTQ 57.51 /
+  12.77 / 10.10 (FP16 9.73). Llama-3.2-1B at 2 bits: WaterSIC 16.19, QTIP 18.67 at 2.02 bits.
+  New point for this project: the reverse water-filling bound gives component i the rate 0.5 log max(1, s2 l_i / t).
+  Any input eigen-direction with s2 l_i below the water level t gets zero rate and keeps its full variance as error.
+  So under the layer MSE weighted by the input covariance, discarding quiet directions is the optimum, not a defect.
+  The paper indexes GPTQ's gap by the AM/GM ratio of the squared Cholesky diagonal. It does not analyse error per
+  eigen-direction, and it describes no fixed-rate variant.
+- Ordentlich and Polyanskiy, "High-Rate Quantized Matrix Multiplication II", arXiv 2605.13768, 2026. Abstract only.
+  Claims: for Llama-3-8B with its real activation covariance, GPTQ after a random rotation is within 0.1 bit of
+  WaterSIC, depending on layer type, in the high-rate regime. Part I (arXiv 2601.17187) warns that the high-rate
+  analysis can mislead below about 2 bits per entry (reported in search snippets, not opened).
+  Inference: under the same objective, a rotated GPTQ loop leaves little rate to reallocate at high rate. The low-rate
+  case near 2.7 bits is not covered.
+
+A2. Measured evidence that GPTQ-family error lands in low-energy input directions: not found.
+- No paper found projects the quantization error of a weight-quantized LLM onto the principal directions of the
+  residual stream or of the layer input, and reports SNR per component. The closest results follow.
+- Chen et al., "Why Does Post-Training Quantization Work?", arXiv 2609.11716, 2026. Partial HTML. Qwen3-4B, 8B,
+  32B, 30B-A3B, OLMo3 and others, NVFP4 RTN weight-only. Reported on Qwen3-32B: the angle accounts for 88.9 to 98.7 %
+  of the squared relative error of the final hidden state, which rotates about 12.5 deg while its norm moves 3.7 %.
+  The new error each block adds opposes the inherited error in 82.5 % of blocks, and removing that counteraction in
+  blocks 17 to 48 raises the final relative error 2.94 times. Nothing in the part read decomposes the error by
+  principal direction.
+- Zhou et al., "Quantization Degradation in LLMs: A Signal-Noise Perspective", arXiv 2608.08188, 2026. Partial HTML.
+  Ten models including Qwen3 0.6B to 14B. RTN, GPTQ, AWQ and SpQR at W8 to W2. The source SNR splits into M (weight
+  magnitude over error), S (signal energy along the weight) and N (error energy along task activations). Reported:
+  GSM8K has the lowest source SNR of the three tasks probed, mainly through a larger N, which is stronger alignment of
+  the error with the task's activations. Propagated error dominates source error at every depth stage. Reported
+  retention at W3 runs from 30.6 % (Qwen3-0.6B) to 87.9 % (Qwen3-14B).
+  Relevance: this is the only paper found that makes the alignment of the error with task-specific activations a
+  measured term. It works per channel, not per principal direction of the residual stream.
+- Nearby evidence from KV-cache coding: arXiv 2511.01815 ("KV Cache Transform Coding") orders PCA components by
+  variance and has a DP give zero bits to many trailing components (snippet only). This is KV, not weights.
+- FluxBin, arXiv 2608.15602 (snippet only), claims that with few samples the Hessian captures only the principal
+  directions, and that GPTQ then overfits the calibration set. Keras and AWS documentation repeat the GPTQ calibration
+  overfit as folklore. No measurement per direction was found.
+
+A3. Interpretability: low-variance residual directions carry causal signal.
+- Stolfo, Wu, Gurnee, Belinkov, Song, Sachan, Nanda, "Confidence Regulation Neurons", arXiv 2406.16254, NeurIPS 2024.
+  Abstract only. Models up to 7B. Reported: final-layer "entropy neurons" have large weight norms and write into an
+  effective null space of the unembedding, made of directions with tiny singular values. They change the residual
+  norm,
+  so the final LayerNorm rescales the logits and sets confidence. They have almost no direct effect on the logits.
+  Relevance: here a direction with almost no readout controls the scale of every logit. This is a known mechanism by
+  which noise in a low-readout subspace can move the contrast between options. Nobody has tested it under quantization
+  (searched, not found).
+- Guda, "Geometric and Behavioral Stratification in Transformer Residual Streams", arXiv 2608.12447, 2026,
+  single author, not peer reviewed. Abstract only. 18 models, 7B to 120B. Claims that a low-variance,
+  weakly-readout-aligned complement of the residual stream is causally and temporally load-bearing. Claims that the
+  prediction direction is nearly orthogonal to the principal variance axes. The abstract gives no effect size.
+- Salfati, "Variance Is Not Importance", arXiv 2604.20682, 2026, single author. Abstract only. GPT-2 and Mistral-7B.
+  Reported: high-variance directions are about 96 % uncorrelated (CCA) with predictive directions. Projecting onto
+  them
+  keeps over 90 % of the variance and destroys perplexity.
+- Ghazouani, "Variance Geometry is Not Functional Geometry", SSRN 6886378 (snippet only). Claims that a perturbation
+  along the top Fisher direction costs 15 to 100 times more KL than one along the top covariance direction.
+  Caution: the last three are single-author preprints, and only the Stolfo paper is peer reviewed.
+
+A4. Objectives that reshape the Hessian weighting.
+- OAC, Edalati et al., arXiv 2405.15025, AAAI 2025. Abstract only. Replaces the layer Hessian with an approximate
+  output cross-entropy Hessian. Claims large gains at 2 bits and binary over SpQR and BiLLM. v2 claims it improves
+  other Hessian-based PTQ methods when plugged in. No figure was read.
+- HeRo-Q, Zhang et al., arXiv 2601.21626, 2026. Abstract plus search snippets. Learns a rotation-compression matrix
+  that lowers the largest Hessian eigenvalue, with a diagonal smoothing by Hessian-diagonal powers alpha/2. Reported
+  GSM8K 70.15 % for Llama-3-8B at W3A16. This attenuates high-curvature directions. It does not protect quiet ones.
+- ARHQ, Wang, Sun, Sakaguchi, arXiv 2605.00140, 2026. Abstract only. Builds the input Hessian from activation
+  quantization residuals instead of X^T X, and moves error-sensitive directions into a low-rank high-precision branch.
+  Qwen3-4B-Thinking, W-A quantization, ZebraLogic. The abstract gives no numbers.
+- Chen and Yeh, "Selecting GPTQ Damping by Nested-Ridge Leave-One-Out", Zenodo 23015545, v5, 2026-09-28, not peer
+  reviewed. Treats damping as a ridge prior chosen by leave-one-out from the Cholesky factor. Reported: the best fixed
+  multiplier runs from about 0.0064 to 0.77 depending on rows over width. Median excess cost: LOOCV 0.0048, 5 % rule
+  0.0401, 1 % default 0.0843. Qwen3.5-0.8B at 4 bits: lower WikiText-2 ppl than the 1 % default in all three settings.
+  Inference: damping is the one existing knob that caps GPTQ's 1/l weight error along quiet directions. This paper
+  tunes it for layer MSE, not for task signal.
+- Survey "Transforms for LLM Quantization: The Great Inversion", arXiv 2608.25188, 2026. Partial HTML. Claims that
+  rotations cannot change the spectrum of the input second moment and that whitening is required to go further. It
+  restates reverse water-filling as background. No measurement on this point in the part read.
+
+A5. Noise shaping in weight quantization.
+- SDQ-LLM, arXiv 2510.03275, 2025 (snippet only): sigma-delta with high-pass noise transfer, at 1 bit. The shaping is
+  along the sequence of weights, not along activation eigen-directions.
+- FBQuant, arXiv 2501.16385, 2025 (snippet only): feedback quantization. Not checked in detail.
+- Noise shaping toward the input directions a downstream task does not read: not found.
+
+======================================================================================================================
+B. CONTRAST OR LOGIT SHRINK
+======================================================================================================================
+
+B1. Wu, Dhiman, Koshiyama, arXiv 2608.06564, v5 2026-10-05. HTML v2 read. Points the project had not noted:
+- Reported BIC test: in damaged cells (fitted c < 0.70) the multiplicative model m' = c m + b wins 482 of 569. It wins
+  all 332 damaged cells in the core families. Constant additive noise and drift-only models win none. Margin-scaled
+  noise wins 87 cells, all outside the core families.
+- Reported slopes on Qwen3-4B. GPTQ (tool plus general): 0.98 / 0.79 / 0.37 at w4 / w3 / w2. RTN whether-to-call:
+  0.83 / 0.13 / 0.00 at 4 / 3 / 2 bits. GGUF tool: 1.00 / 0.81 / 0.59 for q4_k_m / iq3_xxs / iq2_m. Code tokens keep
+  0.87 at 3 bits where whether-to-call keeps 0.13.
+- Corrections: the paper notes that a global affine map of the logits cannot flip a decision, so it ran no temperature
+  test. Label-free bias subtraction: median recovery 0.0 over 554 damaged cells. An oracle per-item offset recovers a
+  median 0.325 of flips. One extra bit recovers a median 0.305, and nothing they tried beat it.
+- Mechanism: none claimed. The residual-stream deviation grows by 1.02 to 1.07 per layer at every bit width. The
+  collapse tracks the 90th-percentile input of the MLP down-projection, which is a predictor, not a cause. They name
+  "decorrelation", meaning the standardized margin losing correlation with its clean value, as an open candidate.
+- Reported generation-side point: at 3-bit RTN, three of five models lose more completed tool calls than correct tool
+  selections (400 BFCL tasks).
+
+B2. Shrink separated from noise.
+- Wu et al. separate a multiplicative slope from additive noise statistically (B1). They do not locate either in
+  depth.
+- Chen et al., arXiv 2609.11716 (A2): the final hidden error is about 89 to 99 % rotation and 3.7 % norm change on
+  Qwen3-32B NVFP4.
+  Inference, not stated by either paper: an RMSNorm before the LM head renormalizes the hidden state, so added noise
+  orthogonal to the signal lowers the signal's projection at fixed norm. A noisy hidden state then reads as a margin
+  slope below one. This would turn added noise into the multiplicative shrink Wu et al. observe. It predicts the slope
+  is fixed by the noise-to-signal energy at the final norm, and that no gain correction after the norm restores a
+  flip.
+- Zhou et al., arXiv 2608.08188 (A2), define a per-block gain G_l (propagated over accumulated NSR). They report
+  sustained amplification in the middle layers of small Qwen3 models and mild attenuation in large ones. G_l values
+  appear only in a figure.
+
+B3. Temperature and confidence calibration after quantization.
+- "Quantized Can Still Be Calibrated" (authors not checked), ACL 2025 (aclanthology 2025.acl-long.1473, snippet
+  only). Reported: post-hoc calibration lowers calibration error for GPTQ from 0.85 to 0.74 and for BnB from 0.86 to
+  0.21. This is confidence calibration on accuracy, and it cannot fix rank flips.
+- A RoPE-quantization preprint, arXiv 2510.00028 (snippet only), reports an optimal temperature of 0.8 to 2.2
+  depending
+  on the method. Not verified.
+- Logit-scale collapse linked to a specific component under quantization: not found.
+
+======================================================================================================================
+C. GENERATION AGAINST ONE-TOKEN TASKS
+======================================================================================================================
+
+C1. Generation or reasoning degrades more than MCQ or ppl: found, with mixed strength.
+- LFQ, Lee, Yang, Choi, Yang, arXiv 2605.29756, 2026, reported accepted at ICML 2026. Partial HTML. Block-wise PTQ
+  (FlexRound, OmniQuant, Block-AP) at W4 and W3g128 on Qwen2.5-7B and 14B Instruct, R1-distilled Llama-8B,
+  L1-Qwen-7B, Qwen3-30B-A3B and Llama-3.1-8B. Reported Llama-3.1-8B FlexRound W4 against BF16: MMLU -2.15, IFEval
+  -4.25,
+  GSM8K -3.64. Reported L1-Qwen-7B W4: AIME'24 greedy -16.67 (30 problems, one problem is 3.3 points).
+  The paper claims MSE-based block PTQ keeps ppl and MCQ and loses long generation. Its evidence is per benchmark, not
+  per layer.
+- Li et al., "Quantization Meets Reasoning", arXiv 2505.11574, v4 2026-01. Abstract plus snippets. Qwen and Llama,
+  0.5B to 7B, AWQ, GPTQ, SmoothQuant. Snippet: GSM8K about -7.16 %, MATH about -15.2 %, AIME about -100 %, with MMLU
+  unchanged. The abstract says PTQ adds method and execution errors more than conceptual errors, and that the first
+  faulty step comes early in a solution and cascades to the answer. Claims 332 targeted examples and 3 to 5 GPU
+  minutes of tuning bring 4-bit math back toward FP. Numbers not opened.
+- Liu et al., "Quantization Hurts Reasoning?", arXiv 2504.04823, COLM 2025. Abstract only. R1-distilled Qwen and Llama
+  1.5B to 70B, QwQ-32B, Qwen3-8B. Claims W4A16 and W8A8 are lossless on reasoning and lower widths are risky. Claims
+  output length does not grow. Snippet: harder tasks lose up to 4 times more than GSM8K.
+- Lian et al., "Quantization Inflates Reasoning", arXiv 2606.25519, 2026. Abstract only. Claims INT4 and INT3 keep
+  accuracy but lengthen chains of thought, with more steps and repetition. No numbers on the page. It contradicts
+  Liu et al. on length.
+- Jang et al., "Flat Score, Amplified Failures", arXiv 2607.27275, 2026. Abstract only. tau2-bench, 16, 8 and 4 bit.
+  Reported: the score does not move significantly, while the existing failure (tool-name hallucination) rises up to
+  2.5 times. Shrinking the error budget from ten to two exposes a 17-point gap.
+- Counter-evidence: IJCAI 2025 study (ijcai.org/proceedings/2025/0902, snippet only) reports that GSM8K and MMLU did
+  not
+  consistently show the largest drops under AWQ, with small models (2B to 7B) hit hardest on GSM8K.
+
+C2. Depth: which blocks hurt generation.
+- Zhang et al., "When Reasoning Meets Compression", arXiv 2504.02010, ICLR 2026. Partial HTML. R1-distilled Llama-8B
+  and Qwen-7B, AWQ, GPTQ, GPTAQ and ANY at 3 and 4 bits. Reported: quantizing only the final-layer MLP up_proj to 3
+  bits
+  (0.7 % of weights) lowers average reasoning accuracy by 16.3 %. Keeping the final-layer MLP in 16 bits inside 3-bit
+  AWQ (about 2 % of weights) raises the average from 46.0 to 52.57. Reported: AWQ and GPTQ compress final-layer
+  modules
+  the most. Gate projections in the middle layers of Llama-8B and the early layers of Qwen-7B are also
+  over-compressed.
+  Benchmarks: AIME 2024, FOLIO, Temporal Sequences, MuSiQue. No MMLU arm.
+- Chang, Zhang, Thomason, Jia, "Why Do Some Inputs Break Low-Bit LLM Quantization?", arXiv 2506.12044, EMNLP 2025.
+  Abstract only. 3 and 4 bit weight-only, 7B to 70B. Reported: errors correlate at 0.82 on average across 50 method
+  pairs on FineWeb. The full-precision residual-stream norm predicts which examples will break. Patching and early
+  exit
+  show that the high-error examples depend on precise residual activations in the late layers. Measured on NLL, not on
+  generation tasks.
+- Wang et al., TASA, arXiv 2607.00908, 2026. Abstract only. Llama-3-8B and Qwen2.5-7B, 3.5 bits average. Reported:
+  per-layer perplexity sensitivity and reasoning sensitivity rank with Kendall tau about 0. Reported: more than
+  +20 GSM8K points over the best W3 baseline on Llama-3-8B. Which layers matter for math is not on the abstract page.
+- Mixed-precision practice (mlx-optiq blog, not peer reviewed) reports last-block sensitivity up to 6.8 times the
+  median layer. A per-layer 4/8-bit allocation scores 51 % GSM8K against 34 % for uniform 4-bit. Low weight.
+- Measured layer-by-layer restoration that separates MCQ from generation, as N7 does: not found.
+
+C3. Error over decoded tokens.
+- Divergent Token Metrics, Deiseroth et al., arXiv 2311.01544, 2023/2024. Snippets. Uses the first token where greedy
+  output departs from the base model as the compression metric. Reported: 25 % of Llama-2 attention components prune
+  past 90 %. Claims it gives per-component choices that perplexity misses.
+- A TMLR 2026 paper (arXiv 2609.26621, snippet only) reports a median first divergence at 34 to 50 tokens between
+  precisions, with 44 % diverging in the first 30 tokens. Once trajectories differ, they stay different.
+- Mix-Quant, Lu et al., arXiv 2605.20315, 2026. Abstract only. NVFP4 prefill with BF16 decode. Claims full-path
+  quantization degrades agentic tasks while quantized prefill costs little. No split figure on the page.
+- A statistically-lossless quantization paper, arXiv 2605.02404 (snippet only), uses teacher forcing because one
+  divergent token shifts the whole continuation.
+- Quantization-specific exposure-bias analyses: not found.
+
+======================================================================================================================
+D. LOCATING GENERATION LOSS FROM THE ORIGINAL MODEL ALONE
+======================================================================================================================
+
+- Zhang et al., arXiv 2504.02010 (C2): steering-vector difference-of-means plus attribution patching on the FP model,
+  per linear module, for four labelled reasoning behaviours (120 instances labelled by GPT-4o). This produced the
+  final-layer up_proj finding that quantization then confirmed. This is the closest existing method for D.
+- Chang et al., arXiv 2506.12044 (C2): the FP residual-stream norm predicts per-example quantization error.
+- Stolfo, Belinkov, Sachan, arXiv 2305.15054, EMNLP 2023. Abstract only. Causal mediation on four models, 2.8B to 7B,
+  on arithmetic queries. Claims that attention moves operand information to the last token, and that a set of MLPs
+  then writes the result into the residual stream (search summaries say late MLPs). No layer numbers read.
+- Wiegreffe et al., "Answer, Assemble, Ace", arXiv 2407.15018, ICLR 2025 spotlight. Abstract only. Three model
+  families. Reported: the MCQ answer symbol is chosen in a few middle layers by a sparse set of attention heads, and
+  later layers only raise its probability.
+- Lad, Lee, Gurnee, Tegmark, "Stages of Inference?", arXiv 2406.19384, v3 2025. Abstract only. Reported: models keep
+  72 to 95 % of top-1 accuracy after a layer is deleted or swapped, except at the first and last layers. The last
+  stage
+  is "residual sharpening", where irrelevant features are suppressed to finalize the distribution.
+- Logit lens on quantized models: arXiv 2505.15353 (KL scale, snippet only) treats the network up to each layer as a
+  model through the logit lens, with 8-bit and 4-bit models. A 2026 survey calls logit-lens work on quantized models
+  "preliminary" (snippet only).
+- Caution from bit-width search: ScaleBITS, arXiv 2602.17698 (snippet only), reports that gradients taken at the
+  quantized model beat gradients taken at the FP model for aggressive quantization. An FP-only predictor may
+  underestimate sensitivity at about 2.7 bits.
+- A logit lens or tuned lens on generated tokens, used to predict where a weight perturbation costs GSM8K: not found.
+
+======================================================================================================================
+E. IS EACH CANDIDATE IDEA PUBLISHED?
+======================================================================================================================
+
+E1. Protect quiet input directions in the encoder objective.
+- Verdict: NOT FOUND as stated. Nobody found reweights the GPTQ or lattice objective to cap error on the low-variance
+  subspace of the input, or of the residual stream at the answer position.
+- Neighbours found: OAC (output CE Hessian, claims 2-bit gains, abstract only). GuidedQuant (known, failed here).
+  HeRo-Q (attenuates the top of the spectrum, the opposite end). ARHQ (residual Hessian plus low-rank branch, no
+  numbers). Damping by LOOCV (Chen and Yeh, layer-MSE target, small model).
+- Theory against: reverse water-filling (WaterSIC, Ordentlich and Polyanskiy) says the layer optimum gives quiet
+  directions zero rate. Protecting them only helps if the true loss weights them more than X^T X does. That is the
+  claim to prove, and the interpretability papers in A3 back it only indirectly.
+
+E2. Allocate rate along the input axis at fixed total rate.
+- Verdict: FOUND in entropy-coded form, NOT FOUND in fixed-rate lattice form.
+- WaterSIC (2603.04956): per-column rate by water-filling, entropy-coded. CMPQ (arXiv 2410.13056, snippet only):
+  per-input-channel mixed precision at a fixed average of 2 to 4 bits, heuristic, driven by activations.
+- Ordentlich and Polyanskiy (2605.13768) claim rotated GPTQ is within 0.1 bit of WaterSIC on Llama-3-8B at high rate.
+  If that holds near 2.7 bits, reallocating rate under the same objective is worth at most a few hundredths of a
+  b/param in MSE terms. Low-rate behaviour is unmeasured.
+- Fixed-rate shape-gain or lattice codes with per-direction rate: not found.
+
+E3. A different treatment of late blocks for generation.
+- Verdict: FOUND.
+- LFQ (2605.29756, ICML 2026): only the final block is fitted to the FP logits by cross-entropy, with the LM head.
+  Reported Llama-3.1-8B W4 FlexRound: GSM8K 81.35 to 81.80, IFEval 70.24 to 72.09, MMLU 66.19 to 66.97, WikiText-2 ppl
+  unchanged at 7.06. Reported: adding the second and third blocks from the end adds little. Gains are mostly 0.2 to
+  2 points from single greedy runs.
+- Zhang et al. (2504.02010): final-layer MLP kept in 16 bits, +6.57 average reasoning at 3-bit AWQ, for about 2 % of
+  the weights.
+- Neither restores or retunes 11 blocks. Neither reports an MMLU-against-GSM8K split per block range.
+
+======================================================================================================================
+WHAT THIS KILLS OR SUPPORTS
+======================================================================================================================
+
+N6, lost contrast.
+- SUPPORTED: shrink, not additive noise, is the right model of the logit damage. Wu et al. (2608.06564) measure it
+  decisively on Qwen3-4B with GPTQ, at slope 0.79 at w3.
+- SUPPORTED: zero-bit global corrections cannot repair it. Wu et al. show by algebra that an affine map cannot flip a
+  decision, and find label-free bias removal recovers a median of 0. This matches the project's ceiling of 6 %.
+- SUPPORTED, by theory only: the layer objective discards quiet directions on purpose (reverse water-filling,
+  WaterSIC).
+  The quiet-direction loss in N6 is then expected behaviour of a correct encoder, not an encoder bug.
+- SUPPORTED indirectly: low-variance or low-readout directions carry causal signal. Entropy neurons (2406.16254) use a
+  low-singular-value subspace to set logit scale, the prediction-distal complement is reported load-bearing
+  (2608.12447), and variance is a poor proxy for importance (2604.20682). None of these is in a quantization setting.
+- PLAUSIBLE, not published: noise added before the final RMSNorm turns into a multiplicative shrink, since the hidden
+  error is about 90 % rotation (2609.11716). If true, the slope follows the noise-to-signal energy at the final norm,
+  whatever subspace the noise lives in.
+- WEAKENED: "reallocate rate across input directions at fixed rate and the same objective" as a large lever.
+  Ordentlich
+  and Polyanskiy put rotated GPTQ within 0.1 bit of the water-filling optimum (high rate, abstract only).
+- NOT CONTRADICTED by anything found: "the quiet subspace at the answer position is drowned by noise the layer
+  objective considers cheap". Nobody has measured it, for it or against it.
+
+N7, MCQ and generation lose in different blocks.
+- SUPPORTED: late blocks matter for generation more than for MCQ. LFQ fixes only the final block and gains on
+  generation with MMLU flat. Zhang et al. find the final-layer MLP is a reasoning bottleneck that AWQ and GPTQ
+  over-compress. Chang et al. find high-error inputs depend on precise late-layer residuals.
+- SUPPORTED: MCQ answers are decided mid-depth. Wiegreffe et al. place answer-symbol selection in a few middle layers,
+  with later layers only sharpening it. This fits restoring the last 11 blocks giving only +0.43 on MMLU.
+- SUPPORTED: early error dominates both tasks. Zhou et al. find propagated error dominates at every depth, and
+  Lad et al. find the first layers among the least robust. This fits +6.12 / +7.20 for the first 25 blocks.
+- SUPPORTED: ppl or MSE sensitivity does not predict reasoning sensitivity (TASA, Kendall tau about 0), so a layer
+  objective tuned on ppl can miss what GSM8K needs.
+- CAUTION: published late-block fixes are small. LFQ adds +0.45 GSM8K on Llama-3.1-8B W4. The project's late-11
+  restoration (+4.32 GSM8K) is an FP16 ceiling, not something any quantized method has reached.
+- CAUTION: Zhang et al. and LFQ work on reasoning-distilled or instruct models at W3 and W4 with scalar codes, not at
+  about 2.7 b/param with lattice codes.
+
+======================================================================================================================
+NOT FOUND (queries run, no direct result)
+======================================================================================================================
+
+- "quantization error low-variance directions residual stream LLM GPTQ Hessian sacrifices small eigenvalue
+  directions": no measurement of error per eigen-direction.
+- "quantization noise signal-to-noise ratio per principal component hidden states small variance components destroyed
+  LLM weight quantization spectrum analysis": none.
+- "GPTQ error concentrated in directions with small activation variance overfitting calibration set
+  out-of-distribution
+  inputs inverse Hessian weight error": folklore and one claim (FluxBin), no measurement.
+- "quantization objective protect low-variance input directions whitening Hessian power alpha flatten spectrum GPTQ
+  variant": no method targeting quiet directions.
+- "GPTQ dampening Hessian regularization ... shrink Hessian toward identity": only the damping-LOOCV preprint and
+  GPTQ-intrinsic LoRA (arXiv 2606.01412, abstract only, no damping detail).
+- "bit allocation across input channels fixed total rate vector quantization LLM weights KLT transform coding
+  eigen-directions activations": no fixed-rate lattice variant.
+- "reverse water-filling weight quantization ... activations covariance": only the WaterSIC and Polyanskiy cluster.
+- "noise shaping weight quantization LLM error feedback spectral shaping orthogonal to activations": none along
+  activation directions.
+- "entropy neurons quantization damaged final layer norm logit scale quantized model": none.
+- "output shrink OR logit shrinkage quantized language model margin contrast": only Wu et al.
+- "keep last layers in higher precision ... first layers vs last layers ablation": no controlled
+  MCQ-against-generation
+  split by depth.
+- "logit lens quantized model layer where predictions diverge ... tuned lens": preliminary, no generation-specific
+  method.
+- "quantization sensitivity measured from full-precision model only ... chain-of-thought layer importance": only
+  Zhang et al. (2504.02010).
+- "post-training quantization late transformer blocks different objective generation KL distillation last layers":
+  only LFQ.
+- Exposure bias specific to quantized models: none.

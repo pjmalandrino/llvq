@@ -1,0 +1,137 @@
+selftest: tiny Qwen3-shaped models (36 layers, d 16), CPU, float64
+  PASS  forward gives contrast_map.forward_taps' and layer_vs_output.forward's logits bit for bit, both sets
+  PASS  and the same 37 streams
+  PASS  run_from(h(d), d) reproduces the sealed forward bit for bit, depths 0, 4, 7, 8, 12, 16, 20, 35
+  PASS  self-patch with the sealed stream, 4 forms x 6 prompts: 24 of 24 bit for bit
+  PASS  whole-stream patch at depths (4, 8, 12, 16, 20) = FP16 blocks 0..d-1 then sealed, every later stream and the output, bit for bit: 30 of 30
+  PASS  FP16 logits of pass 2 equal pass 1 bit for bit
+  PASS  the depth-12 hybrid differs from both the control and FP16 (the plant is not trivial)
+  PASS  three bands together = the whole stream at depth 12: worst |dlogit| 0.0e+00, worst |dstream| 7.1e-15
+  PASS  explicit answer row of attention = SDPA at layers 7-13, no patch (1.1e-15)
+  PASS  explicit path, no patch, = control to 0.0e+00; FP16's probabilities move the output by 3.6e-01
+  PASS  FP16 h(0) and FP16's two branches at blocks 0-11 in the sealed run give FP16's h(12) and d12's logits, bit for bit: 6 of 6
+  PASS  each branch arm moves the output, and neither equals d12 nor the other
+  PASS  the MLP arm is the sealed run with FP16's MLP outputs at blocks 0-11 only; block 12 and the attention branch are its own
+  PASS  the three band patches' changes sum to the whole difference
+  PASS  a band patch moves its own directions to FP16's and leaves the others (3.6e-15, 2.2e-15)
+  PASS  patching the three bands as one basis gives FP16's stream
+  PASS  production bands are columns 0:64, 64:512, 512:2560, a partition of 2,560
+  PASS  a band patch on chosen positions changes those rows only, as the every-position patch does there
+  PASS  an f16 stream patched with itself through the float32 band path is unchanged bit for bit
+  PASS  massive rule: above 10 x median selected, exactly 10 x median not, the answer position never
+  PASS  on the tiny run the massive positions are exactly the planted tokens, the planted answer excluded: [0, 4]; [2]; []; [0, 7, 9]; [3]; [0]
+  PASS  the massive rule reads FP16's norms at depth 8, h(8) after block 8
+  PASS  answer position alone and every position but it partition the prompt
+  PASS  a patch at the answer position alone leaves every earlier position unchanged at every later depth, and moves the answer
+  PASS  the rewritten answer row is P v exactly and every other row is SDPA's, bit for bit
+  PASS  a block outside the set is untouched
+  PASS  the model's own probabilities through the explicit path = SDPA
+  PASS  rows kept at depth 25 (and 12) are the answer rows of h(25) (and h(12)) of FP16, control, hybrid
+  PASS  the lens at depth 36 on FP16 is FP16's own answer logits (contrast_map.lens, the model's norm in float32)
+  PASS  masked sums = contrast_map.Gain on every position, the answer row alone, and all but the 3 massive (5.7e-16)
+  PASS  paired: b 5, c 2, +0.15, half width 1.96 sqrt(b+c-(b-c)^2/n)/n, McNemar p 0.453
+  PASS  bootstrap counts resample n questions per draw
+  PASS  bootstrap of a constant ratio is that ratio, point and interval
+  PASS  per-question band terms give contrast_map.band_table's energy-weighted slope
+  PASS  shape cosine: scale and offset free (1), mirrored shape -1, a flat vector 0 and counted
+  PASS  KL over four options is 0 on itself and positive otherwise; log p of a flat vector is log 1/4
+  PASS  ranks with ties, Spearman +1 and -1
+  PASS  instrument: the cosine share of alpha * FP16 + noise grows with alpha: 0.188, 0.484, 0.770, 0.949, 0.998
+  PASS  instrument: Spearman with the accuracy share 1.000, the rule picks the cosine share
+  PASS  instrument: FP16 against itself reads both shares 1
+  PASS  slope recovery (0.8 - 0.5) / (1 - 0.5) = 0.6
+  PASS  the three-way verdicts of H6-A to H6-D
+  PASS  a ratio over s(d12) is NOT DECIDED when s(d12)'s interval reaches 0
+GATES, 6 questions
+  rule D: picks equal to the Rust dumps 1.0000 (FP16), 1.0000 (control); slope script 1.0363 dump 1.0363: GREEN
+  self-patch with the sealed stream, 4 forms, 6 prompts: 24 of 24 bit for bit (worst |dlogit| 0.000e+00)
+  whole-stream patch at depths (4, 8, 12, 16, 20) against FP16 blocks 0..d-1 then sealed, every later depth and the output: 30 of 30 bit for bit
+  FP16 logits, pass 2 against pass 1: 6 of 6 bit for bit
+  three bands together against the whole stream at depth 12: picks equal 1.0000, worst |dlogit| 0.000e+00, worst |dstream| 7.105e-15
+  explicit attention row, no patch, against SDPA: picks equal to control 1.0000 on 6, worst |dlogit| 0.000e+00, worst |d attention row| 1.110e-15 on 6 prompts
+  FP16 h(0) and FP16's two branches at blocks 0-11 in the sealed run give FP16's h(12) and d12's logits: 6 of 6 bit for bit (worst |dh(12)| 0.000e+00)
+  GATES: GREEN (all pass)
+
+ARMS: accuracy at the output and through FP16's lens at depth 25; paired against the control; share of the FP16-control gap recovered, paired bootstrap 95 %
+  arm                  acc     lens25  minus control [95 %]        b/c      p        share of gap [95 %]     lens share [95 %]       slope d12 [1, 2] [3, 6] [7, 16]
+  fp16                  16.67    0.00   +0.00 [ +0.00,  +0.00]    0/0    1.00e+00  +nan [+nan, +nan]  +nan [+nan, +nan]  1.000 1.000 1.000
+  control               16.67    0.00   +0.00 [ +0.00,  +0.00]    0/0    1.00e+00  +nan [+nan, +nan]  +nan [+nan, +nan]  1.028 1.038 1.014
+  d4                    16.67    0.00   +0.00 [ +0.00,  +0.00]    0/0    1.00e+00  +nan [+nan, +nan]  +nan [+nan, +nan]  1.002 1.036 1.016
+  d8                    33.33    0.00  +16.67 [-13.15, +46.49]    1/0    1.00e+00  +nan [+nan, +nan]  +nan [+nan, +nan]  1.000 1.015 0.984
+  d12                   33.33    0.00  +16.67 [-13.15, +46.49]    1/0    1.00e+00  +nan [+nan, +nan]  +nan [+nan, +nan]  1.000 1.000 1.000
+  d16                   16.67    0.00   +0.00 [ +0.00,  +0.00]    0/0    1.00e+00  +nan [+nan, +nan]  +nan [+nan, +nan]  1.028 1.038 1.014
+  d20                   16.67    0.00   +0.00 [ +0.00,  +0.00]    0/0    1.00e+00  +nan [+nan, +nan]  +nan [+nan, +nan]  1.028 1.038 1.014
+  d12_b1-64             16.67   16.67   +0.00 [ +0.00,  +0.00]    0/0    1.00e+00  +nan [+nan, +nan]  +nan [+nan, +nan]  1.000 1.038 1.014
+  d12_b65-512           16.67    0.00   +0.00 [ +0.00,  +0.00]    0/0    1.00e+00  +nan [+nan, +nan]  +nan [+nan, +nan]  1.028 1.000 1.014
+  d12_b513-2560         16.67    0.00   +0.00 [ +0.00,  +0.00]    0/0    1.00e+00  +nan [+nan, +nan]  +nan [+nan, +nan]  1.028 1.038 1.000
+  d12_ans               16.67   16.67   +0.00 [ +0.00,  +0.00]    0/0    1.00e+00  +nan [+nan, +nan]  +nan [+nan, +nan]  1.000 1.000 1.000
+  d12_notans            16.67    0.00   +0.00 [ +0.00,  +0.00]    0/0    1.00e+00  +nan [+nan, +nan]  +nan [+nan, +nan]  1.028 1.038 1.014
+  d12_massive           16.67    0.00   +0.00 [ +0.00,  +0.00]    0/0    1.00e+00  +nan [+nan, +nan]  +nan [+nan, +nan]  1.028 1.038 1.014
+  d12_b513-2560_ans     16.67    0.00   +0.00 [ +0.00,  +0.00]    0/0    1.00e+00  +nan [+nan, +nan]  +nan [+nan, +nan]  1.028 1.038 1.000
+  attn_explicit         16.67    0.00   +0.00 [ +0.00,  +0.00]    0/0    1.00e+00  +nan [+nan, +nan]  +nan [+nan, +nan]  1.028 1.038 1.014
+  attn_fp16_7-13        16.67    0.00   +0.00 [ +0.00,  +0.00]    0/0    1.00e+00  +nan [+nan, +nan]  +nan [+nan, +nan]  1.028 1.040 1.007
+  attn_0-11             16.67    0.00   +0.00 [ +0.00,  +0.00]    0/0    1.00e+00  +nan [+nan, +nan]  +nan [+nan, +nan]  1.027 1.039 0.994
+  mlp_0-11              16.67    0.00   +0.00 [ +0.00,  +0.00]    0/0    1.00e+00  +nan [+nan, +nan]  +nan [+nan, +nan]  1.028 1.034 1.003
+
+SHAPE: c = cosine of the centred four logits with FP16's; share s = (C - C_control) / (1 - C_control), output and lens 25, paired bootstrap 95 %; mean KL(FP16 || arm) over the four options; mean log-probability of FP16's pick
+  arm                  C        s [95 %]                 C lens   s lens [95 %]            KL [95 %]                 log p(FP16 pick) [95 %]    degenerate
+  fp16                 1.00000  +1.000 [+1.000, +1.000]  1.00000  +1.000 [+1.000, +1.000]  0.0000 [0.0000, 0.0000]  -0.0927 [-0.1727, -0.0253]  0/0
+  control              0.97584  +0.000 [+0.000, +0.000]  0.98699  +0.000 [+0.000, +0.000]  0.0852 [0.0058, 0.2230]  -0.0540 [-0.1095, -0.0113]  0/0
+  d4                   0.98794  +0.501 [-0.210, +0.790]  0.99217  +0.398 [-0.067, +0.716]  0.0497 [0.0041, 0.1200]  -0.1660 [-0.4191, -0.0170]  0/0
+  d8                   0.98049  +0.192 [-0.234, +0.914]  0.99386  +0.528 [-0.038, +0.923]  0.1683 [0.0004, 0.4942]  -0.3583 [-0.9891, -0.0250]  0/0
+  d12                  0.98896  +0.543 [+0.381, +0.935]  0.99132  +0.332 [-0.360, +0.723]  0.0816 [0.0033, 0.2141]  -0.2143 [-0.5735, -0.0151]  0/0
+  d16                  0.99641  +0.851 [+0.760, +0.985]  0.99878  +0.906 [+0.810, +0.972]  0.0292 [0.0008, 0.0835]  -0.1581 [-0.3811, -0.0224]  0/0
+  d20                  0.99910  +0.963 [+0.914, +0.977]  0.99961  +0.970 [+0.944, +0.993]  0.0043 [0.0003, 0.0115]  -0.1129 [-0.2330, -0.0240]  0/0
+  d12_b1-64            0.99004  +0.588 [-0.428, +0.926]  0.98201  -0.383 [-1.196, +0.588]  0.0181 [0.0047, 0.0360]  -0.1098 [-0.2302, -0.0200]  0/0
+  d12_b65-512          0.97979  +0.163 [-0.581, +0.358]  0.97676  -0.787 [-2.374, +0.101]  0.0854 [0.0108, 0.2163]  -0.0433 [-0.0874, -0.0096]  0/0
+  d12_b513-2560        0.98590  +0.416 [+0.277, +0.542]  0.99375  +0.519 [+0.229, +0.743]  0.0447 [0.0033, 0.1133]  -0.0557 [-0.0997, -0.0165]  0/0
+  d12_ans              0.97716  +0.055 [-0.022, +0.313]  0.98154  -0.419 [-0.959, +0.248]  0.0785 [0.0055, 0.2057]  -0.0343 [-0.0618, -0.0110]  0/0
+  d12_notans           0.98817  +0.510 [+0.211, +0.645]  0.98050  -0.499 [-1.321, +0.259]  0.0622 [0.0092, 0.1411]  -0.2047 [-0.4803, -0.0213]  0/0
+  d12_massive          0.97586  +0.001 [-0.013, +0.013]  0.98712  +0.010 [+0.003, +0.019]  0.0853 [0.0064, 0.2230]  -0.0533 [-0.1082, -0.0111]  0/0
+  d12_b513-2560_ans    0.98032  +0.185 [+0.129, +0.312]  0.99058  +0.276 [+0.059, +0.458]  0.0592 [0.0051, 0.1543]  -0.0496 [-0.0919, -0.0123]  0/0
+  attn_explicit        0.97584  +0.000 [+0.000, +0.000]  0.98699  +0.000 [-0.000, +0.000]  0.0852 [0.0058, 0.2230]  -0.0540 [-0.1095, -0.0113]  0/0
+  attn_fp16_7-13       0.97665  +0.034 [-0.237, +0.147]  0.98560  -0.107 [-0.214, +0.016]  0.0760 [0.0059, 0.1972]  -0.0509 [-0.1000, -0.0119]  0/0
+  attn_0-11            0.99646  +0.854 [+0.636, +0.930]  0.99214  +0.396 [-0.225, +0.745]  0.0198 [0.0033, 0.0386]  -0.1112 [-0.2463, -0.0181]  0/0
+  mlp_0-11             0.98810  +0.507 [-0.277, +0.789]  0.98598  -0.078 [-0.434, +0.353]  0.0231 [0.0036, 0.0515]  -0.0629 [-0.0951, -0.0292]  0/0
+
+MATRICES BY POSITION: relative error S_ee/S_yy pooled over the 36 layers of a type, answer position against every position, and every position but the massive ones; FP16 inputs (primary) and sealed inputs
+  type        x       rel all      rel answer   answer/all [95 %]          rel nonmassive  nonmassive/all
+  q_proj      fp16    4.03593e-03  4.06485e-03  1.007 [0.979, 1.041]     4.02414e-03     0.997
+  q_proj      sealed  4.05234e-03  4.05740e-03  1.001 [0.970, 1.037]     4.04113e-03     0.997
+  k_proj      fp16    4.37121e-03  4.37004e-03  1.000 [0.958, 1.042]     4.39573e-03     1.006
+  k_proj      sealed  4.35575e-03  4.31978e-03  0.992 [0.954, 1.033]     4.37962e-03     1.005
+  v_proj      fp16    3.94143e-03  3.83389e-03  0.973 [0.909, 1.037]     3.93090e-03     0.997
+  v_proj      sealed  3.90735e-03  3.85839e-03  0.987 [0.939, 1.044]     3.89296e-03     0.996
+  o_proj      fp16    4.63883e-03  4.57627e-03  0.987 [0.958, 1.015]     4.64742e-03     1.002
+  o_proj      sealed  4.69111e-03  4.66811e-03  0.995 [0.959, 1.024]     4.70318e-03     1.003
+  gate_proj   fp16    4.30700e-03  4.31579e-03  1.002 [0.975, 1.031]     4.29061e-03     0.996
+  gate_proj   sealed  4.30852e-03  4.29960e-03  0.998 [0.974, 1.026]     4.29310e-03     0.996
+  up_proj     fp16    4.24976e-03  4.48678e-03  1.056 [0.999, 1.104]     4.23925e-03     0.998
+  up_proj     sealed  4.23975e-03  4.45932e-03  1.052 [1.003, 1.097]     4.22744e-03     0.997
+  down_proj   fp16    4.16326e-03  4.45161e-03  1.069 [0.950, 1.177]     4.18723e-03     1.006
+  down_proj   sealed  4.19292e-03  4.38222e-03  1.045 [0.945, 1.139]     4.21386e-03     1.005
+  the four low matrices (1 gate_proj, 2 gate_proj, 3 gate_proj, 6 down_proj), FP16 inputs, pooled: nonmassive/all 1.013 [1.007, 1.018]; each: 1.011, 1.004, 1.023, 1.000
+
+MASSIVE POSITIONS: FP16 h(8) norm over the prompt's median above 10, answer position excluded. A prompt holds 0 to 3, median 1; prompts with 0, 1, 2, 3, 4, 5+: 1, 3, 1, 1, 0, 0. Position 0 is massive in 3 of 6; the answer position would qualify in 1.
+  token ids (count): 5 (8)
+  positions a prompt above the other multiples, mean: 5: 1.33, 20: 1.33, 50: 0.00
+
+KILL RULES (prereg table; KILLED or STANDS only when the whole 95 % interval is on one side). Primary share: COSINE, fixed by the instrument check before the job; the other is printed beside, no rule.
+  s(d12), the denominator: +0.543 [+0.381, +0.935]
+  H6-A      +0.767 [+0.295, +1.364]  NOT DECIDED  s(d12_b513-2560) / s(d12); killed if >= 0.5
+  H6-B      +1.069 [+0.950, +1.177]  KILLED       answer-position over all-position relative error, per type, FP16 inputs (worst type shown); killed if every type in [1/1.5, 1.5]
+  H6-C      +0.002 [-0.034, +0.014]  KILLED       s(d12_massive) / s(d12); killed if < 0.1 and the low matrices' error ratio in [1/2.0, 2.0]
+  H6-C err  +1.013 [+1.007, +1.018]  (read with H6-C) low matrices, error without the massive positions over with them; 
+  H6-D      +0.481 [-4.930, +4.316]  NOT DECIDED  share of the band [513, 2560] slope deficit at d12 recovered by FP16's attention at 7-13; killed if < 0.2
+  H6-E      +0.934 [-0.610, +1.808]  NOT DECIDED  s(mlp_0-11) / s(d12); killed if < 0.5
+  beside H6-E, no rule: s(attn_0-11) / s(d12) +1.572 [+0.954, +2.174]
+  H6-D against the SDPA control instead of the explicit path: +0.481 [-4.930, +4.316]
+  the same ratios on the accuracy share, no rule (underpowered, about +-0.51 of the gap, prereg section 7): d12_b513-2560 +0.000 [+0.000, +0.000], d12_massive +0.000 [+0.000, +0.000], mlp_0-11 +0.000 [+0.000, +0.000], attn_0-11 +0.000 [+0.000, +0.000]
+
+RAW: arms.tsv, shape.tsv, picks.tsv, logits.tsv, kills.tsv, types_pos.tsv, matrices_pos.tsv, massive.tsv, checks.tsv, gains_{fp16,sealed}x.f64 (N x 252 x 3 masks x [S_yy, S_ey, S_ee]), eigvals_d12.f64
+  PASS  analyse writes its 12 files, 6 pick rows, 6 kill rows
+  PASS  every gate green on the tiny run with self-consistent dumps
+  PASS  the raw error sums read back bit for bit
+  PASS  18 arms read: fp16, control, 12 patches, 2 attention arms, 2 branch arms
+  PASS  shape share: FP16 reads 1, the control 0, d12 the formula on its own cosines
+selftest: GREEN, 48 checks, 0 failure(s)

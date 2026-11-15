@@ -1,0 +1,12 @@
+f022add79f69baeb59a751e6b84fa6e9ea0d5929851c9477e6adf1ee0af5e6bf  docs/data/mmlu-dumps/mmlu-4b-f16-FULL.csv
+e2abc978add4e189d346f43d64638e9d16b778a7f3359fbb8c1fb53e5c1cfd74  docs/data/mmlu-dumps/mmlu-4b-abl-control-FULL.csv
+72039e0190e852add0a8e0beb040ef54b3e1b7c45e87ec3193351be596bba432  docs/data/mmlu-dumps/mmlu-4b-depth-late-FULL.csv
+fa35e228e7ede069602c508a076dcd227bf1f087b0a09c9839b06ce31878f9d9  docs/data/mmlu-dumps/mmlu-4b-depth-early-FULL.csv
+6e0db8e013250a2389ffb0faf178fc8da3d86a5b2805f258f22d367a4c3f3937  docs/data/mmlu-dumps/mmlu-q5-shipped-FULL.csv
+f05157070368c24c01deae1fb3274be65f6917a5c11e6bfcf1087e3af7f041ce  docs/data/mmlu-dumps/mmlu-q5-down-0-11.csv
+b639b61f1223dd2bdfbdece96676323ca3307bcb821ff6114f0ed2730fdb4430  docs/data/mmlu-dumps/mmlu-q5-down-12-23.csv
+a9ea9a66a6d199fca3e85d03f9b83a5a2c195bf30d247c344c5d7f2da416e30f  docs/data/mmlu-dumps/mmlu-q5-down-24-35.csv
+36ecd8ba7fba98f496c0d5f25e15cb59d770f0f89931a53df88cafe1957922d0  docs/mesures/gsm8k-depth-restore-4b-2026-11-14-brut/gsm8k-4b-depth-control.jsonl
+114e8fcc14397796d800e987c5f1ce748a1e9c1ef0a8b482158b88f2649e45e9  docs/mesures/gsm8k-depth-restore-4b-2026-11-14-brut/gsm8k-4b-depth-late.jsonl
+218c1a4faede742317510e7511408b070b60f3036684187b47737563982fd322  docs/mesures/gsm8k-depth-restore-4b-2026-11-14-brut/gsm8k-4b-depth-early.jsonl
+fae5412cdb47654efb54fd0469e4da005a6c9dfb68f29229a05e72fe80b4761b  docs/mesures/gsm8k-wave1-2026-09-26-brut/run5-vllm/gsm8k-4b-f16-vllm.jsonl

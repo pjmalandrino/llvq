@@ -1,0 +1,20 @@
+arm late: window (25, 35) (inclusive, 0-based), types q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj, expected 77 matrices, 1110179840 weights
+export /tmp/stage/model.safetensors sha256 2a018cbdea37849c6fde29576e75aefb9125d9964e20e78bd3afb2a0948bba59
+FP16 model-00001-of-00003.safetensors sha256 328a91d3122359d5547f9d79521205bc0a46e1f79a792dfe650e99fc2d651223
+FP16 model-00002-of-00003.safetensors sha256 6cd087b316306a68c562436b5492edbcf6e16c6dba3a1308279caa5a58e21ca5
+FP16 model-00003-of-00003.safetensors sha256 e4bf436957184f4eeb86a80e9db394503f1f56446b2e6b7edeac5b81470f4ca1
+pins: export, 3 shards at 1cfa9a7208912126459214e8b04321603b3df60c, tokenizer; config keys agree (10 s)
+built /tmp/arm-late/model.safetensors in 3 s
+verified in 8 s: 77 matrices, 1110179840 weights replaced and bit-equal to FP16 cast to f16; 321 tensors bit-equal to the export; 398 keys, none added or lost; cast checked against half on model.layers.25.mlp.down_proj.weight
+written sha256 b23bbe14f6f584e12803a985734897bb4acc04ca4d6bc98de1974649c88c905d; manifest /out/gsm8k-depth-restore-4b-2026-11-14/manifest-late.json; 21 s
+arm late: GREEN
+total 7871956
+drwxr-xr-x. 2 root root        167 Nov 14 17:53 .
+drwxrwxrwt. 1 root root       4096 Nov 14 17:53 ..
+-rw-r--r--. 1 root root        726 Nov 14 17:53 config.json
+-rw-r--r--. 1 root root        239 Nov 14 17:53 generation_config.json
+-rw-r--r--. 1 root root    1671853 Nov 14 17:53 merges.txt
+-rw-------. 1 root root 8044981680 Nov 14 17:53 model.safetensors
+-rw-r--r--. 1 root root   11422654 Nov 14 17:53 tokenizer.json
+-rw-r--r--. 1 root root       9732 Nov 14 17:53 tokenizer_config.json
+-rw-r--r--. 1 root root    2776833 Nov 14 17:53 vocab.json
