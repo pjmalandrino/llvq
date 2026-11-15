@@ -1,7 +1,16 @@
-QUALITY PHASE 3 (CERVEAU O15): THE PATCH MAP OF THE SEALED 4B'S MMLU DEFICIT. NOT RUN YET. Instrument check: 2026-11-15, $0.
+QUALITY PHASE 3 (CERVEAU O15): THE PATCH MAP OF THE SEALED 4B'S MMLU DEFICIT, one card run, 2026-11-15
 ==============================================================================================================================
-The card job has not run: the phase's budget is not signed. This file holds the instrument check the prereg asks for
-before the job, and will hold the job's journal after it.
+Result: the quiet band carries the deficit. FP16's band [513, 2560] of the stream, written into the sealed run at
+depth 12 at every position, gives back 0.859 [0.734, 0.997] of what FP16's whole stream gives back there (shares of
+shape agreement), and 3.33 points of accuracy [+0.62, +6.05] on the 570 questions, where the whole stream gives 5.09
+[+2.10, +8.08] and the gap is 7.19. It rides the context, not the answer position: the answer position alone gives
+back nothing, every other position gives back all of it. FP16's MLP outputs of blocks 0 to 11 give back 0.850 [0.751,
+0.935] of the depth-12 patch. One reading is not explained: FP16's attention outputs of the same blocks, written into
+the sealed run, cost 12.63 points. Every gate is green. Every figure is *measured* unless labelled.
+
+Job 6af9953a29dd05ff03689877, l40sx1, 1,225 s running, $0.61. Raw outputs in patch-map-4b-2026-11-15-brut/ (the
+four .f64 sum files stay in the bucket folder patch-map-4b-2026-11-15/). Image
+pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime, torch f16, as contrast-map-4b.
 
 Prereg: proofs/preregistration-patch-map-4b-2026-11-15.md, sha256 0001bf6a, stamped at abbd88b, before this reading.
 
@@ -30,3 +39,108 @@ attn_0-11, will carry that lean: H6-E's ratio is read with it in mind, and the a
 
 Signed prediction 1: the check passes, 85 %: right. The largest difference above 0.15, on down: it is on down, at
 0.1265, so the size is wrong.
+
+THE JOB
+=======
+GATES: all green (report.txt, GATES)
+  Rule D: picks equal to the Rust dumps on 0.9947 (FP16) and 0.9912 (control); slope 0.6042 against 0.6047.
+  Contrast-map reproduced: FP16 419 right, the control 378, picks equal 1.0000 and 1.0000; lens at depth 25 0.7228
+  and 0.6386; the control's answer-position slope of band [513, 2560] at depth 12, 0.4697.
+  Exactness, bit for bit: the self-patch, 228 of 228; the whole-stream patch against FP16's blocks 0 to d-1 then the
+  sealed ones at five depths, 285 of 285; FP16's logits in pass 2 against pass 1, 570 of 570; FP16's h(0) and both
+  branches of blocks 0 to 11 give FP16's h(12) and d12's logits, 57 of 57.
+  Tolerance: the three bands together give the whole-stream pick on 1.0000 of 57 prompts (worst |dlogit| 0.031).
+  The explicit attention path gives the control's pick on 0.9947 of 570, with a worst |dlogit| of 1.42: it passes
+  its rule and is not close in the worst case. The 252 matrices' errors equal contrast-map's to 4.7e-9.
+
+THE ARMS (570 questions; s is the share of shape agreement recovered, primary; accuracy beside it, paired)
+  arm                  s [95 %]                  accuracy   minus control [95 %]       b/c      p
+  fp16                 +1.000                    73.51      +7.19 [+3.52, +10.87]      79/38    1.9e-4
+  control               0.000                    66.32
+  d4                   +0.039 [-0.001, +0.078]   67.89      +1.58 [+0.01, +3.15]       15/6     0.078
+  d8                   +0.149 [+0.071, +0.222]   68.25      +1.93 [-0.71, +4.57]       35/24    0.19
+  d12                  +0.390 [+0.310, +0.463]   71.40      +5.09 [+2.10, +8.08]       53/24    1.3e-3
+  d16                  +0.562 [+0.493, +0.623]   71.75      +5.44 [+2.19, +8.69]       61/30    1.5e-3
+  d20                  +0.675 [+0.618, +0.724]   71.75      +5.44 [+1.98, +8.90]       67/36    2.9e-3
+  d12, band [1, 64]    +0.033 [-0.011, +0.079]   67.37      +1.05 [-0.70, +2.80]       16/10    0.33
+  d12, band [65, 512]  +0.144 [+0.096, +0.192]   67.72      +1.40 [-0.66, +3.46]       22/14    0.24
+  d12, band [513,2560] +0.335 [+0.264, +0.403]   69.65      +3.33 [+0.62, +6.05]       41/22    0.023
+  d12, answer alone    -0.001 [-0.015, +0.012]   66.32      +0.00 [-0.84, +0.84]       3/3      1.0
+  d12, all but answer  +0.379 [+0.297, +0.453]   70.70      +4.39 [+1.47, +7.30]       49/24    4.6e-3
+  d12, massive alone   -0.000 [-0.006, +0.005]   66.49      +0.18 [-0.17, +0.52]       1/0      1.0
+  d12, [513,2560], ans +0.015 [+0.002, +0.031]   65.96      -0.35 [-1.04, +0.34]       1/3      0.63
+  attention, explicit  -0.005 [-0.010, +0.000]   66.32      +0.00 [-0.49, +0.49]       1/1      1.0
+  FP16 attention 7-13  -0.007 [-0.017, +0.002]   66.67      +0.35 [-0.74, +1.44]       6/4      0.75
+  attn_0-11            -0.763 [-0.987, -0.572]   53.68     -12.63 [-16.41, -8.85]      29/101   1.6e-10
+  mlp_0-11             +0.331 [+0.250, +0.407]   69.30      +2.98 [-0.10, +6.07]       49/32    0.075
+  The three band shares sum to 0.512, above the whole stream's 0.390 (*computed*).
+  Massive positions: one a prompt, position 0, token 785, in 570 of 570.
+
+THE MATRICES BY POSITION (FP16 inputs; relative error on answer-position inputs over its all-position value)
+  q 1.042 [1.029, 1.055], k 1.222 [1.208, 1.236], v 1.500 [1.489, 1.511], o 1.088 [1.079, 1.098], gate 0.953
+  [0.944, 0.962], up 1.183 [1.169, 1.197], down 1.031 [1.006, 1.057].
+  The four low matrices pooled, without the massive position over with it: 1.005. Each: gate_proj 1, 2, 3 read
+  1.000; down_proj 6 reads 47.006.
+
+THE RULES (prereg section 6; s(d12) = +0.390 [+0.310, +0.463], above 0, so the ratios are read)
+  H6-A, the quiet band is a symptom:      0.859 [0.734, 0.997]   KILLED       (killed if at or above 0.5)
+  H6-B, a position mismatch:              v_proj 1.500 [1.489, 1.511] straddles 1.5   NOT DECIDED
+  H6-C, massive activations:              (i) -0.001 [-0.016, +0.012], (ii) 1.005     KILLED
+  H6-D, single heads at 7 to 13:          0.212 [0.202, 0.223]   STANDS       (killed if under 0.2)
+  H6-E, the early MLP writes the noise:   0.850 [0.751, 0.935]   STANDS       (killed if under 0.5)
+  Beside, no rule: s(attn_0-11) / s(d12) = -1.958 [-2.924, -1.343]; H6-D against the SDPA control 0.163 [0.143,
+  0.182]; the ratios on the accuracy share, underpowered: band [513, 2560] 0.655 [0.206, 1.100], massive 0.034,
+  mlp_0-11 0.586 [0.000, 1.056].
+
+THE LEAD'S READING
+  1. The dull hypothesis is dead. What the first twelve blocks cost the sealed 4B on MMLU travels in the directions
+     that hold 0.75 % of the stream's energy over all positions (band [513, 2560], report line "depth-12 energy
+     shares"). The accuracy agrees with the shape share and resolves by itself: +3.33 points, p 0.023.
+  2. It is the context that carries it. The answer position's own stream at depth 12 gives back nothing, with the
+     whole stream or with the quiet band; every other position gives back 0.379 of 0.390. Q25's "the answer position
+     is hit four times harder" describes a place the answer does not go through at that depth. H6-B is not decided on
+     one type, and no longer matters much: the matrices err at most 1.5 times more there.
+  3. The early MLP writes it. FP16's MLP outputs of blocks 0 to 11 give back 0.850 of the depth-12 patch, with the
+     sealed attention running on. The instrument reads MLP restores under their accuracy share, so this is not an
+     overstatement on that count.
+  4. H6-D stands to the letter and on a symptom: FP16's attention at layers 7 to 13 gives back 0.212 of the
+     answer-position band slope, 0.163 against the other control, and nothing of the answer (s = -0.007).
+  5. H6-C is killed by its rule. One of its four matrices says something the pooled figure hides: down_proj of
+     layer 6 errs 47 times more once position 0 is left out. Its low error was the massive token's. The patch of the
+     massive position gives back nothing, so the deficit does not ride there.
+  6. Not explained: attn_0-11. FP16's attention outputs, written in place of the sealed ones at blocks 0 to 11, with
+     the sealed MLP running on, take the sealed 4B from 66.32 to 53.68 %. FP16's MLP outputs with the sealed
+     attention running on take it to 69.30 %, and the two together give FP16's stream bit for bit. The sealed MLP of
+     the first blocks does worse on FP16's attention than on its own. This is a new anomaly, entered as N8.
+  7. Why the noise sits in the quiet band, from figures already in contrast-map's report (*computed* by the lead
+     from its depth-12, all-position line: share times noise ratio, over the directions of each band): the noise
+     energy a direction falls about 8 times from band [2, 8] to band [513, 2560], where the signal a direction falls
+     about 600 times. The noise the blocks write is far flatter over the stream's directions than the stream is.
+     The layer objective prices every output direction alike. This is a reading, not a measurement of the encoder.
+
+SIGNED PREDICTIONS (prereg section 11)
+  1. Instrument check passes, 85 %: right. Largest difference above 0.15: wrong, 0.1265; on down: right.
+  2. Gates all pass on the first launch, 65 %: right.
+  3. 20 min [14, 30]: right, 20.4 min running.
+  4. Depth profile 0.10, 0.25, 0.45, 0.60, 0.75 with their intervals: five of five inside (0.039, 0.149, 0.390,
+     0.562, 0.675), each under its centre. Rises at every step: right.
+  5. H6-A's ratio 0.55 [0.30, 0.80]: wrong, 0.859. KILLED had 30 %. Band [65, 512] 0.40 [0.20, 0.60]: right, 0.369.
+     Band [1, 64] 0.05 [-0.05, 0.20]: right, 0.085 (both ratios *computed* from the shares).
+  6. All but the answer above the answer alone, 80 %: right. The answer alone 0.15 [0.05, 0.35] of d12: wrong, 0.
+  7. H6-C (i) 0.03 [-0.05, 0.15]: right. (ii) at least twice, 75 %: wrong, 1.005 pooled. STANDS, 70 %: wrong.
+  8. Median over types 1.4 [1.0, 2.2]: right, 1.088. The verdict NOT DECIDED had the 25 % left.
+  9. H6-D 0.08 [-0.02, 0.25]: right, 0.212. KILLED, 60 %: wrong, STANDS.
+  10. H6-E 0.75 [0.50, 0.95]: right, 0.850. STANDS, 60 %: right. attn_0-11 over d12, 0.25 [0.05, 0.50]: wrong, -1.958.
+  11. 378 and 419 within 2 questions, 90 %: right, both exact.
+  The lead underrated the quiet band and did not foresee attn_0-11 at all.
+
+NOT ESTABLISHED
+  Any gain. A patch is a probe: no encoder is changed and no MMLU point is projected.
+  That an encoder which shapes its error would recover this: the conjecture is not written yet, and is to be
+  attacked before any encode.
+  GSM8K: the map reads MMLU on 570 questions, easier than the full split. The 8B, the 14B, a second draw.
+  Why attn_0-11 loses 12.63 points. What a band patch means in FP16 itself: it is read through 24 sealed blocks.
+  A share in shape agreement is not a share in points; the accuracy shares are printed with their wide intervals.
+
+Cost: $0.61 (*computed*, 1,225 s at $1.80/h), against $0.42 to $0.84 estimated and a $1.20 cap. Phase O15: $0.61 of
+$10. Registry on this branch: $350.50.

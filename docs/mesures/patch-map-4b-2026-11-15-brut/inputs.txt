@@ -1,0 +1,11 @@
+checkpoint Qwen/Qwen3-4B@1cfa9a7208912126459214e8b04321603b3df60c
+export /out/sealed-4b-export-2026-09-23/model.safetensors sha256 2a018cbdea37849c6fde29576e75aefb9125d9964e20e78bd3afb2a0948bba59
+mmlu cais/mmlu@c30699e8356da336a370243923dbaf21066bb9fe
+dumps f022add79f69baeb59a751e6b84fa6e9ea0d5929851c9477e6adf1ee0af5e6bf e2abc978add4e189d346f43d64638e9d16b778a7f3359fbb8c1fb53e5c1cfd74
+ref {"control.tsv": "d0af90c432edba6a209bf717691dee477a9dfc03456ff7348fbafd15e4dfa5a2", "questions.tsv": "800cb9ccbb5f308b513eea31eafd3cfae302e6dc580a6207be5b1723b4460c1b", "matrices.tsv": "4e0e89db3aead9dd64fd42218ff0d29a0e6a18a4973757e1d8cead59d27498bc", "lens.tsv": "1c51d9cab46f3c0dd4a9d092a9242ac3b1915d369daa28fe6f8d7b49fd8af9d0", "stream_bands.tsv": "dc91372a93fa202b15bbd98ef2e63b2e05104ef180896ccaf08899e797978767"}
+questions 570
+primary cosine
+bases sha256 before {'fp16': 'a0ca1763b6cf4f11be54b01eb0c5acd534eda637984fc8c66a0937a1c3dc417d', 'sealed': 'f5ea5a81d1588826f448a5b97158fb7fe051778d253db989d2b301fbe5d9c1e5'}
+bases sha256 after  {'fp16': 'a0ca1763b6cf4f11be54b01eb0c5acd534eda637984fc8c66a0937a1c3dc417d', 'sealed': 'f5ea5a81d1588826f448a5b97158fb7fe051778d253db989d2b301fbe5d9c1e5'}
+gates {"rule D": true, "self-patch bit for bit": true, "hybrid bit for bit": true, "FP16 pass 2 = pass 1": true, "three bands = whole": true, "explicit attention = SDPA": true, "branches bit for bit": true, "contrast-map reproduced": true, "R4 relative error reproduced": true}
+total 1203 s
