@@ -1576,7 +1576,7 @@ the layer objective on the 4B. The bullets below are in the order things happene
 - 2026-11-14: the operator closes the phase. Outcome: a dead hypothesis, recorded in `CERVEAU.md` O12. No idea sheet.
 - Nothing served changes: no config, no served module, no Hub file.
 
-## 2026-11-14. A research phase opens on decode speed at long context; an int8 KV cache holds the tolerance at 8,192; nothing served changes, $5.44
+## 2026-11-14 to 11-15. A research phase opens on decode speed at long context; an int8 KV cache holds the tolerance at 8,192 and buys 1 % of speed in the kernel; nothing served changes, $5.77
 
 The operator closed O11 and opened a phase on decode speed after an 8,192-token prompt, O13 of
 [`CERVEAU.md`](CERVEAU.md): five days and $10 of card.
@@ -1595,6 +1595,13 @@ The operator closed O11 and opened a phase on decode speed after an 8,192-token 
   reference on the Mac. On the card it is refused at its load check for 8 B of local memory at 128 registers, v9 at
   0 B beside it (*measured*, [recherche-debit-kv8](mesures/recherche-debit-kv8-2026-11-14.txt), $0.13). Nothing was
   timed.
-- Spend of the phase: $5.44 of $10; the rows of `docs/data/jobs.csv` sum to $347.08 (*computed*).
-- Nothing served changes: no config, no served module, no Hub file. No tok/s is gained: no kernel reads int8 on the
-  card.
+- On 2026-11-15 the arm was timed as it is, the local-memory half of the load rule waived for it alone as a
+  measurement mode (`+local`, prereg sha256 633c536d). x1.0109 [1.0108-1.0113] over v9 at 8,192, 164.4 against 162.6
+  tok/s; x0.9668 [0.9664-0.9670] at 5 tokens, 219.4 against 226.9; v9's 256 tokens at both contexts (*measured*,
+  [recherche-debit-kv8-local](mesures/recherche-debit-kv8-local-2026-11-15.txt), $0.33). It is the first token symbol
+  timed with local memory.
+- CERVEAU P3 changes standing, from conjecture to contradicted on one tile. It read: "At long context the decode
+  attention is bound by its own bytes". The attention phase at 8,192 lost 1.8 % for 46.9 % fewer KV bytes.
+- Spend of the phase: $5.77 of $10; the rows of `docs/data/jobs.csv` sum to $347.41 (*computed*).
+- Nothing served changes: no config, no served module, no Hub file. No served tok/s is gained: the int8 read is a
+  research arm, about 1 % faster at 8,192 and 3 % slower at 5.

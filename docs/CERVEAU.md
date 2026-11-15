@@ -570,10 +570,14 @@ decode after that prompt still reads 161.5 tok/s.
 
 **P3.** At long context the decode attention is bound by its own bytes: at 1,024 and 8,192 tokens the attention phase
 equals the DRAM time of the KV read plus the prefetch at 85 %, 1,119 against 1,108 µs and 2,559 against 2,646 µs.
-- Standing: conjecture (model *computed* against *measured* phases). Scope: sealed 4B, 4E v9, L40S.
-- Evidence: [large-4e-hors-poids-etude](mesures/large-4e-hors-poids-etude-2026-11-12.txt), a study note, section 1.
-- Overturn: a KV-read change that moves the phase by much less than its byte change.
-- Checked: 2026-11-12.
+- Standing: contradicted on one tile. An int8 cache at 0.531 of the bytes moves the phase at 8,192 from 2,667.5 to
+  2,619.1 µs, 1.8 % (*measured*), and the mean CTA work does not fall. The arm holds 8 B of local memory and adds
+  arithmetic a value, so the run does not say the phase is free of its bytes: it says fewer bytes did not buy time.
+- Scope: sealed 4B, 4E v9 and arm v9k8, L40S.
+- Evidence: [large-4e-hors-poids-etude](mesures/large-4e-hors-poids-etude-2026-11-12.txt), a study note, section 1;
+  against it, [recherche-debit-kv8-local](mesures/recherche-debit-kv8-local-2026-11-15.txt).
+- Overturn: a KV-read change that moves the phase by much less than its byte change. Met on 2026-11-15.
+- Checked: 2026-11-15.
 
 **P4.** An int8 KV cache holds the served tolerance at 8,192: +0.0126 % [−0.0485, +0.0737] of paired perplexity
 against the f16 cache. int8 keys with int4 values are not decided, +0.0206 % [−0.1359, +0.1774]; int4 keys fail,
@@ -856,17 +860,23 @@ closed on a ceiling at short context. Its mandate:
 The reading before the mandate (2026-11-14, two agents, $0) is in
 [recherche-debit-kv-r0](mesures/recherche-debit-kv-r0-2026-11-14.txt).
 
-State on 2026-11-14, $5.44 of $10. The capture that would have tested a partial read of the cache is built and
+State on 2026-11-15, $5.77 of $10. The capture that would have tested a partial read of the cache is built and
 stamped and was not run: the operator judged its chance too low. The phase moved to a smaller cache. The quality
 ladder ran ([recherche-debit-kv-ladder](mesures/recherche-debit-kv-ladder-2026-11-14.txt), P4): int8 keys and values
 pass at 8,192, at 0.531 of the f16 bytes. The int8 read was then written as a research arm of 4E, `v9k8`, proven bit
 for bit on the Mac against its reference. It does not load on the card
 ([recherche-debit-kv8](mesures/recherche-debit-kv8-2026-11-14.txt), *measured*): 8 B of local memory at 128
 registers on the token symbol, where v9 holds 0 B. It changes the append and the attention only, so the 8 B wall of
-O11 is not a property of the row phases. No kernel reads int8 on the card and no tok/s is gained. Not established:
-which value spills, and what 8 B of local memory cost in a token, since no arm with local memory was ever timed. Open,
-each under its own prereg and go: a lighter int8 tile or a timed read of the arm as it is, the operator decides; one
-extension of the int8/int4 arm to 36 windows; the near-tie texts and GSM8K-200 on the kept format.
+O11 is not a property of the row phases. The operator then had the arm timed as it is, the local-memory half of the load
+rule waived for it alone (`LLVQ_PERS_4E`, an arm named `+local`, a measurement mode;
+[recherche-debit-kv8-local](mesures/recherche-debit-kv8-local-2026-11-15.txt), *measured*). At 8,192 it decodes 164.4
+tok/s against v9's 162.6, x1.0109 [1.0108-1.0113], with v9's 256 tokens. At 5 tokens it decodes 219.4 against 226.9,
+x0.9668 [0.9664-0.9670]. The attention phase at 8,192 loses 1.8 % for 46.9 % fewer bytes: P3 is contradicted on this
+tile. The int8 read as written buys about 1 % at long context and costs 3 % at short. Not separated: the share of the
+8 B of local memory in that cost. Not established: any quality through the arm, any VRAM figure. Open, the operator
+decides: whether the kernel lever of int8 closes, int8 kept for its bytes alone (0.66 GB at 8,192, *computed*, once
+a form frees the binary16 cache); one extension of the int8/int4 arm to 36 windows; the near-tie texts and GSM8K-200
+on the kept format.
 
 ## Beliefs we dropped
 

@@ -1,0 +1,77 @@
+Decode-speed research phase (CERVEAU O13): the int8 KV arm of 4E (v9k8) timed with its 8 B of local memory, one card
+run, 2026-11-15
+
+Result: at 8,192 the int8 arm decodes 164.4 tok/s against v9's 162.6, x1.0109 [1.0108-1.0113] round by round, read
+FASTER. At a 5-token prompt it decodes 219.4 against 226.9, x0.9668 [0.9664-0.9670], read SLOWER. The attention phase
+at 8,192 goes from 2,667.5 to 2,619.1 us, 1.8 % less, for 46.9 % fewer KV bytes. Reading fewer KV bytes does not buy
+attention time on this tile. Every figure below is *measured* unless labelled.
+
+Job 6af96fd129dd05ff03686ce1, l40sx1, 650 s running, $0.33. Prereg
+proofs/preregistration-recherche-debit-kv8-local-2026-11-15.md (sha256 633c536d, stamped before). Image built from the
+stamped commit 4764372, Space sha 4889d69e. Raw outputs in recherche-debit-kv8-local-2026-11-15-brut/. Card: L40S,
+sm_89, driver 580.178.04, tile 64. Sealed 4B 886391a8.
+
+GATES: pass
+  The oracle: MATCH. The sealed file and the config at their sha256. The two modules are the Mac's (v9 d55a097b,
+  v9k8 8b53b1cd). v9 LOADS at 0 B. The check gives v9k8 8 B of local memory at 128 registers on the token symbol at
+  the three RoPE forms, as in job 6af8df0a. The served door ran the served v9 module, 64 of 64 tokens, 241.4 tok/s.
+  v9 gives the eager path's 256 tokens at both contexts. v9k8 kept its tokens in every round. The MEASUREMENT ONLY
+  line is printed for v9k8. F1 passes at both contexts; both SCORE lines are printed.
+
+THE RATES (256 tokens, 2 + 5 rounds, medians [range], ratios formed round by round)
+  context   eager    v9 first              v9k8, 8 B local       v9 last   F1 floor           v9k8 over v9
+  5         127.1    226.9 [226.8-227.0]   219.4 [219.3-219.4]   227.6     [1.0027, 1.0036]   x0.9668 [0.9664-0.9670] SLOWER
+  8,192     104.1    162.6 [162.6-162.6]   164.4 [164.3-164.4]   162.9     [1.0016, 1.0021]   x1.0109 [1.0108-1.0113] FASTER
+  At 5 the eager arm is the measurement form (every decode row on the kernel); at 8,192 it is the served config.
+  The timed token: 4,406.7 us for v9 and 4,557.8 for v9k8 at 5; 6,150.3 and 6,084.1 at 8,192.
+
+THE PHASES (stamped launch, us a token, wall, median over 254 tokens; the stamps cost 260 to 370 us a token)
+                        context 5              context 8,192
+  phase                 v9        v9k8         v9        v9k8
+  q/k/v                 641.7     647.1        670.8     664.8
+  norm/RoPE/append      123.6     150.6        110.5     146.1
+  attention             889.3     1,042.6      2,667.5   2,619.1
+  o                     340.9     362.0        334.0     319.9
+  MLP                   2,364.5   2,355.1      2,254.2   2,288.6
+  head                  366.9     367.7        367.0     368.8
+  token                 4,742.7   4,930.1      6,407.3   6,410.7
+  The attention's mean CTA work at 8,192: 1,909.5 us for v9, 1,929.5 for v9k8.
+
+THE READING (prereg §5): "FASTER at 8,192, SLOWER at 5"
+  The table's row: the bytes pay at long context and the arm costs at short; the size of each is published; a config
+  would have to choose by context; the operator decides. The sizes: +1.1 % at 8,192, -3.3 % at 5.
+  What the phases add. The cache holds 0.531 of binary16's bytes and the attention phase at 8,192 loses 48 us of
+  2,668, 1.8 %. The mean CTA work does not fall. CERVEAU P3 said the phase is bound by its bytes; its overturn
+  condition is "a KV-read change that moves the phase by much less than its byte change". That condition is met on
+  this tile. At 5 tokens, where the cache is almost empty, the arm costs 151 us a timed token: the stamps put 153 us
+  of it in the attention phase and 27 us in the append.
+  Not separated by this run: how much of the arm's cost is the 8 B of local memory and how much is the int8 tile's
+  own arithmetic (the unpack and one fma a value). A tile at 0 B was never timed.
+
+THE ARM'S OUTPUT (a description, not a gate; no quality is established)
+  Tokens: v9k8 gives v9's and the eager path's 256 tokens, 256 of 256, at both contexts.
+  Logits against v9 on the 256 positions: they differ on 38,410,557 of 38,895,616 values at 5, max |dlogit| 13.887
+  at position 123 row 2097; on 38,068,364 values at 8,192, max |dlogit| 0.621 at position 201 row 52719. The 13.887
+  at the short context is not explained here.
+
+MEMORY
+  The process peak is 6.720 GB with both caches allocated (nvidia-smi, the int8 caches 661.8 MB beside binary16's at
+  8,192). No VRAM figure for the arm is read: the form that frees the binary16 cache is not written.
+
+SIGNED PREDICTIONS (prereg §8)
+  1. 8 B again, 95 %: right. The arm launches and keeps its tokens, 85 %: right.
+  2. 910 s [760, 1,200]: wrong, 650 s.
+  3. F1 holds at both contexts, 85 %: right.
+  4. x1.07 [0.97, 1.18] at 8,192, FASTER at 55 %: inside the interval, at its low end; the label is right.
+  5. x0.985 [0.94, 1.005] at 5, NOT SEPARATED at 55 %, SLOWER at 40 %: inside the interval; the likelier label is
+     wrong.
+  6. Attention at 8,192 to 2,100 us [1,500, 2,900]: inside the interval, 2,619.1, far from the centre.
+  7. Tokens differ from v9's at 8,192, 85 %: wrong, 256 of 256 equal. At 5 tokens, 50 %: they are equal.
+
+NOT ESTABLISHED
+  Any quality figure through the arm. Any VRAM figure for the arm. Which value the compiler spills, and what a
+  v9k8 at 0 B would give. What local memory costs the nine refused arms of O11: their code is not this arm's. The
+  prefill path, the 8B and the 14B, any text but the bench prompt. Any card but the L40S, any driver but 580.178.04.
+
+Cost: $0.33 (*computed*, 650 s at $1.80/h), against $0.46 estimated and a $0.72 cap. Phase O13: $5.77 of $10.
+Registry: $347.41.

@@ -1,0 +1,4 @@
+  F1 context 5: 4E e1:v9 at 512 threads last / first, round by round: x1.0029 [1.0027-1.0036]: PASS; the floor is [1.0027, 1.0036]
+  SCORE context 5 v9k8: x0.9668 [0.9664-0.9670] over 4E e1:v9 at 512 threads, round by round; owes the int8 cache's values (kv8_ref), not v9's bits; SLOWER
+  F1 context 8192: 4E e1:v9 at 512 threads last / first, round by round: x1.0019 [1.0016-1.0021]: PASS; the floor is [1.0016, 1.0021]
+  SCORE context 8192 v9k8: x1.0109 [1.0108-1.0113] over 4E e1:v9 at 512 threads, round by round; owes the int8 cache's values (kv8_ref), not v9's bits; FASTER
