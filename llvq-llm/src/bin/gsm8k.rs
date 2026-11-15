@@ -181,7 +181,10 @@ fn main() -> anyhow::Result<()> {
     // eager without the field (the loop below, unchanged), 4E under
     // "decode": "persistent", installed after the form and its threshold.
     // Bench: the store comes from the variable, and the engine is eager.
+    // The NOT SERVED int8 decode cache through the measurement door, which no
+    // served door calls; its install lines say MEASUREMENT ONLY.
     let mut dec = match &served {
+        Some(cfg) if cfg.decode_cache == llvq_llm::served::DecodeCache::Int8 => cfg.serve_measurement(&mut model, &device)?,
         Some(cfg) => cfg.serve(&mut model, &device)?,
         None => {
             model.set_kv_store(kv_store);
@@ -304,19 +307,38 @@ fn main() -> anyhow::Result<()> {
         let mut caches = model.fresh_caches();
         let t0 = Instant::now();
         let mut offset = 0usize;
+        // Under a chain config the prompt goes through the tree pass and the
+        // first token comes from it; the eager prefill otherwise, unchanged.
+        let mut chain_first = None;
         let mut last = None;
-        for chunk in ids.chunks(llvq_llm::model::MAX_ROWS) {
-            let input = Tensor::from_slice(chunk, (1, chunk.len()), &dev)?;
-            last = Some(model.hidden_cached(&input, offset, &mut caches, &mut NoCapture)?);
-            offset += chunk.len();
+        if dec.has_chain() {
+            chain_first = Some(dec.chain_prefill(&model, &mut caches, 0, ids)?);
+            offset = ids.len();
+        } else {
+            for chunk in ids.chunks(llvq_llm::model::MAX_ROWS) {
+                let input = Tensor::from_slice(chunk, (1, chunk.len()), &dev)?;
+                last = Some(model.hidden_cached(&input, offset, &mut caches, &mut NoCapture)?);
+                offset += chunk.len();
+            }
         }
-        let mut h = last.expect("a prompt holds at least its chat markers");
         dev.synchronize()?;
         let prefill_s = t0.elapsed().as_secs_f64();
 
         let t1 = Instant::now();
         let mut said: Vec<u32> = Vec::new();
-        let stop = if dec.is_persistent() {
+        let stop = if let Some(first) = chain_first {
+            // The chain's first token, then 4E's launches, as the branch below.
+            if stops.contains(&first) {
+                "eos"
+            } else {
+                said.push(first);
+                let (rest, stopped) =
+                    dec.continue_greedy(&model, &mut caches, first, offset, max_new - 1, &stops)?;
+                said.extend(rest);
+                if stopped { "eos" } else { "cap" }
+            }
+        } else if dec.is_persistent() {
+            let h = last.take().expect("a prompt holds at least its chat markers");
             // The first token from the eager prefill, as below; then 4E's
             // launches, cut before the first stop token. 4E owes the eager
             // loop's tokens under this config, so the two branches make one
@@ -331,7 +353,7 @@ fn main() -> anyhow::Result<()> {
                 said.extend(rest);
                 if stopped { "eos" } else { "cap" }
             }
-        } else { loop {
+        } else { let mut h = last.take().expect("a prompt holds at least its chat markers"); loop {
             let logits = model.logits_last(&h)?.i((0, 0))?;
             let next = logits.argmax(D::Minus1)?.to_scalar::<u32>()?;
             if stops.contains(&next) {

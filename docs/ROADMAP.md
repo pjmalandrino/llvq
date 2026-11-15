@@ -9,7 +9,8 @@ with the cost announced before and the running total after.
 
 ## 1. Starting point
 
-The three sealed files are served by 4E v9 on CUDA at 221.5, 142.5 and 86.3 tok/s, and the 4B by MLX on the Mac
+The three sealed files are served by 4E v9 on CUDA at 221.5, 142.5 and 86.3 tok/s, the 4B with the chain prefill
+since 2026-11-15, and the 4B by MLX on the Mac
 ([`ETAT.md`](ETAT.md) §2). They score 4.76, 4.21 and 2.46 MMLU points below 4-bit AWQ for 45 to 52 % of its bits per
 parameter.
 
@@ -70,8 +71,9 @@ A100 run's $3.04 (*estimated*).
 
 ### 2.7 An int8 KV cache, for memory
 
-**Gate**: its own prereg, because it moves the logits: the near-tie texts, GSM8K-200 and the prefill path, on a form
-that frees the f16 cache. **Cost**: not estimated.
+**Gate**: its own prereg, because it moves the logits: the near-tie texts, GSM8K-200 and the prefill path, on the
+form that frees the f16 cache, written on 2026-11-15 as a NOT SERVED config (prereg draft
+`proofs/preregistration-kv8-memory-2026-11-15-DRAFT.md`). **Cost**: about $1.66 (*estimated*).
 
 An int8 cache holds the ±0.12 % tolerance at 8,192 on the 4B and takes the cache from 1.21 to 0.64 GB there; int4
 keys fail the tolerance (*measured* and *computed*,
@@ -114,8 +116,9 @@ and the PR go together, from a fork; the drafts are in `upstream/transformers-ll
   [moe-routing](mesures/moe-routing-gptoss20b-2026-08-12.txt)). About $1.4 to open, $69 to serve (*estimated*).
 - **The 32B.** About $62 and 11.4 h on `rtx-pro-6000x2` to encode (*estimated*). The `rot_apply` wall is lifted
   (*measured*, [lot1](mesures/lot1-4b-2026-11-04.txt)). A gate on the 14B-to-32B gap comes first.
-- **Prefill by GEMM.** The 4B's first token at 8,192 takes 35 s. Batched prefill moves the logits, so it needs the T8
-  band.
+- **Prefill by GEMM.** The 4B's first token at 8,192 takes 6.74 s under the served chain prefill (*measured*,
+  [chain-prefill-served](mesures/chain-prefill-served-2026-11-15.txt)); the 8B and the 14B still prefill eagerly. Batched prefill moves the logits, so it needs
+  the T8 band.
 
 ## 5. Decisions awaited
 

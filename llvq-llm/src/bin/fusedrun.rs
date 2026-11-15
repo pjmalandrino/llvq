@@ -550,6 +550,14 @@ fn run_context_sweep(
         let ids: Vec<u32> = (0..n).map(|i| seed[i % seed.len()]).collect();
         let (mut first, mut rate) = (Vec::new(), Vec::new());
         let mut reference: Option<Vec<u32>> = None;
+        // The rounds of this length between two marks, for a job's
+        // epoch-stamped card-memory sampler: the identity runs below are
+        // outside them, so a phase peak is the timed form's alone.
+        let mark = |what: &str| {
+            let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0);
+            println!("mark ctx-{n} {what} {t:.3}");
+        };
+        mark("begin");
         for round in 0..=ROUNDS_TIMED {
             let g = dec.generate_timed(model, &ids, n_new, chunk)?;
             match &reference {
@@ -567,10 +575,27 @@ fn run_context_sweep(
                 rate.push((n_new - 1) as f64 / g.decode_s);
             }
         }
+        mark("end");
         // Under the persistent decode, 4E owes the eager path's tokens under
         // the same config (the kernel form from position 0): one eager run a
         // length, compared token for token, or the sweep is void.
-        if dec.is_persistent() {
+        if dec.is_persistent() && dec.has_chain() {
+            // Under the chain prefill, 4E owes the eager DECODE's tokens on the
+            // caches the chain left; the eager prefill's are reported only.
+            let after_chain = dec.generate_eager_decode(model, &ids, n_new, chunk)?;
+            let r = reference.as_ref().expect("set by round 0");
+            if let Some(i) = first_divergence(&after_chain, r).map_err(|e| anyhow::anyhow!("{e}"))? {
+                anyhow::bail!("prompt {n}: 4E diverges from the eager decode after the chain prefill at token {i}; the run is void");
+            }
+            let eager = model.generate_timed(&ids, n_new, chunk)?;
+            let same = first_divergence(&eager.tokens, r).map_err(|e| anyhow::anyhow!("{e}"))?;
+            println!(
+                "  prompt {n}: 4E tokens equal the eager decode's after the chain prefill, {} of {}; against the eager prefill's: {}",
+                r.len(),
+                after_chain.len(),
+                same.map_or_else(|| "identical".to_string(), |i| format!("first divergence at token {i}"))
+            );
+        } else if dec.is_persistent() {
             let eager = model.generate_timed(&ids, n_new, chunk)?;
             let r = reference.as_ref().expect("set by round 0");
             if let Some(i) = first_divergence(&eager.tokens, r).map_err(|e| anyhow::anyhow!("{e}"))? {
@@ -1337,20 +1362,33 @@ fn served_door_4e(
     use llvq_llm::boundary::median_range;
     anyhow::ensure!(n_new >= 2, "the served 4E door times the decode after the first token: {n_new} asked");
     let chunk = llvq_llm::model::MAX_PREFILL_ROWS;
-    let want = f.model.generate_timed(ids, n_new, chunk)?.tokens;
+    let eager_want = f.model.generate_timed(ids, n_new, chunk)?.tokens;
+    // The reference 4E owes bit for bit: the eager decode after the same
+    // prefill. Under the eager prefill that is the eager path itself; under a
+    // chain config it is the chain prefill, then the eager decode on the
+    // caches it left (`Decoder::generate_eager_decode`).
+    let want = match dec.has_chain() {
+        true => dec.generate_eager_decode(&f.model, ids, n_new, chunk)?,
+        false => eager_want.clone(),
+    };
     let (mut door, mut dec_rate, mut door_eager, mut dec_eager) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     for round in 0..=ROUNDS_TIMED {
         let t = Instant::now();
         let e = f.model.generate_timed(ids, n_new, chunk)?;
         let te = t.elapsed().as_secs_f64();
-        if e.tokens != want {
+        if e.tokens != eager_want {
             anyhow::bail!("round {round}: the eager path moved its tokens; the run is void");
         }
         let t = Instant::now();
         let g = dec.generate_timed(&f.model, ids, n_new, chunk)?;
         let tg = t.elapsed().as_secs_f64();
         if let Some(i) = first_divergence(&want, &g.tokens).map_err(|e| anyhow::anyhow!("{e}"))? {
-            anyhow::bail!("round {round}: 4E diverges from the eager path under this config at token {i}; the run is void");
+            match dec.has_chain() {
+                true => anyhow::bail!(
+                    "round {round}: 4E diverges from the eager decode after the chain prefill at token {i}; the run is void"
+                ),
+                false => anyhow::bail!("round {round}: 4E diverges from the eager path under this config at token {i}; the run is void"),
+            }
         }
         if round > 0 {
             door_eager.push(n_new as f64 / te);
@@ -1359,7 +1397,21 @@ fn served_door_4e(
             dec_rate.push((n_new - 1) as f64 / g.decode_s);
         }
     }
-    println!("served door (decode persistent): 4E tokens equal the eager path's under this config, {} of {}", want.len(), want.len());
+    if dec.has_chain() {
+        // Not a gate: the chain prefill is not bit for bit with the eager one.
+        let same = match first_divergence(&eager_want, &want).map_err(|e| anyhow::anyhow!("{e}"))? {
+            None => format!("all {} identical", want.len()),
+            Some(i) => format!("first divergence at token {i}"),
+        };
+        println!(
+            "served door (prefill chain, decode persistent): 4E tokens equal the eager decode's after the chain prefill, \
+             {} of {}; against the eager door's tokens: {same}",
+            want.len(),
+            want.len()
+        );
+    } else {
+        println!("served door (decode persistent): 4E tokens equal the eager path's under this config, {} of {}", want.len(), want.len());
+    }
     let bytes = f.runtime_bytes + f.carried_bytes;
     let (m, lo, hi) = median_range(&door);
     println!(

@@ -191,6 +191,31 @@ pub fn compile_ptx(src: &KernelSource) -> Result<cudarc::nvrtc::Ptx, String> {
     compile_ptx_with_opts(&src.text, opts).map_err(|e| format!("NVRTC refused the kernel source:\n{e}"))
 }
 
+/// NVRTC's version, (major, minor), as the library loaded in this process
+/// reports it: a field of the compiled-module cache's key.
+pub fn nvrtc_version() -> Result<(i32, i32), String> {
+    let (mut major, mut minor) = (0i32, 0i32);
+    // SAFETY: nvrtcVersion writes two ints through pointers that outlive it.
+    let r = unsafe { cudarc::nvrtc::sys::nvrtcVersion(&mut major, &mut minor) };
+    if r != cudarc::nvrtc::sys::nvrtcResult::NVRTC_SUCCESS {
+        return Err(format!("nvrtcVersion: {r:?}"));
+    }
+    Ok((major, minor))
+}
+
+/// The driver's version, as `cuDriverGetVersion` reports it (12080 is CUDA
+/// 12.8): a field of the compiled-module cache's key, since the driver's
+/// ptxas compiles the cubin.
+pub fn driver_version() -> Result<i32, String> {
+    let mut v = 0i32;
+    // SAFETY: cuDriverGetVersion writes one int through a pointer that outlives it.
+    let r = unsafe { cudarc::driver::sys::cuDriverGetVersion(&mut v) };
+    if r != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
+        return Err(format!("cuDriverGetVersion: {r:?}"));
+    }
+    Ok(v)
+}
+
 /// A context, a stream, and one compiled module.
 pub struct Cuda {
     ctx: Arc<CudaContext>,
@@ -305,6 +330,68 @@ impl Cuda {
             .load_module(ptx)
             .map_err(|e| format!("the driver refused the PTX: {e}"))?;
         Ok(Self { ctx, stream, module })
+    }
+
+    /// [`Self::on_stream`] through the compiled-module cache
+    /// ([`crate::modcache`]): the driver's cubin of `src`, read from `dir`
+    /// when a file of this exact key is there, else NVRTC, the driver's JIT
+    /// through `cuLinkComplete`, a write to `dir`, and the cubin loaded. Hit
+    /// or miss, the module is loaded from the same cubin bytes, so a cached
+    /// start runs what the first start compiled. A cache that cannot be
+    /// written costs the next start a compile and is said in the line, never
+    /// an error. `dir` `None` is the cache turned off: the same cubin path,
+    /// compiled at every start and written nowhere, so turning the cache off
+    /// moves no bit of what runs. Returns the module and one line for the log.
+    pub fn on_stream_cached(stream: Arc<CudaStream>, src: &KernelSource, dir: Option<&crate::modcache::Dir>) -> Result<(Self, String), String> {
+        let ctx = stream.context().clone();
+        ctx.bind_to_thread().map_err(|e| format!("bind the context: {e}"))?;
+        let key = crate::modcache::Key {
+            text_sha256: src.sha256.clone(),
+            arch: arch().to_string(),
+            nvrtc: nvrtc_version()?,
+            driver: driver_version()?,
+            sm: compute_cap_of(&ctx)?,
+        };
+        key.check()?;
+        let found = match dir {
+            Some(d) => d.lookup(&key),
+            None => crate::modcache::Lookup::Miss("the cache is off".into()),
+        };
+        let (cubin, line) = match found {
+            crate::modcache::Lookup::Hit(c) => {
+                let n = c.len();
+                let at = dir.map(|d| d.path_of(&key).display().to_string()).unwrap_or_default();
+                (c, format!("module cache: hit, {n} bytes of cubin from {at}"))
+            }
+            crate::modcache::Lookup::Miss(why) => {
+                // Said at once, on stderr: the user waits minutes here on a
+                // first start, and the load's own lines come only at its end.
+                eprintln!(
+                    "llvq: compiling a {}-byte kernel module for this card and driver (no cached cubin: {why}). A first \
+                     start of the chain prefill compiles two, about 8.5 min on an L40S; later starts read them from the \
+                     cache in seconds.",
+                    src.text.len()
+                );
+                let t = std::time::Instant::now();
+                let ptx = compile_ptx(src)?;
+                let c = crate::persbench::driver_cubin(&ptx.to_src(), "module")?;
+                let wrote = match dir.map(|d| d.store(&key, &c)) {
+                    Some(Ok(p)) => format!("written to {}", p.display()),
+                    Some(Err(e)) => format!("NOT written ({e})"),
+                    None => "written nowhere".to_string(),
+                };
+                let line = format!(
+                    "module cache: miss ({why}); NVRTC and the driver's JIT {:.1} s, {} bytes of cubin {wrote}",
+                    t.elapsed().as_secs_f64(),
+                    c.len()
+                );
+                (c, line)
+            }
+        };
+        let module = ctx
+            .load_module(cudarc::nvrtc::Ptx::from_binary(cubin))
+            .map_err(|e| format!("the driver refused the cached cubin: {e}"))?;
+        Ok((Self { ctx, stream, module }, format!("{line}; key {}", key.line())))
     }
 
     pub fn device(&self) -> Result<DeviceReport, String> {

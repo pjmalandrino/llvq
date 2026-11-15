@@ -1,0 +1,2 @@
+llvq 0.1.0 (unknown) serving on http://127.0.0.1:11435, backend cuda, store /tmp/llvq-home
+chat in the browser: http://127.0.0.1:11435/

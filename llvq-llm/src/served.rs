@@ -66,6 +66,15 @@
 //!   ([`check_persistent_object`]);
 //! * beside any measurement-mode variable ([`MEASUREMENT_MODES`]).
 //!
+//! ## The prefill form
+//!
+//! `prefill` is the third optional field, added on 2026-11-15. Absent, a
+//! prompt is prefilled by the eager path, as every config written before it.
+//! `"chain"` feeds it through the tree verify pass and hands over to 4E v9
+//! ([`Prefill`]). It is refused beside anything but 4E v9, beside
+//! `prefill_attention` and `batch`, on Metal, and on any shape but the 4B's.
+//! It is not bit for bit with the eager prefill; the decode after it is.
+//!
 //! ## Pure where it can be
 //!
 //! [`Served::of`] reads no environment. The environment check is
@@ -115,6 +124,19 @@ pub struct ServedFile {
     /// call, and makes no score tensor. See [`PrefillAttn`].
     #[serde(default)]
     pub prefill_attention: Option<String>,
+    /// How a prompt is prefilled, beside `"decode": "persistent"` and
+    /// `"rows": "v9"` only: absent is the eager prefill, what every config
+    /// before 2026-11-15 served; `"chain"` feeds the prompt through the tree
+    /// verify pass as chains of known tokens ([`CHAIN_ARM`]). See [`Prefill`].
+    #[serde(default)]
+    pub prefill: Option<String>,
+    /// The cache 4E's decode holds, beside `"decode": "persistent"` and
+    /// `"rows": "v9"` only: absent is binary16, what every config before
+    /// 2026-11-15 served; `"int8"` is the NOT SERVED form of research arm
+    /// v9k8 with the binary16 caches released at the hand-over. See
+    /// [`DecodeCache`].
+    #[serde(default)]
+    pub decode_cache: Option<String>,
     /// The batched decode (`crate::batch`): how many sequences one step
     /// carries at most, and how many positions a sequence holds. Absent, the
     /// object is served one sequence at a time, as every config before it.
@@ -196,6 +218,11 @@ pub struct Served {
     /// How the kernel form attends a prefill chunk; `Grouped` under any other
     /// form, where it is not read.
     pub prefill: PrefillAttn,
+    /// How a prompt is prefilled: the eager path, or chains through the tree
+    /// verify pass.
+    pub prefill_form: Prefill,
+    /// The cache 4E's decode holds: binary16, or int8 alone (NOT SERVED).
+    pub decode_cache: DecodeCache,
     /// The batched decode, when the config names one.
     pub batch: Option<BatchServe>,
     pub path: PathBuf,
@@ -343,6 +370,140 @@ impl Rows4e {
         match self {
             Self::V9 => crate::fused::Int4Layout::Tiled,
             Self::V3 | Self::V4 | Self::V6 => crate::fused::Int4Layout::Served,
+        }
+    }
+}
+
+/// How a served config prefills a prompt.
+///
+/// `Chain` feeds the prompt as known tokens through the tree verify pass, 32
+/// rows a launch, on the words 4E and the eager path hold, read in place, then
+/// hands over to 4E v9 with a one-row launch (`Runtime4e::chain_prefill`). The
+/// 4B's first token after 1,024 / 4,096 / 8,191 tokens took 0.420 / 2.393 /
+/// 6.485 s against 3.951 / 17.641 / 37.037 for the eager prefill, at a phase
+/// peak of 3.560 GB against 5.946 at 8,191 (*measured*, L40S,
+/// `docs/mesures/large-prefill-ft-2026-11-11.txt`, `large-prefill-2026-11-11.txt`).
+/// It is not bit for bit with the eager prefill: its 16-row form read +0.0007 %
+/// of paired WikiText-2 perplexity against eager, and 41 of 47 texts identical.
+/// The decode after it is 4E v9 unchanged, which owes the eager decode's tokens
+/// on the caches the chain left. Refused:
+/// * beside any decode but `persistent` with rows `v9` (the pass reads the int4
+///   words tiled, row form 7, and hands over to 4E);
+/// * beside `prefill_attention`, which names how the EAGER prefill attends;
+/// * beside `batch`, whose pool prefills through the eager path;
+/// * on Metal ([`Served::check_device`]);
+/// * on any shape but the sealed 4B's ([`check_chain_object`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Prefill {
+    /// The eager path, in chunks of `crate::model::MAX_PREFILL_ROWS`.
+    Eager,
+    /// Chains through the tree verify pass: [`CHAIN_ARM`], [`CHAIN_ROWS`] a launch.
+    Chain,
+}
+
+/// The tree arm the chain prefill runs: a12ipg32ft (the 32-row pass on the
+/// served words read in place, the cache read once for a group of 4 rows, the
+/// attention tile's full-tile path) on the explicit plan the large-prefill-ft
+/// job measured on the 4B, slices q/k/v 8, o 10, gate/up 8, down 20, head 6.
+pub const CHAIN_ARM: &str = "a12ipg32ft@8.10.8.20.6";
+
+/// The plan of [`CHAIN_ARM`]: its five slice counts, written once here.
+pub const CHAIN_PLAN: [u32; 5] = [8, 10, 8, 20, 6];
+
+/// The rows one chain launch carries: a12ipg32ft's row cap, what the
+/// large-prefill-ft job measured.
+pub const CHAIN_ROWS: usize = 32;
+
+impl Prefill {
+    /// Absent is `Eager`. Read as written, like [`Decode::parse`]; the empty
+    /// string and any other word are refused.
+    pub fn parse(v: Option<&str>) -> Result<Self, String> {
+        match v {
+            None | Some("eager") => Ok(Self::Eager),
+            Some("chain") => Ok(Self::Chain),
+            Some(s) if s.trim().is_empty() => {
+                Err("prefill is empty. Write \"chain\", or delete the key for the eager prefill.".into())
+            }
+            Some(o) => Err(format!("prefill {o:?}: the forms are \"eager\" (or the key absent) and \"chain\"")),
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Eager => "eager",
+            Self::Chain => "chain",
+        }
+    }
+}
+
+/// The chain prefill against the model's shape: the sealed 4B's only. The
+/// pass's slices ([`CHAIN_PLAN`]) and every measurement of it are the 4B's;
+/// the tree install refuses the 8B's Tetra o_proj
+/// (`Runtime4e::install_tiled`); the 14B's was never installed. Pure, like
+/// [`check_persistent_object`].
+pub fn check_chain_object(cfg: &candle_transformers::models::qwen3::Config) -> Result<(), String> {
+    let got = (
+        cfg.num_hidden_layers,
+        cfg.hidden_size,
+        cfg.intermediate_size,
+        cfg.num_attention_heads,
+        cfg.num_key_value_heads,
+        cfg.head_dim,
+        cfg.vocab_size,
+    );
+    const FOUR_B: (usize, usize, usize, usize, usize, usize, usize) = (36, 2560, 9728, 32, 8, 128, 151_936);
+    match got == FOUR_B {
+        true => Ok(()),
+        false => Err(format!(
+            "prefill \"chain\" on a model of (layers, hidden, intermediate, heads, kv heads, head dim, vocab) = \
+             {got:?}. The chain prefill carries the sealed 4B's shape {FOUR_B:?} only: its slices {CHAIN_PLAN:?} \
+             and its measurements are the 4B's, the tree pass refuses the 8B's Tetra o_proj, and the 14B's was \
+             never installed. Delete the prefill key for the eager prefill."
+        )),
+    }
+}
+
+/// The cache 4E's decode holds.
+///
+/// `Int8` is research arm v9k8 (`llvq-cuda/kernels/pers_4e_k8.cuh`): a
+/// group-affine int8 cache filled from the prefill's binary16 caches at the
+/// hand-over, each layer's binary16 cache then released, so the int8 caches
+/// are the only copy the decode holds (`Runtime4e::set_k8_release`). The
+/// round trip held the +-0.12 % tolerance at 8,192 on the 4B, +0.0126 %
+/// [-0.0485, +0.0737] (*measured*,
+/// `docs/mesures/recherche-debit-kv-ladder-2026-11-14.txt`). Its token symbol
+/// holds 8 B of local memory at 128 registers on the L40S, and 4E's load rule
+/// (`llvq_cuda::pers::p4e_token_symbol_loads`) refuses that: whether a served
+/// module may hold local memory is the operator's decision. So every served
+/// door refuses it ([`Served::decoder`]), and only
+/// [`Served::decoder_measurement`] builds it, waiving that rule as the
+/// `+local` measurement mode does. Refused beside anything but 4E v9.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DecodeCache {
+    /// Binary16, the served cache.
+    F16,
+    /// Int8 alone, the binary16 caches released at the hand-over. NOT SERVED.
+    Int8,
+}
+
+impl DecodeCache {
+    /// Absent is `F16`. Read as written; the empty string and any other word
+    /// are refused.
+    pub fn parse(v: Option<&str>) -> Result<Self, String> {
+        match v {
+            None | Some("f16") => Ok(Self::F16),
+            Some("int8") => Ok(Self::Int8),
+            Some(s) if s.trim().is_empty() => {
+                Err("decode_cache is empty. Write \"int8\", or delete the key for the binary16 cache.".into())
+            }
+            Some(o) => Err(format!("decode_cache {o:?}: the caches are \"f16\" (or the key absent) and \"int8\"")),
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::F16 => "f16",
+            Self::Int8 => "int8",
         }
     }
 }
@@ -573,6 +734,44 @@ impl Served {
                 rows.label()
             ));
         }
+        let decode_cache = DecodeCache::parse(f.decode_cache.as_deref())?;
+        if decode_cache == DecodeCache::Int8 && (decode != Decode::Persistent || rows != Rows4e::V9) {
+            return Err(format!(
+                "decode_cache \"int8\" beside decode {:?} rows {:?}: the int8 cache is 4E v9's research arm v9k8. Write \
+                 \"decode\": \"persistent\" and \"rows\": \"v9\", or delete the decode_cache key.",
+                decode.label(),
+                rows.label()
+            ));
+        }
+        if decode_cache == DecodeCache::Int8 && f.batch.is_some() {
+            return Err("decode_cache \"int8\" beside batch: the batch pool holds binary16 caches.".into());
+        }
+        let prefill_form = Prefill::parse(f.prefill.as_deref())?;
+        if prefill_form == Prefill::Chain {
+            if decode != Decode::Persistent || rows != Rows4e::V9 {
+                return Err(format!(
+                    "prefill \"chain\" beside decode {:?} rows {:?}: the tree pass reads the int4 words tiled (row \
+                     form 7) and hands the prompt over to 4E. Write \"decode\": \"persistent\" and \"rows\": \"v9\", \
+                     or delete the prefill key.",
+                    decode.label(),
+                    rows.label()
+                ));
+            }
+            if f.prefill_attention.is_some() {
+                return Err(format!(
+                    "prefill \"chain\" beside prefill_attention {:?}: that field names how the eager prefill \
+                     attends, and the chain prefill runs no eager prefill. Delete one of the two keys.",
+                    prefill.label()
+                ));
+            }
+            if f.batch.is_some() {
+                return Err(
+                    "prefill \"chain\" beside batch: the batch pool prefills through the eager path. Write a config \
+                     of its own for the batched decode."
+                        .into(),
+                );
+            }
+        }
         let layout = FusedLayout::parse(field("layout", &f.layout)?)?;
         let embed = EmbedMode::parse(field("embed", &f.embed)?)?;
         let rot_share = RotShare::parse(field("rot_share", &f.rot_share)?)?;
@@ -628,6 +827,8 @@ impl Served {
             decode,
             rows,
             prefill,
+            prefill_form,
+            decode_cache,
             batch,
             path,
             note: f.note,
@@ -678,6 +879,16 @@ impl Served {
             None => decode,
             Some(b) => format!("{decode}, batch of up to {} sequences of {} positions (gemm)", b.max, b.context),
         };
+        let decode = match self.decode_cache {
+            DecodeCache::F16 => decode,
+            DecodeCache::Int8 => format!("{decode}, decode cache int8 alone (arm v9k8, NOT SERVED)"),
+        };
+        // Named only under the chain, so every line an earlier config printed
+        // reads as it did.
+        let decode = match self.prefill_form {
+            Prefill::Eager => decode,
+            Prefill::Chain => format!("{decode}, prefill chain (tree pass {CHAIN_ARM}, {CHAIN_ROWS} rows a launch)"),
+        };
         format!(
             "served config: {} (layout {}, embed {}, rot_share {}, fuse {}, kv {}, \
              attention {attention} on {}{decode}){note}",
@@ -709,6 +920,14 @@ impl Served {
             return Err(format!(
                 "{}: batch on Metal. The batched decode's kernels are CUDA (kernels/tv_batch_gemm.cu); \
                  serve this object one sequence at a time on Metal.",
+                self.path.display(),
+            ));
+        }
+        if self.prefill_form == Prefill::Chain && metal {
+            return Err(format!(
+                "{}: prefill \"chain\" on Metal. The tree verify pass is a cooperative CUDA launch \
+                 (llvq-cuda/kernels/pers_4et.cu); no Metal kernel exists. Serve this object with the eager \
+                 prefill on Metal.",
                 self.path.display(),
             ));
         }
@@ -756,6 +975,9 @@ impl Served {
         self.check_device(device.is_metal())?;
         if self.decode == Decode::Persistent {
             check_persistent_object(model.config()).map_err(|e| format!("{}: {e}", self.path.display()))?;
+        }
+        if self.prefill_form == Prefill::Chain {
+            check_chain_object(model.config()).map_err(|e| format!("{}: {e}", self.path.display()))?;
         }
         self.apply_form(model, device)
     }

@@ -1,0 +1,8 @@
+phase peak ctx-ch ctx-5: 2.184 GB (2083 MiB) over 1 window(s)
+phase peak ctx-ch ctx-1024: 2.318 GB (2211 MiB) over 1 window(s)
+phase peak ctx-ch ctx-4096: 2.862 GB (2729 MiB) over 1 window(s)
+phase peak ctx-ch ctx-8192: 3.633 GB (3465 MiB) over 1 window(s)
+phase peak ctx-v9 ctx-5: 2.014 GB (1921 MiB) over 1 window(s)
+phase peak ctx-v9 ctx-1024: 2.490 GB (2375 MiB) over 1 window(s)
+phase peak ctx-v9 ctx-4096: 4.135 GB (3943 MiB) over 1 window(s)
+phase peak ctx-v9 ctx-8192: 6.047 GB (5767 MiB) over 1 window(s)

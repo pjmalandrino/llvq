@@ -1,0 +1,14 @@
+/out/chain-prefill-served-2026-11-15/gsm8k-v9.jsonl: 0 of 200 rows re-graded
+/out/chain-prefill-served-2026-11-15/gsm8k-ch.jsonl: 0 of 200 rows re-graded
+A = /out/sealed-4b-2026-09-23/qwen3-4b-sealed.bin [LLVQ 2-bit, SERVED KERNEL, tetra48] | served kernel | device cuda | dtype f16 | kv f16 | max_new 1024 | reasoning off
+    attention kernel | decode persistent rows v9
+    165/200 right, mean 316.6 generated tokens, 1 stopped at the cap, tokens 3a80552906330491
+B = /out/sealed-4b-2026-09-23/qwen3-4b-sealed.bin [LLVQ 2-bit, SERVED KERNEL, tetra48] | served kernel | device cuda | dtype f16 | kv f16 | max_new 1024 | reasoning off
+    attention kernel | decode persistent rows v9
+    165/200 right, mean 316.3 generated tokens, 1 stopped at the cap, tokens 3a80552906330491
+
+200 problems, same prompts problem by problem
+  accuracy A = 82.50 %, B = 82.50 %
+  right in A only 0, in B only 0 (0.0 % discordant)
+  A − B = +0.00 pp, 95 % [+0.00 ; +0.00], McNemar exact p = 1.000e0
+gsm8kpair exit 0

@@ -101,16 +101,38 @@ fn alone(text: &str, max_new: usize) -> Vec<u32> {
 }
 
 fn chat(c: &Client, text: &str, max_new: usize) -> (String, Value) {
+    chat_telling(c, text, max_new, None)
+}
+
+/// [`chat`], telling `started` when its first chunk arrives: from then on the
+/// request is decoding, and a second one can join it. The tests that need two
+/// requests to overlap wait for that instead of sleeping: a fixed 150 ms raced
+/// the decode, and under the CI's release profile the tiny model's 400 tokens
+/// can end inside it, so the two requests never stepped together.
+fn chat_telling(c: &Client, text: &str, max_new: usize, started: Option<std::sync::mpsc::Sender<()>>) -> (String, Value) {
     let (mut content, mut last) = (String::new(), Value::Null);
+    let mut started = started;
     let body = json!({"model": "tiny:test", "messages": [{"role": "user", "content": text}],
                       "options": {"temperature": 0, "num_predict": max_new}});
     c.stream("/api/chat", &body, &mut |v| {
+        if let Some(tx) = started.take() {
+            let _ = tx.send(());
+        }
         content.push_str(v["message"]["content"].as_str().unwrap_or(""));
         last = v.clone();
         Ok(())
     })
     .unwrap();
     (content, last)
+}
+
+/// Start a long request on its own thread and return once it is decoding.
+fn start_long(host: &str, text: &'static str, max_new: usize) -> std::thread::JoinHandle<(String, Value)> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let h = host.to_string();
+    let first = std::thread::spawn(move || chat_telling(&Client::new(&h), text, max_new, Some(tx)));
+    rx.recv_timeout(std::time::Duration::from_secs(60)).expect("the long request never sent a chunk");
+    first
 }
 
 #[test]
@@ -182,9 +204,7 @@ fn a_lone_request_runs_on_the_batch_1_path_and_joins_the_pool_when_another_arriv
     assert_eq!(widest.load(Ordering::SeqCst), 0, "a lone request took the batched step");
     // A long one, then a second while it decodes: the first leaves the batch-1
     // path for a slot where it stands, and both answer as they would alone.
-    let h1 = host.clone();
-    let first = std::thread::spawn(move || chat(&Client::new(&h1), "the cat sat on the mat", 400));
-    std::thread::sleep(std::time::Duration::from_millis(150));
+    let first = start_long(&host, "the cat sat on the mat", 400);
     let (c2, _) = chat(&Client::new(&host), "why", 20);
     let (c1, last1) = first.join().unwrap();
     assert_eq!(c2, tok.decode(&alone("why", 20), false).unwrap(), "the second request");
@@ -214,9 +234,7 @@ fn a_request_left_alone_in_the_pool_goes_back_to_the_batch_1_path() {
     let tok = common::tokenizer();
     let (want1, want2) = (alone("the cat sat on the mat", 400), alone("why", 20));
     for round in 0..2 {
-        let h1 = host.clone();
-        let first = std::thread::spawn(move || chat(&Client::new(&h1), "the cat sat on the mat", 400));
-        std::thread::sleep(std::time::Duration::from_millis(150));
+        let first = start_long(&host, "the cat sat on the mat", 400);
         let (c2, _) = chat(&Client::new(&host), "why", 20);
         let (c1, last1) = first.join().unwrap();
         assert_eq!(c2, tok.decode(&want2, false).unwrap(), "round {round}: the short request");

@@ -114,6 +114,9 @@ pub struct Runtime4e {
     tree: Option<Tree4e>,
     /// Arm v9k8's int8 caches (`pers::p4e_e1_k8`), or none.
     k8: Option<Kv8>,
+    /// How the tree modules load ([`Runtime4e::set_tree_modules`]): PTX at
+    /// every start, as the benches ran, unless set.
+    tree_modules: TreeModules,
 }
 
 /// Arm v9k8's int8 KV caches (`kernels/pers_4e_k8.cuh`, `kv8_ref.rs`): one K
@@ -129,6 +132,10 @@ struct Kv8 {
     state: pers::K8State,
     /// The binary16 caches' (K, V) addresses the int8 ones were filled from.
     f16_seen: Vec<(u64, u64)>,
+    /// Release each layer's binary16 cache once its positions are quantized
+    /// ([`Runtime4e::set_k8_release`], `pers::p4e_k8_step_release`): the int8
+    /// caches are then the only copy. False is the research arm as measured.
+    release: bool,
 }
 
 /// Which symbol a launch runs: the token loop, its phase stamps, or an E1
@@ -786,7 +793,7 @@ fn install_inner(
                 r.num_regs,
                 r.local_bytes
             ));
-            Some(Kv8 { fill, n_kv: n_kv as u32, bufs: Vec::new(), state: pers::K8State::default(), f16_seen: Vec::new() })
+            Some(Kv8 { fill, n_kv: n_kv as u32, bufs: Vec::new(), state: pers::K8State::default(), f16_seen: Vec::new(), release: false })
         }
         _ => None,
     };
@@ -1152,7 +1159,47 @@ fn install_inner(
         verify: None,
         tree: None,
         k8,
+        tree_modules: TreeModules::Ptx,
     })
+}
+
+/// How the tree modules are loaded.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TreeModules {
+    /// NVRTC and the driver's PTX load at every start: every bench of the
+    /// tree pass ran so, and `bin/prefillbench` still does.
+    Ptx,
+    /// The driver's cubin (`gpu::Cuda::on_stream_cached`): read from the
+    /// directory when a file of the exact key is there, else compiled and
+    /// written to it; `None` compiles the same cubin at every start and
+    /// writes it nowhere. The served chain prefill's form.
+    Cubin(Option<llvq_cuda::modcache::Dir>),
+}
+
+/// One tree module, loaded as `how` says; a cubin load appends its line.
+fn tree_module(
+    stream: &std::sync::Arc<candle_core::cuda_backend::cudarc::driver::CudaStream>,
+    src: &llvq_cuda::gpu::KernelSource,
+    how: &TreeModules,
+    lines: &mut Vec<String>,
+) -> anyhow::Result<llvq_cuda::gpu::Cuda> {
+    match how {
+        TreeModules::Ptx => llvq_cuda::gpu::Cuda::on_stream(stream.clone(), src).map_err(anyhow::Error::msg),
+        TreeModules::Cubin(dir) => {
+            let (cuda, line) = llvq_cuda::gpu::Cuda::on_stream_cached(stream.clone(), src, dir.as_ref()).map_err(anyhow::Error::msg)?;
+            lines.push(format!("4E tree: {line}"));
+            Ok(cuda)
+        }
+    }
+}
+
+/// What a chain prefill leaves ([`Runtime4e::chain_prefill`]).
+pub struct ChainPrefill {
+    /// The first answer token: the last prompt row's argmax.
+    pub first: u32,
+    /// Seconds to the first token, and to the end of the hand-over launch.
+    pub ttft: f64,
+    pub prefill: f64,
 }
 
 impl Runtime4e {
@@ -1285,7 +1332,9 @@ impl Runtime4e {
                 self.kernel_from
             );
         }
-        if self.k8.is_some() {
+        if self.k8.as_ref().is_some_and(|k| k.release) {
+            self.prepare_k8_release(caches, pos0, n as usize)?;
+        } else if self.k8.is_some() {
             self.prepare_k8(caches, pos0, n as usize)?;
         } else {
             self.prepare(caches, pos0, n as usize)?;
@@ -1576,7 +1625,8 @@ impl Runtime4e {
         let text = pers::p4t_unit_text(&self.tile_define);
         let src = llvq_cuda::gpu::KernelSource::new(&[text.as_str()]);
         self.lines.push(format!("4E tree: module {} bytes, sha256 {}, row form 7 and pers_4et.cu, its own module", src.text.len(), src.sha256));
-        let cuda = llvq_cuda::gpu::Cuda::on_stream(stream.clone(), &src).map_err(anyhow::Error::msg)?;
+        let how = self.tree_modules.clone();
+        let cuda = tree_module(&stream, &src, &how, &mut self.lines)?;
         let dev = cuda.device().map_err(anyhow::Error::msg)?;
         let (hidden, n_heads, n_kv, groups, vocab) =
             (self.args_host.hidden, self.args_host.n_heads, self.args_host.n_kv, self.args_host.groups, self.args_host.vocab);
@@ -1815,6 +1865,7 @@ impl Runtime4e {
             anyhow::bail!("4E tree: the tiled and stream arms do not copy a Tetra o_proj; this model carries one");
         }
         let stream = self.cuda.stream().clone();
+        let how = self.tree_modules.clone();
         let mut cudas = Vec::new();
         let mut fns: [Option<CudaFunction>; 28] = Default::default();
         // the a12ip module's place in `cudas`: its load check lives there
@@ -1892,7 +1943,7 @@ impl Runtime4e {
             self.lines.push(format!("4E tree {tag}: module {} bytes, sha256 {}, {def}, its own module", src.text.len(), src.sha256));
             // a module that fails to build or to fit voids its arm only
             let built = (|| -> anyhow::Result<(llvq_cuda::gpu::Cuda, CudaFunction)> {
-                let cuda = llvq_cuda::gpu::Cuda::on_stream(stream.clone(), &src).map_err(anyhow::Error::msg)?;
+                let cuda = tree_module(&stream, &src, &how, &mut self.lines)?;
                 let f = cuda.func_dynamic_shared(sym, smem).map_err(anyhow::Error::msg)?;
                 let r = cuda.report(sym).map_err(anyhow::Error::msg)?;
                 let occ = f
@@ -2126,6 +2177,41 @@ impl Runtime4e {
         let depth: Vec<u32> = (0..n as u32).collect();
         let path: Vec<[u8; 32]> = (0..n).map(llvq_cuda::spec_loop::chain_path).collect();
         self.tree_launch(arm, caches, pos0, toks, &depth, &path, mv, move_pos0, logits, stamped, false, head)
+    }
+
+    /// How [`Self::install_tree`] loads the tree modules: set before it.
+    /// [`TreeModules::Cubin`] with a directory reads each module from a file
+    /// of its exact key ([`llvq_cuda::modcache`]) or compiles and writes it.
+    pub fn set_tree_modules(&mut self, how: TreeModules) {
+        self.tree_modules = how;
+    }
+
+    /// The chain prefill of `ids` after the `pos0` positions the caches hold
+    /// (their Grow buffers made, no move pending), through tree arm `arm` at
+    /// `r` rows a launch (`llvq_cuda::spec_loop::chain_launches`): the head on
+    /// the last launch only, then the one-row hand-over launch that moves the
+    /// last chunk into the caches. The caches then hold `pos0 + ids.len()`
+    /// positions and 4E decodes `first` at that position. The launch loop of
+    /// `bin/prefillbench --form chain`, which measured it.
+    pub fn chain_prefill(&mut self, arm: usize, caches: &mut [KvCache], pos0: usize, ids: &[u32], r: usize) -> anyhow::Result<ChainPrefill> {
+        use llvq_cuda::spec_loop::{chain_handover, chain_launches, ChainFault};
+        let t0 = std::time::Instant::now();
+        let (ls, mv, mp) = chain_launches(ids, pos0, r, ChainFault::None).map_err(anyhow::Error::msg)?;
+        let n = ls.len();
+        let mut first = None;
+        for (i, l) in ls.iter().enumerate() {
+            let head = i + 1 == n;
+            let o = self.tree_chain(arm, caches, l.pos0, &l.toks, &l.mv, l.move_pos0, head, false, false)?;
+            if head {
+                first = o.ring.last().copied();
+            }
+        }
+        let first = first.ok_or_else(|| anyhow::anyhow!("4E chain prefill: the last launch wrote no token"))?;
+        let ttft = t0.elapsed().as_secs_f64();
+        let h = chain_handover(first, &mv, mp);
+        self.tree_chain(arm, caches, h.pos0, &h.toks, &h.mv, h.move_pos0, false, false, false)?;
+        self.sync()?;
+        Ok(ChainPrefill { first, ttft, prefill: t0.elapsed().as_secs_f64() })
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -2484,6 +2570,112 @@ impl Runtime4e {
         }
     }
 
+    /// Release the binary16 caches at each hand-over (`true`), so the int8
+    /// caches are the only copy the decode holds: the NOT SERVED
+    /// `decode_cache: int8` form. Refused on a runtime with no int8 caches.
+    pub fn set_k8_release(&mut self, on: bool) -> anyhow::Result<()> {
+        let k8 = self.k8.as_mut().ok_or_else(|| anyhow::anyhow!("4E: no int8 caches to release the binary16 ones for (arm v9k8 only)"))?;
+        k8.release = on;
+        Ok(())
+    }
+
+    /// [`Self::prepare_k8`] with the binary16 caches released at the
+    /// hand-over (`pers::p4e_k8_step_release`). Layer by layer: the int8
+    /// buffers made (copying what the arm wrote when they grow), the layer's
+    /// positions quantized from its binary16 cache, and that cache released
+    /// before the next layer, so the two copies never coexist whole. A
+    /// continuation reads no binary16 cache.
+    fn prepare_k8_release(&mut self, caches: &mut [KvCache], pos0: usize, n: usize) -> anyhow::Result<()> {
+        let mut k8 = self.k8.take().expect("a v9k8 runtime");
+        let r = self.prepare_k8_release_with(&mut k8, caches, pos0, n);
+        self.k8 = Some(k8);
+        r
+    }
+
+    fn prepare_k8_release_with(&mut self, k8: &mut Kv8, caches: &mut [KvCache], pos0: usize, n: usize) -> anyhow::Result<()> {
+        let stream = self.cuda.stream().clone();
+        let held = caches.iter().filter(|c| c.grow_buffers().is_some()).count();
+        if held != 0 && held != caches.len() {
+            anyhow::bail!("4E v9k8: {held} of {} layers hold a binary16 cache", caches.len());
+        }
+        let has_f16 = held == caches.len();
+        let (mut len16, mut cap16) = (0usize, 0usize);
+        if has_f16 {
+            for (i, c) in caches.iter().enumerate() {
+                let cap = c.grow_buffers().expect("counted above").0.dim(2)?;
+                if i == 0 {
+                    (len16, cap16) = (c.len(), cap);
+                } else if (c.len(), cap) != (len16, cap16) {
+                    anyhow::bail!("4E v9k8: the layers' binary16 caches differ in length or capacity");
+                }
+            }
+        }
+        let step = pers::p4e_k8_step_release(k8.state, has_f16, len16, pos0, n, MAX_CAP).map_err(anyhow::Error::msg)?;
+        let blk = pers::P4E_K8_BLK as usize;
+        let (old, new) = (k8.state.cap, step.next.cap);
+        let bytes = llvq_cuda::kv8_ref::cache_bytes(k8.n_kv as usize, new);
+        let fresh = k8.bufs.is_empty();
+        for (l, cache) in caches.iter_mut().enumerate() {
+            if step.grow || fresh {
+                let mut kb = stream.alloc_zeros::<u8>(bytes).map_err(|e| anyhow::anyhow!("alloc int8 K: {e}"))?;
+                let mut vb = stream.alloc_zeros::<u8>(bytes).map_err(|e| anyhow::anyhow!("alloc int8 V: {e}"))?;
+                if step.copy_old && !fresh {
+                    let (ok, ov) = &k8.bufs[l];
+                    let (ho, hn) = (old / 8 * blk, new / 8 * blk);
+                    for h in 0..k8.n_kv as usize {
+                        stream
+                            .memcpy_dtod(&ok.slice(h * ho..(h + 1) * ho), &mut kb.slice_mut(h * hn..h * hn + ho))
+                            .map_err(|e| anyhow::anyhow!("D2D int8 K: {e}"))?;
+                        stream
+                            .memcpy_dtod(&ov.slice(h * ho..(h + 1) * ho), &mut vb.slice_mut(h * hn..h * hn + ho))
+                            .map_err(|e| anyhow::anyhow!("D2D int8 V: {e}"))?;
+                    }
+                }
+                match fresh {
+                    true => k8.bufs.push((kb, vb)),
+                    false => k8.bufs[l] = (kb, vb),
+                }
+            }
+            if let Some((a, b)) = step.fill {
+                let (k16, v16) = {
+                    let (k, v) = cache.grow_buffers().expect("a hand-over holds every binary16 cache");
+                    (tensor_addr(k, &stream)?, tensor_addr(v, &stream)?)
+                };
+                let (cap8, n_kv) = (new as u32, k8.n_kv);
+                let (lo, hi, c16) = (a as u32, b as u32, cap16 as u32);
+                let warps = (hi - lo) * n_kv * 2;
+                let cfg = LaunchConfig { grid_dim: (warps.div_ceil(8).clamp(1, 4096), 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 0 };
+                let (kb, vb) = &mut k8.bufs[l];
+                let mut lb = stream.launch_builder(&k8.fill);
+                lb.arg(&k16).arg(&v16).arg(kb).arg(vb).arg(&n_kv).arg(&c16).arg(&cap8).arg(&lo).arg(&hi);
+                // SAFETY: pers_kv8_fill's own signature; k16 and v16 are this layer's live binary16
+                // cache of n_kv x cap16 x 128 holding positions [lo, hi), the int8 buffers hold
+                // n_kv x cap8 / 8 blocks, hi <= cap8 (pers::p4e_k8_step_release).
+                unsafe { lb.launch(cfg) }.map_err(|e| anyhow::anyhow!("pers_kv8_fill: {e}"))?;
+                // the fill is ordered before the free on this stream; the layer's binary16 copy goes now
+                cache.release();
+            }
+        }
+        k8.state = step.next;
+        k8.f16_seen = Vec::new();
+        let seen: Vec<(usize, u64, u64)> =
+            k8.bufs.iter().map(|(kb, vb)| (new, kb.device_ptr(&stream).0, vb.device_ptr(&stream).0)).collect();
+        if seen != self.kv_seen {
+            let mut img = Vec::with_capacity(pers::P4E_LAYER_BYTES * seen.len());
+            for (h, &(_, k, v)) in self.layers_host.iter_mut().zip(&seen) {
+                h.kc = k;
+                h.vc = v;
+                img.extend(h.bytes());
+            }
+            stream.memcpy_htod(&img, &mut self.layers).map_err(|e| anyhow::anyhow!("H2D: {e}"))?;
+            self.args_host.ptrs[0] = self.layers.device_ptr(&stream).0;
+            self.args_host.cap = new as u32;
+            stream.memcpy_htod(&self.args_host.bytes(), &mut self.args).map_err(|e| anyhow::anyhow!("H2D: {e}"))?;
+            self.kv_seen = seen;
+        }
+        Ok(())
+    }
+
     /// Arm v9k8's int8 caches as they stand: capacity, bytes on the card,
     /// the positions quantized from the binary16 caches; none for another
     /// runtime.
@@ -2492,11 +2684,16 @@ impl Runtime4e {
         let bytes = 2 * k8.bufs.len() * llvq_cuda::kv8_ref::cache_bytes(k8.n_kv as usize, k8.state.cap);
         Some(format!(
             "4E v9k8: int8 KV caches at a capacity of {} positions, {:.1} MB on the card ({} layers), positions [0, {}) \
-             quantized from the prefill's binary16 caches, which stay allocated beside them for the eager path",
+             quantized from the prefill's binary16 caches, {}",
             k8.state.cap,
             bytes as f64 / 1e6,
             k8.bufs.len(),
-            k8.state.hand
+            k8.state.hand,
+            if k8.release {
+                "each released after its layer's fill: the int8 caches are the only copy"
+            } else {
+                "which stay allocated beside them for the eager path"
+            }
         ))
     }
 

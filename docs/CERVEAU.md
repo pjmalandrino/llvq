@@ -563,10 +563,17 @@ decode after that prompt still reads 161.5 tok/s.
 
 **P2.** Feeding the prompt through the tree verify pass (the chain prefill) cuts the 4B's first token to 0.420 / 2.393 /
 6.485 s at 1,024 / 4,096 / 8,191 tokens, against 3.951 / 17.641 / 37.037 eager, at +0.0007 % of paired perplexity.
-- Standing: supported. Scope: sealed 4B, L40S, two jobs; a bench, not served; GSM8K pairing owed.
-- Evidence: [large-prefill-ft](mesures/large-prefill-ft-2026-11-11.txt), [large-prefill](mesures/large-prefill-2026-11-11.txt).
-- Overturn: a GSM8K-200 pairing that separates it from eager.
-- Checked: 2026-11-12 (copied from `ETAT.md` §5).
+At a served door, behind a config field, it reads 0.45 / 2.47 / 6.74 s at 1,024 / 4,096 / 8,192 against 3.96 / 17.79
+/ 37.22 for the served v9 config, with the same 256 tokens, a phase peak of 3.633 GB against 6.047 at 8,192, and
+GSM8K-200 at 165 right in both with no discordant pair.
+- Standing: established for the 4B's first token and its peak, read in a bench and then at a door under controls;
+  supported for quality. Scope: sealed 4B, L40S, `fusedrun` and `gsm8k` under a config that is not served; the 8B
+  and the 14B are refused by the pass. Its modules hold 744 B of local memory. Quality is read on one prompt's
+  tokens at four lengths and on GSM8K-200; no MMLU and no near-tie texts under the chain.
+- Evidence: [large-prefill-ft](mesures/large-prefill-ft-2026-11-11.txt), [large-prefill](mesures/large-prefill-2026-11-11.txt),
+  [chain-prefill-served](mesures/chain-prefill-served-2026-11-15.txt).
+- Overturn: a task that separates it from the eager prefill. The GSM8K-200 pairing ran on 2026-11-15 and does not.
+- Checked: 2026-11-15.
 
 **P3.** At long context the decode attention is bound by its own bytes: at 1,024 and 8,192 tokens the attention phase
 equals the DRAM time of the KV read plus the prefetch at 85 %, 1,119 against 1,108 µs and 2,559 against 2,646 µs.
