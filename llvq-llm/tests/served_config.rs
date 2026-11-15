@@ -1129,7 +1129,7 @@ fn the_chain_config_is_the_v9_config_with_the_chain_prefill() {
     assert_eq!(added, vec![&"  \"prefill\": \"chain\",".to_string()], "one line added");
     assert_eq!(b.len(), a.len() + 1);
     let note = c.note.as_deref().expect("a note");
-    assert!(note.contains("886391a8") && note.contains("NOT SERVED BY DEFAULT") && note.contains("local memory"), "{note}");
+    assert!(note.contains("886391a8") && note.starts_with("SERVED on CUDA for the 4B since 2026-11-15") && note.contains("local memory"), "{note}");
     // the arm's name and the plan name one plan
     let plan: Vec<u32> = CHAIN_ARM.split_once('@').unwrap().1.split('.').map(|x| x.parse().unwrap()).collect();
     assert_eq!(plan, CHAIN_PLAN.to_vec());

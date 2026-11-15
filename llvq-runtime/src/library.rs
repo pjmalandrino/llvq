@@ -61,41 +61,71 @@ pub struct Configs {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cuda_batch: Option<String>,
     /// The config `llvq serve` and `llvq run` take on CUDA under
-    /// `LLVQ_PROFILE=chain`: the v9 config with the chain prefill. Absent for
-    /// a size the pass does not carry, and in manifests written before it
-    /// existed; [`served_configs`] fills it from the library.
+    /// `LLVQ_PROFILE=eager`, where the default `cuda` config prefills by the
+    /// chain (the 4B since 2026-11-15): the same object with the eager
+    /// prefill. Absent where `cuda` already prefills eagerly (the 8B, the
+    /// 14B), and in manifests written before it existed; [`served_configs`]
+    /// fills it from the library.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cuda_chain: Option<String>,
+    pub cuda_eager: Option<String>,
 }
 
-/// `LLVQ_PROFILE`: which of an entry's CUDA configs a load takes beside the
-/// default one. Unset is the default config; `chain` is the chain prefill.
+/// `LLVQ_PROFILE`: the way back from a default. Unset is the default config
+/// of the backend, which for the 4B on CUDA prefills by the chain since
+/// 2026-11-15; `eager` is the eager prefill.
 pub const PROFILE_ENV: &str = "LLVQ_PROFILE";
 
+/// The values `LLVQ_PROFILE` takes.
+pub const PROFILES: [&str; 1] = ["eager"];
+
+/// The line `llvq run` prints before a model that prefills by the chain on
+/// CUDA loads: a first start compiles its two tree modules (509.2 s cold
+/// against 55.2 s cached for the whole load, *measured* on an L40S,
+/// `docs/mesures/chain-prefill-served-2026-11-15.txt`). `None` for any other
+/// backend or config.
+pub fn first_start_hint(backend: &str, config: &str) -> Option<String> {
+    let chain = config_text(config)
+        .and_then(|t| serde_json::from_str::<llvq_llm::served::ServedFile>(t).ok())
+        .is_some_and(|f| f.prefill.as_deref() == Some("chain"));
+    (backend == "cuda" && chain).then(|| {
+        format!(
+            "{config} prefills by the chain: a first start on this card compiles its two tree modules, about 8.5 min; \
+             later starts load in about a minute (set {PROFILE_ENV}=eager on the server for the eager prefill)"
+        )
+    })
+}
+
 /// The config a load serves: the backend's own, the batch config under
-/// `LLVQ_BATCH`, or the chain config under `LLVQ_PROFILE=chain`. Pure, the
-/// two variables handed in. Refused by name: an unknown profile, a profile
-/// beside the batch, a profile off CUDA, and a model with no such config.
+/// `LLVQ_BATCH`, and under `LLVQ_PROFILE=eager` the eager prefill's (the
+/// entry's `cuda_eager` on CUDA where it has one, else the default, which
+/// already prefills eagerly). Pure, the two variables handed in. Refused by
+/// name: any other profile, `chain` among them (the 4B's default), the batch
+/// off CUDA, and a model with no config on the backend.
 pub fn config_for<'a>(c: &'a Configs, backend: Backend, batch: bool, profile: Option<&str>) -> Result<&'a str, String> {
-    match (profile, batch) {
-        (None, false) => backend.config(c)?.ok_or_else(|| format!("this model has no served config on {}", backend.label())),
-        (None, true) => match backend {
+    match profile {
+        None | Some("eager") => {}
+        Some("chain") => {
+            return Err(format!(
+                "{PROFILE_ENV}=chain: the chain prefill is the default where a model carries it (the 4B on CUDA, since \
+                 2026-11-15). Unset {PROFILE_ENV}, or write eager for the eager prefill."
+            ))
+        }
+        Some(p) => return Err(format!("{PROFILE_ENV}={p:?}: unset for the default config, or one of {PROFILES:?}")),
+    }
+    if batch {
+        // the batch pool prefills through the eager path, whatever the profile
+        return match backend {
             Backend::Cuda => c.cuda_batch.as_deref().ok_or_else(|| "LLVQ_BATCH is set and this model has no batch config".into()),
             b => Err(format!(
                 "LLVQ_BATCH is set on {}: the batched decode's kernels are CUDA. Unset it to serve one request at a time.",
                 b.label()
             )),
-        },
-        (Some(p), true) => Err(format!(
-            "{PROFILE_ENV}={p:?} beside LLVQ_BATCH: the batch pool prefills through the eager path. Unset one of the two."
-        )),
-        (Some("chain"), false) => match backend {
-            Backend::Cuda => c.cuda_chain.as_deref().ok_or_else(|| {
-                format!("{PROFILE_ENV}=chain: this model has no chain config; the chain prefill carries the 4B only")
-            }),
-            b => Err(format!("{PROFILE_ENV}=chain on {}: the tree verify pass is a CUDA launch", b.label())),
-        },
-        (Some(p), false) => Err(format!("{PROFILE_ENV}={p:?}: unset for the default config, or chain")),
+        };
+    }
+    let default = backend.config(c)?.ok_or_else(|| format!("this model has no served config on {}", backend.label()))?;
+    match (profile, backend) {
+        (Some(_), Backend::Cuda) => Ok(c.cuda_eager.as_deref().unwrap_or(default)),
+        _ => Ok(default),
     }
 }
 
@@ -290,7 +320,7 @@ mod tests {
             assert!(m.sha256.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
             assert_eq!(m.revision.len(), 40, "{}: a pinned commit, not a branch", m.model_name());
             assert!(ModelName::parse(&m.model_name().to_string()).is_ok());
-            for c in [&m.configs.cuda, &m.configs.metal, &m.configs.cpu, &m.configs.cuda_batch, &m.configs.cuda_chain]
+            for c in [&m.configs.cuda, &m.configs.metal, &m.configs.cpu, &m.configs.cuda_batch, &m.configs.cuda_eager]
                 .into_iter()
                 .flatten()
             {
@@ -349,36 +379,59 @@ mod tests {
         }
     }
 
-    /// The profile picks a config by name and refuses what it cannot serve;
-    /// unset, the load takes the config it took before the variable existed.
+    /// With no variable the 4B on CUDA loads the chain config; `eager` is the
+    /// way back to the v9 config; the 8B and the 14B keep v9 either way; the
+    /// batch, Metal and the CPU read as before; any other profile is refused.
     #[test]
-    fn the_profile_picks_the_chain_config_and_refuses_the_rest() {
+    fn the_chain_is_the_4b_default_on_cuda_and_eager_is_the_way_back() {
         let four = find(&ModelName::parse("qwen3:4b").unwrap()).unwrap();
         let c = &four.configs;
-        assert_eq!(config_for(c, Backend::Cuda, false, None), Ok("qwen3-4b-tetra-e4-4e-v9.json"));
+        assert_eq!(config_for(c, Backend::Cuda, false, None), Ok("qwen3-4b-tetra-e4-4e-v9-chain.json"));
+        assert_eq!(config_for(c, Backend::Cuda, false, Some("eager")), Ok("qwen3-4b-tetra-e4-4e-v9.json"));
         assert_eq!(config_for(c, Backend::Cuda, true, None), Ok("qwen3-4b-tetra-e4-4e-v9-batch.json"));
-        assert_eq!(config_for(c, Backend::Cuda, false, Some("chain")), Ok("qwen3-4b-tetra-e4-4e-v9-chain.json"));
+        assert_eq!(config_for(c, Backend::Cuda, true, Some("eager")), Ok("qwen3-4b-tetra-e4-4e-v9-batch.json"));
         assert_eq!(config_for(c, Backend::Metal, false, None), Ok("qwen3-4b-tetra-e4.json"));
+        assert_eq!(config_for(c, Backend::Metal, false, Some("eager")), Ok("qwen3-4b-tetra-e4.json"));
+        assert_eq!(config_for(c, Backend::Cpu, false, None), Ok("qwen3-4b-tetra-e4.json"));
         let refused = [
-            (config_for(c, Backend::Cuda, true, Some("chain")), "LLVQ_BATCH"),
-            (config_for(c, Backend::Metal, false, Some("chain")), "CUDA"),
-            (config_for(c, Backend::Cpu, false, Some("chain")), "CUDA"),
+            (config_for(c, Backend::Cuda, false, Some("chain")), "is the default where a model carries it"),
             (config_for(c, Backend::Cuda, false, Some("fast")), "\"fast\""),
             (config_for(c, Backend::Cuda, false, Some("")), "\"\""),
+            (config_for(c, Backend::Cuda, false, Some("Eager")), "\"Eager\""),
+            (config_for(c, Backend::Cuda, true, Some("chain")), "is the default where a model carries it"),
             (config_for(c, Backend::Metal, true, None), "CUDA"),
         ];
         for (r, word) in refused {
             let e = r.unwrap_err();
             assert!(e.contains(word), "{e}");
         }
-        // the 8B and the 14B carry no chain config, and say why
+        let form = |name: &str| {
+            let f: ServedFile = serde_json::from_str(config_text(name).unwrap()).unwrap();
+            Served::of(f, name.into()).unwrap().prefill_form
+        };
+        use llvq_llm::served::Prefill;
+        assert_eq!(form(c.cuda.as_deref().unwrap()), Prefill::Chain);
+        assert_eq!(form(c.cuda_eager.as_deref().unwrap()), Prefill::Eager);
+        // the 8B and the 14B keep the v9 config, which prefills eagerly, with or without the profile
         for tag in ["8b", "14b"] {
             let m = find(&ModelName::parse(&format!("qwen3:{tag}")).unwrap()).unwrap();
-            assert_eq!(m.configs.cuda_chain, None, "{tag}");
-            let e = config_for(&m.configs, Backend::Cuda, false, Some("chain")).unwrap_err();
-            assert!(e.contains("4B only"), "{e}");
+            assert_eq!(m.configs.cuda_eager, None, "{tag}");
+            let v9 = format!("qwen3-{tag}-tetra-e4-4e-v9.json");
+            assert_eq!(config_for(&m.configs, Backend::Cuda, false, None), Ok(v9.as_str()), "{tag}");
+            assert_eq!(config_for(&m.configs, Backend::Cuda, false, Some("eager")), Ok(v9.as_str()), "{tag}");
+            assert_eq!(form(&v9), Prefill::Eager, "{tag}");
         }
-        // the chain config is the default CUDA config with the chain prefill
+        // `llvq run` warns of the first-start compile for the chain on CUDA only
+        assert!(first_start_hint("cuda", "qwen3-4b-tetra-e4-4e-v9-chain.json").is_some_and(|h| h.contains("8.5 min")));
+        for (b, cfg) in [
+            ("cuda", "qwen3-4b-tetra-e4-4e-v9.json"),
+            ("cuda", "qwen3-8b-tetra-e4-4e-v9.json"),
+            ("metal", "qwen3-4b-tetra-e4-4e-v9-chain.json"),
+            ("cuda", "unknown.json"),
+        ] {
+            assert_eq!(first_start_hint(b, cfg), None, "{b} {cfg}");
+        }
+        // the chain config is the v9 config with the chain prefill
         let chain: ServedFile = serde_json::from_str(config_text("qwen3-4b-tetra-e4-4e-v9-chain.json").unwrap()).unwrap();
         let v9: ServedFile = serde_json::from_str(config_text("qwen3-4b-tetra-e4-4e-v9.json").unwrap()).unwrap();
         assert_eq!(ServedFile { prefill: None, note: None, ..chain }, ServedFile { note: None, ..v9 });
@@ -388,7 +441,7 @@ mod tests {
     fn a_manifest_is_served_by_the_library_configs_of_its_file() {
         for e in entries() {
             // Pulled before the CPU backend existed: no CPU config.
-            let old = Configs { cuda: e.configs.cuda.clone(), metal: e.configs.metal.clone(), cpu: None, cuda_batch: None, cuda_chain: None };
+            let old = Configs { cuda: e.configs.cuda.clone(), metal: e.configs.metal.clone(), cpu: None, cuda_batch: None, cuda_eager: None };
             assert_eq!(served_configs(&old, &e.sha256), e.configs, "{}: the CPU and batch configs filled", e.model_name());
             // Pulled on 2026-11-06: the CUDA config of that day, no longer
             // compiled in, and a stale one that still is.
@@ -401,7 +454,7 @@ mod tests {
             }
         }
         // A file the library does not know keeps its own.
-        let own = Configs { cuda: Some("x.json".into()), metal: None, cpu: None, cuda_batch: None, cuda_chain: None };
+        let own = Configs { cuda: Some("x.json".into()), metal: None, cpu: None, cuda_batch: None, cuda_eager: None };
         assert_eq!(served_configs(&own, &"0".repeat(64)), own);
         // A manifest written before the CPU field parses.
         let parsed: Configs = serde_json::from_str(r#"{"cuda": null, "metal": "m.json"}"#).unwrap();

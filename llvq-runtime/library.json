@@ -13,11 +13,11 @@
       "parameter_size": "4B",
       "bits_per_param": "2.7320",
       "configs": {
-        "cuda": "qwen3-4b-tetra-e4-4e-v9.json",
+        "cuda": "qwen3-4b-tetra-e4-4e-v9-chain.json",
         "metal": "qwen3-4b-tetra-e4.json",
         "cpu": "qwen3-4b-tetra-e4.json",
         "cuda_batch": "qwen3-4b-tetra-e4-4e-v9-batch.json",
-        "cuda_chain": "qwen3-4b-tetra-e4-4e-v9-chain.json"
+        "cuda_eager": "qwen3-4b-tetra-e4-4e-v9.json"
       }
     },
     {

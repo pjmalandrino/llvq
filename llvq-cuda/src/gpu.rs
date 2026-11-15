@@ -364,6 +364,14 @@ impl Cuda {
                 (c, format!("module cache: hit, {n} bytes of cubin from {at}"))
             }
             crate::modcache::Lookup::Miss(why) => {
+                // Said at once, on stderr: the user waits minutes here on a
+                // first start, and the load's own lines come only at its end.
+                eprintln!(
+                    "llvq: compiling a {}-byte kernel module for this card and driver (no cached cubin: {why}). A first \
+                     start of the chain prefill compiles two, about 8.5 min on an L40S; later starts read them from the \
+                     cache in seconds.",
+                    src.text.len()
+                );
                 let t = std::time::Instant::now();
                 let ptx = compile_ptx(src)?;
                 let c = crate::persbench::driver_cubin(&ptx.to_src(), "module")?;

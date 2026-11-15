@@ -398,7 +398,14 @@ fn run(client: &Client, model: &str, prompt: Vec<String>, o: RunOpts) -> anyhow:
     let n = name(model)?;
     ensure_server(client)?;
     let model = n.to_string();
-    if let Err(ClientError::Status(404, _)) = client.send("POST", "/api/show", &json!({ "model": model })) {
+    let shown = client.send("POST", "/api/show", &json!({ "model": model }));
+    if let Ok(v) = &shown {
+        let l = &v["llvq"];
+        if let Some(h) = library::first_start_hint(l["backend"].as_str().unwrap_or(""), l["config_cuda"].as_str().unwrap_or("")) {
+            eprintln!("{h}");
+        }
+    }
+    if let Err(ClientError::Status(404, _)) = shown {
         entry(&n)?;
         eprintln!("{model} is not in the store; pulling it");
         client.stream("/api/pull", &json!({ "model": model }), &mut |v| {

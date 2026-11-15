@@ -93,6 +93,16 @@ impl Loader for DeviceLoader {
         let profile = std::env::var(crate::library::PROFILE_ENV).ok();
         let config = crate::library::config_for(&configs, backend, batch.is_some(), profile.as_deref())
             .map_err(|e| anyhow::anyhow!("{name}: {e}"))?;
+        // Which config this load serves, before anything is compiled: a first
+        // start of the chain prefill compiles its tree modules for minutes.
+        eprintln!(
+            "llvq: loading {name} on {} with config {config}{}",
+            backend.label(),
+            match profile.as_deref() {
+                Some(p) => format!(" ({}={p})", crate::library::PROFILE_ENV),
+                None => String::new(),
+            }
+        );
         let text = crate::library::config_text(config)
             .ok_or_else(|| anyhow::anyhow!("{name}: config {config} is not compiled into this binary"))?;
         let file: llvq_llm::served::ServedFile =
@@ -1545,7 +1555,7 @@ mod tests {
                 family: String::new(),
                 parameter_size: String::new(),
                 bits_per_param: String::new(),
-                configs: crate::library::Configs { cuda: None, metal: None, cpu: None, cuda_batch: None, cuda_chain: None },
+                configs: crate::library::Configs { cuda: None, metal: None, cpu: None, cuda_batch: None, cuda_eager: None },
                 modified_at: 0,
             },
             state: Mutex::new(State::Loading),
