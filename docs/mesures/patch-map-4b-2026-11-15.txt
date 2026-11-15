@@ -1,0 +1,32 @@
+QUALITY PHASE 3 (CERVEAU O15): THE PATCH MAP OF THE SEALED 4B'S MMLU DEFICIT. NOT RUN YET. Instrument check: 2026-11-15, $0.
+==============================================================================================================================
+The card job has not run: the phase's budget is not signed. This file holds the instrument check the prereg asks for
+before the job, and will hold the job's journal after it.
+
+Prereg: proofs/preregistration-patch-map-4b-2026-11-15.md, sha256 0001bf6a, stamped at abbd88b, before this reading.
+
+INSTRUMENT CHECK (prereg section 6), *computed* on *measured* dumps, no model, raw in
+patch-map-4b-2026-11-15-brut/instrument.txt
+-----------------------------------------------------------------------------------------------------------------------
+On the 14,042 questions, each restore arm of the sealed 4B against FP16, the control's mean cosine 0.73738:
+  arm           MMLU    cosine share   accuracy share   |difference|
+  qkv           63.92   +0.2057        +0.0811          0.1246
+  o             63.25   +0.0265        -0.0189          0.0454
+  gateup        66.76   +0.4160        +0.5000          0.0840
+  down          65.38   +0.1704        +0.2968          0.1265
+  attn          64.10   +0.2255        +0.1074          0.1181
+  mlp           68.23   +0.5957        +0.7179          0.1222
+  all           70.10   +0.9633        +0.9937          0.0304
+  depth-late    63.81   +0.1129        +0.0642          0.0487
+  depth-early   69.49   +0.8480        +0.9042          0.0562
+Spearman over the nine arms 0.9500, at or above 0.9: the cosine share is the primary statistic of the job
+(PRIMARY=cosine). No degenerate vector.
+
+What the lead reads in it, beside the rule. The two shares rank the restores alike and do not agree in size. The
+cosine share reads the attention restores above their accuracy share (qkv 0.21 against 0.08, attn 0.23 against 0.11)
+and the MLP restores under it (down 0.17 against 0.30, mlp 0.60 against 0.72, gateup 0.42 against 0.50). At equal
+shape agreement an error in the MLP costs more answers than one in attention. The job's branch arms, mlp_0-11 and
+attn_0-11, will carry that lean: H6-E's ratio is read with it in mind, and the accuracy shares are printed beside.
+
+Signed prediction 1: the check passes, 85 %: right. The largest difference above 0.15, on down: it is on down, at
+0.1265, so the size is wrong.

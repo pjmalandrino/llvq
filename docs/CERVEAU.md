@@ -1028,7 +1028,12 @@ gives no rate. Five rivals are written with what kills each; one card job, the p
 and is not run. The first readings, at $0 on dumps on disk
 ([recherche-qualite3-dumps](mesures/recherche-qualite3-dumps-2026-11-15.txt)): the two GSM8K windows repair mostly
 the same problems (Q28), so nothing on disk makes the late blocks a place apart for generation; the first
-divergence from FP16's text turned out to read the opening word, not the weights' error, and decides nothing.
+divergence from FP16's text turned out to read the opening word, not the weights' error, and decides nothing. The
+patch map is stamped (prereg sha256 0001bf6a) and waits for a budget: about $0.42 to $0.84 (*estimated*). Its rules
+are read on the cosine of the four centred answer logits against FP16's, since an accuracy share resolves to about
+0.51 of the gap at 570 questions; on the nine restores already scored that share ranks as accuracy does, Spearman
+0.95, and reads attention above and the MLP under their accuracy shares
+([patch-map-4b](mesures/patch-map-4b-2026-11-15.txt), *computed*).
 
 Already excluded, and not starting points here: gains chosen for a coherent gain of 1 along the depth, and bits
 allocated by the MMLU write depth (O14); the calibration draw, probes of gate/up and a fast verifier, refused by the
