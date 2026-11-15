@@ -23,14 +23,20 @@
 # (pass 1 300 s, text 300 s, Fisher 900 s; every loop together 1,800 s, read after 114 prompts of pass 2).
 # Timeout 45m, ceiling $1.35.
 #
-#   bash ops/jobs/sensitivity-map-4b.sh upload      the committed inputs into the bucket
-#   DRY_RUN=1 bash ops/jobs/sensitivity-map-4b.sh   prints the job script, parses it, launches nothing
-#   bash ops/jobs/sensitivity-map-4b.sh             launches
+# Departures: the stamped prereg is never edited. When a script changes after the stamp, the departure file
+# $ECARTS must exist, be stamped ($ECARTS.ots anchoring its sha256) and name the new sha256; the job then accepts a
+# sha256 named in either file. The first launch (job 6af9be70) stopped before any model loaded and left
+# $OUT/ behind: RETRY=2 writes to $OUT-r2/ and names the inputs folder and the job the same way.
+#
+#   RETRY=2 bash ops/jobs/sensitivity-map-4b.sh upload      the committed inputs into the bucket
+#   DRY_RUN=1 RETRY=2 bash ops/jobs/sensitivity-map-4b.sh   prints the job script, parses it, launches nothing
+#   RETRY=2 bash ops/jobs/sensitivity-map-4b.sh             launches
 set -euo pipefail
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$REPO"
 
 PREREG=proofs/preregistration-sensitivity-map-4b-2026-11-15.md
+ECARTS=proofs/preregistration-sensitivity-map-4b-2026-11-15-ECARTS.md
 BUCKET=Pier-Jean/jobs-artifacts
 PY_LOCAL=ops/sensitivity_map.py
 PM_LOCAL=ops/patch_map.py
@@ -43,8 +49,11 @@ REFS="$REF/control.tsv $REF/questions.tsv $REF/matrices.tsv $REF/lens.tsv $REF/s
 PMREF=docs/mesures/patch-map-4b-2026-11-15-brut
 PMREFS="$PMREF/logits.tsv $PMREF/shape.tsv"
 INPUTS="$PY_LOCAL $PM_LOCAL $CM_LOCAL $LVO_LOCAL $DUMP_F16 $DUMP_SEALED $REFS $PMREFS"
-IN=sensitivity-map-4b-inputs-2026-11-15
-OUT=sensitivity-map-4b-2026-11-15
+# RETRY=2 names a relaunch after a failed attempt left its directory behind.
+RETRY=${RETRY:-}
+case "$RETRY" in ""|[2-9]) ;; *) echo "refused: RETRY=$RETRY, empty or 2..9" >&2; exit 1;; esac
+IN=sensitivity-map-4b-inputs-2026-11-15${RETRY:+-r$RETRY}
+OUT=sensitivity-map-4b-2026-11-15${RETRY:+-r$RETRY}
 EXPORT_DIR=sealed-4b-export-2026-09-23
 FLAVOR=l40sx1
 USD_H=1.80
@@ -105,8 +114,16 @@ if [ "$DRY" != 1 ]; then
   { test -f "$PREREG" && test -f "$PREREG.ots"; } || refuse "$PREREG(.ots) missing"
   # The anchor is the proof: the banner a stamped prereg keeps is not read.
   ots info "$PREREG.ots" 2>/dev/null | grep -q "$(sha "$PREREG")" || refuse "$PREREG.ots does not anchor the sha256 of $PREREG"
+  NAMED="$PREREG"
+  if [ -f "$ECARTS" ]; then
+    test -f "$ECARTS.ots" || refuse "$ECARTS exists but $ECARTS.ots is missing"
+    ots info "$ECARTS.ots" 2>/dev/null | grep -q "$(sha "$ECARTS")" || refuse "$ECARTS.ots does not anchor the sha256 of $ECARTS"
+    NAMED="$PREREG $ECARTS"
+    committed "$ECARTS" "$ECARTS.ots"
+  fi
   for pair in "$PY_LOCAL:$PY_SHA" "$PM_LOCAL:$PM_SHA" "$CM_LOCAL:$CM_SHA" "$0:$JOB_SHA"; do
-    grep -q "${pair##*:}" "$PREREG" || refuse "$PREREG does not name the sha256 of ${pair%%:*} (${pair##*:})"
+    # shellcheck disable=SC2086
+    grep -q "${pair##*:}" $NAMED || refuse "neither $NAMED names the sha256 of ${pair%%:*} (${pair##*:})"
   done
   committed "$0" $INPUTS
   for f in $INPUTS; do

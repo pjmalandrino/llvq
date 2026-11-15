@@ -26,7 +26,8 @@ patch-map having fixed it on these dumps), same bootstrap. Three bases of the 2,
                cross-target terms vanish in expectation; observed labels would give the empirical Fisher.
   fisher_mmlu  the eigenbasis of sum_k p_k s_k s_k^T, s_k the gradient with respect to FP16's h(12), every position,
                of log p_k, the four-option log-probability at the answer position, p_k FP16's own: the exact Fisher of
-               the four-way answer, on the 570 questions that FOLLOW the scored ones in the round robin.
+               the four-way answer, on 570 questions that FOLLOW the scored ones in the round robin, rows
+               whose (subject, index) or token hash repeats a scored or an earlier one skipped (MMLU repeats a few).
 Both Fisher bases come from FP16 alone and never see a scored question (asserted on subject, index and token hash).
 
 The gradient pass: FP16's h(12) in f16 under no_grad, bit for bit the stream the patch reads, cast to float32; blocks
@@ -77,7 +78,7 @@ BANDS = pm.PATCH_BANDS  # ((1, 64), (65, 512), (513, 2560))
 TOP, BOT = 0, 2
 N_TEXT = 256  # WikiText-2 windows, the first ones of the pinned test stream
 TEXT_CTX = 512
-FISHER_Q = (N_Q, 2 * N_Q)  # round-robin rows of fisher_mmlu
+FISHER_START = N_Q  # fisher_mmlu: the round robin walked from this row, skipping repeats, until N_Q rows are held
 LABEL_SEED = 20261116  # sampled next tokens of the text pass
 CHECK_Q = 57
 CHECK_GRAD = 8  # windows and questions whose float32 logits are recomputed without autograd
@@ -217,6 +218,29 @@ class FisherAcc:
 
     def total(self):
         return self.half[0] + self.half[1]
+
+
+def select_fisher(rows, start: int, n: int, scored):
+    """rows: round-robin rows, each with "subject", "index", "qhash". Walks from `start`, skipping every row whose
+    (subject, index) or token hash is among the scored ones or those already taken, until n rows are held. Returns
+    (taken, skipped), skipped a list of (row number, subject, index, reason)."""
+    seen_k = {(s, i) for s, i, _ in scored}
+    seen_h = {h for _, _, h in scored}
+    taken, skipped = [], []
+    for r in range(start, len(rows)):
+        if len(taken) == n:
+            break
+        q = rows[r]
+        k = (q["subject"], q["index"])
+        if k in seen_k or q["qhash"] in seen_h:
+            skipped.append((r, q["subject"], q["index"], "question" if k in seen_k else "token hash"))
+            continue
+        taken.append(q)
+        seen_k.add(k)
+        seen_h.add(q["qhash"])
+    if len(taken) != n:
+        raise SystemExit(f"refused: only {len(taken)} Fisher rows after row {start}, {n} wanted")
+    return taken, skipped
 
 
 def disjoint_or_refuse(scored, other) -> tuple[int, int]:
@@ -1169,6 +1193,23 @@ def selftest() -> int:
         except SystemExit:
             refused.append(True)
     check(all(refused), "a shared (subject, index) is refused, and so is a shared token hash")
+    cand = [dict(subject=s, index=i, qhash=h) for s, i, h in sc]
+    cand += [dict(subject="a", index=2, qhash=14), dict(subject="c", index=0, qhash=13),
+             dict(subject="b", index=1, qhash=15), dict(subject="d", index=0, qhash=15),
+             dict(subject="d", index=1, qhash=16), dict(subject="d", index=2, qhash=17)]
+    tk, sk = select_fisher(cand, 3, 4, sc)
+    tk_ = [(q["subject"], q["index"], q["qhash"]) for q in tk]
+    unfiltered = [(q["subject"], q["index"], q["qhash"]) for q in cand[3:7]]
+    try:
+        disjoint_or_refuse(sc, unfiltered)
+        refuses_raw = False
+    except SystemExit:
+        refuses_raw = True
+    check(len(tk) == 4 and [r for r, *_ in sk] == [4, 6] and [w for *_, w in sk] == ["token hash", "token hash"]
+          and tk_ == [("a", 2, 14), ("b", 1, 15), ("d", 1, 16), ("d", 2, 17)]
+          and disjoint_or_refuse(sc, tk_) == (3, 4) and refuses_raw,
+          "Fisher rows: a scored token hash and a repeat of a taken one are skipped and replaced, the set holds its "
+          "count and passes the guard; the same rows unfiltered are refused")
 
     # 14. End to end: analyse writes every file; gates green on self-consistent dumps.
     keys = [("tiny", i) for i in range(len(prompts))]
@@ -1235,12 +1276,17 @@ def run(args) -> int:
     if bad:
         raise SystemExit(f"refused: {len(bad)} prompts differ from the dumps' token ids, first {bad[:3]}")
     rr = cm.round_robin(qs)
-    order, forder = rr[:N_Q], rr[FISHER_Q[0]:FISHER_Q[1]]
+    order = rr[:N_Q]
+    sc_ = [(q["subject"], q["index"], q["qhash"]) for q in order]
+    forder, fskip = select_fisher(rr, FISHER_START, N_Q, sc_)
     if [(q["subject"], q["index"], q["qhash"]) for q in order] != ref["questions"]:
         raise SystemExit("refused: these are not contrast-map's 570 questions")
     fk = disjoint_or_refuse([(q["subject"], q["index"], q["qhash"]) for q in order],
                             [(q["subject"], q["index"], q["qhash"]) for q in forder])
-    print(f"questions: scored {fk[0]} (contrast-map's), Fisher {fk[1]} (round robin {FISHER_Q[0]}..{FISHER_Q[1] - 1}), "
+    fdesc = (f"round robin from row {FISHER_START}, {len(fskip)} rows skipped"
+             + (": " + "; ".join(f"row {r} {s}/{i} ({why})" for r, s, i, why in fskip) if fskip else ""))
+    print(f"Fisher rows: {fdesc}", flush=True)
+    print(f"questions: scored {fk[0]} (contrast-map's), Fisher {fk[1]} ({fdesc}), "
           f"disjoint; Fisher prompt lengths {min(len(q['ids']) for q in forder)}..{max(len(q['ids']) for q in forder)}")
     toks = lvo.fetch_tokens(args.cache)
     windows = lvo.cut_windows(toks, TEXT_CTX)[:N_TEXT]
@@ -1308,7 +1354,7 @@ def run(args) -> int:
     stamp(f"bases unchanged by sha256: {same}")
     head = [f"inputs: checkpoint {lvo.CKPT_REPO}@{lvo.CKPT_REV}; export sha256 {lvo.EXPORT_SHA}; "
             f"{cm.MMLU_REPO}@{cm.MMLU_REV}; {lvo.WIKI_REPO}@{lvo.WIKI_REV}; answer ids {ans_ids}",
-            f"scored {N_Q} questions, {sr.tokens} tokens; Fisher questions round robin {FISHER_Q[0]}..{FISHER_Q[1] - 1}; "
+            f"scored {N_Q} questions, {sr.tokens} tokens; Fisher questions {fdesc}; "
             f"text {N_TEXT} windows of {TEXT_CTX}, fingerprint {wfp:016x}, labels sampled with seed {LABEL_SEED}",
             "seconds: " + ", ".join(f"{k} {v:.0f}" for k, v in secs.items()),
             f"bases unchanged by sha256: {same}; non-projection tensors identical in W and W_hat: "

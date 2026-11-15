@@ -1,0 +1,10 @@
+versions: {'torch': '2.5.1', 'safetensors': '0.4.5', 'tokenizers': '0.22.2', 'pyarrow': '20.0.0', 'huggingface_hub': '1.19.0'}
+
+tokenizer.json:   0%|          | 0.00/11.4M [00:00<?, ?B/s][Atokenizer.json: 100%|██████████| 11.4M/11.4M [00:00<00:00, 44.0MB/s]
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+
+all/test-00000-of-00001.parquet:   0%|          | 0.00/3.50M [00:00<?, ?B/s][Aall/test-00000-of-00001.parquet: 100%|██████████| 3.50M/3.50M [00:00<00:00, 24.6MB/s]
+
+all/dev-00000-of-00001.parquet:   0%|          | 0.00/76.5k [00:00<?, ?B/s][Aall/dev-00000-of-00001.parquet: 100%|██████████| 76.5k/76.5k [00:00<00:00, 594kB/s]
+prompts: 14042 questions, 57 subjects, 285 dev examples, tokenized in 12.3 s; run fingerprint a74a6d6213602979 (dumps a74a6d6213602979)
+refused: the Fisher questions share 0 questions and 2 token hashes with the scored ones
