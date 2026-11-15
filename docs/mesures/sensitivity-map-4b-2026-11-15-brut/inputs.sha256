@@ -1,0 +1,13 @@
+/out/sensitivity-map-4b-inputs-2026-11-15-r2/sensitivity_map.py: OK
+/out/sensitivity-map-4b-inputs-2026-11-15-r2/patch_map.py: OK
+/out/sensitivity-map-4b-inputs-2026-11-15-r2/contrast_map.py: OK
+/out/sensitivity-map-4b-inputs-2026-11-15-r2/layer_vs_output.py: OK
+/out/sensitivity-map-4b-inputs-2026-11-15-r2/mmlu-4b-f16-FULL.csv: OK
+/out/sensitivity-map-4b-inputs-2026-11-15-r2/mmlu-4b-abl-control-FULL.csv: OK
+/out/sensitivity-map-4b-inputs-2026-11-15-r2/contrast-map-control.tsv: OK
+/out/sensitivity-map-4b-inputs-2026-11-15-r2/contrast-map-questions.tsv: OK
+/out/sensitivity-map-4b-inputs-2026-11-15-r2/contrast-map-matrices.tsv: OK
+/out/sensitivity-map-4b-inputs-2026-11-15-r2/contrast-map-lens.tsv: OK
+/out/sensitivity-map-4b-inputs-2026-11-15-r2/contrast-map-stream_bands.tsv: OK
+/out/sensitivity-map-4b-inputs-2026-11-15-r2/patch-map-logits.tsv: OK
+/out/sensitivity-map-4b-inputs-2026-11-15-r2/patch-map-shape.tsv: OK

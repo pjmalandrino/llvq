@@ -1,0 +1,81 @@
+inputs: checkpoint Qwen/Qwen3-4B@1cfa9a7208912126459214e8b04321603b3df60c; export sha256 2a018cbdea37849c6fde29576e75aefb9125d9964e20e78bd3afb2a0948bba59; cais/mmlu@c30699e8356da336a370243923dbaf21066bb9fe; Salesforce/wikitext@b08601e04326c79dfdd32d625aee71d232d685c3; answer ids [362, 425, 356, 422]
+scored 570 questions, 345007 tokens; Fisher questions round robin from row 570, 2 rows skipped: row 735 public_relations/12 (token hash); row 922 college_physics/16 (token hash); text 256 windows of 512, fingerprint eb7e09791138eedf, labels sampled with seed 20261116
+seconds: pass 1 35, text 101, fisher 786, pass 2 526
+bases unchanged by sha256: True; non-projection tensors identical in W and W_hat: 145 of 146
+
+GATES, 570 scored questions
+  rule D: picks equal to the Rust dumps 0.9947 (FP16), 0.9912 (control); slope script 0.6042 dump 0.6047: GREEN
+  Fisher questions: 570 questions, none among the 570 scored (subject, index and token hash; checked before the load)
+  self-patch with the sealed stream, top and bottom band of each basis: 342 of 342 bit for bit
+  d12 against FP16 blocks 0..11 then sealed: 57 of 57 bit for bit
+  FP16 logits, pass 2 (after the gradient passes) against pass 1: 570 of 570 bit for bit
+  variance: three bands together against the whole stream, picks equal 1.0000, worst |dlogit| 3.125e-02, worst |dstream| 1.526e-05
+  fisher_text: three bands together against the whole stream, picks equal 1.0000, worst |dlogit| 3.125e-02, worst |dstream| 2.441e-04
+  fisher_mmlu: three bands together against the whole stream, picks equal 1.0000, worst |dlogit| 3.125e-02, worst |dstream| 2.441e-04
+  bases orthonormal, max |V^T V - I|: variance 2.0e-14, fisher_text 2.2e-14, fisher_mmlu 2.2e-14 (at most 1e-09)
+  float32 gradient pass, logits with and without autograd: 16 of 16 bit for bit (worst 0.0e+00)
+  gradients: 0 passes with a non-finite value, of 256 windows and 570 questions
+  Fisher questions, the float32 path's pick against FP16's f16 forward: 0.9982 equal (at least 0.98); worst |d centred logit| 4.607e-02, median 8.696e-03
+  deviation energy, three bands against the direct total in the canonical basis, every question, basis and convention: worst relative difference 7.5e-15 (at most 1e-09)
+  against contrast-map-4b: FP16 419 right (419 there), control 378 (378); picks equal 1.0000 and 1.0000: GREEN
+  against patch-map-4b: d12 picks 1.0000, s +0.3896 against +0.3896, |dlogit| 5.00e-06; var_b1-64 picks 1.0000, s +0.0326 against +0.0326, |dlogit| 3.13e-02; var_b65-512 picks 1.0000, s +0.1435 against +0.1437, |dlogit| 4.69e-02; var_b513-2560 picks 1.0000, s +0.3349 against +0.3347, |dlogit| 4.69e-02: GREEN
+
+ARMS: c = cosine of the centred four logits with FP16's; s = (C - C_control) / (1 - C_control), primary; accuracy, paired against the control; KL(FP16 || arm) and log p(FP16's pick) over the four options; 95 % paired bootstrap
+  arm               C        s [95 %]                  acc     minus control [95 %]      b/c      acc share [95 %]          KL [95 %]
+  fp16              1.00000  +1.000 [+1.000, +1.000]   73.51   +7.19 [ +3.52, +10.87]   79/38   +1.000 [+1.000, +1.000]  0.000 [0.000, 0.000]
+  control           0.76879  +0.000 [+0.000, +0.000]   66.32   +0.00 [ +0.00,  +0.00]    0/0    +0.000 [+0.000, +0.000]  0.435 [0.365, 0.510]
+  d12               0.85887  +0.390 [+0.310, +0.463]   71.40   +5.09 [ +2.10,  +8.08]   53/24   +0.707 [+0.362, +1.250]  0.270 [0.220, 0.325]
+  var_b1-64         0.77633  +0.033 [-0.011, +0.079]   67.37   +1.05 [ -0.70,  +2.80]   16/10   +0.146 [-0.114, +0.435]  0.421 [0.352, 0.496]
+  var_b65-512       0.80197  +0.143 [+0.096, +0.191]   67.72   +1.40 [ -0.66,  +3.46]   22/14   +0.195 [-0.129, +0.483]  0.366 [0.305, 0.432]
+  var_b513-2560     0.84622  +0.335 [+0.264, +0.403]   69.65   +3.33 [ +0.62,  +6.05]   41/22   +0.463 [+0.111, +0.875]  0.297 [0.248, 0.352]
+  ft_b1-64          0.77489  +0.026 [-0.029, +0.081]   66.32   +0.00 [ -2.17,  +2.17]   20/20   +0.000 [-0.407, +0.297]  0.412 [0.348, 0.481]
+  ft_b65-512        0.81044  +0.180 [+0.113, +0.246]   68.60   +2.28 [ +0.03,  +4.53]   28/15   +0.317 [+0.000, +0.692]  0.377 [0.315, 0.442]
+  ft_b513-2560      0.82278  +0.233 [+0.163, +0.302]   69.47   +3.16 [ +0.64,  +5.67]   36/18   +0.439 [+0.128, +0.833]  0.313 [0.258, 0.375]
+  fm_b1-64          0.77479  +0.026 [-0.013, +0.064]   66.84   +0.53 [ -1.26,  +2.31]   15/12   +0.073 [-0.227, +0.333]  0.403 [0.340, 0.471]
+  fm_b65-512        0.79994  +0.135 [+0.067, +0.199]   67.54   +1.23 [ -1.02,  +3.48]   25/18   +0.171 [-0.200, +0.486]  0.370 [0.313, 0.431]
+  fm_b513-2560      0.82685  +0.251 [+0.178, +0.322]   68.07   +1.75 [ -0.86,  +4.37]   34/24   +0.244 [-0.167, +0.579]  0.346 [0.281, 0.417]
+  ft_not1-64        0.85169  +0.359 [+0.277, +0.433]   70.88   +4.56 [ +1.43,  +7.69]   55/29   +0.634 [+0.265, +1.118]  0.294 [0.240, 0.355]
+  fm_not1-64        0.85641  +0.379 [+0.298, +0.452]   71.05   +4.74 [ +1.67,  +7.81]   54/27   +0.659 [+0.306, +1.125]  0.298 [0.240, 0.364]
+  var_b1-512        0.80362  +0.151 [+0.087, +0.213]   67.54   +1.23 [ -0.97,  +3.43]   24/17   +0.171 [-0.192, +0.465]  0.364 [0.302, 0.430]
+  ft_b1-512         0.80444  +0.154 [+0.073, +0.231]   66.67   +0.35 [ -2.40,  +3.10]   33/31   +0.049 [-0.500, +0.389]  0.367 [0.312, 0.428]
+  fm_b1-512         0.79697  +0.122 [+0.045, +0.192]   67.54   +1.23 [ -1.23,  +3.68]   29/22   +0.171 [-0.237, +0.514]  0.360 [0.306, 0.419]
+
+DEVIATION ENERGY at depth 12, h_s - h_f every position, share of the convention's total. Direction 1 of the variance basis at position 0 holds 0.8227 of all the deviation energy, at every position 0.8234. Conventions: all = every coordinate; pos0 = direction 1 removed at position 0; dir1 = direction 1 removed at every position (primary)
+  basis         conv   [1, 64]   [65, 512]   [513, 2560]   [1, 512]
+  variance      all    0.83487   0.04471   0.12042   0.87958
+  variance      pos0   0.06889   0.25212   0.67899   0.32101
+  variance      dir1   0.06487   0.25321   0.68192   0.31808
+  fisher_text   all    0.04309   0.07206   0.88485   0.11515
+  fisher_text   pos0   0.03867   0.18122   0.78012   0.21988
+  fisher_text   dir1   0.03817   0.18178   0.78005   0.21995
+  fisher_mmlu   all    0.03706   0.08828   0.87466   0.12534
+  fisher_mmlu   pos0   0.03075   0.17536   0.79389   0.20611
+  fisher_mmlu   dir1   0.03025   0.17585   0.79390   0.20610
+
+GIVE-BACK A UNIT OF DEVIATION ENERGY: s(band) / E(band); ratio top band over bottom band, paired bootstrap 95 % (energies resampled with the questions); cross term s_1 + s_2 + s_3 - s(d12)
+  variance: s +0.033 [-0.011, +0.079], +0.143 [+0.096, +0.191], +0.335 [+0.264, +0.403]; per unit energy (dir1) 0.50, 0.57, 0.49
+    ratio top / bottom: dir1 +1.023 [-0.368, +2.381] (0 draws left out); pos0 +0.960 [-0.345, +2.233]; all +0.014 [-0.005, +0.033]; on the accuracy share +3.319 [-3.467, +13.497]
+    [1, 512] together: s +0.151 [+0.087, +0.213], E 0.31808 (dir1); ratio over the bottom band: dir1 +0.964 [+0.592, +1.352]; pos0 +0.951 [+0.585, +1.334]; all +0.062 [+0.038, +0.087]; on the accuracy share +0.790 [-1.227, +2.816]
+    cross term s_1 + s_2 + s_3 - s(d12): +0.121 [+0.038, +0.208]
+  fisher_text: s +0.026 [-0.029, +0.081], +0.180 [+0.113, +0.246], +0.233 [+0.163, +0.302]; per unit energy (dir1) 0.69, 0.99, 0.30
+    ratio top / bottom: dir1 +2.309 [-2.688, +7.396] (0 draws left out); pos0 +2.280 [-2.654, +7.300]; all +2.320 [-2.700, +7.427]; on the accuracy share +0.000 [-27.869, +15.878]
+    [1, 512] together: s +0.154 [+0.073, +0.231], E 0.21995 (dir1); ratio over the bottom band: dir1 +2.342 [+1.157, +3.723]; pos0 +2.343 [+1.157, +3.725]; all +5.075 [+2.508, +8.072]; on the accuracy share +0.394 [-5.683, +3.550]
+    cross term s_1 + s_2 + s_3 - s(d12): +0.050 [-0.041, +0.136]
+    every band but [1, 64]: s +0.359 [+0.277, +0.433]; s(d12) minus it, the top band's marginal give-back: +0.031 [-0.008, +0.072]
+  fisher_mmlu: s +0.026 [-0.013, +0.064], +0.135 [+0.067, +0.199], +0.251 [+0.178, +0.322]; per unit energy (dir1) 0.86, 0.77, 0.32
+    ratio top / bottom: dir1 +2.711 [-1.384, +7.059] (0 draws left out); pos0 +2.667 [-1.362, +6.946]; all +2.438 [-1.244, +6.361]; on the accuracy share +7.873 [-61.032, +78.689]
+    [1, 512] together: s +0.122 [+0.045, +0.192], E 0.20610 (dir1); ratio over the bottom band: dir1 +1.870 [+0.747, +3.114]; pos0 +1.870 [+0.747, +3.114]; all +3.387 [+1.352, +5.645]; on the accuracy share +2.696 [-11.521, +16.386]
+    cross term s_1 + s_2 + s_3 - s(d12): +0.022 [-0.056, +0.100]
+    every band but [1, 64]: s +0.379 [+0.298, +0.452]; s(d12) minus it, the top band's marginal give-back: +0.011 [-0.024, +0.047]
+
+SPECTRA (*computed* on FP16 alone): trace share of each band, arithmetic over geometric mean of the eigenvalues (transform-coding gain), split-half overlap of the top-64 subspaces
+  variance     0.9806, 0.0119, 0.0075; AM/GM 8.496e+01 (19.3 dB, 0 under the floor); 345007 positions of the 570 scored prompts
+  fisher_text  0.5164, 0.1974, 0.2862; AM/GM 2.360e+00 (3.7 dB, 0 under the floor); 256 windows, 131072 position gradients, one sampled label a position; split-half top-64 overlap 0.298 (halves of 65536 and 65536 vectors)
+  fisher_mmlu  0.3247, 0.3789, 0.2964; AM/GM 2.317e+00 (3.6 dB, 0 under the floor); 570 questions, 345285 positions x 4 scores, 2280 backward passes; split-half top-64 overlap 0.095 (halves of 680948 and 700192 vectors)
+  top-64 overlaps (1 the same subspace, 0.0250 at random): fisher_text / fisher_mmlu 0.082, fisher_text / variance 0.085, fisher_mmlu / variance 0.041
+
+KILL RULE (prereg table). fisher_text, give-back a unit of deviation energy (dir1) over the bottom band's: [1, 64] +2.309 [-2.688, +7.396]; [1, 512] +2.342 [+1.157, +3.723], holding 0.2200 of the deviation energy: NOT DECIDED. UNEVEN if either whole 95 % interval lies above 3; FLAT if the [1, 512] interval lies inside [0.5, 2], the [1, 64] one does not lie above 3, and [1, 512] holds at least 0.15 of the energy; NOT DECIDED otherwise. s(d12) +0.390 [+0.310, +0.463].
+  beside, no rule: fisher_mmlu [1, 64] +2.711 [-1.384, +7.059], [1, 512] +1.870 [+0.747, +3.114]; variance [1, 64] +1.023 [-0.368, +2.381], [1, 512] +0.964 [+0.592, +1.352], the control: points inside [0.5, 2] (expected 1.03) and [0.25, 2] (expected 0.35 to 1.14): GREEN
+  GATES: GREEN (all pass)
+
+RAW: arms.tsv, kills.tsv, logits.tsv, picks.tsv, checks.tsv, spectra.tsv, energies.f64 (N x 3 bases x 3 conventions x [3 bands, direct total]), misscale.f64 (N x [u_0^2, sum u^2, |delta|^2]), eigvals_{basis}.f64, fisher_{text,mmlu}.f64 (the 2560 x 2560 sums)

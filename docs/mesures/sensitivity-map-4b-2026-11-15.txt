@@ -1,0 +1,107 @@
+QUALITY PHASE 3 (CERVEAU O15): THE SENSITIVITY MAP OF THE 4B'S STREAM AT DEPTH 12, two card runs, 2026-11-15
+==============================================================================================================================
+Result: the rule reads NOT DECIDED, and the reading is clear enough to act on. In the basis running text marks as
+sensitive (the Fisher of FP16's stream at depth 12), a unit of the sealed deviation costs 2.34 [1.16, 3.72] times
+more in the 512 most sensitive directions than in the 2,048 others. The Fisher itself announces far more: its top 64
+directions hold 0.516 of its trace, 58 times the bottom band's a direction (*computed*), and they give back +0.026
+[-0.029, +0.081] where they hold 0.038 of the deviation energy. The sensitive directions are not shared: the top-64
+subspaces of the text Fisher and of the MMLU Fisher overlap by 0.082, and two halves of the same text by 0.298. Every
+gate is green. Every figure is *measured* unless labelled.
+
+First launch, job 6af9be7023985fb9cd8368be: VOID, 79 s, $0.04, stopped by its own guard before any model loaded (two
+candidate Fisher prompts had the token hash of a scored one). Relaunch, job 6af9c02c23985fb9cd836ab9, l40sx1, 1,679 s
+running, $0.84. Prereg proofs/preregistration-sensitivity-map-4b-2026-11-15.md (sha256 1453e867, stamped before the
+first launch); departure proofs/preregistration-sensitivity-map-4b-2026-11-15-ECARTS.md (stamped before the
+relaunch): the Fisher questions skip MMLU's repeats, rows 735 and 922. Raw outputs in
+sensitivity-map-4b-2026-11-15-brut/ (void-1/ for the first launch; the .f64 sums stay in the bucket folder
+sensitivity-map-4b-2026-11-15-r2/).
+
+GATES: all green (report.txt, GATES)
+  Rule D; contrast-map reproduced, FP16 419 and control 378, picks equal 1.0000; patch-map reproduced, d12 at
+  +0.3896 against +0.3896 and the three variance bands within 0.0002. Self-patches 342 of 342 bit for bit; d12 against
+  FP16's blocks then the sealed ones 57 of 57; FP16's logits after the gradient passes 570 of 570. The three bands of
+  each basis together give the whole stream's picks. Bases orthonormal to 2.2e-14. The float32 gradient path leaves
+  the logits bit for bit, 16 of 16, and no gradient is non-finite. The Fisher questions share nothing with the 570
+  scored. Variance control: 1.023 and 0.964, expected 1.03 and 0.35 to 1.14.
+
+THE BASES (*computed* on FP16 alone)
+  basis         trace share of [1, 64], [65, 512], [513, 2560]   AM/GM of the eigenvalues   split-half top-64 overlap
+  variance      0.9806, 0.0119, 0.0075                           85.0 (19.3 dB)
+  fisher_text   0.5164, 0.1974, 0.2862                           2.36 (3.7 dB)              0.298
+  fisher_mmlu   0.3247, 0.3789, 0.2964                           2.32 (3.6 dB)              0.095
+  Top-64 overlaps (1 the same subspace, 0.025 at random): text and MMLU 0.082, text and variance 0.085, MMLU and
+  variance 0.041. fisher_text: 256 windows of 512 WikiText-2 tokens, one sampled label a position, 131,072 gradients.
+  fisher_mmlu: 570 questions that are not the scored ones, four scores each.
+
+WHERE THE SEALED DEVIATION SITS at depth 12 (share of its energy, direction 1 of the variance basis left out)
+  basis         [1, 64]   [65, 512]   [513, 2560]   [1, 512]
+  variance      0.065     0.253       0.682         0.318
+  fisher_text   0.038     0.182       0.780         0.220
+  fisher_mmlu   0.030     0.176       0.794         0.206
+  In the two Fisher bases the deviation is spread about as the count of directions, 0.025, 0.175 and 0.800.
+  Direction 1 of the variance basis holds 0.823 of all the deviation energy, at position 0.
+
+WHAT EACH BAND GIVES BACK (570 scored questions; s the share of shape agreement; accuracy beside)
+  arm              s [95 %]                  accuracy minus control [95 %]   s over the band's energy share
+  d12              +0.390 [+0.310, +0.463]   +5.09 [+2.10, +8.08]
+  var [1, 64]      +0.033 [-0.011, +0.079]   +1.05 [-0.70, +2.80]            0.50
+  var [65, 512]    +0.143 [+0.096, +0.191]   +1.40 [-0.66, +3.46]            0.57
+  var [513, 2560]  +0.335 [+0.264, +0.403]   +3.33 [+0.62, +6.05]            0.49
+  ft [1, 64]       +0.026 [-0.029, +0.081]   +0.00 [-2.17, +2.17]            0.69
+  ft [65, 512]     +0.180 [+0.113, +0.246]   +2.28 [+0.03, +4.53]            0.99
+  ft [513, 2560]   +0.233 [+0.163, +0.302]   +3.16 [+0.64, +5.67]            0.30
+  ft [1, 512]      +0.154 [+0.073, +0.231]   +0.35 [-2.40, +3.10]
+  ft all but [1, 64] +0.359 [+0.277, +0.433] +4.56 [+1.43, +7.69]
+  fm [1, 64]       +0.026 [-0.013, +0.064]   +0.53 [-1.26, +2.31]            0.86
+  fm [65, 512]     +0.135 [+0.067, +0.199]   +1.23 [-1.02, +3.48]            0.77
+  fm [513, 2560]   +0.251 [+0.178, +0.322]   +1.75 [-0.86, +4.37]            0.32
+  fm [1, 512]      +0.122 [+0.045, +0.192]   +1.23 [-1.23, +3.68]
+  fm all but [1, 64] +0.379 [+0.298, +0.452] +4.74 [+1.67, +7.81]
+  The top band's marginal give-back, s(d12) minus "all but [1, 64]": +0.031 [-0.008, +0.072] for the text Fisher,
+  +0.011 [-0.024, +0.047] for the MMLU Fisher.
+
+THE RULE (prereg section 7, fisher_text, convention dir1)
+  R_64, [1, 64] over [513, 2560]:   2.309 [-2.688, +7.396]
+  R_512, [1, 512] over [513, 2560]: 2.342 [+1.157, +3.723], with 0.220 of the deviation energy in [1, 512]
+  UNEVEN needs an interval wholly above 3; FLAT needs R_512 wholly inside [0.5, 2]. Neither holds: NOT DECIDED.
+  Beside, no rule: fisher_mmlu 2.711 [-1.384, +7.059] and 1.870 [+0.747, +3.114].
+
+THE LEAD'S READING
+  1. The unevenness is about 2, not 10. R_512 excludes 1 and excludes 4. Its point value equals the AM/GM of the text
+     Fisher's eigenvalues, 2.36.
+  2. The Fisher does not predict the cost of this deviation. For the text Fisher a direction of the top band holds 58
+     times the trace of a direction of the bottom band, and one of the middle band 3.1 times (*computed* from the
+     trace shares and the band sizes). The middle band is borne out: 0.99 against 0.30, a ratio of 3.3. The top band
+     is not: 0.69 against 0.30. The MMLU Fisher, computed on the very quantity scored, does no better: its top 64
+     directions hold 0.325 of its trace and give back +0.026. The deviation is not small, and a second-order
+     quantity does not carry to it.
+  3. No basis known in advance. The 64 directions running text marks as most sensitive share 0.082 of their
+     subspace with those MMLU marks, and two halves of the same text share 0.298. An encoder has one weighting for
+     every input.
+  4. What a layout by the text Fisher could save at most, on the point values (*computed*): 0.220 of the deviation
+     energy sits where a unit costs 2.34; moved where it costs 1, the cost of depth 12 falls by 0.295 over 1.295,
+     23 %. It is a bound on a reading with a wide interval, not a gain.
+  5. With R6's result on the variance order, the cost of what the first twelve blocks write follows the energy of
+     the deviation, in three bases. The lead proposes to close the phase.
+
+SIGNED PREDICTIONS (prereg section 12)
+  1. Every gate green on the first launch, 50 %: wrong, the first launch was void on a guard; the relaunch is green.
+  2. 23 min [17, 32]: right, 28.0 min.
+  3. Variance control holds, 85 %: right.
+  4. The text Fisher's top 64 hold 0.60 [0.35, 0.85] of its trace: right, 0.516.
+  5. Deviation energy in its [1, 64], 0.04 [0.01, 0.12]: right, 0.038. In its [1, 512], 0.25 [0.12, 0.40]: right, 0.220.
+  6. R_64 = 4 [1.5, 12]: the point is inside, 2.309. UNEVEN at 55 %: wrong, NOT DECIDED.
+  7. fisher_mmlu's R_64 above the text's, 75 %: right on the points, 2.711 against 2.309, not resolved. Its interval
+     above 3, 75 %: wrong.
+  8. Top-64 overlap of the two Fishers 0.35 [0.15, 0.60]: wrong, 0.082.
+  9. Text Fisher against variance under 0.5: right, 0.085.
+  The lead's stated reason, "curvature spectra of networks are steep", was wrong at this place: 3.7 dB.
+
+NOT ESTABLISHED
+  Anything at another depth, on another size, on GSM8K or on a second draw. What the published two-sided objective
+  would gain on this format: it was not run. What a Fisher of the calibration text would read, where WikiText-2 was
+  used. Why a second-order quantity misreads the top band: the size of the deviation, its coherence, or the 24
+  sealed blocks the patch is read through.
+
+Cost: $0.04 for the void launch and $0.84 for the relaunch (*computed*, 79 s and 1,679 s at $1.80/h), against $0.57
+to $0.84 estimated and a ceiling of $1.35 a launch. Phase O15: $1.49 of $10. Registry on this branch: $351.38.

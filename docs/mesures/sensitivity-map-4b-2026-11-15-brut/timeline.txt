@@ -1,0 +1,9 @@
+15.1	inputs checked
+132.4	loaded, bases fp16 a0ca1763b6cf4f11 sealed f5ea5a81d1588826
+167.2	pass 1: 570 in 35 s, peak memory 16.3 GiB
+268.5	text: 256 in 101 s, peak memory 18.1 GiB
+1054.4	fisher: 570 in 786 s, peak memory 20.7 GiB
+1057.3	bases: variance, fisher_text, fisher_mmlu
+1582.9	pass 2: 570 prompts, 526 s, 586 checks, peak memory 20.7 GiB
+1607.6	bases unchanged by sha256: True
+1613.2	analysis written

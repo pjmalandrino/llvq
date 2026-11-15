@@ -16,8 +16,9 @@ MMLU and added Q27, and the operator closed the phase the same day: O14 is conde
 two beliefs joined the dropped ones. On 2026-11-15 the long-context speed phase closed (O13): P4 replaced the
 claim that int8 does not pass, P3 is refuted on one tile, and a third quality phase opened on N6 and N7 (O15). Its
 first readings, on dumps already on disk, added Q28 and notes to Q11 and Q25. Its first card job, the patch map,
-added Q29 and the anomaly N8.
-67 claims: 16 established, 2 proved, 40 supported, 5 conjecture, 4 refuted.
+added Q29 and the anomaly N8. A conjecture drawn from it was refuted at R6, and a second card job, the sensitivity
+map, added Q30.
+68 claims: 16 established, 2 proved, 41 supported, 5 conjecture, 4 refuted.
 
 This document lists what we believe to be true about quantizing LLMs on the Leech lattice, each belief with its
 standing. It is not the served state ([`ETAT.md`](ETAT.md)), the history ([`HISTORIQUE.md`](HISTORIQUE.md)) or a plan
@@ -449,6 +450,24 @@ position gives back 0.379 of 0.390. FP16's MLP outputs of blocks 0 to 11, the se
   say those directions are more fragile ([recherche-qualite3-r6-issue](mesures/recherche-qualite3-r6-issue-2026-11-15.txt)).
 - Checked: 2026-11-15.
 
+**Q30.** At depth 12 of the sealed 4B, a unit of the deviation costs about twice more in the directions a Fisher of
+running text marks as sensitive, not the tens of times the Fisher announces, and those directions are not shared
+across inputs. Give-back a unit of deviation energy, the 512 most sensitive directions over the 2,048 others: 2.34
+[1.16, 3.72] for the text Fisher, 1.87 [0.75, 3.11] for a Fisher of MMLU answers. The text Fisher's top 64
+directions hold 0.516 of its trace and give back +0.026 [−0.029, +0.081] of the shape gap for 0.038 of the deviation
+energy. The arithmetic over geometric mean of its eigenvalues is 2.36, 3.7 dB. The top-64 subspaces of the two
+Fishers overlap by 0.082, and two halves of the same text by 0.298.
+- Standing: supported. One card job under a stamped prereg and a stamped departure, every gate green, the variance
+  bands of Q29 reproduced in the same job. The prereg's rule reads NOT DECIDED: the interval lies neither above 3
+  nor inside [0.5, 2]. Scope: sealed 4B, one calibration draw, depth 12, 570 MMLU questions, WikiText-2 for the text
+  Fisher and not the calibration text, torch f16 with a float32 gradient path. A patch is a probe. The published
+  two-sided objective was not run.
+- Evidence: [sensitivity-map-4b](mesures/sensitivity-map-4b-2026-11-15.txt) (*measured*, jobs 6af9be70, void, and
+  6af9c02c, $0.88 the two; the ratios and the bound *computed*).
+- Overturn: another depth, size or text where an interval of that ratio lies above 3, or an output-weighted encode
+  that gains a resolved point on MMLU and on GSM8K.
+- Checked: 2026-11-15.
+
 **Q26.** The original Qwen3 writes its MMLU answer in one block at about seven tenths of its depth, at the three
 sizes read. Lens accuracy, the model's own readout on the stream after each block: 4B 28.3 % then 72.3 % at depth 25
 of 36; 8B 24.8 % then 75.6 % at depth 25 of 36; 14B 39.8 % then 75.6 % at depth 29 of 40. That block carries 0.90,
@@ -830,7 +849,7 @@ A measured fact that no claim explains. They are the starting points of the expl
 | N3 | A lower Gaussian MSE of the codebook has given a worse perplexity twice, Planes14 at 4B and the Euclidean gain rule at 0.6B; no MMLU pair between codebooks is resolved. | Q4, Q17. | What the model is sensitive to that block MSE does not see. |
 | N4 | Perplexity and KL close while MMLU stays open. | Q5, Q6. | What MMLU reads that the two do not. |
 | N5 | The whole token streams 297 GB/s while its rows read 359 to 648, and bit-identical cuts move time without removing it. | K4, K10; K5 for the split of the time without weights, which is a conjecture (its consequence, the 94 % that reappeared, is measured). | What holds the token when the rows are not the limit. |
-| N6 | The sealed 4B's four answer logits regress on FP16's with slope 0.58: it keeps 58 % of the contrast between the options, where AWQ 4B keeps 0.96. Across the 17 full-split 4B files with every projection quantized the slope runs from 0.22 to 0.58 and the noise from 1.20 to 1.77 a logit. No zero-bit correction raised the slope by more than 6 %, and two cases where perplexity improved and MMLU fell (Q5, Q14) are cases where the slope fell more than the noise. | [recherche-qualite2-r0-contraste](mesures/recherche-qualite2-r0-contraste-2026-11-14.txt) (*computed* on *measured* dumps); Q7, Q8. | Whether downstream sensitivity is uneven over directions in any basis. By variance band it is not: what a band of the stream gives back follows the noise energy it held (Q29 and its reading). Q25 places the loss before the write, Q29 in the first twelve blocks' MLP and at the context positions. The conjecture that the encoder misprices quiet directions is dropped. |
+| N6 | The sealed 4B's four answer logits regress on FP16's with slope 0.58: it keeps 58 % of the contrast between the options, where AWQ 4B keeps 0.96. Across the 17 full-split 4B files with every projection quantized the slope runs from 0.22 to 0.58 and the noise from 1.20 to 1.77 a logit. No zero-bit correction raised the slope by more than 6 %, and two cases where perplexity improved and MMLU fell (Q5, Q14) are cases where the slope fell more than the noise. | [recherche-qualite2-r0-contraste](mesures/recherche-qualite2-r0-contraste-2026-11-14.txt) (*computed* on *measured* dumps); Q7, Q8. | Nothing an encoder can lay out, on what is read so far. What a band of the stream gives back follows the deviation energy it held, by variance (Q29 and its reading) and, within a factor of about 2, by a Fisher of running text or of MMLU answers (Q30); the sensitive directions are not shared across inputs. Q25 places the loss before the write, Q29 in the first twelve blocks' MLP and at the context positions. Not read: another depth, GSM8K, the published two-sided objective itself. |
 | N7 | On the sealed 4B the blocks after the MMLU answer write carry little of the MMLU loss and at least their share of the GSM8K loss: restoring layers 25 to 35 gains +0.43 [+0.11, +0.77] on MMLU and +4.32 [+2.46, +6.18] on GSM8K. | Q25, Q27, Q28. | Whether anything but the error a problem meets places the GSM8K loss. The two windows repair mostly the same problems (Q28) and both gains contain their even rate: the reading that generation uses every block about evenly, and that MMLU cannot see the last eleven (Q25, Q26), is not rejected. A finer GSM8K window whose interval excludes its even rate would reopen it. |
 | N8 | FP16's attention outputs, written in place of the sealed ones at blocks 0 to 11 of the sealed 4B with its MLP running on, take MMLU from 66.32 to 53.68 % on 570 questions, −12.63 [−16.41, −8.85]. FP16's MLP outputs with the sealed attention running on take it to 69.30 %, and both together give FP16's stream bit for bit. | Q29; [patch-map-4b](mesures/patch-map-4b-2026-11-15.txt), arm attn_0-11. | Why the sealed MLP of the first blocks does worse on FP16's attention than on its own: whether the row scales trained end to end tie the two branches, or the arm breaks something else. |
 
@@ -1066,9 +1085,14 @@ not explained and enters as N8. The conjecture that followed, that the encoder m
 noise laid out by the signal would cost less
 ([recherche-qualite3-r5-conjecture](mesures/recherche-qualite3-r5-conjecture-2026-11-15.txt)), did not survive its
 attack by two agents at $0 ([recherche-qualite3-r6-issue](mesures/recherche-qualite3-r6-issue-2026-11-15.txt)):
-what a band gives back follows the noise energy it held. No encode was run. Open, the operator decides: close the
-phase on a dead hypothesis, or read on FP16 alone whether downstream sensitivity is uneven in a basis that is not
-the variance order, which the published two-sided objective bets on.
+what a band gives back follows the noise energy it held. No encode was run. On the operator's go the phase then
+read whether sensitivity is uneven in a basis that is not the variance order
+([sensitivity-map-4b](mesures/sensitivity-map-4b-2026-11-15.txt), $0.88 with a void first launch): in the basis a
+Fisher of running text gives, a unit of deviation costs 2.34 [1.16, 3.72] times more in the 512 most sensitive
+directions, the rule reads NOT DECIDED, the Fisher's own top band is not borne out, and the sensitive directions are
+not shared across inputs (Q30). Spent: $1.49 of $10. The lead proposes to close the phase: on what is read, the cost
+of what the first twelve blocks write follows the energy of their deviation, and no layout an encoder could choose
+in advance has a lever of size. The operator decides.
 
 Already excluded, and not starting points here: gains chosen for a coherent gain of 1 along the depth, and bits
 allocated by the MMLU write depth (O14); the calibration draw, probes of gate/up and a fast verifier, refused by the
