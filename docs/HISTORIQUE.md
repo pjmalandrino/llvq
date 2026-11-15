@@ -1685,3 +1685,51 @@ cache as a memory lead, and speculative decoding as an opt-in profile. Branch `d
 - Speculative decoding was stopped before any code: the loop returns the tree pass's greedy tokens, not 4E's, 177 of
   200 GSM8K prompts identical (spec-loop-sp8), and a loop identical to 4E needs the drafter's taps from a verify pass
   that does not produce them. The drafter's licence is recorded nowhere in the repository.
+
+## 2026-11-15. A third research phase on quality opens on two anomalies and closes on a dead hypothesis; nothing served changes, $1.49
+
+The operator opened a third quality phase on the two anomalies the second one left, N6 and N7, on the explanation
+route: O15 of [`CERVEAU.md`](CERVEAU.md), $10 of card, five days. The second phase is O14 there; its journals say
+O13, the number the long-context speed phase took on main the next day.
+
+- R0, two agents, $0: what the repository holds
+  ([recherche-qualite3-r0-depot](mesures/recherche-qualite3-r0-depot-2026-11-15.txt)) and what is published
+  ([recherche-qualite3-r0-litterature](mesures/recherche-qualite3-r0-litterature-2026-11-15.txt)). The first found
+  an error in a journal of the day before: the sealed 4B carries int4 records for o_proj at all 36 layers, not at
+  layers 12 to 23. The journal has its erratum and Q11 its note.
+- The frame ([recherche-qualite3-r1-cadrage](mesures/recherche-qualite3-r1-cadrage-2026-11-15.txt)) put N6 as one
+  question: whether the MMLU deficit travels in the directions the calibration average calls cheap. Five rivals were
+  written with what kills each.
+- Readings at $0 on dumps already on disk, under a prereg stamped before (sha256 b2cdf2f9;
+  [recherche-qualite3-dumps](mesures/recherche-qualite3-dumps-2026-11-15.txt), *computed* on *measured* dumps). Of the
+  108 GSM8K problems the late restore repairs, 84 are also repaired by the early restore: nothing on disk makes the
+  late blocks a place apart for generation (Q28). The first divergence from FP16's text turned out to read the
+  opening word, 440 of 1,319 completions differing at their first character, and decides nothing. Eight of the
+  lead's fifteen signed predictions were right.
+- The patch map, one card job on the operator's go (6af9953a, $0.61, prereg sha256 0001bf6a, stamped before;
+  [patch-map-4b](mesures/patch-map-4b-2026-11-15.txt), *measured*). FP16's stream is written into the sealed run on
+  570 MMLU questions. At depth 12 the whole stream gives back 5.09 points [+2.10, +8.08] of a gap of 7.19. Its band
+  of directions 513 to 2,560 gives back 3.33 points [+0.62, +6.05] alone, and 0.859 [0.734, 0.997] of the whole
+  stream's share of shape agreement. The answer position alone gives back nothing. FP16's MLP outputs of blocks 0 to
+  11 give back 0.850 [0.751, 0.935] of the depth-12 patch (Q29). One arm is not explained: FP16's attention outputs
+  at the same blocks cost 12.63 points (N8). The rules were read on a share of shape agreement, after an instrument
+  check on nine known restores, since an accuracy share resolves nothing on 570 questions.
+- The lead drew a conjecture from it: the encoder misprices the quiet directions, and a noise laid out by the
+  signal would cost less ([recherche-qualite3-r5-conjecture](mesures/recherche-qualite3-r5-conjecture-2026-11-15.txt)).
+  Two agents who did not write it attacked it at $0, and it did not survive
+  ([recherche-qualite3-r6-issue](mesures/recherche-qualite3-r6-issue-2026-11-15.txt)): what a band gives back
+  follows the noise energy it held, 70.6, 79.3 and 70.2 a unit, and the lead's own arithmetic had counted a band
+  twice. The lead had told the operator of a flaw of principle in the compressor before the attack, and corrected it
+  the same day. No encode was run.
+- The sensitivity map, a second card job on the operator's go (prereg sha256 1453e867, stamped before;
+  [sensitivity-map-4b](mesures/sensitivity-map-4b-2026-11-15.txt), *measured*). Its first launch stopped on its own
+  guard before any load (6af9be70, 79 s, $0.04): two candidate prompts of the Fisher carried the token hash of a
+  scored prompt. The departure note is stamped, and the relaunch ran green (6af9c02c, $0.84). In the basis of a
+  Fisher of running text a unit of deviation costs 2.34 [1.16, 3.72] times more in the 512 most sensitive
+  directions. The rule reads NOT DECIDED. The Fisher's top 64 directions hold 0.516 of its trace and give back
+  +0.026. The top-64 subspaces of running text and of MMLU answers overlap by 0.082 (Q30). The lead had put an
+  uneven sensitivity at 55 %, and its stated reason was wrong.
+- The operator closed the phase the same day ("ferme et fusionne"). Outcome: a dead hypothesis and one question not
+  decided, recorded in `CERVEAU.md` O15, with one belief dropped and the anomaly N8. No idea sheet. Spend of the
+  phase: $1.49 of $10; the rows of `docs/data/jobs.csv` sum to $352.73 (*computed*).
+- Nothing served changes.

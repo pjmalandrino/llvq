@@ -17,8 +17,10 @@ two beliefs joined the dropped ones. On 2026-11-15 the long-context speed phase 
 claim that int8 does not pass, P3 is refuted on one tile, and a third quality phase opened on N6 and N7 (O15). Its
 first readings, on dumps already on disk, added Q28 and notes to Q11 and Q25. Its first card job, the patch map,
 added Q29 and the anomaly N8. A conjecture drawn from it was refuted at R6, and a second card job, the sensitivity
-map, added Q30.
-68 claims: 16 established, 2 proved, 41 supported, 5 conjecture, 4 refuted.
+map, added Q30. The operator closed the phase the same day: O15 is condensed and one belief joined the dropped ones.
+The same day the chain prefill was read at a served door on the development branch, and P2 is established for the
+4B's first token and its peak.
+68 claims: 17 established, 2 proved, 40 supported, 5 conjecture, 4 refuted.
 
 This document lists what we believe to be true about quantizing LLMs on the Leech lattice, each belief with its
 standing. It is not the served state ([`ETAT.md`](ETAT.md)), the history ([`HISTORIQUE.md`](HISTORIQUE.md)) or a plan
@@ -1063,8 +1065,10 @@ Numbering. This phase was O13 on its branch, and the long-context speed phase to
 journals and stamped preregs of 2026-11-14 (contrast-map-4b, depth-restore-4b, lens-write-depth,
 gsm8k-depth-restore-4b) say O13 and mean this entry.
 
-**O15.** Phase open: MODE RECHERCHE on model quality, third phase, opened by the operator on 2026-11-15, explanation
-route (O10). Its mandate:
+**O15.** Phase closed on 2026-11-15 by the operator ("ferme et fusionne"), with $1.49 of its $10 spent: MODE
+RECHERCHE on model quality, third phase, opened the same day, explanation route (O10). Outcome, in the terms of
+[`MODES.md`](MODES.md): a dead hypothesis, and one question left not decided. No idea sheet leaves the phase. Its
+mandate:
 
 | field | content |
 |---|---|
@@ -1073,37 +1077,48 @@ route (O10). Its mandate:
 | Untouchable | The three sealed files as published. Whole-model b/param at 2.73. VRAM at the served peaks. A per-model or per-type setting is not a result (operator, 2026-11-12), a restore to f16 is a probe, not a mechanism (Q20), and a mechanism is judged on MMLU and on GSM8K (O14). No heavy job on the work machine without the operator's word. No edit under `llvq-cuda/` or `llvq-runtime/`, or to a served config: a development agent works there on branch `dev/trois-gains-2026-11-15`. |
 | Budget | Five days, to 2026-11-20, and $10 of card, each paid run under a stamped prereg and the operator's go. The lead proposed the figure and told the operator that a go for the first paid job would stand for its signature; the operator gave that go on 2026-11-15 and did not restate the figure. |
 
-State on 2026-11-15, $0 spent. R0 is in
-[recherche-qualite3-r0-depot](mesures/recherche-qualite3-r0-depot-2026-11-15.txt) and
-[recherche-qualite3-r0-litterature](mesures/recherche-qualite3-r0-litterature-2026-11-15.txt), the frame in
-[recherche-qualite3-r1-cadrage](mesures/recherche-qualite3-r1-cadrage-2026-11-15.txt). N6 is framed as one question:
-whether the MMLU deficit travels in the directions the calibration average calls cheap, which the layer objective
-gives no rate. Five rivals are written with what kills each; one card job, the patch map, carries four of the kills
-and is not run. The first readings, at $0 on dumps on disk
-([recherche-qualite3-dumps](mesures/recherche-qualite3-dumps-2026-11-15.txt)): the two GSM8K windows repair mostly
-the same problems (Q28), so nothing on disk makes the late blocks a place apart for generation; the first
-divergence from FP16's text turned out to read the opening word, not the weights' error, and decides nothing. The
-patch map ran on the operator's go of 2026-11-15 ([patch-map-4b](mesures/patch-map-4b-2026-11-15.txt), job
-6af9953a, $0.61 of $10). The dull hypothesis is dead: the quiet band, written from FP16 at depth 12, gives back 0.859
-[0.734, 0.997] of what the whole stream gives back, and 3.33 points of accuracy by itself (Q29). The deficit rides
-the context positions, not the answer position, and FP16's MLP outputs of blocks 0 to 11 give back 0.850 of it.
-Massive activations are killed, single heads stand on a symptom, the position mismatch is not decided. One arm is
-not explained and enters as N8. The conjecture that followed, that the encoder misprices quiet directions and a
-noise laid out by the signal would cost less
-([recherche-qualite3-r5-conjecture](mesures/recherche-qualite3-r5-conjecture-2026-11-15.txt)), did not survive its
-attack by two agents at $0 ([recherche-qualite3-r6-issue](mesures/recherche-qualite3-r6-issue-2026-11-15.txt)):
-what a band gives back follows the noise energy it held. No encode was run. On the operator's go the phase then
-read whether sensitivity is uneven in a basis that is not the variance order
-([sensitivity-map-4b](mesures/sensitivity-map-4b-2026-11-15.txt), $0.88 with a void first launch): in the basis a
-Fisher of running text gives, a unit of deviation costs 2.34 [1.16, 3.72] times more in the 512 most sensitive
-directions, the rule reads NOT DECIDED, the Fisher's own top band is not borne out, and the sensitive directions are
-not shared across inputs (Q30). Spent: $1.49 of $10. The lead proposes to close the phase: on what is read, the cost
-of what the first twelve blocks write follows the energy of their deviation, and no layout an encoder could choose
-in advance has a lever of size. The operator decides.
+- Dead: that the layer objective misprices the quiet directions of the stream, and that a noise laid out by the
+  signal would cost less. What a band of the stream gives back at depth 12 follows the deviation energy it held:
+  70.6, 79.3 and 70.2 a unit, across bands whose signal a direction differs 600 times (Q29 and its reading). Two
+  agents who did not write the conjecture killed it at $0, and no encode was run. Dead by the patch map's own rules:
+  that the quiet band is a symptom of a loss carried by the louder bands, and that massive activations carry it.
+- Not decided: whether a layout by a downstream sensitivity would cost less. In the basis of a Fisher of running
+  text a unit of deviation costs 2.34 [1.16, 3.72] times more in the 512 most sensitive directions, where the rule
+  asked for an interval above 3 or inside [0.5, 2]. The Fisher's own top band is not borne out, and the sensitive
+  directions are not shared across inputs: the top-64 subspaces of running text and of MMLU answers overlap by 0.082,
+  two halves of one text by 0.298 (Q30). On the point values such a layout saves at most 23 % of the cost of depth 12
+  (*computed*): a bound on a reading with a wide interval, not a gain. Not decided either: the position mismatch,
+  whose reading straddles its threshold.
+- N7 was read and not reopened: the two GSM8K windows repair mostly the same problems, 84 of 108 (Q28), and both
+  gains contain their even rate.
+- New and not explained: N8. FP16's attention outputs at blocks 0 to 11, the sealed MLP running on, cost 12.63
+  points.
+- Left standing: where the first twelve blocks' cost rides, the quiet band, the context positions and the MLP
+  (Q29). Single heads at layers 7 to 13 stand on a symptom.
+- The space this holds for: the sealed 4B, one calibration draw, depth 12, 570 MMLU questions easier than the full
+  split, patches read through the 24 sealed blocks that follow. Neither map reads GSM8K.
+- Not run: the noise map the conjecture asked for, which could not have decided; the published two-sided objective
+  itself; any encode.
+- Tools left in the repository: `ops/depth_dumps.py`; `ops/patch_map.py` with `ops/jobs/patch-map-4b.sh`, 16 arms
+  for $0.61; `ops/sensitivity_map.py` with `ops/jobs/sensitivity-map-4b.sh`, two Fisher bases and their bands for
+  $0.84.
+- Where a next phase can look: N8; the published two-sided objective, never run on this format; the same two maps at
+  another depth, on GSM8K or on the 8B. The lead's reading at the close: on what is read, the cost of what the first
+  twelve blocks write follows the amount of their deviation and not its layout, and the code sits within 0.60 dB of
+  its bound (C7).
+- Record: [recherche-qualite3-r0-depot](mesures/recherche-qualite3-r0-depot-2026-11-15.txt),
+  [recherche-qualite3-r0-litterature](mesures/recherche-qualite3-r0-litterature-2026-11-15.txt) and
+  [recherche-qualite3-r1-cadrage](mesures/recherche-qualite3-r1-cadrage-2026-11-15.txt);
+  [recherche-qualite3-dumps](mesures/recherche-qualite3-dumps-2026-11-15.txt),
+  [patch-map-4b](mesures/patch-map-4b-2026-11-15.txt),
+  [recherche-qualite3-r5-conjecture](mesures/recherche-qualite3-r5-conjecture-2026-11-15.txt),
+  [recherche-qualite3-r6-issue](mesures/recherche-qualite3-r6-issue-2026-11-15.txt) and
+  [sensitivity-map-4b](mesures/sensitivity-map-4b-2026-11-15.txt). The account in order is the 2026-11-15 entry of
+  [`HISTORIQUE.md`](HISTORIQUE.md).
 
-Already excluded, and not starting points here: gains chosen for a coherent gain of 1 along the depth, and bits
-allocated by the MMLU write depth (O14); the calibration draw, probes of gate/up and a fast verifier, refused by the
-operator on 2026-11-14 as tinkering.
+Excluded before the phase opened, and not starting points for the next one: gains chosen for a coherent gain of 1
+along the depth, and bits allocated by the MMLU write depth (O14); the calibration draw, probes of gate/up and a
+fast verifier, refused by the operator on 2026-11-14 as tinkering.
 
 ## Beliefs we dropped
 
