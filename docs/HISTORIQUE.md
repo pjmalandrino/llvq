@@ -1610,7 +1610,7 @@ The operator closed O11 and opened a phase on decode speed after an 8,192-token 
 - Nothing served changes: no config, no served module, no Hub file. No served tok/s is gained: the int8 read is a
   research arm, about 1 % faster at 8,192 and 3 % slower at 5.
 
-## 2026-11-15. A development step: three served gains asked, two wired; the chain prefill measured at a door and served on the 4B, $1.16
+## 2026-11-15. A development step: three served gains asked, two wired; the chain prefill measured at a door and served on the 4B, $1.35
 
 The operator asked for three gains already measured on benches to be made servable: the chain prefill, the int8 KV
 cache as a memory lead, and speculative decoding as an opt-in profile. Branch `dev/trois-gains-2026-11-15`.
@@ -1626,6 +1626,13 @@ cache as a memory lead, and speculative decoding as an opt-in profile. Branch `d
 - The operator served it on the 4B on 2026-11-15. He accepted local memory in the tree modules alone (744 B), and a
   prefill that is not bit for bit with the eager one under the ±0.12 % band of the attention forms. `llvq` loads the
   chain config for the 4B on CUDA; `LLVQ_PROFILE=eager` is the way back.
+- `llvq`'s own door was then read on a card (job 6af9b69f, $0.19, prereg sha256 07cf3e6d,
+  [chain-runtime-door](mesures/chain-runtime-door-2026-11-15.txt)): it loads the chain config with no variable set,
+  first content at 8,191 tokens after 6.448 s against 34.537 s for the way back, the way back and both refusals as
+  written (*measured*). The prereg read FAILS on its control of repeatability, and the control failed on the eager
+  server: one text with no prompt token cached, another with 3 cached. The chain gave one text in its four rounds,
+  the eager server's timed one. The operator merged on that reading the same day; the departure from the prereg's
+  row is in `proofs/preregistration-chain-runtime-door-2026-11-15-ECARTS.md`.
 - `ETAT.md` §2 read: "On CUDA it loads the v9 configs". §4 read: "The 4B's first token at 8,192 takes 35.05 s". §5
   read: "The chain prefill, a bench, not served" and then "measured at a door, not served".
 - The int8 cache got the form that frees the f16 cache at the hand-over, as a NOT SERVED config refused at every

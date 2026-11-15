@@ -211,10 +211,21 @@ records of `o`. The groups are super-additive: all exceeds the MLP plus attentio
   at each length. The phase peak at 8,192 is 3.633 GB against 6.047. GSM8K-200 reads 165 right in both, no discordant
   pair (*measured*, L40S, [chain-prefill-served](mesures/chain-prefill-served-2026-11-15.txt)). Its prereg read NOT SETTLED on one bound: the decode after the chain
   is 2.9 and 3.2 % faster than v9's at 4,096 and 8,192, outside a two-sided band. The operator served it on that
-  reading, with the local memory of its tree modules and the ±0.12 % band (§4). Still owed: MMLU and the near-tie
-  texts under the chain; the 8B and the 14B, which the pass does not carry; the runtime's own door on a card
-  (`proofs/preregistration-chain-runtime-door-2026-11-15-DRAFT.md`). A first start compiles the two tree modules:
-  509.2 s to load cold, 55.2 s from the cache.
+  reading, with the local memory of its tree modules and the ±0.12 % band (§4). `llvq`'s own door then read it on a card
+  ([chain-runtime-door](mesures/chain-runtime-door-2026-11-15.txt), *measured*): with no variable set it loads the
+  chain config, the first content of an 8,191-token prompt comes after 6.448 s against 34.537 s under
+  `LLVQ_PROFILE=eager`, and of a 92-token prompt after 0.065 s against 0.410 s; the way back loads v9 and unknown
+  profiles are refused by name. `llvq` loads the chain in 93.6 s from the cache against 54.9 s for the eager
+  prefill; the 38 s are not explained. Still owed: MMLU and the near-tie texts under the chain; the 8B and the 14B,
+  which the pass does not carry; a cold start of `llvq` on a card. A first start compiles the two tree modules:
+  509.2 s to load cold in `fusedrun`, 55.2 s from the cache.
+- **The eager prefill's text depends on the conversation cache.** In the same job the eager server gave one text for
+  an 8,191-token prompt with none of it cached and another with the chat template's 3 tokens cached; the two part at
+  a near tie, at character 130. The chain gave the same text in both states, the eager server's second. The eager
+  prefill runs in chunks of 4,096 positions under the ±0.12 % band (§4), and 3 cached tokens move every chunk
+  boundary. It serves the 8B and the 14B, and the 4B under `LLVQ_PROFILE=eager`. How often it happens is not read
+  (*measured* once, [chain-runtime-door](mesures/chain-runtime-door-2026-11-15.txt)). That check's prereg read
+  FAILS on this control; the operator merged the chain on 2026-11-15 with the reading in hand.
 - **Scores through the served kernel.** MMLU and perplexity are scored on the dense reconstruction with f16 tables;
   the b/param count int4 tables. About $20 by the mixed route, $70 for the full census at three sizes (*estimated*,
   [`ROADMAP.md`](ROADMAP.md)). `ppl` does not read `LLVQ_CONFIG` yet.
