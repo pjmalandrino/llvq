@@ -138,6 +138,11 @@ impl Loader for DeviceLoader {
         )?;
         let decoder = cfg.serve(&mut f.model, &device)?;
         let mut lines = decoder.lines().to_vec();
+        // The install's provenance (4E's module and sha256, the chain arm, the
+        // module cache's hits and misses) in the server's log.
+        for l in &lines {
+            eprintln!("llvq: {name}: {l}");
+        }
         let batch = match batch {
             None => None,
             Some((max, context)) => {
