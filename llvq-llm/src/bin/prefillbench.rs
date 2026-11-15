@@ -297,6 +297,12 @@ fn run() -> anyhow::Result<()> {
         "{}: the config must name the persistent decode with rows v9",
         cfg.path.display()
     );
+    anyhow::ensure!(
+        cfg.prefill_form == llvq_llm::served::Prefill::Eager,
+        "{}: a chain config installs its own tree arm, and this bench installs the arms it is asked; pass the v9 \
+         config (or the int8 one) and --form chain",
+        cfg.path.display()
+    );
     println!("target: {}", cfg.provenance());
     println!(
         "form {}: {}",
@@ -315,7 +321,12 @@ fn run() -> anyhow::Result<()> {
     mark("load", "begin");
     let mut f = llvq_llm::fused_cuda::load_resolved(&path, &device, candle_core::DType::F16, cfg.layout, cfg.embed, cfg.rot_share, cfg.fuse, cfg.kv, cfg.int4_layout(), Some("prefillbench"))?;
     cfg.apply(&mut f.model, &device).map_err(|e| anyhow::anyhow!("{e}"))?;
-    let mut dec = cfg.decoder(&f.model, &device)?;
+    // A bench: the NOT SERVED int8 decode cache is built through the
+    // measurement door, which no served door calls.
+    let mut dec = match cfg.decode_cache {
+        llvq_llm::served::DecodeCache::F16 => cfg.decoder(&f.model, &device)?,
+        llvq_llm::served::DecodeCache::Int8 => cfg.decoder_measurement(&f.model, &device)?,
+    };
     for line in dec.lines() {
         println!("{line}");
     }
@@ -390,9 +401,14 @@ fn run() -> anyhow::Result<()> {
             let s = t0.elapsed().as_secs_f64();
             (c, first, s, s)
         };
+        // The decode alone between two marks: its phase peak is the card memory
+        // the decode holds after the hand-over (the steady state), apart from
+        // the prefill's.
+        mark(&format!("dec-{l}"), "begin");
         let t1 = Instant::now();
         let (rest, _) = dec.continue_greedy(model, &mut caches, first, l, n_new - 1, &[])?;
         let decode = t1.elapsed().as_secs_f64();
+        mark(&format!("dec-{l}"), "end");
         let mut tokens = vec![first];
         tokens.extend(rest);
         Ok((Gen { tokens, ttft, prefill, decode }, caches))
@@ -473,6 +489,9 @@ fn run() -> anyhow::Result<()> {
             );
         }
         card_memory(&format!("after the {l}-token rounds"))?;
+        if let Some(r) = dec.runtime_mut().and_then(|rt| rt.kv8_report()) {
+            println!("{r}");
+        }
     }
     // ---- identity gates and the phase split (chain only) ----
     if chain {

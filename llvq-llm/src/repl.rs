@@ -275,7 +275,8 @@ pub fn run_with(
             continue;
         }
         let t_prompt = std::time::Instant::now();
-        let h = session.feed(qwen, &ids)?;
+        // The prefill the config names: the chain under a chain config.
+        let fed = session.feed_with(qwen, dec, &ids)?;
         let prompt_s = t_prompt.elapsed().as_secs_f64();
 
         let t_turn = std::time::Instant::now();
@@ -284,10 +285,10 @@ pub fn run_with(
         // written (`stream`).
         let mut shown = String::new();
         let mut failed: Option<anyhow::Error> = None;
-        let answer = session.answer(
+        let answer = session.answer_fed(
             qwen,
             dec,
-            h,
+            fed,
             Generate { sampler: &mut opts.sampler, max_new, stops: &stops },
             &mut |said| match stream(tok, said, &mut shown) {
                 Ok(()) => Flow::Continue,

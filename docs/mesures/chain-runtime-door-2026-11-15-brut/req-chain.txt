@@ -1,0 +1,8 @@
+  round 0 wikitext2-test-8k: first content 6.562 s, prompt 8191 (0 cached) in 6.543 s, 256 tokens in 1.586 s, length
+  round 0 gsm8k-test-0000: first content 0.084 s, prompt 92 (3 cached) in 0.043 s, 256 tokens in 1.161 s, length
+  round 1 wikitext2-test-8k: first content 6.420 s, prompt 8191 (3 cached) in 6.394 s, 256 tokens in 1.578 s, length
+  round 1 gsm8k-test-0000: first content 0.065 s, prompt 92 (3 cached) in 0.053 s, 256 tokens in 1.162 s, length
+  round 2 wikitext2-test-8k: first content 6.448 s, prompt 8191 (3 cached) in 6.422 s, 256 tokens in 1.580 s, length
+  round 2 gsm8k-test-0000: first content 0.065 s, prompt 92 (3 cached) in 0.053 s, 256 tokens in 1.164 s, length
+  round 3 wikitext2-test-8k: first content 6.474 s, prompt 8191 (3 cached) in 6.449 s, 256 tokens in 1.583 s, length
+  round 3 gsm8k-test-0000: first content 0.066 s, prompt 92 (3 cached) in 0.053 s, 256 tokens in 1.165 s, length

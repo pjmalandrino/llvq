@@ -1,0 +1,1 @@
+HTTP 500 {"error":"loading qwen3:4b: qwen3:4b: LLVQ_PROFILE=\"bogus\": unset for the default config, or one of [\"eager\"]"}

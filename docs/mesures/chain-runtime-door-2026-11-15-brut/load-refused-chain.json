@@ -1,0 +1,1 @@
+HTTP 500 {"error":"loading qwen3:4b: qwen3:4b: LLVQ_PROFILE=chain: the chain prefill is the default where a model carries it (the 4B on CUDA, since 2026-11-15). Unset LLVQ_PROFILE, or write eager for the eager prefill."}

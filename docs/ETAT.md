@@ -19,9 +19,14 @@ All three sizes share one setting: layout `tetra48`, `LLVQ_EMBED=q4`, `LLVQ_ROT_
 
 - **CUDA, 4B, 8B and 14B**: `configs/qwen3-{4b,8b,14b}-tetra-e4-4e-v9.json`, served since 2026-11-07. Attention
   `kernel`, decode `persistent` (4E, one launch a token), rows `v9` (int4 words tiled once at load).
+- **CUDA, the 4B's prefill**: since 2026-11-15 the 4B prefills by the chain,
+  `configs/qwen3-4b-tetra-e4-4e-v9-chain.json`: the v9 config with `"prefill": "chain"`, the prompt fed through the
+  tree verify pass, 4E v9 after it. The 8B and the 14B prefill eagerly: the pass does not carry them.
 - **Mac, 4B**: the MLX door, `ops/llvq-mlx` under `configs/mlx/qwen3-4b-tetra-e4-mlx.json`, served since 2026-11-07.
 - **Runtime**: `llvq` (crate `llvq-runtime`) pulls the three files and serves them with Ollama's and OpenAI's APIs. On
-  CUDA it loads the v9 configs; on Metal it runs the expanded config through the Rust engine, not MLX.
+  CUDA it loads the chain config for the 4B and the v9 configs for the 8B and 14B; `LLVQ_PROFILE=eager` takes the
+  4B back to its v9 config. Under `LLVQ_BATCH` it loads the batch configs, whose pool prefills eagerly. On Metal it
+  runs the expanded config through the Rust engine, not MLX.
 - **Without a GPU**: the runtime's CPU backend since 2026-11-07, `fused_cpu` on the expanded e4 configs, at f32. It
   reads the Tetra codes at every matvec: 8.6 tok/s in 1.86 GB on the 4B at 12 threads of an M3 Max, against 0.71
   tok/s in 10.6 GB for the dense reconstruction it replaced; perplexity -0.0021 % of the dense f32 over 12 windows
@@ -123,7 +128,8 @@ the card under v9 and v6. 4E decodes batch 1 and greedy only, on the three seale
 
 **Context.** The served doors decode 226.2 / 205.8 / 194.2 / 161.5 tok/s at 4B after prompts of 5 / 2,048 / 4,096 /
 8,192 tokens, 144.5 / 135.2 / 129.3 / 110.0 at 8B and 87.3 / 83.7 / 80.9 / 71.5 at 14B (*measured*, served-v9). The
-4B's first token at 8,192 takes 35.05 s.
+4B's first token at 8,192 takes 6.74 s under the served chain prefill, against 37.22 s for the eager prefill of the v9
+config in the same job (*measured*, [chain-prefill-served](mesures/chain-prefill-served-2026-11-15.txt)).
 
 **Attention tolerance.** The `grouped` and `kernel` forms are not bit for bit with `expanded`, so they are served
 under a gate: paired WikiText-2 perplexity within ±0.12 %. Grouped against expanded reads +0.0095 %, -0.0048 % and
@@ -131,7 +137,10 @@ under a gate: paired WikiText-2 perplexity within ±0.12 %. Grouped against expa
 [gqa-8b](mesures/gqa-8b-2026-11-04.txt), [gqa-14b](mesures/gqa-14b-2026-11-04.txt)). Kernel from position 0 against
 grouped reads +0.0018 % at 4B over 12 windows of 4,096 ([attn-t8-below](mesures/attn-t8-below-4b-2026-11-05.txt)),
 +0.0043 % at 8B and -0.0108 % at 14B over 6 windows (served-v9-8b, -14b). All intervals sit inside the band. The
-operator took this gate on 2026-11-01.
+operator took this gate on 2026-11-01. Since 2026-11-15 the chain prefill is served under the same band: its 16-row
+form reads +0.0007 % of paired perplexity against the eager prefill (*measured*,
+[large-prefill](mesures/large-prefill-2026-11-11.txt)). Its tree modules hold 744 B of local memory; the operator
+accepted that for them alone, and 4E's token symbol keeps its rule of none.
 
 **Mac.** The MLX door is not bit for bit with the Rust engine. Against the Rust dense reconstruction in f16 on
 WikiText-2 windows 13 to 24 it reads -0.0103 % [-0.0847, +0.0642] by decode, inside ±0.12 % (*measured*,
@@ -188,21 +197,35 @@ records of `o`. The groups are super-additive: all exceeds the MLP plus attentio
   502 tok/s (x2.30), the house set at 343 (x1.56) and chat at 242 (x1.09), GSM8K 167 correct against 166 (*measured*,
   [spec-loop-sp8](mesures/spec-loop-sp8-2026-11-11.txt)). It pays in memory: 5.41 GB against 2.01 and 4.87 b/param
   with the f16 drafter (5.41 *measured*, [spec-mem-m3](mesures/spec-mem-m3-2026-11-11.txt); 4.87 *computed*, [spec-memoire](mesures/spec-memoire-2026-11-11.txt)). Operator, 2026-11-11: the
-  default stays at 2.73 b/param, and the fast profile is set aside, built when wanted. Three bit-identical cuts of
-  4E did not pass and are in §6.
+  default stays at 2.73 b/param, and the fast profile is set aside, built when wanted. Asked for on 2026-11-15, it
+  was stopped before any code: its tokens are the tree pass's greedy, 177 of 200 GSM8K prompts identical to 4E's
+  (*measured*, spec-loop-sp8), where the request asked for 4E's, and the drafter's licence is recorded nowhere.
+  Three bit-identical cuts of 4E did not pass and are in §6.
 - **Card memory after an 8,192-token prompt.** The served prefill keeps one score tensor instead of three, bit for
   bit: 5.95 / 7.39 / 10.54 GB at 4B / 8B / 14B, from 11.48 / 12.66 / 17.09 in the duel, against 3.52 / 4.71 / 6.90 for
   llama.cpp IQ2_S (*measured*, L40S, [pic-vram-8k](mesures/pic-vram-8k-2026-11-08.txt)). The NOT SERVED
   `prefill_attention: kernel` measured 4.77 / 7.15 / 9.30, about 1 to 2 GB over its computed peak, and 1.14 to 1.21
   times slower to the first token: not proposed. Open: the excess it holds layer by layer is not traced.
-- **The chain prefill, a bench, not served.** `prefillbench --form chain` feeds the prompt as known tokens through
-  the tree verify pass, 32 rows a pass, on the served words read in place. The 4B's first token comes after 0.420 /
-  2.393 / 6.485 s at 1,024 / 4,096 / 8,191 tokens, against 3.951 / 17.641 / 37.037 for the served eager prefill
-  (*measured*, L40S, two jobs, [large-prefill-ft](mesures/large-prefill-ft-2026-11-11.txt),
-  [large-prefill](mesures/large-prefill-2026-11-11.txt)). It equals its own 16-row form bit for bit (argmax, logits,
-  K and V); the 16-row form reads +0.0007 % of paired perplexity against eager, 41 of 47 texts identical. No door
-  calls it. Owed before serving: a GSM8K-200 pairing, cached compiled modules (NVRTC takes 1,127 s of the bench's
-  load), and the operator's decision. The operator's ruling of 2026-11-11 packages the prefill later, all at once.
+- **The chain prefill, served on the 4B since 2026-11-15.** At the door the 4B's first token comes after 0.45 / 2.47 /
+  6.74 s at 1,024 / 4,096 / 8,192 tokens against 3.96 / 17.79 / 37.22 s for the v9 config, with the same 256 tokens
+  at each length. The phase peak at 8,192 is 3.633 GB against 6.047. GSM8K-200 reads 165 right in both, no discordant
+  pair (*measured*, L40S, [chain-prefill-served](mesures/chain-prefill-served-2026-11-15.txt)). Its prereg read NOT SETTLED on one bound: the decode after the chain
+  is 2.9 and 3.2 % faster than v9's at 4,096 and 8,192, outside a two-sided band. The operator served it on that
+  reading, with the local memory of its tree modules and the ±0.12 % band (§4). `llvq`'s own door then read it on a card
+  ([chain-runtime-door](mesures/chain-runtime-door-2026-11-15.txt), *measured*): with no variable set it loads the
+  chain config, the first content of an 8,191-token prompt comes after 6.448 s against 34.537 s under
+  `LLVQ_PROFILE=eager`, and of a 92-token prompt after 0.065 s against 0.410 s; the way back loads v9 and unknown
+  profiles are refused by name. `llvq` loads the chain in 93.6 s from the cache against 54.9 s for the eager
+  prefill; the 38 s are not explained. Still owed: MMLU and the near-tie texts under the chain; the 8B and the 14B,
+  which the pass does not carry; a cold start of `llvq` on a card. A first start compiles the two tree modules:
+  509.2 s to load cold in `fusedrun`, 55.2 s from the cache.
+- **The eager prefill's text depends on the conversation cache.** In the same job the eager server gave one text for
+  an 8,191-token prompt with none of it cached and another with the chat template's 3 tokens cached; the two part at
+  a near tie, at character 130. The chain gave the same text in both states, the eager server's second. The eager
+  prefill runs in chunks of 4,096 positions under the ±0.12 % band (§4), and 3 cached tokens move every chunk
+  boundary. It serves the 8B and the 14B, and the 4B under `LLVQ_PROFILE=eager`. How often it happens is not read
+  (*measured* once, [chain-runtime-door](mesures/chain-runtime-door-2026-11-15.txt)). That check's prereg read
+  FAILS on this control; the operator merged the chain on 2026-11-15 with the reading in hand.
 - **Scores through the served kernel.** MMLU and perplexity are scored on the dense reconstruction with f16 tables;
   the b/param count int4 tables. About $20 by the mixed route, $70 for the full census at three sizes (*estimated*,
   [`ROADMAP.md`](ROADMAP.md)). `ppl` does not read `LLVQ_CONFIG` yet.
@@ -219,8 +242,12 @@ records of `o`. The groups are super-additive: all exceeds the MLP plus attentio
 - **An int8 KV cache, as a memory lead.** It holds the ±0.12 % tolerance at 8,192 on the 4B, +0.0126 %
   [−0.0485, +0.0737] against f16, and int4 keys fail it (*measured*,
   [kv-ladder](mesures/recherche-debit-kv-ladder-2026-11-14.txt)). It would take the cache from 1.21 to 0.64 GB at
-  8,192 positions (*computed*). It buys no speed (§6). Kept by the operator on 2026-11-15. Owed before serving: a
-  form that frees the f16 cache, the near-tie texts, GSM8K-200, the prefill path, the 8B and the 14B.
+  8,192 positions (*computed*). It buys no speed (§6). Kept by the operator on 2026-11-15. The form that frees the
+  f16 cache at the hand-over is written, `configs/qwen3-4b-tetra-e4-4e-v9-kv8-NOT-SERVED.json`, refused at every
+  served door and loaded by a measurement door only; it is not run on a card. Owed before serving: its card run
+  (`proofs/preregistration-kv8-memory-2026-11-15-DRAFT.md`), the near-tie texts, GSM8K-200, the 8B and the 14B, and
+  the operator's ruling on the 8 B of local memory in its token symbol, which the ruling of 2026-11-15 does not
+  cover.
 - **The next venue for paper 2.** No archive holds version 2 yet. Default if silent: preprint only.
 - **Upstream `transformers`.** `llvq-tetra` 0.1.0 is on PyPI and loads the 4B safetensors; the upstream issue and PR
   wait for the operator ([`plan-transformers.md`](plan-transformers.md)).

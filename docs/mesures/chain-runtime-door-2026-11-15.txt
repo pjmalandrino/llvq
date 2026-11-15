@@ -1,0 +1,69 @@
+llvq's own door on the chain prefill, sealed 4B, one card run, 2026-11-15
+
+Result: with no variable set, llvq loads the chain config for the 4B on CUDA and gives the first content of an
+8,191-token prompt after 6.448 s where the eager prefill takes 34.537 s, a quotient of 0.187. The way back loads v9
+and both bad profiles are refused by name. The prereg's verdict reads FAILS on control 4, and the control fails on
+the eager server, not on the chain: the eager prefill gives one text for the long prompt when none of it is cached
+and another when the template's 3 tokens are. The chain gives the same text in its four rounds, and that text is
+the eager server's in its three timed rounds. Every figure below is *measured*.
+
+Job 6af9b69f23985fb9cd836037, l40sx1, 384 s running, $0.19. Prereg
+proofs/preregistration-chain-runtime-door-2026-11-15.md (sha256 07cf3e6d, stamped before). Image built from the
+stamped commit 82ef744 of branch dev/trois-gains-2026-11-15, Space sha 7f18575f. Raw outputs in
+chain-runtime-door-2026-11-15-brut/. Card: L40S. Sealed 4B 886391a8, imported by `llvq pull`.
+
+CONTROLS
+  1. Oracle MATCH; the sealed file and the two prompt sets at their sha256: holds.
+  2. Load check: /api/ps and the server's log name qwen3-4b-tetra-e4-4e-v9-chain.json and the served 4E v9 module
+     (252,757 bytes, 1b422b62): holds.
+  3. Module cache: 2 hits of 2, the cubins the chain-prefill-served job left: holds.
+  4. Texts identical across rounds within each server: HOLDS for the chain (both prompts, 4 rounds) and for the
+     eager server on the short prompt; FAILS for the eager server on the long prompt. Its round 0, with 0 prompt
+     tokens cached, gives a text of 1,073 characters (sha256 96ba792f); its rounds 1 to 3, with 3 tokens cached, give
+     a text of 1,023 characters (2df56c95). The two part at character 130.
+
+READINGS
+  Load: chain 93.6 s with both modules from the cache; eager 54.9 s. fusedrun loaded the chain config in 55.2 s from
+  the same cubins (chain-prefill-served); what llvq spends 38 s more on is not read.
+  First content on the client, /api/chat streamed, temperature 0, 256 tokens, 1 discarded and 3 timed rounds:
+    prompt                    chain                     eager                      chain over eager
+    8,191 tokens (WikiText)   6.448 s [6.420-6.474]     34.537 s [34.440-34.537]   0.187
+    92 tokens (GSM8K 0)       0.065 s [0.065-0.066]     0.410 s [0.410-0.410]      0.159
+  The 256 tokens after it: 1.58 s on both servers after the long prompt, 1.16 to 1.18 s after the short one.
+  Texts: on the short prompt the chain's text equals the eager prefill's. On the long prompt the chain's text
+  (2df56c95, the same in its four rounds, with 0 or 3 tokens cached) equals the eager server's text of rounds 1 to
+  3 and differs from the eager server's round 0.
+  The way back: LLVQ_PROFILE=eager loads qwen3-4b-tetra-e4-4e-v9.json. LLVQ_PROFILE=bogus and LLVQ_PROFILE=chain are
+  refused, each naming the variable.
+
+THE VERDICT (prereg, decision rule)
+  "a control fails, or the way back does not load v9, or a profile is not refused: FAILS: fix before the merge".
+  Control 4 fails, so the row fires. What fails is the eager prefill's own repeatability under the conversation
+  cache: the same request reads two texts as 0 or 3 tokens of its prompt are cached. That path is on main today and
+  serves the 8B, the 14B and, until this branch, the 4B. The chain passes the same control. Its other bounds hold:
+  the first content quotient is 0.187, at or under 0.30; the way back loads v9; both refusals name the variable.
+  The lead does not merge on this reading alone: the rule sends the merge to a fix or to the operator.
+
+WHAT THE EAGER TEXTS SAY
+  The eager prefill runs in chunks of 4,096 positions, and its attention forms are served under a tolerance, not bit
+  for bit (ETAT section 4). Three cached tokens move every chunk boundary by 3. The texts part at a near tie. This
+  is the tolerance seen from a user's side, and it was not written down as a behaviour: an identical request can
+  change its text with the state of the cache. Not read: how often, on which prompts, and on the 8B and the 14B.
+
+SIGNED PREDICTIONS (prereg)
+  Controls hold and the job runs to its end, 55 %: the job ran to its end; control 4 failed: wrong.
+  Module cache hits, both, 80 %: right.
+  Load with the cache 60 s [50, 90]: wrong, 93.6.
+  First content, long prompt: chain 7.5 s [6.5, 10]: wrong by 0.05 s, 6.448. Eager 38 s [35, 42]: wrong, 34.537.
+  Quotient 0.20 [0.16, 0.27], at or under 0.30 at 85 %: right, 0.187.
+  Texts identical for both prompts, 80 %: right against the eager server's timed rounds, wrong against its round 0.
+  The way back and both refusals, 90 %: right.
+  PASSES, 45 %: wrong, FAILS on control 4.
+
+NOT ESTABLISHED
+  Why llvq loads the chain 38 s slower than fusedrun. How often the eager prefill changes its text with the cache.
+  Anything under a batch, on Metal, on the 8B or the 14B. A cold start of llvq with an empty cache on a card (the
+  compile notice was not seen on a real miss).
+
+Cost: $0.19 (*computed*, 384 s at $1.80/h), against $0.24 estimated and a $0.75 cap. Development job on the
+operator's go of 2026-11-15.

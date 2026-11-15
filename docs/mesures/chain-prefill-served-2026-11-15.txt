@@ -1,0 +1,81 @@
+The chain prefill at the served door, sealed 4B, one card run, 2026-11-15
+
+Result: at the served door the chain config gives the first token after 6.74 s at 8,192 prompt tokens where the
+served v9 config takes 37.22 s, a quotient of 0.181, with the same 256 tokens, a phase peak of 3.633 GB against
+6.047, and GSM8K-200 at 165 right in both, no discordant pair. The verdict of the prereg reads NOT SETTLED on one
+bound: the decode after the chain is faster than v9's at 4,096 and 8,192, x1.029 and x1.032, outside a band of
+[0.98, 1.02] the lead wrote on both sides. Every control holds. Every figure below is *measured* unless labelled.
+
+Job 6af99acc29dd05ff03689fae, l40sx1, 2,319 s running, $1.16. Prereg
+proofs/preregistration-chain-prefill-served-2026-11-15.md (sha256 fdeb9eb1, stamped before). Image built from the
+stamped commit 752d8ef of branch dev/trois-gains-2026-11-15, Space sha 01942e5b. Raw outputs in
+chain-prefill-served-2026-11-15-brut/. Card: L40S, sm_89, driver 580.178.04. Sealed 4B 886391a8. Configs: V9 =
+qwen3-4b-tetra-e4-4e-v9.json (29b3ef32, served), CH = qwen3-4b-tetra-e4-4e-v9-chain.json (4913506f).
+
+CONTROLS: all hold
+  1. Oracle MATCH; the sealed file and both configs at their sha256; no LLVQ_* in the job environment.
+  2. Every process ran the served 4E v9 module, 252,757 bytes, 1b422b62.
+  3. Cold start: two module-cache misses, the arm line a12ipg32ft@8.10.8.20.6, 253 projections read in place, exit 0.
+  4. Warm start: two cache hits, the same token ids as the cold start (6bc34db3).
+  5. Under CH, at the door and at the four lengths, 4E's 256 tokens equal the eager decode's after the same chain
+     prefill. Against the eager prefill's tokens: identical at the door and at the four lengths.
+  6. Tree modules' texts: 306,060 bytes ce1c354d and 457,150 bytes 19b734a3, as in large-prefill-ft.
+  Both tree symbols hold 744 B of local memory, at 128 and 168 registers.
+
+TIME TO THE FIRST TOKEN AND DECODE AFTER IT (256 tokens, 2 + 5 rounds, medians [range]; two processes)
+  prompt   first token, s                        decode, tok/s                              ms a token
+           CH                 V9                 CH                    V9                   CH     V9
+  5        0.02 [0.02-0.02]   0.02 [0.02-0.02]   227.1 [227.0-227.1]   226.0 [225.9-226.2]   4.40   4.43
+  1,024    0.45 [0.45-0.45]   3.96 [3.94-3.97]   215.6 [215.5-215.6]   214.2 [213.6-214.2]   4.64   4.67
+  4,096    2.47 [2.47-2.48]   17.79 [17.76-17.82] 194.9 [194.8-194.9]  189.5 [188.9-189.7]   5.13   5.28
+  8,192    6.74 [6.71-6.77]   37.22 [37.20-37.27] 160.5 [160.1-161.0]  155.5 [154.7-156.4]   6.23   6.43
+  First token, CH over V9, quotients of medians with their envelopes (*computed*, two processes): 0.114 [0.113,
+  0.114] at 1,024, 0.139 [0.139, 0.140] at 4,096, 0.181 [0.180, 0.182] at 8,192.
+  Decode, CH over V9 (*computed*): 1.005, 1.007, 1.029, 1.032 at 5, 1,024, 4,096, 8,192. The V9 process reads 155.5
+  at 8,192 where the served door read 161.5 on 2026-11-07 (served-v9); what makes V9 slower in this process than CH,
+  which does not hold the eager prefill's memory when it decodes, is not read.
+  At the door, 5-token prompt, CH: 223.7 tok/s [223.5-223.7], 4E over eager x1.729 [1.729-1.730].
+
+MEMORY (nvidia-smi, 100 ms; phase peak a length, cut by the marks)
+  prompt   CH         V9
+  5        2.184 GB   2.014 GB
+  1,024    2.318 GB   2.490 GB
+  4,096    2.862 GB   4.135 GB
+  8,192    3.633 GB   6.047 GB
+  At 5 tokens CH holds 0.17 GB more, the tree arm's row buffers. The CH process as a whole peaks at 5,769 MiB: its
+  identity check runs an eager prefill beside the chain at each length. A served process would not.
+
+LOAD
+  Cold, empty cache: 509.2 s, of which NVRTC and the driver's JIT 99.1 s and 315.9 s for the two tree modules.
+  Warm, cached cubins (9.2 MB and 24.8 MB): 55.2 s. The gsm8k processes of both configs loaded in 55.1 s.
+
+GSM8K-200 (zero-shot, greedy, through the kernel, revision 740312ad)
+  V9 165 of 200 right, CH 165 of 200. Right in V9 only 0, in CH only 0. McNemar exact p = 1.
+  Prefill 0.533 ms a prompt token under CH against 3.858 under V9; mean prompt 87.1 tokens.
+
+THE VERDICT (prereg, decision rule)
+  Controls 1 to 6 hold. First token CH over V9 at 8,192 is 0.181, at or under 0.25. The phase peak of CH at 8,192 is
+  under V9's. The cached load is 55.2 s, under 150 s. GSM8K-200 p = 1. The decode ratio is inside [0.98, 1.02] at 5
+  and 1,024 and above it at 4,096 and 8,192. The row that fires: "controls hold, any other bound missed: NOT
+  SETTLED: the operator decides with the numbers". The bound is missed on the side of a faster decode.
+
+SIGNED PREDICTIONS (prereg)
+  Controls all hold on the first launch, 50 %: right.
+  First token at 8,192, CH 6.7 s [6.0, 8.0]: right, 6.74. V9 35.5 s [33, 39]: right, 37.22.
+  Quotient at 8,192, 0.19 [0.16, 0.24], at or under 0.25 at 85 %: right, 0.181. At 1,024, 0.12 [0.08, 0.20]: right.
+  Decode ratio inside [0.98, 1.02] at every length, 70 %: wrong, 1.029 and 1.032.
+  Phase peak at 8,192, CH 3.7 GB [3.5, 4.3]: right, 3.633. V9 5.95 GB [5.8, 6.1]: right, 6.047.
+  Load cold 650 s [500, 800]: right, 509.2. Cached 110 s [95, 150]: wrong, 55.2, under the interval.
+  GSM8K-200: V9 166 [163, 169]: right, 165. CH within 3: right. Discordant 4 [0, 12]: right, 0. p at or above 0.05:
+  right.
+  The verdict PASSES at 35 %, NOT SETTLED the likeliest row: NOT SETTLED fired, on the decode ratio as foreseen, on
+  the side the lead did not foresee.
+
+NOT ESTABLISHED
+  Why V9 decodes slower than CH in this job at long context. Any reading on the 8B or the 14B, which the pass does
+  not carry. Any quality reading but GSM8K-200 and the tokens of one prompt at four lengths; no MMLU, no near-tie
+  texts. The runtime's own door (llvq under LLVQ_PROFILE=chain): this job ran fusedrun and gsm8k. Whether a served
+  module may hold local memory: the tree symbols hold 744 B, and that is the operator's decision.
+
+Cost: $1.16 (*computed*, 2,319 s at $1.80/h), against $1.28 estimated and a $1.80 cap. Development job on the
+operator's go of 2026-11-15, outside the research phase's budget.
