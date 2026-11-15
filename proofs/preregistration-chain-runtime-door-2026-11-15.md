@@ -1,9 +1,10 @@
-# Prereg chain-runtime-door: `llvq` serves the 4B by the chain prefill (DRAFT, 2026-11-15)
+# Prereg chain-runtime-door: `llvq` serves the 4B by the chain prefill (2026-11-15)
 
-Status: DRAFT, not timestamped. The lead rereads it, signs the predictions below and stamps it before any run.
-Cost: about $0.24 (*estimated*), $0.47 if the module cache misses; hard cap 25 min, $0.75.
-Measured code: branch `dev/trois-gains-2026-11-15`, commit to fill at the stamp. Job script
-`ops/jobs/chain-runtime-door.sh`. The image must be rebuilt from that commit.
+Written by an executing agent, reread and signed by the lead, timestamped before any run. The job waits for the
+operator's go. Cost: about $0.24 (*estimated*), $0.47 if the module cache misses; hard cap 25 min, $0.75.
+Measured code: branch `dev/trois-gains-2026-11-15`, commits `89c4345`, `ad73fde`, `cad76df` and the commit that
+carries this file's timestamp, from which the image is rebuilt. Job script `ops/jobs/chain-runtime-door.sh`.
+The operator decided on 2026-11-15 to serve the chain prefill on the 4B; this check gates the merge into main.
 
 A timestamped prereg is no longer edited. A deviation is written in `<name>-ECARTS.md`.
 
@@ -58,11 +59,18 @@ texts equal the eager prefill's, and where they part if not; the two refusals. N
 
 ## Signed prediction
 
-To be signed by the lead before the stamp.
+Signed by the lead (main session) on 2026-11-15, before the stamp.
 
-- Load with the cache: ...
-- First content, long prompt, chain and eager: ...
-- Texts identical: ...
+- The controls hold and the job runs to its end on the first launch: 55 %. `llvq` has never served the chain on a
+  card, and the client script is new.
+- The module cache hits, both modules: 80 %. Same card type and driver as the job that wrote the cubins.
+- Load with the cache: 60 s [50, 90].
+- First content on the long prompt: chain 7.5 s [6.5, 10], eager 38 s [35, 42]; chain over eager 0.20 [0.16, 0.27];
+  at or under 0.30: 85 %.
+- Texts identical for both prompts: 80 %. The door read the same tokens at four lengths on another prompt; in the
+  bench 41 of 47 texts were identical for the 16-row form.
+- The way back loads v9 and both refusals name `LLVQ_PROFILE`: 90 %.
+- The verdict reads PASSES: 45 %.
 
 ## Reading table (lead's, filled after the run)
 
