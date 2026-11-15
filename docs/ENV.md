@@ -30,7 +30,7 @@ modes set together (`ALONE` in that file).
 | `LLVQ_KEEP_ALIVE` | `llvq-runtime` engine | duration, default `5m`; `0`; negative = never | served |
 | `LLVQ_MAX_LOADED` | `llvq-runtime` engine | count, default `1` | served |
 | `LLVQ_BATCH` | `llvq-runtime` engine | unset or `0` (default); `<n>` or `<n>:<positions>`, n in 1..=128; CUDA only | served |
-| `LLVQ_PROFILE` | `llvq-runtime` library | unset (default config) or `chain` (the entry's `cuda_chain` config, 4B only); refused beside `LLVQ_BATCH` and off CUDA | served |
+| `LLVQ_PROFILE` | `llvq-runtime` library | unset (each model's default config: the 4B on CUDA prefills by the chain since 2026-11-15) or `eager` (the eager prefill: the 4B's `cuda_eager` config, the v9 one); any other value refused by name, `chain` among them | served |
 | `LLVQ_MODULE_CACHE` | `llvq-cuda/src/modcache.rs`, under a config with `"prefill": "chain"` | absolute directory of compiled tree modules; `off`; unset = `$XDG_CACHE_HOME/llvq/modules`, else `~/.cache/llvq/modules`. Keyed by kernel text sha256, NVRTC arch and version, driver version and sm, so it moves no bit of what runs | served (a machine path, never refused) |
 | `LLVQ_BUILD_COMMIT` | `llvq-runtime`, compile time | set by `llvq-runtime/build.rs` | build |
 

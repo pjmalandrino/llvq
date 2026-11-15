@@ -1609,3 +1609,27 @@ The operator closed O11 and opened a phase on decode speed after an 8,192-token 
   "An int4 KV cache [...] is the only lead that reaches 300 tok/s at that context".
 - Nothing served changes: no config, no served module, no Hub file. No served tok/s is gained: the int8 read is a
   research arm, about 1 % faster at 8,192 and 3 % slower at 5.
+
+## 2026-11-15. A development step: three served gains asked, two wired; the chain prefill measured at a door and served on the 4B, $1.16
+
+The operator asked for three gains already measured on benches to be made servable: the chain prefill, the int8 KV
+cache as a memory lead, and speculative decoding as an opt-in profile. Branch `dev/trois-gains-2026-11-15`.
+
+- The chain prefill became a config field, `"prefill": "chain"` (`configs/qwen3-4b-tetra-e4-4e-v9-chain.json`), read
+  by `fusedrun`, `gsm8k`, the REPL and `llvq`. Its tree modules load from a disk cache of their cubins, keyed by the
+  kernel text, the NVRTC target and version, the driver and the card (`LLVQ_MODULE_CACHE`). 4B only.
+- Its door job, [chain-prefill-served](mesures/chain-prefill-served-2026-11-15.txt) (6af99acc, $1.16): first token
+  after 0.45 / 2.47 / 6.74 s at 1,024 / 4,096 / 8,192 tokens against 3.96 / 17.79 / 37.22 s for v9, the same 256
+  tokens at each length, phase peak 3.633 GB against 6.047 at 8,192, GSM8K-200 165 against 165 with no discordant
+  pair, load 509.2 s cold and 55.2 s cached (*measured*). The prereg read NOT SETTLED on one bound, a decode 2.9 and
+  3.2 % faster than v9's at long context.
+- The operator served it on the 4B on 2026-11-15. He accepted local memory in the tree modules alone (744 B), and a
+  prefill that is not bit for bit with the eager one under the ±0.12 % band of the attention forms. `llvq` loads the
+  chain config for the 4B on CUDA; `LLVQ_PROFILE=eager` is the way back.
+- `ETAT.md` §2 read: "On CUDA it loads the v9 configs". §4 read: "The 4B's first token at 8,192 takes 35.05 s". §5
+  read: "The chain prefill, a bench, not served" and then "measured at a door, not served".
+- The int8 cache got the form that frees the f16 cache at the hand-over, as a NOT SERVED config refused at every
+  served door, for the 8 B of local memory in its token symbol. It is not run on a card; its prereg is a draft.
+- Speculative decoding was stopped before any code: the loop returns the tree pass's greedy tokens, not 4E's, 177 of
+  200 GSM8K prompts identical (spec-loop-sp8), and a loop identical to 4E needs the drafter's taps from a verify pass
+  that does not produce them. The drafter's licence is recorded nowhere in the repository.
