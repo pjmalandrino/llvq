@@ -1,0 +1,23 @@
+S1. GSM8K grader, the cases of llvq-llm/src/gsm8k.rs tests.
+   31 of 31 cases agree
+
+S2. Planted flip rate. Three arms against one reference set, hazards 0.0030,
+    0.0020, 0.0012 a character, 20,000 problems, 30 % of arms stopped early and 10 %
+    run past the reference. Pass: each hazard within 5 %, each cut within 0.03.
+   control  planted 0.0030 read 0.00298 (14815 flips over 4963164 characters, 5185 censored)  passes
+   late     planted 0.0020 read 0.00197 (12436 flips over 6326965 characters, 7564 censored)  passes
+   early    planted 0.0012 read 0.00119 (9384 flips over 7881265 characters, 10616 censored)  passes
+   r_late   planted 0.3333 read 0.3415  passes
+   r_early  planted 0.6000 read 0.6011  passes
+
+S3. Planted slope and noise: x four logits a question with a question offset,
+    y = beta x + offset + N(0, sigma). Pass: beta within 4 of its sampling sd,
+    sd_res within 2 %, and the bootstrap sums give the same fit.
+   beta 0.5817 sigma 1.4205: read 0.5748 (sd 0.0043) 1.4216, from sums 0.5748 1.4216  passes
+   beta 0.9500 sigma 0.4000: read 0.9481 (sd 0.0012) 0.4003, from sums 0.9481 0.4003  passes
+   beta 0.3000 sigma 2.0000: read 0.2931 (sd 0.0061) 2.0028, from sums 0.2931 2.0028  passes
+
+S4. Three planted false steps among true ones, chains and decoys.
+   parsed 11 steps (want 11), false [('12', '×', '12', '140'), ('1000', '+', '250', '1260'), ('45', '/', '9', '5.04')]  passes
+
+SELF-CHECK PASSES

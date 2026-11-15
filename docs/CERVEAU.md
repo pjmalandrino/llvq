@@ -14,8 +14,9 @@ phase opened (O14) on a new anomaly, N6, and its first card job added Q25. Two r
 sealed 4B and gave Q22 a scope note, and a reading of the 8B and 14B originals added Q26. GSM8K then bounded Q25 to
 MMLU and added Q27, and the operator closed the phase the same day: O14 is condensed, N7 joined the anomalies and
 two beliefs joined the dropped ones. On 2026-11-15 the long-context speed phase closed (O13): P4 replaced the
-claim that int8 does not pass, P3 is refuted on one tile, and a third quality phase opened on N6 and N7 (O15).
-65 claims: 16 established, 2 proved, 38 supported, 5 conjecture, 4 refuted.
+claim that int8 does not pass, P3 is refuted on one tile, and a third quality phase opened on N6 and N7 (O15). Its
+first readings, on dumps already on disk, added Q28 and notes to Q11 and Q25.
+66 claims: 16 established, 2 proved, 39 supported, 5 conjecture, 4 refuted.
 
 This document lists what we believe to be true about quantizing LLMs on the Leech lattice, each belief with its
 standing. It is not the served state ([`ETAT.md`](ETAT.md)), the history ([`HISTORIQUE.md`](HISTORIQUE.md)) or a plan
@@ -389,6 +390,10 @@ energy: at the answer position, at depths 8 to 24, the band 513 to 2,560 holds 2
 - Overturn: a second draw or size where the blocks after the write carry their share of the MMLU loss.
 - Checked: 2026-11-14. The GSM8K condition written here the same morning fired: on GSM8K the late blocks gain at
   least as much per weight as the early ones (Q27). The claim is kept for MMLU and says nothing on the model's loss in general.
+  Added 2026-11-15, *computed* on the two restore dumps: the late arm's answer logits read a slope of 0.6982 and a
+  noise of 1.5626 against the control's 0.5817 and 1.4205, a ratio 9.1 % higher; the early arm reads 0.8446 and
+  0.6279. The late arm changes 837 picks, 5.96 %, on questions FP16 answers with a median margin of 1.55 against 4.30
+  overall ([recherche-qualite3-dumps](mesures/recherche-qualite3-dumps-2026-11-15.txt), M1 and M2).
 
 **Q27.** On GSM8K the blocks after the MMLU write carry at least their share of the loss. Restoring layers 25 to 35
 of the sealed 4B's f16 export gains +4.32 [+2.46, +6.18] on the 1,319 problems, layers 0 to 24 gain +7.20 [+5.19,
@@ -402,6 +407,20 @@ FP16.
   $0.31; the rates *computed*).
 - Overturn: a second generation task or size where the late blocks carry under half their share.
 - Checked: 2026-11-14.
+
+**Q28.** On GSM8K the two depth windows repair mostly the same problems. Of the 108 problems the late restore
+repairs, 84 are also repaired by the early restore, which repairs 143. The place where a greedy completion first
+leaves FP16's text does not read the error of the weights: a third of the sealed control's completions differ from
+FP16's at their first character, 440 of 1,319, the median shared prefix is 12 characters, and the early restore does
+not lengthen it, a cut of the flip hazard of −0.092 [−0.255, +0.047] where the late restore cuts 0.293 [0.237, 0.346].
+- Standing: supported. *Computed* once on *measured* dumps under a stamped prereg; every gate passes. Scope: 4B, one
+  calibration draw, greedy GSM8K in vLLM; FP16's completions come from a run of 2026-09-26, the arms from
+  2026-11-14, and what else differs between the two runs is not read.
+- Evidence: [recherche-qualite3-dumps](mesures/recherche-qualite3-dumps-2026-11-15.txt), G1, G4 and THE LEAD'S
+  READING.
+- Overturn: a finer GSM8K window whose interval excludes its even rate, or an FP16 rerun beside the arms that shares
+  long prefixes with itself and not with the early restore.
+- Checked: 2026-11-15.
 
 **Q26.** The original Qwen3 writes its MMLU answer in one block at about seven tenths of its depth, at the three
 sizes read. Lens accuracy, the model's own readout on the stream after each block: 4B 28.3 % then 72.3 % at depth 25
@@ -785,7 +804,7 @@ A measured fact that no claim explains. They are the starting points of the expl
 | N4 | Perplexity and KL close while MMLU stays open. | Q5, Q6. | What MMLU reads that the two do not. |
 | N5 | The whole token streams 297 GB/s while its rows read 359 to 648, and bit-identical cuts move time without removing it. | K4, K10; K5 for the split of the time without weights, which is a conjecture (its consequence, the 94 % that reappeared, is measured). | What holds the token when the rows are not the limit. |
 | N6 | The sealed 4B's four answer logits regress on FP16's with slope 0.58: it keeps 58 % of the contrast between the options, where AWQ 4B keeps 0.96. Across the 17 full-split 4B files with every projection quantized the slope runs from 0.22 to 0.58 and the noise from 1.20 to 1.77 a logit. No zero-bit correction raised the slope by more than 6 %, and two cases where perplexity improved and MMLU fell (Q5, Q14) are cases where the slope fell more than the noise. | [recherche-qualite2-r0-contraste](mesures/recherche-qualite2-r0-contraste-2026-11-14.txt) (*computed* on *measured* dumps); Q7, Q8. | What forms the deficit before block 25. Q25 places the loss: it is complete at the write, and the fall of the output slope after it is a rescale. Only the ratio decides an argmax ([logit-snr-4b](mesures/logit-snr-4b-2026-09-12.txt) section 9). |
-| N7 | On the sealed 4B the blocks after the MMLU answer write carry little of the MMLU loss and at least their share of the GSM8K loss: restoring layers 25 to 35 gains +0.43 [+0.11, +0.77] on MMLU and +4.32 [+2.46, +6.18] on GSM8K. | Q25, Q27. | What the late blocks do for a worked answer that a one-token answer does not need, and whether a reading of the original alone can place the loss of generation. |
+| N7 | On the sealed 4B the blocks after the MMLU answer write carry little of the MMLU loss and at least their share of the GSM8K loss: restoring layers 25 to 35 gains +0.43 [+0.11, +0.77] on MMLU and +4.32 [+2.46, +6.18] on GSM8K. | Q25, Q27, Q28. | Whether anything but the error a problem meets places the GSM8K loss. The two windows repair mostly the same problems (Q28) and both gains contain their even rate: the reading that generation uses every block about evenly, and that MMLU cannot see the last eleven (Q25, Q26), is not rejected. A finer GSM8K window whose interval excludes its even rate would reopen it. |
 
 ## Open questions
 
@@ -1000,6 +1019,17 @@ route (O10). Its mandate:
 | Untouchable | The three sealed files as published. Whole-model b/param at 2.73. VRAM at the served peaks. A per-model or per-type setting is not a result (operator, 2026-11-12), a restore to f16 is a probe, not a mechanism (Q20), and a mechanism is judged on MMLU and on GSM8K (O14). No heavy job on the work machine without the operator's word. No edit under `llvq-cuda/` or `llvq-runtime/`, or to a served config: a development agent works there on branch `dev/trois-gains-2026-11-15`. |
 | Budget | Not signed. The lead proposes five days, to 2026-11-20, and $10 of card, each paid run under a stamped prereg and the operator's go. Until the operator signs a figure the phase runs only what costs nothing and loads no model. |
 
+State on 2026-11-15, $0 spent. R0 is in
+[recherche-qualite3-r0-depot](mesures/recherche-qualite3-r0-depot-2026-11-15.txt) and
+[recherche-qualite3-r0-litterature](mesures/recherche-qualite3-r0-litterature-2026-11-15.txt), the frame in
+[recherche-qualite3-r1-cadrage](mesures/recherche-qualite3-r1-cadrage-2026-11-15.txt). N6 is framed as one question:
+whether the MMLU deficit travels in the directions the calibration average calls cheap, which the layer objective
+gives no rate. Five rivals are written with what kills each; one card job, the patch map, carries four of the kills
+and is not run. The first readings, at $0 on dumps on disk
+([recherche-qualite3-dumps](mesures/recherche-qualite3-dumps-2026-11-15.txt)): the two GSM8K windows repair mostly
+the same problems (Q28), so nothing on disk makes the late blocks a place apart for generation; the first
+divergence from FP16's text turned out to read the opening word, not the weights' error, and decides nothing.
+
 Already excluded, and not starting points here: gains chosen for a coherent gain of 1 along the depth, and bits
 allocated by the MMLU write depth (O14); the calibration draw, probes of gate/up and a fast verifier, refused by the
 operator on 2026-11-14 as tinkering.
@@ -1072,5 +1102,8 @@ operator on 2026-11-14 as tinkering.
   paired against the vLLM control, whose gap to FP16 is 10.09 (same note, point 2).
 - [downproj-slices](mesures/downproj-slices-2026-09-18.txt) lines 42 to 45 read in September that `down_proj` at
   layers 24 to 35 changes 3.9 % of MMLU answers. Q25 and Q27 do not cite it (same note, point 6).
+- [depth-restore-4b](mesures/depth-restore-4b-2026-11-14.txt) line 30 says the late arm changes the pick on 4.1 % of
+  the questions. That is won plus lost, 569 of 14,042; with the picks that move between two wrong options it is 837,
+  5.96 % ([recherche-qualite3-dumps](mesures/recherche-qualite3-dumps-2026-11-15.txt), M2).
 - No claim covers the machine an encode runs on. `docs/data/jobs.csv` line 120 reads the same tokens on a card and on
   Metal at 52.31 against 53.49 on 2,280 q, and the card re-encode of the DCLM base differs from the Mac file (Q15).

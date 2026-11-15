@@ -1,0 +1,218 @@
+QUALITY PHASE 3 (CERVEAU O15): THE DUMP READINGS G1, M1, M2, G2, G3, G4 ON THE 4B DUMPS, 2026-11-15. $0.
+========================================================================================================
+On the flips of a worked GSM8K answer the late restore cuts the hazard by r_late = 0.293 [0.237, 0.346], an interval
+that contains the weight share 0.306 (*computed*, 1,319 problems). The early restore does not cut it: r_early =
+-0.092 [-0.255, +0.047]. Every arm leaves FP16's text early, median 12, 12 and 6 characters. G2 is not decided, S =
++3.88 points [-0.72, +8.46]. G3 fires "below +10 points": the false share is 14.81 % on the problems the late arm
+repairs and 13.99 % on those the early arm repairs, difference +0.83 [-3.48, +5.31]. The two arms both repair 84
+problems. On MMLU the late arm reads beta 0.6982 and sd_res 1.5626, beta / sd_res 0.4468, 9.1 % above the control's
+0.4095. Every gate passes.
+
+Written by the executing agent; its figures were checked by the lead against the raw tables, and the section THE
+LEAD'S READING is the lead's.
+
+THE LEAD'S READING
+------------------
+1. G1's rule fires to the letter, "the interval of r_late contains 0.306", and the instrument does not carry it. The
+   early restore puts 69 % of the restored weights back to f16 and does not lengthen the text shared with FP16:
+   r_early = -0.092 [-0.255, +0.047], where the even reading the rule tests puts it near 0.69. Half the completions
+   leave FP16's text within 12 characters and a third at the first one. The first divergence reads the opening word,
+   a near tie, not the error of the weights. G1 neither closes N7 nor reopens it. The lead wrote the rule without
+   that control; the next flip instrument needs FP16 rerun beside the arms and a statistic past the opening.
+2. What bears on N7 is G4. Of the 108 problems the late restore repairs, 84 are also repaired by the early restore,
+   which repairs 143 (*computed*). The two windows mostly repair the same problems: a problem fails on the error it
+   meets, whichever blocks carry it. That is the dull reading, H7-A, and with the two gains inside their even rates
+   nothing on disk makes the late blocks a place apart for generation. On MMLU the late arm's changed picks sit on
+   questions FP16 answers with a median margin of 1.55 against 4.30 overall (M2): near ties.
+3. M1 agrees with Q25 and sharpens it. FP16's late blocks on the sealed stream raise the slope from 0.58 to 0.70
+   and the noise from 1.42 to 1.56: beta / sd_res gains 9.1 %, for +0.43 MMLU. With FP16's first 25 blocks the
+   eleven sealed blocks alone keep a slope of 0.84 under a noise of 0.63.
+4. The September slices do not kill H6-E. Putting down_proj at int4 on layers 0 to 11 raises the slope by +0.043
+   and the noise from 1.457 to 1.534; on layers 24 to 35 the slope does not rise (-0.004). The lead predicted the
+   opposite order (prediction 5).
+5. G3 fires "dead" on a parser of which 4 of 7 flagged steps read by hand are artifacts. H7-D is dead on this file by
+   the rule; the lead gives the verdict little weight.
+6. Predictions: eight right, seven wrong. The wrong ones share a cause for three of them: the lead took the late
+   blocks' effect on the slope for a pure rescale and it is not quite one.
+
+Prereg : proofs/preregistration-recherche-qualite3-dumps-2026-11-15.md, stamped (.ots), committed at 4dda267 and
+         anchored at 8c2de24. Not edited. No deviation file; the literal readings taken are under DEPARTURES.
+Code   : ops/depth_dumps.py (sha256 in the raw commands.txt), numpy only, run by uv. The GSM8K grader is a port of
+         llvq-llm/src/gsm8k.rs (regrade, extract, last_boxed, numbers, canonical, frac_value); the M1 fit is the
+         one of recherche-qualite2-r0-contraste-2026-11-14-brut/beta_table.py, sd_res = sqrt(sum e^2 / 3N).
+Cost   : $0. No model loaded, no job, no download, no cargo command. Run on the Mac under nice 10, about 2 s.
+Raw    : recherche-qualite3-dumps-2026-11-15-brut/: report.txt (full stdout), selftest.txt, mutants.txt,
+         inputs.sha256, commands.txt, gsm8k_grades.tsv, g1_flips.tsv, g1_summary.tsv, g2_groups.tsv,
+         g3_control_steps.tsv, g3_false_steps.tsv, m1_fits.tsv, m2_changed.tsv, and g1_d_after_run.txt (read after
+         the run, outside the prereg).
+Boot   : percentile 95 % intervals, 10,000 draws, numpy default_rng(20261115). G1, G2 and G3 share one set of
+         draws over the 1,319 problems; M1 draws over the 14,042 questions from the same seed.
+
+GATES
+-----
+| gate | figure | |
+|---|---|---|
+| self-check, grader | 31 of 31 cases of llvq-llm/src/gsm8k.rs tests agree | passes |
+| self-check, flip rate | hazards 0.0030, 0.0020, 0.0012 read 0.00298, 0.00197, 0.00119 | passes |
+| self-check, cuts | 0.3333 and 0.6000 read 0.3415 and 0.6011 | passes |
+| self-check, slopes | 0.5817, 0.95, 0.30 read 0.5748, 0.9481, 0.2931, each within 4 sampling sd | passes |
+| self-check, noises | 1.4205, 0.40, 2.00 read 1.4216, 0.4003, 2.0028, each within 2 % | passes |
+| self-check, false steps | 11 steps parsed, the three planted false steps found and no other | passes |
+| GSM8K grading | 1,082, 1,139, 1,177, 1,215 right of 1,319; 108 against 51 and 143 against 48 discordant | passes |
+| MMLU | micro 63.37 and 70.14; paired gains +0.43 and +6.12; control beta 0.5817, sd_res 1.4205 | passes |
+| same 1,319 problems in the same order | index, qhash and gold equal in the four GSM8K dumps | passes |
+| G1, at least 200 uncensored | 1,319 uncensored in each of the three arms | passes |
+| G3 coverage at least 50 % | 79.15 % (1,044 of 1,319 control completions hold a parsed step) | passes |
+
+No reading is void.
+
+Mutants of the self-check, one at a time, each a single exact-string replace (sites counted), selftest rerun, file
+restored from a copy and checked byte-identical with cmp (mutants.txt):
+| mutant | sites | self-check |
+|---|---|---|
+| hazard denominator: sum of d over uncensored problems | 1 | fails (hazards read 0.00455, 0.00386, 0.00328): killed |
+| censoring rule: only equal completions censored | 1 | fails (hazards read 0.00361, 0.00259, 0.00183): killed |
+| slope fit: denominator sum of y*y | 1 | fails (beta read 0.5108, 0.9871, 0.1788): killed |
+| false-step tolerance 0.005 to 0.05 | 1 | fails (no false step found): killed |
+
+G1, THE FLIP HAZARD (N7)
+------------------------
+d_X is the count of leading characters X's completion shares with FP16's, on the raw strings. All figures *computed*.
+| arm | uncensored | sum of d | h, flips per 1,000 characters | median d | d >= 20 | d >= 100 | d >= 400 |
+|---|---|---|---|---|---|---|---|
+| control | 1,319 | 32,027 | 41.18 [38.13, 44.66] | 12 | 37.98 % | 4.32 % | 0.00 % |
+| late | 1,319 | 45,324 | 29.10 [26.91, 31.59] | 12 | 40.56 % | 9.78 % | 0.00 % |
+| early | 1,319 | 29,336 | 44.96 [40.32, 50.36] | 6 | 26.46 % | 5.76 % | 0.08 % |
+
+r_late = 0.2934 [0.2368, 0.3457]. r_early = -0.0917 [-0.2549, +0.0465].
+
+Rule row that fires (prereg section 5): "the interval of r_late contains 0.306 | the even reading is not rejected on
+flips either: N7 closes as explained, unless the patch map says otherwise".
+
+Read after the run, outside the prereg, descriptive only (g1_d_after_run.txt): d = 0, a first character that differs
+from FP16's, in 440 control, 471 late and 618 early completions of 1,319. No completion of any arm equals FP16's or
+is a prefix of it.
+
+M1, SLOPE AND NOISE (N6)
+------------------------
+Each dump against mmlu-4b-f16-FULL.csv on 14,042 questions. MMLU is the dump's `correct` column. All *computed*.
+| dump | MMLU | beta | sd_res | beta / sd_res |
+|---|---|---|---|---|
+| control | 63.37 | 0.5817 [0.5771, 0.5863] | 1.4205 [1.4072, 1.4336] | 0.4095 [0.4036, 0.4156] |
+| late (layers 25-35 f16) | 63.81 | 0.6982 [0.6931, 0.7033] | 1.5626 [1.5456, 1.5796] | 0.4468 [0.4399, 0.4540] |
+| early (layers 0-24 f16) | 69.49 | 0.8446 [0.8429, 0.8462] | 0.6279 [0.6229, 0.6331] | 1.3450 [1.3325, 1.3573] |
+| q5-shipped | 56.37 | 0.4415 [0.4360, 0.4471] | 1.4567 [1.4431, 1.4699] | 0.3031 [0.2983, 0.3082] |
+| q5-down-0-11 | 56.85 | 0.4844 [0.4788, 0.4899] | 1.5342 [1.5205, 1.5477] | 0.3157 [0.3108, 0.3207] |
+| q5-down-12-23 | 58.78 | 0.5032 [0.4980, 0.5084] | 1.4436 [1.4296, 1.4570] | 0.3486 [0.3432, 0.3543] |
+| q5-down-24-35 | 57.01 | 0.4370 [0.4317, 0.4425] | 1.4197 [1.4061, 1.4328] | 0.3078 [0.3030, 0.3129] |
+
+Beside, no rule, paired over the same draws: beta / sd_res late minus control +0.0373 [+0.0354, +0.0392], +9.11 %;
+early minus control +0.9355 [+0.9232, +0.9475]. Beta against q5-shipped: 0-11 +0.0429 [+0.0397, +0.0461], 12-23
++0.0617 [+0.0593, +0.0642], 24-35 -0.0044 [-0.0050, -0.0039]; 24-35 minus 0-11 -0.0473 [-0.0506, -0.0441].
+The q5-shipped line reproduces r0-contraste line 42 (0.4415, 1.4567).
+
+M2, THE FLIPS OF THE LATE ARM
+-----------------------------
+The late arm changes the pick against the control on 837 of 14,042 questions, 5.96 % (*computed*). Of those, won 315
+(37.63 %), lost 254 (30.35 %), and 268 (32.02 %) move from one wrong option to another. FP16's margin, top logit
+minus second: mean 2.378 and median 1.547 on the 837, against 4.842 and 4.297 on all questions.
+
+G2, THE CHAIN'S LENGTH (H7-B)
+-----------------------------
+Thirds by FP16's n_gen, paired gain late minus control (*computed*):
+| third | problems | FP16 n_gen | control right | late right | gain |
+|---|---|---|---|---|---|
+| short | 440 | 117 to 246 | 403 | 418 | +3.41 |
+| middle | 440 | 246 to 324 | 380 | 390 | +2.27 |
+| long | 439 | 324 to 1,024 | 299 | 331 | +7.29 |
+
+S = gain(long) - gain(short) = +3.88 points [-0.72, +8.46].
+
+Rule row that fires: "otherwise | not decided". The interval neither lies above 0 nor below +3.
+
+G3, FALSE ARITHMETIC (H7-D)
+---------------------------
+Coverage 79.15 %: 1,044 of the control's 1,319 completions hold at least one parsed step; 2,412 steps, 30 false, in
+30 completions (*computed*).
+| set | false completions | share |
+|---|---|---|
+| control completions of the problems the late arm repairs | 16 of 108 | 14.81 % |
+| control completions of the problems the early arm repairs | 20 of 143 | 13.99 % |
+
+Difference late-repaired minus early-repaired +0.83 points [-3.48, +5.31]. Beside: 2.27 % of all control completions
+are false, 10.97 % of the wrong ones, 0.37 % of the right ones.
+
+Rule row that fires: "it lies below +10 points | H7-D dead on this file". The row "lies above 0" does not fire.
+
+Parser check, after the run, on 7 of the 30 flagged steps (g3_false_steps.tsv, context read by hand): 3 are false
+arithmetic as written (problems 37, 823, 1003), 4 are parser artifacts: an algebra line whose right side carries a
+variable ("30 - 10 = 5x", "45 + 5 = 2S", "9 × 4 = 3x", problems 118, 360, 1234) and a thousands group written with a
+comma and a space ("94, 060", problem 610). The other 23 were not read. The code was not changed.
+
+G4
+--
+The late and the early arm both repair 84 problems, of 108 and 143 (*computed*).
+
+SIGNED PREDICTIONS (prereg section 6)
+-------------------------------------
+| prediction | predicted | read | |
+|---|---|---|---|
+| 1. grading gate passes | 90 % | passes | right |
+| 2. r_late | 0.40 [0.25, 0.55] | 0.293 | right (inside the interval) |
+| 2. r_early | 0.60 [0.45, 0.75] | -0.092 | wrong |
+| 2. interval of r_late contains 0.306 (60 %), above it (35 %) | contains | contains | right |
+| 3. control median d under 150 characters | under 150 | 12 | right |
+| 4. late beta | 0.78 [0.70, 0.88] | 0.6982 | wrong |
+| 4. late sd_res | 1.85 [1.60, 2.10] | 1.5626 | wrong |
+| 4. late beta / sd_res within 8 % of 0.4095 | within 8 % | +9.11 % | wrong |
+| 4. early beta | 0.85 [0.72, 0.98] | 0.8446 | right |
+| 4. early sd_res | 0.70 [0.45, 0.95] | 0.6279 | right |
+| 5. 24-35 raises beta more than 0-11 | yes | -0.0044 against +0.0429 | wrong |
+| 6. G2 not decided | 75 % | not decided | right |
+| 7. G3 coverage at least 50 % | 70 % | 79.15 % | right |
+| 7. G3, if not void, not decided | 60 % | H7-D dead | wrong |
+| 8. G4 | 50 [35, 70] | 84 | wrong |
+
+Eight right, seven wrong, scored line by line.
+
+DEPARTURES
+----------
+Literal readings where the prereg leaves a choice. None changes a definition.
+1. G1 "characters" are Unicode code points of the stored `completion` strings, with no normalisation.
+2. M1 "the four MMLU dumps against FP16": FP16 against itself reads beta 1, sd_res 0; it is printed in report.txt
+   and not read.
+3. M1, September dumps: fitted against mmlu-4b-f16-FULL.csv, the reference the prereg names for M1 and the R0 note
+   names for these slices, on the questions common to the four (all 14,042).
+4. Bootstrap: one generator default_rng(20261115) a reading; G1, G2 and G3 share the same 10,000 x 1,319 draws.
+   Percentiles 2.5 and 97.5 by numpy's linear interpolation.
+5. G2 thirds: 1,319 is not a multiple of 3. Problems ranked by FP16 n_gen, ties broken by problem order, third =
+   rank x 3 // 1,319, sizes 440, 440, 439; n_gen 246 and 324 fall on both sides of a cut. Membership is fixed per
+   problem in the bootstrap, not recut a draw.
+6. G3 interval: the prereg names "the interval" with no method; G1's bootstrap is used.
+7. G3 parser: ASCII '-' is read as minus (the prereg writes U+2212); LaTeX \times and \div as × and ÷; '**' markers
+   removed; '\$', '$', '€', '£' removed; commas between digits removed. Numbers are unsigned, so a step with a
+   negative operand or result is not parsed. A step preceded, after spaces, by a digit, '.', an operator or '^', or
+   followed by an operator or '^', is part of a chain and not parsed. \cdot is not read. Division by zero is false.
+   A right side followed by a letter is parsed (see the parser check above).
+8. G2 and G3 rule tables: their rows are not exclusive (an interval can lie above 0 and below +3). The script prints
+   every row that holds; on this run one row held in each.
+9. M2: the share of changed picks also counts picks that move between two wrong options; the margin is given as mean
+   and median, the prereg names neither.
+10. Self-check: the first self-check run, before any real file was read, failed a planted slope (0.2931 for 0.3000,
+    1.1 sampling sd) because a 2 % tolerance was tighter than the slope's sampling sd at that noise. The tolerance
+    became 4 sampling sd. A 30-draw check gave a mean standardised error of -0.23, sd 1.03.
+11. The d = 0 counts and the 7-step parser check were read after the run; they are not prereg readings.
+
+Mismatch found: depth-restore-4b-2026-11-14.txt says the late arm "changes the pick on 4.1 %" of the questions. The
+dumps give 837 pick changes, 5.96 %; 4.1 % is 569 of 14,042, the won plus lost count.
+
+NOT ESTABLISHED
+---------------
+- Any cause. A hazard and a slope describe arms that already ran.
+- That the hazard measures the weights alone. The FP16 dump ran on 2026-09-26 and the three arms on 2026-11-14, same
+  vLLM 0.26.0 and same card type; the early arm, closest to FP16 in weights, leaves FP16's first character more often
+  than the control. What else differs between the two runs was not read.
+- That a flip costs a point.
+- G3's verdict past its parser: a share of the flagged steps are artifacts, counted on 7 of 30 only.
+- Anything on the 8B, the 14B, a second calibration draw, or a task but MMLU and GSM8K.
+- Any mechanism. No encoder is changed.
