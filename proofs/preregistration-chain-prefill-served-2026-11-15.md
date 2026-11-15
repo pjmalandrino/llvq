@@ -1,9 +1,10 @@
-# Prereg chain-prefill-served: the chain prefill at the served door, 4B (DRAFT, 2026-11-15)
+# Prereg chain-prefill-served: the chain prefill at the served door, 4B (2026-11-15)
 
-Status: DRAFT, not timestamped. The lead rereads it, signs the predictions below and stamps it before any run.
-Cost: about $1.28 (*estimated*), hard cap 60 min, $1.80. Budget: the operator's, to announce with the go.
-Measured code: branch `dev/trois-gains-2026-11-15`, commit of gain 1 (to fill at the stamp). Job script
-`ops/jobs/chain-prefill-served.sh`.
+Written by an executing agent, reread and signed by the lead, timestamped before any run. The operator gave the go
+for this job on 2026-11-15, its cost announced: about $1.28 (*estimated*), hard cap 60 min, $1.80.
+Measured code: branch `dev/trois-gains-2026-11-15`, commits `80cc6cb` and `5acc9f5` and the commit that carries this
+file; the image is rebuilt from the commit that carries its timestamp. Job script `ops/jobs/chain-prefill-served.sh`.
+This is development work on the operator's order, outside the research phase's budget.
 
 A timestamped prereg is no longer edited. A deviation is written in `<name>-ECARTS.md`.
 
@@ -63,14 +64,22 @@ Not compared: CH against `prefillbench` figures (another loop, another job); any
 
 ## Signed prediction
 
-To be signed by the lead before the stamp. Each: expected value, interval, reason in two lines, known flaw.
+Signed by the lead (main session) on 2026-11-15, before the stamp.
 
-- TTFT at 8,192, CH: ...
-- TTFT at 8,192, V9: ...
-- Decode tok/s at 8,192, CH over V9: ...
-- Phase peak at 8,192, CH and V9: ...
-- Load, cold and cached: ...
-- GSM8K-200, discordant pairs: ...
+- The controls all hold on the first launch: 50 %. The door path, the module cache and the cubin load have never run
+  on a card; the image has never been built from this branch.
+- TTFT at 8,192, CH: 6.7 s [6.0, 8.0]. The bench read 6.485 s at 8,191; the door adds a hand-over launch. Known flaw:
+  the bench loaded its modules from PTX, the door loads a cubin.
+- TTFT at 8,192, V9: 35.5 s [33, 39]. The served door read 35.05 s on 2026-11-07.
+- TTFT, CH over V9 at 8,192: 0.19 [0.16, 0.24]; at or under 0.25: 85 %. At 1,024: 0.12 [0.08, 0.20].
+- Decode tok/s, CH over V9: inside [0.98, 1.02] at every length: 70 %. The decode is 4E v9 in both; the caches live
+  in other buffers after the chain.
+- Phase peak at 8,192: CH 3.7 GB [3.5, 4.3], V9 5.95 GB [5.8, 6.1]. CH at or under V9: 90 %.
+- Load: cold 650 s [500, 800]; cached 110 s [95, 150]; cached at or under 150 s: 75 %.
+- GSM8K-200: V9 166 right [163, 169]; CH within 3 of V9; 4 discordant pairs [0, 12]; McNemar p at or above 0.05:
+  90 %. The prompts are short, so the chain feeds few rows; a near tie can flip.
+- The verdict reads PASSES: 35 %. NOT SETTLED is the likeliest row if the controls hold, on the cached load or on a
+  decode ratio just outside its band.
 
 ## Reading table (lead's, filled after the run)
 
