@@ -1448,6 +1448,36 @@ fn parse_pers_4e(v: &str) -> Result<Pers4eSpec, String> {
     Ok((n, out, lengths, again))
 }
 
+/// `LLVQ_PERS_4E`'s `+local` marks (`pers::P4E_LOCAL_SUFFIX`): an arm named
+/// `<arm>+local` is timed even where its token symbol holds local memory
+/// (`persist4e_cuda::install_e1_local`), a measurement of what the load rule
+/// protects. Returns the value with the marks removed, for [`parse_pers_4e`],
+/// and the arms marked. Refused on the first arm: the reference of every
+/// ratio loads under the rule or the run has none.
+#[cfg(any(target_os = "macos", feature = "cuda"))]
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+fn split_pers_4e_local(v: &str) -> Result<(String, Vec<String>), String> {
+    let suffix = llvq_cuda::pers::P4E_LOCAL_SUFFIX;
+    let mut fields: Vec<String> = v.splitn(3, ':').map(str::to_string).collect();
+    let mut marked: Vec<String> = Vec::new();
+    if let Some(arms) = fields.get_mut(1) {
+        let mut names = Vec::new();
+        for (i, name) in arms.split(',').enumerate() {
+            match name.strip_suffix(suffix) {
+                Some(_) if i == 0 => return Err(format!("LLVQ_PERS_4E={v:?}: the first arm is the reference and takes no {suffix}")),
+                Some(bare) if marked.iter().any(|m| m == bare) => return Err(format!("LLVQ_PERS_4E={v:?}: arm {bare} named twice")),
+                Some(bare) => {
+                    marked.push(bare.to_string());
+                    names.push(bare);
+                }
+                None => names.push(name),
+            }
+        }
+        *arms = names.join(",");
+    }
+    Ok((fields.join(":"), marked))
+}
+
 /// `LLVQ_PERS_4E=check:<arms>`'s arms: E1 arms (`pers::P4E_E1_ARMS`),
 /// comma-separated, each once, at least one.
 #[cfg(any(target_os = "macos", feature = "cuda"))] // names llvq_cuda, a dependency on macOS and under `cuda` only
@@ -2330,6 +2360,8 @@ fn main() -> anyhow::Result<()> {
                 println!("4E check done in {:.1} s", t.elapsed().as_secs_f64());
                 return Ok(());
             }
+            // `<arm>+local`: that arm is timed with local memory, a measurement of the load rule
+            let (v, local_arms) = split_pers_4e_local(&v).map_err(|e| anyhow::anyhow!("{e}"))?;
             let (count, e1_arms, long, again) = parse_pers_4e(&v).map_err(|e| anyhow::anyhow!("{e}"))?;
             let n_new: usize = count;
             if !(2..=256).contains(&n_new) {
@@ -2368,7 +2400,12 @@ fn main() -> anyhow::Result<()> {
             // v9, then v6s. Each owes the eager path's tokens.
             let mut rts = Vec::new();
             for arm in &e1_arms {
-                match llvq_llm::persist4e_cuda::install_e1(&f.model, &device, n_new as u32, arm) {
+                let installed = if local_arms.iter().any(|a| a == arm) {
+                    llvq_llm::persist4e_cuda::install_e1_local(&f.model, &device, n_new as u32, arm)
+                } else {
+                    llvq_llm::persist4e_cuda::install_e1(&f.model, &device, n_new as u32, arm)
+                };
+                match installed {
                     Ok(rt) => {
                         for line in &rt.lines {
                             println!("{line}");
@@ -3838,6 +3875,24 @@ mod tests {
         assert_eq!(parse_pers_4e("256:v9,v9k8,v9"), Ok((256, vec!["v9", "v9k8"], vec![8192], true)));
         for probe in llvq_cuda::pers::P4E_RC_PROBES {
             assert!(parse_pers_4e(&format!("64:v9,{}", probe.0)).is_err(), "{} is never timed", probe.0);
+        }
+        // `+local`: the mark is split off, the value left is an ordinary one
+        use super::split_pers_4e_local;
+        assert_eq!(split_pers_4e_local("256:v9,v9k8,v9"), Ok(("256:v9,v9k8,v9".to_string(), vec![])));
+        assert_eq!(split_pers_4e_local("256:v9,v9k8+local,v9:8192"), Ok(("256:v9,v9k8,v9:8192".to_string(), vec!["v9k8".to_string()])));
+        assert_eq!(split_pers_4e_local("64"), Ok(("64".to_string(), vec![])));
+        let (bare, marked) = split_pers_4e_local("256:v9,v9k8+local,v9").unwrap();
+        assert_eq!(parse_pers_4e(&bare), Ok((256, vec!["v9", "v9k8"], vec![8192], true)));
+        assert_eq!(marked, ["v9k8"]);
+        // never the reference, never twice, and the check does not know the mark
+        assert!(split_pers_4e_local("256:v9+local,v9k8,v9").is_err());
+        assert!(split_pers_4e_local("256:v9,v9k8+local,v9k8+local").is_err());
+        assert!(split_pers_4e_local("256:v9k8+local").is_err());
+        assert!(parse_pers_4e_check("v9,v9k8+local").is_err());
+        // a mark that names no arm, or sits anywhere but the end of a name, is refused by the parse that follows
+        for bad in ["256:v9,v8+local,v9", "256:v9,+local,v9", "256:v9,v9k8+local+local,v9", "256:v9,v9k8+localx,v9"] {
+            let (bare, _) = split_pers_4e_local(bad).unwrap();
+            assert!(parse_pers_4e(&bare).is_err(), "{bad}");
         }
         for bad in [
             "1", "257", "x", "64:", "64:v9,v9", "64:v8", "64:v9 ,v9np", ":v9", "64:v9:", "64::8192", "64:v9:8192,4096",

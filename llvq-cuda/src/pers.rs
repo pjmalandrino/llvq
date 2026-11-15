@@ -931,6 +931,18 @@ pub fn p4e_e1_debt(arm: &str) -> &'static str {
     }
 }
 
+/// 4E's load rule on a token symbol: one CTA a SM, and no local memory. The
+/// second half is waived only by `spill`, a MEASUREMENT (`fusedrun
+/// LLVQ_PERS_4E`, an arm named `<arm>+local`): no arm that holds local memory
+/// had been timed before 2026-11-15, the rule refusing it first, so what the
+/// rule protects had no figure. No served path passes `spill`.
+pub fn p4e_token_symbol_loads(local_bytes: i32, resident_a_sm: u32, spill: bool) -> bool {
+    resident_a_sm >= 1 && (local_bytes == 0 || spill)
+}
+
+/// The suffix that names an arm timed with local memory in `LLVQ_PERS_4E`.
+pub const P4E_LOCAL_SUFFIX: &str = "+local";
+
 /// Whether an E1 arm holds the KV cache as int8 (`v9k8`): its runtime
 /// allocates the int8 caches and fills them with `pers_kv8_fill`.
 pub fn p4e_e1_k8(arm: &str) -> bool {
@@ -5822,6 +5834,18 @@ mod tests {
     /// fills nothing and keeps `hand`; a later handoff fills only what the
     /// eager path appended; a moved cache refills from 0; the capacity grows
     /// by 256 and never shrinks; anything else is refused.
+    #[test]
+    fn the_load_rule_waives_local_memory_only_when_asked() {
+        // the rule every served and measured module has loaded under
+        assert!(p4e_token_symbol_loads(0, 1, false));
+        assert!(!p4e_token_symbol_loads(8, 1, false), "8 B of local memory is refused");
+        assert!(!p4e_token_symbol_loads(0, 0, false), "no CTA a SM is refused");
+        // the measurement: local memory passes, a module that does not fit a SM never does
+        assert!(p4e_token_symbol_loads(8, 1, true));
+        assert!(p4e_token_symbol_loads(0, 1, true));
+        assert!(!p4e_token_symbol_loads(8, 0, true), "the waiver is on local memory alone");
+    }
+
     #[test]
     fn the_k8_launch_rule() {
         let m = 8704;

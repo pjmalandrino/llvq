@@ -67,6 +67,10 @@ pub struct Runtime4e {
     /// The E1 arm of the module (`pers::P4E_E1_ARMS`), or none for a form's
     /// own module.
     pub e1_arm: Option<&'static str>,
+    /// The local memory of the token symbol, in bytes: 0 on every served
+    /// path; nonzero only for an arm installed by [`install_e1_local`]. The
+    /// driver's own type (`CU_FUNC_ATTRIBUTE_LOCAL_SIZE_BYTES`).
+    pub local_bytes: i32,
     pub threads: u32,
     /// The module's row form (`pers::P4E_ROWS_FORMS`).
     pub rows_form: u32,
@@ -603,7 +607,7 @@ fn check_one_arm(
         let f = cuda.func_dynamic_shared(sym, smem)?;
         let r = cuda.report(sym)?;
         let occ = f.occupancy_max_active_blocks_per_multiprocessor(512, smem as usize, None).map_err(|e| format!("occupancy: {e}"))?;
-        let ok = r.local_bytes == 0 && occ >= 1;
+        let ok = pers::p4e_token_symbol_loads(r.local_bytes, occ, false);
         let tail = match (sym.contains("_tokens_"), ok) {
             (true, true) => ": loads",
             (true, false) => ": refused",
@@ -629,7 +633,19 @@ pub fn install_e1(model: &Qwen3, device: &Device, max_tokens: u32, arm: &str) ->
         .iter()
         .find(|a| **a == arm)
         .ok_or_else(|| anyhow::anyhow!("4E E1: no arm {arm:?}; the arms are {:?}", pers::P4E_E1_ARMS))?;
-    install_inner(model, device, max_tokens, Some(512), 7, None, Some(arm))
+    install_inner(model, device, max_tokens, Some(512), 7, None, Some((arm, false)))
+}
+
+/// [`install_e1`] with the local-memory half of the load rule waived
+/// (`pers::p4e_token_symbol_loads`, `spill`): MEASUREMENT ONLY, for an arm
+/// `LLVQ_PERS_4E` names `<arm>+local`. The runtime carries the bytes
+/// ([`Runtime4e::local_bytes`]) and its label prints them.
+pub fn install_e1_local(model: &Qwen3, device: &Device, max_tokens: u32, arm: &str) -> anyhow::Result<Runtime4e> {
+    let arm = *pers::P4E_E1_ARMS
+        .iter()
+        .find(|a| **a == arm)
+        .ok_or_else(|| anyhow::anyhow!("4E E1: no arm {arm:?}; the arms are {:?}", pers::P4E_E1_ARMS))?;
+    install_inner(model, device, max_tokens, Some(512), 7, None, Some((arm, true)))
 }
 
 fn install_inner(
@@ -639,8 +655,10 @@ fn install_inner(
     threads: Option<u32>,
     rows_form: u32,
     smem_of: Option<u32>,
-    e1_arm: Option<&'static str>,
+    e1: Option<(&'static str, bool)>,
 ) -> anyhow::Result<Runtime4e> {
+    // an E1 arm, and whether the local-memory half of the load rule is waived for it
+    let (e1_arm, spill) = (e1.map(|e| e.0), e1.is_some_and(|e| e.1));
     let dev = device.as_cuda_device()?;
     let stream = dev.cuda_stream();
     let mut lines = Vec::new();
@@ -697,13 +715,21 @@ fn install_inner(
             .occupancy_max_active_blocks_per_multiprocessor(threads, smem as usize, None)
             .map_err(|e| anyhow::anyhow!("occupancy: {e}"))?;
         lines.push(format!("4E: {sym}: {} registers, {} B local, {smem} B shared, {occ} resident a SM", r.num_regs, r.local_bytes));
-        if r.local_bytes == 0 && occ >= 1 {
-            chosen = Some((f, threads));
+        if pers::p4e_token_symbol_loads(r.local_bytes, occ, spill) {
+            if r.local_bytes != 0 {
+                lines.push(format!(
+                    "4E: MEASUREMENT ONLY: {sym} holds {} B of local memory and loads because its arm was named {}; \
+                     the load rule refuses it on every other path",
+                    r.local_bytes,
+                    pers::P4E_LOCAL_SUFFIX
+                ));
+            }
+            chosen = Some((f, threads, r.local_bytes));
             break;
         }
     }
     // The refusal names what each block size read (step2-4e did not print it).
-    let (f, threads) = chosen.ok_or_else(|| anyhow::anyhow!("4E: every block size asked for spills or fails its occupancy: {}", lines.join("; ")))?;
+    let (f, threads, local_bytes) = chosen.ok_or_else(|| anyhow::anyhow!("4E: every block size asked for spills or fails its occupancy: {}", lines.join("; ")))?;
     // The stamp symbol of the chosen geometry, kept where one CTA a SM fits.
     // It may hold local memory where the token symbol does not (768 threads
     // under the devel ptxas): its launch runs outside the timed rounds, and
@@ -1091,6 +1117,7 @@ fn install_inner(
         f_stamp,
         f_logits,
         e1_arm,
+        local_bytes,
         threads,
         rows_form,
         grid,
@@ -1167,7 +1194,8 @@ impl Runtime4e {
     /// threads".
     pub fn label(&self) -> String {
         if let Some(arm) = self.e1_arm {
-            return format!("e1:{arm} at {} threads", self.threads);
+            let local = if self.local_bytes == 0 { String::new() } else { format!(", {} B local", self.local_bytes) };
+            return format!("e1:{arm} at {} threads{local}", self.threads);
         }
         let form = pers::P4E_ROWS_FORMS.iter().find(|f| f.0 == self.rows_form).map_or("v?", |f| f.1);
         let pad = if self.padded { "s" } else { "" };
