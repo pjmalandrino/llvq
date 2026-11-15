@@ -1,0 +1,6 @@
+wikitext2-test-8k chain: first content median 6.448 s [6.420-6.474] over 3 timed rounds; prompt 8191 tokens; texts identical across rounds: True
+wikitext2-test-8k eager: first content median 34.537 s [34.440-34.537] over 3 timed rounds; prompt 8191 tokens; texts identical across rounds: False
+wikitext2-test-8k: the texts part at character 130 of 1023 and 1073: chain ' a guest starring role in the TV series *The Bill* in 2000, followed by a starri' / eager ' a guest starring role in the TV series The Bill in 2000 and a starring role in '
+gsm8k-test-0000 chain: first content median 0.065 s [0.065-0.066] over 3 timed rounds; prompt 92 tokens; texts identical across rounds: True
+gsm8k-test-0000 eager: first content median 0.410 s [0.410-0.410] over 3 timed rounds; prompt 92 tokens; texts identical across rounds: True
+gsm8k-test-0000: the chain's text equals the eager prefill's, 256 tokens

@@ -1,0 +1,19 @@
+load chain: 93.6 s
+ps: [('qwen3:4b', 'ready', 'qwen3-4b-tetra-e4-4e-v9-chain.json', None)]
+llvq: loading qwen3:4b on cuda with config qwen3-4b-tetra-e4-4e-v9-chain.json
+llvq: qwen3:4b: 4E: persistent module 252757 bytes, sha256 1b422b62328be6752df4add43280565fd2a49cfa20ee26953b301abe7a15c530, row form 7, own module on candle's stream
+llvq: qwen3:4b: chain prefill: compiled-module cache /out/chain-runtime-door-2026-11-15/modcache
+llvq: qwen3:4b: 4E tree: module cache: hit, 9203216 bytes of cubin from /out/chain-runtime-door-2026-11-15/modcache/498df3087bf3e39cc0abbdc3cc8744a0.cubin; key llvq-modcache v1 text=ce1c354d2583eb178ae8622ff99e10f9b457543972bb5039ce89ede9eec31e44 arch=compute_89 nvrtc=12.4 driver=13000 sm=8.9
+llvq: qwen3:4b: 4E tree: module cache: hit, 24751760 bytes of cubin from /out/chain-runtime-door-2026-11-15/modcache/d0e0724bba16a50f32fba1ebeac04a34.cubin; key llvq-modcache v1 text=19b734a3fb6029848d87339c7d505e9bcfc612f182256793026ea964d09853e2 arch=compute_89 nvrtc=12.4 driver=13000 sm=8.9
+llvq: qwen3:4b: chain prefill: arm a12ipg32ft@8.10.8.20.6 (A12ipg32Ft, slices [8, 10, 8, 20, 6], 384 threads, 93568 B shared), 32 rows a launch
+module cache: 2 hit(s) of 2
+the load check passed
+load eager: 54.9 s
+ps: [('qwen3:4b', 'ready', 'qwen3-4b-tetra-e4-4e-v9.json', None)]
+the way back loads the v9 config
+load refused-bogus: 0.0 s
+ps: [('qwen3:4b', 'failed', None, 'loading qwen3:4b: qwen3:4b: LLVQ_PROFILE="bogus": unset for the default config, or one of ["eager"]')]
+LLVQ_PROFILE=bogus refused by name: HTTP 500 {"error":"loading qwen3:4b: qwen3:4b: LLVQ_PROFILE=\"bogus\": unset for the default config, or one of [\"eager\"]"}
+load refused-chain: 0.0 s
+ps: [('qwen3:4b', 'failed', None, 'loading qwen3:4b: qwen3:4b: LLVQ_PROFILE=chain: the chain prefill is the default where a model carries it (the 4B on CUDA, since 2026-11-15). Unset LLVQ_PROFILE, or write eager for the eager prefill.')]
+LLVQ_PROFILE=chain refused by name: HTTP 500 {"error":"loading qwen3:4b: qwen3:4b: LLVQ_PROFILE=chain: the chain prefill is the default where a model carries it (the 4B on CUDA, since 2026-11-15). Unset LLVQ_PROFILE, or write eager for the eager prefill."}
